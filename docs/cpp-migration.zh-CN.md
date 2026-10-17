@@ -64,9 +64,11 @@ full 2D 使用 **ABI 2**。第 29 个准备态数组保留原闭合输入中的�
 
 ## 完整 full 3D 能力
 
-`full_3d.hpp` 和 `full_3d_c_api.h` 通过 ABI 1 提供矩形双流体三维外循环驱动。它消费相同准备态 XYZ 场和局部端口几何，执行带压力参考的 SIMPLE 及所选 temperature/model-h/true-h 耦合，并返回原有最终状态证据、警告和场位置。可选粗网格初始化保留细网格压力边界值。原生结果不由 Python 数值核提供。
+`full_3d.hpp` 和 `full_3d_c_api.h` 通过 ABI 2 提供矩形双流体三维外循环驱动。它消费相同准备态 XYZ 场和局部端口几何，执行带压力参考的 SIMPLE 及所选 temperature/model-h/true-h 耦合，并返回原有最终状态证据、警告和场位置。可选粗网格初始化保留细网格压力边界值。原生结果不由 Python 数值核提供。
 
-初始化诊断是 ABI 1 的增量能力。原输入、结果和第一粗层摘要布局不变。`tpmshx_full_3d_get_bootstrap_trace_v1(result, side, trace)` 为 side 0/1 提供独立只读视图。字符串和层数组由结果所有者持有，仅在调用 `tpmshx_full_3d_release_v1` 前有效。查询不执行数值工作，也不分配内存。已有 C 调用方继续使用原 ABI 1 结果布局。当前 Python 绑定要求新查询符号；旧库缺少该能力时明确报错，不虚构轨迹或代用 Python 求解。
+完整 3D ABI 2 删除外层物性 Anderson 控制项和结果字段。头文件、原生库和绑定必须匹配。Python 绑定在数值调用前拒绝 ABI 1。固定物性松弛与热方程 Anderson 保留。旧结果仍可读取；检查点仍要求构建身份匹配。
+
+初始化诊断通过独立于完整结果的查询提供。`tpmshx_full_3d_get_bootstrap_trace_v1(result, side, trace)` 为 side 0/1 提供独立只读视图。字符串和层数组由结果所有者持有，仅在调用 `tpmshx_full_3d_release_v1` 前有效。查询不执行数值工作，也不分配内存。C 调用方必须使用 ABI 2 结果布局。当前 Python 绑定要求新查询符号；旧库缺少该能力时明确报错，不虚构轨迹或代用 Python 求解。
 
 轨迹记录显式启停、实际粗网格形状与深度、逐层上限、进入的迭代数和停止原因。它保留原递归 `count > 2000`、子层上限 200、最小轴长及停止规则。`started_cap_sum` 是实际进入迭代的各层上限之和，不是共享全局初始化预算。未开始即取消的父层贡献零迭代，且不计入该上限和。绑定在释放前复制轨迹，写入 Python full 3D 同样使用的 `diagnostics.coarse_bootstrap_trace`。不含此可选键的旧结果仍可读取。
 

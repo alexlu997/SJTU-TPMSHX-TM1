@@ -114,8 +114,14 @@ def validate_simple_velocity_relaxation(value):
         raise ValueError('simple_velocity_relaxation must be in (0, 1]')
 
 
-def reject_retired_boundary_options(config):
-    """Reject removed B-participation experiments before physical preparation."""
+def reject_retired_research_options(config):
+    """Reject retired research controls before physical preparation."""
+    outer = sorted(key for key in config if key in (
+        'outer_anderson', 'outer_anderson_m', 'outer_anderson_trust',
+        'outer_anderson_patience'))
+    if outer:
+        raise ValueError(
+            f'Outer property Anderson is retired: {outer}. Remove these research options.')
     retired = sorted(key for key in config
                      if key in ('partial_B_closure', 'audit_zero_K_ffB_at_outlet')
                      or isinstance(key, str) and key.startswith(('m4_', 'chi_B_', 'audit_h2_')))
@@ -868,7 +874,7 @@ class ComputeConfig:
         """
         if not isinstance(data, dict):
             raise ValueError('ComputeConfig must be a JSON object')
-        reject_retired_boundary_options(data)
+        reject_retired_research_options(data)
         # The legacy layout is identified by its domain section. Optional
         # canonical sections must never decide how the remaining fields parse.
         if 'domain' not in data:
@@ -879,7 +885,7 @@ class ComputeConfig:
             fB_d = data.get('fluid_B', {}) or {}
             ge_d = data.get('geometry', {}) or {}
             so_d = dict(data.get('solver', {}) or {})
-            reject_retired_boundary_options(so_d)
+            reject_retired_research_options(so_d)
             # Old case files may contain retired controls. Report their
             # removal once at this import boundary, never in runtime APIs.
             _dropped = [k for k in ('alpha_T', 'rough_mode', 'tol_simple') if k in so_d]
@@ -903,7 +909,7 @@ class ComputeConfig:
             bcB_d = data.get('bc_B', {}) or {}
             zn_d = data.get('zones', {}) or {}
             fl_d = data.get('flags', {}) or {}
-            reject_retired_boundary_options(fl_d)
+            reject_retired_research_options(fl_d)
             ex_d = data.get('extrap', {}) or {}
             return cls(
                 fluid_A=FluidConfig(**fA_d) if fA_d else FluidConfig(),

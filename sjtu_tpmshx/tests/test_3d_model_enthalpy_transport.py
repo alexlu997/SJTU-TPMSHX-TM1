@@ -177,7 +177,7 @@ def _pipeline_cfg(pair=('air', 'air'), nz=4):
                 eps=geometry('Gyroid', 7., .6, 16.)['epsilon'],
                 fluid_type_A=pair[0], fluid_type_B=pair[1],
                 fluid_A_cfg=port(2), fluid_B_cfg=port(3),
-                wall_refine_3d=False, outer_anderson=False, p_in_shooting=False)
+                wall_refine_3d=False, p_in_shooting=False)
 
 
 @pytest.mark.parametrize('cap', [False, True])

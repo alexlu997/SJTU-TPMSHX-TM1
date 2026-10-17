@@ -1,7 +1,7 @@
 """Same-map thermal components inside the original Python full outer tests.
 
 Only test callers explicitly passing this fixture use the adapter. Properties,
-Nu/D-F, pressure shooting, outer Anderson and outer stopping use Python orchestration.
+Nu/D-F, pressure shooting, property relaxation and outer stopping use Python orchestration.
 The explicit fixed-density flow helper selects the current native SIMPLE component.
 Independent backend tests keep the original Python SIMPLE algorithm. No thermal iterator is
 implemented here. Historical no-fixture reference callers remain unchanged.

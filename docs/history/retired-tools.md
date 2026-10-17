@@ -216,7 +216,7 @@ A1/benchmark A 的旧输入原已缺失，历史代码不代表可在当前目�
 | 退役项与固定源码 | 当前承接 |
 |---|---|
 | [LowReExit 与 legacy 语义](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/ec1c73e06971c7d9af98d121ba9dd1e4f7dfba7f/sjtu_tpmshx/solvers/_solve_common.py) | 同一模块的 F2Monitor；质量残差、动量残差、回流及确认规则分别核验 |
-| [3D 内部 SIMPLE Anderson](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/ec1c73e06971c7d9af98d121ba9dd1e4f7dfba7f/sjtu_tpmshx/solvers/simple_solver_3d.py)及其 stack/unstack 辅助函数 | 显式启用旧 use_anderson 会报错；热量/外层 Anderson 保留 |
+| [3D 内部 SIMPLE Anderson](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/ec1c73e06971c7d9af98d121ba9dd1e4f7dfba7f/sjtu_tpmshx/solvers/simple_solver_3d.py)及其 stack/unstack 辅助函数 | 显式启用旧 use_anderson 会报错；热量 Anderson 保留，外层物性 Anderson 见下述退役记录 |
 | [旧筛选数值参考](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/ec1c73e06971c7d9af98d121ba9dd1e4f7dfba7f/sjtu_tpmshx/tests/test_evaluator_frozen_values.py) | 新 F2 参考保持同一参数、预算和 1e-12 比较容差；旧四项失败另存 |
 | [旧 F2/legacy 计价工具](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/ec1c73e06971c7d9af98d121ba9dd1e4f7dfba7f/sjtu_tpmshx/validation/cases/price_f2_convergence_3d.py) | 同名工具只扫描 F2 动量容差，新输出 `f2_pricing_3d_v2.csv`；原 CSV 见下节固定历史 |
 | [旧 C.3 质量容差扫描](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/ec1c73e06971c7d9af98d121ba9dd1e4f7dfba7f/sjtu_tpmshx/validation/cases/phase_c_gci.py) | 迁为 F2 动量容差扫描，输出 `phase_c_f2_tol_sweep.csv`；原 CSV 见下节固定历史 |
@@ -277,3 +277,11 @@ MMS 误差原表、阶数门槛、GCI 参考、Shanghai 主基准和有效测试
 同时移除未使用的true-h温度常量、自行构造结果的warm-start/零耦合/流体combo测试、
 重复而未使用的direction参数化，以及绕过pytest fixture的失效直接入口。
 对应物理或UI保护由真实生产构造/公共调用回归承接；不是删除这些功能的验收要求。
+
+## 外层物性 Anderson 退役（2026-10-17）
+
+删除外层物性加速器及其专用开关、状态、C API 字段、构建目标和测试。
+固定松弛、物性更新顺序、热方程 Anderson 与三种能量算法继续保留。
+原实现见固定提交 [a902adc3](https://github.com/alexlu997/SJTU-TPMSHX-TM1/tree/a902adc3c4e9c185b4398f7f314004b4b13f791f/native/src/outer_anderson.cpp)。
+物性顺序、热方程候选与续算检查迁至现行测试；旧结果仍可读取。
+完整 3D ABI 升为 2，绑定拒绝旧原生库；旧检查点不跨构建转换。

@@ -57,7 +57,7 @@ template<class Archive,class Value> void walk(Archive& archive,Value& value,Full
     FIELD(max_outer) FIELD(initial_simple_iterations) FIELD(warm_simple_iterations) FIELD(thermal_iterations) FIELD(outer_temperature_tolerance)
     FIELD(thermal_relaxation) FIELD(pressure_shooting) FIELD(variable_rho_cp) FIELD(conservative) FIELD(strict_mass_balance)
     FIELD(force_cell_centered) FIELD(refined_port_energy) FIELD(red_black_energy) FIELD(sco2_local_pressure_a) FIELD(coarse_bootstrap)
-    FIELD(outer_anderson) FIELD(coarse_iterations) FIELD(anderson_history) FIELD(anderson_patience) FIELD(anderson_trust)
+    FIELD(coarse_iterations)
     FIELD(roughness_mode) FIELD(roughness_height) FIELD(envelope_mode) FIELD(simple) FIELD(enthalpy)
     FIELD(initial_solid_temperature) FIELD(model_h_iterations)
 }
@@ -101,13 +101,6 @@ template<class Archive,class Value> void walk(Archive& archive,Value& value,Simp
 }
 template<class Archive,class Value> void walk(Archive& archive,Value& value,AndersonState*) {
     FIELD(history_limit) FIELD(condition_limit) FIELD(x) FIELD(r)
-}
-template<class Archive,class Value> void walk(Archive& archive,Value& value,OuterAndersonStats*) {
-    FIELD(applied) FIELD(rejected) FIELD(resets) FIELD(residuals)
-}
-template<class Archive,class Value> void walk(Archive& archive,Value& value,OuterAndersonState*) {
-    FIELD(accelerator) FIELD(trust) FIELD(residual_min) FIELD(patience) FIELD(stale)
-    FIELD(initialized) FIELD(sizes) FIELD(scales) FIELD(statistics)
 }
 template<class Archive,class Value> void walk(Archive& archive,Value& value,PressureIteration*) {
     FIELD(stage) FIELD(anchor_Pa) FIELD(estimate_Pa2) FIELD(relative_error) FIELD(target_Pa2)
@@ -224,12 +217,11 @@ template<class Archive,class Value> void walk(Archive& archive,Value& value,Full
     FIELD(pressure_drop) FIELD(outlet_temperature) FIELD(inlet_mass) FIELD(duty) FIELD(maximum_mach)
     FIELD(minimum_pressure) FIELD(solid_exchange) FIELD(interior_exchange) FIELD(physical_mass_in) FIELD(physical_mass_out)
     FIELD(mass_imbalance) FIELD(energy_imbalance) FIELD(interior_duty) FIELD(interior_imbalance) FIELD(enthalpy_imbalance)
-    FIELD(anderson)
 }
 template<class Archive,class Value> void walk(Archive& archive,Value& value,Full3DRunState*) {
     FIELD(phase) FIELD(result) FIELD(inlet) FIELD(drag_k) FIELD(drag_cf)
     FIELD(mass_flux) FIELD(dispersion) FIELD(hv_ratio) FIELD(conductivity) FIELD(rho_cp)
-    FIELD(hv) FIELD(temperature) FIELD(previous) FIELD(simple) FIELD(anderson)
+    FIELD(hv) FIELD(temperature) FIELD(previous) FIELD(simple)
     FIELD(flow_convergence) FIELD(flow_iteration) FIELD(thermal)
 }
 template<class Archive,class Value> void walk(Archive& archive,Value& value,SimpleF2State*) {

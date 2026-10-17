@@ -6,7 +6,6 @@
 #include "tpmshx/enthalpy_driver.hpp"
 #include "tpmshx/closure_evidence.hpp"
 #include "tpmshx/model_h_3d.hpp"
-#include "tpmshx/outer_anderson.hpp"
 #include "tpmshx/pressure_reference.hpp"
 #include "tpmshx/simple_3d.hpp"
 #include "tpmshx/temperature_staggered.hpp"
@@ -61,9 +60,7 @@ struct Full3DControl {
     bool conservative = true, strict_mass_balance = true, force_cell_centered = true;
     bool refined_port_energy = false, red_black_energy = false;
     bool sco2_local_pressure_a = false, coarse_bootstrap = false;
-    bool outer_anderson = false;
-    std::size_t coarse_iterations = bootstrap_recursive_iterations, anderson_history = 3, anderson_patience = 3;
-    double anderson_trust = 5.;
+    std::size_t coarse_iterations = bootstrap_recursive_iterations;
     // Full execution resolves the current options; no environment lookup is
     // performed in native code. Until each option is qualified it is rejected.
     int roughness_mode = 0;  // 0 baseline, 1 retained norris_1a, 2 bhatti_shah_1b
@@ -188,7 +185,6 @@ struct Full3DResult {
     std::array<double,2> solid_exchange{},interior_exchange{},physical_mass_in{},physical_mass_out{},mass_imbalance{};
     double energy_imbalance=0.,interior_duty=0.,interior_imbalance=0.;
     double enthalpy_imbalance=std::numeric_limits<double>::quiet_NaN();
-    std::array<std::optional<OuterAndersonStats>,2> anderson;
 };
 
 enum class Full3DPhase {
@@ -219,7 +215,6 @@ struct Full3DRunState {
     std::array<std::vector<double>,2> conductivity,rho_cp,hv;
     std::array<std::vector<double>,3> temperature,previous;
     std::array<std::optional<Simple3DOwnerState>,2> simple;
-    std::array<std::optional<OuterAndersonState>,2> anderson;
     std::optional<SimpleF2State> flow_convergence;
     std::optional<Simple3DResult> flow_iteration;
     std::optional<Full3DThermalRunState> thermal;

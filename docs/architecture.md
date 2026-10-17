@@ -364,7 +364,8 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
   The existing dtype, alignment and unit conversions still allocate when required.
   Public Python input builders return independent, writable design arrays.
   The binding maps native evidence into the same `FieldResult`. It does not call Python numerical
-  kernels. Full 2D ABI 2 keeps the original prepared Nu geometry ratio rather
+  kernels. Full 3D ABI 2 removes outer property Anderson controls and state; fixed property relaxation and thermal Anderson remain.
+  Full 2D ABI 2 keeps the original prepared Nu geometry ratio rather
   than reconstructing it after a unit conversion. Python stays the default.
   The required native CI suite passes on macOS arm64/Python 3.13 and Windows
   x64/Python 3.12 and 3.13. Visible desktop delivery and full performance

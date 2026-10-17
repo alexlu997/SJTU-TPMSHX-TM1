@@ -179,13 +179,6 @@ if(MSVC)
 else()
     target_compile_options(tpmshx_pressure_reference PRIVATE -ffp-contract=off)
 endif()
-add_library(tpmshx_outer_anderson STATIC "${TPMSHX_ROOT}/native/src/outer_anderson.cpp")
-target_link_libraries(tpmshx_outer_anderson PUBLIC tpmshx_models)
-if(MSVC)
-    target_compile_options(tpmshx_outer_anderson PRIVATE /fp:strict)
-else()
-    target_compile_options(tpmshx_outer_anderson PRIVATE -ffp-contract=off)
-endif()
 add_custom_target(tpmshx_state_build_identity
     COMMAND "${CMAKE_COMMAND}"
         "-DTPMSHX_STATE_HEADER=${CMAKE_CURRENT_BINARY_DIR}/native_state_build.hpp"
@@ -199,7 +192,7 @@ target_include_directories(tpmshx_run_state PUBLIC "${TPMSHX_ROOT}/native/includ
     PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 add_library(tpmshx_full_3d STATIC "${TPMSHX_ROOT}/native/src/full_3d.cpp")
 target_link_libraries(tpmshx_full_3d PUBLIC tpmshx_run_state tpmshx_simple tpmshx_temperature_staggered
-    tpmshx_quick_design tpmshx_model_h_2d tpmshx_model_h_3d tpmshx_enthalpy tpmshx_pressure_reference tpmshx_outer_anderson)
+    tpmshx_quick_design tpmshx_model_h_2d tpmshx_model_h_3d tpmshx_enthalpy tpmshx_pressure_reference)
 if(MSVC)
     target_compile_options(tpmshx_full_3d PRIVATE /fp:strict)
 else()
@@ -389,7 +382,7 @@ foreach(target IN ITEMS tpmshx_run_state tpmshx_energy tpmshx_models tpmshx_quic
         tpmshx_temperature_staggered temperature_staggered_test temperature_staggered_smoke temperature_run_smoke
         tpmshx_temperature_c tpmshx_temperature_shared temperature_c_static temperature_c_shared
         tpmshx_pressure_reference
-        tpmshx_outer_anderson tpmshx_full_3d full_3d_test full_thermal_test full_3d_c_static full_3d_c_shared
+        tpmshx_full_3d full_3d_test full_thermal_test full_3d_c_static full_3d_c_shared
         tpmshx_refinement_2d refinement_2d_test
         tpmshx_full_2d full_2d_test side_physics_smoke
         tpmshx_full_2d_c tpmshx_full_2d_shared full_2d_c_static full_2d_c_shared

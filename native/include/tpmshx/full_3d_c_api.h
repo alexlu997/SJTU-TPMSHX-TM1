@@ -10,7 +10,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-#define TPMSHX_FULL_3D_ABI_VERSION 1u
+#define TPMSHX_FULL_3D_ABI_VERSION 2u
 
 typedef struct { const double* data; size_t size; } tpmshx_full3d_array_v1;
 typedef struct {
@@ -34,9 +34,8 @@ typedef struct {
     size_t max_outer,initial_simple_iterations,warm_simple_iterations,thermal_iterations;
     double outer_temperature_tolerance,thermal_relaxation;
     uint32_t pressure_shooting,variable_rho_cp,conservative,strict_mass_balance,force_cell_centered;
-    uint32_t refined_port_energy,red_black_energy,sco2_local_pressure_a,coarse_bootstrap,outer_anderson;
-    size_t coarse_iterations,anderson_history,anderson_patience;
-    double anderson_trust;
+    uint32_t refined_port_energy,red_black_energy,sco2_local_pressure_a,coarse_bootstrap;
+    size_t coarse_iterations;
     uint32_t roughness_mode,envelope_mode,has_initial_solid_temperature;
     double roughness_height,initial_solid_temperature;
     tpmshx_simple_3d_config_v1 simple;
@@ -68,11 +67,6 @@ typedef struct {
     const char* reason;
 } tpmshx_full3d_bootstrap_v1;
 typedef struct {
-    uint32_t available;
-    size_t applied,rejected,resets;
-    tpmshx_full3d_array_v1 residuals;
-} tpmshx_full3d_anderson_v1;
-typedef struct {
     tpmshx_full3d_array_v1 widths[3],epsilon,permeability,forchheimer,temperature;
     tpmshx_full3d_array_v1 viscosity,effective_viscosity,density,u,v,w,pressure,pressure_correction,d_u,d_v,d_w;
     tpmshx_full3d_array_v1 inlet_velocity,inlet_opening,outlet_opening,outlet_u_fraction,outlet_w_fraction,fixed_inlet_massflux;
@@ -84,7 +78,6 @@ typedef struct {
     size_t pressure_iteration_count;
     tpmshx_full3d_pressure_state_v1 inlet_pressure;
     tpmshx_full3d_bootstrap_v1 bootstrap;
-    tpmshx_full3d_anderson_v1 anderson;
 } tpmshx_full3d_flow_v1;
 typedef struct {
     uint32_t available,skipped,used_bordered_lu;
@@ -137,7 +130,7 @@ typedef struct {
     void* owner;
 } tpmshx_full3d_result_v1;
 
-/* Additive diagnostic view: the existing ABI 1 result layout is unchanged. */
+/* Additive diagnostic view: the ABI 2 result layout is unchanged. */
 typedef struct {
     size_t depth,fine_shape[3],coarse_shape[3],iteration_cap,charged_iterations;
     uint32_t solve_started,applied,converged,child_selected;
@@ -176,7 +169,7 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_solve_full_3d_v1(
     const tpmshx_full3d_input_v1*,const tpmshx_full3d_control_v1*,
     const tpmshx_full3d_callbacks_v1*,tpmshx_full3d_result_v1*,char*,size_t);
 TPMSHX_THERMAL_API void TPMSHX_THERMAL_CALL tpmshx_full_3d_release_v1(tpmshx_full3d_result_v1*);
-/* Explicit conservative energy selection. Reuses the ABI 1 input/control and
+/* Explicit conservative energy selection. Reuses the ABI 2 input/control and
  * result ownership; release with full_3d_release_v1. options is required.
  * The original entry point always selects legacy H-FOU. */
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_solve_full_3d_v2(

@@ -67,7 +67,7 @@ void outer_iteration(void* context,std::size_t done,std::size_t total) {
 }
 Full3DControl controls(const tpmshx_full3d_control_v1& c,const tpmshx_full3d_callbacks_v1* callbacks) {
     for(auto flag:{c.pressure_shooting,c.variable_rho_cp,c.conservative,c.strict_mass_balance,c.force_cell_centered,
-        c.refined_port_energy,c.red_black_energy,c.sco2_local_pressure_a,c.coarse_bootstrap,c.outer_anderson,c.has_initial_solid_temperature,
+        c.refined_port_energy,c.red_black_energy,c.sco2_local_pressure_a,c.coarse_bootstrap,c.has_initial_solid_temperature,
         c.simple.ideal_gas,c.simple.massflux_inlet,c.simple.second_order_upwind,c.simple.adaptive_pressure_tolerance,c.simple.track_momentum})
         if(flag>1)throw std::invalid_argument("full 3D boolean control must be 0 or 1");
     if(c.roughness_mode>2 || c.envelope_mode>2 || c.simple.ordering>1)
@@ -78,9 +78,8 @@ Full3DControl controls(const tpmshx_full3d_control_v1& c,const tpmshx_full3d_cal
     r.pressure_shooting=c.pressure_shooting;r.variable_rho_cp=c.variable_rho_cp;r.conservative=c.conservative;
     r.strict_mass_balance=c.strict_mass_balance;r.force_cell_centered=c.force_cell_centered;
     r.refined_port_energy=c.refined_port_energy;r.red_black_energy=c.red_black_energy;r.sco2_local_pressure_a=c.sco2_local_pressure_a;
-    r.coarse_bootstrap=c.coarse_bootstrap;r.outer_anderson=c.outer_anderson;
-    r.coarse_iterations=c.coarse_iterations;r.anderson_history=c.anderson_history;r.anderson_patience=c.anderson_patience;
-    r.anderson_trust=c.anderson_trust;r.roughness_mode=static_cast<int>(c.roughness_mode);r.envelope_mode=static_cast<int>(c.envelope_mode);
+    r.coarse_bootstrap=c.coarse_bootstrap;r.coarse_iterations=c.coarse_iterations;
+    r.roughness_mode=static_cast<int>(c.roughness_mode);r.envelope_mode=static_cast<int>(c.envelope_mode);
     r.roughness_height=c.roughness_height;if(c.has_initial_solid_temperature)r.initial_solid_temperature=c.initial_solid_temperature;
     auto& s=r.simple;const auto& p=c.simple;
     s.max_iterations=p.max_iterations;s.inner_sweeps=p.inner_sweeps;s.pressure_rebuild_every=p.pressure_rebuild_every;
@@ -143,7 +142,6 @@ tpmshx_full3d_result_v1 output(Owner& o) {
         v.pressure_iterations=o.pressure[s].data();v.pressure_iteration_count=o.pressure[s].size();
         if(f.bootstrap) {const auto& b=*f.bootstrap;v.bootstrap.available=1;v.bootstrap.applied=b.applied;v.bootstrap.converged=b.converged;
             v.bootstrap.iterations=b.iterations;std::copy(b.shape.begin(),b.shape.end(),v.bootstrap.shape);v.bootstrap.residual=b.residual;v.bootstrap.reason=b.reason.c_str();}
-        if(r.anderson[s]) {const auto& a=*r.anderson[s];v.anderson={1,a.applied,a.rejected,a.resets,array(a.residuals)};}
         out.thermal_pressure[s]=array(e.pressure[s]);out.hv[s]=array(e.hv[s]);out.rho_cp[s]=array(e.rho_cp[s]);out.conductivity[s]=array(e.conductivity[s]);
         for(std::size_t d=0;d<3;++d) {out.mass[s][d]=array(e.mass[s][d]);out.face_velocity[s][d]=array(e.face_velocity[s][d]);}
         out.inlet_capacity[s]=array(e.inlet_capacity[s]);out.enthalpy[s]=array(e.enthalpy[s]);

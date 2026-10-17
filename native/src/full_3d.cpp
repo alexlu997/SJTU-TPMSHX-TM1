@@ -446,7 +446,6 @@ struct Runtime {
     EnthalpyEOS eos;
     StaggeredTemperatureDriver thermal;
     std::array<std::unique_ptr<Simple3DSolver>,2> simple;
-    std::array<std::unique_ptr<OuterAnderson>,2> anderson;
     std::array<FluidProperties,2> inlet;
     std::array<double,2> drag_k{},drag_cf{},mass_flux{},dispersion{},hv_ratio{1.,1.};
     std::array<Values,2> conductivity,rho_cp,hv;
@@ -643,8 +642,6 @@ void Runtime::initialize() {
     for(std::size_t s=0;s<2;++s) {
         const auto& a=side(s);inlet[s]=props.evaluate(a.fluid,a.inlet_temperature,a.inlet_pressure);
         if(active(s)) initialize_side(s);
-        if(control.outer_anderson && active(s)) anderson[s]=std::make_unique<OuterAnderson>(
-            static_cast<int>(control.anderson_history),control.anderson_trust,static_cast<int>(control.anderson_patience));
         record_property_samples(result.property_sampling,s,-1,"initialize",
             uses_co2_eos(a.fluid)?"HEOS":"model_resource","inlet","inlet","scalar_evaluation",
             {"density","viscosity","conductivity","rho_cp","dispersion"});
@@ -1079,15 +1076,14 @@ void Runtime::refresh_flow(std::size_t s,std::size_t outer,const std::optional<P
     const char* provider=uses_co2_eos(a.fluid)?"HEOS":"model_resource";
     record_property_samples(flow.property_sampling,s,sample_index,"flow_post",air?"ideal_gas":provider,
         "current_thermal_return",air?"current_SIMPLE_absolute":local_sco2?"previous_SIMPLE_absolute":"inlet",
-        air?"local_evaluation":outer?(anderson[s]?"Anderson":"relax_0.6"):"local_evaluation",{"density"});
+        air?"local_evaluation":outer?"relax_0.6":"local_evaluation",{"density"});
     record_property_samples(flow.property_sampling,s,sample_index,"flow_post",provider,
         "current_thermal_return",local_sco2?"previous_SIMPLE_absolute":"inlet",
-        outer&&anderson[s]?"Anderson":outer&&!air?"relax_0.6":"local_evaluation",{"viscosity"});
+        outer&&!air?"relax_0.6":"local_evaluation",{"viscosity"});
     auto next_temperature=to_solver(g,a,view(temperature[s]));
     const auto local_grid=grid(flow);
     property_ranges(s,"property","property-refresh","solver-cell(cross1,stream,cross2)",
         {local_grid.nx,local_grid.ny,local_grid.nz},view(next_temperature),air?2:3);
-    const auto previous_mu=outer && anderson[s]?flow.viscosity:Values{};
     Values rho_new(flow.density.size()),mu_new(flow.viscosity.size());
     for(std::size_t p=0;p<rho_new.size();++p) {
         const double absolute=flow.pressure_reference+flow.pressure[p];
@@ -1095,20 +1091,14 @@ void Runtime::refresh_flow(std::size_t s,std::size_t outer,const std::optional<P
         rho_new[p]=air?absolute/(model_coefficients::envelope_r_air*next_temperature[p]):property.rho;
         mu_new[p]=property.mu;
     }
-    // Original A setter runs before the selected-property update; original B
-    // setter runs after it and overwrites air mu again. Preserve that ordering.
+    // Keep A's temperature update before the property blend and B's update after it.
     if(s==0) {
         flow.temperature=next_temperature;
         if(air) flow.viscosity=mu_new;
     }
-    if(outer && anderson[s]) {
-        auto selected=anderson[s]->step({view(flow.density),view(previous_mu)},{view(rho_new),view(mu_new)},.6);
-        flow.density=std::move(selected.blocks[0]);flow.viscosity=std::move(selected.blocks[1]);
-    } else {
-        for(std::size_t p=0;p<rho_new.size();++p) {
-            flow.density[p]=outer ? .6*rho_new[p]+.4*flow.density[p]:rho_new[p];
-            flow.viscosity[p]=outer ? .6*mu_new[p]+.4*flow.viscosity[p]:mu_new[p];
-        }
+    for(std::size_t p=0;p<rho_new.size();++p) {
+        flow.density[p]=outer ? .6*rho_new[p]+.4*flow.density[p]:rho_new[p];
+        flow.viscosity[p]=outer ? .6*mu_new[p]+.4*flow.viscosity[p]:mu_new[p];
     }
     for(std::size_t p=0;p<flow.viscosity.size();++p) flow.effective_viscosity[p]=flow.viscosity[p]/flow.epsilon[p];
     const auto sg=grid(flow);
@@ -1149,7 +1139,7 @@ void Runtime::refresh_flow(std::size_t s,std::size_t outer,const std::optional<P
     }
     if(s==1) {
         flow.temperature=std::move(next_temperature);
-        if(air && !(outer && anderson[s])) {
+        if(air) {
             flow.viscosity=std::move(mu_new);
             for(std::size_t p=0;p<flow.viscosity.size();++p) flow.effective_viscosity[p]=flow.viscosity[p]/flow.epsilon[p];
         }
@@ -1223,7 +1213,6 @@ void Runtime::finish() {
         // Kept capacity routes report EOS duty separately from their thermal update.
         const auto reporting_energy=mode==Full3DThermalMode::true_h
             ?physics[s].energy:EnergyRelation::eos_h_TP;
-        if(anderson[s]) result.anderson[s]=anderson[s]->stats();
         for(std::size_t p=0;p<temperature[s].size();++p) {
             if(a.fluid==Fluid::water) props.check_water(temperature[s][p],f.pressure_real[p]);
             else if(uses_co2_eos(a.fluid)) eos.validate(a.fluid,temperature[s][p],f.pressure_real[p],"3D final report state");
@@ -1501,15 +1490,8 @@ void validate_continuation(const Full3DInput& input,const Full3DControl& control
         for(double value:{state.drag_k[side],state.drag_cf[side],state.mass_flux[side],state.dispersion[side]})
             if(value<0. || !std::isfinite(value))throw std::invalid_argument("invalid full 3D continuation coefficient");
         const bool active=side==0||input.solve_b;
-        if(state.simple[side].has_value()!=active || state.anderson[side].has_value()!=(active&&control.outer_anderson))
+        if(state.simple[side].has_value()!=active)
             throw std::invalid_argument("invalid full 3D continuation owner");
-        if(state.anderson[side]) {
-            const auto& saved=*state.anderson[side];
-            if(saved.trust!=control.anderson_trust || saved.patience!=static_cast<int>(control.anderson_patience)
-               || !saved.accelerator.history_limit || saved.accelerator.history_limit-1!=control.anderson_history
-               || saved.accelerator.condition_limit!=AndersonState{}.condition_limit)
-                throw std::invalid_argument("full 3D continuation Anderson controls differ from input");
-        }
         if(!active)continue;
         const auto& flow=state.result.flow[side];const auto& a=side?input.b:input.a;
         const std::array<ArrayView<const double>,3> widths{g.dx,g.dy,g.dz};
@@ -1666,7 +1648,6 @@ Full3DRunState Full3DRun::snapshot() const {
             state.simple[side]=std::move(active.owner);
             state.flow_convergence=std::move(active.convergence);state.flow_iteration=std::move(active.result);
         } else if(r.simple[side])state.simple[side]=r.simple[side]->snapshot();
-        if(r.anderson[side])state.anderson[side]=r.anderson[side]->snapshot();
     }
     if(r.pending) {
         state.thermal=r.pending;auto& saved=*state.thermal;
@@ -1700,7 +1681,6 @@ Full3DRun::Full3DRun(const Full3DInput& input,const Full3DControl& control,const
             saved.fields={flow.u,flow.v,flow.w,flow.pressure,flow.pressure_correction,flow.d_u,flow.d_v,flow.d_w,flow.density,flow.inlet_velocity};
             r.start_flow(side,initial_flow(state.phase)?control.initial_simple_iterations:control.warm_simple_iterations,&saved);
         } else r.simple[side]->restore(*state.simple[side]);
-        if(state.anderson[side])r.anderson[side]=std::make_unique<OuterAnderson>(*state.anderson[side]);
     }
     if(state.thermal) {
         r.pending=state.thermal;r.start_thermal(&*state.thermal);

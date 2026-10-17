@@ -1,7 +1,7 @@
 """Validate prepared 3D inputs for both numerical backends."""
 import numpy as np
 
-from sjtu_tpmshx.domain.compute_config import Sco2NuConfig, reject_retired_boundary_options
+from sjtu_tpmshx.domain.compute_config import Sco2NuConfig, reject_retired_research_options
 from sjtu_tpmshx.domain.persistence_validation import validate_grid, validate_thermal_geometry
 from sjtu_tpmshx.domain.portable_data import mutable_data
 from sjtu_tpmshx.models.catalog import resolve_model
@@ -11,7 +11,7 @@ def build_execution_inputs(case, *, copy_design=True):
     if case.grid.get('dimension') != 3:
         raise ValueError('3D execution requires a prepared 3D grid')
     cfg = mutable_data(case.parameters)
-    reject_retired_boundary_options(cfg)
+    reject_retired_research_options(cfg)
     missing = set(('thermal_geometry', 'roughness_resolved', 'df_application')) - cfg.keys()
     if missing:
         raise ValueError(f'incomplete prepared 3D execution data: {sorted(missing)}')

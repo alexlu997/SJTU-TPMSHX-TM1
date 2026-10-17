@@ -13,7 +13,7 @@ from pathlib import Path
 import numpy as np
 
 from sjtu_tpmshx.domain.cancellation import CancelledError
-from sjtu_tpmshx.domain.compute_config import validate_simple_velocity_relaxation
+from sjtu_tpmshx.domain.compute_config import reject_retired_research_options, validate_simple_velocity_relaxation
 from sjtu_tpmshx.domain.module_ports import RunControl
 from sjtu_tpmshx.domain.run_environment import run_environment, require_f2_mode
 from sjtu_tpmshx.models.fluid_props import WaterStateError
@@ -58,9 +58,8 @@ class _Control(ct.Structure):
     _fields_ = [(n, ct.c_size_t) for n in ('max_outer', 'initial_simple_iterations', 'warm_simple_iterations', 'thermal_iterations')]
     _fields_ += [(n, ct.c_double) for n in ('outer_temperature_tolerance', 'thermal_relaxation')]
     _fields_ += [(n, ct.c_uint32) for n in ('pressure_shooting', 'variable_rho_cp', 'conservative', 'strict_mass_balance',
-        'force_cell_centered', 'refined_port_energy', 'red_black_energy', 'sco2_local_pressure_a', 'coarse_bootstrap', 'outer_anderson')]
-    _fields_ += [(n, ct.c_size_t) for n in ('coarse_iterations', 'anderson_history', 'anderson_patience')]
-    _fields_ += [('anderson_trust', ct.c_double)]
+        'force_cell_centered', 'refined_port_energy', 'red_black_energy', 'sco2_local_pressure_a', 'coarse_bootstrap')]
+    _fields_ += [('coarse_iterations', ct.c_size_t)]
     _fields_ += [(n, ct.c_uint32) for n in ('roughness_mode', 'envelope_mode', 'has_initial_solid_temperature')]
     _fields_ += [(n, ct.c_double) for n in ('roughness_height', 'initial_solid_temperature')]
     _fields_ += [('simple', _SimpleConfig), ('enthalpy_iterations', ct.c_size_t), ('enthalpy_sweeps', ct.c_size_t),
@@ -101,10 +100,6 @@ class _BootstrapTrace(ct.Structure):
     _fields_ += [(n, ct.c_size_t) for n in ('level_count', 'actual_levels', 'started_cap_sum', 'total_charged_iterations')]
 
 
-class _Anderson(ct.Structure):
-    _fields_ = [('available', ct.c_uint32), *[(n, ct.c_size_t) for n in ('applied', 'rejected', 'resets')], ('residuals', _Array)]
-
-
 _FLOW_ARRAYS = ('epsilon', 'permeability', 'forchheimer', 'temperature', 'viscosity', 'effective_viscosity', 'density',
     'u', 'v', 'w', 'pressure', 'pressure_correction', 'd_u', 'd_v', 'd_w', 'inlet_velocity', 'inlet_opening', 'outlet_opening',
     'outlet_u_fraction', 'outlet_w_fraction', 'fixed_inlet_massflux', 'pressure_real', 'density_real', 'speed_real')
@@ -115,7 +110,7 @@ class _Flow(ct.Structure):
                 ('velocity_real', _Array*3), ('face_velocity_real', _Array*3), ('pressure_reference', ct.c_double),
                 ('last', _SimpleResult), *[(n, _Array) for n in ('legacy', 'local_mass', 'global_mass', 'momentum')],
                 ('pressure_iterations', ct.POINTER(_PressureIteration)), ('pressure_iteration_count', ct.c_size_t),
-                ('inlet_pressure', _PressureState), ('bootstrap', _Bootstrap), ('anderson', _Anderson)]
+                ('inlet_pressure', _PressureState), ('bootstrap', _Bootstrap)]
 
 
 class _Projection(ct.Structure):
@@ -208,8 +203,8 @@ class NativeFull3DDriver:
         version = self.library.tpmshx_full_3d_abi_version
         version.argtypes, version.restype = [], ct.c_uint32
         self.abi = version()
-        if self.abi != 1:
-            raise ValueError(f'unsupported full 3D ABI {self.abi}; expected 1')
+        if self.abi != 2:
+            raise ValueError(f'unsupported full 3D ABI {self.abi}; expected 2')
         if table_directory is not None and not Path(table_directory).is_absolute():
             raise ValueError('native full 3D table directory must be an absolute path')
         self.table_directory = None if table_directory is None else str(table_directory).encode()
@@ -267,6 +262,7 @@ class NativeFull3DDriver:
     def _run_prepared(self, cfg, p, control=RunControl(), *, application_only=False,
                       resume_state=None, checkpoint=None, checkpoint_due=None):
         control.check_cancelled()
+        reject_retired_research_options(cfg)
         energy = _energy_options(cfg.get('enthalpy_algorithm', 'legacy_h_fou'),
                                  cfg.get('enthalpy_temperature_tol_K', 1e-8))
         defaults = _full_enthalpy_defaults(self.library, 3, energy.algorithm,
@@ -382,10 +378,8 @@ class NativeFull3DDriver:
         c.refined_port_energy = bool(cfg.get('port_wall_refine', False))
         c.red_black_energy = int(not energy.algorithm and np.prod(shape)>30000)
         c.sco2_local_pressure_a = run_environment(cfg, 'TPMSHX_SCO2_COMPRESSIBLE', '').lower() in ('1','true','yes')
-        c.coarse_bootstrap, c.outer_anderson = bool(cfg.get('use_coarse_bootstrap', False)), bool(cfg.get('outer_anderson', False))
-        c.coarse_iterations, c.anderson_history, c.anderson_patience = (_count(cfg.get(k, d)) for k, d in (
-            ('coarse_bootstrap_max_iter', 200), ('outer_anderson_m', 3), ('outer_anderson_patience', 3)))
-        c.anderson_trust = cfg.get('outer_anderson_trust', 5.)
+        c.coarse_bootstrap = bool(cfg.get('use_coarse_bootstrap', False))
+        c.coarse_iterations = _count(cfg.get('coarse_bootstrap_max_iter', 200))
         c.roughness_mode = ('baseline','norris_1a','bhatti_shah_1b').index(cfg['roughness_resolved']['mode'])
         c.envelope_mode = ('raise','warn','off').index(cfg.get('envelope_mode','raise'))
         c.has_initial_solid_temperature = cfg.get('T_s_init') is not None
@@ -629,9 +623,6 @@ def _detach(r, shape, settings, energy_settings, entry_version, *, emit_audit=Fa
         b=f.bootstrap
         flow['bootstrap']=None if not b.available else dict(applied=bool(b.applied),coarse_converged=bool(b.converged),
             coarse_iters=b.iterations,coarse_shape=tuple(b.shape),coarse_residual=b.residual,reason=b.reason.decode())
-        a=f.anderson
-        flow['anderson']=None if not a.available else dict(applied=a.applied,rejected=a.rejected,resets=a.resets,
-                                                          residuals=[] if not a.residuals.size else _copy(a.residuals).tolist())
         result['flow'].append(flow)
     result['model_h'] = _model_info(r.model_h,shape,include_faces=True) if r.has_model_h else None
     result['true_h'] = _full_enthalpy_info(r.true_h,energy_settings.last,entry_version) if r.has_true_h else None

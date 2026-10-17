@@ -47,6 +47,17 @@ def native_path():
     return path.resolve()
 
 
+@pytest.mark.parametrize('version', [1, 99])
+def test_full_3d_binding_rejects_incompatible_abi(monkeypatch, tmp_path, version):
+    from sjtu_tpmshx.solvers.backends.cpp import full_3d
+    path = tmp_path / 'old-library'
+    path.touch()
+    library = SimpleNamespace(tpmshx_full_3d_abi_version=lambda: version)
+    monkeypatch.setattr(full_3d.ct, 'CDLL', lambda _: library)
+    with pytest.raises(ValueError, match=rf'unsupported full 3D ABI {version}; expected 2'):
+        NativeFull3DDriver(path)
+
+
 def control(path, **kwargs):
     return RunControl(backend='cpp', native_library=str(path),
                       native_table_directory=str(ROOT / '.cache/native-deps/tables'), **kwargs)
@@ -519,7 +530,7 @@ def test_large_grid_packing_keeps_legacy_rb_and_candidate_serial(tmp_path, monke
 
     # Resolve/pack genuine prepared 32768-cell input, but never load a library
     # or solve a large grid merely to inspect the automatically selected flag.
-    library = SimpleNamespace(tpmshx_full_3d_abi_version=lambda: 1,
+    library = SimpleNamespace(tpmshx_full_3d_abi_version=lambda: 2,
         tpmshx_solve_full_3d_v1=capture, tpmshx_solve_full_3d_v2=capture, tpmshx_solve_full_3d_v5=capture,
         tpmshx_full_3d_release_v1=lambda *_: pytest.fail('packing allocated native ownership'),
         tpmshx_full_3d_get_bootstrap_trace_v1=lambda *_: None,

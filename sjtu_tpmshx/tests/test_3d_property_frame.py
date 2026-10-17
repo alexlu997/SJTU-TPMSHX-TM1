@@ -38,7 +38,7 @@ def test_outer_temperature_properties_share_simple_frame(
                eps=geometry('Gyroid', 7., .6, 16.)['epsilon'],
                fluid_type_A=fluid, fluid_type_B=fluid,
                fluid_A_cfg=port(directions[0]), fluid_B_cfg=port(directions[1]),
-               wall_refine_3d=False, outer_anderson=False, p_in_shooting=False)
+               wall_refine_3d=False, p_in_shooting=False)
     cfg['variable_rho_cp'] = variable_rho_cp
     if thermal_start == 'cold':
         cfg.pop('T_s_init')

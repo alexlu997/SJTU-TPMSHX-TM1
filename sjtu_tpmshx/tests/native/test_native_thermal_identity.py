@@ -95,7 +95,7 @@ def test_full_3d_identity_uses_executed_route(route, counts, options):
                 {'cc2d': 'model_h_tface_sou_fou_strict_v3',
                  'cc3d': 'model_h_tface_sou_sou_strict_v3',
                  'staggered': 'shared_fv_staggered_tminmod_picard_v1'}[route])
-    assert raw['native_metadata'] == dict(abi=1, algorithm=expected, red_black=False)
+    assert raw['native_metadata'] == dict(abi=2, algorithm=expected, red_black=False)
 
 
 def test_full_3d_portable_identity_roundtrip(monkeypatch, tmp_path):
@@ -110,7 +110,7 @@ def test_full_3d_portable_identity_roundtrip(monkeypatch, tmp_path):
         return original(self, cfg, p, control, **kwargs)
     monkeypatch.setattr(NativeFull3DDriver, '_run_prepared', bounded)
     result = run_case(case('air-air', cap=2), control(library_path('TPMSHX_NATIVE_SOLVER_LIBRARY')))
-    assert dict(result.metadata['native']) == dict(abi=1, algorithm='shared_fv_model_h_3d_compensated_v1', red_black=False)
+    assert dict(result.metadata['native']) == dict(abi=2, algorithm='shared_fv_model_h_3d_compensated_v1', red_black=False)
     path = tmp_path/'identity-3d.h5'
     save_result(result, path)
     assert load_result(path).metadata['native'] == result.metadata['native']

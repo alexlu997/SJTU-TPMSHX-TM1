@@ -90,7 +90,6 @@ sjtu_tpmshx/tests/test_multi_condition_optimizer.py
 sjtu_tpmshx/tests/test_nonuniform_probe.py
 sjtu_tpmshx/tests/test_orch_finished_3d_state.py
 sjtu_tpmshx/tests/test_order_fit.py
-sjtu_tpmshx/tests/test_outer_anderson.py
 sjtu_tpmshx/tests/test_outlet_temperature_2d.py
 sjtu_tpmshx/tests/test_p_in_shooting.py
 sjtu_tpmshx/tests/test_partial_config_import.py

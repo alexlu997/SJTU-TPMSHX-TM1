@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 import os
 import numpy as np
-from sjtu_tpmshx.domain.compute_config import ComputeConfig, bc_to_dict, reject_retired_boundary_options
+from sjtu_tpmshx.domain.compute_config import ComputeConfig, bc_to_dict, reject_retired_research_options
 from sjtu_tpmshx.models.tpms_props import geometry as tpms_geometry
 from sjtu_tpmshx.models import co2_correlations
 from sjtu_tpmshx.models.input_validation import validate_domain_dims, surrogate_extrap_reasons
@@ -188,7 +188,7 @@ def _finish_problem_data(prepared):
 
 def _prepare_geometry_data(cfg):
     """Resolve physical data for the existing low-level 3D input convention."""
-    reject_retired_boundary_options(cfg)
+    reject_retired_research_options(cfg)
     from sjtu_tpmshx.models import fluid_props
     from sjtu_tpmshx.models.tpms_props import chi_s_eff
     from sjtu_tpmshx.models.asym_split import _eps_sides_for_run
