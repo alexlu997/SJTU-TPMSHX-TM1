@@ -1,25 +1,25 @@
-# macos native group 0; retain each shared numerical result.
-# Conservative solver checks and replay stay with their fixture parameter.
-sjtu_tpmshx/tests/native/test_simple_3d.py
-sjtu_tpmshx/tests/native/test_full_3d.py
-sjtu_tpmshx/tests/native/test_full_3d_refined_stages.py
-sjtu_tpmshx/tests/native/test_cpp_full_3d.py
-sjtu_tpmshx/tests/native/test_native_engineering_acceptance.py::test_public_native_cases_keep_physical_gates[air-co2-2]
-sjtu_tpmshx/tests/native/test_cpp_quick_design.py
-sjtu_tpmshx/tests/native/test_cpp_full_2d_capture.py
-sjtu_tpmshx/tests/native/test_backend_condition_consumers.py
-sjtu_tpmshx/tests/native/test_simple_2d_c_api.py
-sjtu_tpmshx/tests/native/test_native_engineering_acceptance.py::test_public_native_cases_keep_physical_gates[air-air-2]
-sjtu_tpmshx/tests/native/test_temperature_driver.py
-sjtu_tpmshx/tests/native/test_anderson_candidate.py
-sjtu_tpmshx/tests/native/test_pressure_reference.py
-sjtu_tpmshx/tests/native/test_native_engineering_acceptance.py::test_public_native_cases_keep_physical_gates[co2-water-3]
-sjtu_tpmshx/tests/native/test_cpp_model_h.py
-sjtu_tpmshx/tests/native/test_native_engineering_acceptance.py::test_continuous_real_fluid_native_cases[co2-2]
-sjtu_tpmshx/tests/native/test_model_h_2d.py
-sjtu_tpmshx/tests/native/test_native_engineering_acceptance.py::test_public_native_cases_keep_physical_gates[co2-sco2-3]
+# macOS native group 0; balance uses complete CI run timings.
+# Keep shared fixture parameters together. The final shard is automatic.
+sjtu_tpmshx/tests/native/test_cpp_full_2d.py
+sjtu_tpmshx/tests/native/test_cpp_full_2d_run.py
+sjtu_tpmshx/tests/native/test_enthalpy_driver.py
+sjtu_tpmshx/tests/native/test_full_2d_refinement.py
+sjtu_tpmshx/tests/native/test_full_2d_stage_identity.py
+sjtu_tpmshx/tests/native/test_model_h_3d.py
+sjtu_tpmshx/tests/native/test_native_engineering_acceptance.py::test_public_native_cases_keep_physical_gates[air-water-2]
 sjtu_tpmshx/tests/native/test_native_engineering_acceptance.py::test_public_native_cases_keep_physical_gates[co2-air-3]
-sjtu_tpmshx/tests/native/test_native_engineering_acceptance.py::test_public_native_cases_keep_physical_gates[air-co2-3]
-sjtu_tpmshx/tests/native/test_temperature_staggered.py
-sjtu_tpmshx/tests/native/test_native_engineering_acceptance.py::test_public_native_cases_keep_physical_gates[sco2-sco2-3]
-sjtu_tpmshx/tests/native/test_native_engineering_acceptance.py::test_public_native_cases_keep_physical_gates[sco2-air-3]
+sjtu_tpmshx/tests/native/test_native_engineering_acceptance.py::test_public_native_cases_keep_physical_gates[co2-co2-3]
+sjtu_tpmshx/tests/native/test_native_engineering_acceptance.py::test_public_native_cases_keep_physical_gates[co2-sco2-3]
+sjtu_tpmshx/tests/native/test_native_engineering_acceptance.py::test_public_native_cases_keep_physical_gates[co2-water-3]
+sjtu_tpmshx/tests/native/test_native_engineering_acceptance.py::test_public_native_cases_keep_physical_gates[sco2-water-2]
+sjtu_tpmshx/tests/native/test_native_engineering_acceptance.py::test_public_native_cases_keep_physical_gates[water-air-3]
+sjtu_tpmshx/tests/native/test_native_engineering_acceptance.py::test_public_native_cases_keep_physical_gates[water-co2-2]
+sjtu_tpmshx/tests/native/test_native_pressure.py
+sjtu_tpmshx/tests/native/test_pressure_reference.py
+sjtu_tpmshx/tests/native/test_quick_design_driver.py
+sjtu_tpmshx/tests/native/test_simple_2d.py
+sjtu_tpmshx/tests/native/test_simple_3d.py
+sjtu_tpmshx/tests/native/test_simple_pressure.py
+sjtu_tpmshx/tests/native/test_superlu_error_boundary.py
+sjtu_tpmshx/tests/native/test_temperature_evidence.py
+sjtu_tpmshx/tests/native/test_temperature_mms.py
