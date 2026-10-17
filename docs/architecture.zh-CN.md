@@ -5,7 +5,9 @@
 [中文](architecture.zh-CN.md) | [English](architecture.md)
 
 0.2 仅使用 C++ 数值后端。Python 保留 GUI、CLI、前处理、模型资源、优化、结果映射和后处理。
-公共 `ComputeConfig` 流程支持完整二维／三维及 Quick Design。Python 数值迭代器、Numba／PyAMG 依赖和 Python 专用研究入口已退役。
+公共 `ComputeConfig` 流程支持完整二维／三维。
+Quick Design 通过 `prepare_quick_design` 接收独立的设计工况输入，再调用相同的 `run_case` 和 `evaluate` 公共 API。
+Python 数值迭代器、Numba／PyAMG 依赖和 Python 专用研究入口已退役。
 旧研究 Case 不再执行；保存的结果仍可读取。`legacy_h_fou`、`temperature_fou` 和 `temperature_sou` 继续保留。
 外层物性 Anderson 已退役；固定物性松弛、热方程 Anderson 和已合格流动加速保留原规则。
 
