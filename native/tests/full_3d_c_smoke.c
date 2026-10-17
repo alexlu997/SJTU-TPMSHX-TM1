@@ -61,7 +61,7 @@ int main(void) {
     c.simple.ideal_gas=c.simple.massflux_inlet=c.simple.adaptive_pressure_tolerance=1;
     c.simple.convergence=(tpmshx_simple_f2_v1){1e-4,1e-6,1e-6,.01,1e-4,1e-3,2,5,60};
     c.enthalpy_iterations=1500;c.enthalpy_sweeps=25;c.enthalpy_omega=.6;c.enthalpy_update_tolerance=1e-3;
-    tpmshx_full3d_result_v1 r={0};char error[1024];
+    tpmshx_full3d_result_v1 r={0};char error[1024]={0};
     const tpmshx_energy_options_v1 energy={TPMSHX_ENERGY_LEGACY_H_FOU,1e-8};
     if(tpmshx_full_3d_abi_version()!=2 || tpmshx_solve_full_3d_v2(&in,&c,&energy,NULL,&r,error,sizeof error)) {
         fprintf(stderr,"full 3D call failed: %s\n",error);return 1;
