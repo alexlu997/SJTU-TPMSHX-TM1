@@ -198,6 +198,10 @@ The compilation thread is not forcibly stopped. The card does not predict remain
 
    Field/Volume changes display mode only. Case parameters determine computation dimension.
 
+   The first 3D view prepares its modules while the interface remains responsive. Result display and optimization previews share this preparation.
+   Compute controls stay locked until result display finishes. Closing waits for preparation to finish.
+   Font setup, widget creation, and drawing can still cause a short pause on first use.
+
    Below the field, inspect duty, both pressure drops, outlet temperatures, and convergence diagnostics. Summary collapses the readings. More → Diagnostics Details opens diagnostics. Focus or `F` hides parameters and the summary to enlarge the current canvas. Toggle again to restore previous expansion states.
 
    Editing the next configuration keeps current-result provenance and units. Displayable values do not show acceptance.

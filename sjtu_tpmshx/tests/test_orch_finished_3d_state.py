@@ -42,6 +42,7 @@ class _DummyWindow(RunControllerMixin, RunResultsMixin):
 
     def __init__(self):
         self.compute = _ComputeStub()
+        self._view_imports_ready = True
         self.btn_compute = MagicMock()
         self.btn_export = MagicMock()
         from sjtu_tpmshx.domain.compute_result import ComputeResult

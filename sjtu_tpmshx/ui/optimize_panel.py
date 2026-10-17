@@ -783,6 +783,8 @@ def show_field_preview(window, x_decision=None):
 
 def show_field_volume(window):
     """Populate the optimization volume only when its result tab is opened."""
+    if getattr(window, '_close_pending', False):
+        return
     if window._opt_result_tabs.currentWidget() is not window._opt_3d_host:
         return
     data = window._opt_3d_data
@@ -797,7 +799,23 @@ def show_field_volume(window):
     placeholder.show()
     window._opt_3d_ready = False
     window._opt_3d_loading = True
+    if panel is None:
+        from .background_tasks import prepare_3d
+        prepare_3d(window, lambda: _show_prepared_field_volume(window))
+    else:
+        _show_prepared_field_volume(window)
+
+
+def _show_prepared_field_volume(window):
+    """Render the current preview after imports, while its owner stays alive."""
+    placeholder = window._opt_3d_placeholder
     try:
+        if (getattr(window, '_close_pending', False)
+                or window._opt_result_tabs.currentWidget() is not window._opt_3d_host
+                or window._opt_3d_data is None):
+            return
+        data = window._opt_3d_data
+        panel = window.canvas_opt_3d
         if panel is None:
             if getattr(window, '_vis3d_import_error', None):
                 raise RuntimeError(window._vis3d_import_error)

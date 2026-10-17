@@ -1398,6 +1398,14 @@ full-restore/historical-default rules. Partial import does not redefine them.
   toolbar, controls, viewport, state, and timer setup to focused methods while
   rendering behavior stays in the same widget class.
 
+`ui/background_tasks.py` prepares 3D modules in one window-owned QThread.
+Result display, optimization preview, and optional preinitialization share that preparation.
+Queued GUI callbacks create widgets and render the current data after imports finish.
+Compute controls stay locked until result publication and display finish.
+Close, restart, workspace changes, and CPU controls use the existing task-lifetime gate.
+An import error keeps numerical results available for export and marks the view unavailable.
+Widget creation, font setup, Matplotlib, and OpenGL stay on the GUI thread.
+
 The result footer and history format scalar values from the published result.
 There are no hidden result labels, duplicate chip strip or percentage-delta calculation. Changing draft inputs does not replace the accepted run or its recorded units. Only the latest published result owns the field cache, scalar summary and export. Pareto image readiness belongs to its own canvas: copying/exporting that image
 does not require a single-point field result. Saved-input menu loading and JSON
