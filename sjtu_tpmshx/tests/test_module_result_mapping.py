@@ -154,7 +154,7 @@ _CONVERGENCE_2D = frozenset('''
 # The unreachable NaN replacement and its energy_nan_hit diagnostic are retired;
 # nonfinite thermal returns raise before producing a result.
 _CONVERGENCE_3D = frozenset('''
-    envelope_ok fields_finite inlet_pressure ltne_ok outer_anderson
+    envelope_ok fields_finite inlet_pressure ltne_ok
     outer_converged outer_dT outer_hit_cap outer_iters simple_A simple_B
     simple_exit_A simple_exit_B simple_nonconv simple_nonconv_final
     simple_nonconv_transient simple_ok

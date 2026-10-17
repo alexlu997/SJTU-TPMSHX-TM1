@@ -11,7 +11,7 @@ import numpy as np
 
 from sjtu_tpmshx.domain.compute_config import (
     ComputeConfig, FluidConfig, GeometryConfig, Sco2NuConfig,
-    ZoneInputConfig, reject_retired_boundary_options, validate_simple_velocity_relaxation,
+    ZoneInputConfig, reject_retired_research_options, validate_simple_velocity_relaxation,
 )
 from sjtu_tpmshx.domain.run_environment import capture_environment, require_f2_mode
 from sjtu_tpmshx.domain.validator import validate_pipe_config
@@ -28,8 +28,7 @@ _INPUTS = frozenset('''
     convergence_mode mom_tol mass_local_tol mass_global_tol simple_velocity_relaxation
     use_adaptive_amg_tol use_anderson use_coarse_bootstrap coarse_bootstrap_max_iter
     track_momentum_residual p_in_shooting variable_rho_cp conservative_ltne
-    strict_mass_balance force_cc_ltne outer_anderson outer_anderson_m
-    outer_anderson_trust outer_anderson_patience ltne_alpha_T
+    strict_mass_balance force_cc_ltne ltne_alpha_T
     ltne_enthalpy_nsweep ltne_enthalpy_omega ltne_enthalpy_outer ltne_enthalpy_tol
     disp_C_A disp_C_B mms_S_A_field mms_S_B_field mms_S_s_field
     _case_label _emit_audit _verbose_diag
@@ -45,7 +44,7 @@ def prepare_research_case(inputs, *, case_id):
     backend support. Execution and callbacks use solvers.api.run_case/RunControl.
     """
     cfg = deepcopy(dict(inputs))
-    reject_retired_boundary_options(cfg)
+    reject_retired_research_options(cfg)
     for key, port in (('_cancel_check', 'cancel_check'),
                       ('_progress_cb', 'progress'), ('_iter_cb', 'outer_iteration')):
         if key in cfg:
@@ -63,7 +62,7 @@ def prepare_research_case(inputs, *, case_id):
             raise ValueError(f'research {key} must be finite and positive')
     validate_domain_dims([(key, cfg[key]) for key in ('L', 'H', 'Lz')])
     for key in ('Nx', 'Ny', 'Nz', 'max_outer_ltne', 'max_iter_simple', 'max_cells_3d',
-                'coarse_bootstrap_max_iter', 'outer_anderson_m', 'outer_anderson_patience'):
+                'coarse_bootstrap_max_iter'):
         value = cfg.get(key)
         if value is not None and (type(value) is not int or value < 1):
             raise ValueError(f'research {key} must be an integer >= 1')

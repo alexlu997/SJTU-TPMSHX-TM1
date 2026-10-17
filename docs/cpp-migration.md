@@ -116,20 +116,23 @@ default backend.
 ## Complete full 3D capability
 
 `full_3d.hpp` and `full_3d_c_api.h` give the rectangular two-fluid 3D outer
-driver through ABI 1. It consumes the same prepared XYZ fields and partial-port
+driver through ABI 2. It consumes the same prepared XYZ fields and partial-port
 geometry. It performs pressure-referenced SIMPLE flow and selected
 temperature/model-h/true-h coupling. It returns the original final-state
 certificates, warning evidence and field locations. The existing optional
 coarse bootstrap keeps fine-grid pressure boundary values. No Python
 numerical kernel supplies the native result.
 
-Bootstrap diagnostics are an additive ABI 1 capability. The existing input,
-result and first-coarse-level summary layouts are unchanged.
+Full 3D ABI 2 removes the outer property Anderson controls and result fields.
+Use matching headers, libraries and bindings. The Python binding rejects ABI 1
+before a numerical call. Fixed property relaxation and thermal Anderson remain.
+Saved results remain readable; checkpoints still require the same build identity.
+
+Bootstrap diagnostics use a separate query from the full result.
 `tpmshx_full_3d_get_bootstrap_trace_v1(result, side, trace)` exposes a separate
 read-only view for side 0/1. Its strings and layer array belong to the result
 owner and stay valid only until `tpmshx_full_3d_release_v1`. A query performs
-no numerical work or allocation. Existing C callers continue to use their
-unchanged ABI 1 result layout.
+no numerical work or allocation. C callers must use the ABI 2 result layout.
 
 The current Python binding requires the new
 query symbol and reports a capability error for an older library. It never

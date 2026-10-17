@@ -35,7 +35,7 @@ extern "C" TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL test_full_3d_run(
         Full3DSide* sides[]{&input.a,&input.b};
         for(std::size_t s=0;s<2;++s) {
             auto& a=*sides[s];a.fluid=static_cast<Fluid>(flags[1+s]);a.direction=static_cast<int>(flags[3+s]);
-            for(std::size_t d=0;d<3;++d)a.solver_axes[d]=static_cast<int>(flags[40+3*s+d]);
+            for(std::size_t d=0;d<3;++d)a.solver_axes[d]=static_cast<int>(flags[37+3*s+d]);
             a.inlet_temperature=values[2+3*s];a.inlet_pressure=values[3+3*s];a.inlet_velocity=values[4+3*s];
             for(std::size_t d=0;d<4;++d) {
                 a.inlet_rectangle[d]=values[8+8*s+d];a.outlet_rectangle[d]=values[12+8*s+d];
@@ -50,35 +50,35 @@ extern "C" TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL test_full_3d_run(
         c.max_outer=flags[8];c.initial_simple_iterations=flags[9];c.warm_simple_iterations=flags[10];c.thermal_iterations=flags[11];
         c.pressure_shooting=flags[12];c.variable_rho_cp=flags[13];c.conservative=flags[14];c.strict_mass_balance=flags[15];
         c.force_cell_centered=flags[16];c.refined_port_energy=flags[17];c.red_black_energy=flags[18];
-        c.sco2_local_pressure_a=flags[19];c.coarse_bootstrap=flags[20];c.outer_anderson=flags[21];
-        c.coarse_iterations=flags[22];c.anderson_history=flags[23];c.anderson_patience=flags[24];
-        c.roughness_mode=static_cast<int>(flags[25]);c.envelope_mode=static_cast<int>(flags[26]);
-        c.simple.inner_sweeps=flags[27];c.simple.pressure_rebuild_every=flags[28];c.simple.second_order_upwind=flags[29];
-        c.simple.adaptive_pressure_tolerance=flags[30];c.simple.track_momentum=flags[31];
-        c.simple.ordering=static_cast<Simple3DOrdering>(flags[32]);
-        c.enthalpy.max_iterations=flags[33];c.enthalpy.sweeps=flags[34];
-        c.simple.convergence.confirmations=flags[35];c.simple.convergence.momentum_interval=flags[36];c.simple.convergence.stall_window=flags[37];
-        c.outer_temperature_tolerance=values[40];c.thermal_relaxation=values[41];c.anderson_trust=values[42];
-        c.roughness_height=values[43];if(flags[38])c.initial_solid_temperature=values[44];
-        c.simple.alpha_velocity=values[45];c.simple.alpha_pressure=values[46];c.simple.alpha_density=values[47];
-        c.simple.pressure_diagonal_drift=values[48];c.simple.convergence.momentum_tolerance=values[49];
-        c.simple.convergence.local_mass_tolerance=values[50];c.simple.convergence.global_mass_tolerance=values[51];
-        c.simple.convergence.backflow_maximum=values[52];c.simple.convergence.velocity_check_tolerance=values[53];
-        c.simple.convergence.stall_ratio=values[54];c.enthalpy.omega=values[55];c.enthalpy.update_tolerance=values[56];
+        c.sco2_local_pressure_a=flags[19];c.coarse_bootstrap=flags[20];
+        c.coarse_iterations=flags[21];
+        c.roughness_mode=static_cast<int>(flags[22]);c.envelope_mode=static_cast<int>(flags[23]);
+        c.simple.inner_sweeps=flags[24];c.simple.pressure_rebuild_every=flags[25];c.simple.second_order_upwind=flags[26];
+        c.simple.adaptive_pressure_tolerance=flags[27];c.simple.track_momentum=flags[28];
+        c.simple.ordering=static_cast<Simple3DOrdering>(flags[29]);
+        c.enthalpy.max_iterations=flags[30];c.enthalpy.sweeps=flags[31];
+        c.simple.convergence.confirmations=flags[32];c.simple.convergence.momentum_interval=flags[33];c.simple.convergence.stall_window=flags[34];
+        c.outer_temperature_tolerance=values[40];c.thermal_relaxation=values[41];
+        c.roughness_height=values[42];if(flags[35])c.initial_solid_temperature=values[43];
+        c.simple.alpha_velocity=values[44];c.simple.alpha_pressure=values[45];c.simple.alpha_density=values[46];
+        c.simple.pressure_diagonal_drift=values[47];c.simple.convergence.momentum_tolerance=values[48];
+        c.simple.convergence.local_mass_tolerance=values[49];c.simple.convergence.global_mass_tolerance=values[50];
+        c.simple.convergence.backflow_maximum=values[51];c.simple.convergence.velocity_check_tolerance=values[52];
+        c.simple.convergence.stall_ratio=values[53];c.enthalpy.omega=values[54];c.enthalpy.update_tolerance=values[55];
         c.enthalpy.table_directory=tables?tables:"";
-        auto handle=std::make_unique<Handle>();handle->cancel_at=flags[39];
-        handle->cancel_before_thermal=flags[46]!=0;c.outer_iteration=outer_iteration;
+        auto handle=std::make_unique<Handle>();handle->cancel_at=flags[36];
+        handle->cancel_before_thermal=flags[43]!=0;c.outer_iteration=outer_iteration;
         c.cancel=cancelled;c.progress=progress;c.context=handle.get();
-        if(flags[47]) {
+        if(flags[44]) {
             auto run=std::make_unique<Full3DRun>(input,c);
             run->advance();
-            for(std::size_t step=1;step<flags[47];++step)run->advance();
+            for(std::size_t step=1;step<flags[44];++step)run->advance();
             const auto record=export_full_3d_state(input,c,run->snapshot());run.reset();
             auto state=import_full_3d_state(input,c,record);
-            if(flags[48]==1)state.temperature[0].pop_back();
-            if(flags[48]==2)state.phase=Full3DPhase::failed;
-            if(flags[48]==3)state.simple[0].reset();
-            if(flags[48]==4)state.result.outer.front().outer_index+=1;
+            if(flags[45]==1)state.temperature[0].pop_back();
+            if(flags[45]==2)state.phase=Full3DPhase::failed;
+            if(flags[45]==3)state.simple[0].reset();
+            if(flags[45]==4)state.result.outer.front().outer_index+=1;
             run=std::make_unique<Full3DRun>(input,c,state);
             // The restored owner must not borrow mutable snapshot storage.
             state.temperature[0][0]=-1.;state.result.property_sampling.front().stage="changed";

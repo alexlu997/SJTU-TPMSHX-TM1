@@ -11,7 +11,7 @@ sjtu_tpmshx/tests/native/test_backend_condition_consumers.py
 sjtu_tpmshx/tests/native/test_simple_2d_c_api.py
 sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_public_backends_meet_engineering_limits[air-air-2]
 sjtu_tpmshx/tests/native/test_temperature_driver.py
-sjtu_tpmshx/tests/native/test_native_outer_anderson.py
+sjtu_tpmshx/tests/native/test_anderson_candidate.py
 sjtu_tpmshx/tests/native/test_pressure_reference.py
 sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_public_backends_meet_engineering_limits[co2-water-3]
 sjtu_tpmshx/tests/native/test_cpp_model_h.py

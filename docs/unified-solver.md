@@ -23,6 +23,12 @@ The task does not change calibration coefficients or raw data.
 New numerical methods are implemented in C++. Python callers and file readers change when the interface requires it.
 The [collaboration workflow](collaboration.md) applies to each implementation PR.
 
+Outer property Anderson is retired. Property updates keep the existing fixed relaxation and update order.
+The solver rejects `outer_anderson`, `outer_anderson_m`, `outer_anderson_trust`, and `outer_anderson_patience` before calculation, including explicit disabled values.
+Thermal Anderson and the three energy algorithms remain available.
+The full 3D C API now uses ABI 2. Python bindings require a matching native library.
+Existing results remain readable. Checkpoints still require the same build identity; no cross-build conversion is provided.
+
 ## 2. Three separate decisions
 
 | Decision | Recorded meaning | Selection rule |
@@ -119,7 +125,7 @@ Old input files can still start a new qualified calculation with a new execution
 | Continuation cursor | Active phase, side, grid level, outer/thermal/SIMPLE iteration positions, consumed budgets and the next operation. |
 | Physical fields | Required T/h, velocity, pressure/correction, density, transport coefficients, boundary mass targets and pressure anchors. |
 | Convergence state | Previous fields, update measurements, F2 confirmation streak, stall window and comparison snapshots when a SIMPLE call is active. |
-| Acceleration state | Required thermal and outer Anderson samples, scales, residual minimum, patience counters and reset state. |
+| Acceleration state | Required thermal Anderson samples and reset state. |
 | Property iteration state | Actual physical implementation and approximation policy, including the irreversible HEOS finishing choice within the current thermal solve. |
 | Evidence | Completed iteration records and separately identified last-thermal and current-flow evidence. |
 
@@ -128,7 +134,7 @@ The initial source inventory identifies these continuation owners:
 - `full_2d.cpp`: flow/thermal state, previous temperatures, relaxed properties, outer history and refinement position.
 - `full_3d.cpp`: `Runtime` arrays, flow solvers, pressure anchors, previous temperatures and distinct thermal evidence.
 - `simple_convergence.hpp`: F2 previous velocities, confirmation streak and stall-window state during an active solve.
-- `model_h_common.hpp` and `outer_anderson.cpp`: sample queues, scales, minimum residual and patience state.
+- `model_h_common.hpp`: thermal Anderson sample queues and reset state.
 - `enthalpy_driver.cpp`: thermal iteration position, acceleration history and the `heos_polish` transition.
 
 Determine exact array membership from reads after each restore boundary.

@@ -126,8 +126,7 @@ def capture_result(case, cfg, p, r, abi):
         outer_dT=[h['temperature_change'] for h in r['outer']],outer_converged=r['outer_ok'],outer_iters=len(r['outer']),
         outer_hit_cap=not r['outer_ok'],simple_ok=r['simple_ok'],simple_nonconv_final=final,simple_nonconv_transient=transient,
         simple_exit_A=r['flow'][0]['last']['exit_reason'],simple_exit_B=None if r['flow'][1] is None else r['flow'][1]['last']['exit_reason'],
-        ltne_ok=r['thermal_ok'],fields_finite=r['finite_fields'],envelope_ok=r['envelope_ok'],
-        outer_anderson=None if not cfg.get('outer_anderson',False) else {label:None if f is None else f['anderson'] for label,f in zip('AB',r['flow'])})
+        ltne_ok=r['thermal_ok'],fields_finite=r['finite_fields'],envelope_ok=r['envelope_ok'])
     for mode in ('true_h','model_h'):
         key=mode+'_balance'
         diagnostics[key]=dict(final_info[key],outer_converged=r['outer_ok'],post_after_last_thermal=r['post_after_last_thermal'],

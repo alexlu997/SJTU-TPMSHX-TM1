@@ -906,13 +906,11 @@ def test_native_checkpoint_hdf5_round_trip(native_path, tmp_path, pair, cut):
 
 @pytest.mark.parametrize('damage', ['build', 'format', 'input', 'control', 'type', 'size', 'unknown', 'missing',
                                      'thermal', 'geometry', 'phase', 'nonfinite',
-                                     'premature_finish', 'different_exit', 'thermal_mode', 'anderson_control'])
+                                     'premature_finish', 'different_exit', 'thermal_mode'])
 def test_native_checkpoint_rejects_damaged_fields(native_path, damage):
     from sjtu_tpmshx.solvers.backends.cpp.full_3d import NativeFull3DDriver
     from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
     cfg, p = build_execution_inputs(case(cap=3))
-    if damage == 'anderson_control':
-        cfg['outer_anderson'] = True
     driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
     saved = {}
     def pause(state):
@@ -946,8 +944,6 @@ def test_native_checkpoint_rejects_damaged_fields(native_path, damage):
         saved['state.result.outer_ok'][0] = 1
     elif damage == 'different_exit':
         saved['state.result.stop'][0] = 2
-    elif damage == 'anderson_control':
-        saved['state.anderson.0.value.trust'][0] *= 2
     elif damage == 'thermal_mode':
         saved['state.result.thermal.mode'][0] = 2
     elif damage == 'nonfinite':
@@ -1156,7 +1152,7 @@ def test_checkpoint_callback_error_keeps_original_exception(native_path):
 def test_full_checkpoint_keeps_active_pressure_hierarchies(native_path):
     from sjtu_tpmshx.solvers.backends.cpp.full_3d import NativeFull3DDriver
     from sjtu_tpmshx.tests.native.test_full_3d import prepared
-    cfg, p = prepared('air-air', counts=(14, 14, 14), max_iter_simple=3, outer_anderson=True)
+    cfg, p = prepared('air-air', counts=(14, 14, 14), max_iter_simple=3)
     p.update(max_outer=2, ltne_max_iter=10)
     driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
     expected = driver.run_prepared(cfg, p)
@@ -1245,7 +1241,7 @@ def _inner_prepared(route):
     cfg, p = prepared(pair,
                       counts=(3, 4, 1) if route == 'nz1_cc' else (3, 4, 2),
                       directions=(0, 3) if route == 'nz1_cc' else None,
-                      max_iter_simple=40, outer_anderson=True)
+                      max_iter_simple=40)
     p.update(max_outer=2, ltne_max_iter=800)
     if route in ('model_h_accelerated', 'strict_water'):
         cfg['port_wall_refine'] = True

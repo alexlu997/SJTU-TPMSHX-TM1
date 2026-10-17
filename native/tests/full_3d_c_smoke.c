@@ -55,7 +55,7 @@ int main(void) {
     tpmshx_full3d_control_v1 c={0};c.max_outer=12;c.initial_simple_iterations=c.warm_simple_iterations=2000;c.thermal_iterations=1000;
     c.outer_temperature_tolerance=.5;c.thermal_relaxation=.7;
     c.pressure_shooting=c.variable_rho_cp=c.conservative=c.strict_mass_balance=c.force_cell_centered=1;
-    c.coarse_iterations=200;c.anderson_history=c.anderson_patience=3;c.anderson_trust=5.;c.roughness_height=1e-4;
+    c.coarse_iterations=200;c.roughness_height=1e-4;
     c.simple.max_iterations=2000;c.simple.inner_sweeps=1;c.simple.pressure_rebuild_every=100;
     c.simple.alpha_velocity=.5;c.simple.alpha_pressure=.2;c.simple.alpha_density=.3;c.simple.gas_constant=287.05;c.simple.pressure_diagonal_drift=.05;
     c.simple.ideal_gas=c.simple.massflux_inlet=c.simple.adaptive_pressure_tolerance=1;
@@ -63,7 +63,7 @@ int main(void) {
     c.enthalpy_iterations=1500;c.enthalpy_sweeps=25;c.enthalpy_omega=.6;c.enthalpy_update_tolerance=1e-3;
     tpmshx_full3d_result_v1 r={0};char error[1024];
     const tpmshx_energy_options_v1 energy={TPMSHX_ENERGY_LEGACY_H_FOU,1e-8};
-    if(tpmshx_full_3d_abi_version()!=1 || tpmshx_solve_full_3d_v2(&in,&c,&energy,NULL,&r,error,sizeof error)) {
+    if(tpmshx_full_3d_abi_version()!=2 || tpmshx_solve_full_3d_v2(&in,&c,&energy,NULL,&r,error,sizeof error)) {
         fprintf(stderr,"full 3D call failed: %s\n",error);return 1;
     }
     if(!r.converged || !r.owner || !r.has_model_h || r.model_h.owner || r.outer_count<2) {

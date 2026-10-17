@@ -11,7 +11,6 @@ import os
 import time as _time
 from dataclasses import dataclass
 from collections.abc import Callable, Sequence
-from typing import TYPE_CHECKING
 import numpy as np
 from sjtu_tpmshx.domain.cancellation import CancelledError
 from sjtu_tpmshx.domain.module_ports import RunControl
@@ -55,9 +54,6 @@ from sjtu_tpmshx.models.field_coordinates_3d import (  # Phase 3: extracted pure
     _balance_stream_outflow,
 )
 from sjtu_tpmshx.logutil import get_logger
-
-if TYPE_CHECKING:
-    from sjtu_tpmshx.solvers.anderson_acceleration import AndersonOuterCoupling
 
 _log = get_logger(__name__)
 
@@ -447,8 +443,6 @@ class _OuterState:
     Ta: np.ndarray | None  # K
     Tb: np.ndarray | None
     Ts: np.ndarray | None
-    _and_A: AndersonOuterCoupling | None
-    _and_B: AndersonOuterCoupling | None
     _assemble_real_velocity: Callable[[], tuple[np.ndarray, np.ndarray, np.ndarray]]
     _eps_A_strict: float | None
     _eps_A_strict_cellmax: float | None
@@ -459,7 +453,6 @@ class _OuterState:
     _outer_converged: bool
     _outer_dT_hist: list[dict[str, float]]
     _outer_last_iter: int
-    _use_outer_and: bool
     h_vA_field: np.ndarray | None  # W/(m3 K); populated before the first thermal solve
     h_vB_field: np.ndarray | None
     rho_cp_fA: np.ndarray  # J/(m3 K)
@@ -520,8 +513,8 @@ def build_problem(cfg, prepared, *, control: RunControl = RunControl()):
     from _run_3d_stack; returns the cross-seam state bundle. Contract:
     bit-identical behavior (golden gate).
     """
-    from sjtu_tpmshx.domain.compute_config import reject_retired_boundary_options
-    reject_retired_boundary_options(cfg)
+    from sjtu_tpmshx.domain.compute_config import reject_retired_research_options
+    reject_retired_research_options(cfg)
     # Conditionally-bound cross-seam names (surgery tool definite-
     # assignment pass): None-init so the unconditional return below
     # cannot raise UnboundLocalError on guarded paths. Downstream
@@ -1677,12 +1670,6 @@ def _assemble_3d_diagnostics(prob: _Problem3D, outer: _OuterState, met: _Metrics
         ltne_ok=_ltne_ok,
         fields_finite=_fields_finite,
         envelope_ok=bool(_env_valid),
-        # Outer-coupling Anderson (None when the opt-in knob is off). Records
-        # how many candidates were accepted / rejected by the admissibility
-        # gate / dropped by the staleness reset, plus the fixed-point residual
-        # history — so the acceleration is auditable, never a black box.
-        outer_anderson=(None if not outer._use_outer_and else dict(
-            A=outer._and_A.stats(), B=(outer._and_B.stats() if sB is not None else None))),
     )
 
     diagnostics['true_h_balance'] = (dict(
@@ -1879,12 +1866,11 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
     # SIMPLE and problem-owned arrays retain their existing in-place ownership.
     state = _OuterState(
         K_ffB=prob.K_ffB, Ta=None, Tb=None, Ts=None,
-        _and_A=None, _and_B=None, _assemble_real_velocity=_assemble_real_velocity,
+        _assemble_real_velocity=_assemble_real_velocity,
         _eps_A_strict=None, _eps_A_strict_cellmax=None,
         _eps_B_strict=None, _eps_B_strict_cellmax=None,
         _ltne_mask_A=None, _ltne_mask_B=None,
         _outer_converged=False, _outer_dT_hist=[], _outer_last_iter=-1,
-        _use_outer_and=False,
         h_vA_field=None,
         # No B solver means zero solid/B coupling, even with prescribed Tb.
         h_vB_field=np.zeros((Nx, Ny, Nz), dtype=np.float64) if sB is None else None,
@@ -1912,29 +1898,6 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
     # still be moving when Ta settled).
     _outer_conv = OuterConvergence(tol_T=_outer_tol, track=('Ta', 'Tb', 'Ts'))
 
-    # ── Anderson acceleration on the OUTER coupling map (opt-in, 2026-07-12) ──
-    # The outer loop's relaxation is a fixed constant (_ALPHA_T = 0.6) applied
-    # to the property fields (rho, mu) in `_outer_post_3d`. Measured on three
-    # air cases (mild / baseline / hot+fast), the resulting Picard iteration is
-    # OSCILLATORY — the residual grows x1.36 on the 2nd iteration before
-    # collapsing — i.e. it is under-damped, and the constant alpha is leaving
-    # convergence rate on the table.
-    #
-    # `AndersonOuterCoupling` replaces the constant with a least-squares mix
-    # over the last m (x, G(x)) pairs for SIMPLE<->LTNE coupling BETWEEN
-    # solves. The old inner SIMPLE `use_anderson` option is retired.
-    #
-    # OFF by default: when disabled, `_outer_post_3d` runs the original blend
-    # expression verbatim, so the production path and the golden gates are
-    # bit-identical.
-    state._use_outer_and = bool(cfg.get('outer_anderson', False))
-    if state._use_outer_and:
-        from sjtu_tpmshx.solvers.anderson_acceleration import AndersonOuterCoupling
-        _and_kw = dict(m=int(cfg.get('outer_anderson_m', 3)),
-                       trust=float(cfg.get('outer_anderson_trust', 5.0)),
-                       patience=int(cfg.get('outer_anderson_patience', 3)))
-        state._and_A = AndersonOuterCoupling(**_and_kw)
-        state._and_B = AndersonOuterCoupling(**_and_kw)
     # Optional solid warm-start seed from the UI. Empty → solver default
     # (Ta=T_inA, Tb=T_inB, Ts=0.5*(T_inA+T_inB) inside solve_full_domain_3d).
     # Filled → only Ts is overridden with the user value; Ta/Tb stay at the
@@ -2441,9 +2404,6 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
             Ta_sA = np.ascontiguousarray(np.flip(Ta_sA, axis=_ssax_A))
         # Critical: propagate Ta to T_field so SIMPLE inner _update_density()
         # uses local cell T, not stale T_in. (Mirror sB.update_T_field below.)
-        if outer > 0 and state._and_A is not None:
-            # The air temperature setter rebinds mu; Anderson needs the old flow state.
-            mu_previous_A = sA.mu_field
         with range_context(side='A', stage='property-refresh', layout='solver-cell(cross1,stream,cross2)'):
             sA.update_T_field(Ta_sA)
             P_abs = sA.P_ref_abs + sA.P
@@ -2470,32 +2430,22 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
                 mu_new_A = _mA.mu(Ta_sA, P_inA)
         flow_sampling['A'].clear()
         source = 'HEOS' if fluid_type_A in ('sco2', 'co2') else 'model_resource'
-        mixing = ('Anderson' if state._and_A is not None else 'relax_0.6') if outer else 'local_evaluation'
+        mixing = 'relax_0.6' if outer else 'local_evaluation'
         sample(flow_sampling['A'], 'A', outer, 'flow_post', 'ideal_gas' if _mA.compressible else source,
                'current_thermal_return', sampled_pressure_A,
                'local_evaluation' if _mA.compressible else mixing,
                'density')
         sample(flow_sampling['A'], 'A', outer, 'flow_post', source, 'current_thermal_return',
                'inlet' if _mA.compressible else sampled_pressure_A,
-               'Anderson' if outer and state._and_A is not None else 'relax_0.6' if outer and not _mA.compressible else 'local_evaluation',
+               'relax_0.6' if outer and not _mA.compressible else 'local_evaluation',
                'viscosity')
         if outer > 0:
-            # Damped-Picard property update — the outer coupling's relaxation.
-            # `_and_A` (opt-in, cfg['outer_anderson'], default OFF) replaces the
-            # fixed _ALPHA_T with an Anderson least-squares mix over the last m
-            # previous-flow/target pairs. The disabled path retains its existing
-            # temperature-setter and viscosity-update order.
-            if state._and_A is not None:
-                (sA.rho_field, sA.mu_field), _ok_A = state._and_A.step(
-                    [sA.rho_field, mu_previous_A], [rho_new, mu_new_A],
-                    _ALPHA_T)
-            else:
-                sA.rho_field = np.ascontiguousarray(
-                    _ALPHA_T * rho_new + (1.0 - _ALPHA_T) * sA.rho_field,
-                    dtype=np.float64)
-                sA.mu_field = np.ascontiguousarray(
-                    _ALPHA_T * mu_new_A
-                    + (1.0 - _ALPHA_T) * sA.mu_field, dtype=np.float64)
+            sA.rho_field = np.ascontiguousarray(
+                _ALPHA_T * rho_new + (1.0 - _ALPHA_T) * sA.rho_field,
+                dtype=np.float64)
+            sA.mu_field = np.ascontiguousarray(
+                _ALPHA_T * mu_new_A
+                + (1.0 - _ALPHA_T) * sA.mu_field, dtype=np.float64)
         else:
             sA.rho_field = np.ascontiguousarray(rho_new, dtype=np.float64)
             sA.mu_field = np.ascontiguousarray(mu_new_A, dtype=np.float64)
@@ -2662,31 +2612,21 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
             mu_new_B = _mB.mu(Tb_sB, P_inB)          # air/water ignore P; sco2 needs P
         flow_sampling['B'].clear()
         source = 'HEOS' if fluid_type_B in ('sco2', 'co2') else 'model_resource'
-        mixing = ('Anderson' if state._and_B is not None else 'relax_0.6') if outer else 'local_evaluation'
+        mixing = 'relax_0.6' if outer else 'local_evaluation'
         sample(flow_sampling['B'], 'B', outer, 'flow_post', 'ideal_gas' if _mB.compressible else source,
                'current_thermal_return', 'current_SIMPLE_absolute' if _mB.compressible else 'inlet',
                'local_evaluation' if _mB.compressible else mixing,
                'density')
         sample(flow_sampling['B'], 'B', outer, 'flow_post', source, 'current_thermal_return', 'inlet',
-               'Anderson' if outer and state._and_B is not None else 'relax_0.6' if outer and not _mB.compressible else 'local_evaluation',
+               'relax_0.6' if outer and not _mB.compressible else 'local_evaluation',
                'viscosity')
         if outer > 0:
-            # Mirror of the fluid-A property update above (see comment
-            # there). Separate Anderson instance per side: A's blend is
-            # applied BEFORE the SIMPLE-A re-solve and B's before SIMPLE-B,
-            # so the two are sequential, not simultaneous — block-wise
-            # acceleration respects that structure.
-            if state._and_B is not None:
-                (sB.rho_field, sB.mu_field), _ok_B = state._and_B.step(
-                    [sB.rho_field, sB.mu_field], [rho_new_B, mu_new_B],
-                    _ALPHA_T)
-            else:
-                sB.rho_field = np.ascontiguousarray(
-                    _ALPHA_T * rho_new_B + (1.0 - _ALPHA_T) * sB.rho_field,
-                    dtype=np.float64)
-                sB.mu_field = np.ascontiguousarray(
-                    _ALPHA_T * mu_new_B + (1.0 - _ALPHA_T) * sB.mu_field,
-                    dtype=np.float64)
+            sB.rho_field = np.ascontiguousarray(
+                _ALPHA_T * rho_new_B + (1.0 - _ALPHA_T) * sB.rho_field,
+                dtype=np.float64)
+            sB.mu_field = np.ascontiguousarray(
+                _ALPHA_T * mu_new_B + (1.0 - _ALPHA_T) * sB.mu_field,
+                dtype=np.float64)
         else:
             sB.rho_field = np.ascontiguousarray(rho_new_B, dtype=np.float64)
             sB.mu_field = np.ascontiguousarray(mu_new_B, dtype=np.float64)
@@ -2719,13 +2659,8 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
                 sB.P_ref_abs = pressure_initial_reference(
                     P_out_sq_B_new, P_inB, history=sB.pressure_iterations)
 
-        if outer > 0 and state._and_B is not None:
-            # Preserve both selected viscosity fields across the air temperature setter.
-            mu_selected_B, mu_eff_selected_B = sB.mu_field, sB._mu_eff_field
         with range_context(side='B', stage='property-refresh', layout='solver-cell(cross1,stream,cross2)'):
             sB.update_T_field(Tb_sB)
-        if outer > 0 and state._and_B is not None:
-            sB.mu_field, sB._mu_eff_field = mu_selected_B, mu_eff_selected_B
         _prof_t_sb = _time.perf_counter() if _prof_3d_enabled() else None
         with range_context(side='B', stage='main', layout='solver-cell(cross1,stream,cross2)'):
             _sb_conv, _sb_it = sB.solve(max_iter=_simple_max_iter(cfg, 600),

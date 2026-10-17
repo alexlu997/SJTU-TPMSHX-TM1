@@ -20,8 +20,13 @@ from sjtu_tpmshx.solvers.backends.python.three_d import runtime
     ('audit_zero_K_ffB_at_outlet', True),
     ('audit_zero_K_ffB_at_outlet', False),
     ('audit_h2_n_layers', 1),
+    ('outer_anderson', True),
+    ('outer_anderson', False),
+    ('outer_anderson_m', 3),
+    ('outer_anderson_trust', 5.),
+    ('outer_anderson_patience', 3),
 ])
-@pytest.mark.parametrize('entry', ['canonical', 'raw', 'prepared', 'runtime'])
+@pytest.mark.parametrize('entry', ['canonical', 'raw', 'prepared', 'runtime', 'native'])
 def test_retired_control_rejected_before_numerical_work(monkeypatch, key, value, entry):
     def unexpected_solve(*args, **kwargs):
         pytest.fail('retired research control reached the numerical solver')
@@ -29,7 +34,9 @@ def test_retired_control_rejected_before_numerical_work(monkeypatch, key, value,
     # Incomplete physical inputs deliberately prove the retired-key check
     # happens before preparation or a solver can consume any other setting.
     data = {key: value}
-    with pytest.raises(ValueError, match=rf'experiments are retired:.*{key}'):
+    message = ('Outer property Anderson is retired' if key.startswith('outer_anderson')
+               else 'experiments are retired')
+    with pytest.raises(ValueError, match=rf'{message}:.*{key}'):
         if entry == 'canonical':
             ComputeConfig.from_dict(data)
         elif entry == 'raw':
@@ -37,14 +44,21 @@ def test_retired_control_rejected_before_numerical_work(monkeypatch, key, value,
         elif entry == 'prepared':
             build_execution_inputs(SimpleNamespace(
                 grid={'dimension': 3, 'length_unit': 'm'}, parameters=data))
-        else:
+        elif entry == 'runtime':
             runtime.build_problem(data, {})
+        else:
+            from sjtu_tpmshx.solvers.backends.cpp.full_3d import NativeFull3DDriver
+            driver = NativeFull3DDriver.__new__(NativeFull3DDriver)
+            driver.run_prepared(data, {})
 
 
 @pytest.mark.parametrize('section', ['solver', 'flags'])
-def test_nested_canonical_research_option_explains_retirement(section):
-    with pytest.raises(ValueError, match='experiments are retired:.*chi_B_method'):
-        ComputeConfig.from_dict({section: {'chi_B_method': 'mass_flux_threshold'}})
+@pytest.mark.parametrize('key,value', [
+    ('chi_B_method', 'mass_flux_threshold'), ('outer_anderson', False),
+])
+def test_nested_canonical_research_option_explains_retirement(section, key, value):
+    with pytest.raises(ValueError, match=rf'retired:.*{key}'):
+        ComputeConfig.from_dict({section: {key: value}})
 
 
 @pytest.mark.parametrize('key', ['chi_B_field', 'chi_B_kernel_threshold'])

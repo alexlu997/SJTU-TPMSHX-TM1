@@ -64,11 +64,11 @@ class NativeFull3D:
         arrays += [np.asarray(cfg.get("mms_S_"+side+"_field", np.empty(0))) for side in ("A", "B", "s")]
         arrays = [np.ascontiguousarray(a, dtype=np.float64) for a in arrays]
         assert len(arrays) == 19
-        f = np.zeros(49, dtype=np.uintp)
-        f[46] = cancel_before_thermal
-        f[47] = 0 if resume_cut is None else resume_cut + 1
-        f[48] = invalid_resume
-        v = np.zeros(57, dtype=np.float64)
+        f = np.zeros(46, dtype=np.uintp)
+        f[43] = cancel_before_thermal
+        f[44] = 0 if resume_cut is None else resume_cut + 1
+        f[45] = invalid_resume
+        v = np.zeros(56, dtype=np.float64)
         f[0] = ("Diamond", "Gyroid").index(cfg["tpms_type"])
         f[1:3] = [("air", "water", "sco2").index(cfg["fluid_type_"+s]) for s in "AB"]
         f[3:5] = [(cfg["fluid_"+s+"_cfg"] or {"dir": 3})["dir"] for s in "AB"]
@@ -84,19 +84,18 @@ class NativeFull3D:
             bool(cfg.get("force_cc_ltne", True)), bool(cfg.get("port_wall_refine", False)),
             bool(cfg.get("_native_rb_energy", np.prod(shape) > 30000))]
         f[19] = run_environment(cfg, "TPMSHX_SCO2_COMPRESSIBLE", "").lower() in ("1", "true", "yes")
-        f[20:25] = [bool(cfg.get("use_coarse_bootstrap", False)), bool(cfg.get("outer_anderson", False)),
-                    int(cfg.get("coarse_bootstrap_max_iter", 200)), int(cfg.get("outer_anderson_m", 3)),
-                    int(cfg.get("outer_anderson_patience", 3))]
-        f[25] = ("baseline", "norris_1a", "bhatti_shah_1b").index(cfg["roughness_resolved"]["mode"])
-        f[26] = ("raise", "warn", "off").index(cfg.get("envelope_mode", "raise"))
-        f[27:33] = [1, 100, bool(cfg.get("_native_sou", False)), bool(cfg.get("use_adaptive_amg_tol", True)),
+        f[20:22] = [bool(cfg.get("use_coarse_bootstrap", False)),
+                    int(cfg.get("coarse_bootstrap_max_iter", 200))]
+        f[22] = ("baseline", "norris_1a", "bhatti_shah_1b").index(cfg["roughness_resolved"]["mode"])
+        f[23] = ("raise", "warn", "off").index(cfg.get("envelope_mode", "raise"))
+        f[24:30] = [1, 100, bool(cfg.get("_native_sou", False)), bool(cfg.get("use_adaptive_amg_tol", True)),
                     bool(cfg.get("track_momentum_residual", False)), bool(cfg.get("_native_rb_simple", np.prod(shape) >= 200000))]
-        f[33:40] = [cfg.get("ltne_enthalpy_outer", 1500), cfg.get("ltne_enthalpy_nsweep", 25), 2, 5, 60,
+        f[30:37] = [cfg.get("ltne_enthalpy_outer", 1500), cfg.get("ltne_enthalpy_nsweep", 25), 2, 5, 60,
                     cfg.get("T_s_init") is not None, cancel_at]
         v[0:2] = [cfg["Lcell"]*1e-3, prepared["geometry"]["D_h"]]
         for s, side in enumerate("AB"):
             axis = prepared["axes"][side]
-            f[40+3*s:43+3*s] = [axis[k+"_real_axis"] for k in ("cross1", "stream", "cross2")]
+            f[37+3*s:40+3*s] = [axis[k+"_real_axis"] for k in ("cross1", "stream", "cross2")]
             v[2+3*s:5+3*s] = [cfg["T_in"+side], cfg["P_in"+side], cfg["u_"+side]]
             ports = (_port_rectangles(cfg["fluid_"+side+"_cfg"], float(sum(axis["dcross2"])))
                      if cfg["fluid_"+side+"_cfg"] is not None else {"inlet_rect": (0., 1., 0., 1.), "outlet_rect": (0., 1., 0., 1.)})
@@ -107,10 +106,10 @@ class NativeFull3D:
             nu = cfg["sco2_nu"]
             v[30+s] = (getattr(nu, "alpha_D" if f[0] == 0 else "alpha_G") if nu.mode == "experimental" else 1.)
             v[32+4*s:36+4*s] = thermal["side_geometry"][side] if f[7] else (1., 1., 1., 1.)
-        v[40:45] = [cfg.get("outer_tol_K") if cfg.get("outer_tol_K") is not None else .5,
-                   cfg.get("ltne_alpha_T", .7), cfg.get("outer_anderson_trust", 5.),
+        v[40:44] = [cfg.get("outer_tol_K") if cfg.get("outer_tol_K") is not None else .5,
+                   cfg.get("ltne_alpha_T", .7),
                    cfg["roughness_resolved"]["eps_m"], cfg.get("T_s_init") or 0.]
-        v[45:57] = [.5, .2, .3, .05, cfg.get("mom_tol") or 1e-4,
+        v[44:56] = [.5, .2, .3, .05, cfg.get("mom_tol") or 1e-4,
                    cfg.get("mass_local_tol") or 1e-6, cfg.get("mass_global_tol") or 1e-6,
                    .01, 1e-4, 1e-3, cfg.get("ltne_enthalpy_omega", .6), cfg.get("ltne_enthalpy_tol", 1e-3)]
         dp = ctypes.POINTER(ctypes.c_double)
@@ -333,8 +332,8 @@ def test_true_h_cell_centered_3d_retains_g4_warmup(native, same_thermal):
 
 
 @pytest.mark.parametrize("pair", ["air-air", "air-water"])
-def test_outer_anderson_property_order(native, same_thermal, pair):
-    cfg, p = prepared(pair, outer_anderson=True)
+def test_outer_property_order(native, same_thermal, pair):
+    cfg, p = prepared(pair)
     assert_equivalent(native.run(cfg, p), reference(cfg, p, thermal=same_thermal))
 
 
@@ -482,7 +481,7 @@ def test_coarse_bootstrap_preserves_physical_ports_and_fine_gate(native, same_th
 @pytest.mark.parametrize("pair", ["air-air", "water-air", "sco2-water"])
 @pytest.mark.parametrize("cut", [0, 1, 2, 3])
 def test_outer_boundary_resume_keeps_complete_trajectory(native, pair, cut):
-    cfg, p = prepared(pair, counts=(3, 4, 2), outer_anderson=True)
+    cfg, p = prepared(pair, counts=(3, 4, 2))
     p["max_outer"] = 3
     continuous = native.run(cfg, p)
     resumed = native.run(cfg, p, resume_cut=cut)

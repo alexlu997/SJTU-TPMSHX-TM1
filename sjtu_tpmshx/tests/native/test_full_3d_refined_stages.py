@@ -21,11 +21,11 @@ import pytest
 from sjtu_tpmshx.solvers import anderson_acceleration as anderson
 from sjtu_tpmshx.tests.native import test_full_3d as full
 from sjtu_tpmshx.tests.native import test_model_h_3d as model_h
-from sjtu_tpmshx.tests.native import test_native_outer_anderson as outer
+from sjtu_tpmshx.tests.native import test_anderson_candidate as candidate
 
 native_full = full.native
 native_thermal = model_h.native
-native_candidate = outer.native
+native_candidate = candidate.native
 
 
 class _FirstThermalEntry(BaseException):
@@ -199,9 +199,9 @@ def test_refined_first_chunk_same_history_candidates(
     evidence = Path(tempfile.mkdtemp(prefix="qualification-", dir=evidence_root))
     original_candidate = anderson.AndersonSIMPLE.candidate
     original_advance = anderson.advance_energy
-    call = native_candidate.lib.test_anderson_candidate
-    call.argtypes = [outer.S, outer.S, outer.D, outer.D, outer.D, ct.c_double,
-                     outer.D, ct.POINTER(ct.c_int), outer.C, outer.S]
+    call = native_candidate.test_anderson_candidate
+    call.argtypes = [candidate.S, candidate.S, candidate.D, candidate.D, candidate.D, ct.c_double,
+                     candidate.D, ct.POINTER(ct.c_int), candidate.C, candidate.S]
     call.restype = ct.c_int
     records, step_calls = [], []
     stage_records = []
@@ -221,9 +221,9 @@ def test_refined_first_chunk_same_history_candidates(
         expected, expected_applied = original_candidate(accelerator, image)
         actual = np.full_like(g, np.nan)
         applied, error = ct.c_int(), ct.create_string_buffer(512)
-        code = call(*x.shape, x.ctypes.data_as(outer.D), residual.ctypes.data_as(outer.D),
-                    g.ctypes.data_as(outer.D), accelerator.cond_max,
-                    actual.ctypes.data_as(outer.D), ct.byref(applied), error, len(error))
+        code = call(*x.shape, x.ctypes.data_as(candidate.D), residual.ctypes.data_as(candidate.D),
+                    g.ctypes.data_as(candidate.D), accelerator.cond_max,
+                    actual.ctypes.data_as(candidate.D), ct.byref(applied), error, len(error))
         failure = None
         try:
             assert code == 0, error.value.decode()
@@ -323,7 +323,7 @@ def test_refined_first_chunk_same_history_candidates(
                        requested_chunk=250, requested_sweeps=requested,
                        chunk_calls=chunk_calls, chunk_residual=chunk_residual,
                        platform=sys.platform, numpy_version=np.__version__,
-                       native_library=str(native_candidate.lib._name),
+                       native_library=str(native_candidate._name),
                        short_stage_records=stage_records,
                        candidate_records=records, step_calls=step_calls)
         if any(row["failure"] is not None for row in records + stage_records):
