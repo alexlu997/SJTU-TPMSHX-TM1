@@ -242,7 +242,7 @@ def evaluate_condition_batch(
     Native runs save checkpoints at safe boundaries with a 60-second interval.
     ``workers=None`` selects up to four native processes within the CPU limit.
     Automatic allocation keeps at least two CPU slots per worker when available.
-    Set ``workers=1`` for serial execution. Python always uses one worker.
+    Set ``workers=1`` for serial execution.
     Callbacks run in the parent. The return value adds
     in-memory ``results`` to the JSON record in the requested order.
     """
