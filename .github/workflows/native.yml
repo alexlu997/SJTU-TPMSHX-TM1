@@ -273,7 +273,7 @@ jobs:
       fail-fast: false
       matrix:
         python: ${{ fromJSON(inputs.os == 'macos-14' && '["3.13"]' || '["3.12","3.13"]') }}
-        part: [fast-0, fast-1, integration]
+        part: [fast-0, fast-1]
     runs-on: ${{ inputs.os }}
     timeout-minutes: 60
     env:
@@ -291,7 +291,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Activate MSVC for native tests
-        if: runner.os == 'Windows' && startsWith(matrix.part, 'fast-')
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
@@ -372,7 +372,6 @@ jobs:
                   output.write(f'{name}={path.resolve().as_posix()}\n')
           PY
       - name: Fetch locked Eigen headers for native temperature tests
-        if: startsWith(matrix.part, 'fast-')
         shell: bash
         run: '"$CI_PYTHON" scripts/build_native_dependencies.py fetch-eigen'
       - name: Build and run independent C and C++ callers on macOS
@@ -390,28 +389,38 @@ jobs:
           install-mesa3d-offscreen: 'false'
           pyvista: 'false'
       - name: Run fast test subset
-        if: startsWith(matrix.part, 'fast-')
         shell: bash
         run: >-
           "$CI_PYTHON" -m pytest sjtu_tpmshx/tests/ -q -ra
           -m "not slow and not heavy" --ignore=sjtu_tpmshx/tests/integration_tm1
           -n 2 --dist worksteal --max-worker-restart=0
-          -p sjtu_tpmshx.tests.ci_shard --ci-manifest=.cache/ci/fast-manifest
+          -p sjtu_tpmshx.tests.ci_shard --ci-manifest=.cache/ci/fast/fast-manifest
           --ci-covered-modules=sjtu_tpmshx/tests/native/_ci_suite.txt
           --ci-shard=${{ matrix.part == 'fast-0' && '0' || '1' }}
           --timeout=600 --timeout-method=thread
-          --durations=30 --junitxml=.cache/ci/fast.xml
+          --durations=30 --junitxml=.cache/ci/fast/fast.xml
+      - name: Save fast test outcomes and timings
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-reports-${{ inputs.os }}-py${{ matrix.python }}-${{ matrix.part }}
+          path: .cache/ci/fast/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
       - name: Run real public module integration
-        if: matrix.part == 'integration'
+        id: integration
+        # Keep integration evidence when fast tests fail.
+        if: ${{ !cancelled() && matrix.part == 'fast-1' }}
         shell: bash
         run: >-
           "$CI_PYTHON" -m pytest sjtu_tpmshx/tests/integration_tm1 -q -ra
-          -p sjtu_tpmshx.tests.ci_shard --ci-manifest=.cache/ci/integration-manifest
+          -p sjtu_tpmshx.tests.ci_shard --ci-manifest=.cache/ci/integration/integration-manifest
           --basetemp=.cache/real-file-handoff
           --timeout=600 --timeout-method=thread
-          --durations=30 --junitxml=.cache/ci/integration.xml
+          --durations=30 --junitxml=.cache/ci/integration/integration.xml
       - name: Save real native result files for isolated postprocessing
-        if: runner.os == 'macOS' && matrix.part == 'integration'
+        if: ${{ !cancelled() && runner.os == 'macOS' && steps.integration.outcome == 'success' }}
         uses: actions/upload-artifact@v7
         with:
           name: real-file-handoff
@@ -423,12 +432,12 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 7
-      - name: Save test outcomes and timings
-        if: always()
+      - name: Save integration outcomes and timings
+        if: always() && matrix.part == 'fast-1'
         uses: actions/upload-artifact@v7
         with:
-          name: test-reports-${{ inputs.os }}-py${{ matrix.python }}-${{ matrix.part }}
-          path: .cache/ci/
+          name: test-reports-${{ inputs.os }}-py${{ matrix.python }}-integration
+          path: .cache/ci/integration/
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 7
