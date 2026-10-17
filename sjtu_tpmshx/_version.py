@@ -1,3 +1,3 @@
 """Application version shared through sjtu_tpmshx._version and setuptools."""
 
-__version__ = "1.5.0"
+__version__ = "0.1.0"

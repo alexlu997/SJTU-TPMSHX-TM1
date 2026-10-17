@@ -14,6 +14,9 @@ Python/Numba 与 C++ 都作为正式后端维护，默认使用 Python。两者�
 完整 2D/3D 计算和快速设计，通过相同的准备态与结果接口连接 GUI、CLI 和优化。
 本轮维护平台为 macOS arm64 与 Windows x64；Linux 服务器部署暂不开展。
 
+[v0.1.0](https://github.com/alexlu997/SJTU-TPMSHX-TM1/releases/tag/v0.1.0) 是首个 GitHub 源码发布版本，保留 Python 与 C++ 双后端。
+发布包包含两套求解器源码；C++ 运行需要按本文说明构建本机原生库。
+
 矩形 2D/3D 三模块主线的 M-A 合并验收已记录；M-B 扩展能力继续单独追踪。
 历史 B40 失败与物理适用范围仍须保留。当前结论见
 [能力范围与未完成事项](docs/capabilities.md)；

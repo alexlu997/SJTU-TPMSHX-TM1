@@ -8,6 +8,9 @@ TM1 separates TPMS heat-exchanger preprocessing, solving, and postprocessing int
 
 Python/Numba and C++ are both maintained backends. Python stays the default. Both support existing full 2D/3D computation and Quick Design. Shared prepared-data and result interfaces connect them to GUI, CLI, and optimization. Maintenance in this round covers macOS arm64 and Windows x64. Linux server deployment is deferred.
 
+[v0.1.0](https://github.com/alexlu997/SJTU-TPMSHX-TM1/releases/tag/v0.1.0) is the first GitHub source release. It keeps both Python and C++ backends.
+The release archives contain both solvers. Build the native library for your platform before you use the C++ backend. See the instructions below.
+
 M-A merge acceptance for the rectangular 2D/3D three-module mainline is recorded. M-B extensions stay separately tracked. Historical B40 failures and physical applicability limits stay. See [capabilities and open work](docs/capabilities.en.md) for current conclusions. The [fixed history index](docs/history/README.en.md) keeps original plans, handoff records, and node evidence.
 
 <a id="从这里开始"></a>
