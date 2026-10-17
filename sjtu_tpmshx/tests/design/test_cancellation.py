@@ -27,6 +27,11 @@ def test_sizing_stops_between_forward_solves(monkeypatch):
 def test_sizing_cancels_inside_forward(monkeypatch, stage):
     execution = importlib.import_module(
         'sjtu_tpmshx.solvers.backends.cpp.quick_design')
+    preparation = importlib.import_module(
+        'sjtu_tpmshx.preprocess.app_modes.quick_design')
+    # A small grid keeps the cancellation path within the CI time limit.
+    monkeypatch.setattr(preparation, 'NX', 8)
+    monkeypatch.setitem(preparation._ARR, 'cross', {**preparation._ARR['cross'], 'ny': 6})
     calls = []
     requested = False
     cancellation_index = None
