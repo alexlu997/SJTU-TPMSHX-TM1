@@ -1,5 +1,6 @@
 """Spawned condition workers keep callbacks, archives and failures separate."""
 from dataclasses import replace
+from functools import partial
 import json
 import os
 from pathlib import Path
@@ -15,7 +16,7 @@ from sjtu_tpmshx.optimization import multi_condition as batch
 from sjtu_tpmshx.tests.test_multi_condition_batch import _baseline, _conditions, _native
 
 
-def _analytic_worker(index, case_file, directory, library, threads, checkpoint_file=None):
+def _analytic_worker(index, case_file, directory, library, threads, checkpoint_file=None, *, crash_delay_s=0.):
     from sjtu_tpmshx.workflows import recovery
 
     def solve(case, control, *, checkpoint, checkpoint_due, resume_state):
@@ -42,12 +43,14 @@ def _analytic_worker(index, case_file, directory, library, threads, checkpoint_f
             error.add_note('retained worker diagnostic detail')
             raise error
         if label == 'crash':
+            sleep(crash_delay_s)
             os._exit(17)
         inputs = json.loads((Path(directory).parent / 'batch-input.json').read_text())
         waits_for_cancel = label == 'stop' or (label == 'mid' and inputs[0]['condition_id'] in ('stop', 'crash'))
         if waits_for_cancel and resume_state is None:
             deadline = monotonic()+10.
-            while monotonic() < deadline:
+            # Keep the peer active until the crash breaks the pool.
+            while inputs[0]['condition_id'] == 'crash' or monotonic() < deadline:
                 control.check_cancelled()
                 sleep(.01)
             raise TimeoutError('The parent did not cancel the test worker.')
@@ -186,9 +189,10 @@ def test_completed_batch_replay_retains_objectives_without_workers(tmp_path, mon
     assert [item[1].result_id for item in result['results']] == [item[1].result_id for item in original['results']]
 
 
-def test_worker_exit_keeps_last_complete_checkpoint(tmp_path, monkeypatch):
+@pytest.mark.parametrize('crash_delay_s', [0., 10.5])
+def test_worker_exit_keeps_last_complete_checkpoint(tmp_path, monkeypatch, crash_delay_s):
     from concurrent.futures.process import BrokenProcessPool
-    monkeypatch.setattr(batch, '_run_native_condition', _analytic_worker)
+    monkeypatch.setattr(batch, '_run_native_condition', partial(_analytic_worker, crash_delay_s=crash_delay_s))
     conditions = _conditions()
     conditions[0] = ('crash', *conditions[0][1:])
     root = tmp_path / 'worker-exit'
@@ -199,6 +203,7 @@ def test_worker_exit_keeps_last_complete_checkpoint(tmp_path, monkeypatch):
     assert record['conditions'][2]['status'] == 'not_run'
     assert all(row['status'] not in ('running', 'computed') for row in record['conditions'])
     assert (root / 'condition_001/run/checkpoint.h5').is_file()
+    assert not (root / 'condition_003').exists()
 
 
 def test_parent_callback_error_is_retained_after_workers_stop(tmp_path, monkeypatch):
