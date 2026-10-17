@@ -37,6 +37,10 @@ def _render_panel(destination):
                          dx=np.full(8, .001), dy=np.full(6, .001), dz=np.full(4, .001))
         assert panel._volume_actor is not None
         print('Volume ready', flush=True)
+        context = {'qt_platform': platform,
+                   'render_window': panel.plotter.ren_win.GetClassName(),
+                   'capabilities': panel.plotter.ren_win.ReportCapabilities()}
+        (output / 'context.json').write_text(json.dumps(context, indent=2) + '\n')
         loop = QEventLoop()
         QTimer.singleShot(250, loop.quit)
         loop.exec()
@@ -98,12 +102,14 @@ def test_actual_volume_scaled_screenshot_and_application_export():
     environment = {**os.environ, 'QT_QPA_PLATFORM': platform, 'PYVISTA_OFF_SCREEN': 'false'}
     if sys.platform == 'win32':
         environment['QT_OPENGL'] = 'desktop'
-    result = subprocess.run(
-        [sys.executable, '-c',
-         'import faulthandler, sys; faulthandler.dump_traceback_later(60); '
-         'from sjtu_tpmshx.tests.test_real_3d_render import _render_panel; '
-         '_render_panel(sys.argv[1])', str(Path('.cache/ci/fast/render').resolve())],
-        env=environment,
-        capture_output=True, text=True, timeout=120,
-    )
-    assert result.returncode == 0, (result.returncode, result.stdout, result.stderr)
+    output = Path('.cache/ci/fast/render').resolve()
+    output.mkdir(parents=True, exist_ok=True)
+    with (output / 'process.log').open('w') as log:
+        result = subprocess.run(
+            [sys.executable, '-c',
+             'import faulthandler, sys; faulthandler.dump_traceback_later(60); '
+             'from sjtu_tpmshx.tests.test_real_3d_render import _render_panel; '
+             '_render_panel(sys.argv[1])', str(output)],
+            env=environment, stdout=log, stderr=subprocess.STDOUT, timeout=120,
+        )
+    assert result.returncode == 0, (result.returncode, (output / 'process.log').read_text())
