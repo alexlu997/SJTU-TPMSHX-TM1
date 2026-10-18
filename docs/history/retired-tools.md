@@ -2,6 +2,21 @@
 
 各节注明各自的历史提交与现行承接。
 
+<a id="pyfluent-template-retirement"></a>
+
+## 未完成的 PyFluent 模板退役（2026-10-17）
+
+用户确认暂无使用计划后，退役 `runs/cfd_asym/asym_pyfluent_runner.py`。
+仓库内没有其他代码调用它；它也不是安装后的公开命令入口。
+该模板未完成网格单位、周期配对、流体单元区赋材、初始化和收敛验收，
+不构成已验证的 CFD 执行能力。原源码保留在
+[51204406](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/51204406d377c28c0b5431459f5109e609f6caae/sjtu_tpmshx/runs/cfd_asym/asym_pyfluent_runner.py)。
+
+CFD 设计矩阵、工况表、nTop 表达式、几何诊断和原始数据继续保留。
+外部 CFD 工作流可继续按原字段约定提供 CSV，由
+[asym_postproc_kappa](../../sjtu_tpmshx/runs/cfd_asym/asym_postproc_kappa.py) 拟合与后处理。
+其配对 CFD 分母、研究注册范围和已有结果含义不变；不新增 Fluent 替代执行器。
+
 ## 配置与固定计划工具收尾（2026-10-02）
 
 新配置及其计算、优化快照不再生成旧 `optimizer` 段；从历史配置读入或显式提供的

@@ -1,7 +1,7 @@
 """asym_postproc_kappa.py — Phase-1 asym-porosity CFD post-processing.
 
-Reads the PyFluent results CSV (one row per case × side × Re, with the measured
-internal-plane pressures filled in), then in one pass:
+Reads a CFD results CSV with one row per case, side, and Re.
+Each row supplies the internal-plane pressure drop for these operations:
 
   1. DF fit  — per (tpms, split, side) fit the Darcy-Forchheimer law over the Re
                sweep:   dp_core / L_core = (μ/K)·Um + c_F·ρ·Um²
@@ -15,7 +15,7 @@ internal-plane pressures filled in), then in one pass:
      common numerical/model biases are not guaranteed to cancel. This differs
      from ingest_cfd_kappa, whose denominator is the symmetric model predictor.
 
-Input CSV columns (the contract PyFluent must emit — see asym_pyfluent_runner.py):
+Input CSV columns from the external CFD workflow:
     tpms|lattice, split_r, side, Re, Um_m_s, rho, mu, Dh_m|Dh_mm,
     eps_side, eps_sym, dp_core_Pa, L_core_m|core_mm
 

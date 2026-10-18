@@ -67,9 +67,9 @@ Phase 3 核算热模型的熵产（W/K），不含压力／黏性贡献。它使
 也可用`--out-dir`指定目录，不再覆盖`data/shanghai_lumped_dual_nu.csv`。
 `benchmark_sou_3d` 已随 Python 专用研究入口退役；历史压降记录保留原定义。
 
-`asym_pyfluent_runner` 是未完成的压降研究模板。网格单位、周期配对、流体单元区
-赋材和初始化仍需按实际网格及 Fluent 版本配置。它在固定迭代数后读取压力，
-没有收敛验收，也不建立共轭传热模型。PyFluent 是默认锁定环境之外的依赖。
+未完成的 `asym_pyfluent_runner` 模板已[退役](history/retired-tools.md#pyfluent-template-retirement)。
+CFD 工况表和 nTop 表达式继续保留。Fluent 算例须在仓库外配置并验证；本仓库不提供 Fluent 批量执行入口。
+结果 CSV 继续由 [asym_postproc_kappa](../sjtu_tpmshx/runs/cfd_asym/asym_postproc_kappa.py) 处理，字段约定不变。
 
 | 工具 | 输入 → 输出 | 运行方式与状态 |
 | --- | --- | --- |
@@ -77,7 +77,7 @@ Phase 3 核算热模型的熵产（W/K），不含压力／黏性贡献。它使
 | [runs/smokes/](../sjtu_tpmshx/runs/smokes/) | 内置样例 → 控制台及脚本声明的诊断文件 | `python -m sjtu_tpmshx.runs.smokes.<模块名>`；GUI 无显示运行须用 `QT_QPA_PLATFORM=offscreen` |
 | [runs/demos/](../sjtu_tpmshx/runs/demos/) | 内置 3D 工况 → 控制台/可视化 | `python -m sjtu_tpmshx.runs.demos.<模块名>`；交互图形依赖桌面，示例不扩大支持域 |
 | [CFD 工况清单](../sjtu_tpmshx/runs/tools/asym_build_cfd_worklist_xlsx.py) → [nTop 表达式](../sjtu_tpmshx/runs/cfd_asym/asym_ntop_expressions_html.py) | 内置几何/流体 + 可选私有 `water_DG_cfd_results_legacy.xlsx` → XLSX → HTML | 顺序运行下方两条命令；两个工具共用输出目录。旧工作簿由本地数据目录提供；缺文件时 `r1_water_ref` 页保留跳过说明，不补造锚点 |
-| [asym CFD/诊断工具](../sjtu_tpmshx/runs/cfd_asym/)、[diagnostics/](../sjtu_tpmshx/runs/diagnostics/) | 脚本声明的几何、场/CFD 文件 → 研究结果 | `python -m sjtu_tpmshx.runs.<子目录>.<模块名>`；Fluent 和私有输入文件须单独准备；PyFluent 模板的未完成项见上文 |
+| [asym CFD/诊断工具](../sjtu_tpmshx/runs/cfd_asym/)、[diagnostics/](../sjtu_tpmshx/runs/diagnostics/) | 脚本声明的几何、场/CFD 文件 → 研究结果 | `python -m sjtu_tpmshx.runs.<子目录>.<模块名>`；CFD 计算和私有输入文件须在外部准备，仓库保留表格生成、诊断与 CSV 后处理 |
 | [scripts/](../scripts/) | 已配置环境/测试选择 → 测试日志 | 两个 PowerShell 测试入口；仓库路径取脚本位置，解释器读取 `.venv-path`，`-LockFile` 选择依赖锁，不自动安装依赖 |
 | [D76 Nu/ε-NTU 历史Q比较](../sjtu_tpmshx/validation/cases/validate_sco2_d76.py) | 6 个固定 D-7-6 工况/私有 Excel → smooth-CFD Nu + lumped Q 对照 | `python -m sjtu_tpmshx.validation.cases.validate_sco2_d76`；保留原15%最大绝对相对Q误差门，退出码0通过、1未通过；不验证当前有效Nu系数 |
 | [水 Nu 现存表验证](../sjtu_tpmshx/validation/cases/validate_water_nu_excel.py) | 1879 条 legacy 水 CFD 结果 → 逐行、拓扑、几何、Re 分段误差 | `python -m sjtu_tpmshx.validation.cases.validate_water_nu_excel --out .cache/water-nu-validation`；固定现行关联式，退出码 0 通过、2 精度未通过，数据错误直接报错 |
