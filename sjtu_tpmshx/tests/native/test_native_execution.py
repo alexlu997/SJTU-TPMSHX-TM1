@@ -12,6 +12,7 @@ from sjtu_tpmshx.postprocess.api import evaluate
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.api import run_case
 from sjtu_tpmshx.tests.integration_tm1.test_public_api import assert_slots
+from sjtu_tpmshx.tests.native.shared_library import library_path
 
 
 def _config(dimension, air_sco2=False):
@@ -37,8 +38,7 @@ def _config(dimension, air_sco2=False):
 
 @pytest.fixture(scope='module')
 def native_path():
-    from sjtu_tpmshx.tests.native.test_cpp_full_3d import native_path as fixture
-    return fixture.__wrapped__()
+    return library_path()
 
 
 @pytest.mark.parametrize('dimension', [2, 3])
