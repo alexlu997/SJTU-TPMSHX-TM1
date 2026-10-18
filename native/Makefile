@@ -22,7 +22,7 @@ shared: $(BUILD_DIR)/libtpmshx_thermal.$(SHARED_SUFFIX)
 check-eigen:
 	@test -f "$(TPMSHX_EIGEN_INCLUDE)/Eigen/SparseLU" || { printf '%s\n' "Missing Eigen/SparseLU in $(TPMSHX_EIGEN_INCLUDE); set TPMSHX_EIGEN_INCLUDE to the existing locked Eigen headers." >&2; exit 1; }
 
-$(BUILD_DIR)/enthalpy_sweeps.o: native/src/enthalpy_sweeps.cpp native/include/tpmshx/enthalpy_sweeps.hpp native/include/tpmshx/finite_volume.hpp
+$(BUILD_DIR)/enthalpy_sweeps.o: native/src/enthalpy_sweeps.cpp native/src/energy_fv_rows.hpp native/include/tpmshx/conservative_energy.hpp native/include/tpmshx/enthalpy_sweeps.hpp native/include/tpmshx/finite_volume.hpp
 	mkdir -p $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -I native/include -c $< -o $@
 
@@ -30,7 +30,7 @@ $(BUILD_DIR)/thermal_c_api.o: native/src/thermal_c_api.cpp native/include/tpmshx
 	mkdir -p $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -I native/include -c $< -o $@
 
-$(BUILD_DIR)/temperature_driver.o: native/src/temperature_driver.cpp native/src/temperature_active_line.hpp native/src/temperature_faces.hpp native/src/energy_fv_rows.hpp native/include/tpmshx/temperature_driver.hpp native/include/tpmshx/conservative_energy.hpp native/include/tpmshx/enthalpy_sweeps.hpp native/include/tpmshx/finite_volume.hpp | check-eigen
+$(BUILD_DIR)/temperature_driver.o: native/src/temperature_driver.cpp native/src/temperature_run_state.hpp native/src/temperature_active_line.hpp native/src/temperature_faces.hpp native/src/energy_fv_rows.hpp native/include/tpmshx/temperature_driver.hpp native/include/tpmshx/conservative_energy.hpp native/include/tpmshx/enthalpy_sweeps.hpp native/include/tpmshx/finite_volume.hpp | check-eigen
 	mkdir -p $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) $(EIGEN_CPPFLAGS) -I native/include -c $< -o $@
 
@@ -41,7 +41,7 @@ $(BUILD_DIR)/conservative_energy.o: native/src/conservative_energy.cpp native/sr
 $(BUILD_DIR)/libtpmshx_thermal.a: $(BUILD_DIR)/enthalpy_sweeps.o $(BUILD_DIR)/thermal_c_api.o $(BUILD_DIR)/temperature_driver.o $(BUILD_DIR)/conservative_energy.o
 	$(AR) rcs $@ $^
 
-$(BUILD_DIR)/libtpmshx_thermal.$(SHARED_SUFFIX): native/src/enthalpy_sweeps.cpp native/src/thermal_c_api.cpp native/src/temperature_driver.cpp native/src/conservative_energy.cpp native/src/temperature_active_line.hpp native/src/temperature_faces.hpp native/src/energy_fv_rows.hpp native/include/tpmshx/conservative_energy.hpp native/include/tpmshx/enthalpy_sweeps.hpp native/include/tpmshx/finite_volume.hpp native/include/tpmshx/thermal_c_api.h native/include/tpmshx/temperature_driver.hpp | check-eigen
+$(BUILD_DIR)/libtpmshx_thermal.$(SHARED_SUFFIX): native/src/enthalpy_sweeps.cpp native/src/thermal_c_api.cpp native/src/temperature_driver.cpp native/src/conservative_energy.cpp native/src/temperature_run_state.hpp native/src/temperature_active_line.hpp native/src/temperature_faces.hpp native/src/energy_fv_rows.hpp native/include/tpmshx/conservative_energy.hpp native/include/tpmshx/enthalpy_sweeps.hpp native/include/tpmshx/finite_volume.hpp native/include/tpmshx/thermal_c_api.h native/include/tpmshx/temperature_driver.hpp | check-eigen
 	mkdir -p $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) $(EIGEN_CPPFLAGS) -fPIC $(SHARED_LDFLAGS) -I native/include native/src/enthalpy_sweeps.cpp native/src/thermal_c_api.cpp native/src/temperature_driver.cpp native/src/conservative_energy.cpp -o $@
 
