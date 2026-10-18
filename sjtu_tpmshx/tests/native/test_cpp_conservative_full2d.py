@@ -5,7 +5,6 @@ Frozen gates: model/EOS h rtol=2e-12/atol=2e-7 J/kg; K rtol=2e-12/atol=2e-12;
 native/portable signed Q rtol=2e-10/atol=2e-7 W/m. Native acceptance is unchanged.
 """
 from dataclasses import replace
-import os
 from pathlib import Path
 import subprocess
 import sys
@@ -26,6 +25,7 @@ from sjtu_tpmshx.solvers.api import run_case
 from sjtu_tpmshx.solvers.backends.cpp.full_2d import NativeFull2DDriver
 from sjtu_tpmshx.solvers.backends.cpp.full_2d_capture import capture_result
 from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
+from sjtu_tpmshx.tests.native.shared_library import library_path
 
 ROOT = Path(__file__).resolve().parents[3]
 VERSIONS = {'temperature_fou': 1, 'temperature_sou': 2}
@@ -33,15 +33,7 @@ VERSIONS = {'temperature_fou': 1, 'temperature_sou': 2}
 
 @pytest.fixture(scope='module')
 def driver():
-    host = 'windows-x64' if os.name == 'nt' else 'macos-arm64'
-    name = 'tpmshx_solver_shared.dll' if os.name == 'nt' else 'libtpmshx_solver_shared.dylib'
-    path = Path(os.environ.get('TPMSHX_NATIVE_SOLVER_LIBRARY',
-        ROOT / '.cache/native-deps/build' / ('pilot-' + host) / name))
-    if not path.is_file():
-        if os.environ.get('TPMSHX_REQUIRE_NATIVE_DEPS_TESTS') == '1':
-            pytest.fail(f'native full library unavailable: {path}')
-        pytest.skip(f'native full library unavailable: {path}')
-    return NativeFull2DDriver(path, table_directory=ROOT / '.cache/native-deps/tables')
+    return NativeFull2DDriver(library_path(), table_directory=ROOT / '.cache/native-deps/tables')
 
 
 def configuration(algorithm, *, outer=2, partial=True, directions=(0, 3)):

@@ -28,7 +28,7 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side as XLSide
 from openpyxl.utils import get_column_letter
 
 from sjtu_tpmshx.models.tpms_geometry import _phi_grid, _C_from_tL
-from sjtu_tpmshx.models.asym_geometry import delta_for_split, eps_sides, a0_sides_mc, dh_sides, percolates_z
+from sjtu_tpmshx.runs.tools.asym_cfd_geometry import split_geometry
 
 # ── finalized design parameters ──────────────────────────────────
 N = 128
@@ -58,32 +58,21 @@ CTR = Alignment(horizontal="center", vertical="center")
 
 
 def _geom():
-    """Compute per (tpms, split) geometry. Returns list of dict rows."""
+    """Return one geometry row for each reachable topology and split."""
     rows = []
     for tpms in TPMS:
         phi = _phi_grid(tpms, N)
         L_m = L_mm / 1000.0
         C = _C_from_tL(tpms, t_mm / L_mm)
         for r in SPLITS:
-            d = delta_for_split(phi, C, r)
-            if d is None:
+            geometry = split_geometry(phi, C, r, L_m, N)
+            if geometry is None:
                 print(f"[warn] {tpms} r={r} unreachable (pinch); skipped")
                 continue
-            eA, eB, eps = eps_sides(phi, C, d)
-            e_sym = 0.5 * eps
-            A0A, A0B = a0_sides_mc(phi, C, d, L_m, N)
-            DhA, DhB = dh_sides(phi, C, d, L_m, N, mc=True)
-            pA = percolates_z(phi < (d - C))
-            pB = percolates_z(phi > (d + C))
+            pA, pB = geometry.pop("pA"), geometry.pop("pB")
             rows.append(dict(
                 tpms=tpms, L_mm=L_mm, t_mm=t_mm, tL=round(t_mm / L_mm, 4),
-                C=round(C, 4), delta=round(d, 4),
-                phi_lo=round(d - C, 4), phi_hi=round(d + C, 4),
-                solid=round(1.0 - eps, 4), split_r=r,
-                eps_A=round(eA, 4), eps_B=round(eB, 4), eps_sym=round(e_sym, 4),
-                kr_A=round(eA / e_sym, 4), kr_B=round(eB / e_sym, 4),
-                A0_A=round(A0A, 1), A0_B=round(A0B, 1),
-                Dh_A_mm=round(DhA * 1e3, 4), Dh_B_mm=round(DhB * 1e3, 4),
+                **geometry,
                 conn=("OK" if (pA and pB) else ("cut-B" if not pB else "cut-A")),
                 label=f"{tpms}_L{int(L_mm)}_t{t_mm}_r{r:g}",
             ))

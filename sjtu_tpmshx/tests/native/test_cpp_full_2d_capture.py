@@ -2,7 +2,6 @@
 from collections.abc import Mapping
 from dataclasses import replace
 import os
-from pathlib import Path
 
 import numpy as np
 import pytest
@@ -16,21 +15,15 @@ from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.backends.cpp.full_2d import NativeFull2DDriver
 from sjtu_tpmshx.solvers.backends.cpp.full_2d_capture import capture_result
 from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
+from sjtu_tpmshx.tests.native.shared_library import library_path
 from sjtu_tpmshx.tests.native.test_full_2d import ROOT, configuration
 
 
 
 @pytest.fixture(scope='module')
 def driver():
-    host = 'windows-x64' if os.name == 'nt' else 'macos-arm64'
-    name = 'tpmshx_solver_shared.dll' if os.name == 'nt' else 'libtpmshx_solver_shared.dylib'
-    path = Path(os.environ.get('TPMSHX_NATIVE_SOLVER_LIBRARY', ROOT / '.cache/native-deps/build' / ('pilot-' + host) / name))
-    if not path.is_file():
-        if os.environ.get('TPMSHX_REQUIRE_NATIVE_DEPS_TESTS') == '1':
-            pytest.fail(f'native full library unavailable: {path}')
-        pytest.skip(f'native full library unavailable: {path}')
     # Full 2D and full 3D load the same library, which fixes one EOS directory.
-    return NativeFull2DDriver(path, table_directory=ROOT / '.cache/native-deps/tables')
+    return NativeFull2DDriver(library_path(), table_directory=ROOT / '.cache/native-deps/tables')
 
 
 def compare(actual, expected, path=''):

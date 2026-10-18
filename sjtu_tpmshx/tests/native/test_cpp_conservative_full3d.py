@@ -6,7 +6,6 @@ precision does not change the physical coupled/equation gates (0.001).
 """
 from collections.abc import Mapping
 from dataclasses import replace
-import os
 from pathlib import Path
 import subprocess
 import sys
@@ -24,6 +23,7 @@ from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.api import run_case
 from sjtu_tpmshx.solvers.backends.cpp.full_3d import NativeFull3DDriver
 from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
+from sjtu_tpmshx.tests.native.shared_library import library_path
 from sjtu_tpmshx.tests.native.test_native_execution import _config
 
 
@@ -35,15 +35,7 @@ FACES = ('x-', 'x+', 'y-', 'y+', 'z-', 'z+')
 
 @pytest.fixture(scope='module')
 def native_path():
-    host = 'windows-x64' if os.name == 'nt' else 'macos-arm64'
-    name = 'tpmshx_solver_shared.dll' if os.name == 'nt' else 'libtpmshx_solver_shared.dylib'
-    path = Path(os.environ.get('TPMSHX_NATIVE_SOLVER_LIBRARY',
-                               ROOT / '.cache/native-deps/build' / ('pilot-' + host) / name))
-    if not path.is_file():
-        if os.environ.get('TPMSHX_REQUIRE_NATIVE_DEPS_TESTS') == '1':
-            pytest.fail(f'native full library unavailable: {path}')
-        pytest.skip(f'native full library unavailable: {path}')
-    return path.resolve()
+    return library_path().resolve()
 
 
 @pytest.mark.parametrize('version', [1, 99])
