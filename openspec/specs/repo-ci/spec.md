@@ -16,7 +16,8 @@
 | application | 仅限声明的显示文件、图标和文档 | 平台应用测试、真实模块集成、BO、最小后处理及匹配的原生构建 |
 | full | 其他或混合变更；所有 main push 和手动运行 | 全部应用检查，加支持的平台/Python 矩阵中的完整原生依赖资格检查 |
 
-在 `PYTHONHASHSEED=0` 下，快测使用 `-m "not slow and not heavy"`，排除 `integration_tm1`，并采用 `-n 2 --dist worksteal`。
+在 `PYTHONHASHSEED=0` 下，快测使用 `-m "not slow and not heavy"`，排除 `integration_tm1`，并采用 `-n 2`。
+`fast-0` 使用 `--dist load --maxschedchunk=1`；`fast-1` 使用 `--dist worksteal`。
 现有 `ci_shard` 插件将快测分为两个独立作业。
 `fast-1` 作业随后在独立 pytest 进程中完整运行 `tests/integration_tm1/`，不加 marker 过滤。
 快测和集成 SHALL 保留各自报告；除非作业已取消，快测失败不得阻止集成执行。

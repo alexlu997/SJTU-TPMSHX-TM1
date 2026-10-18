@@ -393,7 +393,7 @@ jobs:
         run: >-
           "$CI_PYTHON" -m pytest sjtu_tpmshx/tests/ -q -ra
           -m "not slow and not heavy" --ignore=sjtu_tpmshx/tests/integration_tm1
-          -n 2 --dist worksteal --max-worker-restart=0
+          -n 2 ${{ matrix.part == 'fast-0' && '--dist load --maxschedchunk=1' || '--dist worksteal' }} --max-worker-restart=0
           -p sjtu_tpmshx.tests.ci_shard --ci-manifest=.cache/ci/fast/fast-manifest
           --ci-covered-modules=sjtu_tpmshx/tests/native/_ci_suite.txt
           --ci-shard=${{ matrix.part == 'fast-0' && '0' || '1' }}

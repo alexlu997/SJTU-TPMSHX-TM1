@@ -19,7 +19,8 @@ Installation MUST use the common exact lock referenced by `requirements.txt`.
 | application | Only declared display files, icons, and documentation | Platform application tests, real module integration, BO, minimal postprocessing, and the matching native build |
 | full | Other or mixed changes; all main pushes and manual runs | All application work plus complete native dependency qualification on the supported platform/Python matrix |
 
-With `PYTHONHASHSEED=0`, fast tests use `-m "not slow and not heavy"`, exclude `integration_tm1`, and run with `-n 2 --dist worksteal`.
+With `PYTHONHASHSEED=0`, fast tests use `-m "not slow and not heavy"`, exclude `integration_tm1`, and run with `-n 2`.
+`fast-0` uses `--dist load --maxschedchunk=1`; `fast-1` uses `--dist worksteal`.
 The existing `ci_shard` plugin splits them into two independent jobs.
 The `fast-1` job then runs all `tests/integration_tm1/` tests in a separate pytest process, without marker filtering.
 It MUST retain separate fast and integration reports. A fast-test failure MUST NOT suppress integration unless the job is cancelled.

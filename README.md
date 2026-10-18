@@ -517,7 +517,8 @@ export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_TH
 
 PowerShell 使用同样的 pytest 参数，以 `$env:变量名=值` 设置上述环境变量，
 并以 `& $tm1Python` 调用解释器。测试前必须提供匹配的原生库。
-CI 快测按完整模块分到两个独立 runner，每片固定两个 worker，使用 `worksteal` 平衡剩余测试。
+CI 快测按完整模块分到两个独立 runner，每片固定两个 worker。
+`fast-0` 使用 `load --maxschedchunk=1`，减少长耗时尺寸设计测试后方排队的工作；`fast-1` 使用 `worksteal`。
 每个 worker 的 BLAS/OMP 单线程。`fast-1` 的两个 worker 结束后，同一作业串行执行完整 integration。
 集成测试使用独立 pytest 进程、manifest 和 JUnit 报告；快测失败后仍执行，取消工作流时停止。
 三个平台/Python 组合分别复用各自环境，减少三个作业及其重复安装。
