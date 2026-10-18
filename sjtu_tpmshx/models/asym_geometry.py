@@ -129,6 +129,13 @@ def _richardson3(Ns, f):
     return f3 + d2 / (r ** p - 1.0)
 
 
+def dh_from_sides(eps_A: float, eps_B: float, A0_A: float, A0_B: float):
+    """Return side diameters [m] from porosity and area per volume [1/m]."""
+    Dh_A = 4.0 * eps_A / A0_A if A0_A > 0 else 0.0
+    Dh_B = 4.0 * eps_B / A0_B if A0_B > 0 else 0.0
+    return Dh_A, Dh_B
+
+
 def dh_sides(phi: np.ndarray, C: float, delta: float, L_m: float, N: int,
              mc: bool = False):
     """per-side 水力直径 [m]：D_h = 4·ε_side / A0_side（教科书 4，单股 sheet）。
@@ -139,9 +146,7 @@ def dh_sides(phi: np.ndarray, C: float, delta: float, L_m: float, N: int,
     eps_A, eps_B, _ = eps_sides(phi, C, delta)
     A0_A, A0_B = (a0_sides_mc(phi, C, delta, L_m, N) if mc
                   else a0_sides(phi, C, delta, L_m, N))
-    Dh_A = 4.0 * eps_A / A0_A if A0_A > 0 else 0.0
-    Dh_B = 4.0 * eps_B / A0_B if A0_B > 0 else 0.0
-    return Dh_A, Dh_B
+    return dh_from_sides(eps_A, eps_B, A0_A, A0_B)
 
 
 def percolates_z(mask: np.ndarray) -> bool:

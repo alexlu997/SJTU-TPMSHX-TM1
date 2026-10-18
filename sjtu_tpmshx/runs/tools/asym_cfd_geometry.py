@@ -1,7 +1,7 @@
 """Shared geometry fields for the two asymmetric CFD workbooks."""
 
 from sjtu_tpmshx.models.asym_geometry import (
-    a0_sides_mc, delta_for_split, dh_sides, eps_sides, percolates_z,
+    a0_sides_mc, delta_for_split, dh_from_sides, eps_sides, percolates_z,
 )
 
 
@@ -13,7 +13,7 @@ def split_geometry(phi, C, r, L_m, N):
     eA, eB, eps = eps_sides(phi, C, d)
     e_sym = 0.5 * eps
     A0A, A0B = a0_sides_mc(phi, C, d, L_m, N)
-    DhA, DhB = dh_sides(phi, C, d, L_m, N, mc=True)
+    DhA, DhB = dh_from_sides(eA, eB, A0A, A0B)
     return dict(
         C=round(C, 4), delta=round(d, 4),
         phi_lo=round(d - C, 4), phi_hi=round(d + C, 4),
