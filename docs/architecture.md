@@ -389,7 +389,7 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
   declared scalar inlets and adiabatic external boundaries. Their SOU outlet
   reconstruction differs from model-h.
 
-  They require a maximum temperature
+  The full 2D/3D controllers require a maximum temperature
   update in K and both explicit energy gates. Ordinary invalid PT states fail
   without clipping. SOU recipe 2 proposes six-sample Anderson updates before ordinary PT evaluation. It accepts only actual-PT/audit merit improvement. A rejected proposal keeps
   the ordinary path.
