@@ -151,6 +151,31 @@ def test_cli_preserves_saved_run_before_work(
         assert saved_marker.readlink() == tmp_path / 'missing-saved-state'
 
 
+@pytest.mark.parametrize('alias', [False, True])
+def test_cli_preserves_saved_native_library(tmp_path, capsys, native_stages, alias):
+    _, result, _, calls = native_stages
+    directory = tmp_path / 'saved-run'
+    runtime = directory / 'runtime'
+    runtime.mkdir(parents=True)
+    (directory / 'run.json').write_text('{}')
+    library = runtime / 'solver.dll'
+    library.write_bytes(b'saved native library')
+    target = runtime
+    if alias:
+        target = tmp_path / 'runtime-alias'
+        target.symlink_to(runtime, target_is_directory=True)
+    source = tmp_path / 'results.h5'
+    save_result(result, source)
+    with pytest.raises(SystemExit) as error:
+        main(['postprocess', str(source), str(target / library.name)])
+    assert error.value.code == 2
+    assert 'output belongs to a saved run; use a new directory' in capsys.readouterr().err
+    for call in calls:
+        call.assert_not_called()
+    assert library.read_bytes() == b'saved native library'
+    assert (directory / 'run.json').read_text() == '{}'
+
+
 @pytest.mark.parametrize('stage', ['prepare', 'solve', 'postprocess', 'run'])
 def test_cli_can_replace_independent_old_outputs(tmp_path, native_stages, stage):
     case, result, performance, _ = native_stages
