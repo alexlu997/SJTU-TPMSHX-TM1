@@ -385,6 +385,58 @@ void energy_run_checks() {
     std::cout<<"energy run continuation, HEOS finishing, ownership and invalid boundaries passed\n";
 }
 
+void scalar_inflow_checks() {
+    for(std::size_t axis=0;axis<3;++axis) for(int sign:{1,-1}) for(bool sou:{false,true}) {
+        Case directed(axis,sign,Fluid::air,Fluid::water);auto c=controls(sou);
+        const auto expected=solve_enthalpy(directed.grid(),directed.side(0),directed.side(1),
+            view(directed.solid_k),directed.state(),c);
+        Case scalar(axis,sign,Fluid::air,Fluid::water);scalar.direction={-1,-1};
+        const auto actual=solve_enthalpy(scalar.grid(),scalar.side(0),scalar.side(1),
+            view(scalar.solid_k),scalar.state(),c);
+        require_same_actual_solve(scalar,actual,directed,expected);
+        Case multiple(axis,sign,Fluid::air,Fluid::water);multiple.direction={-1,-1};
+        const auto transverse=(axis+1)%3;
+        for(auto& side:multiple.mass)std::fill(side[transverse].begin(),side[transverse].end(),.0001);
+        const auto solved=solve_enthalpy(multiple.grid(),multiple.side(0),multiple.side(1),
+            view(multiple.solid_k),multiple.state(),c);
+        require(solved.stop==EnthalpyStop::converged && solved.final_audit,
+                "scalar multiple-inlet solve did not converge");
+        require(solved.final_audit->coupled_ratio<=1e-7 && solved.final_audit->equation_ratio<=1e-7,
+                "scalar multiple-inlet energy gate failed");
+        for(std::size_t side=0;side<2;++side) {
+            const bool positive=side==0?sign>0:sign<0;
+            const std::size_t p=positive?4:0,q=positive?3:1;
+            double outlet=multiple.h[side][p];
+            if(sou)outlet+=(multiple.h[side][p]-multiple.h[side][q])
+                *multiple.width[axis][p]/(multiple.width[axis][p]+multiple.width[axis][q]);
+            double power=.005*(solved.inlet_enthalpy[side]-outlet);
+            for(double h:multiple.h[side])power+=.0001*(solved.inlet_enthalpy[side]-h);
+            require(same(power,side==0?solved.q_a:solved.q_b),
+                    "scalar multiple-inlet boundary power differs from independent sum");
+        }
+        if(!sou) {
+            auto legacy=multiple;auto h_control=c;h_control.algorithm=EnthalpyAlgorithm::legacy_h_fou;
+            const auto h_result=solve_enthalpy(legacy.grid(),legacy.side(0),legacy.side(1),
+                view(legacy.solid_k),legacy.state(),h_control);
+            require(h_result.stop==EnthalpyStop::converged,"scalar H reference did not converge");
+            for(std::size_t p=0;p<5;++p) {
+                for(std::size_t side=0;side<2;++side)
+                    require(std::abs(multiple.t[side][p]-legacy.t[side][p])<=1e-6,
+                            "scalar FOU T/H fluid states differ");
+                require(std::abs(multiple.solid[p]-legacy.solid[p])<=1e-6,
+                        "scalar FOU T/H solid states differ");
+            }
+        }
+    }
+    for(int direction:{-2,6}) {
+        Case invalid(0,1,Fluid::air,Fluid::water);invalid.direction[0]=direction;
+        auto c=controls(true);
+        rejects<std::invalid_argument>([&] {solve_enthalpy(invalid.grid(),invalid.side(0),invalid.side(1),
+            view(invalid.solid_k),invalid.state(),c);},"invalid scalar inlet direction was accepted");
+    }
+    std::cout<<"scalar inlet states, multiple inflows and independent boundary powers passed\n";
+}
+
 }  // namespace
 
 int main(int argc,char** argv) {
@@ -392,6 +444,7 @@ int main(int argc,char** argv) {
         require(argc<=2,"expected one optional CPU thread count");
         if(argc==2)cpu_threads=std::stoul(argv[1]);
         require(cpu_threads>0,"CPU thread count must be positive");
+        scalar_inflow_checks();
         energy_run_checks();
         mixed_model_checks();
         std::size_t solved=0;
