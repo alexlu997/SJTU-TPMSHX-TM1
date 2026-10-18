@@ -359,6 +359,12 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
   This assigns that side's scalar inlet state to every exterior inflow.
   Directions 0 through 5 retain the single-face inflow check.
   Full 2D/3D drivers retain their port checks.
+  Direct C `tpmshx_solve_enthalpy_v2` selects T-SOU and returns its actual
+  algorithm, Kelvin update and Picard relaxation. It takes a separate positive
+  Kelvin limit. The existing configuration retains its normalized-h update
+  limit as an additional stopping gate. Coupled and equation gates remain
+  individually optional. Internal full-equation evidence does not publish an
+  unrequested audit. The v1 POD layouts, symbol and H execution stay unchanged.
 - `TemperatureRun` owns fixed-capacity cell-centered temperature state.
   `StaggeredTemperatureDriver` also retains an active temperature call.
   Each advance completes one original thermal chunk. The existing one-shot
