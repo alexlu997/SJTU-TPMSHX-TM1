@@ -359,6 +359,10 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
   This assigns that side's scalar inlet state to every exterior inflow.
   Directions 0 through 5 retain the single-face inflow check.
   Full 2D/3D drivers retain their port checks.
+  Direct T components can omit either coupled or equation stopping tolerance.
+  They still compute full energy evidence for ordinary and proposal states.
+  Supplied gates, the Kelvin gate and the optional normalized-h gate control stopping.
+  Full 2D/3D T controllers still require both physical energy gates.
 - `TemperatureRun` owns fixed-capacity cell-centered temperature state.
   `StaggeredTemperatureDriver` also retains an active temperature call.
   Each advance completes one original thermal chunk. The existing one-shot
