@@ -417,8 +417,6 @@ def test_missing_version_query_blocks_candidate_before_solve_but_allows_legacy(n
     ('fluid_B_cfg', None, 'two-sided true-h route'),
     ('conservative_ltne', False, 'unsupported candidate'),
     ('variable_rho_cp', False, 'unsupported candidate'),
-    ('disp_C_A', .01, 'unsupported candidate'),
-    ('disp_C_B', .01, 'unsupported candidate'),
     ('mms_S_s_field', 1., 'physical sources'),
     ('ltne_enthalpy_nsweep', 0, 'invalid candidate'),
 ])
@@ -554,3 +552,37 @@ def test_mixed_conductivity_copies_the_last_outer_transport(native_path, algorit
         if cfg['fluid_type_' + label] in ('air', 'water'):
             np.testing.assert_array_equal(state['actual_conductivity_' + label], raw['conductivity'][side])
     assert raw['enthalpy_update_normalization']['definition'] == 'inlet_cp_times_temperature_difference_v1'
+
+
+@pytest.mark.parametrize('pair, integral_side', [('air-sco2', 0), ('sco2-water', 1)])
+def test_dispersion_retains_shared_transport_and_energy_models(native_path, monkeypatch, pair, integral_side):
+    from sjtu_tpmshx.solvers.backends.cpp.full_3d_capture import capture_result
+
+    runtime = control(native_path, cpu_threads=1)
+    driver = NativeFull3DDriver(native_path, table_directory=runtime.native_table_directory)
+    records = {}
+    for algorithm in ('legacy_h_fou', *ALGORITHMS):
+        prepared = candidate(algorithm, pair)
+        cfg, data = build_execution_inputs(prepared)
+        cfg.update(disp_C_A=.01, disp_C_B=.02)
+        raw = driver.run_prepared(cfg, data, runtime)
+        assert raw['converged']
+        records[algorithm] = raw
+        if algorithm in ALGORITHMS:
+            state = raw['true_h']['_native_state']
+            side = 'AB'[integral_side]
+            np.testing.assert_array_equal(state['actual_conductivity_' + side], raw['conductivity'][integral_side])
+            result = capture_result(prepared, cfg, data, raw, driver.abi)
+            with monkeypatch.context() as patch:
+                test_actual_side_models_six_face_powers_and_postprocess((prepared, result), patch)
+    h, t = records['legacy_h_fou'], records['temperature_fou']
+    for actual, expected in zip(t['temperature'], h['temperature']):
+        assert np.max(np.abs(actual - expected)) <= .01
+    for name in ('duty', 'pressure_drop', 'inlet_mass'):
+        for actual, expected in zip(t[name], h[name]):
+            assert abs(actual - expected) <= .001 * max(abs(actual), abs(expected))
+    prepared = candidate('legacy_h_fou', pair)
+    cfg, data = build_execution_inputs(prepared)
+    baseline = driver.run_prepared(cfg, data, runtime)
+    assert baseline['converged']
+    assert np.all(h['conductivity'][integral_side] > baseline['conductivity'][integral_side])
