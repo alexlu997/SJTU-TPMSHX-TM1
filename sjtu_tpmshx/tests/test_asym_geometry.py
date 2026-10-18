@@ -35,24 +35,25 @@ def test_diameter_keeps_voxel_and_mc_results(mc, expected):
     assert result == pytest.approx(expected)
 
 
-@pytest.mark.parametrize('topology, expected', [
-    ('Diamond', dict(C=.12623712151165153, delta=.6032115970143331,
-        eps_A=.699798583984375, eps_B=.199981689453125, solid=.1002197265625,
-        A0_A=654.0703318221211, A0_B=558.6856219939633,
-        Dh_A=.004279653425250849, Dh_B=.0014318012247344775)),
-    ('Gyroid', dict(C=.137464871102714, delta=.7811389937425169,
-        eps_A=.699981689453125, eps_B=.199981689453125, solid=.10003662109375,
-        A0_A=519.1042691720587, A0_B=442.0222415907727,
-        Dh_A=.005393765615293863, Dh_B=.0018096979802049822)),
+@pytest.mark.parametrize('topology, targets, expected', [
+    ('Diamond', (.7002, .2002), dict(C=.12158021965627117, delta=.6015525534669689,
+        eps_A=.7001953125, eps_B=.2001953125, solid=.099609375,
+        A0_A=653.2823146278699, A0_B=561.9654316139977,
+        Dh_A=.004287244866861906, Dh_B=.001424965318062553)),
+    ('Gyroid', (.6997, .2002), dict(C=.1428119741100078, delta=.7750127407390837,
+        eps_A=.69970703125, eps_B=.2001953125, solid=.10009765625,
+        A0_A=521.1467874159122, A0_B=442.33962367034786,
+        Dh_A=.005370517851367538, Dh_B=.0018103312639176534)),
 ])
-def test_target_scan_reuses_area_and_keeps_results(monkeypatch, topology, expected):
+def test_target_scan_reuses_area_and_keeps_results(monkeypatch, topology, targets, expected):
     from skimage import measure
     from sjtu_tpmshx.runs.diagnostics import asym_target_scan
 
     # Values were recorded at 179a6a9b before area reuse.
+    # Quantiles lie between distinct field values to avoid platform-dependent ties.
     monkeypatch.setattr(asym_target_scan, 'N', 32)
     with patch.object(measure, 'marching_cubes', wraps=measure.marching_cubes) as triangulate:
-        result = asym_target_scan.solve_target(_phi_grid(topology, 32), .7, .2, .005)
+        result = asym_target_scan.solve_target(_phi_grid(topology, 32), *targets, .005)
     assert triangulate.call_count == 2
     assert set(result) == set(expected) | {'pA', 'pB'}
     assert result['pA'] is result['pB'] is True
