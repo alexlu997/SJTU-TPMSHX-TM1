@@ -102,7 +102,7 @@ Explicit read-only tasks remain read-only.
 For exploratory code, record the question, success criteria, and adoption or retirement conditions in the existing task record.
 Keep it on the main branch only for a stated product, research, or independent-reference use.
 Record the consumer and the condition for another assessment.
-Preserve necessary conclusions and uncommitted evidence before retirement.
+Keep necessary conclusions and uncommitted evidence before retirement.
 Historical result reading and current execution are separate contracts.
 Keep units, model and algorithm identity, metric definitions, and validity states readable.
 A reading requirement does not authorize removal of a supported resume or execution interface.
@@ -175,7 +175,7 @@ The reviewer's read-only role is not operating-system isolation.
    If later changes require substantive review after the limit, report that decision too.
 7. Update coverage for later commits, main synchronization, and conflict resolution.
    Recheck affected parts rather than repeating the whole review without cause.
-   Preserve valid test evidence. Do not repeat heavy numerical runs without a specific need.
+   Keep valid test evidence. Do not repeat heavy numerical runs without a specific need.
    Missing review capability or required evidence leaves the review incomplete.
    Do not label the author's own check as an independent review.
 
