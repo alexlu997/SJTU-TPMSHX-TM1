@@ -16,10 +16,18 @@ from sjtu_tpmshx.tests.test_co2_model import CO2_PAIRS, co2_config, co2_engineer
 native_path = native_3d.native_path
 
 
+PAIRS = ('air-air', 'air-water', 'water-air', 'air-sco2', 'sco2-air',
+         'water-sco2', 'sco2-water', 'sco2-sco2', *CO2_PAIRS)
+
+
 @pytest.mark.parametrize('dimension', [2, 3])
-@pytest.mark.parametrize('pair', ['air-air', 'air-water', 'water-air', 'air-sco2',
-                                  'sco2-air', 'water-sco2', 'sco2-water', 'sco2-sco2', *CO2_PAIRS])
-def test_public_native_cases_keep_physical_gates(native_path, dimension, pair):
+@pytest.mark.parametrize('pair, algorithm', [
+    pytest.param(pair, 'legacy_h_fou', id=pair) for pair in PAIRS
+] + [
+    pytest.param(pair, 'temperature_sou', id=pair + '-sou') for pair in PAIRS
+    if {'co2', 'sco2'}.intersection(pair.split('-'))
+])
+def test_public_native_cases_keep_physical_gates(native_path, dimension, pair, algorithm):
     def fluid(name, side):
         return FluidConfig(type=name, u_mps=3. if name == 'air' else .2,
             T_in_K=(350. if name == 'water' else 500.) if side == 0 else 300.,
@@ -32,6 +40,7 @@ def test_public_native_cases_keep_physical_gates(native_path, dimension, pair):
         # Retain the qualified flow tolerances for the two real-fluid streams.
         config = replace(config, solver=replace(config.solver, mom_tol=1e-6,
             mass_local_tol=1e-8, mass_global_tol=1e-8))
+    config = replace(config, solver=replace(config.solver, enthalpy_algorithm=algorithm))
     prepared = prepare_case(config, case_id=f'native-engineering-{dimension}d-{pair}')
     result = run_case(prepared, native_3d.control(native_path))
     _assert_engineering_result(result)
@@ -39,12 +48,16 @@ def test_public_native_cases_keep_physical_gates(native_path, dimension, pair):
     assert record['backend'] == result.backend_id
     assert record['dimension'] == dimension
     assert record['numerics']['thermal_mode'] == result.metadata['thermal_mode']
+    if algorithm == 'temperature_sou':
+        assert result.metadata['thermal_mode'] == 'conservative_energy'
+        assert record['numerics']['algorithm'] == algorithm
+        assert record['numerics']['unknown'] == 'T'
     for side, fluid in zip('AB', names):
         actual = record['sides'][side]
         assert actual['fluid'] == fluid and actual['solved']
         ref = prepared.model_refs[actual['flow_and_exchange_model_ref']]
         assert ref.parameters['fluid'] == fluid
-        relation = ('eos_h_TP' if result.metadata['thermal_mode'] == 'true_h'
+        relation = ('eos_h_TP' if result.metadata['thermal_mode'] in ('true_h', 'conservative_energy')
                     and fluid in ('co2', 'sco2') else 'integral_cp_T')
         assert actual['energy']['relation'] == relation
 
@@ -84,7 +97,7 @@ def test_continuous_real_fluid_native_cases(native_path, dimension, fluid):
 
 def _assert_engineering_result(result):
     physical_gates(result)
-    if result.metadata['thermal_mode'] == 'true_h':
+    if result.metadata['thermal_mode'] in ('true_h', 'conservative_energy'):
         from sjtu_tpmshx.tests.native.full_thermal_reference import assert_selected_enthalpy
         assert_selected_enthalpy(result)
     for key, specification in result.field_metadata.items():
