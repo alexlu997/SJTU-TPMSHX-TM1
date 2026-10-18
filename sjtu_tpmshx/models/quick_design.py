@@ -2,7 +2,7 @@
 from sjtu_tpmshx.domain.run_warnings import range_context
 from sjtu_tpmshx.models.tpms_calc import geometry as tpms_geometry
 from sjtu_tpmshx.df_surrogate.predict import predict_dP_compressible, predict_dP
-from sjtu_tpmshx.models.design_fluids import fluid_props, fluid_nu
+from sjtu_tpmshx.models.design_fluids import fluid_props
 
 K_STEEL = 16.0
 NX, NY_CROSS = 60, 40
@@ -34,16 +34,6 @@ _ARR = {
     "counter": dict(dirB=1, ny=1,        nz=2, alpha=0.3, maxit=20000,
                     qtol=None, chunk=None),
 }
-
-def _hvol(fluid, topo, l, A0, D_h, eps_A, mdot, span1, span2, T, P):
-    """span1, span2: the two cross-sectional dimensions of the inlet face [m]."""
-    p = fluid_props(fluid, T, P)
-    A_flow = eps_A * span1 * span2
-    u = mdot / (p.rho * A_flow)
-    Re = p.rho * abs(u) * D_h / p.mu
-    Nu = fluid_nu(fluid, topo, Re, eps_A, l, D_h * 1e3)
-    return A0 * Nu * p.k / D_h, Re, u, p
-
 
 def _dp_one(fluid, topo, l, t, eps_A, mdot, A_flow, T, P, props, L_chan, *, df_options=None):
     """单股压损 [Pa]。air→可压缩理想气体 D-F (predict_dP_compressible);
