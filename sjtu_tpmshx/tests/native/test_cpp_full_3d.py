@@ -2,8 +2,6 @@
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
-import os
-from pathlib import Path
 import subprocess
 import sys
 from unittest.mock import patch
@@ -21,18 +19,12 @@ from sjtu_tpmshx.solvers.api import run_case as cpp_run
 from sjtu_tpmshx.tests.native.test_native_execution import _config
 from sjtu_tpmshx.tests.native.test_full_3d import ROOT
 from sjtu_tpmshx.tests.native.full_result_audit import physical_gates
+from sjtu_tpmshx.tests.native.shared_library import library_path
 
 
 @pytest.fixture(scope='module')
 def native_path():
-    host='windows-x64' if os.name=='nt' else 'macos-arm64'
-    name='tpmshx_solver_shared.dll' if os.name=='nt' else 'libtpmshx_solver_shared.dylib'
-    path=Path(os.environ.get('TPMSHX_NATIVE_SOLVER_LIBRARY',ROOT/'.cache/native-deps/build'/('pilot-'+host)/name))
-    if not path.is_file():
-        if os.environ.get('TPMSHX_REQUIRE_NATIVE_DEPS_TESTS')=='1':
-            pytest.fail(f'native full library unavailable: {path}')
-        pytest.skip(f'native full library unavailable: {path}')
-    return path
+    return library_path()
 
 
 def case(pair='air-air', cap=30):
