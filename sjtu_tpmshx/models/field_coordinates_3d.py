@@ -1,7 +1,7 @@
 """Build port masks and map 3D fields to physical coordinates.
 
 Preparation and native result packing use the port helpers. Tests retain the
-coordinate transforms and outflow balance as independent numerical references.
+coordinate transforms as independent native mapping references.
 """
 from __future__ import annotations
 
@@ -106,9 +106,7 @@ def _solver_staggered_to_real(solver, axis_map, real_shape):
     The stream component (solver's y-axis v) gets sign-flipped if is_reverse,
     because for reverse-dir fluids SIMPLE's local +y is the real -stream_axis.
 
-    This is what `_gs_full_chunk_3d_stag` consumes — identical face fluxes
-    to SIMPLE's momentum solver so ∇·(ρv) = 0 cell-wise (to SIMPLE's
-    continuity residual) and the LTNE metric's NET_OUT is zero.
+    Native full-driver tests use these faces as an independent mapping reference.
     """
     perm = axis_map['solver_to_real_perm']
     Nx, Ny, Nz = real_shape
@@ -173,60 +171,3 @@ def _solver_staggered_to_real(solver, axis_map, real_shape):
     assert vf_real.shape == (Nx, Ny+1, Nz), f"vf {vf_real.shape} != ({Nx},{Ny+1},{Nz})"
     assert wf_real.shape == (Nx, Ny, Nz+1), f"wf {wf_real.shape} != ({Nx},{Ny},{Nz+1})"
     return uf_real, vf_real, wf_real
-
-
-def _balance_stream_outflow(faces, axis_map, coef, dx, dy, dz):
-    """Rescale the OUTFLOW stream-boundary face so the coef-weighted net flux
-    through the two stream boundary faces is zero — discrete global mass
-    conservation, ∮F·n dA = 0.
-
-    Why: the strict conservative-LTNE kernel telescopes the SIMPLE staggered
-    face fluxes (`F_e[i] ≡ F_w[i+1]`), so summing the per-cell energy balance
-    over the domain collapses to the boundary integral ∮F·n. SIMPLE's converged
-    velocity carries a small continuity residual; partial-BC inlet/outlet masks
-    + the outlet taper amplify it for offset/reverse cases, leaving a nonzero
-    net ΣD ≡ ∮F·n. The homogeneous-Neumann MAC projection
-    (`_project_faces_div_free`) removes only the zero-mean part of that
-    divergence — the constant null-space component (= the net ΣD) is
-    irreducible, so it survives as a uniform spurious energy divergence and the
-    reverse-dir heat load drifts (y-mirror breaks ~17 %, spurious over-heating).
-    Enforcing Σ_inlet = Σ_outlet here drives ΣD → 0 BEFORE the projection, so
-    the projection then cleans the interior to machine precision and the kernel
-    is genuinely conservative for reverse-dir/offset fluids too.
-
-    `coef` = eps_f · ρcp = the projection's per-cell flux coefficient (eps_f =
-    0.5·ε). Near-balanced cases (full-face, Shanghai) get scale ≈ 1 → no-op.
-
-    Mutates and returns `faces` = [uf, vf, wf] (already contiguous copies).
-    """
-    sax = int(axis_map['stream_real_axis'])
-    is_rev = bool(axis_map['is_reverse'])
-    F = faces[sax]
-    # Perpendicular face area + boundary-cell coef (matching the projection's
-    # boundary-face coefficient `cf[0]=coef[0]`, `cf[-1]=coef[-1]`).
-    if sax == 0:
-        A = dy[:, None] * dz[None, :]
-        cf_lo, cf_hi = coef[0, :, :], coef[-1, :, :]
-        sl_lo = (0, slice(None), slice(None)); sl_hi = (-1, slice(None), slice(None))
-    elif sax == 1:
-        A = dx[:, None] * dz[None, :]
-        cf_lo, cf_hi = coef[:, 0, :], coef[:, -1, :]
-        sl_lo = (slice(None), 0, slice(None)); sl_hi = (slice(None), -1, slice(None))
-    else:
-        A = dx[:, None] * dy[None, :]
-        cf_lo, cf_hi = coef[:, :, 0], coef[:, :, -1]
-        sl_lo = (slice(None), slice(None), 0); sl_hi = (slice(None), slice(None), -1)
-    flux_lo = float(np.sum(cf_lo * F[sl_lo] * A))
-    flux_hi = float(np.sum(cf_hi * F[sl_hi] * A))
-    # Reverse-dir: inlet at the high-index face, outlet at low; forward: vice-versa.
-    inlet_flux, outlet_flux = (flux_hi, flux_lo) if is_rev else (flux_lo, flux_hi)
-    sl_out = sl_lo if is_rev else sl_hi
-    # Degenerate / inconsistent outflow → leave to the projection's mean-zero
-    # fallback rather than rescale by a wild factor.
-    if abs(outlet_flux) < 1e-12 * (abs(inlet_flux) + 1e-30):
-        return faces
-    scale = inlet_flux / outlet_flux
-    if not np.isfinite(scale) or scale <= 0.0:
-        return faces
-    F[sl_out] = F[sl_out] * scale
-    return faces

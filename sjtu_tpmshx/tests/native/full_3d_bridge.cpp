@@ -1,5 +1,6 @@
 // Test-only bridge for the typed prepared-data full 3D driver.
 #include "tpmshx/full_3d.hpp"
+#include "full_3d_fields.hpp"
 #include "tpmshx/full_3d_state.hpp"
 #include "tpmshx/thermal_c_api.h"
 #include <algorithm>
@@ -69,7 +70,31 @@ extern "C" TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL test_full_3d_run(
         auto handle=std::make_unique<Handle>();handle->cancel_at=flags[36];
         handle->cancel_before_thermal=flags[43]!=0;c.outer_iteration=outer_iteration;
         c.cancel=cancelled;c.progress=progress;c.context=handle.get();
-        if(flags[44]) {
+        if(flags[46]) {
+            Full3DRun run(input,c);
+            if(run.advance()!=Full3DPhase::outer_boundary)
+                throw std::runtime_error("missing outer boundary");
+            auto before=run.snapshot();
+            // Set a known outlet residual before the real thermal preparation.
+            for(std::size_t side=0;side<2;++side) {
+                auto& flow=before.result.flow[side];
+                const auto nx=flow.widths[0].size(),ny=flow.widths[1].size(),nz=flow.widths[2].size();
+                for(std::size_t i=0;i<nx;++i)for(std::size_t k=0;k<nz;++k)
+                    flow.v[(i*(ny+1)+ny)*nz+k]*=1.25;
+                detail::update_real(input.geometry.grid,side?input.b:input.a,flow);
+            }
+            Full3DRun thermal(input,c,before);
+            if(thermal.advance_step()!=Full3DPhase::thermal_boundary)
+                throw std::runtime_error("missing thermal boundary");
+            const auto after=thermal.snapshot();
+            for(std::size_t side=0;side<2;++side) {
+                const auto& a=before.result.flow[side];const auto& b=after.result.flow[side];
+                if(a.u!=b.u || a.v!=b.v || a.w!=b.w || a.face_velocity_real!=b.face_velocity_real
+                   || a.pressure!=b.pressure || a.density!=b.density)
+                    throw std::runtime_error("thermal preparation changed SIMPLE state");
+            }
+            handle->result=after.result;handle->result.thermal=after.thermal->evidence;
+        } else if(flags[44]) {
             auto run=std::make_unique<Full3DRun>(input,c);
             run->advance();
             for(std::size_t step=1;step<flags[44];++step)run->advance();
@@ -166,4 +191,43 @@ extern "C" TPMSHX_THERMAL_API const double* TPMSHX_THERMAL_CALL test_full_3d_fie
         field=&scratch;
     }
     *size=field?field->size():0;return field && !field->empty()?field->data():nullptr;
+}
+
+extern "C" TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL test_full_3d_outflow(
+    const std::size_t* shape,const std::size_t* axes,int direction,
+    double** arrays,const std::size_t* sizes,char* error,std::size_t error_size) {
+    using namespace tpmshx;
+    try {
+        const auto v=[&](std::size_t p){return ArrayView<const double>{arrays[p],sizes[p]};};
+        const GridView grid{shape[0],shape[1],shape[2],v(0),v(1),v(2)};
+        Full3DSide side{};side.direction=direction;
+        Full3DFlowState source;
+        for(std::size_t d=0;d<3;++d) {
+            side.solver_axes[d]=static_cast<int>(axes[d]);
+            source.widths[d].assign(arrays[axes[d]],arrays[axes[d]]+sizes[axes[d]]);
+            if(d==1 && direction%2)std::reverse(source.widths[d].begin(),source.widths[d].end());
+        }
+        source.u.assign(arrays[3],arrays[3]+sizes[3]);
+        source.v.assign(arrays[4],arrays[4]+sizes[4]);
+        source.w.assign(arrays[5],arrays[5]+sizes[5]);
+        const std::array<std::vector<double>,3> saved{source.u,source.v,source.w};
+        source.pressure.resize(shape[0]*shape[1]*shape[2]);
+        source.density.resize(source.pressure.size(),1.);
+        detail::update_real(grid,side,source);
+        const auto mapped=source.face_velocity_real;
+        auto faces=source.face_velocity_real;
+        const std::vector<double> coefficient(arrays[6],arrays[6]+sizes[6]);
+        detail::balance_outflow(grid,direction,faces,coefficient);
+        for(std::size_t d=0;d<3;++d) {
+            std::copy(mapped[d].begin(),mapped[d].end(),arrays[7+d]);
+            std::copy(faces[d].begin(),faces[d].end(),arrays[10+d]);
+            for(auto& value:faces[d])value+=10.;
+        }
+        if(source.u!=saved[0] || source.v!=saved[1] || source.w!=saved[2]
+           || source.face_velocity_real!=mapped)
+            throw std::runtime_error("thermal faces changed SIMPLE state");
+        if(error_size)error[0]='\0';return 0;
+    } catch(const std::exception& e) {
+        if(error_size)std::snprintf(error,error_size,"%s",e.what());return 1;
+    }
 }

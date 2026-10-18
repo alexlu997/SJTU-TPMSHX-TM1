@@ -3,6 +3,7 @@
 #include "tpmshx/model_coefficients.hpp"
 #include "legacy_single_a_temperature.hpp"
 #include "model_h_common.hpp"
+#include "full_3d_fields.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -85,6 +86,9 @@ Values to_real(const GridView& real,const Full3DSide& side,ArrayView<const doubl
     }
     return out;
 }
+}  // namespace
+
+namespace detail {
 void update_real(const GridView& real,const Full3DSide& side,Full3DFlowState& state) {
     const auto g=grid(state); const auto sn=shape(g); const std::size_t count=g.nx*g.ny*g.nz;
     const Values* components[]{&state.u,&state.v,&state.w};
@@ -104,6 +108,10 @@ void update_real(const GridView& real,const Full3DSide& side,Full3DFlowState& st
     state.pressure_real=to_real(real,side,view(absolute));
     state.density_real=to_real(real,side,view(state.density));
 }
+}  // namespace detail
+
+namespace {
+using detail::update_real;
 Values multiply(ArrayView<const double> a,ArrayView<const double> b) {
     Values out(a.size); for(std::size_t p=0;p<a.size;++p) out[p]=a[p]*b[p]; return out;
 }
@@ -138,6 +146,9 @@ Values inlet_capacity(const GridView& g,int direction,const Faces& velocity,
     });
     return result;
 }
+}  // namespace
+
+namespace detail {
 void balance_outflow(const GridView& g,int direction,Faces& velocity,const Values& coefficient) {
     const int axis=direction/2; const bool reverse=direction%2; double low=0.,high=0.;
     boundary(g,axis,false,[&](std::size_t,std::size_t p,std::size_t f,double area) {
@@ -152,6 +163,10 @@ void balance_outflow(const GridView& g,int direction,Faces& velocity,const Value
     if(!std::isfinite(scale) || scale<=0.) return;
     boundary(g,axis,!reverse,[&](std::size_t,std::size_t,std::size_t f,double) { velocity[axis][f]*=scale; });
 }
+}  // namespace detail
+
+namespace {
+using detail::balance_outflow;
 std::optional<PressurePortState> inlet_state(const Full3DSide& side,const Full3DFlowState& state) {
     if(side.fluid!=Fluid::air) return std::nullopt;
     return inlet_pressure_state(grid(state),view(state.pressure),view(state.inlet_opening),
