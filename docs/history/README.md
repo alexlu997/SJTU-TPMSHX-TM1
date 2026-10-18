@@ -92,3 +92,20 @@
 软件 Q 参考分别从 45624.58456665004、4416.181405481553 W/m 变为
 45624.58629116599、4416.181525306756 W/m。两例仍必须返回未收敛、
 保留最后热输入与最终流场的差别；这些数字不作为收敛或物理精度证书。
+
+<a id="mms-reference-retirement"></a>
+
+## 2026-10-18 MMS 历史参考测试退役
+
+三个读取冻结 CSV 的 MMS 测试及其 5 个 CSV、4 个元数据文件从当前树移除。
+原值、门槛和原 A4 单元温度钉定判据保留在合并提交 [69f15c8a](https://github.com/alexlu997/SJTU-TPMSHX-TM1/commit/69f15c8ab08131d5759d9677247384d631cbb3ec)。
+
+| 历史内容 | 固定入口 |
+| --- | --- |
+| A3 全域阶数与误差测试 | [test_mms_phase_a3_gates.py](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/69f15c8ab08131d5759d9677247384d631cbb3ec/sjtu_tpmshx/tests/test_mms_phase_a3_gates.py) |
+| A4 边界区域测试 | [test_mms_phase_a4_gates.py](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/69f15c8ab08131d5759d9677247384d631cbb3ec/sjtu_tpmshx/tests/test_mms_phase_a4_gates.py) |
+| B4 保守格式阶数测试 | [test_mms_b4_conservative_order.py](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/69f15c8ab08131d5759d9677247384d631cbb3ec/sjtu_tpmshx/tests/test_mms_b4_conservative_order.py) |
+| `mms_phase_*.csv` 与元数据 | [validation 原文件](https://github.com/alexlu997/SJTU-TPMSHX-TM1/tree/69f15c8ab08131d5759d9677247384d631cbb3ec/sjtu_tpmshx/validation) |
+
+当前 C++ 制造场、细化与物理面入口检查继续执行；[验证说明](../../sjtu_tpmshx/validation/README.md)列出保留的门槛。
+GCI 参考、共用拟合工具和参考目录写入保护继续保留。

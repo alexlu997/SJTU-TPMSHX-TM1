@@ -1,9 +1,0 @@
-# MMS Phase B4 — conservative HO path observed order
-# grids=[10, 16, 24, 32]  case=3d  conservative=1
-# script: validation/cases/mms_phase_b4_order.py
-# commit: 8e5302c
-# date:   2026-07-14T14:00:19+08:00
-case,metric,p_obs,R2,val_gfine
-3d,L2_A,2.1954,0.99993,8.8532e-05
-3d,L2_B,2.1487,0.99994,6.5980e-05
-3d,L2_s,2.0877,0.99996,4.3598e-05

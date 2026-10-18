@@ -55,7 +55,7 @@ def test_explicit_reference_destination_rejected_before_solve(
 
 
 def test_shared_writer_rejects_reference_symlink(tmp_path):
-    reference = provenance.REFERENCE_DIR / 'mms_phase_a3_orders.csv'
+    reference = provenance.REFERENCE_DIR / 'phase_c_gci.csv'
     content = reference.read_bytes()
     link = tmp_path / 'new.csv'
     link.symlink_to(reference)
