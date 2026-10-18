@@ -359,6 +359,10 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
   This assigns that side's scalar inlet state to every exterior inflow.
   Directions 0 through 5 retain the single-face inflow check.
   Full 2D/3D drivers retain their port checks.
+  Direct T components can omit either coupled or equation stopping tolerance.
+  They still compute full energy evidence for ordinary and proposal states.
+  Supplied gates, the Kelvin gate and the optional normalized-h gate control stopping.
+  Full 2D/3D T controllers still require both physical energy gates.
   Direct C `tpmshx_solve_enthalpy_v2` selects T-SOU and returns its actual
   algorithm, Kelvin update and Picard relaxation. It takes a separate positive
   Kelvin limit. The existing configuration retains its normalized-h update
@@ -391,7 +395,7 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
   declared scalar inlets and adiabatic external boundaries. Their SOU outlet
   reconstruction differs from model-h.
 
-  They require a maximum temperature
+  The full 2D/3D controllers require a maximum temperature
   update in K and both explicit energy gates. Ordinary invalid PT states fail
   without clipping. SOU recipe 2 proposes six-sample Anderson updates before ordinary PT evaluation. It accepts only actual-PT/audit merit improvement. A rejected proposal keeps
   the ordinary path.

@@ -385,6 +385,36 @@ void energy_run_checks() {
     std::cout<<"energy run continuation, HEOS finishing, ownership and invalid boundaries passed\n";
 }
 
+void optional_gate_checks() {
+    for(bool sou:{false,true}) for(unsigned gates=0;gates<4;++gates) {
+        Case data(0,1,Fluid::air,Fluid::water);auto c=controls(sou);
+        if(!(gates&1))c.coupled_energy_tolerance.reset();
+        if(!(gates&2))c.equation_energy_tolerance.reset();
+        c.require_enthalpy_update_on_temperature=true;c.update_tolerance=1e-8;
+        EnthalpyRun running(data.grid(),data.side(0),data.side(1),view(data.solid_k),data.state(),c);
+        running.advance();require(running.phase()==EnthalpyPhase::active,"optional gate case finished before snapshot");
+        const auto saved=running.snapshot();auto restored=data;
+        EnthalpyRun resumed(restored.grid(),restored.side(0),restored.side(1),view(restored.solid_k),restored.state(),c,saved);
+        while(running.phase()==EnthalpyPhase::active)running.advance();
+        while(resumed.phase()==EnthalpyPhase::active)resumed.advance();
+        const auto actual=running.take_result(),replay=resumed.take_result();
+        require_same_actual_solve(data,actual,restored,replay);
+        require(actual.stop==EnthalpyStop::converged && actual.final_audit && actual.final_audit->fluid_equations_computed,
+                "optional T gates lost full equation evidence");
+        require(actual.temperature_update && *actual.temperature_update<=c.temperature_update_tolerance
+                && actual.residual<=c.update_tolerance,"optional T gates changed update units");
+        if(c.coupled_energy_tolerance)require(actual.final_audit->coupled_ratio<=*c.coupled_energy_tolerance,"optional coupled gate failed");
+        if(c.equation_energy_tolerance)require(actual.final_audit->equation_ratio<=*c.equation_energy_tolerance,"optional equation gate failed");
+    }
+    for(double value:{0.,-1.,std::numeric_limits<double>::quiet_NaN()}) {
+        Case invalid(0,1,Fluid::air,Fluid::water);auto c=controls(true);
+        c.coupled_energy_tolerance=value;c.equation_energy_tolerance.reset();
+        rejects<std::invalid_argument>([&] {solve_enthalpy(invalid.grid(),invalid.side(0),invalid.side(1),
+            view(invalid.solid_k),invalid.state(),c);},"invalid optional T gate was accepted");
+    }
+    std::cout<<"optional T stop gates, update units and snapshot replay passed\n";
+}
+
 void scalar_inflow_checks() {
     for(std::size_t axis=0;axis<3;++axis) for(int sign:{1,-1}) for(bool sou:{false,true}) {
         Case directed(axis,sign,Fluid::air,Fluid::water);auto c=controls(sou);
@@ -444,6 +474,7 @@ int main(int argc,char** argv) {
         require(argc<=2,"expected one optional CPU thread count");
         if(argc==2)cpu_threads=std::stoul(argv[1]);
         require(cpu_threads>0,"CPU thread count must be positive");
+        optional_gate_checks();
         scalar_inflow_checks();
         energy_run_checks();
         mixed_model_checks();
@@ -779,9 +810,9 @@ int main(int argc,char** argv) {
         rejects<std::invalid_argument>([&] { solve_enthalpy(invalid.grid(),invalid.side(0),invalid.side(1),view(invalid.solid_k),invalid.state(),c); },
                                        "zero CPU thread count was accepted");
         c.cpu_threads=cpu_threads;
-        c.equation_energy_tolerance.reset();
+        c.equation_energy_tolerance=0.;
         rejects<std::invalid_argument>([&] { solve_enthalpy(invalid.grid(),invalid.side(0),invalid.side(1),view(invalid.solid_k),invalid.state(),c); },
-                                       "T energy accepted a missing actual equation gate");
+                                       "T energy accepted a zero equation tolerance");
         EnthalpyEOS eos;
         for (double bad_t:{270.,500.,std::numeric_limits<double>::quiet_NaN()})
             rejects<WaterStateError>([&] { eos.evaluate_state(Fluid::water,bad_t,2e5,"PT guard regression"); },"actual PT water guard was bypassed");
