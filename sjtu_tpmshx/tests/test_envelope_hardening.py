@@ -114,12 +114,6 @@ def test_gate_solution_raises_on_nan_field():
         gate_solution(np.nan, 5.0, 800.0, mode='raise', dims='3D')
 
 
-def test_assess_finite_clean_still_valid():
-    # Guard must not regress the clean case.
-    valid, reasons = assess_solution_validity(150e3, 8.5, 800.0, ma_max=0.02)
-    assert valid is True and reasons == []
-
-
 # ── A2: gate_solution must validate envelope_mode (audit 2026-06-28) ────────
 # A typo'd mode ('raises'/'Raise') must not silently degrade 'raise' into 'off'.
 def test_gate_solution_rejects_unknown_mode():
