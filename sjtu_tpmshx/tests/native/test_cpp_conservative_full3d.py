@@ -418,7 +418,7 @@ def test_missing_version_query_blocks_candidate_before_solve_but_allows_legacy(n
 def test_existing_true_h_controls_keep_qualified_state(native_path, monkeypatch, algorithm, pair, option):
     case = candidate(algorithm, pair=pair)
     baseline = run_case(case, control(native_path, cpu_threads=1))
-    run_prepared = NativeFull3DDriver.run_prepared
+    run_prepared = NativeFull3DDriver._run_prepared
     seen = []
 
     def with_controls(driver, cfg, data, run_control, **kwargs):
@@ -439,7 +439,7 @@ def test_existing_true_h_controls_keep_qualified_state(native_path, monkeypatch,
                     cfg['_environment']['TPMSHX_VAR_RHOCP'] = None
         return run_prepared(driver, cfg, data, run_control, **kwargs)
 
-    monkeypatch.setattr(NativeFull3DDriver, 'run_prepared', with_controls)
+    monkeypatch.setattr(NativeFull3DDriver, '_run_prepared', with_controls)
     result = run_case(case, control(native_path, cpu_threads=1))
     assert seen == [(option not in ('conservative_ltne', 'combined'),
                      option not in ('variable_rho_cp', 'combined'),
