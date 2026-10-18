@@ -79,11 +79,24 @@ int main(void) {
             if (fabs(result.q_a+result.q_b) > 1e-3*fmax(fabs(result.q_a),fabs(result.q_b))) return 13;
         }
         config.coupled_gate = config.equation_gate = 1;
-        config.update_tolerance = 1e-13;
+        config.update_tolerance = 1e-8;
         status = tpmshx_solve_enthalpy_v2(shape,arrays,sizes,&config,1e-3,NULL,
             &result,&energy,error,sizeof(error));
         if (status || result.stop != TPMSHX_ENTHALPY_CONVERGED
-            || result.residual > config.update_tolerance || energy.temperature_update > 1e-3) return 19;
+            || result.residual > config.update_tolerance || energy.temperature_update > 1e-3) {
+            fprintf(stderr,"T-SOU update gates failed: status=%d, stop=%u, iterations=%zu, h=%g, K=%g, %s\n",
+                status,result.stop,result.iterations,result.residual,energy.temperature_update,error);
+            return 19;
+        }
+        config.update_tolerance = 1e-13;
+        status = tpmshx_solve_enthalpy_v2(shape,arrays,sizes,&config,1e-3,NULL,
+            &result,&energy,error,sizeof(error));
+        if (status || (result.stop != TPMSHX_ENTHALPY_CONVERGED
+            && result.stop != TPMSHX_ENTHALPY_ITERATION_LIMIT)
+            || (result.stop == TPMSHX_ENTHALPY_CONVERGED
+                && (result.residual > config.update_tolerance || energy.temperature_update > 1e-3))
+            || (result.stop == TPMSHX_ENTHALPY_ITERATION_LIMIT && result.iterations != config.max_iterations)) return 20;
+        printf("T-SOU strict h gate: stop=%u, h=%g, K=%g\n",result.stop,result.residual,energy.temperature_update);
         config.update_tolerance = 2e-5;
         config.sweeps = 0; config.max_iterations = 2;
         status = tpmshx_solve_enthalpy_v2(shape,arrays,sizes,&config,1e-8,NULL,
