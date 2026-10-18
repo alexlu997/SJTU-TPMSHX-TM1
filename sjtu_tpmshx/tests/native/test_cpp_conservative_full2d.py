@@ -194,6 +194,25 @@ assert not any(name.startswith(('numba','sjtu_tpmshx.solvers.ltne_',
     assert completed.returncode == 0, completed.stdout + completed.stderr
 
 
+
+@pytest.mark.parametrize('algorithm', ['temperature_fou', 'temperature_sou'])
+def test_zero_sweep_budget_retains_initial_fields(driver, algorithm):
+    config = configuration(algorithm)
+    config = replace(config, solver=replace(config.solver, ltne_enthalpy_nsweep=0, ltne_enthalpy_outer=1))
+    case = prepare_case(config, case_id='energy2d-zero-sweep')
+    cfg, prepared = build_execution_inputs(case)
+    actual = driver.run_prepared(cfg, prepared)
+    info = actual['main']['true_h']
+    assert not actual['converged'] and not actual['thermal_ok']
+    assert info['energy_algorithm'] == algorithm and info['exit_reason'] == 'iteration_limit'
+    assert info['iterations'] == info['effective_settings']['max_iterations'] == 1
+    assert info['effective_settings']['sweeps'] == 0 and info['temperature_update_K'] == 0.
+    assert info['equation_energy_balance']['ratio'] > info['effective_settings']['equation_energy_tol']
+    for field, value in zip(actual['main']['temperature'], (cfg['T_inA'], cfg['T_inB'],
+                                                          .5*(cfg['T_inA']+cfg['T_inB']))):
+        np.testing.assert_array_equal(field, np.full(field.shape, value))
+
+
 @pytest.mark.parametrize('algorithm', ['temperature_fou', 'temperature_sou'])
 @pytest.mark.parametrize('partial', [False, True])
 def test_true_h_red_black_control_preserves_actual_state(driver, monkeypatch, algorithm, partial):

@@ -429,6 +429,10 @@ Offline boundary readers keep both saved SOU1 and SOU2, while
   | 2D temperature FOU/SOU | 12000 with water; otherwise 5000 | 5 | 0.6 / 0.2 |
   | 3D temperature FOU/SOU | 1500 | 5 | 0.6 / 0.2 |
 
+  Zero sweeps retain the initialized or warm-up thermal state. The actual
+  energy audits and requested stopping gates still apply. A failed gate keeps
+  the iteration-limit return; zero updates do not certify physical convergence.
+
   The default normalized h-update tolerance and both energy tolerances are 0.001.
   The temperature update tolerance is 1e-8 K; its optional extra h gate is off.
   Full 3D explicit controls keep their existing precedence and supported scope.

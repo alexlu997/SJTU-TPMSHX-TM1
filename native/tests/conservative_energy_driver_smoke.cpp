@@ -241,6 +241,36 @@ void mixed_model_checks() {
     }
 }
 
+void zero_sweep_checks() {
+    for(bool sou:{false,true})for(bool warm:{false,true})for(std::size_t axis:{0U,2U}) {
+        Case data(axis,1,Fluid::air,Fluid::water);
+        for(std::size_t side=0;side<2;++side)
+            for(std::size_t p=0;p<5;++p)data.t[side][p]=data.inlet_t[side]+.1*p;
+        std::fill(data.solid.begin(),data.solid.end(),330.);
+        auto c=controls(sou);c.max_iterations=2;c.sweeps=0;
+        EnthalpyRun owner(data.grid(),data.side(0),data.side(1),view(data.solid_k),data.state(warm),c);
+        const Case initial=data;
+        require(owner.advance()==EnthalpyPhase::active,"zero-sweep residual was accepted as convergence");
+        require(same_fields(data,initial),"zero sweeps changed the initialized physical state");
+        const auto saved=owner.snapshot();
+        owner.advance();
+        const auto result=owner.take_result();
+        require(result.stop==EnthalpyStop::iteration_limit && result.iterations==2
+            && result.temperature_update && *result.temperature_update==0. && result.residual==0.
+            && result.final_audit && result.final_audit->equation_ratio>*c.equation_energy_tolerance,
+            "zero-sweep budget lost its failed physical gate");
+        require(same_fields(data,initial),"zero-sweep budget changed the physical state");
+        Case resumed=initial;
+        EnthalpyRun continuation(resumed.grid(),resumed.side(0),resumed.side(1),view(resumed.solid_k),
+            resumed.state(warm),c,saved);
+        while(continuation.phase()==EnthalpyPhase::active)continuation.advance();
+        const auto replay=continuation.take_result();
+        require_same_result(replay,result);
+        require_same_actual_solve(resumed,replay,data,result);
+    }
+    std::cout<<"zero-sweep budget, physical residual and snapshot checks passed\n";
+}
+
 void energy_run_checks() {
     const auto tables=std::filesystem::absolute(".cache/native-energy-run-tables").string();
     const std::array<std::array<Fluid,2>,4> pairs{{{Fluid::air,Fluid::water},{Fluid::water,Fluid::air},
@@ -476,6 +506,7 @@ int main(int argc,char** argv) {
         require(cpu_threads>0,"CPU thread count must be positive");
         optional_gate_checks();
         scalar_inflow_checks();
+        zero_sweep_checks();
         energy_run_checks();
         mixed_model_checks();
         std::size_t solved=0;
