@@ -119,6 +119,7 @@ def test_cli_preserves_saved_run_before_work(
     saved_marker = directory / marker
     if form == 'missing_marker_target':
         saved_marker.symlink_to(tmp_path / 'missing-saved-state')
+        marker_target = saved_marker.readlink()
     else:
         saved_marker.write_bytes(b'saved state')
     before = {path.name: path.read_bytes() for path in directory.iterdir() if path.is_file()}
@@ -148,7 +149,7 @@ def test_cli_preserves_saved_run_before_work(
     assert {path.name: path.read_bytes() for path in directory.iterdir() if path.is_file()} == before
     if form == 'missing_marker_target':
         assert saved_marker.is_symlink()
-        assert saved_marker.readlink() == tmp_path / 'missing-saved-state'
+        assert saved_marker.readlink() == marker_target
 
 
 @pytest.mark.parametrize('alias', [False, True])
