@@ -155,6 +155,7 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_solve_enthalpy_v1(
 /* T-SOU uses the same arrays, warm flags and optional audit output as v1.
  * temperature_tolerance is a separate positive finite Kelvin limit.
  * config.update_tolerance remains an additional normalized-h stopping gate.
+ * Relative boundary energy imbalance must remain below 0.05, as in v1.
  * Both limits must pass. No caller tolerance or budget is replaced.
  * energy reports the actual executed algorithm and Kelvin update. Its update
  * is unavailable after cancellation. On errors, both outputs stay unchanged.

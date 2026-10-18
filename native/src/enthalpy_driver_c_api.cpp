@@ -56,6 +56,7 @@ int solve(
             control.algorithm = EnthalpyAlgorithm::temperature_sou;
             control.temperature_update_tolerance = temperature_tolerance;
             control.require_enthalpy_update_on_temperature = true;
+            control.require_relative_boundary_balance = true;
         }
         if (config->coupled_gate) control.coupled_energy_tolerance = config->coupled_tolerance;
         if (config->equation_gate) control.equation_energy_tolerance = config->equation_tolerance;

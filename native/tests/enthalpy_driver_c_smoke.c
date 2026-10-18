@@ -107,6 +107,20 @@ int main(void) {
             || result.audit.equation_ratio <= config.equation_tolerance) return 17;
         for (i=0;i<8;++i)
             if (ta[i] != 370. || tb[i] != 300. || ts[i] != 335.) return 18;
+        config.warm_a = config.warm_b = config.warm_solid = 1;
+        config.coupled_gate = config.equation_gate = 0;
+        for (i=0;i<8;++i) { ta[i]=355.; tb[i]=310.; ts[i]=335.; }
+        status = tpmshx_solve_enthalpy_v1(shape,arrays,sizes,&config,NULL,
+            &result,error,sizeof(error));
+        if (status || result.stop != TPMSHX_ENTHALPY_ITERATION_LIMIT
+            || result.iterations != 2 || result.energy_imbalance < .05 || result.audit_available) return 21;
+        status = tpmshx_solve_enthalpy_v2(shape,arrays,sizes,&config,1e-8,NULL,
+            &result,&energy,error,sizeof(error));
+        if (status || result.stop != TPMSHX_ENTHALPY_ITERATION_LIMIT
+            || result.iterations != 2 || result.energy_imbalance < .05 || result.audit_available
+            || energy.temperature_update != 0. || result.residual != 0.) return 22;
+        config.warm_a = config.warm_b = config.warm_solid = 0;
+        config.coupled_gate = config.equation_gate = 1;
         config.sweeps = 5; config.max_iterations = 1000;
         {
             const double invalid[] = {0.,-1.,NAN};

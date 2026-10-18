@@ -366,7 +366,8 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
   Direct C `tpmshx_solve_enthalpy_v2` selects T-SOU and returns its actual
   algorithm, Kelvin update and Picard relaxation. It takes a separate positive
   Kelvin limit. The existing configuration retains its normalized-h update
-  limit as an additional stopping gate. Coupled and equation gates remain
+  limit as an additional stopping gate. The v1 relative boundary imbalance
+  limit remains below 0.05. Coupled and equation gates remain
   individually optional. Internal full-equation evidence does not publish an
   unrequested audit. The v1 POD layouts, symbol and H execution stay unchanged.
 - `TemperatureRun` owns fixed-capacity cell-centered temperature state.

@@ -254,6 +254,7 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
   已指定的能量门、K 更新门及可选归一化焓更新门控制停止。完整 2D/3D T 控制器仍强制两个物理能量门。
   直接 C 入口 `tpmshx_solve_enthalpy_v2` 选择 T-SOU，返回实际算法、K 更新量及 Picard 松弛系数。
   它单独接收正值 K 限值；原配置中的归一化焓更新限值仍作为额外停止门。
+  边界相对能量不平衡仍须小于 v1 的 0.05 限值。
   耦合与方程门分别可选；内部完整方程证据不发布未请求的审计。
   v1 POD 布局、符号和 H 执行保持不变。
 
