@@ -118,6 +118,7 @@ def case_data(pair=("air", "water"), shape=(4, 3, 2), directions=(0, 1), warm=Fa
 def assert_audited(case, native):
     assert native['code'] == 0, native['error']
     status, metric = native['status'], native['metrics']
+    sou = native.get('algorithm') == 'temperature_sou'
     widths = tuple(case[key] for key in ('dx', 'dy', 'dz'))
     conductivity, inlet = [], []
     for side, temperature, enthalpy, used in zip('AB', native['fields'], native['h'], status[7:9]):
@@ -135,7 +136,7 @@ def assert_audited(case, native):
         assert np.all(np.isfinite(temperature) & (temperature > 0.))
     residuals, measured = energy(widths, native['h'], native['fields'][:2], native['fields'][2],
         conductivity, [case['h_v'+side+'_field'] for side in 'AB'], case['K_ss'],
-        [case['mass_flux_'+side] for side in 'AB'], inlet)
+        [case['mass_flux_'+side] for side in 'AB'], inlet, sou=sou)
     assert sum(r.sum() for r in residuals) == pytest.approx(measured[2], rel=2e-8, abs=2e-8)
     np.testing.assert_allclose(metric[1:3], measured[:2], rtol=2e-8, atol=2e-8)
     np.testing.assert_allclose(metric[4:6], inlet, rtol=2e-10, atol=2e-5)
@@ -157,7 +158,8 @@ def assert_audited(case, native):
     max_clips = case['Nx']*case['Ny']*case['Nz']*case['n_sweep']
     for last,total in zip(status[3:5], status[5:7]):
         assert 0 <= last <= max_clips and last <= total <= max_clips*iterations
-    converged = (metric[0] < case['tol'] and metric[3] < .05 and not any(status[3:5])
+    k_pass = not sou or native['temperature_update_K'] <= case.get('temperature_tol_K', 1e-8)
+    converged = (metric[0] < case['tol'] and k_pass and metric[3] < .05 and not any(status[3:5])
         and (coupled is None or measured[5] <= coupled)
         and (equation is None or measured[10] <= equation))
     assert (status[0] == 0) == converged

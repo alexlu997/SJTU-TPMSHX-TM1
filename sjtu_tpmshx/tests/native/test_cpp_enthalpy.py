@@ -1,4 +1,4 @@
-"""Public true-h C ABI and thin Python adapter use the frozen driver gates."""
+"""Public T-SOU C entry and thin Python adapter retain independent gates."""
 import copy
 import ctypes as ct
 import os
@@ -53,7 +53,9 @@ def qualification_record(result):
     metrics += ([info['Q_A'], info['Q_B'], coupled['net'], coupled['solid_abs_sum'],
                  coupled['denominator'], coupled['ratio']] if coupled else [np.nan] * 6)
     metrics += ([*eq['fluid_abs_sum'], *eq['fluid_cell_max'], eq['ratio']] if eq else [np.nan] * 5)
-    return dict(code=0, error='', fields=[a, b, solid], h=[state['h_A'], state['h_B']],
+    return dict(code=0, error='', algorithm=info['energy_algorithm'],
+                temperature_update_K=info['temperature_update_K'],
+                fields=[a, b, solid], h=[state['h_A'], state['h_B']],
                 status=statuses, metrics=np.array(metrics))
 
 
@@ -66,10 +68,12 @@ def test_public_driver_has_complete_state_and_energy_evidence(driver, pair, shap
     assert_audited(case, qualification_record(actual))
     settings = actual[3]['effective_settings']
     assert settings['thermal_driver'] == settings['sweep_kernel'] == settings['energy_audit'] == 'cpp'
-    assert settings['driver_abi'] == 1
-    eos = actual[3]['_native_state'].get('enthalpy_eos')
-    if eos:
-        assert eos['coolprop_version'] == '8.0.0'
+    assert settings['driver_abi'] == 1 and settings['entry_version'] == 2
+    assert settings['require_enthalpy_update_on_temperature'] is True
+    assert actual[3]['energy_algorithm'] == 'temperature_sou'
+    assert actual[3]['energy_algorithm_version'] == 2
+    assert actual[3]['temperature_update_K'] <= 1e-8
+    assert settings['coolprop_version'] == '8.0.0'
 
 
 @pytest.mark.parametrize('coupled,equation', [(None, None), (1e-3, None), (None, 1e-3)])
@@ -214,27 +218,46 @@ def test_missing_and_relative_library_requests_never_fall_back(tmp_path):
         NativeEnthalpyDriver(tmp_path / 'missing.so')
 
 
-def test_co2_requires_explicit_tables_after_first_cancellation(driver_library):
+def test_co2_uses_heos_without_tables_after_first_cancellation(driver_library):
     driver = NativeEnthalpyDriver(driver_library)
     assert driver(**case_data(shape=(2, 1, 1)))[3]['converged']
     co2 = case_data(('sco2', 'water'), shape=(2, 1, 1))
     with pytest.raises(CancelledError):
         driver(**co2, cancel_check=lambda: True)
-    with pytest.raises(ValueError, match='absolute directory'):
-        driver(**co2)
+    result = driver(**co2)
+    assert_audited(co2, qualification_record(result))
+    assert result[3]['effective_settings']['nonlinear_state_update'] == 'HEOS_PT'
+    assert 'enthalpy_eos' not in result[3]['_native_state']
 
 
-def test_table_directory_cannot_change_for_loaded_library(driver, driver_library, tmp_path):
+def test_sou_does_not_create_tables_or_lock_unused_paths(driver_library, tmp_path):
     case = case_data(('sco2', 'water'), shape=(2, 1, 1))
-    driver(**case)
-    assert (Path(driver.table_directory.decode()) / 'CoolProp-8.0.0').is_dir()
     with pytest.raises(ValueError, match='absolute path'):
         NativeEnthalpyDriver(driver_library, table_directory='relative')
-    changed = tmp_path / 'other-tables'
-    other = NativeEnthalpyDriver(driver_library, table_directory=changed)
-    with pytest.raises(ValueError, match='already fixed'):
-        other(**case)
-    assert not changed.exists()
+    first, second = tmp_path / 'first-tables', tmp_path / 'second-tables'
+    a = NativeEnthalpyDriver(driver_library, table_directory=first)(**case)
+    b = NativeEnthalpyDriver(driver_library, table_directory=second)(**case)
+    for x, y in zip(a[:3], b[:3]):
+        np.testing.assert_array_equal(x, y)
+    assert not first.exists() and not second.exists()
+
+
+@pytest.mark.parametrize('value', [0., -1., np.nan, np.inf, True])
+def test_public_kelvin_gate_is_independent_and_validated(driver, value):
+    with pytest.raises(ValueError, match='finite and positive'):
+        driver(**case_data(), temperature_tol_K=value)
+
+
+def test_missing_sou_entry_never_calls_v1(tmp_path, monkeypatch):
+    path = tmp_path / 'old.so'
+    path.touch()
+    def forbidden(*args):
+        pytest.fail('old H execution was used')
+    library = SimpleNamespace(tpmshx_enthalpy_driver_abi_version=lambda: 1,
+                              tpmshx_solve_enthalpy_v1=forbidden)
+    monkeypatch.setattr(ct, 'CDLL', lambda _: library)
+    with pytest.raises(ValueError, match='lacks direct T-SOU execution'):
+        NativeEnthalpyDriver(path)
 
 
 def test_wrong_abi_is_rejected(tmp_path, monkeypatch):
@@ -278,7 +301,7 @@ def test_pure_c_static_and_shared_callers(driver_library):
 
 @pytest.mark.parametrize('pair', [('co2', 'air'), ('water', 'co2'), ('co2', 'co2'), ('co2', 'sco2')])
 @pytest.mark.parametrize('shape', [(4, 3, 1), (4, 3, 2)])
-def test_co2_table_keeps_final_heos_state_and_energy_gates(driver, pair, shape):
+def test_co2_sou_keeps_final_heos_state_and_energy_gates(driver, pair, shape):
     case = case_data(pair, shape)
     for label, fluid in zip('AB', pair):
         if fluid == 'co2':
@@ -286,9 +309,9 @@ def test_co2_table_keeps_final_heos_state_and_energy_gates(driver, pair, shape):
             case['pressure_' + label + '_field'][:] = 5e6
     actual = driver(**case)
     info, state = actual[3], actual[3]['_native_state']
-    table = state['enthalpy_eos']
-    assert table['sides'] == [label for label, fluid in zip('AB', pair) if fluid in ('co2', 'sco2')]
-    assert table['final_backend'] == 'HEOS'
+    assert 'enthalpy_eos' not in state
+    assert info['effective_settings']['nonlinear_state_update'] == 'HEOS_PT'
+    assert_audited(case, qualification_record(actual))
     assert info['exit_reason'] == 'converged'
     assert info['coupled_energy_balance']['ratio'] <= case['coupled_energy_tol']
     assert info['equation_energy_balance']['ratio'] <= case['equation_energy_tol']
@@ -304,3 +327,41 @@ def test_low_pressure_co2_keeps_heos_without_table_use(driver):
     actual = driver(**case)
     assert 'enthalpy_eos' not in actual[3]['_native_state']
     assert_audited(case, qualification_record(actual))
+
+
+def test_sou_oracle_has_known_signed_face_powers():
+    from sjtu_tpmshx.tests.native.enthalpy_fv_audit import sou_advection
+    h = np.array([2., 4., 8.]).reshape(3, 1, 1)
+    widths = (np.array([1., 2., 1.]), np.ones(1), np.ones(1))
+    mass = (np.full((4, 1, 1), 2.), np.zeros((3, 2, 1)), np.zeros((3, 1, 2)))
+    residual, duty = sou_advection(h, 1., mass, widths)
+    np.testing.assert_allclose(residual.ravel(), [-10/3, -16/3, -8.], rtol=2e-15)
+    assert duty == pytest.approx(-50/3, rel=2e-15)
+    residual, duty = sou_advection(h, 10., tuple(-x for x in mass), widths)
+    np.testing.assert_allclose(residual.ravel(), [8/3, 8., 20/3], rtol=2e-15)
+    assert duty == pytest.approx(52/3, rel=2e-15)
+
+
+def test_public_driver_rejects_a_different_executed_algorithm(driver, monkeypatch):
+    native = driver.call
+    def wrong_algorithm(*args):
+        status = native(*args)
+        args[7]._obj.algorithm = 1
+        return status
+    monkeypatch.setattr(driver, 'call', wrong_algorithm)
+    with pytest.raises(RuntimeError, match='did not execute T-SOU'):
+        driver(**case_data())
+
+
+def test_direct_normalized_h_gate_retains_strict_comparison(driver):
+    case = case_data()
+    warm = driver(**case)
+    case.update(Ta_init=warm[0] + 1e-4, Tb_init=warm[1], Ts_init=warm[2] + 2e-4,
+                n_outer=1, tol=1., temperature_tol_K=1.,
+                coupled_energy_tol=None, equation_energy_tol=None)
+    measured = driver(**case)
+    assert measured[3]['converged'] and measured[3]['residual'] > 0.
+    case['tol'] = measured[3]['residual']
+    actual = driver(**case)
+    assert actual[3]['residual'] == case['tol']
+    assert actual[3]['exit_reason'] == 'iteration_limit'

@@ -24,6 +24,35 @@ def advection(h, inlet, mass):
     return residual, duty
 
 
+def sou_advection(h, inlet, mass, widths):
+    """Reconstruct limited shared face powers with scalar exterior inflow."""
+    residual = np.zeros_like(h)
+    duty = 0.
+    for axis, width in enumerate(widths):
+        cells, flux = [np.moveaxis(x, axis, 0) for x in (h, mass[axis])]
+        gradient = np.zeros_like(cells)
+        if len(width) > 1:
+            distance = .5 * (width[:-1] + width[1:])[:, None, None]
+            interior = np.diff(cells, axis=0) / distance
+            left, right = np.full_like(cells, np.nan), np.full_like(cells, np.nan)
+            left[1:], right[:-1] = interior, interior
+            left[0] = np.where(flux[0] > 0., (cells[0] - inlet) / (.5 * width[0]), np.nan)
+            right[-1] = np.where(flux[-1] < 0., (inlet - cells[-1]) / (.5 * width[-1]), np.nan)
+            both = np.isfinite(left) & np.isfinite(right)
+            limited = np.where(left * right > 0.,
+                               np.sign(left) * np.minimum(np.abs(left), np.abs(right)), 0.)
+            one_sided = np.where(np.isfinite(left), left, np.where(np.isfinite(right), right, 0.))
+            gradient = np.where(both, limited, one_sided)
+        increment = gradient * np.asarray(width)[:, None, None] / 2
+        exterior = np.full_like(cells[:1], inlet)
+        from_left = np.concatenate((exterior, cells + increment))
+        from_right = np.concatenate((cells - increment, exterior))
+        power = flux * np.where(flux >= 0., from_left, from_right)
+        residual -= np.moveaxis(np.diff(power, axis=0), 0, axis)
+        duty += float(power[0].sum() - power[-1].sum())
+    return residual, duty
+
+
 def conduction(temperature, conductivity, widths):
     residual = np.zeros_like(temperature)
     for axis, width in enumerate(widths):
@@ -41,12 +70,12 @@ def conduction(temperature, conductivity, widths):
     return residual
 
 
-def energy(widths, enthalpy, temperature, solid, conductivity, hv, ks, mass, inlet):
+def energy(widths, enthalpy, temperature, solid, conductivity, hv, ks, mass, inlet, *, sou=False):
     volume = widths[0][:,None,None] * widths[1][None,:,None] * widths[2][None,None,:]
     residuals, duties = [], []
     solid_residual = conduction(solid, ks, widths)
     for h, t, k, transfer, faces, hin in zip(enthalpy, temperature, conductivity, hv, mass, inlet):
-        flow, duty = advection(h, hin, faces)
+        flow, duty = sou_advection(h, hin, faces, widths) if sou else advection(h, hin, faces)
         exchange = transfer * (solid-t) * volume
         residuals.append(flow + conduction(t, k, widths) + exchange)
         solid_residual -= exchange

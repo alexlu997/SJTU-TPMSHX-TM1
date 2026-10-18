@@ -52,6 +52,100 @@ int main(void) {
     printf("enthalpy C ABI ok; iterations=%zu; equation_ratio=%.12g; CoolProp=%s\n",
            result.iterations,result.audit.equation_ratio,result.coolprop_version);
 
+
+    {
+        tpmshx_energy_result_v1 energy = {0};
+        for (unsigned mask=0;mask<4;++mask) {
+            config.coupled_gate = mask & 1u;
+            config.equation_gate = (mask >> 1) & 1u;
+            status = tpmshx_solve_enthalpy_v2(shape,arrays,sizes,&config,1e-8,NULL,
+                &result,&energy,error,sizeof(error));
+            if (status || result.stop != TPMSHX_ENTHALPY_CONVERGED
+                || energy.algorithm != TPMSHX_ENERGY_TEMPERATURE_SOU
+                || energy.has_temperature_update != 1 || !isfinite(energy.temperature_update)
+                || energy.temperature_update > 1e-8 || result.residual >= config.update_tolerance
+                || result.audit_available != (mask ? 1u : 0u)
+                || (mask && result.audit.fluid_equations_computed != config.equation_gate)
+                || (config.coupled_gate && result.audit.coupled_ratio > config.coupled_tolerance)
+                || (config.equation_gate && result.audit.equation_ratio > config.equation_tolerance)) {
+                fprintf(stderr,"T-SOU C gates failed: mask=%u, status=%d, %s\n",mask,status,error);
+                return 10;
+            }
+            if (mask == 1 && (!isnan(result.audit.equation_ratio)
+                || !isnan(result.audit.fluid_abs_sum[0]) || !isnan(result.audit.fluid_abs_sum[1]))) return 11;
+            for (i = 0; i < 8; ++i)
+                if (!isfinite(ha[i]) || !isfinite(hb[i]) || !isfinite(ta[i]) || !isfinite(tb[i])
+                    || !isfinite(ts[i]) || ta[i] < 299. || ta[i] > 371.) return 12;
+            if (fabs(result.q_a+result.q_b) > 1e-3*fmax(fabs(result.q_a),fabs(result.q_b))) return 13;
+        }
+        config.coupled_gate = config.equation_gate = 1;
+        config.update_tolerance = 1e-8;
+        status = tpmshx_solve_enthalpy_v2(shape,arrays,sizes,&config,1e-3,NULL,
+            &result,&energy,error,sizeof(error));
+        if (status || result.stop != TPMSHX_ENTHALPY_CONVERGED
+            || result.residual >= config.update_tolerance || energy.temperature_update > 1e-3) {
+            fprintf(stderr,"T-SOU update gates failed: status=%d, stop=%u, iterations=%zu, h=%g, K=%g, %s\n",
+                status,result.stop,result.iterations,result.residual,energy.temperature_update,error);
+            return 19;
+        }
+        config.update_tolerance = 1e-13;
+        status = tpmshx_solve_enthalpy_v2(shape,arrays,sizes,&config,1e-3,NULL,
+            &result,&energy,error,sizeof(error));
+        if (status || (result.stop != TPMSHX_ENTHALPY_CONVERGED
+            && result.stop != TPMSHX_ENTHALPY_ITERATION_LIMIT)
+            || (result.stop == TPMSHX_ENTHALPY_CONVERGED
+                && (result.residual >= config.update_tolerance || energy.temperature_update > 1e-3))
+            || (result.stop == TPMSHX_ENTHALPY_ITERATION_LIMIT && result.iterations != config.max_iterations)) return 20;
+        printf("T-SOU strict h gate: stop=%u, h=%g, K=%g\n",result.stop,result.residual,energy.temperature_update);
+        config.update_tolerance = 2e-5;
+        config.sweeps = 0; config.max_iterations = 2;
+        status = tpmshx_solve_enthalpy_v2(shape,arrays,sizes,&config,1e-8,NULL,
+            &result,&energy,error,sizeof(error));
+        if (status || result.stop != TPMSHX_ENTHALPY_ITERATION_LIMIT || result.iterations != 2
+            || energy.has_temperature_update != 1 || energy.temperature_update != 0.
+            || result.residual != 0. || !result.audit_available
+            || result.audit.equation_ratio <= config.equation_tolerance) return 17;
+        for (i=0;i<8;++i)
+            if (ta[i] != 370. || tb[i] != 300. || ts[i] != 335.) return 18;
+        config.warm_a = config.warm_b = config.warm_solid = 1;
+        config.coupled_gate = config.equation_gate = 0;
+        for (i=0;i<8;++i) { ta[i]=355.; tb[i]=310.; ts[i]=335.; }
+        status = tpmshx_solve_enthalpy_v1(shape,arrays,sizes,&config,NULL,
+            &result,error,sizeof(error));
+        if (status || result.stop != TPMSHX_ENTHALPY_ITERATION_LIMIT
+            || result.iterations != 2 || result.energy_imbalance < .05 || result.audit_available) return 21;
+        status = tpmshx_solve_enthalpy_v2(shape,arrays,sizes,&config,1e-8,NULL,
+            &result,&energy,error,sizeof(error));
+        if (status || result.stop != TPMSHX_ENTHALPY_ITERATION_LIMIT
+            || result.iterations != 2 || result.energy_imbalance < .05 || result.audit_available
+            || energy.temperature_update != 0. || result.residual != 0.) return 22;
+        config.warm_a = config.warm_b = config.warm_solid = 0;
+        config.coupled_gate = config.equation_gate = 1;
+        config.sweeps = 5; config.max_iterations = 1000;
+        {
+            const double invalid[] = {0.,-1.,NAN};
+            for (i=0;i<3;++i) {
+                result.stop = 93; energy.algorithm = 97;
+                status = tpmshx_solve_enthalpy_v2(shape,arrays,sizes,&config,invalid[i],NULL,
+                    &result,&energy,error,sizeof(error));
+                if (status != TPMSHX_ENTHALPY_INVALID_ARGUMENT || result.stop != 93 || energy.algorithm != 97) return 14;
+            }
+            status = tpmshx_solve_enthalpy_v2(shape,arrays,sizes,&config,1e-8,NULL,
+                &result,NULL,error,sizeof(error));
+            if (status != TPMSHX_ENTHALPY_INVALID_ARGUMENT || result.stop != 93) return 15;
+        }
+        {
+            const tpmshx_enthalpy_callbacks_v1 callbacks = {cancel_first,&calls};
+            calls = 0;
+            status = tpmshx_solve_enthalpy_v2(shape,arrays,sizes,&config,1e-8,&callbacks,
+                &result,&energy,error,sizeof(error));
+            if (status || result.stop != TPMSHX_ENTHALPY_CANCELLED || result.audit_available
+                || energy.algorithm != TPMSHX_ENERGY_TEMPERATURE_SOU || energy.has_temperature_update || calls != 1) return 16;
+            calls = 0;
+        }
+        printf("T-SOU C ABI optional gates and actual Kelvin evidence ok\n");
+    }
+
     result.stop = 93; result.iterations = 97; result.q_a = 123456.;
     config.warm_a = 2;
     status = tpmshx_solve_enthalpy_v1(shape,arrays,sizes,&config,NULL,&result,error,sizeof(error));

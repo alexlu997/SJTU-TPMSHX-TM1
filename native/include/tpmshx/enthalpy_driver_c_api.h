@@ -151,6 +151,24 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_solve_enthalpy_v1(
     const tpmshx_enthalpy_callbacks_v1* callbacks,
     tpmshx_enthalpy_result_v1* result, char* error, size_t error_capacity);
 
+
+/* T-SOU uses the same arrays, warm flags and optional audit output as v1.
+ * temperature_tolerance is a separate positive finite Kelvin limit.
+ * Normalized-h update must be strictly less than config.update_tolerance.
+ * Relative boundary energy imbalance must remain below 0.05, as in v1.
+ * Both limits must pass. No caller tolerance or budget is replaced.
+ * energy reports the actual executed algorithm and Kelvin update. Its update
+ * is unavailable after cancellation. On errors, both outputs stay unchanged.
+ * All v1 storage and error-buffer requirements apply; energy must be non-NULL.
+ * Its storage must not overlap any other argument storage.
+ */
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_solve_enthalpy_v2(
+    const size_t* shape, double* const* arrays, const size_t* sizes,
+    const tpmshx_enthalpy_config_v1* config, double temperature_tolerance,
+    const tpmshx_enthalpy_callbacks_v1* callbacks,
+    tpmshx_enthalpy_result_v1* result, tpmshx_energy_result_v1* energy,
+    char* error, size_t error_capacity);
+
 #ifdef __cplusplus
 }
 #endif
