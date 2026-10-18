@@ -294,7 +294,8 @@ def test_report_requires_real_successful_execution(serial_report):
 
 
 @pytest.mark.parametrize('damage', ['missing_platform', 'missing_report', 'failed_manifest',
-                                   'missing_case', 'failed_case', 'skipped_case', 'all_skipped'])
+                                   'missing_case', 'wrong_case', 'wrong_class', 'duplicate_case',
+                                   'failed_case', 'skipped_case', 'all_skipped'])
 def test_report_rejects_missing_failed_or_skipped_execution(serial_report, tmp_path, damage):
     from xml.etree import ElementTree
     from scripts.check_ci_shards import check_report
@@ -316,6 +317,13 @@ def test_report_rejects_missing_failed_or_skipped_execution(serial_report, tmp_p
         cases = list(group.iter('testcase'))
         if damage == 'missing_case':
             group.remove(cases[0])
+        elif damage == 'wrong_case':
+            cases[0].set('name', 'test_unrelated')
+        elif damage == 'wrong_class':
+            cases[0].set('classname', 'unrelated.module')
+        elif damage == 'duplicate_case':
+            for key in ('classname', 'name'):
+                cases[0].set(key, cases[1].get(key))
         else:
             for case in cases if damage == 'all_skipped' else cases[:1]:
                 ElementTree.SubElement(case, 'failure' if damage == 'failed_case' else 'skipped')
@@ -327,3 +335,26 @@ def test_report_rejects_missing_failed_or_skipped_execution(serial_report, tmp_p
     else:
         with pytest.raises((OSError, ValueError)):
             check_report(directory, 'bo', allow_skips=True)
+
+
+def test_report_matches_class_parameters_independent_of_order(suite, tmp_path):
+    from xml.etree import ElementTree
+    from scripts.check_ci_shards import check_report
+
+    root = tmp_path / 'suite'
+    shutil.copytree(suite, root)
+    (root / 'test_class.py').write_text(
+        'import pytest\n'
+        'class TestOuter:\n'
+        '    class TestInner:\n'
+        '        @pytest.mark.parametrize("value", [1, 2], ids=["one::two", "a<&"])\n'
+        '        def test_keep(self, value): assert value > 0\n', encoding='utf-8')
+    report = tmp_path / 'report'
+    result = run_pytest(root, '--ci-manifest', str(report / 'bo-manifest'),
+                        f'--junitxml={report / "bo.xml"}', workers=0)
+    assert result.returncode == 0, result.stdout
+    tree = ElementTree.parse(report / 'bo.xml')
+    group = next(tree.iter('testsuite'))
+    group[:] = list(reversed(group))
+    tree.write(report / 'bo.xml')
+    assert check_report(report, 'bo') == (6, 0)
