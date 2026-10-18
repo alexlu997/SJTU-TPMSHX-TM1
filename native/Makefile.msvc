@@ -17,7 +17,7 @@ all: $(BUILD_DIR)\tpmshx_thermal.lib
 
 shared: $(BUILD_DIR)\tpmshx_thermal.dll
 
-$(BUILD_DIR)\enthalpy_sweeps.obj: native\src\enthalpy_sweeps.cpp native\include\tpmshx\enthalpy_sweeps.hpp native\include\tpmshx\finite_volume.hpp
+$(BUILD_DIR)\enthalpy_sweeps.obj: native\src\enthalpy_sweeps.cpp native\src\energy_fv_rows.hpp native\include\tpmshx\conservative_energy.hpp native\include\tpmshx\enthalpy_sweeps.hpp native\include\tpmshx\finite_volume.hpp
 	@if not exist "$(BUILD_DIR)" mkdir "$(BUILD_DIR)"
 	cl $(CXXFLAGS) /c native\src\enthalpy_sweeps.cpp /Fo$@
 
@@ -29,7 +29,7 @@ $(BUILD_DIR)\thermal_c_api_shared.obj: native\src\thermal_c_api.cpp native\inclu
 	@if not exist "$(BUILD_DIR)" mkdir "$(BUILD_DIR)"
 	cl $(CXXFLAGS) /DTPMSHX_THERMAL_BUILD_SHARED /c native\src\thermal_c_api.cpp /Fo$@
 
-$(BUILD_DIR)\temperature_driver.obj: native\src\temperature_driver.cpp native\src\temperature_active_line.hpp native\src\temperature_faces.hpp native\src\energy_fv_rows.hpp native\include\tpmshx\temperature_driver.hpp native\include\tpmshx\conservative_energy.hpp native\include\tpmshx\enthalpy_sweeps.hpp native\include\tpmshx\finite_volume.hpp
+$(BUILD_DIR)\temperature_driver.obj: native\src\temperature_driver.cpp native\src\temperature_run_state.hpp native\src\temperature_active_line.hpp native\src\temperature_faces.hpp native\src\energy_fv_rows.hpp native\include\tpmshx\temperature_driver.hpp native\include\tpmshx\conservative_energy.hpp native\include\tpmshx\enthalpy_sweeps.hpp native\include\tpmshx\finite_volume.hpp
 	@if not exist "$(BUILD_DIR)" mkdir "$(BUILD_DIR)"
 	cl $(CXXFLAGS) $(EIGEN_CPPFLAGS) /c native\src\temperature_driver.cpp /Fo$@
 
