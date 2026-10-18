@@ -1,5 +1,6 @@
 """Check complete, disjoint CI shard manifests; Python stdlib only."""
 import argparse
+from collections import Counter
 import json
 from pathlib import Path
 from xml.etree import ElementTree
@@ -73,7 +74,14 @@ def check_report(directory, suite, *, allow_skips=False):
     failed = (any(case.find('failure') is not None or case.find('error') is not None for case in cases)
               or any(int(group.get('failures', 0)) or int(group.get('errors', 0))
                      for group in report.iter('testsuite')))
-    if (len(cases) != len(selected) or failed or skips == len(cases)
+    expected = []
+    for node in selected:
+        address, bracket, parameters = node.partition('[')
+        names = address.split('::')
+        names[0] = names[0].removesuffix('.py').replace('/', '.')
+        expected.append(('.'.join(names[:-1]), names[-1] + bracket + parameters))
+    actual = [(case.get('classname'), case.get('name')) for case in cases]
+    if (Counter(actual) != Counter(expected) or failed or skips == len(cases)
             or (skips and not allow_skips)):
         raise ValueError(f'{directory}: incomplete or unsuccessful {suite} report')
     return len(cases), skips
