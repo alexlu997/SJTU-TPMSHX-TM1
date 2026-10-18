@@ -254,8 +254,6 @@ void validate(const Full3DInput& in,const Full3DControl& c) {
         case EnthalpyAlgorithm::temperature_sou:
             if(!in.solve_b || (!uses_co2_eos(in.a.fluid) && !uses_co2_eos(in.b.fluid)))
                 throw std::invalid_argument("candidate full 3D energy currently requires the existing two-sided true-h route");
-            if(in.a.dispersion!=0. || in.b.dispersion!=0.)
-                throw std::invalid_argument("unsupported candidate full 3D energy boundary, property or acceleration option");
             for(auto source:in.sources)
                 if(source.size && std::any_of(source.data,source.data+source.size,[](double x){return x!=0.;}))
                     throw std::invalid_argument("candidate full 3D energy does not support physical sources");

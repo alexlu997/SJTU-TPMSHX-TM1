@@ -359,6 +359,10 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
   This assigns that side's scalar inlet state to every exterior inflow.
   Directions 0 through 5 retain the single-face inflow check.
   Full 2D/3D drivers retain their port checks.
+  Direct T components can omit either coupled or equation stopping tolerance.
+  They still compute full energy evidence for ordinary and proposal states.
+  Supplied gates, the Kelvin gate and the optional normalized-h gate control stopping.
+  Full 2D/3D T controllers still require both physical energy gates.
 - `TemperatureRun` owns fixed-capacity cell-centered temperature state.
   `StaggeredTemperatureDriver` also retains an active temperature call.
   Each advance completes one original thermal chunk. The existing one-shot
@@ -385,7 +389,7 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
   declared scalar inlets and adiabatic external boundaries. Their SOU outlet
   reconstruction differs from model-h.
 
-  They require a maximum temperature
+  The full 2D/3D controllers require a maximum temperature
   update in K and both explicit energy gates. Ordinary invalid PT states fail
   without clipping. SOU recipe 2 proposes six-sample Anderson updates before ordinary PT evaluation. It accepts only actual-PT/audit merit improvement. A rejected proposal keeps
   the ordinary path.
@@ -1540,6 +1544,9 @@ Taper stays
     independent Nu/D-F applicability and acceptance gates unchanged. It does
     not show experimental accuracy in the added range. Native H Picard iterations can use CoolProp BICUBIC for CO2 and sCO2 T(h,P).
     The retained CO2 model reference uses HEOS. T-FOU and T-SOU keep their HEOS PT updates.
+    Full 3D T-FOU and T-SOU accept the existing dispersion inputs.
+    Integral air/water sides retain the outer effective conductivity, including dispersion.
+    EOS sides retain their local EOS conductivity. The warm-up keeps its existing dispersion term.
     A native CO2 side uses tables only when all local pressures are within the locked table range.
     This range starts at the triple-point saturation pressure. Other CO2 sides keep HEOS without table initialization.
     A rejected or two-phase CO2 table candidate uses the exact HEOS inverse and its physical checks.
