@@ -355,6 +355,10 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
   this owner; the two separate stack-only iteration loops are retired.
   Physical checks, final audits, iteration budgets and cancellation points stay
   unchanged. This component interface does not provide file or application recovery.
+  Direct `EnthalpyRun` calls can set `inlet_direction=-1` for each side.
+  This assigns that side's scalar inlet state to every exterior inflow.
+  Directions 0 through 5 retain the single-face inflow check.
+  Full 2D/3D drivers retain their port checks.
 - `TemperatureRun` owns fixed-capacity cell-centered temperature state.
   `StaggeredTemperatureDriver` also retains an active temperature call.
   Each advance completes one original thermal chunk. The existing one-shot
