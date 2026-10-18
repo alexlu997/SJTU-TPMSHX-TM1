@@ -13,7 +13,7 @@ Phase 0.5：指定配比 (A%, B%, solid%) 反解 (C, δ) + 出每侧 ε/A0/D_h +
 import numpy as np
 
 from sjtu_tpmshx.models.tpms_geometry import _phi_grid
-from sjtu_tpmshx.models.asym_geometry import eps_sides, a0_sides_mc, dh_sides, percolates_z
+from sjtu_tpmshx.models.asym_geometry import eps_sides, a0_sides_mc, dh_from_sides, percolates_z
 
 N = 128
 TPMS = ["Diamond", "Gyroid"]
@@ -38,7 +38,7 @@ def solve_target(phi, A, B, L_m):
     C = 0.5 * (phi_hi - phi_lo)
     eps_A, eps_B, eps = eps_sides(phi, C, delta)
     A0_A, A0_B = a0_sides_mc(phi, C, delta, L_m, N)        # marching cubes 精确
-    Dh_A, Dh_B = dh_sides(phi, C, delta, L_m, N, mc=True)
+    Dh_A, Dh_B = dh_from_sides(eps_A, eps_B, A0_A, A0_B)
     pA = percolates_z(phi < (delta - C))
     pB = percolates_z(phi > (delta + C))
     return dict(C=C, delta=delta, eps_A=eps_A, eps_B=eps_B, solid=1.0 - eps,

@@ -1,6 +1,7 @@
 """Generated coefficient sheets are directly consumable as seven-column CSV."""
 import csv
 import importlib
+from unittest.mock import patch
 
 import openpyxl
 import pytest
@@ -18,12 +19,16 @@ import pytest
         Dh_A_mm=3.505, Dh_B_mm=2.0363)),
 ])
 def test_real_geometry_keeps_values_and_skip_policy(monkeypatch, capsys, name, topology, expected):
+    from skimage import measure
+
     # Values come from the separate generators at 51204406, before extraction.
     generator = importlib.import_module(f'sjtu_tpmshx.runs.tools.{name}')
     monkeypatch.setattr(generator, 'N', 32)
     monkeypatch.setattr(generator, 'TPMS', [topology])
     monkeypatch.setattr(generator, 'SPLITS', [1., 2., 1e12])
-    symmetric, split = generator._geom()
+    with patch.object(measure, 'marching_cubes', wraps=measure.marching_cubes) as triangulate:
+        symmetric, split = generator._geom()
+    assert triangulate.call_count == 4
     assert symmetric['delta'] == 0
     assert symmetric['eps_A'] == symmetric['eps_B'] == symmetric['eps_sym']
     assert symmetric['kr_A'] == symmetric['kr_B'] == 1

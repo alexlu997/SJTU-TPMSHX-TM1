@@ -2,16 +2,62 @@
 
 只读复用 tpms_geometry；不碰生产路径。δ=0 必须退化回现状（见 Task 2 锚）。
 """
+from unittest.mock import patch
+
 import numpy as np
 import pytest
 
 from sjtu_tpmshx.models.asym_geometry import (
-    eps_sides, a0_sides, a0_sides_mc, a0_sides_richardson, dh_sides,
+    eps_sides, a0_sides, a0_sides_mc, a0_sides_richardson, dh_from_sides, dh_sides,
     percolates_z, wall_thickness, find_delta_max,
 )
 from sjtu_tpmshx.models.tpms_geometry import _phi_grid, compute_geometry, _C_from_tL
 
 N = 64  # 测试用小网格（快）
+
+
+@pytest.mark.parametrize('area_a, area_b, expected', [
+    (0., 500., (0., .0016)),
+    (800., 0., (.002, 0.)),
+    (0., 0., (0., 0.)),
+])
+def test_diameter_without_an_interface_is_zero(area_a, area_b, expected):
+    assert dh_from_sides(.4, .2, area_a, area_b) == pytest.approx(expected)
+
+
+@pytest.mark.parametrize('mc, expected', [
+    (False, (.0024753505291005297, .0014094884488448846)),
+    (True, (.002645383823562101, .001475598019130115)),
+])
+def test_diameter_keeps_voxel_and_mc_results(mc, expected):
+    # Values were recorded at 179a6a9b before area reuse.
+    result = dh_sides(_phi_grid('Diamond', 32), .38, .3, .005, 32, mc=mc)
+    assert result == pytest.approx(expected)
+
+
+@pytest.mark.parametrize('topology, targets, expected', [
+    ('Diamond', (.7002, .2002), dict(C=.12158021965627117, delta=.6015525534669689,
+        eps_A=.7001953125, eps_B=.2001953125, solid=.099609375,
+        A0_A=653.2823146278699, A0_B=561.9654316139977,
+        Dh_A=.004287244866861906, Dh_B=.001424965318062553)),
+    ('Gyroid', (.6997, .2002), dict(C=.1428119741100078, delta=.7750127407390837,
+        eps_A=.69970703125, eps_B=.2001953125, solid=.10009765625,
+        A0_A=521.1467874159122, A0_B=442.33962367034786,
+        Dh_A=.005370517851367538, Dh_B=.0018103312639176534)),
+])
+def test_target_scan_reuses_area_and_keeps_results(monkeypatch, topology, targets, expected):
+    from skimage import measure
+    from sjtu_tpmshx.runs.diagnostics import asym_target_scan
+
+    # Values were recorded at 179a6a9b before area reuse.
+    # Quantiles lie between distinct field values to avoid platform-dependent ties.
+    monkeypatch.setattr(asym_target_scan, 'N', 32)
+    with patch.object(measure, 'marching_cubes', wraps=measure.marching_cubes) as triangulate:
+        result = asym_target_scan.solve_target(_phi_grid(topology, 32), *targets, .005)
+    assert triangulate.call_count == 2
+    assert set(result) == set(expected) | {'pA', 'pB'}
+    assert result['pA'] is result['pB'] is True
+    assert {key: result[key] for key in expected} == pytest.approx(expected)
 
 
 def test_eps_sides_delta0_splits_evenly():
