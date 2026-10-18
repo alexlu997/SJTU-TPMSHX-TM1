@@ -55,8 +55,7 @@ int main(void) {
 
     {
         tpmshx_energy_result_v1 energy = {0};
-        unsigned mask = 4;
-        while (mask-- > 0) {
+        for (unsigned mask=0;mask<4;++mask) {
             config.coupled_gate = mask & 1u;
             config.equation_gate = (mask >> 1) & 1u;
             status = tpmshx_solve_enthalpy_v2(shape,arrays,sizes,&config,1e-8,NULL,
@@ -80,6 +79,12 @@ int main(void) {
             if (fabs(result.q_a+result.q_b) > 1e-3*fmax(fabs(result.q_a),fabs(result.q_b))) return 13;
         }
         config.coupled_gate = config.equation_gate = 1;
+        config.update_tolerance = 1e-13;
+        status = tpmshx_solve_enthalpy_v2(shape,arrays,sizes,&config,1e-3,NULL,
+            &result,&energy,error,sizeof(error));
+        if (status || result.stop != TPMSHX_ENTHALPY_CONVERGED
+            || result.residual > config.update_tolerance || energy.temperature_update > 1e-3) return 19;
+        config.update_tolerance = 2e-5;
         config.sweeps = 0; config.max_iterations = 2;
         status = tpmshx_solve_enthalpy_v2(shape,arrays,sizes,&config,1e-8,NULL,
             &result,&energy,error,sizeof(error));
