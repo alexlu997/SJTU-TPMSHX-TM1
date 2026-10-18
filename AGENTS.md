@@ -99,6 +99,8 @@ and rework through complete changes, clear decisions, and verified results.
   Do not duplicate correlations or physical constants between these layers.
 - Update affected callers, tests, fixtures, configuration, and exports as part
   of the change.
+  Record affected consumers, saved files, and documentation in the task handoff before implementation.
+  Keep small duplication when it is clearer. Share code only when contracts match and maintenance becomes simpler.
 - For a replacement, define its retirement scope before implementation.
   Follow the [retirement workflow](docs/collaboration.md#complete-code-retirement).
   Migrate callers and regression coverage. Remove the replaced implementation
@@ -118,7 +120,13 @@ and rework through complete changes, clear decisions, and verified results.
 
 - Follow the [review and delivery workflow](docs/collaboration.md#synchronize-and-review).
   Complete the relevant checks. Commit the task changes.
-  Review the latest task commit.
+  For each implementation task, start one independent reviewer without a user reminder.
+  Use the same model in a new context without the author's chat history.
+  The reviewer checks connected consumers, maintainability, correctness, and complete retirement.
+  The reviewer reads only; the owner makes changes.
+  Review the latest task commit. Use at most three review rounds for the task.
+  Report unresolved substantive disputes to the user with evidence and options.
+  Do not deliver with unavailable review, missing required evidence, or unresolved blocking findings.
   Keep the review result current after each revision.
 - Push the task branch. Open or update the PR with
   its scope, evidence, and unresolved acceptance conditions.

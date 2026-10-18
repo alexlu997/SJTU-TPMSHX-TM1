@@ -74,6 +74,9 @@ Validate its replacement environment before switching. Routine launchers still i
 
 For a replacement task, record the new behavior and the old code to retire before implementation.
 Use the task's existing handoff record; keep detailed local evidence in ignored `.cache/`.
+For other implementation tasks, record the affected consumers and related changes in the same handoff.
+Include only relevant configuration, saved files, tests, fixtures, exports, packaging, and documentation.
+Explain why a related consumer needs no change when that is not clear.
 
 1. Trace public and internal callers, dynamic names, CLI/GUI entries, and external consumers.
    Include configuration and saved-file readers, exports, packaging, tests, fixtures, and documentation.
@@ -96,11 +99,21 @@ After delivery, fix them in separate PRs under the standing authority.
 Each PR covers a confirmed defect and its necessary consequences.
 Explicit read-only tasks remain read-only.
 
+For exploratory code, record the question, success criteria, and adoption or retirement conditions in the existing task record.
+Keep it on the main branch only for a stated product, research, or independent-reference use.
+Record the consumer and the condition for another assessment.
+Preserve necessary conclusions and uncommitted evidence before retirement.
+Historical result reading and current execution are separate contracts.
+Keep units, model and algorithm identity, metric definitions, and validity states readable.
+A reading requirement does not authorize removal of a supported resume or execution interface.
+Present evidence, options, and a recommendation before the user selects a product or algorithm change.
+
 ## Synchronize and review
 
 1. The owner completes the relevant checks. Commit only changes within the task scope.
    Exclude local data, environments, and exploratory reports.
-2. Review a specific head commit. The owner makes revisions.
+2. Start one [independent review](#independent-review) of the specific head commit without a user reminder.
+   The owner makes revisions.
    Update the review result after each later commit.
    Record who did the review. Do not describe an agent's own review as independent human approval.
 3. Push the task branch. Open or update the PR.
@@ -126,6 +139,66 @@ Explicit read-only tasks remain read-only.
 The task's delivery record must show the final status of each required step.
 PR CI, merged-main CI, desktop acceptance, and experimental validation are separate results.
 
+### Independent review
+
+Use one reviewer who did not implement the change, with the same model and no inherited author chat history.
+In Codex, start the first reviewer with `spawn_agent` and `fork_turns="none"`.
+Check that the current host supports this call before relying on it.
+These rules require the owner to start the review; they do not create a file watcher or a technical gate.
+The reviewer's read-only role is not operating-system isolation.
+
+1. Give the reviewer the requirement, accepted constraints, worktree, base and head commits, applicable rules, and test evidence.
+   Include the author's related-change record and relevant prior decisions.
+   Keep the reviewed worktree unchanged until the reviewer returns.
+2. The reviewer first traces connected consumers from the requirement and diff.
+   Then compare those findings with the author's related-change record.
+   Read relevant code and model documents, including dynamic entries and saved-file consumers.
+   Do not restrict the review to the author's file list.
+3. Check incomplete related changes, unnecessary code, repeated rules, extra abstractions, and incomplete retirement.
+   Check correctness separately, including physical requirements, data, current consumers, and evidence coverage.
+   Similar code is not enough evidence for sharing.
+   Keep required copies, physical validation, independent test oracles, and useful reference implementations.
+4. For each blocking finding, give a stable identifier, location, reachable consumer or maintenance case, consequence, and minimum correction.
+   State which existing evidence applies or what minimum check is missing.
+   No finding count is required. Style preferences and unsupported suspicions do not block delivery.
+   A historical issue first noticed here does not automatically affect this change.
+   Explain its direct relation to current delivery or existing acceptance requirements before treating it as a blocker.
+5. The owner fixes findings or supplies evidence for retaining the code.
+   The reviewer checks evidence that disputes a blocking finding.
+   Non-blocking advice needs a disposition, but does not by itself require another review.
+   The reviewer does not edit files or perform Git writes.
+   The owner runs necessary checks under the existing environment and resource rules.
+6. Reuse the same reviewer's independent context for rounds two and three.
+   Check revisions, new effects, and unresolved findings. Expand the scope when behavior or responsibilities change.
+   Do not restart the round count by splitting a PR or starting another reviewer.
+   After three rounds, report unresolved substantive issues with evidence and options to the user.
+   If later changes require substantive review after the limit, report that decision too.
+7. Update coverage for later commits, main synchronization, and conflict resolution.
+   Recheck affected parts rather than repeating the whole review without cause.
+   Preserve valid test evidence. Do not repeat heavy numerical runs without a specific need.
+   Missing review capability or required evidence leaves the review incomplete.
+   Do not label the author's own check as an independent review.
+
+Rate each maintainability item as met, needs correction, insufficient evidence, or not applicable, with a short reason:
+
+- Complete related changes.
+- Necessary code and complete retirement.
+- Repeated rules and clear responsibilities.
+- Clear control flow and useful choices.
+
+Report correctness separately: no blocking finding, blocking finding, or incomplete check.
+No blocking finding is not proof that the code has no defects.
+The delivery conclusion is ready for subsequent checks, needs correction, needs a user decision, or review incomplete.
+Item ratings do not determine that conclusion automatically; specific blockers and required evidence do.
+No score or round limit waives existing physical, data, platform, or CI requirements.
+An implementation must not lower its own review requirements to pass.
+
+For the initial trial, aim for a two-to-five-minute first review of an ordinary task.
+Record time and uncovered scope when more work is necessary. Required numerical checks have a separate budget.
+Time limits never imply approval. Verify invocation without user reminders on three real code tasks.
+Use existing task records for useful findings, rejected findings, confirmed omissions, time, and rounds.
+Do not create changes to fill the sample. Three tasks show initial use, not a defect detection rate.
+
 ## Handoff record
 
 Use the following fields in the shared PR or issue. Update them when ownership,
@@ -136,6 +209,8 @@ scope, the reviewed commit, or the next action changes.
 | Task | Goal, permitted modules/files, and authorization scope |
 | People or tools | Owner, reviewer, and integration coordinator |
 | Code | Base commit, branch, current commit, reviewed commit, and PR |
+| Related changes | Affected consumers, necessary updates, retirement scope, and reasons for retained items |
+| Review | Reviewer and context method, commit coverage, findings and dispositions, rounds, time, and conclusion |
 | Runtime | Applicable lock, environment purpose, native build, and data revision |
 | Evidence | Check, tested commit, result, and local evidence record name |
 | State | Completed work, failures, unresolved gates, and pending approvals |
