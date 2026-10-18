@@ -431,19 +431,63 @@ def test_zero_sweep_budget_retains_true_h_warmup(native_path, algorithm):
         np.testing.assert_allclose(result.fields[key], reference.fields[key], rtol=1e-10, atol=1e-7)
 
 
+@pytest.mark.parametrize('algorithm', ALGORITHMS)
+@pytest.mark.parametrize('pair', ['air-sco2', 'sco2-water'])
+@pytest.mark.parametrize('option', ['conservative_ltne', 'variable_rho_cp', 'red_black_energy', 'combined'])
+def test_existing_true_h_controls_keep_qualified_state(native_path, monkeypatch, algorithm, pair, option):
+    case = candidate(algorithm, pair=pair)
+    baseline = run_case(case, control(native_path, cpu_threads=1))
+    run_prepared = NativeFull3DDriver._run_prepared
+    seen = []
+
+    def with_controls(driver, cfg, data, run_control, **kwargs):
+        call = driver.library.tpmshx_solve_full_3d_v5
+
+        def with_native_controls(*args):
+            native = args[1]._obj
+            if option in ('red_black_energy', 'combined'):
+                native.red_black_energy = 1
+            seen.append((native.conservative, native.variable_rho_cp, native.red_black_energy))
+            return call(*args)
+
+        monkeypatch.setattr(driver.library, 'tpmshx_solve_full_3d_v5', with_native_controls)
+        for name in ('conservative_ltne', 'variable_rho_cp'):
+            if option in (name, 'combined'):
+                cfg[name] = False
+                if name == 'variable_rho_cp':
+                    cfg['_environment']['TPMSHX_VAR_RHOCP'] = None
+        return run_prepared(driver, cfg, data, run_control, **kwargs)
+
+    monkeypatch.setattr(NativeFull3DDriver, '_run_prepared', with_controls)
+    result = run_case(case, control(native_path, cpu_threads=1))
+    assert seen == [(option not in ('conservative_ltne', 'combined'),
+                     option not in ('variable_rho_cp', 'combined'),
+                     option in ('red_black_energy', 'combined'))]
+    test_executed_algorithm_and_original_convergence_gates((case, result))
+    test_actual_side_models_six_face_powers_and_postprocess((case, result), monkeypatch)
+    for key in ('Ta', 'Tb', 'Ts'):
+        np.testing.assert_allclose(result.fields[key], baseline.fields[key], rtol=0., atol=.01)
+    for side in 'AB':
+        limit = 1e-6 + 1e-5 * case.parameters['u_' + side]
+        for component in ('uc', 'vc', 'wc'):
+            key = component + side
+            np.testing.assert_allclose(result.fields[key], baseline.fields[key], rtol=0., atol=limit)
+    metrics, reference = evaluate(result).metrics, evaluate(baseline).metrics
+    for key in ('Q', 'dP_A', 'dP_B', 'mass_flow_A', 'mass_flow_B'):
+        a, b = metrics[key].value, reference[key].value
+        assert abs(a-b) <= .001 * max(abs(a), abs(b)), key
+    for key in ('T_out_A', 'T_out_B'):
+        assert abs(metrics[key].value-reference[key].value) <= .01, key
+
+
 @pytest.mark.parametrize('option, value, message', [
     ('fluid_type_B', 'water', 'two-sided true-h route'),
     ('fluid_B_cfg', None, 'two-sided true-h route'),
-    ('conservative_ltne', False, 'unsupported candidate'),
-    ('variable_rho_cp', False, 'unsupported candidate'),
     ('mms_S_s_field', 1., 'physical sources'),
 ])
 def test_unsupported_native_physical_scope_fails_explicitly(native_path, option, value, message):
     cfg, prepared = build_execution_inputs(candidate(ALGORITHMS[0]))
     cfg[option] = np.ones((4, 4, 4)) * value if option == 'mms_S_s_field' else value
-    # This is a native guard test: avoid a receiving process's env override.
-    if option == 'variable_rho_cp':
-        cfg['_environment']['TPMSHX_VAR_RHOCP'] = None
     driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
     with pytest.raises(ValueError, match=message):
         driver.run_prepared(cfg, prepared)

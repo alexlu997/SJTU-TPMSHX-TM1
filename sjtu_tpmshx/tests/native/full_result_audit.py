@@ -4,11 +4,13 @@
 def physical_gates(result):
     assert result.run_status['converged'], result.run_status
     diagnostics = result.metadata['diagnostics']
-    if result.metadata['thermal_mode'] == 'true_h':
+    if result.metadata['thermal_mode'] in ('true_h', 'conservative_energy'):
         balance = diagnostics['true_h_balance']
         assert balance['converged']
         assert max(balance['enthalpy_clip_counts']['total']) == 0
         settings = balance['effective_settings']
+        if result.metadata['thermal_mode'] == 'conservative_energy':
+            assert balance['temperature_update_K'] <= settings['temperature_update_tol_K']
         for name in ('coupled', 'equation'):
             assert balance[name+'_energy_balance']['ratio'] <= settings[name+'_energy_tol']
     else:
