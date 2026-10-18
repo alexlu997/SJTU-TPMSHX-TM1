@@ -48,10 +48,8 @@ def _cfg(dir_B, in_ctr, out_ctr):
 # taper on offset/reverse fluids, left a net ∮F·n the homogeneous-Neumann MAC
 # projection cannot remove (constant null space) → uniform spurious energy
 # divergence → reverse y-mirror broke at rel~0.174 + spurious over-heating.
-# Fix = `_balance_stream_outflow` enforces Σ_inlet=Σ_outlet on the extracted
-# stream-boundary faces BEFORE the projection (run_calculation_3d.py), so ΣD→0
-# and the strict conservative-LTNE kernel telescopes to machine precision.
-# Near-balanced cases (Shanghai full-face) get scale≈1 → no-op.
+# Native balance_outflow corrects this flux before MAC projection on temperature
+# and true-h paths. The default model-h path keeps its own mirror checks here.
 def test_reverse_y_is_mirror_of_forward_y():
     # FORWARD +y (dir=2): inlet at BOTTOM (y=0) x-strip @0.07, outlet TOP @0.03
     cfg_fwd = _cfg(dir_B=2, in_ctr=0.07, out_ctr=0.03)

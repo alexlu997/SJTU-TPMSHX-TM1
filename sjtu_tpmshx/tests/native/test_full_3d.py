@@ -47,8 +47,28 @@ class NativeFull3D:
         self.library.test_full_3d_field.restype = dp
         self.library.test_full_3d_destroy.argtypes = [ctypes.c_void_p]
 
+    def balance_outflow(self, shape, axes, direction, widths, solver_faces, coefficient):
+        face_shapes = [tuple(n + (axis == d) for d, n in enumerate(shape)) for axis in range(3)]
+        mapped = [np.full(dims, np.nan) for dims in face_shapes]
+        balanced = [np.full(dims, np.nan) for dims in face_shapes]
+        arrays = [*widths, *solver_faces, coefficient, *mapped, *balanced]
+        assert all(a.dtype == np.float64 and a.flags.c_contiguous for a in arrays)
+        sp, dp = ctypes.POINTER(ctypes.c_size_t), ctypes.POINTER(ctypes.c_double)
+        function = self.library.test_full_3d_outflow
+        function.argtypes = [sp, sp, ctypes.c_int, ctypes.POINTER(dp), sp, ctypes.c_char_p, ctypes.c_size_t]
+        function.restype = ctypes.c_int
+        dimensions = np.array(shape, dtype=np.uintp)
+        permutation = np.array(axes, dtype=np.uintp)
+        sizes = np.array([a.size for a in arrays], dtype=np.uintp)
+        pointers = (dp*len(arrays))(*(a.ctypes.data_as(dp) for a in arrays))
+        error = ctypes.create_string_buffer(1024)
+        code = function(dimensions.ctypes.data_as(sp), permutation.ctypes.data_as(sp), direction,
+                        pointers, sizes.ctypes.data_as(sp), error, len(error))
+        assert code == 0, error.value.decode()
+        return mapped, balanced
+
     def run(self, cfg, prepared, *, cancel_at=0, bad_size=None, cancel_before_thermal=False,
-            resume_cut=None, invalid_resume=0):
+            resume_cut=None, invalid_resume=0, audit_prepare=False):
         shape = (prepared["Nx"], prepared["Ny"], prepared["Nz"])
         design, thermal = prepared["design"], cfg["thermal_geometry"]
         spatial = bool(cfg.get("zone_grid_cells") or cfg.get("continuous_field"))
@@ -62,7 +82,8 @@ class NativeFull3D:
         arrays += [np.asarray(cfg.get("mms_S_"+side+"_field", np.empty(0))) for side in ("A", "B", "s")]
         arrays = [np.ascontiguousarray(a, dtype=np.float64) for a in arrays]
         assert len(arrays) == 19
-        f = np.zeros(46, dtype=np.uintp)
+        f = np.zeros(47, dtype=np.uintp)
+        f[46] = audit_prepare
         f[43] = cancel_before_thermal
         f[44] = 0 if resume_cut is None else resume_cut + 1
         f[45] = invalid_resume
@@ -295,6 +316,99 @@ def audit_full(actual, cfg, p):
             np.testing.assert_array_equal(checks[-1, 1:], [passed for _, passed in gates])
         else:
             assert not stats[3]
+
+
+def outflow_case(shape, direction):
+    from sjtu_tpmshx.models.grid_3d import _resolve_axis_map
+    widths = [np.linspace(.7, 1.6, n) for n in shape]
+    axis_map = _resolve_axis_map(dict(dir=direction), *shape,
+                                *(w.sum() for w in widths), *widths)
+    axes = [axis_map[key + "_real_axis"] for key in ("cross1", "stream", "cross2")]
+    solver_shape = [shape[axis] for axis in axes]
+    faces = []
+    for component in range(3):
+        dims = tuple(n + (component == d) for d, n in enumerate(solver_shape))
+        i, j, k = np.indices(dims)
+        faces.append(np.asarray(1. + component + .17*i + .31*j + .23*k, order="C"))
+    i, j, k = np.indices(shape)
+    coefficient = np.asarray(1. + .25*i + .5*j + .75*k, order="C")
+    return widths, axes, faces, coefficient
+
+
+def boundary_flux(face, coefficient, widths, axis, high):
+    # Sum boundary fluxes independently of the native face iterator.
+    import math
+    terms = []
+    for cell in np.ndindex(coefficient.shape):
+        if cell[axis] != (coefficient.shape[axis]-1 if high else 0):
+            continue
+        point = list(cell)
+        point[axis] = coefficient.shape[axis] if high else 0
+        area = math.prod(widths[d][cell[d]] for d in range(3) if d != axis)
+        terms.append(coefficient[cell] * face[tuple(point)] * area)
+    return math.fsum(terms)
+
+
+def check_outflow_balance(mapped, balanced, coefficient, widths, direction):
+    axis, reverse = direction//2, bool(direction % 2)
+    inlet = boundary_flux(mapped[axis], coefficient, widths, axis, reverse)
+    outlet = boundary_flux(mapped[axis], coefficient, widths, axis, not reverse)
+    scale = inlet/outlet
+    assert np.isfinite(scale) and scale > 0. and abs(scale-1.) > 1e-3
+    selection = [slice(None)]*3
+    selection[axis] = 0 if reverse else -1
+    expected = mapped[axis].copy()
+    expected[tuple(selection)] *= scale
+    np.testing.assert_allclose(balanced[axis], expected, rtol=4e-15, atol=2e-15)
+    unchanged = np.ones(mapped[axis].shape, dtype=bool)
+    unchanged[tuple(selection)] = False
+    np.testing.assert_array_equal(balanced[axis][unchanged], mapped[axis][unchanged])
+    for transverse in range(3):
+        if transverse != axis:
+            np.testing.assert_array_equal(balanced[transverse], mapped[transverse])
+    after = boundary_flux(balanced[axis], coefficient, widths, axis, not reverse)
+    assert after == pytest.approx(inlet, rel=4e-15, abs=2e-15)
+
+
+@pytest.mark.parametrize("direction", range(6))
+@pytest.mark.parametrize("shape", [(3, 4, 5), (1, 4, 1)])
+def test_outflow_balance_changes_only_outlet(native, shape, direction):
+    widths, axes, faces, coefficient = outflow_case(shape, direction)
+    borrowed = [*widths, *faces, coefficient]
+    saved = [a.copy() for a in borrowed]
+    mapped, balanced = native.balance_outflow(shape, axes, direction, widths, faces, coefficient)
+    check_outflow_balance(mapped, balanced, coefficient, widths, direction)
+    for actual, before in zip(borrowed, saved):
+        np.testing.assert_array_equal(actual, before)
+
+
+@pytest.mark.parametrize("direction", range(6))
+@pytest.mark.parametrize("guard", ["zero", "tiny", "opposite", "nonfinite"])
+def test_outflow_balance_keeps_invalid_scale(native, direction, guard):
+    shape = (3, 4, 5)
+    widths, axes, faces, coefficient = outflow_case(shape, direction)
+    if guard == "nonfinite":
+        faces[1][:, 0, :] = np.inf
+    else:
+        faces[1][:, -1, :] = {"zero": 0., "tiny": 1e-16, "opposite": -1.}[guard]
+    mapped, balanced = native.balance_outflow(shape, axes, direction, widths, faces, coefficient)
+    for actual, before in zip(balanced, mapped):
+        np.testing.assert_array_equal(actual, before)
+
+
+def test_thermal_preparation_balances_owned_faces(native):
+    cfg, p = prepared("water-water", counts=(3, 4, 5), variable_rho_cp=False,
+                      force_cc_ltne=False, max_iter_simple=2)
+    actual = native.run(cfg, p, audit_prepare=True)
+    assert actual["code"] == 0, actual["error"]
+    shape = tuple(p["N"+axis] for axis in "xyz")
+    widths = [p["d"+axis] for axis in "xyz"]
+    for side, name in enumerate("AB"):
+        dims = [tuple(n + (axis == d) for d, n in enumerate(shape)) for axis in range(3)]
+        mapped = [actual[129+40*side+d].reshape(dims[d]) for d in range(3)]
+        balanced = [actual[17+3*side+d].reshape(dims[d]) for d in range(3)]
+        coefficient = p["design"]["eps_"+name] * actual[7+side].reshape(shape)
+        check_outflow_balance(mapped, balanced, coefficient, widths, cfg["fluid_"+name+"_cfg"]["dir"])
 
 
 @pytest.mark.parametrize("pair", ["air-air", "air-water", "water-air", "air-sco2", "sco2-water"])
