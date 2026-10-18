@@ -1,39 +1,11 @@
-"""Pure numpy helpers extracted verbatim from stages_3d.py (Phase 3 god-file
-split). No module-global / solver-import dependencies — index/face/slice math,
-staggered<->real remap and stream-outflow balance. Current preparation and numerical backends import these helpers
-from models; the former stage facade is retired."""
+"""Build port masks and map 3D fields to physical coordinates.
+
+Preparation and native result packing use the port helpers. Tests retain the
+coordinate transforms and outflow balance as independent numerical references.
+"""
 from __future__ import annotations
 
 import numpy as np
-
-
-def _stream_axis(dir_code):
-    """Real-coord streamwise axis: 0/1→x(0), 2/3→y(1), 4/5→z(2)."""
-    return int(dir_code) // 2
-
-
-def _dir_is_reverse(dir_code):
-    """True for negative-going dirs (-x/-y/-z = odd codes 1/3/5)."""
-    return bool(int(dir_code) % 2)
-
-
-def _inlet_index(dir_code):
-    """Stream-axis index of the REAL inlet face (0 forward, -1 reverse)."""
-    return -1 if _dir_is_reverse(dir_code) else 0
-
-
-def _outlet_index(dir_code):
-    """Stream-axis index of the REAL outlet face (-1 forward, 0 reverse)."""
-    return 0 if _dir_is_reverse(dir_code) else -1
-
-
-def _face_slice(field, dir_code, which):
-    """View of ``field``'s real inlet/outlet face. which ∈ {'inlet','outlet'}.
-    Returns the same axis-collapsed view the hand-rolled ladders did."""
-    idx = _inlet_index(dir_code) if which == 'inlet' else _outlet_index(dir_code)
-    sl = [slice(None), slice(None), slice(None)]
-    sl[_stream_axis(dir_code)] = idx
-    return field[tuple(sl)]
 
 
 def _port_rectangles(fluid_cfg, cross2_length):
