@@ -9,7 +9,7 @@ import pytest
 
 from sjtu_tpmshx.models.asym_geometry import (
     eps_sides, a0_sides, a0_sides_mc, a0_sides_richardson, dh_from_sides, dh_sides,
-    percolates_z, wall_thickness, find_delta_max,
+    percolates_z, wall_thickness, wall_thickness_from_sides, find_delta_max,
 )
 from sjtu_tpmshx.models.tpms_geometry import _phi_grid, compute_geometry, _C_from_tL
 
@@ -58,6 +58,39 @@ def test_target_scan_reuses_area_and_keeps_results(monkeypatch, topology, target
     assert set(result) == set(expected) | {'pA', 'pB'}
     assert result['pA'] is result['pB'] is True
     assert {key: result[key] for key in expected} == pytest.approx(expected)
+
+
+@pytest.mark.parametrize('porosity, area_a, area_b, expected', [
+    (.7, 1000., 2000., .0002),
+    (.7, 1000., 0., .0006),
+    (.7, 0., 0., 0.),
+    (.7, -1000., 0., 0.),
+    (1., 1000., 2000., 0.),
+])
+def test_mean_wall_thickness_from_sides(porosity, area_a, area_b, expected):
+    assert wall_thickness_from_sides(porosity, area_a, area_b) == pytest.approx(expected)
+
+
+@pytest.mark.parametrize('topology', ['Diamond', 'Gyroid'])
+def test_offset_scan_samples_geometry_once(monkeypatch, topology):
+    from sjtu_tpmshx.models import asym_geometry as geometry
+    from sjtu_tpmshx.runs.diagnostics import asym_geometry_scan as scan
+
+    monkeypatch.setattr(scan, 'N', 16)
+    with patch.object(geometry, 'eps_sides', wraps=eps_sides) as pores, \
+            patch.object(geometry, 'a0_sides', wraps=a0_sides) as areas:
+        monkeypatch.setattr(scan, 'eps_sides', pores)
+        monkeypatch.setattr(scan, 'a0_sides', areas)
+        rows, dmax = scan.scan_one(topology, 5., .4)
+    assert len(rows) == 41
+    assert pores.call_count == areas.call_count == len(rows)
+    phi = _phi_grid(topology, scan.N)
+    C = _C_from_tL(topology, .4 / 5.)
+    assert dmax == find_delta_max(phi, C)
+    for row in rows:
+        args = (phi, C, row['delta'], .005, scan.N)
+        expected = (*dh_sides(*args), wall_thickness(*args) * 1000.)
+        assert (row['Dh_A'], row['Dh_B'], row['t_phys_mm']) == expected
 
 
 def test_eps_sides_delta0_splits_evenly():

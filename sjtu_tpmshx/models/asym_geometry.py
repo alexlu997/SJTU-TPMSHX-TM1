@@ -159,15 +159,17 @@ def percolates_z(mask: np.ndarray) -> bool:
     return len(top & bot) > 0
 
 
-def wall_thickness(phi: np.ndarray, C: float, delta: float, L_m: float, N: int) -> float:
-    """平均物理壁厚 [m]，slab 近似 t = V_solid / A_wall = (1−ε) / A0_wall。
-
-    A0_wall ≈ 两侧单侧面积均值（同一道墙的两个面）。
-    """
-    eps_A, eps_B, eps = eps_sides(phi, C, delta)
-    A0_A, A0_B = a0_sides(phi, C, delta, L_m, N)
+def wall_thickness_from_sides(eps_total: float, A0_A: float, A0_B: float) -> float:
+    """Return mean slab wall thickness [m] from total porosity and side areas [1/m]."""
     A0_wall = 0.5 * (A0_A + A0_B)
-    return (1.0 - eps) / A0_wall if A0_wall > 0 else 0.0
+    return (1.0 - eps_total) / A0_wall if A0_wall > 0 else 0.0
+
+
+def wall_thickness(phi: np.ndarray, C: float, delta: float, L_m: float, N: int) -> float:
+    """Return mean slab wall thickness [m] from solid volume and wall area."""
+    _, _, eps = eps_sides(phi, C, delta)
+    A0_A, A0_B = a0_sides(phi, C, delta, L_m, N)
+    return wall_thickness_from_sides(eps, A0_A, A0_B)
 
 
 def find_delta_max(phi: np.ndarray, C: float, dstep: float = None) -> float:

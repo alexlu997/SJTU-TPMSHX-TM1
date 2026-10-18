@@ -11,7 +11,8 @@ import numpy as np
 
 from sjtu_tpmshx.models.tpms_geometry import _phi_grid, _C_from_tL, compute_geometry
 from sjtu_tpmshx.models.asym_geometry import (
-    eps_sides, a0_sides, dh_sides, wall_thickness, percolates_z, find_delta_max,
+    eps_sides, a0_sides, dh_from_sides, wall_thickness_from_sides,
+    percolates_z, find_delta_max,
 )
 
 N = 128
@@ -34,8 +35,8 @@ def scan_one(tpms, L_mm, t_mm):
     for d in deltas:
         eps_A, eps_B, eps = eps_sides(phi, C, d)
         A0_A, A0_B = a0_sides(phi, C, d, L_m, N)
-        Dh_A, Dh_B = dh_sides(phi, C, d, L_m, N)
-        t = wall_thickness(phi, C, d, L_m, N)
+        Dh_A, Dh_B = dh_from_sides(eps_A, eps_B, A0_A, A0_B)
+        t = wall_thickness_from_sides(eps, A0_A, A0_B)
         pA = percolates_z(phi < (d - C))
         pB = percolates_z(phi > (d + C))
         r = eps_A / eps_B if eps_B > 1e-9 else float('inf')
