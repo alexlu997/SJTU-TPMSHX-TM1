@@ -234,7 +234,7 @@ struct EnthalpyRun::Impl {
         }
     }
     void validate_temperature(bool initial) {
-        if (!control.max_iterations || !control.sweeps || !std::isfinite(control.omega)
+        if (!control.max_iterations || !std::isfinite(control.omega)
             || control.omega <= 0. || control.omega > 1.
             || !std::isfinite(control.temperature_update_tolerance) || control.temperature_update_tolerance <= 0.)
             throw std::invalid_argument("invalid T energy numerical controls");

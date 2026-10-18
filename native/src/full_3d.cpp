@@ -259,7 +259,7 @@ void validate(const Full3DInput& in,const Full3DControl& c) {
             for(auto source:in.sources)
                 if(source.size && std::any_of(source.data,source.data+source.size,[](double x){return x!=0.;}))
                     throw std::invalid_argument("candidate full 3D energy does not support physical sources");
-            if(!c.enthalpy.max_iterations || !c.enthalpy.sweeps || !std::isfinite(c.enthalpy.omega)
+            if(!c.enthalpy.max_iterations || !std::isfinite(c.enthalpy.omega)
                || c.enthalpy.omega<=0. || c.enthalpy.omega>1.
                || !std::isfinite(c.enthalpy.temperature_update_tolerance) || c.enthalpy.temperature_update_tolerance<=0.)
                 throw std::invalid_argument("invalid candidate full 3D energy controls");

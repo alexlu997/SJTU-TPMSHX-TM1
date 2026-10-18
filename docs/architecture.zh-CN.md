@@ -262,6 +262,9 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
   | 二维 temperature FOU/SOU | 含水 12000；否则 5000 | 5 | 0.6 / 0.2 |
   | 三维 temperature FOU/SOU | 1500 | 5 | 0.6 / 0.2 |
 
+  零 sweep 保留初始化或预热后的热状态，仍执行真实能量审计和已请求的停止门。
+  门未通过时保留限迭代返回；零更新不代表物理收敛。
+
   归一化焓更新门和两项能量门默认均为 0.001。温度更新门为 1e-8 K，候选的附加焓更新门默认关闭。完整三维显式参数保留现有优先级和适用范围。只读结果查询给出最后热求解及每次外迭代的实际参数。`available` 要求 true-h 调用已完成，包括限预算调用，不代表收敛；取消和其他热路线均为 `available=0`。绑定在执行前要求这些查询，旧库需为当前绑定重新构建。C 输入／结果布局、owner 生命周期和现有入口保持不变。二维先流动、三维外循环先热求解的顺序仍分别保留。
 - 原生 CC/QD、交错 temperature、model-h 和 conservative-energy 共用有限体积行，但保留物理模型及调用方的面准备职责。空气／水 full2D CC 主／细及 full3D CC Nz=1 调用严格 `solve_model_h_2d`；Nz>1 调用严格 `solve_model_h_3d`。它们使用接受的热状态 SIMPLE 质量面、既有空气／水 h(T)，并保留准备态 K/h_v。二维／Nz=1 为 A-SOU/B-FOU，Nz>1 两侧 SOU。增量 `get_model_enthalpy_evidence_v1` 在后续流动／物性更新和释放前捕获该热状态。可移植 `model_enthalpy_temperature_v1` 记录 h(T) 系数、求解相、残差、源／储库和向外平流／Fourier 平面；二维主／细身份分开，不使用旧热容账本布局。新字段缺声明时无效；不含新账本的历史文件保留原归约。真实三维 Nz=1 将质量除以深度交给二维，再将积分功率乘深度一次；温度不缩放。fullCC 不支持非零源，给定 B 为外部储库，不提供 B 求解证据。QD／独立 CC 保留固定系数热容输运。full3D true-h CC 预热在 Nz=1，以及 Nz>1 且 conservative=false、force_cell_centered=true 时保留私有 G4 核。两次 sweep 先求解两侧，再运行所选焓算法及物性／守恒门。单 A sCO2 使用同一私有核、给定 B 和原预算。这些保留行与交错／MAC 投影／热容研究契约不继承 fullCC 资格。迭代、不完整边界和构建要求见[原生使用方契约](cpp-migration.zh-CN.md#shared-finite-volume-temperature-consumers)。
 - `postprocess/` 归约记录的场、通量和压力，不重跑求解器或访问私有运行时对象补证据。完整计算评估只在本次调用内，按侧别和主／细证据延迟复用已成功的热与质量归约。每个请求指标仍单独处理缺失、不支持和无效状态。
