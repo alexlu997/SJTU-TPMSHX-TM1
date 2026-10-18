@@ -70,9 +70,9 @@ int solve(
                 output.audit = {};
             } else if (!config->equation_gate) {
                 const auto missing = std::numeric_limits<double>::quiet_NaN();
-                for (size_t side=0;side<2;++side) {
-                    output.audit.fluid_abs_sum[side] = missing;
-                    output.audit.fluid_cell_max[side] = missing;
+                for (size_t side_index=0;side_index<2;++side_index) {
+                    output.audit.fluid_abs_sum[side_index] = missing;
+                    output.audit.fluid_cell_max[side_index] = missing;
                 }
                 output.audit.equation_ratio = missing;
                 output.audit.fluid_equations_computed = 0;
