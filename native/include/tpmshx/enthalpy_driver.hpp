@@ -19,9 +19,9 @@ struct EnthalpySideView {
     double inlet_temperature, inlet_pressure;
     ArrayView<const double> pressure, epsilon, hv;
     ArrayView<const double> mass_x, mass_y, mass_z;
-    // Required by the T algorithms: 0:+x, 1:-x, 2:+y, 3:-y, 4:+z, 5:-z.
-    // Other exterior faces must not supply undefined inflow. The legacy H
-    // scalar-inflow contract ignores this field.
+    // -1 assigns the scalar inlet state to every exterior inflow.
+    // Values 0:+x, 1:-x, 2:+y, 3:-y, 4:+z, 5:-z restrict T inflow
+    // to that face. The H algorithm ignores this field.
     int inlet_direction = -1;
     EnergyRelation energy = EnergyRelation::eos_h_TP;
     ConductivitySource conductivity_source = ConductivitySource::local_eos;
@@ -136,7 +136,8 @@ private:
 // Actual states retain each fluid's physical guards. Final equation audits
 // use the selected relation; an EOS table cannot replace the final HEOS audit.
 // T algorithms use actual-state updates without enthalpy bounds or tables.
-// They require an explicit inlet direction and reject undefined exterior inflow.
+// A selected inlet direction rejects inflow on other exterior faces.
+// Direction -1 supplies the scalar inlet state at every exterior inflow.
 // SOU reconstructs enthalpy at faces and uses a damped Picard update. An
 // accepted Anderson proposal still needs an ordinary block to confirm exit.
 // The optional ledger receives a completed full equation audit. Cancellation

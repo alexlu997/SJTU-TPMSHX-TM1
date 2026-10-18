@@ -111,8 +111,9 @@ void retain_physical_audit(PhysicalHeatLedger* output, const GridView& grid,
 }
 
 void check_inflow(const GridView& g, const EnthalpySideView& side) {
-    if (side.inlet_direction < 0 || side.inlet_direction > 5)
-        throw std::invalid_argument("T energy requires an explicit inlet direction");
+    if (side.inlet_direction < -1 || side.inlet_direction > 5)
+        throw std::invalid_argument("invalid T energy inlet direction");
+    if (side.inlet_direction == -1) return;
     const std::size_t extent[]{g.nx,g.ny,g.nz}, stride[]{g.ny*g.nz,g.nz,1};
     const ArrayView<const double> mass[]{side.mass_x,side.mass_y,side.mass_z};
     for (std::size_t i = 0; i < g.nx; ++i)
