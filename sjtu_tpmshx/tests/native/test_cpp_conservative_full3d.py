@@ -448,6 +448,11 @@ def test_existing_true_h_controls_keep_qualified_state(native_path, monkeypatch,
     test_actual_side_models_six_face_powers_and_postprocess((case, result), monkeypatch)
     for key in ('Ta', 'Tb', 'Ts'):
         np.testing.assert_allclose(result.fields[key], baseline.fields[key], rtol=0., atol=.01)
+    for side in 'AB':
+        limit = 1e-6 + 1e-5 * case.parameters['u_' + side]
+        for component in ('uc', 'vc', 'wc'):
+            key = component + side
+            np.testing.assert_allclose(result.fields[key], baseline.fields[key], rtol=0., atol=limit)
     metrics, reference = evaluate(result).metrics, evaluate(baseline).metrics
     for key in ('Q', 'dP_A', 'dP_B', 'mass_flow_A', 'mass_flow_B'):
         a, b = metrics[key].value, reference[key].value
