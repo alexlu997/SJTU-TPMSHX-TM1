@@ -346,3 +346,13 @@ def test_prepared_completed_coarse_and_continuous_fields(native, partial, contin
     audit_coarse(actual, reference)
     assert actual['outer_converged']
     assert all(flow['result']['converged'] for flow in actual['flow'])
+
+
+@pytest.mark.parametrize('mode', [2, 3, 4], ids=['coupled', 'equation', 'both'])
+def test_full_temperature_candidates_require_both_physical_gates(native, mode):
+    case = prepare_case(configuration(mode='true_h', outer=2), case_id='required-energy-gates')
+    request = inputs(prepared_record(case))
+    request['full'] = mode
+    status, error, result = native(request)
+    assert status == 1 and result is None
+    assert 'requires positive coupled and equation tolerances' in error
