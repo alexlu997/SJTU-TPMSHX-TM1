@@ -426,6 +426,7 @@ PowerShell 使用相同参数，将 `"$PYTHON"` 改为 `& $tm1Python`，目录�
 Case YAML 引用伴随 HDF5；result/VTK 导出和严格指标 JSON 的限制见
 [schema](schemas/three_module_v1/README.zh-CN.md)。CLI 输出必须与本次输入文件及 Case 的伴随 HDF5
 分开，路径重合会在执行阶段前拒绝；独立的既有输出仍可更新。
+所有 CLI 阶段均拒绝向含 `run.json` 或 `checkpoint.h5` 的目录及其子目录写入；请选择新目录，以保留已保存的运行及原生库。
 取消与失败不伪装成完成结果；已完成但未收敛的
 结果保留原状态。指标有限不等于数值、能量或实验精度验收通过。
 

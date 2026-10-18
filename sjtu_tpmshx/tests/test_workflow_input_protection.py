@@ -106,6 +106,78 @@ def test_cli_rejects_input_collision_before_work(
 
 
 @pytest.mark.parametrize('stage', ['prepare', 'solve', 'postprocess', 'run'])
+@pytest.mark.parametrize('marker', ['run.json', 'checkpoint.h5'])
+@pytest.mark.parametrize('form', ['direct', 'directory_alias', 'missing_marker_target'])
+def test_cli_preserves_saved_run_before_work(
+        tmp_path, capsys, native_stages, stage, marker, form):
+    case, result, performance, calls = native_stages
+    directory = tmp_path / 'saved-run'
+    directory.mkdir()
+    save_case(case, directory / 'case.yaml')
+    save_result(result, directory / 'results.h5')
+    save_metrics(performance, directory / 'metrics.json')
+    saved_marker = directory / marker
+    if form == 'missing_marker_target':
+        saved_marker.symlink_to(tmp_path / 'missing-saved-state')
+        marker_target = saved_marker.readlink()
+    else:
+        saved_marker.write_bytes(b'saved state')
+    before = {path.name: path.read_bytes() for path in directory.iterdir() if path.is_file()}
+    target = directory
+    if form == 'directory_alias':
+        target = tmp_path / 'saved-run-alias'
+        target.symlink_to(directory, target_is_directory=True)
+    if stage in ('prepare', 'run'):
+        source = tmp_path / 'config.json'
+        ComputeConfig().to_json(source)
+        output = target / 'case.yaml' if stage == 'prepare' else target
+    elif stage == 'solve':
+        source, output = tmp_path / 'input.yaml', target / 'results.h5'
+        save_case(case, source)
+    else:
+        source, output = tmp_path / 'input.h5', target / 'metrics.json'
+        save_result(result, source)
+    args = [stage, str(source), str(output)]
+    if stage in ('prepare', 'run'):
+        args += ['--case-id', case.case_id]
+    with pytest.raises(SystemExit) as error:
+        main(args)
+    assert error.value.code == 2
+    assert 'output belongs to a saved run; use a new directory' in capsys.readouterr().err
+    for call in calls:
+        call.assert_not_called()
+    assert {path.name: path.read_bytes() for path in directory.iterdir() if path.is_file()} == before
+    if form == 'missing_marker_target':
+        assert saved_marker.is_symlink()
+        assert saved_marker.readlink() == marker_target
+
+
+@pytest.mark.parametrize('alias', [False, True])
+def test_cli_preserves_saved_native_library(tmp_path, capsys, native_stages, alias):
+    _, result, _, calls = native_stages
+    directory = tmp_path / 'saved-run'
+    runtime = directory / 'runtime'
+    runtime.mkdir(parents=True)
+    (directory / 'run.json').write_text('{}')
+    library = runtime / 'solver.dll'
+    library.write_bytes(b'saved native library')
+    target = runtime
+    if alias:
+        target = tmp_path / 'runtime-alias'
+        target.symlink_to(runtime, target_is_directory=True)
+    source = tmp_path / 'results.h5'
+    save_result(result, source)
+    with pytest.raises(SystemExit) as error:
+        main(['postprocess', str(source), str(target / library.name)])
+    assert error.value.code == 2
+    assert 'output belongs to a saved run; use a new directory' in capsys.readouterr().err
+    for call in calls:
+        call.assert_not_called()
+    assert library.read_bytes() == b'saved native library'
+    assert (directory / 'run.json').read_text() == '{}'
+
+
+@pytest.mark.parametrize('stage', ['prepare', 'solve', 'postprocess', 'run'])
 def test_cli_can_replace_independent_old_outputs(tmp_path, native_stages, stage):
     case, result, performance, _ = native_stages
     old_case = replace(case, case_id='old-case')
