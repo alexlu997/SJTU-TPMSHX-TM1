@@ -1546,6 +1546,9 @@ Taper stays
     independent Nu/D-F applicability and acceptance gates unchanged. It does
     not show experimental accuracy in the added range. Native H Picard iterations can use CoolProp BICUBIC for CO2 and sCO2 T(h,P).
     The retained CO2 model reference uses HEOS. T-FOU and T-SOU keep their HEOS PT updates.
+    Full 3D T-FOU and T-SOU accept the existing dispersion inputs.
+    Integral air/water sides retain the outer effective conductivity, including dispersion.
+    EOS sides retain their local EOS conductivity. The warm-up keeps its existing dispersion term.
     A native CO2 side uses tables only when all local pressures are within the locked table range.
     This range starts at the triple-point saturation pressure. Other CO2 sides keep HEOS without table initialization.
     A rejected or two-phase CO2 table candidate uses the exact HEOS inverse and its physical checks.
