@@ -412,13 +412,31 @@ def test_missing_version_query_blocks_candidate_before_solve_but_allows_legacy(n
         assert not entered
 
 
+
+@pytest.mark.parametrize('algorithm', ALGORITHMS)
+def test_zero_sweep_budget_retains_true_h_warmup(native_path, algorithm):
+    case = candidate(algorithm, cap=2)
+    case = replace(case, parameters=dict(case.parameters, ltne_enthalpy_outer=1, ltne_enthalpy_nsweep=0))
+    result = run_case(case, control(native_path, cpu_threads=1))
+    legacy = replace(case, parameters=dict(case.parameters, enthalpy_algorithm='legacy_h_fou'))
+    reference = run_case(legacy, control(native_path, cpu_threads=1))
+    assert not result.run_status['converged'] and not reference.run_status['converged']
+    balance = result.metadata['diagnostics']['true_h_balance']
+    assert balance['energy_algorithm'] == algorithm and balance['exit_reason'] == 'iteration_limit'
+    assert balance['iterations'] == balance['effective_settings']['max_iterations'] == 1
+    assert balance['effective_settings']['sweeps'] == 0
+    assert balance['temperature_update_K'] == 0.
+    assert balance['equation_energy_balance']['ratio'] > balance['effective_settings']['equation_energy_tol']
+    for key in ('Ta', 'Tb', 'Ts'):
+        np.testing.assert_allclose(result.fields[key], reference.fields[key], rtol=1e-10, atol=1e-7)
+
+
 @pytest.mark.parametrize('option, value, message', [
     ('fluid_type_B', 'water', 'two-sided true-h route'),
     ('fluid_B_cfg', None, 'two-sided true-h route'),
     ('conservative_ltne', False, 'unsupported candidate'),
     ('variable_rho_cp', False, 'unsupported candidate'),
     ('mms_S_s_field', 1., 'physical sources'),
-    ('ltne_enthalpy_nsweep', 0, 'invalid candidate'),
 ])
 def test_unsupported_native_physical_scope_fails_explicitly(native_path, option, value, message):
     cfg, prepared = build_execution_inputs(candidate(ALGORITHMS[0]))
