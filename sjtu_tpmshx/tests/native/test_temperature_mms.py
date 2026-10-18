@@ -23,26 +23,28 @@ def test_native_manufactured_fields(native,case,conservative,record_property):
     record_property('iterations',status[1])
 
 
-@pytest.mark.parametrize('conservative',[False,True])
-def test_native_manufactured_refinement(native,conservative,record_property):
+@pytest.mark.parametrize('case,conservative',[('1d',False),('2d',False),('3d',False),('3d',True)])
+def test_native_manufactured_refinement(native,case,conservative,record_property):
     grids = (10,16,24,32) if conservative else (12,16,20,30,40)
     errors,region_errors = [],[]
     for n in grids:
-        c,exact = prepared('3d',n,conservative)
+        c,exact = prepared(case,n,conservative)
         code,status,_,_,error = native(c)
         assert code == 0 and status[0] == 0, (n,status,error)
         errors.append([np.linalg.norm(t-e)/np.linalg.norm(e) for t,e in zip(c['state'],exact)])
         masks = [np.s_[-1,:,:],np.s_[:,-1,:],np.s_[:,:,0],np.s_[1:-1,1:-1,1:-1]]
         region_errors.append([[np.linalg.norm((t-e)[mask])/np.linalg.norm(e[mask])
             for t,e in zip(c['state'],exact)] for mask in masks])
+    assert np.isfinite(errors).all() and np.isfinite(region_errors).all()
     orders = [fit_order_loglog(1./np.asarray(grids),np.asarray(errors)[:,phase]) for phase in range(3)]
     limits = (1.8,1.8,1.8) if conservative else (1.5,1.5,1.8)
     for fitted,limit in zip(orders,limits):
         assert np.isfinite([fitted.p,fitted.r2]).all() and fitted.p >= limit
-        if conservative:
-            assert fitted.r2 >= .99
+        assert fitted.r2 >= (.99 if conservative else .999)
     assert max(errors[-1]) < .01
     if not conservative:
+        assert max(errors[grids.index(30)]) < .01
+    if case == '3d' and not conservative:
         # A4 uses the final three grids for each physical boundary region.
         for region,phase,limit in ((0,0,.8),(1,1,.8),(2,2,1.5),*( (3,p,1.8) for p in range(3))):
             data=np.asarray(region_errors)[-3:,region,phase]
@@ -52,6 +54,7 @@ def test_native_manufactured_refinement(native,conservative,record_property):
     record_property('grids',grids)
     record_property('relative_l2',np.asarray(errors).tolist())
     record_property('orders',[float(fit.p) for fit in orders])
+    record_property('r2',[float(fit.r2) for fit in orders])
 
 
 @pytest.mark.parametrize('case', ['1d', '2d', '3d'])

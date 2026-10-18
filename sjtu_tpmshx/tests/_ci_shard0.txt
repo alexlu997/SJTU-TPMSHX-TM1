@@ -67,7 +67,6 @@ sjtu_tpmshx/tests/test_lazy_result_plots.py
 sjtu_tpmshx/tests/test_lint_gate.py
 sjtu_tpmshx/tests/test_load_data_no_shanghai.py
 sjtu_tpmshx/tests/test_logutil.py
-sjtu_tpmshx/tests/test_mms_b4_conservative_order.py
 sjtu_tpmshx/tests/test_module_result_mapping.py
 sjtu_tpmshx/tests/test_multi_condition_optimizer.py
 sjtu_tpmshx/tests/test_nonuniform_probe.py

@@ -21,9 +21,9 @@ even if diagnostic plots are written. Rendering failure returns a nonzero code.
 
 GCI creates a separate `.cache/validation/<tool>-<run-ID>/` by default. It contains CSV files, reports, and metadata. `--out-dir` selects another directory.
 
-The former Python MMS A3/A4/B4 commands are retired in 0.2. Their [original entry points](https://github.com/alexlu997/SJTU-TPMSHX-TM1/tree/v0.1.0/sjtu_tpmshx/validation/cases) and frozen CSV records retain their historical meaning. Current manufactured-field, refinement, and inlet checks are in [native MMS tests](../sjtu_tpmshx/tests/native/test_temperature_mms.py).
+The former Python MMS A3/A4/B4 commands are retired in 0.2. Their [original entry points](https://github.com/alexlu997/SJTU-TPMSHX-TM1/tree/v0.1.0/sjtu_tpmshx/validation/cases) and [frozen CSV records with their tests](history/README.en.md#mms-reference-retirement) stay at fixed historical entries. Current manufactured-field, refinement, and inlet checks are in [native MMS tests](../sjtu_tpmshx/tests/native/test_temperature_mms.py).
 
-Explicit relative file paths resolve from the current working directory. Reference CSV files, orders, and historical metadata under `sjtu_tpmshx/validation/` stay. Before solving, tools reject writes there, including symlinks that point there. Other explicit output directories can be reused. Use the default separate directory to keep each run.
+Explicit relative file paths resolve from the current working directory. The remaining reference CSV files and historical metadata under `sjtu_tpmshx/validation/` stay. Before solving, tools reject writes there, including symlinks that point there. Other explicit output directories can be reused. Use the default separate directory to keep each run.
 
 `validate_sco2_exp_q --csv` also validates reference-directory protection for CSV and `.meta.json` before solving. The shared provenance CSV writer and this entry stage CSV/metadata in the target directory. They replace the group only after all writes succeed. Write or replacement exceptions keep the previous group. This does not cover power failure or concurrent writers to one target. With explicit `sidecar=False`, the shared writer also removes a previous sidecar to prevent stale metadata on reload.
 

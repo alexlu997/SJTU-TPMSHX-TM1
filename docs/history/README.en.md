@@ -80,3 +80,21 @@ This revision changes neither raw experimental data nor frozen coefficients in s
 The same revision changed the 2D incompressible pressure reference. It moved from inlet-cell/profile weighting to physical inlet-face/geometric-opening-area averaging. Three-step short-budget sCO₂–water Q changed from 45624.58456665004 to 45624.58629116599 W/m. Air–sCO₂ Q changed from 4416.181405481553 to 4416.181525306756 W/m. Both cases must stay nonconverged.
 
 They keep differences between final thermal inputs and final flow fields. These values are not convergence or physical-accuracy certificates.
+
+<a id="mms-reference-retirement"></a>
+
+## Historical MMS reference tests retired, 2026-10-18
+
+Three tests that read frozen MMS CSVs have left the current tree, with five CSV files and four metadata files.
+Merged commit [69f15c8a](https://github.com/alexlu997/SJTU-TPMSHX-TM1/commit/69f15c8ab08131d5759d9677247384d631cbb3ec) keeps the original values, limits and former A4 pinned-cell criterion.
+
+| Historical content | Fixed entry |
+| --- | --- |
+| A3 global order and error tests | [test_mms_phase_a3_gates.py](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/69f15c8ab08131d5759d9677247384d631cbb3ec/sjtu_tpmshx/tests/test_mms_phase_a3_gates.py) |
+| A4 boundary region tests | [test_mms_phase_a4_gates.py](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/69f15c8ab08131d5759d9677247384d631cbb3ec/sjtu_tpmshx/tests/test_mms_phase_a4_gates.py) |
+| B4 conservative order tests | [test_mms_b4_conservative_order.py](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/69f15c8ab08131d5759d9677247384d631cbb3ec/sjtu_tpmshx/tests/test_mms_b4_conservative_order.py) |
+| `mms_phase_*.csv` and metadata | [Original validation files](https://github.com/alexlu997/SJTU-TPMSHX-TM1/tree/69f15c8ab08131d5759d9677247384d631cbb3ec/sjtu_tpmshx/validation) |
+
+Current C++ checks still execute manufactured fields, refinement and physical inlet faces.
+The [validation guide](../../sjtu_tpmshx/validation/README.en.md) lists retained limits.
+GCI references, shared fitting tools and reference-directory write protection remain active.

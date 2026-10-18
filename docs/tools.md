@@ -19,11 +19,11 @@ GCI 每次默认创建独立的 `.cache/validation/<工具>-<运行ID>/`，
 保存本次 CSV、报告与元数据；可用 `--out-dir` 指定输出目录。
 
 原 Python MMS A3/A4/B4 命令已在 0.2 退役。[原入口](https://github.com/alexlu997/SJTU-TPMSHX-TM1/tree/v0.1.0/sjtu_tpmshx/validation/cases)
-和冻结 CSV 保留历史含义；当前制造场、网格细化和入口检查见
+和[冻结 CSV／原测试](history/README.md#mms-reference-retirement)保留在固定历史；当前制造场、网格细化和入口检查见
 [原生 MMS 测试](../sjtu_tpmshx/tests/native/test_temperature_mms.py)。
 
-显式相对文件路径按当前工作目录解析。`sjtu_tpmshx/validation/` 内的参考 CSV、
-阶数与历史元数据保留，工具在求解前拒绝向该目录写入，也拒绝指向它的符号链接。
+显式相对文件路径按当前工作目录解析。`sjtu_tpmshx/validation/` 内剩余的参考 CSV
+与历史元数据保留，工具在求解前拒绝向该目录写入，也拒绝指向它的符号链接。
 显式指定的其他输出目录可以复用；需要保留每次结果时使用默认独立目录。
 `validate_sco2_exp_q --csv` 同样在求解前检查 CSV 及 `.meta.json` 的参考目录保护。
 共享来源 CSV 写入器与该入口先在同目录暂存 CSV/元数据，全部写入成功后成组替换；
@@ -35,7 +35,7 @@ GCI 每次默认创建独立的 `.cache/validation/<工具>-<运行ID>/`，
 首角单元响应与独立有限体积余额比较，归一化误差
 `abs(T_kernel-T_FV)/abs(T_FV) < 1e-12`，并不代表所有入口单元误差均为零。
 原收敛、有限性和各区域阶数门槛仍执行；旧固定 CSV 的单元温度钉定判据
-仅用于核对历史结果，不作为当前物理面边界证据。
+保留于固定历史，不作为当前物理面边界证据。
 
 GCI 当前使用 T2 和 T4（偏置局部开口、无 B 侧实验修正）。历史 T4_H8 等实验入口
 已退役，不能用旧 H8 表证明当前 T4 的精度；详见[退役说明](history/retired-tools.md#b-侧局部开口实验修正退役2026-09-22)。
