@@ -63,8 +63,8 @@ int main(void) {
             if (status || result.stop != TPMSHX_ENTHALPY_CONVERGED
                 || energy.algorithm != TPMSHX_ENERGY_TEMPERATURE_SOU
                 || energy.has_temperature_update != 1 || !isfinite(energy.temperature_update)
-                || energy.temperature_update > 1e-8 || result.residual > config.update_tolerance
-                || result.audit_available != (mask != 0)
+                || energy.temperature_update > 1e-8 || result.residual >= config.update_tolerance
+                || result.audit_available != (mask ? 1u : 0u)
                 || (mask && result.audit.fluid_equations_computed != config.equation_gate)
                 || (config.coupled_gate && result.audit.coupled_ratio > config.coupled_tolerance)
                 || (config.equation_gate && result.audit.equation_ratio > config.equation_tolerance)) {
@@ -83,7 +83,7 @@ int main(void) {
         status = tpmshx_solve_enthalpy_v2(shape,arrays,sizes,&config,1e-3,NULL,
             &result,&energy,error,sizeof(error));
         if (status || result.stop != TPMSHX_ENTHALPY_CONVERGED
-            || result.residual > config.update_tolerance || energy.temperature_update > 1e-3) {
+            || result.residual >= config.update_tolerance || energy.temperature_update > 1e-3) {
             fprintf(stderr,"T-SOU update gates failed: status=%d, stop=%u, iterations=%zu, h=%g, K=%g, %s\n",
                 status,result.stop,result.iterations,result.residual,energy.temperature_update,error);
             return 19;
@@ -94,7 +94,7 @@ int main(void) {
         if (status || (result.stop != TPMSHX_ENTHALPY_CONVERGED
             && result.stop != TPMSHX_ENTHALPY_ITERATION_LIMIT)
             || (result.stop == TPMSHX_ENTHALPY_CONVERGED
-                && (result.residual > config.update_tolerance || energy.temperature_update > 1e-3))
+                && (result.residual >= config.update_tolerance || energy.temperature_update > 1e-3))
             || (result.stop == TPMSHX_ENTHALPY_ITERATION_LIMIT && result.iterations != config.max_iterations)) return 20;
         printf("T-SOU strict h gate: stop=%u, h=%g, K=%g\n",result.stop,result.residual,energy.temperature_update);
         config.update_tolerance = 2e-5;
