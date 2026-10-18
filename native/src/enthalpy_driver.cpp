@@ -196,8 +196,8 @@ struct EnthalpyRun::Impl {
         :grid(input_grid),a(input_a),b(input_b),k_ss(solid_k),state(fields),control(options),physical_audit(output),
          temperature(control.algorithm!=EnthalpyAlgorithm::legacy_h_fou),
          sou(control.algorithm==EnthalpyAlgorithm::temperature_sou),
-         check_energy(control.coupled_energy_tolerance || control.equation_energy_tolerance),
-         equations(control.equation_energy_tolerance.has_value()) {
+         check_energy(temperature || control.coupled_energy_tolerance || control.equation_energy_tolerance),
+         equations(temperature || control.equation_energy_tolerance.has_value()) {
         validate(true);prepare_sides();
         if(temperature)initialize_temperature();else initialize_legacy();
         if(phase==EnthalpyPhase::active) {initialize_update_scale();prepare_scratch();}
@@ -208,8 +208,8 @@ struct EnthalpyRun::Impl {
         :grid(input_grid),a(input_a),b(input_b),k_ss(solid_k),state(fields),control(options),physical_audit(output),
          temperature(control.algorithm!=EnthalpyAlgorithm::legacy_h_fou),
          sou(control.algorithm==EnthalpyAlgorithm::temperature_sou),
-         check_energy(control.coupled_energy_tolerance || control.equation_energy_tolerance),
-         equations(control.equation_energy_tolerance.has_value()) {
+         check_energy(temperature || control.coupled_energy_tolerance || control.equation_energy_tolerance),
+         equations(temperature || control.equation_energy_tolerance.has_value()) {
         validate(false);validate_saved(saved);prepare_sides();prepare_scratch();
         result=saved.result;next_temperatures=saved.next_temperatures;aa.restore(saved.acceleration);
         const std::array<Side*,2> sides{&*side_a,&*side_b};
@@ -242,8 +242,8 @@ struct EnthalpyRun::Impl {
             && (!std::isfinite(control.update_tolerance) || control.update_tolerance <= 0.))
             throw std::invalid_argument("T energy h-update tolerance must be finite and positive");
         for (const auto limit : {control.coupled_energy_tolerance,control.equation_energy_tolerance})
-            if (!limit || !std::isfinite(*limit) || *limit <= 0.)
-                throw std::invalid_argument("T energy requires positive coupled and equation tolerances");
+            if (limit && (!std::isfinite(*limit) || *limit <= 0.))
+                throw std::invalid_argument("T energy tolerances must be finite and positive");
         const auto maximum = std::numeric_limits<std::size_t>::max();
         if (grid.nx == maximum || grid.ny == maximum || grid.nz == maximum)
             throw std::invalid_argument("invalid T energy grid extent");
@@ -407,7 +407,8 @@ struct EnthalpyRun::Impl {
         const auto reference_audit=result.final_audit;
         const double reference_equation=reference_audit ? reference_audit->equation_ratio : std::numeric_limits<double>::quiet_NaN();
         const double reference_coupled=reference_audit ? reference_audit->coupled_ratio : std::numeric_limits<double>::quiet_NaN();
-        const double reference_merit=reference_audit ? std::max(reference_equation / *control.equation_energy_tolerance,reference_coupled / *control.coupled_energy_tolerance) : std::numeric_limits<double>::quiet_NaN();
+        // An omitted gate leaves its dimensionless ratio unscaled for proposal ranking.
+        const double reference_merit=reference_audit ? std::max(reference_equation / control.equation_energy_tolerance.value_or(1.),reference_coupled / control.coupled_energy_tolerance.value_or(1.)) : std::numeric_limits<double>::quiet_NaN();
         if (control.cancel && control.cancel(control.context)) { result.final_audit.reset(); phase=EnthalpyPhase::cancelled;return; }
         for (auto* side : sides) {
             std::copy_n(side->h.data,n,side->star.begin());
@@ -492,7 +493,7 @@ struct EnthalpyRun::Impl {
                         catch (const std::domain_error&) { valid=false; }
                     }
                     if (control.cancel && control.cancel(control.context)) { trial_cancelled=true; valid=false; }
-                    const double merit=valid ? std::max(trial_audit.equation_ratio / *control.equation_energy_tolerance,trial_audit.coupled_ratio / *control.coupled_energy_tolerance) : std::numeric_limits<double>::quiet_NaN();
+                    const double merit=valid ? std::max(trial_audit.equation_ratio / control.equation_energy_tolerance.value_or(1.),trial_audit.coupled_ratio / control.coupled_energy_tolerance.value_or(1.)) : std::numeric_limits<double>::quiet_NaN();
                     if (valid && !std::isfinite(merit)) valid=false;
                     if (valid && merit<reference_merit) {
                         for (std::size_t s=0;s<2;++s) {
@@ -549,8 +550,8 @@ struct EnthalpyRun::Impl {
         result.energy_imbalance = std::abs(audit.net)/std::max({std::abs(audit.q_a),std::abs(audit.q_b),1e-30});
         if (temperature_update <= control.temperature_update_tolerance
             && (!control.require_enthalpy_update_on_temperature || result.residual <= control.update_tolerance)
-            && audit.coupled_ratio <= *control.coupled_energy_tolerance
-            && audit.equation_ratio <= *control.equation_energy_tolerance) {
+            && (!control.coupled_energy_tolerance || audit.coupled_ratio <= *control.coupled_energy_tolerance)
+            && (!control.equation_energy_tolerance || audit.equation_ratio <= *control.equation_energy_tolerance)) {
             result.stop = EnthalpyStop::converged;
             retain_physical_audit(physical_audit,grid,sa,sb,ra,rb,rs,sou);
             phase=EnthalpyPhase::completed;return;

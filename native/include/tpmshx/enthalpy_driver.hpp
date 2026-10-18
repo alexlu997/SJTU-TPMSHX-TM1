@@ -42,9 +42,9 @@ struct EnthalpyControl {
     bool (*cancel)(void*) = nullptr;
     void* context = nullptr;
     EnthalpyAlgorithm algorithm = EnthalpyAlgorithm::legacy_h_fou;
-    // K, maximum actual A/B/solid update. T algorithms also require both
-    // explicit energy tolerances; update_tolerance retains its normalized
-    // enthalpy-update meaning on the legacy route.
+    // K, maximum actual A/B/solid update. Full T runs require both energy
+    // tolerances; direct components can omit either stop gate.
+    // update_tolerance keeps its normalized enthalpy-update meaning.
     double temperature_update_tolerance = 1e-8;
     // Opt-in additional dimensionless h-update gate on T algorithms. This
     // does not replace their K update gate or change the legacy H-FOU gate.

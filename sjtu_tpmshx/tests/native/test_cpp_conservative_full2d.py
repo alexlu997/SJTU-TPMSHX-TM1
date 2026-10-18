@@ -213,6 +213,30 @@ def test_zero_sweep_budget_retains_initial_fields(driver, algorithm):
         np.testing.assert_array_equal(field, np.full(field.shape, value))
 
 
+@pytest.mark.parametrize('algorithm', ['temperature_fou', 'temperature_sou'])
+@pytest.mark.parametrize('partial', [False, True])
+def test_true_h_red_black_control_preserves_actual_state(driver, monkeypatch, algorithm, partial):
+    from sjtu_tpmshx.solvers.backends.cpp import full_2d
+    case = prepare_case(configuration(algorithm, partial=partial), case_id='energy2d-red-black')
+    cfg, prepared = build_execution_inputs(case)
+    expected = driver.run_prepared(cfg, prepared)
+    pack = full_2d._pack
+
+    def with_red_black(*args):
+        shape, arrays, control = pack(*args)
+        control.red_black = 1
+        return shape, arrays, control
+
+    monkeypatch.setattr(full_2d, '_pack', with_red_black)
+    actual = driver.run_prepared(cfg, prepared)
+    for key in ('converged', 'iterations', 'outer_history', 'duty', 'pressure_drop',
+                'outlet_temperature', 'inlet_mass'):
+        assert actual[key] == expected[key]
+    np.testing.assert_equal(actual['main'], expected['main'])
+    result = capture_result(case, cfg, prepared, actual)
+    test_actual_thermal_state_and_signed_ledger((case, cfg, prepared, actual, result))
+
+
 def test_candidate_requires_supported_route_and_backend(driver):
     config = configuration('temperature_sou')
     case = prepare_case(config, case_id='energy2d-backend')
