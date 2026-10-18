@@ -25,6 +25,10 @@ def _check_input_outputs(parser, args):
     for output in outputs:
         if output.resolve() in source_paths:
             parser.error(f'output overlaps input: {output}')
+    for directory in {path.parent.resolve() for path in outputs}:
+        if any((directory / name).exists() or (directory / name).is_symlink()
+               for name in ('run.json', 'checkpoint.h5')):
+            parser.error(f'output belongs to a saved run; use a new directory: {directory}')
 
 
 def _recoverable_run(args, control):

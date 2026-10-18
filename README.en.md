@@ -344,7 +344,7 @@ mkdir -p .cache/handoff
 
 In PowerShell, use the same arguments with `& $tm1Python` instead of `"$PYTHON"`. First create the directory with `New-Item -ItemType Directory -Force .cache/handoff`. Inspect each stage with commands such as `"$PYTHON" -m sjtu_tpmshx.cli prepare --help`. PowerShell again uses `& $tm1Python`.
 
-Case YAML references accompanying HDF5. [Schemas](schemas/three_module_v1/README.md) define result/VTK export and strict metric JSON limits. CLI outputs must be separate from current inputs and accompanying Case HDF5. Overlapping paths fail before stage execution. Separate existing outputs can still be updated.
+Case YAML references accompanying HDF5. [Schemas](schemas/three_module_v1/README.md) define result/VTK export and strict metric JSON limits. CLI outputs must be separate from current inputs and accompanying Case HDF5. Overlapping paths fail before stage execution. Separate existing outputs can still be updated. All CLI stages reject output directories that contain `run.json` or `checkpoint.h5`. Select a new directory to preserve the saved run.
 
 Cancellation and failure do not become completed results. Completed nonconverged results keep their original state. Finite metrics do not show numerical, energy, or experimental accuracy acceptance.
 
