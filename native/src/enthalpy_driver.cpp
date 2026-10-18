@@ -549,7 +549,8 @@ struct EnthalpyRun::Impl {
         result.q_a = audit.q_a; result.q_b = audit.q_b;
         result.energy_imbalance = std::abs(audit.net)/std::max({std::abs(audit.q_a),std::abs(audit.q_b),1e-30});
         if (temperature_update <= control.temperature_update_tolerance
-            && (!control.require_relative_boundary_balance || result.energy_imbalance < .05)
+            && (!control.require_legacy_direct_gates
+                || (result.residual < control.update_tolerance && result.energy_imbalance < .05))
             && (!control.require_enthalpy_update_on_temperature || result.residual <= control.update_tolerance)
             && (!control.coupled_energy_tolerance || audit.coupled_ratio <= *control.coupled_energy_tolerance)
             && (!control.equation_energy_tolerance || audit.equation_ratio <= *control.equation_energy_tolerance)) {

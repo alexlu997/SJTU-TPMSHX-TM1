@@ -52,7 +52,8 @@ struct EnthalpyControl {
     // Full runs use a scale that does not depend on either enthalpy origin.
     bool reference_independent_update = false;
     std::size_t cpu_threads = 1;
-    bool require_relative_boundary_balance = false;
+    // Direct C calls retain strict h and relative boundary energy gates.
+    bool require_legacy_direct_gates = false;
 };
 
 inline EnthalpyControl full_enthalpy_control(std::size_t dimension,

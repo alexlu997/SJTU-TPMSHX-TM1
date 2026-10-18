@@ -1,4 +1,4 @@
-"""Explicit thin binding to the complete true-h thermal C ABI.
+"""Explicit thin binding to the direct T-SOU thermal C ABI.
 
 This callable matches the existing shared 3D/unit-depth-2D driver inputs.
 Geometry, mass-face preparation and outer coupling remain caller concerns;
@@ -247,10 +247,14 @@ class NativeEnthalpyDriver:
         if table_directory is not None and not Path(table_directory).is_absolute():
             raise ValueError('native true-h table directory must be an absolute path')
         self.table_directory = None if table_directory is None else str(table_directory).encode('utf-8')
-        self.call = self.library.tpmshx_solve_enthalpy_v1
+        try:
+            self.call = self.library.tpmshx_solve_enthalpy_v2
+        except AttributeError as error:
+            raise ValueError('native library lacks direct T-SOU execution; rebuild the library') from error
+        self.version_query = _energy_algorithm_query(self.library)
         double_p, size_p = ct.POINTER(ct.c_double), ct.POINTER(ct.c_size_t)
-        self.call.argtypes = [size_p, ct.POINTER(double_p), size_p, ct.POINTER(_Config),
-                             ct.POINTER(_Callbacks), ct.POINTER(_Result),
+        self.call.argtypes = [size_p, ct.POINTER(double_p), size_p, ct.POINTER(_Config), ct.c_double,
+                             ct.POINTER(_Callbacks), ct.POINTER(_Result), ct.POINTER(_EnergyResult),
                              ct.POINTER(ct.c_char), ct.c_size_t]
         self.call.restype = ct.c_int
 
@@ -260,7 +264,10 @@ class NativeEnthalpyDriver:
                  eps_A_field=None, eps_B_field=None, pressure_A_field=None,
                  pressure_B_field=None, Ta_init=None, Tb_init=None, Ts_init=None,
                  n_outer=3000, n_sweep=5, omega=.6, tol=2e-5,
-                 cancel_check=None, coupled_energy_tol=None, equation_energy_tol=None):
+                 cancel_check=None, coupled_energy_tol=None, equation_energy_tol=None,
+                 temperature_tol_K=1e-8):
+        from sjtu_tpmshx.domain.compute_config import validate_enthalpy_algorithm
+        validate_enthalpy_algorithm('temperature_sou', temperature_tol_K)
         shape = tuple(operator.index(n) for n in (Nx, Ny, Nz))
         maximum = ct.c_size_t(-1).value
         if any(n <= 0 or n > maximum for n in shape):
@@ -319,9 +326,9 @@ class NativeEnthalpyDriver:
         double_p = ct.POINTER(ct.c_double)
         pointers = (double_p * len(arrays))(*(value.ctypes.data_as(double_p) for value in arrays))
         sizes = (ct.c_size_t * len(arrays))(*(value.size for value in arrays))
-        result, error = _Result(), ct.create_string_buffer(2048)
-        status = self.call((ct.c_size_t * 3)(*shape), pointers, sizes, ct.byref(config),
-                           ct.byref(callbacks), ct.byref(result), error, len(error))
+        result, energy, error = _Result(), _EnergyResult(), ct.create_string_buffer(2048)
+        status = self.call((ct.c_size_t * 3)(*shape), pointers, sizes, ct.byref(config), temperature_tol_K,
+                           ct.byref(callbacks), ct.byref(result), ct.byref(energy), error, len(error))
         if callback_errors:
             raise callback_errors[0]
         if status:
@@ -336,11 +343,12 @@ class NativeEnthalpyDriver:
             omega=omega, abi=self.abi)
         info['_native_state'] = dict(h_A=state[0], h_B=state[1], h_in_A=result.inlet_enthalpy[0],
             h_in_B=result.inlet_enthalpy[1], mass_flux_A=faces_a, mass_flux_B=faces_b)
-        table_sides = [side for side, used in zip(('A', 'B'), result.used_bicubic) if used]
-        if table_sides:
-            info['_native_state']['enthalpy_eos'] = dict(
-                algorithm='bicubic_iteration_heos_polish_v2', iteration_backend='BICUBIC&HEOS',
-                final_backend='HEOS', transport_backend='HEOS',
-                coolprop_version=result.coolprop_version.decode('utf-8'),
-                sides=table_sides, heos_polish=bool(result.heos_polish))
+        _energy_result_info(info, energy, temperature_tol=temperature_tol_K, abi=self.abi,
+                            version_query=self.version_query)
+        if info['energy_algorithm'] != 'temperature_sou':
+            raise RuntimeError('native direct energy did not execute T-SOU')
+        info['effective_settings'].update(entry_version=2, require_enthalpy_update_on_temperature=True,
+                                          coolprop_version=result.coolprop_version.decode('utf-8'))
+        info['_native_state'].update(energy_algorithm=info['energy_algorithm'],
+                                     energy_algorithm_version=info['energy_algorithm_version'])
         return state[2], state[3], state[4], info
