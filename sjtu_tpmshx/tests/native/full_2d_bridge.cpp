@@ -245,6 +245,12 @@ extern "C" TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL test_full_2d_run(
         c.thermal_q_tolerance=values[47];c.enthalpy.update_tolerance=values[48];
         c.enthalpy.max_iterations=c.thermal_iterations;
         c.enthalpy.table_directory=tables?tables:"";c.envelope_mode=envelope?envelope:"raise";
+        // Modes 2, 3 and 4 omit the coupled, equation or both candidate gates.
+        if(full>1) {
+            c.enthalpy.algorithm=EnthalpyAlgorithm::temperature_sou;
+            if(full!=3)c.enthalpy.coupled_energy_tolerance.reset();
+            if(full!=2)c.enthalpy.equation_energy_tolerance.reset();
+        }
         auto h=std::make_unique<Handle>();h->cancel_at=flags[22];c.cancel=cancelled;c.context=h.get();
         h->result=result_json(full?solve_full_2d(p,c):solve_full_2d_coarse(p,c));*output=h.release();
         if(error_size)error[0]='\0';return 0;

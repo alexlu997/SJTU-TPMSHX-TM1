@@ -189,6 +189,9 @@ void validate(const Full2DProblem& p,const Full2DControl& c) {
         case EnthalpyAlgorithm::temperature_sou:
             if(p.thermal_mode!=Full2DThermalMode::true_h || c.thermal_red_black)
                 throw std::invalid_argument("candidate full2D energy requires the existing true-h route without red-black energy");
+            for(const auto limit:{c.enthalpy.coupled_energy_tolerance,c.enthalpy.equation_energy_tolerance})
+                if(!limit || !std::isfinite(*limit) || *limit<=0.)
+                    throw std::invalid_argument("full2D T energy requires positive coupled and equation tolerances");
             if(!std::isfinite(c.enthalpy.temperature_update_tolerance) || c.enthalpy.temperature_update_tolerance<=0.)
                 throw std::invalid_argument("invalid candidate full2D temperature update tolerance");
             break;
