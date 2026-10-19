@@ -24,7 +24,11 @@ native_path = spatial.native_path
 
 
 def configuration(route):
-    case = inner_case(route[3:]) if route.startswith('2d-') else spatial.case(route[3:], cap=2)
+    if route == '3d-temperature_sou':
+        from sjtu_tpmshx.tests.native.test_cpp_conservative_full3d import candidate
+        case = candidate('temperature_sou', 'sco2-water', cap=2)
+    else:
+        case = inner_case(route[3:]) if route.startswith('2d-') else spatial.case(route[3:], cap=2)
     return ComputeConfig.from_dict(mutable_data(case.config_snapshot))
 
 
@@ -43,7 +47,8 @@ def same_result(actual, expected, actual_metrics, expected_metrics):
 
 
 @pytest.mark.parametrize('route', ['2d-temperature', '2d-model_h', '2d-true_h',
-    '2d-temperature_fou', '2d-temperature_sou', '3d-air-air', '3d-water-air', '3d-sco2-water'])
+    '2d-temperature_fou', '2d-temperature_sou', '3d-air-air', '3d-water-air', '3d-sco2-water',
+    '3d-temperature_sou'])
 def test_native_saved_run_preserves_complete_public_evidence(native_path, tmp_path, route):
     config = configuration(route)
     control = replace(spatial.control(native_path), cpu_threads=3)
@@ -70,7 +75,8 @@ def test_native_saved_run_preserves_complete_public_evidence(native_path, tmp_pa
     assert status['state'] == 'completed' and status['requested_cpu_threads'] == 3
 
 
-@pytest.mark.parametrize('route', ['2d-model_h', '3d-air-air'])
+@pytest.mark.parametrize('route', ['2d-model_h', '3d-air-air',
+    '2d-temperature_sou', '3d-temperature_sou'])
 @pytest.mark.parametrize('interrupt,exit_code', [('pause', 3), ('crash', 23)])
 def test_cli_process_exit_and_relocated_resume_keep_public_result(
         native_path, tmp_path, route, interrupt, exit_code):
