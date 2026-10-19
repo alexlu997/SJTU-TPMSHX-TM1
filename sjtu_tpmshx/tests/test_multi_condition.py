@@ -5,7 +5,9 @@ import pytest
 
 from sjtu_tpmshx.domain.metric_spec import MetricSpec
 from sjtu_tpmshx.domain.performance_result import MetricValue, PerformanceResult
+from sjtu_tpmshx.domain.portable_data import mutable_data
 from sjtu_tpmshx.optimization.multi_condition import aggregate_multi_condition
+from sjtu_tpmshx.postprocess.api import evaluate_qualification
 
 
 def _row(condition_id, q=100.0, dp_a=20.0, dp_b=40.0, **run_status):
@@ -42,6 +44,52 @@ def test_negative_gain_and_pressure_are_not_clamped(pressure):
 def test_signed_water_heat_is_never_made_absolute():
     result = aggregate_multi_condition(['low'], [_row('low')], [_row('low', q=-50.0)])
     assert result['heat_gain_percent'] == pytest.approx(-150.0)
+
+
+@pytest.mark.parametrize('sides', [('A',), ('B',), ('A', 'B')])
+@pytest.mark.parametrize('member', ['baseline', 'candidate'])
+def test_sco2_scope_notice_permits_objectives_without_design_approval(sides, member):
+    condition, field, performance = _row('low')
+    metadata = mutable_data(field.metadata)
+    for side in sides:
+        metadata['execution_record']['sides'][side]['fluid'] = 'sco2'
+    field = replace(field, metadata=metadata)
+    quality = evaluate_qualification(field, performance.metrics)
+    performance = replace(performance, qualification=quality)
+    assert quality['model_scope']['passed'] is quality['design']['eligible'] is None
+    assert quality['optimization']['passed'] is True
+    assert quality['optimization']['deferred'] == ['model_scope']
+    rows = {'baseline': [_row('low')], 'candidate': [_row('low')]}
+    rows[member] = [(condition, field, performance)]
+    assert aggregate_multi_condition(['low'], **rows) == {
+        'heat_gain_percent': 0., 'pressure_ratio': 1.}
+    assert performance.qualification['design']['eligible'] is None
+
+
+@pytest.mark.parametrize('damage,reason', [('range', 'applicability'),
+    ('missing_range', 'applicability'), ('energy', 'physical'), ('side', 'model_scope')])
+@pytest.mark.parametrize('member', ['baseline', 'candidate'])
+def test_sco2_permission_does_not_hide_other_failures_or_missing_evidence(damage, reason, member):
+    condition, field, performance = _row('low')
+    metadata = mutable_data(field.metadata)
+    metadata['execution_record']['sides']['A']['fluid'] = 'sco2'
+    if damage == 'range':
+        metadata['applicability_evidence']['final'][0]['minimum'][0] = 89.
+    elif damage == 'missing_range':
+        del metadata['applicability_evidence']
+    elif damage == 'energy':
+        metadata['diagnostics']['eps_A_strict_cellmax'] = .01001
+    else:
+        del metadata['execution_record']['sides']['B']['solved']
+    field = replace(field, metadata=metadata)
+    # The consumer must recompute evidence instead of trusting a stored permission.
+    quality = evaluate_qualification(field, performance.metrics)
+    quality['optimization']['passed'] = True
+    performance = replace(performance, qualification=quality)
+    rows = {'baseline': [_row('low')], 'candidate': [_row('low')]}
+    rows[member] = [(condition, field, performance)]
+    with pytest.raises(ValueError, match=reason):
+        aggregate_multi_condition(['low'], **rows)
 
 
 @pytest.mark.parametrize('bad_rows, message', [

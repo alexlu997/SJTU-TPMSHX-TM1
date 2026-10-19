@@ -58,6 +58,8 @@ def test_complete_evidence_keeps_independent_conclusions():
     assert quality['physical']['balance']['state'] == 'last thermal input'
     assert quality['physical']['balance']['energy']['units'] == 'W'
     assert quality['applicability']['passed'] is True
+    assert quality['optimization']['passed'] is True
+    assert quality['optimization']['deferred'] == []
     json.dumps(quality, allow_nan=False)
 
 
@@ -70,9 +72,11 @@ def test_complete_evidence_keeps_independent_conclusions():
     ('unknown_execution', 'model_scope', None), ('missing_side', 'model_scope', None),
     ('missing_side_state', 'model_scope', None), ('missing_fluid', 'model_scope', None),
 ])
-def test_no_promotion_from_a_partial_or_failed_gate(damage, section, expected):
+@pytest.mark.parametrize('fluid', ['air', 'sco2'])
+def test_no_promotion_from_a_partial_or_failed_gate(damage, section, expected, fluid):
     result = qualified_result()
     metadata, flux, status = map(mutable_data, (result.metadata, result.boundary_fluxes, result.run_status))
+    metadata['execution_record']['sides']['A']['fluid'] = fluid
     if damage == 'range':
         metadata['applicability_evidence']['final'][0]['minimum'][0] = 89.
     elif damage == 'missing_range':
@@ -108,6 +112,7 @@ def test_no_promotion_from_a_partial_or_failed_gate(damage, section, expected):
     if section != 'convergence':
         assert quality['convergence']['passed'] is True
     assert quality['metrics']['passed'] is True
+    assert quality['optimization']['passed'] is (True if damage == 'sco2' else expected)
 
 
 
@@ -159,8 +164,12 @@ def test_qualification_rejects_unknown_version_or_wrong_source(change):
         PerformanceResult('metrics', result.result_id, metrics, quality)
 
 
-def test_saved_new_process_verdict_needs_no_solver_or_eos(tmp_path):
+@pytest.mark.parametrize('fluid', ['air', 'sco2'])
+def test_saved_new_process_verdict_needs_no_solver_or_eos(tmp_path, fluid):
     result, metrics = qualified_result(), required_metrics()
+    metadata = mutable_data(result.metadata)
+    metadata['execution_record']['sides']['A']['fluid'] = fluid
+    result = replace(result, metadata=metadata)
     quality = evaluate_qualification(result, metrics)
     performance = PerformanceResult('metrics', result.result_id, metrics, quality)
     with pytest.raises(TypeError):

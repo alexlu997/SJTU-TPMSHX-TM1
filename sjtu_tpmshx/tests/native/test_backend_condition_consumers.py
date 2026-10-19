@@ -85,7 +85,7 @@ def test_gui_co2_mass_input_save_reopen_geometry_and_export(win, native_path, tm
             _wait_for(win.compute.is_idle, timeout=30)
 
 
-def _conditions(dimension):
+def _conditions(dimension, fluid='air'):
     config = replace(_config(dimension, True),
         fluid_B=FluidConfig(type='water', u_mps=.3, T_in_K=300., P_in_Pa=2e6))
     config = replace(config, geometry=replace(config.geometry, Lz_m=.03))
@@ -94,7 +94,9 @@ def _conditions(dimension):
             in_w=.03, out_w=.03, in_z_w=.03, out_z_w=.03) for side in 'AB'})
     conditions = []
     for index in range(2):
-        cfg = replace(config, fluid_A=replace(config.fluid_A, u_mps=12., T_in_K=500.+10*index))
+        cfg = replace(config, fluid_A=replace(config.fluid_A, type=fluid,
+            u_mps=1.5 if fluid == 'sco2' else 12., T_in_K=500.+10*index,
+            P_in_Pa=12e6 if fluid == 'sco2' else config.fluid_A.P_in_Pa))
         case = prepare_case(cfg, case_id=f'input-{index}')
         flows = [total_inlet_mass_capacity(case.design_fields, case.parameters, case.grid, side)
                  * getattr(cfg, 'fluid_' + side).u_mps for side in 'AB']
@@ -104,8 +106,9 @@ def _conditions(dimension):
 
 
 @pytest.mark.parametrize('dimension', [2, 3])
-def test_selected_backend_completes_batch_and_optimization(native_path, tmp_path, dimension):
-    conditions = _conditions(dimension)
+@pytest.mark.parametrize('fluid', ['air', 'sco2'])
+def test_selected_backend_completes_batch_and_optimization(native_path, tmp_path, dimension, fluid):
+    conditions = _conditions(dimension, fluid)
     control = replace(native_3d.control(native_path), cpu_threads=4)
     workers = 2
     directory = tmp_path / 'cpp'
@@ -116,7 +119,8 @@ def test_selected_backend_completes_batch_and_optimization(native_path, tmp_path
         restored = load_result(directory / 'batch' / row['result_file'])
         assert restored.backend_id == field.backend_id == 'cpp'
         assert restored.run_status['converged']
-        assert row['qualification']['design']['eligible'] is True
+        assert row['qualification']['design']['eligible'] is (None if fluid == 'sco2' else True)
+        assert row['qualification']['optimization']['passed'] is True
         assert load_metrics(directory / 'batch' / row['metrics_file']) == metrics
         assert evaluate(restored).metrics == metrics.metrics
         for name in ('Ta', 'Tb', 'Ts'):
@@ -134,7 +138,8 @@ def test_selected_backend_completes_batch_and_optimization(native_path, tmp_path
         record = json.loads((batch_dir / 'batch.json').read_text())
         assert record['backend'] == 'cpp' and record['status'] == 'completed'
         for row in record['conditions']:
-            assert row['qualification']['design']['eligible'] is True
+            assert row['qualification']['design']['eligible'] is (None if fluid == 'sco2' else True)
+            assert row['qualification']['optimization']['passed'] is True
             field = load_result(batch_dir / row['result_file'])
             assert field.backend_id == 'cpp' and field.run_status['converged']
 

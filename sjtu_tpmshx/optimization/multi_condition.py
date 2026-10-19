@@ -701,9 +701,9 @@ def _condition_metrics(rows: Sequence[ConditionResult], condition_ids: tuple[str
         if qualify:
             from sjtu_tpmshx.postprocess.api import evaluate_qualification
             qualification = evaluate_qualification(field, performance.metrics)
-            if qualification['design']['eligible'] is not True:
-                raise ValueError(f'{prefix}: design qualification failed: '
-                                 + '; '.join(qualification['design']['reasons']))
+            if qualification['optimization']['passed'] is not True:
+                raise ValueError(f'{prefix}: optimization qualification failed: '
+                                 + '; '.join(qualification['optimization']['reasons']))
         results[condition_id] = performance
     if set(results) != set(condition_ids):
         missing = sorted(set(condition_ids) - set(results))
@@ -724,7 +724,8 @@ def aggregate_multi_condition(
     All requested conditions must occur exactly once on each side. Invalid or
     unavailable runs raise ``ValueError`` instead of contributing a penalty or
     changing the averaging denominator. The common qualification owns result
-    eligibility. The caller owns the identity of the fixed baseline design.
+    optimization permission. Model accuracy can remain unverified for sCO2.
+    The caller owns the identity of the fixed baseline design.
 
     The fixed heat metric is ``-Q_B``: useful B-side heat uptake, preserving
     the Shanghai benchmark objective for CO2/sCO2. Native ``Q_B`` is signed heat loss, so it

@@ -138,9 +138,26 @@ def native_control(tmp_path):
 
 
 def _patch_solve(monkeypatch, solve):
+    from sjtu_tpmshx.workflows import recovery
     monkeypatch.setattr(execution, 'run_case', solve)
-    monkeypatch.setattr('sjtu_tpmshx.workflows.recovery.run_case',
-                        lambda case, control, **kwargs: solve(case, control))
+    monkeypatch.setattr(recovery, 'run_case', lambda case, control, **kwargs: solve(case, control))
+
+
+def test_solver_patch_restores_lazily_imported_recovery():
+    import subprocess
+    import sys
+
+    child = subprocess.run([sys.executable, '-c', '''
+import pytest
+from sjtu_tpmshx.tests.test_multi_condition_batch import _patch_solve
+from sjtu_tpmshx.solvers import api
+original = api.run_case
+with pytest.MonkeyPatch.context() as patch:
+    _patch_solve(patch, lambda *args: None)
+from sjtu_tpmshx.workflows import recovery
+assert api.run_case is original and recovery.run_case is original
+'''], text=True, capture_output=True, timeout=30)
+    assert child.returncode == 0, child.stderr
 
 
 @pytest.mark.parametrize('fluid', ['co2', 'sco2'])

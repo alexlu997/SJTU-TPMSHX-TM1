@@ -296,8 +296,14 @@ Experimental, mesh-accuracy and desktop acceptance remain separate from this res
 GUI summaries, history, CLI output, exports and full-compute measurements retain the same conclusion.
 CLI exit codes retain their stage-success meaning; read the design state separately.
 Optimization recomputes the common verdict from the supplied native result and metrics.
-A failed or unverified baseline or candidate cannot produce objectives.
+Its separate `optimization` verdict permits sCO2 studies while model accuracy remains unverified.
+Only the known sCO2 model-scope gap is deferred, with complete execution records for both sides.
+The user must assess correlation applicability before they rely on a selected design.
+Execution, convergence, physical evidence, parameter limits, metrics and full-solve gates must all pass.
+A failed or unknown required gate prevents both baseline and candidate objectives.
+The `model_scope` and `design` conclusions stay unverified; optimization permission does not validate the model.
 The batch keeps its diagnostic result, available metrics and failure reason.
+Saved qualification records retain their original values until explicit reevaluation.
 The former optimizer-only energy evaluator is now part of common postprocessing.
 
 ## Runtime flow
