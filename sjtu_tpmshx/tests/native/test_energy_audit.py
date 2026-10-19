@@ -260,7 +260,3 @@ def test_energy_audit_rejects_invalid_or_nonfinite_budget(native_audit, invalid)
         for r in residuals:
             np.testing.assert_array_equal(r, 123.)
     assert np.isnan(metrics).all()
-
-
-
-
