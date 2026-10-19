@@ -248,3 +248,102 @@ def test_native_condition_workers_resume_actual_states_after_relocation(
                     load_metrics(target / row['metrics_file']), reference[2])
     assert {path.relative_to(moved): path.read_bytes() for path in moved.rglob('*')
             if path.is_file() and path.suffix in ('.json', '.h5', '.yaml')} == before
+
+
+@pytest.mark.parametrize('dimension', [2, 3])
+def test_gui_resumes_sou_and_exports_the_saved_result(win, native_path, tmp_path, monkeypatch, dimension):
+    import csv
+    import threading
+    from PySide6.QtWidgets import QFileDialog, QMessageBox
+    from sjtu_tpmshx.domain.paused_run import PausedRun
+    from sjtu_tpmshx.tests.gui_worker_support import _wait_for
+    from sjtu_tpmshx.tests.native.test_run_recovery import same_result
+    from sjtu_tpmshx.workflows.compute import compute
+    from sjtu_tpmshx.workflows.recovery import compute_run
+
+    monkeypatch.setenv('TPMSHX_DISABLE_3D_PANEL', '1')
+    errors = []
+    for name in ('warning', 'critical'):
+        monkeypatch.setattr(QMessageBox, name, lambda *args: errors.append(args[1:]))
+    config = _config(dimension, True)
+    config = replace(config, solver=replace(config.solver, enthalpy_algorithm='temperature_sou'))
+    control = replace(native_3d.control(native_path), cpu_threads=1)
+    case, expected, expected_metrics = compute(config, case_id='gui-sou', control=control)
+    assert expected.run_status['converged']
+    pause = threading.Event()
+    source = tmp_path / 'paused'
+    with pytest.raises(PausedRun):
+        compute_run(config, source, case_id=case.case_id, checkpoint_interval_s=3600.,
+            control=replace(control, iteration=lambda _: pause.set()), pause_check=pause.is_set)
+    original = {name: (source / name).read_bytes() for name in ('case.h5', 'checkpoint.h5', 'run.json')}
+    win.cache.clear()
+    win.run_control = control
+    win.le_Nx.setText('99')
+    finished = []
+    win.compute.finished.connect(finished.append)
+    try:
+        win._resume_saved_run(source / 'checkpoint.h5')
+        _wait_for(win.compute.is_idle, timeout=180)
+    finally:
+        win.compute.finished.disconnect(finished.append)
+        if not win.compute.is_idle():
+            win.compute.cancel()
+            _wait_for(win.compute.is_idle, timeout=30)
+    assert len(finished) == 1 and not errors
+    directory, = tmp_path.glob('run-*')
+    actual = load_result(directory / 'results.h5')
+    metrics = load_metrics(directory / 'metrics.json')
+    same_result(actual, expected, metrics, expected_metrics)
+    assert actual.boundary_fluxes['true_h']['energy_algorithm'] == 'temperature_sou'
+    display = win.cache.get_result(f'{dimension}d')
+    assert display.metadata['source_result_id'] == actual.result_id
+    assert display.Q_W == metrics.metrics['Q'].value
+    assert display.fields['Ta'].shape == expected.fields['Ta'].shape
+    assert win.le_Nx.text() == '99'
+    assert {name: (source / name).read_bytes() for name in original} == original
+    output = tmp_path / 'sou.csv'
+    monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *args: (str(output), 'CSV'))
+    win._export_results()
+    with output.open(encoding='utf-8-sig') as stream:
+        rows = list(csv.reader(stream))
+    assert [f'Q [{"W" if dimension == 3 else "W/m"}]', f'{display.Q_W:.4f}'] in rows
+    assert not errors
+
+
+@pytest.mark.parametrize('dimension', [2, 3])
+def test_sou_batch_and_search_preserve_original_range_rejection(native_path, tmp_path, dimension):
+    config = _config(dimension, True)
+    config = replace(config, geometry=replace(config.geometry, Lz_m=.03),
+                     solver=replace(config.solver, enthalpy_algorithm='temperature_sou'))
+    case = prepare_case(config, case_id='sou-outside-range')
+    flows = [total_inlet_mass_capacity(case.design_fields, case.parameters, case.grid, side)
+             * getattr(config, 'fluid_' + side).u_mps for side in 'AB']
+    conditions = [('outside', config, *flows)]
+    control = replace(native_3d.control(native_path), cpu_threads=1)
+    directory = tmp_path / 'batch'
+    batch = evaluate_condition_batch(conditions, output_dir=directory, control=control, workers=1)
+    row, = batch['conditions']
+    assert batch['status'] == row['status'] == 'failed' and batch['objectives'] is None
+    assert row['stage'] == 'qualification'
+    field = load_result(directory / row['result_file'])
+    metrics = load_metrics(directory / row['metrics_file'])
+    assert field.run_status['converged'] and metrics.qualification['physical']['passed']
+    assert field.metadata['thermal_mode'] == 'conservative_energy'
+    assert field.boundary_fluxes['true_h']['energy_algorithm'] == 'temperature_sou'
+    assert metrics.qualification['applicability']['passed'] is False
+    assert metrics.qualification['design']['eligible'] is False
+    assert evaluate(field).qualification == metrics.qualification
+    search = run_multi_condition_optimization(conditions, output_dir=tmp_path / 'search',
+        method='sobol', n_init=1, n_iter=0, seed=7, control=control, workers=1,
+        field_spec={'L_bounds': [6.8, 7.2], 't_bounds': [.55, .6]})
+    assert search['status'] == search['baseline']['status'] == 'failed'
+    assert search['n_evaluated'] == search['n_usable'] == 0
+    assert search['history'] == search['pareto_indices'] == []
+    baseline_dir = tmp_path / 'search' / search['baseline']['directory']
+    record = json.loads((baseline_dir / 'batch.json').read_text())
+    assert record['objectives'] is None
+    row, = record['conditions']
+    assert row['stage'] == 'qualification'
+    baseline = load_result(baseline_dir / row['result_file'])
+    assert baseline.boundary_fluxes['true_h']['energy_algorithm'] == 'temperature_sou'
+    assert row['qualification']['design']['eligible'] is False

@@ -234,7 +234,15 @@ More selects dark/light themes, effective after restart, and K/°C. The interfac
 
 Missing chart fonts produce a notice and use available fonts. Interface system fonts are unaffected.
 
-For ordinary computation, set threads under Solver → Compute Resources. Grid settings select regular or port/wall refinement. Refined input counts include all refined cells. Assess accuracy against the actual grid and convergence after changing the scheme. The GUI uses uniform velocity inside openings and enables local-density thermal transport.
+For ordinary computation, set threads under Solver → Compute Resources. Grid settings select regular or port/wall refinement. Refined input counts include all refined cells. Assess accuracy against the actual grid and convergence after changing the scheme. Grid counts follow the physical coordinate axes. Mean cell widths are `Lx/Nx`, `Ly/Ny` and `Lz/Nz`.
+If only the x length doubles, start with twice Nx and keep Ny and Nz. Then compare refined results.
+For example, a checked 16×16×16 grid can suggest a 32×16×16 starting grid for the longer domain.
+This rule does not guarantee accuracy. Port/wall refinement uses nonuniform widths. Check actual widths, port positions and both flow directions.
+The 3D geometry calculation suggests counts from dimensions, hydraulic diameter, ports and a total cell limit. It keeps manual grid settings.
+The cell limit controls resource use. For new geometry, compare Q, both pressure drops, outlet temperatures and peak solid temperature.
+Keep the original convergence and physical checks. Check changed directions first. A case result applies only to its checked range.
+
+The GUI uses uniform velocity inside openings and enables local-density thermal transport.
 
 It no longer offers historical inlet smoothing, six-wall refinement, or a local-density switch. Local density also affects transport-route selection for limited air/water cases. It is not a general sCO₂ variable-property switch. Loading GUI configurations with different previous settings reports the update. Subsequent saves use current settings. Allowing inlet Nu extrapolation changes only inlet-Re rejection/warning behavior.
 
