@@ -2,13 +2,11 @@
 import os
 from pathlib import Path
 import subprocess
-import sys
 
 import pytest
 
 
 _ROOT = Path(__file__).resolve().parents[2]
-_SHARED = 'libtpmshx_thermal.dylib' if sys.platform == 'darwin' else 'libtpmshx_thermal.so'
 
 
 @pytest.mark.skipif(os.name == 'nt', reason='GNU Make runs on macOS; NMake runs in Windows CI')
@@ -16,7 +14,6 @@ _SHARED = 'libtpmshx_thermal.dylib' if sys.platform == 'darwin' else 'libtpmshx_
     ('enthalpy_sweeps.o', 'native/src/energy_fv_rows.hpp', 'native/src/enthalpy_sweeps.cpp'),
     ('enthalpy_sweeps.o', 'native/include/tpmshx/conservative_energy.hpp', 'native/src/enthalpy_sweeps.cpp'),
     ('temperature_driver.o', 'native/src/temperature_run_state.hpp', 'native/src/temperature_driver.cpp'),
-    (_SHARED, 'native/src/temperature_run_state.hpp', 'native/src/temperature_driver.cpp'),
 ])
 def test_header_change_rebuilds_native_target(tmp_path, target, header, source):
     output = tmp_path / target

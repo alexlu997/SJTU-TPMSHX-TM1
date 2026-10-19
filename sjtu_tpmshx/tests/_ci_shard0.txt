@@ -15,7 +15,7 @@ sjtu_tpmshx/tests/io_tm1/test_case_io.py
 sjtu_tpmshx/tests/io_tm1/test_file_set.py
 sjtu_tpmshx/tests/io_tm1/test_hdf5_descriptor.py
 sjtu_tpmshx/tests/models_tm1/test_model_boundary.py
-sjtu_tpmshx/tests/native/test_enthalpy_sweeps.py
+sjtu_tpmshx/tests/native/test_energy_audit.py
 sjtu_tpmshx/tests/native/test_native_execution.py
 sjtu_tpmshx/tests/postprocess_tm1/test_boundary_topology.py
 sjtu_tpmshx/tests/postprocess_tm1/test_core_metrics.py

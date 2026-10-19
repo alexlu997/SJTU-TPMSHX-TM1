@@ -110,13 +110,13 @@ static void check_run_state(const size_t* shape,const double* const* arrays,cons
 }
 int main(void) {
     tpmshx_energy_effective_settings_v1 defaults={0};
-    for(uint32_t dimension=2;dimension<=3;++dimension) for(uint32_t algorithm=0;algorithm<=2;++algorithm)
+    for(uint32_t dimension=2;dimension<=3;++dimension) for(uint32_t algorithm=2;algorithm<=2;++algorithm)
         for(uint32_t water=0;water<=1;++water) {
             assert(tpmshx_full_enthalpy_defaults_v1(dimension,algorithm,water,&defaults)==0);
             assert(!defaults.available && defaults.algorithm==algorithm);
             assert(defaults.max_iterations==(dimension==3?1500u:water?12000u:5000u));
-            assert(defaults.sweeps==(algorithm?5u:dimension==2?3u:25u));
-            assert(defaults.omega==(algorithm==2?.2:.6));
+            assert(defaults.sweeps==5u);
+            assert(defaults.omega==.2);
             assert(defaults.update_tolerance==.001 && defaults.temperature_update_tolerance==1e-8);
             assert(defaults.coupled_energy_tolerance==.001 && defaults.equation_energy_tolerance==.001);
             assert(!defaults.require_enthalpy_update_on_temperature);
@@ -126,7 +126,7 @@ int main(void) {
     assert(tpmshx_full_enthalpy_defaults_v1(2,3,0,&defaults)==1 && defaults.available==123);
     assert(tpmshx_full_enthalpy_defaults_v1(2,0,2,&defaults)==1 && defaults.available==123);
     assert(tpmshx_full_enthalpy_defaults_v1(2,0,0,NULL)==1);
-    assert(tpmshx_energy_algorithm_version_v1(TPMSHX_ENERGY_TEMPERATURE_FOU)==1);
+    assert(tpmshx_energy_algorithm_version_v1(TPMSHX_ENERGY_TEMPERATURE_FOU)==0);
     assert(tpmshx_energy_algorithm_version_v1(TPMSHX_ENERGY_TEMPERATURE_SOU)==2);
     assert(tpmshx_energy_algorithm_version_v1(TPMSHX_ENERGY_LEGACY_H_FOU)==0);
     assert(tpmshx_energy_algorithm_version_v1(UINT32_MAX)==0);
@@ -158,7 +158,7 @@ int main(void) {
         config.sides[side].inlet_hi=.01; config.sides[side].outlet_hi=.01;
     }
     tpmshx_full_2d_result_v2 result={0}; char error[1024];
-    const tpmshx_energy_options_v1 energy={TPMSHX_ENERGY_LEGACY_H_FOU,1e-8};
+    const tpmshx_energy_options_v1 energy={TPMSHX_ENERGY_TEMPERATURE_SOU,1e-8};
     tpmshx_full_2d_energy_evidence_v1 evidence={0};
     tpmshx_full_2d_physical_heat_ledger_v1 heat={0};
     tpmshx_full_2d_energy_effective_settings_v1 settings={0};
@@ -316,26 +316,26 @@ int main(void) {
         assert(fabs(residual-external)<1e-7);
 
     }
-    /* The additive entry preserves legacy results and exposes no candidate
-       arrays; its query borrows the same owner released by the ABI 2 call. */
+    /* Integral model-h has no conservative EOS energy arrays.
+       The query borrows the same owner released by the ABI 2 call. */
     assert(result.owner && tpmshx_full_2d_get_energy_evidence_v1(&result,&evidence)==0);
     assert(!evidence.main.available && !evidence.fine.available);
-    assert(evidence.main.energy.algorithm==TPMSHX_ENERGY_LEGACY_H_FOU && !evidence.main.energy.has_temperature_update);
-    assert(evidence.fine.energy.algorithm==TPMSHX_ENERGY_LEGACY_H_FOU && !evidence.fine.energy.has_temperature_update);
+    assert(!evidence.main.energy.has_temperature_update);
+    assert(!evidence.fine.energy.has_temperature_update);
     assert(evidence.outer_count==result.outer_history_count);
     for(size_t i=0;i<evidence.outer_count;++i)
-        assert(evidence.outer[i].algorithm==TPMSHX_ENERGY_LEGACY_H_FOU && !evidence.outer[i].has_temperature_update);
+        assert(!evidence.outer[i].has_temperature_update);
     tpmshx_full_2d_release_v2(&result);
     heat.main.available=123;
     assert(tpmshx_full_2d_get_physical_heat_ledger_v1(&result,&heat)==1 && heat.main.available==123);
     evidence.main.available=123;
     assert(tpmshx_full_2d_get_energy_evidence_v1(&result,&evidence)==1 && evidence.main.available==123);
     tpmshx_full_2d_callbacks_v2 cb={cancelled,NULL,NULL,NULL};
-    const tpmshx_energy_options_v1 invalid_energy[]={{3,1e-8},{0,0.},{0,NAN}};
+    const tpmshx_energy_options_v1 invalid_energy[]={{0,1e-8},{1,1e-8},{3,1e-8},{2,0.},{2,NAN}};
     result.iterations=123;
-    for(size_t i=0;i<4;++i) {
+    for(size_t i=0;i<=sizeof invalid_energy/sizeof invalid_energy[0];++i) {
         error[0]='\0';
-        const tpmshx_energy_options_v1* options=i<3?&invalid_energy[i]:NULL;
+        const tpmshx_energy_options_v1* options=i<sizeof invalid_energy/sizeof invalid_energy[0]?&invalid_energy[i]:NULL;
         assert(tpmshx_solve_full_2d_v3(shape,arrays,sizes,&config,options,&cb,&result,error,sizeof(error))==1);
         assert(result.iterations==123 && result.owner==NULL && error[0]);
         assert(tpmshx_full_2d_get_energy_evidence_v1(&result,&evidence)==1 && evidence.main.available==123);
@@ -352,7 +352,7 @@ int main(void) {
     /* Explicit budgets and tolerances belong to the completed thermal call. */
     config.thermal_mode=2; config.thermal_iterations=2; config.enthalpy_update_tolerance=.013;
     config.sides[0].inlet_temperature=300.;
-    for(uint32_t algorithm=0;algorithm<=2;++algorithm) {
+    for(uint32_t algorithm=2;algorithm<=2;++algorithm) {
         const tpmshx_energy_options_v1 options={algorithm,2e-8};
         status=tpmshx_solve_full_2d_v3(shape,arrays,sizes,&config,&options,NULL,&result,error,sizeof(error));
         if(status) {fprintf(stderr,"%s\n",error);return 1;}
@@ -374,7 +374,7 @@ int main(void) {
         tpmshx_full_2d_release_v2(&result);
     }
     tpmshx_full_2d_energy_control_v4 explicit_energy={17,4,.55,2e-8,{0,3e-8,4e-7,5e-7,1}};
-    for(uint32_t algorithm=0;algorithm<=2;++algorithm) {
+    for(uint32_t algorithm=2;algorithm<=2;++algorithm) {
         explicit_energy.energy.algorithm=algorithm;
         status=tpmshx_solve_full_2d_v4(shape,arrays,sizes,&config,&explicit_energy,NULL,&result,error,sizeof(error));
         if(status) {fprintf(stderr,"%s\n",error);return 1;}

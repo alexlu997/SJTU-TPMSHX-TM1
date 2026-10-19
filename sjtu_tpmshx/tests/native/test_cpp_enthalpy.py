@@ -349,7 +349,7 @@ def test_public_driver_rejects_a_different_executed_algorithm(driver, monkeypatc
         args[7]._obj.algorithm = 1
         return status
     monkeypatch.setattr(driver, 'call', wrong_algorithm)
-    with pytest.raises(RuntimeError, match='did not execute T-SOU'):
+    with pytest.raises(RuntimeError, match='unsupported algorithm version'):
         driver(**case_data())
 
 

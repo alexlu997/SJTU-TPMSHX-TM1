@@ -21,7 +21,7 @@ def config(dimension, algorithm):
 
 
 @pytest.mark.parametrize('dimension', [2, 3])
-@pytest.mark.parametrize('algorithm', ['temperature_fou', 'temperature_sou'])
+@pytest.mark.parametrize('algorithm', ['temperature_sou'])
 @pytest.mark.parametrize('threads', [2, 8])
 def test_complete_serial_and_parallel_results_are_exact(native_path, dimension, algorithm, threads):
     value = config(dimension, algorithm)

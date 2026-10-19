@@ -17,8 +17,7 @@ TM1 将 TPMS 换热器的前处理、求解和后处理拆为独立维护的模�
 [v0.1.0](https://github.com/alexlu997/SJTU-TPMSHX-TM1/releases/tag/v0.1.0) 是首个 GitHub 源码发布版本，保留 Python 与 C++ 双后端。
 0.1 发布包保留两套求解器源码。0.2 删除 Python 数值迭代器及其专用研究入口，
 并删除外层物性 Anderson；固定物性松弛、热方程与流动加速保持原有规则。
-`legacy_h_fou`、`temperature_fou` 和 `temperature_sou` 是保留的 C++ 能量算法，
-不属于本次退役范围。运行 0.2 前须构建与源码匹配的本机原生库。
+既有守恒 EOS 能量路线默认使用 T-SOU（`temperature_sou`）。H-FOU 和 T-FOU 执行已退役；model-h 及其他温度路线保留原物理约定。历史结果仍可读取，历史检查点须使用匹配的归档运行库。运行前须构建与源码匹配的本机原生库。
 
 矩形 2D/3D 三模块主线的 M-A 合并验收已记录；M-B 扩展能力继续单独追踪。
 历史 B40 失败与物理适用范围仍须保留。当前结论见
@@ -184,9 +183,7 @@ macOS 尚未验收。继续复用 `.venv-path` 指定的现有锁定环境，环
 显式加载 `native/lib/macos-arm64/libtpmshx_solver_shared.dylib`，并传入
 `.cache/native-deps/tables`。库、表和本机 `.venv-path` 属于本地交付资源，
 不随 Git 源码自动提供。缺少解释器或库会直接报告原因；启动器不安装依赖、
-或编译库。需要 CO₂ BICUBIC 表的既有 legacy 路线使用当前版本目录中的四表，
-缺少时由该版本在本机生成；
-保守温度算法不使用这些表。公共 API、CLI 和直接模块调用默认使用 C++。
+或编译库。T-SOU 使用带检查的 HEOS PT 物性，不创建 EOS 表；表目录选项保留给显式选择的历史运行库。公共 API、CLI 和直接模块调用默认使用 C++。
 
 已有当前锁定原生依赖且相关原生回归通过时，可显式发布启动器使用的库：
 

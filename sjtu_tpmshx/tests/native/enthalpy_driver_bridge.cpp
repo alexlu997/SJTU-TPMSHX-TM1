@@ -19,7 +19,7 @@ int failure(char* error, std::size_t capacity, const std::exception& exception) 
 
 extern "C" TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL test_enthalpy_driver(
     const std::size_t* shape, double** arrays, const std::size_t* sizes,
-    const std::size_t* config, const double* values, const char* table_directory,
+    const std::size_t* config, const double* values, const char*,
     std::size_t* status, double* metrics, char* error, std::size_t capacity) {
     using namespace tpmshx;
     const auto v = [&](std::size_t i) { return ArrayView<const double>{arrays[i],sizes[i]}; };
@@ -31,8 +31,9 @@ extern "C" TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL test_enthalpy_driver(
                                 v(4),v(5),v(6),v(7),v(8),v(9)};
         const EnthalpySideView b{static_cast<Fluid>(config[1]),values[2],values[3],
                                 v(10),v(11),v(12),v(13),v(14),v(15)};
-        EnthalpyControl control{config[2],config[3],values[4],values[5],{},{},
-                                table_directory ? table_directory : "",cancel,&callback};
+        EnthalpyControl control{config[2],config[3],values[4],values[5],{},{},cancel,&callback};
+        control.require_enthalpy_update_on_temperature = true;
+        control.require_legacy_direct_gates = true;
         if (config[8]) control.coupled_energy_tolerance = values[6];
         if (config[9]) control.equation_energy_tolerance = values[7];
         const EnthalpyStateView state{out(16),out(17),out(18),out(19),out(20),
@@ -56,6 +57,7 @@ extern "C" TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL test_enthalpy_driver(
                 audit.fluid_cell_max[0],audit.fluid_cell_max[1],audit.equation_ratio};
             for (std::size_t i = 0; i < 11; ++i) metrics[6+i] = data[i];
         }
+        metrics[17] = result.temperature_update.value_or(0.);
         if (capacity) error[0] = '\0';
         return 0;
     } catch (const WaterStateError& exception) {
@@ -65,11 +67,6 @@ extern "C" TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL test_enthalpy_driver(
     }
 }
 
-extern "C" TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL test_enthalpy_tables(
-    const char* directory, char* error, std::size_t capacity) {
-    try { tpmshx::configure_eos_tables_once(directory); return 0; }
-    catch (const std::exception& exception) { return failure(error,capacity,exception); }
-}
 
 extern "C" TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL test_coupled_only_audit(
     double* metrics, double* fluid_residuals, char* error, std::size_t capacity) {

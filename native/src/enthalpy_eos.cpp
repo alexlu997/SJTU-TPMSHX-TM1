@@ -6,7 +6,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <limits>
 #include <sstream>
 
 namespace tpmshx {
@@ -30,20 +29,6 @@ bool integral(Fluid fluid,EnergyRelation energy) {
     return true;
 }
 
-double model_temperature(Fluid fluid,double enthalpy) {
-    const auto& cp=model_h_coefficients(fluid);
-    double temperature=cp[4]+enthalpy/model_heat_capacity(cp[4],cp);
-    for(std::size_t step=0;step<20;++step) {
-        const double capacity=model_heat_capacity(temperature,cp);
-        if(!std::isfinite(temperature) || temperature<=0. || !std::isfinite(capacity) || capacity<=0.)
-            throw std::domain_error("invalid integral enthalpy inverse state");
-        const double update=(model_enthalpy(temperature,cp)-enthalpy)/capacity;
-        temperature-=update;
-        if(std::abs(update)<=4.*std::numeric_limits<double>::epsilon()*std::max(std::abs(temperature),1.))
-            return temperature;
-    }
-    throw std::domain_error("integral enthalpy inverse did not converge");
-}
 
 void positive(double temperature, double pressure) {
     if (!std::isfinite(temperature) || !std::isfinite(pressure)
@@ -88,9 +73,8 @@ void EnthalpyEOS::validate(Fluid fluid, double temperature, double pressure,
 }
 
 CoolProp::AbstractState& EnthalpyEOS::transport_state(Fluid fluid, double temperature, double pressure) {
-    // Python _prop_field validates the sCO2 project domain here. Water's
-    // physical guard has just run on the inverse T(h,P) field; do not add a
-    // second phase/property path to each transport or final-k evaluation.
+    // The actual-state caller has checked water phase. Keep transport on
+    // that property path and check the CO2 project domain here.
     if (uses_co2_eos(fluid)) validate(fluid,temperature,pressure,"enthalpy property field");
     else positive(temperature,pressure);
     auto& state = heos(fluid);
@@ -155,69 +139,4 @@ double EnthalpyEOS::bracket_enthalpy(Fluid fluid, double temperature, double pre
     if (!std::isfinite(result)) throw std::domain_error("nonfinite true-h bracket enthalpy");
     return result;
 }
-
-void EnthalpyEOS::enable_bicubic(const std::string& absolute_table_directory) {
-    configure_eos_tables_once(absolute_table_directory.c_str());
-    if (!bicubic_) bicubic_ = make_eos_state("BICUBIC&HEOS","CO2");
-}
-
-bool EnthalpyEOS::bicubic_pressure(double pressure) {
-    auto& state = heos(Fluid::co2);
-    return pressure >= state.p_triple() && pressure <= state.pmax();
-}
-
-double EnthalpyEOS::temperature(Fluid fluid, double enthalpy, double pressure,
-                               bool& use_bicubic, const std::string& where, EnergyRelation energy) {
-    const bool model=integral(fluid,energy);
-    double result;
-    try {
-        if (!std::isfinite(enthalpy) || !std::isfinite(pressure) || pressure <= 0.)
-            throw std::invalid_argument("true-h inverse requires finite h and positive Pa(abs)");
-        if (model) {
-            if (use_bicubic) throw std::invalid_argument("integral enthalpy cannot use EOS tables");
-            result=model_temperature(fluid,enthalpy);
-        } else {
-            if (use_bicubic && (!uses_co2_eos(fluid) || !bicubic_))
-                throw std::invalid_argument("true-h BICUBIC state was not configured for CO2");
-            if (use_bicubic && fluid == Fluid::co2) {
-                try {
-                    bicubic_->update(CoolProp::HmassP_INPUTS,enthalpy,pressure);
-                    if (bicubic_->phase() == CoolProp::iphase_twophase)
-                        throw std::invalid_argument("CO2 table candidate is two-phase");
-                    result = bicubic_->T();
-                    validate(fluid,result,pressure,where);
-                    // Reuse the checked HEOS state to reduce table error before finishing.
-                    auto& exact = heos(fluid);
-                    result += (enthalpy-exact.hmass())/exact.cpmass();
-                    validate(fluid,result,pressure,where);
-                    return result;
-                } catch (const CoolProp::CoolPropBaseError&) {
-                    use_bicubic = false;
-                } catch (const std::invalid_argument&) {
-                    use_bicubic = false;
-                }
-            }
-            auto& state = use_bicubic ? *bicubic_ : heos(fluid);
-            state.update(CoolProp::HmassP_INPUTS,enthalpy,pressure);
-            result = state.T();
-            if (!use_bicubic) {
-                // CoolProp 8 HP uses 30-bit T brackets; restore HEOS enthalpy consistency.
-                validate(fluid,result,pressure,where);
-                if (fluid != Fluid::water && fluid != Fluid::co2)
-                    state.update(CoolProp::PT_INPUTS,pressure,result);
-                result += (enthalpy-state.hmass())/state.cpmass();
-            }
-        }
-    } catch (const std::exception& error) {
-        if (fluid != Fluid::water) throw;
-        std::ostringstream message;
-        message << where << (model ? ": water model T(h) state unconfirmed; input h="
-                                   : ": water EOS T(h,P) state unconfirmed; input h=") << enthalpy
-                << " J/kg, P_abs=" << pressure << " Pa: " << error.what();
-        throw WaterStateError(message.str());
-    }
-    validate(fluid,result,pressure,where);
-    return result;
-}
-
 }  // namespace tpmshx

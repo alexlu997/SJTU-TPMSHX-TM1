@@ -109,7 +109,7 @@ PhysicalHeatLedger energy_physical_audit(
 // dh*cp is effective conductivity. Optional sources are frozen W/cell additions
 // to the fluid balance. t_star/h_star/cp must remain independent of mutable T.
 // No EOS, clipping, convergence decision or acceptance threshold is applied;
-// FluidView::h_lo/h_hi are unused. Exterior conduction is adiabatic, and all
+// Exterior conduction is adiabatic, and all
 // inward mass faces use h_in; the caller must establish their physical identity.
 // Mutable storage must not alias other mutable fields or immutable inputs.
 // Invalid extents, nonfinite inputs and nonphysical coefficients throw before

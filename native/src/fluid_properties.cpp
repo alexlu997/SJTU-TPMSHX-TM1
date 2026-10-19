@@ -4,39 +4,17 @@
 #include <CoolProp/AbstractState.h>
 #include <CoolProp/CoolProp.h>
 #include <CoolProp/Exceptions.h>
-#include <CoolProp/Configuration.h>
 
 #include <algorithm>
 #include <cmath>
-#include <filesystem>
 #include <mutex>
 #include <string>
-#include <string_view>
 
 namespace tpmshx {
 namespace {
 std::mutex factory_mutex;
-std::string tables_directory;
 }
 
-void configure_eos_tables_once(const char* absolute_directory) {
-    if (!absolute_directory || !*absolute_directory)
-        throw std::invalid_argument("native EOS tables require an absolute directory");
-    const auto requested = std::filesystem::u8path(absolute_directory);
-    if (!requested.is_absolute())
-        throw std::invalid_argument("native EOS tables require an absolute directory");
-    const std::lock_guard<std::mutex> lock(factory_mutex);
-    const auto versioned = requested / ("CoolProp-" + CoolProp::get_global_param_string("version"));
-    const auto directory = std::filesystem::weakly_canonical(versioned).generic_u8string()+"/";
-    if (!tables_directory.empty()) {
-        if (tables_directory != directory)
-            throw std::invalid_argument("native EOS table directory is already fixed for this library");
-        return;
-    }
-    std::filesystem::create_directories(versioned);
-    CoolProp::set_config_string(ALTERNATIVE_TABLES_DIRECTORY,directory);
-    tables_directory = directory;
-}
 
 std::unique_ptr<CoolProp::AbstractState> make_eos_state(const char* backend, const char* fluid) {
     // CoolProp lazily mutates shared fluid/table libraries during construction;
@@ -44,17 +22,7 @@ std::unique_ptr<CoolProp::AbstractState> make_eos_state(const char* backend, con
     // ponytail: one factory lock; split initialization only if startup throughput matters.
     const std::lock_guard<std::mutex> lock(factory_mutex);
     if (!backend || !fluid) throw std::invalid_argument("missing EOS backend or fluid");
-    const bool tabular = std::string_view(backend) == "BICUBIC&HEOS";
-    if (tabular && tables_directory.empty())
-        throw std::invalid_argument("configure native EOS table directory before BICUBIC use");
     auto state = std::unique_ptr<CoolProp::AbstractState>(CoolProp::AbstractState::factory(backend, fluid));
-    // The first tabular update mutates CoolProp's dataset library and writes
-    // cache files. Finish it under the same lock before independent run use.
-    if (tabular) {
-        if (std::string_view(fluid) != "CO2")
-            throw std::invalid_argument("native tabular EOS is supported only for CO2");
-        state->update(CoolProp::PT_INPUTS,8e6,300.);
-    }
     return state;
 }
 

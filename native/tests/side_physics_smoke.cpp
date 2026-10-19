@@ -28,9 +28,6 @@ void energy_model_cases() {
                 const auto properties=transport.evaluate(fluid,t,pressure);
                 require(state.enthalpy==reference.enthalpy && state.cp==properties.cp
                         && state.conductivity==properties.k);
-                bool table_used=false;
-                const double restored=energy.temperature(fluid,state.enthalpy,pressure,table_used,"model inverse",model);
-                require(std::abs(restored-t)<1e-10 && !table_used);
                 const double step=1e-3;
                 const double derivative=(energy.bracket_enthalpy(fluid,t+step,pressure,model)
                     -energy.bracket_enthalpy(fluid,t-step,pressure,model))/(2.*step);
@@ -52,12 +49,7 @@ void energy_model_cases() {
     try { energy.evaluate_state(Fluid::co2,350.,8e6,"invalid integral fluid",EnergyRelation::integral_cp_T); }
     catch(const std::invalid_argument&) { rejected=true; }
     require(rejected);
-    rejected=false;
-    bool table_used=false;
-    try { energy.temperature(Fluid::air,std::numeric_limits<double>::infinity(),2e5,table_used,
-                             "invalid inverse",EnergyRelation::integral_cp_T); }
-    catch(const std::invalid_argument&) { rejected=true; }
-    require(rejected);
+
 }
 
 int main() {

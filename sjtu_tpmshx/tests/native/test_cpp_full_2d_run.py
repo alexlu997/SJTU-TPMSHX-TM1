@@ -53,7 +53,7 @@ def compare_result(actual, expected):
     _exact_resume_values({k: v for k, v in actual.metadata.items() if k != 'continuation'}, expected.metadata)
 
 
-@pytest.mark.parametrize('route', ['temperature', 'model_h', 'true_h', 'temperature_fou', 'temperature_sou'])
+@pytest.mark.parametrize('route', ['temperature', 'model_h', 'true_h', 'temperature_sou'])
 @pytest.mark.parametrize('cut', [0, 1, 'final'])
 def test_full_2d_checkpoint_hdf5_round_trip(driver, tmp_path, route, cut):
     prepared = case(route)
@@ -209,10 +209,10 @@ def test_checkpoint_rejects_other_dimension_in_the_same_library(native_path):
 
 
 def inner_case(route, *, simple=40):
-    eos = route in ('true_h', 'temperature_fou', 'temperature_sou')
+    eos = route in ('true_h', 'temperature_sou')
     cfg = configuration(mode='true_h' if eos else route, outer=2, simple_max=simple, partial=not eos)
     settings = (dict(ltne_enthalpy_outer=12, ltne_enthalpy_nsweep=3,
-                     enthalpy_algorithm=route if route.startswith('temperature_') else 'legacy_h_fou')
+                     enthalpy_algorithm=route if route.startswith('temperature_') else 'temperature_sou')
                 if eos else dict(model_h_max_iterations=79))
     cfg = replace(cfg, solver=replace(cfg.solver, Nx=4, Ny=3 if eos else 6, **settings))
     return prepare_case(cfg, case_id='full2d-inner-'+route)
@@ -233,7 +233,7 @@ def compare_native(actual, expected):
     _exact_resume_values(actual, expected)
 
 
-@pytest.mark.parametrize('route', ['temperature', 'model_h', 'true_h', 'temperature_fou', 'temperature_sou'])
+@pytest.mark.parametrize('route', ['temperature', 'model_h', 'true_h', 'temperature_sou'])
 @pytest.mark.parametrize('after_update', [False, True])
 def test_inner_thermal_checkpoint_keeps_complete_result(driver, route, after_update):
     cfg, prepared = build_execution_inputs(inner_case(route))
@@ -421,7 +421,7 @@ save_result(run_case(load_checkpoint_case(saved), control, resume_state=saved.na
 
 
 @pytest.mark.parametrize('phase,route', [(6, 'model_h'), (6, 'true_h'), (7, 'temperature'), (7, 'model_h'),
-    (7, 'true_h'), (7, 'temperature_fou'), (7, 'temperature_sou'), (8, 'temperature'), (8, 'model_h')])
+    (7, 'true_h'), (7, 'temperature_sou'), (8, 'temperature'), (8, 'model_h')])
 def test_inner_checkpoint_continues_after_process_exit(driver, tmp_path, phase, route):
     prepared = inner_case(route)
     case_path = save_case(prepared, tmp_path/'case.h5')
@@ -468,25 +468,3 @@ def test_inner_flow_keeps_each_side_position(driver, cut):
     with pytest.raises(PauseCheckpoint):
         driver.run_prepared(cfg, prepared, checkpoint=pause)
     compare_native(driver.run_prepared(cfg, prepared, resume_state=saved), expected)
-
-
-def test_inner_thermal_keeps_heos_finishing(driver):
-    config = configuration(mode='true_h', outer=2, simple_max=40, partial=True)
-    config = replace(config, solver=replace(config.solver, Nx=4, Ny=6,
-        ltne_enthalpy_outer=80, ltne_enthalpy_nsweep=3, ltne_enthalpy_tol=1.,
-        ltne_enthalpy_coupled_energy_tol=1e-14, ltne_enthalpy_equation_energy_tol=1e-14))
-    cfg, prepared = build_execution_inputs(prepare_case(config, case_id='full2d-inner-heos'))
-    expected = driver.run_prepared(cfg, prepared)
-    saved = {}
-    key = 'state.thermal.value.enthalpy.value.result.heos_polish'
-    def pause(state):
-        if state['state.phase'][0] == 7 and state[key][0]:
-            saved.update(state)
-            raise PauseCheckpoint
-    with pytest.raises(PauseCheckpoint):
-        driver.run_prepared(cfg, prepared, checkpoint=pause)
-    assert inner_position(saved) > 0
-    def observe(state):
-        if state['state.phase'][0] == 7 and state[COUNT][0] == saved[COUNT][0]:
-            assert state[key][0]
-    compare_native(driver.run_prepared(cfg, prepared, resume_state=saved, checkpoint=observe), expected)

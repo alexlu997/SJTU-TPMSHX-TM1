@@ -17,8 +17,10 @@ Version 0.2 retains these boundaries and uses C++ as the only numerical backend.
 Python keeps application interfaces, preparation, model resources, optimization
 and postprocessing. Version 0.1 preserves both solver implementations.
 The Python numerical backend and its extra research entries are retired in 0.2.
-The shared C++ sweeps and their low-level C ABI remain in use.
-`legacy_h_fou`, `temperature_fou` and `temperature_sou` remain supported energy choices.
+Shared temperature sweeps and energy audits remain in use. T-SOU is the default
+for the existing conservative EOS route. H-FOU, T-FOU and the frozen H-sweep
+C export are retired. Historical results and matching archived runtimes keep
+their original algorithm identity.
 Outer property Anderson is retired; fixed property relaxation and thermal
 Anderson retain their existing rules.
 
@@ -174,15 +176,18 @@ model-h physical-boundary and energy certificates.
 
 ## Fixed-flow conservative temperature candidates
 
-The C++ `solve_enthalpy` interface in `enthalpy_driver.hpp` accepts an explicit
-`EnthalpyAlgorithm::temperature_fou` or `temperature_sou`. Existing calls default
-to `legacy_h_fou`. The version-1 C interface continues to use that route. The temperature candidates currently cover two solved fluids on a tensor grid,
+The C++ `solve_enthalpy` interface in `enthalpy_driver.hpp` uses
+`EnthalpyAlgorithm::temperature_sou`. Both direct C entries use T-SOU.
+Version 1 has a fixed 1e-8 K update gate; version 2 takes a positive K limit.
+Both keep the strict normalized-h and boundary-imbalance gates.
+The algorithm covers two solved fluids on a tensor grid,
 including a unit-depth 2D extrusion. They require supplied signed mass faces,
 local absolute pressures, effective solid conductivity and volumetric exchange
 coefficients.
 
-Each side must declare its scalar inlet direction. Inflow through
-any other exterior face is rejected.
+Directions 0 through 5 restrict inflow to the declared face.
+Direction -1 assigns the scalar inlet state to every exterior inflow.
+Full drivers keep their declared-port checks.
 
 External conductive boundaries are
 adiabatic. This entry does not prepare mass flow, solve SIMPLE or evaluate Nu.
@@ -191,12 +196,11 @@ Each nonlinear step freezes independent actual h, T and cp arrays, then performs
 alternating forward/reverse A, B and solid sweeps. Fluid convection uses the
 linearization h* + cp*(T-T*). Diffusion uses temperature. SOU freezes a minmod
 correction reconstructed directly from actual enthalpy on physical coordinates,
-including the outlet face, and uses full solid relaxation. FOU uses the supplied
-relaxation for all phases. SOU damps the completed three-phase block increment
+including the outlet face, and uses full solid relaxation. SOU damps the completed three-phase block increment
 by 0.6 before the actual state update.
 
 This suppresses a demonstrated
-limiter-driven oscillation on a stretched full-2D grid without changing its steady equation. FOU uses no additional block damping. Guarded HEOS PT updates then replace the linearized
+limiter-driven oscillation on a stretched full-2D grid without changing its steady equation. Guarded HEOS PT updates then replace the linearized
 enthalpy with the actual state before residuals and duties are evaluated. No
 BICUBIC table, H-to-T inversion, clipping or recovery fallback is used.
 
@@ -207,14 +211,14 @@ continue iteration.
 
 First/final blocks and small ordinary temperature updates
 use a complete ordinary PT/audit block, and only that block can converge. `picard_relaxation=0.6` describes the ordinary map, not each Anderson increment. The same loaded library's `tpmshx_energy_algorithm_version_v1` query reports
-FOU recipe 1 or SOU recipe 2 from the actual returned algorithm. Python records
+SOU recipe 2 from the actual returned algorithm. Python records
 this identity in main/outer evidence, effective settings and boundary capture.
-A previous library without the query fails before conservative flow execution. Saved SOU recipe 1 and recipe 2 boundary evidence stay readable, with no EOS
+A previous library without the query fails before conservative flow execution. Saved FOU recipe 1 and SOU recipe 1/2 boundary evidence stay readable, with no EOS
 replay or version inference.
 
 Recipe versions are independent of the C ABI.
 
-The candidates require positive coupled and equation tolerances and a positive
+The full drivers require positive coupled and equation tolerances and a positive
 `temperature_update_tolerance` in K. Convergence requires all three tests on the
 same actual state. `EnthalpyResult::algorithm` identifies the executed algorithm. `temperature_update` is present only on these routes. The existing `residual`
 still records the normalized actual enthalpy update.
@@ -229,16 +233,18 @@ nonuniform face fluxes, reference-enthalpy invariance and invalid inputs.
 `conservative_energy_driver_smoke` validates real EOS states, cold/warm consistency,
 independently reconstructed outlet duty, cancellation, iteration limits and
 physical-domain failures. The dependency-pilot verification runs both. Their
-scope is fixed-flow numerical qualification. Production flow/closure acceptance
-and comparison with the legacy BICUBIC route stay separate requirements.
+scope is fixed-flow numerical qualification. Full flow/closure acceptance,
+stored historical comparisons and experimental applicability remain separate.
 
 ### Explicit full-flow candidate selection
 
-Set `solver.enthalpy_algorithm` to `temperature_fou` or `temperature_sou`
+Use the default `solver.enthalpy_algorithm=temperature_sou`
 before `prepare_case`. Set `solver.enthalpy_temperature_tol_K` to the required
 positive K tolerance before preparation. Then run the saved case with
-`backend='cpp'` and the matching native library. The defaults stay `legacy_h_fou` and 1e-8 K. The current candidates require the existing two-fluid true-h routes. Selecting
-them with Quick Design or an unsupported thermal route fails explicitly.
+`backend='cpp'` and the matching native library. The default K limit is 1e-8.
+T-SOU applies to the existing two-fluid true-h routes. Model-h, other temperature
+kernels and Quick Design keep their own physical routes. Explicit EOS controls
+on incompatible routes fail before flow execution.
 
 Full 3D candidates also support `port_wall_refine` on the prepared nonuniform
 tensor grid, for full and partial openings. They use the actual cell widths and
@@ -250,22 +256,24 @@ Nu/Darcy-Forchheimer applicability. GUI selection is not yet exposed.
 
 The complete driver keeps its original SIMPLE, pressure, property, outer
 coupling and final acceptance gates. Full3D also keeps its two temperature
-predictor sweeps and original mass preparation. Candidate recipes use five
-sweeps per nonlinear step, fluid relaxation .6 for FOU and .2 for SOU, and
-solid relaxation .6/1 respectively. Full3D saves resolved controls in prepared
+predictor sweeps and original mass preparation. The T-SOU recipe uses five
+sweeps per nonlinear step, fluid relaxation .2 and solid relaxation 1. Full3D saves resolved controls in prepared
 cases. Unset 2D controls use the recipe for the selected algorithm version.
 
-With default controls, both keep their previous iteration budgets and require actual coupled/equation energy ratios
-no greater than .001 as well as the declared temperature update tolerance. The native result records actual whole-block Picard relaxation (1 for FOU,
-0.6 for SOU), separate from the fluid and solid row relaxation factors.
+With default controls, T-SOU keeps the full-driver iteration budgets.
+Actual coupled and equation energy ratios must be no greater than .001.
+The declared temperature update tolerance must also pass.
+The native result records actual whole-block Picard relaxation 0.6.
+It is separate from the fluid and solid row relaxation factors.
 
 `tpmshx_solve_full_2d_v3` and `tpmshx_solve_full_3d_v2` accept the shared
 `tpmshx_energy_options_v1`. They keep the previous result PODs and their release
 functions. The corresponding `get_energy_evidence_v1` query borrows the same
 owner and performs no solve. It exposes actual algorithm/temperature update,
 final epsilon-times-HEOS conductivity, six outward signed enthalpy-power
-planes and per-outer-step scalar identity. The previous entry points stay
-available and keep their original numerical behavior.
+planes and per-outer-step scalar identity. The previous entry points remain available and use the new T-SOU default.
+Current libraries reject explicit retired algorithm IDs before flow. Old
+checkpoints require their matching archived runtime and original controls.
 
 Explicit controls use `tpmshx_solve_full_2d_v4` or `tpmshx_solve_full_3d_v3`.
 They accept the same persisted EOS iteration, sweep, relaxation and convergence settings.
@@ -290,33 +298,12 @@ true-h unit-depth convention and do not produce Richardson evidence.
 
 ## First implemented slice
 
-`native/include/tpmshx/enthalpy_sweeps.hpp` and
-`native/src/enthalpy_sweeps.cpp` implement the serial true-enthalpy LTNE
-Gauss–Seidel sweeps. Their original Python implementation is preserved in version 0.1:
-
-- Fluid A, fluid B, then solid. The sweeps keep the original increasing i/j/k order.
-- Signed mass flow on all six faces, inward prescribed enthalpy, outward
-  cell enthalpy, and zero-flow wall faces. No inferred uniform-flow shortcut.
-- Nonuniform orthogonal cell widths and harmonic face conductivity.
-- Fourier conduction using temperature linearized about frozen `(T*, h*, cp)`.
-  Differences in pressure-dependent enthalpy at equal temperature do not
-  become spurious heat conduction.
-- In-place under-relaxed enthalpy/solid-temperature updates and separate exact
-  A/B enthalpy clipping counts, accumulated over the requested sweeps.
-
-The library is C++17 and standard-library-only. It accepts borrowed contiguous
-double arrays with explicit lengths, units and staggered locations. Inputs are validated before mutation. The caller owns the arrays and must not alias mutable
-state with other state or coefficient arrays. Arrays use `(i*ny+j)*nz+k` order. Nonfinite equation diagonals, right-hand sides or updates caused by finite-input
-arithmetic overflow throw `std::domain_error`.
-
-The partially updated state must
-not be consumed after this exception. It is not silently clipped or accepted. Single-cell axes are supported. A unit-depth 2D extrusion keeps the existing
-2D driver's normalization rather than inventing a physical thickness.
-
-This slice performs **no** EOS lookup, SIMPLE solve, mass-flux balancing,
-Picard/property update, outer convergence/cancellation handling, CaseData
-loading or FieldResult capture. Clip-free kernel execution alone cannot certify
-a converged or physical result.
+The frozen H-FOU sweep, its clipping rules and its low-level C export are retired.
+Git history keeps the previous implementation. Shared `FluidView`, audit types
+and `thermal_energy_audit` remain in `enthalpy_sweeps.hpp/.cpp` because the
+conservative temperature kernels and actual-state audits consume them.
+`conservative_energy_smoke` keeps independent frozen balances, pressure-offset
+checks, diffusion lines, six-direction face powers and invalid-input checks.
 
 ## Second implemented slice: actual-state energy audit
 
@@ -373,7 +360,7 @@ keep their existing compile options. The actual caller boundaries are:
 | Full3D true-h CC warm-up | Existing private `legacy_single_a_temperature` with empty prescribed B. Original G4 two-sweep map for Nz=1, or Nz>1 with conservative=false and force_cell_centered=true. Both sides are solved. The following enthalpy driver keeps its selected algorithm and physical gates |
 | Single-A sCO2 CC | Same private G4 kernel with prescribed B and the original thermal budget. Identity `legacy_frozen_cp_single_a_cc_v1`, keeping the prior single-fluid path without an integral h(P,T) ledger |
 | Staggered/MAC temperature | Existing projection/cache and capacity-face preparation. Kept nonconservative advective research correction has no fullCC integral-h qualification |
-| True-h | Existing legacy H-FOU default or explicitly selected conservative T algorithms. EOS and their independent gates stay in the enthalpy driver |
+| True-h | T-SOU default. EOS relations and independent physical gates stay in the enthalpy driver |
 
 The kept CC warm-up is a deterministic true-h caller contract, shared
 with the existing single-A implementation. It adds no public selector or new
@@ -494,21 +481,20 @@ From the repository root, with an existing POSIX C++17 compiler and `make`:
 
 ```sh
 make -f native/Makefile CXX=c++
-make -f native/Makefile CXX=c++ shared
 make -f native/Makefile check
 ```
 
 This builds `.cache/native/libtpmshx_thermal.a`. Include `native/include`. Link that archive from a C++ caller. Building the temperature line solver
-requires the existing locked Eigen headers, compiled with `EIGEN_MPL2_ONLY`. `TPMSHX_EIGEN_INCLUDE` defaults to the locked CoolProp source's `externals/Eigen`
-directory under `.cache/native-deps`. Set it explicitly for an isolated source
+requires the existing locked Eigen headers, compiled with `EIGEN_MPL2_ONLY`. `TPMSHX_EIGEN_INCLUDE` defaults to the locked Eigen source
+under `.cache/native-deps/src/Eigen-5.0.1`. Set it explicitly for an isolated source
 tree.
 
 A missing directory fails the build without downloading dependencies. The low-level archive links no Python, Qt, NumPy, CoolProp/EOS, OpenMP or
 binding-library runtime. The complete dependency-pilot library keeps its
-separate EOS/pressure dependencies. The `check` target compiles and runs independent C static/shared callers and
-C++ static callers for the energy-audit operator and temperature driver. The shared target
-builds `.cache/native/libtpmshx_thermal.dylib` on macOS or
-`.so` on other POSIX platforms.
+separate EOS/pressure dependencies. The `check` target builds and runs independent C++ temperature and conservative-energy callers.
+The old pure thermal shared target exported only the retired H sweep and is removed.
+The complete dependency build keeps C static/shared callers for direct T-SOU,
+full 2D/3D, model-h, temperature and flow interfaces on both target platforms.
 
 The library is not bundled with the Python
 wheel or desktop application, discovered automatically, or built during a run.
@@ -519,16 +505,14 @@ From an existing x64 Visual Studio developer command prompt on Windows:
 nmake /f native\Makefile.msvc check
 ```
 
-This builds `tpmshx_thermal.lib`, `tpmshx_thermal.dll` and the separate
-`tpmshx_thermal_import.lib` under `.cache/native`, then runs the same C/C++
-callers. The C ABI uses explicit Windows exports/imports and `cdecl`. Ctypes
-uses the DLL path with `CDLL`. These commands do not install a compiler.
+This builds `tpmshx_thermal.lib` under `.cache/native` and runs the same C++ callers.
+These commands do not install a compiler. The full solver C ABI keeps explicit
+Windows exports/imports and `cdecl`; ctypes loads its DLL through `CDLL`.
 
-`thermal_c_api.h` exposes the versioned sweep ABI and bounded error messages.
-Exceptions do not cross the C boundary. Independent C/C++ callers and direct
-C ABI tests keep the buffer and physical-parameter checks. The retired
-Python hybrid adapter is no longer part of the production execution path.
-The energy-audit tests still use a test-only bridge.
+`thermal_c_api.h` keeps shared export and calling-convention macros.
+Its frozen H-sweep export is retired. Complete C interfaces keep bounded
+errors and buffer/physical checks. Exceptions do not cross the C boundary.
+The energy-audit tests keep a test-only bridge.
 
 Use the interpreter from `.venv-path`, after the normal environment checks:
 
@@ -700,9 +684,9 @@ an MIT license. Its binary is a CPython Mach-O bundle, not a separately
 linkable `libCoolProp`. A standalone C++ link attempt fails with unsupported
 Mach-O file type. No independent archive/dylib was found in that environment. At that inspection no source was downloaded and no dependency was installed.
 
-The subsequently authorized isolated build is described above. A complete
-driver still requires qualified HEOS/final-state and BICUBIC iteration
-semantics on each target platform, including actual Windows execution.
+The subsequently authorized isolated build is described above. The current full driver requires qualified HEOS PT states, actual energy
+and recovery on each target platform, including actual Windows execution.
+Historical BICUBIC records keep their original meaning.
 
 Freeze representative baseline cases and comparison tolerances **before each stage's comparison**. Keep failed cases and their original denominators.
 Run analytic/grid/conservation qualification separately from experiment

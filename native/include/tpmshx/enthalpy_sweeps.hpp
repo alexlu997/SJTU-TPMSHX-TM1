@@ -16,30 +16,12 @@ struct FluidView {
     // Signed mass flow (kg/s), positive along the real coordinate axis.
     // Shapes: (nx+1,ny,nz), (nx,ny+1,nz), (nx,ny,nz+1); zero = wall.
     ArrayView<const double> mass_x, mass_y, mass_z;
-    double h_in, h_lo, h_hi;          // J/kg; inward faces use h_in
-};
-
-struct ThermalStateView {
-    ArrayView<double> h_a, h_b;       // J/kg, updated in place
-    ArrayView<double> t_s;            // K, updated in place
+    double h_in;          // J/kg; inward faces use h_in
 };
 
 struct ClipCounts {
     std::uint64_t a, b;
 };
-
-// Same serial A -> B -> solid / i -> j -> k order as the Python true-h kernel.
-// Kss is solid effective conductivity, W/(m K); outside faces are adiabatic.
-// Storage must not alias mutable fields or immutable input fields. No EOS,
-// mass balancing, convergence decision, case preparation or result reduction.
-// Invalid extents/nonfinite inputs/nonphysical coefficients throw before update.
-// Arithmetic overflow throws std::domain_error; state may be partially updated
-// and must not be consumed after that exception.
-// n_sweeps == 0 leaves the fields unchanged and returns zero clip counts.
-ClipCounts enthalpy_sweeps(const GridView& grid, const FluidView& a,
-                          const FluidView& b, ArrayView<const double> k_ss,
-                          ThermalStateView state, std::size_t n_sweeps,
-                          double omega);
 
 struct FluidEnergyView {
     // Actual EOS state, not the frozen linearization used by the sweeps.
@@ -54,14 +36,6 @@ struct EnergyAudit {
     double fluid_abs_sum[2], fluid_cell_max[2], equation_ratio;
     bool fluid_equations_computed;
 };
-
-// Signed inward boundary duty from the existing upwind mass/enthalpy faces.
-// No temperature inversion or EOS/audit is performed; the full true-h driver
-// uses this between Picard chunks before deciding whether exact EOS is due.
-double boundary_enthalpy_duty(const GridView& grid, ArrayView<const double> h,
-                             ArrayView<const double> mass_x,
-                             ArrayView<const double> mass_y,
-                             ArrayView<const double> mass_z, double h_in);
 
 // Unrelaxed residuals: conduction + exchange - div(m*h); adiabatic exterior.
 // Outputs are W/cell (W/m for a unit-depth 2D extrusion). Inputs and outputs

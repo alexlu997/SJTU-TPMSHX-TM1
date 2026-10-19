@@ -206,7 +206,7 @@ bool cancelled(void* context) {auto& h=*static_cast<Handle*>(context);return ++h
 
 extern "C" TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL test_full_2d_run(
     const std::size_t* shape,const double* const* arrays,const std::size_t* sizes,
-    const std::size_t* flags,const double* values,const char* tables,const char* envelope,int full,
+    const std::size_t* flags,const double* values,const char*,const char* envelope,int full,
     void** output,char* error,std::size_t error_size) {
     using namespace tpmshx;*output=nullptr;
     try {
@@ -244,7 +244,7 @@ extern "C" TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL test_full_2d_run(
         c.outer_temperature_tolerance=values[44];c.outer_density_tolerance=values[45];c.outer_relaxation=values[46];
         c.thermal_q_tolerance=values[47];c.enthalpy.update_tolerance=values[48];
         c.enthalpy.max_iterations=c.thermal_iterations;
-        c.enthalpy.table_directory=tables?tables:"";c.envelope_mode=envelope?envelope:"raise";
+        c.envelope_mode=envelope?envelope:"raise";
         // Modes 2, 3 and 4 omit the coupled, equation or both candidate gates.
         if(full>1) {
             c.enthalpy.algorithm=EnthalpyAlgorithm::temperature_sou;

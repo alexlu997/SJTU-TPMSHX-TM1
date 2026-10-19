@@ -171,8 +171,7 @@ $env:TPMSHX_NATIVE_SOLVER_LIBRARY = 'C:\absolute\path\tpmshx_solver_shared.dll'
 ```
 
 同一可执行文件的 `--cli run ...` / `--cli solve ...` 接受相同三个主机选项。
-`--native-table-directory` 指定程序包外可写的绝对路径；sCO2 的 BICUBIC
-物性表使用它，不能指向只读安装目录。原生库在一个进程内固定这一个表目录。
+`--native-table-directory` 保留给显式选择且需要 BICUBIC 表的历史运行库；此时须使用程序包外可写的绝对路径。当前 T-SOU 执行不读取此选项，也不创建表。
 双击启动时使用包内 C++ 库。
 
 ## 文件与状态

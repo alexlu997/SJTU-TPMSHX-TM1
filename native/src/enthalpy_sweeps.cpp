@@ -43,82 +43,11 @@ std::size_t check_grid(const GridView& grid) {
     return cells;
 }
 
-void check_fluid(const FluidView& f, const GridView& g, std::size_t cells) {
-    check_coefficient(f.dh, cells, false);
-    check_coefficient(f.cp, cells, true);
-    check_coefficient(f.hv, cells, false);
-    check_array(f.t_star, cells);
-    check_array(f.h_star, cells);
-    check_array(f.mass_x, product(product(g.nx + 1, g.ny), g.nz));
-    check_array(f.mass_y, product(product(g.nx, g.ny + 1), g.nz));
-    check_array(f.mass_z, product(product(g.nx, g.ny), g.nz + 1));
-    if (!std::isfinite(f.h_in) || !std::isfinite(f.h_lo) ||
-        !std::isfinite(f.h_hi) || f.h_lo > f.h_hi)
-        throw std::invalid_argument("invalid enthalpy boundary or bounds");
-}
 
-std::uint64_t fluid_sweep(const GridView& g, const FluidView& f,
-                          ArrayView<double> h, ArrayView<double> ts, double omega) {
-    std::uint64_t clips = 0;
-    const detail::EnergyMesh mesh(g);
-    for(std::size_t p=0;p<mesh.cells();++p) {
-        const auto row=detail::enthalpy_energy_defect_row(mesh,f,{h.data,h.size},{ts.data,ts.size},p);
-        if(!std::isfinite(row.diagonal)||!std::isfinite(row.rhs))
-            throw std::domain_error("nonfinite fluid sweep equation");
-        if(row.diagonal>1e-30) {
-            const double update=h[p]+omega*row.rhs/row.diagonal;
-            if(!std::isfinite(update))
-                throw std::domain_error("nonfinite fluid sweep update");
-            clips+=update<f.h_lo||update>f.h_hi;
-            h[p]=std::min(std::max(update,f.h_lo),f.h_hi);
-        }
-    }
-    return clips;
-}
 
-void solid_sweep(const GridView& g, const FluidView& a, const FluidView& b,
-                 ArrayView<const double> ks, ThermalStateView state, double omega) {
-    const auto ts=state.t_s;
-    const detail::EnergyMesh mesh(g);
-    for(std::size_t p=0;p<mesh.cells();++p) {
-        const double ta=a.t_star[p]+(state.h_a[p]-a.h_star[p])/std::max(a.cp[p],1e-30);
-        const double tb=b.t_star[p]+(state.h_b[p]-b.h_star[p])/std::max(b.cp[p],1e-30);
-        const auto row=detail::assemble_solid_energy_row<false>(mesh,ks,a.hv,b.hv,
-            ta,tb,{ts.data,ts.size},{},p);
-        if(!std::isfinite(row.diagonal)||!std::isfinite(row.rhs))
-            throw std::domain_error("nonfinite solid sweep equation");
-        if(row.diagonal>1e-30) {
-            const double update=(1.-omega)*ts[p]+omega*row.rhs/row.diagonal;
-            if(!std::isfinite(update))
-                throw std::domain_error("nonfinite solid sweep update");
-            ts[p]=update;
-        }
-    }
-}
 
 }  // namespace
 
-ClipCounts enthalpy_sweeps(const GridView& grid, const FluidView& a,
-                          const FluidView& b, ArrayView<const double> k_ss,
-                          ThermalStateView state, std::size_t n_sweeps,
-                          double omega) {
-    const auto cells = check_grid(grid);
-    check_array(state.h_a, cells);
-    check_array(state.h_b, cells);
-    check_array(state.t_s, cells);
-    check_coefficient(k_ss, cells, false);
-    check_fluid(a, grid, cells);
-    check_fluid(b, grid, cells);
-    if (!std::isfinite(omega) || omega <= 0.0 || omega > 1.0)
-        throw std::invalid_argument("omega must be in (0, 1]");
-    ClipCounts clips{0, 0};
-    for (std::size_t sweep = 0; sweep < n_sweeps; ++sweep) {
-        clips.a += fluid_sweep(grid, a, state.h_a, state.t_s, omega);
-        clips.b += fluid_sweep(grid, b, state.h_b, state.t_s, omega);
-        solid_sweep(grid, a, b, k_ss, state, omega);
-    }
-    return clips;
-}
 
 namespace {
 void check_energy_fluid(const FluidEnergyView& f, const GridView& g, std::size_t cells,
@@ -163,19 +92,6 @@ double inward_boundary_power(const GridView& g, ArrayView<const double> h,
 
 }  // namespace
 
-double boundary_enthalpy_duty(const GridView& grid, ArrayView<const double> h,
-                             ArrayView<const double> mass_x,
-                             ArrayView<const double> mass_y,
-                             ArrayView<const double> mass_z, double h_in) {
-    const auto cells = check_grid(grid);
-    check_array(h,cells);
-    check_array(mass_x,product(product(grid.nx+1,grid.ny),grid.nz));
-    check_array(mass_y,product(product(grid.nx,grid.ny+1),grid.nz));
-    check_array(mass_z,product(product(grid.nx,grid.ny),grid.nz+1));
-    if (!std::isfinite(h_in)) throw std::invalid_argument("nonfinite inlet enthalpy");
-    const ArrayView<const double> mass[] = {mass_x,mass_y,mass_z};
-    return inward_boundary_power(grid,h,mass,h_in);
-}
 
 EnergyAudit thermal_energy_audit(const GridView& grid, const FluidEnergyView& a,
                                 const FluidEnergyView& b, ArrayView<const double> ts,

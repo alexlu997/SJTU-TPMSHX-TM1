@@ -48,11 +48,13 @@ def check_thermal(public, reference):
             else:
                 arrays_equal(actual, expected)
     arrays_equal(public['solid_conductivity'], reference['solid_conductivity'])
-    for key in ('iterations', 'stop', 'mode', 'residual', 'q_b'):
+    expected_mode = 'conservative_energy' if reference['result']['mode'] == 'true_h' else reference['result']['mode']
+    assert public['mode'] == expected_mode
+    for key in ('iterations', 'stop', 'residual', 'q_b'):
         arrays_equal(public[key], reference['result'][key])
     if public['mode'] == 'model_h':
         compare_audit(reference['result']['audit'], public['model_h'])
-    if public['mode'] == 'true_h':
+    if public['mode'] in ('true_h', 'conservative_energy'):
         h = public['true_h']['_native_state']
         arrays_equal(h['h_A'], reference['h_a'])
         arrays_equal(h['h_B'], reference['h_b'])
@@ -85,8 +87,8 @@ def test_prepared_packing_and_public_abi_exact_typed_return(driver, native, mode
         arrays_equal(result[name], reference[name])
     check_thermal(result['main'], reference['thermal'])
     if mode == 'true_h':
-        expected = dict(max_iterations=12000, sweeps=3, omega=.6, update_tol=.001,
-            coupled_energy_tol=.001, equation_energy_tol=.001, energy_algorithm='legacy_h_fou',
+        expected = dict(max_iterations=12000, sweeps=5, omega=.2, update_tol=.001,
+            coupled_energy_tol=.001, equation_energy_tol=.001, energy_algorithm='temperature_sou',
             effective_settings_source='native_completed_thermal_call', driver_abi=6)
         records = [result['main']['true_h'], *(row['energy_info'] for row in result['outer_history'])]
         for record in records:

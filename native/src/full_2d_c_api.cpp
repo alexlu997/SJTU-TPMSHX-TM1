@@ -143,7 +143,7 @@ void fill(tpmshx_full_2d_result_v2& o,Owner& owner,const Full2DProblem& p) {
         static_cast<uint32_t>(h.thermal_converged),static_cast<uint32_t>(h.outer_converged),
         {h.relative_density_change[0],h.relative_density_change[1]},
         {h.temperature_change[0],h.temperature_change[1],h.temperature_change[2]}});
-        owner.energy_outer.push_back({static_cast<uint32_t>(h.enthalpy_algorithm.value_or(EnthalpyAlgorithm::legacy_h_fou)),
+        owner.energy_outer.push_back({static_cast<uint32_t>(h.enthalpy_algorithm.value_or(EnthalpyAlgorithm::temperature_sou)),
             h.thermal_temperature_update.has_value()?1u:0u,h.thermal_temperature_update.value_or(0.),
             h.thermal_picard_relaxation.value_or(1.)});
         auto settings=owner.energy_settings;
@@ -199,11 +199,10 @@ void prepare(const size_t* shape,const double* const* arrays,const size_t* sizes
     control.pressure_shooting=c.pressure_shooting;
     if(model_h)control.model_h_iterations=model_h_c_views::iteration_options(*model_h);
     control.thermal_red_black=c.red_black; control.envelope_mode=c.envelope_mode?c.envelope_mode:"raise";
-    control.enthalpy=full_enthalpy_control(2,energy ? energy_algorithm(*energy) : EnthalpyAlgorithm::legacy_h_fou,
+    control.enthalpy=full_enthalpy_control(2,energy ? energy_algorithm(*energy) : EnthalpyAlgorithm::temperature_sou,
         p.sides[0].fluid==Fluid::water || p.sides[1].fluid==Fluid::water);
     control.enthalpy.max_iterations=c.thermal_iterations;
     control.enthalpy.update_tolerance=c.enthalpy_update_tolerance;
-    control.enthalpy.table_directory=c.table_directory?c.table_directory:"";
     if(energy)apply_energy_options(control.enthalpy,*energy);
     if(explicit_energy) {
         const auto& e=*explicit_energy;
@@ -299,7 +298,7 @@ tpmshx_full_2d_energy_state_v1 energy_state(const Full2DThermalState& state) {
     const auto* e=std::get_if<EnthalpyResult>(&state.result);
     if(!e)return out;
     out.energy=energy_c_view(*e);
-    out.available=e->stop!=EnthalpyStop::cancelled && e->algorithm!=EnthalpyAlgorithm::legacy_h_fou
+    out.available=e->stop!=EnthalpyStop::cancelled
         && e->final_audit.has_value();
     if(out.available)for(std::size_t s=0;s<2;++s) {
         out.actual_conductivity[s]=array(state.actual_conductivity[s]);

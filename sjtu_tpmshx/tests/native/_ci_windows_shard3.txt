@@ -1,10 +1,7 @@
 # Windows native group 3; balance uses complete CI run timings.
 # Keep shared fixture parameters together. The final shard is automatic.
 sjtu_tpmshx/tests/native/test_backend_condition_consumers.py
-sjtu_tpmshx/tests/native/test_cpp_conservative_full2d.py::test_actual_thermal_state_and_signed_ledger[temperature_fou-directions03-partialFalse]
 sjtu_tpmshx/tests/native/test_cpp_conservative_full2d.py::test_complete_original_native_acceptance[False-temperature_sou]
-sjtu_tpmshx/tests/native/test_cpp_conservative_full2d.py::test_one_explicit_control_preserves_other_route_defaults[legacy_h_fou]
-sjtu_tpmshx/tests/native/test_cpp_conservative_full2d.py::test_saved_case_result_new_process_replay[temperature_fou-directions03-partialFalse]
 sjtu_tpmshx/tests/native/test_cpp_conservative_full3d.py::test_mixed_conductivity_copies_the_last_outer_transport[temperature_sou]
 sjtu_tpmshx/tests/native/test_cpp_full_2d_run.py::test_full_2d_checkpoint_hdf5_round_trip[0-temperature_sou]
 sjtu_tpmshx/tests/native/test_full_3d_refined_stages.py

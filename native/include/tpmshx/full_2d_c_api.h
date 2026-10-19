@@ -166,7 +166,9 @@ typedef struct {
     double omega,update_tolerance;
     tpmshx_energy_options_v2 energy;
 } tpmshx_full_2d_energy_control_v4;
-/* Requires the two-sided true-h route. Existing v2/v3 defaults are unchanged.
+/* Requires the two-sided true-h route. v2 selects T-SOU for this route.
+ * v2/v3 use .001 coupled/equation gates and disable the extra h gate.
+ * H-FOU defaults apply only to archived libraries.
  * Buffers, status and result ownership follow v2. Release with release_v2. */
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_solve_full_2d_v4(
     const size_t* shape,const double* const* arrays,const size_t* sizes,

@@ -22,16 +22,16 @@ enum tpmshx_enthalpy_error {
     TPMSHX_ENTHALPY_NATIVE_ERROR = 4
 };
 
-/* Additive selection/evidence for new entry points. Existing v1 POD layouts
- * and calls retain the legacy H-FOU algorithm. */
+/* IDs 0 and 1 identify historical records. Current execution accepts only
+ * T-SOU (2). Existing result POD layouts remain readable. */
 enum tpmshx_energy_algorithm {
     TPMSHX_ENERGY_LEGACY_H_FOU = 0,
     TPMSHX_ENERGY_TEMPERATURE_FOU = 1,
     TPMSHX_ENERGY_TEMPERATURE_SOU = 2
 };
-/* Recipe version for an executed conservative energy algorithm: FOU=1,
- * SOU=2 (trial-first Anderson with ordinary final confirmation), unsupported
- * or legacy=0. This read-only scalar query does not change any POD or ABI. */
+/* SOU recipe 2 uses trial-first Anderson with ordinary final confirmation.
+ * Retired or unsupported algorithms return zero. This read-only query
+ * does not change any POD or ABI. */
 TPMSHX_THERMAL_API uint32_t TPMSHX_THERMAL_CALL tpmshx_energy_algorithm_version_v1(uint32_t algorithm);
 typedef struct {
     uint32_t algorithm;
@@ -64,7 +64,8 @@ typedef struct {
     double scale[2]; /* J/kg; max(cp_in*abs(T_in_A-T_in_B), 1) for full runs */
 } tpmshx_energy_update_scale_v1;
 /* Read full-driver defaults without numerical work. available is zero.
- * dimension is 2 or 3; has_water is 0 or 1. Invalid arguments return 1
+ * dimension is 2 or 3; algorithm is 2; has_water is 0 or 1.
+ * Invalid arguments return 1
  * and leave output unchanged. Explicit caller controls still take priority. */
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_enthalpy_defaults_v1(
     uint32_t dimension,uint32_t algorithm,uint32_t has_water,tpmshx_energy_effective_settings_v1*);
@@ -119,16 +120,15 @@ TPMSHX_THERMAL_API uint32_t TPMSHX_THERMAL_CALL tpmshx_enthalpy_driver_abi_versi
  * Only the last five arrays are mutable. h_A/h_B need not be initialized.
  * Warm flags independently select supplied temperature fields. False warm
  * flags initialize that field using the existing inlet/mean policy.
- * Scalar inlet P sets inlet h; cell P sets the local EOS. Mathematical h
- * brackets retain legal inlet/warm states and do not replace phase guards.
+ * Scalar inlet P sets inlet h; cell P sets the local EOS. T-SOU uses
+ * checked HEOS PT states and retains physical phase and range guards.
+ * Version 1 applies a fixed 1e-8 K update limit. Version 2 takes that limit
+ * as an argument. Both entries retain the strict normalized-h update and
+ * relative boundary energy gates.
  *
  * Gate/warm flags must be 0 or 1. Enabled gate tolerances must be positive.
- * CO2 calls within the table pressure range and sCO2 calls require an absolute
- * UTF-8 table_directory (NUL terminated). The native library fixes that path
- * on first BICUBIC use. Repeated same-path calls are allowed; conflicting paths
- * fail. Cancellation precedes BICUBIC creation. CO2 outside the table pressure
- * range keeps HEOS. An air/water-only call does not use table_directory and
- * may pass NULL.
+ * table_directory is retained in the C layout for historical callers.
+ * This library does not read it or create EOS tables; NULL is permitted.
  *
  * The caller owns all storage through return. Array storage must not overlap
  * mutable arrays, config, callbacks, result or error. Fixed array storage may
@@ -141,7 +141,7 @@ TPMSHX_THERMAL_API uint32_t TPMSHX_THERMAL_CALL tpmshx_enthalpy_driver_abi_versi
  * are partial and must be discarded; only stop/iterations/clips are evidence,
  * and audit_available is false. On nonzero error, result remains untouched;
  * mutable fields may be partial and must be discarded. No exception crosses
- * this boundary. A normal return always has final exact-HEOS T. Audit exists
+ * this boundary. A normal return has checked HEOS PT state. Audit exists
  * only when a gate was requested; coupled-only fluid residual metrics are NaN
  * and fluid_equations_computed=false. Unrequested audits must not be inferred.
  */

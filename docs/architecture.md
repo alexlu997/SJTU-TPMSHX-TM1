@@ -9,7 +9,11 @@ Quick Design uses `prepare_quick_design` with its own operating-point input.
 It then calls the same `run_case` and `evaluate` APIs.
 Python numerical iterators, Numba/PyAMG dependencies and Python-only research
 entries are retired. Saved research cases cannot execute; saved results remain readable.
-The energy choices `legacy_h_fou`, `temperature_fou` and `temperature_sou` remain.
+T-SOU (`temperature_sou`) is the default conservative EOS energy algorithm.
+H-FOU and T-FOU execution is retired. Historical IDs remain for saved evidence
+and explicitly selected archived runtimes. Current libraries reject retired
+algorithm IDs before flow execution. Old checkpoints require their matching
+runtime; changing the requested algorithm starts a new computation.
 Outer property Anderson is retired. Fixed property relaxation, thermal Anderson
 and qualified flow acceleration keep their existing rules.
 
@@ -45,14 +49,11 @@ and residual records against the selected native thermal algorithm.
 Numerical qualification, desktop acceptance and experimental accuracy remain
 separate results. Historical failures retain their original status.
 
-The H-FOU and temperature updates share the fluid and solid row assembly in `energy_fv_rows.hpp`.
-The H row transports actual enthalpy and uses the frozen h-to-T tangent for conduction and exchange.
-It retains the enthalpy bounds, clip counts and serial A, B, solid sweep order.
-The caller retains input checks, EOS state updates, iteration budgets and stopping gates.
-Actual-state H audits use the same physical fluid and solid rows.
-Their face powers use actual m*h directly, with the existing signed boundary duties.
-The public coupled-only audit keeps unavailable fluid residuals as NaN and does not read fluid conductivity.
-No extra temperature or face arrays are needed for this assembly.
+Conservative temperature updates share fluid and solid row assembly in `energy_fv_rows.hpp`.
+The caller owns input checks, EOS state updates, iteration budgets and stopping gates.
+The actual-state audit keeps independent physical balances and signed boundary duties.
+The coupled-only audit keeps unavailable fluid residuals as NaN and does not read fluid conductivity.
+The frozen H sweep and its low-level C export are retired. Shared audit types and functions remain.
 
 The 2D and 3D model-h drivers share one accelerated chunk owner.
 Strict 3D calls use five sweeps per block and sixteen Anderson samples.
@@ -344,10 +345,11 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
   save or re-enter an unfinished step. Cancellation is checked before each ordinary or proposal step.
   Physical equations and final boundary certificates stay unchanged.
   Both full controllers archive active flow state for application recovery.
-- `EnthalpyRun` owns the existing H-FOU, T-FOU and T-SOU Picard iteration state.
+- `EnthalpyRun` owns the T-SOU Picard iteration state.
   Each advance completes one original iteration, including its SOU proposal.
-  An active snapshot owns five solution fields, enthalpy bounds, table bounds,
-  transport values, clip totals, HEOS finishing state and Anderson history.
+  An active snapshot owns five solution fields, transport values, result
+  evidence and Anderson history. Exclusive H bounds, table bounds and inverse
+  work arrays are retired.
   Restore requires the same inputs and controls. It validates saved state before
   it writes caller arrays. EOS evaluators and temporary arrays are built again.
   Failed or cancelled runs cannot export an active snapshot. Callbacks cannot
@@ -373,7 +375,10 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
   query before execution. It reports the returned algorithm and K update.
   Its `tol` remains dimensionless; `temperature_tol_K` is a separate limit.
   The direct T-SOU call uses HEOS PT and does not create BICUBIC tables.
-  The v1 POD layouts, symbol and H execution stay unchanged.
+  The v1 POD layouts and symbol remain. The v1 entry now uses T-SOU with
+  a fixed 1e-8 K gate and its original strict h and boundary gates.
+  Table-directory fields and historical clip/table result fields remain in
+  the C layout. T-SOU does not use tables or clip enthalpy.
 - `TemperatureRun` owns fixed-capacity cell-centered temperature state.
   `StaggeredTemperatureDriver` also retains an active temperature call.
   Each advance completes one original thermal chunk. The existing one-shot
@@ -391,13 +396,12 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
   its original pressure hierarchy cache remains. The replaced stack-only
   control loops are retired. The full 3D controller archives the active staggered state.
   See [native continuation](#native-3d-continuation) for full-controller and application recovery.
-- The C++ fixed-flow `solve_enthalpy` also has explicit `temperature_fou`
-  and `temperature_sou` candidates. Both solve conservative enthalpy transport
+- The C++ fixed-flow `solve_enthalpy` uses `temperature_sou`. It solves conservative enthalpy transport
   with temperature as the nonlinear unknown, guarded HEOS PT state updates,
   Fourier conduction and LTNE exchange. `conservative_energy` owns the frozen
   finite-volume sweeps and direct enthalpy face reconstruction. The driver owns
-  EOS refresh, stopping and actual-state certificates. These candidates require
-  declared scalar inlets and adiabatic external boundaries. Their SOU outlet
+  EOS refresh, stopping and actual-state certificates. This algorithm requires
+  declared scalar inlets and adiabatic external boundaries. Its SOU outlet
   reconstruction differs from model-h.
 
   The full 2D/3D controllers require a maximum temperature
@@ -406,21 +410,21 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
   the ordinary path.
 
   Only a complete
-  ordinary block can converge or give the final budget certificate. The legacy H algorithm stays the default. Full C++ 2D/3D can explicitly select these candidates on their existing
-  two-fluid true-h routes. The persisted `SolverConfig.enthalpy_algorithm`
+  ordinary block can converge or give the final budget certificate. T-SOU is the default on the existing two-fluid true-h routes.
+  Other physical routes keep their original kernels. The persisted `SolverConfig.enthalpy_algorithm`
   and `enthalpy_temperature_tol_K` select the algorithm and update gate.
   Full 3D candidates accept prepared `port_wall_refine` grids with full or
   partial openings. They retain the actual cell widths and port face masses.
-  Incompatible routes fail before flow execution. Production fluid applicability stays unchanged.
+  Explicit EOS controls on incompatible routes fail before flow execution. Production fluid applicability stays unchanged.
 
 Additive full2D v3/full3D v2 entry points reuse the previous result layouts
   and owner release functions. Read-only queries expose the executed algorithm,
-  actual thermal conductivity and six outward boundary enthalpy-power planes. The same loaded binary's energy recipe query identifies FOU1/SOU2 from each
+  actual thermal conductivity and six outward boundary enthalpy-power planes. The same loaded binary's energy recipe query identifies SOU2 from each
   actual returned algorithm. Bindings copy that version into main, outer and
   boundary evidence. Missing query capability fails before conservative flow
   execution.
 
-Offline boundary readers keep both saved SOU1 and SOU2, while
+Offline boundary readers keep saved FOU1, SOU1 and SOU2, while
   rejecting unsupported algorithm/version pairs. Result PODs and ABIs do not
   change with the recipe.
 
@@ -431,14 +435,12 @@ Offline boundary readers keep both saved SOU1 and SOU2, while
   subsequent final flow update, including iteration-limit returns.
 - Full C++ 2D/3D true-h drivers use the same `EnthalpyControl` and native default resolver.
   The bindings read defaults from the loaded library, then apply explicit caller controls.
-  Preparation keeps unspecified true-h controls unset. The existing defaults remain:
+  Preparation keeps unspecified true-h controls unset. The T-SOU defaults are:
 
   | Route | Maximum iterations | Sweeps per iteration | Fluid relaxation |
   | --- | --- | --- | --- |
-  | 2D legacy H-FOU | 12000 with water; otherwise 5000 | 3 | 0.6 |
-  | 3D legacy H-FOU | 1500 | 25 | 0.6 |
-  | 2D temperature FOU/SOU | 12000 with water; otherwise 5000 | 5 | 0.6 / 0.2 |
-  | 3D temperature FOU/SOU | 1500 | 5 | 0.6 / 0.2 |
+  | 2D T-SOU | 12000 with water; otherwise 5000 | 5 | 0.2 |
+  | 3D T-SOU | 1500 | 5 | 0.2 |
 
   Zero sweeps retain the initialized or warm-up thermal state. The actual
   energy audits and requested stopping gates still apply. A failed gate keeps
@@ -764,9 +766,7 @@ Only CO2 sides receive fixed drag factors `K=K0/2.5`, `cF=2.5cF0` and the
 Nu factor 1.28, including the Nu floor. These apply once, independently of
 `df_mode`, and survive Case/FieldResult archives as model references and metadata.
 CO2 keeps the HEOS physical relation and its single-phase checks.
-Native H iterations can use BICUBIC within the table pressure range.
-A Newton correction uses the checked HEOS state before the next iteration.
-Model reference inverses and the final native inverse use HEOS. Native execution evaluates CO2/sCO2 local h_v with the
+T-SOU evaluates checked HEOS PT states. Model reference inverses keep HEOS. Native execution evaluates CO2/sCO2 local h_v with the
 lagged temperature and local L/D_h/A_0 fields. Air/water retain their existing
 property-sampling rules. Native coefficients come from the shared generator.
 The native fluid enum appends CO2 as value 3; existing values and POD layouts
@@ -985,7 +985,7 @@ temperature-stability test are both required. Zero duty alone cannot certify
 a drifting temperature field.
 
 The true-enthalpy fluid diffusion term is Fourier conduction on temperature,
-linearized consistently in the enthalpy unknown on each shared internal face.
+evaluated from the temperature unknown on each shared internal face.
 A pressure-dependent enthalpy difference is not itself a temperature gradient.
 Both production adapters require fresh fluid and solid equation residuals.
 These residuals use each side's selected energy relation and conductivity.
@@ -993,19 +993,11 @@ The largest per-phase sum of absolute cell residuals must be <=0.001 of
 `max(abs(Q_A), abs(Q_B), 1)` in native units. The boundary energy imbalance must
 meet the same limit.
 
-The enthalpy-update criterion stays independent. A final chunk containing
-clipped enthalpy updates cannot certify convergence. The true-h ledger records
-the effective settings, residual budgets, clip counts and exit reason.
-
-CoolProp 8 uses a 30-bit temperature bracket for some HEOS H/P inversions.
-For EOS sides, both true-h drivers apply one Newton correction with HEOS H(T,P) and cp.
-This restores enthalpy consistency. Integral sides invert their existing h(T) polynomial.
-Raw and corrected states retain the
-original domain checks. BICUBIC iteration remains separate from exact HEOS
-finishing. Its table cache is versioned to prevent reuse of tables generated
-by an earlier EOS release. Fluid sweeps use the algebraically equivalent
-enthalpy defect so an isothermal state at a legal enthalpy bound does not
-acquire cancellation error from subtracting absolute temperatures.
+The optional normalized enthalpy-update gate stays separate from the Kelvin gate.
+The true-h ledger records actual settings, residual budgets and exit reason.
+Historical clip and table fields keep their original meaning when old results are read.
+Current T-SOU uses checked PT updates; it does not perform H-to-T inversion,
+enthalpy clipping, BICUBIC initialization or HEOS finishing iterations.
 
 Each native EOS evaluator uses one HEOS state for PT checks and property reads.
 Water and CO2 guards update that state before its HEOS properties are read.
@@ -1557,25 +1549,12 @@ Taper stays
     construction for numerical reference tests lives only in the test helpers. Each sCO2 side in 2D/3D uses the shared property-wrapper range
     **280–700 K, 7.9–16 MPa absolute**, at inlets and actual local states. The 2026-09-09 pressure-floor extension leaves the EOS backend and the
     independent Nu/D-F applicability and acceptance gates unchanged. It does
-    not show experimental accuracy in the added range. Native H Picard iterations can use CoolProp BICUBIC for CO2 and sCO2 T(h,P).
-    The retained CO2 model reference uses HEOS. T-FOU and T-SOU keep their HEOS PT updates.
-    Full 3D T-FOU and T-SOU accept the existing dispersion inputs.
-    Integral air/water sides retain the outer effective conductivity, including dispersion.
-    EOS sides retain their local EOS conductivity. The warm-up keeps its existing dispersion term.
-    A native CO2 side uses tables only when all local pressures are within the locked table range.
-    This range starts at the triple-point saturation pressure. Other CO2 sides keep HEOS without table initialization.
-    A rejected or two-phase CO2 table candidate uses the exact HEOS inverse and its physical checks.
-    A valid CO2 table candidate receives one Newton correction from its checked HEOS enthalpy and cp.
-    The corrected state passes the same physical checks. This reduces the error that requires extra HEOS finishing iterations.
-
-Final temperatures, coupled-energy checks, outlet inversion and all other
-    properties stay HEOS. If an exact-EOS energy check fails, the remaining
-    iterations finish on HEOS. Returning to the table can cycle between two
-    different fixed points. Each thermal solve owns its mutable table state. HEOS enthalpy limits at local pressure keep domain-boundary checks on HEOS.
-
-New C++ results record actual table use under `enthalpy_eos` in model metadata.
-    The record includes `bicubic_iteration_heos_polish_v2`, the used sides, and the HEOS finishing state.
-    Historical Python and `sco2_enthalpy_eos` records remain readable with their original meaning. This is an approximate iteration algorithm, not an experimental calibration.
+    not show experimental accuracy in the added range. T-SOU uses checked HEOS PT updates.
+    The kept CO2 model reference uses HEOS. Full 3D T-SOU accepts the existing dispersion inputs.
+    Integral air/water sides keep outer effective conductivity, including dispersion.
+    EOS sides keep local EOS conductivity. The warm-up keeps its dispersion term.
+    Historical `enthalpy_eos` and `sco2_enthalpy_eos` records remain readable with their original meaning.
+    Current T-SOU does not create table-use evidence. This algorithm change does not alter experimental calibration.
 
 The separate experimental `TPMSHX_SCO2_COMPRESSIBLE` switch enables
     local-pressure density/viscosity updates only on the 3D A side and changes

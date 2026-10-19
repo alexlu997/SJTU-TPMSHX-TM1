@@ -152,7 +152,7 @@ For example, run the packaged macOS executable directly:
   --native-table-directory "/absolute/writable/path/native-eos-tables"
 ```
 
-The same executable's `--cli run ...` and `--cli solve ...` accept these three host options. `--native-table-directory` selects a writable absolute path outside the package for sCO2 BICUBIC tables. It must not point to a read-only installation directory. One process fixes one table directory for its native library. Double-click startup uses the packaged C++ library.
+The same executable's `--cli run ...` and `--cli solve ...` accept these three host options. `--native-table-directory` is kept for explicitly selected historical libraries that need BICUBIC tables. For those libraries, use a writable absolute path outside the package. Current T-SOU execution does not read this option or create tables. Double-click startup uses the packaged C++ library.
 
 <a id="文件与状态"></a>
 

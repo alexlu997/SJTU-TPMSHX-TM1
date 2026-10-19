@@ -246,10 +246,10 @@ template<class Archive,class Value> void walk(Archive& archive,Value& value,Stag
     FIELD(iteration) FIELD(velocity) FIELD(projection)
 }
 template<class Archive,class Value> void walk(Archive& archive,Value& value,EnthalpySideState*) {
-    FIELD(lower) FIELD(upper) FIELD(transport) FIELD(table_lower) FIELD(table_upper)
+    FIELD(transport)
 }
 template<class Archive,class Value> void walk(Archive& archive,Value& value,EnthalpyRunState*) {
-    FIELD(fields) FIELD(sides) FIELD(result) FIELD(acceleration) FIELD(next_temperatures)
+    FIELD(fields) FIELD(sides) FIELD(result) FIELD(acceleration)
 }
 template<class Archive,class Value> void walk(Archive& archive,Value& value,Full3DThermalRunState*) {
     FIELD(evidence) FIELD(record) FIELD(initial) FIELD(budget) FIELD(remaining)

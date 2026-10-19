@@ -47,7 +47,7 @@ def same_result(actual, expected, actual_metrics, expected_metrics):
 
 
 @pytest.mark.parametrize('route', ['2d-temperature', '2d-model_h', '2d-true_h',
-    '2d-temperature_fou', '2d-temperature_sou', '3d-air-air', '3d-water-air', '3d-sco2-water',
+    '2d-temperature_sou', '3d-air-air', '3d-water-air', '3d-sco2-water',
     '3d-temperature_sou'])
 def test_native_saved_run_preserves_complete_public_evidence(native_path, tmp_path, route):
     config = configuration(route)

@@ -74,7 +74,7 @@ def _assert_postprocessing(result):
     assert metrics['Q'].spec.unit == 'W/m'
     assert metrics['Q'].value == abs(metrics['Q_A'].value)
     assert metrics['Q'].spec.definition_version == 'native_boundary_v1'
-    if result.metadata['thermal_mode'] == 'true_h':
+    if result.metadata['thermal_mode'] in ('true_h', 'conservative_energy'):
         assert metrics['Q'].value == pytest.approx(reference['Q_total'], rel=1e-10)
     else:
         assert metrics['Q'].value == pytest.approx(AIR_NATIVE_Q, rel=1e-10)
@@ -85,9 +85,9 @@ def _assert_postprocessing(result):
 @pytest.mark.parametrize('fluid_A,u_A,P_A,fluid_B,P_B,expected_Q', [
     # Physical inlet-face pressure anchoring; the deliberately short fixed
     # outer budget still reports nonconvergence. Tolerances are unchanged.
-    # CoolProp 8 HEOS-polished references; independent extra HP refinement agrees.
-    ('sco2', .3, 12e6, 'water', 2e6, 45693.194591911335),
-    ('air', 3., 2e5, 'sco2', 12e6, 4588.467655644805),
+    # Explicit T-SOU references from cd67fd50, before algorithm retirement.
+    ('sco2', .3, 12e6, 'water', 2e6, 47438.3936044042),
+    ('air', 3., 2e5, 'sco2', 12e6, 4661.689806890786),
 ])
 def test_mixed_partial_native_and_postprocessing(fluid_A,u_A,P_A,fluid_B,P_B,expected_Q):
     from sjtu_tpmshx.domain.compute_config import ExtrapPolicy
@@ -106,9 +106,9 @@ def test_mixed_partial_native_and_postprocessing(fluid_A,u_A,P_A,fluid_B,P_B,exp
     assert result.run_status['converged'] is False
     assert result.run_status['final_flow_after_last_thermal'] is True
     assert not np.array_equal(result.fields['Ta'], result.fields['Ta_display'])
-    eos = result.metadata['model_metadata']['enthalpy_eos']
-    assert list(eos['sides']) == (['A'] if fluid_A == 'sco2' else ['B'])
-    assert eos['final_backend'] == 'HEOS'
+    from sjtu_tpmshx.tests.native.full_thermal_reference import assert_selected_enthalpy
+    assert result.metadata['execution_record']['numerics']['algorithm'] == 'temperature_sou'
+    assert_selected_enthalpy(result)
     _assert_postprocessing(result)
 
 

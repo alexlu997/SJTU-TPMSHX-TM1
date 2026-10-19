@@ -16,8 +16,6 @@ from sjtu_tpmshx.models.envelope import GAMMA_AIR, PRESSURE_FLOOR_PA, R_AIR_DEFA
 # These fixed numerical controls belong to the native solver build.
 INLET_PRESSURE_REL_TOL = 1e-4
 MODEL_H_RELAXATION = 0.2
-_ENTHALPY_BRACKET_MARGIN_K = 60.0
-_FL_TLO = {'sco2': 230.0, 'co2': 216.592000001, 'water': 274.0, 'air': 200.0}
 
 
 def array(name, values):
@@ -49,7 +47,6 @@ def header():
                         ("envelope_gamma_air", GAMMA_AIR),
                         ("roughness_nu_power", roughness._NU_GAIN_POWER),
                         ("roughness_nu_baseline", nu.NU_ROUGHNESS_FACTOR),
-                        ("enthalpy_bracket_margin", _ENTHALPY_BRACKET_MARGIN_K),
                         ("model_h_relaxation", MODEL_H_RELAXATION)):
         lines.append(f"inline constexpr double {name} = {float(value)!r};")
     vectors = {
@@ -74,7 +71,6 @@ def header():
         "co2_nu_pr_range": co2_correlations.coefficients()["bounds"]["Pr"],
         "water_nu_reference_state": DESIGN_NU_REFERENCE_STATES["water"],  # K, Pa(abs)
         "sco2_nu_reference_state": DESIGN_NU_REFERENCE_STATES["sco2"],
-        "enthalpy_temperature_lower_bounds": [_FL_TLO[fluid] for fluid in ("air", "water", "sco2", "co2")],
     }
     lines.extend(array(name, values) for name, values in vectors.items())
     lines.extend((table("nu_air", nu.NU_COEFFS, ("c", "a", "d")),

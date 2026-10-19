@@ -31,7 +31,7 @@ int solve(
     const tpmshx_enthalpy_config_v1* config,
     const tpmshx_enthalpy_callbacks_v1* callbacks,
     tpmshx_enthalpy_result_v1* result, char* error, size_t error_capacity,
-    bool temperature, double temperature_tolerance, tpmshx_energy_result_v1* energy) {
+    double temperature_tolerance, tpmshx_energy_result_v1* energy) {
     using namespace tpmshx;
     if (!shape || !arrays || !sizes || !config || !result || !error || !error_capacity)
         return fail(TPMSHX_ENTHALPY_INVALID_ARGUMENT,"missing true-h argument or error buffer",error,error_capacity);
@@ -50,21 +50,18 @@ int solve(
         };
         auto cb = callbacks ? *callbacks : tpmshx_enthalpy_callbacks_v1{};
         EnthalpyControl control{config->max_iterations,config->sweeps,config->omega,
-            config->update_tolerance,{},{},config->table_directory ? config->table_directory : "",
+            config->update_tolerance,{},{},
             cb.cancel ? cancelled : nullptr,&cb};
-        if (temperature) {
-            control.algorithm = EnthalpyAlgorithm::temperature_sou;
-            control.temperature_update_tolerance = temperature_tolerance;
-            control.require_enthalpy_update_on_temperature = true;
-            control.require_legacy_direct_gates = true;
-        }
+        control.temperature_update_tolerance = temperature_tolerance;
+        control.require_enthalpy_update_on_temperature = true;
+        control.require_legacy_direct_gates = true;
         if (config->coupled_gate) control.coupled_energy_tolerance = config->coupled_tolerance;
         if (config->equation_gate) control.equation_energy_tolerance = config->equation_tolerance;
         const auto native = solve_enthalpy(grid,side(0,4),side(1,10),v(3),
             {out(16),out(17),out(18),out(19),out(20),config->warm_a != 0,
              config->warm_b != 0,config->warm_solid != 0},control);
         auto output=enthalpy_c_view(native);
-        if (temperature && output.audit_available) {
+        if (output.audit_available) {
             if (!config->coupled_gate && !config->equation_gate) {
                 output.audit_available = 0;
                 output.audit = {};
@@ -106,7 +103,7 @@ extern "C" int TPMSHX_THERMAL_CALL tpmshx_solve_enthalpy_v1(
     const tpmshx_enthalpy_config_v1* config,
     const tpmshx_enthalpy_callbacks_v1* callbacks,
     tpmshx_enthalpy_result_v1* result, char* error, size_t error_capacity) {
-    return solve(shape,arrays,sizes,config,callbacks,result,error,error_capacity,false,0.,nullptr);
+    return solve(shape,arrays,sizes,config,callbacks,result,error,error_capacity,1e-8,nullptr);
 }
 
 extern "C" int TPMSHX_THERMAL_CALL tpmshx_solve_enthalpy_v2(
@@ -117,5 +114,5 @@ extern "C" int TPMSHX_THERMAL_CALL tpmshx_solve_enthalpy_v2(
     char* error, size_t error_capacity) {
     if (!energy || !std::isfinite(temperature_tolerance) || temperature_tolerance<=0.)
         return fail(TPMSHX_ENTHALPY_INVALID_ARGUMENT,"invalid direct T-SOU evidence or Kelvin tolerance",error,error_capacity);
-    return solve(shape,arrays,sizes,config,callbacks,result,error,error_capacity,true,temperature_tolerance,energy);
+    return solve(shape,arrays,sizes,config,callbacks,result,error,error_capacity,temperature_tolerance,energy);
 }

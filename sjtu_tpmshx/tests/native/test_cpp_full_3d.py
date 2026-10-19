@@ -192,7 +192,7 @@ def check_portable(actual, raw, prepared):
         detail = actual.metadata['diagnostics']['convergence_detail']['simple_'+name]
         for key in ('final_res_mom', 'final_res_mass_local', 'final_res_mass_global', 'outlet_backflow_frac'):
             assert detail[key] == flow['last'][key]
-    from sjtu_tpmshx.tests.native.enthalpy_fv_audit import advection
+    from sjtu_tpmshx.tests.native.enthalpy_fv_audit import sou_advection
     duties, masses, outlets = [], [], []
     for index, side in enumerate('AB'):
         if raw['mode'] == 'model_h':
@@ -201,7 +201,8 @@ def check_portable(actual, raw, prepared):
             duties.append(-sum(float(np.sum(face)) for face in ledger.values()))
         else:
             state = raw['true_h']['_native_state']
-            duties.append(advection(state['h_'+side], state['h_in_'+side], raw['mass'][index])[1])
+            duties.append(sou_advection(state['h_'+side], state['h_in_'+side], raw['mass'][index],
+                tuple(prepared.grid['d'+axis] for axis in 'xyz'))[1])
         mass = raw['mass'][index]
         masses.append(sum(float(np.maximum(-sign*np.take(face,end,axis=axis),0.).sum())
             for axis,face in enumerate(mass) for end,sign in ((0,-1),(-1,1))))
@@ -237,30 +238,28 @@ def test_public_case_fields_native_ledgers_and_postprocess(native_path, pair):
     assert actual.metadata['execution_record']['property_sampling']['version'] == 'full_sampling_v1'
 
 
-def test_public_legacy_strict_v3_reports_executed_final_and_outer_settings(native_path):
+def test_public_sou_strict_v3_reports_executed_final_and_outer_settings(native_path):
     cfg = _config(3, True)
     cfg = replace(cfg, solver=replace(cfg.solver, max_outer_ltne=2,
-        enthalpy_algorithm='legacy_h_fou', ltne_enthalpy_outer=1000,
+        enthalpy_algorithm='temperature_sou', ltne_enthalpy_outer=1000,
         ltne_enthalpy_nsweep=25, ltne_enthalpy_omega=.6, ltne_enthalpy_tol=1e-6,
         ltne_enthalpy_coupled_energy_tol=1e-5, ltne_enthalpy_equation_energy_tol=1e-5))
-    prepared = prepare_case(cfg, case_id='legacy-strict-full3d')
-    # Reuse the module's explicit absolute table path; no C-smoke fallback,
-    # new directory policy, or silent skip substitutes for legacy execution.
+    prepared = prepare_case(cfg, case_id='sou-strict-full3d')
     actual = cpp_run(prepared, control(native_path))
     diagnostics = actual.metadata['diagnostics']
     assert actual.backend_id == 'cpp' and actual.backend_version == 'full_3d_v5'
-    assert actual.metadata['thermal_mode'] == 'true_h'
+    assert actual.metadata['thermal_mode'] == 'conservative_energy'
     assert diagnostics['native_full_3d']['entry_version'] == 5
     history = diagnostics['_ltne_info']
     assert len(history) == 2
     expected = dict(update_tol=1e-6, coupled_energy_tol=1e-5, equation_energy_tol=1e-5,
-        max_iterations=1000, sweeps=25, omega=.6, energy_algorithm='legacy_h_fou',
+        max_iterations=1000, sweeps=25, omega=.6, energy_algorithm='temperature_sou',
         require_enthalpy_update_on_temperature=False,
         effective_settings_source='native_completed_thermal_call', driver_abi=5)
     for balance in [diagnostics['true_h_balance'], *(row['true_h_balance'] for row in history)]:
         settings = balance['effective_settings']
         assert {key: settings[key] for key in expected} == expected
-        assert 'temperature_update_tol_K' not in settings
+        assert settings['temperature_update_tol_K'] == 1e-8
         assert balance['converged'] and balance['exit_reason'] == 'converged'
         assert np.isfinite(balance['residual']) and balance['residual'] < 1e-6
         for key in ('coupled_energy_balance', 'equation_energy_balance'):
@@ -564,11 +563,10 @@ def test_public_full3d_missing_library_never_falls_back(tmp_path, relative):
 
 @pytest.mark.parametrize('pair,route,audit', [
     ('air-air', 'model_h', False), ('air-water', 'model_h', False),
-    ('water-air', 'model_h', False), ('air-sco2', 'legacy_h_fou', False),
-    ('sco2-water', 'legacy_h_fou', False), ('air-air', 'model_h', True),
-    ('air-sco2', 'legacy_h_fou', True), ('sco2-water', 'legacy_h_fou', True),
+    ('water-air', 'model_h', False), ('air-sco2', 'temperature_sou', False),
+    ('sco2-water', 'temperature_sou', False), ('air-air', 'model_h', True),
+    ('air-sco2', 'temperature_sou', True), ('sco2-water', 'temperature_sou', True),
     ('air-air', 'temperature_cc', False), ('air-air', 'temperature_staggered', False),
-    ('air-sco2', 'temperature_fou', False), ('air-sco2', 'temperature_sou', False),
 ])
 def test_application_capture_owns_shared_aliases_and_keeps_full_evidence(
         native_path, monkeypatch, tmp_path, pair, route, audit):
@@ -584,7 +582,7 @@ def test_application_capture_owns_shared_aliases_and_keeps_full_evidence(
     if route in ('temperature_cc', 'temperature_staggered'):
         cfg.update(variable_rho_cp=False, conservative_ltne=False,
                    force_cc_ltne=route.endswith('_cc'))
-    elif route in ('temperature_fou', 'temperature_sou'):
+    elif route in ('temperature_sou'):
         cfg['enthalpy_algorithm'] = route
     original = full_3d._detach
     complete = []
@@ -1010,7 +1008,7 @@ save_solver_checkpoint(previous, path)
             process.communicate(timeout=10)
 
 
-@pytest.mark.parametrize('route', ['temperature_fou', 'temperature_sou',
+@pytest.mark.parametrize('route', ['temperature_sou',
                                   'single_cc', 'single_staggered', 'single_sco2_cc',
                                   'conservative_staggered', 'nz1_cc'])
 @pytest.mark.parametrize('cut', [0, 1, 'final'])
@@ -1161,7 +1159,7 @@ def test_checkpoint_rejects_changed_velocity_relaxation(native_path):
 
 def _inner_prepared(route):
     from sjtu_tpmshx.tests.native.test_full_3d import prepared
-    eos = route in ('true_h', 'true_h_cc', 'temperature_fou', 'temperature_sou', 'single_sco2_cc')
+    eos = route in ('true_h', 'true_h_cc', 'temperature_sou', 'single_sco2_cc')
     pair = 'sco2-water' if eos else 'water-water' if route == 'strict_water' else 'air-air'
     cfg, p = prepared(pair,
                       counts=(3, 4, 1) if route == 'nz1_cc' else (3, 4, 2),
@@ -1202,7 +1200,7 @@ def _inner_position(state):
 @pytest.mark.parametrize('route', [
     'model_h', 'model_h_accelerated', 'strict_water', 'temperature_cc', 'nz1_cc',
     'staggered', 'staggered_conservative', 'staggered_rb', 'single_cc',
-    'single_sco2_cc', 'true_h', 'true_h_cc', 'temperature_fou', 'temperature_sou'])
+    'single_sco2_cc', 'true_h', 'true_h_cc', 'temperature_sou'])
 @pytest.mark.parametrize('after_update', [False, True])
 def test_inner_thermal_checkpoint_keeps_complete_result(native_path, route, after_update):
     from sjtu_tpmshx.solvers.backends.cpp.full_3d import NativeFull3DDriver
@@ -1214,7 +1212,7 @@ def test_inner_thermal_checkpoint_keeps_complete_result(native_path, route, afte
         if state['state.phase'][0] != 8:
             return
         owner, position = _inner_position(state)
-        if route in ('true_h', 'true_h_cc', 'temperature_fou', 'temperature_sou') and owner != 'enthalpy':
+        if route in ('true_h', 'true_h_cc', 'temperature_sou') and owner != 'enthalpy':
             return
         if bool(position) != after_update:
             return
@@ -1356,10 +1354,10 @@ save_result(result, result_path)
 '''
 
 
-@pytest.mark.parametrize('target,algorithm', [('6', 'legacy_h_fou'), ('7', 'legacy_h_fou'),
-    ('9', 'legacy_h_fou'), ('10', 'legacy_h_fou'), ('model_h_3d', 'legacy_h_fou'),
-    ('strict_water', 'legacy_h_fou'),
-    ('enthalpy', 'legacy_h_fou'), ('enthalpy', 'temperature_fou'), ('enthalpy', 'temperature_sou')])
+@pytest.mark.parametrize('target,algorithm', [('6', 'temperature_sou'), ('7', 'temperature_sou'),
+    ('9', 'temperature_sou'), ('10', 'temperature_sou'), ('model_h_3d', 'temperature_sou'),
+    ('strict_water', 'temperature_sou'),
+    ('enthalpy', 'temperature_sou')])
 def test_inner_checkpoint_continues_after_process_exit(native_path, tmp_path, target, algorithm):
     from sjtu_tpmshx.io.case_io import save_case
     from sjtu_tpmshx.io.result_io import load_result
@@ -1424,34 +1422,11 @@ def test_inner_checkpoint_retains_water_startup_retry_budget(native_path, reject
     _exact_resume_values(actual, expected)
 
 
-def test_inner_checkpoint_retains_heos_finishing(native_path):
-    from sjtu_tpmshx.solvers.backends.cpp.full_3d import NativeFull3DDriver
-    cfg, p = _inner_prepared('true_h')
-    p['max_outer'] = 1
-    cfg.update(ltne_enthalpy_outer=80, ltne_enthalpy_tol=1.,
-               ltne_enthalpy_coupled_energy_tol=1e-14, ltne_enthalpy_equation_energy_tol=1e-14)
-    driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
-    saved = {}
-    def pause(state):
-        if state['state.phase'][0] == 8 and _inner_position(state)[0] == 'enthalpy':
-            if state['state.thermal.value.enthalpy.value.result.heos_polish'][0]:
-                saved.update(state)
-                raise _PauseCheckpoint
-    with pytest.raises(_PauseCheckpoint):
-        driver.run_prepared(cfg, p, checkpoint=pause)
-    finishing = []
-    def observe(state):
-        if state['state.phase'][0] == 8 and _inner_position(state)[0] == 'enthalpy':
-            finishing.append(bool(state['state.thermal.value.enthalpy.value.result.heos_polish'][0]))
-    actual = driver.run_prepared(cfg, p, resume_state=saved, checkpoint=observe)
-    actual.pop('continuation')
-    assert finishing and all(finishing)
-    _exact_resume_values(actual, driver.run_prepared(cfg, p))
 
 
 @pytest.mark.parametrize('dimension', [2, 3])
 @pytest.mark.parametrize('side', ['A', 'B'])
-def test_co2_table_state_continues_after_process_exit(native_path, tmp_path, dimension, side):
+def test_co2_pt_state_continues_after_process_exit(native_path, tmp_path, dimension, side):
     from sjtu_tpmshx.io.case_io import save_case
     from sjtu_tpmshx.io.result_io import load_result
     from sjtu_tpmshx.io.solver_checkpoint_io import load_solver_checkpoint
@@ -1463,7 +1438,7 @@ def test_co2_table_state_continues_after_process_exit(native_path, tmp_path, dim
     config = replace(config, solver=replace(config.solver, Nx=4, Ny=3,
         max_outer_ltne=2, max_iter_simple=40, ltne_enthalpy_outer=12,
         ltne_enthalpy_nsweep=3))
-    prepared = prepare_case(config, case_id='co2-table-resume')
+    prepared = prepare_case(config, case_id='co2-pt-resume')
     case_path = save_case(prepared, tmp_path / 'case.h5')
     saved_path, result_path = tmp_path / 'state.h5', tmp_path / 'result.h5'
     arguments = [str(case_path), str(saved_path), str(result_path), str(native_path),
@@ -1479,14 +1454,15 @@ def test_co2_table_state_continues_after_process_exit(native_path, tmp_path, dim
     assert stopped.returncode == 23, stopped.stderr
     saved = load_solver_checkpoint(saved_path)
     used = saved.native_state['state.thermal.value.enthalpy.value.result.used_bicubic']
-    assert used['AB'.index(side)]
+    assert not used.any()
+    assert saved.native_state['state.thermal.value.enthalpy.value.result.algorithm'][0] == 2
     finished = subprocess.run([sys.executable, '-c', script, 'resume', *arguments],
                               cwd=ROOT, capture_output=True, text=True, timeout=120)
     assert finished.returncode == 0, finished.stderr
     actual, expected = load_result(result_path), run(prepared, control(native_path))
     planar.compare_result(actual, expected)
-    table = actual.metadata['model_metadata']['enthalpy_eos']
-    assert table['sides'] == (side,) and table['final_backend'] == 'HEOS'
+    assert 'enthalpy_eos' not in actual.metadata['model_metadata']
+    assert actual.metadata['thermal_mode'] == 'conservative_energy'
     actual_metrics, expected_metrics = evaluate(actual), evaluate(expected)
     for name, metric in expected_metrics.metrics.items():
         assert actual_metrics.metrics[name].status == metric.status
