@@ -1,9 +1,40 @@
 """The installed launcher must preserve CLI errors and use writable caches."""
 import sys
 
+import pytest
 from PySide6.QtCore import QStandardPaths
 
 from sjtu_tpmshx import desktop
+
+
+@pytest.mark.skipif(sys.platform != 'darwin', reason='The source-folder launcher uses macOS zsh.')
+def test_macos_source_launcher_without_retired_cache(tmp_path, monkeypatch):
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    project = tmp_path / 'source folder'
+    project.mkdir()
+    launcher = project / 'launch-macos.command'
+    shutil.copy2(Path(__file__).resolve().parents[2] / launcher.name, launcher)
+    interpreter = project / 'configured python'
+    interpreter.write_text('#!/bin/sh\nprintf "%s\\n" "$PWD" "$MPLCONFIGDIR" "$XDG_CACHE_HOME" "$@"\n')
+    interpreter.chmod(0o755)
+    (project / '.venv-path').write_text(str(interpreter) + '\n')
+    library = project / 'native/lib/macos-arm64/libtpmshx_solver_shared.dylib'
+    library.parent.mkdir(parents=True)
+    library.touch()
+    monkeypatch.delenv('NUMBA_CACHE_DIR', raising=False)
+
+    run = subprocess.run(['/bin/zsh', str(launcher)], cwd=tmp_path,
+                         capture_output=True, text=True, check=False)
+
+    assert run.returncode == 0, run.stderr
+    caches = [project / '.cache' / name for name in ('matplotlib', 'xdg')]
+    assert all(path.is_dir() for path in caches)
+    assert run.stdout.splitlines() == [str(project), *(str(path) for path in caches),
+        '-m', 'sjtu_tpmshx.main', '--backend', 'cpp', '--native-library', str(library),
+        '--native-table-directory', str(project / '.cache/native-deps/tables')]
 
 
 def test_caches_respect_explicit_paths(tmp_path, monkeypatch):
