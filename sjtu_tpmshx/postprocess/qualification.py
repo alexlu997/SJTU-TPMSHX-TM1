@@ -126,7 +126,8 @@ def evaluate_qualification(result, metrics):
         row.get('fluid') and type(row.get('solved')) is bool for row in sides.values())
     scope = True if recorded_sides else None
     scope_reason = '' if recorded_sides else 'executed side models were not fully recorded'
-    if any(row.get('fluid') == 'sco2' and row.get('solved') for row in sides.values()):
+    sco2_scope = any(row.get('fluid') == 'sco2' and row.get('solved') for row in sides.values())
+    if sco2_scope:
         scope = None
         scope_reason = 'sCO2 joint P/T/Pr and wall heating or cooling qualification remains unverified'
     model_scope = _verdict(scope, 'metadata.execution_record.sides', reason=scope_reason)
@@ -134,10 +135,18 @@ def evaluate_qualification(result, metrics):
         physical=physical['passed'], applicability=applicability['passed'],
         metrics=available, model_scope=scope, full_solve=True if full else None)
     eligible = _all_known(requirements.values())
+    # Model accuracy stays unverified when the user studies sCO2 designs.
+    deferred = ['model_scope'] if recorded_sides and sco2_scope else []
+    optimization_requirements = {name: passed for name, passed in requirements.items()
+                                 if name not in deferred}
+    optimization = _verdict(_all_known(optimization_requirements.values()),
+        'result_qualification_v1 required optimization gates', requirements=optimization_requirements,
+        reasons=[name for name, passed in optimization_requirements.items() if passed is not True],
+        deferred=deferred)
     return dict(definition='result_qualification_v1', source_result_id=result.result_id,
         execution=_verdict(completed, 'run_status.execution', state=execution),
         convergence=convergence, physical=physical, applicability=applicability,
-        metrics=metric_verdict, model_scope=model_scope,
+        metrics=metric_verdict, model_scope=model_scope, optimization=optimization,
         design=dict(status='eligible' if eligible is True else 'rejected' if eligible is False else 'unverified',
                     eligible=eligible, requirements=requirements,
                     reasons=[name for name, passed in requirements.items() if passed is not True],
