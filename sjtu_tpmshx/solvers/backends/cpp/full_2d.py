@@ -312,6 +312,8 @@ class NativeFull2DDriver:
         if model_h_options is not None:
             if energy_control is not None or config.thermal_mode == 2:
                 raise ValueError('model-h iteration controls require an integral h(T) route')
+            _full_enthalpy_defaults(self.library, 2, energy.algorithm,
+                                   any(side.fluid == 1 for side in config.sides))
             if thread_call is None:
                 try:
                     energy_call = self.library.tpmshx_solve_full_2d_v5

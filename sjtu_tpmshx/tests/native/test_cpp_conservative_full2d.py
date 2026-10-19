@@ -451,8 +451,14 @@ def test_explicit_thermal_controls_reject_unavailable_routes_before_flow(driver,
 
 
 @pytest.mark.parametrize('algorithm', ['legacy_h_fou', 'temperature_fou'])
-def test_retired_algorithm_is_rejected_before_flow(driver, algorithm):
-    case = prepare_case(configuration(algorithm), case_id='retired-energy2d')
+@pytest.mark.parametrize('model_h_controls', [False, True])
+def test_retired_algorithm_is_rejected_before_flow(driver, algorithm, model_h_controls):
+    config = configuration(algorithm)
+    if model_h_controls:
+        config = replace(config, fluid_A=replace(config.fluid_A, type='air', P_in_Pa=2e5),
+            fluid_B=replace(config.fluid_B, type='water', P_in_Pa=2e5),
+            solver=replace(config.solver, model_h_max_iterations=17))
+    case = prepare_case(config, case_id='retired-energy2d')
     progress = []
     with pytest.raises(ValueError, match='energy|enthalpy'):
         run_case(case, RunControl(backend='cpp', native_library=str(driver.path), progress=progress.append))

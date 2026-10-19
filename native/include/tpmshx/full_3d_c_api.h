@@ -171,7 +171,8 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_solve_full_3d_v1(
 TPMSHX_THERMAL_API void TPMSHX_THERMAL_CALL tpmshx_full_3d_release_v1(tpmshx_full3d_result_v1*);
 /* Explicit conservative energy selection. Reuses the ABI 2 input/control and
  * result ownership; release with full_3d_release_v1. options is required.
- * The original entry point always selects legacy H-FOU. */
+ * The original entry selects T-SOU for the conservative EOS route.
+ * Its H-FOU default applies only to archived libraries. */
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_solve_full_3d_v2(
     const tpmshx_full3d_input_v1*,const tpmshx_full3d_control_v1*,
     const tpmshx_energy_options_v1*,const tpmshx_full3d_callbacks_v1*,
@@ -205,8 +206,8 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_energy_update_scal
  * Views borrow the live result owner until release_v1. Status 1 for null or
  * released arguments leaves output unchanged. No owner is created on errors.
  * update_tolerance is the dimensionless h residual; temperature_update_tolerance
- * is K. Legacy H-FOU always uses its original h gate. T algorithms use the h
- * gate only when require_enthalpy_update_on_temperature is 1. */
+ * is K. T-SOU uses the h gate only when
+ * require_enthalpy_update_on_temperature is 1. */
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_energy_effective_settings_v1(
     const tpmshx_full3d_result_v1*,tpmshx_full3d_energy_effective_settings_v1*);
 

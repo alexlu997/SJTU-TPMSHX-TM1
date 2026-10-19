@@ -260,8 +260,11 @@ predictor sweeps and original mass preparation. The T-SOU recipe uses five
 sweeps per nonlinear step, fluid relaxation .2 and solid relaxation 1. Full3D saves resolved controls in prepared
 cases. Unset 2D controls use the recipe for the selected algorithm version.
 
-With default controls, T-SOU keeps the full-driver iteration budgets and require actual coupled/equation energy ratios
-no greater than .001 as well as the declared temperature update tolerance. The native result records actual whole-block Picard relaxation 0.6, separate from the fluid and solid row relaxation factors.
+With default controls, T-SOU keeps the full-driver iteration budgets.
+Actual coupled and equation energy ratios must be no greater than .001.
+The declared temperature update tolerance must also pass.
+The native result records actual whole-block Picard relaxation 0.6.
+It is separate from the fluid and solid row relaxation factors.
 
 `tpmshx_solve_full_2d_v3` and `tpmshx_solve_full_3d_v2` accept the shared
 `tpmshx_energy_options_v1`. They keep the previous result PODs and their release
