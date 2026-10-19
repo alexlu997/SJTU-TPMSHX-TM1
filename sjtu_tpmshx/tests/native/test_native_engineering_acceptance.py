@@ -21,13 +21,8 @@ PAIRS = ('air-air', 'air-water', 'water-air', 'air-sco2', 'sco2-air',
 
 
 @pytest.mark.parametrize('dimension', [2, 3])
-@pytest.mark.parametrize('pair, algorithm', [
-    pytest.param(pair, 'legacy_h_fou', id=pair) for pair in PAIRS
-] + [
-    pytest.param(pair, 'temperature_sou', id=pair + '-sou') for pair in PAIRS
-    if {'co2', 'sco2'}.intersection(pair.split('-'))
-])
-def test_public_native_cases_keep_physical_gates(native_path, dimension, pair, algorithm):
+@pytest.mark.parametrize('pair', PAIRS)
+def test_public_native_cases_keep_physical_gates(native_path, dimension, pair):
     def fluid(name, side):
         return FluidConfig(type=name, u_mps=3. if name == 'air' else .2,
             T_in_K=(350. if name == 'water' else 500.) if side == 0 else 300.,
@@ -40,7 +35,8 @@ def test_public_native_cases_keep_physical_gates(native_path, dimension, pair, a
         # Retain the qualified flow tolerances for the two real-fluid streams.
         config = replace(config, solver=replace(config.solver, mom_tol=1e-6,
             mass_local_tol=1e-8, mass_global_tol=1e-8))
-    config = replace(config, solver=replace(config.solver, enthalpy_algorithm=algorithm))
+    algorithm = config.solver.enthalpy_algorithm
+    assert algorithm == 'temperature_sou'
     prepared = prepare_case(config, case_id=f'native-engineering-{dimension}d-{pair}')
     result = run_case(prepared, native_3d.control(native_path))
     _assert_engineering_result(result)
@@ -48,7 +44,7 @@ def test_public_native_cases_keep_physical_gates(native_path, dimension, pair, a
     assert record['backend'] == result.backend_id
     assert record['dimension'] == dimension
     assert record['numerics']['thermal_mode'] == result.metadata['thermal_mode']
-    if algorithm == 'temperature_sou':
+    if {'co2', 'sco2'}.intersection(names):
         assert result.metadata['thermal_mode'] == 'conservative_energy'
         assert record['numerics']['algorithm'] == algorithm
         assert record['numerics']['unknown'] == 'T'
@@ -65,7 +61,7 @@ def test_public_native_cases_keep_physical_gates(native_path, dimension, pair, a
 def test_refined_true_h_partial_ports_keep_physical_gates(native_path):
     from sjtu_tpmshx.tests.native.test_cpp_conservative_full3d import candidate
 
-    prepared = candidate('legacy_h_fou', 'sco2-water', port_refined='partial')
+    prepared = candidate('temperature_sou', 'sco2-water', port_refined='partial')
     result = run_case(prepared, native_3d.control(native_path))
     _assert_engineering_result(result)
 
@@ -88,7 +84,7 @@ def test_continuous_real_fluid_native_cases(native_path, dimension, fluid):
     config.zones = ZoneInputConfig(enabled=True, axis='continuous', config=spec)
     prepared = prepare_case(config, case_id=f'continuous-{dimension}d-{fluid}')
     result = run_case(prepared, native_3d.control(native_path))
-    assert result.metadata['thermal_mode'] == 'true_h'
+    assert result.metadata['thermal_mode'] == 'conservative_energy'
     assert result.metadata['design_mode'] == ('continuous' if dimension == 2 else 'continuous_xyz')
     for side in 'AB':
         assert abs(result.metadata['diagnostics']['mass_imbalance_rel_' + side]) <= 1e-6

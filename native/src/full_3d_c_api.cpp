@@ -91,7 +91,7 @@ Full3DControl controls(const tpmshx_full3d_control_v1& c,const tpmshx_full3d_cal
     s.convergence={f.momentum_tolerance,f.local_mass_tolerance,f.global_mass_tolerance,f.backflow_maximum,f.velocity_check_tolerance,
         f.stall_ratio,f.confirmations,f.momentum_interval,f.stall_window};
     r.enthalpy.max_iterations=c.enthalpy_iterations;r.enthalpy.sweeps=c.enthalpy_sweeps;r.enthalpy.omega=c.enthalpy_omega;
-    r.enthalpy.update_tolerance=c.enthalpy_update_tolerance;r.enthalpy.table_directory=c.table_directory?c.table_directory:"";
+    r.enthalpy.update_tolerance=c.enthalpy_update_tolerance;
     if(callbacks) {r.cancel=callbacks->cancel?cancel:nullptr;r.progress=callbacks->progress?progress:nullptr;
         r.outer_iteration=callbacks->outer_iteration?outer_iteration:nullptr;r.context=const_cast<tpmshx_full3d_callbacks_v1*>(callbacks);}
     return r;
@@ -333,7 +333,7 @@ int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_energy_evidence_v1(
     const auto& e=o.result.thermal;tpmshx_full3d_energy_evidence_v1 out{};
     if(e.true_h)out.energy=energy_c_view(*e.true_h);
     out.available=o.result.stop!=Full3DStop::cancelled && e.true_h
-        && e.true_h->algorithm!=EnthalpyAlgorithm::legacy_h_fou && e.true_h->final_audit.has_value();
+        && e.true_h->final_audit.has_value();
     if(out.available)for(std::size_t s=0;s<2;++s) {
         out.actual_conductivity[s]=array(e.actual_conductivity[s]);
         for(std::size_t f=0;f<6;++f)out.boundary_power[s][f]=array(e.enthalpy_boundary_power[s][f]);

@@ -1,4 +1,4 @@
-// Test-only energy-audit bridge; sweep tests use the production C API.
+// Test-only bridge for the shared physical energy audit.
 #include "tpmshx/enthalpy_sweeps.hpp"
 #include "tpmshx/thermal_c_api.h"
 #include <stdexcept>

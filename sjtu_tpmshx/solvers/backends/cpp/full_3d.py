@@ -263,7 +263,7 @@ class NativeFull3DDriver:
                       resume_state=None, checkpoint=None, checkpoint_due=None):
         control.check_cancelled()
         reject_retired_research_options(cfg)
-        energy = _energy_options(cfg.get('enthalpy_algorithm', 'legacy_h_fou'),
+        energy = _energy_options(cfg.get('enthalpy_algorithm', 'temperature_sou'),
                                  cfg.get('enthalpy_temperature_tol_K', 1e-8))
         defaults = _full_enthalpy_defaults(self.library, 3, energy.algorithm,
             'water' in (cfg['fluid_type_A'], cfg['fluid_type_B']))
@@ -279,7 +279,7 @@ class NativeFull3DDriver:
         entry_version = 1
         model_h_options = _iteration_options(cfg)
         if model_h_options is not None:
-            if energy.algorithm or strict_options or any(cfg.get(name) is not None for name in (
+            if strict_options or any(cfg.get(name) is not None for name in (
                     'ltne_enthalpy_outer', 'ltne_enthalpy_nsweep', 'ltne_enthalpy_omega', 'ltne_enthalpy_tol')):
                 raise ValueError('model-h iteration controls cannot be combined with EOS controls')
             if thread_call is None:
@@ -376,7 +376,8 @@ class NativeFull3DDriver:
         c.variable_rho_cp = vrho == '1' if vrho in ('0', '1') else bool(cfg.get('variable_rho_cp', True))
         c.conservative, c.strict_mass_balance, c.force_cell_centered = (bool(cfg.get(k, True)) for k in ('conservative_ltne', 'strict_mass_balance', 'force_cc_ltne'))
         c.refined_port_energy = bool(cfg.get('port_wall_refine', False))
-        c.red_black_energy = int(not energy.algorithm and np.prod(shape)>30000)
+        c.red_black_energy = int(np.prod(shape)>30000 and not (energy.algorithm and data.solve_b
+            and any(side.fluid in (2, 3) for side in data.sides)))
         c.sco2_local_pressure_a = run_environment(cfg, 'TPMSHX_SCO2_COMPRESSIBLE', '').lower() in ('1','true','yes')
         c.coarse_bootstrap = bool(cfg.get('use_coarse_bootstrap', False))
         c.coarse_iterations = _count(cfg.get('coarse_bootstrap_max_iter', 200))
@@ -467,7 +468,7 @@ class NativeFull3DDriver:
                 raise RuntimeError('native full 3D effective settings do not match the thermal history')
             detached=_detach(result, shape, c, actual, entry_version,
                              emit_audit=bool(cfg.get('_emit_audit',False)), application_only=application_only)
-            if energy_query:
+            if energy_query and actual.last.available:
                 extra = _EnergyEvidence()
                 if energy_query(ct.byref(result), ct.byref(extra)):
                     raise RuntimeError('native full 3D energy evidence query failed')

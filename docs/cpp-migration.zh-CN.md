@@ -15,7 +15,7 @@ application -> preprocess.api -> CaseData -> solvers.api -> FieldResult
                                                            -> postprocess.api
 ```
 
-0.2 保留这些模块边界，统一使用 C++ 数值后端。Python 保留应用接口、前处理、模型资源、优化和后处理。0.1 保留两套求解实现；0.2 撤销 Python 数值后端及其额外研究入口。共享 C++ sweep 和低层 C ABI 继续使用。`legacy_h_fou`、`temperature_fou`、`temperature_sou` 继续保留。外层物性 Anderson 已退役；固定物性松弛和热方程 Anderson 保留原规则。
+0.2 保留这些模块边界，统一使用 C++ 数值后端。Python 保留应用接口、前处理、模型资源、优化和后处理。0.1 保留两套求解实现；0.2 撤销 Python 数值后端及其额外研究入口。共享温度 sweep 与能量审计继续使用。既有守恒 EOS 路线默认使用 T-SOU；H-FOU、T-FOU 与冻结 H sweep 的 C 导出已退役。历史结果及匹配的归档运行库保留原算法身份。外层物性 Anderson 已退役；固定物性松弛和热方程 Anderson 保留原规则。
 
 完整二维／三维和 Quick Design 使用 macOS arm64 或 Windows x64 匹配库。公共 `RunControl` 和 CLI 默认使用 C++。库路径属于主机控制，不写入 `CaseData`；缺库时明确失败。交付保留 Python/Qt 入口和项目文件夹内预构建库。必需 CI、可见桌面、完整性能和实验精度保持独立验收。
 
@@ -82,31 +82,31 @@ full 2D 使用 **ABI 2**。第 29 个准备态数组保留原闭合输入中的�
 
 ## 固定流动的守恒温度候选算法
 
-`enthalpy_driver.hpp` 中的 C++ `solve_enthalpy` 接口接受显式 `EnthalpyAlgorithm::temperature_fou` 或 `temperature_sou`。既有调用默认使用 `legacy_h_fou`；版本 1 C 接口也保留该路线。温度候选目前覆盖张量网格上的两个求解流体，包括单位深度二维拉伸。输入包括有符号质量面、局部绝对压力、有效固体导热率和体积换热系数。各侧必须声明标量入口方向；从其他外表面流入会被拒绝。外部导热边界绝热。此入口不准备质量流量、不求解 SIMPLE，也不评估 Nu。
+`enthalpy_driver.hpp` 中的 C++ `solve_enthalpy` 使用 `EnthalpyAlgorithm::temperature_sou`。两个直接 C 入口均使用 T-SOU：v1 固定 1e-8 K 更新门，v2 接受正 K 容差；两者保留严格归一化焓更新及边界不平衡门。该算法覆盖张量网格上的两个求解流体，包括单位深度二维拉伸。输入包括有符号质量面、局部绝对压力、有效固体导热率和体积换热系数。方向 0–5 将流入限定在声明面；方向 -1 将标量入口状态用于全部外边界流入。完整驱动保留声明端口检查。外部导热边界绝热。此入口不准备质量流量、不求解 SIMPLE，也不评估 Nu。
 
-每次非线性更新冻结独立的真实 h、T 和 cp 数组，然后交替执行正序／逆序的 A、B 和固体 sweep。流体对流采用线性化 `h* + cp*(T-T*)`，扩散采用温度。SOU 在物理坐标上直接根据真实焓冻结 minmod 修正，包括出口面，并对固体使用完全松弛。FOU 对所有相使用给定松弛。
+每次非线性更新冻结独立的真实 h、T 和 cp 数组，然后交替执行正序／逆序的 A、B 和固体 sweep。流体对流采用线性化 `h* + cp*(T-T*)`，扩散采用温度。SOU 在物理坐标上直接根据真实焓冻结 minmod 修正，包括出口面，并对固体使用完全松弛。
 
-SOU 在真实状态更新前，将完成的三相块增量乘以 0.6。这抑制了拉伸 full 2D 网格上已复现的限制器振荡，不改变稳态方程。FOU 不加块阻尼。随后，带检查的 HEOS PT 更新以真实状态替代线性化焓，再评估残差与热负荷。不使用 BICUBIC 表、H→T 反演、裁剪或恢复回退。
+SOU 在真实状态更新前，将完成的三相块增量乘以 0.6。这抑制了拉伸 full 2D 网格上已复现的限制器振荡，不改变稳态方程。随后，带检查的 HEOS PT 更新以真实状态替代线性化焓，再评估残差与热负荷。不使用 BICUBIC 表、H→T 反演、裁剪或恢复回退。
 
 SOU recipe 2 在该阻尼普通映射上使用六样本 Anderson 候选。选择前以真实 HEOS PT 物性和原能量审计校验每个候选。候选必须严格降低按原容差归一化的方程比和耦合比中的最大值。无效或非有限候选保留普通更新。接受候选后继续迭代。首次／最终块以及普通温度更新较小时，都使用完整普通 PT／审计块；只有该块可以判收敛。`picard_relaxation=0.6` 描述普通映射，不描述每个 Anderson 增量。
 
-同一个已加载库的 `tpmshx_energy_algorithm_version_v1` 根据实际返回算法报告 FOU recipe 1 或 SOU recipe 2。Python 将该身份记录在主／外循环证据、有效设置和边界捕获中。缺少查询的旧库在守恒流动执行前失败。已保存 SOU recipe 1/2 边界证据仍可读取，不重放 EOS 或推断版本。算法 recipe 版本独立于 C ABI。
+同一个已加载库的 `tpmshx_energy_algorithm_version_v1` 根据实际返回算法报告 SOU recipe 2。Python 将该身份记录在主／外循环证据、有效设置和边界捕获中。缺少查询的旧库在守恒流动执行前失败。已保存 FOU recipe 1 和 SOU recipe 1/2 边界证据仍可读取，不重放 EOS 或推断版本。算法 recipe 版本独立于 C ABI。
 
-候选要求正的耦合、方程容差，以及以 K 为单位的正 `temperature_update_tolerance`。三项检查必须在同一真实状态上同时满足。`EnthalpyResult::algorithm` 标识实际算法；`temperature_update` 仅存在于这些路线。既有 `residual` 仍记录归一化真实焓更新。SOU 最终证据重新构造实际面修正，并一致用于边界热负荷和局部残差。达到迭代上限时保留真实证据；取消使部分场无效并清除该证据。
+完整驱动要求正的耦合、方程容差，以及以 K 为单位的正 `temperature_update_tolerance`。三项检查必须在同一真实状态上同时满足。`EnthalpyResult::algorithm` 标识实际算法；`temperature_update` 仅存在于这些路线。既有 `residual` 仍记录归一化真实焓更新。SOU 最终证据重新构造实际面修正，并一致用于边界热负荷和局部残差。达到迭代上限时保留真实证据；取消使部分场无效并清除该证据。
 
-`conservative_energy_smoke` 检查独立冻结平衡、六方向非均匀面通量、焓参考不变性和非法输入。`conservative_energy_driver_smoke` 检查真实 EOS 状态、冷／热启动一致性、独立出口热负荷、取消、迭代上限和物理域失败。依赖组件验证运行两者。其范围是固定流动数值资格；生产流动／闭合验收，以及与原 BICUBIC 路线的比较，仍是独立要求。
+`conservative_energy_smoke` 检查独立冻结平衡、六方向非均匀面通量、焓参考不变性和非法输入。`conservative_energy_driver_smoke` 检查真实 EOS 状态、冷／热启动一致性、独立出口热负荷、取消、迭代上限和物理域失败。依赖组件验证运行两者。其范围是固定流动数值资格；完整流动／闭合验收、已保存的历史对照及实验适用性保持独立。
 
 <a id="explicit-full-flow-candidate-selection"></a>
 
 ### 显式选择完整流动候选
 
-在 `prepare_case` 前，将 `solver.enthalpy_algorithm` 设为 `temperature_fou` 或 `temperature_sou`，并将 `solver.enthalpy_temperature_tol_K` 设为所需正 K 容差。随后使用 `backend='cpp'` 和匹配原生库执行已保存工况。默认值仍为 `legacy_h_fou` 和 1e-8 K。当前候选要求既有双流体 true-h 路线。在 Quick Design 或不支持的热路线中选择时明确失败。该选择不扩大流体、沸腾、冷凝或 Nu/Darcy-Forchheimer 适用范围。GUI 尚未提供此算法选择。
+在 `prepare_case` 前，使用默认 `solver.enthalpy_algorithm=temperature_sou`，并将 `solver.enthalpy_temperature_tol_K` 设为所需正 K 容差。随后使用 `backend='cpp'` 和匹配原生库执行已保存工况。默认 K 容差为 1e-8。T-SOU 用于既有双流体 true-h 路线；model-h、其他温度内核及 Quick Design 保留原物理路线。对不兼容路线显式设置 EOS 控制时，在流动执行前失败。该选择不扩大流体、沸腾、冷凝或 Nu/Darcy-Forchheimer 适用范围。GUI 尚未提供此算法选择。
 
 完整三维候选也支持 `port_wall_refine` 生成的非均匀张量网格，覆盖完整和部分开口。计算使用实际单元宽度及端口面质量流量。model-h 的端口能量标志不改变此 true-h 路径。此支持不改变已保存算法、默认值或验收门。
 
-完整驱动保留原 SIMPLE、压力、物性、外耦合和最终验收门。full 3D 还保留两次温度预测 sweep 和原质量准备。候选 recipe 每个非线性步使用五次 sweep。FOU/SOU 流体松弛分别为 .6/.2，固体松弛分别为 .6/1。full 3D 在准备态 Case 中保存已解析控制量；二维未设置控制量时采用对应算法版本的 recipe。默认设置下，两者保留原迭代预算，并要求真实耦合／方程能量比不大于 .001，同时满足声明的温度更新容差。原生结果记录实际整块 Picard 松弛：FOU 为 1，SOU 为 0.6；它与流体及固体行松弛分开。
+完整驱动保留原 SIMPLE、压力、物性、外耦合和最终验收门。full 3D 还保留两次温度预测 sweep 和原质量准备。T-SOU recipe 每个非线性步使用五次 sweep，流体松弛为 .2，固体松弛为 1。full 3D 在准备态 Case 中保存已解析控制量；二维未设置控制量时采用对应算法版本的 recipe。默认设置下，T-SOU 保留完整驱动原迭代预算，并要求真实耦合／方程能量比不大于 .001，同时满足声明的温度更新容差。原生结果记录实际整块 Picard 松弛 0.6；它与流体及固体行松弛分开。
 
-`tpmshx_solve_full_2d_v3` 和 `tpmshx_solve_full_3d_v2` 接受共享 `tpmshx_energy_options_v1`，保留旧结果 POD 和释放函数。对应 `get_energy_evidence_v1` 查询借用同一所有者，不执行求解。它提供实际算法／温度更新、最终 epsilon×HEOS 导热率、六个向外有符号焓功率面，以及逐外步标量身份。旧入口仍可用，数值行为不变。
+`tpmshx_solve_full_2d_v3` 和 `tpmshx_solve_full_3d_v2` 接受共享 `tpmshx_energy_options_v1`，保留旧结果 POD 和释放函数。对应 `get_energy_evidence_v1` 查询借用同一所有者，不执行求解。它提供实际算法／温度更新、最终 epsilon×HEOS 导热率、六个向外有符号焓功率面，以及逐外步标量身份。旧入口仍可用，默认执行 T-SOU。当前库在流动前拒绝显式旧算法标识；旧检查点须使用匹配的归档运行库和原控制参数。
 
 显式控制使用 `tpmshx_solve_full_2d_v4` 或 `tpmshx_solve_full_3d_v3`。
 两者接受同一组已持久化的 EOS 迭代、扫掠、松弛与收敛设置。
@@ -123,17 +123,7 @@ SOU 在出口面重构物理焓，因此旧 FOU 单元焓归约不能提供该�
 
 ## 首个实现单元
 
-`native/include/tpmshx/enthalpy_sweeps.hpp` 和 `native/src/enthalpy_sweeps.cpp` 实现串行真实焓 LTNE Gauss–Seidel sweep；原 Python 实现保留在 0.1 历史中：
-
-- 依次更新流体 A、流体 B 和固体，保留原有递增 i/j/k 顺序。
-- 六面使用有符号质量流量；流入使用给定焓，流出使用单元焓，壁面为零流量；不推断均匀流动捷径。
-- 使用非均匀正交单元宽度和调和面导热率。
-- Fourier 导热使用在冻结 `(T*, h*, cp)` 附近线性化的温度；等温时压力相关焓差不会产生虚假导热。
-- 原位执行欠松弛焓／固体温度更新，分别准确累计 A/B 焓裁剪次数，覆盖请求的全部 sweep。
-
-该库采用 C++17，仅依赖标准库。输入为借用的连续 double 数组，显式声明长度、单位和交错位置。修改前先校验输入。数组由调用方所有，可变状态不得与其他状态或系数数组别名。数组顺序为 `(i*ny+j)*nz+k`。有限输入运算溢出导致非有限对角元、右端或更新时，抛出 `std::domain_error`。异常后的部分更新状态不得使用，也不能静默裁剪或接受。支持单单元轴。单位深度二维拉伸保留既有二维驱动归一化，不虚构物理厚度。
-
-该单元不执行 EOS 查询、SIMPLE、质量通量平衡、Picard／物性更新、外循环收敛／取消、CaseData 加载或 FieldResult 捕获。核无裁剪运行不证明结果收敛或物理有效。
+冻结 H-FOU sweep、其裁剪规则及低层 C 导出已退役，Git 历史保留原实现。`enthalpy_sweeps.hpp/.cpp` 中共享 `FluidView`、审计类型与 `thermal_energy_audit` 仍由守恒温度内核及真实状态审计使用。`conservative_energy_smoke` 保留独立冻结平衡、压力偏移、导热线、六方向面功率和非法输入检查。
 
 <a id="second-implemented-slice-actual-state-energy-audit"></a>
 
@@ -168,7 +158,7 @@ SOU 在出口面重构物理焓，因此旧 FOU 单元焓归约不能提供该�
 | full3D true-h CC 预热 | 既有私有 `legacy_single_a_temperature`，给定 B 为空。Nz=1 使用原 G4 两次 sweep 映射；Nz>1 使用 conservative=false、force_cell_centered=true。两侧都求解；后续焓驱动保留所选算法和物理门。 |
 | 单 A 侧 sCO2 CC | 同一私有 G4 核，采用给定 B 和原热预算；身份为 `legacy_frozen_cp_single_a_cc_v1`，保留原单流体路径，不提供积分 h(P,T) 账本。 |
 | 交错／MAC temperature | 既有投影／缓存及热容面准备；保留的非守恒平流研究修正不具备 fullCC 积分焓资格。 |
-| true-h | 既有默认 legacy H-FOU，或显式守恒温度算法；EOS 及各自检查仍由焓驱动负责。 |
+| true-h | 默认 T-SOU；EOS 物理关系及独立物理门仍由焓驱动负责。 |
 
 保留的 CC 预热是确定性的 true-h 调用契约，与既有单 A 实现共享。它不增加公共选择项或核副本。两次 sweep 结果仅为初态。焓驱动仍校验所有 sCO2 热启动温度，并提供最终热结论。Nz>1 交错预热使用共享温度行、调用方松弛系数和串行实时 SOU 修正。红黑修正冻结一个扫描周期。原有外边界固体自身项仍保留在迭代对角项中。此调用不使用独立温度求解的分块阻尼。full2D true-h 不使用此 full3D 预热。
 
@@ -200,13 +190,12 @@ N5 的十二个刻意限预算请求成功返回，并通过十四个已记录�
 
 ```sh
 make -f native/Makefile CXX=c++
-make -f native/Makefile CXX=c++ shared
 make -f native/Makefile check
 ```
 
-这生成 `.cache/native/libtpmshx_thermal.a`。C++ 调用方包含 `native/include` 并链接该归档。温度线求解器构建要求既有锁定 Eigen 头文件，并启用 `EIGEN_MPL2_ONLY`。`TPMSHX_EIGEN_INCLUDE` 默认指向 `.cache/native-deps` 中锁定 CoolProp 源码的 `externals/Eigen`。隔离源码树可显式设置该变量。目录缺失时构建失败，不下载依赖。
+这生成 `.cache/native/libtpmshx_thermal.a`。C++ 调用方包含 `native/include` 并链接该归档。温度线求解器构建要求既有锁定 Eigen 头文件，并启用 `EIGEN_MPL2_ONLY`。`TPMSHX_EIGEN_INCLUDE` 默认指向锁定 Eigen 源码 `.cache/native-deps/src/Eigen-5.0.1`。隔离源码树可显式设置该变量。目录缺失时构建失败，不下载依赖。
 
-低层归档不链接 Python、Qt、NumPy、CoolProp/EOS、OpenMP 或绑定库运行时。完整依赖组件库另有 EOS／压力依赖。`check` 编译并运行能量审计算子和温度驱动的独立 C 静态／动态调用方，以及 C++ 静态调用方。shared 目标在 macOS 生成 `.cache/native/libtpmshx_thermal.dylib`，其他 POSIX 平台生成 `.so`。该低层库不随 Python wheel 或桌面应用打包，不自动发现，也不在运行中构建。
+低层归档不链接 Python、Qt、NumPy、CoolProp/EOS、OpenMP 或绑定库运行时。完整依赖组件库另有 EOS／压力依赖。`check` 构建并运行独立 C++ 温度及守恒能量调用方。原纯热 shared 目标仅导出已退役 H sweep，因此一并移除。完整依赖构建继续在两个目标平台覆盖直接 T-SOU、完整二维／三维、model-h、温度与流动接口的 C 静态／动态调用。该低层库不随 Python wheel 或桌面应用打包，不自动发现，也不在运行中构建。
 
 Windows 已有 x64 Visual Studio 开发者命令提示符时运行：
 
@@ -214,9 +203,9 @@ Windows 已有 x64 Visual Studio 开发者命令提示符时运行：
 nmake /f native\Makefile.msvc check
 ```
 
-这在 `.cache/native` 下生成 `tpmshx_thermal.lib`、`tpmshx_thermal.dll` 和独立的 `tpmshx_thermal_import.lib`，再运行相同 C/C++ 调用方。C ABI 使用显式 Windows 导出／导入和 `cdecl`；ctypes 通过 `CDLL` 加载 DLL 路径。这些命令不安装编译器。
+这在 `.cache/native` 下生成 `tpmshx_thermal.lib`，再运行相同 C++ 调用方。这些命令不安装编译器。完整求解器 C ABI 保留显式 Windows 导出／导入和 `cdecl`；ctypes 通过 `CDLL` 加载其 DLL。
 
-`thermal_c_api.h` 提供带版本的 sweep ABI 和有长度限制的错误消息，异常不跨越 C 边界。独立 C/C++ 调用及直接 C ABI 测试保留缓冲区和物理参数校验。退役的 Python 混合适配器不再属于生产执行路径。能量审计测试仍使用仅供测试的桥接。
+`thermal_c_api.h` 保留共享导出和调用约定宏，冻结 H sweep 导出已退役。完整 C 接口保留有界错误、缓冲区及物理校验；异常不跨越 C 边界。能量审计测试保留仅供测试的桥接。
 
 通过常规环境检查后，使用 `.venv-path` 解释器：
 
@@ -297,7 +286,7 @@ SIMPLE 接口持有逐实例压力缓存，并保留原 F2、出口、热启动�
 
 阶段 1 前必须明确原生物性库交付、许可和构建策略。当前 Python CoolProp 安装不能证明已有完整可移植 C++ 开发／运行包。不得静默以拟合代替 HEOS，也不得用 sCO2 标定吸收迁移误差。跨语言共享闭合必须保留生产版本、来源和有效范围，不另行重拟合系数。
 
-2026-09-21 检查的本地 CoolProp 7.2.0 wheel 包含 C++ 头文件和 MIT 许可，但二进制为 CPython Mach-O bundle，不是可独立链接的 `libCoolProp`。独立 C++ 链接以不支持的 Mach-O 类型失败；该环境未发现独立 archive/dylib。检查时未下载源码或安装依赖。之后获准的隔离构建见上文。完整驱动仍需在各目标平台验证 HEOS／最终状态与 BICUBIC 迭代语义，包括真实 Windows 执行。
+2026-09-21 检查的本地 CoolProp 7.2.0 wheel 包含 C++ 头文件和 MIT 许可，但二进制为 CPython Mach-O bundle，不是可独立链接的 `libCoolProp`。独立 C++ 链接以不支持的 Mach-O 类型失败；该环境未发现独立 archive/dylib。检查时未下载源码或安装依赖。之后获准的隔离构建见上文。当前完整驱动须在各目标平台验证 HEOS PT 状态、实际能量与恢复，包括真实 Windows 执行。历史 BICUBIC 记录保留原含义。
 
 每个阶段比较前，先冻结代表工况和比较容差，并保留失败工况及原分母。解析、网格、守恒资格与实验验证分别执行。原 83 工况记录保持历史身份，原生迁移不继承其实验结论。性能测量须区分编译、EOS、流动、热 sweep 和总时间，以相同预热状态和收敛门比较。
 

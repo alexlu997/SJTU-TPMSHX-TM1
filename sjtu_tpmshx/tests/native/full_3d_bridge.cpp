@@ -24,7 +24,7 @@ void progress(void* context,double percent) {static_cast<Handle*>(context)->prog
 }
 extern "C" TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL test_full_3d_run(
     const std::size_t* shape,double** arrays,const std::size_t* sizes,
-    const std::size_t* flags,const double* values,const char* tables,
+    const std::size_t* flags,const double* values,const char*,
     void** output,char* error,std::size_t error_size) {
     using namespace tpmshx;
     try {
@@ -66,7 +66,6 @@ extern "C" TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL test_full_3d_run(
         c.simple.convergence.local_mass_tolerance=values[49];c.simple.convergence.global_mass_tolerance=values[50];
         c.simple.convergence.backflow_maximum=values[51];c.simple.convergence.velocity_check_tolerance=values[52];
         c.simple.convergence.stall_ratio=values[53];c.enthalpy.omega=values[54];c.enthalpy.update_tolerance=values[55];
-        c.enthalpy.table_directory=tables?tables:"";
         auto handle=std::make_unique<Handle>();handle->cancel_at=flags[36];
         handle->cancel_before_thermal=flags[43]!=0;c.outer_iteration=outer_iteration;
         c.cancel=cancelled;c.progress=progress;c.context=handle.get();

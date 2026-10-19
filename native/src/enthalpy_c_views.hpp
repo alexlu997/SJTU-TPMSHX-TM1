@@ -14,7 +14,7 @@ inline tpmshx_energy_effective_settings_v1 energy_settings_c_view(const Enthalpy
         c.coupled_energy_tolerance.value_or(0.), c.equation_energy_tolerance.value_or(0.)};
 }
 inline EnthalpyAlgorithm energy_algorithm(const tpmshx_energy_options_v1& options) {
-    if (options.algorithm > TPMSHX_ENERGY_TEMPERATURE_SOU
+    if (options.algorithm != TPMSHX_ENERGY_TEMPERATURE_SOU
         || !std::isfinite(options.temperature_update_tolerance)
         || options.temperature_update_tolerance <= 0.)
         throw std::invalid_argument("invalid conservative energy options");

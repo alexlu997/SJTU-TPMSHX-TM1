@@ -296,7 +296,7 @@ class NativeFull2DDriver:
                           resume_state=resume_state, checkpoint=checkpoint, checkpoint_due=checkpoint_due)
 
     def solve(self, shape, arrays, config, control=RunControl(), *,
-              energy_algorithm='legacy_h_fou', temperature_update_tolerance=1e-8, energy_control=None,
+              energy_algorithm='temperature_sou', temperature_update_tolerance=1e-8, energy_control=None,
               model_h_options=None, resume_state=None, checkpoint=None, checkpoint_due=None):
         """Synchronous C call; detach all views before releasing their sole owner."""
         if len(shape) != 2 or len(arrays) != 29:
@@ -310,7 +310,7 @@ class NativeFull2DDriver:
         energy_call = energy_query = version_query = None
         entry_version = 2
         if model_h_options is not None:
-            if energy_control is not None or energy.algorithm or config.thermal_mode == 2:
+            if energy_control is not None or config.thermal_mode == 2:
                 raise ValueError('model-h iteration controls require an integral h(T) route')
             if thread_call is None:
                 try:
@@ -476,7 +476,7 @@ class NativeFull2DDriver:
             if thread_call:
                 out['runtime_resources'] = dict(cpu_thread_limit=control.native_cpu_threads(),
                     requested_cpu_threads=control.cpu_threads, policy='native_cpu_limit_v1')
-            if energy_query:
+            if energy_query and actual.last.available:
                 extra = _EnergyEvidence()
                 if energy_query(ct.byref(result), ct.byref(extra)):
                     raise RuntimeError('native full 2D energy evidence query failed')

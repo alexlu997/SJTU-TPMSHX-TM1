@@ -11,11 +11,6 @@ namespace tpmshx {
 // All native EOS consumers share this construction lock: CoolProp's lazy
 // process-wide fluid library is mutable. Returned states belong to the caller.
 std::unique_ptr<CoolProp::AbstractState> make_eos_state(const char* backend, const char* fluid);
-// Configure this native library's tabular storage once, before BICUBIC use.
-// An absolute UTF-8 directory is required. Repeating the same path is allowed;
-// switching it after initialization is rejected to protect concurrent runs.
-void configure_eos_tables_once(const char* absolute_directory);
-
 enum class Fluid { air, water, sco2, co2 };
 constexpr bool uses_co2_eos(Fluid fluid) {
     return fluid == Fluid::sco2 || fluid == Fluid::co2;

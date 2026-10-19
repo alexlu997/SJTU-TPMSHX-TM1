@@ -183,19 +183,14 @@ void validate(const Full2DProblem& p,const Full2DControl& c) {
                        c.thermal_q_tolerance,c.enthalpy.update_tolerance})
         if (!std::isfinite(value) || value<=0) throw std::invalid_argument("invalid full2D tolerance/relaxation");
     if (c.outer_relaxation>1) throw std::invalid_argument("full2D outer relaxation exceeds one");
-    switch(c.enthalpy.algorithm) {
-        case EnthalpyAlgorithm::legacy_h_fou: break;
-        case EnthalpyAlgorithm::temperature_fou:
-        case EnthalpyAlgorithm::temperature_sou:
-            if(p.thermal_mode!=Full2DThermalMode::true_h)
-                throw std::invalid_argument("candidate full2D energy requires the existing true-h route");
-            for(const auto limit:{c.enthalpy.coupled_energy_tolerance,c.enthalpy.equation_energy_tolerance})
-                if(!limit || !std::isfinite(*limit) || *limit<=0.)
-                    throw std::invalid_argument("full2D T energy requires positive coupled and equation tolerances");
-            if(!std::isfinite(c.enthalpy.temperature_update_tolerance) || c.enthalpy.temperature_update_tolerance<=0.)
-                throw std::invalid_argument("invalid candidate full2D temperature update tolerance");
-            break;
-        default: throw std::invalid_argument("unknown full2D energy algorithm");
+    if(c.enthalpy.algorithm!=EnthalpyAlgorithm::temperature_sou)
+        throw std::invalid_argument("retired or unknown full2D energy algorithm; use T-SOU");
+    if(p.thermal_mode==Full2DThermalMode::true_h) {
+        for(const auto limit:{c.enthalpy.coupled_energy_tolerance,c.enthalpy.equation_energy_tolerance})
+            if(!limit || !std::isfinite(*limit) || *limit<=0.)
+                throw std::invalid_argument("full2D T energy requires positive coupled and equation tolerances");
+        if(!std::isfinite(c.enthalpy.temperature_update_tolerance) || c.enthalpy.temperature_update_tolerance<=0.)
+            throw std::invalid_argument("invalid full2D temperature update tolerance");
     }
 }
 
@@ -618,9 +613,8 @@ struct ThermalRun {
             for(std::size_t side=0;side<2;++side) {
                 epsilon[side].resize(n);const double split=side==0?p.split_a:1.-p.split_a;
                 for(std::size_t k=0;k<n;++k)epsilon[side][k]=p.total_porosity[k]*split;
-                if(c.enthalpy.algorithm!=EnthalpyAlgorithm::legacy_h_fou)
-                    if(const auto* error=energy_port_error(g,p.sides[side],t.mass_x[side],t.mass_y[side]))
-                        throw std::invalid_argument(error);
+                if(const auto* error=energy_port_error(g,p.sides[side],t.mass_x[side],t.mass_y[side]))
+                    throw std::invalid_argument(error);
             }
             const auto fluid=[&](std::size_t side) {
                 return EnthalpySideView{p.sides[side].fluid,p.sides[side].inlet_temperature,p.sides[side].inlet_pressure,
@@ -692,7 +686,7 @@ struct ThermalRun {
                     audit.boundary_complete=audit.boundary_complete && !energy_port_error(g,p.sides[side],t.mass_x[side],t.mass_y[side]);
                 t.physical_audit=std::move(audit);
             }
-            if(solved.stop!=EnthalpyStop::cancelled && solved.algorithm!=EnthalpyAlgorithm::legacy_h_fou) {
+            if(solved.stop!=EnthalpyStop::cancelled) {
                 EnthalpyEOS eos;
                 for(std::size_t side=0;side<2;++side) {
                     auto& actual=t.actual_conductivity[side];actual.resize(g.nx*g.ny);
@@ -702,7 +696,7 @@ struct ThermalRun {
                             :t.conductivity[side][k];
                     t.enthalpy_boundary_power[side]=enthalpy_boundary_power(g,view(side==0?t.h_a:t.h_b),
                         {view(t.mass_x[side]),view(t.mass_y[side]),view(z)},solved.inlet_enthalpy[side],
-                        solved.algorithm==EnthalpyAlgorithm::temperature_sou);
+                        true);
                 }
             }
         }
@@ -1036,7 +1030,7 @@ void Runtime::finish() {
     r.simple_ok=true; r.envelope_ok=true;
     for (std::size_t side=0;side<2;++side) {
         const auto& f=r.flow[side]; const auto& s=p.sides[side];
-        const bool candidate=c.enthalpy.algorithm!=EnthalpyAlgorithm::legacy_h_fou || (!r.thermal.temperature_algorithm.empty() && r.thermal.physical_audit.has_value());
+        const bool candidate=p.thermal_mode==Full2DThermalMode::true_h || (!r.thermal.temperature_algorithm.empty() && r.thermal.physical_audit.has_value());
         const auto& mass_x=candidate?r.thermal.mass_x[side]:f.mass_x;
         const auto& mass_y=candidate?r.thermal.mass_y[side]:f.mass_y;
         r.simple_ok=r.simple_ok && f.result.converged;

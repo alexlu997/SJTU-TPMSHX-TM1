@@ -31,7 +31,7 @@ static int settings_match(const tpmshx_energy_effective_settings_v1* s,
         && s->equation_energy_tolerance==e->equation_energy_tolerance;
 }
 int main(void) {
-    if(tpmshx_energy_algorithm_version_v1(TPMSHX_ENERGY_TEMPERATURE_FOU)!=1
+    if(tpmshx_energy_algorithm_version_v1(TPMSHX_ENERGY_TEMPERATURE_FOU)!=0
        || tpmshx_energy_algorithm_version_v1(TPMSHX_ENERGY_TEMPERATURE_SOU)!=2
        || tpmshx_energy_algorithm_version_v1(TPMSHX_ENERGY_LEGACY_H_FOU)!=0
        || tpmshx_energy_algorithm_version_v1(UINT32_MAX)!=0)return 32;
@@ -62,7 +62,7 @@ int main(void) {
     c.simple.convergence=(tpmshx_simple_f2_v1){1e-4,1e-6,1e-6,.01,1e-4,1e-3,2,5,60};
     c.enthalpy_iterations=1500;c.enthalpy_sweeps=25;c.enthalpy_omega=.6;c.enthalpy_update_tolerance=1e-3;
     tpmshx_full3d_result_v1 r={0};char error[1024]={0};
-    const tpmshx_energy_options_v1 energy={TPMSHX_ENERGY_LEGACY_H_FOU,1e-8};
+    const tpmshx_energy_options_v1 energy={TPMSHX_ENERGY_TEMPERATURE_SOU,1e-8};
     if(tpmshx_full_3d_abi_version()!=2 || tpmshx_solve_full_3d_v2(&in,&c,&energy,NULL,&r,error,sizeof error)) {
         fprintf(stderr,"full 3D call failed: %s\n",error);return 1;
     }
@@ -88,10 +88,10 @@ int main(void) {
        evidence when the selected energy algorithm is legacy. */
     tpmshx_full3d_energy_evidence_v1 evidence={0};
     if(tpmshx_full_3d_get_energy_evidence_v1(&r,&evidence) || evidence.available
-       || evidence.energy.algorithm!=TPMSHX_ENERGY_LEGACY_H_FOU || evidence.energy.has_temperature_update
+       || evidence.energy.has_temperature_update
        || evidence.outer_count!=r.outer_count)return 14;
     for(size_t i=0;i<evidence.outer_count;++i)
-        if(evidence.outer[i].algorithm!=TPMSHX_ENERGY_LEGACY_H_FOU || evidence.outer[i].has_temperature_update)return 14;
+        if(evidence.outer[i].has_temperature_update)return 14;
     tpmshx_physical_heat_ledger_v1 heat={0};
     if(tpmshx_full_3d_get_physical_heat_ledger_v1(&r,&heat)
        || !heat.available || heat.physical_dimension!=3 || !heat.boundary_complete)return 33;
@@ -106,7 +106,7 @@ int main(void) {
         }
     }
     if(fabs(residual-external)>1e-7)return 35;
-    const tpmshx_energy_options_v2 original={TPMSHX_ENERGY_LEGACY_H_FOU,1e-8,.001,.001,0};
+    const tpmshx_energy_options_v2 original={TPMSHX_ENERGY_TEMPERATURE_SOU,1e-8,.001,.001,0};
     tpmshx_full3d_energy_effective_settings_v1 settings={0};
     if(tpmshx_full_3d_get_energy_effective_settings_v1(&r,&settings)
        || !settings_match(&settings.resolved,&c,&original) || settings.resolved.available
@@ -290,7 +290,7 @@ int main(void) {
     if(tpmshx_solve_full_3d_v1(&in,&c,NULL,&r,error,sizeof error)!=1 || r.stop!=99 || !error[0])return 8;
     if(r.owner || tpmshx_full_3d_get_bootstrap_trace_v1(&r,0,&trace)!=1)return 13;
     in.epsilon.size=8;c.coarse_bootstrap=0;
-    tpmshx_energy_options_v2 strict={TPMSHX_ENERGY_LEGACY_H_FOU,1e-8,1e-5,1e-5,0};
+    tpmshx_energy_options_v2 strict={TPMSHX_ENERGY_TEMPERATURE_SOU,1e-8,1e-5,1e-5,0};
     /* Explicit strict controls must not silently run an unrelated model-h
        route, even when cancellation would otherwise stop before flow. */
     if(tpmshx_solve_full_3d_v3(&in,&c,&strict,&cb,&r,error,sizeof error)!=1
@@ -307,16 +307,16 @@ int main(void) {
        || r.stop!=99 || r.owner)return 21;
     in.solve_b=1;
     const tpmshx_energy_options_v2 invalid_strict[]={
-        {3,1e-8,1e-5,1e-5,0},{1,0.,1e-5,1e-5,0},{1,NAN,1e-5,1e-5,0},
-        {1,1e-8,0.,1e-5,0},{1,1e-8,NAN,1e-5,0},{1,1e-8,1e-5,0.,0},
-        {1,1e-8,1e-5,INFINITY,0},{1,1e-8,1e-5,1e-5,2}};
+        {0,1e-8,1e-5,1e-5,0},{1,1e-8,1e-5,1e-5,0},{3,1e-8,1e-5,1e-5,0},{2,0.,1e-5,1e-5,0},{2,NAN,1e-5,1e-5,0},
+        {2,1e-8,0.,1e-5,0},{2,1e-8,NAN,1e-5,0},{2,1e-8,1e-5,0.,0},
+        {2,1e-8,1e-5,INFINITY,0},{2,1e-8,1e-5,1e-5,2}};
     for(size_t i=0;i<=sizeof invalid_strict/sizeof invalid_strict[0];++i) {
         const tpmshx_energy_options_v2* option=i<sizeof invalid_strict/sizeof invalid_strict[0]?&invalid_strict[i]:NULL;
         error[0]='\0';
         if(tpmshx_solve_full_3d_v3(&in,&c,option,&cb,&r,error,sizeof error)!=1
            || r.stop!=99 || r.owner || !error[0])return 22;
     }
-    strict.algorithm=TPMSHX_ENERGY_TEMPERATURE_FOU;strict.require_enthalpy_update_on_temperature=1;
+    strict.algorithm=TPMSHX_ENERGY_TEMPERATURE_SOU;strict.require_enthalpy_update_on_temperature=1;
     c.enthalpy_update_tolerance=NAN;
     if(tpmshx_solve_full_3d_v3(&in,&c,&strict,&cb,&r,error,sizeof error)!=1
        || r.stop!=99 || r.owner)return 23;
@@ -325,7 +325,7 @@ int main(void) {
     if(tpmshx_solve_full_3d_v3(&in,&c,&strict,&cb,&r,error,sizeof error)!=1
        || r.stop!=99 || r.owner)return 23;
     c.enthalpy_iterations=1000;
-    for(uint32_t algorithm=TPMSHX_ENERGY_LEGACY_H_FOU;algorithm<=TPMSHX_ENERGY_TEMPERATURE_FOU;++algorithm) {
+    for(uint32_t algorithm=TPMSHX_ENERGY_TEMPERATURE_SOU;algorithm<=TPMSHX_ENERGY_TEMPERATURE_SOU;++algorithm) {
         strict.algorithm=algorithm;strict.require_enthalpy_update_on_temperature=algorithm!=0;
         if(tpmshx_solve_full_3d_v3(&in,&c,&strict,&cb,&r,error,sizeof error)
            || r.stop!=2 || !r.owner || r.converged)return 24;
@@ -334,11 +334,9 @@ int main(void) {
            || settings.last.available || settings.outer_count)return 25;
         tpmshx_full_3d_release_v1(&r);
     }
-    /* Actual T-FOU is table-free. Legacy strict execution is covered by the
-       public pytest fixture that already supplies its explicit table path.
-       One capped outer pass is not a Ceff accuracy/flow qualification. */
+    /* One capped SOU outer pass does not establish Ceff accuracy. */
     {
-        strict.algorithm=TPMSHX_ENERGY_TEMPERATURE_FOU;strict.require_enthalpy_update_on_temperature=1;
+        strict.algorithm=TPMSHX_ENERGY_TEMPERATURE_SOU;strict.require_enthalpy_update_on_temperature=1;
         if(tpmshx_solve_full_3d_v3(&in,&c,&strict,NULL,&r,error,sizeof error)) {
             fprintf(stderr,"strict full3D smoke failed: %s\n",error);return 26;
         }

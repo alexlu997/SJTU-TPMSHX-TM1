@@ -69,3 +69,13 @@ def test_two_dimensional_controls_survive_serialization(algorithm):
     restored = ComputeConfig.from_dict(cfg.to_dict())
     assert not restored.is_3d
     assert {key: getattr(restored.solver, key) for key in STRICT} == STRICT
+
+
+def test_new_config_defaults_to_sou_without_changing_energy_gates():
+    config = ComputeConfig()
+    assert config.solver.enthalpy_algorithm == 'temperature_sou'
+    assert config.solver.enthalpy_temperature_tol_K == 1e-8
+    assert config.solver.require_enthalpy_update_on_temperature is False
+    for name in ('ltne_enthalpy_coupled_energy_tol', 'ltne_enthalpy_equation_energy_tol'):
+        assert getattr(config.solver, name) is None
+    assert ComputeConfig.from_dict(config.to_dict()) == config

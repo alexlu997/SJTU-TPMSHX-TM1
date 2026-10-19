@@ -11,7 +11,7 @@ static int TPMSHX_THERMAL_CALL cancel_first(void* context) {
 }
 
 int main(void) {
-    if (tpmshx_energy_algorithm_version_v1(TPMSHX_ENERGY_TEMPERATURE_FOU)!=1
+    if (tpmshx_energy_algorithm_version_v1(TPMSHX_ENERGY_TEMPERATURE_FOU)!=0
         || tpmshx_energy_algorithm_version_v1(TPMSHX_ENERGY_TEMPERATURE_SOU)!=2
         || tpmshx_energy_algorithm_version_v1(TPMSHX_ENERGY_LEGACY_H_FOU)!=0
         || tpmshx_energy_algorithm_version_v1(UINT32_MAX)!=0) return 9;
@@ -164,7 +164,7 @@ int main(void) {
     config.sides[1].inlet_temperature = 500.;
     status = tpmshx_solve_enthalpy_v1(shape,arrays,sizes,&config,NULL,&result,error,sizeof(error));
     if (status != TPMSHX_ENTHALPY_WATER_STATE || result.stop != 93
-        || !strstr(error,"enthalpy inlet B") || !strstr(error,"P_abs=")) return 7;
+        || !strstr(error,"energy inlet B") || !strstr(error,"P_abs=")) return 7;
     config.sides[1].inlet_temperature = 300.;
     {
         const tpmshx_enthalpy_callbacks_v1 callbacks = {cancel_first,&calls};

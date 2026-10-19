@@ -7,7 +7,6 @@
 #include <array>
 #include <cmath>
 #include <iostream>
-#include <filesystem>
 #include <limits>
 #include <optional>
 #include <stdexcept>
@@ -58,18 +57,17 @@ struct Case {
     EnthalpyStateView state(bool warm=false) {
         return {output(h[0]),output(h[1]),output(t[0]),output(t[1]),output(solid),warm,warm,warm};
     }
-    double boundary_power(std::size_t s,double hin,bool sou) const {
+    double boundary_power(std::size_t s,double hin) const {
         const bool positive=direction[s]%2==0;
         const std::size_t p=positive?4:0,q=positive?3:1;
         double hout=h[s][p];
-        if (sou) hout+=(h[s][p]-h[s][q])*width[axis][p]/(width[axis][p]+width[axis][q]);
+        hout+=(h[s][p]-h[s][q])*width[axis][p]/(width[axis][p]+width[axis][q]);
         return .005*(hin-hout);
     }
 };
 std::size_t cpu_threads=1;
-EnthalpyControl controls(bool sou) {
-    EnthalpyControl c{1200,5,sou?.2:.6,2e-12,1e-7,1e-7,""};
-    c.algorithm=sou?EnthalpyAlgorithm::temperature_sou:EnthalpyAlgorithm::temperature_fou;
+EnthalpyControl controls() {
+    EnthalpyControl c{1200,5,.2,2e-12,1e-7,1e-7};
     c.cpu_threads=cpu_threads;
     return c;
 }
@@ -161,11 +159,10 @@ void require_same_result(const EnthalpyResult& a,const EnthalpyResult& b) {
 }
 
 void mixed_model_checks() {
-    const auto tables=std::filesystem::absolute(".cache/native-energy-run-tables").string();
     for(auto model:{Fluid::air,Fluid::water}) {
-    std::array<std::optional<Case>,3> baseline;
-    std::array<EnthalpyResult,3> baseline_results{};
-    for(bool swap:{false,true})for(auto algorithm:{EnthalpyAlgorithm::legacy_h_fou,EnthalpyAlgorithm::temperature_fou,EnthalpyAlgorithm::temperature_sou}) {
+    std::optional<Case> baseline;
+    EnthalpyResult baseline_result{};
+    for(bool swap:{false,true}) {
         Case data(0,1,model,Fluid::co2);
         data.inlet_t={350.,300.};data.inlet_p={2e6,8e6};
         for(std::size_t side=0;side<2;++side)std::fill(data.pressure[side].begin(),data.pressure[side].end(),data.inlet_p[side]);
@@ -177,16 +174,14 @@ void mixed_model_checks() {
             std::swap(data.pressure[0],data.pressure[1]);std::swap(data.mass[0],data.mass[1]);
             std::swap(data.energy[0],data.energy[1]);std::swap(data.conductivity[0],data.conductivity[1]);
         }
-        auto c=controls(algorithm==EnthalpyAlgorithm::temperature_sou);c.algorithm=algorithm;
-        c.reference_independent_update=true;c.update_tolerance=1e-10;c.table_directory=tables;
-        // The near-critical CO2 case needs a smaller T update.
-        if(algorithm==EnthalpyAlgorithm::temperature_fou)c.omega=.2;
+        auto c=controls();
+        c.reference_independent_update=true;c.update_tolerance=1e-10;
         Case resumed=data;PhysicalHeatLedger ledger;
         const auto result=solve_enthalpy(data.grid(),data.side(0),data.side(1),view(data.solid_k),data.state(),c,&ledger);
         if(result.stop!=EnthalpyStop::converged || !result.final_audit
             || result.final_audit->equation_ratio>*c.equation_energy_tolerance)
             std::cerr<<"mixed model="<<static_cast<int>(model)<<" swap="<<swap
-                <<" algorithm="<<static_cast<int>(algorithm)<<" stop="<<static_cast<int>(result.stop)
+                <<" stop="<<static_cast<int>(result.stop)
                 <<" iterations="<<result.iterations<<" update="<<result.residual
                 <<" equation="<<(result.final_audit?result.final_audit->equation_ratio:-1.)
                 <<" coupled="<<(result.final_audit?result.final_audit->coupled_ratio:-1.)
@@ -196,8 +191,7 @@ void mixed_model_checks() {
             "mixed energy model did not pass its actual equations");
         EnthalpyEOS independent;
         for(std::size_t side=0;side<2;++side) {
-            require(result.used_bicubic[side]==(algorithm==EnthalpyAlgorithm::legacy_h_fou
-                    && uses_co2_eos(data.fluid[side])),"mixed result lost actual table use");
+            require(!result.used_bicubic[side],"SOU result reports table use");
             const auto inlet=independent.evaluate_state(data.fluid[side],data.inlet_t[side],data.inlet_p[side],"mixed inlet",data.energy[side]);
             require(result.enthalpy_update_scale[side]==50.*inlet.cp,"mixed update scale depends on an enthalpy origin");
             for(std::size_t p=0;p<5;++p) {
@@ -205,10 +199,9 @@ void mixed_model_checks() {
                 require(std::abs(actual.enthalpy-data.h[side][p])<1e-7,"mixed model h and T differ");
             }
         }
-        const auto method=static_cast<std::size_t>(algorithm);
-        if(!swap) {baseline[method]=data;baseline_results[method]=result;}
+        if(!swap) {baseline=data;baseline_result=result;}
         else {
-            const auto& reference=*baseline[method];const auto& prior=baseline_results[method];
+            const auto& reference=*baseline;const auto& prior=baseline_result;
             require(std::abs(result.q_a-prior.q_b)<1e-6 && std::abs(result.q_b-prior.q_a)<1e-6,
                 "A/B swap changed the mixed-model boundary power");
             require(result.enthalpy_update_scale[0]==prior.enthalpy_update_scale[1]
@@ -242,12 +235,12 @@ void mixed_model_checks() {
 }
 
 void zero_sweep_checks() {
-    for(bool sou:{false,true})for(bool warm:{false,true})for(std::size_t axis:{0U,2U}) {
+    for(bool warm:{false,true})for(std::size_t axis:{0U,2U}) {
         Case data(axis,1,Fluid::air,Fluid::water);
         for(std::size_t side=0;side<2;++side)
             for(std::size_t p=0;p<5;++p)data.t[side][p]=data.inlet_t[side]+.1*p;
         std::fill(data.solid.begin(),data.solid.end(),330.);
-        auto c=controls(sou);c.max_iterations=2;c.sweeps=0;
+        auto c=controls();c.max_iterations=2;c.sweeps=0;
         EnthalpyRun owner(data.grid(),data.side(0),data.side(1),view(data.solid_k),data.state(warm),c);
         const Case initial=data;
         require(owner.advance()==EnthalpyPhase::active,"zero-sweep residual was accepted as convergence");
@@ -272,18 +265,15 @@ void zero_sweep_checks() {
 }
 
 void energy_run_checks() {
-    const auto tables=std::filesystem::absolute(".cache/native-energy-run-tables").string();
     const std::array<std::array<Fluid,2>,4> pairs{{{Fluid::air,Fluid::water},{Fluid::water,Fluid::air},
         {Fluid::sco2,Fluid::water},{Fluid::co2,Fluid::air}}};
-    for(const auto& pair:pairs)for(std::size_t axis:{0U,2U})for(bool warm:{false,true})
-    for(auto algorithm:{EnthalpyAlgorithm::legacy_h_fou,EnthalpyAlgorithm::temperature_fou,EnthalpyAlgorithm::temperature_sou}) {
+    for(const auto& pair:pairs)for(std::size_t axis:{0U,2U})for(bool warm:{false,true}) {
         Case base(axis,1,pair[0],pair[1]);
         for(std::size_t side=0;side<2;++side)
             std::fill(base.t[side].begin(),base.t[side].end(),warm?base.inlet_t[side]:std::numeric_limits<double>::quiet_NaN());
         std::fill(base.solid.begin(),base.solid.end(),.5*(base.inlet_t[0]+base.inlet_t[1]));
-        auto c=controls(algorithm==EnthalpyAlgorithm::temperature_sou);c.algorithm=algorithm;
-        c.max_iterations=13;c.table_directory=tables;
-        if(algorithm==EnthalpyAlgorithm::legacy_h_fou)c.update_tolerance=1e-3;
+        auto c=controls();
+        c.max_iterations=13;
         Case expected=base;PhysicalHeatLedger expected_ledger;
         Cancellation baseline{0,1000000};c.cancel=cancel;c.context=&baseline;
         const auto reference=solve_enthalpy(expected.grid(),expected.side(0),expected.side(1),
@@ -317,26 +307,7 @@ void energy_run_checks() {
             owner->advance();
         }
     }
-    for(int gates:{0,1,2,3}) {
-        Case expected(0,1,Fluid::air,Fluid::water),actual=expected;
-        auto c=controls(false);c.algorithm=EnthalpyAlgorithm::legacy_h_fou;c.max_iterations=500;
-        c.update_tolerance=1.;
-        c.coupled_energy_tolerance=(gates&1)?std::optional<double>(1e-7):std::nullopt;
-        c.equation_energy_tolerance=(gates&2)?std::optional<double>(1e-7):std::nullopt;
-        const auto reference=solve_enthalpy(expected.grid(),expected.side(0),expected.side(1),view(expected.solid_k),expected.state(),c);
-        auto owner=std::make_unique<EnthalpyRun>(actual.grid(),actual.side(0),actual.side(1),view(actual.solid_k),actual.state(),c);
-        bool polish_seen=false;
-        while(owner->phase()==EnthalpyPhase::active) {
-            owner->advance();
-            if(owner->phase()==EnthalpyPhase::active) {
-                const auto saved=owner->snapshot();polish_seen=polish_seen || saved.result.heos_polish;
-                owner.reset();owner=std::make_unique<EnthalpyRun>(actual.grid(),actual.side(0),actual.side(1),view(actual.solid_k),actual.state(),c,saved);
-            }
-        }
-        require(gates!=3 || polish_seen,"energy continuation omitted the HEOS finishing state");
-        require(same_fields(actual,expected),"HEOS continuation changed fields");require_same_result(owner->take_result(),reference);
-    }
-    Case sample(0,1,Fluid::air,Fluid::water);auto c=controls(true);c.max_iterations=30;
+    Case sample(0,1,Fluid::air,Fluid::water);auto c=controls();c.max_iterations=30;
     auto run=std::make_unique<EnthalpyRun>(sample.grid(),sample.side(0),sample.side(1),view(sample.solid_k),sample.state(),c);
     run->advance();run->advance();const auto saved=run->snapshot();
     for(int damage=0;damage<20;++damage) {
@@ -345,11 +316,11 @@ void energy_run_checks() {
         case 0:state.fields[0].pop_back();break;
         case 1:state.fields[2][0]=std::numeric_limits<double>::infinity();break;
         case 2:state.result.iterations=c.max_iterations;break;
-        case 3:state.result.algorithm=EnthalpyAlgorithm::legacy_h_fou;break;
+        case 3:state.result.algorithm=static_cast<EnthalpyAlgorithm>(0);break;
         case 4:state.result.stop=EnthalpyStop::converged;break;
         case 5:state.sides[0].transport[0][0]=0.;break;
-        case 6:state.next_temperatures=true;break;
-        case 7:state.sides[0].table_lower.push_back(0.);break;
+        case 6:state.result.heos_polish=true;break;
+        case 7:state.sides[0].transport[1].pop_back();break;
         case 8:state.acceleration.r[0][0]=std::numeric_limits<double>::infinity();break;
         case 9:state.result.used_bicubic[0]=true;break;
         case 10:state.result.temperature_update.reset();break;
@@ -368,10 +339,9 @@ void energy_run_checks() {
             view(destination.solid_k),destination.state(),c,state);},"damaged energy state was accepted");
         require(same_fields(destination,before),"invalid energy state changed destination fields");
     }
-    for(auto algorithm:{EnthalpyAlgorithm::legacy_h_fou,EnthalpyAlgorithm::temperature_fou,EnthalpyAlgorithm::temperature_sou})
     for(int stop_at:{1,4,9,17}) {
         Case expected(0,1,Fluid::air,Fluid::water),actual=expected;
-        auto options=controls(algorithm==EnthalpyAlgorithm::temperature_sou);options.algorithm=algorithm;
+        auto options=controls();
         // Callback-count cancellation requires deterministic serial polling.
         options.cpu_threads=1;
         Cancellation baseline{0,stop_at},observed{0,stop_at};options.cancel=cancel;options.context=&baseline;
@@ -389,7 +359,7 @@ void energy_run_checks() {
         require_same_result(owner->take_result(),reference);
         rejects<std::logic_error>([&]{owner->snapshot();},"cancelled energy run exported state");
     }
-    Case observed(0,1,Fluid::air,Fluid::water);auto observing=controls(true);observing.max_iterations=3;
+    Case observed(0,1,Fluid::air,Fluid::water);auto observing=controls();observing.max_iterations=3;
     struct Observer { EnthalpyRun* run=nullptr;std::size_t calls=0; } observer;
     observing.context=&observer;
     observing.cancel=[](void* context) {
@@ -405,19 +375,19 @@ void energy_run_checks() {
     observer.run=&observed_run;
     while(observed_run.phase()==EnthalpyPhase::active)observed_run.advance();
     require(observer.calls>=6,"energy callback omitted the active boundary check");
-    Case failed(0,1,Fluid::air,Fluid::water);auto failing=controls(true);Cancellation failure{0,2};failing.context=&failure;
+    Case failed(0,1,Fluid::air,Fluid::water);auto failing=controls();Cancellation failure{0,2};failing.context=&failure;
     failing.cancel=[](void* context) { if(++static_cast<Cancellation*>(context)->calls==2)throw std::runtime_error("failed callback");return false; };
     EnthalpyRun broken(failed.grid(),failed.side(0),failed.side(1),view(failed.solid_k),failed.state(),failing);
     rejects<std::runtime_error>([&]{broken.advance();},"callback failure was hidden");
     require(broken.phase()==EnthalpyPhase::failed,"failed energy run remained active");
     rejects<std::logic_error>([&]{broken.snapshot();},"failed energy run exported state");
     rejects<std::logic_error>([&]{broken.advance();},"failed energy run advanced again");
-    std::cout<<"energy run continuation, HEOS finishing, ownership and invalid boundaries passed\n";
+    std::cout<<"energy run continuation, ownership and invalid boundaries passed\n";
 }
 
 void optional_gate_checks() {
-    for(bool sou:{false,true}) for(unsigned gates=0;gates<4;++gates) {
-        Case data(0,1,Fluid::air,Fluid::water);auto c=controls(sou);
+    for(unsigned gates=0;gates<4;++gates) {
+        Case data(0,1,Fluid::air,Fluid::water);auto c=controls();
         if(!(gates&1))c.coupled_energy_tolerance.reset();
         if(!(gates&2))c.equation_energy_tolerance.reset();
         c.require_enthalpy_update_on_temperature=true;c.update_tolerance=1e-8;
@@ -437,7 +407,7 @@ void optional_gate_checks() {
         if(c.equation_energy_tolerance)require(actual.final_audit->equation_ratio<=*c.equation_energy_tolerance,"optional equation gate failed");
     }
     for(double value:{0.,-1.,std::numeric_limits<double>::quiet_NaN()}) {
-        Case invalid(0,1,Fluid::air,Fluid::water);auto c=controls(true);
+        Case invalid(0,1,Fluid::air,Fluid::water);auto c=controls();
         c.coupled_energy_tolerance=value;c.equation_energy_tolerance.reset();
         rejects<std::invalid_argument>([&] {solve_enthalpy(invalid.grid(),invalid.side(0),invalid.side(1),
             view(invalid.solid_k),invalid.state(),c);},"invalid optional T gate was accepted");
@@ -446,8 +416,8 @@ void optional_gate_checks() {
 }
 
 void scalar_inflow_checks() {
-    for(std::size_t axis=0;axis<3;++axis) for(int sign:{1,-1}) for(bool sou:{false,true}) {
-        Case directed(axis,sign,Fluid::air,Fluid::water);auto c=controls(sou);
+    for(std::size_t axis=0;axis<3;++axis) for(int sign:{1,-1}) {
+        Case directed(axis,sign,Fluid::air,Fluid::water);auto c=controls();
         const auto expected=solve_enthalpy(directed.grid(),directed.side(0),directed.side(1),
             view(directed.solid_k),directed.state(),c);
         Case scalar(axis,sign,Fluid::air,Fluid::water);scalar.direction={-1,-1};
@@ -467,30 +437,17 @@ void scalar_inflow_checks() {
             const bool positive=side==0?sign>0:sign<0;
             const std::size_t p=positive?4:0,q=positive?3:1;
             double outlet=multiple.h[side][p];
-            if(sou)outlet+=(multiple.h[side][p]-multiple.h[side][q])
+            outlet+=(multiple.h[side][p]-multiple.h[side][q])
                 *multiple.width[axis][p]/(multiple.width[axis][p]+multiple.width[axis][q]);
             double power=.005*(solved.inlet_enthalpy[side]-outlet);
             for(double h:multiple.h[side])power+=.0001*(solved.inlet_enthalpy[side]-h);
             require(same(power,side==0?solved.q_a:solved.q_b),
                     "scalar multiple-inlet boundary power differs from independent sum");
         }
-        if(!sou) {
-            auto legacy=multiple;auto h_control=c;h_control.algorithm=EnthalpyAlgorithm::legacy_h_fou;
-            const auto h_result=solve_enthalpy(legacy.grid(),legacy.side(0),legacy.side(1),
-                view(legacy.solid_k),legacy.state(),h_control);
-            require(h_result.stop==EnthalpyStop::converged,"scalar H reference did not converge");
-            for(std::size_t p=0;p<5;++p) {
-                for(std::size_t side=0;side<2;++side)
-                    require(std::abs(multiple.t[side][p]-legacy.t[side][p])<=1e-6,
-                            "scalar FOU T/H fluid states differ");
-                require(std::abs(multiple.solid[p]-legacy.solid[p])<=1e-6,
-                        "scalar FOU T/H solid states differ");
-            }
-        }
     }
     for(int direction:{-2,6}) {
         Case invalid(0,1,Fluid::air,Fluid::water);invalid.direction[0]=direction;
-        auto c=controls(true);
+        auto c=controls();
         rejects<std::invalid_argument>([&] {solve_enthalpy(invalid.grid(),invalid.side(0),invalid.side(1),
             view(invalid.solid_k),invalid.state(),c);},"invalid scalar inlet direction was accepted");
     }
@@ -514,26 +471,26 @@ int main(int argc,char** argv) {
         const std::array<std::array<Fluid,2>,4> pairs{{{Fluid::air,Fluid::air},
             {Fluid::air,Fluid::water},{Fluid::water,Fluid::air},{Fluid::sco2,Fluid::sco2}}};
         for (const auto& pair:pairs) for (std::size_t axis=0;axis<3;++axis)
-            for (int sign:{1,-1}) for (bool sou:{false,true}) {
-                Case data(axis,sign,pair[0],pair[1]);auto c=controls(sou);
+            for (int sign:{1,-1}) {
+                Case data(axis,sign,pair[0],pair[1]);auto c=controls();
                 const auto result=solve_enthalpy(data.grid(),data.side(0),data.side(1),view(data.solid_k),data.state(),c);
                 require(result.stop==EnthalpyStop::converged && result.final_audit && result.temperature_update,
                         "T energy solve did not converge with actual evidence");
                 require(result.algorithm==c.algorithm && !result.used_bicubic[0] && !result.used_bicubic[1]
                         && !result.heos_polish && !result.total_clips.a && !result.total_clips.b,
                         "T energy algorithm identity is not the executed method");
-                require(result.picard_relaxation==(sou?.6:1.),"actual Picard relaxation evidence is missing");
+                require(result.picard_relaxation==.6,"actual Picard relaxation evidence is missing");
                 require(*result.temperature_update<=1e-8 && result.final_audit->equation_ratio<=1e-7
                         && result.final_audit->coupled_ratio<=1e-7,"T energy gate was bypassed");
-                EnthalpyEOS independent;
                 for (std::size_t s=0;s<2;++s) for (std::size_t p=0;p<5;++p) {
-                    bool table_used=false;
-                    const double inverted=independent.temperature(data.fluid[s],data.h[s][p],data.pressure[s][p],table_used,"smoke HP reference");
-                    max_eos_error=std::max(max_eos_error,std::abs(inverted-data.t[s][p]));
+                    const auto exact=std::unique_ptr<CoolProp::AbstractState>(
+                        CoolProp::AbstractState::factory("HEOS",data.fluid[s]==Fluid::air?"Air":data.fluid[s]==Fluid::water?"Water":"CO2"));
+                    exact->update(CoolProp::PT_INPUTS,data.pressure[s][p],data.t[s][p]);
+                    max_eos_error=std::max(max_eos_error,std::abs(exact->hmass()-data.h[s][p]));
                 }
                 max_boundary_error=std::max({max_boundary_error,
-                    std::abs(result.q_a-data.boundary_power(0,result.inlet_enthalpy[0],sou)),
-                    std::abs(result.q_b-data.boundary_power(1,result.inlet_enthalpy[1],sou))});
+                    std::abs(result.q_a-data.boundary_power(0,result.inlet_enthalpy[0])),
+                    std::abs(result.q_b-data.boundary_power(1,result.inlet_enthalpy[1]))});
                 auto warm=data;
                 for (std::size_t p=0;p<5;++p) {
                     warm.t[0][p]=.8*data.inlet_t[0]+.2*data.inlet_t[1];
@@ -554,8 +511,8 @@ int main(int argc,char** argv) {
 
         // Each explicit gate must control the actual exit, not merely appear
         // in reported settings. The one-step fixtures isolate one gate each.
-        for(bool sou:{false,true}) {
-            Case loose(0,1,Fluid::air,Fluid::water);auto gate=controls(sou);
+        {
+            Case loose(0,1,Fluid::air,Fluid::water);auto gate=controls();
             gate.max_iterations=1;gate.sweeps=1;gate.update_tolerance=1e-30;
             gate.temperature_update_tolerance=1e6;
             gate.coupled_energy_tolerance=gate.equation_energy_tolerance=1e6;
@@ -589,7 +546,7 @@ int main(int argc,char** argv) {
         // three callbacks see the unvalidated image, accepted state, and final
         // ordinary swept T. An h-only change cannot prove AA was accepted.
         {
-            Case data(0,1,Fluid::air,Fluid::water);auto c=controls(true);
+            Case data(0,1,Fluid::air,Fluid::water);auto c=controls();
             c.max_iterations=3;c.require_enthalpy_update_on_temperature=true;
             c.temperature_update_tolerance=c.update_tolerance=1e-30;
             c.coupled_energy_tolerance=c.equation_energy_tolerance=1e-30;
@@ -631,7 +588,7 @@ int main(int argc,char** argv) {
         // verify trial isolation and ordinary fallback; they do not identify
         // the rejection reason or count candidate EOS evaluations.
         {
-            Case data(0,1,Fluid::air,Fluid::water);auto c=controls(true);c.max_iterations=6;
+            Case data(0,1,Fluid::air,Fluid::water);auto c=controls();c.max_iterations=6;
             data.t={Values(5,364.),Values(5,316.)};data.solid.assign(5,340.);
             Observations seen{&data,{}};c.context=&seen;c.cancel=observe;
             const auto result=solve_enthalpy(data.grid(),data.side(0),data.side(1),
@@ -666,7 +623,7 @@ int main(int argc,char** argv) {
         // fields. Cancel at B0 after five A-side candidate PT evaluations;
         // cancellation must prevent an ordinary iteration-2 update.
         {
-            Case data(0,1,Fluid::air,Fluid::water);auto c=controls(true);c.max_iterations=3;
+            Case data(0,1,Fluid::air,Fluid::water);auto c=controls();c.max_iterations=3;
             data.t={Values(5,364.),Values(5,316.)};data.solid.assign(5,340.);
             Observations seen{&data,{}};seen.cancel_on_second_repeat=true;c.context=&seen;c.cancel=observe;
             const auto result=solve_enthalpy(data.grid(),data.side(0),data.side(1),
@@ -690,7 +647,7 @@ int main(int argc,char** argv) {
         // energy gate; its ordinary state also seeds the two-block replay.
         {
             constexpr double tiny=1e-310;
-            Case data(0,1,Fluid::air,Fluid::water);auto c=controls(true);c.max_iterations=3;
+            Case data(0,1,Fluid::air,Fluid::water);auto c=controls();c.max_iterations=3;
             data.t={Values(5,364.),Values(5,316.)};data.solid.assign(5,340.);
             c.coupled_energy_tolerance=c.equation_energy_tolerance=tiny;
             Case replay=data;auto one=c;one.max_iterations=1;one.temperature_update_tolerance=1e6;
@@ -741,7 +698,7 @@ int main(int argc,char** argv) {
             data.t={Values(5,141.),Values(5,69.)};data.solid.assign(5,105.);
             for(auto& pressure:data.pressure)
                 for(std::size_t p=0;p<5;++p) pressure[p]=1e6-100.*p;
-            auto c=controls(true);c.temperature_update_tolerance=1e-30;c.max_iterations=2;
+            auto c=controls();c.temperature_update_tolerance=1e-30;c.max_iterations=2;
             Case ordinary=data;
             const auto probe=solve_enthalpy(ordinary.grid(),ordinary.side(0),ordinary.side(1),
                 view(ordinary.solid_k),ordinary.state(true),c);
@@ -784,7 +741,7 @@ int main(int argc,char** argv) {
 
         // Unit-depth 2D and a physical nz=1 extrusion have identical T fields;
         // integrated convection, diffusion and exchange all scale with depth.
-        for(std::size_t axis:{0u,1u}) for(int sign:{1,-1}) for(bool sou:{false,true}) {
+        for(std::size_t axis:{0u,1u}) for(int sign:{1,-1}) {
             Case unit(axis,sign,Fluid::water,Fluid::sco2);
             unit.width[2][0]=1.;
             auto slab=unit;
@@ -792,7 +749,7 @@ int main(int argc,char** argv) {
             slab.width[2][0]=thickness;
             for(auto& side:slab.mass)for(auto& component:side)
                 for(double& value:component)value*=thickness;
-            const auto c=controls(sou);
+            const auto c=controls();
             const auto per_depth=solve_enthalpy(unit.grid(),unit.side(0),unit.side(1),
                 view(unit.solid_k),unit.state(),c);
             const auto integrated=solve_enthalpy(slab.grid(),slab.side(0),slab.side(1),
@@ -809,31 +766,19 @@ int main(int argc,char** argv) {
                     "extrusion lost unit-depth duty scaling");
         }
 
-        Case reference(0,1,Fluid::air,Fluid::water);auto t_control=controls(false);
-        const auto t_result=solve_enthalpy(reference.grid(),reference.side(0),reference.side(1),view(reference.solid_k),reference.state(),t_control);
-        auto legacy=reference;auto h_control=t_control;h_control.algorithm=EnthalpyAlgorithm::legacy_h_fou;
-        const auto h_result=solve_enthalpy(legacy.grid(),legacy.side(0),legacy.side(1),view(legacy.solid_k),legacy.state(),h_control);
-        require(t_result.stop==EnthalpyStop::converged && h_result.stop==EnthalpyStop::converged
-                && h_result.algorithm==EnthalpyAlgorithm::legacy_h_fou && !h_result.temperature_update,
-                "legacy default identity changed");
-        for (std::size_t p=0;p<5;++p) {
-            for (std::size_t s=0;s<2;++s) require(std::abs(reference.t[s][p]-legacy.t[s][p])<=1e-6,"FOU T/H converged states differ");
-            require(std::abs(reference.solid[p]-legacy.solid[p])<=1e-6,"FOU solid state differs from legacy H");
-        }
-
         for (int stop_at:{1,3,4}) {
-            Case data(0,1,Fluid::air,Fluid::water);auto c=controls(true);Cancellation token{0,stop_at};
+            Case data(0,1,Fluid::air,Fluid::water);auto c=controls();Cancellation token{0,stop_at};
             c.cancel=cancel;c.context=&token;
             const auto result=solve_enthalpy(data.grid(),data.side(0),data.side(1),view(data.solid_k),data.state(),c);
             require(result.stop==EnthalpyStop::cancelled && !result.final_audit,"cancelled T solve published a final certificate");
         }
-        Case limited(0,1,Fluid::air,Fluid::water);auto limit=controls(true);limit.max_iterations=1;
+        Case limited(0,1,Fluid::air,Fluid::water);auto limit=controls();limit.max_iterations=1;
         const auto stopped=solve_enthalpy(limited.grid(),limited.side(0),limited.side(1),view(limited.solid_k),limited.state(),limit);
         require(stopped.stop==EnthalpyStop::iteration_limit && stopped.iterations==1 && stopped.final_audit
                 && stopped.temperature_update && !stopped.total_clips.a && !stopped.total_clips.b,
                 "T energy budget exit lost its actual evidence");
         Case unknown(0,1,Fluid::air,Fluid::water);unknown.mass[0][0].back()=-.001;
-        auto c=controls(false);
+        auto c=controls();
         rejects<std::invalid_argument>([&] { solve_enthalpy(unknown.grid(),unknown.side(0),unknown.side(1),view(unknown.solid_k),unknown.state(),c); },
                                        "undefined exterior inflow was accepted");
         Case invalid(0,1,Fluid::air,Fluid::water);
@@ -872,39 +817,11 @@ int main(int argc,char** argv) {
                         && std::abs(transport.conductivity-k)<=2e-10*k
                         && std::abs(eos.conductivity(fluid,temperature,pressure)-k)<=2e-10*k,
                         "transport properties retained another PT state");
-                bool table_used=false;
-                const double inverse=eos.temperature(fluid,h,pressure,table_used,"HP reuse regression");
-                require(std::abs(inverse-temperature)<=2e-8,"guarded HP inverse differs from independent HEOS");
+
             }
         }
-        eos.enable_bicubic(std::filesystem::absolute(".cache/native-energy-run-tables").string());
-        require(!eos.bicubic_pressure(2e5) && eos.bicubic_pressure(2e6),
-                "CO2 table pressure domain differs from the locked table");
-        auto co2_reference=make_eos_state("HEOS","CO2");
-        for(const auto point:std::array<std::array<double,2>,4>{{{350.,2e6},{260.,5e6},{350.,8e6},{315.,5e6}}}) {
-            const double temperature=point[0],pressure=point[1];
-            co2_reference->update(CoolProp::PT_INPUTS,pressure,temperature);
-            const double h=co2_reference->hmass();
-            bool used=true;
-            const double candidate=eos.temperature(Fluid::co2,h,pressure,used,"CO2 table state");
-            require(used && std::isfinite(candidate),"valid CO2 inverse did not use its table");
-            require(std::abs(candidate-temperature)<=2e-8,"CO2 table correction differs from HEOS");
-            eos.validate(Fluid::co2,candidate,pressure,"CO2 table state");
-            used=false;
-            const double final=eos.temperature(Fluid::co2,h,pressure,used,"CO2 exact final state");
-            require(!used && std::abs(final-temperature)<=2e-8,"CO2 final inverse did not use HEOS");
-        }
-        co2_reference->update(CoolProp::PT_INPUTS,2e5,350.);
-        bool table_used=true;
-        const double outside=eos.temperature(Fluid::co2,co2_reference->hmass(),2e5,table_used,"CO2 outside table");
-        require(!table_used && std::abs(outside-350.)<=2e-8,"CO2 outside table did not keep exact HEOS");
-        co2_reference->update(CoolProp::PQ_INPUTS,3e6,.5);
-        rejects<CoolProp::CoolPropBaseError>([&] {
-            bool used=true;
-            eos.temperature(Fluid::co2,co2_reference->hmass(),3e6,used,"CO2 two-phase inverse");
-        },"CO2 table accepted a two-phase physical state");
         std::cout<<"conservative_energy_driver_smoke ok; cold/warm pairs="<<solved
-                 <<"; max EOS T error="<<max_eos_error<<"; boundary W error="<<max_boundary_error
+                 <<"; max EOS h error J/kg="<<max_eos_error<<"; boundary W error="<<max_boundary_error
                  <<"; warm T error="<<max_warm_difference<<'\n';
         return 0;
     } catch (const std::exception& error) { std::cerr<<error.what()<<'\n';return 1; }

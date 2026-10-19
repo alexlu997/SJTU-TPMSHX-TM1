@@ -248,24 +248,19 @@ void validate(const Full3DInput& in,const Full3DControl& c) {
     for(const auto tolerance:{c.enthalpy.coupled_energy_tolerance,c.enthalpy.equation_energy_tolerance})
         if(!tolerance || !std::isfinite(*tolerance) || *tolerance<=0.)
             throw std::invalid_argument("full 3D requires finite positive true-h coupled and equation gates");
-    switch(c.enthalpy.algorithm) {
-        case EnthalpyAlgorithm::legacy_h_fou: break;
-        case EnthalpyAlgorithm::temperature_fou:
-        case EnthalpyAlgorithm::temperature_sou:
-            if(!in.solve_b || (!uses_co2_eos(in.a.fluid) && !uses_co2_eos(in.b.fluid)))
-                throw std::invalid_argument("candidate full 3D energy currently requires the existing two-sided true-h route");
-            for(auto source:in.sources)
-                if(source.size && std::any_of(source.data,source.data+source.size,[](double x){return x!=0.;}))
-                    throw std::invalid_argument("candidate full 3D energy does not support physical sources");
-            if(!c.enthalpy.max_iterations || !std::isfinite(c.enthalpy.omega)
-               || c.enthalpy.omega<=0. || c.enthalpy.omega>1.
-               || !std::isfinite(c.enthalpy.temperature_update_tolerance) || c.enthalpy.temperature_update_tolerance<=0.)
-                throw std::invalid_argument("invalid candidate full 3D energy controls");
-            if(c.enthalpy.require_enthalpy_update_on_temperature
-               && (!std::isfinite(c.enthalpy.update_tolerance) || c.enthalpy.update_tolerance<=0.))
-                throw std::invalid_argument("full 3D T energy h-update tolerance must be finite and positive");
-            break;
-        default: throw std::invalid_argument("unknown full 3D energy algorithm");
+    if(c.enthalpy.algorithm!=EnthalpyAlgorithm::temperature_sou)
+        throw std::invalid_argument("retired or unknown full 3D energy algorithm; use T-SOU");
+    if(in.solve_b && (uses_co2_eos(in.a.fluid) || uses_co2_eos(in.b.fluid))) {
+        for(auto source:in.sources)
+            if(source.size && std::any_of(source.data,source.data+source.size,[](double x){return x!=0.;}))
+                throw std::invalid_argument("full 3D true-h energy does not support physical sources");
+        if(!c.enthalpy.max_iterations || !std::isfinite(c.enthalpy.omega)
+           || c.enthalpy.omega<=0. || c.enthalpy.omega>1.
+           || !std::isfinite(c.enthalpy.temperature_update_tolerance) || c.enthalpy.temperature_update_tolerance<=0.)
+            throw std::invalid_argument("invalid full 3D energy controls");
+        if(c.enthalpy.require_enthalpy_update_on_temperature
+           && (!std::isfinite(c.enthalpy.update_tolerance) || c.enthalpy.update_tolerance<=0.))
+            throw std::invalid_argument("full 3D T energy h-update tolerance must be finite and positive");
     }
     // These existing options are implemented in subsequent qualified slices;
     // failing before state initialization prevents a silent substitute solve.
@@ -941,8 +936,7 @@ void Runtime::start_enthalpy(const EnthalpyRunState* saved) {
             balance_outflow(g,side(s).direction,faces,multiply(epsilon(s),view(result.flow[s].density_real)));
             const auto projected=thermal.project_capacity_faces(g,epsilon(s),view(result.flow[s].density_real),views(faces));
             e.mass[s]=mass_faces(g,projected.velocity,epsilon(s),result.flow[s].density_real);
-            if(control.enthalpy.algorithm!=EnthalpyAlgorithm::legacy_h_fou)
-                if(const auto* error=energy_port_error(g,side(s),e.mass[s]))throw std::invalid_argument(error);
+            if(const auto* error=energy_port_error(g,side(s),e.mass[s]))throw std::invalid_argument(error);
             e.enthalpy[s].resize(temperature[s].size());
         }
         for(std::size_t s=0;s<2;++s) {
@@ -988,16 +982,14 @@ bool Runtime::advance_thermal() {
         check_water(temperature,e.pressure);
         for(const auto& t:temperature)if(!finite(t))throw std::domain_error("nonfinite full 3D true-h return");
         temperature_ranges("main","real-cell(x,y,z)-return");
-        if(r.algorithm!=EnthalpyAlgorithm::legacy_h_fou) {
-            for(std::size_t s=0;s<2;++s) {
-                auto& actual=e.actual_conductivity[s];actual.resize(temperature[s].size());
-                for(std::size_t p=0;p<actual.size();++p)
-                    actual[p]=physics[s].conductivity==ConductivitySource::local_eos
-                        ?epsilon(s)[p]*eos.conductivity(side(s).fluid,temperature[s][p],e.pressure[s][p])
-                        :e.conductivity[s][p];
-                e.enthalpy_boundary_power[s]=enthalpy_boundary_power(g,view(e.enthalpy[s]),views(e.mass[s]),
-                    r.inlet_enthalpy[s],r.algorithm==EnthalpyAlgorithm::temperature_sou);
-            }
+        for(std::size_t s=0;s<2;++s) {
+            auto& actual=e.actual_conductivity[s];actual.resize(temperature[s].size());
+            for(std::size_t p=0;p<actual.size();++p)
+                actual[p]=physics[s].conductivity==ConductivitySource::local_eos
+                    ?epsilon(s)[p]*eos.conductivity(side(s).fluid,temperature[s][p],e.pressure[s][p])
+                    :e.conductivity[s][p];
+            e.enthalpy_boundary_power[s]=enthalpy_boundary_power(g,view(e.enthalpy[s]),views(e.mass[s]),
+                r.inlet_enthalpy[s],true);
         }
         finish_thermal();return true;
     }
@@ -1193,8 +1185,7 @@ void Runtime::refresh_thermal_properties(std::size_t outer) {
 void Runtime::finish() {
     const auto& g=input.geometry.grid;
     const bool true_h_pair=uses_co2_eos(input.a.fluid) || uses_co2_eos(input.b.fluid);
-    const bool candidate=result.thermal.true_h
-        && result.thermal.true_h->algorithm!=EnthalpyAlgorithm::legacy_h_fou;
+    const bool candidate=result.thermal.true_h.has_value();
     if(!true_h_pair || mode==Full3DThermalMode::true_h)
         temperature_ranges("final","real-cell(x,y,z)");
     result.finite_fields=std::all_of(temperature.begin(),temperature.end(),finite);

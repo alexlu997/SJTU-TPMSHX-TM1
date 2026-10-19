@@ -126,7 +126,7 @@ Old input files can still start a new qualified calculation with a new execution
 | Physical fields | Required T/h, velocity, pressure/correction, density, transport coefficients, boundary mass targets and pressure anchors. |
 | Convergence state | Previous fields, update measurements, F2 confirmation streak, stall window and comparison snapshots when a SIMPLE call is active. |
 | Acceleration state | Required thermal Anderson samples and reset state. |
-| Property iteration state | Actual physical implementation and approximation policy, including the irreversible HEOS finishing choice within the current thermal solve. |
+| Property iteration state | Actual physical implementation, transport arrays and approximation policy. Historical checkpoints also keep their original HEOS finishing choice. |
 | Evidence | Completed iteration records and separately identified last-thermal and current-flow evidence. |
 
 The initial source inventory identifies these continuation owners:
@@ -135,7 +135,7 @@ The initial source inventory identifies these continuation owners:
 - `full_3d.cpp`: `Runtime` arrays, flow solvers, pressure anchors, previous temperatures and distinct thermal evidence.
 - `simple_convergence.hpp`: F2 previous velocities, confirmation streak and stall-window state during an active solve.
 - `model_h_common.hpp`: thermal Anderson sample queues and reset state.
-- `enthalpy_driver.cpp`: thermal iteration position, acceleration history and the `heos_polish` transition.
+- `enthalpy_driver.cpp`: T-SOU iteration position, transport arrays and acceleration history.
 
 Determine exact array membership from reads after each restore boundary.
 Rebuild derived matrices, preconditioners and EOS objects only where this preserves the specified continuation behavior.
@@ -297,8 +297,9 @@ Do not require bitwise equality across different floating-point execution orders
 
 ## 9. Decisions that need evidence
 
-Version 0.2 retains `legacy_h_fou` as the default and keeps explicit `temperature_fou` and `temperature_sou` selection.
-Current mesh and reference evidence does not support one replacement default for all physical routes.
+T-SOU is the default for the existing conservative EOS energy route. H-FOU and T-FOU execution is retired.
+The accepted 30 mm cube uses 16 cells per axis. Rectangular grids keep physical cell spacing and require checks on the changed axes.
+This engineering decision does not supply a formal Q GCI or expand model applicability. Model-h and other temperature routes remain separate.
 Convergence and physical-balance passes do not replace accuracy checks against a qualified reference.
 
 N11 uses the accepted targets in section 5.

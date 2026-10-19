@@ -8,11 +8,10 @@
 #include <array>
 #include <memory>
 #include <optional>
-#include <string>
 
 namespace tpmshx {
 
-enum class EnthalpyAlgorithm { legacy_h_fou, temperature_fou, temperature_sou };
+enum class EnthalpyAlgorithm { temperature_sou = 2 };
 
 struct EnthalpySideView {
     Fluid fluid;
@@ -21,7 +20,7 @@ struct EnthalpySideView {
     ArrayView<const double> mass_x, mass_y, mass_z;
     // -1 assigns the scalar inlet state to every exterior inflow.
     // Values 0:+x, 1:-x, 2:+y, 3:-y, 4:+z, 5:-z restrict T inflow
-    // to that face. The H algorithm ignores this field.
+    // to that face.
     int inlet_direction = -1;
     EnergyRelation energy = EnergyRelation::eos_h_TP;
     ConductivitySource conductivity_source = ConductivitySource::local_eos;
@@ -38,16 +37,15 @@ struct EnthalpyControl {
     std::size_t max_iterations, sweeps;
     double omega, update_tolerance;
     std::optional<double> coupled_energy_tolerance, equation_energy_tolerance;
-    std::string table_directory;
     bool (*cancel)(void*) = nullptr;
     void* context = nullptr;
-    EnthalpyAlgorithm algorithm = EnthalpyAlgorithm::legacy_h_fou;
+    EnthalpyAlgorithm algorithm = EnthalpyAlgorithm::temperature_sou;
     // K, maximum actual A/B/solid update. Full T runs require both energy
     // tolerances; direct components can omit either stop gate.
     // update_tolerance keeps its normalized enthalpy-update meaning.
     double temperature_update_tolerance = 1e-8;
     // Opt-in additional dimensionless h-update gate on T algorithms. This
-    // does not replace their K update gate or change the legacy H-FOU gate.
+    // does not replace the K update gate.
     bool require_enthalpy_update_on_temperature = false;
     // Full runs use a scale that does not depend on either enthalpy origin.
     bool reference_independent_update = false;
@@ -57,15 +55,11 @@ struct EnthalpyControl {
 };
 
 inline EnthalpyControl full_enthalpy_control(std::size_t dimension,
-    EnthalpyAlgorithm algorithm = EnthalpyAlgorithm::legacy_h_fou, bool has_water = false) {
+    EnthalpyAlgorithm algorithm = EnthalpyAlgorithm::temperature_sou, bool has_water = false) {
     EnthalpyControl control{dimension == 2 ? (has_water ? 12000u : 5000u) : 1500u,
-        dimension == 2 ? 3u : 25u, .6, 1e-3, .001, .001, ""};
+        5u, .2, 1e-3, .001, .001};
     control.algorithm = algorithm;
     control.cpu_threads = dimension == 2 ? 2u : 1u;
-    if (algorithm != EnthalpyAlgorithm::legacy_h_fou) {
-        control.sweeps = 5;
-        control.omega = algorithm == EnthalpyAlgorithm::temperature_sou ? .2 : .6;
-    }
     return control;
 }
 
@@ -79,32 +73,29 @@ struct EnthalpyResult {
     std::array<double,2> enthalpy_update_scale;
     bool reference_independent_update = false;
     ClipCounts last_clips, total_clips;
-    // Present when either exact-EOS gate was requested. Full unrelaxed audit
-    // remains evidence; only the requested gates affect convergence.
+    // Completed ordinary SOU blocks retain the full unrelaxed audit.
+    // The direct C view publishes only the requested audit components.
     std::optional<EnergyAudit> final_audit;
     std::array<bool,2> used_bicubic;
     bool heos_polish;
-    EnthalpyAlgorithm algorithm = EnthalpyAlgorithm::legacy_h_fou;
-    std::optional<double> temperature_update;  // K; absent on the legacy route
+    EnthalpyAlgorithm algorithm = EnthalpyAlgorithm::temperature_sou;
+    std::optional<double> temperature_update;  // K; absent before the first update
     double picard_relaxation = 1.;  // Actual whole-block T increment multiplier
 };
 
 enum class EnthalpyPhase { active, completed, cancelled, failed };
 
 struct EnthalpySideState {
-    double lower=0.,upper=0.;
-    // cp, epsilon*k/cp and epsilon*k for T routes; empty for H.
+    // cp, epsilon*k/cp and epsilon*k.
     std::array<std::vector<double>,3> transport;
-    std::vector<double> table_lower,table_upper;
 };
 
 struct EnthalpyRunState {
-    // h_a, h_b, T_a, T_b and T_solid. Cold H starts can have unset T.
+    // h_a, h_b, T_a, T_b and T_solid.
     std::array<std::vector<double>,5> fields;
     std::array<EnthalpySideState,2> sides;
     EnthalpyResult result;
     AndersonState acceleration;
-    bool next_temperatures=false;
 };
 
 // Caller arrays remain live. The caller must not change them between calls.
@@ -136,8 +127,7 @@ private:
 // The caller supplies mass faces, local pressures and heat exchange terms.
 // This driver does not update flow or refresh the heat exchange correlation.
 // Actual states retain each fluid's physical guards. Final equation audits
-// use the selected relation; an EOS table cannot replace the final HEOS audit.
-// T algorithms use actual-state updates without enthalpy bounds or tables.
+// use the selected relation. SOU uses actual PT states without tables.
 // A selected inlet direction rejects inflow on other exterior faces.
 // Direction -1 supplies the scalar inlet state at every exterior inflow.
 // SOU reconstructs enthalpy at faces and uses a damped Picard update. An

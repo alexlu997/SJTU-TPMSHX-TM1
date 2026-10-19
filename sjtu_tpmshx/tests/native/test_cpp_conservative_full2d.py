@@ -56,7 +56,7 @@ def configuration(algorithm, *, outer=2, partial=True, directions=(0, 3)):
 
 @pytest.fixture(scope='module', params=[
     (algorithm, directions, partial)
-    for algorithm in ('temperature_fou', 'temperature_sou')
+    for algorithm in ('temperature_sou',)
     for directions in ((0, 3), (1, 2)) for partial in (False, True)],
     ids=lambda value: f'{value[0]}-directions{value[1][0]}{value[1][1]}-partial{value[2]}')
 def capped(driver, request):
@@ -142,7 +142,7 @@ def test_actual_thermal_state_and_signed_ledger(capped):
     assert metrics['Q_richardson_A'].status == metrics['Q_richardson_B'].status == 'unsupported'
 
 
-@pytest.mark.parametrize('algorithm', ['temperature_fou', 'temperature_sou'])
+@pytest.mark.parametrize('algorithm', ['temperature_sou'])
 @pytest.mark.parametrize('partial', [False, True])
 def test_complete_original_native_acceptance(driver, algorithm, partial):
     case = prepare_case(configuration(algorithm, outer=32, partial=partial), case_id='energy2d-complete')
@@ -195,7 +195,7 @@ assert not any(name.startswith(('numba','sjtu_tpmshx.solvers.ltne_',
 
 
 
-@pytest.mark.parametrize('algorithm', ['temperature_fou', 'temperature_sou'])
+@pytest.mark.parametrize('algorithm', ['temperature_sou'])
 def test_zero_sweep_budget_retains_initial_fields(driver, algorithm):
     config = configuration(algorithm)
     config = replace(config, solver=replace(config.solver, ltne_enthalpy_nsweep=0, ltne_enthalpy_outer=1))
@@ -213,7 +213,7 @@ def test_zero_sweep_budget_retains_initial_fields(driver, algorithm):
         np.testing.assert_array_equal(field, np.full(field.shape, value))
 
 
-@pytest.mark.parametrize('algorithm', ['temperature_fou', 'temperature_sou'])
+@pytest.mark.parametrize('algorithm', ['temperature_sou'])
 @pytest.mark.parametrize('partial', [False, True])
 def test_true_h_red_black_control_preserves_actual_state(driver, monkeypatch, algorithm, partial):
     from sjtu_tpmshx.solvers.backends.cpp import full_2d
@@ -243,8 +243,9 @@ def test_candidate_requires_supported_route_and_backend(driver):
     with pytest.raises(ValueError, match='Python numerical backend has been retired'):
         run_case(case, RunControl(backend='python'))
     other = replace(config, fluid_B=replace(config.fluid_B, type='water'))
-    with pytest.raises(ValueError, match='requires the existing true-h route'):
-        driver.run_prepared(*build_execution_inputs(prepare_case(other, case_id='energy2d-route')))
+    raw = driver.run_prepared(*build_execution_inputs(prepare_case(other, case_id='energy2d-route')))
+    assert raw['main']['mode'] == 'model_h'
+    assert raw['main']['true_h'] is None
 
 
 @pytest.mark.parametrize('missing', ['tpmshx_solve_full_2d_v3', 'tpmshx_full_2d_get_energy_evidence_v1'])
@@ -255,7 +256,7 @@ def test_old_library_candidate_capability_fails_before_flow(driver, monkeypatch,
             if name in (missing, 'tpmshx_solve_full_2d_v6'):
                 raise AttributeError(name)
             return getattr(original, name)
-    case = prepare_case(configuration('temperature_fou'), case_id='energy2d-old-library')
+    case = prepare_case(configuration('temperature_sou'), case_id='energy2d-old-library')
     monkeypatch.setattr(driver, 'library', OldAPI())
     with pytest.raises(ValueError, match='lacks conservative energy v3'):
         driver.run_prepared(*build_execution_inputs(case))
@@ -276,8 +277,15 @@ def test_missing_version_query_blocks_candidate_before_solve_but_allows_legacy(d
     def forbidden_candidate(*args):
         pytest.fail('native candidate solve ran before its version capability check')
 
+    def historical_defaults(dimension, selected, water, output):
+        status = original.tpmshx_full_enthalpy_defaults_v1(dimension, 2, water, output)
+        output._obj.algorithm = selected
+        return status
+
     class OldLibrary:
         def __getattr__(self, name):
+            if name == "tpmshx_full_enthalpy_defaults_v1":
+                return historical_defaults
             if name in ('tpmshx_solve_full_2d_v6', 'tpmshx_energy_algorithm_version_v1'):
                 raise AttributeError(name)
             if name == 'tpmshx_solve_full_2d_v2':
@@ -373,7 +381,7 @@ def test_invalid_persisted_options_rejected(algorithm, tolerance):
         prepare_case(cfg, case_id='invalid-energy-options')
 
 
-@pytest.mark.parametrize('algorithm', ['legacy_h_fou', 'temperature_fou', 'temperature_sou'])
+@pytest.mark.parametrize('algorithm', ['temperature_sou'])
 def test_explicit_controls_reach_complete_thermal_calls_and_saved_replay(driver, tmp_path, algorithm):
     config = configuration(algorithm)
     config.solver = replace(config.solver, ltne_enthalpy_outer=12000,
@@ -407,14 +415,14 @@ def test_explicit_controls_reach_complete_thermal_calls_and_saved_replay(driver,
 
 
 
-@pytest.mark.parametrize('algorithm', ['legacy_h_fou', 'temperature_fou', 'temperature_sou'])
+@pytest.mark.parametrize('algorithm', ['temperature_sou'])
 def test_one_explicit_control_preserves_other_route_defaults(driver, algorithm):
     config = configuration(algorithm)
     config.solver = replace(config.solver, ltne_enthalpy_coupled_energy_tol=1e-7)
     case = prepare_case(config, case_id='one-explicit-control-' + algorithm)
     raw = driver.run_prepared(*build_execution_inputs(case))
-    expected = dict(max_iterations=12000, sweeps=3 if algorithm == 'legacy_h_fou' else 5,
-        omega=.2 if algorithm == 'temperature_sou' else .6, update_tol=.001,
+    expected = dict(max_iterations=12000, sweeps=5,
+        omega=.2, update_tol=.001,
         coupled_energy_tol=1e-7, equation_energy_tol=.001,
         require_enthalpy_update_on_temperature=False, driver_abi=6)
     actual = raw['main']['true_h']['effective_settings']
@@ -423,7 +431,7 @@ def test_one_explicit_control_preserves_other_route_defaults(driver, algorithm):
 
 
 def test_explicit_thermal_controls_reject_unavailable_routes_before_flow(driver, monkeypatch):
-    config = configuration('legacy_h_fou')
+    config = configuration('temperature_sou')
     config.solver = replace(config.solver, ltne_enthalpy_nsweep=4)
     case = prepare_case(config, case_id='explicit-energy2d-backend')
     with pytest.raises(ValueError, match='Python numerical backend has been retired'):
@@ -440,3 +448,12 @@ def test_explicit_thermal_controls_reject_unavailable_routes_before_flow(driver,
     monkeypatch.setattr(driver, 'library', OldLibrary())
     with pytest.raises(ValueError, match='lacks explicit energy controls v4'):
         driver.run_prepared(*build_execution_inputs(case))
+
+
+@pytest.mark.parametrize('algorithm', ['legacy_h_fou', 'temperature_fou'])
+def test_retired_algorithm_is_rejected_before_flow(driver, algorithm):
+    case = prepare_case(configuration(algorithm), case_id='retired-energy2d')
+    progress = []
+    with pytest.raises(ValueError, match='energy|enthalpy'):
+        run_case(case, RunControl(backend='cpp', native_library=str(driver.path), progress=progress.append))
+    assert not progress

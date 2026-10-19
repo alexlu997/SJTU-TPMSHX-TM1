@@ -17,7 +17,7 @@ int main() {
         const GridView grid{nx,1,1,v(dx),v(dy),v(dz)};
         const EnthalpySideView a{Fluid::air,370.,2e5,v(pressure),v(eps),v(hv),v(mx_a),v(my),v(mz)};
         const EnthalpySideView b{Fluid::water,300.,2e5,v(pressure),v(eps),v(hv),v(mx_b),v(my),v(mz)};
-        const EnthalpyControl control{1000,5,.6,2e-5,1e-3,1e-3,""};
+        const EnthalpyControl control{1000,5,.6,2e-5,1e-3,1e-3};
         const auto result = solve_enthalpy(grid,a,b,v(ks),{out(ha),out(hb),out(ta),out(tb),out(ts)},control);
         if (result.stop != EnthalpyStop::converged || !result.final_audit
             || !result.final_audit->fluid_equations_computed

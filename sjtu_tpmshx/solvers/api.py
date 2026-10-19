@@ -31,8 +31,6 @@ def run_case(case: CaseData, control: RunControl = RunControl(), *,
         raise ValueError('simple_velocity_relaxation requires full compute with backend=cpp')
     algorithm = settings.get('enthalpy_algorithm', 'legacy_h_fou')
     validate_enthalpy_algorithm(algorithm, settings.get('enthalpy_temperature_tol_K', 1e-8))
-    if algorithm != 'legacy_h_fou' and mode != 'full':
-        raise ValueError('conservative temperature energy currently requires full compute with backend=cpp')
     explicit_energy_gates = any(settings.get(name) is not None for name in (
         'ltne_enthalpy_coupled_energy_tol', 'ltne_enthalpy_equation_energy_tol'))
     require_h = settings.get('require_enthalpy_update_on_temperature', False)

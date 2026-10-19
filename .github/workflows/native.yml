@@ -374,10 +374,10 @@ jobs:
       - name: Fetch locked Eigen headers for native temperature tests
         shell: bash
         run: '"$CI_PYTHON" scripts/build_native_dependencies.py fetch-eigen'
-      - name: Build and run independent C and C++ callers on macOS
+      - name: Build and run independent C++ callers on macOS
         if: runner.os == 'macOS' && matrix.part == 'fast-0'
         run: make -f native/Makefile check
-      - name: Build and run independent C and C++ callers on Windows
+      - name: Build and run independent C++ callers on Windows
         if: runner.os == 'Windows' && matrix.part == 'fast-0'
         shell: cmd
         run: nmake /f native\Makefile.msvc check

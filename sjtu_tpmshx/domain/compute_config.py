@@ -206,8 +206,8 @@ class SolverConfig:
     mom_tol: Optional[float] = None
     mass_local_tol: Optional[float] = None
     mass_global_tol: Optional[float] = None
-    # These energy candidates require a qualified full-flow true-h route.
-    enthalpy_algorithm: Literal['legacy_h_fou', 'temperature_fou', 'temperature_sou'] = 'legacy_h_fou'
+    # Historical IDs remain readable; the selected native library validates execution.
+    enthalpy_algorithm: Literal['legacy_h_fou', 'temperature_fou', 'temperature_sou'] = 'temperature_sou'
     enthalpy_temperature_tol_K: float = 1e-8
     # Optional integral h(T) controls; None keeps the actual route defaults.
     model_h_max_iterations: Optional[int] = None

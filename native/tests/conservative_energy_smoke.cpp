@@ -46,7 +46,7 @@ struct Side {
                Values(nx * ny * (nz + 1))} {}
     FluidView frozen() const {
         return {read(dh), read(cp), read(t_star), read(h), read(hv),
-            read(mass[0]), read(mass[1]), read(mass[2]), h_in, 0., 0.};
+            read(mass[0]), read(mass[1]), read(mass[2]), h_in};
     }
     FluidEnergyView actual(const Values& t) const {
         return {read(h), read(t), read(hv), read(conductivity),

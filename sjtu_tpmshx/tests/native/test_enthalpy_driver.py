@@ -60,14 +60,15 @@ def load_native(path):
         values = [case[key] for key in ("T_inA", "P_A", "T_inB", "P_B", "omega", "tol")]
         values += [case[key] if case[key] is not None else 0.
                    for key in ("coupled_energy_tol", "equation_energy_tol")]
-        status, metrics = (ctypes.c_size_t * 12)(), (ctypes.c_double * 17)()
+        status, metrics = (ctypes.c_size_t * 12)(), (ctypes.c_double * 18)()
         error = ctypes.create_string_buffer(2048)
         code = fn((ctypes.c_size_t * 3)(*shape), pointers, sizes,
                   (ctypes.c_size_t * len(config))(*config),
                   (ctypes.c_double * len(values))(*values), str(table_directory).encode(),
                   status, metrics, error, len(error))
         return dict(code=code, status=tuple(status), metrics=np.array(metrics), h=states[:2],
-                    fields=states[2:], error=error.value.decode())
+                    fields=states[2:], error=error.value.decode(), algorithm='temperature_sou',
+                    temperature_update_K=metrics[17], raw_full_audit=True)
 
     run.lib = lib
     run.path = path
@@ -82,7 +83,6 @@ def enthalpy_native():
         if os.environ.get("TPMSHX_REQUIRE_NATIVE_DEPS_TESTS") == "1" or "TPMSHX_ENTHALPY_DRIVER_LIBRARY" in os.environ:
             pytest.fail(message)
         pytest.skip(message)
-    TABLES.mkdir(parents=True, exist_ok=True)
     return load_native(path)
 
 
@@ -140,12 +140,13 @@ def assert_audited(case, native):
     assert sum(r.sum() for r in residuals) == pytest.approx(measured[2], rel=2e-8, abs=2e-8)
     np.testing.assert_allclose(metric[1:3], measured[:2], rtol=2e-8, atol=2e-8)
     np.testing.assert_allclose(metric[4:6], inlet, rtol=2e-10, atol=2e-5)
-    imbalance = abs(measured[2])/max(*(abs(q) for q in measured[:2]),1e-30)
+    # The ratio uses returned duties; the independent power check above also covers zero duty.
+    imbalance = abs(metric[1]+metric[2])/max(*(abs(q) for q in metric[1:3]),1e-30)
     assert metric[3] == pytest.approx(imbalance, rel=2e-8, abs=2e-8)
     assert np.isfinite(metric[0]) and metric[0] >= 0.
     coupled, equation = (case[key] for key in ('coupled_energy_tol','equation_energy_tol'))
-    assert bool(status[10]) == (coupled is not None or equation is not None)
-    assert bool(status[11]) == (equation is not None)
+    assert bool(status[10]) == (native.get('raw_full_audit', False) or coupled is not None or equation is not None)
+    assert bool(status[11]) == (native.get('raw_full_audit', False) or equation is not None)
     if status[10]:
         np.testing.assert_allclose(metric[6:12], measured[:6], rtol=2e-8, atol=2e-8)
     if status[11]:
@@ -170,8 +171,10 @@ def assert_audited(case, native):
         for index, side in enumerate('AB'):
             warm = case.get('T'+side.lower()+'_init')
             name = {'air':'Air', 'water':'Water', 'co2':'CO2', 'sco2':'CO2'}[case['fluid_'+side]]
-            expected = inlet[index] if warm is None else CP.PropsSI('H', 'T', warm.ravel(),
-                'P', case['pressure_'+side+'_field'].ravel(), name).reshape(warm.shape)
+            temperature = np.full_like(native['fields'][index], case['T_in'+side]) if warm is None else warm
+            np.testing.assert_array_equal(native['fields'][index], temperature)
+            expected = CP.PropsSI('H', 'T', temperature.ravel(),
+                'P', case['pressure_'+side+'_field'].ravel(), name).reshape(temperature.shape)
             np.testing.assert_allclose(native['h'][index],expected,rtol=2e-10,atol=2e-5)
         solid = case.get('Ts_init')
         if solid is None:
@@ -214,17 +217,18 @@ def test_sub274_liquid_warm_enthalpy_is_not_clipped(enthalpy_native):
     assert native["status"][5:7] == (0, 0)
 
 
-def test_equal_temperature_roundoff_clipping_is_preserved(enthalpy_native):
-    # The first qualification exposed this existing zero-duty behavior in
-    # both implementations. Keep its native exit; do not relax the clip gate.
+def test_equal_temperature_keeps_isothermal_state_and_no_clipping(enthalpy_native):
     case = case_data(("water", "water"), shape=(2, 1, 1))
     case.update(T_inA=273.2, T_inB=273.2, P_A=1e5, P_B=1e5, n_outer=3,
                 pressure_A_field=np.full((2, 1, 1), 1e5), pressure_B_field=np.full((2, 1, 1), 1e5),
                 Ta_init=np.full((2, 1, 1), 273.2), Tb_init=np.full((2, 1, 1), 273.2),
                 Ts_init=np.full((2, 1, 1), 273.2))
-    info = assert_audited(case, enthalpy_native(case))
-    assert info["exit_reason"] == "enthalpy_limited"
-    assert sum(info["enthalpy_clip_counts"]["total"]) > 0
+    result = enthalpy_native(case)
+    info = assert_audited(case, result)
+    for temperature in result["fields"]:
+        np.testing.assert_allclose(temperature, 273.2, rtol=0., atol=1e-8)
+    np.testing.assert_allclose(result["metrics"][1:3], 0., rtol=0., atol=1e-8)
+    assert info["enthalpy_clip_counts"]["total"] == [0, 0]
 
 
 @pytest.mark.parametrize("key", ["Ta_init", "Tb_init", "Ts_init"])
@@ -234,14 +238,14 @@ def test_independent_partial_warm_fields(enthalpy_native, key):
     assert_audited(case, enthalpy_native(case))
 
 
-def test_limit_clipping_preserves_native_exit(enthalpy_native):
+def test_large_warm_start_keeps_actual_state_and_iteration_limit(enthalpy_native):
     case = case_data(("air", "air"), shape=(2, 1, 1))
     case.update(Ts_init=np.full((2, 1, 1), 5000.), n_outer=1, n_sweep=1, omega=1.,
                 h_vA_field=np.full((2, 1, 1), 1e9), h_vB_field=np.full((2, 1, 1), 1e9))
     result = enthalpy_native(case)
     info = assert_audited(case, result)
-    assert info["exit_reason"] == "enthalpy_limited"
-    assert sum(info["enthalpy_clip_counts"]["last"]) > 0
+    assert info["exit_reason"] == "iteration_limit"
+    assert info["enthalpy_clip_counts"]["last"] == [0, 0]
 
 
 def test_zero_sweep_budget_keeps_initial_fields(enthalpy_native):
@@ -273,11 +277,11 @@ def test_cancellation_at_chunk_boundaries(enthalpy_native, cancel_at):
     case = case_data(("sco2", "water"))
     result = enthalpy_native(case, cancel_at=cancel_at)
     assert result["code"] == 0 and result["status"][0] == 3
-    assert result["status"][1] == cancel_at//2
+    assert result["status"][1] == (cancel_at-1)//2
     assert result["status"][2] == cancel_at
 
 
-def test_first_cancellation_precedes_tabular_initialization(enthalpy_native):
+def test_first_cancellation_precedes_energy_initialization(enthalpy_native):
     result = enthalpy_native(case_data(("sco2", "water")), cancel_at=1, table_directory="")
     assert result["code"] == 0 and result["status"][0] == 3
     assert result["status"][1:3] == (0, 1)
@@ -294,7 +298,7 @@ def test_water_guard_keeps_stage_and_index(enthalpy_native, stage):
         case["pressure_A_field"] = np.full((2, 1, 1), 1000.)
     native = enthalpy_native(case)
     assert native["code"] == 2
-    assert "enthalpy" in native["error"] and "water" in native["error"]
+    assert "energy" in native["error"] and "water" in native["error"]
     assert "P_abs=" in native["error"]
     if stage != "inlet":
         assert "index=(" in native["error"]
@@ -312,25 +316,16 @@ def test_coupled_only_never_reads_absent_conductivity(enthalpy_native):
     assert np.isnan(values[2:7]).all() and np.isnan(np.array(fluid)).all()
 
 
-def test_native_tables_do_not_mutate_python_coolprop_configuration(enthalpy_native):
+def test_native_eos_does_not_mutate_python_coolprop_configuration(enthalpy_native):
     before = CP.get_config_as_json_string()
     result = enthalpy_native(case_data(("sco2", "water"), shape=(3, 2, 1)))
     assert result["code"] == 0, result["error"]
     assert CP.get_config_as_json_string() == before
 
 
-@pytest.mark.parametrize("path", ["", "relative-tables", str(TABLES.parent / "different-tables")])
-def test_invalid_or_conflicting_table_directory_rejected(enthalpy_native, path):
-    # Establish this library's lifetime configuration before checking conflict.
-    fn = enthalpy_native.lib.test_enthalpy_tables
-    fn.argtypes = [ctypes.c_char_p, ctypes.POINTER(ctypes.c_char), ctypes.c_size_t]
-    error = ctypes.create_string_buffer(1024)
-    assert fn(str(TABLES).encode(), error, len(error)) == 0
-    assert fn(path.encode(), error, len(error)) == 1
-    assert error.value
 
 
-def test_concurrent_first_eos_and_table_use_in_fresh_process(enthalpy_native):
+def test_concurrent_first_eos_use_in_fresh_process(enthalpy_native):
     script = r'''
 import json
 import sys

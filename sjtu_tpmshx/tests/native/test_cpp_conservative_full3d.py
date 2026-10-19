@@ -28,7 +28,7 @@ from sjtu_tpmshx.tests.native.test_native_execution import _config
 
 
 ROOT = Path(__file__).resolve().parents[3]
-ALGORITHMS = ('temperature_fou', 'temperature_sou')
+ALGORITHMS = ('temperature_sou',)
 VERSIONS = {'temperature_fou': 1, 'temperature_sou': 2}
 FACES = ('x-', 'x+', 'y-', 'y+', 'z-', 'z+')
 
@@ -135,7 +135,7 @@ def test_executed_algorithm_and_original_convergence_gates(completed):
     record = result.metadata['execution_record']
     assert record['numerics']['unknown'] == 'T'
     assert record['numerics']['algorithm'] == algorithm
-    assert record['numerics']['face_reconstruction'] == ('FOU' if algorithm == ALGORITHMS[0] else 'h_minmod_outlet_v1')
+    assert record['numerics']['face_reconstruction'] == 'h_minmod_outlet_v1'
     for side in record['sides'].values():
         assert side['energy']['relation'] == ('eos_h_TP' if side['fluid'] in ('co2', 'sco2') else 'integral_cp_T')
     normalization = record['numerics']['enthalpy_update_normalization']
@@ -166,11 +166,11 @@ def test_executed_algorithm_and_original_convergence_gates(completed):
         assert settings['driver_abi'] == 5 and settings['nonlinear_state_update'] == 'per_side_energy_relation'
         assert settings['coupled_energy_tol'] == settings['equation_energy_tol'] == .001
         assert settings['temperature_update_tol_K'] == 1e-8
-        assert settings['enthalpy_face_reconstruction'] == ('FOU' if algorithm == ALGORITHMS[0] else 'h_minmod_outlet_v1')
+        assert settings['enthalpy_face_reconstruction'] == 'h_minmod_outlet_v1'
         assert settings['sweeps'] == 5 and settings['max_iterations'] == 1500
-        assert settings['omega'] == (.6 if algorithm == ALGORITHMS[0] else .2)
-        assert settings['solid_omega'] == (.6 if algorithm == ALGORITHMS[0] else 1.)
-        assert settings['picard_relaxation'] == (1. if algorithm == ALGORITHMS[0] else .6)
+        assert settings['omega'] == .2
+        assert settings['solid_omega'] == 1.
+        assert settings['picard_relaxation'] == .6
         assert np.isfinite(balance['temperature_update_K'])
         assert tuple(balance['enthalpy_clip_counts']['total']) == (0, 0)
         if balance['converged']:
@@ -230,7 +230,7 @@ def test_actual_side_models_six_face_powers_and_postprocess(completed, monkeypat
         mass = native['mass_flux_' + side]
         assert_preserved(mass, result.boundary_fluxes['mass_' + side])
         expected = expected_boundary_power(h, native['h_in_' + side], mass, widths,
-                                          sou=algorithm == ALGORITHMS[1])
+                                          sou=True)
         fou = expected_boundary_power(h, native['h_in_' + side], mass, widths, sou=False)
         powers = native['boundary_power'][side]
         assert set(powers) == set(FACES)
@@ -242,7 +242,7 @@ def test_actual_side_models_six_face_powers_and_postprocess(completed, monkeypat
                 differs_from_fou |= bool(np.any(np.abs(powers[face] - fou[face]) > 1e-8))
         duties[side] = -sum(float(np.sum(plane)) for plane in powers.values())
         assert duties[side] == pytest.approx(result.metadata['diagnostics']['true_h_balance']['Q_' + side], rel=2e-12, abs=1e-10)
-    assert differs_from_fou is (algorithm == ALGORITHMS[1])
+    assert differs_from_fou
 
     def forbidden(*args, **kwargs):
         pytest.fail('candidate duty reconstructed the legacy FOU boundary')
@@ -373,7 +373,7 @@ def test_missing_candidate_native_capability_never_falls_back(native_path, monke
         driver.run_prepared(*build_execution_inputs(candidate(ALGORITHMS[0])))
 
 
-@pytest.mark.parametrize('algorithm', ['legacy_h_fou', *ALGORITHMS])
+@pytest.mark.parametrize('algorithm', ['legacy_h_fou', 'temperature_fou', 'temperature_sou'])
 def test_missing_version_query_blocks_candidate_before_solve_but_allows_legacy(native_path, monkeypatch, algorithm):
     from sjtu_tpmshx.solvers.backends.cpp import full_3d
     original = NativeFull3DDriver(native_path).library
@@ -389,8 +389,15 @@ def test_missing_version_query_blocks_candidate_before_solve_but_allows_legacy(n
     def forbidden_candidate(*args):
         pytest.fail('native candidate solve ran before its version capability check')
 
+    def historical_defaults(dimension, selected, water, output):
+        status = original.tpmshx_full_enthalpy_defaults_v1(dimension, 2, water, output)
+        output._obj.algorithm = selected
+        return status
+
     class OldLibrary:
         def __getattr__(self, name):
+            if name == "tpmshx_full_enthalpy_defaults_v1":
+                return historical_defaults
             if name in ('tpmshx_solve_full_3d_v5', 'tpmshx_energy_algorithm_version_v1'):
                 raise AttributeError(name)
             if name == 'tpmshx_solve_full_3d_v1':
@@ -418,17 +425,16 @@ def test_zero_sweep_budget_retains_true_h_warmup(native_path, algorithm):
     case = candidate(algorithm, cap=2)
     case = replace(case, parameters=dict(case.parameters, ltne_enthalpy_outer=1, ltne_enthalpy_nsweep=0))
     result = run_case(case, control(native_path, cpu_threads=1))
-    legacy = replace(case, parameters=dict(case.parameters, enthalpy_algorithm='legacy_h_fou'))
-    reference = run_case(legacy, control(native_path, cpu_threads=1))
-    assert not result.run_status['converged'] and not reference.run_status['converged']
+    assert not result.run_status['converged']
     balance = result.metadata['diagnostics']['true_h_balance']
     assert balance['energy_algorithm'] == algorithm and balance['exit_reason'] == 'iteration_limit'
     assert balance['iterations'] == balance['effective_settings']['max_iterations'] == 1
     assert balance['effective_settings']['sweeps'] == 0
     assert balance['temperature_update_K'] == 0.
     assert balance['equation_energy_balance']['ratio'] > balance['effective_settings']['equation_energy_tol']
+    # The independent G4/staggered warm-up oracle is in test_full_3d.
     for key in ('Ta', 'Tb', 'Ts'):
-        np.testing.assert_allclose(result.fields[key], reference.fields[key], rtol=1e-10, atol=1e-7)
+        assert np.isfinite(result.fields[key]).all()
 
 
 @pytest.mark.parametrize('algorithm', ALGORITHMS)
@@ -481,8 +487,6 @@ def test_existing_true_h_controls_keep_qualified_state(native_path, monkeypatch,
 
 
 @pytest.mark.parametrize('option, value, message', [
-    ('fluid_type_B', 'water', 'two-sided true-h route'),
-    ('fluid_B_cfg', None, 'two-sided true-h route'),
     ('mms_S_s_field', 1., 'physical sources'),
 ])
 def test_unsupported_native_physical_scope_fails_explicitly(native_path, option, value, message):
@@ -493,7 +497,7 @@ def test_unsupported_native_physical_scope_fails_explicitly(native_path, option,
         driver.run_prepared(cfg, prepared)
 
 
-@pytest.mark.parametrize('backend, mode', [('python', 'full'), ('cpp', 'quick_design')])
+@pytest.mark.parametrize('backend, mode', [('python', 'full')])
 def test_candidate_requires_public_full_cpp_route(native_path, backend, mode):
     prepared = candidate(ALGORITHMS[0])
     prepared = replace(prepared, metadata=dict(prepared.metadata, mode=mode))
@@ -518,7 +522,7 @@ def test_cancel_returns_no_field_result_and_releases_owned_state(native_path, mo
         return len(calls) >= (100 if during else 1)
     monkeypatch.setattr(driver, 'release', tracked)
     with pytest.raises(CancelledError):
-        driver.run_prepared(*build_execution_inputs(candidate(ALGORITHMS[1])), control(native_path, cancel_check=cancel))
+        driver.run_prepared(*build_execution_inputs(candidate(ALGORITHMS[0])), control(native_path, cancel_check=cancel))
     assert len(calls) >= (100 if during else 1)
     assert released == ([None] if during else [])
 
@@ -550,11 +554,15 @@ def test_interrupt_after_candidate_native_return_releases_owner(native_path, mon
     assert released == [None]
 
 
-@pytest.mark.parametrize('algorithm', ['legacy_h_fou', *ALGORITHMS])
-def test_large_grid_packing_keeps_legacy_rb_and_candidate_serial(tmp_path, monkeypatch, algorithm):
+@pytest.mark.parametrize('algorithm,air_sco2', [('legacy_h_fou', True), ('temperature_fou', True),
+    ('temperature_sou', True), ('temperature_sou', False)])
+def test_large_grid_packing_keeps_legacy_rb_and_candidate_serial(tmp_path, monkeypatch, algorithm, air_sco2):
     from sjtu_tpmshx.solvers.backends.cpp import full_3d
 
     config = _config(3, air_sco2=True)
+    if not air_sco2:
+        config.fluid_B.type = 'water'
+        config.fluid_B.P_in_Pa = 2e6
     config = replace(config, solver=replace(config.solver, Nx=32, Ny=32, Nz=32,
                                             enthalpy_algorithm=algorithm))
     prepared = prepare_case(config, case_id='large-grid-control-' + algorithm)
@@ -567,13 +575,13 @@ def test_large_grid_packing_keeps_legacy_rb_and_candidate_serial(tmp_path, monke
         data, settings = args[0]._obj, args[1]._obj
         assert tuple(data.shape) == (32, 32, 32)
         seen.append(settings.red_black_energy)
-        assert settings.red_black_energy == (1 if algorithm == 'legacy_h_fou' else 0)
+        assert settings.red_black_energy == (1 if algorithm == 'legacy_h_fou' or not air_sco2 else 0)
         assert (settings.enthalpy_iterations, settings.enthalpy_sweeps) == (321, 7)
         assert (settings.enthalpy_omega, settings.enthalpy_update_tolerance) == (.4, .002)
         raise EntryCaptured
 
     def defaults(dimension, selected, water, output):
-        assert dimension == 3 and selected == ('legacy_h_fou', *ALGORITHMS).index(algorithm)
+        assert dimension == 3 and selected == ('legacy_h_fou', 'temperature_fou', 'temperature_sou').index(algorithm)
         output._obj.max_iterations, output._obj.sweeps = 321, 7
         output._obj.omega, output._obj.update_tolerance = .4, .002
         return 0
@@ -622,29 +630,27 @@ def test_dispersion_retains_shared_transport_and_energy_models(native_path, monk
 
     runtime = control(native_path, cpu_threads=1)
     driver = NativeFull3DDriver(native_path, table_directory=runtime.native_table_directory)
-    records = {}
-    for algorithm in ('legacy_h_fou', *ALGORITHMS):
-        prepared = candidate(algorithm, pair)
-        cfg, data = build_execution_inputs(prepared)
-        cfg.update(disp_C_A=.01, disp_C_B=.02)
-        raw = driver.run_prepared(cfg, data, runtime)
-        assert raw['converged']
-        records[algorithm] = raw
-        if algorithm in ALGORITHMS:
-            state = raw['true_h']['_native_state']
-            side = 'AB'[integral_side]
-            np.testing.assert_array_equal(state['actual_conductivity_' + side], raw['conductivity'][integral_side])
-            result = capture_result(prepared, cfg, data, raw, driver.abi)
-            with monkeypatch.context() as patch:
-                test_actual_side_models_six_face_powers_and_postprocess((prepared, result), patch)
-    h, t = records['legacy_h_fou'], records['temperature_fou']
-    for actual, expected in zip(t['temperature'], h['temperature']):
-        assert np.max(np.abs(actual - expected)) <= .01
-    for name in ('duty', 'pressure_drop', 'inlet_mass'):
-        for actual, expected in zip(t[name], h[name]):
-            assert abs(actual - expected) <= .001 * max(abs(actual), abs(expected))
-    prepared = candidate('legacy_h_fou', pair)
+    prepared = candidate('temperature_sou', pair)
+    cfg, data = build_execution_inputs(prepared)
+    cfg.update(disp_C_A=.01, disp_C_B=.02)
+    raw = driver.run_prepared(cfg, data, runtime)
+    assert raw['converged']
+    state = raw['true_h']['_native_state']
+    side = 'AB'[integral_side]
+    np.testing.assert_array_equal(state['actual_conductivity_' + side], raw['conductivity'][integral_side])
+    result = capture_result(prepared, cfg, data, raw, driver.abi)
+    with monkeypatch.context() as patch:
+        test_actual_side_models_six_face_powers_and_postprocess((prepared, result), patch)
+    prepared = candidate('temperature_sou', pair)
     cfg, data = build_execution_inputs(prepared)
     baseline = driver.run_prepared(cfg, data, runtime)
     assert baseline['converged']
-    assert np.all(h['conductivity'][integral_side] > baseline['conductivity'][integral_side])
+    assert np.all(raw['conductivity'][integral_side] > baseline['conductivity'][integral_side])
+
+
+@pytest.mark.parametrize('algorithm', ['legacy_h_fou', 'temperature_fou'])
+def test_retired_algorithm_is_rejected_before_flow(native_path, algorithm):
+    progress = []
+    with pytest.raises(ValueError, match='energy|enthalpy'):
+        run_case(candidate(algorithm), control(native_path, progress=progress.append))
+    assert not progress
