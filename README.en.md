@@ -238,7 +238,7 @@ For ordinary computation, set threads under Solver → Compute Resources. Grid s
 If only the x length doubles, start with twice Nx and keep Ny and Nz. Then compare refined results.
 For example, a checked 16×16×16 grid can suggest a 32×16×16 starting grid for the longer domain.
 This rule does not guarantee accuracy. Port/wall refinement uses nonuniform widths. Check actual widths, port positions and both flow directions.
-The geometry calculation suggests counts from dimensions, hydraulic diameter, ports and a total cell limit. It keeps manual grid settings.
+The 3D geometry calculation suggests counts from dimensions, hydraulic diameter, ports and a total cell limit. It keeps manual grid settings.
 The cell limit controls resource use. For new geometry, compare Q, both pressure drops, outlet temperatures and peak solid temperature.
 Keep the original convergence and physical checks. Check changed directions first. A case result applies only to its checked range.
 
