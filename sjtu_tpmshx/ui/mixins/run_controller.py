@@ -220,7 +220,7 @@ class RunControllerMixin:
         return True, est_cells, f"{Nx_u}×{Ny_u}×{Nz_u}"
 
     def _run_calculation_3d(self):
-        """Threaded 3D solve → auto-switch to 3D View tab on success."""
+        """Run a 3D solve and show the selected field on completion."""
         if getattr(self, '_close_pending', False):
             return
         # Re-entrancy guard — same rationale as 2D run_calculation. Without
@@ -235,7 +235,7 @@ class RunControllerMixin:
             return
         # Do not initialise PyVista/VTK on button click. The GL context is
         # expensive and made Compute feel frozen before progress appeared;
-        # finalize_plots_3d creates/populates the panel after the solve.
+        # The first volume-view request creates and fills the panel.
 
         ok, est_cells_r, _cell_label = self._preflight_3d()
         if not ok:
@@ -378,14 +378,10 @@ class RunControllerMixin:
             card.cancel_button.setEnabled(False)
             card.pause_button.setEnabled(False)
         display_started = perf_counter()
-        if self.compute.current_mode() == '3d':
-            from sjtu_tpmshx.ui.background_tasks import prepare_3d
-            prepare_3d(self, lambda: self._present_compute_result(result, display_started))
-        else:
-            self._present_compute_result(result, display_started)
+        self._present_compute_result(result, display_started)
 
     def _present_compute_result(self, result, display_started):
-        """Publish and render after any required 3D imports finish."""
+        """Publish scalars and render the selected field."""
         if getattr(self, '_close_pending', False):
             self._run_provenance = None
             return
@@ -447,87 +443,23 @@ class RunControllerMixin:
         """Render the published result and report presentation success."""
         mode = self.compute.current_mode()
         if mode == '3d':
-            from sjtu_tpmshx.ui.plot_3d_results import finalize_plots_3d
-            # Keep accepted solver data exportable even if rendering fails.
-            _finalize_ok = False
-            _3d_vis_ok = False
-            try:
-                # A successful solve does not imply a populated 3D panel.
-                _3d_vis_ok = bool(finalize_plots_3d(self))
-                _finalize_ok = True
-            except Exception as _fe3d:
-                # If finalise crashes, walk the button text back to a
-                # benign state after this handler returns.
-                # Surface the traceback (the 3D path used to swallow it,
-                # leaving "status bar says done / canvas blank" with no
-                # console clue — matches the 2D path's diagnostics now).
-                import traceback
-                traceback.print_exc()
-                # Renderer failure leaves the valid result available for export.
-                self._3d_view_ready = False
-                self.statusBar().showMessage(
-                    f"3D visualisation failed: {_fe3d!r} — solver finished, "
-                    f"render crashed; check console.", 12000)
-            if not _finalize_ok:
-                return False
-            # View readiness belongs to the panel, not the result cache.
-            self._3d_view_ready = bool(_3d_vis_ok)
-            for _bname in ('btn_export',):
-                if hasattr(self, _bname):
-                    getattr(self, _bname).setEnabled(True)
-            drawn = self.cache.get_drawn_tabs()
-            if _3d_vis_ok:
-                drawn.add('3d')
-            self.cache.replace_drawn_tabs(drawn)
+            from sjtu_tpmshx.ui.plot_2d_results import ensure_result_plot
+            field = self._resolve_2d_view_card()
+            success = ensure_result_plot(self, field)
+            self._rendered_3d_slices = success
             self._update_tab_visibility()
-            if getattr(self, '_rendered_3d_slices', False):
-                self._switch_tab('temp')
-            elif _3d_vis_ok:
-                self._switch_tab('3d')
-            res = self.cache.get_result('3d')
-            # Outer-coupling convergence note: the SIMPLE↔LTNE loop exits
-            # early once max|ΔTa| < tol, so it usually stops before the cap
-            # (e.g. "3/5"). Surface that as "converged after k/N" instead of a
-            # bare count, so the user does not read an early exit as an
-            # unfinished run. len(_ltne_info) = outers actually executed.
-            # B3 C5: res is a ComputeResult — outer-loop metrics live in
-            # res.diagnostics ('_ltne_info' / '_max_outer').
-            def _outer_note(r):
-                try:
-                    d = r.diagnostics
-                    info = d.get('_ltne_info') or []
-                    n_run = len(info)
-                    n_max = int(d.get('_max_outer', n_run) or n_run)
-                    if n_run and n_run < n_max:
-                        return f"  ·  converged after {n_run}/{n_max} outer"
-                    if n_run:
-                        return f"  ·  ran full {n_run}/{n_max} outer (cap)"
-                except Exception:
-                    pass
-                return ""
-            try:
-                if res is not None and _3d_vis_ok:
-                    self.statusBar().showMessage(
-                        f"3D done — Q={res.Q_W:.1f} W  "
-                        f"dP={res.dP_A_Pa:.0f} Pa{_outer_note(res)}", 8000)
-                elif res is not None:
-                    # Solver succeeded but visualisation did not — surface
-                    # explicitly so the user knows numbers are valid but the
-                    # rendered canvas is not.
-                    self.statusBar().showMessage(
-                        f"3D solve done (Q={res.Q_W:.1f} W  "
-                        f"dP={res.dP_A_Pa:.0f} Pa) — visualisation "
-                        f"failed; check console.", 10000)
-                else:
-                    # finalize returned False with no stashed result dict —
-                    # always clear the frozen "outer k/N running" left by the
-                    # last _tick_3d paint so the status bar reflects reality.
-                    self.statusBar().showMessage(
-                        "3D compute finished but produced no result — "
-                        "visualisation unavailable; check console.", 10000)
-            except Exception:
-                pass
-            return True
+            if success:
+                self._switch_tab(field)
+                self.statusBar().showMessage('场图已显示；首次选择三维时加载体视图。', 8000)
+            for key, dialog in getattr(self, '_detached_canvases', {}).items():
+                if key in ('temp', 'pres', 'vel') and dialog.isVisible():
+                    ensure_result_plot(self, key)
+            detached = getattr(self, '_3d_detached_window', None)
+            if detached is not None and detached.isVisible():
+                from PySide6.QtCore import QTimer
+                QTimer.singleShot(0, self, lambda: self._request_3d_view(
+                    lambda: None, background=True))
+            return success
 
         # 2D mode (default).
         # 2026-05-09 — wrap finalize_plots so a panel crash (e.g. NaN
@@ -687,7 +619,7 @@ class RunControllerMixin:
             if success:
                 notices = list(dict.fromkeys((*result.warnings, *result.extrap_reasons)))
                 view_missing = (self.compute.current_mode() == '3d'
-                                and not getattr(self, '_3d_view_ready', False))
+                                and getattr(self, '_3d_view_error', False))
                 state = ('unconverged' if not result.converged else
                          'warning' if notices or view_missing else 'success')
                 if state == 'unconverged':

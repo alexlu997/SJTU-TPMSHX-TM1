@@ -294,6 +294,17 @@ def _build_canvas_toolbar(window, vlay, t, theme):
     toolbar.addWidget(window.btn_tab_result)
     toolbar.addWidget(window._field_phase_seg)
     toolbar.addWidget(window._2d_field_seg)
+    window.chk_shared_flow_scale = QCheckBox("速度/压力共用色阶")
+    window.chk_shared_flow_scale.setToolTip(
+        "默认按当前流体的完整场定标，切换截面保持范围。勾选后 A/B 使用同一范围。")
+    def _set_flow_scale(shared):
+        from .plot_2d_results import redraw_result_fields
+        redraw_result_fields(window)
+        panel = getattr(window, 'canvas_3d', None)
+        if panel is not None:
+            panel.set_shared_flow_scale(shared)
+    window.chk_shared_flow_scale.toggled.connect(_set_flow_scale)
+    toolbar.addWidget(window.chk_shared_flow_scale)
     # Context control: hidden until a 2D field card is active (the
     # _switch_tab handler flips it per tab).
     window._2d_field_seg.hide()
@@ -853,13 +864,13 @@ def _build_canvas_content(window, vlay, t):
     window._canvas_scroll = QScrollArea()
     window._canvas_scroll.setWidgetResizable(True)
     window._canvas_scroll.setStyleSheet(
-        f"QScrollArea{{border:none; background:{_t['scroll_bg']};}}"
+        f"QScrollArea{{border:none; background:{_t['bg']};}}"
         + t.style('SCROLLBAR'))
     window._canvas_scroll.setHorizontalScrollBarPolicy(
         Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
     canvas_container = QWidget()
-    canvas_container.setStyleSheet(f"background:{_t['scroll_bg']};")
+    canvas_container.setStyleSheet(f"background:{_t['bg']};")
     # QGridLayout backs the card area (single column; a planned two-column
     # re-pack was never built — stale _relayout_cards reference removed
     # ui-batch2. Wide-aspect field plots stack correctly in one column).
@@ -977,7 +988,7 @@ def _build_canvas_content(window, vlay, t):
             card.setStyleSheet("QFrame#plotCard{background:transparent; border:none;}")
         else:
             card.setStyleSheet(
-                f"QFrame#plotCard{{background:{_t['card_bg']};"
+                f"QFrame#plotCard{{background:{_t['fig_bg']};"
                 f"border:1px solid {_t['card_border']}; border-radius:{RADIUS_CARD}px;}}")
         card_lay = QVBoxLayout(card)
         if key == '3d':
@@ -988,7 +999,7 @@ def _build_canvas_content(window, vlay, t):
         elif key == 'pareto':
             card_lay.setContentsMargins(12, 12, 12, 12)
         else:
-            card_lay.setContentsMargins(16, 16, 16, 16)
+            card_lay.setContentsMargins(8, 8, 8, 8)
         card_lay.setSpacing(0)
         # Paint only the static outer chrome: no graphics effect on a large
         # Matplotlib/PyVista surface or blur over scientific field values.

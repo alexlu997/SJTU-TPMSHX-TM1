@@ -9,7 +9,9 @@ from matplotlib.ticker import MaxNLocator, ScalarFormatter
 
 # Theme — resolved at call time via get_theme()
 from sjtu_tpmshx.ui.theme import get_theme as _get_theme
-from sjtu_tpmshx.ui.theme import FIELD_CMAP
+from sjtu_tpmshx.ui.theme import FIELD_CMAP, FLOW_CMAP
+from .vis3d_constants import field_color_limits
+from .matplotlib_canvas import style_colorbar
 
 from sjtu_tpmshx.logutil import get_logger
 
@@ -21,7 +23,7 @@ _log = get_logger(__name__)
 
 
 def finalize_plots_3d(window) -> bool:
-    """Push 3D fields into the embedded panel + mid-z slices to 2D canvases.
+    """Populate the requested 3D panel from the accepted result.
 
     Returns
     -------
@@ -85,6 +87,8 @@ def finalize_plots_3d(window) -> bool:
             _Tb_for_panel = f.get('Tb') if _has_B else None
             _vmag_B_for_panel = f.get('vmag_B') if _has_B else None
             _P_B_for_panel = P_B_kPa if _has_B else None
+            panel._shared_flow_scale = bool(getattr(window, 'chk_shared_flow_scale', None)
+                                             and window.chk_shared_flow_scale.isChecked())
             panel.set_fields(
                 Ta=f['Ta'],
                 Tb=_Tb_for_panel,
@@ -122,19 +126,6 @@ def finalize_plots_3d(window) -> bool:
             import traceback; traceback.print_exc()
             _log.warning(f"[3D vis] set_fields failed: {e}")
             _3d_vis_ok = False
-
-    # ── 2. 2D canvases: auto mid-z slice (keeps Temperature/Pressure/Velocity
-    #       tabs relevant under 3D mode) ──
-    import os as _os_3d_fin
-    window._rendered_3d_slices = False
-    if (hasattr(window, '_field_phase')
-            or _os_3d_fin.environ.get('TPMSHX_EAGER_3D_SLICES', '0') == '1'):
-        _render_2d_slices_from_3d(window, res, field='temp')
-        window._rendered_3d_slices = window.cache.is_drawn('temp')
-        from .plot_2d_results import ensure_result_plot
-        for field, dialog in getattr(window, '_detached_canvases', {}).items():
-            if field in ('temp', 'pres', 'vel') and dialog.isVisible():
-                ensure_result_plot(window, field)
 
     return _3d_vis_ok
 
@@ -213,6 +204,22 @@ def _render_2d_slices_from_3d(window, res, field=None):
                 kwargs['unit'] = unit
                 sync = getattr(window, 'chk_sync_colorbar_T', None)
                 kwargs['sync'] = sync is None or sync.isChecked()
+                full_t = [Ta, Tb, Ts]
+                limits = field_color_limits(full_t, kwargs['sync'])
+                if unit == '°C':
+                    limits = [(lo - 273.15, hi - 273.15) for lo, hi in limits]
+                kwargs['color_limits'] = limits
+            else:
+                control = getattr(window, 'chk_shared_flow_scale', None)
+                shared = control is not None and control.isChecked()
+                if key == 'pres':
+                    full_fields = [P_Pa / 1000] + ([P_Pa_B / 1000] if has_B else [])
+                else:
+                    full_fields = [np.sqrt(uc**2 + vc**2 + wc**2)]
+                    if has_B:
+                        full_fields.append(np.sqrt(uc_B**2 + vc_B**2 + wc_B**2))
+                kwargs['color_limits'] = field_color_limits(full_fields, shared)
+                kwargs['shared'] = shared
             fn(canvas, *args, **kwargs)
             if attr == 'canvas_temp':
                 fields = [Ta[:, :, k_mid], Tb[:, :, k_mid], Ts[:, :, k_mid]]
@@ -293,7 +300,7 @@ def _style_axis(ax, xlabel='x [mm]', ylabel='y [mm]', title='',
 
 
 def _plot_3d_temperature(canvas, Ta_slice, Tb_slice, Ts_slice, xc, yc, z_info,
-                         phase=None, unit='K', sync=True):
+                         phase=None, unit='K', sync=True, color_limits=None):
     """3-panel temperature (Ta / Tb / Ts) on mid-z slice.
 
     All three panels share a single (vmin, vmax) so the slice colorscale
@@ -326,12 +333,13 @@ def _plot_3d_temperature(canvas, Ta_slice, Tb_slice, Ts_slice, xc, yc, z_info,
             vmax = float(max(a.max() for a in scale_fields))
             if vmax - vmin < 1e-12:
                 vmax = vmin + 1.
-        cf = ax.contourf(X, Y, field, levels=256, cmap=FIELD_CMAP,
+        if color_limits is not None:
+            vmin, vmax = color_limits[index]
+        cf = ax.contourf(X, Y, field, levels=np.linspace(vmin, vmax, 129), cmap=FIELD_CMAP,
                           vmin=vmin, vmax=vmax)
         cb = canvas.fig.colorbar(cf, ax=ax, shrink=0.85, aspect=18,
                                 format=ScalarFormatter(useOffset=False))
-        cb.ax.tick_params(labelsize=11, colors=_T['ax_text'])
-        cb.ax.yaxis.set_major_locator(MaxNLocator(nbins='auto'))
+        style_colorbar(cb, _T)
         _style_axis(ax, title=title)
         # Equal aspect preserves geometric proportion (e.g. Shanghai 182×42 mm
         # is not square; default 'auto' stretches it to fill the axis box and
@@ -350,98 +358,50 @@ def _plot_3d_temperature(canvas, Ta_slice, Tb_slice, Ts_slice, xc, yc, z_info,
 
 
 def _plot_3d_pressure(canvas, P_slice_A, P_slice_B, xc, yc, dP_A, dP_B, z_info,
-                      phase=None):
-    """Pressure panels. If P_slice_B is None → single panel (A only, B frozen).
-
-    A/B panels share one (vmin, vmax) so the same color reads as the same
-    pressure across panels. Independent autoscale (matplotlib default) makes
-    a 1 kPa B field look as red as a 100 kPa A field, which is misleading
-    when both panels share the GUI colormap.
-    """
-    _T = _get_theme()
-    if P_slice_B is None:
-        P_data = [(P_slice_A, 'A', dP_A)]
-    else:
-        P_data = [(P_slice_A, 'A', dP_A), (P_slice_B, 'B', dP_B)]
-    if phase is not None:
-        P_data = [P_data[min(phase, len(P_data) - 1)]]
-    axes = np.atleast_1d(_begin_canvas_plot(canvas, 1, len(P_data)))
+                      phase=None, color_limits=None, shared=False):
+    """Show absolute pressure with explicit, stable per-fluid limits."""
+    theme = _get_theme()
+    fields = [P_slice_A / 1000.] + ([P_slice_B / 1000.] if P_slice_B is not None else [])
+    limits = color_limits or field_color_limits(fields, shared)
+    indices = range(len(fields)) if phase is None else [min(phase, len(fields) - 1)]
+    axes = np.atleast_1d(_begin_canvas_plot(canvas, 1, len(indices)))
     Y, X = np.meshgrid(yc, xc)
-    # Shared clim across all panels (kPa).
-    p_min_kpa = float(P_slice_A.min()) / 1000.0
-    p_max_kpa = float(P_slice_A.max()) / 1000.0
-    if P_slice_B is not None:
-        p_min_kpa = min(p_min_kpa, float(P_slice_B.min()) / 1000.0)
-        p_max_kpa = max(p_max_kpa, float(P_slice_B.max()) / 1000.0)
-    if p_max_kpa - p_min_kpa < 1e-12:
-        p_max_kpa = p_min_kpa + 1.0
-    for ax, (p, tag, dp) in zip(axes, P_data):
-        # levels=256 matches turbo's 256 distinct colours exactly — finer
-        # banding than the prior 128 (which under-sampled the cmap by half),
-        # still well below the wasteful 512 (2026-05-20 perf note).
-        cf = ax.contourf(X, Y, p / 1000.0, levels=256, cmap=FIELD_CMAP,
-                          vmin=p_min_kpa, vmax=p_max_kpa)
-        cb = canvas.fig.colorbar(cf, ax=ax, shrink=0.9, aspect=25,
-                                format=ScalarFormatter(useOffset=False))
-        cb.ax.tick_params(labelsize=11, colors=_T['ax_text'])
-        cb.ax.yaxis.set_major_locator(MaxNLocator(nbins='auto'))
-        title = f'$P_{tag}$ [kPa] — Fluid {tag}'
-        if phase is None:
-            title += f'\n3D {z_info}   ' + rf'$|\Delta P|$ = {dp:.0f} Pa'
-        _style_axis(ax, title=title)
-        try:
-            ax.set_aspect('equal')
-        except Exception:
-            pass
+    for ax, index in zip(axes, indices):
+        lo, hi = limits[index]
+        cf = ax.contourf(X, Y, fields[index], levels=np.linspace(lo, hi, 129),
+                         cmap=FLOW_CMAP, vmin=lo, vmax=hi)
+        cb = canvas.fig.colorbar(cf, ax=ax, shrink=.9, aspect=25)
+        style_colorbar(cb, theme)
+        tag = ('A', 'B')[index]
+        scale = 'A/B shared' if shared else 'Full range'
+        _style_axis(ax, title=f'P abs [kPa] — Fluid {tag} · {scale}', title_size=11)
+        ax.set_aspect('equal')
     if not canvas.fig.get_constrained_layout():
-        canvas.fig.subplots_adjust(left=0.11, right=0.96, top=0.86, bottom=0.14,
-                                    wspace=0.25)
+        canvas.fig.subplots_adjust(left=.11, right=.96, top=.86, bottom=.14, wspace=.25)
     canvas.draw()
 
 
 def _plot_3d_velocity_slice(canvas, uA, vA, wA, uB, vB, wB, xc, yc, z_info,
-                           phase=None):
-    """Velocity magnitude panels. If uB is None → single panel (A only).
-
-    A/B panels share one vmax (vmin pinned at 0) so cross-flow B running
-    at 0.5 m/s does not look as bright as A running at 5 m/s under the
-    same GUI colormap. Mirrors the panel's `_share(('vmag','vmag_B'))`
-    clim convention.
-    """
-    _T = _get_theme()
-    if uB is None:
-        V_data = [(uA, vA, wA, 'A')]
-    else:
-        V_data = [(uA, vA, wA, 'A'), (uB, vB, wB, 'B')]
-    indices = list(range(len(V_data))) if phase is None else [min(phase, len(V_data) - 1)]
+                           phase=None, color_limits=None, shared=False):
+    """Show speed without compressing the slower fluid's color range."""
+    theme = _get_theme()
+    vectors = [(uA, vA, wA)] + ([(uB, vB, wB)] if uB is not None else [])
+    fields = [np.sqrt(u**2 + v**2 + (w**2 if w is not None else 0.))
+              for u, v, w in vectors]
+    limits = color_limits or field_color_limits(fields, shared)
+    indices = range(len(fields)) if phase is None else [min(phase, len(fields) - 1)]
     axes = np.atleast_1d(_begin_canvas_plot(canvas, 1, len(indices)))
     Y, X = np.meshgrid(yc, xc)
-    # Pre-compute |v| so we can pick a shared vmax across panels.
-    vmags = []
-    for u, v, w, _tag in V_data:
-        ww = w if w is not None else np.zeros_like(u)
-        vmags.append(np.sqrt(u ** 2 + v ** 2 + ww ** 2))
-    vmax_v = max(float(vm.max()) for vm in vmags)
-    if vmax_v <= 0.0:
-        vmax_v = 1.0
     for ax, index in zip(axes, indices):
-        vmag = vmags[index]
-        u, v, w, tag = V_data[index]
-        cf = ax.contourf(X, Y, vmag, levels=256, cmap=FIELD_CMAP,
-                          vmin=0.0, vmax=vmax_v)
-        cb = canvas.fig.colorbar(cf, ax=ax, shrink=0.9, aspect=25,
-                                format=ScalarFormatter(useOffset=False))
-        cb.ax.tick_params(labelsize=11, colors=_T['ax_text'])
-        cb.ax.yaxis.set_major_locator(MaxNLocator(nbins='auto'))
-        title = f'|v| (m/s) — Fluid {tag}'
-        if phase is None:
-            title += f' — 3D {z_info}'
-        _style_axis(ax, title=title)
-        try:
-            ax.set_aspect('equal')
-        except Exception:
-            pass
+        lo, hi = limits[index]
+        cf = ax.contourf(X, Y, fields[index], levels=np.linspace(lo, hi, 129),
+                         cmap=FLOW_CMAP, vmin=lo, vmax=hi)
+        cb = canvas.fig.colorbar(cf, ax=ax, shrink=.9, aspect=25)
+        style_colorbar(cb, theme)
+        tag = ('A', 'B')[index]
+        scale = 'A/B shared' if shared else 'Full range'
+        _style_axis(ax, title=f'|v| [m/s] — Fluid {tag} · {scale}', title_size=11)
+        ax.set_aspect('equal')
     if not canvas.fig.get_constrained_layout():
-        canvas.fig.subplots_adjust(left=0.11, right=0.96, top=0.86, bottom=0.14,
-                                    wspace=0.25)
+        canvas.fig.subplots_adjust(left=.11, right=.96, top=.86, bottom=.14, wspace=.25)
     canvas.draw()

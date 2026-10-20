@@ -16,6 +16,7 @@ def draw_layout(window):
         QMessageBox.warning(window, "Input Error",
                             "Fill Domain fields first."); return
 
+    window.canvas_layout._preview_axes = None
     window.canvas_layout.fig.clear()
     Lmm, Hmm = L * 1000, H * 1000
     _t = get_theme()
@@ -31,6 +32,8 @@ def draw_layout(window):
                                 "Fill Lz field first."); return
         ax = window.canvas_layout.fig.add_subplot(111, projection='3d')
         window.canvas_layout.axes = [[ax]]
+        window.canvas_layout._preview_axes = ax
+        window.canvas_layout.setToolTip('左键拖动旋转；滚轮缩放')
         draw_layout_rect_3d(window, ax, L, H, Lz)
         ax.set_facecolor(_t['fig_bg'])
     else:

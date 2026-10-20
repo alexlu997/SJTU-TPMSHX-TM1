@@ -84,7 +84,9 @@ def test_converged_outside_range_result_keeps_design_rejection_in_gui_and_export
     assert result.converged and result.metadata['qualification']['design']['eligible'] is False
     win.write_result(result)
     win._update_result_summary()
-    assert win._sb_labels['design'].text() == '未通过 ⚠'
+    assert win._sb_labels['design'].text().startswith('未通过 ⚠：')
+    assert '超范围' in win._sb_labels['design'].toolTip()
+    assert '允许' in win._diag_summary_text()
     assert win._sb_labels['extrap'].text() == '未通过 ⚠'
     assert '设计资格：不合格' in win._diag_summary_text()
     path = tmp_path / 'range-rejected.csv'

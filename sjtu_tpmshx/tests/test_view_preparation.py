@@ -73,8 +73,12 @@ def test_pending_result_publishes_once_and_remains_exportable(
         write(value)
 
     monkeypatch.setattr(win, 'write_result', publish)
-    monkeypatch.setattr('sjtu_tpmshx.ui.plot_3d_results.finalize_plots_3d',
-                        lambda window: not window._vis3d_import_error)
+    def render(window):
+        if window._vis3d_import_error:
+            return False
+        window.canvas_3d = QWidget(window)
+        return True
+    monkeypatch.setattr('sjtu_tpmshx.ui.plot_3d_results.finalize_plots_3d', render)
     win.compute._mode = '3d'
     win._active_preset_name = 'prepared-original'
     win._on_orch_started('3d')
@@ -82,21 +86,26 @@ def test_pending_result_publishes_once_and_remains_exportable(
         imports.error = ImportError('view module unavailable')
     win._on_orch_finished(result)
     win._on_orch_finished(result)
+    assert published == [result] and not win._compute_running
+    assert not imports.entered.is_set()
+    accepted = win.cache.get_result('3d')
+    assert accepted is not result and accepted.Q_W == result.Q_W
+    assert accepted.fields['Ta'] is result.fields['Ta'] and win.btn_export.isEnabled()
+    assert not win._3d_view_ready and win._active_tab == 'temp'
+    assert accepted.metadata['timings_s']['display'] > 0
+    assert accepted.metadata['run_provenance']['preset_source'] == 'prepared-original'
+    win._switch_tab('3d')
     _wait_for(imports.entered.is_set)
-    assert not published and win._compute_running
-    assert not win.btn_compute.isEnabled()
+    assert win.cache.get_result('3d') is accepted and win.btn_export.isEnabled()
+    assert win._active_tab == 'temp'
     win._active_preset_name = 'changed-draft'
     win.le_TinA.setText('444')
     imports.release.set()
     _wait_for(lambda: not background_tasks.has_active_tasks(win))
-    assert published == [result] and not win._compute_running
-    accepted = win.cache.get_result('3d')
-    assert accepted is not result and accepted.Q_W == result.Q_W
-    assert accepted.fields['Ta'] is result.fields['Ta'] and win.btn_export.isEnabled()
     assert win._3d_view_ready is not failure
-    assert accepted.metadata['timings_s']['display'] > 0
-    assert accepted.metadata['run_provenance']['preset_source'] == 'prepared-original'
+    assert win._active_tab == ('temp' if failure else '3d')
     assert win.le_TinA.text() == '444'
+    assert accepted.metadata['timings_s']['volume_display'] > 0
     _assert_export(win, monkeypatch, tmp_path / 'accepted.csv', accepted)
     if failure:
         assert 'view module unavailable' in win._vis3d_import_error
@@ -128,6 +137,26 @@ def test_optional_preinit_reports_import_failure(win, imports):
     _wait_for(lambda: not background_tasks.has_active_tasks(win))
     assert win.canvas_3d is None
     assert 'view module unavailable' in win.statusBar().currentMessage()
+
+
+def test_split_request_waits_for_volume_without_losing_primary_field(win, imports, monkeypatch):
+    win.write_result(_result('3d'))
+    win._rendered_3d_slices = True
+    win._switch_tab('temp')
+
+    def render(window):
+        window.canvas_3d = QWidget(window)
+        return True
+
+    monkeypatch.setattr('sjtu_tpmshx.ui.plot_3d_results.finalize_plots_3d', render)
+    win._split_with_current('3d')
+    _wait_for(imports.entered.is_set)
+    assert win._active_tab == 'temp'
+    imports.release.set()
+    _wait_for(lambda: not background_tasks.has_active_tasks(win))
+    assert win._3d_view_ready
+    assert win._split_tabs == ['temp', '3d']
+    assert win._active_tab == 'temp'
 
 
 @pytest.mark.parametrize('change', ['new_data', 'other_tab', 'no_data'])
@@ -175,3 +204,23 @@ def test_optimization_reads_current_fields_after_shared_imports(
     if change == 'other_tab':
         win._opt_result_tabs.setCurrentWidget(win._opt_3d_host)
         assert len(created) == 1 and created[0].fields == {'marker': 'current'}
+
+
+@pytest.mark.parametrize('change', ['new_result', 'other_tab', 'no_result'])
+def test_deferred_volume_does_not_show_an_obsolete_request(win, imports, monkeypatch, change):
+    win.write_result(_result('3d'))
+    calls = []
+    monkeypatch.setattr('sjtu_tpmshx.ui.plot_3d_results.finalize_plots_3d',
+                        lambda window: calls.append(window.cache.get_result('3d')))
+    win._switch_tab('3d')
+    _wait_for(imports.entered.is_set)
+    if change == 'new_result':
+        win.write_result(_result('3d'))
+    elif change == 'other_tab':
+        win._switch_tab('layout')
+    else:
+        win.cache.clear()
+    imports.release.set()
+    _wait_for(lambda: not background_tasks.has_active_tasks(win))
+    assert not calls and not win._3d_view_ready
+    assert win._requested_3d_result is None

@@ -8,10 +8,11 @@ from __future__ import annotations
 
 from math import isfinite
 
-from .theme import FIELD_CMAP
+from .theme import FIELD_CMAP, FLOW_CMAP
+import numpy as np
 
 # Display order + per-field rendering metadata.
-# Physical and design fields share the GUI colormap.
+# Speed and pressure use a sequential map; other fields keep the GUI map.
 FIELD_ORDER = [
     'Ta', 'Tb', 'Ts',
     'vmag', 'vmag_B',
@@ -29,19 +30,35 @@ FIELD_META = {
                 'label': 'Temperature B'},
     'Ts':      {'cmap': FIELD_CMAP, 'title': 'Ts (K)',          'fmt': '%.1f',
                 'label': 'Temperature Solid'},
-    'vmag':    {'cmap': FIELD_CMAP, 'title': 'speed A (m/s)',   'fmt': '%.2f',
+    'vmag':    {'cmap': FLOW_CMAP, 'title': 'speed A (m/s)',   'fmt': '%.2f',
                 'label': 'Velocity A'},
-    'vmag_B':  {'cmap': FIELD_CMAP, 'title': 'speed B (m/s)',   'fmt': '%.2f',
+    'vmag_B':  {'cmap': FLOW_CMAP, 'title': 'speed B (m/s)',   'fmt': '%.2f',
                 'label': 'Velocity B'},
-    'P_kPa':   {'cmap': FIELD_CMAP, 'title': 'PA abs (kPa)',    'fmt': '%.1f',
+    'P_kPa':   {'cmap': FLOW_CMAP, 'title': 'PA abs (kPa)',    'fmt': '%.1f',
                 'label': 'Pressure A'},
-    'P_B_kPa': {'cmap': FIELD_CMAP, 'title': 'PB abs (kPa)',    'fmt': '%.1f',
+    'P_B_kPa': {'cmap': FLOW_CMAP, 'title': 'PB abs (kPa)',    'fmt': '%.1f',
                 'label': 'Pressure B'},
     'L_mm':    {'cmap': FIELD_CMAP, 'title': 'L (mm)',          'fmt': '%.2f',
                 'label': 'Design L'},
     't_mm':    {'cmap': FIELD_CMAP, 'title': 't (mm)',          'fmt': '%.3f',
                 'label': 'Wall thickness t'},
 }
+
+
+def field_color_limits(fields, shared=False):
+    """Use complete field ranges; keep constant fields readable."""
+    limits = [(float(np.min(a)), float(np.max(a))) for a in fields]
+    if shared:
+        limits = [(min(lo for lo, hi in limits), max(hi for lo, hi in limits))] * len(limits)
+    return [(lo, hi if hi > lo else lo + max(abs(lo) * 1e-6, 1e-9))
+            for lo, hi in limits]
+
+
+def field_tick_format(limits):
+    """Keep adjacent labels distinct on narrow physical ranges."""
+    step = (limits[1] - limits[0]) / 4
+    digits = max(0, int(np.ceil(-np.log10(step))) + 1)
+    return f'%.{digits}f'
 
 
 def validate_color_range_state(state):

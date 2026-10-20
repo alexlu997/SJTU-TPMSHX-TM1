@@ -21,13 +21,15 @@ def run_window(win, monkeypatch, tmp_path):
     win.le_Ny.setText('18')
     win.le_Nz.setText('5')
 
-    def render(window):
-        return False  # Offscreen 3D panel; scalar publication still succeeds.
+    def render(window, **kwargs):
+        return False  # These tests check scalar publication without a renderer.
 
     monkeypatch.setattr(win, '_finalize_plots',
                         lambda: RunResultsMixin._finalize_plots(win))
     monkeypatch.setattr('sjtu_tpmshx.ui.plot_2d_results.finalize_plots', render)
     monkeypatch.setattr('sjtu_tpmshx.ui.plot_3d_results.finalize_plots_3d', render)
+    monkeypatch.setattr('sjtu_tpmshx.ui.plot_2d_results.ensure_result_plot',
+                        lambda window, field: True)
     return win
 
 

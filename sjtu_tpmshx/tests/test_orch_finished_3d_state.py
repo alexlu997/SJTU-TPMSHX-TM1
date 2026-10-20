@@ -64,6 +64,9 @@ class _DummyWindow(RunControllerMixin, RunResultsMixin):
     def _update_tab_visibility(self):
         pass
 
+    def _resolve_2d_view_card(self):
+        return 'temp'
+
     def _switch_tab(self, _name):
         pass
 
@@ -81,14 +84,14 @@ class _DummyWindow(RunControllerMixin, RunResultsMixin):
 
 
 def _run_finished(win, finalize_behavior):
-    """Drive Main_Menu._on_orch_finished with finalize_plots_3d patched."""
+    """Drive Main_Menu._on_orch_finished with ensure_result_plot patched."""
     import sjtu_tpmshx.main as main
     if isinstance(finalize_behavior, BaseException):
-        def _fb(_w):
+        def _fb(_w, _field):
             raise finalize_behavior
-        patch_fin = patch('sjtu_tpmshx.ui.plot_3d_results.finalize_plots_3d', _fb)
+        patch_fin = patch('sjtu_tpmshx.ui.plot_2d_results.ensure_result_plot', _fb)
     else:
-        patch_fin = patch('sjtu_tpmshx.ui.plot_3d_results.finalize_plots_3d',
+        patch_fin = patch('sjtu_tpmshx.ui.plot_2d_results.ensure_result_plot',
                           return_value=finalize_behavior)
     with patch_fin:
         main.Main_Menu._on_orch_finished(win, win.cache.get_result('3d'))
@@ -96,7 +99,7 @@ def _run_finished(win, finalize_behavior):
 
 
 def test_3d_finalize_crash_gates_tab_off_but_keeps_result():
-    """When ``finalize_plots_3d`` raises, the 3D View tab must be gated off
+    """When ``ensure_result_plot`` raises, the 3D View tab must be gated off
     (``_3d_view_ready`` False) — but the valid solver result must SURVIVE so it
     stays exportable (U1: was destroyed via the result-nulling bridge)."""
     win = _DummyWindow()
@@ -111,13 +114,14 @@ def test_3d_finalize_crash_gates_tab_off_but_keeps_result():
     assert win.cache.get_result('3d') is not None, "finalize crash destroyed the 3D result"
 
 
-def test_3d_finalize_success_marks_view_ready_and_keeps_result():
-    """Happy path: finalize returns True → tab ready + result present."""
+def test_3d_slice_success_keeps_volume_deferred_and_result_exportable():
+    """Slice publication does not require a volume renderer."""
     win = _DummyWindow()
 
     _run_finished(win, True)
 
-    assert getattr(win, '_3d_view_ready', False) is True
+    assert not win._3d_view_ready
+    assert win._rendered_3d_slices and win._end_compute_ui_success
     assert win.cache.get_result('3d') is not None
 
 
