@@ -388,7 +388,6 @@ def refresh_field_controls(window):
     if card is not None:
         card.setVisible((not optimizing and not focused) or getattr(window, '_compute_running', False))
     window._result_view_switch.setVisible(not optimizing)
-    window.btn_export.setVisible(not optimizing)
     if optimizing:
         from .optimize_panel import refresh_setup
         refresh_setup(window)

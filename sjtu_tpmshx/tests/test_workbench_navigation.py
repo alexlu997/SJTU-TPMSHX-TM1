@@ -256,6 +256,56 @@ def test_optimization_page_buttons_work_by_keyboard_and_public_edit_keeps_values
     assert win.le_Nx.text() == '37'
 
 
+@pytest.mark.parametrize('collapsed', [False, True])
+def test_optimization_session_restores_saved_parameter_width(win, monkeypatch, collapsed):
+    win._splitter.setSizes([450, 850])
+    QApplication.processEvents()
+    width = win._parameter_host.width()
+    if collapsed:
+        win._set_parameter_panel_collapsed(True)
+    win._switch_tab('pareto')
+    QApplication.processEvents()
+    saved = {}
+    monkeypatch.setattr(win.sm, 'save_session', lambda payload, ws: saved.update(payload) or True)
+    assert win._save_session()
+    assert saved['ui_state']['parameter_width'] == width
+    assert saved['ui_state']['left_collapsed'] == collapsed
+    win._switch_tab('layout')
+    win._set_parameter_panel_collapsed(False)
+    win._splitter.setSizes([320, 980])
+    # Keep the test viewport; offscreen screen geometry must not clamp it.
+    saved.pop('geometry')
+    monkeypatch.setattr(win.sm, 'load_session', lambda ws: saved)
+    win._restore_session()
+    QApplication.processEvents()
+    assert win._active_tab == 'pareto' and win._left_collapsed == collapsed
+    win._switch_tab('layout')
+    win._set_parameter_panel_collapsed(False)
+    QApplication.processEvents()
+    assert win._parameter_host.width() == width
+
+
+def test_optimization_figure_menu_keeps_copy_and_export_reachable(win, monkeypatch):
+    from types import SimpleNamespace
+    from PySide6.QtGui import QGuiApplication
+    from PySide6.QtWidgets import QInputDialog
+    from sjtu_tpmshx.ui.optimize_panel import show_pareto
+    from sjtu_tpmshx.tests.test_optimize_panel_wiring import report
+    win._switch_tab('pareto')
+    show_pareto(win, report(win))
+    QApplication.processEvents()
+    assert win.btn_export.isVisibleTo(win) and win.btn_export.isEnabled()
+    copied, choices = [], []
+    monkeypatch.setattr(QGuiApplication, 'clipboard', lambda: SimpleNamespace(setImage=copied.append))
+    monkeypatch.setattr(QInputDialog, 'getItem',
+                        lambda parent, title, prompt, items, *args: (choices.extend(items) or '', False))
+    actions = {action.text(): action for action in win.btn_export.menu().actions()}
+    actions['复制当前图像'].trigger()
+    assert len(copied) == 1 and not copied[0].isNull()
+    actions['导出图像 — PNG / SVG / PDF'].trigger()
+    assert 'Pareto / 优化' in choices
+
+
 def test_long_condition_text_keeps_narrow_launch_controls_reachable(win):
     from PySide6.QtCore import QPoint
     from sjtu_tpmshx.ui.optimize_panel import refresh_setup
