@@ -107,7 +107,10 @@ def _fake_batches(monkeypatch, *, fail_indices=(), baseline_failure=False, cance
 
 
 @pytest.mark.parametrize('dimension', [2, 3])
-def test_prescribed_flow_replaces_stale_speed_before_validation_and_archive(tmp_path, monkeypatch, dimension):
+@pytest.mark.parametrize('cut', [None, 'baseline', 'initial'])
+def test_prescribed_flow_replaces_stale_speed_before_validation_and_archive(tmp_path, monkeypatch, dimension, cut):
+    from threading import Event
+    from sjtu_tpmshx.domain.paused_run import PausedRun
     from sjtu_tpmshx.preprocess.api import prepare_case
     from sjtu_tpmshx.preprocess.inlet_flow import total_inlet_mass_capacity
 
@@ -121,8 +124,21 @@ def test_prescribed_flow_replaces_stale_speed_before_validation_and_archive(tmp_
     with pytest.raises(ValueError):
         stale.validate()
     calls = _fake_batches(monkeypatch)
-    result = search.run_multi_condition_optimization([('fixed-flow', stale, *targets)],
-        output_dir=tmp_path / 'study', method='sobol', n_init=1, n_iter=0, workers=1)
+    pause = Event()
+    def update(state):
+        if state['report']['stage'] == cut:
+            pause.set()
+    def run():
+        return search.run_multi_condition_optimization([('fixed-flow', stale, *targets)],
+            output_dir=tmp_path / 'study', method='sobol', n_init=1, n_iter=0, workers=1,
+            on_update=update, pause_check=pause.is_set)
+    if cut is None:
+        result = run()
+    else:
+        with pytest.raises(PausedRun):
+            run()
+        result = search.resume_multi_condition_optimization(tmp_path / 'study/optimization.json',
+            output_dir=tmp_path / 'resumed', workers=1)
     archived = result['conditions'][0]
     restored = ComputeConfig.from_dict(archived['config'])
     assert [restored.fluid_A.u_mps, restored.fluid_B.u_mps] == pytest.approx([10., .1])

@@ -23,7 +23,9 @@ from sjtu_tpmshx.domain.paused_run import PausedRun
 from sjtu_tpmshx.io.text_file import write_text
 from sjtu_tpmshx.logutil import get_logger
 from sjtu_tpmshx.models.continuous_field import decision_bounds, decision_dim
-from sjtu_tpmshx.optimization.multi_condition import _condition_worker_count, _evaluate_condition_batch
+from sjtu_tpmshx.optimization.multi_condition import (
+    _condition_worker_count, _evaluate_condition_batch, _saved_condition_config,
+)
 from sjtu_tpmshx.domain.portable_data import mutable_data
 
 
@@ -176,7 +178,7 @@ def resume_multi_condition_optimization(checkpoint_file, *, output_dir, control=
     frozen = json.loads(source.with_name('optimization-input.json').read_text(encoding='utf-8'))
     if frozen.get('format') != 'optimization_v1':
         raise ValueError('saved search does not have a supported fixed input')
-    conditions = [(row['condition_id'], ComputeConfig.from_dict(row['config']),
+    conditions = [(row['condition_id'], _saved_condition_config(row),
                    row['mass_flow_A_kg_s'], row['mass_flow_B_kg_s']) for row in frozen['conditions']]
     return _run_multi_condition_optimization(conditions, output_dir=destination, control=control,
         workers=workers, on_update=on_update, pause_check=pause_check,
@@ -233,6 +235,9 @@ def _run_multi_condition_optimization(
             raise TypeError('condition config must be ComputeConfig')
         if not np.all(np.isfinite([flow_a, flow_b])) or min(flow_a, flow_b) <= 0:
             raise ValueError('total mass flows must be finite and positive')
+        config.zones = ZoneInputConfig()
+        config.fluid_A.mass_flow_kg_s = flow_a
+        config.fluid_B.mass_flow_kg_s = flow_b
     config = inputs[0][1]
     dimension = 3 if config.is_3d else 2
     frozen = ('geometry', 'solver', 'bc_A', 'bc_B', 'flags', 'df_mode',
@@ -471,10 +476,9 @@ def _run_multi_condition_optimization(
         if record['baseline']['status'] != 'completed':
             record['baseline']['status'] = 'running'
         publish()
-        uniform = [(name, replace(cfg, zones=ZoneInputConfig()), a, b) for name, cfg, a, b in inputs]
         batch_started = perf_counter()
         try:
-            baseline = evaluate_batch(uniform, 'baseline', 0)
+            baseline = evaluate_batch(inputs, 'baseline', 0)
         finally:
             record['baseline']['elapsed_s'] = record['baseline'].get('elapsed_s', 0.) + perf_counter() - batch_started
             batch_started = None
@@ -485,7 +489,7 @@ def _run_multi_condition_optimization(
         # Resolve replayable speeds only after the baseline has retained each
         # condition's preparation/solve outcome, including invalid target flows.
         inputs = tuple((name, ComputeConfig.from_dict(mutable_data(
-            baseline['summaries'][name]['config_snapshot'])), a, b) for name, _, a, b in uniform)
+            baseline['summaries'][name]['config_snapshot'])), a, b) for name, _, a, b in inputs)
         for archived, (_, cfg, _, _) in zip(record['conditions'], inputs):
             archived['config'] = cfg.to_dict()
         record['stage'] = 'initial'

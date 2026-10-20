@@ -436,9 +436,10 @@ def run_optimize(window, *, resume_file=None):
             params = {key: spin.value() for key, spin in window._opt_inline_params.items()}
             method = window._opt_method.currentData()
         else:
+            from sjtu_tpmshx.optimization.multi_condition import _saved_condition_config
             frozen = json.loads(Path(resume_file).with_name('optimization-input.json').read_text(encoding='utf-8'))
             rows = frozen['conditions']
-            cfg = ComputeConfig.from_dict(rows[0]['config'])
+            cfg = _saved_condition_config(rows[0])
             spec, method = frozen['field_spec'], frozen['method']
             params = {key: frozen[key] for key in ('n_init', 'n_iter', 'q_batch', 'seed')}
             params['resume_file'] = resume_file

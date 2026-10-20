@@ -23,6 +23,25 @@ from sjtu_tpmshx.postprocess import api as postprocess
 from sjtu_tpmshx.solvers import api as execution
 
 
+def test_batch_recovery_parses_prescribed_flow_before_old_speed(tmp_path):
+    from sjtu_tpmshx.domain.paused_run import PausedRun
+    from sjtu_tpmshx.tests.test_multi_condition_optimizer import _conditions as search_conditions
+    name, config, a, b = search_conditions(3)[0]
+    config.df_mode = 'experimental'
+    config.fluid_A.u_mps = .001
+    with pytest.raises(ValueError):
+        config.validate()
+    source = tmp_path / 'source'
+    with pytest.raises(PausedRun):
+        batch._evaluate_condition_batch([(name, config, a, b)], output_dir=source,
+            workers=1, pause_check=lambda: True)
+    with pytest.raises(CancelledError):
+        batch.resume_condition_batch(source / 'batch.json', output_dir=tmp_path / 'continued',
+            workers=1, control=RunControl(cancel_check=lambda: True))
+    saved = json.loads((tmp_path / 'continued/batch.json').read_text())
+    assert saved['status'] == 'cancelled' and saved['conditions'][0]['status'] == 'not_run'
+
+
 def _conditions(count=3):
     config = ComputeConfig(
         geometry=GeometryConfig(L_dom_m=.04, H_dom_m=.04, Lz_m=.02,

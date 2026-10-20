@@ -1,5 +1,6 @@
 """Fixed-flow preparation and equal-weight multi-condition objectives."""
 from collections.abc import Sequence
+from copy import deepcopy
 from dataclasses import asdict, replace
 import json
 from math import fsum, isfinite
@@ -256,6 +257,14 @@ def evaluate_condition_batch(
                                      control=control, collect_fields=True, workers=workers)
 
 
+def _saved_condition_config(row):
+    """Parse prescribed flow; preparation still validates the resolved speeds."""
+    data = deepcopy(row['config'])
+    for side in 'AB':
+        data['fluid_'+side]['mass_flow_kg_s'] = row[f'mass_flow_{side}_kg_s']
+    return ComputeConfig.from_dict(data)
+
+
 def resume_condition_batch(batch_file, *, output_dir, control=RunControl(backend='cpp'), workers=None):
     """Keep completed members and continue saved native states in a new batch."""
     from sjtu_tpmshx.io.result_io import load_result
@@ -266,7 +275,7 @@ def resume_condition_batch(batch_file, *, output_dir, control=RunControl(backend
     if record.get('format') != 'condition_batch_v1' or record.get('backend') != 'cpp':
         raise ValueError('batch recovery requires a saved native condition batch')
     inputs = json.loads((path.parent / 'batch-input.json').read_text(encoding='utf-8'))
-    conditions = [(row['condition_id'], ComputeConfig.from_dict(row['config']),
+    conditions = [(row['condition_id'], _saved_condition_config(row),
                    row['mass_flow_A_kg_s'], row['mass_flow_B_kg_s']) for row in inputs]
     if [row[0] for row in conditions] != [row['condition_id'] for row in record['conditions']]:
         raise ValueError('saved batch input and condition membership differ')
@@ -360,7 +369,7 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
                 or tuple(row['condition_id'] for row in source_inputs) != ids):
             raise ValueError('saved batch input and condition membership differ')
         for (_, config, a, b), saved in zip(inputs, source_inputs):
-            requested, archived = config.to_dict(), ComputeConfig.from_dict(saved['config']).to_dict()
+            requested, archived = config.to_dict(), _saved_condition_config(saved).to_dict()
             for settings in (requested, archived):
                 for side in 'AB':
                     settings['fluid_'+side].update(u_mps=None, mass_flow_kg_s=None)
@@ -633,6 +642,13 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
                     except BaseException as caught:
                         error = caught
                         cancel.set()
+            if isinstance(error, PausedRun):
+                try:
+                    control.check_cancelled()
+                except BaseException as caught:
+                    for note in getattr(error, '__notes__', ()):
+                        caught.add_note(note)
+                    error = caught
             if error is not None:
                 raise error
         finally:

@@ -1,14 +1,45 @@
 """Search recovery keeps proposal identity, used budget and original evidence."""
 import json
+from dataclasses import asdict
 from threading import Event
 
 import numpy as np
 import pytest
 
 from sjtu_tpmshx.domain.module_ports import RunControl
+from sjtu_tpmshx.domain.compute_config import ZoneInputConfig
 from sjtu_tpmshx.domain.paused_run import PausedRun
 from sjtu_tpmshx.optimization import multi_condition_optimizer as search
 from sjtu_tpmshx.tests.test_multi_condition_optimizer import _conditions, _fake_batches, _manifest
+
+
+@pytest.mark.parametrize('enabled', [False, True])
+@pytest.mark.parametrize('cut', ['baseline', 'initial'])
+def test_resume_normalizes_existing_continuous_field_before_freezing_input(
+        tmp_path, monkeypatch, enabled, cut):
+    _fake_batches(monkeypatch)
+    conditions = _conditions()[:1]
+    config = conditions[0][1]
+    config.zones = ZoneInputConfig(enabled=enabled, axis='continuous', config=dict(
+        n_ctrl_x=2, n_ctrl_y=2, symmetric_y=False, spline_order=1,
+        L_bounds=[4., 8.], t_bounds=[.3, .6], x_decision=[6.]*4+[.4]*4))
+    config.validate()
+    before = asdict(config)
+    pause = Event()
+    source = tmp_path / 'source'
+    def update(state):
+        if state['report']['stage'] == cut:
+            pause.set()
+    with pytest.raises(PausedRun):
+        search.run_multi_condition_optimization(conditions, output_dir=source,
+            method='sobol', n_init=2, n_iter=0, workers=1,
+            pause_check=pause.is_set, on_update=update)
+    frozen = json.loads((source / 'optimization-input.json').read_text())
+    assert frozen['conditions'][0]['config']['zones'] == asdict(ZoneInputConfig())
+    result = search.resume_multi_condition_optimization(source / 'optimization.json',
+        output_dir=tmp_path / 'resumed', workers=1)
+    assert result['status'] == 'completed' and result['n_usable'] == 2
+    assert asdict(config) == before
 
 
 @pytest.mark.parametrize('cut', ['baseline', 'initial', 'model_fit', 'proposal', 'evaluation', 'saving'])

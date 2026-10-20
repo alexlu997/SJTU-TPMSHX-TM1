@@ -176,6 +176,40 @@ def test_process_pause_drains_workers_and_cancel_takes_precedence(tmp_path, monk
     assert resumed['status'] == 'completed' and len(resumed['results']) == 3
     assert resumed['results'][0][1].metadata['test_resumed_step'] >= 1
 
+
+@pytest.mark.parametrize('whole_search', [False, True])
+def test_cancel_after_final_paused_worker_is_published(tmp_path, monkeypatch, whole_search):
+    from multiprocessing import active_children
+    from sjtu_tpmshx.optimization import multi_condition_optimizer as search
+    monkeypatch.setattr(batch, '_run_native_condition', _analytic_worker)
+    conditions = _conditions()
+    conditions[0] = ('pause', *conditions[0][1:])
+    pause, cancel = [], []
+    def iteration(message):
+        if message == 'pause':
+            pause.append(True)
+    def update(state):
+        rows = state['conditions'] if whole_search else state
+        if sum(row['status'] == 'paused' for row in rows) == 2:
+            cancel.append(True)
+    root = tmp_path / 'cancelled'
+    options = dict(output_dir=root, workers=2, on_update=update,
+        pause_check=lambda: bool(pause), control=_control(tmp_path, iteration=iteration,
+            cancel_check=lambda: bool(cancel)))
+    with pytest.raises(CancelledError):
+        if whole_search:
+            search.run_multi_condition_optimization(conditions, method='sobol',
+                n_init=1, n_iter=0, **options)
+        else:
+            batch._evaluate_condition_batch(conditions, **options)
+    assert cancel
+    batch_root = root / 'baseline' if whole_search else root
+    assert json.loads((batch_root / 'batch.json').read_text())['status'] == 'cancelled'
+    if whole_search:
+        assert json.loads((root / 'optimization.json').read_text())['status'] == 'cancelled'
+    assert not active_children()
+
+
 @pytest.mark.parametrize('workers', [0, -1, True, 1.5])
 def test_invalid_worker_count_creates_no_archive(tmp_path, workers):
     root = tmp_path / 'invalid'

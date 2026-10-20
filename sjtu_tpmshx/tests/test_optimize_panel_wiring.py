@@ -56,14 +56,25 @@ def test_worker_pause_requires_saved_terminal_status(window, tmp_path, monkeypat
     worker.deleteLater()
 
 
-def test_resume_button_uses_saved_input_and_restores_idle_controls(window, tmp_path, monkeypatch):
+@pytest.mark.parametrize('stale_speed', [False, True])
+def test_resume_button_uses_saved_input_and_restores_idle_controls(window, tmp_path, monkeypatch, stale_speed):
     from PySide6.QtWidgets import QFileDialog
     from sjtu_tpmshx.optimization import multi_condition_optimizer as search
     from sjtu_tpmshx.tests.gui_worker_support import _wait_for
     from sjtu_tpmshx.tests.test_multi_condition_optimizer import _conditions, _fake_batches
     calls = _fake_batches(monkeypatch)
     source = tmp_path / 'source'
-    expected = search.run_multi_condition_optimization(_conditions()[:1], output_dir=source,
+    conditions = _conditions()[:1]
+    if stale_speed:
+        from sjtu_tpmshx.preprocess.api import prepare_inlet_mass_capacities
+        name, config, _, _ = conditions[0]
+        config.df_mode = 'experimental'
+        capacity = prepare_inlet_mass_capacities(config)
+        conditions = [(name, config, capacity['A']*10., capacity['B']*.1)]
+        config.fluid_A.u_mps = .001
+        with pytest.raises(ValueError):
+            config.validate()
+    expected = search.run_multi_condition_optimization(conditions, output_dir=source,
         method='sobol', n_init=2, n_iter=0, workers=1)
     monkeypatch.setattr(panel, '_gather_cfg', lambda _: pytest.fail('recovery read current widgets'))
     monkeypatch.setattr(panel, 'optimization_output_dir', lambda: tmp_path)
