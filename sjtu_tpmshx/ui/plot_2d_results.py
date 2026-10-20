@@ -11,7 +11,6 @@ Public entry points (consumed by ``ui.mixins.run_controller`` and ``main``):
     plot_temperature_3panel(window, r, _t) — the shared T_fA/T_fB/T_s helper
 """
 import numpy as np
-import matplotlib.pyplot as plt
 from matplotlib.ticker import ScalarFormatter
 
 from .theme import FIELD_CMAP, FLOW_CMAP

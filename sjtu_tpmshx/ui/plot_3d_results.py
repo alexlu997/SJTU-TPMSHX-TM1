@@ -5,7 +5,7 @@ without modifying solver output. Panel readiness is separate from data presence.
 """
 from __future__ import annotations
 import numpy as np
-from matplotlib.ticker import MaxNLocator, ScalarFormatter
+from matplotlib.ticker import ScalarFormatter
 
 # Theme — resolved at call time via get_theme()
 from sjtu_tpmshx.ui.theme import get_theme as _get_theme

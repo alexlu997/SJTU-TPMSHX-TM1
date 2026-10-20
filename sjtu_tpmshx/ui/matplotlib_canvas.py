@@ -3,7 +3,6 @@
 Extracted from main.py (Task B.2). Figures use the active theme tokens.
 """
 import numpy as np
-import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.ticker import LinearLocator, ScalarFormatter
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
