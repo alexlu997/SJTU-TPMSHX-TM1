@@ -50,7 +50,9 @@ def field_color_limits(fields, shared=False):
     limits = [(float(np.min(a)), float(np.max(a))) for a in fields]
     if shared:
         limits = [(min(lo for lo, hi in limits), max(hi for lo, hi in limits))] * len(limits)
-    return [(lo, hi if hi > lo else lo + max(abs(lo) * 1e-6, 1e-9))
+    # Leave room for distinct contour levels in fields at rounding precision.
+    return [(lo, hi if hi - lo > max(abs(lo), abs(hi), 1.) * np.finfo(float).eps * 256
+             else lo + max(abs(lo) * 1e-6, 1e-9))
             for lo, hi in limits]
 
 

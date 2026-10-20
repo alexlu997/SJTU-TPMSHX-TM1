@@ -39,8 +39,6 @@ follow the read timing stated below.
   ``models/tpms_props.py`` (``chi_s_eff`` reads the override on each call).
 - ``TPMSHX_DISABLE_3D_PANEL`` (0) — skip PyVista panel;
   ``ui/builders_canvas.py``.
-- ``TPMSHX_EAGER_3D_SLICES`` (0) — precompute 3D slices;
-  ``ui/plot_3d_results.py``.
 - ``TPMSHX_PARALLEL_THRESHOLD`` (200000) — native parallel-sweep cell gate;
   ``solvers/backends/cpp/full_3d.py`` reads it for each native call.
 - ``TPMSHX_PHASE_A/C`` (1/0) — adaptive AMG / coarse bootstrap.

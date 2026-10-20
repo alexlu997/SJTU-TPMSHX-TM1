@@ -97,11 +97,34 @@ def test_volume_and_slice_scale_use_original_cells():
     assert field_color_limits([np.zeros(3)])[0][1] > 0
 
 
-def test_qualification_reason_preserves_rejection_and_deduplicates_nu():
+@pytest.mark.parametrize('mode', ['2d', '3d'])
+@pytest.mark.parametrize('field,value', [('temp', 300.), ('vel', 1.), ('pres', 100000.)])
+def test_nearly_uniform_fields_still_render(win, mode, field, value):
+    result = _result(mode)
+    keys = {'temp': ('Ta', 'Tb', 'Ts'), 'vel': ('ucA', 'ucB'),
+            'pres': ('P_fA', 'P_fB')}[field]
+    for key in keys:
+        result.fields[key][:] = value
+        result.fields[key].flat[0] = np.nextafter(value, np.inf)
+    if field == 'vel':
+        for key in ('vcA', 'vcB', 'wcA', 'wcB'):
+            if key in result.fields:
+                result.fields[key][:] = 0.
+    win.write_result(result)
+    win._field_phase = 0
+    assert ensure_result_plot(win, field)
+    contour = getattr(win, 'canvas_' + field).axes[0][0].collections[0]
+    assert np.all(np.diff(contour.levels) > 0)
+    assert contour.get_clim()[1] > contour.get_clim()[0]
+
+
+def test_qualification_reason_preserves_rejection_and_distinguishes_nu_inputs():
     from sjtu_tpmshx.ui.mixins.run_results import qualification_reasons
     q = {'design': {'status': 'rejected', 'reasons': ['applicability']},
          'applicability': {'checks': [
              {'passed': False, 'side': 'B', 'source': [key, 'water', 'Gyroid'],
               'quantity': 'Re', 'group': 'final'} for key in ('nu_raw', 'nu')]}}
-    assert qualification_reasons(q) == ['B 侧 Nu 水 Gyroid Re 超范围']
+    assert qualification_reasons(q) == [
+        'B 侧 Nu（原始输入） 水 Gyroid Re 超范围',
+        'B 侧 Nu（计算输入） 水 Gyroid Re 超范围']
     assert q['design']['status'] == 'rejected'

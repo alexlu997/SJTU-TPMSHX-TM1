@@ -27,8 +27,8 @@ def qualification_reasons(qualification, evidence=None):
             if row.get('passed') is True:
                 continue
             source = row.get('source', [])
-            source = ['Nu' if item in ('nu', 'nu_raw') else
-                      {'water': '水', 'air': '空气'}.get(item, item) for item in source]
+            source = [{'nu_raw': 'Nu（原始输入）', 'nu': 'Nu（计算输入）',
+                       'water': '水', 'air': '空气'}.get(item, item) for item in source]
             text = f"{row.get('side', '?')} 侧 {' '.join(source)} {row.get('quantity', '')}"
             text += ' 超范围' if row.get('passed') is False else ' 未核实'
             for sample in (evidence or {}).get(row.get('group'), []):
