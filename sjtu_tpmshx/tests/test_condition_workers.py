@@ -46,6 +46,15 @@ def _analytic_worker(index, case_file, directory, library, threads, checkpoint_f
             sleep(crash_delay_s)
             os._exit(17)
         inputs = json.loads((Path(directory).parent / 'batch-input.json').read_text())
+        if inputs[0]['condition_id'] == 'pause' and index < 2 and resume_state is None:
+            deadline = monotonic()+10.
+            while monotonic() < deadline:
+                control.check_cancelled()
+                if checkpoint_due():
+                    checkpoint({'build': 'analytic-worker', 'state.phase': np.array([6], dtype=np.uint64),
+                                'step': np.array([step+2], dtype=np.uint64)})
+                sleep(.01)
+            raise TimeoutError('The parent did not pause the test worker.')
         waits_for_cancel = label == 'stop' or (label == 'mid' and inputs[0]['condition_id'] in ('stop', 'crash'))
         if waits_for_cancel and resume_state is None:
             deadline = monotonic()+10.
@@ -135,6 +144,37 @@ def test_process_cancel_keeps_checkpoint_and_unrun_members(tmp_path, monkeypatch
     assert record['conditions'][2]['status'] == 'not_run'
     assert all(row['status'] not in ('running', 'computed') for row in record['conditions'])
 
+
+@pytest.mark.parametrize('cancel_after_pause', [False, True])
+def test_process_pause_drains_workers_and_cancel_takes_precedence(tmp_path, monkeypatch, cancel_after_pause):
+    from multiprocessing import active_children
+    from sjtu_tpmshx.domain.paused_run import PausedRun
+    monkeypatch.setattr(batch, '_run_native_condition', _analytic_worker)
+    conditions = _conditions()
+    conditions[0] = ('pause', *conditions[0][1:])
+    pause_requested, pause_seen = [], []
+    def iteration(message):
+        if message == 'pause':
+            pause_requested.append(True)
+    def pause_check():
+        if pause_requested:
+            pause_seen.append(True)
+        return bool(pause_requested)
+    root = tmp_path / 'paused'
+    with pytest.raises(CancelledError if cancel_after_pause else PausedRun):
+        batch._evaluate_condition_batch(conditions, output_dir=root, workers=2,
+            pause_check=pause_check, control=_control(tmp_path, iteration=iteration,
+                cancel_check=lambda: cancel_after_pause and bool(pause_seen)))
+    record = json.loads((root / 'batch.json').read_text())
+    assert record['status'] == ('cancelled' if cancel_after_pause else 'paused')
+    assert record['conditions'][2]['status'] == 'not_run'
+    assert all(row['status'] not in ('running', 'computed') for row in record['conditions'])
+    assert (root / record['conditions'][0]['checkpoint_file']).is_file()
+    assert not active_children()
+    resumed = batch.resume_condition_batch(root / 'batch.json', output_dir=tmp_path / 'continued',
+        workers=2, control=_control(tmp_path))
+    assert resumed['status'] == 'completed' and len(resumed['results']) == 3
+    assert resumed['results'][0][1].metadata['test_resumed_step'] >= 1
 
 @pytest.mark.parametrize('workers', [0, -1, True, 1.5])
 def test_invalid_worker_count_creates_no_archive(tmp_path, workers):

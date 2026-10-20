@@ -385,6 +385,8 @@ Shanghai Gyroid air-A/water-B 的 `df_mode="experimental"` 也支持连续场，
 
 `optimization.multi_condition_optimizer.run_multi_condition_optimization` 以相同随机初始设计和评估预算比较 qLogNEHVI、qLogNParEGO、Sobol。只拟合完整接受批次，最大化 `(heat_gain_percent, -pressure_ratio)`，保存完整决策向量、场定义、工况、失败和原生批次路径。BO 依赖可选，在物理评估前检查。桌面继承当前 ComputeConfig，接受固定质量流量表，并不经平均恢复完整选择场。有限预算 Pareto 集是模型趋势；最终候选须全工况与网格检查，并据新结果重算目标。nTop CSV API 以可往返浮点精度导出 XY/XYZ 坐标和完整控制来源。
 
+新搜索在数值执行前将固定输入写入 `optimization-input.json`。`resume_multi_condition_optimization` 将它与搜索记录及当前依赖版本比较，检查初始 Sobol 序列、已保存提案、历史顺序、目标和固定的初始参考点。续算先将完整源目录复制到新目录，再进入同一搜索循环。完成批次核验已有证据，不重复求解；失败观察保持失败；未完成工况经批次恢复继续。未完成工况在已复制批次内使用新的工况目录，旧检查点继续保留，因此准备过程中再次暂停仍可恢复。已保存提案保持原决策和预算，仅重新生成尚未保存的提案。暂停使用独立于取消的事件；父进程停止提交新工况，等待活动工作进程保存检查点。等待暂停时取消优先。终态写入成功后，UI 才报告已保存的暂停状态。
+
 原生完整三维控制器持有活动外循环状态。每步准备局部换热／输运，求解 temperature/model-h 或 true-h 热启动与焓，分离原生热证据，再记录诊断并检查收敛。未收敛 post 依次刷新 A 流动、热物性、B 流动；保留 A/B 不同温度／物性顺序。model-h 质量面在温度面平衡前捕获；true-h 独立平衡并投影质量输运。逐调用输入不变为持久迭代状态。原生热快照与 post 更新的导热率、热容和最终 SIMPLE 数组分离。
 
 迭代标签、三维进度和 SIMPLE 上限日志使用本次实际限制。三维默认外预算 12，`fast_sweep` 为 3；进度标识进入迭代，不是耗时比例或收敛证明。应用流水线为准备和发布保留独立进度区间，在必需阶段返回后才报告完成。

@@ -56,20 +56,27 @@ def _fake_batches(monkeypatch, *, fail_indices=(), baseline_failure=False, cance
     expected_workers = workers
 
     def evaluate(conditions, *, output_dir, baseline=None, control=RunControl(), workers=1,
-                 on_update=None):
+                 on_update=None, pause_check=None, resume_from=None, keep_failed=False):
         assert control.backend == backend and workers == expected_workers
         directory = Path(output_dir)
-        directory.mkdir()
-        index = len(calls)-1  # First call is the extra uniform baseline.
-        calls.append((conditions, baseline, directory))
+        directory.mkdir(exist_ok=resume_from is not None)
+        index = -1 if baseline is None else int(directory.name.removeprefix('design_'))
+        previous = resume_from[1] if resume_from is not None else None
+        reused = previous is not None and previous['status'] == 'completed'
+        if not reused:
+            calls.append((conditions, baseline, directory))
         (directory / 'native-evidence.txt').write_text('test evaluator evidence; no physical solve')
         control.report_progress(0)
         # A new numerical phase can restart its local percentage.
         control.report_progress(60)
         control.report_progress(20)
         if on_update is not None:
-            on_update([dict(condition_id=name, status='running', stage='solve', reason=None)
+            on_update([dict(condition_id=name, status='running', stage='reuse' if reused else 'solve', reason=None)
                        for name, *_ in conditions])
+        if pause_check is not None and pause_check():
+            from sjtu_tpmshx.domain.paused_run import PausedRun
+            (directory / 'batch.json').write_text(json.dumps(dict(status='paused')))
+            raise PausedRun(directory / 'batch.json')
         if baseline is None:
             assert all(not cfg.zones.enabled for _, cfg, _, _ in conditions)
             if not baseline_failure:

@@ -9,6 +9,7 @@ from dataclasses import asdict, replace
 from importlib import import_module
 import json
 from pathlib import Path
+import shutil
 from time import perf_counter
 
 import numpy as np
@@ -18,6 +19,7 @@ from scipy.stats import qmc
 from sjtu_tpmshx.domain.cancellation import CancelledError
 from sjtu_tpmshx.domain.compute_config import ComputeConfig, ZoneInputConfig
 from sjtu_tpmshx.domain.module_ports import RunControl
+from sjtu_tpmshx.domain.paused_run import PausedRun
 from sjtu_tpmshx.io.text_file import write_text
 from sjtu_tpmshx.logutil import get_logger
 from sjtu_tpmshx.models.continuous_field import decision_bounds, decision_dim
@@ -97,9 +99,95 @@ def _propose_bo(X, Y, lower, upper, ref_point, *, method, q_batch, seed, on_stag
     return lower + candidates.detach().cpu().numpy()*(upper-lower)
 
 
+def _check_saved_search(record, frozen, designs, lower, upper):
+    for key, value in frozen.items():
+        if key == 'conditions':
+            current, saved = deepcopy(record[key]), deepcopy(value)
+            for rows in (current, saved):
+                for row in rows:
+                    for side in 'AB':
+                        row['config']['fluid_'+side].update(u_mps=None, mass_flow_kg_s=None)
+            if current != saved:
+                raise ValueError('saved search conditions differ from the fixed input')
+        elif record.get(key) != value:
+            raise ValueError(f'saved search {key} differs from the fixed input')
+    n_init, q_batch = frozen['n_init'], frozen['q_batch']
+    budget = n_init + frozen['n_iter']*q_batch
+    if (record['design_budget'] != budget or record['baseline']['directory'] != 'baseline'
+            or record['initial_designs'] != designs[:n_init].tolist()):
+        raise ValueError('saved search budget, baseline or initial designs differ')
+    decisions = [(0, x) for x in designs[:n_init].tolist()]
+    if len(record['proposals']) > frozen['n_iter']:
+        raise ValueError('saved search has too many proposals')
+    for iteration, proposal in enumerate(record['proposals'], 1):
+        values = np.asarray(proposal['x_decisions'], dtype=float)
+        if (proposal['iteration'] != iteration or values.shape != (q_batch, len(lower))
+                or not np.isfinite(values).all() or np.any(values < lower) or np.any(values > upper)):
+            raise ValueError('saved proposal identity or bounds differ')
+        if frozen['method'] == 'sobol':
+            start = n_init + (iteration-1)*q_batch
+            if not np.array_equal(values, designs[start:start+q_batch]):
+                raise ValueError('saved Sobol proposals differ from the seeded sequence')
+        decisions.extend((iteration, x) for x in values.tolist())
+    if len(record['history']) > len(decisions):
+        raise ValueError('saved history exceeds the proposed design budget')
+    states = {'not_run', 'running', 'completed', 'failed', 'paused', 'cancelled'}
+    for index, (row, (iteration, decision)) in enumerate(zip(record['history'], decisions)):
+        if (row['index'] != index or row['directory'] != f'design_{index:04d}'
+                or row['iteration'] != iteration or row['x_decision'] != decision
+                or row['status'] not in states):
+            raise ValueError('saved history differs from the proposed design sequence')
+        if row['status'] == 'completed':
+            y = [row['objectives']['heat_gain_percent'], -row['objectives']['pressure_ratio']]
+            if row['model_y'] != y or not np.isfinite(y).all():
+                raise ValueError('saved objectives differ from the model observations')
+        elif row['objectives'] is not None or row['model_y'] is not None:
+            raise ValueError('unfinished or failed design has usable observations')
+    initial = [row['model_y'] for row in record['history'][:n_init] if row['status'] == 'completed']
+    if record['ref_point'] is not None:
+        values = np.asarray(initial)
+        if (len(record['history']) < n_init or not len(values)
+                or record['ref_point'] != (values.min(axis=0)
+                    - .1*np.maximum(np.ptp(values, axis=0), [1., .01])).tolist()):
+            raise ValueError('saved reference point differs from the initial observations')
+
+
 def run_multi_condition_optimization(
     conditions, *, output_dir, method='qlognehvi', n_init=16, n_iter=8,
     q_batch=1, seed=0, field_spec=None, control=RunControl(), workers=None, on_update=None,
+    pause_check=None,
+) -> dict:
+    """Start a search and retain its fixed input for recovery in a new directory."""
+    return _run_multi_condition_optimization(conditions, output_dir=output_dir, method=method,
+        n_init=n_init, n_iter=n_iter, q_batch=q_batch, seed=seed, field_spec=field_spec,
+        control=control, workers=workers, on_update=on_update, pause_check=pause_check)
+
+
+def resume_multi_condition_optimization(checkpoint_file, *, output_dir, control=RunControl(),
+                                        workers=None, on_update=None, pause_check=None):
+    """Validate and continue a saved search without changing its source directory."""
+    source = Path(checkpoint_file).resolve(strict=True)
+    if source.name != 'optimization.json':
+        raise ValueError('select optimization.json to continue a search')
+    destination = Path(output_dir).resolve()
+    if destination.is_relative_to(source.parent):
+        raise ValueError('the recovery directory must be outside the saved search')
+    record = json.loads(source.read_text(encoding='utf-8'))
+    frozen = json.loads(source.with_name('optimization-input.json').read_text(encoding='utf-8'))
+    if frozen.get('format') != 'optimization_v1':
+        raise ValueError('saved search does not have a supported fixed input')
+    conditions = [(row['condition_id'], ComputeConfig.from_dict(row['config']),
+                   row['mass_flow_A_kg_s'], row['mass_flow_B_kg_s']) for row in frozen['conditions']]
+    return _run_multi_condition_optimization(conditions, output_dir=destination, control=control,
+        workers=workers, on_update=on_update, pause_check=pause_check,
+        resume_from=(source.parent, record, frozen),
+        **{key: frozen[key] for key in ('method', 'n_init', 'n_iter', 'q_batch', 'seed', 'field_spec')})
+
+
+def _run_multi_condition_optimization(
+    conditions, *, output_dir, method='qlognehvi', n_init=16, n_iter=8,
+    q_batch=1, seed=0, field_spec=None, control=RunControl(), workers=None, on_update=None,
+    pause_check=None, resume_from=None,
 ) -> dict:
     """Optimize one complete XY/XYZ design across fixed operating conditions.
 
@@ -187,20 +275,39 @@ def run_multi_condition_optimization(
     engine = qmc.Sobol(d=len(lower), scramble=True, seed=seed)
     sobol = engine.random_base2((max(budget-1, 1)-1).bit_length())[:budget-1]
     designs = np.vstack((uniform_x, lower + sobol*(upper-lower)))
-    root = Path(output_dir)
-    root.mkdir(parents=True, exist_ok=False)
+    root = Path(output_dir).resolve()
+    frozen = dict(format='optimization_v1', method=method, backend=control.backend, seed=seed,
+        dimension=dimension, field_spec=spec, software_versions=versions,
+        n_init=n_init, n_iter=n_iter, q_batch=q_batch,
+        conditions=[dict(condition_id=name, config=cfg.to_dict(), mass_flow_A_kg_s=a,
+                         mass_flow_B_kg_s=b) for name, cfg, a, b in inputs])
+    if resume_from is not None:
+        source_root, saved, saved_input = resume_from
+        if saved_input != frozen:
+            raise ValueError('saved search input or software versions differ from this execution')
+        _check_saved_search(saved, frozen, designs, lower, upper)
+        # Keep all pending evidence local before a second pause can occur.
+        shutil.copytree(source_root, root, ignore=lambda directory, names:
+            {'optimization.json'} if Path(directory) == source_root else set())
+    else:
+        root.mkdir(parents=True, exist_ok=False)
+        write_text(root / 'optimization-input.json',
+            json.dumps(frozen, ensure_ascii=False, allow_nan=False, indent=2) + '\n')
     history = []
-    record = dict(method=method, backend=control.backend, seed=seed, dimension=dimension, field_spec=spec,
-        software_versions=versions, n_init=n_init, n_iter=n_iter, q_batch=q_batch, workers=workers,
+    record = dict(**deepcopy(frozen), workers=workers,
         design_budget=budget, baseline_batches=1, status='running', stage='baseline', reason=None,
         iteration=0,
         objective_directions={'heat_gain_percent': 'maximize', 'pressure_ratio': 'minimize'},
         model_objectives=['heat_gain_percent', '-pressure_ratio'], ref_point=None,
-        conditions=[dict(condition_id=name, config=cfg.to_dict(), mass_flow_A_kg_s=a,
-                         mass_flow_B_kg_s=b) for name, cfg, a, b in inputs],
         baseline=dict(directory='baseline', status='not_run', reason=None),
         initial_designs=designs[:n_init].tolist(), proposals=[],
         history=history, pareto_indices=[], n_evaluated=0, n_usable=0)
+    if resume_from is not None:
+        record = deepcopy(saved)
+        record.update(status='running', stage='baseline', iteration=0, reason=None,
+                      workers=workers, resumed_from=str(source_root))
+        history = record['history']
+    cursor = 0
 
     def observations():
         rows = [row for row in history if row['status'] == 'completed']
@@ -208,6 +315,7 @@ def run_multi_condition_optimization(
                 np.asarray([row['model_y'] for row in rows]).reshape(-1, 2), rows)
 
     started = perf_counter()
+    prior_elapsed = record.get('elapsed_s', 0.)
     batch_started = proposal_started = None
     condition_states = []
 
@@ -234,7 +342,7 @@ def run_multi_condition_optimization(
         if record['status'] != 'running':
             eta = 0. if record['status'] == 'completed' else None
         on_update(dict(report=deepcopy(record), conditions=deepcopy(condition_states),
-                       elapsed_s=now-started, eta_s=eta))
+                       elapsed_s=prior_elapsed+now-started, eta_s=eta))
 
     def batch_update(states):
         nonlocal condition_states
@@ -242,6 +350,8 @@ def run_multi_condition_optimization(
         notify()
 
     notifications = {'on_update': batch_update} if on_update is not None else {}
+    if pause_check is not None:
+        notifications['pause_check'] = pause_check
 
     def publish(primary_error=None):
         try:
@@ -249,6 +359,7 @@ def run_multi_condition_optimization(
             record['pareto_indices'] = [row['index'] for row, keep in zip(rows, _pareto_mask_max(values)) if keep]
             record['n_evaluated'] = sum(row['status'] in ('completed', 'failed') for row in history)
             record['n_usable'] = len(rows)
+            record['elapsed_s'] = prior_elapsed + perf_counter() - started
             write_text(root / 'optimization.json',
                 json.dumps(record, ensure_ascii=False, allow_nan=False, indent=2) + '\n')
         except Exception as save_error:
@@ -265,37 +376,66 @@ def run_multi_condition_optimization(
             primary_error.add_note(f'Search update failed: {callback_error}')
             raise primary_error
 
+    def check_stop():
+        control.check_cancelled()
+        if pause_check is not None and pause_check():
+            raise PausedRun(root / 'optimization.json')
+
     def set_stage(stage):
         record['stage'] = stage
         publish()
+        check_stop()
 
+    highest_progress = int(100 * sum(row['status'] in ('completed', 'failed')
+        for row in (record['baseline'], *history)) / (budget+1))
     def batch_control(unit):
         highest = 0
         def progress(percent):
-            nonlocal highest
+            nonlocal highest, highest_progress
             highest = max(highest, percent)
-            control.report_progress(int(100*(unit+highest/100)/(budget+1)))
+            highest_progress = max(highest_progress, int(100*(unit+highest/100)/(budget+1)))
+            control.report_progress(highest_progress)
         return replace(control, progress=progress if control.progress is not None else None)
 
+    def evaluate_batch(conditions, directory, unit, baseline=None):
+        path = root / directory
+        recovery = {}
+        if resume_from is not None and (path / 'batch.json').exists():
+            recovery = dict(resume_from=(path, json.loads((path / 'batch.json').read_text(encoding='utf-8'))),
+                            keep_failed=True)
+        return _evaluate_condition_batch(conditions, output_dir=path, baseline=baseline,
+            control=batch_control(unit), workers=workers, **notifications, **recovery)
+
     def evaluate_design(x, iteration):
-        nonlocal batch_started, condition_states
-        row = dict(index=len(history), iteration=iteration,
-                   phase='initial' if iteration == 0 else 'iteration',
-                   x_decision=np.asarray(x).tolist(), directory=f'design_{len(history):04d}',
-                   status='running', reason=None, objectives=None, model_y=None)
-        history.append(row)
+        nonlocal batch_started, condition_states, cursor
+        previous = deepcopy(history[cursor]) if cursor < len(history) else None
+        if previous is None:
+            row = dict(index=cursor, iteration=iteration, phase='initial' if iteration == 0 else 'iteration',
+                       x_decision=np.asarray(x).tolist(), directory=f'design_{cursor:04d}',
+                       status='running', reason=None, objectives=None, model_y=None)
+            history.append(row)
+        else:
+            row = history[cursor]
+        cursor += 1
+        check_stop()
+        if row['status'] == 'failed':
+            batch_control(row['index']+1).report_progress(100)
+            return
+        if row['status'] != 'completed':
+            row.update(status='running', reason=None)
         condition_states = []
         batch_started = perf_counter()
         publish()
         primary_error = None
         try:
-            control.check_cancelled()
+            check_stop()
             zones = ZoneInputConfig(enabled=True, axis='continuous',
                                      config={**spec, 'x_decision': row['x_decision']})
             candidates = [(name, replace(cfg, zones=zones), a, b) for name, cfg, a, b in inputs]
-            result = _evaluate_condition_batch(candidates, output_dir=root / row['directory'],
-                baseline=baseline['summaries'], control=batch_control(row['index']+1), workers=workers,
-                **notifications)
+            result = evaluate_batch(candidates, row['directory'], row['index']+1, baseline['summaries'])
+            if previous is not None and previous['status'] == 'completed':
+                if result['status'] != 'completed' or result['objectives'] != previous['objectives']:
+                    raise ValueError('retained design objectives differ from its saved observation')
             if result['status'] != 'completed':
                 row.update(status='failed', reason=result.get('reason') or 'condition batch failed')
                 return
@@ -305,32 +445,38 @@ def run_multi_condition_optimization(
                 raise ValueError('completed condition batch returned nonfinite objectives')
             row.update(status='completed', objectives=dict(heat_gain_percent=y[0], pressure_ratio=-y[1]),
                        model_y=y)
-        except CancelledError as exc:
+        except (CancelledError, PausedRun) as exc:
             primary_error = exc
-            row.update(status='cancelled', reason=str(exc))
+            if previous is None or previous['status'] != 'completed':
+                row.update(status='paused' if isinstance(exc, PausedRun) else 'cancelled', reason=str(exc))
             raise
         except Exception as exc:
             primary_error = exc
-            row.update(status='failed', reason=f'{type(exc).__name__}: {exc}')
+            row.update(status='failed', reason=f'{type(exc).__name__}: {exc}', objectives=None, model_y=None)
             raise
         finally:
-            row['elapsed_s'] = perf_counter() - batch_started
+            row['elapsed_s'] = (previous or {}).get('elapsed_s', 0.) + perf_counter() - batch_started
+            if previous is not None and previous['status'] == 'completed':
+                row['elapsed_s'] = previous['elapsed_s']
             batch_started = None
             publish(primary_error)
 
     publish()
     primary_error = None
     try:
-        control.check_cancelled()
-        record['baseline']['status'] = 'running'
+        check_stop()
+        if record['baseline']['status'] == 'failed':
+            record.update(status='failed', reason='Uniform baseline batch failed')
+            return record
+        if record['baseline']['status'] != 'completed':
+            record['baseline']['status'] = 'running'
         publish()
         uniform = [(name, replace(cfg, zones=ZoneInputConfig()), a, b) for name, cfg, a, b in inputs]
         batch_started = perf_counter()
         try:
-            baseline = _evaluate_condition_batch(uniform, output_dir=root / 'baseline',
-                control=batch_control(0), workers=workers, **notifications)
+            baseline = evaluate_batch(uniform, 'baseline', 0)
         finally:
-            record['baseline']['elapsed_s'] = perf_counter() - batch_started
+            record['baseline']['elapsed_s'] = record['baseline'].get('elapsed_s', 0.) + perf_counter() - batch_started
             batch_started = None
         record['baseline'].update(status=baseline['status'], reason=baseline.get('reason'))
         if baseline['status'] != 'completed':
@@ -345,7 +491,9 @@ def run_multi_condition_optimization(
         record['stage'] = 'initial'
         for x in designs[:n_init]:
             evaluate_design(x, 0)
-        X, Y, _ = observations()
+        initial = [row for row in history[:n_init] if row['status'] == 'completed']
+        X = np.asarray([row['x_decision'] for row in initial])
+        Y = np.asarray([row['model_y'] for row in initial])
         if len(Y):
             reference = Y.min(axis=0) - .1*np.maximum(np.ptp(Y, axis=0), [1., .01])
             record['ref_point'] = reference.tolist()
@@ -354,12 +502,15 @@ def run_multi_condition_optimization(
             return record
         publish()
         for iteration in range(1, n_iter+1):
-            control.check_cancelled()
-            record.update(stage='proposal', iteration=iteration)
+            check_stop()
+            record.update(stage='evaluation' if iteration <= len(record['proposals']) else 'proposal',
+                          iteration=iteration)
             condition_states = []
             proposal_started = perf_counter()
             publish()
-            if method == 'sobol':
+            if iteration <= len(record['proposals']):
+                proposed = record['proposals'][iteration-1]['x_decisions']
+            elif method == 'sobol':
                 start = n_init + (iteration-1)*q_batch
                 proposed = designs[start:start+q_batch]
             else:
@@ -370,21 +521,23 @@ def run_multi_condition_optimization(
             if (proposed.shape != (q_batch, len(lower)) or not np.all(np.isfinite(proposed))
                     or np.any(proposed < lower) or np.any(proposed > upper)):
                 raise ValueError('proposed decisions must be finite and inside the complete field bounds')
-            record['proposals'].append(dict(iteration=iteration, x_decisions=proposed.tolist(),
-                                           elapsed_s=perf_counter()-proposal_started))
+            if iteration > len(record['proposals']):
+                record['proposals'].append(dict(iteration=iteration, x_decisions=proposed.tolist(),
+                                               elapsed_s=perf_counter()-proposal_started))
             proposal_started = None
             record['stage'] = 'evaluation'
             publish()
             for x in proposed:
                 evaluate_design(x, iteration)
-        control.check_cancelled()
+        check_stop()
         record.update(status='completed' if observations()[2] else 'failed', stage='finished',
                       reason=None if observations()[2] else 'No usable design observations')
-    except CancelledError as exc:
+    except (CancelledError, PausedRun) as exc:
         primary_error = exc
+        status = 'paused' if isinstance(exc, PausedRun) else 'cancelled'
         if record['baseline']['status'] == 'running':
-            record['baseline'].update(status='cancelled', reason=str(exc))
-        record.update(status='cancelled', reason=str(exc))
+            record['baseline'].update(status=status, reason=str(exc))
+        record.update(status=status, reason=str(exc))
         raise
     except Exception as exc:
         primary_error = exc

@@ -29,6 +29,14 @@ class OptimizeUIMixin:
         from sjtu_tpmshx.ui.optimize_panel import cancel_optimize
         return cancel_optimize(self)
 
+    def _pause_optimize(self):
+        from sjtu_tpmshx.ui.optimize_panel import pause_optimize
+        return pause_optimize(self)
+
+    def _resume_optimize(self):
+        from sjtu_tpmshx.ui.optimize_panel import resume_optimize
+        return resume_optimize(self)
+
     # ── quick-design tool (Phase 2 Task 4) ───────────────────────────────
     def _open_quick_design(self):
         from sjtu_tpmshx.ui.quick_design_panel import build_quick_design_dialog
