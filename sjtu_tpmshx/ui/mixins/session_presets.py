@@ -666,7 +666,8 @@ class SessionPresetsMixin:
         if _tab in ('temp', 'pres', 'vel', '3d', '2d_view'):
             _tab = 'result'
         _collapsed = bool(getattr(self, '_left_collapsed', False))
-        _parameter_width = (getattr(self, '_param_width', 360) if _collapsed
+        _parameter_width = (getattr(self, '_param_width', 360)
+                            if _collapsed or self._parameter_host.isHidden()
                             else self._parameter_host.width())
         payload['ui_state'] = {
             'active_tab': _tab,

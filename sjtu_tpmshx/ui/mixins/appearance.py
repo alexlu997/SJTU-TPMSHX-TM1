@@ -101,17 +101,18 @@ class AppearanceMixin:
         from sjtu_tpmshx.ui.builders_sidebar import update_result_sidebar_visibility
 
         focused = not getattr(self, '_3d_immersive', False)
-        if focused and not getattr(self, '_left_collapsed', False):
+        if focused and not getattr(self, '_left_collapsed', False) and self._parameter_host.isVisible():
             self._param_width = self._parameter_host.width()
         self._3d_immersive = focused
-        self._parameter_host.setVisible(not focused)
+        optimizing = getattr(self, '_active_tab', None) == 'pareto'
+        self._parameter_host.setVisible(not focused and not optimizing)
         if not focused:
             self._set_parameter_panel_collapsed(getattr(self, '_left_collapsed', False))
         self.btn_focus_view.setChecked(focused)
         self.btn_focus_view.setText('退出专注' if focused else '专注')
         # A running solve keeps its progress and cancel action visible.
         self._run_status_card.setVisible(
-            not focused or getattr(self, '_compute_running', False))
+            (not focused and not optimizing) or getattr(self, '_compute_running', False))
         update_result_sidebar_visibility(self)
         self.statusBar().showMessage(
             '专注当前画布 · 按 F 退出' if focused else '已恢复工作台布局', 3000)
@@ -120,7 +121,7 @@ class AppearanceMixin:
         """Resize the existing parameter host; never rebuild or reparent fields."""
         host = self._parameter_host
         previous = getattr(self, '_left_collapsed', False)
-        if collapsed and not getattr(self, '_left_collapsed', False):
+        if collapsed and not previous and not host.isHidden():
             self._param_width = max(320, min(520, host.width()))
         self._left_collapsed = bool(collapsed)
         self._param_panel.setVisible(not collapsed)

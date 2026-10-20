@@ -80,6 +80,7 @@ def test_frozen_b_temperature_remains_selectable_in_real_phase_controls():
     result = SimpleNamespace(fields={'Tb': np.full((2, 2, 2), 300.), 'dir_B': None})
     window = SimpleNamespace(cache=ResultCache(), _field_phase_seg=host,
                              _field_phase_btns=buttons, _phase_styles=('', ''),
+                             _result_view_switch=QFrame(host),
                              btn_update_geometry=QPushButton('更新几何', host))
     window.cache.set_result('3d', result)
     for tab in ('temp', 'pres', 'vel'):
