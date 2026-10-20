@@ -378,12 +378,15 @@ def _show_live_update(window, update):
               'reuse': '读取已有结果', None: '等待'}
     states = {'completed': '合格', 'failed': '失败', 'cancelled': '已取消', 'not_run': '等待'}
     conditions = update['conditions']
+    priority = {'running': 0, 'computed': 0, 'failed': 1, 'cancelled': 1,
+                'not_run': 2, 'completed': 3}
+    visible = sorted(conditions, key=lambda row: priority[row['status']])[:4]
     lines = [f'已评估 {report["n_evaluated"]}/{report["design_budget"]} · '
              f'数值合格 {len(usable)} · 失败 {len(failed)} · Pareto {len(report["pareto_indices"])}',
              f'已用时 {update["elapsed_s"]/60:.1f} min · 时间估算依据已完成的工况批次与提案']
     lines.extend(f'{row["condition_id"]}：'
                  + states.get(row['status'], phases.get(row['stage'], row['stage']))
-                 for row in conditions[:4])
+                 for row in visible)
     if len(conditions) > 4:
         lines.append(f'另有 {len(conditions)-4} 个工况')
     reasons = [row['reason'] for row in (*failed, *conditions) if row.get('reason')]
@@ -422,7 +425,6 @@ def run_optimize(window):
     window._opt_stop_requested = False
     window._opt_live_report = None
     window._opt_live_update = None
-    window._last_opt_output_dir = save_dir
     window._opt_live_details.setText('正在准备工况；首次提案完成后可估算剩余时间。')
     from PySide6.QtCore import QTimer
     live_timer = QTimer(window)
@@ -460,8 +462,13 @@ def run_optimize(window):
         _push_sparkline(window, percent)
 
     def update(state):
+        nonlocal last_drawn
         if getattr(window, '_close_pending', False):
             return
+        if window._opt_live_report is None:
+            show_pareto(window, state['report'], running=True)
+            last_drawn = state['report']['n_usable']
+        window._last_opt_output_dir = save_dir
         _show_live_update(window, state)
         window._opt_live_report = state['report']
         window._opt_live_update = (state, time.monotonic())
@@ -479,6 +486,11 @@ def run_optimize(window):
     def error(message):
         live_timer.stop()
         if getattr(window, '_close_pending', False):
+            return
+        report = window._opt_live_report
+        if report is not None and report['status'] != 'running':
+            done(report)
+            _set_status(window, f'ERROR: {message} · 输出目录：{save_dir}')
             return
         _set_status(window, f'ERROR: {message} · 输出目录：{save_dir}')
         _set_kpi(window, gen='ERROR', best_q='—', best_dp='—', eta='—')
@@ -605,6 +617,7 @@ def show_pareto(window, report, *, running=False):
             canvas.figure.clear()
             canvas.hide()
     if running:
+        window._opt_export_pareto_btn.setEnabled(False)
         return render_error
     label = _termination_label(report)
     _set_kpi(window, gen=label, best_q=max((r['objectives']['heat_gain_percent'] for r in rows), default='—'),
