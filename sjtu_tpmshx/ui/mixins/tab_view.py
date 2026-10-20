@@ -26,7 +26,8 @@ class TabViewMixin:
                  hasattr(self, 'combo_dim') and self.combo_dim.currentIndex() == 1)
         has_2d = (getattr(self, '_rendered_3d_slices', False) if is_3d else
                   self.cache.has_results('2d'))
-        has_3d = is_3d and getattr(self, '_3d_view_ready', False)
+        has_3d = (is_3d and self.cache.has_results('3d')
+                  and not getattr(self, '_3d_view_error', False))
         return {
             'layout': True,
             'temp': has_2d,
@@ -42,7 +43,7 @@ class TabViewMixin:
         """Show/hide tab buttons based on available results and current mode.
 
         Fields require a cached 2D result or rendered 3D slices; the volume
-        view additionally requires a populated 3D panel.
+        view requires a cached 3D result and loads its panel on demand.
 
         If the currently active tab disappears, fall back to Layout.
         Safe to call before ui_builders finishes — returns if buttons absent.
@@ -120,6 +121,9 @@ class TabViewMixin:
             self.statusBar().showMessage(
                 "Split view requires both tabs to have data.", 4000)
             return
+        if tab == '3d' and not getattr(self, '_3d_view_ready', False):
+            self._request_3d_view(lambda: self._split_with_current(tab))
+            return
         from sjtu_tpmshx.ui.plot_2d_results import ensure_result_plot
         for key in (cur, tab):
             if key in ('temp', 'pres', 'vel') and not ensure_result_plot(self, key):
@@ -177,6 +181,49 @@ class TabViewMixin:
         self._result_view = other
         self._switch_tab('result')
 
+    def _request_3d_view(self, on_ready=None, *, background=False):
+        """Load the current volume on demand; discard obsolete requests."""
+        from time import perf_counter
+        from sjtu_tpmshx.ui.background_tasks import prepare_3d
+        result = self.cache.get_result('3d')
+        if result is None:
+            return
+        self._requested_3d_action = on_ready or (lambda: self._switch_tab('3d'))
+        self._requested_3d_background = background
+        if getattr(self, '_requested_3d_result', None) is result:
+            return
+        self._requested_3d_result = result
+        started = perf_counter()
+        self.statusBar().showMessage("正在准备三维视图…")
+
+        def ready():
+            if self._requested_3d_result is not result:
+                return
+            self._requested_3d_result = None
+            action = self._requested_3d_action
+            self._requested_3d_action = None
+            if (getattr(self, '_close_pending', False)
+                    or self.cache.get_result('3d') is not result):
+                return
+            from sjtu_tpmshx.ui.plot_3d_results import finalize_plots_3d
+            try:
+                self._3d_view_ready = bool(finalize_plots_3d(self))
+            except Exception as exc:
+                self._3d_view_ready = False
+                self.statusBar().showMessage(f"三维视图加载失败：{exc}", 10000)
+            self._3d_view_error = not self._3d_view_ready
+            result.metadata.setdefault('timings_s', {})['volume_display'] = perf_counter() - started
+            if self._3d_view_ready:
+                self.canvas_3d.show()
+                self.cache.mark_drawn('3d')
+                action()
+            else:
+                self.statusBar().showMessage(
+                    "三维视图不可用；场图、计算结果和数据导出仍可使用。", 10000)
+            self._update_tab_visibility()
+
+        prepare_3d(self, ready)
+
     def _switch_tab(self, tab: str):
         # 2026-05-09 Phase 4 — '2d_view' is the merged Temperature/Velocity/
         # Pressure tab. Resolve to the underlying card key based on the
@@ -210,6 +257,13 @@ class TabViewMixin:
                 _combo.setCurrentText(target)
                 _combo.blockSignals(False)
                 self._paint_2d_seg()
+        if tab == '3d' and not getattr(self, '_3d_view_ready', False):
+            if self._canvas_tab_availability().get('3d'):
+                self._request_3d_view()
+            return
+        if not getattr(self, '_requested_3d_background', False):
+            self._requested_3d_result = None
+            self._requested_3d_action = None
         # Exiting split view — a plain tab click means "back to single".
         if getattr(self, '_split_tabs', None):
             self._split_tabs = None
@@ -264,6 +318,9 @@ class TabViewMixin:
             _fs = getattr(self, '_2d_field_seg', None)
             if _fs is not None:
                 _fs.setVisible(tab in ('temp', 'pres', 'vel'))
+            scale = getattr(self, 'chk_shared_flow_scale', None)
+            if scale is not None:
+                scale.setVisible(tab in ('pres', 'vel', '3d'))
             # Reverse-sync aggregate result navigation to the actual card.
             _btn_res = getattr(self, 'btn_tab_result', None)
             if _btn_res is not None:

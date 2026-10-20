@@ -305,7 +305,15 @@ slice, new slice popups, and their images use these limits. Values outside
 the limits use endpoint colors. Display limits do not change field data.
 Both limits must be finite and Max must exceed Min.
 
-For 3D designs, the 3D Size / Wall Thickness Field tab shows the full XYZ parameter field. Rotate, zoom, select L/t, adjust opacity, or move XY/YZ/XZ slices. This samples the continuous design without another solve. It displays spatial cell size and wall thickness, not a CAD preview of the TPMS surface. Temperature, pressure, velocity, size/wall, and sensitivity maps share `ui.theme.FIELD_CMAP='turbo'` across 2D, 3D, and slice popups. Each quantity keeps its own units and range.
+For 3D designs, the 3D Size / Wall Thickness Field tab shows the full XYZ parameter field. Rotate, zoom, select L/t, adjust opacity, or move XY/YZ/XZ slices. This samples the continuous design without another solve. It displays spatial cell size and wall thickness, not a CAD preview of the TPMS surface. Temperature, size/wall, and sensitivity maps use `turbo`. Speed and pressure use `viridis`.
+Speed and pressure use the current fluid's full field range by default. The range stays fixed between slices.
+Select the shared-scale checkbox to compare A/B values on one scale.
+The 2D, 3D, and slice popup views use the same colormaps. Each quantity keeps its units.
+After a solve, the selected field appears first. The volume loads when you first select 3D.
+Drag with the left mouse button anywhere on the geometry canvas to rotate it. Use the wheel to zoom.
+The thread control accepts Auto or an explicit limit on macOS and Windows.
+A rejected design shows its reason in the summary. Diagnostics show the recorded range evidence.
+Permission to exceed inlet Nu limits does not change the design verdict.
 
 Defaults are 16 initial designs and 8 rounds of 1 new design. Each design is evaluated across all conditions before forming one aggregate sample. Imported JSON contains only a `conditions` list. Each row has `condition_id` and side-specific `T_in_A_K`, `P_in_A_Pa`, `mass_flow_A_kg_s`. Replace A with B for side B. Without import, the interface explicitly uses the current single condition.
 

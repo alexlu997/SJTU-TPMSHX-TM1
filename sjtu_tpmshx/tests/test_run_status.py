@@ -131,14 +131,27 @@ def test_card_expansion_narrow_width_and_restart_clear_previous_run():
         card.deleteLater()
 
 
-def test_3d_missing_view_reports_warning_without_discarding_result(win, monkeypatch, tmp_path):
+@pytest.mark.parametrize('has_fields', [True, False])
+def test_3d_display_failure_preserves_result(win, monkeypatch, tmp_path, has_fields):
+    from sjtu_tpmshx.tests.gui_workbench_support import _result
+
     _configure(win, monkeypatch, '3d')
-    _stub_compute_result(monkeypatch, lambda config, **kwargs: ComputeResult(
-        Q_W=42, diagnostics={'mode': '3d'}))
+    result = _result('3d') if has_fields else ComputeResult(diagnostics={'mode': '3d'})
+    result.Q_W = 42
+    _stub_compute_result(monkeypatch, lambda config, **kwargs: result)
+    win._vis3d_import_error = 'controlled missing view'
     win.run_calculation()
     _wait_for(win.compute.is_idle)
-    assert win._run_status_card.state == 'warning'
-    assert '三维视图不可用' in win._run_status_card.note.text()
+    if has_fields:
+        assert win._run_status_card.state == 'success'
+        assert win._active_tab == 'temp'
+        win._switch_tab('3d')
+        assert win._3d_view_error
+        assert '三维视图不可用' in win.statusBar().currentMessage()
+        assert win._active_tab == 'temp'
+    else:
+        assert win._run_status_card.state == 'error'
+        assert '结果显示未完成' in win._run_status_card.note.text()
     assert win.cache.get_result('3d').Q_W == 42
     assert win.btn_export.isEnabled()
 

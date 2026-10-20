@@ -222,7 +222,7 @@ def test_volume_fields_are_lazy_cached_and_reset_without_changing_values(monkeyp
     for i, key in enumerate(fields):
         np.testing.assert_array_equal(panel._grid[key], raw[key])
         ThreeDVisPanel._on_field_changed(panel, panel.combo_field.findData(key))
-        assert panel.plotter.add_volume.call_args.kwargs['cmap'] == FIELD_CMAP
+        assert panel.plotter.add_volume.call_args.kwargs['cmap'] == FIELD_META[key]['cmap']
         np.testing.assert_allclose(panel._grid_vol[key], initial_values + 100. * i)
         np.testing.assert_array_equal(panel._grid_vol.points, display_points)
     assert interpolations.call_count == len(fields)

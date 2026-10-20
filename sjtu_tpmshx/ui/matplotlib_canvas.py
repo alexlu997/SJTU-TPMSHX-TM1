@@ -3,11 +3,11 @@
 Extracted from main.py (Task B.2). Figures use the active theme tokens.
 """
 import numpy as np
-import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
-from matplotlib.ticker import ScalarFormatter
+from matplotlib.ticker import LinearLocator, ScalarFormatter
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-from .theme import FIELD_CMAP, get_theme
+from .theme import FLOW_CMAP, get_theme
+from .vis3d_constants import field_color_limits
 
 
 def cell_index_mm(position_mm, widths_m):
@@ -36,11 +36,20 @@ def pad_field_to_edges(x_mm, y_mm, field, L_mm, H_mm):
     return Xp, Yp, Fp
 
 
+def style_colorbar(cb, theme):
+    """Use readable, opaque legends in both themes."""
+    cb.ax.set_facecolor(theme['fig_bg'])
+    cb.ax.tick_params(labelsize=11, colors=theme['ax_text'], length=3, width=.6)
+    cb.locator = LinearLocator(5)
+    cb.formatter = ScalarFormatter(useOffset=False)
+    cb.update_ticks()
+    cb.outline.set_edgecolor(theme['ax_spine'])
+    cb.outline.set_linewidth(.6)
+
+
 def style_field_axes(ax, cb, _t, main_title, subtitle):
     """Shared temperature/pressure axes, colorbar and title formatting."""
-    cb.ax.tick_params(labelsize=8, colors=_t['ax_text'], length=3)
-    cb.ax.yaxis.set_major_locator(plt.MaxNLocator(nbins=7))
-    cb.outline.set_edgecolor(_t['ax_spine'])
+    style_colorbar(cb, _t)
     # Inline title
     ax.set_title(main_title, fontsize=13, fontweight="bold",
                  color=_t['ax_text'], loc='left', pad=6)
@@ -82,6 +91,13 @@ class MatplotlibCanvas(FigureCanvas):
                 ax.set_facecolor(_t['ax_bg'])
         super().__init__(self.fig)
 
+    def inaxes(self, xy):
+        # The preview can extend outside its axes after camera zoom.
+        axes = getattr(self, '_preview_axes', None)
+        if axes in self.figure.axes and self.figure.bbox.contains(*xy):
+            return axes
+        return super().inaxes(xy)
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
         # Qt sizes are whole pixels. The inches→pixels round trip can land
@@ -92,7 +108,7 @@ class MatplotlibCanvas(FigureCanvas):
         self.figure.set_size_inches(np.nextafter(inches, np.inf), forward=False)
 
     def plot_pressure(self, P_fA, P_fB, N_x, N_y, L, H, mode="",
-                       dx_arr=None, dy_arr=None):
+                       dx_arr=None, dy_arr=None, shared=False):
         _t = get_theme()
         from matplotlib.gridspec import GridSpec
 
@@ -116,10 +132,11 @@ class MatplotlibCanvas(FigureCanvas):
             (P_fB, r"$P_B$  [Pa]", "Fluid B"),
         ]
         _Lmm, _Hmm = L * 1000.0, H * 1000.0
-        for ax, (field, main_title, subtitle) in zip(axes_p, p_data):
+        limits = field_color_limits([P_fA, P_fB], shared)
+        for ax, (field, main_title, subtitle), (lo, hi) in zip(axes_p, p_data, limits):
             ax.set_facecolor(_t['ax_bg'])
             _Xp, _Yp, _Fp = pad_field_to_edges(x, y, field, _Lmm, _Hmm)
-            cf = ax.contourf(_Xp, _Yp, _Fp, levels=256, cmap=FIELD_CMAP)
+            cf = ax.contourf(_Xp, _Yp, _Fp, levels=np.linspace(lo, hi, 129), cmap=FLOW_CMAP, vmin=lo, vmax=hi)
             ax.set_xlim(0, _Lmm); ax.set_ylim(0, _Hmm)
             cb = self.fig.colorbar(cf, ax=ax, shrink=0.9, aspect=25,
                                   format=ScalarFormatter(useOffset=False))

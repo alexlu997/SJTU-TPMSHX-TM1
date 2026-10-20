@@ -183,21 +183,16 @@ def build_domain_sections(window, lay):
         f"QLabel {{ color:{_tc['fg']}; font-size:10pt; font-weight:400;"
         f" background:transparent; border:none; padding:0; }}")
     window.spin_cpu_cores = QSpinBox()
-    # Native QSpinBox arrows can't be themed reliably here: an ANCESTOR
-    # stylesheet forces every descendant onto QStyleSheetStyle, and a QSS-styled
-    # spin button with no ::up-arrow/::down-arrow IMAGE renders invisible (the
-    # exact symptom: "no buttons, only manual input"). So drop the native arrows
-    # and drive the value with two real QPushButtons — always visible, always
-    # clickable, fully themeable. The field stays editable for keyboard entry;
-    # stepUp/stepDown honour the [1, max] range.
-    window.spin_cpu_cores.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
+    # Qt's styled NoButtons mode collapses the editor on macOS.
+    # Hide the native buttons with QSS; external buttons keep their hit area.
     window.spin_cpu_cores.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    window.spin_cpu_cores.setFixedWidth(48)
+    window.spin_cpu_cores.setFixedWidth(72)
     window.spin_cpu_cores.setMinimumHeight(24)
     window.spin_cpu_cores.setStyleSheet(
         f"QSpinBox {{ background:{_tc['inp_bg']}; color:{_tc['inp_fg']};"
         f" border:1px solid {_tc['inp_border']}; border-radius:4px; padding:2px 4px; }}"
-        f"QSpinBox:focus {{ border-color:{_tc['inp_focus']}; }}")
+        f"QSpinBox:focus {{ border-color:{_tc['inp_focus']}; }}"
+        "QSpinBox::up-button, QSpinBox::down-button { width:0; height:0; border:none; }")
     _step_qss = (
         f"QPushButton {{ background:{_tc['surface_elevated']}; color:{_tc['fg']};"
         f" border:1px solid {_tc['inp_border']}; border-radius:4px;"

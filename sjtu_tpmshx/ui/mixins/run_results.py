@@ -11,6 +11,44 @@ from dataclasses import replace
 from sjtu_tpmshx.ui.ui_constants import TOAST_MS_SHORT
 
 
+def qualification_reasons(qualification, evidence=None):
+    """Explain recorded gates without changing their verdicts."""
+    labels = dict(execution='计算未完成', convergence='数值收敛未通过',
+                  physical='物理台账未通过', applicability='关联式适用范围未通过',
+                  metrics='性能指标不完整', model_scope='模型适用性未核实',
+                  full_solve='缺少完整求解')
+    reasons = []
+    for key in qualification.get('design', {}).get('reasons', []):
+        if key != 'applicability':
+            reasons.append(labels.get(key, key))
+            continue
+        checks = qualification.get('applicability', {}).get('checks', [])
+        for row in checks:
+            if row.get('passed') is True:
+                continue
+            source = row.get('source', [])
+            source = [{'nu_raw': 'Nu（原始输入）', 'nu': 'Nu（计算输入）',
+                       'water': '水', 'air': '空气'}.get(item, item) for item in source]
+            text = f"{row.get('side', '?')} 侧 {' '.join(source)} {row.get('quantity', '')}"
+            text += ' 超范围' if row.get('passed') is False else ' 未核实'
+            for sample in (evidence or {}).get(row.get('group'), []):
+                if (sample.get('side') == row.get('side')
+                        and sample.get('source') == row.get('source')
+                        and sample.get('quantity') == row.get('quantity')
+                        and sample.get('captured')):
+                    from sjtu_tpmshx.domain.range_policy import assess_range
+                    assessed = assess_range(sample)
+                    if sample.get('minimum') is not None and sample.get('maximum') is not None:
+                        lo, hi = assessed['allowed_bounds']
+                        text += (f"（实际 {sample['minimum'][0]:.6g}–{sample['maximum'][0]:.6g}；"
+                                 f"允许 {lo:.6g}–{hi:.6g}）")
+                    break
+            reasons.append(text)
+        if not checks:
+            reasons.append(labels[key])
+    return list(dict.fromkeys(reasons))
+
+
 class RunResultsMixin:
     """ComputeResult→window adapter + plot finalizer + diagnostics surface."""
 
@@ -39,6 +77,12 @@ class RunResultsMixin:
         # Only the latest published run owns the summary, plots and exports.
         # A new accepted result also invalidates readiness of the old 3D views.
         self._3d_view_ready = False
+        self._3d_view_error = False
+        self._requested_3d_result = None
+        self._requested_3d_action = None
+        panel = getattr(self, 'canvas_3d', None)
+        if panel is not None and hasattr(panel, 'hide'):
+            panel.hide()
         self._rendered_3d_slices = False
         mode = result.diagnostics.get('mode', '2d')
         # Isolate published containers while sharing the field arrays.
@@ -76,6 +120,7 @@ class RunResultsMixin:
             'mode': result.diagnostics.get('mode', '2d'),
             'converged': bool(getattr(result, 'converged', True)),
             'qualification': result.metadata.get('qualification', {}),
+            'applicability_evidence': result.metadata.get('applicability_evidence', {}),
             'Q_W': result.Q_W,
             'Q_unit': result.metadata.get('units', {}).get(
                 'Q', 'W' if result.diagnostics.get('mode') == '3d' else 'W/m'),
@@ -144,6 +189,8 @@ class RunResultsMixin:
         state = {'eligible': '合格', 'rejected': '不合格', 'unverified': '未核实'}.get(
             design.get('status'), '未核实')
         lines.append('设计资格：' + state + '；实验与桌面验收另行记录。')
+        lines.extend('原因：' + reason for reason in qualification_reasons(
+            qualification, d.get('applicability_evidence')))
         for name, label in (('physical', '物理台账'), ('applicability', '适用范围'), ('model_scope', '模型适用性')):
             passed = qualification.get(name, {}).get('passed')
             lines.append(label + '：' + ('通过' if passed is True else '未通过' if passed is False else '未核实'))
@@ -157,7 +204,8 @@ class RunResultsMixin:
             lines.append("阶段耗时：" + " · ".join(
                 f"{label} {_f(timings.get(key), '{:.3f}')} s"
                 for key, label in (('prepare', '准备'), ('solve', '求解'),
-                                   ('postprocess', '后处理'), ('display', '显示'))))
+                                   ('postprocess', '后处理'), ('display', '显示'),
+                                   ('volume_display', '三维加载')) if key in timings))
         for w in (d.get('warnings') or []) + (d.get('envelope_warnings') or []):
             lines.append(f"⚠ {w}")
         for e in d.get('extrap') or []:

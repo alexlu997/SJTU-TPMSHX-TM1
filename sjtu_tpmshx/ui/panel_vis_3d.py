@@ -708,42 +708,24 @@ class ThreeDVisPanel(QWidget):
             pass
 
     def _build_global_clim(self):
-        """Build comparable color ranges for related physical fields."""
-        clim = {
-            f: (float(self._grid[f].min()), float(self._grid[f].max()))
-            for f in self._arrays
-        }
-
-        def _share(fields):
-            present = [f for f in fields if f in clim]
-            if len(present) < 2:
-                return
-            lo = min(clim[f][0] for f in present)
-            hi = max(clim[f][1] for f in present)
-            if hi - lo < 1e-12:
-                hi = lo + 1.0
-            # Skip sharing when magnitudes differ too much: a shared range would
-            # crush the smaller field into the colormap's dark/low end, where it
-            # renders near-black and (with the velocity transparent-low opacity)
-            # nearly invisible. Classic case: fast air A vs slow fluid B speed —
-            # forcing B onto A's range made "Velocity B" a dark/empty volume
-            # while its slice popup (autoscaled) looked fine. If ANY field's
-            # whole range sits in the bottom 40 % of the shared span, keep each
-            # field on its OWN clim so its structure is visible.
-            span = hi - lo
-            if any(clim[f][1] < lo + 0.4 * span for f in present):
-                return
-            for f in present:
-                clim[f] = (lo, hi)
-
-        _share(('Ta', 'Tb', 'Ts'))
-        _share(('vmag', 'vmag_B'))
-        # Pressure A/B — share clim so the same color = same kPa across the
-        # P_kPa / P_B_kPa combo entries. Without this the user toggling
-        # between A and B sees one autoscaled view replaced with another and
-        # cannot compare magnitudes by colour alone.
-        _share(('P_kPa', 'P_B_kPa'))
+        """Use the same whole-field limits as the workbench slices."""
+        from .vis3d_constants import field_color_limits
+        clim = dict(zip(self._arrays, field_color_limits(list(self._arrays.values()))))
+        groups = [('Ta', 'Tb', 'Ts')]
+        if getattr(self, '_shared_flow_scale', False):
+            groups += [('vmag', 'vmag_B'), ('P_kPa', 'P_B_kPa')]
+        for group in groups:
+            keys = [key for key in group if key in self._arrays]
+            if keys:
+                clim.update(zip(keys, field_color_limits([self._arrays[key] for key in keys], True)))
         return clim
+
+    def set_shared_flow_scale(self, shared):
+        """Apply the workbench comparison choice without changing result data."""
+        self._shared_flow_scale = shared
+        if self._grid is not None:
+            self._global_clim = self._build_global_clim()
+            self._refresh_clim()
 
     # ─────────────────────────── visibility gate ──────────────────────
     def _pause_rendering(self):
@@ -1460,39 +1442,30 @@ class ThreeDVisPanel(QWidget):
                 vol_mapper.SetSampleDistance(max(0.005, min_cell))
             except Exception:
                 pass
-            # Scalar bar — responsive placement + Times New Roman. Narrow
-            # viewports (<800 px wide) slim the bar so it doesn't overlap
-            # the viewport edge.
+            # Keep labels inside the viewport at both window sizes.
             win_w = 1.0
             try:
                 wsize = pl.window_size
                 win_w = max(1, int(wsize[0]))
             except Exception:
                 pass
-            bar_width = 0.040 if win_w >= 800 else 0.030
-            bar_x = 0.905 if win_w >= 800 else 0.920
+            bar_width = 0.070 if win_w >= 800 else 0.100
+            bar_x = 0.88 if win_w >= 800 else 0.85
+            from .vis3d_constants import field_tick_format
             _sbar = pl.add_scalar_bar(
-                # Shorter (0.55) + lower (0.24) bar centred in the right
-                # margin; smaller title (10) so the field label clears the top
-                # value instead of overlapping it. Was height 0.76 / pos_y 0.12
-                # / title 12 → a too-tall bar pinned to the edge with the title
-                # sitting on the max-value label.
                 title=meta['title'],
                 n_labels=5, vertical=True,
-                position_x=bar_x, position_y=0.24,
-                width=bar_width, height=0.55,
-                fmt=meta['fmt'],
-                title_font_size=10, label_font_size=11,
+                position_x=bar_x, position_y=0.25,
+                width=bar_width, height=0.50,
+                fmt=field_tick_format(clim),
+                title_font_size=13, label_font_size=12,
                 color=t['ax_text'], font_family='times',
                 bold=False, italic=False,
                 shadow=False, outline=False,
             )
             apply_vtk_font(_sbar.GetTitleTextProperty())
             apply_vtk_font(_sbar.GetLabelTextProperty())
-            # Solid colour bar. The volume's opacity transfer function bled into
-            # the scalar bar (semi-transparent over white → washed-out pastel,
-            # worst at the hot end). Attach an independent OPAQUE turbo LUT over
-            # the clim so the legend reads vivid, decoupled from voxel opacity.
+            # Keep the legend opaque when the volume is transparent.
             try:
                 import pyvista as _pv
                 _lut = _pv.LookupTable(cmap=meta['cmap'])
@@ -1742,6 +1715,7 @@ class ThreeDVisPanel(QWidget):
             f"Field: {FIELD_META[self._field]['title']}",
             f"Range: {lo:.2f} – {hi:.2f}",
             f"Color Range: {color_range_label}",
+            'A/B scale: shared' if getattr(self, '_shared_flow_scale', False) else 'Flow scale: per fluid',
             f"Domain: {Lx:.0f} × {Ly:.0f} × {Lz:.0f} mm",
         ]
         if self._slice_info is not None:

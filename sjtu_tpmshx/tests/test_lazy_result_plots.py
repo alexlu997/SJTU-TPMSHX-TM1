@@ -43,6 +43,8 @@ def test_first_plot_lazy_switch_and_export_use_current_selection(win, monkeypatc
             set_fields=lambda **kw: None, set_watermark=lambda text: None,
             color_range_state=lambda: {'mode': 'global', 'ranges': {}}))
         assert finalize_plots_3d(win)
+        from sjtu_tpmshx.ui.plot_2d_results import ensure_result_plot
+        win._rendered_3d_slices = ensure_result_plot(win, 'temp')
     else:
         win._finalize_plots()
     assert win.cache.get_drawn_tabs() == {'temp'}

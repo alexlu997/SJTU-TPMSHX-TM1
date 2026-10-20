@@ -109,7 +109,6 @@ def test_saved_polygon_cannot_replace_the_current_compute_case(win, monkeypatch,
 @pytest.mark.parametrize('dimension', [2, 3])
 def test_real_gui_compute_drafts_units_and_export(win, monkeypatch, tmp_path, dimension):
     monkeypatch.setenv('TPMSHX_DISABLE_3D_PANEL', '1')
-    monkeypatch.delenv('TPMSHX_EAGER_3D_SLICES', raising=False)
     errors = []
     dialogs = []
     original_exec = QMessageBox.exec
