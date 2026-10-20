@@ -121,7 +121,7 @@ class AppearanceMixin:
         """Resize the existing parameter host; never rebuild or reparent fields."""
         host = self._parameter_host
         previous = getattr(self, '_left_collapsed', False)
-        if collapsed and not getattr(self, '_left_collapsed', False):
+        if collapsed and not previous and not host.isHidden():
             self._param_width = max(320, min(520, host.width()))
         self._left_collapsed = bool(collapsed)
         self._param_panel.setVisible(not collapsed)

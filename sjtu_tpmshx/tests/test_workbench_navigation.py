@@ -257,7 +257,8 @@ def test_optimization_page_buttons_work_by_keyboard_and_public_edit_keeps_values
 
 
 @pytest.mark.parametrize('collapsed', [False, True])
-def test_optimization_session_restores_saved_parameter_width(win, monkeypatch, collapsed):
+@pytest.mark.parametrize('restore_tab', ['layout', 'pareto'])
+def test_optimization_session_restores_saved_parameter_width(win, monkeypatch, collapsed, restore_tab):
     win._splitter.setSizes([450, 850])
     QApplication.processEvents()
     width = win._parameter_host.width()
@@ -273,12 +274,14 @@ def test_optimization_session_restores_saved_parameter_width(win, monkeypatch, c
     win._switch_tab('layout')
     win._set_parameter_panel_collapsed(False)
     win._splitter.setSizes([320, 980])
+    win._switch_tab(restore_tab)
     # Keep the test viewport; offscreen screen geometry must not clamp it.
     saved.pop('geometry')
     monkeypatch.setattr(win.sm, 'load_session', lambda ws: saved)
     win._restore_session()
     QApplication.processEvents()
     assert win._active_tab == 'pareto' and win._left_collapsed == collapsed
+    assert win._param_width == width
     win._switch_tab('layout')
     win._set_parameter_panel_collapsed(False)
     QApplication.processEvents()
