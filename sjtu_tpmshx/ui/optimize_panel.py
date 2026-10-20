@@ -26,6 +26,7 @@ def _make_worker_class():
         finished_with_result = Signal(object)
         cancelled_before_search = Signal()
         progress_signal = Signal(int)
+        update_signal = Signal(object)
         error_signal = Signal(str)
 
         def __init__(self, config, condition_rows, field_spec, method, n_init, n_iter, q_batch, seed, save_dir,
@@ -42,8 +43,13 @@ def _make_worker_class():
         def run(self):
             from sjtu_tpmshx.domain.cancellation import CancelledError
             try:
+                last_percent, last_emit = -1, -float('inf')
                 def progress(percent):
-                    self.progress_signal.emit(percent)
+                    nonlocal last_percent, last_emit
+                    now = time.monotonic()
+                    if percent != last_percent and (now-last_emit >= .1 or percent == 100):
+                        self.progress_signal.emit(percent)
+                        last_percent, last_emit = percent, now
                     self.control.report_progress(percent)
                 def cancelled():
                     return self.isInterruptionRequested() or (
@@ -56,7 +62,8 @@ def _make_worker_class():
                 report = run_multi_condition_optimization(
                     conditions, output_dir=self.save_dir, method=self.method,
                     n_init=self.n_init, n_iter=self.n_iter, q_batch=self.q_batch,
-                    seed=self.seed, field_spec=self.field_spec, control=control)
+                    seed=self.seed, field_spec=self.field_spec, control=control,
+                    on_update=self.update_signal.emit)
                 self.finished_with_result.emit(report)
             except CancelledError as exc:
                 if getattr(exc, '__notes__', None):
@@ -342,6 +349,55 @@ def _set_summary_banner(window, text: str, *, show: bool = True) -> None:
         pass
 
 
+def _show_live_update(window, update):
+    """Show recorded state without changing the active workflow page."""
+    report = update['report']
+    window._last_opt_report = report
+    stages = {'baseline': '均匀基准', 'initial': '初始候选',
+              'model_fit': '拟合模型', 'proposal': '选择候选',
+              'evaluation': '候选计算', 'finished': '搜索结束'}
+    stage = stages[report['stage']]
+    active = next((row for row in report['history'] if row['status'] == 'running'), None)
+    if active is not None:
+        stage += f' {active["index"]+1}/{report["design_budget"]}'
+    if report['status'] != 'running':
+        stage = _termination_label(report)
+    elif window._opt_stop_requested:
+        stage = '取消请求已收到；等待安全停止点 · ' + stage
+    _set_status(window, stage)
+    usable = [row for row in report['history'] if row['status'] == 'completed']
+    failed = [row for row in report['history'] if row['status'] == 'failed']
+    eta = update['eta_s']
+    _set_kpi(window, gen=f'{report["n_evaluated"]}/{report["design_budget"]}',
+        best_q=max((row['objectives']['heat_gain_percent'] for row in usable), default='—'),
+        best_dp=min((row['objectives']['pressure_ratio'] for row in usable), default='—'),
+        eta=f'≈{eta/60:.1f} min' if eta is not None else '采样中')
+    phases = {'input': '等待准备', 'prepare': '前处理', 'save_case': '保存输入',
+              'comparison': '核对基准', 'solve': '原生求解', 'validate_result': '核对结果',
+              'postprocess': '后处理', 'save_result': '保存结果', 'qualification': '资格检查',
+              'reuse': '读取已有结果', None: '等待'}
+    states = {'completed': '合格', 'failed': '失败', 'cancelled': '已取消', 'not_run': '等待'}
+    conditions = update['conditions']
+    priority = {'running': 0, 'computed': 0, 'failed': 1, 'cancelled': 1,
+                'not_run': 2, 'completed': 3}
+    visible = sorted(conditions, key=lambda row: priority[row['status']])[:4]
+    lines = [f'已评估 {report["n_evaluated"]}/{report["design_budget"]} · '
+             f'数值合格 {len(usable)} · 失败 {len(failed)} · Pareto {len(report["pareto_indices"])}',
+             f'已用时 {update["elapsed_s"]/60:.1f} min · 时间估算依据已完成的工况批次与提案']
+    lines.extend(f'{row["condition_id"]}：'
+                 + states.get(row['status'], phases.get(row['stage'], row['stage']))
+                 for row in visible)
+    if len(conditions) > 4:
+        lines.append(f'另有 {len(conditions)-4} 个工况')
+    reasons = [row['reason'] for row in (*failed, *conditions) if row.get('reason')]
+    if report.get('reason'):
+        reasons.append(report['reason'])
+    reasons = list(dict.fromkeys(reasons))
+    lines.extend(reason[:240] for reason in reasons[-2:])
+    window._opt_live_details.setText('\n'.join(lines))
+    window._opt_live_details.setToolTip('\n'.join(reasons))
+
+
 def run_optimize(window):
     if (getattr(window, '_close_pending', False) or getattr(window, '_opt_launching', False)
             or getattr(window, '_opt_worker', None) is not None):
@@ -366,6 +422,32 @@ def run_optimize(window):
         _set_status(window, f'启动失败：{exc}')
         return
     window._opt_t_start = time.monotonic()
+    window._opt_stop_requested = False
+    window._opt_live_report = None
+    window._opt_live_update = None
+    window._opt_live_details.setText('正在准备工况；首次提案完成后可估算剩余时间。')
+    from PySide6.QtCore import QTimer
+    live_timer = QTimer(window)
+    live_timer.setInterval(1000)
+    last_drawn = -1
+
+    def draw_live():
+        nonlocal last_drawn
+        report = window._opt_live_report
+        if (getattr(window, '_close_pending', False) or report is None
+                or report['status'] != 'running'):
+            return
+        state, received = window._opt_live_update
+        delta = time.monotonic()-received
+        eta = state['eta_s']
+        _show_live_update(window, {**state, 'elapsed_s': state['elapsed_s']+delta,
+            'eta_s': max(0., eta-delta) if eta is not None else None})
+        if report['n_usable'] == last_drawn:
+            return
+        show_pareto(window, report, running=True)
+        last_drawn = report['n_usable']
+
+    live_timer.timeout.connect(draw_live)
     sparkline = getattr(window, '_opt_sparkline', None)
     if sparkline is not None:
         sparkline.clear_data()
@@ -378,11 +460,21 @@ def run_optimize(window):
             return
         _set_progress_pct(window, percent)
         _push_sparkline(window, percent)
-        elapsed = time.monotonic() - window._opt_t_start
-        eta = f'{elapsed*(100-percent)/percent/60:.1f} min' if percent else '—'
-        _set_kpi(window, gen=f'{percent}%', eta=eta)
+
+    def update(state):
+        nonlocal last_drawn
+        if getattr(window, '_close_pending', False):
+            return
+        if window._opt_live_report is None:
+            show_pareto(window, state['report'], running=True)
+            last_drawn = state['report']['n_usable']
+        window._last_opt_output_dir = save_dir
+        _show_live_update(window, state)
+        window._opt_live_report = state['report']
+        window._opt_live_update = (state, time.monotonic())
 
     def done(report):
+        live_timer.stop()
         if getattr(window, '_close_pending', False):
             return
         window._last_opt_report = deepcopy(report)
@@ -392,7 +484,13 @@ def run_optimize(window):
                     + (f' · Pareto 绘图失败：{render_error}' if render_error else ''))
 
     def error(message):
+        live_timer.stop()
         if getattr(window, '_close_pending', False):
+            return
+        report = window._opt_live_report
+        if report is not None and report['status'] != 'running':
+            done(report)
+            _set_status(window, f'ERROR: {message} · 输出目录：{save_dir}')
             return
         _set_status(window, f'ERROR: {message} · 输出目录：{save_dir}')
         _set_kpi(window, gen='ERROR', best_q='—', best_dp='—', eta='—')
@@ -400,6 +498,7 @@ def run_optimize(window):
         _set_stage_pill(window, 'config', 'active')
 
     def cancelled_before_search():
+        live_timer.stop()
         if getattr(window, '_close_pending', False):
             return
         _set_status(window, '已取消 · 工况准备结束，尚未启动优化搜索')
@@ -413,11 +512,14 @@ def run_optimize(window):
             QTimer.singleShot(10, finished)
             return
         window._opt_worker = None
+        live_timer.stop()
+        live_timer.deleteLater()
         _toggle_buttons(window, False)
         worker.deleteLater()
 
     try:
         worker.progress_signal.connect(progress)
+        worker.update_signal.connect(update)
         worker.finished_with_result.connect(done)
         worker.cancelled_before_search.connect(cancelled_before_search)
         worker.error_signal.connect(error)
@@ -431,7 +533,10 @@ def run_optimize(window):
         _set_summary_banner(window, '', show=False)
         _set_status(window, f'{method} · {len(rows) if rows else 1} 个工况 · {"3D" if cfg.is_3d else "2D"}')
         worker.start()
+        live_timer.start()
     except Exception as exc:
+        live_timer.stop()
+        live_timer.deleteLater()
         window._opt_worker = None
         _toggle_buttons(window, False)
         _set_status(window, f'启动失败：{exc}')
@@ -442,6 +547,7 @@ def run_optimize(window):
 def cancel_optimize(window):
     worker = getattr(window, '_opt_worker', None)
     if worker is not None:
+        window._opt_stop_requested = True
         worker.requestInterruption()
         _set_status(window, '正在取消；等待当前数值步骤结束并保存记录')
 
@@ -450,7 +556,7 @@ def _termination_label(report):
     return {'completed': '完成', 'cancelled': '已取消', 'failed': '失败'}.get(report['status'], '运行中')
 
 
-def show_pareto(window, report):
+def show_pareto(window, report, *, running=False):
     """Render native objectives, returning a display error without changing the report."""
     history = report['history']
     window._opt_selected_history_index = None
@@ -488,7 +594,8 @@ def show_pareto(window, report):
                 order = np.argsort(window._pareto_F[:, 1])
                 ax.plot(window._pareto_F[order, 1], -window._pareto_F[order, 0], 'o-',
                         color=theme['accent_orange'], picker=True, pickradius=6, label=f'Pareto ({len(rows)})')
-                window._pareto_pick_cid = canvas.mpl_connect('pick_event', lambda event: on_pareto_pick(window, event))
+                if not running:
+                    window._pareto_pick_cid = canvas.mpl_connect('pick_event', lambda event: on_pareto_pick(window, event))
                 ax.legend(facecolor=theme['ax_bg'], edgecolor=theme['ax_spine'],
                           labelcolor=theme['ax_text'])
             ax.set_xlabel('Mean relative pressure drop [1]', color=theme['ax_text'])
@@ -509,6 +616,9 @@ def show_pareto(window, report):
             window._pareto_pick_cid = None
             canvas.figure.clear()
             canvas.hide()
+    if running:
+        window._opt_export_pareto_btn.setEnabled(False)
+        return render_error
     label = _termination_label(report)
     _set_kpi(window, gen=label, best_q=max((r['objectives']['heat_gain_percent'] for r in rows), default='—'),
              best_dp=min((r['objectives']['pressure_ratio'] for r in rows), default='—'), eta='—')

@@ -55,7 +55,8 @@ def _fake_batches(monkeypatch, *, fail_indices=(), baseline_failure=False, cance
     calls, baseline_token = [], {}
     expected_workers = workers
 
-    def evaluate(conditions, *, output_dir, baseline=None, control=RunControl(), workers=1):
+    def evaluate(conditions, *, output_dir, baseline=None, control=RunControl(), workers=1,
+                 on_update=None):
         assert control.backend == backend and workers == expected_workers
         directory = Path(output_dir)
         directory.mkdir()
@@ -63,6 +64,12 @@ def _fake_batches(monkeypatch, *, fail_indices=(), baseline_failure=False, cance
         calls.append((conditions, baseline, directory))
         (directory / 'native-evidence.txt').write_text('test evaluator evidence; no physical solve')
         control.report_progress(0)
+        # A new numerical phase can restart its local percentage.
+        control.report_progress(60)
+        control.report_progress(20)
+        if on_update is not None:
+            on_update([dict(condition_id=name, status='running', stage='solve', reason=None)
+                       for name, *_ in conditions])
         if baseline is None:
             assert all(not cfg.zones.enabled for _, cfg, _, _ in conditions)
             if not baseline_failure:
@@ -302,13 +309,53 @@ assert not any(name.split('.')[0] in ('torch', 'botorch', 'gpytorch', 'PySide6')
 def test_real_log_acquisition_selects_then_evaluates_complete_design(tmp_path, monkeypatch, method):
     pytest.importorskip('botorch', reason='requires the separately authorized locked BO environment')
     calls = _fake_batches(monkeypatch)
+    updates = []
     result = search.run_multi_condition_optimization(_conditions(), output_dir=tmp_path / method,
-        method=method, n_init=4, n_iter=1, q_batch=1, seed=4, workers=1)
+        method=method, n_init=4, n_iter=1, q_batch=1, seed=4, workers=1, on_update=updates.append)
     assert result['status'] == 'completed' and result['n_evaluated'] == 5 and len(calls) == 6
     chosen = result['history'][-1]['x_decision']
     assert result['proposals'][0]['x_decisions'] == [chosen]
     assert calls[-1][0][0][1].zones.config['x_decision'] == chosen
     assert np.isfinite(result['history'][-1]['model_y']).all()
+    stages = [update['report']['stage'] for update in updates]
+    assert 'model_fit' in stages and 'proposal' in stages[stages.index('model_fit')+1:]
+    assert all(update['eta_s'] is None for update in updates
+               if not update['report']['proposals'] and update['report']['status'] == 'running')
+    assert updates[-1]['report'] == result and updates[-1]['eta_s'] == 0
+
+
+def test_live_search_snapshots_keep_failures_counts_and_conditions(tmp_path, monkeypatch):
+    _fake_batches(monkeypatch, fail_indices=(1,))
+    updates = []
+    result = search.run_multi_condition_optimization(_conditions(), output_dir=tmp_path / 'live',
+        method='sobol', n_init=2, n_iter=1, q_batch=2, workers=1, on_update=updates.append)
+    assert result['n_evaluated'] == 4 and result['n_usable'] == 3
+    assert updates[0]['report']['history'] == []
+    assert updates[-1]['report'] == result and updates[-1]['eta_s'] == 0.
+    counts = [row['report']['n_evaluated'] for row in updates]
+    assert counts == sorted(counts)
+    assert any(row['conditions'] and row['conditions'][0]['stage'] == 'solve' for row in updates)
+    assert all(row['elapsed_s'] >= 0 for row in updates)
+    assert all(row['eta_s'] is None or row['eta_s'] >= 0 for row in updates)
+    assert all(row['elapsed_s'] >= 0 for row in (result['baseline'], *result['history']))
+    assert any(row['report']['history'] and row['report']['history'][-1]['status'] == 'failed'
+               for row in updates)
+    updates[-1]['report']['history'][0]['status'] = 'modified by observer'
+    assert result['history'][0]['status'] == 'completed'
+    assert _manifest(tmp_path / 'live') == result
+
+
+def test_live_search_preserves_primary_error_if_terminal_observer_fails(tmp_path, monkeypatch):
+    _fake_batches(monkeypatch, cancel_index=0)
+    def update(state):
+        if state['report']['status'] == 'cancelled':
+            raise RuntimeError('observer error')
+    with pytest.raises(CancelledError) as caught:
+        search.run_multi_condition_optimization(_conditions(), output_dir=tmp_path / 'cancelled',
+            method='sobol', n_init=2, n_iter=0, workers=1, on_update=update)
+    assert 'injected batch cancellation' in str(caught.value)
+    assert any('observer error' in note for note in caught.value.__notes__)
+    assert _manifest(tmp_path / 'cancelled')['status'] == 'cancelled'
 
 
 def test_pareto_max_single_point():
