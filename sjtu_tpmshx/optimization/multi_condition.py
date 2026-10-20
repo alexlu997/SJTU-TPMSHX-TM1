@@ -138,7 +138,9 @@ def _solve_condition(case, config, directory, control, update, checkpoint_file=N
         _validate_condition_field(field, case, config)
         control.check_cancelled()
         update(stage='postprocess')
-        return evaluate(field)
+        performance = evaluate(field)
+        update(stage='save_result')
+        return performance
 
     update(stage='solve')
     from sjtu_tpmshx.workflows.recovery import compute_prepared_run, resume_run
@@ -292,7 +294,8 @@ def _check_saved_condition(case, config, flow_a, flow_b, case_id):
 
 
 def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
-                              control=RunControl(), collect_fields=False, workers=None, resume_from=None):
+                              control=RunControl(), collect_fields=False, workers=None, resume_from=None,
+                              on_update=None):
     """Share batch validation; optimizer summaries keep paths and scalar metrics."""
     from sjtu_tpmshx.io.case_io import load_case, save_case
     from sjtu_tpmshx.io.result_io import load_result, save_result
@@ -367,6 +370,11 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
     summaries = {}
     design = {}
 
+    def notify():
+        if on_update is not None:
+            on_update([{key: row[key] for key in ('condition_id', 'status', 'stage', 'reason')}
+                       for row in history])
+
     def publish(primary_error=None):
         try:
             write_text(root / 'batch.json',
@@ -377,10 +385,18 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
             primary_error.add_note(f'Could not save {root / "batch.json"}: {save_error!r}')
             _log.exception('Could not save condition batch checkpoint')
             raise primary_error
+        try:
+            notify()
+        except Exception as callback_error:
+            if primary_error is None:
+                raise
+            primary_error.add_note(f'Condition update failed: {callback_error}')
+            raise primary_error
 
     def check_baseline(condition_id, case, flow_a, flow_b, row):
         if baseline is not None:
             row['stage'] = 'comparison'
+            notify()
             if collect_fields:
                 _condition_metrics([(condition_id, references[condition_id], reference[condition_id])],
                                    (condition_id,), 'baseline')
@@ -398,6 +414,7 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
         write_text(directory / 'input.json', json.dumps(config.to_dict(),
             ensure_ascii=False, allow_nan=False, indent=2) + '\n')
         row['stage'] = 'prepare'
+        notify()
         case = None
         if resume_from is not None:
             previous = next(item for item in source_record['conditions'] if item['condition_id'] == condition_id)
@@ -416,6 +433,7 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
             case = prepare_fixed_mass_flow_case(config, mass_flow_A_kg_s=flow_a,
                 mass_flow_B_kg_s=flow_b, case_id=row['case_id'])
         row['stage'] = 'save_case'
+        notify()
         save_case(case, directory / 'case.yaml')
         row['case_file'] = f"{row['directory']}/case.yaml"
         publish()
@@ -441,6 +459,7 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
         if collect_fields:
             results.append(result)
         row['stage'] = 'qualification'
+        notify()
         from sjtu_tpmshx.domain.portable_data import mutable_data
         row['qualification'] = mutable_data(performance.qualification)
         design.update(_condition_metrics([result], (condition_id,), 'candidate'))

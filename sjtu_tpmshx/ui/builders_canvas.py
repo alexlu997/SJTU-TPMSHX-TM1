@@ -746,7 +746,7 @@ def _build_optimize_panel(window, card_lay, t, theme):
 
     kpi_row = QGridLayout()
     kpi_row.setSpacing(16)
-    card_gen, val_gen = _mk_kpi("阶段 · 轮数", "—", 130)
+    card_gen, val_gen = _mk_kpi("已评估候选 / 预算", "—", 130)
     card_q,   val_q   = _mk_kpi("最大换热提升 [%]", "—", 180)
     card_dp,  val_dp  = _mk_kpi("最小相对压降 [1]", "—", 180)
     card_eta, val_eta = _mk_kpi("剩余时间", "—", 120)
@@ -780,6 +780,13 @@ def _build_optimize_panel(window, card_lay, t, theme):
     scl.addWidget(spark, 1)
     kpi_row.addWidget(spark_card, 2, 0, 1, 2)
     p2v.addLayout(kpi_row)
+    window._opt_live_details = QLabel()
+    window._opt_live_details.setTextFormat(Qt.TextFormat.PlainText)
+    window._opt_live_details.setWordWrap(True)
+    window._opt_live_details.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+    window._opt_live_details.setStyleSheet(
+        f"color:{_t['fg']}; font-size:10pt; background:transparent;")
+    p2v.addWidget(window._opt_live_details)
 
     # ── Launch (inside the 优化参数 card, always above the fold)
     #    + Cancel (page 2) ──────────────────────────────────

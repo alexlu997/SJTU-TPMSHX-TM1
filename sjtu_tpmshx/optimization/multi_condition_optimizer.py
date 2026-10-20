@@ -9,6 +9,7 @@ from dataclasses import asdict, replace
 from importlib import import_module
 import json
 from pathlib import Path
+from time import perf_counter
 
 import numpy as np
 from scipy import __version__ as scipy_version
@@ -54,7 +55,7 @@ def _bo_versions():
     return {name: import_module(name).__version__ for name in ('torch', 'botorch', 'gpytorch')}
 
 
-def _propose_bo(X, Y, lower, upper, ref_point, *, method, q_batch, seed):
+def _propose_bo(X, Y, lower, upper, ref_point, *, method, q_batch, seed, on_stage=None):
     """Fit independent standardized outputs, then optimize a log acquisition.
 
     BoTorch 0.18.1 APIs; inputs are normalized with fixed design bounds and
@@ -77,8 +78,12 @@ def _propose_bo(X, Y, lower, upper, ref_point, *, method, q_batch, seed):
                           torch.ones(X.shape[1], dtype=torch.float64)))
     with torch.random.fork_rng(devices=[]):
         torch.manual_seed(seed)
+        if on_stage is not None:
+            on_stage('model_fit')
         model = SingleTaskGP(train_X, train_Y, outcome_transform=Standardize(m=2))
         fit_gpytorch_mll(ExactMarginalLogLikelihood(model.likelihood, model))
+        if on_stage is not None:
+            on_stage('proposal')
         sampler = SobolQMCNormalSampler(sample_shape=torch.Size([128]), seed=seed)
         if method == 'qlognehvi':
             acquisition = qLogNoisyExpectedHypervolumeImprovement(
@@ -94,7 +99,7 @@ def _propose_bo(X, Y, lower, upper, ref_point, *, method, q_batch, seed):
 
 def run_multi_condition_optimization(
     conditions, *, output_dir, method='qlognehvi', n_init=16, n_iter=8,
-    q_batch=1, seed=0, field_spec=None, control=RunControl(), workers=None,
+    q_batch=1, seed=0, field_spec=None, control=RunControl(), workers=None, on_update=None,
 ) -> dict:
     """Optimize one complete XY/XYZ design across fixed operating conditions.
 
@@ -117,6 +122,10 @@ def run_multi_condition_optimization(
     indices. Cancellation preserves that record and propagates CancelledError.
     A completed search describes its finite budget, not physical validation or
     convergence to the global Pareto front.
+
+    ``on_update`` receives independent search and condition snapshots. Time
+    estimates use observed batch and proposal durations. The first BO proposal
+    must finish before its remaining cost can be estimated.
     """
     if method not in ('qlognehvi', 'qlognparego', 'sobol'):
         raise ValueError('method must be qlognehvi, qlognparego or sobol')
@@ -184,6 +193,7 @@ def run_multi_condition_optimization(
     record = dict(method=method, backend=control.backend, seed=seed, dimension=dimension, field_spec=spec,
         software_versions=versions, n_init=n_init, n_iter=n_iter, q_batch=q_batch, workers=workers,
         design_budget=budget, baseline_batches=1, status='running', stage='baseline', reason=None,
+        iteration=0,
         objective_directions={'heat_gain_percent': 'maximize', 'pressure_ratio': 'minimize'},
         model_objectives=['heat_gain_percent', '-pressure_ratio'], ref_point=None,
         conditions=[dict(condition_id=name, config=cfg.to_dict(), mass_flow_A_kg_s=a,
@@ -196,6 +206,42 @@ def run_multi_condition_optimization(
         rows = [row for row in history if row['status'] == 'completed']
         return (np.asarray([row['x_decision'] for row in rows]).reshape(-1, len(lower)),
                 np.asarray([row['model_y'] for row in rows]).reshape(-1, 2), rows)
+
+    started = perf_counter()
+    batch_started = proposal_started = None
+    condition_states = []
+
+    def notify():
+        if on_update is None:
+            return
+        now = perf_counter()
+        finished = [row for row in (record['baseline'], *history)
+                    if row['status'] in ('completed', 'failed') and 'elapsed_s' in row]
+        proposals = record['proposals']
+        pending_proposals = n_iter - len(proposals) if method != 'sobol' else 0
+        eta = None
+        if finished and (not pending_proposals or proposals):
+            mean_batch = float(np.mean([row['elapsed_s'] for row in finished]))
+            pending_batches = budget + 1 - len(finished)
+            eta = pending_batches * mean_batch
+            if batch_started is not None:
+                eta -= min(now - batch_started, mean_batch)
+            if pending_proposals:
+                mean_proposal = float(np.mean([row['elapsed_s'] for row in proposals]))
+                eta += pending_proposals * mean_proposal
+                if proposal_started is not None:
+                    eta -= min(now - proposal_started, mean_proposal)
+        if record['status'] != 'running':
+            eta = 0. if record['status'] == 'completed' else None
+        on_update(dict(report=deepcopy(record), conditions=deepcopy(condition_states),
+                       elapsed_s=now-started, eta_s=eta))
+
+    def batch_update(states):
+        nonlocal condition_states
+        condition_states = states
+        notify()
+
+    notifications = {'on_update': batch_update} if on_update is not None else {}
 
     def publish(primary_error=None):
         try:
@@ -211,18 +257,35 @@ def run_multi_condition_optimization(
             primary_error.add_note(f'Could not save {root / "optimization.json"}: {save_error!r}')
             _log.exception('Could not save optimization checkpoint')
             raise primary_error
+        try:
+            notify()
+        except Exception as callback_error:
+            if primary_error is None:
+                raise
+            primary_error.add_note(f'Search update failed: {callback_error}')
+            raise primary_error
+
+    def set_stage(stage):
+        record['stage'] = stage
+        publish()
 
     def batch_control(unit):
-        progress = (None if control.progress is None else
-                    lambda percent: control.report_progress(int(100*(unit+percent/100)/(budget+1))))
-        return replace(control, progress=progress)
+        highest = 0
+        def progress(percent):
+            nonlocal highest
+            highest = max(highest, percent)
+            control.report_progress(int(100*(unit+highest/100)/(budget+1)))
+        return replace(control, progress=progress if control.progress is not None else None)
 
     def evaluate_design(x, iteration):
+        nonlocal batch_started, condition_states
         row = dict(index=len(history), iteration=iteration,
                    phase='initial' if iteration == 0 else 'iteration',
                    x_decision=np.asarray(x).tolist(), directory=f'design_{len(history):04d}',
                    status='running', reason=None, objectives=None, model_y=None)
         history.append(row)
+        condition_states = []
+        batch_started = perf_counter()
         publish()
         primary_error = None
         try:
@@ -231,7 +294,8 @@ def run_multi_condition_optimization(
                                      config={**spec, 'x_decision': row['x_decision']})
             candidates = [(name, replace(cfg, zones=zones), a, b) for name, cfg, a, b in inputs]
             result = _evaluate_condition_batch(candidates, output_dir=root / row['directory'],
-                baseline=baseline['summaries'], control=batch_control(row['index']+1), workers=workers)
+                baseline=baseline['summaries'], control=batch_control(row['index']+1), workers=workers,
+                **notifications)
             if result['status'] != 'completed':
                 row.update(status='failed', reason=result.get('reason') or 'condition batch failed')
                 return
@@ -250,6 +314,8 @@ def run_multi_condition_optimization(
             row.update(status='failed', reason=f'{type(exc).__name__}: {exc}')
             raise
         finally:
+            row['elapsed_s'] = perf_counter() - batch_started
+            batch_started = None
             publish(primary_error)
 
     publish()
@@ -259,7 +325,13 @@ def run_multi_condition_optimization(
         record['baseline']['status'] = 'running'
         publish()
         uniform = [(name, replace(cfg, zones=ZoneInputConfig()), a, b) for name, cfg, a, b in inputs]
-        baseline = _evaluate_condition_batch(uniform, output_dir=root / 'baseline', control=batch_control(0), workers=workers)
+        batch_started = perf_counter()
+        try:
+            baseline = _evaluate_condition_batch(uniform, output_dir=root / 'baseline',
+                control=batch_control(0), workers=workers, **notifications)
+        finally:
+            record['baseline']['elapsed_s'] = perf_counter() - batch_started
+            batch_started = None
         record['baseline'].update(status=baseline['status'], reason=baseline.get('reason'))
         if baseline['status'] != 'completed':
             record.update(status='failed', reason='Uniform baseline batch failed')
@@ -283,7 +355,9 @@ def run_multi_condition_optimization(
         publish()
         for iteration in range(1, n_iter+1):
             control.check_cancelled()
-            record['stage'] = 'proposal'
+            record.update(stage='proposal', iteration=iteration)
+            condition_states = []
+            proposal_started = perf_counter()
             publish()
             if method == 'sobol':
                 start = n_init + (iteration-1)*q_batch
@@ -291,12 +365,14 @@ def run_multi_condition_optimization(
             else:
                 X, Y, _ = observations()
                 proposed = _propose_bo(X, Y, lower, upper, reference, method=method,
-                                       q_batch=q_batch, seed=seed+iteration)
+                                       q_batch=q_batch, seed=seed+iteration, on_stage=set_stage)
             proposed = np.asarray(proposed, dtype=float)
             if (proposed.shape != (q_batch, len(lower)) or not np.all(np.isfinite(proposed))
                     or np.any(proposed < lower) or np.any(proposed > upper)):
                 raise ValueError('proposed decisions must be finite and inside the complete field bounds')
-            record['proposals'].append(dict(iteration=iteration, x_decisions=proposed.tolist()))
+            record['proposals'].append(dict(iteration=iteration, x_decisions=proposed.tolist(),
+                                           elapsed_s=perf_counter()-proposal_started))
+            proposal_started = None
             record['stage'] = 'evaluation'
             publish()
             for x in proposed:
