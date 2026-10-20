@@ -53,6 +53,9 @@ _PHI_FUNCS = {
     'Gyroid': _phi_gyroid,
 }
 
+# Voxel faces overestimate smooth area. This factor uses the existing calibration.
+_AREA_CORRECTION = 1.553
+
 
 # ── Pre-computed phi grid (cached per TPMS type + resolution) ────
 
@@ -86,10 +89,29 @@ def _A0_from_C(phi: np.ndarray, C: float, L_m: float, N: int) -> float:
     n_faces += np.sum(solid[:-1, :, :] != solid[1:, :, :])
     n_faces += np.sum(solid[:, :-1, :] != solid[:, 1:, :])
     n_faces += np.sum(solid[:, :, :-1] != solid[:, :, 1:])
-    # Voxel face counting overestimates smooth surface area by a constant
-    # factor (~pi/2 in 3D). Calibrated correction: 1.553 from known data.
-    _AREA_CORRECTION = 1.553
     return n_faces * dx**2 / (2.0 * L_m**3 * _AREA_CORRECTION)
+
+
+@lru_cache(maxsize=2)
+def _geometry_counts(tpms_type: str, N: int):
+    """Index occupied voxels and exposed faces at each inclusive threshold."""
+    values = np.abs(_phi_grid(tpms_type, N))
+    weights = np.zeros(values.shape, dtype=np.int8)
+    for axis in range(3):
+        first = [slice(None)] * 3
+        second = [slice(None)] * 3
+        first[axis], second[axis] = slice(None, -1), slice(1, None)
+        first, second = tuple(first), tuple(second)
+        # An edge adds a face at its lower value and removes it at its upper value.
+        delta = ((values[first] < values[second]).astype(np.int8)
+                 - (values[first] > values[second]))
+        weights[first] += delta
+        weights[second] -= delta
+    order = np.argsort(values, axis=None)
+    ordered = values.ravel()[order]
+    faces = np.r_[0, np.cumsum(weights.ravel()[order], dtype=np.int64)]
+    ordered.flags.writeable = faces.flags.writeable = False
+    return ordered, faces
 
 
 def _find_C_for_eps(phi: np.ndarray, target_eps: float) -> float:
@@ -129,10 +151,7 @@ def _C_from_tL(tpms_type: str, t_over_L: float) -> float:
 
 # ── Core computation ─────────────────────────────────────────────
 
-# perf-wave1 (2026-07-03): 64 → 2048. The continuous-field optimizer
-# quantizes designs to hundreds of unique (L, t) pairs per eval; at
-# maxsize=64 the 128³ voxel scan (~10–30 ms) re-ran on every eviction
-# miss. Entries are two floats — memory cost is nil.
+# Retain scalar results for repeated continuous-field and fixed-flow queries.
 @lru_cache(maxsize=2048)
 def _compute_raw(tpms_type: str, L_mm: float, t_mm: float,
                  N: int = 128) -> dict:
@@ -145,7 +164,7 @@ def _compute_raw(tpms_type: str, L_mm: float, t_mm: float,
     L_mm      : unit cell size [mm]
     t_mm      : wall thickness [mm]
     N         : grid resolution (default 128, audit M-d / P3 2026-05-28;
-                16 MiB/proc vs 128 MiB at N=256; epsilon drift <0.3 %,
+                phi grid 16 MiB plus count index 32 MiB; epsilon drift <0.3 %,
                 A_0 drift <1 % per test_tpms_geometry_n128)
 
     Returns
@@ -160,10 +179,10 @@ def _compute_raw(tpms_type: str, L_mm: float, t_mm: float,
     if C < 0:
         C = 0.0
 
-    # Compute on phi grid
-    phi = _phi_grid(tpms_type, N)
-    eps = _eps_from_C(phi, C)
-    A0 = _A0_from_C(phi, C, L_m, N)
+    ordered, faces = _geometry_counts(tpms_type, N)
+    occupied = np.searchsorted(ordered, C, side='right')
+    eps = float(1.0 - occupied / ordered.size)
+    A0 = faces[occupied] * (L_m / N)**2 / (2.0 * L_m**3 * _AREA_CORRECTION)
 
     return {'epsilon': eps, 'A_0': A0}
 

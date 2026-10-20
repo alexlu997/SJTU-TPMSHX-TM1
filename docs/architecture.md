@@ -741,6 +741,14 @@ Geometry gradients
 still require independent physical validation. Parameter smoothness does not
 show TPMS surface connectivity or manufacturability.
 
+TPMS geometry uses an exact count index for repeated level-set thresholds.
+Sorted absolute phi values give the occupied voxel count. Cumulative edge
+changes give the exposed face count. The inclusive threshold, sampled grid,
+domain edges and area correction stay the same. The cache retains two
+topology/resolution pairs. At N=128, each index uses 32 MiB in addition to the
+16 MiB phi grid. The first query builds the index. Calibration, sigmoid tables
+and asymmetric geometry keep their existing scan functions.
+
 Each continuous-field axis accepts at least one control. A singleton is
 recorded at the domain midpoint and stays constant along that axis. Other
 axes use degree `min(spline_order, control_count - 1)`. Existing XY fields
