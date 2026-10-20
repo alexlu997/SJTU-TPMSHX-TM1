@@ -287,6 +287,13 @@ Optimization supports air A / water B and two-fluid pairs with a CO₂ or sCO₂
 
 Optimization Design → Results switches between Pareto and size/wall fields. Select a Pareto design to inspect its continuous field. The geometry canvas stays independent. Optimization plots support separate copy/export.
 
+The Run page shows the current stage, condition, evaluated candidates, usable candidates, and failures.
+It separates model fitting, candidate selection, preparation, native solving, and saving.
+The Results page updates its Pareto plot during the search. Design selection becomes available when the search stops.
+The remaining time estimate uses observed batch and proposal durations.
+The first BO proposal must finish before an estimate is available. Later candidates can take a different time.
+Cancel keeps its pending state until the worker reaches a safe stop point and saves the record.
+
 Set X/Y/Z control counts in the search space. Each axis defaults to 3 controls.
 One control makes that axis constant; two controls use linear interpolation.
 The interface shows the decision count. Sobol initialization rejects more than 21201 variables.

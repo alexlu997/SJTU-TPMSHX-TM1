@@ -298,9 +298,10 @@ def test_worker_passes_native_contract_and_reports_cancellation(window, tmp_path
     worker = Worker(cfg, rows, panel._field_spec(window), 'sobol', 2, 0, 1, 3, str(tmp_path),
                     control=host)
     rows[0]['T_in_A_K'] = 500.
-    outputs, progress = [], []
+    outputs, progress, updates = [], [], []
     worker.finished_with_result.connect(outputs.append)
     worker.progress_signal.connect(progress.append)
+    worker.update_signal.connect(updates.append)
     expected = report(window, status='cancelled')
     def run(actual, **kwargs):
         assert actual == conditions and actual is not conditions
@@ -310,6 +311,7 @@ def test_worker_passes_native_contract_and_reports_cancellation(window, tmp_path
         assert kwargs['control'].native_library == host.native_library
         assert kwargs['control'].native_table_directory == host.native_table_directory
         kwargs['control'].report_progress(17)
+        kwargs['on_update']({'report': expected, 'conditions': [], 'elapsed_s': 1., 'eta_s': None})
         (tmp_path/'optimization.json').write_text(json.dumps(expected))
         requested[0] = True
         kwargs['control'].check_cancelled()
@@ -317,6 +319,33 @@ def test_worker_passes_native_contract_and_reports_cancellation(window, tmp_path
     worker.run()
     assert progress == [17] and outputs == [expected]
     assert host_progress == [17]
+    assert updates[0]['report'] == expected
+
+
+def test_live_status_and_pareto_keep_run_page_and_cancel_request(window):
+    study = report(window, status='running')
+    study.update(stage='proposal', iteration=1)
+    window._opt_stop_requested = False
+    window._opt_stack.setCurrentIndex(1)
+    state = dict(report=study, elapsed_s=30., eta_s=90.,
+        conditions=[dict(condition_id='hot', status='running', stage='prepare', reason=None)])
+    panel._show_live_update(window, state)
+    assert window._opt_kpi_gen.text() == '1/4'
+    assert '数值合格 1' in window._opt_live_details.text()
+    assert 'hot：前处理' in window._opt_live_details.text()
+    assert '1.5 min' in window._opt_kpi_eta.text()
+    assert window._opt_status.text() == '选择候选'
+    assert panel.show_pareto(window, study, running=True) is None
+    assert window._opt_stack.currentIndex() == 1
+    assert window._pareto_pick_cid is None
+    assert not window._opt_export_geometry_btn.isEnabled()
+    window._opt_stop_requested = True
+    panel._show_live_update(window, state)
+    assert '取消请求已收到' in window._opt_status.text()
+    terminal = {**study, 'status': 'failed', 'reason': 'save failed'}
+    panel._show_live_update(window, {**state, 'report': terminal, 'eta_s': None})
+    assert window._opt_status.text() == '失败'
+    assert 'save failed' in window._opt_live_details.text()
 
 
 @pytest.mark.parametrize('cancel_during_prepare', [False, True])

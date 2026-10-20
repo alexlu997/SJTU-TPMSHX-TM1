@@ -126,13 +126,19 @@ def test_selected_backend_completes_batch_and_optimization(native_path, tmp_path
         for name in ('Ta', 'Tb', 'Ts'):
             np.testing.assert_array_equal(restored.fields[name], field.fields[name])
 
+    updates = []
     search = run_multi_condition_optimization(conditions, output_dir=directory / 'search',
         method='sobol', n_init=1, n_iter=1, seed=7, control=control, workers=workers,
-        field_spec={'L_bounds': [6.8, 7.2], 't_bounds': [.55, .6]})
+        field_spec={'L_bounds': [6.8, 7.2], 't_bounds': [.55, .6]}, on_update=updates.append)
     assert search['status'] == 'completed', search
     assert search['backend'] == 'cpp'
     assert search['n_evaluated'] == search['n_usable'] == 2
     assert search['pareto_indices']
+    assert updates[-1]['report'] == search
+    assert [row['condition_id'] for row in updates[-1]['conditions']] == [row[0] for row in conditions]
+    assert all(row['status'] == 'completed' for row in updates[-1]['conditions'])
+    assert {'prepare', 'save_case', 'qualification'} <= {
+        row['stage'] for update in updates for row in update['conditions']}
     for entry in (search['baseline'], *search['history']):
         batch_dir = directory / 'search' / entry['directory']
         record = json.loads((batch_dir / 'batch.json').read_text())
