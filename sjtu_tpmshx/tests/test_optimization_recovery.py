@@ -1,6 +1,6 @@
 """Search recovery keeps proposal identity, used budget and original evidence."""
 import json
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from threading import Event
 
 import numpy as np
@@ -11,6 +11,27 @@ from sjtu_tpmshx.domain.compute_config import ZoneInputConfig
 from sjtu_tpmshx.domain.paused_run import PausedRun
 from sjtu_tpmshx.optimization import multi_condition_optimizer as search
 from sjtu_tpmshx.tests.test_multi_condition_optimizer import _conditions, _fake_batches, _manifest
+
+
+@pytest.mark.parametrize('shared', ['config', 'fluid'])
+def test_resume_keeps_each_flow_when_conditions_share_input_objects(tmp_path, monkeypatch, shared):
+    _fake_batches(monkeypatch)
+    config = _conditions()[0][1]
+    second = config if shared == 'config' else replace(config,
+        fluid_A=replace(config.fluid_A, T_in_K=config.fluid_A.T_in_K+10.))
+    conditions = [('first', config, .01, .02), ('second', second, .02, .04)]
+    before = [asdict(row[1]) for row in conditions]
+    source = tmp_path / 'source'
+    with pytest.raises(PausedRun):
+        search.run_multi_condition_optimization(conditions, output_dir=source,
+            method='sobol', n_init=2, n_iter=0, workers=1, pause_check=lambda: True)
+    frozen = json.loads((source / 'optimization-input.json').read_text())
+    assert [[row['config']['fluid_'+side]['mass_flow_kg_s'] for side in 'AB']
+            for row in frozen['conditions']] == [[.01, .02], [.02, .04]]
+    result = search.resume_multi_condition_optimization(source / 'optimization.json',
+        output_dir=tmp_path / 'resumed', workers=1)
+    assert result['status'] == 'completed' and result['n_usable'] == 2
+    assert [asdict(row[1]) for row in conditions] == before
 
 
 @pytest.mark.parametrize('enabled', [False, True])

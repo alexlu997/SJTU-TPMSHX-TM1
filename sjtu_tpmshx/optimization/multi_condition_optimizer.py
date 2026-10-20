@@ -235,9 +235,9 @@ def _run_multi_condition_optimization(
             raise TypeError('condition config must be ComputeConfig')
         if not np.all(np.isfinite([flow_a, flow_b])) or min(flow_a, flow_b) <= 0:
             raise ValueError('total mass flows must be finite and positive')
-        config.zones = ZoneInputConfig()
-        config.fluid_A.mass_flow_kg_s = flow_a
-        config.fluid_B.mass_flow_kg_s = flow_b
+    inputs = tuple((name, replace(cfg, zones=ZoneInputConfig(),
+        fluid_A=replace(cfg.fluid_A, mass_flow_kg_s=a),
+        fluid_B=replace(cfg.fluid_B, mass_flow_kg_s=b)), a, b) for name, cfg, a, b in inputs)
     config = inputs[0][1]
     dimension = 3 if config.is_3d else 2
     frozen = ('geometry', 'solver', 'bc_A', 'bc_B', 'flags', 'df_mode',
