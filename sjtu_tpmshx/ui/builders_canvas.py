@@ -801,6 +801,11 @@ def _build_optimize_panel(window, card_lay, t, theme):
     # Insert BEFORE the trailing stretch so the CTA sits right
     # under the eval-count preview, above the fold.
     par_lay.insertWidget(par_lay.count() - 1, btn_opt)
+    window._opt_resume_btn = QPushButton("继续已有任务…")
+    window._opt_resume_btn.setStyleSheet(t.style('BTN_TERTIARY'))
+    window._opt_resume_btn.setToolTip("读取 optimization.json，在新目录继续；使用保存的工况和搜索设置。")
+    window._opt_resume_btn.clicked.connect(window._resume_optimize)
+    par_lay.insertWidget(par_lay.count() - 1, window._opt_resume_btn)
 
     btn_opt_cancel = QPushButton("✕ 取消（保留已算样本）")
     btn_opt_cancel.setFixedHeight(32)
@@ -811,6 +816,12 @@ def _build_optimize_panel(window, card_lay, t, theme):
     btn_opt_cancel.clicked.connect(window._cancel_optimize)
     window._opt_cancel_btn = btn_opt_cancel
     cancel_row = _HBop()
+    window._opt_pause_btn = QPushButton("暂停并保存")
+    window._opt_pause_btn.setFixedHeight(32)
+    window._opt_pause_btn.setStyleSheet(t.style('BTN_TERTIARY'))
+    window._opt_pause_btn.setEnabled(False)
+    window._opt_pause_btn.clicked.connect(window._pause_optimize)
+    cancel_row.addWidget(window._opt_pause_btn)
     cancel_row.addWidget(btn_opt_cancel)
     cancel_row.addStretch(1)
     p2v.addLayout(cancel_row)

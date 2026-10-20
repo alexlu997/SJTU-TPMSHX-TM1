@@ -293,6 +293,14 @@ The Results page updates its Pareto plot during the search. Design selection bec
 The remaining time estimate uses observed batch and proposal durations.
 The first BO proposal must finish before an estimate is available. Later candidates can take a different time.
 Cancel keeps its pending state until the worker reaches a safe stop point and saves the record.
+Select Pause and Save on the Run page to save active native checkpoints and the search state.
+After a program restart, select Continue Existing Task on the configuration page and open `optimization.json`.
+Recovery uses the saved conditions, design space, budget, method, and seed. It keeps the complete evidence in a new directory.
+Completed candidates do not run again. Failed candidates keep their used budget. Saved proposals continue in their original order.
+An unfinished condition continues from its native checkpoint. A condition with only prepared input starts again from that input.
+The source directory stays unchanged. Cancel remains available while a pause request is pending.
+Recovery requires the associated `optimization-input.json` and the same search dependency versions.
+Older reports remain readable and exportable. A report without that fixed input cannot continue the search.
 
 Set X/Y/Z control counts in the search space. Each axis defaults to 3 controls.
 One control makes that axis constant; two controls use linear interpolation.

@@ -59,13 +59,13 @@ def compute_run(config, directory, *, checkpoint_interval_s, case_id=None,
 
 
 def compute_prepared_run(case, directory, *, checkpoint_interval_s,
-                         control=RunControl(), progress_cb=None, evaluate=None):
+                         control=RunControl(), progress_cb=None, pause_check=None, evaluate=None):
     """Save and solve the supplied prepared input without preparing it again."""
     control.check_cancelled()
     config = ComputeConfig.from_dict(mutable_data(case.config_snapshot))
     return _execute(config, directory, checkpoint_interval_s=checkpoint_interval_s,
         case_id=case.case_id, control=control, progress_cb=progress_cb,
-        pause_check=None, gui_provenance=None, saved_case=case, evaluate=evaluate)
+        pause_check=pause_check, gui_provenance=None, saved_case=case, evaluate=evaluate)
 
 
 def resume_run(checkpoint_file, directory, *, checkpoint_interval_s,

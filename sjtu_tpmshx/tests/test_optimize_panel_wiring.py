@@ -31,6 +31,65 @@ def condition(name='one'):
                 T_in_B_K=295., P_in_B_Pa=120000., mass_flow_B_kg_s=.015)
 
 
+@pytest.mark.parametrize('save_failure', [False, True])
+def test_worker_pause_requires_saved_terminal_status(window, tmp_path, monkeypatch, save_failure):
+    from sjtu_tpmshx.optimization import multi_condition_optimizer as search
+    from sjtu_tpmshx.tests.test_multi_condition_optimizer import _fake_batches
+    from sjtu_tpmshx.tests.test_optimization_checkpoint_errors import _checkpoint_fault
+    _fake_batches(monkeypatch)
+    if save_failure:
+        _checkpoint_fault(monkeypatch, search, 'optimization.json',
+            lambda record, _: record['status'] == 'paused', persistent=True)
+    worker = panel._make_worker_class()(panel._gather_cfg(window), [condition()],
+        panel._field_spec(window), 'sobol', 1, 0, 1, 0, str(tmp_path / 'paused'))
+    reports, errors = [], []
+    worker.finished_with_result.connect(reports.append)
+    worker.error_signal.connect(errors.append)
+    worker.request_pause()
+    worker.run()
+    if save_failure:
+        assert not reports and 'checkpoint write failed' in errors[0]
+    else:
+        assert not errors and reports[0]['status'] == 'paused'
+        assert panel._termination_label(reports[0]) == '已暂停'
+        assert (tmp_path / 'paused/optimization-input.json').is_file()
+    worker.deleteLater()
+
+
+@pytest.mark.parametrize('stale_speed', [False, True])
+def test_resume_button_uses_saved_input_and_restores_idle_controls(window, tmp_path, monkeypatch, stale_speed):
+    from PySide6.QtWidgets import QFileDialog
+    from sjtu_tpmshx.optimization import multi_condition_optimizer as search
+    from sjtu_tpmshx.tests.gui_worker_support import _wait_for
+    from sjtu_tpmshx.tests.test_multi_condition_optimizer import _conditions, _fake_batches
+    calls = _fake_batches(monkeypatch)
+    source = tmp_path / 'source'
+    conditions = _conditions()[:1]
+    if stale_speed:
+        from sjtu_tpmshx.preprocess.api import prepare_inlet_mass_capacities
+        name, config, _, _ = conditions[0]
+        config.df_mode = 'experimental'
+        capacity = prepare_inlet_mass_capacities(config)
+        conditions = [(name, config, capacity['A']*10., capacity['B']*.1)]
+        config.fluid_A.u_mps = .001
+        with pytest.raises(ValueError):
+            config.validate()
+    expected = search.run_multi_condition_optimization(conditions, output_dir=source,
+        method='sobol', n_init=2, n_iter=0, workers=1)
+    monkeypatch.setattr(panel, '_gather_cfg', lambda _: pytest.fail('recovery read current widgets'))
+    monkeypatch.setattr(panel, 'optimization_output_dir', lambda: tmp_path)
+    monkeypatch.setattr(QFileDialog, 'getOpenFileName', lambda *a: (str(source / 'optimization.json'), ''))
+    window._opt_resume_btn.click()
+    assert not window._opt_resume_btn.isEnabled() and window._opt_cancel_btn.isEnabled()
+    _wait_for(lambda: window._opt_worker is None)
+    assert window._last_opt_report['status'] == 'completed', window._opt_status.text()
+    assert window._last_opt_report['field_spec'] == expected['field_spec']
+    assert len(calls) == 3
+    assert window._opt_resume_btn.isEnabled() and not window._opt_pause_btn.isEnabled()
+    assert not window._opt_cancel_btn.isEnabled() and window._cpu_card.isEnabled()
+    assert window._last_opt_output_dir != str(source)
+
+
 def report(window, *, status='completed'):
     from sjtu_tpmshx.models.continuous_field import decision_dim
     cfg = panel._gather_cfg(window)

@@ -920,6 +920,18 @@ current ComputeConfig, accepts a fixed-mass-flow condition table and restores
 selected full fields without averaging. A finite-budget Pareto set is a model
 trend result.
 
+New searches save fixed inputs in `optimization-input.json` before numerical work.
+`resume_multi_condition_optimization` compares that input with the search record and the current dependency versions.
+It checks the initial Sobol sequence, saved proposals, history order, objectives, and fixed initial reference point.
+Recovery copies the complete source archive to a new directory before execution.
+The same search loop checks completed batch evidence without another solve.
+It retains failed observations and continues incomplete conditions through batch recovery.
+An incomplete condition uses a new condition directory within the copied batch.
+Previous checkpoints stay available if another pause occurs during preparation.
+Saved proposals keep their decisions and budget. Only an unsaved proposal is generated again.
+Pause uses a separate event from cancellation. The parent stops new submissions and waits for active workers to save checkpoints.
+Cancellation takes precedence while a pause is pending. Terminal publication must succeed before the UI reports a saved pause.
+
 Final candidates need all-condition and grid verification with
 objectives recomputed on those results. The nTop CSV API exports XY or XYZ
 coordinates and full control provenance with round-trip float precision.

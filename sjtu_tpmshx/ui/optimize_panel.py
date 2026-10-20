@@ -6,6 +6,7 @@ from dataclasses import asdict, replace
 import json
 from pathlib import Path
 import time
+from threading import Event
 from traceback import format_exception_only
 
 import numpy as np
@@ -30,7 +31,7 @@ def _make_worker_class():
         error_signal = Signal(str)
 
         def __init__(self, config, condition_rows, field_spec, method, n_init, n_iter, q_batch, seed, save_dir,
-                     *, control=RunControl()):
+                     *, control=RunControl(), resume_file=None):
             super().__init__()
             self.config = deepcopy(config)
             self.condition_rows = deepcopy(condition_rows)
@@ -39,9 +40,15 @@ def _make_worker_class():
             self.n_init, self.n_iter, self.q_batch, self.seed = n_init, n_iter, q_batch, seed
             self.save_dir = save_dir
             self.control = control
+            self.resume_file = resume_file
+            self._pause = Event()
+
+        def request_pause(self):
+            self._pause.set()
 
         def run(self):
             from sjtu_tpmshx.domain.cancellation import CancelledError
+            from sjtu_tpmshx.domain.paused_run import PausedRun
             try:
                 last_percent, last_emit = -1, -float('inf')
                 def progress(percent):
@@ -56,16 +63,21 @@ def _make_worker_class():
                         self.control.cancel_check is not None and self.control.cancel_check())
                 control = replace(self.control, progress=progress, cancel_check=cancelled)
                 control.check_cancelled()
-                conditions = _condition_inputs(self.config, self.condition_rows)
-                control.check_cancelled()
-                from sjtu_tpmshx.optimization.multi_condition_optimizer import run_multi_condition_optimization
-                report = run_multi_condition_optimization(
-                    conditions, output_dir=self.save_dir, method=self.method,
-                    n_init=self.n_init, n_iter=self.n_iter, q_batch=self.q_batch,
-                    seed=self.seed, field_spec=self.field_spec, control=control,
-                    on_update=self.update_signal.emit)
+                from sjtu_tpmshx.optimization.multi_condition_optimizer import (
+                    run_multi_condition_optimization, resume_multi_condition_optimization)
+                if self.resume_file is not None:
+                    report = resume_multi_condition_optimization(self.resume_file, output_dir=self.save_dir,
+                        control=control, on_update=self.update_signal.emit, pause_check=self._pause.is_set)
+                else:
+                    conditions = _condition_inputs(self.config, self.condition_rows)
+                    control.check_cancelled()
+                    report = run_multi_condition_optimization(
+                        conditions, output_dir=self.save_dir, method=self.method,
+                        n_init=self.n_init, n_iter=self.n_iter, q_batch=self.q_batch,
+                        seed=self.seed, field_spec=self.field_spec, control=control,
+                        on_update=self.update_signal.emit, pause_check=self._pause.is_set)
                 self.finished_with_result.emit(report)
-            except CancelledError as exc:
+            except (CancelledError, PausedRun) as exc:
                 if getattr(exc, '__notes__', None):
                     self.error_signal.emit(''.join(format_exception_only(exc)).strip())
                     return
@@ -74,11 +86,14 @@ def _make_worker_class():
                     if checkpoint.exists():
                         with checkpoint.open(encoding='utf-8') as source:
                             report = json.load(source)
-                        if not isinstance(report, dict) or report.get('status') != 'cancelled':
-                            raise ValueError('Cancellation checkpoint does not record cancelled status')
+                        expected = 'paused' if isinstance(exc, PausedRun) else 'cancelled'
+                        if not isinstance(report, dict) or report.get('status') != expected:
+                            raise ValueError(f'Search checkpoint does not record {expected} status')
                         self.finished_with_result.emit(report)
-                    else:
+                    elif isinstance(exc, CancelledError):
                         self.cancelled_before_search.emit()
+                    else:
+                        raise ValueError('Paused search has no saved checkpoint')
                 except (OSError, ValueError) as exc:
                     self.error_signal.emit(''.join(format_exception_only(exc)).strip())
             except Exception as exc:
@@ -293,9 +308,13 @@ def _toggle_buttons(window, running: bool) -> None:
     refresh_resource_availability(window)
     btn = getattr(window, '_opt_btn', None)
     cancel = getattr(window, '_opt_cancel_btn', None)
+    pause = getattr(window, '_opt_pause_btn', None)
+    resume = getattr(window, '_opt_resume_btn', None)
     try:
         if btn is not None:    btn.setEnabled(not running)
         if cancel is not None: cancel.setEnabled(running)
+        if pause is not None: pause.setEnabled(running)
+        if resume is not None: resume.setEnabled(not running)
     except Exception:
         pass
 
@@ -364,6 +383,8 @@ def _show_live_update(window, update):
         stage = _termination_label(report)
     elif window._opt_stop_requested:
         stage = '取消请求已收到；等待安全停止点 · ' + stage
+    elif getattr(window, '_opt_pause_requested', False):
+        stage = '暂停请求已收到；等待保存检查点 · ' + stage
     _set_status(window, stage)
     usable = [row for row in report['history'] if row['status'] == 'completed']
     failed = [row for row in report['history'] if row['status'] == 'failed']
@@ -376,9 +397,9 @@ def _show_live_update(window, update):
               'comparison': '核对基准', 'solve': '原生求解', 'validate_result': '核对结果',
               'postprocess': '后处理', 'save_result': '保存结果', 'qualification': '资格检查',
               'reuse': '读取已有结果', None: '等待'}
-    states = {'completed': '合格', 'failed': '失败', 'cancelled': '已取消', 'not_run': '等待'}
+    states = {'completed': '合格', 'failed': '失败', 'cancelled': '已取消', 'paused': '已暂停', 'not_run': '等待'}
     conditions = update['conditions']
-    priority = {'running': 0, 'computed': 0, 'failed': 1, 'cancelled': 1,
+    priority = {'running': 0, 'computed': 0, 'failed': 1, 'cancelled': 1, 'paused': 1,
                 'not_run': 2, 'completed': 3}
     visible = sorted(conditions, key=lambda row: priority[row['status']])[:4]
     lines = [f'已评估 {report["n_evaluated"]}/{report["design_budget"]} · '
@@ -398,21 +419,30 @@ def _show_live_update(window, update):
     window._opt_live_details.setToolTip('\n'.join(reasons))
 
 
-def run_optimize(window):
+def run_optimize(window, *, resume_file=None):
     if (getattr(window, '_close_pending', False) or getattr(window, '_opt_launching', False)
             or getattr(window, '_opt_worker', None) is not None):
         return
     window._opt_launching = True
     _toggle_buttons(window, True)
     try:
-        cfg = _gather_cfg(window)
-        rows = getattr(window, '_opt_conditions', None)
-        rows = validate_condition_table({'conditions': rows}) if rows is not None else None
-        if rows is None:
-            cfg.validate()
-        spec = _field_spec(window)
-        params = {key: spin.value() for key, spin in window._opt_inline_params.items()}
-        method = window._opt_method.currentData()
+        if resume_file is None:
+            cfg = _gather_cfg(window)
+            rows = getattr(window, '_opt_conditions', None)
+            rows = validate_condition_table({'conditions': rows}) if rows is not None else None
+            if rows is None:
+                cfg.validate()
+            spec = _field_spec(window)
+            params = {key: spin.value() for key, spin in window._opt_inline_params.items()}
+            method = window._opt_method.currentData()
+        else:
+            from sjtu_tpmshx.optimization.multi_condition import _saved_condition_config
+            frozen = json.loads(Path(resume_file).with_name('optimization-input.json').read_text(encoding='utf-8'))
+            rows = frozen['conditions']
+            cfg = _saved_condition_config(rows[0])
+            spec, method = frozen['field_spec'], frozen['method']
+            params = {key: frozen[key] for key in ('n_init', 'n_iter', 'q_batch', 'seed')}
+            params['resume_file'] = resume_file
         save_dir = str(optimization_output_dir() / f'{method}_{time.strftime("%Y%m%d_%H%M%S")}_{time.time_ns()%1000000:06d}')
         worker = _make_worker_class()(cfg, rows, spec, method, save_dir=save_dir,
             control=getattr(window, 'run_control', RunControl()), **params)
@@ -423,6 +453,7 @@ def run_optimize(window):
         return
     window._opt_t_start = time.monotonic()
     window._opt_stop_requested = False
+    window._opt_pause_requested = False
     window._opt_live_report = None
     window._opt_live_update = None
     window._opt_live_details.setText('正在准备工况；首次提案完成后可估算剩余时间。')
@@ -552,8 +583,25 @@ def cancel_optimize(window):
         _set_status(window, '正在取消；等待当前数值步骤结束并保存记录')
 
 
+def pause_optimize(window):
+    worker = getattr(window, '_opt_worker', None)
+    if worker is not None:
+        window._opt_pause_requested = True
+        worker.request_pause()
+        window._opt_pause_btn.setEnabled(False)
+        _set_status(window, '正在暂停；等待保存原生检查点和搜索记录')
+
+
+def resume_optimize(window):
+    from PySide6.QtWidgets import QFileDialog
+    filename, _ = QFileDialog.getOpenFileName(window, '继续已有优化任务',
+        str(optimization_output_dir()), 'Optimization checkpoint (optimization.json)')
+    if filename:
+        run_optimize(window, resume_file=filename)
+
+
 def _termination_label(report):
-    return {'completed': '完成', 'cancelled': '已取消', 'failed': '失败'}.get(report['status'], '运行中')
+    return {'completed': '完成', 'cancelled': '已取消', 'paused': '已暂停', 'failed': '失败'}.get(report['status'], '运行中')
 
 
 def show_pareto(window, report, *, running=False):
