@@ -149,6 +149,7 @@ def test_process_cancel_keeps_checkpoint_and_unrun_members(tmp_path, monkeypatch
 def test_process_pause_drains_workers_and_cancel_takes_precedence(tmp_path, monkeypatch, cancel_after_pause):
     from multiprocessing import active_children
     from sjtu_tpmshx.domain.paused_run import PausedRun
+    previous_children = set(active_children())
     monkeypatch.setattr(batch, '_run_native_condition', _analytic_worker)
     conditions = _conditions()
     conditions[0] = ('pause', *conditions[0][1:])
@@ -170,7 +171,7 @@ def test_process_pause_drains_workers_and_cancel_takes_precedence(tmp_path, monk
     assert record['conditions'][2]['status'] == 'not_run'
     assert all(row['status'] not in ('running', 'computed') for row in record['conditions'])
     assert (root / record['conditions'][0]['checkpoint_file']).is_file()
-    assert not active_children()
+    assert set(active_children()) <= previous_children
     resumed = batch.resume_condition_batch(root / 'batch.json', output_dir=tmp_path / 'continued',
         workers=2, control=_control(tmp_path))
     assert resumed['status'] == 'completed' and len(resumed['results']) == 3
@@ -181,6 +182,7 @@ def test_process_pause_drains_workers_and_cancel_takes_precedence(tmp_path, monk
 def test_cancel_after_final_paused_worker_is_published(tmp_path, monkeypatch, whole_search):
     from multiprocessing import active_children
     from sjtu_tpmshx.optimization import multi_condition_optimizer as search
+    previous_children = set(active_children())
     monkeypatch.setattr(batch, '_run_native_condition', _analytic_worker)
     conditions = _conditions()
     conditions[0] = ('pause', *conditions[0][1:])
@@ -207,7 +209,7 @@ def test_cancel_after_final_paused_worker_is_published(tmp_path, monkeypatch, wh
     assert json.loads((batch_root / 'batch.json').read_text())['status'] == 'cancelled'
     if whole_search:
         assert json.loads((root / 'optimization.json').read_text())['status'] == 'cancelled'
-    assert not active_children()
+    assert set(active_children()) <= previous_children
 
 
 @pytest.mark.parametrize('workers', [0, -1, True, 1.5])
