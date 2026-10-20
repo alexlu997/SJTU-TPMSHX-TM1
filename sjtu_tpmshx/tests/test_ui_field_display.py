@@ -118,7 +118,7 @@ def test_nearly_uniform_fields_still_render(win, mode, field, value):
     assert contour.get_clim()[1] > contour.get_clim()[0]
 
 
-def test_qualification_reason_preserves_rejection_and_distinguishes_nu_inputs():
+def test_qualification_reason_preserves_rejection_and_distinguishes_nu_inputs(win):
     from sjtu_tpmshx.ui.mixins.run_results import qualification_reasons
     q = {'design': {'status': 'rejected', 'reasons': ['applicability']},
          'applicability': {'checks': [
@@ -128,3 +128,11 @@ def test_qualification_reason_preserves_rejection_and_distinguishes_nu_inputs():
         'B 侧 Nu（原始输入） 水 Gyroid Re 超范围',
         'B 侧 Nu（计算输入） 水 Gyroid Re 超范围']
     assert q['design']['status'] == 'rejected'
+    result = _result('3d')
+    q['design']['eligible'] = False
+    result.metadata['qualification'] = q
+    win.write_result(result)
+    win._update_result_summary()
+    label = win._sb_labels['design']
+    assert label.text() == '未通过 ⚠：B 侧 Nu（原始输入） 水 Gyroid Re 超范围'
+    assert 'Nu（计算输入）' in label.toolTip()

@@ -171,7 +171,7 @@ def refresh_result_sidebar(window):
     labels['design'].setWordWrap(True)
     labels['design'].setToolTip('\n'.join(reasons))
     if reasons:
-        labels['design'].setText(labels['design'].text() + '：' + reasons[0].split('（')[0])
+        labels['design'].setText(labels['design'].text() + '：' + reasons[0].split('（实际 ')[0])
     it = (d.get('iters') or {}).get('iter_outer')
     ws = d.get('wall_s')
     labels['iters'].setText(
