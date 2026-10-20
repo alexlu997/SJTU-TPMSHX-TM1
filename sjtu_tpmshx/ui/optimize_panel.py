@@ -191,8 +191,29 @@ def use_current_condition(window):
     refresh_setup(window)
 
 
+def edit_common_settings(window):
+    """Show the existing parameter controls without changing their values."""
+    if getattr(window, '_3d_immersive', False):
+        window._toggle_3d_immersive()
+    window._switch_tab('layout')
+    if getattr(window, '_left_collapsed', False):
+        window._set_parameter_panel_collapsed(False)
+    window._param_scroll.setFocus()
+
+
 def refresh_setup(window):
     is_3d = _is_3d_mode(window)
+    label = getattr(window, '_opt_public_summary', None)
+    if label is not None:
+        lengths = [window.le_L.text(), window.le_H.text()]
+        grids = [window.le_Nx.text(), window.le_Ny.text()]
+        if is_3d:
+            lengths.append(window.le_Lz.text())
+            grids.append(window.le_Nz.text())
+        label.setText(f'公共工况 · {window.combo_tpms.currentText()} · '
+                      f'{window.combo_fluidA.currentText()} / {window.combo_fluidB.currentText()}\n'
+                      f'计算域 {" × ".join(lengths)} m · 网格 {" × ".join(grids)} · '
+                      '材料、端口与求解设置沿用当前算例')
     depth = getattr(window, '_opt_depth', None)
     if depth is not None:
         depth.setVisible(not is_3d)
@@ -215,7 +236,8 @@ def refresh_setup(window):
     label = getattr(window, '_opt_eval_preview', None)
     if label is not None and params:
         budget = params['n_init'].value() + params['n_iter'].value()*params['q_batch'].value()
-        label.setText(f'{budget} 个候选 + 1 个均匀基准，最多 {(budget+1)*n} 次 '
+        label.setText('目标：平均换热增益最大，相对压降最小\n'
+                      f'{budget} 个候选 + 1 个均匀基准，最多 {(budget+1)*n} 次 '
                       f'{"3D" if is_3d else "2D"} 工况求解')
     label = getattr(window, '_opt_selected_field', None)
     if label is not None:
@@ -225,6 +247,9 @@ def refresh_setup(window):
         if hasattr(window, 'zone_table'):
             window.zone_table.setEnabled(spec is None)
             window.combo_zone_axis.setEnabled(spec is None)
+    fit = getattr(window, '_fit_3d_card_to_viewport', None)
+    if fit is not None:
+        fit()
 
 
 def _condition_inputs(cfg, rows):
@@ -357,7 +382,7 @@ def _set_stage_pill(window, key: str, state: str) -> None:
 
 
 def _set_summary_banner(window, text: str, *, show: bool = True) -> None:
-    """Show / update the summary banner under the Optimize cards."""
+    """Update the result summary and fit its visible page."""
     banner = getattr(window, '_opt_summary_banner', None)
     if banner is None:
         return
@@ -366,6 +391,9 @@ def _set_summary_banner(window, text: str, *, show: bool = True) -> None:
         banner.setVisible(show)
     except Exception:
         pass
+    fit = getattr(window, '_fit_3d_card_to_viewport', None)
+    if fit is not None:
+        fit()
 
 
 def _show_live_update(window, update):
@@ -417,6 +445,9 @@ def _show_live_update(window, update):
     lines.extend(reason[:240] for reason in reasons[-2:])
     window._opt_live_details.setText('\n'.join(lines))
     window._opt_live_details.setToolTip('\n'.join(reasons))
+    fit = getattr(window, '_fit_3d_card_to_viewport', None)
+    if fit is not None:
+        fit()
 
 
 def run_optimize(window, *, resume_file=None):

@@ -5,7 +5,7 @@ canvas stack (Temperature / Pressure / Velocity / Geometry / Optimize /
 3D View cards), the tab-button row with split/detach affordances, and
 the card zoom / re-layout helpers used by TabViewMixin.
 """
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton,
     QComboBox, QScrollArea, QFrame, QSizePolicy, QSlider,
@@ -237,6 +237,7 @@ def _build_canvas_toolbar(window, vlay, t, theme):
 
     # 2D|3D rendering toggle — enabled per side by _update_tab_visibility.
     _rv_seg = QFrame()
+    window._result_view_switch = _rv_seg
     _rv_seg.setObjectName('resultViewSwitch')
     _rv_seg.setStyleSheet(
         f"QFrame#resultViewSwitch{{background:{_ct['surface_elevated']};"
@@ -374,8 +375,23 @@ def _build_canvas_toolbar(window, vlay, t, theme):
 
 
 def refresh_field_controls(window):
-    """Show only selectors backed by the current rendered result."""
+    """Refresh controls for the active workbench page."""
     tab = getattr(window, '_active_tab', None)
+    optimizing = tab == 'pareto'
+    focused = getattr(window, '_3d_immersive', False)
+    host = getattr(window, '_parameter_host', None)
+    if host is not None:
+        if optimizing and host.isVisible() and not getattr(window, '_left_collapsed', False):
+            window._param_width = host.width()
+        host.setVisible(not optimizing and not focused)
+    card = getattr(window, '_run_status_card', None)
+    if card is not None:
+        card.setVisible((not optimizing and not focused) or getattr(window, '_compute_running', False))
+    window._result_view_switch.setVisible(not optimizing)
+    window.btn_export.setVisible(not optimizing)
+    if optimizing:
+        from .optimize_panel import refresh_setup
+        refresh_setup(window)
     is_field = tab in ('temp', 'pres', 'vel')
     window.btn_update_geometry.setVisible(tab == 'layout')
     result = window.cache.get_result('3d')
@@ -438,14 +454,16 @@ def _build_optimize_panel(window, card_lay, t, theme):
     op_host = _QWop()
     op_host.setStyleSheet("QWidget { background:transparent; }")
     op_v = _VBop(op_host)
-    op_v.setContentsMargins(0, 0, 0, 0); op_v.setSpacing(16)
+    op_v.setContentsMargins(0, 0, 0, 0); op_v.setSpacing(12)
 
     # ── Stage strip ────────────────────────────────────────
     _pill_base = (
-        "QLabel{{padding:5px 14px; border-radius:12px;"
+        "QPushButton{{padding:5px 14px; border-radius:12px;"
         "font-size:10pt; font-weight:600;"
         "font-family:" + _t['sans_family'] + ";"
-        "background:{bg}; color:{fg}; border:1px solid {bd};}}")
+        "background:{bg}; color:{fg}; border:1px solid {bd};}}"
+        "QPushButton:focus{{border:2px solid " + _t['inp_focus']
+        + "; padding:4px 13px;}}")
     _pill_idle = _pill_base.format(
         bg=_surface_ra, fg=_sub_fg, bd=_border_sub)
     _pill_active = _pill_base.format(
@@ -465,12 +483,10 @@ def _build_optimize_panel(window, card_lay, t, theme):
                    ('running', '2  运行'),
                    ('result', '3  结果')]
     for i, (skey, slabel) in enumerate(stage_items):
-        pill = QLabel(slabel)
+        pill = QPushButton(slabel)
         pill.setStyleSheet(_pill_idle)
-        # Wizard nav: pills are clickable page switches.
-        pill.setCursor(Qt.CursorShape.PointingHandCursor)
-        pill.mousePressEvent = (
-            lambda _ev, idx=i: window._opt_stack.setCurrentIndex(idx))
+        pill.setAccessibleName(slabel)
+        pill.clicked.connect(lambda _checked=False, idx=i: window._opt_stack.setCurrentIndex(idx))
         stage_row.addWidget(pill)
         window._opt_stage_pills[skey] = pill
         if i < len(stage_items) - 1:
@@ -497,13 +513,14 @@ def _build_optimize_panel(window, card_lay, t, theme):
 
     # ── The wizard stack ──────────────────────────────────
     _stack = _QSWop()
+    _stack.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Ignored)
     window._opt_stack = _stack
     op_v.addWidget(_stack, 1)
 
     # ═══ Page 1 · 配置 ═══
     p1 = _QWop()
     p1v = _VBop(p1)
-    p1v.setContentsMargins(0, 0, 0, 0); p1v.setSpacing(16)
+    p1v.setContentsMargins(0, 0, 0, 0); p1v.setSpacing(12)
     from .responsive import ResponsiveRow
     p1row = ResponsiveRow(threshold=720, spacing=16)
     p1row.layout().setAlignment(Qt.AlignmentFlag.AlignTop)
@@ -517,7 +534,7 @@ def _build_optimize_panel(window, card_lay, t, theme):
         if min_w:
             fr.setMinimumWidth(min_w)
         fl = _VBop(fr)
-        fl.setContentsMargins(16, 16, 16, 16); fl.setSpacing(8)
+        fl.setContentsMargins(12, 12, 12, 12); fl.setSpacing(8)
         cap = QLabel(title)
         cap.setStyleSheet(
             f"color:{_t['fg']}; font-size:{FONT_SECTION}pt; font-weight:600;"
@@ -527,7 +544,21 @@ def _build_optimize_panel(window, card_lay, t, theme):
         return fr, fl
 
     from .optimize_panel import (refresh_setup, import_conditions, use_current_condition,
-                                 clear_continuous_field, export_pareto_data, export_geometry)
+                                 clear_continuous_field, export_pareto_data, export_geometry,
+                                 edit_common_settings)
+    common_row = ResponsiveRow(threshold=640, spacing=12)
+    window._opt_public_summary = QLabel()
+    window._opt_public_summary.setTextFormat(Qt.TextFormat.PlainText)
+    window._opt_public_summary.setWordWrap(True)
+    window._opt_public_summary.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+    common_row.addWidget(window._opt_public_summary)
+    window._opt_edit_common_btn = QPushButton('编辑公共工况')
+    window._opt_edit_common_btn.setStyleSheet(t.style('BTN_SECONDARY'))
+    window._opt_edit_common_btn.setMinimumHeight(30)
+    window._opt_edit_common_btn.clicked.connect(lambda: edit_common_settings(window))
+    common_row.addWidget(window._opt_edit_common_btn)
+    common_row.layout().setStretch(0, 1)
+    p1v.addWidget(common_row)
     par_card, par_lay = _opt_card("优化参数", 260)
     _spin_qss = (
         f"QAbstractSpinBox{{background:{_t['inp_bg']};"
@@ -577,12 +608,19 @@ def _build_optimize_panel(window, card_lay, t, theme):
     window._opt_depth_label = QLabel('2D 总质量流量换算厚度 [m]')
     window._opt_depth = QLineEdit(window.le_Lz.text())
     window._opt_depth.setStyleSheet(t.style('INP'))
+    window._opt_depth.setFixedWidth(80)
+    window._opt_depth.setAlignment(Qt.AlignmentFlag.AlignRight)
+    window._opt_depth.setMinimumHeight(30)
     window._opt_depth.setToolTip('物理厚度用于 kg/s 与二维单位深度流量换算；不改变二维网格。')
     window.le_Lz.textChanged.connect(window._opt_depth.setText)
     window._opt_depth.textChanged.connect(window.le_Lz.setText)
-    par_lay.addWidget(window._opt_depth_label); par_lay.addWidget(window._opt_depth)
-    scope = QLabel('继承当前算例的几何、材料、端口和完整求解设置；支持空气 A / 水 B，'
-                   '以及含 CO₂ 或 sCO₂ 的双流体组合。换热目标为 B 侧吸热，基准 B 侧必须吸热。')
+    depth_row = _HBop()
+    depth_row.addWidget(window._opt_depth_label)
+    depth_row.addStretch(1)
+    depth_row.addWidget(window._opt_depth)
+    par_lay.addLayout(depth_row)
+    scope = QLabel('支持空气 A / 水 B，以及含 CO₂ 或 sCO₂ 的双流体组合。'
+                   '换热目标为 B 侧吸热，基准 B 侧必须吸热。')
     scope.setWordWrap(True); par_lay.addWidget(scope)
     window.combo_dim.currentIndexChanged.connect(lambda *_: refresh_setup(window))
     par_lay.addStretch(1)
@@ -646,8 +684,13 @@ def _build_optimize_panel(window, card_lay, t, theme):
         edit = _QSBop()
         edit.setRange(1, 99)
         edit.setValue(3)
+        edit.setStyleSheet(_spin_qss)
+        edit.setFixedWidth(80)
+        edit.setMinimumHeight(30)
+        edit.setAlignment(Qt.AlignmentFlag.AlignRight)
         edit.setToolTip('1 点为该轴恒定；2 点线性；更多点使用当前样条阶数。')
         row.addWidget(label)
+        row.addStretch(1)
         row.addWidget(edit)
         space_lay.addLayout(row)
         window._opt_controls[axis] = edit
@@ -858,18 +901,22 @@ def _build_optimize_panel(window, card_lay, t, theme):
     window._opt_summary_banner = banner
     p3v.addWidget(banner)
 
-    window._opt_export_pareto_btn = QPushButton('导出 Pareto 数据 — CSV / XLSX')
+    export_row = ResponsiveRow(threshold=560, spacing=8)
+    window._opt_export_pareto_btn = QPushButton('导出 Pareto 数据')
+    window._opt_export_pareto_btn.setToolTip('导出数值合格方案：CSV / XLSX')
     window._opt_export_pareto_btn.setStyleSheet(t.style('BTN_SECONDARY'))
     window._opt_export_pareto_btn.setMinimumHeight(30)
     window._opt_export_pareto_btn.setEnabled(False)
     window._opt_export_pareto_btn.clicked.connect(lambda: export_pareto_data(window))
-    p3v.addWidget(window._opt_export_pareto_btn)
-    window._opt_export_geometry_btn = QPushButton('导出所选方案建模坐标 — CSV')
+    export_row.addWidget(window._opt_export_pareto_btn)
+    window._opt_export_geometry_btn = QPushButton('导出所选方案建模坐标')
+    window._opt_export_geometry_btn.setToolTip('导出所选连续设计场的建模坐标：CSV')
     window._opt_export_geometry_btn.setStyleSheet(t.style('BTN_SECONDARY'))
     window._opt_export_geometry_btn.setMinimumHeight(30)
     window._opt_export_geometry_btn.setEnabled(False)
     window._opt_export_geometry_btn.clicked.connect(lambda: export_geometry(window))
-    p3v.addWidget(window._opt_export_geometry_btn)
+    export_row.addWidget(window._opt_export_geometry_btn)
+    p3v.addWidget(export_row)
 
     card_lay.addWidget(op_host)
 
@@ -953,6 +1000,7 @@ def _build_canvas_content(window, vlay, t):
     window.canvas_vel    = MatplotlibCanvas(1, 1, figsize=(12, 7))
     window.canvas_layout = MatplotlibCanvas(1, 1, figsize=(10.5, 6.8))
     window.canvas_pareto = MatplotlibCanvas(1, 1, figsize=(14, 8))
+    window.canvas_pareto.fig.set_layout_engine('compressed')
     window.canvas_opt_field = MatplotlibCanvas(1, 1, figsize=(10.5, 6.8))
     window.canvas_opt_field.fig.clear()
     window.canvas_opt_field.fig.set_layout_engine('compressed')
@@ -1015,7 +1063,7 @@ def _build_canvas_content(window, vlay, t):
         if key == 'layout':
             card_lay.setContentsMargins(8, 8, 8, 8)
         elif key == 'pareto':
-            card_lay.setContentsMargins(12, 12, 12, 12)
+            card_lay.setContentsMargins(10, 10, 10, 10)
         else:
             card_lay.setContentsMargins(8, 8, 8, 8)
         card_lay.setSpacing(0)
@@ -1070,7 +1118,7 @@ def _build_canvas_content(window, vlay, t):
             # The result viewport follows the workbench, not either figure's
             # print-size hint, which otherwise pushes the fields below the fold.
             tabs.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Ignored)
-            tabs.setMinimumHeight(360)
+            tabs.setMinimumHeight(320)
             tabs.setStyleSheet(
                 f"QTabWidget::pane{{border:none; background:{_t['fig_bg']};}}"
                 f"QTabBar::tab{{background:{_t['surface_raised']}; color:{_t['sub_fg']};"
@@ -1123,7 +1171,7 @@ def _build_canvas_content(window, vlay, t):
                 pass
 
         if key == 'pareto':
-            card.setMinimumHeight(520)
+            card.setMinimumHeight(460)
         else:
             card.setFixedHeight(h + 44)
         _card_row_order.append((key, card))
@@ -1201,16 +1249,26 @@ def _connect_canvas_interactions(window, vlay, theme):
         if sc is None:
             return
         vh = sc.viewport().height()
-        for key in ('temp', 'pres', 'vel', 'layout', '3d'):
+        for key in ('temp', 'pres', 'vel', 'layout', '3d', 'pareto'):
             card = window._canvas_cards.get(key)
             if card is not None and card.isVisible() and vh > 24:
                 height = vh - 24
+                if key == 'pareto':
+                    stack = window._opt_stack
+                    page = stack.currentWidget()
+                    # The visible page owns the height, including wrapped text.
+                    stack.setMinimumHeight(max(page.minimumSizeHint().height(),
+                                               page.heightForWidth(page.width())))
+                    height = max(height, card.minimumSizeHint().height())
                 if key == '3d':
                     height = max(height, card.minimumSizeHint().height())
                 factor = getattr(window, '_canvas_zoom_factors', {}).get(key, 1.0)
                 window._canvas_default_h[key] = height
                 card.setFixedHeight(int(height * factor))
     window._fit_3d_card_to_viewport = _fit_3d_card_to_viewport
+    window._opt_stack.currentChanged.connect(lambda _index: _fit_3d_card_to_viewport())
+    window._opt_stack.currentChanged.connect(
+        lambda _index: QTimer.singleShot(0, window, _fit_3d_card_to_viewport))
 
     _sc = window._canvas_scroll
     _orig_sc_resize = _sc.resizeEvent
@@ -1218,9 +1276,10 @@ def _connect_canvas_interactions(window, vlay, theme):
         if _o is not None:
             _o(ev)
         _fit_3d_card_to_viewport()
+        QTimer.singleShot(0, window, _fit_3d_card_to_viewport)
     _sc.resizeEvent = _sc_resize
 
-    for key in ('temp', 'pres', 'vel', 'layout'):
+    for key in ('temp', 'pres', 'vel', 'layout', 'pareto'):
         card = window._canvas_cards[key]
         _orig_show = card.showEvent
         def _field_show(ev, _o=_orig_show):

@@ -287,6 +287,11 @@ Optimization supports air A / water B and two-fluid pairs with a CO₂ or sCO₂
 
 Optimization Design → Results switches between Pareto and size/wall fields. Select a Pareto design to inspect its continuous field. The geometry canvas stays independent. Optimization plots support separate copy/export.
 
+The optimization page uses the full workbench width. Its configuration page shows common geometry, fluids, grid, objectives, variables, and solve count.
+Select Edit Common Conditions to open the existing parameter controls. Page buttons support keyboard navigation.
+The Results page keeps its export actions beside each other when space permits. A narrow window can scroll longer configuration and status text.
+An active ordinary calculation keeps its progress and Cancel control visible.
+
 The Run page shows the current stage, condition, evaluated candidates, usable candidates, and failures.
 It separates model fitting, candidate selection, preparation, native solving, and saving.
 The Results page updates its Pareto plot during the search. Design selection becomes available when the search stops.

@@ -199,6 +199,108 @@ def test_collapse_restore_preserves_fields_page_scroll_and_width(win):
     assert win._param_page == 0
 
 
+@pytest.mark.parametrize('collapsed', [False, True])
+def test_optimization_space_restores_parameter_state_and_keeps_active_cancel(win, collapsed):
+    win._select_param_page(1)
+    win._accordion_groups['进出口边界'].setChecked(True)
+    win._splitter.setSizes([426, 850])
+    win.le_Nx.setText('37')
+    QApplication.processEvents()
+    scroll = win._param_scroll.verticalScrollBar()
+    scroll.setValue(min(120, scroll.maximum()))
+    position = scroll.value()
+    win._set_parameter_panel_collapsed(collapsed)
+    QApplication.processEvents()
+    width = win._parameter_host.width()
+    win._switch_tab('pareto')
+    QApplication.processEvents()
+    assert not win._parameter_host.isVisibleTo(win)
+    assert not win._run_status_card.isVisibleTo(win)
+    assert not win._result_view_switch.isVisibleTo(win)
+    assert win.btn_focus_view.isVisibleTo(win)
+    win._toggle_3d_immersive()
+    win._toggle_3d_immersive()
+    assert not win._parameter_host.isVisibleTo(win)
+    win._compute_running = True
+    win._run_status_card.start('2d')
+    win._switch_tab('pareto')
+    assert win._run_status_card.cancel_button.isVisibleTo(win)
+    win._compute_running = False
+    win._run_status_card.finish('cancelled', 0.)
+    win._switch_tab('layout')
+    QApplication.processEvents()
+    assert win._parameter_host.isVisibleTo(win)
+    assert win._parameter_host.width() == width
+    assert win._left_collapsed == collapsed and win._param_page == 1
+    assert scroll.value() == position and win.le_Nx.text() == '37'
+
+
+def test_optimization_page_buttons_work_by_keyboard_and_public_edit_keeps_values(win):
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    win.le_Nx.setText('37')
+    win._set_parameter_panel_collapsed(True)
+    win._switch_tab('pareto')
+    for index, key in enumerate(('config', 'running', 'result')):
+        button = win._opt_stage_pills[key]
+        assert button.focusPolicy() != Qt.FocusPolicy.NoFocus
+        button.setFocus()
+        QTest.keyClick(button, Qt.Key.Key_Space)
+        assert win._opt_stack.currentIndex() == index
+    win._opt_stack.setCurrentIndex(0)
+    win._toggle_3d_immersive()
+    win._opt_edit_common_btn.click()
+    QApplication.processEvents()
+    assert win._active_tab == 'layout' and not win._3d_immersive
+    assert win._parameter_host.isVisibleTo(win) and not win._left_collapsed
+    assert win.le_Nx.text() == '37'
+
+
+def test_long_condition_text_keeps_narrow_launch_controls_reachable(win):
+    from PySide6.QtCore import QPoint
+    from sjtu_tpmshx.ui.optimize_panel import refresh_setup
+    win.resize(900, 720)
+    win._opt_conditions = [dict(condition_id='冷侧工况说明'*35,
+        T_in_A_K=350., P_in_A_Pa=150000., mass_flow_A_kg_s=.003,
+        T_in_B_K=300., P_in_B_Pa=120000., mass_flow_B_kg_s=.015)]
+    win._switch_tab('pareto')
+    refresh_setup(win)
+    QApplication.processEvents()
+    win._canvas_scroll.ensureWidgetVisible(win._opt_btn)
+    QApplication.processEvents()
+    viewport = win._canvas_scroll.viewport()
+    button = win._opt_btn
+    assert win.width() == 900
+    assert button.mapTo(viewport, QPoint(0, 0)).y() >= 0
+    assert button.mapTo(viewport, QPoint(0, button.height())).y() <= viewport.height()
+
+
+@pytest.mark.parametrize('size', [(1280, 840), (900, 720)])
+def test_optimization_results_fit_without_inheriting_the_configuration_page(win, size):
+    from PySide6.QtCore import QPoint
+    from sjtu_tpmshx.ui.optimize_panel import show_pareto
+    from sjtu_tpmshx.tests.test_optimize_panel_wiring import report
+    win.resize(*size)
+    win._switch_tab('pareto')
+    win._opt_stack.setCurrentIndex(0)
+    QApplication.processEvents()
+    show_pareto(win, report(win))
+    QApplication.processEvents()
+    viewport = win._canvas_scroll.viewport()
+    canvas = win.canvas_pareto
+    bottom = canvas.mapTo(viewport, QPoint(0, canvas.height())).y()
+    assert bottom <= viewport.height()
+    assert win._opt_export_pareto_btn.isVisibleTo(win)
+    assert win._canvas_scroll.verticalScrollBar().maximum() == 0
+    canvas.draw()
+    renderer = canvas.get_renderer()
+    ax = canvas.figure.axes[0]
+    for text in (ax.xaxis.label, ax.yaxis.label, ax.title):
+        bounds = text.get_window_extent(renderer)
+        assert canvas.figure.bbox.contains(bounds.x0, bounds.y0)
+        assert canvas.figure.bbox.contains(bounds.x1, bounds.y1)
+
+
 def test_short_3d_card_keeps_controls_and_viewport_reachable(win, monkeypatch):
     from types import SimpleNamespace
     from unittest.mock import Mock
