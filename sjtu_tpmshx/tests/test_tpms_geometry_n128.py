@@ -1,8 +1,7 @@
 """Guard for voxel N=128 default vs N=256 reference (audit M-d / P3).
 
-Default ``compute_geometry`` N is 128 as of 2026-05-28 (was 256). This cuts
-per-process phi-grid memory from 128 MiB to 16 MiB, which matters for
-parallel BO that rebuilds the un-shared lru_cache in each worker. The
+Default ``compute_geometry`` N is 128 as of 2026-05-28 (was 256). The phi
+grid uses 16 MiB. The count index uses another 32 MiB per cached grid. The
 core calibration tables (_C_COEFFS) were fit on N=256 grids; this test
 asserts the N=128 outputs stay within the empirically-measured tolerances:
     |delta_eps|/eps    < 0.3 %  (0.003 relative; empirical max 0.21 %)
