@@ -125,6 +125,15 @@ These choices no longer depend on the other fluid. The 3D sampling rules stay un
 Direct component C entries keep their existing models.
 Explicit fixed-capacity, prescribed-side and research routes retain their separate contracts.
 
+The full 3D owner keeps raw transport properties at each side's inlet pressure.
+It reuses a cell's values only when that cell's temperature is equal to the sampled temperature.
+The fluid, provider, inlet pressure and grid are fixed for this runtime.
+Flow updates use the existing physical-to-solver coordinate mapping.
+The A-side local-pressure sCO2 experiment keeps its direct property evaluation.
+Relaxed density and viscosity are not cached. Water-state checks and range observations keep their original call sites.
+The derived values are not saved; restore starts with empty buffers.
+The buffers add 48 bytes per sampled side and cell, or 3 MiB for both sides on a 32 cubed grid.
+
 Each full conservative run normalizes the h update separately for each fluid.
 Its scale is inlet cp times the absolute inlet temperature difference, with a 1 J/kg minimum.
 This scale does not depend on the fluids' enthalpy origins.
