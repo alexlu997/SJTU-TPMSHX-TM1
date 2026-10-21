@@ -19,12 +19,12 @@ and rework through complete changes, clear decisions, and verified results.
   After that task is complete, fix them in separate, scoped PRs under the same
   authority and acceptance conditions. Follow explicit analysis-only limits.
   Each follow-up covers a confirmed defect and its necessary consequences.
-- For broad goals and requested plan reviews, check goals, assumptions, evidence,
-  and alternatives before proposing a direction.
+- For broad goals and requested plan reviews, do a check of goals, assumptions,
+  evidence, and alternatives before proposing a direction.
   Question assumptions that could change the result. Use concrete examples or contrary evidence.
 - Ask the user only about unresolved decisions that change requirements, scope,
   physical validity, approach, acceptance conditions, or authority.
-  Check available code, data, documents, and prior decisions before asking for facts.
+  Do a check of available code, data, documents, and prior decisions before asking for facts.
   Resolve routine details within the agreed scope. Continue independent work while answers are pending.
 - Ask a small group of independent questions per round. Explain why each answer matters.
   Give options and a recommendation with the main trade-off.
