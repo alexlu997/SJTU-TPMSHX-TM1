@@ -103,7 +103,7 @@ PhysicalHeatLedger energy_physical_audit(
 // include actual reconstructed face powers; physical source stays separate.
 
 // Conservative frozen energy equations expressed in temperature. Each sweep
-// updates all of A, then B, then solid. Cell order alternates forward/reverse
+// updates A and B before solid. Cell order alternates forward/reverse
 // within this call, starting forward; an odd block has one extra forward pass.
 // omega relaxes fluid rows, and solid_omega independently relaxes solid rows.
 // dh*cp is effective conductivity. Optional sources are frozen W/cell additions
