@@ -264,6 +264,52 @@ void zero_sweep_checks() {
     std::cout<<"zero-sweep budget, physical residual and snapshot checks passed\n";
 }
 
+
+void initial_and_final_transport_checks() {
+    for(bool swapped:{false,true})for(bool warm:{false,true})for(bool prepared:{false,true}) {
+        Case base(0,1,swapped?Fluid::water:Fluid::sco2,swapped?Fluid::sco2:Fluid::water);
+        const std::size_t water=swapped?0:1;
+        base.energy[water]=EnergyRelation::integral_cp_T;
+        if(prepared)base.conductivity[water]={.21,.22,.23,.24,.25};
+        for(std::size_t side=0;side<2;++side)
+            for(std::size_t p=0;p<5;++p)base.t[side][p]=base.inlet_t[side]+.1*p;
+        std::fill(base.solid.begin(),base.solid.end(),320.);
+        auto c=controls();c.max_iterations=13;c.cpu_threads=1;
+        Case serial=base,parallel=base;
+        EnthalpyRun reference(serial.grid(),serial.side(0),serial.side(1),view(serial.solid_k),serial.state(warm),c);
+        c.cpu_threads=4;
+        EnthalpyRun actual(parallel.grid(),parallel.side(0),parallel.side(1),view(parallel.solid_k),parallel.state(warm),c);
+        const auto initialized=reference.snapshot(),threaded=actual.snapshot();
+        require(initialized.fields==threaded.fields,"parallel initialization changed fields");
+        for(std::size_t side=0;side<2;++side)
+            require(initialized.sides[side].transport==threaded.sides[side].transport,
+                "parallel initialization changed transport");
+        while(reference.phase()==EnthalpyPhase::active)reference.advance();
+        while(actual.phase()==EnthalpyPhase::active)actual.advance();
+        std::array<Values,2> conductivity;
+        require_same_result(actual.take_result(&conductivity),reference.take_result());
+        require(same_fields(parallel,serial),"parallel initialization changed the final fields");
+        EnthalpyEOS independent;
+        for(std::size_t side=0;side<2;++side) {
+            require(conductivity[side].size()==5,"final conductivity was not transferred");
+            for(std::size_t p=0;p<5;++p) {
+                const double expected=parallel.conductivity[side].empty()
+                    ?parallel.epsilon[p]*independent.conductivity(parallel.fluid[side],parallel.t[side][p],parallel.pressure[side][p])
+                    :parallel.conductivity[side][p];
+                require(conductivity[side][p]==expected,"transferred conductivity differs from the final state");
+            }
+        }
+        rejects<std::logic_error>([&]{actual.take_result(&conductivity);},"conductivity was transferred twice");
+    }
+    Case data(0,1,Fluid::sco2,Fluid::water);auto c=controls();
+    c.cancel=[](void*){return true;};
+    EnthalpyRun cancelled(data.grid(),data.side(0),data.side(1),view(data.solid_k),data.state(),c);
+    std::array<Values,2> output{{{1.},{2.}}};const auto before=output;
+    require(cancelled.take_result(&output).stop==EnthalpyStop::cancelled && output==before,
+        "cancelled run transferred incomplete conductivity");
+    std::cout<<"parallel initialization and final conductivity checks passed\n";
+}
+
 void energy_run_checks() {
     const std::array<std::array<Fluid,2>,4> pairs{{{Fluid::air,Fluid::water},{Fluid::water,Fluid::air},
         {Fluid::sco2,Fluid::water},{Fluid::co2,Fluid::air}}};
@@ -464,6 +510,7 @@ int main(int argc,char** argv) {
         optional_gate_checks();
         scalar_inflow_checks();
         zero_sweep_checks();
+        initial_and_final_transport_checks();
         energy_run_checks();
         mixed_model_checks();
         std::size_t solved=0;

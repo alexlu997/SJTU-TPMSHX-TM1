@@ -679,7 +679,7 @@ struct ThermalRun {
             }
         }
         if(enthalpy && enthalpy->phase()!=EnthalpyPhase::active) {
-            t.result=enthalpy->take_result();enthalpy.reset();
+            t.result=enthalpy->take_result(&t.actual_conductivity);enthalpy.reset();
             const auto& solved=std::get<EnthalpyResult>(t.result);const auto& g=p.grid;
             if(solved.stop!=EnthalpyStop::cancelled && solved.final_audit && solved.final_audit->fluid_equations_computed) {
                 for(std::size_t side=0;side<2;++side)
@@ -687,13 +687,7 @@ struct ThermalRun {
                 t.physical_audit=std::move(audit);
             }
             if(solved.stop!=EnthalpyStop::cancelled) {
-                EnthalpyEOS eos;
                 for(std::size_t side=0;side<2;++side) {
-                    auto& actual=t.actual_conductivity[side];actual.resize(g.nx*g.ny);
-                    for(std::size_t k=0;k<actual.size();++k)
-                        actual[k]=physics[side].conductivity==ConductivitySource::local_eos
-                            ?epsilon[side][k]*eos.conductivity(p.sides[side].fluid,t.temperature[side][k],t.pressure[side][k])
-                            :t.conductivity[side][k];
                     t.enthalpy_boundary_power[side]=enthalpy_boundary_power(g,view(side==0?t.h_a:t.h_b),
                         {view(t.mass_x[side]),view(t.mass_y[side]),view(z)},solved.inlet_enthalpy[side],
                         true);

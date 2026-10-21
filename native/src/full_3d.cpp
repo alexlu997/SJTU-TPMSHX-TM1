@@ -990,7 +990,7 @@ bool Runtime::advance_thermal() {
     const bool true_h=mode==Full3DThermalMode::true_h;
     if(enthalpy) {
         if(enthalpy->phase()==EnthalpyPhase::active && enthalpy->advance()==EnthalpyPhase::active)return false;
-        e.true_h=enthalpy->take_result();enthalpy.reset();
+        e.true_h=enthalpy->take_result(&e.actual_conductivity);enthalpy.reset();
         const auto& r=*e.true_h;if(r.stop==EnthalpyStop::cancelled)throw Cancelled{};
         if(!r.final_audit || !r.final_audit->fluid_equations_computed)e.physical_audit.reset();
         if(e.physical_audit)for(std::size_t s=0;s<2;++s)
@@ -1000,11 +1000,6 @@ bool Runtime::advance_thermal() {
         for(const auto& t:temperature)if(!finite(t))throw std::domain_error("nonfinite full 3D true-h return");
         temperature_ranges("main","real-cell(x,y,z)-return");
         for(std::size_t s=0;s<2;++s) {
-            auto& actual=e.actual_conductivity[s];actual.resize(temperature[s].size());
-            for(std::size_t p=0;p<actual.size();++p)
-                actual[p]=physics[s].conductivity==ConductivitySource::local_eos
-                    ?epsilon(s)[p]*eos.conductivity(side(s).fluid,temperature[s][p],e.pressure[s][p])
-                    :e.conductivity[s][p];
             e.enthalpy_boundary_power[s]=enthalpy_boundary_power(g,view(e.enthalpy[s]),views(e.mass[s]),
                 r.inlet_enthalpy[s],true);
         }
