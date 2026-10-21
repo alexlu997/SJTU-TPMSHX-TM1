@@ -710,6 +710,35 @@ def test_first_thermal_sampling_distinguishes_inlet_and_seed(native_path, seeded
     assert post and all(row['temperature'] == 'current_thermal_return' for row in post)
 
 
+@pytest.mark.parametrize('directions', [(4, 1), (5, 0)])
+@pytest.mark.parametrize('local_pressure', [False, True])
+def test_outer_transport_keeps_changed_temperature_and_pressure(native_path, directions, local_pressure):
+    from sjtu_tpmshx.models.fluid_props import get
+    from sjtu_tpmshx.solvers.backends.cpp.full_3d import NativeFull3DDriver
+    from sjtu_tpmshx.tests.native.test_full_3d import prepared
+
+    cfg, data = prepared('sco2-water', directions=directions, counts=(3, 4, 5), _emit_audit=True)
+    cfg['_environment']['TPMSHX_SCO2_COMPRESSIBLE'] = '1' if local_pressure else '0'
+    driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
+    data['max_outer'] = 1
+    previous = driver.run_prepared(cfg, data, control(native_path, cpu_threads=1))
+    data['max_outer'] = 2
+    current = driver.run_prepared(cfg, data, control(native_path, cpu_threads=1))
+    assert len(current['outer']) == 2 and current['post_after_last_thermal']
+    for side, label in enumerate('AB'):
+        temperature = current['temperature'][side]
+        assert np.max(np.abs(temperature - previous['temperature'][side])) > 1e-5
+        model = get(cfg['fluid_type_' + label])
+        pressure = cfg['P_in' + label]
+        sampled_pressure = previous['flow'][side]['pressure_real'] if side == 0 and local_pressure else pressure
+        density = .6 * model.rho(temperature, sampled_pressure) + .4 * previous['flow'][side]['density_real']
+        np.testing.assert_allclose(current['flow'][side]['density_real'], density, rtol=2e-12, atol=1e-10)
+        conductivity = np.asarray(data['design']['eps_' + label]) * model.k(temperature, pressure)
+        np.testing.assert_allclose(current['final_conductivity'][side], conductivity, rtol=2e-12, atol=1e-12)
+        capacity = (density if side == 0 else model.rho(temperature, pressure)) * model.cp(temperature, pressure)
+        np.testing.assert_allclose(current['final_rho_cp'][side], capacity, rtol=2e-12, atol=1e-8)
+
+
 def test_inactive_native_side_has_no_flow_or_exchange_sampling(native_path):
     from sjtu_tpmshx.solvers.backends.cpp.full_3d import NativeFull3DDriver
     from sjtu_tpmshx.tests.native.test_full_3d import prepared

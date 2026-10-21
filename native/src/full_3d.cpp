@@ -456,6 +456,8 @@ struct Runtime {
     std::array<FluidProperties,2> inlet;
     std::array<double,2> drag_k{},drag_cf{},mass_flux{},dispersion{},hv_ratio{1.,1.};
     std::array<Values,2> conductivity,rho_cp,hv;
+    std::array<Values,2> transport_temperature;
+    std::array<std::vector<FluidProperties>,2> transport_values;
     std::array<Values,3> temperature,previous;
     std::optional<Full3DThermalRunState> pending;
     std::unique_ptr<ModelHRun2D> model_h_2d;
@@ -489,6 +491,7 @@ struct Runtime {
     void start_flow(std::size_t s,std::size_t cap,const Simple3DRunState* saved=nullptr);
     bool advance_flow(std::size_t s,const std::string& stage);
     void check_water(const std::array<Values,3>& t,const std::array<Values,2>& pressure);
+    const FluidProperties& inlet_transport(std::size_t s,std::size_t p);
     void heat_transfer(std::size_t s,bool warm);
     Full3DThermalEvidence prepare(bool warm,std::size_t outer);
     void begin_thermal(std::size_t outer);
@@ -693,6 +696,20 @@ void Runtime::check_water(const std::array<Values,3>& t,const std::array<Values,
             props.check_water(t[s][p],active(s)?pressure[s][p]:side(s).inlet_pressure);
 }
 
+const FluidProperties& Runtime::inlet_transport(std::size_t s,std::size_t p) {
+    auto& sampled=transport_temperature[s];auto& values=transport_values[s];
+    if(values.empty()) {
+        sampled.assign(temperature[s].size(),std::numeric_limits<double>::quiet_NaN());
+        values.resize(temperature[s].size());
+    }
+    // Side, fluid and inlet pressure are fixed for this runtime; restore starts empty.
+    if(sampled[p]!=temperature[s][p]) {
+        values[p]=props.transport(side(s).fluid,temperature[s][p],side(s).inlet_pressure);
+        sampled[p]=temperature[s][p];
+    }
+    return values[p];
+}
+
 void Runtime::heat_transfer(std::size_t s,bool warm) {
     if(!active(s)) return;
     const auto& a=side(s);const auto& geo=input.geometry;const auto& velocity=result.flow[s].velocity_real;
@@ -710,7 +727,7 @@ void Runtime::heat_transfer(std::size_t s,bool warm) {
     }
     for(std::size_t p=0;p<hv[s].size();++p) {
         auto property=inlet[s];
-        if(local) property=props.transport(physics[s].transport_fluid,temperature[s][p],a.inlet_pressure);
+        if(local) property=inlet_transport(s,p);
         const double speed=std::abs(std::sqrt(velocity[0][p]*velocity[0][p]+velocity[1][p]*velocity[1][p]
                                            +velocity[2][p]*velocity[2][p]))+1e-12;
         const double re=property.rho*speed*geo.hydraulic_diameter[p]/property.mu;
@@ -1089,9 +1106,19 @@ void Runtime::refresh_flow(std::size_t s,std::size_t outer,const std::optional<P
     property_ranges(s,"property","property-refresh","solver-cell(cross1,stream,cross2)",
         {local_grid.nx,local_grid.ny,local_grid.nz},view(next_temperature),air?2:3);
     Values rho_new(flow.density.size()),mu_new(flow.viscosity.size());
+    const auto physical_shape=shape(g);
     for(std::size_t p=0;p<rho_new.size();++p) {
         const double absolute=flow.pressure_reference+flow.pressure[p];
-        const auto property=props.transport(a.fluid,next_temperature[p],local_sco2?absolute:a.inlet_pressure);
+        FluidProperties property;
+        if(local_sco2) property=props.transport(a.fluid,next_temperature[p],absolute);
+        else {
+            std::array<std::size_t,3> cell{};
+            const auto stream=(p/local_grid.nz)%local_grid.ny;
+            cell[a.solver_axes[0]]=p/(local_grid.ny*local_grid.nz);
+            cell[a.solver_axes[1]]=a.direction%2?local_grid.ny-1-stream:stream;
+            cell[a.solver_axes[2]]=p%local_grid.nz;
+            property=inlet_transport(s,index(physical_shape,cell));
+        }
         rho_new[p]=air?absolute/(model_coefficients::envelope_r_air*next_temperature[p]):property.rho;
         mu_new[p]=property.mu;
     }
@@ -1167,7 +1194,7 @@ void Runtime::refresh_thermal_properties(std::size_t outer) {
         if((s==0 && !control.variable_rho_cp) || (s==1 && !(control.variable_rho_cp && a.fluid==Fluid::air && active(s))))mask|=1;
         property_ranges(s,"property","property-refresh","real-cell(x,y,z)",{g.nx,g.ny,g.nz},view(temperature[s]),mask);
         for(std::size_t p=0;p<temperature[s].size();++p) {
-            const auto property=props.transport(a.fluid,temperature[s][p],a.inlet_pressure);
+            const auto property=inlet_transport(s,p);
             conductivity[s][p]=epsilon(s)[p]*property.k+dispersion[s];
             // A consumes its freshly completed relaxed SIMPLE density. B's
             // non-air branch samples unrelaxed inlet-pressure properties here,
