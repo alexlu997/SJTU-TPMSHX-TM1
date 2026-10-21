@@ -581,7 +581,6 @@ void prepare_thermal(const Full2DProblem& p,const std::array<SidePhysics,2>& phy
 
 struct ThermalRun {
     const Full2DProblem& p;
-    const std::array<SidePhysics,2> physics;
     Full2DThermalState& t;
     std::array<Vector,2> epsilon;
     Vector z;
@@ -590,7 +589,7 @@ struct ThermalRun {
     std::unique_ptr<EnthalpyRun> enthalpy;
     ThermalRun(const Full2DProblem& problem,const std::array<SidePhysics,2>& physics,
                const Full2DControl& c,Full2DThermalState& thermal,std::size_t outer,const char* stage,
-               const Full2DThermalRunState* saved=nullptr):p(problem),physics(physics),t(thermal) {
+               const Full2DThermalRunState* saved=nullptr):p(problem),t(thermal) {
         const auto& g=p.grid;const std::size_t n=g.nx*g.ny;
         const auto budget=c.model_h_iterations.max_iterations?c.model_h_iterations.max_iterations:c.thermal_iterations;
         if(!saved) {
