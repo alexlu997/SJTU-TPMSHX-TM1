@@ -362,6 +362,9 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
   Both full controllers archive active flow state for application recovery.
 - `EnthalpyRun` owns the T-SOU Picard iteration state.
   Each advance completes one original iteration, including its SOU proposal.
+  Initialization uses the existing property lanes and keeps the same physical checks.
+  Completed runs transfer final effective conductivity to the full controllers.
+  This removes repeated EOS evaluation at the same thermal state.
   An active snapshot owns five solution fields, transport values, result
   evidence and Anderson history. Exclusive H bounds, table bounds and inverse
   work arrays are retired.

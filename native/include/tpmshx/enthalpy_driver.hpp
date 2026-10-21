@@ -115,7 +115,9 @@ public:
     EnthalpyPhase advance();
     EnthalpyPhase phase() const;
     EnthalpyRunState snapshot() const;
-    EnthalpyResult take_result();
+    // Completed runs can transfer their final effective conductivity.
+    // Cancelled runs leave this optional output unchanged.
+    EnthalpyResult take_result(std::array<std::vector<double>,2>* conductivity=nullptr);
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;

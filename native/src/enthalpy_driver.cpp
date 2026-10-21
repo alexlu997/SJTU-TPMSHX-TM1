@@ -289,13 +289,14 @@ struct EnthalpyRun::Impl {
             const auto& f = side.input;
             const std::string name = s == 0 ? "A" : "B";
             side.hin = eos.evaluate_state(f.fluid,f.inlet_temperature,f.inlet_pressure,"T energy inlet "+name,f.energy).enthalpy;
-            for (std::size_t p = 0; p < n; ++p) {
+            property_cells(false,[&](std::size_t,std::size_t p,EnthalpyEOS& local) {
                 const double initial_temperature = warm[s] ? side.t[p] : f.inlet_temperature;
-                const auto actual = eos.evaluate_state(f.fluid,initial_temperature,f.pressure[p],
+                const auto actual = local.evaluate_state(f.fluid,initial_temperature,f.pressure[p],
                     location(grid,p,"T energy initial state "+name),f.energy);
                 side.t[p] = initial_temperature; side.h[p] = actual.enthalpy;
-                side.transport(eos,p,{actual.cp,actual.conductivity});
-            }
+                side.transport(local,p,{actual.cp,actual.conductivity});
+                return true;
+            });
         }
         result.inlet_enthalpy = {sa.hin,sb.hin};
         if (!state.warm_solid)
@@ -536,9 +537,11 @@ struct EnthalpyRun::Impl {
         saved.result=result;saved.acceleration=aa.snapshot();
         return saved;
     }
-    EnthalpyResult take_result() {
+    EnthalpyResult take_result(std::array<std::vector<double>,2>* conductivity) {
         if(taken || (phase!=EnthalpyPhase::completed && phase!=EnthalpyPhase::cancelled))
             throw std::logic_error("energy result is not available");
+        if(conductivity && phase==EnthalpyPhase::completed)
+            *conductivity={std::move(side_a->k),std::move(side_b->k)};
         taken=true;return std::move(result);
     }
 };
@@ -555,7 +558,9 @@ EnthalpyRun::~EnthalpyRun()=default;
 EnthalpyPhase EnthalpyRun::advance() { impl_->advance();return impl_->phase; }
 EnthalpyPhase EnthalpyRun::phase() const { return impl_->phase; }
 EnthalpyRunState EnthalpyRun::snapshot() const { return impl_->snapshot(); }
-EnthalpyResult EnthalpyRun::take_result() { return impl_->take_result(); }
+EnthalpyResult EnthalpyRun::take_result(std::array<std::vector<double>,2>* conductivity) {
+    return impl_->take_result(conductivity);
+}
 
 EnthalpyResult solve_enthalpy(const GridView& grid,const EnthalpySideView& a,
                              const EnthalpySideView& b,ArrayView<const double> k_ss,
