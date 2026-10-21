@@ -103,7 +103,7 @@ PhysicalHeatLedger energy_physical_audit(
 // include actual reconstructed face powers; physical source stays separate.
 
 // Conservative frozen energy equations expressed in temperature. Each sweep
-// updates all of A, then B, then solid. Cell order alternates forward/reverse
+// updates A and B before solid. Cell order alternates forward/reverse
 // within this call, starting forward; an odd block has one extra forward pass.
 // omega relaxes fluid rows, and solid_omega independently relaxes solid rows.
 // dh*cp is effective conductivity. Optional sources are frozen W/cell additions
@@ -114,12 +114,14 @@ PhysicalHeatLedger energy_physical_audit(
 // Mutable storage must not alias other mutable fields or immutable inputs.
 // Invalid extents, nonfinite inputs and nonphysical coefficients throw before
 // update. Arithmetic overflow throws std::domain_error and invalidates state.
+// Two available threads run the independent fluids before each solid sweep.
 // Zero sweeps validate inputs and leave the fields unchanged.
 void conservative_temperature_sweeps(
     const GridView& grid, const FluidView& a, const FluidView& b,
     ArrayView<const double> k_ss, TemperatureStateView state,
     std::size_t sweeps, double omega, ArrayView<const double> source_a = {},
-    ArrayView<const double> source_b = {}, double solid_omega = 1.0);
+    ArrayView<const double> source_b = {}, double solid_omega = 1.0,
+    std::size_t cpu_threads = 1);
 
 // Physical-coordinate minmod reconstruction of actual h. Returns the signed
 // inward exterior correction in W and writes -div(delta(m*h)) in W/cell.

@@ -322,7 +322,7 @@ struct EnthalpyRun::Impl {
         enthalpy_sou_correction(grid,view(sb.h),{b.mass_x,b.mass_y,b.mass_z},sb.hin,output(source_b));
         conservative_temperature_sweeps(grid,sa.frozen(),sb.frozen(),k_ss,
             {state.a,state.b,state.solid},control.sweeps,control.omega,view(source_a),view(source_b),
-            1.);
+            1.,control.cpu_threads);
         // Underrelaxed rows can still form an oscillatory deferred-source
         // Picard block on graded meshes. Dampen the coupled increment,
         // preserving its fixed point; EOS and the audit see this actual T.
