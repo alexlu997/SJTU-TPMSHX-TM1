@@ -72,6 +72,58 @@ struct Case {
     TemperatureStateView state() { return {write(ta), write(tb), write(ts)}; }
 };
 
+void independent_fluid_sweeps() {
+    for (const auto shape : {std::array<std::size_t,3>{1,1,1}, {3,2,4}, {1,5,2}}) {
+        Case original(shape[0],shape[1],shape[2]);
+        Values source_a(original.ta.size()), source_b(original.ta.size());
+        for (std::size_t axis=0;axis<3;++axis) {
+            for (std::size_t i=0;i<original.widths[axis].size();++i)
+                original.widths[axis][i]=.2+.03*i;
+            std::fill(original.a.mass[axis].begin(),original.a.mass[axis].end(),.01*(axis+1));
+            std::fill(original.b.mass[axis].begin(),original.b.mass[axis].end(),-.02*(axis+1));
+        }
+        for (std::size_t p=0;p<original.ta.size();++p) {
+            original.ta[p]=340.+1.5*p;original.tb[p]=310.-.5*p;original.ts[p]=325.+.25*p;
+            original.ks[p]=.3+.01*p;
+            original.a.cp[p]=1000.+2.*p;original.b.cp[p]=1500.-3.*p;
+            original.a.dh[p]=.02/original.a.cp[p];original.b.dh[p]=.03/original.b.cp[p];
+            original.a.hv[p]=10.+p;original.b.hv[p]=7.+p;
+            original.a.h[p]=original.a.cp[p]*original.a.t_star[p];
+            original.b.h[p]=original.b.cp[p]*original.b.t_star[p];
+            source_a[p]=.01*(p%5);source_b[p]=-.02*(p%7);
+        }
+        for (std::size_t sweeps : {0U,1U,2U,5U,8U}) {
+            auto serial=original;
+            conservative_temperature_sweeps(serial.grid(),serial.a.frozen(),serial.b.frozen(),
+                read(serial.ks),serial.state(),sweeps,.6,read(source_a),read(source_b),.8,1);
+            for (std::size_t threads : {2U,8U}) {
+                auto parallel=original;
+                conservative_temperature_sweeps(parallel.grid(),parallel.a.frozen(),parallel.b.frozen(),
+                    read(parallel.ks),parallel.state(),sweeps,.6,read(source_a),read(source_b),.8,threads);
+                require(parallel.ta==serial.ta && parallel.tb==serial.tb && parallel.ts==serial.ts,
+                    "parallel fluid sweeps changed dependent arithmetic");
+            }
+        }
+        auto invalid=original;
+        rejects<std::invalid_argument>([&] {
+            conservative_temperature_sweeps(invalid.grid(),invalid.a.frozen(),invalid.b.frozen(),
+                read(invalid.ks),invalid.state(),0,.6,{}, {},1.,0);
+        },"zero worker budget accepted");
+        require(invalid.ta==original.ta && invalid.tb==original.tb && invalid.ts==original.ts,
+            "invalid worker budget changed state");
+    }
+    for (bool fail_a : {false,true}) {
+        Case c(1,1,1);
+        (fail_a?c.a:c.b).hv[0]=std::numeric_limits<double>::max();
+        const auto solid=c.ts;
+        rejects<std::domain_error>([&] {
+            conservative_temperature_sweeps(c.grid(),c.a.frozen(),c.b.frozen(),
+                read(c.ks),c.state(),1,.6,{}, {},1.,2);
+        },"parallel fluid exception was lost");
+        require(c.ts==solid,"solid advanced after a fluid failed");
+    }
+}
+
 void frozen_linear_balance_and_reference_shift() {
     Case c(1, 1, 1);
     c.a.cp[0] = 1100.; c.b.cp[0] = 1800.;
@@ -643,6 +695,7 @@ void fixed_diffusion_keeps_transport_and_state_live() {
 
 int main() {
     try {
+        independent_fluid_sweeps();
         frozen_linear_balance_and_reference_shift();
         sou_linear_patch_six_directions();
         temperature_sou_internal_endpoint_face_accuracy();

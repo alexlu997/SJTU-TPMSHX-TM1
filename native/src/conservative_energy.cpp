@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <future>
 #include <limits>
 #include <stdexcept>
 #include <vector>
@@ -161,7 +162,8 @@ void conservative_temperature_sweeps(
     const GridView& g, const FluidView& a, const FluidView& b,
     ArrayView<const double> k_ss, TemperatureStateView state,
     std::size_t sweeps, double omega, ArrayView<const double> source_a,
-    ArrayView<const double> source_b, double solid_omega) {
+    ArrayView<const double> source_b, double solid_omega, std::size_t cpu_threads) {
+    if (!cpu_threads) throw std::invalid_argument("CPU thread count must be positive");
     const auto cells = check_grid(g);
     check_fluid(a, g, cells);
     check_fluid(b, g, cells);
@@ -177,8 +179,16 @@ void conservative_temperature_sweeps(
     const FrozenEnergyPhase pa{a,{-1,0.}}, pb{b,{-1,0.}};
     for (std::size_t sweep = 0; sweep < sweeps; ++sweep) {
         const bool reverse = sweep % 2 != 0;
-        fluid_sweep(g, pa, state.a, state.solid, omega, source_a, reverse);
-        fluid_sweep(g, pb, state.b, state.solid, omega, source_b, reverse);
+        if (cpu_threads > 1) {
+            auto second = std::async(std::launch::async, [&] {
+                fluid_sweep(g, pb, state.b, state.solid, omega, source_b, reverse);
+            });
+            fluid_sweep(g, pa, state.a, state.solid, omega, source_a, reverse);
+            second.get();
+        } else {
+            fluid_sweep(g, pa, state.a, state.solid, omega, source_a, reverse);
+            fluid_sweep(g, pb, state.b, state.solid, omega, source_b, reverse);
+        }
         solid_sweep(g, pa, pb, k_ss, state, solid_omega, reverse);
     }
 }
