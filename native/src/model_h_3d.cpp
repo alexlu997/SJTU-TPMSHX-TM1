@@ -61,13 +61,15 @@ struct Side {
 };
 
 template<bool physical=false>
-void faces(const Mesh& mesh, Side& side, ArrayView<const double> temperature) {
+void faces(const Mesh& mesh, Side& side, ArrayView<const double> temperature,
+           std::size_t lane=0,std::size_t lanes=1) {
     const auto& coefficients=*side.cp;
     const auto dir=static_cast<std::size_t>(side.f.boundary.direction);
     for (std::size_t axis=0; axis<3; ++axis) {
         auto extent=mesh.counts; ++extent[axis];
         const auto widths=mesh.widths[axis];
-        for (std::size_t i=0; i<extent[0]; ++i) for (std::size_t j=0; j<extent[1]; ++j)
+        const auto first=extent[0]*lane/lanes,last=extent[0]*(lane+1)/lanes;
+        for (std::size_t i=first; i<last; ++i) for (std::size_t j=0; j<extent[1]; ++j)
             for (std::size_t k=0; k<extent[2]; ++k) {
                 const Coordinate c{i,j,k}; const auto p=mesh.face(axis,c),pos=c[axis],count=mesh.counts[axis];
                 const double mass=side.mass[axis][p];
@@ -121,7 +123,7 @@ class LineSweep {
     std::condition_variable work,joined;
     std::size_t generation=0,finished=0;
     std::atomic<std::size_t> arrived{0},front_generation{0};
-    bool stopping=false;
+    bool stopping=false,wavefront=true;
     std::atomic<bool> failed{false};
     const void* context=nullptr;
     double (*line)(const void*,std::size_t,detail::EnergyLineScratch&)=nullptr;
@@ -135,6 +137,11 @@ class LineSweep {
             std::this_thread::yield();
     }
     void execute(std::size_t lane) {
+        if(!wavefront) {
+            try {line(context,lane,scratch[lane]);}
+            catch(...) {errors[lane]=std::current_exception();}
+            return;
+        }
         for(std::size_t wave=0;wave<na+nb-1;++wave) {
             const auto first=wave<nb?0:wave-nb+1,last=std::min(na-1,wave);
             try {
@@ -173,16 +180,17 @@ public:
         } catch(...) {stop();throw;}
     }
     ~LineSweep() {stop();}
-    template<class Function> double run(const Function& function) {
+    template<class Function> double run(const Function& function,bool ordered=true) {
         if(lanes==1) {
             double change=0;
-            for(std::size_t ordinal=0;ordinal<na*nb;++ordinal)
+            const auto count=ordered?na*nb:1;
+            for(std::size_t ordinal=0;ordinal<count;++ordinal)
                 change=std::max(change,function(ordinal,scratch[0]));
             return change;
         }
         {
             std::lock_guard<std::mutex> lock(mutex);
-            context=&function;
+            context=&function;wavefront=ordered;
             line=[](const void* job,std::size_t ordinal,detail::EnergyLineScratch& scratch) {
                 return (*static_cast<const Function*>(job))(ordinal,scratch);
             };
@@ -196,6 +204,13 @@ public:
         for(const auto& error:errors)if(error)std::rethrow_exception(error);
         return *std::max_element(changes.begin(),changes.end());
     }
+    void prepare_faces(const Mesh& mesh,Side& a,Side& b,TemperatureStateView t,bool solve_b) {
+        run([&](std::size_t lane,detail::EnergyLineScratch&) {
+            faces(mesh,a,view(t.a),lane,lanes);
+            if(solve_b)faces(mesh,b,view(t.b),lane,lanes);
+            return 0.;
+        },false);
+    }
 };
 
 double sweeps(const Mesh& mesh, Side& a, Side& b, ArrayView<const double> ks, ArrayView<const double> source_s,
@@ -208,8 +223,7 @@ double sweeps(const Mesh& mesh, Side& a, Side& b, ArrayView<const double> ks, Ar
     const double alpha_b=std::min(control.alpha_b,model_coefficients::model_h_relaxation);
     double change=0;
     for (std::size_t it=0; it<count; ++it) {
-        faces(mesh,a,view(t.a));
-        if (solve_b) faces(mesh,b,view(t.b));
+        line_work.prepare_faces(mesh,a,b,t,solve_b);
         change=0;
         if (!control.red_black) {
             // Transverse neighbors are on adjacent fronts; local A/solid/B order stays fixed.

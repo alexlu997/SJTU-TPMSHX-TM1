@@ -1339,6 +1339,8 @@ Each fluid keeps its cell order. A one-thread budget keeps sequential fluid swee
 The 3D model-h line solver uses the same budget for a fixed set of workers in each thermal run.
 It processes transverse lines in wavefronts. Neighboring lines stay on different fronts, and each line keeps its A, solid, then B order.
 Each worker owns its line workspace. The count is capped by the maximum front width; one worker keeps the original line order.
+The same workers build face coefficients on disjoint x ranges before each line sweep.
+Face arithmetic and physical audit order do not change.
 The existing red-black path remains sequential. Thread limits can change on restore because they do not change numerical inputs.
 The owner alone polls callbacks. Ordinary updates finish before a callback can observe them; trial callbacks see the retained ordinary state.
 All workers finish before an exception leaves the call. A one-thread budget also serializes the existing paired 2D flow calls.
