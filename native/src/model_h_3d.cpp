@@ -118,19 +118,21 @@ class LineSweep {
     std::vector<std::exception_ptr> errors;
     std::vector<std::thread> workers;
     std::mutex mutex;
-    std::condition_variable work,joined,front;
-    std::size_t generation=0,finished=0,arrived=0,front_generation=0;
+    std::condition_variable work,joined;
+    std::size_t generation=0,finished=0;
+    std::atomic<std::size_t> arrived{0},front_generation{0};
     bool stopping=false;
     std::atomic<bool> failed{false};
     const void* context=nullptr;
     double (*line)(const void*,std::size_t,detail::EnergyLineScratch&)=nullptr;
 
     void barrier() {
-        std::unique_lock<std::mutex> lock(mutex);
-        const auto current=front_generation;
-        if(++arrived==lanes) {
-            arrived=0;++front_generation;lock.unlock();front.notify_all();
-        } else front.wait(lock,[&]{return front_generation!=current;});
+        const auto current=front_generation.load(std::memory_order_acquire);
+        if(arrived.fetch_add(1,std::memory_order_acq_rel)+1==lanes) {
+            arrived.store(0,std::memory_order_relaxed);
+            front_generation.fetch_add(1,std::memory_order_release);
+        } else while(front_generation.load(std::memory_order_acquire)==current)
+            std::this_thread::yield();
     }
     void execute(std::size_t lane) {
         for(std::size_t wave=0;wave<na+nb-1;++wave) {
