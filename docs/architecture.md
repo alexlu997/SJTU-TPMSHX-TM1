@@ -1336,6 +1336,10 @@ The temperature energy driver partitions independent cells and gives each worker
 It caps the property worker count by the cell count. Maxima are combined after all workers finish.
 With two available threads, each temperature sweep runs its independent fluids together, then runs the solid sweep.
 Each fluid keeps its cell order. A one-thread budget keeps sequential fluid sweeps. Final audits keep their original order.
+The 3D model-h line solver uses the same budget for a fixed set of workers in each thermal run.
+It processes transverse lines in wavefronts. Neighboring lines stay on different fronts, and each line keeps its A, solid, then B order.
+Each worker owns its line workspace. The count is capped by the maximum front width; one worker keeps the original line order.
+The existing red-black path remains sequential. Thread limits can change on restore because they do not change numerical inputs.
 The owner alone polls callbacks. Ordinary updates finish before a callback can observe them; trial callbacks see the retained ordinary state.
 All workers finish before an exception leaves the call. A one-thread budget also serializes the existing paired 2D flow calls.
 `runtime_resources` records the applied limit separately from numerical method evidence. Saved run status records the requested limit.

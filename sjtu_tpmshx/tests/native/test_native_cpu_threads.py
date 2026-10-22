@@ -24,7 +24,16 @@ def config(dimension, algorithm):
 @pytest.mark.parametrize('algorithm', ['temperature_sou'])
 @pytest.mark.parametrize('threads', [2, 8])
 def test_complete_serial_and_parallel_results_are_exact(native_path, dimension, algorithm, threads):
-    value = config(dimension, algorithm)
+    assert_complete_thread_equivalence(native_path, config(dimension, algorithm), threads)
+
+
+@pytest.mark.parametrize('pair', ['air-air', 'air-water', 'water-air', 'water-water'])
+@pytest.mark.parametrize('threads', [2, 8])
+def test_complete_model_h_thread_results_are_exact(native_path, pair, threads):
+    assert_complete_thread_equivalence(native_path, configuration('3d-' + pair), threads)
+
+
+def assert_complete_thread_equivalence(native_path, value, threads):
     serial = replace(spatial.control(native_path), cpu_threads=1)
     parallel = replace(serial, cpu_threads=threads)
     _, expected, expected_metrics = compute(value, case_id='thread-limits', control=serial)

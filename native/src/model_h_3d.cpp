@@ -1,6 +1,11 @@
 #include "tpmshx/model_h_3d.hpp"
 #include "model_h_common.hpp"
 #include "energy_fv_rows.hpp"
+#include <atomic>
+#include <condition_variable>
+#include <exception>
+#include <mutex>
+#include <thread>
 
 namespace tpmshx {
 namespace {
@@ -106,9 +111,94 @@ void update(ArrayView<double> t, Vector& carry, std::size_t p, double defect_ste
     change=std::max({change,std::abs(increment),std::abs(updated-t[p])}); t[p]=updated;
 }
 
+class LineSweep {
+    const std::size_t na,nb,lanes;
+    std::vector<detail::EnergyLineScratch> scratch;
+    std::vector<double> changes;
+    std::vector<std::exception_ptr> errors;
+    std::vector<std::thread> workers;
+    std::mutex mutex;
+    std::condition_variable work,joined,front;
+    std::size_t generation=0,finished=0,arrived=0,front_generation=0;
+    bool stopping=false;
+    std::atomic<bool> failed{false};
+    const void* context=nullptr;
+    double (*line)(const void*,std::size_t,detail::EnergyLineScratch&)=nullptr;
+
+    void barrier() {
+        std::unique_lock<std::mutex> lock(mutex);
+        const auto current=front_generation;
+        if(++arrived==lanes) {
+            arrived=0;++front_generation;lock.unlock();front.notify_all();
+        } else front.wait(lock,[&]{return front_generation!=current;});
+    }
+    void execute(std::size_t lane) {
+        for(std::size_t wave=0;wave<na+nb-1;++wave) {
+            const auto first=wave<nb?0:wave-nb+1,last=std::min(na-1,wave);
+            try {
+                for(std::size_t a=first+lane;a<=last && !failed.load(std::memory_order_relaxed);a+=lanes)
+                    changes[lane]=std::max(changes[lane],line(context,a*nb+wave-a,scratch[lane]));
+            } catch(...) {
+                errors[lane]=std::current_exception();failed.store(true,std::memory_order_relaxed);
+            }
+            // Failed workers must still reach each barrier before the caller can join them.
+            barrier();
+        }
+    }
+    void worker(std::size_t lane) {
+        std::unique_lock<std::mutex> lock(mutex);
+        std::size_t seen=0;
+        for(;;) {
+            work.wait(lock,[&]{return stopping || generation!=seen;});
+            if(stopping)return;
+            seen=generation;lock.unlock();execute(lane);lock.lock();
+            ++finished;joined.notify_one();
+        }
+    }
+    void stop() {
+        {std::lock_guard<std::mutex> lock(mutex);stopping=true;}
+        work.notify_all();
+        for(auto& worker:workers)if(worker.joinable())worker.join();
+    }
+public:
+    LineSweep(const detail::EnergyMesh& mesh,std::size_t axis,std::size_t threads)
+        :na(mesh.count[axis==0?1:0]),nb(mesh.count[axis==2?1:2]),
+         lanes(std::min({threads,na,nb})),changes(lanes),errors(lanes) {
+        scratch.reserve(lanes);
+        for(std::size_t lane=0;lane<lanes;++lane)scratch.emplace_back(mesh.count[axis]);
+        try {
+            for(std::size_t lane=1;lane<lanes;++lane)workers.emplace_back([&,lane]{worker(lane);});
+        } catch(...) {stop();throw;}
+    }
+    ~LineSweep() {stop();}
+    template<class Function> double run(const Function& function) {
+        if(lanes==1) {
+            double change=0;
+            for(std::size_t ordinal=0;ordinal<na*nb;++ordinal)
+                change=std::max(change,function(ordinal,scratch[0]));
+            return change;
+        }
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            context=&function;
+            line=[](const void* job,std::size_t ordinal,detail::EnergyLineScratch& scratch) {
+                return (*static_cast<const Function*>(job))(ordinal,scratch);
+            };
+            std::fill(changes.begin(),changes.end(),0.);
+            std::fill(errors.begin(),errors.end(),std::exception_ptr{});
+            failed.store(false,std::memory_order_relaxed);finished=0;++generation;
+        }
+        work.notify_all();execute(0);
+        std::unique_lock<std::mutex> lock(mutex);
+        joined.wait(lock,[&]{return finished==lanes-1;});
+        for(const auto& error:errors)if(error)std::rethrow_exception(error);
+        return *std::max_element(changes.begin(),changes.end());
+    }
+};
+
 double sweeps(const Mesh& mesh, Side& a, Side& b, ArrayView<const double> ks, ArrayView<const double> source_s,
               TemperatureStateView t, const ModelHControl3D& control, std::size_t count,
-              std::size_t line_axis,detail::EnergyLineScratch& line_work,std::array<Vector,3>& carry,
+              std::size_t line_axis,LineSweep& line_work,std::array<Vector,3>& carry,
               const Diffusion& diffusion,bool solve_b) {
     const detail::EnergyMesh energy_mesh(mesh.g);
     const auto phase_a=a.energy(),phase_b=b.energy();
@@ -120,17 +210,20 @@ double sweeps(const Mesh& mesh, Side& a, Side& b, ArrayView<const double> ks, Ar
         if (solve_b) faces(mesh,b,view(t.b));
         change=0;
         if (!control.red_black) {
-            for (std::size_t ordinal=0; ordinal<energy_mesh.line_count(line_axis); ++ordinal) {
+            // Transverse neighbors are on adjacent fronts; local A/solid/B order stays fixed.
+            change=line_work.run([&](std::size_t ordinal,detail::EnergyLineScratch& scratch) {
                 const auto start=energy_mesh.line_start(line_axis,ordinal);
+                double change=0;
                 change=std::max(change,detail::fluid_energy_line(energy_mesh,phase_a,t.a,view(t.solid),
-                    line_axis,start,alpha_a,line_work,{}, {carry[0].data(),carry[0].size()},diffusion[0].data()));
+                    line_axis,start,alpha_a,scratch,{}, {carry[0].data(),carry[0].size()},diffusion[0].data()));
                 change=std::max(change,detail::solid_energy_line(energy_mesh,ks,a.f.hv,b.f.hv,
-                    view(t.a),view(t.b),t.solid,source_s,line_axis,start,control.alpha_solid,line_work,
+                    view(t.a),view(t.b),t.solid,source_s,line_axis,start,control.alpha_solid,scratch,
                     {carry[2].data(),carry[2].size()},diffusion[2].data()));
                 if (solve_b)
                     change=std::max(change,detail::fluid_energy_line(energy_mesh,phase_b,t.b,view(t.solid),
-                        line_axis,start,alpha_b,line_work,{}, {carry[1].data(),carry[1].size()},diffusion[1].data()));
-            }
+                        line_axis,start,alpha_b,scratch,{}, {carry[1].data(),carry[1].size()},diffusion[1].data()));
+                return change;
+            });
             if (change==0.) break;
             continue;
         }
@@ -250,7 +343,7 @@ void validate(const GridView& g, const ModelHFluid3D& a, const ModelHFluid3D& b,
         throw std::invalid_argument("3D model-h state is too large");
     coefficient(g.dx,g.nx,true); coefficient(g.dy,g.ny,true); coefficient(g.dz,g.nz,true); coefficient(ks,n);
     if (source_s.size) check(source_s,n);
-    if (!control.chunk_iterations || !std::isfinite(control.q_relative_tolerance) || control.q_relative_tolerance<0
+    if (!control.cpu_threads || !control.chunk_iterations || !std::isfinite(control.q_relative_tolerance) || control.q_relative_tolerance<0
         || !std::isfinite(control.temperature_tolerance) || control.temperature_tolerance<=0.)
         throw std::invalid_argument("invalid 3D model-h control");
     for (double alpha:{control.alpha_a,control.alpha_solid,control.alpha_b})
@@ -311,7 +404,7 @@ struct ModelHRun3D::Impl {
     Eigen::VectorXd previous;
     double previous_q=0.;
     std::size_t line_axis=0;
-    std::optional<detail::EnergyLineScratch> line_work_;
+    std::optional<LineSweep> line_work_;
     Diffusion diffusion;
     std::array<Vector,3> carry;
     struct Cancelled {};
@@ -368,7 +461,7 @@ struct ModelHRun3D::Impl {
         const detail::EnergyMesh energy_mesh(grid);
         line_axis=control.red_black ? 0U
             : detail::dominant_diffusion_axis(energy_mesh,side_a.energy(),side_b.energy(),ks);
-        line_work_.emplace(control.red_black ? 0 : energy_mesh.count[line_axis]);
+        line_work_.emplace(energy_mesh,line_axis,control.red_black || !control.max_iterations?1:control.cpu_threads);
         if(control.max_iterations) {
             diffusion[0].reserve(mesh.n);diffusion[2].reserve(mesh.n);
             if(solve_b) diffusion[1].reserve(mesh.n);
