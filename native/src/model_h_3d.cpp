@@ -126,7 +126,7 @@ class LineSweep {
     bool stopping=false,wavefront=true;
     std::atomic<bool> failed{false};
     const void* context=nullptr;
-    double (*line)(const void*,std::size_t,detail::EnergyLineScratch&)=nullptr;
+    void (*line)(const void*,std::size_t,detail::EnergyLineScratch&,double&)=nullptr;
 
     void barrier() {
         const auto current=front_generation.load(std::memory_order_acquire);
@@ -137,22 +137,25 @@ class LineSweep {
             std::this_thread::yield();
     }
     void execute(std::size_t lane) {
+        double change=0.;
         if(!wavefront) {
-            try {line(context,lane,scratch[lane]);}
+            try {line(context,lane,scratch[lane],change);}
             catch(...) {errors[lane]=std::current_exception();}
+            changes[lane]=change;
             return;
         }
         for(std::size_t wave=0;wave<na+nb-1;++wave) {
             const auto first=wave<nb?0:wave-nb+1,last=std::min(na-1,wave);
             try {
                 for(std::size_t a=first+lane;a<=last && !failed.load(std::memory_order_relaxed);a+=lanes)
-                    changes[lane]=std::max(changes[lane],line(context,a*nb+wave-a,scratch[lane]));
+                    line(context,a*nb+wave-a,scratch[lane],change);
             } catch(...) {
                 errors[lane]=std::current_exception();failed.store(true,std::memory_order_relaxed);
             }
             // Failed workers must still reach each barrier before the caller can join them.
             barrier();
         }
+        changes[lane]=change;
     }
     void worker(std::size_t lane) {
         std::unique_lock<std::mutex> lock(mutex);
@@ -185,14 +188,14 @@ public:
             double change=0;
             const auto count=ordered?na*nb:1;
             for(std::size_t ordinal=0;ordinal<count;++ordinal)
-                change=std::max(change,function(ordinal,scratch[0]));
+                function(ordinal,scratch[0],change);
             return change;
         }
         {
             std::lock_guard<std::mutex> lock(mutex);
             context=&function;wavefront=ordered;
-            line=[](const void* job,std::size_t ordinal,detail::EnergyLineScratch& scratch) {
-                return (*static_cast<const Function*>(job))(ordinal,scratch);
+            line=[](const void* job,std::size_t ordinal,detail::EnergyLineScratch& scratch,double& change) {
+                (*static_cast<const Function*>(job))(ordinal,scratch,change);
             };
             std::fill(changes.begin(),changes.end(),0.);
             std::fill(errors.begin(),errors.end(),std::exception_ptr{});
@@ -205,10 +208,9 @@ public:
         return *std::max_element(changes.begin(),changes.end());
     }
     void prepare_faces(const Mesh& mesh,Side& a,Side& b,TemperatureStateView t,bool solve_b) {
-        run([&](std::size_t lane,detail::EnergyLineScratch&) {
+        run([&](std::size_t lane,detail::EnergyLineScratch&,double&) {
             faces(mesh,a,view(t.a),lane,lanes);
             if(solve_b)faces(mesh,b,view(t.b),lane,lanes);
-            return 0.;
         },false);
     }
 };
@@ -227,9 +229,8 @@ double sweeps(const Mesh& mesh, Side& a, Side& b, ArrayView<const double> ks, Ar
         change=0;
         if (!control.red_black) {
             // Transverse neighbors are on adjacent fronts; local A/solid/B order stays fixed.
-            change=line_work.run([&](std::size_t ordinal,detail::EnergyLineScratch& scratch) {
+            change=line_work.run([&](std::size_t ordinal,detail::EnergyLineScratch& scratch,double& change) {
                 const auto start=energy_mesh.line_start(line_axis,ordinal);
-                double change=0;
                 change=std::max(change,detail::fluid_energy_line(energy_mesh,phase_a,t.a,view(t.solid),
                     line_axis,start,alpha_a,scratch,{}, {carry[0].data(),carry[0].size()},diffusion[0].data()));
                 change=std::max(change,detail::solid_energy_line(energy_mesh,ks,a.f.hv,b.f.hv,
@@ -238,7 +239,6 @@ double sweeps(const Mesh& mesh, Side& a, Side& b, ArrayView<const double> ks, Ar
                 if (solve_b)
                     change=std::max(change,detail::fluid_energy_line(energy_mesh,phase_b,t.b,view(t.solid),
                         line_axis,start,alpha_b,scratch,{}, {carry[1].data(),carry[1].size()},diffusion[1].data()));
-                return change;
             });
             if (change==0.) break;
             continue;
