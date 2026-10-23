@@ -932,6 +932,19 @@ current ComputeConfig, accepts a fixed-mass-flow condition table and restores
 selected full fields without averaging. A finite-budget Pareto set is a model
 trend result.
 
+The optional `mass_requirements` input selects constrained core-mass optimization.
+It supplies positive density and Q/dP limits for every condition ID. Supported methods are qLogNEI and Sobol.
+The mass objective reuses the full-result mass metric. Multiply 2D mass and heat by the saved physical depth.
+qLogNEI fits negative mass and three relative residuals: heat shortfall and A/B pressure excess.
+Each residual is the maximum over all conditions. Nonpositive values satisfy all limits of that type.
+Valid infeasible observations train the model; failed numerical batches do not.
+Selection uses only minimum-mass feasible observations. Zero feasible designs remains explicit.
+Saved inputs freeze the requirements. Recovery recomputes mass and every constraint check from retained native evidence.
+The desktop and exports retain these requirements and distinguish numerical validity from constraint feasibility.
+Equal bounds fix a field. BO fits only variable controls and returns the complete saved decision vector.
+A search requires at least one variable field. Sessions retain both field bounds.
+Core mass excludes casing and manifolds. Parameter fields do not establish valid explicit TPMS geometry.
+
 New searches save fixed inputs in `optimization-input.json` before numerical work.
 `resume_multi_condition_optimization` compares that input with the search record and the current dependency versions.
 It checks the initial Sobol sequence, saved proposals, history order, objectives, and fixed initial reference point.

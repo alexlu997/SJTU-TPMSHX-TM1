@@ -56,6 +56,8 @@ def test_partial_import_keeps_full_continuous_field_and_conditions(win, tmp_path
     preset['continuous_field'] = {**study['field_spec'],
                                   'x_decision': study['history'][0]['x_decision']}
     preset['optimization_conditions'] = [condition()]
+    from sjtu_tpmshx.tests.test_mass_design import requirements
+    preset['optimization_mass_requirements'] = requirements(('one',))
     win._apply_user_preset(preset)
     before = win._capture_current_preset('before')
     path = tmp_path / 'partial.json'

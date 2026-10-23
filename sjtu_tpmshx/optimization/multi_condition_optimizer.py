@@ -1,6 +1,6 @@
-"""Serial multi-condition design search with native batches and two objectives.
+"""Serial design search with native batches and fixed operating conditions.
 
-G (percent heat gain) is maximized and C (relative pressure cost) is minimized.
+Search heat/pressure trade-offs, or minimize core mass under absolute limits.
 Only completed batch observations enter the model or Pareto set. Failed
 designs consume budget and retain their original batch evidence.
 """
@@ -27,6 +27,9 @@ from sjtu_tpmshx.optimization.multi_condition import (
     _condition_worker_count, _evaluate_condition_batch, _saved_condition_config,
 )
 from sjtu_tpmshx.domain.portable_data import mutable_data
+from sjtu_tpmshx.optimization.mass_design import (
+    CONSTRAINT_KEYS, mass_observation, model_observation, validate_mass_requirements,
+)
 
 
 _log = get_logger(__name__)
@@ -63,7 +66,7 @@ def _propose_bo(X, Y, lower, upper, ref_point, *, method, q_batch, seed, on_stag
     """Fit independent standardized outputs, then optimize a log acquisition.
 
     BoTorch 0.18.1 APIs; inputs are normalized with fixed design bounds and
-    posterior outputs retain the original (G, -C) units. Fit/selection errors
+    posterior outputs retain their physical units or relative constraint margins. Fit/selection errors
     propagate: an unfitted GP or another search method is never substituted.
     """
     import torch
@@ -76,20 +79,30 @@ def _propose_bo(X, Y, lower, upper, ref_point, *, method, q_batch, seed, on_stag
     from botorch.sampling.normal import SobolQMCNormalSampler
     from gpytorch.mlls import ExactMarginalLogLikelihood
 
-    train_X = torch.as_tensor((X-lower)/(upper-lower), dtype=torch.float64, device='cpu')
+    active = upper > lower
+    train_X = torch.as_tensor((X[:, active]-lower[active])/(upper[active]-lower[active]),
+                              dtype=torch.float64, device='cpu')
     train_Y = torch.as_tensor(Y, dtype=torch.float64, device='cpu')
-    bounds = torch.stack((torch.zeros(X.shape[1], dtype=torch.float64),
-                          torch.ones(X.shape[1], dtype=torch.float64)))
+    bounds = torch.stack((torch.zeros(int(active.sum()), dtype=torch.float64),
+                          torch.ones(int(active.sum()), dtype=torch.float64)))
     with torch.random.fork_rng(devices=[]):
         torch.manual_seed(seed)
         if on_stage is not None:
             on_stage('model_fit')
-        model = SingleTaskGP(train_X, train_Y, outcome_transform=Standardize(m=2))
+        model = SingleTaskGP(train_X, train_Y, outcome_transform=Standardize(m=Y.shape[1]))
         fit_gpytorch_mll(ExactMarginalLogLikelihood(model.likelihood, model))
         if on_stage is not None:
             on_stage('proposal')
         sampler = SobolQMCNormalSampler(sample_shape=torch.Size([128]), seed=seed)
-        if method == 'qlognehvi':
+        if method == 'qlognei':
+            from botorch.acquisition.logei import qLogNoisyExpectedImprovement
+            from botorch.acquisition.objective import GenericMCObjective
+            acquisition = qLogNoisyExpectedImprovement(
+                model, X_baseline=train_X, sampler=sampler, prune_baseline=True,
+                objective=GenericMCObjective(lambda samples, X=None: samples[..., 0]),
+                constraints=[lambda samples, index=index: samples[..., index]
+                             for index in range(1, 4)])
+        elif method == 'qlognehvi':
             acquisition = qLogNoisyExpectedHypervolumeImprovement(
                 model, ref_point=ref_point.tolist(), X_baseline=train_X,
                 sampler=sampler, prune_baseline=True)
@@ -98,7 +111,9 @@ def _propose_bo(X, Y, lower, upper, ref_point, *, method, q_batch, seed, on_stag
                                      sampler=sampler, prune_baseline=True)
         candidates, _ = optimize_acqf(acquisition, bounds=bounds, q=q_batch,
             num_restarts=5, raw_samples=128, options={'batch_limit': 5, 'maxiter': 100})
-    return lower + candidates.detach().cpu().numpy()*(upper-lower)
+    full = np.tile(lower, (q_batch, 1))
+    full[:, active] += candidates.detach().cpu().numpy()*(upper[active]-lower[active])
+    return full
 
 
 def _check_saved_search(record, frozen, designs, lower, upper):
@@ -140,7 +155,9 @@ def _check_saved_search(record, frozen, designs, lower, upper):
                 or row['status'] not in states):
             raise ValueError('saved history differs from the proposed design sequence')
         if row['status'] == 'completed':
-            y = [row['objectives']['heat_gain_percent'], -row['objectives']['pressure_ratio']]
+            y = model_observation(row['objectives'], constrained='mass_requirements' in frozen)
+            if 'mass_requirements' in frozen and row.get('feasible') != all(value <= 0 for value in y[1:]):
+                raise ValueError('saved feasibility differs from the constraint observations')
             if row['model_y'] != y or not np.isfinite(y).all():
                 raise ValueError('saved objectives differ from the model observations')
         elif row['objectives'] is not None or row['model_y'] is not None:
@@ -157,12 +174,13 @@ def _check_saved_search(record, frozen, designs, lower, upper):
 def run_multi_condition_optimization(
     conditions, *, output_dir, method='qlognehvi', n_init=16, n_iter=8,
     q_batch=1, seed=0, field_spec=None, control=RunControl(), workers=None, on_update=None,
-    pause_check=None,
+    pause_check=None, mass_requirements=None,
 ) -> dict:
     """Start a search and retain its fixed input for recovery in a new directory."""
     return _run_multi_condition_optimization(conditions, output_dir=output_dir, method=method,
         n_init=n_init, n_iter=n_iter, q_batch=q_batch, seed=seed, field_spec=field_spec,
-        control=control, workers=workers, on_update=on_update, pause_check=pause_check)
+        control=control, workers=workers, on_update=on_update, pause_check=pause_check,
+        mass_requirements=mass_requirements)
 
 
 def resume_multi_condition_optimization(checkpoint_file, *, output_dir, control=RunControl(),
@@ -182,14 +200,14 @@ def resume_multi_condition_optimization(checkpoint_file, *, output_dir, control=
                    row['mass_flow_A_kg_s'], row['mass_flow_B_kg_s']) for row in frozen['conditions']]
     return _run_multi_condition_optimization(conditions, output_dir=destination, control=control,
         workers=workers, on_update=on_update, pause_check=pause_check,
-        resume_from=(source.parent, record, frozen),
+        resume_from=(source.parent, record, frozen), mass_requirements=frozen.get('mass_requirements'),
         **{key: frozen[key] for key in ('method', 'n_init', 'n_iter', 'q_batch', 'seed', 'field_spec')})
 
 
 def _run_multi_condition_optimization(
     conditions, *, output_dir, method='qlognehvi', n_init=16, n_iter=8,
     q_batch=1, seed=0, field_spec=None, control=RunControl(), workers=None, on_update=None,
-    pause_check=None, resume_from=None,
+    pause_check=None, resume_from=None, mass_requirements=None,
 ) -> dict:
     """Optimize one complete XY/XYZ design across fixed operating conditions.
 
@@ -207,6 +225,13 @@ def _run_multi_condition_optimization(
     It is recorded for every method, and used by qLogNEHVI. qLogNParEGO uses
     its sampled Chebyshev scalarization, not that hypervolume reference point.
 
+    With ``mass_requirements``, minimize core mass in kg. Each condition has
+    Q_min_W and dP_A_max_Pa / dP_B_max_Pa limits. The heat metric is -Q_B;
+    multiply 2D heat and mass by physical depth. qLogNEI models negative mass
+    and three worst-condition relative residuals. A residual <= 0 is feasible.
+    Keep usable infeasible observations in the model, but exclude them from
+    the selected designs. The supplied density covers the TPMS core only.
+
     ``optimization.json`` checkpoints full inputs, field spec, decisions,
     statuses, native batch paths, objectives and zero-based Pareto history
     indices. Cancellation preserves that record and propagates CancelledError.
@@ -217,8 +242,12 @@ def _run_multi_condition_optimization(
     estimates use observed batch and proposal durations. The first BO proposal
     must finish before its remaining cost can be estimated.
     """
-    if method not in ('qlognehvi', 'qlognparego', 'sobol'):
-        raise ValueError('method must be qlognehvi, qlognparego or sobol')
+    if method not in ('qlognehvi', 'qlognparego', 'qlognei', 'sobol'):
+        raise ValueError('method must be qlognehvi, qlognparego, qlognei or sobol')
+    constrained = mass_requirements is not None
+    if (method == 'qlognei' and not constrained
+            or constrained and method not in ('qlognei', 'sobol')):
+        raise ValueError('Core-mass requirements need qlognei or sobol; qlognei needs requirements')
     for name, value, minimum in (('n_init', n_init, 1), ('n_iter', n_iter, 0),
                                  ('q_batch', q_batch, 1), ('seed', seed, 0)):
         if type(value) is not int or value < minimum:
@@ -230,6 +259,8 @@ def _run_multi_condition_optimization(
     ids = [row[0] for row in inputs]
     if any(not isinstance(item, str) or not item for item in ids) or len(set(ids)) != len(ids):
         raise ValueError('conditions require unique nonempty IDs')
+    if constrained:
+        mass_requirements = validate_mass_requirements(mass_requirements, ids)
     for _, config, flow_a, flow_b in inputs:
         if not isinstance(config, ComputeConfig):
             raise TypeError('condition config must be ComputeConfig')
@@ -263,6 +294,8 @@ def _run_multi_condition_optimization(
                          f'this control layout has {dimension_count}')
     lower, upper = decision_bounds(spec['n_ctrl_x'], spec['n_ctrl_y'], spec['symmetric_y'],
         spec['L_bounds'], spec['t_bounds'], n_ctrl_z=spec.get('n_ctrl_z'))
+    if not np.any(upper > lower):
+        raise ValueError('A search needs at least one variable field; use a single calculation for fixed L/t')
     count = len(lower)//2
     uniform_x = np.r_[np.full(count, config.geometry.L_cell_mm),
                       np.full(count, config.geometry.t_wall_mm)]
@@ -286,6 +319,8 @@ def _run_multi_condition_optimization(
         n_init=n_init, n_iter=n_iter, q_batch=q_batch,
         conditions=[dict(condition_id=name, config=cfg.to_dict(), mass_flow_A_kg_s=a,
                          mass_flow_B_kg_s=b) for name, cfg, a, b in inputs])
+    if constrained:
+        frozen['mass_requirements'] = mass_requirements
     if resume_from is not None:
         source_root, saved, saved_input = resume_from
         if saved_input != frozen:
@@ -307,6 +342,9 @@ def _run_multi_condition_optimization(
         baseline=dict(directory='baseline', status='not_run', reason=None),
         initial_designs=designs[:n_init].tolist(), proposals=[],
         history=history, pareto_indices=[], n_evaluated=0, n_usable=0)
+    if constrained:
+        record.update(objective_directions={'core_mass_kg': 'minimize'},
+            model_objectives=['-core_mass_kg', *CONSTRAINT_KEYS], n_feasible=0)
     if resume_from is not None:
         record = deepcopy(saved)
         record.update(status='running', stage='baseline', iteration=0, reason=None,
@@ -317,7 +355,7 @@ def _run_multi_condition_optimization(
     def observations():
         rows = [row for row in history if row['status'] == 'completed']
         return (np.asarray([row['x_decision'] for row in rows]).reshape(-1, len(lower)),
-                np.asarray([row['model_y'] for row in rows]).reshape(-1, 2), rows)
+                np.asarray([row['model_y'] for row in rows]).reshape(-1, 4 if constrained else 2), rows)
 
     started = perf_counter()
     prior_elapsed = record.get('elapsed_s', 0.)
@@ -361,7 +399,11 @@ def _run_multi_condition_optimization(
     def publish(primary_error=None):
         try:
             _, values, rows = observations()
-            record['pareto_indices'] = [row['index'] for row, keep in zip(rows, _pareto_mask_max(values)) if keep]
+            valid = np.all(values[:, 1:] <= 0, axis=1) if constrained else None
+            front = _pareto_mask_max(values[:, :1] if constrained else values, valid=valid)
+            record['pareto_indices'] = [row['index'] for row, keep in zip(rows, front) if keep]
+            if constrained:
+                record['n_feasible'] = int(np.count_nonzero(valid))
             record['n_evaluated'] = sum(row['status'] in ('completed', 'failed') for row in history)
             record['n_usable'] = len(rows)
             record['elapsed_s'] = prior_elapsed + perf_counter() - started
@@ -438,18 +480,25 @@ def _run_multi_condition_optimization(
                                      config={**spec, 'x_decision': row['x_decision']})
             candidates = [(name, replace(cfg, zones=zones), a, b) for name, cfg, a, b in inputs]
             result = evaluate_batch(candidates, row['directory'], row['index']+1, baseline['summaries'])
-            if previous is not None and previous['status'] == 'completed':
-                if result['status'] != 'completed' or result['objectives'] != previous['objectives']:
-                    raise ValueError('retained design objectives differ from its saved observation')
             if result['status'] != 'completed':
+                if previous is not None and previous['status'] == 'completed':
+                    raise ValueError('retained design no longer has a completed batch')
                 row.update(status='failed', reason=result.get('reason') or 'condition batch failed')
                 return
             objectives = result['objectives']
-            y = [float(objectives['heat_gain_percent']), -float(objectives['pressure_ratio'])]
+            if constrained:
+                objectives, checks = mass_observation(result['summaries'], mass_requirements)
+                if previous is not None and previous['status'] == 'completed' and checks != previous['constraint_checks']:
+                    raise ValueError('retained constraint checks differ from the saved observation')
+                row.update(constraint_checks=checks)
+            if previous is not None and previous['status'] == 'completed' and objectives != previous['objectives']:
+                raise ValueError('retained design objectives differ from its saved observation')
+            y = model_observation(objectives, constrained=constrained)
             if not np.all(np.isfinite(y)):
                 raise ValueError('completed condition batch returned nonfinite objectives')
-            row.update(status='completed', objectives=dict(heat_gain_percent=y[0], pressure_ratio=-y[1]),
-                       model_y=y)
+            row.update(status='completed', objectives=objectives, model_y=y)
+            if constrained:
+                row['feasible'] = all(value <= 0 for value in y[1:])
         except (CancelledError, PausedRun) as exc:
             primary_error = exc
             if previous is None or previous['status'] != 'completed':
@@ -498,7 +547,8 @@ def _run_multi_condition_optimization(
         initial = [row for row in history[:n_init] if row['status'] == 'completed']
         X = np.asarray([row['x_decision'] for row in initial])
         Y = np.asarray([row['model_y'] for row in initial])
-        if len(Y):
+        reference = None
+        if len(Y) and not constrained:
             reference = Y.min(axis=0) - .1*np.maximum(np.ptp(Y, axis=0), [1., .01])
             record['ref_point'] = reference.tolist()
         if n_iter > 0 and method != 'sobol' and (len(X) < 2 or len(np.unique(X, axis=0)) < 2):

@@ -31,7 +31,7 @@ def _make_worker_class():
         error_signal = Signal(str)
 
         def __init__(self, config, condition_rows, field_spec, method, n_init, n_iter, q_batch, seed, save_dir,
-                     *, control=RunControl(), resume_file=None):
+                     *, control=RunControl(), resume_file=None, mass_requirements=None):
             super().__init__()
             self.config = deepcopy(config)
             self.condition_rows = deepcopy(condition_rows)
@@ -41,6 +41,7 @@ def _make_worker_class():
             self.save_dir = save_dir
             self.control = control
             self.resume_file = resume_file
+            self.mass_requirements = deepcopy(mass_requirements)
             self._pause = Event()
 
         def request_pause(self):
@@ -75,6 +76,7 @@ def _make_worker_class():
                         conditions, output_dir=self.save_dir, method=self.method,
                         n_init=self.n_init, n_iter=self.n_iter, q_batch=self.q_batch,
                         seed=self.seed, field_spec=self.field_spec, control=control,
+                        mass_requirements=self.mass_requirements,
                         on_update=self.update_signal.emit, pause_check=self._pause.is_set)
                 self.finished_with_result.emit(report)
             except (CancelledError, PausedRun) as exc:
@@ -150,8 +152,8 @@ def _field_spec(window):
 def validate_condition_table(payload):
     keys = {'condition_id'} | {f'{name}_{side}_{unit}' for side in 'AB'
         for name, unit in (('T_in', 'K'), ('P_in', 'Pa'), ('mass_flow', 'kg_s'))}
-    if not isinstance(payload, dict) or set(payload) != {'conditions'}:
-        raise ValueError('Condition JSON requires only a conditions list')
+    if not isinstance(payload, dict) or set(payload) not in ({'conditions'}, {'conditions', 'mass_requirements'}):
+        raise ValueError('Condition JSON needs conditions and optional mass_requirements')
     rows = payload['conditions']
     if not isinstance(rows, list) or not rows:
         raise ValueError('Condition JSON requires a nonempty conditions list')
@@ -167,6 +169,9 @@ def validate_condition_table(payload):
             if type(row[key]) not in (int, float):
                 raise ValueError(f'{name}: {key} must be a positive number')
             _positive(row[key], f'{name}: {key}')
+    if 'mass_requirements' in payload:
+        from sjtu_tpmshx.optimization.mass_design import validate_mass_requirements
+        validate_mass_requirements(payload['mass_requirements'], ids)
     return deepcopy(rows)
 
 
@@ -177,17 +182,26 @@ def import_conditions(window):
         return
     try:
         with open(path, encoding='utf-8') as source:
-            rows = validate_condition_table(json.load(source))
+            payload = json.load(source)
+            rows = validate_condition_table(payload)
     except (OSError, ValueError, TypeError) as exc:
         _set_status(window, f'工况导入失败：{exc}')
         return
     window._opt_conditions = rows
+    window._opt_mass_requirements = deepcopy(payload.get('mass_requirements'))
+    if window._opt_mass_requirements is not None:
+        window._opt_method.setCurrentIndex(window._opt_method.findData('qlognei'))
+    elif window._opt_method.currentData() == 'qlognei':
+        window._opt_method.setCurrentIndex(window._opt_method.findData('qlognehvi'))
     refresh_setup(window)
     _set_status(window, f'已导入 {len(rows)} 个工况：{Path(path).name}')
 
 
 def use_current_condition(window):
     window._opt_conditions = None
+    window._opt_mass_requirements = None
+    if window._opt_method.currentData() == 'qlognei':
+        window._opt_method.setCurrentIndex(window._opt_method.findData('qlognehvi'))
     refresh_setup(window)
 
 
@@ -224,20 +238,25 @@ def refresh_setup(window):
         controls['z'].setVisible(is_3d)
         window._opt_control_z_label.setVisible(is_3d)
         counts = [controls[axis].value() for axis in ('xyz' if is_3d else 'xy')]
-        label.setText(' × '.join(map(str, counts)) + f' · {2 * int(np.prod(counts))} 个变量 · '
+        bounds = window._opt_space_params
+        fields = sum(bounds[name+'_min'].value() != bounds[name+'_max'].value() for name in ('L', 't'))
+        label.setText(' × '.join(map(str, counts)) + f' · {fields * int(np.prod(counts))} 个变量 · '
                       + ('XYZ' if is_3d else 'XY') + ' 连续场')
     rows = getattr(window, '_opt_conditions', None)
     n = len(rows) if rows else 1
+    requirements = getattr(window, '_opt_mass_requirements', None)
     label = getattr(window, '_opt_condition_summary', None)
     if label is not None:
-        label.setText(f'{n} 个工况 · 等权：' + '、'.join(row['condition_id'] for row in rows)
+        label.setText(f'{n} 个工况 · ' + ('逐项限值：' if requirements else '等权：') + '、'.join(row['condition_id'] for row in rows)
                       if rows else '单工况 · 当前窗口输入；总流量按实际入口速度分布与孔隙率积分换算')
     params = getattr(window, '_opt_inline_params', {})
     label = getattr(window, '_opt_eval_preview', None)
     if label is not None and params:
         budget = params['n_init'].value() + params['n_iter'].value()*params['q_batch'].value()
-        label.setText('目标：平均换热增益最大，相对压降最小\n'
-                      f'{budget} 个候选 + 1 个均匀基准，最多 {(budget+1)*n} 次 '
+        objective = (f'目标：芯体质量最小；所有工况满足换热与两侧压降要求\n'
+                     f'实体密度 {requirements["solid_density_kg_m3"]:g} kg/m³\n' if requirements else
+                     '目标：平均换热增益最大，相对压降最小\n')
+        label.setText(objective + f'{budget} 个候选 + 1 个均匀基准，最多 {(budget+1)*n} 次 '
                       f'{"3D" if is_3d else "2D"} 工况求解')
     label = getattr(window, '_opt_selected_field', None)
     if label is not None:
@@ -396,6 +415,22 @@ def _set_summary_banner(window, text: str, *, show: bool = True) -> None:
         fit()
 
 
+def _objective_kpis(window, report, rows):
+    constrained = 'mass_requirements' in report
+    captions = ('最小合格芯体质量 [kg]', '满足全部约束的候选数') if constrained else (
+        '最大换热提升 [%]', '最小相对压降 [1]')
+    for name, text in zip(('_opt_kpi_q_caption', '_opt_kpi_dp_caption'), captions):
+        label = getattr(window, name, None)
+        if label is not None:
+            label.setText(text)
+    if constrained:
+        feasible = [row for row in rows if row.get('feasible') is True]
+        return dict(best_q=min((row['objectives']['core_mass_kg'] for row in feasible), default='—'),
+                    best_dp=report['n_feasible'])
+    return dict(best_q=max((row['objectives']['heat_gain_percent'] for row in rows), default='—'),
+                best_dp=min((row['objectives']['pressure_ratio'] for row in rows), default='—'))
+
+
 def _show_live_update(window, update):
     """Show recorded state without changing the active workflow page."""
     report = update['report']
@@ -418,8 +453,7 @@ def _show_live_update(window, update):
     failed = [row for row in report['history'] if row['status'] == 'failed']
     eta = update['eta_s']
     _set_kpi(window, gen=f'{report["n_evaluated"]}/{report["design_budget"]}',
-        best_q=max((row['objectives']['heat_gain_percent'] for row in usable), default='—'),
-        best_dp=min((row['objectives']['pressure_ratio'] for row in usable), default='—'),
+        **_objective_kpis(window, report, usable),
         eta=f'≈{eta/60:.1f} min' if eta is not None else '采样中')
     phases = {'input': '等待准备', 'prepare': '前处理', 'save_case': '保存输入',
               'comparison': '核对基准', 'solve': '原生求解', 'validate_result': '核对结果',
@@ -466,6 +500,15 @@ def run_optimize(window, *, resume_file=None):
             spec = _field_spec(window)
             params = {key: spin.value() for key, spin in window._opt_inline_params.items()}
             method = window._opt_method.currentData()
+            requirements = getattr(window, '_opt_mass_requirements', None)
+            if requirements is not None:
+                from sjtu_tpmshx.optimization.mass_design import validate_mass_requirements
+                params['mass_requirements'] = validate_mass_requirements(
+                    requirements, [row['condition_id'] for row in rows])
+                if method not in ('qlognei', 'sobol'):
+                    raise ValueError('芯体减重请选择 qLogNEI 或 Sobol；导入的性能要求始终有效')
+            elif method == 'qlognei':
+                raise ValueError('请先导入含 mass_requirements 的工况 JSON，给出密度和每个工况的性能限值')
         else:
             from sjtu_tpmshx.optimization.multi_condition import _saved_condition_config
             frozen = json.loads(Path(resume_file).with_name('optimization-input.json').read_text(encoding='utf-8'))
@@ -643,8 +686,15 @@ def show_pareto(window, report, *, running=False):
     rows = [history[index] for index in report['pareto_indices']]
     window._pareto_X = np.asarray([row['x_decision'] for row in rows]) if rows else None
     # Keep the existing figure-export readiness contract, with explicit G/C meaning.
-    window._pareto_F = np.asarray([[-row['objectives']['heat_gain_percent'],
-                                    row['objectives']['pressure_ratio']] for row in rows]) if rows else None
+    constrained = 'mass_requirements' in report
+    if constrained:
+        from sjtu_tpmshx.optimization.mass_design import CONSTRAINT_KEYS
+        x_value = lambda row: 100.*max(row['objectives'][key] for key in CONSTRAINT_KEYS)
+        y_value = lambda row: row['objectives']['core_mass_kg']
+    else:
+        x_value = lambda row: row['objectives']['pressure_ratio']
+        y_value = lambda row: row['objectives']['heat_gain_percent']
+    window._pareto_F = np.asarray([[-y_value(row), x_value(row)] for row in rows]) if rows else None
     render_error = None
     canvas = getattr(window, 'canvas_pareto', None)
     if canvas is not None:
@@ -666,19 +716,23 @@ def show_pareto(window, report, *, running=False):
             ax.set_facecolor(theme['ax_bg'])
             usable = [row for row in history if row['status'] == 'completed']
             if usable:
-                ax.scatter([r['objectives']['pressure_ratio'] for r in usable],
-                           [r['objectives']['heat_gain_percent'] for r in usable],
+                ax.scatter([x_value(row) for row in usable], [y_value(row) for row in usable],
                            color=theme['mpl_subtitle'], label=f'usable ({len(usable)})')
             if rows:
                 order = np.argsort(window._pareto_F[:, 1])
                 ax.plot(window._pareto_F[order, 1], -window._pareto_F[order, 0], 'o-',
-                        color=theme['accent_orange'], picker=True, pickradius=6, label=f'Pareto ({len(rows)})')
+                        color=theme['accent_orange'], picker=True, pickradius=6,
+                        label=f'Best feasible ({len(rows)})' if constrained else f'Pareto ({len(rows)})')
                 if not running:
                     window._pareto_pick_cid = canvas.mpl_connect('pick_event', lambda event: on_pareto_pick(window, event))
                 ax.legend(facecolor=theme['ax_bg'], edgecolor=theme['ax_spine'],
                           labelcolor=theme['ax_text'])
-            ax.set_xlabel('Mean relative pressure drop [1]', color=theme['ax_text'])
-            ax.set_ylabel('Mean useful heat gain [%]', color=theme['ax_text'])
+            if constrained:
+                ax.axvline(0., color=theme['ax_text'], linestyle='--', alpha=.5)
+            ax.set_xlabel('Worst constraint residual [%] (<= 0 is feasible)' if constrained else
+                          'Mean relative pressure drop [1]', color=theme['ax_text'])
+            ax.set_ylabel('Core mass [kg]' if constrained else 'Mean useful heat gain [%]',
+                          color=theme['ax_text'])
             ax.set_title(f'{report["method"]} · {report["n_evaluated"]} designs', color=theme['ax_text'])
             ax.tick_params(colors=theme['ax_text'])
             for spine in ax.spines.values():
@@ -699,11 +753,12 @@ def show_pareto(window, report, *, running=False):
         window._opt_export_pareto_btn.setEnabled(False)
         return render_error
     label = _termination_label(report)
-    _set_kpi(window, gen=label, best_q=max((r['objectives']['heat_gain_percent'] for r in rows), default='—'),
-             best_dp=min((r['objectives']['pressure_ratio'] for r in rows), default='—'), eta='—')
+    _set_kpi(window, gen=label, **_objective_kpis(window, report, rows), eta='—')
     _set_stage_pill(window, 'running', 'done')
     _set_stage_pill(window, 'result', 'active')
-    summary = (f'{label} · {len(rows)} 个 Pareto 方案 · '
+    selection = (f'{report["n_feasible"]} 个满足全部约束，{len(rows)} 个最轻方案' if constrained else
+                 f'{len(rows)} 个 Pareto 方案')
+    summary = (f'{label} · {selection} · '
                f'{report["n_usable"]}/{report["n_evaluated"]} 个候选数值合格')
     summary += f' · {report["reason"]}' if report.get('reason') else ''
     summary += f' · Pareto 绘图失败：{render_error}' if render_error else ''

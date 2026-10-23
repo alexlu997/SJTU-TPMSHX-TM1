@@ -335,7 +335,36 @@ The thread control accepts Auto or an explicit limit on macOS and Windows.
 A rejected design shows its reason in the summary. Diagnostics show the recorded range evidence.
 Permission to exceed inlet Nu limits does not change the design verdict.
 
-Defaults are 16 initial designs and 8 rounds of 1 new design. Each design is evaluated across all conditions before forming one aggregate sample. Imported JSON contains only a `conditions` list. Each row has `condition_id` and side-specific `T_in_A_K`, `P_in_A_Pa`, `mass_flow_A_kg_s`. Replace A with B for side B. Without import, the interface explicitly uses the current single condition.
+Defaults are 16 initial designs and 8 rounds of 1 new design. Each design is evaluated across all conditions before forming one aggregate sample. Imported JSON contains a `conditions` list. Each row has `condition_id` and side-specific `T_in_A_K`, `P_in_A_Pa`, `mass_flow_A_kg_s`. Replace A with B for side B. Without import, the interface explicitly uses the current single condition.
+
+Core-mass optimization minimizes one objective. Every condition must meet its minimum heat duty and both pressure-drop limits.
+Add `mass_requirements` to the condition JSON. Import selects qLogNEI; Sobol is also available.
+Supply the material density as `solid_density_kg_m3`. Give three positive limits for each condition ID in `conditions`.
+This example shows the input format. Its values are not acceptance limits for the water-air experiment:
+
+```json
+{
+  "conditions": [{"condition_id": "one", "T_in_A_K": 400, "P_in_A_Pa": 130000,
+    "mass_flow_A_kg_s": 0.003, "T_in_B_K": 295, "P_in_B_Pa": 120000,
+    "mass_flow_B_kg_s": 0.015}],
+  "mass_requirements": {
+    "solid_density_kg_m3": 8000,
+    "conditions": {"one": {"Q_min_W": 100, "dP_A_max_Pa": 2000, "dP_B_max_Pa": 500}}
+  }
+}
+```
+
+Mass uses the porosity and grid integral from the full result. It includes TPMS core solid only, without the casing or manifolds.
+Multiply 2D heat and mass by the specified physical depth to obtain W and kg. Pressure drop uses Pa.
+A failure at one condition cannot be offset by another condition or the other pressure drop.
+Numerically valid candidates that exceed limits train the search model. Only the lightest feasible candidates can be selected for geometry export.
+The plot shows core mass and the worst relative constraint residual. A residual at or below zero meets the limits.
+Zero feasible candidates remains an explicit result. Completion of the search budget does not guarantee a feasible design.
+Sessions, search recovery, and exports retain density, per-condition requirements, and checks.
+The API accepts the same `mass_requirements` object with `method='qlognei'` or `'sobol'`.
+Set both L bounds to 7 mm to optimize only wall thickness on a fixed cell map. Saved sessions retain these bounds.
+Search pure Diamond and pure Gyroid separately. Compare them with the same conditions, limits, material, and closure settings.
+Model limits, numerical gates, and final solid connectivity, wall thickness, and fluid separation require separate checks.
 
 2D requires an actual conversion depth. Frozen Shanghai Gyroid 7/.6 exchanger corrections can support explicit continuous-field trend exploration. Search results still require all-condition and mesh review. This is not experimental validation of graded structures.
 

@@ -304,6 +304,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         self._pareto_x_decision = None
         self._pareto_y_trans_inlet = self._pareto_y_trans_outlet = 0.2
         self._opt_conditions = None
+        self._opt_mass_requirements = None
         from sjtu_tpmshx.ui.optimize_panel import refresh_setup
         refresh_setup(self)
         # Treat preset Nx/Ny/Nz as authoritative — without this flag the next

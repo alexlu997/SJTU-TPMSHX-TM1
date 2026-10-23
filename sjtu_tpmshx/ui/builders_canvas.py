@@ -566,9 +566,11 @@ def _build_optimize_panel(window, card_lay, t, theme):
         f" font-family:{_mono}; font-size:{FONT_INPUT}pt;}}"
         f"QAbstractSpinBox:focus{{border-color:{_t['inp_focus']};}}")
     window._opt_method = QComboBox()
-    for label, key in (("qLogNEHVI", "qlognehvi"), ("qLogNParEGO", "qlognparego"), ("Sobol", "sobol")):
+    for label, key in (("qLogNEHVI", "qlognehvi"), ("qLogNParEGO", "qlognparego"),
+                       ("qLogNEI · 芯体减重", "qlognei"), ("Sobol", "sobol")):
         window._opt_method.addItem(label, key)
     window._opt_method.setStyleSheet(t.style('COMBO'))
+    window._opt_method.currentIndexChanged.connect(lambda *_: refresh_setup(window))
     par_lay.addWidget(window._opt_method)
     window._opt_inline_params = {}
     for key, label, low, high, default in (
@@ -588,7 +590,7 @@ def _build_optimize_panel(window, card_lay, t, theme):
     window._opt_eval_preview.setWordWrap(True)
     par_lay.addWidget(window._opt_eval_preview)
     condition_row = _HBop()
-    import_button = QPushButton('导入工况 JSON')
+    import_button = QPushButton('导入工况 / 减重要求 JSON')
     import_button.clicked.connect(lambda: import_conditions(window))
     current_button = QPushButton('使用当前单工况')
     current_button.clicked.connect(lambda: use_current_condition(window))
@@ -602,7 +604,9 @@ def _build_optimize_panel(window, card_lay, t, theme):
     window._opt_condition_summary.setToolTip(
         'JSON: {"conditions": [{"condition_id": "1", "T_in_A_K": 400, '
         '"P_in_A_Pa": 120000, "mass_flow_A_kg_s": 0.005, '
-        '"T_in_B_K": 300, "P_in_B_Pa": 110000, "mass_flow_B_kg_s": 0.02}]}')
+        '"T_in_B_K": 300, "P_in_B_Pa": 110000, "mass_flow_B_kg_s": 0.02}]}\n'
+        '减重时增加 mass_requirements：solid_density_kg_m3 与 conditions；'
+        '按 condition_id 给出 Q_min_W、dP_A_max_Pa、dP_B_max_Pa。')
     par_lay.addWidget(window._opt_condition_summary)
     window._opt_depth_label = QLabel('2D 总质量流量换算厚度 [m]')
     window._opt_depth = QLineEdit(window.le_Lz.text())
@@ -663,7 +667,7 @@ def _build_optimize_panel(window, card_lay, t, theme):
     _sp_Lmax = _mk_dspin(_hull_L[0], _hull_L[1], _hull_L[1], 0.5, 2)
     _space_row("胞元 <i>L</i> 范围 [mm]",
                f"决策变量 L 的上下界；当前 CFD 几何范围 {_hull_L} mm；"
-               "Nu 适用范围单独检查",
+               "上下界相同则固定胞元尺寸；Nu 适用范围单独检查",
                [_sp_Lmin, _sp_Lmax])
     window._opt_space_params['L_min'] = _sp_Lmin
     window._opt_space_params['L_max'] = _sp_Lmax
@@ -675,6 +679,8 @@ def _build_optimize_panel(window, card_lay, t, theme):
                [_sp_tmin, _sp_tmax])
     window._opt_space_params['t_min'] = _sp_tmin
     window._opt_space_params['t_max'] = _sp_tmax
+    for edit in window._opt_space_params.values():
+        edit.valueChanged.connect(lambda: refresh_setup(window))
 
     window._opt_controls = {}
     for axis in 'xyz':
@@ -784,14 +790,14 @@ def _build_optimize_panel(window, card_lay, t, theme):
             f"font-size:22pt; font-weight:600;"
             "background:transparent; border:none;")
         cl.addWidget(cap); cl.addWidget(val)
-        return card, val
+        return card, val, cap
 
     kpi_row = QGridLayout()
     kpi_row.setSpacing(16)
-    card_gen, val_gen = _mk_kpi("已评估候选 / 预算", "—", 130)
-    card_q,   val_q   = _mk_kpi("最大换热提升 [%]", "—", 180)
-    card_dp,  val_dp  = _mk_kpi("最小相对压降 [1]", "—", 180)
-    card_eta, val_eta = _mk_kpi("剩余时间", "—", 120)
+    card_gen, val_gen, _ = _mk_kpi("已评估候选 / 预算", "—", 130)
+    card_q, val_q, window._opt_kpi_q_caption = _mk_kpi("最大换热提升 [%]", "—", 180)
+    card_dp, val_dp, window._opt_kpi_dp_caption = _mk_kpi("最小相对压降 [1]", "—", 180)
+    card_eta, val_eta, _ = _mk_kpi("剩余时间", "—", 120)
     window._opt_kpi_gen = val_gen
     window._opt_kpi_q = val_q
     window._opt_kpi_dp = val_dp

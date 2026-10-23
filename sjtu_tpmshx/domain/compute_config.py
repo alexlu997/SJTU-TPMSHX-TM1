@@ -386,8 +386,8 @@ class ZoneInputConfig:
                     raise ValueError(f'Continuous field {name} must be a list of finite numbers')
             for name, resource in (('L_bounds', TRAIN_L), ('t_bounds', TRAIN_T)):
                 bounds = spec[name]
-                if len(bounds) != 2 or not resource[0] <= bounds[0] < bounds[1] <= resource[1]:
-                    raise ValueError(f'Continuous field {name} must be increasing within {resource} mm')
+                if len(bounds) != 2 or not resource[0] <= bounds[0] <= bounds[1] <= resource[1]:
+                    raise ValueError(f'Continuous field {name} must be ordered within {resource} mm')
             ny = (spec['n_ctrl_y'] + 1) // 2 if spec['symmetric_y'] else spec['n_ctrl_y']
             count = spec['n_ctrl_x'] * ny * spec.get('n_ctrl_z', 1)
             if len(spec['x_decision']) != 2 * count:

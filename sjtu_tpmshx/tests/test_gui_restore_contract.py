@@ -54,6 +54,8 @@ def test_default_restore_clears_optimization_conditions(win, route):
     from sjtu_tpmshx.tests.test_optimize_panel_wiring import condition
     preset = win._capture_current_preset('A')
     preset['optimization_conditions'] = [condition()]
+    from sjtu_tpmshx.tests.test_mass_design import requirements
+    preset['optimization_mass_requirements'] = requirements(('one',))
     win._apply_user_preset(preset)
     if route == 'workspace':
         win._switch_workspace('B')
@@ -61,7 +63,7 @@ def test_default_restore_clears_optimization_conditions(win, route):
         win._load_named_preset('Shanghai (2D Gyroid)')
     else:
         win._apply_shanghai_defaults()
-    assert win._opt_conditions is None
+    assert win._opt_conditions is None and win._opt_mass_requirements is None
 
 
 def test_valid_restore_refreshes_error_state_without_recording_history(win):
@@ -355,3 +357,36 @@ def test_malformed_library_members_do_not_block_window_initialization(monkeypatc
     finally:
         window.close()
         window.deleteLater()
+
+
+def test_mass_requirements_survive_session_and_reject_mismatched_conditions(win):
+    from sjtu_tpmshx.tests.test_optimize_panel_wiring import condition
+    from sjtu_tpmshx.tests.test_mass_design import requirements
+    preset = win._capture_current_preset('mass design')
+    preset.update(optimization_conditions=[condition()],
+                  optimization_mass_requirements=requirements(('one',)),
+                  optimization_bounds={'L': [7., 7.], 't': [.3, .6]})
+    win._apply_user_preset(preset)
+    assert win.sm.save_session(win._capture_current_preset('mass design'))
+    win._apply_shanghai_defaults()
+    win._restore_session()
+    assert win._opt_mass_requirements == preset['optimization_mass_requirements']
+    assert win._opt_method.currentData() == 'qlognei'
+    assert win._capture_current_preset('bounds')['optimization_bounds'] == preset['optimization_bounds']
+    assert '27 个变量' in win._opt_field_layout.text()
+    before = win._capture_current_preset('before')
+    preset['optimization_mass_requirements']['conditions']['wrong-id'] = (
+        preset['optimization_mass_requirements']['conditions'].pop('one'))
+    with pytest.raises(ValueError, match='condition IDs'):
+        win._apply_user_preset(preset)
+    assert win._capture_current_preset('before') == before
+
+
+@pytest.mark.parametrize('bounds', [None, {'L': [], 't': [.3, .6]},
+    {'L': [7., 7.], 't': [.6, .3]}, {'L': [7., float('nan')], 't': [.3, .6]}])
+def test_invalid_optimization_bounds_do_not_change_inputs(win, bounds):
+    before = win._capture_current_preset('before')
+    damaged = dict(before, optimization_bounds=bounds)
+    with pytest.raises(ValueError):
+        win._apply_user_preset(damaged)
+    assert win._capture_current_preset('before') == before

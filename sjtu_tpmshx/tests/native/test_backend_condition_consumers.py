@@ -151,6 +151,71 @@ def test_selected_backend_completes_batch_and_optimization(native_path, tmp_path
 
 
 @pytest.mark.parametrize('dimension', [2, 3])
+def test_native_mass_search_preserves_total_units_constraints_and_exports(native_path, tmp_path, dimension):
+    import csv
+    from openpyxl import load_workbook
+    from sjtu_tpmshx.optimization.multi_condition_optimizer import resume_multi_condition_optimization
+    from sjtu_tpmshx.optimization.export_ntop_csv import export_study_design
+    from sjtu_tpmshx.optimization.pareto_io import export_pareto_data
+
+    conditions = _conditions(dimension)
+    requirements = dict(solid_density_kg_m3=8000., conditions={name: dict(
+        Q_min_W=1., dP_A_max_Pa=1e8, dP_B_max_Pa=1e8) for name, *_ in conditions})
+    control = replace(native_3d.control(native_path), cpu_threads=1)
+    directory = tmp_path / 'search'
+    report = run_multi_condition_optimization(conditions, output_dir=directory,
+        method='sobol', n_init=1, n_iter=1, seed=7, control=control, workers=1,
+        field_spec={'L_bounds': [7., 7.], 't_bounds': [.55, .6]}, mass_requirements=requirements)
+    assert report['status'] == 'completed', report
+    assert report['n_feasible'] == report['n_usable'] == 2
+    for row in report['history']:
+        assert row['x_decision'][:len(row['x_decision'])//2] == [7.]*(len(row['x_decision'])//2)
+        batch_dir = directory / row['directory']
+        batch = json.loads((batch_dir / 'batch.json').read_text())
+        field = load_result(batch_dir / batch['conditions'][0]['result_file'])
+        depth = .03 if dimension == 2 else 1.
+        volume = field.grid['dx'][:, None] * field.grid['dy'][None, :]
+        if dimension == 3:
+            volume = volume[:, :, None] * field.grid['dz'][None, None, :]
+        expected = np.sum((1-field.metadata['design_fields']['eps_arr'])*volume)*8000.*depth
+        assert row['objectives']['core_mass_kg'] == pytest.approx(expected)
+        for case in batch['conditions']:
+            metrics = load_metrics(batch_dir / case['metrics_file']).metrics
+            check = row['constraint_checks'][case['condition_id']]
+            assert check['Q_W'] == -metrics['Q_B'].value*depth
+            assert check['dP_A_Pa'] == metrics['dP_A'].value
+            assert check['dP_B_Pa'] == metrics['dP_B'].value
+            assert check['feasible'] and max(check['residuals']) <= 0
+    moved = directory.rename(tmp_path / 'moved')
+    resumed = resume_multi_condition_optimization(moved / 'optimization.json',
+        output_dir=tmp_path / 'resumed', control=control, workers=1)
+    assert resumed['history'] == report['history']
+    assert resumed['mass_requirements'] == requirements
+    for suffix in ('.csv', '.xlsx'):
+        path = tmp_path / ('results'+suffix)
+        assert export_pareto_data(resumed, path) == dict(n_usable=2, n_pareto=1)
+        if suffix == '.csv':
+            with path.open(encoding='utf-8-sig') as source:
+                rows = list(csv.DictReader(source))
+            assert json.loads(rows[0]['mass_requirements']) == requirements
+            assert float(rows[0]['core_mass_kg']) == report['history'][0]['objectives']['core_mass_kg']
+        else:
+            book = load_workbook(path, read_only=True)
+            try:
+                assert book['all_designs'].max_row == 3 and book['pareto_front'].max_row == 2
+                assert json.loads(dict(book['metadata'].values)['mass_requirements']) == requirements
+            finally:
+                book.close()
+    selected, = resumed['pareto_indices']
+    export_study_design(resumed, selected, tmp_path / 'geometry', (3,)*dimension)
+    lengths = np.genfromtxt(tmp_path / 'geometry/Lfield.csv', delimiter=',', skip_header=1)[:, -1]
+    np.testing.assert_array_equal(lengths, 7.)
+    metadata = json.loads((tmp_path / 'geometry/provenance.json').read_text())
+    assert metadata['source']['mass_requirements'] == requirements
+    assert metadata['source']['constraint_checks'] == resumed['history'][selected]['constraint_checks']
+
+
+@pytest.mark.parametrize('dimension', [2, 3])
 def test_converged_outside_range_batch_retains_diagnostics(native_path, tmp_path, dimension):
     config = replace(_config(dimension, True),
         fluid_B=FluidConfig(type='water', u_mps=.2, T_in_K=300., P_in_Pa=2e6))

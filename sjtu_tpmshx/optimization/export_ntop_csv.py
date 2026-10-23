@@ -219,6 +219,15 @@ def export_study_design(report, history_index, out_dir, counts):
     row = report['history'][history_index]
     if row['status'] != 'completed':
         raise ValueError('geometry export requires a completed design')
+    evidence = {}
+    if 'mass_requirements' in report:
+        from .mass_design import CONSTRAINT_KEYS
+        if (row.get('feasible') is not True or any(
+                not np.isfinite(row['objectives'][key]) or row['objectives'][key] > 0
+                for key in CONSTRAINT_KEYS)):
+            raise ValueError('geometry export requires all mass-design constraints to pass')
+        evidence = dict(mass_requirements=report['mass_requirements'],
+                        objectives=row['objectives'], constraint_checks=row['constraint_checks'])
     cfg = ComputeConfig.from_dict(report['conditions'][0]['config'])
     if len(counts) != report['dimension'] or report['dimension'] != (3 if cfg.is_3d else 2):
         raise ValueError('export sampling must match the archived field dimension')
@@ -229,7 +238,7 @@ def export_study_design(report, history_index, out_dir, counts):
         L_domain_m=geom.L_dom_m, H_domain_m=geom.H_dom_m,
         tpms_type=geom.tpms, k_s=geom.k_s_W_mK,
         extra_metadata=dict(design_id=row['index'], history_index=history_index,
-                            directory=row['directory'], run_status=report['status']))
+                            directory=row['directory'], run_status=report['status'], **evidence))
 
 
 def export_pareto_row(pareto_csv_path: str,
