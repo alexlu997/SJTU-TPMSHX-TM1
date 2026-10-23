@@ -1,7 +1,7 @@
 #include "tpmshx/enthalpy_driver.hpp"
 #include "tpmshx/conservative_energy.hpp"
 
-#include "model_h_common.hpp"
+#include "anderson.hpp"
 
 #include <CoolProp/Exceptions.h>
 
@@ -137,7 +137,7 @@ struct EnthalpyRun::Impl {
     EnthalpyEOS eos,aa_eos;
     std::optional<Side> side_a,side_b;
     std::vector<double> ra,rb,rs,old_solid,source_a,source_b;
-    model_h_common::Anderson aa;
+    detail::Anderson aa;
 
     struct PropertyLane { EnthalpyEOS ordinary,trial; };
     std::vector<std::unique_ptr<PropertyLane>> property_lanes;
@@ -519,7 +519,7 @@ struct EnthalpyRun::Impl {
         if(history.history_limit!=6 || history.condition_limit!=1e10
             || (r.iterations==0)!=history.x.empty())
             throw std::invalid_argument("invalid saved energy acceleration");
-        model_h_common::Anderson checked;checked.restore(history);
+        detail::Anderson checked;checked.restore(history);
         if(!checked.x.empty() && static_cast<std::size_t>(checked.x.front().size())!=3*n)
             throw std::invalid_argument("saved energy acceleration extent differs");
     }

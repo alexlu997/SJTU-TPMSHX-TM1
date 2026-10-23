@@ -1,5 +1,5 @@
 #include "tpmshx/simple_2d.hpp"
-#include "model_h_common.hpp"
+#include "anderson.hpp"
 #include "tpmshx/simple_momentum.hpp"
 
 #include <algorithm>
@@ -307,7 +307,7 @@ struct Simple2DSolver::Impl {
         Simple2DControl control;
         SimpleF2Monitor monitor;
         Simple2DResult result;
-        model_h_common::Anderson accelerator;
+        detail::Anderson accelerator;
         double pressure_scale=1.;
         Active(const Simple2DMaterialView& m,const Simple2DBoundaryView& b,
             Simple2DStateView s,const Simple2DControl& c)

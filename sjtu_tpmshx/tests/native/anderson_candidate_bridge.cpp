@@ -1,6 +1,6 @@
 // Test bridge for thermal Anderson candidates.
 #include "tpmshx/thermal_c_api.h"
-#include "../../../native/src/model_h_common.hpp"
+#include "../../../native/src/anderson.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -22,7 +22,7 @@ extern "C" TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL test_anderson_candidate(
     return checked([&] {
         if (!rows || !columns || !x || !residual || !image || !output || !applied)
             throw std::invalid_argument("invalid Anderson history");
-        tpmshx::model_h_common::Anderson accelerator(columns,condition);
+        tpmshx::detail::Anderson accelerator(columns,condition);
         for (std::size_t j=0;j<columns;++j) {
             Eigen::VectorXd previous(rows),r(rows);
             for (std::size_t i=0;i<rows;++i) {
@@ -34,7 +34,7 @@ extern "C" TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL test_anderson_candidate(
         const Eigen::VectorXd g=Eigen::Map<const Eigen::VectorXd>(image,rows);
         Eigen::VectorXd result;
         *applied=accelerator.candidate(g,result);
-        tpmshx::model_h_common::Anderson restored;
+        tpmshx::detail::Anderson restored;
         restored.restore(accelerator.snapshot());
         Eigen::VectorXd resumed;
         const bool resumed_applied=restored.candidate(g,resumed);
