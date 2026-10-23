@@ -120,7 +120,7 @@ def test_json_replay_preserves_complete_xy_or_xyz_field(tmp_path, nz, n_ctrl_z):
 
 @pytest.mark.parametrize('damage,match', [
     ('2d_z', '2D continuous'), ('few_z', '>=1 controls'), ('float_z', 'integer'),
-    ('short_vector', 'values'), ('nan', 'finite'), ('bounds', 'increasing'),
+    ('short_vector', 'values'), ('nan', 'finite'), ('bounds', 'ordered'),
     ('outside', 'within'), ('sco2', 'experimental.*uniform'),
     ('anchor', 'uniform L/t'), ('domain', 'campaign domain'),
 ])

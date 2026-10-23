@@ -17,6 +17,7 @@ def window(win):
     win._load_named_preset('Shanghai (3D Gyroid)')
     win._continuous_field_spec = None
     win._opt_conditions = None
+    win._opt_mass_requirements = None
     for edit in win._opt_controls.values():
         edit.setValue(3)
     win.le_Nx.setText('12'); win.le_Ny.setText('8'); win.le_Nz.setText('6')
@@ -994,3 +995,69 @@ def test_worker_checkpoint_error_keeps_cause_and_rejects_stale_results(
         assert json.loads((paths[0]/'optimization.json').read_text())['status'] == 'running'
     else:
         assert not (paths[0]/'optimization.json').exists()
+
+
+def test_mass_requirements_import_and_current_condition_reset(window, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QFileDialog
+    from sjtu_tpmshx.tests.test_mass_design import requirements
+    payload = dict(conditions=[condition()], mass_requirements=dict(
+        requirements(('one',)), allow_nu_re_extrapolation=True))
+    path = tmp_path / 'requirements.json'
+    path.write_text(json.dumps(payload))
+    monkeypatch.setattr(QFileDialog, 'getOpenFileName', lambda *a: (str(path), ''))
+    panel.import_conditions(window)
+    assert window._opt_method.currentData() == 'qlognei'
+    assert window._opt_mass_requirements == payload['mass_requirements']
+    assert 'Nu-Re' in window._opt_eval_preview.text()
+    assert '芯体质量最小' in window._opt_eval_preview.text()
+    panel.use_current_condition(window)
+    assert window._opt_mass_requirements is None
+    assert window._opt_method.currentData() == 'qlognehvi'
+
+
+@pytest.mark.parametrize('feasible', [True, False])
+@pytest.mark.parametrize('allow_extrapolation', [False, True])
+def test_mass_result_display_and_exports_keep_feasibility(window, tmp_path, feasible, allow_extrapolation):
+    import csv
+    from sjtu_tpmshx.optimization.pareto_io import export_pareto_data
+    from sjtu_tpmshx.optimization.export_ntop_csv import export_study_design
+    from sjtu_tpmshx.tests.test_mass_design import requirements
+    study = report(window)
+    study.update(method='qlognei', mass_requirements=dict(requirements(('one',)),
+                 allow_nu_re_extrapolation=allow_extrapolation),
+                 n_feasible=int(feasible), pareto_indices=[0] if feasible else [])
+    row = study['history'][0]
+    row.update(feasible=feasible, objectives=dict(core_mass_kg=.25,
+        heat_shortfall=-.1 if feasible else .1, pressure_excess_A=-.2, pressure_excess_B=-.3),
+        constraint_checks={'one': dict(Q_W=110. if feasible else 90., dP_A_Pa=8., dP_B_Pa=14.,
+            residuals=[-.1 if feasible else .1, -.2, -.3], feasible=feasible)})
+    window._last_opt_report = study
+    assert panel.show_pareto(window, study) is None
+    assert window.canvas_pareto.figure.axes[0].get_ylabel() == 'Core mass [kg]'
+    assert ('Nu Re extrapolation allowed' in window.canvas_pareto.figure.axes[0].get_title()) == allow_extrapolation
+    assert ('Nu-Re' in window._opt_kpi_q_caption.text()) == allow_extrapolation
+    assert ('Nu-Re' in panel._termination_label(study)) == allow_extrapolation
+    assert window._opt_kpi_dp.text() == str(int(feasible))
+    path = tmp_path / 'results.csv'
+    export_pareto_data(study, path)
+    with path.open(encoding='utf-8-sig') as stream:
+        exported = list(csv.DictReader(stream))
+    assert exported[0]['feasible'] == str(feasible)
+    assert float(exported[0]['core_mass_kg']) == .25
+    assert json.loads(exported[0]['mass_requirements']) == study['mass_requirements']
+    if feasible:
+        exported = export_study_design(study, 0, str(tmp_path / 'geometry'), (3, 3, 3))
+        assert exported['source']['mass_requirements'] == study['mass_requirements']
+        assert exported['source']['constraint_checks'] == row['constraint_checks']
+    else:
+        study['pareto_indices'] = [0]
+        with pytest.raises(ValueError, match='constraints'):
+            export_study_design(study, 0, str(tmp_path / 'invalid'), (3, 3, 3))
+
+
+
+def test_equal_cell_bounds_keep_thickness_controls_active(window):
+    window._opt_space_params['L_min'].setValue(7.)
+    window._opt_space_params['L_max'].setValue(7.)
+    assert panel._field_spec(window)['L_bounds'] == [7., 7.]
+    assert '27 个变量' in window._opt_field_layout.text()

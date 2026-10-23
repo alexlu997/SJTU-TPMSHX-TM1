@@ -15,7 +15,7 @@ Optimization MUST use a three-page QStackedWidget: Configure, Run, and Results. 
 - **THEN** the current stack page is 1, Run
 
 ### Requirement: Inline BO parameters
-The configuration page MUST contain the optimization method and n_init/n_iter/q_batch/seed controls. Methods are qLogNEHVI, qLogNParEGO, and Sobol. The default n_init is 16. Its allowed range is 1–256. The optimizer MUST inherit numerical settings from the current computation configuration. Start MUST read the inline values without the former modal parameter dialog. The planned solve count MUST include the uniform baseline and each condition for each candidate. Remaining time MUST use only measured durations of completed samples from this run.
+The configuration page MUST contain the optimization method and n_init/n_iter/q_batch/seed controls. Methods are qLogNEHVI, qLogNParEGO, qLogNEI, and Sobol. The default n_init is 16. Its allowed range is 1–256. The optimizer MUST inherit numerical settings from the current computation configuration. Start MUST read the inline values without the former modal parameter dialog. The planned solve count MUST include the uniform baseline and each condition for each candidate. Remaining time MUST use only measured durations of completed samples from this run.
 
 #### Scenario: Launch consumes inline values
 - **WHEN** the user selects Start
@@ -27,3 +27,18 @@ The Search Space card MUST give continuous-field L/t ranges and show the current
 #### Scenario: Zone panel relocated
 - **WHEN** the configuration page is inspected
 - **THEN** `_zone_panel` is in the single-case zone card. Optimization search space is separate, and Start is visible without scrolling.
+
+### Requirement: Constrained core mass
+Imported condition JSON can supply `mass_requirements`: solid density, minimum heat duty, and both maximum pressure drops for every condition.
+The interface MUST select qLogNEI and show the core-mass objective. Sobol can use the same constraints.
+Sessions and recovery MUST retain the requirements. Results MUST distinguish numerical validity from constraint feasibility.
+The lightest feasible designs can be selected for geometry export. No feasible designs MUST remain an explicit zero result.
+Result tables and geometry provenance MUST retain mass, limits, and per-condition checks.
+
+An explicit `mass_requirements.allow_nu_re_extrapolation` setting can permit air/water Nu Re extrapolation for the study.
+The interface MUST label this choice. Saved results, recovery, and exports MUST retain the strict verdict and range evidence.
+The default is false. All other required checks MUST remain active.
+
+#### Scenario: One condition exceeds a limit
+- **WHEN** a numerically valid candidate exceeds any limit at any condition
+- **THEN** it stays in the observations but cannot be selected as a minimum-mass feasible design

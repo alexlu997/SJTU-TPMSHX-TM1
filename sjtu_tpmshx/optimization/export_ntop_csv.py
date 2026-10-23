@@ -1,11 +1,10 @@
 """
-optimization/export_ntop_csv.py — Convert a Pareto solution into nTop-ready
-ScalarField CSVs for graded-TPMS body construction.
+Export a selected design's XY or XYZ parameter samples and original controls.
 
-nTop's "Scalar Field from Grid Data" block ingests a CSV with one column for
-each spatial coordinate plus one column for the scalar value. We emit two
-CSV files per Pareto pick for cell size and wall thickness, sampled on a
-regular grid covering the full XY footprint or XYZ volume.
+The CSV files have headers and use mm. nTop Import Scalar Point Map requires
+headerless X,Y,Z,S rows. Convert the samples for that input before use.
+A parameter field does not define a cell-map phase or a complete TPMS body.
+Check the resulting solid, both fluid networks, and selective port seals.
 
 Geometric assumptions (must match the optimizer cfg):
   * Coordinates use the solver's physical Cartesian frame with the origin
@@ -13,9 +12,8 @@ Geometric assumptions (must match the optimizer cfg):
     their independently varying z controls and export all three coordinates.
   * Output coordinates in **millimeters** so nTop's default mm units consume
     them natively
-  * L_field, t_field values are clamped to [4, 8] mm × [0.3, 0.6] mm — the
-    configured geometry window, which also bounds the optimizer (path A in
-    the planning history)
+  * L/t values use the archived bounds. Equal bounds fix that field.
+  * XY samples require an explicit depth when constructing a 3D body.
 
 Historical Pareto CSV export (the former screening optimizer is retired)::
 
@@ -219,17 +217,30 @@ def export_study_design(report, history_index, out_dir, counts):
     row = report['history'][history_index]
     if row['status'] != 'completed':
         raise ValueError('geometry export requires a completed design')
+    evidence = {}
+    if 'mass_requirements' in report:
+        from .mass_design import CONSTRAINT_KEYS
+        if (row.get('feasible') is not True or any(
+                not np.isfinite(row['objectives'][key]) or row['objectives'][key] > 0
+                for key in CONSTRAINT_KEYS)):
+            raise ValueError('geometry export requires all mass-design constraints to pass')
+        evidence = dict(mass_requirements=report['mass_requirements'],
+                        objectives=row['objectives'], constraint_checks=row['constraint_checks'])
     cfg = ComputeConfig.from_dict(report['conditions'][0]['config'])
     if len(counts) != report['dimension'] or report['dimension'] != (3 if cfg.is_3d else 2):
         raise ValueError('export sampling must match the archived field dimension')
     geom = cfg.geometry
+    if evidence and not cfg.is_3d:
+        if geom.Lz_m is None or not np.isfinite(geom.Lz_m) or geom.Lz_m <= 0:
+            raise ValueError('2D mass-design export requires the physical conversion depth')
+        evidence['physical_depth_m'] = geom.Lz_m
     depth = {} if not cfg.is_3d else dict(Lz_domain_m=geom.Lz_m, Nz_export=counts[2])
     return export_decision_vector(row['x_decision'], out_dir, **report['field_spec'],
         Nx_export=counts[0], Ny_export=counts[1], **depth, sampling='boundaries',
         L_domain_m=geom.L_dom_m, H_domain_m=geom.H_dom_m,
         tpms_type=geom.tpms, k_s=geom.k_s_W_mK,
         extra_metadata=dict(design_id=row['index'], history_index=history_index,
-                            directory=row['directory'], run_status=report['status']))
+                            directory=row['directory'], run_status=report['status'], **evidence))
 
 
 def export_pareto_row(pareto_csv_path: str,

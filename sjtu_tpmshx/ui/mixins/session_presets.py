@@ -269,8 +269,19 @@ class SessionPresetsMixin:
         from copy import deepcopy
         self._continuous_field_spec = deepcopy(preset.get('continuous_field'))
         self._opt_conditions = deepcopy(preset.get('optimization_conditions'))
+        self._opt_mass_requirements = deepcopy(preset.get('optimization_mass_requirements'))
+        if self._opt_mass_requirements is not None:
+            if not partial or self._opt_method.currentData() not in ('qlognei', 'sobol'):
+                self._opt_method.setCurrentIndex(self._opt_method.findData('qlognei'))
+        elif self._opt_method.currentData() == 'qlognei':
+            self._opt_method.setCurrentIndex(self._opt_method.findData('qlognehvi'))
         for axis, edit in self._opt_controls.items():
             edit.setValue(preset.get('optimization_controls', {}).get(axis, 3))
+        from sjtu_tpmshx.df_surrogate._domain import TRAIN_L, TRAIN_T
+        bounds = preset.get('optimization_bounds', {'L': TRAIN_L, 't': TRAIN_T})
+        for name in ('L', 't'):
+            for end, value in zip(('min', 'max'), bounds[name]):
+                self._opt_space_params[name+'_'+end].setValue(value)
         from sjtu_tpmshx.ui.optimize_panel import refresh_setup
         refresh_setup(self)
         self._user_edited_grid = True
@@ -323,7 +334,8 @@ class SessionPresetsMixin:
                 raise ValueError('Invalid saved 3D views')
             for state in views.values():
                 validate_color_range_state(state)
-        if complete and set(preset) - {'sco2_nu_parameters', 'continuous_field', 'optimization_conditions', 'optimization_controls'} != {'name', 'temp_unit', 'line_edits',
+        if complete and set(preset) - {'sco2_nu_parameters', 'continuous_field', 'optimization_conditions', 'optimization_controls',
+                                      'optimization_mass_requirements', 'optimization_bounds'} != {'name', 'temp_unit', 'line_edits',
                                        'combos', 'checks', 'zone_inputs'}:
             raise ValueError('Incomplete or unsupported preset fields.')
         from sjtu_tpmshx.domain.compute_config import Sco2NuConfig
@@ -335,9 +347,23 @@ class SessionPresetsMixin:
         if not isinstance(combos, dict):
             raise ValueError('Invalid combos.')
         conditions = preset.get('optimization_conditions')
-        if conditions is not None:
+        requirements = preset.get('optimization_mass_requirements')
+        if conditions is not None or requirements is not None:
             from sjtu_tpmshx.ui.optimize_panel import validate_condition_table
-            validate_condition_table({'conditions': conditions})
+            table = {'conditions': conditions}
+            if requirements is not None:
+                table['mass_requirements'] = requirements
+            validate_condition_table(table)
+        if 'optimization_bounds' in preset:
+            from sjtu_tpmshx.domain.compute_config import ZoneInputConfig
+            bounds = preset['optimization_bounds']
+            if (not isinstance(bounds, dict) or set(bounds) != {'L', 't'}
+                    or any(not isinstance(pair, list) or len(pair) != 2 for pair in bounds.values())):
+                raise ValueError('Optimization bounds need L and t pairs')
+            ZoneInputConfig(enabled=True, axis='continuous', config=dict(
+                n_ctrl_x=1, n_ctrl_y=1, symmetric_y=False, spline_order=1,
+                L_bounds=bounds['L'], t_bounds=bounds['t'],
+                x_decision=[bounds['L'][0], bounds['t'][0]])).validate()
         if 'optimization_controls' in preset:
             controls = preset['optimization_controls']
             if (not isinstance(controls, dict) or set(controls) != set('xyz')
@@ -457,7 +483,11 @@ class SessionPresetsMixin:
             payload['continuous_field'] = deepcopy(self._continuous_field_spec)
         if getattr(self, '_opt_conditions', None) is not None:
             payload['optimization_conditions'] = deepcopy(self._opt_conditions)
+        if getattr(self, '_opt_mass_requirements', None) is not None:
+            payload['optimization_mass_requirements'] = deepcopy(self._opt_mass_requirements)
         payload['optimization_controls'] = {axis: edit.value() for axis, edit in self._opt_controls.items()}
+        payload['optimization_bounds'] = {name: [self._opt_space_params[name+'_'+end].value()
+            for end in ('min', 'max')] for name in ('L', 't')}
         for n in self._SESSION_LINE_EDITS:
             w = getattr(self, n, None)
             if w is not None:

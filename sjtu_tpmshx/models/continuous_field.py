@@ -227,8 +227,8 @@ class ContinuousFieldConfig:
             if values.shape != shape or not np.all(np.isfinite(values)):
                 raise ValueError(f'L/t controls must be finite arrays of shape {shape}')
         for bounds in (self.L_bounds, self.t_bounds):
-            if len(bounds) != 2 or not np.all(np.isfinite(bounds)) or not 0 < bounds[0] < bounds[1]:
-                raise ValueError('L/t bounds must be finite, positive and increasing')
+            if len(bounds) != 2 or not np.all(np.isfinite(bounds)) or not 0 < bounds[0] <= bounds[1]:
+                raise ValueError('L/t bounds must be finite, positive and ordered')
         if self.ctrl_z is None and min(self.ctrl_x.size, self.ctrl_y.size) > 1:
             # Preserve the historical 2D spline, including its lower-order
             # fallback for small direct-call control grids.

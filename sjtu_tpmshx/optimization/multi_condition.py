@@ -231,6 +231,7 @@ def evaluate_condition_batch(
     conditions: Sequence[ConditionInput], *, output_dir: str | Path,
     baseline: Sequence[ConditionResult] | None = None,
     control: RunControl = RunControl(), workers: int | None = None,
+    allow_nu_re_extrapolation: bool = False,
 ) -> dict:
     """Run one design's fixed conditions and keep each member's evidence.
 
@@ -250,11 +251,14 @@ def evaluate_condition_batch(
     ``workers=None`` selects up to four native processes within the CPU limit.
     Automatic allocation keeps at least two CPU slots per worker when available.
     Set ``workers=1`` for serial execution.
+    Explicit Nu Re extrapolation permits only air/water Nu range failures.
+    The batch keeps the strict qualification and the accepted range evidence.
     Callbacks run in the parent. The return value adds
     in-memory ``results`` to the JSON record in the requested order.
     """
     return _evaluate_condition_batch(conditions, output_dir=output_dir, baseline=baseline,
-                                     control=control, collect_fields=True, workers=workers)
+                                     control=control, collect_fields=True, workers=workers,
+                                     allow_nu_re_extrapolation=allow_nu_re_extrapolation)
 
 
 def _saved_condition_config(row):
@@ -284,7 +288,8 @@ def resume_condition_batch(batch_file, *, output_dir, control=RunControl(backend
         baseline = [(row['condition_id'], load_result(path.parent / row['result_file']),
                      load_metrics(path.parent / row['metrics_file'])) for row in record['baseline_files']]
     return _evaluate_condition_batch(conditions, output_dir=output_dir, baseline=baseline,
-        control=control, collect_fields=True, workers=workers, resume_from=(path.parent, record))
+        control=control, collect_fields=True, workers=workers, resume_from=(path.parent, record),
+        allow_nu_re_extrapolation=record.get('allow_nu_re_extrapolation', False))
 
 
 def _check_saved_condition(case, config, flow_a, flow_b, case_id):
@@ -308,7 +313,8 @@ def _check_saved_condition(case, config, flow_a, flow_b, case_id):
 
 def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
                               control=RunControl(), collect_fields=False, workers=None, resume_from=None,
-                              on_update=None, pause_check=None, keep_failed=False):
+                              on_update=None, pause_check=None, keep_failed=False,
+                              allow_nu_re_extrapolation=False):
     """Share batch validation; optimizer summaries keep paths and scalar metrics."""
     from sjtu_tpmshx.io.case_io import load_case, save_case
     from sjtu_tpmshx.io.result_io import load_result, save_result
@@ -319,6 +325,8 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
     from sjtu_tpmshx.domain.module_ports import resolve_control
     control = resolve_control(control)
 
+    if type(allow_nu_re_extrapolation) is not bool:
+        raise ValueError('allow_nu_re_extrapolation must be a boolean')
     inputs = tuple(conditions)
     ids = tuple(row[0] for row in inputs)
     if (not ids or any(not isinstance(item, str) or not item for item in ids)
@@ -363,6 +371,8 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
     if resume_from is not None:
         source_root, source_record = resume_from
         source_root = Path(source_root).resolve()
+        if source_record.get('allow_nu_re_extrapolation', False) != allow_nu_re_extrapolation:
+            raise ValueError('saved batch Nu Re acceptance differs from the requested policy')
         source_inputs = json.loads((source_root / 'batch-input.json').read_text(encoding='utf-8'))
         if (source_record.get('format') != 'condition_batch_v1' or source_record.get('backend') != 'cpp'
                 or tuple(row['condition_id'] for row in source_record['conditions']) != ids
@@ -402,6 +412,7 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
     record = dict(format='condition_batch_v1', batch_id=batch_id, backend=control.backend, status='running', reason=None,
                   conditions=history, objectives=None, workers=worker_count,
                   native_cpu_budget=control.native_cpu_threads(),
+                  allow_nu_re_extrapolation=allow_nu_re_extrapolation,
                   resumed_from=str(resume_from[0]) if resume_from is not None else None)
     results = []
     summaries = {}
@@ -441,12 +452,14 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
             notify()
             if collect_fields:
                 _condition_metrics([(condition_id, references[condition_id], reference[condition_id])],
-                                   (condition_id,), 'baseline')
+                                   (condition_id,), 'baseline',
+                                   allow_nu_re_extrapolation=allow_nu_re_extrapolation)
                 _check_baseline_case(references[condition_id], case, flow_a, flow_b)
             else:
                 baseline_field = load_result(baseline[condition_id]['result_file'])
                 _condition_metrics([(condition_id, baseline_field, reference[condition_id])],
-                                   (condition_id,), 'baseline')
+                                   (condition_id,), 'baseline',
+                                   allow_nu_re_extrapolation=allow_nu_re_extrapolation)
                 _check_baseline_case(baseline_field, case, flow_a, flow_b)
                 del baseline_field
 
@@ -515,11 +528,14 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
         notify()
         from sjtu_tpmshx.domain.portable_data import mutable_data
         row['qualification'] = mutable_data(performance.qualification)
-        design.update(_condition_metrics([result], (condition_id,), 'candidate'))
+        acceptances = {}
+        design.update(_condition_metrics([result], (condition_id,), 'candidate',
+            allow_nu_re_extrapolation=allow_nu_re_extrapolation, acceptances=acceptances))
+        row['acceptance'] = acceptances[condition_id]
         if not collect_fields:
             summaries[condition_id] = dict(case_id=case.case_id, result_id=field.result_id,
                 result_file=root / row['result_file'], performance=performance,
-                config_snapshot=case.config_snapshot)
+                config_snapshot=case.config_snapshot, acceptance=row['acceptance'])
         row.update(status='completed', reason=None)
 
     def run_parallel():
@@ -706,7 +722,8 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
                     performance = load_metrics(source_root / previous['metrics_file'])
                     _validate_condition_field(field, case, config)
                     check_baseline(name, case, a, b, row)
-                    _condition_metrics([(name, field, performance)], (name,), 'saved')
+                    _condition_metrics([(name, field, performance)], (name,), 'saved',
+                        allow_nu_re_extrapolation=allow_nu_re_extrapolation)
                     if not retained:
                         shutil.copytree(source_root / previous['directory'], root / row['directory'])
                     row.update({key: previous[key] for key in ('case_file', 'result_file', 'metrics_file')})
@@ -781,7 +798,8 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
 
 
 def _condition_metrics(rows: Sequence[ConditionResult], condition_ids: tuple[str, ...],
-                       label: str, *, qualify=True) -> dict[str, PerformanceResult]:
+                       label: str, *, qualify=True, allow_nu_re_extrapolation=False,
+                       acceptances=None) -> dict[str, PerformanceResult]:
     results = {}
     for condition_id, field, performance in rows:
         prefix = f'{label} condition {condition_id}'
@@ -806,7 +824,10 @@ def _condition_metrics(rows: Sequence[ConditionResult], condition_ids: tuple[str
         if qualify:
             from sjtu_tpmshx.postprocess.api import evaluate_qualification
             qualification = evaluate_qualification(field, performance.metrics)
-            if qualification['optimization']['passed'] is not True:
+            acceptance = _optimization_acceptance(field, qualification, allow_nu_re_extrapolation)
+            if acceptances is not None:
+                acceptances[condition_id] = acceptance
+            if not acceptance['passed']:
                 raise ValueError(f'{prefix}: optimization qualification failed: '
                                  + '; '.join(qualification['optimization']['reasons']))
         results[condition_id] = performance
@@ -815,6 +836,29 @@ def _condition_metrics(rows: Sequence[ConditionResult], condition_ids: tuple[str
         extra = sorted(set(results) - set(condition_ids))
         raise ValueError(f'{label}: condition membership mismatch; missing={missing}, extra={extra}')
     return results
+
+
+def _optimization_acceptance(field, qualification, allow_nu_re_extrapolation):
+    """Retain the strict verdict when a study permits finite Nu Re extrapolation."""
+    strict = qualification['optimization']['passed'] is True
+    outside = []
+    if (allow_nu_re_extrapolation and qualification['optimization']['reasons'] == ['applicability']
+            and qualification['model_scope']['passed'] is True):
+        from sjtu_tpmshx.postprocess.api import evaluate_applicability
+        from sjtu_tpmshx.domain.portable_data import mutable_data
+        application = evaluate_applicability(field)
+        outside = [dict(group=group, **mutable_data(row)) for group, rows in application['checks'].items()
+                   for row in rows if row['within_limit'] is not True]
+        if application['missing'] or not all(
+                row['status'] == 'outside_limit' and row['quantity'] == 'Re'
+                and row.get('constraint', 'parameter') == 'parameter'
+                and len(row['source']) == 3 and row['source'][0] in ('nu', 'nu_raw')
+                and row['source'][1] in ('air', 'water') and row['source'][2] in ('Gyroid', 'Diamond')
+                and row['side'] in ('A', 'B') and row['minimum'][0] >= 0.
+                for row in outside):
+            outside = []
+    return dict(passed=strict or bool(outside), strict_passed=strict,
+                nu_re_extrapolated=bool(outside), extrapolation_checks=outside)
 
 
 def aggregate_multi_condition(

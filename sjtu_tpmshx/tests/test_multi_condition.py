@@ -162,3 +162,46 @@ def test_ratio_overflow_is_not_reported_as_a_score():
 def test_percent_overflow_is_not_reported_as_a_score():
     with pytest.raises(ValueError, match='objectives must be finite'):
         aggregate_multi_condition(['low'], [_row('low', q=1.0)], [_row('low', q=1e307)])
+
+
+@pytest.mark.parametrize('damage', [None, 'property', 'hard', 'nonfinite', 'negative',
+                                   'missing', 'energy', 'scope', 'mixed'])
+def test_nu_re_acceptance_keeps_all_other_gates(damage):
+    from sjtu_tpmshx.optimization.multi_condition import _condition_metrics
+    name, field, performance = _row('low')
+    metadata = mutable_data(field.metadata)
+    sample = metadata['applicability_evidence']['final'][0]
+    sample['minimum'][0] = .001
+    if damage == 'property':
+        sample['source'] = ['property', 'water', 'temperature']
+    elif damage == 'hard':
+        sample['constraint'] = 'hard_bounds'
+    elif damage == 'nonfinite':
+        sample['nonfinite'] = 1
+    elif damage == 'negative':
+        sample['minimum'][0] = -1.
+    elif damage == 'missing':
+        metadata['applicability_evidence']['inlet_recorded'] = False
+    elif damage == 'energy':
+        metadata['diagnostics']['eps_A_strict_cellmax'] = .01001
+    elif damage == 'scope':
+        metadata['execution_record']['sides']['A']['fluid'] = 'sco2'
+    elif damage == 'mixed':
+        extra = dict(sample, quantity='Pr')
+        metadata['applicability_evidence']['final'].append(extra)
+    field = replace(field, metadata=metadata)
+    rows = [(name, field, performance)]
+    with pytest.raises(ValueError, match='qualification failed'):
+        _condition_metrics(rows, (name,), 'strict')
+    if damage is not None:
+        with pytest.raises(ValueError, match='qualification failed'):
+            _condition_metrics(rows, (name,), 'study', allow_nu_re_extrapolation=True)
+    else:
+        accepted = {}
+        assert _condition_metrics(rows, (name,), 'study', allow_nu_re_extrapolation=True,
+                                  acceptances=accepted)[name] is performance
+        assert accepted[name]['passed'] and not accepted[name]['strict_passed']
+        assert accepted[name]['nu_re_extrapolated']
+        observed, = accepted[name]['extrapolation_checks']
+        assert observed['minimum'][0] == .001 and observed['bounds'] == [100., 200.]
+        assert evaluate_qualification(field, performance.metrics)['optimization']['passed'] is False
