@@ -42,12 +42,13 @@ def test_partial_import_preserves_unsupplied_physical_inputs(win, tmp_path, monk
 
 
 @pytest.mark.parametrize('dimension', [0, 1])
-def test_partial_import_keeps_full_continuous_field_and_conditions(win, tmp_path, monkeypatch, dimension):
+@pytest.mark.parametrize('method', ['sobol', 'qlognei'])
+def test_partial_import_keeps_full_continuous_field_and_conditions(win, tmp_path, monkeypatch, dimension, method):
     from PySide6.QtWidgets import QMessageBox
     from sjtu_tpmshx.tests.test_optimize_panel_wiring import condition, report
 
-    for method in ('warning', 'information', 'critical'):
-        monkeypatch.setattr(QMessageBox, method, lambda *a: None)
+    for dialog_method in ('warning', 'information', 'critical'):
+        monkeypatch.setattr(QMessageBox, dialog_method, lambda *a: None)
     win._apply_shanghai_defaults()
     win.combo_dim.setCurrentIndex(dimension)
     study = report(win)
@@ -59,6 +60,7 @@ def test_partial_import_keeps_full_continuous_field_and_conditions(win, tmp_path
     from sjtu_tpmshx.tests.test_mass_design import requirements
     preset['optimization_mass_requirements'] = requirements(('one',))
     win._apply_user_preset(preset)
+    win._opt_method.setCurrentIndex(win._opt_method.findData(method))
     before = win._capture_current_preset('before')
     path = tmp_path / 'partial.json'
     path.write_text(json.dumps({'line_edits': {'le_rho_s': '7950'}}))
@@ -66,6 +68,7 @@ def test_partial_import_keeps_full_continuous_field_and_conditions(win, tmp_path
     after = win._capture_current_preset('before')
     before['line_edits']['le_rho_s'] = '7950'
     assert after == before
+    assert win._opt_method.currentData() == method
 
 
 @pytest.mark.parametrize('kind', ['continuous', 'zones'])

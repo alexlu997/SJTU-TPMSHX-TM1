@@ -232,6 +232,10 @@ def export_study_design(report, history_index, out_dir, counts):
     if len(counts) != report['dimension'] or report['dimension'] != (3 if cfg.is_3d else 2):
         raise ValueError('export sampling must match the archived field dimension')
     geom = cfg.geometry
+    if evidence and not cfg.is_3d:
+        if geom.Lz_m is None or not np.isfinite(geom.Lz_m) or geom.Lz_m <= 0:
+            raise ValueError('2D mass-design export requires the physical conversion depth')
+        evidence['physical_depth_m'] = geom.Lz_m
     depth = {} if not cfg.is_3d else dict(Lz_domain_m=geom.Lz_m, Nz_export=counts[2])
     return export_decision_vector(row['x_decision'], out_dir, **report['field_spec'],
         Nx_export=counts[0], Ny_export=counts[1], **depth, sampling='boundaries',

@@ -211,6 +211,8 @@ def test_native_mass_search_preserves_total_units_constraints_and_exports(native
     lengths = np.genfromtxt(tmp_path / 'geometry/Lfield.csv', delimiter=',', skip_header=1)[:, -1]
     np.testing.assert_array_equal(lengths, 7.)
     metadata = json.loads((tmp_path / 'geometry/provenance.json').read_text())
+    if dimension == 2:
+        assert metadata['source']['physical_depth_m'] == .03
     assert metadata['source']['mass_requirements'] == requirements
     assert metadata['source']['constraint_checks'] == resumed['history'][selected]['constraint_checks']
 
