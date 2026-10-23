@@ -1,4 +1,4 @@
-"""Check thermal Anderson candidates and restored histories."""
+"""Check Anderson candidates and restored histories without thermal model headers."""
 import ctypes as ct
 import os
 from pathlib import Path
@@ -9,8 +9,6 @@ import sys
 
 import numpy as np
 import pytest
-
-from scripts.generate_native_model_coefficients import header
 
 D = ct.POINTER(ct.c_double)
 S = ct.c_size_t
@@ -34,20 +32,17 @@ def native(tmp_path_factory):
             pytest.fail(message)
         pytest.skip(message)
     build = tmp_path_factory.mktemp('native-anderson-candidate')
-    generated = build / 'tpmshx'
-    generated.mkdir()
-    (generated / 'model_coefficients.hpp').write_text(header(), encoding='utf-8')
     output = build / ('anderson_candidate' + ('.dll' if os.name == 'nt' else '.dylib' if sys.platform == 'darwin' else '.so'))
     sources = [Path(__file__).with_name('anderson_candidate_bridge.cpp')]
     if os.name == 'nt':
         arguments = ['/nologo', '/std:c++17', '/O2', '/W4', '/WX', '/EHsc', '/MD', '/LD', '/fp:strict',
                      '/DTPMSHX_THERMAL_BUILD_SHARED', '/DEIGEN_MPL2_ONLY', '/I' + str(root / 'native/include'),
-                     '/I' + str(build), '/external:I' + str(eigen), '/external:W0',
+                     '/external:I' + str(eigen), '/external:W0',
                      *sources, '/Fe' + str(output), '/link', '/IMPLIB:' + str(build / 'anderson_candidate.lib')]
     else:
         arguments = ['-std=c++17', '-O3', '-Wall', '-Wextra', '-Wpedantic', '-Werror', '-ffp-contract=off',
                      '-DEIGEN_MPL2_ONLY', '-dynamiclib' if sys.platform == 'darwin' else '-shared', '-fPIC',
-                     '-I', root / 'native/include', '-I', build, '-isystem', eigen, *sources, '-o', output]
+                     '-I', root / 'native/include', '-isystem', eigen, *sources, '-o', output]
         if sys.platform == 'darwin':
             arguments += ['-framework', 'Accelerate']
     subprocess.run([*compiler, *arguments], cwd=build, check=True, text=True, capture_output=True)

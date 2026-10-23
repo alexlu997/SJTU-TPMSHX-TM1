@@ -8,7 +8,7 @@
 #include <Eigen/Dense>
 #include <vector>
 
-namespace tpmshx::model_h_common {
+namespace tpmshx::detail {
 inline bool lapack_anderson(const Eigen::MatrixXd& dx,const Eigen::MatrixXd& dr,
                             const Eigen::VectorXd& residual,const Eigen::VectorXd& image,
                             double condition_limit,Eigen::VectorXd& output) {
@@ -49,5 +49,5 @@ inline bool lapack_anderson(const Eigen::MatrixXd& dx,const Eigen::MatrixXd& dr,
     output=image-output;
     return output.allFinite();
 }
-} // namespace tpmshx::model_h_common
+} // namespace tpmshx::detail
 #endif
