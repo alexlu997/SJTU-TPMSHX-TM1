@@ -451,7 +451,8 @@ def _run_multi_condition_optimization(
             recovery = dict(resume_from=(path, json.loads((path / 'batch.json').read_text(encoding='utf-8'))),
                             keep_failed=True)
         return _evaluate_condition_batch(conditions, output_dir=path, baseline=baseline,
-            control=batch_control(unit), workers=workers, **notifications, **recovery)
+            control=batch_control(unit), workers=workers, **notifications, **recovery,
+            allow_nu_re_extrapolation=bool(constrained and mass_requirements.get('allow_nu_re_extrapolation', False)))
 
     def evaluate_design(x, iteration):
         nonlocal batch_started, condition_states, cursor

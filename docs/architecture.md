@@ -941,6 +941,11 @@ Valid infeasible observations train the model; failed numerical batches do not.
 Selection uses only minimum-mass feasible observations. Zero feasible designs remains explicit.
 Saved inputs freeze the requirements. Recovery recomputes mass and every constraint check from retained native evidence.
 The desktop and exports retain these requirements and distinguish numerical validity from constraint feasibility.
+The optional `mass_requirements.allow_nu_re_extrapolation` boolean defaults to false.
+When true, a study can accept finite, nonnegative Re outside the air/water Gyroid or Diamond Nu range.
+Batch records retain the strict qualification and the accepted range observations. All other required gates remain active.
+Baseline and candidate checks use the same choice. Batch and search recovery preserve it.
+Constraint records carry this evidence into existing table and geometry exports. The interface labels the permitted extrapolation.
 Equal bounds fix a field. BO fits only variable controls and returns the complete saved decision vector.
 A search requires at least one variable field. Sessions retain both field bounds.
 Core mass excludes casing and manifolds. Parameter fields do not establish valid explicit TPMS geometry.

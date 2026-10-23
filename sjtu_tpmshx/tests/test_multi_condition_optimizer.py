@@ -56,7 +56,8 @@ def _fake_batches(monkeypatch, *, fail_indices=(), baseline_failure=False, cance
     expected_workers = workers
 
     def evaluate(conditions, *, output_dir, baseline=None, control=RunControl(), workers=1,
-                 on_update=None, pause_check=None, resume_from=None, keep_failed=False):
+                 on_update=None, pause_check=None, resume_from=None, keep_failed=False,
+                 allow_nu_re_extrapolation=False):
         assert control.backend == backend and workers == expected_workers
         directory = Path(output_dir)
         directory.mkdir(exist_ok=resume_from is not None)

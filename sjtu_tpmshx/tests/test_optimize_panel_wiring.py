@@ -1000,13 +1000,15 @@ def test_worker_checkpoint_error_keeps_cause_and_rejects_stale_results(
 def test_mass_requirements_import_and_current_condition_reset(window, tmp_path, monkeypatch):
     from PySide6.QtWidgets import QFileDialog
     from sjtu_tpmshx.tests.test_mass_design import requirements
-    payload = dict(conditions=[condition()], mass_requirements=requirements(('one',)))
+    payload = dict(conditions=[condition()], mass_requirements=dict(
+        requirements(('one',)), allow_nu_re_extrapolation=True))
     path = tmp_path / 'requirements.json'
     path.write_text(json.dumps(payload))
     monkeypatch.setattr(QFileDialog, 'getOpenFileName', lambda *a: (str(path), ''))
     panel.import_conditions(window)
     assert window._opt_method.currentData() == 'qlognei'
     assert window._opt_mass_requirements == payload['mass_requirements']
+    assert 'Nu-Re' in window._opt_eval_preview.text()
     assert '芯体质量最小' in window._opt_eval_preview.text()
     panel.use_current_condition(window)
     assert window._opt_mass_requirements is None
@@ -1014,13 +1016,15 @@ def test_mass_requirements_import_and_current_condition_reset(window, tmp_path, 
 
 
 @pytest.mark.parametrize('feasible', [True, False])
-def test_mass_result_display_and_exports_keep_feasibility(window, tmp_path, feasible):
+@pytest.mark.parametrize('allow_extrapolation', [False, True])
+def test_mass_result_display_and_exports_keep_feasibility(window, tmp_path, feasible, allow_extrapolation):
     import csv
     from sjtu_tpmshx.optimization.pareto_io import export_pareto_data
     from sjtu_tpmshx.optimization.export_ntop_csv import export_study_design
     from sjtu_tpmshx.tests.test_mass_design import requirements
     study = report(window)
-    study.update(method='qlognei', mass_requirements=requirements(('one',)),
+    study.update(method='qlognei', mass_requirements=dict(requirements(('one',)),
+                 allow_nu_re_extrapolation=allow_extrapolation),
                  n_feasible=int(feasible), pareto_indices=[0] if feasible else [])
     row = study['history'][0]
     row.update(feasible=feasible, objectives=dict(core_mass_kg=.25,
@@ -1030,7 +1034,9 @@ def test_mass_result_display_and_exports_keep_feasibility(window, tmp_path, feas
     window._last_opt_report = study
     assert panel.show_pareto(window, study) is None
     assert window.canvas_pareto.figure.axes[0].get_ylabel() == 'Core mass [kg]'
-    assert window._opt_kpi_q_caption.text() == '最小合格芯体质量 [kg]'
+    assert ('Nu Re extrapolation allowed' in window.canvas_pareto.figure.axes[0].get_title()) == allow_extrapolation
+    assert ('Nu-Re' in window._opt_kpi_q_caption.text()) == allow_extrapolation
+    assert ('Nu-Re' in panel._termination_label(study)) == allow_extrapolation
     assert window._opt_kpi_dp.text() == str(int(feasible))
     path = tmp_path / 'results.csv'
     export_pareto_data(study, path)

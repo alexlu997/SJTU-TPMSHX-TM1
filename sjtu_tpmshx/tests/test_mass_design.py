@@ -70,6 +70,8 @@ def test_one_condition_or_side_cannot_hide_behind_an_average(tmp_path, monkeypat
 @pytest.mark.parametrize('mutate', [
     lambda r: r.update(solid_density_kg_m3=float('nan')),
     lambda r: r.update(solid_density_kg_m3=True),
+    lambda r: r.update(allow_nu_re_extrapolation=1),
+    lambda r: r.update(allow_nu_re_extrapolation='yes'),
     lambda r: r['conditions'].pop('flow-1'),
     lambda r: r['conditions']['flow-0'].update(Q_min_W=0.),
     lambda r: r['conditions']['flow-0'].update(dP_B_max_Pa=float('inf')),
@@ -171,3 +173,21 @@ def test_search_rejects_two_fixed_fields_before_evaluation(tmp_path, monkeypatch
         search.run_multi_condition_optimization(_conditions(), output_dir=tmp_path / 'fixed',
             method='sobol', field_spec={'L_bounds': [7., 7.], 't_bounds': [.6, .6]})
     assert not (tmp_path / 'fixed').exists()
+
+
+def test_mass_search_carries_nu_re_policy_through_batches_and_recovery(tmp_path, monkeypatch):
+    _fake_mass_batches(monkeypatch)
+    original = search._evaluate_condition_batch
+    policies = []
+    def evaluate(*args, **kwargs):
+        policies.append(kwargs['allow_nu_re_extrapolation'])
+        return original(*args, **kwargs)
+    monkeypatch.setattr(search, '_evaluate_condition_batch', evaluate)
+    fixed = dict(requirements(), allow_nu_re_extrapolation=True)
+    result = search.run_multi_condition_optimization(_conditions(), output_dir=tmp_path/'source',
+        method='sobol', n_init=2, n_iter=0, workers=1, mass_requirements=fixed)
+    assert policies == [True, True, True]
+    resumed = search.resume_multi_condition_optimization(tmp_path/'source/optimization.json',
+        output_dir=tmp_path/'resumed', workers=1)
+    assert resumed['mass_requirements'] == result['mass_requirements'] == fixed
+    assert policies == [True] * 6

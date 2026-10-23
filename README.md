@@ -428,6 +428,12 @@ CSV 文件带表头；[nTop Import Scalar Point Map](https://support.ntop.com/hc
 结果图显示芯体质量和最差相对约束残差，残差不大于零才满足要求。
 没有达标方案时明确显示零个，搜索预算用完不代表找到可行解。
 会话、搜索恢复及结果导出保留密度、逐工况要求和检查结果。
+默认要求每个工况通过严格模型范围检查。
+只有在研究明确允许 Nu-Re 外推时，才将 `mass_requirements.allow_nu_re_extrapolation` 设为 `true`。
+此设置只接受空气/水的 Gyroid 或 Diamond Nu 关联式中有限、非负 Re 的超范围记录，其他必要检查保持有效。
+界面显示这一选择，保存结果及导出保留严格判定和每项接受的范围观察。
+此设置不代表实验精度已经验证；恢复任务沿用保存的选择。
+
 API 使用同一 `mass_requirements` 对象；`method='qlognei'` 或 `'sobol'`。
 把 L 上下界都设为 7 mm，可在固定胞元尺寸下只优化壁厚；会话保存保留这些边界。
 纯 Diamond 与纯 Gyroid 应分别搜索，用相同工况、性能限值、材料和闭合设置比较。

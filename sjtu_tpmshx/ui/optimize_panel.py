@@ -256,6 +256,8 @@ def refresh_setup(window):
         objective = (f'目标：芯体质量最小；所有工况满足换热与两侧压降要求\n'
                      f'实体密度 {requirements["solid_density_kg_m3"]:g} kg/m³\n' if requirements else
                      '目标：平均换热增益最大，相对压降最小\n')
+        if requirements and requirements.get('allow_nu_re_extrapolation'):
+            objective += '本任务允许 Nu-Re 外推；结果保留超范围记录\n'
         label.setText(objective + f'{budget} 个候选 + 1 个均匀基准，最多 {(budget+1)*n} 次 '
                       f'{"3D" if is_3d else "2D"} 工况求解')
     label = getattr(window, '_opt_selected_field', None)
@@ -419,6 +421,8 @@ def _objective_kpis(window, report, rows):
     constrained = 'mass_requirements' in report
     captions = ('最小合格芯体质量 [kg]', '满足全部约束的候选数') if constrained else (
         '最大换热提升 [%]', '最小相对压降 [1]')
+    if constrained and report['mass_requirements'].get('allow_nu_re_extrapolation'):
+        captions = ('最小达标芯体质量 [kg]（允许 Nu-Re 外推）', captions[1])
     for name, text in zip(('_opt_kpi_q_caption', '_opt_kpi_dp_caption'), captions):
         label = getattr(window, name, None)
         if label is not None:
@@ -675,7 +679,10 @@ def resume_optimize(window):
 
 
 def _termination_label(report):
-    return {'completed': '完成', 'cancelled': '已取消', 'paused': '已暂停', 'failed': '失败'}.get(report['status'], '运行中')
+    label = {'completed': '完成', 'cancelled': '已取消', 'paused': '已暂停', 'failed': '失败'}.get(report['status'], '运行中')
+    if report.get('mass_requirements', {}).get('allow_nu_re_extrapolation'):
+        label += '（本任务允许 Nu-Re 外推）'
+    return label
 
 
 def show_pareto(window, report, *, running=False):
@@ -733,7 +740,10 @@ def show_pareto(window, report, *, running=False):
                           'Mean relative pressure drop [1]', color=theme['ax_text'])
             ax.set_ylabel('Core mass [kg]' if constrained else 'Mean useful heat gain [%]',
                           color=theme['ax_text'])
-            ax.set_title(f'{report["method"]} · {report["n_evaluated"]} designs', color=theme['ax_text'])
+            title = f'{report["method"]} · {report["n_evaluated"]} designs'
+            if constrained and report['mass_requirements'].get('allow_nu_re_extrapolation'):
+                title += ' · Nu Re extrapolation allowed'
+            ax.set_title(title, color=theme['ax_text'])
             ax.tick_params(colors=theme['ax_text'])
             for spine in ax.spines.values():
                 spine.set_edgecolor(theme['ax_spine'])

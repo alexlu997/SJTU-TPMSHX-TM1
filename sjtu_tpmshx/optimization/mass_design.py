@@ -16,8 +16,12 @@ CONSTRAINT_KEYS = ('heat_shortfall', 'pressure_excess_A', 'pressure_excess_B')
 
 def validate_mass_requirements(requirements, condition_ids):
     """Require a density and three positive absolute limits for every condition."""
-    if not isinstance(requirements, dict) or set(requirements) != {'solid_density_kg_m3', 'conditions'}:
+    required = {'solid_density_kg_m3', 'conditions'}
+    if (not isinstance(requirements, dict) or not required <= set(requirements)
+            or set(requirements) - required - {'allow_nu_re_extrapolation'}):
         raise ValueError('Mass requirements need solid_density_kg_m3 and conditions')
+    if type(requirements.get('allow_nu_re_extrapolation', False)) is not bool:
+        raise ValueError('allow_nu_re_extrapolation must be a boolean')
     density = requirements['solid_density_kg_m3']
     limits = requirements['conditions']
     if (type(density) not in (int, float) or not np.isfinite(density) or density <= 0):
@@ -57,6 +61,8 @@ def mass_observation(summaries, requirements):
         residuals = [1.-actual[0]/bounds[0], actual[1]/bounds[1]-1., actual[2]/bounds[2]-1.]
         checks[name] = dict(Q_W=actual[0], dP_A_Pa=actual[1], dP_B_Pa=actual[2],
                             residuals=residuals, feasible=all(value <= 0 for value in residuals))
+        if 'acceptance' in summary:
+            checks[name]['acceptance'] = summary['acceptance']
         if mass is None:
             field = load_result(summary['result_file'])
             metadata = mutable_data(field.metadata)

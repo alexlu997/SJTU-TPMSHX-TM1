@@ -365,6 +365,12 @@ Numerically valid candidates that exceed limits train the search model. Only the
 The plot shows core mass and the worst relative constraint residual. A residual at or below zero meets the limits.
 Zero feasible candidates remains an explicit result. Completion of the search budget does not guarantee a feasible design.
 Sessions, search recovery, and exports retain density, per-condition requirements, and checks.
+By default, every condition must pass the strict model-range checks.
+Set `mass_requirements.allow_nu_re_extrapolation` to `true` only for a study that permits Nu Re extrapolation.
+This accepts finite, nonnegative Re outside the air/water Gyroid or Diamond Nu range. All other required checks remain active.
+The interface labels this choice. Saved results and exports retain the strict verdict and each accepted range observation.
+This setting does not establish experimental accuracy. Recovery keeps the saved choice.
+
 The API accepts the same `mass_requirements` object with `method='qlognei'` or `'sobol'`.
 Set both L bounds to 7 mm to optimize only wall thickness at a fixed cell size. Saved sessions retain these bounds.
 Search pure Diamond and pure Gyroid separately. Compare them with the same conditions, limits, material, and closure settings.

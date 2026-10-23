@@ -42,6 +42,10 @@ n_init 默认16，允许1–256；优化器 SHALL 继承当前计算配置的数
 最轻可行方案可选择和导出建模坐标；无可行方案时 SHALL 显示零个。
 结果表和建模来源 SHALL 保留质量、限值及逐工况检查。
 
+显式 `mass_requirements.allow_nu_re_extrapolation` 设置可允许本研究使用空气/水 Nu-Re 外推。
+界面 SHALL 标注这一选择；保存结果、恢复和导出 SHALL 保留严格判定及范围证据。
+默认值为 false，其他必要检查 SHALL 保持有效。
+
 #### Scenario: One condition exceeds a limit
 - **WHEN** 数值有效候选在任一工况超出任一限值
 - **THEN** 它保留在观察数据中，但不能成为可选择的最轻可行方案

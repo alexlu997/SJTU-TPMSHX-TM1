@@ -151,7 +151,9 @@ def test_selected_backend_completes_batch_and_optimization(native_path, tmp_path
 
 
 @pytest.mark.parametrize('dimension', [2, 3])
-def test_native_mass_search_preserves_total_units_constraints_and_exports(native_path, tmp_path, dimension):
+@pytest.mark.parametrize('allow_extrapolation', [False, True])
+def test_native_mass_search_preserves_total_units_constraints_and_exports(
+        native_path, tmp_path, dimension, allow_extrapolation):
     import csv
     from openpyxl import load_workbook
     from sjtu_tpmshx.optimization.multi_condition_optimizer import resume_multi_condition_optimization
@@ -159,8 +161,14 @@ def test_native_mass_search_preserves_total_units_constraints_and_exports(native
     from sjtu_tpmshx.optimization.pareto_io import export_pareto_data
 
     conditions = _conditions(dimension)
+    if allow_extrapolation:
+        conditions = [(name, replace(cfg, fluid_A=replace(cfg.fluid_A, T_in_K=350.)), a, .01*b)
+                      for name, cfg, a, b in conditions]
     requirements = dict(solid_density_kg_m3=8000., conditions={name: dict(
-        Q_min_W=1., dP_A_max_Pa=1e8, dP_B_max_Pa=1e8) for name, *_ in conditions})
+        Q_min_W=.001 if allow_extrapolation else 1., dP_A_max_Pa=1e8, dP_B_max_Pa=1e8)
+        for name, *_ in conditions})
+    if allow_extrapolation:
+        requirements['allow_nu_re_extrapolation'] = True
     control = replace(native_3d.control(native_path), cpu_threads=1)
     directory = tmp_path / 'search'
     report = run_multi_condition_optimization(conditions, output_dir=directory,
@@ -186,6 +194,11 @@ def test_native_mass_search_preserves_total_units_constraints_and_exports(native
             assert check['dP_A_Pa'] == metrics['dP_A'].value
             assert check['dP_B_Pa'] == metrics['dP_B'].value
             assert check['feasible'] and max(check['residuals']) <= 0
+            assert check['acceptance']['passed']
+            if allow_extrapolation:
+                assert check['acceptance']['nu_re_extrapolated']
+                assert not check['acceptance']['strict_passed']
+                assert check['acceptance']['extrapolation_checks']
     moved = directory.rename(tmp_path / 'moved')
     resumed = resume_multi_condition_optimization(moved / 'optimization.json',
         output_dir=tmp_path / 'resumed', control=control, workers=1)

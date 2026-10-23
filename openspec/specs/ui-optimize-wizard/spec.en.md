@@ -35,6 +35,10 @@ Sessions and recovery MUST retain the requirements. Results MUST distinguish num
 The lightest feasible designs can be selected for geometry export. No feasible designs MUST remain an explicit zero result.
 Result tables and geometry provenance MUST retain mass, limits, and per-condition checks.
 
+An explicit `mass_requirements.allow_nu_re_extrapolation` setting can permit air/water Nu Re extrapolation for the study.
+The interface MUST label this choice. Saved results, recovery, and exports MUST retain the strict verdict and range evidence.
+The default is false. All other required checks MUST remain active.
+
 #### Scenario: One condition exceeds a limit
 - **WHEN** a numerically valid candidate exceeds any limit at any condition
 - **THEN** it stays in the observations but cannot be selected as a minimum-mass feasible design

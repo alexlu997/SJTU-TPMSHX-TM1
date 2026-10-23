@@ -690,3 +690,35 @@ def test_original_range_limit_excludes_otherwise_qualified_results(tmp_path, mon
         assert performance.qualification['physical']['passed'] is True
         assert performance.qualification['metrics']['passed'] is True
         assert performance.qualification['design']['eligible'] is False
+
+
+def test_nu_re_study_acceptance_keeps_strict_results_and_resumes(tmp_path, monkeypatch, native_control):
+    def outside(field):
+        metadata = mutable_data(field.metadata)
+        metadata['applicability_evidence']['final'][0]['minimum'][0] = .001
+        return replace(field, metadata=metadata)
+    conditions = _conditions(1)
+    _patch_solve(monkeypatch, lambda case, control: outside(_native(case)))
+    rejected = batch.evaluate_condition_batch(conditions, output_dir=tmp_path/'strict',
+                                             control=native_control, workers=1)
+    assert rejected['status'] == 'failed'
+    baseline = [(name, outside(field), postprocess.evaluate(outside(field)))
+                for name, field, _ in _baseline(conditions)]
+    source = tmp_path/'accepted'
+    accepted = batch.evaluate_condition_batch(conditions, output_dir=source, baseline=baseline,
+        control=native_control, workers=1, allow_nu_re_extrapolation=True)
+    row, = accepted['conditions']
+    assert accepted['status'] == row['status'] == 'completed'
+    assert row['qualification']['optimization']['passed'] is False
+    assert row['acceptance']['passed'] and row['acceptance']['nu_re_extrapolated']
+    metrics = load_metrics(source/row['metrics_file'])
+    assert metrics.qualification['design']['eligible'] is False
+    _patch_solve(monkeypatch, lambda *args: pytest.fail('completed native result was recomputed'))
+    resumed = batch.resume_condition_batch(source/'batch.json', output_dir=tmp_path/'resumed',
+                                          control=native_control, workers=1)
+    assert resumed['status'] == 'completed' and resumed['allow_nu_re_extrapolation'] is True
+    assert resumed['conditions'][0]['acceptance'] == row['acceptance']
+    with pytest.raises(ValueError, match='acceptance differs'):
+        batch._evaluate_condition_batch(conditions, output_dir=tmp_path/'changed',
+            control=native_control, workers=1, resume_from=(source, accepted))
+    assert not (tmp_path/'changed').exists()
