@@ -1153,6 +1153,14 @@ diagnostic arrays and unconverged completed runs stay visible. Strict JSON
 metrics report unavailable values with reasons. Cancelled/failed execution
 does not return a fabricated completed archive.
 
+`result_display` owns 2D display smoothing and zone statistics. It also supplies
+field units, axes and state descriptions for both dimensions. This shared data
+module has no Qt dependency. Capture still calls it before it creates
+`FieldResult`, so stored fields, exports and application mappings keep the same
+contract. Raw arrays remain separate from smoothed display values. The 3D
+display aliases keep their shared immutable buffers. The previous inline
+smoothing, field descriptions and private zone helper are retired.
+
 Each full-compute backend explicitly produces its display/flow fields and
 final diagnostics, passing diagnostics directly to native result capture.
 Capture does not infer diagnostic ownership from value types. The native 2D binding
