@@ -853,6 +853,7 @@ void Runtime::start_thermal(const Full3DThermalRunState* saved) {
         ModelHControl3D mc{run.budget,250,1e-4,control.thermal_relaxation,
             control.refined_port_energy?1.:control.thermal_relaxation,control.thermal_relaxation,
             true,control.refined_port_energy,control.red_black_energy,control.cancel,nullptr,control.context};
+        mc.cpu_threads=control.enthalpy.cpu_threads;
         mc.strict_energy_balance=strict_model_h(input);
         const auto settings=model_h_common::apply_iteration_tolerances(mc,control.model_h_iterations,total);
         if(!saved)run.record.model_h_iterations.push_back(settings);
@@ -927,6 +928,7 @@ void Runtime::start_thermal(const Full3DThermalRunState* saved) {
                 } else {
                     ModelHControl3D mc{run.budget,250,1e-4,control.thermal_relaxation,
                         control.thermal_relaxation,control.thermal_relaxation,true,false,false,control.cancel,nullptr,control.context};
+                    mc.cpu_threads=control.enthalpy.cpu_threads;
                     mc.strict_energy_balance=true;
                     const auto settings=model_h_common::apply_iteration_tolerances(mc,control.model_h_iterations,total);
                     if(!saved)run.record.model_h_iterations.push_back(settings);
