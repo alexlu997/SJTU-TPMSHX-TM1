@@ -125,6 +125,16 @@ These choices no longer depend on the other fluid. The 3D sampling rules stay un
 Direct component C entries keep their existing models.
 Explicit fixed-capacity, prescribed-side and research routes retain their separate contracts.
 
+The native 3D `Runtime` coordinates separate internal owners.
+`FlowRun` owns the SIMPLE solvers, pressure seeds and flow continuation state.
+`ThermalRun` owns the thermal fields, active energy driver and thermal continuation state.
+Both use one `TransportProperties` owner for inlet properties and sampled transport values.
+`RangeRecorder` records model limits. A separate function assembles final result evidence.
+The full-run phase controller keeps the outer update order and callback sequence.
+Each owner copies its state to the existing `Full3DRunState` fields.
+Restore validates the complete state before it binds the solvers to restored arrays.
+These owners are internal to `full_3d.cpp`; public interfaces and stored field names do not change.
+
 The full 3D owner keeps raw transport properties at each side's inlet pressure.
 It reuses a cell's values only when that cell's temperature is equal to the sampled temperature.
 The fluid, provider, inlet pressure and grid are fixed for this runtime.
