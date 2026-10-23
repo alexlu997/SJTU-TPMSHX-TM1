@@ -28,7 +28,7 @@ from sjtu_tpmshx.optimization.multi_condition import (
 )
 from sjtu_tpmshx.domain.portable_data import mutable_data
 from sjtu_tpmshx.optimization.mass_design import (
-    CONSTRAINT_KEYS, mass_observation, model_observation, validate_mass_requirements,
+    CONSTRAINT_KEYS, mass_lower_bound, mass_observation, model_observation, validate_mass_requirements,
 )
 
 
@@ -217,9 +217,10 @@ def _run_multi_condition_optimization(
     bounds, without ``x_decision``. Defaults are quadratic, unmirrored 3x3
     (2D) or 3x3x3 (3D) controls. Every candidate carries that complete spec.
 
-    The design budget is ``n_init + n_iter*q_batch``, plus one separate uniform
+    The maximum design budget is ``n_init + n_iter*q_batch``, plus one separate uniform
     baseline batch. Initial design 0 is the original uniform L/t expressed as
-    a continuous field; all methods use the same seeded Sobol initial designs.
+    a continuous field. New mass searches then check the geometry mass bound.
+    The remaining initial designs use the same seeded Sobol sequence.
     The reference point is fixed from usable initial (G, -C) observations:
     component minimum minus 10% of max(component span, [1 percent, 0.01]).
     It is recorded for every method, and used by qLogNEHVI. qLogNParEGO uses
@@ -313,6 +314,15 @@ def _run_multi_condition_optimization(
     engine = qmc.Sobol(d=len(lower), scramble=True, seed=seed)
     sobol = engine.random_base2((max(budget-1, 1)-1).bit_length())[:budget-1]
     designs = np.vstack((uniform_x, lower + sobol*(upper-lower)))
+    bound = None
+    policy = (resume_from[2].get('initial_design_policy') if resume_from is not None
+              else 'mass_bound_v1' if constrained else None)
+    if policy is not None:
+        if policy != 'mass_bound_v1' or not constrained:
+            raise ValueError('Unknown initialization policy for this search')
+        bound = mass_lower_bound(config, spec, mass_requirements['solid_density_kg_m3'], count)
+        if budget > 1 and bound['x_decision'] != uniform_x.tolist():
+            designs = np.vstack((uniform_x, bound['x_decision'], designs[1:]))[:budget]
     root = Path(output_dir).resolve()
     frozen = dict(format='optimization_v1', method=method, backend=control.backend, seed=seed,
         dimension=dimension, field_spec=spec, software_versions=versions,
@@ -321,6 +331,8 @@ def _run_multi_condition_optimization(
                          mass_flow_B_kg_s=b) for name, cfg, a, b in inputs])
     if constrained:
         frozen['mass_requirements'] = mass_requirements
+    if bound is not None:
+        frozen.update(initial_design_policy=policy, mass_lower_bound=bound)
     if resume_from is not None:
         source_root, saved, saved_input = resume_from
         if saved_input != frozen:
@@ -349,6 +361,7 @@ def _run_multi_condition_optimization(
         record = deepcopy(saved)
         record.update(status='running', stage='baseline', iteration=0, reason=None,
                       workers=workers, resumed_from=str(source_root))
+        record.pop('stop_reason', None)
         history = record['history']
     cursor = 0
 
@@ -432,6 +445,18 @@ def _run_multi_condition_optimization(
         record['stage'] = stage
         publish()
         check_stop()
+
+    def bound_attained():
+        if bound is None or cursor != len(history):
+            return False
+        for row in history:
+            if row.get('feasible') and row['status'] == 'completed' and np.isclose(
+                    row['objectives']['core_mass_kg'], bound['mass_kg'], rtol=1e-12, atol=0.):
+                record.update(status='completed', stage='finished',
+                              reason=None, stop_reason='mass_lower_bound')
+                control.report_progress(100)
+                return True
+        return False
 
     highest_progress = int(100 * sum(row['status'] in ('completed', 'failed')
         for row in (record['baseline'], *history)) / (budget+1))
@@ -545,6 +570,8 @@ def _run_multi_condition_optimization(
         record['stage'] = 'initial'
         for x in designs[:n_init]:
             evaluate_design(x, 0)
+            if bound_attained():
+                return record
         initial = [row for row in history[:n_init] if row['status'] == 'completed']
         X = np.asarray([row['x_decision'] for row in initial])
         Y = np.asarray([row['model_y'] for row in initial])
@@ -584,6 +611,8 @@ def _run_multi_condition_optimization(
             publish()
             for x in proposed:
                 evaluate_design(x, iteration)
+                if bound_attained():
+                    return record
         check_stop()
         record.update(status='completed' if observations()[2] else 'failed', stage='finished',
                       reason=None if observations()[2] else 'No usable design observations')

@@ -941,6 +941,13 @@ Valid infeasible observations train the model; failed numerical batches do not.
 Selection uses only minimum-mass feasible observations. Zero feasible designs remains explicit.
 Saved inputs freeze the requirements. Recovery recomputes mass and every constraint check from retained native evidence.
 The desktop and exports retain these requirements and distinguish numerical validity from constraint feasibility.
+New mass searches evaluate the uniform reference first, then the minimum-mass geometry when the initial budget permits.
+The geometry model derives this candidate from the requested cell and wall bounds.
+The level-set model uses its positive threshold derivative. The CO2 model checks the corners of each clipped bilinear table cell.
+A search stops early only when an accepted candidate meets every Q/dP limit and attains the model mass bound.
+The maximum budget, actual count, bound and stop reason remain in the saved report and exports.
+This certificate applies to the selected geometry model and design bounds; it does not certify physical accuracy or manufacture.
+Saved searches without the new initialization policy keep their original Sobol sequence and budget on recovery.
 The optional `mass_requirements.allow_nu_re_extrapolation` boolean defaults to false.
 When true, a study can accept finite, nonnegative Re outside the air/water Gyroid or Diamond Nu range.
 Batch records retain the strict qualification and the accepted range observations. All other required gates remain active.

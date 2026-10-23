@@ -680,6 +680,8 @@ def resume_optimize(window):
 
 def _termination_label(report):
     label = {'completed': '完成', 'cancelled': '已取消', 'paused': '已暂停', 'failed': '失败'}.get(report['status'], '运行中')
+    if report['status'] == 'completed' and report.get('stop_reason') == 'mass_lower_bound':
+        label += '：达到模型质量下界'
     if report.get('mass_requirements', {}).get('allow_nu_re_extrapolation'):
         label += '（本任务允许 Nu-Re 外推）'
     return label
