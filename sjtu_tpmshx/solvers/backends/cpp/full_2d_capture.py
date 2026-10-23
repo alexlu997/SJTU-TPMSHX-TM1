@@ -1,7 +1,7 @@
 """Map owned native 2D evidence to the existing portable result contract.
 
 Numerical fields, duties and acceptance verdicts come from the native driver.
-Only established display smoothing and zone reporting are applied here.
+The shared result-display module supplies display fields and zone reports.
 """
 from copy import deepcopy
 from dataclasses import replace
@@ -12,9 +12,8 @@ from sjtu_tpmshx.domain.cancellation import CancelledError
 from sjtu_tpmshx.domain.run_warnings import current_warnings, merge_warnings, warning_messages, warning_scope
 from sjtu_tpmshx.domain.validator import compute_volumetric_htc
 from sjtu_tpmshx.models.nu_correlations import warn_sco2_nu_evidence
-from sjtu_tpmshx.solvers.backends.capture_2d import (
-    capture_result as _capture_result, _zone_statistics_2d,
-)
+from sjtu_tpmshx.result_display import display_fields_2d, zone_statistics_2d
+from sjtu_tpmshx.solvers.backends.capture_2d import capture_result as _capture_result
 from .closure_evidence import replay_range_observations
 
 
@@ -111,7 +110,6 @@ def capture_result(case, cfg, prepared, native):
             f"(drho_A={rho[0]:.4f}, drho_B={rho[1]:.4f}, "
             f"dT_A={temperature[0]:.2f}K, dT_B={temperature[1]:.2f}K)")
     pressure_states, pressure_evidence = {}, {}
-    display_fields = dict(zip(('Ta_display', 'Tb_display', 'Ts_display'), main['temperature']))
     evidence = dict(zip(('Ta', 'Tb', 'Ts'), main['temperature']))
     evidence.update(fine=_fine_evidence(fine, fine_balance),
         true_h=None if true_h_info is None else true_h_info['_native_state'],
@@ -120,12 +118,9 @@ def capture_result(case, cfg, prepared, native):
         final_after_thermal=bool(native['post_after_last_thermal']), K_ss=main['solid_conductivity'])
     if 'temperature_evidence' in main:
         evidence['temperature'] = main['temperature_evidence']
-    partial = []
     for side, label in enumerate('AB'):
         flow = native['flow'][side]
         openings = cfg['boundary_openings'][label]
-        partial.append(bool(np.any(openings['out_profile_frac'] < .99) or
-                            np.any(openings['in_profile_frac'] < .99)))
         pressure_states[label] = flow['inlet_pressure']
         pressure_evidence[label] = dict(
             inlet_gauge_Pa=flow['pressure'][:, 0], outlet_gauge_Pa=flow['pressure'][:, -1],
@@ -139,8 +134,6 @@ def capture_result(case, cfg, prepared, native):
                                   if mode == 'conservative_energy' or 'temperature_evidence' in main
                                   else (flow['mass_x'], flow['mass_y'])),
         })
-        display_fields.update({'P_f' + label + '_display': flow['absolute_pressure'],
-                               'uc' + label: flow['uc'], 'vc' + label: flow['vc']})
         result = flow['result']
         if not result['converged']:
             warnings.append(
@@ -156,17 +149,9 @@ def capture_result(case, cfg, prepared, native):
             f"Richardson 细解或外推未通过，换热量使用{source}，未外推 "
             f"(converged={fine_info['converged']}, iterations={fine_info['iterations']}, "
             f"residual={fine_info['residual']:.3e})")
-    if any(partial):
-        from scipy.ndimage import gaussian_filter
-        for key in ('Ta_display', 'Tb_display', 'Ts_display'):
-            display_fields[key] = gaussian_filter(display_fields[key], sigma=1.5)
-        for side, label in enumerate('AB'):
-            if partial[side]:
-                key = 'P_f' + label + '_display'
-                display_fields[key] = gaussian_filter(display_fields[key], sigma=1.5)
-                for prefix in ('uc', 'vc'):
-                    display_fields[prefix + label + '_display'] = gaussian_filter(
-                        display_fields[prefix + label], sigma=2.)
+    display_fields = display_fields_2d(
+        main['temperature'], [flow['absolute_pressure'] for flow in native['flow']],
+        [(flow['uc'], flow['vc']) for flow in native['flow']], cfg['boundary_openings'])
 
     detail = dict(inlet_pressure=pressure_states, outer_converged=bool(native['outer_converged']),
         outer_iters=int(native['iterations']), outer_hit_cap=not native['outer_converged'],
@@ -213,7 +198,7 @@ def capture_result(case, cfg, prepared, native):
                     h_vA=compute_volumetric_htc(r_a['A_0'], r_a['H_sf']),
                     h_vB=compute_volumetric_htc(r_b['A_0'], r_b['H_sf'])),
         props=dict(rho_A=r_a['rho'], rho_B=r_b['rho'], mu_A=r_a['mu'], mu_B=r_b['mu']),
-        zones=_zone_statistics_2d(cfg['z_axis'], cfg['zone_config'], cfg['za'], cfg['L'], cfg['H'],
+        zones=zone_statistics_2d(cfg['z_axis'], cfg['zone_config'], cfg['za'], cfg['L'], cfg['H'],
             prepared['energy_dx'], prepared['energy_dy'], *main['temperature']))
     evidence.update(input_resolution=cfg['_input_resolution'], property_sampling=native['property_sampling'])
     result = _capture_result(case, display_fields, evidence, application, diagnostics, backend_id='cpp',
