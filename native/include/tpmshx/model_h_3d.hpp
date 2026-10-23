@@ -49,6 +49,7 @@ struct ModelHControl3D {
     bool second_order_a=true, second_order_b=true;
     bool strict_energy_balance=false;
     double temperature_tolerance=.01;
+    std::size_t cpu_threads=1;
 };
 
 struct ModelHFinishingCheck3D {
@@ -103,8 +104,9 @@ private:
 // Complete fixed-flow symmetric AA/AW/WA model-h thermal driver, nz>1.
 // The caller supplies real-axis completed SIMPLE raw mass faces; this call
 // performs no MAC projection, mass correction, EOS or outer property refresh.
-// Both fluids use minmod SOU, original capped fluid relaxation, serial or
-// two-color GS and optional existing Anderson acceleration. Explicit sources
+// Both fluids use minmod SOU and the original capped fluid relaxation.
+// Natural line GS supports wavefront workers; two-color GS stays serial.
+// Anderson acceleration is optional. Explicit sources
 // retain their original field/Q stopping policy, with a final audit returned
 // separately; a manufactured-source solve is not a source-free certificate.
 // Borrowed inputs remain immutable through callbacks. State must not alias.

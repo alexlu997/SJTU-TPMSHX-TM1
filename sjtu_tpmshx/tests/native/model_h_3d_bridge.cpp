@@ -56,6 +56,7 @@ extern "C" TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL test_model_h_3d(
         ModelHControl3D control{config[0],config[1],values[2],values[3],values[4],values[5],
             config[2]!=0,config[3]!=0,config[4]!=0,cancel,progress,&cb};
         control.strict_energy_balance=config[11]!=0;
+        control.cpu_threads=config[12];
         control.temperature_tolerance=values[6];
         const auto result=solve_model_h_3d(grid,a,b,v(6),v(7),{out(3),out(4),out(5)},control);
         const auto& audit=result.audit;

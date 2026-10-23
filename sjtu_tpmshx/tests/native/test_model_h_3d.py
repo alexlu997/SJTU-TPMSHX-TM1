@@ -71,8 +71,8 @@ def native():
         if alias:
             pointers[6] = pointers[3]
         dimensions = (ctypes.c_size_t*3)(*c["shape"])
-        config = (ctypes.c_size_t*12)(c["maxit"], c["chunk"], c["warm"], c["accelerate"],
-                                    c["rb"], *c["fluids"], *c["directions"], cancel_at, history is not None, c.get("strict", False))
+        config = (ctypes.c_size_t*13)(c["maxit"], c["chunk"], c["warm"], c["accelerate"],
+                                    c["rb"], *c["fluids"], *c["directions"], cancel_at, history is not None, c.get("strict", False), c.get("cpu_threads", 1))
         values = (ctypes.c_double*7)(*c["tin"], c["qtol"], *c["alpha"], c.get("temperature_tol", .01))
         status, metrics, error = (ctypes.c_size_t*30)(), (ctypes.c_double*84)(), ctypes.create_string_buffer(512)
         code = active_function(dimensions, pointers, sizes, config, values, status, metrics, error, len(error))
@@ -442,7 +442,7 @@ def test_cancel_and_recovery(native, cancel_at):
     assert successful[0] == 0 and successful[1][0] == 0
 
 
-@pytest.mark.parametrize("invalid", ["extent", "nan", "alias", "WW", "co2", "opening", "alpha", "chunk"])
+@pytest.mark.parametrize("invalid", ["extent", "nan", "alias", "WW", "co2", "opening", "alpha", "chunk", "threads"])
 def test_invalid_inputs_leave_fields_unchanged(native, invalid):
     c = case()
     options = {}
@@ -462,6 +462,8 @@ def test_invalid_inputs_leave_fields_unchanged(native, invalid):
         c["alpha"] = (.2, 0., .2)
     elif invalid == "chunk":
         c["chunk"] = 0
+    elif invalid == "threads":
+        c["cpu_threads"] = 0
     before = copy.deepcopy(c["state"])
     result = native(c, **options)
     assert result[0] == 1, result[-1]
@@ -520,3 +522,49 @@ def test_invalid_field_change_control_preserves_input_state(native, tolerance):
     assert actual[0] == 1 and 'control' in actual[-1]
     for field, expected in zip(c['state'], original):
         np.testing.assert_array_equal(field, expected)
+
+
+@pytest.mark.parametrize("axis", range(3))
+@pytest.mark.parametrize("direction", range(6))
+@pytest.mark.parametrize("threads", [2, 4, 8, 14])
+def test_wavefront_matches_natural_line_sweeps(native, axis, direction, threads):
+    c = case(shape=(4, 5, 6), directions=(direction, (direction+2) % 6), sweeps=7, chunk=1)
+    c["widths"][axis] *= .02
+    assert_thread_equivalence(native, c, threads)
+
+
+def assert_thread_equivalence(native, c, threads, *, cancel_at=0):
+    parallel = copy.deepcopy(c)
+    parallel["cpu_threads"] = threads
+    reference_history, parallel_history = [], []
+    reference = native(c, history=reference_history, cancel_at=cancel_at)
+    actual = native(parallel, history=parallel_history, cancel_at=cancel_at)
+    assert actual[0] == reference[0] == 0, (actual[-1], reference[-1])
+    assert actual[1] == reference[1]
+    assert actual[2].tobytes() == reference[2].tobytes()
+    for fields in (zip(actual[3], reference[3]), zip(parallel["state"], c["state"])):
+        for result, expected in fields:
+            assert result.tobytes() == expected.tobytes()
+    assert len(parallel_history) == len(reference_history)
+    for (done, fields), (expected_done, expected_fields) in zip(parallel_history, reference_history):
+        assert done == expected_done
+        for result, expected in zip(fields, expected_fields):
+            assert result.tobytes() == expected.tobytes()
+
+
+@pytest.mark.parametrize("shape", [(1, 4, 3), (4, 1, 3), (2, 2, 2)])
+@pytest.mark.parametrize("cancel_at", [0, 3])
+def test_wavefront_thin_cold_cancel_and_sources(native, shape, cancel_at):
+    c = case(shape=shape, sweeps=31, chunk=7)
+    c["warm"] = False
+    c["source_s"] = np.full(shape, 120.)
+    c["a"][7] = np.full(shape, -20.)
+    assert_thread_equivalence(native, c, 14, cancel_at=cancel_at)
+
+
+@pytest.mark.parametrize("strict", [False, True])
+@pytest.mark.parametrize("threads", [2, 4, 14])
+def test_wavefront_anderson_history(native, strict, threads):
+    c = case(sweeps=57, chunk=53)
+    c.update(accelerate=True, strict=strict)
+    assert_thread_equivalence(native, c, threads)

@@ -180,6 +180,39 @@ template<int dimension> void continuation() {
     }
 }
 
+void parallel_continuation() {
+    for(std::size_t axis=0;axis<3;++axis)for(std::size_t threads:{2U,4U,14U})
+    for(bool accelerate:{false,true})for(bool prescribed:{false,true}) {
+        Fixture<3> expected(accelerate,prescribed,false,true,83,prescribed,!prescribed);
+        Fixture<3> actual(accelerate,prescribed,false,true,83,prescribed,!prescribed);
+        for(auto* fixture:{&expected,&actual}) {
+            auto& widths=axis==0?fixture->dx:(axis==1?fixture->dy:fixture->dz);
+            for(double& width:widths)width*=.02;
+        }
+        actual.control.cpu_threads=threads;
+        auto reference=expected.start(),parallel=actual.start();
+        bool restored=false;
+        while(reference->phase()==ModelHPhase::active) {
+            reference->advance();parallel->advance();
+            require(parallel->phase()==reference->phase(),"parallel phase differs");
+            require(actual.temperature==expected.temperature,"parallel temperature differs");
+            if(reference->phase()==ModelHPhase::active) {
+                const auto a=parallel->snapshot(),b=reference->snapshot();
+                require(a.carry==b.carry && a.iteration.previous==b.iteration.previous,
+                    "parallel compensation or previous state differs");
+                require(a.iteration.chunk.has_value()==b.iteration.chunk.has_value(),"parallel chunk differs");
+                if(!restored) {
+                    parallel.reset();actual.control.cpu_threads=1;parallel=actual.restore(a);restored=true;
+                }
+            }
+        }
+        compare(parallel->take_result(),reference->take_result());
+        require(actual.ledger.residual==expected.ledger.residual,"parallel ledger differs");
+        require(actual.callbacks.calls==expected.callbacks.calls
+            && actual.callbacks.progress==expected.callbacks.progress,"parallel callbacks differ");
+    }
+}
+
 template<int dimension> void invalid_states() {
     Fixture<dimension> fixture(true,false,false,true,265);
     auto owner=fixture.start();owner->advance();
@@ -212,6 +245,7 @@ template<int dimension> void invalid_states() {
     for(std::size_t cancel_at:{1U,4U,8U,17U}) {
         Fixture<dimension> actual(true,false,false,true,265),expected(true,false,false,true,265);
         actual.callbacks.cancel_at=cancel_at;expected.callbacks.cancel_at=cancel_at;
+        if constexpr(dimension==3)actual.control.cpu_threads=4;
         const auto reference=expected.solve();
         auto active=actual.start();
         while(active->phase()==ModelHPhase::active) {
@@ -237,6 +271,7 @@ template<int dimension> void invalid_states() {
     require(observer.calls==2,"progress callback missed the in-progress state check");
     Fixture<dimension> failing(true,false,false,true,265);
     std::fill(failing.ks.begin(),failing.ks.end(),0.);std::fill(failing.hv.begin(),failing.hv.end(),0.);
+    if constexpr(dimension==3)failing.control.cpu_threads=4;
     auto broken=failing.start();
     rejects<std::domain_error>([&]{broken->advance();});
     require(broken->phase()==ModelHPhase::failed,"partial failure remained active");
@@ -246,6 +281,6 @@ template<int dimension> void invalid_states() {
 }
 
 int main() {
-    continuation<2>();continuation<3>();invalid_states<2>();invalid_states<3>();
+    continuation<2>();continuation<3>();parallel_continuation();invalid_states<2>();invalid_states<3>();
     std::puts("model-h runs: exact continuation, original callbacks, state validation and failure boundaries passed");
 }
