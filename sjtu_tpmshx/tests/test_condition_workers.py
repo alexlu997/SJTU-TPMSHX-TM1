@@ -16,7 +16,8 @@ from sjtu_tpmshx.optimization import multi_condition as batch
 from sjtu_tpmshx.tests.test_multi_condition_batch import _baseline, _conditions, _native
 
 
-def _analytic_worker(index, case_file, directory, library, threads, checkpoint_file=None, *, crash_delay_s=0.):
+def _analytic_worker(index, case_file, directory, library, threads, checkpoint_file=None,
+                     *, crash_delay_s=0., lock_on_exit=False):
     from sjtu_tpmshx.workflows import recovery
 
     def solve(case, control, *, checkpoint, checkpoint_due, resume_state):
@@ -44,6 +45,11 @@ def _analytic_worker(index, case_file, directory, library, threads, checkpoint_f
             raise error
         if label == 'crash':
             sleep(crash_delay_s)
+            if lock_on_exit:
+                # A dying worker must not retain a lock used by the parent.
+                lock = getattr(batch._batch_cancel, '_cond', None)
+                if lock is not None:
+                    lock.acquire()
             os._exit(17)
         inputs = json.loads((Path(directory).parent / 'batch-input.json').read_text())
         if inputs[0]['condition_id'] == 'pause' and index < 2 and resume_state is None:
@@ -265,10 +271,18 @@ def test_completed_batch_replay_retains_objectives_without_workers(tmp_path, mon
     assert [item[1].result_id for item in result['results']] == [item[1].result_id for item in original['results']]
 
 
-@pytest.mark.parametrize('crash_delay_s', [0., 10.5])
-def test_worker_exit_keeps_last_complete_checkpoint(tmp_path, monkeypatch, crash_delay_s):
+@pytest.mark.timeout(60, method='thread')
+@pytest.mark.parametrize('crash_delay_s,lock_on_exit', [
+    pytest.param(0., False, id='0.0'),
+    pytest.param(10.5, False, id='10.5'),
+    pytest.param(0., True, id='cancel-lock'),
+])
+def test_worker_exit_keeps_last_complete_checkpoint(tmp_path, monkeypatch, crash_delay_s, lock_on_exit):
     from concurrent.futures.process import BrokenProcessPool
-    monkeypatch.setattr(batch, '_run_native_condition', partial(_analytic_worker, crash_delay_s=crash_delay_s))
+    from multiprocessing import active_children
+    previous_children = set(active_children())
+    monkeypatch.setattr(batch, '_run_native_condition', partial(_analytic_worker,
+        crash_delay_s=crash_delay_s, lock_on_exit=lock_on_exit))
     conditions = _conditions()
     conditions[0] = ('crash', *conditions[0][1:])
     root = tmp_path / 'worker-exit'
@@ -280,6 +294,7 @@ def test_worker_exit_keeps_last_complete_checkpoint(tmp_path, monkeypatch, crash
     assert all(row['status'] not in ('running', 'computed') for row in record['conditions'])
     assert (root / 'condition_001/run/checkpoint.h5').is_file()
     assert not (root / 'condition_003').exists()
+    assert set(active_children()) <= previous_children
 
 
 def test_parent_callback_error_is_retained_after_workers_stop(tmp_path, monkeypatch):
