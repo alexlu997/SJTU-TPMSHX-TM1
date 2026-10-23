@@ -28,9 +28,8 @@ def test_worktree_include_copies_only_the_root_interpreter_pointer(tmp_path):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text('local interpreter\n', encoding='utf-8')
     selected = subprocess.run(
-        ['git', '-c', 'core.excludesFile=', 'check-ignore', '--no-index', '--stdin'],
-        cwd=tmp_path, input='\n'.join(names) + '\n', text=True,
-        capture_output=True, check=True)
+        ['git', '-c', 'core.excludesFile=', 'check-ignore', '--no-index', '--', *names],
+        cwd=tmp_path, text=True, capture_output=True, check=True)
     assert selected.stdout.splitlines() == ['.venv-path']
 
 
