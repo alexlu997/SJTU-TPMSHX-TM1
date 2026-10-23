@@ -14,6 +14,22 @@ LIMIT_KEYS = ('Q_min_W', 'dP_A_max_Pa', 'dP_B_max_Pa')
 CONSTRAINT_KEYS = ('heat_shortfall', 'pressure_excess_A', 'pressure_excess_B')
 
 
+def mass_lower_bound(config, field_spec, density, control_count):
+    """Use the selected geometry model to bound mass for every clipped field."""
+    from sjtu_tpmshx.models import co2_correlations, tpms_geometry
+
+    geometry = config.geometry
+    depth = geometry.Lz_m
+    if depth is None or not np.isfinite(depth) or depth <= 0:
+        raise ValueError('Core mass requires a positive physical depth')
+    model = co2_correlations if co2_correlations.uses_co2(config) else tpms_geometry
+    point = model.minimum_solid_geometry(geometry.tpms,
+        field_spec['L_bounds'], field_spec['t_bounds'])
+    mass = density * geometry.L_dom_m * geometry.H_dom_m * depth * (1. - point['epsilon'])
+    return dict(mass_kg=float(mass), geometry_model=model.__name__.rsplit('.', 1)[-1],
+                x_decision=[point['L_mm']]*control_count + [point['t_mm']]*control_count)
+
+
 def validate_mass_requirements(requirements, condition_ids):
     """Require a density and three positive absolute limits for every condition."""
     required = {'solid_density_kg_m3', 'conditions'}

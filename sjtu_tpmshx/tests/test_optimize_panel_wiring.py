@@ -1015,9 +1015,9 @@ def test_mass_requirements_import_and_current_condition_reset(window, tmp_path, 
     assert window._opt_method.currentData() == 'qlognehvi'
 
 
-@pytest.mark.parametrize('feasible', [True, False])
+@pytest.mark.parametrize(('feasible', 'attained'), [(True, False), (True, True), (False, False)])
 @pytest.mark.parametrize('allow_extrapolation', [False, True])
-def test_mass_result_display_and_exports_keep_feasibility(window, tmp_path, feasible, allow_extrapolation):
+def test_mass_result_display_and_exports_keep_feasibility(window, tmp_path, feasible, attained, allow_extrapolation):
     import csv
     from sjtu_tpmshx.optimization.pareto_io import export_pareto_data
     from sjtu_tpmshx.optimization.export_ntop_csv import export_study_design
@@ -1031,12 +1031,16 @@ def test_mass_result_display_and_exports_keep_feasibility(window, tmp_path, feas
         heat_shortfall=-.1 if feasible else .1, pressure_excess_A=-.2, pressure_excess_B=-.3),
         constraint_checks={'one': dict(Q_W=110. if feasible else 90., dP_A_Pa=8., dP_B_Pa=14.,
             residuals=[-.1 if feasible else .1, -.2, -.3], feasible=feasible)})
+    if attained:
+        study.update(stop_reason='mass_lower_bound', mass_lower_bound=dict(
+            mass_kg=.25, geometry_model='tpms_geometry', x_decision=row['x_decision']))
     window._last_opt_report = study
     assert panel.show_pareto(window, study) is None
     assert window.canvas_pareto.figure.axes[0].get_ylabel() == 'Core mass [kg]'
     assert ('Nu Re extrapolation allowed' in window.canvas_pareto.figure.axes[0].get_title()) == allow_extrapolation
     assert ('Nu-Re' in window._opt_kpi_q_caption.text()) == allow_extrapolation
     assert ('Nu-Re' in panel._termination_label(study)) == allow_extrapolation
+    assert ('达到模型质量下界' in panel._termination_label(study)) == attained
     assert window._opt_kpi_dp.text() == str(int(feasible))
     path = tmp_path / 'results.csv'
     export_pareto_data(study, path)
@@ -1045,10 +1049,16 @@ def test_mass_result_display_and_exports_keep_feasibility(window, tmp_path, feas
     assert exported[0]['feasible'] == str(feasible)
     assert float(exported[0]['core_mass_kg']) == .25
     assert json.loads(exported[0]['mass_requirements']) == study['mass_requirements']
+    if attained:
+        assert json.loads(exported[0]['mass_lower_bound']) == study['mass_lower_bound']
+        assert exported[0]['stop_reason'] == 'mass_lower_bound'
     if feasible:
         exported = export_study_design(study, 0, str(tmp_path / 'geometry'), (3, 3, 3))
         assert exported['source']['mass_requirements'] == study['mass_requirements']
         assert exported['source']['constraint_checks'] == row['constraint_checks']
+        if attained:
+            assert exported['source']['mass_lower_bound'] == study['mass_lower_bound']
+            assert exported['source']['stop_reason'] == 'mass_lower_bound'
     else:
         study['pareto_indices'] = [0]
         with pytest.raises(ValueError, match='constraints'):
