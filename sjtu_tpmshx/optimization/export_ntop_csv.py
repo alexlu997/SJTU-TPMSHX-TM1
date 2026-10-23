@@ -1,11 +1,10 @@
 """
-optimization/export_ntop_csv.py — Convert a Pareto solution into nTop-ready
-ScalarField CSVs for graded-TPMS body construction.
+Export a selected design's XY or XYZ parameter samples and original controls.
 
-nTop's "Scalar Field from Grid Data" block ingests a CSV with one column for
-each spatial coordinate plus one column for the scalar value. We emit two
-CSV files per Pareto pick for cell size and wall thickness, sampled on a
-regular grid covering the full XY footprint or XYZ volume.
+The CSV files have headers and use mm. nTop Import Scalar Point Map requires
+headerless X,Y,Z,S rows. Convert the samples for that input before use.
+A parameter field does not define a cell-map phase or a complete TPMS body.
+Check the resulting solid, both fluid networks, and selective port seals.
 
 Geometric assumptions (must match the optimizer cfg):
   * Coordinates use the solver's physical Cartesian frame with the origin
@@ -13,9 +12,8 @@ Geometric assumptions (must match the optimizer cfg):
     their independently varying z controls and export all three coordinates.
   * Output coordinates in **millimeters** so nTop's default mm units consume
     them natively
-  * L_field, t_field values are clamped to [4, 8] mm × [0.3, 0.6] mm — the
-    configured geometry window, which also bounds the optimizer (path A in
-    the planning history)
+  * L/t values use the archived bounds. Equal bounds fix that field.
+  * XY samples require an explicit depth when constructing a 3D body.
 
 Historical Pareto CSV export (the former screening optimizer is retired)::
 

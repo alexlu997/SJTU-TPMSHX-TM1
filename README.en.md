@@ -283,7 +283,7 @@ Result tables place volume near the front for comparison. Selection/refinement e
 
 If candidates exist, Quick Design CLI saves a partial report to `--out`, then raises the original error and exits nonzero. Failure of the first candidate does not overwrite a previous report.
 
-Optimization supports air A / water B and two-fluid pairs with a CO₂ or sCO₂ side. It searches continuous fields in the active dimension: L(x,y)/t(x,y) for 2D and L(x,y,z)/t(x,y,z) for 3D. Objectives compare B-side heat-uptake improvement and equally weighted two-side relative pressure drop. The heat metric stays `-Q_B`; the baseline must be positive. All conditions keep the same A/B fluid models. Pareto designs keep complete controls. Methods are Sobol, qLogNEHVI, and qLogNParEGO. BO requires its separate locked environment.
+Optimization supports air A / water B and two-fluid pairs with a CO₂ or sCO₂ side. It searches continuous fields in the active dimension: L(x,y)/t(x,y) for 2D and L(x,y,z)/t(x,y,z) for 3D. The default objectives compare B-side heat-uptake improvement and equally weighted two-side relative pressure drop. Core-mass mode uses absolute per-condition limits instead. The heat metric stays `-Q_B`; the baseline must be positive. All conditions keep the same A/B fluid models. Pareto designs keep complete controls. The default mode supports Sobol, qLogNEHVI, and qLogNParEGO. Core-mass mode supports qLogNEI and Sobol. BO requires its separate locked environment.
 
 Optimization Design → Results switches between Pareto and size/wall fields. Select a Pareto design to inspect its continuous field. The geometry canvas stays independent. Optimization plots support separate copy/export.
 
@@ -318,6 +318,10 @@ Rows vary x first, then y and z. Modeling samples include domain boundaries;
 a single sample uses the midplane. The limit is one million sample points.
 Export uses the archived design configuration, including after later input edits.
 The API keeps cell-center sampling as its default.
+The CSV files have headers. [nTop Import Scalar Point Map](https://support.ntop.com/hc/en-us/articles/1500008558501-How-to-import-and-use-a-Point-Map) requires headerless X,Y,Z,S rows.
+Convert the archived samples for that input. XY fields require an explicit depth to construct a 3D body.
+The fields do not define a complete TPMS body. Specify the cell-map phase, thickness meaning, outer trim, and selective port seals.
+Check solid connectivity, both fluid networks, and actual wall thickness on the constructed body.
 
 The 3D Range button cycles through Full, Slice, and Custom. Custom Min/Max
 values are saved per field and restored with the workspace session. Volume,
@@ -362,7 +366,7 @@ The plot shows core mass and the worst relative constraint residual. A residual 
 Zero feasible candidates remains an explicit result. Completion of the search budget does not guarantee a feasible design.
 Sessions, search recovery, and exports retain density, per-condition requirements, and checks.
 The API accepts the same `mass_requirements` object with `method='qlognei'` or `'sobol'`.
-Set both L bounds to 7 mm to optimize only wall thickness on a fixed cell map. Saved sessions retain these bounds.
+Set both L bounds to 7 mm to optimize only wall thickness at a fixed cell size. Saved sessions retain these bounds.
 Search pure Diamond and pure Gyroid separately. Compare them with the same conditions, limits, material, and closure settings.
 Model limits, numerical gates, and final solid connectivity, wall thickness, and fluid separation require separate checks.
 
@@ -441,7 +445,7 @@ Lost work can also include the current complete step and file write.
 | Use | Public entry | Quantity basis |
 | --- | --- | --- |
 | Rectangular full 2D/3D | `prepare_case`, then `run_case` / `evaluate` | 2D Q is W/m. 3D Q is W. |
-| Continuous-field multi-condition 2D/3D optimization | `run_multi_condition_optimization`, through complete Case solves and numerical checks | Heat-transfer percentage improvement and two-side relative pressure drop. 2D total flow uses explicit depth. |
+| Continuous-field multi-condition 2D/3D optimization | `run_multi_condition_optimization`, through complete Case solves and numerical checks | Default: heat-transfer improvement and relative pressure drop. Core-mass mode: kg with per-condition heat and pressure limits. 2D totals use explicit depth. |
 | Quick Design | `prepare_quick_design`, then the same APIs | Prescribed-velocity LTNE and analytical inlet loss, without full SIMPLE. Q is W. |
 | Parameter scans and effective-field input | [Public examples](examples/) | No private solver members are changed. |
 | Offline cleaning and Nu fitting | `preprocess.offline` | Explicit sources. No automatic production-model replacement. Previous RBF publication is retired. |
