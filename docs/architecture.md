@@ -864,6 +864,9 @@ An explicit positive count remains subject to the condition and total CPU limits
 The total native CPU limit is split between the active workers.
 New batches, recovery and optimization use the same allocation rule.
 Each native worker has its own EOS tables.
+A manager process owns cancellation, pause and progress communication.
+It remains active until all native workers stop.
+Worker exits therefore cannot retain communication locks.
 Progress and other host callbacks run in the parent process.
 Returned results keep the input order, even when workers finish out of order.
 
