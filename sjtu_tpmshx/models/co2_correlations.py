@@ -110,6 +110,17 @@ def geometry(tpms, L_mm, t_mm, k_s=1.):
                 A_0=area/cell, K_ss=chi_s_eff(tpms, 2*e)*(1-2*e)*k_s)
 
 
+def minimum_solid_geometry(tpms, L_bounds, t_bounds):
+    """Find the largest porosity over the bounded bilinear table."""
+    ls, ts, _ = _geometry_table(tpms)
+    lengths = sorted({*L_bounds, *(v for v in ls if L_bounds[0] < v < L_bounds[1])})
+    walls = sorted({*t_bounds, *(v for v in ts if t_bounds[0] < v < t_bounds[1])})
+    # Each bilinear cell attains its extrema at a corner, including clipped cells.
+    return max((dict(L_mm=float(length), t_mm=float(wall),
+                     epsilon=geometry(tpms, length, wall)['epsilon'])
+                for length in lengths for wall in walls), key=lambda row: row['epsilon'])
+
+
 def uses_co2(config):
     return 'co2' in (config.fluid_A.type, config.fluid_B.type)
 

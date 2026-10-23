@@ -172,10 +172,13 @@ def test_native_mass_search_preserves_total_units_constraints_and_exports(
     control = replace(native_3d.control(native_path), cpu_threads=1)
     directory = tmp_path / 'search'
     report = run_multi_condition_optimization(conditions, output_dir=directory,
-        method='sobol', n_init=1, n_iter=1, seed=7, control=control, workers=1,
+        method='sobol', n_init=2, n_iter=1, seed=7, control=control, workers=1,
         field_spec={'L_bounds': [7., 7.], 't_bounds': [.55, .6]}, mass_requirements=requirements)
     assert report['status'] == 'completed', report
     assert report['n_feasible'] == report['n_usable'] == 2
+    assert report['design_budget'] == 3 and report['stop_reason'] == 'mass_lower_bound'
+    assert report['history'][1]['objectives']['core_mass_kg'] == pytest.approx(
+        report['mass_lower_bound']['mass_kg'], rel=1e-12)
     for row in report['history']:
         assert row['x_decision'][:len(row['x_decision'])//2] == [7.]*(len(row['x_decision'])//2)
         batch_dir = directory / row['directory']
@@ -211,12 +214,16 @@ def test_native_mass_search_preserves_total_units_constraints_and_exports(
             with path.open(encoding='utf-8-sig') as source:
                 rows = list(csv.DictReader(source))
             assert json.loads(rows[0]['mass_requirements']) == requirements
+            assert json.loads(rows[0]['mass_lower_bound']) == report['mass_lower_bound']
+            assert rows[0]['stop_reason'] == 'mass_lower_bound'
             assert float(rows[0]['core_mass_kg']) == report['history'][0]['objectives']['core_mass_kg']
         else:
             book = load_workbook(path, read_only=True)
             try:
                 assert book['all_designs'].max_row == 3 and book['pareto_front'].max_row == 2
                 assert json.loads(dict(book['metadata'].values)['mass_requirements']) == requirements
+                assert json.loads(dict(book['metadata'].values)['mass_lower_bound']) == report['mass_lower_bound']
+                assert dict(book['metadata'].values)['stop_reason'] == 'mass_lower_bound'
             finally:
                 book.close()
     selected, = resumed['pareto_indices']
@@ -227,6 +234,8 @@ def test_native_mass_search_preserves_total_units_constraints_and_exports(
     if dimension == 2:
         assert metadata['source']['physical_depth_m'] == .03
     assert metadata['source']['mass_requirements'] == requirements
+    assert metadata['source']['mass_lower_bound'] == report['mass_lower_bound']
+    assert metadata['source']['stop_reason'] == 'mass_lower_bound'
     assert metadata['source']['constraint_checks'] == resumed['history'][selected]['constraint_checks']
 
 

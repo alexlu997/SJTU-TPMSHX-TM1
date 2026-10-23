@@ -149,6 +149,17 @@ def _C_from_tL(tpms_type: str, t_over_L: float) -> float:
     return a * t_over_L + b * t_over_L**2
 
 
+def minimum_solid_geometry(tpms_type, L_bounds, t_bounds):
+    """Find the least solid fraction within validated L/t bounds."""
+    a, b = _C_COEFFS[tpms_type]
+    # Positive C derivative on valid 0 < t/L < 0.5 orders the occupied voxel sets.
+    if min(a, a + b) <= 0:
+        raise ValueError('The level-set model does not certify monotone solid volume')
+    length, wall = float(L_bounds[1]), float(t_bounds[0])
+    return dict(L_mm=length, t_mm=wall,
+                epsilon=compute_geometry(tpms_type, length, wall)['epsilon'])
+
+
 # ── Core computation ─────────────────────────────────────────────
 
 # Retain scalar results for repeated continuous-field and fixed-flow queries.
