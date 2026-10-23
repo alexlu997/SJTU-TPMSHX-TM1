@@ -14,6 +14,25 @@ import yaml
 _ROOT = Path(__file__).resolve().parents[2]
 
 
+def test_worktree_include_copies_only_the_root_interpreter_pointer(tmp_path):
+    subprocess.run(['git', '-c', 'init.templateDir=', 'init', '-q'],
+                   cwd=tmp_path, check=True)
+    patterns = tmp_path / '.git/info/exclude'
+    patterns.parent.mkdir(exist_ok=True)
+    patterns.write_text((_ROOT / '.worktreeinclude').read_text(encoding='utf-8'),
+                        encoding='utf-8')
+    names = ['.venv-path', '.cache/archive/.venv-path',
+             'nested/project/.venv-path', '.venv-path.backup']
+    for name in names:
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('local interpreter\n', encoding='utf-8')
+    selected = subprocess.run(
+        ['git', '-c', 'core.excludesFile=', 'check-ignore', '--no-index', '--', *names],
+        cwd=tmp_path, text=True, capture_output=True, check=True)
+    assert selected.stdout.splitlines() == ['.venv-path']
+
+
 @pytest.fixture(scope='module')
 def repository_files():
     result = subprocess.run(

@@ -1,2 +1,2 @@
 # Local Codex-managed worktrees need the per-machine interpreter pointer.
-.venv-path
+/.venv-path
