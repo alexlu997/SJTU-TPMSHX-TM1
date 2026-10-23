@@ -1,12 +1,12 @@
-"""The backend returns physical zone boundaries and area-weighted statistics."""
+"""Zone display records use physical boundaries and area-weighted statistics."""
 import numpy as np
 import pytest
 
 from sjtu_tpmshx.models.zone_config import Zone, ZoneConfig
-from sjtu_tpmshx.solvers.backends.capture_2d import _zone_statistics_2d
+from sjtu_tpmshx.result_display import zone_statistics_2d
 
 
-@pytest.mark.parametrize('axis', [None, 'x', 'y', 'grid'])
+@pytest.mark.parametrize('axis', [None, 'x', 'y', 'grid', 'continuous'])
 def test_zone_result(axis):
     zones = [Zone('first', 0., .5, 7., .4), Zone('second', .5, 1., 7., .4)]
     config = ZoneConfig(zones=zones, tpms_type='Gyroid', k_s=16.)
@@ -15,7 +15,7 @@ def test_zone_result(axis):
                   grid_cells=[dict(y0=z.y_frac_start, y1=z.y_frac_end,
                                    L=z.L_mm, t=z.t_mm) for z in zones])
     temperature = np.array([[300., 340.], [400., 420.]])
-    result = _zone_statistics_2d(
+    result = zone_statistics_2d(
         axis, config if axis else None, design if axis else None, 2., 4.,
         np.array([.5, 1.5]), np.array([1., 3.]),
         temperature, temperature + 10., temperature + 20.)
@@ -23,6 +23,10 @@ def test_zone_result(axis):
         assert result is None
         return
     assert result['axis_dir'] == axis
+    if axis == 'continuous':
+        assert result == dict(axis_dir='continuous', boundaries=[], boundaries_x=[],
+                              boundaries_y=[], stats=[])
+        return
     assert [s['n_cells'] for s in result['stats']] == [2, 2]
     assert [s['Ta_mean'] for s in result['stats']] == [330., 415.]
     assert [s['Tb_mean'] for s in result['stats']] == [340., 425.]

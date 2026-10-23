@@ -5,6 +5,7 @@ import numpy as np
 
 from sjtu_tpmshx.domain.field_result import FieldResult
 from sjtu_tpmshx.domain.model_refs import freeze_value
+from sjtu_tpmshx.result_display import describe_fields
 
 
 def capture_result(case, cfg, p, r, abi):
@@ -13,9 +14,8 @@ def capture_result(case, cfg, p, r, abi):
     for s,label in enumerate('AB'):
         if r['thermal_pressure'][s] is not None:
             fields['P_thermal_'+label]=r['thermal_pressure'][s]
-    display_units={}
     for name in ('Ta','Tb','Ts'):
-        fields[name+'_display']=fields[name];display_units[name+'_display']='K'
+        fields[name+'_display']=fields[name]
     pressure,report={},{}
     for s,label in enumerate('AB'):
         f=r['flow'][s]
@@ -28,19 +28,15 @@ def capture_result(case, cfg, p, r, abi):
             gauge=np.flip(gauge,axis=axis['stream_real_axis'])
         fields['P_gauge_'+label]=np.ascontiguousarray(gauge)
         fields['P_report_'+label]=freeze_value(f['pressure_real'])
-        fields['P_f'+label+'_display']=fields['P_report_'+label];display_units['P_f'+label+'_display']='Pa'
+        fields['P_f'+label+'_display']=fields['P_report_'+label]
         for name,value in zip(('uc','vc','wc'),f['velocity_real']):
-            fields[name+label]=value;display_units[name+label]='m/s'
-        fields['vmag_'+label]=f['speed_real'];display_units['vmag_'+label]='m/s'
+            fields[name+label]=value
+        fields['vmag_'+label]=f['speed_real']
         pressure[label]=dict(P=f['pressure'],dx=f['widths'][0],dy=f['widths'][1],dz=f['widths'][2],
             inlet_frac=f['inlet_opening'],outlet_frac=f['outlet_opening'],P_ref_abs=f['pressure_reference'],axis_map=axis,
             unit='Pa',axes=('solver_x','solver_y','solver_z'),stream_axis=1,state='final SIMPLE flow',method='face_extrapolation_v1')
         report[label]=dict(direction=cfg['fluid_'+label+'_cfg']['dir'])
-    field_metadata={key:dict(unit='K' if key in ('Ta','Tb','Ts') else 'Pa' if key.startswith('P_') else
-        'W/(m3 K)' if key.startswith('h_v') else 'W/(m K)',axes=('x','y','z'),location='cell',
-        state='final SIMPLE flow' if key.startswith(('P_report','P_gauge')) else 'last thermal solve') for key in fields}
-    for name,unit in display_units.items():
-        field_metadata[name]=dict(unit=unit,axes=('x','y','z'),location='cell',state='display' if name.endswith('_display') else 'final flow/report')
+    field_metadata = describe_fields(fields, 3)
     from sjtu_tpmshx.df_surrogate.experimental_correction import cfd_metadata
     df_metadata=dict(mode=cfg.get('df_mode','cfd_smooth'))
     for label,f in zip('AB',r['flow']):
