@@ -126,6 +126,7 @@ def test_infeasible_designs_train_model_but_cannot_be_selected_and_resume(tmp_pa
     assert resumed['history'] == result['history']
     assert resumed['mass_requirements'] == result['mass_requirements']
     assert resumed['pareto_indices'] == [3]
+    _assert_export_counts(resumed, tmp_path/'exports', budget=4, evaluated=4, usable=3)
     saved = tmp_path / 'source/optimization.json'
     changed = json.loads(saved.read_text())
     changed['mass_requirements']['conditions']['flow-0']['Q_min_W'] = 99.
@@ -279,6 +280,31 @@ def test_mass_bound_stop_requires_every_hard_limit_and_survives_resume(
     assert len(calls) == before
     assert resumed['history'] == result['history']
     assert resumed.get('stop_reason') == result.get('stop_reason')
+    if attained:
+        _assert_export_counts(resumed, tmp_path/'exports', budget=4, evaluated=2, usable=2)
+
+
+def _assert_export_counts(report, output, *, budget, evaluated, usable):
+    import csv
+    from openpyxl import load_workbook
+    from sjtu_tpmshx.optimization.pareto_io import export_pareto_data
+    from sjtu_tpmshx.optimization.export_ntop_csv import export_study_design
+
+    export_pareto_data(report, output/'data.csv')
+    with (output/'data.csv').open(encoding='utf-8-sig') as stream:
+        rows = list(csv.DictReader(stream))
+    assert len(rows) == usable
+    assert all(int(row['design_budget']) == budget and int(row['n_evaluated']) == evaluated for row in rows)
+    export_pareto_data(report, output/'data.xlsx')
+    book = load_workbook(output/'data.xlsx', read_only=True)
+    try:
+        metadata = dict(book['metadata'].values)
+        assert metadata['design_budget'] == budget and metadata['n_evaluated'] == evaluated
+    finally:
+        book.close()
+    export_study_design(report, report['pareto_indices'][0], output/'geometry', (3,)*report['dimension'])
+    source = json.loads((output/'geometry/provenance.json').read_text())['source']
+    assert source['design_budget'] == budget and source['n_evaluated'] == evaluated
 
 
 def test_minimum_mass_uniform_seed_needs_no_duplicate_candidate(tmp_path, monkeypatch):

@@ -32,7 +32,8 @@ def export_pareto_data(report, path):
                            mass_requirements=json.dumps(report['mass_requirements'], ensure_ascii=False))
             if 'mass_lower_bound' in report:
                 details.update(mass_lower_bound=json.dumps(report['mass_lower_bound']),
-                               stop_reason=report.get('stop_reason'))
+                               stop_reason=report.get('stop_reason'),
+                               design_budget=report['design_budget'], n_evaluated=report['n_evaluated'])
         else:
             values = {key: float(objectives[key]) for key in ('pressure_ratio', 'heat_gain_percent')}
             details = {}
@@ -70,7 +71,8 @@ def export_pareto_data(report, path):
                 metadata = workbook.create_sheet('metadata')
                 metadata.append(['key', 'value'])
                 for key in ('status', 'method', 'dimension', 'field_spec', 'objective_directions',
-                            'mass_requirements', 'mass_lower_bound', 'stop_reason'):
+                            'mass_requirements', 'mass_lower_bound', 'stop_reason',
+                            'design_budget', 'n_evaluated'):
                     value = report.get(key)
                     metadata.append([key, json.dumps(value, ensure_ascii=False)
                                      if isinstance(value, dict) else value])
