@@ -178,8 +178,6 @@ _batch_pause = None
 def _init_condition_worker(cancel, events, pause):
     global _batch_cancel, _batch_events, _batch_pause
     _batch_cancel, _batch_events, _batch_pause = cancel, events, pause
-    # Final state returns through the future; queued progress must not delay exit.
-    events.cancel_join_thread()
 
 
 def _run_native_condition(index, case_file, directory, library, threads, checkpoint_file=None):
@@ -553,125 +551,126 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
             finish_condition(inputs[index][0], case, row, field, performance)
 
         context = get_context('spawn')
-        cancel, events, pause = context.Event(), context.Queue(), context.Event()
-        pool = ProcessPoolExecutor(max_workers=worker_count, mp_context=context,
-            initializer=_init_condition_worker, initargs=(cancel, events, pause))
-        pending, next_index = {}, 0
-        progress = [0] * len(inputs)
-        error = None
-        try:
-            while pending or (next_index < len(inputs) and error is None):
-                if error is None or isinstance(error, PausedRun):
-                    try:
-                        control.check_cancelled()
-                        if error is None and pause_check is not None and pause_check():
-                            error = PausedRun(root / 'batch.json')
-                            pause.set()
-                    except BaseException as caught:
-                        error = caught
-                        cancel.set()
-                while error is None and len(pending) < worker_count and next_index < len(inputs):
-                    index = next_index
-                    next_index += 1
-                    row = history[index]
-                    if row['status'] in ('completed', 'failed'):
-                        progress[index] = 100
-                        continue
-                    row.update(status='running', stage='input')
-                    publish()
-                    try:
-                        case, _ = prepare_condition(inputs[index], row, root / row['directory'])
-                        del case
-                        check_stop()
-                        future = pool.submit(_run_native_condition, index,
-                            str(root / row['case_file']), str(root / row['directory']),
-                            control.native_library, worker_threads, row.get('resume_checkpoint'))
-                        pending[future] = index
-                    except PausedRun as caught:
-                        row.update(status='paused', reason=str(caught))
-                        error = caught
-                        pause.set()
-                    except CancelledError as caught:
-                        row.update(status='cancelled', reason=str(caught))
-                        error = caught
-                        cancel.set()
-                    except Exception as caught:
-                        row.update(status='failed', reason=f'{type(caught).__name__}: {caught}')
-                        progress[index] = 100
-                        if isinstance(caught, BrokenProcessPool):
-                            error = caught
-                            cancel.set()
-                    publish()
-                if not pending:
-                    continue
-                done, _ = wait(pending, timeout=.1, return_when=FIRST_COMPLETED)
-                changed = False
-                while True:
-                    try:
-                        index, name, values = events.get_nowait()
-                    except Empty:
-                        break
-                    if name == 'update':
-                        history[index].update(values)
-                        changed = True
-                    elif error is None:
+        with context.Manager() as manager:
+            cancel, events, pause = manager.Event(), manager.Queue(), manager.Event()
+            pool = ProcessPoolExecutor(max_workers=worker_count, mp_context=context,
+                initializer=_init_condition_worker, initargs=(cancel, events, pause))
+            pending, next_index = {}, 0
+            progress = [0] * len(inputs)
+            error = None
+            try:
+                while pending or (next_index < len(inputs) and error is None):
+                    if error is None or isinstance(error, PausedRun):
                         try:
-                            if name == 'progress':
-                                progress[index] = max(progress[index], values[0])
-                                control.report_progress(int(sum(progress) / len(inputs)))
-                            else:
-                                callback = getattr(control, name)
-                                if callback is not None:
-                                    callback(*values)
+                            control.check_cancelled()
+                            if error is None and pause_check is not None and pause_check():
+                                error = PausedRun(root / 'batch.json')
+                                pause.set()
                         except BaseException as caught:
                             error = caught
                             cancel.set()
-                if changed:
-                    publish()
-                for future in done:
-                    index = pending.pop(future)
-                    row = history[index]
-                    try:
-                        row.update(future.result())
-                        if row['status'] == 'computed':
-                            finish_saved(index, row)
-                        elif row['status'] == 'paused':
-                            if error is None:
-                                error = PausedRun(root / 'batch.json')
-                                pause.set()
-                            for note in row['pause_notes']:
-                                error.add_note(f'{row["condition_id"]}: {note}')
-                        elif row['status'] == 'cancelled' and error is None:
-                            error = CancelledError(row['reason'])
+                    while error is None and len(pending) < worker_count and next_index < len(inputs):
+                        index = next_index
+                        next_index += 1
+                        row = history[index]
+                        if row['status'] in ('completed', 'failed'):
+                            progress[index] = 100
+                            continue
+                        row.update(status='running', stage='input')
+                        publish()
+                        try:
+                            case, _ = prepare_condition(inputs[index], row, root / row['directory'])
+                            del case
+                            check_stop()
+                            future = pool.submit(_run_native_condition, index,
+                                str(root / row['case_file']), str(root / row['directory']),
+                                control.native_library, worker_threads, row.get('resume_checkpoint'))
+                            pending[future] = index
+                        except PausedRun as caught:
+                            row.update(status='paused', reason=str(caught))
+                            error = caught
+                            pause.set()
+                        except CancelledError as caught:
+                            row.update(status='cancelled', reason=str(caught))
+                            error = caught
                             cancel.set()
-                    except Exception as caught:
-                        row.update(status='failed', reason=f'{type(caught).__name__}: {caught}',
-                                   **_condition_output_paths(root / row['directory']))
-                        if isinstance(caught, BrokenProcessPool):
-                            error = caught if error is None else error
+                        except Exception as caught:
+                            row.update(status='failed', reason=f'{type(caught).__name__}: {caught}')
+                            progress[index] = 100
+                            if isinstance(caught, BrokenProcessPool):
+                                error = caught
+                                cancel.set()
+                        publish()
+                    if not pending:
+                        continue
+                    done, _ = wait(pending, timeout=.1, return_when=FIRST_COMPLETED)
+                    changed = False
+                    while True:
+                        try:
+                            index, name, values = events.get_nowait()
+                        except Empty:
+                            break
+                        if name == 'update':
+                            history[index].update(values)
+                            changed = True
+                        elif error is None:
+                            try:
+                                if name == 'progress':
+                                    progress[index] = max(progress[index], values[0])
+                                    control.report_progress(int(sum(progress) / len(inputs)))
+                                else:
+                                    callback = getattr(control, name)
+                                    if callback is not None:
+                                        callback(*values)
+                            except BaseException as caught:
+                                error = caught
+                                cancel.set()
+                    if changed:
+                        publish()
+                    for future in done:
+                        index = pending.pop(future)
+                        row = history[index]
+                        try:
+                            row.update(future.result())
+                            if row['status'] == 'computed':
+                                finish_saved(index, row)
+                            elif row['status'] == 'paused':
+                                if error is None:
+                                    error = PausedRun(root / 'batch.json')
+                                    pause.set()
+                                for note in row['pause_notes']:
+                                    error.add_note(f'{row["condition_id"]}: {note}')
+                            elif row['status'] == 'cancelled' and error is None:
+                                error = CancelledError(row['reason'])
+                                cancel.set()
+                        except Exception as caught:
+                            row.update(status='failed', reason=f'{type(caught).__name__}: {caught}',
+                                       **_condition_output_paths(root / row['directory']))
+                            if isinstance(caught, BrokenProcessPool):
+                                error = caught if error is None else error
+                                cancel.set()
+                        progress[index] = 100
+                        publish()
+                    if error is None:
+                        try:
+                            control.report_progress(int(sum(progress) / len(inputs)))
+                        except BaseException as caught:
+                            error = caught
                             cancel.set()
-                    progress[index] = 100
-                    publish()
-                if error is None:
+                if isinstance(error, PausedRun):
                     try:
-                        control.report_progress(int(sum(progress) / len(inputs)))
+                        control.check_cancelled()
                     except BaseException as caught:
+                        for note in getattr(error, '__notes__', ()):
+                            caught.add_note(note)
                         error = caught
-                        cancel.set()
-            if isinstance(error, PausedRun):
+                if error is not None:
+                    raise error
+            finally:
                 try:
-                    control.check_cancelled()
-                except BaseException as caught:
-                    for note in getattr(error, '__notes__', ()):
-                        caught.add_note(note)
-                    error = caught
-            if error is not None:
-                raise error
-        finally:
-            cancel.set()
-            pool.shutdown(wait=True, cancel_futures=True)
-            events.close()
-            events.join_thread()
+                    cancel.set()
+                finally:
+                    pool.shutdown(wait=True, cancel_futures=True)
 
     publish()
     primary_error = None
