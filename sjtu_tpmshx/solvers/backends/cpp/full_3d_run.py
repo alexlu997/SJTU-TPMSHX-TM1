@@ -3,7 +3,7 @@ import ctypes as ct
 
 from .enthalpy import _EnergyOptionsV2
 from .model_h import _IterationOptions
-from .full_3d import _Callbacks, _Control, _Input, _Result
+from ._full_3d_abi import _Callbacks, _Control, _Input, _Result
 from .run_state import NativeRun
 
 

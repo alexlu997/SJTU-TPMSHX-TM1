@@ -4,7 +4,7 @@ import ctypes as ct
 from sjtu_tpmshx.models.envelope import ChokedFlowError
 from .enthalpy import _EnergyOptions
 from .model_h import _IterationOptions
-from .full_2d import _Callbacks, _Config, _EnergyControl, _Result
+from ._full_2d_abi import _Callbacks, _Config, _EnergyControl, _Result
 from .run_state import NativeRun
 
 

@@ -1,5 +1,6 @@
 """Explicit one-way module boundaries, including imports inside functions."""
 import ast
+from graphlib import TopologicalSorter
 from pathlib import Path
 
 from sjtu_tpmshx.runs.tools.audit_import_graph import import_targets
@@ -40,3 +41,21 @@ def test_checker_detects_nested_illegal_import_and_allows_shared_models():
     assert (1, 'sjtu_tpmshx.solvers') in forbidden_imports(
         'from .. import solvers', ('solvers',), 'sjtu_tpmshx.postprocess')
     assert not forbidden_imports('from sjtu_tpmshx.models.catalog import resolve_model', ('solvers',))
+
+
+def test_solver_imports_have_no_cycles():
+    modules = {
+        '.'.join(('sjtu_tpmshx', *path.relative_to(ROOT).with_suffix('').parts))
+        .removesuffix('.__init__'): path
+        for path in (ROOT / 'solvers').rglob('*.py')
+    }
+    graph = {}
+    for module, path in modules.items():
+        package = module if path.name == '__init__.py' else module.rsplit('.', 1)[0]
+        graph[module] = {
+            target
+            for node in ast.walk(ast.parse(path.read_text(encoding='utf-8')))
+            for target in import_targets(node, package)
+            if target in modules
+        }
+    TopologicalSorter(graph).prepare()
