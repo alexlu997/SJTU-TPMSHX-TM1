@@ -6,8 +6,8 @@ from sjtu_tpmshx.domain.case_data import CaseData
 from sjtu_tpmshx.domain.portable_data import mutable_data as _mutable_data
 from sjtu_tpmshx.domain.compute_config import ComputeConfig
 from sjtu_tpmshx.domain.persistence_validation import validate_grid, validate_thermal_geometry
-from sjtu_tpmshx.models.catalog import resolve_model
 from sjtu_tpmshx.models.zone_config import Zone, ZoneConfig
+from .prepared_models import resolve_models, validate_fluid, validate_nu_settings, validate_topology
 
 
 from sjtu_tpmshx.models.zone_units import _legacy_zone_units
@@ -56,20 +56,11 @@ def build_execution_inputs(case: CaseData, *, copy_design=True):
     if case.metadata['design_mode'] == 'continuous':
         run_settings['zones'] = dict(enabled=True, axis='continuous', config=cfg['continuous_field'])
     cfg['compute_cfg'] = ComputeConfig.from_dict(run_settings)
-    roles = case.metadata['model_roles']
-    if set(roles) != {'fluid_A', 'fluid_B', 'geometry', 'darcy_forchheimer'} or sorted(roles.values()) != list(range(len(case.model_refs))):
-        raise ValueError('2D model roles must account for every recorded resource')
-    providers = {role: resolve_model(case.model_refs[index]) for role, index in roles.items()}
+    providers = resolve_models(case)
     for side in ('A', 'B'):
-        model = providers['fluid_' + side]
-        ref = case.model_refs[roles['fluid_' + side]]
-        if dict(ref.parameters['sco2_nu']) != run_settings['sco2_nu']:
-            raise ValueError(f'prepared Nu settings and fluid {side} resource disagree')
-        if model.name != cfg['fluid_' + side]:
-            raise ValueError(f'prepared fluid {side} and its model resource disagree')
-    df_ref = case.model_refs[roles['darcy_forchheimer']]
-    if df_ref.parameters['topology'] != cfg['tpms_type']:
-        raise ValueError('prepared topology and Darcy-Forchheimer resource disagree')
+        validate_nu_settings(case, side, run_settings['sco2_nu'])
+        validate_fluid(case, providers, side, cfg['fluid_' + side])
+    validate_topology(case, cfg['tpms_type'])
     cfg['_models'] = providers
     design = _legacy_zone_units({
         key: value if not copy_design and isinstance(value, np.ndarray) else _mutable_data(value)

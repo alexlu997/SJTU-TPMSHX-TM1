@@ -127,10 +127,25 @@ def check_portable(actual, raw, case):
         assert info['extrapolated'] == raw['fine_extrapolated']
 
 
+def check_model_range_bounds(source, bounds):
+    if source[0] in ('nu', 'nu_raw'):
+        expected = {'air': (400., 16000.), 'water': (90., 51000.),
+                    'sco2': (2600., 128000.), 'co2': (3000., 60000.)}
+    elif source[0] in ('property', 'property_state'):
+        expected = {'air_viscosity': (200., 1100.), 'air_conductivity': (200., 1100.),
+                    'air_cp': (250., 1000.), 'water_density': (273.15, 363.15),
+                    'water_viscosity': (273.15, 363.15), 'water_conductivity': (273.15, 363.15),
+                    'water_cp': (273.15, 363.15)}
+    else:
+        return
+    assert tuple(bounds) == expected[source[1]]
+
+
 def check_range_records(records, rows):
     groups = {}
     for row in rows:
         source = (row['view'], row['model'], row['topology']) if row['view'].startswith('nu') else (row['view'], row['model'])
+        check_model_range_bounds(source, row['bounds'])
         key = (*source, tuple(row['shape']), (row['side'], row['stage'], row['layout']))
         groups.setdefault(key, []).append(row)
         assert row['size'] == int(np.prod(row['shape']))

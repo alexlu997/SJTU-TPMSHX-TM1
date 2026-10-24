@@ -3,6 +3,7 @@
 #include "tpmshx/model_coefficients.hpp"
 #include "tpmshx/refinement_2d.hpp"
 #include "contiguous_sum.hpp"
+#include "closure_ranges.hpp"
 #include "model_h_common.hpp"
 
 #include <exception>
@@ -44,7 +45,6 @@ double average(ArrayView<const double> values,const GridView& g) {
 }
 double maximum(ArrayView<const double> x) { return *std::max_element(x.data,x.data+x.size); }
 double minimum(ArrayView<const double> x) { return *std::min_element(x.data,x.data+x.size); }
-const char* fluid_name(Fluid fluid) { return fluid==Fluid::air?"air":fluid==Fluid::water?"water":fluid==Fluid::co2?"co2":"sco2"; }
 void temperature_ranges(std::vector<RangeObservation>& ledger,Fluid fluid,std::size_t side,
                         const char* source,const char* stage,const char* layout,
                         const std::vector<std::size_t>& shape,ArrayView<const double> temperature,
@@ -52,9 +52,7 @@ void temperature_ranges(std::vector<RangeObservation>& ledger,Fluid fluid,std::s
     if (uses_co2_eos(fluid)) return; // sCO2 state bounds are fail-loud, not empirical fit warnings.
     for (const auto* property:properties) {
         if (fluid==Fluid::air && std::string(property)=="density") continue;
-        const auto bounds=fluid==Fluid::water?data::water_temperature_range:
-            std::string(property)=="cp"?data::air_cp_temperature_range:data::air_temperature_range;
-        observe_range(ledger,{source,std::string(fluid_name(fluid))+"_"+property,"",stage,layout,side,shape,bounds},temperature);
+        observe_range(ledger,closure_ranges::property(fluid,property,side,source,stage,layout,shape),temperature);
     }
 }
 void temperature_state(std::vector<RangeObservation>& ledger,Fluid fluid,std::size_t side,
@@ -64,12 +62,7 @@ void temperature_state(std::vector<RangeObservation>& ledger,Fluid fluid,std::si
 }
 RangeObservation nu_range(const Full2DProblem& p,std::size_t side,bool raw,const char* stage,
                           const char* layout,std::vector<std::size_t> shape) {
-    const auto fluid=p.sides[side].fluid;
-    const auto bounds=fluid==Fluid::air?data::air_nu_re_range:
-        fluid==Fluid::water?data::water_nu_re_range:
-        fluid==Fluid::co2?data::co2_nu_re_range:data::sco2_nu_re_range;
-    return {raw?"nu_raw":"nu",fluid_name(fluid),p.topology==Topology::diamond?"Diamond":"Gyroid",
-            stage,layout,side,std::move(shape),bounds};
+    return closure_ranges::nu(p.sides[side].fluid,p.topology,side,raw?"nu_raw":"nu",stage,layout,std::move(shape));
 }
 std::size_t flow_index(std::size_t i,std::size_t j,const GridView& g,int direction) {
     if (direction<2) return j*g.nx+(direction==0?i:g.nx-1-i);
