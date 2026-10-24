@@ -61,8 +61,6 @@ std::vector<double> solve_mac_neumann_bordered(
 // solved-phase L1 and global energy error must also be <=1e-7 relative to
 // max(abs(Qa),abs(Qb),1). Incomplete boundaries retain diagnostic Q/field stopping.
 // Prescribed B is fixed, contributes reservoir power and has no B certificate.
-// The true-h warm-up keeps caller relaxation and the original two-sweep map:
-// live serial SOU, one-sweep RB snapshots and exterior solid self terms.
 // Original non-model-h acceleration is unsupported. No EOS or model-h path.
 // One instance retains the last grid's AMG hierarchy and is not concurrently
 // callable; independent instances have independent mutable solver storage.
@@ -84,14 +82,14 @@ public:
         const StaggeredTemperatureFluid&, ArrayView<const double> k_ss,
         TemperatureStateView, const TemperatureControl&, bool conservative,
         bool red_black, ArrayView<const double> prescribed_b={},
-        ArrayView<const double> source_solid={}, bool true_h_warm_up=false,
+        ArrayView<const double> source_solid={},
         PhysicalHeatLedger* physical_audit=nullptr);
     void restore_active(const GridView&, const StaggeredTemperatureFluid&,
         const StaggeredTemperatureFluid&, ArrayView<const double> k_ss,
         TemperatureStateView, const TemperatureControl&, bool conservative,
         bool red_black, const StaggeredTemperatureRunState&,
         ArrayView<const double> prescribed_b={}, ArrayView<const double> source_solid={},
-        bool true_h_warm_up=false, PhysicalHeatLedger* physical_audit=nullptr);
+        PhysicalHeatLedger* physical_audit=nullptr);
     TemperaturePhase advance();
     TemperaturePhase phase() const;
     StaggeredTemperatureRunState snapshot_active() const;
@@ -103,7 +101,6 @@ public:
         bool conservative, bool red_black,
         ArrayView<const double> prescribed_b = {},
         ArrayView<const double> source_solid = {},
-        bool true_h_warm_up = false,
         PhysicalHeatLedger* physical_audit = nullptr);
 private:
     struct Impl;

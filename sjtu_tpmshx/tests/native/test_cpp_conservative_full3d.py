@@ -421,7 +421,7 @@ def test_missing_version_query_blocks_candidate_before_solve_but_allows_legacy(n
 
 
 @pytest.mark.parametrize('algorithm', ALGORITHMS)
-def test_zero_sweep_budget_retains_true_h_warmup(native_path, algorithm):
+def test_zero_sweep_budget_keeps_initial_state_and_energy_gates(native_path, algorithm):
     case = candidate(algorithm, cap=2)
     case = replace(case, parameters=dict(case.parameters, ltne_enthalpy_outer=1, ltne_enthalpy_nsweep=0))
     result = run_case(case, control(native_path, cpu_threads=1))
@@ -432,9 +432,11 @@ def test_zero_sweep_budget_retains_true_h_warmup(native_path, algorithm):
     assert balance['effective_settings']['sweeps'] == 0
     assert balance['temperature_update_K'] == 0.
     assert balance['equation_energy_balance']['ratio'] > balance['effective_settings']['equation_energy_tol']
-    # The independent G4/staggered warm-up oracle is in test_full_3d.
-    for key in ('Ta', 'Tb', 'Ts'):
-        assert np.isfinite(result.fields[key]).all()
+    cfg, _ = build_execution_inputs(case)
+    tin = (cfg['T_inA'], cfg['T_inB'])
+    solid = cfg['T_s_init'] if cfg.get('T_s_init') is not None else .5*sum(tin)
+    for key, value in zip(('Ta', 'Tb', 'Ts'), (*tin, solid)):
+        np.testing.assert_array_equal(result.fields[key], np.full_like(result.fields[key], value))
 
 
 @pytest.mark.parametrize('algorithm', ALGORITHMS)

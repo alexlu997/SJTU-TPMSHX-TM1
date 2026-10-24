@@ -202,7 +202,6 @@ struct Full3DThermalRunState {
     std::optional<ModelHRunState2D> model_h_2d;
     std::optional<ModelHRunState3D> model_h_3d;
     std::optional<StaggeredTemperatureRunState> staggered;
-    std::optional<TemperatureRunState> legacy;
     std::optional<EnthalpyRunState> enthalpy;
 };
 

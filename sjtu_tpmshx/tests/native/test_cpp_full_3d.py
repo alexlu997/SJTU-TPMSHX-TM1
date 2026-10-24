@@ -709,7 +709,8 @@ def test_first_thermal_sampling_distinguishes_inlet_and_seed(native_path, seeded
     assert sample['outer_index'] == 0
     assert sample['temperature'] == ('previous_thermal_or_seed' if seeded else 'inlet')
     assert sample['operation'] == ('local_evaluation' if seeded else 'scalar_evaluation')
-    assert any(row['stage'] == 'thermal_warmup' for row in rows)
+    assert any(row['stage'] == 'thermal_prepare' for row in rows)
+    assert not any(row['stage'] == 'thermal_warmup' for row in rows)
     post = [row for row in rows if row['stage'] == 'flow_post']
     assert post and all(row['temperature'] == 'current_thermal_return' for row in post)
 
@@ -1236,7 +1237,7 @@ def _inner_prepared(route):
 
 def _inner_position(state):
     prefix = 'state.thermal.value.'
-    for owner in ('model_h_2d', 'model_h_3d', 'staggered', 'legacy', 'enthalpy'):
+    for owner in ('model_h_2d', 'model_h_3d', 'staggered', 'enthalpy'):
         if state[prefix+owner+'.present'][0]:
             path = prefix+owner+'.value.'
             result = path+('iteration.' if owner == 'staggered' else '')+'result.'
@@ -1278,28 +1279,48 @@ def test_inner_thermal_checkpoint_keeps_complete_result(native_path, route, afte
     _exact_resume_values(actual, expected)
 
 
-@pytest.mark.parametrize('nz', [1, 2])
-@pytest.mark.parametrize('cut_owner', ['legacy', 'enthalpy'])
-def test_true_h_cc_warmup_checkpoint_keeps_complete_result(native_path, nz, cut_owner):
+@pytest.mark.parametrize('nz,conservative,red_black', [
+    (1, False, False), (2, False, False), (2, True, False), (2, True, True)])
+@pytest.mark.parametrize('cut_outer', [0, 1])
+def test_true_h_preparation_hands_unchanged_fields_to_eos_checkpoint(
+        native_path, nz, conservative, red_black, cut_outer):
     from sjtu_tpmshx.solvers.backends.cpp.full_3d import NativeFull3DDriver
     from sjtu_tpmshx.tests.native.test_full_3d import prepared
     cfg, p = prepared('sco2-water', counts=(3, 4, nz), directions=(0, 3),
-                      max_iter_simple=40, conservative_ltne=False, force_cc_ltne=True,
-                      ltne_enthalpy_outer=12, ltne_enthalpy_nsweep=3)
+                      max_iter_simple=40, conservative_ltne=conservative, force_cc_ltne=True,
+                      _native_rb_energy=red_black, ltne_enthalpy_outer=12, ltne_enthalpy_nsweep=3)
     p.update(max_outer=2, ltne_max_iter=800)
     driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
     expected = driver.run_prepared(cfg, p)
     saved = {}
     def pause(state):
-        if state['state.phase'][0] == 8 and _inner_position(state) == (cut_owner, 0):
+        if state['state.phase'][0] != 8:
+            return
+        assert _inner_position(state)[0] == 'enthalpy'
+        if (state['state.thermal.value.record.outer_index'][0] == cut_outer
+                and _inner_position(state)[1] == 0):
             saved.update(state)
             raise _PauseCheckpoint
     with pytest.raises(_PauseCheckpoint):
         driver.run_prepared(cfg, p, checkpoint=pause)
-    assert saved['state.thermal.value.budget'][0] == 2
+    assert saved['state.thermal.value.budget'][0] == 0
+    for field in range(3):
+        np.testing.assert_array_equal(saved[f'state.temperature.{field}'],
+                                      saved[f'state.thermal.value.initial.{field}'])
+    evidence = 'state.thermal.value.evidence.'
+    assert bool(saved[evidence+'staggered.present'][0]) == (nz > 1 and conservative)
+    if nz > 1 and conservative:
+        assert saved[evidence+'staggered.value.iteration.iterations'][0] == 0
+    for side in range(2):
+        for axis in range(3):
+            mass = saved[evidence+f'mass.{side}.{axis}']
+            assert mass.size and np.isfinite(mass).all()
     actual = driver.run_prepared(cfg, p, resume_state=saved)
     actual.pop('continuation')
     _exact_resume_values(actual, expected)
+    saved['state.thermal.value.budget'][0] = 2
+    with pytest.raises(ValueError, match='continuation thermal budget'):
+        driver.run_prepared(cfg, p, resume_state=saved)
 
 
 @pytest.mark.parametrize('phase', [6, 7, 9, 10])

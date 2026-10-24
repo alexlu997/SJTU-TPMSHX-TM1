@@ -199,12 +199,12 @@ std::size_t cell_cuts(bool three_d,bool warm,bool rb,bool second,bool direct,boo
     return history.size();
 }
 
-std::size_t staggered_cuts(bool conservative,bool rb,bool warm_up,bool prescribed) {
+std::size_t staggered_cuts(bool conservative,bool rb,bool prescribed) {
     Fixture f(true);auto reference=f.fields();Observer expected;
     const auto c=expected.control(rb);const auto fixed=prescribed?read(f.prescribed):ArrayView<const double>{};
     PhysicalHeatLedger reference_audit;
     StaggeredTemperatureDriver continuous;
-    continuous.start(f.grid(),f.staggered(0,true),f.staggered(1,true),read(f.ks),write(reference),c,conservative,rb,fixed,read(f.source),warm_up,&reference_audit);
+    continuous.start(f.grid(),f.staggered(0,true),f.staggered(1,true),read(f.ks),write(reference),c,conservative,rb,fixed,read(f.source),&reference_audit);
     expected.staggered=&continuous;
     std::vector<StaggeredTemperatureRunState> history;
     while(continuous.phase()==TemperaturePhase::active) {
@@ -219,7 +219,7 @@ std::size_t staggered_cuts(bool conservative,bool rb,bool warm_up,bool prescribe
         StaggeredTemperatureRunState saved;
         {
             StaggeredTemperatureDriver first;
-            first.start(f.grid(),f.staggered(0,true),f.staggered(1,true),read(f.ks),write(fields),controls,conservative,rb,fixed,read(f.source),warm_up);
+            first.start(f.grid(),f.staggered(0,true),f.staggered(1,true),read(f.ks),write(fields),controls,conservative,rb,fixed,read(f.source));
             observed.staggered=&first;
             for(std::size_t step=0;step<cut;++step) first.advance();
             saved=first.snapshot_active();require(same(saved,history[cut]),"staggered save boundary changed");
@@ -229,7 +229,7 @@ std::size_t staggered_cuts(bool conservative,bool rb,bool warm_up,bool prescribe
         for(auto& field:fields) std::fill(field.begin(),field.end(),std::numeric_limits<double>::quiet_NaN());
         require(same(saved,history[cut]),"staggered snapshot aliases caller fields");
         PhysicalHeatLedger audit;StaggeredTemperatureDriver restored;
-        restored.restore_active(f.grid(),f.staggered(0,true),f.staggered(1,true),read(f.ks),write(fields),controls,conservative,rb,saved,fixed,read(f.source),warm_up,&audit);
+        restored.restore_active(f.grid(),f.staggered(0,true),f.staggered(1,true),read(f.ks),write(fields),controls,conservative,rb,saved,fixed,read(f.source),&audit);
         observed.staggered=&restored;
         std::size_t step=cut;
         while(restored.phase()==TemperaturePhase::active) {
@@ -239,7 +239,7 @@ std::size_t staggered_cuts(bool conservative,bool rb,bool warm_up,bool prescribe
         require(observed.calls==expected.calls && observed.progress==expected.progress,"staggered resumed callbacks differ");
     }
     auto wrapper=f.fields();Observer calls;const auto controls=calls.control(rb);PhysicalHeatLedger audit;
-    require(same(continuous.solve(f.grid(),f.staggered(0,true),f.staggered(1,true),read(f.ks),write(wrapper),controls,conservative,rb,fixed,read(f.source),warm_up,&audit),expected_result)
+    require(same(continuous.solve(f.grid(),f.staggered(0,true),f.staggered(1,true),read(f.ks),write(wrapper),controls,conservative,rb,fixed,read(f.source),&audit),expected_result)
         && wrapper==reference && same(audit,reference_audit),"staggered one-shot wrapper differs");
     if(prescribed) for(int kind=0;kind<14;++kind) {
         auto invalid=history[1];
@@ -250,7 +250,7 @@ std::size_t staggered_cuts(bool conservative,bool rb,bool warm_up,bool prescribe
         else if(kind==12) invalid.projection[0].cg_iterations=501;
         else invalid.projection[0].residual_relative=-1.;
         auto target=f.fields();const auto before=target;StaggeredTemperatureDriver bad;
-        reject([&]{bad.restore_active(f.grid(),f.staggered(0,true),f.staggered(1,true),read(f.ks),write(target),c,conservative,rb,invalid,fixed,read(f.source),warm_up);});
+        reject([&]{bad.restore_active(f.grid(),f.staggered(0,true),f.staggered(1,true),read(f.ks),write(target),c,conservative,rb,invalid,fixed,read(f.source));});
         require(target==before,"invalid staggered save wrote destination");
     }
     return history.size();
@@ -264,7 +264,7 @@ void termination(bool staggered) {
         TemperatureResult result{};
         if(staggered) {
             StaggeredTemperatureDriver run;
-            run.start(f.grid(),f.staggered(0,false),f.staggered(1,false),read(f.ks),write(fields),c,true,false,{},{},false,&audit);
+            run.start(f.grid(),f.staggered(0,false),f.staggered(1,false),read(f.ks),write(fields),c,true,false,{},{},&audit);
             while(run.phase()==TemperaturePhase::active) run.advance();
             result=run.take_result().iteration;
         } else {
@@ -280,7 +280,7 @@ void termination(bool staggered) {
         PhysicalHeatLedger audit;audit.prescribed_b_power=123.;TemperatureResult result{};
         if(staggered) {
             StaggeredTemperatureDriver run;
-            run.start(f.grid(),f.staggered(0,false),f.staggered(1,false),read(f.ks),write(fields),c,true,false,{},{},false,&audit);
+            run.start(f.grid(),f.staggered(0,false),f.staggered(1,false),read(f.ks),write(fields),c,true,false,{},{},&audit);
             observer.staggered=&run;while(run.phase()==TemperaturePhase::active) run.advance();
             require(run.phase()==TemperaturePhase::cancelled,"staggered cancel phase");
             reject([&]{run.snapshot_active();});result=run.take_result().iteration;
@@ -372,8 +372,8 @@ int main() {
             cell+=cell_cuts(true,warm,false,true,false,false);
             cell+=cell_cuts(true,warm,false,true,true,true);
         }
-        for(bool conservative:{false,true}) for(bool rb:{false,true}) for(bool warm_up:{false,true})
-            staggered+=staggered_cuts(conservative,rb,warm_up,rb);
+        for(bool conservative:{false,true}) for(bool rb:{false,true})
+            staggered+=staggered_cuts(conservative,rb,rb);
         termination(false);termination(true);
         initial_and_converged(false);initial_and_converged(true);
         std::cout<<"temperature restore: "<<cell<<" cell boundaries, "<<staggered

@@ -210,16 +210,6 @@ struct Side {
             {{{offset[0].data(),offset[0].size()}, {offset[1].data(),offset[1].size()},
               {offset[2].data(),offset[2].size()}}});
     }
-    void reconstruct_cell(const detail::EnergyMesh& mesh,ArrayView<const double> t,std::size_t p) {
-        const auto c=mesh.coord(p);
-        for(std::size_t axis=0;axis<3;++axis) for(int sign:{-1,1}) {
-            if(!mesh.inside(c,axis,sign)) continue;
-            const auto low=sign<0 ? p-mesh.stride[axis]:p;
-            const auto face=mesh.face(axis,p,sign);
-            offset[axis][face]=detail::temperature_face_correction(
-                mesh,axis,low,capacity[axis][face],t).value;
-        }
-    }
     double inlet(std::size_t p) const { return optional(f.boundary.profile,p,f.boundary.inlet_temperature); }
     double opening(std::size_t p) const { return optional(f.boundary.opening,p,1); }
 };
@@ -262,11 +252,11 @@ void update(ArrayView<double> t,std::size_t p,double value,double alpha,double& 
 }
 double sweeps(const Mesh& mesh,Side& a,Side& b,ArrayView<const double> ks,
     ArrayView<const double> source_s,TemperatureStateView t,const TemperatureControl& control,
-    bool conservative,bool rb,bool frozen,bool sou_a,bool sou_b,std::size_t count,bool true_h_warm_up) {
+    bool conservative,bool rb,bool frozen,bool sou_a,bool sou_b,std::size_t count) {
     const detail::EnergyMesh energy_mesh(mesh.g);
     const auto phase_a=a.energy(),phase_b=b.energy();
     Vector snapshot_a(!conservative && rb ? mesh.n : 0),snapshot_b(!conservative && rb ? mesh.n : 0);
-    const bool nonlinear=(sou_a||sou_b)&&!true_h_warm_up;
+    const bool nonlinear=(sou_a||sou_b);
     const std::array<ArrayView<double>,3> fields{t.a,t.b,t.solid};
     std::array<Vector,3> before,carry;
     if(nonlinear) {
@@ -282,7 +272,7 @@ double sweeps(const Mesh& mesh,Side& a,Side& b,ArrayView<const double> ks,
             std::copy_n(fields[phase].data,mesh.n,before[phase].data());
             std::fill(carry[phase].begin(),carry[phase].end(),0.);
         }
-        if (conservative && (!true_h_warm_up || rb)) {
+        if (conservative) {
             a.reconstruct(energy_mesh,view(t.a)); b.reconstruct(energy_mesh,view(t.b));
         } else if(!conservative && rb) {
             std::copy_n(t.a.data,mesh.n,snapshot_a.begin());
@@ -298,8 +288,6 @@ double sweeps(const Mesh& mesh,Side& a,Side& b,ArrayView<const double> ks,
                     const auto k=!rb && a.f.boundary.direction==5 ? mesh.g.nz-1-kk : kk;
                     if (rb && (i+j+k)%2!=color) continue;
                     const Coordinate c{i,j,k}; const auto p=mesh.cell(c);
-                    if(true_h_warm_up && conservative && !rb)
-                        a.reconstruct_cell(energy_mesh,view(t.a),p);
                     auto row_a=conservative
                         ? detail::fluid_energy_defect_row(energy_mesh,phase_a,view(t.a),view(t.solid),p)
                         : detail::fluid_energy_row(energy_mesh,phase_a,view(t.a),view(t.solid),p,
@@ -312,19 +300,11 @@ double sweeps(const Mesh& mesh,Side& a,Side& b,ArrayView<const double> ks,
                     auto row_s=conservative
                         ? detail::solid_energy_defect_row(energy_mesh,ks,a.f.hv,b.f.hv,view(t.a),view(t.b),view(t.solid),source_s,p)
                         : detail::solid_energy_row(energy_mesh,ks,a.f.hv,b.f.hv,view(t.a),view(t.b),view(t.solid),source_s,p);
-                    if(true_h_warm_up) for(std::size_t axis=0;axis<3;++axis) for(int sign:{-1,1}) {
-                        if(energy_mesh.inside(c,axis,sign)) continue;
-                        const double self=ks[p]*energy_mesh.face_area(axis,c)/energy_mesh.width[axis][c[axis]];
-                        row_s.diagonal+=self;
-                        if(!conservative) row_s.rhs+=self*t.solid[p];
-                    }
                     if (!std::isfinite(row_s.diagonal) || row_s.diagonal<=0)
                         throw std::domain_error("invalid staggered solid row");
                     if(conservative) update_increment(t.solid,p,control.alpha_solid*row_s.rhs/row_s.diagonal,change,nonlinear ? &carry[2][p]:nullptr);
                     else update(t.solid,p,row_s.rhs/row_s.diagonal,control.alpha_solid,change);
                     if (!frozen) {
-                        if(true_h_warm_up && conservative && !rb)
-                            b.reconstruct_cell(energy_mesh,view(t.b),p);
                         auto row_b=conservative
                             ? detail::fluid_energy_defect_row(energy_mesh,phase_b,view(t.b),view(t.solid),p)
                             : detail::fluid_energy_row(energy_mesh,phase_b,view(t.b),view(t.solid),p,
@@ -431,7 +411,7 @@ struct StaggeredTemperatureDriver::Impl::Active {
     ArrayView<const double> ks,prescribed_b,source_s;
     TemperatureStateView t;
     TemperatureControl control;
-    bool conservative,rb,true_h_warm_up,sou_a=false,sou_b=false,boundary=true,taken=false;
+    bool conservative,rb,sou_a=false,sou_b=false,boundary=true,taken=false;
     PhysicalHeatLedger* physical_audit;
     Mesh mesh;
     detail::EnergyMesh energy_mesh;
@@ -444,10 +424,10 @@ struct StaggeredTemperatureDriver::Impl::Active {
     Active(Impl& owner,const GridView& input_grid,const StaggeredTemperatureFluid& input_a,
         const StaggeredTemperatureFluid& input_b,ArrayView<const double> input_ks,
         TemperatureStateView fields,const TemperatureControl& input_control,bool conservative_,bool rb_,
-        ArrayView<const double> prescribed,ArrayView<const double> source,bool warm_up,
+        ArrayView<const double> prescribed,ArrayView<const double> source,
         PhysicalHeatLedger* audit,const StaggeredTemperatureRunState* saved)
         :grid(input_grid),a(input_a),b(input_b),ks(input_ks),prescribed_b(prescribed),source_s(source),
-         t(fields),control(input_control),conservative(conservative_),rb(rb_),true_h_warm_up(warm_up),
+         t(fields),control(input_control),conservative(conservative_),rb(rb_),
          physical_audit(audit),mesh(grid),energy_mesh(grid) {
         validate_temperature(mesh,a,b,ks,t,control,prescribed_b,source_s,saved!=nullptr);
         result.iteration={TemperatureStop::budget_exhausted,0,0,std::numeric_limits<double>::quiet_NaN()};
@@ -523,7 +503,7 @@ struct StaggeredTemperatureDriver::Impl::Active {
             const std::array<ArrayView<double>,3> output{t.a,t.b,t.solid};
             const auto count=std::min(control.chunk_iterations,control.max_iterations-result.iteration.iterations);
             result.iteration.residual=sweeps(mesh,side_a,side_b,ks,source_s,t,control,conservative,rb,prescribed_b.size>0,
-                sou_a,sou_b,count,true_h_warm_up);
+                sou_a,sou_b,count);
             result.iteration.iterations+=count;
             if(control.progress) control.progress(control.context,result.iteration.iterations,control.max_iterations);
             if(cancelled()) {
@@ -659,18 +639,18 @@ MacProjectionResult StaggeredTemperatureDriver::project_capacity_faces(const Gri
 void StaggeredTemperatureDriver::start(const GridView& grid,const StaggeredTemperatureFluid& a,
     const StaggeredTemperatureFluid& b,ArrayView<const double> ks,TemperatureStateView state,
     const TemperatureControl& control,bool conservative,bool rb,ArrayView<const double> prescribed,
-    ArrayView<const double> source,bool warm_up,PhysicalHeatLedger* audit) {
+    ArrayView<const double> source,PhysicalHeatLedger* audit) {
     if(phase()==TemperaturePhase::active) throw std::logic_error("staggered temperature run is active");
     impl_->active=std::make_unique<Impl::Active>(*impl_,grid,a,b,ks,state,control,conservative,rb,
-        prescribed,source,warm_up,audit,nullptr);
+        prescribed,source,audit,nullptr);
 }
 void StaggeredTemperatureDriver::restore_active(const GridView& grid,const StaggeredTemperatureFluid& a,
     const StaggeredTemperatureFluid& b,ArrayView<const double> ks,TemperatureStateView state,
     const TemperatureControl& control,bool conservative,bool rb,const StaggeredTemperatureRunState& saved,
-    ArrayView<const double> prescribed,ArrayView<const double> source,bool warm_up,PhysicalHeatLedger* audit) {
+    ArrayView<const double> prescribed,ArrayView<const double> source,PhysicalHeatLedger* audit) {
     if(phase()==TemperaturePhase::active) throw std::logic_error("staggered temperature run is active");
     impl_->active=std::make_unique<Impl::Active>(*impl_,grid,a,b,ks,state,control,conservative,rb,
-        prescribed,source,warm_up,audit,&saved);
+        prescribed,source,audit,&saved);
 }
 TemperaturePhase StaggeredTemperatureDriver::advance() {
     if(!impl_->active) throw std::logic_error("staggered temperature run has not started");
@@ -690,9 +670,9 @@ StaggeredTemperatureResult StaggeredTemperatureDriver::take_result() {
 StaggeredTemperatureResult StaggeredTemperatureDriver::solve(const GridView& grid,
     const StaggeredTemperatureFluid& a,const StaggeredTemperatureFluid& b,ArrayView<const double> ks,
     TemperatureStateView state,const TemperatureControl& control,bool conservative,bool rb,
-    ArrayView<const double> prescribed,ArrayView<const double> source,bool warm_up,
+    ArrayView<const double> prescribed,ArrayView<const double> source,
     PhysicalHeatLedger* audit) {
-    start(grid,a,b,ks,state,control,conservative,rb,prescribed,source,warm_up,audit);
+    start(grid,a,b,ks,state,control,conservative,rb,prescribed,source,audit);
     while(phase()==TemperaturePhase::active) advance();
     return take_result();
 }

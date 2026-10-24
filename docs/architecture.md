@@ -20,7 +20,7 @@ and qualified flow acceleration keep their existing rules.
 The native full-compute CC route uses the existing air/water integral h(T)
 model through strict model-h drivers. Earlier variable-cp m*cp*T failures
 remain in the historical record. Fixed-coefficient Quick Design, standalone
-temperature, true-h warm-up and private C++ component routes retain their
+temperature, true-h preparation and private C++ component routes retain their
 separate contracts. Removing a Python entry does not expand these contracts.
 Conservative staggered temperature retains its physical-distance minmod
 reconstruction and original boundary treatment. Axes with fewer than three
@@ -101,7 +101,8 @@ The numerical owners record property sampling under `property_sampling`, with ve
 Each entry identifies the side, outer index, stage, quantity, provider, temperature source, pressure source and operation.
 The last thermal and flow operations remain separate from initialization and property updates.
 Entries distinguish inlet values, local values, volume averages, relaxation and transfer to a refined thermal grid.
-The 3D true-h record includes its temperature warm-up and its EOS energy solve.
+The 3D true-h record separates `thermal_prepare` from its EOS energy solve.
+Preparation does not update temperatures. Historical records keep their original stage names.
 An inactive B side has no flow or heat-transfer sampling operation.
 The record preserves the different 2D and 3D sampling rules and each recorded energy relation.
 The native query borrows views from the result owner; Python copies these views before release.
@@ -114,7 +115,7 @@ The native full drivers resolve each side's physics before iteration.
 The 2D owner passes these choices to its main and refined thermal calls.
 The 3D owner keeps them for the run and derives them again from matched inputs on restore.
 Current input validation, phase guards and sampled-state records stay at their existing owners.
-The selected rules retain the differences between dimensions, EOS warm-up, prescribed B and research routes.
+The selected rules retain the differences between dimensions, EOS preparation, prescribed B and research routes.
 Two-fluid full runs that use the conservative EOS driver now select energy by fluid.
 Air and water use their existing integral h(T); CO2 and sCO2 use HEOS h(T,P).
 The air/water conductivity comes from prepared fields in 2D and the outer transport state in 3D.
@@ -472,8 +473,8 @@ Offline boundary readers keep saved FOU1, SOU1 and SOU2, while
   | 2D T-SOU | 12000 with water; otherwise 5000 | 5 | 0.2 |
   | 3D T-SOU | 1500 | 5 | 0.2 |
 
-  Zero sweeps retain the initialized or warm-up thermal state. The actual
-  energy audits and requested stopping gates still apply. A failed gate keeps
+  Zero EOS sweeps retain the thermal input state. Preparation does not update
+  temperatures. The actual energy audits and requested stopping gates still apply. A failed gate keeps
   the iteration-limit return; zero updates do not certify physical convergence.
 
   The default normalized h-update tolerance and both energy tolerances are 0.001.
@@ -508,13 +509,12 @@ Temperature is not scaled. FullCC nonzero sources stay
   unsupported, and prescribed B is an external reservoir without a solved B
   certificate.
 
-  QD/standalone CC keep fixed-coefficient capacity transport. Full3D true-h CC warm-up keeps the private G4 temperature kernel for Nz=1
-  and for Nz>1 when conservative=false and force_cell_centered=true. Its two
-  sweeps solve both sides before the selected enthalpy algorithm and its
-  property/conservation gates. Single-A sCO2 execution is retired; the native
-  input boundary rejects it. Air/water inactive-B checks remain. These kept rows and the
-  staggered/MAC projection/capacity research contract do not acquire this
-  fullCC qualification.
+  QD/standalone CC keep fixed-coefficient capacity transport.
+  Full3D true-h retains its CC input checks and staggered projection preparation.
+  Preparation uses zero temperature sweeps before the selected EOS energy solve.
+  The private G4 iteration rows and special staggered warm-up rows are retired.
+  Single-A sCO2 execution remains retired; the native input boundary rejects it.
+  Air/water inactive-B checks and standalone staggered/MAC research contracts remain.
 
   See [native consumer contracts](cpp-migration.md#shared-finite-volume-temperature-consumers)
   for iteration, incomplete-boundary and build requirements.
@@ -1035,17 +1035,19 @@ Thermal routes are selected by their present qualification conditions:
 
 | Route | Shared implementation and kept differences |
 |---|---|
-| True enthalpy | Pairs containing CO2 or sCO2 use signed mass/enthalpy transport for uniform and continuous geometry. The 2D adapter calls the shared 3D enthalpy kernel. Full3D CC uses the kept G4 two-sweep warm-up before the selected enthalpy solve. Discrete-zone and offset constraints stay. |
+| True enthalpy | Pairs containing CO2 or sCO2 use signed mass/enthalpy transport for uniform and continuous geometry. The 2D adapter calls the shared 3D enthalpy kernel. Full3D retains thermal preparation and face projection, with no temperature sweeps before the selected enthalpy solve. Discrete-zone and offset constraints stay. |
 | Model enthalpy | Existing air/water h(T) transport. 2D includes water/water when unzoned and symmetric. Native 3D includes every ordered air/water pair with Nz>1, variable properties, two solved sides and conservative transport. Water/water and asymmetric geometry use the strict boundary contract. |
 | Temperature | The native fullCC air/water candidate reuses strict integral-h(T) model-h drivers while keeping the requested temperature route. QD/standalone fixed-coefficient and staggered research routes keep their separately stated contracts. |
 
-Full3D true-h keeps its original two temperature sweeps before each enthalpy call.
-The staggered warm-up uses caller relaxation and live serial SOU corrections.
-Red-black warm-up freezes those corrections for one sweep.
-The solid keeps the original exterior self terms in its iteration diagonal.
-These terms have zero wall heat flux. Standalone temperature keeps its own
-block schedule and convergence checks. The warm-up does not certify true-h
-convergence; the selected enthalpy driver applies its original physical gates.
+Full3D true-h performs no temperature sweeps before each enthalpy call.
+The first call uses inlet fluid temperatures and the configured solid seed.
+If no solid seed is set, it uses the mean inlet temperature.
+Later calls use the previous thermal fields.
+Thermal coefficients, inlet capacities, face balance/projection and input checks remain.
+The EOS driver validates PT states and applies the existing convergence and physical gates.
+Preparation completes before the first thermal checkpoint, which belongs to the EOS driver.
+The private CC iteration owner and special staggered warm-up sweep branches are retired.
+Standalone temperature keeps its own update schedule and convergence checks.
 
 The CO2/sCO2 restrictions apply to geometry combinations, not the other stream's fluid.
 Either stream can be in A or B. Public configuration rejects discrete
@@ -1357,8 +1359,10 @@ Coarse bootstrap stays atomic before the first fine SIMPLE boundary.
 Thermal snapshots cover model-h selections, original temperature chunks, and complete EOS Picard iterations.
 They retain active Anderson history, HEOS finishing state, and actual projected face velocities.
 The planar integral delegate keeps its physical depth conversion.
-The private two-sided true-h CC warm-up owner retains its original temperature rows.
-Its former stack loop and unused private one-shot entry are removed.
+True-h preparation completes before its first EOS iteration boundary.
+It does not create an active temperature checkpoint or change the input temperatures.
+The private CC warm-up owner and its checkpoint field are retired.
+Old checkpoints require their matching archived runtime.
 Water startup retries retain the initial fields, rejected attempts, remaining budget, and actual call settings.
 Restore does not repeat a completed retry or reset its charged iterations.
 Active component records reuse the controller solution arrays. Restore uses those arrays to rebuild component views.
@@ -1669,7 +1673,7 @@ Taper stays
     not show experimental accuracy in the added range. T-SOU uses checked HEOS PT updates.
     The kept CO2 model reference uses HEOS. Full 3D T-SOU accepts the existing dispersion inputs.
     Integral air/water sides keep outer effective conductivity, including dispersion.
-    EOS sides keep local EOS conductivity. The warm-up keeps its dispersion term.
+    EOS sides keep local EOS conductivity. Thermal preparation retains dispersion inputs without temperature sweeps.
     Historical `enthalpy_eos` and `sco2_enthalpy_eos` records remain readable with their original meaning.
     Current T-SOU does not create table-use evidence. This algorithm change does not alter experimental calibration.
 
