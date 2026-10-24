@@ -208,9 +208,9 @@ def finalize_plots(window, field="temp"):
     # Pressure plot — clouds only (dP shown in the KPI strip; the summary card
     # + SIMPLE convergence plot were removed from this tab).
     selected = _phase_indices(window, 2)
-    control = getattr(window, 'chk_shared_flow_scale', None)
-    shared = control is None or control.isChecked()
     if field == "pres":
+        control = getattr(window, 'chk_shared_pressure_scale', None)
+        shared = control is None or control.isChecked()
         if len(selected) == 2:
             window.canvas_pres.plot_pressure(P_fA, P_fB, N_x, N_y, L, H, mode_label,
                                              dx_arr=r.get('dx_arr'), dy_arr=r.get('dy_arr'), shared=shared)
@@ -253,7 +253,7 @@ def finalize_plots(window, field="temp"):
         window.canvas_vel.axes = [list(axes_v)]
         UmagA = np.sqrt(ucA**2 + vcA**2)
         UmagB = np.sqrt(ucB**2 + vcB**2)
-        limits = field_color_limits([UmagA, UmagB], shared, zero_min=True)
+        limits = field_color_limits([UmagA, UmagB])
         velocity_items = [
             (UmagA, r"$|\mathbf{U}_A|$  [m/s]", "Fluid A"),
             (UmagB, r"$|\mathbf{U}_B|$  [m/s]", "Fluid B"),
@@ -269,8 +269,7 @@ def finalize_plots(window, field="temp"):
             ax.set_xlim(0, L * 1000.0); ax.set_ylim(0, H * 1000.0)
             cb = window.canvas_vel.fig.colorbar(cf, ax=ax, shrink=0.9,
                                                  aspect=25, format=ScalarFormatter(useOffset=False))
-            scale = 'A/B shared' if shared else subtitle + ' full range'
-            _style_workbench_axes(ax, cb, _t, main_title, scale)
+            _style_workbench_axes(ax, cb, _t, main_title, subtitle + ' full range')
             ax.grid(True, alpha=0.15, linewidth=0.5, color=_t['ax_text'])
             if hasattr(window, '_zone_boundaries') and window._zone_boundaries:
                 z_dir = getattr(window, '_zone_axis_dir', 'y')

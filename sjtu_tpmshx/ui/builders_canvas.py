@@ -295,15 +295,15 @@ def _build_canvas_toolbar(window, vlay, t, theme):
     toolbar.addWidget(window.btn_tab_result)
     toolbar.addWidget(window._field_phase_seg)
     toolbar.addWidget(window._2d_field_seg)
-    window.chk_shared_flow_scale = QCheckBox("切片共用色阶")
-    window.chk_shared_flow_scale.setChecked(True)
-    window.chk_shared_flow_scale.setToolTip(
-        "速度/压力切片默认共用 A/B 色阶，速度从 0 开始。切换截面保持范围；取消勾选后按流体分别定标。")
-    def _set_flow_scale():
+    window.chk_shared_pressure_scale = QCheckBox("压力共用色阶")
+    window.chk_shared_pressure_scale.setChecked(True)
+    window.chk_shared_pressure_scale.setToolTip(
+        "压力切片默认共用 A/B 色阶。切换截面保持范围；取消勾选后按流体分别定标。")
+    def _set_pressure_scale():
         from .plot_2d_results import redraw_result_fields
         redraw_result_fields(window)
-    window.chk_shared_flow_scale.toggled.connect(_set_flow_scale)
-    toolbar.addWidget(window.chk_shared_flow_scale)
+    window.chk_shared_pressure_scale.toggled.connect(_set_pressure_scale)
+    toolbar.addWidget(window.chk_shared_pressure_scale)
     # Context control: hidden until a 2D field card is active (the
     # _switch_tab handler flips it per tab).
     window._2d_field_seg.hide()

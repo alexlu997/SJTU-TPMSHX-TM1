@@ -44,9 +44,9 @@ FIELD_META = {
 }
 
 
-def field_color_limits(fields, shared=False, *, zero_min=False):
+def field_color_limits(fields, shared=False):
     """Use complete field ranges; keep constant fields readable."""
-    limits = [(0. if zero_min else float(np.min(a)), float(np.max(a))) for a in fields]
+    limits = [(float(np.min(a)), float(np.max(a))) for a in fields]
     if shared:
         limits = [(min(lo for lo, hi in limits), max(hi for lo, hi in limits))] * len(limits)
     # Leave room for distinct contour levels in fields at rounding precision.

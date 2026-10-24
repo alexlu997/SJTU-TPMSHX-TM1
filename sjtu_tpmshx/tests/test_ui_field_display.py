@@ -50,7 +50,7 @@ def test_preview_drag_starts_in_canvas_margin_and_survives_redraw(win):
 
 @pytest.mark.parametrize('mode', ['2d', '3d'])
 @pytest.mark.parametrize('field', ['vel', 'pres'])
-def test_flow_scale_defaults_to_shared_and_preserves_ranges_across_slices(win, mode, field):
+def test_speed_scales_stay_separate_and_pressure_can_share_across_slices(win, mode, field):
     result = _result(mode)
     f = result.fields
     f['ucA'][:] = 20.
@@ -63,19 +63,22 @@ def test_flow_scale_defaults_to_shared_and_preserves_ranges_across_slices(win, m
     win.write_result(result)
     win._field_phase = 1
     win._active_tab = field
-    assert win.chk_shared_flow_scale.isChecked()
+    assert win.chk_shared_pressure_scale.isChecked()
     assert ensure_result_plot(win, field)
     if mode == '3d':
         assert win._slice_index == f['Ta'].shape[2] // 2
+        win._rendered_3d_slices = True
+    win._switch_tab(field)
+    assert win.chk_shared_pressure_scale.isVisible() == (field == 'pres')
     pressure_unit = 1000. if mode == '3d' else 1.
-    independent = (0., .35) if field == 'vel' else (
+    independent = (.10, .35) if field == 'vel' else (
         float(f['P_fB'].min() / pressure_unit), float(f['P_fB'].max() / pressure_unit))
-    shared = (0., 20.) if field == 'vel' else (
+    enabled_limits = independent if field == 'vel' else (
         float(min(f['P_fA'].min(), f['P_fB'].min()) / pressure_unit),
         float(max(f['P_fA'].max(), f['P_fB'].max()) / pressure_unit))
     canvas = getattr(win, 'canvas_' + field)
-    for enabled, limits in ((True, shared), (False, independent)):
-        win.chk_shared_flow_scale.setChecked(enabled)
+    for enabled, limits in ((True, enabled_limits), (False, independent)):
+        win.chk_shared_pressure_scale.setChecked(enabled)
         assert canvas.axes[0][0].collections[0].get_clim() == limits
         for index in ((0, 2) if mode == '3d' else (0,)):
             win._slice_index = index
@@ -103,7 +106,16 @@ def test_volume_scale_keeps_weak_fields_visible_and_uses_original_cells():
     assert field_color_limits([np.zeros(3)])[0][1] > 0
 
 
-@pytest.mark.parametrize('group', [('Ta', 'Tb', 'Ts'), ('vmag', 'vmag_B'), ('P_kPa', 'P_B_kPa')])
+def test_volume_speed_scales_stay_separate_when_ranges_overlap():
+    from sjtu_tpmshx.ui.panel_vis_3d import ThreeDVisPanel
+    from sjtu_tpmshx.ui.vis3d_constants import FIELD_META
+    arrays = {'vmag': np.array([19., 21.]), 'vmag_B': np.array([18., 22.])}
+    limits = ThreeDVisPanel._build_global_clim(SimpleNamespace(_arrays=arrays))
+    assert limits == {'vmag': (19., 21.), 'vmag_B': (18., 22.)}
+    assert all(FIELD_META[key]['cmap'] == 'turbo' for key in arrays)
+
+
+@pytest.mark.parametrize('group', [('Ta', 'Tb', 'Ts'), ('P_kPa', 'P_B_kPa')])
 @pytest.mark.parametrize('small_max,shared', [(3.9, False), (4., True), (8., True)])
 def test_volume_scale_shares_related_fields_at_the_original_threshold(group, small_max, shared):
     from sjtu_tpmshx.ui.panel_vis_3d import ThreeDVisPanel

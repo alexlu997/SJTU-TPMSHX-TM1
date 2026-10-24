@@ -711,7 +711,7 @@ class ThreeDVisPanel(QWidget):
         """Share related ranges unless a field stays below 40 percent of the span."""
         from .vis3d_constants import field_color_limits
         clim = dict(zip(self._arrays, field_color_limits(list(self._arrays.values()))))
-        groups = [('Ta', 'Tb', 'Ts'), ('vmag', 'vmag_B'), ('P_kPa', 'P_B_kPa')]
+        groups = [('Ta', 'Tb', 'Ts'), ('P_kPa', 'P_B_kPa')]
         for group in groups:
             keys = [key for key in group if key in self._arrays]
             if len(keys) < 2:
@@ -1712,7 +1712,6 @@ class ThreeDVisPanel(QWidget):
             f"Field: {FIELD_META[self._field]['title']}",
             f"Range: {lo:.2f} – {hi:.2f}",
             f"Color Range: {color_range_label}",
-            'A/B scale: automatic',
             f"Domain: {Lx:.0f} × {Ly:.0f} × {Lz:.0f} mm",
         ]
         if self._slice_info is not None:

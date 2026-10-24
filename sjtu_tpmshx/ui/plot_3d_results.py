@@ -208,16 +208,17 @@ def _render_2d_slices_from_3d(window, res, field=None):
                     limits = [(lo - 273.15, hi - 273.15) for lo, hi in limits]
                 kwargs['color_limits'] = limits
             else:
-                control = getattr(window, 'chk_shared_flow_scale', None)
-                shared = control is None or control.isChecked()
                 if key == 'pres':
+                    control = getattr(window, 'chk_shared_pressure_scale', None)
+                    shared = control is None or control.isChecked()
                     full_fields = [P_Pa / 1000] + ([P_Pa_B / 1000] if has_B else [])
+                    kwargs['color_limits'] = field_color_limits(full_fields, shared)
+                    kwargs['shared'] = shared
                 else:
                     full_fields = [np.sqrt(uc**2 + vc**2 + wc**2)]
                     if has_B:
                         full_fields.append(np.sqrt(uc_B**2 + vc_B**2 + wc_B**2))
-                kwargs['color_limits'] = field_color_limits(full_fields, shared, zero_min=key == 'vel')
-                kwargs['shared'] = shared
+                    kwargs['color_limits'] = field_color_limits(full_fields)
             fn(canvas, *args, **kwargs)
             if attr == 'canvas_temp':
                 fields = [Ta[:, :, k_mid], Tb[:, :, k_mid], Ts[:, :, k_mid]]
@@ -373,13 +374,13 @@ def _plot_3d_pressure(canvas, P_slice_A, P_slice_B, xc, yc, dP_A, dP_B, z_info,
 
 
 def _plot_3d_velocity_slice(canvas, uA, vA, wA, uB, vB, wB, xc, yc, z_info,
-                           phase=None, color_limits=None, shared=True):
-    """Show speed from zero with shared A/B limits by default."""
+                           phase=None, color_limits=None):
+    """Show each fluid's full speed range with filled contours."""
     theme = _get_theme()
     vectors = [(uA, vA, wA)] + ([(uB, vB, wB)] if uB is not None else [])
     fields = [np.sqrt(u**2 + v**2 + (w**2 if w is not None else 0.))
               for u, v, w in vectors]
-    limits = color_limits or field_color_limits(fields, shared, zero_min=True)
+    limits = color_limits or field_color_limits(fields)
     indices = range(len(fields)) if phase is None else [min(phase, len(fields) - 1)]
     axes = np.atleast_1d(_begin_canvas_plot(canvas, 1, len(indices)))
     Y, X = np.meshgrid(yc, xc)
@@ -390,8 +391,7 @@ def _plot_3d_velocity_slice(canvas, uA, vA, wA, uB, vB, wB, xc, yc, z_info,
         cb = canvas.fig.colorbar(cf, ax=ax, shrink=.9, aspect=25)
         style_colorbar(cb, theme)
         tag = ('A', 'B')[index]
-        scale = 'A/B shared' if shared else 'Full range'
-        _style_axis(ax, title=f'|v| [m/s] — Fluid {tag} · {scale}', title_size=11)
+        _style_axis(ax, title=f'|v| [m/s] — Fluid {tag} · Full range', title_size=11)
         ax.set_aspect('equal')
     if not canvas.fig.get_constrained_layout():
         canvas.fig.subplots_adjust(left=.11, right=.96, top=.86, bottom=.14, wspace=.25)
