@@ -3,6 +3,8 @@ import ast
 from graphlib import TopologicalSorter
 from pathlib import Path
 
+import pytest
+
 from sjtu_tpmshx.runs.tools.audit_import_graph import import_targets
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -43,11 +45,12 @@ def test_checker_detects_nested_illegal_import_and_allows_shared_models():
     assert not forbidden_imports('from sjtu_tpmshx.models.catalog import resolve_model', ('solvers',))
 
 
-def test_solver_imports_have_no_cycles():
+@pytest.mark.parametrize('layer', ['solvers', 'ui'])
+def test_implementation_imports_have_no_cycles(layer):
     modules = {
         '.'.join(('sjtu_tpmshx', *path.relative_to(ROOT).with_suffix('').parts))
         .removesuffix('.__init__'): path
-        for path in (ROOT / 'solvers').rglob('*.py')
+        for path in (ROOT / layer).rglob('*.py')
     }
     graph = {}
     for module, path in modules.items():

@@ -179,8 +179,8 @@ def test_complete_config_menu_roundtrip(tmp_path, monkeypatch, win,
     from sjtu_tpmshx.ui.mixins.run_controller import _run_compute
     calls = []
     monkeypatch.setattr(win, '_validate_inputs_preflight', lambda: True)
-    monkeypatch.setattr(win, '_preflight_grid', lambda: True)
-    monkeypatch.setattr(win, '_preflight_3d', lambda: (True, 8, 'test'))
+    monkeypatch.setattr(win, '_preflight_grid', lambda config: True)
+    monkeypatch.setattr(win, '_preflight_3d', lambda config: (True, 8, 'test'))
 
     def capture_start(mode, worker, *, cfg):
         calls.append((mode, worker.func, asdict(cfg)))

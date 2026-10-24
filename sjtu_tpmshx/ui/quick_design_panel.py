@@ -304,7 +304,7 @@ def run_quick_design(window) -> None:
     worker.error_signal.connect(_on_err)
     worker.finished.connect(_on_finished)
     window._qd_worker = worker
-    from sjtu_tpmshx.ui.compute_resources import refresh_resource_availability
+    from sjtu_tpmshx.ui.background_tasks import refresh_resource_availability
     refresh_resource_availability(getattr(window, 'parent', lambda: None)())
     window._qd_last = None
     for attr in ('_qd_table', '_qd_energy_table'):
