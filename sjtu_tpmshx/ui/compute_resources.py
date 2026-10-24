@@ -4,19 +4,7 @@ import os
 
 from PySide6.QtCore import QSignalBlocker, QTimer
 
-from sjtu_tpmshx.ui.background_tasks import has_active_tasks
-
-
-def refresh_resource_availability(window):
-    if getattr(window, '_cpu_card', None) is None:
-        return
-    busy = has_active_tasks(window) or getattr(window, '_opt_launching', False)
-    window._cpu_card.setEnabled(not busy)
-    if busy:
-        # Terminal publication can precede the worker's actual return.
-        window._resource_refresh_timer.start()
-    else:
-        window._resource_refresh_timer.stop()
+from sjtu_tpmshx.ui.background_tasks import refresh_resource_availability
 
 
 def bind_resource_controls(window):

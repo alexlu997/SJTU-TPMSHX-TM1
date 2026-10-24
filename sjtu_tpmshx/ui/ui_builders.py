@@ -5,7 +5,8 @@ instance) as first argument. Widget attributes are stored directly on
 `window` (`window.combo_tpms = ...`), preserving the original access pattern.
 
 Batch-2 split (2026-06-10): the page builders now live in sibling modules —
-``builders_base`` (section/row/res_row/add_row + _ResultLabel),
+``builders_base`` (menu controls and collapsible sections),
+``field_factory`` (themed rows and result labels),
 ``builders_domain`` (Geometry page + _on_dim_changed),
 ``builders_fluids`` (Boundary Conditions page),
 ``builders_canvas`` (canvas cards, tab toolbar, zoom helpers).
