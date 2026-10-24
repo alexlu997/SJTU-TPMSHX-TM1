@@ -1,8 +1,8 @@
 """Grid-legality preflight.
 
 Pure functions (no PySide6) so the rules are testable in isolation. The
-UI wrapper in ``main.py`` reads the line-edit state, hands it to
-``compute_preflight``, and renders the returned findings in a QMessageBox.
+UI wrapper in ``main.py`` passes captured compute inputs to
+``compute_preflight`` and shows the findings in a QMessageBox.
 
 Rules:
   * Wall-refine geometric series (n=8, first_cell=0.02 mm, growth=1.8) must
@@ -39,7 +39,7 @@ _RICHARDSON_WARN_CELLS = 500_000
 
 @dataclass
 class FluidCfg:
-    """Minimal pipe config — what the preflight needs from ``_fluid_config``."""
+    """Port values required by grid preflight."""
     dir: int
     in_ctr: float
     in_w: float

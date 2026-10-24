@@ -30,8 +30,8 @@ def win(tmp_path, monkeypatch):
     monkeypatch.setenv('TPMSHX_DISABLE_3D_PANEL', '1')
     window = Main_Menu()
     monkeypatch.setattr(window, '_validate_inputs_preflight', lambda: True)
-    monkeypatch.setattr(window, '_preflight_grid', lambda: True)
-    monkeypatch.setattr(window, '_preflight_3d', lambda: (True, 8, '2×2×2'))
+    monkeypatch.setattr(window, '_preflight_grid', lambda config: True)
+    monkeypatch.setattr(window, '_preflight_3d', lambda config: (True, 8, '2×2×2'))
     monkeypatch.setattr(window, '_finalize_plots', lambda: None)
     monkeypatch.setattr('sjtu_tpmshx.ui.plot_3d_results.finalize_plots_3d',
                         lambda _window: False)
