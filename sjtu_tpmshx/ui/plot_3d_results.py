@@ -299,14 +299,7 @@ def _style_axis(ax, xlabel='x [mm]', ylabel='y [mm]', title='',
 
 def _plot_3d_temperature(canvas, Ta_slice, Tb_slice, Ts_slice, xc, yc, z_info,
                          phase=None, unit='K', sync=True, color_limits=None):
-    """3-panel temperature (Ta / Tb / Ts) on mid-z slice.
-
-    All three panels share a single (vmin, vmax) so the slice colorscale
-    matches the 3D viewport's `_share(('Ta','Tb','Ts'))` clim. Without the
-    shared range, Ts (which can sit between bulk T_inA/T_inB and act
-    nearly uniform) would autoscale to its own narrow range and look
-    blown-up next to the fluid panels.
-    """
+    """Show the selected temperature slices with a shared range by default."""
     _T = _get_theme()
     if unit == '°C':
         Ta_slice, Tb_slice, Ts_slice = (a - 273.15 for a in (Ta_slice, Tb_slice, Ts_slice))
