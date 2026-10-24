@@ -42,7 +42,7 @@ def test_partial_import_preserves_unsupplied_physical_inputs(win, tmp_path, monk
 
 
 @pytest.mark.parametrize('dimension', [0, 1])
-@pytest.mark.parametrize('method', ['sobol', 'qlognei'])
+@pytest.mark.parametrize('method', ['sobol', 'qlognei', 'qlogei'])
 def test_partial_import_keeps_full_continuous_field_and_conditions(win, tmp_path, monkeypatch, dimension, method):
     from PySide6.QtWidgets import QMessageBox
     from sjtu_tpmshx.tests.test_optimize_panel_wiring import condition, report

@@ -271,9 +271,9 @@ class SessionPresetsMixin:
         self._opt_conditions = deepcopy(preset.get('optimization_conditions'))
         self._opt_mass_requirements = deepcopy(preset.get('optimization_mass_requirements'))
         if self._opt_mass_requirements is not None:
-            if not partial or self._opt_method.currentData() not in ('qlognei', 'sobol'):
-                self._opt_method.setCurrentIndex(self._opt_method.findData('qlognei'))
-        elif self._opt_method.currentData() == 'qlognei':
+            if not partial or self._opt_method.currentData() not in ('qlogei', 'qlognei', 'sobol'):
+                self._opt_method.setCurrentIndex(self._opt_method.findData('qlogei'))
+        elif self._opt_method.currentData() in ('qlogei', 'qlognei'):
             self._opt_method.setCurrentIndex(self._opt_method.findData('qlognehvi'))
         for axis, edit in self._opt_controls.items():
             edit.setValue(preset.get('optimization_controls', {}).get(axis, 3))

@@ -544,7 +544,7 @@ def _build_optimize_panel(window, card_lay, t, theme):
 
     from .optimize_panel import (refresh_setup, import_conditions, use_current_condition,
                                  clear_continuous_field, export_pareto_data, export_geometry,
-                                 edit_common_settings)
+                                 edit_common_settings, change_method)
     common_row = ResponsiveRow(threshold=640, spacing=12)
     window._opt_public_summary = QLabel()
     window._opt_public_summary.setTextFormat(Qt.TextFormat.PlainText)
@@ -567,10 +567,11 @@ def _build_optimize_panel(window, card_lay, t, theme):
         f"QAbstractSpinBox:focus{{border-color:{_t['inp_focus']};}}")
     window._opt_method = QComboBox()
     for label, key in (("qLogNEHVI", "qlognehvi"), ("qLogNParEGO", "qlognparego"),
+                       ("qLogEI · 芯体减重", "qlogei"),
                        ("qLogNEI · 芯体减重", "qlognei"), ("Sobol", "sobol")):
         window._opt_method.addItem(label, key)
     window._opt_method.setStyleSheet(t.style('COMBO'))
-    window._opt_method.currentIndexChanged.connect(lambda *_: refresh_setup(window))
+    window._opt_method.currentIndexChanged.connect(lambda *_: change_method(window))
     par_lay.addWidget(window._opt_method)
     window._opt_inline_params = {}
     for key, label, low, high, default in (

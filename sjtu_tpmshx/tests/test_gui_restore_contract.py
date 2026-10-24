@@ -371,7 +371,7 @@ def test_mass_requirements_survive_session_and_reject_mismatched_conditions(win)
     win._apply_shanghai_defaults()
     win._restore_session()
     assert win._opt_mass_requirements == preset['optimization_mass_requirements']
-    assert win._opt_method.currentData() == 'qlognei'
+    assert win._opt_method.currentData() == 'qlogei'
     assert win._capture_current_preset('bounds')['optimization_bounds'] == preset['optimization_bounds']
     assert '27 个变量' in win._opt_field_layout.text()
     before = win._capture_current_preset('before')

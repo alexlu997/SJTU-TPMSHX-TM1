@@ -946,13 +946,19 @@ selected full fields without averaging. A finite-budget Pareto set is a model
 trend result.
 
 The optional `mass_requirements` input selects constrained core-mass optimization.
-It supplies positive density and Q/dP limits for every condition ID. Supported methods are qLogNEI and Sobol.
+It supplies positive density and Q/dP limits for every condition ID. Supported methods are qLogEI, qLogNEI and Sobol.
 The mass objective reuses the full-result mass metric. Multiply 2D mass and heat by the saved physical depth.
 Optional per-condition outlet limits use `T_out_A_min_K` / `T_out_A_max_K` and `P_out_A_min_Pa` / `P_out_A_max_Pa`.
 Replace A with B for the other side. Missing limits do not apply; supplied ranges must be ordered, positive and finite.
 These limits check native results. They do not prescribe solver outlet boundaries.
 Outlet temperature uses native mass-flux weighting. Outlet absolute pressure reuses the physical-face area weighting of `pressure_face_v1`.
-qLogNEI fits negative mass and the requested relative residuals: heat shortfall, pressure excess and optional outlet limits.
+The constrained BO methods fit negative mass and the requested relative residuals: heat shortfall, pressure excess and optional outlet limits.
+qLogEI uses a small fixed variance in standardized output units for repeatable native observations.
+This variance supports numerical stability. It is not an estimate of physical uncertainty.
+For one candidate, it uses analytic constrained expected improvement, or feasibility probability before the first feasible observation.
+For a batch, it uses the corresponding Monte Carlo log acquisition. Each constraint uses its own observed scale for smoothing.
+Its default budget has eight initial designs and 16 rounds. Explicit counts take precedence.
+qLogNEI retains its existing acquisition and defaults for current callers and saved search recovery.
 Each residual is the maximum over conditions that request that limit. Nonpositive values satisfy all limits of that type.
 Valid infeasible observations train the model; failed numerical batches do not.
 Selection uses only minimum-mass feasible observations. Zero feasible designs remains explicit.

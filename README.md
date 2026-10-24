@@ -405,7 +405,11 @@ CSV 文件带表头；[nTop Import Scalar Point Map](https://support.ntop.com/hc
 （B 侧将 A 换为 B）；未导入时明确使用当前单工况。二维需填写实际换算厚度。
 
 芯体减重模式以最小芯体质量为单一目标，每个工况同时满足换热下限和 A/B 两侧压降上限。
-在工况 JSON 中增加 `mass_requirements`，导入后使用 qLogNEI；也可选择 Sobol。
+在工况 JSON 中增加 `mass_requirements`，导入后使用 qLogEI；仍可选择 qLogNEI 和 Sobol。
+若预算仍为界面初始默认值，将分配为 8 个初始候选和 16 轮单候选；自定义数量保持不变。
+qLogEI 将原生输出视为可重复的观察，用很小的标准化噪声方差维持数值稳定；该值不表示物理不确定度。
+单候选轮次使用解析约束改进量；还没有可行观察时，优先提高可行概率。
+多候选轮次使用相应的蒙特卡洛对数采集函数。每个候选仍须完成原生求解，并满足全部硬限值。
 `solid_density_kg_m3` 必须给出材料密度，`conditions` 按工况 ID 指定三个正限值。
 每个工况还可给出 A/B 出口温度或绝对压力的下限、上限或两者。
 下面是输入格式示例，数值不是水空气试验的验收门槛：
@@ -443,7 +447,9 @@ CSV 文件带表头；[nTop Import Scalar Point Map](https://support.ntop.com/hc
 界面显示这一选择，保存结果及导出保留严格判定和每项接受的范围观察。
 此设置不代表实验精度已经验证；恢复任务沿用保存的选择。
 
-API 使用同一 `mass_requirements` 对象；`method='qlognei'` 或 `'sobol'`。
+API 使用同一 `mass_requirements` 对象；`method='qlogei'`、`'qlognei'` 或 `'sobol'`。
+未指定数量时，qLogEI 使用 8 个初始候选和 16 轮；其他方法仍使用 16 个初始候选和 8 轮。
+显式数量优先。已保存的搜索按原方法和原数量恢复。
 把 L 上下界都设为 7 mm，可在固定胞元尺寸下只优化壁厚；会话保存保留这些边界。
 纯 Diamond 与纯 Gyroid 应分别搜索，用相同工况、性能限值、材料和闭合设置比较。
 模型适用域、数值门槛及最终实体连通性、壁厚和流道隔离检查仍须分别通过。
