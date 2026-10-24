@@ -318,9 +318,9 @@ class TabViewMixin:
             _fs = getattr(self, '_2d_field_seg', None)
             if _fs is not None:
                 _fs.setVisible(tab in ('temp', 'pres', 'vel'))
-            scale = getattr(self, 'chk_shared_flow_scale', None)
+            scale = getattr(self, 'chk_shared_pressure_scale', None)
             if scale is not None:
-                scale.setVisible(tab in ('pres', 'vel', '3d'))
+                scale.setVisible(tab == 'pres')
             # Reverse-sync aggregate result navigation to the actual card.
             _btn_res = getattr(self, 'btn_tab_result', None)
             if _btn_res is not None:

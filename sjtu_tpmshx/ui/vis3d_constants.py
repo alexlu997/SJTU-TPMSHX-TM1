@@ -8,11 +8,10 @@ from __future__ import annotations
 
 from math import isfinite
 
-from .theme import FIELD_CMAP, FLOW_CMAP
+from .theme import FIELD_CMAP
 import numpy as np
 
 # Display order + per-field rendering metadata.
-# Speed and pressure use a sequential map; other fields keep the GUI map.
 FIELD_ORDER = [
     'Ta', 'Tb', 'Ts',
     'vmag', 'vmag_B',
@@ -30,13 +29,13 @@ FIELD_META = {
                 'label': 'Temperature B'},
     'Ts':      {'cmap': FIELD_CMAP, 'title': 'Ts (K)',          'fmt': '%.1f',
                 'label': 'Temperature Solid'},
-    'vmag':    {'cmap': FLOW_CMAP, 'title': 'speed A (m/s)',   'fmt': '%.2f',
+    'vmag':    {'cmap': FIELD_CMAP, 'title': 'speed A (m/s)',   'fmt': '%.2f',
                 'label': 'Velocity A'},
-    'vmag_B':  {'cmap': FLOW_CMAP, 'title': 'speed B (m/s)',   'fmt': '%.2f',
+    'vmag_B':  {'cmap': FIELD_CMAP, 'title': 'speed B (m/s)',   'fmt': '%.2f',
                 'label': 'Velocity B'},
-    'P_kPa':   {'cmap': FLOW_CMAP, 'title': 'PA abs (kPa)',    'fmt': '%.1f',
+    'P_kPa':   {'cmap': FIELD_CMAP, 'title': 'PA abs (kPa)',    'fmt': '%.1f',
                 'label': 'Pressure A'},
-    'P_B_kPa': {'cmap': FLOW_CMAP, 'title': 'PB abs (kPa)',    'fmt': '%.1f',
+    'P_B_kPa': {'cmap': FIELD_CMAP, 'title': 'PB abs (kPa)',    'fmt': '%.1f',
                 'label': 'Pressure B'},
     'L_mm':    {'cmap': FIELD_CMAP, 'title': 'L (mm)',          'fmt': '%.2f',
                 'label': 'Design L'},

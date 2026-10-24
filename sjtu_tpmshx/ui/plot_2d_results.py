@@ -13,7 +13,7 @@ Public entry points (consumed by ``ui.mixins.run_controller`` and ``main``):
 import numpy as np
 from matplotlib.ticker import ScalarFormatter
 
-from .theme import FIELD_CMAP, FLOW_CMAP
+from .theme import FIELD_CMAP
 from .vis3d_constants import field_color_limits
 
 def _phase_indices(window, count):
@@ -208,9 +208,9 @@ def finalize_plots(window, field="temp"):
     # Pressure plot — clouds only (dP shown in the KPI strip; the summary card
     # + SIMPLE convergence plot were removed from this tab).
     selected = _phase_indices(window, 2)
-    control = getattr(window, 'chk_shared_flow_scale', None)
-    shared = control is not None and control.isChecked()
     if field == "pres":
+        control = getattr(window, 'chk_shared_pressure_scale', None)
+        shared = control is None or control.isChecked()
         if len(selected) == 2:
             window.canvas_pres.plot_pressure(P_fA, P_fB, N_x, N_y, L, H, mode_label,
                                              dx_arr=r.get('dx_arr'), dy_arr=r.get('dy_arr'), shared=shared)
@@ -226,7 +226,7 @@ def finalize_plots(window, field="temp"):
             Xp, Yp, Fp = pad_field_to_edges(x, y, values, L * 1000, H * 1000)
             lo, hi = field_color_limits([P_fA, P_fB], shared)[index]
             cf = ax.contourf(Xp, Yp, Fp, levels=np.linspace(lo, hi, 129),
-                             cmap=FLOW_CMAP, vmin=lo, vmax=hi)
+                             cmap=FIELD_CMAP, vmin=lo, vmax=hi)
             ax.set_xlim(0, L * 1000); ax.set_ylim(0, H * 1000)
             cb = canvas.fig.colorbar(cf, ax=ax, shrink=.9, aspect=25,
                                     format=ScalarFormatter(useOffset=False))
@@ -253,7 +253,7 @@ def finalize_plots(window, field="temp"):
         window.canvas_vel.axes = [list(axes_v)]
         UmagA = np.sqrt(ucA**2 + vcA**2)
         UmagB = np.sqrt(ucB**2 + vcB**2)
-        limits = field_color_limits([UmagA, UmagB], shared)
+        limits = field_color_limits([UmagA, UmagB])
         velocity_items = [
             (UmagA, r"$|\mathbf{U}_A|$  [m/s]", "Fluid A"),
             (UmagB, r"$|\mathbf{U}_B|$  [m/s]", "Fluid B"),
@@ -265,12 +265,11 @@ def finalize_plots(window, field="temp"):
             _Xp, _Yp, _Fp = pad_field_to_edges(x, y, values, L * 1000.0, H * 1000.0)
             lo, hi = limits[index]
             cf = ax.contourf(_Xp, _Yp, _Fp, levels=np.linspace(lo, hi, 129),
-                             cmap=FLOW_CMAP, vmin=lo, vmax=hi)
+                             cmap=FIELD_CMAP, vmin=lo, vmax=hi)
             ax.set_xlim(0, L * 1000.0); ax.set_ylim(0, H * 1000.0)
             cb = window.canvas_vel.fig.colorbar(cf, ax=ax, shrink=0.9,
                                                  aspect=25, format=ScalarFormatter(useOffset=False))
-            scale = 'A/B shared' if shared else subtitle + ' full range'
-            _style_workbench_axes(ax, cb, _t, main_title, scale)
+            _style_workbench_axes(ax, cb, _t, main_title, subtitle + ' full range')
             ax.grid(True, alpha=0.15, linewidth=0.5, color=_t['ax_text'])
             if hasattr(window, '_zone_boundaries') and window._zone_boundaries:
                 z_dir = getattr(window, '_zone_axis_dir', 'y')
