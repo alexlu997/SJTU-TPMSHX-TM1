@@ -1482,6 +1482,11 @@ reused.
 
 Startup converts temperature inputs to K. The conversion keeps their physical values.
 
+The compute entry captures one `ComputeConfig` before grid preflight.
+Grid checks, prescribed-speed advice, the 3D size confirmation and the worker use that same configuration.
+Mass-flow inputs keep their stored speed out of the advice; preparation resolves the actual speed.
+Input-capture errors stop the launch before grid checks or worker creation.
+
 Copy-as-Python and reproducible links use the same complete GUI preset capture
 and restore path as saved inputs. This includes temperature units, partition rows,
 continuous-field inputs and custom model parameters. The Python snippet expects
