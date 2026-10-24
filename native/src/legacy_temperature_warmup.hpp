@@ -4,18 +4,18 @@
 
 namespace tpmshx {
 
-// Retain the G4 rows for single-A sCO2 and true-h CC warm-up.
+// Retain the G4 rows for two-sided true-h CC warm-up.
 // Each advance completes one original chunk without an h(P,T) ledger.
 class LegacyTemperatureRun {
 public:
     LegacyTemperatureRun(TemperatureScheme,const GridView&,
         const TemperatureFluidView&,const TemperatureFluidView&,
         ArrayView<const double>,TemperatureStateView,const TemperatureControl&,
-        ArrayView<const double>,bool red_black=false);
+        bool red_black=false);
     LegacyTemperatureRun(TemperatureScheme,const GridView&,
         const TemperatureFluidView&,const TemperatureFluidView&,
         ArrayView<const double>,TemperatureStateView,const TemperatureControl&,
-        const TemperatureRunState&,ArrayView<const double>,bool red_black=false);
+        const TemperatureRunState&,bool red_black=false);
     ~LegacyTemperatureRun();
     LegacyTemperatureRun(const LegacyTemperatureRun&)=delete;
     LegacyTemperatureRun& operator=(const LegacyTemperatureRun&)=delete;

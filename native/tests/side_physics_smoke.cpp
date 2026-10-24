@@ -104,12 +104,12 @@ int main() {
         for(const auto& physics:resolve_full_3d_physics(spatial,control))
             require(physics.energy==EnergyRelation::integral_cp_T);
     }
-    for(auto a:{Fluid::air,Fluid::water,Fluid::sco2}) {
+    for(auto a:{Fluid::air,Fluid::water}) {
         Full3DInput single{};single.geometry.grid.nz=2;single.a.fluid=a;
         single.b.fluid=Fluid::co2;single.solve_b=false;
         Full3DControl control;control.conservative=false;
         const auto selected=resolve_full_3d_physics(single,control);
-        require(selected[0].energy==(a==Fluid::sco2?EnergyRelation::capacity_temperature:EnergyRelation::integral_cp_T));
+        require(selected[0].energy==EnergyRelation::integral_cp_T);
         require(selected[1].energy==EnergyRelation::prescribed_temperature);
         require(selected[1].conductivity==ConductivitySource::prescribed);
         require(selected[1].heat_transfer==HeatTransferSampling::prescribed);

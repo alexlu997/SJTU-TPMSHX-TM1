@@ -1,7 +1,7 @@
 #include "tpmshx/full_3d.hpp"
 #include "tpmshx/conservative_energy.hpp"
 #include "tpmshx/model_coefficients.hpp"
-#include "legacy_single_a_temperature.hpp"
+#include "legacy_temperature_warmup.hpp"
 #include "model_h_common.hpp"
 #include "full_3d_fields.hpp"
 #include "closure_ranges.hpp"
@@ -778,7 +778,7 @@ struct ThermalRun {
     RangeRecorder& ranges;
     const Full3DThermalMode mode;
     const std::array<SidePhysics,2> physics;
-    const bool cell_centered,legacy_single_sco2;
+    const bool cell_centered;
     EnthalpyEOS eos;
     StaggeredTemperatureDriver staggered;
     std::array<double,2> dispersion{},hv_ratio{1.,1.};
@@ -791,7 +791,6 @@ struct ThermalRun {
     std::unique_ptr<EnthalpyRun> enthalpy;
     std::array<std::array<Values,2>,2> planar_mass;
     std::array<Values,2> legacy_capacity;
-    Values zero_velocity;
     double unit_depth=1.;
     const Full3DSide& side(std::size_t s) const { return s?input.b:input.a; }
     ArrayView<const double> epsilon(std::size_t s) const { return s?input.geometry.epsilon_b:input.geometry.epsilon_a; }
@@ -801,8 +800,7 @@ struct ThermalRun {
         :input(i),control(c),result(r),properties(p),ranges(observations),
          mode(thermal_mode(i,c)),physics(resolve_full_3d_physics(i,c)),
          cell_centered(mode==Full3DThermalMode::temperature
-             && (i.geometry.grid.nz==1 || (!c.conservative && c.force_cell_centered))),
-         legacy_single_sco2(!i.solve_b && i.a.fluid==Fluid::sco2) {}
+             && (i.geometry.grid.nz==1 || (!c.conservative && c.force_cell_centered))) {}
     void initialize_side(std::size_t s);
     void initialize_temperature();
     void heat_transfer(std::size_t s,bool warm);
@@ -906,8 +904,6 @@ Full3DThermalEvidence ThermalRun::prepare(bool warm,std::size_t outer) {
     e.mode=mode;
     const bool true_h=mode==Full3DThermalMode::true_h,model_h=mode==Full3DThermalMode::model_h;
     const bool cc=cell_centered;
-    if(cc && legacy_single_sco2)
-        e.temperature_algorithm="legacy_frozen_cp_single_a_cc_v1";
     if(warm)ranges.temperature(temperature,"main","real-cell(x,y,z)-warm");
     for(std::size_t s=0;s<2;++s) if(active(s)) e.pressure[s]=result.flow[s].pressure_real;
     if(!true_h) properties.check_water(temperature,e.pressure);
@@ -934,7 +930,7 @@ Full3DThermalEvidence ThermalRun::prepare(bool warm,std::size_t outer) {
             record_property_samples(e.property_sampling,s,sample_index,true_h?"thermal_warmup":"thermal",
                 "model_resource",warm?"previous_thermal_or_seed":"inlet","inlet",
                 "current_SIMPLE_density_times_cp",{"rho_cp"});
-        else if(!model_h && (!cc || legacy_single_sco2 || true_h))
+        else if(!model_h && (!cc || true_h))
             record_property_samples(e.property_sampling,s,sample_index,true_h?"thermal_warmup":"thermal",
                 "outer_property_state",outer?"previous_thermal_return":"inlet","inlet","copy",{"rho_cp"});
         if(physics[s].energy==EnergyRelation::integral_cp_T)
@@ -956,12 +952,11 @@ Full3DThermalEvidence ThermalRun::prepare(bool warm,std::size_t outer) {
                 warm?view(temperature[s]):ArrayView<const double>{&a.inlet_temperature,1},8);
         e.rho_cp[s]=rho_cp[s];
         if(cc || model_h) {
-            if(legacy_single_sco2) e.temperature_cp_coefficients[s].fill(std::numeric_limits<double>::quiet_NaN());
-            else if(a.fluid==Fluid::air) e.temperature_cp_coefficients[s]=model_coefficients::model_h_air;
+            if(a.fluid==Fluid::air) e.temperature_cp_coefficients[s]=model_coefficients::model_h_air;
             else if(a.fluid==Fluid::water) e.temperature_cp_coefficients[s]=model_coefficients::model_h_water;
             else throw std::invalid_argument("full CC model enthalpy requires air or water on solved sides");
         }
-        if(!model_h && (!cc || legacy_single_sco2) && control.conservative && control.strict_mass_balance
+        if(!model_h && !cc && control.conservative && control.strict_mass_balance
            && (a.fluid!=Fluid::air || control.variable_rho_cp))
             balance_outflow(g,a.direction,e.face_velocity[s],multiply(epsilon(s),view(rho_cp[s])));
     }
@@ -1025,11 +1020,9 @@ void ThermalRun::start(const Full3DThermalRunState* saved) {
             if(std::any_of(input.sources.begin(),input.sources.end(),[](auto source){
                 return source.size && std::any_of(source.data,source.data+source.size,[](double x){return x!=0.;});}))
                 throw std::invalid_argument("nonzero 3D MMS sources require staggered velocities");
-            if(true_h || legacy_single_sco2) {
+            if(true_h) {
                 const auto& va=result.flow[0].velocity_real;
-                zero_velocity.assign(input.solve_b?0:temperature[0].size(),0.);
-                const auto vb=input.solve_b?views(result.flow[1].velocity_real)
-                    :std::array<ArrayView<const double>,3>{view(zero_velocity),view(zero_velocity),view(zero_velocity)};
+                const auto vb=views(result.flow[1].velocity_real);
                 legacy_capacity=e.inlet_capacity;
                 if(g.nz==1) {
                     tc.chunk_iterations=500;tc.q_relative_tolerance=2e-8;
@@ -1044,8 +1037,8 @@ void ThermalRun::start(const Full3DThermalRunState* saved) {
                 const TemperatureFluidView b{view(conductivity[1]),view(hv[1]),epsilon(1),view(rho_cp[1]),vb[0],vb[1],vb[2],bc[1]};
                 if(saved) {
                     auto state=*saved->legacy;state.temperature=temperature;
-                    legacy=std::make_unique<LegacyTemperatureRun>(scheme,g,a,b,geo.solid_conductivity,fields,tc,state,prescribed);
-                } else legacy=std::make_unique<LegacyTemperatureRun>(scheme,g,a,b,geo.solid_conductivity,fields,tc,prescribed);
+                    legacy=std::make_unique<LegacyTemperatureRun>(scheme,g,a,b,geo.solid_conductivity,fields,tc,state);
+                } else legacy=std::make_unique<LegacyTemperatureRun>(scheme,g,a,b,geo.solid_conductivity,fields,tc);
             } else {
                 auto ba=bc[0],bb=bc[1];ba.capacity_flux={};bb.capacity_flux={};
                 auto* audit=&e.physical_audit.emplace();
@@ -1446,12 +1439,13 @@ struct Runtime {
 }  // namespace
 
 std::array<SidePhysics,2> resolve_full_3d_physics(const Full3DInput& input,const Full3DControl& control) {
+    if(!input.solve_b && input.a.fluid==Fluid::sco2)
+        throw std::invalid_argument("single-A sCO2 execution is retired");
     const auto mode=thermal_mode(input,control);
     const bool cc=mode==Full3DThermalMode::temperature
         && (input.geometry.grid.nz==1 || (!control.conservative && control.force_cell_centered));
-    const bool single_sco2=!input.solve_b && input.a.fluid==Fluid::sco2;
     const auto relation=mode==Full3DThermalMode::true_h?EnergyRelation::eos_h_TP:
-        (mode==Full3DThermalMode::model_h || (cc && !single_sco2))?
+        (mode==Full3DThermalMode::model_h || cc)?
             EnergyRelation::integral_cp_T:EnergyRelation::capacity_temperature;
     std::array<SidePhysics,2> selected;
     for(std::size_t side=0;side<2;++side) {
@@ -1670,7 +1664,7 @@ void validate_continuation(const Full3DInput& input,const Full3DControl& control
         const auto& run=*state.thermal;const auto& e=run.evidence;const auto& record=run.record;
         const auto mode=thermal_mode(input,control);const bool eos=mode==Full3DThermalMode::true_h;
         const bool staggered=g.nz>1 && (control.conservative || !control.force_cell_centered);
-        const bool legacy=!staggered && (eos || (!input.solve_b && input.a.fluid==Fluid::sco2));
+        const bool legacy=!staggered && eos;
         const bool model=mode==Full3DThermalMode::model_h;
         const auto owners=run.model_h_2d.has_value()+run.model_h_3d.has_value()+run.staggered.has_value()
             +run.legacy.has_value()+run.enthalpy.has_value();

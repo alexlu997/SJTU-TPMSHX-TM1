@@ -156,8 +156,6 @@ def capture_result(case, cfg, p, r, abi):
         diagnostics['_audit_eps']=float(cfg['eps'])
         diagnostics['_audit_m_dot_B_phys_in']=r['physical_mass_in'][1] if r['flow'][1] else None
         diagnostics['_audit_m_dot_B_phys_out']=r['physical_mass_out'][1] if r['flow'][1] else None
-    temperature_transport = (r['temperature_evidence']['definition'] if 'temperature_evidence' in r
-                             else r.get('temperature_transport'))
     return FieldResult(result_id=str(uuid4()),case_id=case.case_id,backend_id='cpp',backend_version=f"full_3d_v{r['entry_version']}",grid=case.grid,
         fields=fields,field_metadata=field_metadata,model_refs=case.model_refs,
         boundary_fluxes=dict(mass_A=None if mass[0][0] is None else mass[0],mass_B=None if mass[1][0] is None else mass[1],
@@ -170,7 +168,7 @@ def capture_result(case, cfg, p, r, abi):
         metadata=dict(**({'continuation':r['continuation']} if 'continuation' in r else {}),
             **({'runtime_resources':r['runtime_resources']} if 'runtime_resources' in r else {}),
             _last_closure_ranges=r['last_closure_ranges'],dimension=3,quantity_basis='total',thermal_mode=r['mode'],parameters=case.parameters,design_fields=case.design_fields,
-            **({'temperature_transport':temperature_transport} if temperature_transport is not None else {}),
+            **({'temperature_transport':r['temperature_evidence']['definition']} if 'temperature_evidence' in r else {}),
             input_resolution=cfg['_input_resolution'], property_sampling=r['property_sampling'],
             enthalpy_update_normalization=r['enthalpy_update_normalization'],
             simple_velocity_relaxation=r['simple_velocity_relaxation'],

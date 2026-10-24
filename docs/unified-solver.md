@@ -230,7 +230,7 @@ Choose defaults from qualified complete results, not property-call microbenchmar
 | --- | --- | --- |
 | Full 2D/3D controllers | C APIs, bindings, public run API, GUI, CLI, batches and validation | The new controller covers each supported phase, failure and evidence contract; move callers and remove replaced drivers in the same PR. |
 | Model-h and true-h loops | Full solves and direct numerical tests | Shared core has equivalent recorded physics and required distinct schemes; move tests before deleting exclusive loops. |
-| Temperature kernels | Quick Design, standalone calls, true-h warm-up, single-A and research consumers | Migrate each actual consumer with its physical meaning and acceptance. Keep required operations while those consumers remain. |
+| Temperature kernels | Quick Design, standalone calls, true-h warm-up, air/water single-A and research consumers | Migrate each actual consumer with its physical meaning and acceptance. Keep required operations while those consumers remain. |
 | SIMPLE 2D/3D kernels | Complete flow solves and standalone contracts | Keep dimension-specific operations. Only replace duplicated control after both consumers pass. |
 | Python numerical backend | Version 0.1 reference; GUI/CLI retain Python interfaces | Retired in 0.2. Required checks use C++ and independent audits. |
 | Historical file readers | Saved cases, results, sessions, exports and optimization records | Keep valid reads and definition versions; report incompatible reruns explicitly. |

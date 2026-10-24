@@ -1,4 +1,4 @@
-#include "legacy_single_a_temperature.hpp"
+#include "legacy_temperature_warmup.hpp"
 #include "temperature_run_state.hpp"
 
 #include <algorithm>
@@ -223,7 +223,7 @@ void solid_row(const Mesh& mesh, const TemperatureFluidView& a, const Temperatur
 
 double chunk(const Mesh& mesh, const TemperatureFluidView& a, const TemperatureFluidView& b,
              ArrayView<const double> ks, TemperatureStateView state,
-             const TemperatureControl& control, bool frozen, std::size_t sweeps,
+             const TemperatureControl& control, std::size_t sweeps,
              bool red_black) {
     double change = 0.0;
     const bool reverse_x = !red_black && a.boundary.direction == 1;
@@ -251,9 +251,9 @@ double chunk(const Mesh& mesh, const TemperatureFluidView& a, const TemperatureF
                     fluid_row(mesh,a,state.a,state.solid,p,c,true,control.alpha_a,change,
                               {snapshot_a.data(),snapshot_a.size()});
                     solid_row(mesh,a,b,ks,state,p,c,control.alpha_solid,change);
-                    if (!frozen) fluid_row(mesh,b,state.b,state.solid,p,c,
-                                          control.second_order_b,control.alpha_b,change,
-                                          {snapshot_b.data(),snapshot_b.size()});
+                    fluid_row(mesh,b,state.b,state.solid,p,c,
+                              control.second_order_b,control.alpha_b,change,
+                              {snapshot_b.data(),snapshot_b.size()});
                 }
         if (change < 1e-10) break;
     }
@@ -278,7 +278,7 @@ namespace {
 void validate_run(TemperatureScheme scheme, const GridView& grid,
     const TemperatureFluidView& a, const TemperatureFluidView& b,
     ArrayView<const double> k_ss, TemperatureStateView state,
-    const TemperatureControl& control, ArrayView<const double> prescribed_b, bool red_black) {
+    const TemperatureControl& control, bool red_black) {
     if (scheme != TemperatureScheme::cell_centered_2d && scheme != TemperatureScheme::cell_centered_3d)
         throw std::invalid_argument("unsupported temperature scheme");
     const bool two_d = scheme == TemperatureScheme::cell_centered_2d;
@@ -300,10 +300,9 @@ void validate_run(TemperatureScheme scheme, const GridView& grid,
         throw std::invalid_argument("unsupported temperature phase policy");
     const std::array<ArrayView<double>,3> outputs{state.a,state.b,state.solid};
     for (auto out : outputs) check_array(out,cells,control.warm_start);
-    if (prescribed_b.size) check_array(prescribed_b,cells);
     for (std::size_t i = 0; i < outputs.size(); ++i) {
         for (std::size_t j = 0; j < i; ++j) disjoint(outputs[i],outputs[j]);
-        for (auto input : {grid.dx,grid.dy,grid.dz,k_ss,prescribed_b}) disjoint(outputs[i],input);
+        for (auto input : {grid.dx,grid.dy,grid.dz,k_ss}) disjoint(outputs[i],input);
     }
     for (const auto* f : {&a,&b}) {
         coefficient(f->conductivity,cells); coefficient(f->hv,cells);
@@ -331,7 +330,7 @@ void validate_run(TemperatureScheme scheme, const GridView& grid,
 struct LegacyTemperatureRun::Impl {
     GridView grid;
     TemperatureFluidView a,b;
-    ArrayView<const double> k_ss,prescribed_b;
+    ArrayView<const double> k_ss;
     TemperatureStateView state;
     TemperatureControl control;
     bool red_black;
@@ -345,14 +344,14 @@ struct LegacyTemperatureRun::Impl {
     TemperaturePhase phase=TemperaturePhase::active;
     Impl(TemperatureScheme scheme,const GridView& g,const TemperatureFluidView& fa,
         const TemperatureFluidView& fb,ArrayView<const double> ks,TemperatureStateView t,
-        const TemperatureControl& c,ArrayView<const double> prescribed,bool rb,
+        const TemperatureControl& c,bool rb,
         const TemperatureRunState* saved)
-        :grid(g),a(fa),b(fb),k_ss(ks),prescribed_b(prescribed),state(t),control(c),
+        :grid(g),a(fa),b(fb),k_ss(ks),state(t),control(c),
          red_black(rb),mesh(grid,scheme==TemperatureScheme::cell_centered_2d),outputs{t.a,t.b,t.solid} {
-        validate_run(scheme,grid,a,b,k_ss,state,control,prescribed_b,red_black);
+        validate_run(scheme,grid,a,b,k_ss,state,control,red_black);
         const auto cells=grid.nx*grid.ny*grid.nz;
         if(saved) {
-            detail::validate_temperature_state(*saved,control,cells,prescribed_b);
+            detail::validate_temperature_state(*saved,control,cells,{});
             for(auto out:outputs)for(const auto& field:saved->temperature)
                 disjoint(out,ArrayView<const double>{field.data(),field.size()});
             for(std::size_t field=0;field<3;++field)
@@ -365,7 +364,6 @@ struct LegacyTemperatureRun::Impl {
                 std::fill_n(state.b.data,cells,b.boundary.inlet_temperature);
                 std::fill_n(state.solid.data,cells,.5*(a.boundary.inlet_temperature+b.boundary.inlet_temperature));
             }
-            if (prescribed_b.size) std::copy_n(prescribed_b.data,cells,state.b.data);
             for (std::size_t field = 0; field < outputs.size(); ++field)
                 previous[field].assign(outputs[field].data,outputs[field].data+cells);
             if(!control.max_iterations)phase=TemperaturePhase::completed;
@@ -379,7 +377,7 @@ struct LegacyTemperatureRun::Impl {
             phase=TemperaturePhase::cancelled;return;
         }
         const auto n = std::min(control.chunk_iterations,control.max_iterations-result.iterations);
-        result.residual = chunk(mesh,a,b,k_ss,state,control,prescribed_b.size != 0,n,red_black);
+        result.residual = chunk(mesh,a,b,k_ss,state,control,n,red_black);
         result.iterations += n;
         if (control.progress) control.progress(control.context,result.iterations,control.max_iterations);
         if (control.cancel && control.cancel(control.context)) {
@@ -408,13 +406,13 @@ struct LegacyTemperatureRun::Impl {
 };
 LegacyTemperatureRun::LegacyTemperatureRun(TemperatureScheme scheme,const GridView& grid,
     const TemperatureFluidView& a,const TemperatureFluidView& b,ArrayView<const double> ks,
-    TemperatureStateView state,const TemperatureControl& control,ArrayView<const double> prescribed,bool rb)
-    :impl_(std::make_unique<Impl>(scheme,grid,a,b,ks,state,control,prescribed,rb,nullptr)) {}
+    TemperatureStateView state,const TemperatureControl& control,bool rb)
+    :impl_(std::make_unique<Impl>(scheme,grid,a,b,ks,state,control,rb,nullptr)) {}
 LegacyTemperatureRun::LegacyTemperatureRun(TemperatureScheme scheme,const GridView& grid,
     const TemperatureFluidView& a,const TemperatureFluidView& b,ArrayView<const double> ks,
     TemperatureStateView state,const TemperatureControl& control,const TemperatureRunState& saved,
-    ArrayView<const double> prescribed,bool rb)
-    :impl_(std::make_unique<Impl>(scheme,grid,a,b,ks,state,control,prescribed,rb,&saved)) {}
+    bool rb)
+    :impl_(std::make_unique<Impl>(scheme,grid,a,b,ks,state,control,rb,&saved)) {}
 LegacyTemperatureRun::~LegacyTemperatureRun()=default;
 TemperaturePhase LegacyTemperatureRun::phase() const {return impl_->phase;}
 TemperaturePhase LegacyTemperatureRun::advance() {

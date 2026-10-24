@@ -83,7 +83,7 @@ if(APPLE)
 endif()
 add_library(tpmshx_quick_design STATIC "${TPMSHX_ROOT}/native/src/quick_design_driver.cpp"
     "${TPMSHX_ROOT}/native/src/temperature_driver.cpp"
-    "${TPMSHX_ROOT}/native/src/legacy_single_a_temperature.cpp")
+    "${TPMSHX_ROOT}/native/src/legacy_temperature_warmup.cpp")
 target_include_directories(tpmshx_quick_design PUBLIC "${TPMSHX_ROOT}/native/include")
 target_link_libraries(tpmshx_quick_design PUBLIC tpmshx_models tpmshx_energy)
 target_include_directories(tpmshx_quick_design SYSTEM PRIVATE "${TPMSHX_NATIVE_DEPS_ROOT}/src/Eigen-5.0.1")

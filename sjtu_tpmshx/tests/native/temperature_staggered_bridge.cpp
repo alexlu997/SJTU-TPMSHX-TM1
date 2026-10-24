@@ -1,5 +1,5 @@
 #include "tpmshx/temperature_staggered.hpp"
-#include "legacy_single_a_temperature.hpp"
+#include "legacy_temperature_warmup.hpp"
 #include "tpmshx/thermal_c_api.h"
 #include <algorithm>
 #include <cstdio>
@@ -98,7 +98,7 @@ extern "C" TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL test_legacy_warmup(
         const TemperatureControl control{config[0],config[1],values[2],values[3],values[4],values[5],
             config[2]!=0,true};
         LegacyTemperatureRun run(TemperatureScheme::cell_centered_3d,grid,side(9,0),side(20,1),v(6),
-            {out(3),out(4),out(5)},control,v(8));
+            {out(3),out(4),out(5)},control);
         while(run.phase()!=TemperaturePhase::completed)run.advance();
         const auto result=run.take_result();
         status[0]=static_cast<std::size_t>(result.stop);status[1]=result.iterations;
