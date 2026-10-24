@@ -48,53 +48,72 @@ def test_preview_drag_starts_in_canvas_margin_and_survives_redraw(win):
     assert win.canvas_layout._preview_axes is None
 
 
+@pytest.mark.parametrize('mode', ['2d', '3d'])
 @pytest.mark.parametrize('field', ['vel', 'pres'])
-def test_flow_scale_preserves_full_volume_range_across_slices(win, field):
-    result = _result('3d')
+def test_flow_scale_defaults_to_shared_and_preserves_ranges_across_slices(win, mode, field):
+    result = _result(mode)
     f = result.fields
     f['ucA'][:] = 20.
-    f['vcA'][:] = f['wcA'][:] = 0.
+    f['vcA'][:] = 0.
     f['ucB'][:] = np.linspace(.10, .35, f['ucB'].size).reshape(f['ucB'].shape)
-    f['vcB'][:] = f['wcB'][:] = 0.
+    f['vcB'][:] = 0.
+    if mode == '3d':
+        f['wcA'][:] = f['wcB'][:] = 0.
     original = {key: value.copy() for key, value in f.items() if isinstance(value, np.ndarray)}
     win.write_result(result)
     win._field_phase = 1
     win._active_tab = field
+    assert win.chk_shared_flow_scale.isChecked()
     assert ensure_result_plot(win, field)
-    expected = f['ucB'] if field == 'vel' else f['P_fB'] / 1000.
-    limits = (float(expected.min()), float(expected.max()))
+    if mode == '3d':
+        assert win._slice_index == f['Ta'].shape[2] // 2
+    pressure_unit = 1000. if mode == '3d' else 1.
+    independent = (0., .35) if field == 'vel' else (
+        float(f['P_fB'].min() / pressure_unit), float(f['P_fB'].max() / pressure_unit))
+    shared = (0., 20.) if field == 'vel' else (
+        float(min(f['P_fA'].min(), f['P_fB'].min()) / pressure_unit),
+        float(max(f['P_fA'].max(), f['P_fB'].max()) / pressure_unit))
     canvas = getattr(win, 'canvas_' + field)
-    for index in (0, 2):
-        win._slice_index = index
-        redraw_result_fields(win)
-        artist = canvas.axes[0][0].collections[0]
-        assert artist.get_clim() == limits
-        assert artist.get_cmap().name == 'viridis'
-        assert canvas.fig.axes[-1].get_ylim() == limits
-        np.testing.assert_allclose(canvas.fig.axes[-1].get_yticks()[[0, -1]], limits)
-    win.chk_shared_flow_scale.setChecked(True)
-    combined = (min(limits[0], 20.), 20.) if field == 'vel' else (
-        float(min(f['P_fA'].min(), f['P_fB'].min()) / 1000.),
-        float(max(f['P_fA'].max(), f['P_fB'].max()) / 1000.))
-    assert canvas.axes[0][0].collections[0].get_clim() == combined
+    for enabled, limits in ((True, shared), (False, independent)):
+        win.chk_shared_flow_scale.setChecked(enabled)
+        assert canvas.axes[0][0].collections[0].get_clim() == limits
+        for index in ((0, 2) if mode == '3d' else (0,)):
+            win._slice_index = index
+            redraw_result_fields(win)
+            artist = canvas.axes[0][0].collections[0]
+            assert artist.get_clim() == limits
+            assert artist.get_cmap().name == 'turbo'
+            assert len(artist.levels) == (257 if mode == '3d' else 129)
+            assert canvas.fig.axes[-1].get_ylim() == limits
+            np.testing.assert_allclose(canvas.fig.axes[-1].get_yticks()[[0, -1]], limits)
     for key, value in original.items():
         np.testing.assert_array_equal(f[key], value)
 
 
-def test_volume_and_slice_scale_use_original_cells():
+def test_volume_scale_keeps_weak_fields_visible_and_uses_original_cells():
     from sjtu_tpmshx.ui.panel_vis_3d import ThreeDVisPanel
     arrays = {'vmag': np.array([19., 21.]), 'vmag_B': np.array([.1, .3]),
               'P_kPa': np.array([120., 121.]), 'P_B_kPa': np.array([100., 100.001])}
-    panel = SimpleNamespace(_arrays=arrays, _shared_flow_scale=False)
+    panel = SimpleNamespace(_arrays=arrays)
     limits = ThreeDVisPanel._build_global_clim(panel)
     assert limits['vmag_B'] == (.1, .3)
     assert limits['P_B_kPa'] == (100., 100.001)
     fmt = field_tick_format(limits['P_B_kPa'])
     assert len({fmt % v for v in np.linspace(*limits['P_B_kPa'], 5)}) == 5
-    panel._shared_flow_scale = True
-    limits = ThreeDVisPanel._build_global_clim(panel)
-    assert limits['vmag_B'] == limits['vmag'] == (.1, 21.)
     assert field_color_limits([np.zeros(3)])[0][1] > 0
+
+
+@pytest.mark.parametrize('group', [('Ta', 'Tb', 'Ts'), ('vmag', 'vmag_B'), ('P_kPa', 'P_B_kPa')])
+@pytest.mark.parametrize('small_max,shared', [(3.9, False), (4., True), (8., True)])
+def test_volume_scale_shares_related_fields_at_the_original_threshold(group, small_max, shared):
+    from sjtu_tpmshx.ui.panel_vis_3d import ThreeDVisPanel
+    from sjtu_tpmshx.ui.vis3d_constants import FIELD_META
+    arrays = {key: np.array([0., 10. if i == 0 else small_max]) for i, key in enumerate(group)}
+    limits = ThreeDVisPanel._build_global_clim(SimpleNamespace(_arrays=arrays))
+    assert limits[group[0]] == (0., 10.)
+    for key in group[1:]:
+        assert limits[key] == (0., 10. if shared else small_max)
+    assert all(FIELD_META[key]['cmap'] == 'turbo' for key in group)
 
 
 @pytest.mark.parametrize('mode', ['2d', '3d'])
@@ -114,6 +133,9 @@ def test_nearly_uniform_fields_still_render(win, mode, field, value):
     win._field_phase = 0
     assert ensure_result_plot(win, field)
     contour = getattr(win, 'canvas_' + field).axes[0][0].collections[0]
+    assert contour.get_cmap().name == 'turbo'
+    if mode == '3d':
+        assert len(contour.levels) == 257
     assert np.all(np.diff(contour.levels) > 0)
     assert contour.get_clim()[1] > contour.get_clim()[0]
 

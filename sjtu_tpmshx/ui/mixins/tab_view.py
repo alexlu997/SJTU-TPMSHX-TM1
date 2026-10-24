@@ -320,7 +320,7 @@ class TabViewMixin:
                 _fs.setVisible(tab in ('temp', 'pres', 'vel'))
             scale = getattr(self, 'chk_shared_flow_scale', None)
             if scale is not None:
-                scale.setVisible(tab in ('pres', 'vel', '3d'))
+                scale.setVisible(tab in ('pres', 'vel'))
             # Reverse-sync aggregate result navigation to the actual card.
             _btn_res = getattr(self, 'btn_tab_result', None)
             if _btn_res is not None:

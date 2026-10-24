@@ -9,7 +9,6 @@ from sjtu_tpmshx.ui.typography import FONT_STACK
 
 # One colormap for all GUI scalar fields, independent of the light/dark theme.
 FIELD_CMAP = 'turbo'
-FLOW_CMAP = 'viridis'
 
 # ── Typography — modular scale (pt), smallest → largest ──────
 # One coherent hierarchy. Section titles (FONT_SECTION) now sit one step

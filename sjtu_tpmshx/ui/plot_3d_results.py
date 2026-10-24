@@ -9,7 +9,7 @@ from matplotlib.ticker import ScalarFormatter
 
 # Theme — resolved at call time via get_theme()
 from sjtu_tpmshx.ui.theme import get_theme as _get_theme
-from sjtu_tpmshx.ui.theme import FIELD_CMAP, FLOW_CMAP
+from sjtu_tpmshx.ui.theme import FIELD_CMAP
 from .vis3d_constants import field_color_limits
 from .matplotlib_canvas import style_colorbar
 
@@ -87,8 +87,6 @@ def finalize_plots_3d(window) -> bool:
             _Tb_for_panel = f.get('Tb') if _has_B else None
             _vmag_B_for_panel = f.get('vmag_B') if _has_B else None
             _P_B_for_panel = P_B_kPa if _has_B else None
-            panel._shared_flow_scale = bool(getattr(window, 'chk_shared_flow_scale', None)
-                                             and window.chk_shared_flow_scale.isChecked())
             panel.set_fields(
                 Ta=f['Ta'],
                 Tb=_Tb_for_panel,
@@ -211,14 +209,14 @@ def _render_2d_slices_from_3d(window, res, field=None):
                 kwargs['color_limits'] = limits
             else:
                 control = getattr(window, 'chk_shared_flow_scale', None)
-                shared = control is not None and control.isChecked()
+                shared = control is None or control.isChecked()
                 if key == 'pres':
                     full_fields = [P_Pa / 1000] + ([P_Pa_B / 1000] if has_B else [])
                 else:
                     full_fields = [np.sqrt(uc**2 + vc**2 + wc**2)]
                     if has_B:
                         full_fields.append(np.sqrt(uc_B**2 + vc_B**2 + wc_B**2))
-                kwargs['color_limits'] = field_color_limits(full_fields, shared)
+                kwargs['color_limits'] = field_color_limits(full_fields, shared, zero_min=key == 'vel')
                 kwargs['shared'] = shared
             fn(canvas, *args, **kwargs)
             if attr == 'canvas_temp':
@@ -335,7 +333,7 @@ def _plot_3d_temperature(canvas, Ta_slice, Tb_slice, Ts_slice, xc, yc, z_info,
                 vmax = vmin + 1.
         if color_limits is not None:
             vmin, vmax = color_limits[index]
-        cf = ax.contourf(X, Y, field, levels=np.linspace(vmin, vmax, 129), cmap=FIELD_CMAP,
+        cf = ax.contourf(X, Y, field, levels=np.linspace(vmin, vmax, 257), cmap=FIELD_CMAP,
                           vmin=vmin, vmax=vmax)
         cb = canvas.fig.colorbar(cf, ax=ax, shrink=0.85, aspect=18,
                                 format=ScalarFormatter(useOffset=False))
@@ -358,8 +356,8 @@ def _plot_3d_temperature(canvas, Ta_slice, Tb_slice, Ts_slice, xc, yc, z_info,
 
 
 def _plot_3d_pressure(canvas, P_slice_A, P_slice_B, xc, yc, dP_A, dP_B, z_info,
-                      phase=None, color_limits=None, shared=False):
-    """Show absolute pressure with explicit, stable per-fluid limits."""
+                      phase=None, color_limits=None, shared=True):
+    """Show absolute pressure with shared A/B limits by default."""
     theme = _get_theme()
     fields = [P_slice_A / 1000.] + ([P_slice_B / 1000.] if P_slice_B is not None else [])
     limits = color_limits or field_color_limits(fields, shared)
@@ -368,8 +366,8 @@ def _plot_3d_pressure(canvas, P_slice_A, P_slice_B, xc, yc, dP_A, dP_B, z_info,
     Y, X = np.meshgrid(yc, xc)
     for ax, index in zip(axes, indices):
         lo, hi = limits[index]
-        cf = ax.contourf(X, Y, fields[index], levels=np.linspace(lo, hi, 129),
-                         cmap=FLOW_CMAP, vmin=lo, vmax=hi)
+        cf = ax.contourf(X, Y, fields[index], levels=np.linspace(lo, hi, 257),
+                         cmap=FIELD_CMAP, vmin=lo, vmax=hi)
         cb = canvas.fig.colorbar(cf, ax=ax, shrink=.9, aspect=25)
         style_colorbar(cb, theme)
         tag = ('A', 'B')[index]
@@ -382,20 +380,20 @@ def _plot_3d_pressure(canvas, P_slice_A, P_slice_B, xc, yc, dP_A, dP_B, z_info,
 
 
 def _plot_3d_velocity_slice(canvas, uA, vA, wA, uB, vB, wB, xc, yc, z_info,
-                           phase=None, color_limits=None, shared=False):
-    """Show speed without compressing the slower fluid's color range."""
+                           phase=None, color_limits=None, shared=True):
+    """Show speed from zero with shared A/B limits by default."""
     theme = _get_theme()
     vectors = [(uA, vA, wA)] + ([(uB, vB, wB)] if uB is not None else [])
     fields = [np.sqrt(u**2 + v**2 + (w**2 if w is not None else 0.))
               for u, v, w in vectors]
-    limits = color_limits or field_color_limits(fields, shared)
+    limits = color_limits or field_color_limits(fields, shared, zero_min=True)
     indices = range(len(fields)) if phase is None else [min(phase, len(fields) - 1)]
     axes = np.atleast_1d(_begin_canvas_plot(canvas, 1, len(indices)))
     Y, X = np.meshgrid(yc, xc)
     for ax, index in zip(axes, indices):
         lo, hi = limits[index]
-        cf = ax.contourf(X, Y, fields[index], levels=np.linspace(lo, hi, 129),
-                         cmap=FLOW_CMAP, vmin=lo, vmax=hi)
+        cf = ax.contourf(X, Y, fields[index], levels=np.linspace(lo, hi, 257),
+                         cmap=FIELD_CMAP, vmin=lo, vmax=hi)
         cb = canvas.fig.colorbar(cf, ax=ax, shrink=.9, aspect=25)
         style_colorbar(cb, theme)
         tag = ('A', 'B')[index]

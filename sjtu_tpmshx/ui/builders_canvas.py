@@ -295,15 +295,13 @@ def _build_canvas_toolbar(window, vlay, t, theme):
     toolbar.addWidget(window.btn_tab_result)
     toolbar.addWidget(window._field_phase_seg)
     toolbar.addWidget(window._2d_field_seg)
-    window.chk_shared_flow_scale = QCheckBox("速度/压力共用色阶")
+    window.chk_shared_flow_scale = QCheckBox("切片共用色阶")
+    window.chk_shared_flow_scale.setChecked(True)
     window.chk_shared_flow_scale.setToolTip(
-        "默认按当前流体的完整场定标，切换截面保持范围。勾选后 A/B 使用同一范围。")
-    def _set_flow_scale(shared):
+        "速度/压力切片默认共用 A/B 色阶，速度从 0 开始。切换截面保持范围；取消勾选后按流体分别定标。")
+    def _set_flow_scale():
         from .plot_2d_results import redraw_result_fields
         redraw_result_fields(window)
-        panel = getattr(window, 'canvas_3d', None)
-        if panel is not None:
-            panel.set_shared_flow_scale(shared)
     window.chk_shared_flow_scale.toggled.connect(_set_flow_scale)
     toolbar.addWidget(window.chk_shared_flow_scale)
     # Context control: hidden until a 2D field card is active (the
