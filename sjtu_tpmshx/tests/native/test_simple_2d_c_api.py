@@ -133,16 +133,19 @@ def test_public_cancellation_preserves_partial_state_and_recovers(public_library
 
 
 @pytest.mark.parametrize('callback', ['cancel', 'progress'])
-def test_python_callback_exception_returns_through_c_boundary(public_library, callback):
+@pytest.mark.parametrize('error_type', [LookupError, BaseException])
+def test_python_callback_exception_returns_through_c_boundary(public_library, callback, error_type):
     actual = oracle.make_solver(partial=True)
+    marker = error_type('callback sentinel')
 
     def failed(*_):
-        raise LookupError('callback sentinel')
+        raise marker
 
     option = {'cancel_check' if callback == 'cancel' else 'progress_cb': failed}
     with create(public_library, actual) as handle:
-        with pytest.raises(LookupError, match='callback sentinel'):
+        with pytest.raises(error_type) as caught:
             handle.solve(**arguments(actual), **option)
+        assert caught.value is marker
         assert handle.last_result['exit_reason'] == 'cancelled'
         assert handle.solve(**arguments(actual))['converged']
 

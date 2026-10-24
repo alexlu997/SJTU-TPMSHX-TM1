@@ -741,6 +741,13 @@ Its former `zone_config` row-prediction path is retired. Arguments following
 reinterpreted. Residual callbacks propagate their original exceptions through
 full compute. They are not best-effort UI notifications.
 
+The direct 2D and 3D SIMPLE bindings share callback construction in `_simple_abi`.
+Each call owns its callback functions and first error. A callback error requests
+cancellation and prevents later host hooks. Both bindings raise the original error
+after native return. Each keeps its existing native-status and result order:
+2D records the cancelled partial result before a callback error; 3D leaves `last_result` unset.
+Thermal callbacks retain their separate ABI and owner.
+
 Full 2D and 3D preparation accept `zones.axis="continuous"` with a JSON `config`. This contains `x_decision` (L controls followed by t controls, in mm). It also contains `n_ctrl_x`, `n_ctrl_y`, `symmetric_y`, `spline_order`,
 `L_bounds`, and `t_bounds`. The main geometry owns topology, material and domain dimensions. Two-dimensional controls describe L(x,y)/t(x,y).
 
