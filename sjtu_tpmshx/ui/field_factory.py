@@ -1,8 +1,8 @@
 """Themed widget builders shared by the parameter pages.
 
-``FieldFactory`` owns a :class:`ui.theme_manager.ThemeManager` reference;
-``builders_base`` delegates its row and section helpers to the installed
-process-wide factory. Neither layer back-imports ``main``.
+``FieldFactory`` owns themed rows, sections and result-value widgets.
+Page builders use the installed factory and its ThemeManager reference.
+This module does not import page builders or ``main``.
 
     f = FieldFactory(theme_manager)
     le = f.row(grid, row_idx, "L [m]", "0.080")
@@ -12,10 +12,7 @@ process-wide factory. Neither layer back-imports ``main``.
 """
 from __future__ import annotations
 
-from typing import Optional, Tuple, TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from .builders_base import _ResultLabel
+from typing import Optional, Tuple
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPalette
@@ -116,8 +113,6 @@ class FieldFactory:
     def result_label(self, *, unit_hint: str = '',
                      quantity_name: str = '') -> '_ResultLabel':
         """Build a result label that flips empty/filled style on text set."""
-        # Local import: builders_base also consumes this factory.
-        from .builders_base import _ResultLabel
         val = _ResultLabel('—', unit_hint=unit_hint,
                             quantity_name=quantity_name)
         val.setProperty('valState', 'empty')
@@ -142,7 +137,6 @@ class FieldFactory:
                 col: int = 0) -> '_ResultLabel':
         """Add (label, result-label) at cols ``col``/``col+1``. The unit
         hint is parsed from the trailing ``[unit]`` token in ``text``."""
-        from .builders_base import _parse_unit_from_label
         lbl = self.label(text)
         unit_hint, qty_name = _parse_unit_from_label(text)
         val = self.result_label(unit_hint=unit_hint, quantity_name=qty_name)
@@ -204,3 +198,75 @@ class FieldFactory:
 
     def __repr__(self) -> str:
         return f'<FieldFactory theme={self._tm!r}>'
+
+
+class _ResultLabel(QLabel):
+    """Show empty or filled value styles and provide unit-aware copy actions."""
+    _EMPTY_TOKENS = ('—', '-', '', None)
+
+    def __init__(self, *args, unit_hint="", quantity_name="", **kw):
+        super().__init__(*args, **kw)
+        self._unit_hint = unit_hint
+        self._quantity_name = quantity_name
+        from PySide6.QtCore import Qt as _Qt
+        self.setContextMenuPolicy(_Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(self._show_ctx_menu)
+
+    def setText(self, txt):  # type: ignore[override]
+        super().setText(txt if txt is not None else '—')
+        state = 'empty' if (txt in self._EMPTY_TOKENS) else 'filled'
+        if self.property('valState') != state:
+            self.setProperty('valState', state)
+            self.style().unpolish(self)
+            self.style().polish(self)
+
+    def _show_ctx_menu(self, pos):
+        from PySide6.QtWidgets import QMenu, QApplication
+        txt = self.text()
+        is_empty = txt in self._EMPTY_TOKENS
+        menu = QMenu(self)
+        act_val = menu.addAction("&Copy value")
+        act_val.setEnabled(not is_empty)
+        unit_suffix = f"  [{self._unit_hint}]" if self._unit_hint else ""
+        act_unit = menu.addAction(f"Copy with &units{unit_suffix}")
+        act_unit.setEnabled(not is_empty and bool(self._unit_hint))
+        menu.addSeparator()
+        act_qty = menu.addAction(
+            f"Copy as &assignment ({self._quantity_name or 'value'} = …)")
+        act_qty.setEnabled(not is_empty)
+        chosen = menu.exec(self.mapToGlobal(pos))
+        if chosen is None:
+            return
+        cb = QApplication.clipboard()
+        if chosen is act_val:
+            cb.setText(txt)
+        elif chosen is act_unit and self._unit_hint:
+            cb.setText(f"{txt} {self._unit_hint}")
+        elif chosen is act_qty:
+            q = self._quantity_name or "value"
+            cb.setText(f"{q} = {txt}" + (
+                f" [{self._unit_hint}]" if self._unit_hint else ""))
+
+
+_ENTITY_MAP = {
+    '&nbsp;': ' ',
+    '&epsilon;': 'ε', '&mu;': 'μ', '&rho;': 'ρ', '&sigma;': 'σ',
+    '&phi;': 'φ', '&psi;': 'ψ', '&theta;': 'θ', '&lambda;': 'λ',
+    '&alpha;': 'α', '&beta;': 'β', '&gamma;': 'γ', '&delta;': 'δ',
+    '&Delta;': 'Δ', '&eta;': 'η', '&kappa;': 'κ', '&pi;': 'π',
+    '&tau;': 'τ', '&omega;': 'ω',
+    '&middot;': '·', '&plusmn;': '±', '&deg;': '°',
+}
+
+
+def _parse_unit_from_label(text):
+    """Read the trailing unit and quantity name after removing HTML markup."""
+    import re as _re_u
+    plain = _re_u.sub(r"<[^>]+>", "", text or "")
+    for ent, ch in _ENTITY_MAP.items():
+        plain = plain.replace(ent, ch)
+    plain = plain.strip()
+    m = _re_u.search(r"\[([^\[\]]+)\]\s*$", plain)
+    unit = m.group(1).strip() if m else ""
+    name = (plain[:m.start()] if m else plain).strip().rstrip(",:")
+    return unit, name

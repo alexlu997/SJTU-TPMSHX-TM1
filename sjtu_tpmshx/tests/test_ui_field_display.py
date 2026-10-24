@@ -119,7 +119,7 @@ def test_nearly_uniform_fields_still_render(win, mode, field, value):
 
 
 def test_qualification_reason_preserves_rejection_and_distinguishes_nu_inputs(win):
-    from sjtu_tpmshx.ui.mixins.run_results import qualification_reasons
+    from sjtu_tpmshx.ui.fmt import qualification_reasons
     q = {'design': {'status': 'rejected', 'reasons': ['applicability']},
          'applicability': {'checks': [
              {'passed': False, 'side': 'B', 'source': [key, 'water', 'Gyroid'],

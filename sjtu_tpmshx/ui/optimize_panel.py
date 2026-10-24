@@ -360,7 +360,7 @@ def _set_progress_pct(window, pct: float) -> None:
 
 def _toggle_buttons(window, running: bool) -> None:
     """Disable Launch / enable Cancel while running, opposite when idle."""
-    from sjtu_tpmshx.ui.compute_resources import refresh_resource_availability
+    from sjtu_tpmshx.ui.background_tasks import refresh_resource_availability
     refresh_resource_availability(window)
     btn = getattr(window, '_opt_btn', None)
     cancel = getattr(window, '_opt_cancel_btn', None)

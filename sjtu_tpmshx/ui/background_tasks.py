@@ -47,7 +47,6 @@ def prepare_3d(window, callback):
         window._view_import_worker = worker
     worker.prepared.connect(callback)
     if first:
-        from .compute_resources import refresh_resource_availability
         refresh_resource_availability(window)
         worker.start()
 
@@ -60,3 +59,15 @@ def has_active_tasks(window) -> bool:
         or getattr(window, '_opt_worker', None) is not None
         or getattr(getattr(window, '_qd_dialog', None), '_qd_worker', None) is not None
     )
+
+
+def refresh_resource_availability(window):
+    if getattr(window, '_cpu_card', None) is None:
+        return
+    busy = has_active_tasks(window) or getattr(window, '_opt_launching', False)
+    window._cpu_card.setEnabled(not busy)
+    if busy:
+        # Terminal publication can precede the worker's actual return.
+        window._resource_refresh_timer.start()
+    else:
+        window._resource_refresh_timer.stop()

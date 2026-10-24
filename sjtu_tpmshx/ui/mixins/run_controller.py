@@ -107,28 +107,23 @@ class RunControllerMixin:
         # of letting the solver hit them one at a time.
         if not self._validate_inputs_preflight():
             return
+        from sjtu_tpmshx.ui.window_config import config_from_window
+        is_3d = hasattr(self, 'combo_dim') and self.combo_dim.currentIndex() == 1
+        try:
+            compute_cfg = config_from_window(self, strict=True, force_3d=is_3d)
+        except ValueError as error:
+            QMessageBox.warning(self, "Invalid Input", str(error))
+            return
         # Grid-legality preflight — refined shape, inlet/outlet coverage,
         # Richardson budget. Errors block, warnings prompt continue?.
-        if not self._preflight_grid():
+        if not self._preflight_grid(compute_cfg):
             return
-        self._maybe_highvel_notice()
-        # Mark compute start so `_end_compute_ui` records elapsed for the
-        # status bar clock. 3D branch overwrites with its own clock.
+        self._maybe_highvel_notice(compute_cfg)
+        if compute_cfg.is_3d:
+            self._run_calculation_3d(compute_cfg)
+            return
+
         self._compute_t0 = _time.time()
-        # Capture the selected dimension before the worker starts.
-        if hasattr(self, 'combo_dim') and self.combo_dim.currentIndex() == 1:
-            self._run_calculation_3d()
-            return
-
-        # Read widgets on the GUI thread before passing data to the worker.
-        from sjtu_tpmshx.ui.window_config import config_from_window
-        try:
-            compute_cfg = config_from_window(self, strict=True,
-                                             force_3d=False)
-        except ValueError as e:
-            QMessageBox.warning(self, "Invalid Input", str(e))
-            return
-
         worker = self._new_compute_worker('2d', {
             'iter_label_cb': self.compute.iteration.emit,
         })
@@ -145,58 +140,23 @@ class RunControllerMixin:
         # threading.Thread + QTimer poll block is gone (~100 lines deleted).
         return
 
-    def _maybe_highvel_notice(self):
-        """Advisory only; model applicability is checked by the compute path.
-
-        A blank u_B inherits u_A, as it does in ComputeConfig.
-        """
-        def _vel(attr, dflt):
-            le = getattr(self, attr, None)
-            try:
-                return float(le.text())
-            except (ValueError, AttributeError):
-                return dflt
-        uA = _vel('le_uA', 0.0)
-        uB = _vel('le_uB', uA)          # blank u_B inherits u_A
-        if uA > HIGH_VELOCITY_NOTICE_MS or uB > HIGH_VELOCITY_NOTICE_MS:
+    def _maybe_highvel_notice(self, compute_cfg):
+        """Report prescribed speeds; preparation resolves mass-flow speeds."""
+        speeds = [(side, fluid.u_mps) for side, fluid in
+                  (('A', compute_cfg.fluid_A), ('B', compute_cfg.fluid_B))
+                  if fluid.mass_flow_kg_s is None]
+        if any(speed > HIGH_VELOCITY_NOTICE_MS for _, speed in speeds):
+            values = ", ".join(f"u_{side}={speed:.1f}" for side, speed in speeds)
             self.statusBar().showMessage(
-                f"入口速度较高：u_A={uA:.1f}, u_B={uB:.1f} m/s。"
+                f"入口速度较高：{values} m/s。"
                 "请关注收敛与压降；适用范围以当前模型检查为准。",
                 15000)
 
-    def _preflight_3d(self):
-        """3D-only input guards (B1 1.4 — extracted from
-        _run_calculation_3d so future preflights have ONE home).
-        Returns (proceed, est_cells_refined, cell_label).
-        """
-        # 2026-05-20 UI sweep (Tier 22): pre-initialise Nx_u/Ny_u/Nz_u
-        # BEFORE the try. Previously a parse failure (empty field, stray
-        # unit text) left `Nz_u` undefined and the guard below raised
-        # NameError — turning a bad-input case into a hard crash.
-        # Desktop mesh counts include every cell, including port refinement.
-        Nx_u = Ny_u = Nz_u = 0
-        try:
-            Nx_u = int(self.le_Nx.text()); Ny_u = int(self.le_Ny.text())
-            Nz_u = int(self.le_Nz.text())
-            est_cells = Nx_u * Ny_u * Nz_u
-        except Exception:
-            est_cells = 0
-
-        # Nz guard: Nz=1 under 3D dispatch degenerates the z-momentum / z-energy
-        # transport and returns a z-uniform field that looks like "T_a = T_inA
-        # everywhere" — the user sees a flat-colour cube with scalar-bar min==max
-        # and mistakes it for a broken solver. Force at least 2 z-cells for the
-        # 3D path; suggest 2D mode otherwise.
-        if Nz_u < 2:
-            QMessageBox.warning(
-                self, "Nz too small for 3D",
-                f"Grid Nz = {Nz_u} is too small for 3D compute — the solver "
-                f"degenerates to a z-uniform slab and fields look flat.\n\n"
-                "Options:\n"
-                "  • Increase Nz to at least 2; the selected mesh scheme and "
-                "port positions may require more cells (see Grid preflight).\n"
-                "  • Switch Dimensionality to 2D for single-layer homogeneous cases.")
-            return False, 0, ''
+    def _preflight_3d(self, compute_cfg):
+        """Confirm large grids from the captured total cell counts."""
+        solver = compute_cfg.solver
+        Nx_u, Ny_u, Nz_u = solver.Nx, solver.Ny, solver.Nz
+        est_cells = Nx_u * Ny_u * Nz_u
         if est_cells > 100_000:
             _expand = f"User grid {Nx_u}x{Ny_u}x{Nz_u}. "
             # robustness-hardening (2026-07-03): give the user a RAM number
@@ -219,7 +179,7 @@ class RunControllerMixin:
 
         return True, est_cells, f"{Nx_u}×{Ny_u}×{Nz_u}"
 
-    def _run_calculation_3d(self):
+    def _run_calculation_3d(self, compute_cfg):
         """Run a 3D solve and show the selected field on completion."""
         if getattr(self, '_close_pending', False):
             return
@@ -237,17 +197,8 @@ class RunControllerMixin:
         # expensive and made Compute feel frozen before progress appeared;
         # The first volume-view request creates and fills the panel.
 
-        ok, est_cells_r, _cell_label = self._preflight_3d()
+        ok, est_cells_r, _cell_label = self._preflight_3d(compute_cfg)
         if not ok:
-            return
-
-        # Validate captured inputs before locking the compute controls.
-        from sjtu_tpmshx.ui.window_config import config_from_window
-        try:
-            compute_cfg = config_from_window(self, strict=True,
-                                             force_3d=True)
-        except ValueError as e:
-            QMessageBox.warning(self, "Invalid Input", str(e))
             return
 
         self._compute_t0 = _time.time()

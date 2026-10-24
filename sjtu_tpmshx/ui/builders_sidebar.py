@@ -166,7 +166,7 @@ def refresh_result_sidebar(window):
     for key, passed in (('extrap', qualification.get('applicability', {}).get('passed')),
                         ('design', qualification.get('design', {}).get('eligible'))):
         _mark(key, '通过 ✓' if passed is True else '未通过 ⚠' if passed is False else '未核实', passed)
-    from .mixins.run_results import qualification_reasons
+    from .fmt import qualification_reasons
     reasons = qualification_reasons(qualification, d.get('applicability_evidence'))
     labels['design'].setWordWrap(True)
     labels['design'].setToolTip('\n'.join(reasons))

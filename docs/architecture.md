@@ -1492,6 +1492,11 @@ reused.
 
 Startup converts temperature inputs to K. The conversion keeps their physical values.
 
+The compute entry captures one `ComputeConfig` before grid preflight.
+Grid checks, prescribed-speed advice, the 3D size confirmation and the worker use that same configuration.
+Mass-flow inputs keep their stored speed out of the advice; preparation resolves the actual speed.
+Input-capture errors stop the launch before grid checks or worker creation.
+
 Copy-as-Python and reproducible links use the same complete GUI preset capture
 and restore path as saved inputs. This includes temperature units, partition rows,
 continuous-field inputs and custom model parameters. The Python snippet expects
@@ -1521,8 +1526,13 @@ Result display, optimization preview, and optional preinitialization share that 
 Queued GUI callbacks create widgets and render the current data after imports finish.
 Compute controls stay locked until result publication and display finish.
 Close, restart, workspace changes, and CPU controls use the existing task-lifetime gate.
+The task owner also updates CPU-control availability; resource setup uses that owner without a reverse import.
 An import error keeps numerical results available for export and marks the view unavailable.
 Widget creation, font setup, Matplotlib, and OpenGL stay on the GUI thread.
+
+`ui/field_factory.py` owns result-value labels and unit parsing, so widget construction does not import page builders.
+`ui/fmt.py` formats recorded qualification reasons for both diagnostics and the result sidebar.
+The import-cycle check covers UI modules, including imports inside functions.
 
 The result footer and history format scalar values from the published result.
 There are no hidden result labels, duplicate chip strip or percentage-delta calculation. Changing draft inputs does not replace the accepted run or its recorded units. Only the latest published result owns the field cache, scalar summary and export. Pareto image readiness belongs to its own canvas: copying/exporting that image
