@@ -274,7 +274,11 @@ int main(void) {
         if(row->side==1 && (!strcmp(row->stage,"thermal_hv") || !strcmp(row->stage,"flow")
                            || !strcmp(row->stage,"flow_post")))return 36;
     }
-    tpmshx_full_3d_release_v1(&r); in.solve_b=1;
+    tpmshx_full_3d_release_v1(&r);
+    in.sides[0].fluid=TPMSHX_ENTHALPY_SCO2;
+    if(tpmshx_solve_full_3d_v1(&in,&c,NULL,&r,error,sizeof error)!=1
+       || r.owner || !strstr(error,"single-A sCO2 execution is retired"))return 100;
+    in.sides[0].fluid=TPMSHX_ENTHALPY_AIR; in.solve_b=1;
     c.coarse_bootstrap=1;
     if(tpmshx_solve_full_3d_v1(&in,&c,&cb,&r,error,sizeof error) || r.stop!=2 || r.converged)return 7;
     if(tpmshx_full_3d_get_physical_heat_ledger_v1(&r,&heat) || heat.available)return 37;

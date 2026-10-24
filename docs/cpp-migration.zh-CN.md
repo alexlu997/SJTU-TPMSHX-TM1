@@ -155,12 +155,16 @@ SOU 在出口面重构物理焓，因此旧 FOU 单元焓归约不能提供该�
 | 空气／水 full2D temperature 主／细网格，以及 full3D CC Nz=1 | 严格 `solve_model_h_2d`；既有空气／水 h(T)、A-SOU/B-FOU、准备态 mass/K/h_v，以及原调用预算。 |
 | 空气／水 full3D CC Nz>1 | 严格 `solve_model_h_3d`；两侧 SOU、准备态 mass/K/h_v、给定 B、非对称几何，以及仅严格模式支持的水／水。 |
 | 既有产品 model-h | 默认非严格 model-h 驱动及原资格／停止规则；fullCC 复用不授予优化资格。 |
-| full3D true-h CC 预热 | 既有私有 `legacy_single_a_temperature`，给定 B 为空。Nz=1 使用原 G4 两次 sweep 映射；Nz>1 使用 conservative=false、force_cell_centered=true。两侧都求解；后续焓驱动保留所选算法和物理门。 |
-| 单 A 侧 sCO2 CC | 同一私有 G4 核，采用给定 B 和原热预算；身份为 `legacy_frozen_cp_single_a_cc_v1`，保留原单流体路径，不提供积分 h(P,T) 账本。 |
+| full3D true-h CC 预热 | 私有 `legacy_temperature_warmup`。Nz=1 使用原 G4 两次 sweep 映射；Nz>1 使用 conservative=false、force_cell_centered=true。两侧都求解；后续焓驱动保留所选算法和物理门。 |
 | 交错／MAC temperature | 既有投影／缓存及热容面准备；保留的非守恒平流研究修正不具备 fullCC 积分焓资格。 |
 | true-h | 默认 T-SOU；EOS 物理关系及独立物理门仍由焓驱动负责。 |
 
-保留的 CC 预热是确定性的 true-h 调用契约，与既有单 A 实现共享。它不增加公共选择项或核副本。两次 sweep 结果仅为初态。焓驱动仍校验所有 sCO2 热启动温度，并提供最终热结论。Nz>1 交错预热使用共享温度行、调用方松弛系数和串行实时 SOU 修正。红黑修正冻结一个扫描周期。原有外边界固体自身项仍保留在迭代对角项中。此调用不使用独立温度求解的分块阻尼。full2D true-h 不使用此 full3D 预热。
+CC 预热在每次外层焓求解前提供耦合的 A、B 和固体温度。首次调用从流体入口温度和配置的固体初温开始；未指定固体初温时，使用两入口温度的均值。后续调用从上一次热场开始。只做两次 sweep，是为了避免把随后会被焓求解覆盖的热容温度方程完整收敛。这是稳态求解器的数值初始化。现有证据不能证明两次 sweep 必不可少，或比完全不预热更快。
+
+焓驱动校验初始 PT 状态，并提供最终热结论。CC 预热保留计算行、顺序、松弛系数和两次 sweep 预算。Nz>1 交错预热使用共享温度行、调用方松弛系数和串行实时 SOU 修正。红黑修正冻结一个扫描周期。原有外边界固体自身项仍保留在迭代对角项中。此调用不使用独立温度求解的分块阻尼。full2D true-h 不使用此 full3D 预热。
+
+单 A 侧 sCO2 执行已退役。原生输入边界在数值计算前拒绝 A 为 sCO2 且 B 关闭的输入。空气／水关闭 B 的验证及暂停恢复覆盖保留。带 `legacy_frozen_cp_single_a_cc_v1` 的历史结果仍标记缺少完整 h(P,T) 输运证据，不能获得 model-h 账本。旧单 A 侧 sCO2 检查点需要匹配的存档运行库。
+
 
 fullCC 使用已接受的热状态 SIMPLE 质量面，不乘 cp，不从单元速度重建质量，也不重复乘孔隙率／开口。model-h 驱动在重构面温度上评估既有 h(T)，并使用原准备态 Fourier 导热率和交换系数。full2D 行与功率使用单位深度、W/m。full3D Nz=1 要求活动 z 面质量为零；将真实质量除以深度后交给二维求解，再将残差、源／储库和边界功率乘以深度一次，返回 W。温度不变。
 

@@ -62,6 +62,20 @@ def test_full_cc_h_driver_does_not_grant_model_h_optimization_qualification(dime
         _full_result_metadata(replace(result, metadata=metadata))
 
 
+@pytest.mark.parametrize('has_ledger', [False, True])
+def test_archived_single_sco2_result_keeps_missing_transport_status(tmp_path, has_ledger):
+    result = temperature_fixture(3)
+    flux, metadata = mutable_data(result.boundary_fluxes), mutable_data(result.metadata)
+    metadata['temperature_transport'] = 'legacy_frozen_cp_single_a_cc_v1'
+    if not has_ledger:
+        del flux['temperature']
+    result = replace(result, metadata=metadata, boundary_fluxes=flux)
+    for source in (result, load_result(save_result(result, tmp_path / 'archived.h5'))):
+        actual = evaluate(source).metrics
+        assert actual['Q_A'].status == ('invalid' if has_ledger else 'unsupported')
+        assert actual['Q_A'].value is None
+
+
 @pytest.mark.parametrize('dimension', [2, 3])
 @pytest.mark.parametrize('defect', ['missing_evidence', 'missing_declaration', 'definition', 'declaration', 'dimension',
     'units', 'incomplete', 'truthy_complete', 'prescribed_a', 'nan_a'])

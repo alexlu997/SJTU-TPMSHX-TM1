@@ -199,7 +199,7 @@ available metric is not an experimental accuracy certificate.
 | 3D model-h | Final SIMPLE checks, thermal/outer convergence, finite fields and pressure envelope. Source-free thermal passes also require the existing strict energy gates | Multi-condition batches independently check the archived `compute_phase2a` global/cell, source and boundary certificates, including results produced before energy finishing was added |
 | 2D/3D true-h | Native enthalpy solve with final-state equation/boundary budgets and property checks. Returned thermal evidence is captured before any failed final post-update | Inspect the route's `true_h_balance` and convergence detail. This route is outside the air/water model-h optimizer contract |
 | Native full-compute CC (G5 candidate) | Strict model-h on the accepted thermal mass faces. Actual integral h(T_face) advective powers, Fourier powers and phase residuals. Complete-boundary error ratio at most 1e-7 | Declared `model_enthalpy_temperature_v1` supports captured heat in W/m for 2D or W for physical 3D. The requested temperature route stays distinct from product model-h optimization eligibility |
-| Other temperature and low-level research routes | Existing route-specific stopping rules, coefficient sampling and recorded state | Fixed-coefficient capacity transport, staggered/MAC research and kept single-A sCO2 do not inherit the fullCC integral-enthalpy qualification. Historical files keep their original reductions |
+| Other temperature and low-level research routes | Existing route-specific stopping rules, coefficient sampling and recorded state | Fixed-coefficient capacity transport and staggered/MAC research do not inherit the fullCC integral-enthalpy qualification. Historical files keep their original reductions |
 | Quick design | Explicit prescribed-flow approximate mode | Its metrics and feasibility checks do not certify a full SIMPLE solve |
 
 GUI and CLI keep their native convergence meaning. Failed/cancelled GUI
@@ -511,8 +511,8 @@ Temperature is not scaled. FullCC nonzero sources stay
   QD/standalone CC keep fixed-coefficient capacity transport. Full3D true-h CC warm-up keeps the private G4 temperature kernel for Nz=1
   and for Nz>1 when conservative=false and force_cell_centered=true. Its two
   sweeps solve both sides before the selected enthalpy algorithm and its
-  property/conservation gates. Single-A sCO2 uses the same private kernel with
-  prescribed B and its original thermal budget. These kept rows and the
+  property/conservation gates. Single-A sCO2 execution is retired; the native
+  input boundary rejects it. Air/water inactive-B checks remain. These kept rows and the
   staggered/MAC projection/capacity research contract do not acquire this
   fullCC qualification.
 
@@ -1037,7 +1037,7 @@ Thermal routes are selected by their present qualification conditions:
 |---|---|
 | True enthalpy | Pairs containing CO2 or sCO2 use signed mass/enthalpy transport for uniform and continuous geometry. The 2D adapter calls the shared 3D enthalpy kernel. Full3D CC uses the kept G4 two-sweep warm-up before the selected enthalpy solve. Discrete-zone and offset constraints stay. |
 | Model enthalpy | Existing air/water h(T) transport. 2D includes water/water when unzoned and symmetric. Native 3D includes every ordered air/water pair with Nz>1, variable properties, two solved sides and conservative transport. Water/water and asymmetric geometry use the strict boundary contract. |
-| Temperature | The native fullCC air/water candidate reuses strict integral-h(T) model-h drivers while keeping the requested temperature route. QD/standalone fixed-coefficient, staggered research and private single-A sCO2 routes keep their separately stated contracts. |
+| Temperature | The native fullCC air/water candidate reuses strict integral-h(T) model-h drivers while keeping the requested temperature route. QD/standalone fixed-coefficient and staggered research routes keep their separately stated contracts. |
 
 Full3D true-h keeps its original two temperature sweeps before each enthalpy call.
 The staggered warm-up uses caller relaxation and live serial SOU corrections.
@@ -1357,7 +1357,7 @@ Coarse bootstrap stays atomic before the first fine SIMPLE boundary.
 Thermal snapshots cover model-h selections, original temperature chunks, and complete EOS Picard iterations.
 They retain active Anderson history, HEOS finishing state, and actual projected face velocities.
 The planar integral delegate keeps its physical depth conversion.
-The private single-A sCO2 and true-h CC warm-up owner retains its original temperature rows.
+The private two-sided true-h CC warm-up owner retains its original temperature rows.
 Its former stack loop and unused private one-shot entry are removed.
 Water startup retries retain the initial fields, rejected attempts, remaining budget, and actual call settings.
 Restore does not repeat a completed retry or reset its charged iterations.

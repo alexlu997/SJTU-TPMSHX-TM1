@@ -357,20 +357,32 @@ keep their existing compile options. The actual caller boundaries are:
 | Air/water full2D temperature main/fine and full3D CC Nz=1 | Strict `solve_model_h_2d`. Existing air/water h(T), A-SOU/B-FOU, prepared mass/K/h_v and each caller's original budget |
 | Air/water full3D CC Nz>1 | Strict `solve_model_h_3d`. SOU on both sides, prepared mass/K/h_v, prescribed B, asymmetric geometry and strict-only water/water support |
 | Existing product model-h | Default non-strict model-h drivers and original eligibility/stopping rules. Reuse by fullCC does not grant optimizer eligibility |
-| Full3D true-h CC warm-up | Existing private `legacy_single_a_temperature` with empty prescribed B. Original G4 two-sweep map for Nz=1, or Nz>1 with conservative=false and force_cell_centered=true. Both sides are solved. The following enthalpy driver keeps its selected algorithm and physical gates |
-| Single-A sCO2 CC | Same private G4 kernel with prescribed B and the original thermal budget. Identity `legacy_frozen_cp_single_a_cc_v1`, keeping the prior single-fluid path without an integral h(P,T) ledger |
+| Full3D true-h CC warm-up | Private `legacy_temperature_warmup`. Original G4 two-sweep map for Nz=1, or Nz>1 with conservative=false and force_cell_centered=true. Both sides are solved. The following enthalpy driver keeps its selected algorithm and physical gates |
 | Staggered/MAC temperature | Existing projection/cache and capacity-face preparation. Kept nonconservative advective research correction has no fullCC integral-h qualification |
 | True-h | T-SOU default. EOS relations and independent physical gates stay in the enthalpy driver |
 
-The kept CC warm-up is a deterministic true-h caller contract, shared
-with the existing single-A implementation. It adds no public selector or new
-kernel copy. Its two-sweep result is only an initial state. The enthalpy
-driver still validates each sCO2 warm temperature and supplies the final
-thermal verdict. Nz>1 staggered warm-up uses the shared temperature rows with
+The CC warm-up supplies coupled A, B and solid temperatures before each outer
+enthalpy solve. The first call starts from inlet fluid temperatures and the
+configured solid seed, or the mean inlet temperature. Later calls start from
+the previous thermal fields. Two sweeps avoid a complete capacity-temperature
+solve whose result the enthalpy solve would replace. The warm-up is a numerical
+initialization for the steady solver. The existing evidence does not
+show that two sweeps are necessary or faster than no warm-up.
+
+The enthalpy driver validates the initial PT states and supplies the final
+thermal verdict. The CC warm-up keeps its rows, order, relaxation and two-sweep
+budget. Nz>1 staggered warm-up uses the shared temperature rows with
 caller relaxation and live serial SOU corrections. Red-black corrections are
 frozen for one sweep. The original exterior solid self terms stay in the
 iteration diagonal. This call does not use standalone temperature block damping.
 Full2D true-h does not consume this full3D warm-up.
+
+Single-A sCO2 execution is retired. The native input boundary rejects an sCO2
+A side with inactive B before numerical work. Air/water inactive-B validation
+and its pause/restore coverage remain. Archived results with
+`legacy_frozen_cp_single_a_cc_v1` keep their missing complete h(P,T) transport
+status. They cannot acquire a model-enthalpy ledger. Old single-A sCO2
+checkpoints require their matching archived runtime.
 
 FullCC uses the accepted thermal SIMPLE mass faces without multiplying them
 by cp, reconstructing mass from cell velocity or applying porosity/opening

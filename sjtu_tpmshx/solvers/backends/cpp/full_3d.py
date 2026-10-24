@@ -386,19 +386,10 @@ class NativeFull3DDriver:
                             if extra.available != 1 or extra.physical_dimension != 3 or not extra.algorithm:
                                 raise RuntimeError('native strict model-h identity or ledger is invalid')
                             algorithm = extra.algorithm.decode('ascii')
-                    elif not data.solve_b and data.sides[0].fluid == 2:
-                        identity = 'legacy_frozen_cp_single_a_cc_v1'
-                        if (extra.available or extra.physical_dimension != 3
-                                or extra.algorithm != identity.encode('ascii')):
-                            raise RuntimeError('native single-A sCO2 temperature identity or absent ledger is invalid')
-                        detached['temperature_transport'] = identity
-                        algorithm = identity
                     else:
                         detached['temperature_evidence'] = copy_temperature_evidence(extra, shape, 3)
                         algorithm = detached['temperature_evidence']['algorithm']
                 detached['native_metadata'] = dict(abi=self.abi, algorithm=algorithm, red_black=red_black)
-                if 'temperature_transport' in detached:
-                    detached['native_metadata']['transport'] = detached['temperature_transport']
             detached['last_closure_ranges'] = copy_last_ranges(self.query_last_ranges, result)
             if 'temperature_evidence' not in detached:
                 ledger = HeatLedger()

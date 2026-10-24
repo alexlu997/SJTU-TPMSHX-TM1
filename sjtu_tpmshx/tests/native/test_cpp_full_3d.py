@@ -743,19 +743,36 @@ def test_outer_transport_keeps_changed_temperature_and_pressure(native_path, dir
         np.testing.assert_allclose(current['final_rho_cp'][side], capacity, rtol=2e-12, atol=1e-8)
 
 
-def test_inactive_native_side_has_no_flow_or_exchange_sampling(native_path):
+@pytest.mark.parametrize('pair', ['air-air', 'water-air'])
+def test_inactive_native_side_has_no_flow_or_exchange_sampling(native_path, pair):
     from sjtu_tpmshx.solvers.backends.cpp.full_3d import NativeFull3DDriver
     from sjtu_tpmshx.tests.native.test_full_3d import prepared
-    cfg, p = prepared('air-air')
+    cfg, p = prepared(pair)
     cfg['fluid_B_cfg'] = None
     p['max_outer'] = 1
     driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
     result = driver.run_prepared(cfg, p)
     assert result['flow'][1] is None
+    np.testing.assert_array_equal(result['temperature'][1], cfg['T_inB'])
     energy = next(row for row in result['property_sampling'] if row['quantity'] == 'energy_relation')
     assert energy['temperature'] == 'inlet' and energy['operation'] == 'frozen_capacity_temperature'
     assert not [row for row in result['property_sampling']
                 if row['side'] == 'B' and row['stage'] in ('thermal_hv', 'flow', 'flow_post')]
+
+
+@pytest.mark.parametrize('nz,conservative,force_cc', [
+    (1, False, True), (2, False, True), (2, False, False), (2, True, False)])
+def test_retired_single_sco2_rejected_before_numerical_work(native_path, nz, conservative, force_cc):
+    from sjtu_tpmshx.solvers.backends.cpp.full_3d import NativeFull3DDriver
+    from sjtu_tpmshx.tests.native.test_full_3d import prepared
+    cfg, p = prepared('sco2-water', counts=(3, 4, nz), directions=(0, 3),
+                      conservative_ltne=conservative, force_cc_ltne=force_cc)
+    cfg['fluid_B_cfg'] = None
+    entered = []
+    driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
+    with pytest.raises(ValueError, match='single-A sCO2 execution is retired'):
+        driver.run_prepared(cfg, p, control(native_path, outer_iteration=lambda *args: entered.append(args)))
+    assert not entered
 
 
 @pytest.mark.parametrize('pair', ['air-air', 'water-air'])
@@ -1042,13 +1059,13 @@ save_solver_checkpoint(previous, path)
 
 
 @pytest.mark.parametrize('route', ['temperature_sou',
-                                  'single_cc', 'single_staggered', 'single_sco2_cc',
+                                  'single_cc', 'single_staggered',
                                   'conservative_staggered', 'nz1_cc'])
 @pytest.mark.parametrize('cut', [0, 1, 'final'])
 def test_checkpoint_covers_energy_routes(native_path, route, cut):
     from sjtu_tpmshx.solvers.backends.cpp.full_3d import NativeFull3DDriver
     from sjtu_tpmshx.tests.native.test_full_3d import prepared
-    pair = 'sco2-water' if route.startswith('temperature') or route == 'single_sco2_cc' else 'air-air'
+    pair = 'sco2-water' if route.startswith('temperature') else 'air-air'
     cfg, p = prepared(pair, counts=(4, 4, 1) if route == 'nz1_cc' else None,
                       directions=(0, 3) if route == 'nz1_cc' else None)
     p['max_outer'] = 3
@@ -1192,7 +1209,7 @@ def test_checkpoint_rejects_changed_velocity_relaxation(native_path):
 
 def _inner_prepared(route):
     from sjtu_tpmshx.tests.native.test_full_3d import prepared
-    eos = route in ('true_h', 'true_h_cc', 'temperature_sou', 'single_sco2_cc')
+    eos = route in ('true_h', 'true_h_cc', 'temperature_sou')
     pair = 'sco2-water' if eos else 'water-water' if route == 'strict_water' else 'air-air'
     cfg, p = prepared(pair,
                       counts=(3, 4, 1) if route == 'nz1_cc' else (3, 4, 2),
@@ -1233,7 +1250,7 @@ def _inner_position(state):
 @pytest.mark.parametrize('route', [
     'model_h', 'model_h_accelerated', 'strict_water', 'temperature_cc', 'nz1_cc',
     'staggered', 'staggered_conservative', 'staggered_rb', 'single_cc',
-    'single_sco2_cc', 'true_h', 'true_h_cc', 'temperature_sou'])
+    'true_h', 'true_h_cc', 'temperature_sou'])
 @pytest.mark.parametrize('after_update', [False, True])
 def test_inner_thermal_checkpoint_keeps_complete_result(native_path, route, after_update):
     from sjtu_tpmshx.solvers.backends.cpp.full_3d import NativeFull3DDriver
@@ -1256,6 +1273,30 @@ def test_inner_thermal_checkpoint_keeps_complete_result(native_path, route, afte
     assert saved['format'][0] == 2
     owner, position = _inner_position(saved)
     assert bool(position) == after_update
+    actual = driver.run_prepared(cfg, p, resume_state=saved)
+    actual.pop('continuation')
+    _exact_resume_values(actual, expected)
+
+
+@pytest.mark.parametrize('nz', [1, 2])
+@pytest.mark.parametrize('cut_owner', ['legacy', 'enthalpy'])
+def test_true_h_cc_warmup_checkpoint_keeps_complete_result(native_path, nz, cut_owner):
+    from sjtu_tpmshx.solvers.backends.cpp.full_3d import NativeFull3DDriver
+    from sjtu_tpmshx.tests.native.test_full_3d import prepared
+    cfg, p = prepared('sco2-water', counts=(3, 4, nz), directions=(0, 3),
+                      max_iter_simple=40, conservative_ltne=False, force_cc_ltne=True,
+                      ltne_enthalpy_outer=12, ltne_enthalpy_nsweep=3)
+    p.update(max_outer=2, ltne_max_iter=800)
+    driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
+    expected = driver.run_prepared(cfg, p)
+    saved = {}
+    def pause(state):
+        if state['state.phase'][0] == 8 and _inner_position(state) == (cut_owner, 0):
+            saved.update(state)
+            raise _PauseCheckpoint
+    with pytest.raises(_PauseCheckpoint):
+        driver.run_prepared(cfg, p, checkpoint=pause)
+    assert saved['state.thermal.value.budget'][0] == 2
     actual = driver.run_prepared(cfg, p, resume_state=saved)
     actual.pop('continuation')
     _exact_resume_values(actual, expected)

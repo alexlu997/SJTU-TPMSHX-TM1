@@ -283,9 +283,9 @@ def bc_to_dict(bc: 'PartialBCConfig', L_dom: float, H_dom: float,
       NOTE: the ComputeConfig→3D boundary (``preprocess.three_d.preparation._parse_inputs_3d_cfg``)
       rebuilds a full-face B from a None here, because via ComputeConfig
       fluid_B is always a configured 2nd fluid (a None there is just the
-      ``PartialBCConfig`` default widths, meaning full-face cross-flow). The
-      research preparation accepts an explicit
-      ``fluid_B_cfg=None`` and bypasses that boundary.
+      ``PartialBCConfig`` default widths, meaning full-face cross-flow).
+      Internal native validation uses ``fluid_B_cfg=None`` to check inactive B
+      with air or water on A. Single-A sCO2 execution is retired.
     * ``with_z=True`` — append the ``in_z_*``/``out_z_*`` overlay when the cfg
       captured 3D z-partial fields (``None`` = full face along z).
     """
