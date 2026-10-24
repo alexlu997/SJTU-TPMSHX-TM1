@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 
 from sjtu_tpmshx.domain.cancellation import CancelledError
-from ._simple_abi import _Callbacks, _Cancel, _F2, _Mass, _Momentum, _Progress
+from ._simple_abi import _Callbacks, _F2, _Mass, _Momentum, make_callbacks
 
 
 class _Config(ct.Structure):
@@ -179,29 +179,7 @@ class NativeSimple2D:
         for name, kind in _F2._fields_:
             value = settings['f2'][name]
             setattr(config.f2, name, _integer(value, maximum) if kind is ct.c_size_t else value)
-        callback_errors = []
-
-        @_Cancel
-        def cancelled(_):
-            if callback_errors:
-                return 1
-            try:
-                return int(bool(cancel_check())) if cancel_check is not None else 0
-            except BaseException as error:
-                callback_errors.append(error)
-                return 1
-
-        @_Progress
-        def progressed(_, iteration, residual):
-            if callback_errors:
-                return
-            try:
-                progress_cb(iteration, residual)
-            except BaseException as error:
-                callback_errors.append(error)
-
-        callbacks = _Callbacks(cancelled if cancel_check is not None or progress_cb is not None else _Cancel(),
-                               progressed if progress_cb is not None else _Progress(), None)
+        callbacks, callback_errors = make_callbacks(cancel_check, progress_cb)
         dp = ct.POINTER(ct.c_double)
         pointers = (dp*len(arrays))(*(value.ctypes.data_as(dp) for value in arrays))
         sizes = (ct.c_size_t*len(arrays))(*(value.size for value in arrays))
