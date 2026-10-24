@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 
 from sjtu_tpmshx.domain.cancellation import CancelledError
-from ._simple_abi import _Callbacks, _Cancel, _F2, _Mass, _Momentum, _Progress
+from ._simple_abi import _Callbacks, _F2, _Mass, _Momentum, make_callbacks
 
 
 class _Config(ct.Structure):
@@ -191,26 +191,7 @@ class NativeSimple3D:
             *(int(value) for value in flags), int(ordering == 'red_black'),
             _F2(mom_tol, mass_local_tol, mass_global_tol, backflow_max, velocity_check_tol,
                 stall_ratio, _count(confirmations), _count(momentum_interval), _count(stall_window, zero=True)))
-        callback_errors = []
-        @_Cancel
-        def cancelled(_):
-            if callback_errors:
-                return 1
-            try:
-                return int(cancel_check is not None and cancel_check())
-            except BaseException as error:
-                callback_errors.append(error)
-                return 1
-        @_Progress
-        def report(_, iteration, residual):
-            if not callback_errors:
-                try:
-                    if progress is not None:
-                        progress(iteration, residual)
-                except BaseException as error:
-                    callback_errors.append(error)
-        callbacks = _Callbacks(cancelled if cancel_check is not None or progress is not None else _Cancel(),
-            report if progress is not None else _Progress(), None)
+        callbacks, callback_errors = make_callbacks(cancel_check, progress)
         pointers = (_DOUBLE*len(arrays))(*(value.ctypes.data_as(_DOUBLE) for value in arrays))
         sizes = (ct.c_size_t*len(arrays))(*(value.size for value in arrays))
         result, error = _Result(), ct.create_string_buffer(2048)

@@ -128,15 +128,19 @@ def test_cancellation_never_publishes_mass_faces(public_library, after):
 
 
 @pytest.mark.parametrize('callback', ['cancel_check', 'progress'])
-def test_callback_exception_returns_to_python(public_library, callback):
+@pytest.mark.parametrize('error_type', [LookupError, BaseException])
+def test_callback_exception_returns_to_python(public_library, callback, error_type):
     s = make_solver()
+    marker = error_type('callback sentinel')
     def fail(*args):
-        raise LookupError('callback sentinel')
+        raise marker
     with driver(public_library, s) as native:
         material, boundary, state, controls = prepared(s)
-        with pytest.raises(LookupError, match='callback sentinel'):
+        with pytest.raises(error_type) as caught:
             native.solve(material, boundary, state, **controls, **{callback: fail})
+        assert caught.value is marker
         assert native.last_result is None
+        assert native.solve(material, boundary, state, **controls)['converged']
 
 
 @pytest.mark.parametrize('invalid', ['dtype', 'readonly', 'noncontiguous', 'alias', 'short', 'flags', 'SOU_order'])
