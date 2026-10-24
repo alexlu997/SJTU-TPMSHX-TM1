@@ -175,16 +175,6 @@ def validate_condition_table(payload):
     return deepcopy(rows)
 
 
-def change_method(window):
-    """Apply the qLogEI allocation only to the unchanged default budget."""
-    params = window._opt_inline_params
-    if (window._opt_method.currentData() == 'qlogei'
-            and tuple(params[key].value() for key in ('n_init', 'n_iter', 'q_batch')) == (16, 8, 1)):
-        params['n_init'].setValue(8)
-        params['n_iter'].setValue(16)
-    refresh_setup(window)
-
-
 def import_conditions(window):
     from PySide6.QtWidgets import QFileDialog
     path, _ = QFileDialog.getOpenFileName(window, '导入优化工况表', '', 'JSON (*.json)')
@@ -200,8 +190,8 @@ def import_conditions(window):
     window._opt_conditions = rows
     window._opt_mass_requirements = deepcopy(payload.get('mass_requirements'))
     if window._opt_mass_requirements is not None:
-        window._opt_method.setCurrentIndex(window._opt_method.findData('qlogei'))
-    elif window._opt_method.currentData() in ('qlogei', 'qlognei'):
+        window._opt_method.setCurrentIndex(window._opt_method.findData('qlognei'))
+    elif window._opt_method.currentData() == 'qlognei':
         window._opt_method.setCurrentIndex(window._opt_method.findData('qlognehvi'))
     refresh_setup(window)
     _set_status(window, f'已导入 {len(rows)} 个工况：{Path(path).name}')
@@ -210,7 +200,7 @@ def import_conditions(window):
 def use_current_condition(window):
     window._opt_conditions = None
     window._opt_mass_requirements = None
-    if window._opt_method.currentData() in ('qlogei', 'qlognei'):
+    if window._opt_method.currentData() == 'qlognei':
         window._opt_method.setCurrentIndex(window._opt_method.findData('qlognehvi'))
     refresh_setup(window)
 
@@ -519,9 +509,9 @@ def run_optimize(window, *, resume_file=None):
                 from sjtu_tpmshx.optimization.mass_design import validate_mass_requirements
                 params['mass_requirements'] = validate_mass_requirements(
                     requirements, [row['condition_id'] for row in rows])
-                if method not in ('qlogei', 'qlognei', 'sobol'):
-                    raise ValueError('芯体减重请选择 qLogEI、qLogNEI 或 Sobol；导入的性能要求始终有效')
-            elif method in ('qlogei', 'qlognei'):
+                if method not in ('qlognei', 'sobol'):
+                    raise ValueError('芯体减重请选择 qLogNEI 或 Sobol；导入的性能要求始终有效')
+            elif method == 'qlognei':
                 raise ValueError('请先导入含 mass_requirements 的工况 JSON，给出密度和每个工况的性能限值')
         else:
             from sjtu_tpmshx.optimization.multi_condition import _saved_condition_config

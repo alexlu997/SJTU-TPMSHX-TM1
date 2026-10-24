@@ -89,45 +89,12 @@ def _propose_bo(X, Y, lower, upper, ref_point, *, method, q_batch, seed, on_stag
         torch.manual_seed(seed)
         if on_stage is not None:
             on_stage('model_fit')
-        variance = None
-        if method == 'qlogei':
-            # Native observations are repeatable; retain small numerical noise.
-            scale = train_Y.std(dim=-2, keepdim=True)
-            scale = torch.where(scale < 1e-8, torch.ones_like(scale), scale)
-            variance = (1e-6 * scale.square()).expand_as(train_Y)
-        model = SingleTaskGP(train_X, train_Y, train_Yvar=variance,
-                             outcome_transform=Standardize(m=Y.shape[1]))
+        model = SingleTaskGP(train_X, train_Y, outcome_transform=Standardize(m=Y.shape[1]))
         fit_gpytorch_mll(ExactMarginalLogLikelihood(model.likelihood, model))
         if on_stage is not None:
             on_stage('proposal')
         sampler = SobolQMCNormalSampler(sample_shape=torch.Size([128]), seed=seed)
-        if method == 'qlogei':
-            from botorch.acquisition.analytic import (
-                LogConstrainedExpectedImprovement, LogProbabilityOfFeasibility)
-            from botorch.acquisition.logei import qLogExpectedImprovement, qLogProbabilityOfFeasibility
-            from botorch.acquisition.objective import GenericMCObjective
-
-            feasible = (train_Y[:, 1:] <= 0).all(dim=-1)
-            limits = {index: (None, 0.) for index in range(1, Y.shape[1])}
-            if q_batch == 1:
-                if feasible.any():
-                    acquisition = LogConstrainedExpectedImprovement(
-                        model, best_f=train_Y[feasible, 0].max(),
-                        objective_index=0, constraints=limits)
-                else:
-                    acquisition = LogProbabilityOfFeasibility(model, constraints=limits)
-            else:
-                options = dict(model=model, sampler=sampler,
-                    eta=1e-3*model.outcome_transform.stdvs.squeeze(0)[1:],
-                    constraints=[lambda samples, index=index: samples[..., index]
-                                 for index in limits])
-                if feasible.any():
-                    acquisition = qLogExpectedImprovement(**options,
-                        best_f=train_Y[feasible, 0].max(),
-                        objective=GenericMCObjective(lambda samples, X=None: samples[..., 0]))
-                else:
-                    acquisition = qLogProbabilityOfFeasibility(**options)
-        elif method == 'qlognei':
+        if method == 'qlognei':
             from botorch.acquisition.logei import qLogNoisyExpectedImprovement
             from botorch.acquisition.objective import GenericMCObjective
             acquisition = qLogNoisyExpectedImprovement(
@@ -207,7 +174,7 @@ def _check_saved_search(record, frozen, designs, lower, upper):
 
 
 def run_multi_condition_optimization(
-    conditions, *, output_dir, method='qlognehvi', n_init=None, n_iter=None,
+    conditions, *, output_dir, method='qlognehvi', n_init=16, n_iter=8,
     q_batch=1, seed=0, field_spec=None, control=RunControl(), workers=None, on_update=None,
     pause_check=None, mass_requirements=None,
 ) -> dict:
@@ -240,7 +207,7 @@ def resume_multi_condition_optimization(checkpoint_file, *, output_dir, control=
 
 
 def _run_multi_condition_optimization(
-    conditions, *, output_dir, method='qlognehvi', n_init=None, n_iter=None,
+    conditions, *, output_dir, method='qlognehvi', n_init=16, n_iter=8,
     q_batch=1, seed=0, field_spec=None, control=RunControl(), workers=None, on_update=None,
     pause_check=None, resume_from=None, mass_requirements=None,
 ) -> dict:
@@ -263,16 +230,11 @@ def _run_multi_condition_optimization(
 
     With ``mass_requirements``, minimize core mass in kg. Each condition has
     Q_min_W and dP_A_max_Pa / dP_B_max_Pa limits. The heat metric is -Q_B;
-    multiply 2D heat and mass by physical depth. qLogEI and qLogNEI model negative mass
+    multiply 2D heat and mass by physical depth. qLogNEI models negative mass
     and the requested worst-condition relative residuals. Optional outlet
     temperature and pressure limits use native metrics. A residual <= 0 is feasible.
     Keep usable infeasible observations in the model, but exclude them from
     the selected designs. The supplied density covers the TPMS core only.
-
-    qLogEI uses eight initial designs and 16 rounds by default. Other methods
-    use 16 initial designs and eight rounds. Explicit counts take precedence.
-    For one qLogEI candidate, use analytic constrained improvement. Before a
-    feasible observation exists, maximize the probability of feasibility.
 
     ``optimization.json`` checkpoints full inputs, field spec, decisions,
     statuses, native batch paths, objectives and zero-based Pareto history
@@ -284,16 +246,12 @@ def _run_multi_condition_optimization(
     estimates use observed batch and proposal durations. The first BO proposal
     must finish before its remaining cost can be estimated.
     """
-    if method not in ('qlognehvi', 'qlognparego', 'qlogei', 'qlognei', 'sobol'):
-        raise ValueError('method must be qlognehvi, qlognparego, qlogei, qlognei or sobol')
+    if method not in ('qlognehvi', 'qlognparego', 'qlognei', 'sobol'):
+        raise ValueError('method must be qlognehvi, qlognparego, qlognei or sobol')
     constrained = mass_requirements is not None
-    if (method in ('qlogei', 'qlognei') and not constrained
-            or constrained and method not in ('qlogei', 'qlognei', 'sobol')):
-        raise ValueError('Core-mass requirements need qlogei, qlognei or sobol; constrained EI needs requirements')
-    if n_init is None:
-        n_init = 8 if method == 'qlogei' else 16
-    if n_iter is None:
-        n_iter = 16 if method == 'qlogei' else 8
+    if (method == 'qlognei' and not constrained
+            or constrained and method not in ('qlognei', 'sobol')):
+        raise ValueError('Core-mass requirements need qlognei or sobol; qlognei needs requirements')
     for name, value, minimum in (('n_init', n_init, 1), ('n_iter', n_iter, 0),
                                  ('q_batch', q_batch, 1), ('seed', seed, 0)):
         if type(value) is not int or value < minimum:

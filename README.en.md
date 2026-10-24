@@ -283,7 +283,7 @@ Result tables place volume near the front for comparison. Selection/refinement e
 
 If candidates exist, Quick Design CLI saves a partial report to `--out`, then raises the original error and exits nonzero. Failure of the first candidate does not overwrite a previous report.
 
-Optimization supports air A / water B and two-fluid pairs with a CO₂ or sCO₂ side. It searches continuous fields in the active dimension: L(x,y)/t(x,y) for 2D and L(x,y,z)/t(x,y,z) for 3D. The default objectives compare B-side heat-uptake improvement and equally weighted two-side relative pressure drop. Core-mass mode uses absolute per-condition limits instead. The heat metric stays `-Q_B`; the baseline must be positive. All conditions keep the same A/B fluid models. Pareto designs keep complete controls. The default mode supports Sobol, qLogNEHVI, and qLogNParEGO. Core-mass mode supports qLogEI, qLogNEI and Sobol. BO requires its separate locked environment.
+Optimization supports air A / water B and two-fluid pairs with a CO₂ or sCO₂ side. It searches continuous fields in the active dimension: L(x,y)/t(x,y) for 2D and L(x,y,z)/t(x,y,z) for 3D. The default objectives compare B-side heat-uptake improvement and equally weighted two-side relative pressure drop. Core-mass mode uses absolute per-condition limits instead. The heat metric stays `-Q_B`; the baseline must be positive. All conditions keep the same A/B fluid models. Pareto designs keep complete controls. The default mode supports Sobol, qLogNEHVI, and qLogNParEGO. Core-mass mode supports qLogNEI and Sobol. BO requires its separate locked environment.
 
 Optimization Design → Results switches between Pareto and size/wall fields. Select a Pareto design to inspect its continuous field. The geometry canvas stays independent. Optimization plots support separate copy/export.
 
@@ -342,11 +342,7 @@ Permission to exceed inlet Nu limits does not change the design verdict.
 Defaults are 16 initial designs and 8 rounds of 1 new design. Each design is evaluated across all conditions before forming one aggregate sample. Imported JSON contains a `conditions` list. Each row has `condition_id` and side-specific `T_in_A_K`, `P_in_A_Pa`, `mass_flow_A_kg_s`. Replace A with B for side B. Without import, the interface explicitly uses the current single condition.
 
 Core-mass optimization minimizes one objective. Every condition must meet its minimum heat duty and both pressure-drop limits.
-Add `mass_requirements` to the condition JSON. Import selects qLogEI; qLogNEI and Sobol remain available.
-The unchanged default budget becomes 8 initial designs and 16 rounds of one candidate. Custom counts remain unchanged.
-qLogEI treats native outputs as repeatable observations. A small standardized noise variance supports numerical stability; it does not describe physical uncertainty.
-Single-candidate rounds use analytic constrained improvement. Until a feasible observation exists, the method maximizes the probability of feasibility.
-Batch rounds use the corresponding Monte Carlo log acquisition. All candidates still require complete native evaluation and every hard limit.
+Add `mass_requirements` to the condition JSON. Import selects qLogNEI; Sobol is also available.
 Supply the material density as `solid_density_kg_m3`. Give three positive limits for each condition ID in `conditions`.
 Each condition can also specify lower or upper outlet temperature and absolute-pressure limits for either side.
 This example shows the input format. Its values are not acceptance limits for the water-air experiment:
@@ -384,9 +380,7 @@ This accepts finite, nonnegative Re outside the air/water Gyroid or Diamond Nu r
 The interface labels this choice. Saved results and exports retain the strict verdict and each accepted range observation.
 This setting does not establish experimental accuracy. Recovery keeps the saved choice.
 
-The API accepts the same `mass_requirements` object with `method='qlogei'`, `'qlognei'` or `'sobol'`.
-Omitted counts use 8 initial designs and 16 rounds for qLogEI. Other methods retain 16 initial designs and 8 rounds.
-Explicit counts take precedence. Saved searches retain their method and counts for recovery.
+The API accepts the same `mass_requirements` object with `method='qlognei'` or `'sobol'`.
 Set both L bounds to 7 mm to optimize only wall thickness at a fixed cell size. Saved sessions retain these bounds.
 Search pure Diamond and pure Gyroid separately. Compare them with the same conditions, limits, material, and closure settings.
 Model limits, numerical gates, and final solid connectivity, wall thickness, and fluid separation require separate checks.

@@ -131,8 +131,7 @@ def test_optional_outlet_limits_keep_side_units_and_condition_identity(tmp_path,
         mass.mass_observation(summaries, fixed)
 
 
-@pytest.mark.parametrize('method', ['qlogei', 'qlognei'])
-def test_outlet_violation_trains_model_but_blocks_selection_and_survives_resume(tmp_path, monkeypatch, method):
+def test_outlet_violation_trains_model_but_blocks_selection_and_survives_resume(tmp_path, monkeypatch):
     _fake_mass_batches(monkeypatch)
     monkeypatch.setattr(search, '_bo_versions', lambda: {})
     original = search.mass_observation
@@ -154,7 +153,7 @@ def test_outlet_violation_trains_model_but_blocks_selection_and_survives_resume(
     fixed = requirements()
     fixed['conditions']['flow-1']['T_out_B_min_K'] = 310.
     result = search.run_multi_condition_optimization(_conditions(), output_dir=tmp_path/'source',
-        method=method, n_init=3, n_iter=1, workers=1, mass_requirements=fixed)
+        method='qlognei', n_init=3, n_iter=1, workers=1, mass_requirements=fixed)
     assert observed[0].shape == (2, 5)
     assert observed[0][1, -1] == .1
     assert result['history'][1]['feasible'] is False
@@ -189,18 +188,17 @@ def _fake_mass_batches(monkeypatch):
     return calls
 
 
-@pytest.mark.parametrize('method', ['qlogei', 'qlognei'])
-def test_infeasible_designs_train_model_but_cannot_be_selected_and_resume(tmp_path, monkeypatch, method):
+def test_infeasible_designs_train_model_but_cannot_be_selected_and_resume(tmp_path, monkeypatch):
     calls = _fake_mass_batches(monkeypatch)
     monkeypatch.setattr(search, '_bo_versions', lambda: {})
     observed = []
     def propose(X, Y, lower, upper, reference, **kwargs):
         observed.append(Y.copy())
-        assert kwargs['method'] == method and reference is None
+        assert kwargs['method'] == 'qlognei' and reference is None
         return np.asarray([lower + .4*(upper-lower)])
     monkeypatch.setattr(search, '_propose_bo', propose)
     result = search.run_multi_condition_optimization(_conditions(), output_dir=tmp_path / 'source',
-        method=method, n_init=3, n_iter=1, workers=1, mass_requirements=requirements())
+        method='qlognei', n_init=3, n_iter=1, workers=1, mass_requirements=requirements())
     assert result['status'] == 'completed'
     assert result['n_usable'] == 3 and result['n_feasible'] == 2
     assert result['pareto_indices'] == [3]
@@ -235,12 +233,11 @@ def test_no_feasible_result_is_explicit(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize('fixed_cell', [False, True])
-@pytest.mark.parametrize('method', ['qlogei', 'qlognei'])
-def test_real_constrained_acquisition_selects_a_complete_design(tmp_path, monkeypatch, fixed_cell, method):
+def test_real_constrained_acquisition_selects_a_complete_design(tmp_path, monkeypatch, fixed_cell):
     pytest.importorskip('botorch', reason='requires the locked BO environment')
     calls = _fake_mass_batches(monkeypatch)
     result = search.run_multi_condition_optimization(_conditions(), output_dir=tmp_path / 'bo',
-        method=method, n_init=4, n_iter=1, workers=1, seed=7, mass_requirements=requirements(),
+        method='qlognei', n_init=4, n_iter=1, workers=1, seed=7, mass_requirements=requirements(),
         field_spec={'L_bounds': [7., 7.]} if fixed_cell else None)
     assert result['status'] == 'completed' and result['n_evaluated'] == 5
     assert result['n_usable'] == 4 and len(calls) == 6
@@ -252,59 +249,6 @@ def test_real_constrained_acquisition_selects_a_complete_design(tmp_path, monkey
     if fixed_cell:
         assert chosen[:len(chosen)//2] == [7.]*(len(chosen)//2)
         assert result['field_spec']['L_bounds'] == [7., 7.]
-
-
-@pytest.mark.parametrize('q_batch', [1, 2])
-@pytest.mark.parametrize('has_feasible', [False, True])
-def test_qlogei_uses_all_outlet_constraints_before_and_after_feasibility(monkeypatch, q_batch, has_feasible):
-    torch = pytest.importorskip('torch', reason='requires the locked BO environment')
-    optim = pytest.importorskip('botorch.optim', reason='requires the locked BO environment')
-    lower, upper = np.array([6.9, .58, 1.]), np.array([7.1, .6, 1.])
-    X = lower + np.array([[0., 0., 0.], [1., 1., 0.], [.3, .7, 0.], [.8, .2, 0.]])*(upper-lower)
-    constraints = np.array([-.1, .2, -.05, .1])[:, None]*np.geomspace(1., 1e-5, 11)
-    constraints[:, -1] = 0.
-    if not has_feasible:
-        constraints[:, 0] = np.abs(constraints[:, 0]) + .01
-    Y = np.column_stack(([-.14, -.137, -.138, -.139], constraints))
-    original = optim.optimize_acqf
-    seen = []
-    def optimize(acquisition, **kwargs):
-        seen.append(type(acquisition).__name__)
-        torch.testing.assert_close(acquisition.model.likelihood.noise,
-            torch.full((12, 4), 1e-6, dtype=torch.float64))
-        return original(acquisition, **kwargs)
-    monkeypatch.setattr(optim, 'optimize_acqf', optimize)
-    stages = []
-    proposed = search._propose_bo(X, Y, lower, upper, None, method='qlogei',
-                                  q_batch=q_batch, seed=7, on_stage=stages.append)
-    expected = ('LogConstrainedExpectedImprovement' if has_feasible else 'LogProbabilityOfFeasibility')
-    if q_batch > 1:
-        expected = 'qLogExpectedImprovement' if has_feasible else 'qLogProbabilityOfFeasibility'
-    assert seen == [expected] and stages == ['model_fit', 'proposal']
-    assert proposed.shape == (q_batch, 3) and np.isfinite(proposed).all()
-    assert np.all(proposed >= lower) and np.all(proposed <= upper)
-    np.testing.assert_array_equal(proposed[:, 2], np.ones(q_batch))
-
-
-@pytest.mark.parametrize('method', ['qlogei', 'qlognei', 'qlognehvi', 'sobol'])
-@pytest.mark.parametrize('explicit', [False, True])
-def test_default_and_explicit_budgets_are_saved_before_execution(tmp_path, monkeypatch, method, explicit):
-    from sjtu_tpmshx.domain.cancellation import CancelledError
-    monkeypatch.setattr(search, '_bo_versions', lambda: {})
-    def cancel(*args, **kwargs):
-        raise CancelledError('stop before the first batch')
-    monkeypatch.setattr(search, '_evaluate_condition_batch', cancel)
-    options = dict(n_init=3, n_iter=2, q_batch=2) if explicit else {}
-    if method in ('qlogei', 'qlognei'):
-        options['mass_requirements'] = requirements()
-    with pytest.raises(CancelledError):
-        search.run_multi_condition_optimization(_conditions(), output_dir=tmp_path/'search',
-            method=method, workers=1, **options)
-    frozen = json.loads((tmp_path/'search/optimization-input.json').read_text())
-    expected = (3, 2, 2) if explicit else (8, 16, 1) if method == 'qlogei' else (16, 8, 1)
-    assert tuple(frozen[key] for key in ('n_init', 'n_iter', 'q_batch')) == expected
-    record = json.loads((tmp_path/'search/optimization.json').read_text())
-    assert record['design_budget'] == (7 if explicit else 24)
 
 
 def test_search_rejects_two_fixed_fields_before_evaluation(tmp_path, monkeypatch):

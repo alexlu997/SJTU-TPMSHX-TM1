@@ -1006,26 +1006,14 @@ def test_mass_requirements_import_and_current_condition_reset(window, tmp_path, 
     path = tmp_path / 'requirements.json'
     path.write_text(json.dumps(payload))
     monkeypatch.setattr(QFileDialog, 'getOpenFileName', lambda *a: (str(path), ''))
-    for key, value in dict(n_init=16, n_iter=8, q_batch=1).items():
-        window._opt_inline_params[key].setValue(value)
     panel.import_conditions(window)
-    assert window._opt_method.currentData() == 'qlogei'
-    assert tuple(window._opt_inline_params[key].value()
-                 for key in ('n_init', 'n_iter', 'q_batch')) == (8, 16, 1)
+    assert window._opt_method.currentData() == 'qlognei'
     assert window._opt_mass_requirements == payload['mass_requirements']
     assert 'Nu-Re' in window._opt_eval_preview.text()
     assert '芯体质量最小' in window._opt_eval_preview.text()
     panel.use_current_condition(window)
     assert window._opt_mass_requirements is None
     assert window._opt_method.currentData() == 'qlognehvi'
-
-
-def test_qlogei_selection_keeps_an_explicit_budget(window):
-    for key, value in dict(n_init=5, n_iter=3, q_batch=2).items():
-        window._opt_inline_params[key].setValue(value)
-    window._opt_method.setCurrentIndex(window._opt_method.findData('qlogei'))
-    assert tuple(window._opt_inline_params[key].value()
-                 for key in ('n_init', 'n_iter', 'q_batch')) == (5, 3, 2)
 
 
 @pytest.mark.parametrize(('feasible', 'attained'), [(True, False), (True, True), (False, False)])
