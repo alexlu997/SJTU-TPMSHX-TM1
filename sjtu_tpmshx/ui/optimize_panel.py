@@ -697,8 +697,9 @@ def show_pareto(window, report, *, running=False):
     # Keep the existing figure-export readiness contract, with explicit G/C meaning.
     constrained = 'mass_requirements' in report
     if constrained:
-        from sjtu_tpmshx.optimization.mass_design import CONSTRAINT_KEYS
-        x_value = lambda row: 100.*max(row['objectives'][key] for key in CONSTRAINT_KEYS)
+        from sjtu_tpmshx.optimization.mass_design import constraint_keys
+        keys = constraint_keys(report['mass_requirements'])
+        x_value = lambda row: 100.*max(row['objectives'][key] for key in keys)
         y_value = lambda row: row['objectives']['core_mass_kg']
     else:
         x_value = lambda row: row['objectives']['pressure_ratio']

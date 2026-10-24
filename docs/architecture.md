@@ -948,8 +948,12 @@ trend result.
 The optional `mass_requirements` input selects constrained core-mass optimization.
 It supplies positive density and Q/dP limits for every condition ID. Supported methods are qLogNEI and Sobol.
 The mass objective reuses the full-result mass metric. Multiply 2D mass and heat by the saved physical depth.
-qLogNEI fits negative mass and three relative residuals: heat shortfall and A/B pressure excess.
-Each residual is the maximum over all conditions. Nonpositive values satisfy all limits of that type.
+Optional per-condition outlet limits use `T_out_A_min_K` / `T_out_A_max_K` and `P_out_A_min_Pa` / `P_out_A_max_Pa`.
+Replace A with B for the other side. Missing limits do not apply; supplied ranges must be ordered, positive and finite.
+These limits check native results. They do not prescribe solver outlet boundaries.
+Outlet temperature uses native mass-flux weighting. Outlet absolute pressure reuses the physical-face area weighting of `pressure_face_v1`.
+qLogNEI fits negative mass and the requested relative residuals: heat shortfall, pressure excess and optional outlet limits.
+Each residual is the maximum over conditions that request that limit. Nonpositive values satisfy all limits of that type.
 Valid infeasible observations train the model; failed numerical batches do not.
 Selection uses only minimum-mass feasible observations. Zero feasible designs remains explicit.
 Saved inputs freeze the requirements. Recovery recomputes mass and every constraint check from retained native evidence.
@@ -957,7 +961,7 @@ The desktop and exports retain these requirements and distinguish numerical vali
 New mass searches evaluate the uniform reference first, then the minimum-mass geometry when the initial budget permits.
 The geometry model derives this candidate from the requested cell and wall bounds.
 The level-set model uses its positive threshold derivative. The CO2 model checks the corners of each clipped bilinear table cell.
-A search stops early only when an accepted candidate meets every Q/dP limit and attains the model mass bound.
+A search stops early only when an accepted candidate meets every requested limit and attains the model mass bound.
 The maximum budget, actual count, bound and stop reason remain in the saved report and exports.
 This certificate applies to the selected geometry model and design bounds; it does not certify physical accuracy or manufacture.
 Saved searches without the new initialization policy keep their original Sobol sequence and budget on recovery.

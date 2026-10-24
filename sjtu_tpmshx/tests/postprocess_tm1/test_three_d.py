@@ -8,7 +8,7 @@ from sjtu_tpmshx.postprocess.metrics import evaluate
 def test_three_d_native_faces_and_pressure():
     pressure = dict(P=np.array([[[100.], [20.]]]), dx=np.array([1.]),
                     dy=np.array([1., 1.]), dz=np.array([1.]),
-                    inlet_frac=np.ones((1, 1)), outlet_frac=np.ones((1, 1)))
+                    inlet_frac=np.ones((1, 1)), outlet_frac=np.ones((1, 1)), P_ref_abs=123456.)
     report = dict(inlet_weights=np.ones((1, 1))*99., outlet_weights=np.ones((1, 1))*99., direction=0)
     mass = (np.ones((3, 1, 1)), np.zeros((2, 2, 1)), np.zeros((2, 1, 2)))
     result = FieldResult(result_id='3d-native', case_id='case', backend_id='fixture',
@@ -27,6 +27,9 @@ def test_three_d_native_faces_and_pressure():
     assert metrics['Q'].value == 10.
     assert metrics['Q'].spec.unit == 'W'
     assert metrics['dP_A'].value == 160.
+    assert metrics['P_out_A'].value == 123436.
+    assert metrics['P_out_A'].spec.unit == 'Pa'
+    assert metrics['P_out_A'].spec.definition_version == 'pressure_face_v1'
     assert metrics['T_out_A'].value == 320.
     assert metrics['T_out_B'].value == 310.
     assert metrics['mass_flow_A'].value == 1.

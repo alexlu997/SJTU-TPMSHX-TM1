@@ -18,7 +18,7 @@ def _weighted(values, weights):
     return float(np.sum(np.asarray(values) * weights) / total)
 
 
-def _dp(pressure):
+def _port_pressures(pressure):
     p = np.asarray(pressure['P'])
     if p.ndim != 3 or any(size == 0 for size in p.shape):
         raise ValueError('pressure evidence requires nonempty three-dimensional cells')
@@ -34,7 +34,7 @@ def _dp(pressure):
     area = dx[:, None] * dz[None, :]
     inlet, outlet = (values * area for values in openings)
     pin, pout = pressure_face_values(p, dy)
-    return _weighted(pin, inlet) - _weighted(pout, outlet)
+    return _weighted(pin, inlet), _weighted(pout, outlet)
 
 
 def thermal_duty(result, side):
@@ -86,8 +86,10 @@ def evaluate_metric(result, name, *, duty, mass_flow):
         return abs(duty('A'))
     if name in ('Q_A', 'Q_B'):
         return duty(name[-1])
-    if name.startswith('dP_'):
-        return _dp(result.pressure_evidence[name[-1]])
+    if name.startswith(('dP_', 'P_out_')):
+        pressure = result.pressure_evidence[name[-1]]
+        pin, pout = _port_pressures(pressure)
+        return pin - pout if name.startswith('dP_') else pout + pressure['P_ref_abs']
     if name.startswith('T_out_'):
         side = name[-1]
         direction = result.boundary_fluxes['report'][side]['direction']

@@ -219,10 +219,10 @@ def export_study_design(report, history_index, out_dir, counts):
         raise ValueError('geometry export requires a completed design')
     evidence = {}
     if 'mass_requirements' in report:
-        from .mass_design import CONSTRAINT_KEYS
+        from .mass_design import constraint_keys
         if (row.get('feasible') is not True or any(
                 not np.isfinite(row['objectives'][key]) or row['objectives'][key] > 0
-                for key in CONSTRAINT_KEYS)):
+                for key in constraint_keys(report['mass_requirements']))):
             raise ValueError('geometry export requires all mass-design constraints to pass')
         evidence = dict(mass_requirements=report['mass_requirements'],
                         objectives=row['objectives'], constraint_checks=row['constraint_checks'])

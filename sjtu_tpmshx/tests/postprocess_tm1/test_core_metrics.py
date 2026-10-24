@@ -81,6 +81,9 @@ def test_pressure_uses_physical_faces_and_open_area_on_nonuniform_grid(direction
     # Exact means of a linear pressure field over inlet [0,.08] and outlet [.02,.2].
     assert metrics['dP_A'].value == pytest.approx(100.*.4 + 20.*(.04-.11))
     assert metrics['dP_B'].value == pytest.approx(metrics['dP_A'].value)
+    outlet = evaluate(result, MetricSpec('P_out', 'Pa', definition_version='pressure_face_v1')).metrics
+    assert outlet['P_out_A'].value == pytest.approx(1000. - 100.*.4 + 20.*.11)
+    assert outlet['P_out_B'].value == pytest.approx(outlet['P_out_A'].value)
 
 
 def test_postprocessing_imports_no_backend():

@@ -15,7 +15,7 @@ from sjtu_tpmshx.tests.test_multi_condition import _row
 
 
 @pytest.mark.parametrize('name,unit', [
-    ('dP_A', 'kPa'), ('T_out_A', 'degC'), ('Q_B', 'kW'),
+    ('dP_A', 'kPa'), ('P_out_A', 'kPa'), ('T_out_A', 'degC'), ('Q_B', 'kW'),
     ('mass_flow_B', 'kg/h'), ('energy_imbalance_rel', '%'),
 ])
 def test_side_metric_units_are_checked_at_construction(name, unit):
