@@ -253,7 +253,7 @@ template<class Archive,class Value> void walk(Archive& archive,Value& value,Enth
 }
 template<class Archive,class Value> void walk(Archive& archive,Value& value,Full3DThermalRunState*) {
     FIELD(evidence) FIELD(record) FIELD(initial) FIELD(budget) FIELD(remaining)
-    FIELD(model_h_2d) FIELD(model_h_3d) FIELD(staggered) FIELD(legacy) FIELD(enthalpy)
+    FIELD(model_h_2d) FIELD(model_h_3d) FIELD(staggered) FIELD(enthalpy)
 }
 template<class Archive,class Value> void walk(Archive& archive,Value& value,Full2DSide*) {
     FIELD(fluid) FIELD(direction) FIELD(inlet_temperature) FIELD(inlet_pressure) FIELD(inlet_velocity)

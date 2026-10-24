@@ -23,11 +23,8 @@ from types import SimpleNamespace
 from sjtu_tpmshx.tests.native.test_native_execution import _config
 from sjtu_tpmshx.tests.native.simple_audit import mass_balance
 from sjtu_tpmshx.tests.native.test_simple_3d import audit_momentum
-from sjtu_tpmshx.tests.native import test_temperature_staggered as warmup_component
 from sjtu_tpmshx.models.field_coordinates_3d import _solver_velocity_to_real, _solver_staggered_to_real
 
-
-native_warmup = warmup_component.native
 
 ROOT = Path(__file__).resolve().parents[3]
 FLOW_FIELDS = ("dx", "dy", "dz", "eps_field", "K_arr", "cF_arr", "T_field", "mu_field",
@@ -460,44 +457,28 @@ def test_nz_one_delegates_original_2d_temperature(native, pair):
     audit_full(native.run(cfg, p), cfg, p)
 
 
-def check_warmup(actual, cfg, p, native_warmup, *, legacy=False):
+def check_unheated_true_h_state(actual, cfg, p):
     assert actual['code'] == 0, actual['error']
     assert actual[202][8] == 2 and not actual[202][1]
-    assert actual[200].shape[0] == 1 and actual[200][0, 1] == 1
-    shape = tuple(p['N'+axis] for axis in 'xyz')
-    field = lambda value: np.array(np.broadcast_to(value, shape), dtype=np.float64, order='C')
-    tin = tuple(cfg['T_in'+s] for s in 'AB')
-    c = dict(shape=shape, widths=[p['d'+axis] for axis in 'xyz'],
-        state=[field(tin[0]), field(tin[1]), field(cfg.get('T_s_init') or .5*sum(tin))],
-        ks=field(p['design']['K_ss']), source_s=np.empty(0), prescribed=np.empty(0),
-        tin=tin, directions=tuple(cfg['fluid_'+s+'_cfg']['dir'] for s in 'AB'),
-        maxit=2, chunk=250, warm=True, conservative=cfg.get('conservative_ltne', True),
-        rb=cfg.get('_native_rb_energy', False), alpha=(.7, .7, .7), qtol=1e-4,
-        true_h_warmup=True, legacy=legacy)
-    for side, name in enumerate('AB'):
-        velocity = [actual[17+3*side+axis].reshape(tuple(n+int(i == axis) for i,n in enumerate(shape)))
-                    for axis in range(3)]
-        if legacy:
-            velocity = [.5*(np.take(v, np.arange(shape[axis]), axis=axis)
-                + np.take(v, np.arange(1, shape[axis]+1), axis=axis)) for axis,v in enumerate(velocity)]
-        face_shape = tuple(n for i,n in enumerate(shape) if i != c['directions'][side]//2)
-        c[name.lower()] = [actual[9+side].reshape(shape), actual[5+side].reshape(shape),
-            field(p['design']['eps_'+name]), actual[7+side].reshape(shape),
-            *velocity, np.empty(0), np.asarray(p['openings'][name]['inlet']),
-            actual[25+side].reshape(face_shape), np.empty(0)]
-    result = native_warmup(c)
-    assert result[0] == 0, result[-1]
-    assert result[1][1] == 2
-    for side in range(3):
-        np.testing.assert_allclose(actual[side], c['state'][side].ravel(), rtol=1e-10, atol=1e-7)
+    assert actual[200].shape[0] == p['max_outer']
+    np.testing.assert_array_equal(actual[200][:, 1], np.ones(p['max_outer']))
+    tin = [cfg['T_inA'], cfg['T_inB']]
+    solid = cfg['T_s_init'] if cfg.get('T_s_init') is not None else .5*sum(tin)
+    for field, value in enumerate([*tin, solid]):
+        np.testing.assert_array_equal(actual[field], np.full(actual[field].shape, value))
+    # Preparation and the EOS handoff still supply coefficients, mass faces and h.
+    for field in [*range(5, 17), 23, 24, 25, 26]:
+        assert actual[field].size and np.isfinite(actual[field]).all()
 
 
-def test_true_h_cell_centered_3d_retains_g4_warmup(native, native_warmup):
-    cfg, p = prepared('air-sco2', counts=(4, 4, 4), conservative_ltne=False,
-        force_cc_ltne=True, ltne_enthalpy_outer=1, ltne_enthalpy_nsweep=0)
-    p['max_outer'] = 1
-    actual = native.run(cfg, p)
-    check_warmup(actual, cfg, p, native_warmup, legacy=True)
+@pytest.mark.parametrize('nz', [1, 4])
+@pytest.mark.parametrize('solid_seed', [None, 335.])
+def test_true_h_cell_centered_keeps_temperature_before_eos(native, nz, solid_seed):
+    cfg, p = prepared('air-sco2', directions=(0, 3), counts=(4, 4, nz),
+        conservative_ltne=False, force_cc_ltne=True, T_s_init=solid_seed,
+        ltne_enthalpy_outer=1, ltne_enthalpy_nsweep=0)
+    p['max_outer'] = 2
+    check_unheated_true_h_state(native.run(cfg, p), cfg, p)
 
 
 @pytest.mark.parametrize("pair", ["air-air", "air-water"])
@@ -546,13 +527,13 @@ def test_refined_real_grid_and_existing_energy_acceleration(native, record_prope
 @pytest.mark.parametrize("directions", [(4, 1), (5, 0)])
 @pytest.mark.parametrize("red_black", [False, True])
 @pytest.mark.parametrize("conservative", [True, False], ids=["conservative", "advective"])
-def test_true_h_warm_up_keeps_original_two_sweeps(native, native_warmup, directions, red_black, conservative):
+def test_true_h_staggered_keeps_temperature_before_eos(native, directions, red_black, conservative):
     cfg, p = prepared('sco2-water', directions=directions, counts=(8, 6, 7),
         ltne_enthalpy_outer=1, ltne_enthalpy_nsweep=0,
-        _native_rb_energy=red_black, conservative_ltne=conservative, force_cc_ltne=False)
-    p['max_outer'] = 1
-    actual = native.run(cfg, p)
-    check_warmup(actual, cfg, p, native_warmup)
+        _native_rb_energy=red_black, conservative_ltne=conservative, force_cc_ltne=False,
+        T_s_init=335.)
+    p['max_outer'] = 2
+    check_unheated_true_h_state(native.run(cfg, p), cfg, p)
 
 
 def test_graded_direct_grid_and_existing_energy_acceleration(native):

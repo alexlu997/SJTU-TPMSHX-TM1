@@ -82,8 +82,7 @@ if(APPLE)
     target_link_libraries(tpmshx_models PUBLIC "${TPMSHX_ACCELERATE_FRAMEWORK}")
 endif()
 add_library(tpmshx_quick_design STATIC "${TPMSHX_ROOT}/native/src/quick_design_driver.cpp"
-    "${TPMSHX_ROOT}/native/src/temperature_driver.cpp"
-    "${TPMSHX_ROOT}/native/src/legacy_temperature_warmup.cpp")
+    "${TPMSHX_ROOT}/native/src/temperature_driver.cpp")
 target_include_directories(tpmshx_quick_design PUBLIC "${TPMSHX_ROOT}/native/include")
 target_link_libraries(tpmshx_quick_design PUBLIC tpmshx_models tpmshx_energy)
 target_include_directories(tpmshx_quick_design SYSTEM PRIVATE "${TPMSHX_NATIVE_DEPS_ROOT}/src/Eigen-5.0.1")
@@ -153,8 +152,7 @@ add_library(tpmshx_temperature_staggered STATIC "${TPMSHX_ROOT}/native/src/tempe
 target_link_libraries(tpmshx_temperature_staggered PUBLIC tpmshx_models tpmshx_energy SuperLU::LU AMGCL::AMGCL)
 add_library(temperature_staggered_test SHARED "${TPMSHX_ROOT}/sjtu_tpmshx/tests/native/temperature_staggered_bridge.cpp")
 target_compile_definitions(temperature_staggered_test PRIVATE TPMSHX_THERMAL_BUILD_SHARED)
-target_link_libraries(temperature_staggered_test PRIVATE tpmshx_temperature_staggered tpmshx_quick_design)
-target_include_directories(temperature_staggered_test PRIVATE "${TPMSHX_ROOT}/native/src")
+target_link_libraries(temperature_staggered_test PRIVATE tpmshx_temperature_staggered)
 add_executable(temperature_staggered_smoke "${TPMSHX_ROOT}/native/tests/temperature_staggered_smoke.cpp")
 target_link_libraries(temperature_staggered_smoke PRIVATE tpmshx_temperature_staggered)
 add_executable(temperature_run_smoke "${TPMSHX_ROOT}/native/tests/temperature_run_smoke.cpp")
@@ -191,7 +189,8 @@ add_library(tpmshx_run_state STATIC "${TPMSHX_ROOT}/native/src/full_run_state.cp
 add_dependencies(tpmshx_run_state tpmshx_state_build_identity)
 target_include_directories(tpmshx_run_state PUBLIC "${TPMSHX_ROOT}/native/include"
     PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
-add_library(tpmshx_full_3d STATIC "${TPMSHX_ROOT}/native/src/full_3d.cpp")
+add_library(tpmshx_full_3d STATIC "${TPMSHX_ROOT}/native/src/full_3d.cpp"
+    "${TPMSHX_ROOT}/native/src/true_h_preparation.cpp")
 target_link_libraries(tpmshx_full_3d PUBLIC tpmshx_run_state tpmshx_simple tpmshx_temperature_staggered
     tpmshx_quick_design tpmshx_model_h_2d tpmshx_model_h_3d tpmshx_enthalpy tpmshx_pressure_reference)
 if(MSVC)

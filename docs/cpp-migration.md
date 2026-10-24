@@ -255,9 +255,9 @@ This selection does not qualify new fluids, boiling, condensation or additional
 Nu/Darcy-Forchheimer applicability. GUI selection is not yet exposed.
 
 The complete driver keeps its original SIMPLE, pressure, property, outer
-coupling and final acceptance gates. Full3D also keeps its two temperature
-predictor sweeps and original mass preparation. The T-SOU recipe uses five
-sweeps per nonlinear step, fluid relaxation .2 and solid relaxation 1. Full3D saves resolved controls in prepared
+coupling and final acceptance gates. Full3D keeps thermal and mass preparation
+without temperature predictor sweeps. The T-SOU recipe uses five sweeps per
+nonlinear step, fluid relaxation .2 and solid relaxation 1. Full3D saves resolved controls in prepared
 cases. Unset 2D controls use the recipe for the selected algorithm version.
 
 With default controls, T-SOU keeps the full-driver iteration budgets.
@@ -357,25 +357,23 @@ keep their existing compile options. The actual caller boundaries are:
 | Air/water full2D temperature main/fine and full3D CC Nz=1 | Strict `solve_model_h_2d`. Existing air/water h(T), A-SOU/B-FOU, prepared mass/K/h_v and each caller's original budget |
 | Air/water full3D CC Nz>1 | Strict `solve_model_h_3d`. SOU on both sides, prepared mass/K/h_v, prescribed B, asymmetric geometry and strict-only water/water support |
 | Existing product model-h | Default non-strict model-h drivers and original eligibility/stopping rules. Reuse by fullCC does not grant optimizer eligibility |
-| Full3D true-h CC warm-up | Private `legacy_temperature_warmup`. Original G4 two-sweep map for Nz=1, or Nz>1 with conservative=false and force_cell_centered=true. Both sides are solved. The following enthalpy driver keeps its selected algorithm and physical gates |
+| Full3D true-h preparation | `true_h_preparation` retains CC input checks. Staggered preparation retains projection. Neither updates temperatures. The EOS driver keeps its algorithm and physical gates |
 | Staggered/MAC temperature | Existing projection/cache and capacity-face preparation. Kept nonconservative advective research correction has no fullCC integral-h qualification |
 | True-h | T-SOU default. EOS relations and independent physical gates stay in the enthalpy driver |
 
-The CC warm-up supplies coupled A, B and solid temperatures before each outer
-enthalpy solve. The first call starts from inlet fluid temperatures and the
-configured solid seed, or the mean inlet temperature. Later calls start from
-the previous thermal fields. Two sweeps avoid a complete capacity-temperature
-solve whose result the enthalpy solve would replace. The warm-up is a numerical
-initialization for the steady solver. The existing evidence does not
-show that two sweeps are necessary or faster than no warm-up.
+Full3D true-h performs no temperature sweeps before each outer enthalpy solve.
+The first call uses inlet fluid temperatures and the configured solid seed.
+If no solid seed is set, it uses the mean inlet temperature.
+Later calls use the previous thermal fields.
+Thermal coefficients, inlet capacities, face balance/projection and input checks remain.
+The enthalpy driver validates initial PT states and supplies the final thermal verdict.
 
-The enthalpy driver validates the initial PT states and supplies the final
-thermal verdict. The CC warm-up keeps its rows, order, relaxation and two-sweep
-budget. Nz>1 staggered warm-up uses the shared temperature rows with
-caller relaxation and live serial SOU corrections. Red-black corrections are
-frozen for one sweep. The original exterior solid self terms stay in the
-iteration diagonal. This call does not use standalone temperature block damping.
-Full2D true-h does not consume this full3D warm-up.
+The private G4 iteration owner and the special staggered warm-up rows are retired.
+The CC validation function retains their input checks without changing the thermal fields.
+Staggered preparation still runs with a zero temperature budget and records its projection evidence.
+The first thermal checkpoint belongs to the EOS driver after preparation completes.
+Old checkpoints require their matching archived runtime. Historical result records remain readable.
+Full2D true-h does not consume this Full3D preparation path.
 
 Single-A sCO2 execution is retired. The native input boundary rejects an sCO2
 A side with inactive B before numerical work. Air/water inactive-B validation

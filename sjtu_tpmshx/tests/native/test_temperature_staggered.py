@@ -54,12 +54,10 @@ def native():
         if alias:
             pointers[6] = pointers[3]
         dimensions = (ctypes.c_size_t*3)(*c["shape"])
-        config = (ctypes.c_size_t*9)(c["maxit"], c["chunk"], c["warm"], c["conservative"], c["rb"], *c["directions"], cancel_at, c.get("true_h_warmup", False))
+        config = (ctypes.c_size_t*8)(c["maxit"], c["chunk"], c["warm"], c["conservative"], c["rb"], *c["directions"], cancel_at)
         values = (ctypes.c_double*6)(*c["tin"], c["qtol"], *c["alpha"])
         status, metrics, error = (ctypes.c_size_t*13)(), (ctypes.c_double*16)(), ctypes.create_string_buffer(512)
-        selected = lib.test_legacy_warmup if c.get("legacy", False) else function
-        selected.argtypes, selected.restype = function.argtypes, function.restype
-        code = selected(dimensions, pointers, sizes, config, values, status, metrics, error, len(error))
+        code = function(dimensions, pointers, sizes, config, values, status, metrics, error, len(error))
         return code, tuple(status), np.array(metrics), outputs, error.value.decode()
 
     def project(c, direct=None):
