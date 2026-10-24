@@ -708,24 +708,21 @@ class ThreeDVisPanel(QWidget):
             pass
 
     def _build_global_clim(self):
-        """Use the same whole-field limits as the workbench slices."""
+        """Share related ranges unless a field stays below 40 percent of the span."""
         from .vis3d_constants import field_color_limits
         clim = dict(zip(self._arrays, field_color_limits(list(self._arrays.values()))))
-        groups = [('Ta', 'Tb', 'Ts')]
-        if getattr(self, '_shared_flow_scale', False):
-            groups += [('vmag', 'vmag_B'), ('P_kPa', 'P_B_kPa')]
+        groups = [('Ta', 'Tb', 'Ts'), ('P_kPa', 'P_B_kPa')]
         for group in groups:
             keys = [key for key in group if key in self._arrays]
-            if keys:
-                clim.update(zip(keys, field_color_limits([self._arrays[key] for key in keys], True)))
+            if len(keys) < 2:
+                continue
+            lo = min(clim[key][0] for key in keys)
+            hi = max(clim[key][1] for key in keys)
+            # Keep a weak field visible when the shared range would hide it.
+            if any(clim[key][1] < lo + 0.4 * (hi - lo) for key in keys):
+                continue
+            clim.update((key, (lo, hi)) for key in keys)
         return clim
-
-    def set_shared_flow_scale(self, shared):
-        """Apply the workbench comparison choice without changing result data."""
-        self._shared_flow_scale = shared
-        if self._grid is not None:
-            self._global_clim = self._build_global_clim()
-            self._refresh_clim()
 
     # ─────────────────────────── visibility gate ──────────────────────
     def _pause_rendering(self):
@@ -1715,7 +1712,6 @@ class ThreeDVisPanel(QWidget):
             f"Field: {FIELD_META[self._field]['title']}",
             f"Range: {lo:.2f} – {hi:.2f}",
             f"Color Range: {color_range_label}",
-            'A/B scale: shared' if getattr(self, '_shared_flow_scale', False) else 'Flow scale: per fluid',
             f"Domain: {Lx:.0f} × {Ly:.0f} × {Lz:.0f} mm",
         ]
         if self._slice_info is not None:

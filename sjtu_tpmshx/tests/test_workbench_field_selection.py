@@ -147,9 +147,8 @@ def test_3d_slice_phase_and_probe_use_same_nonuniform_cell():
                              canvas_temp=_canvas(), canvas_pres=_canvas(), canvas_vel=_canvas())
     window.cache.set_result('3d', result)
     _render_2d_slices_from_3d(window, result)
-    for canvas, cmap in ((window.canvas_temp, FIELD_CMAP),
-                         (window.canvas_pres, 'viridis'), (window.canvas_vel, 'viridis')):
-        assert canvas.axes[0][0].collections[0].get_cmap().name == cmap
+    for canvas in (window.canvas_temp, window.canvas_pres, window.canvas_vel):
+        assert canvas.axes[0][0].collections[0].get_cmap().name == FIELD_CMAP
     hover = window.canvas_temp._hover_data
     assert hover['slice_index'] == 2
     assert hover['names'] == ['T_fB']
