@@ -584,80 +584,17 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
                 pass
         return False
 
-    def _preflight_grid(self):
-        """Grid-legality preflight (runs after field-level validator).
-
-        Previews the refined grid, checks inlet/outlet cell coverage, and
-        warns when Richardson doubling would blow up runtime. Returns True
-        if OK to continue (no errors AND user acknowledged any warnings).
-        """
+    def _preflight_grid(self, compute_cfg):
+        """Check captured inputs and request confirmation for grid warnings."""
         from sjtu_tpmshx.ui.preflight import FluidCfg, compute_preflight
+        geometry, solver = compute_cfg.geometry, compute_cfg.solver
 
-        # robustness-hardening (2026-07-03): the old _f/_i fell back to
-        # 0.0/0 on unparseable text, so preflight ran its geometry checks
-        # against a phantom L=0 domain (wrong errors / silence). Core
-        # fields now abort preflight with the invalid-input modal instead.
-        _parse_fails: list = []
-
-        def _f(attr, default=0.0, core=False):
-            le = getattr(self, attr, None)
-            if le is None:
-                return default
-            try:
-                return float(le.text())
-            except (TypeError, ValueError):
-                if core:
-                    _parse_fails.append(attr)
-                return default
-
-        def _i(attr, default=0, core=False):
-            le = getattr(self, attr, None)
-            if le is None:
-                return default
-            try:
-                return int(le.text())
-            except (TypeError, ValueError):
-                if core:
-                    _parse_fails.append(attr)
-                return default
-
-        L = _f('le_L', core=True); H = _f('le_H', core=True)
-        Lz = _f('le_Lz')
-        Nx = _i('le_Nx', core=True); Ny = _i('le_Ny', core=True)
-        Nz = _i('le_Nz', 1)
-        if _parse_fails:
-            QMessageBox.warning(
-                self, "检查输入",
-                "以下字段无法解析为数字，预检无法进行：\n  "
-                + "\n  ".join(_parse_fails)
-                + "\n\n请先修正后再计算。")
-            return False
-        is_3d = (hasattr(self, 'combo_dim')
-                 and self.combo_dim.currentIndex() == 1)
-
-        def _cfg(which):
-            try:
-                raw = self._fluid_config(which)
-            except Exception:
-                return None
+        def _cfg(bc):
             return FluidCfg(
-                dir=raw['dir'],
-                in_ctr=raw['in_ctr'], in_w=raw['in_w'],
-                out_ctr=raw.get('out_ctr', raw['in_ctr']),
-                out_w=raw.get('out_w', raw['in_w']),
-                z_in_ctr=raw.get('in_z_ctr'),
-                z_in_w=raw.get('in_z_w'),
-                z_out_ctr=raw.get('out_z_ctr'),
-                z_out_w=raw.get('out_z_w'))
-
-        def _t_k(attr):
-            le = getattr(self, attr, None)
-            if le is None or not le.text().strip():
-                return None
-            try:
-                return self._temp_to_K(le)
-            except (TypeError, ValueError):
-                return None
+                dir=bc.dir, in_ctr=bc.in_ctr, in_w=bc.in_w,
+                out_ctr=bc.out_ctr, out_w=bc.out_w,
+                z_in_ctr=bc.in_z_ctr, z_in_w=bc.in_z_w,
+                z_out_ctr=bc.out_z_ctr, z_out_w=bc.out_z_w)
 
         # Geometry/D-F coverage is separate from Nu and calibration limits.
         # Hard invalid geometry blocks; soft findings join the grid report.
@@ -665,9 +602,9 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         try:
             from sjtu_tpmshx.domain.validator import validate_geometry as _vg
             _geom_warnings = _vg(
-                L, H, (Lz if is_3d else None),
-                _f('le_Lcell', 7.0), _f('le_t', 0.6),
-                ks=_f('le_ks', 16.0), is_3d=is_3d)
+                geometry.L_dom_m, geometry.H_dom_m, geometry.Lz_m,
+                geometry.L_cell_mm, geometry.t_wall_mm,
+                ks=geometry.k_s_W_mK, is_3d=compute_cfg.is_3d)
         except ValueError as _ge:
             QMessageBox.critical(
                 self, "几何输入不合法", str(_ge))
@@ -676,11 +613,12 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
             pass  # validator itself failing must not block a run
 
         report = compute_preflight(
-            L=L, H=H, Lz=Lz, Nx=Nx, Ny=Ny, Nz=Nz,
-            is_3d=is_3d, wall_refine_3d=False,
-            port_wall_refine=bool(self.combo_grid.currentData()),
-            fluid_A=_cfg('A'), fluid_B=_cfg('B'),
-            T_inA=_t_k('le_TinA'), T_inB=_t_k('le_TinB'))
+            L=geometry.L_dom_m, H=geometry.H_dom_m, Lz=geometry.Lz_m,
+            Nx=solver.Nx, Ny=solver.Ny, Nz=solver.Nz,
+            is_3d=compute_cfg.is_3d, wall_refine_3d=compute_cfg.flags.wall_refine_3d,
+            port_wall_refine=compute_cfg.flags.port_wall_refine,
+            fluid_A=_cfg(compute_cfg.bc_A), fluid_B=_cfg(compute_cfg.bc_B),
+            T_inA=compute_cfg.fluid_A.T_in_K, T_inB=compute_cfg.fluid_B.T_in_K)
         for _w in _geom_warnings:
             _msg = getattr(_w, 'message', None) or str(_w)
             if getattr(_w, 'severity', 'warning') == 'error':

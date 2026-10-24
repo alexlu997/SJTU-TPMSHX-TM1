@@ -50,7 +50,7 @@ def test_native_control_reaches_workers_and_stays_locked_through_cancel(
         raise CancelledError('test cancelled')
 
     if kind == 'compute':
-        monkeypatch.setattr(win, '_preflight_grid', lambda: True)
+        monkeypatch.setattr(win, '_preflight_grid', lambda config: True)
         monkeypatch.setattr(run_controller, '_run_compute', held)
         win.run_calculation()
         cancel = win.compute.cancel
