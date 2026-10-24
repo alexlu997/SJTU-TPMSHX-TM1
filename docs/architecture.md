@@ -130,6 +130,8 @@ The native 3D `Runtime` coordinates separate internal owners.
 `ThermalRun` owns the thermal fields, active energy driver and thermal continuation state.
 Both use one `TransportProperties` owner for inlet properties and sampled transport values.
 `RangeRecorder` records model limits. A separate function assembles final result evidence.
+Both dimensions use `native/src/closure_ranges.hpp` for property and Nu range descriptors.
+Each caller keeps its property selection, sampling stage, array layout and observation order.
 The full-run phase controller keeps the outer update order and callback sequence.
 Each owner copies its state to the existing `Full3DRunState` fields.
 Restore validates the complete state before it binds the solvers to restored arrays.
@@ -545,6 +547,8 @@ Temperature is not scaled. FullCC nonzero sources stay
   The GUI, direct-summary CLI and validation tools use this entry. The file CLI uses the same workflow and portable results.
   The previous 2D/3D mappings stay only as frozen test references for real native-result comparisons.
 - `solvers/backends/prepared_2d.py` and `prepared_3d.py` validate execution inputs for native execution.
+  `prepared_models.py` owns shared resource-role, fluid, Nu-setting and topology checks.
+  Each builder keeps its check order and dimension-specific grid, port and design validation.
   Callers can request writable design copies; the binding borrows immutable arrays through the same checks.
   `solvers/backends/capture_2d.py` captures portable native 2D evidence. Numerical drivers remain in C++.
 - `ui/` owns PySide6 and PyVista presentation only. `ResultCache` owns one published `ComputeResult` for the accepted dimension.

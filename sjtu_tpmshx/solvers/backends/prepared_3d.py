@@ -4,7 +4,7 @@ import numpy as np
 from sjtu_tpmshx.domain.compute_config import Sco2NuConfig, reject_retired_research_options
 from sjtu_tpmshx.domain.persistence_validation import validate_grid, validate_thermal_geometry
 from sjtu_tpmshx.domain.portable_data import mutable_data
-from sjtu_tpmshx.models.catalog import resolve_model
+from .prepared_models import resolve_models, validate_fluid, validate_nu_settings, validate_topology
 
 
 def build_execution_inputs(case, *, copy_design=True):
@@ -35,16 +35,10 @@ def build_execution_inputs(case, *, copy_design=True):
         for axis, length, count in zip('xyz', ('L', 'H', 'Lz'), shape))
     cfg['Lcell'] = cfg.pop('L_cell_m') * 1e3
     cfg['t_wall'] = cfg.pop('t_wall_m') * 1e3
-    roles = case.metadata['model_roles']
-    if set(roles) != {'fluid_A', 'fluid_B', 'geometry', 'darcy_forchheimer'} or sorted(roles.values()) != list(range(len(case.model_refs))):
-        raise ValueError('3D model roles must account for every recorded resource')
-    cfg['_models'] = {role: resolve_model(case.model_refs[index]) for role, index in roles.items()}
+    cfg['_models'] = resolve_models(case)
     for side in ('A', 'B'):
-        ref = case.model_refs[roles['fluid_' + side]]
-        if cfg['_models']['fluid_' + side].name != cfg['fluid_type_' + side]:
-            raise ValueError(f'prepared fluid {side} and model resource disagree')
-        if dict(ref.parameters['sco2_nu']) != cfg['sco2_nu']:
-            raise ValueError(f'prepared Nu settings and fluid {side} resource disagree')
+        validate_fluid(case, cfg['_models'], side, cfg['fluid_type_' + side])
+        validate_nu_settings(case, side, cfg['sco2_nu'])
         axis = prepared['axes'].get(side)
         if axis is None:
             continue
@@ -69,8 +63,7 @@ def build_execution_inputs(case, *, copy_design=True):
         for mask in prepared['openings'][side].values():
             if np.shape(mask) != (axis['N_cross1'], axis['N_cross2']) or not np.all(np.isfinite(mask) & (mask >= 0) & (mask <= 1)):
                 raise ValueError(f'invalid prepared fluid {side} opening mask')
-    if case.model_refs[roles['darcy_forchheimer']].parameters['topology'] != cfg['tpms_type']:
-        raise ValueError('prepared topology and Darcy-Forchheimer resource disagree')
+    validate_topology(case, cfg['tpms_type'])
     cfg['sco2_nu'] = Sco2NuConfig(**cfg['sco2_nu'])
     if cfg.get('zone_grid_cells'):
         cfg['zone_grid_cells'] = [dict((('L' if key == 'L_m' else 't' if key == 't_m' else key),

@@ -4,6 +4,7 @@
 #include "legacy_single_a_temperature.hpp"
 #include "model_h_common.hpp"
 #include "full_3d_fields.hpp"
+#include "closure_ranges.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -460,11 +461,7 @@ void RangeRecorder::property(std::size_t s,const char* source,const char* stage,
     const auto fluid=side(s).fluid;if(uses_co2_eos(fluid))return;
     const char* names[]{"density","viscosity","conductivity","cp"};
     for(unsigned bit=0;bit<4;++bit) if((mask&(1u<<bit)) && (fluid==Fluid::water || bit!=0)) {
-        RangeObservation r;r.view=source;r.model=std::string(fluid==Fluid::air?"air_":"water_")+names[bit];
-        r.side=s;r.stage=stage;r.layout=layout;r.shape=dims;
-        r.bounds=fluid==Fluid::water?model_coefficients::water_temperature_range:
-            (bit==3?model_coefficients::air_cp_temperature_range:model_coefficients::air_temperature_range);
-        observe_range(observations,std::move(r),values);
+        observe_range(observations,closure_ranges::property(fluid,names[bit],s,source,stage,layout,dims),values);
     }
 }
 
@@ -475,13 +472,7 @@ void RangeRecorder::temperature(const std::array<Values,3>& values,const char* s
 
 RangeObservation RangeRecorder::nu(std::size_t s,const char* source,const char* stage,const char* layout,
                                    std::vector<std::size_t> dims) const {
-    const auto fluid=side(s).fluid;RangeObservation r;r.view=source;
-    r.model=fluid==Fluid::air?"air":(fluid==Fluid::water?"water":fluid==Fluid::co2?"co2":"sco2");
-    r.topology=input.topology==Topology::diamond?"Diamond":"Gyroid";r.side=s;r.stage=stage;r.layout=layout;r.shape=std::move(dims);
-    r.bounds=fluid==Fluid::air?model_coefficients::air_nu_re_range:
-        (fluid==Fluid::water?model_coefficients::water_nu_re_range:
-         fluid==Fluid::co2?model_coefficients::co2_nu_re_range:model_coefficients::sco2_nu_re_range);
-    return r;
+    return closure_ranges::nu(side(s).fluid,input.topology,s,source,stage,layout,std::move(dims));
 }
 
 void RangeRecorder::bulk(const std::array<FluidProperties,2>& inlet) {

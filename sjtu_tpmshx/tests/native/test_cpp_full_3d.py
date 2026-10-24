@@ -663,6 +663,7 @@ def test_public_applicability_keeps_original_inlet_and_last_local_sources(native
     from sjtu_tpmshx.postprocess.api import evaluate_applicability
     from sjtu_tpmshx.solvers.api import run_case
     from sjtu_tpmshx.tests.native.test_full_2d import configuration
+    from sjtu_tpmshx.tests.native.test_cpp_full_2d_capture import check_model_range_bounds
     prepared = (prepare_case(configuration(outer=2), case_id='ranges-2d')
                 if dimension == 2 else case('air-air', 2))
     if real_co2:
@@ -676,6 +677,9 @@ def test_public_applicability_keeps_original_inlet_and_last_local_sources(native
         assert summary['missing'] == []
         assert summary['status'] in ('within_limits', 'outside_limits')
         assert '_last_closure_ranges' not in result.metadata
+        for group in ('inlet', 'final'):
+            for row in result.metadata['applicability_evidence'][group]:
+                check_model_range_bounds(row['source'], row['bounds'])
         for side in 'AB':
             assert any(row['side'] == side and row['source'][0] == 'nu_raw'
                        and row['captured'] for row in summary['checks']['final'])
