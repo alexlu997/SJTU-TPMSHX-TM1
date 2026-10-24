@@ -1664,7 +1664,7 @@ void validate_continuation(const Full3DInput& input,const Full3DControl& control
         const auto& run=*state.thermal;const auto& e=run.evidence;const auto& record=run.record;
         const auto mode=thermal_mode(input,control);const bool eos=mode==Full3DThermalMode::true_h;
         const bool staggered=g.nz>1 && (control.conservative || !control.force_cell_centered);
-        const bool legacy=!staggered && (eos || (!input.solve_b && input.a.fluid==Fluid::sco2));
+        const bool legacy=!staggered && eos;
         const bool model=mode==Full3DThermalMode::model_h;
         const auto owners=run.model_h_2d.has_value()+run.model_h_3d.has_value()+run.staggered.has_value()
             +run.legacy.has_value()+run.enthalpy.has_value();
