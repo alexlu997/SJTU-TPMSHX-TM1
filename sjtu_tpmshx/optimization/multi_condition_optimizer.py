@@ -28,7 +28,7 @@ from sjtu_tpmshx.optimization.multi_condition import (
 )
 from sjtu_tpmshx.domain.portable_data import mutable_data
 from sjtu_tpmshx.optimization.mass_design import (
-    CONSTRAINT_KEYS, mass_lower_bound, mass_observation, model_observation, validate_mass_requirements,
+    constraint_keys, mass_lower_bound, mass_observation, model_observation, validate_mass_requirements,
 )
 
 
@@ -101,7 +101,7 @@ def _propose_bo(X, Y, lower, upper, ref_point, *, method, q_batch, seed, on_stag
                 model, X_baseline=train_X, sampler=sampler, prune_baseline=True,
                 objective=GenericMCObjective(lambda samples, X=None: samples[..., 0]),
                 constraints=[lambda samples, index=index: samples[..., index]
-                             for index in range(1, 4)])
+                             for index in range(1, Y.shape[1])])
         elif method == 'qlognehvi':
             acquisition = qLogNoisyExpectedHypervolumeImprovement(
                 model, ref_point=ref_point.tolist(), X_baseline=train_X,
@@ -117,6 +117,7 @@ def _propose_bo(X, Y, lower, upper, ref_point, *, method, q_batch, seed, on_stag
 
 
 def _check_saved_search(record, frozen, designs, lower, upper):
+    keys = constraint_keys(frozen['mass_requirements']) if 'mass_requirements' in frozen else ()
     for key, value in frozen.items():
         if key == 'conditions':
             current, saved = deepcopy(record[key]), deepcopy(value)
@@ -155,7 +156,8 @@ def _check_saved_search(record, frozen, designs, lower, upper):
                 or row['status'] not in states):
             raise ValueError('saved history differs from the proposed design sequence')
         if row['status'] == 'completed':
-            y = model_observation(row['objectives'], constrained='mass_requirements' in frozen)
+            y = model_observation(row['objectives'], constrained='mass_requirements' in frozen,
+                                  constraint_names=keys)
             if 'mass_requirements' in frozen and row.get('feasible') != all(value <= 0 for value in y[1:]):
                 raise ValueError('saved feasibility differs from the constraint observations')
             if row['model_y'] != y or not np.isfinite(y).all():
@@ -229,7 +231,8 @@ def _run_multi_condition_optimization(
     With ``mass_requirements``, minimize core mass in kg. Each condition has
     Q_min_W and dP_A_max_Pa / dP_B_max_Pa limits. The heat metric is -Q_B;
     multiply 2D heat and mass by physical depth. qLogNEI models negative mass
-    and three worst-condition relative residuals. A residual <= 0 is feasible.
+    and the requested worst-condition relative residuals. Optional outlet
+    temperature and pressure limits use native metrics. A residual <= 0 is feasible.
     Keep usable infeasible observations in the model, but exclude them from
     the selected designs. The supplied density covers the TPMS core only.
 
@@ -262,6 +265,7 @@ def _run_multi_condition_optimization(
         raise ValueError('conditions require unique nonempty IDs')
     if constrained:
         mass_requirements = validate_mass_requirements(mass_requirements, ids)
+    keys = constraint_keys(mass_requirements) if constrained else ()
     for _, config, flow_a, flow_b in inputs:
         if not isinstance(config, ComputeConfig):
             raise TypeError('condition config must be ComputeConfig')
@@ -356,7 +360,7 @@ def _run_multi_condition_optimization(
         history=history, pareto_indices=[], n_evaluated=0, n_usable=0)
     if constrained:
         record.update(objective_directions={'core_mass_kg': 'minimize'},
-            model_objectives=['-core_mass_kg', *CONSTRAINT_KEYS], n_feasible=0)
+            model_objectives=['-core_mass_kg', *keys], n_feasible=0)
     if resume_from is not None:
         record = deepcopy(saved)
         record.update(status='running', stage='baseline', iteration=0, reason=None,
@@ -368,7 +372,7 @@ def _run_multi_condition_optimization(
     def observations():
         rows = [row for row in history if row['status'] == 'completed']
         return (np.asarray([row['x_decision'] for row in rows]).reshape(-1, len(lower)),
-                np.asarray([row['model_y'] for row in rows]).reshape(-1, 4 if constrained else 2), rows)
+                np.asarray([row['model_y'] for row in rows]).reshape(-1, 1 + len(keys) if constrained else 2), rows)
 
     started = perf_counter()
     prior_elapsed = record.get('elapsed_s', 0.)
@@ -519,7 +523,7 @@ def _run_multi_condition_optimization(
                 row.update(constraint_checks=checks)
             if previous is not None and previous['status'] == 'completed' and objectives != previous['objectives']:
                 raise ValueError('retained design objectives differ from its saved observation')
-            y = model_observation(objectives, constrained=constrained)
+            y = model_observation(objectives, constrained=constrained, constraint_names=keys)
             if not np.all(np.isfinite(y)):
                 raise ValueError('completed condition batch returned nonfinite objectives')
             row.update(status='completed', objectives=objectives, model_y=y)

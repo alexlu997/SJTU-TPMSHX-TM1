@@ -407,6 +407,7 @@ CSV 文件带表头；[nTop Import Scalar Point Map](https://support.ntop.com/hc
 芯体减重模式以最小芯体质量为单一目标，每个工况同时满足换热下限和 A/B 两侧压降上限。
 在工况 JSON 中增加 `mass_requirements`，导入后使用 qLogNEI；也可选择 Sobol。
 `solid_density_kg_m3` 必须给出材料密度，`conditions` 按工况 ID 指定三个正限值。
+每个工况还可给出 A/B 出口温度或绝对压力的下限、上限或两者。
 下面是输入格式示例，数值不是水空气试验的验收门槛：
 
 ```json
@@ -416,10 +417,18 @@ CSV 文件带表头；[nTop Import Scalar Point Map](https://support.ntop.com/hc
     "mass_flow_B_kg_s": 0.015}],
   "mass_requirements": {
     "solid_density_kg_m3": 8000,
-    "conditions": {"one": {"Q_min_W": 100, "dP_A_max_Pa": 2000, "dP_B_max_Pa": 500}}
+    "conditions": {"one": {"Q_min_W": 100, "dP_A_max_Pa": 2000, "dP_B_max_Pa": 500,
+      "T_out_B_min_K": 296, "T_out_B_max_K": 310, "P_out_A_min_Pa": 128000}}
   }
 }
 ```
+
+可选温度字段为 `T_out_A_min_K`、`T_out_A_max_K`，B 侧将 A 换为 B。
+可选绝对压力字段为 `P_out_A_min_Pa`、`P_out_A_max_Pa`，B 侧同理。
+限值必须有限且为正，下限不能高于上限；未填写的限值不参与约束。
+若目标带有允许偏差，请把目标及允许偏差写成明确的上下限。
+这些是对计算结果的验收要求，不改变入口状态、固定质量流量或求解边界。
+出口温度使用原生流出质量通量加权值；出口压力使用物理出口面的开口面积加权绝压。
 
 质量复用完整求解结果中的孔隙率与网格积分，只计 TPMS 芯体实体，不计壳体和集流腔。
 二维热量和质量乘以明确的物理厚度，转换为 W 和 kg；压降单位为 Pa。

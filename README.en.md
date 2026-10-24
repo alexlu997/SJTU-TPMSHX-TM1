@@ -344,6 +344,7 @@ Defaults are 16 initial designs and 8 rounds of 1 new design. Each design is eva
 Core-mass optimization minimizes one objective. Every condition must meet its minimum heat duty and both pressure-drop limits.
 Add `mass_requirements` to the condition JSON. Import selects qLogNEI; Sobol is also available.
 Supply the material density as `solid_density_kg_m3`. Give three positive limits for each condition ID in `conditions`.
+Each condition can also specify lower or upper outlet temperature and absolute-pressure limits for either side.
 This example shows the input format. Its values are not acceptance limits for the water-air experiment:
 
 ```json
@@ -353,10 +354,18 @@ This example shows the input format. Its values are not acceptance limits for th
     "mass_flow_B_kg_s": 0.015}],
   "mass_requirements": {
     "solid_density_kg_m3": 8000,
-    "conditions": {"one": {"Q_min_W": 100, "dP_A_max_Pa": 2000, "dP_B_max_Pa": 500}}
+    "conditions": {"one": {"Q_min_W": 100, "dP_A_max_Pa": 2000, "dP_B_max_Pa": 500,
+      "T_out_B_min_K": 296, "T_out_B_max_K": 310, "P_out_A_min_Pa": 128000}}
   }
 }
 ```
+
+Optional temperature fields are `T_out_A_min_K` and `T_out_A_max_K`. Replace A with B for side B.
+Optional absolute-pressure fields are `P_out_A_min_Pa` and `P_out_A_max_Pa`. The same rule applies to side B.
+Limits must be finite and positive. A lower limit must not exceed its upper limit. Omitted limits do not apply.
+For a target with an allowed deviation, supply the resulting lower and upper limits.
+These limits check results. They do not change inlet states, fixed mass flows or solver boundaries.
+Outlet temperature uses positive outward native mass flux as weights. Outlet absolute pressure uses physical opening areas as weights.
 
 Mass uses the porosity and grid integral from the full result. It includes TPMS core solid only, without the casing or manifolds.
 Multiply 2D heat and mass by the specified physical depth to obtain W and kg. Pressure drop uses Pa.

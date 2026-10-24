@@ -1002,6 +1002,7 @@ def test_mass_requirements_import_and_current_condition_reset(window, tmp_path, 
     from sjtu_tpmshx.tests.test_mass_design import requirements
     payload = dict(conditions=[condition()], mass_requirements=dict(
         requirements(('one',)), allow_nu_re_extrapolation=True))
+    payload['mass_requirements']['conditions']['one'].update(T_out_B_min_K=310., P_out_A_min_Pa=1e5)
     path = tmp_path / 'requirements.json'
     path.write_text(json.dumps(payload))
     monkeypatch.setattr(QFileDialog, 'getOpenFileName', lambda *a: (str(path), ''))
@@ -1017,7 +1018,8 @@ def test_mass_requirements_import_and_current_condition_reset(window, tmp_path, 
 
 @pytest.mark.parametrize(('feasible', 'attained'), [(True, False), (True, True), (False, False)])
 @pytest.mark.parametrize('allow_extrapolation', [False, True])
-def test_mass_result_display_and_exports_keep_feasibility(window, tmp_path, feasible, attained, allow_extrapolation):
+@pytest.mark.parametrize('outlet_limit', [False, True])
+def test_mass_result_display_and_exports_keep_feasibility(window, tmp_path, feasible, attained, allow_extrapolation, outlet_limit):
     import csv
     from sjtu_tpmshx.optimization.pareto_io import export_pareto_data
     from sjtu_tpmshx.optimization.export_ntop_csv import export_study_design
@@ -1031,6 +1033,12 @@ def test_mass_result_display_and_exports_keep_feasibility(window, tmp_path, feas
         heat_shortfall=-.1 if feasible else .1, pressure_excess_A=-.2, pressure_excess_B=-.3),
         constraint_checks={'one': dict(Q_W=110. if feasible else 90., dP_A_Pa=8., dP_B_Pa=14.,
             residuals=[-.1 if feasible else .1, -.2, -.3], feasible=feasible)})
+    if outlet_limit:
+        study['mass_requirements']['conditions']['one']['T_out_B_min_K'] = 310.
+        row['objectives'].update(heat_shortfall=-.1,
+            outlet_temperature_shortfall_B=-.05 if feasible else .05)
+        row['constraint_checks']['one'].update(Q_W=110., T_out_B_K=325.5 if feasible else 294.5,
+            residuals=[-.1, -.2, -.3, -.05 if feasible else .05])
     if attained:
         study.update(stop_reason='mass_lower_bound', mass_lower_bound=dict(
             mass_kg=.25, geometry_model='tpms_geometry', x_decision=row['x_decision']))
@@ -1049,6 +1057,8 @@ def test_mass_result_display_and_exports_keep_feasibility(window, tmp_path, feas
     assert exported[0]['feasible'] == str(feasible)
     assert float(exported[0]['core_mass_kg']) == .25
     assert json.loads(exported[0]['mass_requirements']) == study['mass_requirements']
+    if outlet_limit:
+        assert float(exported[0]['outlet_temperature_shortfall_B']) == (-.05 if feasible else .05)
     if attained:
         assert json.loads(exported[0]['mass_lower_bound']) == study['mass_lower_bound']
         assert exported[0]['stop_reason'] == 'mass_lower_bound'

@@ -96,9 +96,9 @@ def _mass_flow(result, side):
     return inflow, outflow
 
 
-def _pressure_drop_2d(result, side):
+def _port_pressures_2d(result, side):
     """Use the same physical-face reduction as 3D, with unit depth."""
-    from .three_d import _dp
+    from .three_d import _port_pressures
     parameters = result.metadata['parameters']
     direction = parameters['dir_' + side]
     pressure = np.asarray(result.fields['P_report_' + side])
@@ -110,9 +110,9 @@ def _pressure_drop_2d(result, side):
     if direction in (1, 3):
         dy = dy[::-1]
     openings = parameters['boundary_openings'][side]
-    return _dp(dict(P=pressure[:, :, None], dx=dx, dy=dy, dz=np.ones(1),
-                    inlet_frac=np.asarray(openings['in_geom_frac'])[:, None],
-                    outlet_frac=np.asarray(openings['out_geom_frac'])[:, None]))
+    return _port_pressures(dict(P=pressure[:, :, None], dx=dx, dy=dy, dz=np.ones(1),
+                               inlet_frac=np.asarray(openings['in_geom_frac'])[:, None],
+                               outlet_frac=np.asarray(openings['out_geom_frac'])[:, None]))
 
 
 def _evaluate_metric(result, name, *, dimension, duty, mass_flow):
@@ -130,8 +130,9 @@ def _evaluate_metric(result, name, *, dimension, duty, mass_flow):
         return duty(name[-1])
     if name.startswith('Q_richardson_'):
         return _richardson_duty(result, name[-1], duty)
-    if name.startswith('dP_'):
-        return _pressure_drop_2d(result, name[-1])
+    if name.startswith(('dP_', 'P_out_')):
+        pin, pout = _port_pressures_2d(result, name[-1])
+        return pin - pout if name.startswith('dP_') else pout
     if name.startswith('T_out_'):
         side = name[-1]
         temperature = np.asarray(result.fields['Ta' if side == 'A' else 'Tb'])
@@ -193,6 +194,7 @@ def evaluate(result: FieldResult, metric_spec: MetricSpec | None = None) -> Perf
             mass_flow = cache(partial(_mass_flow, result))
         unit = definitions['Q'][1]
         definitions.update({name: (name, unit) for name in ('Q_A', 'Q_B')})
+        definitions.update({name: ('P_out', 'Pa') for name in ('P_out_A', 'P_out_B')})
         if dimension == 2:
             definitions.update({name: (name, unit) for name in ('Q_richardson_A', 'Q_richardson_B')})
     descriptions = {
@@ -208,6 +210,8 @@ def evaluate(result: FieldResult, metric_spec: MetricSpec | None = None) -> Perf
         'energy_imbalance_rel': 'Absolute sum of native signed A/B duties divided by their maximum absolute value.',
         'dP_A': 'Geometric-area-weighted inlet minus outlet pressure, extrapolated to physical port faces from the final SIMPLE field.',
         'dP_B': 'Geometric-area-weighted inlet minus outlet pressure, extrapolated to physical port faces from the final SIMPLE field.',
+        'P_out_A': 'Absolute pressure at the physical outlet face, weighted by geometric opening area.',
+        'P_out_B': 'Absolute pressure at the physical outlet face, weighted by geometric opening area.',
     }
     metrics = {}
     for name, (kind, unit) in definitions.items():

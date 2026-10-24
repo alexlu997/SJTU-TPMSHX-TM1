@@ -75,6 +75,11 @@ def test_one_condition_or_side_cannot_hide_behind_an_average(tmp_path, monkeypat
     lambda r: r['conditions'].pop('flow-1'),
     lambda r: r['conditions']['flow-0'].update(Q_min_W=0.),
     lambda r: r['conditions']['flow-0'].update(dP_B_max_Pa=float('inf')),
+    lambda r: r['conditions']['flow-0'].update(T_out_A_min_K=0.),
+    lambda r: r['conditions']['flow-0'].update(T_out_B_min_K=320., T_out_B_max_K=310.),
+    lambda r: r['conditions']['flow-0'].update(P_out_A_min_Pa=2e5, P_out_A_max_Pa=1e5),
+    lambda r: r['conditions']['flow-0'].update(P_out_B_max_Pa=True),
+    lambda r: r['conditions']['flow-0'].update(T_out_A_min_C=20.),
 ])
 def test_invalid_limits_fail_before_native_evaluation(tmp_path, monkeypatch, mutate):
     fixed = requirements()
@@ -84,6 +89,84 @@ def test_invalid_limits_fail_before_native_evaluation(tmp_path, monkeypatch, mut
         search.run_multi_condition_optimization(_conditions(), output_dir=tmp_path / 'unused',
             method='sobol', n_init=1, n_iter=0, mass_requirements=fixed)
     assert not (tmp_path / 'unused').exists()
+
+
+@pytest.mark.parametrize('dimension', [2, 3])
+def test_optional_outlet_limits_keep_side_units_and_condition_identity(tmp_path, monkeypatch, dimension):
+    from sjtu_tpmshx.domain.metric_spec import MetricSpec
+    from sjtu_tpmshx.domain.performance_result import MetricValue
+    field, performance = _synthetic_results(dimension)
+    metadata = mutable_data(field.metadata)
+    metadata['quantity_basis'] = 'per_unit_depth' if dimension == 2 else 'total'
+    metadata['design_fields']['eps_arr'] = np.full((2, 3) if dimension == 2 else (2, 3, 4), .8)
+    monkeypatch.setattr(mass, 'load_result', lambda _: replace(field, metadata=metadata))
+    metrics = dict(performance.metrics)
+    metrics['P_out_A'] = MetricValue(2e5, MetricSpec('P_out_A', 'Pa', 'pressure_face_v1'))
+    metrics['P_out_B'] = MetricValue(1e6, MetricSpec('P_out_B', 'Pa', 'pressure_face_v1'))
+    performance = replace(performance, metrics=metrics)
+    config = _conditions(dimension)[0][1].to_dict()
+    config['geometry']['Lz_m'] = .05
+    fixed = requirements()
+    for row in fixed['conditions'].values():
+        row['Q_min_W'] = 5. if dimension == 2 else 100.
+    fixed['conditions']['flow-0'].update(T_out_A_min_K=329., T_out_A_max_K=331.,
+                                       P_out_B_min_Pa=9e5, P_out_B_max_Pa=1.1e6)
+    fixed['conditions']['flow-1'].update(T_out_B_min_K=311., P_out_A_max_Pa=199999.)
+    summaries = {name: dict(config_snapshot=config, performance=performance,
+                           result_file=tmp_path/name) for name in fixed['conditions']}
+    values, checks = mass.mass_observation(summaries, mass.validate_mass_requirements(fixed, summaries))
+    assert checks['flow-0']['feasible'] and not checks['flow-1']['feasible']
+    assert checks['flow-0']['P_out_B_Pa'] == 1e6
+    assert checks['flow-1']['T_out_B_K'] == 310.
+    assert values['outlet_temperature_shortfall_A'] == pytest.approx(1.-330./329.)
+    assert values['outlet_pressure_shortfall_B'] == pytest.approx(1.-1e6/9e5)
+    assert values['outlet_temperature_shortfall_B'] > 0.
+    assert values['outlet_pressure_excess_A'] > 0.
+    assert len(checks['flow-0']['constraint_keys']) == 7
+    assert len(checks['flow-1']['constraint_keys']) == 5
+    metrics['P_out_A'] = replace(metrics['P_out_A'], status='insufficient_data', value=None,
+                               reason='test pressure evidence missing')
+    summaries['flow-1']['performance'] = replace(performance, metrics=metrics)
+    with pytest.raises(ValueError, match='P_out_A needs a current available native metric'):
+        mass.mass_observation(summaries, fixed)
+
+
+def test_outlet_violation_trains_model_but_blocks_selection_and_survives_resume(tmp_path, monkeypatch):
+    _fake_mass_batches(monkeypatch)
+    monkeypatch.setattr(search, '_bo_versions', lambda: {})
+    original = search.mass_observation
+    def observation(summaries, fixed):
+        values, checks = original(summaries, fixed)
+        index = summaries['index']
+        values['heat_shortfall'] = -.1
+        values['outlet_temperature_shortfall_B'] = .1 if index == 1 else -.2
+        for row in checks.values():
+            row.update(residuals=[-.1, -.2, -.3, values['outlet_temperature_shortfall_B']],
+                       feasible=index != 1)
+        return values, checks
+    monkeypatch.setattr(search, 'mass_observation', observation)
+    observed = []
+    def propose(X, Y, lower, upper, reference, **kwargs):
+        observed.append(Y.copy())
+        return np.asarray([lower + .4*(upper-lower)])
+    monkeypatch.setattr(search, '_propose_bo', propose)
+    fixed = requirements()
+    fixed['conditions']['flow-1']['T_out_B_min_K'] = 310.
+    result = search.run_multi_condition_optimization(_conditions(), output_dir=tmp_path/'source',
+        method='qlognei', n_init=3, n_iter=1, workers=1, mass_requirements=fixed)
+    assert observed[0].shape == (2, 5)
+    assert observed[0][1, -1] == .1
+    assert result['history'][1]['feasible'] is False
+    assert result['pareto_indices'] == [3]
+    assert result['model_objectives'][-1] == 'outlet_temperature_shortfall_B'
+    resumed = search.resume_multi_condition_optimization(tmp_path/'source/optimization.json',
+        output_dir=tmp_path/'resumed', workers=1)
+    assert resumed['history'] == result['history']
+    _assert_export_counts(resumed, tmp_path/'exports', budget=4, evaluated=4, usable=3)
+    from sjtu_tpmshx.optimization.pareto_io import export_pareto_data
+    resumed['history'][1]['feasible'] = True
+    with pytest.raises(ValueError, match='every constraint'):
+        export_pareto_data(resumed, tmp_path/'invalid.csv')
 
 
 def _fake_mass_batches(monkeypatch):

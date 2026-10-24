@@ -22,9 +22,10 @@ def export_pareto_data(report, path):
             continue
         objectives = candidate['objectives']
         if constrained:
-            from .mass_design import CONSTRAINT_KEYS
-            values = {key: float(objectives[key]) for key in ('core_mass_kg', *CONSTRAINT_KEYS)}
-            feasible = all(values[key] <= 0 for key in CONSTRAINT_KEYS)
+            from .mass_design import constraint_keys
+            keys = constraint_keys(report['mass_requirements'])
+            values = {key: float(objectives[key]) for key in ('core_mass_kg', *keys)}
+            feasible = all(values[key] <= 0 for key in keys)
             if candidate['feasible'] != feasible or (index in front and not feasible):
                 raise ValueError('Selected core-mass designs must meet every constraint')
             details = dict(feasible=feasible,
