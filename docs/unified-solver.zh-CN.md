@@ -25,7 +25,8 @@
 
 外层物性 Anderson 已退役，物性更新保留原有固定松弛和更新顺序。
 `outer_anderson`、`outer_anderson_m`、`outer_anderson_trust`、`outer_anderson_patience` 会在计算前被拒绝，包括显式关闭值。
-热方程 Anderson 和三种能量算法不受此退役影响。
+热方程 Anderson 继续保留。原始设计保留了三种能量算法。
+当前守恒 EOS 能量执行使用 T-SOU；H-FOU 和 T-FOU 执行已退役，见第 9 节记录。
 完整 3D C API 现在使用 ABI 2；Python 绑定要求与其匹配的原生库。
 旧结果仍可读取。检查点仍要求构建身份匹配，不进行跨构建转换。
 

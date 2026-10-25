@@ -786,7 +786,8 @@ def test_shortcut_cheatsheet_matches_workbench(win):
     """Cheat sheet lists the visible 3-tab set; retired 5-tab rows gone."""
     labels = [label for label, _key in win._SHORTCUT_ROWS]
     joined = " | ".join(labels)
-    for want in ("几何布局", "结果", "优化"):
+    for button in (win.btn_tab_layout, win.btn_tab_result, win.btn_tab_pareto):
+        want = button.text()
         assert any(want in s for s in labels), f"missing row for {want}"
     for stale in ("Tab — Temperature", "Tab — Pressure",
                   "Tab — Velocity", "Tab — 3D View"):

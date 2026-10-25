@@ -1,7 +1,7 @@
-"""Single source for log-log observed-order fits (refactor B1 1.2).
+"""Shared log-log observed-order fits for native manufactured-solution tests.
 
-Replaces four divergent local implementations with inconsistent return
-signatures:
+Historical refactor B1 1.2 replaced four local implementations with different
+return signatures:
 
   * mms_phase_a3_h_refine.fit_order        -> (p, c, R2)   np.polyfit
   * mms_phase_a4_boundary._fit_order       -> (p, R2)      np.polyfit
@@ -11,10 +11,11 @@ signatures:
   * phase_c_gci._fit_order_loglog          -> p            np.polyfit,
                                               err floor 1e-6
 
-All four fit ``log(err) = p*log(h) + c``. The unified fit uses
+Those functions fitted ``log(err) = p*log(h) + c``. The shared fit uses
 ``np.polyfit`` (the b4 lstsq variant solves the same least-squares
 problem; any difference is last-ulp). R^2 is computed in log space with
 the historical ``+1e-30`` denominator epsilon preserved verbatim.
+Current ``phase_c_gci`` uses a Richardson triplet instead of this fit.
 """
 from __future__ import annotations
 
@@ -36,8 +37,7 @@ def fit_order_loglog(h_arr, err_arr, *, err_floor: float = 0.0,
     """Fit ``log(err) = p*log(h) + c`` over masked finite positive errors.
 
     err_floor : strict lower bound on err for a point to participate
-                (0.0 reproduces the historical ``err > 0`` mask;
-                phase_c_gci uses 1e-6).
+                (0.0 keeps the historical ``err > 0`` mask).
     Returns all-NaN result when fewer than ``min_points`` survive.
     """
     h = np.asarray(h_arr, dtype=np.float64)

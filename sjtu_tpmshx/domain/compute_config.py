@@ -485,12 +485,12 @@ class Sco2NuConfig:
 
 @dataclass
 class ComputeConfig:
-    """Composite settings handed to solver-side entrypoints.
+    """Input settings for preparation and application adapters.
 
-    Constructed at the UI boundary via ``ui.window_config.config_from_window``
-    or at a
-    script/test boundary via :meth:`from_json`. Downstream consumers
-    *only* see this object.
+    Construct at the UI boundary with ``ui.window_config.config_from_window``
+    or from script input with :meth:`from_json`.
+    Preparation creates frozen ``CaseData`` from these inputs.
+    The public solver API consumes that prepared ``CaseData``.
     """
     fluid_A: FluidConfig = field(default_factory=FluidConfig)
     fluid_B: FluidConfig = field(default_factory=FluidConfig)
