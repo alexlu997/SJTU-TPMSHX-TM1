@@ -266,16 +266,14 @@ def _group_title_text(window, title):
 
 
 def refresh_group_badges(window):
-    """Recount invalid/empty session fields per accordion group and repaint
-    group titles (ui-batch3 IA-4).
+    """Update error counts for active inputs in each parameter group.
 
-    Bad = same criterion as `_validate_inputs_preflight`: `inpError` set by
-    the field validator, or empty text. Fields hidden by the 2D/3D
-    mode gate are skipped via `isVisibleTo(content)` — that check
-    ignores the ancestors' own visibility, so fields inside a COLLAPSED
-    group still count (the badge's whole point) while gate-hidden ones
-    don't.
+    Count field errors and required blanks. Complete blank second transverse
+    spans are valid. ``isVisibleTo(content)`` excludes fields hidden by the
+    dimension setting, while fields in a collapsed group still count.
     """
+    from .window_config import blank_second_span, inlet_input_active
+
     contents = getattr(window, '_accordion_contents', None)
     if not contents:
         return
@@ -283,12 +281,15 @@ def refresh_group_badges(window):
     for title, content in contents.items():
         n = 0
         for name in getattr(window, '_SESSION_LINE_EDITS', ()):
+            if not inlet_input_active(window, name):
+                continue
             le = getattr(window, name, None)
             if le is None or not content.isAncestorOf(le):
                 continue
             if not le.isVisibleTo(content):
                 continue
-            if le.property('inpError') == 'true' or not le.text().strip():
+            if (le.property('inpError') == 'true'
+                    or (not le.text().strip() and not blank_second_span(window, name))):
                 n += 1
         counts[title] = n
     window._group_badge_counts = counts
