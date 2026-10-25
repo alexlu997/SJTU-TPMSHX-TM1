@@ -40,6 +40,17 @@ def test_enabled_historical_flag_requires_an_explicit_new_grid(tmp_path):
         FeatureFlags(wall_refine_3d=True)
 
 
+@pytest.mark.parametrize('enabled', [False, True])
+def test_old_script_assignment_fails_before_grid_construction(monkeypatch, enabled):
+    from sjtu_tpmshx.preprocess.three_d import preparation
+    config = _full_face_config(False)
+    monkeypatch.setattr(preparation, '_build_grid_3d',
+                        lambda *args: pytest.fail('retired script input reached grid construction'))
+    with pytest.raises(AttributeError, match='wall_refine_3d'):
+        config.flags.wall_refine_3d = enabled
+        prepare_case(config, case_id='old-script')
+
+
 @pytest.mark.parametrize('value', [None, 'false', 'true', 0, 1, [], {}])
 @pytest.mark.parametrize('prepared', [False, True])
 def test_invalid_historical_flags_stay_invalid(value, prepared):

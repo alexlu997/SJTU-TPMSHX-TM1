@@ -430,7 +430,7 @@ class ExtrapPolicy:
     allow: bool = False
 
 
-@dataclass
+@dataclass(slots=True)
 class FeatureFlags:
     """Solver mesh and transport settings.
 
