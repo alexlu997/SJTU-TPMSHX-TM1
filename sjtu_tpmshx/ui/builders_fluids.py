@@ -41,6 +41,7 @@ def refresh_inlet_mode(window, side):
     getattr(window, 'le_mass_flow' + side).setEnabled(active)
     getattr(window, '_lbl_u' + side).setText(
         '上次解析速度 [m/s]' if active else f'入口速度 {side} [m/s]')
+    window._kick_badge_timer()
 
 
 def _build_pipe_section(window, lay, side, *, title_style, frame_style,

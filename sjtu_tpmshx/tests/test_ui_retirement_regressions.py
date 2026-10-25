@@ -333,6 +333,29 @@ def test_badges_count_only_active_required_fields(blank_spans, mode):
     assert win._group_badge_counts['进出口边界'] == 1
 
 
+@pytest.mark.parametrize('side', ['A', 'B'])
+def test_inlet_mode_changes_refresh_badges(blank_spans, side):
+    from time import monotonic
+    from PySide6.QtTest import QTest
+    win, dialogs, _ = blank_spans
+    # Drain construction timers before testing mode-change signals.
+    QTest.qWait(200)
+    assert win._group_badge_counts['流体'] == 0
+    mode = getattr(win, 'combo_inlet_mode' + side)
+    for combo, index, expected in (
+            (mode, mode.findData('mass_flow'), 1),
+            (win.combo_dim, 0, 0), (win.combo_dim, 1, 1),
+            (mode, mode.findData('velocity'), 0)):
+        combo.setCurrentIndex(index)
+        deadline = monotonic() + 2
+        while win._group_badge_counts['流体'] != expected and monotonic() < deadline:
+            QApplication.processEvents()
+        assert win._group_badge_counts['流体'] == expected
+        assert win._validate_inputs_preflight() is (expected == 0)
+        if expected:
+            assert f'le_mass_flow{side}' in dialogs[-1]
+
+
 def test_blank_second_spans_recover_and_round_trip(blank_spans, monkeypatch):
     from sjtu_tpmshx.ui.ui_builders import refresh_group_badges
     from sjtu_tpmshx.ui.window_config import config_from_window
