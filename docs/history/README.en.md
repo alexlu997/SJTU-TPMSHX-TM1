@@ -6,6 +6,25 @@
 
 See [architecture](../architecture.md) and the [project README](../../README.en.md) for current structure and operation.
 
+<a id="six-wall-grid-retirement"></a>
+
+## Extra 3D six-wall layers retired on 2026-10-25
+
+The `wall_refine_3d` input, validation option `--wall-refine` and dedicated 3D constructor are removed.
+They added 16 cells on each axis. Current uniform and port/wall grids use the requested total counts.
+The original code and tests remain at [8d73d6cd](https://github.com/alexlu997/SJTU-TPMSHX-TM1/tree/8d73d6cdad30ea23c70d1d3e1c88818e4c8d42f8).
+Shared 1D grading, 2D grading, port alignment and nonuniform-grid numerical checks remain supported.
+Useful solve and stage checks now use the current port/wall grid. Their comparison limits and physical gates remain unchanged.
+
+Config import accepts an old disabled value. Subsequent saves omit that field.
+An enabled value cannot start new preparation. Select the current mesh scheme and total counts explicitly.
+Prepared cases replay and resume on their saved grids. Their snapshots and historical results remain readable.
+Batch recovery keeps the saved grid setting and refuses new preparation when an old enabled input has no saved grid.
+Completed study designs can still export geometry without constructing a solver grid.
+Batches or studies that still need the old constructor require the archived source version.
+GUI import keeps its historical-settings notice. Current saves omit the old switch.
+The two graded grids differ. A single replacement check does not establish equal accuracy for all geometries.
+
 Previous manuals, development logs, V2 README files, completed projects, and fixed experiments have left the current tree. The [retired tool index](retired-tools.md) links original files at fixed commits. The [retired model index](legacy-models.md) covers previous γ/RBF, SmoothDF, and related reports. The sCO2 Nu anchored-gamma route, fitting tools, and temperature reports retired on 2026-09-20 stay at [fixed source entries](legacy-models.md#sco2-nu-旧锚定路线2026-09-20). See [model resources](../model-resources.en.md#sco2-有效-nu-系数) for current total effective coefficients and applicability.
 
 The [document archive index](retired-tools.md#旧规范与状态原稿归档2026-09-13) also tracks previous OpenSpec split plans and CSV status drafts. Current supplementary specifications stay under `openspec/specs/`. The word “current” in historical drafts does not describe this version.

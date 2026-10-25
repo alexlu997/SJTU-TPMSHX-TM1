@@ -71,7 +71,7 @@ def test_shanghai_recommended_grid_and_manual_preset_roundtrip(win):
         win._load_named_preset(name)
         cfg = config_from_window(win)
         assert (cfg.solver.Nx, cfg.solver.Ny, cfg.solver.Nz) == counts
-        assert cfg.flags.port_wall_refine and not cfg.flags.wall_refine_3d
+        assert cfg.flags.port_wall_refine
     win.le_Nx.setText('100')
     win.compute_tpms()
     assert win.le_Nx.text() == '100'

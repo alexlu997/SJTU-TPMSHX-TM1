@@ -20,13 +20,13 @@ def _shanghai_B_partial():
 def test_port_wall_counts_match_the_actual_grid():
     for nx, ny, nz in ((84, 24, 1), (92, 14, 10)):
         report = compute_preflight(L=.182, H=.042, Lz=.042, Nx=nx, Ny=ny, Nz=nz,
-            is_3d=nz > 1, wall_refine_3d=False, port_wall_refine=True,
+            is_3d=nz > 1, port_wall_refine=True,
             fluid_A=_shanghai_A(), fluid_B=_shanghai_B_partial())
         assert not report.errors, report.errors
         assert not report.warnings, report.warnings
         assert any(f'{nx} × {ny}' in s and 'port/wall' in s for s in report.info)
     invalid = compute_preflight(L=.182, H=.042, Lz=.042, Nx=8, Ny=8, Nz=3,
-        is_3d=True, wall_refine_3d=False, port_wall_refine=True,
+        is_3d=True, port_wall_refine=True,
         fluid_A=_shanghai_A(), fluid_B=_shanghai_B_partial())
     assert any('at least' in s for s in invalid.errors)
 
@@ -41,7 +41,7 @@ def test_failed_port_grid_keeps_bounds_checks_without_coverage_claims():
     B.in_ctr = .19
     report = compute_preflight(
         L=.182, H=.042, Lz=.042, Nx=92, Ny=14, Nz=10,
-        is_3d=True, wall_refine_3d=False, port_wall_refine=True,
+        is_3d=True, port_wall_refine=True,
         fluid_A=A, fluid_B=B, T_inA=300., T_inB=422.)
 
     assert any('at least 20 cells on z axis' in s and 'got 10' in s
@@ -58,7 +58,6 @@ def test_shanghai_2d_partial_no_refine():
     r = compute_preflight(
         L=0.182, H=0.042, Lz=0.0,
         Nx=100, Ny=50, Nz=1, is_3d=False,
-        wall_refine_3d=False,
         fluid_A=_shanghai_A(), fluid_B=_shanghai_B_partial())
     assert not r.errors, f"unexpected errors: {r.errors}"
     assert any("port-aligned" in s for s in r.info), r.info
@@ -78,7 +77,6 @@ def test_full_width_2d_activates_refine(zone_axis):
     r = compute_preflight(
         L=0.182, H=0.042, Lz=0.0,
         Nx=100, Ny=50, Nz=1, is_3d=False,
-        wall_refine_3d=False,
         fluid_A=A, fluid_B=B, zone_axis=zone_axis)
     assert not r.errors, r.errors
     assert any("wall-refined" in s for s in r.info), r.info
@@ -86,25 +84,22 @@ def test_full_width_2d_activates_refine(zone_axis):
     print("test_full_width_2d_activates_refine PASS")
 
 
-def test_3d_wall_refine_fits():
-    """Explicit 30/20/5 input plus six-wall refinement yields 46/36/21."""
+def test_3d_uniform_grid_keeps_requested_counts():
+    """Uniform 3D preparation keeps the requested total cell counts."""
     r = compute_preflight(
         L=0.182, H=0.042, Lz=0.042,
         Nx=30, Ny=20, Nz=5, is_3d=True,
-        wall_refine_3d=True,
         fluid_A=_shanghai_A(), fluid_B=_shanghai_B_partial())
     assert not r.errors, r.errors
-    # 30+16 = 46, 20+16 = 36, 5+16 = 21
-    assert any("46 × 36 × 21" in s for s in r.info), r.info
-    print("test_3d_wall_refine_fits PASS")
+    assert any("30 × 20 × 5" in s for s in r.info), r.info
+    print("test_3d_uniform_grid_keeps_requested_counts PASS")
 
 
 def test_3d_small_domain_refine_errors():
-    """If any domain axis is below ~5.5 mm, wall refine cannot fit."""
+    """Reject a domain too small for the selected port/wall layers."""
     r = compute_preflight(
         L=0.004, H=0.004, Lz=0.004,
-        Nx=10, Ny=10, Nz=10, is_3d=True,
-        wall_refine_3d=True,
+        Nx=10, Ny=10, Nz=10, is_3d=True, port_wall_refine=True,
         fluid_A=FluidCfg(dir=0, in_ctr=0.002, in_w=0.004,
                          out_ctr=0.002, out_w=0.004),
         fluid_B=None)
@@ -122,7 +117,6 @@ def test_inlet_outside_domain_errors():
     r = compute_preflight(
         L=0.182, H=0.042, Lz=0.0,
         Nx=100, Ny=50, Nz=1, is_3d=False,
-        wall_refine_3d=False,
         fluid_A=bad_A, fluid_B=None)
     assert r.errors, "expected an out-of-domain error"
     assert any("exceeds y domain" in s for s in r.errors), r.errors
@@ -134,7 +128,6 @@ def test_inlet_too_narrow_warns():
     r = compute_preflight(
         L=0.182, H=0.042, Lz=0.0,
         Nx=10, Ny=10, Nz=1, is_3d=False,
-        wall_refine_3d=False,
         fluid_A=FluidCfg(dir=0, in_ctr=0.021, in_w=0.0042,
                          out_ctr=0.021, out_w=0.0042),
         fluid_B=None)
@@ -147,7 +140,6 @@ def test_richardson_huge_grid_warns():
     r = compute_preflight(
         L=0.182, H=0.042, Lz=0.0,
         Nx=500, Ny=400, Nz=1, is_3d=False,
-        wall_refine_3d=False,
         fluid_A=_shanghai_A(), fluid_B=_shanghai_B_partial())
     assert any("Richardson" in s for s in r.warnings), r.warnings
     print("test_richardson_huge_grid_warns PASS")
@@ -157,7 +149,6 @@ def test_stream_axis_too_coarse_warns():
     r = compute_preflight(
         L=0.182, H=0.042, Lz=0.0,
         Nx=10, Ny=50, Nz=1, is_3d=False,
-        wall_refine_3d=False,
         fluid_A=_shanghai_A(), fluid_B=_shanghai_B_partial())
     assert any("stream axis x" in s and "under-resolved" in s
                for s in r.warnings), r.warnings
@@ -168,8 +159,7 @@ def test_clean_pass_no_dialog():
     """Small but legal config → no errors, no warnings, and ok()==True."""
     r = compute_preflight(
         L=0.182, H=0.042, Lz=0.042,
-        Nx=60, Ny=40, Nz=20, is_3d=True,
-        wall_refine_3d=True,
+        Nx=60, Ny=40, Nz=20, is_3d=True, port_wall_refine=True,
         fluid_A=_shanghai_A(),
         fluid_B=FluidCfg(dir=3, in_ctr=0.091, in_w=0.182,
                          out_ctr=0.091, out_w=0.182))
@@ -187,7 +177,6 @@ def test_t_in_swap_infos():
     r = compute_preflight(
         L=0.182, H=0.042, Lz=0.042,
         Nx=30, Ny=20, Nz=5, is_3d=True,
-        wall_refine_3d=True,
         fluid_A=_shanghai_A(), fluid_B=_shanghai_B_partial(),
         T_inA=300.0, T_inB=422.0)
     assert any("hot side" in s and "T_inA" in s for s in r.info), r.info
@@ -202,7 +191,6 @@ def test_t_in_normal_no_warn():
     r = compute_preflight(
         L=0.182, H=0.042, Lz=0.042,
         Nx=30, Ny=20, Nz=5, is_3d=True,
-        wall_refine_3d=True,
         fluid_A=_shanghai_A(), fluid_B=_shanghai_B_partial(),
         T_inA=422.0, T_inB=300.0)
     assert not any("hot side" in s for s in r.warnings), r.warnings
@@ -213,7 +201,7 @@ def test_t_in_normal_no_warn():
 if __name__ == '__main__':
     test_shanghai_2d_partial_no_refine()
     test_full_width_2d_activates_refine(None)
-    test_3d_wall_refine_fits()
+    test_3d_uniform_grid_keeps_requested_counts()
     test_3d_small_domain_refine_errors()
     test_inlet_outside_domain_errors()
     test_inlet_too_narrow_warns()
@@ -242,7 +230,7 @@ def test_each_port_span_is_checked(direction, end, second_axis, failure):
         setattr(cfg, f'{prefix}{end}_ctr', .8)
     else:
         setattr(cfg, f'{prefix}{end}_w', 0. if failure == 'empty' else .0001)
-    report = compute_preflight(.182, .042, .042, 30, 30, 30, True, False, cfg)
+    report = compute_preflight(.182, .042, .042, 30, 30, 30, True, cfg)
     label = 'inlet' if end == 'in' else 'outlet'
     axis = axes[int(second_axis)]
     messages = report.warnings if failure == 'narrow' else report.errors
@@ -260,7 +248,7 @@ def test_second_transverse_span_requires_a_complete_pair(direction, end, missing
                    z_in_ctr=.021, z_in_w=.02, z_out_ctr=.021, z_out_w=.02)
     for field in (('ctr', 'w') if missing == 'both' else (missing,)):
         setattr(cfg, f'z_{end}_{field}', None)
-    report = compute_preflight(.182, .042, .042, 30, 30, 30, True, False, cfg,
+    report = compute_preflight(.182, .042, .042, 30, 30, 30, True, cfg,
                                port_wall_refine=graded)
     if missing == 'both':
         assert not report.errors, report.errors
@@ -276,28 +264,27 @@ def test_second_transverse_span_requires_a_complete_pair(direction, end, missing
 @pytest.mark.parametrize('zone_axis', ['x', 'y', 'grid'])
 def test_discrete_zones_keep_requested_full_face_grid(zone_axis):
     report = compute_preflight(
-        .06, .03, .03, 8, 6, 1, False, False,
+        .06, .03, .03, 8, 6, 1, False,
         FluidCfg(0, .015, .03, .015, .03),
         FluidCfg(2, .03, .06, .03, .06), zone_axis=zone_axis)
     assert not report.errors, report.errors
     assert any('8 × 6 = 48 cells' in info for info in report.info)
 
 
-def test_six_wall_port_coverage_starts_with_the_smallest_cells():
-    # The first four cells are 20, 36, 64.8 and 116.64 um wide.
-    # A 200 um opening intersects four cells, including 79.2 um of the fourth.
+def test_port_wall_coverage_uses_actual_nonuniform_cells():
+    # The 6 mm port segment has eight graded cells and two bulk cells.
     report = compute_preflight(
-        .06, .042, .042, 10, 10, 10, True, True,
-        FluidCfg(0, .0001, .0002, .0001, .0002))
+        .06, .042, .042, 10, 22, 10, True,
+        FluidCfg(0, .003, .006, .003, .006), port_wall_refine=True)
     assert not report.errors, report.errors
-    assert any('Fluid A inlet covers 4 cells on y axis' in info for info in report.info)
+    assert any('Fluid A inlet covers 10 cells on y axis' in info for info in report.info)
 
 
 def test_near_full_face_port_keeps_formal_segment_boundaries():
     # Both edges are 0.25% from the walls, beyond the 0.1% break threshold.
     width = .03 * .995
     report = compute_preflight(
-        .06, .03, .03, 8, 6, 1, False, False,
+        .06, .03, .03, 8, 6, 1, False,
         FluidCfg(0, .015, width, .015, width))
     assert not report.errors, report.errors
     assert any('8 × 6 = 48 cells' in info for info in report.info)
@@ -306,7 +293,7 @@ def test_near_full_face_port_keeps_formal_segment_boundaries():
 def test_partial_port_coverage_uses_aligned_cells():
     # Three segments each get two cells; [13, 15] mm contains two cells.
     report = compute_preflight(
-        .06, .03, .03, 8, 6, 1, False, False,
+        .06, .03, .03, 8, 6, 1, False,
         FluidCfg(0, .014, .002, .014, .002))
     assert not report.errors, report.errors
     assert any('Fluid A inlet covers only 2 cell(s) on y axis' in warning
@@ -315,7 +302,7 @@ def test_partial_port_coverage_uses_aligned_cells():
 
 def test_insufficient_aligned_grid_has_no_effective_grid_or_coverage():
     report = compute_preflight(
-        .06, .03, .03, 8, 4, 1, False, False,
+        .06, .03, .03, 8, 4, 1, False,
         FluidCfg(0, .014, .002, .014, .002))
     assert any('Increase N to at least 6' in error for error in report.errors)
     assert not any('Effective grid' in message or 'covers' in message
@@ -331,6 +318,6 @@ def test_2d_refinement_rejection_preserves_preparation_fallback():
     np.testing.assert_array_equal(dy, np.full(6, .004 / 6))
     assert x_breaks == y_breaks == ()
     assert 'refinement' in error and 'exceeds' in error
-    report = compute_preflight(.004, .004, .03, 8, 6, 1, False, False)
+    report = compute_preflight(.004, .004, .03, 8, 6, 1, False)
     assert report.errors == [error]
     assert not report.info and not report.warnings

@@ -198,6 +198,10 @@ def resume_multi_condition_optimization(checkpoint_file, *, output_dir, control=
     frozen = json.loads(source.with_name('optimization-input.json').read_text(encoding='utf-8'))
     if frozen.get('format') != 'optimization_v1':
         raise ValueError('saved search does not have a supported fixed input')
+    for saved in (record, frozen):
+        for row in saved['conditions']:
+            if row['config']['flags'].get('wall_refine_3d') is False:
+                del row['config']['flags']['wall_refine_3d']
     conditions = [(row['condition_id'], _saved_condition_config(row),
                    row['mass_flow_A_kg_s'], row['mass_flow_B_kg_s']) for row in frozen['conditions']]
     return _run_multi_condition_optimization(conditions, output_dir=destination, control=control,

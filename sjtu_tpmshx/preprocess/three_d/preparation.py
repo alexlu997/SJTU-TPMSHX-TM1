@@ -90,7 +90,6 @@ def _parse_geometry_inputs_3d_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
     validate_fluid_type(fluid_type_B, 'B')
 
     # Feature flags — sourced from cfg.flags + cfg.zones.
-    wall_refine = bool(compute_cfg.flags.wall_refine_3d)
     zone_grid_cells = None
     continuous_field = None
     if compute_cfg.zones.enabled:
@@ -124,7 +123,6 @@ def _parse_geometry_inputs_3d_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
         delta_levelset=float(compute_cfg.geometry.delta_levelset),
         fluid_A_cfg=fluid_A_cfg,
         fluid_B_cfg=fluid_B_cfg,
-        wall_refine_3d=wall_refine,
         port_wall_refine=compute_cfg.flags.port_wall_refine,
         variable_rho_cp=bool(compute_cfg.flags.variable_rho_cp),
         # R3 (2026-07-07): production solver knobs (None = run_stack's
@@ -178,6 +176,8 @@ def _finish_problem_data(prepared):
 def _prepare_geometry_data(cfg):
     """Resolve physical data for the existing low-level 3D input convention."""
     reject_retired_research_options(cfg)
+    if cfg.get('wall_refine_3d', False) is not False:
+        raise ValueError('wall_refine_3d is retired. Select port_wall_refine with total grid counts.')
     from sjtu_tpmshx.models import fluid_props
     from sjtu_tpmshx.models.tpms_props import chi_s_eff
     from sjtu_tpmshx.models.asym_split import _eps_sides_for_run
@@ -206,7 +206,7 @@ def _prepare_geometry_data(cfg):
         nx, ny, nz = map(len, (dx, dy, dz))
     else:
         dx, dy, dz, nx, ny, nz = _build_grid_3d(
-            cfg.get('wall_refine_3d', False), L, H, Lz, cfg['Nx'], cfg['Ny'], cfg['Nz'])
+            L, H, Lz, cfg['Nx'], cfg['Ny'], cfg['Nz'])
     cap = int(cfg.get('max_cells_3d', os.environ.get('TPMSHX_MAX_CELLS_3D', '2000000')))
     if nx * ny * nz > cap:
         raise ValueError(f'3D grid {nx}x{ny}x{nz} exceeds the {cap}-cell cap')

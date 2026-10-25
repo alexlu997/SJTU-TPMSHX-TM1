@@ -55,7 +55,7 @@ def build_execution_inputs(case: CaseData, *, copy_design=True):
     run_settings = _legacy_zone_units(cfg.pop('run_settings'))
     if case.metadata['design_mode'] == 'continuous':
         run_settings['zones'] = dict(enabled=True, axis='continuous', config=cfg['continuous_field'])
-    cfg['compute_cfg'] = ComputeConfig.from_dict(run_settings)
+    cfg['compute_cfg'] = ComputeConfig.from_dict(run_settings, prepared_grid=True)
     providers = resolve_models(case)
     for side in ('A', 'B'):
         validate_nu_settings(case, side, run_settings['sco2_nu'])

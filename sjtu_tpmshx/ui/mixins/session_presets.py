@@ -377,7 +377,7 @@ class SessionPresetsMixin:
         for section, allowed in (('line_edits', self._SESSION_LINE_EDITS),
                                  ('combos', self._PRESET_COMBOS + ('combo_shape',)),
                                  ('checks', self._PRESET_CHECKS + tuple(self._FIXED_SOLVER_CHECKS)
-                                  + ('chk_port_wall_refine',))):
+                                  + ('chk_port_wall_refine', 'chk_wall_refine_3d'))):
             values = preset.get(section, {})
             if not isinstance(values, dict):
                 raise ValueError(f'Invalid {section}.')
@@ -399,7 +399,8 @@ class SessionPresetsMixin:
             if section == 'checks':
                 # Old complete files may omit newly fixed settings or use the
                 # former port-refinement checkbox instead of the mesh combo.
-                required |= set(values) & (set(self._FIXED_SOLVER_CHECKS) | {'chk_port_wall_refine'})
+                required |= set(values) & (set(self._FIXED_SOLVER_CHECKS)
+                                           | {'chk_port_wall_refine', 'chk_wall_refine_3d'})
             if complete and set(values) != required:
                 raise ValueError(f'Incomplete or unsupported {section}: '
                                  f'{sorted(set(values) ^ required)}')
@@ -599,7 +600,7 @@ class SessionPresetsMixin:
     _SESSION_CHECKS = ('chk_zones',)
     # Keep the physical choices explicit in saved files, without GUI toggles.
     _FIXED_SOLVER_CHECKS = {
-        'chk_wall_refine_3d': False, 'chk_var_rhocp': True,
+        'chk_var_rhocp': True,
         'chk_uniform_inletA_2d': True, 'chk_uniform_inletB_2d': True,
     }
     # Presets and sessions share the complete physical-input snapshot.

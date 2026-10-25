@@ -62,7 +62,7 @@ def compute_prepared_run(case, directory, *, checkpoint_interval_s,
                          control=RunControl(), progress_cb=None, pause_check=None, evaluate=None):
     """Save and solve the supplied prepared input without preparing it again."""
     control.check_cancelled()
-    config = ComputeConfig.from_dict(mutable_data(case.config_snapshot))
+    config = ComputeConfig.from_dict(mutable_data(case.config_snapshot), prepared_grid=True)
     return _execute(config, directory, checkpoint_interval_s=checkpoint_interval_s,
         case_id=case.case_id, control=control, progress_cb=progress_cb,
         pause_check=pause_check, gui_provenance=None, saved_case=case, evaluate=evaluate)
@@ -73,7 +73,7 @@ def resume_run(checkpoint_file, directory, *, checkpoint_interval_s,
     """Continue the saved input in a new directory; retain the source run."""
     control.check_cancelled()
     saved, case, record = read_run_checkpoint(checkpoint_file)
-    config = ComputeConfig.from_dict(mutable_data(case.config_snapshot))
+    config = ComputeConfig.from_dict(mutable_data(case.config_snapshot), prepared_grid=True)
     return _execute(config, directory, checkpoint_interval_s=checkpoint_interval_s,
         case_id=case.case_id, control=control, progress_cb=progress_cb,
         pause_check=pause_check, gui_provenance=record.get('gui_provenance'),

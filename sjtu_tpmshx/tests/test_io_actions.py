@@ -1026,7 +1026,7 @@ def test_saved_older_solver_settings_upgrade_once_and_save_current_values(
     assert path.read_text() == original
     config = config_from_window(win)
     assert config.bc_A.uniform_inlet_2d and config.bc_B.uniform_inlet_2d
-    assert not config.flags.wall_refine_3d and config.flags.variable_rho_cp
+    assert config.flags.variable_rho_cp
     assert not config.flags.port_wall_refine
     new_path = tmp_path / 'current.json'
     monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *args: (str(new_path), ''))
@@ -1034,6 +1034,7 @@ def test_saved_older_solver_settings_upgrade_once_and_save_current_values(
     current = json.loads(new_path.read_text())['preset']
     assert all(current['checks'][key] == value for key, value in win._FIXED_SOLVER_CHECKS.items())
     assert 'chk_port_wall_refine' not in current['checks']
+    assert 'chk_wall_refine_3d' not in current['checks']
     assert current['combos']['combo_grid'] == win.combo_grid.findData(False)
     monkeypatch.setattr(QFileDialog, 'getOpenFileName', lambda *args: (str(new_path), ''))
     assert win.load_config()

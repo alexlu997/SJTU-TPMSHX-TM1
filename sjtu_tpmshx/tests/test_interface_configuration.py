@@ -8,7 +8,7 @@ from sjtu_tpmshx.domain.compute_config import ComputeConfig
 
 @pytest.mark.parametrize('payload', [
     {'geometry': {'L_dom_m': .1, 'H_dom_m': .05, 'Lz_m': .07}},
-    {'flags': {'wall_refine_3d': False}},
+    {'flags': {'port_wall_refine': False}},
     {'envelope_mode': 'warn'},
     {'df_mode': 'experimental'},
 ])

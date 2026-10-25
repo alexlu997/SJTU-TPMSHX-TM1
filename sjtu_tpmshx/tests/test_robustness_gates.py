@@ -47,7 +47,6 @@ def test_from_dict_valid_passes():
 @pytest.mark.parametrize('section,name', [
     ('extrap', 'allow'), ('zones', 'enabled'),
     ('flags', 'variable_rho_cp'), ('flags', 'port_wall_refine'),
-    ('flags', 'wall_refine_3d'),
 ])
 def test_control_booleans_reject_text_false(section, name):
     data = _canonical()

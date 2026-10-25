@@ -59,6 +59,8 @@ def _check_baseline_case(reference, case, flow_a, flow_b):
         previous, current = (mutable_data(values['run_settings'])
                              for values in (parameters, case.parameters))
         for settings in (previous, current):
+            if settings['flags'].get('wall_refine_3d') is False:
+                del settings['flags']['wall_refine_3d']
             for side in ('A', 'B'):
                 settings['fluid_' + side].pop('u_mps')
         if previous != current or parameters['_environment'] != case.parameters['_environment']:
@@ -202,7 +204,7 @@ def _run_native_condition(index, case_file, directory, library, threads, checkpo
     try:
         control.check_cancelled()
         case = load_case(case_file)
-        config = ComputeConfig.from_dict(mutable_data(case.config_snapshot))
+        config = ComputeConfig.from_dict(mutable_data(case.config_snapshot), prepared_grid=True)
         _solve_condition(case, config, directory, control, update, checkpoint_file, _batch_pause.is_set)
         changes.update(status='computed', reason=None)
     except PausedRun as error:
@@ -259,12 +261,12 @@ def evaluate_condition_batch(
                                      allow_nu_re_extrapolation=allow_nu_re_extrapolation)
 
 
-def _saved_condition_config(row):
+def _saved_condition_config(row, *, prepared_grid=False):
     """Parse prescribed flow; preparation still validates the resolved speeds."""
     data = deepcopy(row['config'])
     for side in 'AB':
         data['fluid_'+side]['mass_flow_kg_s'] = row[f'mass_flow_{side}_kg_s']
-    return ComputeConfig.from_dict(data)
+    return ComputeConfig.from_dict(data, prepared_grid=prepared_grid)
 
 
 def resume_condition_batch(batch_file, *, output_dir, control=RunControl(backend='cpp'), workers=None):
@@ -277,7 +279,7 @@ def resume_condition_batch(batch_file, *, output_dir, control=RunControl(backend
     if record.get('format') != 'condition_batch_v1' or record.get('backend') != 'cpp':
         raise ValueError('batch recovery requires a saved native condition batch')
     inputs = json.loads((path.parent / 'batch-input.json').read_text(encoding='utf-8'))
-    conditions = [(row['condition_id'], _saved_condition_config(row),
+    conditions = [(row['condition_id'], _saved_condition_config(row, prepared_grid=True),
                    row['mass_flow_A_kg_s'], row['mass_flow_B_kg_s']) for row in inputs]
     if [row[0] for row in conditions] != [row['condition_id'] for row in record['conditions']]:
         raise ValueError('saved batch input and condition membership differ')
@@ -290,12 +292,16 @@ def resume_condition_batch(batch_file, *, output_dir, control=RunControl(backend
         allow_nu_re_extrapolation=record.get('allow_nu_re_extrapolation', False))
 
 
-def _check_saved_condition(case, config, flow_a, flow_b, case_id):
+def _check_saved_condition(case, config, flow_a, flow_b, case_id, *, saved_config=None):
     from sjtu_tpmshx.domain.portable_data import mutable_data
 
     if case.case_id != case_id:
         raise ValueError('saved condition and prepared-case identity differ')
     resolved = mutable_data(case.config_snapshot)
+    retired = resolved['flags'].pop('wall_refine_3d', False)
+    expected = False if saved_config is None else saved_config['flags'].get('wall_refine_3d', False)
+    if type(retired) is not bool or retired is not expected:
+        raise ValueError('saved condition grid setting differs from its prepared input')
     requested = config.to_dict()
     for side, target in (('A', flow_a), ('B', flow_b)):
         fluid = 'fluid_'+side
@@ -377,7 +383,8 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
                 or tuple(row['condition_id'] for row in source_inputs) != ids):
             raise ValueError('saved batch input and condition membership differ')
         for (_, config, a, b), saved in zip(inputs, source_inputs):
-            requested, archived = config.to_dict(), _saved_condition_config(saved).to_dict()
+            requested = config.to_dict()
+            archived = _saved_condition_config(saved, prepared_grid=True).to_dict()
             for settings in (requested, archived):
                 for side in 'AB':
                     settings['fluid_'+side].update(u_mps=None, mass_flow_kg_s=None)
@@ -478,6 +485,7 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
         check_stop()
         case = None
         if resume_from is not None:
+            saved_input = next(item for item in source_inputs if item['condition_id'] == condition_id)
             previous = next(item for item in source_record['conditions'] if item['condition_id'] == condition_id)
             row.pop('resume_checkpoint', None)
             checkpoint = source_root / (previous.get('checkpoint_file')
@@ -491,7 +499,10 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
                 case = load_case(source_root / previous['case_file'])
                 row['recovery_mode'] = 'prepared_restart'
             if case is not None:
-                _check_saved_condition(case, config, flow_a, flow_b, row['case_id'])
+                _check_saved_condition(case, config, flow_a, flow_b, row['case_id'],
+                                       saved_config=saved_input['config'])
+            elif saved_input['config']['flags'].get('wall_refine_3d') is True:
+                raise ValueError('wall_refine_3d is retired; this condition needs a saved grid or archived source version')
         if case is None:
             case = prepare_fixed_mass_flow_case(config, mass_flow_A_kg_s=flow_a,
                 mass_flow_B_kg_s=flow_b, case_id=row['case_id'])
@@ -675,8 +686,14 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
     publish()
     primary_error = None
     try:
-        write_text(root / 'batch-input.json', json.dumps([dict(condition_id=name, config=config.to_dict(),
-            mass_flow_A_kg_s=a, mass_flow_B_kg_s=b) for name, config, a, b in inputs],
+        saved_inputs = [dict(condition_id=name, config=config.to_dict(),
+            mass_flow_A_kg_s=a, mass_flow_B_kg_s=b) for name, config, a, b in inputs]
+        if resume_from is not None:
+            for row, previous in zip(saved_inputs, source_inputs):
+                # Keep the saved grid identity for later recovery.
+                if previous['config']['flags'].get('wall_refine_3d') is True:
+                    row['config']['flags']['wall_refine_3d'] = True
+        write_text(root / 'batch-input.json', json.dumps(saved_inputs,
             ensure_ascii=False, allow_nan=False, indent=2)+'\n')
         record['baseline_files'] = None
         if baseline is not None:
@@ -702,7 +719,7 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
         record['native_file'] = 'runtime/'+library.name
         publish()
         if resume_from is not None:
-            for condition, row, previous in zip(inputs, history, source_record['conditions']):
+            for condition, row, previous, saved_input in zip(inputs, history, source_record['conditions'], source_inputs):
                 if keep_failed and previous['status'] == 'failed':
                     row.update(previous, recovery_mode='failed_copy')
                     source_directory = source_root / previous['directory']
@@ -716,7 +733,8 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
                 row['stage'] = 'reuse'
                 try:
                     case = load_case(source_root / previous['case_file'])
-                    _check_saved_condition(case, config, a, b, row['case_id'])
+                    _check_saved_condition(case, config, a, b, row['case_id'],
+                                           saved_config=saved_input['config'])
                     field = load_result(source_root / previous['result_file'])
                     performance = load_metrics(source_root / previous['metrics_file'])
                     _validate_condition_field(field, case, config)

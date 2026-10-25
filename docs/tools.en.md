@@ -112,7 +112,7 @@ The shared `validation.sco2_exp.load_sco2_exp` reader keeps measured endpoint en
 
 Shanghai production validation uses one constructor for port/wall meshes. Grid counts include all refined cells. The 2D entry uses `84×24`. 3D defaults to `92×14×10` when explicit grid arguments are absent. Historical mesh studies stay in [history](history/README.en.md).
 
-Explicit 3D `--nx/--ny/--nz` keep a selected grid. `--port-wall-refine` enables port/wall refinement. Former `--wall-refine` uses a different six-wall refinement. They cannot be enabled together. The actual grid always comes from this result's prepared grid.
+Explicit 3D `--nx/--ny/--nz` keep a selected grid. `--port-wall-refine` enables port/wall refinement. The extra six-wall layers and `--wall-refine` are retired; see the [retirement record](history/README.en.md#six-wall-grid-retirement). The actual grid always comes from this result's prepared grid.
 
 See [architecture](architecture.md) for common F2 and physical boundaries. History keeps previous architecture regressions and experimental errors. Invalid `tol_simple` and the optimizer launcher's previous `--tol` are retired. Importing previous cases explicitly reports that this field is ignored. Actual F2 momentum and mass convergence thresholds stay. The former MMS command keeps its thermal `--tol` in the historical interface. Current native MMS tests set thermal controls directly.
 

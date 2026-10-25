@@ -247,7 +247,7 @@ def test_config_from_window_strict_autodetects_3d():
 def test_c4_new_dataclasses_have_safe_defaults():
     """Default-construct each new dataclass — must not raise and must
     return values that match the legacy ``window`` defaults (zero-width
-    BC = full face; zones disabled; no extrap; wall_refine off; K)."""
+    BC = full face; zones disabled; no extrap; port refinement off; K)."""
     bc = PartialBCConfig()
     assert bc.dir == 0
     assert bc.in_w == 0.0 and bc.in_ctr == 0.0
@@ -258,7 +258,7 @@ def test_c4_new_dataclasses_have_safe_defaults():
     assert zn.grid is None
     assert zn.pareto_x_decision is None
     fl = FeatureFlags()
-    assert fl.wall_refine_3d is False
+    assert fl.port_wall_refine is False
     assert fl.variable_rho_cp is True   # default ON (local-P gas density)
     assert fl.temp_unit == 'K'
     ex = ExtrapPolicy()
@@ -272,7 +272,6 @@ def test_read_feature_flags_use_current_gui_transport_policy():
     window = SimpleNamespace(combo_grid=SimpleNamespace(currentData=lambda: True))
     flags = _read_feature_flags(window)
     assert flags.variable_rho_cp and flags.port_wall_refine
-    assert not flags.wall_refine_3d
 
 
 def test_c4_compute_config_default_has_new_fields():
@@ -420,14 +419,14 @@ def test_c4_config_from_window_reads_feature_flags():
     window = _StubWindow()
     window._temp_unit = 'C'
     cfg = config_from_window(window)
-    assert cfg.flags.wall_refine_3d is False
+    assert cfg.flags.port_wall_refine is False
     assert cfg.flags.temp_unit == 'C'
 
 
 def test_c4_feature_flags_default_when_widgets_absent():
     window = _StubWindow()
     cfg = config_from_window(window)
-    assert cfg.flags.wall_refine_3d is False
+    assert cfg.flags.port_wall_refine is False
     assert cfg.flags.temp_unit == 'K'
 
 
@@ -440,7 +439,7 @@ def test_c4_json_roundtrip_includes_new_fields():
                               out_ctr=0.091, out_w=0.08, uniform_inlet_2d=True),
         zones=ZoneInputConfig(enabled=True, axis='x',
                               pareto_y_trans_inlet=0.18),
-        flags=FeatureFlags(wall_refine_3d=True, temp_unit='C'),
+        flags=FeatureFlags(port_wall_refine=True, temp_unit='C'),
         extrap=ExtrapPolicy(allow=True),
     )
     with tempfile.NamedTemporaryFile('w', suffix='.json',
@@ -458,7 +457,7 @@ def test_c4_json_roundtrip_includes_new_fields():
     assert cfg2.zones.enabled is True
     assert cfg2.zones.axis == 'x'
     assert cfg2.zones.pareto_y_trans_inlet == pytest.approx(0.18)
-    assert cfg2.flags.wall_refine_3d is True
+    assert cfg2.flags.port_wall_refine is True
     assert cfg2.flags.temp_unit == 'C'
     assert cfg2.extrap.allow is True
 

@@ -36,7 +36,7 @@ def shanghai_spec() -> SpecimenSpec:
     )
 
 
-def shanghai_pipeline_config(ci, df, solver, *, wall_refine=False, port_wall_refine=False):
+def shanghai_pipeline_config(ci, df, solver, *, port_wall_refine=False):
     """April 1 experiment: original F/H mass flows and confirmed staggered ports.
 
     Use the workbook's nominal total mass-flow columns F/H, as confirmed for
@@ -80,4 +80,4 @@ def shanghai_pipeline_config(ci, df, solver, *, wall_refine=False, port_wall_ref
             L_dom_m=L, H_dom_m=H, Lz_m=depth if solver.Nz >= 2 else None),
         solver=solver, bc_A=bc_A, bc_B=bc_B,
         extrap=ExtrapPolicy(allow=True),
-        flags=FeatureFlags(wall_refine_3d=wall_refine, port_wall_refine=port_wall_refine))
+        flags=FeatureFlags(port_wall_refine=port_wall_refine))

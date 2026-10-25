@@ -23,6 +23,28 @@ from sjtu_tpmshx.workflows.recovery import compute_run, resume_run
 native_path = spatial.native_path
 
 
+@pytest.mark.parametrize('enabled', [False, True])
+def test_saved_grid_recovery_accepts_the_historical_constructor_flag(native_path, tmp_path, enabled):
+    from sjtu_tpmshx.io.case_io import load_case, save_case
+    config = configuration('3d-air-air')
+    control = spatial.control(native_path)
+    _, expected, expected_metrics = compute(config, case_id='old-grid-record', control=control)
+    source = tmp_path / 'paused'
+    with pytest.raises(PausedRun):
+        compute_run(config, source, checkpoint_interval_s=3600., case_id='old-grid-record',
+                    control=control, pause_check=lambda: True)
+    case = load_case(source / 'case.h5')
+    snapshot = mutable_data(case.config_snapshot)
+    snapshot['flags']['wall_refine_3d'] = enabled
+    save_case(replace(case, config_snapshot=snapshot), source / 'case.h5')
+    original = (source / 'case.h5').read_bytes()
+    _, actual, actual_metrics = resume_run(source / 'checkpoint.h5', tmp_path / 'resumed',
+                                          checkpoint_interval_s=3600., control=control)
+    same_result(actual, expected, actual_metrics, expected_metrics)
+    assert (source / 'case.h5').read_bytes() == original
+    assert load_case(tmp_path / 'resumed/case.h5').config_snapshot['flags']['wall_refine_3d'] is enabled
+
+
 def configuration(route):
     if route == '3d-temperature_sou':
         from sjtu_tpmshx.tests.native.test_cpp_conservative_full3d import candidate
