@@ -1507,6 +1507,8 @@ Mass-flow inputs keep their stored speed out of the advice; preparation resolves
 Input-capture errors stop the launch before grid checks or worker creation.
 The preflight adapter resolves full-face port defaults with `bc_to_dict`, as preparation does.
 Both nonpositive primary widths select the full transverse span. Optional 3D spans keep their existing meaning.
+Startup field checks and group error counts accept a blank centre/width pair for each optional 3D second transverse span.
+Incomplete pairs remain invalid. Group error counts exclude inactive inlet inputs, as startup checks do.
 
 The 2D preflight and preparation share physical grid construction in `models/grid.py`.
 The captured zone mode and port edges select the grid. Counts and port coverage use its actual cell widths.

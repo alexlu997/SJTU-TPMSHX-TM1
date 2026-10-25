@@ -1,10 +1,11 @@
 """Exercise the repaired input/preview paths with isolated real Qt controls."""
+from dataclasses import asdict
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
 from PySide6.QtCore import QCoreApplication, QEvent, Qt
-from PySide6.QtWidgets import QMessageBox, QTableWidget, QTableWidgetItem
+from PySide6.QtWidgets import QApplication, QMessageBox, QTableWidget, QTableWidgetItem
 from matplotlib.figure import Figure
 
 
@@ -244,3 +245,115 @@ def test_3d_layout_omits_invalid_port_instead_of_drawing_full_face(win, side):
     labels = [text.get_text() for text in ax.texts]
     assert f'Inlet_{side}' not in labels and f'Outlet_{side}' not in labels
     assert f'Fluid {side} skipped' in win.statusBar().currentMessage()
+
+
+@pytest.fixture
+def blank_spans(win, monkeypatch):
+    win.combo_dim.setCurrentIndex(1)
+    win.combo_grid.setCurrentIndex(win.combo_grid.findData(False))
+    for axis, count in (('x', '20'), ('y', '22'), ('z', '24')):
+        getattr(win, 'le_N' + axis).setText(count)
+    for side in ('A', 'B'):
+        for end in ('in', 'out'):
+            for field in ('ctr', 'w'):
+                getattr(win, f'le_pipe{side}_{end}_z_{field}').setText('  ')
+    dialogs, starts = [], []
+    monkeypatch.setattr(QMessageBox, 'exec', lambda dialog: dialogs.append(dialog.text()))
+    monkeypatch.setattr(QMessageBox, 'warning', lambda *args: dialogs.append(args[-1]))
+    monkeypatch.setattr(QMessageBox, 'information', lambda *args: None)
+    monkeypatch.setattr(win.compute, 'start', lambda *args, **kwargs: starts.append(kwargs['cfg']) or False)
+    return win, dialogs, starts
+
+
+@pytest.mark.parametrize('partial', [None, ('A', 'in'), ('A', 'out'), ('B', 'in'), ('B', 'out')])
+def test_blank_second_spans_reach_real_compute_dispatch(blank_spans, partial):
+    win, dialogs, starts = blank_spans
+    if partial is not None:
+        side, end = partial
+        getattr(win, f'le_pipe{side}_{end}_z_ctr').setText('.021')
+        getattr(win, f'le_pipe{side}_{end}_z_w').setText('.02')
+    win.run_calculation()
+    assert not dialogs
+    assert len(starts) == 1
+    cfg = starts[0].validate()
+    for side in ('A', 'B'):
+        for end in ('in', 'out'):
+            bc = getattr(cfg, 'bc_' + side)
+            assert getattr(bc, end + '_z_ctr') == (.021 if partial == (side, end) else None)
+            assert getattr(bc, end + '_z_w') == (.02 if partial == (side, end) else None)
+
+
+@pytest.mark.parametrize('side,end,missing', [
+    (side, end, field) for side in ('A', 'B') for end in ('in', 'out') for field in ('ctr', 'w')
+])
+def test_half_second_span_stops_real_compute_dispatch(blank_spans, side, end, missing):
+    win, dialogs, starts = blank_spans
+    for field, value in (('ctr', '.021'), ('w', '.02')):
+        getattr(win, f'le_pipe{side}_{end}_z_{field}').setText('' if field == missing else value)
+    win.run_calculation()
+    assert not starts
+    assert len(dialogs) == 1
+    assert '1 个无效输入' in dialogs[0]
+    assert f'le_pipe{side}_{end}_z_{missing}' in dialogs[0]
+
+
+@pytest.mark.parametrize('bad,message', [
+    ('invalid', 'Invalid input in: Pipe A in_z_w'), ('nan', 'Invalid input in: Pipe A in_z_w'),
+    ('inf', 'Invalid input in: Pipe A in_z_w'), ('-inf', 'Invalid input in: Pipe A in_z_w'),
+    ('0', 'covers 0 cells'), ('-.01', 'covers 0 cells'), ('.1', 'exceeds z domain'),
+])
+def test_invalid_second_span_stops_real_compute_dispatch(blank_spans, bad, message):
+    win, dialogs, starts = blank_spans
+    win.le_pipeA_in_z_ctr.setText('.021')
+    win.le_pipeA_in_z_w.setText(bad)
+    win.run_calculation()
+    assert not starts
+    assert len(dialogs) == 1
+    assert message in dialogs[0]
+
+
+@pytest.mark.parametrize('mode', ['velocity', 'mass_flow'])
+def test_badges_count_only_active_required_fields(blank_spans, mode):
+    from sjtu_tpmshx.ui.ui_builders import refresh_group_badges
+    win, _, _ = blank_spans
+    for side in ('A', 'B'):
+        combo = getattr(win, 'combo_inlet_mode' + side)
+        combo.setCurrentIndex(combo.findData(mode))
+        getattr(win, 'le_mass_flow' + side).setText('.01' if mode == 'mass_flow' else '')
+        getattr(win, 'le_u' + side).setText('' if mode == 'mass_flow' else '5')
+    refresh_group_badges(win)
+    assert all(count == 0 for count in win._group_badge_counts.values())
+    active = win.le_mass_flowA if mode == 'mass_flow' else win.le_uA
+    active.clear()
+    win.le_Nx.clear()
+    win.le_pipeB_out_z_ctr.setText('.021')
+    refresh_group_badges(win)
+    assert win._group_badge_counts['流体'] == 1
+    assert win._group_badge_counts['网格与求解器'] == 1
+    assert win._group_badge_counts['进出口边界'] == 1
+
+
+def test_blank_second_spans_recover_and_round_trip(blank_spans, monkeypatch):
+    from sjtu_tpmshx.ui.ui_builders import refresh_group_badges
+    from sjtu_tpmshx.ui.window_config import config_from_window
+    win, dialogs, starts = blank_spans
+    win.le_pipeA_in_z_w.setText('invalid')
+    win.le_pipeA_in_z_w.editingFinished.emit()
+    win.run_calculation()
+    assert dialogs and not starts
+    dialogs.clear()
+    win.le_pipeA_in_z_w.clear()
+    win.le_pipeA_in_z_w.editingFinished.emit()
+    QApplication.processEvents()
+    refresh_group_badges(win)
+    assert win._group_badge_counts['进出口边界'] == 0
+    before = asdict(config_from_window(win, strict=True).validate())
+    saved = {}
+    monkeypatch.setattr(win.sm, 'save_session', lambda payload, workspace: saved.update(payload) or True)
+    assert win._save_session()
+    win._apply_shanghai_defaults()
+    monkeypatch.setattr(win.sm, 'load_session', lambda workspace: saved)
+    win._restore_session()
+    assert asdict(config_from_window(win, strict=True).validate()) == before
+    win.run_calculation()
+    assert len(starts) == 1 and not dialogs

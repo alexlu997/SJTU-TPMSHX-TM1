@@ -151,6 +151,16 @@ def inlet_input_active(window, name):
     return True
 
 
+def blank_second_span(window, name):
+    """Return True when both fields of a second transverse span are blank."""
+    prefix, _, field = name.rpartition('_')
+    if prefix not in ('le_pipeA_in_z', 'le_pipeA_out_z',
+                      'le_pipeB_in_z', 'le_pipeB_out_z') or field not in ('ctr', 'w'):
+        return False
+    return all(not _qt_text(getattr(window, f'{prefix}_{suffix}', None)).strip()
+               for suffix in ('ctr', 'w'))
+
+
 def _read_section_fields(window, section: str, *, is_3d: bool = True) -> dict:
     """Table-driven scalar reads for one config section (non-special rows)."""
     out = {}

@@ -521,12 +521,14 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
             pass
 
     def _validate_inputs_preflight(self):
-        """Return True if all session inputs pass the validator; False +
-        show a modal listing every bad field otherwise. Reuses the
-        `inpError` dynamic property set by `_attach_input_validators`."""
+        """Check active fields before configuration capture.
+
+        Keep field errors and required blanks visible. A complete blank second
+        transverse span is valid.
+        """
         bad = []
         is_3d = self.combo_dim.currentIndex() == 1
-        from sjtu_tpmshx.ui.window_config import inlet_input_active
+        from sjtu_tpmshx.ui.window_config import blank_second_span, inlet_input_active
         for name in self._SESSION_LINE_EDITS:
             if not inlet_input_active(self, name):
                 continue
@@ -539,8 +541,8 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
                 label = (le.accessibleName() or name)
                 val = le.text() or '(empty)'
                 bad.append((label, name, val))
-            elif not le.text().strip():
-                # Empty strict-positive fields are bad too.
+            elif not le.text().strip() and not blank_second_span(self, name):
+                # Keep required empty fields in the same error list.
                 label = (le.accessibleName() or name)
                 bad.append((label, name, '(empty)'))
         if not bad:
