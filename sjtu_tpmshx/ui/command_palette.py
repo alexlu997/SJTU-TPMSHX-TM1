@@ -336,12 +336,12 @@ def build_actions(w) -> list[Action]:
     # ui-shortcuts-persist: labels in Chinese to match the toolbar chrome;
     # the English keywords stay so "temp"/"pareto" still find the entries.
     for tab, key, desc in [
-        ('layout', 'layout', '显示 几何布局 页签'),
-        ('temp',   'temp',   '显示 温度 视图（结果）'),
-        ('pres',   'pres',   '显示 压力 视图（结果）'),
-        ('vel',    'vel',    '显示 速度 视图（结果）'),
-        ('3d',     '3d',     '显示 3D 视图（结果）'),
-        ('pareto', 'pareto', '显示 优化 页签'),
+        ('layout', 'layout', '显示 工况设置 页签'),
+        ('temp',   'temp',   '显示 温度 视图（场图结果）'),
+        ('pres',   'pres',   '显示 压力 视图（场图结果）'),
+        ('vel',    'vel',    '显示 速度 视图（场图结果）'),
+        ('3d',     '3d',     '显示 3D 视图（场图结果）'),
+        ('pareto', 'pareto', '显示 优化设计 页签'),
     ]:
         if not _available_tabs.get(tab, False):
             continue

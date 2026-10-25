@@ -92,10 +92,31 @@ array shape. `fine` is a separately identified refined thermal return.
 `run_status` keeps numerical convergence and any final flow update after
 the last thermal return. It does not recast a nonconverged run as accepted.
 
+Current `thermal_mode="conservative_energy"` results also store six outward
+physical boundary powers in `true_h.boundary_power`.
+`energy_algorithm`, `energy_algorithm_version`, `boundary_power_units`, and
+`physical_boundary_complete` identify and qualify that evidence.
+The offline reader accepts `temperature_fou` version 1 and `temperature_sou`
+versions 1 and 2. Current execution uses T-SOU; reading an older result does
+not enable its retired algorithm. The reader checks the algorithm/version
+pair, W/m units, completeness, finite planes, and matching singleton-z shapes.
+Signed duty is minus the sum of those outward powers. Current SOU outlet
+power cannot be reconstructed from adjacent cell enthalpies.
+
+For `thermal_mode="temperature"`, the declaration
+`metadata.temperature_transport="model_enthalpy_temperature_v1"` selects
+captured `boundary_fluxes.temperature` evidence. Signed duty is minus the
+sum of `advective_out`; Fourier power stays separate in `diffusive_out`.
+The reader checks the definition, physical dimension, units, complete matching
+faces, and whether that side was solved. Main and available fine-grid ledgers
+remain separate. Historical 2D temperature results with neither a transport
+declaration nor added temperature ledgers keep their rho-cp/velocity/profile reduction.
+
 Postprocessing reads native evidence only. Formal `Q=abs(Q_A)` uses the last
 main-grid thermal state (`native_boundary_v1`). Model-h integrates signed h
-faces. True-h uses native boundary enthalpy duty. Temperature-form keeps
-its rho-cp/velocity/profile convention.
+faces. Conservative energy and declared temperature results use the recorded
+powers described above. Historical `thermal_mode="true_h"` results use saved
+native h, inlet h, and thermal mass faces.
 
 Accepted per-side Richardson duties
 are separate `Q_richardson_A/B` metrics and never replace main-grid Q. Backend

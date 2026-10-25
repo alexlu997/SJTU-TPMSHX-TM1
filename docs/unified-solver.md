@@ -25,7 +25,8 @@ The [collaboration workflow](collaboration.md) applies to each implementation PR
 
 Outer property Anderson is retired. Property updates keep the existing fixed relaxation and update order.
 The solver rejects `outer_anderson`, `outer_anderson_m`, `outer_anderson_trust`, and `outer_anderson_patience` before calculation, including explicit disabled values.
-Thermal Anderson and the three energy algorithms remain available.
+Thermal Anderson remains available. The original design kept three energy algorithms.
+Current conservative EOS energy execution uses T-SOU. H-FOU and T-FOU execution is retired, as recorded in section 9.
 The full 3D C API now uses ABI 2. Python bindings require a matching native library.
 Existing results remain readable. Checkpoints still require the same build identity; no cross-build conversion is provided.
 

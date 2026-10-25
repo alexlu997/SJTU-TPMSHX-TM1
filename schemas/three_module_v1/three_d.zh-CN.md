@@ -14,9 +14,13 @@ FieldResult 包含最后一次原始热状态温度和输入换热系数，并�
 
 展示温度 `Ta/Tb/Ts_display` 与 `P_fA/P_fB_display` 从既有显示返回值复制，不使用物性压力场替换。各侧单元速度 `uc/vc/wc` 和 `vmag_A/B` 使用物理轴，单位为 m/s；`chi_B` 无量纲。各场都有显式元数据，并保存在同一结果存档中。这些显示场不决定指标。
 
-热状态质量面采用物理轴，沿正 x/y/z 为正，单位为 kg/s，已包含完整面面积和各侧孔隙率。model-h 从既有热面算子捕获各侧六个向外边界能量数组，单位为 W。true-h 证据保存原生焓、入口焓（J/kg）和最后热状态的实际质量面。原有温度模式没有完整捕获的焓证据，该归约仍明确不受支持。
+热状态质量面采用物理轴，沿正 x/y/z 为正，单位为 kg/s，已包含完整面面积和各侧孔隙率。model-h 从既有热面算子捕获各侧六个向外边界能量数组，单位为 W。true-h 证据保存原生焓、入口焓（J/kg）和最后热状态的实际质量面。
 
-正式 `Q=abs(Q_A)` 使用最后热状态，即 `native_boundary_v1`。true-h 热负荷根据保存的原生焓、入口焓和实际热状态质量面计算。model-h 对原生向外能量数组积分，并在 `diagnostics.model_h_balance.sides` 中保留边界完整性检查。Tout 使用原始热状态温度，以及配置出口处向外为正的热状态质量通量。Q 和 Tout 都不能根据最终流动的物性压力状态重建。正式 dP 独立使用最终 SIMPLE 压力、物理面外推和几何开口面积权重，即 `pressure_face_v1`。
+当前 `thermal_mode="conservative_energy"` 结果还在 `true_h.boundary_power` 中保存六个物理边界面上的向外功率。`energy_algorithm`、`energy_algorithm_version`、`boundary_power_units` 和 `physical_boundary_complete` 标识并限定这些证据。离线读取支持 `temperature_fou` 版本 1，以及 `temperature_sou` 版本 1、2。当前执行使用 T-SOU；读取旧结果不会启用其已退役算法。读取器检查算法／版本配对、W 单位、完整性、有限面值和匹配的物理网格形状。有符号热负荷为向外功率之和的负值，不能用相邻单元焓重建当前 SOU 出口功率。
+
+对于 `thermal_mode="temperature"`，声明 `metadata.temperature_transport="model_enthalpy_temperature_v1"` 后，使用已捕获的 `boundary_fluxes.temperature` 证据。有符号热负荷为 `advective_out` 之和的负值，Fourier 功率在 `diffusive_out` 中单独保留。读取器检查定义、物理维度、W 单位、完整且匹配的面，以及该侧是否实际求解。历史单 A 侧 sCO2 温度结果，以及未声明的旧三维温度结果，仍不支持完整焓热负荷归约。
+
+正式 `Q=abs(Q_A)` 使用最后热状态，即 `native_boundary_v1`。守恒能量和带声明的温度结果使用上述记录功率。历史 `thermal_mode="true_h"` 结果使用保存的原生焓、入口焓和热状态质量面。model-h 对原生向外能量数组积分，并在 `diagnostics.model_h_balance.sides` 中保留边界完整性检查。Tout 使用原始热状态温度，以及配置出口处向外为正的热状态质量通量。Q 和 Tout 都不能根据最终流动的物性压力状态重建。正式 dP 独立使用最终 SIMPLE 压力、物理面外推和几何开口面积权重，即 `pressure_face_v1`。
 
 后端历史最终报告摘要和 `reporting_reference` 仍供既有使用方使用，与正式离线指标区分。保留的报告元数据提供出口方向，无需第二次重建质量或焓。
 

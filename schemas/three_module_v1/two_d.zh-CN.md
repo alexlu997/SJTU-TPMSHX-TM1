@@ -30,6 +30,12 @@
 
 `boundary_fluxes.mass_A/B` 是 `(x-face,y-face)` 数组，形状分别为 `(Nx+1,Ny)` 和 `(Nx,Ny+1)`。正方向沿物理轴，单位为 kg/(s m)，已包含开口面面积和孔隙率。`model_h` 保留完整的有符号焓通量面（W/m）及入口导热面。`true_h` 保留原生焓 h（J/kg）、给定入口焓和有符号质量面；原有单层 z 适配器在数组形状中明确体现。`fine` 单独标识细化热求解返回值。`run_status` 保留数值收敛状态和最后热返回后的最终流动更新，不能将未收敛运行改标为已接受。
 
-后处理只读取原生证据。正式 `Q=abs(Q_A)` 使用最后主网格热状态，即 `native_boundary_v1`。model-h 积分有符号焓通量面，true-h 使用原生边界焓热负荷，温度形式保留其 rho-cp／速度／轮廓约定。已接受的各侧 Richardson 热负荷保存为独立 `Q_richardson_A/B` 指标，不替换主网格 Q。后端摘要和 `reporting_reference` 为既有使用方保留历史定义。
+当前 `thermal_mode="conservative_energy"` 结果还在 `true_h.boundary_power` 中保存六个物理边界面上的向外功率。`energy_algorithm`、`energy_algorithm_version`、`boundary_power_units` 和 `physical_boundary_complete` 标识并限定这些证据。离线读取支持 `temperature_fou` 版本 1，以及 `temperature_sou` 版本 1、2。当前执行使用 T-SOU；读取旧结果不会启用其已退役算法。读取器检查算法／版本配对、W/m 单位、完整性、有限面值和匹配的单层 z 形状。有符号热负荷为向外功率之和的负值，不能用相邻单元焓重建当前 SOU 出口功率。
+
+对于 `thermal_mode="temperature"`，声明 `metadata.temperature_transport="model_enthalpy_temperature_v1"` 后，使用已捕获的 `boundary_fluxes.temperature` 证据。有符号热负荷为 `advective_out` 之和的负值，Fourier 功率在 `diffusive_out` 中单独保留。读取器检查定义、物理维度、单位、完整且匹配的面，以及该侧是否实际求解。主网格与可用的细网格台账保持分开。既无输运声明、也无新增温度台账的历史二维温度结果保留原有 rho-cp／速度／轮廓归约。
+
+后处理只读取原生证据。正式 `Q=abs(Q_A)` 使用最后主网格热状态，即 `native_boundary_v1`。model-h 积分有符号焓通量面；守恒能量和带声明的温度结果使用上述记录功率。历史 `thermal_mode="true_h"` 结果使用保存的原生焓、入口焓和热状态质量面。
+
+已接受的各侧 Richardson 热负荷保存为独立 `Q_richardson_A/B` 指标，不替换主网格 Q。后端摘要和 `reporting_reference` 为既有使用方保留历史定义。
 
 Tout 使用原始主网格温度，以及真实开口上向外为正的质量通量。Q 单位为 W/m。证据缺失时指标不可用，不得调用求解器。有限指标不改变来源运行的数值或物理状态。固体质量另需显式提供固体密度，不能从 k_s 推断。

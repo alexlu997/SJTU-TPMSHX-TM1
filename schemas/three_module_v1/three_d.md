@@ -41,12 +41,33 @@ Thermal mass faces use physical axes, signed along positive x/y/z, kg/s, with
 full face area and per-side porosity already included. Model-h evidence stores
 six outward boundary energy arrays per side in W, captured from the existing
 thermal face operator. True-h evidence stores native h, inlet h (J/kg) and the
-actual last thermal mass faces. Legacy temperature mode has no complete
-captured enthalpy certificate and that reduction stays explicitly unsupported.
+actual last thermal mass faces.
 
-Formal `Q=abs(Q_A)` uses the last thermal state (`native_boundary_v1`). True-h
-duty is computed from saved native h, inlet h and the actual thermal mass
-faces. Model-h duty integrates the native outward energy arrays and keeps
+Current `thermal_mode="conservative_energy"` results also store six outward
+physical boundary powers in `true_h.boundary_power`.
+`energy_algorithm`, `energy_algorithm_version`, `boundary_power_units`, and
+`physical_boundary_complete` identify and qualify that evidence.
+The offline reader accepts `temperature_fou` version 1 and `temperature_sou`
+versions 1 and 2. Current execution uses T-SOU; reading an older result does
+not enable its retired algorithm. The reader checks the algorithm/version
+pair, W units, completeness, finite planes, and matching physical-grid shapes.
+Signed duty is minus the sum of those outward powers. Current SOU outlet
+power cannot be reconstructed from adjacent cell enthalpies.
+
+For `thermal_mode="temperature"`, the declaration
+`metadata.temperature_transport="model_enthalpy_temperature_v1"` selects
+captured `boundary_fluxes.temperature` evidence. Signed duty is minus the
+sum of `advective_out`; Fourier power stays separate in `diffusive_out`.
+The reader checks the definition, physical dimension, W units, complete
+matching faces, and whether that side was solved.
+Historical single-A sCO2 temperature results and undeclared legacy 3D
+temperature results still have no supported complete enthalpy duty.
+
+Formal `Q=abs(Q_A)` uses the last thermal state (`native_boundary_v1`).
+Conservative energy and declared temperature results use the recorded powers
+described above. Historical `thermal_mode="true_h"` results use saved native
+h, inlet h, and thermal mass faces. Model-h duty integrates the native outward
+energy arrays and keeps
 the boundary-completeness check in `diagnostics.model_h_balance.sides`.
 Tout uses raw thermal temperature and positive outward thermal mass at the
 configured outlet. Neither Q nor Tout is reconstructed from the final flow's
