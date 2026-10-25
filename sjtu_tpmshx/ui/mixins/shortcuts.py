@@ -31,10 +31,8 @@ class ShortcutsMixin:
         ts = self._track_shortcut
         ts("Ctrl+R", self.run_calculation)
         ts("Ctrl+Shift+R", self._reset_defaults)
-        # ui-shortcuts-persist: bindings match the visible 3-tab workbench
-        # (几何布局|结果|优化); 'result' resolves via _result_view. Ctrl+4
-        # flips 2D|3D inside 结果; the retired direct temp/pres/vel/3d
-        # binds are gone.
+        # Match the three visible workbench tabs; 'result' uses _result_view.
+        # Ctrl+4 switches between its 2D and 3D views.
         for key, name in (('Ctrl+1', 'layout'), ('Ctrl+2', 'result'),
                           ('Ctrl+3', 'pareto')):
             ts(key, (lambda n=name: self._switch_tab(n)))
@@ -85,7 +83,7 @@ class ShortcutsMixin:
         self._set_density(order[(i + step) % len(order)])
 
     def _cycle_tab(self, step):
-        """Ctrl+↑/↓ — walk the VISIBLE workbench tabs (几何布局|结果|优化).
+        """Cycle the three visible workbench tabs with Ctrl+↑/↓.
 
         The result family (temp/pres/vel/3d) collapses to 'result' so
         cycling never lands on a hidden legacy button (ui-shortcuts-persist).
