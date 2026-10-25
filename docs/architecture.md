@@ -1505,6 +1505,8 @@ The compute entry captures one `ComputeConfig` before grid preflight.
 Grid checks, prescribed-speed advice, the 3D size confirmation and the worker use that same configuration.
 Mass-flow inputs keep their stored speed out of the advice; preparation resolves the actual speed.
 Input-capture errors stop the launch before grid checks or worker creation.
+The preflight adapter resolves full-face port defaults with `bc_to_dict`, as preparation does.
+Both nonpositive primary widths select the full transverse span. Optional 3D spans keep their existing meaning.
 
 The 2D preflight and preparation share physical grid construction in `models/grid.py`.
 The captured zone mode and port edges select the grid. Counts and port coverage use its actual cell widths.

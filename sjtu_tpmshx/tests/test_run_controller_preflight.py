@@ -200,6 +200,92 @@ def test_grid_preflight_uses_captured_geometry_ports_and_temperatures(win, monke
         assert (port.z_in_ctr, port.z_in_w) == (bc.in_z_ctr, bc.in_z_w)
 
 
+@pytest.mark.parametrize('graded', [False, True])
+@pytest.mark.parametrize('is_3d,direction',
+                         [(False, d) for d in range(4)] + [(True, d) for d in range(6)])
+def test_zero_width_ports_use_prepared_full_face_geometry(win, monkeypatch, graded, is_3d, direction):
+    from sjtu_tpmshx.main import Main_Menu
+    from sjtu_tpmshx.preprocess.api import prepare_case
+    from sjtu_tpmshx.ui.preflight import Preflight, compute_preflight
+
+    win.combo_dim.setCurrentIndex(int(is_3d))
+    win.combo_grid.setCurrentIndex(win.combo_grid.findData(graded))
+    for name, value in dict(L='.182', H='.042', Lz='.042', Nx='20', Ny='22', Nz='24').items():
+        getattr(win, 'le_' + name).setText(value)
+    for side in 'AB':
+        getattr(win, 'combo_dir' + side).setCurrentIndex(direction)
+        for end in ('in', 'out'):
+            getattr(win, f'le_pipe{side}_{end}_ctr').setText('0')
+            getattr(win, f'le_pipe{side}_{end}_w').setText('0')
+            getattr(win, f'le_pipe{side}_{end}_z_ctr').clear()
+            getattr(win, f'le_pipe{side}_{end}_z_w').clear()
+    if is_3d:
+        win.le_pipeB_out_z_ctr.setText('.0105')
+        win.le_pipeB_out_z_w.setText('.021')
+    cfg = config_from_window(win, strict=True, force_3d=is_3d).validate()
+    case = prepare_case(cfg, case_id='captured-full-face-ports')
+    captured = {}
+
+    def preflight(**kwargs):
+        captured.update(kwargs, report=compute_preflight(**kwargs))
+        return Preflight()
+
+    monkeypatch.setattr('sjtu_tpmshx.ui.preflight.compute_preflight', preflight)
+    assert Main_Menu._preflight_grid(win, cfg)
+    report = captured['report']
+    assert not report.errors, report.errors
+    counts = (20, 22, 24) if is_3d else ((20, 22) if graded else (36, 38))
+    axes = 'xyz' if is_3d else 'xy'
+    assert tuple(len(case.grid['d' + axis]) for axis in axes) == counts
+    assert any(' × '.join(map(str, counts)) + ' =' in text for text in report.info)
+    cross_axis = 'y' if direction < 2 else 'x'
+    cross_width = .042 if direction < 2 else .182
+    cross_count = counts[axes.index(cross_axis)]
+    for side in 'AB':
+        port = captured['fluid_' + side]
+        prepared = case.parameters[('fluid_' + side + '_cfg') if is_3d else ('cfg' + side)]
+        for name, value in dict(dir=direction, in_ctr=cross_width / 2, in_w=cross_width,
+                                out_ctr=cross_width / 2, out_w=cross_width).items():
+            assert getattr(port, name) == prepared[name] == value
+        assert getattr(cfg, 'bc_' + side).in_w == getattr(cfg, 'bc_' + side).out_w == 0
+        for end in ('inlet', 'outlet'):
+            assert f'Fluid {side} {end} covers {cross_count} cells on {cross_axis} axis.' in report.info
+        assert port.z_in_ctr is None and port.z_in_w is None
+        expected_z = (.0105, .021) if is_3d and side == 'B' else (None, None)
+        assert (port.z_out_ctr, port.z_out_w) == expected_z
+        if is_3d:
+            second_axis = 'y' if direction >= 4 else 'z'
+            second_count = 22 if direction >= 4 else 24
+            assert f'Fluid {side} inlet covers {second_count} cells on {second_axis} axis.' in report.info
+            outlet_count = second_count // 2 if side == 'B' else second_count
+            assert f'Fluid {side} outlet covers {outlet_count} cells on {second_axis} axis.' in report.info
+
+
+@pytest.mark.parametrize('is_3d', [False, True])
+@pytest.mark.parametrize('side', ['A', 'B'])
+@pytest.mark.parametrize('empty_end', ['in', 'out'])
+def test_mixed_zero_width_ports_still_block_preflight(win, is_3d, side, empty_end):
+    from sjtu_tpmshx.main import Main_Menu
+
+    win.combo_dim.setCurrentIndex(int(is_3d))
+    win.combo_grid.setCurrentIndex(win.combo_grid.findData(False))
+    win.le_Nx.setText('20')
+    win.le_Ny.setText('22')
+    win.le_Nz.setText('24')
+    getattr(win, 'combo_dir' + side).setCurrentIndex(0)
+    for end in ('in', 'out'):
+        getattr(win, f'le_pipe{side}_{end}_ctr').setText('.021')
+        getattr(win, f'le_pipe{side}_{end}_w').setText('0' if end == empty_end else '.042')
+    cfg = config_from_window(win, strict=True, force_3d=is_3d)
+    with pytest.raises(ValueError, match='must both be'):
+        cfg.validate_static_inputs()
+    with patch.object(QMessageBox, 'exec', return_value=QMessageBox.StandardButton.Ok), \
+         patch.object(QMessageBox, 'setText') as text:
+        assert not Main_Menu._preflight_grid(win, cfg)
+    end_label = 'inlet' if empty_end == 'in' else 'outlet'
+    assert f'Fluid {side} {end_label} covers 0 cells' in text.call_args.args[0]
+
+
 def test_captured_invalid_geometry_still_blocks_grid_checks(monkeypatch):
     from sjtu_tpmshx.main import Main_Menu
     cfg = ComputeConfig()
