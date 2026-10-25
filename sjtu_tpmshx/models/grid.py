@@ -248,6 +248,39 @@ def build_master_refined_grid(L_dom: float, H_dom: float,
     return dx_refined, dy_refined, len(dx_refined), len(dy_refined)
 
 
+def build_grid_2d(L, H, Nx, Ny, ports, *, zone_axis=None, port_wall_refine=False):
+    """Build physical widths and port breakpoints for preparation and preflight.
+
+    Return dx, dy, x breaks, y breaks, and an optional refinement error.
+    Preparation keeps its aligned-grid fallback when wall refinement cannot fit.
+    Preflight uses the error to block a grid with unresolved wall layers.
+    """
+    x_breaks, y_breaks = set(), set()
+    for port in ports:
+        breaks, span = (y_breaks, H) if port['dir'] in (0, 1) else (x_breaks, L)
+        for end in ('in', 'out'):
+            centre = port.get(f'{end}_ctr', port['in_ctr'])
+            width = port.get(f'{end}_w', port['in_w'])
+            lo, hi = centre - width / 2, centre + width / 2
+            if lo > span * .001:
+                breaks.add(lo)
+            if hi < span * .999:
+                breaks.add(hi)
+    refinement_error = None
+    if port_wall_refine:
+        dx, dy = build_port_wall_grid((L, H), (Nx, Ny), ports)
+    else:
+        if not x_breaks and not y_breaks and zone_axis in (None, 'continuous'):
+            try:
+                dx, dy, _, _ = build_master_refined_grid(L, H, Nx, Ny)
+                return dx, dy, (), (), None
+            except ValueError as error:
+                refinement_error = str(error)
+        dx = _aligned_grid(Nx, L, list(x_breaks))
+        dy = _aligned_grid(Ny, H, list(y_breaks))
+    return dx, dy, tuple(sorted(x_breaks)), tuple(sorted(y_breaks)), refinement_error
+
+
 
 def _port_overlap_1d(widths, lo, hi, *, staggered=False):
     """Exact interval overlap on primary CVs or CVs between adjacent centres."""

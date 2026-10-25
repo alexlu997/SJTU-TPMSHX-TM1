@@ -229,57 +229,21 @@ def _parse_geometry_inputs_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
 
 
 def _prepare_mesh(cfg):
-    L, H = cfg['L'], cfg['H']
-    N_x, N_y = cfg['N_x'], cfg['N_y']
-    cfgA, cfgB = cfg['cfgA'], cfg['cfgB']
-    # Build aligned grid arrays for energy solver
-    from sjtu_tpmshx.models.grid import _aligned_grid
-    _x_breaks = set()
-    _y_breaks = set()
-    for port in (cfgA, cfgB):
-        breaks, cross_dim = (_y_breaks, H) if port['dir'] in (0, 1) else (_x_breaks, L)
-        for end in ('in', 'out'):
-            ctr = port.get(f'{end}_ctr', port['in_ctr'])
-            width = port.get(f'{end}_w', port['in_w'])
-            lo, hi = ctr - width / 2, ctr + width / 2
-            if lo > cross_dim * 0.001:
-                breaks.add(lo)
-            if hi < cross_dim * 0.999:
-                breaks.add(hi)
-
-    # Use 4-wall Brinkman-BL refined grid when inlet/outlet are full-width (no
-    # break points). Otherwise, fall back to aligned uniform grid since
-    # refinement would conflict with inlet/outlet boundary alignment.
-    _wall_refine_gui = (
-        len(_x_breaks) == 0 and len(_y_breaks) == 0
-        and (not cfg['compute_cfg'].zones.enabled or cfg['z_axis'] == 'continuous')
-    )
-    if cfg['compute_cfg'].flags.port_wall_refine:
-        from sjtu_tpmshx.models.grid import build_port_wall_grid
-        energy_dx, energy_dy = build_port_wall_grid((L, H), (N_x, N_y), (cfgA, cfgB))
-    elif _wall_refine_gui:
-        from sjtu_tpmshx.models.grid import build_master_refined_grid
-        try:
-            energy_dx, energy_dy, N_x, N_y = build_master_refined_grid(
-                L, H, N_x, N_y, n_refine=8, first_cell=0.02e-3, growth=1.8)
-            _log.info(f"[run_calculation] Wall-refined grid: {N_x}×{N_y} cells (4-wall BL resolved)")
-        except ValueError:
-            energy_dx = _aligned_grid(N_x, L, list(_x_breaks))
-            energy_dy = _aligned_grid(N_y, H, list(_y_breaks))
-    else:
-        energy_dx = _aligned_grid(N_x, L, list(_x_breaks))
-        energy_dy = _aligned_grid(N_y, H, list(_y_breaks))
-
-    # From this point onward the 2D compute path must use the effective grid
-    # dimensions implied by energy_dx/energy_dy, not the raw UI values.  The
-    # refined-grid path can expand e.g. user Nx=20 to actual Nx=23; keeping the
-    # old cfg dimensions made Ta/rho/P fields broadcast as (20, 4) vs (23, 4).
+    from sjtu_tpmshx.models.grid import build_grid_2d
+    compute_cfg = cfg['compute_cfg']
+    energy_dx, energy_dy, x_breaks, y_breaks, _ = build_grid_2d(
+        cfg['L'], cfg['H'], cfg['N_x'], cfg['N_y'], (cfg['cfgA'], cfg['cfgB']),
+        zone_axis=cfg['z_axis'] if compute_cfg.zones.enabled else None,
+        port_wall_refine=compute_cfg.flags.port_wall_refine)
+    # All prepared fields must use the actual cell counts.
     N_x = int(len(energy_dx))
     N_y = int(len(energy_dy))
+    if (N_x, N_y) != (cfg['N_x'], cfg['N_y']):
+        _log.info(f"[run_calculation] Wall-refined grid: {N_x}×{N_y} cells (4-wall BL resolved)")
     cfg['N_x'] = N_x
     cfg['N_y'] = N_y
     return {'energy_dx': energy_dx, 'energy_dy': energy_dy,
-            '_x_breaks': tuple(sorted(_x_breaks)), '_y_breaks': tuple(sorted(_y_breaks))}
+            '_x_breaks': x_breaks, '_y_breaks': y_breaks}
 
 
 def _prepare_grid(cfg):
