@@ -75,8 +75,11 @@ Validate its replacement environment before switching. Routine launchers still i
 For a replacement task, record the new behavior and the old code to retire before implementation.
 Use the task's existing handoff record; keep detailed local evidence in ignored `.cache/`.
 For other implementation tasks, record the affected consumers and related changes in the same handoff.
-Include only relevant configuration, saved files, tests, fixtures, exports, packaging, and documentation.
-Explain why a related consumer needs no change when that is not clear.
+Use the existing Related changes field for affected code and text.
+Include only relevant configuration, saved files, tests, fixtures, exports, packaging, examples, documentation, comments, and docstrings.
+Record each item's action and status: updated, checked with no change, or unresolved.
+Give a short reason when no change is needed. Resolve required updates before delivery.
+The reviewer must compare this record with the actual change and its consumers.
 
 1. Trace public and internal callers, dynamic names, CLI/GUI entries, and external consumers.
    Include configuration and saved-file readers, exports, packaging, tests, fixtures, and documentation.
@@ -209,7 +212,7 @@ scope, the reviewed commit, or the next action changes.
 | Task | Goal, permitted modules/files, and authorization scope |
 | People or tools | Owner, reviewer, and integration coordinator |
 | Code | Base commit, branch, current commit, reviewed commit, and PR |
-| Related changes | Affected consumers, necessary updates, retirement scope, and reasons for retained items |
+| Related changes | Affected consumers, code and text; actions and status; no-change reasons; retirement scope and reasons for retained items |
 | Review | Reviewer and context method, commit coverage, findings and dispositions, rounds, time, and conclusion |
 | Runtime | Applicable lock, environment purpose, native build, and data revision |
 | Evidence | Check, tested commit, result, and local evidence record name |
