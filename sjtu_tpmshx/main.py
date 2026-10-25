@@ -586,15 +586,22 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
 
     def _preflight_grid(self, compute_cfg):
         """Check captured inputs and request confirmation for grid warnings."""
+        from sjtu_tpmshx.domain.compute_config import bc_to_dict
         from sjtu_tpmshx.ui.preflight import FluidCfg, compute_preflight
         geometry, solver = compute_cfg.geometry, compute_cfg.solver
 
         def _cfg(bc):
+            # Keep mixed widths for validation; typed configurations always have two fluids.
+            port = bc_to_dict(bc, geometry.L_dom_m, geometry.H_dom_m,
+                              side='B', with_z=compute_cfg.is_3d)
+            if port is None:
+                port = bc_to_dict(bc, geometry.L_dom_m, geometry.H_dom_m,
+                                  side='A', with_z=compute_cfg.is_3d)
             return FluidCfg(
-                dir=bc.dir, in_ctr=bc.in_ctr, in_w=bc.in_w,
-                out_ctr=bc.out_ctr, out_w=bc.out_w,
-                z_in_ctr=bc.in_z_ctr, z_in_w=bc.in_z_w,
-                z_out_ctr=bc.out_z_ctr, z_out_w=bc.out_z_w)
+                dir=port['dir'], in_ctr=port['in_ctr'], in_w=port['in_w'],
+                out_ctr=port['out_ctr'], out_w=port['out_w'],
+                z_in_ctr=port.get('in_z_ctr'), z_in_w=port.get('in_z_w'),
+                z_out_ctr=port.get('out_z_ctr'), z_out_w=port.get('out_z_w'))
 
         # Geometry/D-F coverage is separate from Nu and calibration limits.
         # Hard invalid geometry blocks; soft findings join the grid report.
