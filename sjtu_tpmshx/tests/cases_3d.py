@@ -25,7 +25,7 @@ def demo_fixture_cfg(**overrides):
         u_A=20., u_B=10., T_inA=422., T_inB=293.15,
         P_inA=192362., P_inB=101325., T_s_init=None,
         tpms_type='Gyroid', Lcell=7., t_wall=.5, k_s=16.,
-        fluid_type_A='air', fluid_type_B='air', wall_refine_3d=False,
+        fluid_type_A='air', fluid_type_B='air',
         zone_grid_cells=None)
     cfg.update(overrides)
     cfg['eps'] = geometry(cfg['tpms_type'], cfg['Lcell'], cfg['t_wall'], cfg['k_s'])['epsilon']

@@ -65,7 +65,7 @@ def test_cfg_json_roundtrip_non_defaults(tmp_path):
     cfg.fluid_A.T_in_K = 422.0
     cfg.fluid_B.type = 'water'
     cfg.fluid_B.P_in_Pa = 101973.0
-    cfg.flags.wall_refine_3d = True
+    cfg.flags.port_wall_refine = True
     p = tmp_path / 'cfg.json'
     cfg.to_json(p)
     back = ComputeConfig.from_json(p)

@@ -162,6 +162,71 @@ def _patch_solve(monkeypatch, solve):
     monkeypatch.setattr(recovery, 'run_case', lambda case, control, **kwargs: solve(case, control))
 
 
+@pytest.mark.parametrize('enabled', [False, True])
+@pytest.mark.parametrize('completed', [False, True])
+def test_historical_batch_grid_recovery_never_prepares_again(tmp_path, monkeypatch, native_control,
+                                                            enabled, completed):
+    from sjtu_tpmshx.io.case_io import save_case
+    from sjtu_tpmshx.io.result_io import save_result
+    _patch_solve(monkeypatch, lambda case, control: _native(case))
+    source = tmp_path / 'source'
+    record = batch.evaluate_condition_batch(_conditions(1), output_dir=source, control=native_control, workers=1)
+    assert record['status'] == 'completed'
+    record = _manifest(source)
+    path = source / 'batch-input.json'
+    inputs = json.loads(path.read_text())
+    inputs[0]['config']['flags']['wall_refine_3d'] = enabled
+    path.write_text(json.dumps(inputs))
+    row = record['conditions'][0]
+    for path in (source / row['case_file'], source / row['directory'] / 'run/case.h5'):
+        case = load_case(path)
+        snapshot, parameters = mutable_data(case.config_snapshot), mutable_data(case.parameters)
+        snapshot['flags']['wall_refine_3d'] = enabled
+        parameters['wall_refine_3d'] = enabled
+        save_case(replace(case, config_snapshot=snapshot, parameters=parameters), path)
+    field = load_result(source / row['result_file'])
+    metadata = mutable_data(field.metadata)
+    metadata['parameters']['wall_refine_3d'] = enabled
+    save_result(replace(field, metadata=metadata), source / row['result_file'])
+    if not completed:
+        row['status'] = record['status'] = 'cancelled'
+        (source / 'batch.json').write_text(json.dumps(record))
+    before = {path.relative_to(source): path.read_bytes() for path in source.rglob('*') if path.is_file()}
+    monkeypatch.setattr(batch, 'prepare_fixed_mass_flow_case',
+                        lambda *a, **k: pytest.fail('recovery rebuilt a saved grid'))
+    target = tmp_path / 'resumed'
+    resumed = batch.resume_condition_batch(source / 'batch.json', output_dir=target,
+                                            control=native_control, workers=1)
+    assert resumed['status'] == 'completed'
+    assert resumed['conditions'][0]['recovery_mode'] == ('completed_copy' if completed else 'prepared_restart')
+    restored = load_case(target / resumed['conditions'][0]['case_file'])
+    assert restored.config_snapshot['flags']['wall_refine_3d'] is enabled
+    for axis in 'xyz':
+        np.testing.assert_array_equal(restored.grid['d' + axis], case.grid['d' + axis])
+    again = batch.resume_condition_batch(target / 'batch.json', output_dir=tmp_path / 'again',
+                                          control=native_control, workers=1)
+    assert again['status'] == 'completed'
+    assert {path.relative_to(source): path.read_bytes() for path in source.rglob('*') if path.is_file()} == before
+
+
+def test_historical_batch_without_saved_grid_cannot_use_a_new_constructor(tmp_path, monkeypatch, native_control):
+    from sjtu_tpmshx.domain.paused_run import PausedRun
+    source = tmp_path / 'source'
+    with pytest.raises(PausedRun):
+        batch._evaluate_condition_batch(_conditions(1), output_dir=source,
+            control=native_control, workers=1, pause_check=lambda: True)
+    path = source / 'batch-input.json'
+    inputs = json.loads(path.read_text())
+    inputs[0]['config']['flags']['wall_refine_3d'] = True
+    path.write_text(json.dumps(inputs))
+    monkeypatch.setattr(batch, 'prepare_fixed_mass_flow_case',
+                        lambda *a, **k: pytest.fail('retired input reached grid construction'))
+    resumed = batch.resume_condition_batch(source / 'batch.json', output_dir=tmp_path / 'resumed',
+                                            control=native_control, workers=1)
+    assert resumed['status'] == 'failed'
+    assert 'wall_refine_3d is retired' in resumed['conditions'][0]['reason']
+
+
 def test_solver_patch_restores_lazily_imported_recovery():
     import subprocess
     import sys

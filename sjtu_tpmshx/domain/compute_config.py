@@ -430,13 +430,12 @@ class ExtrapPolicy:
     allow: bool = False
 
 
-@dataclass
+@dataclass(slots=True)
 class FeatureFlags:
     """Solver mesh and transport settings.
 
-    ``wall_refine_3d`` enables additional 3D wall layers for scripted studies.
-    The desktop uses no additional six-wall layers and selects port refinement
-    through its mesh scheme. ``variable_rho_cp`` uses SIMPLE's local density
+    The desktop selects port refinement through its mesh scheme.
+    ``variable_rho_cp`` uses SIMPLE's local density
     in 3D thermal transport and gates eligible air/water mass-flux transport.
     It is fixed ON in the desktop and defaults ON for other callers; never
     default this off. ``temp_unit`` mirrors
@@ -445,7 +444,6 @@ class FeatureFlags:
 
     Audit C4 (L-a-2).
     """
-    wall_refine_3d: bool = False
     port_wall_refine: bool = False  # 2D/3D port-aligned graded grid; Nx/Ny/Nz are totals
     variable_rho_cp: bool = True   # default ON (local-P gas density; 2026-06-09)
     temp_unit: Literal['K', 'C'] = 'K'
@@ -593,7 +591,6 @@ class ComputeConfig:
         for name, value in (
                 ('zones.enabled', self.zones.enabled),
                 ('extrap.allow', self.extrap.allow),
-                ('flags.wall_refine_3d', self.flags.wall_refine_3d),
                 ('flags.port_wall_refine', self.flags.port_wall_refine),
                 ('flags.variable_rho_cp', self.flags.variable_rho_cp)):
             if type(value) is not bool:
@@ -622,8 +619,6 @@ class ComputeConfig:
                 raise ValueError('Continuous spatial fields require delta_levelset=0')
             if not self.is_3d and 'n_ctrl_z' in self.zones.config:
                 raise ValueError('2D continuous fields cannot supply n_ctrl_z')
-        if self.flags.port_wall_refine and self.flags.wall_refine_3d:
-            raise ValueError('Select either port/wall refinement or six-wall 3D refinement')
         if self.df_mode not in ('cfd_smooth', 'experimental'):
             raise ValueError(
                 f"ComputeConfig.df_mode={self.df_mode!r} — must be "
@@ -841,7 +836,7 @@ class ComputeConfig:
         return self
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'ComputeConfig':
+    def from_dict(cls, data: Dict[str, Any], *, prepared_grid: bool = False) -> 'ComputeConfig':
         """Build a ComputeConfig from a JSON-shaped dict.
 
         Supports two layouts:
@@ -853,6 +848,9 @@ class ComputeConfig:
            dicts; ``domain.L_dom_m`` / ``H_dom_m`` / ``Lz_m`` fold
            into :class:`GeometryConfig`. Fluids fall back to defaults
            because the Shanghai loop overwrites them per case.
+
+        ``prepared_grid`` reads controls for a saved grid or geometry export.
+        Callers must not construct a solver grid from these decoded inputs.
         """
         if not isinstance(data, dict):
             raise ValueError('ComputeConfig must be a JSON object')
@@ -890,8 +888,15 @@ class ComputeConfig:
             bcA_d = data.get('bc_A', {}) or {}
             bcB_d = data.get('bc_B', {}) or {}
             zn_d = data.get('zones', {}) or {}
-            fl_d = data.get('flags', {}) or {}
+            fl_d = dict(data.get('flags', {}) or {})
             reject_retired_research_options(fl_d)
+            if 'wall_refine_3d' in fl_d:
+                retired = fl_d.pop('wall_refine_3d')
+                if type(retired) is not bool:
+                    raise ValueError('flags.wall_refine_3d must be boolean')
+                if retired and not prepared_grid:
+                    raise ValueError('wall_refine_3d is retired. Select port_wall_refine '
+                                     'with total grid counts, or use the archived source version.')
             ex_d = data.get('extrap', {}) or {}
             return cls(
                 fluid_A=FluidConfig(**fA_d) if fA_d else FluidConfig(),

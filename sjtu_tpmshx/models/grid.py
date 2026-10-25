@@ -72,7 +72,7 @@ def suggest_grid_3d(L_dom: float, H_dom: float, Lz_dom: float,
     Hydraulic-diameter spacing is a starting heuristic, not an accuracy
     guarantee. Port/wall counts already include all refinement layers; their
     minimum comes from the same port segmentation as the grid builder.
-    The budget applies to Nx * Ny * Nz, without a retired six-wall padding.
+    The budget applies to the total Nx * Ny * Nz cell count.
     """
     lengths = (L_dom, H_dom, Lz_dom)
     for name, v in zip(('L_dom', 'H_dom', 'Lz_dom', 'D_h'), (*lengths, D_h)):
@@ -313,24 +313,3 @@ def _port_fractions_1d(widths, lo, hi, *, uniform=False):
                     profile[i] = 1.0 - 0.8 * np.exp(-1.0 * d)
                     break
     return raw, profile
-
-
-def build_master_refined_grid_3d(L_dom: float, H_dom: float, D_dom: float,
-                                   Nx_user: int, Ny_user: int, Nz_user: int,
-                                   n_refine: int = 8,
-                                   first_cell: float = 0.02e-3,
-                                   growth: float = 1.8
-                                   ) -> tuple[np.ndarray, np.ndarray, np.ndarray,
-                                              int, int, int]:
-    """Six-wall tensor-product refined grid (3D).
-
-    Returns (dx_arr, dy_arr, dz_arr, Nx_refined, Ny_refined, Nz_refined).
-    Uses build_wall_refined_1d for each axis independently.
-    """
-    dx = build_wall_refined_1d(L_dom, Nx_user, n_refine=n_refine,
-                                first_cell=first_cell, growth=growth)
-    dy = build_wall_refined_1d(H_dom, Ny_user, n_refine=n_refine,
-                                first_cell=first_cell, growth=growth)
-    dz = build_wall_refined_1d(D_dom, Nz_user, n_refine=n_refine,
-                                first_cell=first_cell, growth=growth)
-    return dx, dy, dz, len(dx), len(dy), len(dz)

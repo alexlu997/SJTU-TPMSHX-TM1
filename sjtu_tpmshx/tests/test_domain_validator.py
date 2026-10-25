@@ -24,7 +24,7 @@ from sjtu_tpmshx.domain.validator import (
 # ---------------------------------------------------------------- grid suggest
 
 
-def test_suggest_grid_3d_uses_total_counts_without_six_wall_padding():
+def test_suggest_grid_3d_uses_total_counts_within_the_budget():
     assert suggest_grid_3d(.080, .040, .020, .005, max_cells=2050) == (16, 16, 8)
 
 

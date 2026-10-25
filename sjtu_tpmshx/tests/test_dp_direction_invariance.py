@@ -17,7 +17,7 @@ direction-dependent — exactly the regression this guards.
 
 from sjtu_tpmshx.domain.compute_config import (
     ComputeConfig, FluidConfig, GeometryConfig, SolverConfig,
-    PartialBCConfig, ExtrapPolicy, FeatureFlags,
+    PartialBCConfig, ExtrapPolicy,
 )
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.api import run_case
@@ -40,7 +40,6 @@ def _cfg(dir_A, dir_B):
         bc_B=PartialBCConfig(dir=dir_B, in_ctr=_S / 2, in_w=_S,
                              out_ctr=_S / 2, out_w=_S),
         extrap=ExtrapPolicy(allow=True),
-        flags=FeatureFlags(wall_refine_3d=False),
     )
 
 

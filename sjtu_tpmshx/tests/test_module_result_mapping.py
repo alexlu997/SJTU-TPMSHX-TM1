@@ -11,7 +11,7 @@ import pytest
 from sjtu_tpmshx.controllers.module_adapter import to_compute_result
 from sjtu_tpmshx.domain.compute_config import (
     ComputeConfig, FluidConfig, GeometryConfig, SolverConfig,
-    PartialBCConfig, ExtrapPolicy, FeatureFlags,
+    PartialBCConfig, ExtrapPolicy,
 )
 from sjtu_tpmshx.domain.compute_result import ComputeResult
 from sjtu_tpmshx.domain.portable_data import mutable_data
@@ -261,7 +261,6 @@ def _small_air_air_cfg():
         bc_B=PartialBCConfig(dir=3, in_ctr=0.021, in_w=0.042,
                              out_ctr=0.021, out_w=0.042),
         extrap=ExtrapPolicy(allow=True),
-        flags=FeatureFlags(wall_refine_3d=False),
     )
 
 

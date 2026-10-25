@@ -408,7 +408,7 @@ def _read_feature_flags(window) -> 'FeatureFlags':
     if unit not in ('K', 'C'):
         unit = 'K'
     mesh = getattr(window, 'combo_grid', None)
-    return FeatureFlags(wall_refine_3d=False,
+    return FeatureFlags(
                         port_wall_refine=bool(mesh is not None and mesh.currentData()),
                         variable_rho_cp=True,
                         temp_unit=unit)

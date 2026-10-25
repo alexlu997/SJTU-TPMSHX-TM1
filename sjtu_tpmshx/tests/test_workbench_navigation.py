@@ -563,7 +563,7 @@ def test_current_solver_controls_are_visible_and_roundtrip(win):
     win.chk_allow_extrap.setChecked(False)
     before = config_from_window(win)
     preset = win._capture_current_preset('current settings')
-    assert not before.flags.wall_refine_3d and not before.flags.port_wall_refine
+    assert not before.flags.port_wall_refine
     assert before.flags.variable_rho_cp
     assert before.bc_A.uniform_inlet_2d and before.bc_B.uniform_inlet_2d
     win.combo_dim.setCurrentIndex(0)

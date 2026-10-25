@@ -16,7 +16,7 @@ import numpy as np
 
 from sjtu_tpmshx.domain.compute_config import (
     ComputeConfig, FluidConfig, GeometryConfig, SolverConfig,
-    PartialBCConfig, ExtrapPolicy, FeatureFlags,
+    PartialBCConfig, ExtrapPolicy,
 )
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.api import run_case
@@ -36,7 +36,6 @@ def _cfg(dir_B, in_ctr, out_ctr):
         bc_B=PartialBCConfig(dir=dir_B, in_ctr=in_ctr, in_w=0.042,
                              out_ctr=out_ctr, out_w=0.042),
         extrap=ExtrapPolicy(allow=True),
-        flags=FeatureFlags(wall_refine_3d=False),
     )
     return prepare_case(cc, case_id=f'reverse-mirror-{dir_B}')
 

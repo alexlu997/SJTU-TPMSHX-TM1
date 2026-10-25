@@ -1,4 +1,4 @@
-"""Audit the initial flow and thermal stages on the prepared 24-cubed grid.
+"""Audit the initial flow and thermal stages on the prepared 30-cubed grid.
 
 Keep the original 20000-iteration limit, the 25/250-step probes, and the
 six thermal gates. Candidate algebra is covered in test_anderson_candidate.
@@ -17,9 +17,9 @@ native_thermal = model_h.native
 
 @pytest.fixture(scope='module')
 def first_thermal_entry(native_full):
-    cfg, p = full.prepared('air-air', counts=(8, 8, 8), mesh='wall_refine_3d', port_wall_refine=True)
+    cfg, p = full.prepared('air-air', counts=(30, 30, 30), mesh='port_wall_refine')
     p['max_outer'] = 1
-    assert tuple(p['N'+axis] for axis in 'xyz') == (24, 24, 24)
+    assert tuple(p['N'+axis] for axis in 'xyz') == (30, 30, 30)
     assert p['ltne_max_iter'] == 20000
     actual = native_full.run(cfg, p)
     full.audit_full(actual, cfg, p)
@@ -60,7 +60,7 @@ def test_refined_first_thermal_from_identical_inputs(native_thermal, first_therm
 @pytest.mark.parametrize('count,accelerate', [(25, False), (250, True)])
 def test_refined_first_chunk_returned_equations(native_thermal, first_thermal_entry, count, accelerate):
     case = copy.deepcopy(first_thermal_entry[3])
-    assert case['shape'] == (24, 24, 24)
+    assert case['shape'] == (30, 30, 30)
     assert (case['maxit'], case['chunk'], case['alpha']) == (20000, 250, (.7, 1., .7))
     case.update(maxit=count, accelerate=accelerate)
     history = []

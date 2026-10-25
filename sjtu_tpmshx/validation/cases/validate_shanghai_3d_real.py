@@ -30,24 +30,24 @@ from sjtu_tpmshx.validation.harness._provenance import (
 
 MAX_OUTER = 12
 
-def _pipeline_config(ci, df, Nx_u, Ny_u, Nz_u, max_outer=None, wall_refine=False,
+def _pipeline_config(ci, df, Nx_u, Ny_u, Nz_u, max_outer=None,
                      port_wall_refine=False, df_mode='cfd_smooth'):
     from sjtu_tpmshx.domain.compute_config import SolverConfig
     from sjtu_tpmshx.validation.harness._case_sets import shanghai_pipeline_config
     cfg = shanghai_pipeline_config(ci, df,
         SolverConfig(Nx=Nx_u, Ny=Ny_u, Nz=Nz_u,
                      max_outer_ltne=None if max_outer is None else int(max_outer)),
-        wall_refine=wall_refine, port_wall_refine=port_wall_refine)
+        port_wall_refine=port_wall_refine)
     cfg.df_mode = df_mode
     return cfg
 
 
 def _run_one_case_pipeline(ci, df, Nx_u, Ny_u, Nz_u,
-                           max_outer=None, wall_refine=False, port_wall_refine=False,
+                           max_outer=None, port_wall_refine=False,
                            df_mode='cfd_smooth'):
     """Solve both fluids through the same production pipeline as the GUI."""
 
-    cc = _pipeline_config(ci, df, Nx_u, Ny_u, Nz_u, max_outer, wall_refine,
+    cc = _pipeline_config(ci, df, Nx_u, Ny_u, Nz_u, max_outer,
                           port_wall_refine, df_mode)
     case = ci + 1
     u_A, u_B = cc.fluid_A.u_mps, cc.fluid_B.u_mps
@@ -112,7 +112,6 @@ def _run_one_case_pipeline(ci, df, Nx_u, Ny_u, Nz_u,
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
-    ap.add_argument('--wall-refine', action='store_true', help='Enable 6-wall refinement')
     ap.add_argument('--port-wall-refine', action='store_true',
                     help='Use port/wall grading; counts include all refinement cells')
     ap.add_argument('--nx', type=int)
@@ -140,15 +139,13 @@ def main(argv=None):
         ap.error('RMSRE gates must be finite and nonnegative')
     if Path(args.suffix).name != args.suffix and args.suffix:
         ap.error('--suffix must be a filename suffix, not a path')
-    if args.port_wall_refine and args.wall_refine:
-        ap.error('--port-wall-refine cannot combine with --wall-refine')
     try:
         out_dir = output_directory('shanghai_3d', args.out_dir)
         out_path = output_path(out_dir / f'shanghai_3d_baseline{args.suffix}.csv')
     except ValueError as exc:
         ap.error(str(exc))
     explicit_grid = any(n is not None for n in (args.nx, args.ny, args.nz))
-    port_refine = args.port_wall_refine or (not explicit_grid and not args.wall_refine)
+    port_refine = args.port_wall_refine or not explicit_grid
     from sjtu_tpmshx.models.grid import SHANGHAI_GRID_3D
     defaults = SHANGHAI_GRID_3D if port_refine else (20, 10, 3)
     Nx_u, Ny_u, Nz_u = (default if value is None else value
@@ -162,7 +159,7 @@ def main(argv=None):
           f't={spec.t_wall_mm} eps={spec.eps:.4f})')
     print(f'Domain: {spec.L_dom_m*1000:.0f}x{spec.H_dom_m*1000:.0f}x{spec.Lz_m*1000:.0f} mm')
     print(f'Requested grid: {Nx_u} x {Ny_u} x {Nz_u}; '
-          f'wall_refine={args.wall_refine}, port_wall_refine={port_refine}')
+          f'port_wall_refine={port_refine}')
     print(f'Requested outer budget: max_outer={args.max_outer}')
     print(f'Requested D-F mode: {args.df_mode}')
     print('Runner: common 3D workflow, both fluids solved\n')
@@ -170,7 +167,7 @@ def main(argv=None):
     for ci in range(args.cases):
         try:
             r = _run_one_case_pipeline(ci, df, Nx_u, Ny_u, Nz_u,
-                                      max_outer=args.max_outer, wall_refine=args.wall_refine,
+                                      max_outer=args.max_outer,
                                       port_wall_refine=port_refine, df_mode=args.df_mode)
             print(f"Actual prepared grid: {r['grid_nx']} x {r['grid_ny']} x {r['grid_nz']}")
         except Exception as exc:

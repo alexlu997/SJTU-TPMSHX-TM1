@@ -3,10 +3,6 @@
 from __future__ import annotations
 import numpy as np
 
-from sjtu_tpmshx.logutil import get_logger
-
-_log = get_logger(__name__)
-
 
 def _resolve_axis_map(fA: dict, Nx: int, Ny: int, Nz: int,
                       L: float, H: float, Lz: float,
@@ -116,27 +112,12 @@ def _build_zone_fields_3d(cells: list[dict], dx: np.ndarray, dy: np.ndarray, Nz:
     return L_field, t_field, eps_field
 
 
-def _build_grid_3d(wall_refine: bool, L: float, H: float, Lz: float,
+def _build_grid_3d(L: float, H: float, Lz: float,
                    Nx_u: int, Ny_u: int, Nz_u: int,
                    ) -> tuple[np.ndarray, np.ndarray, np.ndarray,
                               int, int, int]:
-    """Build physical cell widths for native flow and energy solvers.
-
-    Wall refinement uses a 0.02 mm first cell and a growth factor of 1.8.
-    Return ``(dx, dy, dz, Nx, Ny, Nz)``.
-    """
-    if wall_refine:
-        from sjtu_tpmshx.models.grid import build_master_refined_grid_3d
-        try:
-            dx, dy, dz, Nx, Ny, Nz = build_master_refined_grid_3d(
-                L, H, Lz, Nx_u, Ny_u, Nz_u)
-            _log.info(f"[3D grid] wall-refine: user {Nx_u}x{Ny_u}x{Nz_u} -> "
-                      f"actual {Nx}x{Ny}x{Nz}")
-            return dx, dy, dz, Nx, Ny, Nz
-        except ValueError as e:
-            _log.warning(f"[3D grid] wall-refine skipped ({e}); using uniform")
+    """Return uniform physical widths and the requested cell counts."""
     dx = np.full(Nx_u, L / Nx_u, dtype=np.float64)
     dy = np.full(Ny_u, H / Ny_u, dtype=np.float64)
     dz = np.full(Nz_u, Lz / Nz_u, dtype=np.float64)
-    Nx, Ny, Nz = Nx_u, Ny_u, Nz_u
-    return dx, dy, dz, Nx, Ny, Nz
+    return dx, dy, dz, Nx_u, Ny_u, Nz_u

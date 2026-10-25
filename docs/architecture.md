@@ -573,7 +573,7 @@ GUI computations pass the selected native thread limit through `RunControl`.
   Optimization keeps its separate process/thread resource policy.
 
   Desktop inputs use uniform velocity over each inlet opening, local-density
-  thermal transport enabled, and no additional six-wall refinement. Port/wall
+  thermal transport enabled. Port/wall
   refinement is selected through the mesh scheme. Loading a GUI preset or
   session with different retired settings reports the conversion and saves
   the current explicit settings. Scripted solver configuration stays separate.
@@ -1512,9 +1512,19 @@ Incomplete pairs remain invalid. Group error counts exclude inactive inlet input
 
 The 2D preflight and preparation share physical grid construction in `models/grid.py`.
 The captured zone mode and port edges select the grid. Counts and port coverage use its actual cell widths.
-The 3D preflight uses the existing port/wall and six-wall constructors.
+The 3D preflight uses uniform or port/wall grids with the requested total cell counts.
 If construction fails, preflight keeps independent port bounds checks but reports no effective grid or cell coverage.
-Preparation retains its existing uniform fallback when wall refinement cannot fit. Preflight reports that condition as an error.
+The 2D preparation keeps its uniform fallback when wall refinement cannot fit. Preflight reports that condition as an error.
+
+Extra six-wall layers and the `wall_refine_3d` input are retired.
+Config import accepts an old disabled value and omits it from subsequent saves.
+An enabled value rejects new preparation; select the current mesh scheme and total counts explicitly.
+Prepared-grid replay and continuation read controls with `ComputeConfig.from_dict(..., prepared_grid=True)`.
+This import mode keeps the actual saved grid and snapshot; it does not restore the retired constructor.
+Geometry export also uses this mode to read completed study inputs without constructing a solver grid.
+Old batches that still need that constructor require their archived source version.
+Historical results remain readable. GUI import keeps its existing notice for changed historical settings.
+See the [retirement record](history/README.en.md#six-wall-grid-retirement).
 
 Copy-as-Python and reproducible links use the same complete GUI preset capture
 and restore path as saved inputs. This includes temperature units, partition rows,

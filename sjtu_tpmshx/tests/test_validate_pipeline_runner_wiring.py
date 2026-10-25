@@ -164,7 +164,7 @@ def test_pipeline_branch_reports_real_pressure_diagnostics(water_pressure_availa
     assert r['warnings'] == '3D-A: Mach 1.02 >= 1.0'
 
 
-def test_wall_refinement_reaches_actual_prepared_case():
+def test_port_wall_refinement_reaches_actual_prepared_case():
     import numpy as np
     import pandas as pd
     from sjtu_tpmshx.preprocess.api import prepare_case
@@ -173,10 +173,10 @@ def test_wall_refinement_reaches_actual_prepared_case():
     row.update({5: .05, 7: .10, 24: 20., 28: 200., 30: 3000., 31: 1000., 33: 5000.})
     df = pd.DataFrame([row])
     df['water_P_in_abs_Pa'] = 99325.
-    plain = prepare_case(_pipeline_config(0, df, 8, 4, 3, max_outer=4), case_id='plain')
-    refined = prepare_case(_pipeline_config(0, df, 8, 4, 3, max_outer=4, wall_refine=True), case_id='refined')
-    assert refined.config_snapshot['flags']['wall_refine_3d'] is True
-    assert refined.parameters['wall_refine_3d'] is True
+    plain = prepare_case(_pipeline_config(0, df, 60, 14, 10, max_outer=4), case_id='plain')
+    refined = prepare_case(_pipeline_config(0, df, 60, 14, 10, max_outer=4, port_wall_refine=True), case_id='refined')
+    assert refined.config_snapshot['flags']['port_wall_refine'] is True
+    assert refined.parameters['port_wall_refine'] is True
     assert refined.parameters['max_outer_ltne'] == 4
     assert any(not np.array_equal(plain.grid['d' + axis], refined.grid['d' + axis]) for axis in 'xyz')
     for axis in 'xyz':
@@ -187,7 +187,7 @@ def test_pipeline_rejects_explicit_unsupported_options_before_data_access(monkey
     import pytest
     from sjtu_tpmshx.validation.cases import validate_shanghai_3d_real as runner
     monkeypatch.setattr(runner, 'load_cases_df', lambda *a: pytest.fail('data read before option validation'))
-    for option in (['--runner', 'kernel'], ['--profile', 'uniform'], ['--profile', 'edge'], ['--eta', '0'], ['--disp-c', '0.1']):
+    for option in (['--wall-refine'], ['--runner', 'kernel'], ['--profile', 'uniform'], ['--profile', 'edge'], ['--eta', '0'], ['--disp-c', '0.1']):
         with pytest.raises(SystemExit) as exc:
             runner.main(option)
         assert exc.value.code == 2

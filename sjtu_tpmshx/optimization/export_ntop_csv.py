@@ -230,7 +230,8 @@ def export_study_design(report, history_index, out_dir, counts):
             evidence.update(mass_lower_bound=report['mass_lower_bound'],
                             stop_reason=report.get('stop_reason'),
                             design_budget=report['design_budget'], n_evaluated=report['n_evaluated'])
-    cfg = ComputeConfig.from_dict(report['conditions'][0]['config'])
+    # Export samples saved geometry without constructing a solver grid.
+    cfg = ComputeConfig.from_dict(report['conditions'][0]['config'], prepared_grid=True)
     if len(counts) != report['dimension'] or report['dimension'] != (3 if cfg.is_3d else 2):
         raise ValueError('export sampling must match the archived field dimension')
     geom = cfg.geometry

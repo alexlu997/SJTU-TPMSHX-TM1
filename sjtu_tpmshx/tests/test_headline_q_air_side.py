@@ -14,7 +14,7 @@ import pytest
 
 from sjtu_tpmshx.domain.compute_config import (
     ComputeConfig, FluidConfig, GeometryConfig, SolverConfig,
-    PartialBCConfig, ExtrapPolicy, FeatureFlags,
+    PartialBCConfig, ExtrapPolicy,
 )
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.api import run_case
@@ -34,7 +34,6 @@ def _air_water_cfg():
         bc_B=PartialBCConfig(dir=2, in_ctr=0.091, in_w=0.182,
                              out_ctr=0.091, out_w=0.182),
         extrap=ExtrapPolicy(allow=True),
-        flags=FeatureFlags(wall_refine_3d=False),
     )
     return prepare_case(cc, case_id='headline-air-side')
 

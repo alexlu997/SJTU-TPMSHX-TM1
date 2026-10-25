@@ -131,8 +131,8 @@ python -m sjtu_tpmshx.runs.smokes.smoke_ui_screenshots --output .cache/ui-smoke-
 上海生产验证的端口/壁面网格由同一构造函数生成，网格数包含所有加密单元。
 二维入口采用 `84×24`；三维无显式网格参数时采用 `92×14×10`。
 历史网格研究见[历史索引](history/README.md)。三维显式
-`--nx/--ny/--nz` 保留手选网格，`--port-wall-refine` 选择端口/壁面加密；
-旧 `--wall-refine` 为另一种六面壁面加密，两者不能同时启用。
+`--nx/--ny/--nz` 保留手选网格，`--port-wall-refine` 选择端口/壁面加密。
+额外六壁面加层及 `--wall-refine` 已退役，见[退役记录](history/README.md#six-wall-grid-retirement)。
 实际网格始终来自本次结果的准备网格。
 当前共同 F2 和物理边界见[架构说明](architecture.zh-CN.md)；旧架构回归和实验误差见历史索引。
 无效的 `tol_simple` 和优化启动器旧 `--tol` 已退役；旧工况文件导入时明确提示

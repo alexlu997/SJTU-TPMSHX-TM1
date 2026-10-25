@@ -8,7 +8,7 @@ Rules:
   * Use the physical grid constructors and the captured zone state.
     A failed grid construction is an ERROR. Keep independent port bounds
     checks, but do not report an effective grid or coverage after failure.
-    Wall refinement that cannot fit is an ERROR even when preparation can
+    A rejected 2D wall refinement is an ERROR even when preparation can
     use its existing uniform fallback.
   * Inlet/outlet must cover at least one cell (ERROR at 0, WARNING at 1-2)
     on the cross-axis. Pipe span outside the domain is a hard ERROR.
@@ -26,7 +26,7 @@ import numpy as np
 
 from sjtu_tpmshx.domain.validator import cross_axes_for_dir
 from sjtu_tpmshx.models.grid import (
-    build_grid_2d, build_master_refined_grid_3d, build_port_wall_grid,
+    build_grid_2d, build_port_wall_grid,
 )
 
 _STREAM_MIN_CELLS = 20
@@ -82,7 +82,6 @@ def compute_preflight(
     L: float, H: float, Lz: float,
     Nx: int, Ny: int, Nz: int,
     is_3d: bool,
-    wall_refine_3d: bool,
     fluid_A: Optional[FluidCfg] = None,
     fluid_B: Optional[FluidCfg] = None,
     T_inA: Optional[float] = None,
@@ -127,9 +126,6 @@ def compute_preflight(
         elif port_wall_refine:
             widths = build_port_wall_grid(
                 (L, H, Lz), (Nx, Ny, Nz), ports)
-        elif wall_refine_3d:
-            widths = build_master_refined_grid_3d(L, H, Lz, Nx, Ny, Nz)[:3]
-            refine_tag = 'wall-refined'
         else:
             widths = tuple(np.full(n, span / n) for span, n in zip((L, H, Lz), (Nx, Ny, Nz)))
         grid_edges = {axis: np.r_[0., np.cumsum(w)] for axis, w in zip('xyz', widths)}

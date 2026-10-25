@@ -244,7 +244,11 @@ Keep the original convergence and physical checks. Check changed directions firs
 
 The GUI uses uniform velocity inside openings and enables local-density thermal transport.
 
-It no longer offers historical inlet smoothing, six-wall refinement, or a local-density switch. Local density also affects transport-route selection for limited air/water cases. It is not a general sCO₂ variable-property switch. Loading GUI configurations with different previous settings reports the update. Subsequent saves use current settings. Allowing inlet Nu extrapolation changes only inlet-Re rejection/warning behavior.
+It no longer offers historical inlet smoothing or a local-density switch.
+Extra 3D six-wall layers are retired from GUI and script inputs. Port/wall refinement stays supported.
+Config import accepts an old disabled value. An enabled value requires an explicit choice of the current mesh scheme and total counts.
+Prepared cases replay and resume on their saved grids. Historical results remain readable; see the [retirement record](docs/history/README.en.md#six-wall-grid-retirement).
+Local density also affects transport-route selection for limited air/water cases. It is not a general sCO₂ variable-property switch. Loading GUI configurations with different previous settings reports the update. Subsequent saves use current settings. Allowing inlet Nu extrapolation changes only inlet-Re rejection/warning behavior.
 
 It does not relax property or geometry limits. The next calculation receives the thread setting.
 C++ limits its pointwise property workers and paired 2D flow calls. A limit of one selects serial execution.

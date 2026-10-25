@@ -192,7 +192,7 @@ def prepared(pair="air-air", *, directions=None, counts=None, mesh=None, **contr
         return c, p
     else:
         if mesh == "graded":
-            def graded(_wall, lx, ly, lz, nx, ny, nz):
+            def graded(lx, ly, lz, nx, ny, nz):
                 widths = [np.linspace(.65, 1.35, n) for n in (nx, ny, nz)]
                 for w, length in zip(widths, (lx, ly, lz)):
                     w *= length / w.sum()
@@ -500,9 +500,9 @@ def test_no_b_solver_prescribed_temperature(native):
 
 
 def test_refined_real_grid_and_existing_energy_acceleration(native, record_property):
-    cfg, p = prepared('air-air', counts=(8, 8, 8), mesh='wall_refine_3d', port_wall_refine=True)
+    cfg, p = prepared('air-air', counts=(30, 30, 30), mesh='port_wall_refine')
     p['max_outer'] = 2
-    assert tuple(p['N'+axis] for axis in 'xyz') == (24, 24, 24)
+    assert tuple(p['N'+axis] for axis in 'xyz') == (30, 30, 30)
     assert p['ltne_max_iter'] == 20000
     actual = native.run(cfg, p)
     audit_full(actual, cfg, p)
@@ -554,7 +554,7 @@ def test_dispersion_and_user_solid_seed(native):
     audit_full(native.run(cfg, p), cfg, p)
 
 
-@pytest.mark.parametrize("counts,mesh", [((4, 4, 4), None), ((8, 8, 8), None), ((9, 8, 11), "graded"), ((9, 8, 11), "wall_refine_3d")])
+@pytest.mark.parametrize("counts,mesh", [((4, 4, 4), None), ((8, 8, 8), None), ((9, 8, 11), "graded"), ((30, 30, 30), "port_wall_refine")])
 def test_coarse_bootstrap_preserves_physical_ports_and_fine_gate(native, counts, mesh):
     cfg, p = prepared("air-air", counts=counts, mesh=mesh, use_coarse_bootstrap=True, coarse_bootstrap_max_iter=30)
     cfg["max_iter_simple"] = 100

@@ -13,6 +13,33 @@ from sjtu_tpmshx.optimization import multi_condition_optimizer as search
 from sjtu_tpmshx.tests.test_multi_condition_optimizer import _conditions, _fake_batches, _manifest
 
 
+@pytest.mark.parametrize('changed', [False, True])
+def test_old_disabled_grid_flag_does_not_change_search_identity(tmp_path, monkeypatch, changed):
+    _fake_batches(monkeypatch)
+    source = tmp_path / 'source'
+    with pytest.raises(PausedRun):
+        search.run_multi_condition_optimization(_conditions(), output_dir=source,
+            method='sobol', n_init=2, n_iter=0, workers=1, pause_check=lambda: True)
+    for name in ('optimization.json', 'optimization-input.json'):
+        path = source / name
+        record = json.loads(path.read_text())
+        for row in record['conditions']:
+            row['config']['flags']['wall_refine_3d'] = False
+        if changed and name == 'optimization.json':
+            record['conditions'][0]['config']['flags']['variable_rho_cp'] = False
+        path.write_text(json.dumps(record))
+    before = {path.name: path.read_bytes() for path in source.iterdir() if path.is_file()}
+    target = tmp_path / 'resumed'
+    if changed:
+        with pytest.raises(ValueError, match='saved search conditions differ'):
+            search.resume_multi_condition_optimization(source / 'optimization.json', output_dir=target, workers=1)
+        assert not target.exists()
+    else:
+        result = search.resume_multi_condition_optimization(source / 'optimization.json', output_dir=target, workers=1)
+        assert result['status'] == 'completed' and result['n_usable'] == 2
+    assert {path.name: path.read_bytes() for path in source.iterdir() if path.is_file()} == before
+
+
 @pytest.mark.parametrize('shared', ['config', 'fluid'])
 def test_resume_keeps_each_flow_when_conditions_share_input_objects(tmp_path, monkeypatch, shared):
     _fake_batches(monkeypatch)

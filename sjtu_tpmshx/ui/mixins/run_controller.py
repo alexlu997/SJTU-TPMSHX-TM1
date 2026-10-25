@@ -668,7 +668,7 @@ class RunControllerMixin:
         checkpoint_file = Path(checkpoint_file).resolve()
         try:
             _, case, record = read_run_checkpoint(checkpoint_file)
-            config = ComputeConfig.from_dict(mutable_data(case.config_snapshot))
+            config = ComputeConfig.from_dict(mutable_data(case.config_snapshot), prepared_grid=True)
             saved_provenance = record.get('gui_provenance')
             if saved_provenance is not None and not isinstance(saved_provenance, dict):
                 raise ValueError('saved GUI provenance must be a record')
