@@ -94,13 +94,25 @@ and rework through complete changes, clear decisions, and verified results.
 
 ## 4. Code changes and validation
 
+- Organize modules by responsibility. Give shared rules and mutable state clear owners.
+  Use explicit inputs, outputs, and interfaces between modules.
+  Do not split or combine code based only on file length or repeated lines.
 - Keep GUI code in `ui/` and `controllers/`. Keep lower layers free of Qt.
-- Keep workflow orchestration separate from numerical implementation in `solvers/`.
+  Keep workflow orchestration separate from numerical implementation in `solvers/`.
   Do not duplicate correlations or physical constants between these layers.
-- Update affected callers, tests, fixtures, configuration, and exports as part
-  of the change.
-  Record affected consumers, saved files, and documentation in the task handoff before implementation.
-  Keep small duplication when it is clearer. Share code only when contracts match and maintenance becomes simpler.
+- Reuse an existing rule when its meaning and required behavior match.
+  Keep small duplication when sharing would combine different contracts.
+  Preserve independent test references and physical checks.
+- Before implementation, record affected consumers and related changes in the existing task handoff.
+  Include relevant tests, fixtures, configuration, saved files, exports, packaging, examples, documentation, comments, and docstrings.
+  Complete necessary updates to these items in the same change.
+  Update this record when new effects are found.
+- Changes to behavior, interfaces, defaults, units, limits, commands, or file formats require a check of related current text.
+  Include Markdown, TXT, and other relevant text files.
+  Record checked items that need no update, with a short reason.
+- Resolve conflicts between code and text against confirmed requirements, public contracts, and validation evidence.
+  Do not change documentation merely to accept an implementation defect.
+  Ask the user when a physical or acceptance decision remains unresolved.
 - For a replacement, define its retirement scope before implementation.
   Follow the [retirement workflow](docs/collaboration.md#complete-code-retirement).
   Migrate callers and regression coverage. Remove the replaced implementation
@@ -160,3 +172,7 @@ and rework through complete changes, clear decisions, and verified results.
   text unchanged during language edits.
 - Review word meanings, parts of speech, sentences, and technical terms.
   Use sentence-length checks to support that review, not as proof of STE certification.
+- Current instructions and explanations must describe supported behavior.
+  Mark historical descriptions with their version or date.
+  Keep original results, failure records, external quotations, and license text unchanged.
+  Link historical material when current text needs it.
