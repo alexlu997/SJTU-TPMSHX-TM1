@@ -1506,6 +1506,12 @@ Grid checks, prescribed-speed advice, the 3D size confirmation and the worker us
 Mass-flow inputs keep their stored speed out of the advice; preparation resolves the actual speed.
 Input-capture errors stop the launch before grid checks or worker creation.
 
+The 2D preflight and preparation share physical grid construction in `models/grid.py`.
+The captured zone mode and port edges select the grid. Counts and port coverage use its actual cell widths.
+The 3D preflight uses the existing port/wall and six-wall constructors.
+If construction fails, preflight keeps independent port bounds checks but reports no effective grid or cell coverage.
+Preparation retains its existing uniform fallback when wall refinement cannot fit. Preflight reports that condition as an error.
+
 Copy-as-Python and reproducible links use the same complete GUI preset capture
 and restore path as saved inputs. This includes temperature units, partition rows,
 continuous-field inputs and custom model parameters. The Python snippet expects

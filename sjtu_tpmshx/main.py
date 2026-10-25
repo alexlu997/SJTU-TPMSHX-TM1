@@ -617,6 +617,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
             Nx=solver.Nx, Ny=solver.Ny, Nz=solver.Nz,
             is_3d=compute_cfg.is_3d, wall_refine_3d=compute_cfg.flags.wall_refine_3d,
             port_wall_refine=compute_cfg.flags.port_wall_refine,
+            zone_axis=compute_cfg.zones.axis if compute_cfg.zones.enabled else None,
             fluid_A=_cfg(compute_cfg.bc_A), fluid_B=_cfg(compute_cfg.bc_B),
             T_inA=compute_cfg.fluid_A.T_in_K, T_inB=compute_cfg.fluid_B.T_in_K)
         for _w in _geom_warnings:

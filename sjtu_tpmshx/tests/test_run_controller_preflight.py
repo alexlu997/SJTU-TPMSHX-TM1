@@ -165,7 +165,8 @@ def test_run_captures_once_for_preflight_advice_and_worker(win, monkeypatch, dim
 
 
 @pytest.mark.parametrize('dimension', [0, 1])
-def test_grid_preflight_uses_captured_geometry_ports_and_temperatures(win, monkeypatch, dimension):
+@pytest.mark.parametrize('zone_axis', [None, 'x', 'y', 'grid', 'continuous'])
+def test_grid_preflight_uses_captured_geometry_ports_and_temperatures(win, monkeypatch, dimension, zone_axis):
     from sjtu_tpmshx.main import Main_Menu
     from sjtu_tpmshx.ui.preflight import Preflight
 
@@ -174,6 +175,8 @@ def test_grid_preflight_uses_captured_geometry_ports_and_temperatures(win, monke
     cfg = config_from_window(win, strict=True)
     cfg.fluid_A.T_in_K, cfg.fluid_B.T_in_K = 310., 330.
     cfg.bc_A.in_z_ctr, cfg.bc_A.in_z_w = (.02, .01) if dimension else (None, None)
+    cfg.zones.enabled = zone_axis is not None
+    cfg.zones.axis = zone_axis or 'y'
     captured = []
 
     def preflight(**kwargs):
@@ -189,6 +192,7 @@ def test_grid_preflight_uses_captured_geometry_ports_and_temperatures(win, monke
         cfg.solver.Nx, cfg.solver.Ny, cfg.solver.Nz, bool(dimension))
     assert (inputs['T_inA'], inputs['T_inB']) == (310., 330.)
     assert inputs['port_wall_refine'] == cfg.flags.port_wall_refine
+    assert inputs['zone_axis'] == zone_axis
     for side in 'AB':
         port, bc = inputs['fluid_' + side], getattr(cfg, 'bc_' + side)
         for name in ('dir', 'in_ctr', 'in_w', 'out_ctr', 'out_w'):

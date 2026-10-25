@@ -72,8 +72,7 @@ def test_uniform_grid_when_disabled_or_refinement_rejected(wall_refine, monkeypa
         assert actual.dtype == np.float64
     logger.info.assert_not_called()
     if wall_refine:
-        refine.assert_called_once_with(.12, .08, .06, 3, 4, 2,
-                                       n_refine=8, first_cell=0.02e-3, growth=1.8)
+        refine.assert_called_once_with(.12, .08, .06, 3, 4, 2)
         logger.warning.assert_called_once_with(
             '[3D grid] wall-refine skipped (small domain); using uniform')
     else:
@@ -95,8 +94,7 @@ def test_refined_grid_keeps_arrays_without_uniform_allocation(monkeypatch):
     actual = grid_3d._build_grid_3d(True, .12, .08, .06, 3, 4, 2)
     assert actual[3:] == (3, 3, 3)
     assert all(actual[i] is widths[i] for i in range(3))
-    refine.assert_called_once_with(.12, .08, .06, 3, 4, 2,
-                                   n_refine=8, first_cell=0.02e-3, growth=1.8)
+    refine.assert_called_once_with(.12, .08, .06, 3, 4, 2)
     logger.info.assert_called_once_with('[3D grid] wall-refine: user 3x4x2 -> actual 3x3x3')
     logger.warning.assert_not_called()
 

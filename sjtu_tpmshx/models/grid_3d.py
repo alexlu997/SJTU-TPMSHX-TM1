@@ -129,8 +129,7 @@ def _build_grid_3d(wall_refine: bool, L: float, H: float, Lz: float,
         from sjtu_tpmshx.models.grid import build_master_refined_grid_3d
         try:
             dx, dy, dz, Nx, Ny, Nz = build_master_refined_grid_3d(
-                L, H, Lz, Nx_u, Ny_u, Nz_u,
-                n_refine=8, first_cell=0.02e-3, growth=1.8)
+                L, H, Lz, Nx_u, Ny_u, Nz_u)
             _log.info(f"[3D grid] wall-refine: user {Nx_u}x{Ny_u}x{Nz_u} -> "
                       f"actual {Nx}x{Ny}x{Nz}")
             return dx, dy, dz, Nx, Ny, Nz
