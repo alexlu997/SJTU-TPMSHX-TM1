@@ -1,13 +1,12 @@
 #pragma once
 
-#include "tpmshx/anderson_state.hpp"
 #include "tpmshx/fluid_properties.hpp"
+#include "tpmshx/model_h_iteration.hpp"
 #include "tpmshx/temperature_driver.hpp"
 
 #include <array>
 #include <limits>
 #include <memory>
-#include <optional>
 #include <vector>
 
 namespace tpmshx {
@@ -38,35 +37,6 @@ struct ModelHAudit2D {
     bool boundary_complete, finite, energy_ok, solid_ok, equations_ok, passed;
 };
 
-struct ModelHIterationOverrides {
-    // Zero retains the route default, including its refined-grid budget.
-    std::size_t max_iterations=0;
-    double temperature_tolerance=0.,q_relative_tolerance=0.;
-    bool active() const { return max_iterations || temperature_tolerance || q_relative_tolerance; }
-};
-
-struct ModelHIterationSettings {
-    std::size_t max_iterations,chunk_iterations;
-    double temperature_tolerance,q_relative_tolerance;
-    std::size_t total_iteration_budget;
-    bool accelerate=false;
-    std::size_t acceleration_sweeps=25,acceleration_history=6;
-};
-
-struct ModelHControl2D {
-    std::size_t max_iterations, chunk_iterations;
-    double q_relative_tolerance;
-    bool warm_start = false, accelerate = false, red_black = false;
-    bool (*cancel)(void*) = nullptr;
-    void (*progress)(void*, std::size_t, std::size_t) = nullptr;
-    void* context = nullptr;
-    bool second_order_a = true, second_order_b = true;
-    // FullCC uses the existing h(T) model with its own strict final-state
-    // energy gate. The original model-h certificate/stopping defaults remain.
-    bool strict_energy_balance = false;
-    double temperature_tolerance = .01;
-};
-
 struct ModelHFinishingCheck2D {
     std::size_t iterations;
     bool passed, equations_ok;
@@ -85,16 +55,6 @@ struct ModelHResult2D {
     // Independent common ledger; never promotes fullCC to model-h eligibility.
     bool physical_audit_available = false;
     double energy_error_ratio = std::numeric_limits<double>::quiet_NaN();
-};
-
-enum class ModelHPhase { active, completed, cancelled, failed };
-
-struct ModelHIterationState {
-    std::array<std::vector<double>,3> temperature;
-    std::vector<double> previous;
-    double previous_q=0.;
-    bool have_q=false;
-    std::optional<ModelHChunkState> chunk;
 };
 
 struct ModelHRunState2D {

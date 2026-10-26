@@ -1,6 +1,13 @@
 #pragma once
 
-#include "tpmshx/model_h_2d.hpp"
+#include "tpmshx/fluid_properties.hpp"
+#include "tpmshx/model_h_iteration.hpp"
+#include "tpmshx/temperature_driver.hpp"
+
+#include <array>
+#include <limits>
+#include <memory>
+#include <vector>
 
 namespace tpmshx {
 
@@ -37,19 +44,6 @@ struct ModelHAudit3D {
     // LTNE exchange balance, complete physical inflow data. No new solid gate.
     std::array<bool,6> gates;
     bool passed;
-};
-
-struct ModelHControl3D {
-    std::size_t max_iterations, chunk_iterations;
-    double q_relative_tolerance, alpha_a, alpha_solid, alpha_b;
-    bool warm_start=false, accelerate=false, red_black=false;
-    bool (*cancel)(void*)=nullptr;
-    void (*progress)(void*,std::size_t,std::size_t)=nullptr;
-    void* context=nullptr;
-    bool second_order_a=true, second_order_b=true;
-    bool strict_energy_balance=false;
-    double temperature_tolerance=.01;
-    std::size_t cpu_threads=1;
 };
 
 struct ModelHFinishingCheck3D {

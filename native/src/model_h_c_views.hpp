@@ -1,5 +1,6 @@
 #pragma once
 #include "tpmshx/model_h_c_api.h"
+#include "tpmshx/model_h_2d.hpp"
 #include "tpmshx/model_h_3d.hpp"
 #include <algorithm>
 
