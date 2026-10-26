@@ -178,8 +178,7 @@ def _parse_geometry_inputs_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
     T_inA = compute_cfg.fluid_A.T_in_K
     T_inB = compute_cfg.fluid_B.T_in_K
 
-    # Optional solid initial temperature — None means legacy seed
-    # 0.5*(T_inA+T_inB) inside solve_full_domain. Not a prescribed Ts.
+    # None uses the mean inlet temperature as the native solver's solid seed.
     T_s_init = compute_cfg.solver.T_s_init_K
 
     # Domain-unit validation is shared with 3D preparation.
