@@ -11,8 +11,7 @@ asym_geometry.py — 非对称孔隙率研究模型。
 import numpy as np
 from scipy import ndimage
 
-# 与 tpms_geometry._A0_from_C 内的体素面积校正常量一致（来源：该函数注释）。
-_AREA_CORRECTION = 1.553
+from sjtu_tpmshx.models.tpms_geometry import _AREA_CORRECTION
 
 
 def eps_sides(phi: np.ndarray, C: float, delta: float = 0.0):
