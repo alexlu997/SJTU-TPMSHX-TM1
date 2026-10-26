@@ -1,4 +1,5 @@
 #include "tpmshx/model_h_c_api.h"
+#include "tpmshx/model_h_2d.hpp"
 #include "tpmshx/model_h_3d.hpp"
 #include "model_h_c_views.hpp"
 #include "tpmshx/model_coefficients.hpp"

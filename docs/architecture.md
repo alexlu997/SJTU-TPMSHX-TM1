@@ -55,6 +55,16 @@ The actual-state audit keeps independent physical balances and signed boundary d
 The coupled-only audit keeps unavailable fluid residuals as NaN and does not read fluid conductivity.
 The frozen H sweep and its low-level C export are retired. Shared audit types and functions remain.
 
+The `tpmshx_temperature` build target owns the general temperature driver and its private Eigen settings.
+Quick Design and the temperature C interfaces link this target directly.
+The shared energy target declares its thread dependency.
+The full 3D target does not depend on Quick Design.
+
+`model_h_iteration.hpp` owns the shared iteration state and settings, plus the distinct 2D and 3D control structures.
+Both model-h interfaces and their shared helpers include this header.
+Shared helpers do not include either complete solver interface.
+Each dimensional interface keeps its fluid inputs, results and run class.
+
 The 2D and 3D model-h drivers share one accelerated chunk owner.
 Strict 3D calls use five sweeps per block and sixteen Anderson samples.
 Other calls retain 25 sweeps per block and six samples.

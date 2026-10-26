@@ -1,7 +1,7 @@
 #pragma once
 // Shared by the actual 2D and 3D model-h thermal drivers.
 #include "anderson.hpp"
-#include "tpmshx/model_h_3d.hpp"
+#include "tpmshx/model_h_iteration.hpp"
 #include "tpmshx/temperature_driver.hpp"
 #include "tpmshx/model_coefficients.hpp"
 #include <Eigen/Dense>

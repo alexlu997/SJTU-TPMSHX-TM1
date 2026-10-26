@@ -5,6 +5,7 @@
 
 #include "tpmshx/enthalpy_driver.hpp"
 #include "tpmshx/closure_evidence.hpp"
+#include "tpmshx/model_h_2d.hpp"
 #include "tpmshx/model_h_3d.hpp"
 #include "tpmshx/pressure_reference.hpp"
 #include "tpmshx/simple_3d.hpp"
