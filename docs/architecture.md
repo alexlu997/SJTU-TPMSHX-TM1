@@ -990,6 +990,7 @@ New searches save fixed inputs in `optimization-input.json` before numerical wor
 `resume_multi_condition_optimization` compares that input with the search record and the current dependency versions.
 It checks the initial Sobol sequence, saved proposals, history order, objectives, and fixed initial reference point.
 Recovery copies the complete source archive to a new directory before execution.
+The output directory must be outside the saved search, including when a path uses a directory alias.
 The same search loop checks completed batch evidence without another solve.
 It retains failed observations and continues incomplete conditions through batch recovery.
 An incomplete condition uses a new condition directory within the copied batch.

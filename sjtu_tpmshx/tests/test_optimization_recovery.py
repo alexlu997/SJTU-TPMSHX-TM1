@@ -197,10 +197,29 @@ def test_pause_save_failure_keeps_primary_error_and_does_not_claim_saved_pause(t
     assert _manifest(output)['status'] == 'running'
 
 
-def test_resume_rejects_destination_inside_the_source(tmp_path, monkeypatch):
+@pytest.mark.parametrize('alias', ['none', 'symlink', 'case'])
+@pytest.mark.parametrize('nested', [False, True])
+def test_resume_rejects_destination_inside_the_source(tmp_path, monkeypatch, alias, nested):
     _fake_batches(monkeypatch)
-    search.run_multi_condition_optimization(_conditions(), output_dir=tmp_path / 'source',
+    source = tmp_path / 'source'
+    search.run_multi_condition_optimization(_conditions(), output_dir=source,
         method='sobol', n_init=1, n_iter=0, workers=1)
+    before = {path.relative_to(source): path.read_bytes() for path in source.rglob('*') if path.is_file()}
+    target = source
+    if alias == 'symlink':
+        target = tmp_path / 'source-alias'
+        target.symlink_to(source, target_is_directory=True)
+    elif alias == 'case':
+        target = source.with_name('SOURCE')
+        if not target.exists():
+            pytest.skip('requires a case-insensitive filesystem')
+    if nested:
+        target /= 'continued'
+    monkeypatch.setattr(search.shutil, 'copytree',
+        lambda *args, **kwargs: pytest.fail('recovery must reject the source before copying'))
     with pytest.raises(ValueError, match='outside'):
-        search.resume_multi_condition_optimization(tmp_path / 'source/optimization.json',
-            output_dir=tmp_path / 'source/continued', workers=1)
+        search.resume_multi_condition_optimization(source / 'optimization.json',
+            output_dir=target, workers=1)
+    assert {path.relative_to(source): path.read_bytes() for path in source.rglob('*') if path.is_file()} == before
+    if nested:
+        assert not target.exists()

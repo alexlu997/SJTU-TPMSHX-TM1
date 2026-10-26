@@ -192,7 +192,8 @@ def resume_multi_condition_optimization(checkpoint_file, *, output_dir, control=
     if source.name != 'optimization.json':
         raise ValueError('select optimization.json to continue a search')
     destination = Path(output_dir).resolve()
-    if destination.is_relative_to(source.parent):
+    if any(parent.exists() and parent.samefile(source.parent)
+           for parent in (destination, *destination.parents)):
         raise ValueError('the recovery directory must be outside the saved search')
     record = json.loads(source.read_text(encoding='utf-8'))
     frozen = json.loads(source.with_name('optimization-input.json').read_text(encoding='utf-8'))
