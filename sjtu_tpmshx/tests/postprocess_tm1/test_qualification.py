@@ -11,7 +11,7 @@ from sjtu_tpmshx.domain.metric_spec import MetricSpec
 from sjtu_tpmshx.domain.performance_result import MetricValue, PerformanceResult
 from sjtu_tpmshx.domain.portable_data import mutable_data
 from sjtu_tpmshx.io.metrics_io import load_metrics, save_metrics
-from sjtu_tpmshx.io.result_io import save_result
+from sjtu_tpmshx.io.result_io import load_result, save_result
 from sjtu_tpmshx.postprocess.api import evaluate_qualification
 from sjtu_tpmshx.tests.postprocess_tm1.test_applicability import result_with_evidence
 from sjtu_tpmshx.tests.postprocess_tm1.test_physical_balance import sample_result
@@ -37,10 +37,12 @@ def qualified_result(dimension=3):
             fields_finite=True, envelope_ok=True), eps_A_strict=0., eps_B_strict=0.,
             eps_A_strict_cellmax=0., eps_B_strict_cellmax=0., Q_sA=0., Q_sB=0.,
             model_h_balance=dict(physical_boundary_complete=True, sides={'A': {}, 'B': {}})))
-    return replace(result, boundary_fluxes=flux, metadata=metadata,
-                   fields=dict(h_vB=np.zeros((2,) * dimension)),
-                   field_metadata=dict(h_vB=dict(unit='W/(m3 K)', axes=tuple('xyz'[:dimension]),
-                                                location='cell', state='last thermal solve')), run_status=dict(execution='completed', converged=True))
+    fields = {name: np.full((2,) * dimension, value)
+              for name, value in (('Ta', 350.), ('Tb', 320.), ('Ts', 335.), ('h_vB', 0.))}
+    return replace(result, boundary_fluxes=flux, metadata=metadata, fields=fields,
+                   field_metadata={name: dict(unit='W/(m3 K)' if name == 'h_vB' else 'K',
+                       axes=tuple('xyz'[:dimension]), location='cell', state='last thermal solve')
+                       for name in fields}, run_status=dict(execution='completed', converged=True))
 
 
 def required_metrics(dimension=3):
@@ -61,6 +63,82 @@ def test_complete_evidence_keeps_independent_conclusions():
     assert quality['optimization']['passed'] is True
     assert quality['optimization']['deferred'] == []
     json.dumps(quality, allow_nan=False)
+
+
+@pytest.mark.parametrize('dimension', [2, 3])
+@pytest.mark.parametrize('name', ['Ta', 'Tb', 'Ts', 'P_report_A', 'ucA'])
+@pytest.mark.parametrize('value', [float('nan'), float('inf'), -float('inf')])
+def test_actual_raw_fields_override_saved_convergence(dimension, name, value):
+    result = qualified_result(dimension)
+    fields = mutable_data(result.fields)
+    fields[name] = np.full((2,) * dimension, 330.)
+    fields[name].flat[-1] = value
+    result = replace(result, fields=fields)
+    quality = evaluate_qualification(result, required_metrics(dimension))
+    assert result.run_status['converged'] is True
+    assert quality['convergence']['gates']['fields_finite'] is True
+    assert quality['convergence']['raw_fields'][name] is False
+    assert quality['convergence']['passed'] is False
+    assert quality['design']['eligible'] is quality['optimization']['passed'] is False
+
+
+@pytest.mark.parametrize('name', ['Ta', 'Tb', 'Ts'])
+def test_missing_raw_temperature_does_not_gain_qualification(name):
+    result = qualified_result()
+    fields = dict(result.fields)
+    del fields[name]
+    quality = evaluate_qualification(replace(result, fields=fields), required_metrics())
+    assert quality['convergence']['raw_fields'][name] is None
+    assert quality['convergence']['passed'] is None
+    assert quality['design']['eligible'] is quality['optimization']['passed'] is None
+
+
+@pytest.mark.parametrize('name', ['Ta', 'Tb', 'Ts'])
+def test_recorded_fine_temperature_is_checked(name):
+    result = qualified_result(2)
+    fine = {key: np.full((4, 4), 330.) for key in ('Ta', 'Tb', 'Ts')}
+    fine[name][1, 1] = np.nan
+    result = replace(result, boundary_fluxes={**result.boundary_fluxes, 'fine': fine})
+    quality = evaluate_qualification(result, required_metrics(2))
+    assert quality['convergence']['raw_fields']['fine.' + name] is False
+    assert quality['convergence']['passed'] is False
+    assert quality['design']['eligible'] is quality['optimization']['passed'] is False
+
+
+@pytest.mark.parametrize('name', ['Ta', 'Tb', 'Ts'])
+@pytest.mark.parametrize('missing', ['absent', 'none'])
+def test_missing_fine_temperature_stays_unverified_after_archive(tmp_path, name, missing):
+    from sjtu_tpmshx.postprocess.api import evaluate
+
+    result = qualified_result(2)
+    fine = {key: np.full((4, 4), 330.) for key in ('Ta', 'Tb', 'Ts')}
+    if missing == 'absent':
+        del fine[name]
+    else:
+        fine[name] = None
+    result = replace(result, boundary_fluxes={**result.boundary_fluxes, 'fine': fine})
+    restored = load_result(save_result(result, tmp_path / 'missing-fine.h5'))
+    quality = evaluate_qualification(restored, required_metrics(2))
+    assert quality['convergence']['raw_fields']['fine.' + name] is None
+    assert quality['convergence']['status'] == 'unverified'
+    assert quality['design']['eligible'] is quality['optimization']['passed'] is None
+    assert evaluate(restored).qualification['convergence']['status'] == 'unverified'
+
+
+def test_display_and_diagnostic_nan_remain_readable_without_changing_qualification(tmp_path):
+    result = qualified_result()
+    metadata = mutable_data(result.metadata)
+    metadata['diagnostics']['unavailable_probe'] = np.array([np.nan])
+    result = replace(result, fields={**result.fields, 'Ta_display': np.full((2, 2, 2), np.nan)},
+        field_metadata={**result.field_metadata, 'Ta_display': {
+            **result.field_metadata['Ta'], 'state': 'display'}}, metadata=metadata)
+    restored = load_result(save_result(result, tmp_path / 'diagnostics.h5'))
+    assert np.isnan(restored.fields['Ta_display']).all()
+    assert np.isnan(restored.metadata['diagnostics']['unavailable_probe']).all()
+    quality = evaluate_qualification(restored, required_metrics())
+    assert quality['convergence']['passed'] is True
+    assert quality['design']['eligible'] is quality['optimization']['passed'] is True
+    assert 'Ta_display' not in quality['convergence']['raw_fields']
 
 
 @pytest.mark.parametrize('damage,section,expected', [

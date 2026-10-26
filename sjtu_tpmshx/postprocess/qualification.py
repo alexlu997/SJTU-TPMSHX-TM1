@@ -66,10 +66,19 @@ def evaluate_qualification(result, metrics):
     detail = metadata.get('diagnostics', {}).get('convergence_detail', {})
     gates = {key: detail[key] for key in ('simple_ok', 'ltne_ok', 'outer_converged',
              'fields_finite', 'envelope_ok', 'richardson_ok') if key in detail}
-    convergence = _verdict(_all_known((result.run_status.get('converged'),
+    raw_fields = {name: bool(np.all(np.isfinite(values)))
+                  for name, values in result.fields.items() if not name.endswith('_display')}
+    for name in ('Ta', 'Tb', 'Ts'):
+        raw_fields.setdefault(name, None)
+    fine = result.boundary_fluxes.get('fine')
+    if fine:
+        for name in ('Ta', 'Tb', 'Ts'):
+            raw_fields['fine.' + name] = (bool(np.all(np.isfinite(fine[name])))
+                                          if fine.get(name) is not None else None)
+    convergence = _verdict(_all_known((result.run_status.get('converged'), _all_known(raw_fields.values()),
         *(value for value in gates.values() if value is not None))),
-        'run_status.converged and metadata.diagnostics.convergence_detail',
-        gates=gates, thermal_state=result.boundary_fluxes.get('state'),
+        'run_status.converged, metadata.diagnostics.convergence_detail and raw fields',
+        gates=gates, raw_fields=raw_fields, thermal_state=result.boundary_fluxes.get('state'),
         pressure_states={side: result.field_metadata.get('P_report_' + side, {}).get('state')
                          for side, row in result.pressure_evidence.items()
                          if row is not None})
