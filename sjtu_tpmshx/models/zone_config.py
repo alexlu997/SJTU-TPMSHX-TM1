@@ -70,9 +70,12 @@ class ZoneConfig:
     # ── Validation ──────────────────────────────────────────────
 
     def validate(self):
-        """Check zones cover [0, 1] without gaps or overlaps."""
+        """Check finite zone bounds cover [0, 1] without gaps or overlaps."""
         if not self.zones:
             raise ValueError("At least one zone is required")
+        for zone in self.zones:
+            if not (np.isfinite(zone.y_frac_start) and np.isfinite(zone.y_frac_end)):
+                raise ValueError(f"Zone '{zone.name}': endpoints must be finite")
 
         # Sort by start
         zs = sorted(self.zones, key=lambda z: z.y_frac_start)
@@ -154,6 +157,8 @@ class ZoneConfig:
     def build_structured_geometry(self, Nx: int, Ny: int, H: float,
                                   axis: str = 'y', *, dx_arr=None, dy_arr=None) -> dict:
         """Sample stripe geometry without evaluating velocity-dependent properties."""
+        if axis not in ('x', 'y'):
+            raise ValueError(f'Zone axis must be x or y, got {axis!r}')
         self.validate()
         N_ax = Ny if axis == 'y' else Nx
         widths = dy_arr if axis == 'y' else dx_arr

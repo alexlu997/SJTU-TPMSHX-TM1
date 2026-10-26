@@ -359,6 +359,8 @@ class ZoneInputConfig:
 
         if not self.enabled:
             return self
+        if self.axis not in ('x', 'y', 'grid', 'continuous'):
+            raise ValueError(f'Zone axis must be x, y, grid or continuous, got {self.axis!r}')
         if self.axis == 'continuous':
             from sjtu_tpmshx.df_surrogate._domain import TRAIN_L, TRAIN_T
             required = {'x_decision', 'n_ctrl_x', 'n_ctrl_y', 'symmetric_y',
