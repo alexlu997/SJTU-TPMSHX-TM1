@@ -74,7 +74,7 @@ def evaluate_qualification(result, metrics):
     if fine:
         for name in ('Ta', 'Tb', 'Ts'):
             raw_fields['fine.' + name] = (bool(np.all(np.isfinite(fine[name])))
-                                          if name in fine else None)
+                                          if fine.get(name) is not None else None)
     convergence = _verdict(_all_known((result.run_status.get('converged'), _all_known(raw_fields.values()),
         *(value for value in gates.values() if value is not None))),
         'run_status.converged, metadata.diagnostics.convergence_detail and raw fields',

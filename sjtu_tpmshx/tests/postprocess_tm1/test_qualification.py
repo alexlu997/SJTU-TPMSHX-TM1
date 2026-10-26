@@ -105,6 +105,26 @@ def test_recorded_fine_temperature_is_checked(name):
     assert quality['design']['eligible'] is quality['optimization']['passed'] is False
 
 
+@pytest.mark.parametrize('name', ['Ta', 'Tb', 'Ts'])
+@pytest.mark.parametrize('missing', ['absent', 'none'])
+def test_missing_fine_temperature_stays_unverified_after_archive(tmp_path, name, missing):
+    from sjtu_tpmshx.postprocess.api import evaluate
+
+    result = qualified_result(2)
+    fine = {key: np.full((4, 4), 330.) for key in ('Ta', 'Tb', 'Ts')}
+    if missing == 'absent':
+        del fine[name]
+    else:
+        fine[name] = None
+    result = replace(result, boundary_fluxes={**result.boundary_fluxes, 'fine': fine})
+    restored = load_result(save_result(result, tmp_path / 'missing-fine.h5'))
+    quality = evaluate_qualification(restored, required_metrics(2))
+    assert quality['convergence']['raw_fields']['fine.' + name] is None
+    assert quality['convergence']['status'] == 'unverified'
+    assert quality['design']['eligible'] is quality['optimization']['passed'] is None
+    assert evaluate(restored).qualification['convergence']['status'] == 'unverified'
+
+
 def test_display_and_diagnostic_nan_remain_readable_without_changing_qualification(tmp_path):
     result = qualified_result()
     metadata = mutable_data(result.metadata)
