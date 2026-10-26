@@ -141,7 +141,8 @@ class GeometryConfig:
     """TPMS unit cell + macroscopic domain + solid conductivity.
 
     ``solver.Nz >= 2`` selects 3D and requires an explicit positive ``Lz_m``.
-    ``Nz=1`` selects the 2D XY plane, where ``Lz_m`` is unused.
+    ``Nz=1`` selects the 2D XY plane. Total inlet mass flow requires an
+    explicit positive physical depth ``Lz_m``. Integral results keep per-unit-depth units.
     """
     tpms: TPMSType = 'Gyroid'
     L_cell_mm: float = 7.0
@@ -178,7 +179,7 @@ class SolverConfig:
     ``TPMSHX_ROUGH_MODE`` env (research escape hatch).
 
     ``T_s_init_K=None`` uses the default seed
-    ``0.5 * (T_inA + T_inB)`` inside ``solve_full_domain[_3d]``.
+    ``0.5 * (T_inA + T_inB)`` in the native full 2D and 3D solvers.
 
     F2 CONVERGENCE GATES (both dimensions)
     ------------------------------------------------------------------------
