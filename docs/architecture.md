@@ -1286,6 +1286,13 @@ Candidate counts
 are the optimizer's separate `n_init`, `n_iter` and `q_batch` arguments. Historical Pareto CSV geometry
 export still requires its original configuration and keeps failure status.
 
+Enabled zones accept only `x`, `y`, `grid` or `continuous` as the axis.
+Stripe interval endpoints must be finite. Their sorted intervals must cover
+`[0, 1]` without gaps or overlaps, with the existing `1e-9` tolerance.
+Invalid axes fail input validation. Non-finite endpoints fail before stripe
+cell assignment and numerical execution.
+Disabled zone drafts stay unchecked.
+
 Full-compute zoning also uses the prepared physical cell centres. In 2D, each
 zoned mode projects its thermal L/t fields into flow rows using transverse
 cell-width weights and the actual direction, including reversal. D-F is still

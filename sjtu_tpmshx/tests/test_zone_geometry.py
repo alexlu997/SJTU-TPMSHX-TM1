@@ -8,6 +8,27 @@ from sjtu_tpmshx.models import nu_correlations, sigmoid_field, tpms_calc
 from sjtu_tpmshx.models.zone_config import Zone, ZoneConfig
 
 
+@pytest.mark.parametrize('axis', ['Y', 'typo', 'grid'])
+def test_stripe_geometry_rejects_unknown_axis(axis):
+    zones = ZoneConfig.single_zone(6., .3, 'Diamond', 16.)
+    with pytest.raises(ValueError, match='[Zz]one axis'):
+        zones.build_structured_geometry(8, 6, .1, axis)
+
+
+@pytest.mark.parametrize('axis', ['x', 'y'])
+def test_stripe_geometry_keeps_sorted_zones_and_boundary_tolerance(axis):
+    zones = ZoneConfig([Zone('last', .5, 1. - 1e-10, 7., .5),
+                        Zone('first', 1e-10, .5 - 1e-10, 6., .3)], 'Diamond', 16.)
+    fields = zones.build_structured_geometry(8, 6, .1, axis)
+    expected = np.zeros((8, 6), dtype=np.int32)
+    if axis == 'x':
+        expected[4:, :] = 1
+    else:
+        expected[:, 3:] = 1
+    np.testing.assert_array_equal(fields['zone_id'], expected)
+    assert [zone.name for zone in zones.zones] == ['first', 'last']
+
+
 @pytest.mark.parametrize('mode', ['x', 'y', 'grid', 'sigmoid'])
 def test_geometry_matches_full_builder_without_evaluating_flow_properties(mode, monkeypatch):
     nx, ny, length, height = 5, 4, .08, .06

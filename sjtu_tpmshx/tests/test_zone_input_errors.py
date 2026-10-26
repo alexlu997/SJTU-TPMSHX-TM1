@@ -98,6 +98,66 @@ def test_valid_partial_grid_coverage_is_not_redefined():
     assert zones.validate() is zones
 
 
+@pytest.mark.parametrize('axis', ['x', 'y'])
+@pytest.mark.parametrize('source', ['object', 'yaml'])
+@pytest.mark.parametrize('index,endpoint,value', [
+    (0, 'y_frac_start', float('nan')),
+    (0, 'y_frac_end', float('nan')),
+    (1, 'y_frac_start', float('nan')),
+    (1, 'y_frac_end', float('nan')),
+    (0, 'y_frac_end', float('inf')),
+    (1, 'y_frac_start', -float('inf')),
+])
+def test_nonfinite_stripe_endpoints_never_solve(tmp_path, axis, source, index, endpoint, value):
+    import yaml
+    from sjtu_tpmshx.io.yaml_config import load_config
+
+    zones = ZoneConfig([Zone('first', 0, .5, 6, .3),
+                        Zone('last', .5, 1, 7, .5)], 'Diamond', 16)
+    setattr(zones.zones[index], endpoint, value)
+    cfg = ComputeConfig(
+        geometry=GeometryConfig(tpms='Diamond'),
+        solver=SolverConfig(Nx=8, Ny=6), extrap=ExtrapPolicy(allow=True),
+        zones=ZoneInputConfig(enabled=True, axis=axis, config=zones))
+    if source == 'yaml':
+        path = tmp_path / 'invalid-zones.yaml'
+        path.write_text(yaml.safe_dump(cfg.to_dict()), encoding='utf-8')
+        cfg = load_config(path)
+    solve = Mock(side_effect=AssertionError('Invalid zones reached the solver'))
+    finalize = Mock()
+    with pytest.raises(ValueError, match='Zone.*finite'):
+        compute(cfg, solve=solve, evaluate=finalize)
+    solve.assert_not_called()
+    finalize.assert_not_called()
+
+
+@pytest.mark.parametrize('axis', ['Y', 'typo', None])
+@pytest.mark.parametrize('source', ['object', 'yaml'])
+def test_unknown_active_zone_axis_never_solves(tmp_path, axis, source):
+    import yaml
+    from sjtu_tpmshx.io.yaml_config import load_config
+
+    cfg = ComputeConfig(
+        solver=SolverConfig(Nx=8, Ny=6), extrap=ExtrapPolicy(allow=True),
+        zones=ZoneInputConfig(enabled=True, axis=axis,
+                             config=ZoneConfig.single_zone(6, .3, 'Diamond', 16)))
+    solve = Mock(side_effect=AssertionError('Invalid axis reached the solver'))
+    finalize = Mock()
+    with pytest.raises(ValueError, match='[Zz]one axis'):
+        if source == 'yaml':
+            path = tmp_path / 'invalid-axis.yaml'
+            path.write_text(yaml.safe_dump(cfg.to_dict()), encoding='utf-8')
+            cfg = load_config(path)
+        compute(cfg, solve=solve, evaluate=finalize)
+    solve.assert_not_called()
+    finalize.assert_not_called()
+
+
+def test_disabled_zone_axis_remains_an_unchecked_draft():
+    zones = ZoneInputConfig(enabled=False, axis='draft')
+    assert zones.validate() is zones
+
+
 @pytest.mark.parametrize('dimension', [2, 3])
 def test_direct_stage_parse_rejects_invalid_grid(dimension):
     from sjtu_tpmshx.preprocess.two_d.preparation import _parse_inputs_cfg
