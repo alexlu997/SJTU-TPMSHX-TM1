@@ -1289,7 +1289,8 @@ export still requires its original configuration and keeps failure status.
 Enabled zones accept only `x`, `y`, `grid` or `continuous` as the axis.
 Stripe interval endpoints must be finite. Their sorted intervals must cover
 `[0, 1]` without gaps or overlaps, with the existing `1e-9` tolerance.
-Invalid active input fails before geometry preparation and numerical execution.
+Invalid axes fail input validation. Non-finite endpoints fail before stripe
+cell assignment and numerical execution.
 Disabled zone drafts stay unchecked.
 
 Full-compute zoning also uses the prepared physical cell centres. In 2D, each
