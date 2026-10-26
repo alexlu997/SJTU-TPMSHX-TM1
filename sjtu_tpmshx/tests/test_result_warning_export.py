@@ -77,7 +77,9 @@ def test_converged_outside_range_result_keeps_design_rejection_in_gui_and_export
     native, performance = _synthetic_results()
     evidence = mutable_data(result_with_evidence().metadata['applicability_evidence'])
     evidence['final'][0]['minimum'][0] = 89.
-    native = replace(native, metadata=dict(native.metadata, applicability_evidence=evidence))
+    native = replace(native, metadata=dict(native.metadata, applicability_evidence=evidence),
+        fields={**native.fields, **{name: np.full_like(native.fields[name + '_display'], 330.)
+                                   for name in ('Ta', 'Tb', 'Ts')}})
     quality = evaluate_qualification(native, performance.metrics)
     performance = replace(performance, qualification=quality)
     result = to_compute_result(native, performance)

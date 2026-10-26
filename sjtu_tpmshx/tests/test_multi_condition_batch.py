@@ -145,6 +145,39 @@ def _baseline(conditions):
     return rows
 
 
+@pytest.mark.parametrize('name', ['Ta', 'Tb', 'Ts'])
+@pytest.mark.parametrize('value', [float('nan'), float('inf'), -float('inf')])
+def test_corrupt_raw_archive_cannot_use_finite_metrics_for_objectives(tmp_path, name, value):
+    import h5py
+    from sjtu_tpmshx.io.result_io import save_result
+
+    condition, field, _ = _baseline(_conditions(1))[0]
+    metadata = mutable_data(field.metadata)
+    metadata['diagnostics']['convergence_detail'] = dict(
+        simple_ok=True, ltne_ok=True, outer_converged=True, fields_finite=True, envelope_ok=True)
+    field = replace(field, metadata=metadata)
+    before = postprocess.evaluate(field)
+    assert before.qualification['optimization']['passed'] is True
+    path = save_result(field, tmp_path / 'corrupt.h5')
+    with h5py.File(path, 'r+') as archive:
+        descriptor = json.loads(archive['descriptor'].asstr()[()])
+        dataset = descriptor['mapping']['fields']['mapping'][name]['array']
+        archive[dataset][1, 1, 0] = value
+    restored = load_result(path)
+    after = postprocess.evaluate(restored)
+    assert after.metrics == before.metrics
+    assert restored.run_status['converged'] is True
+    assert after.qualification['convergence']['passed'] is False
+    assert after.qualification['design']['eligible'] is after.qualification['optimization']['passed'] is False
+    assert not np.isfinite(load_result(save_result(restored, tmp_path / 'retained.h5')).fields[name][1, 1, 0])
+    for member in ('baseline', 'candidate'):
+        for performance in (before, after):
+            rows = dict.fromkeys(('baseline', 'candidate'), [(condition, field, before)])
+            rows[member] = [(condition, restored, performance)]
+            with pytest.raises(ValueError, match='qualification failed: convergence'):
+                batch.aggregate_multi_condition([condition], **rows)
+
+
 def _manifest(directory):
     return json.loads((directory / 'batch.json').read_text(encoding='utf-8'))
 

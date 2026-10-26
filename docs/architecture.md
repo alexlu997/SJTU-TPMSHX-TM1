@@ -304,6 +304,11 @@ can reproduce it from saved evidence without a solver or EOS call.
 Execution, convergence, physical evidence, parameter limits, metric availability
 and design eligibility have separate states and source paths.
 Unknown evidence remains unverified. A failed gate remains failed.
+Convergence also checks each recorded raw cell field for finite values.
+The main `Ta/Tb/Ts` fields and any recorded fine-grid temperatures must be finite;
+missing temperature evidence remains unverified. The verdict keeps the saved
+convergence flags and the per-field checks separately. Display fields and
+diagnostic arrays do not enter this check. Failed results stay readable.
 The physical conclusion keeps the existing route-specific tolerances and
 requires complete captured heat and active-side mass evidence.
 Only 2D model-h and integral-temperature routes require a refined thermal ledger.
