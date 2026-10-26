@@ -890,6 +890,7 @@ If a later stage fails, `failed-result.h5` keeps completed solver fields when no
 The failure record keeps the original exception.
 
 `resume_condition_batch` reads a native batch into a new output directory.
+The output directory must be outside the saved batch, including when a path uses a directory alias.
 It checks and copies completed members without solving them again.
 It continues unfinished members from their latest valid native checkpoint.
 A member with no checkpoint starts from its saved prepared input, when available.
