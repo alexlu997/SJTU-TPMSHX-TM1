@@ -11,17 +11,13 @@ def inputs():
     temperature = [pulse + value for value in (300., 400., 350.)]
     pressure = [pulse + value for value in (1e5, 2e5)]
     velocity = [(pulse + 1., pulse + 2.), (pulse + 3., pulse + 4.)]
-    openings = {side: {port + '_profile_frac': np.ones(3) for port in ('in', 'out')}
-                for side in 'AB'}
-    return temperature, pressure, velocity, openings
+    return temperature, pressure, velocity
 
 
-@pytest.mark.parametrize('fraction', [1., .99])
-def test_full_ports_keep_aliases_without_display_velocity_copies(inputs, fraction):
-    temperature, pressure, velocity, openings = inputs
-    for ports in openings.values():
-        for profile in ports.values():
-            profile[:] = fraction
+def test_display_aliases_keep_original_values_without_velocity_copies(inputs):
+    temperature, pressure, velocity = inputs
+    sources = temperature + pressure + [field for pair in velocity for field in pair]
+    before = [field.copy() for field in sources]
     fields = display_fields_2d(*inputs)
     assert list(fields) == ['Ta_display', 'Tb_display', 'Ts_display',
                             'P_fA_display', 'ucA', 'vcA', 'P_fB_display', 'ucB', 'vcB']
@@ -31,40 +27,7 @@ def test_full_ports_keep_aliases_without_display_velocity_copies(inputs, fractio
         assert fields['P_f' + side + '_display'] is pressure[index]
         for name, source in zip(('uc', 'vc'), velocity[index]):
             assert fields[name + side] is source
-
-
-@pytest.mark.parametrize('sides', [('A',), ('B',), ('A', 'B')])
-@pytest.mark.parametrize('port', ['in', 'out'])
-def test_partial_ports_preserve_raw_fields_and_existing_smoothing(inputs, sides, port):
-    temperature, pressure, velocity, openings = inputs
-    raw = temperature + pressure + [field for pair in velocity for field in pair]
-    before = [field.copy() for field in raw]
-    for side in sides:
-        openings[side][port + '_profile_frac'][0] = .98
-    fields = display_fields_2d(*inputs)
-    # Fixed reference values use the existing sigma 1.5 and sigma 2 filters.
-    thermal_pulse = np.array([[.2550251086951181, .17577546831490007, .1003485577439484],
-                              [.22511331572921658, .15515883396222027, .08857871555459672]])
-    flow_pulse = np.array([[.19597114142770147, .16784213577509446, .1397834680485025],
-                           [.19317184505031967, .16544464051520907, .1377867691831729]])
-    for name, offset in zip(('Ta', 'Tb', 'Ts'), (300., 400., 350.)):
-        np.testing.assert_allclose(fields[name + '_display'], thermal_pulse + offset,
-                                   rtol=0., atol=1e-12)
-    for index, side in enumerate('AB'):
-        if side in sides:
-            np.testing.assert_allclose(fields['P_f' + side + '_display'],
-                                       thermal_pulse + (index + 1) * 1e5, rtol=0., atol=6e-11)
-        else:
-            assert fields['P_f' + side + '_display'] is pressure[index]
-        for component, name in enumerate(('uc', 'vc')):
-            assert fields[name + side] is velocity[index][component]
-            key = name + side + '_display'
-            if side in sides:
-                np.testing.assert_allclose(fields[key], flow_pulse + index * 2 + component + 1,
-                                           rtol=0., atol=1e-14)
-            else:
-                assert key not in fields
-    for field, source in zip(raw, before):
+    for field, source in zip(sources, before):
         np.testing.assert_array_equal(field, source)
 
 

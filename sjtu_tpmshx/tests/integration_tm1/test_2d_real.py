@@ -105,7 +105,7 @@ def test_mixed_partial_native_and_postprocessing(fluid_A,u_A,P_A,fluid_B,P_B,exp
                                rtol=1e-10, atol=1e-10)
     assert result.run_status['converged'] is False
     assert result.run_status['final_flow_after_last_thermal'] is True
-    assert not np.array_equal(result.fields['Ta'], result.fields['Ta_display'])
+    np.testing.assert_array_equal(result.fields['Ta'], result.fields['Ta_display'])
     from sjtu_tpmshx.tests.native.full_thermal_reference import assert_selected_enthalpy
     assert result.metadata['execution_record']['numerics']['algorithm'] == 'temperature_sou'
     assert_selected_enthalpy(result)

@@ -307,10 +307,9 @@ def _plot_3d_temperature(canvas, Ta_slice, Tb_slice, Ts_slice, xc, yc, z_info,
     indices = list(range(3)) if phase is None else [phase]
     axes = np.atleast_1d(_begin_canvas_plot(canvas, len(indices), 1))
     Y, X = np.meshgrid(yc, xc)
-    vmin_unified = float(min(Ta_slice.min(), Tb_slice.min(), Ts_slice.min()))
-    vmax_unified = float(max(Ta_slice.max(), Tb_slice.max(), Ts_slice.max()))
-    if vmax_unified - vmin_unified < 1e-12:
-        vmax_unified = vmin_unified + 1.0
+    fields = [Ta_slice, Tb_slice, Ts_slice]
+    limits = color_limits or (field_color_limits(fields, shared=True) if sync else
+                             field_color_limits(fields[:2], shared=True) + field_color_limits(fields[2:]))
     datasets = [
         (Ta_slice, rf'$T_{{f,A}}$ [{unit}] — Fluid A'),
         (Tb_slice, rf'$T_{{f,B}}$ [{unit}] — Fluid B'),
@@ -318,18 +317,10 @@ def _plot_3d_temperature(canvas, Ta_slice, Tb_slice, Ts_slice, xc, yc, z_info,
     ]
     for ax, index in zip(axes, indices):
         field, title = datasets[index]
-        vmin, vmax = vmin_unified, vmax_unified
-        if not sync:
-            scale_fields = (Ta_slice, Tb_slice) if index < 2 else (Ts_slice,)
-            vmin = float(min(a.min() for a in scale_fields))
-            vmax = float(max(a.max() for a in scale_fields))
-            if vmax - vmin < 1e-12:
-                vmax = vmin + 1.
-        if color_limits is not None:
-            vmin, vmax = color_limits[index]
+        vmin, vmax = limits[index]
         cf = ax.contourf(X, Y, field, levels=np.linspace(vmin, vmax, 257), cmap=FIELD_CMAP,
                           vmin=vmin, vmax=vmax)
-        cb = canvas.fig.colorbar(cf, ax=ax, shrink=0.85, aspect=18,
+        cb = canvas.fig.colorbar(cf, ax=ax, shrink=0.85, aspect=18, ticks=np.linspace(vmin, vmax, 5),
                                 format=ScalarFormatter(useOffset=False))
         style_colorbar(cb, _T)
         _style_axis(ax, title=title)

@@ -39,7 +39,7 @@ def _synthetic_results(dimension=3):
                 dx=np.array([.05, .15]), dy=np.array([.01, .03, .06]),
                 dz=np.array([.005, .01, .015, .02]))
     native_fields = {name: cell + offset for offset, name in enumerate(
-        ('Ta_display', 'Tb_display', 'Ts_display', 'ucA', 'vcA', 'wcA',
+        ('Ta', 'Tb', 'Ts', 'ucA', 'vcA', 'wcA',
          'ucB', 'vcB', 'wcB', 'vmag_A', 'vmag_B', 'h_vA', 'h_vB'))}
     for side, pressure in (('A', 101325.), ('B', 202650.)):
         native_fields['P_f' + side + '_display'] = pressure + cell
@@ -87,7 +87,7 @@ def test_thread_resource_record_reaches_the_detached_gui_result(dimension):
     assert dict(native.metadata['runtime_resources']) == resources
 
 
-def test_synthetic_3d_mapping_preserves_full_geometry_and_display_pressure():
+def test_synthetic_3d_mapping_preserves_full_geometry_and_report_pressure():
     native, performance = _synthetic_results()
     native_fields, grid = native.fields, native.grid
     L_m = native.metadata['design_fields']['L_field_m']
@@ -99,7 +99,7 @@ def test_synthetic_3d_mapping_preserves_full_geometry_and_display_pressure():
         np.testing.assert_array_equal(result.fields[name], native_fields[name])
     for side in ('A', 'B'):
         np.testing.assert_array_equal(result.fields['P_f' + side],
-                                      native_fields['P_f' + side + '_display'])
+                                      native_fields['P_report_' + side])
     for name in ('dx', 'dy', 'dz'):
         np.testing.assert_array_equal(result.fields[name], grid[name])
     # The plot must use the accepted result's ports, independently of draft inputs.
@@ -115,6 +115,33 @@ def test_synthetic_3d_mapping_preserves_full_geometry_and_display_pressure():
         assert shown[f'ports_{side}'] is not expected
 
 
+@pytest.mark.parametrize('dimension', [2, 3])
+def test_saved_display_aliases_do_not_replace_original_cells(tmp_path, dimension):
+    from sjtu_tpmshx.io.result_io import load_result, save_result
+    from sjtu_tpmshx.result_display import describe_fields
+
+    native, performance = _synthetic_results(dimension)
+    fields = dict(native.fields)
+    for key in ('Ta', 'Tb', 'Ts', 'ucA', 'vcA', 'ucB', 'vcB'):
+        fields[key + '_display'] = np.full_like(fields[key], -123.)
+    grid = dict(native.grid)
+    grid.update({axis + '_edges': np.r_[0., np.cumsum(grid['d' + axis])]
+                 for axis in 'xyz'[:dimension]})
+    archived = replace(native, fields=fields, grid=grid,
+        field_metadata=describe_fields(fields, dimension),
+        metadata={**native.metadata, 'quantity_basis': 'per_unit_depth' if dimension == 2 else 'total'})
+    path = tmp_path / 'historical-display.h5'
+    save_result(archived, path)
+    loaded = load_result(path)
+    result = to_compute_result(loaded, performance)
+    for key in ('Ta', 'Tb', 'Ts', 'ucA', 'vcA', 'ucB', 'vcB'):
+        np.testing.assert_array_equal(result.fields[key], native.fields[key])
+        np.testing.assert_array_equal(loaded.fields[key + '_display'], fields[key + '_display'])
+        assert key + '_disp' not in result.fields
+    for side in 'AB':
+        np.testing.assert_array_equal(result.fields['P_f' + side], native.fields['P_report_' + side])
+
+
 # Fixed from the real scenarios below on pre-producer-refactor main 736c0a8.
 # Keep these expectations independent of the current raw/diagnostic mappings.
 _DIAGNOSTICS_2D = frozenset('''
@@ -125,7 +152,7 @@ _DIAGNOSTICS_2D = frozenset('''
     mass_flow_A_kg_s_per_m mass_flow_B_kg_s_per_m mass_imbalance_rel_A
     mass_imbalance_rel_B model_h_balance p_clip_hits residuals_A residuals_B
     richardson_info sco2_nu_observations solver_converged true_h_balance
-    ucA_disp ucB_disp vcA_disp vcB_disp warnings_list native_full_2d
+    warnings_list native_full_2d
 '''.split())
 _DIAGNOSTICS_3D = frozenset('''
     AB_interior Lx Ly Lz P_in_realized_A P_in_realized_B
@@ -286,14 +313,8 @@ def native_result(request):
             raw = legacy_2d_result(args[0], args[1], diagnostics)
             display_keys = {'Ta_display', 'Tb_display', 'Ts_display', 'P_fA_display', 'P_fB_display',
                             'ucA', 'vcA', 'ucB', 'vcB'}
-            if request.param == '2-partial':
-                display_keys |= {'ucA_display', 'vcA_display'}
             assert args[1].keys() == display_keys
-            expected = (_DIAGNOSTICS_2D - {'ucA_disp', 'vcA_disp'}
-                        if request.param == '2-partial' else _DIAGNOSTICS_2D)
-            _assert_diagnostic_keys(diagnostics, expected)
-            for key in expected & {'ucA_disp', 'vcA_disp', 'ucB_disp', 'vcB_disp'}:
-                assert diagnostics[key] is None, key
+            _assert_diagnostic_keys(diagnostics, _DIAGNOSTICS_2D)
             assert diagnostics['true_h_balance'] is None
             detail = diagnostics['convergence_detail']
             assert detail.keys() == _CONVERGENCE_2D
@@ -324,8 +345,12 @@ def native_result(request):
         case = prepare_case(config, case_id=f'mapping-{dimension}d')
         fields = run_case(case)
     if request.param == '2-partial':
-        assert 'ucA_display' in fields.fields
-        assert not np.array_equal(fields.fields['ucA'], fields.fields['ucA_display'])
+        assert 'ucA_display' not in fields.fields
+        for key in ('Ta', 'Tb', 'Ts'):
+            np.testing.assert_array_equal(fields.fields[key], fields.fields[key + '_display'])
+        for side in 'AB':
+            np.testing.assert_array_equal(fields.fields['P_report_' + side],
+                                          fields.fields['P_f' + side + '_display'])
     return fields, captured[0]
 
 
@@ -550,8 +575,7 @@ def test_native_result_reaches_gui_diagnostics_and_display_cache(native_result):
     else:
         for name in ('ucA', 'vcA', 'ucB', 'vcB'):
             np.testing.assert_array_equal(window.cache.get_result('2d').fields[name], fields.fields[name])
-            np.testing.assert_array_equal(window.cache.get_result('2d').fields[name + '_disp'],
-                                          fields.fields.get(name + '_display'))
+            assert name + '_disp' not in window.cache.get_result('2d').fields
 
 
 def test_diagnostic_text_includes_recorded_stage_seconds():

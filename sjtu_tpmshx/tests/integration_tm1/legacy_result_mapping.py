@@ -86,9 +86,6 @@ def _finalize_cfg(raw: dict[str, Any],
         fields={
             'Ta': Ta, 'Tb': Tb, 'Ts': Ts,
             'ucA': ucA, 'vcA': vcA, 'ucB': ucB, 'vcB': vcB,
-            # N5: display-smoothed copies (None on full-face runs ⇒ use raw)
-            'ucA_disp': raw.get('ucA_disp'), 'vcA_disp': raw.get('vcA_disp'),
-            'ucB_disp': raw.get('ucB_disp'), 'vcB_disp': raw.get('vcB_disp'),
             'P_fA': raw['P_fA'], 'P_fB': raw['P_fB'],
             'dx_arr': raw['energy_dx'], 'dy_arr': raw['energy_dy'],
             'N_x': fields['N_x'], 'N_y': fields['N_y'],

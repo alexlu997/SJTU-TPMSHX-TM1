@@ -444,7 +444,7 @@ class TabViewMixin:
             _h, _sub = name.split('_', 1)
             name = f"{_h}<sub>{_sub}</sub>"
         self._hover_label.setText(
-            f"x={x_mm:.1f}mm, y={y_mm:.1f}mm  |  {name} = {val:.2f} {unit}")
+            f"x={x_mm:.1f}mm, y={y_mm:.1f}mm  |  Cell ({i},{j}): {name} = {val:.2f} {unit}")
 
     def _detach_3d_window(self):
         """Reparent canvas_3d into a standalone QDialog and show it."""

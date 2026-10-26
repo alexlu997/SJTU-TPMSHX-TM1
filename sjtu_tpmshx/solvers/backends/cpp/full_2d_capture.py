@@ -151,7 +151,7 @@ def capture_result(case, cfg, prepared, native):
             f"residual={fine_info['residual']:.3e})")
     display_fields = display_fields_2d(
         main['temperature'], [flow['absolute_pressure'] for flow in native['flow']],
-        [(flow['uc'], flow['vc']) for flow in native['flow']], cfg['boundary_openings'])
+        [(flow['uc'], flow['vc']) for flow in native['flow']])
 
     detail = dict(inlet_pressure=pressure_states, outer_converged=bool(native['outer_converged']),
         outer_iters=int(native['iterations']), outer_hit_cap=not native['outer_converged'],
@@ -188,9 +188,6 @@ def capture_result(case, cfg, prepared, native):
         diagnostics['P_in_shoot_resid_' + label] = np.nan if state is None else state['relative_error']
         diagnostics['residuals_' + label] = list(flow['history']['legacy'])
         diagnostics['mass_imbalance_rel_' + label] = flow['result']['mass']['global_residual']
-        for prefix in ('uc', 'vc'):
-            if prefix + label + '_display' not in display_fields:
-                diagnostics[prefix + label + '_disp'] = None
     properties = cfg['static_properties']
     r_a, r_b = properties['A'], properties['B']
     application = dict(

@@ -1042,7 +1042,7 @@ Richardson retains the inputs of the last main thermal call, including when
 a final property update follows it.
 
 Per-call thermal inputs
-borrow arrays, while display smoothing stays separate from raw evidence. Nonfinite thermal returns fail before property refresh or result capture. The unreachable NaN-to-inlet replacement and its `energy_nan_hit` state and
+borrow arrays. Display aliases retain original cell values. Nonfinite thermal returns fail before property refresh or result capture. The unreachable NaN-to-inlet replacement and its `energy_nan_hit` state and
 new-result diagnostic are retired. Existing saved diagnostic dictionaries
 stay readable without rewriting their historical values. True-h duty comes
 from recorded face mass/enthalpy fluxes. The previous scalar-pressure h(T) option
@@ -1190,21 +1190,29 @@ diagnostic arrays and unconverged completed runs stay visible. Strict JSON
 metrics report unavailable values with reasons. Cancelled/failed execution
 does not return a fabricated completed archive.
 
-`result_display` owns 2D display smoothing and zone statistics. It also supplies
-field units, axes and state descriptions for both dimensions. This shared data
-module has no Qt dependency. Capture still calls it before it creates
-`FieldResult`, so stored fields, exports and application mappings keep the same
-contract. Raw arrays remain separate from smoothed display values. The 3D
-display aliases keep their shared immutable buffers. The previous inline
-smoothing, field descriptions and private zone helper are retired.
+`result_display` owns 2D display aliases and zone statistics. It also supplies
+field units, axes and state descriptions for both dimensions. This data module
+has no Qt dependency. Temperature and pressure aliases retain original cell
+values. Gaussian display filters, velocity display copies, and their null
+diagnostics are retired. Historical arrays remain readable without file changes.
+The application mapper reads original temperatures, velocity components, and
+`P_report_A/B`, including when archived display arrays contain filtered values.
+The 3D display aliases retain their shared immutable buffers.
+
+The 3D panel stores display points at physical cell centres and domain boundaries.
+Boundary points retain the nearest centre value. VTK interpolates between these
+points for every grid size. Each selected field has one cached display grid.
+Probes locate original cells from physical edges. Scene and popup slices use
+the same nearest centre layer, with its actual coordinate in labels and exports.
+Temperature plots with a shared scale use complete field limits, explicit contour
+levels, and common ticks. These display rules do not change native results.
 
 Each full-compute backend explicitly produces its display/flow fields and
 final diagnostics, passing diagnostics directly to native result capture.
 Capture does not infer diagnostic ownership from value types. The native 2D binding
 passes display/flow fields, native evidence, application data and diagnostics
 separately to shared capture. The flattened intermediate dictionary and optional
-native-capture switch are retired. Native evidence is always recorded, and
-absent display-velocity copies retain their existing diagnostic placeholders.
+native-capture switch are retired. Native evidence is always recorded.
 The 3D backend
 passes its problem, outer state, reporting metrics and diagnostics directly to
 `FieldResult` capture. Its flattened intermediate dictionary and public

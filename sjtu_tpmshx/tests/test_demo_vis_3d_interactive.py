@@ -90,12 +90,42 @@ def test_demo_main_reads_real_archive_fields_and_grid(monkeypatch, tmp_path, cap
     np.testing.assert_allclose(grid['vmag'], 7.)  # all three archived velocity components
     np.testing.assert_allclose(grid['Ta'][[0, -1]], [300., 307.])
     np.testing.assert_allclose(grid['L_mm'][[0, -1]], [4., 7.5 if spatial else 4.])
-    np.testing.assert_allclose(grid.x, [0., 1./3., 1.] if cube else [0., 10., 30.])
-    np.testing.assert_allclose(grid.y, [0., .75, 1.] if cube else [0., 15., 20.])
-    np.testing.assert_allclose(grid.z, [0., 2./3., 1.] if cube else [0., 8., 12.])
+    np.testing.assert_allclose(grid.x, np.array([0., 5., 20., 30.]) / (30. if cube else 1.))
+    np.testing.assert_allclose(grid.y, np.array([0., 7.5, 17.5, 20.]) / (20. if cube else 1.))
+    np.testing.assert_allclose(grid.z, np.array([0., 4., 10., 12.]) / (12. if cube else 1.))
     np.testing.assert_allclose(launch.call_args.kwargs['real_dims'], [.03, .02, .012])
     assert launch.call_args.kwargs['stretched'] is cube
     assert "'converged': False" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize('viewer', ['interactive', 'cube', 'four_panel'])
+def test_viewer_grid_preserves_physical_linear_fields(viewer):
+    import pyvista as pv
+    from sjtu_tpmshx.ui.demo_vis_3d import build_pv_grid
+    from sjtu_tpmshx.runs.demos.demo_3d_cube_volume import make_grid
+
+    widths = [np.array(w) for w in ([.001, .009], [.002, .005, .001], [.004])]
+    centres = [np.cumsum(w) - w / 2 for w in widths]
+    x, y, z = np.meshgrid(*centres, indexing='ij')
+    temperature = 300. + 200.*x - 300.*y + 400.*z
+    if viewer == 'interactive':
+        grid = demo.build_data_grid(*widths, temperature, temperature, temperature * 1000., temperature)
+    elif viewer == 'cube':
+        result = FieldResult('grid', 'case', 'fixture', grid=dict(zip(('dx', 'dy', 'dz'), widths)),
+            fields={key: temperature * (1000. if key.startswith('P_') else 1.) for key in
+                    ('Ta_display', 'Tb_display', 'Ts_display', 'vmag_A', 'P_fA_display')})
+        grid = make_grid(result)
+    else:
+        grid = build_pv_grid(*widths)
+        grid.point_data['Ta'] = np.pad(temperature, 1, mode='edge').ravel(order='F')
+    unit = 1. if viewer == 'four_panel' else 1000.
+    positions = np.array([[.0013, .0031, .002], [.004, .005, .002]])
+    sample = pv.PolyData(positions * unit).sample(grid)
+    assert sample['vtkValidPointMask'].all()
+    np.testing.assert_allclose(sample['Ta'], 300. + 200.*positions[:, 0] - 300.*positions[:, 1]
+                               + 400.*positions[:, 2], rtol=0., atol=1e-12)
+    restored = grid['Ta'].reshape(grid.dimensions, order='F')[1:-1, 1:-1, 1:-1]
+    np.testing.assert_array_equal(restored, temperature)
 
 
 @pytest.mark.parametrize('invalid, message', [

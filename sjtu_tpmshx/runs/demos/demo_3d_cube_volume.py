@@ -31,11 +31,8 @@ from sjtu_tpmshx.postprocess.api import evaluate
 def make_grid(res):
     """Build pv.RectilinearGrid from solver result + attach all scalar fields."""
     dx = res.grid['dx']; dy = res.grid['dy']; dz = res.grid['dz']
-    # Edges in mm so the camera frames a sensible scale
-    x_edges = np.concatenate([[0.0], np.cumsum(dx)]) * 1000.0
-    y_edges = np.concatenate([[0.0], np.cumsum(dy)]) * 1000.0
-    z_edges = np.concatenate([[0.0], np.cumsum(dz)]) * 1000.0
-    grid = pv.RectilinearGrid(x_edges, y_edges, z_edges)
+    axes = [np.r_[0., np.cumsum(w) - w / 2, np.sum(w)] * 1000. for w in (dx, dy, dz)]
+    grid = pv.RectilinearGrid(*axes)
     fields_to_attach = {
         'Ta': res.fields['Ta_display'],
         'Tb': res.fields['Tb_display'],
@@ -44,8 +41,7 @@ def make_grid(res):
         'P_kPa': res.fields['P_fA_display'] / 1000.0,
     }
     for key, arr in fields_to_attach.items():
-        grid.cell_data[key] = arr.flatten(order='F')
-    grid = grid.cell_data_to_point_data()
+        grid.point_data[key] = np.pad(arr, 1, mode='edge').flatten(order='F')
     return grid
 
 
@@ -63,10 +59,11 @@ def render_volume(grid, scalar, title, outpath):
                'title_font_size': 14, 'label_font_size': 12,
                'vertical': True, 'position_x': 0.86, 'position_y': 0.2,
                'width': 0.06, 'height': 0.6, 'n_labels': 6}
-    p.add_volume(grid, scalars=scalar, cmap='turbo', clim=(lo, hi),
+    volume = p.add_volume(grid, scalars=scalar, cmap='turbo', clim=(lo, hi),
                  opacity=opacity, shade=True,
                  ambient=0.4, diffuse=0.7, specular=0.3,
                  show_scalar_bar=True, scalar_bar_args=sb_args)
+    volume.GetProperty().SetInterpolationTypeToLinear()
     p.add_mesh(grid.outline(), color='black', line_width=2)
     try:
         p.add_axes(line_width=3, x_color='red', y_color='green', z_color='blue',

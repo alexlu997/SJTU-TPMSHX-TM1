@@ -156,6 +156,8 @@ def test_3d_slice_phase_and_probe_use_same_nonuniform_cell():
     np.testing.assert_array_equal(window.canvas_pres._hover_data['fields'][0], f['P_fB'][:, :, 2] / 1000.)
     rows = _resolve_fields(window, 20., 10.)
     assert ('T_fB', f"{f['Tb'][1, 0, 2] - 273.15:.2f}", '°C') in rows
+    for side in 'AB':
+        assert ('w_' + side, f"{f['wc' + side][1, 0, 2]:.4f}", 'm/s') in rows
     assert window._slice_label.text() == 'z = 6.50 mm (3/3)'
     assert window._slice_slider.value() == 2
     window._slice_index = 0

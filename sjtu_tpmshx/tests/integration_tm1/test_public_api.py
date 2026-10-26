@@ -37,7 +37,6 @@ def legacy_2d_result(case, display_fields, diagnostics):
     raw = {key: display_fields[key + '_display'] for key in ('Ta', 'Tb', 'Ts', 'P_fA', 'P_fB')}
     for key in ('ucA', 'vcA', 'ucB', 'vcB'):
         raw[key] = display_fields[key]
-        raw[key + '_disp'] = display_fields.get(key + '_display')
     raw.update(energy_dx=case.grid['dx'], energy_dy=case.grid['dy'])
     raw.update(diagnostics)
     return raw
