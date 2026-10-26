@@ -615,7 +615,7 @@ def test_existing_directory_is_never_overwritten(tmp_path, monkeypatch, native_c
     assert list(directory.iterdir()) == [sentinel]
 
 
-@pytest.mark.parametrize('alias', [False, True])
+@pytest.mark.parametrize('alias', ['none', 'symlink', 'case'])
 @pytest.mark.parametrize('nested', [False, True])
 def test_recovery_rejects_output_inside_source(tmp_path, native_control, alias, nested):
     source = tmp_path / 'source'
@@ -624,9 +624,13 @@ def test_recovery_rejects_output_inside_source(tmp_path, native_control, alias, 
         batch.evaluate_condition_batch(_conditions(1), output_dir=source, workers=1, control=control)
     before = {path.relative_to(source): path.read_bytes() for path in source.rglob('*') if path.is_file()}
     target = source
-    if alias:
+    if alias == 'symlink':
         target = tmp_path / 'source-alias'
         target.symlink_to(source, target_is_directory=True)
+    elif alias == 'case':
+        target = source.with_name('SOURCE')
+        if not target.exists():
+            pytest.skip('requires a case-insensitive filesystem')
     if nested:
         target /= 'continued'
     with pytest.raises(ValueError, match='outside the saved batch'):

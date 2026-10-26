@@ -275,7 +275,9 @@ def resume_condition_batch(batch_file, *, output_dir, control=RunControl(backend
     from sjtu_tpmshx.io.metrics_io import load_metrics
 
     path = Path(batch_file).resolve(strict=True)
-    if Path(output_dir).resolve().is_relative_to(path.parent):
+    destination = Path(output_dir).resolve()
+    if any(parent.exists() and parent.samefile(path.parent)
+           for parent in (destination, *destination.parents)):
         raise ValueError('the recovery directory must be outside the saved batch')
     record = json.loads(path.read_text(encoding='utf-8'))
     if record.get('format') != 'condition_batch_v1' or record.get('backend') != 'cpp':
