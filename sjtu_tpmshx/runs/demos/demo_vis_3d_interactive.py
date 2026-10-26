@@ -38,25 +38,17 @@ def build_data_grid(dx, dy, dz, Ta, vmag, P, L_field,
 
     stretch_to_cube=True distorts the grid to a unit cube (visual only).
     Default False = physically accurate aspect.
-    Fields are cell-centred then promoted to point data for smooth slicing.
+    Points retain original values at physical cell centres.
+    Exterior half cells keep the nearest centre value.
     P is absolute pressure in Pa, converted to kPa for display.
     """
-    # Real-world coords in mm (easier on the eye than SI metres)
-    x_edges = np.concatenate([[0.0], np.cumsum(dx)]) * 1000.0   # mm
-    y_edges = np.concatenate([[0.0], np.cumsum(dy)]) * 1000.0
-    z_edges = np.concatenate([[0.0], np.cumsum(dz)]) * 1000.0
-
+    axes = [np.r_[0., np.cumsum(w) - w / 2, np.sum(w)] * 1000. for w in (dx, dy, dz)]
     if stretch_to_cube:
-        x_edges = x_edges / x_edges[-1]
-        y_edges = y_edges / y_edges[-1]
-        z_edges = z_edges / z_edges[-1]
-
-    grid = pv.RectilinearGrid(x_edges, y_edges, z_edges)
-    grid.cell_data['Ta']    = Ta.flatten(order='F')
-    grid.cell_data['vmag']  = vmag.flatten(order='F')
-    grid.cell_data['P_kPa'] = (P.flatten(order='F') / 1000.0)
-    grid.cell_data['L_mm']  = L_field.flatten(order='F')
-    return grid.cell_data_to_point_data()
+        axes = [axis / axis[-1] for axis in axes]
+    grid = pv.RectilinearGrid(*axes)
+    for key, values in (('Ta', Ta), ('vmag', vmag), ('P_kPa', P / 1000.), ('L_mm', L_field)):
+        grid.point_data[key] = np.pad(values, 1, mode='edge').flatten(order='F')
+    return grid
 
 
 def launch_interactive(grid, *, off_screen=False, out_dir=None,

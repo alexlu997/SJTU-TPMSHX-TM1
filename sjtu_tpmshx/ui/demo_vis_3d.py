@@ -41,9 +41,9 @@ def load_visualization_result(path):
 
 
 def build_pv_grid(dx, dy, dz):
-    """Build a physical PyVista grid from SI cell-width arrays."""
-    edges = [np.r_[0., np.cumsum(widths)] for widths in (dx, dy, dz)]
-    return pv.RectilinearGrid(*edges)
+    """Use physical cell centres and outer boundaries as display points."""
+    axes = [np.r_[0., np.cumsum(w) - w / 2, np.sum(w)] for w in (dx, dy, dz)]
+    return pv.RectilinearGrid(*axes)
 
 
 def main():
@@ -64,13 +64,13 @@ def main():
     print(f"Loaded {args.result}: grid={Ta.shape}, status={dict(result.run_status)}")
 
     grid_T = build_pv_grid(*widths)
-    grid_T.cell_data['Ta'] = Ta.ravel(order='F')
+    grid_T.point_data['Ta'] = np.pad(Ta, 1, mode='edge').ravel(order='F')
     grid_V = build_pv_grid(*widths)
-    grid_V.cell_data['velocity'] = velocity.reshape(-1, 3, order='F')
-    grid_V.cell_data['vmag'] = speed.ravel(order='F')
-    grid_Vp = grid_V.cell_data_to_point_data()
+    grid_V.point_data['velocity'] = np.pad(velocity, ((1, 1), (1, 1), (1, 1), (0, 0)),
+                                          mode='edge').reshape(-1, 3, order='F')
+    grid_V.point_data['vmag'] = np.pad(speed, 1, mode='edge').ravel(order='F')
     grid_L = build_pv_grid(*widths)
-    grid_L.cell_data['L_mm'] = L_field.ravel(order='F')
+    grid_L.point_data['L_mm'] = np.pad(L_field, 1, mode='edge').ravel(order='F')
 
     pv.set_plot_theme('document')
     p = pv.Plotter(shape=(2, 2), window_size=(1600, 1200), off_screen=True,
@@ -99,7 +99,7 @@ def main():
     points[:, transverse[0]] = seed_centre[transverse[0]] + seed.points[:, 1] * dimensions[transverse[0]] * 0.9
     points[:, transverse[1]] = seed_centre[transverse[1]] + seed.points[:, 2] * dimensions[transverse[1]] * 0.9
     seed.points = points
-    streams = grid_Vp.streamlines_from_source(
+    streams = grid_V.streamlines_from_source(
         seed, vectors='velocity', max_length=float(dimensions[axis] * 2.),
         integration_direction='forward', max_steps=200)
     if streams.n_points > 0:
@@ -113,7 +113,7 @@ def main():
     p.subplot(1, 0)
     T_iso = float(0.5 * (Ta.min() + Ta.max()))
     if Ta.max() > Ta.min():
-        iso = grid_T.cell_data_to_point_data().contour(isosurfaces=[T_iso], scalars='Ta')
+        iso = grid_T.contour(isosurfaces=[T_iso], scalars='Ta')
         if iso.n_points > 0:
             p.add_mesh(iso, color='orangered', opacity=0.6, show_edges=False)
     p.add_mesh(grid_T.outline(), color='black')

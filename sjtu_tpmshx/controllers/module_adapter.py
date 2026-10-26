@@ -45,13 +45,11 @@ def to_compute_result(result, performance):
     parameters = result.metadata['parameters']
     diagnostics = mutable_data(result.metadata['diagnostics'])
     application = mutable_data(result.metadata['application'])
-    fields = {name: mutable_data(f[name + '_display']) for name in ('Ta', 'Tb', 'Ts')}
-    fields.update({name: mutable_data(f.get(name + '_display')) for name in ('P_fA', 'P_fB')})
+    fields = {name: mutable_data(f[name]) for name in ('Ta', 'Tb', 'Ts')}
+    fields.update({'P_f' + side: mutable_data(f.get('P_report_' + side)) for side in 'AB'})
     fields.update({name: mutable_data(f.get(name)) for name in ('ucA', 'vcA', 'ucB', 'vcB')})
     if dimension == 2:
         geometry = parameters['static_properties']['geometry']
-        fields.update({name + '_disp': mutable_data(f.get(name + '_display'))
-                       for name in ('ucA', 'vcA', 'ucB', 'vcB')})
         zone = _legacy_zone_units(mutable_data(parameters['zone_config']))
         if isinstance(zone, dict):
             from sjtu_tpmshx.models.zone_config import Zone, ZoneConfig

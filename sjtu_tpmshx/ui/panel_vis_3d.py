@@ -579,9 +579,6 @@ class ThreeDVisPanel(QWidget):
         self._dx_mm = dx_m * 1000.0
         self._dy_mm = dy_m * 1000.0
         self._dz_mm = dz_m * 1000.0
-        # Pre-compute cell-centre 1D coordinate arrays once per set_fields().
-        # _show_slice_popup previously recomputed these cumsum's on every popup
-        # (each open ≈ O(N) per axis). Cached here so popups are O(1).
         self._cx_mm = np.cumsum(self._dx_mm) - self._dx_mm / 2
         self._cy_mm = np.cumsum(self._dy_mm) - self._dy_mm / 2
         self._cz_mm = np.cumsum(self._dz_mm) - self._dz_mm / 2
@@ -590,13 +587,13 @@ class ThreeDVisPanel(QWidget):
         z_edges = np.concatenate([[0.0], np.cumsum(self._dz_mm)])
         self._L_mm = (float(x_edges[-1]), float(y_edges[-1]), float(z_edges[-1]))
 
-        grid = pv.RectilinearGrid(x_edges, y_edges, z_edges)
-        for key, arr in self._arrays.items():
-            grid.cell_data[key] = arr.flatten(order='F')
-        self._grid = grid.cell_data_to_point_data()
+        self._edges_mm = (x_edges, y_edges, z_edges)
+        # Keep every original centre; extend its value to the outer boundary.
+        self._grid = pv.RectilinearGrid(*[
+            np.r_[0., centres, length] for centres, length in
+            zip((self._cx_mm, self._cy_mm, self._cz_mm), self._L_mm)])
 
-        # Prepare high-resolution display data only when its field is shown.
-        # New results (including a changed grid) must invalidate every field.
+        # Allocate display scalars only for fields that the user selects.
         self._volume_grids.clear()
         self._grid_vol = None
 
@@ -769,10 +766,7 @@ class ThreeDVisPanel(QWidget):
         """Probe scalar values at cursor position on the slice (if present)."""
         if self._grid is None:
             return
-        # Throttle to ~30 Hz so fast cursor sweeps don't fire kdtree lookups
-        # 60+ times/s on top of VTK's own picker work. Without this, dragging
-        # the cursor across a refined 3D grid added perceptible jitter to
-        # the camera spin. — 2026-04-29
+        # Limit probe work while the camera moves.
         import time as _t_hover
         _now = _t_hover.monotonic()
         _last = getattr(self, '_hover_last_t', 0.0)
@@ -790,15 +784,16 @@ class ThreeDVisPanel(QWidget):
                     self._last_hover_text = ''
                 return
             wpos = picker.GetPickPosition()
-            idx = self._grid.find_closest_point(wpos)
-            if idx < 0:
-                return
-            parts = [f"Cursor: ({wpos[0]:.1f}, {wpos[1]:.1f}, {wpos[2]:.1f}) mm"]
+            index = tuple(int(np.clip(np.searchsorted(edges, pos, side='right') - 1,
+                                      0, len(edges) - 2))
+                          for edges, pos in zip(self._edges_mm, wpos))
+            parts = [f"Cursor: ({wpos[0]:.1f}, {wpos[1]:.1f}, {wpos[2]:.1f}) mm",
+                     f"Cell {index}"]
             for fkey in ('Ta', 'Tb', 'Ts', 'vmag', 'vmag_B',
                          'P_kPa', 'P_B_kPa'):
                 if fkey in self._arrays:
                     try:
-                        val = float(self._grid[fkey][idx])
+                        val = float(self._arrays[fkey][index])
                     except Exception:
                         continue
                     parts.append(f"{FIELD_META[fkey]['title']} = "
@@ -866,6 +861,7 @@ class ThreeDVisPanel(QWidget):
               'z': self._L_mm[2]}[axis]
         if coord_mm < 0.0 or coord_mm > hi:
             return
+        coord_mm = self._snap_slice_coord(axis, coord_mm)
         self._slice_info = {'axis': axis, 'coord_mm': coord_mm}
         if self._scale_mode == 'local':
             self._rebuild_volume(render=False)
@@ -1158,6 +1154,7 @@ class ThreeDVisPanel(QWidget):
                 f"Coord {coord_mm:.2f} mm outside domain [{lo:.1f}, {hi:.1f}] — clamping.")
             coord_mm = max(lo, min(coord_mm, hi))
             self.le_coord.setText(f"{coord_mm:.2f}")
+        coord_mm = self._snap_slice_coord(axis, coord_mm)
         self._slice_info = {'axis': axis, 'coord_mm': coord_mm}
         if self._scale_mode == 'local':
             self._rebuild_volume(render=False)
@@ -1165,6 +1162,7 @@ class ThreeDVisPanel(QWidget):
         self.plotter.render()
         self._show_slice_popup(axis, coord_mm)
         self.btn_clear.setEnabled(True)
+        self._update_status()
 
     def _on_clear_slice(self):
         pl = self.plotter
@@ -1321,49 +1319,13 @@ class ThreeDVisPanel(QWidget):
         return lo, hi
 
     def _build_volume_grid(self):
-        """Cache the selected field's smooth display grid on first access.
-
-        Returns (grid_with_point_data, fine_min_cell_mm). The display-only
-        upsample factor is unchanged (up to 3× per axis, targeting ~300k
-        cells). Interpolates original cell-centre values in physical space,
-        holding the nearest centre value across the exterior half cells.
-        Falls back to the raw grid if SciPy is missing or the factor is 1.
-        Slices, hover and color ranges retain the real compute grid.
-        """
+        """Cache original values at physical centres for VTK interpolation."""
         if self._field in self._volume_grids:
             return self._volume_grids[self._field]
-        raw_min = float(min(self._dx_mm.min(), self._dy_mm.min(),
-                            self._dz_mm.min()))
-        try:
-            from scipy.interpolate import RegularGridInterpolator
-        except Exception:
-            return self._grid, raw_min
-        if not self._arrays:
-            return self._grid, raw_min
         field = self._arrays[self._field]
-        Nx, Ny, Nz = field.shape
-        ncells = max(Nx * Ny * Nz, 1)
-        # Cap total fine cells ~3e5 so the GPU upload + ray-cast stay light
-        # enough that scroll-zoom / rotation re-renders feel responsive (the
-        # trilinear upsample — not the raw cell count — is what kills banding,
-        # so a smaller cap keeps smoothness while cutting the per-frame cost).
-        # AutoAdjust still coarsens the ray step during active interaction.
-        f = int(np.clip(round((3.0e5 / ncells) ** (1.0 / 3.0)), 1, 3))
-        if f <= 1:
-            return self._grid, raw_min
-        Lx, Ly, Lz = self._L_mm
-        nx, ny, nz = Nx * f, Ny * f, Nz * f
-        axes = [np.linspace(0.0, length, n + 1)
-                for length, n in zip((Lx, Ly, Lz), (nx, ny, nz))]
-        centres = [np.cumsum(widths) - 0.5 * widths
-                   for widths in (self._dx_mm, self._dy_mm, self._dz_mm)]
-        points = np.stack(np.meshgrid(
-            *(np.clip(axis, centre[0], centre[-1])
-              for axis, centre in zip(axes, centres)), indexing='ij'), axis=-1)
-        fine = RegularGridInterpolator(centres, field)(points)
-        gv = pv.RectilinearGrid(*axes)
-        gv.point_data[self._field] = fine.flatten(order='F')
-        result = gv, float(min(Lx/nx, Ly/ny, Lz/nz))
+        grid = self._grid.copy(deep=False)
+        grid.point_data[self._field] = np.pad(field, 1, mode='edge').flatten(order='F')
+        result = grid, float(min(np.diff(axis).min() for axis in (grid.x, grid.y, grid.z)))
         self._volume_grids[self._field] = result
         return result
 
@@ -1422,14 +1384,8 @@ class ThreeDVisPanel(QWidget):
                 render=False,
                 show_scalar_bar=False,     # suppress volume's built-in bar
             )
-            # Ray sampling on the UPSAMPLED grid. Smoothness now comes from the
-            # trilinearly-upsampled DATA (fine cells), which DECOUPLES it from
-            # the ray sample distance — so AutoAdjust can be ON: VTK coarsens
-            # the ray step only DURING camera/slider interaction (responsive
-            # rotation, fixes the lag) and still renders the full-quality still
-            # frame on settle. Even the coarse interactive step looks smooth
-            # because adjacent fine cells barely differ. `0.005` floor guards
-            # degenerate grids.
+            self._volume_actor.GetProperty().SetInterpolationTypeToLinear()
+            # Interpolate between physical centres; coarsen rays during interaction.
             try:
                 vol_mapper = self._volume_actor.GetMapper()
                 min_cell = float(getattr(self, '_vol_min_cell_mm', 0.0)) or min(
@@ -1487,14 +1443,14 @@ class ThreeDVisPanel(QWidget):
             pl.render()
 
     def _slice_index(self, axis: str, coord_mm: float) -> int:
-        """Map mm coord along `axis` to nearest cell-centre index.
-
-        Uses pre-cached centres from set_fields() — was rebuilding the cumsum
-        per call, which dominated cost on rapid coord-text typing (debounced
-        but still O(N) per debounce tick).
-        """
+        """Map a physical coordinate to the nearest cell centre."""
         centres = {'x': self._cx_mm, 'y': self._cy_mm, 'z': self._cz_mm}[axis]
         return int(np.argmin(np.abs(centres - coord_mm)))
+
+    def _snap_slice_coord(self, axis: str, coord_mm: float) -> float:
+        """Use the same original layer for the scene, popup and label."""
+        centres = {'x': self._cx_mm, 'y': self._cy_mm, 'z': self._cz_mm}[axis]
+        return float(centres[self._slice_index(axis, coord_mm)])
 
     def _add_slice_actor(self, axis: str, coord_mm: float, render: bool = True):
         """Add (or replace) a single user slice actor overlaid on the volume.
@@ -1511,12 +1467,14 @@ class ThreeDVisPanel(QWidget):
         normal = {'x': (1.0, 0.0, 0.0),
                   'y': (0.0, 1.0, 0.0),
                   'z': (0.0, 0.0, 1.0)}[axis]
+        coord_mm = self._snap_slice_coord(axis, coord_mm)
         cx, cy, cz = self._grid.center
         origin = {'x': (coord_mm, cy, cz),
                   'y': (cx, coord_mm, cz),
                   'z': (cx, cy, coord_mm)}[axis]
         try:
-            slc = self._grid.slice(normal=normal, origin=origin)
+            grid, _ = self._build_volume_grid()
+            slc = grid.slice(normal=normal, origin=origin)
         except Exception as e:
             self.status.setText(f"Slice failed: {e}")
             return
@@ -1562,17 +1520,21 @@ class ThreeDVisPanel(QWidget):
             return
         field = self._arrays[key]
         idx = self._slice_index(axis, coord_mm)
+        coord_mm = self._snap_slice_coord(axis, coord_mm)
         if axis == 'x':
             slc2d = field[idx, :, :]
             horiz = self._cy_mm; vert = self._cz_mm
+            lengths = self._L_mm[1:]
             h_lbl, v_lbl = 'Y [mm]', 'Z [mm]'
         elif axis == 'y':
             slc2d = field[:, idx, :]
             horiz = self._cx_mm; vert = self._cz_mm
+            lengths = (self._L_mm[0], self._L_mm[2])
             h_lbl, v_lbl = 'X [mm]', 'Z [mm]'
         else:
             slc2d = field[:, :, idx]
             horiz = self._cx_mm; vert = self._cy_mm
+            lengths = self._L_mm[:2]
             h_lbl, v_lbl = 'X [mm]', 'Y [mm]'
 
         meta = FIELD_META[key]
@@ -1598,15 +1560,13 @@ class ThreeDVisPanel(QWidget):
         canvas = FigureCanvasQTAgg(fig)
         ax = fig.add_subplot(111)
         ax.set_facecolor(t['ax_bg'])
-        # contourf with 256 levels (turbo's full LUT) — iso-bands keep small
-        # local features (jets, hot/cold spots) crisp for detail inspection,
-        # which Gouraud smoothing softened on the coarse grid. horiz/vert are
-        # cell centres; meshgrid builds the matching X/Y mesh.
-        Hx, Vy = np.meshgrid(horiz, vert)
+        # Match the scene's constant extension over exterior half cells.
+        from .matplotlib_canvas import pad_field_to_edges
+        Hx, Vy, values = pad_field_to_edges(horiz, vert, slc2d, *lengths)
         lo, hi = self._clim_for(key)
         if hi - lo < 1e-12:
             hi = lo + 1.
-        im = ax.contourf(Hx, Vy, slc2d.T, levels=np.linspace(lo, hi, 257),
+        im = ax.contourf(Hx, Vy, values, levels=np.linspace(lo, hi, 257),
                          vmin=lo, vmax=hi, cmap=meta['cmap'], extend='both')
         # fraction/pad keep the colorbar height matched to the (possibly short)
         # axes instead of the tall thin default bar.

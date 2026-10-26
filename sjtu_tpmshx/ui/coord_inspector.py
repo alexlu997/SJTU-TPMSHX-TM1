@@ -37,8 +37,10 @@ _FIELD_TABLE = [
     ('Ts',   'T_s',   'K',   '{:.2f}'),
     ('ucA',  'u_A',   'm/s', '{:.4f}'),
     ('vcA',  'v_A',   'm/s', '{:.4f}'),
+    ('wcA',  'w_A',   'm/s', '{:.4f}'),
     ('ucB',  'u_B',   'm/s', '{:.4f}'),
     ('vcB',  'v_B',   'm/s', '{:.4f}'),
+    ('wcB',  'w_B',   'm/s', '{:.4f}'),
     ('P_fA', 'P_A',   'Pa',  '{:.0f}'),
     ('P_fB', 'P_B',   'Pa',  '{:.0f}'),
 ]
@@ -145,7 +147,7 @@ class CoordInspector(QDockWidget):
     """
 
     def __init__(self, window):
-        super().__init__("Coordinate Inspector", window)
+        super().__init__("Coordinate Inspector — Cell values", window)
         self.setObjectName("CoordInspector")
         self._window = window
         self._pinned = False
@@ -172,7 +174,7 @@ class CoordInspector(QDockWidget):
         # Header row: title + pin button + status badge
         header = QHBoxLayout()
         header.setSpacing(6)
-        title = QLabel("Inspector")
+        title = QLabel("Cell values")
         title.setStyleSheet(
             f"color:{_t['fg']}; font-size:11pt; font-weight:700;"
             "background:transparent; border:none; letter-spacing:0.3px;")

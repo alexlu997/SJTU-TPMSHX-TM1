@@ -108,14 +108,10 @@ def plot_temperature_3panel(window, r, _t):
         _sync = bool(window.chk_sync_colorbar_T.isChecked())
     except Exception:
         pass
-    if _sync:
-        v_all_min = float(min(Ta.min(), Tb.min(), Ts.min()))
-        v_all_max = float(max(Ta.max(), Tb.max(), Ts.max()))
-        vmin_f, vmax_f = v_all_min, v_all_max
-        vmin_s, vmax_s = v_all_min, v_all_max
-    else:
-        vmin_f = min(Ta.min(), Tb.min()); vmax_f = max(Ta.max(), Tb.max())
-        vmin_s, vmax_s = None, None
+    temperatures = [r[key] for key in ('Ta', 'Tb', 'Ts')]
+    limits = (field_color_limits(temperatures, shared=True) if _sync else
+              field_color_limits(temperatures[:2], shared=True) + field_color_limits(temperatures[2:]))
+    limits = [(lo - offset, hi - offset) for lo, hi in limits]
 
     plot_items = [
         (Ta, rf"$T_{{f,A}}$  [{unit}]", "Fluid A"),
@@ -125,19 +121,15 @@ def plot_temperature_3panel(window, r, _t):
     for ax, index in zip(axes, selected):
         field, main_title, subtitle = plot_items[index]
         ax.set_facecolor(_t['ax_bg'])
-        if index == 2:
-            # Match the fluid colour map and limit redraw cost with 128 contours.
-            kw = dict(levels=128, cmap=FIELD_CMAP)
-            if vmin_s is not None:
-                kw.update(vmin=vmin_s, vmax=vmax_s)
-        else:
-            kw = dict(levels=128, cmap=FIELD_CMAP, vmin=vmin_f, vmax=vmax_f)
+        lo, hi = limits[index]
         from sjtu_tpmshx.ui.matplotlib_canvas import pad_field_to_edges
         _Xp, _Yp, _Fp = pad_field_to_edges(x, y, field, L * 1000.0, H * 1000.0)
-        cf = ax.contourf(_Xp, _Yp, _Fp, **kw)
+        cf = ax.contourf(_Xp, _Yp, _Fp, levels=np.linspace(lo, hi, 129),
+                         cmap=FIELD_CMAP, vmin=lo, vmax=hi)
         ax.set_xlim(0, L * 1000.0); ax.set_ylim(0, H * 1000.0)
         cb = window.canvas_temp.fig.colorbar(cf, ax=ax, shrink=0.9,
-                                              aspect=25, format=ScalarFormatter(useOffset=False))
+                                              aspect=25, ticks=np.linspace(lo, hi, 5),
+                                              format=ScalarFormatter(useOffset=False))
         _style_workbench_axes(ax, cb, _t, main_title, subtitle)
         if hasattr(window, '_zone_boundaries') and window._zone_boundaries:
             z_dir = getattr(window, '_zone_axis_dir', 'y')
@@ -172,12 +164,7 @@ def finalize_plots(window, field="temp"):
     _t = get_theme()
 
     r = window.cache.get_result('2d').fields
-    # N5 (2026-07-07): prefer the display-smoothed copies on partial-BC runs;
-    # the physics keys ('ucA' …) now stay raw / mass-conserving.
-    def _vel(key):
-        disp = r.get(key + '_disp')
-        return disp if disp is not None else r[key]
-    ucA, vcA, ucB, vcB = _vel('ucA'), _vel('vcA'), _vel('ucB'), _vel('vcB')
+    ucA, vcA, ucB, vcB = (r[key] for key in ('ucA', 'vcA', 'ucB', 'vcB'))
     P_fA, P_fB = r['P_fA'], r['P_fB']
     N_x, N_y, L, H = r['N_x'], r['N_y'], r['L'], r['H']
     dir_A, dir_B = r['dir_A'], r['dir_B']

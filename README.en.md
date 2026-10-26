@@ -333,9 +333,17 @@ slice, new slice popups, and their images use these limits. Values outside
 the limits use endpoint colors. Display limits do not change field data.
 Both limits must be finite and Max must exceed Min.
 
-For 3D designs, the 3D Size / Wall Thickness Field tab shows the full XYZ parameter field. Rotate, zoom, select L/t, adjust opacity, or move XY/YZ/XZ slices. This samples the continuous design without another solve. It displays spatial cell size and wall thickness, not a CAD preview of the TPMS surface. Temperature, size/wall, and sensitivity maps use `turbo`. Speed and pressure use `viridis`.
-Speed and pressure use the current fluid's full field range by default. The range stays fixed between slices.
-Select the shared-scale checkbox to compare A/B values on one scale.
+For 3D designs, the 3D Size / Wall Thickness Field tab shows the full XYZ parameter field. Rotate, zoom, select L/t, adjust opacity, or move XY/YZ/XZ slices. This samples the continuous design without another solve. It displays spatial cell size and wall thickness, not a CAD preview of the TPMS surface. Temperature, speed, pressure, size/wall, and sensitivity maps use `turbo`.
+Speed uses each fluid's complete field range. Pressure shares the A/B range by default.
+Clear the pressure shared-scale checkbox to use each fluid's range. These ranges stay fixed between slices.
+With the temperature shared-scale checkbox selected, all three phases use the same complete field range, contour levels, and ticks.
+The K/°C selector changes temperature units only.
+Field plots use original cell values, with no Gaussian filter at partial ports.
+Hover and Coordinate Inspector show original cell values. Contour colors interpolate between cell centres.
+The 3D volume uses the physical cell centres on both uniform and nonuniform grids.
+Exterior half cells keep the nearest centre value. Each field's display data loads on first selection.
+3D slices snap to the nearest cell centre. The scene, popup, coordinate label, and exported image use that same layer.
+Historical display arrays stay unchanged in saved files. The current GUI reads the original temperature, velocity, and report pressure fields.
 The 2D, 3D, and slice popup views use the same colormaps. Each quantity keeps its units.
 After a solve, the selected field appears first. The volume loads when you first select 3D.
 Drag with the left mouse button anywhere on the geometry canvas to rotate it. Use the wheel to zoom.

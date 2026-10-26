@@ -152,6 +152,48 @@ def test_nearly_uniform_fields_still_render(win, mode, field, value):
     assert contour.get_clim()[1] > contour.get_clim()[0]
 
 
+@pytest.mark.parametrize('mode', ['2d', '3d'])
+@pytest.mark.parametrize('unit', ['K', 'C'])
+def test_shared_temperature_levels_and_ticks_stay_fixed_across_phases_and_slices(win, mode, unit):
+    result = _result(mode)
+    fields = result.fields
+    for key, low, high in [('Ta', 400., 500.), ('Tb', 300., 320.), ('Ts', 330., 390.)]:
+        fields[key][:] = np.linspace(low, high, fields[key].size).reshape(fields[key].shape)
+    win.write_result(result)
+    win._temp_unit = unit
+    win._active_tab = 'temp'
+    win.chk_sync_colorbar_T.setChecked(True)
+    offset = 273.15 if unit == 'C' else 0.
+    expected = np.linspace(300. - offset, 500. - offset, 257 if mode == '3d' else 129)
+    for phase in range(3):
+        win._field_phase = phase
+        for index in ((0, 2) if mode == '3d' else (0,)):
+            win._slice_result_id = id(win.cache.get_result(mode))
+            win._slice_index = index
+            redraw_result_fields(win)
+            contour = win.canvas_temp.axes[0][0].collections[0]
+            np.testing.assert_array_equal(contour.levels, expected)
+            np.testing.assert_allclose(win.canvas_temp.fig.axes[-1].get_yticks(),
+                                       np.linspace(expected[0], expected[-1], 5))
+            assert contour.get_clim() == (expected[0], expected[-1])
+            source = fields[('Ta', 'Tb', 'Ts')[phase]]
+            if mode == '3d':
+                source = source[:, :, index]
+            np.testing.assert_array_equal(win.canvas_temp._hover_data['fields'][0], source - offset)
+
+
+def test_2d_speed_uses_original_components_even_with_historical_display_copies(win):
+    result = _result('2d')
+    for key in ('ucA', 'vcA', 'ucB', 'vcB'):
+        result.fields[key + '_disp'] = np.zeros_like(result.fields[key])
+    win.write_result(result)
+    win._field_phase = 0
+    assert ensure_result_plot(win, 'vel')
+    expected = np.hypot(result.fields['ucA'], result.fields['vcA'])
+    np.testing.assert_allclose(win.canvas_vel._hover_data['fields'][0], expected)
+    assert win.canvas_vel.axes[0][0].collections[0].get_clim() == field_color_limits([expected])[0]
+
+
 def test_qualification_reason_preserves_rejection_and_distinguishes_nu_inputs(win):
     from sjtu_tpmshx.ui.fmt import qualification_reasons
     q = {'design': {'status': 'rejected', 'reasons': ['applicability']},

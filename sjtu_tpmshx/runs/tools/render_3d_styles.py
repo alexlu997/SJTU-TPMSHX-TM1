@@ -94,10 +94,11 @@ def render_volume_tuned(grid, scalar, title, outpath):
                'vertical': True, 'position_x': 0.86, 'position_y': 0.2,
                'width': 0.06, 'height': 0.6, 'n_labels': 6}
     # Tuned ramp: low end fully transparent, high end nearly solid
-    p.add_volume(grid, scalars=scalar, cmap='turbo', clim=(lo, hi),
+    volume = p.add_volume(grid, scalars=scalar, cmap='turbo', clim=(lo, hi),
                  opacity=[0.0, 0.0, 0.08, 0.4, 0.95],
                  shade=True, ambient=0.4, diffuse=0.7, specular=0.3,
                  show_scalar_bar=True, scalar_bar_args=sb_args)
+    volume.GetProperty().SetInterpolationTypeToLinear()
     p.add_mesh(grid.outline(), color='black', line_width=2)
     _add_axes_show_bounds(p)
     p.add_text(title + ' — volume (tuned opacity)', font_size=12,
@@ -259,9 +260,8 @@ def render_publication_4panel(grid, scalar, title, outpath, unit,
     gridspec layout hosting 3 ortho 2D contourf in the other 3 quadrants.
     Shared colorbar on the right.
 
-    `cell_arr` (Nx, Ny, Nz) is the original solver output for 2D contourf
-    — passed in directly because grid's cell_data is stripped after
-    `cell_data_to_point_data()`. dx/dy/dz_mm are 1-D spacing arrays.
+    `cell_arr` (Nx, Ny, Nz) contains the original cell values for 2D contours.
+    The display grid also contains boundary points. dx/dy/dz_mm are 1D widths.
     """
     Nx, Ny, Nz = cell_arr.shape
 
@@ -354,8 +354,7 @@ def main():
     passed = print_metrics(res, evaluate(res), cfg)
     grid = make_grid(res)
 
-    # Preserve display arrays + spacings for 2D contourf (grid.cell_data is gone
-    # after cell_data_to_point_data()).
+    # Keep original cell values and widths for the 2D contours.
     raw_arrays = {'Ta': res.fields['Ta_display'], 'Tb': res.fields['Tb_display'],
                   'Ts': res.fields['Ts_display'], 'vmag': res.fields['vmag_A'],
                   'P_kPa': res.fields['P_fA_display'] / 1000.0}

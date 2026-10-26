@@ -1,28 +1,12 @@
 """Derive display fields and describe recorded result fields without Qt."""
-import numpy as np
 
 
-def display_fields_2d(temperature, pressure, velocity, boundary_openings):
-    """Keep raw velocities and smooth display fields at partial ports."""
+def display_fields_2d(temperature, pressure, velocity):
+    """Keep display aliases at the original cell values."""
     fields = dict(zip(('Ta_display', 'Tb_display', 'Ts_display'), temperature))
-    partial = []
     for side, label in enumerate('AB'):
-        openings = boundary_openings[label]
-        partial.append(bool(np.any(openings['out_profile_frac'] < .99) or
-                            np.any(openings['in_profile_frac'] < .99)))
         fields.update({'P_f' + label + '_display': pressure[side],
                        'uc' + label: velocity[side][0], 'vc' + label: velocity[side][1]})
-    if any(partial):
-        from scipy.ndimage import gaussian_filter
-        for key in ('Ta_display', 'Tb_display', 'Ts_display'):
-            fields[key] = gaussian_filter(fields[key], sigma=1.5)
-        for side, label in enumerate('AB'):
-            if partial[side]:
-                key = 'P_f' + label + '_display'
-                fields[key] = gaussian_filter(fields[key], sigma=1.5)
-                for prefix in ('uc', 'vc'):
-                    fields[prefix + label + '_display'] = gaussian_filter(
-                        fields[prefix + label], sigma=2.)
     return fields
 
 

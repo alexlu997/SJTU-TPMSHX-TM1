@@ -189,7 +189,7 @@ def test_capped_partial_fields_last_inputs_and_recomputed_metrics(driver, mode):
     assert actual.metadata['input_resolution']['source'] == 'CaseData.parameters'
     assert actual.run_status['final_flow_after_last_thermal']
     assert not actual.run_status['converged']
-    assert not np.array_equal(actual.fields['Ta'], actual.fields['Ta_display'])
+    np.testing.assert_array_equal(actual.fields['Ta'], actual.fields['Ta_display'])
     np.testing.assert_array_equal(actual.metadata['rho_cp_A'], None if mode == 'true_h' else raw['main']['rho_cp'][0])
     assert actual.metadata['diagnostics']['native_full_2d']['range_observations']
     assert actual.metadata['enthalpy_update_normalization'] == raw['enthalpy_update_normalization']
@@ -210,7 +210,7 @@ def test_capped_temperature_capture_uses_current_full_cc_enthalpy(driver):
     check_range_records(actual_records, raw['range_observations'])
     check_portable(actual, raw, case)
     assert actual.run_status['final_flow_after_last_thermal'] and not actual.run_status['converged']
-    assert not np.array_equal(actual.fields['Ta'], actual.fields['Ta_display'])
+    np.testing.assert_array_equal(actual.fields['Ta'], actual.fields['Ta_display'])
     np.testing.assert_array_equal(actual.metadata['rho_cp_A'], raw['main']['rho_cp'][0])
     for stage in ('main', 'fine'):
         evidence = actual.boundary_fluxes if stage == 'main' else actual.boundary_fluxes['fine']
