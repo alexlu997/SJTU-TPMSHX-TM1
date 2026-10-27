@@ -481,7 +481,7 @@ def test_legacy_file_preserves_fields_and_reports_missing_inputs(tmp_path, monke
 
 
 @pytest.mark.parametrize('name', [
-    'Shanghai (3D Gyroid)', 'Shanghai (2D Gyroid)', 'Shanghai (3D Diamond)',
+    'Shanghai (3D Gyroid)', 'Shanghai (2D Gyroid)',
 ])
 @pytest.mark.parametrize('unit', ['K', 'C'])
 def test_shanghai_preset_restores_ports_and_valid_grid(win, name, unit):
@@ -517,8 +517,17 @@ def test_shanghai_preset_restores_ports_and_valid_grid(win, name, unit):
     assert cfg.df_mode == 'experimental'
     assert (cfg.fluid_A.type, cfg.fluid_B.type) == ('air', 'water')
     assert (cfg.bc_A.dir, cfg.bc_B.dir) == (0, 3)
-    assert (cfg.fluid_A.u_mps, cfg.fluid_A.T_in_K, cfg.fluid_A.P_in_Pa) == (20.0, 422.0, 192362.0)
-    assert (cfg.fluid_B.u_mps, cfg.fluid_B.T_in_K, cfg.fluid_B.P_in_Pa) == (0.133, 300.0, 101973.0)
+    assert (cfg.fluid_A.u_mps, cfg.fluid_A.T_in_K, cfg.fluid_A.P_in_Pa) == pytest.approx(
+        (22.058558981502337, 148.9083382933427 + 273.15, 91037.40144727773 + 101325), rel=1e-14)
+    assert (cfg.fluid_B.u_mps, cfg.fluid_B.T_in_K, cfg.fluid_B.P_in_Pa) == pytest.approx(
+        (0.13366189204916, 26.88908245097393 + 273.15, 647.6013955892486 + 101325), rel=1e-14)
+    for side, measured_flow in (('A', 1057 * 1.292 / 60000),
+                                ('B', 5193 * 999.102 / 60000000)):
+        target = getattr(cfg, 'fluid_' + side).mass_flow_kg_s
+        if cfg.is_3d:
+            assert target == pytest.approx(measured_flow, rel=1e-14)
+        else:
+            assert target is None
     assert win._temp_unit == unit
     assert cfg.sco2_nu.mode == 'cfd_smooth' and win._sco2_nu_parameters == {}
     assert not cfg.zones.enabled and win._zone_grid is None
@@ -540,6 +549,53 @@ def test_shanghai_preset_restores_ports_and_valid_grid(win, name, unit):
              for side in ('A', 'B')]
     grid = build_port_wall_grid(lengths, counts, ports)
     assert tuple(len(widths) for widths in grid) == counts
+
+
+@pytest.mark.parametrize('name', ['Shanghai (3D Gyroid)', 'Shanghai (2D Gyroid)'])
+def test_shanghai_recorded_inputs_survive_units_and_saved_preset(win, name, tmp_path):
+    from dataclasses import replace
+    from sjtu_tpmshx.preprocess.api import prepare_inlet_mass_capacities, resolve_inlet_flow_config
+    from sjtu_tpmshx.ui.window_config import config_from_window
+
+    win._temp_unit = 'K'
+    win._load_named_preset(name)
+    expected = (148.9083382933427 + 273.15, 26.88908245097393 + 273.15)
+    for _ in range(4):
+        win._toggle_temp_unit()
+        cfg = config_from_window(win)
+        assert (cfg.fluid_A.T_in_K, cfg.fluid_B.T_in_K) == pytest.approx(expected, rel=0, abs=1e-12)
+    path = tmp_path / 'recorded-case.json'
+    path.write_text(json.dumps(win._capture_current_preset('recorded case 8')))
+    win.le_TinA.setText('350')
+    win.le_mass_flowA.setText('0.01')
+    win._apply_user_preset(json.loads(path.read_text()))
+    cfg = config_from_window(win)
+    assert (cfg.fluid_A.T_in_K, cfg.fluid_B.T_in_K) == pytest.approx(expected, rel=0, abs=1e-12)
+    # The 2D velocity preset represents the same inlet at the specimen depth.
+    cfg = replace(cfg, geometry=replace(cfg.geometry, Lz_m=.042))
+    resolved = resolve_inlet_flow_config(cfg)
+    capacities = prepare_inlet_mass_capacities(cfg)
+    for side, measured_flow in (('A', 1057 * 1.292 / 60000),
+                                ('B', 5193 * 999.102 / 60000000)):
+        speed = getattr(resolved, 'fluid_' + side).u_mps
+        assert speed * capacities[side] == pytest.approx(measured_flow, rel=1e-12)
+
+
+def test_diamond_remains_available_without_a_shanghai_experiment_preset(win):
+    from sjtu_tpmshx.ui.window_config import config_from_window
+
+    assert win._BUILTIN_PRESETS == ['Shanghai (3D Gyroid)', 'Shanghai (2D Gyroid)']
+    win._apply_shanghai_defaults()
+    win.combo_tpms.setCurrentIndex(win.combo_tpms.findText('Diamond'))
+    for side, speed in (('A', '20'), ('B', '.133')):
+        getattr(win, 'combo_inlet_mode' + side).setCurrentIndex(0)
+        getattr(win, 'le_u' + side).setText(speed)
+    saved = win._capture_current_preset('Shanghai (3D Diamond)')
+    win._apply_shanghai_defaults()
+    win._apply_user_preset(saved)
+    cfg = config_from_window(win)
+    assert cfg.geometry.tpms == 'Diamond'
+    assert cfg.fluid_A.mass_flow_kg_s is None and cfg.fluid_A.u_mps == 20
 
 
 @pytest.mark.parametrize('route', ['preset', 'session'])
@@ -618,11 +674,12 @@ def test_session_restores_complete_physical_case_in_kelvin(win, monkeypatch, uni
 def test_partial_celsius_session_does_not_convert_missing_kelvin_field(win, monkeypatch):
     win._temp_unit = 'K'
     win._apply_shanghai_defaults()
+    untouched = win.le_TinB.text()
     old = {'temp_unit': 'C', 'line_edits': {'le_TinA': '70'}, 'combos': {}}
     monkeypatch.setattr(win.sm, 'load_session', lambda ws: old)
     win._restore_session()
     assert float(win.le_TinA.text()) == pytest.approx(343.15)
-    assert float(win.le_TinB.text()) == 300.0
+    assert float(win.le_TinB.text()) == float(untouched)
 
 
 def test_workspaces_restore_their_own_zone_table_and_pareto_state(win, monkeypatch, tmp_path):
@@ -1217,7 +1274,7 @@ def test_continuous_field_preview_button_shows_and_exports_after_preset_load(
         assert not QGuiApplication.clipboard().image().isNull()
         assert '已复制 opt_field' in win.statusBar().currentMessage()
         # A later Compute preset is not the source of this retained field figure.
-        win._load_named_preset('Shanghai (3D Diamond)')
+        win._load_named_preset('Shanghai (3D Gyroid)')
         assert win._opt_field_figure_ready()
         path = tmp_path / 'continuous-field-preview.png'
         options = []
@@ -1301,7 +1358,7 @@ def test_retained_pareto_export_does_not_take_new_compute_preset_name(
     win._load_named_preset('Shanghai (2D Gyroid)')
     front = _study_front(np.ones((2, 18)), [[-1., .8], [-2., 1.1]])
     optimize_panel.show_pareto(win, front)
-    win._load_named_preset('Shanghai (3D Diamond)')
+    win._load_named_preset('Shanghai (3D Gyroid)')
     np.testing.assert_array_equal(win._pareto_F, [[-1., .8], [-2., 1.1]])
     path = tmp_path / 'retained-pareto.png'
     choices = iter([('Pareto / 优化', True), ('150 (screen)', True)])

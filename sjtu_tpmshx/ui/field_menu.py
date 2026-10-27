@@ -110,14 +110,11 @@ def _revert_field_to_default(window, le, attr):
         window.statusBar().showMessage(
             f"No preset default for {attr}.", 3000)
         return
-    # Temperature fields are authored in K; convert if UI shows °C.
-    if attr in ('le_TinA', 'le_TinB') and val != '' and \
-            getattr(window, '_temp_unit', 'K') == 'C':
-        try:
-            val = f"{float(val) - 273.15:.2f}"
-        except Exception:
-            pass
-    le.setText(val)
+    if attr in ('le_TinA', 'le_TinB'):
+        window._set_temp_K(le, val)
+        val = le.text()
+    else:
+        le.setText(val)
     # Tier 25: emit editingFinished so Revert is a real, undoable edit
     # (same rationale as the Recent-values handler above).
     try:

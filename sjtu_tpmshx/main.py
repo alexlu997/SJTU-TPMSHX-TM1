@@ -235,7 +235,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
     #  Shanghai presets + deferred 3D init
     # ─────────────────────────────────────────────────────────
     def _apply_shanghai_defaults(self):
-        """Restore the complete Shanghai Electric case-8 input baseline."""
+        """Restore Shanghai case 8 with its recorded inlet flows and states."""
         self._active_preset_name = "Shanghai (3D Gyroid)"
         self._set_shanghai_grid(is_3d=True)
         self.combo_df_mode.setCurrentIndex(self.combo_df_mode.findData('experimental'))
@@ -279,7 +279,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
                                 ('combo_dirB', 3),
                                 ('combo_fluidA', 0),
                                 ('combo_fluidB', 1),
-                                ('combo_inlet_modeA', 0), ('combo_inlet_modeB', 0)):
+                                ('combo_inlet_modeA', 1), ('combo_inlet_modeB', 1)):
             try:
                 c = getattr(self, combo_attr, None)
                 if c is None or not (0 <= idx < c.count()):

@@ -768,11 +768,11 @@ def test_field_restore_uses_the_current_case_dimension_and_remains_undoable(win,
         _revert_field_to_default(win, getattr(win, attr), attr)
     assert tuple(int(getattr(win, 'le_N' + axis).text()) for axis in 'xyz') == expected
     _revert_field_to_default(win, win.le_TinA, 'le_TinA')
-    assert float(win.le_TinA.text()) == pytest.approx(148.85)
+    assert float(win.le_TinA.text()) == pytest.approx(148.9083382933427, rel=0, abs=1e-12)
     win._undo_stack.undo()
     assert win.le_TinA.text() == '100'
     win._undo_stack.redo()
-    assert float(win.le_TinA.text()) == pytest.approx(148.85)
+    assert float(win.le_TinA.text()) == pytest.approx(148.9083382933427, rel=0, abs=1e-12)
     for attr, expected_value in [('le_rho_s', 7900.), ('le_pipeB_in_z_ctr', .021)]:
         _revert_field_to_default(win, getattr(win, attr), attr)
         assert float(getattr(win, attr).text()) == expected_value

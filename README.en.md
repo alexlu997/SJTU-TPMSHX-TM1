@@ -216,6 +216,14 @@ There is no forced thread termination or fixed cancellation delay. The card does
 
 Existing sessions restore custom fluids, directions, grids, and ports without Shanghai defaults overwriting them. Shanghai defaults apply only at first startup, in workspaces without saved sessions, or after explicit reset/preset loading. Each workspace saves its own zone axis, zone table, and continuous controls. Previous sessions without this data clear and disable zones. If the original enabled zones, a notice requests reconfiguration to prevent reuse of another workspace's zones.
 
+Shanghai presets use the recorded flows and full temperature/pressure values of April 1 Gyroid case 8.
+The 3D preset specifies total mass flow. Preparation calculates speed from the actual inlet pore area.
+The 2D preset uses the corresponding speed at the 42 mm specimen depth.
+Temperature-unit changes do not round inputs to two decimal places.
+See the [preset input table](docs/data-catalog.en.md#shanghai-case8-recorded-inputs) for sources, conversions and material assumptions.
+Saved sessions keep their inputs. Load the Shanghai preset explicitly to use the corrected baseline.
+The Diamond Shanghai preset had no corresponding experimental record and was removed. Manual Diamond models and saved configurations remain supported.
+
 Startup displays all temperature inputs in K. The conversion keeps their physical temperatures.
 
 Parameter-page changes, rail expansion, and computation-detail expansion use an approximately 200 ms fade. Text stays clear. Repeated actions replace previous animation, and inputs stay editable. First window display also fades the parameter area one time. Effects are initialized beforehand to reduce first-navigation delay.

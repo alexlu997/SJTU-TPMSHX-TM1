@@ -14,18 +14,13 @@ from sjtu_tpmshx.ui.window_config import DOMAIN_SHAPE_NOTICE, validate_domain_sh
 
 
 def shanghai_field_defaults(*, is_3d: bool) -> dict[str, str]:
-    """Canonical input-field values for the shipped case, authored in K."""
+    """Recorded April 1 case-8 inputs, with temperatures in K."""
     from sjtu_tpmshx.models.grid import SHANGHAI_GRID_2D, SHANGHAI_GRID_3D
     values = {
-        # Shanghai Electric gas-heater experimental log (工况8, Re_air=5000,
-        # Re_water=400) — raw values from `data/raw_data/
-        # 20260401-上海电气天然气加热器实验工况.xlsx` Sheet1 row 9:
-        #   col 24 water_in  = 26.89 °C   → 300.04 K
-        #   col 26 water_P   = 647.60 Pa (gauge)  → 101972.60 abs
-        #   col 28 air_in    = 148.908 °C → 422.06 K
-        #   col 30 air_P     = 91037.40 Pa (gauge) → 192362.40 abs
-        #   col 10 air_SLM   = 1057  → u_A ~20 m/s interstitial (Gyroid L7/t0.6)
-        #   col 11 water_flow= 5193 ml/min → u_B ~0.133 m/s interstitial
+        # Source: water-air_G7-t0p6_shanghai_experiment_20260401.xlsx,
+        # Sheet1 row 10. Flow targets use F10*K10/I10 and H10*L10/J10.
+        # Speeds are resolved for this uniform Gyroid and the 42 mm depth.
+        # The 3D mass-flow mode resolves them again from the prepared inlet.
         'le_L':     '0.182',  # L domain [m]
         'le_H':     '0.042',
         'le_Lz':    '0.042',
@@ -33,12 +28,14 @@ def shanghai_field_defaults(*, is_3d: bool) -> dict[str, str]:
         'le_t':     '0.6',
         'le_ks':    '16.0',   # Shanghai SS solid k_s
         'le_rho_s': '7900',
-        'le_uA':    '20.0',   # Fluid A (air) interstitial, back-calc Re=5000
-        'le_TinA':  '422.0',  # Fluid A inlet (Excel col 28: 148.908 °C)
-        'le_PinA':  '192362', # Fluid A inlet absolute (Excel 91037 Pa gauge + atm)
-        'le_uB':    '0.133',  # Fluid B (water) — Shanghai case 8 Re_water=400
-        'le_TinB':  '300.0',  # Fluid B inlet (Excel col 24: 26.89 °C)
-        'le_PinB':  '101973', # Fluid B inlet absolute (Excel 647.6 Pa gauge + atm)
+        'le_mass_flowA': '0.02276073333333333',
+        'le_mass_flowB': '0.0864722781',
+        'le_uA':    '22.058558981502337',
+        'le_TinA':  '422.0583382933427',  # AC10 + 273.15
+        'le_PinA':  '192362.40144727775', # AE10 + assumed 101325 Pa
+        'le_uB':    '0.13366189204916',
+        'le_TinB':  '300.03908245097393', # Y10 + 273.15
+        'le_PinB':  '101972.60139558925', # AA10 + assumed 101325 Pa
         # Shanghai pipe inlet/outlet: A full-width (42 mm strip), B
         # staggered cross-flow (water enters top-right +x end, exits
         # bottom-left -x end; inlet/outlet 42 mm strips along real x).
@@ -74,7 +71,6 @@ class SessionPresetsMixin:
     _BUILTIN_PRESETS = [
         "Shanghai (3D Gyroid)",
         "Shanghai (2D Gyroid)",
-        "Shanghai (3D Diamond)",
     ]
 
     def _use_current_sco2_nu_parameters(self):
@@ -535,8 +531,6 @@ class SessionPresetsMixin:
         if name == "Shanghai (2D Gyroid)":
             self.combo_dim.setCurrentIndex(0)
             self._set_shanghai_grid(is_3d=False)
-        elif name == "Shanghai (3D Diamond)":
-            self.combo_tpms.setCurrentIndex(0)
         self._active_preset_name = name
         self._resync_undo_baseline()
         if hasattr(self, '_refresh_status_bar'):
