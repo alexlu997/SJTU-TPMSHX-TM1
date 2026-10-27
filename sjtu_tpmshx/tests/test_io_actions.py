@@ -480,6 +480,31 @@ def test_legacy_file_preserves_fields_and_reports_missing_inputs(tmp_path, monke
             win.le_pipeA_in_z_w.text()) == untouched
 
 
+@pytest.mark.parametrize('sides', ['A', 'B', 'AB'])
+def test_legacy_velocity_import_replaces_only_its_inlet_mode(win, tmp_path, monkeypatch, sides):
+    from PySide6.QtWidgets import QMessageBox
+    from sjtu_tpmshx.preprocess.api import resolve_inlet_flow_config
+    from sjtu_tpmshx.ui.window_config import config_from_window
+
+    win._apply_shanghai_defaults()
+    before = config_from_window(win, strict=True)
+    speeds = {'A': 5.0, 'B': 0.2}
+    path = tmp_path / 'legacy-velocity.json'
+    path.write_text(json.dumps({f'u_{side}': speeds[side] for side in sides}))
+    monkeypatch.setattr(QMessageBox, 'warning', lambda *args: None)
+    assert win._load_config_path(str(path))
+    cfg = resolve_inlet_flow_config(config_from_window(win, strict=True))
+    for side in 'AB':
+        fluid = getattr(cfg, 'fluid_' + side)
+        if side in sides:
+            assert fluid.mass_flow_kg_s is None
+            assert fluid.u_mps == speeds[side]
+        else:
+            original = getattr(before, 'fluid_' + side)
+            assert fluid.mass_flow_kg_s == original.mass_flow_kg_s
+            assert fluid.u_mps == pytest.approx(original.u_mps, rel=1e-14)
+
+
 @pytest.mark.parametrize('name', [
     'Shanghai (3D Gyroid)', 'Shanghai (2D Gyroid)',
 ])

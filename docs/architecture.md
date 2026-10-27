@@ -1570,6 +1570,10 @@ the captured current inputs. An explicit temperature-unit change converts omitte
 model choices, controls and optimization conditions stay in the snapshot. Cross-field validation uses the merged input before changing widgets or cached
 results. An incompatible field dimension or zone-table layout rejects the patch.
 
+Legacy flat fields `u_A` and `u_B` specify velocity input. The adapter selects
+velocity mode for each supplied side. A side without a supplied speed keeps
+its current input mode and value.
+
 Versioned complete files, preset libraries and startup sessions keep their
 full-restore/historical-default rules. Partial import does not redefine them.
 

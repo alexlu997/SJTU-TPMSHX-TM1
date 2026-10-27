@@ -415,6 +415,8 @@ There are three input families: CLI configurations such as `air_2d.json`/`air_3d
 
 When the GUI imports `line_edits` JSON without `config_format` wrapping, only supplied fields change. The same rule applies to previous flat parameter files. Omitted temperature scale, resistance mode, grid, model parameters, continuous field, and optimization conditions keep current values. An explicit K/°C change converts omitted temperatures from their current physical values. It does not merely relabel unchanged text. Formal complete configurations, preset libraries, and startup sessions keep their own restoration rules.
 
+In a previous flat file, `u_A` and `u_B` specify inlet velocity. Each supplied velocity selects that side's velocity input mode. A side without a supplied velocity keeps its current input mode.
+
 <a id="三个模块"></a>
 
 ## Three modules
