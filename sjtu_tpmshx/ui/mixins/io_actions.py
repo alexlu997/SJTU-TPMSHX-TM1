@@ -241,6 +241,9 @@ class IOActionsMixin:
         for side in ('A', 'B'):
             if f'dir_{side}' in payload:
                 preset['combos'][f'combo_dir{side}'] = payload[f'dir_{side}']
+            if f'u_{side}' in payload:
+                # The former flat format specifies inlet speed.
+                preset['combos'][f'combo_inlet_mode{side}'] = 0
         self._validate_preset(preset)
         return preset
 

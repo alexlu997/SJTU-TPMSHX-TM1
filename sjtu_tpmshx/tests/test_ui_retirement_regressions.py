@@ -77,6 +77,7 @@ def test_autofill_dp_uses_selected_df_model(win, side, fluid, index, u, T, P):
     from sjtu_tpmshx.models.tpms_calc import compute
     from sjtu_tpmshx.df_surrogate.experimental_correction import apply_correction
     getattr(win, 'combo_fluid' + side).setCurrentIndex(index)
+    getattr(win, 'combo_inlet_mode' + side).setCurrentIndex(0)
     win.combo_tpms.setCurrentText('Gyroid')
     win.le_Lcell.setText('7'); win.le_t.setText('.6'); win.le_ks.setText('16')
     for field, value in (('u', u), ('Tin', T), ('Pin', P)):
@@ -172,6 +173,7 @@ def test_3d_layout_rectangles_follow_both_port_axes(direction, monkeypatch):
 
 def test_experimental_autofill_rejects_unsupported_inlet_without_stale_preview(win, monkeypatch):
     win.combo_fluidA.setCurrentIndex(0)
+    win.combo_inlet_modeA.setCurrentIndex(0)
     win.le_uA.setText('.001')
     win.combo_df_mode.setCurrentIndex(win.combo_df_mode.findData('cfd_smooth'))
     win._auto_fill_fluid('A')
@@ -338,10 +340,12 @@ def test_inlet_mode_changes_refresh_badges(blank_spans, side):
     from time import monotonic
     from PySide6.QtTest import QTest
     win, dialogs, _ = blank_spans
+    mode = getattr(win, 'combo_inlet_mode' + side)
+    mode.setCurrentIndex(mode.findData('velocity'))
+    getattr(win, 'le_mass_flow' + side).clear()
     # Drain construction timers before testing mode-change signals.
     QTest.qWait(200)
     assert win._group_badge_counts['流体'] == 0
-    mode = getattr(win, 'combo_inlet_mode' + side)
     for combo, index, expected in (
             (mode, mode.findData('mass_flow'), 1),
             (win.combo_dim, 0, 0), (win.combo_dim, 1, 1),

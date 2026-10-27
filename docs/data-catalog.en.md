@@ -69,6 +69,41 @@ A cell-by-cell formula/cache comparison across all three sheets found only these
 
 This version record changes no sensor, cp=1011 J/(kg·K), calibration coefficient, or experimental acceptance threshold. It does not show heat loss as the cause of the hot/cold duty difference.
 
+<a id="shanghai-case8-recorded-inputs"></a>
+
+## Shanghai GUI case-8 recorded inputs, 2026-10-27
+
+The Gyroid presets use Sheet1 row 10 of `water-air_G7-t0p6_shanghai_experiment_20260401.xlsx`.
+The table keeps source precision. The decimal places do not specify instrument accuracy.
+
+| Input | Preset value | Source or conversion |
+| --- | --- | --- |
+| Air total mass flow | 0.02276073333333333 kg/s | F10×K10/I10; K10=1057 SLM |
+| Water total mass flow | 0.0864722781 kg/s | H10×L10/J10; L10=5193 ml/min |
+| Air inlet temperature | 422.0583382933427 K | AC10=148.9083382933427 °C, plus 273.15 |
+| Water inlet temperature | 300.03908245097393 K | Y10=26.88908245097393 °C, plus 273.15 |
+| Air inlet absolute pressure | 192362.40144727775 Pa | AE10 gauge pressure plus assumed atmosphere, 101325 Pa |
+| Water inlet absolute pressure | 101972.60139558925 Pa | AA10 gauge pressure plus assumed atmosphere, 101325 Pa |
+| Core, cell and wall dimensions | 182×42×42 mm; Gyroid 7/0.6 mm | Existing specimen specification and `configs/shanghai_baseline.json` |
+| Air ports | +x, full 42×42 mm openings | Confirmed straight channel |
+| Water ports | −y; inlet x=133..175 mm, outlet x=7..49 mm, depth 42 mm | Confirmed staggered openings |
+| Solid conductivity and density | 16 W/(m·K), 7900 kg/m³ | Existing material-model values; not workbook measurements |
+
+F/H are planned flows calculated from target Re. K/L are recorded actual flows.
+Mass conversion keeps the workbook's standard air density of 1.292 kg/m³ and water density of 999.102 kg/m³.
+Absolute pressure keeps the approved standard-atmosphere assumption. The preset does not use a measured atmospheric pressure.
+
+The 3D preset specifies total mass flow. Preparation uses its actual inlet integral to calculate pore velocity.
+Current uniform Gyroid speeds are approximately 22.0585589815 m/s for air and 0.133661892049 m/s for water.
+The 2D preset keeps velocity input. The speeds correspond to these flows at the same 42 mm physical depth.
+K/°C conversion and configuration saves do not round temperature inputs to two decimal places.
+The Diamond Shanghai preset had no independent experimental record and was removed. Diamond modelling and historical configurations remain supported.
+
+This correction changes GUI presets only. It does not change the F/H nominal-flow benchmark in `shanghai_pipeline_config`.
+Calibration members, coefficients, thresholds and historical results stay unchanged.
+Distinguish recorded-flow experiment comparisons from nominal-flow benchmarks.
+Grid and convergence controls remain numerical settings, not measurements.
+
 <a id="水-cfd-计划孔隙率修订2026-09-12"></a>
 
 ## Water CFD worklist porosity revision, 2026-09-12

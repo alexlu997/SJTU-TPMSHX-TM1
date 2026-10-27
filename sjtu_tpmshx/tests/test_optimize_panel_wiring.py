@@ -94,6 +94,9 @@ def test_resume_button_uses_saved_input_and_restores_idle_controls(window, tmp_p
 def report(window, *, status='completed'):
     from sjtu_tpmshx.models.continuous_field import decision_dim
     cfg = panel._gather_cfg(window)
+    # Optimizer reports keep the targets used for each condition.
+    cfg = replace(cfg, fluid_A=replace(cfg.fluid_A, mass_flow_kg_s=.003),
+                  fluid_B=replace(cfg.fluid_B, mass_flow_kg_s=.015))
     spec = panel._field_spec(window)
     count = decision_dim(spec['n_ctrl_x'], spec['n_ctrl_y'], spec['symmetric_y'],
                          n_ctrl_z=spec.get('n_ctrl_z')) // 2
@@ -485,6 +488,7 @@ def test_single_condition_prepares_in_worker_and_can_cancel_before_checkpoint(
     entered, release = threading.Event(), threading.Event()
     prepare = api.prepare_case
     cfg = panel._gather_cfg(window)
+    resolved = api.resolve_inlet_flow_config(cfg)
     expected = report(window)
     received, ticks = [], []
 
@@ -497,8 +501,9 @@ def test_single_condition_prepares_in_worker_and_can_cancel_before_checkpoint(
 
     def run(conditions, **kwargs):
         assert conditions[0][0] == 'current'
-        assert conditions[0][1] == cfg
-        assert all(flow > 0 for flow in conditions[0][2:])
+        assert conditions[0][1] == resolved
+        np.testing.assert_allclose(conditions[0][2:],
+            [cfg.fluid_A.mass_flow_kg_s, cfg.fluid_B.mass_flow_kg_s], rtol=1e-14)
         received.append(conditions)
         return expected
 
@@ -942,6 +947,7 @@ def test_blank_optional_pressure_keeps_default(window, side):
 @pytest.mark.parametrize('imported', [False, True])
 def test_imported_flows_defer_speed_validation_to_worker(window, monkeypatch, tmp_path, imported):
     from unittest.mock import Mock
+    window.combo_inlet_modeA.setCurrentIndex(0)
     window.le_uA.setText('0.001')  # Outside the active experimental velocity window.
     window._opt_conditions = [condition()] if imported else None
     factory = Mock(side_effect=RuntimeError('reached worker construction'))

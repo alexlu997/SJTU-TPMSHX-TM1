@@ -169,13 +169,8 @@ class FluidInputMixin:
             v += 273.15
         return v
 
-    def _set_temp_K(self, le, kelvin_value, fmt='{:.2f}'):
-        """Write a Kelvin temperature into a QLineEdit, converting to the
-        currently displayed unit. Single source of truth — replaces ad-hoc
-        `setText(f"{val - 273.15:.2f}")` snippets in preset-load and
-        session-restore that previously had drift potential (one would
-        subtract, another would add, depending on _temp_unit timing).
-        """
+    def _set_temp_K(self, le, kelvin_value, fmt='{:.17g}'):
+        """Write the selected temperature unit without rounding the input."""
         if le is None or kelvin_value is None or kelvin_value == '':
             return
         try:
@@ -231,7 +226,7 @@ class FluidInputMixin:
             getattr(self, 'le_TinB', None),
         ]
         def _fmt(v):
-            return f"{v:.2f}"
+            return format(v, '.17g')
         if cur == 'K':
             # K → °C
             for le in fields:

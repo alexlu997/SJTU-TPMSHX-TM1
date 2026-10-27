@@ -216,6 +216,14 @@ There is no forced thread termination or fixed cancellation delay. The card does
 
 Existing sessions restore custom fluids, directions, grids, and ports without Shanghai defaults overwriting them. Shanghai defaults apply only at first startup, in workspaces without saved sessions, or after explicit reset/preset loading. Each workspace saves its own zone axis, zone table, and continuous controls. Previous sessions without this data clear and disable zones. If the original enabled zones, a notice requests reconfiguration to prevent reuse of another workspace's zones.
 
+Shanghai presets use the recorded flows and full temperature/pressure values of April 1 Gyroid case 8.
+The 3D preset specifies total mass flow. Preparation calculates speed from the actual inlet pore area.
+The 2D preset uses the corresponding speed at the 42 mm specimen depth.
+Temperature-unit changes do not round inputs to two decimal places.
+See the [preset input table](docs/data-catalog.en.md#shanghai-case8-recorded-inputs) for sources, conversions and material assumptions.
+Saved sessions keep their inputs. Load the Shanghai preset explicitly to use the corrected baseline.
+The Diamond Shanghai preset had no corresponding experimental record and was removed. Manual Diamond models and saved configurations remain supported.
+
 Startup displays all temperature inputs in K. The conversion keeps their physical temperatures.
 
 Parameter-page changes, rail expansion, and computation-detail expansion use an approximately 200 ms fade. Text stays clear. Repeated actions replace previous animation, and inputs stay editable. First window display also fades the parameter area one time. Effects are initialized beforehand to reduce first-navigation delay.
@@ -406,6 +414,8 @@ Empty A-side pressure uses 101325 Pa, matching the compute page. Invalid nonempt
 There are three input families: CLI configurations such as `air_2d.json`/`air_3d.json`, GUI sessions/presets, and Quick Design `DesignCase`. Their fields and units differ. They are not interchangeable. See [tool examples](docs/tools.en.md#公开模块扩展示例) for a minimal DesignCase and extensions.
 
 When the GUI imports `line_edits` JSON without `config_format` wrapping, only supplied fields change. The same rule applies to previous flat parameter files. Omitted temperature scale, resistance mode, grid, model parameters, continuous field, and optimization conditions keep current values. An explicit K/°C change converts omitted temperatures from their current physical values. It does not merely relabel unchanged text. Formal complete configurations, preset libraries, and startup sessions keep their own restoration rules.
+
+In a previous flat file, `u_A` and `u_B` specify inlet velocity. Each supplied velocity selects that side's velocity input mode. A side without a supplied velocity keeps its current input mode.
 
 <a id="三个模块"></a>
 
