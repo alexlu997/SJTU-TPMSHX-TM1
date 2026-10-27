@@ -926,7 +926,8 @@ def load_pareto_solution(window, x_decision):
         cfg = ComputeConfig.from_dict(mutable_data(case.config_snapshot)).validate()
         expected = replace(source, zones=zones, **{
             f'fluid_{side}': replace(getattr(source, f'fluid_{side}'),
-                                    u_mps=getattr(cfg, f'fluid_{side}').u_mps)
+                                    u_mps=getattr(cfg, f'fluid_{side}').u_mps,
+                                    mass_flow_kg_s=None)
             for side in 'AB'})
         if case.case_id != archived['case_id'] or asdict(cfg) != asdict(expected):
             raise ValueError('归档算例的完整连续场或固定设置与优化 study 不一致')
