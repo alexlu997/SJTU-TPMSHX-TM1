@@ -24,19 +24,37 @@ def test_result_replacement_and_source_removal_preserve_the_snapshot(tmp_path, s
     assert load_result(target).result_id == result.result_id
 
 
-@pytest.mark.parametrize('code', [errno.EXDEV, errno.EPERM, errno.EACCES,
-                                 errno.ENOSYS, errno.EOPNOTSUPP, errno.EMLINK])
-def test_unavailable_link_uses_an_independent_copy(tmp_path, monkeypatch, code):
+@pytest.mark.parametrize('code,winerror', [
+    *((value, None) for value in (errno.EXDEV, errno.EPERM, errno.EACCES,
+                                errno.ENOSYS, errno.ENOTSUP, errno.EOPNOTSUPP, errno.EMLINK)),
+    (errno.EINVAL, 1), (errno.EINVAL, 50), (errno.EINVAL, 1142),
+])
+def test_unavailable_link_uses_an_independent_copy(tmp_path, monkeypatch, code, winerror):
     source, target = tmp_path / 'source', tmp_path / 'target'
     source.write_bytes(b'saved data')
     def fail(*args):
-        raise OSError(code, 'link unavailable')
+        error = OSError(code, 'link unavailable')
+        if winerror is not None:
+            error.winerror = winerror
+        raise error
     monkeypatch.setattr(snapshot.os, 'link', fail)
     snapshot.copy_snapshot(source, target)
     assert target.read_bytes() == b'saved data'
     assert not source.samefile(target)
     source.write_bytes(b'changed source')
     assert target.read_bytes() == b'saved data'
+
+
+def test_unrelated_invalid_argument_does_not_copy(tmp_path, monkeypatch):
+    source, target = tmp_path / 'source', tmp_path / 'target'
+    source.write_bytes(b'saved data')
+    def fail(*args):
+        raise OSError(errno.EINVAL, 'invalid argument')
+    monkeypatch.setattr(snapshot.os, 'link', fail)
+    monkeypatch.setattr(snapshot.shutil, 'copy2', lambda *args: pytest.fail('unexpected copy'))
+    with pytest.raises(OSError, match='invalid argument'):
+        snapshot.copy_snapshot(source, target)
+    assert not target.exists()
 
 
 @pytest.mark.parametrize('copy_failure', [False, True])

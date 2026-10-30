@@ -19,8 +19,10 @@ def copy_snapshot(source, target):
         try:
             os.link(source, temporary)
         except OSError as error:
-            if error.errno not in (errno.EXDEV, errno.EPERM, errno.EACCES,
-                                  errno.ENOSYS, errno.EOPNOTSUPP, errno.EMLINK):
+            # Windows: invalid function (1), unsupported operation (50), too many links (1142).
+            if (error.errno not in (errno.EXDEV, errno.EPERM, errno.EACCES,
+                                   errno.ENOSYS, errno.ENOTSUP, errno.EOPNOTSUPP, errno.EMLINK)
+                    and getattr(error, 'winerror', None) not in (1, 50, 1142)):
                 raise
             shutil.copy2(source, temporary)
     return str(target)
