@@ -16,6 +16,7 @@ from sjtu_tpmshx.domain.metric_spec import full_metric_version
 from sjtu_tpmshx.domain.module_ports import RunControl
 from sjtu_tpmshx.domain.paused_run import PausedRun
 from sjtu_tpmshx.domain.performance_result import PerformanceResult
+from sjtu_tpmshx.io.file_snapshot import copy_saved_file, copy_snapshot, register_runtime_snapshot, retain_runtime
 from sjtu_tpmshx.logutil import get_logger
 from sjtu_tpmshx.preprocess.api import (
     prepare_fixed_mass_flow_case,
@@ -203,6 +204,7 @@ def _run_native_condition(index, case_file, directory, library, threads, checkpo
         residual=callback('residual'))
     try:
         control.check_cancelled()
+        register_runtime_snapshot(library)
         case = load_case(case_file)
         config = ComputeConfig.from_dict(mutable_data(case.config_snapshot), prepared_grid=True)
         _solve_condition(case, config, directory, control, update, checkpoint_file, _batch_pause.is_set)
@@ -707,7 +709,10 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
                 field = references[name] if collect_fields else load_result(baseline[name]['result_file'])
                 files = dict(condition_id=name, result_file=f'references/{index:03d}.h5',
                              metrics_file=f'references/{index:03d}.json')
-                save_result(field, root / files['result_file'])
+                if collect_fields:
+                    save_result(field, root / files['result_file'])
+                else:
+                    copy_snapshot(baseline[name]['result_file'], root / files['result_file'])
                 save_metrics(reference[name], root / files['metrics_file'])
                 record['baseline_files'].append(files)
                 del field
@@ -717,9 +722,8 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
         library = Path(control.native_library).resolve(strict=True)
         (root / 'runtime').mkdir(exist_ok=retained)
         runtime_file = root / 'runtime' / library.name
-        shutil.copy2(library, runtime_file)
-        if runtime_file.read_bytes() != library.read_bytes():
-            raise OSError('native library changed while the batch retained its runtime')
+        execution_library = retain_runtime(library, runtime_file)
+        control = replace(control, native_library=str(execution_library))
         record['native_file'] = 'runtime/'+library.name
         publish()
         if resume_from is not None:
@@ -728,7 +732,7 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
                     row.update(previous, recovery_mode='failed_copy')
                     source_directory = source_root / previous['directory']
                     if not retained and source_directory.is_dir():
-                        shutil.copytree(source_directory, root / row['directory'])
+                        shutil.copytree(source_directory, root / row['directory'], copy_function=copy_saved_file)
                     publish()
                     continue
                 if previous['status'] != 'completed':
@@ -746,7 +750,8 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
                     _condition_metrics([(name, field, performance)], (name,), 'saved',
                         allow_nu_re_extrapolation=allow_nu_re_extrapolation)
                     if not retained:
-                        shutil.copytree(source_root / previous['directory'], root / row['directory'])
+                        shutil.copytree(source_root / previous['directory'], root / row['directory'],
+                                        copy_function=copy_saved_file)
                     row.update({key: previous[key] for key in ('case_file', 'result_file', 'metrics_file')})
                     row.update(_condition_output_paths(root / row['directory']))
                     row['reused_from'] = str(source_root / previous['directory'])

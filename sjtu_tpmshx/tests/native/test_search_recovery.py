@@ -1,6 +1,7 @@
 """A new process continues a moved search from its actual native checkpoint."""
 from dataclasses import replace
 import json
+import shutil
 import subprocess
 import sys
 from threading import Event
@@ -85,6 +86,9 @@ assert 'PySide6' not in sys.modules
                 load_metrics(uninterrupted / directory / old['metrics_file']))
         if directory in ('baseline', 'design_0000'):
             assert all(row['recovery_mode'] == 'completed_copy' for row in restored['conditions'])
+            for row in restored['conditions']:
+                relative = directory + '/' + row['result_file']
+                assert (destination / relative).samefile(moved / relative)
             source = json.loads((moved / directory / 'batch.json').read_text())
             assert [load_result(destination / directory / row['result_file']).result_id for row in restored['conditions']] == [
                 load_result(moved / directory / row['result_file']).result_id for row in source['conditions']]
@@ -93,3 +97,10 @@ assert 'PySide6' not in sys.modules
     assert {path.relative_to(moved): path.read_bytes() for path in moved.rglob('*') if path.is_file()} == before
     assert {path.relative_to(second_source): path.read_bytes()
             for path in second_source.rglob('*') if path.is_file()} == second_before
+    shutil.rmtree(moved)
+    shutil.rmtree(second_source)
+    for entry in (actual['baseline'], *actual['history']):
+        directory = destination / entry['directory']
+        restored = json.loads((directory / 'batch.json').read_text())
+        for row in restored['conditions']:
+            assert load_result(directory / row['result_file']).case_id == row['case_id']

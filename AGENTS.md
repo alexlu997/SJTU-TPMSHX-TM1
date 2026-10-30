@@ -43,6 +43,15 @@ and rework through complete changes, clear decisions, and verified results.
 - Keep exploratory scripts and result reports in ignored `.cache/`.
   Do not commit or upload them. Keep production code, regression tests, and
   necessary usage and architecture documents under version control.
+- Apply the [retention rules](docs/collaboration.md#storage-retention) at task closeout.
+  Keep raw data, paper and GCI evidence, selected designs, and key failure samples.
+  Keep complete inputs, scalar observations, seeds, constraints, methods, and verdicts for retained studies.
+  Retain intermediate fields and completed checkpoints only for a recorded analysis or continuation need.
+  Remove task-owned temporary scripts, test outputs, and rebuildable caches after their checks pass.
+  Archive only task-owned evidence. Never recursively copy the whole `.cache/` or unrelated archives.
+  Give retained material a consumer and a condition for removal or another assessment.
+  Record removals and lost recovery capabilities without changing original scientific verdicts.
+  Report added, removed, and retained storage; distinguish directory allocation from volume free space.
 
 ## 3. Work setup and environment
 
@@ -69,6 +78,9 @@ and rework through complete changes, clear decisions, and verified results.
   from `requirements/base.txt`, not `requirements.txt`, in a shared base environment.
   Use the applicable separate lock for other environment purposes.
   Do not install this project into a shared environment in editable mode.
+- Keep one accepted environment per active role: base, BO, and minimal postprocessing.
+  A packaging or historical environment needs a recorded consumer and removal condition.
+  After a verified replacement and zero remaining consumers, retire its predecessor through the archive and removal checks.
 - Before the first environment-dependent work in a task, run
   `python -m sjtu_tpmshx.runs.tools.check_locked_environment` with the applicable lock.
   Then run `python -m pip check`. The lock checker ignores the pip version.

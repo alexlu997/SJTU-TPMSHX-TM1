@@ -116,6 +116,8 @@ def test_selected_backend_completes_batch_and_optimization(native_path, tmp_path
     assert batch['status'] == 'completed', batch['conditions']
     assert batch['backend'] == 'cpp' and len(batch['results']) == 2
     for row, (_, field, metrics) in zip(batch['conditions'], batch['results']):
+        assert (directory / 'batch/runtime' / native_path.name).samefile(
+            directory / 'batch' / row['directory'] / 'run/runtime' / native_path.name)
         restored = load_result(directory / 'batch' / row['result_file'])
         assert restored.backend_id == field.backend_id == 'cpp'
         assert restored.run_status['converged']

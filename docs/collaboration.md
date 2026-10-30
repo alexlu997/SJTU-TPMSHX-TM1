@@ -244,6 +244,39 @@ operation. Close out branches last, after their needed commits have a recovery
 entry. Archive old screening results without restoring a retired solver or
 optimization chain. Current multi-condition BO remains a separate capability.
 
+<a id="storage-retention"></a>
+
+## Storage retention
+
+Use these rules at task closeout and during an authorized storage cleanup.
+The `.cache/` name does not make research evidence disposable.
+
+1. Keep raw data, active paper and GCI evidence, selected designs, and key failure samples.
+   Keep their inputs, methods, final fields, metrics, and validity limits.
+   Keep all study parameters, seeds, scalar observations, constraints, and original verdicts.
+   Do not turn stopped, rejected, or unstarted work into successful work during cleanup.
+2. Give retained intermediate fields and checkpoints a specific analysis or continuation use.
+   Completed software tests and performance studies do not require indefinite continuation storage.
+   Record which fields or checkpoints are removed and which recovery operations are no longer available.
+   Preserve unfinished work until its owner decides its status.
+3. Remove task-owned temporary scripts, test outputs, build products, and rebuildable caches after verification.
+   Keep research scripts needed to interpret or reproduce retained evidence.
+   Archive only the necessary files from that task. Never archive the whole `.cache/` or another task's archive recursively.
+   Use Git for committed source history. Compress large records without changing their contents.
+4. Keep one accepted environment per active role: base, BO, and minimal postprocessing.
+   Record consumers and removal conditions for packaging or historical environments.
+   Retire a predecessor after replacement validation, pointer checks, and zero active consumers.
+   First preserve exact package versions, the source revision, locks, and unique local files.
+5. Share identical fixed snapshots when their filesystem attributes permit it.
+   Keep saved relative paths and use independent copies when hard links are unavailable.
+   Never link a mutable build output directly into saved evidence.
+   Replace shared files atomically; never overwrite their contents in place.
+   Check retained results and representative recovery paths before removing source material.
+6. Record retained material, its consumer, and its removal or review condition in the task handoff.
+   Report added, removed, and remaining directory allocation and the measured change in volume free space.
+   Automatic deletion is limited to named rebuildable caches and task-owned temporary files.
+   Research deletion requires an approved selection; age or directory name alone is not a selection rule.
+
 ## Tool instruction entry points
 
 [Codex](https://learn.chatgpt.com/docs/agent-configuration/agents-md) reads

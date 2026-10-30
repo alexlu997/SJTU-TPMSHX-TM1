@@ -1459,8 +1459,13 @@ This contract does not claim recovery from power loss.
 
 `workflows.recovery` uses the existing `workflows.compute` stages for start and resume.
 Each run owns a new directory with prepared input, a retained native library, checkpoint, and status.
-Each run retains its own library file. The process reuses a previously retained file only when its bytes match the selected library.
+Each run retains its own library path. The process reuses a previously retained file only when its bytes match the selected library.
 This avoids repeated native initialization and retained property tables. A changed or moved runtime uses the new retained file.
+`io.file_snapshot` first copies mutable build output into an independent, checked runtime snapshot.
+Later runs and condition workers share that fixed snapshot through hard links.
+Archived baseline fields and binary files copied during batch or search recovery use the same sharing operation.
+Editable status and log files remain independent. Cross-volume or unsupported links and link-count limits use ordinary copies.
+Existing staged writers replace paths instead of overwriting shared contents. Saved paths and record formats do not change.
 The run record identifies the file used for execution. Completed results and metrics are written only after postprocessing.
 `compute_prepared_run` uses supplied `CaseData` without repeating preparation.
 If a later stage fails, `failed-result.h5` keeps completed solver fields when no result pair was published.
