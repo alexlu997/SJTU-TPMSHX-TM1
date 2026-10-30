@@ -92,6 +92,30 @@ def test_mutable_build_is_separate_and_later_snapshots_share_it(tmp_path):
     assert second.samefile(third)
 
 
+@pytest.mark.parametrize('target_kind', ['shared', 'independent', 'same_path'])
+@pytest.mark.parametrize('known_runtime', [False, True])
+def test_matching_loaded_runtime_is_not_replaced(tmp_path, monkeypatch, target_kind, known_runtime):
+    source, first, target = [tmp_path / name for name in ('build.dll', 'first.dll', 'target.dll')]
+    source.write_bytes(b'fixed runtime')
+    snapshot.retain_runtime(source, first)
+    if target_kind == 'shared':
+        snapshot.copy_snapshot(first, target)
+    elif target_kind == 'independent':
+        shutil.copy2(first, target)
+    else:
+        source = target = first
+    if not known_runtime:
+        snapshot._runtime_files.pop(source.resolve())
+    before = target.stat()
+    def locked(*args):
+        raise PermissionError('loaded Windows DLL cannot be replaced')
+    monkeypatch.setattr(snapshot.os, 'replace', locked)
+    assert snapshot.retain_runtime(source, target) == (first if known_runtime else target)
+    assert target.stat().st_ino == before.st_ino
+    assert target.read_bytes() == b'fixed runtime'
+    assert not list(tmp_path.glob('.tm1-publish-*'))
+
+
 def test_changed_build_during_copy_does_not_replace_previous_runtime(tmp_path, monkeypatch):
     source, target = tmp_path / 'build', tmp_path / 'retained'
     source.write_bytes(b'build')

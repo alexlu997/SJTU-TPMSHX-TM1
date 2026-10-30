@@ -46,7 +46,12 @@ def retain_runtime(source, target):
     source, target = Path(source).resolve(strict=True), Path(target)
     contents = source.read_bytes()
     retained = _runtime_files.get(source)
-    if retained is not None and retained.is_file() and retained.read_bytes() == contents:
+    if retained is not None and (not retained.is_file() or retained.read_bytes() != contents):
+        retained = None
+    # Windows cannot remove a loaded DLL, including its other hard links.
+    if target.is_file() and target.read_bytes() == contents:
+        retained = retained or target
+    elif retained is not None:
         copy_snapshot(retained, target)
     else:
         with staged_files([target]) as stage:
@@ -55,6 +60,6 @@ def retain_runtime(source, target):
             if temporary.read_bytes() != contents or source.read_bytes() != contents:
                 raise OSError('native library changed while its runtime was retained')
         retained = target
-        _runtime_files[source] = retained
+    _runtime_files[source] = retained
     register_runtime_snapshot(target)
     return retained
