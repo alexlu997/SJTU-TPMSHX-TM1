@@ -467,6 +467,11 @@ A pause does not produce completed results. Cancellation still returns code 130.
 The directory retains the prepared input, native library, checkpoint, and run status.
 Completed runs also contain `results.h5` and `metrics.json`.
 
+Repeated saves share fixed native libraries and archived baseline fields when hard links are available.
+Each directory keeps its local file paths. Other filesystems use independent copies.
+Treat shared snapshots as read-only; use TM1 writers to replace files instead of editing their contents in place.
+Saved runs are not pruned automatically. Task evidence follows the [retention rules](docs/collaboration.md#storage-retention).
+
 Resume reads the saved prepared input and writes to a new directory. It preserves the source run.
 Move the complete run directory together. Resume requires the same native build and platform.
 Use `--native-library` to select a retained library explicitly when the current build differs.

@@ -741,6 +741,13 @@ def test_compact_batches_release_fields_before_next_solve(tmp_path, monkeypatch,
     assert call_count == 6
     assert all(ref() is None for ref in references + reads)
     assert result['status'] == ('completed' if failure is None else 'failed')
+    for index, name in enumerate(baseline['summaries']):
+        assert Path(baseline['summaries'][name]['result_file']).samefile(
+            tmp_path / 'candidate' / 'references' / f'{index:03d}.h5')
+    runtime = tmp_path / 'candidate/runtime' / Path(native_control.native_library).name
+    assert runtime.samefile(tmp_path / 'baseline/runtime' / runtime.name)
+    for row in result['conditions']:
+        assert runtime.samefile(tmp_path / 'candidate' / row['directory'] / 'run/runtime' / runtime.name)
     assert [row['status'] for row in result['conditions']] == [
         'completed', 'completed' if failure is None else 'failed', 'completed']
     if failure is None:

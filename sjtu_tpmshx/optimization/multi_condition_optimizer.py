@@ -348,7 +348,8 @@ def _run_multi_condition_optimization(
             raise ValueError('saved search input or software versions differ from this execution')
         _check_saved_search(saved, frozen, designs, lower, upper)
         # Keep all pending evidence local before a second pause can occur.
-        shutil.copytree(source_root, root, ignore=lambda directory, names:
+        from sjtu_tpmshx.io.file_snapshot import copy_saved_file
+        shutil.copytree(source_root, root, copy_function=copy_saved_file, ignore=lambda directory, names:
             {'optimization.json'} if Path(directory) == source_root else set())
     else:
         root.mkdir(parents=True, exist_ok=False)

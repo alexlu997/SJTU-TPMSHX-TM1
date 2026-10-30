@@ -4,7 +4,6 @@ from datetime import datetime, timezone
 import json
 import math
 from pathlib import Path
-import shutil
 from time import perf_counter
 from uuid import uuid4
 
@@ -16,6 +15,7 @@ from sjtu_tpmshx.domain.portable_data import mutable_data
 from sjtu_tpmshx.domain.solver_checkpoint import SolverCheckpoint
 from sjtu_tpmshx.io.case_io import save_case
 from sjtu_tpmshx.io.file_set import staged_files
+from sjtu_tpmshx.io.file_snapshot import retain_runtime
 from sjtu_tpmshx.io.metrics_io import save_metrics
 from sjtu_tpmshx.io.result_io import save_result
 from sjtu_tpmshx.io.solver_checkpoint_io import (
@@ -25,10 +25,6 @@ from sjtu_tpmshx.io.text_file import write_text
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.api import run_case
 from .compute import compute
-
-
-# Reuse an identical retained library to keep native tables in one loaded image.
-_runtime_files = {}
 
 
 def read_run_checkpoint(path):
@@ -146,16 +142,7 @@ def _execute(config, directory, *, checkpoint_interval_s, case_id, control, prog
         runtime = directory / 'runtime'
         runtime.mkdir()
         retained = runtime / library.name
-        shutil.copy2(library, retained)
-        retained_bytes = retained.read_bytes()
-        if retained_bytes != library.read_bytes():
-            raise OSError('native library changed while the run retained its runtime')
-        runtime_file = _runtime_files.get(library)
-        if (runtime_file is None or not runtime_file.is_file()
-                or runtime_file.read_bytes() != retained_bytes):
-            runtime_file = retained
-            _runtime_files[library] = runtime_file
-        del retained_bytes
+        runtime_file = retain_runtime(library, retained)
         record['execution_library'] = str(runtime_file)
         runtime_control = replace(control, native_library=str(runtime_file))
         case, result, performance = compute(config, case_id=case_id, control=runtime_control,

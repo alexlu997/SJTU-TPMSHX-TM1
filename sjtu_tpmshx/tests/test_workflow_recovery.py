@@ -244,6 +244,11 @@ def test_repeated_runs_reuse_only_the_matching_available_runtime(tmp_path, stage
     start(stages, second)
     second_runtime = second / 'runtime' / first_runtime.name
     assert second_runtime.read_bytes() == Path(stages[4].native_library).read_bytes()
+    assert not second_runtime.samefile(stages[4].native_library)
+    if change == 'same':
+        assert first_runtime.samefile(second_runtime)
+    elif change == 'new_build':
+        assert first_runtime.read_bytes() == b'non-executable test data'
     assert libraries == [first_runtime, first_runtime if change == 'same' else second_runtime]
     record = json.loads((second / 'run.json').read_text())
     assert record['execution_library'] == str(libraries[-1])

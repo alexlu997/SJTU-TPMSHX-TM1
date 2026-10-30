@@ -1,6 +1,7 @@
 """A new process continues a moved search from its actual native checkpoint."""
 from dataclasses import replace
 import json
+import shutil
 import subprocess
 import sys
 from threading import Event
@@ -19,6 +20,28 @@ native_path = native_3d.native_path
 
 
 def test_search_restarts_process_reuses_complete_design_and_matches_uninterrupted(native_path, tmp_path):
+    # Windows can remove shared runtime files after their execution process exits.
+    script = """
+from pathlib import Path
+import sys
+from sjtu_tpmshx.tests.native.test_search_recovery import _exercise_search_recovery
+_exercise_search_recovery(Path(sys.argv[1]), Path(sys.argv[2]))
+"""
+    process = subprocess.run([sys.executable, '-c', script, str(native_path), str(tmp_path)],
+        capture_output=True, text=True, timeout=300)
+    assert process.returncode == 0, process.stdout + process.stderr
+    shutil.rmtree(tmp_path / 'moved')
+    shutil.rmtree(tmp_path / 'second-move')
+    destination = tmp_path / 'resumed'
+    actual = json.loads((destination / 'optimization.json').read_text())
+    for entry in (actual['baseline'], *actual['history']):
+        directory = destination / entry['directory']
+        restored = json.loads((directory / 'batch.json').read_text())
+        for row in restored['conditions']:
+            assert load_result(directory / row['result_file']).case_id == row['case_id']
+
+
+def _exercise_search_recovery(native_path, tmp_path):
     conditions = _conditions(2)
     control = replace(native_3d.control(native_path), cpu_threads=2)
     settings = dict(method='sobol', n_init=2, n_iter=1, seed=7, workers=1,
@@ -85,6 +108,9 @@ assert 'PySide6' not in sys.modules
                 load_metrics(uninterrupted / directory / old['metrics_file']))
         if directory in ('baseline', 'design_0000'):
             assert all(row['recovery_mode'] == 'completed_copy' for row in restored['conditions'])
+            for row in restored['conditions']:
+                relative = directory + '/' + row['result_file']
+                assert (destination / relative).samefile(moved / relative)
             source = json.loads((moved / directory / 'batch.json').read_text())
             assert [load_result(destination / directory / row['result_file']).result_id for row in restored['conditions']] == [
                 load_result(moved / directory / row['result_file']).result_id for row in source['conditions']]
