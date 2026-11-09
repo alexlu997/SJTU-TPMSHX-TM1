@@ -41,15 +41,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-14, windows-2022]
+        os: [macos-15, windows-2022]
     uses: ./.github/workflows/native.yml
     with:
       os: ${{ matrix.os }}
       tier: ${{ needs.scope.outputs.tier }}
 
   tests:
-    # Keep the required check names for every CI tier.
-    name: tests (${{ matrix.os }}, ${{ matrix.python }})
+    # Keep the protected check names when the macOS runner image changes.
+    name: tests (${{ matrix.check_os || matrix.os }}, ${{ matrix.python }})
     needs: [scope, bo-tests, native, minimal-postprocess]
     if: always()
     runs-on: ubuntu-latest
@@ -58,7 +58,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14
+          - os: macos-15
+            check_os: macos-14
             python: "3.13"
           - os: windows-2022
             python: "3.12"
@@ -112,7 +113,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14
+          - os: macos-15
             python: "3.13"
             lock: requirements/bo-macos.txt
           - os: windows-2022

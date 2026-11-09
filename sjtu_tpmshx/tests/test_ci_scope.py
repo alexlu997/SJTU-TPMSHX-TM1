@@ -18,7 +18,7 @@ from scripts.ci_scope import require_jobs, select_scope
     ('pull_request', ['schemas/three_module_v1/files.md'], 'full'),
     ('pull_request', ['sjtu_tpmshx/tests/fixture.md'], 'full'),
     ('pull_request', ['README.md', 'requirements/base.txt'], 'full'),
-    ('pull_request', ['native/src/full_3d.cpp', 'docs/old.md'], 'full'),
+    ('pull_request', ['sjtu_tpmshx/solvers/native/src/full_3d.cpp', 'docs/old.md'], 'full'),
     ('pull_request', ['.github/workflows/ci.yml'], 'full'),
     ('pull_request', ['new-package/readme.md'], 'full'),
 ])

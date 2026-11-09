@@ -144,7 +144,7 @@ def test_query_rejects_null_and_unowned_results_without_writing_output(dimension
 
 def test_full_3d_cc_captured_powers_survive_owner_release_and_portable_replay(monkeypatch, tmp_path):
     from sjtu_tpmshx.io.result_io import save_result, load_result
-    from sjtu_tpmshx.postprocess.metrics import evaluate
+    from sjtu_tpmshx.postprocess.api import evaluate
     from sjtu_tpmshx.solvers.backends.cpp.full_3d import NativeFull3DDriver, run_case
     from sjtu_tpmshx.tests.native.test_cpp_full_3d import case, control
 

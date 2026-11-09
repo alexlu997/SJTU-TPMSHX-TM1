@@ -50,8 +50,8 @@ def test_retired_python_backend_is_rejected():
 
 
 @pytest.mark.parametrize('platform,relative', [
-    ('darwin', 'native/lib/macos-arm64/libtpmshx_solver_shared.dylib'),
-    ('win32', 'native/lib/windows-x64/tpmshx_solver_shared.dll'),
+    ('darwin', 'sjtu_tpmshx/solvers/native/lib/macos-arm64/libtpmshx_solver_shared.dylib'),
+    ('win32', 'sjtu_tpmshx/solvers/native/lib/windows-x64/tpmshx_solver_shared.dll'),
 ])
 def test_source_cli_resolves_local_delivery_and_preserves_explicit_paths(
         tmp_path, monkeypatch, platform, relative):
@@ -119,7 +119,7 @@ def test_workflow_control_reaches_execution_and_cancellation_keeps_output(
     if stage == 'solve':
         monkeypatch.setattr(api, 'run_case', cancel)
     else:
-        monkeypatch.setattr(importlib.import_module('sjtu_tpmshx.workflows.compute'),
+        monkeypatch.setattr(importlib.import_module('sjtu_tpmshx.compute'),
                             'compute', cancel)
     library, tables = tmp_path / 'solver.so', tmp_path / 'tables'
     arguments = [stage, str(source), str(output), '--backend', backend]

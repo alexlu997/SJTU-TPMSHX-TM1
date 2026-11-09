@@ -30,7 +30,7 @@ LAYERS = {
     "models": 0.5, "result_math": 0.5, "result_display": 0.5,
     "solvers": 1, "preprocess": 2, "postprocess": 2,
     "df_surrogate": 2, "design": 2, "io": 2,
-    "pipelines": 3, "optimization": 3, "workflows": 3,
+    "pipelines": 3, "optimization": 3, "workflows": 3, "compute": 3,
     "controllers": 4,
     "ui": 5, "main": 5,
 }

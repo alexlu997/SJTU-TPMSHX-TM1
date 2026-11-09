@@ -10,7 +10,7 @@ from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs as s
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.tests.native import test_cpp_full_3d as spatial
 from sjtu_tpmshx.tests.native.test_run_recovery import configuration, same_result
-from sjtu_tpmshx.workflows.compute import compute
+from sjtu_tpmshx.compute import compute
 
 native_path = spatial.native_path
 

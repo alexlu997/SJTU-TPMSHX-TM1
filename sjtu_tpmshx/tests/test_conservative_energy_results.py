@@ -9,7 +9,7 @@ import pytest
 from sjtu_tpmshx.domain.field_result import FieldResult
 from sjtu_tpmshx.domain.portable_data import mutable_data
 from sjtu_tpmshx.io.result_io import load_result, save_result
-from sjtu_tpmshx.postprocess.metrics import evaluate
+from sjtu_tpmshx.postprocess.api import evaluate
 
 FACES = ('x-', 'x+', 'y-', 'y+', 'z-', 'z+')
 

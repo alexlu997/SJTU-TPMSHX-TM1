@@ -129,7 +129,7 @@ SOU 在出口面重构物理焓，因此旧 FOU 单元焓归约不能提供该�
 
 ## 第二个实现单元：真实状态能量审计
 
-同一库在 `native/src/enthalpy_sweeps.cpp` 中提供 `thermal_energy_audit`，执行真实状态能量审计：
+同一库在 `sjtu_tpmshx/solvers/native/src/enthalpy_sweeps.cpp` 中提供 `thermal_energy_audit`，执行真实状态能量审计：
 
 - 真实状态 A/B 单元残差为 Fourier 导热＋固体交换－有符号迎风焓散度。调用方提供真实 EOS 温度和有效流体导热率，不使用 sweep 的冻结线性化状态。
 - 计算绝热固体单元残差和六面有符号边界焓热负荷。入口／回流面使用给定入口焓，流出使用单元焓。
@@ -193,18 +193,18 @@ N5 的十二个刻意限预算请求成功返回，并通过十四个已记录�
 已有 POSIX C++17 编译器和 `make` 时，从仓库根执行：
 
 ```sh
-make -f native/Makefile CXX=c++
-make -f native/Makefile check
+make -f sjtu_tpmshx/solvers/native/Makefile CXX=c++
+make -f sjtu_tpmshx/solvers/native/Makefile check
 ```
 
-这生成 `.cache/native/libtpmshx_thermal.a`。C++ 调用方包含 `native/include` 并链接该归档。温度线求解器构建要求既有锁定 Eigen 头文件，并启用 `EIGEN_MPL2_ONLY`。`TPMSHX_EIGEN_INCLUDE` 默认指向锁定 Eigen 源码 `.cache/native-deps/src/Eigen-5.0.1`。隔离源码树可显式设置该变量。目录缺失时构建失败，不下载依赖。
+这生成 `.cache/native/libtpmshx_thermal.a`。C++ 调用方包含 `sjtu_tpmshx/solvers/native/include` 并链接该归档。温度线求解器构建要求既有锁定 Eigen 头文件，并启用 `EIGEN_MPL2_ONLY`。`TPMSHX_EIGEN_INCLUDE` 默认指向锁定 Eigen 源码 `.cache/native-deps/src/Eigen-5.0.1`。隔离源码树可显式设置该变量。目录缺失时构建失败，不下载依赖。
 
 低层归档不链接 Python、Qt、NumPy、CoolProp/EOS、OpenMP 或绑定库运行时。完整依赖组件库另有 EOS／压力依赖。`check` 构建并运行独立 C++ 温度及守恒能量调用方。原纯热 shared 目标仅导出已退役 H sweep，因此一并移除。完整依赖构建继续在两个目标平台覆盖直接 T-SOU、完整二维／三维、model-h、温度与流动接口的 C 静态／动态调用。该低层库不随 Python wheel 或桌面应用打包，不自动发现，也不在运行中构建。
 
 Windows 已有 x64 Visual Studio 开发者命令提示符时运行：
 
 ```bat
-nmake /f native\Makefile.msvc check
+nmake /f sjtu_tpmshx\solvers\native\Makefile.msvc check
 ```
 
 这在 `.cache/native` 下生成 `tpmshx_thermal.lib`，再运行相同 C++ 调用方。这些命令不安装编译器。完整求解器 C ABI 保留显式 Windows 导出／导入和 `cdecl`；ctypes 通过 `CDLL` 加载其 DLL。
@@ -237,7 +237,7 @@ TPMSHX_REQUIRE_CPP_TESTS=1 TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1 \
 
 ## 隔离 EOS 与压力依赖资格
 
-依赖组件构建为显式步骤，与生产后端选择分开。`native/dependency-pilot/` 是当前原生后端使用的构建项目。输入锁定在 [native/dependencies-lock.toml](../native/dependencies-lock.toml)：CoolProp 8.0.0 及九个固定提交的 CPM 头文件依赖、SuperLU 7.0.1 及选定的三项 SciPy 1.18.1 double-LU 修正、AMGCL 1.5.0 和可移植 CMake 4.4.4。SuperLU 源码不等同于 SciPy 内附修订。源码、二进制、日志和 EOS 表都保存在本工作树 `.cache/native-deps`。[第三方说明](../native/THIRD_PARTY_NOTICES.md)记录链接组件和原始许可声明。
+依赖组件构建为显式步骤，与生产后端选择分开。`sjtu_tpmshx/solvers/native/dependency-pilot/` 是当前原生后端使用的构建项目。输入锁定在 [sjtu_tpmshx/solvers/native/dependencies-lock.toml](../sjtu_tpmshx/solvers/native/dependencies-lock.toml)：CoolProp 8.0.0 及九个固定提交的 CPM 头文件依赖、SuperLU 7.0.1 及选定的三项 SciPy 1.18.1 double-LU 修正、AMGCL 1.5.0 和可移植 CMake 4.4.4。SuperLU 源码不等同于 SciPy 内附修订。源码、二进制、日志和 EOS 表都保存在本工作树 `.cache/native-deps`。[第三方说明](../sjtu_tpmshx/solvers/native/THIRD_PARTY_NOTICES.md)记录链接组件和原始许可声明。
 
 获得原生依赖准备的明确授权后，使用配置解释器和既有锁检查。`fetch` 是完整依赖的联网步骤；`fetch-eigen` 仅获取无 EOS 热库所需的固定 Eigen 5.0.1 头文件。`build` 离线运行，不安装 Python 包或改变共享环境。CoolProp 构建使用显式本地 CPM 路径并关闭 FetchContent 联网，不获取可选测试或包装模块：
 

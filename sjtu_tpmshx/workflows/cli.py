@@ -100,7 +100,7 @@ def main(argv=None):
         from sjtu_tpmshx.io.result_io import save_result
         from sjtu_tpmshx.io.metrics_io import save_metrics
         from sjtu_tpmshx.io.file_set import staged_files
-        from .compute import compute
+        from sjtu_tpmshx.compute import compute
         if args.stage == 'resume' or args.checkpoint_interval is not None:
             case, result, performance = _recoverable_run(args, control)
         else:

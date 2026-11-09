@@ -2,7 +2,7 @@
 import numpy as np
 
 from sjtu_tpmshx.domain.field_result import FieldResult
-from sjtu_tpmshx.postprocess.metrics import evaluate
+from sjtu_tpmshx.postprocess.api import evaluate
 
 
 def test_three_d_native_faces_and_pressure():

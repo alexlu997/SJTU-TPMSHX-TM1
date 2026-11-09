@@ -308,7 +308,7 @@ checks, diffusion lines, six-direction face powers and invalid-input checks.
 ## Second implemented slice: actual-state energy audit
 
 The same library exposes `thermal_energy_audit` in
-`native/src/enthalpy_sweeps.cpp`. It audits actual-state energy as follows:
+`sjtu_tpmshx/solvers/native/src/enthalpy_sweeps.cpp`. It audits actual-state energy as follows:
 
 - Actual-state A/B cell residuals: Fourier conduction + solid exchange − signed
   upwind enthalpy divergence. The caller supplies actual EOS temperatures and
@@ -490,11 +490,11 @@ convergence and experimental accuracy are distinct facts. The native default doe
 From the repository root, with an existing POSIX C++17 compiler and `make`:
 
 ```sh
-make -f native/Makefile CXX=c++
-make -f native/Makefile check
+make -f sjtu_tpmshx/solvers/native/Makefile CXX=c++
+make -f sjtu_tpmshx/solvers/native/Makefile check
 ```
 
-This builds `.cache/native/libtpmshx_thermal.a`. Include `native/include`. Link that archive from a C++ caller. Building the temperature line solver
+This builds `.cache/native/libtpmshx_thermal.a`. Include `sjtu_tpmshx/solvers/native/include`. Link that archive from a C++ caller. Building the temperature line solver
 requires the existing locked Eigen headers, compiled with `EIGEN_MPL2_ONLY`. `TPMSHX_EIGEN_INCLUDE` defaults to the locked Eigen source
 under `.cache/native-deps/src/Eigen-5.0.1`. Set it explicitly for an isolated source
 tree.
@@ -512,7 +512,7 @@ wheel or desktop application, discovered automatically, or built during a run.
 From an existing x64 Visual Studio developer command prompt on Windows:
 
 ```bat
-nmake /f native\Makefile.msvc check
+nmake /f sjtu_tpmshx\solvers\native\Makefile.msvc check
 ```
 
 This builds `tpmshx_thermal.lib` under `.cache/native` and runs the same C++ callers.
@@ -574,15 +574,15 @@ engineering cases keep the original F2, convergence and energy gates.
 ## Isolated EOS and pressure dependency qualification
 
 Native dependencies require an explicit build, separate from production backend
-selection. `native/dependency-pilot/` is the build project for the current native backends.
+selection. `sjtu_tpmshx/solvers/native/dependency-pilot/` is the build project for the current native backends.
 Its inputs are locked in
-[`native/dependencies-lock.toml`](../native/dependencies-lock.toml).
+[`sjtu_tpmshx/solvers/native/dependencies-lock.toml`](../sjtu_tpmshx/solvers/native/dependencies-lock.toml).
 These include CoolProp 8.0.0, its nine required CPM header dependencies at fixed
 commits, and SuperLU 7.0.1 with three selected SciPy 1.18.1 double-LU corrections.
 The SuperLU source is not identical to SciPy's bundled revision. They also
 include AMGCL 1.5.0 and portable CMake 4.4.4. Source, binaries,
 logs and tabular EOS files stay under the worktree's `.cache/native-deps`.
-[`native/THIRD_PARTY_NOTICES.md`](../native/THIRD_PARTY_NOTICES.md) records the
+[`sjtu_tpmshx/solvers/native/THIRD_PARTY_NOTICES.md`](../sjtu_tpmshx/solvers/native/THIRD_PARTY_NOTICES.md) records the
 linked components and their original license notices.
 
 After explicit native-dependency provisioning authorization, use the configured

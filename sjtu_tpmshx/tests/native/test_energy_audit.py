@@ -26,16 +26,16 @@ def native_library(tmp_path_factory):
     build = tmp_path_factory.mktemp("cpp-enthalpy")
     suffix = ".dll" if os.name == "nt" else (".dylib" if sys.platform == "darwin" else ".so")
     output = build / ("test_thermal" + suffix)
-    sources = [str(root / "native/src/enthalpy_sweeps.cpp"),
+    sources = [str(root / "sjtu_tpmshx/solvers/native/src/enthalpy_sweeps.cpp"),
                str(Path(__file__).with_name("enthalpy_bridge.cpp"))]
     if os.name == "nt":
         arguments = ["/nologo", "/std:c++17", "/O2", "/W4", "/WX", "/EHsc", "/MD",
-                     "/LD", "/DTPMSHX_THERMAL_BUILD_SHARED", "/I" + str(root / "native/include"),
+                     "/LD", "/DTPMSHX_THERMAL_BUILD_SHARED", "/I" + str(root / "sjtu_tpmshx/solvers/native/include"),
                      *sources, "/Fe" + str(output), "/link", "/IMPLIB:" + str(build / "test_thermal.lib")]
     else:
         link_flag = "-dynamiclib" if sys.platform == "darwin" else "-shared"
         arguments = ["-std=c++17", "-O2", "-Wall", "-Wextra", "-Wpedantic", "-Werror",
-                     link_flag, "-fPIC", "-I", str(root / "native/include"), *sources, "-o", str(output)]
+                     link_flag, "-fPIC", "-I", str(root / "sjtu_tpmshx/solvers/native/include"), *sources, "-o", str(output)]
     subprocess.run(
         [*compiler, *arguments], cwd=build,
         check=True, capture_output=True, text=True,

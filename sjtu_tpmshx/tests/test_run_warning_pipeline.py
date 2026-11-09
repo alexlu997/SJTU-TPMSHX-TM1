@@ -57,7 +57,7 @@ def test_real_pipeline_warning_ownership_and_numerical_transparency(monkeypatch,
     assert repeated.extrap_reasons == result.extrap_reasons
     # Suppress only collection in the comparator; every numerical call remains.
     with monkeypatch.context() as patch:
-        patch.setattr(importlib.import_module('sjtu_tpmshx.workflows.compute'), 'warning_scope', lambda records: nullcontext(records))
+        patch.setattr(importlib.import_module('sjtu_tpmshx.compute'), 'warning_scope', lambda records: nullcontext(records))
         patch.setattr(owner, 'replay_range_observations', lambda rows: [])
         without_capture = compute_result(cfg)
     for other in (repeated, without_capture):

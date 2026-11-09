@@ -29,7 +29,7 @@ import zipfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
-LOCK = tomllib.loads((ROOT / "native/dependencies-lock.toml").read_text())
+LOCK = tomllib.loads((ROOT / "sjtu_tpmshx/solvers/native/dependencies-lock.toml").read_text())
 
 
 def run(command: list[str | Path], log: Path, *, cwd: Path = ROOT,
@@ -265,7 +265,7 @@ def build(cache: Path, host: str, python: Path, lock: Path, component: str) -> N
                    "-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"]
         if host == "macos-arm64":
             options += ["-DCMAKE_OSX_ARCHITECTURES=arm64"]
-        run([cmake, "-S", ROOT / "native/dependency-pilot", "-B", pilot,
+        run([cmake, "-S", ROOT / "sjtu_tpmshx/solvers/native/dependency-pilot", "-B", pilot,
              *generator, *options], cache / "logs" / f"configure-pilot-{host}.log")
         run([cmake, "--build", pilot, "--config", "Release", "--parallel", "2"],
             cache / "logs" / f"build-pilot-{host}.log")
@@ -322,7 +322,7 @@ def publish(cache: Path, host: str, python: Path, lock: Path) -> Path:
     name = ("tpmshx_solver_shared.dll" if host == "windows-x64"
             else "libtpmshx_solver_shared.dylib")
     source = cache / "build" / f"pilot-{host}" / name
-    target = ROOT / "native/lib" / host / name
+    target = ROOT / "sjtu_tpmshx/solvers/native/lib" / host / name
     log = cache / "logs" / f"publish-{host}.log"
     record = {
         "published_at": datetime.now(timezone.utc).isoformat(),

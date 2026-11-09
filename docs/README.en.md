@@ -4,7 +4,7 @@
 
 [中文](README.md) | [English](README.en.md)
 
-The main application is in [sjtu_tpmshx](../sjtu_tpmshx/).
+All core source is in [sjtu_tpmshx](../sjtu_tpmshx/), including the Python application and C++ numerical backend.
 Start with the [module map](../sjtu_tpmshx/README.en.md) to read the code.
 Use the [first run instructions](../README.en.md#first-run) to run the application.
 
@@ -33,7 +33,7 @@ Use the [first run instructions](../README.en.md#first-run) to run the applicati
 
 | Directory | Contents |
 | --- | --- |
-| [sjtu_tpmshx](../sjtu_tpmshx/) | Application source, shared models, active tests and validation tools. |
+| [sjtu_tpmshx](../sjtu_tpmshx/) | All core source. compute.py is the main computation entry. The package contains three-module APIs, C++ backend, applications, models, tests and validation tools. |
 | [docs](./) | Current explanations and historical references. |
 | [examples](../examples/) | Public API examples and first run configurations. |
 | [requirements](../requirements/) | Exact dependency locks for base, macOS BO, Windows BO, desktop builds, and minimal postprocessing. |
@@ -41,7 +41,7 @@ Use the [first run instructions](../README.en.md#first-run) to run the applicati
 | [sjtu_tpmshx/runs](../sjtu_tpmshx/runs/) | Current profiling, diagnostic and demonstration tools. |
 | [schemas](../schemas/) | Public data contracts. Their implementations are in domain and io. |
 | [openspec](../openspec/) | Current requirements grouped by function. |
-| [.github](../.github/) | macOS/Windows CI and the minimal postprocessing check. |
+| [.github/workflows](../.github/workflows/) | Configuration for macOS/Windows CI and minimal postprocessing checks. This directory does not contain application source. |
 
 `pyproject.toml` defines builds, dependency declarations, pytest, mypy, and lint settings.
 `requirements/` holds exact locks for each environment purpose. Root `requirements.txt` installs an isolated development environment.

@@ -35,7 +35,7 @@ def publication(tmp_path, monkeypatch):
     source = cache / "build/pilot-macos-arm64" / name
     source.parent.mkdir(parents=True)
     source.write_bytes(b"new verified library")
-    target = tmp_path / "native/lib/macos-arm64" / name
+    target = tmp_path / "sjtu_tpmshx/solvers/native/lib/macos-arm64" / name
     target.parent.mkdir(parents=True)
     target.write_bytes(b"previous qualified library")
     target.with_name("build.json").write_text('{"source_commit": "previous"}\n')

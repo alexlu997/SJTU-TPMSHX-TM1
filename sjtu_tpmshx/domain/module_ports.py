@@ -56,7 +56,7 @@ def resolve_control(control):
             library = Path(sys._MEIPASS) / 'native' / names[sys.platform]
         else:
             platform_dir = {'darwin': 'macos-arm64', 'win32': 'windows-x64'}[sys.platform]
-            library = SOURCE_ROOT / 'native/lib' / platform_dir / names[sys.platform]
+            library = SOURCE_ROOT / 'sjtu_tpmshx/solvers/native/lib' / platform_dir / names[sys.platform]
             if tables is None:
                 tables = SOURCE_ROOT / '.cache/native-deps/tables'
     return replace(control, native_library=str(Path(library).expanduser().resolve()),

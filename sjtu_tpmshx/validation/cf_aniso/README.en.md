@@ -6,7 +6,7 @@
 
 Status: **awaiting direction-resolved CFD data. Not calibrated**. The research matrix and proposed criteria below stay for reference. They do not show experimental or CFD validation of current directional coefficients. This documentation work does not start calibration.
 
-The objective is a measured coefficient for the 2D momentum factor `cF_eff = cF·(1 + cf_aniso·ξ4)`. Here `ξ4 = 4n_x²n_y²` is the lowest-order cubic-symmetry invariant. It is 0 along a principal axis and 1 at 45°. The native momentum kernel in `native/src/simple_2d.cpp` supports this factor.
+The objective is a measured coefficient for the 2D momentum factor `cF_eff = cF·(1 + cf_aniso·ξ4)`. Here `ξ4 = 4n_x²n_y²` is the lowest-order cubic-symmetry invariant. It is 0 along a principal axis and 1 at 45°. The native momentum kernel in `sjtu_tpmshx/solvers/native/src/simple_2d.cpp` supports this factor.
 The public full 2D adapter currently sets `cf_aniso = 0`, so the directional factor is one.
 The former Python kernels remain in version history.
 

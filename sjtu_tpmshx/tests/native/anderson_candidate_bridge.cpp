@@ -1,6 +1,6 @@
 // Test bridge for thermal Anderson candidates.
 #include "tpmshx/thermal_c_api.h"
-#include "../../../native/src/anderson.hpp"
+#include "../../solvers/native/src/anderson.hpp"
 
 #include <algorithm>
 #include <cstdio>

@@ -18,7 +18,7 @@ _RESIDUAL_METRICS = ('Q_A', 'Q_B', 'energy_imbalance_rel',
 def compute_result(config: ComputeConfig, *, control: RunControl = RunControl(),
                    progress_cb: Callable[[int], None] | None = None) -> ComputeResult:
     """Run the common workflow and map its evidence for application consumers."""
-    from sjtu_tpmshx.workflows.compute import compute
+    from sjtu_tpmshx.compute import compute
     _, result, performance = compute(config, control=control, progress_cb=progress_cb)
     display = to_compute_result(result, performance)
     control.check_cancelled()

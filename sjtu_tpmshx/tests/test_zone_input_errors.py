@@ -4,7 +4,7 @@ from unittest.mock import Mock
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.workflows.compute import compute
+from sjtu_tpmshx.compute import compute
 from sjtu_tpmshx.domain.compute_config import ComputeConfig, ExtrapPolicy, GeometryConfig, SolverConfig, ZoneInputConfig
 from sjtu_tpmshx.models.zone_config import Zone, ZoneConfig
 

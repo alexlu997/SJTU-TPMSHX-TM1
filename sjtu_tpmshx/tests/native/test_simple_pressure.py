@@ -119,16 +119,16 @@ def native_simple_pressure(tmp_path_factory):
     build = tmp_path_factory.mktemp('native-simple-pressure')
     suffix = '.dll' if os.name == 'nt' else ('.dylib' if sys.platform == 'darwin' else '.so')
     output = build / ('simple_pressure_test' + suffix)
-    sources = [str(root / 'native/src/simple_pressure.cpp'),
+    sources = [str(root / 'sjtu_tpmshx/solvers/native/src/simple_pressure.cpp'),
                str(Path(__file__).with_name('simple_pressure_bridge.cpp'))]
     if os.name == 'nt':
         arguments = ['/nologo', '/std:c++17', '/O2', '/W4', '/WX', '/EHsc', '/MD', '/LD',
-            '/DTPMSHX_THERMAL_BUILD_SHARED', '/I' + str(root / 'native/include'), *sources,
+            '/DTPMSHX_THERMAL_BUILD_SHARED', '/I' + str(root / 'sjtu_tpmshx/solvers/native/include'), *sources,
             '/Fe' + str(output), '/link', '/IMPLIB:' + str(build / 'simple_pressure_test.lib')]
     else:
         arguments = ['-std=c++17', '-O2', '-ffp-contract=off', '-Wall', '-Wextra', '-Wpedantic', '-Werror',
             '-dynamiclib' if sys.platform == 'darwin' else '-shared', '-fPIC',
-            '-I', str(root / 'native/include'), *sources, '-o', str(output)]
+            '-I', str(root / 'sjtu_tpmshx/solvers/native/include'), *sources, '-o', str(output)]
     subprocess.run([*compiler, *arguments], cwd=build, check=True, text=True, capture_output=True)
     return NativePressurePrimitives(output)
 

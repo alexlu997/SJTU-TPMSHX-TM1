@@ -9,7 +9,7 @@ from sjtu_tpmshx.domain.compute_config import ComputeConfig
 from sjtu_tpmshx.domain.field_result import FieldResult
 from sjtu_tpmshx.domain.module_ports import RunControl
 from sjtu_tpmshx.domain.run_warnings import current_warnings, record_warning
-from sjtu_tpmshx.workflows.compute import compute
+from sjtu_tpmshx.compute import compute
 
 
 @pytest.fixture
@@ -23,7 +23,7 @@ def native_result():
 def test_stage_order_progress_timing_and_shared_storage(monkeypatch, native_result, progress_enabled):
     clock, calls, overall, raw = [0.], [], [], []
     case, performance = object(), object()
-    monkeypatch.setattr('sjtu_tpmshx.workflows.compute.perf_counter', lambda: clock[0])
+    monkeypatch.setattr('sjtu_tpmshx.compute.perf_counter', lambda: clock[0])
 
     def prepare(config, *, case_id):
         assert case_id == native_result.case_id
@@ -151,7 +151,7 @@ def test_application_mapping_keeps_cancellation_and_real_errors(monkeypatch, out
     cancelled = Event()
     native, performance, display = object(), object(), object()
     error = ValueError('invalid application evidence')
-    monkeypatch.setattr('sjtu_tpmshx.workflows.compute.compute',
+    monkeypatch.setattr('sjtu_tpmshx.compute.compute',
                         lambda *a, **k: (object(), native, performance))
 
     def map_result(result, metrics):

@@ -65,7 +65,7 @@ def _configure(win, monkeypatch, mode):
 def _stub_stages(monkeypatch, mode, prepare):
     """Keep the real workflow and display mapping; replace numerical stages."""
     from sjtu_tpmshx.tests.test_module_result_mapping import _synthetic_results
-    from sjtu_tpmshx.workflows.compute import compute
+    from sjtu_tpmshx.compute import compute
     native, performance = _synthetic_results(2 if mode == '2d' else 3)
     monkeypatch.setattr('sjtu_tpmshx.workflows.recovery.compute_run',
                         lambda config, directory, *, control, progress_cb, **kwargs:

@@ -360,7 +360,7 @@ def test_gui_resumes_sou_and_exports_the_saved_result(win, native_path, tmp_path
     from sjtu_tpmshx.domain.paused_run import PausedRun
     from sjtu_tpmshx.tests.gui_worker_support import _wait_for
     from sjtu_tpmshx.tests.native.test_run_recovery import same_result
-    from sjtu_tpmshx.workflows.compute import compute
+    from sjtu_tpmshx.compute import compute
     from sjtu_tpmshx.workflows.recovery import compute_run
 
     monkeypatch.setenv('TPMSHX_DISABLE_3D_PANEL', '1')

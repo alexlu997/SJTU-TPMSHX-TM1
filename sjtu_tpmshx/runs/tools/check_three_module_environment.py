@@ -13,7 +13,7 @@ def main():
     from sjtu_tpmshx.io.case_io import load_case  # noqa: F401
     from sjtu_tpmshx.io.result_io import load_result  # noqa: F401
     from sjtu_tpmshx.io.metrics_io import save_metrics  # noqa: F401
-    from sjtu_tpmshx.postprocess.metrics import evaluate  # noqa: F401
+    from sjtu_tpmshx.postprocess.api import evaluate  # noqa: F401
     for prefix in ('sjtu_tpmshx.solvers', 'sjtu_tpmshx.preprocess', 'sjtu_tpmshx.pipelines', 'numba', 'PySide6'):
         if any(name == prefix or name.startswith(prefix + '.') for name in sys.modules):
             raise RuntimeError(f'offline import crossed module boundary: {prefix}')
