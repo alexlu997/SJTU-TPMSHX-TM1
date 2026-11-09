@@ -64,7 +64,7 @@ def smoke_factory(monkeypatch, tmp_path):
             created_dirs.append(window.sm.base_dir)
             fault(window)
             return window
-        monkeypatch.setitem(sys.modules, 'sjtu_tpmshx.main', SimpleNamespace(Main_Menu=create))
+        monkeypatch.setitem(sys.modules, 'sjtu_tpmshx.applications.gui.main', SimpleNamespace(Main_Menu=create))
 
     install()
     yield install, app

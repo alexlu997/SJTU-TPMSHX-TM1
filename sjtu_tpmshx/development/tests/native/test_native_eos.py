@@ -19,7 +19,7 @@ import numpy as np
 import pytest
 
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[4]
 FIELDS = ("T_K", "rho_kg_m3", "cp_J_kgK", "mu_Pas", "k_W_mK", "h_J_kg")
 PROPERTY_ATOL = np.array([2e-8, 2e-5, 2e-14, 2e-10, 2e-5])
 

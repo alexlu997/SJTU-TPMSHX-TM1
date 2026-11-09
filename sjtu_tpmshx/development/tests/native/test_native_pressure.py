@@ -20,7 +20,7 @@ from scipy.sparse.linalg import spsolve
 
 @pytest.fixture(scope='module')
 def pressure_executable():
-    root = Path(__file__).resolve().parents[3]
+    root = Path(__file__).resolve().parents[4]
     platform = 'windows-x64' if os.name == 'nt' else 'macos-arm64'
     default = root / '.cache' / 'native-deps' / 'build' / ('pilot-' + platform) / (
         'pressure_smoke.exe' if os.name == 'nt' else 'pressure_smoke')
