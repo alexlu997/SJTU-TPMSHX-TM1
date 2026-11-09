@@ -1,0 +1,144 @@
+"""Current total amplitudes and synthetic parameters share one Nu call chain."""
+from dataclasses import asdict, replace
+import numpy as np
+import pytest
+from sjtu_tpmshx.shared.domain.compute_config import ComputeConfig, Sco2NuConfig
+from sjtu_tpmshx.shared.models import fluid_props, nu_correlations as nu, tpms_calc
+
+SYNTHETIC = Sco2NuConfig('experimental', .8, 1.2, 'synthetic-test-v1',
+                        'unit test, not measured', 'synthetic; no experimental validation')
+
+
+@pytest.mark.parametrize('topology,total', [('Diamond', 4.1064), ('Gyroid', 2.4824)])
+def test_current_effective_parameters_roundtrip_and_apply_once(tmp_path, topology, total):
+    from sjtu_tpmshx.shared.models.local_heat_transfer import real_fluid_hv_local_field
+
+    settings = nu.sco2_effective_nu_config()
+    assert settings.parameter_version == 'sco2-effective-nu-20260920-v1'
+    assert settings.mode == 'experimental'
+    path = tmp_path / 'current.json'
+    config = ComputeConfig(sco2_nu=settings)
+    config.to_json(path)
+    assert ComputeConfig.from_json(path).sco2_nu == settings
+    assert Sco2NuConfig().mode == 'cfd_smooth'
+    args = (topology, np.array([10000., 20000.]), .4, 7., 3., 1.2)
+    assert np.array_equal(fluid_props.get('sco2', sco2_nu=settings).nu(*args),
+                          total * fluid_props.get('sco2').nu(*args))
+    temperature = np.array([[350., 400.], [430., 470.]])
+    args = (temperature, 10e6, np.ones((2, 2)), 500., .003, topology, 7.)
+    smooth = real_fluid_hv_local_field(*args)
+    selected = real_fluid_hv_local_field(*args, sco2_nu=settings)
+    np.testing.assert_allclose(selected, total * smooth, rtol=1e-14)
+    metadata = nu.sco2_nu_metadata(settings)
+    assert metadata['alpha_D'] == 4.1064 and metadata['alpha_G'] == 2.4824
+    assert metadata['parameter_version'] == settings.parameter_version
+
+
+def test_modes_roundtrip_and_missing_parameters(tmp_path):
+    cfg = ComputeConfig(sco2_nu=SYNTHETIC)
+    path = tmp_path / 'config.json'
+    cfg.to_json(path)
+    assert ComputeConfig.from_json(path) == cfg
+    old = asdict(cfg)
+    del old['sco2_nu']
+    assert ComputeConfig.from_dict(old).sco2_nu == Sco2NuConfig()
+    assert ComputeConfig.from_dict({'sco2_nu': asdict(SYNTHETIC)}).sco2_nu == SYNTHETIC
+    with pytest.raises(ValueError):
+        ComputeConfig.from_dict({'sco2_nu': {'mode': 'experimental'}})
+    for changes in ({'alpha_D': None}, {'alpha_G': 0}, {'alpha_D': float('nan')},
+                    {'alpha_G': True}, {'source': ''}, {'mode': 'unknown'}):
+        with pytest.raises(ValueError):
+            replace(SYNTHETIC, **changes).validate()
+
+
+@pytest.mark.parametrize('topology,alpha', [('Diamond', .8), ('Gyroid', 1.2)])
+def test_shared_scalar_array_nu_and_unchanged_other_fluids(topology, alpha):
+    args = (topology, np.array([1., 5000., 20000.]), .4, 7., 3., 1.2)
+    base = fluid_props.get('sco2').nu(*args)
+    assert np.array_equal(fluid_props.get('sco2', sco2_nu=Sco2NuConfig()).nu(*args), base)
+    assert np.array_equal(fluid_props.get('sco2', sco2_nu=SYNTHETIC).nu(*args), alpha * base)
+    for fluid in ('air', 'water'):
+        assert fluid_props.get(fluid, sco2_nu=SYNTHETIC) is fluid_props.get(fluid)
+    with pytest.raises(NotImplementedError):
+        fluid_props.get('sco2', sco2_nu=SYNTHETIC).nu('Primitive', *args[1:])
+
+
+@pytest.mark.parametrize('shape', [(2, 3), (2, 3, 2)])
+def test_local_hv_multiplier_before_floor_without_extra_eos(monkeypatch, shape):
+    from sjtu_tpmshx.shared.models.local_heat_transfer import real_fluid_hv_local_field
+    from sjtu_tpmshx.shared.models import sco2_props
+    def properties(keys, T, P):
+        assert keys == ('D', 'V', 'L', 'C')
+        return np.array([np.full_like(T, value) for value in (2., .5, .25, 4.)])
+    monkeypatch.setattr(sco2_props, 'sco2_prop', properties)
+    T=np.full(shape, 320.); u=np.linspace(0.,10000.,T.size).reshape(shape)
+    args=(T, 10e6, u, 10., 1., 'Diamond', 7.)
+    raw=nu.nu_sco2_topo('Diamond', np.maximum(4*u,1.), 8., 7., 1000.)
+    expected=2.5*np.maximum(.8*raw, nu.NU_LAM_FLOOR)
+    observation = {}
+    assert np.array_equal(real_fluid_hv_local_field(*args, sco2_nu=SYNTHETIC, observation=observation), expected)
+    assert observation['floor_cells'] == int(np.count_nonzero(.8*raw < nu.NU_LAM_FLOOR))
+    assert observation['cells'] == T.size
+    assert observation['stage'].endswith('(lagged temperature)')
+    assert np.array_equal(real_fluid_hv_local_field(*args), real_fluid_hv_local_field(*args, sco2_nu=Sco2NuConfig()))
+
+
+def test_compute_cache_separates_parameters_and_versions():
+    args=('Diamond',7.,.6,1.,400.,10e6,16.,'sco2')
+    tpms_calc.compute.cache_clear()
+    base=tpms_calc.compute(*args)
+    corrected=tpms_calc.compute(*args,sco2_nu=SYNTHETIC)
+    assert corrected['Nu'] == .8*base['Nu']
+    assert corrected['K_df'] == base['K_df'] and corrected['cF_df'] == base['cF_df']
+    assert tpms_calc.compute(*args,sco2_nu=replace(SYNTHETIC,alpha_D=1.1))['Nu'] == 1.1*base['Nu']
+    tpms_calc.compute(*args,sco2_nu=replace(SYNTHETIC,parameter_version='synthetic-v2'))
+    assert tpms_calc.compute.cache_info().misses == 4
+    assert tpms_calc.compute(*args) == base
+    tpms_calc.compute.cache_clear()
+
+
+def test_metadata_and_source_notice_are_independent_of_df():
+    from sjtu_tpmshx.shared.domain.compute_config import FluidConfig
+    cfg = ComputeConfig(fluid_A=FluidConfig(type='sco2'), sco2_nu=SYNTHETIC)
+    for df in ('cfd_smooth', 'experimental'):
+        cfg.df_mode = df
+        assert nu.sco2_nu_metadata(cfg.sco2_nu)['alpha_D'] == .8
+        assert 'unit test, not measured' in nu.sco2_nu_notices(cfg)[0]
+    cfg.sco2_nu = Sco2NuConfig()
+    assert nu.sco2_nu_notices(cfg) == []
+    assert 'alpha_D' not in nu.sco2_nu_metadata(cfg.sco2_nu)
+
+
+def test_real_pipeline_heat_builders_share_selected_parameters():
+    from sjtu_tpmshx.shared.domain.compute_config import FluidConfig, GeometryConfig
+    from sjtu_tpmshx.preprocess.api import prepare_case
+    from sjtu_tpmshx.preprocess.three_d.preparation import _parse_inputs_3d_cfg
+    cfg = ComputeConfig(fluid_A=FluidConfig(type='sco2', u_mps=1., T_in_K=400., P_in_Pa=10e6),
+                        fluid_B=FluidConfig(type='sco2', u_mps=1., T_in_K=350., P_in_Pa=10e6),
+                        geometry=GeometryConfig(tpms='Diamond', Lz_m=.042))
+    original = prepare_case(cfg, case_id='nu-default').parameters['static_properties']
+    cfg.sco2_nu = SYNTHETIC
+    selected = prepare_case(cfg, case_id='nu-selected').parameters['static_properties']
+    for side in ('A', 'B'):
+        assert selected[side]['A_0'] * selected[side]['H_sf'] == pytest.approx(
+            .8 * original[side]['A_0'] * original[side]['H_sf'])
+    cfg.solver.Nz = 2
+    assert _parse_inputs_3d_cfg(cfg)['sco2_nu'] is SYNTHETIC
+
+
+def test_cli_preserves_selected_model_and_reports_it(tmp_path, monkeypatch, capsys):
+    import json
+    from sjtu_tpmshx.applications.cli.main import main
+    from sjtu_tpmshx.shared.domain.compute_result import ComputeResult
+    from sjtu_tpmshx.shared.domain.module_ports import RunControl, resolve_control
+    import sjtu_tpmshx.applications.result_adapter as adapter
+    path=tmp_path/'synthetic-config.json'
+    ComputeConfig(sco2_nu=SYNTHETIC).to_json(path)
+    expected=nu.sco2_nu_metadata(SYNTHETIC)
+    def dispatch(cfg, *, control):
+        assert cfg.sco2_nu == SYNTHETIC
+        assert control == resolve_control(RunControl())
+        return ComputeResult(converged=True, metadata={'sco2_nu':expected})
+    monkeypatch.setattr(adapter,'compute_result',dispatch)
+    assert main([str(path),'--json']) == 0
+    assert json.loads(capsys.readouterr().out)['metadata']['sco2_nu'] == expected

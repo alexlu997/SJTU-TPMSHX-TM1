@@ -32,7 +32,7 @@ application -> preprocess.api -> CaseData -> solvers.api -> FieldResult
 薄 Python 适配器复用共享准备态输入校验和 `FieldResult` 映射。原生阶段证据提供场、物性和原警告记录，不调用 Python 数值核或物性函数。主机库位置属于执行控制，不在 `CaseData` 中：
 
 ```python
-from sjtu_tpmshx.domain.module_ports import RunControl
+from sjtu_tpmshx.shared.domain.module_ports import RunControl
 from sjtu_tpmshx.solvers.api import run_case
 
 result = run_case(prepared_case, RunControl(
@@ -215,12 +215,12 @@ nmake /f sjtu_tpmshx\solvers\native\Makefile.msvc check
 
 ```sh
 tm1_python="$(head -n 1 .venv-path)"
-"$tm1_python" -m sjtu_tpmshx.runs.tools.check_locked_environment
+"$tm1_python" -m sjtu_tpmshx.development.runs.tools.check_locked_environment
 "$tm1_python" -m pip check
 MPLCONFIGDIR="$PWD/.cache/matplotlib" \
 XDG_CACHE_HOME="$PWD/.cache/xdg" \
 TPMSHX_REQUIRE_CPP_TESTS=1 TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1 \
-"$tm1_python" -m pytest -q sjtu_tpmshx/tests/native
+"$tm1_python" -m pytest -q sjtu_tpmshx/development/tests/native
 ```
 
 所有显式 `TPMSHX_TRUE_H_KERNEL` 覆盖均已退役，包括 `numba` 和 `cpp_sweeps_v1`。已保存准备态请求在流动执行前被拒绝；删除覆盖后使用原生执行。环境快照保留该键仅为明确拒绝。新 Case 不再捕获 `TPMSHX_THERMAL_LIBRARY`，原生库选择属于 `RunControl`。旧结果可在不加载求解库时读取，历史 Python `sweep_kernel` 和 `energy_audit` 记录保留原含义。
@@ -242,18 +242,18 @@ TPMSHX_REQUIRE_CPP_TESTS=1 TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1 \
 获得原生依赖准备的明确授权后，使用配置解释器和既有锁检查。`fetch` 是完整依赖的联网步骤；`fetch-eigen` 仅获取无 EOS 热库所需的固定 Eigen 5.0.1 头文件。`build` 离线运行，不安装 Python 包或改变共享环境。CoolProp 构建使用显式本地 CPM 路径并关闭 FetchContent 联网，不获取可选测试或包装模块：
 
 ```sh
-"$tm1_python" scripts/build_native_dependencies.py fetch
-"$tm1_python" scripts/build_native_dependencies.py build
-"$tm1_python" scripts/build_native_dependencies.py verify
+"$tm1_python" engineering/scripts/build_native_dependencies.py fetch
+"$tm1_python" engineering/scripts/build_native_dependencies.py build
+"$tm1_python" engineering/scripts/build_native_dependencies.py verify
 TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1 \
 MPLCONFIGDIR="$PWD/.cache/matplotlib" XDG_CACHE_HOME="$PWD/.cache/xdg" \
 "$tm1_python" -m pytest -q -ra \
-  sjtu_tpmshx/tests/native/test_native_eos.py \
-  sjtu_tpmshx/tests/native/test_native_pressure.py \
-  sjtu_tpmshx/tests/native/test_superlu_error_boundary.py \
-  sjtu_tpmshx/tests/native/test_fluid_properties.py \
-  sjtu_tpmshx/tests/native/test_quick_design_driver.py \
-  sjtu_tpmshx/tests/native/test_cpp_quick_design.py
+  sjtu_tpmshx/development/tests/native/test_native_eos.py \
+  sjtu_tpmshx/development/tests/native/test_native_pressure.py \
+  sjtu_tpmshx/development/tests/native/test_superlu_error_boundary.py \
+  sjtu_tpmshx/development/tests/native/test_fluid_properties.py \
+  sjtu_tpmshx/development/tests/native/test_quick_design_driver.py \
+  sjtu_tpmshx/development/tests/native/test_cpp_quick_design.py
 ```
 
 EOS 调用方以与 Python 参考相同的具名后端评估 CO2 和 Water，即 HEOS 或 BICUBIC&HEOS。检查正向物性、焓反演、既有 CO2 范围、稳定液态水约束和独立可变状态。它不以 CoolProp 数值替代项目经验空气／水输运函数。每个进程使用显式表目录，不改变父 Python EOS 设置。`test_native_eos.py` 固定物性比较容差；它与 PDE 验收以及 BICUBIC 相对 HEOS 的插值误差分别管理。

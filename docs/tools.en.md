@@ -9,7 +9,7 @@ Run all commands from the repository root. Use the absolute interpreter on the f
 The README defines public compute entry points and formal Case/Result handoff. These tools do not replace mainline acceptance.
 
 `demo_3d_air_air`, `demo_3d_cube_air_air`, `demo_3d_cube_volume`, and
-`runs.tools.render_3d_styles` use `prepare_case → run_case → evaluate` with the C++ backend.
+`development.runs.tools.render_3d_styles` use `prepare_case → run_case → evaluate` with the C++ backend.
 They keep the original rectangular and cubic cases, display fields, and their directories under `.cache/demos/`.
 The summary separates public metrics from previous backend diagnostics. `Q=|Q_A|`.
 `Q_A/Q_B` are signed native boundary heat losses; heat gain is negative.
@@ -21,9 +21,9 @@ even if diagnostic plots are written. Rendering failure returns a nonzero code.
 
 GCI creates a separate `.cache/validation/<tool>-<run-ID>/` by default. It contains CSV files, reports, and metadata. `--out-dir` selects another directory.
 
-The former Python MMS A3/A4/B4 commands are retired in 0.2. Their [original entry points](https://github.com/alexlu997/SJTU-TPMSHX-TM1/tree/v0.1.0/sjtu_tpmshx/validation/cases) and [frozen CSV records with their tests](history/README.en.md#mms-reference-retirement) stay at fixed historical entries. Current manufactured-field, refinement, and inlet checks are in [native MMS tests](../sjtu_tpmshx/tests/native/test_temperature_mms.py).
+The former Python MMS A3/A4/B4 commands are retired in 0.2. Their [original entry points](https://github.com/alexlu997/SJTU-TPMSHX-TM1/tree/v0.1.0/sjtu_tpmshx/validation/cases) and [frozen CSV records with their tests](history/README.en.md#mms-reference-retirement) stay at fixed historical entries. Current manufactured-field, refinement, and inlet checks are in [native MMS tests](../sjtu_tpmshx/development/tests/native/test_temperature_mms.py).
 
-Explicit relative file paths resolve from the current working directory. The remaining reference CSV files and historical metadata under `sjtu_tpmshx/validation/` stay. Before solving, tools reject writes there, including symlinks that point there. Other explicit output directories can be reused. Use the default separate directory to keep each run.
+Explicit relative file paths resolve from the current working directory. The remaining reference CSV files and historical metadata under `sjtu_tpmshx/development/validation/` stay. Before solving, tools reject writes there, including symlinks that point there. Other explicit output directories can be reused. Use the default separate directory to keep each run.
 
 `validate_sco2_exp_q --csv` also validates reference-directory protection for CSV and `.meta.json` before solving. The shared provenance CSV writer and this entry stage CSV/metadata in the target directory. They replace the group only after all writes succeed. Write or replacement exceptions keep the previous group. This does not cover power failure or concurrent writers to one target. With explicit `sidecar=False`, the shared writer also removes a previous sidecar to prevent stale metadata on reload.
 
@@ -55,39 +55,39 @@ and inlet half-cells. Numerical advection dissipation is not added to physical
 production. The boundary/physical-production agreement limit stays at 5%.
 Its near-zero scale floor is `1 W / lowest inlet temperature`, in W/K.
 Insufficient grid resolution still fails. Use
-`python -m sjtu_tpmshx.validation.cases.audit_3d_conservation --grid 40`
+`python -m sjtu_tpmshx.development.validation.cases.audit_3d_conservation --grid 40`
 for the current T1–T4/T6 checks. Explicit coarse-grid results keep their failed
 verdicts. Allowed outlet-temperature crossover is an observation, not a failed gate.
 
-The independent Shanghai lumped dual-Nu comparison uses crossflow as primary and counterflow for sensitivity. Run `python -m sjtu_tpmshx.validation.cases.validate_shanghai_lumped_dual_nu`. By default, CSV and provenance metadata go to a new `.cache/validation/shanghai-lumped-dual-nu-*` directory. `--out-dir` can select a directory. It no longer overwrites `data/shanghai_lumped_dual_nu.csv`.
+The independent Shanghai lumped dual-Nu comparison uses crossflow as primary and counterflow for sensitivity. Run `python -m sjtu_tpmshx.development.validation.cases.validate_shanghai_lumped_dual_nu`. By default, CSV and provenance metadata go to a new `.cache/validation/shanghai-lumped-dual-nu-*` directory. `--out-dir` can select a directory. It no longer overwrites `data/shanghai_lumped_dual_nu.csv`.
 
 `benchmark_sou_3d` is retired with the Python-only research entries. Historical pressure-drop records keep their original definitions.
 
 The incomplete `asym_pyfluent_runner` template is [retired](history/retired-tools.md#pyfluent-template-retirement).
 The CFD workbooks and nTop expressions remain available. Configure and validate Fluent cases outside this repository.
 This repository has no Fluent batch execution entry.
-[asym_postproc_kappa](../sjtu_tpmshx/runs/cfd_asym/asym_postproc_kappa.py) continues to process result CSV files with the same field contract.
+[asym_postproc_kappa](../sjtu_tpmshx/development/runs/cfd_asym/asym_postproc_kappa.py) continues to process result CSV files with the same field contract.
 
 | Tool | Input → output | Command and scope |
 | --- | --- | --- |
 | [examples/](../examples/) | Public JSON/YAML configuration → Case/Result/metrics | Real 2D/3D CLI examples in README. First-run entry within current support. |
-| [runs/smokes/](../sjtu_tpmshx/runs/smokes/) | Built-in examples → console and declared diagnostics | `python -m sjtu_tpmshx.runs.smokes.<module>`. Headless GUI requires `QT_QPA_PLATFORM=offscreen`. |
-| [runs/demos/](../sjtu_tpmshx/runs/demos/) | Built-in 3D cases → console/visualization | `python -m sjtu_tpmshx.runs.demos.<module>`. Interactive graphics require a desktop. Examples do not extend applicability. |
-| [CFD worklist](../sjtu_tpmshx/runs/tools/asym_build_cfd_worklist_xlsx.py) → [nTop expressions](../sjtu_tpmshx/runs/cfd_asym/asym_ntop_expressions_html.py) | Built-in geometry/fluid and optional private `water_DG_cfd_results_legacy.xlsx` → XLSX → HTML | Run the two commands below in order with one output directory. Missing local water data leaves a skip explanation in `r1_water_ref`, without invented anchors. |
-| [Asymmetric CFD tools](../sjtu_tpmshx/runs/cfd_asym/), [diagnostics/](../sjtu_tpmshx/runs/diagnostics/) | Declared geometry and field/CFD files → research results | `python -m sjtu_tpmshx.runs.<subdirectory>.<module>`. Prepare CFD runs and private input files externally. Workbook generation, diagnostics, and CSV post-processing remain. |
-| [scripts/](../scripts/) | Configured environment and test selection → logs | Two PowerShell test entries. Repository path comes from script location. Interpreter comes from `.venv-path`. `-LockFile` selects the lock. No automatic dependency installation. |
-| [D76 Nu/ε-NTU historical Q](../sjtu_tpmshx/validation/cases/validate_sco2_d76.py) | Six fixed D-7-6 cases/private Excel → smooth-CFD Nu and lumped Q | `python -m sjtu_tpmshx.validation.cases.validate_sco2_d76`. Keeps the 15% maximum absolute relative Q error gate. Exit 0 passes. 1 fails. It does not validate current effective Nu coefficients. |
-| [Existing water Nu table](../sjtu_tpmshx/validation/cases/validate_water_nu_excel.py) | 1879 legacy water CFD rows → row/topology/geometry/Re-band errors | `python -m sjtu_tpmshx.validation.cases.validate_water_nu_excel --out .cache/water-nu-validation`. Fixed current correlations. Exit 0 passes. 2 fails accuracy. Data errors raise. |
-| [Current experimental corrections](../sjtu_tpmshx/validation/df_refit/fit_experimental_effective.py), [cross-dataset cF](../sjtu_tpmshx/validation/df_refit/cf_cross_fluid.py) | Experimental workbooks and fixed CFD baseline → review CSV files in `.cache/reports/df_refit/` | `python -m sjtu_tpmshx.validation.df_refit.<module>`. Shared `validation/hx_experiments.py` reader. No previous γ/RBF fit or six retired coefficient tables. Production coefficients stay unchanged. |
-| [sCO2 CFD base Nu fit](../sjtu_tpmshx/validation/sco2_cfd/fit_nu_sco2.py) | Original CFD tables → research base fits and geometry/pressure leave-one-out results | `python -m sjtu_tpmshx.validation.sco2_cfd.fit_nu_sco2`. Original cleaning and validation stay. No automatic effective-coefficient replacement. Previous experimental anchoring is [historical](history/legacy-models.md#sco2-nu-旧锚定路线2026-09-20). |
-| [Main compute measurement](../sjtu_tpmshx/runs/tools/benchmark_main_compute.py) | Local fixed `jobs` list with `id/config` and optional `reference/depth_m` → separate Case/Result/metrics, logs, and stage measurements | `python -m sjtu_tpmshx.runs.tools.benchmark_main_compute MANIFEST NEW_OUTPUT --warmup --repeat 5`. 0 passes the common design verdict, file checks and declared-flow checks. 2 means unqualified results. 1 means execution errors. It does not show experimental accuracy. |
-| [F2 tolerance costing](../sjtu_tpmshx/validation/cases/price_f2_convergence_3d.py) | Historical costing cases → separate `.cache/validation/f2_pricing-*/` CSV | `python -m sjtu_tpmshx.validation.cases.price_f2_convergence_3d --mom-tol 1e-3,1e-4,1e-5 --cases 1,8,16`. Scans F2. `--out` supports an output protected against frozen-path writes. Its full-side ports cannot replace local-port main-compute evidence. |
+| [development/runs/smokes/](../sjtu_tpmshx/development/runs/smokes/) | Built-in examples → console and declared diagnostics | `python -m sjtu_tpmshx.development.runs.smokes.<module>`. Headless GUI requires `QT_QPA_PLATFORM=offscreen`. |
+| [development/runs/demos/](../sjtu_tpmshx/development/runs/demos/) | Built-in 3D cases → console/visualization | `python -m sjtu_tpmshx.development.runs.demos.<module>`. Interactive graphics require a desktop. Examples do not extend applicability. |
+| [CFD worklist](../sjtu_tpmshx/development/runs/tools/asym_build_cfd_worklist_xlsx.py) → [nTop expressions](../sjtu_tpmshx/development/runs/cfd_asym/asym_ntop_expressions_html.py) | Built-in geometry/fluid and optional private `water_DG_cfd_results_legacy.xlsx` → XLSX → HTML | Run the two commands below in order with one output directory. Missing local water data leaves a skip explanation in `r1_water_ref`, without invented anchors. |
+| [Asymmetric CFD tools](../sjtu_tpmshx/development/runs/cfd_asym/), [diagnostics/](../sjtu_tpmshx/development/runs/diagnostics/) | Declared geometry and field/CFD files → research results | `python -m sjtu_tpmshx.development.runs.<subdirectory>.<module>`. Prepare CFD runs and private input files externally. Workbook generation, diagnostics, and CSV post-processing remain. |
+| [engineering/scripts/](../engineering/scripts/) | Configured environment and test selection → logs | Two PowerShell test entries. Repository path comes from script location. Interpreter comes from `.venv-path`. `-LockFile` selects the lock. No automatic dependency installation. |
+| [D76 Nu/ε-NTU historical Q](../sjtu_tpmshx/development/validation/cases/validate_sco2_d76.py) | Six fixed D-7-6 cases/private Excel → smooth-CFD Nu and lumped Q | `python -m sjtu_tpmshx.development.validation.cases.validate_sco2_d76`. Keeps the 15% maximum absolute relative Q error gate. Exit 0 passes. 1 fails. It does not validate current effective Nu coefficients. |
+| [Existing water Nu table](../sjtu_tpmshx/development/validation/cases/validate_water_nu_excel.py) | 1879 legacy water CFD rows → row/topology/geometry/Re-band errors | `python -m sjtu_tpmshx.development.validation.cases.validate_water_nu_excel --out .cache/water-nu-validation`. Fixed current correlations. Exit 0 passes. 2 fails accuracy. Data errors raise. |
+| [Current experimental corrections](../sjtu_tpmshx/development/validation/df_refit/fit_experimental_effective.py), [cross-dataset cF](../sjtu_tpmshx/development/validation/df_refit/cf_cross_fluid.py) | Experimental workbooks and fixed CFD baseline → review CSV files in `.cache/reports/df_refit/` | `python -m sjtu_tpmshx.development.validation.df_refit.<module>`. Shared `development/validation/hx_experiments.py` reader. No previous γ/RBF fit or six retired coefficient tables. Production coefficients stay unchanged. |
+| [sCO2 CFD base Nu fit](../sjtu_tpmshx/development/validation/sco2_cfd/fit_nu_sco2.py) | Original CFD tables → research base fits and geometry/pressure leave-one-out results | `python -m sjtu_tpmshx.development.validation.sco2_cfd.fit_nu_sco2`. Original cleaning and validation stay. No automatic effective-coefficient replacement. Previous experimental anchoring is [historical](history/legacy-models.md#sco2-nu-旧锚定路线2026-09-20). |
+| [Main compute measurement](../sjtu_tpmshx/development/runs/tools/benchmark_main_compute.py) | Local fixed `jobs` list with `id/config` and optional `reference/depth_m` → separate Case/Result/metrics, logs, and stage measurements | `python -m sjtu_tpmshx.development.runs.tools.benchmark_main_compute MANIFEST NEW_OUTPUT --warmup --repeat 5`. 0 passes the common design verdict, file checks and declared-flow checks. 2 means unqualified results. 1 means execution errors. It does not show experimental accuracy. |
+| [F2 tolerance costing](../sjtu_tpmshx/development/validation/cases/price_f2_convergence_3d.py) | Historical costing cases → separate `.cache/validation/f2_pricing-*/` CSV | `python -m sjtu_tpmshx.development.validation.cases.price_f2_convergence_3d --mom-tol 1e-3,1e-4,1e-5 --cases 1,8,16`. Scans F2. `--out` supports an output protected against frozen-path writes. Its full-side ports cannot replace local-port main-compute evidence. |
 
 Run the GUI checks without solving separately:
 
 ```bash
-python -m sjtu_tpmshx.runs.smokes.smoke_ui_offscreen
-python -m sjtu_tpmshx.runs.smokes.smoke_ui_screenshots --output .cache/ui-smoke-screenshots
+python -m sjtu_tpmshx.development.runs.smokes.smoke_ui_offscreen
+python -m sjtu_tpmshx.development.runs.smokes.smoke_ui_screenshots --output .cache/ui-smoke-screenshots
 ```
 
 Both require Qt offscreen. They use temporary session and appearance directories under `.cache/`, then remove temporary state without overwriting user preferences. Screenshot output also defaults to `.cache/ui-smoke-screenshots`. Missing required widgets/options, unsuccessful navigation, Qt callback exceptions, or failure to close the window return 1. Screenshot save failure also returns 1.
@@ -108,7 +108,7 @@ Default `validate_sco2_exp_q.py` uses counterflow, CFD resistance, and base Nu: 
 
 The new output directory must not exist. Select current sCO₂ coefficients explicitly through `sco2_effective_nu_config()` or the GUI. Retired `fit_nu_correction`/`nu_bytemp_report` are not current recalculation entries. Changing Nu JSON alone does not rebuild strict solve settings or the previous fixed manifest.
 
-The shared `validation.sco2_exp.load_sco2_exp` reader keeps measured endpoint enthalpy/Q, heat balance, quality flags, mean-temperature properties/Re, and reduced resistance quantities. It no longer derives wall temperature from the midpoint of stream mean temperatures to report h/Nu. Associated `ok_dT` and previous CLI summaries are retired. Raw measurements stay unchanged. The historical denominator was not replaced with another heat-transfer-coefficient definition.
+The shared `development.validation.sco2_exp.load_sco2_exp` reader keeps measured endpoint enthalpy/Q, heat balance, quality flags, mean-temperature properties/Re, and reduced resistance quantities. It no longer derives wall temperature from the midpoint of stream mean temperatures to report h/Nu. Associated `ok_dT` and previous CLI summaries are retired. Raw measurements stay unchanged. The historical denominator was not replaced with another heat-transfer-coefficient definition.
 
 Shanghai production validation uses one constructor for port/wall meshes. Grid counts include all refined cells. The 2D entry uses `84×24`. 3D defaults to `92×14×10` when explicit grid arguments are absent. Historical mesh studies stay in [history](history/README.en.md).
 
@@ -181,11 +181,11 @@ Geometry export does not reevaluate the previous model. The public nTop API/CLI 
 
 ## Data and research tools
 
-The CFD-worklist-to-nTop default directory is ignored `sjtu_tpmshx/runs/_out/asym_cfd/`. If `TPMSHX_TOOL_OUT_DIR` is set, use the same value for both commands:
+The CFD-worklist-to-nTop default directory is ignored `sjtu_tpmshx/development/runs/_out/asym_cfd/`. If `TPMSHX_TOOL_OUT_DIR` is set, use the same value for both commands:
 
 ```bash
-python -m sjtu_tpmshx.runs.tools.asym_build_cfd_worklist_xlsx
-python -m sjtu_tpmshx.runs.cfd_asym.asym_ntop_expressions_html
+python -m sjtu_tpmshx.development.runs.tools.asym_build_cfd_worklist_xlsx
+python -m sjtu_tpmshx.development.runs.cfd_asym.asym_ntop_expressions_html
 ```
 
 Former `water-cfd-raw.xlsx` is now `data/raw_data/cfd/water/water_DG_cfd_results_legacy.xlsx`. It is only this research tool's declared previous recipe anchor. The [data catalog](data-catalog.en.md) maps all names. Formal offline processing still requires missing `Water-CFD/水数值模拟数据.xlsx`. These files cannot substitute for each other.
@@ -223,9 +223,9 @@ Use the checked `.venv-path` interpreter and worktree-local caches:
 from pathlib import Path
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.api import run_case
-from sjtu_tpmshx.io.case_io import save_case, load_case
-from sjtu_tpmshx.io.result_io import save_result
-from sjtu_tpmshx.validation.cases.audit_3d_conservation import make_T2
+from sjtu_tpmshx.shared.io.case_io import save_case, load_case
+from sjtu_tpmshx.shared.io.result_io import save_result
+from sjtu_tpmshx.development.validation.cases.audit_3d_conservation import make_T2
 
 output = Path('.cache/research-t2')
 output.mkdir(parents=True, exist_ok=True)

@@ -1,9 +1,9 @@
 """Validate prepared 3D inputs for native execution."""
 import numpy as np
 
-from sjtu_tpmshx.domain.compute_config import Sco2NuConfig, reject_retired_research_options
-from sjtu_tpmshx.domain.persistence_validation import validate_grid, validate_thermal_geometry
-from sjtu_tpmshx.domain.portable_data import mutable_data
+from sjtu_tpmshx.shared.domain.compute_config import Sco2NuConfig, reject_retired_research_options
+from sjtu_tpmshx.shared.domain.persistence_validation import validate_grid, validate_thermal_geometry
+from sjtu_tpmshx.shared.domain.portable_data import mutable_data
 from .prepared_models import resolve_models, validate_fluid, validate_nu_settings, validate_topology
 
 

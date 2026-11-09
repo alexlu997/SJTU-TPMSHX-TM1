@@ -19,7 +19,7 @@ The main Compute button MUST stay in the fixed bottom bar of the left rail. Para
 - **THEN** the button shows Cancel with elapsed time during computation and returns to its initial state afterward
 
 ### Requirement: Empty-state preset shortcut
-The empty state MUST contain Load Example Case. It MUST call the existing `_load_named_preset('Shanghai (3D Gyroid)')`. The internal key keeps its historical spelling. `ui.fmt.preset_display` removes the brand name from visible text. The complete empty state, including text and button, MUST disappear after the first computation, as before.
+The empty state MUST contain Load Example Case. It MUST call the existing `_load_named_preset('Shanghai (3D Gyroid)')`. The internal key keeps its historical spelling. `applications.gui.ui.fmt.preset_display` removes the brand name from visible text. The complete empty state, including text and button, MUST disappear after the first computation, as before.
 
 #### Scenario: One-click runnable config
 - **WHEN** the user selects the empty-state preset button

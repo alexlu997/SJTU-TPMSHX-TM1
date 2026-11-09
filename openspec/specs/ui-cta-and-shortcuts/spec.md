@@ -17,7 +17,7 @@ Compute 主按钮 SHALL 常驻左面板底部固定条（不随参数滚动消�
 - **THEN** 计算期间按钮文本变为 Cancel 计时样式，结束后恢复
 
 ### Requirement: Empty-state preset shortcut
-空状态 SHALL 含"载入算例工况"按钮，点击 SHALL 调用既有 `_load_named_preset('Shanghai (3D Gyroid)')`（内部键保留历史拼写，显示层经 `ui.fmt.preset_display` 去品牌化）；空状态整体（文案+按钮）SHALL 在首次计算后隐藏（现行为保持）。
+空状态 SHALL 含"载入算例工况"按钮，点击 SHALL 调用既有 `_load_named_preset('Shanghai (3D Gyroid)')`（内部键保留历史拼写，显示层经 `applications.gui.ui.fmt.preset_display` 去品牌化）；空状态整体（文案+按钮）SHALL 在首次计算后隐藏（现行为保持）。
 
 #### Scenario: One-click runnable config
 - **WHEN** 点击空状态 preset 按钮

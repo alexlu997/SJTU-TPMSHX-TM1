@@ -8,7 +8,7 @@
 ## Requirements
 
 ### Requirement: Workbench navigation and quick design
-顶部 SHALL 提供“工况设置／场图结果／优化设计”三个工作台入口，以及独立的“快速设计”入口。温度、压力、速度和三维内部路由由 `ui/mixins/tab_view.py` 解析，不依赖隐藏按钮对象；有受支持结果时 SHALL 启用“场图结果”。
+顶部 SHALL 提供“工况设置／场图结果／优化设计”三个工作台入口，以及独立的“快速设计”入口。温度、压力、速度和三维内部路由由 `applications/gui/ui/mixins/tab_view.py` 解析，不依赖隐藏按钮对象；有受支持结果时 SHALL 启用“场图结果”。
 
 #### Scenario: Field routing preserves result navigation
 - **WHEN** 计算完成后调用 `_switch_tab('temp')` 等字段路由

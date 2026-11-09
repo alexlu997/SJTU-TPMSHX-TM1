@@ -3,7 +3,7 @@ import ctypes as ct
 
 import numpy as np
 
-from sjtu_tpmshx.models.fluid_props import WaterStateError
+from sjtu_tpmshx.shared.models.fluid_props import WaterStateError
 
 
 class _Field(ct.Structure):

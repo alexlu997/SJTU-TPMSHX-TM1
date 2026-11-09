@@ -9,7 +9,7 @@ from pathlib import Path
 
 import numpy as np
 
-from sjtu_tpmshx.domain.cancellation import CancelledError
+from sjtu_tpmshx.shared.domain.cancellation import CancelledError
 from ._thermal_abi import _Callbacks, _Cancel as _Cancel, _Progress as _Progress, make_callbacks
 
 

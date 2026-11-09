@@ -1,5 +1,5 @@
 """Read captured parameter limits without property or solver calls."""
-from sjtu_tpmshx.domain.range_policy import assess_range
+from sjtu_tpmshx.shared.domain.range_policy import assess_range
 
 
 def evaluate_applicability(result):

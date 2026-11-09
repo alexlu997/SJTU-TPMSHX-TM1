@@ -2,15 +2,15 @@
 
 import numpy as np
 
-from sjtu_tpmshx.domain.case_data import CaseData
-from sjtu_tpmshx.domain.portable_data import mutable_data as _mutable_data
-from sjtu_tpmshx.domain.compute_config import ComputeConfig
-from sjtu_tpmshx.domain.persistence_validation import validate_grid, validate_thermal_geometry
-from sjtu_tpmshx.models.zone_config import Zone, ZoneConfig
+from sjtu_tpmshx.shared.domain.case_data import CaseData
+from sjtu_tpmshx.shared.domain.portable_data import mutable_data as _mutable_data
+from sjtu_tpmshx.shared.domain.compute_config import ComputeConfig
+from sjtu_tpmshx.shared.domain.persistence_validation import validate_grid, validate_thermal_geometry
+from sjtu_tpmshx.shared.models.zone_config import Zone, ZoneConfig
 from .prepared_models import resolve_models, validate_fluid, validate_nu_settings, validate_topology
 
 
-from sjtu_tpmshx.models.zone_units import _legacy_zone_units
+from sjtu_tpmshx.shared.models.zone_units import _legacy_zone_units
 
 
 def build_execution_inputs(case: CaseData, *, copy_design=True):

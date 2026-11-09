@@ -2,11 +2,11 @@
 from __future__ import annotations
 from typing import Any
 import numpy as np
-from sjtu_tpmshx.domain.compute_config import ComputeConfig, bc_to_dict
-from sjtu_tpmshx.models.tpms_props import geometry as tpms_geometry
-from sjtu_tpmshx.models import co2_correlations
-from sjtu_tpmshx.models.input_validation import validate_domain_dims, surrogate_extrap_reasons
-from sjtu_tpmshx.logutil import get_logger
+from sjtu_tpmshx.shared.domain.compute_config import ComputeConfig, bc_to_dict
+from sjtu_tpmshx.shared.models.tpms_props import geometry as tpms_geometry
+from sjtu_tpmshx.shared.models import co2_correlations
+from sjtu_tpmshx.shared.models.input_validation import validate_domain_dims, surrogate_extrap_reasons
+from sjtu_tpmshx.shared.logutil import get_logger
 
 _log = get_logger(__name__)
 
@@ -56,7 +56,7 @@ def _build_zone_arrays(compute_cfg, N_x, N_y, *, dx_arr=None, dy_arr=None, geome
         P_in_val = compute_cfg.fluid_A.P_in_Pa
         P_inB = compute_cfg.fluid_B.P_in_Pa
         if z_axis == 'continuous':
-            from sjtu_tpmshx.models.continuous_field import from_decision_vector
+            from sjtu_tpmshx.shared.models.continuous_field import from_decision_vector
             spec = dict(compute_cfg.zones.config)
             field = from_decision_vector(spec.pop('x_decision'), tpms_type, k_s, L, H, **spec)
             lfield, tfield = field.evaluate_grid(N_x, N_y, dx_arr, dy_arr)
@@ -73,7 +73,7 @@ def _build_zone_arrays(compute_cfg, N_x, N_y, *, dx_arr=None, dy_arr=None, geome
             grid = compute_cfg.zones.grid
             _x_dec = compute_cfg.zones.pareto_x_decision
             if _x_dec is not None:
-                from sjtu_tpmshx.models.sigmoid_field import (
+                from sjtu_tpmshx.shared.models.sigmoid_field import (
                     build_continuous_arrays, build_continuous_geometry, get_geometry_lut,
                 )
                 _lut = get_geometry_lut(tpms_type)
@@ -90,7 +90,7 @@ def _build_zone_arrays(compute_cfg, N_x, N_y, *, dx_arr=None, dy_arr=None, geome
                     tpms_type, k_s, **kwargs)
                 _log.info(f"[ZONE] Continuous Sigmoid field ({N_x}x{N_y})")
             else:
-                from sjtu_tpmshx.models.zone_config import ZoneConfig
+                from sjtu_tpmshx.shared.models.zone_config import ZoneConfig
                 builder = ZoneConfig.build_grid_geometry if geometry_only else ZoneConfig.build_grid_arrays
                 kwargs = dict(dx_arr=dx_arr, dy_arr=dy_arr)
                 if not geometry_only:
@@ -108,7 +108,7 @@ def _build_zone_arrays(compute_cfg, N_x, N_y, *, dx_arr=None, dy_arr=None, geome
             zone_config = compute_cfg.zones.config
             if isinstance(zone_config, dict):
                 from copy import deepcopy
-                from sjtu_tpmshx.models.zone_config import Zone, ZoneConfig
+                from sjtu_tpmshx.shared.models.zone_config import Zone, ZoneConfig
 
                 zone_data = deepcopy(zone_config)
                 zone_data['zones'] = [Zone(**zone) for zone in zone_data['zones']]
@@ -138,7 +138,7 @@ def _build_zone_arrays(compute_cfg, N_x, N_y, *, dx_arr=None, dy_arr=None, geome
 
 
 def _complete_spline_properties(config, za):
-    from sjtu_tpmshx.models import fluid_props
+    from sjtu_tpmshx.shared.models import fluid_props
     for side, fluid in (('A', config.fluid_A), ('B', config.fluid_B)):
         za['K_ff' + side + '_arr'] = za['eps_f_arr'] * float(
             fluid_props.get(fluid.type).k(fluid.T_in_K, fluid.P_in_Pa))
@@ -158,12 +158,12 @@ def _parse_geometry_inputs_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
 
     # Air, water and sCO2 use the per-side property registry. Zoned geometry
     # retains its separate air/air-only guard below.
-    from sjtu_tpmshx.models.tpms_calc import validate_fluid_type
+    from sjtu_tpmshx.shared.models.tpms_calc import validate_fluid_type
     fluid_A = compute_cfg.fluid_A.type
     fluid_B = compute_cfg.fluid_B.type
     validate_fluid_type(fluid_A, 'A')
     validate_fluid_type(fluid_B, 'B')
-    from sjtu_tpmshx.models.fluid_props import check_water_state
+    from sjtu_tpmshx.shared.models.fluid_props import check_water_state
     for side, config in (('A', compute_cfg.fluid_A), ('B', compute_cfg.fluid_B)):
         check_water_state(config.type, config.T_in_K, config.P_in_Pa,
                           where=f'pipeline inlet {side}')
@@ -228,7 +228,7 @@ def _parse_geometry_inputs_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
 
 
 def _prepare_mesh(cfg):
-    from sjtu_tpmshx.models.grid import build_grid_2d
+    from sjtu_tpmshx.shared.models.grid import build_grid_2d
     compute_cfg = cfg['compute_cfg']
     energy_dx, energy_dy, x_breaks, y_breaks, _ = build_grid_2d(
         cfg['L'], cfg['H'], cfg['N_x'], cfg['N_y'], (cfg['cfgA'], cfg['cfgB']),
@@ -281,9 +281,9 @@ def _complete_grid(cfg, physical_grid, *, spline_geometry=None):
 
 def _prepare_flow_inputs(cfg, dx, dy):
     """Freeze full local spline drag or the existing legacy row model."""
-    from sjtu_tpmshx.df_surrogate.predict import predict_K_cF, predict_K_cF_vec, SCO2_DF_METHOD
-    from sjtu_tpmshx.df_surrogate.experimental_correction import apply_correction, cfd_metadata
-    from sjtu_tpmshx.models.df_projection import project_fields_to_streamwise_K_cF
+    from sjtu_tpmshx.shared.df_surrogate.predict import predict_K_cF, predict_K_cF_vec, SCO2_DF_METHOD
+    from sjtu_tpmshx.shared.df_surrogate.experimental_correction import apply_correction, cfd_metadata
+    from sjtu_tpmshx.shared.models.df_projection import project_fields_to_streamwise_K_cF
     tpms, cell, wall, eps = (cfg[k] for k in ('tpms_type', 'Lcell', 't_wall', 'eps'))
     base_K, base_cF = predict_K_cF(tpms, cell, wall, .5 * eps, method=SCO2_DF_METHOD)
     za = cfg['za']
@@ -323,13 +323,13 @@ def _prepare_flow_inputs(cfg, dx, dy):
             else:
                 K, cF, metadata = co2_correlations.apply_drag(K, cF)
         elif cfg['compute_cfg'].df_mode == 'experimental':
-            from sjtu_tpmshx.domain.run_warnings import range_context
+            from sjtu_tpmshx.shared.domain.run_warnings import range_context
             with range_context(side=side, stage='prepared-df', layout='solver-row'):
                 seed_K, seed_cF, metadata = apply_correction(
                     tpms, cfg['fluid_' + side], cell, wall, base_K, base_cF,
                     u_mps=abs(float(cfg['u_' + side])), allow_hx_extrapolation=continuous)
             if continuous:
-                from sjtu_tpmshx.df_surrogate.experimental_correction import apply_prepared_correction
+                from sjtu_tpmshx.shared.df_surrogate.experimental_correction import apply_prepared_correction
                 K_field, cF_field, metadata = apply_prepared_correction(K_field, cF_field, metadata)
                 K, cF = K_field.mean(axis=0), cF_field.mean(axis=0)
                 metadata.update(
@@ -349,7 +349,7 @@ def _prepare_flow_inputs(cfg, dx, dy):
 
 
 def _prepare_openings(cfg, dx, dy):
-    from sjtu_tpmshx.models.grid import _port_fractions_1d
+    from sjtu_tpmshx.shared.models.grid import _port_fractions_1d
     boundaries = {}
     for side in ('A', 'B'):
         port = cfg['cfg' + side]
@@ -369,7 +369,7 @@ def _prepare_openings(cfg, dx, dy):
 def _prepare_inlet_data(config):
     """Prepare the same mesh, porosity and openings without thermal closures."""
     from dataclasses import asdict
-    from sjtu_tpmshx.models import fluid_props
+    from sjtu_tpmshx.shared.models import fluid_props
 
     cfg = _parse_geometry_inputs_cfg(config)
     physical_grid = _prepare_mesh(cfg)
@@ -394,16 +394,16 @@ def prepare_case(config: ComputeConfig, *, case_id: str):
 
 def _prepare_case(config: ComputeConfig, *, case_id: str, inlet_grid=None, spline_geometry=None):
     from dataclasses import asdict
-    from sjtu_tpmshx.domain.case_data import CaseData
-    from sjtu_tpmshx.domain.model_refs import ModelRef
-    from sjtu_tpmshx.models.catalog import MODEL_VERSIONS
-    from sjtu_tpmshx.models.nu_correlations import sco2_nu_metadata, sco2_nu_notices
+    from sjtu_tpmshx.shared.domain.case_data import CaseData
+    from sjtu_tpmshx.shared.domain.model_refs import ModelRef
+    from sjtu_tpmshx.shared.models.catalog import MODEL_VERSIONS
+    from sjtu_tpmshx.shared.models.nu_correlations import sco2_nu_metadata, sco2_nu_notices
 
     config = ComputeConfig.from_dict(asdict(config))
     if config.is_3d:
         raise ValueError('2D preparation requires solver.Nz == 1')
     parsed = _parse_inputs_cfg(config)
-    from sjtu_tpmshx.domain.run_environment import capture_environment
+    from sjtu_tpmshx.shared.domain.run_environment import capture_environment
     parsed['_environment'] = capture_environment()
     if inlet_grid is None:
         physical_grid = _prepare_grid(parsed)
@@ -422,8 +422,8 @@ def _prepare_case(config: ComputeConfig, *, case_id: str, inlet_grid=None, splin
     # Runtime controls are input data. The solver never reparses config_snapshot.
     parsed['run_settings'] = _zone_data_si(config.to_dict())
     parsed['run_settings'].pop('zones')
-    from sjtu_tpmshx.models.tpms_calc import compute
-    from sjtu_tpmshx.domain.run_warnings import range_context
+    from sjtu_tpmshx.shared.models.tpms_calc import compute
+    from sjtu_tpmshx.shared.domain.run_warnings import range_context
     parsed['static_properties'] = {}
     for side, fluid in (('A', config.fluid_A), ('B', config.fluid_B)):
         with range_context(side=side, stage='inlet', layout='scalar'):

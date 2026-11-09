@@ -1,0 +1,130 @@
+"""Production controls remain effective; retired settings round-trip in archives."""
+from sjtu_tpmshx.applications.result_adapter import compute_result
+import json
+from dataclasses import asdict, replace
+import warnings as _warnings
+
+import numpy as np
+import pytest
+
+from sjtu_tpmshx.shared.domain.compute_config import (ComputeConfig, ExtrapPolicy, FeatureFlags,
+                                   FluidConfig, GeometryConfig,
+                                   OptimizerConfig, SolverConfig)
+
+
+def test_solver_knobs_default_to_auto():
+    s = SolverConfig()
+    assert s.max_iter_simple is None
+    assert s.max_outer_ltne is None
+    assert s.outer_tol_K is None
+    assert not hasattr(s, 'alpha_T')
+    assert not hasattr(s, 'rough_mode')
+
+
+def test_archived_optimizer_budget_keeps_its_original_defaults():
+    """Loading old files must not reinterpret their retired settings."""
+    o = ComputeConfig.from_dict({'optimizer': {}}).optimizer
+    assert o is not None
+    assert o.max_outer_ltne == 4
+    assert o.outer_tol_K == 0.5
+    assert o.max_iter_simple == 800
+    assert o.alpha_T == 0.7
+
+
+def test_legacy_json_with_retired_keys_loads(tmp_path):
+    """Archived configs carry solver.alpha_T / rough_mode — must load."""
+    blob = {
+        'fluid_A': {'type': 'air', 'u_mps': 5.0},
+        'solver': {'Nx': 12, 'Ny': 10, 'alpha_T': 0.7,
+                   'rough_mode': 'norris_1a', 'tol_simple': 1e-5},
+        'optimizer': {'tol_simple': 1e-2, 'max_iter_simple': 512},
+    }
+    p = tmp_path / 'legacy.json'
+    p.write_text(json.dumps(blob), encoding='utf-8')
+    with _warnings.catch_warnings(record=True) as caught:
+        _warnings.simplefilter('always')
+        cfg = ComputeConfig.from_json(p)
+    assert cfg.solver.Nx == 12
+    assert any('retired' in str(w.message) for w in caught)
+    assert any("budgets use 'solver'" in str(w.message) for w in caught)
+    assert any("'optimizer' is archive-only" in str(w.message) for w in caught)
+    assert any('optimizer.tol_simple' in str(w.message) for w in caught)
+    assert cfg.optimizer.max_iter_simple == 512
+    assert 'tol_simple' not in asdict(cfg)['solver']
+    assert 'tol_simple' not in asdict(cfg)['optimizer']
+
+
+def test_roundtrip_carries_optimizer_section(tmp_path):
+    cfg = ComputeConfig(optimizer=OptimizerConfig(
+        max_iter_simple=512, max_outer_ltne=7, outer_tol_K=0.25, alpha_T=0.6))
+    cfg.solver.mom_tol = 3e-6
+    p = tmp_path / 'cfg.json'
+    cfg.to_json(p)
+    back = ComputeConfig.from_json(p)
+    assert back.optimizer.max_iter_simple == 512
+    assert back.solver.mom_tol == 3e-6
+    assert back == cfg
+
+
+@pytest.mark.parametrize('data', [{}, {'optimizer': None}])
+def test_new_config_roundtrip_omits_retired_optimizer(tmp_path, data):
+    assert ComputeConfig().optimizer is None
+    cfg = ComputeConfig.from_dict(data)
+    p = tmp_path / 'cfg.json'
+    for _ in range(2):
+        cfg.to_json(p)
+        saved = json.loads(p.read_text(encoding='utf-8'))
+        assert 'optimizer' not in saved
+        cfg = ComputeConfig.from_json(p)
+        assert cfg.optimizer is None
+
+
+# ── effectiveness: the knobs must actually turn ─────────────────────
+
+
+def _small_2d_cfg(**solver_kw):
+    return ComputeConfig(
+        fluid_A=FluidConfig(type='air', u_mps=5.0, T_in_K=400.0),
+        fluid_B=FluidConfig(type='air', u_mps=10.0, T_in_K=310.0),
+        geometry=GeometryConfig(tpms='Gyroid', L_cell_mm=7.0, t_wall_mm=0.6,
+                                k_s_W_mK=16.0, L_dom_m=0.06, H_dom_m=0.03),
+        solver=SolverConfig(Nx=8, Ny=8, **solver_kw),
+        extrap=ExtrapPolicy(allow=True),
+        flags=FeatureFlags(),
+    )
+
+
+@pytest.mark.slow
+def test_2d_max_outer_knob_turns():
+    """Capping the SIMPLE↔LTNE coupling at 2 rounds must change the
+    converged temperature field (this case needs 3+ rounds to settle),
+    while identical settings reproduce bit-identically (determinism
+    control — the difference is the KNOB, not noise). The cap is 2, not
+    1: `Pipeline.run()` now enforces `ComputeConfig.validate()` (codex
+    review 2026-07-13), whose deliberate rule is max_outer_ltne >= 2 (a
+    single pass cannot even measure a dT change — the truth-table tests
+    pin that rule)."""
+
+    Ta_def = compute_result(_small_2d_cfg()).fields['Ta']
+    Ta_capped = compute_result(_small_2d_cfg(max_outer_ltne=2)).fields['Ta']
+    Ta_capped2 = compute_result(_small_2d_cfg(max_outer_ltne=2)).fields['Ta']
+    assert np.array_equal(Ta_capped, Ta_capped2), \
+        "determinism control failed — cannot attribute differences to the knob"
+    assert not np.array_equal(Ta_def, Ta_capped), (
+        "max_outer_ltne=2 produced a bit-identical field to the default "
+        "run — the knob is decorative again")
+
+
+@pytest.mark.slow
+def test_3d_knobs_turn():
+    """max_outer_ltne must cap the 3D outer loop."""
+    from sjtu_tpmshx.development.tests.cases_3d import air_air_config
+    from sjtu_tpmshx.preprocess.api import prepare_case
+    from sjtu_tpmshx.solvers.api import run_case
+    base = air_air_config()
+    base.solver = replace(base.solver, Nx=8, Ny=6, Nz=6)
+    r_def = run_case(prepare_case(base, case_id='outer-default')).metadata['diagnostics']
+    base.solver.max_outer_ltne = 2
+    r_knob = run_case(prepare_case(base, case_id='outer-cap')).metadata['diagnostics']
+    assert len(r_knob['convergence_detail']['outer_dT']) == 2
+    assert len(r_def['convergence_detail']['outer_dT']) > 2

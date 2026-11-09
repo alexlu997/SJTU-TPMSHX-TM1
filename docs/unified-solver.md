@@ -63,7 +63,7 @@ A new table approximates its selected physical relation; it does not select a di
 | Assemble conservative equations | `energy_fv_rows.hpp`, `conservative_energy.cpp`, current thermal drivers | Share face and cell operations. Keep required dimensional and reconstruction differences explicit. |
 | Advance the coupled solve | `sjtu_tpmshx/solvers/native/src/full_2d.cpp`, `full_3d.cpp` | A run owns a phase cursor, iteration budgets and mutable state. |
 | Check physical quality | Existing SIMPLE F2, thermal ledgers, range observations and postprocessing certificates | Use evidence from identified states and record each verdict separately. |
-| Save and restore | `io/hdf5_data.py`, prepared-case and result storage | Python writes owned typed snapshots. C++ exports and restores numerical state. |
+| Save and restore | `shared/io/hdf5_data.py`, prepared-case and result storage | Python writes owned typed snapshots. C++ exports and restores numerical state. |
 | Serve consumers | Full C APIs, Python bindings, GUI, CLI, optimization and offline readers | Keep useful public entry points and migrate their implementations and consumers together. |
 
 Paths in this table are relative to the package or repository as applicable.

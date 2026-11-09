@@ -2,8 +2,8 @@
 from uuid import uuid4
 import numpy as np
 
-from sjtu_tpmshx.domain.field_result import FieldResult
-from sjtu_tpmshx.result_display import describe_fields
+from sjtu_tpmshx.shared.domain.field_result import FieldResult
+from sjtu_tpmshx.shared.result_display import describe_fields
 
 
 def capture_result(case, display_fields, native, application, diagnostics, *,

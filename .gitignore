@@ -34,7 +34,7 @@ data/
 # exp_points.csv 是 302 行逐工况原始测量值（mdot/Tin/Pin/Tout/Pout/Q）；
 # 两份历史 sco2_exp_vs_cfd*.html 各含 6 个逐工况数据表。
 # 原生成器已退役并保留在 Git 历史；现行实验 Q 检查入口为
-# sjtu_tpmshx/validation/cases/validate_sco2_exp_q.py。
+# sjtu_tpmshx/development/validation/cases/validate_sco2_exp_q.py。
 # 目录级忽略：这里的产出默认都带实验数据，逐个列举迟早会漏。
 reports/sco2_exp/
 
@@ -66,11 +66,11 @@ PROJECT_MANUAL.html
 
 # Shanghai validation probe outputs (suffixed runs = diagnostics; the
 # canonical baseline stays tracked; retired probes are in fixed Git history)
-sjtu_tpmshx/validation/shanghai_3d_baseline?*.csv
+sjtu_tpmshx/development/validation/shanghai_3d_baseline?*.csv
 # Current F2 research outputs; old numerical tables remain in Git history.
 reports/f2_pricing_3d_v2.csv
-sjtu_tpmshx/validation/phase_c_f2_tol_sweep.csv
-sjtu_tpmshx/validation/phase_c_f2_tol_sweep.csv.meta.json
+sjtu_tpmshx/development/validation/phase_c_f2_tol_sweep.csv
+sjtu_tpmshx/development/validation/phase_c_f2_tol_sweep.csv.meta.json
 
 # OS / editor
 .DS_Store
@@ -107,7 +107,7 @@ sjtu_tpmshx/nTop_inputs/
 # Agent / tooling scratch (per-machine, not project content)
 sjtu_tpmshx/.agents/
 sjtu_tpmshx/skills-lock.json
-sjtu_tpmshx/runs/_out/
+sjtu_tpmshx/development/runs/_out/
 
 # Python packaging metadata (editable installs write into the source tree)
 *.egg-info/

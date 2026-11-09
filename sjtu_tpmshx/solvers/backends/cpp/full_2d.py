@@ -10,14 +10,14 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from sjtu_tpmshx.domain.cancellation import CancelledError
-from sjtu_tpmshx.domain.compute_config import validate_simple_velocity_relaxation
-from sjtu_tpmshx.domain.module_ports import RunControl
-from sjtu_tpmshx.domain.run_environment import run_environment
-from sjtu_tpmshx.models.envelope import ChokedFlowError
-from sjtu_tpmshx.models.fluid_props import WaterStateError
-from sjtu_tpmshx.models.grid import _port_overlap_1d, _port_fractions_1d
-from sjtu_tpmshx.domain.run_environment import require_f2_mode
+from sjtu_tpmshx.shared.domain.cancellation import CancelledError
+from sjtu_tpmshx.shared.domain.compute_config import validate_simple_velocity_relaxation
+from sjtu_tpmshx.shared.domain.module_ports import RunControl
+from sjtu_tpmshx.shared.domain.run_environment import run_environment
+from sjtu_tpmshx.shared.models.envelope import ChokedFlowError
+from sjtu_tpmshx.shared.models.fluid_props import WaterStateError
+from sjtu_tpmshx.shared.models.grid import _port_overlap_1d, _port_fractions_1d
+from sjtu_tpmshx.shared.domain.run_environment import require_f2_mode
 from ._simple_abi import _F2
 from .physical_ledger import HeatLedger2D, heat_ledger_query, copy_heat_ledger
 from .simple_2d import _result_dict
@@ -335,7 +335,7 @@ class NativeFull2DDriver:
             out['last_closure_ranges'] = copy_last_ranges(self.query_last_ranges, result)
             out['sco2_nu_observations'] = {side: copy_nu_observation(value, shape)
                                          for side, value in zip(('A', 'B'), result.nu_observations)}
-            from sjtu_tpmshx.models.co2_correlations import NU_MULTIPLIER
+            from sjtu_tpmshx.shared.models.co2_correlations import NU_MULTIPLIER
             for i, side in enumerate('AB'):
                 if config.sides[i].fluid == 3 and out['sco2_nu_observations'][side]:
                     out['sco2_nu_observations'][side]['floor'] *= NU_MULTIPLIER

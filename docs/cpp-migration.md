@@ -60,7 +60,7 @@ original warning records without calling Python numerical kernels or property
 functions. Host library location is an execution control, outside `CaseData`:
 
 ```python
-from sjtu_tpmshx.domain.module_ports import RunControl
+from sjtu_tpmshx.shared.domain.module_ports import RunControl
 from sjtu_tpmshx.solvers.api import run_case
 
 result = run_case(prepared_case, RunControl(
@@ -528,12 +528,12 @@ Use the interpreter from `.venv-path`, after the normal environment checks:
 
 ```sh
 tm1_python="$(head -n 1 .venv-path)"
-"$tm1_python" -m sjtu_tpmshx.runs.tools.check_locked_environment
+"$tm1_python" -m sjtu_tpmshx.development.runs.tools.check_locked_environment
 "$tm1_python" -m pip check
 MPLCONFIGDIR="$PWD/.cache/matplotlib" \
 XDG_CACHE_HOME="$PWD/.cache/xdg" \
 TPMSHX_REQUIRE_CPP_TESTS=1 TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1 \
-"$tm1_python" -m pytest -q sjtu_tpmshx/tests/native
+"$tm1_python" -m pytest -q sjtu_tpmshx/development/tests/native
 ```
 
 Every explicit `TPMSHX_TRUE_H_KERNEL` override is retired, including `numba`
@@ -593,18 +593,18 @@ EOS-free thermal library. The CoolProp build uses explicit local CPM paths with
 FetchContent disconnected; it does not fetch optional test or wrapper modules:
 
 ```sh
-"$tm1_python" scripts/build_native_dependencies.py fetch
-"$tm1_python" scripts/build_native_dependencies.py build
-"$tm1_python" scripts/build_native_dependencies.py verify
+"$tm1_python" engineering/scripts/build_native_dependencies.py fetch
+"$tm1_python" engineering/scripts/build_native_dependencies.py build
+"$tm1_python" engineering/scripts/build_native_dependencies.py verify
 TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1 \
 MPLCONFIGDIR="$PWD/.cache/matplotlib" XDG_CACHE_HOME="$PWD/.cache/xdg" \
 "$tm1_python" -m pytest -q -ra \
-  sjtu_tpmshx/tests/native/test_native_eos.py \
-  sjtu_tpmshx/tests/native/test_native_pressure.py \
-  sjtu_tpmshx/tests/native/test_superlu_error_boundary.py \
-  sjtu_tpmshx/tests/native/test_fluid_properties.py \
-  sjtu_tpmshx/tests/native/test_quick_design_driver.py \
-  sjtu_tpmshx/tests/native/test_cpp_quick_design.py
+  sjtu_tpmshx/development/tests/native/test_native_eos.py \
+  sjtu_tpmshx/development/tests/native/test_native_pressure.py \
+  sjtu_tpmshx/development/tests/native/test_superlu_error_boundary.py \
+  sjtu_tpmshx/development/tests/native/test_fluid_properties.py \
+  sjtu_tpmshx/development/tests/native/test_quick_design_driver.py \
+  sjtu_tpmshx/development/tests/native/test_cpp_quick_design.py
 ```
 
 The EOS caller evaluates CO2 and Water with the same named backend as the

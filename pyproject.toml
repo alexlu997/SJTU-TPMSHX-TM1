@@ -45,7 +45,7 @@ tpmshx-gui = "sjtu_tpmshx.desktop:main"
 # Explicit native builds; Python package installation does not provision these dependencies.
 requirements = ["CMake==4.4.4", "CoolProp==8.0.0", "SuperLU==7.0.1", "AMGCL==1.5.0"]
 lock-file = "sjtu_tpmshx/solvers/native/dependencies-lock.toml"
-build-script = "scripts/build_native_dependencies.py"
+build-script = "engineering/scripts/build_native_dependencies.py"
 cache-dir = ".cache/native-deps"
 runtime-auto-fetch = false
 
@@ -65,12 +65,12 @@ select = ["F", "E9"]
 
 [tool.pytest.ini_options]
 # Strict markers make spelling errors fail during collection.
-testpaths = ["sjtu_tpmshx/tests"]
+testpaths = ["sjtu_tpmshx/development/tests"]
 addopts = ["--strict-markers"]
 markers = [
     "slow: heavyweight real-solve test; excluded from the CI fast subset (-m \"not slow\")",
     "fast: cheap smoke subset (opt-in via -m fast)",
-    "heavy: call-duration >= 30s per census manifest (tests/_fast_tier_manifest.txt, conftest-applied); excluded by the development and CI subset",
+    "heavy: call-duration >= 30s per census manifest (sjtu_tpmshx/development/tests/_fast_tier_manifest.txt, conftest-applied); excluded by the development and CI subset",
 ]
 
 [tool.mypy]
@@ -78,20 +78,20 @@ markers = [
 # Silent imports keep the existing solver type-check scope.
 files = [
     "sjtu_tpmshx/compute.py",
-    "sjtu_tpmshx/controllers/module_adapter.py",
-    "sjtu_tpmshx/domain/compute_config.py",
-    "sjtu_tpmshx/domain/validator.py",
-    "sjtu_tpmshx/domain/compute_result.py",
-    "sjtu_tpmshx/configs/__init__.py",
+    "sjtu_tpmshx/applications/result_adapter.py",
+    "sjtu_tpmshx/shared/domain/compute_config.py",
+    "sjtu_tpmshx/shared/domain/validator.py",
+    "sjtu_tpmshx/shared/domain/compute_result.py",
+    "sjtu_tpmshx/shared/configs/__init__.py",
     "sjtu_tpmshx/_version.py",
     "sjtu_tpmshx/cli.py",
-    "sjtu_tpmshx/models/envelope.py",
-    "sjtu_tpmshx/domain/case_data.py",
-    "sjtu_tpmshx/domain/field_result.py",
-    "sjtu_tpmshx/domain/performance_result.py",
-    "sjtu_tpmshx/domain/metric_spec.py",
-    "sjtu_tpmshx/domain/module_ports.py",
-    "sjtu_tpmshx/domain/model_refs.py",
+    "sjtu_tpmshx/shared/models/envelope.py",
+    "sjtu_tpmshx/shared/domain/case_data.py",
+    "sjtu_tpmshx/shared/domain/field_result.py",
+    "sjtu_tpmshx/shared/domain/performance_result.py",
+    "sjtu_tpmshx/shared/domain/metric_spec.py",
+    "sjtu_tpmshx/shared/domain/module_ports.py",
+    "sjtu_tpmshx/shared/domain/model_refs.py",
     "sjtu_tpmshx/preprocess/api.py",
     "sjtu_tpmshx/solvers/api.py",
     "sjtu_tpmshx/postprocess/api.py",
@@ -108,7 +108,7 @@ explicit_package_bases = true
 
 [[tool.mypy.overrides]]
 module = [
-    "sjtu_tpmshx.models.envelope",
+    "sjtu_tpmshx.shared.models.envelope",
     "sjtu_tpmshx.preprocess.api",
     "sjtu_tpmshx.solvers.api",
     "sjtu_tpmshx.postprocess.api",
@@ -126,10 +126,10 @@ exclude = ["sjtu_tpmshx.solvers.native*"]
 
 [tool.setuptools.package-data]
 sjtu_tpmshx = [
-    "configs/*.json",
-    "df_surrogate/_prebuilt/*.csv",
-    "validation/*.meta.json",
-    "ui/assets/icons/*.svg",
-    "ui/assets/icons/LICENSE",
-    "ui/assets/icons/README.md",
+    "shared/configs/*.json",
+    "shared/df_surrogate/_prebuilt/*.csv",
+    "development/validation/*.meta.json",
+    "applications/gui/ui/assets/icons/*.svg",
+    "applications/gui/ui/assets/icons/LICENSE",
+    "applications/gui/ui/assets/icons/README.md",
 ]

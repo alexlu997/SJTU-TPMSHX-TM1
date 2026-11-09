@@ -10,8 +10,8 @@ from pathlib import Path
 
 import numpy as np
 
-from sjtu_tpmshx.domain.cancellation import CancelledError
-from sjtu_tpmshx.models.fluid_props import WaterStateError
+from sjtu_tpmshx.shared.domain.cancellation import CancelledError
+from sjtu_tpmshx.shared.models.fluid_props import WaterStateError
 
 
 class _Side(ct.Structure):
@@ -143,7 +143,7 @@ def _full_enthalpy_info(result, actual, abi):
 
 
 def _energy_options(algorithm, tolerance):
-    from sjtu_tpmshx.domain.compute_config import validate_enthalpy_algorithm
+    from sjtu_tpmshx.shared.domain.compute_config import validate_enthalpy_algorithm
     validate_enthalpy_algorithm(algorithm, tolerance)
     return _EnergyOptions(_ENERGY_NAMES.index(algorithm), tolerance)
 
@@ -266,7 +266,7 @@ class NativeEnthalpyDriver:
                  n_outer=3000, n_sweep=5, omega=.6, tol=2e-5,
                  cancel_check=None, coupled_energy_tol=None, equation_energy_tol=None,
                  temperature_tol_K=1e-8):
-        from sjtu_tpmshx.domain.compute_config import validate_enthalpy_algorithm
+        from sjtu_tpmshx.shared.domain.compute_config import validate_enthalpy_algorithm
         validate_enthalpy_algorithm('temperature_sou', temperature_tol_K)
         shape = tuple(operator.index(n) for n in (Nx, Ny, Nz))
         maximum = ct.c_size_t(-1).value

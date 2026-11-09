@@ -1,0 +1,83 @@
+"""Canonical validation case sets: specimen specs + truth-table locations.
+
+Single source for "which specimen, which workbook, which cases" so validation
+runners cannot drift apart on geometry or column conventions (refactor B1 1.3).
+"""
+from __future__ import annotations
+
+from pathlib import Path
+
+from sjtu_tpmshx.development.validation.harness._harness import SpecimenSpec
+
+_PKG_ROOT = Path(__file__).resolve().parents[3]     # sjtu_tpmshx/
+_DATA = _PKG_ROOT.parent / 'data' / 'raw_data'
+
+SHANGHAI_XLSX = _DATA / 'experiments/water_air/water-air_G7-t0p6_shanghai_experiment_20260401.xlsx'
+SHANGHAI_N_CASES = 16
+
+def shanghai_spec() -> SpecimenSpec:
+    """Shanghai Electric gas-heater specimen, from the canonical baseline
+    JSON (configs/shanghai_baseline.json, audit Item 3 / AR8)."""
+    from sjtu_tpmshx.shared.configs import load_shanghai_baseline
+    from sjtu_tpmshx.shared.domain.compute_config import ComputeConfig
+    sh = load_shanghai_baseline()
+    cc = ComputeConfig.from_dict(sh)
+    return SpecimenSpec(
+        name='shanghai',
+        tpms=cc.geometry.tpms,
+        L_cell_mm=cc.geometry.L_cell_mm,
+        t_wall_mm=cc.geometry.t_wall_mm,
+        k_s_W_mK=cc.geometry.k_s_W_mK,
+        L_dom_m=cc.geometry.L_dom_m,
+        H_dom_m=cc.geometry.H_dom_m,
+        Lz_m=cc.geometry.Lz_m,
+        a_flow_m2=(sh['domain']['n_units']
+                   * sh['domain']['a_flow_per_unit_m2']),
+    )
+
+
+def shanghai_pipeline_config(ci, df, solver, *, port_wall_refine=False):
+    """April 1 experiment: original F/H mass flows and confirmed staggered ports.
+
+    Use the workbook's nominal total mass-flow columns F/H, as confirmed for
+    the optimization benchmark. Do not apply the K/I or L/J volume-flow
+    corrections used in the workbook's experimental heat-duty formulas.
+
+    The user confirmed the GUI geometry on 2026-09-13: water enters the
+    top face at x=133..175 mm and exits the bottom at x=7..49 mm, both
+    through the full 42 mm depth. Historical frozen-water geometry and
+    rounded flow-area results remain separately in Git history.
+    """
+    from sjtu_tpmshx.shared.domain.compute_config import (
+        ComputeConfig, FluidConfig, GeometryConfig, PartialBCConfig,
+        ExtrapPolicy, FeatureFlags)
+    from sjtu_tpmshx.shared.models.fluid_props import get
+
+    spec = shanghai_spec()
+    L, H, depth = spec.L_dom_m, spec.H_dom_m, spec.Lz_m
+    bc_A = PartialBCConfig(dir=0, in_ctr=H / 2, in_w=H,
+                          out_ctr=H / 2, out_w=H)
+    bc_B = PartialBCConfig(dir=3, in_ctr=.154, in_w=.042,
+                          out_ctr=.028, out_w=.042, uniform_inlet_2d=True)
+    if solver.Nz >= 2:
+        for bc in (bc_A, bc_B):
+            bc.in_z_ctr = bc.out_z_ctr = depth / 2
+            bc.in_z_w = bc.out_z_w = depth
+    fluids = []
+    for kind, mass_col, temp_col, pressure, eps, bc in (
+        ('air', 5, 28, 101325. + float(df.iloc[ci, 30]), spec.eps_A, bc_A),
+        ('water', 7, 24, float(df['water_P_in_abs_Pa'].iloc[ci]), spec.eps - spec.eps_A, bc_B),
+    ):
+        temperature = float(df.iloc[ci, temp_col]) + 273.15
+        rho = float(get(kind).rho(temperature, pressure))
+        velocity = float(df.iloc[ci, mass_col]) / (rho * eps * bc.in_w * depth)
+        fluids.append(FluidConfig(type=kind, u_mps=velocity,
+                                  T_in_K=temperature, P_in_Pa=pressure))
+    return ComputeConfig(
+        fluid_A=fluids[0], fluid_B=fluids[1],
+        geometry=GeometryConfig(tpms=spec.tpms, L_cell_mm=spec.L_cell_mm,
+            t_wall_mm=spec.t_wall_mm, k_s_W_mK=spec.k_s_W_mK,
+            L_dom_m=L, H_dom_m=H, Lz_m=depth if solver.Nz >= 2 else None),
+        solver=solver, bc_A=bc_A, bc_B=bc_B,
+        extrap=ExtrapPolicy(allow=True),
+        flags=FeatureFlags(port_wall_refine=port_wall_refine))

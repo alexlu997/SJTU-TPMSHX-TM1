@@ -31,9 +31,9 @@ Ordinary full preparation uses the fixed CFD resource. Tests prohibit workbook r
 
 ## Current resources and research outputs
 
-Production coefficients come from `sjtu_tpmshx/models/nu_correlations.py`, `sjtu_tpmshx/configs/sco2_effective_nu.json`, `sjtu_tpmshx/df_surrogate/experimental_correction.py`, and `sjtu_tpmshx/df_surrogate/_prebuilt/cfd_full_core_3cell_fixed_v2.csv`. The CSV is a runtime input. MMS order/boundary CSV files consumed by tests stay valid verification resources.
+Production coefficients come from `sjtu_tpmshx/shared/models/nu_correlations.py`, `sjtu_tpmshx/shared/configs/sco2_effective_nu.json`, `sjtu_tpmshx/shared/df_surrogate/experimental_correction.py`, and `sjtu_tpmshx/shared/df_surrogate/_prebuilt/cfd_full_core_3cell_fixed_v2.csv`. The CSV is a runtime input. MMS order/boundary CSV files consumed by tests stay valid verification resources.
 
-Offline review tools stay in `validation/`. Generated fit CSV files default to local `.cache/reports/df_refit/` and `.cache/reports/sco2_cfd/`. Investigation scripts, stage plans, and research results belong in ignored `.cache/`. Current instructions, model provenance, physical constraints, and effective tests stay tracked with code. The [history index](history/README.en.md#2026-09-18-历史材料整理) keeps earlier stage reports, task graphs, and fitted tables. Tree cleanup does not erase Git history or automatically adopt research candidates.
+Offline review tools stay in `development/validation/`. Generated fit CSV files default to local `.cache/reports/df_refit/` and `.cache/reports/sco2_cfd/`. Investigation scripts, stage plans, and research results belong in ignored `.cache/`. Current instructions, model provenance, physical constraints, and effective tests stay tracked with code. The [history index](history/README.en.md#2026-09-18-历史材料整理) keeps earlier stage reports, task graphs, and fitted tables. Tree cleanup does not erase Git history or automatically adopt research candidates.
 
 The full-solver range policy uses original calibration or correlation bounds. For positive bounds `[L,U]`, it permits `[0.9L,1.1U]`. Historical application permissions do not extend this interval. The saved inlet and last local samples support the independent range result described in [architecture](architecture.md#captured-parameter-limits). It does not replace geometry, phase, model-scope or experimental checks.
 
@@ -45,7 +45,7 @@ If the one-dimensional isothermal D-F approximation produces nonpositive outlet 
 
 ## sCO2 effective Nu coefficients
 
-The sole current experimental-mode publication resource is [sco2_effective_nu.json](../sjtu_tpmshx/configs/sco2_effective_nu.json), version `sco2-effective-nu-20260920-v1`. The factory `models.nu_correlations.sco2_effective_nu_config()` reads it and returns a validated `Sco2NuConfig`. Callers do not keep another set of current default coefficients.
+The sole current experimental-mode publication resource is [sco2_effective_nu.json](../sjtu_tpmshx/shared/configs/sco2_effective_nu.json), version `sco2-effective-nu-20260920-v1`. The factory `shared.models.nu_correlations.sco2_effective_nu_config()` reads it and returns a validated `Sco2NuConfig`. Callers do not keep another set of current default coefficients.
 
 | Field | Current value | Meaning |
 | --- | ---: | --- |
@@ -60,8 +60,8 @@ The GUI's Use Current Effective Coefficients action explicitly loads this versio
 
 ```python
 from dataclasses import asdict
-from sjtu_tpmshx.domain.compute_config import ComputeConfig
-from sjtu_tpmshx.models.nu_correlations import sco2_effective_nu_config
+from sjtu_tpmshx.shared.domain.compute_config import ComputeConfig
+from sjtu_tpmshx.shared.models.nu_correlations import sco2_effective_nu_config
 
 config_dict["sco2_nu"] = asdict(sco2_effective_nu_config())
 config = ComputeConfig.from_dict(config_dict)
@@ -150,7 +150,7 @@ Objective = mean((Δp_pred/Δp_exp − 1)²)
 
 K0 is fixed. Only sF is fitted. Existing Δp ≥ 2000 Pa and duplicate-row exclusions stay. Low-flow case 1 lies outside the calibration range. Its calculation, extrapolation notice, and separate error stay.
 
-It does not enter conclusions for cases 2–16. `python -m sjtu_tpmshx.validation.df_refit.fit_experimental_effective` recalculates from the workbook. It outputs source file, sheet, row, and reviewed coefficients without overwriting production parameters.
+It does not enter conclusions for cases 2–16. `python -m sjtu_tpmshx.development.validation.df_refit.fit_experimental_effective` recalculates from the workbook. It outputs source file, sheet, row, and reviewed coefficients without overwriting production parameters.
 
 The geometry is a uniform, symmetric Gyroid 7/0.6 mm, 182×42×42 mm exchanger, without zones and with δ=0. [Architecture constraints](architecture.md) still validate ports and other physical limits. This effective resistance correction belongs to this experiment and model convention. It is not a universal fluid constant independent of device, area, or pressure definition.
 

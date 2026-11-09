@@ -3,12 +3,12 @@ from __future__ import annotations
 from typing import Any
 import os
 import numpy as np
-from sjtu_tpmshx.domain.compute_config import ComputeConfig, bc_to_dict, reject_retired_research_options
-from sjtu_tpmshx.models.tpms_props import geometry as tpms_geometry
-from sjtu_tpmshx.models import co2_correlations
-from sjtu_tpmshx.models.input_validation import validate_domain_dims, surrogate_extrap_reasons
-from sjtu_tpmshx.models.grid_3d import _build_grid_3d, _resolve_axis_map, _build_zone_fields_3d
-from sjtu_tpmshx.models.field_coordinates_3d import _build_partial_masks
+from sjtu_tpmshx.shared.domain.compute_config import ComputeConfig, bc_to_dict, reject_retired_research_options
+from sjtu_tpmshx.shared.models.tpms_props import geometry as tpms_geometry
+from sjtu_tpmshx.shared.models import co2_correlations
+from sjtu_tpmshx.shared.models.input_validation import validate_domain_dims, surrogate_extrap_reasons
+from sjtu_tpmshx.shared.models.grid_3d import _build_grid_3d, _resolve_axis_map, _build_zone_fields_3d
+from sjtu_tpmshx.shared.models.field_coordinates_3d import _build_partial_masks
 
 def _parse_inputs_3d_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
     cfg = _parse_geometry_inputs_3d_cfg(compute_cfg)
@@ -78,12 +78,12 @@ def _parse_geometry_inputs_3d_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
 
     # Both-side applicability checks are required; import and validation
     # failures propagate rather than becoming an empty warning list.
-    from sjtu_tpmshx.models.fluid_props import check_water_state
+    from sjtu_tpmshx.shared.models.fluid_props import check_water_state
     for side, config in (('A', compute_cfg.fluid_A), ('B', compute_cfg.fluid_B)):
         check_water_state(config.type, config.T_in_K, config.P_in_Pa,
                           where=f'pipeline inlet {side}')
 
-    from sjtu_tpmshx.models.tpms_calc import validate_fluid_type
+    from sjtu_tpmshx.shared.models.tpms_calc import validate_fluid_type
     fluid_type_A = compute_cfg.fluid_A.type
     fluid_type_B = compute_cfg.fluid_B.type
     validate_fluid_type(fluid_type_A, 'A')
@@ -178,10 +178,10 @@ def _prepare_geometry_data(cfg):
     reject_retired_research_options(cfg)
     if cfg.get('wall_refine_3d', False) is not False:
         raise ValueError('wall_refine_3d is retired. Select port_wall_refine with total grid counts.')
-    from sjtu_tpmshx.models import fluid_props
-    from sjtu_tpmshx.models.tpms_props import chi_s_eff
-    from sjtu_tpmshx.models.asym_split import _eps_sides_for_run
-    from sjtu_tpmshx.df_surrogate.predict import predict_K_cF_vec, SCO2_DF_METHOD
+    from sjtu_tpmshx.shared.models import fluid_props
+    from sjtu_tpmshx.shared.models.tpms_props import chi_s_eff
+    from sjtu_tpmshx.shared.models.asym_split import _eps_sides_for_run
+    from sjtu_tpmshx.shared.df_surrogate.predict import predict_K_cF_vec, SCO2_DF_METHOD
 
     cfg = dict(cfg)
     profile = cfg.get('sweep_profile')
@@ -199,7 +199,7 @@ def _prepare_geometry_data(cfg):
             raise ValueError('max_outer_ltne must be >= 1; zero iterations solves nothing')
     L, H, Lz = cfg['L'], cfg['H'], cfg['Lz']
     if cfg.get('port_wall_refine', False):
-        from sjtu_tpmshx.models.grid import build_port_wall_grid
+        from sjtu_tpmshx.shared.models.grid import build_port_wall_grid
         dx, dy, dz = build_port_wall_grid(
             (L, H, Lz), (cfg['Nx'], cfg['Ny'], cfg['Nz']),
             (cfg['fluid_A_cfg'], cfg['fluid_B_cfg']))
@@ -222,8 +222,8 @@ def _prepare_geometry_data(cfg):
     if cfg.get('df_mode', 'cfd_smooth') == 'experimental' and spatial and continuous is None:
         raise ValueError('experimental calibration currently requires uniform L/t')
     if continuous is not None:
-        from sjtu_tpmshx.domain.compute_config import ZoneInputConfig
-        from sjtu_tpmshx.models.continuous_field import from_decision_vector
+        from sjtu_tpmshx.shared.domain.compute_config import ZoneInputConfig
+        from sjtu_tpmshx.shared.models.continuous_field import from_decision_vector
         ZoneInputConfig(enabled=True, axis='continuous', config=continuous).validate()
         if cells:
             raise ValueError('Continuous field cannot also supply zone_grid_cells')
@@ -272,7 +272,7 @@ def _prepare_geometry_data(cfg):
         delta=float(cfg.get('delta_levelset', 0.)), co2_geometry=co2_geometry)
     if continuous_geometry is not None:
         cfg['thermal_geometry']['fields'] = continuous_geometry
-    from sjtu_tpmshx.models.roughness import resolve_mode_from_env
+    from sjtu_tpmshx.shared.models.roughness import resolve_mode_from_env
     mode, eps_um = resolve_mode_from_env(default='norris_1a')
     cfg['roughness_resolved'] = {'mode': mode, 'eps_m': eps_um * 1e-6}
     permeability, forchheimer = predict_K_cF_vec(
@@ -305,8 +305,8 @@ def _prepare_df_application(cfg, axes, permeability, forchheimer):
     experimental = cfg.get('df_mode', 'cfd_smooth') == 'experimental'
     if not experimental and not any(cfg['fluid_type_' + side] == 'co2' for side in axes):
         return None
-    from sjtu_tpmshx.df_surrogate.experimental_correction import apply_correction
-    from sjtu_tpmshx.domain.run_warnings import range_context
+    from sjtu_tpmshx.shared.df_surrogate.experimental_correction import apply_correction
+    from sjtu_tpmshx.shared.domain.run_warnings import range_context
     result = {}
     for side in axes:
         if cfg['fluid_type_' + side] == 'co2':
@@ -332,9 +332,9 @@ def _prepare_df_application(cfg, axes, permeability, forchheimer):
 
 def _record_air_bulk_ranges(cfg, lfield, shape):
     """Preserve inlet air observations without storing unused bulk h_v fields."""
-    from sjtu_tpmshx.models.tpms_calc import compute
-    from sjtu_tpmshx.models.nu_correlations import record_raw_nu_range
-    from sjtu_tpmshx.domain.run_warnings import range_context
+    from sjtu_tpmshx.shared.models.tpms_calc import compute
+    from sjtu_tpmshx.shared.models.nu_correlations import record_raw_nu_range
+    from sjtu_tpmshx.shared.domain.run_warnings import range_context
     for side in ('A', 'B'):
         if cfg.get('fluid_type_' + side, 'air') != 'air':
             continue
@@ -345,7 +345,7 @@ def _record_air_bulk_ranges(cfg, lfield, shape):
                         cfg.get('P_in' + side, cfg['P_inA']), cfg['k_s'],
                         co2_geometry=any(cfg.get('fluid_type_' + s) == 'co2' for s in ('A', 'B')))
             else:
-                from sjtu_tpmshx.models import fluid_props
+                from sjtu_tpmshx.shared.models import fluid_props
                 model = fluid_props.get('air')
                 geometry = cfg['thermal_geometry']['fields']
                 temperature = cfg['T_in' + side]
@@ -376,7 +376,7 @@ def prepare_case(config: ComputeConfig, *, case_id: str):
 
 
 def _set_run_environment(cfg):
-    from sjtu_tpmshx.domain.run_environment import capture_environment
+    from sjtu_tpmshx.shared.domain.run_environment import capture_environment
     cfg['_environment'] = capture_environment()
     cfg.setdefault('use_adaptive_amg_tol', (cfg['_environment']['TPMSHX_PHASE_A'] or '1') != '0')
     cfg.setdefault('use_anderson', (cfg['_environment']['TPMSHX_PHASE_B'] or '0') == '1')
@@ -385,10 +385,10 @@ def _set_run_environment(cfg):
 
 def _case_from_prepared(config, prepared, *, case_id, config_snapshot=None):
     from dataclasses import asdict
-    from sjtu_tpmshx.domain.case_data import CaseData
-    from sjtu_tpmshx.domain.model_refs import ModelRef
-    from sjtu_tpmshx.models.catalog import MODEL_VERSIONS
-    from sjtu_tpmshx.models.nu_correlations import sco2_nu_metadata, sco2_nu_notices
+    from sjtu_tpmshx.shared.domain.case_data import CaseData
+    from sjtu_tpmshx.shared.domain.model_refs import ModelRef
+    from sjtu_tpmshx.shared.models.catalog import MODEL_VERSIONS
+    from sjtu_tpmshx.shared.models.nu_correlations import sco2_nu_metadata, sco2_nu_notices
     parameters = dict(prepared['cfg'])
     parameters.pop('compute_cfg', None)
     parameters['sco2_nu'] = asdict(parameters['sco2_nu'])

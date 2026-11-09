@@ -4,10 +4,20 @@
 
 TM1 separates TPMS heat-exchanger preprocessing, solving, and postprocessing into independently maintained modules. The GUI, optimization, and Quick Design call their public interfaces. The target repository is [alexlu997/SJTU-TPMSHX-TM1](https://github.com/alexlu997/SJTU-TPMSHX-TM1). Original SJTU-TPMSHX/V2 is a source reference. This branch does not merge back into that repository.
 
-**All core source is under [sjtu_tpmshx/](sjtu_tpmshx/).** This includes the Python application and C++ numerical backend.
-[compute.py](sjtu_tpmshx/compute.py) is the main computation entry. It calls the preprocessing, solver and postprocessing APIs.
-[main.py](sjtu_tpmshx/main.py) is the GUI entry. C++ source and build files are in [solvers/native](sjtu_tpmshx/solvers/native/).
-Other root directories hold documents, examples, auxiliary tools and verification records. `.github/workflows/` holds CI configuration.
+**All core source is under [sjtu_tpmshx/](sjtu_tpmshx/).** This includes the Python application and C++ numerical backend. Start with these four computation files:
+
+| File | Responsibility |
+| --- | --- |
+| [compute.py](sjtu_tpmshx/compute.py) | Main computation entry. Organize preparation, solving and evaluation. |
+| [preprocess/api.py](sjtu_tpmshx/preprocess/api.py) | Preprocessing entry. Prepare CaseData. |
+| [solvers/api.py](sjtu_tpmshx/solvers/api.py) | Solver entry. Call the C++ backend and produce FieldResult. |
+| [postprocess/api.py](sjtu_tpmshx/postprocess/api.py) | Postprocessing entry. Calculate PerformanceResult from recorded results. |
+
+The package has six directory groups: `preprocess/`, `solvers/`, `postprocess/`, `shared/`, `applications/` and `development/`.
+The [module map](sjtu_tpmshx/README.en.md) defines their responsibilities. C++ source stays in [solvers/native](sjtu_tpmshx/solvers/native/).
+GUI, CLI, design and recovery implementations are in `applications/`. Tests, validation and diagnostic tools are in `development/`.
+Root [engineering](engineering/) holds build scripts, packaging configuration and dependency locks. [docs/contracts](docs/contracts/) holds data contracts.
+`.github/workflows/` holds CI configuration. Keep using `python -m sjtu_tpmshx.main` for the GUI and `python -m sjtu_tpmshx.cli` for the CLI.
 
 Version 0.2 uses C++ for numerical execution. Python keeps the GUI, CLI, preparation, postprocessing, optimization and Quick Design interfaces. Full 2D/3D computation and Quick Design use the same prepared-data and result contracts. Maintenance in this round covers macOS arm64 and Windows x64. Linux server deployment is deferred.
 
@@ -25,7 +35,7 @@ M-A merge acceptance for the rectangular 2D/3D three-module mainline is recorded
 | Run locally | [macOS / Windows first run](#first-run), including CLI cases and GUI startup |
 | Use the GUI | [Common GUI workflow](#gui-use) |
 | Read or modify code | [Source and module map](sjtu_tpmshx/README.en.md) |
-| Understand module boundaries | [Architecture](docs/architecture.md), [three-module data contract](schemas/three_module_v1/README.md) |
+| Understand module boundaries | [Architecture](docs/architecture.md), [three-module data contract](docs/contracts/three_module_v1/README.md) |
 | Build desktop software | [Separate build environment, user files, and delivery validation](docs/desktop.en.md) |
 | Find documentation and directories | [Repository and document navigation](docs/README.en.md) |
 | Consult older versions | [History index](docs/history/README.en.md) |
@@ -50,8 +60,8 @@ cd SJTU-TPMSHX-TM1
 python3.13 -m venv .venv
 printf '%s\n' "$PWD/.venv/bin/python" > .venv-path
 PYTHON="$(head -n 1 .venv-path)"
-"$PYTHON" -m pip install -r requirements/base.txt
-"$PYTHON" -m sjtu_tpmshx.runs.tools.check_locked_environment
+"$PYTHON" -m pip install -r engineering/requirements/base.txt
+"$PYTHON" -m sjtu_tpmshx.development.runs.tools.check_locked_environment
 "$PYTHON" -m pip check
 ```
 
@@ -66,8 +76,8 @@ py -3.13 -m venv .venv
 $tm1Python = (Resolve-Path .venv\Scripts\python.exe).Path
 [System.IO.File]::WriteAllText((Join-Path $PWD '.venv-path'), $tm1Python + [Environment]::NewLine)
 $tm1Python = Get-Content .venv-path -TotalCount 1
-& $tm1Python -m pip install -r requirements/base.txt
-& $tm1Python -m sjtu_tpmshx.runs.tools.check_locked_environment
+& $tm1Python -m pip install -r engineering/requirements/base.txt
+& $tm1Python -m sjtu_tpmshx.development.runs.tools.check_locked_environment
 & $tm1Python -m pip check
 ```
 
@@ -88,8 +98,8 @@ On macOS:
 ```bash
 PYTHON="$(head -n 1 .venv-path)"
 export MPLCONFIGDIR="$PWD/.cache/matplotlib" XDG_CACHE_HOME="$PWD/.cache/xdg"
-"$PYTHON" scripts/build_native_dependencies.py fetch
-"$PYTHON" scripts/build_native_dependencies.py publish
+"$PYTHON" engineering/scripts/build_native_dependencies.py fetch
+"$PYTHON" engineering/scripts/build_native_dependencies.py publish
 "$PYTHON" -m sjtu_tpmshx.cli run examples/three_module/air_2d.json .cache/first-run-2d --case-id first-run-2d
 "$PYTHON" -m sjtu_tpmshx.cli run examples/three_module/air_3d.json .cache/first-run-3d --case-id first-run-3d
 "$PYTHON" -m sjtu_tpmshx.main
@@ -101,8 +111,8 @@ On Windows:
 $tm1Python = Get-Content .venv-path -TotalCount 1
 $env:MPLCONFIGDIR = Join-Path $PWD '.cache/matplotlib'
 $env:XDG_CACHE_HOME = Join-Path $PWD '.cache/xdg'
-& $tm1Python scripts/build_native_dependencies.py fetch
-& $tm1Python scripts/build_native_dependencies.py publish
+& $tm1Python engineering/scripts/build_native_dependencies.py fetch
+& $tm1Python engineering/scripts/build_native_dependencies.py publish
 & $tm1Python -m sjtu_tpmshx.cli run examples/three_module/air_2d.json .cache/first-run-2d --case-id first-run-2d
 & $tm1Python -m sjtu_tpmshx.cli run examples/three_module/air_3d.json .cache/first-run-3d --case-id first-run-3d
 & $tm1Python -m sjtu_tpmshx.main
@@ -127,7 +137,7 @@ Requested grid counts can change during preparation refinement. These examples v
 
 Read the preceding command's exit code with `echo $?` on macOS or `$LASTEXITCODE` in PowerShell. Do not relax thresholds to remove failures.
 
-The default lock includes GUI, file handoff, and test dependencies. It excludes Torch / BoTorch / GPyTorch. Windows CPU Bayesian optimization uses `requirements/bo-windows.txt`. macOS arm64 / Python 3.13 uses `requirements/bo-macos.txt`. Use a separate environment for an authorized BO task.
+The default lock includes GUI, file handoff, and test dependencies. It excludes Torch / BoTorch / GPyTorch. Windows CPU Bayesian optimization uses `engineering/requirements/bo-windows.txt`. macOS arm64 / Python 3.13 uses `engineering/requirements/bo-macos.txt`. Use a separate environment for an authorized BO task.
 
 BoTorch tries to compile its optional C++ kernel when it first constructs a multi-objective Log acquisition function. Set `TORCH_EXTENSIONS_DIR` to `.cache/torch-extensions` in the current worktree. Prepend the BO environment's `bin` directory (`Scripts` on Windows) to `PATH` for that run so the locked Ninja is available. Compilation also requires a local C++ toolchain. If compilation fails, BoTorch reports the failure and uses its Python implementation. Record performance separately for the two paths, and keep first compilation outside warm measurements.
 
@@ -153,7 +163,7 @@ For dependencies configured under the current source layout, publish the launche
 For an old layout, first prepare a new cache as described below.
 
 ```sh
-"$PYTHON" scripts/build_native_dependencies.py publish
+"$PYTHON" engineering/scripts/build_native_dependencies.py publish
 ```
 
 When you upgrade from the root `native/` layout, keep the original libraries, `build.json` and `previous/` under `native/lib/`.
@@ -162,20 +172,20 @@ Keep old caches and their absolute paths while consumers still use them.
 The old pilot build directory records the previous source location. It cannot configure the new layout.
 
 For an existing checkout, select an unused cache directory. These examples use `.cache/native-layout` and the base environment lock.
-If `.venv-path` selects a BO environment, use `requirements/bo-macos.txt` or `requirements/bo-windows.txt` for publication instead.
+If `.venv-path` selects a BO environment, use `engineering/requirements/bo-macos.txt` or `engineering/requirements/bo-windows.txt` for publication instead.
 
 macOS:
 
 ```sh
-"$PYTHON" scripts/build_native_dependencies.py fetch --cache .cache/native-layout
-"$PYTHON" scripts/build_native_dependencies.py publish --cache .cache/native-layout --python-lock requirements/base.txt
+"$PYTHON" engineering/scripts/build_native_dependencies.py fetch --cache .cache/native-layout
+"$PYTHON" engineering/scripts/build_native_dependencies.py publish --cache .cache/native-layout --python-lock engineering/requirements/base.txt
 ```
 
 Windows (PowerShell):
 
 ```powershell
-& $tm1Python scripts/build_native_dependencies.py fetch --cache .cache/native-layout
-& $tm1Python scripts/build_native_dependencies.py publish --cache .cache/native-layout --python-lock requirements/base.txt
+& $tm1Python engineering/scripts/build_native_dependencies.py fetch --cache .cache/native-layout
+& $tm1Python engineering/scripts/build_native_dependencies.py publish --cache .cache/native-layout --python-lock engineering/requirements/base.txt
 ```
 
 `publish` includes the build and verification steps.
@@ -480,7 +490,7 @@ mkdir -p .cache/handoff
 
 In PowerShell, use the same arguments with `& $tm1Python` instead of `"$PYTHON"`. First create the directory with `New-Item -ItemType Directory -Force .cache/handoff`. Inspect each stage with commands such as `"$PYTHON" -m sjtu_tpmshx.cli prepare --help`. PowerShell again uses `& $tm1Python`.
 
-Case YAML references accompanying HDF5. [Schemas](schemas/three_module_v1/README.md) define result/VTK export and strict metric JSON limits. CLI outputs must be separate from current inputs and accompanying Case HDF5. Overlapping paths fail before stage execution. Separate existing outputs can still be updated. All CLI stages reject writes into directories with `run.json` or `checkpoint.h5`, including their subdirectories. Select a new directory to preserve the saved run and its native library.
+Case YAML references accompanying HDF5. [Schemas](docs/contracts/three_module_v1/README.md) define result/VTK export and strict metric JSON limits. CLI outputs must be separate from current inputs and accompanying Case HDF5. Overlapping paths fail before stage execution. Separate existing outputs can still be updated. All CLI stages reject writes into directories with `run.json` or `checkpoint.h5`, including their subdirectories. Select a new directory to preserve the saved run and its native library.
 
 Cancellation and failure do not become completed results. Completed nonconverged results keep their original state. Finite metrics do not show numerical, energy, or experimental accuracy acceptance.
 
@@ -506,7 +516,7 @@ Resume reads the saved prepared input and writes to a new directory. It preserve
 Move the complete run directory together. Resume requires the same native build and platform.
 Use `--native-library` to select a retained library explicitly when the current build differs.
 The GUI load menu can continue a saved run with its recorded interval and input provenance.
-New GUI full C++ runs request a save every 60 seconds in `runs/` under the user data directory.
+New GUI full C++ runs request a save every 60 seconds in `development/runs/` under the user data directory.
 The calculation details show the save location. Use Save and Pause, then continue from the load menu.
 Lost work can also include the current complete step and file write.
 
@@ -532,7 +542,7 @@ Current domains support only **rectangular 2D / cuboid 3D**. The interface displ
 
 Previous rectangular files still load. [Fixed history](docs/history/retired-tools.md) keeps polygon code. Reopening those routes requires implementation and verification of mainline physical rules and independent module handoff.
 
-`models/`, `df_surrogate/`, and related layers give shared technical support, not a fourth business module. Previous pipeline/application entries call public modules in one direction. See [architecture](docs/architecture.md).
+`shared/models/`, `shared/df_surrogate/`, and related layers give shared technical support, not a fourth business module. Previous pipeline/application entries call public modules in one direction. See [architecture](docs/architecture.md).
 
 C++ is the only numerical backend. Quick Design and full 2D/3D use the matching local macOS arm64 or Windows x64 library. `RunControl(native_library=...)` or CLI `--native-library` can override its location. See [C++ migration](docs/cpp-migration.md) for paths, builds, and limits. Required native build, independent-call, and numerical-comparison CI passed on macOS/Python 3.13 and Windows/Python 3.12 and 3.13. Visible desktop delivery and complete performance acceptance stay separate.
 
@@ -553,16 +563,16 @@ Do not modify an environment in use. Run from the current repository root.
 
 ```bash
 PYTHON="$(head -n 1 .venv-path)"
-"$PYTHON" -m sjtu_tpmshx.runs.tools.check_locked_environment
+"$PYTHON" -m sjtu_tpmshx.development.runs.tools.check_locked_environment
 "$PYTHON" -m pip check
 export MPLCONFIGDIR="$PWD/.cache/matplotlib" XDG_CACHE_HOME="$PWD/.cache/xdg"
 export QT_QPA_PLATFORM=offscreen PYTHONHASHSEED=0
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1
 "$PYTHON" -m mypy --config-file pyproject.toml
-"$PYTHON" -m pytest sjtu_tpmshx/tests -q -ra -m "not slow and not heavy" --ignore=sjtu_tpmshx/tests/integration_tm1 -n 2 --dist worksteal --timeout=600 --timeout-method=thread --durations=30 --junitxml=.cache/ci/fast.xml
-"$PYTHON" -m pytest sjtu_tpmshx/tests/integration_tm1 -q -ra --timeout=600 --timeout-method=thread --durations=30 --junitxml=.cache/ci/integration.xml
+"$PYTHON" -m pytest sjtu_tpmshx/development/tests -q -ra -m "not slow and not heavy" --ignore=sjtu_tpmshx/development/tests/integration_tm1 -n 2 --dist worksteal --timeout=600 --timeout-method=thread --durations=30 --junitxml=.cache/ci/fast.xml
+"$PYTHON" -m pytest sjtu_tpmshx/development/tests/integration_tm1 -q -ra --timeout=600 --timeout-method=thread --durations=30 --junitxml=.cache/ci/integration.xml
 # Complete local acceptance: no -m filter. Replace auto with a fixed worker count for available resources.
-"$PYTHON" -m pytest sjtu_tpmshx/tests -q -n auto --dist loadscope --timeout=600 --timeout-method=thread
+"$PYTHON" -m pytest sjtu_tpmshx/development/tests -q -n auto --dist loadscope --timeout=600 --timeout-method=thread
 ```
 
 PowerShell uses the same pytest arguments. Set the listed environment variables and call `& $tm1Python`. Provide a matching native library before tests.
@@ -571,7 +581,7 @@ CI fast tests split complete modules between two runners. Each runner uses two w
 
 CI renders a real 3D volume in a separate Qt process. It checks field changes, PNG decoding, scaled images, application export, and closure. macOS uses Cocoa. Windows uses a fixed Mesa OpenGL software renderer. The pixel check explicitly skips macOS arm64 hosts with `Apple Software Renderer`. [PyVistaQt documents this rendering limit](https://github.com/pyvista/pyvistaqt/blob/v0.13.1/pyvistaqt/rwi.py). Full pixel checks on a physical Mac remain required locally for graphics dependency changes. Fast-test artifacts include OpenGL details, process logs, and successfully generated PNG files and render reports. Physical Windows display acceptance remains separate.
 
-Existing test helpers stay. `run_tests_fast.ps1` is development feedback only. Its `not heavy` subset differs from fast CI. The two PowerShell scripts validate the base lock by default. With an existing Windows BO environment, use `./scripts/run_tests_server.ps1 -LockFile requirements/bo-windows.txt`.
+Existing test helpers stay. `run_tests_fast.ps1` is development feedback only. Its `not heavy` subset differs from fast CI. The two PowerShell scripts validate the base lock by default. With an existing Windows BO environment, use `./engineering/scripts/run_tests_server.ps1 -LockFile engineering/requirements/bo-windows.txt`.
 
 The same parameter is accepted by `run_tests_fast.ps1`. Tests start only after the selected lock and `pip check` pass. Scripts install nothing. A server lock does not permit unlisted packages.
 
@@ -583,7 +593,7 @@ GitHub workflows use checkout v7, setup-python v7, upload-artifact v7, and downl
 
 They run multi-condition optimizer tests, including both real Log acquisition functions. Base jobs keep the lock without BO and test missing-optional-dependency behavior. BO uploads JUnit reports and full collection manifests for 7 days, without solve data or environments.
 
-PRs select checks through an [explicit path list](scripts/ci_scope.py):
+PRs select checks through an [explicit path list](engineering/scripts/ci_scope.py):
 
 - `docs`: Only root README files, AGENTS, and Markdown files under `docs/`. Check local links, anchors, and concrete project module commands.
 - `application`: Only listed display and layout modules, icons, and their tests, with optional documents. Keep both platforms' builds, application, integration, BO, and real-file postprocessing checks.
@@ -599,21 +609,21 @@ Fast `test_type_gate.py` runs the same list. It validates the rejection of incor
 
 The first pytest command excludes slow/heavy and `integration_tm1`. The second runs that complete integration directory one time. Neither replaces the third, complete local gate. Local commands run the unsharded subsets.
 
-CI runs native qualification tests only in native shards. The shared module list is `sjtu_tpmshx/tests/native/_ci_suite.txt`. Native pytest reads it with `@<list-path>`. Application shards first record the full collection, then transfer these modules with `--ci-covered-modules=<list-path>`. New modules outside this list stay in application tests. The native directory is not excluded as a whole.
+CI runs native qualification tests only in native shards. The shared module list is `sjtu_tpmshx/development/tests/native/_ci_suite.txt`. Native pytest reads it with `@<list-path>`. Application shards first record the full collection, then transfer these modules with `--ci-covered-modules=<list-path>`. New modules outside this list stay in application tests. The native directory is not excluded as a whole.
 
-To reproduce an application shard, append `-p sjtu_tpmshx.tests.ci_shard --ci-shard=0 --ci-manifest=.cache/ci/fast-0 --ci-covered-modules=sjtu_tpmshx/tests/native/_ci_suite.txt`. For shard 1, use `--ci-shard=1` with its own manifest directory. `sjtu_tpmshx/tests/_ci_shard0.txt` lists modules for shard 0. Remaining application modules enter shard 1. Transfer and sharding occur after existing heavy markers and pytest filters. All native assertions stay unchanged.
+To reproduce an application shard, append `-p sjtu_tpmshx.development.tests.ci_shard --ci-shard=0 --ci-manifest=.cache/ci/fast-0 --ci-covered-modules=sjtu_tpmshx/development/tests/native/_ci_suite.txt`. For shard 1, use `--ci-shard=1` with its own manifest directory. `sjtu_tpmshx/development/tests/_ci_shard0.txt` lists modules for shard 0. Remaining application modules enter shard 1. Transfer and sharding occur after existing heavy markers and pytest filters. All native assertions stay unchanged.
 
 The summary gate first checks complete, disjoint, successful native shards. It then combines application and native coverage against the original full fast collection. Duplicate or missing tests, missing workers, and failed records prevent a pass. Download all manifests for the same platform/Python combination, then run:
 
 ```bash
-"$PYTHON" scripts/check_ci_shards.py .cache/ci/fast-0 .cache/ci/fast-1 --covered-by .cache/ci/native-*/native-manifest
+"$PYTHON" engineering/scripts/check_ci_shards.py .cache/ci/fast-0 .cache/ci/fast-1 --covered-by .cache/ci/native-*/native-manifest
 ```
 
 Pass native shards in numeric order. Without `--ci-covered-modules`, local users can still check both complete fast shards separately.
 
 Native qualification uses three shards on macOS and five for each Windows/Python combination. Each shard uses two workers with `loadscope`, which keeps each module or class in one worker. Measured case durations from the full matrix set the groups. Conservative energy tests keep each shared fixture parameter in one shard. Convergence, property, energy ledger and real replay checks for each parameter stay in one shard. Other modules keep their shared fixtures. Independent engineering-pair and 2D checkpoint cases can use complete node IDs.
 
-Group lists are in `sjtu_tpmshx/tests/native/`. macOS uses `_ci_macos_shard0.txt` through `_ci_macos_shard1.txt`. Windows uses `_ci_windows_shard0.txt` through `_ci_windows_shard3.txt`. Pass each list through `--ci-shard-modules=<list-path>` in numeric order. Unlisted cases enter the final automatic shard: 2 on macOS or 4 on Windows. All three platform/Python combinations remain supported. Native engineering cases keep per-side physical models, convergence and energy limits.
+Group lists are in `sjtu_tpmshx/development/tests/native/`. macOS uses `_ci_macos_shard0.txt` through `_ci_macos_shard1.txt`. Windows uses `_ci_windows_shard0.txt` through `_ci_windows_shard3.txt`. Pass each list through `--ci-shard-modules=<list-path>` in numeric order. Unlisted cases enter the final automatic shard: 2 on macOS or 4 on Windows. All three platform/Python combinations remain supported. Native engineering cases keep per-side physical models, convergence and energy limits.
 
 Native jobs set both `TPMSHX_REQUIRE_CPP_TESTS=1` and `TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1`. Missing compilers or native libraries must fail. Existing tests for concurrent threads, process recovery, and result ownership still run in native shards.
 
@@ -637,7 +647,7 @@ Unexpected failures, cancellations, skips, missing reports, or coverage gaps can
 The `minimal-postprocess` check stays separately required. In the `docs` tier, it only checks the expected job results.
 Compare fast, integration, and full-job speed separately with same-platform baselines.
 
-Local timing does not promise CI speedups. Acceptance skips keep specific reasons. Skipped capabilities are not passed. Minimal-postprocess CI uses separate `requirements/postprocess.txt`. It consumes real 2D/3D files from another complete environment. The macOS integration step uploads two public-example results and their metrics as `real-file-handoff` for the Linux minimal environment. These files stay available for seven days. They contain no private data.
+Local timing does not promise CI speedups. Acceptance skips keep specific reasons. Skipped capabilities are not passed. Minimal-postprocess CI uses separate `engineering/requirements/postprocess.txt`. It consumes real 2D/3D files from another complete environment. The macOS integration step uploads two public-example results and their metrics as `real-file-handoff` for the Linux minimal environment. These files stay available for seven days. They contain no private data.
 
 Configuration alone does not show a CI pass.
 
@@ -649,7 +659,7 @@ Codex and Claude share the project rules in [AGENTS.md](AGENTS.md). Use the
 [collaboration workflow](docs/collaboration.md) for task ownership, worktrees,
 environments, synchronization, and handoff.
 
-Public contract changes require downstream review. Solvers validate preprocessing configuration, units, and grids. Postprocessing validates native fields, boundary evidence, and states. Applications/file consumers validate metric definitions and file relationships. GUI and scheduling stay in `ui/` and `controllers/`. Model resources stay shared.
+Public contract changes require downstream review. Solvers validate preprocessing configuration, units, and grids. Postprocessing validates native fields, boundary evidence, and states. Applications/file consumers validate metric definitions and file relationships. GUI and scheduling stay in `applications/gui/ui/` and `applications/gui/controllers/`. Model resources stay shared.
 
 Each PR identifies affected interfaces, verification evidence, and reviewers. Current repository maintainer is `alexlu997`. Named module owners will be assigned when the additional colleague joins. Do not invent CODEOWNERS or describe model self-review as independent human approval.
 

@@ -1,7 +1,7 @@
 """Owned native 2D runs with the shared typed state binding."""
 import ctypes as ct
 
-from sjtu_tpmshx.models.envelope import ChokedFlowError
+from sjtu_tpmshx.shared.models.envelope import ChokedFlowError
 from .enthalpy import _EnergyOptions
 from .model_h import _IterationOptions
 from ._full_2d_abi import _Callbacks, _Config, _EnergyControl, _Result

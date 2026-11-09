@@ -1,7 +1,7 @@
 """3D engineering reductions over portable fields and boundary evidence."""
 import numpy as np
 
-from sjtu_tpmshx.result_math import (
+from sjtu_tpmshx.shared.result_math import (
     _boundary_enthalpy_duty, _boundary_face_shape,
     _conservative_boundary_power_duty, _temperature_boundary_power_duty, pressure_face_values,
 )

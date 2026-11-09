@@ -3,9 +3,9 @@ from uuid import uuid4
 
 import numpy as np
 
-from sjtu_tpmshx.domain.field_result import FieldResult
-from sjtu_tpmshx.domain.model_refs import freeze_value
-from sjtu_tpmshx.result_display import describe_fields
+from sjtu_tpmshx.shared.domain.field_result import FieldResult
+from sjtu_tpmshx.shared.domain.model_refs import freeze_value
+from sjtu_tpmshx.shared.result_display import describe_fields
 
 
 def capture_result(case, cfg, p, r, abi):
@@ -37,7 +37,7 @@ def capture_result(case, cfg, p, r, abi):
             unit='Pa',axes=('solver_x','solver_y','solver_z'),stream_axis=1,state='final SIMPLE flow',method='face_extrapolation_v1')
         report[label]=dict(direction=cfg['fluid_'+label+'_cfg']['dir'])
     field_metadata = describe_fields(fields, 3)
-    from sjtu_tpmshx.df_surrogate.experimental_correction import cfd_metadata
+    from sjtu_tpmshx.shared.df_surrogate.experimental_correction import cfd_metadata
     df_metadata=dict(mode=cfg.get('df_mode','cfd_smooth'))
     for label,f in zip('AB',r['flow']):
         if f is None:

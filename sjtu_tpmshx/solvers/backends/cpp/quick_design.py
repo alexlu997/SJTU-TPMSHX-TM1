@@ -4,10 +4,10 @@ from pathlib import Path
 
 import numpy as np
 
-from sjtu_tpmshx.domain.cancellation import CancelledError
-from sjtu_tpmshx.domain.run_warnings import range_context
-from sjtu_tpmshx.models.design_fluids import Props, record_native_design_ranges
-from sjtu_tpmshx.models.fluid_props import WaterStateError, QuickDesignWaterFieldError
+from sjtu_tpmshx.shared.domain.cancellation import CancelledError
+from sjtu_tpmshx.shared.domain.run_warnings import range_context
+from sjtu_tpmshx.shared.models.design_fluids import Props, record_native_design_ranges
+from sjtu_tpmshx.shared.models.fluid_props import WaterStateError, QuickDesignWaterFieldError
 from sjtu_tpmshx.solvers.backends.quick_design import prepared_input, field_result
 from sjtu_tpmshx.solvers.backends.cpp.temperature import _temperature_algorithm
 

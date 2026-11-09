@@ -37,13 +37,13 @@ water = load_water('Diamond', source=water_workbook)
 
 ## 当前资源与研究输出
 
-正式系数由 `sjtu_tpmshx/models/nu_correlations.py`、
-`sjtu_tpmshx/configs/sco2_effective_nu.json`、
-`sjtu_tpmshx/df_surrogate/experimental_correction.py` 和
-`sjtu_tpmshx/df_surrogate/_prebuilt/cfd_full_core_3cell_fixed_v2.csv` 提供。
+正式系数由 `sjtu_tpmshx/shared/models/nu_correlations.py`、
+`sjtu_tpmshx/shared/configs/sco2_effective_nu.json`、
+`sjtu_tpmshx/shared/df_surrogate/experimental_correction.py` 和
+`sjtu_tpmshx/shared/df_surrogate/_prebuilt/cfd_full_core_3cell_fixed_v2.csv` 提供。
 该 CSV 是运行时输入；测试读取的 MMS 阶数/边界 CSV 也是有效验证资源，继续保留。
 
-离线复核工具保留在 `validation/`，生成的拟合 CSV 默认写入本地
+离线复核工具保留在 `development/validation/`，生成的拟合 CSV 默认写入本地
 `.cache/reports/df_refit/` 和 `.cache/reports/sco2_cfd/`。调查脚本、阶段计划和
 研究结果放在忽略的 `.cache/`；现行使用说明、模型来源、物理约束和有效测试随代码维护。
 过去上传的阶段报告、任务图和拟合结果表见[历史索引](history/README.md#2026-09-18-历史材料整理)。
@@ -61,9 +61,9 @@ water = load_water('Diamond', source=water_workbook)
 ## sCO2 有效 Nu 系数
 
 现行实验模式参数的唯一发布资源是
-[sco2_effective_nu.json](../sjtu_tpmshx/configs/sco2_effective_nu.json)，版本
+[sco2_effective_nu.json](../sjtu_tpmshx/shared/configs/sco2_effective_nu.json)，版本
 `sco2-effective-nu-20260920-v1`。模型工厂
-`models.nu_correlations.sco2_effective_nu_config()` 读取该资源并返回经过校验的
+`shared.models.nu_correlations.sco2_effective_nu_config()` 读取该资源并返回经过校验的
 `Sco2NuConfig`；调用方不另存一套现行默认系数。
 
 | 字段 | 现行值 | 含义 |
@@ -82,8 +82,8 @@ GUI 的“使用现行有效系数”按钮显式载入这一版本；“导入�
 
 ```python
 from dataclasses import asdict
-from sjtu_tpmshx.domain.compute_config import ComputeConfig
-from sjtu_tpmshx.models.nu_correlations import sco2_effective_nu_config
+from sjtu_tpmshx.shared.domain.compute_config import ComputeConfig
+from sjtu_tpmshx.shared.models.nu_correlations import sco2_effective_nu_config
 
 config_dict["sco2_nu"] = asdict(sco2_effective_nu_config())
 config = ComputeConfig.from_dict(config_dict)
@@ -194,7 +194,7 @@ Pout² = Pin² − 2 R T̄ L (μ G/K0 + sF cF0 G²)
 
 固定 K0，仅拟合 sF；沿用 Δp ≥ 2000 Pa 与重复行排除规则。第 1 个低流量
 工况在标定范围外，保留计算、外推提示和单列误差，不混入第 2–16 项的拟合结论。
-`python -m sjtu_tpmshx.validation.df_refit.fit_experimental_effective` 从原表重算，
+`python -m sjtu_tpmshx.development.validation.df_refit.fit_experimental_effective` 从原表重算，
 输出源文件、工作表、行号和复核系数；不覆盖生产参数。
 
 适用几何为均匀、对称 Gyroid 7/0.6 mm、182×42×42 mm 换热器，无分区、δ=0；

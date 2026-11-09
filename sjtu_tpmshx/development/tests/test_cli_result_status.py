@@ -1,0 +1,115 @@
+"""CLI verdict and existing result messages; no numerical solve required."""
+import json
+
+import pytest
+
+from sjtu_tpmshx.applications.cli.main import main
+from sjtu_tpmshx.shared.domain.compute_config import ComputeConfig
+from sjtu_tpmshx.shared.domain.compute_result import ComputeResult
+
+
+@pytest.mark.parametrize('as_json', [False, True])
+@pytest.mark.parametrize('converged,envelope,outer,messages,exit_code', [
+    (True, True, True, False, 0), (True, True, True, True, 0),
+    (False, True, True, True, 2), (True, False, True, True, 2),
+    (True, True, False, True, 2),
+])
+def test_cli_result_status(tmp_path, monkeypatch, capsys, as_json,
+                           converged, envelope, outer, messages, exit_code):
+    import sjtu_tpmshx.applications.result_adapter as adapter
+
+    config = tmp_path / 'config.json'
+    ComputeConfig().to_json(config)
+    result = ComputeResult(
+        converged=converged, warnings=['经验外推,\n第二行', '警告二'] if messages else [],
+        extrap_reasons=['Re 超范围'] if messages else [],
+        diagnostics={'envelope_valid': envelope,
+                     'convergence_detail': {'outer_converged': outer}},
+    )
+    monkeypatch.setattr(adapter, 'compute_result', lambda cc, *, control: result)
+    assert main([str(config)] + (['--json'] if as_json else [])) == exit_code
+    output = capsys.readouterr().out
+    if as_json:
+        summary = json.loads(output)
+        assert summary['converged'] == converged
+        assert summary['warnings'] == result.warnings
+        assert summary['extrap_reasons'] == result.extrap_reasons
+    else:
+        assert f'\nconverged = {converged}   envelope_valid = {envelope}' in output
+        for message in result.warnings + result.extrap_reasons:
+            assert message in output
+
+
+def test_dry_run_does_not_claim_computed_status(tmp_path, monkeypatch, capsys):
+    import sjtu_tpmshx.applications.result_adapter as adapter
+
+    config = tmp_path / 'config.json'
+    ComputeConfig().to_json(config)
+    monkeypatch.setattr(adapter, 'compute_result', lambda *a, **k: pytest.fail('dry run computed'))
+    assert main([str(config), '--dry-run', '--json']) == 0
+    assert set(json.loads(capsys.readouterr().out)) == {'pipeline', 'grid'}
+
+
+def test_machine_output_separates_logs_and_preserves_unavailable_status(tmp_path, monkeypatch, capsys):
+    import sys
+    import sjtu_tpmshx.applications.result_adapter as adapter
+
+    config = tmp_path / 'config.json'
+    ComputeConfig().to_json(config)
+    result = ComputeResult(
+        Q_W=float('nan'), converged=False, warnings=['热量不可用'],
+        metadata={'metric_status': {'Q': 'invalid'},
+                  'metric_reasons': {'Q': 'nonfinite boundary energy'},
+                  'diagnostic': [float('inf'), float('-inf')]},
+    )
+
+    def run(config, *, control):
+        print('solver progress')
+        print('solver warning', file=sys.stderr)
+        return result
+
+    monkeypatch.setattr(adapter, 'compute_result', run)
+    assert main([str(config), '--json']) == 2
+    captured = capsys.readouterr()
+
+    def reject_constant(value):
+        raise AssertionError(f'nonstandard JSON constant: {value}')
+
+    summary = json.loads(captured.out, parse_constant=reject_constant)
+    assert summary['Q_W'] is None
+    assert summary['metadata']['metric_status']['Q'] == 'invalid'
+    assert summary['metadata']['metric_reasons']['Q'] == 'nonfinite boundary energy'
+    assert summary['metadata']['diagnostic'] == [None, None]
+    assert summary['warnings'] == ['热量不可用']
+    assert 'solver progress' in captured.err and 'solver warning' in captured.err
+
+
+def test_direct_cli_preserves_host_backend_selection(tmp_path, monkeypatch, capsys):
+    from sjtu_tpmshx.applications import result_adapter as module_adapter
+    config = tmp_path / 'config.json'
+    ComputeConfig().to_json(config)
+    seen = []
+    def pipeline(cfg, *, control):
+        seen.append(control)
+        return ComputeResult()
+    monkeypatch.setattr(module_adapter, 'compute_result', pipeline)
+    assert main([str(config), '--backend', 'cpp',
+                 '--native-library', str(tmp_path/'native-library'),
+                 '--native-table-directory', str(tmp_path/'tables')]) == 0
+    capsys.readouterr()
+    assert seen[0].backend == 'cpp'
+    assert seen[0].native_library == str(tmp_path/'native-library')
+    assert seen[0].native_table_directory == str(tmp_path/'tables')
+
+
+def test_cli_stage_success_does_not_imply_design_eligibility(tmp_path, monkeypatch, capsys):
+    from sjtu_tpmshx.applications import result_adapter as module_adapter
+    path = tmp_path / 'config.json'
+    ComputeConfig().to_json(path)
+    quality = {'definition': 'result_qualification_v1',
+               'design': {'eligible': False, 'status': 'rejected'}}
+    result = ComputeResult(converged=True, metadata={'qualification': quality})
+    monkeypatch.setattr(module_adapter, 'compute_result', lambda *a, **k: result)
+    assert main([str(path), '--json']) == 0
+    summary = json.loads(capsys.readouterr().out)
+    assert summary['converged'] and summary['qualification']['design']['eligible'] is False

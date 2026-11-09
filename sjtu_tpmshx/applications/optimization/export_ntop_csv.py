@@ -1,0 +1,358 @@
+"""
+Export a selected design's XY or XYZ parameter samples and original controls.
+
+The CSV files have headers and use mm. nTop Import Scalar Point Map requires
+headerless X,Y,Z,S rows. Convert the samples for that input before use.
+A parameter field does not define a cell-map phase or a complete TPMS body.
+Check the resulting solid, both fluid networks, and selective port seals.
+
+Geometric assumptions (must match the optimizer cfg):
+  * Coordinates use the solver's physical Cartesian frame with the origin
+    at the HX corner. XY designs have no depth variation; XYZ designs retain
+    their independently varying z controls and export all three coordinates.
+  * Output coordinates in **millimeters** so nTop's default mm units consume
+    them natively
+  * L/t values use the archived bounds. Equal bounds fix that field.
+  * XY samples require an explicit depth when constructing a 3D body.
+
+Historical Pareto CSV export (the former screening optimizer is retired)::
+
+    python -m sjtu_tpmshx.applications.optimization.export_ntop_csv \\
+        --pareto opt_runs/production_v1/pareto_final.csv \\
+        --config opt_runs/production_v1/config.json \\
+        --row    7 \\
+        --out    nTop_inputs/case_7 \\
+        --grid   100 50
+
+Or invoke the function programmatically::
+
+    from sjtu_tpmshx.applications.optimization.export_ntop_csv import export_decision_vector
+    export_decision_vector(x_decision, out_dir='nTop_inputs/best_Q',
+                           Nx_export=100, Ny_export=50)
+
+The output directory will contain ``Lfield.csv``, ``tfield.csv``, and a
+``provenance.json`` recording the decision vector, cfg, and field statistics
+for traceability back to the source Pareto solution.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+from typing import Optional
+
+import numpy as np
+
+from sjtu_tpmshx.shared.io.file_set import staged_files
+from sjtu_tpmshx.shared.models.continuous_field import (
+    DEFAULT_L_BOUNDS,
+    DEFAULT_N_CTRL_X,
+    DEFAULT_N_CTRL_Y,
+    DEFAULT_SYMMETRIC_Y,
+    DEFAULT_T_BOUNDS,
+    from_decision_vector,
+    control_axis,
+)
+from sjtu_tpmshx.shared.logutil import get_logger
+
+_log = get_logger(__name__)
+
+
+# ─── Defaults ───────────────────────────────────────────────────────
+
+
+DEFAULT_GRID_NX = 100        # cells along x_real (fluid A streamwise)
+DEFAULT_GRID_NY = 50         # cells along y_real (fluid B streamwise)
+DEFAULT_L_DOMAIN_M = 0.10    # m
+DEFAULT_H_DOMAIN_M = 0.05    # m
+DEFAULT_TPMS = 'Diamond'
+DEFAULT_KS = 17.0
+MAX_EXPORT_POINTS = 1_000_000
+FIELD_CONFIG_KEYS = ('tpms_type', 'k_s', 'L_domain', 'H_domain', 'n_ctrl_x',
+                     'n_ctrl_y', 'symmetric_y', 'spline_order', 'L_bounds', 't_bounds')
+
+
+# ─── Core conversion ────────────────────────────────────────────────
+
+
+def _write_scalar_field_csv(path: str,
+                             xc_mm: np.ndarray,
+                             yc_mm: np.ndarray,
+                             field: np.ndarray,
+                             value_name: str, *, zc_mm: np.ndarray | None = None) -> None:
+    """Write coordinates and scalar value, with x varying fastest, then y/z."""
+    axes = (xc_mm, yc_mm) if zc_mm is None else (xc_mm, yc_mm, zc_mm)
+    if field.shape != tuple(axis.size for axis in axes):
+        raise ValueError('field shape must match its physical export coordinates')
+    coordinates = np.meshgrid(*axes, indexing='ij')
+    arr = np.column_stack([value.ravel(order='F') for value in (*coordinates, field)])
+    header = 'x_mm,y_mm,' if zc_mm is None else 'x_mm,y_mm,z_mm,'
+    np.savetxt(path, arr, delimiter=',',
+               header=header + value_name, comments='', fmt='%.17g')
+
+
+def _write_geometry_csv(path, axes, L, t):
+    coordinates = np.meshgrid(*axes, indexing='ij')
+    values = np.column_stack([v.ravel(order='F') for v in (*coordinates, L, t)])
+    header = ','.join(f'{axis}_mm' for axis in 'xyz'[:len(axes)]) + ',L_mm,t_mm'
+    np.savetxt(path, values, delimiter=',', header=header, comments='', fmt='%.17g')
+
+
+# ─── Public API ─────────────────────────────────────────────────────
+
+
+def export_decision_vector(x_decision: np.ndarray,
+                           out_dir: str,
+                           *,
+                           Nx_export: int = DEFAULT_GRID_NX,
+                           Ny_export: int = DEFAULT_GRID_NY,
+                           L_domain_m: float = DEFAULT_L_DOMAIN_M,
+                           H_domain_m: float = DEFAULT_H_DOMAIN_M,
+                           tpms_type: str = DEFAULT_TPMS,
+                           k_s: float = DEFAULT_KS,
+                           n_ctrl_x: int = DEFAULT_N_CTRL_X,
+                           n_ctrl_y: int = DEFAULT_N_CTRL_Y,
+                           symmetric_y: bool = DEFAULT_SYMMETRIC_Y,
+                           L_bounds: tuple = DEFAULT_L_BOUNDS,
+                           t_bounds: tuple = DEFAULT_T_BOUNDS,
+                           spline_order: int = 3,
+                           n_ctrl_z: int | None = None,
+                           Lz_domain_m: float | None = None,
+                           Nz_export: int | None = None,
+                           sampling: str = 'cell_centres',
+                           extra_metadata: Optional[dict] = None) -> dict:
+    """Export full XY or XYZ L/t scalar fields and their original controls.
+
+    Returns a dict with the field summary statistics + paths so callers
+    (UI, batch scripts) can log the export back to the user.
+    """
+    counts = (Nx_export, Ny_export) + (() if n_ctrl_z is None else (Nz_export,))
+    if any(type(count) is not int or count < 1 for count in counts):
+        raise ValueError('export counts must be positive integers')
+    from math import prod
+    if prod(counts) > MAX_EXPORT_POINTS:
+        raise ValueError(f'export supports at most {MAX_EXPORT_POINTS} sampling points')
+    if sampling not in ('cell_centres', 'boundaries'):
+        raise ValueError('sampling must be cell_centres or boundaries')
+    cfg = dict(tpms_type=tpms_type, k_s=k_s, L_domain=L_domain_m, H_domain=H_domain_m,
+               n_ctrl_x=n_ctrl_x, n_ctrl_y=n_ctrl_y, symmetric_y=symmetric_y,
+               L_bounds=L_bounds, t_bounds=t_bounds, spline_order=spline_order)
+    if n_ctrl_z is None and (Lz_domain_m is not None or Nz_export is not None):
+        raise ValueError('XYZ export requires n_ctrl_z, Lz_domain_m and Nz_export together')
+    if n_ctrl_z is not None:
+        if Lz_domain_m is None or not np.isfinite(Lz_domain_m) or Lz_domain_m <= 0:
+            raise ValueError('XYZ export requires positive Lz_domain_m')
+        if type(Nz_export) is not int or Nz_export < 1:
+            raise ValueError('XYZ export requires positive integer Nz_export')
+        cfg.update(n_ctrl_z=n_ctrl_z, Lz_domain=Lz_domain_m)
+    fc = from_decision_vector(x_decision, **cfg)
+    lengths = (L_domain_m, H_domain_m) + (() if n_ctrl_z is None else (Lz_domain_m,))
+    axes = tuple(control_axis(count, length) if sampling == 'boundaries' else
+                 (np.arange(count) + .5) * length / count
+                 for count, length in zip(counts, lengths))
+    L_field, t_field = fc.evaluate_axes(*axes)
+    axes_mm = tuple(points * 1000. for points in axes)
+    os.makedirs(out_dir, exist_ok=True)
+    xc_mm, yc_mm = axes_mm[:2]
+    zc_mm = None if n_ctrl_z is None else axes_mm[2]
+
+    L_path = os.path.join(out_dir, 'Lfield.csv')
+    t_path = os.path.join(out_dir, 'tfield.csv')
+    provenance_path = os.path.join(out_dir, 'provenance.json')
+    geometry_path = os.path.join(out_dir, 'geometry.csv')
+    controls_path = os.path.join(out_dir, 'controls.csv')
+
+    summary = {
+        'Nx_export':   int(Nx_export),
+        'Ny_export':   int(Ny_export),
+        'L_domain_mm': float(L_domain_m * 1.0e3),
+        'H_domain_mm': float(H_domain_m * 1.0e3),
+        'tpms_type':   tpms_type,
+        'L_min_mm':    float(L_field.min()),
+        'L_max_mm':    float(L_field.max()),
+        'L_avg_mm':    float(L_field.mean()),
+        't_min_mm':    float(t_field.min()),
+        't_max_mm':    float(t_field.max()),
+        't_avg_mm':    float(t_field.mean()),
+        'L_bounds':    list(L_bounds),
+        't_bounds':    list(t_bounds),
+        'csv_L':       os.path.abspath(L_path),
+        'csv_t':       os.path.abspath(t_path),
+        'csv_geometry': os.path.abspath(geometry_path),
+        'csv_controls': os.path.abspath(controls_path),
+        'sampling': sampling,
+        'coordinate_units': 'mm',
+        'row_order': 'x fastest, then y, then z',
+        'geometry_config': cfg,
+        'decision_vector': [float(v) for v in np.asarray(x_decision).ravel()],
+    }
+    if extra_metadata:
+        summary['source'] = extra_metadata
+    summary['dimension'] = 2 if n_ctrl_z is None else 3
+    if n_ctrl_z is not None:
+        summary.update(Nz_export=Nz_export, Lz_domain_mm=Lz_domain_m*1000.)
+
+    with staged_files([L_path, t_path, geometry_path, controls_path, provenance_path]) as stage:
+        _write_scalar_field_csv(stage / 'Lfield.csv', xc_mm, yc_mm, L_field,
+                                value_name='L_mm', zc_mm=zc_mm)
+        _write_scalar_field_csv(stage / 'tfield.csv', xc_mm, yc_mm, t_field,
+                                value_name='t_mm', zc_mm=zc_mm)
+        _write_geometry_csv(stage / 'geometry.csv', axes_mm, L_field, t_field)
+        controls = (fc.ctrl_x, fc.ctrl_y) + (() if fc.ctrl_z is None else (fc.ctrl_z,))
+        _write_geometry_csv(stage / 'controls.csv', tuple(axis * 1000. for axis in controls),
+                            fc.L_ctrl, fc.t_ctrl)
+        with open(stage / 'provenance.json', 'w') as f:
+            json.dump(summary, f, indent=2)
+
+    return summary
+
+
+def export_study_design(report, history_index, out_dir, counts):
+    """Export one selected Pareto design from its frozen study configuration."""
+    from sjtu_tpmshx.shared.domain.compute_config import ComputeConfig
+
+    if history_index not in report['pareto_indices']:
+        raise ValueError('select a Pareto design from the archived study')
+    row = report['history'][history_index]
+    if row['status'] != 'completed':
+        raise ValueError('geometry export requires a completed design')
+    evidence = {}
+    if 'mass_requirements' in report:
+        from .mass_design import constraint_keys
+        if (row.get('feasible') is not True or any(
+                not np.isfinite(row['objectives'][key]) or row['objectives'][key] > 0
+                for key in constraint_keys(report['mass_requirements']))):
+            raise ValueError('geometry export requires all mass-design constraints to pass')
+        evidence = dict(mass_requirements=report['mass_requirements'],
+                        objectives=row['objectives'], constraint_checks=row['constraint_checks'])
+        if 'mass_lower_bound' in report:
+            evidence.update(mass_lower_bound=report['mass_lower_bound'],
+                            stop_reason=report.get('stop_reason'),
+                            design_budget=report['design_budget'], n_evaluated=report['n_evaluated'])
+    # Export samples saved geometry without constructing a solver grid.
+    cfg = ComputeConfig.from_dict(report['conditions'][0]['config'], prepared_grid=True)
+    if len(counts) != report['dimension'] or report['dimension'] != (3 if cfg.is_3d else 2):
+        raise ValueError('export sampling must match the archived field dimension')
+    geom = cfg.geometry
+    if evidence and not cfg.is_3d:
+        if geom.Lz_m is None or not np.isfinite(geom.Lz_m) or geom.Lz_m <= 0:
+            raise ValueError('2D mass-design export requires the physical conversion depth')
+        evidence['physical_depth_m'] = geom.Lz_m
+    depth = {} if not cfg.is_3d else dict(Lz_domain_m=geom.Lz_m, Nz_export=counts[2])
+    return export_decision_vector(row['x_decision'], out_dir, **report['field_spec'],
+        Nx_export=counts[0], Ny_export=counts[1], **depth, sampling='boundaries',
+        L_domain_m=geom.L_dom_m, H_domain_m=geom.H_dom_m,
+        tpms_type=geom.tpms, k_s=geom.k_s_W_mK,
+        extra_metadata=dict(design_id=row['index'], history_index=history_index,
+                            directory=row['directory'], run_status=report['status'], **evidence))
+
+
+def export_pareto_row(pareto_csv_path: str,
+                      row_index: int,
+                      out_dir: str,
+                      *,
+                      decision_dim_expected: int = None,
+                      config: dict | None = None,
+                      **kwargs) -> dict:
+    """Pull one row from a pareto_final.csv (or history.csv), strip the
+    trailing (Q, dP) columns, and route through export_decision_vector.
+
+    Both historical CSV formats contain named columns x0..x{D-1},
+    Q_W_per_m and dP_Pa. This restores geometry without rerunning the
+    retired screening model.
+    """
+    from .pareto_io import read_pareto_csv
+    data = read_pareto_csv(pareto_csv_path, decision_dim_expected)
+    if row_index < 0 or row_index >= data.shape[0]:
+        raise IndexError(
+            f"row_index {row_index} out of range [0, {data.shape[0]})")
+    row = data[row_index]
+    # The reader restores x0..xN order and places the named objectives last.
+    decision_dim = row.size - 2
+
+    x_decision = row[:decision_dim]
+    Q   = float(row[decision_dim])
+    dP  = float(row[decision_dim + 1])
+    src = {
+        'pareto_csv':    os.path.abspath(pareto_csv_path),
+        'pareto_row':    int(row_index),
+        'pareto_Q_W_m':  Q,
+        'pareto_dP_Pa':  dP,
+    }
+    status_path = os.path.splitext(pareto_csv_path)[0] + '_status.json'
+    if os.path.isfile(status_path):
+        with open(status_path, encoding='utf-8') as source:
+            statuses = json.load(source)
+        if len(statuses) != len(data):
+            raise ValueError('history status count does not match CSV rows')
+        src['evaluation_status'] = statuses[row_index]
+    if config is None:
+        config_path = os.path.join(os.path.dirname(pareto_csv_path), 'config.json')
+        try:
+            with open(config_path, encoding='utf-8') as source:
+                config = json.load(source)
+        except FileNotFoundError as exc:
+            raise ValueError('original config.json is required to restore this Pareto design') from exc
+    if not isinstance(config, dict):
+        raise ValueError('original Pareto configuration must be a configuration mapping')
+    missing = [key for key in FIELD_CONFIG_KEYS if key not in config]
+    if missing:
+        raise ValueError(f'original geometry configuration is incomplete: {missing}')
+    geometry = {key: config[key] for key in FIELD_CONFIG_KEYS}
+    geometry['L_domain_m'] = geometry.pop('L_domain')
+    geometry['H_domain_m'] = geometry.pop('H_domain')
+    if set(kwargs) & geometry.keys():
+        raise ValueError('Pareto export geometry must come from its original configuration')
+    src['config'] = config
+    return export_decision_vector(x_decision, out_dir,
+                                   extra_metadata=src, **geometry, **kwargs)
+
+
+# ─── CLI ────────────────────────────────────────────────────────────
+
+
+def _build_argparser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog='export_ntop_csv',
+        description='Export Pareto Pareto-pick to nTop ScalarField CSVs.')
+    p.add_argument('--pareto', required=True,
+                   help='path to pareto_final.csv or history.csv')
+    p.add_argument('--row', type=int, default=0,
+                   help='row index within the Pareto CSV (0-based)')
+    p.add_argument('--out', required=True,
+                   help='output directory (will be created)')
+    p.add_argument('--grid', type=int, nargs=2,
+                   default=[DEFAULT_GRID_NX, DEFAULT_GRID_NY],
+                   metavar=('NX', 'NY'),
+                   help=f'export grid size (default {DEFAULT_GRID_NX} {DEFAULT_GRID_NY})')
+    p.add_argument('--config', help='original run config.json; defaults to the CSV directory')
+    return p
+
+
+def main(argv: Optional[list] = None) -> int:
+    args = _build_argparser().parse_args(argv)
+    config = None
+    if args.config:
+        with open(args.config, encoding='utf-8') as source:
+            config = json.load(source)
+    summary = export_pareto_row(
+        pareto_csv_path=args.pareto,
+        row_index=args.row,
+        out_dir=args.out,
+        Nx_export=args.grid[0], Ny_export=args.grid[1],
+        config=config,
+    )
+    print(f"  L range  [{summary['L_min_mm']:.3f}, {summary['L_max_mm']:.3f}] mm "
+          f"(avg {summary['L_avg_mm']:.3f})")
+    print(f"  t range  [{summary['t_min_mm']:.3f}, {summary['t_max_mm']:.3f}] mm "
+          f"(avg {summary['t_avg_mm']:.3f})")
+    print(f"  Q       = {summary['source']['pareto_Q_W_m']:.0f} W/m")
+    print(f"  dP      = {summary['source']['pareto_dP_Pa']:.0f} Pa")
+    print(f"  CSVs    : {summary['csv_L']}")
+    print(f"            {summary['csv_t']}")
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

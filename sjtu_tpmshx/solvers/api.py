@@ -1,10 +1,10 @@
 """Public prepared-case execution entry point."""
 from dataclasses import replace
-from sjtu_tpmshx.domain.case_data import CaseData
-from sjtu_tpmshx.domain.field_result import FieldResult
-from sjtu_tpmshx.domain.module_ports import RunControl
-from sjtu_tpmshx.domain.run_warnings import warning_scope, warning_messages
-from sjtu_tpmshx.domain.provenance import source_context
+from sjtu_tpmshx.shared.domain.case_data import CaseData
+from sjtu_tpmshx.shared.domain.field_result import FieldResult
+from sjtu_tpmshx.shared.domain.module_ports import RunControl
+from sjtu_tpmshx.shared.domain.run_warnings import warning_scope, warning_messages
+from sjtu_tpmshx.shared.domain.provenance import source_context
 
 
 def run_case(case: CaseData, control: RunControl = RunControl(), *,
@@ -20,7 +20,7 @@ def run_case(case: CaseData, control: RunControl = RunControl(), *,
         raise ValueError('solver continuation requires full compute with backend=cpp')
     if checkpoint_due is not None and checkpoint is None:
         raise ValueError('checkpoint_due requires a checkpoint callback')
-    from sjtu_tpmshx.domain.compute_config import (
+    from sjtu_tpmshx.shared.domain.compute_config import (
         validate_enthalpy_algorithm, validate_simple_velocity_relaxation,
     )
     settings = (case.parameters.get('run_settings', {}).get('solver', {})
@@ -45,8 +45,8 @@ def run_case(case: CaseData, control: RunControl = RunControl(), *,
             'model_h_max_iterations', 'model_h_temperature_tol_K', 'model_h_q_relative_tol')) and (
                 mode != 'full'):
         raise ValueError('explicit model-h controls require full compute with backend=cpp')
-    from sjtu_tpmshx.domain.run_environment import reject_retired_kernel
-    from sjtu_tpmshx.domain.module_ports import resolve_control
+    from sjtu_tpmshx.shared.domain.run_environment import reject_retired_kernel
+    from sjtu_tpmshx.shared.domain.module_ports import resolve_control
     reject_retired_kernel(case.parameters)
     control = resolve_control(control)
     if mode == 'quick_design':

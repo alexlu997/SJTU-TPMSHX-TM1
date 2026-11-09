@@ -18,12 +18,12 @@ Use the [first run instructions](../README.en.md#first-run) to run the applicati
 | C++ numerical backend, native ABI and builds | [C++ integration](cpp-migration.md) |
 | Authorized steady single-phase solver design and task nodes | [Unified solver design](unified-solver.md) |
 | macOS/Windows project folders and optional packaging | [Desktop operation](desktop.en.md) |
-| CaseData, FieldResult, metrics and file transport | [Public data contract](../schemas/three_module_v1/README.md) |
+| CaseData, FieldResult, metrics and file transport | [Public data contract](contracts/three_module_v1/README.md) |
 | Delivered capabilities, unfinished M-B work and blockers | [Capabilities](capabilities.en.md) |
 | Offline processing, effective sCO2 Nu and Shanghai air calibration | [Model resources](model-resources.en.md) |
 | Data filenames, closed missing-data items and water Nu selection | [Data catalog](data-catalog.en.md) |
 | Engineering, validation, research and performance tools | [Tool index](tools.en.md) |
-| Numerical/experimental checks and directional-factor research limits | [Validation index](../sjtu_tpmshx/validation/README.en.md) |
+| Numerical/experimental checks and directional-factor research limits | [Validation index](../sjtu_tpmshx/development/validation/README.en.md) |
 | Current GUI, porosity and CI requirements | [OpenSpec specifications](../openspec/specs/) |
 | Historical reports, task graphs, benchmarks and retired tools | [History index](history/README.en.md) |
 
@@ -33,23 +33,24 @@ Use the [first run instructions](../README.en.md#first-run) to run the applicati
 
 | Directory | Contents |
 | --- | --- |
-| [sjtu_tpmshx](../sjtu_tpmshx/) | All core source. compute.py is the main computation entry. The package contains three-module APIs, C++ backend, applications, models, tests and validation tools. |
-| [docs](./) | Current explanations and historical references. |
+| [sjtu_tpmshx](../sjtu_tpmshx/) | Four computation entries and six source groups: preprocessing, solvers, postprocessing, shared code, applications and development. |
+| [engineering](../engineering/) | scripts for builds and checks, packaging configuration and exact requirements locks. |
+| [docs](./) | Current documents, public data contracts under contracts, and historical references. |
 | [examples](../examples/) | Public API examples and first run configurations. |
-| [requirements](../requirements/) | Exact dependency locks for base, macOS BO, Windows BO, desktop builds, and minimal postprocessing. |
-| [scripts](../scripts/) | Test helpers, native dependency builds and model coefficient generation. |
-| [sjtu_tpmshx/runs](../sjtu_tpmshx/runs/) | Current profiling, diagnostic and demonstration tools. |
-| [schemas](../schemas/) | Public data contracts. Their implementations are in domain and io. |
 | [openspec](../openspec/) | Current requirements grouped by function. |
-| [.github/workflows](../.github/workflows/) | Configuration for macOS/Windows CI and minimal postprocessing checks. This directory does not contain application source. |
+| [.github/workflows](../.github/workflows/) | Configuration for macOS/Windows CI and minimal postprocessing checks. |
+
+Package-level [development](../sjtu_tpmshx/development/) keeps three groups: tests, validation and runs.
+Public data contracts are implemented in [shared/domain](../sjtu_tpmshx/shared/domain/) and [shared/io](../sjtu_tpmshx/shared/io/).
+C++ numerical source stays in [solvers/native](../sjtu_tpmshx/solvers/native/).
 
 `pyproject.toml` defines builds, dependency declarations, pytest, mypy, and lint settings.
-`requirements/` holds exact locks for each environment purpose. Root `requirements.txt` installs an isolated development environment.
+`engineering/requirements/` holds exact locks for each environment purpose. Root `requirements.txt` installs an isolated development environment.
 `[tool.mypy].files` selects public interfaces and data contracts for type checks. See [environment and checks](../README.en.md#环境与检查). `AGENTS.md` defines collaboration rules. `LICENSE` states the license.
 
 `data-revision.txt` declares the associated data version. Raw experiment and CFD data stay in local `data/raw_data/`. Research scripts and results stay in ignored `.cache/`. Neither location is committed. The previous `reports/` output directory is also ignored.
 
-Active tests use the one-dimensional enthalpy reference in [tests/enthalpy_1d_reference.py](../sjtu_tpmshx/tests/enthalpy_1d_reference.py).
+Active tests use the one-dimensional enthalpy reference in [development/tests/enthalpy_1d_reference.py](../sjtu_tpmshx/development/tests/enthalpy_1d_reference.py).
 Production CFD coefficient CSVs and MMS data used by tests stay.
 Historical `golden_3d.json`, previous gamma snapshots, stage reports and task records are available through fixed Git history.
 They are not current test resources or evidence of current accuracy.

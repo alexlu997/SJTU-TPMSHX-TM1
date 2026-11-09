@@ -7,11 +7,20 @@ TM1 将 TPMS 换热器的前处理、求解和后处理拆为独立维护的模�
 [alexlu997/SJTU-TPMSHX-TM1](https://github.com/alexlu997/SJTU-TPMSHX-TM1)。
 原 SJTU-TPMSHX/V2 是来源参考，本分支不合回原仓库。
 
-**核心源码全部位于 [sjtu_tpmshx/](sjtu_tpmshx/)**，包括 Python 应用与 C++ 数值后端。
-[compute.py](sjtu_tpmshx/compute.py) 是主计算入口，统一调用前处理、求解和后处理 API；
-[main.py](sjtu_tpmshx/main.py) 是 GUI 入口。C++ 源码与构建文件位于
-[solvers/native/](sjtu_tpmshx/solvers/native/)。
-其他根目录存放文档、示例、辅助工具和验证记录；`.github/workflows/` 存放 CI 配置。
+**核心源码全部位于 [sjtu_tpmshx/](sjtu_tpmshx/)**，包括 Python 应用与 C++ 数值后端。读计算代码从这四个文件开始：
+
+| 文件 | 职责 |
+| --- | --- |
+| [compute.py](sjtu_tpmshx/compute.py) | 主计算入口，统一组织准备、求解与评估 |
+| [preprocess/api.py](sjtu_tpmshx/preprocess/api.py) | 前处理入口：准备 CaseData |
+| [solvers/api.py](sjtu_tpmshx/solvers/api.py) | 求解入口：调用 C++ 后端，生成 FieldResult |
+| [postprocess/api.py](sjtu_tpmshx/postprocess/api.py) | 后处理入口：从记录的结果计算 PerformanceResult |
+
+包内六类目录是 `preprocess/`、`solvers/`、`postprocess/`、`shared/`、`applications/` 和 `development/`。
+[模块地图](sjtu_tpmshx/README.md)说明各自职责；C++ 源码仍在 [solvers/native/](sjtu_tpmshx/solvers/native/)。
+GUI、CLI、设计与恢复实现位于 `applications/`；测试、验证和诊断工具位于 `development/`。
+根 [engineering/](engineering/) 保存构建脚本、打包配置和依赖锁；[docs/contracts/](docs/contracts/) 保存数据契约。
+`.github/workflows/` 保存 CI 配置。GUI 与 CLI 继续用 `python -m sjtu_tpmshx.main` 和 `python -m sjtu_tpmshx.cli` 启动。
 
 0.2 仅使用 C++ 数值后端，保留 Python/Qt 界面、CLI、前后处理、优化和快速设计。
 完整 2D/3D 计算及快速设计仍通过相同的准备态和结果接口运行。
@@ -34,7 +43,7 @@ TM1 将 TPMS 换热器的前处理、求解和后处理拆为独立维护的模�
 | 在本机运行 | [macOS / Windows 首次运行](#first-run)，含命令行算例和 GUI 启动 |
 | 从界面开始使用 | [GUI 常用流程](#gui-use) |
 | 阅读或修改源码 | [主体源码与模块地图](sjtu_tpmshx/README.md) |
-| 理解模块边界 | [架构说明](docs/architecture.zh-CN.md)、[三模块数据契约](schemas/three_module_v1/README.zh-CN.md) |
+| 理解模块边界 | [架构说明](docs/architecture.zh-CN.md)、[三模块数据契约](docs/contracts/three_module_v1/README.zh-CN.md) |
 | 构建桌面软件 | [独立打包环境、用户文件与交付验证](docs/desktop.md) |
 | 查找文档与其他目录 | [仓库目录与文档导航](docs/README.md) |
 | 查阅旧版本资料 | [历史资料索引](docs/history/README.md) |
@@ -61,8 +70,8 @@ cd SJTU-TPMSHX-TM1
 python3.13 -m venv .venv
 printf '%s\n' "$PWD/.venv/bin/python" > .venv-path
 PYTHON="$(head -n 1 .venv-path)"
-"$PYTHON" -m pip install -r requirements/base.txt
-"$PYTHON" -m sjtu_tpmshx.runs.tools.check_locked_environment
+"$PYTHON" -m pip install -r engineering/requirements/base.txt
+"$PYTHON" -m sjtu_tpmshx.development.runs.tools.check_locked_environment
 "$PYTHON" -m pip check
 ```
 
@@ -78,8 +87,8 @@ py -3.13 -m venv .venv
 $tm1Python = (Resolve-Path .venv\Scripts\python.exe).Path
 [System.IO.File]::WriteAllText((Join-Path $PWD '.venv-path'), $tm1Python + [Environment]::NewLine)
 $tm1Python = Get-Content .venv-path -TotalCount 1
-& $tm1Python -m pip install -r requirements/base.txt
-& $tm1Python -m sjtu_tpmshx.runs.tools.check_locked_environment
+& $tm1Python -m pip install -r engineering/requirements/base.txt
+& $tm1Python -m sjtu_tpmshx.development.runs.tools.check_locked_environment
 & $tm1Python -m pip check
 ```
 
@@ -108,8 +117,8 @@ macOS：
 ```bash
 PYTHON="$(head -n 1 .venv-path)"
 export MPLCONFIGDIR="$PWD/.cache/matplotlib" XDG_CACHE_HOME="$PWD/.cache/xdg"
-"$PYTHON" scripts/build_native_dependencies.py fetch
-"$PYTHON" scripts/build_native_dependencies.py publish
+"$PYTHON" engineering/scripts/build_native_dependencies.py fetch
+"$PYTHON" engineering/scripts/build_native_dependencies.py publish
 "$PYTHON" -m sjtu_tpmshx.cli run examples/three_module/air_2d.json .cache/first-run-2d --case-id first-run-2d
 "$PYTHON" -m sjtu_tpmshx.cli run examples/three_module/air_3d.json .cache/first-run-3d --case-id first-run-3d
 "$PYTHON" -m sjtu_tpmshx.main
@@ -121,8 +130,8 @@ Windows：
 $tm1Python = Get-Content .venv-path -TotalCount 1
 $env:MPLCONFIGDIR = Join-Path $PWD '.cache/matplotlib'
 $env:XDG_CACHE_HOME = Join-Path $PWD '.cache/xdg'
-& $tm1Python scripts/build_native_dependencies.py fetch
-& $tm1Python scripts/build_native_dependencies.py publish
+& $tm1Python engineering/scripts/build_native_dependencies.py fetch
+& $tm1Python engineering/scripts/build_native_dependencies.py publish
 & $tm1Python -m sjtu_tpmshx.cli run examples/three_module/air_2d.json .cache/first-run-2d --case-id first-run-2d
 & $tm1Python -m sjtu_tpmshx.cli run examples/three_module/air_3d.json .cache/first-run-3d --case-id first-run-3d
 & $tm1Python -m sjtu_tpmshx.main
@@ -159,8 +168,8 @@ $env:XDG_CACHE_HOME = Join-Path $PWD '.cache/xdg'
 查看紧接着上一条命令的返回码。不要通过放宽阈值消除失败。
 
 默认锁包含 GUI、文件交接和测试依赖，不包含 Torch / BoTorch / GPyTorch。
-贝叶斯优化的 Windows CPU 环境另见 `requirements/bo-windows.txt`；macOS arm64 /
-Python 3.13 使用 `requirements/bo-macos.txt`。已授权的 BO 任务使用独立环境，
+贝叶斯优化的 Windows CPU 环境另见 `engineering/requirements/bo-windows.txt`；macOS arm64 /
+Python 3.13 使用 `engineering/requirements/bo-macos.txt`。已授权的 BO 任务使用独立环境，
 随后用对应锁运行环境检查及 `pip check`；勿将可选依赖加到正在使用的共享基础环境。
 上述小算例无需 BO。原始实验回归与重新拟合则需要匹配版本的本地数据，见文末。
 
@@ -191,25 +200,25 @@ macOS 尚未验收。继续复用 `.venv-path` 指定的现有锁定环境，环
 已有当前锁定原生依赖、pilot 构建目录已指向当前源码布局，且相关原生回归通过时，可显式发布启动器使用的库。旧布局项目须先按下文升级步骤准备新缓存。
 
 ```sh
-"$PYTHON" scripts/build_native_dependencies.py publish
+"$PYTHON" engineering/scripts/build_native_dependencies.py publish
 ```
 
 从旧的根目录 `native/` 布局升级时，先保留原 `native/lib/` 下的库、`build.json` 和 `previous/`。旧检查点仍须显式选择匹配的原库。保留仍有消费者的旧缓存及其绝对路径。旧 pilot 构建目录记录了原源码位置，不能直接用于新布局。
 
-已有项目须选择一个尚未使用的缓存目录。以下以 `.cache/native-layout` 和基础环境锁为例；若 `.venv-path` 指向 BO 环境，将发布命令的锁换成对应的 `requirements/bo-macos.txt` 或 `requirements/bo-windows.txt`。
+已有项目须选择一个尚未使用的缓存目录。以下以 `.cache/native-layout` 和基础环境锁为例；若 `.venv-path` 指向 BO 环境，将发布命令的锁换成对应的 `engineering/requirements/bo-macos.txt` 或 `engineering/requirements/bo-windows.txt`。
 
 macOS：
 
 ```sh
-"$PYTHON" scripts/build_native_dependencies.py fetch --cache .cache/native-layout
-"$PYTHON" scripts/build_native_dependencies.py publish --cache .cache/native-layout --python-lock requirements/base.txt
+"$PYTHON" engineering/scripts/build_native_dependencies.py fetch --cache .cache/native-layout
+"$PYTHON" engineering/scripts/build_native_dependencies.py publish --cache .cache/native-layout --python-lock engineering/requirements/base.txt
 ```
 
 Windows（PowerShell）：
 
 ```powershell
-& $tm1Python scripts/build_native_dependencies.py fetch --cache .cache/native-layout
-& $tm1Python scripts/build_native_dependencies.py publish --cache .cache/native-layout --python-lock requirements/base.txt
+& $tm1Python engineering/scripts/build_native_dependencies.py fetch --cache .cache/native-layout
+& $tm1Python engineering/scripts/build_native_dependencies.py publish --cache .cache/native-layout --python-lock engineering/requirements/base.txt
 ```
 
 `publish` 包含构建和验证。后续显式执行 `build`、`verify` 或 `publish` 时，继续使用同一 `--cache` 目录。首次克隆的项目可使用上文默认缓存。
@@ -544,7 +553,7 @@ PowerShell 使用相同参数，将 `"$PYTHON"` 改为 `& $tm1Python`，目录�
 各阶段参数可用 `"$PYTHON" -m sjtu_tpmshx.cli prepare --help` 等查看，PowerShell 同样使用 `& $tm1Python`。
 
 Case YAML 引用伴随 HDF5；result/VTK 导出和严格指标 JSON 的限制见
-[schema](schemas/three_module_v1/README.zh-CN.md)。CLI 输出必须与本次输入文件及 Case 的伴随 HDF5
+[schema](docs/contracts/three_module_v1/README.zh-CN.md)。CLI 输出必须与本次输入文件及 Case 的伴随 HDF5
 分开，路径重合会在执行阶段前拒绝；独立的既有输出仍可更新。
 所有 CLI 阶段均拒绝向含 `run.json` 或 `checkpoint.h5` 的目录及其子目录写入；请选择新目录，以保留已保存的运行及原生库。
 取消与失败不伪装成完成结果；已完成但未收敛的
@@ -569,7 +578,7 @@ CLI 保存间隔须显式指定；保存会等待下一个完整求解步骤结�
 续算读取已保存的准备态输入，写入新目录并保留原运行。移动时须一起移动整个运行目录。
 续算要求相同的原生构建和平台；当前构建不同时，可用 `--native-library` 显式选择保留的库。
 GUI 的载入菜单可以继续已保存的运行，沿用记录的保存间隔和输入来源。
-新发起的 GUI C++ 完整计算每 60 秒请求保存，运行目录位于用户数据目录的 `runs/` 下。
+新发起的 GUI C++ 完整计算每 60 秒请求保存，运行目录位于用户数据目录的 `development/runs/` 下。
 计算详情显示保存位置；可用“保存并暂停”结束当前任务，再从载入菜单继续。
 实际重算量还可能包含当前完整计算步和写盘时间。
 
@@ -602,7 +611,7 @@ Pareto CSV 仍可导出几何；旧筛选模式不能再执行或重新计算指
 旧多边形代码通过[固定历史](docs/history/retired-tools.md)保留，重新开放须完成
 主线物理规则及独立模块交接的实现与验证。
 
-`models/`、`df_surrogate/` 等是共享技术支撑，不是第四个业务模块。旧 Pipeline/应用
+`shared/models/`、`shared/df_surrogate/` 等是共享技术支撑，不是第四个业务模块。旧 Pipeline/应用
 入口单向调用公开模块。具体边界见[架构说明](docs/architecture.zh-CN.md)。
 
 唯一数值后端为 C++。默认查找 macOS arm64 或 Windows x64 本机库，
@@ -628,16 +637,16 @@ M-B/原文限定追踪，不能据目录或接口声明为已实现。
 
 ```bash
 PYTHON="$(head -n 1 .venv-path)"
-"$PYTHON" -m sjtu_tpmshx.runs.tools.check_locked_environment
+"$PYTHON" -m sjtu_tpmshx.development.runs.tools.check_locked_environment
 "$PYTHON" -m pip check
 export MPLCONFIGDIR="$PWD/.cache/matplotlib" XDG_CACHE_HOME="$PWD/.cache/xdg"
 export QT_QPA_PLATFORM=offscreen PYTHONHASHSEED=0
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1
 "$PYTHON" -m mypy --config-file pyproject.toml
-"$PYTHON" -m pytest sjtu_tpmshx/tests -q -ra -m "not slow and not heavy" --ignore=sjtu_tpmshx/tests/integration_tm1 -n 2 --dist worksteal --timeout=600 --timeout-method=thread --durations=30 --junitxml=.cache/ci/fast.xml
-"$PYTHON" -m pytest sjtu_tpmshx/tests/integration_tm1 -q -ra --timeout=600 --timeout-method=thread --durations=30 --junitxml=.cache/ci/integration.xml
+"$PYTHON" -m pytest sjtu_tpmshx/development/tests -q -ra -m "not slow and not heavy" --ignore=sjtu_tpmshx/development/tests/integration_tm1 -n 2 --dist worksteal --timeout=600 --timeout-method=thread --durations=30 --junitxml=.cache/ci/fast.xml
+"$PYTHON" -m pytest sjtu_tpmshx/development/tests/integration_tm1 -q -ra --timeout=600 --timeout-method=thread --durations=30 --junitxml=.cache/ci/integration.xml
 # 完整本地验收：没有 -m 过滤；按本机 CPU/内存可将 auto 换为固定 worker 数。
-"$PYTHON" -m pytest sjtu_tpmshx/tests -q -n auto --dist loadscope --timeout=600 --timeout-method=thread
+"$PYTHON" -m pytest sjtu_tpmshx/development/tests -q -n auto --dist loadscope --timeout=600 --timeout-method=thread
 ```
 
 PowerShell 使用同样的 pytest 参数，以 `$env:变量名=值` 设置上述环境变量，
@@ -658,7 +667,7 @@ macOS arm64 托管机若检测到 `Apple Software Renderer`，该像素检查明
 现有测试辅助脚本继续保留；`run_tests_fast.ps1` 只提供开发反馈，
 其 `not heavy` 子集与 CI 快测不同。两份 PowerShell 脚本默认严格检查基础锁。
 已有 Windows BO 环境时，显式使用
-`./scripts/run_tests_server.ps1 -LockFile requirements/bo-windows.txt`，或向
+`./engineering/scripts/run_tests_server.ps1 -LockFile engineering/requirements/bo-windows.txt`，或向
 `run_tests_fast.ps1` 传同一参数；所选锁与 `pip check` 都通过后才启动测试。
 脚本不安装依赖，也不因为选择了服务器锁而放行锁外包。
 
@@ -673,7 +682,7 @@ GitHub workflow 使用 checkout v7、setup-python v7、upload-artifact v7，
 采集函数）。基础作业仍使用不含 BO 的锁，覆盖可选依赖缺失时的行为。
 BO 作业上传 JUnit 与完整收集 manifest，保留 7 天，不上传求解数据或虚拟环境。
 
-PR 按 [明确的路径清单](scripts/ci_scope.py) 选择检查层级：
+PR 按 [明确的路径清单](engineering/scripts/ci_scope.py) 选择检查层级：
 
 - `docs`：仅根目录 README、AGENTS 和 `docs/` 下的 Markdown。检查本地链接、锚点和具体项目模块命令。
 - `application`：仅指定界面显示、布局模块、图标及对应测试，可包含文档。保留两平台构建、应用、集成、BO 与真实文件后处理检查。
@@ -692,21 +701,21 @@ envelope 实现、三模块数据契约与公共 API、后处理指标入口；�
 第一条 pytest 排除了 slow/heavy 和 `integration_tm1`，第二条单独完整执行该集成目录，
 避免重复执行其中的快测成员；两者不能代替第三条完整本地验收。
 本地上述命令仍执行未分片的完整子集。CI 中的原生资格测试只在原生组执行，
-共同模块清单为 `sjtu_tpmshx/tests/native/_ci_suite.txt`。原生 pytest 使用 `@<清单路径>` 读取它。
+共同模块清单为 `sjtu_tpmshx/development/tests/native/_ci_suite.txt`。原生 pytest 使用 `@<清单路径>` 读取它。
 应用快测仍记录原完整收集集合，再通过 `--ci-covered-modules=<清单路径>` 移交这些模块。
 清单外的新模块自动保留在应用快测中，不会按目录整体排除。
 复现应用分片时，在第一条 pytest 命令追加
-`-p sjtu_tpmshx.tests.ci_shard --ci-shard=0 --ci-manifest=.cache/ci/fast-0
---ci-covered-modules=sjtu_tpmshx/tests/native/_ci_suite.txt`。
+`-p sjtu_tpmshx.development.tests.ci_shard --ci-shard=0 --ci-manifest=.cache/ci/fast-0
+--ci-covered-modules=sjtu_tpmshx/development/tests/native/_ci_suite.txt`。
 另一片改为 `--ci-shard=1` 并使用独立 manifest 目录。
-分片 0 的模块列在 `sjtu_tpmshx/tests/_ci_shard0.txt`，其余应用模块自动进入分片 1。
+分片 0 的模块列在 `sjtu_tpmshx/development/tests/_ci_shard0.txt`，其余应用模块自动进入分片 1。
 移交和分片在原 heavy 标记及 pytest 过滤之后执行，所有原生断言保持不变。
 
 汇总门先验证原生分片完整、互斥且成功，再与应用分片合并核对原完整快测集合。
 跨组重复、漏测、缺失 worker 或失败记录均阻止通过。下载相同平台/Python 的全部 manifest 后运行：
 
 ```bash
-"$PYTHON" scripts/check_ci_shards.py .cache/ci/fast-0 .cache/ci/fast-1 --covered-by .cache/ci/native-*/native-manifest
+"$PYTHON" engineering/scripts/check_ci_shards.py .cache/ci/fast-0 .cache/ci/fast-1 --covered-by .cache/ci/native-*/native-manifest
 ```
 
 原生分片必须按编号顺序传入。若本地不使用 `--ci-covered-modules`，仍可单独核对两个完整快测分片。
@@ -716,7 +725,7 @@ envelope 实现、三模块数据契约与公共 API、后处理指标入口；�
 分组依据完整矩阵的实测用例耗时。保守能量测试按共享 fixture 参数分组，
 同组的收敛、物性、能量账本和真实回放检查保持在同片。其他模块保留共享 fixture；
 独立工程用例与二维检查点用例可按完整 node ID 分组。
-分组清单位于 `sjtu_tpmshx/tests/native/`：macOS 使用 `_ci_macos_shard0.txt` 至 `_ci_macos_shard1.txt`，
+分组清单位于 `sjtu_tpmshx/development/tests/native/`：macOS 使用 `_ci_macos_shard0.txt` 至 `_ci_macos_shard1.txt`，
 Windows 使用 `_ci_windows_shard0.txt` 至 `_ci_windows_shard3.txt`。
 按编号顺序将每份清单通过 `--ci-shard-modules=<清单路径>` 重复传入。
 未列出的用例自动进入最后一片，即 macOS 分片 2 或 Windows 分片 4。
@@ -752,7 +761,7 @@ BO 不允许跳过测试；集成允许已记录的单项跳过，但全跳过�
 `minimal-postprocess` 继续作为独立必需检查；在 `docs` 层级只核对预期作业结果。
 比较速度时区分快测、集成和整个 job，并使用相同平台的基准，不据本地耗时承诺 CI 提速。
 完整验收的 skip 须保留具体原因，不能当作被跳过能力已经通过。最小后处理 CI 使用独立的
-`requirements/postprocess.txt` 环境，并消费另一完整环境生成的真实 2D/3D
+`engineering/requirements/postprocess.txt` 环境，并消费另一完整环境生成的真实 2D/3D
 结果文件。macOS 集成步骤将公开算例的两个结果及指标通过 `real-file-handoff`
 传给 Linux 最小环境，保留 7 天。该交接不包含私有数据。配置不等于实际 CI 通过。
 
@@ -763,7 +772,7 @@ Codex 与 Claude 共用 [AGENTS.md](AGENTS.md) 中的项目规则。任务归属
 
 公开契约的修改需要检查下游消费者：前处理的配置/单位/网格由求解侧复核；求解的
 原生场/边界证据/状态由后处理侧复核；指标定义及文件关联由应用/文件消费者复核。
-GUI 和调度留在 `ui/`、`controllers/`，模型资源保持共享。每个 PR 写明受影响的
+GUI 和调度留在 `applications/gui/ui/`、`applications/gui/controllers/`，模型资源保持共享。每个 PR 写明受影响的
 接口、验证证据和参与复核者。当前仓库维护者为 `alexlu997`；师兄加入后再分配具名
 模块责任人，当前不建立虚构的 CODEOWNERS 或把模型自查写成人工独立批准。
 
