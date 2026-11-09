@@ -44,9 +44,8 @@ def test_native_runtime_assets_stay_local_and_source_stays_tracked():
     ]
     paths = [*runtimes, 'sjtu_tpmshx/solvers/native/src/full_2d.cpp']
     result = subprocess.run(
-        ['git', '-c', 'core.excludesFile=', 'check-ignore', '--no-index', '--stdin'],
-        cwd=_ROOT, input='\n'.join(paths) + '\n', check=True,
-        capture_output=True, text=True,
+        ['git', '-c', 'core.excludesFile=', 'check-ignore', '--no-index', '--', *paths],
+        cwd=_ROOT, check=True, capture_output=True, text=True,
     )
     assert result.stdout.splitlines() == runtimes
 
