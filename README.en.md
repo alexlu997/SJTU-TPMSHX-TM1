@@ -575,6 +575,10 @@ Existing test helpers stay. `run_tests_fast.ps1` is development feedback only. I
 
 The same parameter is accepted by `run_tests_fast.ps1`. Tests start only after the selected lock and `pip check` pass. Scripts install nothing. A server lock does not permit unlisted packages.
 
+Current macOS CI uses the `macos-15` arm64 image. GitHub [retired macOS 14 images](https://github.com/actions/runner-images/issues/13518) on 2026-11-02.
+The protected summary check keeps its name, `tests (macos-14, 3.13)`. It still requires the current macOS jobs and all existing checks.
+Branch protection and the required check set stay unchanged.
+
 GitHub workflows use checkout v7, setup-python v7, upload-artifact v7, and download-artifact v8 for shard gates. Action runtimes do not change solver Python environments. The `minimal-postprocess` job in `ci` validates real files from a complete environment in a separate minimal environment. Base and separate BO jobs cover macOS/Python 3.13 and Windows/Python 3.12 and 3.13. BO jobs install platform-specific locks, validate environments, and explicitly import Torch/BoTorch/GPyTorch.
 
 They run multi-condition optimizer tests, including both real Log acquisition functions. Base jobs keep the lock without BO and test missing-optional-dependency behavior. BO uploads JUnit reports and full collection manifests for 7 days, without solve data or environments.

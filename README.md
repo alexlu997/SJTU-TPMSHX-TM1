@@ -662,6 +662,8 @@ macOS arm64 托管机若检测到 `Apple Software Renderer`，该像素检查明
 `run_tests_fast.ps1` 传同一参数；所选锁与 `pip check` 都通过后才启动测试。
 脚本不安装依赖，也不因为选择了服务器锁而放行锁外包。
 
+当前 macOS CI 使用 `macos-15` arm64 镜像。GitHub 已于 2026-11-02 [退役 macOS 14 镜像](https://github.com/actions/runner-images/issues/13518)。受保护的汇总检查保留名称 `tests (macos-14, 3.13)`；它仍要求当前 macOS 作业及原有全部检查通过。分支保护规则和必需检查集合保持不变。
+
 GitHub workflow 使用 checkout v7、setup-python v7、upload-artifact v7，
 分片门使用 download-artifact v8。这些 Action 的运行时不改变求解器的 Python 环境；
 `ci` 内的 `minimal-postprocess` 验证完整环境到最小后处理环境的真实文件交接。

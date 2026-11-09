@@ -141,12 +141,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python: ${{ fromJSON(inputs.os == 'macos-14' && '["3.13"]' || '["3.12","3.13"]') }}
-        shard: ${{ fromJSON(inputs.os == 'macos-14' && '[0,1,2]' || '[0,1,2,3,4]') }}
+        python: ${{ fromJSON(inputs.os == 'macos-15' && '["3.13"]' || '["3.12","3.13"]') }}
+        shard: ${{ fromJSON(inputs.os == 'macos-15' && '[0,1,2]' || '[0,1,2,3,4]') }}
     runs-on: ${{ inputs.os }}
     timeout-minutes: 90
     env:
-      NATIVE_SHARD_SET: ${{ inputs.os == 'macos-14' && 'macos' || 'windows' }}
+      NATIVE_SHARD_SET: ${{ inputs.os == 'macos-15' && 'macos' || 'windows' }}
       PYTHONHASHSEED: "0"
       MPLCONFIGDIR: .cache/matplotlib
       XDG_CACHE_HOME: .cache/xdg
@@ -272,7 +272,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python: ${{ fromJSON(inputs.os == 'macos-14' && '["3.13"]' || '["3.12","3.13"]') }}
+        python: ${{ fromJSON(inputs.os == 'macos-15' && '["3.13"]' || '["3.12","3.13"]') }}
         part: [fast-0, fast-1]
     runs-on: ${{ inputs.os }}
     timeout-minutes: 60
