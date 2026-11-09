@@ -14,7 +14,7 @@
 
 CFD 设计矩阵、工况表、nTop 表达式、几何诊断和原始数据继续保留。
 外部 CFD 工作流可继续按原字段约定提供 CSV，由
-[asym_postproc_kappa](../../sjtu_tpmshx/runs/cfd_asym/asym_postproc_kappa.py) 拟合与后处理。
+[asym_postproc_kappa](../../sjtu_tpmshx/development/runs/cfd_asym/asym_postproc_kappa.py) 拟合与后处理。
 其配对 CFD 分母、研究注册范围和已有结果含义不变；不新增 Fluent 替代执行器。
 
 ## 配置与固定计划工具收尾（2026-10-02）
@@ -73,7 +73,7 @@ CFD 设计矩阵、工况表、nTop 表达式、几何诊断和原始数据继�
 原数值、失败、被否原因及未实施事项不改写。常规设计/优化与现行验证继续保留。
 
 第一批移出 141 个文件；D76 现行 Nu 验证另迁入
-[validation/cases/validate_sco2_d76.py](../../sjtu_tpmshx/validation/cases/validate_sco2_d76.py)，
+[validation/cases/validate_sco2_d76.py](../../sjtu_tpmshx/development/validation/cases/validate_sco2_d76.py)，
 保留六个工况、表头校验、15% 门槛和原退出语义。原工程脚本中的旧
 `SCO2_CF_SCALE=3.39` 不移入现行计算链。
 
@@ -213,10 +213,10 @@ A1/benchmark A 的旧输入原已缺失，历史代码不代表可在当前目�
 | 原路径与固定原文 | 现行约束承接 |
 | --- | --- |
 | [arch-b-c-e/spec.md](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/5c517b415be0adbfc7bbfd205a3dba07fe8792a8/openspec/specs/arch-b-c-e/spec.md) | [架构](../architecture.md)：共享模型、数值/GUI 归属；`solvers/_solve_common.py` 统一 F2；LowReExit 于下述 2026-09-14 整理中退役 |
-| [compute-contracts/spec.md](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/5c517b415be0adbfc7bbfd205a3dba07fe8792a8/openspec/specs/compute-contracts/spec.md) | [正式数据契约](../../schemas/three_module_v1/)与架构：Qt-free domain、实际准备输入、原生状态、严格文件交接；输入、质量/能量、日志、收敛与持久化检查保留 |
+| [compute-contracts/spec.md](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/5c517b415be0adbfc7bbfd205a3dba07fe8792a8/openspec/specs/compute-contracts/spec.md) | [正式数据契约](../contracts/three_module_v1/)与架构：Qt-free domain、实际准备输入、原生状态、严格文件交接；输入、质量/能量、日志、收敛与持久化检查保留 |
 | [collaboration-project-layout/spec.md](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/5c517b415be0adbfc7bbfd205a3dba07fe8792a8/openspec/specs/collaboration-project-layout/spec.md) | 已结束工程按本页索引归档；共享模型、求解器与有效验证仍归主体包，不恢复旧项目目录 |
 | [solver-efficiency-r1-r4/spec.md](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/5c517b415be0adbfc7bbfd205a3dba07fe8792a8/openspec/specs/solver-efficiency-r1-r4/spec.md) | 历史性能结论见本页原工程索引；旧早退测试迁为 F2，守恒和 SOU 检查继续保留，原重基线步骤不作为新任务指令 |
-| [_CSV_STATUS.md](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/5c517b415be0adbfc7bbfd205a3dba07fe8792a8/sjtu_tpmshx/validation/_CSV_STATUS.md) | [验证导航](../../sjtu_tpmshx/validation/README.md)、[数据记录](../data-catalog.md)：当前入口与来源限制；原 CSV 数字不改写成新验收 |
+| [_CSV_STATUS.md](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/5c517b415be0adbfc7bbfd205a3dba07fe8792a8/sjtu_tpmshx/validation/_CSV_STATUS.md) | [验证导航](../../sjtu_tpmshx/development/validation/README.md)、[数据记录](../data-catalog.md)：当前入口与来源限制；原 CSV 数字不改写成新验收 |
 
 保留的 OpenSpec 说明当前 GUI、孔隙率分配与 CI 行为；原 Graph 需求、节点卡和
 合并证据见[历史总索引](README.md)，M-B 缺口见[能力范围](../capabilities.md)。

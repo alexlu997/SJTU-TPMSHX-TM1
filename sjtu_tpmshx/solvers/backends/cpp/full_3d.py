@@ -15,12 +15,12 @@ from pathlib import Path
 
 import numpy as np
 
-from sjtu_tpmshx.domain.cancellation import CancelledError
-from sjtu_tpmshx.domain.compute_config import reject_retired_research_options, validate_simple_velocity_relaxation
-from sjtu_tpmshx.domain.module_ports import RunControl
-from sjtu_tpmshx.domain.run_environment import run_environment, require_f2_mode
-from sjtu_tpmshx.models.fluid_props import WaterStateError
-from sjtu_tpmshx.models.field_coordinates_3d import _port_rectangles
+from sjtu_tpmshx.shared.domain.cancellation import CancelledError
+from sjtu_tpmshx.shared.domain.compute_config import reject_retired_research_options, validate_simple_velocity_relaxation
+from sjtu_tpmshx.shared.domain.module_ports import RunControl
+from sjtu_tpmshx.shared.domain.run_environment import run_environment, require_f2_mode
+from sjtu_tpmshx.shared.models.fluid_props import WaterStateError
+from sjtu_tpmshx.shared.models.field_coordinates_3d import _port_rectangles
 from .simple_3d import _Config as _SimpleConfig, _STOPS, _count
 from ._simple_abi import _F2
 from .physical_ledger import HeatLedger, heat_ledger_query, copy_heat_ledger
@@ -396,13 +396,13 @@ class NativeFull3DDriver:
                 if self.query_heat_ledger(ct.byref(result), ct.byref(ledger)):
                     raise RuntimeError('native full 3D heat ledger query failed')
                 detached['physical_ledger'] = copy_heat_ledger(ledger, shape, 3)
-            from sjtu_tpmshx.models.co2_correlations import NU_MULTIPLIER
+            from sjtu_tpmshx.shared.models.co2_correlations import NU_MULTIPLIER
             for label in 'AB':
                 if cfg['fluid_type_'+label] == 'co2' and detached['nu_observations'][label]:
                     detached['nu_observations'][label]['floor'] *= NU_MULTIPLIER
             detached['bootstrap_trace'] = bootstrap_traces
             replay_range_observations(detached['range_observations'])
-            from sjtu_tpmshx.models.nu_correlations import warn_sco2_nu_evidence
+            from sjtu_tpmshx.shared.models.nu_correlations import warn_sco2_nu_evidence
             for s,label in enumerate('AB'):
                 if cfg['fluid_type_'+label]=='sco2' and (s==0 or data.solve_b):
                     warn_sco2_nu_evidence(side=label,stage='3D h_v property refresh',tpms_type=cfg['tpms_type'],

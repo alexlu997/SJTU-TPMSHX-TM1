@@ -126,5 +126,5 @@ GUI 历史设置导入继续提示转换，当前保存不再包含旧开关。
 | B4 保守格式阶数测试 | [test_mms_b4_conservative_order.py](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/69f15c8ab08131d5759d9677247384d631cbb3ec/sjtu_tpmshx/tests/test_mms_b4_conservative_order.py) |
 | `mms_phase_*.csv` 与元数据 | [validation 原文件](https://github.com/alexlu997/SJTU-TPMSHX-TM1/tree/69f15c8ab08131d5759d9677247384d631cbb3ec/sjtu_tpmshx/validation) |
 
-当前 C++ 制造场、细化与物理面入口检查继续执行；[验证说明](../../sjtu_tpmshx/validation/README.md)列出保留的门槛。
+当前 C++ 制造场、细化与物理面入口检查继续执行；[验证说明](../../sjtu_tpmshx/development/validation/README.md)列出保留的门槛。
 GCI 参考、共用拟合工具和参考目录写入保护继续保留。

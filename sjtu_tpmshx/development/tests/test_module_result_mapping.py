@@ -1,0 +1,761 @@
+"""Real public-result mapping retains the GUI/export and diagnostic contract."""
+from dataclasses import replace
+from types import SimpleNamespace
+from sjtu_tpmshx.applications.gui.controllers.result_cache import ResultCache
+from sjtu_tpmshx.applications.gui.ui.mixins.run_results import RunResultsMixin
+import importlib
+
+import numpy as np
+import pytest
+
+from sjtu_tpmshx.applications.result_adapter import to_compute_result
+from sjtu_tpmshx.shared.domain.compute_config import (
+    ComputeConfig, FluidConfig, GeometryConfig, SolverConfig,
+    PartialBCConfig, ExtrapPolicy,
+)
+from sjtu_tpmshx.shared.domain.compute_result import ComputeResult
+from sjtu_tpmshx.shared.domain.portable_data import mutable_data
+from sjtu_tpmshx.postprocess.api import evaluate
+from sjtu_tpmshx.preprocess.api import prepare_case
+from sjtu_tpmshx.solvers.api import run_case
+from sjtu_tpmshx.development.tests.integration_tm1.test_2d_real import baseline_config
+from sjtu_tpmshx.development.tests.integration_tm1.test_public_api import assert_slots, legacy_2d_result, native_3d_mapping_input
+
+
+class _ResultWindow(RunResultsMixin):
+    def __init__(self):
+        self.cache = ResultCache()
+
+
+def _synthetic_results(dimension=3):
+    """Mapping inputs with distinct original geometry and pressure states."""
+    from sjtu_tpmshx.shared.domain.field_result import FieldResult
+    from sjtu_tpmshx.shared.domain.metric_spec import MetricSpec
+    from sjtu_tpmshx.shared.domain.performance_result import MetricValue, PerformanceResult
+
+    cell = np.arange(24.).reshape(2, 3, 4) if dimension == 3 else np.arange(6.).reshape(2, 3)
+    L_m, t_m = .004 + cell * .0001, .0003 + cell * .00001
+    grid = dict(dimension=3, axis_order=('x', 'y', 'z'), length_unit='m',
+                dx=np.array([.05, .15]), dy=np.array([.01, .03, .06]),
+                dz=np.array([.005, .01, .015, .02]))
+    native_fields = {name: cell + offset for offset, name in enumerate(
+        ('Ta', 'Tb', 'Ts', 'ucA', 'vcA', 'wcA',
+         'ucB', 'vcB', 'wcB', 'vmag_A', 'vmag_B', 'h_vA', 'h_vB'))}
+    for side, pressure in (('A', 101325.), ('B', 202650.)):
+        native_fields['P_f' + side + '_display'] = pressure + cell
+        native_fields['P_gauge_' + side] = cell
+        native_fields['P_report_' + side] = pressure + cell + 500.
+    if dimension == 2:
+        grid.update(dimension=2, axis_order=('x', 'y'))
+        del grid['dz']
+    native = FieldResult('synthetic-result', 'synthetic-case', 'test', grid=grid,
+        fields=native_fields, run_status=dict(execution='completed', converged=True),
+        metadata=dict(parameters=dict(L=.2, H=.1, Lz=.05, extrap_reasons=[],
+                          dir_A=1, dir_B=4, zone_config=None,
+                          static_properties=dict(geometry=dict(epsilon=.8, D_h=.003, A_0=.01)),
+                          fluid_A_cfg=dict(dir=1, in_ctr=.05, in_w=.1, out_ctr=.05, out_w=.1),
+                          fluid_B_cfg=dict(dir=4, in_ctr=.16, in_w=.04, out_ctr=.03, out_w=.02,
+                                           in_z_ctr=.025, in_z_w=.01, out_z_ctr=.07, out_z_w=.02),
+                          prepared=dict(geometry=dict(epsilon=.8, D_h=.003, A_0=.01))),
+                      design_fields=dict(L_field_m=L_m, t_field_m=t_m),
+                      diagnostics=dict(dir_A=1, dir_B=4, mass_imbalance_rel_A=0., mass_imbalance_rel_B=0.,
+                                       Q_A=100., Q_B=-100., energy_imbalance_rel=0.,
+                                       Q_richardson_warn=False, residuals_A={}, residuals_B={}),
+                      application=dict(coeffs={}, props={}, zones=None), design_mode='uniform',
+                      model_metadata={}, df_metadata={}, quantity_basis='total', notices=[]))
+    performance = PerformanceResult('synthetic-metrics', native.result_id, {
+        name: MetricValue(value, MetricSpec(name, 'W/m' if dimension == 2 and unit == 'W' else unit,
+            'pressure_face_v1' if name.startswith('dP') else 'native_boundary_v1'))
+        for name, value, unit in (('Q', 100., 'W'), ('Q_A', 100., 'W'), ('Q_B', -100., 'W'),
+                                 ('dP_A', 10., 'Pa'), ('dP_B', 20., 'Pa'),
+                                 ('T_out_A', 330., 'K'), ('T_out_B', 310., 'K'))})
+
+    return native, performance
+
+
+@pytest.mark.parametrize('dimension', [2, 3])
+def test_thread_resource_record_reaches_the_detached_gui_result(dimension):
+    native, performance = _synthetic_results(dimension)
+    resources = dict(cpu_thread_limit=8, requested_cpu_threads=None, policy='native_cpu_limit_v1')
+    native = replace(native, metadata={**native.metadata, 'runtime_resources': resources})
+    display = to_compute_result(native, performance)
+    assert display.metadata['runtime_resources'] == resources
+    window = _ResultWindow()
+    window.write_result(display)
+    display.metadata['runtime_resources']['cpu_thread_limit'] = 1
+    assert window.cache.get_result(f'{dimension}d').metadata['runtime_resources'] == resources
+    assert dict(native.metadata['runtime_resources']) == resources
+
+
+def test_synthetic_3d_mapping_preserves_full_geometry_and_report_pressure():
+    native, performance = _synthetic_results()
+    native_fields, grid = native.fields, native.grid
+    L_m = native.metadata['design_fields']['L_field_m']
+    t_m = native.metadata['design_fields']['t_field_m']
+    result = to_compute_result(native, performance)
+    np.testing.assert_array_equal(result.fields['L_mm'], L_m * 1e3)
+    np.testing.assert_array_equal(result.fields['t_mm'], t_m * 1e3)
+    for name in ('ucA', 'vcA', 'wcA', 'ucB', 'vcB', 'wcB', 'vmag_A', 'vmag_B'):
+        np.testing.assert_array_equal(result.fields[name], native_fields[name])
+    for side in ('A', 'B'):
+        np.testing.assert_array_equal(result.fields['P_f' + side],
+                                      native_fields['P_report_' + side])
+    for name in ('dx', 'dy', 'dz'):
+        np.testing.assert_array_equal(result.fields[name], grid[name])
+    # The plot must use the accepted result's ports, independently of draft inputs.
+    from sjtu_tpmshx.applications.gui.ui.plot_3d_results import finalize_plots_3d
+    shown = {}
+    window = SimpleNamespace(cache=SimpleNamespace(get_result=lambda mode: result),
+        canvas_3d=SimpleNamespace(set_fields=lambda **kw: shown.update(kw),
+                                  set_watermark=lambda text: None))
+    assert finalize_plots_3d(window)
+    for side in ('A', 'B'):
+        expected = native.metadata['parameters'][f'fluid_{side}_cfg']
+        assert shown[f'ports_{side}'] == expected
+        assert shown[f'ports_{side}'] is not expected
+
+
+@pytest.mark.parametrize('dimension', [2, 3])
+def test_saved_display_aliases_do_not_replace_original_cells(tmp_path, dimension):
+    from sjtu_tpmshx.shared.io.result_io import load_result, save_result
+    from sjtu_tpmshx.shared.result_display import describe_fields
+
+    native, performance = _synthetic_results(dimension)
+    fields = dict(native.fields)
+    for key in ('Ta', 'Tb', 'Ts', 'ucA', 'vcA', 'ucB', 'vcB'):
+        fields[key + '_display'] = np.full_like(fields[key], -123.)
+    grid = dict(native.grid)
+    grid.update({axis + '_edges': np.r_[0., np.cumsum(grid['d' + axis])]
+                 for axis in 'xyz'[:dimension]})
+    archived = replace(native, fields=fields, grid=grid,
+        field_metadata=describe_fields(fields, dimension),
+        metadata={**native.metadata, 'quantity_basis': 'per_unit_depth' if dimension == 2 else 'total'})
+    path = tmp_path / 'historical-display.h5'
+    save_result(archived, path)
+    loaded = load_result(path)
+    result = to_compute_result(loaded, performance)
+    for key in ('Ta', 'Tb', 'Ts', 'ucA', 'vcA', 'ucB', 'vcB'):
+        np.testing.assert_array_equal(result.fields[key], native.fields[key])
+        np.testing.assert_array_equal(loaded.fields[key + '_display'], fields[key + '_display'])
+        assert key + '_disp' not in result.fields
+    for side in 'AB':
+        np.testing.assert_array_equal(result.fields['P_f' + side], native.fields['P_report_' + side])
+
+
+# Fixed from the real scenarios below on pre-producer-refactor main 736c0a8.
+# Keep these expectations independent of the current raw/diagnostic mappings.
+_DIAGNOSTICS_2D = frozenset('''
+    P_in_realized_A P_in_realized_B P_in_shoot_resid_A P_in_shoot_resid_B
+    Q_A Q_B Q_enthalpy_A Q_enthalpy_B Q_net Q_richardson_warn
+    Q_solid_richardson Q_total T_out_A_K T_out_B_K convergence_detail dP_A dP_B
+    df_metadata energy_imbalance_rel envelope_reasons envelope_valid
+    mass_flow_A_kg_s_per_m mass_flow_B_kg_s_per_m mass_imbalance_rel_A
+    mass_imbalance_rel_B model_h_balance p_clip_hits residuals_A residuals_B
+    richardson_info sco2_nu_observations solver_converged true_h_balance
+    warnings_list native_full_2d
+'''.split())
+_DIAGNOSTICS_3D = frozenset('''
+    AB_interior Lx Ly Lz P_in_realized_A P_in_realized_B
+    P_in_shoot_resid_A P_in_shoot_resid_B Q Q_AB_imbalance_rel Q_enthalpy_A
+    Q_enthalpy_B Q_interior Q_net Q_sA Q_sA_interior Q_sB Q_sB_interior
+    Q_solid_B Q_total T_A_out T_B_out T_in T_out_A T_out_B _ltne_info
+    _ltne_max_iter _max_outer _needs_full_validate coarse_bootstrap_trace
+    convergence_detail dP dP_A
+    dP_B df_metadata dir_A dir_B energy_imbalance_rel envelope_reasons
+    envelope_valid envelope_warnings eps_A_strict eps_A_strict_cellmax
+    eps_B_strict eps_B_strict_cellmax mass_flow_A_kg_s mass_flow_B_kg_s
+    mass_imbalance_rel_A mass_imbalance_rel_B model_h_balance p_clip_hits
+    sco2_nu_observations solver_converged true_h_balance u_A native_full_3d
+'''.split())
+_AUDIT_DIAGNOSTICS_3D = frozenset('''
+    _audit_P_inA _audit_P_inB _audit_T_inA _audit_T_inB _audit_cp_A _audit_cp_B
+    _audit_eps _audit_fA _audit_fB _audit_m_dot_A_simple _audit_m_dot_B_phys_in
+    _audit_m_dot_B_phys_out _audit_m_dot_B_simple _audit_sA_face _audit_sB_face
+    _audit_u_A _audit_u_B
+'''.split())
+_CONVERGENCE_2D = frozenset('''
+    enthalpy_balance_ok envelope_ok inlet_pressure
+    ltne_iterations ltne_ok ltne_residual model_h_balance_ok outer_converged
+    outer_hit_cap outer_iters richardson_ok simple_ok
+'''.split())
+# The unreachable NaN replacement and its energy_nan_hit diagnostic are retired;
+# nonfinite thermal returns raise before producing a result.
+_CONVERGENCE_3D = frozenset('''
+    envelope_ok fields_finite inlet_pressure ltne_ok
+    outer_converged outer_dT outer_hit_cap outer_iters simple_A simple_B
+    simple_exit_A simple_exit_B simple_nonconv simple_nonconv_final
+    simple_nonconv_transient simple_ok
+'''.split())
+_INLET_PRESSURE_KEYS = frozenset('''
+    definition iterations minimum_Pa outlet_Pa outlet_gauge_Pa passed realized_Pa
+    relative_error relative_tolerance specified_Pa
+'''.split())
+
+
+def _assert_diagnostic_keys(diagnostics, expected_keys):
+    assert diagnostics.keys() == expected_keys, (
+        f'diagnostic keys: missing={sorted(expected_keys - diagnostics.keys())}, '
+        f'unexpected={sorted(diagnostics.keys() - expected_keys)}')
+
+
+def _assert_3d_diagnostics(diagnostics, *, frozen_B=False, audit=False):
+    expected = _DIAGNOSTICS_3D
+    none_keys = {'true_h_balance'}
+    if frozen_B:
+        expected |= {'P_Pa_B', 'vmag_B'}
+        none_keys |= {'P_Pa_B', 'vmag_B', 'T_B_out', 'T_out_B', 'dir_B',
+                      'eps_B_strict', 'eps_B_strict_cellmax', 'mass_flow_B_kg_s',
+                      'model_h_balance'}
+    if audit:
+        expected |= _AUDIT_DIAGNOSTICS_3D
+        if frozen_B:
+            expected |= {'_audit_in_mask_B',
+                         '_audit_ltne_mask_B', '_audit_out_mask_B'}
+            none_keys |= {'_audit_in_mask_B', '_audit_ltne_mask_B',
+                          '_audit_out_mask_B', '_audit_T_inB', '_audit_cp_B',
+                          '_audit_fB', '_audit_m_dot_B_phys_in', '_audit_m_dot_B_phys_out',
+                          '_audit_m_dot_B_simple', '_audit_sB_face', '_audit_u_B'}
+        for side in ('A',) if frozen_B else ('A', 'B'):
+            assert diagnostics[f'_audit_s{side}_face'].keys() == {
+                'dir_real', 'dx', 'dy', 'dz', 'eps', 'inlet_frac', 'outlet_coeff',
+                'outlet_frac', 'rho', 'solver_to_real_perm', 'u', 'v', 'w'}
+            assert diagnostics[f'_audit_f{side}'].keys() == {
+                'dir', 'in_ctr', 'in_w', 'out_ctr', 'out_w'}
+    assert diagnostics.keys() == expected, (
+        f'diagnostic keys: missing={sorted(expected - diagnostics.keys())}, '
+        f'unexpected={sorted(diagnostics.keys() - expected)}')
+    trace = diagnostics['coarse_bootstrap_trace']
+    assert trace.keys() == {'A', 'B'}
+    for side in ('A',) if frozen_B else ('A', 'B'):
+        assert trace[side]['policy'] == 'explicit_off'
+        assert trace[side]['decision'] == 'disabled'
+        assert tuple(trace[side]['levels']) == ()
+        assert trace[side]['actual_levels'] == 0
+        assert trace[side]['started_cap_sum'] == 0
+        assert trace[side]['total_charged_iterations'] == 0
+    if frozen_B:
+        assert trace['B'] is None
+    for key in none_keys:
+        assert diagnostics[key] is None, key
+    detail = diagnostics['convergence_detail']
+    assert detail.keys() == _CONVERGENCE_3D
+    assert detail['inlet_pressure'].keys() == {'A', 'B'}
+    assert diagnostics['df_metadata'].keys() == {'mode', 'A', 'B'}
+    if frozen_B:
+        assert detail['simple_B'] is detail['simple_exit_B'] is None
+        assert detail['inlet_pressure']['B'] is diagnostics['df_metadata']['B'] is None
+    else:
+        balance = diagnostics['model_h_balance']
+        assert {'outer_index', 'post_after_last_thermal', 'thermal_state',
+                'physical_boundary_complete', 'sides'} <= balance.keys()
+        assert balance['sides'].keys() == {'A', 'B'}
+        for side in ('A', 'B'):
+            assert {'physical_boundary_complete', 'physical_external_inward_W',
+                    'faces'} <= balance['sides'][side].keys()
+    for side in ('A',) if frozen_B else ('A', 'B'):
+        assert detail['inlet_pressure'][side].keys() == _INLET_PRESSURE_KEYS
+        assert detail[f'simple_{side}'].keys() == {
+            'convergence_mode', 'exit_reason', 'final_res', 'final_res_mass_global',
+            'final_res_mass_local', 'final_res_mom', 'iterations',
+            'outlet_backflow_frac', 'res_norm_ref'}
+
+
+@pytest.mark.parametrize('keys, missing', [
+    pytest.param(_DIAGNOSTICS_2D, 'Q_total', id='2d'),
+    pytest.param(_DIAGNOSTICS_3D, 'Q_total', id='3d'),
+    pytest.param(_DIAGNOSTICS_3D | {'P_Pa_B', 'vmag_B'},
+                 'P_Pa_B', id='3d-none-placeholder'),
+])
+def test_diagnostic_contract_rejects_missing_field(keys, missing):
+    diagnostics = dict.fromkeys(keys)
+    _assert_diagnostic_keys(diagnostics, keys)
+    del diagnostics[missing]
+    with pytest.raises(AssertionError, match=missing):
+        _assert_diagnostic_keys(diagnostics, keys)
+
+
+def _small_air_air_cfg():
+    """Tiny air-air cross-flow case (8x8x4) — fast, exercises both fluids."""
+    return ComputeConfig(
+        fluid_A=FluidConfig(type='air', u_mps=8.0, T_in_K=420.0, P_in_Pa=150000.0),
+        fluid_B=FluidConfig(type='air', u_mps=10.0, T_in_K=320.0, P_in_Pa=101325.0),
+        geometry=GeometryConfig(tpms='Gyroid', L_cell_mm=7.0, t_wall_mm=0.6,
+                                k_s_W_mK=16.0, L_dom_m=0.10, H_dom_m=0.042,
+                                Lz_m=0.030),
+        solver=SolverConfig(Nx=8, Ny=8, Nz=4),
+        bc_A=PartialBCConfig(dir=0, in_ctr=0.021, in_w=0.042,
+                             out_ctr=0.021, out_w=0.042),
+        bc_B=PartialBCConfig(dir=3, in_ctr=0.021, in_w=0.042,
+                             out_ctr=0.021, out_w=0.042),
+        extrap=ExtrapPolicy(allow=True),
+    )
+
+
+@pytest.fixture(scope='module', params=[2, 3, '2-partial'])
+def native_result(request):
+    dimension = 3 if request.param == 3 else 2
+    config = baseline_config() if dimension == 2 else _small_air_air_cfg()
+    if request.param == '2-partial':
+        config = replace(config,
+            geometry=replace(config.geometry, L_dom_m=.06, H_dom_m=.03, t_wall_mm=.6),
+            solver=SolverConfig(Nx=8, Ny=10, Nz=1, max_outer_ltne=2, max_iter_simple=500),
+            bc_A=PartialBCConfig(dir=0, in_ctr=.015, in_w=.014, out_ctr=.015, out_w=.014))
+    module = importlib.import_module(
+        'sjtu_tpmshx.solvers.backends.cpp.full_2d_capture' if dimension == 2 else
+        'sjtu_tpmshx.solvers.backends.cpp.full_3d_capture')
+    captured = []
+    capture_name = '_capture_result' if dimension == 2 else 'capture_result'
+    capture = getattr(module, capture_name)
+    def record(*args, **kwargs):
+        result = capture(*args, **kwargs)
+        diagnostics = args[-1] if dimension == 2 else result.metadata['diagnostics']
+        if dimension == 2:
+            raw = legacy_2d_result(args[0], args[1], diagnostics)
+            display_keys = {'Ta_display', 'Tb_display', 'Ts_display', 'P_fA_display', 'P_fB_display',
+                            'ucA', 'vcA', 'ucB', 'vcB'}
+            assert args[1].keys() == display_keys
+            _assert_diagnostic_keys(diagnostics, _DIAGNOSTICS_2D)
+            assert diagnostics['true_h_balance'] is None
+            detail = diagnostics['convergence_detail']
+            assert detail.keys() == _CONVERGENCE_2D
+            assert detail['inlet_pressure'].keys() == {'A', 'B'}
+            for side in ('A', 'B'):
+                assert detail['inlet_pressure'][side].keys() == _INLET_PRESSURE_KEYS
+            assert diagnostics['df_metadata'].keys() == {'mode', 'A', 'B'}
+            assert diagnostics['richardson_info'].keys() == {
+                'converged', 'extrapolated', 'iterations', 'model_h_balance',
+                'residual', 'energy_finishing_checks'}
+            assert diagnostics['model_h_balance'].keys() == {'main', 'fine'}
+            for grid in ('main', 'fine'):
+                balance = diagnostics['model_h_balance'][grid]
+                assert {'A', 'B', 'outer_index', 'post_after_last_thermal',
+                        'physical_boundary_complete', 'passed', 'state'} <= balance.keys()
+                for side in ('A', 'B'):
+                    assert {'physical_boundary_complete', 'Q_advective_W_per_m',
+                            'h_faces_W_per_m', 'mass_faces_kg_s_per_m'} <= balance[side].keys()
+        else:
+            raw = native_3d_mapping_input(*args[:-1], diagnostics)
+            _assert_3d_diagnostics(diagnostics)
+        captured.append(raw)
+        assert result.metadata['diagnostics'].keys() == diagnostics.keys()
+        assert_slots(result.metadata['diagnostics'], diagnostics)
+        return result
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(module, capture_name, record)
+        case = prepare_case(config, case_id=f'mapping-{dimension}d')
+        fields = run_case(case)
+    if request.param == '2-partial':
+        assert 'ucA_display' not in fields.fields
+        for key in ('Ta', 'Tb', 'Ts'):
+            np.testing.assert_array_equal(fields.fields[key], fields.fields[key + '_display'])
+        for side in 'AB':
+            np.testing.assert_array_equal(fields.fields['P_report_' + side],
+                                          fields.fields['P_f' + side + '_display'])
+    return fields, captured[0]
+
+
+@pytest.mark.parametrize('audit', [False, True])
+def test_native_3d_producer_preserves_optional_diagnostics(monkeypatch, audit):
+    from sjtu_tpmshx.solvers.backends.cpp import full_3d_capture as result_capture
+
+    config = _small_air_air_cfg()
+    config.solver = replace(config.solver, max_outer_ltne=2, max_iter_simple=500)
+    case = prepare_case(config, case_id='mapping-audit')
+    case = replace(case, parameters={**case.parameters, '_emit_audit': audit})
+    capture, observed = result_capture.capture_result, []
+
+    def record(case, cfg, prepared, raw, abi):
+        result = capture(case, cfg, prepared, raw, abi)
+        diagnostics = result.metadata['diagnostics']
+        _assert_3d_diagnostics(diagnostics, audit=audit)
+        assert result.metadata['input_resolution']['active_sides'] == ('A', 'B')
+        for side, flow in zip('AB', raw['flow']):
+            if audit:
+                snapshot = diagnostics['_audit_s'+side+'_face']
+                np.testing.assert_array_equal(snapshot['u'], flow['u'])
+                assert not np.shares_memory(snapshot['u'], flow['u'])
+                assert '_audit_K_ff'+side not in diagnostics
+            else:
+                assert not any(key.startswith('_audit_') for key in diagnostics)
+        observed.append(result)
+        return result
+
+    monkeypatch.setattr(result_capture, 'capture_result', record)
+    result = run_case(case)
+    assert len(observed) == 1
+    assert_slots(result.metadata['diagnostics'], observed[0].metadata['diagnostics'])
+
+
+
+def test_application_fields_and_scalars_match_native_solve(native_result):
+    fields, raw = native_result
+    performance = evaluate(fields)
+    result = to_compute_result(fields, performance)
+    dimension = fields.grid['dimension']
+    assert_slots(result.metadata['execution_record'], fields.metadata['execution_record'])
+    assert result.metadata['execution_record']['property_sampling']['records']
+    assert result.converged == fields.run_status['converged']
+    assert result.metadata['units']['Q'] == ('W/m' if dimension == 2 else 'W')
+    assert result.Q_W == performance.metrics['Q'].value
+    for name in ('Q_A', 'Q_B', 'energy_imbalance_rel'):
+        assert result.residuals[name] == performance.metrics[name].value
+    assert result.residuals['Q_net'] == result.residuals['Q_A'] + result.residuals['Q_B']
+    for name in ('convergence_detail', 'envelope_valid', 'envelope_reasons',
+                 'p_clip_hits', 'model_h_balance', 'true_h_balance'):
+        assert_slots(result.diagnostics[name], raw[name])
+    if dimension == 2:
+        for side in ('A', 'B'):
+            metric = performance.metrics[f'dP_{side}']
+            assert metric.spec.definition_version == 'pressure_face_v1'
+            assert getattr(result, f'dP_{side}_Pa') == metric.value
+        for name, source in (('T_out_A_K', 'T_out_A_K'), ('T_out_B_K', 'T_out_B_K')):
+            assert getattr(result, name) == pytest.approx(raw[source])
+        for name in ('Ta', 'Tb', 'Ts', 'P_fA', 'P_fB', 'ucA', 'vcA', 'ucB', 'vcB'):
+            np.testing.assert_array_equal(result.fields[name], raw[name])
+        for name in ('mass_imbalance_rel_A', 'mass_imbalance_rel_B'):
+            assert result.residuals[name] == pytest.approx(raw[name], nan_ok=True)
+        for axis in ('x', 'y'):
+            np.testing.assert_array_equal(result.fields[f'd{axis}_arr'], fields.grid[f'd{axis}'])
+        return
+    assert isinstance(result, ComputeResult)
+    assert_slots(result.diagnostics['coarse_bootstrap_trace'],
+                 raw['coarse_bootstrap_trace'])
+
+    # Native reduction must agree with the independently captured raw scalars.
+    assert result.Q_W == pytest.approx(raw.get('Q_total', raw.get('Q')))
+    assert result.dP_A_Pa == pytest.approx(raw.get('dP_A', raw.get('dP')))
+    assert result.dP_B_Pa == pytest.approx(raw['dP_B'])
+    assert result.T_out_A_K == pytest.approx(raw.get('T_out_A', raw.get('T_A_out')))
+    assert result.T_out_B_K == pytest.approx(raw.get('T_out_B', raw.get('T_B_out')))
+
+    # ── field arrays: same values surfaced under the ComputeResult keys ──
+    field_map = {'Ta': 'Ta', 'Tb': 'Tb', 'Ts': 'Ts',
+                 'P_fA': 'P_Pa', 'P_fB': 'P_Pa_B',
+                 'ucA': 'uc_real', 'vcA': 'vc_real', 'wcA': 'wc_real',
+                 'vmag_A': 'vmag', 'vmag_B': 'vmag_B'}
+    for k_res, k_raw in field_map.items():
+        assert k_res in result.fields, f"ComputeResult.fields missing {k_res!r}"
+        a = result.fields[k_res]
+        b = raw.get(k_raw)
+        if b is None:
+            assert a is None, f"{k_res}: result has value but raw {k_raw} is None"
+        else:
+            np.testing.assert_array_equal(np.asarray(a), np.asarray(b),
+                                          err_msg=f"{k_res} != raw[{k_raw}]")
+
+    # ── residuals dict surfaces the conservation diagnostics faithfully ──
+    for key in ('Q_enthalpy_A', 'Q_enthalpy_B', 'mass_imbalance_rel_A'):
+        assert key in result.residuals, f"residuals missing {key!r}"
+        rv = raw.get(key)
+        if rv is not None and np.isfinite(float(rv)):
+            assert result.residuals[key] == pytest.approx(float(rv)), key
+
+    # ── B3 C4/C5: ComputeResult carries the full render/export contract
+    # and is now the SINGLE carrier (raw_3d dict retired). New slots must
+    # equal their raw counterparts.
+    np.testing.assert_array_equal(
+        np.asarray(result.fields['L_mm']), np.asarray(raw['L_mm']),
+        err_msg="fields['L_mm'] != raw['L_mm']")
+    np.testing.assert_array_equal(result.fields['t_mm'],
+                                  fields.metadata['design_fields']['t_field_m'] * 1e3)
+    assert result.props['u_A_in_mps'] == pytest.approx(raw['u_A'])
+    assert result.props['T_in_A_K'] == pytest.approx(raw['T_in'])
+    assert result.diagnostics['_max_outer'] == raw['_max_outer']
+    assert result.diagnostics['mass_flow_A_kg_s'] == pytest.approx(
+        raw['mass_flow_A_kg_s'])
+    assert result.diagnostics['mass_flow_B_kg_s'] == pytest.approx(
+        raw['mass_flow_B_kg_s'])
+    assert result.diagnostics['mode'] == '3d'
+
+    # ── B3 C5: the raw_3d carrier is GONE — the ComputeResult is what
+    # window._result_3d now holds. Lock the FULL render/export contract:
+    # every key ui/plot_3d_results.finalize_plots_3d +
+    # _render_2d_slices_from_3d + main._export_results consume must be
+    # present (fields arrays + dataclass scalars). If a future change
+    # drops one, the 3D view / export silently blanks — this guard
+    # catches it without a live PyVista panel.
+    assert 'raw_3d' not in result.diagnostics, (
+        "raw_3d carrier must be retired (B3 C5)")
+    _fields_consumed = {
+        'Ta', 'Tb', 'Ts', 'vmag_A', 'vmag_B',
+        'P_fA', 'P_fB', 'L_mm', 't_mm',
+        'dx', 'dy', 'dz', 'Lx', 'Ly', 'Lz', 'dir_A', 'dir_B',
+        'ucA', 'vcA', 'wcA', 'ucB', 'vcB', 'wcB',
+    }
+    missing_f = _fields_consumed - set(result.fields)
+    assert not missing_f, (
+        f"ComputeResult.fields lost renderer keys: {sorted(missing_f)}")
+    _diag_consumed = {'_ltne_info', '_max_outer', 'mode'}
+    missing_d = _diag_consumed - set(result.diagnostics)
+    assert not missing_d, (
+        f"ComputeResult.diagnostics lost keys: {sorted(missing_d)}")
+    # Scalars the renderer + export read off the dataclass / props.
+    for attr in ('Q_W', 'dP_A_Pa', 'dP_B_Pa', 'T_out_A_K', 'T_out_B_K'):
+        assert hasattr(result, attr), f"ComputeResult missing {attr}"
+    assert 'u_A_in_mps' in result.props and 'T_in_A_K' in result.props
+
+
+@pytest.mark.parametrize('converged', [False, True])
+def test_diagnostics_and_warnings_survive_mapping(native_result, converged):
+    fields, _ = native_result
+    metadata = mutable_data(fields.metadata)
+    expected = dict(
+        envelope_valid=False,
+        envelope_reasons=['[A] supersonic: Ma_max = 1.20 >= 1'],
+        p_clip_hits=17,
+        convergence_detail={'simple_A': False, 'ltne': True},
+        model_h_balance={'outer_index': 1, 'post_after_last_thermal': True,
+                         'sides': {'A': {'physical_boundary_complete': False}}},
+    )
+    warnings = ['SIMPLE momentum solve did not converge to tol at: A',
+                'Choked/supersonic flow: predicted outlet vacuum.']
+    metadata['diagnostics'].update(expected, envelope_warnings=warnings)
+    fields = replace(fields, metadata=metadata,
+                     run_status={**fields.run_status, 'converged': converged})
+    result = to_compute_result(fields, evaluate(fields))
+    assert result.converged is converged
+    for name, value in expected.items():
+        assert result.diagnostics[name] == value
+    assert set(warnings) <= set(result.warnings)
+
+
+def test_unavailable_metrics_and_incomplete_execution_stay_visible(native_result):
+    fields, _ = native_result
+    incomplete = replace(fields, boundary_fluxes={})
+    result = to_compute_result(incomplete, evaluate(incomplete))
+    assert np.isnan(result.Q_W)
+    assert result.metadata['metric_status']['Q'] == 'insufficient_data'
+    assert any(w.startswith('Q: insufficient_data:') for w in result.warnings)
+    for state in ('failed', 'cancelled'):
+        incomplete = replace(fields, run_status={**fields.run_status, 'execution': state})
+        with pytest.raises(ValueError, match='completed result'):
+            to_compute_result(incomplete, evaluate(fields))
+
+
+@pytest.mark.parametrize('native_result', [2], indirect=True)
+@pytest.mark.parametrize('state', ['accepted_warning', 'accepted', 'failed', 'no_richardson'])
+def test_richardson_grid_warning_reaches_gui_without_changing_verdict(native_result, state):
+    from sjtu_tpmshx.applications.gui.ui.mixins.run_results import RunResultsMixin
+    fields, _ = native_result
+    performance = evaluate(fields)
+    diagnostics = mutable_data(fields.metadata['diagnostics'])
+    diagnostics['warnings_list'] = []
+    diagnostics['Q_richardson_warn'] = state in ('accepted_warning', 'failed')
+    diagnostics['richardson_info'] = (None if state == 'no_richardson' else
+        {**diagnostics['richardson_info'], 'extrapolated': state != 'failed'})
+    if state == 'failed':
+        diagnostics['warnings_list'] = ['Richardson 细解或外推未通过，未外推']
+    source = replace(fields, metadata={**fields.metadata, 'diagnostics': diagnostics})
+    result = to_compute_result(source, performance)
+    warning = '主网格与 Richardson 细网格换热量差异超过 10%'
+    assert sum(warning in item for item in result.warnings) == (state == 'accepted_warning')
+    assert result.converged == fields.run_status['converged']
+    assert result.Q_W == performance.metrics['Q'].value
+    assert result.diagnostics['Q_richardson_warn'] == diagnostics['Q_richardson_warn']
+    if state == 'failed':
+        assert sum('未外推' in item for item in result.warnings) == 1
+    window = _ResultWindow()
+    RunResultsMixin.write_result(window, result)
+    assert (warning in RunResultsMixin._diag_summary_text(window)) == (state == 'accepted_warning')
+
+
+def test_native_result_reaches_gui_diagnostics_and_display_cache(native_result):
+    from sjtu_tpmshx.applications.gui.ui.mixins.run_results import RunResultsMixin
+    fields, _ = native_result
+    result = to_compute_result(fields, evaluate(fields))
+    window = _ResultWindow()
+    RunResultsMixin.write_result(window, result)
+    if fields.grid['dimension'] == 3:
+        for side in ('A', 'B'):
+            assert window._result_summary()['Q_' + side] == pytest.approx(
+                result.residuals['Q_' + side], nan_ok=True)
+        assert window._result_summary()['closure_basis'] == '主网格两侧有符号焓流'
+        text = RunResultsMixin._diag_summary_text(window)
+        assert '两侧焓流: Q_A' in text and '能量闭合（主网格两侧有符号焓流）' in text
+    else:
+        for name in ('ucA', 'vcA', 'ucB', 'vcB'):
+            np.testing.assert_array_equal(window.cache.get_result('2d').fields[name], fields.fields[name])
+            assert name + '_disp' not in window.cache.get_result('2d').fields
+
+
+def test_diagnostic_text_includes_recorded_stage_seconds():
+    from sjtu_tpmshx.applications.gui.ui.mixins.run_results import RunResultsMixin
+    window = _ResultWindow()
+    window.write_result(ComputeResult(metadata={'timings_s': {
+        'prepare': 0.125, 'solve': 12.5, 'postprocess': 0.25, 'display': 0.375}}))
+    text = RunResultsMixin._diag_summary_text(window)
+    assert '阶段耗时：准备 0.125 s · 求解 12.500 s · 后处理 0.250 s · 显示 0.375 s' in text
+
+
+@pytest.mark.parametrize('mode', ['2d', '3d'])
+@pytest.mark.parametrize('outer_iters', [0, 7, None])
+def test_gui_summary_uses_recorded_outer_iterations(mode, outer_iters):
+    from sjtu_tpmshx.applications.gui.ui.mixins.run_results import RunResultsMixin
+    result = ComputeResult(diagnostics={
+        'mode': mode, '_max_outer': 99,
+        'convergence_detail': {'outer_iters': outer_iters},
+    })
+    window = _ResultWindow()
+    RunResultsMixin.write_result(window, result)
+    result.diagnostics['convergence_detail']['outer_iters'] = 99
+    assert window._result_summary()['iters']['iter_outer'] == outer_iters
+    expected = '—' if outer_iters is None else str(outer_iters)
+    assert f'迭代: 外循环 {expected} · SIMPLE A/B —/—' in RunResultsMixin._diag_summary_text(window)
+
+
+@pytest.mark.parametrize('mode', ['2d', '3d'])
+def test_gui_summary_keeps_published_coefficients_and_envelope_notices(mode):
+    result = ComputeResult(coeffs={'K_ss': 16.}, diagnostics={
+        'mode': mode, 'envelope_warnings': ['recorded envelope notice']})
+    window = _ResultWindow()
+    window.write_result(result)
+    result.coeffs['K_ss'] = -1.
+    result.diagnostics['envelope_warnings'].append('later source edit')
+    summary = window._result_summary()
+    assert summary['coeffs']['K_ss'] == 16.
+    assert summary['envelope_warnings'] == ['recorded envelope notice']
+
+
+def test_mapping_keeps_recorded_state_after_producer_drafts_change(native_result):
+    fields, raw = native_result
+    expected = to_compute_result(fields, evaluate(fields))
+    # Change the original backend carrier after capture, including display,
+    # headline, direction, and failure data. The immutable archive owns its run.
+    changed = {**raw, 'Ta': raw['Ta'] + 100., 'Tb': raw['Tb'] - 100.,
+               'T_out_A_K': -999., 'T_out_A': -999., 'Q_total': -999., 'Q': -999.,
+               'dir_A': 1, 'dir_B': 3, 'solver_converged': False}
+    original = dict(raw)
+    try:
+        raw.update(changed)
+        actual = to_compute_result(fields, evaluate(fields))
+        for name in ('Q_W', 'T_out_A_K', 'T_out_B_K', 'converged', 'residuals'):
+            assert_slots(getattr(actual, name), getattr(expected, name))
+    finally:
+        raw.clear()
+        raw.update(original)
+
+
+def test_mapped_results_own_mutable_fields_and_nested_data(native_result):
+    from copy import deepcopy
+
+    native, _ = native_result
+    performance = evaluate(native)
+    first = to_compute_result(native, performance)
+    second = to_compute_result(native, performance)
+    expected = deepcopy(second)
+    native_before = mutable_data(dict(fields=native.fields, metadata=native.metadata))
+    source_arrays = [value for group in (native.fields, native.metadata['design_fields'])
+                     for value in group.values() if isinstance(value, np.ndarray)]
+    grid_keys = (dict(dx_arr='dx', dy_arr='dy') if native.grid['dimension'] == 2
+                 else dict(dx='dx', dy='dy', dz='dz'))
+    for name, value in first.fields.items():
+        if name in grid_keys:
+            # Grid widths were already shared immutable evidence before mapping.
+            assert value is second.fields[name] is native.grid[grid_keys[name]]
+            assert not value.flags.writeable
+            with pytest.raises(ValueError):
+                value.setflags(write=True)
+        elif isinstance(value, np.ndarray):
+            assert value.flags.writeable
+            assert value.shape == second.fields[name].shape
+            assert value.dtype == second.fields[name].dtype
+            np.testing.assert_array_equal(value, second.fields[name])
+            assert not np.shares_memory(value, second.fields[name])
+            assert all(not np.shares_memory(value, source) for source in source_arrays)
+            value.flat[0] = -9999.
+        elif value is None:
+            assert second.fields[name] is None
+
+    first.diagnostics['convergence_detail']['inlet_pressure']['A']['definition'] = 'changed'
+    first.props['D_h_m'] = -1.
+    first.coeffs['K_ss'] = -1.
+    first.metadata['darcy_forchheimer']['mode'] = 'changed'
+    first.metadata['model_refs'][0]['parameters']['fluid'] = 'changed'
+    first.warnings.append('first mapping only')
+    first.extrap_reasons.append('first mapping only')
+    for name, value in second.fields.items():
+        if isinstance(value, np.ndarray):
+            np.testing.assert_array_equal(value, expected.fields[name])
+    assert_slots(vars(second), vars(expected))
+    assert_slots(native.fields, native_before['fields'])
+    assert_slots(native.metadata, native_before['metadata'])
+
+
+@pytest.mark.parametrize('native_result', [2], indirect=True)
+def test_nonuniform_zone_mapping_preserves_units_types_and_isolation(native_result, tmp_path):
+    """Controlled nonuniform archive exercises mapping, without another solve."""
+    from sjtu_tpmshx.shared.io.result_io import load_result, save_result
+    from sjtu_tpmshx.shared.models.zone_config import Zone, ZoneConfig
+
+    native, _ = native_result
+    metadata = mutable_data(native.metadata)
+    metadata['design_mode'] = 'y'
+    metadata['parameters']['zone_config'] = dict(tpms_type='Gyroid', k_s=16., zones=[
+        dict(name='lower', y_frac_start=0., y_frac_end=.5, L_m=.004, t_m=.0003,
+             props_A={'K_ff': 2e-9}, props_B={'K_ff': 3e-9}),
+        dict(name='upper', y_frac_start=.5, y_frac_end=1., L_m=.007, t_m=.0006,
+             props_A={'K_ff': 4e-9}, props_B={'K_ff': 5e-9}),
+    ])
+    design = metadata['design_fields']
+    split = design['L_field_m'].shape[1] // 2
+    for key, lower, upper in (('L_field_m', .004, .007), ('t_field_m', .0003, .0006)):
+        design[key][:, :split] = lower
+        design[key][:, split:] = upper
+    design['axis'] = 'y'
+    # Native archive trust-boundary validation and readback remain real.
+    path = tmp_path / 'controlled-zones.h5'
+    save_result(replace(native, metadata=metadata), path)
+    native = load_result(path)
+    performance = evaluate(native)
+    first = to_compute_result(native, performance)
+    second = to_compute_result(native, performance)
+    zone = first.fields['zone_config']
+    assert isinstance(zone, ZoneConfig) and all(isinstance(item, Zone) for item in zone.zones)
+    zone.validate()
+    assert [(item.L_mm, item.t_mm) for item in zone.zones] == [(4., .3), (7., .6)]
+    assert isinstance(first.fields['za'], dict) and first.fields['za']['axis'] == 'y'
+    for source, output in (('L_field_m', 'L_field'), ('t_field_m', 't_field')):
+        np.testing.assert_array_equal(first.fields['za'][output], design[source] * 1e3)
+        assert not np.shares_memory(first.fields['za'][output], second.fields['za'][output])
+    assert not np.shares_memory(first.fields['za']['eps_arr'], native.metadata['design_fields']['eps_arr'])
+    zone.zones[0].L_mm = 19.
+    zone.zones[0].props_A['K_ff'] = -1.
+    first.fields['za']['L_field'][0, 0] = 19.
+    first.fields['za']['eps_arr'][0, 0] = -1.
+    other_zone = second.fields['zone_config']
+    assert other_zone.zones[0].L_mm == 4. and other_zone.zones[0].props_A['K_ff'] == 2e-9
+    assert native.metadata['parameters']['zone_config']['zones'][0]['L_m'] == .004
+    assert native.metadata['parameters']['zone_config']['zones'][0]['props_A']['K_ff'] == 2e-9
+    for source, output in (('L_field_m', 'L_field'), ('t_field_m', 't_field')):
+        np.testing.assert_array_equal(second.fields['za'][output], design[source] * 1e3)
+        np.testing.assert_array_equal(native.metadata['design_fields'][source], design[source])
+    np.testing.assert_array_equal(second.fields['za']['eps_arr'], design['eps_arr'])
+    np.testing.assert_array_equal(native.metadata['design_fields']['eps_arr'], design['eps_arr'])
+
+
+def test_compute_result_defaults_are_zero_or_empty():
+    """Empty constructor must not raise; numbers default to zero, dicts
+    + lists default empty so downstream JSON serialisers don't blow up."""
+    r = ComputeResult()
+    assert r.Q_W == 0.0
+    assert r.dP_A_Pa == 0.0
+    assert r.dP_B_Pa == 0.0
+    assert r.T_out_A_K == 0.0
+    assert r.T_out_B_K == 0.0
+    assert r.fields == {}
+    assert r.coeffs == {}
+    assert r.props == {}
+    assert r.residuals == {}
+    assert r.zones is None
+    assert r.warnings == []
+    assert r.extrap_reasons == []
+    assert r.diagnostics == {}
+
+
+def test_compute_result_independent_default_dicts():
+    """``field(default_factory=dict)`` must give each instance its own
+    dict, not a shared class-level singleton."""
+    a = ComputeResult()
+    b = ComputeResult()
+    a.fields['foo'] = 1
+    assert 'foo' not in b.fields

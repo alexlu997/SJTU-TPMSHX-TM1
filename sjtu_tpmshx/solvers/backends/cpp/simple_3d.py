@@ -10,7 +10,7 @@ from pathlib import Path
 
 import numpy as np
 
-from sjtu_tpmshx.domain.cancellation import CancelledError
+from sjtu_tpmshx.shared.domain.cancellation import CancelledError
 from ._simple_abi import _Callbacks, _F2, _Mass, _Momentum, make_callbacks
 
 

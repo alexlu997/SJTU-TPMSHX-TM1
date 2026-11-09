@@ -5,10 +5,10 @@ from uuid import uuid4
 
 import numpy as np
 
-from sjtu_tpmshx.domain.field_result import FieldResult
-from sjtu_tpmshx.domain.persistence_validation import validate_grid
-from sjtu_tpmshx.domain.portable_data import mutable_data
-from sjtu_tpmshx.models.catalog import resolve_model
+from sjtu_tpmshx.shared.domain.field_result import FieldResult
+from sjtu_tpmshx.shared.domain.persistence_validation import validate_grid
+from sjtu_tpmshx.shared.domain.portable_data import mutable_data
+from sjtu_tpmshx.shared.models.catalog import resolve_model
 
 
 def prepared_input(case):

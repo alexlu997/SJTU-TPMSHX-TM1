@@ -43,7 +43,7 @@ jobs:
         with:
           python-version: '3.13'
           cache: pip
-          cache-dependency-path: requirements/base.txt
+          cache-dependency-path: engineering/requirements/base.txt
       - name: Create isolated native qualification environment
         shell: bash
         run: |
@@ -59,16 +59,16 @@ jobs:
           PY
       - name: Install locked qualification dependencies
         shell: bash
-        run: '"$CI_PYTHON" -m pip install -r requirements/base.txt'
+        run: '"$CI_PYTHON" -m pip install -r engineering/requirements/base.txt'
       - name: Check exact dependency lock
         shell: bash
-        run: '"$CI_PYTHON" -m sjtu_tpmshx.runs.tools.check_locked_environment requirements/base.txt'
+        run: '"$CI_PYTHON" -m sjtu_tpmshx.development.runs.tools.check_locked_environment engineering/requirements/base.txt'
       - name: Check dependency compatibility
         shell: bash
         run: '"$CI_PYTHON" -m pip check'
       - name: Fetch fixed native sources and build tool
         shell: bash
-        run: '"$CI_PYTHON" scripts/build_native_dependencies.py fetch'
+        run: '"$CI_PYTHON" engineering/scripts/build_native_dependencies.py fetch'
       - name: Record hosted toolchain image
         id: toolchain
         shell: bash
@@ -80,17 +80,17 @@ jobs:
           path: |
             .cache/native-deps/build/coolprop-macos-arm64/libCoolProp.a
             .cache/native-deps/build/coolprop-windows-x64/Release/CoolProp.lib
-          key: coolprop-${{ runner.os }}-${{ runner.arch }}-py3.13-${{ steps.toolchain.outputs.image }}-${{ hashFiles('sjtu_tpmshx/solvers/native/dependencies-lock.toml', 'scripts/build_native_dependencies.py') }}
+          key: coolprop-${{ runner.os }}-${{ runner.arch }}-py3.13-${{ steps.toolchain.outputs.image }}-${{ hashFiles('sjtu_tpmshx/solvers/native/dependencies-lock.toml', 'engineering/scripts/build_native_dependencies.py') }}
       - name: Build locked CoolProp on cache miss
         if: steps.coolprop.outputs.cache-hit != 'true'
         shell: bash
-        run: '"$CI_PYTHON" scripts/build_native_dependencies.py build --component coolprop'
+        run: '"$CI_PYTHON" engineering/scripts/build_native_dependencies.py build --component coolprop'
       - name: Build current project libraries and callers offline
         shell: bash
-        run: '"$CI_PYTHON" scripts/build_native_dependencies.py build --component pilot'
+        run: '"$CI_PYTHON" engineering/scripts/build_native_dependencies.py build --component pilot'
       - name: Run independent native callers
         shell: bash
-        run: '"$CI_PYTHON" scripts/build_native_dependencies.py verify'
+        run: '"$CI_PYTHON" engineering/scripts/build_native_dependencies.py verify'
       - name: Pack native runtime files with executable permissions
         shell: bash
         run: |
@@ -176,7 +176,7 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
           cache: pip
-          cache-dependency-path: requirements/base.txt
+          cache-dependency-path: engineering/requirements/base.txt
       - name: Create isolated native qualification environment
         shell: bash
         run: |
@@ -192,10 +192,10 @@ jobs:
           PY
       - name: Install locked qualification dependencies
         shell: bash
-        run: '"$CI_PYTHON" -m pip install -r requirements/base.txt'
+        run: '"$CI_PYTHON" -m pip install -r engineering/requirements/base.txt'
       - name: Check exact dependency lock
         shell: bash
-        run: '"$CI_PYTHON" -m sjtu_tpmshx.runs.tools.check_locked_environment requirements/base.txt'
+        run: '"$CI_PYTHON" -m sjtu_tpmshx.development.runs.tools.check_locked_environment engineering/requirements/base.txt'
       - name: Check dependency compatibility
         shell: bash
         run: '"$CI_PYTHON" -m pip check'
@@ -221,7 +221,7 @@ jobs:
           PY
       - name: Fetch locked Eigen headers for fixture-built libraries
         shell: bash
-        run: '"$CI_PYTHON" scripts/build_native_dependencies.py fetch-eigen'
+        run: '"$CI_PYTHON" engineering/scripts/build_native_dependencies.py fetch-eigen'
       - name: Require explicit native libraries for thermal evidence tests
         shell: bash
         run: |
@@ -246,12 +246,12 @@ jobs:
         shell: bash
         run: |
           shard_options=()
-          for group in sjtu_tpmshx/tests/native/_ci_"$NATIVE_SHARD_SET"_shard*.txt; do
+          for group in sjtu_tpmshx/development/tests/native/_ci_"$NATIVE_SHARD_SET"_shard*.txt; do
             shard_options+=("--ci-shard-modules=$group")
           done
           "$CI_PYTHON" -m pytest -q -ra -n 2 --dist loadscope --max-worker-restart=0 \
-          @sjtu_tpmshx/tests/native/_ci_suite.txt \
-          -p sjtu_tpmshx.tests.ci_shard --ci-shard=${{ matrix.shard }} \
+          @sjtu_tpmshx/development/tests/native/_ci_suite.txt \
+          -p sjtu_tpmshx.development.tests.ci_shard --ci-shard=${{ matrix.shard }} \
           "${shard_options[@]}" \
           --ci-manifest=.cache/ci/native-manifest \
           --timeout=600 --timeout-method=thread --durations=20 \
@@ -307,7 +307,7 @@ jobs:
           python-version: ${{ matrix.python }}
           cache: pip
           cache-dependency-path: |
-            requirements/base.txt
+            engineering/requirements/base.txt
             pyproject.toml
       - name: Create isolated CI environment
         shell: bash
@@ -327,7 +327,7 @@ jobs:
         run: '"$CI_PYTHON" -m pip install -r requirements.txt'
       - name: Check exact dependency lock
         shell: bash
-        run: '"$CI_PYTHON" -m sjtu_tpmshx.runs.tools.check_locked_environment requirements/base.txt --allow-extra sjtu-tpmshx'
+        run: '"$CI_PYTHON" -m sjtu_tpmshx.development.runs.tools.check_locked_environment engineering/requirements/base.txt --allow-extra sjtu-tpmshx'
       - name: Check dependency compatibility
         shell: bash
         run: '"$CI_PYTHON" -m pip check'
@@ -373,7 +373,7 @@ jobs:
           PY
       - name: Fetch locked Eigen headers for native temperature tests
         shell: bash
-        run: '"$CI_PYTHON" scripts/build_native_dependencies.py fetch-eigen'
+        run: '"$CI_PYTHON" engineering/scripts/build_native_dependencies.py fetch-eigen'
       - name: Build and run independent C++ callers on macOS
         if: runner.os == 'macOS' && matrix.part == 'fast-0'
         run: make -f sjtu_tpmshx/solvers/native/Makefile check
@@ -391,11 +391,11 @@ jobs:
       - name: Run fast test subset
         shell: bash
         run: >-
-          "$CI_PYTHON" -m pytest sjtu_tpmshx/tests/ -q -ra
-          -m "not slow and not heavy" --ignore=sjtu_tpmshx/tests/integration_tm1
+          "$CI_PYTHON" -m pytest sjtu_tpmshx/development/tests/ -q -ra
+          -m "not slow and not heavy" --ignore=sjtu_tpmshx/development/tests/integration_tm1
           -n 2 ${{ matrix.part == 'fast-0' && '--dist load --maxschedchunk=1' || '--dist worksteal' }} --max-worker-restart=0
-          -p sjtu_tpmshx.tests.ci_shard --ci-manifest=.cache/ci/fast/fast-manifest
-          --ci-covered-modules=sjtu_tpmshx/tests/native/_ci_suite.txt
+          -p sjtu_tpmshx.development.tests.ci_shard --ci-manifest=.cache/ci/fast/fast-manifest
+          --ci-covered-modules=sjtu_tpmshx/development/tests/native/_ci_suite.txt
           --ci-shard=${{ matrix.part == 'fast-0' && '0' || '1' }}
           --timeout=600 --timeout-method=thread
           --durations=30 --junitxml=.cache/ci/fast/fast.xml
@@ -414,8 +414,8 @@ jobs:
         if: ${{ !cancelled() && matrix.part == 'fast-1' }}
         shell: bash
         run: >-
-          "$CI_PYTHON" -m pytest sjtu_tpmshx/tests/integration_tm1 -q -ra
-          -p sjtu_tpmshx.tests.ci_shard --ci-manifest=.cache/ci/integration/integration-manifest
+          "$CI_PYTHON" -m pytest sjtu_tpmshx/development/tests/integration_tm1 -q -ra
+          -p sjtu_tpmshx.development.tests.ci_shard --ci-manifest=.cache/ci/integration/integration-manifest
           --basetemp=.cache/real-file-handoff
           --timeout=600 --timeout-method=thread
           --durations=30 --junitxml=.cache/ci/integration/integration.xml

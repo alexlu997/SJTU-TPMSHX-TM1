@@ -1,6 +1,6 @@
 """Record selected original domains from authoritative prepared inputs."""
-from sjtu_tpmshx.domain.run_warnings import range_context, record_range
-from sjtu_tpmshx.df_surrogate._domain import TRAIN_L_NODES, TRAIN_T_NODES
+from sjtu_tpmshx.shared.domain.run_warnings import range_context, record_range
+from sjtu_tpmshx.shared.df_surrogate._domain import TRAIN_L_NODES, TRAIN_T_NODES
 
 
 def record_geometry_ranges(case):

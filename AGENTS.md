@@ -75,14 +75,14 @@ and rework through complete changes, clear decisions, and verified results.
 - For Matplotlib, Qt smoke, and pytest commands, set `MPLCONFIGDIR` and
   `XDG_CACHE_HOME` to ignored `.cache/` paths in the current worktree.
 - Keep shared environments outside task worktrees. Install only dependencies
-  from `requirements/base.txt`, not `requirements.txt`, in a shared base environment.
+  from `engineering/requirements/base.txt`, not `requirements.txt`, in a shared base environment.
   Use the applicable separate lock for other environment purposes.
   Do not install this project into a shared environment in editable mode.
 - Keep one accepted environment per active role: base, BO, and minimal postprocessing.
   A packaging or historical environment needs a recorded consumer and removal condition.
   After a verified replacement and zero remaining consumers, retire its predecessor through the archive and removal checks.
 - Before the first environment-dependent work in a task, run
-  `python -m sjtu_tpmshx.runs.tools.check_locked_environment` with the applicable lock.
+  `python -m sjtu_tpmshx.development.runs.tools.check_locked_environment` with the applicable lock.
   Then run `python -m pip check`. The lock checker ignores the pip version.
   Reuse passing results only while the interpreter, applicable lock, and installed
   dependencies stay unchanged. Repeat both checks after these inputs change or
@@ -109,8 +109,12 @@ and rework through complete changes, clear decisions, and verified results.
 - Organize modules by responsibility. Give shared rules and mutable state clear owners.
   Use explicit inputs, outputs, and interfaces between modules.
   Do not split or combine code based only on file length or repeated lines.
-- Keep GUI code in `ui/` and `controllers/`. Keep lower layers free of Qt.
-  Keep workflow orchestration separate from numerical implementation in `solvers/`.
+- Keep GUI code in `applications/gui/ui/` and `applications/gui/controllers/`.
+  Keep lower layers free of Qt.
+  Keep application workflows in `applications/` and numerical implementation in `solvers/`.
+  Keep shared data, models, resources and file I/O in `shared/`.
+  Keep `development/` limited to `tests/`, `validation/` and `runs/`.
+  Keep build scripts, packaging and dependency locks in root `engineering/`.
   Do not duplicate correlations or physical constants between these layers.
 - Reuse an existing rule when its meaning and required behavior match.
   Keep small duplication when sharing would combine different contracts.

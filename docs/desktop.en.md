@@ -18,8 +18,8 @@ Work from the repository root. Make sure that `.venv-path` starts with an existi
 
 Keep these items in the project folder:
 
-- Complete `sjtu_tpmshx/` source, including `configs/*.json`, `df_surrogate/_prebuilt/*.csv`, and interface resources.
-- This host's `.venv-path`, the corresponding `requirements/*.txt`, usage examples, and operation instructions.
+- Complete `sjtu_tpmshx/` source, including `shared/configs/*.json`, `shared/df_surrogate/_prebuilt/*.csv`, and interface resources.
+- This host's `.venv-path`, the corresponding `engineering/requirements/*.txt`, usage examples, and operation instructions.
 - A dynamic library that matches the source revision, platform, and ABI.
   Include `sjtu_tpmshx/solvers/native/include/`, `sjtu_tpmshx/solvers/native/dependencies-lock.toml`, `sjtu_tpmshx/solvers/native/THIRD_PARTY_NOTICES.md`, and `sjtu_tpmshx/solvers/native/licenses/`.
 - Writable model-table and runtime-cache directories. Table files must stay outside dynamic-library and read-only resource directories.
@@ -67,7 +67,7 @@ Ordinary computation, Quick Design and optimization use C++. The GUI retains the
 
 ## Optional frozen packaging
 
-`sjtu_tpmshx.desktop` starts the existing GUI and public three-module pipeline. `packaging/desktop.spec` uses PyInstaller to collect the interpreter, locked runtime dependencies, model configuration, DF table, and SVG icons. It excludes raw experimental data, research outputs, tests, and Office fonts. Default builds match `requirements/base.txt` capabilities and exclude optional Torch/BoTorch dependencies. A complete BO distribution needs a separate lock and real optimization validation. Removing exclusions alone is insufficient.
+`sjtu_tpmshx.desktop` starts the existing GUI and public three-module pipeline. `engineering/packaging/desktop.spec` uses PyInstaller to collect the interpreter, locked runtime dependencies, model configuration, DF table, and SVG icons. It excludes raw experimental data, research outputs, tests, and Office fonts. Default builds match `engineering/requirements/base.txt` capabilities and exclude optional Torch/BoTorch dependencies. A complete BO distribution needs a separate lock and real optimization validation. Removing exclusions alone is insufficient.
 
 Frozen Quick Design uses serial candidate search in one process to prevent child processes from starting another GUI. Source operation keeps its existing parallel path. The interface reports the actual execution mode.
 
@@ -86,7 +86,7 @@ macOS outputs an `.app`. Windows outputs a folder containing the executable and 
 ## Environment and build
 
 Keep the shared solver environment and root `.venv-path` unchanged.
-For an authorized desktop build, install `requirements/desktop.txt` in a separate build environment.
+For an authorized desktop build, install `engineering/requirements/desktop.txt` in a separate build environment.
 It contains the original lock and pinned packaging tools.
 Save that environment's absolute interpreter path in `.cache/desktop-build/.venv-path`.
 Use it for the following modules from the repository root.
@@ -114,9 +114,9 @@ $env:XDG_CACHE_HOME = Join-Path $PWD '.cache/desktop-build/xdg-cache'
 `PYINSTALLER_CONFIG_DIR` is PyInstaller's official build-cache variable. See [environment variables](https://pyinstaller.org/en/stable/man/pyinstaller.html#environment-variables). These settings apply to development-host builds. The desktop launcher manages installed-program startup caches, as described below.
 
 ```text
-python -m sjtu_tpmshx.runs.tools.check_locked_environment requirements/desktop.txt
+python -m sjtu_tpmshx.development.runs.tools.check_locked_environment engineering/requirements/desktop.txt
 python -m pip check
-python -m PyInstaller --noconfirm --clean --distpath .cache/desktop-build/dist --workpath .cache/desktop-build/work packaging/desktop.spec
+python -m PyInstaller --noconfirm --clean --distpath .cache/desktop-build/dist --workpath .cache/desktop-build/work engineering/packaging/desktop.spec
 ```
 
 Before the build, set `TPMSHX_NATIVE_SOLVER_LIBRARY` to an absolute prebuilt library path for the target platform. The build fails when it is unset:

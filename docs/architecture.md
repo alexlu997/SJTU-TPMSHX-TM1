@@ -26,7 +26,7 @@ Conservative staggered temperature retains its physical-distance minmod
 reconstruction and original boundary treatment. Axes with fewer than three
 cells stay first order.
 
-`tests/native/test_native_engineering_acceptance.py` covers ordered air,
+`development/tests/native/test_native_engineering_acceptance.py` covers ordered air,
 water, CO2 and sCO2 pairs in 2D and 3D. It checks selected physical models,
 convergence, finite fields, mass and energy with the existing limits.
 Independent formulas, discrete balances, manufactured solutions, component
@@ -346,16 +346,27 @@ The former optimizer-only energy evaluator is now part of common postprocessing.
 ## Runtime flow
 
 All core source is in `sjtu_tpmshx/`. Package-level `compute.py` is the main computation entry.
-`main.py` starts the GUI. `solvers/native/` contains the C++ source, C ABI, build files, caller tests and license notices.
-`solvers/backends/cpp/` contains the Python bindings. `.github/workflows/` contains CI configuration.
+`preprocess/`, `solvers/` and `postprocess/` own the three computation stages.
+`shared/` owns data contracts, models, file interfaces and resources. `applications/` owns GUI, CLI, design, optimization and recovery.
+`development/` keeps tests, validation and runs as three separate groups.
+The package-level `main.py`, `cli.py` and `desktop.py` keep short startup entries.
+`applications/gui/main.py` implements the GUI. `applications/cli/main.py` implements the CLI.
+`solvers/native/` keeps C++ source, C ABI, build files, caller tests and license notices. `solvers/backends/cpp/` contains Python bindings.
+Root `engineering/` holds build scripts, packaging and dependency locks. `docs/contracts/` holds data contracts. `.github/workflows/` contains CI configuration.
+
+`shared/`, `applications/` and `development/` group source for reading; they do not combine dependency layers.
+`OWNERS` in `development/runs/tools/audit_import_graph.py` maps nested paths to the original domain, models, io, main, ui, controllers and result_adapter owners.
+`result_adapter` is Qt-free application result mapping at layer 4, the original controllers mapping layer.
+The three stages and shared units do not depend on GUI or development tools.
+The three `SANCTIONED` edges stay unchanged. Development units remain free consumers; production units cannot import them. Qt isolation stays unchanged.
 
 ```text
 applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
                                                           -> postprocess.api -> PerformanceResult
-                         domain / models / versioned resources / file I/O
+                         shared: domain / models / versioned resources / file I/O
 ```
 
-- `domain/` owns immutable CaseData, FieldResult, metric definitions and
+- `shared/domain/` owns immutable CaseData, FieldResult, metric definitions and
   runtime control ports. It is Qt-free.
 - `preprocess/` owns physical grid/boundary preparation, fixed geometry and
   coefficients, model/resource selection and portable execution inputs.
@@ -542,14 +553,14 @@ Temperature is not scaled. FullCC nonzero sources stay
   Full-compute evaluation reuses successful heat and mass reductions only within
   that call, lazily by side and by coarse/fine evidence. Each requested metric
   keeps its own missing/unsupported/invalid status handling.
-- `models/` and `df_surrogate/` own shared pure closures and versioned resources.
+- `shared/models/` and `shared/df_surrogate/` own shared pure closures and versioned resources.
   Explicit cleaning/calibration entry points live under `preprocess/offline/`.
-- `io/` owns strict YAML/HDF5/JSON interchange. Its `cli_options` module maps
+- `shared/io/` owns strict YAML/HDF5/JSON interchange. Its `cli_options` module maps
   shared host execution arguments into `RunControl` without adding host paths
   to saved cases/configuration or coupling CLI consumers to workflows.
   VTK export is a postprocessing
   view of recorded data, not a new numerical state.
-- `configs/` owns packaged case configuration.
+- `shared/configs/` owns packaged case configuration.
 - Public conservation tools prepare a `ComputeConfig` with `preprocess.api.prepare_case`
   and execute it with `solvers.api.run_case`. The Python-only `prepare_research_case`
   entry and `research_three_d_v1` execution are retired. Native component tests retain
@@ -562,7 +573,7 @@ Temperature is not scaled. FullCC nonzero sources stay
   It checks cancellation between stages and after postprocessing. It records stage times and warnings in the returned `FieldResult` metadata.
   The result identity and immutable array storage stay unchanged. The workflow returns `CaseData`, `FieldResult` and `PerformanceResult`.
   Overall progress uses this workflow. `RunControl` keeps raw solver progress, backend selection and host callbacks.
-  `controllers/module_adapter.compute_result` calls this workflow and the sole application result mapper, `to_compute_result`.
+  `applications/result_adapter.compute_result` calls this workflow and the sole application result mapper, `to_compute_result`.
   The GUI, direct-summary CLI and validation tools use this entry. The file CLI uses the same workflow and portable results.
   The previous 2D/3D mappings stay only as frozen test references for real native-result comparisons.
 - `solvers/backends/prepared_2d.py` and `prepared_3d.py` validate execution inputs for native execution.
@@ -570,7 +581,7 @@ Temperature is not scaled. FullCC nonzero sources stay
   Each builder keeps its check order and dimension-specific grid, port and design validation.
   Callers can request writable design copies; the binding borrows immutable arrays through the same checks.
   `solvers/backends/capture_2d.py` captures portable native 2D evidence. Numerical drivers remain in C++.
-- `ui/` owns PySide6 and PyVista presentation only. `ResultCache` owns one published `ComputeResult` for the accepted dimension.
+- `applications/gui/ui/` owns PySide6 and PyVista presentation only. `ResultCache` owns one published `ComputeResult` for the accepted dimension.
   Both dimensions publish separate scalar, metadata, diagnostic and warning containers while sharing field arrays.
   The footer, history, diagnostic text, plots and exports read this result. Display timing is added to its metadata after publication.
   A failed or cancelled attempt keeps
@@ -584,7 +595,7 @@ Temperature is not scaled. FullCC nonzero sources stay
 They also include display pressures `P_fA/P_fB` (Pa), `L_mm/t_mm` (mm),
   and `dx/dy/dz` widths (m). Legacy `vmag/P_kPa` keys stay aliases for A-side magnitude and pressure in
   kPa. The display pressure reference is unchanged. Full native thermal states
-  and flux evidence belong to `results.h5`. `ui/typography.py` uses native sans-serif fonts for Qt and
+  and flux evidence belong to `results.h5`. `applications/gui/ui/typography.py` uses native sans-serif fonts for Qt and
   keeps publication fonts for Matplotlib/VTK, without bundling font files or
   importing Qt into lower layers.
 
@@ -596,10 +607,10 @@ GUI computations pass the selected native thread limit through `RunControl`.
   refinement is selected through the mesh scheme. Loading a GUI preset or
   session with different retired settings reports the conversion and saves
   the current explicit settings. Scripted solver configuration stays separate.
-- `validation/` and `runs/` are executable research and verification tools,
+- `development/validation/` and `development/runs/` are executable research and verification tools,
   not alternative production implementations.
 
-The experimental-Q runner (`validation.cases.validate_sco2_exp_q`) freezes
+The experimental-Q runner (`development.validation.cases.validate_sco2_exp_q`) freezes
 all selected topology/case/dimension members before the first solve. Its CLI
 writes `partial.csv` and `state.json` after each member using the existing
 staged sibling-file publisher. Failed, cancelled and numerically unqualified
@@ -663,9 +674,9 @@ Historical experimental cases and their original results are indexed in
 [retired tools](history/retired-tools.md). Rerunning their geometry under the
 current model produces a new comparison, not a reproduction of that experiment.
 
-Historical water-Nu comparisons remain in `tests/water_nu_reference.py`.
+Historical water-Nu comparisons remain in `development/tests/water_nu_reference.py`.
 The independent one-dimensional enthalpy reference remains in
-`tests/enthalpy_1d_reference.py` for its focused regression tests.
+`development/tests/enthalpy_1d_reference.py` for its focused regression tests.
 The former full 2D/3D Python enthalpy iterators are retired.
 Native audits and component replay cover their retained physical contracts.
 Production keeps the direct water CFD closure and native enthalpy driver.
@@ -748,7 +759,7 @@ configured cap with zero charge.
 These records never control or extend a solve. The historical bootstrap summary still describes the first coarse level. Previous result files stay readable. Rerunning an explicit legacy configuration
 requires selecting F2 and accepting the independently measured result.
 
-Preparation and model references use `models/fluid_props.FluidModel`. The registry imports
+Preparation and model references use `shared/models/fluid_props.FluidModel`. The registry imports
 air/water primitives from `tpms_props` and Nu functions from `nu_correlations`
 directly. `tpms_calc` keeps its public re-exports without a return dependency
 from the registry. Correlations, property sources and validity checks stay in
@@ -854,7 +865,7 @@ with local porosity, consistent with the SIMPLE continuity operator. An
 unweighted intrinsic-velocity integral is not a mass-conservation test for
 a spatially varying porosity field.
 
-The existing `optimization.multi_condition` imports remain available. For each
+The existing `applications.optimization.multi_condition` imports remain available. For each
 inlet, preparation integrates local single-channel porosity times the actual
 normalized inlet velocity profile over the opening. It multiplies this integral
 by inlet density, then divides prescribed total mass flow by that product to set
@@ -900,7 +911,7 @@ Worker exits therefore cannot retain communication locks.
 Progress and other host callbacks run in the parent process.
 Returned results keep the input order, even when workers finish out of order.
 
-Native members use `workflows.recovery.compute_prepared_run` with their saved
+Native members use `applications.execution.recovery.compute_prepared_run` with their saved
 fixed-flow input. They do not repeat case preparation. Each member requests
 an iteration checkpoint every 60 seconds, at an available safe boundary.
 The batch keeps its original inputs, selected native library and baseline files.
@@ -951,7 +962,7 @@ The source ratio uses `max(abs(Q_sA), abs(Q_sB), 1 W)`, the existing
 strict-energy zero-duty scale. Thus the absolute source residual must stay
 below 0.01 W near zero duty. The native result uses this rule.
 The physical boundary ledger must be complete. Native 3D finishing and the
-conservation audit use the same pure certificate function in `result_math`.
+conservation audit use the same pure certificate function in `shared.result_math`.
 The public postprocessing entry accepts `FieldResult` only and extracts its
 recorded certificate; numerical kernels pass their local evidence directly to
 the pure function.
@@ -967,7 +978,7 @@ the formal convective `energy_imbalance_rel` metric and gradient applicability.
 These stay evidence needed for physical predictions. They do not prevent
 an explicitly labeled exploratory search using frozen reference corrections.
 
-`optimization.multi_condition_optimizer.run_multi_condition_optimization`
+`applications.optimization.multi_condition_optimizer.run_multi_condition_optimization`
 compares qLogNEHVI, qLogNParEGO and Sobol using the same seeded initial
 designs and evaluation budget. It fits only complete accepted batches, maximizes
 `(heat_gain_percent, -pressure_ratio)` and stores the full decision vector,
@@ -1194,7 +1205,7 @@ diagnostic arrays and unconverged completed runs stay visible. Strict JSON
 metrics report unavailable values with reasons. Cancelled/failed execution
 does not return a fabricated completed archive.
 
-`result_display` owns 2D display aliases and zone statistics. It also supplies
+`shared.result_display` owns 2D display aliases and zone statistics. It also supplies
 field units, axes and state descriptions for both dimensions. This data module
 has no Qt dependency. Temperature and pressure aliases retain original cell
 values. Gaussian display filters, velocity display copies, and their null
@@ -1271,7 +1282,7 @@ recorded state. Metric definitions survive JSON and GUI export metadata.
 
 Previous metrics files keep their definitions. Re-evaluate their native result
 before mapping it to the current GUI contract. Frozen backend reporting
-references are historical numerical oracles, not the current metric contract. `domain.metric_spec` owns explicit metric families, units and full-compute
+references are historical numerical oracles, not the current metric contract. `shared.domain.metric_spec` owns explicit metric families, units and full-compute
 definition versions. `PerformanceResult` requires each key to match its spec's
 side-specific name or family.
 
@@ -1295,7 +1306,7 @@ and the flag does not change 3D flow.
 The previous air/air screening optimizer, preparation, frozen-B backend and metric
 reducers are retired. The [history index](history/retired-tools.md) identifies
 their original code and numerical references. Current multi-condition search
-uses full preparation and execution. `models.continuous_field` keeps XY/XYZ
+uses full preparation and execution. `shared.models.continuous_field` keeps XY/XYZ
 interpolation for this path, preview and nTop export. Saved decisions must be
 decoded with their original bounds, control grid, symmetry and spline order.
 
@@ -1358,7 +1369,7 @@ representative Pr. The separate sCO2 reference-Pr convention stays unchanged.
 
 Separate processes use case.yaml + case.h5, results.h5, VTK views and
 metrics.json. Exact contracts and mode-specific restrictions are in
-`schemas/three_module_v1/`. Minimal postprocessing has a distinct dependency
+`docs/contracts/three_module_v1/`. Minimal postprocessing has a distinct dependency
 lock and actual import/runtime checks. The full environment is not evidence
 of minimal installation. Parallel run warnings and control state are local
 to each invocation. Arrays crossing contracts are detached from mutable input
@@ -1456,16 +1467,16 @@ The public solver entry and native Python binding accept `checkpoint`, `checkpoi
 An optional `checkpoint_due` predicate prevents state export when no save is due.
 `SolverCheckpoint` stores those fields with the absolute prepared-case path and model references.
 Use `full_2d_continuation_v1` for 2D state; 3D retains `full_3d_continuation_v1`.
-The functions in `io/solver_checkpoint_io.py` use the existing typed HDF5 record writer.
+The functions in `shared/io/solver_checkpoint_io.py` use the existing typed HDF5 record writer.
 The writer closes a temporary file before atomic replacement.
 A failed write or process interruption before replacement preserves the previous checkpoint.
 This contract does not claim recovery from power loss.
 
-`workflows.recovery` uses the stages in package-level `compute.py` for start and resume.
+`applications.execution.recovery` uses the stages in package-level `compute.py` for start and resume.
 Each run owns a new directory with prepared input, a retained native library, checkpoint, and status.
 Each run retains its own library path. The process reuses a previously retained file only when its bytes match the selected library.
 This avoids repeated native initialization and retained property tables. A changed or moved runtime uses the new retained file.
-`io.file_snapshot` first copies mutable build output into an independent, checked runtime snapshot.
+`shared.io.file_snapshot` first copies mutable build output into an independent, checked runtime snapshot.
 Later runs and condition workers share that fixed snapshot through hard links.
 Archived baseline fields and binary files copied during batch or search recovery use the same sharing operation.
 Editable status and log files remain independent. Cross-volume or unsupported links and link-count limits use ordinary copies.
@@ -1499,7 +1510,7 @@ A valid pre-cancelled request raises `CancelledError`, including when the select
 absolute library path does not exist. An uncancelled missing-library request
 keeps its original error.
 
-Workflows, solvers and the GUI orchestrator share `domain.cancellation.CancelledError`.
+Workflows, solvers and the GUI orchestrator share `shared.domain.cancellation.CancelledError`.
 It is an `InterruptedError` subclass, also available through `ComputeOrchestrator.CancelledError`.
 Only explicit cancellation checkpoints raise it. Unrelated exceptions stay
 errors even when a cancellation request is pending. Both SIMPLE workers are
@@ -1522,7 +1533,7 @@ termination or fixed wall-time cancellation guarantee. Cancelled runs do not pub
 ### UI structure
 
 Desktop preferences and session/history files use platform user directories,
-not the installed package. `controllers/user_storage.py` owns these paths. It imports missing known session/input files without deleting their originals. Appearance settings are read only from the current user configuration directory. Session, preset/configuration and workspace-marker saves use a unique temporary
+not the installed package. `applications/gui/controllers/user_storage.py` owns these paths. It imports missing known session/input files without deleting their originals. Appearance settings are read only from the current user configuration directory. Session, preset/configuration and workspace-marker saves use a unique temporary
 file in the destination directory before atomic replacement.
 
 Concurrent saves
@@ -1551,7 +1562,7 @@ Both nonpositive primary widths select the full transverse span. Optional 3D spa
 Startup field checks and group error counts accept a blank centre/width pair for each optional 3D second transverse span.
 Incomplete pairs remain invalid. Group error counts exclude inactive inlet inputs, as startup checks do.
 
-The 2D preflight and preparation share physical grid construction in `models/grid.py`.
+The 2D preflight and preparation share physical grid construction in `shared/models/grid.py`.
 The captured zone mode and port edges select the grid. Counts and port coverage use its actual cell widths.
 The 3D preflight uses uniform or port/wall grids with the requested total cell counts.
 If construction fails, preflight keeps independent port bounds checks but reports no effective grid or cell coverage.
@@ -1586,16 +1597,16 @@ its current input mode and value.
 Versioned complete files, preset libraries and startup sessions keep their
 full-restore/historical-default rules. Partial import does not redefine them.
 
-- `ui/builders_canvas.py` assembles the visible geometry, result, and
+- `applications/gui/ui/builders_canvas.py` assembles the visible geometry, result, and
   optimization workbench. `build_canvas_area()` only coordinates its named
   same-file builders.
-- `ui/mixins/tab_view.py` owns workbench availability and routing, including
+- `applications/gui/ui/mixins/tab_view.py` owns workbench availability and routing, including
   the 2D/3D result switch. Hidden widgets are not used as navigation state.
-- `ui/panel_vis_3d.py` owns the PyVista presentation. Its constructor delegates
+- `applications/gui/ui/panel_vis_3d.py` owns the PyVista presentation. Its constructor delegates
   toolbar, controls, viewport, state, and timer setup to focused methods while
   rendering behavior stays in the same widget class.
 
-`ui/background_tasks.py` prepares 3D modules in one window-owned QThread.
+`applications/gui/ui/background_tasks.py` prepares 3D modules in one window-owned QThread.
 Result display, optimization preview, and optional preinitialization share that preparation.
 Queued GUI callbacks create widgets and render the current data after imports finish.
 Compute controls stay locked until result publication and display finish.
@@ -1604,8 +1615,8 @@ The task owner also updates CPU-control availability; resource setup uses that o
 An import error keeps numerical results available for export and marks the view unavailable.
 Widget creation, font setup, Matplotlib, and OpenGL stay on the GUI thread.
 
-`ui/field_factory.py` owns result-value labels and unit parsing, so widget construction does not import page builders.
-`ui/fmt.py` formats recorded qualification reasons for both diagnostics and the result sidebar.
+`applications/gui/ui/field_factory.py` owns result-value labels and unit parsing, so widget construction does not import page builders.
+`applications/gui/ui/fmt.py` formats recorded qualification reasons for both diagnostics and the result sidebar.
 The import-cycle check covers UI modules, including imports inside functions.
 
 The result footer and history format scalar values from the published result.
@@ -1632,7 +1643,7 @@ explicit numerical-model change with directly relevant validation.
    with a constant-density or isothermal shortcut.
 2. **Porosity is split one time.** Symmetric LTNE callers pass the full porosity.
    The energy solver forms the two half-porosity streams. For an offset
-   isosurface, `models/asym_split.py` computes the upstream `eps_A`/`eps_B`
+   isosurface, `shared/models/asym_split.py` computes the upstream `eps_A`/`eps_B`
    split. Its sides sum to the full porosity. The kernel does not halve those
    values again.
 
@@ -1643,7 +1654,7 @@ explicit numerical-model change with directly relevant validation.
    historical inputs or results.
 3. **Mass-flux inlet.** Compressible air uses the mass-flux inlet in both 2D
    and 3D. Solver velocities are interstitial, not superficial.
-4. **Darcy-Forchheimer ownership.** `df_surrogate.predict_K_cF()` stays the
+4. **Darcy-Forchheimer ownership.** `shared.df_surrogate.predict_K_cF()` stays the
    pure geometry baseline: one water+sCO2 CFD table for both sides and each
    fluid. Base K0 and cF0 depend only on topology, L, and t. They are bilinearly
    interpolated inside 4–8 mm by 0.3–0.6 mm. They never depend on Re or fluid.
@@ -1669,8 +1680,8 @@ It is not evidence of fluid-intrinsic D-F physics. Differences can absorb pressu
 Selecting them explicitly now raises an error. Their code,
    tables and results stay available through the [history index](history/legacy-models.md).
 5. **Nusselt ownership.** Air, water, and sCO2 base correlations belong to
-   `models/nu_correlations.py`. The sole current sCO2 effective-parameter
-   resource is `configs/sco2_effective_nu.json`, loaded by
+   `shared/models/nu_correlations.py`. The sole current sCO2 effective-parameter
+   resource is `shared/configs/sco2_effective_nu.json`, loaded by
    `sco2_effective_nu_config()` as a validated `Sco2NuConfig`. The kept
    `alpha_D/alpha_G` fields are total Ceff, applied one time to the current base
    before the existing final Nu floor. There is no additional beta layer or
@@ -1680,7 +1691,7 @@ Selecting them explicitly now raises an error. Their code,
    parameters are unchanged: explicit selection loads the current resource,
    while previous Cases continue to replay their recorded parameters. The retired
    experimental-gamma helper and environment switch are not a second route. Calibration evidence and physical scope are in [model resources](model-resources.en.md#sco2-有效-nu-系数). Full 2D/3D solves rebuild each side's local
-   scalar Re/Nu from `models/local_heat_transfer.local_speed`: the current
+   scalar Re/Nu from `shared/models/local_heat_transfer.local_speed`: the current
    cell-centered pore-velocity magnitude, sqrt(uc² + vc² [+ wc²]). Do not
    select a fixed inlet-axis component or apply porosity a second time.
 
@@ -1692,7 +1703,7 @@ Selecting them explicitly now raises an error. Their code,
 
    See the
    [implementation and paired validation](history/README.en.md#2026-09-18-历史材料整理).
-6. **Compressible envelope.** `models/envelope.py` validates the actual final pressure and local Mach fields. Nonfinite states, pressure at/below the
+6. **Compressible envelope.** `shared/models/envelope.py` validates the actual final pressure and local Mach fields. Nonfinite states, pressure at/below the
    existing 1000 Pa floor and Mach >= 1 stay invalid. Positive/subsonic
    fields must also meet the specified physical inlet pressure to converge.
    An unusable isothermal 1D initial estimate is a numerical startup issue,
@@ -1839,10 +1850,10 @@ Water's lower-speed extension
 
 ## Extension points
 
-- Add a fluid through `models/fluid_props.py`.
-  Keep its Nu implementation in `models/nu_correlations.py`.
+- Add a fluid through `shared/models/fluid_props.py`.
+  Keep its Nu implementation in `shared/models/nu_correlations.py`.
   Record its versioned resource. Use it through the public module APIs.
-- Add a user-facing configuration field to the `domain/compute_config.py`
+- Add a user-facing configuration field to the `shared/domain/compute_config.py`
   dataclasses first. Adapt it one time at the UI boundary.
 - Add a solver behavior behind an existing configuration boundary only when a
   current use case requires it. Do not introduce a factory or interface for a

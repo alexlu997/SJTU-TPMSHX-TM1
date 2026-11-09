@@ -1,0 +1,957 @@
+"""Qt-free production configuration and physical input validation.
+
+The GUI converts widget values once through ``ui.window_config``.
+Preprocessing consumes these dataclasses, while execution consumes prepared
+CaseData. Shared physical checks are imported at their validation call sites.
+
+- ``FluidConfig``     — per-side fluid (type + u + T_in + P_in)
+- ``GeometryConfig``  — domain + TPMS unit-cell + solid k_s
+- ``SolverConfig``    — grid + LTNE outer + SIMPLE inner convergence
+- ``PartialBCConfig`` / ``ZoneInputConfig`` — per-side ports and spatial geometry
+- ``ComputeConfig``   — composite, has the entrypoint adapters
+
+Adapters
+~~~~~~~~
+
+- ``ui.window_config.config_from_window(window)`` — read ``window.le_*`` /
+  ``window.combo_*`` once at the UI boundary; downstream callers no
+  longer touch ``window``.
+- ``ComputeConfig.from_json(path)`` / ``to_json(path)`` — JSON
+  serialisation for production validation scripts and tests.
+
+Port, zone and extrapolation settings are explicit inputs. Runtime callbacks
+and cancellation belong to ``RunControl``; emitted warnings belong to results.
+
+Runtime environment switches
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Runtime overrides and diagnostic switches. Production run overrides are
+captured by ``domain.run_environment.capture_environment``; remaining flags
+follow the read timing stated below.
+
+- ``TPMSHX_ALLOW_EXTRAP`` (0) — permits warnings at the point applicability
+  check. In production this allows inlet Nu/Re checks to proceed; it does not
+  relax D-F geometry or fluid-property hard limits. Read by
+  ``df_surrogate/surrogate_domain.py`` and continuous-field preparation.
+- ``TPMSHX_CHI_S`` (unset) — constant χ_s research override.
+  When unset, χ_s comes from the unit-cell homogenization fit
+  ``chi_s_eff(type, ε)``;
+  ``models/tpms_props.py`` (``chi_s_eff`` reads the override on each call).
+- ``TPMSHX_DISABLE_3D_PANEL`` (0) — skip PyVista panel;
+  ``ui/builders_canvas.py``.
+- ``TPMSHX_PARALLEL_THRESHOLD`` (200000) — native parallel-sweep cell gate;
+  ``solvers/backends/cpp/full_3d.py`` reads it for each native call.
+- ``TPMSHX_PHASE_A/C`` (1/0) — adaptive AMG / coarse bootstrap.
+  Captured by ``preprocess/three_d/preparation.py`` (cfg keys win).
+  Phase B / inner SIMPLE Anderson is retired; explicit enablement raises.
+- ``TPMSHX_PREINIT_3D`` (0) — prewarm 3D panel at startup; ``main.py``.
+- ``TPMSHX_ROUGH_MODE`` (baseline; UI path defaults norris_1a) +
+  ``TPMSHX_ROUGH_EPS_UM`` (100) — roughness model; single helper
+  ``models.roughness.resolve_mode_from_env``.
+- ``TPMSHX_VAR_RHOCP`` (unset) — overrides the 3D local-density thermal
+  transport setting; defaults ON. The desktop fixes its config ON, while
+  an explicit captured environment override still takes precedence.
+
+- ``TPMSHX_DF_METHOD`` — explicit method for direct ``df_surrogate.predict``
+  calls. Only ``cfd_full_core_3cell_fixed_v2`` is supported; retired method
+  names fail. Production 2D/3D compute paths pin this fixed table.
+- ``TPMSHX_ASYM_KAPPA`` (0) — research-only asym per-side κ correction
+  after ``ingest_cfd_kappa``; production 2D/3D compute paths do not apply it.
+  Read in ``df_surrogate/kappa_asym.py``.
+- ``TPMSHX_SCO2_COMPRESSIBLE`` (0, experimental) — A-side sCO2 local-pressure
+  density/viscosity update and pressure-seed envelope check in native 3D
+  execution. B is unchanged; this is not full compressible continuity. Its
+  pressure anchor differs from true-h and is not covered by the ideal-gas
+  inlet-pressure correction; an ON/OFF change is not accuracy evidence.
+- ``TPMSHX_MAX_CELLS_3D`` (2000000) — hard 3D cell cap;
+  ``preprocess/three_d/preparation.py``.
+- ``TPMSHX_BUILD_S_MAX`` / ``TPMSHX_BUILD_LX_MAX`` — sizing-tool build
+  envelope caps; ``design/sizing.py``.
+- ``TPMSHX_LOG_LEVEL`` (INFO) / ``TPMSHX_LOG_TS`` (0) — central logging
+  level / timestamp prefix; ``logutil.py``.
+"""
+from __future__ import annotations
+
+import json
+import warnings
+from dataclasses import asdict, dataclass, field
+from math import isfinite
+from pathlib import Path
+from typing import Any, Dict, Literal, Optional, Tuple, Union
+
+
+FluidType = Literal['air', 'water', 'sco2', 'co2']
+DFMode = Literal['cfd_smooth', 'experimental']
+TPMSType = Literal['Diamond', 'Gyroid']
+ZoneAxis = Literal['x', 'y', 'grid', 'continuous']
+
+SCO2_P_RANGE_PA = (7.9e6, 16.0e6)
+
+
+def validate_enthalpy_algorithm(algorithm, temperature_tolerance):
+    """Validate the persisted conservative energy recipe and its K update gate."""
+    if algorithm not in ('legacy_h_fou', 'temperature_fou', 'temperature_sou'):
+        raise ValueError(f'unsupported enthalpy_algorithm: {algorithm}')
+    if (isinstance(temperature_tolerance, bool)
+            or not isinstance(temperature_tolerance, (int, float))
+            or not isfinite(temperature_tolerance) or temperature_tolerance <= 0.):
+        raise ValueError('enthalpy_temperature_tol_K must be finite and positive')
+
+
+def validate_simple_velocity_relaxation(value):
+    """Validate the optional native SIMPLE velocity relaxation."""
+    if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float))
+                              or not isfinite(value) or not 0. < value <= 1.):
+        raise ValueError('simple_velocity_relaxation must be in (0, 1]')
+
+
+def reject_retired_research_options(config):
+    """Reject retired research controls before physical preparation."""
+    outer = sorted(key for key in config if key in (
+        'outer_anderson', 'outer_anderson_m', 'outer_anderson_trust',
+        'outer_anderson_patience'))
+    if outer:
+        raise ValueError(
+            f'Outer property Anderson is retired: {outer}. Remove these research options.')
+    retired = sorted(key for key in config
+                     if key in ('partial_B_closure', 'audit_zero_K_ffB_at_outlet')
+                     or isinstance(key, str) and key.startswith(('m4_', 'chi_B_', 'audit_h2_')))
+    if retired:
+        raise ValueError(
+            f'B-side participation experiments are retired: {retired}. '
+            'Remove these research options; physical port boundaries remain supported.')
+
+
+# ── dataclasses ──────────────────────────────────────────────────────
+
+
+@dataclass
+class FluidConfig:
+    """Single-side fluid inlet state."""
+    type: FluidType = 'air'
+    u_mps: float = 5.0
+    T_in_K: float = 300.0
+    P_in_Pa: float = 101325.0
+    # None prescribes velocity; otherwise total inlet flow is authoritative.
+    mass_flow_kg_s: Optional[float] = None
+
+
+@dataclass
+class GeometryConfig:
+    """TPMS unit cell + macroscopic domain + solid conductivity.
+
+    ``solver.Nz >= 2`` selects 3D and requires an explicit positive ``Lz_m``.
+    ``Nz=1`` selects the 2D XY plane. Total inlet mass flow requires an
+    explicit positive physical depth ``Lz_m``. Integral results keep per-unit-depth units.
+    """
+    tpms: TPMSType = 'Gyroid'
+    L_cell_mm: float = 7.0
+    t_wall_mm: float = 0.6
+    k_s_W_mK: float = 16.0
+    L_dom_m: float = 0.182
+    H_dom_m: float = 0.042
+    Lz_m: Optional[float] = None
+    # Asymmetric porosity: offset-isosurface centre δ (φ-units). 0.0 →
+    # symmetric 50/50 (bit-identical). |δ|>0 → ε_A (φ<δ−C) ≠ ε_B (φ>δ+C);
+    # consumed by models.asym_split._eps_sides_for_run. Human targets
+    # (A%/B%) convert to δ in run scripts via runs/diagnostics/asym_target_scan.
+    delta_levelset: float = 0.0
+
+
+@dataclass
+class SolverConfig:
+    """Grid and solver controls for full compute and multi-condition optimization.
+
+    For the production controls below, ``None``
+    means "use the dimension-specific built-in":
+
+    - ``max_outer_ltne``: SIMPLE↔LTNE outer iterations.
+      Auto = 10 (2D coupling) / 12 (3D; fast_sweep profile: 3).
+    - ``outer_tol_K``: outer temperature-delta tolerance [K].
+      Auto = 1.0 (2D) / 0.5 (3D).
+    - ``max_iter_simple``: SIMPLE inner iteration cap.
+      Auto = 10000 (2D) / per-stage 600–2000 (3D).
+
+    ``alpha_T`` (numerics-internal relaxation) and ``rough_mode`` (the
+    bhatti_shah_1b option is the ledger-ROUGH-X double-count trap) were
+    REMOVED from the user surface; ``from_dict`` drops them from legacy
+    JSONs with a notice. Roughness sweeps remain possible via the
+    ``TPMSHX_ROUGH_MODE`` env (research escape hatch).
+
+    ``T_s_init_K=None`` uses the default seed
+    ``0.5 * (T_inA + T_inB)`` in the native full 2D and 3D solvers.
+
+    F2 CONVERGENCE GATES (both dimensions)
+    ------------------------------------------------------------------------
+    - ``convergence_mode``: ``None`` or ``'f2'`` in every compute mode and
+      raw solver. Captured ``TPMSHX_CONV_MODE`` overrides config. The old
+      mass/velocity exit and ``'legacy'`` selector are retired.
+    - ``mom_tol`` / ``mass_local_tol`` / ``mass_global_tol``: independent
+      momentum / solved-cell continuity / boundary mass gates, confirmed
+      consecutively, with a separate outlet-backflow gate.
+
+    The pressure-subproblem residual history drives adaptive AMG,
+    independently of these exit gates.
+    """
+    max_outer_ltne: Optional[int] = None
+    outer_tol_K: Optional[float] = None
+    max_iter_simple: Optional[int] = None
+    simple_velocity_relaxation: Optional[float] = None
+    Nx: int = 30
+    Ny: int = 60
+    Nz: int = 1
+    T_s_init_K: Optional[float] = None
+    convergence_mode: Optional[str] = None      # None -> pipelines resolve 'f2' (env wins)
+    mom_tol: Optional[float] = None
+    mass_local_tol: Optional[float] = None
+    mass_global_tol: Optional[float] = None
+    # Historical IDs remain readable; the selected native library validates execution.
+    enthalpy_algorithm: Literal['legacy_h_fou', 'temperature_fou', 'temperature_sou'] = 'temperature_sou'
+    enthalpy_temperature_tol_K: float = 1e-8
+    # Optional integral h(T) controls; None keeps the actual route defaults.
+    model_h_max_iterations: Optional[int] = None
+    model_h_temperature_tol_K: Optional[float] = None
+    model_h_q_relative_tol: Optional[float] = None
+    # Optional full EOS thermal controls. None keeps the route's existing
+    # defaults; explicit values survive config -> prepared case -> replay.
+    ltne_enthalpy_outer: Optional[int] = None
+    ltne_enthalpy_nsweep: Optional[int] = None
+    ltne_enthalpy_omega: Optional[float] = None
+    ltne_enthalpy_tol: Optional[float] = None  # normalized enthalpy update, not K
+    ltne_enthalpy_coupled_energy_tol: Optional[float] = None
+    ltne_enthalpy_equation_energy_tol: Optional[float] = None
+    require_enthalpy_update_on_temperature: bool = False
+
+
+@dataclass
+class OptimizerConfig:
+    """Retired screening settings retained for existing configuration files.
+
+    Current full solves and multi-condition optimization use SolverConfig.
+    These archived values are preserved on load/save and are not executed.
+    """
+    max_outer_ltne: int = 4
+    outer_tol_K: float = 0.5
+    max_iter_simple: int = 800
+    alpha_T: float = 0.7
+
+
+@dataclass
+class PartialBCConfig:
+    """Per-side partial-pipe inlet/outlet placement (cross-stream).
+
+    ``dir`` encodes ``0=+x``, ``1=-x``, ``2=+y``, ``3=-y``;
+    3D also supports ``4=+z`` and ``5=-z``. ``in_ctr``/``in_w`` and
+    ``out_ctr``/``out_w`` are inlet / outlet centre + width in the
+    first cross-stream coordinate (m). ``in_z_*``/``out_z_*`` describe the
+    second cross-stream coordinate (z for x/y flow, y for z flow);
+    ``None`` means full extent along that coordinate.
+
+    Audit C4 (L-a-2): added so the pipeline does not have to call back
+    into ``window._fluid_config(which)``.
+    """
+    dir: int = 0
+    in_ctr: float = 0.0
+    in_w: float = 0.0
+    out_ctr: float = 0.0
+    out_w: float = 0.0
+    in_z_ctr: Optional[float] = None
+    in_z_w: Optional[float] = None
+    out_z_ctr: Optional[float] = None
+    out_z_w: Optional[float] = None
+    # 2D only: False preserves the historical four-cell edge profile.
+    # 3D already imposes uniform flow over the geometric opening.
+    uniform_inlet_2d: bool = False
+
+
+def bc_to_dict(bc: 'PartialBCConfig', L_dom: float, H_dom: float,
+               *, side: str = 'A', with_z: bool = False):
+    """Convert a :class:`PartialBCConfig` into the legacy solver BC dict.
+
+    Single source for the 2D + 3D conversions (was three near-duplicate
+    ``_bc_cfg_to_dict_*`` functions). The side-B asymmetry is INTENTIONAL —
+    it reproduces the legacy ValueError fallback in ``_parse_inputs``:
+
+    * ``side='A'`` — a degenerate BC (``in_w<=0`` or ``out_w<=0``) falls back
+      to a full-face inlet/outlet spanning the cross-stream axis. Used by the
+      2D path (both sides) and 3D side A.
+    * ``side='B'`` — a *fully* degenerate BC (``in_w<=0`` AND ``out_w<=0``)
+      returns ``None``, which the 3D backend reads as "no B fluid —
+      single-fluid A-alone run" (it skips the B SIMPLE build). A
+      partially-degenerate BC returns the raw partial dict (no full-face
+      fallback). 3D side B only.
+
+      NOTE: the ComputeConfig→3D boundary (``preprocess.three_d.preparation._parse_inputs_3d_cfg``)
+      rebuilds a full-face B from a None here, because via ComputeConfig
+      fluid_B is always a configured 2nd fluid (a None there is just the
+      ``PartialBCConfig`` default widths, meaning full-face cross-flow).
+      Internal native validation uses ``fluid_B_cfg=None`` to check inactive B
+      with air or water on A. Single-A sCO2 execution is retired.
+    * ``with_z=True`` — append the ``in_z_*``/``out_z_*`` overlay when the cfg
+      captured 3D z-partial fields (``None`` = full face along z).
+    """
+    for width in (bc.in_w, bc.out_w):
+        try:
+            finite = isfinite(width)
+        except (TypeError, ValueError, OverflowError):
+            finite = False
+        if not finite:
+            raise ValueError('port width must be finite before full-face normalization')
+    is_x_flow = bc.dir in (0, 1)
+    cross_dim = H_dom if is_x_flow else L_dom
+    if side == 'B' and bc.in_w <= 0 and bc.out_w <= 0:
+        return None
+    # Raw-cfg dicts are heterogeneous by design (int dir, float extents,
+    # Optional z-window) — say so instead of letting mypy infer float-only.
+    d: Dict[str, Any]
+    if (bc.in_w > 0 and bc.out_w > 0) or side == 'B':
+        d = dict(dir=bc.dir, in_ctr=bc.in_ctr, in_w=bc.in_w,
+                 out_ctr=bc.out_ctr, out_w=bc.out_w)
+    else:
+        d = dict(dir=bc.dir, in_ctr=cross_dim / 2, in_w=cross_dim,
+                 out_ctr=cross_dim / 2, out_w=cross_dim)
+    if with_z:
+        for end in ('in', 'out'):
+            center, width = getattr(bc, f'{end}_z_ctr'), getattr(bc, f'{end}_z_w')
+            if center is not None or width is not None:
+                d[f'{end}_z_ctr'] = center
+                d[f'{end}_z_w'] = width
+    if not with_z and bc.uniform_inlet_2d:
+        d['uniform_inlet_2d'] = True
+    return d
+
+
+@dataclass
+class ZoneInputConfig:
+    """Zone / continuous-field control state.
+
+    ``config`` is the pre-resolved ``models.zone_config.ZoneConfig``
+    instance (1D zone mode), or its JSON-shaped dictionary for canonical
+    input, restored at the 1D pipeline boundary. It is ``None`` when zones are disabled or
+    running in grid mode (``grid`` carries the cell list instead).
+    The UI adapter snapshots ``config`` via
+    ``ui.zone_table.build_zone_config(window)`` at the boundary so the Pipeline
+    layer never has to touch the Qt zone-table widget.
+    Discrete zones vary L/t only. Their optional ``tpms_type`` and ``k_s``
+    copies must agree with the main GeometryConfig; they do not select an
+    independent topology or material.
+
+    For ``axis='continuous'``, ``config`` is a JSON dictionary with
+    ``x_decision`` (L controls then t controls, both in mm), ``n_ctrl_x``,
+    ``n_ctrl_y``, ``symmetric_y``, ``spline_order``, ``L_bounds`` and
+    ``t_bounds``, plus optional ``n_ctrl_z`` for a true XYZ field. Omitting
+    ``n_ctrl_z`` retains the XY layout for older inputs. Topology, conductivity
+    and domain come only from the main GeometryConfig. These are parameter fields, not manufactured
+    TPMS geometry or evidence of gradient-model applicability.
+
+    """
+    enabled: bool = False
+    axis: ZoneAxis = 'y'
+    grid: Optional[Dict[str, Any]] = None  # cells / tpms_type / k_s
+    config: Optional[Any] = None  # 1D ZoneConfig or canonical 1D/continuous dictionary
+    pareto_x_decision: Optional[Any] = None
+    pareto_y_trans_inlet: float = 0.2
+    pareto_y_trans_outlet: float = 0.2
+
+    def validate(self) -> 'ZoneInputConfig':
+        """Validate active spatial input without altering the supplied design."""
+        import math
+
+        if not self.enabled:
+            return self
+        if self.axis not in ('x', 'y', 'grid', 'continuous'):
+            raise ValueError(f'Zone axis must be x, y, grid or continuous, got {self.axis!r}')
+        if self.axis == 'continuous':
+            from sjtu_tpmshx.shared.df_surrogate._domain import TRAIN_L, TRAIN_T
+            required = {'x_decision', 'n_ctrl_x', 'n_ctrl_y', 'symmetric_y',
+                        'spline_order', 'L_bounds', 't_bounds'}
+            spec = self.config
+            if (not isinstance(spec, dict) or not required <= set(spec)
+                    or set(spec) - required - {'n_ctrl_z'}):
+                raise ValueError(f'Continuous field config requires {sorted(required)} and optional n_ctrl_z')
+            if self.grid is not None or self.pareto_x_decision is not None:
+                raise ValueError('Continuous field cannot also supply grid or sigmoid decisions')
+            control_keys = ('n_ctrl_x', 'n_ctrl_y') + (('n_ctrl_z',) if 'n_ctrl_z' in spec else ())
+            for name in (*control_keys, 'spline_order'):
+                if type(spec[name]) is not int:
+                    raise ValueError(f'Continuous field {name} must be an integer')
+            order = spec['spline_order']
+            if not 1 <= order <= 3:
+                raise ValueError('Continuous field spline_order must be 1..3')
+            if any(spec[name] < 1 for name in control_keys):
+                raise ValueError('Continuous field needs >=1 controls per axis')
+            if type(spec['symmetric_y']) is not bool:
+                raise ValueError('Continuous field symmetric_y must be boolean')
+            for name in ('x_decision', 'L_bounds', 't_bounds'):
+                values = spec[name]
+                if not isinstance(values, list) or any(
+                        type(value) not in (int, float) or not math.isfinite(value) for value in values):
+                    raise ValueError(f'Continuous field {name} must be a list of finite numbers')
+            for name, resource in (('L_bounds', TRAIN_L), ('t_bounds', TRAIN_T)):
+                bounds = spec[name]
+                if len(bounds) != 2 or not resource[0] <= bounds[0] <= bounds[1] <= resource[1]:
+                    raise ValueError(f'Continuous field {name} must be ordered within {resource} mm')
+            ny = (spec['n_ctrl_y'] + 1) // 2 if spec['symmetric_y'] else spec['n_ctrl_y']
+            count = spec['n_ctrl_x'] * ny * spec.get('n_ctrl_z', 1)
+            if len(spec['x_decision']) != 2 * count:
+                raise ValueError(f'Continuous field x_decision must contain {2 * count} values')
+            for values, bounds in ((spec['x_decision'][:count], spec['L_bounds']),
+                                   (spec['x_decision'][count:], spec['t_bounds'])):
+                if any(not bounds[0] <= value <= bounds[1] for value in values):
+                    raise ValueError('Continuous field control values must lie within their L/t bounds')
+            return self
+        if self.axis != 'grid':
+            return self
+        if not isinstance(self.grid, dict) or not self.grid.get('cells'):
+            raise ValueError('Enabled grid zones require non-empty grid cells')
+        for index, cell in enumerate(self.grid['cells'], 1):
+            for axis in ('x', 'y'):
+                try:
+                    start, end = cell[f'{axis}0'], cell[f'{axis}1']
+                    valid = (math.isfinite(start) and math.isfinite(end)
+                             and 0 <= start < end <= 1)
+                except (KeyError, TypeError):
+                    valid = False
+                if not valid:
+                    raise ValueError(
+                        f'Zone grid cell {index}: {axis} coordinates must be '
+                        'finite and satisfy 0 <= start < end <= 1')
+        return self
+
+
+@dataclass
+class ExtrapPolicy:
+    """Permit inlet Nu/Re applicability warnings in production preparation.
+
+    ``allow`` is the saved input setting; the point check also accepts the
+    ``TPMSHX_ALLOW_EXTRAP`` environment override. Neither changes D-F geometry
+    or fluid-property hard limits, nor certifies the local field's Nu range.
+    Reasons are recorded separately in run warnings; this dataclass is input only.
+
+    Audit C4 (L-a-2).
+    """
+    allow: bool = False
+
+
+@dataclass(slots=True)
+class FeatureFlags:
+    """Solver mesh and transport settings.
+
+    The desktop selects port refinement through its mesh scheme.
+    ``variable_rho_cp`` uses SIMPLE's local density
+    in 3D thermal transport and gates eligible air/water mass-flux transport.
+    It is fixed ON in the desktop and defaults ON for other callers; never
+    default this off. ``temp_unit`` mirrors
+    ``window._temp_unit`` purely for round-tripping; ComputeConfig fields are
+    always Kelvin so the solver itself never needs this flag.
+
+    Audit C4 (L-a-2).
+    """
+    port_wall_refine: bool = False  # 2D/3D port-aligned graded grid; Nx/Ny/Nz are totals
+    variable_rho_cp: bool = True   # default ON (local-P gas density; 2026-06-09)
+    temp_unit: Literal['K', 'C'] = 'K'
+
+
+@dataclass(frozen=True)
+class Sco2NuConfig:
+    """Run-owned total C_eff values; smooth CFD remains the default selection.
+
+    ``alpha_D/G`` store the complete amplitude, not an additional multiplier.
+    The current calibration is selected explicitly through the model factory
+    or its packaged parameter file; saved inputs retain their own values.
+    """
+    mode: str = 'cfd_smooth'
+    alpha_D: float | None = None
+    alpha_G: float | None = None
+    parameter_version: str = ''
+    source: str = ''
+    applicability: str = ''
+
+    def validate(self):
+        import math
+        if self.mode not in ('cfd_smooth', 'experimental'):
+            raise ValueError(f'Unsupported sCO2 Nu mode: {self.mode!r}')
+        for name in ('alpha_D', 'alpha_G'):
+            value = getattr(self, name)
+            if value is None and self.mode == 'cfd_smooth':
+                continue
+            if type(value) not in (int, float) or not math.isfinite(value) or value <= 0:
+                raise ValueError(f'sCO2 Nu {name} must be finite and positive')
+        for name in ('parameter_version', 'source', 'applicability'):
+            value = getattr(self, name)
+            if not isinstance(value, str) or (self.mode == 'experimental' and not value.strip()):
+                raise ValueError(f'sCO2 Nu requires {name}')
+        return self
+
+
+@dataclass
+class ComputeConfig:
+    """Input settings for preparation and application adapters.
+
+    Construct at the UI boundary with ``ui.window_config.config_from_window``
+    or from script input with :meth:`from_json`.
+    Preparation creates frozen ``CaseData`` from these inputs.
+    The public solver API consumes that prepared ``CaseData``.
+    """
+    fluid_A: FluidConfig = field(default_factory=FluidConfig)
+    fluid_B: FluidConfig = field(default_factory=FluidConfig)
+    geometry: GeometryConfig = field(default_factory=GeometryConfig)
+    solver: SolverConfig = field(default_factory=SolverConfig)
+    # Preserve the retired screening block in existing configuration archives.
+    optimizer: Optional[OptimizerConfig] = None
+    # ── audit C4 additions: cover the non-le_* window state that the
+    # ── pipeline needs but C3 deliberately punted on.
+    bc_A: PartialBCConfig = field(default_factory=PartialBCConfig)
+    bc_B: PartialBCConfig = field(default_factory=PartialBCConfig)
+    zones: ZoneInputConfig = field(default_factory=ZoneInputConfig)
+    extrap: ExtrapPolicy = field(default_factory=ExtrapPolicy)
+    flags: FeatureFlags = field(default_factory=FeatureFlags)
+    # Compressible validity-envelope behaviour (robustness, 2026-06-25):
+    # 'raise' (default) -> ChokedFlowError on a choked/supersonic solve;
+    # 'warn' -> run but flag envelope_valid=False (useful for batch sweeps that
+    # must not abort on one choked operating point); 'off' -> legacy silent.
+    envelope_mode: str = 'raise'
+    # Darcy-Forchheimer method exposed to users. The default is the unchanged
+    # V2 water+sCO2 CFD table; experiment mode applies a reviewed effective
+    # correction selected by matching dataset/campaign boundaries.
+    df_mode: DFMode = 'cfd_smooth'
+    sco2_nu: Sco2NuConfig = field(default_factory=Sco2NuConfig)
+
+    # ── derived ──────────────────────────────────────────────────────
+
+    @property
+    def is_3d(self) -> bool:
+        """True when the solver should run on the full 3D grid."""
+        return int(self.solver.Nz) >= 2
+
+    # ── adapters ─────────────────────────────────────────────────────
+
+
+    # ── JSON ─────────────────────────────────────────────────────────
+
+    @classmethod
+    def from_json(cls, path: Union[str, Path]) -> 'ComputeConfig':
+        """Load a ComputeConfig from a JSON file.
+
+        Accepts both the canonical schema (mirroring the dataclass
+        tree) and the legacy ``configs/shanghai_baseline.json`` shape
+        (geometry + domain, fluids missing → defaults). The legacy
+        path is the same one that ``configs.load_shanghai_baseline``
+        already consumes, so production validate scripts can switch
+        with a one-line change.
+        """
+        data = json.loads(Path(path).read_text(encoding='utf-8'))
+        return cls.from_dict(data)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a detached archive, omitting unused retired settings."""
+        data = asdict(self)
+        if self.optimizer is None:
+            data.pop('optimizer')
+        return data
+
+    def to_json(self, path: Union[str, Path]) -> None:
+        """Write the configuration archive as JSON."""
+        Path(path).write_text(
+            json.dumps(self.to_dict(), indent=2, ensure_ascii=False),
+            encoding='utf-8',
+        )
+
+    def validate_static_inputs(self) -> 'ComputeConfig':
+        """Validate before prescribed mass flow has resolved inlet velocities.
+
+        This preparation stage checks geometry, thermodynamic inputs, ports
+        and numerical settings. It does not qualify an executable case:
+        ``validate()`` must still check the resolved speeds and calibration.
+        """
+        import math
+
+        validate_enthalpy_algorithm(self.solver.enthalpy_algorithm,
+                                   self.solver.enthalpy_temperature_tol_K)
+
+        validate_simple_velocity_relaxation(self.solver.simple_velocity_relaxation)
+        for name in ('ltne_enthalpy_outer', 'ltne_enthalpy_nsweep', 'model_h_max_iterations'):
+            value = getattr(self.solver, name)
+            if value is None:
+                continue
+            minimum = 0 if name == 'ltne_enthalpy_nsweep' else 1
+            if type(value) is not int or value < minimum:
+                raise ValueError(f'ComputeConfig.solver.{name} must be an integer >= {minimum}')
+        for name in ('ltne_enthalpy_omega', 'ltne_enthalpy_tol',
+                     'ltne_enthalpy_coupled_energy_tol', 'ltne_enthalpy_equation_energy_tol',
+                     'model_h_temperature_tol_K', 'model_h_q_relative_tol'):
+            value = getattr(self.solver, name)
+            if value is None:
+                continue
+            if (isinstance(value, bool) or not isinstance(value, (int, float))
+                    or not isfinite(value) or value <= 0.
+                    or name == 'ltne_enthalpy_omega' and value > 1.):
+                raise ValueError(f'ComputeConfig.solver.{name} is invalid')
+        require_h = self.solver.require_enthalpy_update_on_temperature
+        if type(require_h) is not bool:
+            raise ValueError('ComputeConfig.solver.require_enthalpy_update_on_temperature must be boolean')
+
+        for name, value in (
+                ('zones.enabled', self.zones.enabled),
+                ('extrap.allow', self.extrap.allow),
+                ('flags.port_wall_refine', self.flags.port_wall_refine),
+                ('flags.variable_rho_cp', self.flags.variable_rho_cp)):
+            if type(value) is not bool:
+                raise ValueError(f'ComputeConfig.{name} must be boolean')
+        for name in ('Nx', 'Ny', 'Nz', 'max_iter_simple', 'max_outer_ltne'):
+            value = getattr(self.solver, name)
+            if value is None and name in ('max_iter_simple', 'max_outer_ltne'):
+                continue
+            if type(value) is not int:
+                raise ValueError(f'ComputeConfig.solver.{name}={value!r} must be an integer')
+
+        self.zones.validate()
+        if self.zones.enabled and self.zones.axis in ('x', 'y', 'grid'):
+            zone_source = self.zones.grid if self.zones.axis == 'grid' else self.zones.config
+            for key, expected in (('tpms_type', self.geometry.tpms),
+                                  ('k_s', self.geometry.k_s_W_mK)):
+                actual = (zone_source.get(key, expected) if isinstance(zone_source, dict)
+                          else getattr(zone_source, key, expected))
+                if actual != expected:
+                    raise ValueError(f'ComputeConfig.zones.{key}={actual!r} conflicts '
+                                     f'with main geometry value {expected!r}')
+        self.sco2_nu.validate()
+        if self.zones.enabled and self.zones.axis == 'continuous':
+            assert self.zones.config is not None  # Required by zones.validate().
+            if self.geometry.delta_levelset != 0.0:
+                raise ValueError('Continuous spatial fields require delta_levelset=0')
+            if not self.is_3d and 'n_ctrl_z' in self.zones.config:
+                raise ValueError('2D continuous fields cannot supply n_ctrl_z')
+        if self.df_mode not in ('cfd_smooth', 'experimental'):
+            raise ValueError(
+                f"ComputeConfig.df_mode={self.df_mode!r} — must be "
+                "'cfd_smooth' or 'experimental'")
+
+        def _bad(name, v):
+            raise ValueError(
+                f"ComputeConfig.{name}={v!r} — must be finite and > 0")
+
+        ge = self.geometry
+        checks = [
+            ('geometry.L_dom_m', ge.L_dom_m),
+            ('geometry.H_dom_m', ge.H_dom_m),
+            ('geometry.L_cell_mm', ge.L_cell_mm),
+            ('geometry.t_wall_mm', ge.t_wall_mm),
+            ('geometry.k_s_W_mK', ge.k_s_W_mK),
+        ]
+        if ge.Lz_m is not None:
+            checks.append(('geometry.Lz_m', ge.Lz_m))
+        for side, fl in (('A', self.fluid_A), ('B', self.fluid_B)):
+            if fl.mass_flow_kg_s is not None:
+                if (type(fl.mass_flow_kg_s) not in (int, float)
+                        or not math.isfinite(fl.mass_flow_kg_s) or fl.mass_flow_kg_s <= 0):
+                    _bad(f'fluid_{side}.mass_flow_kg_s', fl.mass_flow_kg_s)
+                if ge.Lz_m is None:
+                    raise ValueError('Total mass flow requires an explicit positive geometry.Lz_m')
+            checks += [
+                (f'fluid_{side}.T_in_K', fl.T_in_K),
+                (f'fluid_{side}.P_in_Pa', fl.P_in_Pa),
+            ]
+        for name, v in checks:
+            try:
+                fv = float(v)
+            except (TypeError, ValueError):
+                _bad(name, v)
+            if not math.isfinite(fv) or fv <= 0.0:
+                _bad(name, v)
+        for name, n in (('solver.Nx', self.solver.Nx),
+                        ('solver.Ny', self.solver.Ny),
+                        ('solver.Nz', self.solver.Nz)):
+            if n < 1:
+                raise ValueError(
+                    f"ComputeConfig.{name}={n} — must be >= 1")
+
+        # ── Lz contract (2026-07-12) ─────────────────────────────────────────
+        # This class's own GeometryConfig docstring says the 3D path *requires*
+        # Lz_m, but stages_3d silently substituted 0.042 m (the Shanghai depth)
+        # when it was None — a 3D result computed against a magic constant the
+        # user never chose, with every extensive scalar (Q, mass, dP_B) scaled
+        # by it. Nz >= 2 is exactly `is_3d`, so this is a config error.
+        if self.is_3d and self.geometry.Lz_m is None:
+            raise ValueError(
+                f"ComputeConfig.geometry.Lz_m is None but solver.Nz="
+                f"{self.solver.Nz} >= 2 selects the 3D path, which requires an "
+                "explicit domain depth (it used to silently fall back to "
+                "0.042 m). Set geometry.Lz_m, or set Nz=1 for a 2D run.")
+
+        # ── Numerical solver settings (2026-07-12) ───────────────────────────
+        # Normalise the typed-config full-face sentinel before applying the
+        # shared port validator. ComputeConfig always has two fluids, so side
+        # B uses the same full-face rule as A; its legacy None means
+        # single-fluid only below this boundary.
+        from .validator import validate_pipe_config
+        for side, bc in (('A', self.bc_A), ('B', self.bc_B)):
+            if not isinstance(bc.uniform_inlet_2d, bool):
+                raise ValueError(f'ComputeConfig.bc_{side}.uniform_inlet_2d must be boolean')
+            if (bc.in_w <= 0.0) != (bc.out_w <= 0.0):
+                raise ValueError(
+                    f"ComputeConfig.bc_{side}.in_w and out_w must both be "
+                    "positive, or both be <= 0 for a full-face port")
+            pipe = bc_to_dict(
+                bc, ge.L_dom_m, ge.H_dom_m, side='A', with_z=self.is_3d)
+            problems = validate_pipe_config(
+                pipe, ge.L_dom_m, ge.H_dom_m,
+                Lz_dom=ge.Lz_m, is_3d=self.is_3d)
+            errors = [str(problem) for problem in problems
+                      if problem.severity == 'error']
+            if errors:
+                raise ValueError(
+                    f"ComputeConfig.bc_{side} is invalid: " + "; ".join(errors))
+
+        # None selects the dimension-specific default; explicit gates must
+        # be finite and positive.
+        _gate_checks: Tuple[Tuple[str, Optional[float]], ...] = (
+            ('solver.outer_tol_K', self.solver.outer_tol_K),
+            # F2 gates (ledger C7). Same rule: positive and finite.
+            # A zero or negative gate is strictly unreachable (all
+            # three residuals are >= 0), so the solve could only ever
+            # burn max_iter and report converged=False.
+            ('solver.mom_tol', self.solver.mom_tol),
+            ('solver.mass_local_tol', self.solver.mass_local_tol),
+            ('solver.mass_global_tol', self.solver.mass_global_tol))
+        # Loop names deliberately distinct from the earlier all-float checks
+        # (mypy unifies a reused loop variable's type across the function).
+        for _gname, _gval in _gate_checks:
+            if _gval is None:
+                continue
+            try:
+                fv = float(_gval)
+            except (TypeError, ValueError):
+                _bad(_gname, _gval)
+            if not math.isfinite(fv) or fv <= 0.0:
+                _bad(_gname, _gval)
+        from sjtu_tpmshx.shared.domain.run_environment import require_f2_mode
+        require_f2_mode(self.solver.convergence_mode)
+
+        if self.solver.max_iter_simple is not None:
+            mi = self.solver.max_iter_simple
+            if mi < 1:
+                raise ValueError(
+                    f"ComputeConfig.solver.max_iter_simple={mi} — must be >= 1")
+        if self.solver.max_outer_ltne is not None:
+            mo = self.solver.max_outer_ltne
+            # Outer convergence requires two temperature states.
+            if mo < 2:
+                raise ValueError(
+                    f"ComputeConfig.solver.max_outer_ltne={mo} — must be >= 2. "
+                    "A single outer pass can never satisfy the coupling "
+                    "criterion (it needs a previous iterate to compare "
+                    "against), so the run could only ever report "
+                    "converged=False.")
+
+        # V2 production D-F closure is a water+sCO2 CFD table with bilinear
+        # interpolation in geometry only. Extrapolation is not supported.
+        if not 4.0 <= self.geometry.L_cell_mm <= 8.0 \
+                or not 0.3 <= self.geometry.t_wall_mm <= 0.6:
+            raise ValueError(
+                "V2 geometry must lie inside the CFD grid: "
+                "4 <= L <= 8 mm, 0.3 <= t <= 0.6 mm")
+
+        sco2_A = self.fluid_A.type == 'sco2'
+        sco2_B = self.fluid_B.type == 'sco2'
+        if sco2_A or sco2_B:
+            for side, fl in (('A', self.fluid_A), ('B', self.fluid_B)):
+                if fl.type != 'sco2':
+                    continue
+                if not 280.0 <= fl.T_in_K <= 700.0:
+                    raise ValueError(
+                        f"sCO2 fluid {side} temperature must be 280..700 K")
+                if not SCO2_P_RANGE_PA[0] <= fl.P_in_Pa <= SCO2_P_RANGE_PA[1]:
+                    raise ValueError(
+                        f"sCO2 fluid {side} pressure must be 7.9..16 MPa")
+            if self.zones.enabled and self.zones.axis != 'continuous':
+                raise ValueError("sCO2 V2 does not support discrete zones")
+            if self.geometry.delta_levelset != 0.0:
+                raise ValueError("sCO2 V2 requires delta_levelset=0")
+        if 'co2' in (self.fluid_A.type, self.fluid_B.type):
+            if self.zones.enabled and self.zones.axis != 'continuous':
+                raise ValueError('CO2 does not support discrete zones')
+            if self.geometry.delta_levelset != 0.:
+                raise ValueError('CO2 requires symmetric delta_levelset=0 geometry')
+        return self
+
+    def validate(self, *, resolved_inlet_speeds: bool = False) -> 'ComputeConfig':
+        """Reject non-physical inputs at the script and preparation boundary.
+
+        ``from_dict``/``from_json`` call this; direct dataclass construction
+        stays permissive for callers assembling a configuration in stages.
+        """
+        import math
+
+        self.validate_static_inputs()
+        for side, fluid in (('A', self.fluid_A), ('B', self.fluid_B)):
+            if fluid.mass_flow_kg_s is not None and not resolved_inlet_speeds:
+                continue
+            try:
+                speed = float(fluid.u_mps)
+            except (TypeError, ValueError):
+                speed = math.nan
+            if not math.isfinite(speed) or speed <= 0:
+                raise ValueError(
+                    f'ComputeConfig.fluid_{side}.u_mps={fluid.u_mps!r} — must be finite and > 0')
+        ge = self.geometry
+        if self.df_mode == 'experimental':
+            from sjtu_tpmshx.shared.df_surrogate.experimental_correction import (
+                correction_scale)
+            continuous_hx = (self.zones.axis == 'continuous'
+                             and ge.tpms == 'Gyroid'
+                             and self.fluid_A.type == 'air' and self.fluid_B.type == 'water'
+                             and math.isclose(ge.L_cell_mm, 7., rel_tol=0., abs_tol=1e-12)
+                             and math.isclose(ge.t_wall_mm, .6, rel_tol=0., abs_tol=1e-12))
+            if (self.zones.enabled and not continuous_hx
+                    and any(fl.type != 'co2' for fl in (self.fluid_A, self.fluid_B))):
+                raise ValueError(
+                    "experimental calibration currently requires uniform L/t; "
+                    "continuous Shanghai Gyroid air/water fields may use "
+                    "the 7/0.6 calibration as an exploratory extrapolation")
+            for side, fl in (('A', self.fluid_A),
+                             ('B', self.fluid_B)):
+                if fl.type == 'co2':
+                    continue  # Fixed CO2 factors are independent of the global D-F selection.
+                if fl.mass_flow_kg_s is not None and not resolved_inlet_speeds:
+                    continue  # Preparation checks calibration after resolving the prescribed flow.
+                try:
+                    _, _, _, scope = correction_scale(
+                        self.geometry.tpms, fl.type,
+                        self.geometry.L_cell_mm, self.geometry.t_wall_mm,
+                        fl.u_mps, allow_hx_extrapolation=continuous_hx and self.zones.enabled)
+                except ValueError as exc:
+                    raise ValueError(
+                        f"experimental calibration unavailable for active side "
+                        f"{side}: {exc}") from exc
+                if scope != 'HX-effective':
+                    continue
+                if (self.geometry.delta_levelset != 0.0
+                        or not math.isclose(ge.L_dom_m, 0.182)
+                        or not math.isclose(ge.H_dom_m, 0.042)
+                        or (self.is_3d and (ge.Lz_m is None
+                                            or not math.isclose(
+                                                ge.Lz_m, 0.042)))):
+                    raise ValueError(
+                        f"experimental calibration side {side} is HX-effective "
+                        "and requires delta=0 with the matching 0.182 x 0.042"
+                        " x 0.042 m campaign domain")
+        return self
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any], *, prepared_grid: bool = False) -> 'ComputeConfig':
+        """Build a ComputeConfig from a JSON-shaped dict.
+
+        Supports two layouts:
+
+        1. **Canonical** — keys ``fluid_A``, ``fluid_B``,
+           ``geometry``, ``solver``, each mapping to the corresponding
+           dataclass shape (``asdict`` round-trip).
+        2. **Legacy Shanghai baseline** — ``geometry`` + ``domain``
+           dicts; ``domain.L_dom_m`` / ``H_dom_m`` / ``Lz_m`` fold
+           into :class:`GeometryConfig`. Fluids fall back to defaults
+           because the Shanghai loop overwrites them per case.
+
+        ``prepared_grid`` reads controls for a saved grid or geometry export.
+        Callers must not construct a solver grid from these decoded inputs.
+        """
+        if not isinstance(data, dict):
+            raise ValueError('ComputeConfig must be a JSON object')
+        reject_retired_research_options(data)
+        # The legacy layout is identified by its domain section. Optional
+        # canonical sections must never decide how the remaining fields parse.
+        if 'domain' not in data:
+            unknown = set(data) - set(cls.__dataclass_fields__)
+            if unknown:
+                raise ValueError(f'unknown ComputeConfig fields: {sorted(unknown)}')
+            fA_d = data.get('fluid_A', {}) or {}
+            fB_d = data.get('fluid_B', {}) or {}
+            ge_d = data.get('geometry', {}) or {}
+            so_d = dict(data.get('solver', {}) or {})
+            reject_retired_research_options(so_d)
+            # Old case files may contain retired controls. Report their
+            # removal once at this import boundary, never in runtime APIs.
+            _dropped = [k for k in ('alpha_T', 'rough_mode', 'tol_simple') if k in so_d]
+            for key in _dropped:
+                del so_d[key]
+            if _dropped:
+                warnings.warn(
+                    f"solver config keys {_dropped} are retired and were ignored; "
+                    "F2 uses mom_tol, mass_local_tol and mass_global_tol. "
+                    "Full-compute and multi-condition solve budgets use 'solver'; "
+                    "'optimizer' is archive-only.", stacklevel=2)
+            op_d = dict(data.get('optimizer', {}) or {})
+            if 'tol_simple' in op_d:
+                del op_d['tol_simple']
+                warnings.warn(
+                    "optimizer.tol_simple is retired and was ignored; "
+                    "it did not control F2 convergence.", stacklevel=2)
+            # audit C4 additions — all optional, default-constructed
+            # when absent so old JSON files keep round-tripping.
+            bcA_d = data.get('bc_A', {}) or {}
+            bcB_d = data.get('bc_B', {}) or {}
+            zn_d = data.get('zones', {}) or {}
+            fl_d = dict(data.get('flags', {}) or {})
+            reject_retired_research_options(fl_d)
+            if 'wall_refine_3d' in fl_d:
+                retired = fl_d.pop('wall_refine_3d')
+                if type(retired) is not bool:
+                    raise ValueError('flags.wall_refine_3d must be boolean')
+                if retired and not prepared_grid:
+                    raise ValueError('wall_refine_3d is retired. Select port_wall_refine '
+                                     'with total grid counts, or use the archived source version.')
+            ex_d = data.get('extrap', {}) or {}
+            return cls(
+                fluid_A=FluidConfig(**fA_d) if fA_d else FluidConfig(),
+                fluid_B=FluidConfig(**fB_d) if fB_d else FluidConfig(),
+                geometry=GeometryConfig(**ge_d) if ge_d else GeometryConfig(),
+                solver=SolverConfig(**so_d) if so_d else SolverConfig(),
+                optimizer=(OptimizerConfig(**op_d)
+                           if data.get('optimizer') is not None else None),
+                bc_A=PartialBCConfig(**bcA_d) if bcA_d else PartialBCConfig(),
+                bc_B=PartialBCConfig(**bcB_d) if bcB_d else PartialBCConfig(),
+                zones=ZoneInputConfig(**zn_d) if zn_d else ZoneInputConfig(),
+                flags=FeatureFlags(**fl_d) if fl_d else FeatureFlags(),
+                extrap=ExtrapPolicy(**ex_d) if ex_d else ExtrapPolicy(),
+                envelope_mode=data.get('envelope_mode', 'raise'),
+                df_mode=data.get('df_mode', 'cfd_smooth'),
+                sco2_nu=Sco2NuConfig(**data.get('sco2_nu', {})),
+            ).validate()
+
+        # ── legacy shanghai_baseline.json layout ────────────────
+        # Keys: _meta / geometry / domain / _excluded
+        unknown = set(data) - {'_meta', 'geometry', 'domain', '_excluded', 'sco2_nu'}
+        if unknown:
+            raise ValueError(f'mixed or unknown legacy config fields: {sorted(unknown)}')
+        geom_raw = data.get('geometry', {}) or {}
+        domain_raw = data.get('domain', {}) or {}
+        unknown = set(geom_raw) - {'tpms', 'L_cell_mm', 't_wall_mm', 'k_s_W_mK'}
+        if unknown:
+            raise ValueError(f'legacy geometry has canonical or unknown fields: {sorted(unknown)}')
+        # The checked-in Shanghai input also records the experiment's flow
+        # area; its validation harness consumes these two legacy fields.
+        unknown = set(domain_raw) - {'L_dom_m', 'H_dom_m', 'Lz_m',
+                                     'n_units', 'a_flow_per_unit_m2'}
+        if unknown:
+            raise ValueError(f'legacy domain has unknown fields: {sorted(unknown)}')
+        geom = GeometryConfig(
+            tpms=geom_raw.get('tpms', 'Gyroid'),
+            L_cell_mm=float(geom_raw.get('L_cell_mm', 7.0)),
+            t_wall_mm=float(geom_raw.get('t_wall_mm', 0.6)),
+            k_s_W_mK=float(geom_raw.get('k_s_W_mK', 16.0)),
+            L_dom_m=float(domain_raw.get('L_dom_m', 0.182)),
+            H_dom_m=float(domain_raw.get('H_dom_m', 0.042)),
+            Lz_m=(float(domain_raw['Lz_m'])
+                  if 'Lz_m' in domain_raw else None),
+        )
+        return cls(geometry=geom,
+                   sco2_nu=Sco2NuConfig(**data.get('sco2_nu', {}))).validate()
+
+
+__all__ = [
+    'FluidType', 'DFMode', 'TPMSType', 'ZoneAxis',
+    'FluidConfig', 'GeometryConfig', 'SolverConfig', 'OptimizerConfig',
+    'PartialBCConfig', 'ZoneInputConfig',
+    'ExtrapPolicy', 'FeatureFlags',
+    'ComputeConfig', 'Sco2NuConfig',
+]

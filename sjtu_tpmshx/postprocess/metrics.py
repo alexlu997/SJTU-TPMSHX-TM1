@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from sjtu_tpmshx.result_math import (
+from sjtu_tpmshx.shared.result_math import (
     _boundary_enthalpy_duty, _boundary_face_shape,
     _conservative_boundary_power_duty, _temperature_boundary_power_duty,
     _enthalpy_balance_2d, _outlet_temperature_2d,

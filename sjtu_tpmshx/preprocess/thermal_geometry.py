@@ -1,14 +1,14 @@
 """Fixed geometry consumed by the existing 2D and 3D heat-transfer closures."""
 import numpy as np
-from sjtu_tpmshx.models.tpms_props import geometry
-from sjtu_tpmshx.models.asym_split import _asym_split_A
+from sjtu_tpmshx.shared.models.tpms_props import geometry
+from sjtu_tpmshx.shared.models.asym_split import _asym_split_A
 
 
 def prepare_thermal_geometry(tpms, cell_mm, wall_mm, conductivity, *,
                              L_field=None, t_field=None, delta=0., co2_geometry=False):
     geometry_model = geometry
     if co2_geometry:
-        from sjtu_tpmshx.models.co2_correlations import geometry as geometry_model
+        from sjtu_tpmshx.shared.models.co2_correlations import geometry as geometry_model
         if delta != 0.:
             raise ValueError('CO2 geometry requires delta=0')
     uniform = geometry_model(tpms, cell_mm, wall_mm, conductivity)
@@ -24,8 +24,8 @@ def prepare_thermal_geometry(tpms, cell_mm, wall_mm, conductivity, *,
     split = _asym_split_A({'delta_levelset': delta}, tpms, cell_mm, wall_mm)
     sides = None
     if delta != 0.:
-        from sjtu_tpmshx.models.tpms_geometry import _phi_grid, _C_from_tL
-        from sjtu_tpmshx.models import asym_geometry
+        from sjtu_tpmshx.shared.models.tpms_geometry import _phi_grid, _C_from_tL
+        from sjtu_tpmshx.shared.models import asym_geometry
         n = 128
         phi = _phi_grid(tpms, n)
         level = _C_from_tL(tpms, float(wall_mm) / float(cell_mm))

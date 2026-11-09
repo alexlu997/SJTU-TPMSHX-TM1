@@ -1,0 +1,276 @@
+"""SessionManager — file-based session + preset persistence with versioning.
+
+File names under the platform user data directory:
+    .last_session.json        ← workspace A
+    .last_session_B.json      ← workspace B
+    .last_session_C.json      ← workspace C
+    .user_presets.json        ← named preset library
+    .workspace               ← single-char active workspace marker
+
+Saved session payloads and preset archives include `schema_version` (1).
+Session loads mark files without this field as v0 for the caller's restore
+validation. Unrestored files are kept before replacement.
+
+`base_dir` remains configurable for isolated sessions and tests. The default
+imports existing package-local user files without changing the originals.
+
+See docs/architecture.md for controller responsibilities and restore rules.
+"""
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+import tempfile
+from typing import Any, Callable, Dict, List, Optional, TextIO
+from uuid import uuid4
+
+from PySide6.QtCore import QObject
+
+from sjtu_tpmshx.applications.gui.controllers.user_storage import user_data_dir
+from sjtu_tpmshx.shared.logutil import get_logger
+
+
+_log = get_logger(__name__)
+
+
+SCHEMA_VERSION = 1
+
+
+class SessionManager(QObject):
+    """Disk persistence for session state, user presets, and active workspace.
+
+    Construct with no args to use the platform user data directory:
+        sm = SessionManager()
+        sm = SessionManager(parent=window) # Qt parent for cleanup
+
+    Or override base_dir for isolated sessions and testing:
+        sm = SessionManager(base_dir=tmp_path)
+
+    """
+
+    SCHEMA_VERSION = SCHEMA_VERSION
+    VALID_WORKSPACES = ('A', 'B', 'C')
+
+
+    def __init__(self, base_dir: Optional[os.PathLike] = None,
+                 parent: Optional[QObject] = None):
+        super().__init__(parent)
+        if base_dir is None:
+            base_dir = user_data_dir()
+        self._base = Path(base_dir)
+        self._unrestored_files: set[Path] = set()
+
+    # ------------------------------------------------------------------ paths
+
+    @property
+    def base_dir(self) -> Path:
+        return self._base
+
+    def session_path(self, workspace: str = 'A') -> Path:
+        """Path to .last_session_<ws>.json. Workspace A keeps legacy filename."""
+        if workspace not in self.VALID_WORKSPACES:
+            raise ValueError(
+                f"unknown workspace: {workspace!r} "
+                f"(expected one of {self.VALID_WORKSPACES})")
+        if workspace == 'A':
+            return self._base / '.last_session.json'
+        return self._base / f'.last_session_{workspace}.json'
+
+    def presets_path(self) -> Path:
+        return self._base / '.user_presets.json'
+
+    def workspace_marker_path(self) -> Path:
+        return self._base / '.workspace'
+
+    # ------------------------------------------------------------------ session
+
+    def load_session(self, workspace: str = 'A') -> Optional[Dict[str, Any]]:
+        """Return parsed session payload or None if file missing/malformed.
+
+        Marks pre-v1 files with `schema_version: 0` in memory so the caller
+        can route by version. Reading does not rewrite the file.
+        """
+        path = self.session_path(workspace)
+        if not path.exists():
+            return None
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                payload = json.load(f)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            # robustness-hardening (2026-07-03): a corrupt session used to
+            # silently revert the workspace to defaults AND be destroyed by
+            # the next save. Quarantine it so the user's data stays
+            # recoverable and the corruption is visible on disk.
+            self.quarantine_session(workspace)
+            return None
+        except OSError as error:
+            self._unrestored_files.add(path)
+            _log.warning("Could not read session %s: %s", path, error)
+            return None
+        if not isinstance(payload, dict):
+            self.quarantine_session(workspace)
+            return None
+        self._unrestored_files.discard(path)
+        # Schema migration: legacy files missing the field → v0
+        payload.setdefault('schema_version', 0)
+        return payload
+
+    def quarantine_session(self, workspace: str = 'A') -> Optional[Path]:
+        """Preserve an unrestored session; failed preservation prevents overwriting it."""
+        return self._preserve_unrestored(self.session_path(workspace))
+
+    def _preserve_unrestored(self, path: Path) -> Optional[Path]:
+        """Protect a rejected user file before allowing a later replacement."""
+        self._unrestored_files.add(path)
+        if not path.exists():
+            self._unrestored_files.discard(path)
+            return None
+        backup = self._quarantine_corrupt(path)
+        if backup is not None:
+            self._unrestored_files.discard(path)
+        return backup
+
+    def _quarantine_corrupt(self, path: Path) -> Optional[Path]:
+        """Move an unreadable/rejected file to a unique sibling; retain it on failure."""
+        backup = path.with_name(f"{path.name}.corrupt-{uuid4().hex}")
+        try:
+            path.rename(backup)
+        except OSError as error:
+            _log.warning("Could not preserve user file %s: %s", path, error)
+            return None
+        return backup
+
+    def _atomic_write_json(self, path: Path, data: Any) -> bool:
+        """Stream JSON through the shared atomic replacement protocol."""
+        return self._atomic_write(path, lambda f: json.dump(data, f, indent=2))
+
+    def _atomic_write(self, path: Path, write: Callable[[TextIO], Any]) -> bool:
+        """Atomically replace a file; the last successful replacement wins.
+
+        Each writer owns its temporary file, following ``io.text_file``.
+        A failed writer cannot overwrite or delete another writer's data.
+        """
+        tmp = None
+        try:
+            fd, tmp = tempfile.mkstemp(prefix=path.name + '.', suffix='.tmp', dir=path.parent)
+            with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                write(f)
+                f.flush()
+                try:
+                    os.fsync(f.fileno())
+                except (OSError, AttributeError):
+                    # fsync may fail on some virtual filesystems and is
+                    # not available on every platform — tolerate it.
+                    pass
+            os.replace(tmp, path)
+            return True
+        except OSError:
+            return False
+        finally:
+            if tmp is not None:
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
+
+    def save_session(self, payload: Dict[str, Any],
+                     workspace: str = 'A') -> bool:
+        """Write payload to disk. Returns True on success, False on IO error.
+
+        Adds schema_version stamp before writing. Uses atomic
+        write-to-temp + os.replace so a crash mid-write does not corrupt
+        the prior session file.
+        """
+        if not isinstance(payload, dict):
+            raise TypeError(f"payload must be dict, got {type(payload).__name__}")
+        out = dict(payload)
+        out['schema_version'] = SCHEMA_VERSION
+        path = self.session_path(workspace)
+        if path in self._unrestored_files:
+            self.quarantine_session(workspace)
+            if path in self._unrestored_files:
+                return False
+        if self._atomic_write_json(path, out):
+            return True
+        return False
+
+    # ------------------------------------------------------------------ presets
+
+    def load_user_presets(self) -> List[Dict[str, Any]]:
+        """Return list of saved presets (possibly empty)."""
+        path = self.presets_path()
+        if not path.exists():
+            return []
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            presets = data.get('presets', []) if isinstance(data, dict) else None
+            if not isinstance(presets, list) or any(not isinstance(p, dict) for p in presets):
+                self._preserve_unrestored(path)
+                return []
+            self._unrestored_files.discard(path)
+            return list(presets)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            # Same quarantine rationale as load_session — a corrupt preset
+            # library must not be silently clobbered by the next save.
+            self._preserve_unrestored(path)
+            return []
+        except OSError:
+            self._unrestored_files.add(path)
+            return []
+
+    def save_user_presets(self, presets: List[Dict[str, Any]]) -> bool:
+        """Persist preset list. Returns True on success.
+
+        Uses atomic write so a crash mid-save does not erase the user's
+        preset library.
+        """
+        if not isinstance(presets, list):
+            raise TypeError(
+                f"presets must be list, got {type(presets).__name__}")
+        path = self.presets_path()
+        if path in self._unrestored_files:
+            self._preserve_unrestored(path)
+            if path in self._unrestored_files:
+                return False
+        if self._atomic_write_json(
+                path,
+                {'schema_version': SCHEMA_VERSION, 'presets': presets}):
+            return True
+        return False
+
+    # ------------------------------------------------------------------ workspace
+
+    def get_active_workspace(self) -> str:
+        """Read .workspace marker. Returns 'A' if missing/malformed."""
+        path = self.workspace_marker_path()
+        if not path.exists():
+            return 'A'
+        try:
+            content = path.read_text(encoding='utf-8').strip().upper()
+        except UnicodeDecodeError:
+            self._quarantine_corrupt(path)
+            return 'A'
+        except OSError:
+            return 'A'
+        return content if content in self.VALID_WORKSPACES else 'A'
+
+    def set_active_workspace(self, workspace: str) -> bool:
+        """Persist active workspace marker. Returns True on success.
+
+        Like session JSON, each writer owns its temporary file and the last
+        successful atomic replacement wins.
+        """
+        if workspace not in self.VALID_WORKSPACES:
+            raise ValueError(
+                f"unknown workspace: {workspace!r} "
+                f"(expected one of {self.VALID_WORKSPACES})")
+        return self._atomic_write(self.workspace_marker_path(), lambda f: f.write(workspace))
+
+    # ------------------------------------------------------------------ misc
+
+    def __repr__(self) -> str:
+        return (f'<SessionManager base={self._base} '
+                f'active_ws={self.get_active_workspace()} '
+                f'schema_v{SCHEMA_VERSION}>')

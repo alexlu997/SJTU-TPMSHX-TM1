@@ -1,7 +1,7 @@
 """Design metrics from prescribed boundary data and the final thermal fields."""
 import numpy as np
 
-from sjtu_tpmshx.result_math import _cold_outlet
+from sjtu_tpmshx.shared.result_math import _cold_outlet
 
 DEFINITIONS = {'Q_cold': ('Q', 'W'), 'Re_A': ('Re', '1'), 'Re_B': ('Re', '1')}
 

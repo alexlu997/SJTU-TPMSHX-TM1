@@ -115,5 +115,5 @@ Merged commit [69f15c8a](https://github.com/alexlu997/SJTU-TPMSHX-TM1/commit/69f
 | `mms_phase_*.csv` and metadata | [Original validation files](https://github.com/alexlu997/SJTU-TPMSHX-TM1/tree/69f15c8ab08131d5759d9677247384d631cbb3ec/sjtu_tpmshx/validation) |
 
 Current C++ checks still execute manufactured fields, refinement and physical inlet faces.
-The [validation guide](../../sjtu_tpmshx/validation/README.en.md) lists retained limits.
+The [validation guide](../../sjtu_tpmshx/development/validation/README.en.md) lists retained limits.
 GCI references, shared fitting tools and reference-directory write protection remain active.

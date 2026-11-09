@@ -24,9 +24,9 @@ def main(argv=None):
     configure_cache()
     args = list(sys.argv[1:] if argv is None else argv)
     if args[:1] == ['--cli']:
-        from sjtu_tpmshx.cli import main as run_cli
+        from sjtu_tpmshx.applications.cli.main import main as run_cli
         return run_cli(args[1:])
-    from sjtu_tpmshx.main import main as run_gui
+    from sjtu_tpmshx.applications.gui.main import main as run_gui
     return run_gui(args)
 
 

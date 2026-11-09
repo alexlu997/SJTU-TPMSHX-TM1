@@ -4,12 +4,12 @@ from dataclasses import replace
 from time import perf_counter
 from uuid import uuid4
 
-from sjtu_tpmshx.domain.case_data import CaseData
-from sjtu_tpmshx.domain.compute_config import ComputeConfig
-from sjtu_tpmshx.domain.field_result import FieldResult
-from sjtu_tpmshx.domain.module_ports import RunControl
-from sjtu_tpmshx.domain.performance_result import PerformanceResult
-from sjtu_tpmshx.domain.run_warnings import warning_scope, warning_messages
+from sjtu_tpmshx.shared.domain.case_data import CaseData
+from sjtu_tpmshx.shared.domain.compute_config import ComputeConfig
+from sjtu_tpmshx.shared.domain.field_result import FieldResult
+from sjtu_tpmshx.shared.domain.module_ports import RunControl
+from sjtu_tpmshx.shared.domain.performance_result import PerformanceResult
+from sjtu_tpmshx.shared.domain.run_warnings import warning_scope, warning_messages
 
 
 def compute(config: ComputeConfig, *, case_id: str | None = None,

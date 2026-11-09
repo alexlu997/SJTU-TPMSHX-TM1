@@ -3,8 +3,8 @@ import ctypes as ct
 
 import numpy as np
 
-from sjtu_tpmshx.domain.run_warnings import RangeRecord, current_warnings, merge_warnings, warning_messages, range_observations
-from sjtu_tpmshx.models.nu_correlations import NU_LAM_FLOOR
+from sjtu_tpmshx.shared.domain.run_warnings import RangeRecord, current_warnings, merge_warnings, warning_messages, range_observations
+from sjtu_tpmshx.shared.models.nu_correlations import NU_LAM_FLOOR
 
 
 class NuObservation(ct.Structure):

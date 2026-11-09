@@ -8,7 +8,7 @@ The GUI, CLI, and multi-condition optimizer share `prepare_case → run_case →
 
 The three-module Python mainline, M-A, is complete. The extension scope, M-B, stays incomplete. The original task graph contained 45 nodes: 37 complete, 7 planned, and 1 blocked by dependencies. These counts are a historical snapshot. The table includes later additions.
 
-A local kernel integration does not complete a full extension node or change its acceptance conditions. The [fixed history index](history/README.en.md#2026-09-18-历史材料整理) keeps requirements, node states, reviews, and failure evidence. See [architecture](architecture.md) for current responsibilities and [schemas](../schemas/three_module_v1/README.md) for public file contracts.
+A local kernel integration does not complete a full extension node or change its acceptance conditions. The [fixed history index](history/README.en.md#2026-09-18-历史材料整理) keeps requirements, node states, reviews, and failure evidence. See [architecture](architecture.md) for current responsibilities and [data contract](contracts/three_module_v1/README.md) for public file contracts.
 
 | V0.1 requirement | Currently inspectable scope | Undelivered or awaiting acceptance |
 | --- | --- | --- |
@@ -24,7 +24,7 @@ A local kernel integration does not complete a full extension node or change its
 | Homogenized parameter calculation, reading, and interpolation | Case design fields, fixed geometry, versioned CFD tables, and independent model support. | Arbitrary directional homogenization models are not implemented. |
 | Backend-independent homogenized intermediate layer | Public SI grid, physical fields, boundaries, and resource descriptions. C++ prepared inputs and FieldResult mappings keep the same contract. | OpenFOAM and general extension mappings require backend-specific acceptance. |
 | Tensor representation preferred for directional parameters | Existing scalar/directional fields with explicit axis meaning. | General tensor contracts and anisotropic discretization stay under X30. |
-| Properties separated from governing equations | Shared air, water, and sCO2 properties and correlations in models. | New providers need real integration. Persistent Cases cannot contain arbitrary callables. |
+| Properties separated from governing equations | Shared air, water, and sCO2 properties and correlations in `shared/models/`. | New providers need real integration. Persistent Cases cannot contain arbitrary callables. |
 | Constant-property provider | Quick Design fixes evaluated properties within each thermal iteration pass. | This is not a general configurable constant-property provider. |
 | Tabulated-property provider | Existing closure tables are not fluid-property tables. | No general fluid-property table adapter. |
 | Fitted properties | A shared model supplies existing air/water formulas. | No general user-fit resource registration or cross-backend execution. |

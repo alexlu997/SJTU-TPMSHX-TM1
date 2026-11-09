@@ -3,14 +3,14 @@ from dataclasses import asdict
 
 import numpy as np
 
-from sjtu_tpmshx.domain.case_data import CaseData
-from sjtu_tpmshx.domain.model_refs import ModelRef
-from sjtu_tpmshx.domain.run_environment import capture_environment
-from sjtu_tpmshx.models.catalog import MODEL_VERSIONS
-from sjtu_tpmshx.models.fluid_props import check_finite_temperatures
-from sjtu_tpmshx.models.quick_design import K_STEEL, GEOM_N, NX, LTNE_TOL, _ARR, _dp_fractions
-from sjtu_tpmshx.models.tpms_calc import geometry as tpms_geometry
-from sjtu_tpmshx.df_surrogate.predict import (
+from sjtu_tpmshx.shared.domain.case_data import CaseData
+from sjtu_tpmshx.shared.domain.model_refs import ModelRef
+from sjtu_tpmshx.shared.domain.run_environment import capture_environment
+from sjtu_tpmshx.shared.models.catalog import MODEL_VERSIONS
+from sjtu_tpmshx.shared.models.fluid_props import check_finite_temperatures
+from sjtu_tpmshx.shared.models.quick_design import K_STEEL, GEOM_N, NX, LTNE_TOL, _ARR, _dp_fractions
+from sjtu_tpmshx.shared.models.tpms_calc import geometry as tpms_geometry
+from sjtu_tpmshx.shared.df_surrogate.predict import (
     _resolve_method,
 )
 

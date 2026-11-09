@@ -90,7 +90,7 @@ F/H 质量流量、温压、压降和水侧热量参考保持，全部热量公�
 | 水入口温度 | 300.03908245097393 K | Y10=26.88908245097393 °C，加 273.15 |
 | 空气入口绝压 | 192362.40144727775 Pa | AE10 表压加假定大气压 101325 Pa |
 | 水入口绝压 | 101972.60139558925 Pa | AA10 表压加假定大气压 101325 Pa |
-| 核心尺寸、胞元和壁厚 | 182×42×42 mm；Gyroid 7/0.6 mm | 既有样机规格和 `configs/shanghai_baseline.json` |
+| 核心尺寸、胞元和壁厚 | 182×42×42 mm；Gyroid 7/0.6 mm | 既有样机规格和 `shared/configs/shanghai_baseline.json` |
 | 空气端口 | +x，全 42×42 mm 开口 | 已确认的直通流道 |
 | 水端口 | −y；入口 x=133..175 mm，出口 x=7..49 mm，厚度 42 mm | 已确认的错列开口 |
 | 固体导热系数、密度 | 16 W/(m·K)、7900 kg/m³ | 既有材料模型值，非本工作簿的实测值 |
@@ -154,7 +154,7 @@ W01600 缺测结案保持原状。
 D_7_3/4/5 全部进入主分母，单组 RMSRE 分别为 12.67%/6.65%/8.24%。
 未删点、未放宽阈值、未改生产系数；W01600 缺测结案保留。
 
-复现入口为 `validation/cases/validate_water_nu_excel.py`。原本地详细证据
+复现入口为 `development/validation/cases/validate_water_nu_excel.py`。原本地详细证据
 `water-nu-validation-20260912/`（report、summary、逐行/几何/Re 分段 CSV）
 已保存在私有 `20260912-prior-task-evidence.tar.gz`，本机 `.cache/ARCHIVE.md`
 记录归档位置；原 `.cache/` 子目录不再作为现存入口。
@@ -169,7 +169,7 @@ Diamond 保留 `Nu = 0.3201·Re^0.6679·Pr^(1/3)`，Gyroid 保留
 
 ## 现行实验工具读取解耦（2026-09-12）
 
-`validation/hx_experiments.py` 统一保存 7/0.6 水—空气 HX 的读取、列映射、
+`development/validation/hx_experiments.py` 统一保存 7/0.6 水—空气 HX 的读取、列映射、
 质量标记及已核定的 A/L/参考 Re 约定。`fit_experimental_effective` 与
 `cf_cross_fluid` 直接调用它。旧 gamma 工具在完成读取解耦后已退役，
 源码与旧输出见[历史模型索引](history/legacy-models.md)。
@@ -193,13 +193,13 @@ AC/AD 温度平均值，AE/AF 表压。保留 2000 Pa 的既有筛选规则；�
 `load_air_cases("Gyroid", source=(工作簿相对路径, "Sheet1"))`。
 Diamond 空气、水和 sCO2 的源文件及标定选择保持原状。
 
-本次变更仅作用于独立的 7/0.6 mm HX 修正。`df_surrogate.load_data` 的
+本次变更仅作用于独立的 7/0.6 mm HX 修正。`shared.df_surrogate.load_data` 的
 空气小试件训练集隔离守卫继续有效，上海整机数据不进入该训练表。
 新系数和适用范围见[标定来源与适用范围](model-resources.md)。
 
 ## 读取行为与版本边界
 
-- `validation/water_exp.py` 明确列出已确认压力口径的工作簿**新文件名**。
+- `development/validation/water_exp.py` 明确列出已确认压力口径的工作簿**新文件名**。
   表压到绝压仍仅换算一次，保留原压力列、负压损和重复行标记。
   `harness/_harness.py` 的同名判断与读取路径同步更新。
 - 上海及 D76 水—空气 `Sheet1` 的共享读取入口只取到最后一个工况编号，

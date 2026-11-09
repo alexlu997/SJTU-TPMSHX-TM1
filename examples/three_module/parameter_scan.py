@@ -4,13 +4,13 @@ from dataclasses import replace
 import json
 from pathlib import Path
 
-from sjtu_tpmshx.domain.compute_config import ComputeConfig
+from sjtu_tpmshx.shared.domain.compute_config import ComputeConfig
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.api import run_case
 from sjtu_tpmshx.postprocess.api import evaluate
-from sjtu_tpmshx.io.case_io import save_case
-from sjtu_tpmshx.io.result_io import save_result
-from sjtu_tpmshx.io.metrics_io import save_metrics
+from sjtu_tpmshx.shared.io.case_io import save_case
+from sjtu_tpmshx.shared.io.result_io import save_result
+from sjtu_tpmshx.shared.io.metrics_io import save_metrics
 
 
 def main():

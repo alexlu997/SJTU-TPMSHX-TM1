@@ -84,7 +84,7 @@ The table keeps source precision. The decimal places do not specify instrument a
 | Water inlet temperature | 300.03908245097393 K | Y10=26.88908245097393 °C, plus 273.15 |
 | Air inlet absolute pressure | 192362.40144727775 Pa | AE10 gauge pressure plus assumed atmosphere, 101325 Pa |
 | Water inlet absolute pressure | 101972.60139558925 Pa | AA10 gauge pressure plus assumed atmosphere, 101325 Pa |
-| Core, cell and wall dimensions | 182×42×42 mm; Gyroid 7/0.6 mm | Existing specimen specification and `configs/shanghai_baseline.json` |
+| Core, cell and wall dimensions | 182×42×42 mm; Gyroid 7/0.6 mm | Existing specimen specification and `shared/configs/shanghai_baseline.json` |
 | Air ports | +x, full 42×42 mm openings | Confirmed straight channel |
 | Water ports | −y; inlet x=133..175 mm, outlet x=7..49 mm, depth 42 mm | Confirmed staggered openings |
 | Solid conductivity and density | 16 W/(m·K), 7900 kg/m³ | Existing material-model values; not workbook measurements |
@@ -137,7 +137,7 @@ Overall acceptance stays failed. The native exit code was 2. Re spans 99.55–50
 
 D_7_3/4/5 stay in the main denominator, with RMSRE values of 12.67%/6.65%/8.24%. No points were removed, thresholds relaxed, or production coefficients changed. W01600 stays closed as missing.
 
-Reproduce the check with `validation/cases/validate_water_nu_excel.py`. Detailed local evidence from `water-nu-validation-20260912/` is in private `20260912-prior-task-evidence.tar.gz`. It includes the report, summary, and row/geometry/Re-band CSV files. Local `.cache/ARCHIVE.md` records the archive location. The former `.cache/` subdirectory is no longer an active entry.
+Reproduce the check with `development/validation/cases/validate_water_nu_excel.py`. Detailed local evidence from `water-nu-validation-20260912/` is in private `20260912-prior-task-evidence.tar.gz`. It includes the report, summary, and row/geometry/Re-band CSV files. Local `.cache/ARCHIVE.md` records the archive location. The former `.cache/` subdirectory is no longer an active entry.
 
 This validates the current correlation against existing data. It neither reconstructs the missing revised source's historical fit nor shows independent experimental validation.
 
@@ -149,7 +149,7 @@ Unchanged coefficients do not convert the accuracy check into a pass. This round
 
 ## Separation of current experimental readers, 2026-09-12
 
-`validation/hx_experiments.py` owns 7/0.6 water–air HX loading, column mapping, quality flags, and approved A/L/reference-Re conventions. `fit_experimental_effective` and `cf_cross_fluid` call it directly. The previous gamma tool was retired after reader separation. Its source and outputs stay in the [historical model index](history/legacy-models.md). Cross-dataset cF inversion now selects rows only by raw data quality. It no longer selects rows according to solvability of previous gamma pressure predictions.
+`development/validation/hx_experiments.py` owns 7/0.6 water–air HX loading, column mapping, quality flags, and approved A/L/reference-Re conventions. `fit_experimental_effective` and `cf_cross_fluid` call it directly. The previous gamma tool was retired after reader separation. Its source and outputs stay in the [historical model index](history/legacy-models.md). Cross-dataset cF inversion now selects rows only by raw data quality. It no longer selects rows according to solvability of previous gamma pressure predictions.
 
 Before/after checks found identical air D/G 18/16 and water D/G 18/16 rows and properties. All four experimental correction CSV files matched. The cF comparison kept 156 rows, with 0 additions or removals. Counts were air D/G 15/15, water 16/15, and sCO2 51/44. Maximum relative numerical difference was 1.20e-15, consistent with floating-point rounding.
 
@@ -163,13 +163,13 @@ Both current tools finished with exit code 0 in a new process with previous gamm
 
 The April 7 exchanged-channel workbook stays a transfer check and previous-coefficient source comparison. Load it explicitly with `load_air_cases("Gyroid", source=(relative_workbook_path, "Sheet1"))`. Diamond air, water, and sCO2 source files and calibration choices stay unchanged.
 
-This change affects only the separate 7/0.6 mm HX correction. The air specimen isolation guard in `df_surrogate.load_data` stays active. Shanghai whole-exchanger data does not enter that training table. See [calibration provenance and applicability](model-resources.en.md) for coefficients and limits.
+This change affects only the separate 7/0.6 mm HX correction. The air specimen isolation guard in `shared.df_surrogate.load_data` stays active. Shanghai whole-exchanger data does not enter that training table. See [calibration provenance and applicability](model-resources.en.md) for coefficients and limits.
 
 <a id="读取行为与版本边界"></a>
 
 ## Reader behavior and version boundaries
 
-- `validation/water_exp.py` lists the specified workbooks by their **new filenames**. Gauge pressure becomes absolute pressure one time. Original pressure columns, negative drops, and duplicate-row flags stay. Matching checks in `harness/_harness.py` use the updated paths.
+- `development/validation/water_exp.py` lists the specified workbooks by their **new filenames**. Gauge pressure becomes absolute pressure one time. Original pressure columns, negative drops, and duplicate-row flags stay. Matching checks in `harness/_harness.py` use the updated paths.
 - Shared Shanghai and D76 water–air `Sheet1` readers stop at the last case number. Footer sensor corrections, calculation notes, and empty rows do not become cases. Original order, columns, and values stay. Missing case temperatures or pressures still raise through existing checks. Rows are not silently removed.
 - Current D76 sCO2 six-case Nu validation, Gate A, reads the arranged version. V1 stays the historical source for previous 2D/pressure holdouts. Those entries are in the [retirement index](history/retired-tools.md), not current validation. Layouts differ. Path reorganization does not show physical acceptance.
 - The air specimen training set keeps the Shanghai source guard. The separate HX calibration source is described above.

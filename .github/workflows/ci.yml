@@ -23,7 +23,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: Check document links and project commands
-        run: python scripts/check_docs.py
+        run: python engineering/scripts/check_docs.py
       - name: Select required checks
         id: scope
         env:
@@ -31,7 +31,7 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          tier=$(python scripts/ci_scope.py select --event "$EVENT_NAME" --base "$BASE_SHA" --head "$HEAD_SHA")
+          tier=$(python engineering/scripts/ci_scope.py select --event "$EVENT_NAME" --base "$BASE_SHA" --head "$HEAD_SHA")
           echo "tier=$tier" >> "$GITHUB_OUTPUT"
 
   native:
@@ -70,7 +70,7 @@ jobs:
       - name: Require the expected jobs for this tier
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
-        run: python scripts/ci_scope.py gate --tier '${{ needs.scope.outputs.tier }}' --stage summary
+        run: python engineering/scripts/ci_scope.py gate --tier '${{ needs.scope.outputs.tier }}' --stage summary
       - uses: actions/download-artifact@v8
         if: needs.scope.outputs.tier != 'docs'
         with:
@@ -99,9 +99,9 @@ jobs:
           if [[ "$CI_TIER" == full ]]; then
             coverage=(--covered-by .cache/ci-shards/native-dependencies-${{ matrix.os }}-py${{ matrix.python }}-shard-*/native-manifest)
           else
-            coverage=(--omit-modules sjtu_tpmshx/tests/native/_ci_suite.txt)
+            coverage=(--omit-modules sjtu_tpmshx/development/tests/native/_ci_suite.txt)
           fi
-          python scripts/check_ci_shards.py \
+          python engineering/scripts/check_ci_shards.py \
             .cache/ci-shards/test-reports-${{ matrix.os }}-py${{ matrix.python }}-fast-0/fast-manifest \
             .cache/ci-shards/test-reports-${{ matrix.os }}-py${{ matrix.python }}-fast-1/fast-manifest \
             "${coverage[@]}" --bo-report .cache/ci-shards/bo --integration-report .cache/ci-shards/integration
@@ -115,13 +115,13 @@ jobs:
         include:
           - os: macos-15
             python: "3.13"
-            lock: requirements/bo-macos.txt
+            lock: engineering/requirements/bo-macos.txt
           - os: windows-2022
             python: "3.12"
-            lock: requirements/bo-windows.txt
+            lock: engineering/requirements/bo-windows.txt
           - os: windows-2022
             python: "3.13"
-            lock: requirements/bo-windows.txt
+            lock: engineering/requirements/bo-windows.txt
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     env:
@@ -141,7 +141,7 @@ jobs:
           python-version: ${{ matrix.python }}
           cache: pip
           cache-dependency-path: |
-            requirements/base.txt
+            engineering/requirements/base.txt
             ${{ matrix.lock }}
       - name: Create isolated BO environment
         shell: bash
@@ -160,7 +160,7 @@ jobs:
         run: '"$CI_PYTHON" -m pip install -r "${{ matrix.lock }}"'
       - name: Check exact BO dependency lock
         shell: bash
-        run: '"$CI_PYTHON" -m sjtu_tpmshx.runs.tools.check_locked_environment "${{ matrix.lock }}"'
+        run: '"$CI_PYTHON" -m sjtu_tpmshx.development.runs.tools.check_locked_environment "${{ matrix.lock }}"'
       - name: Check dependency compatibility
         shell: bash
         run: '"$CI_PYTHON" -m pip check'
@@ -176,9 +176,9 @@ jobs:
       - name: Run optimizer and real acquisition tests
         shell: bash
         run: >-
-          "$CI_PYTHON" -m pytest sjtu_tpmshx/tests/test_multi_condition_optimizer.py
-          sjtu_tpmshx/tests/test_mass_design.py -q -ra
-          -p sjtu_tpmshx.tests.ci_shard --ci-manifest=.cache/ci/bo-manifest
+          "$CI_PYTHON" -m pytest sjtu_tpmshx/development/tests/test_multi_condition_optimizer.py
+          sjtu_tpmshx/development/tests/test_mass_design.py -q -ra
+          -p sjtu_tpmshx.development.tests.ci_shard --ci-manifest=.cache/ci/bo-manifest
           --timeout=600 --timeout-method=thread
           --durations=10 --junitxml=.cache/ci/bo.xml
       - name: Save BO test outcomes and timings
@@ -206,7 +206,7 @@ jobs:
       - name: Require the expected native result
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
-        run: python scripts/ci_scope.py gate --tier '${{ needs.scope.outputs.tier }}' --stage minimal
+        run: python engineering/scripts/ci_scope.py gate --tier '${{ needs.scope.outputs.tier }}' --stage minimal
       - uses: actions/setup-python@v7
         if: needs.scope.outputs.tier != 'docs'
         with:
@@ -223,16 +223,16 @@ jobs:
           echo "CI_PYTHON=$RUNNER_TEMP/tm1-postprocess/bin/python" >> "$GITHUB_ENV"
       - name: Install exact minimal dependencies
         if: needs.scope.outputs.tier != 'docs'
-        run: '"$CI_PYTHON" -m pip install -r requirements/postprocess.txt'
+        run: '"$CI_PYTHON" -m pip install -r engineering/requirements/postprocess.txt'
       - name: Check minimal environment
         if: needs.scope.outputs.tier != 'docs'
         run: |
-          "$CI_PYTHON" -m sjtu_tpmshx.runs.tools.check_locked_environment requirements/postprocess.txt
+          "$CI_PYTHON" -m sjtu_tpmshx.development.runs.tools.check_locked_environment engineering/requirements/postprocess.txt
           "$CI_PYTHON" -m pip check
-          "$CI_PYTHON" -m sjtu_tpmshx.runs.tools.check_three_module_environment
+          "$CI_PYTHON" -m sjtu_tpmshx.development.runs.tools.check_three_module_environment
       - name: Run file and offline metric checks from source
         if: needs.scope.outputs.tier != 'docs'
-        run: '"$CI_PYTHON" -m pytest sjtu_tpmshx/tests/io_tm1 sjtu_tpmshx/tests/postprocess_tm1 -q'
+        run: '"$CI_PYTHON" -m pytest sjtu_tpmshx/development/tests/io_tm1 sjtu_tpmshx/development/tests/postprocess_tm1 -q'
       - name: Evaluate real 2D and 3D files in the minimal environment
         if: needs.scope.outputs.tier != 'docs'
-        run: '"$CI_PYTHON" -m pytest sjtu_tpmshx/tests/integration_tm1/test_minimal_install.py -q'
+        run: '"$CI_PYTHON" -m pytest sjtu_tpmshx/development/tests/integration_tm1/test_minimal_install.py -q'

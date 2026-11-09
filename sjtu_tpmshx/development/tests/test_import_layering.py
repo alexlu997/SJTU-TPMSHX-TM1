@@ -1,0 +1,81 @@
+"""P1.9 standing gate: the package import graph carries ZERO unsanctioned
+layering violations.
+
+The layer model, the sanctioned-edge list (with adjudication rationale) and
+the checker all live in runs/tools/audit_import_graph.py; the architecture
+historical sanctions are indexed in docs/history/retired-tools.md.
+A new upward import either gets fixed or gets a conscious SANCTIONED entry —
+never silently merged.
+"""
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+from sjtu_tpmshx.development.runs.tools import audit_import_graph as audit
+
+_REPO = Path(__file__).resolve().parents[3]
+_TOOL = _REPO / 'sjtu_tpmshx' / 'development' / 'runs' / 'tools' / 'audit_import_graph.py'
+
+
+def test_no_unsanctioned_layering_violations():
+    r = subprocess.run(
+        [sys.executable, str(_TOOL), '--fail-on-violations'],
+        capture_output=True, text=True, timeout=120, cwd=str(_REPO))
+    assert r.returncode == 0, (
+        "unsanctioned import-layering violations:\n" + r.stdout[-2000:])
+
+
+def test_discovery_ignores_retired_cache_and_data_only_directories(tmp_path, monkeypatch):
+    for name in ('active/__init__.py', 'namespace/nested/module.py', 'flat.py',
+                 'retired/__pycache__/old.pyc', 'resources/coefficients.csv'):
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    monkeypatch.setattr(audit, 'PKG', tmp_path)
+    assert audit.discover_units() == {'active', 'namespace', 'flat'}
+
+
+@pytest.mark.parametrize('filename,source,edge,exit_code', [
+    ('domain/probe.py', 'import sjtu_tpmshx.applications.gui.ui as widgets', 'domain -> ui', 1),
+    ('domain/probe.py', 'from sjtu_tpmshx.applications.gui.ui import theme as appearance', 'domain -> ui', 1),
+    ('domain/probe.py', 'from sjtu_tpmshx import ui as widgets', 'domain -> ui', 1),
+    ('domain/probe.py', 'from ...applications.gui import ui as widgets', 'domain -> ui', 1),
+    ('domain/probe.py', 'def load():\n    from ...applications.gui import ui', 'domain -> ui', 1),
+    ('domain/probe.py', 'from sjtu_tpmshx.applications.gui.ui import *', 'domain -> ui', 1),
+    ('domain/probe.py', 'from ui.theme import get_theme', 'domain -> ui', 1),
+    ('domain/probe.py', 'from sjtu_tpmshx import tests as support', 'domain -> tests', 1),
+    ('domain/probe.py', 'import io\nfrom io import StringIO', None, 0),
+    ('domain/probe.py', 'from scipy import io', None, 0),
+    ('models/probe.py', 'from sjtu_tpmshx.shared.domain import case_data', 'models -> domain', 0),
+    ('models/probe.py', 'from sjtu_tpmshx import df_surrogate', 'models -> df_surrogate', 0),
+    ('models/deep/probe.py', 'from ....applications.gui import ui', 'models -> ui', 1),
+    ('models/__init__.py', 'from ...applications.gui import ui', 'models -> ui', 1),
+    ('domain/probe.py', 'from sjtu_tpmshx import io', 'domain -> io', 1),
+    ('preprocess/probe.py', 'from sjtu_tpmshx.compute import compute', 'preprocess -> compute', 1),
+    ('compute.py', 'from sjtu_tpmshx.preprocess.api import prepare_case', 'compute -> preprocess', 0),
+])
+def test_import_spelling_preserves_layer_policy(tmp_path, monkeypatch, capsys,
+                                               filename, source, edge, exit_code):
+    package = tmp_path / 'sjtu_tpmshx'
+    for unit in ('shared/domain', 'shared/models', 'applications/gui/ui',
+                 'development/tests', 'shared/io', 'shared/df_surrogate', 'preprocess'):
+        (package / unit).mkdir(parents=True, exist_ok=True)
+        (package / unit / '__init__.py').touch()
+    (package / 'compute.py').touch()
+    if filename.split('/')[0] in ('domain', 'models'):
+        filename = 'shared/' + filename
+    path = package / filename
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(source, encoding='utf-8')
+    monkeypatch.setattr(audit, 'PKG', package)
+    monkeypatch.setattr(audit, 'REPO', tmp_path)
+    monkeypatch.setattr(sys, 'argv', ['audit_import_graph', '--fail-on-violations'])
+
+    assert audit.main() == exit_code
+    output = ' '.join(capsys.readouterr().out.split())
+    if edge is None:
+        assert '0 edges' in output
+    else:
+        assert edge in output

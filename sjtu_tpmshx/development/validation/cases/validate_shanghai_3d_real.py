@@ -1,0 +1,228 @@
+"""Validate the 16 Shanghai water-air cases through the common 3D workflow.
+
+Both fluids are solved using confirmed staggered water ports and the workbook's
+F/H mass-flow inputs. With no explicit grid, the port/wall mesh is used; output
+counts come from the prepared result. Full membership, finite errors,
+convergence, final pressure validity and the existing 12%/6% RMSRE gates
+remain separate requirements.
+Water pressure drop and both experimental heat duties are reported separately;
+the existing accuracy gates remain air-side only.
+
+The frozen-water kernel and its D76 pressure-validation consumer are retired.
+Their source, scores and original thresholds remain at Git a32b975638aaa7df0ab154e438b40130c4df4906 and in
+historical references. New outputs never overwrite the tracked CSV oracle.
+"""
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+import numpy as np
+import pandas as pd
+
+from sjtu_tpmshx.applications.result_adapter import compute_result
+from sjtu_tpmshx.development.validation.harness._harness import load_cases_df
+from sjtu_tpmshx.development.validation.harness._case_sets import (
+    shanghai_spec, SHANGHAI_XLSX, SHANGHAI_N_CASES,
+)
+from sjtu_tpmshx.development.validation.harness._provenance import (
+    output_directory, output_path, write_csv_with_provenance,
+)
+
+MAX_OUTER = 12
+
+def _pipeline_config(ci, df, Nx_u, Ny_u, Nz_u, max_outer=None,
+                     port_wall_refine=False, df_mode='cfd_smooth'):
+    from sjtu_tpmshx.shared.domain.compute_config import SolverConfig
+    from sjtu_tpmshx.development.validation.harness._case_sets import shanghai_pipeline_config
+    cfg = shanghai_pipeline_config(ci, df,
+        SolverConfig(Nx=Nx_u, Ny=Ny_u, Nz=Nz_u,
+                     max_outer_ltne=None if max_outer is None else int(max_outer)),
+        port_wall_refine=port_wall_refine)
+    cfg.df_mode = df_mode
+    return cfg
+
+
+def _run_one_case_pipeline(ci, df, Nx_u, Ny_u, Nz_u,
+                           max_outer=None, port_wall_refine=False,
+                           df_mode='cfd_smooth'):
+    """Solve both fluids through the same production pipeline as the GUI."""
+
+    cc = _pipeline_config(ci, df, Nx_u, Ny_u, Nz_u, max_outer,
+                          port_wall_refine, df_mode)
+    case = ci + 1
+    u_A, u_B = cc.fluid_A.u_mps, cc.fluid_B.u_mps
+    dP_A_exp = float(df.iloc[ci, 30]) - float(df.iloc[ci, 31])
+    dP_B_exp = float(df.iloc[ci, 32])
+    Q_exp = float(df.iloc[ci, 33])
+    Q_water_exp = float(df.iloc[ci, 34])
+    result = compute_result(cc)
+    dP_sim = result.dP_A_Pa
+    Q_sim = result.Q_W
+    Q_A = result.residuals['Q_A']
+    Q_B = result.residuals['Q_B']
+    # Native duties are signed heat loss; Shanghai water gains heat.
+    Q_water_sim = -Q_B
+    err_dP = ((dP_sim - dP_A_exp) / dP_A_exp * 100
+              if dP_A_exp != 0 else float('nan'))
+    err_Q = (Q_sim - Q_exp) / Q_exp * 100 if Q_exp != 0 else float('nan')
+    err_dP_water = ((result.dP_B_Pa - dP_B_exp) / dP_B_exp * 100
+                    if dP_B_exp != 0 else float('nan'))
+    err_Q_water = ((Q_water_sim - Q_water_exp) / Q_water_exp * 100
+                   if Q_water_exp != 0 else float('nan'))
+    # Final envelope validity and lifetime clipping count have different
+    # meanings: an intermediate clip does not itself fail a recovered result.
+    _diag = result.diagnostics or {}
+    _env_valid = bool(_diag.get('envelope_valid', True))
+    _clip_hits = int(_diag.get('p_clip_hits', 0))
+    # Report actual iterations, not the configured cap.
+    _cdet = _diag.get('convergence_detail') or {}
+    _outer_done = int(_cdet.get('outer_iters', 0)) or -1
+    _outer_conv = bool(_cdet.get('outer_converged', False))
+    if result.warnings:
+        print(f"  [case {case}] pipeline warnings: "
+              f"{'; '.join(str(w) for w in result.warnings)}")
+    return {
+        'case': case, 'u_air': u_A, 'u_water': u_B,
+        'df_mode': result.metadata['darcy_forchheimer']['mode'],
+        **{phase + '_s': result.metadata['timings_s'][phase]
+           for phase in ('prepare', 'solve', 'postprocess')},
+        'dP_exp': dP_A_exp, 'dP_sim': dP_sim, 'err_dP%': err_dP,
+        'dP_water_exp': dP_B_exp, 'dP_water_sim': result.dP_B_Pa,
+        'err_dP_water%': err_dP_water,
+        'Q_exp': Q_exp, 'Q_sim': Q_sim, 'err_Q%': err_Q,
+        'Q_water_exp': Q_water_exp, 'Q_water_sim': Q_water_sim,
+        'err_Q_water%': err_Q_water,
+        'Q_A_native_signed_W': Q_A, 'Q_B_native_signed_W': Q_B,
+        'experimental_heat_imbalance_rel': ((Q_exp - Q_water_exp) / Q_exp
+                                           if Q_exp != 0 else float('nan')),
+        **{name: result.residuals[name] for name in
+           ('energy_imbalance_rel', 'mass_imbalance_rel_A', 'mass_imbalance_rel_B')},
+        **{name + '_status': result.metadata['metric_status'][name]
+           for name in ('Q', 'dP_A', 'dP_B')},
+        'warnings': '; '.join(str(w) for w in result.warnings),
+        'Q_native': float(result.Q_W), 'Q_native_unit': 'W',
+        **{'grid_n' + axis: len(result.fields['d' + axis]) for axis in 'xyz'},
+        'outer_iters': _outer_done,
+        'outer_converged': _outer_conv,
+        'converged': bool(result.converged),
+        'pressure_clip_hits': _clip_hits,
+        'pressure_state_valid': int(_env_valid),
+    }
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
+    ap.add_argument('--port-wall-refine', action='store_true',
+                    help='Use port/wall grading; counts include all refinement cells')
+    ap.add_argument('--nx', type=int)
+    ap.add_argument('--ny', type=int)
+    ap.add_argument('--nz', type=int)
+    ap.add_argument('--cases', type=int, default=SHANGHAI_N_CASES,
+                    help='Run first N cases (default 16)')
+    ap.add_argument('--suffix', default='', help='CSV output suffix')
+    ap.add_argument('--out-dir', help='New result directory (default: separate .cache/validation run)')
+    ap.add_argument('--max-outer', type=int, default=MAX_OUTER,
+                    help=f'Outer SIMPLE<->LTNE coupling budget (default {MAX_OUTER})')
+    ap.add_argument('--df-mode', choices=('cfd_smooth', 'experimental'), default='cfd_smooth',
+                    help='Existing D-F model selection (default cfd_smooth)')
+    # Existing thresholds are retained; they do not certify a new physical
+    # model or turn the historical 4.88%/2.12% scores into a current oracle.
+    ap.add_argument('--gate-dp', type=float, default=12.0,
+                    help='FAIL (exit 1) if RMSRE_dP exceeds this %% (default 12)')
+    ap.add_argument('--gate-q', type=float, default=6.0,
+                    help='FAIL (exit 1) if RMSRE_Q exceeds this %% (default 6)')
+    ap.add_argument('--no-gate', action='store_true', help='Report only; no acceptance verdict')
+    args = ap.parse_args(argv)
+    if args.cases < 1:
+        ap.error('--cases must be positive')
+    if any(not np.isfinite(gate) or gate < 0 for gate in (args.gate_dp, args.gate_q)):
+        ap.error('RMSRE gates must be finite and nonnegative')
+    if Path(args.suffix).name != args.suffix and args.suffix:
+        ap.error('--suffix must be a filename suffix, not a path')
+    try:
+        out_dir = output_directory('shanghai_3d', args.out_dir)
+        out_path = output_path(out_dir / f'shanghai_3d_baseline{args.suffix}.csv')
+    except ValueError as exc:
+        ap.error(str(exc))
+    explicit_grid = any(n is not None for n in (args.nx, args.ny, args.nz))
+    port_refine = args.port_wall_refine or not explicit_grid
+    from sjtu_tpmshx.shared.models.grid import SHANGHAI_GRID_3D
+    defaults = SHANGHAI_GRID_3D if port_refine else (20, 10, 3)
+    Nx_u, Ny_u, Nz_u = (default if value is None else value
+                        for value, default in zip((args.nx, args.ny, args.nz), defaults))
+    df = load_cases_df(SHANGHAI_XLSX)
+    if args.cases > len(df):
+        ap.error(f'--cases requests {args.cases} rows but the source has {len(df)}')
+
+    spec = shanghai_spec()
+    print(f'Shanghai 3D validation ({spec.tpms} L={spec.L_cell_mm} '
+          f't={spec.t_wall_mm} eps={spec.eps:.4f})')
+    print(f'Domain: {spec.L_dom_m*1000:.0f}x{spec.H_dom_m*1000:.0f}x{spec.Lz_m*1000:.0f} mm')
+    print(f'Requested grid: {Nx_u} x {Ny_u} x {Nz_u}; '
+          f'port_wall_refine={port_refine}')
+    print(f'Requested outer budget: max_outer={args.max_outer}')
+    print(f'Requested D-F mode: {args.df_mode}')
+    print('Runner: common 3D workflow, both fluids solved\n')
+    results = []
+    for ci in range(args.cases):
+        try:
+            r = _run_one_case_pipeline(ci, df, Nx_u, Ny_u, Nz_u,
+                                      max_outer=args.max_outer,
+                                      port_wall_refine=port_refine, df_mode=args.df_mode)
+            print(f"Actual prepared grid: {r['grid_nx']} x {r['grid_ny']} x {r['grid_nz']}")
+        except Exception as exc:
+            results.append(dict(case=ci + 1, error=f'{type(exc).__name__}: {exc}',
+                                pressure_state_valid=0, converged=False,
+                                df_mode=None, df_mode_requested=args.df_mode,
+                                **{name: float('nan') for name in
+                                   ('err_dP%', 'err_Q%', 'err_dP_water%', 'err_Q_water%')}))
+            print(f'Case {ci + 1}: FAILED ({type(exc).__name__}: {exc})')
+            continue
+        results.append(r)
+        marker = '' if r['outer_converged'] else '!'
+        print(f"Case {r['case']:2d}: dP {r['dP_exp']:.0f}/{r['dP_sim']:.0f} "
+              f"({r['err_dP%']:+.1f}%)  Q {r['Q_exp']:.0f}/{r['Q_sim']:.0f} "
+              f"({r['err_Q%']:+.1f}%)  outer={r['outer_iters']}{marker} "
+              f"df_mode={r['df_mode']}")
+        print(f"         water dP {r['dP_water_exp']:.0f}/{r['dP_water_sim']:.0f} "
+              f"({r['err_dP_water%']:+.1f}%)  Q {r['Q_water_exp']:.0f}/{r['Q_water_sim']:.0f} "
+              f"({r['err_Q_water%']:+.1f}%)  converged={r['converged']}; "
+              f"Q/dP_A/dP_B={r['Q_status']}/{r['dP_A_status']}/{r['dP_B_status']}")
+
+    # Every requested member remains in the RMSRE denominator. A failed
+    # pressure/convergence verdict cannot turn into a dropped sample.
+    invalid_cases = [r['case'] for r in results if not r['pressure_state_valid']]
+    n_total, n_invalid = len(results), len(invalid_cases)
+    err_dP = np.array([r['err_dP%'] for r in results])
+    err_Q = np.array([r['err_Q%'] for r in results])
+    rmsre_dP = float(np.sqrt(np.mean(err_dP ** 2)))
+    rmsre_Q = float(np.sqrt(np.mean(err_Q ** 2)))
+    print(f'\nCases: {n_total} total, {n_total-n_invalid} pressure-valid, {n_invalid} pressure-invalid')
+    if invalid_cases:
+        print(f'Invalid cases: {invalid_cases} (gate fails; rows retained)')
+    print(f'RMSRE_dP: {rmsre_dP:.2f}%; max|err_dP|: {np.max(np.abs(err_dP)):.2f}%')
+    print(f'RMSRE_Q: {rmsre_Q:.2f}%; max|err_Q|: {np.max(np.abs(err_Q)):.2f}%')
+    for name in ('dP_water', 'Q_water'):
+        errors = np.array([r[f'err_{name}%'] for r in results])
+        print(f'RMSRE_{name}: {np.sqrt(np.mean(errors ** 2)):.2f}%; '
+              f'max|err_{name}|: {np.max(np.abs(errors)):.2f}% (diagnostic; no accuracy gate)')
+    print(f'Errors cover all {n_total} requested cases.')
+    write_csv_with_provenance(pd.DataFrame(results), out_path, __file__)
+    print(f'Saved: {out_path}')
+    if args.no_gate:
+        print('Report only: no accuracy or convergence acceptance claimed.')
+        return 0
+    incomplete = any(not r['converged'] for r in results)
+    gate_fail = (n_total != args.cases or n_invalid > 0 or incomplete or
+                 not np.all(np.isfinite(err_dP)) or not np.all(np.isfinite(err_Q)) or
+                 rmsre_dP > args.gate_dp or rmsre_Q > args.gate_q)
+    verdict = 'FAIL' if gate_fail else 'PASS'
+    print(f'GATE {verdict}: RMSRE_dP {rmsre_dP:.2f}% (limit {args.gate_dp:.1f}%), '
+          f'RMSRE_Q {rmsre_Q:.2f}% (limit {args.gate_q:.1f}%)')
+    if incomplete:
+        print('At least one production case did not converge.')
+    return int(gate_fail)
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

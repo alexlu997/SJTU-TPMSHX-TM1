@@ -1,5 +1,5 @@
 """Shared resource checks; each input builder keeps its validation order."""
-from sjtu_tpmshx.models.catalog import resolve_model
+from sjtu_tpmshx.shared.models.catalog import resolve_model
 
 
 def resolve_models(case):

@@ -3,10 +3,10 @@ from dataclasses import replace
 from copy import deepcopy
 from math import isfinite
 
-from sjtu_tpmshx.domain.case_data import CaseData
-from sjtu_tpmshx.domain.compute_config import ComputeConfig
-from sjtu_tpmshx.domain.run_warnings import warning_scope, warning_messages, range_observations
-from sjtu_tpmshx.domain.provenance import source_context
+from sjtu_tpmshx.shared.domain.case_data import CaseData
+from sjtu_tpmshx.shared.domain.compute_config import ComputeConfig
+from sjtu_tpmshx.shared.domain.run_warnings import warning_scope, warning_messages, range_observations
+from sjtu_tpmshx.shared.domain.provenance import source_context
 
 
 def _prepare_with_metadata(prepare, *args, **kwargs) -> CaseData:
@@ -101,7 +101,7 @@ def _prepare_mass_flow_case(config, targets, *, case_id):
             _set_run_environment, _case_from_prepared,
         )
         from .inlet_flow import total_inlet_mass_capacity
-        from sjtu_tpmshx.models.input_validation import surrogate_extrap_reasons
+        from sjtu_tpmshx.shared.models.input_validation import surrogate_extrap_reasons
 
         config.validate_static_inputs()
         cfg = _parse_geometry_inputs_3d_cfg(config)

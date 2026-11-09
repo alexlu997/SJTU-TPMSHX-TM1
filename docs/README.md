@@ -14,12 +14,12 @@
 | C++ 数值后端、原生 ABI 与构建 | [C++ 接入说明](cpp-migration.zh-CN.md) |
 | 已授权的稳态单相求解器设计与任务节点 | [统一求解器设计](unified-solver.zh-CN.md) |
 | macOS/Windows 项目文件夹运行与可选打包 | [桌面运行说明](desktop.md) |
-| CaseData、FieldResult、指标与文件交接 | [三模块数据契约](../schemas/three_module_v1/README.zh-CN.md) |
+| CaseData、FieldResult、指标与文件交接 | [三模块数据契约](contracts/three_module_v1/README.zh-CN.md) |
 | 已交付能力、M-B 未完成事项与阻塞条件 | [能力范围](capabilities.md) |
 | 离线清洗、sCO2 有效 Nu 与上海空气阻力标定来源 | [模型资源](model-resources.md) |
 | 数据文件名、已结案缺项与水 Nu 选择 | [数据目录](data-catalog.md) |
 | 工程、验证、研究与性能工具的输入输出 | [工具入口](tools.md) |
-| 数值/实验验证工具与方向系数研究边界 | [验证导航](../sjtu_tpmshx/validation/README.md) |
+| 数值/实验验证工具与方向系数研究边界 | [验证导航](../sjtu_tpmshx/development/validation/README.md) |
 | GUI、孔隙率与 CI 的现行行为要求 | [OpenSpec 规范](../openspec/specs/) |
 | 历史报告、任务图、旧基准与退役工具 | [固定历史索引](history/README.md) |
 
@@ -27,18 +27,19 @@
 
 | 目录 | 用途 |
 | --- | --- |
-| [sjtu_tpmshx/](../sjtu_tpmshx/) | 全部核心源码；compute.py 为主计算入口，三模块 API、C++ 后端、应用层、共享模型、有效测试与验证工具均在包内 |
-| [docs/](./) | 当前说明与历史资料入口 |
+| [sjtu_tpmshx/](../sjtu_tpmshx/) | 四个计算入口与六类源码目录：前处理、求解、后处理、共享层、应用层、开发验证层 |
+| [engineering/](../engineering/) | `scripts/` 构建与检查脚本、`packaging/` 打包配置、`requirements/` 精确依赖锁 |
+| [docs/](./) | 当前说明、`contracts/` 公共数据契约与历史资料入口 |
 | [examples/](../examples/) | 公开调用示例和首次运行配置 |
-| [requirements/](../requirements/) | 基础、macOS BO、Windows BO、桌面构建和最小后处理的精确依赖锁 |
-| [scripts/](../scripts/) | 测试、原生依赖构建和模型系数生成脚本 |
-| [sjtu_tpmshx/runs/](../sjtu_tpmshx/runs/) | 现行性能剖析、诊断和演示工具 |
-| [schemas/](../schemas/) | 三模块数据契约；实现位于主体包的 domain/、io/ 等模块 |
 | [openspec/](../openspec/) | 按功能分开的现行行为规范 |
-| [.github/workflows/](../.github/workflows/) | macOS / Windows CI 与最小后处理环境检查的配置，不存放应用源码 |
+| [.github/workflows/](../.github/workflows/) | macOS / Windows CI 与最小后处理环境检查配置 |
+
+包内 [development/](../sjtu_tpmshx/development/) 保留 `tests/`、`validation/`、`runs/` 三类。
+公共数据契约的实现在 [shared/domain/](../sjtu_tpmshx/shared/domain/) 和 [shared/io/](../sjtu_tpmshx/shared/io/)；
+C++ 数值源码仍在 [solvers/native/](../sjtu_tpmshx/solvers/native/)。
 
 `pyproject.toml` 集中定义构建、依赖声明、pytest、mypy 和 lint 配置。
-`requirements/` 保存各用途的精确依赖锁；根目录 `requirements.txt` 用于独立开发环境安装。
+`engineering/requirements/` 保存各用途的精确依赖锁；根目录 `requirements.txt` 用于独立开发环境安装。
 `[tool.mypy].files` 声明公共接口与数据契约的显式类型检查范围，执行方式见
 [环境与检查](../README.md#环境与检查)。
 `AGENTS.md` 记录项目协作规则，`LICENSE` 记录许可，`data-revision.txt` 声明配套数据版本。
@@ -46,7 +47,7 @@
 均不随公共代码仓库提交。旧 `reports/` 输出目录也被忽略，避免旧命令重新提交结果表。
 
 一维焓方程参考模型由有效测试直接使用，现放在
-[tests/enthalpy_1d_reference.py](../sjtu_tpmshx/tests/enthalpy_1d_reference.py)。
+[development/tests/enthalpy_1d_reference.py](../sjtu_tpmshx/development/tests/enthalpy_1d_reference.py)。
 生产 CFD 系数 CSV 和测试读取的 MMS 数据继续保留；历史 `golden_3d.json`、旧 γ 快照、
 阶段报告与任务过程文件从固定 Git 历史查阅，不再作为当前测试资源或当前精度说明。
 

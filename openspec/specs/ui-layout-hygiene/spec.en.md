@@ -36,7 +36,7 @@ Layout-only changes MUST keep signal connections, default field values, and solv
 - **THEN** there are 0 failures
 
 ### Requirement: Main_Menu UI ownership
-`ui/mixins/shortcuts.py` owns Main_Menu shortcuts. `io_actions.py` owns its IO actions. Field charts and exports read `ResultCache` directly without previous attribute bridges. Pareto images depend on their own canvas and optimization results, independently of the single-case field cache. `ui/builders_sidebar.py` owns the bottom summary and reads the current published scalar result. Consumers import directly from the owning module. Former compatibility re-exports are not maintained.
+`applications/gui/ui/mixins/shortcuts.py` owns Main_Menu shortcuts. `io_actions.py` owns its IO actions. Field charts and exports read `ResultCache` directly without previous attribute bridges. Pareto images depend on their own canvas and optimization results, independently of the single-case field cache. `applications/gui/ui/builders_sidebar.py` owns the bottom summary and reads the current published scalar result. Consumers import directly from the owning module. Former compatibility re-exports are not maintained.
 
 Canvas and 3D panel assembly follow the current [architecture](../../../docs/architecture.md#ui-structure). Earlier literal migration plans and decisions against splitting are historical. They do not restrict subsequent maintenance that passes its checks.
 
