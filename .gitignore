@@ -15,6 +15,8 @@ venv/
 # Per-machine shared Python interpreter pointer and writable runtime caches
 /.venv-path
 /.cache/
+# Retain old libraries for checkpoints and explicit path consumers.
+/native/lib/
 /sjtu_tpmshx/solvers/native/lib/
 
 # Historical model artifacts (retired tools are indexed in docs/history/)
