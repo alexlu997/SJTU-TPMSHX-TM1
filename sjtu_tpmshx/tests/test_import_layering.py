@@ -53,13 +53,16 @@ def test_discovery_ignores_retired_cache_and_data_only_directories(tmp_path, mon
     ('models/deep/probe.py', 'from ... import ui', 'models -> ui', 1),
     ('models/__init__.py', 'from .. import ui', 'models -> ui', 1),
     ('domain/probe.py', 'from sjtu_tpmshx import io', 'domain -> io', 1),
+    ('preprocess/probe.py', 'from sjtu_tpmshx.compute import compute', 'preprocess -> compute', 1),
+    ('compute.py', 'from sjtu_tpmshx.preprocess.api import prepare_case', 'compute -> preprocess', 0),
 ])
 def test_import_spelling_preserves_layer_policy(tmp_path, monkeypatch, capsys,
                                                filename, source, edge, exit_code):
     package = tmp_path / 'sjtu_tpmshx'
-    for unit in ('domain', 'models', 'ui', 'tests', 'io', 'df_surrogate'):
+    for unit in ('domain', 'models', 'ui', 'tests', 'io', 'df_surrogate', 'preprocess'):
         (package / unit).mkdir(parents=True)
         (package / unit / '__init__.py').touch()
+    (package / 'compute.py').touch()
     path = package / filename
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(source, encoding='utf-8')

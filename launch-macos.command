@@ -11,7 +11,7 @@ if [[ "$tm1_python" != /* || ! -f "$tm1_python" || ! -x "$tm1_python" ]]; then
     print -u2 -- ".venv-path 第一行必须是存在且可执行的 Python 绝对路径：$tm1_python"
     exit 1
 fi
-tm1_library="$PWD/native/lib/macos-arm64/libtpmshx_solver_shared.dylib"
+tm1_library="$PWD/sjtu_tpmshx/solvers/native/lib/macos-arm64/libtpmshx_solver_shared.dylib"
 if [[ ! -f "$tm1_library" ]]; then
     print -u2 -- "缺少随附匹配的 C++ 候选库：$tm1_library"
     exit 1

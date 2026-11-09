@@ -104,7 +104,7 @@ def test_workflow_last_write_failure_keeps_previous_run_identities(tmp_path, mon
              (('Q', 'W/m'), ('dP_A', 'Pa'), ('dP_B', 'Pa'), ('T_out_A', 'K'), ('T_out_B', 'K'))})
         return case, result, performance
 
-    monkeypatch.setattr(import_module('sjtu_tpmshx.workflows.compute'), 'compute', compute)
+    monkeypatch.setattr(import_module('sjtu_tpmshx.compute'), 'compute', compute)
     monkeypatch.setattr(yaml_config, 'load_config', lambda path: None)
     output = tmp_path / 'run'
     args = ['run', 'unused.yaml', str(output), '--native-library', str(library), '--case-id']

@@ -10,7 +10,7 @@ from sjtu_tpmshx.domain.compute_config import (
 from sjtu_tpmshx.domain.module_ports import RunControl
 from sjtu_tpmshx.preprocess.two_d.preparation import prepare_case
 from sjtu_tpmshx.solvers.api import run_case
-from sjtu_tpmshx.postprocess.metrics import evaluate
+from sjtu_tpmshx.postprocess.api import evaluate
 
 # Frozen C++ v0.1 results, before Python retirement. Source: 23ea2cca.
 # The original relative and absolute comparison tolerances remain unchanged.

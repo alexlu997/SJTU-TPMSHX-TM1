@@ -31,7 +31,7 @@ def native_stages(monkeypatch):
         ('sjtu_tpmshx.preprocess.api', 'prepare_case', case),
         ('sjtu_tpmshx.solvers.api', 'run_case', result),
         ('sjtu_tpmshx.postprocess.api', 'evaluate', performance),
-        ('sjtu_tpmshx.workflows.compute', 'compute', (case, result, performance)),
+        ('sjtu_tpmshx.compute', 'compute', (case, result, performance)),
     ):
         call = Mock(return_value=value)
         monkeypatch.setattr(import_module(module), name, call)

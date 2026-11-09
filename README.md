@@ -7,8 +7,11 @@ TM1 将 TPMS 换热器的前处理、求解和后处理拆为独立维护的模�
 [alexlu997/SJTU-TPMSHX-TM1](https://github.com/alexlu997/SJTU-TPMSHX-TM1)。
 原 SJTU-TPMSHX/V2 是来源参考，本分支不合回原仓库。
 
-**主体源码在 [sjtu_tpmshx/](sjtu_tpmshx/)**，前处理、求解和后处理都在这个包内。
-其他根目录分别存放文档、示例、辅助工具和验证记录。
+**核心源码全部位于 [sjtu_tpmshx/](sjtu_tpmshx/)**，包括 Python 应用与 C++ 数值后端。
+[compute.py](sjtu_tpmshx/compute.py) 是主计算入口，统一调用前处理、求解和后处理 API；
+[main.py](sjtu_tpmshx/main.py) 是 GUI 入口。C++ 源码与构建文件位于
+[solvers/native/](sjtu_tpmshx/solvers/native/)。
+其他根目录存放文档、示例、辅助工具和验证记录；`.github/workflows/` 存放 CI 配置。
 
 0.2 仅使用 C++ 数值后端，保留 Python/Qt 界面、CLI、前后处理、优化和快速设计。
 完整 2D/3D 计算及快速设计仍通过相同的准备态和结果接口运行。
@@ -180,7 +183,7 @@ macOS 尚未验收。继续复用 `.venv-path` 指定的现有锁定环境，环
 ```
 
 启动器进入自身所在项目目录，将缓存写入项目 `.cache/`，通过 `--backend cpp`
-显式加载 `native/lib/macos-arm64/libtpmshx_solver_shared.dylib`，并传入
+显式加载 `sjtu_tpmshx/solvers/native/lib/macos-arm64/libtpmshx_solver_shared.dylib`，并传入
 `.cache/native-deps/tables`。库、表和本机 `.venv-path` 属于本地交付资源，
 不随 Git 源码自动提供。缺少解释器或库会直接报告原因；启动器不安装依赖、
 或编译库。T-SOU 使用带检查的 HEOS PT 物性，不创建 EOS 表；表目录选项保留给显式选择的历史运行库。公共 API、CLI 和直接模块调用默认使用 C++。
@@ -194,7 +197,7 @@ macOS 尚未验收。继续复用 `.venv-path` 指定的现有锁定环境，环
 此命令离线构建当前源码，运行独立 C/C++ 调用和错误路径检查，再替换本平台的库。
 缺少锁定依赖或验证失败时停止。改变库内容前，旧库及记录保存在同目录的 `previous/`；
 重复发布相同库保留已有回退副本。`build.json` 记录源码提交、未提交改动、构建配置及路径。
-`native/lib/` 是 Git 忽略的本地交付目录。停止使用该库的程序后，可从 `previous/`
+`sjtu_tpmshx/solvers/native/lib/` 是 Git 忽略的本地交付目录。停止使用该库的程序后，可从 `previous/`
 复制库和 `build.json` 回原目录；同时恢复对应源码、Python 环境和物性版本。
 发布检查不替代数值回归或桌面验收。日常启动不执行构建、安装或下载。
 GUI 不再提供后端切换；普通计算、快速设计和优化统一使用 C++。
@@ -203,8 +206,8 @@ GUI 不再提供后端切换；普通计算、快速设计和优化统一使用 
 不写入工况文件，也不改变已经生成的结果。
 
 源码 GUI 和 CLI 共用默认查找：macOS 使用
-`native/lib/macos-arm64/libtpmshx_solver_shared.dylib`，Windows 使用
-`native/lib/windows-x64/tpmshx_solver_shared.dll`；默认表目录为
+`sjtu_tpmshx/solvers/native/lib/macos-arm64/libtpmshx_solver_shared.dylib`，Windows 使用
+`sjtu_tpmshx/solvers/native/lib/windows-x64/tpmshx_solver_shared.dll`；默认表目录为
 `.cache/native-deps/tables`。匹配库已发布到这些位置时无需指定后端。
 显式库／表路径优先；API 可通过 `RunControl` 覆盖主机路径。
 

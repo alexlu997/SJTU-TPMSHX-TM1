@@ -36,21 +36,21 @@ def temperature_native(tmp_path_factory):
     build = tmp_path_factory.mktemp("cpp-temperature")
     suffix = ".dll" if os.name == "nt" else (".dylib" if sys.platform == "darwin" else ".so")
     library = build / ("temperature_test" + suffix)
-    sources = [str(root / "native/src/temperature_driver.cpp"),
-               str(root / "native/src/enthalpy_sweeps.cpp"),
-               str(root / "native/src/conservative_energy.cpp"),
+    sources = [str(root / "sjtu_tpmshx/solvers/native/src/temperature_driver.cpp"),
+               str(root / "sjtu_tpmshx/solvers/native/src/enthalpy_sweeps.cpp"),
+               str(root / "sjtu_tpmshx/solvers/native/src/conservative_energy.cpp"),
                str(Path(__file__).with_name("temperature_bridge.cpp"))]
     if os.name == "nt":
         flags = ["/nologo", "/std:c++17", "/O2", "/W4", "/WX", "/EHsc", "/MD", "/LD",
                  "/DTPMSHX_THERMAL_BUILD_SHARED", "/DEIGEN_MPL2_ONLY",
-                 "/external:I" + str(eigen), "/external:W0", "/I" + str(root / "native/include"),
+                 "/external:I" + str(eigen), "/external:W0", "/I" + str(root / "sjtu_tpmshx/solvers/native/include"),
                  *sources, "/Fe" + str(library), "/link",
                  "/IMPLIB:" + str(build / "temperature_test.lib")]
     else:
         flags = ["-std=c++17", "-O2", "-Wall", "-Wextra", "-Wpedantic", "-Werror", "-fPIC",
                  "-dynamiclib" if sys.platform == "darwin" else "-shared",
                  "-DEIGEN_MPL2_ONLY", "-isystem", str(eigen),
-                 "-I", str(root / "native/include"), *sources, "-o", str(library)]
+                 "-I", str(root / "sjtu_tpmshx/solvers/native/include"), *sources, "-o", str(library)]
     subprocess.run([*compiler, *flags], cwd=build, check=True, capture_output=True, text=True)
     lib = ctypes.CDLL(str(library))
     function = lib.test_temperature_driver

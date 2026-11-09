@@ -8,7 +8,7 @@ import pytest
 from sjtu_tpmshx.domain.field_result import FieldResult
 from sjtu_tpmshx.domain.metric_spec import MetricSpec
 from sjtu_tpmshx.domain.portable_data import mutable_data
-from sjtu_tpmshx.postprocess import metrics, three_d
+from sjtu_tpmshx.postprocess import api, metrics, three_d
 
 
 def native_result(dimension):
@@ -54,7 +54,7 @@ def test_each_successful_reduction_runs_once_per_evaluate(monkeypatch, dimension
     monkeypatch.setattr(owner, '_mass_flow', mass)
     result = native_result(dimension)
     for invocation in (1, 2):
-        values = metrics.evaluate(result).metrics
+        values = api.evaluate(result).metrics
         assert values['Q'].value == values['Q_A'].value == 10.
         assert values['Q_B'].value == -10.
         assert values['energy_imbalance_rel'].value == 0.
@@ -85,10 +85,10 @@ def test_unavailable_other_side_and_fine_evidence_do_not_poison_main(dimension, 
         flux['model_h']['B']['x-'][0] = np.nan
     result = replace(result, boundary_fluxes=flux, metadata=metadata)
     unit = 'W/m' if dimension == 2 else 'W'
-    single = metrics.evaluate(result, MetricSpec('Q_A', unit, 'native_boundary_v1')).metrics
+    single = api.evaluate(result, MetricSpec('Q_A', unit, 'native_boundary_v1')).metrics
     assert tuple(single) == ('Q_A',)
     assert single['Q_A'].value == 10.
-    values = metrics.evaluate(result).metrics
+    values = api.evaluate(result).metrics
     assert values['Q'].value == values['Q_A'].value == 10.
     status = 'insufficient_data' if failure == 'missing' else 'invalid'
     assert values['Q_B'].status == values['energy_imbalance_rel'].status == status

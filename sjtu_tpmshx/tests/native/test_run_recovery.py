@@ -17,7 +17,7 @@ from sjtu_tpmshx.io.solver_checkpoint_io import load_solver_checkpoint
 from sjtu_tpmshx.tests.native import test_cpp_full_3d as spatial
 from sjtu_tpmshx.tests.native.test_cpp_full_2d_run import inner_case
 from sjtu_tpmshx.tests.native.test_cpp_full_3d import _exact_resume_values as exact
-from sjtu_tpmshx.workflows.compute import compute
+from sjtu_tpmshx.compute import compute
 from sjtu_tpmshx.workflows.recovery import compute_run, resume_run
 
 native_path = spatial.native_path

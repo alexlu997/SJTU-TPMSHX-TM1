@@ -58,10 +58,10 @@ A new table approximates its selected physical relation; it does not select a di
 
 | Responsibility | Existing code to use | Target boundary |
 | --- | --- | --- |
-| Prepare and execute a case | `preprocess/api.py`, `workflows/compute.py`, `solvers/api.py` | One prepared case and explicit run controls reach the selected backend. |
-| Resolve side physics | `native/src/fluid_properties.cpp`, `enthalpy_eos.cpp`, generated coefficients | Resolve the actual transport, energy and closure implementations before cell loops. |
+| Prepare and execute a case | `preprocess/api.py`, `compute.py`, `solvers/api.py` | One prepared case and explicit run controls reach the selected backend. |
+| Resolve side physics | `sjtu_tpmshx/solvers/native/src/fluid_properties.cpp`, `enthalpy_eos.cpp`, generated coefficients | Resolve the actual transport, energy and closure implementations before cell loops. |
 | Assemble conservative equations | `energy_fv_rows.hpp`, `conservative_energy.cpp`, current thermal drivers | Share face and cell operations. Keep required dimensional and reconstruction differences explicit. |
-| Advance the coupled solve | `native/src/full_2d.cpp`, `full_3d.cpp` | A run owns a phase cursor, iteration budgets and mutable state. |
+| Advance the coupled solve | `sjtu_tpmshx/solvers/native/src/full_2d.cpp`, `full_3d.cpp` | A run owns a phase cursor, iteration budgets and mutable state. |
 | Check physical quality | Existing SIMPLE F2, thermal ledgers, range observations and postprocessing certificates | Use evidence from identified states and record each verdict separately. |
 | Save and restore | `io/hdf5_data.py`, prepared-case and result storage | Python writes owned typed snapshots. C++ exports and restores numerical state. |
 | Serve consumers | Full C APIs, Python bindings, GUI, CLI, optimization and offline readers | Keep useful public entry points and migrate their implementations and consumers together. |

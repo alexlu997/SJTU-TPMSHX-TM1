@@ -61,7 +61,7 @@ def test_cancel_during_finalize_does_not_return_result(monkeypatch):
     from sjtu_tpmshx.domain.compute_result import ComputeResult
     token = CancelToken()
     progress = []
-    from sjtu_tpmshx.workflows.compute import compute
+    from sjtu_tpmshx.compute import compute
 
     def finalize(*args):
         token.cancel()

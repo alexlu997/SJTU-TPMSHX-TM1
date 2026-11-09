@@ -42,7 +42,7 @@ CI SHALL NOT 依赖忽略的本地数据资产。
 
 #### Scenario: Native dependencies are independently qualified
 - **WHEN** macOS/Python 3.13 或 Windows/Python 3.12、3.13 的原生依赖作业运行
-- **THEN** 每个平台由一个构建作业按 `native/dependencies-lock.toml` 获取固定源码与 CMake，并离线构建。资格作业消费其匹配原生产物，真实执行独立 EOS/压力、Quick Design、true-h、model-h 与 SIMPLE caller；Windows Python 3.12 和 3.13 分别验证同一平台构建。随后用独立公式、离散账本、制造解、组件重放和固定历史参考验证完整驱动和公开 C 接口；`TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1` 与 `TPMSHX_REQUIRE_CPP_TESTS=1` 将缺少编译器、可执行程序或动态库视为失败，不允许以 skip 充当验收
+- **THEN** 每个平台由一个构建作业按 `sjtu_tpmshx/solvers/native/dependencies-lock.toml` 获取固定源码与 CMake，并离线构建。资格作业消费其匹配原生产物，真实执行独立 EOS/压力、Quick Design、true-h、model-h 与 SIMPLE caller；Windows Python 3.12 和 3.13 分别验证同一平台构建。随后用独立公式、离散账本、制造解、组件重放和固定历史参考验证完整驱动和公开 C 接口；`TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1` 与 `TPMSHX_REQUIRE_CPP_TESTS=1` 将缺少编译器、可执行程序或动态库视为失败，不允许以 skip 充当验收
 - **AND** 构建只在独立原生作业发生，普通快测分片不重复构建依赖；上传构建日志和资格测试 XML，不上传源码、物性表或本地实验数据
 
 #### Scenario: CI green on a clean main
@@ -81,7 +81,7 @@ CI SHALL NOT 依赖忽略的本地数据资产。
 ### Requirement: Public interface type gate
 `pyproject.toml` 的 `[tool.mypy].files` SHALL 显式列出公共接口与数据契约检查范围，包含当前 envelope
 实现、三模块 API 和数据对象，同时保留仍有消费者的兼容入口。`pyproject.toml`
-SHALL 对 envelope、前处理 API、求解 API 和后处理 metrics 启用无注解函数体检查。
+SHALL 对 envelope、前处理 API、求解 API、后处理 API 和后处理 metrics 启用无注解函数体检查。
 这不声明全求解器严格类型覆盖。`test_type_gate.py` SHALL 在快测中执行清单检查，
 并验证错误类型不能传入 `prepare_case`、`run_case`、`evaluate`；CI 不另加重复 mypy 步骤。
 

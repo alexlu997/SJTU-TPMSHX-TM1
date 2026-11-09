@@ -10,7 +10,7 @@ from sjtu_tpmshx.domain.run_warnings import (
 )
 from sjtu_tpmshx.models import fluid_props, nu_correlations as nu, tpms_props
 from sjtu_tpmshx.domain.field_result import FieldResult
-from sjtu_tpmshx.workflows.compute import compute as run_workflow
+from sjtu_tpmshx.compute import compute as run_workflow
 from sjtu_tpmshx.domain.compute_config import ComputeConfig
 
 

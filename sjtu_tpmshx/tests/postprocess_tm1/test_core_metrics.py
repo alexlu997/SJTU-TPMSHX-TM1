@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from sjtu_tpmshx.domain.field_result import FieldResult
-from sjtu_tpmshx.postprocess.metrics import evaluate
+from sjtu_tpmshx.postprocess.api import evaluate
 
 
 def test_native_metrics_ignore_display_and_reported_scalars():
@@ -89,7 +89,7 @@ def test_pressure_uses_physical_faces_and_open_area_on_nonuniform_grid(direction
 def test_postprocessing_imports_no_backend():
     result = subprocess.run([sys.executable, '-c', '''
 import sys
-from sjtu_tpmshx.postprocess.metrics import evaluate
+from sjtu_tpmshx.postprocess.api import evaluate
 for prefix in ('sjtu_tpmshx.solvers', 'sjtu_tpmshx.preprocess', 'sjtu_tpmshx.pipelines', 'numba', 'PySide6'):
     assert not any(name == prefix or name.startswith(prefix + '.') for name in sys.modules), prefix
 '''], capture_output=True, text=True, timeout=120)

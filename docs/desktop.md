@@ -21,7 +21,7 @@
 
 - 完整 `sjtu_tpmshx/` 源码，包括 `configs/*.json`、`df_surrogate/_prebuilt/*.csv` 和界面资源。
 - 本机 `.venv-path`、对应 `requirements/*.txt`、使用示例和运行说明。
-- 与源码版本、平台和 ABI 匹配的动态库，以及 `native/include/`、`native/dependencies-lock.toml`、`native/THIRD_PARTY_NOTICES.md` 和 `native/licenses/`。
+- 与源码版本、平台和 ABI 匹配的动态库，以及 `sjtu_tpmshx/solvers/native/include/`、`sjtu_tpmshx/solvers/native/dependencies-lock.toml`、`sjtu_tpmshx/solvers/native/THIRD_PARTY_NOTICES.md` 和 `sjtu_tpmshx/solvers/native/licenses/`。
 - 可写的模型表与运行缓存目录；表文件不写入动态库或只读资源目录。
 
 下列 C++ 命令直接使用既有构建流程的输出路径。
@@ -67,8 +67,8 @@ CLI 的 `run` 和 `solve` 子命令接受同样的三个后端参数。
 
 GUI 的普通计算、快速设计和优化统一使用 C++，保留计算线程设置。
 源码 GUI 和 CLI 共用本机默认库：macOS 为
-`native/lib/macos-arm64/libtpmshx_solver_shared.dylib`，Windows 为
-`native/lib/windows-x64/tpmshx_solver_shared.dll`。使用默认库时，表目录默认为
+`sjtu_tpmshx/solvers/native/lib/macos-arm64/libtpmshx_solver_shared.dylib`，Windows 为
+`sjtu_tpmshx/solvers/native/lib/windows-x64/tpmshx_solver_shared.dll`。使用默认库时，表目录默认为
 `.cache/native-deps/tables`；显式参数优先。匹配库就位后无需后端参数。
 CLI、独立 C 调用和 CI 通过不代替两平台可见桌面验收。
 

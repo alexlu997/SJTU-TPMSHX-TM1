@@ -80,7 +80,7 @@ jobs:
           path: |
             .cache/native-deps/build/coolprop-macos-arm64/libCoolProp.a
             .cache/native-deps/build/coolprop-windows-x64/Release/CoolProp.lib
-          key: coolprop-${{ runner.os }}-${{ runner.arch }}-py3.13-${{ steps.toolchain.outputs.image }}-${{ hashFiles('native/dependencies-lock.toml', 'scripts/build_native_dependencies.py') }}
+          key: coolprop-${{ runner.os }}-${{ runner.arch }}-py3.13-${{ steps.toolchain.outputs.image }}-${{ hashFiles('sjtu_tpmshx/solvers/native/dependencies-lock.toml', 'scripts/build_native_dependencies.py') }}
       - name: Build locked CoolProp on cache miss
         if: steps.coolprop.outputs.cache-hit != 'true'
         shell: bash
@@ -113,8 +113,8 @@ jobs:
               for path in files:
                   output.add(path, arcname=path.relative_to(build.parent), recursive=False)
               output.add('LICENSE', arcname='LICENSE')
-              output.add('native/THIRD_PARTY_NOTICES.md', arcname='THIRD_PARTY_NOTICES.md')
-              output.add('native/licenses', arcname='licenses')
+              output.add('sjtu_tpmshx/solvers/native/THIRD_PARTY_NOTICES.md', arcname='THIRD_PARTY_NOTICES.md')
+              output.add('sjtu_tpmshx/solvers/native/licenses', arcname='licenses')
           print(f'Packed {len(files)} native runtime files ({archive.stat().st_size} bytes)')
           PY
       - uses: actions/upload-artifact@v7
@@ -215,7 +215,7 @@ jobs:
               archive.extractall('.cache/native-deps/build', filter='data')
           host = 'windows-x64' if os.name == 'nt' else 'macos-arm64'
           name = 'tpmshx_solver_shared.dll' if os.name == 'nt' else 'libtpmshx_solver_shared.dylib'
-          target = Path('native/lib') / host
+          target = Path('sjtu_tpmshx/solvers/native/lib') / host
           target.mkdir(parents=True, exist_ok=True)
           shutil.copy2(Path('.cache/native-deps/build') / ('pilot-' + host) / name, target / name)
           PY
@@ -347,7 +347,7 @@ jobs:
               archive.extractall('.cache/native-deps/build', filter='data')
           host = 'windows-x64' if os.name == 'nt' else 'macos-arm64'
           name = 'tpmshx_solver_shared.dll' if os.name == 'nt' else 'libtpmshx_solver_shared.dylib'
-          target = Path('native/lib') / host
+          target = Path('sjtu_tpmshx/solvers/native/lib') / host
           target.mkdir(parents=True, exist_ok=True)
           shutil.copy2(Path('.cache/native-deps/build') / ('pilot-' + host) / name, target / name)
           PY
@@ -376,11 +376,11 @@ jobs:
         run: '"$CI_PYTHON" scripts/build_native_dependencies.py fetch-eigen'
       - name: Build and run independent C++ callers on macOS
         if: runner.os == 'macOS' && matrix.part == 'fast-0'
-        run: make -f native/Makefile check
+        run: make -f sjtu_tpmshx/solvers/native/Makefile check
       - name: Build and run independent C++ callers on Windows
         if: runner.os == 'Windows' && matrix.part == 'fast-0'
         shell: cmd
-        run: nmake /f native\Makefile.msvc check
+        run: nmake /f sjtu_tpmshx\solvers\native\Makefile.msvc check
       - name: Install fixed Mesa OpenGL for actual Qt rendering
         if: runner.os == 'Windows' && matrix.part == 'fast-1'
         uses: pyvista/setup-headless-display-action@c103a2ff45650d38cb71684b5dc6cdfeb9442c79 # v5.1

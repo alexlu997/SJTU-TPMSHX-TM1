@@ -91,15 +91,15 @@ def native(tmp_path_factory):
     generated.mkdir()
     (generated / 'model_coefficients.hpp').write_text(header(), encoding='utf-8')
     output = build / ('pressure_reference' + ('.dll' if os.name == 'nt' else '.dylib' if sys.platform == 'darwin' else '.so'))
-    sources = [root / 'native/src/pressure_reference.cpp', Path(__file__).with_name('pressure_reference_bridge.cpp')]
+    sources = [root / 'sjtu_tpmshx/solvers/native/src/pressure_reference.cpp', Path(__file__).with_name('pressure_reference_bridge.cpp')]
     if os.name == 'nt':
         arguments = ['/nologo', '/std:c++17', '/O2', '/W4', '/WX', '/EHsc', '/MD', '/LD', '/fp:strict',
-                     '/DTPMSHX_THERMAL_BUILD_SHARED', '/I' + str(root / 'native/include'), '/I' + str(build),
+                     '/DTPMSHX_THERMAL_BUILD_SHARED', '/I' + str(root / 'sjtu_tpmshx/solvers/native/include'), '/I' + str(build),
                      *sources, '/Fe' + str(output), '/link', '/IMPLIB:' + str(build / 'pressure_reference.lib')]
     else:
         arguments = ['-std=c++17', '-O2', '-Wall', '-Wextra', '-Wpedantic', '-Werror', '-ffp-contract=off',
                      '-dynamiclib' if sys.platform == 'darwin' else '-shared', '-fPIC',
-                     '-I', root / 'native/include', '-I', build, *sources, '-o', output]
+                     '-I', root / 'sjtu_tpmshx/solvers/native/include', '-I', build, *sources, '-o', output]
     subprocess.run([*compiler, *arguments], cwd=build, check=True, text=True, capture_output=True)
     return Native(output)
 

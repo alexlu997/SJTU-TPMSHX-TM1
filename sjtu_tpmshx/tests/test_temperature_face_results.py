@@ -6,7 +6,7 @@ import pytest
 
 from sjtu_tpmshx.domain.portable_data import mutable_data
 from sjtu_tpmshx.io.result_io import load_result, save_result
-from sjtu_tpmshx.postprocess.metrics import evaluate
+from sjtu_tpmshx.postprocess.api import evaluate
 from sjtu_tpmshx.tests.test_conservative_energy_results import result_fixture
 
 

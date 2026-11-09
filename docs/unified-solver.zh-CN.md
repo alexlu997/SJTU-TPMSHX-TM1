@@ -58,10 +58,10 @@ N12/N29 再建立通过资格检查、且不依赖另一侧流体的逐流体默
 
 | 职责 | 复用的现有代码 | 目标边界 |
 | --- | --- | --- |
-| 准备并执行工况 | `preprocess/api.py`、`workflows/compute.py`、`solvers/api.py` | 同一准备态和明确的运行控制到达选定后端。 |
-| 解析各侧物理 | `native/src/fluid_properties.cpp`、`enthalpy_eos.cpp`、生成的系数 | 在单元循环前确定实际输运、能量和关联式实现。 |
+| 准备并执行工况 | `preprocess/api.py`、`compute.py`、`solvers/api.py` | 同一准备态和明确的运行控制到达选定后端。 |
+| 解析各侧物理 | `sjtu_tpmshx/solvers/native/src/fluid_properties.cpp`、`enthalpy_eos.cpp`、生成的系数 | 在单元循环前确定实际输运、能量和关联式实现。 |
 | 装配守恒方程 | `energy_fv_rows.hpp`、`conservative_energy.cpp`、现有热驱动 | 共享面与单元运算，保留必要的维度和重构差异。 |
-| 推进耦合求解 | `native/src/full_2d.cpp`、`full_3d.cpp` | 每次运行拥有执行阶段、迭代预算与可变状态。 |
+| 推进耦合求解 | `sjtu_tpmshx/solvers/native/src/full_2d.cpp`、`full_3d.cpp` | 每次运行拥有执行阶段、迭代预算与可变状态。 |
 | 检查物理质量 | 现有 SIMPLE F2、热量台账、范围观测与后处理证书 | 使用来源明确的状态证据，分别记录各项结论。 |
 | 保存与恢复 | `io/hdf5_data.py`、准备态与结果存储 | Python 写入独立拥有的类型化快照；C++ 导出、恢复数值状态。 |
 | 服务消费者 | 完整 C API、Python 绑定、GUI、CLI、优化与离线读取 | 保留有用的公共入口，成套迁移其实现和消费者。 |

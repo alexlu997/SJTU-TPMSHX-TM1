@@ -44,7 +44,7 @@ tpmshx-gui = "sjtu_tpmshx.desktop:main"
 [tool.tpmshx.native-dependencies]
 # Explicit native builds; Python package installation does not provision these dependencies.
 requirements = ["CMake==4.4.4", "CoolProp==8.0.0", "SuperLU==7.0.1", "AMGCL==1.5.0"]
-lock-file = "native/dependencies-lock.toml"
+lock-file = "sjtu_tpmshx/solvers/native/dependencies-lock.toml"
 build-script = "scripts/build_native_dependencies.py"
 cache-dir = ".cache/native-deps"
 runtime-auto-fetch = false
@@ -77,7 +77,7 @@ markers = [
 # Check the selected public interfaces and data contracts from the repository root.
 # Silent imports keep the existing solver type-check scope.
 files = [
-    "sjtu_tpmshx/workflows/compute.py",
+    "sjtu_tpmshx/compute.py",
     "sjtu_tpmshx/controllers/module_adapter.py",
     "sjtu_tpmshx/domain/compute_config.py",
     "sjtu_tpmshx/domain/validator.py",
@@ -111,6 +111,7 @@ module = [
     "sjtu_tpmshx.models.envelope",
     "sjtu_tpmshx.preprocess.api",
     "sjtu_tpmshx.solvers.api",
+    "sjtu_tpmshx.postprocess.api",
     "sjtu_tpmshx.postprocess.metrics",
 ]
 # 这些边界文件中的无注解辅助函数也必须检查函数体。
@@ -121,6 +122,7 @@ version = { attr = "sjtu_tpmshx._version.__version__" }
 
 [tool.setuptools.packages.find]
 include = ["sjtu_tpmshx*"]
+exclude = ["sjtu_tpmshx.solvers.native*"]
 
 [tool.setuptools.package-data]
 sjtu_tpmshx = [

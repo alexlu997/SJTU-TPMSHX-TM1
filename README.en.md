@@ -4,7 +4,10 @@
 
 TM1 separates TPMS heat-exchanger preprocessing, solving, and postprocessing into independently maintained modules. The GUI, optimization, and Quick Design call their public interfaces. The target repository is [alexlu997/SJTU-TPMSHX-TM1](https://github.com/alexlu997/SJTU-TPMSHX-TM1). Original SJTU-TPMSHX/V2 is a source reference. This branch does not merge back into that repository.
 
-**Main source is under [sjtu_tpmshx/](sjtu_tpmshx/).** It contains all three modules. Other root directories hold documentation, examples, auxiliary tools, and verification records.
+**All core source is under [sjtu_tpmshx/](sjtu_tpmshx/).** This includes the Python application and C++ numerical backend.
+[compute.py](sjtu_tpmshx/compute.py) is the main computation entry. It calls the preprocessing, solver and postprocessing APIs.
+[main.py](sjtu_tpmshx/main.py) is the GUI entry. C++ source and build files are in [solvers/native](sjtu_tpmshx/solvers/native/).
+Other root directories hold documents, examples, auxiliary tools and verification records. `.github/workflows/` holds CI configuration.
 
 Version 0.2 uses C++ for numerical execution. Python keeps the GUI, CLI, preparation, postprocessing, optimization and Quick Design interfaces. Full 2D/3D computation and Quick Design use the same prepared-data and result contracts. Maintenance in this round covers macOS arm64 and Windows x64. Linux server deployment is deferred.
 
@@ -142,7 +145,7 @@ Double-click root `launch-macos.command`, or run:
 ./launch-macos.command
 ```
 
-The launcher enters its own project directory and writes caches under `.cache/`. It explicitly loads `native/lib/macos-arm64/libtpmshx_solver_shared.dylib` with `--backend cpp` and passes `.cache/native-deps/tables`. The library, tables, and host `.venv-path` are local delivery resources, not automatically supplied by Git. A missing interpreter or library produces an explicit error. The launcher does not install dependencies or compile the library.
+The launcher enters its own project directory and writes caches under `.cache/`. It explicitly loads `sjtu_tpmshx/solvers/native/lib/macos-arm64/libtpmshx_solver_shared.dylib` with `--backend cpp` and passes `.cache/native-deps/tables`. The library, tables, and host `.venv-path` are local delivery resources, not automatically supplied by Git. A missing interpreter or library produces an explicit error. The launcher does not install dependencies or compile the library.
 
 T-SOU uses checked HEOS PT properties and does not create EOS tables. The table-directory option remains for explicitly selected historical runtimes. Public APIs, CLI and direct module calls default to C++.
 
@@ -154,11 +157,11 @@ With the current locked native dependencies present and the relevant native regr
 
 The command builds current source offline, runs independent C/C++ callers and error checks, then replaces the host library. Missing dependencies or failed verification stop publication. Before replacing different library contents, it saves the old library and record under `previous/` in the same directory. Republishing identical contents keeps that backup. `build.json` records the source commit, uncommitted changes, build configuration and paths.
 
-`native/lib/` is an ignored local delivery directory. To roll back, stop programs using the library, then copy the library and `build.json` from `previous/` to the parent directory. Restore the matching source, Python environment and property version as well. Publication checks do not replace numerical regressions or desktop acceptance. Daily startup performs no build, installation or download.
+`sjtu_tpmshx/solvers/native/lib/` is an ignored local delivery directory. To roll back, stop programs using the library, then copy the library and `build.json` from `previous/` to the parent directory. Restore the matching source, Python environment and property version as well. Publication checks do not replace numerical regressions or desktop acceptance. Daily startup performs no build, installation or download.
 
 The GUI uses C++ for ordinary computation, Quick Design and optimization. It has no backend selector. It uses the specified library or the matching library in the local macOS or Windows delivery folder.
 
-Source GUI and CLI share the default lookup. macOS uses `native/lib/macos-arm64/libtpmshx_solver_shared.dylib`; Windows uses `native/lib/windows-x64/tpmshx_solver_shared.dll`. The default table directory is `.cache/native-deps/tables`. With a matching library in these locations, no backend argument is needed. Explicit library and table paths take priority. API callers can override host paths in `RunControl`.
+Source GUI and CLI share the default lookup. macOS uses `sjtu_tpmshx/solvers/native/lib/macos-arm64/libtpmshx_solver_shared.dylib`; Windows uses `sjtu_tpmshx/solvers/native/lib/windows-x64/tpmshx_solver_shared.dll`. The default table directory is `.cache/native-deps/tables`. With a matching library in these locations, no backend argument is needed. Explicit library and table paths take priority. API callers can override host paths in `RunControl`.
 
 A missing library produces an explicit error. Compute Threads controls the native run. Auto uses at most eight logical CPUs on the host. Selection is a window runtime setting. It is not saved in case files and does not change existing results.
 

@@ -45,7 +45,7 @@ Platform fast tests, real integration, and minimal postprocessing gates stay req
 
 #### Scenario: Native dependencies are independently qualified
 - **WHEN** native dependency jobs run on macOS/Python 3.13 or Windows/Python 3.12 and 3.13
-- **THEN** one build job per platform fetches pinned source and CMake from `native/dependencies-lock.toml` and builds offline.
+- **THEN** one build job per platform fetches pinned source and CMake from `sjtu_tpmshx/solvers/native/dependencies-lock.toml` and builds offline.
   Qualification jobs use its matching native artifacts and execute independent EOS/pressure, Quick Design, true-h, model-h, and SIMPLE callers.
   The Windows Python 3.12 and 3.13 jobs independently qualify the same platform build. Independent formulas, discrete balances, manufactured solutions, component replay, and fixed historical references check complete drivers and public C interfaces. `TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1` and `TPMSHX_REQUIRE_CPP_TESTS=1` make missing compilers, executables, or libraries failures. Skips cannot substitute for acceptance.
 - **AND** only the independent native job builds dependencies. Ordinary fast shards do not rebuild them. Uploads include build logs and qualification XML. They exclude source archives, property tables, and local experimental data.
@@ -84,7 +84,7 @@ Root `pyproject.toml` MUST use `[tool.pytest.ini_options]` to set `testpaths = s
 - **THEN** pytest reports a collection error
 
 ### Requirement: Public interface type gate
-The `[tool.mypy].files` setting in `pyproject.toml` MUST explicitly list public interfaces and data contracts. The list includes the current envelope implementation, three-module APIs, data objects, and compatibility entries with active consumers. `pyproject.toml` MUST enable checking of unannotated bodies for envelope, preprocessing API, solver API, and postprocessing metrics. This does not claim strict type coverage for all solvers. `test_type_gate.py` MUST check the list in fast tests. It MUST verify that `prepare_case`, `run_case`, and `evaluate` reject incorrect input types. CI MUST NOT add a duplicate mypy step.
+The `[tool.mypy].files` setting in `pyproject.toml` MUST explicitly list public interfaces and data contracts. The list includes the current envelope implementation, three-module APIs, data objects, and compatibility entries with active consumers. `pyproject.toml` MUST enable checking of unannotated bodies for envelope, preprocessing API, solver API, postprocessing API, and postprocessing metrics. This does not claim strict type coverage for all solvers. `test_type_gate.py` MUST check the list in fast tests. It MUST verify that `prepare_case`, `run_case`, and `evaluate` reject incorrect input types. CI MUST NOT add a duplicate mypy step.
 
 #### Scenario: Wrong public input types are rejected
 - **WHEN** mypy checks calls that pass strings to the three public APIs instead of their data objects

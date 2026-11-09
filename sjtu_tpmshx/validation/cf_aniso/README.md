@@ -7,7 +7,7 @@
 
 > 目的：给 2D 动量核的方向因子 `cF_eff = cF·(1 + cf_aniso·ξ4)`（`ξ4 = 4n_x²n_y²`，
 > 立方对称最低阶不变量：顺主轴 0、45° 斜穿 1）提供**实测系数**。
-> `native/src/simple_2d.cpp` 原生动量核支持此因子；公共完整二维适配器目前设置
+> `sjtu_tpmshx/solvers/native/src/simple_2d.cpp` 原生动量核支持此因子；公共完整二维适配器目前设置
 > `cf_aniso = 0`，因此方向因子为 1。原 Python 核保留在版本历史中。
 > 顺轴流对任意系数取值不变；本工单为系数提供实测依据。
 > 原台账条目 B3 / IDEA-PORT-VALID 为历史研究编号，相关旧工程见

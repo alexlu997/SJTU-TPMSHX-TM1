@@ -2,7 +2,7 @@
 // Narrow original-algorithm excerpts. PyAMG: Copyright (c) 2008-2015 PyAMG
 // Developers (MIT). SciPy: Copyright (c) 2001-2002 Enthought, Inc. 2003, SciPy
 // Developers (BSD-3-Clause). Full notices and source revisions are in
-// native/licenses/{pyamg-v5.3.0,scipy-v1.17.1}-LICENSE.txt and classical-amg-sources.md.
+// ../licenses/{pyamg-v5.3.0,scipy-v1.17.1}-LICENSE.txt and classical-amg-sources.md.
 // Changes: private namespace, unused binding-size attributes, and NumPy integer
 // aliases mapped to std::ptrdiff_t. Numerical operations and order are retained.
 #include <algorithm>

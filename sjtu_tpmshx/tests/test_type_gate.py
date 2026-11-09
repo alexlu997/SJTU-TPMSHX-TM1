@@ -27,7 +27,7 @@ def test_public_module_inputs_reject_wrong_types(tmp_path):
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.api import run_case
 from sjtu_tpmshx.postprocess.api import evaluate
-from sjtu_tpmshx.workflows.compute import compute
+from sjtu_tpmshx.compute import compute
 from sjtu_tpmshx.controllers.module_adapter import compute_result
 
 prepare_case("not a config", case_id="type-check")

@@ -21,7 +21,7 @@ def test_macos_source_launcher_without_retired_cache(tmp_path, monkeypatch):
     interpreter.write_text('#!/bin/sh\nprintf "%s\\n" "$PWD" "$MPLCONFIGDIR" "$XDG_CACHE_HOME" "$@"\n')
     interpreter.chmod(0o755)
     (project / '.venv-path').write_text(str(interpreter) + '\n')
-    library = project / 'native/lib/macos-arm64/libtpmshx_solver_shared.dylib'
+    library = project / 'sjtu_tpmshx/solvers/native/lib/macos-arm64/libtpmshx_solver_shared.dylib'
     library.parent.mkdir(parents=True)
     library.touch()
     monkeypatch.delenv('NUMBA_CACHE_DIR', raising=False)

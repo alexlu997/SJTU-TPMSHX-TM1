@@ -24,7 +24,7 @@ from sjtu_tpmshx.io.solver_checkpoint_io import (
 from sjtu_tpmshx.io.text_file import write_text
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.api import run_case
-from .compute import compute
+from sjtu_tpmshx.compute import compute
 
 
 def read_run_checkpoint(path):

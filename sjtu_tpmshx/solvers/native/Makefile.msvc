@@ -1,0 +1,40 @@
+# Run from the repository root in an x64 Visual Studio Developer shell:
+# nmake /f sjtu_tpmshx\solvers\native\Makefile.msvc check
+!IFNDEF BUILD_DIR
+BUILD_DIR = .cache\native
+!ENDIF
+!IFNDEF TPMSHX_EIGEN_INCLUDE
+TPMSHX_EIGEN_INCLUDE = .cache\native-deps\src\Eigen-5.0.1
+!ENDIF
+!IF !EXIST("$(TPMSHX_EIGEN_INCLUDE)\Eigen\SparseLU")
+!ERROR Missing Eigen/SparseLU; set TPMSHX_EIGEN_INCLUDE to the existing locked Eigen headers.
+!ENDIF
+EIGEN_CPPFLAGS = /DEIGEN_MPL2_ONLY /external:I"$(TPMSHX_EIGEN_INCLUDE)" /external:W0
+CXXFLAGS = /nologo /std:c++17 /O2 /W4 /WX /EHsc /MD /I sjtu_tpmshx\solvers\native\include
+
+all: $(BUILD_DIR)\tpmshx_thermal.lib
+
+$(BUILD_DIR)\enthalpy_sweeps.obj: sjtu_tpmshx\solvers\native\src\enthalpy_sweeps.cpp sjtu_tpmshx\solvers\native\src\energy_fv_rows.hpp sjtu_tpmshx\solvers\native\include\tpmshx\conservative_energy.hpp sjtu_tpmshx\solvers\native\include\tpmshx\enthalpy_sweeps.hpp sjtu_tpmshx\solvers\native\include\tpmshx\finite_volume.hpp
+	@if not exist "$(BUILD_DIR)" mkdir "$(BUILD_DIR)"
+	cl $(CXXFLAGS) /c sjtu_tpmshx\solvers\native\src\enthalpy_sweeps.cpp /Fo$@
+
+$(BUILD_DIR)\temperature_driver.obj: sjtu_tpmshx\solvers\native\src\temperature_driver.cpp sjtu_tpmshx\solvers\native\src\temperature_run_state.hpp sjtu_tpmshx\solvers\native\src\temperature_active_line.hpp sjtu_tpmshx\solvers\native\src\temperature_faces.hpp sjtu_tpmshx\solvers\native\src\energy_fv_rows.hpp sjtu_tpmshx\solvers\native\include\tpmshx\temperature_driver.hpp sjtu_tpmshx\solvers\native\include\tpmshx\conservative_energy.hpp sjtu_tpmshx\solvers\native\include\tpmshx\enthalpy_sweeps.hpp sjtu_tpmshx\solvers\native\include\tpmshx\finite_volume.hpp
+	@if not exist "$(BUILD_DIR)" mkdir "$(BUILD_DIR)"
+	cl $(CXXFLAGS) $(EIGEN_CPPFLAGS) /c sjtu_tpmshx\solvers\native\src\temperature_driver.cpp /Fo$@
+
+$(BUILD_DIR)\conservative_energy.obj: sjtu_tpmshx\solvers\native\src\conservative_energy.cpp sjtu_tpmshx\solvers\native\src\energy_fv_rows.hpp sjtu_tpmshx\solvers\native\include\tpmshx\conservative_energy.hpp sjtu_tpmshx\solvers\native\include\tpmshx\enthalpy_sweeps.hpp sjtu_tpmshx\solvers\native\include\tpmshx\finite_volume.hpp
+	@if not exist "$(BUILD_DIR)" mkdir "$(BUILD_DIR)"
+	cl $(CXXFLAGS) /c sjtu_tpmshx\solvers\native\src\conservative_energy.cpp /Fo$@
+
+$(BUILD_DIR)\tpmshx_thermal.lib: $(BUILD_DIR)\enthalpy_sweeps.obj $(BUILD_DIR)\temperature_driver.obj $(BUILD_DIR)\conservative_energy.obj
+	lib /nologo /OUT:$@ $**
+
+$(BUILD_DIR)\temperature_driver_smoke.exe: sjtu_tpmshx\solvers\native\tests\temperature_driver_smoke.cpp $(BUILD_DIR)\tpmshx_thermal.lib sjtu_tpmshx\solvers\native\src\temperature_faces.hpp sjtu_tpmshx\solvers\native\src\energy_fv_rows.hpp sjtu_tpmshx\solvers\native\include\tpmshx\temperature_driver.hpp sjtu_tpmshx\solvers\native\include\tpmshx\conservative_energy.hpp sjtu_tpmshx\solvers\native\include\tpmshx\finite_volume.hpp
+	cl $(CXXFLAGS) sjtu_tpmshx\solvers\native\tests\temperature_driver_smoke.cpp $(BUILD_DIR)\tpmshx_thermal.lib /Fo$(BUILD_DIR)\temperature_driver_smoke.obj /Fe$@
+
+$(BUILD_DIR)\conservative_energy_smoke.exe: sjtu_tpmshx\solvers\native\tests\conservative_energy_smoke.cpp $(BUILD_DIR)\tpmshx_thermal.lib sjtu_tpmshx\solvers\native\include\tpmshx\conservative_energy.hpp
+	cl $(CXXFLAGS) sjtu_tpmshx\solvers\native\tests\conservative_energy_smoke.cpp $(BUILD_DIR)\tpmshx_thermal.lib /Fo$(BUILD_DIR)\conservative_energy_smoke.obj /Fe$@
+
+check: $(BUILD_DIR)\temperature_driver_smoke.exe $(BUILD_DIR)\conservative_energy_smoke.exe
+	$(BUILD_DIR)\temperature_driver_smoke.exe
+	$(BUILD_DIR)\conservative_energy_smoke.exe

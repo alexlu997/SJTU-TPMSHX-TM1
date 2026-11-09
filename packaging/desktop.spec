@@ -35,9 +35,9 @@ if not library.is_file() or library.name != expected_name:
     raise ValueError(f'Expected the prebuilt {expected_name} for this desktop target: {library}')
 binaries = [(str(library), 'native')]
 data += [
-    (str(root / 'native' / 'THIRD_PARTY_NOTICES.md'), 'licenses/native'),
-    (str(root / 'native' / 'dependencies-lock.toml'), 'licenses/native'),
-    (str(root / 'native' / 'licenses'), 'licenses/native/licenses'),
+    (str(root / 'sjtu_tpmshx' / 'solvers' / 'native' / 'THIRD_PARTY_NOTICES.md'), 'licenses/native'),
+    (str(root / 'sjtu_tpmshx' / 'solvers' / 'native' / 'dependencies-lock.toml'), 'licenses/native'),
+    (str(root / 'sjtu_tpmshx' / 'solvers' / 'native' / 'licenses'), 'licenses/native/licenses'),
 ]
 
 a = Analysis(

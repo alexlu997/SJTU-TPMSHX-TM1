@@ -141,7 +141,7 @@ The native 3D `Runtime` coordinates separate internal owners.
 `ThermalRun` owns the thermal fields, active energy driver and thermal continuation state.
 Both use one `TransportProperties` owner for inlet properties and sampled transport values.
 `RangeRecorder` records model limits. A separate function assembles final result evidence.
-Both dimensions use `native/src/closure_ranges.hpp` for property and Nu range descriptors.
+Both dimensions use `sjtu_tpmshx/solvers/native/src/closure_ranges.hpp` for property and Nu range descriptors.
 Each caller keeps its property selection, sampling stage, array layout and observation order.
 The full-run phase controller keeps the outer update order and callback sequence.
 Each owner copies its state to the existing `Full3DRunState` fields.
@@ -345,6 +345,10 @@ The former optimizer-only energy evaluator is now part of common postprocessing.
 
 ## Runtime flow
 
+All core source is in `sjtu_tpmshx/`. Package-level `compute.py` is the main computation entry.
+`main.py` starts the GUI. `solvers/native/` contains the C++ source, C ABI, build files, caller tests and license notices.
+`solvers/backends/cpp/` contains the Python bindings. `.github/workflows/` contains CI configuration.
+
 ```text
 applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
                                                           -> postprocess.api -> PerformanceResult
@@ -533,8 +537,8 @@ Temperature is not scaled. FullCC nonzero sources stay
 
   See [native consumer contracts](cpp-migration.md#shared-finite-volume-temperature-consumers)
   for iteration, incomplete-boundary and build requirements.
-- `postprocess/` reduces recorded fields, fluxes and pressure states. It never
-  reruns a solver or reads a private runtime object to recover missing evidence.
+- `postprocess/api.py` owns the complete `evaluate` sequence. `metrics.py` holds metric formulas and reduction helpers.
+  Postprocessing reduces recorded fields, fluxes and pressure states. It never reruns a solver or reads private runtime objects for missing evidence.
   Full-compute evaluation reuses successful heat and mass reductions only within
   that call, lazily by side and by coarse/fine evidence. Each requested metric
   keeps its own missing/unsupported/invalid status handling.
@@ -554,7 +558,7 @@ Temperature is not scaled. FullCC nonzero sources stay
   Prepared dictionaries cannot contain runtime callbacks. Saved results preserve
   recorded units, axes and the distinction between final flow and last thermal state.
   Retired pipeline facades and mixed-kernel entries remain absent.
-- `workflows/compute.py` owns configuration validation and the common prepare, solve and evaluate sequence.
+- `compute.py` owns configuration validation and the common prepare, solve and evaluate sequence.
   It checks cancellation between stages and after postprocessing. It records stage times and warnings in the returned `FieldResult` metadata.
   The result identity and immutable array storage stay unchanged. The workflow returns `CaseData`, `FieldResult` and `PerformanceResult`.
   Overall progress uses this workflow. `RunControl` keeps raw solver progress, backend selection and host callbacks.
@@ -623,7 +627,7 @@ and does not create files. Cancellation keeps evidence and returns CLI status 13
 The GUI entry point is `python -m sjtu_tpmshx.main`. Source-based headless
 work uses `python -m sjtu_tpmshx.cli`. Parameter optimization and design use
 the same public contracts with their explicitly named approximation modes. The macOS project-folder launcher passes `backend=cpp`, the supplied library
-under `native/lib/macos-arm64/`, and the project table directory to this same
+under `sjtu_tpmshx/solvers/native/lib/macos-arm64/`, and the project table directory to this same
 GUI entry point. Python keeps UI, prepared-input assembly, optimization
 orchestration and result processing.
 
@@ -1241,7 +1245,7 @@ area. Both dimensions share the same reduction. Air inlet-pressure correction al
 The outlet-cell
 anchor is iterated until the inlet open-area mean meets the specified absolute
 pressure within `1e-4` relative error. Both dimensions share pressure initialization and a bounded
-P-squared update in `native/src/pressure_reference.cpp`. A positive 1D estimate above
+P-squared update in `sjtu_tpmshx/solvers/native/src/pressure_reference.cpp`. A positive 1D estimate above
 the existing pressure floor is used as the initial outlet-cell anchor. An unusable isothermal estimate starts at the
 specified inlet pressure. Downward
 updates consume at most half the remaining squared-pressure distance to the
@@ -1457,7 +1461,7 @@ The writer closes a temporary file before atomic replacement.
 A failed write or process interruption before replacement preserves the previous checkpoint.
 This contract does not claim recovery from power loss.
 
-`workflows.recovery` uses the existing `workflows.compute` stages for start and resume.
+`workflows.recovery` uses the stages in package-level `compute.py` for start and resume.
 Each run owns a new directory with prepared input, a retained native library, checkpoint, and status.
 Each run retains its own library path. The process reuses a previously retained file only when its bytes match the selected library.
 This avoids repeated native initialization and retained property tables. A changed or moved runtime uses the new retained file.

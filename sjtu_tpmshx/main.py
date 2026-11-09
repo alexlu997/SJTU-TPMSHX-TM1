@@ -1,3 +1,4 @@
+"""Launch the desktop GUI; compute.py owns the calculation sequence."""
 import sys
 from pathlib import Path as _PathBoot
 

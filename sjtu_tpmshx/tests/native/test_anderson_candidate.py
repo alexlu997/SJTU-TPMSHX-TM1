@@ -36,13 +36,13 @@ def native(tmp_path_factory):
     sources = [Path(__file__).with_name('anderson_candidate_bridge.cpp')]
     if os.name == 'nt':
         arguments = ['/nologo', '/std:c++17', '/O2', '/W4', '/WX', '/EHsc', '/MD', '/LD', '/fp:strict',
-                     '/DTPMSHX_THERMAL_BUILD_SHARED', '/DEIGEN_MPL2_ONLY', '/I' + str(root / 'native/include'),
+                     '/DTPMSHX_THERMAL_BUILD_SHARED', '/DEIGEN_MPL2_ONLY', '/I' + str(root / 'sjtu_tpmshx/solvers/native/include'),
                      '/external:I' + str(eigen), '/external:W0',
                      *sources, '/Fe' + str(output), '/link', '/IMPLIB:' + str(build / 'anderson_candidate.lib')]
     else:
         arguments = ['-std=c++17', '-O3', '-Wall', '-Wextra', '-Wpedantic', '-Werror', '-ffp-contract=off',
                      '-DEIGEN_MPL2_ONLY', '-dynamiclib' if sys.platform == 'darwin' else '-shared', '-fPIC',
-                     '-I', root / 'native/include', '-isystem', eigen, *sources, '-o', output]
+                     '-I', root / 'sjtu_tpmshx/solvers/native/include', '-isystem', eigen, *sources, '-o', output]
         if sys.platform == 'darwin':
             arguments += ['-framework', 'Accelerate']
     subprocess.run([*compiler, *arguments], cwd=build, check=True, text=True, capture_output=True)

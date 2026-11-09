@@ -2,7 +2,7 @@
 
 [中文](README.md) | [English](README.en.md)
 
-**主体程序位于 [sjtu_tpmshx/](../sjtu_tpmshx/)**。
+**核心源码全部位于 [sjtu_tpmshx/](../sjtu_tpmshx/)**，包括 Python 应用和 C++ 数值后端。
 读代码从[模块地图](../sjtu_tpmshx/README.md)开始，运行程序从
 [首次运行说明](../README.md#first-run)开始。
 
@@ -27,7 +27,7 @@
 
 | 目录 | 用途 |
 | --- | --- |
-| [sjtu_tpmshx/](../sjtu_tpmshx/) | 主体源码、应用层、共享模型、有效测试和验证工具 |
+| [sjtu_tpmshx/](../sjtu_tpmshx/) | 全部核心源码；compute.py 为主计算入口，三模块 API、C++ 后端、应用层、共享模型、有效测试与验证工具均在包内 |
 | [docs/](./) | 当前说明与历史资料入口 |
 | [examples/](../examples/) | 公开调用示例和首次运行配置 |
 | [requirements/](../requirements/) | 基础、macOS BO、Windows BO、桌面构建和最小后处理的精确依赖锁 |
@@ -35,7 +35,7 @@
 | [sjtu_tpmshx/runs/](../sjtu_tpmshx/runs/) | 现行性能剖析、诊断和演示工具 |
 | [schemas/](../schemas/) | 三模块数据契约；实现位于主体包的 domain/、io/ 等模块 |
 | [openspec/](../openspec/) | 按功能分开的现行行为规范 |
-| [.github/](../.github/) | macOS / Windows CI 和最小后处理环境检查 |
+| [.github/workflows/](../.github/workflows/) | macOS / Windows CI 与最小后处理环境检查的配置，不存放应用源码 |
 
 `pyproject.toml` 集中定义构建、依赖声明、pytest、mypy 和 lint 配置。
 `requirements/` 保存各用途的精确依赖锁；根目录 `requirements.txt` 用于独立开发环境安装。
