@@ -149,11 +149,38 @@ The launcher enters its own project directory and writes caches under `.cache/`.
 
 T-SOU uses checked HEOS PT properties and does not create EOS tables. The table-directory option remains for explicitly selected historical runtimes. Public APIs, CLI and direct module calls default to C++.
 
-With the current locked native dependencies present and the relevant native regressions passed, explicitly publish the launcher library:
+For dependencies configured under the current source layout, publish the launcher library after the relevant native regressions pass.
+For an old layout, first prepare a new cache as described below.
 
 ```sh
 "$PYTHON" scripts/build_native_dependencies.py publish
 ```
+
+When you upgrade from the root `native/` layout, keep the original libraries, `build.json` and `previous/` under `native/lib/`.
+Old checkpoints still require their matching original library, selected explicitly.
+Keep old caches and their absolute paths while consumers still use them.
+The old pilot build directory records the previous source location. It cannot configure the new layout.
+
+For an existing checkout, select an unused cache directory. These examples use `.cache/native-layout` and the base environment lock.
+If `.venv-path` selects a BO environment, use `requirements/bo-macos.txt` or `requirements/bo-windows.txt` for publication instead.
+
+macOS:
+
+```sh
+"$PYTHON" scripts/build_native_dependencies.py fetch --cache .cache/native-layout
+"$PYTHON" scripts/build_native_dependencies.py publish --cache .cache/native-layout --python-lock requirements/base.txt
+```
+
+Windows (PowerShell):
+
+```powershell
+& $tm1Python scripts/build_native_dependencies.py fetch --cache .cache/native-layout
+& $tm1Python scripts/build_native_dependencies.py publish --cache .cache/native-layout --python-lock requirements/base.txt
+```
+
+`publish` includes the build and verification steps.
+Use the same `--cache` directory for later explicit `build`, `verify` and `publish` commands.
+A fresh clone can use the default cache above.
 
 The command builds current source offline, runs independent C/C++ callers and error checks, then replaces the host library. Missing dependencies or failed verification stop publication. Before replacing different library contents, it saves the old library and record under `previous/` in the same directory. Republishing identical contents keeps that backup. `build.json` records the source commit, uncommitted changes, build configuration and paths.
 

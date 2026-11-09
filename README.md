@@ -188,11 +188,31 @@ macOS 尚未验收。继续复用 `.venv-path` 指定的现有锁定环境，环
 不随 Git 源码自动提供。缺少解释器或库会直接报告原因；启动器不安装依赖、
 或编译库。T-SOU 使用带检查的 HEOS PT 物性，不创建 EOS 表；表目录选项保留给显式选择的历史运行库。公共 API、CLI 和直接模块调用默认使用 C++。
 
-已有当前锁定原生依赖且相关原生回归通过时，可显式发布启动器使用的库：
+已有当前锁定原生依赖、pilot 构建目录已指向当前源码布局，且相关原生回归通过时，可显式发布启动器使用的库。旧布局项目须先按下文升级步骤准备新缓存。
 
 ```sh
 "$PYTHON" scripts/build_native_dependencies.py publish
 ```
+
+从旧的根目录 `native/` 布局升级时，先保留原 `native/lib/` 下的库、`build.json` 和 `previous/`。旧检查点仍须显式选择匹配的原库。保留仍有消费者的旧缓存及其绝对路径。旧 pilot 构建目录记录了原源码位置，不能直接用于新布局。
+
+已有项目须选择一个尚未使用的缓存目录。以下以 `.cache/native-layout` 和基础环境锁为例；若 `.venv-path` 指向 BO 环境，将发布命令的锁换成对应的 `requirements/bo-macos.txt` 或 `requirements/bo-windows.txt`。
+
+macOS：
+
+```sh
+"$PYTHON" scripts/build_native_dependencies.py fetch --cache .cache/native-layout
+"$PYTHON" scripts/build_native_dependencies.py publish --cache .cache/native-layout --python-lock requirements/base.txt
+```
+
+Windows（PowerShell）：
+
+```powershell
+& $tm1Python scripts/build_native_dependencies.py fetch --cache .cache/native-layout
+& $tm1Python scripts/build_native_dependencies.py publish --cache .cache/native-layout --python-lock requirements/base.txt
+```
+
+`publish` 包含构建和验证。后续显式执行 `build`、`verify` 或 `publish` 时，继续使用同一 `--cache` 目录。首次克隆的项目可使用上文默认缓存。
 
 此命令离线构建当前源码，运行独立 C/C++ 调用和错误路径检查，再替换本平台的库。
 缺少锁定依赖或验证失败时停止。改变库内容前，旧库及记录保存在同目录的 `previous/`；
