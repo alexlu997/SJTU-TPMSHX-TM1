@@ -327,7 +327,7 @@ def sco2_effective_nu_config():
     from importlib.resources import files
     from sjtu_tpmshx.shared.domain.compute_config import Sco2NuConfig
 
-    resource = files('sjtu_tpmshx').joinpath('configs', 'sco2_effective_nu.json')
+    resource = files('sjtu_tpmshx.shared.configs').joinpath('sco2_effective_nu.json')
     return Sco2NuConfig(**json.loads(resource.read_text(encoding='utf-8'))).validate()
 
 
