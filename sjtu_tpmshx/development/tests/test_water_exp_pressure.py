@@ -118,9 +118,9 @@ def test_current_hx_tools_import_without_legacy_models():
     code = '''
 import sys
 for name in (
-    'validation.df_refit.gamma_hx_air', 'validation.df_refit.gamma_hx_water',
-    'validation.df_refit.gamma_specimen', 'df_surrogate.gamma_df',
-    'df_surrogate.surrogate_v3', 'df_surrogate.smooth_df', 'df_surrogate.sco2_df',
+    'development.validation.df_refit.gamma_hx_air', 'development.validation.df_refit.gamma_hx_water',
+    'development.validation.df_refit.gamma_specimen', 'shared.df_surrogate.gamma_df',
+    'shared.df_surrogate.surrogate_v3', 'shared.df_surrogate.smooth_df', 'shared.df_surrogate.sco2_df',
 ):
     sys.modules['sjtu_tpmshx.' + name] = None
 from sjtu_tpmshx.development.validation.df_refit import fit_experimental_effective, cf_cross_fluid

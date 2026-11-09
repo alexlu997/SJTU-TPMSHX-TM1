@@ -95,9 +95,9 @@ def test_runner_missing_environment_fails_before_python(tmp_path, script):
 def test_runner_uses_selected_lock_and_stops_before_tests(tmp_path, script, lock, failed_step):
     _copy_runners(tmp_path)
     (tmp_path / '.venv-path').write_text(sys.executable, encoding='utf-8')
-    package = tmp_path / 'sjtu_tpmshx' / 'runs' / 'tools'
+    package = tmp_path / 'sjtu_tpmshx' / 'development' / 'runs' / 'tools'
     package.mkdir(parents=True)
-    for directory in (package, package.parent, package.parent.parent):
+    for directory in (package, package.parent, package.parent.parent, package.parent.parent.parent):
         (directory / '__init__.py').touch()
     modules = {
         'lock': package / 'check_locked_environment.py',
