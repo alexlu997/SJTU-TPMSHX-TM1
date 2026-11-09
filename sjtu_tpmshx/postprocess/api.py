@@ -90,6 +90,6 @@ def evaluate(result: FieldResult, metric_spec: MetricSpec | None = None) -> Perf
             metrics[name] = MetricValue(None, spec, 'invalid', str(exc))
     if metric_spec is not None and not metrics:
         metrics[metric_spec.name] = MetricValue(None, metric_spec, 'unsupported', 'unknown metric')
-    from .qualification import evaluate_qualification
+    from .qualification import evaluate_qualification as qualify
     return PerformanceResult(str(uuid4()), result.result_id, metrics,
-                             evaluate_qualification(result, metrics))
+                             qualify(result, metrics))
