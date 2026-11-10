@@ -585,6 +585,22 @@ logs and tabular EOS files stay under the worktree's `.cache/native-deps`.
 [`sjtu_tpmshx/solvers/native/THIRD_PARTY_NOTICES.md`](../sjtu_tpmshx/solvers/native/THIRD_PARTY_NOTICES.md) records the
 linked components and their original license notices.
 
+`engineering/scripts/generate_native_model_coefficients.py` reads the shared
+`model_parameters_v1.json` resource and the existing CO2 resource.
+Its resource reader uses only the Python standard library.
+The generator does not import numerical model implementations.
+The build writes `tpmshx/model_coefficients.hpp` under the selected cache's `generated/` directory.
+The default directory is `.cache/native-deps/generated/`.
+C++ uses the generated constants without runtime JSON parsing or Python calls.
+This first migration stage unifies data sources; later stages must migrate the remaining calculations.
+See [model resources](model-resources.en.md#当前资源与研究输出).
+
+The Python wheel includes the JSON resources. It does not include native libraries.
+Native solver libraries still require a separate explicit build.
+Unchanged coefficients do not make an old checkpoint compatible with a new solver build.
+Resume requires the exact retained runtime, saved prepared inputs and controls.
+Keep each saved run's matching library when building a replacement.
+
 After explicit native-dependency provisioning authorization, use the configured
 interpreter and the existing lock checks. `fetch` provisions the complete dependencies.
 `build` is offline and does not install Python packages or change the shared

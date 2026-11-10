@@ -20,11 +20,13 @@ Bhatti & Shah (1987). Historical mode changes remain in Git history.
 from __future__ import annotations
 import numpy as np
 
+from sjtu_tpmshx.shared.configs.model_parameters import load_model_parameters
 from sjtu_tpmshx.shared.models.nu_correlations import NU_ROUGHNESS_FACTOR
 
-_PETUKHOV = (0.790, 1.64)
-_HAALAND = (1.8, 3.7, 1.11, 6.9)
-_NU_GAIN_POWER = 0.68
+_ROUGHNESS_PARAMETERS = load_model_parameters()['roughness']
+_PETUKHOV = tuple(_ROUGHNESS_PARAMETERS['petukhov'])
+_HAALAND = tuple(_ROUGHNESS_PARAMETERS['haaland'])
+_NU_GAIN_POWER = _ROUGHNESS_PARAMETERS['nu_gain_power']
 
 # ─── Smooth-wall friction baselines ─────────────────────────────────
 

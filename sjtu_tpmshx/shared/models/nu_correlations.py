@@ -1,7 +1,7 @@
 """Nu correlations — single source of truth for scalar + vector paths.
 
-Scalar and vector consumers share the coefficients below. The native build
-generates its model coefficients from the same Python definitions.
+Scalar and vector consumers read fixed model data from a shared resource.
+The native build reads the same resource.
 
 API
 ---
@@ -35,25 +35,21 @@ Convention
 from __future__ import annotations
 
 import warnings
+from sjtu_tpmshx.shared.configs.model_parameters import load_model_parameters
 from sjtu_tpmshx.shared.domain.run_warnings import record_range, record_warning
 import numpy as np
 
 # ── Constants ────────────────────────────────────────────────────────────
 
-Pr_AIR = 0.72
-NU_ROUGHNESS_FACTOR = 1.28           # SLM Sa≈31 µm enhancement (φ_rough)
-NU_RE_FIT_RANGE = (400.0, 16000.0)   # Re fit window for extrap warnings
-NU_LAM_FLOOR = 4.36                  # laminar Hagen-Poiseuille limit — floor
-                                     # for local-Re h_v paths (wall cells with
-                                     # u→0 must not extrapolate Nu→0). Single
-                                     # source for the 2D and 3D h_v builders.
+_NU_PARAMETERS = load_model_parameters()['nu']
+Pr_AIR = _NU_PARAMETERS['pr_air']
+NU_ROUGHNESS_FACTOR = _NU_PARAMETERS['roughness_factor']
+NU_RE_FIT_RANGE = tuple(_NU_PARAMETERS['air_re_range'])
+# Keep the same local-Re floor for the 2D and 3D heat-transfer builders.
+NU_LAM_FLOOR = _NU_PARAMETERS['laminar_floor']
 
-# 3p PL coefficients (refit 2026-04-28; user-locked).
-# Refitting Nu = edit this dict, nothing else.
-NU_COEFFS = {
-    'Diamond': {'c': 0.0944, 'a': 0.8273, 'd': 0.226},
-    'Gyroid':  {'c': 0.126,  'a': 0.7898, 'd': 0.2409},
-}
+# Fixed 3p power-law coefficients from the shared model resource.
+NU_COEFFS = _NU_PARAMETERS['air_coefficients']
 
 # Module-level mutable: one-shot extrap warning per (tpms, side).
 # Set is a session-scoped registry; clear by importer if tests need fresh
@@ -166,11 +162,8 @@ def nu_vec(tpms_type, Re, L_mm, D_h_mm, *, Re_floor=10.0, Pr=Pr_AIR):
 # 2-parameter form is kept. Accuracy: RMSRE ~10%, LOGO (leave-one-geometry-out)
 # medAPE Diamond 6.8% / Gyroid 8.2%. D_7_3/4/5 share the sCO2 flow-data quirk;
 # the retained fit includes them; uncertain flow data can affect Re and the fit.
-WATER_NU_RE_RANGE = (90.0, 51000.0)
-WATER_NU_COEFFS = {
-    'Diamond': {'c': 0.3201, 'a': 0.6679},
-    'Gyroid':  {'c': 0.3941, 'a': 0.6435},
-}
+WATER_NU_RE_RANGE = tuple(_NU_PARAMETERS['water_re_range'])
+WATER_NU_COEFFS = _NU_PARAMETERS['water_coefficients']
 # Retired 2026-06-12 coeffs (old data), for reference:
 #   Diamond c=0.3427 a=0.6626;  Gyroid c=0.4445 a=0.6361.
 
@@ -254,11 +247,8 @@ def nu_water_topo(tpms_type, Re, Pr_water):
 #   FAILURE   8 MPa near-critical (T_b−T_pc ∈ [−2,+5] K): 18–61 %
 #   FAILURE   liquid-like side T_b ≤ T_pc − 5 K at P ≤ 10 MPa: up to ~27 %
 # Re window = local-property Re_b coverage of the fit data.
-SCO2_NU_RE_RANGE = (2600.0, 128000.0)
-SCO2_NU_COEFFS = {
-    'Diamond': {'c': 0.184809, 'a': 0.707421, 'd': -0.281792},
-    'Gyroid':  {'c': 0.192994, 'a': 0.722221, 'd': -0.044313},
-}
+SCO2_NU_RE_RANGE = tuple(_NU_PARAMETERS['sco2_re_range'])
+SCO2_NU_COEFFS = _NU_PARAMETERS['sco2_coefficients']
 # Retired Gyroid coeffs from the 2026-07-23 fit (17 geometries, L=8 column
 # only 7% sampled at t=0.3 and absent at t=0.4/0.5/0.6), for reference:
 #            Gyroid  c=0.201101 a=0.720625 d=-0.013529.

@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 from dataclasses import dataclass
+from sjtu_tpmshx.shared.configs.model_parameters import load_model_parameters
 from sjtu_tpmshx.shared.domain.run_warnings import range_context, record_warning
 
 from sjtu_tpmshx.shared.models import fluid_props as _registry
@@ -21,8 +22,8 @@ from sjtu_tpmshx.shared.models.nu_correlations import (
 from sjtu_tpmshx.shared.models.tpms_props import record_temperature_ranges
 
 DESIGN_NU_REFERENCE_STATES = {
-    'water': (320.0, 2e5),
-    'sco2': (480.0, 9.0e6),
+    fluid: tuple(state)
+    for fluid, state in load_model_parameters()['design_nu_reference_states'].items()
 }
 
 

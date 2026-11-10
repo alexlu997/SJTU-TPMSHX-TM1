@@ -97,6 +97,7 @@ def test_bundle_resource_selection_excludes_user_state_and_jit_cache():
     def included(name):
         return any(PurePath(name).match(pattern) for pattern in patterns)
     for resource in ('shared/configs/sco2_effective_nu.json',
+                     'shared/configs/model_parameters_v1.json',
                      'shared/df_surrogate/_prebuilt/cfd_full_core_3cell_fixed_v2.csv',
                      'applications/gui/ui/assets/icons/search.svg', 'applications/gui/ui/assets/icons/LICENSE'):
         assert included(resource)

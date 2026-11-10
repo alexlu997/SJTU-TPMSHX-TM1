@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
+from sjtu_tpmshx.shared.configs.model_parameters import load_model_parameters
 from sjtu_tpmshx.shared.domain.compute_config import SCO2_P_RANGE_PA as P_RANGE_PA
 
 try:
@@ -27,7 +28,7 @@ except Exception:                       # pragma: no cover - import guard
 
 
 _FLUID = "CO2"
-T_RANGE_K = (280.0, 700.0)
+T_RANGE_K = tuple(load_model_parameters()['sco2']['temperature_range_K'])
 
 
 def _validate_state(T_K, P_Pa, *, where=None) -> None:

@@ -4,32 +4,28 @@ Nu is the supplied segment-2 fit. Drag uses the existing common three-cell
 CFD base. The factors are application inputs, not a new experimental fit.
 """
 from functools import lru_cache
-import json
 from pathlib import Path
 import warnings
 
 import numpy as np
 
-VERSION = 'co2-segment2-20261002-v1'
-APPLICATION_VERSION = 'co2-fixed-factors-20261009-v1'
-PRESSURE_MULTIPLIER = 2.5
-NU_MULTIPLIER = 1.28
-RE_RANGE = (3000., 60000.)
+from sjtu_tpmshx.shared.configs.model_parameters import (
+    load_co2_coefficients, load_model_parameters)
+
+_APPLICATION = load_model_parameters()['co2_application']
+_CO2_DATA = load_co2_coefficients()
+VERSION = _CO2_DATA['model_version']
+APPLICATION_VERSION = _APPLICATION['version']
+PRESSURE_MULTIPLIER = _APPLICATION['pressure_multiplier']
+NU_MULTIPLIER = _APPLICATION['nu_multiplier']
+RE_RANGE = tuple(_CO2_DATA['bounds']['Re'])
+del _CO2_DATA, _APPLICATION
 DATA_PATH = Path(__file__).resolve().parents[1] / 'configs' / 'co2_segment2_v1.json'
 
 
 @lru_cache(maxsize=1)
 def coefficients():
-    data = json.loads(DATA_PATH.read_text(encoding='utf-8'))
-    if data['model_version'] != VERSION or data['segment'] != 2:
-        raise ValueError('CO2 coefficient resource/version mismatch')
-    if set(data['topologies']) != {'Diamond', 'Gyroid'}:
-        raise ValueError('CO2 requires both supported topologies')
-    for model in data['topologies'].values():
-        theta = np.asarray(model['Nu']['parameters']['theta'], dtype=float)
-        if theta.shape != (5,) or not np.isfinite(theta).all():
-            raise ValueError('CO2 Nu requires five finite coefficients')
-    return data
+    return load_co2_coefficients(DATA_PATH)
 
 
 def _topology(tpms):

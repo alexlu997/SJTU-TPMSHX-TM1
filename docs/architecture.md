@@ -17,6 +17,14 @@ runtime; changing the requested algorithm starts a new computation.
 Outer property Anderson is retired. Fixed property relaxation, thermal Anderson
 and qualified flow acceleration keep their existing rules.
 
+Fixed coefficients, bounds and reference states come from
+[model_parameters_v1.json](../sjtu_tpmshx/shared/configs/model_parameters_v1.json).
+The `shared.configs.model_parameters` reader uses only the Python standard library.
+Python model modules and the native header generator use the same resource data.
+This first migration stage unifies data sources. It keeps the current calculations.
+Later stages must migrate geometry, design fields, preparation and postprocessing to C++.
+The six-stage migration remains incomplete. See [model resources](model-resources.en.md#当前资源与研究输出).
+
 The native full-compute CC route uses the existing air/water integral h(T)
 model through strict model-h drivers. Earlier variable-cp m*cp*T failures
 remain in the historical record. Fixed-coefficient Quick Design, standalone
@@ -855,7 +863,7 @@ Nu factor 1.28, including the Nu floor. These apply once, independently of
 CO2 keeps the HEOS physical relation and its single-phase checks.
 T-SOU evaluates checked HEOS PT states. Model reference inverses keep HEOS. Native execution evaluates CO2/sCO2 local h_v with the
 lagged temperature and local L/D_h/A_0 fields. Air/water retain their existing
-property-sampling rules. Native coefficients come from the shared generator.
+property-sampling rules. The shared generator reads resource data for native coefficients.
 The native fluid enum appends CO2 as value 3; existing values and POD layouts
 stay unchanged. CO2 execution requires a library built with this model.
 

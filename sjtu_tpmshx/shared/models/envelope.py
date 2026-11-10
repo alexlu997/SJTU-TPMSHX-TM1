@@ -18,8 +18,11 @@ import math
 import numpy as np
 from numpy.typing import ArrayLike
 
-R_AIR_DEFAULT = 287.05      # J/(kg K), dry air
-GAMMA_AIR = 1.4
+from sjtu_tpmshx.shared.configs.model_parameters import load_model_parameters
+
+_MODEL_PARAMETERS = load_model_parameters()
+R_AIR_DEFAULT = _MODEL_PARAMETERS['envelope']['r_air_default']
+GAMMA_AIR = _MODEL_PARAMETERS['envelope']['gamma_air']
 
 ENVELOPE_MODES = ('raise', 'warn', 'off')
 
@@ -27,7 +30,7 @@ ENVELOPE_MODES = ('raise', 'warn', 'off')
 # post-solve gate treats a converged field whose minimum absolute pressure sits
 # at this floor as off-envelope: the clip only engages when the compressible
 # solve could not hold a positive pressure on its own.
-PRESSURE_FLOOR_PA = 1.0e3
+PRESSURE_FLOOR_PA = _MODEL_PARAMETERS['envelope']['pressure_floor_pa']
 
 
 class ChokedFlowError(RuntimeError):
