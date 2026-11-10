@@ -72,9 +72,18 @@ jobs:
       - name: Fetch the locked build tool for the independent result core
         shell: bash
         run: '"$CI_PYTHON" engineering/scripts/build_native_dependencies.py fetch-cmake --component result'
-      - name: Build the independent result library offline
+      - name: Build and verify the independent result library offline
         shell: bash
-        run: '"$CI_PYTHON" engineering/scripts/build_native_dependencies.py build --component result'
+        run: '"$CI_PYTHON" engineering/scripts/build_native_dependencies.py publish --component result'
+      - name: Check result numerical contracts before the full native build
+        shell: bash
+        run: >-
+          "$CI_PYTHON" -m pytest -q
+          sjtu_tpmshx/development/tests/native/test_result_metrics.py
+          sjtu_tpmshx/development/tests/native/test_result_checks.py
+          sjtu_tpmshx/development/tests/test_native_result_balance.py
+          sjtu_tpmshx/development/tests/test_native_zone_statistics.py
+          sjtu_tpmshx/development/tests/test_native_result_loader.py
       - name: Fetch fixed native sources and build tool
         shell: bash
         run: '"$CI_PYTHON" engineering/scripts/build_native_dependencies.py fetch'

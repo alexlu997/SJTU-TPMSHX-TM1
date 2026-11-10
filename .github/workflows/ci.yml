@@ -240,6 +240,14 @@ jobs:
         run: '"$CI_PYTHON" engineering/scripts/build_native_dependencies.py fetch-cmake --component result'
       - name: Build, verify and publish the standard-only result image
         run: '"$CI_PYTHON" engineering/scripts/build_native_dependencies.py publish --component result --python-lock engineering/requirements/postprocess.txt'
+      - name: Check result numerical contracts before publication of the artifact
+        run: >-
+          "$CI_PYTHON" -m pytest -q
+          sjtu_tpmshx/development/tests/native/test_result_metrics.py
+          sjtu_tpmshx/development/tests/native/test_result_checks.py
+          sjtu_tpmshx/development/tests/test_native_result_balance.py
+          sjtu_tpmshx/development/tests/test_native_zone_statistics.py
+          sjtu_tpmshx/development/tests/test_native_result_loader.py
       - name: Include result distribution notices
         run: |
           "$CI_PYTHON" - <<'PY'
