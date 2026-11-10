@@ -6,7 +6,7 @@
 
 Current data is under `data/raw_data/cfd/sco2/{Diamond,Gyroid}/`. The shared reader is `shared/df_surrogate/load_sco2_cfd.py`. It keeps topology, layout, pressure/density, and raw-field guards.
 
-`fit_nu_sco2.py` keeps Nu variant fits and leave-one-geometry/pressure-out validation. It writes `.cache/reports/sco2_cfd/nu_sco2_fit_coeffs.csv` and `nu_sco2_logo.csv`. Research refits do not automatically update current coefficients in `shared/models/nu_correlations.py`.
+`fit_nu_sco2.py` keeps Nu variant fits and leave-one-geometry/pressure-out validation. It writes `.cache/reports/sco2_cfd/nu_sco2_fit_coeffs.csv` and `nu_sco2_logo.csv`. Research refits do not automatically update current coefficients in `shared/configs/model_parameters_v1.json`.
 
 Previous `compare_smooth_df.py`, `make_error_report.py`, and SmoothDF/sCO2 B/m models retired with the previous D-F route. The original README's 2026-07-15 coefficients, applicability, failure bands, and restart list stay in the [fixed historical version](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/a82fc0a0ce71fd47333594fa053799ac8b263150/sjtu_tpmshx/validation/sco2_cfd/README.md). Those are historical results, not new acceptance of the current production model.
 

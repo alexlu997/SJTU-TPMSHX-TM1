@@ -1,0 +1,179 @@
+{
+  "schema_version": "tm1_model_parameters_v1",
+  "constants": {
+    "gas_constant": 8.314,
+    "air_molar_mass": 0.028966,
+    "standard_pressure_pa": 101325.0,
+    "celsius_zero_K": 273.15,
+    "model_h_reference_K": 300.0
+  },
+  "air": {
+    "cp_coefficients": [
+      1004.5,
+      0.172,
+      -7.56e-05
+    ],
+    "sutherland": [
+      273.15,
+      1.716e-05,
+      110.4
+    ],
+    "conductivity": [
+      0.0241,
+      273.15,
+      0.82
+    ],
+    "temperature_range_K": [
+      200.0,
+      1100.0
+    ],
+    "cp_temperature_range_K": [
+      250.0,
+      1000.0
+    ]
+  },
+  "water": {
+    "cp": 4182.0,
+    "density": [
+      999.84,
+      0.05,
+      0.004
+    ],
+    "viscosity": [
+      2.414e-05,
+      10.0,
+      247.8,
+      140.0,
+      10.0
+    ],
+    "conductivity": [
+      0.569,
+      0.0018
+    ],
+    "temperature_range_K": [
+      273.15,
+      363.15
+    ]
+  },
+  "nu": {
+    "pr_air": 0.72,
+    "roughness_factor": 1.28,
+    "laminar_floor": 4.36,
+    "air_re_range": [
+      400.0,
+      16000.0
+    ],
+    "water_re_range": [
+      90.0,
+      51000.0
+    ],
+    "sco2_re_range": [
+      2600.0,
+      128000.0
+    ],
+    "air_coefficients": {
+      "Diamond": {
+        "c": 0.0944,
+        "a": 0.8273,
+        "d": 0.226
+      },
+      "Gyroid": {
+        "c": 0.126,
+        "a": 0.7898,
+        "d": 0.2409
+      }
+    },
+    "water_coefficients": {
+      "Diamond": {
+        "c": 0.3201,
+        "a": 0.6679
+      },
+      "Gyroid": {
+        "c": 0.3941,
+        "a": 0.6435
+      }
+    },
+    "sco2_coefficients": {
+      "Diamond": {
+        "c": 0.184809,
+        "a": 0.707421,
+        "d": -0.281792
+      },
+      "Gyroid": {
+        "c": 0.192994,
+        "a": 0.722221,
+        "d": -0.044313
+      }
+    }
+  },
+  "roughness": {
+    "petukhov": [
+      0.79,
+      1.64
+    ],
+    "haaland": [
+      1.8,
+      3.7,
+      1.11,
+      6.9
+    ],
+    "nu_gain_power": 0.68
+  },
+  "sco2": {
+    "temperature_range_K": [
+      280.0,
+      700.0
+    ],
+    "pressure_range_Pa": [
+      7900000.0,
+      16000000.0
+    ]
+  },
+  "envelope": {
+    "r_air_default": 287.05,
+    "gamma_air": 1.4,
+    "pressure_floor_pa": 1000.0
+  },
+  "design_nu_reference_states": {
+    "water": [
+      320.0,
+      200000.0
+    ],
+    "sco2": [
+      480.0,
+      9000000.0
+    ]
+  },
+  "geometry": {
+    "area_correction": 1.553,
+    "level_set_coefficients": {
+      "Diamond": [
+        4.804355187041238,
+        -2.0288570445530025
+      ],
+      "Gyroid": [
+        4.890319597988319,
+        -1.6151811942086873
+      ]
+    },
+    "solid_tortuosity": {
+      "Diamond": [
+        0.5446,
+        0.3765
+      ],
+      "Gyroid": [
+        0.563,
+        0.3292
+      ]
+    }
+  },
+  "co2_application": {
+    "version": "co2-fixed-factors-20261009-v1",
+    "pressure_multiplier": 2.5,
+    "nu_multiplier": 1.28
+  },
+  "native_controls": {
+    "inlet_pressure_relative_tolerance": 0.0001,
+    "model_h_relaxation": 0.2
+  }
+}

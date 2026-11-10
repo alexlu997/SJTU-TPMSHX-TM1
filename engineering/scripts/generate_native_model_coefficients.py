@@ -1,4 +1,4 @@
-"""Emit the current Python model's coefficients for native source builds.
+"""Emit shared model data for native source builds.
 
 Run from the repository root with the locked interpreter:
 python -m engineering.scripts.generate_native_model_coefficients --output PATH
@@ -9,13 +9,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from sjtu_tpmshx.shared.models import nu_correlations as nu, roughness
-from sjtu_tpmshx.shared.models import co2_correlations, sco2_props, tpms_props as props
-from sjtu_tpmshx.shared.models.design_fluids import DESIGN_NU_REFERENCE_STATES
-from sjtu_tpmshx.shared.models.envelope import GAMMA_AIR, PRESSURE_FLOOR_PA, R_AIR_DEFAULT
-# These fixed numerical controls belong to the native solver build.
-INLET_PRESSURE_REL_TOL = 1e-4
-MODEL_H_RELAXATION = 0.2
+from sjtu_tpmshx.shared.configs.model_parameters import (
+    load_co2_coefficients, load_model_parameters)
 
 
 def array(name, values):
@@ -32,52 +27,61 @@ def table(name, coefficients, columns):
 
 
 def header():
+    parameters = load_model_parameters()
+    constants, nu = parameters['constants'], parameters['nu']
+    roughness, air = parameters['roughness'], parameters['air']
+    water, sco2 = parameters['water'], parameters['sco2']
+    envelope, controls = parameters['envelope'], parameters['native_controls']
+    states, co2 = parameters['design_nu_reference_states'], load_co2_coefficients()
     lines = [
-        "// Generated from the authoritative Python models. Do not edit.",
+        "// Generated from shared model data resources. Do not edit.",
         "// Topology table rows: Diamond, Gyroid. Nu columns: c, a[, d].",
         "#pragma once", "#include <array>", "", "namespace tpmshx::model_coefficients {",
     ]
-    for name, value in (("gas_constant", props.R), ("air_molar_mass", props.M_air),
-                        ("pr_air", nu.Pr_AIR), ("nu_roughness_factor", nu.NU_ROUGHNESS_FACTOR),
-                        ("nu_laminar_floor", nu.NU_LAM_FLOOR),
-                        ("co2_nu_multiplier", co2_correlations.NU_MULTIPLIER),
-                        ("pressure_floor_pa", PRESSURE_FLOOR_PA),
-                        ("inlet_pressure_relative_tolerance", INLET_PRESSURE_REL_TOL),
-                        ("envelope_r_air", R_AIR_DEFAULT),
-                        ("envelope_gamma_air", GAMMA_AIR),
-                        ("roughness_nu_power", roughness._NU_GAIN_POWER),
-                        ("roughness_nu_baseline", nu.NU_ROUGHNESS_FACTOR),
-                        ("model_h_relaxation", MODEL_H_RELAXATION)):
+    for name, value in (("gas_constant", constants['gas_constant']),
+                        ("air_molar_mass", constants['air_molar_mass']),
+                        ("pr_air", nu['pr_air']), ("nu_roughness_factor", nu['roughness_factor']),
+                        ("nu_laminar_floor", nu['laminar_floor']),
+                        ("co2_nu_multiplier", parameters['co2_application']['nu_multiplier']),
+                        ("pressure_floor_pa", envelope['pressure_floor_pa']),
+                        ("inlet_pressure_relative_tolerance", controls['inlet_pressure_relative_tolerance']),
+                        ("envelope_r_air", envelope['r_air_default']),
+                        ("envelope_gamma_air", envelope['gamma_air']),
+                        ("roughness_nu_power", roughness['nu_gain_power']),
+                        ("roughness_nu_baseline", nu['roughness_factor']),
+                        ("model_h_relaxation", controls['model_h_relaxation'])):
         lines.append(f"inline constexpr double {name} = {float(value)!r};")
     vectors = {
-        "roughness_petukhov": roughness._PETUKHOV,
-        "roughness_haaland": roughness._HAALAND,
-        "air_sutherland": props._AIR_SUTHERLAND,  # T0, mu0, S
-        "air_conductivity": props._AIR_CONDUCTIVITY,  # k0, T0, exponent
-        "model_h_air": props.model_h_coefficients("air"),  # cp0,cp1,cp2,Torigin,Tref
-        "model_h_water": props.model_h_coefficients("water"),
-        "water_density": props._WATER_DENSITY,  # a - b*T_C - c*T_C**2
-        "water_viscosity": props._WATER_VISCOSITY,  # mu0,base,exponent,shift,floor
-        "water_conductivity": props._WATER_CONDUCTIVITY,  # a + b*T_C
-        "air_temperature_range": props._AIR_T_RANGE,
-        "air_cp_temperature_range": props._AIR_CP_RANGE,
-        "water_temperature_range": props._WATER_T_RANGE,
-        "sco2_temperature_range": sco2_props.T_RANGE_K,
-        "sco2_pressure_range": sco2_props.P_RANGE_PA,
-        "air_nu_re_range": nu.NU_RE_FIT_RANGE,
-        "water_nu_re_range": nu.WATER_NU_RE_RANGE,
-        "sco2_nu_re_range": nu.SCO2_NU_RE_RANGE,
-        "co2_nu_re_range": co2_correlations.RE_RANGE,
-        "co2_nu_pr_range": co2_correlations.coefficients()["bounds"]["Pr"],
-        "water_nu_reference_state": DESIGN_NU_REFERENCE_STATES["water"],  # K, Pa(abs)
-        "sco2_nu_reference_state": DESIGN_NU_REFERENCE_STATES["sco2"],
+        "roughness_petukhov": roughness['petukhov'],
+        "roughness_haaland": roughness['haaland'],
+        "air_sutherland": air['sutherland'],  # T0, mu0, S
+        "air_conductivity": air['conductivity'],  # k0, T0, exponent
+        "model_h_air": (*air['cp_coefficients'], constants['celsius_zero_K'],
+                        constants['model_h_reference_K']),
+        "model_h_water": (water['cp'], 0., 0., constants['celsius_zero_K'],
+                          constants['model_h_reference_K']),
+        "water_density": water['density'],  # a - b*T_C - c*T_C**2
+        "water_viscosity": water['viscosity'],  # mu0,base,exponent,shift,floor
+        "water_conductivity": water['conductivity'],  # a + b*T_C
+        "air_temperature_range": air['temperature_range_K'],
+        "air_cp_temperature_range": air['cp_temperature_range_K'],
+        "water_temperature_range": water['temperature_range_K'],
+        "sco2_temperature_range": sco2['temperature_range_K'],
+        "sco2_pressure_range": sco2['pressure_range_Pa'],
+        "air_nu_re_range": nu['air_re_range'],
+        "water_nu_re_range": nu['water_re_range'],
+        "sco2_nu_re_range": nu['sco2_re_range'],
+        "co2_nu_re_range": co2['bounds']['Re'],
+        "co2_nu_pr_range": co2['bounds']['Pr'],
+        "water_nu_reference_state": states['water'],  # K, Pa(abs)
+        "sco2_nu_reference_state": states['sco2'],
     }
     lines.extend(array(name, values) for name, values in vectors.items())
-    lines.extend((table("nu_air", nu.NU_COEFFS, ("c", "a", "d")),
-                  table("nu_water", nu.WATER_NU_COEFFS, ("c", "a")),
-                  table("nu_sco2", nu.SCO2_NU_COEFFS, ("c", "a", "d"))))
+    lines.extend((table("nu_air", nu['air_coefficients'], ("c", "a", "d")),
+                  table("nu_water", nu['water_coefficients'], ("c", "a")),
+                  table("nu_sco2", nu['sco2_coefficients'], ("c", "a", "d"))))
     co2 = {topology: dict(enumerate(model['Nu']['parameters']['theta']))
-           for topology, model in co2_correlations.coefficients()['topologies'].items()}
+           for topology, model in co2['topologies'].items()}
     lines.append(table('nu_co2', co2, range(5)))
     lines.append("}  // namespace tpmshx::model_coefficients\n")
     return "\n".join(lines)

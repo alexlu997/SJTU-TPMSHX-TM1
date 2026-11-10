@@ -28,7 +28,10 @@ though the band spans 2*C in phi-units.
 import numpy as np
 from functools import lru_cache
 
+from sjtu_tpmshx.shared.configs.model_parameters import load_model_parameters
 from sjtu_tpmshx.shared.logutil import get_logger
+
+_MODEL_PARAMETERS = load_model_parameters()
 
 _log = get_logger(__name__)
 
@@ -54,7 +57,7 @@ _PHI_FUNCS = {
 }
 
 # Voxel faces overestimate smooth area. This factor uses the existing calibration.
-_AREA_CORRECTION = 1.553
+_AREA_CORRECTION = _MODEL_PARAMETERS['geometry']['area_correction']
 
 
 # ── Pre-computed phi grid (cached per TPMS type + resolution) ────
@@ -137,10 +140,8 @@ def _find_C_for_eps(phi: np.ndarray, target_eps: float) -> float:
 # Pre-computed calibration coefficients for C(t/L) = a*(t/L) + b*(t/L)^2.
 # Calibrated against 12 CAD data points per TPMS type (N=256 grid).
 # Max calibration error < 0.5%.
-_C_COEFFS = {
-    'Diamond': (4.804355187041238, -2.0288570445530025),
-    'Gyroid':  (4.890319597988319, -1.6151811942086873),
-}
+_C_COEFFS = {topology: tuple(values)
+             for topology, values in _MODEL_PARAMETERS['geometry']['level_set_coefficients'].items()}
 
 
 def _C_from_tL(tpms_type: str, t_over_L: float | np.ndarray):

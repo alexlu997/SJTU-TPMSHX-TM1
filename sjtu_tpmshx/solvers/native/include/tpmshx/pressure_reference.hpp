@@ -67,7 +67,7 @@ public:
     using std::runtime_error::runtime_error;
 };
 
-// Defaults are sourced from the generated authoritative Python constants.
+// Defaults come from the generated shared model data constants.
 // Optional Ma is the actual local-field maximum, exactly as in Python.
 EnvelopeAssessment assess_solution_validity(
     double minimum_Pa, double vmax, double reference_temperature_K,

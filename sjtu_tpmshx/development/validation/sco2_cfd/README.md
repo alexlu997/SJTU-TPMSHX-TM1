@@ -7,7 +7,7 @@
 
 `fit_nu_sco2.py` 保留 Nu 各变体拟合、几何/压力留一验证及
 `.cache/reports/sco2_cfd/nu_sco2_fit_coeffs.csv`、`nu_sco2_logo.csv` 输出。
-研究重拟合不自动更新 `shared/models/nu_correlations.py` 的现行系数。
+研究重拟合不自动更新 `shared/configs/model_parameters_v1.json` 的现行系数。
 
 旧 `compare_smooth_df.py`、`make_error_report.py`、SmoothDF/sCO2 B/m 模型
 随旧 D-F 路线退役。原 README 中的 2026-07-15 系数、适用域、失效带和重启

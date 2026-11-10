@@ -239,6 +239,18 @@ TPMSHX_REQUIRE_CPP_TESTS=1 TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1 \
 
 依赖组件构建为显式步骤，与生产后端选择分开。`sjtu_tpmshx/solvers/native/dependency-pilot/` 是当前原生后端使用的构建项目。输入锁定在 [sjtu_tpmshx/solvers/native/dependencies-lock.toml](../sjtu_tpmshx/solvers/native/dependencies-lock.toml)：CoolProp 8.0.0 及九个固定提交的 CPM 头文件依赖、SuperLU 7.0.1 及选定的三项 SciPy 1.18.1 double-LU 修正、AMGCL 1.5.0 和可移植 CMake 4.4.4。SuperLU 源码不等同于 SciPy 内附修订。源码、二进制、日志和 EOS 表都保存在本工作树 `.cache/native-deps`。[第三方说明](../sjtu_tpmshx/solvers/native/THIRD_PARTY_NOTICES.md)记录链接组件和原始许可声明。
 
+`engineering/scripts/generate_native_model_coefficients.py` 读取共享
+`model_parameters_v1.json` 资源与既有 CO2 资源。
+资源读取器仅使用 Python 标准库，生成器不导入数值模型实现。
+构建在所选缓存的 `generated/` 目录下生成 `tpmshx/model_coefficients.hpp`，默认目录为 `.cache/native-deps/generated/`。
+C++ 使用生成的常量，运行时不解析 JSON，也不调用 Python。
+第一批迁移只统一数据来源，其他计算仍待后续迁移，详见[模型资源](model-resources.md#当前资源与研究输出)。
+
+Python wheel 包含 JSON 资源，不包含原生库；原生求解库仍须单独显式构建。
+系数未变不表示旧检查点能使用新构建的求解库。
+恢复必须使用精确匹配的已保留运行库、已保存准备态输入和控制量。
+构建替代库时，保留每个已保存运行所需的匹配库。
+
 获得原生依赖准备的明确授权后，使用配置解释器和既有锁检查。`fetch` 是完整依赖的联网步骤；`fetch-eigen` 仅获取无 EOS 热库所需的固定 Eigen 5.0.1 头文件。`build` 离线运行，不安装 Python 包或改变共享环境。CoolProp 构建使用显式本地 CPM 路径并关闭 FetchContent 联网，不获取可选测试或包装模块：
 
 ```sh

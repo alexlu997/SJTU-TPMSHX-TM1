@@ -37,10 +37,23 @@ water = load_water('Diamond', source=water_workbook)
 
 ## 当前资源与研究输出
 
-正式系数由 `sjtu_tpmshx/shared/models/nu_correlations.py`、
-`sjtu_tpmshx/shared/configs/sco2_effective_nu.json`、
-`sjtu_tpmshx/shared/df_surrogate/experimental_correction.py` 和
+固定系数、范围和参考态的权威来源是
+[model_parameters_v1.json](../sjtu_tpmshx/shared/configs/model_parameters_v1.json)。
+仅依赖 Python 标准库的
+[model_parameters.py](../sjtu_tpmshx/shared/configs/model_parameters.py) 读取并校验该资源。
+Python 模型模块从同一数据构造常量，保留现有名称及 tuple/dict 类型。
+C++ 头文件生成器直接读取资源，不再导入数值模型。
+第一批只统一数据来源，保留当前计算实现；几何、设计场、前处理和后处理计算仍待后续迁移。
+六批迁移尚未完成。
+
+[co2_segment2_v1.json](../sjtu_tpmshx/shared/configs/co2_segment2_v1.json)
+继续提供 CO2 分段 Nu 和几何数据；
+[sco2_effective_nu.json](../sjtu_tpmshx/shared/configs/sco2_effective_nu.json)
+继续提供现行 sCO2 有效 Nu 参数。
+固定 D-F 表仍由
 `sjtu_tpmshx/shared/df_surrogate/_prebuilt/cfd_full_core_3cell_fixed_v2.csv` 提供。
+这三个资源各自保持权威，新资源不重复其中的数据。
+实验阻力修正仍由 `sjtu_tpmshx/shared/df_surrogate/experimental_correction.py` 管理。
 该 CSV 是运行时输入；测试读取的 MMS 阶数/边界 CSV 也是有效验证资源，继续保留。
 
 离线复核工具保留在 `development/validation/`，生成的拟合 CSV 默认写入本地

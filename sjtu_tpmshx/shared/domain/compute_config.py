@@ -79,13 +79,15 @@ from math import isfinite
 from pathlib import Path
 from typing import Any, Dict, Literal, Optional, Tuple, Union
 
+from sjtu_tpmshx.shared.configs.model_parameters import load_model_parameters
+
 
 FluidType = Literal['air', 'water', 'sco2', 'co2']
 DFMode = Literal['cfd_smooth', 'experimental']
 TPMSType = Literal['Diamond', 'Gyroid']
 ZoneAxis = Literal['x', 'y', 'grid', 'continuous']
 
-SCO2_P_RANGE_PA = (7.9e6, 16.0e6)
+SCO2_P_RANGE_PA = tuple(load_model_parameters()['sco2']['pressure_range_Pa'])
 
 
 def validate_enthalpy_algorithm(algorithm, temperature_tolerance):

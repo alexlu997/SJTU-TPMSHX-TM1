@@ -21,29 +21,32 @@ import numpy as np
 
 from .tpms_geometry import compute_geometry as _tpms_geom
 from .tpms_geometry import compute_geometry_fields as _tpms_geom_fields
+from sjtu_tpmshx.shared.configs.model_parameters import load_model_parameters
 from sjtu_tpmshx.shared.domain.run_warnings import record_range
 
+_MODEL_PARAMETERS = load_model_parameters()
+
 # ── Physical constants ────────────────────────────────────────
-R     = 8.314      # Universal gas constant [J/(mol·K)]
-M_air = 0.028966   # Molar mass of dry air [kg/mol]
-P_atm = 101325.0   # Standard atmospheric pressure [Pa] (for Re reference density)
+R = _MODEL_PARAMETERS['constants']['gas_constant']
+M_air = _MODEL_PARAMETERS['constants']['air_molar_mass']
+P_atm = _MODEL_PARAMETERS['constants']['standard_pressure_pa']
 
 
 # ── Air property correlations ─────────────────────────────────
 
 # Validity ranges for the fitted correlations (per docstrings below).
-_AIR_T_RANGE    = (200.0, 1100.0)   # Sutherland + kappa fits
-_AIR_CP_RANGE   = (250.0, 1000.0)   # polynomial cp fit
-_WATER_T_RANGE  = (273.15, 363.15)  # 0 - 90 °C polynomial water fits
-_AIR_CP_COEFFICIENTS = (1004.5, 0.172, -7.56e-5)
-_WATER_CP = 4182.0
-_CELSIUS_ZERO = 273.15
-_MODEL_H_REFERENCE = 300.0
-_AIR_SUTHERLAND = (_CELSIUS_ZERO, 1.716e-5, 110.4)  # T0, mu0, S
-_AIR_CONDUCTIVITY = (0.0241, _CELSIUS_ZERO, 0.82)  # k0, T0, exponent
-_WATER_DENSITY = (999.84, 0.05, 0.004)  # a - b*T_C - c*T_C**2
-_WATER_VISCOSITY = (2.414e-5, 10.0, 247.8, 140.0, 10.0)  # mu0, base, exponent, shift, floor
-_WATER_CONDUCTIVITY = (0.569, 0.0018)  # a + b*T_C
+_AIR_T_RANGE = tuple(_MODEL_PARAMETERS['air']['temperature_range_K'])
+_AIR_CP_RANGE = tuple(_MODEL_PARAMETERS['air']['cp_temperature_range_K'])
+_WATER_T_RANGE = tuple(_MODEL_PARAMETERS['water']['temperature_range_K'])
+_AIR_CP_COEFFICIENTS = tuple(_MODEL_PARAMETERS['air']['cp_coefficients'])
+_WATER_CP = _MODEL_PARAMETERS['water']['cp']
+_CELSIUS_ZERO = _MODEL_PARAMETERS['constants']['celsius_zero_K']
+_MODEL_H_REFERENCE = _MODEL_PARAMETERS['constants']['model_h_reference_K']
+_AIR_SUTHERLAND = tuple(_MODEL_PARAMETERS['air']['sutherland'])
+_AIR_CONDUCTIVITY = tuple(_MODEL_PARAMETERS['air']['conductivity'])
+_WATER_DENSITY = tuple(_MODEL_PARAMETERS['water']['density'])
+_WATER_VISCOSITY = tuple(_MODEL_PARAMETERS['water']['viscosity'])
+_WATER_CONDUCTIVITY = tuple(_MODEL_PARAMETERS['water']['conductivity'])
 
 
 def model_h_coefficients(fluid):
@@ -197,10 +200,8 @@ def water_cp(T_K):
 #
 # Env var TPMSHX_CHI_S (a constant) still overrides everything — legacy
 # escape hatch; the historical default was the uncalibrated 1.0.
-_CHI_S_FIT = {
-    'Diamond': (0.5446, 0.3765),
-    'Gyroid':  (0.5630, 0.3292),
-}
+_CHI_S_FIT = {topology: tuple(values)
+              for topology, values in _MODEL_PARAMETERS['geometry']['solid_tortuosity'].items()}
 
 
 def chi_s_eff(tpms_type: str, eps):

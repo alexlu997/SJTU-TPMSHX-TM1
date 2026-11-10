@@ -12,9 +12,10 @@ from math import sqrt
 
 import numpy as np
 
+from sjtu_tpmshx.shared.configs.model_parameters import load_model_parameters
 from sjtu_tpmshx.shared.domain.run_warnings import record_warning
 
-R_AIR = 287.05
+R_AIR = load_model_parameters()['envelope']['r_air_default']
 
 # One-shot warnings when the 1D pressure approximation has no positive outlet
 # pressure solution, with separate records for each return policy.

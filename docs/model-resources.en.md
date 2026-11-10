@@ -31,7 +31,26 @@ Ordinary full preparation uses the fixed CFD resource. Tests prohibit workbook r
 
 ## Current resources and research outputs
 
-Production coefficients come from `sjtu_tpmshx/shared/models/nu_correlations.py`, `sjtu_tpmshx/shared/configs/sco2_effective_nu.json`, `sjtu_tpmshx/shared/df_surrogate/experimental_correction.py`, and `sjtu_tpmshx/shared/df_surrogate/_prebuilt/cfd_full_core_3cell_fixed_v2.csv`. The CSV is a runtime input. MMS order/boundary CSV files consumed by tests stay valid verification resources.
+The authoritative source for fixed coefficients, bounds and reference states is
+[model_parameters_v1.json](../sjtu_tpmshx/shared/configs/model_parameters_v1.json).
+The [model_parameters.py](../sjtu_tpmshx/shared/configs/model_parameters.py) reader
+uses only the Python standard library. It reads and validates the resource.
+Python model modules construct constants from the same data.
+They keep the existing names and tuple/dict types.
+The C++ header generator reads resources directly, without importing numerical models.
+This first stage unifies data sources. It keeps the current calculations.
+Later stages must migrate geometry, design fields, preparation and postprocessing calculations.
+The six-stage migration remains incomplete.
+
+[co2_segment2_v1.json](../sjtu_tpmshx/shared/configs/co2_segment2_v1.json)
+remains the source for CO2 segment Nu and geometry data.
+[sco2_effective_nu.json](../sjtu_tpmshx/shared/configs/sco2_effective_nu.json)
+remains the source for current sCO2 effective Nu parameters.
+The fixed D-F table remains in
+`sjtu_tpmshx/shared/df_surrogate/_prebuilt/cfd_full_core_3cell_fixed_v2.csv`.
+Each resource keeps its authority. The new resource does not repeat data from these three resources.
+Experimental resistance corrections remain in `sjtu_tpmshx/shared/df_surrogate/experimental_correction.py`.
+The CSV is a runtime input. MMS order/boundary CSV files consumed by tests stay valid verification resources.
 
 Offline review tools stay in `development/validation/`. Generated fit CSV files default to local `.cache/reports/df_refit/` and `.cache/reports/sco2_cfd/`. Investigation scripts, stage plans, and research results belong in ignored `.cache/`. Current instructions, model provenance, physical constraints, and effective tests stay tracked with code. The [history index](history/README.en.md#2026-09-18-历史材料整理) keeps earlier stage reports, task graphs, and fitted tables. Tree cleanup does not erase Git history or automatically adopt research candidates.
 
