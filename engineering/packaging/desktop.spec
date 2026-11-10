@@ -34,6 +34,17 @@ expected_name = {
 if not library.is_file() or library.name != expected_name:
     raise ValueError(f'Expected the prebuilt {expected_name} for this desktop target: {library}')
 binaries = [(str(library), 'native')]
+geometry_input = os.environ.get('TPMSHX_NATIVE_GEOMETRY_LIBRARY')
+if not geometry_input or not geometry_input.strip():
+    raise ValueError('TPMSHX_NATIVE_GEOMETRY_LIBRARY must name a prebuilt geometry library')
+geometry_library = Path(geometry_input).expanduser().resolve(strict=True)
+geometry_name = {
+    'darwin': 'libtpmshx_geometry_shared.dylib',
+    'win32': 'tpmshx_geometry_shared.dll',
+}[sys.platform]
+if not geometry_library.is_file() or geometry_library.name != geometry_name:
+    raise ValueError(f'Expected the prebuilt {geometry_name} for this desktop target: {geometry_library}')
+binaries.append((str(geometry_library), 'native'))
 data += [
     (str(root / 'sjtu_tpmshx' / 'solvers' / 'native' / 'THIRD_PARTY_NOTICES.md'), 'licenses/native'),
     (str(root / 'sjtu_tpmshx' / 'solvers' / 'native' / 'dependencies-lock.toml'), 'licenses/native'),

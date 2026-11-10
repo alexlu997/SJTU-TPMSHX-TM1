@@ -9,6 +9,8 @@ import warnings
 
 import numpy as np
 
+from . import _native_geometry
+
 from sjtu_tpmshx.shared.configs.model_parameters import (
     load_co2_coefficients, load_model_parameters)
 
@@ -59,62 +61,19 @@ def nusselt(tpms, Re, Pr, L_mm, Dh_mm):
     return float(result) if result.ndim == 0 else result
 
 
-@lru_cache(maxsize=2)
-def _geometry_table(tpms):
-    nodes = _topology(tpms)['geometry_nodes']
-    ls = sorted({n['L_mm'] for n in nodes})
-    ts = sorted({n['t_mm'] for n in nodes})
-    lookup = {(n['L_mm'], n['t_mm']): n for n in nodes}
-    if (len(nodes) != len(lookup) or len(lookup) != len(ls)*len(ts)
-            or ls != [4., 5., 6., 7., 8.] or ts != [.3, .4, .5, .6]):
-        raise ValueError('CO2 geometry requires a complete, unique 5 by 4 grid')
-    table = np.empty((len(ls), len(ts), 3))
-    for i, length in enumerate(ls):
-        for j, wall in enumerate(ts):
-            node = lookup[length, wall]
-            cell = length * 1e-3
-            table[i, j] = (node['epsilon_single'], node['Dh_m']/cell,
-                           node['A0_single_per_m']*cell)
-    if (not np.isfinite(table).all() or (table <= 0).any()
-            or (table[:, :, 0] >= .5).any()):
-        raise ValueError('CO2 geometry contains invalid porosity, diameter or area')
-    table.setflags(write=False)
-    return ls, ts, table
-
-
-def _bracket(value, nodes):
-    value = float(value)
-    if not np.isfinite(value) or value < nodes[0]-1e-12 or value > nodes[-1]+1e-12:
-        raise ValueError('CO2 geometry requires 4 <= L <= 8 mm and 0.3 <= t <= 0.6 mm; no extrapolation')
-    value = min(max(value, nodes[0]), nodes[-1])
-    upper = int(np.searchsorted(nodes, value))
-    if upper == 0 or abs(value-nodes[upper]) < 1e-12:
-        return upper, upper, 0.
-    return upper-1, upper, (value-nodes[upper-1])/(nodes[upper]-nodes[upper-1])
-
-
 def geometry(tpms, L_mm, t_mm, k_s=1.):
-    """Interpolate dimensionless CFD geometry, then scale at the requested L."""
-    from .tpms_props import chi_s_eff
-    ls, ts, table = _geometry_table(tpms)
-    i0, i1, wl = _bracket(L_mm, ls)
-    j0, j1, wt = _bracket(t_mm, ts)
-    e, dh, area = ((1-wt)*((1-wl)*table[i0, j0]+wl*table[i1, j0])
-                   + wt*((1-wl)*table[i0, j1]+wl*table[i1, j1]))
-    cell = float(L_mm)*1e-3
-    return dict(epsilon=2*e, epsilon_A=e, epsilon_B=e, D_h=dh*cell,
-                A_0=area/cell, K_ss=chi_s_eff(tpms, 2*e)*(1-2*e)*k_s)
+    """Return the native dimensionless-table geometry at the requested L."""
+    from .tpms_props import _resolve_chi_s
+    fields = _native_geometry.co2_fields(tpms, L_mm, t_mm, k_s, chi_s=_resolve_chi_s())
+    return {key: fields[key][()]
+            for key in ('epsilon', 'epsilon_A', 'epsilon_B', 'D_h', 'A_0', 'K_ss')}
 
 
 def minimum_solid_geometry(tpms, L_bounds, t_bounds):
-    """Find the largest porosity over the bounded bilinear table."""
-    ls, ts, _ = _geometry_table(tpms)
-    lengths = sorted({*L_bounds, *(v for v in ls if L_bounds[0] < v < L_bounds[1])})
-    walls = sorted({*t_bounds, *(v for v in ts if t_bounds[0] < v < t_bounds[1])})
-    # Each bilinear cell attains its extrema at a corner, including clipped cells.
-    return max((dict(L_mm=float(length), t_mm=float(wall),
-                     epsilon=geometry(tpms, length, wall)['epsilon'])
-                for length in lengths for wall in walls), key=lambda row: row['epsilon'])
+    """Find the native bounded minimum with the current material override."""
+    from .tpms_props import _resolve_chi_s
+    result = _native_geometry.co2_minimum(tpms, L_bounds, t_bounds, chi_s=_resolve_chi_s())
+    return dict(L_mm=float(result['L_mm']), t_mm=float(result['t_mm']), epsilon=result['epsilon'])
 
 
 def uses_co2(config):

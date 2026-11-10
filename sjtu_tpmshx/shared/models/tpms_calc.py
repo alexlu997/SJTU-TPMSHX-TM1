@@ -252,7 +252,7 @@ def _compute_cached(tpms_type: str,
         # ── Nusselt number and heat transfer coefficient ──────────
         # Single-stream convention (post-refit 2026-04-26): pass ε_A (per-stream
         # void fraction; sheet HX splits ε equally between two fluid channels).
-        eps_A = 0.5 * eps
+        eps_A = g['epsilon_A']
         # The registry applies the existing 1.28 roughness factor only to air.
         # Water/sCO2 use their own smooth-wall correlations and supplied Pr.
         Pr_f = mu * cp_f / k_f
@@ -265,7 +265,7 @@ def _compute_cached(tpms_type: str,
         # convention, see df_surrogate/predict.py). Import is module-level since
         # arch-b-c-e batch B (tpms_props leaf broke the old two-way coupling).
         K_df, cF_df = predict_K_cF(
-            tpms_type, float(L_cell_mm), float(t_mm), float(eps) / 2.0,
+            tpms_type, float(L_cell_mm), float(t_mm), float(eps_A),
             method=SCO2_DF_METHOD,
         )
         if fluid_type == 'co2':
@@ -324,8 +324,12 @@ def compute(tpms_type: str,
     result, records = _compute_cached(tpms_type, L_cell_mm, t_mm, u, T_in_K,
                                      P_in_Pa, fluid_type, sco2_nu, co2_geometry)
     result = dict(result)
+    from . import _native_geometry
+    from .tpms_props import _resolve_chi_s
     eps = result['epsilon']
-    result['K_ss'] = chi_s_eff(tpms_type, eps) * (1.0 - eps) * k_s
+    material = _native_geometry.material_fields(tpms_type, eps, k_s, chi_s=_resolve_chi_s())
+    value = material['K_ss'][()]
+    result['K_ss'] = value if isinstance(eps, np.generic) or isinstance(k_s, np.generic) else float(value)
     merge_warnings(current_warnings(), [records], bind_context=True)
     return result
 

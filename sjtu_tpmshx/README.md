@@ -23,6 +23,14 @@ compute -> preprocess.api.prepare_case -> CaseData -> solvers.api.run_case -> Fi
 当前正式计算支持矩形二维与长方体三维。公开输入和文件交接见[示例](../examples/three_module/)与[数据契约](../docs/contracts/three_module_v1/README.zh-CN.md)。
 近似模式和扩展状态见[能力范围](../docs/capabilities.md)。
 
+标准、CO2、非对称几何与 chi/Kss 的数值所有者位于
+[native/src/geometry.cpp](solvers/native/src/geometry.cpp) 和
+[native/src/asym_geometry.cpp](solvers/native/src/asym_geometry.cpp)。
+[shared/models/_native_geometry.py](shared/models/_native_geometry.py) 通过 ctypes 延迟加载独立几何 ABI 1 库，
+保留 Python 公共入口、类型和缓存，不导入求解器后端。
+Sigmoid LUT 节点和派生几何已使用该核心；设计场插值／网格、物性／DF／完整前处理和结果计算仍待后续迁移。
+六批迁移尚未完成。独立构建、两库交付和研究入口见[原生几何说明](../docs/cpp-migration.zh-CN.md#native-geometry-core)。
+
 <a id="三模块主线"></a>
 <a id="支撑模块与应用入口"></a>
 

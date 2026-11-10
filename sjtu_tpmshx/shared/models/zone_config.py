@@ -26,7 +26,7 @@ Usage:
 import numpy as np
 from dataclasses import dataclass, field
 from typing import List
-from . import tpms_calc
+from . import tpms_calc, _native_geometry
 
 from sjtu_tpmshx.shared.logutil import get_logger
 
@@ -41,7 +41,7 @@ def _geometry_fields(zone_id, cells, tpms_type, k_s):
         for key, prop in (('eps_arr', 'epsilon'), ('eps_f_arr', 'epsilon_A'),
                           ('K_ss_arr', 'K_ss'), ('A_0_arr', 'A_0'))
     }
-    fields['r_h_arr'] = np.asarray([item['D_h'] / 2. for item in values])[zone_id]
+    fields['r_h_arr'] = _native_geometry.hydraulic_radius([item['D_h'] for item in values])[zone_id]
     for index, key in enumerate(('L_field', 't_field')):
         fields[key] = np.asarray([pair[index] for pair in cells], dtype=np.float64)[zone_id]
     return {'zone_id': zone_id, **fields}
@@ -148,7 +148,8 @@ class ZoneConfig:
         arrays['zone_params'] = [
             dict(name=z.name, y_frac_start=z.y_frac_start, y_frac_end=z.y_frac_end,
                  L_mm=z.L_mm, t_mm=z.t_mm, epsilon=z.props_A['epsilon'],
-                 D_h=z.props_A['D_h'], r_h=z.props_A['D_h'] / 2., A_0=z.props_A['A_0'],
+                 D_h=z.props_A['D_h'], r_h=_native_geometry.hydraulic_radius(z.props_A['D_h'])[()],
+                 A_0=z.props_A['A_0'],
                  mu=z.props_A['mu'], rho=z.props_A['rho'])
             for z in self.zones]
         from .grid_schema import validate_grid_arrays

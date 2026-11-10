@@ -26,7 +26,8 @@ def test_prepared_geometry_and_roughness_are_consumed(monkeypatch, mode):
     parameters, prepared = build_execution_inputs(case)
     def forbidden(*args, **kwargs):
         raise AssertionError('execution queried fixed geometry or receiver roughness')
-    from sjtu_tpmshx.shared.models import tpms_props, tpms_geometry
+    from sjtu_tpmshx.shared.models import tpms_props, tpms_geometry, _native_geometry
+    monkeypatch.setattr(_native_geometry, '_call', forbidden)
     monkeypatch.setattr(tpms_props, 'geometry', forbidden)
     monkeypatch.setattr(tpms_geometry, '_phi_grid', forbidden)
     from sjtu_tpmshx.shared.df_surrogate import experimental_correction

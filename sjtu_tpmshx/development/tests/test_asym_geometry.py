@@ -1,15 +1,15 @@
-"""Phase 0 — 非对称孔隙率 offset-band 几何核 TDD。
-
-只读复用 tpms_geometry；不碰生产路径。δ=0 必须退化回现状（见 Task 2 锚）。
-"""
+"""Native offset geometry and retained research checks use frozen references."""
 from unittest.mock import patch
 
 import numpy as np
 import pytest
 
 from sjtu_tpmshx.shared.models.asym_geometry import (
-    eps_sides, a0_sides, a0_sides_mc, a0_sides_richardson, dh_from_sides, dh_sides,
-    percolates_z, wall_thickness, wall_thickness_from_sides, find_delta_max,
+    eps_sides, a0_sides, a0_sides_mc, dh_from_sides, dh_sides,
+    wall_thickness, wall_thickness_from_sides,
+)
+from sjtu_tpmshx.development.runs.tools.asym_geometry_research import (
+    a0_sides_richardson, percolates_z, find_delta_max,
 )
 from sjtu_tpmshx.shared.models.tpms_geometry import _phi_grid, compute_geometry, _C_from_tL
 
@@ -46,15 +46,14 @@ def test_diameter_keeps_voxel_and_mc_results(mc, expected):
         Dh_A=.005370517851367538, Dh_B=.0018103312639176534)),
 ])
 def test_target_scan_reuses_area_and_keeps_results(monkeypatch, topology, targets, expected):
-    from skimage import measure
     from sjtu_tpmshx.development.runs.diagnostics import asym_target_scan
 
     # Values were recorded at 179a6a9b before area reuse.
     # Quantiles lie between distinct field values to avoid platform-dependent ties.
     monkeypatch.setattr(asym_target_scan, 'N', 32)
-    with patch.object(measure, 'marching_cubes', wraps=measure.marching_cubes) as triangulate:
+    with patch.object(asym_target_scan, 'a0_sides_mc', wraps=a0_sides_mc) as areas:
         result = asym_target_scan.solve_target(_phi_grid(topology, 32), *targets, .005)
-    assert triangulate.call_count == 2
+    assert areas.call_count == 1
     assert set(result) == set(expected) | {'pA', 'pB'}
     assert result['pA'] is result['pB'] is True
     assert {key: result[key] for key in expected} == pytest.approx(expected)

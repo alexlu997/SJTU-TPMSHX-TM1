@@ -107,7 +107,7 @@ jobs:
             "${coverage[@]}" --bo-report .cache/ci-shards/bo --integration-report .cache/ci-shards/integration
 
   bo-tests:
-    needs: scope
+    needs: [scope, native]
     if: needs.scope.outputs.tier != 'docs'
     strategy:
       fail-fast: false
@@ -164,6 +164,30 @@ jobs:
       - name: Check dependency compatibility
         shell: bash
         run: '"$CI_PYTHON" -m pip check'
+      - uses: actions/download-artifact@v8
+        with:
+          name: native-build-${{ matrix.os }}
+          path: .cache/ci-native-build
+      - name: Restore the verified geometry library for BO preparation
+        shell: bash
+        run: |
+          "$CI_PYTHON" - <<'PY'
+          import os
+          from pathlib import Path
+          import shutil
+          import tarfile
+          host = 'windows-x64' if os.name == 'nt' else 'macos-arm64'
+          name = 'tpmshx_geometry_shared.dll' if os.name == 'nt' else 'libtpmshx_geometry_shared.dylib'
+          member = 'pilot-' + host + '/' + name
+          with tarfile.open('.cache/ci-native-build/native-binaries.tar') as archive:
+              archive.extract(archive.getmember(member), '.cache/native-deps/build', filter='data')
+          source = Path('.cache/native-deps/build') / member
+          target = Path('sjtu_tpmshx/solvers/native/lib') / host / name
+          target.parent.mkdir(parents=True, exist_ok=True)
+          shutil.copy2(source, target)
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as output:
+              output.write(f'TPMSHX_GEOMETRY_LIBRARY={target.resolve().as_posix()}\n')
+          PY
       - name: Require real BO imports
         shell: bash
         run: |

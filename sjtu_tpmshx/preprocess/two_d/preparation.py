@@ -4,7 +4,7 @@ from typing import Any
 import numpy as np
 from sjtu_tpmshx.shared.domain.compute_config import ComputeConfig, bc_to_dict
 from sjtu_tpmshx.shared.models.tpms_props import geometry as tpms_geometry, geometry_fields
-from sjtu_tpmshx.shared.models import co2_correlations
+from sjtu_tpmshx.shared.models import co2_correlations, _native_geometry
 from sjtu_tpmshx.shared.models.input_validation import validate_domain_dims, surrogate_extrap_reasons
 from sjtu_tpmshx.shared.logutil import get_logger
 
@@ -65,12 +65,15 @@ def _build_zone_arrays(compute_cfg, N_x, N_y, *, dx_arr=None, dy_arr=None, geome
                 eps, solid, radius = (np.empty((N_x, N_y)) for _ in range(3))
                 for index in np.ndindex(eps.shape):
                     local = geometry_model(tpms_type, float(lfield[index]), float(tfield[index]), k_s)
-                    eps[index], solid[index], radius[index] = local['epsilon'], local['K_ss'], local['D_h'] / 2.
+                    eps[index], solid[index], radius[index] = (
+                        local['epsilon'], local['K_ss'], _native_geometry.hydraulic_radius(local['D_h'])[()])
             else:
                 local = geometry_fields(tpms_type, lfield, tfield, k_s)
-                eps, solid, radius = local['epsilon'], local['K_ss'], local['D_h'] / 2.
+                eps, solid, radius = (
+                    local['epsilon'], local['K_ss'], _native_geometry.hydraulic_radius(local['D_h']))
             za = dict(axis='continuous', L_field=lfield, t_field=tfield,
-                      eps_arr=eps, eps_f_arr=eps / 2., K_ss_arr=solid, r_h_arr=radius)
+                      eps_arr=eps, eps_f_arr=_native_geometry.split_fields(eps, .5)['epsilon_A'],
+                      K_ss_arr=solid, r_h_arr=radius)
             if not geometry_only:
                 _complete_spline_properties(compute_cfg, za)
             zone_config = 'continuous'
@@ -204,7 +207,7 @@ def _parse_geometry_inputs_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
     geometry_model = co2_correlations.geometry if co2_correlations.uses_co2(compute_cfg) else tpms_geometry
     g = geometry_model(tpms_type, Lcell, t_wall, k_s)
     eps = g['epsilon']
-    r_h = g['D_h'] / 2.0
+    r_h = _native_geometry.hydraulic_radius(g['D_h'])[()]
 
     z_axis = compute_cfg.zones.axis if compute_cfg.zones.enabled else 'y'
 
@@ -268,7 +271,7 @@ def _complete_grid(cfg, physical_grid, *, spline_geometry=None):
         else:
             za = spline_geometry
             _complete_spline_properties(cfg['compute_cfg'], za)
-        za['eps_f_arr'] = np.asarray(za['eps_arr'], dtype=np.float64) / 2.0
+        za['eps_f_arr'] = _native_geometry.split_fields(za['eps_arr'], .5)['epsilon_A']
         cfg['zone_config'], cfg['za'] = zone_config, za
 
     cfg['flow_inputs'] = _prepare_flow_inputs(cfg, energy_dx, energy_dy)

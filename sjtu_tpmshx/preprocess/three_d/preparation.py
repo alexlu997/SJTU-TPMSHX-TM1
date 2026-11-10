@@ -179,7 +179,8 @@ def _prepare_geometry_data(cfg):
     if cfg.get('wall_refine_3d', False) is not False:
         raise ValueError('wall_refine_3d is retired. Select port_wall_refine with total grid counts.')
     from sjtu_tpmshx.shared.models import fluid_props
-    from sjtu_tpmshx.shared.models.tpms_props import chi_s_eff
+    from sjtu_tpmshx.shared.models import _native_geometry
+    from sjtu_tpmshx.shared.models.tpms_props import _resolve_chi_s
     from sjtu_tpmshx.shared.models.asym_split import _eps_sides_for_run
     from sjtu_tpmshx.shared.df_surrogate.predict import predict_K_cF_vec, SCO2_DF_METHOD
 
@@ -278,9 +279,10 @@ def _prepare_geometry_data(cfg):
     from sjtu_tpmshx.shared.models.roughness import resolve_mode_from_env
     mode, eps_um = resolve_mode_from_env(default='norris_1a')
     cfg['roughness_resolved'] = {'mode': mode, 'eps_m': eps_um * 1e-6}
+    symmetric = _native_geometry.split_fields(eps, .5)['epsilon_A']
     permeability, forchheimer = predict_K_cF_vec(
-        cfg['tpms_type'], lfield, tfield, eps / 2., method=SCO2_DF_METHOD)
-    eps_A, eps_B = _eps_sides_for_run(cfg, cfg['tpms_type'], cfg['Lcell'], cfg['t_wall'], eps, eps / 2.)
+        cfg['tpms_type'], lfield, tfield, symmetric, method=SCO2_DF_METHOD)
+    eps_A, eps_B = _eps_sides_for_run(cfg, cfg['tpms_type'], cfg['Lcell'], cfg['t_wall'], eps, symmetric)
     axes, openings, properties = {}, {}, {}
     for side in ('A', 'B'):
         port = cfg.get('fluid_' + side + '_cfg')
@@ -300,7 +302,9 @@ def _prepare_geometry_data(cfg):
                 design=dict(L_field_m=lfield * 1e-3, t_field_m=tfield * 1e-3,
                             eps_arr=eps, eps_A=eps_A, eps_B=eps_B,
                             K_m2=permeability, cF_per_m=forchheimer,
-                            K_ss=chi_s_eff(cfg['tpms_type'], eps) * (1-eps) * cfg['k_s']))
+                            K_ss=_native_geometry.material_fields(
+                                cfg['tpms_type'], eps, cfg['k_s'],
+                                chi_s=_resolve_chi_s())['K_ss']))
 
 
 def _prepare_df_application(cfg, axes, permeability, forchheimer):

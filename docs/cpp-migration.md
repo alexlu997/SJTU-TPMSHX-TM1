@@ -37,6 +37,67 @@ Former Python/C++ comparisons remain evidence of their recorded builds in
 [version 0.1](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/v0.1.0/docs/cpp-migration.md).
 They are not rerun with a retained Python solver in 0.2.
 
+## Native geometry core
+
+The second migration stage puts standard, CO2 and asymmetric geometry, plus chi/Kss, in C++.
+Sigmoid LUT nodes and derived geometry also use this core.
+The numerical sources remain under `sjtu_tpmshx/solvers/native/`.
+`shared/models/_native_geometry.py` uses ctypes to load the independent geometry ABI 1 library on demand.
+Python keeps public types, caches and per-call explicit/environment/fit selection for chi.
+Missing libraries, incorrect ABI or missing symbols fail explicitly. There is no numerical fallback or runtime build.
+
+The independent CMake project is `sjtu_tpmshx/solvers/native/geometry/`.
+Its `tpmshx_geometry_shared` target uses the C++ standard library and the vendored marching-cubes implementation.
+It needs no CoolProp, SuperLU, AMGCL, Eigen or solver runtime.
+The full dependency pilot includes the same target.
+Grid/design-field interpolation, properties, DF, full preparation and result mathematics remain in later stages.
+The six-stage migration is incomplete; this section does not report new CI or complete batch acceptance.
+
+Use `libtpmshx_geometry_shared.dylib` on macOS arm64 or `tpmshx_geometry_shared.dll` on Windows x64.
+The source default is `sjtu_tpmshx/solvers/native/lib/<host>/`; frozen programs use their `native/` directory.
+Set `TPMSHX_GEOMETRY_LIBRARY` to an absolute prebuilt file to select another geometry library.
+Historical result reading and independent postprocessing do not load it.
+Changing C++ functions or compiled model parameters requires a rebuild and process restart.
+The shared JSON resources remain authoritative. Percolation, scans, Richardson and target-C research now use
+`sjtu_tpmshx/development/runs/tools/asym_geometry_research.py`; shared modules keep no forwarding aliases.
+
+For geometry alone, `fetch-cmake` fetches only the locked build tool.
+`build`, `verify` and `publish --component geometry` still check the configured Python interpreter and selected environment lock.
+Use the base lock below only with a base environment. Select the matching BO lock for a BO interpreter.
+
+```sh
+tm1_python="$(sed -n '1p' .venv-path)"
+tm1_lock=engineering/requirements/base.txt
+"$tm1_python" engineering/scripts/build_native_dependencies.py fetch-cmake
+"$tm1_python" engineering/scripts/build_native_dependencies.py publish --component geometry --python-lock "$tm1_lock"
+```
+
+On Windows PowerShell:
+
+```powershell
+$tm1Python = Get-Content .venv-path -TotalCount 1
+$tm1Lock = 'engineering/requirements/base.txt'
+& $tm1Python engineering/scripts/build_native_dependencies.py fetch-cmake
+& $tm1Python engineering/scripts/build_native_dependencies.py publish --component geometry --python-lock $tm1Lock
+```
+
+`publish` includes build and verification.
+For separate steps, use `build --component geometry` and `verify --component geometry`. Keep the same lock and cache.
+Standalone output uses `.cache/native-deps/build/geometry-<host>` by default.
+Verification runs the static/shared C callers and geometry kernel smoke.
+Geometry-only publication writes `geometry-build.json` without touching solver or run_state.
+It keeps an older differing geometry library and its matching record under `previous/`.
+Default full publication builds and verifies both libraries before replacement.
+It keeps `build.json` for the solver and `geometry-build.json` for geometry.
+A replacement failure restores selected files and metadata. A failed rollback retains its staging files and reports the recovery path.
+Old solver checkpoints still require their exact retained runtime, prepared input and controls.
+
+The application and full CI tiers retain the complete native pilot build and existing solver coverage.
+Their artifacts explicitly include geometry. Native and BO consumers restore that same-platform library.
+No gate, lock or supported-platform declaration is reduced or expanded by this build split.
+The Python wheel includes code and model resources, without native libraries.
+Desktop packaging requires both prebuilt inputs; see [desktop delivery](desktop.en.md#可选冻结打包).
+
 ## Complete Quick Design capability
 
 `quick_design_driver.hpp` owns the complete prepared const/mean property-pass
@@ -574,7 +635,8 @@ engineering cases keep the original F2, convergence and energy gates.
 ## Isolated EOS and pressure dependency qualification
 
 Native dependencies require an explicit build, separate from production backend
-selection. `sjtu_tpmshx/solvers/native/dependency-pilot/` is the build project for the current native backends.
+selection. `sjtu_tpmshx/solvers/native/dependency-pilot/` is the full-solver build project and includes geometry.
+The [independent geometry build](#native-geometry-core) needs only the locked CMake tool and generated model data.
 Its inputs are locked in
 [`sjtu_tpmshx/solvers/native/dependencies-lock.toml`](../sjtu_tpmshx/solvers/native/dependencies-lock.toml).
 These include CoolProp 8.0.0, its nine required CPM header dependencies at fixed
@@ -592,7 +654,8 @@ The generator does not import numerical model implementations.
 The build writes `tpmshx/model_coefficients.hpp` under the selected cache's `generated/` directory.
 The default directory is `.cache/native-deps/generated/`.
 C++ uses the generated constants without runtime JSON parsing or Python calls.
-This first migration stage unifies data sources; later stages must migrate the remaining calculations.
+The first stage unified data sources. The second adds the independent geometry core described above.
+Design-field/grid, property/DF/preparation and result migrations remain incomplete.
 See [model resources](model-resources.en.md#当前资源与研究输出).
 
 The Python wheel includes the JSON resources. It does not include native libraries.

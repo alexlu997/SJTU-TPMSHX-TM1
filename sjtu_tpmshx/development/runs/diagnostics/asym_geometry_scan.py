@@ -12,8 +12,8 @@ import numpy as np
 from sjtu_tpmshx.shared.models.tpms_geometry import _phi_grid, _C_from_tL, compute_geometry
 from sjtu_tpmshx.shared.models.asym_geometry import (
     eps_sides, a0_sides, dh_from_sides, wall_thickness_from_sides,
-    percolates_z, find_delta_max,
 )
+from sjtu_tpmshx.development.runs.tools.asym_geometry_research import percolates_z, find_delta_max
 
 N = 128
 CASES = [

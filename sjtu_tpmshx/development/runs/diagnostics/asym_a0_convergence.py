@@ -13,9 +13,12 @@ A0 网格收敛诊断（非对称孔隙率，极端 δ）。
 """
 import sys
 
-from sjtu_tpmshx.shared.models.tpms_geometry import _phi_grid, _find_C_for_eps
+from sjtu_tpmshx.shared.models.tpms_geometry import _phi_grid
 from sjtu_tpmshx.shared.models.asym_geometry import (
-    eps_sides, a0_sides, a0_sides_mc, a0_sides_richardson, find_delta_max,
+    eps_sides, a0_sides, a0_sides_mc,
+)
+from sjtu_tpmshx.development.runs.tools.asym_geometry_research import (
+    _find_C_for_eps, a0_sides_richardson, find_delta_max,
 )
 
 TP = "Diamond"

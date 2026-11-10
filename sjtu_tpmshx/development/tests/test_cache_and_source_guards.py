@@ -39,7 +39,8 @@ def test_chi_s_env_is_read_per_call(monkeypatch):
     """TPMSHX_CHI_S used to be read at import time only — setting it after
     the first import (monkeypatch.setenv included) was silently ignored
     (audit §5d). chi_s_eff must honor the CURRENT environment."""
-    from sjtu_tpmshx.shared.models.tpms_props import chi_s_eff, _CHI_S_FIT
+    from sjtu_tpmshx.shared.models.tpms_props import chi_s_eff
+    from sjtu_tpmshx.development.tests.geometry_reference import _CHI_S_FIT
     monkeypatch.delenv('TPMSHX_CHI_S', raising=False)
     c0, c1 = _CHI_S_FIT['Diamond']
     fit_val = chi_s_eff('Diamond', 0.6)
@@ -53,7 +54,7 @@ def test_chi_s_env_is_read_per_call(monkeypatch):
 def test_compute_cache_hits_use_current_chi_s(monkeypatch):
     from sjtu_tpmshx.shared.models import tpms_calc
     monkeypatch.setattr(tpms_calc, '_tpms_geom', lambda *args: {
-        'epsilon': .7, 'A_0': 1000., 'D_h': .002})
+        'epsilon': .7, 'epsilon_A': .35, 'epsilon_B': .35, 'A_0': 1000., 'D_h': .002})
     monkeypatch.delenv('TPMSHX_CHI_S', raising=False)
     args = ('Gyroid', 6., .4, 10., 300., 200000., 16.)
     tpms_calc.compute.cache_clear()

@@ -100,13 +100,35 @@ jobs:
           import tarfile
           host = 'windows-x64' if os.name == 'nt' else 'macos-arm64'
           build = Path('.cache/native-deps/build') / ('pilot-' + host)
-          files = [path for path in build.iterdir() if path.is_file() and (
-              path.suffix in {'.dll', '.dylib', '.exe'} or
-              (not path.suffix and os.access(path, os.X_OK)))]
           prefix, suffix = ('', '.dll') if os.name == 'nt' else ('lib', '.dylib')
-          required = {prefix + name + suffix for name in ('tpmshx_solver_shared', 'tpmshx_model_h_shared')}
-          required.add('eos_smoke.exe' if os.name == 'nt' else 'eos_smoke')
-          assert required <= {path.name for path in files}, 'Missing native runtime files'
+          libraries = (
+              'tpmshx_solver_shared', 'tpmshx_geometry_shared', 'tpmshx_model_h_shared',
+              'tpmshx_enthalpy_shared', 'tpmshx_temperature_shared', 'tpmshx_full_2d_shared',
+              'tpmshx_simple_2d_shared', 'tpmshx_simple_3d_shared', 'model_h_2d_test',
+              'model_h_3d_test', 'model_h_2d_history_test', 'model_h_3d_history_test',
+              'temperature_staggered_test', 'full_3d_test',
+              'refinement_2d_test', 'full_2d_test', 'enthalpy_driver_test',
+              'quick_design_test', 'simple_2d_test', 'simple_3d_test',
+          )
+          callers = (
+              'geometry_c_static', 'geometry_c_shared', 'geometry_kernel_smoke',
+              'eos_smoke', 'fluid_properties_smoke', 'pressure_smoke', 'temperature_driver_smoke',
+              'quick_design_c_static', 'quick_design_c_shared', 'quick_design_driver_smoke',
+              'enthalpy_c_static', 'enthalpy_c_shared', 'enthalpy_driver_smoke',
+              'conservative_energy_smoke', 'conservative_energy_driver_smoke',
+              'simple_2d_smoke', 'simple_3d_smoke', 'simple_run_smoke',
+              'simple_2d_c_static', 'simple_2d_c_shared', 'simple_3d_c_static', 'simple_3d_c_shared',
+              'model_h_2d_smoke', 'model_h_3d_smoke', 'model_h_chunk_smoke', 'model_h_run_smoke',
+              'model_h_c_static', 'model_h_c_shared', 'temperature_c_static', 'temperature_c_shared',
+              'temperature_staggered_smoke', 'temperature_run_smoke',
+              'full_2d_c_static', 'full_2d_c_shared', 'full_3d_c_static', 'full_3d_c_shared',
+              'side_physics_smoke', 'superlu_error_smoke',
+          )
+          executable_suffix = '.exe' if os.name == 'nt' else ''
+          files = [build / (prefix + name + suffix) for name in libraries]
+          files += [build / (name + executable_suffix) for name in callers]
+          missing = [str(path) for path in files if not path.is_file()]
+          assert not missing, f'Missing native runtime files: {missing}'
           archive = Path('.cache/ci-native-build/native-binaries.tar')
           archive.parent.mkdir(parents=True, exist_ok=True)
           with tarfile.open(archive, 'w') as output:
@@ -214,10 +236,12 @@ jobs:
           with tarfile.open('.cache/ci-native-build/native-binaries.tar') as archive:
               archive.extractall('.cache/native-deps/build', filter='data')
           host = 'windows-x64' if os.name == 'nt' else 'macos-arm64'
-          name = 'tpmshx_solver_shared.dll' if os.name == 'nt' else 'libtpmshx_solver_shared.dylib'
           target = Path('sjtu_tpmshx/solvers/native/lib') / host
           target.mkdir(parents=True, exist_ok=True)
-          shutil.copy2(Path('.cache/native-deps/build') / ('pilot-' + host) / name, target / name)
+          prefix, suffix = ('', '.dll') if os.name == 'nt' else ('lib', '.dylib')
+          for component in ('solver', 'geometry'):
+              name = prefix + 'tpmshx_' + component + '_shared' + suffix
+              shutil.copy2(Path('.cache/native-deps/build') / ('pilot-' + host) / name, target / name)
           PY
       - name: Fetch locked Eigen headers for fixture-built libraries
         shell: bash
@@ -233,6 +257,7 @@ jobs:
           build = Path('.cache/native-deps/build') / ('pilot-' + host)
           libraries = {
               'TPMSHX_NATIVE_SOLVER_LIBRARY': build / (prefix + 'tpmshx_solver_shared' + suffix),
+              'TPMSHX_GEOMETRY_LIBRARY': build / (prefix + 'tpmshx_geometry_shared' + suffix),
               'TPMSHX_MODEL_H_PUBLIC_LIBRARY': build / (prefix + 'tpmshx_model_h_shared' + suffix),
           }
           for name, path in libraries.items():
@@ -346,10 +371,12 @@ jobs:
           with tarfile.open('.cache/ci-native-build/native-binaries.tar') as archive:
               archive.extractall('.cache/native-deps/build', filter='data')
           host = 'windows-x64' if os.name == 'nt' else 'macos-arm64'
-          name = 'tpmshx_solver_shared.dll' if os.name == 'nt' else 'libtpmshx_solver_shared.dylib'
           target = Path('sjtu_tpmshx/solvers/native/lib') / host
           target.mkdir(parents=True, exist_ok=True)
-          shutil.copy2(Path('.cache/native-deps/build') / ('pilot-' + host) / name, target / name)
+          prefix, suffix = ('', '.dll') if os.name == 'nt' else ('lib', '.dylib')
+          for component in ('solver', 'geometry'):
+              name = prefix + 'tpmshx_' + component + '_shared' + suffix
+              shutil.copy2(Path('.cache/native-deps/build') / ('pilot-' + host) / name, target / name)
           PY
       - name: Require explicit native libraries for thermal evidence tests
         shell: bash
@@ -362,6 +389,7 @@ jobs:
           build = Path('.cache/native-deps/build') / ('pilot-' + host)
           libraries = {
               'TPMSHX_NATIVE_SOLVER_LIBRARY': build / (prefix + 'tpmshx_solver_shared' + suffix),
+              'TPMSHX_GEOMETRY_LIBRARY': build / (prefix + 'tpmshx_geometry_shared' + suffix),
               'TPMSHX_MODEL_H_PUBLIC_LIBRARY': build / (prefix + 'tpmshx_model_h_shared' + suffix),
           }
           for name, path in libraries.items():

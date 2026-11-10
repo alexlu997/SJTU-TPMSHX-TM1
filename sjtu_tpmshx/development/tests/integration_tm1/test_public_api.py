@@ -10,6 +10,7 @@ import pytest
 from sjtu_tpmshx.applications.result_adapter import to_compute_result
 from sjtu_tpmshx.shared.domain.module_ports import RunControl
 from sjtu_tpmshx.shared.io.result_io import load_result, save_result
+from sjtu_tpmshx.shared.io.case_io import load_case, save_case
 from sjtu_tpmshx.postprocess.api import evaluate
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.api import run_case
@@ -97,15 +98,20 @@ def test_real_application_mapping_and_offline_readback(monkeypatch, tmp_path, di
             return result
     monkeypatch.setattr(result_capture, '_capture_result' if dimension == 2 else 'capture_result', checked_capture)
     case = prepare_case(config, case_id=f'application-{dimension}d')
+    save_case(case, tmp_path / 'case.h5')
+    case = load_case(tmp_path / 'case.h5')
     # The prepared boundary owns fixed geometry, including the air bulk
     # closure. Temperature-dependent fluid/Nu evaluation remains permitted.
-    from sjtu_tpmshx.shared.models import tpms_props, tpms_calc, tpms_geometry
+    from sjtu_tpmshx.shared.models import tpms_props, tpms_calc, tpms_geometry, _native_geometry
     def forbidden_geometry(*args, **kwargs):
         raise AssertionError('execution rebuilt prepared thermal geometry')
     with monkeypatch.context() as geometry_guard:
+        geometry_guard.setattr(_native_geometry, '_call', forbidden_geometry)
         geometry_guard.setattr(tpms_props, 'geometry', forbidden_geometry)
         geometry_guard.setattr(tpms_calc, 'geometry', forbidden_geometry)
         geometry_guard.setattr(tpms_geometry, '_phi_grid', forbidden_geometry)
+        for name in ('phi_grid', 'standard_scalar', 'standard_fields', 'raw_fields', 'co2_fields', 'prepare_sides'):
+            geometry_guard.setattr(_native_geometry, name, forbidden_geometry)
         result = run_case(case, RunControl())
     performance = evaluate(result)
     actual = to_compute_result(result, performance)

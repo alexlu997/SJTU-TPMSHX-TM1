@@ -13,7 +13,8 @@ import os
 import numpy as np
 from scipy.interpolate import RegularGridInterpolator
 
-from .tpms_geometry import _phi_grid, _C_from_tL, _eps_from_C, _A0_from_C
+from . import _native_geometry
+from .tpms_props import _resolve_chi_s
 from .tpms_calc import (air_density, air_viscosity, air_conductivity)
 from sjtu_tpmshx.shared.df_surrogate._domain import TRAIN_L, TRAIN_T
 
@@ -121,8 +122,7 @@ class GeometryLUT:
                 'sjtu-tpmshx', 'geometry')
         os.makedirs(cache_dir, exist_ok=True)
         # N (voxel resolution) MUST be in the cache key + load-validation: the
-        # eps_table / A0_table are computed at resolution N (_phi_grid(...,N),
-        # _A0_from_C(...,N)), so a different N produces a different table. The
+        # Native geometry uses N, so a different N produces a different table. The
         # old key omitted N → requesting N≠cached silently loaded the stale-
         # resolution geometry (audit 2026-06-28). Latent while N is the default
         # 256 everywhere, but a real silent-wrong-geometry bug if N varies.
@@ -143,22 +143,10 @@ class GeometryLUT:
 
     def _precompute(self):
         """Compute epsilon and A_0 over the full (L, t) grid."""
-        n_L = len(self.L_vals)
-        n_t = len(self.t_vals)
-        self.eps_table = np.empty((n_L, n_t))
-        self.A0_table = np.empty((n_L, n_t))
-
-        phi = _phi_grid(self.tpms_type, self.N)
-
-        for i, L_mm in enumerate(self.L_vals):
-            L_m = L_mm / 1000.0
-            for j, t_mm in enumerate(self.t_vals):
-                tL = t_mm / L_mm
-                C = _C_from_tL(self.tpms_type, tL)
-                if C < 0:
-                    C = 0.0
-                self.eps_table[i, j] = _eps_from_C(phi, C)
-                self.A0_table[i, j] = _A0_from_C(phi, C, L_m, self.N)
+        cells, walls = np.meshgrid(self.L_vals, self.t_vals, indexing='ij')
+        fields = _native_geometry.raw_fields(self.tpms_type, cells, walls, N=self.N)
+        self.eps_table = fields['epsilon']
+        self.A0_table = fields['A_0']
 
     def _save(self):
         np.savez_compressed(self._cache_path,
@@ -333,16 +321,15 @@ def _geometry_from_fields(L_field, t_field, tpms_type, k_s, lut, *, allow_extrap
 
     # 4. Query LUT for epsilon and A_0
     eps_arr, A0_arr = lut.query(L_field, t_field)
-    D_h_arr = 2.0 * eps_arr / (A0_arr + 1e-30)  # [m]
-
-    from .tpms_calc import chi_s_eff
+    fields = _native_geometry.lut_fields(
+        tpms_type, eps_arr, A0_arr, k_s, chi_s=_resolve_chi_s())
     return {
         'zone_id': np.zeros(L_field.shape, dtype=np.int32),
-        'eps_arr': eps_arr,
-        'eps_f_arr': eps_arr / 2.0,
-        'K_ss_arr': chi_s_eff(tpms_type, eps_arr) * (1.0 - eps_arr) * k_s,
-        'r_h_arr': D_h_arr / 2.0,
-        'A_0_arr': A0_arr,
+        'eps_arr': fields['epsilon'],
+        'eps_f_arr': fields['epsilon_A'],
+        'K_ss_arr': fields['K_ss'],
+        'r_h_arr': fields['r_h'],
+        'A_0_arr': fields['A_0'],
         'L_field': L_field,
         't_field': t_field,
         'axis': axis,
