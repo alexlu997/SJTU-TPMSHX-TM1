@@ -21,7 +21,9 @@ g::Scalar product_scalar(g::Scalar left,g::Scalar right) {
 }
 double sum(const std::vector<double>& values,g::Scalar kind) {
     if (kind.strong!=2 && (kind.precision==16 || kind.precision==32)) {
-        std::vector<float> narrow(values.begin(),values.end());
+        std::vector<float> narrow(values.size());
+        std::transform(values.begin(),values.end(),narrow.begin(),
+            [](double value) { return static_cast<float>(value); });
         const float total=0.f+detail::contiguous_sum<float>({narrow.data(),narrow.size()});
         return p::round_scalar(total,kind.precision);
     }

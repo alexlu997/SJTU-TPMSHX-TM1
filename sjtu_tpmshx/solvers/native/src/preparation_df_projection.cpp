@@ -18,7 +18,9 @@ double sum(const std::vector<double>& values, std::uint32_t bits, bool contiguou
         for (double value : values) result += value;
         return result;
     }
-    std::vector<float> packed(values.begin(), values.end());
+    std::vector<float> packed(values.size());
+    std::transform(values.begin(), values.end(), packed.begin(),
+        [](double value) { return static_cast<float>(value); });
     float result = 0.;
     if (contiguous) result += detail::contiguous_sum<float>({packed.data(), packed.size()});
     else if (bits == 16) {

@@ -63,6 +63,7 @@ def check_surrogate_domain_at_point(tpms_type: str,
         allow_extrap = True
 
     from sjtu_tpmshx.shared.models.fluid_props import get as _get_fluid
+    from sjtu_tpmshx.shared.models._native_properties import reynolds, prandtl
     from sjtu_tpmshx.shared.models.nu_correlations import (
         NU_RE_FIT_RANGE, SCO2_NU_RE_RANGE, WATER_NU_RE_RANGE,
     )
@@ -72,7 +73,7 @@ def check_surrogate_domain_at_point(tpms_type: str,
     from sjtu_tpmshx.shared.models import co2_correlations
     geometry = co2_correlations.geometry if co2_geometry or fluid == 'co2' else _geom
     D_h = geometry(tpms_type, L_mm, t_mm, k_s)['D_h']
-    Re = rho * u * D_h / mu
+    Re = reynolds(rho, u, D_h, mu)
 
     nu_at_point: list[str] = []
     re_range = {'air': NU_RE_FIT_RANGE, 'water': WATER_NU_RE_RANGE,
@@ -88,7 +89,7 @@ def check_surrogate_domain_at_point(tpms_type: str,
             f"(u={u} m/s, T={T} K, P={P:.0f} Pa, L={L_mm}mm, t={t_mm}mm)."
         )
     if fluid == 'co2':
-        pr = float(model.cp(T, P)) * mu / float(model.k(T, P))
+        pr = prandtl(mu, float(model.cp(T, P)), float(model.k(T, P)))
         lo, hi = co2_correlations.coefficients()['bounds']['Pr']
         with range_context(side=side, stage='inlet-preflight', layout='scalar'):
             record_range(('nu_pr', model.name, tpms_type), pr, (lo, hi),
