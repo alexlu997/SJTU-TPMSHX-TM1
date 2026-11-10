@@ -25,6 +25,8 @@ def test_macos_source_launcher_without_retired_cache(tmp_path, monkeypatch):
     library = project / 'sjtu_tpmshx/solvers/native/lib/macos-arm64/libtpmshx_solver_shared.dylib'
     library.parent.mkdir(parents=True)
     library.touch()
+    for component in ('geometry', 'preparation', 'result'):
+        library.with_name(f'libtpmshx_{component}_shared.dylib').touch()
     monkeypatch.delenv('NUMBA_CACHE_DIR', raising=False)
 
     run = subprocess.run(['/bin/zsh', str(launcher)], cwd=tmp_path,
@@ -146,11 +148,11 @@ def desktop_spec_prefix(monkeypatch):
 @pytest.fixture(params=['darwin', 'win32'])
 def desktop_prebuilt(request, tmp_path, monkeypatch):
     names = {
-        'darwin': ('libtpmshx_solver_shared.dylib', 'libtpmshx_geometry_shared.dylib', 'libtpmshx_preparation_shared.dylib'),
-        'win32': ('tpmshx_solver_shared.dll', 'tpmshx_geometry_shared.dll', 'tpmshx_preparation_shared.dll'),
+        'darwin': ('libtpmshx_solver_shared.dylib', 'libtpmshx_geometry_shared.dylib', 'libtpmshx_preparation_shared.dylib', 'libtpmshx_result_shared.dylib'),
+        'win32': ('tpmshx_solver_shared.dll', 'tpmshx_geometry_shared.dll', 'tpmshx_preparation_shared.dll', 'tpmshx_result_shared.dll'),
     }[request.param]
     libraries = {}
-    for component, name in zip(('SOLVER', 'GEOMETRY', 'PREPARATION'), names):
+    for component, name in zip(('SOLVER', 'GEOMETRY', 'PREPARATION', 'RESULT'), names):
         path = tmp_path / name
         path.write_bytes(b'prebuilt library placeholder')
         variable = 'TPMSHX_NATIVE_' + component + '_LIBRARY'
@@ -159,13 +161,13 @@ def desktop_prebuilt(request, tmp_path, monkeypatch):
     return request.param, libraries
 
 
-def test_bundle_requires_and_collects_three_prebuilt_libraries(desktop_spec_prefix, desktop_prebuilt):
+def test_bundle_requires_and_collects_four_prebuilt_libraries(desktop_spec_prefix, desktop_prebuilt):
     root, evaluate = desktop_spec_prefix
     platform, libraries = desktop_prebuilt
     namespace = evaluate(platform)
     assert set(namespace['binaries']) == {(str(path.resolve()), 'native') for path in libraries.values()}
     assert (str(root / 'sjtu_tpmshx/solvers/native/licenses'), 'licenses/native/licenses') in namespace['data']
-    for record in ('preparation/sources.md', 'geometry/README.md', 'geometry/fields-sources.md'):
+    for record in ('preparation/sources.md', 'geometry/README.md', 'geometry/fields-sources.md', 'result/sources.md'):
         source = root / 'sjtu_tpmshx/solvers/native' / record
         target = 'licenses/native/' + Path(record).parent.as_posix()
         assert source.is_file()
@@ -173,7 +175,7 @@ def test_bundle_requires_and_collects_three_prebuilt_libraries(desktop_spec_pref
     assert 'sjtu_tpmshx.development' in namespace['excluded']
 
 
-@pytest.mark.parametrize('component', ['SOLVER', 'GEOMETRY', 'PREPARATION'])
+@pytest.mark.parametrize('component', ['SOLVER', 'GEOMETRY', 'PREPARATION', 'RESULT'])
 @pytest.mark.parametrize('fault', ['unset', 'empty', 'wrong_name', 'missing_file', 'directory'])
 def test_bundle_rejects_invalid_prebuilt_input(desktop_spec_prefix, desktop_prebuilt,
                                               monkeypatch, tmp_path, component, fault):

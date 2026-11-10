@@ -26,14 +26,16 @@ GUI、CLI、设计与恢复实现位于 `applications/`；测试、验证和诊�
 第三批将网格、端口、六方向轴映射、连续 XY/XYZ 场、sigmoid、线性 LUT、分区和 Gaussian 平滑接入同一几何库。
 Python 保留配置、数据对象、文件读写、缓存、GUI 和 BO 编排。
 第四批将物性、闭合、固定 DF／实验修正、投影、固定流量和设计准备数值接入独立 preparation ABI 1 库。
-前处理需要匹配的几何库和准备库；完整计算还需要求解库。完整发布命令部署三个库。
-第五批独立结果核心与后处理数值迁移仍待完成，六批目标尚未完成。
+前处理需要匹配的几何库和准备库；完整计算还需要求解库与结果库。完整发布命令部署四个库。
+第五批已接入独立结果核心，负责指标、物理平衡、分区统计和数值资格检查；数值与平台验收仍在进行。
+第六批消费者／退役终审尚未完成，六批目标尚未完成。
 本批验收须包含受支持平台 CI 和最终检查；既有求解器 CI 不替代它们。
 构建、运行库与研究入口见[原生几何说明](docs/cpp-migration.zh-CN.md#native-geometry-core)。
 
 0.2 仅使用 C++ 数值后端，保留 Python/Qt 界面、CLI、前后处理、优化和快速设计。
 完整 2D/3D 计算及快速设计仍通过相同的准备态和结果接口运行。
-本轮维护平台为 macOS arm64 与 Windows x64；Linux 服务器部署暂不开展。
+完整计算和桌面维护平台仍为 macOS arm64 与 Windows x64。
+Linux x86_64 仅支持独立结果评估，不提供完整求解器或桌面部署。
 
 [v0.1.0](https://github.com/alexlu997/SJTU-TPMSHX-TM1/releases/tag/v0.1.0) 是首个 GitHub 源码发布版本，保留 Python 与 C++ 双后端。
 0.1 发布包保留两套求解器源码。0.2 删除 Python 数值迭代器及其专用研究入口，
@@ -118,7 +120,7 @@ CO₂ 插值表按 CoolProp 版本隔离。Python 默认写入 `XDG_CACHE_HOME/c
 
 仓库自带 [air_2d.json](examples/three_module/air_2d.json) 和
 [air_3d.json](examples/three_module/air_3d.json)，使用随源码提供的模型资源，
-不需要私有 `data/` 或 `.git`。首次运行前先构建本机 C++ 几何库、准备库与求解库：使用 macOS C++
+不需要私有 `data/` 或 `.git`。首次运行前先构建本机 C++ 几何库、准备库、求解库与结果库：使用 macOS C++
 工具链，或 Windows x64 的 MSVC 开发者终端。构建和物性表首次生成的耗时与求解耗时分开。
 
 macOS：
@@ -206,7 +208,7 @@ macOS 尚未验收。继续复用 `.venv-path` 指定的现有锁定环境，环
 不随 Git 源码自动提供。缺少解释器或库会直接报告原因；启动器不安装依赖、
 或编译库。T-SOU 使用带检查的 HEOS PT 物性，不创建 EOS 表；表目录选项保留给显式选择的历史运行库。公共 API、CLI 和直接模块调用默认使用 C++。
 
-已有当前锁定原生依赖、pilot 构建目录已指向当前源码布局，且相关原生回归通过时，可显式发布启动器使用的求解库、几何库与准备库。旧布局项目须先按下文升级步骤准备新缓存。
+已有当前锁定原生依赖、pilot 构建目录已指向当前源码布局，且相关原生回归通过时，可显式发布启动器使用的求解库、几何库、准备库与结果库。旧布局项目须先按下文升级步骤准备新缓存。
 
 ```sh
 "$PYTHON" engineering/scripts/build_native_dependencies.py publish
@@ -232,9 +234,9 @@ Windows（PowerShell）：
 
 `publish` 包含构建和验证。后续显式执行 `build`、`verify` 或 `publish` 时，继续使用同一 `--cache` 目录。首次克隆的项目可使用上文默认缓存。
 
-此命令离线构建并验证求解库、几何库与准备库，再以同一事务替换本平台的三个库。
+此命令离线构建并验证求解库、几何库、准备库与结果库，再以同一事务替换本平台的四个库。
 缺少锁定依赖或验证失败时停止。改变库内容前，旧库及匹配记录保存在同目录的 `previous/`；
-重复发布相同库保留已有回退副本。求解库使用 `build.json`，几何库使用 `geometry-build.json`，准备库使用 `preparation-build.json`，
+重复发布相同库保留已有回退副本。求解库使用 `build.json`，几何库使用 `geometry-build.json`，准备库使用 `preparation-build.json`，结果库使用 `result-build.json`，
 分别记录源码提交、未提交改动、构建配置及路径。替换失败恢复选定库及元数据；回滚失败保留暂存文件并报告恢复路径。
 `sjtu_tpmshx/solvers/native/lib/` 是 Git 忽略的本地交付目录。停止相关程序后，回退选定组件时，
 从 `previous/` 恢复该库及对应记录，同时恢复匹配源码、Python 环境和物性版本。
@@ -260,7 +262,10 @@ BO 环境仍须替换为对应 BO 锁。独立 `build`／`verify` 同样接受 `
 准备库也可独立更新。先在同一缓存构建锁定 CoolProp，再执行 `publish --component preparation`；
 该命令不构建求解器或 run_state，只发布准备库及 `preparation-build.json`。命令见[准备核心](docs/cpp-migration.zh-CN.md#native-preparation-core)。
 运行时用 `TPMSHX_PREPARATION_LIBRARY` 选择准备库。读取历史结果与独立后处理不加载准备库。
-Python wheel 包含代码和模型资源，不包含这三个本机原生库。
+结果库可用 `publish --component result` 独立发布，不构建求解器或模型库。使用当前解释器对应的精确锁。
+实际后处理运算需要该库；纯 HDF/JSON 文件读取不加载原生库。
+Linux x86_64 只支持独立结果评估，命令见[结果核心](docs/cpp-migration.zh-CN.md#native-result-core)。
+Python wheel 包含代码和模型资源，不包含这四个本机原生库。
 源码发行包包含原生源码、构建文件、依赖锁和来源记录。
 可用 `engineering/scripts/check_distributions.py` 检查源码包与 wheel 内容。
 须通过 `--output-dir` 指定 `.cache/` 下的新目录。
@@ -726,7 +731,7 @@ PR 按 [明确的路径清单](engineering/scripts/ci_scope.py) 选择检查层�
 - `full`：求解器、模型、公共接口、依赖、工作流和所有未列出的路径。运行完整矩阵。
 
 main 和手动触发始终使用 `full`。重命名同时检查旧、新路径；未知或空的变更集合使用完整矩阵。
-完整矩阵有 29 个作业。较轻 PR 层级不能作为完整 CI 耗时或数值研究验收。
+完整矩阵有 30 个作业，包含独立 Linux 结果库构建。较轻 PR 层级不能作为完整 CI 耗时或数值研究验收。
 物理变更仍须完成其要求的扩展数值研究；常规 CI 不替代该证据。
 
 `pyproject.toml` 的 `[tool.mypy].files` 显式列出 19 个类型检查文件：覆盖配置、控制器、CLI、统一工作流、当前
@@ -775,7 +780,8 @@ Python 数值对照迁移为独立公式／离散账本、制造解、组件重�
 不保留已退役迭代器作为第二套求解实现。
 
 每个平台调用 [原生工作流](.github/workflows/native.yml)，用 Python 3.13 构建一次原生库并运行独立 C/C++ 调用程序。
-application 和 full tier 均保留完整 pilot 与既有求解器覆盖；归档显式包含求解库、几何库和准备库。
+application 和 full tier 均保留完整 pilot 与既有求解器覆盖；归档显式包含求解库、几何库、准备库和结果库。
+结果库通过独立 `build --component result` 构建，再与其余库一起执行完整验证。
 BO 同样恢复本轮同平台归档中的几何库，不降低既有 gate。
 原生库不链接 Python 运行时。macOS 使用 Python 3.13 测试；Windows 保留 Python 3.12 和 3.13 两套测试。
 分片在本平台构建完成后启动，不等待其他平台。原生、快测和集成测试共同使用本轮工作流及源码产生的
@@ -801,8 +807,12 @@ BO 不允许跳过测试；集成允许已记录的单项跳过，但全跳过�
 比较速度时区分快测、集成和整个 job，并使用相同平台的基准，不据本地耗时承诺 CI 提速。
 完整验收的 skip 须保留具体原因，不能当作被跳过能力已经通过。最小后处理 CI 使用独立的
 `engineering/requirements/postprocess.txt` 环境，并消费另一完整环境生成的真实 2D/3D
-结果文件。macOS 集成步骤将公开算例的两个结果及指标通过 `real-file-handoff`
-传给 Linux 最小环境，保留 7 天。该交接不包含私有数据。配置不等于实际 CI 通过。
+结果文件。独立 Ubuntu `result-build` 作业只获取锁定 CMake，构建并验证结果库，
+通过 `result-build-linux-x86_64` 传给 `minimal-postprocess`。
+macOS 集成步骤同时将公开算例的两个结果及指标通过 `real-file-handoff`
+传给该 Linux 最小环境。两类交接保留 7 天，不包含私有数据。
+最小作业使用预构建结果库检查独立数值参考和真实文件回读，不构建完整求解器。
+配置不等于实际 CI 通过。
 
 ## 协作与合并
 

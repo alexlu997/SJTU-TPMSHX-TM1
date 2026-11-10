@@ -100,7 +100,7 @@ def check_portable(actual, raw, case):
         item = balance.get(name)
         if item is not None and item['status'] == 'available':
             assert abs(item['telescoping_error']) < 2e-7
-    from sjtu_tpmshx.shared.result_math import pressure_face_values
+    from sjtu_tpmshx.development.tests.native.result_reference.shared_math import pressure_face_values
     pressure_drop = []
     for side, flow in zip('AB', raw['flow']):
         inlet, outlet = pressure_face_values(flow['pressure'],flow['dy'])

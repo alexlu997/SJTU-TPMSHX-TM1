@@ -3,6 +3,9 @@ from collections.abc import Mapping
 
 import numpy as np
 
+from . import _native_result_metrics as native
+from . import _native_result_checks as checks
+
 
 def _boundary_face_shape(faces, dimension, grid=None, *, planes=False):
     """Check native face topology without copying arrays; return its cell shape.
@@ -44,10 +47,16 @@ def pressure_face_values(pressure, stream_widths):
     if p.shape[1] < 2:
         return p[:, 0], p[:, -1]
     dy = np.asarray(stream_widths)
-    ri = dy[0] / (dy[0] + dy[1])
-    ro = dy[-1] / (dy[-2] + dy[-1])
-    return ((1.0 + ri) * p[:, 0] - ri * p[:, 1],
-            (1.0 + ro) * p[:, -1] - ro * p[:, -2])
+    if p.dtype.kind == 'O' or dy.dtype.kind == 'O':
+        # This raw API retains Python object protocols before native dispatch.
+        ri = dy[0] / (dy[0] + dy[1])
+        ro = dy[-1] / (dy[-2] + dy[-1])
+        return ((1.0 + ri) * p[:, 0] - ri * p[:, 1],
+                (1.0 + ro) * p[:, -1] - ro * p[:, -2])
+    ri = native.pressure_ratio(dy[0], dy[1])
+    ro = native.pressure_ratio(dy[-1], dy[-2])
+    return (native.pressure_face(p[:, 0], p[:, 1], ri),
+            native.pressure_face(p[:, -1], p[:, -2], ro))
 
 
 def _enthalpy_balance_2d(T_field, uc, vc, rho_cp_field, dir_code,
@@ -85,7 +94,7 @@ def _enthalpy_balance_2d(T_field, uc, vc, rho_cp_field, dir_code,
                      if inlet_mask  is not None else np.ones(n_cross))
         m_out_arr = (np.asarray(outlet_mask, dtype=np.float64)
                      if outlet_mask is not None else np.ones(n_cross))
-        u_in_face, u_out_face = np.abs(uc[i_in, :]), np.abs(uc[i_out, :])
+        u_in_face, u_out_face = uc[i_in, :], uc[i_out, :]
         rho_cp_in, rho_cp_out = rho_cp_field[i_in, :], rho_cp_field[i_out, :]
         T_in_face, T_out_face = T_field[i_in, :], T_field[i_out, :]
         if eps_side is None:
@@ -102,7 +111,7 @@ def _enthalpy_balance_2d(T_field, uc, vc, rho_cp_field, dir_code,
                      if inlet_mask  is not None else np.ones(n_cross))
         m_out_arr = (np.asarray(outlet_mask, dtype=np.float64)
                      if outlet_mask is not None else np.ones(n_cross))
-        u_in_face, u_out_face = np.abs(vc[:, j_in]), np.abs(vc[:, j_out])
+        u_in_face, u_out_face = vc[:, j_in], vc[:, j_out]
         rho_cp_in, rho_cp_out = rho_cp_field[:, j_in], rho_cp_field[:, j_out]
         T_in_face, T_out_face = T_field[:, j_in], T_field[:, j_out]
         if eps_side is None:
@@ -115,16 +124,9 @@ def _enthalpy_balance_2d(T_field, uc, vc, rho_cp_field, dir_code,
     if T_in is not None:
         T_in_face = np.asarray(T_in, dtype=np.float64)
 
-    m_in_w  = eps_in  * rho_cp_in  * u_in_face  * A_cell * m_in_arr
-    m_out_w = eps_out * rho_cp_out * u_out_face * A_cell * m_out_arr
-    m_dot_cp = float(np.sum(m_in_w))
-    if m_dot_cp < 1e-30:
-        return 0.0
-    T_in_avg = float(np.sum(m_in_w * T_in_face)) / m_dot_cp
-    m_out_total = float(np.sum(m_out_w))
-    T_out_avg = (float(np.sum(m_out_w * T_out_face)) / m_out_total
-                 if m_out_total > 1e-30 else float(np.mean(T_out_face)))
-    return m_dot_cp * (T_in_avg - T_out_avg)
+    return native.capacity_duty((eps_in, rho_cp_in, u_in_face, A_cell, m_in_arr),
+                                (eps_out, rho_cp_out, u_out_face, A_cell, m_out_arr),
+                                T_in_face, T_out_face)
 
 
 def _outlet_temperature_2d(temperature, mass_flux, direction, outlet_fraction):
@@ -138,35 +140,20 @@ def _outlet_temperature_2d(temperature, mass_flux, direction, outlet_fraction):
     if direction == 0:
         face_T, outward = temperature[-1, :], mx[-1, :]
     elif direction == 1:
-        face_T, outward = temperature[0, :], -mx[0, :]
+        face_T, outward = temperature[0, :], mx[0, :]
     elif direction == 2:
         face_T, outward = temperature[:, -1], my[:, -1]
     else:
-        face_T, outward = temperature[:, 0], -my[:, 0]
-    opening = np.asarray(outlet_fraction) > 0.0
-    weights = np.maximum(outward[opening], 0.0)
-    total = float(weights.sum())
-    if not np.isfinite(total) or total <= 0.0:
-        raise ValueError('2D outlet temperature requires finite positive outward mass flow')
-    flowing = weights > 0.0
-    value = float(np.sum(weights[flowing] * face_T[opening][flowing]) / total)
-    if not np.isfinite(value):
-        raise ValueError('2D outlet temperature is non-finite')
-    return value
+        face_T, outward = temperature[:, 0], my[:, 0]
+    return native.outlet_temperature_2d(face_T, outward, np.asarray(outlet_fraction), direction not in (0, 2))
 
 
 def _boundary_enthalpy_duty(h, h_in, mass_flux):
     """Heat lost by a stream from its six boundary-face enthalpy flows."""
     Fx, Fy, Fz = mass_flux
-    net_out = 0.0
-    for outward, adjacent in (
-        (-Fx[0], h[0]), (Fx[-1], h[-1]),
-        (-Fy[:, 0], h[:, 0]), (Fy[:, -1], h[:, -1]),
-        (-Fz[:, :, 0], h[:, :, 0]), (Fz[:, :, -1], h[:, :, -1]),
-    ):
-        net_out += float(np.sum(np.where(outward > 0.0, outward * adjacent,
-                                         outward * h_in)))
-    return -net_out
+    return native.boundary_enthalpy_duty(
+        (h[0], h[-1], h[:, 0], h[:, -1], h[:, :, 0], h[:, :, -1]),
+        (Fx[0], Fx[-1], Fy[:, 0], Fy[:, -1], Fz[:, :, 0], Fz[:, :, -1]), h_in)
 
 
 def _conservative_boundary_power_duty(native, side, dimension, grid):
@@ -216,15 +203,14 @@ def _boundary_plane_duty(powers, side, dimension, grid):
             raise ValueError(f'conservative boundary powers disagree with {axis} grid')
     if dimension == 2 and shape[2] != 1:
         raise ValueError('2D conservative energy requires singleton-z boundary planes')
-    if any(face.dtype.kind not in 'fiu' or not np.all(np.isfinite(face)) for face in faces):
+    if any(face.dtype.kind not in 'fiu' or not checks.all_finite(face) for face in faces):
         raise ValueError('conservative boundary powers must be finite real values')
-    return -sum(float(np.sum(face)) for face in faces)
+    return native.plane_duty(faces)
 
 
 def _cold_outlet(Tb, arrangement):
     Tb = np.asarray(Tb)
-    return float(Tb[:, -1, :].mean()) if arrangement == "cross" \
-        else float(Tb[0, :, :].mean())            # cross:+y 末 / counter:−x 末 (i=0)
+    return native.outlet_mean(Tb[:, -1, :] if arrangement == "cross" else Tb[0, :, :])
 
 
 def compute_phase2a(res):
@@ -238,7 +224,8 @@ def compute_phase2a(res):
     """
     balance = res['model_h_balance']
     active_b = res['_audit_fB'] is not None
-    phases, gates = {}, []
+    phases, gates, strict_indices = {}, [], []
+    ratios = [float('nan')] * 4
     for side in ('A', 'B'):
         if side == 'B' and not active_b:
             phases[side] = None
@@ -246,28 +233,31 @@ def compute_phase2a(res):
                           res['eps_B_strict'] is None
                           and res['eps_B_strict_cellmax'] is None
                           and res['Q_sB'] == 0.0
-                          and np.all(np.asarray(res['h_vB_field']) == 0.0)))
+                          and np.bool_(checks.all_zero(np.asarray(res['h_vB_field'])))))
             continue
         phase = {}
         for metric, key in (('global', f'eps_{side}_strict'),
                             ('cellmax', f'eps_{side}_strict_cellmax')):
             value = res.get(key)
             phase[metric] = value = float(value) if value is not None else float('nan')
-            gates.append((f'{side} strict {metric} < 1 %',
-                          bool(np.isfinite(value) and 0.0 <= value < 0.01)))
+            index = (0 if side == 'A' else 2) + (metric == 'cellmax')
+            ratios[index] = value
+            strict_indices.append((len(gates), index))
+            gates.append((f'{side} strict {metric} < 1 %', None))
         phase['boundary'] = balance['sides'][side] if balance is not None else None
         phases[side] = phase
     qa, qb = float(res['Q_sA']), float(res['Q_sB'])
-    # Match the existing strict-energy normalization at zero duty (1 W).
-    source_scale = max(abs(qa), abs(qb), 1.0)
-    eps_ltne = abs(qa + qb) / source_scale
+    certificate = checks.strict_certificate(active_b, ratios, qa, qb)
+    for gate, index in strict_indices:
+        gates[gate] = (gates[gate][0], certificate['strict'][index])
     gates.append(('full-volume LTNE source balance < 1 %',
-                  bool(np.isfinite(eps_ltne) and eps_ltne < 0.01)))
+                  certificate['source_pass']))
     if balance is not None:
         gates.append(('physical boundary data complete',
                       balance['physical_boundary_complete'] is True))
     elif active_b:
         gates.append(('two-fluid model-h boundary ledger available', False))
-    return dict(sides=phases, eps_LTNE=eps_ltne,
-                source_residual_W=abs(qa + qb), source_normalization_W=source_scale, gates=gates,
+    return dict(sides=phases, eps_LTNE=certificate['epsilon_ltne'],
+                source_residual_W=certificate['source_residual'],
+                source_normalization_W=certificate['source_normalization'], gates=gates,
                 boundary=balance)

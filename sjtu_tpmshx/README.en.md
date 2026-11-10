@@ -22,7 +22,7 @@ compute -> preprocess.api.prepare_case -> CaseData -> solvers.api.run_case -> Fi
 ```
 
 `compute` also manages stage progress, cancellation, elapsed times and warnings.
-`postprocess/metrics.py` holds metric formulas and reduction helpers. `postprocess/export.py` exports results.
+`postprocess/metrics.py` selects recorded evidence and calls the result core. `postprocess/export.py` exports results.
 Current full computations support rectangular 2D and cuboid 3D domains.
 See the [examples](../examples/three_module/) and [data contract](../docs/contracts/three_module_v1/README.md) for public inputs and file transport.
 The [capabilities](../docs/capabilities.en.md) list approximation modes and extension status.
@@ -43,9 +43,12 @@ Stage four puts properties and closures in [fluid_properties.cpp](solvers/native
 The `preparation_df*.cpp` and `preparation_flow.cpp` sources own fixed DF, experiment corrections, projection, fixed-flow and design preparation mathematics.
 [shared/models/_native_preparation.py](shared/models/_native_preparation.py) loads independent preparation ABI 1 on demand. Geometry ABI 1 and field ABI 2 stay unchanged.
 Python keeps configuration, DTOs, I/O, caches, GUI/BO policies and offline fitting. Development references remain independent of production mathematics.
-Stage five still requires an independent result core and postprocessing mathematics.
-The six-stage goal remains incomplete. Acceptance for this batch requires platform CI and final checks.
-See the [native preparation core](../docs/cpp-migration.md#native-preparation-core) for independent builds and three-library delivery.
+Stage five puts metrics, physical balances, zone statistics and numerical qualification checks in the independent C++ [result core](solvers/native/result/).
+[shared/_native_result.py](shared/_native_result.py) loads result ABI 1 on demand. File reads load no solver, preparation or result library.
+Python keeps evidence selection, status interpretation and file interfaces. The four daily entries stay unchanged.
+Edit a numerical function in its C++ source, then rebuild and restart the process.
+Numerical and platform acceptance for stage five is in progress. The six-stage goal remains incomplete.
+See the [native result core](../docs/cpp-migration.md#native-result-core) for independent builds and four-library delivery.
 
 <a id="三模块主线"></a>
 <a id="支撑模块与应用入口"></a>

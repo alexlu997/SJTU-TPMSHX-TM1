@@ -1,6 +1,8 @@
 """3D engineering reductions over portable fields and boundary evidence."""
 import numpy as np
 
+from sjtu_tpmshx.shared import _native_result_metrics as native
+
 from sjtu_tpmshx.shared.result_math import (
     _boundary_enthalpy_duty, _boundary_face_shape,
     _conservative_boundary_power_duty, _temperature_boundary_power_duty, pressure_face_values,
@@ -12,10 +14,7 @@ def _outlet(field, direction):
 
 
 def _weighted(values, weights):
-    total = float(np.sum(weights))
-    if total <= 1e-30:
-        raise ValueError('no flowing outlet evidence')
-    return float(np.sum(np.asarray(values) * weights) / total)
+    return native.weighted_mean(np.asarray(values), weights)
 
 
 def _port_pressures(pressure):
@@ -24,15 +23,14 @@ def _port_pressures(pressure):
         raise ValueError('pressure evidence requires nonempty three-dimensional cells')
     widths = [np.asarray(pressure['d' + axis]) for axis in 'xyz']
     for axis, values, size in zip('xyz', widths, p.shape):
-        if values.shape != (size,) or not np.all(np.isfinite(values) & (values > 0.)):
+        if values.shape != (size,) or not native.port_width_valid(values):
             raise ValueError(f'pressure {axis} widths must be positive, finite and match cells')
     openings = [np.asarray(pressure[name + '_frac']) for name in ('inlet', 'outlet')]
     for name, values in zip(('inlet', 'outlet'), openings):
-        if values.shape != (p.shape[0], p.shape[2]) or not np.all(np.isfinite(values) & (values >= 0.)):
+        if values.shape != (p.shape[0], p.shape[2]) or not native.port_opening_valid(values):
             raise ValueError(f'pressure {name} fractions must be nonnegative, finite and match faces')
     dx, dy, dz = widths
-    area = dx[:, None] * dz[None, :]
-    inlet, outlet = (values * area for values in openings)
+    inlet, outlet = native.port_weights(dx, dz, *openings)
     pin, pout = pressure_face_values(p, dy)
     return _weighted(pin, inlet), _weighted(pout, outlet)
 
@@ -59,37 +57,37 @@ def thermal_duty(result, side):
             raise ValueError('3D model-h requires all six physical boundary faces')
         faces = tuple(ledger[key] for key in keys)
         _boundary_face_shape(faces, 3, result.grid, planes=True)
-        return -sum(float(np.sum(face)) for face in faces)
+        return native.plane_duty(faces)
     if result.metadata['thermal_mode'] == 'true_h':
-        native = flux['true_h']
-        mass = native['mass_flux_' + side]
-        enthalpy = native['h_' + side]
+        evidence = flux['true_h']
+        mass = evidence['mass_flux_' + side]
+        enthalpy = evidence['h_' + side]
         if _boundary_face_shape(mass, 3, result.grid) != np.shape(enthalpy):
             raise ValueError('native enthalpy cells disagree with mass faces')
-        return _boundary_enthalpy_duty(enthalpy, native['h_in_' + side], mass)
+        return _boundary_enthalpy_duty(enthalpy, evidence['h_in_' + side], mass)
     raise NotImplementedError('legacy temperature route has no captured complete enthalpy transport')
 
 
 def _mass_flow(result, side):
     faces = result.boundary_fluxes['mass_' + side]
     _boundary_face_shape(faces, 3, result.grid)
-    outward = [sign * np.take(face, end, axis=axis) for axis, face in enumerate(faces)
-               for end, sign in ((0, -1), (-1, 1))]
-    return tuple(sum(float(np.maximum(sign * face, 0).sum()) for face in outward)
-                 for sign in (-1, 1))
+    planes = [np.take(face, end, axis=axis) for axis, face in enumerate(faces)
+              for end in (0, -1)]
+    return native.boundary_mass(planes, 3)
 
 
 def evaluate_metric(result, name, *, duty, mass_flow):
     if (name.endswith('_B') or name == 'energy_imbalance_rel') and 'B' not in result.metadata.get('active_fluids', ('A', 'B')):
         raise NotImplementedError('fluid B is inactive in this prepared research case')
     if name == 'Q':
-        return abs(duty('A'))
+        return native.duty_magnitude(duty('A'))
     if name in ('Q_A', 'Q_B'):
         return duty(name[-1])
     if name.startswith(('dP_', 'P_out_')):
         pressure = result.pressure_evidence[name[-1]]
         pin, pout = _port_pressures(pressure)
-        return pin - pout if name.startswith('dP_') else pout + pressure['P_ref_abs']
+        return (native.pressure_difference(pin, pout) if name.startswith('dP_')
+                else native.absolute_outlet_pressure(pout, pressure['P_ref_abs']))
     if name.startswith('T_out_'):
         side = name[-1]
         direction = result.boundary_fluxes['report'][side]['direction']
@@ -97,25 +95,19 @@ def evaluate_metric(result, name, *, duty, mass_flow):
         temperature = result.fields['Ta' if side == 'A' else 'Tb']
         if _boundary_face_shape(mass, 3, result.grid) != np.shape(temperature):
             raise ValueError('outlet temperature cells disagree with native mass faces')
-        outward = _outlet(mass[direction // 2], direction) * (1 if direction % 2 == 0 else -1)
-        if not np.all(np.isfinite(outward)):
-            raise ValueError('outlet temperature requires finite native mass flux')
-        weights = np.maximum(outward, 0.)
-        flowing = weights > 0.
+        outward = _outlet(mass[direction // 2], direction)
         temperature = _outlet(temperature, direction)
-        return _weighted(temperature[flowing], weights[flowing])
+        return native.outlet_temperature_3d(temperature, outward, direction % 2 != 0)
     if name.startswith('mass_flow_'):
         return mass_flow(name[-1])[0]
     if name.startswith('mass_imbalance_rel_'):
         inflow, outflow = mass_flow(name[-1])
-        return abs(outflow-inflow) / max(inflow, outflow, 1e-30)
+        return native.mass_imbalance(inflow, outflow)
     if name == 'energy_imbalance_rel':
         a, b = (duty(side) for side in ('A', 'B'))
-        return abs(a+b) / max(abs(a), abs(b), 1e-30)
+        return native.full_energy_imbalance(a, b)
     if name == 'mass':
         density = result.metadata['solid_density_kg_m3']
-        volume = (np.asarray(result.grid['dx'])[:, None, None]
-                  * np.asarray(result.grid['dy'])[None, :, None]
-                  * np.asarray(result.grid['dz'])[None, None, :])
-        return float(np.sum(density * (1-np.asarray(result.metadata['design_fields']['eps_arr'])) * volume))
+        widths = tuple(np.asarray(result.grid['d' + axis]) for axis in 'xyz')
+        return native.solid_mass(np.asarray(result.metadata['design_fields']['eps_arr']), density, widths)
     raise NotImplementedError(f'unsupported metric: {name}')

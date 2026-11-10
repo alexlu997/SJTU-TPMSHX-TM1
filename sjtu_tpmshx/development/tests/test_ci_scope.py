@@ -34,6 +34,8 @@ def test_gate_requires_exact_jobs_and_results(tier, stage):
     if stage == 'summary':
         needs.update({'bo-tests': dict(needs['native']),
                       'minimal-postprocess': {'result': 'success'}})
+    else:
+        needs['result-build'] = dict(needs['native'])
     require_jobs(tier, needs, stage)
     for name in needs:
         missing = {key: value for key, value in needs.items() if key != name}

@@ -15,7 +15,7 @@ from sjtu_tpmshx.shared.domain.compute_config import (
 from sjtu_tpmshx.shared.models.grid import _port_overlap_1d, _port_fractions_1d
 from sjtu_tpmshx.shared.models.tpms_props import model_h_coefficients
 from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.shared.result_math import pressure_face_values
+from sjtu_tpmshx.development.tests.native.result_reference.shared_math import pressure_face_values
 from sjtu_tpmshx.solvers.backends import prepared_2d as execution
 from sjtu_tpmshx.development.tests.native.pressure_audit import inlet_pressure_state
 from sjtu_tpmshx.development.tests.native.simple_inputs import f2_settings

@@ -12,10 +12,13 @@ if [[ "$tm1_python" != /* || ! -f "$tm1_python" || ! -x "$tm1_python" ]]; then
     exit 1
 fi
 tm1_library="$PWD/sjtu_tpmshx/solvers/native/lib/macos-arm64/libtpmshx_solver_shared.dylib"
-if [[ ! -f "$tm1_library" ]]; then
-    print -u2 -- "缺少随附匹配的 C++ 候选库：$tm1_library"
-    exit 1
-fi
+for tm1_component in solver geometry preparation result; do
+    tm1_component_library="$PWD/sjtu_tpmshx/solvers/native/lib/macos-arm64/libtpmshx_${tm1_component}_shared.dylib"
+    if [[ ! -f "$tm1_component_library" ]]; then
+        print -u2 -- "缺少随附匹配的 C++ 库：$tm1_component_library"
+        exit 1
+    fi
+done
 
 export MPLCONFIGDIR="$PWD/.cache/matplotlib"
 export XDG_CACHE_HOME="$PWD/.cache/xdg"

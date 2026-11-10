@@ -59,19 +59,16 @@ def record_range(source, values, bounds, *, label, quantity, unit):
     array = np.asarray(values, dtype=float)
     if not array.size:
         return records is not None
-    finite = np.isfinite(array)
-    indices = np.flatnonzero(finite)
-    minimum = maximum = None
-    if indices.size:
-        valid = array.flat[indices]
-        i_min, i_max = indices[valid.argmin()], indices[valid.argmax()]
-        minimum = (float(array.flat[i_min]), tuple(int(i) for i in np.unravel_index(i_min, array.shape)))
-        maximum = (float(array.flat[i_max]), tuple(int(i) for i in np.unravel_index(i_max, array.shape)))
+    from sjtu_tpmshx.shared import _native_result_checks
+
     lo, hi = bounds
+    sample = _native_result_checks.collect_range(array, lo, hi)
+    minimum = maximum = None
+    if sample.have_finite:
+        minimum = (sample.minimum, tuple(int(i) for i in np.unravel_index(sample.minimum_index, array.shape)))
+        maximum = (sample.maximum, tuple(int(i) for i in np.unravel_index(sample.maximum_index, array.shape)))
     value = RangeRecord(label, quantity, unit, bounds, minimum, maximum,
-                        int(np.count_nonzero(finite & (array < lo))),
-                        int(np.count_nonzero(finite & (array > hi))),
-                        int(array.size), int(array.size - indices.size))
+                        sample.low, sample.high, sample.size, sample.nonfinite)
     value = replace(value, last={name: getattr(value, name) for name in _SAMPLE_FIELDS})
     # Cache facts carry shape, but never the originating run's side/stage/layout.
     key = (*source, array.shape)

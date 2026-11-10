@@ -2,7 +2,7 @@
 import numpy as np
 
 from sjtu_tpmshx.shared.models.envelope import PRESSURE_FLOOR_PA
-from sjtu_tpmshx.shared.result_math import pressure_face_values
+from sjtu_tpmshx.development.tests.native.result_reference.shared_math import pressure_face_values
 
 INLET_PRESSURE_REL_TOL = 1e-4
 

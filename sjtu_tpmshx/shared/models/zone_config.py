@@ -276,27 +276,45 @@ def compute_zone_statistics(Ta, Tb, Ts, zone_id, zones,
     -------
     list of dicts, one per zone.
     """
+    from sjtu_tpmshx.shared import _native_result_balance as native
     Ta_flat = np.ravel(Ta)
     Tb_flat = np.ravel(Tb)
     Ts_flat = np.ravel(Ts)
     zid_flat = np.ravel(zone_id)
     w_flat = np.ravel(cell_area) if cell_area is not None else None
+    # Object arrays keep their Python arithmetic protocol before native calls.
+    object_protocol = any(value is not None and value.dtype.kind == 'O'
+                          for value in (Ta_flat, Tb_flat, Ts_flat, w_flat))
+
+    def _object(arr, w=None):
+        return object_protocol or arr.dtype.kind == 'O' or (w is not None and w.dtype.kind == 'O')
 
     def _wmean(arr, w):
-        if w is not None:
-            return float(np.average(arr, weights=w))
-        return float(arr.mean())
+        if _object(arr, w):
+            return float(np.average(arr, weights=w) if w is not None else arr.mean())
+        return float(native.zone_mean(arr, w))
 
     def _wstd(arr, w):
-        if w is not None:
-            m = np.average(arr, weights=w)
-            return float(np.sqrt(np.average((arr - m)**2, weights=w)))
-        return float(arr.std())
+        if _object(arr, w):
+            if w is not None:
+                m = np.average(arr, weights=w)
+                return float(np.sqrt(np.average((arr - m)**2, weights=w)))
+            return float(arr.std())
+        return float(native.zone_std(arr, w))
+
+    def _minimum(arr):
+        return float(arr.min() if _object(arr) else native.zone_minimum(arr))
+
+    def _maximum(arr):
+        return float(arr.max() if _object(arr) else native.zone_maximum(arr))
+
+    def _spread(arr):
+        return float(arr.max() - arr.min() if _object(arr) else native.zone_spread(arr))
 
     stats = []
     for zi, z in enumerate(zones):
         mask = zid_flat == zi
-        n = mask.sum()
+        n = np.flatnonzero(mask).size
         if n == 0:
             stats.append({'name': z.name, 'n_cells': 0})
             continue
@@ -309,12 +327,12 @@ def compute_zone_statistics(Ta, Tb, Ts, zone_id, zones,
             't_mm':    z.t_mm,
             'Ta_mean': _wmean(Ta_flat[mask], w),
             'Ta_std':  _wstd(Ta_flat[mask], w),
-            'Ta_min':  float(Ta_flat[mask].min()),
-            'Ta_max':  float(Ta_flat[mask].max()),
+            'Ta_min':  _minimum(Ta_flat[mask]),
+            'Ta_max':  _maximum(Ta_flat[mask]),
             'Tb_mean': _wmean(Tb_flat[mask], w),
             'Tb_std':  _wstd(Tb_flat[mask], w),
-            'Tb_min':  float(Tb_flat[mask].min()),
-            'Tb_max':  float(Tb_flat[mask].max()),
+            'Tb_min':  _minimum(Tb_flat[mask]),
+            'Tb_max':  _maximum(Tb_flat[mask]),
             'Ts_mean': _wmean(Ts_flat[mask], w),
             'Ts_std':  _wstd(Ts_flat[mask], w),
         }
@@ -322,18 +340,26 @@ def compute_zone_statistics(Ta, Tb, Ts, zone_id, zones,
         if u is not None and v is not None:
             u_flat = np.ravel(u)
             v_flat = np.ravel(v)
-            umag = np.sqrt(u_flat[mask]**2 + v_flat[mask]**2)
+            object_velocity = _object(u_flat, w) or _object(v_flat, w)
+            if object_velocity:
+                umag = np.sqrt(u_flat[mask]**2 + v_flat[mask]**2)
+            else:
+                u_squared = native.zone_power_two(u_flat[mask])
+                v_squared = native.zone_power_two(v_flat[mask])
+                umag = native.zone_speed_from_squared(u_squared, v_squared)
             s['u_mean']    = _wmean(u_flat[mask], w)
             s['v_mean']    = _wmean(v_flat[mask], w)
             s['umag_mean'] = _wmean(umag, w)
-            s['umag_cv']   = float(_wstd(umag, w) / max(_wmean(umag, w), 1e-10))
+            deviation, mean = _wstd(umag, w), _wmean(umag, w)
+            s['umag_cv'] = (float(deviation / max(mean, 1e-10)) if object_velocity
+                            else native.zone_cv(deviation, mean))
 
         if P is not None:
             P_flat = np.ravel(P)
             s['P_mean']    = _wmean(P_flat[mask], w)
-            s['P_min']     = float(P_flat[mask].min())
-            s['P_max']     = float(P_flat[mask].max())
-            s['P_spread']  = float(P_flat[mask].max() - P_flat[mask].min())
+            s['P_min']     = _minimum(P_flat[mask])
+            s['P_max']     = _maximum(P_flat[mask])
+            s['P_spread']  = _spread(P_flat[mask])
 
         stats.append(s)
 

@@ -19,7 +19,7 @@ compute -> preprocess.api.prepare_case -> CaseData -> solvers.api.run_case -> Fi
                                                                        -> postprocess.api.evaluate -> PerformanceResult
 ```
 
-`compute` 同时处理阶段进度、取消、耗时与警告。`postprocess/metrics.py` 保留指标公式与归约辅助函数，`postprocess/export.py` 负责导出。
+`compute` 同时处理阶段进度、取消、耗时与警告。`postprocess/metrics.py` 选择记录证据并调用结果核心，`postprocess/export.py` 负责导出。
 当前正式计算支持矩形二维与长方体三维。公开输入和文件交接见[示例](../examples/three_module/)与[数据契约](../docs/contracts/three_module_v1/README.zh-CN.md)。
 近似模式和扩展状态见[能力范围](../docs/capabilities.md)。
 
@@ -38,8 +38,11 @@ Python 保留配置、类型／数组适配、数据对象、I/O、缓存、GUI 
 负责物性／闭合、固定 DF／实验修正、投影、固定流量与设计准备数值。
 [shared/models/_native_preparation.py](shared/models/_native_preparation.py) 延迟加载独立 preparation ABI 1 库；几何 ABI 1／field ABI 2 不变。
 Python 保留配置、DTO、I/O、缓存、GUI／BO 策略和离线拟合；正式数值与开发独立参考分开。
-第五批独立结果核心与后处理数值迁移仍待完成，六批目标尚未完成。
-本批验收须包含平台 CI 和最终检查。独立构建和三库交付见[原生准备核心](../docs/cpp-migration.zh-CN.md#native-preparation-core)。
+第五批的 [result/](solvers/native/result/) 是独立 C++ 结果核心，负责指标、物理平衡、分区统计和数值资格检查。
+[shared/_native_result.py](shared/_native_result.py) 按需加载结果 ABI 1；读取文件不加载求解器、准备库或结果库。
+Python 保留证据选择、状态解释和文件接口。四个日常入口不变；修改数值函数时进入对应 C++ 源文件，重新构建并重启进程。
+第五批仍在数值与平台验收中，六批目标尚未完成。
+独立构建和四库交付见[原生结果核心](../docs/cpp-migration.zh-CN.md#native-result-core)。
 
 <a id="三模块主线"></a>
 <a id="支撑模块与应用入口"></a>

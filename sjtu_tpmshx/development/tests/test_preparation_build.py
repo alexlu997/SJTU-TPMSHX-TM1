@@ -131,7 +131,8 @@ def test_effective_optimization_record_cannot_mislabel_solver_archive(preparatio
         native.coolprop_build_record(cache, host, 'solver')
 
 
-def test_full_verify_uses_independent_preparation_programs(preparation_build, monkeypatch):
+@pytest.mark.parametrize('component', ['pilot', 'all'])
+def test_full_verify_uses_independent_preparation_programs(preparation_build, monkeypatch, component):
     host, _, cache, _, _, _, _, _, _ = preparation_build
     programs, loads, exports = [], [], []
 
@@ -157,12 +158,17 @@ def test_full_verify_uses_independent_preparation_programs(preparation_build, mo
     monkeypatch.setattr(native, 'run', run)
     monkeypatch.setattr(native.ct, 'CDLL', load)
     monkeypatch.setattr(native, 'verify_model_exports', lambda directory, host, kind, log: exports.append((directory, kind)))
-    native.verify(cache, host, 'pilot')
+    monkeypatch.setattr(native, 'result_build_record', lambda *args: {})
+    native.verify(cache, host, component)
     preparation = cache/'build'/f'preparation-{host}'
     assert loads[0].parent == preparation
     assert (preparation, 'preparation') in exports
     assert all(path.parent == preparation for path in programs if path.name.startswith('preparation_c_'))
     assert any(path.parent == cache/'build'/f'pilot-{host}' and path.stem == 'full_2d_c_static' for path in programs)
+    result = cache/'build'/f'result-{host}'
+    assert ((result, 'result') in exports) is (component == 'all')
+    assert {path.stem for path in programs if path.parent == result} == (
+        {'result_c_static', 'result_c_shared', 'result_kernel_smoke'} if component == 'all' else set())
 
 
 @pytest.mark.parametrize('host,role', [('macos-arm64', 'preparation'), ('windows-x64', 'solver')])

@@ -10,6 +10,7 @@ from pathlib import Path
 import numpy as np
 
 from sjtu_tpmshx.shared.domain.cancellation import CancelledError
+from sjtu_tpmshx.shared._native_result_metrics import capture_area
 from ._thermal_abi import _Callbacks, _Cancel as _Cancel, _Progress as _Progress, make_callbacks
 
 
@@ -201,7 +202,7 @@ def _plane_info(result, shape, widths, masses):
         units='W/m; kg/(s m)', state='raw final thermal return', boundary_order=['-x', '+x', '-y', '+y'],
         **sides, sou_A=True, sou_B=True, cell_count=int(np.prod(shape)),
         dx_m=widths[0].tolist(), dy_m=widths[1].tolist(),
-        area_m2=float(np.sum(widths[0][:, None] * widths[1][None, :])),
+        area_m2=capture_area(widths[0], widths[1]),
         solid_boundary_W_per_m=0., solid_source_W_per_m=0.,
         solid_residual_sum_W_per_m=audit.solid_sum, solid_residual_max_abs_W_per_m=audit.solid_max,
         solid_residual_cellmax_rel=audit.solid_cell_ratio, equation_tolerance=.01,

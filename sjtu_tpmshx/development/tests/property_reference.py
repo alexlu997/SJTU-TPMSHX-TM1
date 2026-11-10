@@ -28,7 +28,7 @@ _range_warnings_emitted = set()
 
 
 def _warn_range_once(name, temperature, lo, hi):
-    from sjtu_tpmshx.shared.domain.run_warnings import record_range
+    from sjtu_tpmshx.development.tests.result_warning_reference import record_range
 
     values = np.asarray(temperature, dtype=float)
     if values.size == 0:

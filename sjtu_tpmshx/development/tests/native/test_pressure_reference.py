@@ -19,7 +19,7 @@ import numpy as np
 import pytest
 
 from engineering.scripts.generate_native_model_coefficients import header
-from sjtu_tpmshx.shared.models import envelope
+from sjtu_tpmshx.development.tests import result_envelope_reference as envelope
 from sjtu_tpmshx.development.tests.grid_source_reference import _port_fractions_1d, _port_overlap_1d
 from sjtu_tpmshx.development.tests.native import pressure_audit as original
 

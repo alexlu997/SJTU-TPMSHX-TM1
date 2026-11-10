@@ -14,8 +14,8 @@ application -> preprocess.api -> CaseData -> solvers.api -> FieldResult
 ```
 
 Version 0.2 retains these boundaries and uses C++ as the only numerical backend.
-Python keeps application interfaces, preparation, model resources, optimization
-and postprocessing. Version 0.1 preserves both solver implementations.
+Python keeps application, preparation, optimization and postprocessing interfaces,
+plus model resources. Version 0.1 preserves both solver implementations.
 The Python numerical backend and its extra research entries are retired in 0.2.
 Shared temperature sweeps and energy audits remain in use. T-SOU is the default
 for the existing conservative EOS route. H-FOU, T-FOU and the frozen H-sweep
@@ -27,8 +27,9 @@ Anderson retain their existing rules.
 Full 2D/3D and Quick Design use the matching library on macOS arm64 or Windows x64.
 Public `RunControl` and CLI calls default to C++. The library path is a host
 control and is not stored in `CaseData`. Missing libraries fail explicitly.
-Delivery keeps the existing Python/Qt entry and a prebuilt library in the
-project folder. Required CI, visible desktop acceptance, complete performance
+Delivery keeps the existing Python/Qt entry and matching solver, geometry,
+preparation and result libraries in the project folder.
+Required CI, visible desktop acceptance, complete performance
 and experimental accuracy remain separate gates.
 
 Current numerical checks use independent formulas, discrete balances,
@@ -52,8 +53,8 @@ The independent CMake project is `sjtu_tpmshx/solvers/native/geometry/`.
 Its `tpmshx_geometry_shared` target uses the C++ standard library, the marching-cubes port and a restricted C17 FITPACK subset.
 It needs no CoolProp, SuperLU, AMGCL, Eigen or solver runtime.
 The full dependency pilot includes the same target.
-Stage four adds the separate preparation core below. Stage five still requires an independent result core and result mathematics.
-The six-stage migration is incomplete; this section does not report new CI or complete batch acceptance.
+Stage four adds the separate preparation core below. Stage five connects the independent result core and result mathematics.
+The six-stage migration is incomplete. Stage-five numerical and platform acceptance is in progress.
 
 The [architecture](architecture.md#native-grids-and-design-fields) defines numerical ownership, types and buffer lifetimes.
 The [field source record](../sjtu_tpmshx/solvers/native/geometry/fields-sources.md) identifies fixed sources, local changes and BSD notices.
@@ -104,16 +105,18 @@ Standalone output uses `.cache/native-deps/build/geometry-<host>` by default.
 Verification runs the static/shared C callers and geometry kernel smoke.
 Geometry-only publication writes `geometry-build.json` without touching solver or run_state.
 It keeps an older differing geometry library and its matching record under `previous/`.
-Default full publication builds and verifies solver, geometry and preparation before one transaction replaces all three.
-It keeps `build.json` for the solver, `geometry-build.json` for geometry and `preparation-build.json` for preparation.
+Default full publication builds and verifies solver, geometry, preparation and result before one transaction replaces all four.
+It keeps `build.json` for the solver, `geometry-build.json` for geometry,
+`preparation-build.json` for preparation and `result-build.json` for result.
 A replacement failure restores selected files and metadata. A failed rollback retains its staging files and reports the recovery path.
 Old solver checkpoints still require their exact retained runtime, prepared input and controls.
 
 The application and full CI tiers retain the complete native pilot build and existing solver coverage.
-Their artifacts explicitly include geometry and preparation. Native and BO consumers restore those same-platform libraries.
-No gate, lock or supported-platform declaration is reduced or expanded by this build split.
+Their artifacts explicitly include solver, geometry, preparation and result libraries.
+Native and BO consumers restore the required libraries from the same platform artifact.
+Full computation remains limited to macOS arm64 and Windows x64. Independent Linux result evaluation has the scope defined below.
 The Python wheel includes code and model resources, without native libraries.
-Desktop packaging requires all three prebuilt inputs; see [desktop delivery](desktop.en.md#可选冻结打包).
+Desktop packaging requires all four prebuilt inputs; see [desktop delivery](desktop.en.md#可选冻结打包).
 
 ## Native preparation core
 
@@ -177,23 +180,60 @@ The source distribution supplies native source, build files, locks, licenses and
 The wheel supplies Python interfaces and declared resources. Native builds remain explicit steps.
 `engineering/scripts/check_distributions.py` builds and checks the source distribution and its wheel.
 Supply a new `--output-dir` under `.cache/`.
-`publish --component preparation` publishes only preparation and `preparation-build.json`. It does not replace solver, geometry or run_state files.
+`publish --component preparation` publishes only preparation and `preparation-build.json`. It does not replace solver, geometry, result or run_state files.
 Different previous contents and matching metadata remain under `previous/`; replacement failures use the same transaction rollback.
 
 The runtime file is `libtpmshx_preparation_shared.dylib` on macOS arm64 or `tpmshx_preparation_shared.dll` on Windows x64.
 Source defaults use `sjtu_tpmshx/solvers/native/lib/<host>/`; frozen programs use their `native/` directory.
 `TPMSHX_PREPARATION_LIBRARY` selects another prebuilt runtime file.
-Desktop packaging takes it from `TPMSHX_NATIVE_PREPARATION_LIBRARY`, together with solver and geometry inputs.
+Desktop packaging takes it from `TPMSHX_NATIVE_PREPARATION_LIBRARY`, together with solver, geometry and result inputs.
 The Python wheel contains code and model resources, without native libraries.
 Historical result reading and independent postprocessing load neither preparation nor geometry.
 
 Rebuild affected libraries and restart the process after changing C++ functions or compiled data.
-Solver, geometry and preparation build records are separate from versioned property-table caches.
+Solver, geometry, preparation and result build records are separate from versioned property-table caches.
 Relinking the solver gives it a new build identity. Old checkpoints still require their exact retained solver, prepared input and controls.
 Keep matching current/previous runtimes and run records while they have consumers.
-The independent lightweight Linux result core belongs to stage five. This batch does not establish Linux full-solver support.
-Stage-five postprocessing migration and stage-six final consumer/retirement audit remain incomplete.
+The independent lightweight Linux result core is part of stage five. Full-solver Linux support remains outside this scope.
+Stage-five result mathematics is connected, with numerical and platform acceptance in progress.
+The stage-six final consumer and retirement audit remains incomplete.
 Required checks must pass before delivery. This section does not report new CI, Windows or complete acceptance results.
+
+## Native result core
+
+Stage five connects independent result ABI 1 for metrics, signed physical balances, zone statistics and numerical qualification checks.
+Python selects recorded evidence and keeps status, reason, type and file interfaces.
+The standalone `solvers/native/result/` project uses only C++17 and system libraries.
+It does not load the solver, preparation, geometry, CoolProp or model resources.
+Numerical and platform acceptance for this stage is in progress.
+
+Pure imports and HDF/JSON reads remain native-free. Actual metric arithmetic needs the prebuilt result image.
+Use `TPMSHX_RESULT_LIBRARY` for an absolute alternate file. Default paths are `solvers/native/lib/<host>/` under the package.
+The image names are `libtpmshx_result_shared.dylib`, `tpmshx_result_shared.dll` and `libtpmshx_result_shared.so`.
+Linux x86_64 support applies to independent result evaluation only.
+Linux permits `fetch-cmake`, `build`, `verify` and `publish` only with `--component result`.
+It does not fetch or verify model sources, generate model coefficients, or build the full solver.
+
+For an existing minimal environment recorded in `.venv-path`:
+
+```sh
+tm1_python="$(sed -n '1p' .venv-path)"
+"$tm1_python" engineering/scripts/build_native_dependencies.py fetch-cmake --component result
+"$tm1_python" engineering/scripts/build_native_dependencies.py publish --component result --python-lock engineering/requirements/postprocess.txt
+```
+
+Select the exact base or BO lock when using that environment. Windows uses the same arguments in its MSVC developer terminal.
+Separate `build --component result` and `verify --component result` commands use the same lock and cache.
+The default build directory is `.cache/native-deps/build/result-<host>`.
+Verification runs the independent static C, shared C and C++ kernel callers. It checks exact C exports and system runtime dependencies.
+Separate result publication builds no solver state and writes `result-build.json` with actual compiler, options, artifact and SDK metadata.
+Its dependency record is empty and contains no CoolProp build record.
+Full macOS/Windows publication deploys four libraries in one transaction, with their matching previous files retained.
+CI keeps the full macOS/Windows builds and adds an independent Ubuntu `result-build` job.
+That job supplies `result-build-linux-x86_64` to `minimal-postprocess`, together with the separate macOS `real-file-handoff` input.
+The minimal job checks independent result references and actual saved 2D/3D files. It builds no solver or model library.
+The [source and interface record](../sjtu_tpmshx/solvers/native/result/sources.md) defines types, buffers, errors and notices.
+There is no numerical fallback, runtime compiler or universal numerical callback.
 
 ## Complete Quick Design capability
 
@@ -754,7 +794,8 @@ C++ uses the generated constants without runtime JSON parsing or Python calls.
 The first stage unified data sources. The second added the independent geometry core described above.
 The third adds grids and design-field calculations to the same library, with one owner for each numerical rule.
 Stage four adds the independent preparation target for properties, DF and preparation mathematics. Existing model identities and fitted coefficients stay unchanged.
-Stage-five result mathematics and the final consumer/retirement audit remain incomplete.
+Stage-five result mathematics is connected, with numerical and platform acceptance in progress.
+The final stage-six consumer and retirement audit remains incomplete.
 See [model resources](model-resources.en.md#当前资源与研究输出).
 
 The Python wheel includes code, JSON and CSV resources. It does not include native libraries.
