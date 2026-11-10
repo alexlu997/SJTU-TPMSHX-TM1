@@ -41,6 +41,67 @@ def test_zone_mean_std_and_extrema_keep_original_types(dtype, weights):
                        observe(lambda: reference.compute_zone_statistics(**data)))
 
 
+def _stage_hex(value):
+    item = np.asarray(value)[()]
+    if np.iscomplexobj(item):
+        return f'({float(item.real).hex()}, {float(item.imag).hex()})'
+    return float(item).hex()
+
+
+def _assert_zone_stage(actual, expected, *, stage, zone, indices, values, weights, mean, centered, squared, variance):
+    actual, expected = np.asarray(actual), np.asarray(expected)
+    point = 0 if actual.size and expected.size else None
+    if actual.dtype == expected.dtype and actual.shape == expected.shape:
+        same = actual == expected
+        if actual.dtype.kind in 'fc':
+            for part in ('real', 'imag') if actual.dtype.kind == 'c' else ('real',):
+                left, right = getattr(actual, part), getattr(expected, part)
+                same &= (right != 0) | (np.signbit(left) == np.signbit(right))
+        different = np.flatnonzero(~same)
+        if not different.size:
+            return
+        point = int(different[0])
+    location = '' if point is None else (
+        f' point={point}, actual={_stage_hex(actual.flat[point])}, expected={_stage_hex(expected.flat[point])}')
+    rows = '\n'.join(
+        f'  selected={index}, source_flat={int(source)}, value={_stage_hex(value)}, '
+        f'weight={_stage_hex(weight)}, centered={_stage_hex(center)}, square={_stage_hex(square)}'
+        for index, (source, value, weight, center, square) in enumerate(
+            zip(indices, values, weights, centered, squared)))
+    pytest.fail(
+        f'{stage}, zone={zone}: actual dtype={actual.dtype}, shape={actual.shape}; '
+        f'expected dtype={expected.dtype}, shape={expected.shape}.{location}\n'
+        f'original mean={_stage_hex(mean)}, variance={_stage_hex(variance)}\n{rows}')
+
+
+@pytest.mark.parametrize('dtype', [np.complex64, np.complex128])
+@pytest.mark.parametrize('zone', [0, 1, 2])
+@pytest.mark.parametrize('stage', ['mean', 'centered_square', 'weighted_variance', 'sqrt_variance'])
+def test_weighted_complex_std_keeps_each_original_stage(dtype, zone, stage):
+    data = _inputs(dtype, weights=np.float16)
+    mask = np.ravel(data['zone_id']) == zone
+    indices = np.flatnonzero(mask)
+    values = np.ravel(data['Ta'])[mask]
+    weights = np.ravel(data['cell_area'])[mask]
+    mean = np.average(values, weights=weights)
+    centered = values - mean
+    squared = centered ** 2
+    variance = np.average(squared, weights=weights)
+    # Each native leaf receives the original preceding stage, without accumulated native error.
+    if stage == 'mean':
+        actual, expected = native.zone_mean(values, weights), mean
+    elif stage == 'centered_square':
+        actual, expected = native.zone_power_two(centered), squared
+    elif stage == 'weighted_variance':
+        actual, expected = native.zone_mean(squared, weights), variance
+    else:
+        operand = np.asarray([variance])
+        actual = native.zone_speed_from_squared(operand, np.zeros_like(operand))
+        expected = np.asarray([np.sqrt(variance)])
+    _assert_zone_stage(actual, expected, stage=stage, zone=zone, indices=indices, values=values,
+                       weights=weights, mean=mean, centered=centered, squared=squared, variance=variance)
+
+
 @pytest.mark.parametrize('dtype', ['>i2', '>u8', '>f2', '>f4', '>f8', '>c8', '>c16'])
 @pytest.mark.parametrize('weights', [None, '>f4'])
 def test_zone_selection_keeps_explicit_byte_order(dtype, weights):

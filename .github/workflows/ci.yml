@@ -242,7 +242,7 @@ jobs:
         run: '"$CI_PYTHON" engineering/scripts/build_native_dependencies.py publish --component result --python-lock engineering/requirements/postprocess.txt'
       - name: Check result numerical contracts before publication of the artifact
         run: >-
-          "$CI_PYTHON" -m pytest -q
+          "$CI_PYTHON" -m pytest -q --junitxml=.cache/native-deps/logs/result-contracts.xml
           sjtu_tpmshx/development/tests/native/test_result_metrics.py
           sjtu_tpmshx/development/tests/native/test_result_checks.py
           sjtu_tpmshx/development/tests/test_native_result_balance.py
