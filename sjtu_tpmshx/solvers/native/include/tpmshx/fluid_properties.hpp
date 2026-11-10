@@ -66,8 +66,8 @@ void check_co2_pt(std::unique_ptr<CoolProp::AbstractState>& state,
 // One instance per run. Mutable EOS states are not shared between runs or
 // threads. Air/water retain the project's empirical transport correlations;
 // HEOS checks water's stable liquid phase and supplies sCO2 properties.
-// Coefficients are generated at build time from the existing Python model
-// owners; neither Python nor a model-file parser is required at runtime.
+// Coefficients are generated from shared model data resources at build time.
+// Neither Python nor a model-file parser is required at runtime.
 class PropertyEvaluator {
 public:
     PropertyEvaluator();
