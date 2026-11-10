@@ -1,5 +1,10 @@
 /* Independent C caller for geometry data, ownership and errors. */
 #include "tpmshx/geometry_c_api.h"
+#include "tpmshx/grid_c_api.h"
+#include "tpmshx/zones_c_api.h"
+#include "tpmshx/field_continuous_c_api.h"
+#include "tpmshx/field_lut_c_api.h"
+#include "tpmshx/field_sigmoid_c_api.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -27,6 +32,50 @@ static int all_equal(const double* values, size_t count, double expected) {
 static tpmshx_geometry_levels_v1 levels(double C, double delta) {
     const tpmshx_geometry_levels_v1 result = {delta-C, delta+C, delta-C, delta+C, 64u, 64u};
     return result;
+}
+
+static int design_fields(void) {
+    char error[256];
+    const tpmshx_grid_scalar_v1 zero = {0., 64u, 0u}, one = {1., 64u, 0u};
+    const tpmshx_grid_scalar_v1 span = {.03, 64u, 0u};
+    const tpmshx_grid_scalar_v1 bounds[4] = {{0.,64u,0u}, {1.,64u,0u}, {0.,64u,0u}, {1.,64u,0u}};
+    const double axes[2] = {0., 1.}, values[4] = {2., 2., 2., 2.};
+    const double table[4] = {0., 2., 1., 3.}, midpoint = .5, input = 0.;
+    double widths[3], output[4], eps, area;
+    int32_t ids[4];
+    uint32_t precision, overflow;
+    tpmshx_field_xy_v1* fit = NULL;
+    size_t i;
+    CHECK(tpmshx_field_abi_version_v1() == 1u);
+    OK(tpmshx_geometry_grid_uniform_v1(3, span, widths, 3, error, sizeof error));
+    for (i = 0; i < 3; ++i) CHECK(fabs(widths[i] - .01) < 1e-16);
+    OK(tpmshx_geometry_zone_ids_v1(1, 2, 2, 1, one, bounds, 1,
+        NULL, 0, NULL, 0, ids, 4, error, sizeof error));
+    for (i = 0; i < 4; ++i) CHECK(ids[i] == 0);
+    OK(tpmshx_geometry_zone_gaussian_v1(2, 2, values, 4, output, 4, error, sizeof error));
+    for (i = 0; i < 4; ++i) CHECK(fabs(output[i] - 2.) < 1e-13);
+    OK(tpmshx_field_xy_create_v1(axes, 2, axes, 2, values, 4, 1, 1, &fit, error, sizeof error));
+    CHECK(fit != NULL);
+    OK(tpmshx_field_xy_sample_v1(fit, values, 4, axes, 2, axes, 2, 1., 3.,
+        output, 4, error, sizeof error));
+    CHECK(all_equal(output, 4, 2.));
+    tpmshx_field_xy_release_v1(fit);
+    {
+        const size_t counts[2] = {1, 2}, samples[2] = {2, 2};
+        const double* controls[2] = {&midpoint, axes};
+        const double* points[2] = {axes, axes};
+        OK(tpmshx_field_tensor_sample_v1(2, counts, controls, values, 2, 3,
+            samples, points, 1., 3., output, 4, error, sizeof error));
+        CHECK(all_equal(output, 4, 2.));
+    }
+    OK(tpmshx_field_lut_validate_v1(axes, 2, axes, 2, error, sizeof error));
+    OK(tpmshx_field_lut_query_v1(axes, 2, axes, 2, table, table, 4, 1u, 1u,
+        &midpoint, &midpoint, 1, &eps, &area, 1, error, sizeof error));
+    CHECK(eps == 1.5 && area == 1.5);
+    OK(tpmshx_field_sigmoid_values_v1(&input, 1, one, zero, one,
+        output, 1, &precision, &overflow, 1, error, sizeof error));
+    CHECK(output[0] == .5 && precision == 64u && overflow == 0u);
+    return 0;
 }
 
 int main(void) {
@@ -258,6 +307,7 @@ int main(void) {
             cells, walls, 2, 16., 0, 0., field, 12, error, 0);
         CHECK(status == TPMSHX_GEOMETRY_INVALID && all_equal(field, 12, -77.));
     }
+    CHECK(design_fields() == 0);
     tpmshx_geometry_index_destroy_v1(synthetic);
     tpmshx_geometry_index_destroy_v1(index);
     puts("geometry C caller passed");

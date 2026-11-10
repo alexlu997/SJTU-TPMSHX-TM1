@@ -20,7 +20,7 @@ import pytest
 
 from engineering.scripts.generate_native_model_coefficients import header
 from sjtu_tpmshx.shared.models import envelope
-from sjtu_tpmshx.shared.models.grid import _port_fractions_1d, _port_overlap_1d
+from sjtu_tpmshx.development.tests.grid_source_reference import _port_fractions_1d, _port_overlap_1d
 from sjtu_tpmshx.development.tests.native import pressure_audit as original
 
 D = ct.POINTER(ct.c_double)
@@ -91,7 +91,9 @@ def native(tmp_path_factory):
     generated.mkdir()
     (generated / 'model_coefficients.hpp').write_text(header(), encoding='utf-8')
     output = build / ('pressure_reference' + ('.dll' if os.name == 'nt' else '.dylib' if sys.platform == 'darwin' else '.so'))
-    sources = [root / 'sjtu_tpmshx/solvers/native/src/pressure_reference.cpp', Path(__file__).with_name('pressure_reference_bridge.cpp')]
+    sources = [root / 'sjtu_tpmshx/solvers/native/src' / name
+               for name in ('pressure_reference.cpp', 'ports.cpp', 'grid.cpp')]
+    sources.append(Path(__file__).with_name('pressure_reference_bridge.cpp'))
     if os.name == 'nt':
         arguments = ['/nologo', '/std:c++17', '/O2', '/W4', '/WX', '/EHsc', '/MD', '/LD', '/fp:strict',
                      '/DTPMSHX_THERMAL_BUILD_SHARED', '/I' + str(root / 'sjtu_tpmshx/solvers/native/include'), '/I' + str(build),

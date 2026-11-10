@@ -11,9 +11,9 @@ evaluation of epsilon(L,t) and A_0(L,t).
 
 import os
 import numpy as np
-from scipy.interpolate import RegularGridInterpolator
+from . import _native_lut
 
-from . import _native_geometry
+from . import _native_geometry, _native_grid, _native_sigmoid
 from .tpms_props import _resolve_chi_s
 from .tpms_calc import (air_density, air_viscosity, air_conductivity)
 from sjtu_tpmshx.shared.df_surrogate._domain import TRAIN_L, TRAIN_T
@@ -26,8 +26,8 @@ _log = get_logger(__name__)
 # ── Sigmoid basis ────────────────────────────────────────────
 
 def _sigmoid(x, center, width):
-    """Smooth sigmoid transition centered at `center`."""
-    return 1.0 / (1.0 + np.exp(np.clip(-(x - center) / width, -50, 50)))
+    """Call the native sigmoid with the original input precision."""
+    return _native_sigmoid.values(x, center, width)
 
 
 def _blend_1d(x, boundaries, values, width):
@@ -36,12 +36,7 @@ def _blend_1d(x, boundaries, values, width):
     boundaries: N-1 transition points between N regions
     values: list of N value arrays (same shape as x)
     """
-    result = values[0].copy() if hasattr(values[0], 'copy') else np.full_like(x, values[0])
-    for i, b in enumerate(boundaries):
-        alpha = _sigmoid(x, b, width)
-        v_next = values[i + 1] if hasattr(values[i + 1], 'copy') else np.full_like(x, values[i + 1])
-        result = result * (1.0 - alpha) + v_next * alpha
-    return result
+    return _native_sigmoid.blend(x, boundaries, values, width)
 
 
 # ── 2D Sigmoid field construction ────────────────────────────
@@ -66,26 +61,7 @@ def sigmoid_field_2d(XF, YF,
     -------
     field : 2D array (Nx, Ny) — smoothly interpolated values
     """
-    # X-direction sigmoid weights (shared for all rows)
-    s1x = _sigmoid(XF, 1.0 / 3, width_x)
-    s2x = _sigmoid(XF, 2.0 / 3, width_x)
-
-    def _xblend(row_vals):
-        """Paint-over blend of 3 column values."""
-        v = np.full_like(XF, row_vals[0])
-        v = v + (row_vals[1] - v) * s1x
-        v = v + (row_vals[2] - v) * s2x
-        return v
-
-    # Build 7 x-blended layers: 3 inlet + 1 uniform + 3 outlet
-    layers = []
-    for r in range(3):
-        layers.append(_xblend(ctrl_inlet[r]))
-    layers.append(np.full_like(XF, val_uniform))
-    for r in range(3):
-        layers.append(_xblend(ctrl_outlet[r]))
-
-    # Y-direction boundaries (6 transitions between 7 layers)
+    # Keep scalar configuration arithmetic before native array evaluation.
     dy_in = y_trans_in / 3.0
     dy_out = y_trans_out / 3.0
     y_bounds = [
@@ -97,7 +73,8 @@ def sigmoid_field_2d(XF, YF,
         1.0 - y_trans_out + 2 * dy_out, # outlet row 1 → row 2
     ]
 
-    return _blend_1d(YF, y_bounds, layers, width_y)
+    return _native_sigmoid.field(XF, YF, ctrl_inlet, ctrl_outlet, val_uniform,
+                                 y_bounds, width_x, width_y)
 
 
 # ── Geometry Lookup Table ────────────────────────────────────
@@ -133,13 +110,8 @@ class GeometryLUT:
             self._precompute()
             self._save()
 
-        # Build interpolators
-        self._interp_eps = RegularGridInterpolator(
-            (self.L_vals, self.t_vals), self.eps_table, method='linear',
-            bounds_error=False, fill_value=None)
-        self._interp_A0 = RegularGridInterpolator(
-            (self.L_vals, self.t_vals), self.A0_table, method='linear',
-            bounds_error=False, fill_value=None)
+        self._native_lut = _native_lut.LUT(self.L_vals, self.t_vals,
+                                           self.eps_table, self.A0_table)
 
     def _precompute(self):
         """Compute epsilon and A_0 over the full (L, t) grid."""
@@ -188,10 +160,8 @@ class GeometryLUT:
         Returns (eps_arr, A0_arr) with same shape as input.
         """
         shape = L_arr.shape
-        pts = np.stack([L_arr.ravel(), t_arr.ravel()], axis=-1)
-        eps = self._interp_eps(pts).reshape(shape)
-        A0 = self._interp_A0(pts).reshape(shape)
-        return eps, A0
+        eps, A0 = self._native_lut.query(L_arr.ravel(), t_arr.ravel())
+        return eps.reshape(shape), A0.reshape(shape)
 
 
 # Singleton LUT cache
@@ -274,15 +244,9 @@ def build_continuous_geometry(x, L0, t0, y_trans_inlet, y_trans_outlet,
             ctrl_L_out[iy, ix] = L0 if fix_L else float(x[idx_out])
             ctrl_t_out[iy, ix] = t0 if fix_t else float(x[idx_out + 1])
 
-    # 2. Build fractional coordinate grids (support non-uniform)
-    if dx_arr is not None:
-        x_frac = (np.cumsum(dx_arr) - dx_arr / 2) / L_domain
-    else:
-        x_frac = np.linspace(0.5 / Nx, 1.0 - 0.5 / Nx, Nx)
-    if dy_arr is not None:
-        y_frac = (np.cumsum(dy_arr) - dy_arr / 2) / H_domain
-    else:
-        y_frac = np.linspace(0.5 / Ny, 1.0 - 0.5 / Ny, Ny)
+    # The grid owner retains each width array's original precision.
+    x_frac = _native_grid.sigmoid_centres(Nx, L_domain, dx_arr)
+    y_frac = _native_grid.sigmoid_centres(Ny, H_domain, dy_arr)
     XF, YF = np.meshgrid(x_frac, y_frac, indexing='ij')  # (Nx, Ny)
 
     # 3. Sigmoid-interpolate L and t fields
@@ -306,8 +270,8 @@ def _geometry_from_fields(L_field, t_field, tpms_type, k_s, lut, *, allow_extrap
         allow_extrap = _os_ax.environ.get(
             'TPMSHX_ALLOW_EXTRAP', '').lower() in ('1', 'true', 'yes')
     if not allow_extrap:
-        L_field = np.clip(L_field, *TRAIN_L)
-        t_field = np.clip(t_field, *TRAIN_T)
+        L_field = _native_sigmoid.clip(L_field, *TRAIN_L)
+        t_field = _native_sigmoid.clip(t_field, *TRAIN_T)
     else:
         Lo, Lhi = float(L_field.min()), float(L_field.max())
         to, thi = float(t_field.min()), float(t_field.max())

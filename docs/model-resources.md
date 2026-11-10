@@ -44,13 +44,16 @@ water = load_water('Diamond', source=water_workbook)
 Python 模型模块从同一数据构造常量，保留现有名称及 tuple/dict 类型。
 C++ 头文件生成器直接读取资源，不再导入数值模型。
 第一批统一数据来源；第二批将标准、CO2、非对称几何与 chi/Kss 计算迁入独立 C++ 几何核心。
-Sigmoid LUT 节点生成及其派生几何也使用该核心，设计场插值和网格仍属第三批。
-物性、DF、完整前处理及结果计算仍待后续迁移。
-六批迁移尚未完成。
+第三批将网格、端口、连续 XY/XYZ 场、sigmoid、线性 LUT、分区和 Gaussian 平滑接入同一几何库。
+数值公式由各自 C++ 核心负责；Python 保留配置、类型适配、数据对象、I/O、缓存和应用编排。
+本批不修改参数 schema、资源版本、单位、拟合系数或既有实验结论。
+第四批物性／DF／完整前处理和第五批结果计算仍待迁移。
+六批迁移尚未完成，本批平台 CI 和最终验收仍待完成。
 
 Python 几何接口保留类型、缓存与逐次调用的 chi 显式值／环境值／拟合选择，不保留数值 fallback。
 修改 C++ 函数或资源中编入库的参数后，须重新构建各受影响原生库并重启进程。
 构建、路径及运行库边界见[原生几何核心](cpp-migration.zh-CN.md#native-geometry-core)。
+XY、XYZ、LUT 与 Gaussian 的固定来源和局部数值处理见[设计场来源说明](../sjtu_tpmshx/solvers/native/geometry/fields-sources.md)。
 贯通、扫描、Richardson 和目标 C 研究位于
 `sjtu_tpmshx/development/runs/tools/asym_geometry_research.py`，shared 不保留旧转发入口。
 

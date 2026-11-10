@@ -30,45 +30,6 @@ std::string number(double value, int precision=6, bool fixed=false) {
 }
 }  // namespace
 
-std::vector<double> port_overlap_1d(ArrayView<const double> widths,
-                                  double lo, double hi, bool staggered) {
-    if (!widths.size || !std::isfinite(lo) || !std::isfinite(hi))
-        throw std::invalid_argument("port overlap requires nonempty widths and finite endpoints");
-    require_widths(widths, widths.size);
-    std::vector<double> edges(widths.size+1, 0.0);
-    for (std::size_t i=0; i<widths.size; ++i) edges[i+1]=edges[i]+widths[i];
-    const double length=edges.back();
-    if (staggered) {
-        for (std::size_t i=0; i<widths.size; ++i) edges[i+1]-=widths[i]/2;
-        edges.push_back(length);
-    }
-    const double scale=std::max({std::abs(lo),std::abs(hi),std::abs(length)});
-    const double roundoff=8*(std::nextafter(scale,std::numeric_limits<double>::infinity())-scale);
-    std::vector<double> result(edges.size()-1);
-    for (std::size_t i=0; i<result.size(); ++i) {
-        double overlap=std::min(edges[i+1],hi)-std::max(edges[i],lo);
-        if (std::abs(overlap)<=roundoff) overlap=0;
-        const double width=staggered ? edges[i+1]-edges[i] : widths[i];
-        result[i]=std::clamp(overlap/width,0.0,1.0);
-    }
-    return result;
-}
-
-std::pair<std::vector<double>,std::vector<double>> port_fractions_1d(
-    ArrayView<const double> widths,double lo,double hi,bool uniform) {
-    auto raw=port_overlap_1d(widths,lo,hi);
-    auto profile=raw;
-    if (!uniform) for (std::size_t i=0;i<raw.size();++i) if(raw[i]>0.99) {
-        for (std::size_t d=1;d<5;++d) {
-            if ((i>=d && raw[i-d]<0.01) || (i+d<raw.size() && raw[i+d]<0.01)) {
-                profile[i]=1.0-0.8*std::exp(-static_cast<double>(d));
-                break;
-            }
-        }
-    }
-    return {std::move(raw),std::move(profile)};
-}
-
 PressurePortState inlet_pressure_state(
     const GridView& grid, ArrayView<const double> pressure,
     ArrayView<const double> inlet_fraction, ArrayView<const double> outlet_fraction,

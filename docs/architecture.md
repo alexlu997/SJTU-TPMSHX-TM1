@@ -21,7 +21,7 @@ Fixed coefficients, bounds and reference states come from
 [model_parameters_v1.json](../sjtu_tpmshx/shared/configs/model_parameters_v1.json).
 The `shared.configs.model_parameters` reader uses only the Python standard library.
 Python model modules and the native header generator use the same resource data.
-The first migration stage unified data sources. The second moves geometry calculations to C++.
+The first migration stage unified data sources. The second moved geometry calculations to C++.
 The geometry core owns standard, CO2 and asymmetric geometry, chi/Kss, and sigmoid LUT nodes and derived geometry.
 `shared/models/_native_geometry.py` uses ctypes to load geometry ABI 1 on demand.
 It loads a separate prebuilt library without importing the solver backend.
@@ -36,9 +36,11 @@ Python selects dtype metadata and adapts output types; it supplies no numerical 
 Formal nonzero asymmetric preparation keeps the original explicit Python-float conversion of L/t and length.
 Its native arithmetic stays float64.
 
-Grid and design-field interpolation, properties, DF, full preparation and result calculations remain in later stages.
+Stage three adds grids, ports, axis maps, continuous XY/XYZ fields, sigmoid, linear LUTs, zones and Gaussian filtering to the same library.
+Each migrated numerical rule has one C++ owner. Python keeps configuration, data objects, type/array adaptation, I/O, caches and application orchestration.
+Stage four still requires properties, DF and full preparation. Stage five still requires result calculations.
 The six-stage migration remains incomplete. See [model resources](model-resources.en.md#当前资源与研究输出).
-Earlier solver CI records do not establish acceptance for this geometry migration batch.
+Earlier solver CI records do not establish acceptance for this batch. Complete-case checks, supported-platform CI and final acceptance remain required.
 
 The native full-compute CC route uses the existing air/water integral h(T)
 model through strict model-h drivers. Earlier variable-cp m*cp*T failures
@@ -837,7 +839,7 @@ domain edges and area correction stay the same. The cache retains two
 topology/resolution pairs. At N=128, each index uses 32 MiB in addition to the
 16 MiB phi grid. The first query builds the native index.
 Raw voxel and marching-cubes geometry also use C++.
-Sigmoid LUT node generation uses native raw geometry; LUT interpolation remains in Python.
+Sigmoid LUT node generation uses native raw geometry. Linear LUT interpolation now uses the native field core.
 Percolation, scans, Richardson extrapolation and target-C research use
 `development/runs/tools/asym_geometry_research.py`. Shared modules keep no forwarding aliases.
 
@@ -854,6 +856,51 @@ See [geometry build and deployment](cpp-migration.md#native-geometry-core) for l
 Changing C++ functions or compiled model data requires a rebuild and process restart.
 Historical result reading and offline postprocessing do not load the geometry library.
 Old checkpoints retain their exact solver runtime; geometry-only publication does not replace it.
+
+<a id="native-grids-and-design-fields"></a>
+
+The native grid and field boundaries keep these distinct numerical contracts:
+
+| Owner | Contract |
+| --- | --- |
+| `grid.cpp`, `ports.cpp` | Uniform, aligned, wall and port widths; GUI adaptive counts and 3D suggestions; axis maps; overlap/profiles. Pressure and preparation use one port implementation. |
+| `field_continuous.cpp`, `continuous/xy_fitpack.c` | Nondegenerate XY uses the restricted SciPy 1.18.1 FITPACK first-fit, `s=0` route. |
+| `continuous/tensor_spline.cpp` | XYZ and singleton XY axes use sequential one-dimensional fits and samples, in x/y/z order. |
+| `field_sigmoid.cpp`, `field_lut.cpp` | Ordered sigmoid blending, final clipping and separate linear LUT arithmetic. They are not spline routes. |
+| `zones.cpp` | Existing ordered zone selection and sigma=2, radius=8, reflect Gaussian filtering in grid-index units. Continuous splines do not use this filter. |
+
+Grid scalar metadata preserves NumPy16/32/64 intermediate rounding before float64 output storage.
+Mixed Python-float sum prefixes, first-maximum allocation ties and final-cell compensation retain their original order.
+Raw staggered overlap retains its narrow array arithmetic and output dtype.
+The original full-solver double entries keep their finite, positive-width checks.
+Python keeps configuration `set`/`sorted`, control-axis `np.linspace` and the original Continuous `np.isclose` coverage check.
+Continuous NumPy integer counts retain their initial quotient promotion metadata.
+
+XY and XYZ keep distinct solve orders. The XYZ scalar band solve is not a bitwise LAPACK/BLAS replacement.
+Raw spline and physical-polynomial checks keep their existing `1e-13` and `3e-14` limits.
+XY uses explicit Givens FMA directions and a local contraction setting.
+Gaussian uses explicit pair accumulation fusion on Apple arm64.
+Other grid/field calculations retain strict contraction settings. These choices require separate Windows checks.
+
+The same library exports two ABI-1 protocols. Their error codes must use separate mappers:
+
+| Protocol | Status 1 | Status 2 | Status 3 |
+| --- | --- | --- | --- |
+| Geometry, grid and zones | Invalid input | Domain error; `ZeroDivisionError` | Runtime error |
+| Field interpolation, sigmoid and LUT | Invalid input | Allocation failure; `MemoryError` | Numerical/runtime error |
+
+C calls borrow aligned buffers with explicit element counts. They publish caller-owned outputs only after successful calculation.
+XY owns its fitted coefficients. Its Python owner retains the creating library and releases the handle after its last query.
+LUT objects retain captured axis/table references and the creating library; query buffers are borrowed only during the call.
+Source-table in-place updates remain visible. Attribute rebinding does not retarget a constructed LUT.
+Each table selects its fast64/general path before double-buffer packing, using its current dtype, byte order and writability.
+Returned NumPy arrays do not expose native temporary storage.
+
+Replaced Python interpolation, overlap, zone and filter bodies are retired. Independent references remain under `development/tests/`.
+Python retains DTOs, NPZ/cache I/O, validation, GUI and BO orchestration.
+There is no numerical fallback or numerical callback into Python.
+No new distributed library or numerical framework is added.
+See the [fixed sources and local changes](../sjtu_tpmshx/solvers/native/geometry/fields-sources.md) for provenance and license duties.
 
 Each continuous-field axis accepts at least one control. A singleton is
 recorded at the domain midpoint and stays constant along that axis. Other
@@ -1349,8 +1396,8 @@ and the flag does not change 3D flow.
 The previous air/air screening optimizer, preparation, frozen-B backend and metric
 reducers are retired. The [history index](history/retired-tools.md) identifies
 their original code and numerical references. Current multi-condition search
-uses full preparation and execution. `shared.models.continuous_field` keeps XY/XYZ
-interpolation for this path, preview and nTop export. Saved decisions must be
+uses full preparation and execution. `shared.models.continuous_field` keeps the public DTO and native XY/XYZ adapter
+for this path, preview and nTop export. Saved decisions must be
 decoded with their original bounds, control grid, symmetry and spline order.
 
 The current geometry window is L=4..8 mm, t=0.3..0.6 mm. This does not extend

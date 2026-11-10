@@ -32,7 +32,7 @@ def test_port_roundoff_does_not_open_an_adjacent_wall(staggered):
 
 @pytest.mark.parametrize('depth', [None, np.array([.02, .04])])
 def test_cell_average_is_invariant_to_subdividing_one_cell(depth):
-    from sjtu_tpmshx.shared.models.grid import cell_average
+    from sjtu_tpmshx.development.tests.grid_reference import cell_average
 
     field = np.array([[300., 340.], [400., 440.]])
     widths = [np.array([.001, .009]), np.array([.03, .01])]
@@ -50,7 +50,8 @@ def test_cell_average_is_invariant_to_subdividing_one_cell(depth):
 @pytest.mark.parametrize('counts', [(84, 24), (92, 14, 10)])
 def test_port_wall_grid_prepared_counts_and_nested_port_area(counts):
     from dataclasses import asdict
-    from sjtu_tpmshx.shared.models.grid import split_cells, _port_overlap_1d
+    from sjtu_tpmshx.development.tests.grid_reference import split_cells
+    from sjtu_tpmshx.shared.models.grid import _port_overlap_1d
     from sjtu_tpmshx.preprocess.api import prepare_case
 
     config = ComputeConfig()

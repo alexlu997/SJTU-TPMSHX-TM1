@@ -1,6 +1,7 @@
 #pragma once
 
 #include "tpmshx/finite_volume.hpp"
+#include "tpmshx/ports.hpp"
 
 #include <optional>
 #include <stdexcept>
@@ -9,14 +10,6 @@
 #include <vector>
 
 namespace tpmshx {
-
-// Existing rectangular-port overlap, including the spatial-ULP wall rule.
-// staggered=true returns n+1 fractions on CVs between adjacent cell centres.
-std::vector<double> port_overlap_1d(ArrayView<const double> widths,
-                                    double lo, double hi, bool staggered = false);
-// Geometric overlap and original imposed (optional four-cell tapered) profile.
-std::pair<std::vector<double>,std::vector<double>> port_fractions_1d(
-    ArrayView<const double> widths, double lo, double hi, bool uniform = false);
 
 struct PressureIteration {
     std::string stage;

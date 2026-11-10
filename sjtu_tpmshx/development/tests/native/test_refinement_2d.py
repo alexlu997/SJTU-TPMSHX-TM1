@@ -11,7 +11,8 @@ import sys
 import numpy as np
 import pytest
 from scipy.interpolate import RegularGridInterpolator
-from sjtu_tpmshx.shared.models.grid import split_cells, _aligned_grid, _port_fractions_1d
+from sjtu_tpmshx.development.tests.grid_reference import split_cells
+from sjtu_tpmshx.shared.models.grid import _aligned_grid, _port_fractions_1d
 
 
 

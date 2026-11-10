@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.shared.models.field_coordinates_3d import _solver_staggered_to_real
+from sjtu_tpmshx.development.tests.field_coordinates_reference import _solver_staggered_to_real
 from sjtu_tpmshx.shared.models.grid_3d import _resolve_axis_map
 
 

@@ -7,7 +7,7 @@ Fluid A is air +x with a full-face (y-symmetric) inlet, so the whole coupled
 solution mirrors.
 
 This isolates the reverse-dir velocity-transform handling
-(_solver_staggered_to_real / _solver_velocity_to_real): the forward (+y, dir=2,
+(_solver_staggered_to_real / _solver_velocity_to_real in development references): the forward (+y, dir=2,
 is_reverse=False) path is the trusted reference; the reverse (-y, dir=3) path is
 under test. A missing stream-axis flip in the reverse handling breaks the
 mirror symmetry.

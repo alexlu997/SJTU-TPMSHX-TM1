@@ -1,8 +1,9 @@
-# Native geometry library
+# Native geometry and design-field library
 
 This target owns the standard, CO2-table and asymmetric geometry calculations.
+It also owns grids, physical ports, axis maps, continuous XY/XYZ fields, sigmoid, linear LUTs, zones and Gaussian filtering.
 It has no link dependency on the full solver, CoolProp, Eigen, SuperLU or AMGCL.
-The build uses generated model data and the C++ standard runtime.
+The build uses generated model data, the C++ standard runtime and a restricted C17 FITPACK subset.
 The library does not call Python, NumPy or scikit-image at runtime.
 The Python application uses a thin C ABI binding.
 There is no runtime compiler, source download or numerical fallback.
@@ -15,6 +16,9 @@ It does not define a second geometry implementation.
 
 | Target | Interface or check |
 | --- | --- |
+| `tpmshx_grid` | Shared static grid/port owner, also used by the pressure solver. |
+| `tpmshx_xy_fitpack` | Restricted C17 bivariate first-fit interpolation. |
+| `tpmshx_fields` | Static continuous, sigmoid and LUT calculations. |
 | `tpmshx_geometry` | Static C++ calculation core. |
 | `tpmshx_geometry_c` | Static C ABI library linked to that core. |
 | `tpmshx_geometry_shared` | Shared C ABI library linked to that core. |
@@ -22,8 +26,11 @@ It does not define a second geometry implementation.
 | `geometry_c_shared` | The same C11 caller linked to the shared C ABI. |
 | `geometry_kernel_smoke` | C++ caller for direct geometry rules and synthetic inputs. |
 
-The public C interface is [geometry_c_api.h](../include/tpmshx/geometry_c_api.h).
-The C++ interface is [geometry.hpp](../include/tpmshx/geometry.hpp).
+The geometry C interface is [geometry_c_api.h](../include/tpmshx/geometry_c_api.h).
+Grid and zone entries use [grid_c_api.h](../include/tpmshx/grid_c_api.h) and [zones_c_api.h](../include/tpmshx/zones_c_api.h).
+Field entries use [field_continuous_c_api.h](../include/tpmshx/field_continuous_c_api.h),
+[field_sigmoid_c_api.h](../include/tpmshx/field_sigmoid_c_api.h) and [field_lut_c_api.h](../include/tpmshx/field_lut_c_api.h).
+Direct C++ interfaces include [geometry.hpp](../include/tpmshx/geometry.hpp), [grid.hpp](../include/tpmshx/grid.hpp) and [ports.hpp](../include/tpmshx/ports.hpp).
 The [C caller](../tests/geometry_c_smoke.c) checks fields, ownership, errors and unchanged outputs after failure.
 The [C++ caller](../tests/geometry_kernel_smoke.cpp) checks inclusive counts and injected model or node data.
 A caller result is separate from full numerical, platform and desktop acceptance.
@@ -57,6 +64,50 @@ Geometry-only publication does not replace solver or run-state files.
 The runtime loader override is `TPMSHX_GEOMETRY_LIBRARY`.
 Desktop packaging uses a separate prebuilt input, `TPMSHX_NATIVE_GEOMETRY_LIBRARY`.
 It places the geometry library beside the solver library under the bundle's `native/` directory.
+The new static targets do not add a distributed library or change these commands and paths.
+Rebuild each affected library after changing C/C++ source or compiled model data. Then restart the process.
+
+## Grid and design-field rules
+
+Each migrated numerical rule has one native owner. Python keeps configuration, DTOs, array adaptation, I/O, caches, GUI and BO orchestration.
+The replaced Python interpolation, overlap, zone and filter bodies are retired.
+Independent references remain under `development/tests/`; production does not import them.
+No numerical callback into Python, new framework or runtime fallback is used.
+
+Grid construction keeps original scalar precision, mixed sum order, allocation ties and final-cell compensation.
+GUI adaptive counts and three-dimensional count suggestions also use this native owner.
+Staggered overlap keeps the narrow `np.r_` edge/width arithmetic; nonstaggered lower edges use the original float64 concatenation.
+The same port loop serves typed preparation and full-solver double entries.
+The latter retain their original physical input checks. Raw typed inputs keep original nonfinite and nonpositive arithmetic.
+Python retains configuration `set`/`sorted`, control-axis `np.linspace` and Continuous coverage validation.
+
+Nondegenerate XY uses the SciPy 1.18.1 first-fit, `s=0` FITPACK subset.
+XYZ and singleton XY axes use sequential one-dimensional fitting and sampling.
+The scalar band solve is not a bitwise LAPACK/BLAS replacement.
+Sigmoid retains ordered blending. The LUT keeps separate fast64/general paths, singleton axes and end-cell extrapolation.
+Zone selection retains its original order. Its sigma=2 Gaussian uses radius=8, reflect boundaries and axis 0 before axis 1.
+The Gaussian length remains in grid-index units. Continuous splines do not use this filter.
+
+Two ABI-1 protocols share this library file. They have different status contracts:
+
+| Protocol | Status 1 | Status 2 | Status 3 |
+| --- | --- | --- | --- |
+| Geometry, grid and zones | Invalid input | Domain error | Runtime error, including allocation |
+| Continuous fields, sigmoid and LUT | Invalid input | Allocation failure | Numerical/runtime error |
+
+The geometry mapper raises `ZeroDivisionError` for status 2. The field mapper raises `MemoryError` for status 2.
+C buffers are borrowed for the call, with explicit element counts and alignment requirements.
+Outputs belong to the caller and remain unchanged on failure. No C++ exception crosses the C boundary.
+XY handles own fitted coefficients; release them once after their final query.
+The Python owner retains the creating library until release.
+LUT objects retain captured axes, table references and the creating binding; they do not own persistent native table handles.
+In-place table changes remain visible. Attribute rebinding does not retarget a constructed LUT.
+Each query selects each table's arithmetic path from its current dtype, byte order and writability before buffer conversion.
+Returned arrays do not borrow native temporary storage.
+
+See [field sources and local changes](fields-sources.md) for algorithms, fusion rules and license duties.
+Source integration does not establish complete-case, Windows or final CI acceptance.
+Properties, DF, complete preparation and result mathematics remain later migration work.
 
 ## Upstream sources
 
@@ -90,6 +141,11 @@ Source distributions must retain their copyright, conditions and disclaimers.
 Binary distributions must provide these notices in accompanying materials.
 Do not use upstream names to endorse a derived product without permission.
 These duties also apply to a geometry-only binary distribution.
+
+The field and filter subsets use SciPy **1.18.1** sources.
+The [field source record](fields-sources.md) lists fixed FITPACK, basis, LUT and ndimage references and local changes.
+Retain [scipy-LICENSE.txt](../licenses/scipy-LICENSE.txt) and [ndimage-LICENSE.txt](../licenses/ndimage-LICENSE.txt) unchanged with the NumPy notice.
+These BSD-3-Clause notices also apply when only the geometry/design-field library is distributed.
 
 ## Local changes and numerical rules
 
@@ -145,7 +201,9 @@ The sum adds its subtotal to positive zero before division by two.
 The port uses `std::sqrt`; NumPy can use a SIMD square-root operation.
 Actual platform comparisons remain necessary.
 
-CMake disables fast-math and contraction for this core on Clang/GCC.
-It also disables builtin pow, sin and cos substitutions.
-MSVC uses `/fp:strict`.
+CMake disables fast-math and implicit contraction for the C++ grid, field and geometry targets on Clang/GCC.
+It also disables builtin pow, sin and cos substitutions for those targets.
+The separate XY C target uses local `-ffp-contract=fast` and explicit `fma` directions in its Givens operations.
+Gaussian uses explicit `std::fma` for the locked Apple-arm64 symmetric pair loop; other platforms keep separate multiply/add operations.
+MSVC uses `/fp:strict`; explicit fused operations remain explicit.
 These options preserve the intended arithmetic; they do not prove cross-platform identity.

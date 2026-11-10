@@ -26,7 +26,7 @@ Usage:
 import numpy as np
 from dataclasses import dataclass, field
 from typing import List
-from . import tpms_calc, _native_geometry
+from . import tpms_calc, _native_geometry, _native_zones
 
 from sjtu_tpmshx.shared.logutil import get_logger
 
@@ -161,26 +161,9 @@ class ZoneConfig:
         if axis not in ('x', 'y'):
             raise ValueError(f'Zone axis must be x or y, got {axis!r}')
         self.validate()
-        N_ax = Ny if axis == 'y' else Nx
-        widths = dy_arr if axis == 'y' else dx_arr
-        if widths is None:
-            d_ax = H / N_ax
-            fc = np.array([(k + 0.5) * d_ax / H for k in range(N_ax)])
-        else:
-            widths = np.asarray(widths, dtype=np.float64)
-            fc = (np.cumsum(widths) - 0.5 * widths) / H
-
-        zone_id_1d = np.zeros(N_ax, dtype=np.int32)
-        for k in range(N_ax):
-            for zi, z in enumerate(self.zones):
-                if z.y_frac_start <= fc[k] < z.y_frac_end:
-                    zone_id_1d[k] = zi
-                    break
-            else:
-                zone_id_1d[k] = len(self.zones) - 1
-
-        zone_id = np.broadcast_to(zone_id_1d if axis == 'y' else zone_id_1d[:, None],
-                                  (Nx, Ny)).copy()
+        zone_id = _native_zones.assign(
+            0, Nx, Ny, [(z.y_frac_start, z.y_frac_end, 0., 0.) for z in self.zones],
+            axis=1 if axis == 'y' else 0, domain=H, dx=dx_arr, dy=dy_arr)
         return {**_geometry_fields(zone_id, [(z.L_mm, z.t_mm) for z in self.zones],
                                    self.tpms_type, self.k_s), 'axis': axis}
 
@@ -236,22 +219,6 @@ class ZoneConfig:
     def build_grid_geometry(Nx, Ny, grid_cells, tpms_type, k_s,
                             dx_arr=None, dy_arr=None):
         """Sample rectangle geometry with the normal builder's first-cell fallback."""
-        # Cell-centre fractional positions for non-uniform grid support
-        if dx_arr is not None:
-            dx = np.asarray(dx_arr, dtype=np.float64)
-            x_total = dx.sum()
-            x_cum = np.concatenate([[0.0], np.cumsum(dx)])
-            xf_centres = 0.5 * (x_cum[:-1] + x_cum[1:]) / x_total
-        else:
-            xf_centres = (np.arange(Nx) + 0.5) / Nx
-        if dy_arr is not None:
-            dy = np.asarray(dy_arr, dtype=np.float64)
-            y_total = dy.sum()
-            y_cum = np.concatenate([[0.0], np.cumsum(dy)])
-            yf_centres = 0.5 * (y_cum[:-1] + y_cum[1:]) / y_total
-        else:
-            yf_centres = (np.arange(Ny) + 0.5) / Ny
-
         # Collect unique y and x boundaries for visualization
         y_bounds = set()
         x_bounds = set()
@@ -259,16 +226,9 @@ class ZoneConfig:
             y_bounds.update([gc['y0'], gc['y1']])
             x_bounds.update([gc['x0'], gc['x1']])
 
-        zone_id = np.zeros((Nx, Ny), dtype=np.int32)
-        for i in range(Nx):
-            xf = float(xf_centres[i])
-            for j in range(Ny):
-                yf = float(yf_centres[j])
-                # Find which grid cell this belongs to
-                for gi, gc in enumerate(grid_cells):
-                    if gc['x0'] <= xf < gc['x1'] and gc['y0'] <= yf < gc['y1']:
-                        zone_id[i, j] = gi
-                        break
+        zone_id = _native_zones.assign(
+            1, Nx, Ny, [(gc['x0'], gc['x1'], gc['y0'], gc['y1']) for gc in grid_cells],
+            dx=dx_arr, dy=dy_arr)
 
         return {
             **_geometry_fields(zone_id, [(cell['L'], cell['t']) for cell in grid_cells],
