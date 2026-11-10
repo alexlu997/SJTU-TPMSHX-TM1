@@ -57,7 +57,7 @@ Number weighted_mean(const Array& values, const Array& weights, Diagnostics& dia
     if (values.raw().rank!=1 || weights.raw().rank!=1 || values.size()!=weights.size())
         throw std::invalid_argument("zone weights must match the selected values");
     const auto source=(integer_type(values.raw().dtype) || values.raw().dtype==TPMSHX_RESULT_BOOL)
-        ?TPMSHX_RESULT_F64:values.raw().dtype;
+        ?static_cast<std::uint32_t>(TPMSHX_RESULT_F64):values.raw().dtype;
     const auto dtype=a::promote_dtype(source,weights.raw().dtype);
     auto typed_weights=a::cast(weights,dtype,diagnostics);
     const auto denominator=a::sum(typed_weights.array(),diagnostics);
