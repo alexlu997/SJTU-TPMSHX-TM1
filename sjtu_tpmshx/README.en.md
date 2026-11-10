@@ -27,28 +27,48 @@ Current full computations support rectangular 2D and cuboid 3D domains.
 See the [examples](../examples/three_module/) and [data contract](../docs/contracts/three_module_v1/README.md) for public inputs and file transport.
 The [capabilities](../docs/capabilities.en.md) list approximation modes and extension status.
 
-The numerical owners for standard, CO2 and asymmetric geometry, plus chi/Kss, are
-[native/src/geometry.cpp](solvers/native/src/geometry.cpp) and
-[native/src/asym_geometry.cpp](solvers/native/src/asym_geometry.cpp).
-[shared/models/_native_geometry.py](shared/models/_native_geometry.py) uses ctypes to load the independent geometry ABI 1 library lazily.
-It keeps Python public entries, types and caches without importing the solver backend.
-Stage three puts grids, ports and six-direction axis mapping in
-[grid.cpp](solvers/native/src/grid.cpp) and [ports.cpp](solvers/native/src/ports.cpp).
-Pressure solvers and preparation use the same port implementation.
-[field_continuous.cpp](solvers/native/src/field_continuous.cpp), the sigmoid/LUT cores and [zones.cpp](solvers/native/src/zones.cpp)
-own design-field interpolation, zones and Gaussian filtering. They use the same geometry library.
-Python keeps configuration, type/array adaptation, data objects, I/O, caches, GUI and BO orchestration.
-The replaced Python numerical bodies are retired. Independent references serve development regression tests only.
-Stage four puts properties and closures in [fluid_properties.cpp](solvers/native/src/fluid_properties.cpp) and `preparation_properties.cpp`.
-The `preparation_df*.cpp` and `preparation_flow.cpp` sources own fixed DF, experiment corrections, projection, fixed-flow and design preparation mathematics.
-[shared/models/_native_preparation.py](shared/models/_native_preparation.py) loads independent preparation ABI 1 on demand. Geometry ABI 1 and field ABI 2 stay unchanged.
-Python keeps configuration, DTOs, I/O, caches, GUI/BO policies and offline fitting. Development references remain independent of production mathematics.
-Stage five puts metrics, physical balances, zone statistics and numerical qualification checks in the independent C++ [result core](solvers/native/result/).
-[shared/_native_result.py](shared/_native_result.py) loads result ABI 2 on demand. File reads load no solver, preparation or result library.
-Python keeps evidence selection, status interpretation and file interfaces. The four daily entries stay unchanged.
-Edit a numerical function in its C++ source, then rebuild and restart the process.
-Numerical and platform acceptance for stage five is in progress. The six-stage goal remains incomplete.
-See the [native result core](../docs/cpp-migration.md#native-result-core) for independent builds and four-library delivery.
+## Edit numerical functions
+
+Use this table to find the C++ owner of a numerical rule.
+`shared/domain/` defines public input/output contracts. Python bindings pass types and arrays.
+
+| Responsibility | C++ files and representative functions |
+| --- | --- |
+| Cell geometry, chi and solid conductivity | [geometry.cpp](solvers/native/src/geometry.cpp): `standard_geometry`, `solid_conductivity`; [asym_geometry.cpp](solvers/native/src/asym_geometry.cpp) |
+| Grids and physical ports | [grid.cpp](solvers/native/src/grid.cpp): `uniform`, `wall`; [ports.cpp](solvers/native/src/ports.cpp): `port_overlap_1d`, `port_fractions_1d` |
+| Continuous fields, sigmoid, LUTs and zones | [field_continuous.cpp](solvers/native/src/field_continuous.cpp); [field_sigmoid.cpp](solvers/native/src/field_sigmoid.cpp); [field_lut.cpp](solvers/native/src/field_lut.cpp); [zones.cpp](solvers/native/src/zones.cpp) |
+| Properties and Nu closures | [fluid_properties.cpp](solvers/native/src/fluid_properties.cpp): `PropertyEvaluator::evaluate`, `fluid_nusselt`; [preparation_properties.cpp](solvers/native/src/preparation_properties.cpp) |
+| Fixed DF, corrections, projection and prescribed flow | [preparation_df.cpp](solvers/native/src/preparation_df.cpp): `fixed_df`; [preparation_df_corrections.cpp](solvers/native/src/preparation_df_corrections.cpp); [preparation_df_projection.cpp](solvers/native/src/preparation_df_projection.cpp); [preparation_flow.cpp](solvers/native/src/preparation_flow.cpp): `inlet_capacity_2d`, `inlet_speed` |
+| Full 2D/3D and Quick Design | [full_2d.cpp](solvers/native/src/full_2d.cpp): `solve_full_2d`; [full_3d.cpp](solvers/native/src/full_3d.cpp): `solve_full_3d`; [quick_design_driver.cpp](solvers/native/src/quick_design_driver.cpp): `solve_quick_design` |
+| Metrics, physical balances, zone statistics and checks | [result_metrics.cpp](solvers/native/src/result_metrics.cpp): `pressure_face`, `boundary_enthalpy_duty`; [result_balance.cpp](solvers/native/src/result_balance.cpp): `mass`, `energy`, `zone_std`; [result_checks.cpp](solvers/native/src/result_checks.cpp): `collect_range`, `strict_certificate` |
+
+Geometry uses geometry ABI 1 and field ABI 2. Preparation uses preparation ABI 1. Results use result ABI 2.
+Start at the drivers above for SIMPLE, pressure and energy implementations. See [C++ interfaces](../docs/cpp-migration.md) for their boundaries.
+Python keeps configuration, DTOs, I/O, caches, evidence selection, status interpretation, the GUI, searches and offline research.
+See [retained Python responsibilities](../docs/architecture.md#retained-python-responsibilities) for their exact scope.
+
+### Rebuild after a change
+
+After changing C++ functions or compiled model data, pass the [current environment checks](../README.en.md#first-run).
+Rebuild and publish the four libraries from the repository root. Then restart the process.
+The commands below use the base lock. If `.venv-path` selects a BO environment, use `bo-macos.txt` or `bo-windows.txt` from `engineering/requirements/`.
+For first-time tool and dependency setup, follow [C++ builds](../docs/cpp-migration.md#native-geometry-core) before running these commands.
+
+macOS:
+
+```sh
+PYTHON="$(head -n 1 .venv-path)"
+"$PYTHON" engineering/scripts/build_native_dependencies.py publish --python-lock engineering/requirements/base.txt
+```
+
+Windows (PowerShell):
+
+```powershell
+$tm1Python = Get-Content .venv-path -TotalCount 1
+& $tm1Python engineering/scripts/build_native_dependencies.py publish --python-lock engineering/requirements/base.txt
+```
+
+See [C++ builds](../docs/cpp-migration.md#native-geometry-core) for separate component publication and retained checkpoint runtimes.
 
 <a id="三模块主线"></a>
 <a id="支撑模块与应用入口"></a>

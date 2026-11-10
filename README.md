@@ -22,15 +22,11 @@ GUI、CLI、设计与恢复实现位于 `applications/`；测试、验证和诊�
 根 [engineering/](engineering/) 保存构建脚本、打包配置和依赖锁；[docs/contracts/](docs/contracts/) 保存数据契约。
 `.github/workflows/` 保存 CI 配置。GUI 与 CLI 继续用 `python -m sjtu_tpmshx.main` 和 `python -m sjtu_tpmshx.cli` 启动。
 
-标准、CO2、非对称几何与 chi/Kss 已使用独立 C++ 几何核心。
-第三批将网格、端口、六方向轴映射、连续 XY/XYZ 场、sigmoid、线性 LUT、分区和 Gaussian 平滑接入同一几何库。
-Python 保留配置、数据对象、文件读写、缓存、GUI 和 BO 编排。
-第四批将物性、闭合、固定 DF／实验修正、投影、固定流量和设计准备数值接入独立 preparation ABI 1 库。
-前处理需要匹配的几何库和准备库；完整计算还需要求解库与结果库。完整发布命令部署四个库。
-第五批已接入独立结果核心，负责指标、物理平衡、分区统计和数值资格检查；数值与平台验收仍在进行。
-第六批消费者／退役终审尚未完成，六批目标尚未完成。
-本批验收须包含受支持平台 CI 和最终检查；既有求解器 CI 不替代它们。
-构建、运行库与研究入口见[原生几何说明](docs/cpp-migration.zh-CN.md#native-geometry-core)。
+几何、物性与闭合、数值求解和结果计算由包内 C++ 核心负责。
+Python 保留公共入口、配置、数据对象、文件读写、缓存、GUI 和设计／优化编排。
+前处理使用匹配的几何、准备和结果库；其中结果库负责范围采集。完整计算还使用求解库。
+具体 C++ 文件、函数及修改后的重建步骤见[源码地图](sjtu_tpmshx/README.md)。
+实现范围和交付记录集中在[C++ 说明](docs/cpp-migration.zh-CN.md#cpp-core-scope)。
 
 0.2 仅使用 C++ 数值后端，保留 Python/Qt 界面、CLI、前后处理、优化和快速设计。
 完整 2D/3D 计算及快速设计仍通过相同的准备态和结果接口运行。
@@ -659,9 +655,9 @@ Pareto CSV 仍可导出几何；旧筛选模式不能再执行或重新计算指
 唯一数值后端为 C++。默认查找 macOS arm64 或 Windows x64 本机库，
 也可用 `RunControl(native_library=...)` 或 CLI `--native-library` 指定路径。
 Quick Design 和完整二维／三维求解的构建及能力边界见
-[C++ 迁移说明](docs/cpp-migration.zh-CN.md)。既有求解器迁移记录中的原生构建、独立调用及数值对照已通过
-macOS/Python 3.13 与 Windows/Python 3.12、3.13 的必需 CI；
-第二批几何迁移的检查须单独记录。可见桌面交付与完整性能验收仍各自保留。
+[C++ 说明](docs/cpp-migration.zh-CN.md#cpp-core-scope)。各批实现范围与交付记录集中在该文档。
+可见桌面交付、完整性能与实验精度分别验收。
+
 完整二维接口为 ABI 2，必须同步分发库、头文件和适配器。
 Python 数值后端、混合 sweep 入口及 Python 专用研究入口均已退役。
 旧结果仍可读取；旧研究 Case 不再执行，普通工况须通过当前 `ComputeConfig` 准备。

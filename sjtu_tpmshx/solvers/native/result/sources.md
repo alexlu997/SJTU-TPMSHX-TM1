@@ -116,4 +116,4 @@ Frozen applications use their `native/` directory.
 Rebuild and restart the process after a C++ change.
 
 Local builds, platform CI, original numerical comparisons, desktop operation and experimental validation are separate evidence.
-The six-stage migration remains incomplete until the final retirement and delivery checks pass.
+See [implementation and retirement scope](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/main/docs/cpp-migration.md#cpp-core-scope).

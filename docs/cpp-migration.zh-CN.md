@@ -21,13 +21,24 @@ application -> preprocess.api -> CaseData -> solvers.api -> FieldResult
 
 当前数值检查采用独立公式、离散账本、制造解、原生组件重放及固定历史参考。原 Python/C++ 比较保留为[0.1 记录构建的证据](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/v0.1.0/docs/cpp-migration.zh-CN.md)，0.2 不保留 Python 求解器重跑这些对照。
 
+<a id="cpp-core-scope"></a>
+
+## 2026-11 C++ 核心范围
+
+本次六批范围已落实：模型数据归集、几何／设计场、准备、结果核心及消费者／退休收口，保留原算法、功能、物理门与文件接口。
+各批变更记录：[数据来源 PR275](https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/275)、[几何 PR276](https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/276)、[网格与场 PR277](https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/277)、[准备 PR278](https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/278)、[结果 PR279](https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/279)。
+消费者收口移除了过期 GUI 插值预热；显式对象协议、配置、I/O、GUI／搜索／研究、注入 ledger 和审计／导出摘要保持已声明边界。
+[源码地图](../sjtu_tpmshx/README.md)列出 C++ 修改位置；具体保留范围见[Python 职责](architecture.zh-CN.md#retained-python-responsibilities)。
+这六批与文末历史求解器迁移的 0–4 阶段不同。
+PR CI、合并后 main CI、可见桌面交付、性能与实验精度仍分别验收。
+
 <a id="native-geometry-core"></a>
 
 ## 原生几何核心
 
-第二批将标准、CO2、非对称几何与 chi/Kss 迁入 C++。
+独立几何核心负责标准、CO2、非对称几何与 chi/Kss。
 Sigmoid LUT 节点和派生几何也使用该核心。
-第三批增加网格、端口、六方向轴映射、连续 XY/XYZ 场、sigmoid、线性 LUT、分区和 Gaussian 平滑。
+同一核心还负责网格、端口、六方向轴映射、连续 XY/XYZ 场、sigmoid、线性 LUT、分区和 Gaussian 平滑。
 这些计算使用同一 `tpmshx_geometry_shared` 文件，不新增运行库或数值框架。
 数值源码仍在 `sjtu_tpmshx/solvers/native/`。
 `shared/models/_native_geometry.py` 在几何查询需要时，通过 ctypes 加载独立几何 ABI 1 库。
@@ -37,8 +48,7 @@ Python 保留公共类型、缓存及逐次调用的 chi 显式值／环境值�
 独立 CMake 项目为 `sjtu_tpmshx/solvers/native/geometry/`。
 `tpmshx_geometry_shared` 目标使用 C++ 标准库、marching-cubes 移植与受限 C17 FITPACK 子集，
 不需要 CoolProp、SuperLU、AMGCL、Eigen 或求解运行库；完整 dependency pilot 包含同一目标。
-第四批增加下述独立准备核心；第五批接入独立结果核心与结果数学。
-六批迁移尚未完成，第五批数值与平台验收仍在进行。
+准备与结果计算使用下述独立核心；本次实施与退休范围见[范围说明](#cpp-core-scope)。
 
 [架构说明](architecture.zh-CN.md#native-grids-and-design-fields)定义数值所有权、类型及缓冲区生命周期。
 [设计场来源说明](../sjtu_tpmshx/solvers/native/geometry/fields-sources.md)记录固定来源、本地修改及 BSD 声明。
@@ -102,12 +112,13 @@ Python wheel 包含代码和模型资源，不包含原生库。
 
 ## 原生准备核心
 
-第四批将物性、Nu 闭合、固定 DF、实验修正、投影和准备数值迁入 C++。
+独立准备核心负责物性、Nu 闭合、固定 DF、实验修正、投影和准备数值。
 独立 CMake 项目为 `sjtu_tpmshx/solvers/native/preparation/`。
 目标为 `tpmshx_preparation`、`tpmshx_preparation_c` 和 `tpmshx_preparation_shared`。
 它们复用几何／网格和共享模型实现，链接锁定的 CoolProp 静态库，
 不构建完整求解器或 run_state，也不需要 SuperLU 或 AMG。
 完整构建脚本分别构建 pilot 和 preparation 工程，共用一套物性和 DF 数值实现。
+Python 前处理入口调用独立结果库采集范围记录。准备库本身不链接结果库。
 
 `shared/models/_native_preparation.py` 在需要时通过 ctypes 加载 preparation ABI 1。
 具名物性、DF 和流量适配器保留现有 Python 公共接口。
@@ -176,20 +187,17 @@ Python wheel 包含代码和模型资源，不包含原生库。
 求解、几何、准备和结果的构建记录与按版本隔离的物性表缓存保持独立。
 求解库重新链接会产生新的构建身份；旧检查点仍须精确保留的求解库、准备态输入与控制量。
 当前／previous 运行库和运行记录仍有消费者时必须保留。
-独立轻量 Linux 结果核心属于第五批；Linux 完整求解器不在本批范围内。
-第五批结果数值已接入，数值与平台验收仍在进行。
-第六批消费者／退役终审尚未完成。
-交付前必须完成所需检查；本节不报告新的 CI、Windows 或完整验收结果。
+Linux x86_64 支持独立结果评估。完整求解器与桌面支持仍限 macOS arm64 和 Windows x64。
+实现范围与交付记录见[范围说明](#cpp-core-scope)。
 
 <a id="native-result-core"></a>
 
 ## 原生结果核心
 
-第五批接入独立结果 ABI 2，负责指标、有符号物理平衡、分区统计及数值资格检查。
+独立 result ABI 2 负责指标、有符号物理平衡、分区统计及数值资格检查。
 Python 选择已记录证据，保留状态、原因、类型与文件接口。
 独立 `solvers/native/result/` 项目只使用 C++17 和系统库，
 不加载求解器、准备库、几何库、CoolProp 或模型资源。
-本批数值与平台验收仍在进行。
 
 纯导入和 HDF/JSON 读取不加载原生库；实际指标运算需要预构建结果库。
 `TPMSHX_RESULT_LIBRARY` 可指定其他文件的绝对路径；默认目录是包内 `solvers/native/lib/<host>/`。
@@ -442,10 +450,8 @@ TPMSHX_REQUIRE_CPP_TESTS=1 TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1 \
 资源读取器仅使用 Python 标准库，生成器不导入数值模型实现。
 构建在所选缓存的 `generated/` 目录下生成 `tpmshx/model_coefficients.hpp` 和 `tpmshx/preparation_df_data.hpp`，默认目录为 `.cache/native-deps/generated/`。
 C++ 使用生成的常量，运行时不解析 JSON，也不调用 Python。
-第一批统一数据来源，第二批增加上述独立几何核心；第三批将网格和设计场计算接入同一库，每条数值规则保持唯一所有者。
-第四批增加独立准备目标，负责物性、DF 和准备数值；既有模型身份与拟合系数不变。
-第五批结果数值已接入，数值与平台验收仍在进行；第六批消费者／退役终审尚未完成。
-详见[模型资源](model-resources.md#当前资源与研究输出)。
+几何、准备和求解代码使用已声明的模型资源；既有模型身份、单位、拟合系数和实验结论不变。
+本次实施与退休范围见[范围说明](#cpp-core-scope)，数据来源见[模型资源](model-resources.md#当前资源与研究输出)。
 
 Python wheel 包含代码、JSON 和 CSV 资源，不包含原生库；原生求解库仍须单独显式构建。
 系数未变不表示旧检查点能使用新构建的求解库。
@@ -482,7 +488,7 @@ SuperLU 调用采用纯 C 错误边界和线程局部分配账本。分配失败
 SIMPLE 接口持有逐实例压力缓存，并保留原 F2、出口、热启动状态和原始质量证据。这些可独立调用驱动也支撑上述完整二维／三维外耦合后端。macOS SuperLU 构建使用锁定 SciPy 参考所用的系统 Accelerate BLAS，并为二维 SIMPLE 保留原 CSR／转置 LU 运算顺序。Windows 使用锁定可移植 CBLAS 源码，由必需原生 CI 执行。动量串行循环不表示 BLAS 单线程；线程策略和测得性能须分别记录。
 
 `native-dependencies` CI 在 macOS/Python 3.13 和 Windows/Python 3.12/3.13 构建并执行这些调用方与必需测试。可执行文件缺失会使必需作业失败。可选本地组件测试可以跳过未构建组件，但不能据此声明原生资格。两平台均有真实必需 CI 通过记录；证据仅覆盖其构建与工况。
-这些既有求解器／依赖记录不构成本批准备数值迁移验收。
+这些记录只证明所记录构建与工况的结果。
 
 <a id="remaining-stages-and-acceptance-gates"></a>
 
