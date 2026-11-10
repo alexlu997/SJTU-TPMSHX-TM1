@@ -105,7 +105,7 @@ Python wheel 包含代码和模型资源，不包含原生库。
 目标为 `tpmshx_preparation`、`tpmshx_preparation_c` 和 `tpmshx_preparation_shared`。
 它们复用几何／网格和共享模型实现，链接锁定的 CoolProp 静态库，
 不构建完整求解器或 run_state，也不需要 SuperLU 或 AMG。
-完整 dependency pilot 包含同一组目标，不保留另一套物性或 DF 数值实现。
+完整构建脚本分别构建 pilot 和 preparation 工程，共用一套物性和 DF 数值实现。
 
 `shared/models/_native_preparation.py` 在需要时通过 ctypes 加载 preparation ABI 1。
 具名物性、DF 和流量适配器保留现有 Python 公共接口。
@@ -118,6 +118,8 @@ Preparation 状态 0 表示成功，1 表示无效输入，2 表示分配失败�
 
 原始经验 getter、带检查的 EOS 调用和 Nu 闭合保留不同校验、下限与警告规则。
 DF 插值保留原 bracket 容差、NaN 传播及端点行为。
+投影在 C-order 打包前保留每个输入的归约顺序，包括加权和单轴字段。
+float16 加权归约保留原中间舍入。
 实验修正将来源标定、应用和运行窗口分别记录。
 Python 保留配置、DTO、shape／类型适配、I/O、缓存、警告记录和 GUI／BO 策略。
 离线拟合仍在 Python；冻结的开发参考提供独立 expected。

@@ -136,6 +136,83 @@ def test_row_seed_means_preserve_strided_axis_order():
         np.testing.assert_array_equal(result,reference)
 
 
+def _layout_fields(layout, dtype):
+    rng = np.random.default_rng(61024)
+    length = rng.uniform(6., 8., (137, 11)).astype(dtype)
+    wall = rng.uniform(.3, .5, (137, 11)).astype(dtype)
+    if layout == 'F':
+        return np.asfortranarray(length), np.asfortranarray(wall)
+    if layout == 'T':
+        return length.T, wall.T
+    if layout == 'negative':
+        return length[::-1, ::-1], wall[::-1, ::-1]
+    if layout == 'negative-F':
+        return length[::-1, ::-1].T, wall[::-1, ::-1].T
+    if layout == 'step':
+        return length[::2, ::2], wall[::2, ::2]
+    if layout == 'mixed':
+        return np.asfortranarray(length), wall
+    if layout == 'single-column':
+        return length[:, :1], wall[:, :1]
+    if layout == 'single-row':
+        return length[:, :1].T, wall[:, :1].T
+    if layout == 'zero0':
+        return (np.broadcast_to(value[:1], value.shape) for value in (length, wall))
+    if layout == 'zero1':
+        return (np.broadcast_to(value[:, :1], value.shape) for value in (length, wall))
+    return length, wall
+
+
+@pytest.mark.parametrize('layout', ['C', 'F', 'T', 'negative', 'negative-F', 'step', 'mixed',
+                                   'zero0', 'zero1', 'single-column', 'single-row'])
+@pytest.mark.parametrize('dtype', [np.float16, np.float32, np.float64])
+@pytest.mark.parametrize('direction', [0, 1, 2, 3])
+@pytest.mark.parametrize('weighted', [False, True])
+def test_projection_preserves_input_layout(layout, dtype, direction, weighted, monkeypatch):
+    length, wall = _layout_fields(layout, dtype)
+    rng = np.random.default_rng(41024)
+    source = tuple(rng.uniform(.01, .03, n).astype(dtype) for n in length.shape) if weighted else None
+    monkeypatch.setattr(old, 'predict_K_cF_vec', lambda _tp, L, t, _eps, **_kw: (L, t))
+    expected = old.project_fields_to_streamwise_K_cF(length, wall, 'Gyroid', 16., 17, direction, source_grid=source)
+    actual = native.project_rows(length, wall, 17, direction, source_grid=source)
+    for result, reference in zip(actual[:2], expected):
+        np.testing.assert_array_equal(result, reference)
+
+
+@pytest.mark.parametrize('layout', ['C', 'F', 'T', 'negative', 'negative-F', 'step', 'mixed',
+                                   'zero0', 'zero1', 'single-column', 'single-row'])
+def test_row_means_preserve_input_layout(layout):
+    k, f = _layout_fields(layout, np.float64)
+    for result, reference in zip(native.row_means(k, f), (k.mean(axis=0), f.mean(axis=0))):
+        np.testing.assert_array_equal(result, reference)
+
+
+@pytest.mark.parametrize('api', ['project_rows', 'row_means'])
+@pytest.mark.parametrize('operand', [0, 1])
+def test_raw_reduction_layout_flags_are_checked_before_output(api, operand):
+    owner = ct.CDLL(_native_preparation._library().path)
+    function = getattr(owner, f'tpmshx_preparation_df_{api}_v1')
+    function.argtypes = [*native._SIGNATURES[api], *native._ERROR]
+    function.restype = ct.c_int
+    field = np.full((3, 2), 6.)
+    first, second, indices = np.full(2, -123.), np.full(2, -456.), np.full(2, -789, dtype=np.int64)
+    flags = [0, 0]
+    flags[operand] = 2
+    error = ct.create_string_buffer(256)
+    arguments = [3, 2, native._ptr(field), native._ptr(field), field.size]
+    if api == 'project_rows':
+        arguments.extend([64, 64, *flags, 2, 2, None, 0, 64, None, 0, 64, None, 0,
+                          native._ptr(first), 2, native._ptr(second), 2,
+                          indices.ctypes.data_as(native._IP), 2])
+    else:
+        arguments.extend([*flags, native._ptr(first), 2, native._ptr(second), 2])
+    assert function(*arguments, error, len(error)) == 1
+    np.testing.assert_array_equal(first, [-123., -123.])
+    np.testing.assert_array_equal(second, [-456., -456.])
+    np.testing.assert_array_equal(indices, [-789, -789])
+    assert b'flag must be zero or one' in error.value
+
+
 def _raw_fixed():
     library = ct.CDLL(_native_preparation._library().path)
     function = library.tpmshx_preparation_df_fixed_v1

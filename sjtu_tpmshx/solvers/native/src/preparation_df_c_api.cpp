@@ -177,25 +177,31 @@ extern "C" int TPMSHX_PREPARATION_CALL tpmshx_preparation_df_co2_factors_v1(
 }
 extern "C" int TPMSHX_PREPARATION_CALL tpmshx_preparation_df_project_rows_v1(
     size_t nx,size_t ny,const double* length,const double* wall,size_t field_count,uint32_t l_bits,uint32_t t_bits,
+    uint32_t l_column_major,uint32_t t_column_major,
     uint32_t direction,size_t target_count,const double* dx,size_t dx_count,uint32_t dx_bits,
     const double* dy,size_t dy_count,uint32_t dy_bits,const double* widths,size_t width_count,
     double* l_rows,size_t l_count,double* t_rows,size_t t_count,int64_t* indices,size_t index_count,char* error,size_t cap) {
     return guarded(error,cap,[&] {return std::vector<Buffer>{buffer(length,field_count),buffer(wall,field_count),buffer(dx,dx_count),buffer(dy,dy_count),buffer(widths,width_count),buffer(l_rows,l_count,true),buffer(t_rows,t_count,true),buffer(indices,index_count,true)};},[&] {
+        flag(l_column_major); flag(t_column_major);
         if (field_count!=product(nx,ny) || ((dx_count || dy_count) && (dx_count!=nx || dy_count!=ny))
             || (width_count && width_count!=target_count)) throw std::invalid_argument("projection buffer extents differ from the physical axes");
         require_output(l_rows,l_count,target_count); require_output(t_rows,t_count,target_count); require_output(indices,index_count,target_count);
-        const auto result = p::df_project_rows(nx,ny,{length,field_count},{wall,field_count},l_bits,t_bits,direction,target_count,
+        const auto result = p::df_project_rows(nx,ny,{length,field_count},{wall,field_count},l_bits,t_bits,
+            l_column_major!=0,t_column_major!=0,direction,target_count,
             {dx,dx_count},dx_bits,{dy,dy_count},dy_bits,{widths,width_count});
         for (size_t i=0;i<target_count;++i) {l_rows[i]=result.lengths[i];t_rows[i]=result.walls[i];indices[i]=result.source_index[i];}
     });
 }
 extern "C" int TPMSHX_PREPARATION_CALL tpmshx_preparation_df_row_means_v1(
     size_t rows,size_t columns,const double* permeability,const double* inertial,size_t field_count,
+    uint32_t k_column_major,uint32_t f_column_major,
     double* k,size_t k_count,double* f,size_t f_count,char* error,size_t cap) {
     return guarded(error,cap,[&] {return std::vector<Buffer>{buffer(permeability,field_count),buffer(inertial,field_count),buffer(k,k_count,true),buffer(f,f_count,true)};},[&] {
+        flag(k_column_major); flag(f_column_major);
         if (field_count!=product(rows,columns)) throw std::invalid_argument("DF row-mean buffer extent is incorrect");
         require_output(k,k_count,columns); require_output(f,f_count,columns);
-        const auto result = p::df_row_means(rows,columns,{permeability,field_count},{inertial,field_count});
+        const auto result = p::df_row_means(rows,columns,{permeability,field_count},{inertial,field_count},
+            k_column_major!=0,f_column_major!=0);
         publish(result,k,f);
     });
 }

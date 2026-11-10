@@ -21,12 +21,15 @@ double sum(const std::vector<double>& values, std::uint32_t bits, bool contiguou
     std::vector<float> packed(values.begin(), values.end());
     float result = 0.;
     if (contiguous) result += detail::contiguous_sum<float>({packed.data(), packed.size()});
-    else for (float value : packed) result += value;
+    else if (bits == 16) {
+        for (float value : packed)
+            result = static_cast<float>(precision::round_scalar(result + value, bits));
+    } else for (float value : packed) result += value;
     return precision::round_scalar(result, bits);
 }
 std::vector<double> means(std::size_t nx, std::size_t ny, ArrayView<const double> field,
     std::uint32_t bits, std::uint32_t direction, ArrayView<const double> weights,
-    std::uint32_t weight_bits) {
+    std::uint32_t weight_bits, bool column_major) {
     precision::require_precision(bits);
     const bool stream_x = direction < 2;
     const std::size_t rows = stream_x ? nx : ny, cross = stream_x ? ny : nx;
@@ -44,7 +47,7 @@ std::vector<double> means(std::size_t nx, std::size_t ny, ArrayView<const double
             const double value = field[stream_x ? row * ny + j : j * ny + row];
             samples[j] = weighted ? precision::multiply(value, weights[j], result_bits) : value;
         }
-        const double numerator = sum(samples, accumulation_bits, stream_x);
+        const double numerator = sum(samples, accumulation_bits, rows == 1 || stream_x != column_major);
         output[row] = precision::round_scalar(precision::divide(numerator, denominator, accumulation_bits), result_bits);
     }
     return output;
@@ -54,6 +57,7 @@ std::vector<double> means(std::size_t nx, std::size_t ny, ArrayView<const double
 DfRows df_project_rows(std::size_t nx, std::size_t ny,
     ArrayView<const double> lengths, ArrayView<const double> walls,
     std::uint32_t length_precision, std::uint32_t wall_precision,
+    bool length_column_major, bool wall_column_major,
     std::uint32_t direction, std::size_t target_count,
     ArrayView<const double> dx, std::uint32_t dx_precision,
     ArrayView<const double> dy, std::uint32_t dy_precision,
@@ -63,8 +67,8 @@ DfRows df_project_rows(std::size_t nx, std::size_t ny,
     const bool stream_x = direction < 2;
     const auto cross_weights = stream_x ? dy : dx;
     const auto cross_precision = stream_x ? dy_precision : dx_precision;
-    auto l = means(nx, ny, lengths, length_precision, direction, cross_weights, cross_precision);
-    auto t = means(nx, ny, walls, wall_precision, direction, cross_weights, cross_precision);
+    auto l = means(nx, ny, lengths, length_precision, direction, cross_weights, cross_precision, length_column_major);
+    auto t = means(nx, ny, walls, wall_precision, direction, cross_weights, cross_precision, wall_column_major);
     auto stream_widths = stream_x ? dx : dy;
     const auto stream_precision = stream_x ? dx_precision : dy_precision;
     std::vector<double> widths;
@@ -118,14 +122,17 @@ DfRows df_project_rows(std::size_t nx, std::size_t ny,
 }
 
 std::vector<DfPair> df_row_means(std::size_t rows, std::size_t columns,
-    ArrayView<const double> permeability, ArrayView<const double> inertial) {
+    ArrayView<const double> permeability, ArrayView<const double> inertial,
+    bool permeability_column_major, bool inertial_column_major) {
     std::vector<DfPair> output(columns);
+    std::vector<double> k_samples(rows), f_samples(rows);
     for (std::size_t column = 0; column < columns; ++column) {
-        double k = 0., f = 0.;
         for (std::size_t row = 0; row < rows; ++row) {
-            k += permeability[row * columns + column]; f += inertial[row * columns + column];
+            k_samples[row] = permeability[row * columns + column];
+            f_samples[row] = inertial[row * columns + column];
         }
-        output[column] = {k / static_cast<double>(rows), f / static_cast<double>(rows)};
+        output[column] = {sum(k_samples, 64, columns == 1 || permeability_column_major) / static_cast<double>(rows),
+                          sum(f_samples, 64, columns == 1 || inertial_column_major) / static_cast<double>(rows)};
     }
     return output;
 }

@@ -122,7 +122,7 @@ The independent CMake project is `sjtu_tpmshx/solvers/native/preparation/`.
 Its targets are `tpmshx_preparation`, `tpmshx_preparation_c` and `tpmshx_preparation_shared`.
 They reuse geometry/grid and the shared model implementation, including the locked CoolProp static library.
 This project builds no full solver or run_state and needs no SuperLU or AMG.
-The full dependency pilot includes the same targets. It does not keep a second property or DF numerical implementation.
+The full build script builds the pilot and preparation projects separately. They share one property and DF numerical implementation.
 
 `shared/models/_native_preparation.py` loads preparation ABI 1 through ctypes when needed.
 Named property, DF and flow adapters preserve the existing public Python interfaces.
@@ -135,6 +135,8 @@ Missing libraries, ABI mismatches and missing symbols fail explicitly. No runtim
 
 Raw empirical getters, checked EOS calls and Nu closures keep separate guards, floors and warning rules.
 DF interpolation keeps its original bracket tolerance, NaN propagation and endpoint behavior.
+Projection retains each input's reduction order before C-order packing, including weighted and single-axis fields.
+The float16 weighted reduction keeps its original intermediate rounding.
 Experiment corrections keep source, application and runtime windows as separate records.
 Python retains configuration, DTOs, shape/type adaptation, I/O, caches, warning records and GUI/BO policies.
 Offline fitting stays in Python. Frozen development references supply independent expected values.

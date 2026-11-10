@@ -368,7 +368,7 @@ template<class Function> Number PropertyArithmetic::binary(std::uint32_t operati
         double imaginary=0.;const bool complex=a.category || b.category;
         try {
             if (complex) {
-                const auto bits=std::max(32u,g::result_precision(a.real,b.real));
+                const auto complex_bits=std::max(32u,g::result_precision(a.real,b.real));
                 const bool python_complex_left=a.category && !a.real.strong && !b.category
                     && b.real.strong==1 && b.real.precision==64 && b.layout==1;
                 const bool strong=!python_complex_left && (a.real.strong || b.real.strong);
@@ -376,7 +376,7 @@ template<class Function> Number PropertyArithmetic::binary(std::uint32_t operati
                     PropertyFailure failure;failure.fp.python_cause=1;
                     throw PropertyError(3,"complex division by zero",failure);
                 }
-                if (bits==64) {
+                if (complex_bits==64) {
                     const std::complex<double> left{a.real.value,a.imaginary},right{b.real.value,b.imaginary};
                     std::complex<double> output;
                     if (operation==1) output=left+right;

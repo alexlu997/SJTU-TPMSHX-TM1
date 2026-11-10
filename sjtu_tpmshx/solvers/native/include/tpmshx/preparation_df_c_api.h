@@ -91,10 +91,12 @@ TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_preparation_df_co2_fac
 
 /* Optional source widths are present together. Target widths are already
  * float64. Precision tags describe the original floating field/width data.
+ * Column-major flags retain the original reduction order. All buffers use C order.
  */
 TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_preparation_df_project_rows_v1(
     size_t nx, size_t ny, const double* L_mm, const double* t_mm, size_t field_count,
-    uint32_t L_precision, uint32_t t_precision, uint32_t direction, size_t target_count,
+    uint32_t L_precision, uint32_t t_precision,
+    uint32_t L_column_major, uint32_t t_column_major, uint32_t direction, size_t target_count,
     const double* source_dx, size_t dx_count, uint32_t dx_precision,
     const double* source_dy, size_t dy_count, uint32_t dy_precision,
     const double* target_widths, size_t target_width_count,
@@ -102,6 +104,7 @@ TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_preparation_df_project
     int64_t* source_index, size_t index_count, char* error, size_t error_capacity);
 TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_preparation_df_row_means_v1(
     size_t rows, size_t columns, const double* permeability, const double* forchheimer, size_t field_count,
+    uint32_t K_column_major, uint32_t cF_column_major,
     double* K_rows, size_t K_count, double* cF_rows, size_t cF_count,
     char* error, size_t error_capacity);
 

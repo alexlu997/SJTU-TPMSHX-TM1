@@ -46,10 +46,10 @@ _SIGNATURES = {
     'apply_scale': [_DP, _DP, _S, _U, _DP, _S],
     'summarize': [_DP, _S, _U, ct.POINTER(_Summary)],
     'co2_factors': [_DP, _S],
-    'project_rows': [_S, _S, _DP, _DP, _S, _U, _U, _U, _S,
+    'project_rows': [_S, _S, _DP, _DP, _S, _U, _U, _U, _U, _U, _S,
                      _DP, _S, _U, _DP, _S, _U, _DP, _S,
                      _DP, _S, _DP, _S, _IP, _S],
-    'row_means': [_S, _S, _DP, _DP, _S, _DP, _S, _DP, _S],
+    'row_means': [_S, _S, _DP, _DP, _S, _U, _U, _DP, _S, _DP, _S],
 }
 
 
@@ -220,6 +220,12 @@ def _precision(value):
     return dtype.itemsize * 8 if dtype.kind == 'f' and dtype.itemsize in (2, 4, 8) else 64
 
 
+def _column_major(value):
+    # Keep the original reduction order before packing the values in C order.
+    first, second = map(abs, value.strides)
+    return int(0 < first < second)
+
+
 def project_rows(lengths, walls, target_count, direction, widths=None, source_grid=None):
     l0, t0 = np.asarray(lengths), np.asarray(walls)
     if l0.ndim != 2 or l0.shape != t0.shape:
@@ -230,7 +236,8 @@ def project_rows(lengths, walls, target_count, direction, widths=None, source_gr
     target = _array([]) if widths is None else _array(widths)
     lr, tr = np.empty(target_count), np.empty(target_count)
     indices = np.empty(target_count, dtype=np.int64)
-    _call('project_rows', *l0.shape, _ptr(l), _ptr(t), l.size, _precision(l0), _precision(t0), direction, target_count,
+    _call('project_rows', *l0.shape, _ptr(l), _ptr(t), l.size, _precision(l0), _precision(t0),
+          _column_major(l0), _column_major(t0), direction, target_count,
           _ptr(dx), dx.size, _precision(dx0), _ptr(dy), dy.size, _precision(dy0), _ptr(target), target.size,
           _ptr(lr), lr.size, _ptr(tr), tr.size, indices.ctypes.data_as(_IP), indices.size)
     return lr, tr, indices
@@ -242,5 +249,6 @@ def row_means(permeability, inertial):
         raise ValueError('DF row means require matching two-dimensional fields')
     k, f = _array(permeability), _array(inertial)
     kr, fr = np.empty(permeability.shape[1]), np.empty(permeability.shape[1])
-    _call('row_means', *permeability.shape, _ptr(k), _ptr(f), k.size, _ptr(kr), kr.size, _ptr(fr), fr.size)
+    _call('row_means', *permeability.shape, _ptr(k), _ptr(f), k.size,
+          _column_major(permeability), _column_major(inertial), _ptr(kr), kr.size, _ptr(fr), fr.size)
     return kr, fr

@@ -21,7 +21,6 @@ if(NOT TARGET tpmshx_geometry)
     add_subdirectory("${TPMSHX_NATIVE_ROOT}/geometry" geometry)
 endif()
 include("${TPMSHX_NATIVE_ROOT}/models.cmake")
-include("${TPMSHX_NATIVE_ROOT}/pressure-reference.cmake")
 
 add_library(tpmshx_preparation STATIC "${TPMSHX_NATIVE_ROOT}/src/preparation_flow.cpp"
     "${TPMSHX_NATIVE_ROOT}/src/preparation_properties.cpp"
@@ -29,7 +28,7 @@ add_library(tpmshx_preparation STATIC "${TPMSHX_NATIVE_ROOT}/src/preparation_flo
     "${TPMSHX_NATIVE_ROOT}/src/preparation_df_corrections.cpp"
     "${TPMSHX_NATIVE_ROOT}/src/preparation_df_projection.cpp")
 target_include_directories(tpmshx_preparation PUBLIC "${TPMSHX_NATIVE_ROOT}/include")
-target_link_libraries(tpmshx_preparation PUBLIC tpmshx_geometry tpmshx_models tpmshx_pressure_reference)
+target_link_libraries(tpmshx_preparation PUBLIC tpmshx_geometry tpmshx_models)
 set(TPMSHX_PREPARATION_C_SOURCES "${TPMSHX_NATIVE_ROOT}/src/preparation_c_api.cpp"
     "${TPMSHX_NATIVE_ROOT}/src/preparation_flow_c_api.cpp"
     "${TPMSHX_NATIVE_ROOT}/src/property_c_api.cpp"

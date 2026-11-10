@@ -44,11 +44,13 @@ DfPair df_co2_factors();
 DfRows df_project_rows(std::size_t nx, std::size_t ny,
     ArrayView<const double> lengths, ArrayView<const double> walls,
     std::uint32_t length_precision, std::uint32_t wall_precision,
+    bool length_column_major, bool wall_column_major,
     std::uint32_t direction, std::size_t target_count,
     ArrayView<const double> dx, std::uint32_t dx_precision,
     ArrayView<const double> dy, std::uint32_t dy_precision,
     ArrayView<const double> target_widths);
 std::vector<DfPair> df_row_means(std::size_t rows, std::size_t columns,
-    ArrayView<const double> permeability, ArrayView<const double> forchheimer);
+    ArrayView<const double> permeability, ArrayView<const double> forchheimer,
+    bool permeability_column_major, bool forchheimer_column_major);
 
 }  // namespace tpmshx::preparation
