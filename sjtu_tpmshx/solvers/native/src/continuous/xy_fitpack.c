@@ -145,8 +145,8 @@ fpbisp(const double* tx, const int nx, const double* ty, const int ny, const dou
     m = 0;
     for (int i = 1; i <= mx; i++) {
         l = lx[i - 1] * nky1;
-        for (int i1 = 1; i1 <= kx1; i1++) {
-            h[i1 - 1] = wx[(i - 1) + (i1 - 1) * mx];
+        for (int basis = 1; basis <= kx1; basis++) {
+            h[basis - 1] = wx[(i - 1) + (basis - 1) * mx];
         }
         for (int j = 1; j <= my; j++) {
             l1 = l + ly[j - 1];
