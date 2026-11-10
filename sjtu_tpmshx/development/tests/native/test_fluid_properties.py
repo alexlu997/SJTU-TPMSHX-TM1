@@ -13,6 +13,7 @@ from pathlib import Path
 import platform
 import subprocess
 import sys
+import warnings
 
 import numpy as np
 import pytest
@@ -218,13 +219,30 @@ def test_qd_nu_keeps_fixed_representative_pr_and_no_local_floor(native_propertie
 
 
 def test_fit_extrapolation_warns_in_python_and_remains_computable(native_properties,python_properties):
+    from sjtu_tpmshx.shared.domain.run_warnings import warning_scope, warning_messages
+    from sjtu_tpmshx.shared.models.design_fluids import fluid_props, fluid_nu
+
     rows=[props('low-air','air',190.),props('high-air','air',1200.),
           props('warm-water','water',400.,3e6),nu('low-nu','air','Diamond',0.),
           nu('high-water-nu','water','Gyroid',60000.),nu('representative-co2','sco2','Gyroid',3000.)]
     expected=python_properties(rows)
-    assert all(row['status']==0 and row['warnings'] for row in expected)
+    assert all(row['status']==0 for row in expected)
     equal_rows(native_properties(rows),expected,rows)
-    assert any('representative Pr' in message for message in expected[-1]['warnings'])
+    # The frozen numerical reference does not own production notice policy.
+    notices = []
+    for row in rows:
+        records = {}
+        with warnings.catch_warnings(record=True) as caught, warning_scope(records):
+            warnings.simplefilter('always')
+            if row['op'] == 'props':
+                fluid_props(row['fluid'], row['a'], row['b'])
+            else:
+                fluid_nu(row['fluid'], row['topology'], row['a'], .37,
+                         row['b'] * 1000., row['c'] * 1000.)
+        messages = list(warning_messages(records)) + [str(item.message) for item in caught]
+        assert messages, row
+        notices.append(messages)
+    assert any('representative Pr' in message for message in notices[-1])
 
 
 @pytest.mark.parametrize('fluid',['air','water','sco2'])

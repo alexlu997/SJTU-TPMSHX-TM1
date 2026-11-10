@@ -183,7 +183,7 @@ def test_coolprop_record_uses_actual_cmake_flags_and_sdk(tmp_path, monkeypatch, 
     sdk.mkdir(parents=True)
     (sdk/'SDKSettings.json').write_text('{"Version":"27.0","CanonicalName":"macosx27.0"}')
     toolchain = dict(language='CXX', compiler=dict(path='/actual/compiler', id='ActualCompiler',
-        version='21.0', implicit=dict(includeDirectories=[str(sdk/'usr/include')])))
+        version='21.0', implicit=dict(includeDirectories=[(sdk/'usr/include').as_posix()])))
     (reply/'toolchains.json').write_text(json.dumps(dict(toolchains=[toolchain])))
     (reply/'coolprop.json').write_text(json.dumps(dict(artifacts=[dict(path=archive.relative_to(build).as_posix())],
         compileGroups=[dict(language=language, compileCommandFragments=[dict(fragment=flags)])
