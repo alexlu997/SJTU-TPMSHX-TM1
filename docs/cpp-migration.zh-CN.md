@@ -37,7 +37,7 @@ Python 保留公共类型、缓存及逐次调用的 chi 显式值／环境值�
 独立 CMake 项目为 `sjtu_tpmshx/solvers/native/geometry/`。
 `tpmshx_geometry_shared` 目标使用 C++ 标准库、marching-cubes 移植与受限 C17 FITPACK 子集，
 不需要 CoolProp、SuperLU、AMGCL、Eigen 或求解运行库；完整 dependency pilot 包含同一目标。
-第四批物性／DF／完整前处理和第五批结果数学仍待迁移。
+第四批增加下述独立准备核心；第五批独立结果核心与结果数学迁移仍待完成。
 六批迁移尚未完成；本节不报告新的 CI 或完整批次验收结论。
 
 [架构说明](architecture.zh-CN.md#native-grids-and-design-fields)定义数值所有权、类型及缓冲区生命周期。
@@ -85,15 +85,96 @@ $tm1Lock = 'engineering/requirements/base.txt'
 独立产物默认位于 `.cache/native-deps/build/geometry-<host>`，验证执行静态／动态 C 调用方及几何 kernel smoke。
 几何单独发布写入 `geometry-build.json`，不触及 solver 或 run_state。
 内容不同的旧几何库及匹配记录保存在 `previous/`。
-默认完整发布在替换前构建并验证两个库，求解库保留 `build.json`，几何库使用 `geometry-build.json`。
+默认完整发布先构建并验证求解库、几何库与准备库，再以同一事务替换三个库。
+求解库保留 `build.json`，几何库使用 `geometry-build.json`，准备库使用 `preparation-build.json`。
 替换失败时恢复选定文件及元数据；回滚失败时保留暂存文件并报告恢复路径。
 旧求解检查点仍须使用精确保留的运行库、准备态输入和控制量。
 
 application 与 full CI tier 均保留完整 native pilot 构建和既有求解器覆盖。
-产物显式包含几何库，原生与 BO 消费者恢复同一平台产物中的该库。
+产物显式包含几何库和准备库，原生与 BO 消费者恢复同一平台产物中的这些库。
 此构建拆分不缩减或扩张 gate、锁和受支持平台声明。
 Python wheel 包含代码和模型资源，不包含原生库。
-桌面打包要求两个预构建输入，详见[桌面交付](desktop.md#可选冻结打包)。
+桌面打包要求三个预构建输入，详见[桌面交付](desktop.md#可选冻结打包)。
+
+<a id="native-preparation-core"></a>
+
+## 原生准备核心
+
+第四批将物性、Nu 闭合、固定 DF、实验修正、投影和准备数值迁入 C++。
+独立 CMake 项目为 `sjtu_tpmshx/solvers/native/preparation/`。
+目标为 `tpmshx_preparation`、`tpmshx_preparation_c` 和 `tpmshx_preparation_shared`。
+它们复用几何／网格和共享模型实现，链接锁定的 CoolProp 静态库，
+不构建完整求解器或 run_state，也不需要 SuperLU 或 AMG。
+完整 dependency pilot 包含同一组目标，不保留另一套物性或 DF 数值实现。
+
+`shared/models/_native_preparation.py` 在需要时通过 ctypes 加载 preparation ABI 1。
+具名物性、DF 和流量适配器保留现有 Python 公共接口。
+Preparation 状态 0 表示成功，1 表示无效输入，2 表示分配失败，3 表示运行时错误；
+状态 10、11、12 分别表示水、CO2、sCO2 状态错误。
+几何 ABI 1 与 field ABI 2 不变，继续使用各自错误映射。
+调用按显式元素数借用对齐缓冲区，失败不修改数值输出；
+上下文在最后一次调用后必须由创建库释放。
+缺库、ABI 不符或符号缺失时明确失败，不提供运行时构建或数值 fallback。
+
+原始经验 getter、带检查的 EOS 调用和 Nu 闭合保留不同校验、下限与警告规则。
+DF 插值保留原 bracket 容差、NaN 传播及端点行为。
+实验修正将来源标定、应用和运行窗口分别记录。
+Python 保留配置、DTO、shape／类型适配、I/O、缓存、警告记录和 GUI／BO 策略。
+离线拟合仍在 Python；冻结的开发参考提供独立 expected。
+每段被替换的生产数值体在同批退役，调用方在同批完成迁移。
+JSON 和固定 CSV 权威见[模型资源](model-resources.md#当前资源与研究输出)。
+
+准备库单独发布要求同一缓存中已有锁定源码、锁定 CMake 工具和已构建的 CoolProp 静态库。
+使用配置解释器及其精确环境锁；缺少 CoolProp 时，先完成 `fetch` 和 `build --component coolprop`。
+这些输入就绪后执行：
+
+```sh
+tm1_python="$(sed -n '1p' .venv-path)"
+tm1_lock=engineering/requirements/base.txt
+"$tm1_python" engineering/scripts/build_native_dependencies.py publish --component preparation --python-lock "$tm1_lock"
+```
+
+Windows PowerShell 使用：
+
+```powershell
+$tm1Python = Get-Content .venv-path -TotalCount 1
+$tm1Lock = 'engineering/requirements/base.txt'
+& $tm1Python engineering/scripts/build_native_dependencies.py publish --component preparation --python-lock $tm1Lock
+```
+
+BO 解释器须选择对应 BO 锁，各步骤保留同一 `--cache`。
+独立 `build` 和 `verify` 也接受 `--component preparation`。
+默认构建目录为 `.cache/native-deps/build/preparation-<host>`。
+完整求解器构建于 `pilot-<host>`。构建脚本分别使用两个 CMake 项目。
+macOS 准备库链接使用 `-Os` 构建的 `coolprop-preparation-macos-arm64/libCoolProp.a`。
+求解器保留 `coolprop-macos-arm64/libCoolProp.a` 的原构建设置。
+这两种设置分别保留原 Python 物性查询和原 C++ 求解器的结果。
+Windows 准备库使用原锁定的 Windows 静态归档。
+每个归档的 `coolprop-build.json` 记录实际编译参数片段和工具链信息。
+缓存将该记录与归档一起保留；发布时，各库元数据包含其实际采用的记录。
+验证检查独立 C 静态／动态调用方、几何调用方及编入库的 CoolProp 版本／提交。
+此验证不替代完整工况、物理、双库并发、平台 CI 或桌面验收。
+源码发行包提供原生源码、构建文件、依赖锁、许可和来源记录。
+wheel 提供 Python 接口与显式声明的资源；原生构建仍是显式步骤。
+`engineering/scripts/check_distributions.py` 实际构建并检查源码包及其 wheel。
+须通过 `--output-dir` 指定 `.cache/` 下的新目录。
+`publish --component preparation` 只发布准备库及 `preparation-build.json`，不替换求解库、几何库或 run_state 文件。
+内容不同的旧库和匹配记录保存在 `previous/`，替换失败使用同一事务回滚。
+
+macOS arm64 运行库为 `libtpmshx_preparation_shared.dylib`，Windows x64 为 `tpmshx_preparation_shared.dll`。
+源码默认目录为 `sjtu_tpmshx/solvers/native/lib/<host>/`，冻结程序使用自身的 `native/`。
+`TPMSHX_PREPARATION_LIBRARY` 选择其他预构建运行库。
+桌面打包从 `TPMSHX_NATIVE_PREPARATION_LIBRARY` 接收它，同时要求求解库与几何库输入。
+Python wheel 包含代码和模型资源，不包含原生库。
+历史结果回读和独立后处理不加载准备库或几何库。
+
+修改 C++ 函数或编入库的数据后，须重建受影响的库并重启进程。
+求解、几何和准备的构建记录与按版本隔离的物性表缓存保持独立。
+求解库重新链接会产生新的构建身份；旧检查点仍须精确保留的求解库、准备态输入与控制量。
+当前／previous 运行库和运行记录仍有消费者时必须保留。
+独立轻量 Linux 结果核心属于第五批，本批不建立 Linux 完整求解器支持。
+第五批后处理迁移及第六批消费者／退休终审尚未完成。
+交付前必须完成所需检查；本节不报告新的 CI、Windows 或完整验收结果。
 
 <a id="complete-quick-design-capability"></a>
 
@@ -314,14 +395,15 @@ TPMSHX_REQUIRE_CPP_TESTS=1 TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1 \
 依赖组件构建为显式步骤，与生产后端选择分开。`sjtu_tpmshx/solvers/native/dependency-pilot/` 是包含几何目标的完整求解器构建项目；[独立几何构建](#native-geometry-core) 只需要锁定 CMake 工具与生成的模型数据。输入锁定在 [sjtu_tpmshx/solvers/native/dependencies-lock.toml](../sjtu_tpmshx/solvers/native/dependencies-lock.toml)：CoolProp 8.0.0 及九个固定提交的 CPM 头文件依赖、SuperLU 7.0.1 及选定的三项 SciPy 1.18.1 double-LU 修正、AMGCL 1.5.0 和可移植 CMake 4.4.4。SuperLU 源码不等同于 SciPy 内附修订。源码、二进制、日志和 EOS 表都保存在本工作树 `.cache/native-deps`。[第三方说明](../sjtu_tpmshx/solvers/native/THIRD_PARTY_NOTICES.md)记录链接组件和原始许可声明。
 
 `engineering/scripts/generate_native_model_coefficients.py` 读取共享
-`model_parameters_v1.json` 资源与既有 CO2 资源。
+`model_parameters_v1.json`、`preparation_df_v1.json`、固定 DF CSV 与既有 CO2 资源。
 资源读取器仅使用 Python 标准库，生成器不导入数值模型实现。
-构建在所选缓存的 `generated/` 目录下生成 `tpmshx/model_coefficients.hpp`，默认目录为 `.cache/native-deps/generated/`。
+构建在所选缓存的 `generated/` 目录下生成 `tpmshx/model_coefficients.hpp` 和 `tpmshx/preparation_df_data.hpp`，默认目录为 `.cache/native-deps/generated/`。
 C++ 使用生成的常量，运行时不解析 JSON，也不调用 Python。
 第一批统一数据来源，第二批增加上述独立几何核心；第三批将网格和设计场计算接入同一库，每条数值规则保持唯一所有者。
-物性／DF／完整前处理和结果迁移仍未完成；本批不修改参数 schema 或拟合系数，详见[模型资源](model-resources.md#当前资源与研究输出)。
+第四批增加独立准备目标，负责物性、DF 和准备数值；既有模型身份与拟合系数不变。
+第五批结果数值及消费者／退休终审仍未完成，详见[模型资源](model-resources.md#当前资源与研究输出)。
 
-Python wheel 包含 JSON 资源，不包含原生库；原生求解库仍须单独显式构建。
+Python wheel 包含代码、JSON 和 CSV 资源，不包含原生库；原生求解库仍须单独显式构建。
 系数未变不表示旧检查点能使用新构建的求解库。
 恢复必须使用精确匹配的已保留运行库、已保存准备态输入和控制量。
 构建替代库时，保留每个已保存运行所需的匹配库。
@@ -356,7 +438,7 @@ SuperLU 调用采用纯 C 错误边界和线程局部分配账本。分配失败
 SIMPLE 接口持有逐实例压力缓存，并保留原 F2、出口、热启动状态和原始质量证据。这些可独立调用驱动也支撑上述完整二维／三维外耦合后端。macOS SuperLU 构建使用锁定 SciPy 参考所用的系统 Accelerate BLAS，并为二维 SIMPLE 保留原 CSR／转置 LU 运算顺序。Windows 使用锁定可移植 CBLAS 源码，由必需原生 CI 执行。动量串行循环不表示 BLAS 单线程；线程策略和测得性能须分别记录。
 
 `native-dependencies` CI 在 macOS/Python 3.13 和 Windows/Python 3.12/3.13 构建并执行这些调用方与必需测试。可执行文件缺失会使必需作业失败。可选本地组件测试可以跳过未构建组件，但不能据此声明原生资格。两平台均有真实必需 CI 通过记录；证据仅覆盖其构建与工况。
-这些既有求解器／依赖记录不构成第三批设计场迁移验收。
+这些既有求解器／依赖记录不构成本批准备数值迁移验收。
 
 <a id="remaining-stages-and-acceptance-gates"></a>
 

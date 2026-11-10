@@ -29,17 +29,7 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}")
 
 add_subdirectory("${TPMSHX_NATIVE_ROOT}/geometry" geometry)
 
-add_library(CoolProp::CoolProp STATIC IMPORTED)
-set_target_properties(CoolProp::CoolProp PROPERTIES IMPORTED_LOCATION "${TPMSHX_COOLPROP_LIBRARY}")
-target_include_directories(CoolProp::CoolProp SYSTEM INTERFACE
-    "${CP_SOURCE}" "${CP_SOURCE}/include" "${CP_SOURCE}/src" "${TPMSHX_NATIVE_DEPS_ROOT}/src/Eigen-5.0.1"
-    "${TPMSHX_NATIVE_DEPS_ROOT}/src/fmt-12.0.0/include" "${TPMSHX_NATIVE_DEPS_ROOT}/src/json-3.12.0/include")
-target_compile_definitions(CoolProp::CoolProp INTERFACE EIGEN_MPL2_ONLY)
-if(MSVC)
-    # CoolProp headers expose fmt; preserve its Unicode requirement in consumers.
-    target_compile_options(CoolProp::CoolProp INTERFACE "$<$<COMPILE_LANGUAGE:CXX>:/utf-8>")
-endif()
-find_package(Threads REQUIRED)
+include("${TPMSHX_NATIVE_ROOT}/models.cmake")
 
 include("${CMAKE_CURRENT_LIST_DIR}/superlu-lu-only.cmake")
 add_library(tpmshx_amgcl INTERFACE)
@@ -71,20 +61,6 @@ set_property(SOURCE
     APPEND PROPERTY COMPILE_OPTIONS "${TPMSHX_ENERGY_ROW_FP_OPTION}")
 unset(TPMSHX_ENERGY_ROW_FP_OPTION)
 
-add_library(tpmshx_models STATIC "${TPMSHX_NATIVE_ROOT}/src/fluid_properties.cpp")
-target_include_directories(tpmshx_models PUBLIC "${TPMSHX_NATIVE_ROOT}/include"
-    "${TPMSHX_MODEL_INCLUDE_DIR}")
-target_link_libraries(tpmshx_models PUBLIC CoolProp::CoolProp Threads::Threads)
-if(MSVC)
-    target_compile_options(tpmshx_models PRIVATE /fp:strict)
-else()
-    # Preserve the NumPy property owner's separate operators and libm pow.
-    # Clang's pow(10,x) -> exp10 substitution changes water viscosity by ulps.
-    target_compile_options(tpmshx_models PRIVATE -ffp-contract=off -fno-builtin-pow)
-endif()
-if(APPLE)
-    target_link_libraries(tpmshx_models PUBLIC "${TPMSHX_ACCELERATE_FRAMEWORK}")
-endif()
 add_library(tpmshx_temperature STATIC "${TPMSHX_NATIVE_ROOT}/src/temperature_driver.cpp")
 target_include_directories(tpmshx_temperature PUBLIC "${TPMSHX_NATIVE_ROOT}/include")
 target_link_libraries(tpmshx_temperature PUBLIC tpmshx_energy)
@@ -176,15 +152,7 @@ endforeach()
 target_link_libraries(temperature_c_static PRIVATE tpmshx_temperature_c)
 target_link_libraries(temperature_c_shared PRIVATE tpmshx_temperature_shared)
 target_compile_definitions(temperature_c_shared PRIVATE TPMSHX_THERMAL_USE_SHARED)
-add_library(tpmshx_pressure_reference STATIC "${TPMSHX_NATIVE_ROOT}/src/pressure_reference.cpp")
-target_link_libraries(tpmshx_pressure_reference PUBLIC tpmshx_grid)
-target_include_directories(tpmshx_pressure_reference PUBLIC "${TPMSHX_NATIVE_ROOT}/include"
-    "${TPMSHX_MODEL_INCLUDE_DIR}")
-if(MSVC)
-    target_compile_options(tpmshx_pressure_reference PRIVATE /fp:strict)
-else()
-    target_compile_options(tpmshx_pressure_reference PRIVATE -ffp-contract=off)
-endif()
+include("${TPMSHX_NATIVE_ROOT}/pressure-reference.cmake")
 add_custom_target(tpmshx_state_build_identity
     COMMAND "${CMAKE_COMMAND}"
         "-DTPMSHX_STATE_HEADER=${CMAKE_CURRENT_BINARY_DIR}/native_state_build.hpp"
@@ -258,6 +226,14 @@ add_library(tpmshx_solver_shared SHARED "${TPMSHX_NATIVE_ROOT}/src/solver_c_api.
     "${TPMSHX_NATIVE_ROOT}/src/full_2d_c_api.cpp" "${TPMSHX_NATIVE_ROOT}/src/full_3d_c_api.cpp")
 target_compile_definitions(tpmshx_solver_shared PRIVATE TPMSHX_THERMAL_BUILD_SHARED)
 target_link_libraries(tpmshx_solver_shared PUBLIC tpmshx_quick_design tpmshx_full_2d tpmshx_full_3d)
+set_target_properties(tpmshx_solver_shared PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS OFF)
+if(APPLE)
+    # Keep each statically linked EOS registry private to its library image.
+    target_link_options(tpmshx_solver_shared PRIVATE
+        "LINKER:-exported_symbols_list,${CMAKE_CURRENT_LIST_DIR}/solver.exports")
+    set_property(TARGET tpmshx_solver_shared APPEND PROPERTY LINK_DEPENDS
+        "${CMAKE_CURRENT_LIST_DIR}/solver.exports")
+endif()
 foreach(target IN ITEMS tpmshx_solver tpmshx_solver_shared tpmshx_full_2d_c tpmshx_full_2d_shared)
     target_sources(${target} PRIVATE "${TPMSHX_NATIVE_ROOT}/src/run_state_c_api.cpp")
 endforeach()

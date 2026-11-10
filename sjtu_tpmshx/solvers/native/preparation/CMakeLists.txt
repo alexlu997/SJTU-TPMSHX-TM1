@@ -1,0 +1,77 @@
+cmake_minimum_required(VERSION 3.31.8)
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    project(tpmshx_preparation LANGUAGES C CXX)
+    enable_testing()
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
+    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}")
+    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}")
+endif()
+
+get_filename_component(TPMSHX_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../../.." ABSOLUTE)
+get_filename_component(TPMSHX_NATIVE_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
+set(TPMSHX_NATIVE_DEPS_ROOT "${TPMSHX_ROOT}/.cache/native-deps" CACHE PATH "Locked dependency cache")
+set(TPMSHX_COOLPROP_LIBRARY "" CACHE FILEPATH "Previously built CoolProp 8.0.0 static library")
+set(TPMSHX_MODEL_INCLUDE_DIR "${TPMSHX_NATIVE_DEPS_ROOT}/generated" CACHE PATH "Generated model coefficient headers")
+if(NOT EXISTS "${TPMSHX_MODEL_INCLUDE_DIR}/tpmshx/preparation_df_data.hpp")
+    message(FATAL_ERROR "Generate preparation_df_data.hpp before configuring preparation")
+endif()
+if(NOT TARGET tpmshx_geometry)
+    add_subdirectory("${TPMSHX_NATIVE_ROOT}/geometry" geometry)
+endif()
+include("${TPMSHX_NATIVE_ROOT}/models.cmake")
+include("${TPMSHX_NATIVE_ROOT}/pressure-reference.cmake")
+
+add_library(tpmshx_preparation STATIC "${TPMSHX_NATIVE_ROOT}/src/preparation_flow.cpp"
+    "${TPMSHX_NATIVE_ROOT}/src/preparation_properties.cpp"
+    "${TPMSHX_NATIVE_ROOT}/src/preparation_df.cpp"
+    "${TPMSHX_NATIVE_ROOT}/src/preparation_df_corrections.cpp"
+    "${TPMSHX_NATIVE_ROOT}/src/preparation_df_projection.cpp")
+target_include_directories(tpmshx_preparation PUBLIC "${TPMSHX_NATIVE_ROOT}/include")
+target_link_libraries(tpmshx_preparation PUBLIC tpmshx_geometry tpmshx_models tpmshx_pressure_reference)
+set(TPMSHX_PREPARATION_C_SOURCES "${TPMSHX_NATIVE_ROOT}/src/preparation_c_api.cpp"
+    "${TPMSHX_NATIVE_ROOT}/src/preparation_flow_c_api.cpp"
+    "${TPMSHX_NATIVE_ROOT}/src/property_c_api.cpp"
+    "${TPMSHX_NATIVE_ROOT}/src/preparation_df_c_api.cpp")
+add_library(tpmshx_preparation_c STATIC ${TPMSHX_PREPARATION_C_SOURCES})
+add_library(tpmshx_preparation_shared SHARED ${TPMSHX_PREPARATION_C_SOURCES})
+target_compile_definitions(tpmshx_preparation_shared PRIVATE TPMSHX_PREPARATION_BUILD_SHARED)
+if(APPLE)
+    target_link_options(tpmshx_preparation_shared PRIVATE
+        "LINKER:-exported_symbols_list,${CMAKE_CURRENT_LIST_DIR}/preparation.exports")
+    set_property(TARGET tpmshx_preparation_shared APPEND PROPERTY LINK_DEPENDS
+        "${CMAKE_CURRENT_LIST_DIR}/preparation.exports")
+endif()
+foreach(target IN ITEMS tpmshx_preparation_c tpmshx_preparation_shared)
+    target_link_libraries(${target} PUBLIC tpmshx_preparation)
+endforeach()
+foreach(target IN ITEMS tpmshx_preparation tpmshx_preparation_c tpmshx_preparation_shared)
+    target_compile_features(${target} PUBLIC cxx_std_17)
+    set_target_properties(${target} PROPERTIES CXX_EXTENSIONS OFF POSITION_INDEPENDENT_CODE ON
+        CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES WINDOWS_EXPORT_ALL_SYMBOLS OFF)
+    if(MSVC)
+        target_compile_options(${target} PRIVATE /W4 /WX /EHsc /fp:strict /utf-8)
+    else()
+        target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Werror
+            -fno-fast-math -ffp-contract=off -fno-builtin-pow -fno-builtin-sin -fno-builtin-cos)
+    endif()
+endforeach()
+
+foreach(kind IN ITEMS static shared)
+    add_executable(preparation_c_${kind} "${TPMSHX_NATIVE_ROOT}/tests/preparation_c_smoke.c")
+    target_compile_features(preparation_c_${kind} PRIVATE c_std_11)
+    set_target_properties(preparation_c_${kind} PROPERTIES LINKER_LANGUAGE CXX C_EXTENSIONS OFF)
+    if(kind STREQUAL static)
+        target_link_libraries(preparation_c_${kind} PRIVATE tpmshx_preparation_c)
+    else()
+        target_link_libraries(preparation_c_${kind} PRIVATE tpmshx_preparation_shared)
+        target_compile_definitions(preparation_c_${kind} PRIVATE TPMSHX_PREPARATION_USE_SHARED)
+    endif()
+    if(APPLE)
+        set_target_properties(preparation_c_${kind} PROPERTIES BUILD_RPATH "@loader_path")
+    elseif(UNIX)
+        set_target_properties(preparation_c_${kind} PROPERTIES BUILD_RPATH_USE_ORIGIN YES)
+    endif()
+    add_test(NAME preparation_c_${kind} COMMAND preparation_c_${kind})
+endforeach()

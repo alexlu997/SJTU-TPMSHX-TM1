@@ -4,10 +4,10 @@ These geometry bounds do not extend any fluid's Nu applicability window.
 """
 from __future__ import annotations
 
-# Continuous convex hull (extrapolation-guard bounds).
-TRAIN_L = (4.0, 8.0)          # unit cell size L [mm]
-TRAIN_T = (0.3, 0.6)          # wall thickness t [mm]
+from sjtu_tpmshx.shared.configs.model_parameters import load_preparation_df_parameters
 
-# Discrete training grid nodes (the geometries actually fitted).
-TRAIN_L_NODES = (4.0, 5.0, 6.0, 7.0, 8.0)
-TRAIN_T_NODES = (0.3, 0.4, 0.5, 0.6)
+_DATA = load_preparation_df_parameters()['domain']
+TRAIN_L_NODES = tuple(_DATA['L_nodes_mm'])
+TRAIN_T_NODES = tuple(_DATA['t_nodes_mm'])
+TRAIN_L = (TRAIN_L_NODES[0], TRAIN_L_NODES[-1])
+TRAIN_T = (TRAIN_T_NODES[0], TRAIN_T_NODES[-1])

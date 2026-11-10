@@ -352,7 +352,7 @@ def _record_air_bulk_ranges(cfg, lfield, shape):
                         cfg.get('P_in' + side, cfg['P_inA']), cfg['k_s'],
                         co2_geometry=any(cfg.get('fluid_type_' + s) == 'co2' for s in ('A', 'B')))
             else:
-                from sjtu_tpmshx.shared.models import fluid_props
+                from sjtu_tpmshx.shared.models import fluid_props, _native_properties
                 model = fluid_props.get('air')
                 geometry = cfg['thermal_geometry']['fields']
                 temperature = cfg['T_in' + side]
@@ -361,7 +361,8 @@ def _record_air_bulk_ranges(cfg, lfield, shape):
                 with range_context(layout='scalar-zoned-call'):
                     mu, _k, rho, _cp = (float(getattr(model, key)(temperature, pressure))
                                         for key in ('mu', 'k', 'rho', 'cp'))
-                raw_Re = rho * cfg.get('u_' + side, cfg['u_A']) * geometry['D_h'] / mu
+                raw_Re = _native_properties.reynolds(
+                    rho, cfg.get('u_' + side, cfg['u_A']), geometry['D_h'], mu)
                 with range_context(layout='scalar-zoned-call'):
                     record_air_nu_scalar_ranges(cfg['tpms_type'], raw_Re)
                 with range_context(layout='real-cell(x,y,z)-bulk-Re'):

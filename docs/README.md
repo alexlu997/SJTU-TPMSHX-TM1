@@ -39,6 +39,7 @@
 C++ 数值源码仍在 [solvers/native/](../sjtu_tpmshx/solvers/native/)。
 
 `pyproject.toml` 集中定义构建、依赖声明、pytest、mypy 和 lint 配置。
+根目录 `MANIFEST.in` 选择源码发行包文件；wheel 使用 `pyproject.toml` 中显式声明的资源清单。
 `engineering/requirements/` 保存各用途的精确依赖锁；根目录 `requirements.txt` 用于独立开发环境安装。
 `[tool.mypy].files` 声明公共接口与数据契约的显式类型检查范围，执行方式见
 [环境与检查](../README.md#环境与检查)。

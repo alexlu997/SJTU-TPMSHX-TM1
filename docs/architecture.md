@@ -38,9 +38,39 @@ Its native arithmetic stays float64.
 
 Stage three adds grids, ports, axis maps, continuous XY/XYZ fields, sigmoid, linear LUTs, zones and Gaussian filtering to the same library.
 Each migrated numerical rule has one C++ owner. Python keeps configuration, data objects, type/array adaptation, I/O, caches and application orchestration.
-Stage four still requires properties, DF and full preparation. Stage five still requires result calculations.
+Stage four adds independent preparation ABI 1 for properties, closures, DF, corrections, projection and preparation mathematics.
+Stage five still requires an independent result core and postprocessing mathematics.
 The six-stage migration remains incomplete. See [model resources](model-resources.en.md#当前资源与研究输出).
 Earlier solver CI records do not establish acceptance for this batch. Complete-case checks, supported-platform CI and final acceptance remain required.
+
+The preparation target is `solvers/native/preparation/`. It reuses the geometry/grid core and the shared `fluid_properties.cpp` numerical owner.
+It links the locked CoolProp static library, without full solvers, run_state, SuperLU or AMG.
+`shared/models/_native_preparation.py` loads the prebuilt library on demand. Concrete property, DF and flow adapters pack named inputs.
+Geometry ABI 1 and field ABI 2 retain their separate status contracts.
+Preparation ABI 1 uses status 1 for invalid inputs, 2 for allocation and 3 for runtime errors.
+Its state statuses are 10 for water, 11 for CO2 and 12 for sCO2.
+Calls borrow aligned buffers with explicit extents. Failure preserves numerical outputs. Contexts retain their creating library until release.
+
+Raw empirical property getters, checked EOS states and Nu closures keep their different contracts.
+The move preserves their original formulas, guards, warnings, floors and range observations.
+It does not route every getter through one checked-state policy.
+Fixed DF interpolation, experiment factors and velocity windows use the original source data and validation order.
+The new [preparation_df_v1.json](../sjtu_tpmshx/shared/configs/preparation_df_v1.json) owns method, correction data, three windows and campaign provenance.
+The fixed CFD CSV remains the coefficient authority. The generator reads these resources directly into native headers.
+Python keeps configuration, DTOs, shape/type adaptation, I/O, caches, warnings, GUI/BO policies and offline fitting.
+Replaced production numerical bodies are retired in this batch. Frozen development references remain independent.
+
+Full publication deploys solver, geometry and preparation libraries in one transaction.
+Separate preparation publication uses previously built locked CoolProp. It builds no solver or run_state.
+The preparation and full-solver targets use separate CMake projects.
+On macOS, the preparation archive uses `-Os` to keep the previous Python property results.
+The solver archive keeps its original build settings to keep the original solver results.
+Windows preparation uses the original locked Windows archive.
+Archive build records keep the actual compiler, compile fragments and SDK source.
+Library build identities remain separate from versioned property-table caches.
+Old checkpoints still need their exact solver runtime, prepared inputs and controls.
+See [preparation builds and runtime paths](cpp-migration.md#native-preparation-core).
+The planned lightweight Linux result core belongs to stage five. This batch does not establish Linux full-solver support.
 
 The native full-compute CC route uses the existing air/water integral h(T)
 model through strict model-h drivers. Earlier variable-cp m*cp*T failures
@@ -899,7 +929,7 @@ Returned NumPy arrays do not expose native temporary storage.
 Replaced Python interpolation, overlap, zone and filter bodies are retired. Independent references remain under `development/tests/`.
 Python retains DTOs, NPZ/cache I/O, validation, GUI and BO orchestration.
 There is no numerical fallback or numerical callback into Python.
-No new distributed library or numerical framework is added.
+Stage three added no distributed library or numerical framework.
 See the [fixed sources and local changes](../sjtu_tpmshx/solvers/native/geometry/fields-sources.md) for provenance and license duties.
 
 Each continuous-field axis accepts at least one control. A singleton is

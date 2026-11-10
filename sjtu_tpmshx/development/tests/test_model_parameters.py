@@ -46,11 +46,15 @@ def test_native_coefficient_generation_needs_only_standard_library():
     root = Path(__file__).resolve().parents[3]
     probe = subprocess.run([sys.executable, '-S', '-c', '''
 import sys
-from engineering.scripts.generate_native_model_coefficients import header
+from engineering.scripts.generate_native_model_coefficients import header, df_header
 text = header()
 assert 'inline constexpr double gas_constant = 8.314;' in text
 assert 'model_h_air{{1004.5, 0.172, -7.56e-05, 273.15, 300.0}};' in text
 assert 'model_h_water{{4182.0, 0.0, 0.0, 273.15, 300.0}};' in text
+df = df_header()
+assert 'namespace tpmshx::preparation::df_data' in df
+assert 'cfd_full_core_3cell_fixed_v2' in df
+assert 'inline constexpr double df_values[2][5][4][2]' in df
 assert not any(name.startswith(('numpy', 'scipy', 'CoolProp', 'sjtu_tpmshx.shared.models',
                                 'sjtu_tpmshx.solvers')) for name in sys.modules)
 '''], cwd=root, capture_output=True, text=True, timeout=60)

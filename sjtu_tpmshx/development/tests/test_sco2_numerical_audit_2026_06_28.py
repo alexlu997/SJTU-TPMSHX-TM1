@@ -2,10 +2,6 @@
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.shared.models import sco2_props
-
-pytestmark = pytest.mark.skipif(
-    not sco2_props._HAVE_COOLPROP, reason="CoolProp required for sCO2 tests")
 
 _P = 8.0e6  # Pa — CO2 pseudocritical T ≈ 307.7 K at this pressure
 
@@ -40,8 +36,9 @@ def test_d1_temperature_duty_retains_capacity_weighting():
 # ── D3 : 3D h_v with LOCAL-temperature transport props (sCO2) ────────────────
 def test_d3_sco2_hv_uses_local_temperature_props():
     # No effective parameter selection: both paths use the smooth CFD base.
-    from sjtu_tpmshx.shared.models.local_heat_transfer import real_fluid_hv_local_field
-    from sjtu_tpmshx.shared.models.tpms_calc import nu_sco2_topo
+    from sjtu_tpmshx.development.tests.local_heat_transfer_reference import real_fluid_hv_local_field
+    from sjtu_tpmshx.development.tests.nu_reference import nu_sco2_topo
+    from sjtu_tpmshx.development.tests import eos_reference
 
     A_0, D_h_m = 500.0, 1.0e-3
     u_abs = np.full((2, 2, 2), 1.5)
@@ -52,10 +49,10 @@ def test_d3_sco2_hv_uses_local_temperature_props():
     hv = real_fluid_hv_local_field(T_field, _P, u_abs, A_0, D_h_m, 'Diamond', 7.0)
 
     # frozen-at-inlet h_v (what the buggy scalar path applies to EVERY cell)
-    rho_i = sco2_props.sco2_prop('D', T_in, _P)
-    mu_i = sco2_props.sco2_prop('V', T_in, _P)
-    k_i = sco2_props.sco2_prop('L', T_in, _P)
-    Pr_i = sco2_props.sco2_prop('C', T_in, _P) * mu_i / k_i
+    rho_i = eos_reference.sco2_prop('D', T_in, _P)
+    mu_i = eos_reference.sco2_prop('V', T_in, _P)
+    k_i = eos_reference.sco2_prop('L', T_in, _P)
+    Pr_i = eos_reference.sco2_prop('C', T_in, _P) * mu_i / k_i
     Re_i = rho_i * 1.5 * D_h_m / mu_i
     Nu_i = nu_sco2_topo('Diamond', max(Re_i, 1.0), Pr_i, 7.0, D_h_m * 1000.0)
     hv_frozen = A_0 * Nu_i * k_i / D_h_m

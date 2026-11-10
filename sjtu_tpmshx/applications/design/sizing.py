@@ -15,6 +15,7 @@ from sjtu_tpmshx.shared.models.design_fluids import fluid_props, nu_re_window
 from sjtu_tpmshx.shared.models.fluid_props import QuickDesignWaterFieldError
 from .forward import forward
 from sjtu_tpmshx.shared.models.quick_design import dP_fracs, K_STEEL, GEOM_N, LTNE_TOL
+from sjtu_tpmshx.shared.models import _native_flow
 
 DP_DEGEN_FRAC = 0.30      # 单侧归一化压损 > 此 = 压降近进口压 → 退化 (超音速/迎风缩崩)
 
@@ -35,9 +36,9 @@ WATER_SEARCH_EVALS = 64  # Cold-start evaluations after a local water-field fail
 def t_target(case) -> float:
     """ΔT 的出口温目标；Q 的入口 cp 等效温度仅用于 governing 预选。"""
     if case.dT is not None:
-        return case.T_in_h - case.dT
+        return _native_flow.temperature_target(case.T_in_h, case.dT, None, None, None)
     cp_h = fluid_props(case.hot_fluid, case.T_in_h, case.P_in_h).cp
-    return case.T_in_h - case.Q / (case.mdot_h * cp_h)
+    return _native_flow.temperature_target(case.T_in_h, None, case.Q, case.mdot_h, cp_h)
 
 def solve_Lx(case, topo, l, t, s, arrangement, target=None, k_s=K_STEEL,
              prop_model="const", seed=None, height=None, control=None):
@@ -191,9 +192,8 @@ class Design:
 
 def _cool_proxy(case) -> float:
     """0-D 冷却难度代理 (无解): 所需效能 × 热侧流量 (越大越难冷→需更长 Lx)。"""
-    denom = case.T_in_h - case.T_in_c
-    eps_req = (case.T_in_h - t_target(case)) / denom if abs(denom) > 1e-9 else 0.0
-    return eps_req * case.mdot_h
+    target = t_target(case) if _native_flow.cooling_proxy_needs_target(case.T_in_h, case.T_in_c) else 0.
+    return _native_flow.cooling_proxy(case.T_in_h, case.T_in_c, target, case.mdot_h)
 
 def _maxnorm_dP_sides(cases, topo, l, t, s, Lx, arrangement, height=None) -> tuple[float, float]:
     """全 K 工况分别取热/冷侧归一化 dP 最大值 (纯解析, 无 LTNE 解)。"""
@@ -296,7 +296,7 @@ def size_fixed_cell(cases, topo, l, t, arrangement="cross", rho_s=RHO_S,
         Lx = _min_Lx_for_dP(cases, topo, l, t, s, arrangement, Lx_cool, height=height)
         if Lx is None:
             return None, None
-        return s * _sz(s) * Lx, Lx
+        return _native_flow.volume(s, _sz(s), Lx), Lx
 
     # C: min-V over s 用黄金分割 (代替 20 点网格)。V(s)=s²·Lx(s), Lx(s) 随 s↓ →
     # U 形单峰; 可行区为上区间 (大 s 更易冷 + dP 更松)。先解析定热侧 dP 可行下界
@@ -461,7 +461,7 @@ def size_fixed_cell(cases, topo, l, t, arrangement="cross", rho_s=RHO_S,
         if r.Re_cold > chi: warns.add("冷Re↑外推")
         if r.dP_hot_frac > DP_DEGEN_FRAC: warns.add("热dP退化")   # B: 压降近进口压
         if r.dP_cold_frac > DP_DEGEN_FRAC: warns.add("冷dP退化")
-    V = s_star * _sz(s_star) * Lx_star
+    V = _native_flow.volume(s_star, _sz(s_star), Lx_star)
     return Design(not failures, topo, l, t, s_star, Lx_star, arrangement,
                   V, (1.0 - EPS) * V * rho_s, dPh, dPc, Tout_max, reason='; '.join(failures),
                   percase=percase, height=(height or 0.0),

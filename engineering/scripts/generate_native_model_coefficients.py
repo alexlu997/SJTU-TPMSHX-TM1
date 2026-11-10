@@ -7,10 +7,13 @@ The generated header stays in .cache/ and introduces no runtime Python calls.
 from __future__ import annotations
 
 import argparse
+import csv
+from importlib.resources import files
+import math
 from pathlib import Path
 
 from sjtu_tpmshx.shared.configs.model_parameters import (
-    load_co2_coefficients, load_model_parameters)
+    load_co2_coefficients, load_model_parameters, load_preparation_df_parameters)
 
 
 def array(name, values):
@@ -102,19 +105,89 @@ def header():
     return "\n".join(lines)
 
 
+def nested_array(name, values, shape):
+    def literal(value):
+        if isinstance(value, (list, tuple)):
+            return '{' + ', '.join(literal(item) for item in value) + '}'
+        return repr(float(value))
+    dimensions = ''.join(f'[{size}]' for size in shape)
+    return f'inline constexpr double {name}{dimensions} = {literal(values)};'
+
+
+def df_header(csv_path=None):
+    data = load_preparation_df_parameters()
+    lengths, walls = data['domain']['L_nodes_mm'], data['domain']['t_nodes_mm']
+    topologies, fluids = ('Diamond', 'Gyroid'), ('air', 'water', 'sco2')
+    tables = {topology: {} for topology in topologies}
+    source = (files('sjtu_tpmshx.shared.df_surrogate') / '_prebuilt' / (data['method'] + '.csv')
+              if csv_path is None else csv_path)
+    with source.open(newline='', encoding='utf-8') as stream:
+        reader = csv.DictReader(stream)
+        if not {'tp', 'L_mm', 't_mm', 'K_m2', 'cF_fixed_1_m'}.issubset(reader.fieldnames or ()):
+            raise ValueError('fixed sCO2 CFD coefficient schema mismatch')
+        for row in reader:
+            topology = row['tp']
+            if topology not in tables:
+                raise ValueError(f'unsupported TPMS topology: {topology!r}')
+            key = (float(row['L_mm']), float(row['t_mm']))
+            values = (float(row['K_m2']), float(row['cF_fixed_1_m']))
+            if key in tables[topology]:
+                raise ValueError(f'duplicate fixed sCO2 CFD node: {topology} {key}')
+            if key[0] not in lengths or key[1] not in walls:
+                raise ValueError(f'off-grid fixed sCO2 CFD node: {topology} {key}')
+            if not all(math.isfinite(value) and value > 0. for value in values):
+                raise ValueError(f'invalid fixed sCO2 CFD coefficients: {topology} {key}')
+            tables[topology][key] = values
+    expected = {(length, wall) for length in lengths for wall in walls}
+    if any(set(table) != expected for table in tables.values()):
+        raise ValueError('fixed sCO2 CFD coefficient grid is incomplete')
+    fixed = [[[tables[topology][length, wall] for wall in walls] for length in lengths]
+             for topology in topologies]
+    specimen, hx = data['air_specimen'], data['hx']
+    parameters = load_model_parameters()
+    lines = ['// Generated from fixed preparation resources. Do not edit.', '#pragma once',
+             '#include <array>', '', 'namespace tpmshx::preparation::df_data {',
+             f'inline constexpr char method[] = "{data["method"]}";',
+             array('df_L_nodes', lengths), array('df_t_nodes', walls),
+             nested_array('df_values', fixed, (2, 5, 4, 2)),
+             array('air_L_nodes', specimen['L_nodes_mm']), array('air_t_nodes', specimen['t_nodes_mm']),
+             nested_array('air_sf', [specimen['sf'][topology] for topology in topologies], (2, 2, 3)),
+             array('hx_geometry_mm', hx['geometry_mm']),
+             nested_array('hx_sf', [[hx['sf'][fluid][topology] for topology in topologies]
+                                     for fluid in fluids], (3, 2))]
+    for name in ('calibration_u', 'application_u', 'runtime_u'):
+        values = [[hx[name+'_mps'][fluid][topology] for topology in topologies] for fluid in fluids]
+        lines.append(nested_array(name, values, (3, 2, 2)))
+    for name, value in (
+            ('df_bracket_relative_tolerance', data['bracket_relative_tolerance']),
+            ('hx_geometry_absolute_tolerance', hx['geometry_absolute_tolerance_mm']),
+            ('hx_velocity_absolute_tolerance', hx['velocity_absolute_tolerance_mps']),
+            ('co2_pressure_multiplier', parameters['co2_application']['pressure_multiplier']),
+            ('r_air_default', parameters['envelope']['r_air_default'])):
+        lines.append(f'inline constexpr double {name} = {float(value)!r};')
+    lines.append('}  // namespace tpmshx::preparation::df_data\n')
+    return '\n'.join(lines)
+
+
 def main():
     root = Path(__file__).resolve().parents[2]
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path,
                         default=root / ".cache/native-deps/generated/tpmshx/model_coefficients.hpp")
-    target = parser.parse_args().output.resolve()
-    if not target.is_relative_to(root / ".cache"):
-        raise ValueError("Generated model coefficients must remain in the worktree's .cache/")
-    text = header()
-    target.parent.mkdir(parents=True, exist_ok=True)
-    if not target.is_file() or target.read_text(encoding="utf-8") != text:
-        target.write_text(text, encoding="utf-8")
-    print(target)
+    parser.add_argument('--df-output', type=Path)
+    args = parser.parse_args()
+    targets = [(args.output.resolve(), header)]
+    if args.df_output is not None:
+        targets.append((args.df_output.resolve(), df_header))
+    for target, build_header in targets:
+        if not target.is_relative_to(root / '.cache'):
+            raise ValueError("Generated model coefficients must remain in the worktree's .cache/")
+    for target, build_header in targets:
+        text = build_header()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if not target.is_file() or target.read_text(encoding='utf-8') != text:
+            target.write_text(text, encoding='utf-8')
+        print(target)
 
 
 if __name__ == "__main__":

@@ -38,6 +38,7 @@ import warnings
 from sjtu_tpmshx.shared.configs.model_parameters import load_model_parameters
 from sjtu_tpmshx.shared.domain.run_warnings import record_range, record_warning
 import numpy as np
+from . import _native_properties
 
 # ── Constants ────────────────────────────────────────────────────────────
 
@@ -63,13 +64,6 @@ def reset_extrap_warn_registry() -> None:
 
 
 # ── Internal ─────────────────────────────────────────────────────────────
-
-def _smooth_nu(tpms_type, Re, L_mm, D_h_mm, *, Pr=Pr_AIR):
-    """Smooth-wall Nu (no roughness factor). Vector-friendly: accepts scalar
-    or ndarray Re / L_mm / D_h_mm via numpy broadcasting."""
-    c = NU_COEFFS[tpms_type]
-    return c['c'] * Pr ** (1/3) * Re ** c['a'] * (D_h_mm / L_mm) ** c['d']
-
 
 def _warn_extrap(tpms_type, Re_min, Re_max, raw):
     """One-shot warning per (tpms, 'lo'|'hi') when Re leaves the fit window."""
@@ -116,37 +110,32 @@ def record_air_nu_scalar_ranges(tpms_type, raw_Re):
 # ── Public API ───────────────────────────────────────────────────────────
 
 def nu_from_Re(tpms_type, Re, eps_f, L_mm, D_h_mm, *, Pr=Pr_AIR):
-    """Nu (air, smooth × roughness). ``eps_f`` kept for back-compat
-    signature; currently unused in the Nu formula.
+    """Return native air Nu, including its existing roughness factor.
 
-    Accepts scalar OR ndarray ``Re``. The scalar branch is byte-identical to
-    the historical implementation (``float(Re)`` into ``_smooth_nu``); the
-    array branch (2026-06-09) forwards the array straight through — same
-    element-wise formula ``_smooth_nu`` already serves to ``nu_vec`` — so a
-    per-cell loop and a single vectorised call give identical results. NOTE:
-    no ``Re_floor`` is applied here (unlike ``nu_vec``'s floor=10); callers
-    that need a floor apply their own (e.g. the LTNE h_v path floors at 1.0)."""
+    Scalar Re converts to a Python float; arrays use float64. Original Pr,
+    L and Dh types still determine intermediate rounding and the result type.
+    This entry applies no Re floor or laminar Nu floor. eps_f is unused.
+    """
     del eps_f
     Re_arr = np.asarray(Re, dtype=np.float64)
+    prepared, extrema = _native_properties.nu_inputs(0, Re)
     if Re_arr.ndim == 0:
         _warn_extrap(tpms_type, float(Re_arr), float(Re_arr), Re_arr)
-        return NU_ROUGHNESS_FACTOR * _smooth_nu(
-            tpms_type, float(Re_arr), L_mm, D_h_mm, Pr=Pr)
-    if Re_arr.size:
-        _warn_extrap(tpms_type, float(Re_arr.min()), float(Re_arr.max()), Re)
-    return NU_ROUGHNESS_FACTOR * _smooth_nu(
-        tpms_type, Re_arr, L_mm, D_h_mm, Pr=Pr)
+    elif Re_arr.size:
+        _warn_extrap(tpms_type, float(extrema[0]), float(extrema[1]), Re)
+    topology = {'Diamond': 0, 'Gyroid': 1}[tpms_type]
+    return _native_properties.nusselt(0, topology, prepared, Pr, L_mm, D_h_mm)
 
 
 def nu_vec(tpms_type, Re, L_mm, D_h_mm, *, Re_floor=10.0, Pr=Pr_AIR):
     """Vectorised Nu. ``Re_floor=10`` matches legacy
     ``sigmoid_field._nu_vec`` behaviour (prevents Re^a blow-up at u→0).
     L_mm / D_h_mm accept scalar or ndarray broadcastable to ``Re``."""
-    Re_arr = np.maximum(np.asarray(Re, dtype=np.float64), Re_floor)
-    if Re_arr.size:
-        _warn_extrap(tpms_type, float(Re_arr.min()), float(Re_arr.max()), Re)
-    return NU_ROUGHNESS_FACTOR * _smooth_nu(
-        tpms_type, Re_arr, L_mm, D_h_mm, Pr=Pr)
+    prepared, extrema = _native_properties.nu_inputs(1, Re, re_floor=Re_floor)
+    if np.asarray(prepared).size:
+        _warn_extrap(tpms_type, float(extrema[0]), float(extrema[1]), Re)
+    topology = {'Diamond': 0, 'Gyroid': 1}[tpms_type]
+    return _native_properties.nusselt(1, topology, prepared, Pr, L_mm, D_h_mm)
 
 
 
@@ -193,12 +182,11 @@ def nu_water_topo(tpms_type, Re, Pr_water):
     ``np.maximum(Re, 1.0)`` floor (array-safe; identical to the design-tool
     fit's ``max(Re, 1.0)`` for scalar Re, but also works on per-cell arrays
     when the solver routes its vectorised water path through here)."""
-    Re_safe = np.maximum(Re, 1.0)             # original expression (unchanged)
-    _Re_arr = np.asarray(Re_safe, dtype=np.float64)
-    if _Re_arr.size:
-        _warn_water_nu(float(_Re_arr.min()), float(_Re_arr.max()), tpms_type, Re)
-    co = WATER_NU_COEFFS[tpms_type]
-    return co['c'] * Re_safe ** co['a'] * Pr_water ** (1 / 3)
+    prepared, extrema = _native_properties.nu_inputs(2, Re)
+    if np.asarray(prepared).size:
+        _warn_water_nu(float(extrema[0]), float(extrema[1]), tpms_type, Re)
+    topology = {'Diamond': 0, 'Gyroid': 1}[tpms_type]
+    return _native_properties.nusselt(2, topology, prepared, Pr_water)
 
 
 # ── Supercritical CO2 DIRECT fit (smooth-wall unit-cell CFD) ──
@@ -308,6 +296,21 @@ def warn_sco2_nu_evidence(*, side, stage, tpms_type, L_mm, t_mm, P_in):
         warnings.warn(message, stacklevel=2)
 
 
+def _sco2_nu(tpms_type, Re, Pr_sco2, L_mm, D_h_mm, settings=None):
+    if tpms_type not in SCO2_NU_COEFFS:
+        raise NotImplementedError(
+            f"sCO2 Nu fit only available for {sorted(SCO2_NU_COEFFS)} "
+            f"(2026-07 sCO2 CFD campaign); {tpms_type!r} unsupported.")
+    prepared, extrema = _native_properties.nu_inputs(3, Re)
+    if np.asarray(prepared).size:
+        _warn_sco2_nu(float(extrema[0]), float(extrema[1]), tpms_type, Re)
+    alpha = 1.0
+    if settings is not None and settings.mode != 'cfd_smooth':
+        alpha = settings.alpha_D if tpms_type == 'Diamond' else settings.alpha_G
+    return _native_properties.nusselt(3, 0 if tpms_type == 'Diamond' else 1,
+                                      prepared, Pr_sco2, L_mm, D_h_mm, alpha=alpha)
+
+
 def nu_sco2_topo(tpms_type, Re, Pr_sco2, L_mm, D_h_mm):
     """Supercritical-CO2 Nu = c·Re^a·Pr^(1/3)·(D_h/L)^d (smooth wall; table
     above). Array-safe ``np.maximum(Re, 1.0)`` floor, mirroring
@@ -322,17 +325,7 @@ def nu_sco2_topo(tpms_type, Re, Pr_sco2, L_mm, D_h_mm):
     Stays smooth-wall by contract. ``nu_sco2_selected`` applies the explicitly
     selected total effective amplitude; no historical gamma is stacked here.
     """
-    if tpms_type not in SCO2_NU_COEFFS:
-        raise NotImplementedError(
-            f"sCO2 Nu fit only available for {sorted(SCO2_NU_COEFFS)} "
-            f"(2026-07 sCO2 CFD campaign); {tpms_type!r} unsupported.")
-    Re_safe = np.maximum(Re, 1.0)
-    _Re_arr = np.asarray(Re_safe, dtype=np.float64)
-    if _Re_arr.size:
-        _warn_sco2_nu(float(_Re_arr.min()), float(_Re_arr.max()), tpms_type, Re)
-    co = SCO2_NU_COEFFS[tpms_type]
-    return (co['c'] * Re_safe ** co['a'] * Pr_sco2 ** (1 / 3)
-            * (D_h_mm / L_mm) ** co['d'])
+    return _sco2_nu(tpms_type, Re, Pr_sco2, L_mm, D_h_mm)
 
 
 def sco2_effective_nu_config():
@@ -348,11 +341,7 @@ def sco2_effective_nu_config():
 def nu_sco2_selected(tpms_type, Re, Pr, L_mm, D_h_mm, *, settings):
     """Apply total C_eff once, before the caller's existing Nu floor."""
     settings.validate()
-    base = nu_sco2_topo(tpms_type, Re, Pr, L_mm, D_h_mm)
-    if settings.mode == 'cfd_smooth':
-        return base
-    alpha = settings.alpha_D if tpms_type == 'Diamond' else settings.alpha_G
-    return alpha * base
+    return _sco2_nu(tpms_type, Re, Pr, L_mm, D_h_mm, settings)
 
 
 def sco2_nu_metadata(settings):

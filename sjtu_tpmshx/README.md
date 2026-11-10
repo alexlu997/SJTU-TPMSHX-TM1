@@ -34,8 +34,12 @@ compute -> preprocess.api.prepare_case -> CaseData -> solvers.api.run_case -> Fi
 负责设计场插值、分区和 Gaussian 平滑，仍部署在同一几何库中。
 Python 保留配置、类型／数组适配、数据对象、I/O、缓存、GUI 和 BO 编排。
 已替换的 Python 数值体已退役；独立参考只供 development 回归使用。
-第四批物性／DF／完整前处理和第五批结果计算仍待迁移，六批目标尚未完成。
-本批验收须包含平台 CI 和最终检查。独立构建、两库交付和研究入口见[原生几何说明](../docs/cpp-migration.zh-CN.md#native-geometry-core)。
+第四批由 [fluid_properties.cpp](solvers/native/src/fluid_properties.cpp)、`preparation_properties.cpp`、`preparation_df*.cpp` 和 `preparation_flow.cpp`
+负责物性／闭合、固定 DF／实验修正、投影、固定流量与设计准备数值。
+[shared/models/_native_preparation.py](shared/models/_native_preparation.py) 延迟加载独立 preparation ABI 1 库；几何 ABI 1／field ABI 2 不变。
+Python 保留配置、DTO、I/O、缓存、GUI／BO 策略和离线拟合；正式数值与开发独立参考分开。
+第五批独立结果核心与后处理数值迁移仍待完成，六批目标尚未完成。
+本批验收须包含平台 CI 和最终检查。独立构建和三库交付见[原生准备核心](../docs/cpp-migration.zh-CN.md#native-preparation-core)。
 
 <a id="三模块主线"></a>
 <a id="支撑模块与应用入口"></a>

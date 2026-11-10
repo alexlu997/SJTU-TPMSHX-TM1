@@ -15,6 +15,7 @@ from __future__ import annotations
 from PySide6.QtWidgets import QMessageBox
 
 from sjtu_tpmshx.shared.models.design_fluids import nu_re_window
+from sjtu_tpmshx.shared.models._native_df import pressure_gradient
 from sjtu_tpmshx.shared.models.tpms_calc import compute as tpms_compute
 from sjtu_tpmshx.applications.gui.ui.ui_constants import TOAST_MS_MED
 
@@ -70,7 +71,7 @@ class FluidInputMixin:
                     self.combo_tpms.currentText(), _ftype,
                     float(self.le_Lcell.text()), float(self.le_t.text()),
                     r['K_df'], r['cF_df'], u)
-                r['dP_per_L'] = r['mu'] * u / K + r['rho'] * cF * u * u
+                r['dP_per_L'] = pressure_gradient(r['rho'], r['mu'], u, K, cF)
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e)); return
 

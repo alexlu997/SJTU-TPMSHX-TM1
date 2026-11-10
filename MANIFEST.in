@@ -1,0 +1,16 @@
+include LICENSE README.md README.en.md pyproject.toml requirements.txt
+graft sjtu_tpmshx
+graft engineering
+graft docs
+graft examples
+prune sjtu_tpmshx/solvers/native/lib
+prune .cache
+prune data
+prune .venv
+prune .git
+prune build
+prune dist
+global-exclude *.pyc *.pyo *.nbi *.nbc
+global-exclude *.a *.lib *.dylib *.dll *.so *.o *.obj *.pdb *.exe
+global-exclude *.h5 *.hdf5 *.npz *.npy *.checkpoint *.ckpt
+global-exclude .venv-path .last_session.json .session_timeline.jsonl .first_run_done

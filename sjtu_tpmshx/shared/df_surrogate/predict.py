@@ -8,12 +8,12 @@ from __future__ import annotations
 
 import os
 import warnings
-from math import sqrt
 
 import numpy as np
 
 from sjtu_tpmshx.shared.configs.model_parameters import load_model_parameters
 from sjtu_tpmshx.shared.domain.run_warnings import record_warning
+from sjtu_tpmshx.shared.models import _native_df
 
 R_AIR = load_model_parameters()['envelope']['r_air_default']
 
@@ -89,8 +89,8 @@ def predict_dP(tpms_type: str, L_mm: float, t_mm: float, eps_f: float,
 
     For compressible flow, use predict_dP_compressible instead.
     """
-    K, c_F = predict_K_cF(tpms_type, L_mm, t_mm, eps_f, method=method)
-    return (mu * u / K + rho * c_F * u ** 2) * L_channel_m
+    _get_model(tpms_type, method)
+    return _native_df.pressure(tpms_type, L_mm, t_mm, u, rho, mu, L_channel_m)
 
 
 def predict_dP_compressible(tpms_type: str, L_mm: float, t_mm: float,
@@ -112,10 +112,10 @@ def predict_dP_compressible(tpms_type: str, L_mm: float, t_mm: float,
     strict : if no positive outlet pressure solution exists, True returns NaN
         and False returns P_in as a fallback dP. Neither is a solved pressure.
     """
-    K, c_F = predict_K_cF(tpms_type, L_mm, t_mm, eps_f, method=method)
-    C = mu * G / K + c_F * G ** 2
-    P_out_sq = P_in ** 2 - 2.0 * R_AIR * T * C * L
-    if P_out_sq <= 0:
+    _get_model(tpms_type, method)
+    result, P_out_sq, no_positive_outlet = _native_df.pressure(
+        tpms_type, L_mm, t_mm, G, T, P_in, mu, L, compressible=True, strict=strict)
+    if no_positive_outlet:
         # No positive P_out: preserve each return policy without interpreting
         # failure of this approximation as a physical choking diagnosis.
         _choke_key = (tpms_type, round(float(L_mm), 2), round(float(t_mm), 2),
@@ -131,5 +131,4 @@ def predict_dP_compressible(tpms_type: str, L_mm: float, t_mm: float,
                 and _choke_key not in _CHOKE_WARNED):
             _CHOKE_WARNED.add(_choke_key)
             warnings.warn(message, stacklevel=2)
-        return float('nan') if strict else P_in
-    return P_in - sqrt(P_out_sq)
+    return result

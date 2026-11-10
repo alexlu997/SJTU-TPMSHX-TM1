@@ -6,6 +6,7 @@ from sjtu_tpmshx.shared.domain.portable_data import mutable_data
 from sjtu_tpmshx.shared.domain.performance_result import MetricValue
 from sjtu_tpmshx.shared.domain.run_warnings import record_warning
 from sjtu_tpmshx.shared.models.quick_design import K_STEEL, LTNE_TOL
+from sjtu_tpmshx.shared.models import _native_flow
 
 @dataclass
 class ForwardResult:
@@ -40,8 +41,8 @@ def forward(case, topo: str, l: float, t: float, s: float, Lx: float,
         if metric.status != 'available':
             raise ValueError(f'quick-design {name}: {metric.status}: {metric.reason}')
         values.append(metric.value)
-    values[4] /= case.P_in_h
-    values[5] /= case.P_in_c
+    values[4] = _native_flow.relative_pressure(values[4], case.P_in_h)
+    values[5] = _native_flow.relative_pressure(values[5], case.P_in_c)
     messages = list(result.metadata['diagnostics']['warnings_list'])
     for message in messages:
         record_warning(('quick-design', message), message)

@@ -7,55 +7,43 @@ point; exceptions are propagated with their T/p context. Not a solid-CO2 model.
 from __future__ import annotations
 from functools import lru_cache
 import numpy as np
+from . import _native_properties
 
 _KEYS = ('D','V','L','C','H')
-
-
-@lru_cache(maxsize=1)
-def _cp():
-    import CoolProp.CoolProp as CP
-    return CP
 
 
 def _states(T,P):
     if P is None:
         raise ValueError('CO2 requires absolute pressure P in Pa')
     t,p=np.broadcast_arrays(np.asarray(T,dtype=float),np.asarray(P,dtype=float))
-    if not t.size or not (np.isfinite(t).all() and np.isfinite(p).all()
-                         and (t>0).all() and (p>0).all()):
-        raise ValueError('CO2 requires finite positive temperature [K] and pressure [Pa(abs)]')
-    if (t <= float(_cp().PropsSI('Ttriple','CO2'))).any():
-        raise ValueError('CO2 at/below its triple-point temperature is outside this fluid model')
+    try:
+        _native_properties.paired_state('co2_validate_pt', t, p)
+    except _native_properties.StateError as error:
+        raise ValueError(str(error)) from None
     return t,p
 
 
 def _evaluate(keys,t,p):
-    CP=_cp(); shape=t.shape
     try:
-        result=np.asarray(CP.PropsSI(list(keys)+['Phase'],'T',t.ravel(),
-                                    'P',p.ravel(),'HEOS::CO2'),dtype=float)
-        result=result.reshape(-1,len(keys)+1)
-        phases=result[:,-1]
-        allowed=[CP.iphase_liquid,CP.iphase_gas,CP.iphase_supercritical,
-                 CP.iphase_supercritical_gas,CP.iphase_supercritical_liquid]
-        valid=np.isfinite(result).all(axis=1)&np.isin(phases,allowed)
-        for j,key in enumerate(keys):
-            if key in ('D','V','L','C'):
-                valid &= result[:,j]>0
-        if not valid.all():
-            i=int(np.flatnonzero(~valid)[0])
-            raise ValueError(f'unsupported/nonfinite state at T={t.flat[i]:g} K, '
-                             f'P_abs={p.flat[i]:g} Pa; phase code={phases[i]:g}')
-        return tuple(result[:,j].reshape(shape) for j in range(len(keys)))
-    except (ValueError,RuntimeError) as exc:
-        raise ValueError('CO2 requires a stable single-phase PT state; '
-                         'saturation, two-phase and critical-point states are unsupported. '
-                         f'{exc}') from exc
+        return _native_properties.co2_pt(tuple(_KEYS.index(key) for key in keys), t, p)
+    except _native_properties.StateError as error:
+        prefix = ('CO2 requires a stable single-phase PT state; '
+                  'saturation, two-phase and critical-point states are unsupported. ')
+        text = str(error)
+        cause = ValueError(text[len(prefix):] if text.startswith(prefix) else text)
+        raise ValueError(text) from cause
 
 
 @lru_cache(maxsize=4096)
 def _scalar(T,P):
-    return tuple(float(v) for v in _evaluate(_KEYS,np.asarray(T),np.asarray(P)))
+    try:
+        return _native_properties.co2_scalar_bundle(T, P)
+    except _native_properties.StateError as error:
+        prefix = ('CO2 requires a stable single-phase PT state; '
+                  'saturation, two-phase and critical-point states are unsupported. ')
+        text = str(error)
+        cause = ValueError(text[len(prefix):] if text.startswith(prefix) else text)
+        raise ValueError(text) from cause
 
 
 def co2_prop(keys,T,P):

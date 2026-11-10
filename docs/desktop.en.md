@@ -14,13 +14,13 @@ Normal delivery uses a project folder with Python/Qt, source, model resources, a
 
 ## Run from a project folder
 
-Work from the repository root. Make sure that `.venv-path` starts with an existing absolute interpreter path on this host. Then run the [README environment checks](../README.en.md#环境与检查). The solver and geometry libraries must match current adapters and headers. The source repository does not include local compiled outputs. See [C++ instructions](cpp-migration.md) for native dependency builds.
+Work from the repository root. Make sure that `.venv-path` starts with an existing absolute interpreter path on this host. Then run the [README environment checks](../README.en.md#环境与检查). Solver, geometry and preparation libraries must match current adapters and headers. The source repository does not include local compiled outputs. See [C++ instructions](cpp-migration.md) for native dependency builds.
 
 Keep these items in the project folder:
 
 - Complete `sjtu_tpmshx/` source, including `shared/configs/*.json`, `shared/df_surrogate/_prebuilt/*.csv`, and interface resources.
 - This host's `.venv-path`, the corresponding `engineering/requirements/*.txt`, usage examples, and operation instructions.
-- Solver and geometry libraries that match the source revision, platform, and their respective ABIs.
+- Solver, geometry and preparation libraries that match the source revision, platform, and their respective ABIs.
   Include `sjtu_tpmshx/solvers/native/include/`, `sjtu_tpmshx/solvers/native/dependencies-lock.toml`, `sjtu_tpmshx/solvers/native/THIRD_PARTY_NOTICES.md`, and `sjtu_tpmshx/solvers/native/licenses/`.
 - Writable model-table and runtime-cache directories. Table files must stay outside dynamic-library and read-only resource directories.
 
@@ -38,6 +38,7 @@ To use a library outside the default directory:
 
 ```sh
 export TPMSHX_GEOMETRY_LIBRARY="$PWD/.cache/native-deps/build/pilot-macos-arm64/libtpmshx_geometry_shared.dylib"
+export TPMSHX_PREPARATION_LIBRARY="$PWD/.cache/native-deps/build/preparation-macos-arm64/libtpmshx_preparation_shared.dylib"
 "$tm1_python" -m sjtu_tpmshx.main --backend cpp \
   --native-library "$PWD/.cache/native-deps/build/pilot-macos-arm64/libtpmshx_solver_shared.dylib" \
   --native-table-directory "$PWD/.cache/native-deps/tables"
@@ -56,6 +57,7 @@ To select the existing build output explicitly:
 
 ```powershell
 $env:TPMSHX_GEOMETRY_LIBRARY = Join-Path $PWD '.cache/native-deps/build/pilot-windows-x64/tpmshx_geometry_shared.dll'
+$env:TPMSHX_PREPARATION_LIBRARY = Join-Path $PWD '.cache/native-deps/build/preparation-windows-x64/tpmshx_preparation_shared.dll'
 $tm1Library = Join-Path $PWD '.cache/native-deps/build/pilot-windows-x64/tpmshx_solver_shared.dll'
 $tm1Tables = Join-Path $PWD '.cache/native-deps/tables'
 & $tm1Python -m sjtu_tpmshx.main --backend cpp --native-library $tm1Library --native-table-directory $tm1Tables
@@ -73,6 +75,12 @@ Historical result reading and independent postprocessing do not load the geometr
 After changing C++ functions or compiled model data, rebuild and restart the process.
 Old checkpoints still need their exact matching solver runtime.
 
+Preparation loads on demand from the same platform directory. It uses preparation ABI 1; geometry ABI 1 and field ABI 2 stay unchanged.
+Its name is `libtpmshx_preparation_shared.dylib` on macOS and `tpmshx_preparation_shared.dll` on Windows.
+`TPMSHX_PREPARATION_LIBRARY` overrides its runtime path. `--native-library` still selects only the solver.
+Historical result reading and independent postprocessing do not load preparation.
+See the [native preparation core](cpp-migration.md#native-preparation-core) for separate preparation publication and the three-library transaction.
+
 <a id="可选冻结打包"></a>
 
 ## Optional frozen packaging
@@ -81,14 +89,14 @@ Old checkpoints still need their exact matching solver runtime.
 
 Frozen Quick Design uses serial candidate search in one process to prevent child processes from starting another GUI. Source operation keeps its existing parallel path. The interface reports the actual execution mode.
 
-The spec requires prebuilt solver and geometry libraries.
-macOS uses `libtpmshx_solver_shared.dylib` and `libtpmshx_geometry_shared.dylib`.
-Windows uses `tpmshx_solver_shared.dll` and `tpmshx_geometry_shared.dll`.
-Both libraries go under `native/` in the package.
+The spec requires prebuilt solver, geometry and preparation libraries.
+macOS uses `libtpmshx_solver_shared.dylib`, `libtpmshx_geometry_shared.dylib` and `libtpmshx_preparation_shared.dylib`.
+Windows uses `tpmshx_solver_shared.dll`, `tpmshx_geometry_shared.dll` and `tpmshx_preparation_shared.dll`.
+All three libraries go under `native/` in the package.
 Notices, native dependency lock, and complete licenses go under `licenses/native/`.
 Packaging downloads no dependencies and invokes no C/C++ compiler.
 
-First build both native libraries through the existing native process. Complete their numerical qualification before packaging.
+First build all three native libraries through the existing native process. Complete their numerical qualification before packaging.
 
 3D code uses targeted `vtkmodules` imports. Packaging excludes the former aggregate `vtk` entry, which loads all optional VTK modules. It keeps actual dependencies for PyVista, volume rendering, picking, transparency, and exports. After a VTK/PyVista version change, validate the import closure again. Do tests of 3D display and image/VTK export. Binary size alone is not a reason to delete a dependency.
 
@@ -134,13 +142,14 @@ python -m pip check
 python -m PyInstaller --noconfirm --clean --distpath .cache/desktop-build/dist --workpath .cache/desktop-build/work engineering/packaging/desktop.spec
 ```
 
-Before the build, set `TPMSHX_NATIVE_SOLVER_LIBRARY` and `TPMSHX_NATIVE_GEOMETRY_LIBRARY`.
-Use absolute paths to the target platform's prebuilt solver and geometry libraries.
-The build fails if either setting is absent:
+Before the build, set `TPMSHX_NATIVE_SOLVER_LIBRARY`, `TPMSHX_NATIVE_GEOMETRY_LIBRARY` and `TPMSHX_NATIVE_PREPARATION_LIBRARY`.
+Use absolute paths to the target platform's prebuilt solver, geometry and preparation libraries.
+The build fails if any setting is absent:
 
 ```sh
 export TPMSHX_NATIVE_SOLVER_LIBRARY="/absolute/path/libtpmshx_solver_shared.dylib"
 export TPMSHX_NATIVE_GEOMETRY_LIBRARY="/absolute/path/libtpmshx_geometry_shared.dylib"
+export TPMSHX_NATIVE_PREPARATION_LIBRARY="/absolute/path/libtpmshx_preparation_shared.dylib"
 ```
 
 On Windows PowerShell:
@@ -148,10 +157,11 @@ On Windows PowerShell:
 ```powershell
 $env:TPMSHX_NATIVE_SOLVER_LIBRARY = 'C:\absolute\path\tpmshx_solver_shared.dll'
 $env:TPMSHX_NATIVE_GEOMETRY_LIBRARY = 'C:\absolute\path\tpmshx_geometry_shared.dll'
+$env:TPMSHX_NATIVE_PREPARATION_LIBRARY = 'C:\absolute\path\tpmshx_preparation_shared.dll'
 ```
 
 Then run the same PyInstaller command. A missing or empty explicit file, or an incorrect platform library name, fails the build.
-Neither library is silently omitted. Only these two prebuilt libraries and their actual runtime dependencies are collected.
+No library is silently omitted. Only these three prebuilt libraries and their actual runtime dependencies are collected.
 Compilers, source trees, build directories, and property-table caches from `.cache/native-deps` are excluded.
 
 Replace each example `python` with the absolute interpreter in the build pointer. Before importing compute modules, the launcher sets Matplotlib and general user-cache directories. It also calls `multiprocessing.freeze_support()`.
@@ -166,11 +176,12 @@ Frozen programs default to C++.
 Without `--native-library`, a frozen program locates the solver library under its own `native/` directory.
 An explicit path always takes precedence.
 The geometry library also defaults to packaged `native/`. The runtime setting `TPMSHX_GEOMETRY_LIBRARY` can override it.
+Preparation defaults to the same `native/` directory. The runtime setting `TPMSHX_PREPARATION_LIBRARY` can override it.
 For source operation, use the host default or explicit paths described above.
 No development-cache search, compilation, or backend substitution occurs.
 
 The three backend command options construct this invocation's `RunControl`.
-The geometry-library path is a host setting for the process.
+Geometry and preparation paths are host settings for the process.
 Neither enters saved `CaseData` or physical configuration.
 
 For example, run the packaged macOS executable directly:
@@ -180,7 +191,7 @@ For example, run the packaged macOS executable directly:
   --native-table-directory "/absolute/writable/path/native-eos-tables"
 ```
 
-The same executable's `--cli run ...` and `--cli solve ...` accept these three host options. `--native-table-directory` is kept for explicitly selected historical libraries that need BICUBIC tables. For those libraries, use a writable absolute path outside the package. Current T-SOU execution does not read this option or create tables. Double-click startup uses the packaged C++ solver and geometry libraries.
+The same executable's `--cli run ...` and `--cli solve ...` accept these three host options. `--native-table-directory` is kept for explicitly selected historical libraries that need BICUBIC tables. For those libraries, use a writable absolute path outside the package. Current T-SOU execution does not read this option or create tables. Double-click startup uses the packaged C++ solver, geometry and preparation libraries.
 
 <a id="文件与状态"></a>
 

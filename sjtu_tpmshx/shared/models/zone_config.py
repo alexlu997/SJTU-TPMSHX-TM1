@@ -138,13 +138,14 @@ class ZoneConfig:
             raise RuntimeError("Call compute_properties() before building arrays.")
 
         arrays = self.build_structured_geometry(Nx, Ny, H, axis, dx_arr=dx_arr, dy_arr=dy_arr)
+        from ._native_properties import volumetric_transfer
         zone_id = arrays['zone_id']
         for side in ('A', 'B'):
             properties = [getattr(zone, 'props_' + side) for zone in self.zones]
             arrays['K_ff' + side + '_arr'] = np.asarray(
                 [props['K_ff'] for props in properties], dtype=np.float64)[zone_id]
             arrays['h_v' + side + '_arr'] = np.asarray(
-                [props['H_sf'] * props['A_0'] for props in properties], dtype=np.float64)[zone_id]
+                [volumetric_transfer(props['H_sf'], props['A_0']) for props in properties], dtype=np.float64)[zone_id]
         arrays['zone_params'] = [
             dict(name=z.name, y_frac_start=z.y_frac_start, y_frac_end=z.y_frac_end,
                  L_mm=z.L_mm, t_mm=z.t_mm, epsilon=z.props_A['epsilon'],
@@ -206,13 +207,14 @@ class ZoneConfig:
 
         arrays = ZoneConfig.build_grid_geometry(
             Nx, Ny, grid_cells, tpms_type, k_s, dx_arr, dy_arr)
+        from ._native_properties import volumetric_transfer
         zone_id = arrays['zone_id']
         for side, index in (('A', 0), ('B', 1)):
             properties = [props_cache[(cell['L'], cell['t'])][index] for cell in grid_cells]
             arrays['K_ff' + side + '_arr'] = np.asarray(
                 [props['K_ff'] for props in properties], dtype=np.float64)[zone_id]
             arrays['h_v' + side + '_arr'] = np.asarray(
-                [props['H_sf'] * props['A_0'] for props in properties], dtype=np.float64)[zone_id]
+                [volumetric_transfer(props['H_sf'], props['A_0']) for props in properties], dtype=np.float64)[zone_id]
         return arrays
 
     @staticmethod

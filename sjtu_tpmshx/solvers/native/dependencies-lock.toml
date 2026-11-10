@@ -30,6 +30,7 @@ directory = "CoolProp-8.0.0"
 license = "MIT; retain each bundled and submodule license separately"
 license-url = "https://raw.githubusercontent.com/CoolProp/CoolProp/ae81610e7d23efc57f9d051c8e70a4d66e87537f/LICENSE"
 cmake-options = ["COOLPROP_STATIC_LIBRARY=ON", "COOLPROP_RELEASE=ON", "COOLPROP_NO_EXAMPLES=ON", "CMAKE_POSITION_INDEPENDENT_CODE=ON", "CMAKE_BUILD_TYPE=Release", "CMAKE_CXX_FLAGS=-DEIGEN_MPL2_ONLY", "CMAKE_EXPORT_COMPILE_COMMANDS=ON"]
+preparation-macos-options = ["CMAKE_C_FLAGS_RELEASE=-Os -DNDEBUG", "CMAKE_CXX_FLAGS_RELEASE=-Os -DNDEBUG"]
 windows-options = ["COOLPROP_MSVC_DYNAMIC=ON", "CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL"]
 backends = "Keep all version-default backends, including HEOS and BICUBIC; no EOS replacement"
 

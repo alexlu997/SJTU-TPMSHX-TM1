@@ -14,14 +14,14 @@
 
 从仓库根目录操作。先确认 `.venv-path` 第一行指向本机已有的绝对解释器，
 再按 [README 环境检查](../README.md#环境与检查)核对锁和依赖。
-求解库和几何库必须与当前适配器和头文件匹配；源码仓库不附带本机编译产物。
+求解库、几何库和准备库必须与当前适配器和头文件匹配；源码仓库不附带本机编译产物。
 原生依赖构建方法见 [C++ 说明](cpp-migration.zh-CN.md)。
 
 项目文件夹保留以下内容：
 
 - 完整 `sjtu_tpmshx/` 源码，包括 `shared/configs/*.json`、`shared/df_surrogate/_prebuilt/*.csv` 和界面资源。
 - 本机 `.venv-path`、对应 `engineering/requirements/*.txt`、使用示例和运行说明。
-- 与源码版本、平台和各自 ABI 匹配的求解库、几何库，以及 `sjtu_tpmshx/solvers/native/include/`、`sjtu_tpmshx/solvers/native/dependencies-lock.toml`、`sjtu_tpmshx/solvers/native/THIRD_PARTY_NOTICES.md` 和 `sjtu_tpmshx/solvers/native/licenses/`。
+- 与源码版本、平台和各自 ABI 匹配的求解库、几何库、准备库，以及 `sjtu_tpmshx/solvers/native/include/`、`sjtu_tpmshx/solvers/native/dependencies-lock.toml`、`sjtu_tpmshx/solvers/native/THIRD_PARTY_NOTICES.md` 和 `sjtu_tpmshx/solvers/native/licenses/`。
 - 可写的模型表与运行缓存目录；表文件不写入动态库或只读资源目录。
 
 下列 C++ 命令直接使用既有构建流程的输出路径。
@@ -38,6 +38,7 @@ export MPLCONFIGDIR="$PWD/.cache/matplotlib" XDG_CACHE_HOME="$PWD/.cache/xdg"
 
 ```sh
 export TPMSHX_GEOMETRY_LIBRARY="$PWD/.cache/native-deps/build/pilot-macos-arm64/libtpmshx_geometry_shared.dylib"
+export TPMSHX_PREPARATION_LIBRARY="$PWD/.cache/native-deps/build/preparation-macos-arm64/libtpmshx_preparation_shared.dylib"
 "$tm1_python" -m sjtu_tpmshx.main --backend cpp \
   --native-library "$PWD/.cache/native-deps/build/pilot-macos-arm64/libtpmshx_solver_shared.dylib" \
   --native-table-directory "$PWD/.cache/native-deps/tables"
@@ -56,6 +57,7 @@ $env:XDG_CACHE_HOME = Join-Path $PWD '.cache/xdg'
 
 ```powershell
 $env:TPMSHX_GEOMETRY_LIBRARY = Join-Path $PWD '.cache/native-deps/build/pilot-windows-x64/tpmshx_geometry_shared.dll'
+$env:TPMSHX_PREPARATION_LIBRARY = Join-Path $PWD '.cache/native-deps/build/preparation-windows-x64/tpmshx_preparation_shared.dll'
 $tm1Library = Join-Path $PWD '.cache/native-deps/build/pilot-windows-x64/tpmshx_solver_shared.dll'
 $tm1Tables = Join-Path $PWD '.cache/native-deps/tables'
 & $tm1Python -m sjtu_tpmshx.main --backend cpp --native-library $tm1Library --native-table-directory $tm1Tables
@@ -80,6 +82,11 @@ Windows 名称为 `tpmshx_geometry_shared.dll`。运行时用 `TPMSHX_GEOMETRY_L
 历史结果回读和独立后处理不加载几何库。修改 C++ 函数或编译时模型数据后，
 必须重新构建并重启进程。旧检查点仍须保留精确匹配的求解运行库。
 
+准备库在同一平台目录按需加载，使用 preparation ABI 1；几何 ABI 1／field ABI 2 不变。
+macOS 名称为 `libtpmshx_preparation_shared.dylib`，Windows 为 `tpmshx_preparation_shared.dll`。
+`TPMSHX_PREPARATION_LIBRARY` 覆盖其运行路径；`--native-library` 仍只选择求解库。
+历史结果回读和独立后处理不加载准备库。独立准备库发布及三库事务见[原生准备核心](cpp-migration.zh-CN.md#native-preparation-core)。
+
 ## 可选冻结打包
 
 桌面入口是 `sjtu_tpmshx.desktop`，调用现有 GUI 和公共三模块计算链。
@@ -90,10 +97,10 @@ DF 表和 SVG 图标打包；不包含原始实验数据、研究输出、测试
 冻结桌面包的快速设计采用单进程串行候选搜索，避免子进程重复启动 GUI；
 源码运行保留现有并行路径。界面会显示实际执行方式。
 
-同一个 spec 必须包含预构建的求解库和几何库。macOS 使用
-`libtpmshx_solver_shared.dylib` 和 `libtpmshx_geometry_shared.dylib`；Windows 使用
-`tpmshx_solver_shared.dll` 和 `tpmshx_geometry_shared.dll`。
-两库放在包内 `native/`，相应第三方说明、原生依赖锁和完整许可证放在
+同一个 spec 必须包含预构建的求解库、几何库和准备库。macOS 使用
+`libtpmshx_solver_shared.dylib`、`libtpmshx_geometry_shared.dylib` 和 `libtpmshx_preparation_shared.dylib`；Windows 使用
+`tpmshx_solver_shared.dll`、`tpmshx_geometry_shared.dll` 和 `tpmshx_preparation_shared.dll`。
+三库放在包内 `native/`，相应第三方说明、原生依赖锁和完整许可证放在
 `licenses/native/`。打包阶段不下载依赖或调用 C/C++ 编译器；原生库必须先用既有原生构建流程生成并完成对应数值资格检查。
 
 三维代码按 `vtkmodules` 定向导入；打包排除会加载全部 VTK 可选模块的旧
@@ -143,12 +150,13 @@ python -m pip check
 python -m PyInstaller --noconfirm --clean --distpath .cache/desktop-build/dist --workpath .cache/desktop-build/work engineering/packaging/desktop.spec
 ```
 
-构建前必须设置 `TPMSHX_NATIVE_SOLVER_LIBRARY` 和 `TPMSHX_NATIVE_GEOMETRY_LIBRARY`。
-两者分别指向目标平台预构建求解库和几何库的绝对路径；缺少任一设置时构建失败。例如：
+构建前必须设置 `TPMSHX_NATIVE_SOLVER_LIBRARY`、`TPMSHX_NATIVE_GEOMETRY_LIBRARY` 和 `TPMSHX_NATIVE_PREPARATION_LIBRARY`。
+三者分别指向目标平台预构建求解库、几何库和准备库的绝对路径；缺少任一设置时构建失败。例如：
 
 ```sh
 export TPMSHX_NATIVE_SOLVER_LIBRARY="/absolute/path/libtpmshx_solver_shared.dylib"
 export TPMSHX_NATIVE_GEOMETRY_LIBRARY="/absolute/path/libtpmshx_geometry_shared.dylib"
+export TPMSHX_NATIVE_PREPARATION_LIBRARY="/absolute/path/libtpmshx_preparation_shared.dylib"
 ```
 
 Windows PowerShell 使用：
@@ -156,10 +164,11 @@ Windows PowerShell 使用：
 ```powershell
 $env:TPMSHX_NATIVE_SOLVER_LIBRARY = 'C:\absolute\path\tpmshx_solver_shared.dll'
 $env:TPMSHX_NATIVE_GEOMETRY_LIBRARY = 'C:\absolute\path\tpmshx_geometry_shared.dll'
+$env:TPMSHX_NATIVE_PREPARATION_LIBRARY = 'C:\absolute\path\tpmshx_preparation_shared.dll'
 ```
 
 再执行同一 PyInstaller 命令。显式指定的文件缺失、为空或库名与目标平台不符
-会使构建失败；不会悄悄省略任一原生库。只收集这两份预构建动态库及其实际运行依赖，
+会使构建失败；不会悄悄省略任一原生库。只收集这三份预构建动态库及其实际运行依赖，
 不把 `.cache/native-deps` 的编译器、源码树、构建目录或物性表缓存装入程序包。
 
 示例中的 `python` 均替换为构建指针记录的绝对解释器。启动器在导入计算模块前
@@ -173,8 +182,9 @@ $env:TPMSHX_NATIVE_GEOMETRY_LIBRARY = 'C:\absolute\path\tpmshx_geometry_shared.d
 冻结程序默认使用 C++。未传 `--native-library`
 时，冻结程序从自己的包内 `native/` 定位上述求解库；显式路径始终优先。
 几何库也默认使用包内 `native/`，可由运行时 `TPMSHX_GEOMETRY_LIBRARY` 覆盖。
+准备库默认使用同一 `native/`，可由运行时 `TPMSHX_PREPARATION_LIBRARY` 覆盖。
 源码运行使用前述主机默认路径或显式路径，不会自动搜寻开发缓存、编译库或改用其他后端。
-三个后端命令行选项仅构造本次调用的 `RunControl`；几何库路径是进程级主机设置。
+三个后端命令行选项仅构造本次调用的 `RunControl`；几何库和准备库路径是进程级主机设置。
 两者均不进入保存的 `CaseData` 或物理配置。
 
 例如，在 macOS 上直接运行包内可执行文件：
@@ -186,7 +196,7 @@ $env:TPMSHX_NATIVE_GEOMETRY_LIBRARY = 'C:\absolute\path\tpmshx_geometry_shared.d
 
 同一可执行文件的 `--cli run ...` / `--cli solve ...` 接受相同三个主机选项。
 `--native-table-directory` 保留给显式选择且需要 BICUBIC 表的历史运行库；此时须使用程序包外可写的绝对路径。当前 T-SOU 执行不读取此选项，也不创建表。
-双击启动时使用包内 C++ 求解库和几何库。
+双击启动时使用包内 C++ 求解库、几何库和准备库。
 
 ## 文件与状态
 

@@ -45,6 +45,7 @@ Public data contracts are implemented in [shared/domain](../sjtu_tpmshx/shared/d
 C++ numerical source stays in [solvers/native](../sjtu_tpmshx/solvers/native/).
 
 `pyproject.toml` defines builds, dependency declarations, pytest, mypy, and lint settings.
+Root `MANIFEST.in` selects source-distribution files. The wheel uses the explicit resource list in `pyproject.toml`.
 `engineering/requirements/` holds exact locks for each environment purpose. Root `requirements.txt` installs an isolated development environment.
 `[tool.mypy].files` selects public interfaces and data contracts for type checks. See [environment and checks](../README.en.md#环境与检查). `AGENTS.md` defines collaboration rules. `LICENSE` states the license.
 

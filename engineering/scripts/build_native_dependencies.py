@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import ctypes as ct
 from datetime import datetime, timezone
 import filecmp
 import hashlib
@@ -17,6 +18,8 @@ import math
 import os
 from pathlib import Path
 import platform
+import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -25,6 +28,7 @@ import tempfile
 import time
 import tomllib
 import urllib.request
+import xml.etree.ElementTree as ET
 import zipfile
 
 
@@ -78,8 +82,10 @@ def download(url: str, target: Path) -> None:
     partial.replace(target)
 
 
-def verify_sources(cache: Path) -> None:
+def verify_sources(cache: Path, *, models_only: bool = False) -> None:
     for name, spec in LOCK["sources"].items():
+        if models_only and name != "coolprop" and "cpm-name" not in spec:
+            continue
         source = cache / "src" / spec["directory"]
         log = cache / "logs" / f"verify-source-{name}.log"
         actual = run(["git", "rev-parse", "HEAD"], log, cwd=source).strip()
@@ -235,6 +241,110 @@ def check_environment(cache: Path, python: Path, lock: Path) -> None:
     run([python, "-m", "pip", "check"], log)
 
 
+def coolprop_build_dir(cache: Path, host: str, role: str) -> Path:
+    name = "coolprop-preparation" if role == "preparation" and host == "macos-arm64" else "coolprop"
+    return cache / "build" / f"{name}-{host}"
+
+
+def coolprop_library(cache: Path, host: str, role: str) -> Path:
+    return coolprop_build_dir(cache, host, role) / (
+        "Release/CoolProp.lib" if host == "windows-x64" else "libCoolProp.a")
+
+
+def _request_coolprop_metadata(build_dir: Path) -> None:
+    query = build_dir / ".cmake/api/v1/query"
+    query.mkdir(parents=True, exist_ok=True)
+    for name in ("codemodel-v2", "toolchains-v1"):
+        (query / name).write_text("", encoding="utf-8")
+
+
+def _record_coolprop_build(cache: Path, host: str, role: str) -> None:
+    build_dir = coolprop_build_dir(cache, host, role)
+    library = coolprop_library(cache, host, role)
+    if not library.is_file():
+        raise RuntimeError(f"CoolProp build did not produce {library}")
+    reply = build_dir / ".cmake/api/v1/reply"
+    indices = list(reply.glob("index-*.json"))
+    if not indices:
+        raise RuntimeError(f"Missing actual CoolProp CMake metadata: {reply}")
+    index_path = max(indices, key=lambda path: path.stat().st_mtime_ns)
+    index = json.loads(index_path.read_text(encoding="utf-8"))
+    objects = {}
+    for kind in ("codemodel", "toolchains"):
+        descriptor, = (item for item in index["objects"] if item["kind"] == kind)
+        objects[kind] = json.loads((reply / descriptor["jsonFile"]).read_text(encoding="utf-8"))
+    configuration, = (item for item in objects["codemodel"]["configurations"] if item["name"] == "Release")
+    target_ref, = (item for item in configuration["targets"] if item["name"] == "CoolProp")
+    target_path = reply / target_ref["jsonFile"]
+    target = json.loads(target_path.read_text(encoding="utf-8"))
+    if not any((build_dir / item["path"]).resolve() == library.resolve() for item in target["artifacts"]):
+        raise RuntimeError("CoolProp CMake artifact differs from the built archive")
+    groups = target["compileGroups"]
+    if {item["language"] for item in groups} != {"C", "CXX"} or any(
+            not item.get("compileCommandFragments") for item in groups):
+        raise RuntimeError("CoolProp metadata omitted actual C/C++ compilation options")
+    cache_values = {}
+    for line in (build_dir / "CMakeCache.txt").read_text(encoding="utf-8").splitlines():
+        match = re.fullmatch(r"(CMAKE_[A-Z0-9_]+):[^=]+=(.*)", line)
+        if match and (match[1].startswith(("CMAKE_C_FLAGS", "CMAKE_CXX_FLAGS", "CMAKE_OSX_", "CMAKE_VS_"))
+                      or match[1] in ("CMAKE_SYSTEM_VERSION", "CMAKE_MSVC_RUNTIME_LIBRARY", "CMAKE_GENERATOR")):
+            cache_values[match[1]] = match[2]
+    sdk = {"cmake_cache": cache_values}
+    if host == "macos-arm64":
+        settings = []
+        for toolchain in objects["toolchains"]["toolchains"]:
+            includes = toolchain.get("compiler", {}).get("implicit", {}).get("includeDirectories", [])
+            for directory in includes:
+                match = re.search(r"^(.+\.sdk)(?:/|$)", directory)
+                if match:
+                    path = Path(match[1]).resolve() / "SDKSettings.json"
+                    if path.is_file() and str(path) not in {item["path"] for item in settings}:
+                        data = json.loads(path.read_text(encoding="utf-8"))
+                        settings.append({"path": str(path), "version": data.get("Version"),
+                                         "canonical_name": data.get("CanonicalName")})
+        sdk["sdk_settings"] = settings
+    else:
+        project = build_dir / "CoolProp.vcxproj"
+        tree = ET.parse(project)
+        sdk["visual_studio_project"] = str(project)
+        sdk["windows_target_platform_versions"] = [item.text for item in tree.iter()
+            if item.tag.rsplit("}", 1)[-1] == "WindowsTargetPlatformVersion"]
+    spec = LOCK["sources"]["coolprop"]
+    record = dict(role=role, platform=host, archive=str(library.resolve()), version=spec["version"],
+                  revision=spec["commit"], configuration="Release", recorded_at=datetime.now(timezone.utc).isoformat(),
+                  compile_groups=groups, toolchains=objects["toolchains"]["toolchains"], sdk=sdk,
+                  evidence=dict(index=str(index_path), target=str(target_path),
+                                cache=str(build_dir / "CMakeCache.txt")))
+    (build_dir / "coolprop-build.json").write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+
+
+def coolprop_build_record(cache: Path, host: str, role: str) -> dict:
+    archive_role = "preparation" if role == "preparation" and host == "macos-arm64" else "solver"
+    library = coolprop_library(cache, host, role)
+    record_path = coolprop_build_dir(cache, host, role) / "coolprop-build.json"
+    if not library.is_file() or not record_path.is_file():
+        raise RuntimeError(f"Build locked CoolProp archives and metadata first; missing {library} or {record_path}")
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    spec = LOCK["sources"]["coolprop"]
+    if (record["role"], record["platform"], record["version"], record["revision"]) != (
+            archive_role, host, spec["version"], spec["commit"]):
+        raise RuntimeError(f"CoolProp build record differs from the required role/source: {record_path}")
+    groups = record["compile_groups"]
+    if {item["language"] for item in groups} != {"C", "CXX"} or not record["toolchains"] or not record["sdk"]:
+        raise RuntimeError(f"CoolProp build record omitted actual toolchain evidence: {record_path}")
+    for group in groups:
+        fragments = group.get("compileCommandFragments", [])
+        if not fragments:
+            raise RuntimeError(f"CoolProp build record omitted compilation options: {record_path}")
+        if host == "macos-arm64":
+            flags = shlex.split(" ".join(item["fragment"] for item in fragments))
+            optimization = [value for value in flags if re.fullmatch(r"-O(?:[0-3sgz]|fast)", value)]
+            expected = "-Os" if archive_role == "preparation" else "-O3"
+            if not optimization or optimization[-1] != expected:
+                raise RuntimeError(f"CoolProp effective optimization differs from {archive_role}: {record_path}")
+    return dict(record, consumer_role=role, consumed_archive=str(library), record_source=str(record_path))
+
+
 def build(cache: Path, host: str, python: Path, lock: Path, component: str) -> None:
     check_environment(cache, python, lock)
     if component == "geometry":
@@ -255,17 +365,17 @@ def build(cache: Path, host: str, python: Path, lock: Path, component: str) -> N
         run([cmake, "--build", build_dir, "--config", "Release", "--parallel", "2"],
             cache / "logs" / f"build-geometry-{host}.log")
         return
-    verify_sources(cache)
-    apply_lu_patch(cache)
+    if component == "preparation":
+        verify_sources(cache, models_only=True)
+    else:
+        verify_sources(cache)
+    if component != "preparation":
+        apply_lu_patch(cache)
     cmake = cmake_path(cache, host)
     spec = LOCK["sources"]["coolprop"]
-    cp_build = cache / "build" / f"coolprop-{host}"
     generator = ["-G", LOCK["cmake"][host]["generator"]]
     if host == "windows-x64":
         generator += ["-A", "x64"]
-        library = cp_build / "Release" / "CoolProp.lib"
-    else:
-        library = cp_build / "libCoolProp.a"
     if component in {"all", "coolprop"}:
         options = [f"-D{value}" for value in spec["cmake-options"]]
         options += [f"-DPython_EXECUTABLE={python}"]
@@ -276,33 +386,86 @@ def build(cache: Path, host: str, python: Path, lock: Path, component: str) -> N
             options += [f"-D{value}" for value in spec["windows-options"]]
         else:
             options += ["-DCMAKE_OSX_ARCHITECTURES=arm64"]
-        run([cmake, "-S", cache / "src" / spec["directory"], "-B", cp_build,
-             *generator, *options], cache / "logs" / f"configure-coolprop-{host}.log")
-        run([cmake, "--build", cp_build, "--config", "Release", "--parallel", "2"],
-            cache / "logs" / f"build-coolprop-{host}.log")
-    if component in {"all", "pilot"}:
-        if not library.is_file():
-            raise RuntimeError(f"Build CoolProp first; missing {library}")
-        pilot = cache / "build" / f"pilot-{host}"
+        roles = ("solver", "preparation") if host == "macos-arm64" else ("solver",)
+        for role in roles:
+            cp_build = coolprop_build_dir(cache, host, role)
+            selected_options = list(options)
+            if role == "preparation":
+                selected_options += [f"-D{value}" for value in spec["preparation-macos-options"]]
+            _request_coolprop_metadata(cp_build)
+            run([cmake, "-S", cache / "src" / spec["directory"], "-B", cp_build,
+                 *generator, *selected_options], cache / "logs" / f"configure-{cp_build.name}.log")
+            run([cmake, "--build", cp_build, "--config", "Release", "--parallel", "2"],
+                cache / "logs" / f"build-{cp_build.name}.log")
+            _record_coolprop_build(cache, host, role)
+    if component in {"all", "pilot", "preparation"}:
         generated = cache / "generated"
         run([python, "-m", "engineering.scripts.generate_native_model_coefficients", "--output",
-             generated / "tpmshx/model_coefficients.hpp"], cache / "logs" / "generate-model-coefficients.log")
-        options = [f"-DTPMSHX_NATIVE_DEPS_ROOT={cache}", f"-DTPMSHX_COOLPROP_LIBRARY={library}",
-                   f"-DTPMSHX_MODEL_INCLUDE_DIR={generated}",
-                   "-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"]
-        if host == "macos-arm64":
-            options += ["-DCMAKE_OSX_ARCHITECTURES=arm64"]
-        run([cmake, "-S", ROOT / "sjtu_tpmshx/solvers/native/dependency-pilot", "-B", pilot,
-             *generator, *options], cache / "logs" / f"configure-pilot-{host}.log")
-        run([cmake, "--build", pilot, "--config", "Release", "--parallel", "2"],
-            cache / "logs" / f"build-pilot-{host}.log")
+             generated / "tpmshx/model_coefficients.hpp", "--df-output",
+             generated / "tpmshx/preparation_df_data.hpp"], cache / "logs" / "generate-model-coefficients.log")
+        names = ("preparation",) if component == "preparation" else ("pilot", "preparation")
+        for build_name in names:
+            role = "preparation" if build_name == "preparation" else "solver"
+            library = coolprop_library(cache, host, role)
+            coolprop_build_record(cache, host, role)
+            build_dir = cache / "build" / f"{build_name}-{host}"
+            options = [f"-DTPMSHX_NATIVE_DEPS_ROOT={cache}", f"-DTPMSHX_COOLPROP_LIBRARY={library}",
+                       f"-DTPMSHX_MODEL_INCLUDE_DIR={generated}",
+                       "-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"]
+            if host == "macos-arm64":
+                options += ["-DCMAKE_OSX_ARCHITECTURES=arm64"]
+            source = "preparation" if build_name == "preparation" else "dependency-pilot"
+            run([cmake, "-S", ROOT / "sjtu_tpmshx/solvers/native" / source, "-B", build_dir,
+                 *generator, *options], cache / "logs" / f"configure-{build_name}-{host}.log")
+            run([cmake, "--build", build_dir, "--config", "Release", "--parallel", "2"],
+                cache / "logs" / f"build-{build_name}-{host}.log")
+
+
+def verify_model_exports(build_dir: Path, host: str, component: str, log: Path) -> None:
+    """Keep each static EOS image private behind its explicit C exports."""
+    native_root = ROOT / 'sjtu_tpmshx/solvers/native'
+    folder = 'dependency-pilot' if component == 'solver' else 'preparation'
+    expected = set((native_root / folder / (component + '.exports')).read_text().splitlines())
+    if not expected or any(not name.startswith('_tpmshx_') for name in expected):
+        raise RuntimeError(f'Invalid {component} C export list')
+    if host == 'macos-arm64':
+        library = build_dir / ('libtpmshx_' + component + '_shared.dylib')
+        symbols = run(['nm', '-gU', library], log)
+        actual = {line.split()[-1] for line in symbols.splitlines() if line.strip()}
+        undefined = run(['nm', '-gu', library], log)
+        if re.search(r'_Z\S*(?:8CoolProp|6tpmshx)', undefined):
+            raise RuntimeError(f'{component} imports private model symbols from another image')
+        dependencies = run(['otool', '-L', library], log)
+        for line in dependencies.splitlines()[2:]:
+            dependency = line.strip().split(' (', 1)[0]
+            if not dependency.startswith(('/usr/lib/', '/System/Library/')):
+                raise RuntimeError(f'{component} has a non-system dynamic dependency: {dependency}')
+    else:
+        library = build_dir / ('tpmshx_' + component + '_shared.dll')
+        symbols = run(['dumpbin', '/NOLOGO', '/EXPORTS', library], log)
+        actual = {'_' + match for match in re.findall(
+            r'^\s+\d+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]+\s+(\S+)', symbols, re.MULTILINE)}
+        if component == 'solver':
+            # These original macOS C hooks were never DLL exports on Windows.
+            expected = {name for name in expected if not name.startswith('_tpmshx_superlu_')}
+        dependencies = run(['dumpbin', '/NOLOGO', '/DEPENDENTS', library], log)
+        imported = re.findall(r'^\s+([^\s]+\.dll)\s*$', dependencies, re.MULTILINE | re.IGNORECASE)
+        if any(re.search(r'(?:coolprop|tpmshx_(?:preparation|solver|geometry))', name, re.IGNORECASE)
+               for name in imported):
+            raise RuntimeError(f'{component} imports another numerical library image')
+    if actual != expected:
+        raise RuntimeError(f'{component} C exports differ: missing={sorted(expected-actual)}, extra={sorted(actual-expected)}')
 
 
 def verify(cache: Path, host: str, component: str = "all") -> None:
     geometry_only = component == "geometry"
+    preparation_only = component == "preparation"
     if not geometry_only:
-        verify_sources(cache)
-    build_name = "geometry" if geometry_only else "pilot"
+        if preparation_only:
+            verify_sources(cache, models_only=True)
+        else:
+            verify_sources(cache)
+    build_name = component if component in {"geometry", "preparation"} else "pilot"
     log = cache / "logs" / f"verify-{build_name}-{host}.log"
     version = run([cmake_path(cache, host), "--version"], log)
     if version.splitlines()[0] != f"cmake version {LOCK['cmake']['version']}":
@@ -314,6 +477,25 @@ def verify(cache: Path, host: str, component: str = "all") -> None:
     if geometry_only:
         print(f"PASS: {host} locked CMake and independent geometry callers", flush=True)
         return
+    preparation_dir = cache / "build" / f"preparation-{host}"
+    for caller in ("preparation_c_static", "preparation_c_shared"):
+        run([preparation_dir / f"{caller}{suffix}"], log)
+    prefix, shared_suffix = ("", ".dll") if host == "windows-x64" else ("lib", ".dylib")
+    preparation = ct.CDLL(str(preparation_dir / (prefix + 'tpmshx_preparation_shared' + shared_suffix)))
+    backend = preparation.tpmshx_preparation_property_backend_v1
+    backend.argtypes = [ct.POINTER(ct.c_char), ct.c_size_t] * 3
+    backend.restype = ct.c_int
+    version, revision, error = ct.create_string_buffer(128), ct.create_string_buffer(128), ct.create_string_buffer(2048)
+    if backend(version, len(version), revision, len(revision), error, len(error)):
+        raise RuntimeError('Preparation EOS backend query failed: ' + error.value.decode('utf-8', errors='replace'))
+    spec = LOCK['sources']['coolprop']
+    if (version.value.decode(), revision.value.decode()) != (spec['version'], spec['commit']):
+        raise RuntimeError('Preparation compiled CoolProp version/commit differs from the lock')
+    verify_model_exports(preparation_dir, host, 'preparation', log)
+    if preparation_only:
+        print(f"PASS: {host} locked model inputs and independent preparation/geometry callers", flush=True)
+        return
+    verify_model_exports(build_dir, host, 'solver', log)
     eos = build_dir / f"eos_smoke{suffix}"
     version = run([eos, "--version"], log).strip().split("\t")
     spec = LOCK["sources"]["coolprop"]
@@ -352,15 +534,15 @@ def verify(cache: Path, host: str, component: str = "all") -> None:
 
 def publish(cache: Path, host: str, python: Path, lock: Path, component: str = "all") -> Path:
     """Validate all selected libraries before replacement; retain their previous files."""
-    geometry_only = component == "geometry"
-    build(cache, host, python, lock, "geometry" if geometry_only else "all")
-    verify(cache, host, "geometry" if geometry_only else "all")
+    selected_component = component if component in {"geometry", "preparation"} else "all"
+    build(cache, host, python, lock, selected_component)
+    verify(cache, host, selected_component)
     prefix, suffix = ("", ".dll") if host == "windows-x64" else ("lib", ".dylib")
-    build_dir = cache / "build" / f"{'geometry' if geometry_only else 'pilot'}-{host}"
     destination = ROOT / "sjtu_tpmshx/solvers/native/lib" / host
-    libraries = [("geometry", "geometry-build.json")]
-    if not geometry_only:
-        libraries.insert(0, ("solver", "build.json"))
+    libraries = ([(selected_component, selected_component + "-build.json")]
+                 if selected_component != "all" else
+                 [("solver", "build.json"), ("geometry", "geometry-build.json"),
+                  ("preparation", "preparation-build.json")])
     log = cache / "logs" / f"publish-{host}.log"
     common = {
         "published_at": datetime.now(timezone.utc).isoformat(),
@@ -379,13 +561,22 @@ def publish(cache: Path, host: str, python: Path, lock: Path, component: str = "
     preserve_staged = False
     try:
         for kind, metadata_name in libraries:
+            build_name = "preparation" if kind == "preparation" else (
+                "geometry" if selected_component == "geometry" else "pilot")
+            build_dir = cache / "build" / f"{build_name}-{host}"
             name = prefix + f"tpmshx_{kind}_shared" + suffix
             source, target = build_dir / name, destination / name
             metadata = destination / metadata_name
             record = dict(common, component=kind, source_library=str(source), target_library=str(target),
-                          dependencies={} if kind == "geometry" else LOCK["sources"],
+                          dependencies=({} if kind == "geometry" else
+                                        {name: spec for name, spec in LOCK["sources"].items()
+                                         if kind == "solver" or name == "coolprop" or "cpm-name" in spec}),
                           verification=("independent geometry callers and kernel smoke passed" if kind == "geometry"
+                                        else "independent preparation callers passed" if kind == "preparation"
                                         else "independent native callers and SuperLU error boundary passed"))
+            if kind != "geometry":
+                record["coolprop_build"] = coolprop_build_record(
+                    cache, host, "preparation" if kind == "preparation" else "solver")
             shutil.copy2(source, staged / name)
             (staged / metadata_name).write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
             for current in (target, metadata):
@@ -444,7 +635,7 @@ def main() -> None:
     parser.add_argument("action", choices=("fetch", "fetch-cmake", "fetch-eigen", "build", "verify", "publish"))
     parser.add_argument("--cache", type=Path, default=ROOT / ".cache/native-deps")
     parser.add_argument("--python-lock", type=Path, default=ROOT / "engineering/requirements/base.txt")
-    parser.add_argument("--component", choices=("all", "coolprop", "pilot", "geometry"), default="all")
+    parser.add_argument("--component", choices=("all", "coolprop", "pilot", "geometry", "preparation"), default="all")
     args = parser.parse_args()
     python, host, cache = configured_python(), platform_name(), args.cache.resolve()
     if not cache.is_relative_to(ROOT / ".cache"):

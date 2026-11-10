@@ -9,11 +9,14 @@ from engineering.scripts import build_native_dependencies as native
 
 GEOMETRY_LIBRARY = "libtpmshx_geometry_shared.dylib"
 GEOMETRY_RECORD = "geometry-build.json"
+PREPARATION_LIBRARY = "libtpmshx_preparation_shared.dylib"
+PREPARATION_RECORD = "preparation-build.json"
 
 
 def _published_state(target):
     paths = (target, target.with_name("build.json"), target.with_name(GEOMETRY_LIBRARY),
-             target.with_name(GEOMETRY_RECORD))
+             target.with_name(GEOMETRY_RECORD), target.with_name(PREPARATION_LIBRARY),
+             target.with_name(PREPARATION_RECORD))
     return {path: path.read_bytes() if path.is_file() else None for path in paths}
 
 
@@ -23,6 +26,8 @@ def test_coolprop_cpm_paths_are_safe_in_generated_cmake(monkeypatch):
     monkeypatch.setattr(native, "verify_sources", lambda cache: None)
     monkeypatch.setattr(native, "apply_lu_patch", lambda cache: None)
     monkeypatch.setattr(native, "cmake_path", lambda *args: PureWindowsPath("C:/cmake.exe"))
+    monkeypatch.setattr(native, "_request_coolprop_metadata", lambda *args: None)
+    monkeypatch.setattr(native, "_record_coolprop_build", lambda *args: None)
     cache = PureWindowsPath("D:/a/project/.cache/native-deps")
     native.build(cache, "windows-x64", PureWindowsPath("C:/python.exe"),
                  Path("engineering/requirements/base.txt"), "coolprop")
@@ -30,6 +35,29 @@ def test_coolprop_cpm_paths_are_safe_in_generated_cmake(monkeypatch):
     assert "-DCPM_Eigen_SOURCE=D:/a/project/.cache/native-deps/src/Eigen-5.0.1" in configure
     assert all("\\" not in option for option in configure
                if isinstance(option, str) and option.startswith("-DCPM_"))
+
+
+@pytest.mark.parametrize("host", ["macos-arm64", "windows-x64"])
+def test_coolprop_build_has_only_the_required_archive_roles(tmp_path, monkeypatch, host):
+    commands, records = [], []
+    monkeypatch.setattr(native, "run", lambda command, *args, **kwargs: commands.append(tuple(map(str, command))))
+    monkeypatch.setattr(native, "check_environment", lambda *args: None)
+    monkeypatch.setattr(native, "verify_sources", lambda *args: None)
+    monkeypatch.setattr(native, "apply_lu_patch", lambda *args: None)
+    monkeypatch.setattr(native, "cmake_path", lambda *args: Path("/locked/cmake"))
+    monkeypatch.setattr(native, "_request_coolprop_metadata", lambda *args: None)
+    monkeypatch.setattr(native, "_record_coolprop_build", lambda cache, host, role: records.append(role))
+    native.build(tmp_path, host, Path("/python"), Path("/lock"), "coolprop")
+    configure = [command for command in commands if "-S" in command]
+    assert records == (["solver", "preparation"] if host == "macos-arm64" else ["solver"])
+    original = configure[0]
+    assert original[original.index("-B")+1] == str(tmp_path/"build"/f"coolprop-{host}")
+    assert not any("-Os" in value or "/O1" in value for value in original)
+    if host == "macos-arm64":
+        preparation = configure[1]
+        assert preparation[preparation.index("-B")+1] == str(tmp_path/"build/coolprop-preparation-macos-arm64")
+        assert "-DCMAKE_C_FLAGS_RELEASE=-Os -DNDEBUG" in preparation
+        assert "-DCMAKE_CXX_FLAGS_RELEASE=-Os -DNDEBUG" in preparation
 
 
 @pytest.fixture
@@ -40,18 +68,31 @@ def publication(tmp_path, monkeypatch):
     monkeypatch.setattr(native, "verify", lambda *args: events.append("verify"))
     monkeypatch.setattr(native, "run", lambda command, *args, **kwargs:
                         "test-commit\n" if "rev-parse" in command else "")
+    monkeypatch.setattr(native, "coolprop_build_record", lambda cache, host, role: dict(
+        consumer_role=role, role=role, platform=host, version="8.0.0", revision="locked-source",
+        consumed_archive=str(native.coolprop_library(cache, host, role)),
+        compile_groups=[dict(language="CXX", compileCommandFragments=[dict(
+            fragment="-Os -DNDEBUG" if role == "preparation" else "-O3 -DNDEBUG")])],
+        toolchains=[dict(language="CXX", compiler=dict(id="ActualCompiler", version="21.0"))],
+        sdk=dict(cmake_cache={"CMAKE_OSX_SYSROOT": "/actual/SDK"})))
     cache = tmp_path / ".cache/native-deps"
     name = "libtpmshx_solver_shared.dylib"
     source = cache / "build/pilot-macos-arm64" / name
     source.parent.mkdir(parents=True)
     source.write_bytes(b"new verified library")
     source.with_name(GEOMETRY_LIBRARY).write_bytes(b"new verified geometry")
+    source.with_name(PREPARATION_LIBRARY).write_bytes(b"unused pilot preparation")
+    preparation = cache / "build/preparation-macos-arm64" / PREPARATION_LIBRARY
+    preparation.parent.mkdir(parents=True)
+    preparation.write_bytes(b"new verified preparation")
     target = tmp_path / "sjtu_tpmshx/solvers/native/lib/macos-arm64" / name
     target.parent.mkdir(parents=True)
     target.write_bytes(b"previous qualified library")
     target.with_name("build.json").write_text('{"source_commit": "previous"}\n')
     target.with_name(GEOMETRY_LIBRARY).write_bytes(b"previous qualified geometry")
     target.with_name(GEOMETRY_RECORD).write_text('{"source_commit": "previous-geometry"}\n')
+    target.with_name(PREPARATION_LIBRARY).write_bytes(b"previous qualified preparation")
+    target.with_name(PREPARATION_RECORD).write_text('{"source_commit": "previous-preparation"}\n')
     return cache, source, target, events
 
 
@@ -74,6 +115,20 @@ def test_publish_rebuilds_verifies_and_preserves_previous_library(publication):
     assert geometry_record["target_library"] == str(geometry)
     assert geometry_record["dependencies"] == {}
     assert (backup / GEOMETRY_LIBRARY).read_bytes() == b"previous qualified geometry"
+    preparation = target.with_name(PREPARATION_LIBRARY)
+    preparation_source = cache / "build/preparation-macos-arm64" / PREPARATION_LIBRARY
+    assert preparation.read_bytes() == preparation_source.read_bytes()
+    preparation_record = json.loads(target.with_name(PREPARATION_RECORD).read_text())
+    assert preparation_record["component"] == "preparation"
+    assert preparation_record["source_library"] == str(preparation_source)
+    assert preparation_record["coolprop_build"]["role"] == "preparation"
+    assert record["coolprop_build"]["role"] == "solver"
+    assert preparation_record["coolprop_build"]["compile_groups"] != record["coolprop_build"]["compile_groups"]
+    assert set(preparation_record["dependencies"]) == {
+        name for name, spec in native.LOCK['sources'].items()
+        if name == 'coolprop' or 'cpm-name' in spec}
+    assert 'superlu' not in preparation_record['dependencies']
+    assert (backup / PREPARATION_LIBRARY).read_bytes() == b"previous qualified preparation"
     assert json.loads((backup / GEOMETRY_RECORD).read_text())["source_commit"] == "previous-geometry"
     native.publish(cache, "macos-arm64", Path("/python"), Path("engineering/requirements/base.txt"))
     assert (backup / target.name).read_bytes() == b"previous qualified library"
@@ -165,7 +220,7 @@ def test_missing_second_source_keeps_both_current_libraries(publication):
     assert not list(target.parent.glob(".publish-*"))
 
 
-@pytest.mark.parametrize("stage", [GEOMETRY_LIBRARY, GEOMETRY_RECORD])
+@pytest.mark.parametrize("stage", [GEOMETRY_LIBRARY, GEOMETRY_RECORD, PREPARATION_LIBRARY, PREPARATION_RECORD])
 @pytest.mark.parametrize("existing_record", [True, False])
 def test_second_library_replace_failure_restores_both_records(publication, monkeypatch, stage, existing_record):
     cache, _, target, _ = publication
@@ -186,7 +241,7 @@ def test_second_library_replace_failure_restores_both_records(publication, monke
     assert not list(target.parent.glob(".publish-*"))
 
 
-@pytest.mark.parametrize("component", ["solver", "geometry"])
+@pytest.mark.parametrize("component", ["solver", "geometry", "preparation"])
 def test_interrupt_after_real_replace_restores_both_libraries(publication, monkeypatch, component):
     cache, _, target, _ = publication
     before = _published_state(target)
@@ -203,6 +258,23 @@ def test_interrupt_after_real_replace_restores_both_libraries(publication, monke
         native.publish(cache, "macos-arm64", Path("/python"), Path("engineering/requirements/base.txt"))
     assert _published_state(target) == before
     assert not list(target.parent.glob(".publish-*"))
+
+
+def test_preparation_only_publication_keeps_solver_identity_and_geometry(publication):
+    cache, _, target, _ = publication
+    source = cache / 'build/preparation-macos-arm64' / PREPARATION_LIBRARY
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_bytes(b'standalone verified preparation')
+    protected = (target, target.with_name('build.json'), target.with_name(GEOMETRY_LIBRARY),
+                 target.with_name(GEOMETRY_RECORD), target.with_name('run-state.checkpoint'))
+    protected[-1].write_bytes(b'accepted matching state')
+    before = {path: path.read_bytes() for path in protected}
+    actual = native.publish(cache, 'macos-arm64', Path('/python'),
+                            Path('engineering/requirements/bo-macos.txt'), 'preparation')
+    assert actual == target.with_name(PREPARATION_LIBRARY)
+    assert actual.read_bytes() == source.read_bytes()
+    assert {path: path.read_bytes() for path in protected} == before
+    assert (target.parent/'previous'/PREPARATION_LIBRARY).read_bytes() == b'previous qualified preparation'
 
 
 def test_failed_rollback_retains_recovery_files_and_restores_other_records(publication, monkeypatch, capsys):

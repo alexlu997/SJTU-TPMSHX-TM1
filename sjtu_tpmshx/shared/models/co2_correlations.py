@@ -9,7 +9,7 @@ import warnings
 
 import numpy as np
 
-from . import _native_geometry
+from . import _native_df, _native_geometry
 
 from sjtu_tpmshx.shared.configs.model_parameters import (
     load_co2_coefficients, load_model_parameters)
@@ -50,14 +50,12 @@ def nusselt(tpms, Re, Pr, L_mm, Dh_mm):
     """Fixed 1.28 times exp(b0+b1*x+b2*y+b3*z+b4*x*x)."""
     re, pr, cell, dh = np.broadcast_arrays(
         *(np.asarray(v, dtype=float) for v in (Re, Pr, L_mm, Dh_mm)))
-    if not all(v.size and np.isfinite(v).all() and (v > 0).all()
-               for v in (re, pr, cell, dh)):
-        raise ValueError('CO2 closure inputs must be finite and positive')
+    from . import _native_properties
+    prepared, _ = _native_properties.nu_inputs(4, re, pr=pr, cell=cell, diameter=dh)
     _observe(tpms, 'Re', re, RE_RANGE)
     _observe(tpms, 'Pr', pr, coefficients()['bounds']['Pr'])
-    b = _topology(tpms)['Nu']['parameters']['theta']
-    x, y, z = np.log(re / 1e4), np.log(pr / 2.), np.log((dh / cell) / .5)
-    result = NU_MULTIPLIER * np.exp(b[0] + b[1]*x + b[2]*y + b[3]*z + b[4]*x*x)
+    _topology(tpms)
+    result = _native_properties.nusselt(4, 0 if tpms == 'Diamond' else 1, prepared, pr, cell, dh)
     return float(result) if result.ndim == 0 else result
 
 
@@ -84,8 +82,9 @@ def apply_drag(K, cF):
     """Apply the fixed factor once to the common CFD base, on a CO2 side."""
     from sjtu_tpmshx.shared.df_surrogate.experimental_correction import (
         apply_prepared_correction)
+    scale_K, scale_F = _native_df.co2_factors()
     return apply_prepared_correction(K, cF, dict(
-        scale_K=1./PRESSURE_MULTIPLIER, scale_F=PRESSURE_MULTIPLIER,
+        scale_K=scale_K, scale_F=scale_F,
         campaign=APPLICATION_VERSION, scope='CO2-user-fixed', fluid='co2'))
 
 
@@ -93,11 +92,12 @@ def model_metadata(config):
     if not uses_co2(config):
         return {}
     from sjtu_tpmshx.shared.df_surrogate.predict import SCO2_DF_METHOD
+    scale_K, scale_F = _native_df.co2_factors()
     return {'co2': dict(
         version=VERSION, application_version=APPLICATION_VERSION,
         sides=[side for side in ('A', 'B') if getattr(config, 'fluid_'+side).type == 'co2'],
         pressure_model=SCO2_DF_METHOD, pressure_multiplier=PRESSURE_MULTIPLIER,
-        scale_K=1./PRESSURE_MULTIPLIER, scale_F=PRESSURE_MULTIPLIER,
+        scale_K=scale_K, scale_F=scale_F,
         nu_multiplier=NU_MULTIPLIER, nu_floor_multiplier=NU_MULTIPLIER,
         correction_source='fixed user-specified factors; not fitted experimental evidence',
         property_model='HEOS::CO2; single-phase; low-Mach momentum adapter',

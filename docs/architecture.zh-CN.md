@@ -32,9 +32,37 @@ Python 选择 dtype 元数据并适配输出类型，不提供数值回退。
 
 第三批将网格、端口、轴映射、连续 XY/XYZ 场、sigmoid、线性 LUT、分区及 Gaussian 平滑接入同一库。
 每条已迁移数值规则由唯一 C++ 实现负责；Python 保留配置、数据对象、类型／数组适配、I/O、缓存及应用编排。
-第四批物性／DF／完整前处理和第五批结果计算仍待迁移。
+第四批增加独立 preparation ABI 1，负责物性、闭合、DF、修正、投影和准备数值。
+第五批独立结果核心与后处理数值迁移仍待完成。
 六批迁移尚未完成，详见[模型资源](model-resources.md#当前资源与研究输出)。
 既有求解器 CI 记录不构成本批验收；完整工况检查、受支持平台 CI 和最终验收仍须完成。
+
+准备目标位于 `solvers/native/preparation/`，复用几何／网格核心及 `fluid_properties.cpp` 的共享数值所有者。
+它链接锁定的 CoolProp 静态库，不包含完整求解器、run_state、SuperLU 或 AMG。
+`shared/models/_native_preparation.py` 按需加载预构建库，由具名物性、DF 和流量适配器打包具体输入。
+几何 ABI 1 与 field ABI 2 保留各自错误协议。
+Preparation ABI 1 的状态 1 表示无效输入，2 表示分配失败，3 表示运行时错误；
+状态 10、11、12 分别表示水、CO2、sCO2 状态错误。
+调用按显式长度借用对齐缓冲区，失败不修改数值输出；上下文保留创建库直至释放。
+
+原始经验物性 getter、带检查的 EOS 状态和 Nu 闭合保留各自不同契约。
+迁移保留原公式、校验、警告、下限和范围观测，不把每个 getter 合并为同一带检查状态策略。
+固定 DF 插值、实验因子与速度窗口使用原始来源数据及校验顺序。
+新增 [preparation_df_v1.json](../sjtu_tpmshx/shared/configs/preparation_df_v1.json) 统一持有方法、修正数据、三个窗口与标定来源。
+固定 CFD CSV 仍是系数权威；生成器直接读取这些资源并生成原生头文件。
+Python 保留配置、DTO、shape／类型适配、I/O、缓存、警告、GUI／BO 策略和离线拟合。
+本批替换的生产数值体在同批退役；冻结的开发参考保持独立。
+
+完整发布以同一事务部署求解库、几何库与准备库。
+准备库单独发布使用已构建的锁定 CoolProp，不构建求解器或 run_state。
+准备目标和完整求解器使用两个独立 CMake 项目。
+macOS 准备归档使用 `-Os`，以保留原 Python 物性结果；求解归档保留原构建设置，以保留原求解结果。
+Windows 准备库使用原锁定的 Windows 归档。
+归档构建记录保留实际编译器、编译参数片段和 SDK 来源。
+各库构建身份与按版本隔离的物性表缓存保持独立。
+旧检查点仍须精确匹配的求解运行库、准备态输入与控制量。
+构建和运行路径见[原生准备核心](cpp-migration.zh-CN.md#native-preparation-core)。
+轻量 Linux 结果核心属于第五批计划，本批不建立 Linux 完整求解器支持。
 
 原生 full-compute CC 通过严格 model-h 驱动使用既有空气／水积分焓 h(T)。早期可变 cp 的 m*cp*T 失败保留在历史记录。
 固定系数 Quick Design、独立温度、true-h 热学准备和私有 C++ 组件路线保留各自契约；删除 Python 入口不扩大这些契约。
@@ -483,7 +511,7 @@ LUT 对象保留捕获的轴／表引用及创建库，查询缓冲区仅在调�
 已替换的 Python 插值、重叠、分区与滤波数值体已退役，独立参考保留在 `development/tests/`。
 Python 保留 DTO、NPZ／缓存 I/O、校验、GUI 和 BO 编排。
 本批不提供数值回退或运行时进入 Python 的数值回调。
-本批不新增分发运行库或数值框架。来源和许可义务见[固定来源与本地修改](../sjtu_tpmshx/solvers/native/geometry/fields-sources.md)。
+第三批没有新增分发运行库或数值框架。来源和许可义务见[固定来源与本地修改](../sjtu_tpmshx/solvers/native/geometry/fields-sources.md)。
 
 连续场每轴至少一个控制点。单点位于域中面，该轴保持恒定；其他轴的实际阶数为
 `min(spline_order, control_count - 1)`。每轴至少两点的既有 XY 场保留原双变量样条。

@@ -145,10 +145,10 @@ def _build_zone_arrays(compute_cfg, N_x, N_y, *, dx_arr=None, dy_arr=None, geome
 
 
 def _complete_spline_properties(config, za):
-    from sjtu_tpmshx.shared.models import fluid_props
+    from sjtu_tpmshx.shared.models import fluid_props, _native_properties
     for side, fluid in (('A', config.fluid_A), ('B', config.fluid_B)):
-        za['K_ff' + side + '_arr'] = za['eps_f_arr'] * float(
-            fluid_props.get(fluid.type).k(fluid.T_in_K, fluid.P_in_Pa))
+        conductivity = float(fluid_props.get(fluid.type).k(fluid.T_in_K, fluid.P_in_Pa))
+        za['K_ff' + side + '_arr'] = _native_properties.pore_conductivity(za['eps_f_arr'], conductivity)
 
 
 def _parse_inputs_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
@@ -291,6 +291,7 @@ def _prepare_flow_inputs(cfg, dx, dy):
     from sjtu_tpmshx.shared.df_surrogate.predict import predict_K_cF, predict_K_cF_vec, SCO2_DF_METHOD
     from sjtu_tpmshx.shared.df_surrogate.experimental_correction import apply_correction, cfd_metadata
     from sjtu_tpmshx.shared.models.df_projection import project_fields_to_streamwise_K_cF
+    from sjtu_tpmshx.shared.models._native_df import row_means
     tpms, cell, wall, eps = (cfg[k] for k in ('tpms_type', 'Lcell', 't_wall', 'eps'))
     base_K, base_cF = predict_K_cF(tpms, cell, wall, .5 * eps, method=SCO2_DF_METHOD)
     za = cfg['za']
@@ -313,7 +314,7 @@ def _prepare_flow_inputs(cfg, dx, dy):
                 K_field, cF_field = K_field[:, ::-1].copy(), cF_field[:, ::-1].copy()
             # Rows only seed the initial pressure estimate; momentum consumes
             # the complete fields through SIMPLE's existing local override.
-            K, cF = K_field.mean(axis=0), cF_field.mean(axis=0)
+            K, cF = row_means(K_field, cF_field)
         elif za is not None:
             # Discrete rectangles, stripes and continuous designs share the
             # same physical L/t cells used by thermal preparation. Preserve
@@ -326,7 +327,7 @@ def _prepare_flow_inputs(cfg, dx, dy):
             seed_K, seed_cF, _ = co2_correlations.apply_drag(base_K, base_cF)
             if continuous:
                 K_field, cF_field, metadata = co2_correlations.apply_drag(K_field, cF_field)
-                K, cF = K_field.mean(axis=0), cF_field.mean(axis=0)
+                K, cF = row_means(K_field, cF_field)
             else:
                 K, cF, metadata = co2_correlations.apply_drag(K, cF)
         elif cfg['compute_cfg'].df_mode == 'experimental':
@@ -338,7 +339,7 @@ def _prepare_flow_inputs(cfg, dx, dy):
             if continuous:
                 from sjtu_tpmshx.shared.df_surrogate.experimental_correction import apply_prepared_correction
                 K_field, cF_field, metadata = apply_prepared_correction(K_field, cF_field, metadata)
-                K, cF = K_field.mean(axis=0), cF_field.mean(axis=0)
+                K, cF = row_means(K_field, cF_field)
                 metadata.update(
                     geometry_application='continuous-field-extrapolation',
                     reference_geometry_mm={'L': cell, 't': wall},

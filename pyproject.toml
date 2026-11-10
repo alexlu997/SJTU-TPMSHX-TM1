@@ -120,6 +120,9 @@ check_untyped_defs = true
 [tool.setuptools.dynamic]
 version = { attr = "sjtu_tpmshx._version.__version__" }
 
+[tool.setuptools]
+include-package-data = false
+
 [tool.setuptools.packages.find]
 include = ["sjtu_tpmshx*"]
 exclude = ["sjtu_tpmshx.solvers.native*"]

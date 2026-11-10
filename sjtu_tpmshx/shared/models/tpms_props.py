@@ -22,6 +22,7 @@ import numpy as np
 from .tpms_geometry import compute_geometry as _tpms_geom
 from .tpms_geometry import compute_geometry_fields as _tpms_geom_fields
 from . import _native_geometry
+from . import _native_properties
 from sjtu_tpmshx.shared.configs.model_parameters import load_model_parameters
 from sjtu_tpmshx.shared.domain.run_warnings import record_range
 
@@ -108,30 +109,26 @@ def _warn_range_once(name: str, T, lo: float, hi: float) -> None:
 def air_viscosity(T_K: float) -> float:
     """Dynamic viscosity of air via Sutherland's law [Pa·s]."""
     _warn_range_once('air_viscosity', T_K, *_AIR_T_RANGE)
-    T0, mu0, S = _AIR_SUTHERLAND
-    return mu0 * (T_K / T0) ** 1.5 * (T0 + S) / (T_K + S)
+    return _native_properties.empirical(0, T_K)
 
 
 def air_conductivity(T_K: float) -> float:
     """Thermal conductivity of air [W/(m·K)]."""
     _warn_range_once('air_conductivity', T_K, *_AIR_T_RANGE)
-    k0, T0, exponent = _AIR_CONDUCTIVITY
-    return k0 * (T_K / T0) ** exponent
+    return _native_properties.empirical(1, T_K)
 
 
 def air_density(T_K, P_Pa: float = 101325.0):
     """Density of air via ideal gas law [kg/m³]. Accepts scalar or ndarray T_K;
     return type matches input shape."""
-    return P_Pa * M_air / (R * T_K)
+    return _native_properties.empirical(2, T_K, P_Pa)
 
 
 def air_cp(T_K):
     """Specific heat capacity of air [J/(kg·K)] (250-1000 K, < 0.5% error).
     Accepts scalar or ndarray T_K; return type matches input shape."""
     _warn_range_once('air_cp', T_K, *_AIR_CP_RANGE)
-    dT = T_K - _CELSIUS_ZERO
-    a, b, c = _AIR_CP_COEFFICIENTS
-    return a + b * dT + c * dT**2
+    return _native_properties.empirical(3, T_K)
 
 
 # ── Water property correlations ───────────────────────────────
@@ -139,9 +136,7 @@ def air_cp(T_K):
 def water_density(T_K):
     """Density of liquid water [kg/m³]. Polynomial valid 0-90 °C."""
     _warn_range_once('water_density', T_K, *_WATER_T_RANGE)
-    T_C = np.asarray(T_K, dtype=float) - _CELSIUS_ZERO
-    a, b, c = _WATER_DENSITY
-    return a - b * T_C - c * T_C**2
+    return _native_properties.empirical(4, T_K)
 
 
 def water_viscosity(T_K):
@@ -156,28 +151,19 @@ def water_viscosity(T_K):
     systematically under-viscous → over-predicted Re_water ~50 % at hi T.
     """
     _warn_range_once('water_viscosity', T_K, *_WATER_T_RANGE)
-    T_K_arr = np.asarray(T_K, dtype=float)
-    # Floor the (T-140) denominator at 10 K so the 10**(247.8/denom) term stays
-    # finite: at T~141 K the raw exponent ~247.8 overflows to +inf in float64
-    # (robustness 2026-06-25). Physical liquid water (T>=273 K -> denom>=133)
-    # is far above the floor, so this is bit-identical in range.
-    mu0, base, exponent, shift, minimum = _WATER_VISCOSITY
-    denom = np.maximum(T_K_arr - shift, minimum)
-    return mu0 * base ** (exponent / denom)
+    return _native_properties.empirical(5, T_K)
 
 
 def water_conductivity(T_K):
     """Thermal conductivity of liquid water [W/(m·K)]. Linear fit 0-90 °C."""
     _warn_range_once('water_conductivity', T_K, *_WATER_T_RANGE)
-    T_C = np.asarray(T_K, dtype=float) - _CELSIUS_ZERO
-    a, b = _WATER_CONDUCTIVITY
-    return a + b * T_C
+    return _native_properties.empirical(6, T_K)
 
 
 def water_cp(T_K):
     """Specific heat of liquid water [J/(kg·K)]. ~constant 280-370 K."""
     _warn_range_once('water_cp', T_K, *_WATER_T_RANGE)
-    return _WATER_CP
+    return _native_properties.empirical(7, T_K)
 
 
 # ── Geometry-only interface (no fluid needed) ─────────────────

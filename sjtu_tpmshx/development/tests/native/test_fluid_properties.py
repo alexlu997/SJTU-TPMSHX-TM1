@@ -1,4 +1,4 @@
-"""Native empirical/EOS properties and QD Nu against current Python owners.
+"""Native empirical/EOS properties and QD Nu against independent references.
 
 Frozen before execution: rtol=2e-10 throughout; SI atol rho/mu/k/cp/Pr =
 2e-8/2e-14/2e-10/2e-5/1e-10, Nu=1e-10, melting T=2e-8 K.
@@ -24,11 +24,9 @@ REFERENCE = r'''
 import json,sys,warnings
 sys.path.insert(0,sys.argv[1])
 import CoolProp.CoolProp as CP
-from sjtu_tpmshx.shared.models.design_fluids import fluid_props,fluid_nu
-from sjtu_tpmshx.shared.models.fluid_props import check_water_state
-from sjtu_tpmshx.shared.models.fluid_props import get as fluid_model
-from sjtu_tpmshx.shared.models.nu_correlations import nu_from_Re,nu_water_topo,nu_sco2_selected
-from sjtu_tpmshx.shared.models.roughness import nu_extra_factor
+from sjtu_tpmshx.development.tests.property_reference import fluid_props,fluid_nu,fluid_model
+from sjtu_tpmshx.development.tests.eos_reference import check_water_state
+from sjtu_tpmshx.development.tests.nu_reference import nu_from_Re,nu_water_topo,nu_sco2_selected,nu_extra_factor
 from sjtu_tpmshx.shared.domain.compute_config import Sco2NuConfig
 from sjtu_tpmshx.shared.domain.run_warnings import warning_scope,warning_messages
 payload=json.load(sys.stdin)
@@ -63,7 +61,7 @@ for inp in payload['rows']:
                 if fluid=='air':
                     value=nu_from_Re(inp['topology'],a,.37,b*1000.,c*1000.)
                 elif fluid=='co2':
-                    from sjtu_tpmshx.shared.models.co2_correlations import nusselt
+                    from sjtu_tpmshx.development.tests.nu_reference import co2_nusselt as nusselt
                     value=nusselt(inp['topology'],a,pr,b*1000.,c*1000.)
                 elif fluid=='water':
                     value=nu_water_topo(inp['topology'],a,pr)
@@ -185,7 +183,7 @@ def test_properties_follow_current_empirical_and_heos_owners(native_properties,p
 
 
 def test_water_polynomials_preserve_separate_numpy_operations(native_properties):
-    from sjtu_tpmshx.shared.models.tpms_props import water_density, water_conductivity
+    from sjtu_tpmshx.development.tests.property_reference import water_density, water_conductivity
     temperature = np.linspace(275., 362., 127)
     rows = [props(str(i), 'water', float(t), op='transport') for i, t in enumerate(temperature)]
     actual = np.array([row['values'] for row in native_properties(rows)])
@@ -194,7 +192,7 @@ def test_water_polynomials_preserve_separate_numpy_operations(native_properties)
 
 
 def test_water_viscosity_keeps_original_pow_at_actual_outer_state(native_properties):
-    from sjtu_tpmshx.shared.models.tpms_props import water_viscosity
+    from sjtu_tpmshx.development.tests.property_reference import water_viscosity
     # First differing property sample from a real 24x22 coarse outer replay:
     # replacing pow(10, exponent) with exp10 moved this sample by one ulp.
     t = 300.0624090934865

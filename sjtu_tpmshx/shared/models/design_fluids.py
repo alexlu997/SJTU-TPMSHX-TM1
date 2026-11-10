@@ -10,6 +10,7 @@ from sjtu_tpmshx.shared.configs.model_parameters import load_model_parameters
 from sjtu_tpmshx.shared.domain.run_warnings import range_context, record_warning
 
 from sjtu_tpmshx.shared.models import fluid_props as _registry
+from . import _native_properties
 from sjtu_tpmshx.shared.models.tpms_calc import nu_from_Re
 from sjtu_tpmshx.shared.models.nu_correlations import (
     NU_RE_FIT_RANGE,        # air 幂律拟合 Re 窗 (400,16000)
@@ -78,7 +79,7 @@ def fluid_props(fluid: str, T_K: float, P_Pa: float) -> Props:
     _registry.check_water_state(m.name, T_K, P_Pa, where='quick-design properties')
     rho = m.rho(T_K, P_Pa); mu = m.mu(T_K, P_Pa)
     k = m.k(T_K, P_Pa); cp = m.cp(T_K, P_Pa)
-    return Props(rho, mu, k, cp, mu * cp / k)
+    return Props(rho, mu, k, cp, _native_properties.prandtl(mu, cp, k))
 
 
 def fluid_nu(fluid: str, topo: str, Re: float, eps_f: float,

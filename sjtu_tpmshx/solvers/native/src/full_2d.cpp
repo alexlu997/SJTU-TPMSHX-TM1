@@ -2,6 +2,7 @@
 #include "tpmshx/conservative_energy.hpp"
 #include "tpmshx/model_coefficients.hpp"
 #include "tpmshx/refinement_2d.hpp"
+#include "tpmshx/ports.hpp"
 #include "contiguous_sum.hpp"
 #include "closure_ranges.hpp"
 #include "model_h_common.hpp"
@@ -310,7 +311,7 @@ Full2DFlow prepare_flow(const Full2DProblem& p,const Full2DControl& c,std::size_
         profile_weights[a]=s.inlet_profile[a]*cross[a];
     }
     const double geometry=contiguous_sum(view(geometry_weights)),profile=contiguous_sum(view(profile_weights));
-    if (differs && profile>1e-30 && geometry>0.) f.taper_flux_scale=geometry/profile;
+    f.taper_flux_scale=inlet_profile_scale(differs,geometry,profile);
     f.u.assign((cross.size+1)*stream.size,0.); f.v.assign(cross.size*(stream.size+1),0.);
     f.pressure.assign(count,0.); f.pressure_correction.assign(count,0.);
     f.d_u.assign(f.u.size(),0.); f.d_v.assign(f.v.size(),0.);

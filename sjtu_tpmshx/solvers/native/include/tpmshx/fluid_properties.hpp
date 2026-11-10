@@ -3,13 +3,14 @@
 #include <array>
 #include <memory>
 #include <stdexcept>
+#include <string>
 
 namespace CoolProp { class AbstractState; }
 
 namespace tpmshx {
 
-// All native EOS consumers share this construction lock: CoolProp's lazy
-// process-wide fluid library is mutable. Returned states belong to the caller.
+// EOS consumers in one library image share this factory lock. Each statically
+// linked CoolProp image owns its mutable fluid registry. States belong to callers.
 std::unique_ptr<CoolProp::AbstractState> make_eos_state(const char* backend, const char* fluid);
 enum class Fluid { air, water, sco2, co2 };
 constexpr bool uses_co2_eos(Fluid fluid) {
@@ -53,6 +54,9 @@ double nu_extra_roughness_factor(double re, RoughnessMode mode,
 class WaterStateError : public std::invalid_argument {
 public:
     using std::invalid_argument::invalid_argument;
+    WaterStateError(const std::string& text,bool eos_failure)
+        :std::invalid_argument(text),eos_failure(eos_failure) {}
+    bool eos_failure=false;
 };
 
 namespace detail {

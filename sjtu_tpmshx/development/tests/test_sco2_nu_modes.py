@@ -11,7 +11,7 @@ SYNTHETIC = Sco2NuConfig('experimental', .8, 1.2, 'synthetic-test-v1',
 
 @pytest.mark.parametrize('topology,total', [('Diamond', 4.1064), ('Gyroid', 2.4824)])
 def test_current_effective_parameters_roundtrip_and_apply_once(tmp_path, topology, total):
-    from sjtu_tpmshx.shared.models.local_heat_transfer import real_fluid_hv_local_field
+    from sjtu_tpmshx.development.tests.local_heat_transfer_reference import real_fluid_hv_local_field
 
     settings = nu.sco2_effective_nu_config()
     assert settings.parameter_version == 'sco2-effective-nu-20260920-v1'
@@ -65,15 +65,15 @@ def test_shared_scalar_array_nu_and_unchanged_other_fluids(topology, alpha):
 
 @pytest.mark.parametrize('shape', [(2, 3), (2, 3, 2)])
 def test_local_hv_multiplier_before_floor_without_extra_eos(monkeypatch, shape):
-    from sjtu_tpmshx.shared.models.local_heat_transfer import real_fluid_hv_local_field
-    from sjtu_tpmshx.shared.models import sco2_props
+    from sjtu_tpmshx.development.tests.local_heat_transfer_reference import real_fluid_hv_local_field
+    from sjtu_tpmshx.development.tests import eos_reference, nu_reference
     def properties(keys, T, P):
         assert keys == ('D', 'V', 'L', 'C')
         return np.array([np.full_like(T, value) for value in (2., .5, .25, 4.)])
-    monkeypatch.setattr(sco2_props, 'sco2_prop', properties)
+    monkeypatch.setattr(eos_reference, 'sco2_prop', properties)
     T=np.full(shape, 320.); u=np.linspace(0.,10000.,T.size).reshape(shape)
     args=(T, 10e6, u, 10., 1., 'Diamond', 7.)
-    raw=nu.nu_sco2_topo('Diamond', np.maximum(4*u,1.), 8., 7., 1000.)
+    raw=nu_reference.nu_sco2_topo('Diamond', np.maximum(4*u,1.), 8., 7., 1000.)
     expected=2.5*np.maximum(.8*raw, nu.NU_LAM_FLOOR)
     observation = {}
     assert np.array_equal(real_fluid_hv_local_field(*args, sco2_nu=SYNTHETIC, observation=observation), expected)

@@ -96,15 +96,17 @@ def test_sco2_prop_missing_pressure_raises():
      np.array([7.9e6, 8e6, 12e6, 16e6])[None, :]),
 ])
 def test_joint_properties_match_separate_heos_queries(monkeypatch, temperature, pressure):
+    from sjtu_tpmshx.shared.models import _native_properties
+
     keys = ('D', 'V', 'L', 'C')
     expected = np.array([S.sco2_prop(key, temperature, pressure) for key in keys])
-    original, calls = S._PropsSI, []
+    original, calls = _native_properties.sco2_pt, []
 
-    def query(*args):
+    def query(*args, **kwargs):
         calls.append(args[0])
-        return original(*args)
+        return original(*args, **kwargs)
 
-    monkeypatch.setattr(S, '_PropsSI', query)
+    monkeypatch.setattr(_native_properties, 'sco2_pt', query)
     actual = S.sco2_prop(keys, temperature, pressure)
     np.testing.assert_array_equal(actual, expected)
     assert actual.flags.c_contiguous
