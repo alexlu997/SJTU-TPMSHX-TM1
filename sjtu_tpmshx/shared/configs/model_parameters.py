@@ -88,9 +88,20 @@ def load_co2_coefficients(path=None):
         raise ValueError('CO2 coefficient resource/version mismatch')
     if set(data['topologies']) != {'Diamond', 'Gyroid'}:
         raise ValueError('CO2 requires both supported topologies')
+    bounds = data.get('bounds')
+    if not isinstance(bounds, dict):
+        raise ValueError('CO2 bounds are required')
+    re_range = bounds.get('Re')
+    _vector(re_range, 2, 'CO2 bounds.Re')
+    if not 0. < re_range[0] < re_range[1]:
+        raise ValueError('CO2 bounds.Re requires increasing positive bounds')
     for model in data['topologies'].values():
         theta = model['Nu']['parameters']['theta']
-        if (not isinstance(theta, list) or len(theta) != 5
-                or not all(math.isfinite(float(v)) for v in theta)):
+        try:
+            valid = (isinstance(theta, list) and len(theta) == 5
+                     and all(math.isfinite(float(v)) for v in theta))
+        except (TypeError, ValueError, OverflowError):
+            valid = False
+        if not valid:
             raise ValueError('CO2 Nu requires five finite coefficients')
     return data

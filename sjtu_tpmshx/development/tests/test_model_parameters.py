@@ -68,3 +68,34 @@ def test_co2_resource_preserves_values_and_selected_path(tmp_path):
     selected.write_text(json.dumps(data), encoding='utf-8')
     with pytest.raises(ValueError, match='resource/version mismatch'):
         resources.load_co2_coefficients(selected)
+
+
+@pytest.mark.parametrize('bounds', [[3000.], [60000., 3000.], [0., 60000.],
+                                   [3000., float('nan')], [3000., float('inf')]])
+def test_co2_resource_checks_authoritative_re_bounds(tmp_path, bounds):
+    data = resources.load_co2_coefficients()
+    data['bounds']['Re'] = bounds
+    selected = tmp_path / 'coefficients.json'
+    selected.write_text(json.dumps(data), encoding='utf-8')
+    with pytest.raises(ValueError, match='CO2 bounds.Re'):
+        resources.load_co2_coefficients(selected)
+
+
+@pytest.mark.parametrize('theta', [[None, 0., 0., 0., 0.], [[0.]] * 5,
+                                  [float('nan'), 0., 0., 0., 0.]])
+def test_co2_selected_path_keeps_invalid_theta_error(tmp_path, monkeypatch, theta):
+    from sjtu_tpmshx.shared.models import co2_correlations
+
+    data = resources.load_co2_coefficients()
+    data['topologies']['Diamond']['Nu']['parameters']['theta'] = theta
+    selected = tmp_path / 'coefficients.json'
+    selected.write_text(json.dumps(data), encoding='utf-8')
+    monkeypatch.setattr(co2_correlations, 'DATA_PATH', selected)
+    co2_correlations.coefficients.cache_clear()
+    try:
+        for read in (lambda: resources.load_co2_coefficients(selected),
+                     co2_correlations.coefficients):
+            with pytest.raises(ValueError, match='^CO2 Nu requires five finite coefficients$'):
+                read()
+    finally:
+        co2_correlations.coefficients.cache_clear()
