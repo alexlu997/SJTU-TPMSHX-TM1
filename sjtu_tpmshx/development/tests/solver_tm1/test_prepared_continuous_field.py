@@ -103,6 +103,40 @@ def test_nonuniform_3d_preparation_samples_exact_polynomial_and_replays_case(tmp
         np.testing.assert_array_equal(replay['design'][name], values)
 
 
+@pytest.mark.parametrize('volume', [False, True])
+def test_continuous_inlet_evidence_matches_scalar_correlation_calls(volume):
+    from sjtu_tpmshx.shared.domain.run_warnings import (
+        range_context, range_observations, warning_messages, warning_scope,
+    )
+    from sjtu_tpmshx.shared.models.fluid_props import get
+    from sjtu_tpmshx.shared.models.nu_correlations import record_raw_nu_range
+
+    cfg = _config(volume)
+    case = prepare_case(cfg, case_id='scalar-inlet-evidence')
+    thermal = case.parameters['thermal_geometry']['fields']
+    fluid = cfg.fluid_A
+    model = get('air')
+    mu, k, rho, cp = (float(getattr(model, key)(fluid.T_in_K, fluid.P_in_Pa))
+                      for key in ('mu', 'k', 'rho', 'cp'))
+    reynolds = rho * fluid.u_mps * thermal['D_h'] / mu
+    length_mm = case.design_fields['L_field_m'] * 1e3
+    with warning_scope({}) as records:
+        with range_context(side='A', stage='inlet', layout='scalar-zoned-call'):
+            for index in np.ndindex(reynolds.shape):
+                model.nu(cfg.geometry.tpms, float(reynolds[index]),
+                         .5 * thermal['epsilon'][index], float(length_mm[index]),
+                         thermal['D_h'][index] * 1e3, mu * cp / k)
+        with range_context(side='A', stage='inlet', layout='real-cell(x,y,z)-bulk-Re'):
+            record_raw_nu_range('air', cfg.geometry.tpms, reynolds)
+    expected = range_observations(records)
+    actual = [row for row in case.metadata['applicability_inputs']
+              if row['side'] == 'A' and row['stage'] == 'inlet'
+              and row['source'][0] in ('nu', 'nu_raw')
+              and row['layout'] in ('scalar-zoned-call', 'real-cell(x,y,z)-bulk-Re')]
+    assert mutable_data(actual) == mutable_data(expected)
+    assert set(warning_messages(records)).issubset(case.metadata['warnings'])
+
+
 @pytest.mark.parametrize('tpms', ['Gyroid', 'Diamond'])
 @pytest.mark.parametrize('volume', [False, True])
 def test_uniform_controls_match_uniform_prepared_geometry(tpms, monkeypatch, volume):

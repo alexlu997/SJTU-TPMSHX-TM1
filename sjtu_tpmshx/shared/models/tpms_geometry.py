@@ -143,10 +143,10 @@ _C_COEFFS = {
 }
 
 
-def _C_from_tL(tpms_type: str, t_over_L: float) -> float:
-    """Get level-set threshold C from t/L ratio using pre-computed calibration."""
+def _C_from_tL(tpms_type: str, t_over_L: float | np.ndarray):
+    """Return the calibrated threshold for scalar or array t/L."""
     a, b = _C_COEFFS[tpms_type]
-    return a * t_over_L + b * t_over_L**2
+    return a * t_over_L + b * np.float_power(t_over_L, 2)
 
 
 def minimum_solid_geometry(tpms_type, L_bounds, t_bounds):
@@ -162,7 +162,26 @@ def minimum_solid_geometry(tpms_type, L_bounds, t_bounds):
 
 # ── Core computation ─────────────────────────────────────────────
 
-# Retain scalar results for repeated continuous-field and fixed-flow queries.
+def _raw_geometry_values(tpms_type, L_mm, t_mm, N):
+    """Use one indexed formula for scalar and array geometry."""
+    L_m = L_mm / 1000.0
+    tL = t_mm / L_mm
+    C = np.maximum(_C_from_tL(tpms_type, tL), 0.0)
+    ordered, faces = _geometry_counts(tpms_type, N)
+    occupied = np.searchsorted(ordered, C, side='right')
+    eps = 1.0 - occupied / ordered.size
+    # float_power preserves Python float rounding on scalar geometry inputs.
+    A0 = faces[occupied] * np.float_power(L_m / N, 2) / (
+        2.0 * np.float_power(L_m, 3) * _AREA_CORRECTION)
+    return eps, A0
+
+
+def _hydraulic_diameter(eps, area):
+    """Use the single-channel void fraction for the hydraulic diameter."""
+    return 4.0 * (0.5 * eps) / area
+
+
+# Retain raw scalar results for direct, GUI and discrete-design queries.
 @lru_cache(maxsize=2048)
 def _compute_raw(tpms_type: str, L_mm: float, t_mm: float,
                  N: int = 128) -> dict:
@@ -182,25 +201,12 @@ def _compute_raw(tpms_type: str, L_mm: float, t_mm: float,
     -------
     dict with keys: epsilon, A_0 [m^-1]
     """
-    L_m = L_mm / 1000.0
-    tL = t_mm / L_mm
-
-    # Get calibrated C threshold
-    C = _C_from_tL(tpms_type, tL)
-    if C < 0:
-        C = 0.0
-
-    ordered, faces = _geometry_counts(tpms_type, N)
-    occupied = np.searchsorted(ordered, C, side='right')
-    eps = float(1.0 - occupied / ordered.size)
-    A0 = faces[occupied] * (L_m / N)**2 / (2.0 * L_m**3 * _AREA_CORRECTION)
-
-    return {'epsilon': eps, 'A_0': A0}
+    eps, A0 = _raw_geometry_values(tpms_type, L_mm, t_mm, N)
+    return {'epsilon': float(eps), 'A_0': A0}
 
 
-# One 92x14x10 continuous design has 12,880 cells and can retain both its
-# original and SI-roundtripped L/t keys. Keep these scalar-only results across
-# fixed-flow preparation and operating conditions; the phi-grid cache is separate.
+# Scalar callers retain their existing cache. Batch fields use the immutable
+# topology/resolution index without filling this scalar cache.
 @lru_cache(maxsize=32768)
 def _compute_geometry_cached(tpms_type: str, L_mm: float, t_mm: float,
                              N: int = 128) -> dict:
@@ -240,7 +246,7 @@ def _compute_geometry_cached(tpms_type: str, L_mm: float, t_mm: float,
     # (Same coefficient 4 as the textbook D_h definition; the per-stream void
     # fraction ε_A already absorbs the bicontinuous sheet split. Equivalent to
     # the old 2·ε/A_0 convention.) See docs/architecture.md for geometry units.
-    D_h = 4.0 * eps_A / A0 if A0 > 0 else 0.0
+    D_h = _hydraulic_diameter(eps, A0) if A0 > 0 else 0.0
 
     # Robustness (2026-06-25): the 2t>=L guard above leaves a near-degenerate
     # band (t just under L/2) where _compute_raw returns epsilon~0 / A_0~0, so
@@ -272,6 +278,41 @@ def compute_geometry(tpms_type: str, L_mm: float, t_mm: float,
     Values are all scalars, so a shallow copy fully detaches the caller.
     """
     return dict(_compute_geometry_cached(tpms_type, L_mm, t_mm, N))
+
+
+def compute_geometry_fields(tpms_type: str, L_field_mm, t_field_mm,
+                            N: int = 128) -> dict:
+    """Return independent geometry arrays with the supplied L/t field shape.
+
+    L/t inputs are in mm. A_0 is in 1/m, and D_h is in m.
+    Empty fields retain their shape. Inputs and cached index arrays stay intact.
+    """
+    if tpms_type not in _PHI_FUNCS:
+        raise ValueError(f"tpms_type must be 'Diamond' or 'Gyroid', got '{tpms_type}'")
+    length = np.asarray(L_field_mm, dtype=np.float64)
+    wall = np.asarray(t_field_mm, dtype=np.float64)
+    if length.ndim == 0 or wall.ndim == 0 or length.shape != wall.shape:
+        raise ValueError('L/t fields must have the same array shape')
+    if not np.all(np.isfinite(length) & np.isfinite(wall)):
+        raise ValueError('L/t fields must be finite')
+    if np.any(length <= 0.):
+        raise ValueError('L_mm must be positive')
+    if np.any(wall <= 0.):
+        raise ValueError('t_mm must be positive')
+    if np.any(2. * wall >= length):
+        raise ValueError('Wall thickness must satisfy 2*t < L, with usable pore space')
+    if isinstance(N, (bool, np.bool_)) or not isinstance(N, (int, np.integer)) or N < 1:
+        raise ValueError('geometry resolution N must be a positive integer')
+    eps, area = _raw_geometry_values(tpms_type, length, wall, N)
+    if not np.all((eps > 1e-9) & (area > 0.) & np.isfinite(eps) & np.isfinite(area)):
+        raise ValueError('Degenerate TPMS geometry: no usable pore space')
+    diameter = _hydraulic_diameter(eps, area)
+    if not np.all((diameter > 0.) & np.isfinite(diameter)):
+        raise ValueError('Degenerate TPMS geometry: no usable hydraulic diameter')
+    return {key: np.ascontiguousarray(value) for key, value in {
+        'epsilon': eps, 'epsilon_A': 0.5 * eps, 'epsilon_B': 0.5 * eps,
+        'A_0': area, 'D_h': diameter,
+    }.items()}
 
 
 # Cache management re-exposed (the wrapper hides the lru_cache attributes).

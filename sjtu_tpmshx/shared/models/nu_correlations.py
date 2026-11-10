@@ -93,6 +93,30 @@ def _warn_extrap(tpms_type, Re_min, Re_max, raw):
             warnings.warn(message, stacklevel=3)
 
 
+def record_air_nu_scalar_ranges(tpms_type, raw_Re):
+    """Record a C-order scalar sequence without computing unused Nu values."""
+    values = np.asarray(raw_Re, dtype=np.float64).ravel()
+    if not values.size:
+        return
+    selected = {0, values.size - 1}
+    finite = np.isfinite(values)
+    finite_indices = np.flatnonzero(finite)
+    if finite_indices.size:
+        valid = values[finite_indices]
+        selected.add(int(finite_indices[valid.argmin()]))
+        selected.add(int(finite_indices[valid.argmax()]))
+    lo, hi = NU_RE_FIT_RANGE
+    below, above = values < lo, values > hi
+    # Keep the first warnings, worst finite snapshot and last scalar sample.
+    for mask in (~finite, below, above, finite & (below | above)):
+        indices = np.flatnonzero(mask)
+        if indices.size:
+            selected.add(int(indices[0]))
+    for index in sorted(selected):
+        value = float(values[index])
+        _warn_extrap(tpms_type, value, value, value)
+
+
 # ── Public API ───────────────────────────────────────────────────────────
 
 def nu_from_Re(tpms_type, Re, eps_f, L_mm, D_h_mm, *, Pr=Pr_AIR):
