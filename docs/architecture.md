@@ -882,7 +882,7 @@ XY uses explicit Givens FMA directions and a local contraction setting.
 Gaussian uses explicit pair accumulation fusion on Apple arm64.
 Other grid/field calculations retain strict contraction settings. These choices require separate Windows checks.
 
-The same library exports two ABI-1 protocols. Their error codes must use separate mappers:
+The library exports geometry ABI 1 and field ABI 2. Their error codes require separate mappers:
 
 | Protocol | Status 1 | Status 2 | Status 3 |
 | --- | --- | --- | --- |

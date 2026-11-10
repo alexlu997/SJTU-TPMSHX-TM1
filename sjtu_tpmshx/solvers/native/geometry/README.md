@@ -88,7 +88,7 @@ Sigmoid retains ordered blending. The LUT keeps separate fast64/general paths, s
 Zone selection retains its original order. Its sigma=2 Gaussian uses radius=8, reflect boundaries and axis 0 before axis 1.
 The Gaussian length remains in grid-index units. Continuous splines do not use this filter.
 
-Two ABI-1 protocols share this library file. They have different status contracts:
+Geometry ABI 1 and field ABI 2 share this library file. They have different status contracts:
 
 | Protocol | Status 1 | Status 2 | Status 3 |
 | --- | --- | --- | --- |
