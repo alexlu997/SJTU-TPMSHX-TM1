@@ -38,14 +38,15 @@ _SIGNATURES = {
     'index_create': [_Uint, _Size, _HandleP],
     'index_create_from_phi': [_SizeP, _DoubleP, _Size, _HandleP],
     'phi_grid': [_Uint, _Size, _DoubleP, _Size],
-    'threshold_batch': [_Uint, _DoubleP, _Size, _DoubleP, _Size],
+    'threshold_batch': [_Uint, _DoubleP, _Size, _Uint, _DoubleP, _Size],
     'hydraulic_radius_batch': [_DoubleP, _Size, _DoubleP, _Size],
     'counts': [_Handle, _DoubleP, _Size, _Int64P, _Size],
     'standard_batch': [_Handle, _Uint, _DoubleP, _DoubleP, _Size,
                        _Double, _Uint, _Double, _DoubleP, _Size],
+    'standard_scalar': [_Handle, _Uint, _Double, _Double, _Uint, _Uint, _DoubleP, _Size],
     'raw_batch': [_Handle, _Uint, _DoubleP, _DoubleP, _Size, _DoubleP, _Size],
     'chi_batch': [_Uint, _DoubleP, _Size, _Uint, _Double, _DoubleP, _Size],
-    'material_batch': [_Uint, _DoubleP, _Size, _Double, _Uint, _Double, _DoubleP, _Size],
+    'material_batch': [_Uint, _DoubleP, _Size, _Double, _Uint, _Uint, _Double, _DoubleP, _Size],
     'lut_batch': [_Uint, _DoubleP, _DoubleP, _Size, _Double, _Uint, _Double, _DoubleP, _Size],
     'standard_minimum': [_Handle, _Uint, _DoubleP, _DoubleP, _DoubleP, _Size],
     'co2_batch': [_Uint, _DoubleP, _DoubleP, _Size, _Double, _Uint, _Double, _DoubleP, _Size],
@@ -236,6 +237,11 @@ def _raw_levels(phi, C, delta):
                    np.result_type(upper, 0.).itemsize * 8)
 
 
+def _floating_dtype(*values):
+    dtype = np.result_type(*values)
+    return dtype if dtype.kind == 'f' else np.dtype(np.float64)
+
+
 @lru_cache(maxsize=4)
 def _cached_phi(path, topology, resolution):
     library = _load_library(path)
@@ -253,7 +259,9 @@ def phi_grid(topology, N=128):
 def threshold(topology, wall_over_cell):
     code, values = _topology(topology), _array(wall_over_cell)
     result = np.empty(values.shape, dtype=np.float64, order='C')
-    _call(_library().threshold_batch, code, _pointer(values), values.size, _pointer(result), result.size)
+    precision = _floating_dtype(wall_over_cell, 0.).itemsize * 8
+    _call(_library().threshold_batch, code, _pointer(values), values.size, precision,
+          _pointer(result), result.size)
     return result
 
 
@@ -283,6 +291,16 @@ def standard_fields(topology, cells_mm, walls_mm, conductivity, *, chi_s=None, N
     return _fields(result, _GEOMETRY_KEYS)
 
 
+def standard_scalar(topology, cell_mm, wall_mm, *, N=128):
+    index, code = _index(topology, N)
+    cell_precision = _floating_dtype(cell_mm, 0.).itemsize * 8
+    ratio_precision = _floating_dtype(wall_mm, cell_mm).itemsize * 8
+    result = np.empty(5, dtype=np.float64)
+    _call(index.library.standard_scalar, index.handle, code, float(cell_mm), float(wall_mm),
+          cell_precision, ratio_precision, _pointer(result), result.size)
+    return _fields(result, _GEOMETRY_KEYS[:5])
+
+
 def raw_fields(topology, cells_mm, walls_mm, *, N=128):
     cells, walls = _pair(cells_mm, walls_mm)
     index, code = _index(topology, N)
@@ -303,9 +321,12 @@ def chi_fields(topology, epsilon, *, chi_s=None):
 def material_fields(topology, epsilon, conductivity, *, chi_s=None):
     code, values = _topology(topology), _array(epsilon)
     result = _rows(values.shape, 2)
+    product_dtype = _floating_dtype(epsilon, conductivity)
     _call(_library().material_batch, code, _pointer(values), values.size, float(conductivity),
-          *_override(chi_s), _pointer(result), result.size)
-    return _fields(result, ('chi_s', 'K_ss'))
+          product_dtype.itemsize * 8, *_override(chi_s), _pointer(result), result.size)
+    fields = _fields(result, ('chi_s', 'K_ss'))
+    fields['K_ss'] = fields['K_ss'].astype(product_dtype, copy=False)
+    return fields
 
 
 def lut_fields(topology, epsilon, area, conductivity, *, chi_s=None):

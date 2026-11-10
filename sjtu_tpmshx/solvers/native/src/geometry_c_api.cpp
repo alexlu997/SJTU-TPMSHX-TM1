@@ -1,6 +1,7 @@
 #include "tpmshx/geometry_c_api.h"
 #include "tpmshx/geometry.hpp"
 #include "tpmshx/asym_geometry.hpp"
+#include "tpmshx/scalar_precision.hpp"
 #include <algorithm>
 #include <array>
 #include <cstdio>
@@ -137,8 +138,7 @@ bool marching_cubes(uint32_t method) {
 a::Levels raw_levels(const tpmshx_geometry_levels_v1* levels) {
     require_buffer(levels, 1);
     for (const auto precision : {levels->lower_precision, levels->upper_precision})
-        if (precision != 16 && precision != 32 && precision != 64)
-            throw std::invalid_argument("geometry level precision must be 16, 32 or 64");
+        g::detail::require_precision(precision);
     return {levels->lower, levels->upper, levels->comparison_lower, levels->comparison_upper,
             levels->lower_precision, levels->upper_precision};
 }
@@ -244,15 +244,16 @@ extern "C" int TPMSHX_GEOMETRY_CALL tpmshx_geometry_phi_grid_v1(
 }
 
 extern "C" int TPMSHX_GEOMETRY_CALL tpmshx_geometry_threshold_batch_v1(
-    uint32_t code, const double* ratios, size_t count,
+    uint32_t code, const double* ratios, size_t count, uint32_t ratio_precision,
     double* result, size_t result_count, char* error, size_t capacity) {
     return boundary(error, capacity, [&] {
         input(ratios, count);
+        g::detail::require_precision(ratio_precision);
         require_output(result, result_count, count);
         const auto calibration = g::calibration(topology(code));
         std::vector<double> local(count);
         for (std::size_t i = 0; i < count; ++i)
-            local[i] = g::level_set_threshold(calibration.level_set, ratios[i]);
+            local[i] = g::level_set_threshold(calibration.level_set,ratios[i],ratio_precision);
         publish(local, result);
     });
 }
@@ -292,6 +293,23 @@ extern "C" int TPMSHX_GEOMETRY_CALL tpmshx_geometry_standard_batch_v1(
     });
 }
 
+extern "C" int TPMSHX_GEOMETRY_CALL tpmshx_geometry_standard_scalar_v1(
+    const tpmshx_geometry_index_v1* index, uint32_t code, double cell, double wall,
+    uint32_t cell_precision, uint32_t ratio_precision,
+    double* result, size_t result_count, char* error, size_t capacity) {
+    return boundary(error, capacity, [&] {
+        const auto& field = owner(index);
+        const auto calibration = model(field, code);
+        g::detail::require_precision(cell_precision);
+        g::detail::require_precision(ratio_precision);
+        require_output(result, result_count, 5);
+        const auto value = g::standard_geometry(
+            field.value,calibration,cell,wall,cell_precision,ratio_precision);
+        publish(std::array<double,5>{value.epsilon,value.epsilon_a,value.epsilon_b,
+                                    value.area_density,value.hydraulic_diameter},result);
+    });
+}
+
 extern "C" int TPMSHX_GEOMETRY_CALL tpmshx_geometry_raw_batch_v1(
     const tpmshx_geometry_index_v1* index, uint32_t code,
     const double* cells, const double* walls, size_t count,
@@ -326,17 +344,18 @@ extern "C" int TPMSHX_GEOMETRY_CALL tpmshx_geometry_chi_batch_v1(
 }
 
 extern "C" int TPMSHX_GEOMETRY_CALL tpmshx_geometry_material_batch_v1(
-    uint32_t code, const double* epsilon, size_t count, double conductivity,
+    uint32_t code, const double* epsilon, size_t count, double conductivity, uint32_t product_precision,
     uint32_t has_override, double override_value, double* result, size_t result_count,
     char* error, size_t capacity) {
     return boundary(error, capacity, [&] {
         const auto calibration = g::calibration(topology(code));
         const auto selected = override_constant(has_override, override_value);
+        g::detail::require_precision(product_precision);
         const auto values = input(epsilon, count);
         require_output(result, result_count, product(count, 2));
         const auto chi = g::effective_chi(calibration.solid_tortuosity, values, selected);
         const auto conductivity_values = g::solid_conductivity(
-            calibration.solid_tortuosity, values, conductivity, selected);
+            calibration.solid_tortuosity,values,conductivity,selected,product_precision);
         std::vector<double> local(product(count, 2));
         for (std::size_t i = 0; i < count; ++i) {
             local[2*i] = chi[i];

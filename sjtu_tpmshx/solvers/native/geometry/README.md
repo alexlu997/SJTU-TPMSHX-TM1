@@ -93,6 +93,22 @@ These duties also apply to a geometry-only binary distribution.
 
 ## Local changes and numerical rules
 
+The [scalar precision helper](../include/tpmshx/scalar_precision.hpp) keeps the original NumPy float16, float32 and float64 intermediate rounding in C++.
+The binding sends cell, ratio and final-product precision metadata.
+`standard_scalar_v1` rounds `L_mm/1000` and `L_m/N` at cell precision.
+It rounds `t_mm/L_mm` and the first coefficient product at ratio precision.
+The squared ratio term and the final threshold addition use double.
+Batch L/t fields keep their existing float64 conversion.
+
+Standard scalar porosity is a Python float.
+Thus NumPy float16/32 conductivity can give `K_ss` the same dtype.
+Array and CO2 porosity use float64, so their material results stay float64 for these conductivity inputs.
+The core calculates `chi*(1-epsilon)` in double.
+It casts that intermediate and conductivity to final-product precision before multiplication.
+Python restores the output dtype and shape; it supplies no numerical fallback.
+Formal nonzero asymmetric preparation keeps the original explicit Python-float conversion for L/t and length.
+Its native arithmetic stays float64.
+
 The local implementation is in [src/geometry](../src/geometry).
 The cell state and ambiguity tests were translated from Cython to C++17.
 Lookup data were decoded into signed-byte C++ tables without changing their dimensions or order.
@@ -107,7 +123,7 @@ Upstream diagnostic branches still print and continue processing.
 This includes the reachable near-zero case-13 diagnostic.
 The internal mesh helper supports comparison; it is not an added public C mesh API.
 
-The asymmetric wrapper first checks extrema from the original float64 field.
+The asymmetric wrapper first checks extrema from the original field values.
 It skips MC when `level <= minimum` or `level >= maximum`.
 Raw-array calls retain the original level scalar precision in that comparison.
 The C ABI receives separate isosurface levels and array-comparison bounds.

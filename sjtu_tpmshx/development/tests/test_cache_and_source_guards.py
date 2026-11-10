@@ -54,7 +54,7 @@ def test_chi_s_env_is_read_per_call(monkeypatch):
 def test_compute_cache_hits_use_current_chi_s(monkeypatch):
     from sjtu_tpmshx.shared.models import tpms_calc
     monkeypatch.setattr(tpms_calc, '_tpms_geom', lambda *args: {
-        'epsilon': .7, 'A_0': 1000., 'D_h': .002})
+        'epsilon': .7, 'epsilon_A': .35, 'epsilon_B': .35, 'A_0': 1000., 'D_h': .002})
     monkeypatch.delenv('TPMSHX_CHI_S', raising=False)
     args = ('Gyroid', 6., .4, 10., 300., 200000., 16.)
     tpms_calc.compute.cache_clear()

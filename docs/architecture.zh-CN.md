@@ -20,6 +20,16 @@ Python 模型模块与原生头文件生成器使用同一资源数据。
 `shared/models/_native_geometry.py` 通过几何 ABI 1 提供延迟加载的 ctypes 接口，
 加载独立预构建几何库，不导入求解器后端。
 Python 保留公共类型、缓存接口和逐次调用的 chi 显式值／环境值／拟合选择。
+
+标准标量几何由 C++ 保留原 NumPy float16、float32 和 float64 的中间舍入规则。
+绑定传入单元长度转换和壁厚／单元长度比的精度元数据。
+批量 L/t 场保持原有 float64 规范化。
+标准标量孔隙率是 Python float，因此 `K_ss` 可以保留 NumPy float16/32 `k_s` 的 dtype。
+数组和 CO2 孔隙率使用 float64，因此这些导热系数输入对应的 `K_ss` 结果仍为 float64。
+Python 选择 dtype 元数据并适配输出类型，不提供数值回退。
+正式非零偏移几何准备保持原有 L/t 和长度的显式 Python-float 转换。
+其原生算术仍为 float64。
+
 网格和设计场插值、物性、DF、完整前处理及结果计算仍属后续批次。
 六批迁移尚未完成，详见[模型资源](model-resources.md#当前资源与研究输出)。
 既有求解器 CI 记录不构成本批几何迁移验收。

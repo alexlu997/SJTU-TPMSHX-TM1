@@ -110,7 +110,7 @@ def test_real_application_mapping_and_offline_readback(monkeypatch, tmp_path, di
         geometry_guard.setattr(tpms_props, 'geometry', forbidden_geometry)
         geometry_guard.setattr(tpms_calc, 'geometry', forbidden_geometry)
         geometry_guard.setattr(tpms_geometry, '_phi_grid', forbidden_geometry)
-        for name in ('phi_grid', 'standard_fields', 'raw_fields', 'co2_fields', 'prepare_sides'):
+        for name in ('phi_grid', 'standard_scalar', 'standard_fields', 'raw_fields', 'co2_fields', 'prepare_sides'):
             geometry_guard.setattr(_native_geometry, name, forbidden_geometry)
         result = run_case(case, RunControl())
     performance = evaluate(result)

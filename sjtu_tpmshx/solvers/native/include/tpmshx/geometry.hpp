@@ -21,7 +21,8 @@ struct Calibration {
 
 Calibration calibration(Topology topology);
 std::vector<double> phi_grid(Topology topology, std::size_t n);
-double level_set_threshold(const Coefficients& coefficients, double wall_over_cell);
+double level_set_threshold(const Coefficients& coefficients, double wall_over_cell,
+                           std::uint32_t ratio_precision=64);
 double hydraulic_radius(double hydraulic_diameter);
 
 struct Counts {
@@ -68,9 +69,11 @@ struct MinimumGeometry {
 };
 
 RawGeometry raw_geometry(const PhiIndex& index, const Calibration& model,
-                         double cell_mm, double wall_mm);
+                         double cell_mm, double wall_mm,
+                         std::uint32_t cell_precision=64, std::uint32_t ratio_precision=64);
 Geometry standard_geometry(const PhiIndex& index, const Calibration& model,
-                           double cell_mm, double wall_mm);
+                           double cell_mm, double wall_mm,
+                           std::uint32_t cell_precision=64, std::uint32_t ratio_precision=64);
 std::vector<Geometry> standard_geometry_batch(const PhiIndex& index, const Calibration& model,
                                               ArrayView<const double> cells_mm,
                                               ArrayView<const double> walls_mm);
@@ -82,10 +85,12 @@ double effective_chi(const Coefficients& coefficients, double epsilon,
 std::vector<double> effective_chi(const Coefficients& coefficients, ArrayView<const double> epsilon,
                                  std::optional<double> override_value = std::nullopt);
 double solid_conductivity(const Coefficients& coefficients, double epsilon, double conductivity,
-                          std::optional<double> override_value = std::nullopt);
+                          std::optional<double> override_value = std::nullopt,
+                          std::uint32_t product_precision=64);
 std::vector<double> solid_conductivity(const Coefficients& coefficients,
                                       ArrayView<const double> epsilon, double conductivity,
-                                      std::optional<double> override_value = std::nullopt);
+                                      std::optional<double> override_value = std::nullopt,
+                                      std::uint32_t product_precision=64);
 MaterialGeometry with_material(const Geometry& geometry, const Coefficients& coefficients,
                                double conductivity,
                                std::optional<double> override_value = std::nullopt);

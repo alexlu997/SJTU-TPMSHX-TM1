@@ -26,6 +26,16 @@ The geometry core owns standard, CO2 and asymmetric geometry, chi/Kss, and sigmo
 `shared/models/_native_geometry.py` uses ctypes to load geometry ABI 1 on demand.
 It loads a separate prebuilt library without importing the solver backend.
 Python keeps public types, cache interfaces and per-call explicit/environment/fit selection for chi.
+
+Scalar standard geometry keeps the original NumPy float16, float32 and float64 intermediate rounding in C++.
+The binding sends precision metadata for cell conversion and the wall/cell ratio.
+Batch L/t fields keep their existing float64 conversion.
+Standard scalar porosity is a Python float, so `K_ss` can keep a NumPy float16/32 `k_s` dtype.
+Array and CO2 porosity use float64, so their `K_ss` results stay float64 for these conductivity inputs.
+Python selects dtype metadata and adapts output types; it supplies no numerical fallback.
+Formal nonzero asymmetric preparation keeps the original explicit Python-float conversion of L/t and length.
+Its native arithmetic stays float64.
+
 Grid and design-field interpolation, properties, DF, full preparation and result calculations remain in later stages.
 The six-stage migration remains incomplete. See [model resources](model-resources.en.md#当前资源与研究输出).
 Earlier solver CI records do not establish acceptance for this geometry migration batch.

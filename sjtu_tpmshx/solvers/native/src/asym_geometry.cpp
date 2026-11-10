@@ -1,6 +1,6 @@
 #include "tpmshx/asym_geometry.hpp"
+#include "tpmshx/scalar_precision.hpp"
 #include "geometry/marching_cubes.hpp"
-#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <stdexcept>
@@ -33,23 +33,6 @@ double divide(double numerator, double denominator) {
 }
 Levels double_levels(double C, double delta) {
     return {delta-C,delta+C,delta-C,delta+C,64,64};
-}
-double comparison_extreme(double value, std::uint32_t precision) {
-    if (precision==64) return value;
-    if (precision==32) return static_cast<float>(value);
-    if (!std::isfinite(value) || value==0.) return value;
-    // Round one scalar to binary16, with ties to an even significand.
-    int exponent=0;
-    const double magnitude=std::abs(value);
-    std::frexp(magnitude,&exponent);
-    if (exponent>16) return std::copysign(std::numeric_limits<double>::infinity(),value);
-    const double step=std::ldexp(1.,std::max(-24,exponent-11));
-    const double scaled=magnitude/step;
-    double integral=std::floor(scaled);
-    const double remainder=scaled-integral;
-    if (remainder>.5 || (remainder==.5 && std::fmod(integral,2.)!=0.)) ++integral;
-    const double rounded=integral*step;
-    return std::copysign(rounded>=65536. ? std::numeric_limits<double>::infinity() : rounded,value);
 }
 struct Masks { std::vector<std::uint8_t> solid, a, b; };
 Masks masks(ArrayView<const double> phi, const Levels& levels) {
@@ -134,8 +117,8 @@ Sides a0_sides_mc(ArrayView<const double> phi, const Shape& shape, const Levels&
     std::vector<float> converted;
     const auto iso_area=[&](double level, std::uint32_t precision) {
         // Retain the level scalar's comparison precision before the mesh cast.
-        if (level<=comparison_extreme(minimum,precision) ||
-            level>=comparison_extreme(maximum,precision)) return 0.;
+        if (level<=detail::round_scalar(minimum,precision) ||
+            level>=detail::round_scalar(maximum,precision)) return 0.;
         if (converted.empty()) {
             converted.reserve(phi.size);
             for (std::size_t i=0; i<phi.size; ++i) converted.push_back(static_cast<float>(phi[i]));

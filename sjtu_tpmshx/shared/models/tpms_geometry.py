@@ -51,7 +51,7 @@ def _compute_geometry_cached(tpms_type: str, L_mm: float, t_mm: float,
     if 2 * t_mm >= L_mm:
         raise ValueError(f"Wall thickness t={t_mm}mm >= L={L_mm}mm, no pore space")
     try:
-        values = _native_geometry.standard_fields(tpms_type, L_mm, t_mm, 1., N=N)
+        values = _native_geometry.standard_scalar(tpms_type, L_mm, t_mm, N=N)
     except ValueError as error:
         if str(error).startswith('Degenerate TPMS geometry:'):
             raise ValueError(

@@ -69,11 +69,21 @@ int main(void) {
         CHECK(row[3] > 0. && row[4] == 4. * row[1] / row[3]);
         CHECK(row[5] == .5 * (1. - row[0]) * 16.);
     }
+    {
+        double scalar_fields[5];
+        OK(tpmshx_geometry_standard_scalar_v1(index, TPMSHX_GEOMETRY_DIAMOND,
+            cells[0], walls[0], 64u, 64u, scalar_fields, 5, error, sizeof error));
+        for (i = 0; i < 5; ++i) CHECK(scalar_fields[i] == field[i]);
+        fill(scalar_fields, 5, -77.);
+        status = tpmshx_geometry_standard_scalar_v1(index, TPMSHX_GEOMETRY_DIAMOND,
+            cells[0], walls[0], 99u, 64u, scalar_fields, 5, error, sizeof error);
+        CHECK(status == TPMSHX_GEOMETRY_INVALID && all_equal(scalar_fields, 5, -77.));
+    }
     OK(tpmshx_geometry_raw_batch_v1(index, TPMSHX_GEOMETRY_DIAMOND,
         cells, walls, 2, raw, 4, error, sizeof error));
     CHECK(raw[0] == field[0] && raw[1] == field[3]);
     OK(tpmshx_geometry_threshold_batch_v1(TPMSHX_GEOMETRY_DIAMOND,
-        ratios, 2, thresholds, 2, error, sizeof error));
+        ratios, 2, 64u, thresholds, 2, error, sizeof error));
     CHECK(thresholds[0] > 0. && thresholds[1] > 0.);
     offset = levels(thresholds[0], .3);
     reference = levels(thresholds[0], 0.);
@@ -106,7 +116,7 @@ int main(void) {
         epsilon, 2, 1, .25, chi, 2, error, sizeof error));
     CHECK(chi[0] == .25 && chi[1] == .25);
     OK(tpmshx_geometry_material_batch_v1(TPMSHX_GEOMETRY_GYROID,
-        epsilon, 2, 16., 1, .25, material, 4, error, sizeof error));
+        epsilon, 2, 16., 64u, 1, .25, material, 4, error, sizeof error));
     for (i = 0; i < 2; ++i) {
         CHECK(material[2*i] == .25);
         CHECK(material[2*i+1] == .25 * (1. - epsilon[i]) * 16.);

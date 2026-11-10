@@ -1,5 +1,6 @@
 #include "tpmshx/geometry.hpp"
 #include "tpmshx/model_coefficients.hpp"
+#include "tpmshx/scalar_precision.hpp"
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -102,8 +103,11 @@ std::vector<double> phi_grid(Topology topology, std::size_t n) {
     return phi;
 }
 
-double level_set_threshold(const Coefficients& coefficients, double wall_over_cell) {
-    return coefficients[0] * wall_over_cell + coefficients[1] * std::pow(wall_over_cell, 2.0);
+double level_set_threshold(const Coefficients& coefficients, double wall_over_cell,
+                           std::uint32_t ratio_precision) {
+    const double ratio=detail::round_scalar(wall_over_cell,ratio_precision);
+    return detail::multiply(coefficients[0],ratio,ratio_precision)
+         + coefficients[1]*std::pow(ratio,2.0);
 }
 
 double hydraulic_radius(double hydraulic_diameter) {
@@ -166,25 +170,28 @@ Counts PhiIndex::counts(double inclusive_threshold) const {
 }
 
 RawGeometry raw_geometry(const PhiIndex& index, const Calibration& model,
-                         double cell_mm, double wall_mm) {
+                         double cell_mm, double wall_mm,
+                         std::uint32_t cell_precision, std::uint32_t ratio_precision) {
     const auto n = index.resolution();
-    const double cell_m = cell_mm / 1000.0;
-    const double ratio = wall_mm / cell_mm;
-    const double threshold = std::max(level_set_threshold(model.level_set, ratio), 0.0);
+    const double cell_m = detail::divide(cell_mm,1000.0,cell_precision);
+    const double ratio = detail::divide(wall_mm,cell_mm,ratio_precision);
+    const double threshold = std::max(level_set_threshold(model.level_set,ratio,ratio_precision),0.0);
     const auto count = index.counts(threshold);
     const double epsilon = 1.0 - static_cast<double>(count.occupied) / static_cast<double>(count.voxels);
-    const double area = static_cast<double>(count.faces) * std::pow(cell_m / static_cast<double>(n), 2.0)
+    const double dx = detail::divide(cell_m,static_cast<double>(n),cell_precision);
+    const double area = static_cast<double>(count.faces) * std::pow(dx, 2.0)
                       / (2.0 * std::pow(cell_m, 3.0) * model.area_correction);
     return {epsilon, area};
 }
 
 Geometry standard_geometry(const PhiIndex& index, const Calibration& model,
-                           double cell_mm, double wall_mm) {
+                           double cell_mm, double wall_mm,
+                           std::uint32_t cell_precision, std::uint32_t ratio_precision) {
     if (cell_mm <= 0.) throw std::invalid_argument("L_mm must be positive");
     if (wall_mm <= 0.) throw std::invalid_argument("t_mm must be positive");
     if (2.0 * wall_mm >= cell_mm)
         throw std::invalid_argument("Wall thickness must satisfy 2*t < L, with usable pore space");
-    const auto raw = raw_geometry(index, model, cell_mm, wall_mm);
+    const auto raw = raw_geometry(index,model,cell_mm,wall_mm,cell_precision,ratio_precision);
     const double diameter = raw.area_density > 0. ? hydraulic_diameter(raw.epsilon, raw.area_density) : 0.;
     if (raw.epsilon <= 1e-9 || raw.area_density <= 0. || diameter <= 0.)
         throw std::invalid_argument("Degenerate TPMS geometry: no usable pore space");
@@ -248,17 +255,18 @@ std::vector<double> effective_chi(const Coefficients& coefficients, ArrayView<co
 }
 
 double solid_conductivity(const Coefficients& coefficients, double epsilon, double conductivity,
-                          std::optional<double> override_value) {
-    return effective_chi(coefficients, epsilon, override_value) * (1.0 - epsilon) * conductivity;
+                          std::optional<double> override_value, std::uint32_t product_precision) {
+    const double solid=effective_chi(coefficients,epsilon,override_value)*(1.0-epsilon);
+    return detail::multiply(solid,conductivity,product_precision);
 }
 
 std::vector<double> solid_conductivity(const Coefficients& coefficients,
                                       ArrayView<const double> epsilon, double conductivity,
-                                      std::optional<double> override_value) {
+                                      std::optional<double> override_value, std::uint32_t product_precision) {
     check_view(epsilon);
     std::vector<double> result(epsilon.size);
     for (std::size_t i = 0; i < epsilon.size; ++i)
-        result[i] = solid_conductivity(coefficients, epsilon[i], conductivity, override_value);
+        result[i] = solid_conductivity(coefficients,epsilon[i],conductivity,override_value,product_precision);
     return result;
 }
 
