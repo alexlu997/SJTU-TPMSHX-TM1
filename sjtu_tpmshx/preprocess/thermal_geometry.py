@@ -1,6 +1,6 @@
 """Fixed geometry consumed by the existing 2D and 3D heat-transfer closures."""
 import numpy as np
-from sjtu_tpmshx.shared.models.tpms_props import geometry
+from sjtu_tpmshx.shared.models.tpms_props import geometry, geometry_fields
 from sjtu_tpmshx.shared.models.asym_split import _asym_split_A
 
 
@@ -16,11 +16,15 @@ def prepare_thermal_geometry(tpms, cell_mm, wall_mm, conductivity, *,
     if L_field is not None:
         if t_field is None or np.shape(L_field) != np.shape(t_field):
             raise ValueError('thermal geometry requires matching cell and wall fields')
-        fields = {key: np.empty(np.shape(L_field)) for key in ('A_0', 'D_h', 'epsilon')}
-        for index in np.ndindex(np.shape(L_field)):
-            local = geometry_model(tpms, float(L_field[index]), float(t_field[index]), conductivity)
-            for key in fields:
-                fields[key][index] = local[key]
+        if co2_geometry:
+            fields = {key: np.empty(np.shape(L_field)) for key in ('A_0', 'D_h', 'epsilon')}
+            for index in np.ndindex(np.shape(L_field)):
+                local = geometry_model(tpms, float(L_field[index]), float(t_field[index]), conductivity)
+                for key in fields:
+                    fields[key][index] = local[key]
+        else:
+            local = geometry_fields(tpms, L_field, t_field, conductivity)
+            fields = {key: local[key] for key in ('A_0', 'D_h', 'epsilon')}
     split = _asym_split_A({'delta_levelset': delta}, tpms, cell_mm, wall_mm)
     sides = None
     if delta != 0.:

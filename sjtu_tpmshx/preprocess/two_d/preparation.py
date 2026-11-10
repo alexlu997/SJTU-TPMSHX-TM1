@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 import numpy as np
 from sjtu_tpmshx.shared.domain.compute_config import ComputeConfig, bc_to_dict
-from sjtu_tpmshx.shared.models.tpms_props import geometry as tpms_geometry
+from sjtu_tpmshx.shared.models.tpms_props import geometry as tpms_geometry, geometry_fields
 from sjtu_tpmshx.shared.models import co2_correlations
 from sjtu_tpmshx.shared.models.input_validation import validate_domain_dims, surrogate_extrap_reasons
 from sjtu_tpmshx.shared.logutil import get_logger
@@ -37,7 +37,8 @@ def _check_zoned_fluid_support(compute_cfg: ComputeConfig) -> None:
 
 def _build_zone_arrays(compute_cfg, N_x, N_y, *, dx_arr=None, dy_arr=None, geometry_only=False):
     """Sample the requested design at the supplied physical cell centres."""
-    geometry_model = co2_correlations.geometry if co2_correlations.uses_co2(compute_cfg) else tpms_geometry
+    co2_geometry = co2_correlations.uses_co2(compute_cfg)
+    geometry_model = co2_correlations.geometry if co2_geometry else tpms_geometry
     geometry = compute_cfg.geometry
     L, H = geometry.L_dom_m, geometry.H_dom_m
     tpms_type, Lcell, t_wall = geometry.tpms, geometry.L_cell_mm, geometry.t_wall_mm
@@ -60,10 +61,14 @@ def _build_zone_arrays(compute_cfg, N_x, N_y, *, dx_arr=None, dy_arr=None, geome
             spec = dict(compute_cfg.zones.config)
             field = from_decision_vector(spec.pop('x_decision'), tpms_type, k_s, L, H, **spec)
             lfield, tfield = field.evaluate_grid(N_x, N_y, dx_arr, dy_arr)
-            eps, solid, radius = (np.empty((N_x, N_y)) for _ in range(3))
-            for index in np.ndindex(eps.shape):
-                local = geometry_model(tpms_type, float(lfield[index]), float(tfield[index]), k_s)
-                eps[index], solid[index], radius[index] = local['epsilon'], local['K_ss'], local['D_h'] / 2.
+            if co2_geometry:
+                eps, solid, radius = (np.empty((N_x, N_y)) for _ in range(3))
+                for index in np.ndindex(eps.shape):
+                    local = geometry_model(tpms_type, float(lfield[index]), float(tfield[index]), k_s)
+                    eps[index], solid[index], radius[index] = local['epsilon'], local['K_ss'], local['D_h'] / 2.
+            else:
+                local = geometry_fields(tpms_type, lfield, tfield, k_s)
+                eps, solid, radius = local['epsilon'], local['K_ss'], local['D_h'] / 2.
             za = dict(axis='continuous', L_field=lfield, t_field=tfield,
                       eps_arr=eps, eps_f_arr=eps / 2., K_ss_arr=solid, r_h_arr=radius)
             if not geometry_only:

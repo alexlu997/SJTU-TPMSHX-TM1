@@ -286,6 +286,9 @@ Prepared cases store original model bounds and inlet samples in
 `applicability_inputs`. Completed full solves store `applicability_evidence_v1`.
 Preparation and native execution keep the last actual source call for each side, stage, layout
 and array shape. The existing warning record keeps extrema from all calls.
+Spatial inlet air checks reduce the original sequence of scalar observations.
+They retain scalar shape, first ties, the worst sample and the last sample.
+The separate raw-Re observation still uses the full cell array.
 The additive C queries borrow the existing result owner. The bindings copy
 their values before release and require a current library.
 
@@ -811,6 +814,13 @@ domain edges and area correction stay the same. The cache retains two
 topology/resolution pairs. At N=128, each index uses 32 MiB in addition to the
 16 MiB phi grid. The first query builds the index. Calibration, sigmoid tables
 and asymmetric geometry keep their existing scan functions.
+
+Standard symmetric field preparation batches sampled L/t arrays through the same geometry formulas as scalar queries.
+Array queries use the count index without adding entries to the scalar result cache.
+Floating-point powers preserve the scalar formula's rounding.
+Three-dimensional preparation evaluates original and SI-roundtripped lengths separately.
+This keeps design porosity and thermal geometry on their original inputs.
+Solid conductivity retains the shared chi rule and its explicit and environment overrides.
 
 Each continuous-field axis accepts at least one control. A singleton is
 recorded at the domain midpoint and stays constant along that axis. Other

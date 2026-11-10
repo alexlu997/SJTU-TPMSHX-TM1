@@ -4,7 +4,7 @@ from typing import Any
 import os
 import numpy as np
 from sjtu_tpmshx.shared.domain.compute_config import ComputeConfig, bc_to_dict, reject_retired_research_options
-from sjtu_tpmshx.shared.models.tpms_props import geometry as tpms_geometry
+from sjtu_tpmshx.shared.models.tpms_props import geometry as tpms_geometry, geometry_fields
 from sjtu_tpmshx.shared.models import co2_correlations
 from sjtu_tpmshx.shared.models.input_validation import validate_domain_dims, surrogate_extrap_reasons
 from sjtu_tpmshx.shared.models.grid_3d import _build_grid_3d, _resolve_axis_map, _build_zone_fields_3d
@@ -235,21 +235,24 @@ def _prepare_geometry_data(cfg):
                                      L, H, **({'Lz_domain': Lz} if volume else {}), **spec)
         local_L, local_t = (field.evaluate_volume(nx, ny, nz, dx, dy, dz) if volume
                             else field.evaluate_grid(nx, ny, dx, dy))
-        local_eps = np.empty(local_L.shape)
-        continuous_geometry = {key: np.empty(local_L.shape) for key in ('A_0', 'D_h', 'epsilon')}
         # Thermal geometry consumes the recorded SI field converted back to mm.
-        # Keep that exact rounding and evaluate any distinct pair immediately,
-        # while the original cell geometry is still in the existing leaf cache.
         thermal_L, thermal_t = local_L * 1e-3 * 1e3, local_t * 1e-3 * 1e3
-        for index in np.ndindex(local_eps.shape):
-            local = geometry_model(
-                cfg['tpms_type'], float(local_L[index]), float(local_t[index]), cfg['k_s'])
-            local_eps[index] = local['epsilon']
-            if thermal_L[index] != local_L[index] or thermal_t[index] != local_t[index]:
+        if co2_geometry:
+            local_eps = np.empty(local_L.shape)
+            continuous_geometry = {key: np.empty(local_L.shape) for key in ('A_0', 'D_h', 'epsilon')}
+            for index in np.ndindex(local_eps.shape):
                 local = geometry_model(
-                    cfg['tpms_type'], float(thermal_L[index]), float(thermal_t[index]), cfg['k_s'])
-            for key in continuous_geometry:
-                continuous_geometry[key][index] = local[key]
+                    cfg['tpms_type'], float(local_L[index]), float(local_t[index]), cfg['k_s'])
+                local_eps[index] = local['epsilon']
+                if thermal_L[index] != local_L[index] or thermal_t[index] != local_t[index]:
+                    local = geometry_model(
+                        cfg['tpms_type'], float(thermal_L[index]), float(thermal_t[index]), cfg['k_s'])
+                for key in continuous_geometry:
+                    continuous_geometry[key][index] = local[key]
+        else:
+            local_eps = geometry_fields(cfg['tpms_type'], local_L, local_t, cfg['k_s'])['epsilon']
+            thermal = geometry_fields(cfg['tpms_type'], thermal_L, thermal_t, cfg['k_s'])
+            continuous_geometry = {key: thermal[key] for key in ('A_0', 'D_h', 'epsilon')}
         if volume:
             lfield, tfield, eps = local_L, local_t, local_eps
         else:
@@ -333,7 +336,7 @@ def _prepare_df_application(cfg, axes, permeability, forchheimer):
 def _record_air_bulk_ranges(cfg, lfield, shape):
     """Preserve inlet air observations without storing unused bulk h_v fields."""
     from sjtu_tpmshx.shared.models.tpms_calc import compute
-    from sjtu_tpmshx.shared.models.nu_correlations import record_raw_nu_range
+    from sjtu_tpmshx.shared.models.nu_correlations import record_air_nu_scalar_ranges, record_raw_nu_range
     from sjtu_tpmshx.shared.domain.run_warnings import range_context
     for side in ('A', 'B'):
         if cfg.get('fluid_type_' + side, 'air') != 'air':
@@ -350,17 +353,13 @@ def _record_air_bulk_ranges(cfg, lfield, shape):
                 geometry = cfg['thermal_geometry']['fields']
                 temperature = cfg['T_in' + side]
                 pressure = cfg.get('P_in' + side, cfg['P_inA'])
+                # These property calls also retain the original inlet range evidence.
                 with range_context(layout='scalar-zoned-call'):
-                    mu, k, rho, cp = (float(getattr(model, key)(temperature, pressure))
-                                      for key in ('mu', 'k', 'rho', 'cp'))
+                    mu, _k, rho, _cp = (float(getattr(model, key)(temperature, pressure))
+                                        for key in ('mu', 'k', 'rho', 'cp'))
                 raw_Re = rho * cfg.get('u_' + side, cfg['u_A']) * geometry['D_h'] / mu
-                # Keep scalar correlation observations and the full-cell raw-Re
-                # denominator unchanged. The former compute() calls also rebuilt
-                # geometry and drag, although only these notices were retained.
-                for index in np.ndindex(shape):
-                    with range_context(layout='scalar-zoned-call'):
-                        model.nu(cfg['tpms_type'], float(raw_Re[index]), .5 * geometry['epsilon'][index],
-                                 float(lfield[index]), geometry['D_h'][index] * 1e3, mu * cp / k)
+                with range_context(layout='scalar-zoned-call'):
+                    record_air_nu_scalar_ranges(cfg['tpms_type'], raw_Re)
                 with range_context(layout='real-cell(x,y,z)-bulk-Re'):
                     record_raw_nu_range('air', cfg['tpms_type'], raw_Re)
 

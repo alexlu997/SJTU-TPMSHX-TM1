@@ -20,6 +20,7 @@ import warnings
 import numpy as np
 
 from .tpms_geometry import compute_geometry as _tpms_geom
+from .tpms_geometry import compute_geometry_fields as _tpms_geom_fields
 from sjtu_tpmshx.shared.domain.run_warnings import record_range
 
 # ── Physical constants ────────────────────────────────────────
@@ -265,3 +266,16 @@ def geometry(tpms_type: str, L_cell_mm: float, t_mm: float, k_s: float,
         'D_h':       g['D_h'],
         'K_ss':      chi * (1.0 - g['epsilon']) * k_s,
     }
+
+
+def geometry_fields(tpms_type: str, L_field_mm, t_field_mm, k_s: float,
+                    chi_s: float | None = None, N: int = 128) -> dict:
+    """Return geometric fields and solid conductivity without fluid calls.
+
+    Explicit chi_s takes priority. Otherwise, read the current material setting.
+    K_ss is in W/(m K). Other fields retain compute_geometry_fields units.
+    """
+    fields = _tpms_geom_fields(tpms_type, L_field_mm, t_field_mm, N)
+    chi = chi_s_eff(tpms_type, fields['epsilon']) if chi_s is None else float(chi_s)
+    fields['K_ss'] = np.ascontiguousarray(chi * (1.0 - fields['epsilon']) * k_s)
+    return fields
