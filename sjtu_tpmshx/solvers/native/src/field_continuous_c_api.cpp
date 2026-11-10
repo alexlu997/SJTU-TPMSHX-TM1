@@ -18,7 +18,7 @@ using tpmshx::fields::c_api::require_buffer;
 using tpmshx::fields::c_api::require_output;
 }
 
-extern "C" uint32_t TPMSHX_FIELD_CALL tpmshx_field_abi_version_v1(void) { return 1; }
+extern "C" uint32_t TPMSHX_FIELD_CALL tpmshx_field_abi_version_v1(void) { return 2; }
 extern "C" int TPMSHX_FIELD_CALL tpmshx_field_xy_create_v1(
     const double* x, size_t nx, const double* y, size_t ny, const double* values,
     size_t count, int kx, int ky, tpmshx_field_xy_v1** output, char* error, size_t size) {

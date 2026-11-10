@@ -44,6 +44,24 @@ def _controls(kind=float):
     return (inlet, outlet) if kind is float else (np.asarray(inlet), np.asarray(outlet))
 
 
+@pytest.mark.parametrize('current,mode', [
+    ('baseline(NEON NEON_FP16 ASIMD)', 0), ('baseline(SSE SSE2 SSE3)', 0),
+    ('X86_V3', 1), ('X86_V4', 1), ('FMA3__AVX2', 1), ('AVX512F', 1),
+    ('baseline(SSE AVX2 FMA3)', 1),
+])
+def test_float32_exp_uses_actual_numpy_dispatch_metadata(native, monkeypatch, current, mode):
+    monkeypatch.setattr(np.lib.introspect, 'opt_func_info',
+                        lambda **kwargs: {'exp': {'ff': {'current': current}}})
+    binding = _native_sigmoid._Bindings(geometry._library().path)
+    assert binding.exp_mode == mode
+
+
+def test_numpy_float32_kernel_keeps_recorded_windows_counterexample(native, monkeypatch):
+    monkeypatch.setattr(_native_sigmoid._current(), 'exp_mode', 1)
+    result = native._sigmoid(np.float32(1.4999998807907104), np.float32(.5), np.float32(-.02))
+    assert type(result) is np.float32 and float(result) == 1.9287574664184286e-22
+
+
 @pytest.mark.parametrize('x_type,center_type,width_type', tuple(itertools.product(_TYPES, repeat=3)))
 def test_scalar_sigmoid_keeps_weak_and_narrow_operations(native, x_type, center_type, width_type):
     values = x_type(.21875), center_type(.375), width_type(.03125)

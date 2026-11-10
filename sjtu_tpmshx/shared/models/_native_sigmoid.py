@@ -16,14 +16,14 @@ _UP = ct.POINTER(ct.c_uint32)
 _ERROR = [ct.POINTER(ct.c_char), ct.c_size_t]
 _SIGNATURES = {
     'sigmoid_values': [_DP, ct.c_size_t, _Scalar, _Scalar, _Scalar,
-                       _DP, ct.c_size_t, _UP, _UP, ct.c_size_t],
+                       _DP, ct.c_size_t, _UP, _UP, ct.c_size_t, ct.c_uint32],
     'sigmoid_blend': [_DP, ct.c_size_t, _Scalar, _SP, ct.c_size_t,
                       _DP, ct.c_size_t, _SP, ct.c_size_t, _Scalar,
-                      _DP, ct.c_size_t, _UP, _UP, ct.c_size_t],
+                      _DP, ct.c_size_t, _UP, _UP, ct.c_size_t, ct.c_uint32],
     'sigmoid_field': [_DP, _DP, ct.c_size_t, _Scalar, _Scalar,
                       _SP, ct.c_size_t, _SP, ct.c_size_t, _Scalar,
                       _SP, ct.c_size_t, _Scalar, _Scalar,
-                      _DP, ct.c_size_t, _UP, _UP, ct.c_size_t],
+                      _DP, ct.c_size_t, _UP, _UP, ct.c_size_t, ct.c_uint32],
     'clip': [_DP, ct.c_size_t, _Scalar, _Scalar, _Scalar, _DP, ct.c_size_t, _UP],
 }
 
@@ -34,13 +34,18 @@ class _Bindings:
         self.library, self.path = self.geometry.library, path
         version = self._bind('abi_version', [], ct.c_uint32)
         abi = version()
-        if abi != 1:
-            raise ValueError(f'unsupported native field ABI {abi} in {path}; expected 1')
+        if abi != 2:
+            raise ValueError(f'unsupported native field ABI {abi} in {path}; expected 2')
+        dispatch = np.lib.introspect.opt_func_info(func_name='^exp$', signature='float32')
+        current = dispatch['exp']['ff']['current']
+        self.exp_mode = int('X86_V3' in current or 'X86_V4' in current or 'AVX512F' in current
+                            or ('AVX2' in current and 'FMA3' in current))
         for name, arguments in _SIGNATURES.items():
             setattr(self, name, self._bind(name, [*arguments, *_ERROR], ct.c_int))
 
     def _bind(self, name, arguments, result):
-        symbol = f'tpmshx_field_{name}_v1'
+        version = 2 if name.startswith('sigmoid_') else 1
+        symbol = f'tpmshx_field_{name}_v{version}'
         try:
             function = getattr(self.library, symbol)
         except AttributeError as failure:
@@ -107,8 +112,9 @@ def values(x, center, width):
     kind = _kind(x)
     source = _array(x)
     result, precision, flags = np.empty(source.size), ct.c_uint32(), (ct.c_uint32 * 1)()
-    _run(_current().sigmoid_values, _pointer(source), source.size, kind, _scalar(center), _scalar(width),
-         _pointer(result), result.size, ct.byref(precision), flags, len(flags))
+    binding = _current()
+    _run(binding.sigmoid_values, _pointer(source), source.size, kind, _scalar(center), _scalar(width),
+         _pointer(result), result.size, ct.byref(precision), flags, len(flags), binding.exp_mode)
     _exp_warnings(flags)
     return _output(result, source.shape, precision)
 
@@ -136,9 +142,10 @@ def blend(x, boundaries, layers, width):
     types = (_Scalar * len(kinds))(*kinds)
     result, precision = np.empty(source.size), ct.c_uint32()
     flags = (ct.c_uint32 * len(boundaries))()
-    _run(_current().sigmoid_blend, _pointer(source), source.size, x_kind, bounds, len(bounds),
+    binding = _current()
+    _run(binding.sigmoid_blend, _pointer(source), source.size, x_kind, bounds, len(bounds),
          _pointer(packed), packed.size, types, len(types), _scalar(width), _pointer(result), result.size,
-         ct.byref(precision), flags, len(flags))
+         ct.byref(precision), flags, len(flags), binding.exp_mode)
     _exp_warnings(flags)
     if not source.size and original_x.size:
         for boundary in boundaries:
@@ -155,10 +162,11 @@ def field(x, y, inlet, outlet, uniform, boundaries, width_x, width_y):
     outlet = _scalars(outlet[row][column] for row in range(3) for column in range(3))
     bounds = _scalars(boundaries)
     result, precision, flags = np.empty(x.size), ct.c_uint32(), (ct.c_uint32 * 8)()
-    _run(_current().sigmoid_field, _pointer(x), _pointer(y), x.size, x_kind, y_kind,
+    binding = _current()
+    _run(binding.sigmoid_field, _pointer(x), _pointer(y), x.size, x_kind, y_kind,
          inlet, len(inlet), outlet, len(outlet), _scalar(uniform), bounds, len(bounds),
          _scalar(width_x), _scalar(width_y), _pointer(result), result.size,
-         ct.byref(precision), flags, len(flags))
+         ct.byref(precision), flags, len(flags), binding.exp_mode)
     _exp_warnings(flags)
     # The original exp inputs can be nonempty when the final broadcast is empty.
     if not x.size:

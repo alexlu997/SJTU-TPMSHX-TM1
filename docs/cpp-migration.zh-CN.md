@@ -47,7 +47,7 @@ XY 保留首次拟合的 `s=0` 双变量路线；XYZ 和含单点轴的 XY 保�
 XY 与 Apple-arm64 Gaussian 的局部融合设置不启用全局 fast-math；Windows 和完整工况资格仍须分别建立。
 
 Geometry、grid 和 zones 调用保留几何 ABI 1，状态 2 表示算术域错误。
-设计场调用在同一文件增加 field ABI 1，状态 2 表示分配失败；ctypes 适配使用不同错误映射。
+设计场调用在同一文件增加 field ABI 2，状态 2 表示分配失败；ctypes 适配使用不同错误映射。
 既有几何签名不变。调用按显式长度借用缓冲区，失败时不修改调用方输出。
 XY 句柄持有创建库直至释放；LUT 对象保留捕获的轴、表及创建绑定。
 Python 持有返回数组、配置、DTO、I/O、缓存及 GUI／BO 编排。

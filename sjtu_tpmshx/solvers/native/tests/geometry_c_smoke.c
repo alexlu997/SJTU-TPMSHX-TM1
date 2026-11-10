@@ -46,7 +46,7 @@ static int design_fields(void) {
     uint32_t precision, overflow;
     tpmshx_field_xy_v1* fit = NULL;
     size_t i;
-    CHECK(tpmshx_field_abi_version_v1() == 1u);
+    CHECK(tpmshx_field_abi_version_v1() == 2u);
     OK(tpmshx_geometry_grid_uniform_v1(3, span, widths, 3, error, sizeof error));
     for (i = 0; i < 3; ++i) CHECK(fabs(widths[i] - .01) < 1e-16);
     OK(tpmshx_geometry_zone_ids_v1(1, 2, 2, 1, one, bounds, 1,
@@ -72,9 +72,22 @@ static int design_fields(void) {
     OK(tpmshx_field_lut_query_v1(axes, 2, axes, 2, table, table, 4, 1u, 1u,
         &midpoint, &midpoint, 1, &eps, &area, 1, error, sizeof error));
     CHECK(eps == 1.5 && area == 1.5);
-    OK(tpmshx_field_sigmoid_values_v1(&input, 1, one, zero, one,
-        output, 1, &precision, &overflow, 1, error, sizeof error));
+    OK(tpmshx_field_sigmoid_values_v2(&input, 1, one, zero, one,
+        output, 1, &precision, &overflow, 1, 0u, error, sizeof error));
     CHECK(output[0] == .5 && precision == 64u && overflow == 0u);
+    {
+        const double point = 1.4999998807907104;
+        const tpmshx_grid_scalar_v1 kind32 = {0., 32u, 1u};
+        const tpmshx_grid_scalar_v1 center32 = {.5, 32u, 1u}, width32 = {-.02, 32u, 1u};
+        OK(tpmshx_field_sigmoid_values_v2(&point, 1, kind32, center32, width32,
+            output, 1, &precision, &overflow, 1, 1u, error, sizeof error));
+        /* This value is from the failed Windows NumPy comparison. */
+        CHECK(output[0] == 1.9287574664184286e-22 && precision == 32u && overflow == 0u);
+        output[0] = -77.; precision = 37u; overflow = 42u;
+        CHECK(tpmshx_field_sigmoid_values_v2(&point, 1, kind32, center32, width32,
+            output, 1, &precision, &overflow, 1, 2u, error, sizeof error) == 1);
+        CHECK(output[0] == -77. && precision == 37u && overflow == 42u);
+    }
     return 0;
 }
 

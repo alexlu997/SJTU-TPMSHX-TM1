@@ -63,7 +63,7 @@ Local XY and Apple-arm64 Gaussian fusion settings do not enable global fast-math
 Windows and complete-case qualification remain separate requirements.
 
 The geometry, grid and zone calls retain geometry ABI 1: status 2 means a domain error.
-The field calls add field ABI 1 in the same file: status 2 means allocation failure.
+The field calls add field ABI 2 in the same file: status 2 means allocation failure.
 Their ctypes adapters use separate error mappers. Existing geometry signatures do not change.
 Call buffers are borrowed with explicit extents. Failure leaves caller outputs unchanged.
 XY handles retain their creating library until release; LUT objects retain captured axes, tables and their creating binding.

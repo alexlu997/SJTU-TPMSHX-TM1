@@ -18,8 +18,8 @@ class _Bindings:
         self.library, self.path = self.geometry.library, path
         version = self._bind('abi_version', [], ct.c_uint32)
         abi = version()
-        if abi != 1:
-            raise ValueError(f'unsupported native field ABI {abi} in {path}; expected 1')
+        if abi != 2:
+            raise ValueError(f'unsupported native field ABI {abi} in {path}; expected 2')
         self.validate = self._bind('lut_validate', [_DP, ct.c_size_t, _DP, ct.c_size_t, *_ERROR], ct.c_int)
         self.query = self._bind('lut_query', [_DP, ct.c_size_t, _DP, ct.c_size_t,
             _DP, _DP, ct.c_size_t, ct.c_uint32, ct.c_uint32, _DP, _DP, ct.c_size_t,

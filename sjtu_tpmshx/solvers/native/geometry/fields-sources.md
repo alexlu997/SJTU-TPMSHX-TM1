@@ -19,7 +19,7 @@ All SciPy links use **v1.18.1**. All NumPy links use **v2.5.4**.
 | Pairwise sum | [loops_utils.h.src](https://github.com/numpy/numpy/blob/v2.5.4/numpy/_core/src/umath/loops_utils.h.src), [loops_arithm_fp.dispatch.c.src](https://github.com/numpy/numpy/blob/v2.5.4/numpy/_core/src/umath/loops_arithm_fp.dispatch.c.src) | Existing shared pairwise reduction for geometry area and Gaussian normalization. |
 | Scalar arithmetic and accumulation | [scalarmath.c.src](https://github.com/numpy/numpy/blob/v2.5.4/numpy/_core/src/umath/scalarmath.c.src), [loops.c.src](https://github.com/numpy/numpy/blob/v2.5.4/numpy/_core/src/umath/loops.c.src), [ufunc_object.c](https://github.com/numpy/numpy/blob/v2.5.4/numpy/_core/src/umath/ufunc_object.c) | Scalar power and per-element narrow cumsum rules. The existing project precision helper supplies half rounding. |
 | Raw overlap and clip | [loops_minmax.dispatch.c.src](https://github.com/numpy/numpy/blob/v2.5.4/numpy/_core/src/umath/loops_minmax.dispatch.c.src), [clip.cpp](https://github.com/numpy/numpy/blob/v2.5.4/numpy/_core/src/umath/clip.cpp) | NaN propagation and bounded clipping after original typed interval arithmetic. |
-| Sigmoid exponential dispatch | [loops_exponent_log.dispatch.c.src](https://github.com/numpy/numpy/blob/v2.5.4/numpy/_core/src/umath/loops_exponent_log.dispatch.c.src) | Reference for exp precision and dispatch. The port does not copy NumPy SIMD polynomial implementations. |
+| Sigmoid exponential dispatch | [loops_exponent_log.dispatch.c.src](https://github.com/numpy/numpy/blob/v2.5.4/numpy/_core/src/umath/loops_exponent_log.dispatch.c.src), [npy_simd_data.h](https://github.com/numpy/numpy/blob/v2.5.4/numpy/_core/src/umath/npy_simd_data.h) | Scalar port of the float32 Cody-Waite and P5/Q2 FMA kernel, within the original clipped input domain. |
 
 ## Extraction and local changes
 
@@ -51,7 +51,13 @@ Existing raw spline `1e-13` and physical-polynomial `3e-14` checks do not establ
 
 [src/field_sigmoid.cpp](../src/field_sigmoid.cpp) retains the original project sigmoid and ordered layer blending.
 It reuses grid scalar precision operations. It does not replace the sequence with normalized layer weights.
-Float16/32 exponential inputs use float exp and their original rounding; float64 uses double exp.
+Float16 exponential inputs use float exp and their original rounding; float64 uses double exp.
+Float32 follows the actual NumPy dispatch. The adapter reads public `np.lib.introspect.opt_func_info` metadata.
+X86_V3 and X86_V4 use the scalar port of the locked float32 FMA kernel. Other targets keep libm.
+The core retains explicit FMA, float32 division and the original clipped [-50,50] domain.
+It does not infer the mode from CPU or environment settings. No process-wide mode or callback is added.
+Field ABI 2 passes this mode explicitly to the three sigmoid v2 functions.
+It rejects older candidate field libraries before calling them. Geometry ABI 1 and its published signatures stay unchanged.
 The Python adapter retains the supported exp warning policy and original call order.
 It does not emulate every NumPy ufunc error mode.
 

@@ -31,15 +31,41 @@ Scalar sigmoid_kind(Scalar x, Scalar center, Scalar width) {
     output.strong = 1;
     return output;
 }
-Scalar sigmoid(Scalar x, Scalar center, Scalar width, std::uint32_t& overflow) {
+/* NumPy 2.5.4 simd_exp_FLOAT and npy_simd_data.h, in scalar form.
+ * Copyright (c) 2005-2025, NumPy Developers. All rights reserved.
+ * BSD-3-Clause terms: ../licenses/numpy-LICENSE.txt.
+ * Source: numpy/_core/src/umath/loops_exponent_log.dispatch.c.src.
+ */
+float numpy_exp32(float x) {
+    // The caller clips to [-50,50]; all non-NaN results stay normal float32.
+    if (std::isnan(x)) return std::numeric_limits<float>::quiet_NaN();
+    float quadrant=x*1.442695040888963407359924681001892137f;
+    quadrant=quadrant+0x1.800000p+23f;
+    quadrant=quadrant-0x1.800000p+23f;
+    float reduced=std::fma(quadrant,-6.93145752e-1f,x);
+    reduced=std::fma(quadrant,-1.42860677e-6f,reduced);
+    reduced=std::fma(quadrant,0.0f,reduced);
+    float numerator=std::fma(5.082762527590693718096e-04f,reduced,6.757896990527504603057e-03f);
+    numerator=std::fma(numerator,reduced,5.114512081637298353406e-02f);
+    numerator=std::fma(numerator,reduced,2.473615434895520810817e-01f);
+    numerator=std::fma(numerator,reduced,7.257664613233124478488e-01f);
+    numerator=std::fma(numerator,reduced,9.999999999980870924916e-01f);
+    float denominator=std::fma(2.159509375685829852307e-02f,reduced,-2.742335390411667452936e-01f);
+    denominator=std::fma(denominator,reduced,1.000000000000000000000e+00f);
+    return std::ldexp(numerator/denominator,static_cast<int>(quadrant));
+}
+Scalar sigmoid(Scalar x, Scalar center, Scalar width, std::uint32_t& overflow, ExpMode mode) {
     auto exponent = g::subtract(x, center);
     exponent.value = -exponent.value;
     exponent = g::divide(exponent, width);
     if (exponent.value < -50.) exponent.value = -50.;
     if (exponent.value > 50.) exponent.value = 50.;
     exponent.strong = 1;
-    const double value = exponent.precision == 64 ? std::exp(exponent.value)
-        : static_cast<double>(std::exp(static_cast<float>(exponent.value)));
+    double value;
+    if (exponent.precision==64) value=std::exp(exponent.value);
+    else if (exponent.precision==32 && mode==ExpMode::numpy_fma)
+        value=numpy_exp32(static_cast<float>(exponent.value));
+    else value=std::exp(static_cast<float>(exponent.value));
     const auto exponential = array_point(value, exponent);
     if (std::isfinite(exponent.value) && std::isinf(exponential.value)) overflow = 1;
     return g::divide(g::weak(1.), g::add(g::weak(1.), exponential));
@@ -57,18 +83,18 @@ Scalar xblend(Scalar coordinate, const Scalar* row, Scalar first, Scalar second)
 }  // namespace
 
 SigmoidResult sigmoid_values(const double* values, std::size_t count,
-    FieldScalar type, FieldScalar center, FieldScalar width) {
+    FieldScalar type, FieldScalar center, FieldScalar width, ExpMode mode) {
     buffer(values, count);
     type = g::checked(type); center = g::checked(center); width = g::checked(width);
     SigmoidResult result{std::vector<double>(count), sigmoid_kind(type, center, width).precision, {0}};
     for (std::size_t i = 0; i < count; ++i)
-        result.values[i] = sigmoid(point(values[i], type), center, width, result.exp_overflow[0]).value;
+        result.values[i] = sigmoid(point(values[i], type), center, width, result.exp_overflow[0], mode).value;
     return result;
 }
 
 SigmoidResult sigmoid_blend(const double* x, std::size_t count, FieldScalar x_kind,
     const FieldScalar* boundaries, std::size_t boundary_count, const double* layers,
-    const FieldScalar* layer_kinds, std::size_t layer_count, FieldScalar width) {
+    const FieldScalar* layer_kinds, std::size_t layer_count, FieldScalar width, ExpMode mode) {
     if (!layer_count || boundary_count != layer_count - 1)
         throw std::invalid_argument("incorrect sigmoid layer count");
     buffer(x, boundary_count ? count : 0); buffer(layers, product(layer_count, count));
@@ -84,7 +110,7 @@ SigmoidResult sigmoid_blend(const double* x, std::size_t count, FieldScalar x_ki
     for (std::size_t p = 0; p < count; ++p) {
         auto value = point(layers[p], layer_kinds[0]);
         for (std::size_t i = 0; i < boundary_count; ++i) {
-            const auto alpha = sigmoid(point(x[p], x_kind), g::checked(boundaries[i]), width, result.exp_overflow[i]);
+            const auto alpha = sigmoid(point(x[p], x_kind), g::checked(boundaries[i]), width, result.exp_overflow[i], mode);
             value = g::add(g::multiply(value, g::subtract(g::weak(1.), alpha)),
                           g::multiply(point(layers[(i + 1) * count + p], layer_kinds[i + 1]), alpha));
         }
@@ -96,7 +122,8 @@ SigmoidResult sigmoid_blend(const double* x, std::size_t count, FieldScalar x_ki
 SigmoidResult sigmoid_field(const double* x, const double* y, std::size_t count,
     FieldScalar x_kind, FieldScalar y_kind, const std::array<FieldScalar, 9>& inlet,
     const std::array<FieldScalar, 9>& outlet, FieldScalar uniform,
-    const std::array<FieldScalar, 6>& boundaries, FieldScalar width_x, FieldScalar width_y) {
+    const std::array<FieldScalar, 6>& boundaries, FieldScalar width_x, FieldScalar width_y,
+    ExpMode mode) {
     buffer(x, count); buffer(y, count);
     x_kind = g::checked(x_kind); y_kind = g::checked(y_kind);
     width_x = g::checked(width_x); width_y = g::checked(width_y);
@@ -114,8 +141,8 @@ SigmoidResult sigmoid_field(const double* x, const double* y, std::size_t count,
     SigmoidResult result{std::vector<double>(count), output_kind.precision, std::vector<std::uint32_t>(8, 0)};
     for (std::size_t p = 0; p < count; ++p) {
         const auto px = point(x[p], x_kind), py = point(y[p], y_kind);
-        const auto first = sigmoid(px, g::weak(1. / 3.), width_x, result.exp_overflow[0]);
-        const auto second = sigmoid(px, g::weak(2. / 3.), width_x, result.exp_overflow[1]);
+        const auto first = sigmoid(px, g::weak(1. / 3.), width_x, result.exp_overflow[0], mode);
+        const auto second = sigmoid(px, g::weak(2. / 3.), width_x, result.exp_overflow[1], mode);
         const std::array<Scalar, 7> layers{
             xblend(px, inlet.data(), first, second), xblend(px, inlet.data() + 3, first, second),
             xblend(px, inlet.data() + 6, first, second), array_point(uniform.value, px),
@@ -123,7 +150,7 @@ SigmoidResult sigmoid_field(const double* x, const double* y, std::size_t count,
             xblend(px, outlet.data() + 6, first, second)};
         auto value = layers[0];
         for (std::size_t i = 0; i < 6; ++i) {
-            const auto alpha = sigmoid(py, g::checked(boundaries[i]), width_y, result.exp_overflow[i + 2]);
+            const auto alpha = sigmoid(py, g::checked(boundaries[i]), width_y, result.exp_overflow[i + 2], mode);
             value = g::add(g::multiply(value, g::subtract(g::weak(1.), alpha)), g::multiply(layers[i + 1], alpha));
         }
         result.values[p] = value.value;

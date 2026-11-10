@@ -296,7 +296,7 @@ def test_tensor_retains_the_real_scipy_derived_finite_check(fields):
         fields.tensor_sample(nodes, values, 2, coordinates, (.1, 20.))
 
 
-@pytest.mark.parametrize('abi,missing', ((2, None), (1, 'xy_sample')))
+@pytest.mark.parametrize('abi,missing', ((1, None), (2, 'xy_sample')))
 def test_field_loader_rejects_wrong_abi_and_missing_symbols(monkeypatch, abi, missing):
     def version():
         return abi
@@ -307,7 +307,7 @@ def test_field_loader_rejects_wrong_abi_and_missing_symbols(monkeypatch, abi, mi
                     for name in native._SIGNATURES if name != missing})
     monkeypatch.setattr(native._native_geometry, '_load_library',
                         lambda path: SimpleNamespace(library=SimpleNamespace(**symbols)))
-    match = 'unsupported native field ABI' if abi != 1 else 'lacks field symbol'
+    match = 'unsupported native field ABI' if abi != 2 else 'lacks field symbol'
     with pytest.raises(ValueError, match=match):
         native._Bindings('field-test-library')
 

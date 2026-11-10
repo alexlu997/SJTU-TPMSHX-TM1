@@ -40,7 +40,7 @@ own design-field interpolation, zones and Gaussian filtering. They use the same 
 Python keeps configuration, type/array adaptation, data objects, I/O, caches, GUI and BO orchestration.
 The replaced Python numerical bodies are retired. Independent references serve development regression tests only.
 Stage four still requires properties, DF and full preparation. Stage five still requires result calculations.
-The six-stage goal remains incomplete. This batch still requires platform CI and final acceptance.
+The six-stage goal remains incomplete. Acceptance for this batch requires platform CI and final checks.
 See [native geometry](../docs/cpp-migration.md#native-geometry-core) for independent builds, two-library delivery and research entries.
 
 <a id="三模块主线"></a>

@@ -24,7 +24,7 @@ Stage three adds grids, ports, six-direction axis mapping, continuous XY/XYZ fie
 Python keeps configuration, data objects, file I/O, caches, GUI and BO orchestration.
 Preparation needs a matching geometry library. Full computation also needs the solver library. Full publication deploys both.
 Stage four still requires properties, DF and full preparation. Stage five still requires result calculations.
-This batch still requires supported-platform CI and final acceptance. Earlier solver CI does not replace them.
+Acceptance for this batch requires supported-platform CI and final checks. Earlier solver CI does not replace them.
 The six-stage goal remains incomplete. See [native geometry](docs/cpp-migration.md#native-geometry-core) for builds, runtimes and research entries.
 
 Version 0.2 uses C++ for numerical execution. Python keeps the GUI, CLI, preparation, postprocessing, optimization and Quick Design interfaces. Full 2D/3D computation and Quick Design use the same prepared-data and result contracts. Maintenance in this round covers macOS arm64 and Windows x64. Linux server deployment is deferred.

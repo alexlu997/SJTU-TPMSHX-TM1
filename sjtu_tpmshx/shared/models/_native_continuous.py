@@ -31,8 +31,8 @@ class _Bindings:
         self.path = path
         version = self._bind('abi_version', [], ct.c_uint32)
         abi = version()
-        if abi != 1:
-            raise ValueError(f'unsupported native field ABI {abi} in {path}; expected 1')
+        if abi != 2:
+            raise ValueError(f'unsupported native field ABI {abi} in {path}; expected 2')
         self.release = self._bind('xy_release', [_Handle], None)
         for name, signature in _SIGNATURES.items():
             setattr(self, name, self._bind(name, [*signature, *_Error], ct.c_int))

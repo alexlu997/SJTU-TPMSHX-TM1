@@ -44,7 +44,7 @@ Stage three adds grids, ports, continuous XY/XYZ fields, sigmoid, linear LUTs, z
 Each C++ core owns its numerical formulas. Python keeps configuration, type adaptation, data objects, I/O, caches and application orchestration.
 This batch changes no parameter schema, resource version, unit, fitted coefficient or historical experimental conclusion.
 Stage four still requires properties, DF and full preparation. Stage five still requires result calculations.
-The six-stage goal remains incomplete. This batch still requires platform CI and final acceptance.
+The six-stage goal remains incomplete. Acceptance for each batch requires platform CI and final checks.
 
 Python geometry interfaces keep types, caches and per-call explicit/environment/fit selection for chi.
 They have no numerical fallback.

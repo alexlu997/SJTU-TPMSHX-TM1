@@ -15,6 +15,10 @@ using f::c_api::product;
 using f::c_api::require_buffer;
 using f::c_api::require_output;
 g::Scalar scalar(CScalar value) { return g::checked({value.value, value.precision, value.strong}); }
+f::ExpMode exp_mode(uint32_t value) {
+    if (value > 1) throw std::invalid_argument("unsupported float32 exponential mode");
+    return static_cast<f::ExpMode>(value);
+}
 std::vector<g::Scalar> scalars(const CScalar* values, size_t count) {
     std::vector<g::Scalar> result;
     result.reserve(count);
@@ -36,22 +40,22 @@ void publish(const f::SigmoidResult& value, size_t count, size_t flags,
     *precision = value.precision;
 }
 }
-extern "C" int TPMSHX_FIELD_CALL tpmshx_field_sigmoid_values_v1(
+extern "C" int TPMSHX_FIELD_CALL tpmshx_field_sigmoid_values_v2(
     const double* values, size_t count, CScalar kind, CScalar center, CScalar width,
     double* output, size_t output_count, uint32_t* precision,
-    uint32_t* exp_overflow, size_t exp_count, char* error, size_t size) {
+    uint32_t* exp_overflow, size_t exp_count, uint32_t mode, char* error, size_t size) {
     return boundary(error, size, [&] {
         require_buffer(values, count);
         outputs(count, output_count, output, precision, 1, exp_count, exp_overflow);
-        const auto result = f::sigmoid_values(values, count, scalar(kind), scalar(center), scalar(width));
+        const auto result = f::sigmoid_values(values, count, scalar(kind), scalar(center), scalar(width), exp_mode(mode));
         publish(result, count, 1, output, precision, exp_overflow);
     });
 }
-extern "C" int TPMSHX_FIELD_CALL tpmshx_field_sigmoid_blend_v1(
+extern "C" int TPMSHX_FIELD_CALL tpmshx_field_sigmoid_blend_v2(
     const double* x, size_t count, CScalar x_kind, const CScalar* boundaries, size_t boundary_count,
     const double* layers, size_t layer_value_count, const CScalar* layer_kinds, size_t layer_count,
     CScalar width, double* output, size_t output_count, uint32_t* precision,
-    uint32_t* exp_overflow, size_t exp_count, char* error, size_t size) {
+    uint32_t* exp_overflow, size_t exp_count, uint32_t mode, char* error, size_t size) {
     return boundary(error, size, [&] {
         if (!layer_count || boundary_count != layer_count - 1)
             throw std::invalid_argument("incorrect sigmoid layer count");
@@ -64,16 +68,16 @@ extern "C" int TPMSHX_FIELD_CALL tpmshx_field_sigmoid_blend_v1(
         require_buffer(layer_kinds, layer_count);
         const auto bounds = scalars(boundaries, boundary_count), kinds = scalars(layer_kinds, layer_count);
         const auto result = f::sigmoid_blend(x, count, scalar(x_kind), bounds.data(), bounds.size(),
-                                            layers, kinds.data(), kinds.size(), scalar(width));
+                                            layers, kinds.data(), kinds.size(), scalar(width), exp_mode(mode));
         publish(result, count, boundary_count, output, precision, exp_overflow);
     });
 }
-extern "C" int TPMSHX_FIELD_CALL tpmshx_field_sigmoid_field_v1(
+extern "C" int TPMSHX_FIELD_CALL tpmshx_field_sigmoid_field_v2(
     const double* x, const double* y, size_t count, CScalar x_kind, CScalar y_kind,
     const CScalar* inlet, size_t inlet_count, const CScalar* outlet, size_t outlet_count,
     CScalar uniform, const CScalar* boundaries, size_t boundary_count, CScalar width_x, CScalar width_y,
     double* output, size_t output_count, uint32_t* precision,
-    uint32_t* exp_overflow, size_t exp_count, char* error, size_t size) {
+    uint32_t* exp_overflow, size_t exp_count, uint32_t mode, char* error, size_t size) {
     return boundary(error, size, [&] {
         outputs(count, output_count, output, precision, 8, exp_count, exp_overflow);
         if (inlet_count != 9 || outlet_count != 9 || boundary_count != 6)
@@ -90,7 +94,7 @@ extern "C" int TPMSHX_FIELD_CALL tpmshx_field_sigmoid_field_v1(
         std::copy(b.begin(), b.end(), output_values.begin());
         std::copy(c.begin(), c.end(), bounds.begin());
         const auto result = f::sigmoid_field(x, y, count, scalar(x_kind), scalar(y_kind), input, output_values,
-                                            scalar(uniform), bounds, scalar(width_x), scalar(width_y));
+                                            scalar(uniform), bounds, scalar(width_x), scalar(width_y), exp_mode(mode));
         publish(result, count, 8, output, precision, exp_overflow);
     });
 }

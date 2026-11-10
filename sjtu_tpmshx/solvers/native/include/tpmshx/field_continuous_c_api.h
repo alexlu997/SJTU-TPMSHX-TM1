@@ -17,7 +17,7 @@ extern "C" {
 #endif
 
 typedef struct tpmshx_field_xy_v1 tpmshx_field_xy_v1;
-/* Field ABI status: 1 invalid input, 2 allocation, 3 numerical/runtime error.
+/* Field ABI version is 2. Status: 1 invalid input, 2 allocation, 3 numerical/runtime error.
  * This status 2 differs from geometry ABI status 2. Do not share its mapper.
  * Data is borrowed for the call. Counts are exact. Outputs cannot overlap input.
  * Failure leaves caller outputs unchanged and writes a bounded error string.
