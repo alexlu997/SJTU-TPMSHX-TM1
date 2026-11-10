@@ -9,7 +9,7 @@ import sys
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.shared.result_math import compute_phase2a
+from sjtu_tpmshx.development.tests.native.result_reference.shared_math import compute_phase2a
 from sjtu_tpmshx.shared.models.tpms_props import model_h_coefficients
 from sjtu_tpmshx.development.tests.native.model_h_history import (
     compare_shadow, driver_function, heat_in_driver_order, n4_solved_case,

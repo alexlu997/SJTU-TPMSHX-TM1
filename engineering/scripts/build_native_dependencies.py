@@ -58,7 +58,21 @@ def platform_name() -> str:
         return "macos-arm64"
     if sys.platform == "win32" and machine in {"amd64", "x86_64"}:
         return "windows-x64"
-    raise RuntimeError("Only the locked macOS arm64 and Windows x64 pilots are supported")
+    if sys.platform == "linux" and machine in {"amd64", "x86_64"}:
+        return "linux-x86_64"
+    raise RuntimeError("Native builds support macOS arm64, Windows x64, and the Linux x86_64 result component")
+
+
+def require_component(host: str, component: str) -> None:
+    if host == "linux-x86_64" and component != "result":
+        raise RuntimeError("Linux x86_64 supports only --component result")
+
+
+def shared_library_name(host: str, component: str) -> str:
+    if host == "windows-x64":
+        return f"tpmshx_{component}_shared.dll"
+    suffix = ".so" if host == "linux-x86_64" else ".dylib"
+    return f"libtpmshx_{component}_shared{suffix}"
 
 
 def configured_python() -> Path:
@@ -194,6 +208,7 @@ def fetch_eigen(cache: Path) -> None:
 
 
 def fetch(cache: Path, host: str) -> None:
+    require_component(host, "all")
     for name in LOCK["sources"]:
         fetch_source(cache, name)
     verify_sources(cache)
@@ -251,7 +266,7 @@ def coolprop_library(cache: Path, host: str, role: str) -> Path:
         "Release/CoolProp.lib" if host == "windows-x64" else "libCoolProp.a")
 
 
-def _request_coolprop_metadata(build_dir: Path) -> None:
+def _request_build_metadata(build_dir: Path) -> None:
     query = build_dir / ".cmake/api/v1/query"
     query.mkdir(parents=True, exist_ok=True)
     for name in ("codemodel-v2", "toolchains-v1"):
@@ -346,7 +361,11 @@ def coolprop_build_record(cache: Path, host: str, role: str) -> dict:
 
 
 def build(cache: Path, host: str, python: Path, lock: Path, component: str) -> None:
+    require_component(host, component)
     check_environment(cache, python, lock)
+    if component == "result":
+        build_result(cache, host)
+        return
     if component == "geometry":
         cmake = cmake_path(cache, host)
         generated = cache / "generated"
@@ -392,7 +411,7 @@ def build(cache: Path, host: str, python: Path, lock: Path, component: str) -> N
             selected_options = list(options)
             if role == "preparation":
                 selected_options += [f"-D{value}" for value in spec["preparation-macos-options"]]
-            _request_coolprop_metadata(cp_build)
+            _request_build_metadata(cp_build)
             run([cmake, "-S", cache / "src" / spec["directory"], "-B", cp_build,
                  *generator, *selected_options], cache / "logs" / f"configure-{cp_build.name}.log")
             run([cmake, "--build", cp_build, "--config", "Release", "--parallel", "2"],
@@ -419,29 +438,144 @@ def build(cache: Path, host: str, python: Path, lock: Path, component: str) -> N
                  *generator, *options], cache / "logs" / f"configure-{build_name}-{host}.log")
             run([cmake, "--build", build_dir, "--config", "Release", "--parallel", "2"],
                 cache / "logs" / f"build-{build_name}-{host}.log")
+    if component == "all":
+        build_result(cache, host)
+
+
+def build_result(cache: Path, host: str) -> None:
+    cmake = cmake_path(cache, host)
+    build_dir = cache / "build" / f"result-{host}"
+    generator = ["-G", LOCK["cmake"][host]["generator"]]
+    options = ["-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"]
+    if host == "windows-x64":
+        generator += ["-A", "x64"]
+    elif host == "macos-arm64":
+        options += ["-DCMAKE_OSX_ARCHITECTURES=arm64"]
+    _request_build_metadata(build_dir)
+    run([cmake, "-S", ROOT / "sjtu_tpmshx/solvers/native/result", "-B", build_dir,
+         *generator, *options], cache / "logs" / f"configure-result-{host}.log")
+    run([cmake, "--build", build_dir, "--config", "Release", "--parallel", "2"],
+        cache / "logs" / f"build-result-{host}.log")
+    record_result_build(cache, host)
+
+
+def record_result_build(cache: Path, host: str) -> None:
+    """Record the compiler, options and artifacts from the actual result build."""
+    build_dir = cache / "build" / f"result-{host}"
+    library = build_dir / shared_library_name(host, "result")
+    if not library.is_file():
+        raise RuntimeError(f"Result build did not produce {library}")
+    reply = build_dir / ".cmake/api/v1/reply"
+    indices = list(reply.glob("index-*.json"))
+    if not indices:
+        raise RuntimeError(f"Missing actual result CMake metadata: {reply}")
+    index_path = max(indices, key=lambda path: path.stat().st_mtime_ns)
+    index = json.loads(index_path.read_text(encoding="utf-8"))
+    objects = {}
+    for kind in ("codemodel", "toolchains"):
+        descriptor, = (item for item in index["objects"] if item["kind"] == kind)
+        objects[kind] = json.loads((reply / descriptor["jsonFile"]).read_text(encoding="utf-8"))
+    configuration, = (item for item in objects["codemodel"]["configurations"] if item["name"] == "Release")
+    targets = {}
+    for name in ("tpmshx_result", "tpmshx_result_c", "tpmshx_result_shared"):
+        reference, = (item for item in configuration["targets"] if item["name"] == name)
+        target = json.loads((reply / reference["jsonFile"]).read_text(encoding="utf-8"))
+        groups = target["compileGroups"]
+        languages = {"C", "CXX"} if host == "macos-arm64" and name == "tpmshx_result" else {"CXX"}
+        if {item["language"] for item in groups} != languages or any(
+                not item.get("compileCommandFragments") for item in groups):
+            raise RuntimeError(f"Result metadata omitted required compilation options or languages for {name}: {sorted(languages)}")
+        targets[name] = dict(compile_groups=groups, sources=target["sources"],
+                             artifacts=target["artifacts"], link=target.get("link"))
+    if not any((build_dir / item["path"]).resolve() == library.resolve()
+               for item in targets["tpmshx_result_shared"]["artifacts"]):
+        raise RuntimeError("Result CMake artifact differs from the built image")
+    cache_values = {}
+    for line in (build_dir / "CMakeCache.txt").read_text(encoding="utf-8").splitlines():
+        match = re.fullmatch(r"(CMAKE_[A-Z0-9_]+):[^=]+=(.*)", line)
+        if match and (match[1].startswith(("CMAKE_C_FLAGS", "CMAKE_CXX_FLAGS", "CMAKE_OSX_", "CMAKE_VS_"))
+                      or match[1] in ("CMAKE_SYSTEM_VERSION", "CMAKE_MSVC_RUNTIME_LIBRARY", "CMAKE_GENERATOR")):
+            cache_values[match[1]] = match[2]
+    sdk = dict(cmake_cache=cache_values)
+    if host == "macos-arm64":
+        settings = []
+        for toolchain in objects["toolchains"]["toolchains"]:
+            includes = toolchain.get("compiler", {}).get("implicit", {}).get("includeDirectories", [])
+            for directory in includes:
+                match = re.search(r"^(.+\.sdk)(?:/|$)", directory)
+                if match:
+                    path = Path(match[1]).resolve() / "SDKSettings.json"
+                    if path.is_file() and str(path) not in {item["path"] for item in settings}:
+                        data = json.loads(path.read_text(encoding="utf-8"))
+                        settings.append({"path": str(path), "version": data.get("Version"),
+                                         "canonical_name": data.get("CanonicalName")})
+        sdk["sdk_settings"] = settings
+    elif host == "windows-x64":
+        project = build_dir / "tpmshx_result_shared.vcxproj"
+        tree = ET.parse(project)
+        sdk.update(visual_studio_project=str(project), windows_target_platform_versions=[
+            item.text for item in tree.iter() if item.tag.rsplit("}", 1)[-1] == "WindowsTargetPlatformVersion"])
+    record = dict(platform=host, library=str(library.resolve()), configuration="Release",
+                  recorded_at=datetime.now(timezone.utc).isoformat(), targets=targets,
+                  toolchains=objects["toolchains"]["toolchains"], sdk=sdk,
+                  evidence=dict(index=str(index_path), cache=str(build_dir / "CMakeCache.txt")))
+    (build_dir / "result-toolchain.json").write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+
+
+def result_build_record(cache: Path, host: str) -> dict:
+    build_dir = cache / "build" / f"result-{host}"
+    library = build_dir / shared_library_name(host, "result")
+    record_path = build_dir / "result-toolchain.json"
+    if not library.is_file() or not record_path.is_file():
+        raise RuntimeError(f"Build the result image and actual toolchain metadata first: {record_path}")
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    if (record["platform"], record["library"], record["configuration"]) != (
+            host, str(library.resolve()), "Release"):
+        raise RuntimeError(f"Result build record differs from the selected image: {record_path}")
+    if not record["toolchains"] or not record["sdk"] or set(record["targets"]) != {
+            "tpmshx_result", "tpmshx_result_c", "tpmshx_result_shared"}:
+        raise RuntimeError(f"Result build record omitted actual toolchain evidence: {record_path}")
+    return dict(record, record_source=str(record_path))
 
 
 def verify_model_exports(build_dir: Path, host: str, component: str, log: Path) -> None:
-    """Keep each static EOS image private behind its explicit C exports."""
+    """Verify each image's C exports and dynamic library boundary."""
     native_root = ROOT / 'sjtu_tpmshx/solvers/native'
-    folder = 'dependency-pilot' if component == 'solver' else 'preparation'
+    folder = 'dependency-pilot' if component == 'solver' else component
     expected = set((native_root / folder / (component + '.exports')).read_text().splitlines())
     if not expected or any(not name.startswith('_tpmshx_') for name in expected):
         raise RuntimeError(f'Invalid {component} C export list')
     if host == 'macos-arm64':
-        library = build_dir / ('libtpmshx_' + component + '_shared.dylib')
+        library = build_dir / shared_library_name(host, component)
         symbols = run(['nm', '-gU', library], log)
         actual = {line.split()[-1] for line in symbols.splitlines() if line.strip()}
         undefined = run(['nm', '-gu', library], log)
-        if re.search(r'_Z\S*(?:8CoolProp|6tpmshx)', undefined):
+        if re.search(r'_Z\S*(?:8CoolProp|6tpmshx)', undefined) or (
+                component == 'result' and re.search(r'\b_tpmshx_', undefined)):
             raise RuntimeError(f'{component} imports private model symbols from another image')
         dependencies = run(['otool', '-L', library], log)
+        imported = []
         for line in dependencies.splitlines()[2:]:
             dependency = line.strip().split(' (', 1)[0]
+            imported.append(dependency)
             if not dependency.startswith(('/usr/lib/', '/System/Library/')):
                 raise RuntimeError(f'{component} has a non-system dynamic dependency: {dependency}')
+        if component == 'result' and not imported:
+            raise RuntimeError(f'{component} has no actual system dynamic dependency listing')
+    elif host == 'linux-x86_64':
+        library = build_dir / shared_library_name(host, component)
+        symbols = run(['nm', '-D', '--defined-only', library], log)
+        actual = {'_' + line.split()[-1] for line in symbols.splitlines() if line.strip()}
+        undefined = run(['nm', '-D', '--undefined-only', library], log)
+        if re.search(r'(?:_Z\S*(?:8CoolProp|6tpmshx)|\btpmshx_)', undefined):
+            raise RuntimeError(f'{component} imports private model symbols from another image')
+        dependencies = run(['readelf', '-d', library], log)
+        imported = re.findall(r'\(NEEDED\).*\[([^\]]+)\]', dependencies)
+        system = {'libstdc++.so.6', 'libm.so.6', 'libgcc_s.so.1', 'libc.so.6', 'ld-linux-x86-64.so.2'}
+        if not imported or any(name not in system for name in imported):
+            raise RuntimeError(f'{component} has a non-system dynamic dependency: {imported}')
     else:
-        library = build_dir / ('tpmshx_' + component + '_shared.dll')
+        library = build_dir / shared_library_name(host, component)
         symbols = run(['dumpbin', '/NOLOGO', '/EXPORTS', library], log)
         actual = {'_' + match for match in re.findall(
             r'^\s+\d+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]+\s+(\S+)', symbols, re.MULTILINE)}
@@ -453,25 +587,40 @@ def verify_model_exports(build_dir: Path, host: str, component: str, log: Path) 
         if any(re.search(r'(?:coolprop|tpmshx_(?:preparation|solver|geometry))', name, re.IGNORECASE)
                for name in imported):
             raise RuntimeError(f'{component} imports another numerical library image')
+        if component == 'result' and (not imported or any(not re.fullmatch(
+                r'(?:KERNEL32|MSVCP140(?:_\d+)?|VCRUNTIME140(?:_\d+)?|ucrtbase|'
+                r'api-ms-win-[A-Za-z0-9-]+)\.dll', name, re.IGNORECASE) for name in imported)):
+            raise RuntimeError(f'{component} has a non-system dynamic dependency: {imported}')
     if actual != expected:
         raise RuntimeError(f'{component} C exports differ: missing={sorted(expected-actual)}, extra={sorted(actual-expected)}')
 
 
 def verify(cache: Path, host: str, component: str = "all") -> None:
+    require_component(host, component)
     geometry_only = component == "geometry"
     preparation_only = component == "preparation"
-    if not geometry_only:
+    result_only = component == "result"
+    if not geometry_only and not result_only:
         if preparation_only:
             verify_sources(cache, models_only=True)
         else:
             verify_sources(cache)
-    build_name = component if component in {"geometry", "preparation"} else "pilot"
+    build_name = component if component in {"geometry", "preparation", "result"} else "pilot"
     log = cache / "logs" / f"verify-{build_name}-{host}.log"
     version = run([cmake_path(cache, host), "--version"], log)
     if version.splitlines()[0] != f"cmake version {LOCK['cmake']['version']}":
         raise RuntimeError("Portable CMake version differs from the lock")
     build_dir = cache / "build" / f"{build_name}-{host}"
     suffix = ".exe" if host == "windows-x64" else ""
+    if result_only or component == "all":
+        result_dir = cache / "build" / f"result-{host}"
+        for caller in ("result_c_static", "result_c_shared", "result_kernel_smoke"):
+            run([result_dir / f"{caller}{suffix}"], log)
+        verify_model_exports(result_dir, host, "result", log)
+        result_build_record(cache, host)
+        if result_only:
+            print(f"PASS: {host} locked CMake, independent result callers and system-only image", flush=True)
+            return
     for caller in ("geometry_c_static", "geometry_c_shared", "geometry_kernel_smoke"):
         run([build_dir / f"{caller}{suffix}"], log)
     if geometry_only:
@@ -534,15 +683,15 @@ def verify(cache: Path, host: str, component: str = "all") -> None:
 
 def publish(cache: Path, host: str, python: Path, lock: Path, component: str = "all") -> Path:
     """Validate all selected libraries before replacement; retain their previous files."""
-    selected_component = component if component in {"geometry", "preparation"} else "all"
+    require_component(host, component)
+    selected_component = component if component in {"geometry", "preparation", "result"} else "all"
     build(cache, host, python, lock, selected_component)
     verify(cache, host, selected_component)
-    prefix, suffix = ("", ".dll") if host == "windows-x64" else ("lib", ".dylib")
     destination = ROOT / "sjtu_tpmshx/solvers/native/lib" / host
     libraries = ([(selected_component, selected_component + "-build.json")]
                  if selected_component != "all" else
                  [("solver", "build.json"), ("geometry", "geometry-build.json"),
-                  ("preparation", "preparation-build.json")])
+                  ("preparation", "preparation-build.json"), ("result", "result-build.json")])
     log = cache / "logs" / f"publish-{host}.log"
     common = {
         "published_at": datetime.now(timezone.utc).isoformat(),
@@ -561,20 +710,23 @@ def publish(cache: Path, host: str, python: Path, lock: Path, component: str = "
     preserve_staged = False
     try:
         for kind, metadata_name in libraries:
-            build_name = "preparation" if kind == "preparation" else (
+            build_name = kind if kind in {"preparation", "result"} else (
                 "geometry" if selected_component == "geometry" else "pilot")
             build_dir = cache / "build" / f"{build_name}-{host}"
-            name = prefix + f"tpmshx_{kind}_shared" + suffix
+            name = shared_library_name(host, kind)
             source, target = build_dir / name, destination / name
             metadata = destination / metadata_name
             record = dict(common, component=kind, source_library=str(source), target_library=str(target),
-                          dependencies=({} if kind == "geometry" else
+                          dependencies=({} if kind in {"geometry", "result"} else
                                         {name: spec for name, spec in LOCK["sources"].items()
                                          if kind == "solver" or name == "coolprop" or "cpm-name" in spec}),
                           verification=("independent geometry callers and kernel smoke passed" if kind == "geometry"
+                                        else "independent result callers, exact C exports and system-only image passed" if kind == "result"
                                         else "independent preparation callers passed" if kind == "preparation"
                                         else "independent native callers and SuperLU error boundary passed"))
-            if kind != "geometry":
+            if kind == "result":
+                record["result_build"] = result_build_record(cache, host)
+            elif kind != "geometry":
                 record["coolprop_build"] = coolprop_build_record(
                     cache, host, "preparation" if kind == "preparation" else "solver")
             shutil.copy2(source, staged / name)
@@ -635,11 +787,14 @@ def main() -> None:
     parser.add_argument("action", choices=("fetch", "fetch-cmake", "fetch-eigen", "build", "verify", "publish"))
     parser.add_argument("--cache", type=Path, default=ROOT / ".cache/native-deps")
     parser.add_argument("--python-lock", type=Path, default=ROOT / "engineering/requirements/base.txt")
-    parser.add_argument("--component", choices=("all", "coolprop", "pilot", "geometry", "preparation"), default="all")
+    parser.add_argument("--component", choices=("all", "coolprop", "pilot", "geometry", "preparation", "result"), default="all")
     args = parser.parse_args()
     python, host, cache = configured_python(), platform_name(), args.cache.resolve()
     if not cache.is_relative_to(ROOT / ".cache"):
         raise RuntimeError("Native dependency outputs must remain under this worktree's .cache/")
+    require_component(host, args.component)
+    if host == "linux-x86_64" and args.action not in {"fetch-cmake", "build", "verify", "publish"}:
+        raise RuntimeError("Linux result builds allow only fetch-cmake, build, verify, or publish")
     if args.action == "fetch":
         fetch(cache, host)
     elif args.action == "fetch-cmake":

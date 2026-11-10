@@ -43,6 +43,7 @@ def zone_statistics_2d(z_axis, zone_config, za, L, H,
     if z_axis == 'continuous':
         return dict(axis_dir=z_axis, boundaries=[], boundaries_x=[], boundaries_y=[], stats=[])
     from sjtu_tpmshx.shared.models.zone_config import Zone, compute_zone_statistics, format_zone_report
+    from sjtu_tpmshx.shared._native_result_metrics import capture_area_weights
     from sjtu_tpmshx.shared.logutil import get_logger
     zones = dict(axis_dir=z_axis)
     if z_axis == 'grid':
@@ -57,7 +58,7 @@ def zone_statistics_2d(z_axis, zone_config, za, L, H,
                                  for z in definitions[:-1]])
     zones['stats'] = compute_zone_statistics(
         Ta, Tb, Ts, za['zone_id'], definitions,
-        cell_area=energy_dx[:, None] * energy_dy[None, :])
+        cell_area=capture_area_weights(energy_dx, energy_dy))
     # Keep the zone-report logger for timestamped output.
     log = get_logger('sjtu_tpmshx.solvers.backends.capture_2d')
     log.info("\n[ZONE STATISTICS]")

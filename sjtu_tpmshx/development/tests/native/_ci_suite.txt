@@ -38,3 +38,5 @@ sjtu_tpmshx/development/tests/native/test_model_isolation.py
 sjtu_tpmshx/development/tests/native/test_backend_condition_consumers.py
 sjtu_tpmshx/development/tests/native/test_cpp_conservative_full2d.py
 sjtu_tpmshx/development/tests/native/test_cpp_conservative_full3d.py
+sjtu_tpmshx/development/tests/native/test_result_metrics.py
+sjtu_tpmshx/development/tests/native/test_result_checks.py

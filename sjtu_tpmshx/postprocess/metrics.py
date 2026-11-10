@@ -2,6 +2,8 @@
 
 import numpy as np
 
+from sjtu_tpmshx.shared import _native_result_metrics as native
+
 from sjtu_tpmshx.shared.result_math import (
     _boundary_enthalpy_duty, _boundary_face_shape,
     _conservative_boundary_power_duty, _temperature_boundary_power_duty,
@@ -9,16 +11,16 @@ from sjtu_tpmshx.shared.result_math import (
 )
 
 
-def _outward_faces(mass, grid=None):
+def _boundary_planes(mass, grid=None):
     _boundary_face_shape(mass, 2, grid)
     fx, fy = (np.asarray(face) for face in mass)
-    return (-fx[0], fx[-1], -fy[:, 0], fy[:, -1])
+    return (fx[0], fx[-1], fy[:, 0], fy[:, -1])
 
 
 def _model_duty(balance, side, grid):
     if not balance[side]['physical_boundary_complete']:
         raise ValueError('unknown inflow prevents a complete heat duty')
-    return -sum(float(face.sum()) for face in _outward_faces(balance[side]['h_faces_W_per_m'], grid))
+    return native.staggered_power_duty_2d(_boundary_planes(balance[side]['h_faces_W_per_m'], grid))
 
 
 def _side_duty(result, side, *, fine=False):
@@ -61,7 +63,7 @@ def _temperature_duty(result, side, *, fine=False):
     density_cp = np.asarray(data['rho_cp_' + side] if fine else result.metadata['rho_cp_' + side])
     density_cp = np.broadcast_to(density_cp, temperature.shape)
     eps = np.asarray(data['eps'] if fine else parameters['eps'])
-    split = result.metadata['split_A'] if side == 'A' else 1 - result.metadata['split_A']
+    split = native.capacity_split(result.metadata['split_A'], side != 'A')
     pressure = result.pressure_evidence[side]
     return _enthalpy_balance_2d(
         temperature, np.asarray(data['uc' + side]), np.asarray(data['vc' + side]),
@@ -70,7 +72,7 @@ def _temperature_duty(result, side, *, fine=False):
         np.asarray(data['dy'] if fine else result.grid['dy']),
         inlet_mask=data['inlet_' + side] if fine else pressure['inlet_fraction'],
         outlet_mask=data['outlet_' + side] if fine else pressure['outlet_fraction'],
-        eps_side=eps * split, T_in=parameters['T_in' + side])
+        eps_side=native.capacity_porosity(eps, split), T_in=parameters['T_in' + side])
 
 
 def _richardson_duty(result, side, duty):
@@ -80,14 +82,11 @@ def _richardson_duty(result, side, duty):
         raise NotImplementedError('true enthalpy has no Richardson thermal solve')
     if not result.metadata['diagnostics']['richardson_info']['extrapolated']:
         raise NotImplementedError('Richardson extrapolation was not accepted')
-    return (4. * abs(duty(side, fine=True)) - abs(duty(side))) / 3.
+    return native.richardson_duty(duty(side, fine=True), duty(side))
 
 
 def _mass_flow(result, side):
-    faces = _outward_faces(result.boundary_fluxes['mass_' + side], result.grid)
-    inflow = sum(float(np.maximum(-face, 0.).sum()) for face in faces)
-    outflow = sum(float(np.maximum(face, 0.).sum()) for face in faces)
-    return inflow, outflow
+    return native.boundary_mass(_boundary_planes(result.boundary_fluxes['mass_' + side], result.grid), 2)
 
 
 def _port_pressures_2d(result, side):
@@ -119,14 +118,14 @@ def _evaluate_metric(result, name, *, dimension, duty, mass_flow):
     if dimension != 2:
         raise NotImplementedError('unsupported physical dimension')
     if name == 'Q':
-        return abs(duty('A'))
+        return native.duty_magnitude(duty('A'))
     if name in ('Q_A', 'Q_B'):
         return duty(name[-1])
     if name.startswith('Q_richardson_'):
         return _richardson_duty(result, name[-1], duty)
     if name.startswith(('dP_', 'P_out_')):
         pin, pout = _port_pressures_2d(result, name[-1])
-        return pin - pout if name.startswith('dP_') else pout
+        return native.pressure_difference(pin, pout) if name.startswith('dP_') else pout
     if name.startswith('T_out_'):
         side = name[-1]
         temperature = np.asarray(result.fields['Ta' if side == 'A' else 'Tb'])
@@ -140,13 +139,13 @@ def _evaluate_metric(result, name, *, dimension, duty, mass_flow):
         return mass_flow(name[-1])[0]
     if name.startswith('mass_imbalance_rel_'):
         inflow, outflow = mass_flow(name[-1])
-        return abs(outflow - inflow) / max(inflow, outflow, 1e-30)
+        return native.mass_imbalance(inflow, outflow)
     if name == 'energy_imbalance_rel':
         a, b = (duty(side) for side in ('A', 'B'))
-        return abs(a + b) / max(abs(a), abs(b), 1e-30)
+        return native.full_energy_imbalance(a, b)
     if name == 'mass':
         density = result.metadata['solid_density_kg_m3']
         eps = np.asarray(result.metadata['design_fields']['eps_arr'])
-        return float(np.sum((1 - eps) * density * np.asarray(result.grid['dx'])[:, None]
-                            * np.asarray(result.grid['dy'])[None, :]))
+        return native.solid_mass(eps, density,
+                                 (np.asarray(result.grid['dx']), np.asarray(result.grid['dy'])))
     raise NotImplementedError(f'unsupported metric: {name}')

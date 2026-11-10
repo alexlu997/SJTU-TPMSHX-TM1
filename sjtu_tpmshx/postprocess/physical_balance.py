@@ -3,6 +3,7 @@ import numpy as np
 
 from sjtu_tpmshx.shared.domain.persistence_validation import validate_result_declarations
 from sjtu_tpmshx.shared.result_math import _boundary_face_shape
+from sjtu_tpmshx.shared import _native_result_balance as native
 
 
 _PHASES = ('A', 'B', 'solid')
@@ -10,15 +11,15 @@ _FACES = ('x-', 'x+', 'y-', 'y+', 'z-', 'z+')
 
 
 def _finite(value, name):
+    from sjtu_tpmshx.shared._native_result_checks import array_checks
     array = np.asarray(value)
-    if array.dtype.kind not in 'fiu' or not np.all(np.isfinite(array)):
+    if array.dtype.kind not in 'fiu' or (array.size and not array_checks(array)[0]):
         raise ValueError(f'physical balance requires finite {name}')
     return array
 
 
 def _norms(residual):
-    return dict(signed_sum=float(residual.sum()), l1=float(np.abs(residual).sum()),
-                cell_max=float(np.abs(residual).max()), cell_count=int(residual.size))
+    return native.norms(residual)
 
 
 def _mass_summary(faces, grid, dimension, units, source):
@@ -26,19 +27,14 @@ def _mass_summary(faces, grid, dimension, units, source):
         return dict(status='unavailable', reason='mass faces were not recorded', source=source)
     _boundary_face_shape(faces, dimension, grid)
     faces = [_finite(face, 'mass faces') for face in faces]
-    outward = [sign * np.take(face, end, axis=axis) for axis, face in enumerate(faces)
-               for end, sign in ((0, -1), (-1, 1))]
-    inflow, outflow = (sum(float(np.maximum(sign * face, 0.).sum()) for face in outward)
-                       for sign in (-1, 1))
-    residual = sum(np.diff(face, axis=axis) for axis, face in enumerate(faces))
-    norms = _norms(residual)
-    scale = max(inflow, outflow)
-    return dict(status='available', source=source, units=units, inflow=inflow, outflow=outflow,
-        residual=norms, scale=scale, scale_definition='max(total inward mass, total outward mass)',
-        relative_net=abs(norms['signed_sum']) / scale if scale else None,
-        relative_l1=norms['l1'] / scale if scale else None,
-        boundary_out=dict(zip(_FACES, (float(face.sum()) for face in outward))),
-        telescoping_error=norms['signed_sum'] - (outflow - inflow))
+    values = native.mass(faces)
+    return dict(status='available', source=source, units=units, inflow=values.inflow, outflow=values.outflow,
+        residual=native.norm_record(values.residual), scale=values.scale,
+        scale_definition='max(total inward mass, total outward mass)',
+        relative_net=values.relative_net if values.has_scale else None,
+        relative_l1=values.relative_l1 if values.has_scale else None,
+        boundary_out=dict(zip(_FACES, values.boundary_out[:dimension * 2])),
+        telescoping_error=values.telescoping_error)
 
 
 def _energy_summary(evidence, grid, dimension, source):
@@ -82,30 +78,30 @@ def _energy_summary(evidence, grid, dimension, source):
             planes = [_finite(values[name], 'boundary power') for name in _FACES]
             if _boundary_face_shape(planes, 3, planes=True) != shape3:
                 raise ValueError('heat ledger boundary shape disagrees with grid')
-            row[key] = dict(zip(_FACES, (float(face.sum()) for face in planes)))
-            row[key + '_sum'] = sum(row[key].values())
+            values = native.plane_sums(planes)
+            row[key] = dict(zip(_FACES, values.values))
+            row[key + '_sum'] = values.total
         phases[phase] = row
     reservoir = _finite(evidence['prescribed_b_power'], 'prescribed B power')
     if reservoir.ndim:
         raise ValueError('heat ledger requires scalar prescribed B power')
     reservoir = float(reservoir)
     solved = [row for row in phases.values() if row['status'] == 'available']
-    boundary = sum(row['advective_out_sum'] + row['diffusive_out_sum'] for row in solved)
-    sources = sum(row['source_integral'] for row in solved)
-    residual_sum = sum(row['residual']['signed_sum'] for row in solved)
-    scale = max(1., abs(reservoir), *(abs(row['advective_out_sum'] + row['diffusive_out_sum'])
-                                     for row in solved), *(abs(row['source_integral']) for row in solved))
-    for row in solved:
+    values = native.energy_totals(solved, reservoir)
+    boundary = values.boundary_out if solved else 0
+    sources = values.source_integral if solved else 0
+    residual_sum = values.residual_sum if solved else 0
+    for index, row in enumerate(solved):
         norms = row['residual']
-        norms.update(l1_relative=norms['l1'] / scale,
-                     cell_max_relative=norms['cell_max'] * norms['cell_count'] / scale)
+        norms.update(l1_relative=values.l1_relative[index],
+                     cell_max_relative=values.cell_max_relative[index])
     return dict(status='available', source=source, units=units,
         evidence_definition=evidence['definition'], physical_boundary_complete=complete, phases=phases, boundary_out=boundary,
         source_integral=sources, prescribed_b_power=reservoir,
-        net_external_in=sources + reservoir - boundary, residual_sum=residual_sum,
-        telescoping_error=residual_sum - (sources + reservoir - boundary), scale=scale,
+        net_external_in=values.net_external_in, residual_sum=residual_sum,
+        telescoping_error=values.telescoping_error, scale=values.scale,
         scale_definition='max(1 native power unit, abs phase net boundary power, abs phase source, abs reservoir power)',
-        relative_external_imbalance=abs(sources + reservoir - boundary) / scale)
+        relative_external_imbalance=values.relative_external_imbalance)
 
 
 def evaluate_physical_balance(result):

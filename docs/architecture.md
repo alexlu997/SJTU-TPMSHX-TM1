@@ -39,7 +39,7 @@ Its native arithmetic stays float64.
 Stage three adds grids, ports, axis maps, continuous XY/XYZ fields, sigmoid, linear LUTs, zones and Gaussian filtering to the same library.
 Each migrated numerical rule has one C++ owner. Python keeps configuration, data objects, type/array adaptation, I/O, caches and application orchestration.
 Stage four adds independent preparation ABI 1 for properties, closures, DF, corrections, projection and preparation mathematics.
-Stage five still requires an independent result core and postprocessing mathematics.
+Stage five puts result mathematics in an independent result ABI 2 core. Its numerical and platform acceptance is in progress.
 The six-stage migration remains incomplete. See [model resources](model-resources.en.md#当前资源与研究输出).
 Earlier solver CI records do not establish acceptance for this batch. Complete-case checks, supported-platform CI and final acceptance remain required.
 
@@ -60,7 +60,7 @@ The fixed CFD CSV remains the coefficient authority. The generator reads these r
 Python keeps configuration, DTOs, shape/type adaptation, I/O, caches, warnings, GUI/BO policies and offline fitting.
 Replaced production numerical bodies are retired in this batch. Frozen development references remain independent.
 
-Full publication deploys solver, geometry and preparation libraries in one transaction.
+Full publication deploys solver, geometry, preparation and result libraries in one transaction.
 Separate preparation publication uses previously built locked CoolProp. It builds no solver or run_state.
 The preparation and full-solver targets use separate CMake projects.
 On macOS, the preparation archive uses `-Os` to keep the previous Python property results.
@@ -70,7 +70,17 @@ Archive build records keep the actual compiler, compile fragments and SDK source
 Library build identities remain separate from versioned property-table caches.
 Old checkpoints still need their exact solver runtime, prepared inputs and controls.
 See [preparation builds and runtime paths](cpp-migration.md#native-preparation-core).
-The planned lightweight Linux result core belongs to stage five. This batch does not establish Linux full-solver support.
+The result target is `solvers/native/result/`. It uses C++17 and system libraries without solver state or model resources.
+Named metric, balance and check kernels preserve independent field reductions and their original operation order.
+`shared/_native_result.py` loads the prebuilt image on demand. Imports and pure HDF/JSON reads do not load it.
+Python keeps DTOs, evidence selection, type and shape adaptation, policy interpretation and status text.
+Typed byte views preserve integer storage, extended precision, byte order and signed strides.
+Failure does not commit numerical outputs. Ordered floating-point events retain the caller's NumPy error policy.
+Explicit object and arbitrary integer protocols remain only at demonstrated Python-only conversion points.
+Missing libraries, symbols and incompatible ABIs remain deployment errors, with no numerical fallback.
+The [result source record](../sjtu_tpmshx/solvers/native/result/sources.md) defines the interface and numerical sources.
+Separate result publication builds no solver, run_state, CoolProp or generated coefficients.
+Linux x86_64 supports independent result evaluation. Full-solver platforms remain macOS arm64 and Windows x64.
 
 The native full-compute CC route uses the existing air/water integral h(T)
 model through strict model-h drivers. Earlier variable-cp m*cp*T failures

@@ -1,6 +1,7 @@
 #include "tpmshx/fluid_properties.hpp"
 #include "tpmshx/model_coefficients.hpp"
 #include "preparation_properties.hpp"
+#include "numpy_complex_divide.hpp"
 #include "tpmshx/scalar_precision.hpp"
 
 #include <CoolProp/AbstractState.h>
@@ -239,12 +240,8 @@ std::uint32_t result_layout(Number first,Number second) {
 Number weak(double value) {return {g::weak(value),0.,0,0};}
 Number floating64(double value) {return {{value,64,1},0.,0,1};}
 std::complex<double> negative_real_power(double value,double exponent);
-#if defined(__APPLE__) && defined(__aarch64__)
-// The locked macOS arm64 CPython and NumPy quotients fuse these expressions.
-constexpr bool contract_complex_quotient=true;
-#else
-constexpr bool contract_complex_quotient=false;
-#endif
+using detail::contract_complex_quotient;
+using detail::numpy_complex_divide;
 
 // CPython 3.13.2 _Py_c_quot keeps division after each numerator.
 std::complex<double> python_complex_divide(std::complex<double> a,std::complex<double> b) {
@@ -265,27 +262,6 @@ std::complex<double> python_complex_divide(std::complex<double> a,std::complex<d
         return {real/denominator,imaginary/denominator};
     }
     const auto nan=std::numeric_limits<double>::quiet_NaN();return {nan,nan};
-}
-
-// NumPy 2.5.4 complex divide uses one reciprocal in its scalar loop.
-template<class Real> std::complex<Real> numpy_complex_divide(std::complex<Real> a,std::complex<Real> b) {
-    const Real ar=a.real(),ai=a.imag(),br=b.real(),bi=b.imag();
-    const Real abs_br=std::abs(br),abs_bi=std::abs(bi);
-    if (abs_br>=abs_bi) {
-        if (abs_br==Real{0} && abs_bi==Real{0}) return {ar/abs_br,ai/abs_bi};
-        const Real ratio=bi/br;
-        const Real denominator=contract_complex_quotient?std::fma(bi,ratio,br):br+bi*ratio;
-        const Real scale=Real{1}/denominator;
-        const Real real=contract_complex_quotient?std::fma(ai,ratio,ar):ar+ai*ratio;
-        const Real imaginary=contract_complex_quotient?std::fma(-ar,ratio,ai):ai-ar*ratio;
-        return {real*scale,imaginary*scale};
-    }
-    const Real ratio=br/bi;
-    const Real denominator=contract_complex_quotient?std::fma(br,ratio,bi):bi+br*ratio;
-    const Real scale=Real{1}/denominator;
-    const Real real=contract_complex_quotient?std::fma(ar,ratio,ai):ar*ratio+ai;
-    const Real imaginary=contract_complex_quotient?std::fma(ai,ratio,-ar):ai*ratio-ar;
-    return {real*scale,imaginary*scale};
 }
 
 template<class Real> std::complex<Real> numpy_complex_log10(std::complex<Real> value) {

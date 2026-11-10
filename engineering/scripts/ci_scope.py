@@ -46,6 +46,8 @@ def require_jobs(tier, needs, stage):
     expected = {'scope': 'success', 'native': result}
     if stage == 'summary':
         expected.update({'bo-tests': result, 'minimal-postprocess': 'success'})
+    else:
+        expected['result-build'] = result
     actual = {name: job['result'] for name, job in needs.items()}
     if actual != expected:
         raise ValueError(f'Expected CI jobs {expected}; got {actual}')

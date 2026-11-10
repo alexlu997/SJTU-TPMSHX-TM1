@@ -48,12 +48,12 @@ C++ 头文件生成器直接读取资源，不再导入数值模型。
 数值公式由各自 C++ 核心负责；Python 保留配置、类型适配、数据对象、I/O、缓存和应用编排。
 第四批将物性／闭合、固定 DF／实验修正、投影和准备数值迁入独立 preparation 库。
 新资源只归集原值；既有模型身份、单位、拟合系数和实验结论不变。
-第五批独立结果核心与后处理数值迁移仍待完成。
+第五批已接入独立结果核心，负责指标、物理平衡、分区统计和数值资格检查；数值与平台验收仍在进行。
 六批迁移尚未完成，各批验收须包含平台 CI 和最终检查。
 
 Python 几何接口保留类型、缓存与逐次调用的 chi 显式值／环境值／拟合选择，不保留数值 fallback。
 修改 C++ 函数或资源中编入库的参数后，须重新构建各受影响原生库并重启进程。
-构建、路径及三库运行边界见[原生准备核心](cpp-migration.zh-CN.md#native-preparation-core)。
+构建、路径及四库运行边界见[原生准备核心](cpp-migration.zh-CN.md#native-preparation-core)和[独立结果核心](cpp-migration.zh-CN.md#native-result-core)。
 XY、XYZ、LUT 与 Gaussian 的固定来源和局部数值处理见[设计场来源说明](../sjtu_tpmshx/solvers/native/geometry/fields-sources.md)。
 贯通、扫描、Richardson 和目标 C 研究位于
 `sjtu_tpmshx/development/runs/tools/asym_geometry_research.py`，shared 不保留旧转发入口。
@@ -76,7 +76,7 @@ CSV 继续服务构建和独立测试；测试读取的 MMS 阶数／边界 CSV 
 
 原始经验 getter、带检查的 EOS 状态和 Nu 闭合保留各自合同，不统一增加状态检查。
 离线清洗与拟合仍在 Python，不能作为正式数值 fallback。
-Python wheel 包含代码、JSON 和 CSV 资源，不包含三个本机原生库。
+Python wheel 包含代码、JSON 和 CSV 资源，不包含本机原生库。
 物性表版本、模型资源身份和原生库构建身份分开记录；旧检查点仍要求匹配的求解运行库。
 
 离线复核工具保留在 `development/validation/`，生成的拟合 CSV 默认写入本地

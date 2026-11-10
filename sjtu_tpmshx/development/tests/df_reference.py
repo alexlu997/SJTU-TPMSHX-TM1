@@ -10,7 +10,8 @@ from typing import Any, Optional, Tuple
 from math import sqrt
 import warnings
 
-from sjtu_tpmshx.shared.domain.run_warnings import record_range, record_warning
+from sjtu_tpmshx.shared.domain.run_warnings import record_warning
+from sjtu_tpmshx.development.tests.result_warning_reference import record_range
 
 R_AIR = 287.05
 _CHOKE_WARNED = set()

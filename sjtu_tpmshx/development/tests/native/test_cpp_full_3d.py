@@ -173,7 +173,7 @@ def check_portable(actual, raw, prepared):
     for name, value in zip(('Ta', 'Tb', 'Ts'), raw['temperature']):
         np.testing.assert_array_equal(actual.fields[name], value)
         assert actual.field_metadata[name]['unit'] == 'K'
-    from sjtu_tpmshx.shared.result_math import pressure_face_values
+    from sjtu_tpmshx.development.tests.native.result_reference.shared_math import pressure_face_values
     drops = []
     for side, name in enumerate('AB'):
         flow = raw['flow'][side]

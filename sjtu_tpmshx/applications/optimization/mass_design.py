@@ -36,6 +36,7 @@ def constraint_keys(requirements):
 def mass_lower_bound(config, field_spec, density, control_count):
     """Use the selected geometry model to bound mass for every clipped field."""
     from sjtu_tpmshx.shared.models import co2_correlations, tpms_geometry
+    from sjtu_tpmshx.shared import _native_result_checks
 
     geometry = config.geometry
     depth = geometry.Lz_m
@@ -44,7 +45,9 @@ def mass_lower_bound(config, field_spec, density, control_count):
     model = co2_correlations if co2_correlations.uses_co2(config) else tpms_geometry
     point = model.minimum_solid_geometry(geometry.tpms,
         field_spec['L_bounds'], field_spec['t_bounds'])
-    mass = density * geometry.L_dom_m * geometry.H_dom_m * depth * (1. - point['epsilon'])
+    density_length = _native_result_checks.box_density_length(density, geometry.L_dom_m)
+    bulk_mass = _native_result_checks.box_bulk_mass(density_length, geometry.H_dom_m, depth)
+    mass = _native_result_checks.box_solid_mass(bulk_mass, point['epsilon'])
     return dict(mass_kg=float(mass), geometry_model=model.__name__.rsplit('.', 1)[-1],
                 x_decision=[point['L_mm']]*control_count + [point['t_mm']]*control_count)
 

@@ -13,12 +13,11 @@ The final-field floor, nonfinite and Mach gates below remain unchanged.
 """
 from __future__ import annotations
 
-import math
-
 import numpy as np
 from numpy.typing import ArrayLike
 
 from sjtu_tpmshx.shared.configs.model_parameters import load_model_parameters
+from sjtu_tpmshx.shared import _native_result_checks
 
 _MODEL_PARAMETERS = load_model_parameters()
 R_AIR_DEFAULT = _MODEL_PARAMETERS['envelope']['r_air_default']
@@ -45,8 +44,8 @@ def predict_outlet_p_sq(P_in: float, T_in: float, C_est: float, L: float,
     ``G = rho*u`` (mass flux, constant along the pipe). Returns a float that is
     nonpositive when that isothermal 1D model has no positive outlet state.
     """
-    return (float(P_in) ** 2
-            - 2.0 * float(R) * float(T_in) * float(C_est) * float(L))
+    square = _native_result_checks.pressure_square(float(P_in))
+    return _native_result_checks.outlet_pressure_squared(square, float(R), float(T_in), float(C_est), float(L))
 
 
 
@@ -54,8 +53,8 @@ def predict_outlet_p_sq(P_in: float, T_in: float, C_est: float, L: float,
 def mach(vmax: float, T_ref: float, *, R: float = R_AIR_DEFAULT,
          gamma: float = GAMMA_AIR) -> float:
     """Mach number of speed ``vmax`` against the local sound speed at T_ref."""
-    c = math.sqrt(float(gamma) * float(R) * float(T_ref))
-    return float(vmax) / c
+    c = _native_result_checks.sound_speed(float(gamma), float(R), float(T_ref))
+    return _native_result_checks.mach_from_sound(float(vmax), c)
 
 
 def mach_field_max(vmag: ArrayLike, T_field: ArrayLike, *, R: float = R_AIR_DEFAULT,
@@ -71,9 +70,15 @@ def mach_field_max(vmag: ArrayLike, T_field: ArrayLike, *, R: float = R_AIR_DEFA
     v = np.asarray(vmag, dtype=np.float64)
     if v.size == 0:
         return 0.0
-    T = np.maximum(np.asarray(T_field, dtype=np.float64), 1.0)
-    c = np.sqrt(float(gamma) * float(R) * T)
-    return float(np.max(v / c))
+    T = _native_result_checks.field_temperature_floor(np.asarray(T_field, dtype=np.float64))
+    c = _native_result_checks.field_sound_speed(T, float(gamma), float(R))
+    try:
+        v, c = np.broadcast_arrays(v, c)
+    except ValueError:
+        shapes = ['(' + ','.join(map(str, value.shape)) + (',' if value.ndim == 1 else '') + ')'
+                  for value in (v, c)]
+        raise ValueError('operands could not be broadcast together with shapes ' + ' '.join(shapes) + ' ') from None
+    return _native_result_checks.field_mach_max(v, c)
 
 
 def assess_solution_validity(P_abs_min: float, vmax: float, T_ref: float, *,
@@ -95,22 +100,24 @@ def assess_solution_validity(P_abs_min: float, vmax: float, T_ref: float, *,
     # would silently skip and report a NaN field as valid — the same silent
     # garbage this gate exists to catch, just via NaN instead of finite |v|.
     # Treat non-finite inputs as off-envelope explicitly (audit 2026-06-28).
-    if not np.isfinite(P_abs_min):
+    pressure_state = _native_result_checks.pressure_flags(P_abs_min, PRESSURE_FLOOR_PA, 1.0e-6)
+    if pressure_state == 1:
         reasons.append(
             f"non-finite absolute pressure (min P = {P_abs_min}) — the solver "
             "diverged (NaN/inf field)")
-    elif P_abs_min <= PRESSURE_FLOOR_PA * (1.0 + 1.0e-6):
+    elif pressure_state == 2:
         reasons.append(
             f"pressure clipped to the {PRESSURE_FLOOR_PA:.0f} Pa floor "
             f"(min absolute P = {float(P_abs_min):.1f} Pa) — the solve left "
             "the compressible envelope")
     Ma = float(ma_max) if ma_max is not None else mach(vmax, T_ref, R=R,
                                                        gamma=gamma)
-    if not np.isfinite(Ma):
+    mach_state = _native_result_checks.mach_limit_flags(Ma, mach_limit)
+    if mach_state == 1:
         reasons.append(
             f"non-finite Mach (Ma = {Ma}) — the solver diverged "
             "(NaN/inf velocity or temperature field)")
-    elif Ma >= mach_limit:
+    elif mach_state == 2:
         reasons.append(
             f"supersonic: Ma_max = {Ma:.2f} >= {float(mach_limit):g}")
     return (len(reasons) == 0, reasons)

@@ -23,15 +23,19 @@ Standard, CO2 and asymmetric geometry, plus chi/Kss, use an independent C++ geom
 Stage three adds grids, ports, six-direction axis mapping, continuous XY/XYZ fields, sigmoid, linear LUTs, zones and Gaussian filtering to that library.
 Python keeps configuration, data objects, file I/O, caches, GUI and BO orchestration.
 Stage four moves properties, closures, fixed DF, experiment corrections, projection, fixed-flow and design preparation mathematics to preparation ABI 1.
-Preparation needs matching geometry and preparation libraries. Full computation also needs the solver library. Full publication deploys all three.
-Stage five still requires an independent result core and postprocessing mathematics.
+Preparation needs matching geometry and preparation libraries. Full computation also needs solver and result libraries. Full publication deploys all four.
+Stage five connects the independent result core for metrics, physical balances, zone statistics and numerical qualification checks.
+Numerical and platform acceptance is in progress. The final stage-six consumer and retirement audit remains incomplete.
 Acceptance for this batch requires supported-platform CI and final checks. Earlier solver CI does not replace them.
 The six-stage goal remains incomplete. See [native geometry](docs/cpp-migration.md#native-geometry-core) for builds, runtimes and research entries.
 
-Version 0.2 uses C++ for numerical execution. Python keeps the GUI, CLI, preparation, postprocessing, optimization and Quick Design interfaces. Full 2D/3D computation and Quick Design use the same prepared-data and result contracts. Maintenance in this round covers macOS arm64 and Windows x64. Linux server deployment is deferred.
+Version 0.2 uses C++ for numerical execution. Python keeps the GUI, CLI, preparation, postprocessing, optimization and Quick Design interfaces.
+Full 2D/3D computation and Quick Design use the same prepared-data and result contracts.
+Full computation and desktop maintenance still cover macOS arm64 and Windows x64.
+Linux x86_64 supports independent result evaluation only, without full-solver or desktop deployment.
 
 [v0.1.0](https://github.com/alexlu997/SJTU-TPMSHX-TM1/releases/tag/v0.1.0) is the first GitHub source release. It keeps both Python and C++ backends.
-The 0.1 archives contain both solvers. Version 0.2 removes Python numerical iterators, their research entries and outer property Anderson. Fixed property relaxation, thermal acceleration and flow acceleration keep their existing rules. T-SOU (`temperature_sou`) is the default for the existing conservative EOS energy route. H-FOU and T-FOU execution is retired. Model-h and other temperature routes keep their physical contracts. Historical results remain readable; their checkpoints require the matching archived runtime. Build matching solver, geometry and preparation libraries before you run 0.2.
+The 0.1 archives contain both solvers. Version 0.2 removes Python numerical iterators, their research entries and outer property Anderson. Fixed property relaxation, thermal acceleration and flow acceleration keep their existing rules. T-SOU (`temperature_sou`) is the default for the existing conservative EOS energy route. H-FOU and T-FOU execution is retired. Model-h and other temperature routes keep their physical contracts. Historical results remain readable; their checkpoints require the matching archived runtime. Build matching solver, geometry, preparation and result libraries before you run 0.2.
 
 M-A merge acceptance for the rectangular 2D/3D three-module mainline is recorded. M-B extensions stay separately tracked. Historical B40 failures and physical applicability limits stay. See [capabilities and open work](docs/capabilities.en.md) for current conclusions. The [fixed history index](docs/history/README.en.md) keeps original plans, handoff records, and node evidence.
 
@@ -100,7 +104,7 @@ CO₂ interpolation tables are separated by CoolProp version. Python defaults to
 
 ### Run small examples
 
-The repository includes [air_2d.json](examples/three_module/air_2d.json) and [air_3d.json](examples/three_module/air_3d.json). They use bundled model resources without private `data/` or `.git`. First build geometry, preparation and solver libraries with the macOS C++ toolchain or a Windows x64 MSVC developer terminal. Record build and initial property-table times separately from solve time.
+The repository includes [air_2d.json](examples/three_module/air_2d.json) and [air_3d.json](examples/three_module/air_3d.json). They use bundled model resources without private `data/` or `.git`. First build geometry, preparation, solver and result libraries with the macOS C++ toolchain or a Windows x64 MSVC developer terminal. Record build and initial property-table times separately from solve time.
 
 On macOS:
 
@@ -168,7 +172,7 @@ The launcher enters its own project directory and writes caches under `.cache/`.
 
 T-SOU uses checked HEOS PT properties and does not create EOS tables. The table-directory option remains for explicitly selected historical runtimes. Public APIs, CLI and direct module calls default to C++.
 
-For dependencies configured under the current source layout, publish all three launcher libraries after the relevant native regressions pass.
+For dependencies configured under the current source layout, publish all four launcher libraries after the relevant native regressions pass.
 For an old layout, first prepare a new cache as described below.
 
 ```sh
@@ -201,10 +205,10 @@ Windows (PowerShell):
 Use the same `--cache` directory for later explicit `build`, `verify` and `publish` commands.
 A fresh clone can use the default cache above.
 
-The command builds and verifies solver, geometry and preparation libraries offline. It replaces all three host files in one transaction.
+The command builds and verifies solver, geometry, preparation and result libraries offline. It replaces all four host files in one transaction.
 Missing dependencies or failed verification stop publication.
 Before replacing different contents, it saves each old library and matching record under `previous/`.
-Republishing identical contents keeps that backup. The solver uses `build.json`, geometry uses `geometry-build.json`, and preparation uses `preparation-build.json`.
+Republishing identical contents keeps that backup. The solver uses `build.json`, geometry uses `geometry-build.json`, preparation uses `preparation-build.json`, and result uses `result-build.json`.
 Each record identifies source changes, build configuration and paths.
 A replacement failure restores selected files and metadata. A failed rollback keeps staging files and reports their recovery path.
 
@@ -235,7 +239,10 @@ Preparation can also be published independently. First build locked CoolProp in 
 This command builds no solver or run_state. It publishes only preparation and `preparation-build.json`.
 See the [preparation core](docs/cpp-migration.md#native-preparation-core) for commands.
 Use `TPMSHX_PREPARATION_LIBRARY` to select its runtime file. Historical result reading and independent postprocessing do not load preparation.
-The Python wheel includes code and model resources. It includes none of these three native libraries.
+Use `publish --component result` to publish result independently without building solver or model libraries. Select the configured interpreter's exact lock.
+Actual postprocessing arithmetic needs that image. Pure HDF/JSON reads load no native library.
+Linux x86_64 supports independent result evaluation only. See [result core commands](docs/cpp-migration.md#native-result-core).
+The Python wheel includes code and model resources. It includes none of these four native libraries.
 The source distribution includes native source, build files, locks and source records.
 Use `engineering/scripts/check_distributions.py` to check source and wheel contents.
 Supply a new `--output-dir` under `.cache/`.
@@ -649,7 +656,8 @@ PRs select checks through an [explicit path list](engineering/scripts/ci_scope.p
 - `full`: Solver, model, public interface, dependency, workflow, and all unlisted paths. Run the full matrix.
 
 Main and manual runs always use `full`. Renames check both old and new paths. Unknown or empty change lists use the full matrix.
-The full matrix has 29 jobs. Lighter PR tiers do not provide full-CI timing or numerical research acceptance.
+The full matrix has 30 jobs, including the independent Linux result-library build.
+Lighter PR tiers do not provide full-CI timing or numerical research acceptance.
 Physical changes still require their extended numerical studies. Normal CI does not replace that evidence.
 
 The `[tool.mypy].files` setting in `pyproject.toml` explicitly lists 19 files. Coverage includes configuration, controllers, CLI, the common workflow, current envelope implementation, three-module contracts/APIs, and the postprocessing metric entry. Deleted forwarding modules are excluded. `pyproject.toml` validates unannotated bodies in four boundary implementation modules. This does not show strict typing across each solver.
@@ -681,7 +689,8 @@ Independent formulas, discrete energy balances, manufactured solutions, componen
 Each platform calls the [native workflow](.github/workflows/native.yml). It builds native libraries once with Python 3.13 and runs independent C/C++ callers. The native libraries do not link to a Python runtime. macOS tests use Python 3.13. Windows tests use both Python 3.12 and 3.13. Shards start after their platform build and do not wait for other platforms. Native, fast and integration tests use the same `native-build-<platform>` artifact from the current workflow run and source. The archive preserves executable permissions and includes runtime libraries, callers, and license notices. An exact CoolProp cache key binds platform, architecture, Python 3.13, toolchain image, native dependency lock and build script. Project C++ and model coefficients rebuild on every run. Cache hits still require independent caller checks.
 
 The `application` and `full` tiers both retain the complete pilot build and existing solver coverage.
-Archives explicitly include solver, geometry and preparation libraries.
+Archives explicitly include solver, geometry, preparation and result libraries.
+The separate `build --component result` step builds the result library before complete verification with the other libraries.
 BO also restores geometry from the current run's artifact for the same platform. Existing gates remain unchanged.
 
 Build logs use `native-build-logs-<platform>`. Each shard uploads `native-dependencies-<platform>-py<version>-shard-<number>` with JUnit and `native-manifest`. Shard numbers are 0–2 on macOS and 0–4 on Windows. These artifacts are retained for 7 days.
@@ -700,7 +709,13 @@ Unexpected failures, cancellations, skips, missing reports, or coverage gaps can
 The `minimal-postprocess` check stays separately required. In the `docs` tier, it only checks the expected job results.
 Compare fast, integration, and full-job speed separately with same-platform baselines.
 
-Local timing does not promise CI speedups. Acceptance skips keep specific reasons. Skipped capabilities are not passed. Minimal-postprocess CI uses separate `engineering/requirements/postprocess.txt`. It consumes real 2D/3D files from another complete environment. The macOS integration step uploads two public-example results and their metrics as `real-file-handoff` for the Linux minimal environment. These files stay available for seven days. They contain no private data.
+Local timing does not promise CI speedups. Acceptance skips keep specific reasons. Skipped capabilities are not passed.
+Minimal-postprocess CI uses separate `engineering/requirements/postprocess.txt` and real 2D/3D files from another complete environment.
+The independent Ubuntu `result-build` job fetches only locked CMake, then builds and verifies the result library.
+It supplies `result-build-linux-x86_64` to `minimal-postprocess`.
+The macOS integration step also supplies two public-example results and their metrics as `real-file-handoff` to that Linux minimal environment.
+Both handoffs remain available for seven days and contain no private data.
+The minimal job uses the prebuilt result library to check independent numerical references and real file reading. It builds no full solver.
 
 Configuration alone does not show a CI pass.
 

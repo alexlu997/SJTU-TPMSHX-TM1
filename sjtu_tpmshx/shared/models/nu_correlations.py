@@ -88,21 +88,10 @@ def record_air_nu_scalar_ranges(tpms_type, raw_Re):
     values = np.asarray(raw_Re, dtype=np.float64).ravel()
     if not values.size:
         return
-    selected = {0, values.size - 1}
-    finite = np.isfinite(values)
-    finite_indices = np.flatnonzero(finite)
-    if finite_indices.size:
-        valid = values[finite_indices]
-        selected.add(int(finite_indices[valid.argmin()]))
-        selected.add(int(finite_indices[valid.argmax()]))
+    from sjtu_tpmshx.shared import _native_result_checks
+
     lo, hi = NU_RE_FIT_RANGE
-    below, above = values < lo, values > hi
-    # Keep the first warnings, worst finite snapshot and last scalar sample.
-    for mask in (~finite, below, above, finite & (below | above)):
-        indices = np.flatnonzero(mask)
-        if indices.size:
-            selected.add(int(indices[0]))
-    for index in sorted(selected):
+    for index in _native_result_checks.scalar_samples(values, lo, hi):
         value = float(values[index])
         _warn_extrap(tpms_type, value, value, value)
 

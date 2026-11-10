@@ -168,7 +168,7 @@ jobs:
         with:
           name: native-build-${{ matrix.os }}
           path: .cache/ci-native-build
-      - name: Restore verified geometry and preparation libraries for BO
+      - name: Restore verified geometry, preparation and result libraries for BO
         shell: bash
         run: |
           "$CI_PYTHON" - <<'PY'
@@ -179,9 +179,9 @@ jobs:
           host = 'windows-x64' if os.name == 'nt' else 'macos-arm64'
           prefix, suffix = ('', '.dll') if os.name == 'nt' else ('lib', '.dylib')
           with tarfile.open('.cache/ci-native-build/native-binaries.tar') as archive:
-              for component in ('geometry', 'preparation'):
+              for component in ('geometry', 'preparation', 'result'):
                   name = prefix + 'tpmshx_' + component + '_shared' + suffix
-                  folder = 'preparation' if component == 'preparation' else 'pilot'
+                  folder = component if component in ('preparation', 'result') else 'pilot'
                   member = folder + '-' + host + '/' + name
                   archive.extract(archive.getmember(member), '.cache/native-deps/build', filter='data')
                   source = Path('.cache/native-deps/build') / member
@@ -217,8 +217,73 @@ jobs:
           include-hidden-files: true
           retention-days: 7
 
+  result-build:
+    needs: scope
+    if: needs.scope.outputs.tier != 'docs'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      MPLCONFIGDIR: .cache/matplotlib
+      XDG_CACHE_HOME: .cache/xdg
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - name: Create the locked result build environment
+        run: |
+          python -m venv "$RUNNER_TEMP/tm1-result"
+          echo "$RUNNER_TEMP/tm1-result/bin/python" > .venv-path
+          echo "CI_PYTHON=$RUNNER_TEMP/tm1-result/bin/python" >> "$GITHUB_ENV"
+          "$RUNNER_TEMP/tm1-result/bin/python" -m pip install -r engineering/requirements/postprocess.txt
+      - name: Fetch only the locked CMake tool
+        run: '"$CI_PYTHON" engineering/scripts/build_native_dependencies.py fetch-cmake --component result'
+      - name: Build, verify and publish the standard-only result image
+        run: '"$CI_PYTHON" engineering/scripts/build_native_dependencies.py publish --component result --python-lock engineering/requirements/postprocess.txt'
+      - name: Check result numerical contracts before publication of the artifact
+        run: >-
+          "$CI_PYTHON" -m pytest -q --junitxml=.cache/native-deps/logs/result-contracts.xml
+          sjtu_tpmshx/development/tests/native/test_result_metrics.py
+          sjtu_tpmshx/development/tests/native/test_result_checks.py
+          sjtu_tpmshx/development/tests/test_native_result_balance.py
+          sjtu_tpmshx/development/tests/test_native_zone_statistics.py
+          sjtu_tpmshx/development/tests/test_native_result_loader.py
+      - name: Include result distribution notices
+        run: |
+          "$CI_PYTHON" - <<'PY'
+          from pathlib import Path
+          import shutil
+          native = Path('sjtu_tpmshx/solvers/native')
+          notices = native / 'lib/linux-x86_64/licenses/native'
+          notices.mkdir(parents=True)
+          shutil.copy2('LICENSE', notices.parent / 'LICENSE')
+          shutil.copy2(native / 'THIRD_PARTY_NOTICES.md', notices)
+          shutil.copy2(native / 'dependencies-lock.toml', notices)
+          shutil.copytree(native / 'licenses', notices / 'licenses')
+          for record in ('result/sources.md', 'preparation/sources.md', 'geometry/README.md', 'geometry/fields-sources.md'):
+              target = notices / record
+              target.parent.mkdir(exist_ok=True)
+              shutil.copy2(native / record, target)
+          PY
+      - name: Save the independent Linux result image
+        uses: actions/upload-artifact@v7
+        with:
+          name: result-build-linux-x86_64
+          path: sjtu_tpmshx/solvers/native/lib/linux-x86_64/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Save result build and caller evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: result-build-linux-logs
+          path: .cache/native-deps/logs/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+
   minimal-postprocess:
-    needs: [scope, native]
+    needs: [scope, native, result-build]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -241,6 +306,11 @@ jobs:
       - uses: actions/download-artifact@v8
         if: needs.scope.outputs.tier != 'docs'
         with:
+          name: result-build-linux-x86_64
+          path: sjtu_tpmshx/solvers/native/lib/linux-x86_64
+      - uses: actions/download-artifact@v8
+        if: needs.scope.outputs.tier != 'docs'
+        with:
           name: real-file-handoff
           path: .cache/real-file-handoff
       - name: Create isolated minimal environment
@@ -260,6 +330,15 @@ jobs:
       - name: Run file and offline metric checks from source
         if: needs.scope.outputs.tier != 'docs'
         run: '"$CI_PYTHON" -m pytest sjtu_tpmshx/development/tests/io_tm1 sjtu_tpmshx/development/tests/postprocess_tm1 -q'
+      - name: Compare result kernels in the minimal Linux environment
+        if: needs.scope.outputs.tier != 'docs'
+        run: >-
+          "$CI_PYTHON" -m pytest -q
+          sjtu_tpmshx/development/tests/native/test_result_metrics.py
+          sjtu_tpmshx/development/tests/native/test_result_checks.py
+          sjtu_tpmshx/development/tests/test_native_result_balance.py
+          sjtu_tpmshx/development/tests/test_native_zone_statistics.py
+          sjtu_tpmshx/development/tests/test_native_result_loader.py
       - name: Evaluate real 2D and 3D files in the minimal environment
         if: needs.scope.outputs.tier != 'docs'
         run: '"$CI_PYTHON" -m pytest sjtu_tpmshx/development/tests/integration_tm1/test_minimal_install.py -q'

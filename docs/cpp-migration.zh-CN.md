@@ -15,9 +15,9 @@ application -> preprocess.api -> CaseData -> solvers.api -> FieldResult
                                                            -> postprocess.api
 ```
 
-0.2 保留这些模块边界，统一使用 C++ 数值后端。Python 保留应用接口、前处理、模型资源、优化和后处理。0.1 保留两套求解实现；0.2 撤销 Python 数值后端及其额外研究入口。共享温度 sweep 与能量审计继续使用。既有守恒 EOS 路线默认使用 T-SOU；H-FOU、T-FOU 与冻结 H sweep 的 C 导出已退役。历史结果及匹配的归档运行库保留原算法身份。外层物性 Anderson 已退役；固定物性松弛和热方程 Anderson 保留原规则。
+0.2 保留这些模块边界，统一使用 C++ 数值后端。Python 保留应用、前处理、优化和后处理接口，以及模型资源。0.1 保留两套求解实现；0.2 撤销 Python 数值后端及其额外研究入口。共享温度 sweep 与能量审计继续使用。既有守恒 EOS 路线默认使用 T-SOU；H-FOU、T-FOU 与冻结 H sweep 的 C 导出已退役。历史结果及匹配的归档运行库保留原算法身份。外层物性 Anderson 已退役；固定物性松弛和热方程 Anderson 保留原规则。
 
-完整二维／三维和 Quick Design 使用 macOS arm64 或 Windows x64 匹配库。公共 `RunControl` 和 CLI 默认使用 C++。库路径属于主机控制，不写入 `CaseData`；缺库时明确失败。交付保留 Python/Qt 入口和项目文件夹内预构建库。必需 CI、可见桌面、完整性能和实验精度保持独立验收。
+完整二维／三维和 Quick Design 使用 macOS arm64 或 Windows x64 匹配库。公共 `RunControl` 和 CLI 默认使用 C++。库路径属于主机控制，不写入 `CaseData`；缺库时明确失败。交付保留 Python/Qt 入口和项目文件夹内匹配的求解库、几何库、准备库和结果库。必需 CI、可见桌面、完整性能和实验精度保持独立验收。
 
 当前数值检查采用独立公式、离散账本、制造解、原生组件重放及固定历史参考。原 Python/C++ 比较保留为[0.1 记录构建的证据](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/v0.1.0/docs/cpp-migration.zh-CN.md)，0.2 不保留 Python 求解器重跑这些对照。
 
@@ -37,8 +37,8 @@ Python 保留公共类型、缓存及逐次调用的 chi 显式值／环境值�
 独立 CMake 项目为 `sjtu_tpmshx/solvers/native/geometry/`。
 `tpmshx_geometry_shared` 目标使用 C++ 标准库、marching-cubes 移植与受限 C17 FITPACK 子集，
 不需要 CoolProp、SuperLU、AMGCL、Eigen 或求解运行库；完整 dependency pilot 包含同一目标。
-第四批增加下述独立准备核心；第五批独立结果核心与结果数学迁移仍待完成。
-六批迁移尚未完成；本节不报告新的 CI 或完整批次验收结论。
+第四批增加下述独立准备核心；第五批接入独立结果核心与结果数学。
+六批迁移尚未完成，第五批数值与平台验收仍在进行。
 
 [架构说明](architecture.zh-CN.md#native-grids-and-design-fields)定义数值所有权、类型及缓冲区生命周期。
 [设计场来源说明](../sjtu_tpmshx/solvers/native/geometry/fields-sources.md)记录固定来源、本地修改及 BSD 声明。
@@ -85,16 +85,18 @@ $tm1Lock = 'engineering/requirements/base.txt'
 独立产物默认位于 `.cache/native-deps/build/geometry-<host>`，验证执行静态／动态 C 调用方及几何 kernel smoke。
 几何单独发布写入 `geometry-build.json`，不触及 solver 或 run_state。
 内容不同的旧几何库及匹配记录保存在 `previous/`。
-默认完整发布先构建并验证求解库、几何库与准备库，再以同一事务替换三个库。
-求解库保留 `build.json`，几何库使用 `geometry-build.json`，准备库使用 `preparation-build.json`。
+默认完整发布先构建并验证求解库、几何库、准备库和结果库，再以同一事务替换四个库。
+求解库保留 `build.json`，几何库使用 `geometry-build.json`，
+准备库使用 `preparation-build.json`，结果库使用 `result-build.json`。
 替换失败时恢复选定文件及元数据；回滚失败时保留暂存文件并报告恢复路径。
 旧求解检查点仍须使用精确保留的运行库、准备态输入和控制量。
 
 application 与 full CI tier 均保留完整 native pilot 构建和既有求解器覆盖。
-产物显式包含几何库和准备库，原生与 BO 消费者恢复同一平台产物中的这些库。
-此构建拆分不缩减或扩张 gate、锁和受支持平台声明。
+产物显式包含求解库、几何库、准备库和结果库。
+原生与 BO 消费者从同一平台产物中恢复所需运行库。
+完整计算仍限于 macOS arm64 与 Windows x64；独立 Linux 结果评估范围见下文。
 Python wheel 包含代码和模型资源，不包含原生库。
-桌面打包要求三个预构建输入，详见[桌面交付](desktop.md#可选冻结打包)。
+桌面打包要求四个预构建输入，详见[桌面交付](desktop.md#可选冻结打包)。
 
 <a id="native-preparation-core"></a>
 
@@ -160,23 +162,62 @@ Windows 准备库使用原锁定的 Windows 静态归档。
 wheel 提供 Python 接口与显式声明的资源；原生构建仍是显式步骤。
 `engineering/scripts/check_distributions.py` 实际构建并检查源码包及其 wheel。
 须通过 `--output-dir` 指定 `.cache/` 下的新目录。
-`publish --component preparation` 只发布准备库及 `preparation-build.json`，不替换求解库、几何库或 run_state 文件。
+`publish --component preparation` 只发布准备库及 `preparation-build.json`，不替换求解库、几何库、结果库或 run_state 文件。
 内容不同的旧库和匹配记录保存在 `previous/`，替换失败使用同一事务回滚。
 
 macOS arm64 运行库为 `libtpmshx_preparation_shared.dylib`，Windows x64 为 `tpmshx_preparation_shared.dll`。
 源码默认目录为 `sjtu_tpmshx/solvers/native/lib/<host>/`，冻结程序使用自身的 `native/`。
 `TPMSHX_PREPARATION_LIBRARY` 选择其他预构建运行库。
-桌面打包从 `TPMSHX_NATIVE_PREPARATION_LIBRARY` 接收它，同时要求求解库与几何库输入。
+桌面打包从 `TPMSHX_NATIVE_PREPARATION_LIBRARY` 接收它，同时要求求解库、几何库和结果库输入。
 Python wheel 包含代码和模型资源，不包含原生库。
 历史结果回读和独立后处理不加载准备库或几何库。
 
 修改 C++ 函数或编入库的数据后，须重建受影响的库并重启进程。
-求解、几何和准备的构建记录与按版本隔离的物性表缓存保持独立。
+求解、几何、准备和结果的构建记录与按版本隔离的物性表缓存保持独立。
 求解库重新链接会产生新的构建身份；旧检查点仍须精确保留的求解库、准备态输入与控制量。
 当前／previous 运行库和运行记录仍有消费者时必须保留。
-独立轻量 Linux 结果核心属于第五批，本批不建立 Linux 完整求解器支持。
-第五批后处理迁移及第六批消费者／退休终审尚未完成。
+独立轻量 Linux 结果核心属于第五批；Linux 完整求解器不在本批范围内。
+第五批结果数值已接入，数值与平台验收仍在进行。
+第六批消费者／退役终审尚未完成。
 交付前必须完成所需检查；本节不报告新的 CI、Windows 或完整验收结果。
+
+<a id="native-result-core"></a>
+
+## 原生结果核心
+
+第五批接入独立结果 ABI 2，负责指标、有符号物理平衡、分区统计及数值资格检查。
+Python 选择已记录证据，保留状态、原因、类型与文件接口。
+独立 `solvers/native/result/` 项目只使用 C++17 和系统库，
+不加载求解器、准备库、几何库、CoolProp 或模型资源。
+本批数值与平台验收仍在进行。
+
+纯导入和 HDF/JSON 读取不加载原生库；实际指标运算需要预构建结果库。
+`TPMSHX_RESULT_LIBRARY` 可指定其他文件的绝对路径；默认目录是包内 `solvers/native/lib/<host>/`。
+三种库名分别为 `libtpmshx_result_shared.dylib`、`tpmshx_result_shared.dll`、`libtpmshx_result_shared.so`。
+Linux x86_64 只支持独立结果评估。
+Linux 仅允许 `fetch-cmake`、`build`、`verify` 和 `publish`，且必须指定 `--component result`。
+此流程不获取或校验模型源码、不生成模型系数，也不构建完整求解器。
+
+若 `.venv-path` 已记录既有最小环境：
+
+```sh
+tm1_python="$(sed -n '1p' .venv-path)"
+"$tm1_python" engineering/scripts/build_native_dependencies.py fetch-cmake --component result
+"$tm1_python" engineering/scripts/build_native_dependencies.py publish --component result --python-lock engineering/requirements/postprocess.txt
+```
+
+使用基础或 BO 环境时选择其精确锁。Windows 在 MSVC 开发终端使用相同参数。
+独立 `build --component result` 与 `verify --component result` 使用同一锁和缓存。
+默认构建目录为 `.cache/native-deps/build/result-<host>`。
+验证运行独立 C 静态、C 动态和 C++ 核心调用方，并检查精确 C 导出及系统运行库依赖。
+独立结果发布不构建求解状态，`result-build.json` 保留实际编译器、选项、产物和 SDK 元数据。
+其依赖记录为空，不包含 CoolProp 构建记录。
+macOS／Windows 完整发布以同一事务部署四个库，并保留各自匹配的前一版本。
+CI 保留完整 macOS／Windows 构建，并增加独立 Ubuntu `result-build` 作业。
+该作业向 `minimal-postprocess` 提供 `result-build-linux-x86_64`，后者还接收独立的 macOS `real-file-handoff` 输入。
+最小作业检查独立结果参考和真实保存的 2D/3D 文件，不构建求解器或模型库。
+[来源与接口说明](../sjtu_tpmshx/solvers/native/result/sources.md)定义类型、缓冲区、错误及许可声明。
+不提供数值回退、运行时编译器或通用数值回调。
 
 <a id="complete-quick-design-capability"></a>
 
@@ -403,7 +444,8 @@ TPMSHX_REQUIRE_CPP_TESTS=1 TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1 \
 C++ 使用生成的常量，运行时不解析 JSON，也不调用 Python。
 第一批统一数据来源，第二批增加上述独立几何核心；第三批将网格和设计场计算接入同一库，每条数值规则保持唯一所有者。
 第四批增加独立准备目标，负责物性、DF 和准备数值；既有模型身份与拟合系数不变。
-第五批结果数值及消费者／退休终审仍未完成，详见[模型资源](model-resources.md#当前资源与研究输出)。
+第五批结果数值已接入，数值与平台验收仍在进行；第六批消费者／退役终审尚未完成。
+详见[模型资源](model-resources.md#当前资源与研究输出)。
 
 Python wheel 包含代码、JSON 和 CSV 资源，不包含原生库；原生求解库仍须单独显式构建。
 系数未变不表示旧检查点能使用新构建的求解库。
