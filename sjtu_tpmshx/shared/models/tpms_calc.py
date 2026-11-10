@@ -146,9 +146,8 @@ def adaptive_grid(L_domain: float, H_domain: float,
     -------
     Nx, Ny : int
     """
-    Nx = max(20, round(L_domain / (alpha * D_h)))
-    Ny = max(10, round(H_domain / (alpha * D_h)))
-    return Nx, Ny
+    from ._native_grid import adaptive
+    return adaptive(L_domain, H_domain, D_h, alpha)
 
 
 # ── Main interface ────────────────────────────────────────────

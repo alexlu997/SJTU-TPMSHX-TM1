@@ -27,16 +27,31 @@ application -> preprocess.api -> CaseData -> solvers.api -> FieldResult
 
 第二批将标准、CO2、非对称几何与 chi/Kss 迁入 C++。
 Sigmoid LUT 节点和派生几何也使用该核心。
+第三批增加网格、端口、六方向轴映射、连续 XY/XYZ 场、sigmoid、线性 LUT、分区和 Gaussian 平滑。
+这些计算使用同一 `tpmshx_geometry_shared` 文件，不新增运行库或数值框架。
 数值源码仍在 `sjtu_tpmshx/solvers/native/`。
 `shared/models/_native_geometry.py` 在几何查询需要时，通过 ctypes 加载独立几何 ABI 1 库。
 Python 保留公共类型、缓存及逐次调用的 chi 显式值／环境值／拟合选择。
 缺库、ABI 不符或符号缺失时明确失败，不使用数值 fallback，也不在运行时构建。
 
 独立 CMake 项目为 `sjtu_tpmshx/solvers/native/geometry/`。
-`tpmshx_geometry_shared` 目标使用 C++ 标准库与内附 marching-cubes 实现，
+`tpmshx_geometry_shared` 目标使用 C++ 标准库、marching-cubes 移植与受限 C17 FITPACK 子集，
 不需要 CoolProp、SuperLU、AMGCL、Eigen 或求解运行库；完整 dependency pilot 包含同一目标。
-网格／设计场插值、物性、DF、完整前处理和结果数学仍属后续批次。
+第四批物性／DF／完整前处理和第五批结果数学仍待迁移。
 六批迁移尚未完成；本节不报告新的 CI 或完整批次验收结论。
+
+[架构说明](architecture.zh-CN.md#native-grids-and-design-fields)定义数值所有权、类型及缓冲区生命周期。
+[设计场来源说明](../sjtu_tpmshx/solvers/native/geometry/fields-sources.md)记录固定来源、本地修改及 BSD 声明。
+XY 保留首次拟合的 `s=0` 双变量路线；XYZ 和含单点轴的 XY 保留逐轴拟合并采样。
+标量带状求解不声明与 LAPACK／BLAS 逐位一致，原始数值与物理多项式门槛保持不变。
+XY 与 Apple-arm64 Gaussian 的局部融合设置不启用全局 fast-math；Windows 和完整工况资格仍须分别建立。
+
+Geometry、grid 和 zones 调用保留几何 ABI 1，状态 2 表示算术域错误。
+设计场调用在同一文件增加 field ABI 2，状态 2 表示分配失败；ctypes 适配使用不同错误映射。
+既有几何签名不变。调用按显式长度借用缓冲区，失败时不修改调用方输出。
+XY 句柄持有创建库直至释放；LUT 对象保留捕获的轴、表及创建绑定。
+Python 持有返回数组、配置、DTO、I/O、缓存及 GUI／BO 编排。
+已替换的 Python 数值体已退役，独立参考保留在 `development/tests/`。
 
 macOS arm64 使用 `libtpmshx_geometry_shared.dylib`，Windows x64 使用 `tpmshx_geometry_shared.dll`。
 源码默认目录为 `sjtu_tpmshx/solvers/native/lib/<host>/`，冻结程序使用自身的 `native/`。
@@ -303,7 +318,8 @@ TPMSHX_REQUIRE_CPP_TESTS=1 TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1 \
 资源读取器仅使用 Python 标准库，生成器不导入数值模型实现。
 构建在所选缓存的 `generated/` 目录下生成 `tpmshx/model_coefficients.hpp`，默认目录为 `.cache/native-deps/generated/`。
 C++ 使用生成的常量，运行时不解析 JSON，也不调用 Python。
-第一批统一数据来源，第二批增加上述独立几何核心；设计场／网格、物性／DF／前处理和结果迁移仍未完成，详见[模型资源](model-resources.md#当前资源与研究输出)。
+第一批统一数据来源，第二批增加上述独立几何核心；第三批将网格和设计场计算接入同一库，每条数值规则保持唯一所有者。
+物性／DF／完整前处理和结果迁移仍未完成；本批不修改参数 schema 或拟合系数，详见[模型资源](model-resources.md#当前资源与研究输出)。
 
 Python wheel 包含 JSON 资源，不包含原生库；原生求解库仍须单独显式构建。
 系数未变不表示旧检查点能使用新构建的求解库。
@@ -340,6 +356,7 @@ SuperLU 调用采用纯 C 错误边界和线程局部分配账本。分配失败
 SIMPLE 接口持有逐实例压力缓存，并保留原 F2、出口、热启动状态和原始质量证据。这些可独立调用驱动也支撑上述完整二维／三维外耦合后端。macOS SuperLU 构建使用锁定 SciPy 参考所用的系统 Accelerate BLAS，并为二维 SIMPLE 保留原 CSR／转置 LU 运算顺序。Windows 使用锁定可移植 CBLAS 源码，由必需原生 CI 执行。动量串行循环不表示 BLAS 单线程；线程策略和测得性能须分别记录。
 
 `native-dependencies` CI 在 macOS/Python 3.13 和 Windows/Python 3.12/3.13 构建并执行这些调用方与必需测试。可执行文件缺失会使必需作业失败。可选本地组件测试可以跳过未构建组件，但不能据此声明原生资格。两平台均有真实必需 CI 通过记录；证据仅覆盖其构建与工况。
+这些既有求解器／依赖记录不构成第三批设计场迁移验收。
 
 <a id="remaining-stages-and-acceptance-gates"></a>
 

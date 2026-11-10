@@ -100,13 +100,21 @@ def test_real_application_mapping_and_offline_readback(monkeypatch, tmp_path, di
     case = prepare_case(config, case_id=f'application-{dimension}d')
     save_case(case, tmp_path / 'case.h5')
     case = load_case(tmp_path / 'case.h5')
-    # The prepared boundary owns fixed geometry, including the air bulk
-    # closure. Temperature-dependent fluid/Nu evaluation remains permitted.
+    # Execution consumes fixed prepared TPMS geometry. Port validation and
+    # temperature-dependent fluid/Nu evaluation remain permitted.
     from sjtu_tpmshx.shared.models import tpms_props, tpms_calc, tpms_geometry, _native_geometry
     def forbidden_geometry(*args, **kwargs):
         raise AssertionError('execution rebuilt prepared thermal geometry')
+    geometry_call = _native_geometry._call
+    def prepared_call(function, *args):
+        # Port validation shares the status helper, not fixed TPMS geometry.
+        if not getattr(function, '__name__', '').startswith('tpmshx_geometry_grid_'):
+            forbidden_geometry()
+        return geometry_call(function, *args)
     with monkeypatch.context() as geometry_guard:
-        geometry_guard.setattr(_native_geometry, '_call', forbidden_geometry)
+        geometry_guard.setattr(_native_geometry, '_call', prepared_call)
+        with pytest.raises(AssertionError, match='execution rebuilt prepared thermal geometry'):
+            _native_geometry.threshold('Gyroid', .1)
         geometry_guard.setattr(tpms_props, 'geometry', forbidden_geometry)
         geometry_guard.setattr(tpms_calc, 'geometry', forbidden_geometry)
         geometry_guard.setattr(tpms_geometry, '_phi_grid', forbidden_geometry)

@@ -32,9 +32,15 @@ The numerical owners for standard, CO2 and asymmetric geometry, plus chi/Kss, ar
 [native/src/asym_geometry.cpp](solvers/native/src/asym_geometry.cpp).
 [shared/models/_native_geometry.py](shared/models/_native_geometry.py) uses ctypes to load the independent geometry ABI 1 library lazily.
 It keeps Python public entries, types and caches without importing the solver backend.
-Sigmoid LUT nodes and derived geometry use this core.
-Design-field interpolation/grids, properties/DF/full preparation and result calculations remain in later stages.
-The six-stage migration remains incomplete.
+Stage three puts grids, ports and six-direction axis mapping in
+[grid.cpp](solvers/native/src/grid.cpp) and [ports.cpp](solvers/native/src/ports.cpp).
+Pressure solvers and preparation use the same port implementation.
+[field_continuous.cpp](solvers/native/src/field_continuous.cpp), the sigmoid/LUT cores and [zones.cpp](solvers/native/src/zones.cpp)
+own design-field interpolation, zones and Gaussian filtering. They use the same geometry library.
+Python keeps configuration, type/array adaptation, data objects, I/O, caches, GUI and BO orchestration.
+The replaced Python numerical bodies are retired. Independent references serve development regression tests only.
+Stage four still requires properties, DF and full preparation. Stage five still requires result calculations.
+The six-stage goal remains incomplete. Acceptance for this batch requires platform CI and final checks.
 See [native geometry](../docs/cpp-migration.md#native-geometry-core) for independent builds, two-library delivery and research entries.
 
 <a id="三模块主线"></a>

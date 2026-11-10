@@ -28,8 +28,14 @@ compute -> preprocess.api.prepare_case -> CaseData -> solvers.api.run_case -> Fi
 [native/src/asym_geometry.cpp](solvers/native/src/asym_geometry.cpp)。
 [shared/models/_native_geometry.py](shared/models/_native_geometry.py) 通过 ctypes 延迟加载独立几何 ABI 1 库，
 保留 Python 公共入口、类型和缓存，不导入求解器后端。
-Sigmoid LUT 节点和派生几何已使用该核心；设计场插值／网格、物性／DF／完整前处理和结果计算仍待后续迁移。
-六批迁移尚未完成。独立构建、两库交付和研究入口见[原生几何说明](../docs/cpp-migration.zh-CN.md#native-geometry-core)。
+第三批的网格／端口和六方向轴映射由 [grid.cpp](solvers/native/src/grid.cpp) 与 [ports.cpp](solvers/native/src/ports.cpp) 负责。
+压力求解器和前处理共用同一端口实现。
+[field_continuous.cpp](solvers/native/src/field_continuous.cpp)、sigmoid／LUT 核心及 [zones.cpp](solvers/native/src/zones.cpp)
+负责设计场插值、分区和 Gaussian 平滑，仍部署在同一几何库中。
+Python 保留配置、类型／数组适配、数据对象、I/O、缓存、GUI 和 BO 编排。
+已替换的 Python 数值体已退役；独立参考只供 development 回归使用。
+第四批物性／DF／完整前处理和第五批结果计算仍待迁移，六批目标尚未完成。
+本批验收须包含平台 CI 和最终检查。独立构建、两库交付和研究入口见[原生几何说明](../docs/cpp-migration.zh-CN.md#native-geometry-core)。
 
 <a id="三模块主线"></a>
 <a id="支撑模块与应用入口"></a>

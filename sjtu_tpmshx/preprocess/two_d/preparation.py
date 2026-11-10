@@ -135,12 +135,11 @@ def _build_zone_arrays(compute_cfg, N_x, N_y, *, dx_arr=None, dy_arr=None, geome
 
     # Smooth zone property arrays at boundaries (skip continuous mode).
     if za is not None and zone_config is not None and za.get('axis') != 'continuous':
-        from scipy.ndimage import gaussian_filter
-        _sigma = 2.0
+        from sjtu_tpmshx.shared.models._native_zones import gaussian
         for _key in ('K_ffA_arr', 'K_ffB_arr', 'K_ss_arr',
                      'h_vA_arr', 'h_vB_arr', 'eps_arr'):
             if _key in za:
-                za[_key] = gaussian_filter(za[_key], sigma=_sigma)
+                za[_key] = gaussian(za[_key])
 
     return zone_config, za, z_axis
 

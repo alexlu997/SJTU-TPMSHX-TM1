@@ -39,19 +39,36 @@ They are not rerun with a retained Python solver in 0.2.
 
 ## Native geometry core
 
-The second migration stage puts standard, CO2 and asymmetric geometry, plus chi/Kss, in C++.
+The second migration stage put standard, CO2 and asymmetric geometry, plus chi/Kss, in C++.
 Sigmoid LUT nodes and derived geometry also use this core.
+Stage three adds grids, ports, six-direction axis mapping, continuous XY/XYZ fields, sigmoid, linear LUTs, zones and Gaussian filtering.
+The same `tpmshx_geometry_shared` file provides these calculations. There is no extra runtime library or numerical framework.
 The numerical sources remain under `sjtu_tpmshx/solvers/native/`.
 `shared/models/_native_geometry.py` uses ctypes to load the independent geometry ABI 1 library on demand.
 Python keeps public types, caches and per-call explicit/environment/fit selection for chi.
 Missing libraries, incorrect ABI or missing symbols fail explicitly. There is no numerical fallback or runtime build.
 
 The independent CMake project is `sjtu_tpmshx/solvers/native/geometry/`.
-Its `tpmshx_geometry_shared` target uses the C++ standard library and the vendored marching-cubes implementation.
+Its `tpmshx_geometry_shared` target uses the C++ standard library, the marching-cubes port and a restricted C17 FITPACK subset.
 It needs no CoolProp, SuperLU, AMGCL, Eigen or solver runtime.
 The full dependency pilot includes the same target.
-Grid/design-field interpolation, properties, DF, full preparation and result mathematics remain in later stages.
+Stage four still requires properties, DF and full preparation. Stage five still requires result mathematics.
 The six-stage migration is incomplete; this section does not report new CI or complete batch acceptance.
+
+The [architecture](architecture.md#native-grids-and-design-fields) defines numerical ownership, types and buffer lifetimes.
+The [field source record](../sjtu_tpmshx/solvers/native/geometry/fields-sources.md) identifies fixed sources, local changes and BSD notices.
+XY keeps the first-fit `s=0` bivariate route. XYZ and singleton XY axes keep sequential one-dimensional fits and samples.
+The scalar band solver does not claim bitwise LAPACK/BLAS identity. Existing raw and physical-polynomial gates remain unchanged.
+Local XY and Apple-arm64 Gaussian fusion settings do not enable global fast-math.
+Windows and complete-case qualification remain separate requirements.
+
+The geometry, grid and zone calls retain geometry ABI 1: status 2 means a domain error.
+The field calls add field ABI 2 in the same file: status 2 means allocation failure.
+Their ctypes adapters use separate error mappers. Existing geometry signatures do not change.
+Call buffers are borrowed with explicit extents. Failure leaves caller outputs unchanged.
+XY handles retain their creating library until release; LUT objects retain captured axes, tables and their creating binding.
+Python owns returned arrays, configuration, DTOs, I/O, caches, GUI and BO orchestration.
+Replaced Python numerical bodies are retired. Independent references remain under `development/tests/`.
 
 Use `libtpmshx_geometry_shared.dylib` on macOS arm64 or `tpmshx_geometry_shared.dll` on Windows x64.
 The source default is `sjtu_tpmshx/solvers/native/lib/<host>/`; frozen programs use their `native/` directory.
@@ -654,8 +671,9 @@ The generator does not import numerical model implementations.
 The build writes `tpmshx/model_coefficients.hpp` under the selected cache's `generated/` directory.
 The default directory is `.cache/native-deps/generated/`.
 C++ uses the generated constants without runtime JSON parsing or Python calls.
-The first stage unified data sources. The second adds the independent geometry core described above.
-Design-field/grid, property/DF/preparation and result migrations remain incomplete.
+The first stage unified data sources. The second added the independent geometry core described above.
+The third adds grids and design-field calculations to the same library, with one owner for each numerical rule.
+Property/DF/full-preparation and result migrations remain incomplete. This batch does not change parameter schemas or fitted coefficients.
 See [model resources](model-resources.en.md#当前资源与研究输出).
 
 The Python wheel includes the JSON resources. It does not include native libraries.
@@ -743,6 +761,7 @@ tests on macOS/Python 3.13 and Windows/Python 3.12/3.13. A missing executable
 fails the required job. Optional local component runs can skip an unbuilt pilot.
 That skip does not show native qualification. Both platforms have actual
 required native CI passes. The evidence is bounded to those builds and cases.
+These earlier solver/dependency records do not establish acceptance for the stage-three field migration.
 
 <a id="remaining-stages-and-acceptance-gates"></a>
 

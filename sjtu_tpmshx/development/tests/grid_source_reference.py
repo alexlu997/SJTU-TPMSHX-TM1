@@ -1,0 +1,315 @@
+"""Physical grid construction, independent of numerical kernels."""
+import math
+
+import numpy as np
+
+SHANGHAI_GRID_2D = (84, 24, 1)
+SHANGHAI_GRID_3D = (92, 14, 10)
+
+
+def cell_average(field, *widths):
+    """Physical area/volume average, independent of how cells are subdivided."""
+    value = np.asarray(field)
+    if value.ndim == 0:
+        return float(value)
+    for axis_widths in widths:
+        value = np.average(value, axis=0, weights=axis_widths)
+    return float(value)
+
+
+def split_cells(widths):
+    """Bisect each cell while keeping its physical end point."""
+    result = []
+    position = 0.
+    for width, end in zip(widths, np.cumsum(widths)):
+        result.append(width / 2)
+        position += result[-1]
+        result.append(end - position)
+        position += result[-1]
+    return np.asarray(result)
+
+
+def _port_wall_axes(lengths, ports):
+    """Per-axis knots and layer settings used by construction and suggestions."""
+    breaks = [set() for _ in lengths]
+    for port in ports:
+        if port is None:  # Prepared 3D side B uses None for a full-face opening.
+            continue
+        cross_axes = [axis for axis in range(len(lengths)) if axis != port['dir'] // 2]
+        for axis, suffix in zip(cross_axes, ('', '_z')):
+            for end in ('in', 'out'):
+                centre = port.get(f'{end}{suffix}_ctr')
+                width = port.get(f'{end}{suffix}_w')
+                if centre is None and width is None:
+                    centre, width = lengths[axis] / 2, lengths[axis]
+                elif centre is None or width is None:
+                    raise ValueError(f'{end}{suffix} centre and width must be set together')
+                for edge in (centre - width / 2, centre + width / 2):
+                    if lengths[axis] * .001 < edge < lengths[axis] * .999:
+                        breaks[axis].add(edge)
+    for knots in breaks:
+        knots = sorted(knots)
+        if knots:
+            layers, first, growth = 4, .2e-3, 1.8
+        elif len(lengths) == 2:
+            layers, first, growth = 8, .02e-3, 1.8
+        else:
+            layers, first, growth = 4, .02e-3 * (1 + 1.8), 1.8**2
+        minimum = 2 * (layers + 1) * (len(knots) + 1)
+        yield knots, layers, first, growth, minimum
+
+
+def port_wall_min_counts(lengths, ports):
+    """Minimum total counts required by the actual port/wall construction."""
+    return tuple(spec[-1] for spec in _port_wall_axes(lengths, ports))
+
+
+def suggest_grid_3d(L_dom: float, H_dom: float, Lz_dom: float,
+                    D_h: float, max_cells: int = 50_000, *,
+                    port_wall_refine: bool = False, ports=()) -> tuple[int, int, int]:
+    """Suggest total cell counts for the selected desktop mesh scheme.
+
+    Hydraulic-diameter spacing is a starting heuristic, not an accuracy
+    guarantee. Port/wall counts already include all refinement layers; their
+    minimum comes from the same port segmentation as the grid builder.
+    The budget applies to the total Nx * Ny * Nz cell count.
+    """
+    lengths = (L_dom, H_dom, Lz_dom)
+    for name, v in zip(('L_dom', 'H_dom', 'Lz_dom', 'D_h'), (*lengths, D_h)):
+        if not math.isfinite(v) or v <= 0:
+            raise ValueError(f'{name} must be finite and > 0, got {v}')
+    minimum = (14, 8, 3)
+    if port_wall_refine:
+        minimum = tuple(max(base, needed) for base, needed in
+                        zip(minimum, port_wall_min_counts(lengths, ports)))
+    if max_cells < math.prod(minimum):
+        raise ValueError(f'Grid budget {max_cells} is below the required minimum '
+                         f'{minimum} ({math.prod(minimum)} cells)')
+    counts = [max(floor, round(length / (spacing * D_h)))
+              for floor, length, spacing in zip(minimum, lengths, (1., .5, .5))]
+    while math.prod(counts) > max_cells:
+        axis = max(range(3), key=lambda i: counts[i] / minimum[i])
+        counts[axis] = max(minimum[axis], int(counts[axis] * .8))
+    return tuple(counts)
+
+
+def build_port_wall_grid(lengths, counts, ports):
+    """Port-aligned, graded cells; counts include all wall and port layers.
+
+    The Shanghai mesh study uses 0.2 mm first cells at port edges, and
+    20 um (2D) / 56 um (3D) first cells at uninterrupted housing walls.
+    Other geometries require their own mesh-convergence assessment.
+    """
+    result = []
+    axes = _port_wall_axes(lengths, ports)
+    for axis, length, count, spec in zip('xyz', lengths, counts, axes):
+        knots, layers, first, growth, minimum = spec
+        segments = len(knots) + 1
+        bulk_count = count - 2 * layers * segments
+        if bulk_count < 2 * segments:
+            edges_mm = ', '.join(f'{edge * 1000:g}' for edge in knots) or 'none'
+            raise ValueError(
+                f'Port/wall grid needs at least {minimum} cells on {axis} axis; '
+                f'got {count}. Interior port edges: {edges_mm} mm '
+                f'({segments} segments). Increase N{axis} to at least {minimum} '
+                'or check the inlet/outlet position and width on this axis.')
+        bulk = _aligned_grid(bulk_count, length, knots)
+        edges = np.r_[0., np.cumsum(bulk)]
+        bounds = [0., *knots, length]
+        widths = []
+        position = 0.
+        for lo, hi in zip(bounds[:-1], bounds[1:]):
+            n = np.count_nonzero((edges[:-1] >= lo - 1e-12) & (edges[:-1] < hi - 1e-12))
+            segment = build_wall_refined_1d(hi - lo, n, layers, first, growth)
+            for width in segment[:-1]:
+                widths.append(width)
+                position += width
+            widths.append(hi - position)
+            position += widths[-1]
+        result.append(np.asarray(widths))
+    return tuple(result)
+
+
+def _aligned_grid(N, L, breakpoints):
+    """Generate 1D grid with cell edges aligned to breakpoint positions.
+
+    Breakpoints are positions where inlet/outlet meets wall. Cell edges
+    are guaranteed to fall exactly on these positions, eliminating the
+    velocity discontinuity within any single cell.
+
+    Parameters
+    ----------
+    N : int — total number of cells
+    L : float — domain length [m]
+    breakpoints : iterable of float — positions [m] to align cell edges to
+
+    Returns
+    -------
+    dx_arr : (N,) array — cell widths [m]
+    """
+    # Build sorted unique segment boundaries [0, bp1, bp2, ..., L]
+    eps_b = L * 0.001
+    bps = sorted(set([0.0] + [bp for bp in breakpoints
+                               if eps_b < bp < L - eps_b] + [L]))
+
+    if len(bps) <= 2:
+        return np.full(N, L / N, dtype=np.float64)
+
+    # Segments and their lengths
+    segments = [(bps[i], bps[i + 1]) for i in range(len(bps) - 1)]
+    if N < 2 * len(segments):
+        raise ValueError(f"Increase N to at least {2 * len(segments)} to align all segments")
+    lengths = [s[1] - s[0] for s in segments]
+    total = sum(lengths)
+
+    # Distribute cells proportional to segment length (min 2 per segment)
+    n_cells = [max(2, round(N * l / total)) for l in lengths]
+    # Adjust last segment to match total N
+    diff = N - sum(n_cells)
+    n_cells[-1] += diff
+    # Borrow from as many segments as needed without breaking their minimum.
+    if n_cells[-1] < 2:
+        deficit = 2 - n_cells[-1]
+        n_cells[-1] = 2
+        while deficit:
+            big = max(range(len(n_cells) - 1), key=lambda k: n_cells[k])
+            borrowed = min(deficit, n_cells[big] - 2)
+            n_cells[big] -= borrowed
+            deficit -= borrowed
+
+    # Anchor each segment end despite cumulative roundoff in uniform widths.
+    dx_list = []
+    position = 0.0
+    for (lo, hi), nc in zip(segments, n_cells):
+        seg_dx = (hi - lo) / nc
+        for _ in range(nc - 1):
+            dx_list.append(seg_dx)
+            position += seg_dx
+        dx_list.append(hi - position)
+        position += dx_list[-1]
+
+    return np.array(dx_list, dtype=np.float64)
+
+
+def build_wall_refined_1d(W, N_bulk, n_refine=8, first_cell=0.02e-3, growth=1.8):
+    """Build a 1D cross-stream grid with geometric refinement at both walls.
+
+    Layout: [refine_fine → refine_coarse | uniform bulk | refine_coarse → refine_fine]
+    Total cells = 2*n_refine + N_bulk.
+
+    Parameters
+    ----------
+    W : float — domain width (cross-stream extent) [m]
+    N_bulk : int — number of uniform bulk cells in the interior
+    n_refine : int — refinement layers per wall (default 8)
+    first_cell : float — thickness of cell touching the wall [m] (default 0.02 mm)
+    growth : float — geometric growth ratio (default 1.8)
+
+    Returns
+    -------
+    dx_arr : np.ndarray shape (2*n_refine + N_bulk,), sum == W
+
+    Used to resolve the Brinkman boundary layer at outer housing walls.
+    """
+    refine_sizes = np.array([first_cell * growth**k for k in range(n_refine)], dtype=np.float64)
+    total_refine = 2.0 * refine_sizes.sum()
+    bulk_width = W - total_refine
+    if bulk_width <= 0:
+        raise ValueError(
+            f"build_wall_refined_1d: refinement {total_refine*1000:.3f}mm exceeds "
+            f"domain width {W*1000:.3f}mm. Reduce n_refine or first_cell.")
+    bulk_cell = bulk_width / N_bulk
+    bulk = np.full(N_bulk, bulk_cell, dtype=np.float64)
+    return np.concatenate([refine_sizes, bulk, refine_sizes[::-1]])
+
+
+def build_master_refined_grid(L_dom: float, H_dom: float,
+                               Nx_user: int, Ny_user: int,
+                               n_refine: int = 8,
+                               first_cell: float = 0.02e-3,
+                               growth: float = 1.8
+                               ) -> tuple[np.ndarray, np.ndarray, int, int]:
+    """构造"主加密网格"：真实坐标 x/y 两端都加密，四面墙 BL 都解析。
+
+    返回 (dx_arr, dy_arr, Nx_refined, Ny_refined)
+      dx_arr (m): 沿实际 x 方向，共 Nx_user + 2*n_refine 个单元，∑=L_dom
+      dy_arr (m): 沿实际 y 方向，共 Ny_user + 2*n_refine 个单元，∑=H_dom
+
+    映射到 SIMPLE 坐标：
+      Fluid A (+x 流向): SIMPLE internal dx_arr = dy_refined, dy_arr = dx_refined
+      Fluid B (-y 流向): SIMPLE internal dx_arr = dx_refined, dy_arr = dy_refined
+
+    za 数组和 solve_full_domain 都直接用 (Nx_refined, Ny_refined) 这个网格。
+    """
+    dx_refined = build_wall_refined_1d(L_dom, Nx_user, n_refine=n_refine,
+                                        first_cell=first_cell, growth=growth)
+    dy_refined = build_wall_refined_1d(H_dom, Ny_user, n_refine=n_refine,
+                                        first_cell=first_cell, growth=growth)
+    return dx_refined, dy_refined, len(dx_refined), len(dy_refined)
+
+
+def build_grid_2d(L, H, Nx, Ny, ports, *, zone_axis=None, port_wall_refine=False):
+    """Build physical widths and port breakpoints for preparation and preflight.
+
+    Return dx, dy, x breaks, y breaks, and an optional refinement error.
+    Preparation keeps its aligned-grid fallback when wall refinement cannot fit.
+    Preflight uses the error to block a grid with unresolved wall layers.
+    """
+    x_breaks, y_breaks = set(), set()
+    for port in ports:
+        breaks, span = (y_breaks, H) if port['dir'] in (0, 1) else (x_breaks, L)
+        for end in ('in', 'out'):
+            centre = port.get(f'{end}_ctr', port['in_ctr'])
+            width = port.get(f'{end}_w', port['in_w'])
+            lo, hi = centre - width / 2, centre + width / 2
+            if lo > span * .001:
+                breaks.add(lo)
+            if hi < span * .999:
+                breaks.add(hi)
+    refinement_error = None
+    if port_wall_refine:
+        dx, dy = build_port_wall_grid((L, H), (Nx, Ny), ports)
+    else:
+        if not x_breaks and not y_breaks and zone_axis in (None, 'continuous'):
+            try:
+                dx, dy, _, _ = build_master_refined_grid(L, H, Nx, Ny)
+                return dx, dy, (), (), None
+            except ValueError as error:
+                refinement_error = str(error)
+        dx = _aligned_grid(Nx, L, list(x_breaks))
+        dy = _aligned_grid(Ny, H, list(y_breaks))
+    return dx, dy, tuple(sorted(x_breaks)), tuple(sorted(y_breaks)), refinement_error
+
+
+
+def _port_overlap_1d(widths, lo, hi, *, staggered=False):
+    """Exact interval overlap on primary CVs or CVs between adjacent centres."""
+    x_lo_edge = np.concatenate(([0.0], np.cumsum(widths[:-1])))
+    x_hi_edge = np.cumsum(widths)
+    if staggered:
+        centres = x_hi_edge - np.asarray(widths) / 2
+        x_lo_edge = np.r_[0., centres]
+        x_hi_edge = np.r_[centres, x_hi_edge[-1]]
+        widths = x_hi_edge - x_lo_edge
+    overlap = np.minimum(x_hi_edge, hi) - np.maximum(x_lo_edge, lo)
+    # A rounded shared edge must not turn a wall into a pressure outlet.
+    # Use spatial ULPs, not a fraction threshold that erases real small ports.
+    roundoff = 8 * np.spacing(max(abs(lo), abs(hi), abs(x_hi_edge[-1])))
+    overlap = np.where(np.abs(overlap) <= roundoff, 0., overlap)
+    return np.clip(overlap / widths, 0.0, 1.0)
+
+
+def _port_fractions_1d(widths, lo, hi, *, uniform=False):
+    """Return geometric overlap and the selected imposed port profile."""
+    raw = _port_overlap_1d(widths, lo, hi)
+    profile = raw.copy()
+    if uniform:
+        return raw, profile
+    for i in range(len(widths)):
+        if raw[i] > 0.99:
+            for d in range(1, 5):
+                if (i - d >= 0 and raw[i - d] < 0.01) or \
+                   (i + d < len(widths) and raw[i + d] < 0.01):
+                    profile[i] = 1.0 - 0.8 * np.exp(-1.0 * d)
+                    break
+    return raw, profile

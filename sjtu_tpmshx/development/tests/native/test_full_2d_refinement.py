@@ -4,7 +4,7 @@ import pytest
 
 from sjtu_tpmshx.shared.domain.compute_config import ComputeConfig
 from sjtu_tpmshx.shared.models import fluid_props
-from sjtu_tpmshx.shared.models.grid import split_cells
+from sjtu_tpmshx.development.tests.grid_reference import split_cells
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.development.tests.native import test_full_2d as coarse
 from sjtu_tpmshx.development.tests.native.test_refinement_2d import interpolate, _prolong_mass_faces_2d

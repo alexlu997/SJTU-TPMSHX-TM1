@@ -1,4 +1,6 @@
 #include "tpmshx/geometry_c_api.h"
+#include "tpmshx/zones_c_api.h"
+#include "tpmshx/zones.hpp"
 #include "tpmshx/geometry.hpp"
 #include "tpmshx/asym_geometry.hpp"
 #include "tpmshx/scalar_precision.hpp"
@@ -586,5 +588,49 @@ extern "C" int TPMSHX_GEOMETRY_CALL tpmshx_geometry_lut_batch_v1(
             local[i*7+6] = value.hydraulic_radius;
         }
         publish(local, result);
+    });
+}
+
+extern "C" int TPMSHX_GEOMETRY_CALL tpmshx_geometry_zone_ids_v1(
+    uint32_t kind, size_t nx, size_t ny, int axis, tpmshx_grid_scalar_v1 domain,
+    const tpmshx_grid_scalar_v1* rows, size_t row_count,
+    const double* dx, size_t dx_count, const double* dy, size_t dy_count,
+    int32_t* output, size_t output_count, char* error, size_t error_capacity) {
+    return boundary(error, error_capacity, [&] {
+        if (!nx || !ny) throw std::invalid_argument("zone dimensions must be positive");
+        const auto count = product(nx, ny);
+        require_output(output, output_count, count);
+        require_buffer(rows, product(row_count, 4));
+        if (dx_count != (dx ? nx : 0) || dy_count != (dy ? ny : 0))
+            throw std::invalid_argument("zone width lengths disagree with the axes");
+        require_buffer(dx, dx_count); require_buffer(dy, dy_count);
+        std::vector<tpmshx::zones::Bounds> bounds(row_count);
+        for (std::size_t i = 0; i < row_count; ++i)
+            for (std::size_t j = 0; j < 4; ++j) {
+                const auto& scalar = rows[4 * i + j];
+                bounds[i][j] = tpmshx::grid::checked({scalar.value, scalar.precision, scalar.strong});
+            }
+        tpmshx::zones::Values widths_x, widths_y;
+        if (dx) widths_x.assign(dx, dx + dx_count);
+        if (dy) widths_y.assign(dy, dy + dy_count);
+        const auto result = tpmshx::zones::assign(kind, nx, ny, axis,
+            {domain.value, domain.precision, domain.strong}, bounds,
+            dx ? &widths_x : nullptr, dy ? &widths_y : nullptr);
+        std::copy(result.begin(), result.end(), output);
+    });
+}
+
+extern "C" int TPMSHX_GEOMETRY_CALL tpmshx_geometry_zone_gaussian_v1(
+    size_t nx, size_t ny, const double* input_values, size_t input_count,
+    double* output, size_t output_count, char* error, size_t error_capacity) {
+    return boundary(error, error_capacity, [&] {
+        if (!nx || !ny) throw std::invalid_argument("zone dimensions must be positive");
+        const auto count = product(nx, ny);
+        if (input_count != count) throw std::invalid_argument("zone Gaussian input length differs");
+        require_buffer(input_values, input_count);
+        require_output(output, output_count, count);
+        const auto result = tpmshx::zones::gaussian_sigma2(
+            tpmshx::zones::Values(input_values, input_values + count), nx, ny);
+        std::copy(result.begin(), result.end(), output);
     });
 }

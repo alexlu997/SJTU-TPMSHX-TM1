@@ -30,9 +30,11 @@ Python 选择 dtype 元数据并适配输出类型，不提供数值回退。
 正式非零偏移几何准备保持原有 L/t 和长度的显式 Python-float 转换。
 其原生算术仍为 float64。
 
-网格和设计场插值、物性、DF、完整前处理及结果计算仍属后续批次。
+第三批将网格、端口、轴映射、连续 XY/XYZ 场、sigmoid、线性 LUT、分区及 Gaussian 平滑接入同一库。
+每条已迁移数值规则由唯一 C++ 实现负责；Python 保留配置、数据对象、类型／数组适配、I/O、缓存及应用编排。
+第四批物性／DF／完整前处理和第五批结果计算仍待迁移。
 六批迁移尚未完成，详见[模型资源](model-resources.md#当前资源与研究输出)。
-既有求解器 CI 记录不构成本批几何迁移验收。
+既有求解器 CI 记录不构成本批验收；完整工况检查、受支持平台 CI 和最终验收仍须完成。
 
 原生 full-compute CC 通过严格 model-h 驱动使用既有空气／水积分焓 h(T)。早期可变 cp 的 m*cp*T 失败保留在历史记录。
 固定系数 Quick Design、独立温度、true-h 热学准备和私有 C++ 组件路线保留各自契约；删除 Python 入口不扩大这些契约。
@@ -426,7 +428,7 @@ GUI 入口为 `python -m sjtu_tpmshx.main`，源码无界面工作为 `python -m
 相邻边的累计变化给出暴露面数。包含端点的阈值、采样网格、域边界和面积修正系数保持不变。
 缓存保留两组拓扑／分辨率组合。N=128 时，每组索引占 32 MiB，另有 16 MiB 的 phi 网格。
 首次查询构建原生索引。原始体素和 marching-cubes 几何也由 C++ 计算。
-Sigmoid LUT 节点使用原生 raw 几何生成，LUT 插值仍在 Python。
+Sigmoid LUT 节点使用原生 raw 几何生成；线性 LUT 插值现由原生设计场核心负责。
 贯通、扫描、Richardson 外推及目标 C 研究使用
 `development/runs/tools/asym_geometry_research.py`；shared 不保留转发别名。
 
@@ -439,6 +441,49 @@ Python 每次调用依次解析显式 chi、当前 `TPMSHX_CHI_S`，再选择原
 库路径与发布见[几何构建和交付](cpp-migration.zh-CN.md#native-geometry-core)。
 修改 C++ 函数或编入库的模型数据后，须重新构建并重启进程。
 历史结果读取和独立后处理不加载几何库；旧检查点保留精确匹配的求解运行库，几何单独发布不替换它。
+
+<a id="native-grids-and-design-fields"></a>
+
+原生网格和设计场边界保留以下不同数值契约：
+
+| 所有者 | 契约 |
+| --- | --- |
+| `grid.cpp`、`ports.cpp` | 均匀、对齐、壁面和端口网格宽度、GUI 自适应计数及三维网格建议、轴映射、开口重叠／剖面。压力和前处理共用同一端口实现。 |
+| `field_continuous.cpp`、`continuous/xy_fitpack.c` | 非退化 XY 使用 SciPy 1.18.1 FITPACK 的受限首次拟合、`s=0` 路线。 |
+| `continuous/tensor_spline.cpp` | XYZ 和含单点轴的 XY 按 x/y/z 顺序逐轴拟合并采样。 |
+| `field_sigmoid.cpp`、`field_lut.cpp` | 有序 sigmoid 混合、最终裁剪及独立线性 LUT 算术，不合并为样条路线。 |
+| `zones.cpp` | 原有有序分区选择，以及网格索引单位下 sigma=2、radius=8、reflect Gaussian 平滑；连续样条不使用此滤波。 |
+
+网格标量元数据在 float64 输出存储前保留 NumPy16/32/64 中间舍入。
+混合序列的 Python-float 求和前缀、分配相同时的首个最大项及最后格补偿保留原顺序。
+原始 staggered 重叠保留窄数组算术和输出 dtype。
+原完整求解器 double 入口继续检查有限端点与有限、正单元宽度。
+Python 保留配置 `set`／`sorted`、控制轴 `np.linspace` 及原 Continuous `np.isclose` 覆盖检查。
+Continuous 的 NumPy 整数计数保留初始商的类型提升元数据。
+
+XY 和 XYZ 保留不同求解顺序；XYZ 标量带状求解不是 LAPACK／BLAS 的逐位替代。
+原始样条和物理多项式检查分别保留既有 `1e-13` 与 `3e-14` 门槛。
+XY 保留显式 Givens FMA 方向及局部收缩设置；Gaussian 在 Apple arm64 上显式融合对称项累加。
+其他网格／设计场计算保留严格收缩设置；这些选择仍需独立 Windows 检查。
+
+同一库导出几何 ABI 1 与字段 ABI 2，其错误码必须使用不同映射：
+
+| 协议 | 状态 1 | 状态 2 | 状态 3 |
+| --- | --- | --- | --- |
+| Geometry、grid 和 zones | 无效输入 | 算术域错误；`ZeroDivisionError` | 运行时错误 |
+| 设计场插值、sigmoid 和 LUT | 无效输入 | 分配失败；`MemoryError` | 数值／运行时错误 |
+
+C 调用通过显式元素数借用已对齐缓冲区，只在计算成功后写入调用方持有的输出。
+XY 拟合系数由原生所有者持有；Python 保留创建它的库，在最后一次查询后释放句柄。
+LUT 对象保留捕获的轴／表引用及创建库，查询缓冲区仅在调用期间借用。
+源表的原地修改继续影响后续查询；属性重新绑定不重定向已构造的 LUT。
+每张表在打包 double 缓冲区前，按当前 dtype、字节序和可写状态选择 fast64／general 路径。
+返回的 NumPy 数组不暴露原生临时存储。
+
+已替换的 Python 插值、重叠、分区与滤波数值体已退役，独立参考保留在 `development/tests/`。
+Python 保留 DTO、NPZ／缓存 I/O、校验、GUI 和 BO 编排。
+本批不提供数值回退或运行时进入 Python 的数值回调。
+本批不新增分发运行库或数值框架。来源和许可义务见[固定来源与本地修改](../sjtu_tpmshx/solvers/native/geometry/fields-sources.md)。
 
 连续场每轴至少一个控制点。单点位于域中面，该轴保持恒定；其他轴的实际阶数为
 `min(spline_order, control_count - 1)`。每轴至少两点的既有 XY 场保留原双变量样条。
@@ -573,7 +618,7 @@ FieldResult 包含原生场位置／单位、原通量和压力证据、执行�
 
 `PartialBCConfig.uniform_inlet_2d` 选择几何重叠而不使用原四单元入口渐变。前处理记录轮廓，二维执行消费并校验同一轮廓。桌面两侧固定为 true，不提供轮廓开关；加载旧设置时报告转换。低层 API 保留 flag=false 的脚本历史轮廓。选择不改变总质量流量、端口几何或三维流动。
 
-旧空气／空气筛选优化器、前处理、冻结 B 后端和指标归约已退役，[历史索引](history/retired-tools.md)保留源码与数值参考。当前多工况搜索使用完整前处理和执行。`shared.models.continuous_field` 为该路径、预览和 nTop 保留 XY/XYZ 插值。保存决策必须按原边界、控制网格、对称性和样条阶数解码。几何窗为 L=4..8 mm、t=0.3..0.6 mm，不扩大 Nu 证据或证明梯度曲面连通。
+旧空气／空气筛选优化器、前处理、冻结 B 后端和指标归约已退役，[历史索引](history/retired-tools.md)保留源码与数值参考。当前多工况搜索使用完整前处理和执行。`shared.models.continuous_field` 为该路径、预览和 nTop 保留公共 DTO 与原生 XY/XYZ 适配。保存决策必须按原边界、控制网格、对称性和样条阶数解码。几何窗为 L=4..8 mm、t=0.3..0.6 mm，不扩大 Nu 证据或证明梯度曲面连通。
 
 历史筛选结果按原单位和状态可读，但现执行和指标评估拒绝旧模式。新配置不含 `optimizer`；`ComputeConfig.to_dict()`／`to_json()` 只在该段被显式提供或由旧存档加载时保留。工况快照和优化记录使用同一序列化。旧值仅供存档；当前优化求解预算来自 `ComputeConfig.solver`。候选数由独立 `n_init`、`n_iter`、`q_batch` 决定。历史 Pareto 几何导出仍要求原配置并保留失败状态。
 

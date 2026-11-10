@@ -25,7 +25,7 @@ import numpy as np
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
-from scipy.interpolate import RectBivariateSpline, make_interp_spline
+from . import _native_continuous
 
 # ─── Default decision-vector layout ─────────────────────────────────
 
@@ -147,13 +147,14 @@ def _cell_centres(count, length, widths):
     if isinstance(count, (bool, np.bool_)) or not isinstance(count, (int, np.integer)) or count < 1:
         raise ValueError('grid counts must be positive integers')
     if widths is None:
-        return (np.arange(count) + 0.5) * (length / count)
+        from ._native_grid import continuous_centres
+        return continuous_centres(count, length, None)
     widths = np.asarray(widths, dtype=np.float64)
     if (widths.shape != (count,) or not np.all(np.isfinite(widths) & (widths > 0))
             or not np.isclose(widths.sum(), length, rtol=1e-12, atol=0.)):
         raise ValueError('cell widths must be finite, positive and cover the field domain')
-    edges = np.r_[0., np.cumsum(widths)]
-    return 0.5 * (edges[:-1] + edges[1:])
+    from ._native_grid import continuous_centres
+    return continuous_centres(count, length, widths)
 
 
 def control_axis(count, length):
@@ -234,10 +235,10 @@ class ContinuousFieldConfig:
             # fallback for small direct-call control grids.
             kx = min(self.spline_order, self.ctrl_x.size - 1)
             ky = min(self.spline_order, self.ctrl_y.size - 1)
-            self._L_spline = RectBivariateSpline(
-                self.ctrl_x, self.ctrl_y, self.L_ctrl, kx=kx, ky=ky)
-            self._t_spline = RectBivariateSpline(
-                self.ctrl_x, self.ctrl_y, self.t_ctrl, kx=kx, ky=ky)
+            self._L_spline = _native_continuous.XYFit(
+                self.ctrl_x, self.ctrl_y, self.L_ctrl, kx, ky)
+            self._t_spline = _native_continuous.XYFit(
+                self.ctrl_x, self.ctrl_y, self.t_ctrl, kx, ky)
 
     # ─── Field evaluation ────────────────────────────────────────────
 
@@ -284,24 +285,15 @@ class ContinuousFieldConfig:
             if (points.ndim != 1 or not points.size or not np.all(np.isfinite(points))
                     or np.any(np.diff(points) <= 0) or points[0] < 0 or points[-1] > length):
                 raise ValueError('sampling axes must be finite, increasing and inside the field domain')
-        shape = tuple(points.size for points in coordinates)
         fields = []
         for values, bounds, name in ((self.L_ctrl, self.L_bounds, '_L_spline'),
                                      (self.t_ctrl, self.t_bounds, '_t_spline')):
-            if np.all(values == values.flat[0]):
-                sampled = np.full(shape, values.flat[0], dtype=np.float64)
-            elif self.ctrl_z is None and min(self.ctrl_x.size, self.ctrl_y.size) > 1:
-                sampled = getattr(self, name)(*coordinates, grid=True)
+            if self.ctrl_z is None and min(self.ctrl_x.size, self.ctrl_y.size) > 1:
+                sampled = getattr(self, name).sample(values, coordinates, bounds)
             else:
-                sampled = values
-                for axis, (control, points) in enumerate(zip(nodes, coordinates)):
-                    if control.size == 1:
-                        sampled = np.repeat(sampled, points.size, axis=axis)
-                    else:
-                        sampled = make_interp_spline(control, sampled,
-                            k=min(self.spline_order, control.size - 1), axis=axis)(points)
-            np.clip(sampled, *bounds, out=sampled)
-            fields.append(np.ascontiguousarray(sampled))
+                sampled = _native_continuous.tensor_sample(
+                    nodes, values, self.spline_order, coordinates, bounds)
+            fields.append(sampled)
         return tuple(fields)
 
 

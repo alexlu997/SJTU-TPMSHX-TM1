@@ -12,6 +12,7 @@ from sjtu_tpmshx.shared.domain.compute_config import (
 from sjtu_tpmshx.shared.models.zone_config import Zone, ZoneConfig
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
+from sjtu_tpmshx.development.tests import sigmoid_reference
 
 
 def _config(mode='y'):
@@ -105,11 +106,11 @@ def test_continuous_geometry_is_resampled_on_nonuniform_cells(monkeypatch, tmp_p
     yf = (np.cumsum(case.grid['dy']) - case.grid['dy'] / 2.) / .03
     XF, YF = np.meshgrid(xf, yf, indexing='ij')
     ctrl = decision[::2].reshape(2, 3, 3)
-    expected = sigmoid_field.sigmoid_field_2d(XF, YF, ctrl[0], ctrl[1], 7., .2, .2, .05, .02)
+    expected = sigmoid_reference.sigmoid_field_2d(XF, YF, ctrl[0], ctrl[1], 7., .2, .2, .05, .02)
     np.testing.assert_allclose(case.design_fields['L_field_m'], expected * 1e-3)
     U, V = np.meshgrid((np.arange(len(xf)) + .5) / len(xf),
                        (np.arange(len(yf)) + .5) / len(yf), indexing='ij')
-    indexed = sigmoid_field.sigmoid_field_2d(U, V, ctrl[0], ctrl[1], 7., .2, .2, .05, .02)
+    indexed = sigmoid_reference.sigmoid_field_2d(U, V, ctrl[0], ctrl[1], 7., .2, .2, .05, .02)
     assert np.max(np.abs(expected - indexed)) > .01
     assert case.parameters['thermal_geometry']['fields'] is not None
 
@@ -118,7 +119,7 @@ def test_continuous_geometry_is_resampled_on_nonuniform_cells(monkeypatch, tmp_p
     # each negative-direction stream. Source and solver cells match,
     # so a second uniform-index resampling must not move these row values.
     t_ctrl = decision[1::2].reshape(2, 3, 3)
-    expected_t = sigmoid_field.sigmoid_field_2d(
+    expected_t = sigmoid_reference.sigmoid_field_2d(
         XF, YF, t_ctrl[0], t_ctrl[1], .4, .2, .2, .05, .02)
     np.testing.assert_allclose(case.design_fields['t_field_m'], expected_t * 1e-3)
     for side, direction in zip(('A', 'B'), directions):

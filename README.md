@@ -23,8 +23,11 @@ GUI、CLI、设计与恢复实现位于 `applications/`；测试、验证和诊�
 `.github/workflows/` 保存 CI 配置。GUI 与 CLI 继续用 `python -m sjtu_tpmshx.main` 和 `python -m sjtu_tpmshx.cli` 启动。
 
 标准、CO2、非对称几何与 chi/Kss 已使用独立 C++ 几何核心。
+第三批将网格、端口、六方向轴映射、连续 XY/XYZ 场、sigmoid、线性 LUT、分区和 Gaussian 平滑接入同一几何库。
+Python 保留配置、数据对象、文件读写、缓存、GUI 和 BO 编排。
 前处理需要匹配的几何库；完整计算还需要求解库。完整发布命令部署两者。
-设计场插值／网格、物性／DF／完整前处理和结果计算仍待后续迁移，六批目标尚未完成。
+第四批物性／DF／完整前处理与第五批结果计算仍待迁移，六批目标尚未完成。
+本批验收须包含受支持平台 CI 和最终检查；既有求解器 CI 不替代它们。
 构建、运行库与研究入口见[原生几何说明](docs/cpp-migration.zh-CN.md#native-geometry-core)。
 
 0.2 仅使用 C++ 数值后端，保留 Python/Qt 界面、CLI、前后处理、优化和快速设计。

@@ -177,6 +177,7 @@ target_link_libraries(temperature_c_static PRIVATE tpmshx_temperature_c)
 target_link_libraries(temperature_c_shared PRIVATE tpmshx_temperature_shared)
 target_compile_definitions(temperature_c_shared PRIVATE TPMSHX_THERMAL_USE_SHARED)
 add_library(tpmshx_pressure_reference STATIC "${TPMSHX_NATIVE_ROOT}/src/pressure_reference.cpp")
+target_link_libraries(tpmshx_pressure_reference PUBLIC tpmshx_grid)
 target_include_directories(tpmshx_pressure_reference PUBLIC "${TPMSHX_NATIVE_ROOT}/include"
     "${TPMSHX_MODEL_INCLUDE_DIR}")
 if(MSVC)

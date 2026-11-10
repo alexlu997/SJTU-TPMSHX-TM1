@@ -731,6 +731,43 @@ def test_stale_result_cannot_be_loaded_into_other_geometry(window):
 
 
 @pytest.mark.parametrize('dimension', [0, 1])
+@pytest.mark.parametrize('error_type', [FileNotFoundError, OSError, RuntimeError])
+def test_field_preview_reports_native_failures_and_clears_old_volume(window, monkeypatch, dimension, error_type):
+    from unittest.mock import Mock
+    from sjtu_tpmshx.shared.models import _native_continuous
+
+    window.combo_dim.setCurrentIndex(dimension)
+    window._last_opt_report = study = report(window)
+    message = f'injected native field {error_type.__name__}'
+    reached = []
+
+    def fail(*args, **kwargs):
+        reached.append('XYZ sample' if dimension else 'XY construction')
+        raise error_type(message)
+
+    if dimension:
+        monkeypatch.setattr(_native_continuous, 'tensor_sample', fail)
+    else:
+        monkeypatch.setattr(_native_continuous.XYFit, '__init__', fail)
+    previous_renderer = window.canvas_opt_3d
+    renderer = types.SimpleNamespace(hide=Mock())
+    window.canvas_opt_3d = renderer
+    window._opt_3d_data = object()
+    window._opt_3d_ready = True
+    window._opt_result_tabs.setTabEnabled(2, True)
+    try:
+        panel.show_field_preview(window, study['history'][0]['x_decision'])
+        assert reached == ['XYZ sample' if dimension else 'XY construction']
+        assert '连续场预览失败' in window._opt_status.text()
+        assert message in window._opt_status.text()
+        assert window._opt_3d_data is None and not window._opt_3d_ready
+        assert not window._opt_result_tabs.isTabEnabled(2)
+        renderer.hide.assert_called_once_with()
+    finally:
+        window.canvas_opt_3d = previous_renderer
+
+
+@pytest.mark.parametrize('dimension', [0, 1])
 def test_field_preview_belongs_to_optimization_and_keeps_other_figures(window, dimension):
     from PySide6.QtCore import QEventLoop
     from PySide6.QtWidgets import QApplication

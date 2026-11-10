@@ -23,7 +23,7 @@ from types import SimpleNamespace
 from sjtu_tpmshx.development.tests.native.test_native_execution import _config
 from sjtu_tpmshx.development.tests.native.simple_audit import mass_balance
 from sjtu_tpmshx.development.tests.native.test_simple_3d import audit_momentum
-from sjtu_tpmshx.shared.models.field_coordinates_3d import _solver_velocity_to_real, _solver_staggered_to_real
+from sjtu_tpmshx.development.tests.field_coordinates_reference import _solver_velocity_to_real, _solver_staggered_to_real
 
 
 ROOT = Path(__file__).resolve().parents[4]

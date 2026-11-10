@@ -40,15 +40,17 @@ They keep the existing names and tuple/dict types.
 The C++ header generator reads resources directly, without importing numerical models.
 The first stage unified data sources.
 The second moves standard, CO2 and asymmetric geometry, plus chi/Kss, to an independent C++ geometry core.
-Sigmoid LUT node generation and derived geometry also use this core.
-Design-field interpolation and grids remain in stage three.
-Properties, DF, full preparation and result calculations remain in later stages.
-The six-stage migration remains incomplete.
+Stage three adds grids, ports, continuous XY/XYZ fields, sigmoid, linear LUTs, zones and Gaussian filtering to the same geometry library.
+Each C++ core owns its numerical formulas. Python keeps configuration, type adaptation, data objects, I/O, caches and application orchestration.
+This batch changes no parameter schema, resource version, unit, fitted coefficient or historical experimental conclusion.
+Stage four still requires properties, DF and full preparation. Stage five still requires result calculations.
+The six-stage goal remains incomplete. Acceptance for each batch requires platform CI and final checks.
 
 Python geometry interfaces keep types, caches and per-call explicit/environment/fit selection for chi.
 They have no numerical fallback.
 Rebuild each affected native library after changing C++ functions or compiled resource parameters. Then restart the process.
 See the [native geometry core](cpp-migration.md#native-geometry-core) for builds, paths and runtime boundaries.
+The [field source record](../sjtu_tpmshx/solvers/native/geometry/fields-sources.md) identifies fixed XY, XYZ, LUT and Gaussian sources and local numerical changes.
 Percolation, scans, Richardson and target-C research are in
 `sjtu_tpmshx/development/runs/tools/asym_geometry_research.py`. Shared modules keep no former forwarding entries.
 

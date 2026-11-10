@@ -27,7 +27,15 @@ def test_prepared_geometry_and_roughness_are_consumed(monkeypatch, mode):
     def forbidden(*args, **kwargs):
         raise AssertionError('execution queried fixed geometry or receiver roughness')
     from sjtu_tpmshx.shared.models import tpms_props, tpms_geometry, _native_geometry
-    monkeypatch.setattr(_native_geometry, '_call', forbidden)
+    geometry_call = _native_geometry._call
+    def prepared_call(function, *args):
+        # Port validation shares the status helper, not fixed TPMS geometry.
+        if not getattr(function, '__name__', '').startswith('tpmshx_geometry_grid_'):
+            forbidden()
+        return geometry_call(function, *args)
+    monkeypatch.setattr(_native_geometry, '_call', prepared_call)
+    with pytest.raises(AssertionError, match='execution queried fixed geometry'):
+        _native_geometry.threshold('Gyroid', .1)
     monkeypatch.setattr(tpms_props, 'geometry', forbidden)
     monkeypatch.setattr(tpms_geometry, '_phi_grid', forbidden)
     from sjtu_tpmshx.shared.df_surrogate import experimental_correction
