@@ -61,10 +61,13 @@ def _scalar(value):
             raise TypeError('grid scalars support NumPy float16, float32 and float64')
         return _Scalar(float(value), precision, 1)
     if isinstance(value, np.integer):
-        return _Scalar(float(value), 64, 1)
+        precision = value.dtype.itemsize * 8
+        if precision not in (8, 16, 32, 64):
+            raise TypeError('grid scalars support NumPy integers with 8, 16, 32 or 64 bits')
+        return _Scalar(float(value), precision, 2)
     if isinstance(value, (float, int)):
         return _Scalar(float(value), 64, 0)
-    raise TypeError('grid scalars must be Python or NumPy floating values')
+    raise TypeError('grid scalars require Python float/int or NumPy floating/integer values')
 
 
 def _restore(value):

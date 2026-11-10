@@ -4,10 +4,12 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <utility>
 #include <vector>
 
 namespace tpmshx::grid {
 using Values=std::vector<double>;
+// Kind 2 carries a NumPy integer into floating grid arithmetic, without modular overflow.
 struct Scalar { double value; std::uint32_t precision,strong; };
 using Scalars=std::vector<Scalar>;
 struct End { std::optional<Scalar> center,width,center2,width2; };
@@ -51,3 +53,12 @@ Values continuous_centres(std::size_t count,Scalar length,const Values* widths);
 Values sigmoid_centres(std::size_t count,Scalar length,const Values* widths,
                        std::uint32_t width_precision=64,std::uint32_t* output_precision=nullptr);
 }  // namespace tpmshx::grid
+
+namespace tpmshx {
+// Typed declarations stay out of the full-solver port header.
+std::vector<double> port_overlap_1d_typed(ArrayView<const double> widths,std::uint32_t width_precision,
+    const grid::Scalar& lo,const grid::Scalar& hi,bool staggered=false);
+std::pair<std::vector<double>,std::vector<double>> port_fractions_1d_typed(
+    ArrayView<const double> widths,std::uint32_t width_precision,const grid::Scalar& lo,
+    const grid::Scalar& hi,bool uniform=false);
+}  // namespace tpmshx

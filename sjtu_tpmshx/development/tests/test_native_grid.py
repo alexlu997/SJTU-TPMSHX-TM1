@@ -12,6 +12,16 @@ from sjtu_tpmshx.shared.models import grid
 from sjtu_tpmshx.shared.models.grid_3d import _build_grid_3d, _resolve_axis_map
 
 KINDS = (float, np.float16, np.float32, np.float64)
+INTEGER_KINDS = (np.int8, np.uint8, np.int16, np.uint16,
+                 np.int32, np.uint32, np.int64, np.uint64)
+
+
+@pytest.mark.parametrize('kind', INTEGER_KINDS)
+def test_integer_scalar_transport_retains_original_bit_width(kind):
+    value = kind(1)
+    scalar = native._scalar(value)
+    assert scalar.value == 1. and scalar.strong == 2
+    assert scalar.precision == value.dtype.itemsize * 8
 
 
 @pytest.mark.parametrize('length_kind', KINDS)
@@ -111,6 +121,15 @@ def test_aligned_mixed_python_sum_prefix_and_first_max_tie():
 def test_continuous_numpy_integer_count_keeps_quotient_promotion(length_kind, count_kind):
     count, length = count_kind(13), length_kind(.182)
     _exact(native.continuous_centres(count, length), centres.continuous_centres(count, length, None))
+
+
+@pytest.mark.parametrize('length_kind', INTEGER_KINDS)
+@pytest.mark.parametrize('count_kind', [int, np.int8, np.uint16])
+def test_continuous_integer_length_and_count_keep_float64_true_division(length_kind, count_kind):
+    count, length = count_kind(13), length_kind(2)
+    expected = centres.continuous_centres(count, length, None)
+    assert expected.dtype == np.float64
+    _exact(native.continuous_centres(count, length), expected)
 
 
 @pytest.mark.parametrize('kind', [np.int8, np.int32, np.int64, np.uint64])

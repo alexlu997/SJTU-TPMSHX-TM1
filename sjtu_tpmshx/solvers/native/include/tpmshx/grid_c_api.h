@@ -4,7 +4,10 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-/* strong=0 is a Python float, with precision=64. Other scalars use 16, 32 or 64. */
+/* strong=0: Python float, precision=64. strong=1: NumPy float, precision=16/32/64.
+ * strong=2: NumPy integer, precision=8/16/32/64, for mixed floating arithmetic.
+ * Integer values use double transport; this is not a modular integer engine.
+ */
 typedef struct {double value;uint32_t precision,strong;} tpmshx_grid_scalar_v1;
 typedef struct {
     int32_t direction;

@@ -14,6 +14,12 @@
 namespace tpmshx::grid {
 namespace {
 namespace precision=tpmshx::geometry::detail;
+std::uint32_t integer_float_precision(std::uint32_t bits) {
+    if (bits==8) return 16;
+    if (bits==16) return 32;
+    if (bits==32 || bits==64) return 64;
+    throw std::invalid_argument("grid integer precision must be 8, 16, 32 or 64");
+}
 Scalar result(double value,Scalar a,Scalar b) {
     return {value,result_precision(a,b),a.strong || b.strong?1u:0u};
 }
@@ -55,10 +61,21 @@ bool any(const Values& values) {
 }  // namespace
 
 std::uint32_t result_precision(Scalar a,Scalar b) {
+    if (a.strong==2 || b.strong==2) {
+        if (a.strong==1) return std::max(a.precision,integer_float_precision(b.precision));
+        if (b.strong==1) return std::max(b.precision,integer_float_precision(a.precision));
+        return 64;
+    }
     return a.strong && b.strong?std::max(a.precision,b.precision):(a.strong?a.precision:(b.strong?b.precision:64));
 }
 
 Scalar checked(Scalar value) {
+    if (value.strong==2) {
+        integer_float_precision(value.precision);
+        if (!std::isfinite(value.value) || std::trunc(value.value)!=value.value)
+            throw std::invalid_argument("grid integer scalar must be finite and integral");
+        return value;
+    }
     precision::require_precision(value.precision);
     if (value.strong>1 || (!value.strong && value.precision!=64))
         throw std::invalid_argument("grid scalar kind is invalid");
@@ -84,6 +101,11 @@ Scalar divide(Scalar a,Scalar b) {
     return result(precision::divide(a.value,b.value,result_precision(a,b)),a,b);
 }
 Scalar power(Scalar base,std::size_t exponent) {
+    if (base.strong==2) {
+        base=checked(base);
+        // Keep non-overflowing integer powers typed for a later floating product.
+        return {std::pow(base.value,static_cast<double>(exponent)),base.precision,2};
+    }
     if (!base.strong || base.precision==64)
         return {std::pow(base.value,static_cast<double>(exponent)),64,base.strong};
     const float a=static_cast<float>(base.value);

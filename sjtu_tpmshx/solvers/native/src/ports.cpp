@@ -29,17 +29,19 @@ double maximum(double first,double second) {
     return std::max(first,second);
 }
 g::Scalar spacing(g::Scalar scale) {
+    const auto bits=scale.strong==2?g::result_precision(scale,{0.,16,1}):scale.precision;
+    scale.value=p::round_scalar(scale.value,bits);
     double value;
     if (!std::isfinite(scale.value)) value=std::numeric_limits<double>::quiet_NaN();
-    else if (scale.precision==16) {
+    else if (bits==16) {
         if (scale.value==65504.) value=std::numeric_limits<double>::infinity();
         else if (scale.value==0.) value=std::ldexp(1.,-24);
         else {int exponent=0;std::frexp(scale.value,&exponent);value=std::ldexp(1.,std::max(-24,exponent-11));}
-    } else if (scale.precision==32) {
+    } else if (bits==32) {
         const float x=static_cast<float>(scale.value);
         value=static_cast<double>(std::nextafter(x,std::numeric_limits<float>::infinity())-x);
     } else value=std::nextafter(scale.value,std::numeric_limits<double>::infinity())-scale.value;
-    return {value,scale.precision,1};
+    return {value,bits,1};
 }
 g::Scalar tolerance(g::Scalar lower,g::Scalar upper,double last,std::uint32_t bits) {
     g::Scalar selected{std::abs(lower.value),lower.precision,lower.strong};
