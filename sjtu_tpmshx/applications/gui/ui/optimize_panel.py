@@ -993,7 +993,7 @@ def show_field_preview(window, x_decision=None):
         else:
             L, t = field.evaluate_grid(80, 40)
             suffix = ''
-    except (ValueError, TypeError, KeyError) as exc:
+    except (OSError, RuntimeError, ValueError, TypeError, KeyError) as exc:
         window._opt_3d_data = None
         window._opt_3d_ready = False
         window._opt_result_tabs.setTabEnabled(2, False)

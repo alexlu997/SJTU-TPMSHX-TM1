@@ -1,7 +1,5 @@
 """Check native zones against frozen NumPy and SciPy bodies.
 
-This is an unexecuted candidate for development/tests.
-Promote this file and zone_reference.py together before normal collection.
 IDs are exact. The Gaussian gate remains rtol=0, atol=1e-13.
 No production zone body supplies an expected value.
 

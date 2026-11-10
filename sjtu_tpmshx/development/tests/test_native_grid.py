@@ -113,6 +113,34 @@ def test_continuous_numpy_integer_count_keeps_quotient_promotion(length_kind, co
     _exact(native.continuous_centres(count, length), centres.continuous_centres(count, length, None))
 
 
+@pytest.mark.parametrize('kind', [np.int8, np.int32, np.int64, np.uint64])
+def test_integer_configuration_scalars_keep_float_grid_arithmetic(kind):
+    length, height = kind(1), kind(2)
+    count = kind(13)
+    _exact(native.uniform(count, length), np.full(count, length / count, dtype=np.float64))
+    _exact(native.continuous_centres(count, length), centres.continuous_centres(count, length, None))
+    ports = [dict(dir=0, in_ctr=height / 2, out_ctr=height / 2, in_w=height, out_w=height),
+             dict(dir=3, in_ctr=length / 2, out_ctr=length / 2, in_w=length, out_w=length)]
+    actual = grid.build_grid_2d(length, height, 12, 8, ports)
+    expected = reference.build_grid_2d(length, height, 12, 8, ports)
+    for a, b in zip(actual, expected):
+        if isinstance(b, np.ndarray):
+            _exact(a, b)
+        else:
+            assert a == b
+
+
+@pytest.mark.parametrize('nz', [1, 3])
+def test_public_prepare_accepts_numpy_integer_domain_lengths(nz):
+    from sjtu_tpmshx.shared.domain.compute_config import ComputeConfig, GeometryConfig, SolverConfig, ExtrapPolicy
+    from sjtu_tpmshx.preprocess.api import prepare_case
+    cfg = ComputeConfig(geometry=GeometryConfig(L_dom_m=np.int64(1), H_dom_m=np.int32(1), Lz_m=.03),
+                        solver=SolverConfig(Nx=8, Ny=6, Nz=nz), extrap=ExtrapPolicy(allow=True))
+    case = prepare_case(cfg, case_id='integer-domain')
+    assert np.sum(case.grid['dx']) == pytest.approx(1.)
+    assert np.sum(case.grid['dy']) == pytest.approx(1.)
+
+
 @pytest.mark.parametrize('kind', KINDS)
 @pytest.mark.parametrize('width', [.004, .042, .182])
 @pytest.mark.parametrize('layers', [0, 4, 8])

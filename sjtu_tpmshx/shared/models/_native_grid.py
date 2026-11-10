@@ -60,6 +60,8 @@ def _scalar(value):
         if precision not in (16, 32, 64):
             raise TypeError('grid scalars support NumPy float16, float32 and float64')
         return _Scalar(float(value), precision, 1)
+    if isinstance(value, np.integer):
+        return _Scalar(float(value), 64, 1)
     if isinstance(value, (float, int)):
         return _Scalar(float(value), 64, 0)
     raise TypeError('grid scalars must be Python or NumPy floating values')
@@ -256,7 +258,8 @@ def partial_masks(port, cross1, cross2, n_cross2):
 def continuous_centres(count, length, widths=None):
     span = _scalar(length)
     if widths is None and isinstance(count, np.integer):
-        precision = np.result_type(length, count).itemsize * 8
+        dtype = np.result_type(length, count)
+        precision = dtype.itemsize * 8 if dtype.kind == 'f' else 64
         span = _Scalar(float(length), precision, 1)
     count = _count(count)
     values = np.empty(0, dtype=np.float64) if widths is None else np.ascontiguousarray(widths, dtype=np.float64)

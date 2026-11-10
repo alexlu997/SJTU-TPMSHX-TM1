@@ -1,6 +1,5 @@
 """Check field C buffers, captured owners and independent SciPy behavior.
 
-This candidate is unexecuted. Promote it to development/tests with the binding.
 The existing continuous-field suites remain the main numerical acceptance.
 The reference expressions below come from the pre-port evaluate_axes body.
 They do not import a production field evaluator to calculate expected values.
