@@ -39,6 +39,19 @@ def test_default_cfd_mode_keeps_production_predictor_values():
     assert before == after
 
 
+def test_original_hx_calibration_overrides_broader_application_history():
+    from sjtu_tpmshx.shared.domain.range_policy import assess_range
+    from sjtu_tpmshx.shared.domain.run_warnings import (
+        range_context, range_observations, warning_scope,
+    )
+    with warning_scope({}) as records, range_context(side='A', stage='prepared-df', layout='scalar'):
+        _, _, metadata = apply_correction('Diamond', 'water', 7., .6, 1e-8, 40., .014)
+    assert metadata['velocity_window_mps']['min'] < .014
+    row, = range_observations(records)
+    assert row['bounds'][0] == .10
+    assert assess_range(row)['within_limit'] is False
+
+
 def test_experiment_mode_json_roundtrip(tmp_path):
     cfg = _air_cfg()
     path = tmp_path / "cfg.json"

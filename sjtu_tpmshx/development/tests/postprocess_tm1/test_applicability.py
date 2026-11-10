@@ -80,16 +80,6 @@ def test_last_actual_call_does_not_inherit_earlier_extrema():
     assert assess_range(unknown)['within_limit'] is None
 
 
-def test_original_hx_calibration_overrides_broader_application_history():
-    from sjtu_tpmshx.shared.df_surrogate.experimental_correction import apply_correction
-    with warning_scope({}) as records, range_context(side='A', stage='prepared-df', layout='scalar'):
-        _, _, metadata = apply_correction('Diamond', 'water', 7., .6, 1e-8, 40., .014)
-    assert metadata['velocity_window_mps']['min'] < .014
-    row, = range_observations(records)
-    assert row['bounds'][0] == .10
-    assert assess_range(row)['within_limit'] is False
-
-
 def result_with_evidence(*, final=True):
     row = sample(100., 200.)
     evidence = dict(version='applicability_evidence_v1', inlet_recorded=True,
