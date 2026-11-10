@@ -52,7 +52,7 @@ Tensor divide(const Array&,const Array&,Diagnostics&);
 Tensor negative(const Array&,Diagnostics&);
 Tensor absolute(const Array&,Diagnostics&);
 Tensor square(const Array&,Diagnostics&);
-Tensor power_two(const Array&,Diagnostics&);
+Tensor power_two(const Array&,Diagnostics&,bool square_fused);
 Tensor square_root(const Array&,Diagnostics&);
 Tensor maximum(const Array&,const Array&,Diagnostics&);
 Tensor minimum(const Array&,const Array&,Diagnostics&);

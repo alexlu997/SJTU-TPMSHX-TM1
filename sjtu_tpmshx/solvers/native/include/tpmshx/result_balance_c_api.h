@@ -53,6 +53,7 @@ TPMSHX_RESULT_API int TPMSHX_RESULT_CALL tpmshx_result_balance_energy_v1(
 
 /* Zone calls retain each original Python float-conversion boundary. Weights
  * are read only when weighted is one. All scalar outputs retain their dtype.
+ * square_fused selects separate (0) or fused (1) complex array products.
  */
 TPMSHX_RESULT_API int TPMSHX_RESULT_CALL tpmshx_result_zone_mean_v1(
     const tpmshx_result_array_v1* values, const tpmshx_result_array_v1* weights, uint32_t weighted,
@@ -60,7 +61,7 @@ TPMSHX_RESULT_API int TPMSHX_RESULT_CALL tpmshx_result_zone_mean_v1(
     char* error, size_t error_capacity);
 TPMSHX_RESULT_API int TPMSHX_RESULT_CALL tpmshx_result_zone_std_v1(
     const tpmshx_result_array_v1* values, const tpmshx_result_array_v1* weights, uint32_t weighted,
-    tpmshx_result_scalar_v1* output, tpmshx_result_diagnostics_v1* diagnostics,
+    uint32_t square_fused, tpmshx_result_scalar_v1* output, tpmshx_result_diagnostics_v1* diagnostics,
     char* error, size_t error_capacity);
 TPMSHX_RESULT_API int TPMSHX_RESULT_CALL tpmshx_result_zone_minimum_v1(
     const tpmshx_result_array_v1* values, tpmshx_result_scalar_v1* output,
@@ -76,7 +77,7 @@ TPMSHX_RESULT_API int TPMSHX_RESULT_CALL tpmshx_result_zone_spread_v1(
  * exact result dtype size; output_type identifies that native dtype.
  */
 TPMSHX_RESULT_API int TPMSHX_RESULT_CALL tpmshx_result_zone_power_two_v1(
-    const tpmshx_result_array_v1* values, unsigned char* output, size_t output_capacity,
+    const tpmshx_result_array_v1* values, uint32_t square_fused, unsigned char* output, size_t output_capacity,
     tpmshx_result_scalar_v1* output_type, tpmshx_result_diagnostics_v1* diagnostics,
     char* error, size_t error_capacity);
 TPMSHX_RESULT_API int TPMSHX_RESULT_CALL tpmshx_result_zone_speed_from_squared_v1(

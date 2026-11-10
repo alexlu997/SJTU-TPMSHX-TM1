@@ -81,20 +81,45 @@ def energy_totals(phases, reservoir):
     return output
 
 
-def _zone_weighted(name, value, weights):
+def zone_mean(value, weights=None):
     owner, output = core.array(value), core._Scalar()
     weight = None if weights is None else core.array(weights)
-    _call('zone_' + name, [_AP, _AP, core._UInt, _SP], ct.byref(owner.raw),
+    _call('zone_mean', [_AP, _AP, core._UInt, _SP], ct.byref(owner.raw),
           None if weight is None else ct.byref(weight.raw), int(weight is not None), ct.byref(output))
     return core.restore_scalar(output)
 
 
-def zone_mean(value, weights=None):
-    return _zone_weighted('mean', value, weights)
+def _square_fused(dtype):
+    dtype = np.dtype(dtype)
+    if dtype.char not in ('F', 'D'):
+        return 0
+    info = np.lib.introspect.opt_func_info(func_name='^square$', signature='complex64|complex128')
+    try:
+        target = info['square'][dtype.char * 2]['current']
+    except (KeyError, TypeError) as error:
+        raise RuntimeError(f'NumPy did not report the active complex square loop: {info!r}') from error
+    if target in ('X86_V3', 'baseline(NEON NEON_FP16 NEON_VFPV4 ASIMD)'):
+        return 1
+    # NumPy 2.5.4 CPU_DISPATCH_INFO_BASE_HIGH_CB_ adds baseline parentheses.
+    # Source: meson_cpu/main_config.h.in, lines 305-307.
+    if target in ('X86_V2', 'baseline(X86_V2)'):
+        return 0
+    raise RuntimeError(f'unsupported NumPy complex square target {target!r}: {info!r}')
 
 
 def zone_std(value, weights=None):
-    return _zone_weighted('std', value, weights)
+    owner, output = core.array(value), core._Scalar()
+    weight = None if weights is None else core.array(weights)
+    fused = 0
+    if weight is not None:
+        dtype = owner.owner.dtype
+        average = (np.result_type(dtype, weight.owner.dtype, np.float64) if dtype.kind in 'biu'
+                   else np.result_type(dtype, weight.owner.dtype))
+        centered = np.subtract.resolve_dtypes((dtype, average, None))[-1]
+        fused = _square_fused(centered)
+    _call('zone_std', [_AP, _AP, core._UInt, core._UInt, _SP], ct.byref(owner.raw),
+          None if weight is None else ct.byref(weight.raw), int(weight is not None), fused, ct.byref(output))
+    return core.restore_scalar(output)
 
 
 def _zone_reduction(name, value):
@@ -120,8 +145,9 @@ def zone_power_two(value):
     dtype = np.square.resolve_dtypes((value.dtype, None))[-1]
     output = np.empty(value.shape, dtype=dtype)
     owner, kind = core.array(value), core._Scalar()
-    _call('zone_power_two', [_AP, ct.POINTER(ct.c_ubyte), core._Size, _SP],
-          ct.byref(owner.raw), output.ctypes.data_as(ct.POINTER(ct.c_ubyte)), output.nbytes, ct.byref(kind))
+    _call('zone_power_two', [_AP, core._UInt, ct.POINTER(ct.c_ubyte), core._Size, _SP],
+          ct.byref(owner.raw), _square_fused(value.dtype),
+          output.ctypes.data_as(ct.POINTER(ct.c_ubyte)), output.nbytes, ct.byref(kind))
     if np.asarray(core.restore_scalar(kind)).dtype != dtype:
         raise RuntimeError('native zone power dtype disagrees with the result interface')
     return output

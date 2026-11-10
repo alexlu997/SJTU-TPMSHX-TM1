@@ -39,7 +39,7 @@ Its native arithmetic stays float64.
 Stage three adds grids, ports, axis maps, continuous XY/XYZ fields, sigmoid, linear LUTs, zones and Gaussian filtering to the same library.
 Each migrated numerical rule has one C++ owner. Python keeps configuration, data objects, type/array adaptation, I/O, caches and application orchestration.
 Stage four adds independent preparation ABI 1 for properties, closures, DF, corrections, projection and preparation mathematics.
-Stage five puts result mathematics in an independent result ABI 1 core. Its numerical and platform acceptance is in progress.
+Stage five puts result mathematics in an independent result ABI 2 core. Its numerical and platform acceptance is in progress.
 The six-stage migration remains incomplete. See [model resources](model-resources.en.md#当前资源与研究输出).
 Earlier solver CI records do not establish acceptance for this batch. Complete-case checks, supported-platform CI and final acceptance remain required.
 

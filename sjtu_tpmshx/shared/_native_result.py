@@ -85,8 +85,8 @@ class _Library:
         except OSError as error:
             raise OSError(f'cannot load prebuilt native result library {path}: {error}') from error
         version = self.bind('tpmshx_result_abi_version_v1', [], _UInt)()
-        if version != 1:
-            raise RuntimeError(f'unsupported native result ABI {version} in {path}; expected 1')
+        if version != 2:
+            raise RuntimeError(f'unsupported native result ABI {version} in {path}; expected 2')
 
     def bind(self, name, types, result=ct.c_int):
         key = (name, tuple(types), result)

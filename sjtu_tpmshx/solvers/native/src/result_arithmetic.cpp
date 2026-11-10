@@ -136,25 +136,56 @@ template<class Real> std::complex<Real> complex_binary(std::complex<Real> a,std:
     default:return tpmshx::detail::numpy_complex_divide(a,b);
     }
 }
-#if defined(__APPLE__) && defined(__aarch64__)
-template<class Real> Number neon_square(const Number& value) {
+template<class Real> Number fused_square(const Number& value) {
     const Real real=static_cast<Real>(value.real),imaginary=static_cast<Real>(value.imaginary);
     const Real imaginary_square=imaginary*imaginary,imaginary_real=imaginary*real;
     return complex_number(std::fma(real,real,-imaginary_square),
                           std::fma(real,imaginary,imaginary_real),value.dtype,value.origin);
 }
-#endif
-Number array_square(const Number& value,Diagnostics& d) {
-#if defined(__APPLE__) && defined(__aarch64__)
-    // NumPy's NEON array loop rounds the imaginary product before fused addition.
+Number fused_array_square(const Number& value,Diagnostics& d) {
+    // NumPy's fused array loop rounds the imaginary product before fused addition.
     if (value.dtype==C64 || value.dtype==C128) {
         std::feclearexcept(FE_ALL_EXCEPT);
-        const auto out=value.dtype==C64?neon_square<float>(value):neon_square<double>(value);
+        const auto out=value.dtype==C64?fused_square<float>(value):fused_square<double>(value);
         event(d,TPMSHX_RESULT_SQUARE,false,true);return out;
     }
-#endif
     return square(value,d);
 }
+Number array_square(const Number& value,Diagnostics& d) {
+#if defined(__APPLE__) && defined(__aarch64__)
+    return fused_array_square(value,d);
+#else
+    return square(value,d);
+#endif
+}
+#if defined(_MSC_VER)
+// NumPy 2.5.4 disables system complex sqrt on MSVC. Its BSD notice applies here.
+template<class Real> std::complex<Real> numpy_msvc_complex_sqrt(Real real,Real imaginary) {
+    if (real==0 && imaginary==0) return {0,imaginary};
+    if (std::isinf(imaginary)) return {std::numeric_limits<Real>::infinity(),imaginary};
+    if (std::isnan(real)) {
+        const Real result=(imaginary-imaginary)/(imaginary-imaginary);
+        return {real,result};
+    }
+    if (std::isinf(real)) {
+        if (std::signbit(real)) return {std::fabs(imaginary-imaginary),std::copysign(real,imaginary)};
+        return {real,std::copysign(imaginary-imaginary,imaginary)};
+    }
+    constexpr Real sqrt_two=static_cast<Real>(1.414213562373095048801688724209698079L);
+    const Real threshold=std::numeric_limits<Real>::max()/(1+sqrt_two);
+    const bool scale=std::fabs(real)>=threshold || std::fabs(imaginary)>=threshold;
+    if (scale) {real*=Real(0.25);imaginary*=Real(0.25);}
+    std::complex<Real> out;
+    if (real>=0) {
+        const Real t=std::sqrt((real+std::hypot(real,imaginary))*Real(0.5));
+        out={t,imaginary/(2*t)};
+    } else {
+        const Real t=std::sqrt((-real+std::hypot(real,imaginary))*Real(0.5));
+        out={std::fabs(imaginary)/(2*t),std::copysign(t,imaginary)};
+    }
+    return scale?std::complex<Real>(out.real()*2,out.imag()):out;
+}
+#endif
 bool scalar_integer_overflow(const Number& first,const Number& second,std::uint32_t op) {
     if (first.dtype==B) return false;
     if (!signed_type(first.dtype)) {
@@ -499,6 +530,17 @@ Number square_root(const Number& a,Diagnostics& d) {
             long double parts[2];tpmshx_result_complex_sqrt_long_double(n.real,n.imaginary,parts);
             out=complex_number(parts[0],parts[1],type,a.origin);
         }
+#elif defined(_MSC_VER)
+        if (type==C64) {
+            const auto value=numpy_msvc_complex_sqrt(static_cast<float>(n.real),static_cast<float>(n.imaginary));
+            out=complex_number(value.real(),value.imag(),type,a.origin);
+        } else if (type==C128) {
+            const auto value=numpy_msvc_complex_sqrt(static_cast<double>(n.real),static_cast<double>(n.imaginary));
+            out=complex_number(value.real(),value.imag(),type,a.origin);
+        } else {
+            const auto value=numpy_msvc_complex_sqrt(n.real,n.imaginary);
+            out=complex_number(value.real(),value.imag(),type,a.origin);
+        }
 #else
         if (type==C64) {
             const auto value=std::sqrt(std::complex<float>{static_cast<float>(n.real),static_cast<float>(n.imaginary)});
@@ -533,9 +575,11 @@ RESULT_BINARY_ARRAY(minimum,TPMSHX_RESULT_MINIMUM)
 RESULT_UNARY_ARRAY(negative,TPMSHX_RESULT_MULTIPLY)
 RESULT_UNARY_ARRAY(absolute,TPMSHX_RESULT_ABSOLUTE)
 Tensor square(const Array& a,Diagnostics& d) {return apply(a,d,&array_square,TPMSHX_RESULT_SQUARE);}
-Tensor power_two(const Array& a,Diagnostics& d) {
+Tensor power_two(const Array& a,Diagnostics& d,bool square_fused) {
     const bool scalar=a.raw().origin==NS;
-    return apply(a,d,scalar?static_cast<Unary>(&power_two):&array_square,
+    const auto operation=scalar?static_cast<Unary>(&power_two)
+        :square_fused?&fused_array_square:static_cast<Unary>(&square);
+    return apply(a,d,operation,
                  scalar?TPMSHX_RESULT_POWER:TPMSHX_RESULT_SQUARE);
 }
 RESULT_UNARY_ARRAY(square_root,TPMSHX_RESULT_SQRT)

@@ -90,7 +90,7 @@ macOS 名称为 `libtpmshx_preparation_shared.dylib`，Windows 为 `tpmshx_prepa
 `TPMSHX_PREPARATION_LIBRARY` 覆盖其运行路径；`--native-library` 仍只选择求解库。
 历史结果回读和独立后处理不加载准备库。独立准备库发布及四库事务见[原生准备核心](cpp-migration.zh-CN.md#native-preparation-core)。
 
-结果库在同一平台目录按需加载，使用 result ABI 1。
+结果库在同一平台目录按需加载，使用 result ABI 2。
 macOS 名称为 `libtpmshx_result_shared.dylib`，Windows 为 `tpmshx_result_shared.dll`。
 `TPMSHX_RESULT_LIBRARY` 覆盖其运行路径。纯 HDF/JSON 读取不加载它，实际指标运算需要它。
 独立发布与 Linux 最小后处理 CI 的范围见[原生结果核心](cpp-migration.zh-CN.md#native-result-core)。
@@ -194,7 +194,7 @@ $env:TPMSHX_NATIVE_RESULT_LIBRARY = 'C:\absolute\path\tpmshx_result_shared.dll'
 时，冻结程序从自己的包内 `native/` 定位上述求解库；显式路径始终优先。
 几何库也默认使用包内 `native/`，可由运行时 `TPMSHX_GEOMETRY_LIBRARY` 覆盖。
 准备库默认使用同一 `native/`，可由运行时 `TPMSHX_PREPARATION_LIBRARY` 覆盖。
-结果 ABI 1 按需使用同目录的结果库，可由 `TPMSHX_RESULT_LIBRARY` 覆盖；纯文件读取不加载它。
+结果 ABI 2 按需使用同目录的结果库，可由 `TPMSHX_RESULT_LIBRARY` 覆盖；纯文件读取不加载它。
 源码运行使用前述主机默认路径或显式路径，不会自动搜寻开发缓存、编译库或改用其他后端。
 三个后端命令行选项仅构造本次调用的 `RunControl`；几何库、准备库和结果库路径是进程级主机设置。
 两者均不进入保存的 `CaseData` 或物理配置。

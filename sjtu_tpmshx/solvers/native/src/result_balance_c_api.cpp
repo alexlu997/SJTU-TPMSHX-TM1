@@ -90,8 +90,11 @@ extern "C" int TPMSHX_RESULT_CALL tpmshx_result_zone_mean_v1(
 }
 extern "C" int TPMSHX_RESULT_CALL tpmshx_result_zone_std_v1(
     const r::RawArray* values, const r::RawArray* weights, std::uint32_t weighted,
-    r::RawScalar* output, r::Diagnostics* diagnostics, char* error, std::size_t capacity) {
-    return zone_weighted(values,weights,weighted,output,diagnostics,error,capacity,b::zone_std);
+    std::uint32_t square_fused, r::RawScalar* output, r::Diagnostics* diagnostics, char* error, std::size_t capacity) {
+    return zone_weighted(values,weights,weighted,output,diagnostics,error,capacity,
+        [&](const r::RawArray& field,const r::RawArray* weight,r::Diagnostics& state) {
+            return b::zone_std(field,weight,square_fused,state);
+        });
 }
 extern "C" int TPMSHX_RESULT_CALL tpmshx_result_zone_minimum_v1(
     const r::RawArray* values, r::RawScalar* output, r::Diagnostics* diagnostics,
@@ -109,14 +112,14 @@ extern "C" int TPMSHX_RESULT_CALL tpmshx_result_zone_spread_v1(
     return zone_reduction(values,output,diagnostics,error,capacity,b::zone_spread);
 }
 extern "C" int TPMSHX_RESULT_CALL tpmshx_result_zone_power_two_v1(
-    const r::RawArray* values, unsigned char* output, std::size_t output_capacity,
+    const r::RawArray* values, std::uint32_t square_fused, unsigned char* output, std::size_t output_capacity,
     r::RawScalar* output_type, r::Diagnostics* diagnostics, char* error, std::size_t capacity) {
     return boundary(diagnostics,error,capacity,[&](Buffers& buffers) {
         buffers.arrays(values,1); buffers.output_bytes(output,output_capacity); buffers.output(output_type,1);
     },[&](r::Diagnostics& state) {
         if (r::Array(*values).size() && !output_capacity)
             throw std::invalid_argument("zone output byte capacity is incorrect");
-        const auto value=b::zone_power_two(*values,state);
+        const auto value=b::zone_power_two(*values,square_fused,state);
         publish_tensor(value,output,output_capacity,output_type);
     });
 }

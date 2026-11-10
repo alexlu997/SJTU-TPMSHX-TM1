@@ -37,6 +37,15 @@ It does not link or call NumPy or the Python runtime.
   The fixed references are
   [NumPy complex multiplication](https://github.com/numpy/numpy/blob/v2.5.4/numpy/_core/src/umath/loops_arithm_fp.dispatch.c.src#L228-L278)
   and [NEON arithmetic](https://github.com/numpy/numpy/blob/v2.5.4/numpy/_core/src/common/simd/neon/arithmetic.h#L234-L284).
+  Complex array square takes an explicit separate-product or FMA mode.
+  The Python adapter reads NumPy's public square dispatch metadata; it does not calculate square values.
+  `X86_V3` and the ASIMD baseline use FMA; `X86_V2` uses separate products.
+  The fixed [loop targets](https://github.com/numpy/numpy/blob/v2.5.4/numpy/_core/meson.build#L918-L928)
+  and [baseline labels](https://github.com/numpy/numpy/blob/v2.5.4/meson_cpu/main_config.h.in#L305-L307) define this selection.
+  Unknown targets produce a deployment error. Fresh-process tests also disable the optional x86 target.
+  On Windows, complex square root retains the original NumPy Algorithm 312.
+  The fixed references are the [Windows C99 exclusions](https://github.com/numpy/numpy/blob/v2.5.4/numpy/_core/src/common/npy_config.h#L37-L52)
+  and [square-root implementation](https://github.com/numpy/numpy/blob/v2.5.4/numpy/_core/src/npymath/npy_math_complex.c.src#L321-L392).
   [Preparation sources](../preparation/sources.md) record its original source and local changes.
 - CPython 3.13.2 compensated float summation uses the existing
   [complete release license](../licenses/python-v3.13.2-LICENSE.txt).
@@ -53,7 +62,12 @@ The source distributions also retain the CMake project, export lists, headers an
 
 ## C interface and ownership
 
-Result ABI 1 is separate from the solver, geometry, field and preparation ABIs.
+Result ABI 2 is separate from the solver, geometry, field and preparation ABIs.
+The query function keeps its `_v1` query signature and returns the library ABI number.
+ABI 2 requires an explicit complex-square mode in the zone standard-deviation and power calls.
+Mode 0 uses separate products; mode 1 uses component FMA. Other values fail before output publication.
+The borrowed POD descriptions retain their `_v1` layouts.
+The adapter rejects earlier library ABIs before binding numerical calls.
 Its declarations are in `include/tpmshx/result_c_api.h` and the three family headers.
 Only the symbols in `result.exports` and `result.map` are public.
 There is no public arithmetic opcode evaluator or numerical callback.

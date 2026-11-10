@@ -90,7 +90,7 @@ def test_missing_or_empty_override_is_a_deployment_error(tmp_path, monkeypatch):
         native._library()
 
 
-@pytest.mark.parametrize('version', [0, 2])
+@pytest.mark.parametrize('version', [0, 1, 3])
 def test_abi_mismatch_is_a_runtime_error(monkeypatch, version):
     handle = SimpleNamespace(tpmshx_result_abi_version_v1=lambda: version)
     monkeypatch.setattr(native.ct, 'CDLL', lambda path: handle)
@@ -102,7 +102,7 @@ def test_missing_symbol_and_load_failure_are_deployment_errors(monkeypatch):
     monkeypatch.setattr(native.ct, 'CDLL', lambda path: SimpleNamespace())
     with pytest.raises(RuntimeError, match='lacks tpmshx_result_abi_version_v1'):
         native._Library('/prebuilt-result')
-    handle = SimpleNamespace(tpmshx_result_abi_version_v1=lambda: 1)
+    handle = SimpleNamespace(tpmshx_result_abi_version_v1=lambda: 2)
     monkeypatch.setattr(native.ct, 'CDLL', lambda path: handle)
     owner = native._Library('/prebuilt-result')
     with pytest.raises(RuntimeError, match='lacks a_required_result_symbol'):

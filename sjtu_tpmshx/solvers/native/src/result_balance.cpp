@@ -9,6 +9,10 @@ namespace tpmshx::result::balance {
 namespace {
 namespace a = arithmetic;
 
+void require_square_mode(std::uint32_t square_fused) {
+    if (square_fused>1) throw std::invalid_argument("zone square flag must be zero or one");
+}
+
 void require_mass_faces(const RawArray* faces, std::size_t dimension) {
     if (dimension != 2 && dimension != 3)
         throw std::invalid_argument("mass balance requires two or three physical axes");
@@ -173,13 +177,14 @@ Number zone_mean(const RawArray& values, const RawArray* weights, Diagnostics& d
     return weights?weighted_mean(field,Array(*weights),diagnostics):a::mean(field,diagnostics);
 }
 
-Number zone_std(const RawArray& values, const RawArray* weights, Diagnostics& diagnostics) {
+Number zone_std(const RawArray& values, const RawArray* weights, std::uint32_t square_fused, Diagnostics& diagnostics) {
+    require_square_mode(square_fused);
     const Array field(values);
     if (!weights) return a::standard_deviation(field,diagnostics);
     const Array weight(*weights);
     const auto mean=a::scalar(weighted_mean(field,weight,diagnostics));
     auto centered=a::subtract(field,mean.array(),diagnostics);
-    auto squared=a::power_two(centered.array(),diagnostics);
+    auto squared=a::power_two(centered.array(),diagnostics,square_fused!=0);
     return a::square_root(weighted_mean(squared.array(),weight,diagnostics),diagnostics);
 }
 
@@ -194,9 +199,10 @@ Number zone_spread(const RawArray& values, Diagnostics& diagnostics) {
     const auto high=a::maximum(field,diagnostics),low=a::minimum(field,diagnostics);
     return a::subtract(high,low,diagnostics);
 }
-arithmetic::Tensor zone_power_two(const RawArray& values, Diagnostics& diagnostics) {
+arithmetic::Tensor zone_power_two(const RawArray& values, std::uint32_t square_fused, Diagnostics& diagnostics) {
+    require_square_mode(square_fused);
     if (values.rank!=1) throw std::invalid_argument("zone values require a selected one-dimensional extent");
-    return a::power_two(Array(values),diagnostics);
+    return a::power_two(Array(values),diagnostics,square_fused!=0);
 }
 arithmetic::Tensor zone_speed_from_squared(const RawArray& u, const RawArray& v, Diagnostics& diagnostics) {
     const Array first_input(u),second_input(v);

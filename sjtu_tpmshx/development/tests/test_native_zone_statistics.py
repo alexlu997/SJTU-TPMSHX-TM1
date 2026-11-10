@@ -1,4 +1,10 @@
 """Compare selected-zone native arithmetic with the frozen Python helper."""
+import ctypes as ct
+import os
+import platform
+from pathlib import Path
+import subprocess
+import sys
 from types import SimpleNamespace
 
 import numpy as np
@@ -211,3 +217,110 @@ def test_speed_intermediates_use_exact_compact_dtype(dtype):
     expected = np.sqrt(values ** 2 + values[::-1] ** 2)
     np.testing.assert_array_equal(actual, expected)
     assert actual.dtype == expected.dtype and actual.nbytes == expected.nbytes
+
+
+@pytest.mark.parametrize('dtype', [np.complex64, np.complex128])
+@pytest.mark.parametrize('policy', ['warn', 'raise'])
+def test_complex_sqrt_keeps_precision_special_values_and_fp(dtype, policy):
+    limit = np.finfo(np.empty((), dtype=dtype).real.dtype).max
+    cases = {
+        'windows_variance': [complex(float.fromhex('0x1.64916476bc7c5p+9'),
+                                     float.fromhex('0x1.14508ee3c9075p+1'))],
+        'signed_zero': [complex(real, imag) for real in (0., -0.) for imag in (0., -0.)],
+        'unit': [complex(real, imag) for real in (1., -1.) for imag in (0., -0.)],
+        'infinity': [complex(real, imag) for real in (np.inf, -np.inf)
+                     for imag in (0., -0., 1., -1., np.inf, -np.inf)]
+                    + [complex(real, imag) for real in (0., -0., 1., -1.)
+                       for imag in (np.inf, -np.inf)],
+        'nan': [complex(np.nan, imag) for imag in (0., -0., 1., -1., np.inf, -np.inf, np.nan)]
+               + [complex(real, np.nan) for real in (0., -0., 1., -1., np.inf, -np.inf)],
+        'scale': [complex(real, imag) for real in (limit, -limit) for imag in (limit, -limit)]
+                 + [complex(limit, -0.), complex(-limit, -0.), complex(-0., limit), complex(-0., -limit)],
+    }
+    for case, points in cases.items():
+        values = np.asarray(points, dtype=dtype)
+        # Negative zero components preserve the input zero signs during addition.
+        zero = np.full(values.shape, complex(-0., -0.), dtype=dtype)
+        actual = observe(lambda: native.zone_speed_from_squared(values, zero), policy)
+        expected = observe(lambda: np.sqrt(values + zero), policy)
+        assert_observation(actual, expected)
+        if expected[0][0] == 'value':
+            for part in ('real', 'imag'):
+                left, right = getattr(actual[0][1], part), getattr(expected[0][1], part)
+                details = f'{case}, {np.dtype(dtype)}, {policy}, {part}'
+                np.testing.assert_array_equal(left, right, err_msg=details)
+                mask = right == 0
+                np.testing.assert_array_equal(np.signbit(left[mask]), np.signbit(right[mask]), err_msg=details)
+
+
+@pytest.mark.parametrize('operation', ['std', 'power_two'])
+def test_invalid_complex_square_mode_preserves_raw_outputs(operation):
+    packed = core.array(np.array([1.25 + .75j, -2.5 + .25j], dtype=np.complex64))
+    output = core.scalar(9876.5)
+    before = bytes(output)
+    array_pointer, scalar_pointer = ct.POINTER(core._Array), ct.POINTER(core._Scalar)
+    if operation == 'std':
+        with pytest.raises(ValueError, match='zone square flag must be zero or one'):
+            core.call('tpmshx_result_zone_std_v1',
+                [array_pointer, array_pointer, core._UInt, core._UInt, scalar_pointer],
+                ct.byref(packed.raw), None, 0, 2, ct.byref(output))
+    else:
+        values = (ct.c_ubyte * packed.owner.nbytes)(*[0x5A] * packed.owner.nbytes)
+        with pytest.raises(ValueError, match='zone square flag must be zero or one'):
+            core.call('tpmshx_result_zone_power_two_v1',
+                [array_pointer, core._UInt, ct.POINTER(ct.c_ubyte), core._Size, scalar_pointer],
+                ct.byref(packed.raw), 2, values, len(values), ct.byref(output))
+        assert bytes(values) == bytes([0x5A] * len(values))
+    assert bytes(output) == before
+
+
+@pytest.mark.parametrize('dtype', [np.float16, np.float32, np.float64, np.int64, np.clongdouble])
+def test_non_simd_square_types_do_not_query_complex_dispatch(monkeypatch, dtype):
+    def forbidden(*args, **kwargs):
+        pytest.fail('this dtype does not use a complex SIMD square loop')
+    monkeypatch.setattr(np.lib.introspect, 'opt_func_info', forbidden)
+    assert native._square_fused(np.dtype(dtype)) == 0
+
+
+@pytest.mark.parametrize('dtype', [np.complex64, np.complex128])
+def test_baseline_x86_v2_square_descriptor_selects_separate_products(monkeypatch, dtype):
+    signature = np.dtype(dtype).char * 2
+    info = {'square': {signature: {'current': 'baseline(X86_V2)', 'available': 'X86_V3 baseline(X86_V2)'}}}
+    monkeypatch.setattr(np.lib.introspect, 'opt_func_info', lambda **kwargs: info)
+    assert native._square_fused(dtype) == 0
+
+
+_X86_SQUARE_CHILD = r'''
+import json, os, sys
+import numpy as np
+from numpy._core import _multiarray_umath as numpy_core
+from sjtu_tpmshx.development.tests.test_native_zone_statistics import (
+    test_weighted_complex_std_keeps_each_original_stage,
+    test_zone_mean_std_and_extrema_keep_original_types,
+)
+print(json.dumps(dict(numpy=np.__version__, disabled=os.environ.get('NPY_DISABLE_CPU_FEATURES'),
+    baseline=list(numpy_core.__cpu_baseline__), dispatch=list(numpy_core.__cpu_dispatch__),
+    square=np.lib.introspect.opt_func_info(func_name='^square$', signature='complex64|complex128'))), flush=True)
+dtype = np.dtype(sys.argv[1]).type
+for zone in (0, 1, 2):
+    for stage in ('mean', 'centered_square', 'weighted_variance', 'sqrt_variance'):
+        test_weighted_complex_std_keeps_each_original_stage(dtype, zone, stage)
+test_zone_mean_std_and_extrema_keep_original_types(dtype, np.float16)
+'''
+
+
+@pytest.mark.skipif(platform.machine().lower() not in ('amd64', 'x86_64'),
+                    reason='this regression checks optional x86 square dispatch')
+@pytest.mark.parametrize('dtype', [np.complex64, np.complex128])
+@pytest.mark.parametrize('mode', ['normal', 'disabled-v3'])
+def test_complex_square_matches_fresh_numpy_cpu_dispatch(dtype, mode):
+    environment = os.environ.copy()
+    environment['TPMSHX_RESULT_LIBRARY'] = core._library().path
+    if mode == 'disabled-v3':
+        environment['NPY_DISABLE_CPU_FEATURES'] = 'X86_V3'
+    else:
+        environment.pop('NPY_DISABLE_CPU_FEATURES', None)
+    process = subprocess.run([sys.executable, '-c', _X86_SQUARE_CHILD, np.dtype(dtype).name],
+        cwd=Path(__file__).resolve().parents[3], env=environment, text=True,
+        capture_output=True, timeout=30)
+    assert process.returncode == 0, process.stdout + '\n' + process.stderr

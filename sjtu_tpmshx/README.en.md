@@ -44,7 +44,7 @@ The `preparation_df*.cpp` and `preparation_flow.cpp` sources own fixed DF, exper
 [shared/models/_native_preparation.py](shared/models/_native_preparation.py) loads independent preparation ABI 1 on demand. Geometry ABI 1 and field ABI 2 stay unchanged.
 Python keeps configuration, DTOs, I/O, caches, GUI/BO policies and offline fitting. Development references remain independent of production mathematics.
 Stage five puts metrics, physical balances, zone statistics and numerical qualification checks in the independent C++ [result core](solvers/native/result/).
-[shared/_native_result.py](shared/_native_result.py) loads result ABI 1 on demand. File reads load no solver, preparation or result library.
+[shared/_native_result.py](shared/_native_result.py) loads result ABI 2 on demand. File reads load no solver, preparation or result library.
 Python keeps evidence selection, status interpretation and file interfaces. The four daily entries stay unchanged.
 Edit a numerical function in its C++ source, then rebuild and restart the process.
 Numerical and platform acceptance for stage five is in progress. The six-stage goal remains incomplete.

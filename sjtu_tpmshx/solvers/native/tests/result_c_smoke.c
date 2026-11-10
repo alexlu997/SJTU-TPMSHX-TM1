@@ -18,7 +18,7 @@ int main(void) {
     tpmshx_result_diagnostics_v1 diagnostics;
     tpmshx_result_array_check_values_v1 output={91,92};
     tpmshx_result_platform_v1 format;
-    REQUIRE(tpmshx_result_abi_version_v1()==1);
+    REQUIRE(tpmshx_result_abi_version_v1()==2);
     REQUIRE(tpmshx_result_platform_info_v1(&format,error,sizeof(error))==0);
     REQUIRE(format.long_double_size==sizeof(long double));
     REQUIRE(tpmshx_result_array_checks_v1(input,&output,&diagnostics,error,sizeof(error))==0);

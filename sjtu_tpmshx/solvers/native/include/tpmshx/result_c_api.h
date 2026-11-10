@@ -18,7 +18,7 @@
 #  define TPMSHX_RESULT_CALL
 #endif
 
-#define TPMSHX_RESULT_ABI_VERSION 1u
+#define TPMSHX_RESULT_ABI_VERSION 2u
 #define TPMSHX_RESULT_FP_EVENT_COUNT 64u
 
 enum tpmshx_result_status_v1 {

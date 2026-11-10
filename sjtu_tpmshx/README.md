@@ -39,7 +39,7 @@ Python 保留配置、类型／数组适配、数据对象、I/O、缓存、GUI 
 [shared/models/_native_preparation.py](shared/models/_native_preparation.py) 延迟加载独立 preparation ABI 1 库；几何 ABI 1／field ABI 2 不变。
 Python 保留配置、DTO、I/O、缓存、GUI／BO 策略和离线拟合；正式数值与开发独立参考分开。
 第五批的 [result/](solvers/native/result/) 是独立 C++ 结果核心，负责指标、物理平衡、分区统计和数值资格检查。
-[shared/_native_result.py](shared/_native_result.py) 按需加载结果 ABI 1；读取文件不加载求解器、准备库或结果库。
+[shared/_native_result.py](shared/_native_result.py) 按需加载结果 ABI 2；读取文件不加载求解器、准备库或结果库。
 Python 保留证据选择、状态解释和文件接口。四个日常入口不变；修改数值函数时进入对应 C++ 源文件，重新构建并重启进程。
 第五批仍在数值与平台验收中，六批目标尚未完成。
 独立构建和四库交付见[原生结果核心](../docs/cpp-migration.zh-CN.md#native-result-core)。

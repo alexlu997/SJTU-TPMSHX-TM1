@@ -201,7 +201,7 @@ Required checks must pass before delivery. This section does not report new CI, 
 
 ## Native result core
 
-Stage five connects independent result ABI 1 for metrics, signed physical balances, zone statistics and numerical qualification checks.
+Stage five connects independent result ABI 2 for metrics, signed physical balances, zone statistics and numerical qualification checks.
 Python selects recorded evidence and keeps status, reason, type and file interfaces.
 The standalone `solvers/native/result/` project uses only C++17 and system libraries.
 It does not load the solver, preparation, geometry, CoolProp or model resources.

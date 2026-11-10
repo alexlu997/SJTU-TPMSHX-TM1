@@ -84,7 +84,7 @@ Its name is `libtpmshx_preparation_shared.dylib` on macOS and `tpmshx_preparatio
 Historical result reading and independent postprocessing do not load preparation.
 See the [native preparation core](cpp-migration.md#native-preparation-core) for separate preparation publication and the four-library transaction.
 
-The result library loads on demand from the same platform directory and uses result ABI 1.
+The result library loads on demand from the same platform directory and uses result ABI 2.
 Its name is `libtpmshx_result_shared.dylib` on macOS and `tpmshx_result_shared.dll` on Windows.
 `TPMSHX_RESULT_LIBRARY` overrides its runtime path. Pure HDF/JSON reading does not load it. Actual metric arithmetic needs it.
 See the [native result core](cpp-migration.md#native-result-core) for separate publication and the Linux minimal-postprocessing CI scope.
@@ -188,7 +188,7 @@ Without `--native-library`, a frozen program locates the solver library under it
 An explicit path always takes precedence.
 The geometry library also defaults to packaged `native/`. The runtime setting `TPMSHX_GEOMETRY_LIBRARY` can override it.
 Preparation defaults to the same `native/` directory. The runtime setting `TPMSHX_PREPARATION_LIBRARY` can override it.
-Result ABI 1 loads its library from the same directory on demand. `TPMSHX_RESULT_LIBRARY` can override it. Pure file reads do not load it.
+Result ABI 2 loads its library from the same directory on demand. `TPMSHX_RESULT_LIBRARY` can override it. Pure file reads do not load it.
 For source operation, use the host default or explicit paths described above.
 No development-cache search, compilation, or backend substitution occurs.
 
