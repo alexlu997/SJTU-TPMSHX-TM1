@@ -14,10 +14,12 @@ Tensor oriented(const Array& field,bool low,bool binary_sign,Diagnostics& d) {
 }
 Tensor selected(const Array& values,const std::vector<std::size_t>& indices) {
     Tensor out({indices.size()},values.raw().dtype,TPMSHX_RESULT_NUMPY_ARRAY);
-    for (std::size_t i=0;i<indices.size();++i) out.put(i,values.at(indices[i]));return out;
+    for (std::size_t i=0;i<indices.size();++i) out.put(i,values.at(indices[i]));
+    return out;
 }
 double python_divide(double first,double second) {
-    if (second==0.) throw NumericError(TPMSHX_RESULT_ZERO_DIVISION,"float division by zero");return first/second;
+    if (second==0.) throw NumericError(TPMSHX_RESULT_ZERO_DIVISION,"float division by zero");
+    return first/second;
 }
 double maximum3(double first,double second,double third) {if (second>first) first=second;if (third>first) first=third;return first;}
 Number representative(const Array& value) {
@@ -44,7 +46,8 @@ Tensor capacity_weights(const std::array<Array,5>& input,Diagnostics& d) {
 Tensor broadcast_width(const Array& width,std::vector<std::size_t> shape,std::size_t axis) {
     Tensor out(std::move(shape),width.raw().dtype,TPMSHX_RESULT_NUMPY_ARRAY);
     std::size_t stride=1;for (std::size_t k=axis+1;k<out.shape.size();++k) stride*=out.shape[k];
-    for (std::size_t i=0;i<out.size();++i) out.put(i,width.at((i/stride)%out.shape[axis]));return out;
+    for (std::size_t i=0;i<out.size();++i) out.put(i,width.at((i/stride)%out.shape[axis]));
+    return out;
 }
 template<std::size_t N> std::array<double,2> mass(const std::array<Array,N>& faces,bool binary,Diagnostics& d) {
     std::vector<Tensor> outward;outward.reserve(N);
@@ -115,7 +118,8 @@ double outlet_temperature_2d(const Array& temperature,const Array& mass_field,co
     auto temperatures=selected(temperature,opened);auto w=selected(weights.array(),flowing),t=selected(temperatures.array(),flowing);
     auto products=a::multiply(w.array(),t.array(),d);
     const auto value=a::to_float(a::divide(a::sum(products.array(),d),a::python_float(total),d));
-    if (!std::isfinite(value)) throw NumericError(TPMSHX_RESULT_VALUE_ERROR,"2D outlet temperature is non-finite");return value;
+    if (!std::isfinite(value)) throw NumericError(TPMSHX_RESULT_VALUE_ERROR,"2D outlet temperature is non-finite");
+    return value;
 }
 double outlet_temperature_3d(const Array& temperature,const Array& mass_field,bool reverse,Diagnostics& d) {
     auto outward=product(mass_field,a::python_int(reverse?-1:1),d);

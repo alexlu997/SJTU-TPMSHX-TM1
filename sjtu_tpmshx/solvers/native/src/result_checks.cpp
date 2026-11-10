@@ -91,8 +91,10 @@ tpmshx_result_range_decision_v1 range_values(double lower,double upper,double mi
     const auto bounds=source_bounds(lower,upper);
     if (!(std::isfinite(minimum) && std::isfinite(maximum) && minimum<=maximum))
         throw std::invalid_argument("range evidence requires finite ordered extrema");
-    if (lower<=minimum && maximum<=upper) return {0.,TPMSHX_RESULT_WITHIN_ORIGINAL,1};
-    if (!hard_bounds && !bounds.positive) return {0.,TPMSHX_RESULT_DOMAIN_RULE_REQUIRED,0};
+    if (lower<=minimum && maximum<=upper)
+        return {0.,TPMSHX_RESULT_WITHIN_ORIGINAL,1};
+    if (!hard_bounds && !bounds.positive)
+        return {0.,TPMSHX_RESULT_DOMAIN_RULE_REQUIRED,0};
     const double infinity=std::numeric_limits<double>::infinity();
     const bool inside=hard_bounds?(lower<=minimum && maximum<=upper):
         (std::nextafter(bounds.lower,-infinity)<=minimum && maximum<=std::nextafter(bounds.upper,infinity));
@@ -102,7 +104,8 @@ tpmshx_result_range_decision_v1 range_values(double lower,double upper,double mi
         if (below>fraction) fraction=below;
         if (above>fraction) fraction=above;
     }
-    return {fraction,inside?TPMSHX_RESULT_WITHIN_MARGIN:TPMSHX_RESULT_OUTSIDE_LIMIT,bounds.positive};
+    return {fraction,static_cast<std::uint32_t>(inside?TPMSHX_RESULT_WITHIN_MARGIN:TPMSHX_RESULT_OUTSIDE_LIMIT),
+        bounds.positive};
 }
 
 tpmshx_result_array_check_values_v1 array_checks(const Array& values) {

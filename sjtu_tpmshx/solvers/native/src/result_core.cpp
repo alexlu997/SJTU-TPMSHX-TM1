@@ -26,8 +26,10 @@ void check_origin(std::uint32_t origin) {
 template<class T> T load(const void* source,std::uint32_t order) {
     std::array<unsigned char,sizeof(T)> bytes{};
     std::memcpy(bytes.data(),source,sizeof(T));
-    if (sizeof(T)>1 && order!=TPMSHX_RESULT_NATIVE_ENDIAN
-        && ((order==TPMSHX_RESULT_LITTLE_ENDIAN)!=native_little())) std::reverse(bytes.begin(),bytes.end());
+    if constexpr (sizeof(T)>1) {
+        if (order!=TPMSHX_RESULT_NATIVE_ENDIAN
+            && ((order==TPMSHX_RESULT_LITTLE_ENDIAN)!=native_little())) std::reverse(bytes.begin(),bytes.end());
+    }
     T value;
     std::memcpy(&value,bytes.data(),sizeof(T));
     return value;

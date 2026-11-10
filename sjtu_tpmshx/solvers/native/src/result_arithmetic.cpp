@@ -16,16 +16,16 @@ extern "C" void tpmshx_result_complex_sqrt_long_double(long double real,long dou
 
 namespace tpmshx::result::arithmetic {
 namespace {
-constexpr auto B=TPMSHX_RESULT_BOOL, I8=TPMSHX_RESULT_I8, U8=TPMSHX_RESULT_U8;
-constexpr auto I16=TPMSHX_RESULT_I16, U16=TPMSHX_RESULT_U16;
-constexpr auto I32=TPMSHX_RESULT_I32, U32=TPMSHX_RESULT_U32;
-constexpr auto I64=TPMSHX_RESULT_I64, U64=TPMSHX_RESULT_U64;
-constexpr auto F16=TPMSHX_RESULT_F16, F32=TPMSHX_RESULT_F32, F64=TPMSHX_RESULT_F64;
-constexpr auto LD=TPMSHX_RESULT_LONG_DOUBLE, C64=TPMSHX_RESULT_C64, C128=TPMSHX_RESULT_C128;
-constexpr auto CLD=TPMSHX_RESULT_COMPLEX_LONG_DOUBLE;
-constexpr auto PF=TPMSHX_RESULT_PYTHON_FLOAT, PI=TPMSHX_RESULT_PYTHON_INT;
-constexpr auto PB=TPMSHX_RESULT_PYTHON_BOOL, PC=TPMSHX_RESULT_PYTHON_COMPLEX;
-constexpr auto NS=TPMSHX_RESULT_NUMPY_SCALAR, NA=TPMSHX_RESULT_NUMPY_ARRAY;
+constexpr std::uint32_t B=TPMSHX_RESULT_BOOL, I8=TPMSHX_RESULT_I8, U8=TPMSHX_RESULT_U8;
+constexpr std::uint32_t I16=TPMSHX_RESULT_I16, U16=TPMSHX_RESULT_U16;
+constexpr std::uint32_t I32=TPMSHX_RESULT_I32, U32=TPMSHX_RESULT_U32;
+constexpr std::uint32_t I64=TPMSHX_RESULT_I64, U64=TPMSHX_RESULT_U64;
+constexpr std::uint32_t F16=TPMSHX_RESULT_F16, F32=TPMSHX_RESULT_F32, F64=TPMSHX_RESULT_F64;
+constexpr std::uint32_t LD=TPMSHX_RESULT_LONG_DOUBLE, C64=TPMSHX_RESULT_C64, C128=TPMSHX_RESULT_C128;
+constexpr std::uint32_t CLD=TPMSHX_RESULT_COMPLEX_LONG_DOUBLE;
+constexpr std::uint32_t PF=TPMSHX_RESULT_PYTHON_FLOAT, PI=TPMSHX_RESULT_PYTHON_INT;
+constexpr std::uint32_t PB=TPMSHX_RESULT_PYTHON_BOOL, PC=TPMSHX_RESULT_PYTHON_COMPLEX;
+constexpr std::uint32_t NS=TPMSHX_RESULT_NUMPY_SCALAR, NA=TPMSHX_RESULT_NUMPY_ARRAY;
 
 bool strong(const Number& n) {return n.origin==NS || n.origin==NA;}
 std::uint32_t component(std::uint32_t type) {return type==C64?F32:type==C128?F64:type==CLD?LD:type;}
@@ -323,7 +323,8 @@ template<class Real,class Getter> Real pairwise(Getter get,std::size_t offset,st
     std::size_t i=8;
     for (;i+8<=count;i+=8) for (std::size_t j=0;j<8;++j) partial[j]+=get(offset+i+j);
     auto out=((partial[0]+partial[1])+(partial[2]+partial[3]))+((partial[4]+partial[5])+(partial[6]+partial[7]));
-    for (;i<count;++i) out+=get(offset+i);return out;
+    for (;i<count;++i) out+=get(offset+i);
+    return out;
 }
 // NumPy 2.5.4 loops_utils.h.src uses four interleaved complex lanes.
 template<class Real,class Getter> std::complex<Real> complex_pairwise(Getter get,std::size_t offset,std::size_t count) {
@@ -397,7 +398,8 @@ bool compare(const Number& a,const Number& b,Diagnostics& d,bool inclusive) {
                 if (whole<integer.unsigned_value) order=-1;else if (whole>integer.unsigned_value) order=1;
                 else {const auto fraction=f-static_cast<long double>(whole);order=fraction<0?-1:fraction>0?1:0;}}
         }
-        if (!float_left) order=-order;return inclusive?order<=0:order<0;
+        if (!float_left) order=-order;
+        return inclusive?order<=0:order<0;
     }
     const auto dtype=promoted(a,b);const auto origin=result_origin(a,b,dtype);
     std::feclearexcept(FE_ALL_EXCEPT);
@@ -456,7 +458,9 @@ Number negative(const Number& a,Diagnostics&) {
         if (!strong(a)) return python_int(zero(a)?0:-1);
         throw NumericError(TPMSHX_RESULT_TYPE_ERROR,"The numpy boolean negative, the `-` operator, is not supported, use the `~` operator or the logical_not function instead.");
     }
-    if (integer_type(a.dtype)) return signed_type(a.dtype)?signed_bits(-raw_integer(a),a.dtype,a.origin):unsigned_bits(-raw_integer(a),a.dtype,a.origin);
+    if (integer_type(a.dtype)) return signed_type(a.dtype)
+        ?signed_bits(std::uint64_t{0}-raw_integer(a),a.dtype,a.origin)
+        :unsigned_bits(std::uint64_t{0}-raw_integer(a),a.dtype,a.origin);
     return complex_type(a.dtype)?complex_number(-a.real,-a.imaginary,a.dtype,a.origin):floating(-a.real,a.dtype,a.origin);
 }
 Number absolute(const Number& a,Diagnostics& d) {
@@ -471,12 +475,14 @@ Number square(const Number& a,Diagnostics& d) {
     Diagnostics scratch{};const auto n=a.dtype==B?converted(a,I8,a.origin):a;
     const auto out=multiply(n,n,scratch);std::uint32_t flags=0;
     for (std::size_t i=0;i<scratch.event_count;++i) flags|=scratch.events[i].flags;
-    if (flags) append_event(d,flags,TPMSHX_RESULT_SQUARE,false);return out;
+    if (flags) append_event(d,flags,TPMSHX_RESULT_SQUARE,false);
+    return out;
 }
 Number power_two(const Number& a,Diagnostics& d) {
     Diagnostics scratch{};const auto out=square(a,scratch);std::uint32_t flags=0;
     for (std::size_t i=0;i<scratch.event_count;++i) flags|=scratch.events[i].flags;
-    if (flags) append_event(d,flags,TPMSHX_RESULT_POWER,a.origin==NS);return out;
+    if (flags) append_event(d,flags,TPMSHX_RESULT_POWER,a.origin==NS);
+    return out;
 }
 Number square_root(const Number& a,Diagnostics& d) {
     const auto type=integer_type(a.dtype)?(bits(a.dtype)<=8?F16:bits(a.dtype)<=16?F32:F64):a.dtype;
@@ -584,10 +590,16 @@ Number minimum(const Array& a,Diagnostics& d) {if (!a.size()) throw NumericError
 // Copyright (c) 2001-2024 Python Software Foundation; All Rights Reserved.
 // Adapted from CPython 3.13.2 bltinmodule.c; the retained Python license applies.
 double python_float_sum(const std::vector<double>& values) {
-    if (values.empty()) return 0.;double total=0.+values[0],correction=0.;
-    for (std::size_t i=1;i<values.size();++i) {const auto x=values[i],next=total+x;
-        if (std::fabs(total)>=std::fabs(x)) correction+=(total-next)+x;else correction+=(x-next)+total;total=next;}
-    if (correction!=0. && std::isfinite(correction)) total+=correction;return total;
+    if (values.empty()) return 0.;
+    double total=0.+values[0],correction=0.;
+    for (std::size_t i=1;i<values.size();++i) {
+        const auto x=values[i],next=total+x;
+        if (std::fabs(total)>=std::fabs(x)) correction+=(total-next)+x;
+        else correction+=(x-next)+total;
+        total=next;
+    }
+    if (correction!=0. && std::isfinite(correction)) total+=correction;
+    return total;
 }
 
 }  // namespace tpmshx::result::arithmetic
