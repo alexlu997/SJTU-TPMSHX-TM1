@@ -3,6 +3,7 @@ import numpy as np
 import pytest
 
 from sjtu_tpmshx.shared.models import tpms_geometry, tpms_props
+from sjtu_tpmshx.development.tests import geometry_reference as reference
 
 
 # Retained graded-field inputs exposed array-power rounding differences.
@@ -15,12 +16,12 @@ _WALLS = np.array([.3, .6, .3, .54622559073723997,
 def _scan_reference(tpms, length, wall, n):
     """Keep the original scalar powers and direct voxel scans independent."""
     length, wall = float(length), float(wall)
-    a, b = tpms_geometry._C_COEFFS[tpms]
+    a, b = reference._C_COEFFS[tpms]
     ratio = wall / length
     threshold = max(a * ratio + b * ratio**2, 0.)
-    phi = tpms_geometry._phi_grid(tpms, n)
-    epsilon = tpms_geometry._eps_from_C(phi, threshold)
-    area = tpms_geometry._A0_from_C(phi, threshold, length / 1000., n)
+    phi = reference._phi_grid(tpms, n)
+    epsilon = reference._eps_from_C(phi, threshold)
+    area = reference._A0_from_C(phi, threshold, length / 1000., n)
     side = .5 * epsilon
     return dict(epsilon=epsilon, epsilon_A=side, epsilon_B=side,
                 A_0=area, D_h=4. * side / area)

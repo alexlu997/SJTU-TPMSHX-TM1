@@ -39,7 +39,8 @@ def test_chi_s_env_is_read_per_call(monkeypatch):
     """TPMSHX_CHI_S used to be read at import time only — setting it after
     the first import (monkeypatch.setenv included) was silently ignored
     (audit §5d). chi_s_eff must honor the CURRENT environment."""
-    from sjtu_tpmshx.shared.models.tpms_props import chi_s_eff, _CHI_S_FIT
+    from sjtu_tpmshx.shared.models.tpms_props import chi_s_eff
+    from sjtu_tpmshx.development.tests.geometry_reference import _CHI_S_FIT
     monkeypatch.delenv('TPMSHX_CHI_S', raising=False)
     c0, c1 = _CHI_S_FIT['Diamond']
     fit_val = chi_s_eff('Diamond', 0.6)

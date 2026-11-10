@@ -21,9 +21,14 @@ Fixed coefficients, bounds and reference states come from
 [model_parameters_v1.json](../sjtu_tpmshx/shared/configs/model_parameters_v1.json).
 The `shared.configs.model_parameters` reader uses only the Python standard library.
 Python model modules and the native header generator use the same resource data.
-This first migration stage unifies data sources. It keeps the current calculations.
-Later stages must migrate geometry, design fields, preparation and postprocessing to C++.
+The first migration stage unified data sources. The second moves geometry calculations to C++.
+The geometry core owns standard, CO2 and asymmetric geometry, chi/Kss, and sigmoid LUT nodes and derived geometry.
+`shared/models/_native_geometry.py` uses ctypes to load geometry ABI 1 on demand.
+It loads a separate prebuilt library without importing the solver backend.
+Python keeps public types, cache interfaces and per-call explicit/environment/fit selection for chi.
+Grid and design-field interpolation, properties, DF, full preparation and result calculations remain in later stages.
 The six-stage migration remains incomplete. See [model resources](model-resources.en.md#当前资源与研究输出).
+Earlier solver CI records do not establish acceptance for this geometry migration batch.
 
 The native full-compute CC route uses the existing air/water integral h(T)
 model through strict model-h drivers. Earlier variable-cp m*cp*T failures
@@ -815,13 +820,16 @@ Geometry gradients
 still require independent physical validation. Parameter smoothness does not
 show TPMS surface connectivity or manufacturability.
 
-TPMS geometry uses an exact count index for repeated level-set thresholds.
+The native geometry core uses an exact count index for repeated level-set thresholds.
 Sorted absolute phi values give the occupied voxel count. Cumulative edge
 changes give the exposed face count. The inclusive threshold, sampled grid,
 domain edges and area correction stay the same. The cache retains two
 topology/resolution pairs. At N=128, each index uses 32 MiB in addition to the
-16 MiB phi grid. The first query builds the index. Calibration, sigmoid tables
-and asymmetric geometry keep their existing scan functions.
+16 MiB phi grid. The first query builds the native index.
+Raw voxel and marching-cubes geometry also use C++.
+Sigmoid LUT node generation uses native raw geometry; LUT interpolation remains in Python.
+Percolation, scans, Richardson extrapolation and target-C research use
+`development/runs/tools/asym_geometry_research.py`. Shared modules keep no forwarding aliases.
 
 Standard symmetric field preparation batches sampled L/t arrays through the same geometry formulas as scalar queries.
 Array queries use the count index without adding entries to the scalar result cache.
@@ -829,6 +837,13 @@ Floating-point powers preserve the scalar formula's rounding.
 Three-dimensional preparation evaluates original and SI-roundtripped lengths separately.
 This keeps design porosity and thermal geometry on their original inputs.
 Solid conductivity retains the shared chi rule and its explicit and environment overrides.
+Python resolves explicit chi, then the current `TPMSHX_CHI_S`, then the native fit on each call.
+Cached geometry does not freeze a material override.
+The independent `solvers/native/geometry/` CMake target needs no solver or EOS dependencies.
+See [geometry build and deployment](cpp-migration.md#native-geometry-core) for library paths and publication.
+Changing C++ functions or compiled model data requires a rebuild and process restart.
+Historical result reading and offline postprocessing do not load the geometry library.
+Old checkpoints retain their exact solver runtime; geometry-only publication does not replace it.
 
 Each continuous-field axis accepts at least one control. A singleton is
 recorded at the domain midpoint and stays constant along that axis. Other

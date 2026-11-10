@@ -27,6 +27,16 @@ Current full computations support rectangular 2D and cuboid 3D domains.
 See the [examples](../examples/three_module/) and [data contract](../docs/contracts/three_module_v1/README.md) for public inputs and file transport.
 The [capabilities](../docs/capabilities.en.md) list approximation modes and extension status.
 
+The numerical owners for standard, CO2 and asymmetric geometry, plus chi/Kss, are
+[native/src/geometry.cpp](solvers/native/src/geometry.cpp) and
+[native/src/asym_geometry.cpp](solvers/native/src/asym_geometry.cpp).
+[shared/models/_native_geometry.py](shared/models/_native_geometry.py) uses ctypes to load the independent geometry ABI 1 library lazily.
+It keeps Python public entries, types and caches without importing the solver backend.
+Sigmoid LUT nodes and derived geometry use this core.
+Design-field interpolation/grids, properties/DF/full preparation and result calculations remain in later stages.
+The six-stage migration remains incomplete.
+See [native geometry](../docs/cpp-migration.md#native-geometry-core) for independent builds, two-library delivery and research entries.
+
 <a id="三模块主线"></a>
 <a id="支撑模块与应用入口"></a>
 

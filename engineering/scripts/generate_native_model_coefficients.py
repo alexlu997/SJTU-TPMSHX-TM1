@@ -80,9 +80,24 @@ def header():
     lines.extend((table("nu_air", nu['air_coefficients'], ("c", "a", "d")),
                   table("nu_water", nu['water_coefficients'], ("c", "a")),
                   table("nu_sco2", nu['sco2_coefficients'], ("c", "a", "d"))))
-    co2 = {topology: dict(enumerate(model['Nu']['parameters']['theta']))
-           for topology, model in co2['topologies'].items()}
-    lines.append(table('nu_co2', co2, range(5)))
+    co2_theta = {topology: dict(enumerate(model['Nu']['parameters']['theta']))
+                 for topology, model in co2['topologies'].items()}
+    lines.append(table('nu_co2', co2_theta, range(5)))
+    geometry = parameters['geometry']
+    lines.append(f"inline constexpr double geometry_area_correction = {geometry['area_correction']!r};")
+    for key, name in (('level_set_coefficients', 'geometry_level_set'),
+                      ('solid_tortuosity', 'geometry_solid_tortuosity')):
+        rows = {topology: dict(enumerate(values)) for topology, values in geometry[key].items()}
+        lines.append(table(name, rows, range(2)))
+    node_rows = []
+    for topology in ('Diamond', 'Gyroid'):
+        nodes = co2['topologies'][topology]['geometry_nodes']
+        rows = ["    {{" + ", ".join(repr(float(node[key])) for key in (
+            'L_mm', 't_mm', 'epsilon_single', 'Dh_m', 'A0_single_per_m')) + "}}"
+                for node in nodes]
+        node_rows.append("{{\n" + ",\n".join(rows) + "\n}}")
+    lines.append("inline constexpr std::array<std::array<std::array<double, 5>, 20>, 2> co2_geometry_nodes{{\n"
+                 + ",\n".join(node_rows) + "\n}};")
     lines.append("}  // namespace tpmshx::model_coefficients\n")
     return "\n".join(lines)
 

@@ -1,8 +1,9 @@
 """Shared geometry fields for the two asymmetric CFD workbooks."""
 
 from sjtu_tpmshx.shared.models.asym_geometry import (
-    a0_sides_mc, delta_for_split, dh_from_sides, eps_sides, percolates_z,
+    a0_sides_mc, dh_from_sides, eps_sides,
 )
+from sjtu_tpmshx.development.runs.tools.asym_geometry_research import delta_for_split, percolates_z
 
 
 def split_geometry(phi, C, r, L_m, N):

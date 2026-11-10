@@ -38,9 +38,19 @@ uses only the Python standard library. It reads and validates the resource.
 Python model modules construct constants from the same data.
 They keep the existing names and tuple/dict types.
 The C++ header generator reads resources directly, without importing numerical models.
-This first stage unifies data sources. It keeps the current calculations.
-Later stages must migrate geometry, design fields, preparation and postprocessing calculations.
+The first stage unified data sources.
+The second moves standard, CO2 and asymmetric geometry, plus chi/Kss, to an independent C++ geometry core.
+Sigmoid LUT node generation and derived geometry also use this core.
+Design-field interpolation and grids remain in stage three.
+Properties, DF, full preparation and result calculations remain in later stages.
 The six-stage migration remains incomplete.
+
+Python geometry interfaces keep types, caches and per-call explicit/environment/fit selection for chi.
+They have no numerical fallback.
+Rebuild each affected native library after changing C++ functions or compiled resource parameters. Then restart the process.
+See the [native geometry core](cpp-migration.md#native-geometry-core) for builds, paths and runtime boundaries.
+Percolation, scans, Richardson and target-C research are in
+`sjtu_tpmshx/development/runs/tools/asym_geometry_research.py`. Shared modules keep no former forwarding entries.
 
 [co2_segment2_v1.json](../sjtu_tpmshx/shared/configs/co2_segment2_v1.json)
 remains the source for CO2 segment Nu and geometry data.

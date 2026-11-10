@@ -15,9 +15,14 @@ Python 数值迭代器、Numba／PyAMG 依赖和 Python 专用研究入口已退
 [model_parameters_v1.json](../sjtu_tpmshx/shared/configs/model_parameters_v1.json)。
 `shared.configs.model_parameters` 读取器仅使用 Python 标准库。
 Python 模型模块与原生头文件生成器使用同一资源数据。
-第一批迁移只统一数据来源，保留当前计算实现。
-后续批次仍须将几何、设计场、前处理和后处理计算迁入 C++。
+第一批统一数据来源；第二批将几何计算迁入 C++。
+几何核心负责标准、CO2 和非对称几何、chi/Kss，以及 sigmoid LUT 节点和派生几何。
+`shared/models/_native_geometry.py` 通过几何 ABI 1 提供延迟加载的 ctypes 接口，
+加载独立预构建几何库，不导入求解器后端。
+Python 保留公共类型、缓存接口和逐次调用的 chi 显式值／环境值／拟合选择。
+网格和设计场插值、物性、DF、完整前处理及结果计算仍属后续批次。
 六批迁移尚未完成，详见[模型资源](model-resources.md#当前资源与研究输出)。
+既有求解器 CI 记录不构成本批几何迁移验收。
 
 原生 full-compute CC 通过严格 model-h 驱动使用既有空气／水积分焓 h(T)。早期可变 cp 的 m*cp*T 失败保留在历史记录。
 固定系数 Quick Design、独立温度、true-h 热学准备和私有 C++ 组件路线保留各自契约；删除 Python 入口不扩大这些契约。
@@ -407,15 +412,23 @@ GUI 入口为 `python -m sjtu_tpmshx.main`，源码无界面工作为 `python -m
 
 三维构造器也接受行数组并沿第一轴广播。既有动量采样保持：u 面平均相邻 x 单元，v/w 面取下游单元。几何梯度仍需独立物理验证，参数平滑不能证明 TPMS 曲面连通或可制造。连续场要求对称通道。
 
-TPMS 几何用精确计数索引处理重复等值面阈值。排序后的 phi 绝对值给出固体体素数，
+原生几何核心用精确计数索引处理重复等值面阈值。排序后的 phi 绝对值给出固体体素数，
 相邻边的累计变化给出暴露面数。包含端点的阈值、采样网格、域边界和面积修正系数保持不变。
 缓存保留两组拓扑／分辨率组合。N=128 时，每组索引占 32 MiB，另有 16 MiB 的 phi 网格。
-首次查询构建索引。标定、sigmoid 表和非对称几何保留既有扫描函数。
+首次查询构建原生索引。原始体素和 marching-cubes 几何也由 C++ 计算。
+Sigmoid LUT 节点使用原生 raw 几何生成，LUT 插值仍在 Python。
+贯通、扫描、Richardson 外推及目标 C 研究使用
+`development/runs/tools/asym_geometry_research.py`；shared 不保留转发别名。
 
 标准对称场的前处理对采样后的 L/t 数组批量求值，与标量查询共用几何公式。
 数组查询使用计数索引，不向标量结果缓存添加条目。浮点幂运算保留标量公式的舍入方式。
 三维前处理分别计算原始长度和 SI 往返后的长度，设计孔隙率和热几何仍使用各自原有输入。
 固体热导率保留共享 chi 规则及显式值、环境变量的覆盖优先级。
+Python 每次调用依次解析显式 chi、当前 `TPMSHX_CHI_S`，再选择原生拟合；缓存几何不冻结材料覆盖值。
+独立 `solvers/native/geometry/` CMake 目标不需要求解器或 EOS 依赖。
+库路径与发布见[几何构建和交付](cpp-migration.zh-CN.md#native-geometry-core)。
+修改 C++ 函数或编入库的模型数据后，须重新构建并重启进程。
+历史结果读取和独立后处理不加载几何库；旧检查点保留精确匹配的求解运行库，几何单独发布不替换它。
 
 连续场每轴至少一个控制点。单点位于域中面，该轴保持恒定；其他轴的实际阶数为
 `min(spline_order, control_count - 1)`。每轴至少两点的既有 XY 场保留原双变量样条。

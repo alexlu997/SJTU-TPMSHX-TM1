@@ -21,6 +21,7 @@ import numpy as np
 
 from .tpms_geometry import compute_geometry as _tpms_geom
 from .tpms_geometry import compute_geometry_fields as _tpms_geom_fields
+from . import _native_geometry
 from sjtu_tpmshx.shared.configs.model_parameters import load_model_parameters
 from sjtu_tpmshx.shared.domain.run_warnings import record_range
 
@@ -200,83 +201,36 @@ def water_cp(T_K):
 #
 # Env var TPMSHX_CHI_S (a constant) still overrides everything — legacy
 # escape hatch; the historical default was the uncalibrated 1.0.
-_CHI_S_FIT = {topology: tuple(values)
-              for topology, values in _MODEL_PARAMETERS['geometry']['solid_tortuosity'].items()}
+def _resolve_chi_s(chi_s=None):
+    """Resolve an explicit value before the current environment setting."""
+    if chi_s is not None:
+        return float(chi_s)
+    value = os.environ.get('TPMSHX_CHI_S')
+    return None if value is None else float(value)
 
 
 def chi_s_eff(tpms_type: str, eps):
-    """Effective solid-conduction tortuosity chi_s(type, eps).
-
-    Vectorized over `eps` (scalar or ndarray). Priority:
-    env TPMSHX_CHI_S constant (legacy override) > per-type linear fit.
-
-    The env var is read PER CALL (P1.6, audit §5d): the old import-time
-    snapshot silently ignored TPMSHX_CHI_S set after the first import —
-    monkeypatch.setenv in tests and runtime overrides both hit that trap.
-    """
-    env = os.environ.get('TPMSHX_CHI_S')
-    if env is not None:
-        c = float(env)
-        e = np.asarray(eps, dtype=np.float64)
-        return c if e.ndim == 0 else np.full_like(e, c)
-    c0, c1 = _CHI_S_FIT[tpms_type]
-    out = c0 + c1 * (1.0 - np.asarray(eps, dtype=np.float64))
-    return float(out) if out.ndim == 0 else out
+    """Return native tortuosity with the current per-call override."""
+    result = _native_geometry.chi_fields(tpms_type, eps, chi_s=_resolve_chi_s())
+    return float(result) if result.ndim == 0 else result
 
 
 def geometry(tpms_type: str, L_cell_mm: float, t_mm: float, k_s: float,
              chi_s: float | None = None, N: int = 128) -> dict:
-    """
-    Return TPMS geometric properties without fluid information.
-
-    Parameters
-    ----------
-    tpms_type : 'Diamond' or 'Gyroid'
-    L_cell_mm : unit cell size [mm]
-    t_mm      : wall thickness [mm]
-    k_s       : solid thermal conductivity [W/(m·K)]
-    chi_s     : solid tortuosity factor (optional). Explicit value wins;
-                default = `chi_s_eff(tpms_type, eps)` (B2 homogenization
-                fit; env TPMSHX_CHI_S constant overrides the fit).
-                K_ss = chi_s * (1 - eps) * k_s.
-    N         : voxelisation grid resolution (default 128 as of audit M-d /
-                P3 2026-05-28; was 256). The phi grid is N^3 float64
-                (16 MiB at N=128 vs 128 MiB at N=256), so the lower default
-                cuts per-process memory ~8x for parallel BO with un-shared
-                lru_caches. epsilon drift <0.3 % and A_0 drift <1 % vs
-                N=256, guarded by test_tpms_geometry_n128.
-
-    Returns
-    -------
-    dict with keys: epsilon, epsilon_A, epsilon_B, A_0, D_h, K_ss
-
-    Notes
-    -----
-    epsilon_A = epsilon_B = epsilon / 2 are the per-stream void fractions for
-    the bicontinuous sheet HX (two fluid channels sharing the void equally).
-    D_h is the single-stream hydraulic diameter D_h = 4·epsilon_A / A_0.
-    """
-    g = _tpms_geom(tpms_type, L_cell_mm, t_mm, N)
-    chi = float(chi_s_eff(tpms_type, g['epsilon']) if chi_s is None
-                else chi_s)
-    return {
-        'epsilon':   g['epsilon'],
-        'epsilon_A': g['epsilon_A'],
-        'epsilon_B': g['epsilon_B'],
-        'A_0':       g['A_0'],
-        'D_h':       g['D_h'],
-        'K_ss':      chi * (1.0 - g['epsilon']) * k_s,
-    }
+    """Return native geometry and the current solid conductivity in W/(m K)."""
+    result = _tpms_geom(tpms_type, L_cell_mm, t_mm, N)
+    material = _native_geometry.material_fields(
+        tpms_type, result['epsilon'], k_s, chi_s=_resolve_chi_s(chi_s))
+    value = material['K_ss'][()]
+    result['K_ss'] = value if isinstance(k_s, np.generic) else float(value)
+    return result
 
 
 def geometry_fields(tpms_type: str, L_field_mm, t_field_mm, k_s: float,
                     chi_s: float | None = None, N: int = 128) -> dict:
-    """Return geometric fields and solid conductivity without fluid calls.
-
-    Explicit chi_s takes priority. Otherwise, read the current material setting.
-    K_ss is in W/(m K). Other fields retain compute_geometry_fields units.
-    """
+    """Return geometry fields and native material fields with per-call overrides."""
     fields = _tpms_geom_fields(tpms_type, L_field_mm, t_field_mm, N)
-    chi = chi_s_eff(tpms_type, fields['epsilon']) if chi_s is None else float(chi_s)
-    fields['K_ss'] = np.ascontiguousarray(chi * (1.0 - fields['epsilon']) * k_s)
+    material = _native_geometry.material_fields(
+        tpms_type, fields['epsilon'], k_s, chi_s=_resolve_chi_s(chi_s))
+    fields['K_ss'] = material['K_ss']
     return fields

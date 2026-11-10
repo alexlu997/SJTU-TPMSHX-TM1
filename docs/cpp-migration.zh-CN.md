@@ -21,6 +21,65 @@ application -> preprocess.api -> CaseData -> solvers.api -> FieldResult
 
 当前数值检查采用独立公式、离散账本、制造解、原生组件重放及固定历史参考。原 Python/C++ 比较保留为[0.1 记录构建的证据](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/v0.1.0/docs/cpp-migration.zh-CN.md)，0.2 不保留 Python 求解器重跑这些对照。
 
+<a id="native-geometry-core"></a>
+
+## 原生几何核心
+
+第二批将标准、CO2、非对称几何与 chi/Kss 迁入 C++。
+Sigmoid LUT 节点和派生几何也使用该核心。
+数值源码仍在 `sjtu_tpmshx/solvers/native/`。
+`shared/models/_native_geometry.py` 在几何查询需要时，通过 ctypes 加载独立几何 ABI 1 库。
+Python 保留公共类型、缓存及逐次调用的 chi 显式值／环境值／拟合选择。
+缺库、ABI 不符或符号缺失时明确失败，不使用数值 fallback，也不在运行时构建。
+
+独立 CMake 项目为 `sjtu_tpmshx/solvers/native/geometry/`。
+`tpmshx_geometry_shared` 目标使用 C++ 标准库与内附 marching-cubes 实现，
+不需要 CoolProp、SuperLU、AMGCL、Eigen 或求解运行库；完整 dependency pilot 包含同一目标。
+网格／设计场插值、物性、DF、完整前处理和结果数学仍属后续批次。
+六批迁移尚未完成；本节不报告新的 CI 或完整批次验收结论。
+
+macOS arm64 使用 `libtpmshx_geometry_shared.dylib`，Windows x64 使用 `tpmshx_geometry_shared.dll`。
+源码默认目录为 `sjtu_tpmshx/solvers/native/lib/<host>/`，冻结程序使用自身的 `native/`。
+如需选择其他几何库，将 `TPMSHX_GEOMETRY_LIBRARY` 设为预构建文件的绝对路径。
+历史结果读取和独立后处理不加载该库。
+修改 C++ 函数或编入库的模型参数后，须重新构建并重启进程；共享 JSON 资源仍是权威来源。
+贯通、扫描、Richardson 和目标 C 研究改用
+`sjtu_tpmshx/development/runs/tools/asym_geometry_research.py`，shared 不保留转发别名。
+
+仅构建几何时，`fetch-cmake` 只获取锁定构建工具。
+`build`、`verify` 与 `publish --component geometry` 仍检查配置的 Python 解释器及选定环境锁。
+下面的基础锁仅适用于基础环境；BO 解释器须选择对应 BO 锁。
+
+```sh
+tm1_python="$(sed -n '1p' .venv-path)"
+tm1_lock=engineering/requirements/base.txt
+"$tm1_python" engineering/scripts/build_native_dependencies.py fetch-cmake
+"$tm1_python" engineering/scripts/build_native_dependencies.py publish --component geometry --python-lock "$tm1_lock"
+```
+
+Windows PowerShell：
+
+```powershell
+$tm1Python = Get-Content .venv-path -TotalCount 1
+$tm1Lock = 'engineering/requirements/base.txt'
+& $tm1Python engineering/scripts/build_native_dependencies.py fetch-cmake
+& $tm1Python engineering/scripts/build_native_dependencies.py publish --component geometry --python-lock $tm1Lock
+```
+
+`publish` 包含构建与验证；如需分开，使用同一锁和缓存执行 `build --component geometry` 与 `verify --component geometry`。
+独立产物默认位于 `.cache/native-deps/build/geometry-<host>`，验证执行静态／动态 C 调用方及几何 kernel smoke。
+几何单独发布写入 `geometry-build.json`，不触及 solver 或 run_state。
+内容不同的旧几何库及匹配记录保存在 `previous/`。
+默认完整发布在替换前构建并验证两个库，求解库保留 `build.json`，几何库使用 `geometry-build.json`。
+替换失败时恢复选定文件及元数据；回滚失败时保留暂存文件并报告恢复路径。
+旧求解检查点仍须使用精确保留的运行库、准备态输入和控制量。
+
+application 与 full CI tier 均保留完整 native pilot 构建和既有求解器覆盖。
+产物显式包含几何库，原生与 BO 消费者恢复同一平台产物中的该库。
+此构建拆分不缩减或扩张 gate、锁和受支持平台声明。
+Python wheel 包含代码和模型资源，不包含原生库。
+桌面打包要求两个预构建输入，详见[桌面交付](desktop.md#可选冻结打包)。
+
 <a id="complete-quick-design-capability"></a>
 
 ## 完整 Quick Design 能力
@@ -237,14 +296,14 @@ TPMSHX_REQUIRE_CPP_TESTS=1 TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1 \
 
 ## 隔离 EOS 与压力依赖资格
 
-依赖组件构建为显式步骤，与生产后端选择分开。`sjtu_tpmshx/solvers/native/dependency-pilot/` 是当前原生后端使用的构建项目。输入锁定在 [sjtu_tpmshx/solvers/native/dependencies-lock.toml](../sjtu_tpmshx/solvers/native/dependencies-lock.toml)：CoolProp 8.0.0 及九个固定提交的 CPM 头文件依赖、SuperLU 7.0.1 及选定的三项 SciPy 1.18.1 double-LU 修正、AMGCL 1.5.0 和可移植 CMake 4.4.4。SuperLU 源码不等同于 SciPy 内附修订。源码、二进制、日志和 EOS 表都保存在本工作树 `.cache/native-deps`。[第三方说明](../sjtu_tpmshx/solvers/native/THIRD_PARTY_NOTICES.md)记录链接组件和原始许可声明。
+依赖组件构建为显式步骤，与生产后端选择分开。`sjtu_tpmshx/solvers/native/dependency-pilot/` 是包含几何目标的完整求解器构建项目；[独立几何构建](#native-geometry-core) 只需要锁定 CMake 工具与生成的模型数据。输入锁定在 [sjtu_tpmshx/solvers/native/dependencies-lock.toml](../sjtu_tpmshx/solvers/native/dependencies-lock.toml)：CoolProp 8.0.0 及九个固定提交的 CPM 头文件依赖、SuperLU 7.0.1 及选定的三项 SciPy 1.18.1 double-LU 修正、AMGCL 1.5.0 和可移植 CMake 4.4.4。SuperLU 源码不等同于 SciPy 内附修订。源码、二进制、日志和 EOS 表都保存在本工作树 `.cache/native-deps`。[第三方说明](../sjtu_tpmshx/solvers/native/THIRD_PARTY_NOTICES.md)记录链接组件和原始许可声明。
 
 `engineering/scripts/generate_native_model_coefficients.py` 读取共享
 `model_parameters_v1.json` 资源与既有 CO2 资源。
 资源读取器仅使用 Python 标准库，生成器不导入数值模型实现。
 构建在所选缓存的 `generated/` 目录下生成 `tpmshx/model_coefficients.hpp`，默认目录为 `.cache/native-deps/generated/`。
 C++ 使用生成的常量，运行时不解析 JSON，也不调用 Python。
-第一批迁移只统一数据来源，其他计算仍待后续迁移，详见[模型资源](model-resources.md#当前资源与研究输出)。
+第一批统一数据来源，第二批增加上述独立几何核心；设计场／网格、物性／DF／前处理和结果迁移仍未完成，详见[模型资源](model-resources.md#当前资源与研究输出)。
 
 Python wheel 包含 JSON 资源，不包含原生库；原生求解库仍须单独显式构建。
 系数未变不表示旧检查点能使用新构建的求解库。

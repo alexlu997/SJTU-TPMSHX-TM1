@@ -27,7 +27,9 @@ def total_inlet_mass_capacity(design, parameters, grid, side):
         raise ValueError('2D fixed-flow optimization currently requires delta_levelset=0')
     direction = parameters['cfg' + side]['dir']
     axis = direction // 2
-    eps_in = np.take(design['eps_arr'], -1 if direction % 2 else 0, axis=axis) / 2.
+    from sjtu_tpmshx.shared.models import _native_geometry
+    eps_in = _native_geometry.split_fields(
+        np.take(design['eps_arr'], -1 if direction % 2 else 0, axis=axis), .5)['epsilon_A']
     widths = grid['dy' if axis == 0 else 'dx']
     openings = parameters['boundary_openings'][side]
     opening = openings['in_profile_frac']

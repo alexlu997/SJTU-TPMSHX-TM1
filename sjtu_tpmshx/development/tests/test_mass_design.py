@@ -292,23 +292,6 @@ def test_geometry_bound_covers_clipped_interior_and_edge_points(topology, model_
     assert walls[0] <= bound['t_mm'] <= walls[1]
 
 
-def test_co2_bound_checks_interior_knots_without_a_monotone_table_assumption(monkeypatch):
-    from sjtu_tpmshx.shared.models import co2_correlations as co2
-    table = np.ones((5, 4, 3))
-    table[:, :, 0] = .2
-    table[2, 1, 0] = .45
-    monkeypatch.setattr(co2, '_geometry_table', lambda _: ([4., 5., 6., 7., 8.], [.3, .4, .5, .6], table))
-    assert co2.minimum_solid_geometry('Diamond', [5.2, 7.8], [.33, .57]) == dict(
-        L_mm=6., t_mm=.4, epsilon=.9)
-
-
-def test_level_set_bound_requires_the_monotonicity_proof(monkeypatch):
-    from sjtu_tpmshx.shared.models import tpms_geometry
-    monkeypatch.setitem(tpms_geometry._C_COEFFS, 'Diamond', (-1., 0.))
-    with pytest.raises(ValueError, match='monotone solid volume'):
-        tpms_geometry.minimum_solid_geometry('Diamond', [4., 8.], [.3, .6])
-
-
 @pytest.mark.parametrize('fluid,model_name', [('air','tpms_geometry'),
     ('sco2','tpms_geometry'), ('co2','co2_correlations')])
 def test_mass_bound_uses_the_fluid_geometry_model(monkeypatch, fluid, model_name):

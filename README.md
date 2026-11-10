@@ -22,6 +22,11 @@ GUI、CLI、设计与恢复实现位于 `applications/`；测试、验证和诊�
 根 [engineering/](engineering/) 保存构建脚本、打包配置和依赖锁；[docs/contracts/](docs/contracts/) 保存数据契约。
 `.github/workflows/` 保存 CI 配置。GUI 与 CLI 继续用 `python -m sjtu_tpmshx.main` 和 `python -m sjtu_tpmshx.cli` 启动。
 
+标准、CO2、非对称几何与 chi/Kss 已使用独立 C++ 几何核心。
+前处理需要匹配的几何库；完整计算还需要求解库。完整发布命令部署两者。
+设计场插值／网格、物性／DF／完整前处理和结果计算仍待后续迁移，六批目标尚未完成。
+构建、运行库与研究入口见[原生几何说明](docs/cpp-migration.zh-CN.md#native-geometry-core)。
+
 0.2 仅使用 C++ 数值后端，保留 Python/Qt 界面、CLI、前后处理、优化和快速设计。
 完整 2D/3D 计算及快速设计仍通过相同的准备态和结果接口运行。
 本轮维护平台为 macOS arm64 与 Windows x64；Linux 服务器部署暂不开展。
@@ -109,7 +114,7 @@ CO₂ 插值表按 CoolProp 版本隔离。Python 默认写入 `XDG_CACHE_HOME/c
 
 仓库自带 [air_2d.json](examples/three_module/air_2d.json) 和
 [air_3d.json](examples/three_module/air_3d.json)，使用随源码提供的模型资源，
-不需要私有 `data/` 或 `.git`。首次运行前先构建本机 C++ 库：使用 macOS C++
+不需要私有 `data/` 或 `.git`。首次运行前先构建本机 C++ 几何库与求解库：使用 macOS C++
 工具链，或 Windows x64 的 MSVC 开发者终端。构建和物性表首次生成的耗时与求解耗时分开。
 
 macOS：
@@ -197,7 +202,7 @@ macOS 尚未验收。继续复用 `.venv-path` 指定的现有锁定环境，环
 不随 Git 源码自动提供。缺少解释器或库会直接报告原因；启动器不安装依赖、
 或编译库。T-SOU 使用带检查的 HEOS PT 物性，不创建 EOS 表；表目录选项保留给显式选择的历史运行库。公共 API、CLI 和直接模块调用默认使用 C++。
 
-已有当前锁定原生依赖、pilot 构建目录已指向当前源码布局，且相关原生回归通过时，可显式发布启动器使用的库。旧布局项目须先按下文升级步骤准备新缓存。
+已有当前锁定原生依赖、pilot 构建目录已指向当前源码布局，且相关原生回归通过时，可显式发布启动器使用的求解库与几何库。旧布局项目须先按下文升级步骤准备新缓存。
 
 ```sh
 "$PYTHON" engineering/scripts/build_native_dependencies.py publish
@@ -223,12 +228,33 @@ Windows（PowerShell）：
 
 `publish` 包含构建和验证。后续显式执行 `build`、`verify` 或 `publish` 时，继续使用同一 `--cache` 目录。首次克隆的项目可使用上文默认缓存。
 
-此命令离线构建当前源码，运行独立 C/C++ 调用和错误路径检查，再替换本平台的库。
-缺少锁定依赖或验证失败时停止。改变库内容前，旧库及记录保存在同目录的 `previous/`；
-重复发布相同库保留已有回退副本。`build.json` 记录源码提交、未提交改动、构建配置及路径。
-`sjtu_tpmshx/solvers/native/lib/` 是 Git 忽略的本地交付目录。停止使用该库的程序后，可从 `previous/`
-复制库和 `build.json` 回原目录；同时恢复对应源码、Python 环境和物性版本。
+此命令离线构建并验证求解库与几何库，再替换本平台的两个库。
+缺少锁定依赖或验证失败时停止。改变库内容前，旧库及匹配记录保存在同目录的 `previous/`；
+重复发布相同库保留已有回退副本。求解库使用 `build.json`，几何库使用 `geometry-build.json`，
+分别记录源码提交、未提交改动、构建配置及路径。替换失败恢复选定库及元数据；回滚失败保留暂存文件并报告恢复路径。
+`sjtu_tpmshx/solvers/native/lib/` 是 Git 忽略的本地交付目录。停止相关程序后，回退选定组件时，
+从 `previous/` 恢复该库及对应记录，同时恢复匹配源码、Python 环境和物性版本。
 发布检查不替代数值回归或桌面验收。日常启动不执行构建、安装或下载。
+
+仅更新几何时，可使用锁定 CMake 工具与独立几何目标；环境锁仍须匹配当前解释器：
+
+```sh
+"$PYTHON" engineering/scripts/build_native_dependencies.py fetch-cmake
+"$PYTHON" engineering/scripts/build_native_dependencies.py publish --component geometry --python-lock engineering/requirements/base.txt
+```
+
+Windows PowerShell 使用：
+
+```powershell
+& $tm1Python engineering/scripts/build_native_dependencies.py fetch-cmake
+& $tm1Python engineering/scripts/build_native_dependencies.py publish --component geometry --python-lock engineering/requirements/base.txt
+```
+
+BO 环境仍须替换为对应 BO 锁。独立 `build`／`verify` 同样接受 `--component geometry`。
+几何单独发布不构建或替换 solver/run_state；旧检查点仍须保留精确匹配的求解运行库。
+运行时用 `TPMSHX_GEOMETRY_LIBRARY` 选择默认目录外的几何库；读取历史结果与独立后处理不加载几何库。
+Python wheel 不包含这两个本机原生库。
+
 GUI 不再提供后端切换；普通计算、快速设计和优化统一使用 C++。
 启动时可指定库，或使用本机 macOS／Windows 交付目录中的匹配库；缺库时明确报错。
 “计算线程数”的“自动”最多使用本机的 8 个逻辑 CPU。此选择属于当前窗口的运行设置，
@@ -617,9 +643,9 @@ Pareto CSV 仍可导出几何；旧筛选模式不能再执行或重新计算指
 唯一数值后端为 C++。默认查找 macOS arm64 或 Windows x64 本机库，
 也可用 `RunControl(native_library=...)` 或 CLI `--native-library` 指定路径。
 Quick Design 和完整二维／三维求解的构建及能力边界见
-[C++ 迁移说明](docs/cpp-migration.zh-CN.md)。原生构建、独立调用及数值对照已通过
+[C++ 迁移说明](docs/cpp-migration.zh-CN.md)。既有求解器迁移记录中的原生构建、独立调用及数值对照已通过
 macOS/Python 3.13 与 Windows/Python 3.12、3.13 的必需 CI；
-可见桌面交付与完整性能验收仍各自保留。
+第二批几何迁移的检查须单独记录。可见桌面交付与完整性能验收仍各自保留。
 完整二维接口为 ABI 2，必须同步分发库、头文件和适配器。
 Python 数值后端、混合 sweep 入口及 Python 专用研究入口均已退役。
 旧结果仍可读取；旧研究 Case 不再执行，普通工况须通过当前 `ComputeConfig` 准备。
@@ -738,6 +764,8 @@ Python 数值对照迁移为独立公式／离散账本、制造解、组件重�
 不保留已退役迭代器作为第二套求解实现。
 
 每个平台调用 [原生工作流](.github/workflows/native.yml)，用 Python 3.13 构建一次原生库并运行独立 C/C++ 调用程序。
+application 和 full tier 均保留完整 pilot 与既有求解器覆盖；归档显式包含求解库和几何库。
+BO 同样恢复本轮同平台归档中的几何库，不降低既有 gate。
 原生库不链接 Python 运行时。macOS 使用 Python 3.13 测试；Windows 保留 Python 3.12 和 3.13 两套测试。
 分片在本平台构建完成后启动，不等待其他平台。原生、快测和集成测试共同使用本轮工作流及源码产生的
 `native-build-<平台>` artifact。归档保留可执行权限，包含运行库、调用程序和许可声明。

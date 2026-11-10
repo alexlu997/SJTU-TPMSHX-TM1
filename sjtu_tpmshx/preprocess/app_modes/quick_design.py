@@ -7,6 +7,7 @@ from sjtu_tpmshx.shared.domain.case_data import CaseData
 from sjtu_tpmshx.shared.domain.model_refs import ModelRef
 from sjtu_tpmshx.shared.domain.run_environment import capture_environment
 from sjtu_tpmshx.shared.models.catalog import MODEL_VERSIONS
+from sjtu_tpmshx.shared.models import _native_geometry
 from sjtu_tpmshx.shared.models.fluid_props import check_finite_temperatures
 from sjtu_tpmshx.shared.models.quick_design import K_STEEL, GEOM_N, NX, LTNE_TOL, _ARR, _dp_fractions
 from sjtu_tpmshx.shared.models.tpms_calc import geometry as tpms_geometry
@@ -48,7 +49,8 @@ def prepare_quick_design(case, topo, l, t, s, Lx, arrangement='cross', *,
         case_id=case_id, config_snapshot=asdict(case), grid=grid,
         design_fields=dict(eps=np.full(shape, geo['epsilon']),
                            eps_A=np.full(shape, geo['epsilon_A']),
-                           K_ss=np.full(shape, (1. - geo['epsilon']) * k_s)),
+                           K_ss=np.full(shape, _native_geometry.material_fields(
+                               topo, geo['epsilon'], k_s, chi_s=1.)['K_ss'][()])),
         parameters=dict(operating_point=inputs, topology=topo, L_cell_m=l / 1000.,
                         t_wall_m=t / 1000., Lx=Lx, s=s, height=sz,
                         k_s=k_s, A_0=geo['A_0'], D_h=geo['D_h'],

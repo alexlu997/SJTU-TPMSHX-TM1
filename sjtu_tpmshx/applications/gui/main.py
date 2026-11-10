@@ -340,9 +340,9 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
     def _schedule_tpms_geometry_prewarm(self):
         """Warm the current TPMS geometry cache off the UI thread.
 
-        Auto-fill calls compute_tpms(), whose first exact geometry evaluation
-        builds a 256^3 voxel grid. Doing that in the background keeps the
-        first Auto-fill click from paying the full cold-cache cost.
+        Auto-fill calls compute_tpms(). Its first geometry query builds an
+        N=128 native count index. Run it in the background to reduce the
+        delay on the first Auto-fill click.
 
         Also load the current fixed K/cF table and make one geometry-based
         prediction in the same background thread.

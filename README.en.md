@@ -19,10 +19,15 @@ GUI, CLI, design and recovery implementations are in `applications/`. Tests, val
 Root [engineering](engineering/) holds build scripts, packaging configuration and dependency locks. [docs/contracts](docs/contracts/) holds data contracts.
 `.github/workflows/` holds CI configuration. Keep using `python -m sjtu_tpmshx.main` for the GUI and `python -m sjtu_tpmshx.cli` for the CLI.
 
+Standard, CO2 and asymmetric geometry, plus chi/Kss, use an independent C++ geometry core.
+Preparation needs a matching geometry library. Full computation also needs the solver library. Full publication deploys both.
+Design-field interpolation/grids, properties/DF/full preparation and result calculations remain in later stages.
+The six-stage goal remains incomplete. See [native geometry](docs/cpp-migration.md#native-geometry-core) for builds, runtimes and research entries.
+
 Version 0.2 uses C++ for numerical execution. Python keeps the GUI, CLI, preparation, postprocessing, optimization and Quick Design interfaces. Full 2D/3D computation and Quick Design use the same prepared-data and result contracts. Maintenance in this round covers macOS arm64 and Windows x64. Linux server deployment is deferred.
 
 [v0.1.0](https://github.com/alexlu997/SJTU-TPMSHX-TM1/releases/tag/v0.1.0) is the first GitHub source release. It keeps both Python and C++ backends.
-The 0.1 archives contain both solvers. Version 0.2 removes Python numerical iterators, their research entries and outer property Anderson. Fixed property relaxation, thermal acceleration and flow acceleration keep their existing rules. T-SOU (`temperature_sou`) is the default for the existing conservative EOS energy route. H-FOU and T-FOU execution is retired. Model-h and other temperature routes keep their physical contracts. Historical results remain readable; their checkpoints require the matching archived runtime. Build a native library that matches the source before you run 0.2.
+The 0.1 archives contain both solvers. Version 0.2 removes Python numerical iterators, their research entries and outer property Anderson. Fixed property relaxation, thermal acceleration and flow acceleration keep their existing rules. T-SOU (`temperature_sou`) is the default for the existing conservative EOS energy route. H-FOU and T-FOU execution is retired. Model-h and other temperature routes keep their physical contracts. Historical results remain readable; their checkpoints require the matching archived runtime. Build matching native solver and geometry libraries before you run 0.2.
 
 M-A merge acceptance for the rectangular 2D/3D three-module mainline is recorded. M-B extensions stay separately tracked. Historical B40 failures and physical applicability limits stay. See [capabilities and open work](docs/capabilities.en.md) for current conclusions. The [fixed history index](docs/history/README.en.md) keeps original plans, handoff records, and node evidence.
 
@@ -91,7 +96,7 @@ CO₂ interpolation tables are separated by CoolProp version. Python defaults to
 
 ### Run small examples
 
-The repository includes [air_2d.json](examples/three_module/air_2d.json) and [air_3d.json](examples/three_module/air_3d.json). They use bundled model resources without private `data/` or `.git`. First build the native library with the macOS C++ toolchain or a Windows x64 MSVC developer terminal. Record build and initial property-table times separately from solve time.
+The repository includes [air_2d.json](examples/three_module/air_2d.json) and [air_3d.json](examples/three_module/air_3d.json). They use bundled model resources without private `data/` or `.git`. First build both native geometry and solver libraries with the macOS C++ toolchain or a Windows x64 MSVC developer terminal. Record build and initial property-table times separately from solve time.
 
 On macOS:
 
@@ -159,7 +164,7 @@ The launcher enters its own project directory and writes caches under `.cache/`.
 
 T-SOU uses checked HEOS PT properties and does not create EOS tables. The table-directory option remains for explicitly selected historical runtimes. Public APIs, CLI and direct module calls default to C++.
 
-For dependencies configured under the current source layout, publish the launcher library after the relevant native regressions pass.
+For dependencies configured under the current source layout, publish both launcher libraries after the relevant native regressions pass.
 For an old layout, first prepare a new cache as described below.
 
 ```sh
@@ -192,9 +197,36 @@ Windows (PowerShell):
 Use the same `--cache` directory for later explicit `build`, `verify` and `publish` commands.
 A fresh clone can use the default cache above.
 
-The command builds current source offline, runs independent C/C++ callers and error checks, then replaces the host library. Missing dependencies or failed verification stop publication. Before replacing different library contents, it saves the old library and record under `previous/` in the same directory. Republishing identical contents keeps that backup. `build.json` records the source commit, uncommitted changes, build configuration and paths.
+The command builds and verifies solver and geometry libraries offline before replacing both host files.
+Missing dependencies or failed verification stop publication.
+Before replacing different contents, it saves each old library and matching record under `previous/`.
+Republishing identical contents keeps that backup. The solver uses `build.json`; geometry uses `geometry-build.json`.
+Each record identifies source changes, build configuration and paths.
+A replacement failure restores selected files and metadata. A failed rollback keeps staging files and reports their recovery path.
 
-`sjtu_tpmshx/solvers/native/lib/` is an ignored local delivery directory. To roll back, stop programs using the library, then copy the library and `build.json` from `previous/` to the parent directory. Restore the matching source, Python environment and property version as well. Publication checks do not replace numerical regressions or desktop acceptance. Daily startup performs no build, installation or download.
+`sjtu_tpmshx/solvers/native/lib/` is an ignored local delivery directory.
+Stop related programs before rollback. Restore the selected library and its matching record from `previous/`.
+Restore the matching source, Python environment and property version too.
+Publication checks do not replace numerical regressions or desktop acceptance. Daily startup performs no build, installation or download.
+
+For geometry alone, use the locked CMake tool and independent geometry target. The environment lock must match the configured interpreter:
+
+```sh
+"$PYTHON" engineering/scripts/build_native_dependencies.py fetch-cmake
+"$PYTHON" engineering/scripts/build_native_dependencies.py publish --component geometry --python-lock engineering/requirements/base.txt
+```
+
+On Windows PowerShell:
+
+```powershell
+& $tm1Python engineering/scripts/build_native_dependencies.py fetch-cmake
+& $tm1Python engineering/scripts/build_native_dependencies.py publish --component geometry --python-lock engineering/requirements/base.txt
+```
+
+Use the matching BO lock for a BO environment. Separate `build` and `verify` commands also accept `--component geometry`.
+Geometry-only publication does not build or replace solver/run_state. Old checkpoints still need their exact retained solver runtime.
+Use `TPMSHX_GEOMETRY_LIBRARY` to select a geometry file outside the default directory.
+Historical result reading and independent postprocessing do not load geometry. The Python wheel includes neither native library.
 
 The GUI uses C++ for ordinary computation, Quick Design and optimization. It has no backend selector. It uses the specified library or the matching library in the local macOS or Windows delivery folder.
 
@@ -544,7 +576,11 @@ Previous rectangular files still load. [Fixed history](docs/history/retired-tool
 
 `shared/models/`, `shared/df_surrogate/`, and related layers give shared technical support, not a fourth business module. Previous pipeline/application entries call public modules in one direction. See [architecture](docs/architecture.md).
 
-C++ is the only numerical backend. Quick Design and full 2D/3D use the matching local macOS arm64 or Windows x64 library. `RunControl(native_library=...)` or CLI `--native-library` can override its location. See [C++ migration](docs/cpp-migration.md) for paths, builds, and limits. Required native build, independent-call, and numerical-comparison CI passed on macOS/Python 3.13 and Windows/Python 3.12 and 3.13. Visible desktop delivery and complete performance acceptance stay separate.
+C++ is the only numerical backend. Quick Design and full 2D/3D use the matching local macOS arm64 or Windows x64 library. `RunControl(native_library=...)` or CLI `--native-library` can override its location. See [C++ migration](docs/cpp-migration.md) for paths, builds, and limits.
+The earlier solver-migration record includes required native-build, independent-call and numerical-comparison CI passes.
+It covers macOS/Python 3.13 and Windows/Python 3.12 and 3.13.
+Record checks for the second geometry migration batch separately.
+Visible desktop delivery and complete performance acceptance stay separate.
 
 Full 2D uses ABI 2. Distribute matching libraries, headers, and adapters. The former Python outer-loop/C++ sweep hybrid is retired. Python numerical and research-only entries are retired. Saved results remain readable; ordinary cases use current `ComputeConfig` preparation. OpenFOAM, REFPROP, extended h/f/PEC definitions, and adjoints stay under M-B and original scope limits. Directories or interfaces do not show implementation.
 
@@ -630,6 +666,10 @@ Native jobs set both `TPMSHX_REQUIRE_CPP_TESTS=1` and `TPMSHX_REQUIRE_NATIVE_DEP
 Independent formulas, discrete energy balances, manufactured solutions, component replay and fixed historical references replace Python solver comparisons. Retired iterators are not retained as a second solver.
 
 Each platform calls the [native workflow](.github/workflows/native.yml). It builds native libraries once with Python 3.13 and runs independent C/C++ callers. The native libraries do not link to a Python runtime. macOS tests use Python 3.13. Windows tests use both Python 3.12 and 3.13. Shards start after their platform build and do not wait for other platforms. Native, fast and integration tests use the same `native-build-<platform>` artifact from the current workflow run and source. The archive preserves executable permissions and includes runtime libraries, callers, and license notices. An exact CoolProp cache key binds platform, architecture, Python 3.13, toolchain image, native dependency lock and build script. Project C++ and model coefficients rebuild on every run. Cache hits still require independent caller checks.
+
+The `application` and `full` tiers both retain the complete pilot build and existing solver coverage.
+Archives explicitly include solver and geometry libraries.
+BO also restores geometry from the current run's artifact for the same platform. Existing gates remain unchanged.
 
 Build logs use `native-build-logs-<platform>`. Each shard uploads `native-dependencies-<platform>-py<version>-shard-<number>` with JUnit and `native-manifest`. Shard numbers are 0–2 on macOS and 0–4 on Windows. These artifacts are retained for 7 days.
 

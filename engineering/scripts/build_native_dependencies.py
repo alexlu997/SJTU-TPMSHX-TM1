@@ -1,8 +1,8 @@
-"""Explicitly fetch, build, verify, or publish the locked native solver.
+"""Explicitly fetch, build, verify, or publish the locked native libraries.
 
 No package installation, production binding, system PATH change or runtime
 download. Run with the interpreter recorded on the first line of .venv-path.
-The build command is offline; only fetch and fetch-eigen use the network.
+The build command is offline; only fetch commands use the network.
 """
 from __future__ import annotations
 
@@ -196,6 +196,11 @@ def fetch(cache: Path, host: str) -> None:
     download(superlu["scipy-readme-url"],
              cache / "downloads" / f"scipy-{superlu['scipy-version']}-superlu-README")
     apply_lu_patch(cache)
+    fetch_cmake(cache, host)
+
+
+def fetch_cmake(cache: Path, host: str) -> None:
+    """Fetch only the existing locked CMake tool, without solver sources."""
     spec = LOCK["cmake"][host]
     archive = cache / "downloads" / spec["url"].rsplit("/", 1)[1]
     download(spec["url"], archive)
@@ -220,14 +225,36 @@ def fetch(cache: Path, host: str) -> None:
 def cmake_path(cache: Path, host: str) -> Path:
     executable = cache / "tools" / LOCK["cmake"][host]["executable"]
     if not executable.is_file():
-        raise RuntimeError("Locked portable CMake is missing; run fetch first")
+        raise RuntimeError("Locked portable CMake is missing; run fetch-cmake first")
     return executable
 
 
-def build(cache: Path, host: str, python: Path, lock: Path, component: str) -> None:
+def check_environment(cache: Path, python: Path, lock: Path) -> None:
     log = cache / "logs" / "environment.log"
     run([python, "-m", "sjtu_tpmshx.development.runs.tools.check_locked_environment", lock], log)
     run([python, "-m", "pip", "check"], log)
+
+
+def build(cache: Path, host: str, python: Path, lock: Path, component: str) -> None:
+    check_environment(cache, python, lock)
+    if component == "geometry":
+        cmake = cmake_path(cache, host)
+        generated = cache / "generated"
+        run([python, "-m", "engineering.scripts.generate_native_model_coefficients", "--output",
+             generated / "tpmshx/model_coefficients.hpp"], cache / "logs" / "generate-model-coefficients.log")
+        generator = ["-G", LOCK["cmake"][host]["generator"]]
+        options = [f"-DTPMSHX_MODEL_INCLUDE_DIR={generated}", "-DCMAKE_BUILD_TYPE=Release",
+                   "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"]
+        if host == "windows-x64":
+            generator += ["-A", "x64"]
+        else:
+            options += ["-DCMAKE_OSX_ARCHITECTURES=arm64"]
+        build_dir = cache / "build" / f"geometry-{host}"
+        run([cmake, "-S", ROOT / "sjtu_tpmshx/solvers/native/geometry", "-B", build_dir,
+             *generator, *options], cache / "logs" / f"configure-geometry-{host}.log")
+        run([cmake, "--build", build_dir, "--config", "Release", "--parallel", "2"],
+            cache / "logs" / f"build-geometry-{host}.log")
+        return
     verify_sources(cache)
     apply_lu_patch(cache)
     cmake = cmake_path(cache, host)
@@ -271,14 +298,22 @@ def build(cache: Path, host: str, python: Path, lock: Path, component: str) -> N
             cache / "logs" / f"build-pilot-{host}.log")
 
 
-def verify(cache: Path, host: str) -> None:
-    verify_sources(cache)
-    log = cache / "logs" / f"verify-pilot-{host}.log"
+def verify(cache: Path, host: str, component: str = "all") -> None:
+    geometry_only = component == "geometry"
+    if not geometry_only:
+        verify_sources(cache)
+    build_name = "geometry" if geometry_only else "pilot"
+    log = cache / "logs" / f"verify-{build_name}-{host}.log"
     version = run([cmake_path(cache, host), "--version"], log)
     if version.splitlines()[0] != f"cmake version {LOCK['cmake']['version']}":
         raise RuntimeError("Portable CMake version differs from the lock")
-    build_dir = cache / "build" / f"pilot-{host}"
+    build_dir = cache / "build" / f"{build_name}-{host}"
     suffix = ".exe" if host == "windows-x64" else ""
+    for caller in ("geometry_c_static", "geometry_c_shared", "geometry_kernel_smoke"):
+        run([build_dir / f"{caller}{suffix}"], log)
+    if geometry_only:
+        print(f"PASS: {host} locked CMake and independent geometry callers", flush=True)
+        return
     eos = build_dir / f"eos_smoke{suffix}"
     version = run([eos, "--version"], log).strip().split("\t")
     spec = LOCK["sources"]["coolprop"]
@@ -315,81 +350,118 @@ def verify(cache: Path, host: str) -> None:
           flush=True)
 
 
-def publish(cache: Path, host: str, python: Path, lock: Path) -> Path:
-    """Build offline, verify, then replace the folder-launch library with a backup."""
-    build(cache, host, python, lock, "all")
-    verify(cache, host)
-    name = ("tpmshx_solver_shared.dll" if host == "windows-x64"
-            else "libtpmshx_solver_shared.dylib")
-    source = cache / "build" / f"pilot-{host}" / name
-    target = ROOT / "sjtu_tpmshx/solvers/native/lib" / host / name
+def publish(cache: Path, host: str, python: Path, lock: Path, component: str = "all") -> Path:
+    """Validate all selected libraries before replacement; retain their previous files."""
+    geometry_only = component == "geometry"
+    build(cache, host, python, lock, "geometry" if geometry_only else "all")
+    verify(cache, host, "geometry" if geometry_only else "all")
+    prefix, suffix = ("", ".dll") if host == "windows-x64" else ("lib", ".dylib")
+    build_dir = cache / "build" / f"{'geometry' if geometry_only else 'pilot'}-{host}"
+    destination = ROOT / "sjtu_tpmshx/solvers/native/lib" / host
+    libraries = [("geometry", "geometry-build.json")]
+    if not geometry_only:
+        libraries.insert(0, ("solver", "build.json"))
     log = cache / "logs" / f"publish-{host}.log"
-    record = {
+    common = {
         "published_at": datetime.now(timezone.utc).isoformat(),
         "source_commit": run(["git", "rev-parse", "HEAD"], log).strip(),
         "source_changes": run(["git", "status", "--porcelain", "--untracked-files=no"], log).splitlines(),
         "platform": host,
-        "source_library": str(source),
-        "target_library": str(target),
         "python": str(python),
         "python_lock": str(lock),
         "cmake_version": LOCK["cmake"]["version"],
         "generator": LOCK["cmake"][host]["generator"],
         "configuration": "Release",
-        "dependencies": LOCK["sources"],
-        "verification": "independent native callers and SuperLU error boundary passed",
     }
-    target.parent.mkdir(parents=True, exist_ok=True)
-    metadata = target.with_name("build.json")
-    with tempfile.TemporaryDirectory(prefix=".publish-", dir=target.parent) as temporary:
-        staged = Path(temporary)
-        shutil.copy2(source, staged / name)
-        (staged / "build.json").write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
-        old_record = staged / "old-build.json"
-        if metadata.is_file():
-            shutil.copy2(metadata, old_record)
-        if target.is_file() and not filecmp.cmp(source, target, shallow=False):
-            previous = target.parent / "previous"
-            previous.mkdir(exist_ok=True)
-            shutil.copy2(target, previous / name)
-            if metadata.is_file():
-                shutil.copy2(metadata, previous / "build.json")
-            else:
-                (previous / "build.json").write_text(
-                    '{"provenance": "existing library without a build record"}\n', encoding="utf-8")
-        (staged / "build.json").replace(metadata)
+    destination.mkdir(parents=True, exist_ok=True)
+    selected = []
+    staged = Path(tempfile.mkdtemp(prefix=".publish-", dir=destination))
+    preserve_staged = False
+    try:
+        for kind, metadata_name in libraries:
+            name = prefix + f"tpmshx_{kind}_shared" + suffix
+            source, target = build_dir / name, destination / name
+            metadata = destination / metadata_name
+            record = dict(common, component=kind, source_library=str(source), target_library=str(target),
+                          dependencies={} if kind == "geometry" else LOCK["sources"],
+                          verification=("independent geometry callers and kernel smoke passed" if kind == "geometry"
+                                        else "independent native callers and SuperLU error boundary passed"))
+            shutil.copy2(source, staged / name)
+            (staged / metadata_name).write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+            for current in (target, metadata):
+                if current.is_file():
+                    shutil.copy2(current, staged / ("old-" + current.name))
+            selected.append((name, metadata_name, target, metadata))
+        for name, metadata_name, target, metadata in selected:
+            if target.is_file() and not filecmp.cmp(staged / name, target, shallow=False):
+                previous = destination / "previous"
+                previous.mkdir(exist_ok=True)
+                shutil.copy2(target, previous / name)
+                if metadata.is_file():
+                    shutil.copy2(metadata, previous / metadata_name)
+                else:
+                    (previous / metadata_name).write_text(
+                        '{"provenance": "existing library without a build record"}\n', encoding="utf-8")
+        replaced = []
         try:
-            (staged / name).replace(target)
-        except OSError:
-            if old_record.is_file():
-                old_record.replace(metadata)
-            else:
-                metadata.unlink()
+            for name, metadata_name, target, metadata in selected:
+                for staged_name, current in ((metadata_name, metadata), (name, target)):
+                    replaced.append(current)
+                    try:
+                        (staged / staged_name).replace(current)
+                    except OSError:
+                        replaced.pop()
+                        raise
+        except BaseException as error:
+            preserve_staged = True
+            rollback_errors = []
+            for current in reversed(replaced):
+                original = staged / ("old-" + current.name)
+                try:
+                    if original.is_file():
+                        original.replace(current)
+                    else:
+                        current.unlink(missing_ok=True)
+                except OSError as rollback_error:
+                    rollback_errors.append(f"{current}: {rollback_error}")
+            if rollback_errors:
+                raise RuntimeError(f"Publication rollback failed; recovery files remain at {staged}: "
+                                   + "; ".join(rollback_errors)) from error
+            preserve_staged = False
             raise
-    print(f"Published verified library: {target}\nBuild record: {metadata}", flush=True)
-    return target
+    finally:
+        if preserve_staged:
+            print(f"Publication recovery files retained: {staged}", file=sys.stderr, flush=True)
+        else:
+            shutil.rmtree(staged)
+    for _, _, target, metadata in selected:
+        print(f"Published verified library: {target}\nBuild record: {metadata}", flush=True)
+    return selected[0][2]
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("fetch", "fetch-eigen", "build", "verify", "publish"))
+    parser.add_argument("action", choices=("fetch", "fetch-cmake", "fetch-eigen", "build", "verify", "publish"))
     parser.add_argument("--cache", type=Path, default=ROOT / ".cache/native-deps")
     parser.add_argument("--python-lock", type=Path, default=ROOT / "engineering/requirements/base.txt")
-    parser.add_argument("--component", choices=("all", "coolprop", "pilot"), default="all")
+    parser.add_argument("--component", choices=("all", "coolprop", "pilot", "geometry"), default="all")
     args = parser.parse_args()
     python, host, cache = configured_python(), platform_name(), args.cache.resolve()
     if not cache.is_relative_to(ROOT / ".cache"):
         raise RuntimeError("Native dependency outputs must remain under this worktree's .cache/")
     if args.action == "fetch":
         fetch(cache, host)
+    elif args.action == "fetch-cmake":
+        fetch_cmake(cache, host)
     elif args.action == "fetch-eigen":
         fetch_eigen(cache)
     elif args.action == "build":
         build(cache, host, python, args.python_lock.resolve(), args.component)
     elif args.action == "publish":
-        publish(cache, host, python, args.python_lock.resolve())
+        publish(cache, host, python, args.python_lock.resolve(), args.component)
     else:
-        verify(cache, host)
+        check_environment(cache, python, args.python_lock.resolve())
+        verify(cache, host, args.component)
 
 
 if __name__ == "__main__":

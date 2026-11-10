@@ -106,3 +106,93 @@ def test_bundle_resource_selection_excludes_user_state_and_jit_cache():
                          'applications/gui/ui/mixins/.accent', 'solvers/__pycache__/sweep.py313.1.nbc',
                          'solvers/__pycache__/sweep.py313.nbi', 'solvers/lut_Gyroid.npz'):
         assert not included(private_file)
+
+
+@pytest.fixture
+def desktop_spec_prefix(monkeypatch):
+    """Execute prebuilt input validation without invoking a bundler."""
+    import ast
+    from pathlib import Path
+    from types import ModuleType
+
+    root = Path(__file__).resolve().parents[3]
+    spec = root / 'engineering/packaging/desktop.spec'
+    tree = ast.parse(spec.read_text(encoding='utf-8'))
+    analysis = next(i for i, node in enumerate(tree.body)
+                    if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call)
+                    and isinstance(node.value.func, ast.Name) and node.value.func.id == 'Analysis')
+    code = compile(ast.Module(body=tree.body[:analysis], type_ignores=[]), str(spec), 'exec')
+    for name in ('PyInstaller', 'PyInstaller.utils'):
+        package = ModuleType(name)
+        package.__path__ = []
+        monkeypatch.setitem(sys.modules, name, package)
+    hooks = ModuleType('PyInstaller.utils.hooks')
+    hooks.collect_data_files = lambda *args, **kwargs: []
+    hooks.collect_submodules = lambda *args, **kwargs: []
+    monkeypatch.setitem(sys.modules, hooks.__name__, hooks)
+
+    def evaluate(platform):
+        namespace = {'SPECPATH': str(spec.parent)}
+        with monkeypatch.context() as context:
+            context.setattr(sys, 'platform', platform)
+            context.setattr(sys, 'path', sys.path.copy())
+            exec(code, namespace)
+        return namespace
+
+    return root, evaluate
+
+
+@pytest.fixture(params=['darwin', 'win32'])
+def desktop_prebuilt(request, tmp_path, monkeypatch):
+    names = {
+        'darwin': ('libtpmshx_solver_shared.dylib', 'libtpmshx_geometry_shared.dylib'),
+        'win32': ('tpmshx_solver_shared.dll', 'tpmshx_geometry_shared.dll'),
+    }[request.param]
+    libraries = {}
+    for component, name in zip(('SOLVER', 'GEOMETRY'), names):
+        path = tmp_path / name
+        path.write_bytes(b'prebuilt library placeholder')
+        variable = 'TPMSHX_NATIVE_' + component + '_LIBRARY'
+        monkeypatch.setenv(variable, str(path))
+        libraries[variable] = path
+    return request.param, libraries
+
+
+def test_bundle_requires_and_collects_both_prebuilt_libraries(desktop_spec_prefix, desktop_prebuilt):
+    root, evaluate = desktop_spec_prefix
+    platform, libraries = desktop_prebuilt
+    namespace = evaluate(platform)
+    assert set(namespace['binaries']) == {(str(path.resolve()), 'native') for path in libraries.values()}
+    assert (str(root / 'sjtu_tpmshx/solvers/native/licenses'), 'licenses/native/licenses') in namespace['data']
+    assert 'sjtu_tpmshx.development' in namespace['excluded']
+
+
+@pytest.mark.parametrize('component', ['SOLVER', 'GEOMETRY'])
+@pytest.mark.parametrize('fault', ['unset', 'empty', 'wrong_name', 'missing_file', 'directory'])
+def test_bundle_rejects_invalid_prebuilt_input(desktop_spec_prefix, desktop_prebuilt,
+                                              monkeypatch, tmp_path, component, fault):
+    _, evaluate = desktop_spec_prefix
+    platform, libraries = desktop_prebuilt
+    variable = 'TPMSHX_NATIVE_' + component + '_LIBRARY'
+    original = libraries[variable]
+    expected = ValueError
+    message = variable
+    if fault == 'unset':
+        monkeypatch.delenv(variable)
+    elif fault == 'empty':
+        monkeypatch.setenv(variable, '')
+    else:
+        parent = tmp_path / fault
+        parent.mkdir()
+        invalid = parent / ('wrong-library' if fault == 'wrong_name' else original.name)
+        if fault == 'directory':
+            invalid.mkdir()
+        elif fault == 'wrong_name':
+            invalid.write_bytes(b'incorrect library')
+        else:
+            expected = FileNotFoundError
+        monkeypatch.setenv(variable, str(invalid))
+        message = original.name
+    with pytest.raises(expected) as error:
+        evaluate(platform)
+    assert message in str(error.value)

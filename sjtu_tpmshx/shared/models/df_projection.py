@@ -72,7 +72,7 @@ def project_fields_to_streamwise_K_cF(L_field: np.ndarray,
     for j in range(Ny_sim):
         L_avg = float(L_1d[src_idx[j]]); t_avg = float(t_1d[src_idx[j]])
         g = tpms_geometry(tpms_type, L_avg, t_avg, k_s)
-        L_row[j] = L_avg; t_row[j] = t_avg; eps_f_row[j] = g['epsilon'] / 2.0
+        L_row[j] = L_avg; t_row[j] = t_avg; eps_f_row[j] = g['epsilon_A']
 
     K_arr, cF_arr = predict_K_cF_vec(
         tpms_type, L_row, t_row, eps_f_row, method=SCO2_DF_METHOD)

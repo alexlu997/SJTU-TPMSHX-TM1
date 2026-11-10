@@ -43,8 +43,16 @@ water = load_water('Diamond', source=water_workbook)
 [model_parameters.py](../sjtu_tpmshx/shared/configs/model_parameters.py) 读取并校验该资源。
 Python 模型模块从同一数据构造常量，保留现有名称及 tuple/dict 类型。
 C++ 头文件生成器直接读取资源，不再导入数值模型。
-第一批只统一数据来源，保留当前计算实现；几何、设计场、前处理和后处理计算仍待后续迁移。
+第一批统一数据来源；第二批将标准、CO2、非对称几何与 chi/Kss 计算迁入独立 C++ 几何核心。
+Sigmoid LUT 节点生成及其派生几何也使用该核心，设计场插值和网格仍属第三批。
+物性、DF、完整前处理及结果计算仍待后续迁移。
 六批迁移尚未完成。
+
+Python 几何接口保留类型、缓存与逐次调用的 chi 显式值／环境值／拟合选择，不保留数值 fallback。
+修改 C++ 函数或资源中编入库的参数后，须重新构建各受影响原生库并重启进程。
+构建、路径及运行库边界见[原生几何核心](cpp-migration.zh-CN.md#native-geometry-core)。
+贯通、扫描、Richardson 和目标 C 研究位于
+`sjtu_tpmshx/development/runs/tools/asym_geometry_research.py`，shared 不保留旧转发入口。
 
 [co2_segment2_v1.json](../sjtu_tpmshx/shared/configs/co2_segment2_v1.json)
 继续提供 CO2 分段 Nu 和几何数据；
