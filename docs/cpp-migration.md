@@ -52,7 +52,7 @@ The independent CMake project is `sjtu_tpmshx/solvers/native/geometry/`.
 Its `tpmshx_geometry_shared` target uses the C++ standard library, the marching-cubes port and a restricted C17 FITPACK subset.
 It needs no CoolProp, SuperLU, AMGCL, Eigen or solver runtime.
 The full dependency pilot includes the same target.
-Stage four still requires properties, DF and full preparation. Stage five still requires result mathematics.
+Stage four adds the separate preparation core below. Stage five still requires an independent result core and result mathematics.
 The six-stage migration is incomplete; this section does not report new CI or complete batch acceptance.
 
 The [architecture](architecture.md#native-grids-and-design-fields) defines numerical ownership, types and buffer lifetimes.
@@ -104,16 +104,96 @@ Standalone output uses `.cache/native-deps/build/geometry-<host>` by default.
 Verification runs the static/shared C callers and geometry kernel smoke.
 Geometry-only publication writes `geometry-build.json` without touching solver or run_state.
 It keeps an older differing geometry library and its matching record under `previous/`.
-Default full publication builds and verifies both libraries before replacement.
-It keeps `build.json` for the solver and `geometry-build.json` for geometry.
+Default full publication builds and verifies solver, geometry and preparation before one transaction replaces all three.
+It keeps `build.json` for the solver, `geometry-build.json` for geometry and `preparation-build.json` for preparation.
 A replacement failure restores selected files and metadata. A failed rollback retains its staging files and reports the recovery path.
 Old solver checkpoints still require their exact retained runtime, prepared input and controls.
 
 The application and full CI tiers retain the complete native pilot build and existing solver coverage.
-Their artifacts explicitly include geometry. Native and BO consumers restore that same-platform library.
+Their artifacts explicitly include geometry and preparation. Native and BO consumers restore those same-platform libraries.
 No gate, lock or supported-platform declaration is reduced or expanded by this build split.
 The Python wheel includes code and model resources, without native libraries.
-Desktop packaging requires both prebuilt inputs; see [desktop delivery](desktop.en.md#可选冻结打包).
+Desktop packaging requires all three prebuilt inputs; see [desktop delivery](desktop.en.md#可选冻结打包).
+
+## Native preparation core
+
+Stage four puts properties, Nu closures, fixed DF, experiment corrections, projection and preparation mathematics in C++.
+The independent CMake project is `sjtu_tpmshx/solvers/native/preparation/`.
+Its targets are `tpmshx_preparation`, `tpmshx_preparation_c` and `tpmshx_preparation_shared`.
+They reuse geometry/grid and the shared model implementation, including the locked CoolProp static library.
+This project builds no full solver or run_state and needs no SuperLU or AMG.
+The full build script builds the pilot and preparation projects separately. They share one property and DF numerical implementation.
+
+`shared/models/_native_preparation.py` loads preparation ABI 1 through ctypes when needed.
+Named property, DF and flow adapters preserve the existing public Python interfaces.
+Preparation uses statuses 0 for success, 1 for invalid input, 2 for allocation and 3 for runtime errors.
+State errors use 10 for water, 11 for CO2 and 12 for sCO2.
+Geometry ABI 1 and field ABI 2 remain unchanged, with their own status mappings.
+Calls borrow aligned buffers with explicit element counts. Failure preserves numerical outputs.
+Contexts must be released by the library that created them, after their last call.
+Missing libraries, ABI mismatches and missing symbols fail explicitly. No runtime build or numerical fallback is available.
+
+Raw empirical getters, checked EOS calls and Nu closures keep separate guards, floors and warning rules.
+DF interpolation keeps its original bracket tolerance, NaN propagation and endpoint behavior.
+Projection retains each input's reduction order before C-order packing, including weighted and single-axis fields.
+The float16 weighted reduction keeps its original intermediate rounding.
+Experiment corrections keep source, application and runtime windows as separate records.
+Python retains configuration, DTOs, shape/type adaptation, I/O, caches, warning records and GUI/BO policies.
+Offline fitting stays in Python. Frozen development references supply independent expected values.
+Migrate each caller and retire the replaced production numerical body in the same batch.
+The [model resource guide](model-resources.en.md#当前资源与研究输出) defines the JSON and fixed CSV authorities.
+
+Independent preparation publication requires locked sources, the locked CMake tool and a previously built CoolProp static library in the same cache.
+Use the configured interpreter and its exact lock. If CoolProp is absent, complete `fetch` and `build --component coolprop` first.
+With those inputs ready:
+
+```sh
+tm1_python="$(sed -n '1p' .venv-path)"
+tm1_lock=engineering/requirements/base.txt
+"$tm1_python" engineering/scripts/build_native_dependencies.py publish --component preparation --python-lock "$tm1_lock"
+```
+
+On Windows PowerShell:
+
+```powershell
+$tm1Python = Get-Content .venv-path -TotalCount 1
+$tm1Lock = 'engineering/requirements/base.txt'
+& $tm1Python engineering/scripts/build_native_dependencies.py publish --component preparation --python-lock $tm1Lock
+```
+
+Select the matching BO lock for a BO interpreter. Keep the same `--cache` for all steps.
+Separate `build` and `verify` commands accept `--component preparation`.
+The default build directory is `.cache/native-deps/build/preparation-<host>`.
+The full solver builds in `pilot-<host>`. The build script uses separate CMake projects for these libraries.
+On macOS, preparation links `coolprop-preparation-macos-arm64/libCoolProp.a`, built with `-Os`.
+The solver keeps the original `coolprop-macos-arm64/libCoolProp.a` build settings.
+These settings keep the previous Python property queries and C++ solver results in their respective callers.
+Windows preparation uses the original locked Windows static archive.
+Each archive has a `coolprop-build.json` record with its actual compile fragments and toolchain information.
+The cache keeps this record with the archive. Publication includes the applicable record in each library's metadata.
+Verification checks independent C static/shared callers, geometry callers and the compiled CoolProp version/commit.
+It does not replace complete-case, physical, dual-library concurrency, platform CI or desktop acceptance.
+The source distribution supplies native source, build files, locks, licenses and source records.
+The wheel supplies Python interfaces and declared resources. Native builds remain explicit steps.
+`engineering/scripts/check_distributions.py` builds and checks the source distribution and its wheel.
+Supply a new `--output-dir` under `.cache/`.
+`publish --component preparation` publishes only preparation and `preparation-build.json`. It does not replace solver, geometry or run_state files.
+Different previous contents and matching metadata remain under `previous/`; replacement failures use the same transaction rollback.
+
+The runtime file is `libtpmshx_preparation_shared.dylib` on macOS arm64 or `tpmshx_preparation_shared.dll` on Windows x64.
+Source defaults use `sjtu_tpmshx/solvers/native/lib/<host>/`; frozen programs use their `native/` directory.
+`TPMSHX_PREPARATION_LIBRARY` selects another prebuilt runtime file.
+Desktop packaging takes it from `TPMSHX_NATIVE_PREPARATION_LIBRARY`, together with solver and geometry inputs.
+The Python wheel contains code and model resources, without native libraries.
+Historical result reading and independent postprocessing load neither preparation nor geometry.
+
+Rebuild affected libraries and restart the process after changing C++ functions or compiled data.
+Solver, geometry and preparation build records are separate from versioned property-table caches.
+Relinking the solver gives it a new build identity. Old checkpoints still require their exact retained solver, prepared input and controls.
+Keep matching current/previous runtimes and run records while they have consumers.
+The independent lightweight Linux result core belongs to stage five. This batch does not establish Linux full-solver support.
+Stage-five postprocessing migration and stage-six final consumer/retirement audit remain incomplete.
+Required checks must pass before delivery. This section does not report new CI, Windows or complete acceptance results.
 
 ## Complete Quick Design capability
 
@@ -665,18 +745,19 @@ logs and tabular EOS files stay under the worktree's `.cache/native-deps`.
 linked components and their original license notices.
 
 `engineering/scripts/generate_native_model_coefficients.py` reads the shared
-`model_parameters_v1.json` resource and the existing CO2 resource.
+`model_parameters_v1.json`, `preparation_df_v1.json`, the fixed DF CSV and the existing CO2 resource.
 Its resource reader uses only the Python standard library.
 The generator does not import numerical model implementations.
-The build writes `tpmshx/model_coefficients.hpp` under the selected cache's `generated/` directory.
+The build writes `tpmshx/model_coefficients.hpp` and `tpmshx/preparation_df_data.hpp` under the selected cache's `generated/` directory.
 The default directory is `.cache/native-deps/generated/`.
 C++ uses the generated constants without runtime JSON parsing or Python calls.
 The first stage unified data sources. The second added the independent geometry core described above.
 The third adds grids and design-field calculations to the same library, with one owner for each numerical rule.
-Property/DF/full-preparation and result migrations remain incomplete. This batch does not change parameter schemas or fitted coefficients.
+Stage four adds the independent preparation target for properties, DF and preparation mathematics. Existing model identities and fitted coefficients stay unchanged.
+Stage-five result mathematics and the final consumer/retirement audit remain incomplete.
 See [model resources](model-resources.en.md#当前资源与研究输出).
 
-The Python wheel includes the JSON resources. It does not include native libraries.
+The Python wheel includes code, JSON and CSV resources. It does not include native libraries.
 Native solver libraries still require a separate explicit build.
 Unchanged coefficients do not make an old checkpoint compatible with a new solver build.
 Resume requires the exact retained runtime, saved prepared inputs and controls.
@@ -761,7 +842,7 @@ tests on macOS/Python 3.13 and Windows/Python 3.12/3.13. A missing executable
 fails the required job. Optional local component runs can skip an unbuilt pilot.
 That skip does not show native qualification. Both platforms have actual
 required native CI passes. The evidence is bounded to those builds and cases.
-These earlier solver/dependency records do not establish acceptance for the stage-three field migration.
+These earlier solver/dependency records do not establish acceptance for the current preparation migration.
 
 <a id="remaining-stages-and-acceptance-gates"></a>
 

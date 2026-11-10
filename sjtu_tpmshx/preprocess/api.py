@@ -1,4 +1,4 @@
-"""Public physical preparation entry point; no numerical backend import."""
+"""Public physical preparation entries and portable CaseData assembly."""
 from dataclasses import replace
 from copy import deepcopy
 from math import isfinite
@@ -152,9 +152,11 @@ def _fixed_mass_flow_inputs(config, flow_a, flow_b):
 
 
 def _resolve_inlet_speeds(config, targets, capacities):
+    from sjtu_tpmshx.shared.models import _native_flow
+    speeds = _native_flow.inlet_speeds(targets.values(), (capacities[side] for side in targets))
     fluids = {'fluid_' + side: replace(getattr(config, 'fluid_' + side),
-                                       u_mps=target / capacities[side])
-              for side, target in targets.items()}
+                                       u_mps=speed)
+              for side, speed in zip(targets, speeds)}
     return replace(config, **fluids).validate(resolved_inlet_speeds=True)
 
 

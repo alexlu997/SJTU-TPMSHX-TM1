@@ -111,6 +111,42 @@ def test_public_fields_metrics_and_pass_contract(native_control, quick_design_na
     compare_results(actual, raw, case)
 
 
+def test_pressure_evidence_copies_native_output(native_control, monkeypatch):
+    from sjtu_tpmshx.solvers.backends.cpp import quick_design
+    case = prepared('counter', 'const')
+    load = quick_design.ct.CDLL
+    library = load(native_control.native_library)
+    native_call = library.tpmshx_solve_quick_design_v1
+    sentinel = ((310123.25, 270456.5, 1), (420789.75, 410987.125, 0))
+    calls = []
+
+    def substitute_pressure(*args):
+        native_call.argtypes, native_call.restype = substitute_pressure.argtypes, substitute_pressure.restype
+        status = native_call(*args)
+        assert status == 0
+        result = quick_design.ct.cast(args[5], quick_design.ct.POINTER(quick_design._Result)).contents
+        assert result.stop in (0, 1) and result.completed_passes == 1
+        calls.append(tuple((side.inlet, side.outlet, side.choked) for side in result.pressure))
+        for side, values in zip(result.pressure, sentinel):
+            side.inlet, side.outlet, side.choked = values
+        return status
+
+    monkeypatch.setattr(library, 'tpmshx_solve_quick_design_v1', substitute_pressure)
+
+    def observed_library(path, *args, **kwargs):
+        if Path(path).resolve() == Path(native_control.native_library):
+            return library
+        return load(path, *args, **kwargs)
+
+    monkeypatch.setattr(quick_design.ct, 'CDLL', observed_library)
+    actual = run_case(case, native_control)
+    assert len(calls) == 1 and calls[0] != sentinel
+    for side, (inlet, outlet, choked) in zip(('A', 'B'), sentinel):
+        assert dict(actual.pressure_evidence[side]) == dict(
+            inlet_absolute_Pa=inlet, outlet_absolute_Pa=outlet,
+            model='inlet_state_analytic_df', choked=bool(choked))
+
+
 def test_warnings_use_native_pass_evidence_without_python_numerics(native_control, quick_design_native, monkeypatch):
     from sjtu_tpmshx.shared.models import design_fluids, fluid_props
     from sjtu_tpmshx.solvers.backends.cpp import quick_design

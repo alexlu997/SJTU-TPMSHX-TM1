@@ -156,8 +156,15 @@ def _controlled_forward(monkeypatch, mode):
         if mode == 'thermal' and len(events) == 3:
             raise ValueError('design thermal return contains a non-finite field')
         props = Props(10., 1e-5, .1, 1000., .1)
+        pressure = {side: dict(inlet_absolute_Pa=p['operating_point']['P_in_' + suffix],
+                               outlet_absolute_Pa=p['operating_point']['P_in_' + suffix]
+                                   * (1. - p['inlet_pressure_fractions'][side]),
+                               model='inlet_state_analytic_df',
+                               choked=bool(p['inlet_pressure_fractions'][side] >= 1.))
+                    for side, suffix in (('A', 'h'), ('B', 'c'))}
         return field_result(case, dict(zip(('Ta', 'Tb', 'Ts'), fields)),
-                            props, props, 1., 1., [{'converged': True}], backend_id='cpp')
+                            props, props, 1., 1., [{'converged': True}],
+                            pressure=pressure, backend_id='cpp')
 
     monkeypatch.setattr(execution, 'run_case', thermal)
     case = DesignCase(1, 'air', 600., 4e5, .05, 'air', 300., 4e5, .05,

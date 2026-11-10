@@ -1,8 +1,9 @@
-"""Existing quick-design closures and budgets; no numerical execution."""
+"""Quick-design budgets and analytical inlet-pressure preparation."""
 from sjtu_tpmshx.shared.domain.run_warnings import range_context
 from sjtu_tpmshx.shared.models.tpms_calc import geometry as tpms_geometry
 from sjtu_tpmshx.shared.df_surrogate.predict import predict_dP_compressible, predict_dP
 from sjtu_tpmshx.shared.models.design_fluids import fluid_props
+from sjtu_tpmshx.shared.models import _native_flow
 
 K_STEEL = 16.0
 NX, NY_CROSS = 60, 40
@@ -40,10 +41,9 @@ def _dp_one(fluid, topo, l, t, eps_A, mdot, A_flow, T, P, props, L_chan, *, df_o
     water/不可压→不可压 D-F (predict_dP)。两者共用同一 K/c_F 几何闭合, 仅密度处理不同:
     可压版内嵌 ρ=P/(R_AIR·T) (气体专用), 不可压版传入常数 ρ。A_flow=开口迎风面积 ε_A·迎风。"""
     options = dict(df_options or {})
-    G = mdot / A_flow                              # 质量通量 [kg/(m²·s)]
+    G, u = _native_flow.quick_design_flow(mdot, A_flow, 0. if fluid == 'air' else props.rho, fluid == 'air')
     if fluid == "air":
         return predict_dP_compressible(topo, l, t, eps_A, G, T, P, props.mu, L_chan, **options)
-    u = G / props.rho                              # 孔隙内速度
     return predict_dP(topo, l, t, eps_A, u, props.rho, props.mu, L_chan, **options)
 
 
@@ -61,18 +61,13 @@ def _dp_fractions(case, topo, l, t, EPS_A, s, Lx, arrangement, sz, *, df_options
         pA = fluid_props(case.hot_fluid, case.T_in_h, case.P_in_h)
     with range_context(side='B', stage='design-dp-inlet', layout='scalar'):
         pB = fluid_props(case.cold_fluid, case.T_in_c, case.P_in_c)
-    # 热侧 A 沿 +x: 迎风面 = y×z = s×sz, 流程 Lx
-    A_h = EPS_A * s * sz
+    A_h, L_h, A_c, L_c = _native_flow.quick_design_sections(EPS_A, s, Lx, sz, arrangement == 'cross')
     with range_context(side='A', stage='design-dp-inlet', layout='scalar'):
         dP_h = _dp_one(case.hot_fluid, topo, l, t, EPS_A, case.mdot_h, A_h,
-                       case.T_in_h, case.P_in_h, pA, Lx, df_options=df_options)
-    # 冷侧 B: 叉流 +y 迎风 = x×z = Lx×sz, 流程 s; 逆流 −x 迎风 = y×z = s×sz, 流程 Lx
-    if arrangement == "cross":
-        A_c, L_c = EPS_A * Lx * sz, s
-    else:
-        A_c, L_c = EPS_A * s * sz, Lx
+                       case.T_in_h, case.P_in_h, pA, L_h, df_options=df_options)
     with range_context(side='B', stage='design-dp-inlet', layout='scalar'):
         dP_c = _dp_one(case.cold_fluid, topo, l, t, EPS_A, case.mdot_c, A_c,
                        case.T_in_c, case.P_in_c, pB, L_c, df_options=df_options)
-    return dP_h / case.P_in_h, dP_c / case.P_in_c
+    return (_native_flow.relative_pressure(dP_h, case.P_in_h),
+            _native_flow.relative_pressure(dP_c, case.P_in_c))
 

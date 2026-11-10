@@ -219,12 +219,11 @@ def test_nested_layout_inherits_side_and_stage():
 @pytest.mark.parametrize('pressure', [9e6, 12e6, 16e6])
 @pytest.mark.parametrize('zoned', [False, True])
 def test_sco2_nu_evidence_retains_unknown_qualification_without_eos(monkeypatch, pressure, zoned):
-    from sjtu_tpmshx.shared.models import sco2_props
+    from sjtu_tpmshx.shared.models import _native_properties
 
     def forbidden(*args, **kwargs):
         pytest.fail('evidence notice must not query EOS')
-    monkeypatch.setattr(sco2_props, '_PropsSI', forbidden)
-    monkeypatch.setattr(fluid_props.CP, 'AbstractState', forbidden)
+    monkeypatch.setattr(_native_properties, '_call', forbidden)
     previous = None
     for _ in range(2):
         with warning_scope({}) as records:
@@ -276,14 +275,14 @@ def test_temperature_state_comparison_does_not_evaluate_properties(monkeypatch, 
 @pytest.mark.parametrize('bound_context', [False, True])
 def test_sco2_local_raw_re_is_before_floor_without_extra_properties(monkeypatch, bound_context):
     from contextlib import nullcontext
-    from sjtu_tpmshx.shared.models.local_heat_transfer import real_fluid_hv_local_field
-    from sjtu_tpmshx.shared.models import sco2_props
+    from sjtu_tpmshx.development.tests.local_heat_transfer_reference import real_fluid_hv_local_field
+    from sjtu_tpmshx.development.tests import eos_reference, nu_reference
 
     calls = []
     def properties(keys, T, P):
         calls.append(keys)
         return np.array([np.full_like(T, value) for value in (2., .5, .25, 4.)])
-    monkeypatch.setattr(sco2_props, 'sco2_prop', properties)
+    monkeypatch.setattr(eos_reference, 'sco2_prop', properties)
     temperature = np.full((1, 1, 2), 310.)
     velocity = np.array([[[0., 0.125]]])
     context = range_context(side='B', stage='main', layout='real-cell(x,y,z)') if bound_context else nullcontext()
@@ -296,7 +295,7 @@ def test_sco2_local_raw_re_is_before_floor_without_extra_properties(monkeypatch,
     assert raw.minimum == (0., (0, 0, 0)) and raw.maximum == (0.5, (0, 0, 1))
     assert source.minimum[0] == source.maximum[0] == 1.
     with warning_scope({}):
-        expected = 2.5 * np.maximum(nu.nu_sco2_topo('Gyroid', np.ones_like(temperature), 8., 7., 1000.), nu.NU_LAM_FLOOR)
+        expected = 2.5 * np.maximum(nu_reference.nu_sco2_topo('Gyroid', np.ones_like(temperature), 8., 7., 1000.), nu.NU_LAM_FLOOR)
     np.testing.assert_array_equal(actual, expected)
 
 

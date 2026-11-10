@@ -39,9 +39,13 @@ Pressure solvers and preparation use the same port implementation.
 own design-field interpolation, zones and Gaussian filtering. They use the same geometry library.
 Python keeps configuration, type/array adaptation, data objects, I/O, caches, GUI and BO orchestration.
 The replaced Python numerical bodies are retired. Independent references serve development regression tests only.
-Stage four still requires properties, DF and full preparation. Stage five still requires result calculations.
+Stage four puts properties and closures in [fluid_properties.cpp](solvers/native/src/fluid_properties.cpp) and `preparation_properties.cpp`.
+The `preparation_df*.cpp` and `preparation_flow.cpp` sources own fixed DF, experiment corrections, projection, fixed-flow and design preparation mathematics.
+[shared/models/_native_preparation.py](shared/models/_native_preparation.py) loads independent preparation ABI 1 on demand. Geometry ABI 1 and field ABI 2 stay unchanged.
+Python keeps configuration, DTOs, I/O, caches, GUI/BO policies and offline fitting. Development references remain independent of production mathematics.
+Stage five still requires an independent result core and postprocessing mathematics.
 The six-stage goal remains incomplete. Acceptance for this batch requires platform CI and final checks.
-See [native geometry](../docs/cpp-migration.md#native-geometry-core) for independent builds, two-library delivery and research entries.
+See the [native preparation core](../docs/cpp-migration.md#native-preparation-core) for independent builds and three-library delivery.
 
 <a id="三模块主线"></a>
 <a id="支撑模块与应用入口"></a>

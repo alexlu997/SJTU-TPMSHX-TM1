@@ -5,9 +5,6 @@ import pytest
 
 from sjtu_tpmshx.shared.models import sco2_props
 
-pytestmark = pytest.mark.skipif(
-    not sco2_props._HAVE_COOLPROP, reason="CoolProp required for sCO2 tests")
-
 @pytest.mark.parametrize('pressure', [7.9e6, 8e6, 16e6])
 def test_temperature_field_round_trips_enthalpy_field(pressure):
     """T(h(T)) == T over a field spanning the pseudocritical line."""
@@ -31,10 +28,13 @@ def test_temperature_field_matches_scalar(pressure):
 @pytest.mark.parametrize('pressure', [np.nextafter(7.9e6, -np.inf),
                                     np.nextafter(16e6, np.inf)])
 def test_property_and_inverse_reject_pressure_before_eos(monkeypatch, pressure):
+    from sjtu_tpmshx.shared.models import _native_properties
+
     def unexpected_eos(*args):
         pytest.fail('out-of-range pressure reached EOS')
-    monkeypatch.setattr(sco2_props, '_PropsSI', unexpected_eos)
-    for temperature, enthalpy in ((330., 4e5), (np.array([330.]), np.array([4e5]))):
+    monkeypatch.setattr(_native_properties, 'sco2_pt', unexpected_eos)
+    # Invalid h would expose an HP query before its native pressure guard.
+    for temperature, enthalpy in ((330., np.nan), (np.array([330.]), np.array([np.nan]))):
         with pytest.raises(ValueError, match=r'pressure must be within 7.9..16 MPa'):
             sco2_props.sco2_prop('H', temperature, pressure)
         with pytest.raises(ValueError, match=r'pressure must be within 7.9..16 MPa'):

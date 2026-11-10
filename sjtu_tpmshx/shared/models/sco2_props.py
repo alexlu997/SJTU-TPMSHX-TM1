@@ -13,21 +13,8 @@ from __future__ import annotations
 from functools import lru_cache
 
 from sjtu_tpmshx.shared.configs.model_parameters import load_model_parameters
-from sjtu_tpmshx.shared.domain.compute_config import SCO2_P_RANGE_PA as P_RANGE_PA
-
-try:
-    from CoolProp.CoolProp import PropsSI as _PropsSI
-    _HAVE_COOLPROP = True
-except Exception:                       # pragma: no cover - import guard
-    _HAVE_COOLPROP = False
-
-    def _PropsSI(*_a, **_k):
-        raise ImportError(
-            "CoolProp is required for the sCO2 fluid but is not installed. "
-            "Use the project's locked environment; see README.md.")
-
-
-_FLUID = "CO2"
+from sjtu_tpmshx.shared.domain.compute_config import SCO2_P_RANGE_PA as P_RANGE_PA  # noqa: F401 - public range constant
+from . import _native_properties
 T_RANGE_K = tuple(load_model_parameters()['sco2']['temperature_range_K'])
 
 
@@ -35,30 +22,42 @@ def _validate_state(T_K, P_Pa, *, where=None) -> None:
     import numpy as _np
     T = _np.asarray(T_K, dtype=float)
     P = _np.asarray(P_Pa, dtype=float)
-    if not (_np.all(_np.isfinite(T)) and _np.all(_np.isfinite(P))):
-        message = "sCO2 state must be finite"
-        invalid = ~_np.isfinite(T) | ~_np.isfinite(P)
-    elif _np.any((T < T_RANGE_K[0]) | (T > T_RANGE_K[1])):
-        message = "sCO2 temperature must be within 280..700 K"
-        invalid = (T < T_RANGE_K[0]) | (T > T_RANGE_K[1])
-    elif _np.any((P < P_RANGE_PA[0]) | (P > P_RANGE_PA[1])):
-        message = "sCO2 pressure must be within 7.9..16 MPa"
-        invalid = (P < P_RANGE_PA[0]) | (P > P_RANGE_PA[1])
+    try:
+        _native_properties.sco2_validate(T, P)
+    except _native_properties.StateError as error:
+        message, failure = str(error), error.failure
     else:
         return
+    if failure.reason == 1:
+        try:
+            _np.broadcast_shapes(T.shape, P.shape)
+        except ValueError:
+            raise _native_properties._ufunc_shape_error(T.shape, P.shape) from None
     if where is not None:
-        T, P, invalid = _np.broadcast_arrays(T, P, invalid)
-        index = _np.unravel_index(_np.flatnonzero(invalid)[0], T.shape)
-        index = tuple(int(i) for i in index)
-        message += f"; {where}, index={index}, T={T[index]} K, P={P[index]} Pa"
-    raise ValueError(message)
+        broadcast_T, broadcast_P = _np.broadcast_arrays(T, P)
+        if not broadcast_T.size:
+            raise IndexError('index 0 is out of bounds for axis 0 with size 0')
+        candidates = []
+        absent = _np.iinfo(_np.uintp).max
+        for original, first in ((T, failure.first_t_index), (P, failure.first_p_index)):
+            if first == absent:
+                continue
+            local = _np.unravel_index(first, original.shape)
+            index = (0,) * (broadcast_T.ndim - original.ndim) + tuple(int(value) for value in local)
+            candidates.append(int(_np.ravel_multi_index(index, broadcast_T.shape)))
+        index = tuple(int(value) for value in _np.unravel_index(min(candidates), broadcast_T.shape))
+        message += f'; {where}, index={index}, T={broadcast_T[index]} K, P={broadcast_P[index]} Pa'
+    raise ValueError(message) from None
 
 
 @lru_cache(maxsize=4096)
 def _prop(key: str, T_K: float, P_Pa: float) -> float:
     """Cache scalar CoolProp queries for repeated identical (key, T, P)."""
     _validate_state(T_K, P_Pa)
-    return float(_PropsSI(key, "T", float(T_K), "P", float(P_Pa), _FLUID))
+    try:
+        return _native_properties.sco2_pt(key, float(T_K), float(P_Pa), scalar=True)
+    except _native_properties.StateError as error:
+        raise ValueError(str(error)) from None
 
 
 def sco2_prop(key: str | tuple[str, ...], T_K, P_Pa):
@@ -85,9 +84,12 @@ def sco2_prop(key: str | tuple[str, ...], T_K, P_Pa):
     shape = _np.broadcast_shapes(T.shape, P.shape)
     Tf = _np.ascontiguousarray(_np.broadcast_to(T, shape)).ravel()
     Pf = _np.ascontiguousarray(_np.broadcast_to(P, shape)).ravel()
-    out = _PropsSI(key, "T", Tf, "P", Pf, _FLUID)
+    try:
+        out = _native_properties.sco2_pt(key, Tf, Pf)
+    except _native_properties.StateError as error:
+        raise ValueError(str(error)) from None
     if not isinstance(key, str):
-        return _np.ascontiguousarray(_np.asarray(out, dtype=float).reshape(-1, len(key)).T).reshape(
+        return _np.ascontiguousarray(_np.asarray(out, dtype=float)).reshape(
             (len(key),) + shape)
     return _np.asarray(out, dtype=float).reshape(shape)
 
@@ -109,11 +111,11 @@ def sco2_temperature(h_Jkg: float, P_Pa: float) -> float:
     Validate both the supplied pressure and the returned temperature against
     this module's state bounds.
     """
-    if not P_RANGE_PA[0] <= float(P_Pa) <= P_RANGE_PA[1]:
-        raise ValueError("sCO2 pressure must be within 7.9..16 MPa")
-    T = float(_PropsSI("T", "H", float(h_Jkg), "P", float(P_Pa), _FLUID))
-    _validate_state(T, P_Pa)
-    return T
+    _native_properties.sco2_scalar_pressure(float(P_Pa))
+    try:
+        return _native_properties.sco2_hp(float(h_Jkg), float(P_Pa), scalar=True)
+    except _native_properties.StateError as error:
+        raise ValueError(str(error)) from None
 
 
 def sco2_temperature_from_enthalpy(h_Jkg, P_Pa):
@@ -126,9 +128,7 @@ def sco2_temperature_from_enthalpy(h_Jkg, P_Pa):
     shape = _np.broadcast_shapes(h.shape, P.shape)
     hf = _np.ascontiguousarray(_np.broadcast_to(h, shape)).ravel()
     Pf = _np.ascontiguousarray(_np.broadcast_to(P, shape)).ravel()
-    if _np.any((Pf < P_RANGE_PA[0]) | (Pf > P_RANGE_PA[1])):
-        raise ValueError("sCO2 pressure must be within 7.9..16 MPa")
-    T = _np.asarray(_PropsSI("T", "H", hf, "P", Pf, _FLUID), dtype=float)
-    T = T.reshape(shape)
-    _validate_state(T, _np.broadcast_to(P, shape))
-    return T
+    try:
+        return _native_properties.sco2_hp(hf, Pf).reshape(shape)
+    except _native_properties.StateError as error:
+        raise ValueError(str(error)) from None

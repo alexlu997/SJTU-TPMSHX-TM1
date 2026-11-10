@@ -59,17 +59,12 @@ def prepared_input(case):
 
 
 def field_result(case, fields, props_a, props_b, u_a, u_b, pass_info, *,
-                 backend_id, native_metadata=None):
+                 pressure, backend_id, native_metadata=None):
     op = SimpleNamespace(**case.parameters['operating_point'])
-    fractions = case.parameters['inlet_pressure_fractions']
-    dph, dpc = fractions['A'], fractions['B']
     units = {**{k: 'K' for k in ('Ta', 'Tb', 'Ts')},
              **{k: 'm/s' for k in ('ucA', 'vcA', 'wcA', 'ucB', 'vcB', 'wcB')},
              **{k: 'W/(m K)' for k in ('K_ffA', 'K_ffB', 'K_ss')},
              'h_vA': 'W/(m3 K)', 'h_vB': 'W/(m3 K)', 'eps': '1'}
-    pressure = {side: dict(inlet_absolute_Pa=pin, outlet_absolute_Pa=pin * (1. - fraction),
-                           model='inlet_state_analytic_df', choked=bool(fraction >= 1.))
-                for side, pin, fraction in (('A', op.P_in_h, dph), ('B', op.P_in_c, dpc))}
     converged = bool(pass_info[-1]['converged'])
     return FieldResult(
         result_id=str(uuid4()), case_id=case.case_id, backend_id=backend_id,

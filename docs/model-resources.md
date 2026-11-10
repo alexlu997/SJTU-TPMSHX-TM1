@@ -46,13 +46,14 @@ C++ 头文件生成器直接读取资源，不再导入数值模型。
 第一批统一数据来源；第二批将标准、CO2、非对称几何与 chi/Kss 计算迁入独立 C++ 几何核心。
 第三批将网格、端口、连续 XY/XYZ 场、sigmoid、线性 LUT、分区和 Gaussian 平滑接入同一几何库。
 数值公式由各自 C++ 核心负责；Python 保留配置、类型适配、数据对象、I/O、缓存和应用编排。
-本批不修改参数 schema、资源版本、单位、拟合系数或既有实验结论。
-第四批物性／DF／完整前处理和第五批结果计算仍待迁移。
+第四批将物性／闭合、固定 DF／实验修正、投影和准备数值迁入独立 preparation 库。
+新资源只归集原值；既有模型身份、单位、拟合系数和实验结论不变。
+第五批独立结果核心与后处理数值迁移仍待完成。
 六批迁移尚未完成，各批验收须包含平台 CI 和最终检查。
 
 Python 几何接口保留类型、缓存与逐次调用的 chi 显式值／环境值／拟合选择，不保留数值 fallback。
 修改 C++ 函数或资源中编入库的参数后，须重新构建各受影响原生库并重启进程。
-构建、路径及运行库边界见[原生几何核心](cpp-migration.zh-CN.md#native-geometry-core)。
+构建、路径及三库运行边界见[原生准备核心](cpp-migration.zh-CN.md#native-preparation-core)。
 XY、XYZ、LUT 与 Gaussian 的固定来源和局部数值处理见[设计场来源说明](../sjtu_tpmshx/solvers/native/geometry/fields-sources.md)。
 贯通、扫描、Richardson 和目标 C 研究位于
 `sjtu_tpmshx/development/runs/tools/asym_geometry_research.py`，shared 不保留旧转发入口。
@@ -63,9 +64,20 @@ XY、XYZ、LUT 与 Gaussian 的固定来源和局部数值处理见[设计场来
 继续提供现行 sCO2 有效 Nu 参数。
 固定 D-F 表仍由
 `sjtu_tpmshx/shared/df_surrogate/_prebuilt/cfd_full_core_3cell_fixed_v2.csv` 提供。
-这三个资源各自保持权威，新资源不重复其中的数据。
-实验阻力修正仍由 `sjtu_tpmshx/shared/df_surrogate/experimental_correction.py` 管理。
-该 CSV 是运行时输入；测试读取的 MMS 阶数/边界 CSV 也是有效验证资源，继续保留。
+这三个资源各自保持权威，新增资源不重复其中的数据。
+[preparation_df_v1.json](../sjtu_tpmshx/shared/configs/preparation_df_v1.json) 统一持有固定方法标识、bracket 容差、
+air specimen／HX 修正系数、几何与速度容差、来源标定／应用／运行三个速度窗口，以及标定 provenance。
+`load_preparation_df_parameters()` 返回新的 mapping，Python 保留标定元数据和公开 tuple／dict 接口。
+生成器直接读取该 JSON、固定 CSV 和既有模型资源，不导入数值模型，也不重新拟合。
+CSV 五列 `tp/L_mm/t_mm/K_m2/cF_fixed_1_m` 是固定 DF 数值输入，不解释附加 eligibility 列。
+正式推理由 C++ 使用编入库的节点和系数；Python 不在运行时解析 CSV 或保留插值 fallback。
+`experimental_correction.py` 保留应用接口、元数据和警告；数值因子、窗口判定、插值、乘法和归约由原生 DF owner 负责。
+CSV 继续服务构建和独立测试；测试读取的 MMS 阶数／边界 CSV 也继续保留。
+
+原始经验 getter、带检查的 EOS 状态和 Nu 闭合保留各自合同，不统一增加状态检查。
+离线清洗与拟合仍在 Python，不能作为正式数值 fallback。
+Python wheel 包含代码、JSON 和 CSV 资源，不包含三个本机原生库。
+物性表版本、模型资源身份和原生库构建身份分开记录；旧检查点仍要求匹配的求解运行库。
 
 离线复核工具保留在 `development/validation/`，生成的拟合 CSV 默认写入本地
 `.cache/reports/df_refit/` 和 `.cache/reports/sco2_cfd/`。调查脚本、阶段计划和

@@ -101,4 +101,7 @@ std::pair<std::vector<double>,std::vector<double>> port_fractions_1d(
     require_solver_widths(widths,lo,hi);
     return port_fractions_1d_typed(widths,64,g::weak(lo),g::weak(hi),uniform);
 }
+double inlet_profile_scale(bool differs,double geometric_area,double profile_area) {
+    return differs && profile_area>1e-30 && geometric_area>0. ? geometric_area/profile_area : 1.;
+}
 }  // namespace tpmshx

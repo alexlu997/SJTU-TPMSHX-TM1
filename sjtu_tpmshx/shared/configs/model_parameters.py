@@ -105,3 +105,51 @@ def load_co2_coefficients(path=None):
         if not valid:
             raise ValueError('CO2 Nu requires five finite coefficients')
     return data
+
+
+def load_preparation_df_parameters():
+    """Read fixed preparation data without loading a numerical implementation."""
+    data = json.loads((files('sjtu_tpmshx.shared.configs') / 'preparation_df_v1.json').read_text(encoding='utf-8'))
+    if (not isinstance(data, dict) or data.get('schema_version') != 'tm1_preparation_df_v1'
+            or data.get('method') != 'cfd_full_core_3cell_fixed_v2'):
+        raise ValueError('unsupported preparation D-F resource schema or method')
+    for section, key, count in (('domain', 'L_nodes_mm', 5), ('domain', 't_nodes_mm', 4),
+                                ('air_specimen', 'L_nodes_mm', 2), ('air_specimen', 't_nodes_mm', 3)):
+        nodes = data[section][key]
+        _vector(nodes, count, f'{section}.{key}')
+        if nodes[0] <= 0. or any(a >= b for a, b in zip(nodes, nodes[1:])):
+            raise ValueError(f'{section}.{key} requires increasing positive nodes')
+    for value in (data['bracket_relative_tolerance'], data['hx']['geometry_absolute_tolerance_mm'],
+                  data['hx']['velocity_absolute_tolerance_mps']):
+        _number(value, 'preparation D-F tolerance')
+        if value <= 0.:
+            raise ValueError('preparation D-F tolerances must be positive')
+    _vector(data['hx']['geometry_mm'], 2, 'HX geometry')
+    if any(value <= 0. for value in data['hx']['geometry_mm']):
+        raise ValueError('HX geometry must be positive')
+    for topology in ('Diamond', 'Gyroid'):
+        rows = data['air_specimen']['sf'][topology]
+        if not isinstance(rows, list) or len(rows) != 2:
+            raise ValueError('air specimen factors require two length rows')
+        for row in rows:
+            _vector(row, 3, 'air specimen factors')
+            if any(value <= 0. for value in row):
+                raise ValueError('air specimen factors must be positive')
+    for fluid in ('air', 'water', 'sco2'):
+        for topology in ('Diamond', 'Gyroid'):
+            factor = data['hx']['sf'][fluid][topology]
+            _number(factor, 'HX factor')
+            if factor <= 0.:
+                raise ValueError('HX factors must be positive')
+            for name in ('calibration_u_mps', 'application_u_mps', 'runtime_u_mps'):
+                bounds = data['hx'][name][fluid][topology]
+                _vector(bounds, 2, f'HX {name}')
+                if not 0. < bounds[0] < bounds[1]:
+                    raise ValueError(f'HX {name} requires increasing positive bounds')
+    if not isinstance(data['hx']['application_scope'], str) or not data['hx']['application_scope']:
+        raise ValueError('HX application scope is required')
+    calibration = data['hx']['gyroid_air_calibration']
+    if not isinstance(calibration, dict) or not calibration or any(
+            not isinstance(value, str) or not value for value in calibration.values()):
+        raise ValueError('Gyroid air calibration data require nonempty text')
+    return data

@@ -17,7 +17,11 @@
 #  endif
 #  define TPMSHX_THERMAL_CALL __cdecl
 #else
-#  define TPMSHX_THERMAL_API
+#  if defined(__GNUC__) || defined(__clang__)
+#    define TPMSHX_THERMAL_API __attribute__((visibility("default")))
+#  else
+#    define TPMSHX_THERMAL_API
+#  endif
 #  define TPMSHX_THERMAL_CALL
 #endif
 

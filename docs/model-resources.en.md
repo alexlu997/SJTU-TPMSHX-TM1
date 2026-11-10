@@ -42,14 +42,15 @@ The first stage unified data sources.
 The second moves standard, CO2 and asymmetric geometry, plus chi/Kss, to an independent C++ geometry core.
 Stage three adds grids, ports, continuous XY/XYZ fields, sigmoid, linear LUTs, zones and Gaussian filtering to the same geometry library.
 Each C++ core owns its numerical formulas. Python keeps configuration, type adaptation, data objects, I/O, caches and application orchestration.
-This batch changes no parameter schema, resource version, unit, fitted coefficient or historical experimental conclusion.
-Stage four still requires properties, DF and full preparation. Stage five still requires result calculations.
+Stage four moves properties, closures, fixed DF, experiment corrections, projection and preparation mathematics to an independent preparation library.
+The new resource collects original values. Existing model identities, units, fitted coefficients and experimental conclusions stay unchanged.
+Stage five still requires an independent result core and postprocessing mathematics.
 The six-stage goal remains incomplete. Acceptance for each batch requires platform CI and final checks.
 
 Python geometry interfaces keep types, caches and per-call explicit/environment/fit selection for chi.
 They have no numerical fallback.
 Rebuild each affected native library after changing C++ functions or compiled resource parameters. Then restart the process.
-See the [native geometry core](cpp-migration.md#native-geometry-core) for builds, paths and runtime boundaries.
+See the [native preparation core](cpp-migration.md#native-preparation-core) for builds, paths and three-library runtime boundaries.
 The [field source record](../sjtu_tpmshx/solvers/native/geometry/fields-sources.md) identifies fixed XY, XYZ, LUT and Gaussian sources and local numerical changes.
 Percolation, scans, Richardson and target-C research are in
 `sjtu_tpmshx/development/runs/tools/asym_geometry_research.py`. Shared modules keep no former forwarding entries.
@@ -60,9 +61,21 @@ remains the source for CO2 segment Nu and geometry data.
 remains the source for current sCO2 effective Nu parameters.
 The fixed D-F table remains in
 `sjtu_tpmshx/shared/df_surrogate/_prebuilt/cfd_full_core_3cell_fixed_v2.csv`.
-Each resource keeps its authority. The new resource does not repeat data from these three resources.
-Experimental resistance corrections remain in `sjtu_tpmshx/shared/df_surrogate/experimental_correction.py`.
-The CSV is a runtime input. MMS order/boundary CSV files consumed by tests stay valid verification resources.
+Each resource keeps its authority. The added resource does not repeat data from these three resources.
+[preparation_df_v1.json](../sjtu_tpmshx/shared/configs/preparation_df_v1.json) owns the fixed method ID and bracket tolerance.
+It also owns air-specimen/HX factors, geometry/velocity tolerances, source/application/runtime velocity windows and campaign provenance.
+`load_preparation_df_parameters()` returns a fresh mapping. Python keeps campaign metadata and public tuple/dict interfaces.
+The generator reads this JSON, the fixed CSV and existing model resources directly. It imports no numerical model and performs no refit.
+The five CSV columns `tp/L_mm/t_mm/K_m2/cF_fixed_1_m` supply fixed DF data. Extra eligibility columns do not change inference.
+Production C++ inference uses compiled nodes and coefficients. Python retains no runtime CSV parser or interpolation fallback.
+`experimental_correction.py` keeps application interfaces, metadata and warnings.
+The native DF owner calculates factors, window decisions, interpolation, multiplication and reductions.
+The CSV remains a build and independent-test resource. MMS order/boundary CSV files consumed by tests also remain.
+
+Raw empirical getters, checked EOS states and Nu closures keep their separate contracts. The move adds no common state check to all getters.
+Offline cleaning and fitting stay in Python. They cannot supply a production numerical fallback.
+The Python wheel includes code, JSON and CSV resources, without the three native libraries.
+Property-table versions, model resource identities and native build identities remain separate records. Old checkpoints still require matching solver runtimes.
 
 Offline review tools stay in `development/validation/`. Generated fit CSV files default to local `.cache/reports/df_refit/` and `.cache/reports/sco2_cfd/`. Investigation scripts, stage plans, and research results belong in ignored `.cache/`. Current instructions, model provenance, physical constraints, and effective tests stay tracked with code. The [history index](history/README.en.md#2026-09-18-历史材料整理) keeps earlier stage reports, task graphs, and fitted tables. Tree cleanup does not erase Git history or automatically adopt research candidates.
 

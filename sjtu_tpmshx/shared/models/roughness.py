@@ -18,15 +18,7 @@ Bhatti & Shah (1987). Historical mode changes remain in Git history.
 """
 
 from __future__ import annotations
-import numpy as np
-
-from sjtu_tpmshx.shared.configs.model_parameters import load_model_parameters
-from sjtu_tpmshx.shared.models.nu_correlations import NU_ROUGHNESS_FACTOR
-
-_ROUGHNESS_PARAMETERS = load_model_parameters()['roughness']
-_PETUKHOV = tuple(_ROUGHNESS_PARAMETERS['petukhov'])
-_HAALAND = tuple(_ROUGHNESS_PARAMETERS['haaland'])
-_NU_GAIN_POWER = _ROUGHNESS_PARAMETERS['nu_gain_power']
+from . import _native_properties
 
 # ─── Smooth-wall friction baselines ─────────────────────────────────
 
@@ -36,17 +28,14 @@ def f_petukhov(Re):
 
     Range: Re ~ 3e3 - 5e6. Returns Darcy (Moody) f, not Fanning.
     """
-    Re = np.asarray(Re, dtype=np.float64)
-    return (_PETUKHOV[0] * np.log(Re) - _PETUKHOV[1]) ** (-2)
+    return _native_properties.roughness(0, Re)
 
 
 def f_haaland(Re, eps_over_Dh):
     """Rough-wall turbulent friction factor (Haaland 1983 explicit approx
     to Colebrook-White, <= 2 % error). Darcy f.
     """
-    Re = np.asarray(Re, dtype=np.float64)
-    return (1.0 / (-_HAALAND[0] * np.log10(
-        (eps_over_Dh / _HAALAND[1]) ** _HAALAND[2] + _HAALAND[3] / Re))) ** 2
+    return _native_properties.roughness(1, Re, eps_over_Dh)
 
 
 # ─── Public API ─────────────────────────────────────────────────────
@@ -58,15 +47,15 @@ def f_enhancement(Re, mode='baseline', eps_um=None, D_h_mm=None):
     Returns 1.0 for ``baseline`` so default state preserves prior behavior.
     """
     if mode == 'baseline':
-        return 1.0
+        return _native_properties.roughness(5)
     if mode == 'norris_1a':
         # Retained configuration spelling; no additional correction.
-        return 1.0
+        return _native_properties.roughness(5)
     if mode == 'bhatti_shah_1b':
         if eps_um is None or D_h_mm is None:
             raise ValueError("bhatti_shah_1b needs eps_um + D_h_mm")
-        eod = (eps_um * 1e-3) / D_h_mm                  # both in mm now
-        return float(f_haaland(Re, eod) / f_petukhov(Re))
+        eod = _native_properties.roughness(2, eps_um, D_h_mm)
+        return float(_native_properties.roughness(3, Re, eod))
     raise ValueError(f"unknown roughness mode {mode!r}")
 
 
@@ -79,11 +68,10 @@ def nu_extra_factor(Re, mode='baseline', eps_um=None, D_h_mm=None):
     ``bhatti_shah_1b`` returns g_Nu(Re,ε)/1.28 to override.
     """
     if mode in ('baseline', 'norris_1a'):
-        return 1.0
+        return _native_properties.roughness(5)
     if mode == 'bhatti_shah_1b':
         f_gain = f_enhancement(Re, mode, eps_um, D_h_mm)
-        g_nu = f_gain ** _NU_GAIN_POWER
-        return float(g_nu / NU_ROUGHNESS_FACTOR)
+        return float(_native_properties.roughness(4, f_gain))
     raise ValueError(f"unknown roughness mode {mode!r}")
 
 

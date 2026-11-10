@@ -1,8 +1,8 @@
 """Single source of truth for per-fluid transport properties + Nu dispatch.
 
 Adding a fluid starts with a FLUIDS entry and the applicable model tests.
-Consumers in preprocessing, numerical backends and shared models retain their
-packing, Prandtl formula and laminar-Nu floor. This module selects the per-fluid
+Consumers retain their packing and laminar-Nu floor policy. C++ owns the
+property, Nu and derived arithmetic. This module selects the per-fluid
 *primitives* (which rho/cp/mu/k/nu function to use), collapsing the scattered
 ``if fluid == 'water': ... else: ...`` branches into one place.
 
@@ -19,9 +19,8 @@ from functools import partial
 from typing import Callable
 
 import numpy as np
-import CoolProp.CoolProp as CP
 
-from . import co2_correlations, co2_props, nu_correlations, sco2_props, tpms_props
+from . import co2_correlations, co2_props, nu_correlations, sco2_props, tpms_props, _native_properties
 
 
 class WaterStateError(ValueError):
@@ -46,36 +45,19 @@ def check_water_state(fluid, T, P, *, where="water state") -> None:
             np.asarray(T, dtype=float), np.asarray(P, dtype=float))
     except (TypeError, ValueError) as exc:
         raise WaterStateError(f"{where}: water requires paired T/P states") from exc
-    if not temperatures.size:
-        raise WaterStateError(f"{where}: water requires finite positive K and Pa(abs)")
-    if not (
-            np.isfinite(temperatures).all() and np.isfinite(pressures).all()
-            and (temperatures > 0).all() and (pressures > 0).all()):
-        index = tuple(map(int, np.unravel_index(np.flatnonzero(
-            ~np.isfinite(temperatures) | ~np.isfinite(pressures)
-            | (temperatures <= 0) | (pressures <= 0))[0], temperatures.shape)))
-        raise WaterStateError(
-            f"{where}: water index={index}, T={temperatures[index]:g} K, "
-            f"P_abs={pressures[index]:g} Pa: requires finite positive K and Pa(abs)")
-    state = CP.AbstractState('HEOS', 'Water')
-    for flat_index, (t, p) in enumerate(zip(temperatures.flat, pressures.flat)):
-        try:
-            state.update(CP.PT_INPUTS, float(p), float(t))
-            phase = state.phase()
-            if phase == CP.iphase_supercritical_liquid:
-                raise WaterStateError(
-                    "high-pressure liquid: T-only model applicability unconfirmed")
-            if phase != CP.iphase_liquid:
-                raise WaterStateError("only stable single-phase liquid water is supported")
-            if not state.has_melting_line():
-                raise WaterStateError("solid/liquid stability unconfirmed")
-            t_melt = state.melting_line(CP.iT, CP.iP, float(p))
-            if not np.isfinite(t_melt) or t <= t_melt:
-                raise WaterStateError("freezing boundary or solid/metastable water unsupported")
-        except (ValueError, RuntimeError) as exc:
-            index = tuple(map(int, np.unravel_index(flat_index, temperatures.shape)))
-            raise WaterStateError(
-                f"{where}: water index={index}, T={t:g} K, P_abs={p:g} Pa: {exc}") from exc
+    try:
+        _native_properties.paired_state('water_pt', temperatures, pressures)
+    except _native_properties.StateError as error:
+        if not temperatures.size:
+            raise WaterStateError(f'{where}: water requires finite positive K and Pa(abs)') from None
+        index = tuple(map(int, np.unravel_index(error.failure.index, temperatures.shape)))
+        failure = WaterStateError(
+            f'{where}: water index={index}, T={temperatures[index]:g} K, '
+            f'P_abs={pressures[index]:g} Pa: {error}')
+        if error.failure.reason == 1:
+            raise failure from None
+        cause = WaterStateError(str(error)) if error.failure.reason == 6 else ValueError(str(error))
+        raise failure from cause
 
 
 def check_finite_temperatures(Ta, Tb, Ts, *, where):
@@ -118,12 +100,11 @@ def _nu_sco2(tpms_type, Re, eps_f, L_mm, D_h_mm, Pr, *, settings=None):
 
 
 def _sco2_prop(key):
-    """Wrap an sCO2 property (by CoolProp key) so a missing P raises a clear
-    error rather than a cryptic CoolProp failure (sCO2 props are P-dependent),
-    and so a SCALAR or a whole FIELD of T/P both work. The 2D/3D variable-
-    property loop calls these primitives with arrays (T field + local-P field);
-    air/water are numpy-elementwise, sCO2 must vectorise its CoolProp call.
-    sco2_props.sco2_prop dispatches scalar->cached / array->vectorised."""
+    """Adapt the native sCO2 query and require absolute pressure.
+
+    Scalar calls use the existing cache. Field calls broadcast T and P.
+    The native backend reads inlet or local pressure from those inputs.
+    """
     def _wrapped(T, P=None):
         if P is None:
             raise ValueError(

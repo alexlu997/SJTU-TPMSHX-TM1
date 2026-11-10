@@ -1,0 +1,190 @@
+{
+  "schema_version": "tm1_preparation_df_v1",
+  "method": "cfd_full_core_3cell_fixed_v2",
+  "domain": {
+    "L_nodes_mm": [
+      4.0,
+      5.0,
+      6.0,
+      7.0,
+      8.0
+    ],
+    "t_nodes_mm": [
+      0.3,
+      0.4,
+      0.5,
+      0.6
+    ]
+  },
+  "bracket_relative_tolerance": 1e-12,
+  "air_specimen": {
+    "L_nodes_mm": [
+      6.0,
+      8.0
+    ],
+    "t_nodes_mm": [
+      0.3,
+      0.4,
+      0.5
+    ],
+    "sf": {
+      "Diamond": [
+        [
+          3.2788759419747464,
+          2.9992364468561084,
+          3.0895675839867764
+        ],
+        [
+          3.4920497763293974,
+          2.7662611615506574,
+          2.526747036629653
+        ]
+      ],
+      "Gyroid": [
+        [
+          2.595103360467214,
+          2.6654645622107345,
+          2.7426283331795624
+        ],
+        [
+          1.433170781897824,
+          1.4103961069169382,
+          1.3503861318521013
+        ]
+      ]
+    }
+  },
+  "hx": {
+    "geometry_mm": [
+      7.0,
+      0.6
+    ],
+    "geometry_absolute_tolerance_mm": 1e-12,
+    "velocity_absolute_tolerance_mps": 1e-12,
+    "sf": {
+      "air": {
+        "Diamond": 1.8024228153853061,
+        "Gyroid": 2.649010286988306
+      },
+      "water": {
+        "Diamond": 4.892779870412083,
+        "Gyroid": 4.198913430360186
+      },
+      "sco2": {
+        "Diamond": 6.313005350332494,
+        "Gyroid": 7.608907691857889
+      }
+    },
+    "calibration_u_mps": {
+      "air": {
+        "Diamond": [
+          7.656604926203154,
+          22.759887982116293
+        ],
+        "Gyroid": [
+          8.026110584256458,
+          22.441995588974073
+        ]
+      },
+      "water": {
+        "Diamond": [
+          0.1,
+          0.25405479940574704
+        ],
+        "Gyroid": [
+          0.1,
+          0.2232167044622796
+        ]
+      },
+      "sco2": {
+        "Diamond": [
+          0.5826657772921353,
+          2.53960962894522
+        ],
+        "Gyroid": [
+          0.6119811082039116,
+          2.470456518760552
+        ]
+      }
+    },
+    "application_u_mps": {
+      "air": {
+        "Diamond": [
+          3.8832357133212434,
+          22.759887982116293
+        ],
+        "Gyroid": [
+          3.912822900405603,
+          24.546710397710296
+        ]
+      },
+      "water": {
+        "Diamond": [
+          0.013964829878811822,
+          0.25405479940574704
+        ],
+        "Gyroid": [
+          0.01623408984155984,
+          0.22587576822423192
+        ]
+      },
+      "sco2": {
+        "Diamond": [
+          0.4349250602441561,
+          2.53960962894522
+        ],
+        "Gyroid": [
+          0.3814083098626136,
+          2.470456518760552
+        ]
+      }
+    },
+    "runtime_u_mps": {
+      "air": {
+        "Diamond": [
+          7.656604926203154,
+          22.759887982116293
+        ],
+        "Gyroid": [
+          8.027855328062564,
+          22.446874107951544
+        ]
+      },
+      "water": {
+        "Diamond": [
+          0.1,
+          0.25405479940574704
+        ],
+        "Gyroid": [
+          0.1,
+          0.2232167044622796
+        ]
+      },
+      "sco2": {
+        "Diamond": [
+          0.5826657772921353,
+          2.53960962894522
+        ],
+        "Gyroid": [
+          0.6119811082039116,
+          2.470456518760552
+        ]
+      }
+    },
+    "application_scope": "7/0.6 mm, 0.182 x 0.042 x 0.042 m HX measured combinations and approved port validation; not an arbitrary T/P/mdot domain or independent cold-side sCO2 pressure-drop validation",
+    "gyroid_air_calibration": {
+      "version": "shanghai-air-straight-20260401-v1",
+      "source": "experiments/water_air/water-air_G7-t0p6_shanghai_experiment_20260401.xlsx",
+      "sheet": "Sheet1",
+      "excel_rows": "4:18",
+      "cases": "2-16",
+      "mass_flow": "F: nominal kg/s",
+      "temperature": "mean of AC/AD, degC converted to K",
+      "pressure": "AE/AF: gauge Pa; add 101325 Pa",
+      "method": "fixed CFD K0; 1D compressible dP; mean squared relative error",
+      "filter": "dP >= 2000 Pa and no duplicate row; case 1 reported separately",
+      "accuracy_scope": "reviewed Shanghai air-water cases; other fluid pairs unvalidated",
+      "report": "docs/model-resources.md"
+    }
+  }
+}

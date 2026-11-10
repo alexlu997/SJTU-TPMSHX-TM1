@@ -45,10 +45,24 @@ geometry_name = {
 if not geometry_library.is_file() or geometry_library.name != geometry_name:
     raise ValueError(f'Expected the prebuilt {geometry_name} for this desktop target: {geometry_library}')
 binaries.append((str(geometry_library), 'native'))
+preparation_input = os.environ.get('TPMSHX_NATIVE_PREPARATION_LIBRARY')
+if not preparation_input or not preparation_input.strip():
+    raise ValueError('TPMSHX_NATIVE_PREPARATION_LIBRARY must name a prebuilt preparation library')
+preparation_library = Path(preparation_input).expanduser().resolve(strict=True)
+preparation_name = {
+    'darwin': 'libtpmshx_preparation_shared.dylib',
+    'win32': 'tpmshx_preparation_shared.dll',
+}[sys.platform]
+if not preparation_library.is_file() or preparation_library.name != preparation_name:
+    raise ValueError(f'Expected the prebuilt {preparation_name} for this desktop target: {preparation_library}')
+binaries.append((str(preparation_library), 'native'))
 data += [
     (str(root / 'sjtu_tpmshx' / 'solvers' / 'native' / 'THIRD_PARTY_NOTICES.md'), 'licenses/native'),
     (str(root / 'sjtu_tpmshx' / 'solvers' / 'native' / 'dependencies-lock.toml'), 'licenses/native'),
     (str(root / 'sjtu_tpmshx' / 'solvers' / 'native' / 'licenses'), 'licenses/native/licenses'),
+    (str(root / 'sjtu_tpmshx' / 'solvers' / 'native' / 'preparation' / 'sources.md'), 'licenses/native/preparation'),
+    (str(root / 'sjtu_tpmshx' / 'solvers' / 'native' / 'geometry' / 'README.md'), 'licenses/native/geometry'),
+    (str(root / 'sjtu_tpmshx' / 'solvers' / 'native' / 'geometry' / 'fields-sources.md'), 'licenses/native/geometry'),
 ]
 
 a = Analysis(

@@ -66,6 +66,9 @@ jobs:
       - name: Check dependency compatibility
         shell: bash
         run: '"$CI_PYTHON" -m pip check'
+      - name: Check source and wheel distribution contents
+        shell: bash
+        run: '"$CI_PYTHON" engineering/scripts/check_distributions.py --output-dir .cache/distribution-check'
       - name: Fetch fixed native sources and build tool
         shell: bash
         run: '"$CI_PYTHON" engineering/scripts/build_native_dependencies.py fetch'
@@ -79,7 +82,11 @@ jobs:
         with:
           path: |
             .cache/native-deps/build/coolprop-macos-arm64/libCoolProp.a
+            .cache/native-deps/build/coolprop-macos-arm64/coolprop-build.json
+            .cache/native-deps/build/coolprop-preparation-macos-arm64/libCoolProp.a
+            .cache/native-deps/build/coolprop-preparation-macos-arm64/coolprop-build.json
             .cache/native-deps/build/coolprop-windows-x64/Release/CoolProp.lib
+            .cache/native-deps/build/coolprop-windows-x64/coolprop-build.json
           key: coolprop-${{ runner.os }}-${{ runner.arch }}-py3.13-${{ steps.toolchain.outputs.image }}-${{ hashFiles('sjtu_tpmshx/solvers/native/dependencies-lock.toml', 'engineering/scripts/build_native_dependencies.py') }}
       - name: Build locked CoolProp on cache miss
         if: steps.coolprop.outputs.cache-hit != 'true'
@@ -100,6 +107,7 @@ jobs:
           import tarfile
           host = 'windows-x64' if os.name == 'nt' else 'macos-arm64'
           build = Path('.cache/native-deps/build') / ('pilot-' + host)
+          preparation = build.with_name('preparation-' + host)
           prefix, suffix = ('', '.dll') if os.name == 'nt' else ('lib', '.dylib')
           libraries = (
               'tpmshx_solver_shared', 'tpmshx_geometry_shared', 'tpmshx_model_h_shared',
@@ -127,6 +135,11 @@ jobs:
           executable_suffix = '.exe' if os.name == 'nt' else ''
           files = [build / (prefix + name + suffix) for name in libraries]
           files += [build / (name + executable_suffix) for name in callers]
+          files += [preparation / (prefix + 'tpmshx_preparation_shared' + suffix)]
+          files += [preparation / (name + executable_suffix) for name in ('preparation_c_static', 'preparation_c_shared')]
+          files += [build.parent / ('coolprop-' + host) / 'coolprop-build.json']
+          if host == 'macos-arm64':
+              files += [build.parent / ('coolprop-preparation-' + host) / 'coolprop-build.json']
           missing = [str(path) for path in files if not path.is_file()]
           assert not missing, f'Missing native runtime files: {missing}'
           archive = Path('.cache/ci-native-build/native-binaries.tar')
@@ -136,7 +149,10 @@ jobs:
                   output.add(path, arcname=path.relative_to(build.parent), recursive=False)
               output.add('LICENSE', arcname='LICENSE')
               output.add('sjtu_tpmshx/solvers/native/THIRD_PARTY_NOTICES.md', arcname='THIRD_PARTY_NOTICES.md')
+              output.add('sjtu_tpmshx/solvers/native/dependencies-lock.toml', arcname='dependencies-lock.toml')
               output.add('sjtu_tpmshx/solvers/native/licenses', arcname='licenses')
+              for record in ('preparation/sources.md', 'geometry/README.md', 'geometry/fields-sources.md'):
+                  output.add(Path('sjtu_tpmshx/solvers/native') / record, arcname=record, recursive=False)
           print(f'Packed {len(files)} native runtime files ({archive.stat().st_size} bytes)')
           PY
       - uses: actions/upload-artifact@v7
@@ -151,7 +167,10 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: native-build-logs-${{ inputs.os }}
-          path: .cache/native-deps/logs/
+          path: |
+            .cache/native-deps/logs/
+            .cache/distribution-check/inventory.json
+            .cache/distribution-check/*.log
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 7
@@ -239,9 +258,10 @@ jobs:
           target = Path('sjtu_tpmshx/solvers/native/lib') / host
           target.mkdir(parents=True, exist_ok=True)
           prefix, suffix = ('', '.dll') if os.name == 'nt' else ('lib', '.dylib')
-          for component in ('solver', 'geometry'):
+          for component in ('solver', 'geometry', 'preparation'):
               name = prefix + 'tpmshx_' + component + '_shared' + suffix
-              shutil.copy2(Path('.cache/native-deps/build') / ('pilot-' + host) / name, target / name)
+              folder = 'preparation' if component == 'preparation' else 'pilot'
+              shutil.copy2(Path('.cache/native-deps/build') / (folder + '-' + host) / name, target / name)
           PY
       - name: Fetch locked Eigen headers for fixture-built libraries
         shell: bash
@@ -258,6 +278,7 @@ jobs:
           libraries = {
               'TPMSHX_NATIVE_SOLVER_LIBRARY': build / (prefix + 'tpmshx_solver_shared' + suffix),
               'TPMSHX_GEOMETRY_LIBRARY': build / (prefix + 'tpmshx_geometry_shared' + suffix),
+              'TPMSHX_PREPARATION_LIBRARY': build.with_name('preparation-' + host) / (prefix + 'tpmshx_preparation_shared' + suffix),
               'TPMSHX_MODEL_H_PUBLIC_LIBRARY': build / (prefix + 'tpmshx_model_h_shared' + suffix),
           }
           for name, path in libraries.items():
@@ -374,9 +395,10 @@ jobs:
           target = Path('sjtu_tpmshx/solvers/native/lib') / host
           target.mkdir(parents=True, exist_ok=True)
           prefix, suffix = ('', '.dll') if os.name == 'nt' else ('lib', '.dylib')
-          for component in ('solver', 'geometry'):
+          for component in ('solver', 'geometry', 'preparation'):
               name = prefix + 'tpmshx_' + component + '_shared' + suffix
-              shutil.copy2(Path('.cache/native-deps/build') / ('pilot-' + host) / name, target / name)
+              folder = 'preparation' if component == 'preparation' else 'pilot'
+              shutil.copy2(Path('.cache/native-deps/build') / (folder + '-' + host) / name, target / name)
           PY
       - name: Require explicit native libraries for thermal evidence tests
         shell: bash
@@ -390,6 +412,7 @@ jobs:
           libraries = {
               'TPMSHX_NATIVE_SOLVER_LIBRARY': build / (prefix + 'tpmshx_solver_shared' + suffix),
               'TPMSHX_GEOMETRY_LIBRARY': build / (prefix + 'tpmshx_geometry_shared' + suffix),
+              'TPMSHX_PREPARATION_LIBRARY': build.with_name('preparation-' + host) / (prefix + 'tpmshx_preparation_shared' + suffix),
               'TPMSHX_MODEL_H_PUBLIC_LIBRARY': build / (prefix + 'tpmshx_model_h_shared' + suffix),
           }
           for name, path in libraries.items():

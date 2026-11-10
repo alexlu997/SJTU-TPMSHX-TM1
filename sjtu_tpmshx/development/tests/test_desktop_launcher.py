@@ -1,5 +1,6 @@
 """The installed launcher must preserve CLI errors and use writable caches."""
 import sys
+from pathlib import Path
 
 import pytest
 from PySide6.QtCore import QStandardPaths
@@ -145,11 +146,11 @@ def desktop_spec_prefix(monkeypatch):
 @pytest.fixture(params=['darwin', 'win32'])
 def desktop_prebuilt(request, tmp_path, monkeypatch):
     names = {
-        'darwin': ('libtpmshx_solver_shared.dylib', 'libtpmshx_geometry_shared.dylib'),
-        'win32': ('tpmshx_solver_shared.dll', 'tpmshx_geometry_shared.dll'),
+        'darwin': ('libtpmshx_solver_shared.dylib', 'libtpmshx_geometry_shared.dylib', 'libtpmshx_preparation_shared.dylib'),
+        'win32': ('tpmshx_solver_shared.dll', 'tpmshx_geometry_shared.dll', 'tpmshx_preparation_shared.dll'),
     }[request.param]
     libraries = {}
-    for component, name in zip(('SOLVER', 'GEOMETRY'), names):
+    for component, name in zip(('SOLVER', 'GEOMETRY', 'PREPARATION'), names):
         path = tmp_path / name
         path.write_bytes(b'prebuilt library placeholder')
         variable = 'TPMSHX_NATIVE_' + component + '_LIBRARY'
@@ -158,16 +159,21 @@ def desktop_prebuilt(request, tmp_path, monkeypatch):
     return request.param, libraries
 
 
-def test_bundle_requires_and_collects_both_prebuilt_libraries(desktop_spec_prefix, desktop_prebuilt):
+def test_bundle_requires_and_collects_three_prebuilt_libraries(desktop_spec_prefix, desktop_prebuilt):
     root, evaluate = desktop_spec_prefix
     platform, libraries = desktop_prebuilt
     namespace = evaluate(platform)
     assert set(namespace['binaries']) == {(str(path.resolve()), 'native') for path in libraries.values()}
     assert (str(root / 'sjtu_tpmshx/solvers/native/licenses'), 'licenses/native/licenses') in namespace['data']
+    for record in ('preparation/sources.md', 'geometry/README.md', 'geometry/fields-sources.md'):
+        source = root / 'sjtu_tpmshx/solvers/native' / record
+        target = 'licenses/native/' + Path(record).parent.as_posix()
+        assert source.is_file()
+        assert (str(source), target) in namespace['data']
     assert 'sjtu_tpmshx.development' in namespace['excluded']
 
 
-@pytest.mark.parametrize('component', ['SOLVER', 'GEOMETRY'])
+@pytest.mark.parametrize('component', ['SOLVER', 'GEOMETRY', 'PREPARATION'])
 @pytest.mark.parametrize('fault', ['unset', 'empty', 'wrong_name', 'missing_file', 'directory'])
 def test_bundle_rejects_invalid_prebuilt_input(desktop_spec_prefix, desktop_prebuilt,
                                               monkeypatch, tmp_path, component, fault):

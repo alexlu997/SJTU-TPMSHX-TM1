@@ -11,7 +11,7 @@ from sjtu_tpmshx.shared.domain.compute_config import (
 from sjtu_tpmshx.shared.models import co2_correlations as co2
 from sjtu_tpmshx.shared.models.co2_props import co2_prop
 from sjtu_tpmshx.shared.models.fluid_props import get
-from sjtu_tpmshx.shared.models.local_heat_transfer import local_nusselt, real_fluid_hv_local_field
+from sjtu_tpmshx.development.tests.local_heat_transfer_reference import local_nusselt, real_fluid_hv_local_field
 from sjtu_tpmshx.shared.models.nu_correlations import NU_LAM_FLOOR
 from sjtu_tpmshx.preprocess.api import prepare_case
 

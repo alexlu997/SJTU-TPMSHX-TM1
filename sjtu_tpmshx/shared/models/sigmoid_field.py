@@ -303,6 +303,7 @@ def _geometry_from_fields(L_field, t_field, tpms_type, k_s, lut, *, allow_extrap
 def _fluid_arrays_from_geometry(geometry, tpms_type, u_A, u_B, T_inA, T_inB, *,
                                 P_in, P_inB, fluid_type):
     from .nu_correlations import nu_vec
+    from . import _native_properties
 
     # 5. Compute fluid properties (vectorized) — AIR ONLY (guarded above-call by
     # _check_zoned_fluid_support; this is the in-builder backstop so no caller
@@ -322,20 +323,17 @@ def _fluid_arrays_from_geometry(geometry, tpms_type, u_A, u_B, T_inA, T_inB, *,
     rho_ref_B = air_density(T_inB, P_in if P_inB is None else P_inB)
 
     # Reynolds (D_h convention, confirmed 2026-04-22)
-    Re_A = np.maximum(rho_ref_A * u_A * D_h_arr / mu_A, 10.0)
-    Re_B = np.maximum(rho_ref_B * u_B * D_h_arr / mu_B, 10.0)
+    Re_A = _native_sigmoid.clip(_native_properties.reynolds(rho_ref_A, u_A, D_h_arr, mu_A), 10.0, np.inf)
+    Re_B = _native_sigmoid.clip(_native_properties.reynolds(rho_ref_B, u_B, D_h_arr, mu_B), 10.0, np.inf)
 
     D_h_mm = D_h_arr * 1000.0
     Nu_A = nu_vec(tpms_type, Re_A, L_field, D_h_mm)
     Nu_B = nu_vec(tpms_type, Re_B, L_field, D_h_mm)
 
-    H_sf_A = Nu_A * k_fA / D_h_arr
-    H_sf_B = Nu_B * k_fB / D_h_arr
-    h_vA_arr = H_sf_A * A0_arr
-    h_vB_arr = H_sf_B * A0_arr
-
-    K_ffA_arr = geometry['eps_f_arr'] * k_fA
-    K_ffB_arr = geometry['eps_f_arr'] * k_fB
+    _, h_vA_arr, K_ffA_arr = _native_properties.inlet_transfer(
+        Nu_A, k_fA, D_h_arr, A0_arr, geometry['eps_f_arr'])
+    _, h_vB_arr, K_ffB_arr = _native_properties.inlet_transfer(
+        Nu_B, k_fB, D_h_arr, A0_arr, geometry['eps_f_arr'])
     return {
         **geometry,
         'K_ffA_arr': K_ffA_arr,

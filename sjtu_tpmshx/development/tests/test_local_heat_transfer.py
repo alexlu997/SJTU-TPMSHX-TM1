@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.shared.models.local_heat_transfer import local_nusselt, local_speed
+from sjtu_tpmshx.development.tests.local_heat_transfer_reference import local_nusselt, local_speed
 
 
 def test_speed_is_axis_independent_and_has_the_2d_limit():
@@ -42,10 +42,11 @@ def test_local_nusselt_clamps_both_bounds_without_mutating_inputs():
 @pytest.mark.parametrize('fluid,Pr', [('air', None), ('water', 7.)])
 def test_local_nusselt_matches_real_scalar_model_calls(fluid, Pr):
     from sjtu_tpmshx.shared.models.fluid_props import get
+    from sjtu_tpmshx.development.tests.property_reference import fluid_model
     from sjtu_tpmshx.shared.models.nu_correlations import NU_LAM_FLOOR
     model = get(fluid)
     reynolds = np.array([[0., .9, 1.], [1.1, 100., 1000.]])
-    actual = local_nusselt(model, 'Gyroid', reynolds, .4, 7., 2., Pr)
-    expected = [max(float(model.nu('Gyroid', max(Re, 1.), .4, 7., 2., Pr)), NU_LAM_FLOOR)
-                for Re in reynolds.flat]
-    np.testing.assert_array_equal(actual, np.asarray(expected).reshape(reynolds.shape))
+    expected = local_nusselt(fluid_model(fluid), 'Gyroid', reynolds, .4, 7., 2., Pr)
+    actual = [max(float(model.nu('Gyroid', max(Re, 1.), .4, 7., 2., Pr)), NU_LAM_FLOOR)
+              for Re in reynolds.flat]
+    np.testing.assert_array_equal(np.asarray(actual).reshape(reynolds.shape), expected)

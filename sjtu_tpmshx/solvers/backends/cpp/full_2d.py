@@ -482,7 +482,8 @@ def _pack(cfg, prepared, table_directory, library):
             port['out_ctr']-port['out_w']/2, port['out_ctr']+port['out_w']/2, *side_geometry)
     # Keep the original closure's unit-conversion order before L_mm is
     # rounded into its separate SI transport field.
-    arrays.append(cell(geometry['D_h']*1000. / (cfg['Lcell'] if zones is None else zones['L_field'])))
+    from sjtu_tpmshx.shared.models._native_flow import closure_geometry_ratio
+    arrays.append(cell(closure_geometry_ratio(geometry['D_h'], cfg['Lcell'] if zones is None else zones['L_field'])))
     solver = cfg['compute_cfg'].solver
     settings = SimpleNamespace()
     configure_convergence(settings, cfg, solver)

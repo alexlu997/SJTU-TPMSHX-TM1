@@ -7,7 +7,7 @@ from sjtu_tpmshx.shared.domain.case_data import CaseData
 from sjtu_tpmshx.shared.domain.model_refs import ModelRef
 from sjtu_tpmshx.shared.domain.run_environment import capture_environment
 from sjtu_tpmshx.shared.models.catalog import MODEL_VERSIONS
-from sjtu_tpmshx.shared.models import _native_geometry
+from sjtu_tpmshx.shared.models import _native_geometry, _native_flow
 from sjtu_tpmshx.shared.models.fluid_props import check_finite_temperatures
 from sjtu_tpmshx.shared.models.quick_design import K_STEEL, GEOM_N, NX, LTNE_TOL, _ARR, _dp_fractions
 from sjtu_tpmshx.shared.models.tpms_calc import geometry as tpms_geometry
@@ -37,7 +37,7 @@ def prepare_quick_design(case, topo, l, t, s, Lx, arrangement='cross', *,
     geo = tpms_geometry(topo, l, t, k_s, N=GEOM_N)
     grid = dict(dimension=3, length_unit='m', axis_order=('x', 'y', 'z'))
     for axis, count, length in zip('xyz', shape, (Lx, s, sz)):
-        widths = np.full(count, length / count)
+        widths = _native_flow.uniform_widths(count, length)
         grid['d' + axis] = widths
         grid[axis + '_edges'] = np.r_[0., np.cumsum(widths)]
     inputs = {name: getattr(case, name) for name in

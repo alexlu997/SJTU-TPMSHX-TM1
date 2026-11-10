@@ -43,6 +43,7 @@ from sjtu_tpmshx.shared.domain.run_warnings import (
     cache_warning_records, current_warnings, merge_warnings,
 )
 from .tpms_geometry import compute_geometry as _tpms_geom
+from . import _native_properties
 
 # Geometry and property primitives live in tpms_props. Current consumers may
 # also import the explicitly re-exported names from models.tpms_calc.
@@ -58,10 +59,6 @@ from sjtu_tpmshx.shared.df_surrogate.predict import predict_K_cF, SCO2_DF_METHOD
 from sjtu_tpmshx.shared.logutil import get_logger
 
 _log = get_logger(__name__)
-
-# ── Physical constants ────────────────────────────────────────
-Pr    = 0.72       # Prandtl number (air, approximately constant)
-
 
 # ── Fluid type validation ─────────────────────────────────────
 
@@ -103,6 +100,7 @@ def validate_fluid_type(fluid_type: str, side: str) -> None:
 # moved to that module's docstring.
 
 from .nu_correlations import (  # noqa: F401 - existing public re-exports
+    Pr_AIR as Pr,
     nu_from_Re,
     nu_vec,
     nu_water_topo,
@@ -233,7 +231,7 @@ def _compute_cached(tpms_type: str,
         # D_h convention: Re = ρ·u·D_h / μ (single-channel interstitial u).
         # Training Excel: m_total = Re × μ / D_h × A × 2 (×2 for two channels).
         # Nu correlations fitted on D_h-convention Re.
-        Re = rho * u * D_h_m / mu
+        Re = _native_properties.reynolds(rho, u, D_h_m, mu)
 
         # Warn if outside correlation valid range. Single-sourced to the per-fluid
         # fit windows in nu_correlations (was a duplicate hard-coded [600, 30000];
@@ -254,10 +252,10 @@ def _compute_cached(tpms_type: str,
         eps_A = g['epsilon_A']
         # The registry applies the existing 1.28 roughness factor only to air.
         # Water/sCO2 use their own smooth-wall correlations and supplied Pr.
-        Pr_f = mu * cp_f / k_f
+        Pr_f = _native_properties.prandtl(mu, cp_f, k_f)
         Nu = _m.nu(tpms_type, Re, eps_A, L_cell_mm, D_h_mm, Pr_f)
 
-        H_sf = Nu * k_f / D_h_m        # face heat transfer coefficient [W/(m²·K)]
+        H_sf = _native_properties.surface_transfer(Nu, k_f, D_h_m)
 
         # ── Pressure drop via fixed geometry-only CFD D-F table ─────────
         # dP/L = μu/K + ρ c_F u² (interstitial form; matches simple_solver
@@ -270,10 +268,11 @@ def _compute_cached(tpms_type: str,
         if fluid_type == 'co2':
             from .co2_correlations import apply_drag
             K_df, cF_df, _ = apply_drag(K_df, cF_df)
-        dP_per_L = mu * u / K_df + rho * cF_df * u * u
+        from ._native_df import pressure_gradient
+        dP_per_L = pressure_gradient(rho, mu, u, K_df, cF_df)
 
         # ── Effective thermal conductivities (volume-averaged) ────
-        K_ff = eps_A * k_f
+        K_ff = _native_properties.pore_conductivity(eps_A, k_f)
 
         return {
             'epsilon':   eps,

@@ -5,8 +5,8 @@ import pytest
 
 @pytest.fixture(scope="module")
 def gyroid_model():
-    """Use the unchanged fixed CFD model as the independent scalar reference."""
-    from sjtu_tpmshx.shared.df_surrogate.full_core_3cell_fixed_v2 import FullCore3CellFixedDFV2
+    """Use the frozen Python model as the independent scalar reference."""
+    from sjtu_tpmshx.development.tests.df_reference import FullCore3CellFixedDFV2
     return FullCore3CellFixedDFV2('Gyroid')
 
 
@@ -79,7 +79,7 @@ def test_diamond_path_also_works():
 @pytest.mark.parametrize('topology', ['Diamond', 'Gyroid'])
 def test_batch_preserves_nodes_and_asymmetric_tolerance(topology):
     from sjtu_tpmshx.shared.df_surrogate._domain import TRAIN_L_NODES, TRAIN_T_NODES
-    from sjtu_tpmshx.shared.df_surrogate.full_core_3cell_fixed_v2 import FullCore3CellFixedDFV2, METHOD
+    from sjtu_tpmshx.development.tests.df_reference import FullCore3CellFixedDFV2, METHOD
     from sjtu_tpmshx.shared.df_surrogate.predict import predict_K_cF_vec
 
     pairs = [(L, t) for L in TRAIN_L_NODES for t in TRAIN_T_NODES]
@@ -102,7 +102,7 @@ def test_batch_preserves_nodes_and_asymmetric_tolerance(topology):
 @pytest.mark.parametrize('topology', ['Diamond', 'Gyroid'])
 def test_batch_preserves_existing_nonfinite_behavior(topology):
     """Compatibility only: nonfinite inputs do not gain physical validity."""
-    from sjtu_tpmshx.shared.df_surrogate.full_core_3cell_fixed_v2 import FullCore3CellFixedDFV2, METHOD
+    from sjtu_tpmshx.development.tests.df_reference import FullCore3CellFixedDFV2, METHOD
     from sjtu_tpmshx.shared.df_surrogate.predict import predict_K_cF_vec
 
     L = np.array([np.nan, np.inf, -np.inf, 6., 6., 6., 6.])
@@ -127,7 +127,7 @@ def test_batch_preserves_existing_nonfinite_behavior(topology):
                  .35, id='noncontiguous'),
 ])
 def test_batch_shapes_and_independent_writable_outputs(topology, L, t, eps):
-    from sjtu_tpmshx.shared.df_surrogate.full_core_3cell_fixed_v2 import FullCore3CellFixedDFV2, METHOD
+    from sjtu_tpmshx.development.tests.df_reference import FullCore3CellFixedDFV2, METHOD
     from sjtu_tpmshx.shared.df_surrogate.predict import predict_K_cF_vec
 
     inputs = [value for value in (L, t, eps) if isinstance(value, np.ndarray)]
@@ -157,7 +157,7 @@ def test_batch_shapes_and_independent_writable_outputs(topology, L, t, eps):
     (6., .3 - 2e-12), (6., .6 + 2e-12),
 ])
 def test_batch_outside_tolerance_preserves_scalar_error(topology, L, t):
-    from sjtu_tpmshx.shared.df_surrogate.full_core_3cell_fixed_v2 import FullCore3CellFixedDFV2, METHOD
+    from sjtu_tpmshx.development.tests.df_reference import FullCore3CellFixedDFV2, METHOD
     from sjtu_tpmshx.shared.df_surrogate.predict import predict_K_cF_vec
 
     lengths, thicknesses = np.array([6., L]), np.array([.4, t])

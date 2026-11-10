@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from sjtu_tpmshx.shared.models.df_projection import (
-    _cell_centre_fracs, _nearest_src_idx, project_fields_to_streamwise_K_cF as p2d,
+    project_fields_to_streamwise_K_cF as p2d,
 )
 
 
@@ -32,16 +32,16 @@ def test_projection_coordinates(fluid, nonuniform, monkeypatch):
     np.testing.assert_allclose(cF, 100. + expected * 50., rtol=1e-12, atol=0.)
 
 
-def test_helper_semantics():
-    """Uniform fracs == (i+0.5)/n; non-uniform integrate widths; index
-    mapping reproduces the retired int(min(...)) form for in-range fracs."""
-    f = _cell_centre_fracs(4, None)
-    assert np.allclose(f, [0.125, 0.375, 0.625, 0.875])
-    fn = _cell_centre_fracs(2, np.array([3.0, 1.0]))
-    assert np.allclose(fn, [0.375, 0.875])
-    idx = _nearest_src_idx(np.array([0.0, 0.49, 0.99, 1.0]), 10)
-    assert idx.tolist() == [0, 4, 9, 9]
+def test_native_projection_coordinate_rules():
+    from sjtu_tpmshx.shared.models import _native_df
 
+    lengths = np.broadcast_to(np.arange(4., 8.)[:, None], (4, 2))
+    walls = np.full_like(lengths, .4)
+    uniform = _native_df.project_rows(lengths, walls, 4, 0)
+    np.testing.assert_array_equal(uniform[0], [4., 5., 6., 7.])
+    nonuniform = _native_df.project_rows(lengths, walls, 2, 0, [3., 1.])
+    np.testing.assert_array_equal(nonuniform[0], [5., 7.])
+    np.testing.assert_array_equal(nonuniform[2], [1, 3])
 
 
 def test_invalid_direction_raises():

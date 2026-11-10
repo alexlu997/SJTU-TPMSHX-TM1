@@ -154,6 +154,10 @@ def run_case(case, control):
                   K_ffB=np.full(shape, b.conductivity), K_ss=fixed['K_ss'],
                   h_vA=np.full(shape, a.hv), h_vB=np.full(shape, b.hv), eps=fixed['eps'])
     props_a, props_b = (Props(s.rho, s.mu, s.k, s.cp, s.pr) for s in (a, b))
-    return field_result(case, fields, props_a, props_b, a.speed, b.speed, pass_info, backend_id='cpp',
+    pressure = {side: dict(inlet_absolute_Pa=evidence.inlet, outlet_absolute_Pa=evidence.outlet,
+                           model='inlet_state_analytic_df', choked=bool(evidence.choked))
+                for side, evidence in zip(('A', 'B'), result.pressure)}
+    return field_result(case, fields, props_a, props_b, a.speed, b.speed, pass_info,
+                        pressure=pressure, backend_id='cpp',
                         native_metadata=dict(solver_abi=abi, capability='quick_design_v1',
                                              temperature_algorithm=algorithm))
