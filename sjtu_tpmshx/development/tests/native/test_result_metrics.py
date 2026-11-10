@@ -3,6 +3,9 @@ from dataclasses import replace
 import ctypes as ct
 from decimal import Decimal
 import math
+import subprocess
+import sys
+from types import SimpleNamespace
 import warnings
 
 import numpy as np
@@ -12,11 +15,12 @@ from sjtu_tpmshx.development.tests.native.result_reference import shared_math as
 from sjtu_tpmshx.development.tests.native.result_reference import metrics as original_metrics
 from sjtu_tpmshx.development.tests.native.result_reference import quick_design as original_quick
 from sjtu_tpmshx.development.tests.postprocess_tm1.test_reduction_reuse import native_result
-from sjtu_tpmshx.postprocess import metrics, quick_design
+from sjtu_tpmshx.postprocess import api, metrics, quick_design
 from sjtu_tpmshx.shared import result_math
 from sjtu_tpmshx.shared import _native_result_metrics as native
 from sjtu_tpmshx.shared import _native_result as wire
 from sjtu_tpmshx.shared.domain.field_result import FieldResult
+from sjtu_tpmshx.shared.domain.metric_spec import MetricSpec
 
 
 def observe(function, *args, policy='warn', **kwargs):
@@ -305,3 +309,73 @@ def test_port_weights_abi_does_not_publish_first_output_before_second_shape_chec
                   *(ct.byref(item.raw) for item in inputs + outputs))
     np.testing.assert_array_equal(first, np.full((2, 3), 17.))
     np.testing.assert_array_equal(second, np.full((2, 3), 19., dtype=np.float32))
+
+
+def solid_mass_result(layout, dtype=np.float64, *, density=1., epsilon=.5):
+    shapes = {'zero_dimensional': (), 'row': (1, 3), 'column': (2, 1),
+              'full': (2, 3), 'mismatch': (3, 3)}
+    values = epsilon if layout == 'scalar' else np.full(shapes[layout], epsilon, dtype=dtype)
+    return FieldResult(result_id='mass-broadcast', case_id='test', backend_id='fixture',
+        grid=dict(dimension=2, dx=np.array([1., 2.], dtype=dtype),
+                  dy=np.array([1., 2., 3.], dtype=dtype)),
+        metadata=dict(dimension=2, solid_density_kg_m3=density, design_fields=dict(eps_arr=values)))
+
+
+@pytest.mark.parametrize('layout', ['scalar', 'zero_dimensional', 'row', 'column', 'full', 'mismatch'])
+@pytest.mark.parametrize('dtype', [np.float16, np.float32, np.float64])
+def test_two_d_solid_mass_keeps_original_sequential_width_broadcast(layout, dtype):
+    result = solid_mass_result(layout, dtype, density=1.3)
+    arguments = dict(dimension=2, duty=None, mass_flow=None)
+    assert_observation(observe(metrics._evaluate_metric, result, 'mass', **arguments),
+                       observe(original_metrics._evaluate_metric, result, 'mass', **arguments))
+
+
+@pytest.mark.parametrize('layout', ['zero_dimensional', 'mismatch'])
+@pytest.mark.parametrize('policy', ['warn', 'raise'])
+def test_two_d_solid_mass_fp_precedes_later_width_broadcast(layout, policy):
+    result = solid_mass_result(layout, np.float16, density=65504., epsilon=-1.)
+    arguments = dict(dimension=2, duty=None, mass_flow=None)
+    assert_observation(observe(metrics._evaluate_metric, result, 'mass', policy=policy, **arguments),
+                       observe(original_metrics._evaluate_metric, result, 'mass', policy=policy, **arguments))
+
+
+@pytest.mark.parametrize('layout', ['scalar', 'zero_dimensional', 'row', 'column', 'full', 'mismatch'])
+def test_public_evaluate_keeps_broadcastable_mass_evidence_and_original_error(layout):
+    result = solid_mass_result(layout)
+    expected, notices = observe(original_metrics._evaluate_metric, result, 'mass',
+                                dimension=2, duty=None, mass_flow=None)
+    assert not notices
+    metric = api.evaluate(result, MetricSpec('mass', 'kg/m')).metrics['mass']
+    if expected[0] == 'value':
+        assert metric.status == 'available'
+        assert metric.value == expected[1]
+    else:
+        assert expected[1] is ValueError
+        assert metric.status == 'invalid'
+        assert metric.reason == expected[2][0]
+
+
+def test_two_d_solid_mass_keeps_original_nd_fortran_width_indexing():
+    dx = np.asfortranarray([[1., 4.], [2., 8.]])
+    dy = np.asfortranarray([[.25, 1.], [.5, 2.]])
+    result = SimpleNamespace(grid=dict(dx=dx, dy=dy),
+        metadata=dict(solid_density_kg_m3=1., design_fields=dict(eps_arr=np.array(.5))))
+    assert_observation(observe(native.solid_mass, np.array(.5), 1., (dx, dy)),
+                       observe(original_metrics._evaluate_metric, result, 'mass',
+                               dimension=2, duty=None, mass_flow=None))
+
+
+def test_solid_mass_scalar_c_abi_returns_without_a_process_crash():
+    code = '''
+import ctypes as ct
+import numpy as np
+from sjtu_tpmshx.shared import _native_result as wire
+owners = [wire.array(value) for value in (np.array(.5), 1., np.ones(2), np.ones(3))]
+output = ct.c_double(17.)
+pointer = ct.POINTER(wire._Array)
+wire.call('tpmshx_result_solid_mass_2d_v1', [pointer] * 4 + [ct.POINTER(ct.c_double)],
+          *(ct.byref(owner.raw) for owner in owners), ct.byref(output))
+assert output.value == 3.
+'''
+    process = subprocess.run([sys.executable, '-c', code], text=True, capture_output=True)
+    assert process.returncode == 0, (process.returncode, process.stdout, process.stderr)

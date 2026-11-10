@@ -49,6 +49,15 @@ Tensor broadcast_width(const Array& width,std::vector<std::size_t> shape,std::si
     for (std::size_t i=0;i<out.size();++i) out.put(i,width.at((i/stride)%out.shape[axis]));
     return out;
 }
+Tensor expanded_width(const Array& width,std::size_t axis) {
+    if (!width.raw().rank) throw NumericError(TPMSHX_RESULT_INDEX_ERROR,
+        "too many indices for array: array is 0-dimensional, but 1 were indexed");
+    auto out=a::copy(width);
+    out.shape.insert(out.shape.begin()+static_cast<std::ptrdiff_t>(axis),1);
+    out.strides.insert(out.strides.begin()+static_cast<std::ptrdiff_t>(axis),0);
+    out.origin=TPMSHX_RESULT_NUMPY_ARRAY;
+    return out;
+}
 template<std::size_t N> std::array<double,2> mass(const std::array<Array,N>& faces,bool binary,Diagnostics& d) {
     std::vector<Tensor> outward;outward.reserve(N);
     for (std::size_t i=0;i<N;++i) outward.push_back(oriented(faces[i],i%2==0,binary,d));
@@ -147,9 +156,16 @@ double staggered_power_duty_2d(const std::array<Array,4>& faces,Diagnostics& d) 
 std::array<double,2> boundary_mass_2d(const std::array<Array,4>& faces,Diagnostics& d) {return mass(faces,false,d);}
 std::array<double,2> boundary_mass_3d(const std::array<Array,6>& faces,Diagnostics& d) {return mass(faces,true,d);}
 double solid_mass_2d(const Array& epsilon,const Array& density,const Array& dx,const Array& dy,Diagnostics& d) {
-    auto one=scalar_array(a::python_int(1));auto solid=a::subtract(one.array(),epsilon,d);solid=a::multiply(solid.array(),density,d);
-    const auto shape=solid.shape;auto x=broadcast_width(dx,shape,0),y=broadcast_width(dy,shape,1);
-    solid=a::multiply(solid.array(),x.array(),d);solid=a::multiply(solid.array(),y.array(),d);return a::sum_as_float(solid.array(),d);
+    auto one=scalar_array(a::python_int(1));auto solid=a::subtract(one.array(),epsilon,d);
+    if (solid.shape.empty()) solid.origin=TPMSHX_RESULT_NUMPY_SCALAR;
+    solid=a::multiply(solid.array(),density,d);
+    if (solid.shape.empty()) solid.origin=TPMSHX_RESULT_NUMPY_SCALAR;
+    auto x=expanded_width(dx,1);solid=a::multiply(solid.array(),x.array(),d);
+    // NumPy allocates a C-order column before the later y-width product.
+    if (solid.shape.size()==2 && solid.shape[1]==1)
+        solid.strides[1]=static_cast<std::ptrdiff_t>(item_size(solid.dtype));
+    auto y=expanded_width(dy,0);solid=a::multiply(solid.array(),y.array(),d);
+    return a::sum_as_float(solid.array(),d);
 }
 double solid_mass_3d(const Array& epsilon,const Array& density,const Array& dx,const Array& dy,const Array& dz,Diagnostics& d) {
     const std::vector<std::size_t> shape{dx.size(),dy.size(),dz.size()};

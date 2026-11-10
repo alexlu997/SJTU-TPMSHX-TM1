@@ -44,13 +44,14 @@ Stage three adds grids, ports, continuous XY/XYZ fields, sigmoid, linear LUTs, z
 Each C++ core owns its numerical formulas. Python keeps configuration, type adaptation, data objects, I/O, caches and application orchestration.
 Stage four moves properties, closures, fixed DF, experiment corrections, projection and preparation mathematics to an independent preparation library.
 The new resource collects original values. Existing model identities, units, fitted coefficients and experimental conclusions stay unchanged.
-Stage five still requires an independent result core and postprocessing mathematics.
+Stage five connects the independent result core for metrics, physical balances, zone statistics and numerical qualification checks.
+Its numerical and platform acceptance is in progress.
 The six-stage goal remains incomplete. Acceptance for each batch requires platform CI and final checks.
 
 Python geometry interfaces keep types, caches and per-call explicit/environment/fit selection for chi.
 They have no numerical fallback.
 Rebuild each affected native library after changing C++ functions or compiled resource parameters. Then restart the process.
-See the [native preparation core](cpp-migration.md#native-preparation-core) for builds, paths and three-library runtime boundaries.
+See the [native preparation core](cpp-migration.md#native-preparation-core) and [independent result core](cpp-migration.md#native-result-core) for builds, paths and four-library runtime boundaries.
 The [field source record](../sjtu_tpmshx/solvers/native/geometry/fields-sources.md) identifies fixed XY, XYZ, LUT and Gaussian sources and local numerical changes.
 Percolation, scans, Richardson and target-C research are in
 `sjtu_tpmshx/development/runs/tools/asym_geometry_research.py`. Shared modules keep no former forwarding entries.
@@ -74,7 +75,7 @@ The CSV remains a build and independent-test resource. MMS order/boundary CSV fi
 
 Raw empirical getters, checked EOS states and Nu closures keep their separate contracts. The move adds no common state check to all getters.
 Offline cleaning and fitting stay in Python. They cannot supply a production numerical fallback.
-The Python wheel includes code, JSON and CSV resources, without the three native libraries.
+The Python wheel includes code, JSON and CSV resources, without native libraries.
 Property-table versions, model resource identities and native build identities remain separate records. Old checkpoints still require matching solver runtimes.
 
 Offline review tools stay in `development/validation/`. Generated fit CSV files default to local `.cache/reports/df_refit/` and `.cache/reports/sco2_cfd/`. Investigation scripts, stage plans, and research results belong in ignored `.cache/`. Current instructions, model provenance, physical constraints, and effective tests stay tracked with code. The [history index](history/README.en.md#2026-09-18-历史材料整理) keeps earlier stage reports, task graphs, and fitted tables. Tree cleanup does not erase Git history or automatically adopt research candidates.
