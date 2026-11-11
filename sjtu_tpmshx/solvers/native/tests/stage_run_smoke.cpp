@@ -46,6 +46,18 @@ int main(int argc,char** argv) {
         control.callbacks.cancel=cancel;
         require(tpmshx_run_case_2d_v1(&prepared.view(),nullptr,&control,&failure,error,sizeof(error))==4,"cancellation status changed");
         require(std::memcmp(&failure,&before,sizeof(failure))==0,"cancelled stage published a result");
+        for(const auto option:{tpmshx_model_h_iteration_options_v1{5000,0.,0.},
+                              tpmshx_model_h_iteration_options_v1{0,.001,0.},
+                              tpmshx_model_h_iteration_options_v1{0,0.,.001}}) {
+            RunRequest2D request;request.model_h=option;
+            require(tpmshx_run_case_2d_v1(&prepared.view(),&request,&control,&failure,error,sizeof(error))==4,
+                    "model-h controls conflict with implicit energy defaults");
+            require(std::memcmp(&failure,&before,sizeof(failure))==0,"model-h cancellation changed output");
+            const tpmshx_energy_options_v1 energy{TPMSHX_ENERGY_TEMPERATURE_SOU,1e-8};request.energy=&energy;
+            require(tpmshx_run_case_2d_v1(&prepared.view(),&request,&control,&failure,error,sizeof(error))==1,
+                    "explicit conflicting energy options accepted");
+            require(std::memcmp(&failure,&before,sizeof(failure))==0,"option conflict changed output");
+        }
         control.callbacks.cancel=nullptr;
         auto run=[&] {auto local=prepare_case(input());return run_case(local,control);}();
         // The prepared owner has gone. All saved evidence must remain valid.

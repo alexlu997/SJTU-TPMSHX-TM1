@@ -8,6 +8,8 @@
 
 typedef struct { uint32_t present; size_t value; } tpmshx_stage_size_option_v1;
 typedef struct { uint32_t present; double value; } tpmshx_stage_double_option_v1;
+/* Active model_h controls and an explicit energy pointer are exclusive.
+ * A null energy pointer keeps the defaults for the selected thermal route. */
 typedef struct {
     uint32_t abi_version;
     size_t struct_size;

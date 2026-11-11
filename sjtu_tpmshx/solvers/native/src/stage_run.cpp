@@ -168,8 +168,9 @@ extern "C" int tpmshx_run_case_2d_v1(const tpmshx_preparation_case_2d_v1* prepar
         const auto& selected=request?*request:defaults;
         Packed2D packed(*prepared,selected,*control);
         const auto& h=selected.model_h;
+        const auto* model_h=(h.max_iterations || h.temperature_tolerance || h.q_relative_tolerance)?&h:nullptr;
         const auto status=tpmshx_solve_full_2d_v6(packed.shape.data(),packed.arrays.data(),packed.sizes.data(),
-            &packed.config,&packed.energy,nullptr,(h.max_iterations || h.temperature_tolerance || h.q_relative_tolerance)?&h:nullptr,
+            &packed.config,model_h?selected.energy:&packed.energy,nullptr,model_h,
             control->cpu_threads,&control->callbacks,&raw,error,capacity);
         if(status)return status;
         if(raw.cancelled) {
