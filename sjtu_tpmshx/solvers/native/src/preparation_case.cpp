@@ -419,16 +419,20 @@ struct Records {
     std::vector<std::pair<bool,std::size_t>> warning_order;
     std::vector<std::string> plain_warnings;
 
+    void observe(const PreparationRange& range,bool cached,std::optional<double> scalar={}) {
+        if (callbacks.observe_range) callbacks.observe_range(callbacks.context,range,cached,scalar);
+    }
     void merge(const PreparationEvidence& evidence,const std::string& side={}) {
         for (const auto& range:evidence.ranges) {
             const auto bound_side=side.empty()?range.side:side;
             const auto bound_stage=side.empty()?range.stage:"inlet";
             const auto bound_layout=side.empty()?range.layout:"scalar";
             collect(range.source,bound_side,bound_stage,bound_layout,range.label,range.quantity.c_str(),
-                range.unit.c_str(),range.bounds,range.shape,range.sample,range.bounds_list);
+                range.unit.c_str(),range.bounds,range.shape,range.sample,range.bounds_list,{},false);
             for (auto& saved:output.ranges) if (saved.source==range.source && saved.shape==range.shape
-                    && saved.side==bound_side && saved.stage==bound_stage && saved.layout==bound_layout)
-                saved.last=range.last;
+                    && saved.side==bound_side && saved.stage==bound_stage && saved.layout==bound_layout) {
+                saved.last=range.last;observe(saved,true);break;
+            }
         }
         for (const auto& message:evidence.warnings) warning(message);
         output.events.insert(output.events.end(),evidence.events.begin(),evidence.events.end());
@@ -447,7 +451,8 @@ struct Records {
     }
     void range(std::vector<std::string> source,const std::string& side,const std::string& stage,
                const std::string& layout,std::string label,const char* quantity,const char* unit,
-               const std::array<double,2>& limits,double value,std::vector<std::size_t> shape={},bool bounds_list=false) {
+               const std::array<double,2>& limits,double value,std::vector<std::size_t> shape={},bool bounds_list=false,
+               std::optional<double> notice_scalar={}) {
         PreparationRangeSample sample;
         sample.size=1;for (const auto extent:shape) sample.size=count(sample.size,extent);
         sample.have_finite=std::isfinite(value);
@@ -456,7 +461,7 @@ struct Records {
             sample.low=value<limits[0]?sample.size:0;sample.high=value>limits[1]?sample.size:0;
         } else sample.nonfinite=sample.size;
         collect(std::move(source),side,stage,layout,std::move(label),quantity,unit,limits,
-                std::move(shape),sample,bounds_list);
+                std::move(shape),sample,bounds_list,notice_scalar.value_or(value));
     }
     void range(std::vector<std::string> source,const std::string& side,const std::string& stage,
                const std::string& layout,std::string label,const char* quantity,const char* unit,
@@ -476,7 +481,7 @@ struct Records {
     void collect(std::vector<std::string> source,const std::string& side,const std::string& stage,
                  const std::string& layout,std::string label,const char* quantity,const char* unit,
                  const std::array<double,2>& limits,std::vector<std::size_t> shape,
-                 PreparationRangeSample sample,bool bounds_list) {
+                 PreparationRangeSample sample,bool bounds_list,std::optional<double> scalar={},bool notify=true) {
         for (auto& previous:output.ranges) if (previous.source==source && previous.side==side
                 && previous.stage==stage && previous.layout==layout && previous.shape==shape) {
             auto aggregate=previous.sample;
@@ -493,11 +498,14 @@ struct Records {
                 aggregate.have_finite=true;
             }
             aggregate.nonfinite=std::max(aggregate.nonfinite,sample.nonfinite);
-            previous.sample=aggregate;previous.last=sample;return;
+            previous.sample=aggregate;previous.last=sample;
+            if (notify) observe(previous,false,scalar);
+            return;
         }
         warning_order.emplace_back(true,output.ranges.size());
         output.ranges.push_back({std::move(source),side,stage,layout,std::move(label),quantity,unit,limits,
                                  std::move(shape),sample,sample,bounds_list});
+        if (notify) observe(output.ranges.back(),false,scalar);
     }
 };
 
@@ -631,7 +639,11 @@ void preflight(const CaseInput2D& input,const PreparationOptions& options,const 
         for (const auto& reason:reasons)
             records.emit({PreparationEventKind::warning,"", "[surrogate extrap] "+reason});
         // The original per-side record keeps the first preflight reason.
-        if (!reasons.empty()) records.warning(reasons.front());
+        if (!reasons.empty()) {
+            records.warning(reasons.front());
+            if (records.callbacks.observe_notice)
+                records.callbacks.observe_notice(records.callbacks.context,1,static_cast<std::uint32_t>(i),0.,reasons.front());
+        }
     }
 }
 
@@ -648,6 +660,8 @@ UniformInletProperties inlet_properties(const CaseInput2D& input,const InletInpu
     double diameter=geometry.geometry.hydraulic_diameter,velocity=inlet.velocity_m_s;
     auto result=inlet_re(output.rho,velocity,diameter,output.mu,kinds.velocity,records);
     output.re=result.values.front();output_kinds[5]=result_kind(result);
+    if (records.callbacks.observe_notice)
+        records.callbacks.observe_notice(records.callbacks.context,0,static_cast<std::uint32_t>(index),output.re,{});
     result=prandtl(operand(output.mu),operand(output.cp),operand(output.k_f));
     records.floating(result.events);output.pr=result.values.front();
     output_kinds[4]=result_kind(result);
@@ -666,7 +680,7 @@ UniformInletProperties inlet_properties(const CaseInput2D& input,const InletInpu
     const auto label=inlet.fluid==Fluid::air?"[Nu extrap] ":inlet.fluid==Fluid::water?"[water Nu extrap] ":
                      inlet.fluid==Fluid::sco2?"[sCO2 Nu extrap] ":"[CO2 Nu extrap] ";
     records.range({"nu",fluid_name(inlet.fluid),topology_name(input.geometry.topology)},side,"inlet","scalar",
-                  std::string(label)+topology_name(input.geometry.topology),"Re","-",re_range(inlet.fluid),output.re);
+                  std::string(label)+topology_name(input.geometry.topology),"Re","-",re_range(inlet.fluid),output.re,{},false,extrema[0]);
     if (co2) records.range({"nu_pr","co2",topology_name(input.geometry.topology)},side,"inlet","scalar",
                           std::string(label)+topology_name(input.geometry.topology),"Pr","-",data::co2_nu_pr_range,output.pr,{},true);
     const double alpha=inlet.fluid==Fluid::sco2 && input.sco2_nu.mode?
@@ -984,13 +998,13 @@ PreparedCase2D prepare_case(const CaseInput2D& input,const PreparationOptions& o
             cached.properties=inlet_properties(input,inlets[i],i,geometry,local_records,cached.kinds);
             callbacks.inlet_cache(callbacks.context,true,index,inlets[i],input.kinds.sides[i].velocity,cached);
         }
-        records.merge(cached.evidence,i?"B":"A");
         side.properties=cached.properties;side.property_kinds=cached.kinds;
         const auto calibration=geometry::calibration(model.topology);
         side.properties.solid_conductivity_W_mK=geometry::solid_conductivity(calibration.solid_tortuosity,
             cached.geometry.epsilon,model.solid_conductivity_W_mK,options.chi_override,
             co2_geometry(input)?64u:input.kinds.solid_conductivity.precision);
         side.property_kinds[12]=solid_result_kind(input);
+        records.merge(cached.evidence,i?"B":"A");
     }
     if (callbacks.geometry_cache) output.uniform_geometry=material_geometry(input,options,callbacks);
     const auto cells=count(output.grid.nx,output.grid.ny);

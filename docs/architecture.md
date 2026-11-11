@@ -104,8 +104,10 @@ No v1/v2/v3 C layout changes.
 Python preparation uses the owned v3/v4 stages for symmetric uniform and canonical continuous XY 2D inputs.
 Nonzero-delta uniform, discrete zones, sigmoid and 3D retain explicit existing routes.
 The adapter preserves CaseData fields, scalar types, events, source ranges and saved model selections.
-A versioned host hook preserves object errors and warning scopes at their original execution points.
-It supplies no numerical values. A native failure never selects another preparation route.
+The v2 host hook preserves object errors and warning scopes at their original execution points.
+It supplies no numerical values. The v3 hooks exchange completed cache entries and synchronous observations.
+Python retains warning filters, source locations and completed observations after a later failure.
+A native failure never selects another preparation route.
 The replaced continuous Python branches are retired; independent frozen references remain under `development/tests`.
 `preparation_case.cpp` owns that complete preparation sequence.
 `stage_run.cpp` adapts it to the existing full 2D driver.

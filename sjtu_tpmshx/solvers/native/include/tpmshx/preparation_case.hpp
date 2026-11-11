@@ -136,6 +136,10 @@ struct PreparationCallbacks {
     // Cache hooks transport completed values. A miss uses the native calculation.
     bool (*geometry_cache)(void*,bool,geometry::Geometry&)=nullptr;
     bool (*inlet_cache)(void*,bool,std::uint32_t,const InletInput2D&,ScalarKind,PreparationInletCache&)=nullptr;
+    // Observe at the source. Cached records do not repeat standalone notices.
+    void (*observe_range)(void*,const PreparationRange&,bool,std::optional<double>)=nullptr;
+    // Notice 0 is standalone inlet Re; notice 1 records a preflight reason.
+    void (*observe_notice)(void*,std::uint32_t,std::uint32_t,double,const std::string&)=nullptr;
 };
 struct PreparationModelRef {
     std::string name,version,side;

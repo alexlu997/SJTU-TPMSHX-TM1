@@ -289,6 +289,22 @@ bool inlet_cache(void* context,bool publish,std::uint32_t side,const p::InletInp
     return hit!=0;
 }
 
+void observe_range(void* context,const p::PreparationRange& range,bool cached,std::optional<double> scalar) {
+    const auto& state=*static_cast<const FlowCallbackContext*>(context);
+    const auto& callbacks=*reinterpret_cast<const tpmshx_preparation_case_callbacks_v3*>(state.callbacks);
+    if (!callbacks.observe_range) return;
+    p::PreparationEvidence evidence;evidence.ranges.push_back(range);EvidenceViews views(evidence);
+    if (callbacks.observe_range(callbacks.values.values.context,cached?1u:0u,&views.ranges.front(),
+        range.bounds_list?1u:0u,scalar?1u:0u,scalar.value_or(0.)))
+        throw std::runtime_error("preparation range observation callback failed");
+}
+void observe_notice(void* context,std::uint32_t kind,std::uint32_t side,double value,const std::string& message) {
+    const auto& state=*static_cast<const FlowCallbackContext*>(context);
+    const auto& callbacks=*reinterpret_cast<const tpmshx_preparation_case_callbacks_v3*>(state.callbacks);
+    if (callbacks.observe_notice && callbacks.observe_notice(callbacks.values.values.context,kind,side,value,text(message)))
+        throw std::runtime_error("preparation notice observation callback failed");
+}
+
 void emit(void* context,const p::PreparationEvent& event) {
     const auto& callbacks=*static_cast<const tpmshx_preparation_case_callbacks_v1*>(context);
     const auto view=event_view(event);
@@ -487,7 +503,9 @@ template<class Source,class Result,class Function> int flow_boundary(
             const p::PreparationCallbacks sink{callbacks && callbacks->event?emit_flow:nullptr,&context,
                 callbacks && callbacks->abi_version>=2?validate_host_input:nullptr,
                 callbacks && callbacks->abi_version==3?geometry_cache:nullptr,
-                callbacks && callbacks->abi_version==3?inlet_cache:nullptr};
+                callbacks && callbacks->abi_version==3?inlet_cache:nullptr,
+                callbacks && callbacks->abi_version==3?observe_range:nullptr,
+                callbacks && callbacks->abi_version==3?observe_notice:nullptr};
             function(input(*source),options(selected),sink);
         } catch (const p::PreparationError& problem) {
             staged_failure.kind=problem.kind;staged_failure.side=problem.side;
