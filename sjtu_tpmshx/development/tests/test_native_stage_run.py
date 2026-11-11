@@ -23,7 +23,7 @@ def test_independent_stage_fields_metrics_and_qualification():
             pytest.fail('Run build_native_dependencies.py check-stages before this test')
         pytest.skip('the installed stage caller has not run')
     config = ComputeConfig.from_dict(json.loads((root / 'examples/three_module/air_2d.json').read_text()))
-    _, result, performance = compute(config, control=RunControl(cpu_threads=2))
+    _, result, performance = compute(config, control=RunControl(cpu_threads=2, native_library=str(library_path())))
     records = [line.split('\t') for line in (evidence / 'fields.tsv').read_text().splitlines()]
     assert len(records) == len(result.fields)
     assert {name for name, _, _ in records} == set(result.fields)
