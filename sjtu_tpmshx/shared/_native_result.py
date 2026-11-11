@@ -92,7 +92,8 @@ class _Library:
         key = (name, tuple(types), result)
         if key not in self.functions:
             try:
-                function = getattr(self.library, name)
+                # CDLL attributes share mutable signatures; indexing creates an independent function.
+                function = self.library[name]
             except AttributeError as error:
                 raise RuntimeError(f'prebuilt native result library {self.path} lacks {name}') from error
             function.argtypes, function.restype = types, result
