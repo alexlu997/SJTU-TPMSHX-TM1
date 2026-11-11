@@ -121,6 +121,10 @@ extern "C" int tpmshx_run_case_2d_v1(const tpmshx_preparation_case_2d_v1* prepar
     tpmshx_full_2d_result_v2 raw{};
     bool report_safe=true;
     try {
+        boundary::require_buffer(result,1);
+        if(overlaps(result,sizeof(*result),error,capacity)) {
+            report_safe=false;throw std::invalid_argument("stage run error storage overlaps output");
+        }
         const auto storage=[&](const auto* value,size_t count) {
             using Element=std::remove_cv_t<std::remove_pointer_t<decltype(value)>>;
             boundary::require_buffer(value,count);
@@ -128,10 +132,10 @@ extern "C" int tpmshx_run_case_2d_v1(const tpmshx_preparation_case_2d_v1* prepar
             if(overlaps(value,bytes,error,capacity)) {
                 report_safe=false;throw std::invalid_argument("stage run error storage overlaps input or output");
             }
-            if(value!=static_cast<const void*>(result) && overlaps(value,bytes,result,sizeof(*result)))
+            if(overlaps(value,bytes,result,sizeof(*result)))
                 throw std::invalid_argument("stage run output overlaps input");
         };
-        storage(result,1);storage(prepared,1);storage(control,1);
+        storage(prepared,1);storage(control,1);
         if(prepared->abi_version!=TPMSHX_PREPARATION_CASE_ABI_VERSION || prepared->struct_size!=sizeof(*prepared))
             throw std::invalid_argument("prepared stage ABI version or struct size is invalid");
         if(request) {
