@@ -101,6 +101,13 @@ Run v3 consumes this continuous state with the existing full 2D driver.
 It preserves local drag, original hydraulic diameter, unit order and nominal reference geometry.
 Resolved uniform flow cases use run v2. Both routes retain the v1 result owner.
 No v1/v2/v3 C layout changes.
+The separate `tpmshx_prepare_case_3d_v1` prepares raw symmetric uniform 3D inputs at prescribed inlet speeds.
+It supports both topologies and all 16 fluid pairs with existing CFD or experimental DF limits.
+The owned state retains physical `(x,y,z)` fields, typed ports, axis maps for six directions and model evidence.
+Side porosity is already split. Base K/cF fields remain unscaled; side evidence retains the application factors.
+The host supplies the resolved cell cap. This interface uses v1 event callbacks without host cache hooks.
+3D run/capture integration, total mass-flow preparation and spatial/asymmetric preparation remain separate gates.
+Memory use near the cell cap and real 3D BO also need separate acceptance.
 Python preparation uses the owned v3/v4 stages for symmetric uniform and canonical continuous XY 2D inputs.
 Nonzero-delta uniform, discrete zones, sigmoid and 3D retain explicit existing routes.
 The adapter preserves CaseData fields, scalar types, events, source ranges and saved model selections.
@@ -109,7 +116,7 @@ It supplies no numerical values. The v3 hooks exchange completed cache entries a
 Python retains warning filters, source locations and completed observations after a later failure.
 A native failure never selects another preparation route.
 The replaced continuous Python branches are retired; independent frozen references remain under `development/tests`.
-`preparation_case.cpp` owns that complete preparation sequence.
+`preparation_case.cpp` owns the 2D preparation sequences and the separate uniform 3D sequence.
 `stage_run.cpp` adapts it to the existing full 2D driver.
 Its lifecycle interface uses the same full 2D run object, typed snapshots and restore checks.
 Partial energy controls use defaults from the selected library.

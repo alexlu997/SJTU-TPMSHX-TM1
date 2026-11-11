@@ -141,6 +141,16 @@ This project builds no full solver or run_state and needs no SuperLU or AMG.
 The full build script builds the pilot and preparation projects separately. They share one property and DF numerical implementation.
 The Python preparation entry calls the independent result library to collect range observations. The preparation library does not link it.
 
+The separate `preparation_case_3d_c_api.h` exposes uniform symmetric 3D preparation at prescribed inlet speeds.
+It supports both topologies and all 16 ordered fluid pairs with the existing state and experimental limits.
+The owner keeps physical grid fields, six port directions, scalar tags and model evidence.
+Side porosity is already split. K/cF fields remain unscaled; side evidence records the application factors.
+The host supplies the resolved cell cap. The [stage contract](native-stages.md#uniform-3d-preparation) defines ownership and port rules.
+The Python 3D production routes remain unchanged.
+Host cache hooks, native 3D run/capture, total mass flow and spatial/asymmetric fields need separate stage integration.
+Memory use near the cell cap and real 3D BO remain acceptance gates.
+This raw interface does not replace saved CaseData validation.
+
 `shared/models/_native_preparation.py` loads preparation ABI 1 through ctypes when needed.
 Named property, DF and flow adapters preserve the existing public Python interfaces.
 Preparation uses statuses 0 for success, 1 for invalid input, 2 for allocation and 3 for runtime errors.

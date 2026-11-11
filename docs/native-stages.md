@@ -24,13 +24,18 @@ It preserves the existing physical depth, calibration and scalar arithmetic rule
 Continuous fields, zones and nonzero delta remain outside preparation v3.
 Its resolved uniform prepared view uses run v2, including total-flow cases.
 
+The separate 3D preparation v1 accepts raw symmetric uniform cases at prescribed inlet speeds.
+It supports both topologies, all 16 ordered fluid pairs and the existing CFD and experimental DF selections.
+Its physical grid, typed ports and field evidence do not change the Python 3D production route.
+The [uniform 3D preparation contract](#uniform-3d-preparation) defines its inputs and remaining gates.
+
 Full 2D/3D Python evaluation now calls the native result stage. Independent applicability, physical-balance and qualification queries use that stage.
 Quick Design metric arithmetic retains its current protocol owner. The public Python entry points and saved formats stay available.
 The host query uses borrowed typed evidence and preserves deferred input errors. It delivers NumPy events before each primitive returns.
 A callback error is handled at the original metric or qualification boundary. An uncaught host error retains its original Python object.
 Published v1 C layouts and queries remain available. Release every output through the library that created it.
 
-The C++ call sequence is `prepare_case`, `run_case`, then `evaluate`.
+The supported 2D C++ call sequence is `prepare_case`, `run_case`, then `evaluate`.
 The caller supplies dimensions, design values, boundary conditions and controls.
 The preparation library computes the physical fields. The solver library uses
 that prepared state. The result library evaluates recorded evidence.
@@ -58,7 +63,7 @@ that prepared state. The result library evaluates recorded evidence.
   The host still owns Python-specific type and object checks.
 - A CO2 side selects the common CO2 geometry for both sides. Its fixed drag
   and Nu factors apply only to CO2 sides. sCO2 remains a separate model.
-  Experimental DF changes flow seeds and rows. Static inlet DF values keep
+  In 2D, experimental DF changes flow seeds and rows. Static inlet DF values keep
   their existing CFD values, including the CO2 factors where applicable.
 - Existing low-level ABI versions remain available. A retained run library
   must not need a new preparation symbol to restore its saved run state.
@@ -168,6 +173,35 @@ Nominal reference geometry remains separate from the actual physical fields.
 Requests, cancellation status, result ownership and evaluation use the v2 run contracts.
 This interface does not certify gradient accuracy.
 
+## Uniform 3D preparation
+
+`prepare_case(CaseInput3D)` calls `tpmshx_prepare_case_3d_v1` from
+`preparation_case_3d_c_api.h`. It returns an owned `PreparedCase3D`.
+Provide three positive physical lengths, three grid counts and an explicit cell cap.
+Depth is required and `Nz` must be at least 2. The C++ input defaults the cap to 2,000,000 cells.
+The host resolves configuration and environment limits before the call; the library does not read them.
+
+Both sides require active ports. The interface supports all six flow directions,
+full faces, partial ports and optional second transverse windows.
+Port values retain their scalar tags. Uniform and `port_wall_refine` grids use the existing physical grid rules.
+Fields have physical `(x,y,z)` shape and C order. Opening masks use physical `(cross1,cross2)` order.
+Each side records its axis permutation and reverse flag without reversing the physical widths.
+
+The owner retains nominal geometry, physical widths and edges, design fields,
+inlet properties, model selections, ranges, notices and DF application evidence.
+Side porosity already includes the symmetric split. Do not divide it again.
+The returned K/cF fields retain the unscaled CFD values.
+Side evidence records CO2 or experimental factors separately for later execution.
+Keep the original state checks, calibration limits and sCO2 Nu selections.
+
+This interface borrows its inputs and v1 event callbacks until return.
+Success commits one owner; failure does not publish a prepared result.
+Release the owner through the creating preparation library after the last use of its views.
+Spatial fields, nonzero delta and total mass-flow targets are outside this interface.
+Python 3D preparation, host cache hooks, native 3D run/capture integration,
+memory checks near the cell cap and real 3D BO remain separate migration and acceptance gates.
+Saved CaseData still uses its existing validators and must not be prepared again.
+
 ## Python preparation adapter
 
 The public preparation, capacity and resolution entries use v3 or v4 for supported 2D inputs.
@@ -248,6 +282,8 @@ It prepares, solves and evaluates the case without numerical fields from Python.
 It does not start or link Python.
 The [fluid preparation example](../examples/cpp/prepare_fluids_2d.cpp) prepares a CO2/water case through v2.
 It links only the preparation library and does not execute a solve.
+The [3D preparation example](../examples/cpp/prepare_3d.cpp) prepares raw CO2/water inputs with different physical lengths and grid counts on each axis.
+It checks the reverse z-direction port and field evidence, with only the preparation library.
 The [uniform-fluid example](../examples/cpp/uniform_2d.cpp) executes all three
 stages for CO2/water. Evaluation remains valid after the prepared owner is released.
 The [mass-flow preparation example](../examples/cpp/prepare_mass_2d.cpp) queries capacities, resolves an explicit pair and prepares the case.
@@ -285,5 +321,5 @@ It builds and runs external callers outside the source tree:
 Use the applicable environment lock. A BO environment needs its matching `--python-lock` option.
 On Linux, add `--component result --python-lock engineering/requirements/postprocess.txt`.
 The check retains logs and 2D comparison fields. It removes the temporary installation and external build directories.
-These 2D run paths do not establish stage migration for discrete zones, 3D or Quick Design.
+These 2D run paths and raw 3D preparation do not complete migration for discrete zones, 3D or Quick Design.
 Python integration and checkpoint recovery have separate acceptance gates.
