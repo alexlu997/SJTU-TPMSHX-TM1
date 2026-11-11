@@ -693,10 +693,20 @@ def publish(cache: Path, host: str, python: Path, lock: Path, component: str = "
                  [("solver", "build.json"), ("geometry", "geometry-build.json"),
                   ("preparation", "preparation-build.json"), ("result", "result-build.json")])
     log = cache / "logs" / f"publish-{host}.log"
+    source_commit = None
+    source_changes = None
+    # A source archive can be inside another Git checkout.
+    if (ROOT / ".git").exists():
+        git_env = {key: value for key, value in os.environ.items()
+                   if key not in ("GIT_DIR", "GIT_COMMON_DIR", "GIT_WORK_TREE")}
+        git_env["GIT_CEILING_DIRECTORIES"] = str(ROOT.parent)
+        source_commit = run(["git", "rev-parse", "HEAD"], log, cwd=ROOT, env=git_env).strip()
+        source_changes = run(["git", "status", "--porcelain", "--untracked-files=no"],
+                             log, cwd=ROOT, env=git_env).splitlines()
     common = {
         "published_at": datetime.now(timezone.utc).isoformat(),
-        "source_commit": run(["git", "rev-parse", "HEAD"], log).strip(),
-        "source_changes": run(["git", "status", "--porcelain", "--untracked-files=no"], log).splitlines(),
+        "source_commit": source_commit,
+        "source_changes": source_changes,
         "platform": host,
         "python": str(python),
         "python_lock": str(lock),

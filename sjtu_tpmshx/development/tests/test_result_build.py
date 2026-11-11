@@ -318,6 +318,7 @@ def test_result_verifier_requires_an_actual_dependency_listing(tmp_path, monkeyp
 
 def test_result_publication_uses_its_platform_image_without_eos_records(result_build, monkeypatch):
     host, root, cache, python, lock, _, _, _ = result_build
+    (root / '.git').write_text('gitdir: mock-worktree\n', encoding='utf-8')
     name = native.shared_library_name(host, 'result')
     source = cache/'build'/f'result-{host}'/name
     source.parent.mkdir(parents=True)

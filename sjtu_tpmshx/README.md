@@ -48,7 +48,7 @@ Python 保留配置、DTO、I/O、缓存、证据选择、状态解释、GUI／�
 修改 C++ 函数或编入库的模型数据后，先通过[当前环境检查](../README.md#first-run)。
 从仓库根目录重新构建并发布四库，最后重启进程。
 下列命令使用基础锁；若 `.venv-path` 指向 BO 环境，换成 `engineering/requirements/` 中对应的 `bo-macos.txt` 或 `bo-windows.txt`。
-在 Git 检出中首次使用构建缓存时，先执行[首次运行](../README.md#first-run)中的 `fetch` 命令，再用同一缓存执行下列命令。
+首次使用构建缓存时，先执行[首次运行](../README.md#first-run)中的 `fetch` 命令，再用同一缓存执行下列命令。
 
 macOS:
 

@@ -119,6 +119,8 @@ It keeps an older differing geometry library and its matching record under `prev
 Default full publication builds and verifies solver, geometry, preparation and result before one transaction replaces all four.
 It keeps `build.json` for the solver, `geometry-build.json` for geometry,
 `preparation-build.json` for preparation and `result-build.json` for result.
+For a Git checkout, `source_commit` records the full commit ID. `source_changes` records the tracked status lines.
+An empty `source_changes` list means there are no tracked changes. Both fields are `null` for a source archive.
 A replacement failure restores selected files and metadata. A failed rollback retains its staging files and reports the recovery path.
 Old solver checkpoints still require their exact retained runtime, prepared input and controls.
 

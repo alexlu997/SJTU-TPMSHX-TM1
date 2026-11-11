@@ -55,9 +55,10 @@ M-A merge acceptance for the rectangular 2D/3D three-module mainline is recorded
 
 ## First run on macOS / Windows
 
-This is a Python source project. A fresh setup needs locked dependencies. Use macOS with Python 3.13, or Windows x64 with Python 3.12 / 3.13, matching [platform CI](.github/workflows/ci.yml). Install the applicable [Python version](https://www.python.org/downloads/) first. Cloning also requires Git.
+This is a Python source project. A fresh setup needs locked dependencies. Use macOS with Python 3.13, or Windows x64 with Python 3.12 / 3.13, matching [platform CI](.github/workflows/ci.yml). Install the applicable [Python version](https://www.python.org/downloads/) first.
+Full native dependency setup uses Git to fetch and verify third-party sources.
 
-Alternatively, select **Code → Download ZIP** on the repository page and extract it. ZIP users start inside the extracted repository and skip `git clone` and `cd` below. Other commands are unchanged.
+Alternatively, select **Code → Download ZIP** on the repository page and extract it. Run the commands from the extracted source root. Skip `git clone` and `cd` below.
 
 Environment creation and installation below apply only to first setup. Reuse an existing compliant `.venv-path`. Do not overwrite a shared environment. Run commands individually from the repository root containing `pyproject.toml`. Resolve any command or environment-check error before continuing.
 
@@ -205,7 +206,7 @@ The command builds and verifies solver, geometry, preparation and result librari
 Missing dependencies or failed verification stop publication.
 Before replacing different contents, it saves each old library and matching record under `previous/`.
 Republishing identical contents keeps that backup. The solver uses `build.json`, geometry uses `geometry-build.json`, preparation uses `preparation-build.json`, and result uses `result-build.json`.
-Each record identifies source changes, build configuration and paths.
+Each record includes its build configuration, paths and available Git source information.
 A replacement failure restores selected files and metadata. A failed rollback keeps staging files and reports their recovery path.
 
 `sjtu_tpmshx/solvers/native/lib/` is an ignored local delivery directory.
