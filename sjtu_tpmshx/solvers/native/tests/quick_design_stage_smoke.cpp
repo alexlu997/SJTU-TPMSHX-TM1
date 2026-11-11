@@ -14,6 +14,8 @@ namespace {
 using namespace tpmshx::stages;
 void require(bool value,const char* message) {if(!value)throw std::runtime_error(message);}
 int cancel(void*) {return 1;}
+int count_cancel(void* context) {++*static_cast<size_t*>(context);return 1;}
+void count_progress(void* context,unsigned) {++*static_cast<size_t*>(context);}
 void progress(void* context,unsigned percent) {static_cast<std::vector<unsigned>*>(context)->push_back(percent);}
 QuickDesignInput input(uint32_t arrangement=TPMSHX_CROSS,uint32_t mode=TPMSHX_CONSTANT) {
     QuickDesignInput value;
@@ -113,6 +115,28 @@ void failures() {
     auto prepared=prepare_quick_design(input());
     tpmshx_quick_run_result_v1 run{};run.abi_version=1;run.struct_size=sizeof(run);run.raw.completed_passes=91;
     const auto before=run;tpmshx_quick_run_control_v1 control{};control.result_id="quick-boundary";
+    size_t callback_calls=0;control.callbacks={count_cancel,count_progress,&callback_calls};
+    const auto reject_alias=[&](const tpmshx_quick_prepared_v1* prepared_input,
+            const tpmshx_quick_run_control_v1* control_input) {
+        require(tpmshx_run_quick_design_v1(prepared_input,control_input,&run,error,sizeof(error))==TPMSHX_INVALID_ARGUMENT,
+            "aliased run input accepted");
+        require(std::memcmp(&run,&before,sizeof(run))==0,"aliased input changed output");
+        require(callback_calls==0,"aliased input called a callback");
+    };
+    reject_alias(&prepared.view(),reinterpret_cast<const tpmshx_quick_run_control_v1*>(&run));
+    reject_alias(&prepared.view(),reinterpret_cast<const tpmshx_quick_run_control_v1*>(&run.raw));
+    reject_alias(reinterpret_cast<const tpmshx_quick_prepared_v1*>(&run),&control);
+    control.result_id=reinterpret_cast<const char*>(&run);
+    reject_alias(&prepared.view(),&control);control.result_id="quick-boundary";
+    auto aliased=prepared.view();
+    for(auto* values:{&aliased.widths[0],&aliased.epsilon,&aliased.epsilon_a,&aliased.solid_conductivity}) {
+        const auto saved=*values;values->data=reinterpret_cast<const double*>(&run);
+        reject_alias(&aliased,&control);*values=saved;
+    }
+    aliased.resolved.warm_start=1;
+    aliased.initial[0]={reinterpret_cast<const double*>(&run),1};
+    reject_alias(&aliased,&control);
+    control.callbacks={};
     auto malformed=prepared.view();--malformed.epsilon.size;
     require(tpmshx_run_quick_design_v1(&malformed,&control,&run,error,sizeof(error))==1,"malformed prepared field accepted");
     require(std::memcmp(&run,&before,sizeof(run))==0,"failed run changed output");

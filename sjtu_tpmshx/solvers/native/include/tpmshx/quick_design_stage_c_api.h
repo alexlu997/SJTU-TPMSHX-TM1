@@ -77,6 +77,7 @@ TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_quick_prepared_releas
  * A cancelled call returns status 6 and does not publish a result. Other
  * statuses follow solver_c_api.h. Callbacks keep that API's lifetime rules.
  * The existing Quick Design driver has no per-call CPU setting.
+ * Input, result and error storage must be disjoint.
  * Initialize result ABI, struct size and owner=NULL; failure preserves it.
  */
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_run_quick_design_v1(

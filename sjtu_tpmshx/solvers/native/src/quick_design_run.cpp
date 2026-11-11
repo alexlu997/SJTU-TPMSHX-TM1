@@ -115,15 +115,18 @@ extern "C" int TPMSHX_THERMAL_CALL tpmshx_run_quick_design_v1(
     if(!boundary::error_buffer_valid(error,capacity))return TPMSHX_INVALID_ARGUMENT;
     bool report_safe=true;
     try {
+        try {require_disjoint(error,capacity,result,result?1:0);}
+        catch(...) {report_safe=false;throw;}
         const auto storage=[&](const auto* value,size_t size) {
             try {require_disjoint(error,capacity,value,size);}
             catch(...) {report_safe=false;throw;}
-            if(value!=static_cast<const void*>(result))require_disjoint(result,result?1:0,value,size);
+            require_disjoint(result,result?1:0,value,size);
         };
-        storage(result,result?1:0);storage(prepared,prepared?1:0);storage(control,control?1:0);
+        storage(prepared,prepared?1:0);storage(control,control?1:0);
         version(prepared);version(result);boundary::require_buffer(control,1);
         if(result->owner)throw std::invalid_argument("release the previous quick-design run owner before reuse");
         if(!control->result_id)throw std::invalid_argument("quick-design run requires a result label");
+        storage(control->result_id,1);
         storage(control->result_id,std::strlen(control->result_id)+1);
         for(const auto values:prepared->widths)storage(values.data,values.size);
         for(const auto values:{prepared->epsilon,prepared->epsilon_a,prepared->solid_conductivity})storage(values.data,values.size);
