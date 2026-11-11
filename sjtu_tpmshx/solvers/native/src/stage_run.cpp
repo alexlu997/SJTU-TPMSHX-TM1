@@ -119,7 +119,7 @@ extern "C" int tpmshx_run_case_2d_v1(const tpmshx_preparation_case_2d_v1* prepar
     tpmshx_stage_run_result_2d_v1* result,char* error,size_t capacity) {
     if(!boundary::error_buffer_valid(error,capacity))return 1;
     tpmshx_full_2d_result_v2 raw{};
-    bool report_safe=true;
+    bool report_safe=false;
     try {
         boundary::require_buffer(result,1);
         if(overlaps(result,sizeof(*result),error,capacity)) {
@@ -161,6 +161,7 @@ extern "C" int tpmshx_run_case_2d_v1(const tpmshx_preparation_case_2d_v1* prepar
         };
         text_storage(control->result_id);text_storage(control->table_directory);
         if(request)text_storage(request->convergence_mode);
+        report_safe=true;
 
         boundary::require_buffer(prepared,1);boundary::require_buffer(control,1);boundary::require_buffer(result,1);
         if(result->abi_version!=TPMSHX_STAGE_RUN_ABI_VERSION || result->struct_size!=sizeof(*result) || result->owner)
