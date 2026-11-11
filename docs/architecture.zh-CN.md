@@ -76,6 +76,8 @@ Linux x86_64 支持独立结果评估；完整求解器仍支持 macOS arm64 与
 准备 v1 和 run 路径支持规定速度、CFD 阻力的均匀对称二维 air/air。
 准备 v2 在相同几何和入口模式下支持 air/water/sCO2/CO2 的全部 16 个有序配对，
 保留现有实验 DF/Nu 选择、状态失败和证据，并用标量标记保留字段精度。run 路径尚不消费 v2。
+准备 v3 为均匀二维总质量流量增加独立容量查询、入口流量解析和完整准备，复用物理入口几何，
+并将前段证据与最终准备证据分开。现有 v1/v2 C 布局、Python 正式入口和 run 接口保持不变。
 `preparation_case.cpp`负责完整准备流程，`stage_run.cpp`将它适配到现有完整二维驱动。
 `stage_capture_2d.cpp`记录实际运行证据，供`result_stage.cpp`评估。
 安装的 C ABI 和`stages.hpp`供外部 C++ 程序调用。

@@ -30,6 +30,8 @@ The [capabilities](../docs/capabilities.en.md) list approximation modes and exte
 The [native stage SDK](../docs/native-stages.md) provides a separate C++ call sequence.
 Its initial complete path supports uniform symmetric 2D air/air with prescribed velocity.
 Preparation v2 adds all 16 ordered air/water/sCO2/CO2 pairs for uniform symmetric 2D geometry and prescribed velocity.
+Preparation v3 adds independent capacity, inlet-flow resolution and complete preparation for uniform 2D total mass flow.
+It reuses the physical inlet grid and keeps preliminary records separate from final preparation evidence.
 The run path remains the v1 air/air CFD case. The Python entries above retain all current modes while stage migration continues.
 
 ## Edit numerical functions

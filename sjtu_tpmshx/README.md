@@ -26,6 +26,8 @@ compute -> preprocess.api.prepare_case -> CaseData -> solvers.api.run_case -> Fi
 [原生阶段 SDK](../docs/native-stages.zh-CN.md)提供独立的 C++ 调用流程。
 首条完整路径支持规定入口速度的均匀、对称二维 air/air。
 准备 v2 为规定速度、均匀对称二维几何增加 air/water/sCO2/CO2 的全部 16 个有序配对。
+准备 v3 为均匀二维总质量流量增加独立容量查询、入口流量解析和完整准备，复用物理入口网格，
+并将前段记录与最终准备证据分开。
 run 路径仍为 v1 的 air/air CFD 工况。阶段迁移期间，上述 Python 入口继续保留全部现有模式。
 
 ## 修改数值函数

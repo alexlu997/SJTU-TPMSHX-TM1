@@ -1,6 +1,7 @@
 #pragma once
 
 #include "tpmshx/geometry.hpp"
+#include "tpmshx/grid.hpp"
 #include "tpmshx/preparation_df.hpp"
 #include "tpmshx/property_c_api.h"
 #include <array>
@@ -66,7 +67,7 @@ struct PreparationOptions {
     bool allow_extrapolation=false;
 };
 // Keep each C interface's scope checks in the shared validation order.
-enum class CaseScope { air_cfd_v1, uniform_fluids_v2 };
+enum class CaseScope { air_cfd_v1, uniform_fluids_v2, uniform_mass_v3 };
 
 struct PhysicalGrid2D {
     std::size_t nx=0,ny=0;
@@ -149,6 +150,24 @@ struct PreparedCase2D {
     std::array<ScalarKind,5> field_kinds;
 };
 
+struct InletFlowRequest2D {
+    CaseInput2D input;
+    ScalarKind physical_depth_kind;
+    std::array<ScalarKind,2> target_kinds;
+    // Explicit batch targets replace both stored targets in the resolved input.
+    std::optional<std::array<double,2>> explicit_targets;
+};
+struct InletFlow2D {
+    CaseInput2D input;
+    bool have_capacities=false;
+    std::array<grid::Scalar,2> capacities{},speeds{};
+    PreparationEvidence evidence;
+};
+struct PreparedFlowCase2D {
+    PreparedCase2D prepared;
+    InletFlow2D flow;
+};
+
 struct PreparationFailureCause {std::uint32_t kind;std::string message;};
 class PreparationError : public std::runtime_error {
 public:
@@ -167,5 +186,14 @@ public:
 PreparedCase2D prepare_case_2d(const CaseInput2D&,const PreparationOptions& = {},
                               const PreparationCallbacks& = {},
                               CaseScope = CaseScope::uniform_fluids_v2);
+
+// These queries do not evaluate Nu or create a complete prepared case.
+InletFlow2D prepare_inlet_mass_capacities_2d(const CaseInput2D&,ScalarKind physical_depth_kind={},
+    const PreparationOptions& = {},const PreparationCallbacks& = {});
+InletFlow2D resolve_inlet_flow_2d(const InletFlowRequest2D&,
+    const PreparationOptions& = {},const PreparationCallbacks& = {});
+// Preliminary flow evidence stays separate from final preparation evidence.
+PreparedFlowCase2D prepare_flow_case_2d(const InletFlowRequest2D&,
+    const PreparationOptions& = {},const PreparationCallbacks& = {});
 
 }  // namespace tpmshx::preparation
