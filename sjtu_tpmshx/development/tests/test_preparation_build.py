@@ -87,7 +87,8 @@ def test_preparation_verify_does_not_load_full_solver_programs(preparation_build
     suffix = '.exe' if host == 'windows-x64' else ''
     names = {Path(command[0]).name for command in commands[1:]}
     assert names == {name+suffix for name in ('geometry_c_static', 'geometry_c_shared',
-        'geometry_kernel_smoke', 'preparation_c_static', 'preparation_c_shared')}
+        'geometry_kernel_smoke', 'preparation_c_static', 'preparation_c_shared',
+        'preparation_case_c_static', 'preparation_case_c_shared')}
 
 
 def test_pilot_build_keeps_solver_archive_and_builds_preparation_separately(preparation_build, monkeypatch):
@@ -168,7 +169,7 @@ def test_full_verify_uses_independent_preparation_programs(preparation_build, mo
     result = cache/'build'/f'result-{host}'
     assert ((result, 'result') in exports) is (component == 'all')
     assert {path.stem for path in programs if path.parent == result} == (
-        {'result_c_static', 'result_c_shared', 'result_kernel_smoke'} if component == 'all' else set())
+        {'result_c_static', 'result_c_shared', 'result_kernel_smoke', 'result_stage_smoke'} if component == 'all' else set())
 
 
 @pytest.mark.parametrize('host,role', [('macos-arm64', 'preparation'), ('windows-x64', 'solver')])

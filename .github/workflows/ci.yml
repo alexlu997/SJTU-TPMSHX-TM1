@@ -250,6 +250,7 @@ jobs:
           sjtu_tpmshx/development/tests/test_native_result_balance.py
           sjtu_tpmshx/development/tests/test_native_zone_statistics.py
           sjtu_tpmshx/development/tests/test_native_result_loader.py
+          sjtu_tpmshx/development/tests/test_native_result_stage.py
       - name: Include result distribution notices
         run: |
           "$CI_PYTHON" - <<'PY'
