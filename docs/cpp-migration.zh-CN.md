@@ -238,6 +238,12 @@ CI 保留完整 macOS／Windows 构建，并增加独立 Ubuntu `result-build` �
 
 ## 完整 Quick Design 能力
 
+[Quick Design 阶段](native-stages.zh-CN.md#quick-design-阶段)为 native double 调用者增加
+原始工况准备和具有独立所有权的结果证据。独立的版本 1 C 合同保留下述既有驱动 ABI。
+Python 执行现通过保存的准备场调用这一 run 阶段。阶段提供场数组及声明，Python
+在释放前复制这些数据，保留原固定场 dtype，并映射过程警告和错误。
+原始准备和 Quick Design 评估仍保留现有类型及事件协议。
+
 `quick_design_driver.hpp` 负责完整准备态 const/mean 物性阶段计算。它包含原有经验空气／水或 HEOS sCO2 物性、既有 Nu、一次或两次温度计算、全场热启动、逐阶段液态水检查、迭代预算、进度和取消。准备好的入口状态解析压降比例保持固定。这是既有给定流量尺寸设计近似，`physical_validation=not_established`。
 
 `solver_c_api.h` 提供独立、带版本的 C 入口和具名配置／结果结构。接口借用九个显式长度数组。错误区分非法输入、水入口／物性状态、水温度场、算术失败和其他原生异常。取消有独立结果状态。失败场不能发布为已接受结果。构建流程分别对静态库和动态库运行同一个独立 C 调用方。
