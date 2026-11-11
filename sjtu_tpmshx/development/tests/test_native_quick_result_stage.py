@@ -228,3 +228,97 @@ def test_raw_quick_labels_keep_native_policy_and_host_equality(label, field, nam
         metadata['parameters'] = {**metadata['parameters'], field: label}
     fields = {**result.fields, 'Tb': np.asarray([[[1.], [2.]], [[3.], [4.]]])}
     compare(replace(result, metadata=metadata, fields=fields), name)
+
+
+def _with_label(result, field, value):
+    metadata = dict(result.metadata)
+    if field == 'model':
+        metadata[field] = value
+    elif field == 'arrangement':
+        metadata['parameters'] = {**metadata['parameters'], field: value}
+    else:
+        metadata['execution_record'] = dict(version=value, sides={})
+    return replace(result, metadata=metadata,
+        fields={**result.fields, 'Tb': np.asarray([[[1.], [2.]], [[3.], [4.]]])})
+
+
+@pytest.mark.parametrize('field,name,text', [('model', 'Q', 'plug_ltne_analytic_dp_v1'),
+    ('arrangement', 'T_out_B', 'cross'), ('version', 'Q', 'full_execution_v1')])
+@pytest.mark.parametrize('matched', [False, True])
+@pytest.mark.parametrize('equal,unequal', [(True, False), (True, True), (False, False),
+    (False, True), (NotImplemented, NotImplemented), (np.ones(2), False), (False, np.ones(2))])
+def test_string_subclass_keeps_independent_comparison_operators(field, name, text, matched, equal, unequal):
+    calls = []
+    class Label(str):
+        def __eq__(self, other):
+            calls.append(('eq', other))
+            return equal
+        def __ne__(self, other):
+            calls.append(('ne', other))
+            return unequal
+    result = _with_label(quick_result(), field, Label(text if matched else 'unknown'))
+    spec = MetricSpec(name, 'K' if name.startswith('T_out') else 'W', 'three_module_v1', '')
+    expected = observe(observed_evaluation, reference.evaluate, result, spec)
+    expected_calls = calls[:]
+    calls.clear()
+    actual = observe(observed_evaluation, native.evaluate, result, spec)
+    assert_observation(actual, expected)
+    assert calls == expected_calls
+    assert {operator for operator, _ in calls} == {'ne' if field == 'model' else 'eq'}
+
+
+@pytest.mark.parametrize('field,name', [('model', 'Q'), ('arrangement', 'T_out_B'), ('version', 'Q')])
+def test_string_subclass_comparison_preserves_original_exception(field, name):
+    failure = RuntimeError('original label comparison')
+    calls = []
+    class Label(str):
+        def __eq__(self, other):
+            calls.append('eq')
+            raise failure
+        def __ne__(self, other):
+            calls.append('ne')
+            raise failure
+    result = _with_label(quick_result(), field, Label('unknown'))
+    spec = MetricSpec(name, 'K' if name.startswith('T_out') else 'W', 'three_module_v1', '')
+    for evaluate in (reference.evaluate, native.evaluate):
+        calls.clear()
+        with pytest.raises(RuntimeError) as caught:
+            evaluate(result, spec)
+        assert caught.value is failure
+        assert calls == ['ne' if field == 'model' else 'eq']
+
+
+@pytest.mark.parametrize('field', ['arrangement', 'version'])
+@pytest.mark.parametrize('early_overflow', [False, True])
+def test_string_subclass_labels_keep_late_consumption(field, early_overflow):
+    calls = []
+    class Label(str):
+        def __eq__(self, other):
+            calls.append('eq')
+            raise RuntimeError('late label comparison')
+        def __ne__(self, other):
+            calls.append('ne')
+            raise RuntimeError('wrong label operator')
+    result = _with_label(quick_result(inlet=2**1100 if early_overflow else 300.), field, Label('unknown'))
+    spec = MetricSpec('Q', 'W', 'three_module_v1', '')
+    expected = observe(observed_evaluation, reference.evaluate, result, spec)
+    expected_calls = calls[:]
+    calls.clear()
+    actual = observe(observed_evaluation, native.evaluate, result, spec)
+    assert_observation(actual, expected)
+    assert calls == expected_calls
+    if field == 'arrangement' or early_overflow:
+        assert calls == []
+
+
+@pytest.mark.parametrize('base,value', [(str, 'unknown'), (int, 3), (float, 3.), (bytes, b'unknown')])
+@pytest.mark.parametrize('field,name', [('model', 'Q'), ('arrangement', 'T_out_B'), ('version', 'Q')])
+@pytest.mark.parametrize('unequal', [False, True])
+def test_portable_primitive_label_subclasses_keep_their_original_objects(base, value, field, name, unequal):
+    class Label(base):
+        def __eq__(self, other):
+            return True
+        def __ne__(self, other):
+            return unequal
+    result = _with_label(quick_result(), field, Label(value))
+    compare(result, name)

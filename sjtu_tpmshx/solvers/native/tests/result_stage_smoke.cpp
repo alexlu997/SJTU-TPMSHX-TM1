@@ -241,14 +241,14 @@ int TPMSHX_RESULT_CALL quick_pressure(void* context, const tpmshx_stage_quick_va
     *value = {probe.numeric, 0};
     return 0;
 }
-int TPMSHX_RESULT_CALL quick_label_equal(void* context, const tpmshx_stage_quick_value_v3* value,
+int TPMSHX_RESULT_CALL quick_label_not_equal(void* context, const tpmshx_stage_quick_value_v3* value,
     const char* expected, int* output, tpmshx_stage_host_error_v2*) {
     auto& calls = *static_cast<std::size_t*>(context);
     ++calls;
     require(value->object == 19, "label host keeps its original object token");
     require(std::strcmp(expected, "plug_ltne_analytic_dp_v1") == 0,
         "native model policy supplies the comparison text");
-    *output = 1;
+    *output = 0;
     return 0;
 }
 void quick_host_contract() {
@@ -289,11 +289,15 @@ void quick_host_contract() {
     const tpmshx_stage_label_v3 host_label{nullptr, &host_label_value};
     std::size_t label_calls{};
     input.model = &host_label; input.protocol.context = &label_calls;
-    input.protocol.text_equal = quick_label_equal;
+    input.protocol.text_equal = quick_label_not_equal;
+    require(call() == TPMSHX_RESULT_RUNTIME && label_calls == 0,
+        "model inequality does not substitute the equality callback");
+    input.protocol.text_not_equal = quick_label_not_equal;
     require(call() == 0 && label_calls == 1 && output.metrics[0].value == 9.,
-        "native model comparison uses only the fixed host equality protocol");
+        "native model comparison uses the fixed host inequality protocol");
     tpmshx_result_stage_release_v1(&output);
-    input.model = &model_label; input.protocol.text_equal = nullptr;
+    input.model = &model_label;
+    input.protocol.text_equal = nullptr; input.protocol.text_not_equal = nullptr;
     inlet = {nullptr, 11};
     const auto before = output;
     require(call() == TPMSHX_RESULT_RUNTIME && std::strstr(error, "named Python protocol callback"),

@@ -249,7 +249,7 @@ struct QuickTypedEvidence {
     Recorded<QuickValue> hydraulic_diameter;
 };
 struct QuickHost {
-    std::function<bool(const QuickValue&, const std::string&)> text_equal;
+    std::function<bool(const QuickValue&, const std::string&)> text_equal, text_not_equal;
     std::function<QuickValue(const QuickValue&, double)> temperature_difference;
     std::function<QuickValue(const QuickValue&, const QuickValue&)> capacity_product;
     std::function<QuickValue(const QuickValue&, const QuickValue&, bool)> duty_product;

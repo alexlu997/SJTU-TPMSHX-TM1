@@ -111,7 +111,7 @@ public:
         const auto object = quick_value(value->value);
         if (const auto* failure = error(value)) return Recorded<StageLabel>(*failure);
         if (text.has_value() == object.has_value())
-            throw std::invalid_argument("stage label requires text or one non-text value");
+            throw std::invalid_argument("stage label requires text or one host value");
         StageLabel result;
         if (text) result.text = *text;
         else result.value = *object;
@@ -493,6 +493,11 @@ QuickHost quick_host(Inputs& input, const tpmshx_stage_quick_protocol_v3& protoc
     QuickHost host;
     const auto context = protocol.context;
     if (protocol.text_equal) host.text_equal = [&, context, call=protocol.text_equal](const QuickValue& value, const std::string& expected) {
+        const QuickView argument(value); int output{}; tpmshx_stage_host_error_v2 failure{};
+        quick_callback_error(input, call(context, &argument.value, expected.c_str(), &output, &failure), failure);
+        return boolean(output);
+    };
+    if (protocol.text_not_equal) host.text_not_equal = [&, context, call=protocol.text_not_equal](const QuickValue& value, const std::string& expected) {
         const QuickView argument(value); int output{}; tpmshx_stage_host_error_v2 failure{};
         quick_callback_error(input, call(context, &argument.value, expected.c_str(), &output, &failure), failure);
         return boolean(output);

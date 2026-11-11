@@ -76,6 +76,7 @@ Its declarations are in `include/tpmshx/result_c_api.h` and the family and stage
 The stage host queries use separate v2 and v3 input declarations. They preserve published v1 and v2 C layouts.
 V3 carries typed Quick operands and raw labels. Native code owns label comparisons and policy.
 Fixed named host callbacks retain only Python value protocols at the native-selected operation.
+Object equality and inequality use separate callbacks. String subclasses retain their original comparison operators.
 Deferred conversion errors and NumPy callbacks are consumed at the original metric or qualification boundary.
 Uncaught host exceptions return their original token. Stage outputs are released through their originating library.
 Only the symbols in `result.exports` and `result.map` are public.

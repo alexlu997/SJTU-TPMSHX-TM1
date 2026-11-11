@@ -98,6 +98,7 @@ QuickDuty = ct.CFUNCTYPE(I, ct.c_void_p, QVP, QVP, I, QVP, P(HostError))
 QuickFloat = ct.CFUNCTYPE(I, ct.c_void_p, QVP, P(D), P(HostError))
 QuickEmptyMean = ct.CFUNCTYPE(I, ct.c_void_p, P(HostError))
 QuickProtocols = record('QuickProtocols', [('context', ct.c_void_p), ('text_equal', QuickTextEqual),
+    ('text_not_equal', QuickTextEqual),
     ('temperature_difference', QuickDifference), ('capacity_product', QuickPair), ('duty_product', QuickDuty),
     ('pressure_difference', QuickPair), ('reynolds_flow', QuickPair), ('reynolds_length', QuickPair),
     ('reynolds_quotient', QuickPair), ('metric_float', QuickFloat), ('empty_mean', QuickEmptyMean)])
@@ -197,15 +198,18 @@ class _Packed:
         except (TypeError, ValueError, OverflowError, KeyError, IndexError, AttributeError) as error:
             return self.fault(self.pointer(core._Scalar()), error)
 
+    def quick_object(self, value):
+        token = len(self.quick_objects) + 1
+        self.quick_objects[token] = value
+        return self.pointer(QuickValue(object=token))
+
     def quick_value(self, value):
         if isinstance(value, _Fault):
             return self.fault(self.pointer(QuickValue()), value.error)
         protocol = (not isinstance(value, (int, float, complex, np.number))
             and not (isinstance(value, np.ndarray) and value.dtype.kind in 'biufc'))
         if protocol or core.integer_product_requires_python((value,)):
-            token = len(self.quick_objects) + 1
-            self.quick_objects[token] = value
-            return self.pointer(QuickValue(object=token))
+            return self.quick_object(value)
         owner = core.array(value)
         self.keep.append(owner)
         return self.pointer(QuickValue(numeric=self.pointer(owner.raw)))
@@ -245,6 +249,14 @@ class _Packed:
         def text_equal(context, value, expected, output, failure):
             try:
                 output[0] = bool(self.quick_read(value) == expected.decode('utf-8'))
+                return 0
+            except BaseException as error:
+                return self.callback_error(error, failure)
+
+        @QuickTextEqual
+        def text_not_equal(context, value, expected, output, failure):
+            try:
+                output[0] = bool(self.quick_read(value) != expected.decode('utf-8'))
                 return 0
             except BaseException as error:
                 return self.callback_error(error, failure)
@@ -293,7 +305,7 @@ class _Packed:
             except BaseException as error:
                 return self.callback_error(error, failure)
 
-        callbacks = (text_equal, temperature_difference, capacity_product, duty_product, pressure_difference,
+        callbacks = (text_equal, text_not_equal, temperature_difference, capacity_product, duty_product, pressure_difference,
             reynolds_flow, reynolds_length, reynolds_quotient, metric_float, empty_mean)
         self.keep.extend(callbacks)
         return QuickProtocols(None, *callbacks)
@@ -301,7 +313,7 @@ class _Packed:
     def label(self, value):
         if isinstance(value, _Fault):
             return self.fault(self.pointer(StageLabel()), value.error)
-        if isinstance(value, str):
+        if type(value) is str:
             try:
                 encoded = value.encode('utf-8')
             except UnicodeEncodeError:
@@ -309,7 +321,7 @@ class _Packed:
             else:
                 if b'\0' not in encoded:
                     return self.pointer(StageLabel(text=encoded))
-        return self.pointer(StageLabel(value=self.quick_value(value)))
+        return self.pointer(StageLabel(value=self.quick_object(value)))
 
     def quick_access(self, value):
         return self.fault(self.pointer(I()), value.error) if isinstance(value, _Fault) else self.pointer(I(1))

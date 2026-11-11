@@ -547,8 +547,12 @@ bool label_equal(const StageLabel& value, const std::string& expected) {
     return value.text ? *value.text == expected
         : quick_protocol(quick_host().text_equal, value.value, expected);
 }
+bool label_not_equal(const StageLabel& value, const std::string& expected) {
+    return value.text ? *value.text != expected
+        : quick_protocol(quick_host().text_not_equal, value.value, expected);
+}
 QuickValue quick_metric_value(const ResultEvidence& result, const std::string& name, Diagnostics& diag) {
-    const bool supported = result.quick_typed ? label_equal(need(result.quick_typed->model, "model"), "plug_ltne_analytic_dp_v1")
+    const bool supported = result.quick_typed ? !label_not_equal(need(result.quick_typed->model, "model"), "plug_ltne_analytic_dp_v1")
         : need(result.quick_model, "model") == "plug_ltne_analytic_dp_v1";
     if (!supported) throw Unsupported("unsupported quick-design metric definition");
     const std::size_t side = ends_with(name, "_B") || name == "Q_cold" ? 1 : 0;

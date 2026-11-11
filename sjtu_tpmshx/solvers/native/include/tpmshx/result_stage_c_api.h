@@ -223,7 +223,7 @@ typedef struct {
 } tpmshx_stage_quick_value_v3;
 /* A label borrows null-terminated UTF-8 text or one original host value.
  * Use a host value for text that this C string cannot represent without loss.
- * Native policy owns the comparison text. The host supplies only equality. */
+ * Native policy owns the text. The host applies the original comparison operator. */
 typedef struct {
     const char* text;
     const tpmshx_stage_quick_value_v3* value;
@@ -238,6 +238,8 @@ typedef struct {
 typedef struct {
     void* context;
     int (TPMSHX_RESULT_CALL *text_equal)(void*, const tpmshx_stage_quick_value_v3*, const char*,
+        int*, tpmshx_stage_host_error_v2*);
+    int (TPMSHX_RESULT_CALL *text_not_equal)(void*, const tpmshx_stage_quick_value_v3*, const char*,
         int*, tpmshx_stage_host_error_v2*);
     int (TPMSHX_RESULT_CALL *temperature_difference)(void*, const tpmshx_stage_quick_value_v3*, double,
         tpmshx_stage_quick_value_v3*, tpmshx_stage_host_error_v2*);
