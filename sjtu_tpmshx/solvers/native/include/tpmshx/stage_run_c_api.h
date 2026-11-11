@@ -8,6 +8,8 @@
 
 typedef struct { uint32_t present; size_t value; } tpmshx_stage_size_option_v1;
 typedef struct { uint32_t present; double value; } tpmshx_stage_double_option_v1;
+/* Active model_h controls and an explicit energy pointer are exclusive.
+ * A null energy pointer keeps the defaults for the selected thermal route. */
 typedef struct {
     uint32_t abi_version;
     size_t struct_size;
@@ -46,6 +48,8 @@ extern "C" {
  * result. Cancellation returns status 4 and does not publish a result.
  * The raw result is borrowed. Use its existing evidence queries, but do not
  * release it separately. Release the stage owner through this same library.
+ * Inputs, strings, result and error storage must be disjoint.
+ * Error text is written only after all input storage checks complete.
  * Callback lifetime and exception rules match the existing full 2D API.
  */
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_run_case_2d_v1(

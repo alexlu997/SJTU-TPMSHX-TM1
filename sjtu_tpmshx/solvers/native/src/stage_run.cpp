@@ -119,8 +119,12 @@ extern "C" int tpmshx_run_case_2d_v1(const tpmshx_preparation_case_2d_v1* prepar
     tpmshx_stage_run_result_2d_v1* result,char* error,size_t capacity) {
     if(!boundary::error_buffer_valid(error,capacity))return 1;
     tpmshx_full_2d_result_v2 raw{};
-    bool report_safe=true;
+    bool report_safe=false;
     try {
+        boundary::require_buffer(result,1);
+        if(overlaps(result,sizeof(*result),error,capacity)) {
+            report_safe=false;throw std::invalid_argument("stage run error storage overlaps output");
+        }
         const auto storage=[&](const auto* value,size_t count) {
             using Element=std::remove_cv_t<std::remove_pointer_t<decltype(value)>>;
             boundary::require_buffer(value,count);
@@ -128,10 +132,10 @@ extern "C" int tpmshx_run_case_2d_v1(const tpmshx_preparation_case_2d_v1* prepar
             if(overlaps(value,bytes,error,capacity)) {
                 report_safe=false;throw std::invalid_argument("stage run error storage overlaps input or output");
             }
-            if(value!=static_cast<const void*>(result) && overlaps(value,bytes,result,sizeof(*result)))
+            if(overlaps(value,bytes,result,sizeof(*result)))
                 throw std::invalid_argument("stage run output overlaps input");
         };
-        storage(result,1);storage(prepared,1);storage(control,1);
+        storage(prepared,1);storage(control,1);
         if(prepared->abi_version!=TPMSHX_PREPARATION_CASE_ABI_VERSION || prepared->struct_size!=sizeof(*prepared))
             throw std::invalid_argument("prepared stage ABI version or struct size is invalid");
         if(request) {
@@ -152,6 +156,12 @@ extern "C" int tpmshx_run_case_2d_v1(const tpmshx_preparation_case_2d_v1* prepar
             for(const auto value:{range.side,range.stage,range.layout,range.quantity,range.unit})storage(value.data,value.size);
         }
         if(request && request->energy)storage(request->energy,1);
+        const auto text_storage=[&](const char* value) {
+            if(value) {storage(value,1);storage(value,std::strlen(value)+1);}
+        };
+        text_storage(control->result_id);text_storage(control->table_directory);
+        if(request)text_storage(request->convergence_mode);
+        report_safe=true;
 
         boundary::require_buffer(prepared,1);boundary::require_buffer(control,1);boundary::require_buffer(result,1);
         if(result->abi_version!=TPMSHX_STAGE_RUN_ABI_VERSION || result->struct_size!=sizeof(*result) || result->owner)
@@ -168,8 +178,9 @@ extern "C" int tpmshx_run_case_2d_v1(const tpmshx_preparation_case_2d_v1* prepar
         const auto& selected=request?*request:defaults;
         Packed2D packed(*prepared,selected,*control);
         const auto& h=selected.model_h;
+        const auto* model_h=(h.max_iterations || h.temperature_tolerance || h.q_relative_tolerance)?&h:nullptr;
         const auto status=tpmshx_solve_full_2d_v6(packed.shape.data(),packed.arrays.data(),packed.sizes.data(),
-            &packed.config,&packed.energy,nullptr,(h.max_iterations || h.temperature_tolerance || h.q_relative_tolerance)?&h:nullptr,
+            &packed.config,model_h?selected.energy:&packed.energy,nullptr,model_h,
             control->cpu_threads,&control->callbacks,&raw,error,capacity);
         if(status)return status;
         if(raw.cancelled) {

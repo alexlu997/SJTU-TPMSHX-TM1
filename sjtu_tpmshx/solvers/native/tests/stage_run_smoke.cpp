@@ -43,9 +43,46 @@ int main(int argc,char** argv) {
         char error[4096]{};
         require(tpmshx_run_case_2d_v1(&malformed,nullptr,&control,&failure,error,sizeof(error))==1,"malformed field accepted");
         require(std::memcmp(&failure,&before,sizeof(failure))==0,"failed stage changed output");
+        const std::string storage_error=error;
+        require(tpmshx_run_case_2d_v1(&prepared.view(),nullptr,
+            reinterpret_cast<const tpmshx_stage_run_control_v1*>(&failure),&failure,error,sizeof(error))==1,
+            "control aliases the complete output");
+        require(storage_error==error && std::memcmp(&failure,&before,sizeof(failure))==0,
+                "control alias changed output or escaped boundary validation");
+        malformed=prepared.view();malformed.dx.data=reinterpret_cast<const double*>(&failure);
+        require(tpmshx_run_case_2d_v1(&malformed,nullptr,&control,&failure,error,sizeof(error))==1,
+                "prepared array aliases the complete output");
+        require(storage_error==error && std::memcmp(&failure,&before,sizeof(failure))==0,
+                "array alias changed output or escaped boundary validation");
+        control.result_id=reinterpret_cast<const char*>(&failure);
+        require(tpmshx_run_case_2d_v1(&prepared.view(),nullptr,&control,&failure,error,sizeof(error))==1,
+                "result label aliases output");
+        require(storage_error==error && std::memcmp(&failure,&before,sizeof(failure))==0,
+                "label alias changed output or escaped boundary validation");
+        char label[128]="preserve-label";
+        char original_label[sizeof(label)];std::memcpy(original_label,label,sizeof(label));
+        malformed=prepared.view();malformed.dx.data=nullptr;
+        control.result_id=label;
+        require(tpmshx_run_case_2d_v1(&malformed,nullptr,&control,&failure,label,sizeof(label))==1,
+                "interrupted storage check accepted invalid input");
+        require(std::memcmp(label,original_label,sizeof(label))==0 && std::memcmp(&failure,&before,sizeof(failure))==0,
+                "interrupted storage check changed an unvisited label");
+        control.result_id="stage-smoke";
         control.callbacks.cancel=cancel;
         require(tpmshx_run_case_2d_v1(&prepared.view(),nullptr,&control,&failure,error,sizeof(error))==4,"cancellation status changed");
         require(std::memcmp(&failure,&before,sizeof(failure))==0,"cancelled stage published a result");
+        for(const auto option:{tpmshx_model_h_iteration_options_v1{5000,0.,0.},
+                              tpmshx_model_h_iteration_options_v1{0,.001,0.},
+                              tpmshx_model_h_iteration_options_v1{0,0.,.001}}) {
+            RunRequest2D request;request.model_h=option;
+            require(tpmshx_run_case_2d_v1(&prepared.view(),&request,&control,&failure,error,sizeof(error))==4,
+                    "model-h controls conflict with implicit energy defaults");
+            require(std::memcmp(&failure,&before,sizeof(failure))==0,"model-h cancellation changed output");
+            const tpmshx_energy_options_v1 energy{TPMSHX_ENERGY_TEMPERATURE_SOU,1e-8};request.energy=&energy;
+            require(tpmshx_run_case_2d_v1(&prepared.view(),&request,&control,&failure,error,sizeof(error))==1,
+                    "explicit conflicting energy options accepted");
+            require(std::memcmp(&failure,&before,sizeof(failure))==0,"option conflict changed output");
+        }
         control.callbacks.cancel=nullptr;
         auto run=[&] {auto local=prepare_case(input());return run_case(local,control);}();
         // The prepared owner has gone. All saved evidence must remain valid.
