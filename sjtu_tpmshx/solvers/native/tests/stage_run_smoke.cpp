@@ -53,6 +53,12 @@ int main(int argc,char** argv) {
                 "prepared array aliases the complete output");
         require(std::strstr(error,"overlaps") && std::memcmp(&failure,&before,sizeof(failure))==0,
                 "array alias changed output or escaped boundary validation");
+        control.result_id=reinterpret_cast<const char*>(&failure);
+        require(tpmshx_run_case_2d_v1(&prepared.view(),nullptr,&control,&failure,error,sizeof(error))==1,
+                "result label aliases output");
+        require(std::strstr(error,"overlaps") && std::memcmp(&failure,&before,sizeof(failure))==0,
+                "label alias changed output or escaped boundary validation");
+        control.result_id="stage-smoke";
         control.callbacks.cancel=cancel;
         require(tpmshx_run_case_2d_v1(&prepared.view(),nullptr,&control,&failure,error,sizeof(error))==4,"cancellation status changed");
         require(std::memcmp(&failure,&before,sizeof(failure))==0,"cancelled stage published a result");

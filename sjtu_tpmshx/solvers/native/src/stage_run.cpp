@@ -156,6 +156,11 @@ extern "C" int tpmshx_run_case_2d_v1(const tpmshx_preparation_case_2d_v1* prepar
             for(const auto value:{range.side,range.stage,range.layout,range.quantity,range.unit})storage(value.data,value.size);
         }
         if(request && request->energy)storage(request->energy,1);
+        const auto text_storage=[&](const char* value) {
+            if(value) {storage(value,1);storage(value,std::strlen(value)+1);}
+        };
+        text_storage(control->result_id);text_storage(control->table_directory);
+        if(request)text_storage(request->convergence_mode);
 
         boundary::require_buffer(prepared,1);boundary::require_buffer(control,1);boundary::require_buffer(result,1);
         if(result->abi_version!=TPMSHX_STAGE_RUN_ABI_VERSION || result->struct_size!=sizeof(*result) || result->owner)
