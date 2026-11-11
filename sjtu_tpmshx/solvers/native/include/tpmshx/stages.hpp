@@ -35,6 +35,7 @@ private:
 inline void check(int status,const char* error) {if(status)throw NativeError(status,error);}
 }
 using PreparedCase2D=detail::Owned<tpmshx_preparation_case_2d_v1,tpmshx_preparation_case_2d_release_v1>;
+using PreparedCase2Dv2=detail::Owned<tpmshx_preparation_case_2d_v2,tpmshx_preparation_case_2d_release_v2>;
 using RunResult2D=detail::Owned<tpmshx_stage_run_result_2d_v1,tpmshx_stage_run_2d_release_v1>;
 using Evaluation=detail::Owned<tpmshx_stage_output_v1,tpmshx_result_stage_release_v1>;
 
@@ -46,6 +47,14 @@ struct CaseInput2D : tpmshx_preparation_case_input_2d_v1 {
 struct PreparationOptions : tpmshx_preparation_case_options_v1 {
     PreparationOptions():tpmshx_preparation_case_options_v1{} {
         abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION;struct_size=sizeof(tpmshx_preparation_case_options_v1);
+    }
+};
+struct CaseInput2Dv2 : tpmshx_preparation_case_input_2d_v2 {
+    CaseInput2Dv2():tpmshx_preparation_case_input_2d_v2{} {
+        abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V2;struct_size=sizeof(tpmshx_preparation_case_input_2d_v2);
+        values=CaseInput2D{};
+        kinds.cell_length=kinds.wall_thickness=kinds.solid_conductivity={64,0,0};
+        for (auto& side:kinds.sides) side.velocity=side.temperature=side.pressure={64,0,0};
     }
 };
 struct RunRequest2D : tpmshx_stage_run_request_2d_v1 {
@@ -64,6 +73,14 @@ inline PreparedCase2D prepare_case(const CaseInput2D& input,const PreparationOpt
     char error[4096]{};
     detail::check(tpmshx_prepare_case_2d_v1(&input,&options,nullptr,&output,error,sizeof(error)),error);
     return PreparedCase2D(output);
+}
+inline PreparedCase2Dv2 prepare_case(const CaseInput2Dv2& input,const PreparationOptions& options={}) {
+    tpmshx_preparation_case_2d_v2 output{};tpmshx_preparation_case_failure_v2 failure{};
+    output.abi_version=failure.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V2;
+    output.struct_size=sizeof(output);failure.struct_size=sizeof(failure);
+    char error[4096]{};
+    detail::check(tpmshx_prepare_case_2d_v2(&input,&options,nullptr,&output,&failure,error,sizeof(error)),error);
+    return PreparedCase2Dv2(output);
 }
 inline RunResult2D run_case(const PreparedCase2D& prepared,const RunControl& control,const RunRequest2D& request={}) {
     tpmshx_stage_run_result_2d_v1 output{};
