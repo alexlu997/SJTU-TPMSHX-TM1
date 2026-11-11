@@ -235,17 +235,7 @@ def call(name, argtypes, *arguments, stacklevel=4):
     diagnostics, error = _Diagnostics(), ct.create_string_buffer(4096)
     function = owner.bind(name, [*argtypes, ct.POINTER(_Diagnostics), ct.POINTER(ct.c_char), _Size])
     status = function(*arguments, ct.byref(diagnostics), error, len(error))
-    if diagnostics.reserved or diagnostics.event_count > 64:
-        raise RuntimeError('native result returned invalid diagnostics')
-    events = []
-    for event in diagnostics.events[:diagnostics.event_count]:
-        if event.reserved or event.flags > 15 or event.scalar > 1 or event.operation not in _OPERATIONS:
-            raise RuntimeError('native result returned an invalid floating-point event')
-        operation = _OPERATIONS[event.operation]
-        if event.scalar and event.operation in (1, 2, 3, 4, 5, 8):
-            operation = 'scalar ' + operation
-        events.append((event.flags, operation))
-    floating_events(events, stacklevel=stacklevel)
+    notify(diagnostics, stacklevel=stacklevel)
     if not status:
         return
     text = error.value.decode('utf-8', errors='replace') or f'native result failed with status {status}'
@@ -262,3 +252,18 @@ def call(name, argtypes, *arguments, stacklevel=4):
             raise OverflowError(diagnostics.error_number, os.strerror(diagnostics.error_number))
         raise exception(text)
     raise RuntimeError(text)
+
+
+def notify(diagnostics, *, stacklevel):
+    """Apply host error policy at one completed native primitive boundary."""
+    if diagnostics.reserved or diagnostics.event_count > 64:
+        raise RuntimeError('native result returned invalid diagnostics')
+    events = []
+    for event in diagnostics.events[:diagnostics.event_count]:
+        if event.reserved or event.flags > 15 or event.scalar > 1 or event.operation not in _OPERATIONS:
+            raise RuntimeError('native result returned an invalid floating-point event')
+        operation = _OPERATIONS[event.operation]
+        if event.scalar and event.operation in (1, 2, 3, 4, 5, 8):
+            operation = 'scalar ' + operation
+        events.append((event.flags, operation))
+    floating_events(events, stacklevel=stacklevel)

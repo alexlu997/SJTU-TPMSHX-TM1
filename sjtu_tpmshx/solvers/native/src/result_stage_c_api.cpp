@@ -6,6 +6,7 @@
 #include <cstring>
 #include <limits>
 #include <memory>
+#include <set>
 #include <stdexcept>
 #include <utility>
 
@@ -18,6 +19,13 @@ class Inputs {
 public:
     struct Span {std::uintptr_t first, last;};
     std::vector<Span> spans;
+    std::map<const void*, InputError> errors;
+    std::set<const void*> none_values;
+    bool host_input{};
+    const InputError* error(const void* value) const {
+        const auto found = errors.find(value);
+        return found == errors.end() ? nullptr : &found->second;
+    }
     template<class T> const T* sequence(const T* pointer, std::size_t count) {
         add(pointer, count, sizeof(T), alignof(T));
         return pointer;
@@ -40,7 +48,8 @@ public:
         const auto last = first + bytes - 1;
         return std::none_of(spans.begin(), spans.end(), [&](const auto& input){return first <= input.last && input.first <= last;});
     }
-    std::optional<std::string> string(const char* value) {
+    Recorded<std::string> string(const char* value) {
+        if (const auto* failure = error(value)) return Recorded<std::string>(*failure);
         if (!value) return {};
         sequence(value, std::strlen(value) + 1);
         return std::string(value);
@@ -50,31 +59,53 @@ public:
         if (!result) throw std::invalid_argument(std::string("stage record requires ") + name);
         return *result;
     }
-    template<class T> std::optional<T> optional(const T* value) {
+    template<class T> Recorded<T> optional(const T* value) {
+        if (const auto* failure = error(value)) return Recorded<T>(*failure);
         if (!value) return {};
         sequence(value, 1); return *value;
     }
-    std::optional<Number> number(const RawScalar* value) {
+    Recorded<Number> number(const RawScalar* value) {
+        if (const auto* failure = error(value)) return Recorded<Number>(*failure);
         if (!value) return {};
         sequence(value, 1); return read_scalar(*value);
     }
+    Recorded<Tensor> scalar_array(const RawScalar* value) {
+        if (const auto* failure = error(value)) return Recorded<Tensor>(*failure);
+        const auto scalar = number(value);
+        return scalar ? Recorded<Tensor>(Tensor(*scalar)) : Recorded<Tensor>{};
+    }
     Tensor array(const RawArray& value) {
+        if (const auto* failure = error(&value)) {
+            sequence(value.shape, value.rank); sequence(value.strides, value.rank);
+            Tensor deferred({}, TPMSHX_RESULT_F64);
+            if (value.rank) deferred.shape.assign(value.shape, value.shape + value.rank);
+            deferred.dtype = 0;
+            deferred.input_error = *failure;
+            return deferred;
+        }
         add(value.data, value.bytes, 1, 1);
         sequence(value.shape, value.rank); sequence(value.strides, value.rank);
         return arithmetic::copy(Array(value));
     }
-    std::optional<Tensor> array(const RawArray* value) {
+    Recorded<Tensor> array(const RawArray* value) {
         if (!value) return {};
         sequence(value, 1); return array(*value);
     }
     std::vector<Tensor> arrays(const RawArray* values, std::size_t count) {
+        if (const auto* failure = count ? nullptr : error(values)) {
+            Tensor deferred({}, TPMSHX_RESULT_F64);
+            deferred.input_error = *failure;
+            return {std::move(deferred)};
+        }
         sequence(values, count);
         std::vector<Tensor> out;
         for (std::size_t i = 0; i < count; ++i) out.push_back(array(values[i]));
         return out;
     }
     Arrays named(const tpmshx_stage_named_array_v1* values, std::size_t count) {
-        sequence(values, count); Arrays out;
+        Arrays out;
+        if (const auto* failure = error(values)) {out.input_error = *failure; return out;}
+        sequence(values, count);
         for (std::size_t i = 0; i < count; ++i) {
             const auto name = text(values[i].name, "an array name");
             if (!out.emplace(name, array(values[i].value)).second) throw std::invalid_argument("duplicate stage array name");
@@ -133,8 +164,9 @@ GridEvidence grid(Inputs& input, const tpmshx_stage_grid_v1& value) {
     for (std::size_t i = 0; i < 3; ++i) out.widths[i] = input.array(value.widths[i]);
     return out;
 }
-std::optional<PressureEvidence> pressure(Inputs& input, const tpmshx_stage_pressure_v1* value) {
+Recorded<PressureEvidence> pressure(Inputs& input, const tpmshx_stage_pressure_v1* value) {
     if (!value) return {};
+    if (const auto* failure = input.error(value)) return Recorded<PressureEvidence>(*failure);
     input.sequence(value, 1); PressureEvidence out;
     out.pressure = input.array(value->pressure); out.grid = grid(input, value->grid);
     out.inlet_fraction = input.array(value->inlet_fraction); out.outlet_fraction = input.array(value->outlet_fraction);
@@ -143,8 +175,9 @@ std::optional<PressureEvidence> pressure(Inputs& input, const tpmshx_stage_press
     out.outlet_absolute = input.number(value->outlet_absolute); out.unit = input.string(value->unit);
     return out;
 }
-std::optional<EnergyEvidence> energy(Inputs& input, const tpmshx_stage_energy_v1* value) {
+Recorded<EnergyEvidence> energy(Inputs& input, const tpmshx_stage_energy_v1* value) {
     if (!value) return {};
+    if (const auto* failure = input.error(value)) return Recorded<EnergyEvidence>(*failure);
     input.sequence(value, 1); EnergyEvidence out;
     out.definition = input.string(value->definition); out.power_units = input.string(value->power_units);
     out.physical_dimension = value->physical_dimension;
@@ -180,11 +213,17 @@ ThermalEvidence thermal(Inputs& input, const tpmshx_stage_thermal_v1& value) {
     ThermalEvidence out;
     for (std::size_t i = 0; i < 2; ++i) {
         out.mass[i] = input.arrays(value.mass[i], value.mass_count[i]);
+        out.mass_recorded[i] = input.host_input ? value.mass[i] != nullptr : !out.mass[i].empty();
+        out.mass_none[i] = input.none_values.count(value.mass[i]) != 0;
         out.report_direction[i] = input.optional(value.report_direction[i]);
     }
     out.energy = energy(input, value.energy); out.temperature = energy(input, value.temperature);
-    if (value.model_h) {input.sequence(value.model_h, 1); out.model_h = model(input, *value.model_h);}
-    if (value.true_h) {
+    if (value.model_h) {
+        if (const auto* failure = input.error(value.model_h)) out.model_h = Recorded<ModelCertificate>(*failure);
+        else {input.sequence(value.model_h, 1); out.model_h = model(input, *value.model_h);}
+    }
+    if (value.true_h && input.error(value.true_h)) out.true_h = Recorded<TrueHEvidence>(*input.error(value.true_h));
+    else if (value.true_h) {
         input.sequence(value.true_h, 1); const auto& raw = *value.true_h; TrueHEvidence record;
         record.energy_algorithm = input.string(raw.energy_algorithm);
         record.boundary_power_units = input.string(raw.boundary_power_units);
@@ -235,8 +274,9 @@ std::vector<RangeSample> ranges(Inputs& input, const tpmshx_stage_range_sample_v
     }
     return out;
 }
-std::optional<ApplicabilityEvidence> applicability(Inputs& input, const tpmshx_stage_applicability_v1* value) {
+Recorded<ApplicabilityEvidence> applicability(Inputs& input, const tpmshx_stage_applicability_v1* value) {
     if (!value) return {};
+    if (const auto* failure = input.error(value)) return Recorded<ApplicabilityEvidence>(*failure);
     input.sequence(value, 1); ApplicabilityEvidence out;
     out.version = input.text(value->version, "an applicability version");
     out.inlet_recorded = truth(value->inlet_recorded).value_or(false);
@@ -256,11 +296,13 @@ ResultEvidence evidence(Inputs& input, const tpmshx_result_evidence_v1* value) {
         throw std::invalid_argument("unsupported result stage evidence ABI");
     ResultEvidence out;
     out.result_id = input.text(value->result_id, "a result ID"); out.dimension = value->dimension;
+    if (const auto* failure = input.error(&value->dimension)) out.declaration_error = *failure;
     out.metadata_dimension = input.optional(value->metadata_dimension);
     out.quantity_basis = input.string(value->quantity_basis); out.mass_unit = input.string(value->mass_unit);
     out.mode = input.string(value->mode).value_or("full");
     out.thermal_mode = input.string(value->thermal_mode); out.temperature_transport = input.string(value->temperature_transport);
     out.grid = grid(input, value->grid); out.fields = input.named(value->fields, value->field_count);
+    for (std::size_t i = 0; i < value->field_count; ++i) out.field_order.push_back(value->fields[i].name);
     input.sequence(value->field_metadata, value->field_metadata_count);
     for (std::size_t i = 0; i < value->field_metadata_count; ++i) {
         const auto& row = value->field_metadata[i];
@@ -269,7 +311,8 @@ ResultEvidence evidence(Inputs& input, const tpmshx_result_evidence_v1* value) {
     }
     for (std::size_t i = 0; i < 2; ++i) out.pressure[i] = pressure(input, value->pressure[i]);
     out.thermal = thermal(input, value->thermal);
-    if (value->fine) {
+    if (value->fine && input.error(value->fine)) out.fine = Recorded<FineEvidence>(*input.error(value->fine));
+    else if (value->fine) {
         input.sequence(value->fine, 1); FineEvidence fine; fine.empty_record = boolean(value->fine->empty_record);
         fine.grid = grid(input, value->fine->grid); fine.fields = input.named(value->fine->fields, value->fine->field_count);
         fine.thermal = thermal(input, value->fine->thermal); fine.epsilon = input.array(value->fine->epsilon);
@@ -287,7 +330,9 @@ ResultEvidence evidence(Inputs& input, const tpmshx_result_evidence_v1* value) {
         if (!out.convergence_gates.emplace(input.text(gate.name, "a convergence gate name"), gate_evidence(input, gate)).second)
             throw std::invalid_argument("duplicate stage convergence gate");
     }
-    if (value->true_h_certificate) {
+    if (value->true_h_certificate && input.error(value->true_h_certificate))
+        out.true_h_certificate = Recorded<TrueHCertificate>(*input.error(value->true_h_certificate));
+    else if (value->true_h_certificate) {
         input.sequence(value->true_h_certificate, 1); TrueHCertificate cert;
         cert.converged = declared_truth(value->true_h_certificate->converged);
         cert.clip_counts = input.array(value->true_h_certificate->clip_counts);
@@ -300,12 +345,15 @@ ResultEvidence evidence(Inputs& input, const tpmshx_result_evidence_v1* value) {
     input.sequence(value->model_certificates, value->model_certificate_count);
     for (std::size_t i = 0; i < value->model_certificate_count; ++i) {
         const auto& row = value->model_certificates[i];
+        out.model_certificate_order.push_back(input.text(row.level, "a model certificate level"));
         if (!out.model_certificates.emplace(input.text(row.level, "a model certificate level"), model(input, row.value)).second)
             throw std::invalid_argument("duplicate stage model certificate");
     }
     for (std::size_t i = 0; i < 4; ++i) out.strict_ratios[i] = input.optional(value->strict_ratios[i]);
     for (std::size_t i = 0; i < 2; ++i) out.source_power[i] = input.optional(value->source_power[i]);
-    out.model_active_b = truth(value->model_active_b); out.richardson_extrapolated = truth(value->richardson_extrapolated);
+    if (const auto* failure = input.error(&value->model_active_b)) out.model_active_b = Recorded<bool>(*failure);
+    else out.model_active_b = truth(value->model_active_b);
+    out.richardson_extrapolated = truth(value->richardson_extrapolated);
     out.execution_version = input.string(value->execution_version);
     input.sequence(value->executed_sides, value->executed_side_count);
     for (std::size_t i = 0; i < value->executed_side_count; ++i) {
@@ -316,7 +364,7 @@ ResultEvidence evidence(Inputs& input, const tpmshx_result_evidence_v1* value) {
     out.applicability = applicability(input, value->applicability);
     for (std::size_t i = 0; i < 2; ++i) {
         out.active_fluids[i] = boolean(value->active_fluids[i]); out.direction[i] = input.optional(value->direction[i]);
-        out.inlet_temperature[i] = input.number(value->inlet_temperature[i]);
+        out.inlet_temperature[i] = input.scalar_array(value->inlet_temperature[i]);
         out.inlet_geom_fraction[i] = input.array(value->inlet_geom_fraction[i]);
         out.outlet_geom_fraction[i] = input.array(value->outlet_geom_fraction[i]); out.rho_cp[i] = input.array(value->rho_cp[i]);
         const auto& raw = value->quick[i]; auto& side = out.quick[i];
@@ -325,7 +373,7 @@ ResultEvidence evidence(Inputs& input, const tpmshx_result_evidence_v1* value) {
         side.viscosity = input.number(raw.viscosity);
     }
     out.parameter_epsilon = input.array(value->parameter_epsilon); out.design_epsilon = input.array(value->design_epsilon);
-    out.split_a = input.number(value->split_a); out.solid_density = input.number(value->solid_density);
+    out.split_a = input.scalar_array(value->split_a); out.solid_density = input.scalar_array(value->solid_density);
     out.quick_model = input.string(value->quick_model); out.arrangement = input.string(value->arrangement);
     out.hydraulic_diameter = input.number(value->hydraulic_diameter);
     out.absent_records = input.strings(value->absent_records, value->absent_record_count);
@@ -340,8 +388,14 @@ struct Output {
     Evaluation evaluation;
     std::string json_text;
     std::vector<tpmshx_stage_metric_value_v1> metrics;
-    void bind_metrics() {
-        for (const auto& row : evaluation.metrics) {
+    void bind_metrics(bool ordered = false) {
+        auto names = evaluation.metric_order;
+        if (!ordered || names.empty()) {
+            names.clear();
+            for (const auto& row : evaluation.metrics) names.push_back(row.first);
+        }
+        for (const auto& name : names) {
+            const auto& row = *evaluation.metrics.find(name);
             const auto& v = row.second;
             metrics.push_back({row.first.c_str(), {v.spec.name.c_str(), v.spec.unit.c_str(), v.spec.definition_version.c_str(), v.spec.description.c_str()},
                 v.value ? 1 : 0, v.value.value_or(0.0), v.status.c_str(), v.reason.c_str()});
@@ -350,10 +404,14 @@ struct Output {
 };
 
 template<class Run> int boundary(const tpmshx_result_evidence_v1* value, tpmshx_stage_output_v1* output,
-                                 char* error, std::size_t capacity, Run run) noexcept {
+                                 char* error, std::size_t capacity, Run run,
+                                 const tpmshx_stage_input_v2* extension = nullptr,
+                                 Diagnostics* diagnostics = nullptr, std::uint64_t* error_token = nullptr) noexcept {
     FloatingEnvironment environment;
     Inputs input;
     int status = TPMSHX_RESULT_OK;
+    Diagnostics failure_diagnostics{};
+    std::uint64_t failure_token{};
     const char* message = "";
     std::string saved_message;
     const auto save_message = [&](const char* value, const char* fallback) noexcept {
@@ -368,6 +426,31 @@ template<class Run> int boundary(const tpmshx_result_evidence_v1* value, tpmshx_
         if (reinterpret_cast<std::uintptr_t>(output) <= reinterpret_cast<std::uintptr_t>(error) + capacity - 1 &&
             reinterpret_cast<std::uintptr_t>(error) <= reinterpret_cast<std::uintptr_t>(output) + sizeof(*output) - 1)
             throw std::invalid_argument("result writable storage overlaps another buffer");
+        if (extension) {
+            input.host_input = true;
+            writable.sequence(diagnostics, 1); writable.sequence(error_token, 1);
+            for (const auto& a : writable.spans) for (const auto& b : writable.spans)
+                if (&a != &b && a.first <= b.last && b.first <= a.last)
+                    throw std::invalid_argument("result writable storage overlaps another buffer");
+            input.sequence(extension, 1);
+            if (extension->abi_version != 2 || extension->struct_size != sizeof(*extension))
+                throw std::invalid_argument("unsupported result host ABI");
+            input.sequence(extension->errors, extension->error_count);
+            for (std::size_t i = 0; i < extension->error_count; ++i) {
+                const auto& fault = extension->errors[i];
+                if (!fault.value || !fault.cause || fault.cause > host_exception)
+                    throw std::invalid_argument("invalid deferred result input error");
+                const auto message = input.text(fault.message, "a deferred error message");
+                if (!input.errors.emplace(fault.value, InputError{fault.cause, message, fault.token}).second)
+                    throw std::invalid_argument("duplicate deferred result input error");
+            }
+            input.sequence(extension->none_values, extension->none_count);
+            for (std::size_t i = 0; i < extension->none_count; ++i) {
+                if (!extension->none_values[i] || !input.none_values.insert(extension->none_values[i]).second)
+                    throw std::invalid_argument("invalid explicit None storage");
+            }
+            value = extension->evidence;
+        }
         output_valid = true;
         if (output->struct_size != sizeof(*output)) throw std::invalid_argument("unsupported result stage output size");
         if (output->owner) throw std::invalid_argument("release the previous result stage output before reuse");
@@ -375,18 +458,39 @@ template<class Run> int boundary(const tpmshx_result_evidence_v1* value, tpmshx_
         if (value->abi_version != TPMSHX_RESULT_STAGE_ABI_VERSION || value->struct_size != sizeof(*value))
             throw std::invalid_argument("unsupported result stage evidence ABI");
         copy_started = true;
-        const auto copied = evidence(input, value);
+        auto copied = evidence(input, value);
+        if (extension) {
+            copied.invalid_mode_repr = input.string(extension->invalid_mode_repr);
+            copied.physical_dimension_index = input.optional(extension->physical_dimension_index);
+            copied.physical_dimension_slice = input.optional(extension->physical_dimension_slice);
+            copied.qualification_error = input.optional(extension->qualification_error);
+            copied.solid_density = input.array(extension->solid_density);
+            copied.split_a = input.array(extension->split_a);
+            for (std::size_t i = 0; i < 2; ++i) {
+                copied.inlet_temperature[i] = input.array(extension->inlet_temperature[i]);
+                copied.inlet_temperature_none[i] = input.none_values.count(extension->inlet_temperature[i]) != 0;
+            }
+        }
         copied_inputs = true;
         auto owned = std::make_unique<Output>();
         run(input, copied, *owned);
         if (!input.disjoint(output, sizeof(*output)) || !input.disjoint(error, capacity))
             throw std::invalid_argument("result writable storage overlaps another buffer");
-        owned->bind_metrics();
+        if (extension && (!input.disjoint(diagnostics, sizeof(*diagnostics)) ||
+                          !input.disjoint(error_token, sizeof(*error_token))))
+            throw std::invalid_argument("result writable storage overlaps another buffer");
+        owned->bind_metrics(extension != nullptr);
         tpmshx_stage_output_v1 published{sizeof(*output), owned.get(), owned->json_text.c_str(),
             owned->metrics.data(), owned->metrics.size(), owned->evaluation.diagnostics};
         *output = published;
         owned.release();
-    } catch (const NumericError& failure) {status = TPMSHX_RESULT_NUMERIC; save_message(failure.what(), "native result numerical failure");}
+    } catch (const NumericError& failure) {
+        status = TPMSHX_RESULT_NUMERIC;
+        failure_diagnostics.python_cause = failure.cause;
+        failure_diagnostics.error_number = failure.error_number;
+        if (const auto* host_error = dynamic_cast<const HostError*>(&failure)) failure_token = host_error->token;
+        save_message(failure.what(), "native result numerical failure");
+    }
     catch (const std::invalid_argument& failure) {status = TPMSHX_RESULT_INVALID; save_message(failure.what(), "invalid native result input");}
     catch (const std::bad_alloc&) {status = TPMSHX_RESULT_ALLOCATION; message = "native result allocation failed";}
     catch (const std::exception& failure) {status = TPMSHX_RESULT_RUNTIME; save_message(failure.what(), "native result runtime failure");}
@@ -396,6 +500,11 @@ template<class Run> int boundary(const tpmshx_result_evidence_v1* value, tpmshx_
         !(reinterpret_cast<std::uintptr_t>(output) <= reinterpret_cast<std::uintptr_t>(error) + capacity - 1 &&
           reinterpret_cast<std::uintptr_t>(error) <= reinterpret_cast<std::uintptr_t>(output) + sizeof(*output) - 1))
         std::snprintf(error, capacity, "%s", message);
+    if (extension && copied_inputs && diagnostics && error_token &&
+        input.disjoint(diagnostics, sizeof(*diagnostics)) && input.disjoint(error_token, sizeof(*error_token))) {
+        *diagnostics = failure_diagnostics;
+        *error_token = failure_token;
+    }
     return status;
 }
 }  // namespace
@@ -436,6 +545,45 @@ int TPMSHX_RESULT_CALL tpmshx_result_stage_qualification_v1(const tpmshx_result_
         }
         owned.json_text = json(report(evaluate_qualification(copied, values)));
     });
+}
+int TPMSHX_RESULT_CALL tpmshx_result_stage_query_v2(const tpmshx_stage_input_v2* input,
+    uint32_t query, const tpmshx_stage_metric_spec_v1* requested,
+    const tpmshx_stage_metric_value_v1* metrics, size_t count,
+    tpmshx_stage_output_v1* output, Diagnostics* diagnostics, uint64_t* error_token,
+    char* error, size_t capacity) {
+    HostControl host;
+    host.events = [input](const Diagnostics& events) {
+        if (!input->events) return;
+        tpmshx_stage_host_error_v2 failure{};
+        if (input->events(input->context, &events, &failure)) {
+            if (!failure.cause || failure.cause > host_exception || !failure.message)
+                throw std::runtime_error("invalid result host callback error");
+            throw HostError(failure.cause, failure.message, failure.token);
+        }
+    };
+    return boundary(nullptr, output, error, capacity, [&](Inputs& packed, const ResultEvidence& copied, Output& owned) {
+        if (query == 0) {
+            std::optional<MetricSpec> selection;
+            if (requested) {packed.sequence(requested, 1); selection = spec(packed, *requested);}
+            owned.evaluation = evaluate(copied, selection, &host);
+            owned.json_text = json(report(owned.evaluation));
+        } else if (query == 1) {
+            owned.json_text = json(report(evaluate_applicability(copied, &host)));
+        } else if (query == 2) {
+            owned.json_text = json(report(evaluate_physical_balance(copied, &host)));
+        } else if (query == 3) {
+            packed.sequence(metrics, count);
+            std::map<std::string, MetricValue> values;
+            for (std::size_t i = 0; i < count; ++i) {
+                const auto& raw = metrics[i];
+                MetricValue metric{boolean(raw.has_value) ? std::optional<double>(raw.value) : std::nullopt,
+                    spec(packed, raw.spec), packed.text(raw.status, "a metric status"), packed.string(raw.reason).value_or("")};
+                if (!values.emplace(packed.text(raw.name, "a metric key"), std::move(metric)).second)
+                    throw std::invalid_argument("duplicate stage metric key");
+            }
+            owned.json_text = json(report(evaluate_qualification(copied, values, &host)));
+        } else throw std::invalid_argument("unsupported result stage query");
+    }, input, diagnostics, error_token);
 }
 void TPMSHX_RESULT_CALL tpmshx_result_stage_release_v1(tpmshx_stage_output_v1* value) {
     if (!value || value->struct_size != sizeof(*value)) return;

@@ -140,9 +140,53 @@ void c_contract() {
         reinterpret_cast<char*>(good.bytes.data()), good.bytes.size()) != 0, "C invalid array fails before report publication");
     require(arithmetic::to_float(good.array().at(0)) == 42., "C early failure preserves unvisited borrowed storage");
 }
+struct HostProbe {std::uint32_t cause{}; std::size_t calls{};};
+int TPMSHX_RESULT_CALL reject_event(void* context, const tpmshx_result_diagnostics_v1* events,
+                                   tpmshx_stage_host_error_v2* error) {
+    auto& probe = *static_cast<HostProbe*>(context);
+    require(events->event_count > 0, "host receives a real numerical event");
+    ++probe.calls;
+    *error = {probe.cause, 0, 77, "host policy rejected this operation"};
+    return 1;
+}
+void host_contract() {
+    tpmshx_result_evidence_v1 evidence{};
+    evidence.abi_version = TPMSHX_RESULT_STAGE_ABI_VERSION; evidence.struct_size = sizeof(evidence);
+    evidence.result_id = "host"; evidence.dimension = 2; evidence.converged = -1;
+    evidence.model_active_b = -1; evidence.richardson_extrapolated = -1;
+    evidence.active_fluids[0] = evidence.active_fluids[1] = 1;
+    auto epsilon = tensor({1, 1}, {-1.});
+    auto density = tensor({}, {std::numeric_limits<double>::max()});
+    auto width = tensor({1}, {1.});
+    const auto eps = epsilon.raw(), rho = density.raw(), dx = width.raw();
+    evidence.design_epsilon = &eps; evidence.grid.widths[0] = evidence.grid.widths[1] = &dx;
+    HostProbe probe{TPMSHX_RESULT_VALUE_ERROR, 0};
+    tpmshx_stage_input_v2 input{};
+    input.abi_version = 2; input.struct_size = sizeof(input); input.evidence = &evidence;
+    input.solid_density = &rho; input.context = &probe; input.events = reject_event;
+    tpmshx_stage_output_v1 output{}; output.struct_size = sizeof(output);
+    tpmshx_result_diagnostics_v1 diagnostics{}; std::uint64_t token{};
+    tpmshx_stage_metric_spec_v1 requested{"mass", "kg/m", "three_module_v1", ""};
+    char error[1024]{};
+    require(tpmshx_result_stage_query_v2(&input, 0, &requested, nullptr, 0,
+        &output, &diagnostics, &token, error, sizeof(error)) == 0, "metric consumes a host ValueError");
+    require(probe.calls == 1 && output.metric_count == 1, "one original primitive boundary");
+    require(std::strcmp(output.metrics[0].status, "invalid") == 0 && token == 0,
+            "consumed callback errors do not escape the successful stage");
+    tpmshx_result_stage_release_v1(&output);
+    probe.cause = 8; probe.calls = 0;
+    const auto before = output;
+    require(tpmshx_result_stage_query_v2(&input, 0, &requested, nullptr, 0,
+        &output, &diagnostics, &token, error, sizeof(error)) == TPMSHX_RESULT_NUMERIC,
+        "unhandled host error stops the stage");
+    require(probe.calls == 1 && token == 77 && diagnostics.python_cause == 8,
+        "unhandled callback keeps its original host identity");
+    require(std::memcmp(&before, &output, sizeof(output)) == 0, "host failure does not publish a report");
+}
+
 }
 int main() {
-    try {cpp_contract(); c_contract(); std::cout << "result stage contracts passed\n";}
+    try {cpp_contract(); c_contract(); host_contract(); std::cout << "result stage contracts passed\n";}
     catch (const std::exception& error) {std::cerr << error.what() << '\n'; return 1;}
     return 0;
 }
