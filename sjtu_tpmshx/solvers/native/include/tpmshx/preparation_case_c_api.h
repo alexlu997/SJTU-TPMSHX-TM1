@@ -5,6 +5,7 @@
 #include "tpmshx/preparation_df_c_api.h"
 
 #define TPMSHX_PREPARATION_CASE_ABI_VERSION 1u
+#define TPMSHX_PREPARATION_CASE_ABI_VERSION_V2 2u
 
 typedef struct {
     int32_t direction;
@@ -106,6 +107,68 @@ typedef struct {
     void* owner;
 } tpmshx_preparation_case_2d_v1;
 
+/* The value buffers use double transport. Tags retain the existing property
+ * precision, strong-scalar and layout rules. They do not change the units.
+ */
+typedef struct {uint32_t precision,strong,layout;} tpmshx_preparation_scalar_kind_v2;
+typedef struct {
+    tpmshx_preparation_scalar_kind_v2 velocity,temperature,pressure;
+} tpmshx_preparation_inlet_kinds_v2;
+typedef struct {
+    tpmshx_preparation_scalar_kind_v2 cell_length,wall_thickness,solid_conductivity;
+    tpmshx_preparation_inlet_kinds_v2 sides[2];
+} tpmshx_preparation_case_kinds_v2;
+typedef struct {
+    uint32_t mode,have_alpha[2];
+    double alpha[2];
+    tpmshx_preparation_text_v1 parameter_version,source,applicability;
+} tpmshx_preparation_sco2_nu_v2;
+typedef struct {
+    uint32_t abi_version;
+    size_t struct_size;
+    tpmshx_preparation_case_input_2d_v1 values;
+    tpmshx_preparation_sco2_nu_v2 sco2_nu;
+    tpmshx_preparation_case_kinds_v2 kinds;
+} tpmshx_preparation_case_input_2d_v2;
+typedef struct {tpmshx_preparation_text_v1 key,value;} tpmshx_preparation_text_field_v2;
+typedef struct {
+    uint32_t have_selection;
+    tpmshx_preparation_df_selection_v1 selection;
+    tpmshx_preparation_text_v1 application_scope,fluid;
+    const tpmshx_preparation_text_field_v2* calibration;
+    size_t calibration_count;
+} tpmshx_preparation_drag_selection_v2;
+typedef struct {
+    uint32_t active,sides[2];
+    tpmshx_preparation_text_v1 version,application_version,pressure_model;
+    double pressure_multiplier,scale_K,scale_F,nu_multiplier,nu_floor_multiplier;
+    tpmshx_preparation_text_v1 correction_source,property_model,common_geometry;
+    double re_range[2],pr_range[2];
+} tpmshx_preparation_co2_model_v2;
+typedef struct {
+    uint32_t abi_version;
+    size_t struct_size;
+    tpmshx_preparation_case_2d_v1 values;
+    tpmshx_preparation_case_kinds_v2 input_kinds;
+    tpmshx_preparation_scalar_kind_v2 field_kinds[5],property_kinds[2][13];
+    tpmshx_preparation_sco2_nu_v2 sco2_nu;
+    tpmshx_preparation_text_v1 sco2_nu_model_version,sco2_nu_interpretation;
+    double sco2_nu_coefficients[2][3];
+    tpmshx_preparation_drag_selection_v2 drag[2];
+    tpmshx_preparation_co2_model_v2 co2;
+    const tpmshx_preparation_text_v1* notices;
+    size_t notice_count;
+    const uint32_t* range_bounds_list;
+} tpmshx_preparation_case_2d_v2;
+typedef struct {uint32_t kind;char message[4096];} tpmshx_preparation_failure_cause_v2;
+typedef struct {
+    uint32_t abi_version;
+    size_t struct_size;
+    uint32_t kind,side,have_property,cause_count;
+    tpmshx_property_failure_v1 property;
+    tpmshx_preparation_failure_cause_v2 causes[2];
+} tpmshx_preparation_case_failure_v2;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -133,6 +196,34 @@ TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_case_2d_v1(
 /* Clear the result. NULL and an already cleared result are accepted. */
 TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_case_2d_release_v1(
     tpmshx_preparation_case_2d_v1* result);
+
+/* V2 adds four fluids and existing uniform experimental DF/Nu choices.
+ * values keeps its v1 layout/version; df_mode=0/1 selects CFD/experimental.
+ * It does not enable nonzero delta, zones, prescribed mass flow or run_case.
+ * Scalar tags use precision 16/32/64, strong 0/1 and layout 0/1/2.
+ * A weak scalar uses precision=64 and layout=0. A strong scalar uses 1/2.
+ * Nu mode 0=CFD, 1=experimental. Both experimental alphas and provenance
+ * texts are required. Texts are borrowed for this call and then copied.
+ * field_kinds order: cell_length,wall_thickness,porosity,solid,radius.
+ * property_kinds follows inlet_properties_v1 declaration order. It describes
+ * the original property scalars before the host freezes metadata values.
+ * range_bounds_list has values.range_count flags. Each flag retains the
+ * original range bound container: 0=tuple, 1=list, before DTO freezing.
+ * failure is required, versioned, writable and disjoint from all inputs,
+ * result and error. Kind: 0=none, 1=ValueError, 2=WaterStateError, 3=RuntimeError;
+ * side: 0=A, 1=B, 2=shared. Cause messages are bounded and NUL-terminated.
+ * A failed call writes only error/failure. Success clears failure details.
+ * Release the complete v2 result once; values and all other views are borrowed.
+ */
+TPMSHX_PREPARATION_API uint32_t TPMSHX_PREPARATION_CALL tpmshx_preparation_case_abi_version_v2(void);
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_case_2d_v2(
+    const tpmshx_preparation_case_input_2d_v2* input,
+    const tpmshx_preparation_case_options_v1* options,
+    const tpmshx_preparation_case_callbacks_v1* callbacks,
+    tpmshx_preparation_case_2d_v2* result,tpmshx_preparation_case_failure_v2* failure,
+    char* error,size_t error_capacity);
+TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_case_2d_release_v2(
+    tpmshx_preparation_case_2d_v2* result);
 
 #ifdef __cplusplus
 }
