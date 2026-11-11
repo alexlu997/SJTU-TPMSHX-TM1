@@ -74,6 +74,30 @@ Their nested owner fields are null; release only the complete result.
 Depth and target tags retain the existing floating and integer scalar arithmetic.
 Python object validation and configuration snapshots remain host responsibilities.
 
+## Continuous XY fields
+
+Preparation v4 uses `ContinuousInput2D` for canonical continuous XY controls.
+It supports prescribed speed and the v3 total-flow queries and preparation.
+It keeps v1/v2/v3 C layouts and the existing Python production routes.
+The control input gives integer counts, order 1..3, a y-mirror flag, bounds and decisions.
+Decisions contain L values followed by t values, in mm and C order.
+With y mirroring, each field stores its lower half, including an odd central row.
+The existing geometry bounds apply to controls and clipping bounds.
+
+The existing spline core samples actual physical cell centres.
+Fixed-flow preparation reuses those fields when it resolves inlet speeds.
+The complete result carries the existing prepared and preliminary flow views.
+It adds four physical-cell arrays: area density, original hydraulic diameter and two fluid conductivities.
+Local permeability and Forchheimer arrays use each side's existing `(cross, stream)` view.
+Rows retain their pressure-seed role. The complete local fields remain available to the run adapter.
+
+CFD mode supports both topologies and all 16 ordered fluid pairs.
+Experimental transfer retains the Shanghai Gyroid air-A/water-B contract at nominal 7/0.6 mm.
+Its domain, velocity rules and exploratory evidence remain unchanged.
+The CO2/CO2 fixed-factor path also remains available in experimental mode.
+Early range labels retain their transfer context. Final metadata retains the continuous application scope and reference geometry.
+These preparation interfaces do not change the run interface or certify gradient accuracy.
+
 ## Build and install
 
 Use the setup and locked dependency commands in [README](../README.en.md).
@@ -126,6 +150,8 @@ The [fluid preparation example](../examples/cpp/prepare_fluids_2d.cpp) prepares 
 It links only the preparation library and does not execute a solve.
 The [mass-flow preparation example](../examples/cpp/prepare_mass_2d.cpp) queries capacities, resolves an explicit pair and prepares the case.
 It also links only preparation and does not execute a solve.
+The [continuous preparation example](../examples/cpp/prepare_continuous_2d.cpp) starts with XY decisions and total flow.
+It exposes physical fields and local drag through v4, with only the preparation library.
 These examples use only installed public headers and shared libraries.
 The Windows build copies the required DLLs beside each executable.
 

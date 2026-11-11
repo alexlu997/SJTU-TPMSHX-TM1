@@ -159,7 +159,11 @@ def _check_values(result, expected, config):
             _same(_array(getattr(value, name)), flow[key], side + key)
         for name, key in [('seed_permeability_m2', 'seed_K_m2'), ('seed_forchheimer_per_m', 'seed_cF_per_m')]:
             _same(getattr(value, name), flow[key], side + key)
-        assert value.permeability.size == value.forchheimer.size == 0
+        if 'K_field_m2' in flow:
+            for name, key in [('permeability', 'K_field_m2'), ('forchheimer', 'cF_field_per_m')]:
+                _same(_array(getattr(value, name)).reshape(flow[key].shape), flow[key], side + key)
+        else:
+            assert value.permeability.size == value.forchheimer.size == 0
         for name, key in [('inlet_geometry', 'in_geom_frac'), ('outlet_geometry', 'out_geom_frac'), ('inlet_profile', 'in_profile_frac'), ('outlet_profile', 'out_profile_frac')]:
             _same(_array(getattr(value, name)), params['boundary_openings'][side][key], side + key)
         for name, key in [('rho', 'rho'), ('mu', 'mu'), ('k_f', 'k_f'), ('re', 'Re'), ('nu', 'Nu'), ('permeability_m2', 'K_df'), ('forchheimer_per_m', 'cF_df'), ('pressure_gradient_Pa_m', 'dP_per_L'), ('surface_transfer_W_m2K', 'H_sf'), ('fluid_conductivity_W_mK', 'K_ff'), ('solid_conductivity_W_mK', 'K_ss')]:
@@ -197,7 +201,7 @@ def _check_values(result, expected, config):
     assert [(_text(model.name), _text(model.version), _text(model.side)) for model in actual.models] == [(model.name, model.version, 'AB'[index] if index < 2 else '') for index, model in enumerate(expected.model_refs)]
 
 
-def _check_evidence(result, expected, records, events, live, config):
+def _check_evidence(result, expected, records, events, live, config, *, event_converter=None):
     actual = result.values
     assert [v1._range(actual.ranges[i]) for i in range(actual.range_count)] == list(expected.metadata['applicability_inputs'])
     for last in (False, True):
@@ -211,7 +215,8 @@ def _check_evidence(result, expected, records, events, live, config):
     assert [_text(actual.ranges[i].label) for i in range(actual.range_count)] == [value.label for value in records.values() if isinstance(value, RangeRecord)]
     assert [_text(item) for item in actual.warnings[:actual.warning_count]] == list(expected.metadata['warnings'])
     saved = [(item.kind, _text(item.logger), _text(item.message), item.floating_event) for item in actual.events[:actual.event_count]]
-    assert saved == live == events
+    assert saved == live
+    assert (event_converter(saved) if event_converter else saved) == events
     assert [_text(item) for item in result.notices[:result.notice_count]] == list(expected.metadata.get('notices', ()))
     settings = config.sco2_nu
     assert result.sco2_nu.mode == (settings.mode == 'experimental')

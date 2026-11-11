@@ -6,6 +6,7 @@
 #include "tpmshx/preparation_df_data.hpp"
 #include "preparation_df_fields.hpp"
 #include "preparation_properties.hpp"
+#include "field_continuous.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -135,7 +136,7 @@ std::pair<DfSelection,DfPair> experiment_selection(const CaseInput2D& input,cons
     const auto fluid=static_cast<std::uint32_t>(inlet.fluid);
     const auto cell=input.geometry.cell_length_mm,wall=input.geometry.wall_thickness_mm,speed=inlet.velocity_m_s;
     try {
-        const auto selected=df_select(topology,fluid,false,{&cell,1},{&wall,1},{&speed,1},true);
+        const auto selected=df_select(topology,fluid,input.continuous.has_value(),{&cell,1},{&wall,1},{&speed,1},true);
         return {selected,df_scales(topology,selected,{&cell,1},{&wall,1}).front()};
     } catch (const std::invalid_argument& error) {
         std::string text=error.what();
@@ -197,16 +198,56 @@ PortInput2D checked_port(PortInput2D port,const GridInput2D& grid,const std::str
     return port;
 }
 
+void validate_controls(const ContinuousControls2D& controls) {
+    if (controls.order<1 || controls.order>3)
+        throw std::invalid_argument("Continuous field spline_order must be 1..3");
+    if (!controls.nx || !controls.ny)
+        throw std::invalid_argument("Continuous field needs >=1 controls per axis");
+    for (double value:controls.decision_mm) if (!std::isfinite(value))
+        throw std::invalid_argument("Continuous field x_decision must be a list of finite numbers");
+    const std::array<std::array<double,2>,2> bounds{controls.cell_bounds_mm,controls.wall_bounds_mm};
+    for (std::size_t i=0;i<2;++i) for (double value:bounds[i]) if (!std::isfinite(value))
+        throw std::invalid_argument(std::string("Continuous field ")+(i?"t_bounds":"L_bounds")+
+            " must be a list of finite numbers");
+    for (std::size_t i=0;i<2;++i) {
+        const auto& values=bounds[i];
+        const double lower=i?df_data::df_t_nodes.front():df_data::df_L_nodes.front();
+        const double upper=i?df_data::df_t_nodes.back():df_data::df_L_nodes.back();
+        if (!(lower<=values[0] && values[0]<=values[1] && values[1]<=upper))
+            throw std::invalid_argument(std::string("Continuous field ")+(i?"t_bounds":"L_bounds")+
+                " must be ordered within ("+decimal(lower)+", "+decimal(upper)+") mm");
+    }
+    const auto columns=controls.symmetric_y?controls.ny/2+controls.ny%2:controls.ny;
+    const auto half=count(controls.nx,columns),expected=count(half,2);
+    if (controls.decision_mm.size()!=expected)
+        throw std::invalid_argument("Continuous field x_decision must contain "+std::to_string(expected)+" values");
+    for (std::size_t i=0;i<expected;++i) {
+        const auto& limits=bounds[i/half];const auto value=controls.decision_mm[i];
+        if (!(limits[0]<=value && value<=limits[1]))
+            throw std::invalid_argument("Continuous field control values must lie within their L/t bounds");
+    }
+}
+CaseScope flow_scope(const CaseInput2D& input) {
+    return input.continuous?CaseScope::continuous_v4:CaseScope::uniform_mass_v3;
+}
 std::array<InletInput2D,2> validate(const CaseInput2D& input,CaseScope scope,bool static_only=false) {
-    if (input.geometry_mode!=0)
+    const bool continuous=scope==CaseScope::continuous_v4;
+    const bool mass=continuous || scope==CaseScope::uniform_mass_v3;
+    if (continuous) {
+        if (input.geometry_mode!=1 || !input.continuous)
+            throw std::invalid_argument("native continuous preparation requires canonical XY controls and geometry_mode=1");
+        validate_controls(*input.continuous);
+    } else if (input.geometry_mode!=0 || input.continuous)
         throw std::invalid_argument("native 2D preparation currently requires uniform geometry");
     if (scope==CaseScope::air_cfd_v1) {
         if (input.df_mode) throw std::invalid_argument("native 2D preparation currently requires df_mode='cfd_smooth'");
     } else {
         validate_nu(input.sco2_nu);
+        if (continuous && input.geometry.delta_levelset!=0.)
+            throw std::invalid_argument("Continuous spatial fields require delta_levelset=0");
         if (input.df_mode>1) throw std::invalid_argument("native 2D preparation DF mode must be CFD or experimental");
     }
-    if (scope==CaseScope::uniform_mass_v3) for (std::size_t i=0;i<2;++i) {
+    if (mass) for (std::size_t i=0;i<2;++i) {
         const auto target=input.sides[i].mass_flow_kg_s;
         if (target) {
             positive(*target,std::string("fluid_")+(i?"B":"A")+".mass_flow_kg_s");
@@ -224,7 +265,7 @@ std::array<InletInput2D,2> validate(const CaseInput2D& input,CaseScope scope,boo
     auto sides=input.sides;
     for (std::size_t side=0;side<2;++side) {
         const auto name=std::string(side?"B":"A");
-        if (sides[side].mass_flow_kg_s && scope!=CaseScope::uniform_mass_v3)
+        if (sides[side].mass_flow_kg_s && !mass)
             throw std::invalid_argument("native 2D preparation currently requires prescribed inlet velocity");
         positive(sides[side].temperature_K,"fluid_"+name+".T_in_K");
         positive(sides[side].pressure_Pa,"fluid_"+name+".P_in_Pa");
@@ -255,6 +296,15 @@ std::array<InletInput2D,2> validate(const CaseInput2D& input,CaseScope scope,boo
     if (scope==CaseScope::air_cfd_v1) for (const auto& side:sides) if (side.fluid!=Fluid::air)
         throw std::invalid_argument("native 2D preparation currently supports air/air only");
     for (const auto& side:sides) fluid_name(side.fluid);
+    if (!static_only && continuous && input.df_mode) {
+        const bool shanghai=geometry.topology==Topology::gyroid && sides[0].fluid==Fluid::air
+            && sides[1].fluid==Fluid::water && std::abs(geometry.cell_length_mm-7.)<=1e-12
+            && std::abs(geometry.wall_thickness_mm-.6)<=1e-12;
+        if (!shanghai && (sides[0].fluid!=Fluid::co2 || sides[1].fluid!=Fluid::co2))
+            throw std::invalid_argument("experimental calibration currently requires uniform L/t; "
+                "continuous Shanghai Gyroid air/water fields may use "
+                "the 7/0.6 calibration as an exploratory extrapolation");
+    }
     if (!static_only && input.df_mode) for (std::size_t side=0;side<2;++side) if (sides[side].fluid!=Fluid::co2) {
         const auto selected=experiment_selection(input,sides[side],side).first;
         const auto close=[](double a,double b) {return std::abs(a-b)<=1e-9*std::max(std::abs(a),std::abs(b));};
@@ -391,6 +441,28 @@ struct Records {
             sample.minimum=sample.maximum=value;
             sample.low=value<limits[0]?sample.size:0;sample.high=value>limits[1]?sample.size:0;
         } else sample.nonfinite=sample.size;
+        collect(std::move(source),side,stage,layout,std::move(label),quantity,unit,limits,
+                std::move(shape),sample,bounds_list);
+    }
+    void range(std::vector<std::string> source,const std::string& side,const std::string& stage,
+               const std::string& layout,std::string label,const char* quantity,const char* unit,
+               const std::array<double,2>& limits,const std::vector<double>& values,
+               std::vector<std::size_t> shape) {
+        PreparationRangeSample sample;sample.size=values.size();
+        for (std::size_t i=0;i<values.size();++i) {
+            const auto value=values[i];
+            if (!std::isfinite(value)) {++sample.nonfinite;continue;}
+            if (!sample.have_finite || value<sample.minimum) {sample.minimum=value;sample.minimum_index=i;}
+            if (!sample.have_finite || value>sample.maximum) {sample.maximum=value;sample.maximum_index=i;}
+            sample.have_finite=true;sample.low+=value<limits[0]?1:0;sample.high+=value>limits[1]?1:0;
+        }
+        collect(std::move(source),side,stage,layout,std::move(label),quantity,unit,limits,
+                std::move(shape),sample,false);
+    }
+    void collect(std::vector<std::string> source,const std::string& side,const std::string& stage,
+                 const std::string& layout,std::string label,const char* quantity,const char* unit,
+                 const std::array<double,2>& limits,std::vector<std::size_t> shape,
+                 PreparationRangeSample sample,bool bounds_list) {
         for (auto& previous:output.ranges) if (previous.source==source && previous.side==side
                 && previous.stage==stage && previous.layout==layout && previous.shape==shape) {
             auto aggregate=previous.sample;
@@ -398,8 +470,12 @@ struct Records {
                 aggregate.low=sample.low;aggregate.high=sample.high;aggregate.size=sample.size;
             }
             if (sample.have_finite) {
-                if (!aggregate.have_finite || sample.minimum<aggregate.minimum) aggregate.minimum=sample.minimum;
-                if (!aggregate.have_finite || sample.maximum>aggregate.maximum) aggregate.maximum=sample.maximum;
+                if (!aggregate.have_finite || sample.minimum<aggregate.minimum) {
+                    aggregate.minimum=sample.minimum;aggregate.minimum_index=sample.minimum_index;
+                }
+                if (!aggregate.have_finite || sample.maximum>aggregate.maximum) {
+                    aggregate.maximum=sample.maximum;aggregate.maximum_index=sample.maximum_index;
+                }
                 aggregate.have_finite=true;
             }
             aggregate.nonfinite=std::max(aggregate.nonfinite,sample.nonfinite);
@@ -604,7 +680,8 @@ UniformInletProperties inlet_properties(const CaseInput2D& input,const InletInpu
     return output;
 }
 
-void prepare_drag(const CaseInput2D& input,std::size_t index,DfPair base,PreparedSide2D& side,Records& records) {
+void prepare_drag(const CaseInput2D& input,std::size_t index,DfPair base,PreparedSide2D& side,Records& records,
+                  const std::vector<DfPair>* local=nullptr,const PhysicalGrid2D* grid=nullptr) {
     auto& evidence=side.drag_evidence;
     evidence.campaign="water-sco2-cfd-fixed-v2";evidence.scope="CFD-smooth-wall";
     DfPair factors{1.,1.};
@@ -621,12 +698,16 @@ void prepare_drag(const CaseInput2D& input,std::size_t index,DfPair base,Prepare
         evidence.campaign=campaigns[selection.campaign];
         evidence.scope=selection.scope?"HX-effective":"core-calibrated";
         if (selection.scope) {
-            evidence.application_scope=df_data::hx_application_scope;
+            evidence.application_scope=local?
+                "Exploratory Gyroid air/water geometry transfer of frozen 7/0.6 HX factors; accuracy unvalidated":
+                df_data::hx_application_scope;
+            if (local) evidence.transfer_policy="frozen-hx-7-0.6-trend";
             if (side.inlet.fluid==Fluid::air && input.geometry.topology==Topology::gyroid)
                 for (const auto& item:df_data::hx_air_calibration) evidence.calibration.push_back({item[0],item[1]});
             const auto fluid=std::string(fluid_name(side.inlet.fluid));
             const auto topology=std::string(topology_name(input.geometry.topology));
-            const auto label="[D-F extrap] "+fluid+"/"+topology+"; frozen sF; approved application; reference window ["+
+            const auto label="[D-F extrap] "+fluid+"/"+topology+"; frozen sF; "+
+                (local?"research transfer":"approved application")+"; reference window ["+
                 decimal(selection.application_u[0])+", "+decimal(selection.application_u[1])+"] m/s; "+evidence.application_scope;
             records.range({"df-experimental",fluid,topology},index?"B":"A","prepared-df","solver-row",label,
                 "inlet u","m/s",{selection.runtime_u[0],selection.runtime_u[1]},side.inlet.velocity_m_s);
@@ -636,6 +717,36 @@ void prepare_drag(const CaseInput2D& input,std::size_t index,DfPair base,Prepare
     side.seed_forchheimer_per_m=df_apply_scale({&base.cF,1},{&factors.cF,1},false).front();
     side.row_permeability.assign(side.stream_widths.size(),side.seed_permeability_m2);
     side.row_forchheimer.assign(side.stream_widths.size(),side.seed_forchheimer_per_m);
+    if (local) {
+        const auto cross=side.cross_widths.size(),stream=side.stream_widths.size();
+        std::vector<double> base_k(count(cross,stream)),base_f(base_k.size());
+        const auto direction=side.inlet.port.direction;
+        for (std::size_t row=0;row<cross;++row) for (std::size_t column=0;column<stream;++column) {
+            const auto physical=(direction==1 || direction==3)?stream-1-column:column;
+            const auto source=direction<2?physical*grid->ny+row:row*grid->ny+physical;
+            base_k[row*stream+column]=(*local)[source].K;base_f[row*stream+column]=(*local)[source].cF;
+        }
+        const std::vector<double> scale_k(base_k.size(),factors.K),scale_f(base_f.size(),factors.cF);
+        side.permeability=df_apply_scale({base_k.data(),base_k.size()},{scale_k.data(),scale_k.size()},experimental);
+        side.forchheimer=df_apply_scale({base_f.data(),base_f.size()},{scale_f.data(),scale_f.size()},experimental);
+        const auto rows=df_row_means(cross,stream,{side.permeability.data(),side.permeability.size()},
+            {side.forchheimer.data(),side.forchheimer.size()},false,false);
+        for (std::size_t i=0;i<rows.size();++i) {
+            side.row_permeability[i]=rows[i].K;side.row_forchheimer[i]=rows[i].cF;
+        }
+        evidence.base_permeability=df_summary({base_k.data(),base_k.size()},base_k.size()==1);
+        evidence.base_forchheimer=df_summary({base_f.data(),base_f.size()},base_f.size()==1);
+        evidence.applied_permeability=df_summary({side.permeability.data(),side.permeability.size()},side.permeability.size()==1);
+        evidence.applied_forchheimer=df_summary({side.forchheimer.data(),side.forchheimer.size()},side.forchheimer.size()==1);
+        evidence.scale_permeability=factors.K;evidence.scale_forchheimer=factors.cF;
+        if (experimental) {
+            evidence.geometry_application="continuous-field-extrapolation";
+            evidence.reference_geometry_mm=std::array<double,2>{input.geometry.cell_length_mm,input.geometry.wall_thickness_mm};
+            evidence.application_scope="Exploratory continuous L/t trend prediction using "
+                "frozen uniform-HX factors; gradient accuracy unvalidated";
+        }
+        return;
+    }
     const bool summary_scalar=experimental || side.stream_widths.size()==1;
     const std::vector<double> base_k(side.stream_widths.size(),base.K),base_f(side.stream_widths.size(),base.cF);
     evidence.base_permeability=df_summary({base_k.data(),base_k.size()},summary_scalar);
@@ -662,7 +773,7 @@ void model_evidence(const CaseInput2D& input,PreparationEvidence& evidence) {
             "; declared applicability: "+selected.applicability+
             ". This selection does not certify local Nu or whole-unit validation.";
         if (input.geometry.cell_length_mm!=df_data::hx_geometry_mm[0]
-            || input.geometry.wall_thickness_mm!=df_data::hx_geometry_mm[1])
+            || input.geometry.wall_thickness_mm!=df_data::hx_geometry_mm[1] || input.continuous)
             notice+=" Experimental geometry extrapolation beyond the uniform 7 mm / 0.6 mm specimen.";
         evidence.notices.push_back(std::move(notice));
     }
@@ -727,10 +838,67 @@ void finish_warnings(Records& records) {
     }
 }
 
+struct LocalGeometry2D {
+    std::vector<double> cell_mm,wall_mm,epsilon,solid,radius,area,diameter;
+};
+std::vector<double> control_axis(std::size_t count,double length) {
+    if (count==1) return {length/2.};
+    std::vector<double> values(count);const auto step=length/static_cast<double>(count-1);
+    for (std::size_t i=0;i<count;++i) values[i]=static_cast<double>(i)*step;
+    values.back()=length;return values;
+}
+LocalGeometry2D local_geometry(const CaseInput2D& input,const PhysicalGrid2D& grid,
+                               const PreparationOptions& options) {
+    const auto& controls=*input.continuous;
+    const auto x=control_axis(controls.nx,input.grid.length_m),y=control_axis(controls.ny,input.grid.height_m);
+    const auto xc=g::continuous_centres(grid.nx,g::weak(input.grid.length_m),&grid.dx);
+    const auto yc=g::continuous_centres(grid.ny,g::weak(input.grid.height_m),&grid.dy);
+    const auto half_y=controls.symmetric_y?controls.ny/2+controls.ny%2:controls.ny;
+    const auto half=count(controls.nx,half_y);
+    std::array<std::vector<double>,2> sampled;
+    for (std::size_t field=0;field<2;++field) {
+        std::vector<double> values(count(controls.nx,controls.ny));
+        for (std::size_t i=0;i<controls.nx;++i) for (std::size_t j=0;j<controls.ny;++j) {
+            const auto source=controls.symmetric_y && j>=half_y?controls.ny-1-j:j;
+            values[i*controls.ny+j]=controls.decision_mm[field*half+i*half_y+source];
+        }
+        const auto& limits=field?controls.wall_bounds_mm:controls.cell_bounds_mm;
+        if (controls.nx>1 && controls.ny>1) {
+            fields::XYFit fit(x.data(),x.size(),y.data(),y.size(),values.data(),values.size(),
+                static_cast<int>(std::min<std::size_t>(controls.order,controls.nx-1)),
+                static_cast<int>(std::min<std::size_t>(controls.order,controls.ny-1)));
+            sampled[field]=fit.sample(values.data(),values.size(),xc.data(),xc.size(),yc.data(),yc.size(),limits[0],limits[1]);
+        } else {
+            const std::size_t counts[]{controls.nx,controls.ny},sizes[]{grid.nx,grid.ny};
+            const double* axes[]{x.data(),y.data()};const double* samples[]{xc.data(),yc.data()};
+            sampled[field]=fields::sample_tensor(2,counts,axes,values.data(),values.size(),
+                static_cast<int>(controls.order),sizes,samples,limits[0],limits[1]);
+        }
+    }
+    LocalGeometry2D output;output.cell_mm=std::move(sampled[0]);output.wall_mm=std::move(sampled[1]);
+    const auto& model=input.geometry;const auto cells=count(grid.nx,grid.ny);
+    std::vector<geometry::MaterialGeometry> materials;
+    if (co2_geometry(input)) {
+        const auto table=geometry::Co2GeometryTable::from_generated(model.topology);
+        materials.reserve(cells);
+        for (std::size_t i=0;i<cells;++i) materials.push_back(table.evaluate(
+            output.cell_mm[i],output.wall_mm[i],model.solid_conductivity_W_mK,options.chi_override));
+    } else materials=geometry::standard_material_geometry_batch(geometry_index(model.topology),
+        geometry::calibration(model.topology),{output.cell_mm.data(),cells},{output.wall_mm.data(),cells},
+        model.solid_conductivity_W_mK,options.chi_override);
+    for (const auto& material:materials) {
+        const auto& value=material.geometry;
+        output.epsilon.push_back(value.epsilon);output.solid.push_back(material.solid_conductivity);
+        output.radius.push_back(geometry::hydraulic_radius(value.hydraulic_diameter));
+        output.area.push_back(value.area_density);output.diameter.push_back(value.hydraulic_diameter);
+    }
+    return output;
+}
 struct InletGeometry2D {
     geometry::MaterialGeometry material;
     PhysicalGrid2D grid;
     std::array<PreparedSide2D,2> sides;
+    std::optional<LocalGeometry2D> local;
 };
 
 PreparedCase2D prepare_case(const CaseInput2D& input,const PreparationOptions& options,
@@ -744,15 +912,34 @@ PreparedCase2D prepare_case(const CaseInput2D& input,const PreparationOptions& o
     const auto& uniform=output.uniform_geometry.geometry;
     output.hydraulic_radius_m=geometry::hydraulic_radius(uniform.hydraulic_diameter);
     preflight(input,options,uniform,inlets,records);
+    // Full host preparation reads both conductivities before and after its mesh.
+    if (input.continuous) for (std::size_t i=0;i<2;++i)
+        property(2,inlets[i],input.kinds.sides[i],"unbound","unbound",records);
     output.grid=inlet_geometry?inlet_geometry->grid:physical_grid(input.grid,inlets);
     if (!inlet_geometry) record_grid(input,output.grid,records);
+    std::optional<LocalGeometry2D> local;
+    std::vector<DfPair> local_drag;
+    if (input.continuous) {
+        local=inlet_geometry?inlet_geometry->local:std::optional<LocalGeometry2D>{local_geometry(input,output.grid,options)};
+        std::vector<double> epsilon_half(local->epsilon.size());
+        for (std::size_t i=0;i<epsilon_half.size();++i) epsilon_half[i]=local->epsilon[i]*.5;
+        for (std::size_t i=0;i<2;++i) {
+            const auto conductivity=property(2,inlets[i],input.kinds.sides[i],"unbound","unbound",records);
+            const std::vector<double> conductivity_values(epsilon_half.size(),conductivity);
+            auto result=pore_conductivity({{epsilon_half.data(),epsilon_half.size()},{0.,64,1},3},
+                {{conductivity_values.data(),conductivity_values.size()},g::weak(conductivity),0});
+            records.floating(result.events);output.fluid_conductivity[i]=std::move(result.values);
+        }
+        local_drag=fixed_df_batch(static_cast<std::uint32_t>(model.topology),
+            {local->cell_mm.data(),local->cell_mm.size()},{local->wall_mm.data(),local->wall_mm.size()});
+    }
     const auto drag=fixed_df(static_cast<std::uint32_t>(model.topology),model.cell_length_mm,model.wall_thickness_mm);
     for (std::size_t i=0;i<2;++i) {
         auto& side=output.sides[i];
         if (inlet_geometry) side=inlet_geometry->sides[i];
         side.inlet=inlets[i];
         if (!inlet_geometry) prepare_ports(output.grid,side);
-        prepare_drag(input,i,drag,side,records);
+        prepare_drag(input,i,drag,side,records,local?&local_drag:nullptr,local?&output.grid:nullptr);
     }
     for (std::size_t i=0;i<2;++i)
         output.sides[i].properties=inlet_properties(input,inlets[i],i,output.uniform_geometry,records,output.sides[i].property_kinds);
@@ -765,14 +952,31 @@ PreparedCase2D prepare_case(const CaseInput2D& input,const PreparationOptions& o
     output.hydraulic_radius.assign(cells,output.hydraulic_radius_m);
     output.field_kinds={input.kinds.cell_length,input.kinds.wall_thickness,ScalarKind{},
                         solid_result_kind(input),numpy_double};
+    if (local) {
+        for (std::size_t i=0;i<cells;++i) {
+            output.cell_length[i]=local->cell_mm[i]*1e-3;output.wall_thickness[i]=local->wall_mm[i]*1e-3;
+        }
+        output.total_porosity=local->epsilon;output.solid_conductivity=local->solid;
+        output.hydraulic_radius=local->radius;output.area_density=local->area;output.hydraulic_diameter=local->diameter;
+        output.field_kinds.fill(numpy_double);
+    }
     model_evidence(input,output.evidence);
     const std::vector<std::size_t> shape{output.grid.nx,output.grid.ny};
+    if (local) {
+        std::vector<double> cell_mm(cells),wall_mm(cells);
+        for (std::size_t i=0;i<cells;++i) {cell_mm[i]=output.cell_length[i]*1e3;wall_mm[i]=output.wall_thickness[i]*1e3;}
+        records.range({"geometry","L_field_m"},"shared","prepared-geometry","physical-cell","fixed geometry domain","cell length","mm",
+            {df_data::df_L_nodes.front(),df_data::df_L_nodes.back()},cell_mm,shape);
+        records.range({"geometry","t_field_m"},"shared","prepared-geometry","physical-cell","fixed geometry domain","wall thickness","mm",
+            {df_data::df_t_nodes.front(),df_data::df_t_nodes.back()},wall_mm,shape);
+    } else {
     records.range({"geometry","L_field_m"},"shared","prepared-geometry","physical-cell","fixed geometry domain","cell length","mm",
                   {df_data::df_L_nodes.front(),df_data::df_L_nodes.back()},
                   g::multiply(scalar(output.cell_length_m,input.kinds.cell_length),g::weak(1e3)).value,shape);
     records.range({"geometry","t_field_m"},"shared","prepared-geometry","physical-cell","fixed geometry domain","wall thickness","mm",
                   {df_data::df_t_nodes.front(),df_data::df_t_nodes.back()},
                   g::multiply(scalar(output.wall_thickness_m,input.kinds.wall_thickness),g::weak(1e3)).value,shape);
+    }
     finish_warnings(records);
     return output;
 }
@@ -790,11 +994,12 @@ g::Scalar flow_scalar(double value,ScalarKind kind) {
 
 InletGeometry2D prepare_inlet_geometry(const CaseInput2D& input,ScalarKind depth_kind,
     const PreparationOptions& options,const PreparationCallbacks& callbacks,InletFlow2D& flow) {
-    const auto inlets=validate(input,CaseScope::uniform_mass_v3,true);
+    const auto inlets=validate(input,flow_scope(input),true);
     InletGeometry2D output{};output.material=material_geometry(input,options);
     output.grid=physical_grid(input.grid,inlets);
     Records records{flow.evidence,callbacks,{},{}};record_grid(input,output.grid,records);
     for (std::size_t i=0;i<2;++i) {output.sides[i].inlet=inlets[i];prepare_ports(output.grid,output.sides[i]);}
+    if (input.continuous) output.local=local_geometry(input,output.grid,options);
     std::array<double,2> densities;
     for (std::size_t i=0;i<2;++i)
         densities[i]=property(0,inlets[i],input.kinds.sides[i],"unbound","unbound",records);
@@ -804,7 +1009,15 @@ InletGeometry2D prepare_inlet_geometry(const CaseInput2D& input,ScalarKind depth
         if (input.geometry.delta_levelset!=0.)
             throw std::invalid_argument("2D fixed-flow optimization currently requires delta_levelset=0");
         const auto& side=output.sides[i];
-        const std::vector<double> epsilon(side.cross_widths.size(),output.material.geometry.epsilon);
+        std::vector<double> epsilon(side.cross_widths.size(),output.material.geometry.epsilon);
+        if (output.local) {
+            const auto direction=side.inlet.port.direction;
+            for (std::size_t j=0;j<epsilon.size();++j) {
+                const auto index=direction==0?j:direction==1?(output.grid.nx-1)*output.grid.ny+j:
+                    direction==2?j*output.grid.ny:j*output.grid.ny+output.grid.ny-1;
+                epsilon[j]=output.local->epsilon[index];
+            }
+        }
         const auto field=[](const std::vector<double>& values) {return FlowValues{{values.data(),values.size()},64,1};};
         flow.capacities[i]=inlet_capacity_2d(field(epsilon),field(side.inlet_profile),field(side.inlet_geometry),
             field(side.cross_widths),g::weak(densities[i]),flow_scalar(*input.physical_depth_m,depth_kind));
@@ -842,7 +1055,7 @@ void resolve_speeds(const InletFlowRequest2D& request,const std::array<std::opti
             kind={flow.speeds[i].precision,flow.speeds[i].strong,flow.speeds[i].strong?1u:0u};
         } else flow.speeds[i]={inlet.velocity_m_s,kind.precision,kind.strong};
     }
-    validate(flow.input,CaseScope::uniform_mass_v3);
+    validate(flow.input,flow_scope(flow.input));
 }
 }  // namespace
 
@@ -873,13 +1086,13 @@ PreparedFlowCase2D prepare_flow_case_2d(const InletFlowRequest2D& request,
     FloatingEnvironment floating_environment;
     PreparedFlowCase2D output;const auto targets=flow_targets(request,output.flow.input);
     if (!targets[0] && !targets[1]) {
-        output.prepared=prepare_case(output.flow.input,options,callbacks,CaseScope::uniform_mass_v3);
+        output.prepared=prepare_case(output.flow.input,options,callbacks,flow_scope(output.flow.input));
         return output;
     }
     const auto inlet_geometry=prepare_inlet_geometry(output.flow.input,request.physical_depth_kind,
         options,callbacks,output.flow);
     resolve_speeds(request,targets,output.flow);
-    output.prepared=prepare_case(output.flow.input,options,callbacks,CaseScope::uniform_mass_v3,&inlet_geometry);
+    output.prepared=prepare_case(output.flow.input,options,callbacks,flow_scope(output.flow.input),&inlet_geometry);
     return output;
 }
 
