@@ -115,6 +115,9 @@ A hook exception requests cancellation; Python raises the original exception aft
 The v1 callback descriptor and all input/result layouts remain unchanged.
 
 The v3 callback descriptor extends v2 with named geometry and inlet-property cache exchanges.
+Its range and notice hooks report each observation at its original calculation point.
+The host keeps warning filters, source locations and completed observations when a later step fails.
+Cached records do not repeat standalone notices. Warning exceptions stop the native operation.
 Use `values.values`, version 3 and the complete descriptor size.
 A cache miss uses the C++ calculation. The host can return a completed cached value and its raw range records.
 Lookup views stay valid until the stage returns. Publication views stay valid only during the callback; copy them before return.

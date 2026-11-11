@@ -1,6 +1,7 @@
 """Transport owned 2D preparation data through the native C interface."""
 from contextlib import contextmanager
 import ctypes as ct
+import dis
 from functools import lru_cache
 import warnings
 
@@ -120,8 +121,11 @@ _InletCache = _struct('InletCache', [('geometry', _GeometryCache), ('properties'
 _GeometryCacheFunction = ct.CFUNCTYPE(ct.c_int, ct.c_void_p, _U, ct.POINTER(_GeometryCache), ct.POINTER(_U))
 _InletCacheFunction = ct.CFUNCTYPE(ct.c_int, ct.c_void_p, _U, _U, ct.POINTER(_Inlet), _Kind,
                                  ct.POINTER(_InletCache), ct.POINTER(_U))
+_RangeFunction = ct.CFUNCTYPE(ct.c_int, ct.c_void_p, _U, ct.POINTER(_Range), _U, _U, _D)
+_NoticeFunction = ct.CFUNCTYPE(ct.c_int, ct.c_void_p, _U, _U, _D, _Text)
 _CacheCallbacks = _struct('CacheCallbacks', [('values', _HostCallbacks),
-    ('geometry_cache', _GeometryCacheFunction), ('inlet_cache', _InletCacheFunction)])
+    ('geometry_cache', _GeometryCacheFunction), ('inlet_cache', _InletCacheFunction),
+    ('observe_range', _RangeFunction), ('observe_notice', _NoticeFunction)])
 
 
 class _Bindings:
@@ -181,8 +185,21 @@ def _check_status(status, error, failure):
     raise problem
 
 
+def _source_warning(function, message, *, call=None):
+    """Keep the original warning module, source line and filter registry."""
+    code = function.__code__
+    line = (next(item.positions.lineno for item in dis.get_instructions(function)
+                 if item.opname.startswith('LOAD_')
+                 and (item.argval == call or item.opname.startswith('LOAD_FAST')
+                      and isinstance(item.argval, tuple) and call in item.argval)) if call else
+            max(line for _start, _end, line in code.co_lines() if line is not None))
+    warnings.warn_explicit(message, UserWarning, code.co_filename, line,
+        module=function.__module__, registry=function.__globals__.setdefault('__warningregistry__', {}))
+
+
 @contextmanager
-def operation(name, source, options, validate_host_input, geometry_cache=None, inlet_cache=None):
+def operation(name, source, options, validate_host_input, geometry_cache=None, inlet_cache=None,
+              observe_range=None, observe_notice=None):
     """Keep the complete owner alive until the caller copies all required data."""
     version = source.abi_version
     result_type = ((_ContinuousCase if name == 'prepare_flow_case' else _ContinuousFlow)
@@ -198,7 +215,8 @@ def operation(name, source, options, validate_host_input, geometry_cache=None, i
             if item.kind == 0:
                 get_logger(_text(item.logger).removeprefix('tpmshx.')).info(_text(item.message))
             elif item.kind == 1:
-                warnings.warn(_text(item.message), stacklevel=4)
+                from .input_validation import surrogate_extrap_reasons
+                _source_warning(surrogate_extrap_reasons, _text(item.message), call='check_surrogate_domain_at_point')
             elif item.kind == 2:
                 _native_properties._floating_events([item.floating_event])
             else:
@@ -232,13 +250,32 @@ def operation(name, source, options, validate_host_input, geometry_cache=None, i
             callback_errors.append(problem)
             return 1
 
+    def observe(_context, cached, value, bounds_list, have_scalar, scalar):
+        try:
+            if observe_range is not None:
+                observe_range(value.contents, bool(bounds_list), bool(cached), scalar if have_scalar else None)
+            return 0
+        except BaseException as problem:
+            callback_errors.append(problem)
+            return 1
+
+    def notice(_context, kind, side, value, message):
+        try:
+            if observe_notice is not None:
+                observe_notice(kind, side, value, _text(message))
+            return 0
+        except BaseException as problem:
+            callback_errors.append(problem)
+            return 1
+
     event_function, host_function = _EventFunction(event), _HostFunction(validate)
-    if geometry_cache is None and inlet_cache is None:
+    if geometry_cache is None and inlet_cache is None and observe_range is None and observe_notice is None:
         callbacks = _HostCallbacks(_Callbacks(2, ct.sizeof(_HostCallbacks), event_function, None), host_function)
         descriptor = callbacks.values
     else:
         callbacks = _CacheCallbacks(_HostCallbacks(_Callbacks(3, ct.sizeof(_CacheCallbacks), event_function, None), host_function),
-                                   _GeometryCacheFunction(geometry), _InletCacheFunction(inlet))
+                                   _GeometryCacheFunction(geometry), _InletCacheFunction(inlet),
+                                   _RangeFunction(observe), _NoticeFunction(notice))
         descriptor = callbacks.values.values
     try:
         status = bindings.operations[version, name](

@@ -217,12 +217,23 @@ typedef struct {
     tpmshx_preparation_scalar_kind_v2 kinds[13];
     tpmshx_preparation_flow_evidence_v3 evidence;
 } tpmshx_preparation_inlet_cache_v3;
+/* V3/v4 entries accept this descriptor through &values.values.
+ * Set values.values.abi_version=3 and struct_size=sizeof(this descriptor).
+ * Range observations occur before later calculations can fail. Cached=1 only
+ * replays completed records. Have_scalar=1 supplies the standalone notice scalar.
+ * Nu notices use the existing prepared Re; their records keep the raw Re.
+ * Notice kind 0 supplies side and inlet Re. Kind 1 supplies side and the first
+ * preflight reason. Side is 0=A or 1=B. All observation views are read-only and
+ * valid only during the callback. Nonzero status stops the operation.
+ */
 typedef struct {
     tpmshx_preparation_case_callbacks_v2 values;
     int (TPMSHX_PREPARATION_CALL *geometry_cache)(void*,uint32_t,tpmshx_preparation_geometry_cache_v3*,uint32_t*);
     int (TPMSHX_PREPARATION_CALL *inlet_cache)(void*,uint32_t,uint32_t,
         const tpmshx_preparation_inlet_2d_v1*,tpmshx_preparation_scalar_kind_v2,
         tpmshx_preparation_inlet_cache_v3*,uint32_t*);
+    int (TPMSHX_PREPARATION_CALL *observe_range)(void*,uint32_t,const tpmshx_preparation_range_v1*,uint32_t,uint32_t,double);
+    int (TPMSHX_PREPARATION_CALL *observe_notice)(void*,uint32_t,uint32_t,double,tpmshx_preparation_text_v1);
 } tpmshx_preparation_case_callbacks_v3;
 typedef struct {
     uint32_t abi_version;

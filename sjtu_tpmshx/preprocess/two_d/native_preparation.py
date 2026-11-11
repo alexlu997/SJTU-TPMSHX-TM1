@@ -12,7 +12,7 @@ from sjtu_tpmshx.shared.domain.compute_config import ComputeConfig, bc_to_dict
 from sjtu_tpmshx.shared.domain.model_refs import ModelRef
 from sjtu_tpmshx.shared.domain.run_environment import capture_environment
 from sjtu_tpmshx.shared.domain.run_warnings import (
-    RangeRecord, current_warnings, merge_warnings, warning_messages,
+    RangeRecord, current_warnings, merge_warnings, warning_messages, record_warning, _range_context,
 )
 from sjtu_tpmshx.shared.models import _native_preparation_case as native
 from sjtu_tpmshx.shared.models import _native_flow, _native_geometry
@@ -106,18 +106,21 @@ def _sample(value, shape):
                 **{name: getattr(value, name) for name in ('low', 'high', 'size', 'nonfinite')})
 
 
+def _range_record(value, bounds_list):
+    shape = tuple(value.shape[:value.rank])
+    source = tuple(native._text(item) for item in value.source[:value.source_count])
+    context = tuple(native._text(getattr(value, name)) for name in ('side', 'stage', 'layout'))
+    bounds = list(value.bounds) if bounds_list else tuple(value.bounds)
+    record = RangeRecord(native._text(value.label), native._text(value.quantity), native._text(value.unit),
+                         bounds, **_sample(value.sample, shape), last=_sample(value.last, shape))
+    return (*source, shape, context), record
+
+
 def _records(evidence, bounds_list):
     """Restore ordered source observations without recomputing their values."""
     ranges = []
     for index in range(evidence.range_count):
-        value = evidence.ranges[index]
-        shape = tuple(value.shape[:value.rank])
-        source = tuple(native._text(item) for item in value.source[:value.source_count])
-        context = tuple(native._text(getattr(value, name)) for name in ('side', 'stage', 'layout'))
-        bounds = list(value.bounds) if bounds_list[index] else tuple(value.bounds)
-        record = RangeRecord(native._text(value.label), native._text(value.quantity), native._text(value.unit),
-                             bounds, **_sample(value.sample, shape), last=_sample(value.last, shape))
-        key = (*source, shape, context)
+        key, record = _range_record(evidence.ranges[index], bounds_list[index])
         message = next(iter(warning_messages({key: record})), None)
         ranges.append((key, record, message))
     pending = [native._text(item) for item in evidence.warnings[:evidence.warning_count]]
@@ -358,7 +361,6 @@ def _execute(config, operation, *, targets=None, case_id=None, own_metadata=Fals
         chi, chi_error = None, problem
     allow = config.extrap.allow or os.environ.get('TPMSHX_ALLOW_EXTRAP', '').lower() in ('1', 'true', 'yes')
     options = native._Options(1, ct.sizeof(native._Options), chi is not None, allow, chi or 0.)
-    preliminary = current_warnings()
     metadata = {}
     cache_buffers, cache_keys, side_geometry = [], {}, {}
     from sjtu_tpmshx.shared.models.tpms_geometry import _compute_geometry_cached
@@ -413,6 +415,53 @@ def _execute(config, operation, *, targets=None, case_id=None, own_metadata=Fals
         side_geometry[side] = _geometry_values(value.geometry, co2)
         return False
 
+    def observe_range(value, bounds_list, cached, scalar):
+        key, record = _range_record(value, bounds_list)
+        if key[-1] == ('unbound', 'unbound', 'source'):
+            key = (*key[:-1], _range_context.get())
+        merge_warnings(current_warnings(), [{key: record}])
+        if cached or current_warnings() is not None or scalar is None:
+            return
+        from sjtu_tpmshx.shared.models import tpms_props, fluid_props, nu_correlations, co2_correlations
+        source = key[:-2]
+        if source[0] == 'property':
+            fluid, property_name = source[1].split('_', 1)
+            notice = tpms_props._range_notice(source[1], scalar, scalar, *record.bounds)
+            if notice is not None:
+                attribute = {'density': 'rho', 'viscosity': 'mu', 'conductivity': 'k', 'cp': 'cp'}[property_name]
+                native._source_warning(getattr(fluid_props.get(fluid), attribute), notice)
+        elif source[0] in ('nu', 'nu_pr') and native._text(value.stage) == 'inlet':
+            fluid, topology = source[1:]
+            if fluid == 'air':
+                notices = nu_correlations._extrap_notices(topology, scalar, scalar)
+                origin = fluid_props._nu_air
+            elif fluid == 'water':
+                notices = nu_correlations._water_nu_notices(scalar, scalar, topology)
+                origin = fluid_props._nu_water
+            elif fluid == 'sco2':
+                notices = nu_correlations._sco2_nu_notices(scalar, scalar, topology)
+                origin = (nu_correlations.nu_sco2_selected if config.sco2_nu.mode != 'cfd_smooth'
+                          else nu_correlations.nu_sco2_topo)
+            else:
+                notices = ([co2_correlations._calibration_notice(record.quantity, record.bounds)]
+                           if scalar < record.bounds[0] or scalar > record.bounds[1] else [])
+                origin = fluid_props._nu_co2
+            for notice in notices:
+                native._source_warning(origin, notice)
+
+    def observe_notice(kind, side, value, message):
+        if kind == 1:
+            record_warning(('nu_preflight', 'AB'[side]), message)
+        elif kind == 0:
+            if current_warnings() is None:
+                from sjtu_tpmshx.shared.models import tpms_calc
+                fluid = getattr(config, 'fluid_' + 'AB'[side]).type
+                notice = tpms_calc._reynolds_notice(config.geometry.tpms, value, fluid)
+                if notice is not None:
+                    native._source_warning(tpms_calc.compute, notice, call='_compute_cached')
+        else:
+            raise RuntimeError(f'unknown preparation notice kind {kind}')
+
     with ExitStack() as scopes:
         def host_input(stage, side):
             if stage == 0:
@@ -433,16 +482,15 @@ def _execute(config, operation, *, targets=None, case_id=None, own_metadata=Fals
             else:
                 raise RuntimeError(f'unknown preparation host stage {stage}')
 
-        with native.operation(operation, source, options, host_input, geometry_cache, inlet_cache) as result:
+        with native.operation(operation, source, options, host_input, geometry_cache, inlet_cache,
+                              observe_range, observe_notice) as result:
             flow = result.flow if hasattr(result, 'flow') else result
-            merge_warnings(preliminary, [_records(flow.evidence, flow.evidence.range_bounds_list)])
             if operation == 'prepare_inlet_mass_capacities':
                 return {side: _native_flow._restore(flow.capacities[index]) for index, side in enumerate('AB')}
             resolved = _resolved(config, flow, targets)
             if operation == 'resolve_inlet_flow':
                 return resolved
             resolved = ComputeConfig.from_dict(asdict(resolved))
-            merge_warnings(current_warnings(), [_records(result.prepared.values, result.prepared.range_bounds_list)])
             case = _case(result, resolved, case_id, side_geometry)
             return api._finish_metadata(case, metadata['provenance'], metadata['records']) if own_metadata else case
 

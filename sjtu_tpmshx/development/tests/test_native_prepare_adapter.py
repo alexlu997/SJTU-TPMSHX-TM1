@@ -1,5 +1,6 @@
 """Qualify the production adapter against the independent preparation reference."""
 from collections.abc import Mapping
+from contextlib import nullcontext
 from dataclasses import asdict, fields, is_dataclass, replace
 from itertools import product
 import warnings
@@ -401,9 +402,15 @@ def test_warm_property_values_do_not_repeat_floating_operations(monkeypatch):
 
 
 @pytest.mark.parametrize('entry', ['public', 'cached', 'unwrapped'])
-def test_property_cache_wrapper_keeps_warning_source(entry):
+@pytest.mark.parametrize('frozen', [False, True])
+def test_property_cache_wrapper_keeps_warning_source(monkeypatch, entry, frozen):
     from sjtu_tpmshx.shared.models import tpms_calc
     tpms_calc.compute.cache_clear()
+    if frozen:
+        from sjtu_tpmshx.shared.models import preparation_cache
+        monkeypatch.setattr(tpms_calc._compute_cached, '__code__',
+            tpms_calc._compute_cached.__code__.replace(co_filename='sjtu_tpmshx/shared/models/preparation_cache.py'))
+        monkeypatch.setattr(preparation_cache, '__file__', '/Applications/TM1.app/Contents/Frameworks/sjtu_tpmshx/shared/models/preparation_cache.py')
     function = {'public': tpms_calc.compute, 'cached': tpms_calc._compute_cached,
                 'unwrapped': tpms_calc._compute_cached.__wrapped__}[entry]
     args = ('Diamond', 7., .6, .001, 300., 101325.) + ((16.,) if entry == 'public' else ())
@@ -413,3 +420,112 @@ def test_property_cache_wrapper_keeps_warning_source(entry):
     selected = [item for item in recorded if 'outside the validated range' in str(item.message)]
     assert len(selected) == 1
     assert selected[0].filename == (tpms_calc.__file__ if entry == 'public' else __file__)
+
+
+
+def _observe_prepare(monkeypatch, module, operation, config, targets=None, *, scoped=False,
+                     direct=False, warning_action='always', warning_message='', repeat=1):
+    """Observe public warning filters and partial failure effects independently."""
+    from sjtu_tpmshx.shared.domain.run_warnings import range_context
+    from sjtu_tpmshx.shared.models import tpms_props, nu_correlations
+    from sjtu_tpmshx.shared.models.tpms_calc import compute
+    from sjtu_tpmshx.shared.models.tpms_geometry import compute_geometry
+    from sjtu_tpmshx.shared.logutil import get_logger
+    compute.cache_clear()
+    compute_geometry.cache_clear()
+    records, observations = {}, []
+    with monkeypatch.context() as patch:
+        patch.setattr(tpms_props, '_range_warnings_emitted', set())
+        for name in ('_EXTRAP_WARNED', '_WATER_NU_WARNED', '_SCO2_NU_WARNED'):
+            patch.setattr(nu_correlations, name, set())
+        patch.setattr(get_logger('sjtu_tpmshx.preprocess.two_d.preparation'), 'info',
+                      lambda message: observations.append(('log', message)))
+        with warnings.catch_warnings():
+            warnings.simplefilter('always')
+            warnings.filterwarnings(warning_action, message=warning_message, category=UserWarning)
+            patch.setattr(warnings, 'showwarning', lambda message, category, filename, lineno, *args, **kwargs:
+                          observations.append((category.__name__, str(message), filename, lineno)))
+            with warning_scope(records) if scoped else nullcontext():
+                with range_context(side='parent', stage='caller', layout='scalar'):
+                    results, errors = [], []
+                    for _ in range(repeat):
+                        try:
+                            if operation == 'capacity':
+                                result = module.prepare_inlet_mass_capacities(config)
+                            elif operation == 'resolve':
+                                result = module.resolve_fixed_mass_flow_config(config,
+                                    mass_flow_A_kg_s=targets[0], mass_flow_B_kg_s=targets[1])
+                            elif targets is None or direct:
+                                result = module.prepare_case(config, case_id='warning-reference')
+                            else:
+                                result = module.prepare_fixed_mass_flow_case(config,
+                                    mass_flow_A_kg_s=targets[0], mass_flow_B_kg_s=targets[1],
+                                    case_id='warning-reference')
+                            results.append(result)
+                        except Exception as error:
+                            chain = []
+                            while error is not None:
+                                chain.append((type(error).__name__, str(error)))
+                                error = error.__cause__
+                            errors.append(chain)
+        registries = tuple(sorted(value) for value in (tpms_props._range_warnings_emitted,
+            nu_correlations._EXTRAP_WARNED, nu_correlations._WATER_NU_WARNED,
+            nu_correlations._SCO2_NU_WARNED))
+    return (results, errors, observations, range_observations(records),
+            range_observations(records, last=True), _cache_info(), registries)
+
+
+@pytest.mark.parametrize('spatial', [False, True])
+@pytest.mark.parametrize('operation', ['capacity', 'resolve', 'full'])
+@pytest.mark.parametrize('warning_action', ['always', 'error'])
+def test_unscoped_preliminary_notices_and_warning_errors(monkeypatch, spatial, operation, warning_action):
+    config = (continuous._configuration if spatial else uniform._configuration)('Diamond', ('air', 'water'))
+    config.fluid_B.T_in_K, config.fluid_B.P_in_Pa = 370., 101325.
+    args = (operation, config, (.003, .03))
+    kwargs = dict(warning_action=warning_action, repeat=2)
+    expected = _observe_prepare(monkeypatch, reference, *args, **kwargs)
+    actual = _observe_prepare(monkeypatch, api, *args, **kwargs)
+    _same(actual, expected)
+    assert any('water_density' in str(value) for value in expected[1:3])
+
+
+@pytest.mark.parametrize('spatial', [False, True])
+@pytest.mark.parametrize('direct', [False, True])
+def test_failure_keeps_completed_range_observations(monkeypatch, spatial, direct):
+    config = (continuous._configuration if spatial else uniform._configuration)('Diamond', ('air', 'water'))
+    config.fluid_B.T_in_K, config.fluid_B.P_in_Pa = 370., 101325.
+    old, new, targets = reference, api, (1.e-12, .03)
+    if direct:
+        from sjtu_tpmshx.development.tests import preparation_case_reference as old
+        from sjtu_tpmshx.preprocess.two_d import preparation as new
+        config.fluid_A.T_in_K = 1001.
+        config.fluid_B.u_mps = np.asarray(config.fluid_B.u_mps)
+        targets = None
+    else:
+        config.extrap = replace(config.extrap, allow=False)
+    expected = _observe_prepare(monkeypatch, old, 'full', config, targets, scoped=True, direct=direct)
+    actual = _observe_prepare(monkeypatch, new, 'full', config, targets, scoped=True, direct=direct)
+    _same(actual, expected)
+    assert expected[1] and expected[3]
+
+
+@pytest.mark.parametrize('spatial', [False, True])
+@pytest.mark.parametrize('fluid,experimental', [('air', False), ('water', False),
+    ('sco2', False), ('sco2', True), ('co2', False)])
+@pytest.mark.parametrize('warning_error', [False, True])
+def test_direct_preparation_preserves_standalone_notice_order(monkeypatch, spatial, fluid, experimental, warning_error):
+    from sjtu_tpmshx.development.tests import preparation_case_reference as old
+    from sjtu_tpmshx.preprocess.two_d import preparation as new
+    config = (continuous._configuration if spatial else uniform._configuration)('Diamond', (fluid, fluid))
+    config.fluid_A.u_mps = config.fluid_B.u_mps = 1.e-6
+    if experimental:
+        config.sco2_nu = replace(config.sco2_nu, mode='experimental', alpha_D=1.13, alpha_G=2.27,
+            parameter_version='notice-regression', source='regression', applicability='test only')
+    options = dict(direct=True, repeat=2, warning_action='error' if warning_error else 'always',
+        warning_message=(r'.*outside the validated range' if fluid == 'air' else
+                         r'CO2 .* outside CFD calibration' if fluid == 'co2' else r'.*Nu extrap.*'))
+    expected = _observe_prepare(monkeypatch, old, 'full', config, **options)
+    actual = _observe_prepare(monkeypatch, new, 'full', config, **options)
+    _same(actual, expected)
+    assert bool(expected[1]) == warning_error
+    assert expected[2]

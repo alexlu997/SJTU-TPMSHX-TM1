@@ -151,6 +151,15 @@ def adaptive_grid(L_domain: float, H_domain: float,
 
 # ── Main interface ────────────────────────────────────────────
 
+def _reynolds_notice(tpms_type, Re, fluid_type):
+    """Return the existing uncached standalone inlet Re notice."""
+    lo, hi = _RE_FIT_RANGE_BY_FLUID.get(fluid_type, NU_RE_FIT_RANGE)
+    if not (lo <= Re <= hi):
+        return (f"{tpms_type}: Re = {Re:.1f} is outside the validated range "
+                f"[{lo:.0f}, {hi:.0f}]. Correlation accuracy may be reduced.")
+    return None
+
+
 class _InletCacheValue(tuple):
     """Keep native-only intermediate values outside the public property mapping."""
     def __new__(cls, values, records, cp, pr):
@@ -246,16 +255,12 @@ def _compute_cached(tpms_type: str,
         # fit windows in nu_correlations (was a duplicate hard-coded [600, 30000];
         # unified 2026-06-25). Fluid-aware since 2026-06-28 (N5): water/sCO2 have
         # their own windows, so warning them against the air window mis-flagged.
-        _nu_lo, _nu_hi = _RE_FIT_RANGE_BY_FLUID.get(fluid_type, NU_RE_FIT_RANGE)
         # A run records the actual Nu source below; standalone keeps this notice.
-        if not (_nu_lo <= Re <= _nu_hi) and current_warnings() is None:
+        notice = _reynolds_notice(tpms_type, Re, fluid_type) if current_warnings() is None else None
+        if notice is not None:
             # Direct __wrapped__ calls do not have the Python cache frame.
-            cache_frame = sys._getframe(1).f_code.co_filename == preparation_cache.__file__
-            warnings.warn(
-                f"{tpms_type}: Re = {Re:.1f} is outside the validated range "
-                f"[{_nu_lo:.0f}, {_nu_hi:.0f}]. Correlation accuracy may be reduced.",
-                UserWarning, stacklevel=3 if cache_frame else 2
-            )
+            cache_frame = sys._getframe(1).f_code is _compute_cached.__code__
+            warnings.warn(notice, UserWarning, stacklevel=3 if cache_frame else 2)
 
         # ── Nusselt number and heat transfer coefficient ──────────
         # Single-stream convention (post-refit 2026-04-26): pass ε_A (per-stream
