@@ -239,7 +239,8 @@ This command builds no solver or run_state. It publishes only preparation and `p
 See the [preparation core](docs/cpp-migration.md#native-preparation-core) for commands.
 Use `TPMSHX_PREPARATION_LIBRARY` to select its runtime file. Historical result reading and independent postprocessing do not load preparation.
 Use `publish --component result` to publish result independently without building solver or model libraries. Select the configured interpreter's exact lock.
-Actual postprocessing arithmetic needs that image. Pure HDF/JSON reads load no native library.
+Full 2D/3D evaluation and the three independent result queries need the current result stage image.
+Quick Design metric arithmetic retains its separate numeric protocol owner. Pure HDF/JSON reads load no native library.
 Linux x86_64 supports independent result evaluation only. See [result core commands](docs/cpp-migration.md#native-result-core).
 The Python wheel includes runtime code, published development and validation tools, and model resources.
 It contains no tests or native libraries. Git and source distributions keep the complete test tree, including native test bridges.

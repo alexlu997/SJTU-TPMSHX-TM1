@@ -13,6 +13,12 @@ This limit does not remove any mode from the existing Python workflow.
 A separate Quick Design entry accepts native double operating points for
 air, water and sCO2. It uses the existing prescribed-flow LTNE driver.
 
+Full 2D/3D Python evaluation now calls the native result stage. Independent applicability, physical-balance and qualification queries use that stage.
+Quick Design metric arithmetic retains its current protocol owner. The public Python entry points and saved formats stay available.
+The host query uses borrowed typed evidence and preserves deferred input errors. It delivers NumPy events before each primitive returns.
+A callback error is handled at the original metric or qualification boundary. An uncaught host error retains its original Python object.
+Published v1 C layouts and queries remain available. Release every output through the library that created it.
+
 The C++ call sequence is `prepare_case`, `run_case`, then `evaluate`.
 The caller supplies dimensions, design values, boundary conditions and controls.
 The preparation library computes the physical fields. The solver library uses
