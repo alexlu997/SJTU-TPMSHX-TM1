@@ -171,8 +171,10 @@ Windows 准备库使用原锁定的 Windows 静态归档。
 缓存将该记录与归档一起保留；发布时，各库元数据包含其实际采用的记录。
 验证检查独立 C 静态／动态调用方、几何调用方及编入库的 CoolProp 版本／提交。
 此验证不替代完整工况、物理、双库并发、平台 CI 或桌面验收。
-源码发行包提供原生源码、构建文件、依赖锁、许可和来源记录。
-wheel 提供 Python 接口与显式声明的资源；原生构建仍是显式步骤。
+源码发行包提供原生源码、构建文件、依赖锁、许可、来源记录和完整测试树。
+wheel 提供 Python 接口、已发布的开发／验证工具与显式声明的资源，排除测试包及其子包。
+原生构建仍是显式步骤。CI 在源码树外安装并检查两种构建得到的 wheel。
+最小环境仅使用独立结果库，评估真实二维和三维文件。
 `engineering/scripts/check_distributions.py` 实际构建并检查源码包及其 wheel。
 须通过 `--output-dir` 指定 `.cache/` 下的新目录。
 `publish --component preparation` 只发布准备库及 `preparation-build.json`，不替换求解库、几何库、结果库或 run_state 文件。

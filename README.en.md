@@ -241,8 +241,9 @@ Use `TPMSHX_PREPARATION_LIBRARY` to select its runtime file. Historical result r
 Use `publish --component result` to publish result independently without building solver or model libraries. Select the configured interpreter's exact lock.
 Actual postprocessing arithmetic needs that image. Pure HDF/JSON reads load no native library.
 Linux x86_64 supports independent result evaluation only. See [result core commands](docs/cpp-migration.md#native-result-core).
-The Python wheel includes code and model resources. It includes none of these four native libraries.
-The source distribution includes native source, build files, locks and source records.
+The Python wheel includes runtime code, published development and validation tools, and model resources.
+It contains no tests or native libraries. Git and source distributions keep the complete test tree, including native test bridges.
+The source distribution also includes native source, build files, locks and source records.
 Use `engineering/scripts/check_distributions.py` to check source and wheel contents.
 Supply a new `--output-dir` under `.cache/`.
 Native builds remain explicit steps after environment setup.

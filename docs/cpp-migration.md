@@ -190,8 +190,10 @@ Each archive has a `coolprop-build.json` record with its actual compile fragment
 The cache keeps this record with the archive. Publication includes the applicable record in each library's metadata.
 Verification checks independent C static/shared callers, geometry callers and the compiled CoolProp version/commit.
 It does not replace complete-case, physical, dual-library concurrency, platform CI or desktop acceptance.
-The source distribution supplies native source, build files, locks, licenses and source records.
-The wheel supplies Python interfaces and declared resources. Native builds remain explicit steps.
+The source distribution supplies native source, build files, locks, licenses, source records and the complete test tree.
+The wheel supplies Python interfaces, published development and validation tools, and declared resources. It excludes the test package and its subpackages.
+Native builds remain explicit steps. CI checks both wheel builds from installations outside the source tree.
+The minimal environment evaluates real 2D and 3D files with only the independent result library.
 `engineering/scripts/check_distributions.py` builds and checks the source distribution and its wheel.
 Supply a new `--output-dir` under `.cache/`.
 `publish --component preparation` publishes only preparation and `preparation-build.json`. It does not replace solver, geometry, result or run_state files.

@@ -66,7 +66,9 @@ def main(argv=None) -> int:
         '# slow/heavy and runs public-module integration separately. Neither is the full suite.',
     ]
     lines += [n for _, n in heavy]
-    Path(args.out).write_text('\n'.join(lines) + '\n', encoding='utf-8')
+    output = Path(args.out)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text('\n'.join(lines) + '\n', encoding='utf-8')
     print(f'wrote {args.out}: {len(heavy)} heavy nodeids '
           f'(>= {args.threshold:g}s; {100 * hsum / total:.0f}% of call-compute)')
     return 0

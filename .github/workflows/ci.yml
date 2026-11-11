@@ -295,6 +295,8 @@ jobs:
       OPENBLAS_NUM_THREADS: "1"
       OMP_NUM_THREADS: "1"
       TM1_REAL_HANDOFF_DIR: .cache/real-file-handoff
+      TM1_WHEEL_DIR: .cache/python-distributions
+      TPMSHX_RESULT_LIBRARY: ${{ github.workspace }}/sjtu_tpmshx/solvers/native/lib/linux-x86_64/libtpmshx_result_shared.so
     steps:
       - uses: actions/checkout@v7
       - name: Require the expected native result
@@ -315,6 +317,11 @@ jobs:
         with:
           name: real-file-handoff
           path: .cache/real-file-handoff
+      - uses: actions/download-artifact@v8
+        if: needs.scope.outputs.tier != 'docs'
+        with:
+          name: python-distributions-macos-15
+          path: .cache/python-distributions
       - name: Create isolated minimal environment
         if: needs.scope.outputs.tier != 'docs'
         run: |
@@ -341,6 +348,6 @@ jobs:
           sjtu_tpmshx/development/tests/test_native_result_balance.py
           sjtu_tpmshx/development/tests/test_native_zone_statistics.py
           sjtu_tpmshx/development/tests/test_native_result_loader.py
-      - name: Evaluate real 2D and 3D files in the minimal environment
+      - name: Evaluate real files from source and installed wheels in the minimal environment
         if: needs.scope.outputs.tier != 'docs'
         run: '"$CI_PYTHON" -m pytest sjtu_tpmshx/development/tests/integration_tm1/test_minimal_install.py -q'
