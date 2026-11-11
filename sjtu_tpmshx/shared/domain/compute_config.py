@@ -800,6 +800,8 @@ class ComputeConfig:
         if self.df_mode == 'experimental':
             from sjtu_tpmshx.shared.df_surrogate.experimental_correction import (
                 correction_scale)
+            from sjtu_tpmshx.shared.configs.model_parameters import load_preparation_df_parameters
+            campaign_domain = load_preparation_df_parameters()['hx']['domain_m']
             continuous_hx = (self.zones.axis == 'continuous'
                              and ge.tpms == 'Gyroid'
                              and self.fluid_A.type == 'air' and self.fluid_B.type == 'water'
@@ -829,11 +831,11 @@ class ComputeConfig:
                 if scope != 'HX-effective':
                     continue
                 if (self.geometry.delta_levelset != 0.0
-                        or not math.isclose(ge.L_dom_m, 0.182)
-                        or not math.isclose(ge.H_dom_m, 0.042)
+                        or not math.isclose(ge.L_dom_m, campaign_domain[0])
+                        or not math.isclose(ge.H_dom_m, campaign_domain[1])
                         or (self.is_3d and (ge.Lz_m is None
                                             or not math.isclose(
-                                                ge.Lz_m, 0.042)))):
+                                                ge.Lz_m, campaign_domain[2])))):
                     raise ValueError(
                         f"experimental calibration side {side} is HX-effective "
                         "and requires delta=0 with the matching 0.182 x 0.042"

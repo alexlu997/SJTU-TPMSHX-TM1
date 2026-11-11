@@ -44,6 +44,10 @@ def header():
     ]
     lines.extend(f"inline constexpr char {name}_version[] = {json.dumps(version)};"
                  for name, version in MODEL_VERSIONS.items())
+    lines.append('inline constexpr char co2_application_version[] = '
+                 + json.dumps(parameters['co2_application']['version']) + ';')
+    lines.append('inline constexpr char co2_model_version[] = '
+                 + json.dumps(co2['model_version']) + ';')
     for name, value in (("gas_constant", constants['gas_constant']),
                         ("air_molar_mass", constants['air_molar_mass']),
                         ("pr_air", nu['pr_air']), ("nu_roughness_factor", nu['roughness_factor']),
@@ -156,11 +160,20 @@ def df_header(csv_path=None):
              array('air_L_nodes', specimen['L_nodes_mm']), array('air_t_nodes', specimen['t_nodes_mm']),
              nested_array('air_sf', [specimen['sf'][topology] for topology in topologies], (2, 2, 3)),
              array('hx_geometry_mm', hx['geometry_mm']),
+             array('hx_domain_m', hx['domain_m']),
              nested_array('hx_sf', [[hx['sf'][fluid][topology] for topology in topologies]
                                      for fluid in fluids], (3, 2))]
     for name in ('calibration_u', 'application_u', 'runtime_u'):
         values = [[hx[name+'_mps'][fluid][topology] for topology in topologies] for fluid in fluids]
         lines.append(nested_array(name, values, (3, 2, 2)))
+    lines.append('inline constexpr char hx_application_scope[] = '
+                 + json.dumps(hx['application_scope']) + ';')
+    calibration = hx['gyroid_air_calibration']
+    lines.append('inline constexpr std::array<std::array<const char*, 2>, '
+                 + str(len(calibration)) + '> hx_air_calibration{{')
+    lines.extend('    {{' + json.dumps(key) + ', ' + json.dumps(value) + '}},'
+                 for key, value in calibration.items())
+    lines.append('}};')
     for name, value in (
             ('df_bracket_relative_tolerance', data['bracket_relative_tolerance']),
             ('hx_geometry_absolute_tolerance', hx['geometry_absolute_tolerance_mm']),

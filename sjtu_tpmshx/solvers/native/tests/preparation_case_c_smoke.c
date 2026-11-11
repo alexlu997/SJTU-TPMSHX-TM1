@@ -34,6 +34,69 @@ static int TPMSHX_PREPARATION_CALL cancel_event(void* context, const tpmshx_prep
     return 1;
 }
 
+static int check_v2(void) {
+    tpmshx_preparation_case_input_2d_v2 source = {0}, original;
+    tpmshx_preparation_case_2d_v2 result = {0}, before;
+    tpmshx_preparation_case_failure_v2 failure = {0};
+    tpmshx_preparation_case_options_v1 options = {1, sizeof(options), 0, 1, 0.};
+    tpmshx_preparation_case_callbacks_v1 callbacks = {1, sizeof(callbacks), cancel_event, NULL};
+    const tpmshx_preparation_scalar_kind_v2 weak = {64, 0, 0};
+    char version[] = "saved-version", provenance[] = "saved-source", scope[] = "saved-scope";
+    char error[4096];
+    size_t side, calls = 0;
+    source.abi_version = result.abi_version = failure.abi_version = 2;
+    source.struct_size = sizeof(source); result.struct_size = sizeof(result); failure.struct_size = sizeof(failure);
+    source.values = input();
+    source.values.sides[0].fluid = 2; source.values.sides[0].pressure_Pa = 8e6;
+    source.values.sides[0].velocity_m_s = .15;
+    source.values.sides[1].fluid = 1; source.values.sides[1].velocity_m_s = .02;
+    source.kinds.cell_length = source.kinds.wall_thickness = source.kinds.solid_conductivity = weak;
+    for (side = 0; side < 2; ++side)
+        source.kinds.sides[side].velocity = source.kinds.sides[side].temperature = source.kinds.sides[side].pressure = weak;
+    source.sco2_nu.mode = 1;
+    source.sco2_nu.have_alpha[0] = source.sco2_nu.have_alpha[1] = 1;
+    source.sco2_nu.alpha[0] = 1.13; source.sco2_nu.alpha[1] = 2.27;
+    source.sco2_nu.parameter_version.data = version; source.sco2_nu.parameter_version.size = strlen(version);
+    source.sco2_nu.source.data = provenance; source.sco2_nu.source.size = strlen(provenance);
+    source.sco2_nu.applicability.data = scope; source.sco2_nu.applicability.size = strlen(scope);
+    original = source;
+    CHECK(tpmshx_preparation_case_abi_version_v2() == 2);
+    CHECK(!tpmshx_prepare_case_2d_v2(&source, &options, NULL, &result, &failure, error, sizeof(error)));
+    CHECK(result.values.owner && !failure.kind && !error[0]);
+    CHECK(!memcmp(&source, &original, sizeof(source)));
+    CHECK(result.values.sides[0].inlet.fluid == 2 && result.sco2_nu.alpha[1] == 2.27);
+    CHECK(result.values.sides[1].properties.rho > 900. && result.notice_count == 1);
+    CHECK(result.sco2_nu.source.data != provenance);
+    provenance[0] = 'X';
+    CHECK(!memcmp(result.sco2_nu.source.data, "saved-source", strlen("saved-source")));
+    before = result;
+    CHECK(tpmshx_prepare_case_2d_v2(&source, &options, NULL, &result, &failure, error, sizeof(error)) == 1);
+    CHECK(!memcmp(&before, &result, sizeof(result)) && failure.kind == 1);
+    tpmshx_preparation_case_2d_release_v2(&result);
+    CHECK(!result.values.owner && !result.struct_size && !result.sco2_nu.source.data);
+    tpmshx_preparation_case_2d_release_v2(&result);
+    tpmshx_preparation_case_2d_release_v2(NULL);
+    result.abi_version = 2; result.struct_size = sizeof(result); before = result;
+    callbacks.context = &calls;
+    CHECK(tpmshx_prepare_case_2d_v2(&source, &options, &callbacks, &result, &failure, error, sizeof(error)) == TPMSHX_PREPARATION_RUNTIME);
+    CHECK(calls == 1 && !memcmp(&before, &result, sizeof(result)) && failure.kind == 3);
+    source.values.sides[1].temperature_K = 450.;
+    CHECK(tpmshx_prepare_case_2d_v2(&source, &options, NULL, &result, &failure, error, sizeof(error)) != 0);
+    CHECK(!memcmp(&before, &result, sizeof(result)) && failure.kind == 2 && failure.side == 1 && failure.have_property);
+    source = original; source.kinds.cell_length.precision = 8;
+    CHECK(tpmshx_prepare_case_2d_v2(&source, &options, NULL, &result, &failure, error, sizeof(error)) == 1);
+    CHECK(!memcmp(&before, &result, sizeof(result)) && failure.kind == 1);
+    source = original; source.sco2_nu.source.data = NULL;
+    CHECK(tpmshx_prepare_case_2d_v2(&source, &options, NULL, &result, &failure, error, sizeof(error)) == 1);
+    CHECK(!memcmp(&before, &result, sizeof(result)));
+    source = original;
+    CHECK(tpmshx_prepare_case_2d_v2(&source, &options, NULL, &result, &failure, (char*)&result, sizeof(result)) == 1);
+    CHECK(!memcmp(&before, &result, sizeof(result)));
+    CHECK(tpmshx_prepare_case_2d_v2(&source, &options, NULL, &result, NULL, error, sizeof(error)) == 1);
+    CHECK(!memcmp(&before, &result, sizeof(result)));
+    return 0;
+}
+
 int main(void) {
     tpmshx_preparation_case_input_2d_v1 source = input(), original = source;
     tpmshx_preparation_case_2d_v1 result = empty_result(), before;
@@ -85,5 +148,6 @@ int main(void) {
     CHECK(!memcmp(&before, &result, sizeof(result)));
     CHECK(tpmshx_prepare_case_2d_v1(&original, NULL, NULL, &result, (char*)&result, sizeof(result)) == TPMSHX_PREPARATION_INVALID);
     CHECK(!memcmp(&before, &result, sizeof(result)));
+    CHECK(!check_v2());
     return 0;
 }

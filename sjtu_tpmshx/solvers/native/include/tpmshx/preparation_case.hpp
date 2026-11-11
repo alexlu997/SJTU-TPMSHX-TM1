@@ -2,14 +2,33 @@
 
 #include "tpmshx/geometry.hpp"
 #include "tpmshx/preparation_df.hpp"
+#include "tpmshx/property_c_api.h"
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
 namespace tpmshx::preparation {
+
+// These tags have the same meaning as the existing property input tags.
+struct ScalarKind {
+    std::uint32_t precision=64,strong=0,layout=0;
+};
+struct InletScalarKinds {
+    ScalarKind velocity,temperature,pressure;
+};
+struct CaseScalarKinds {
+    ScalarKind cell_length,wall_thickness,solid_conductivity;
+    std::array<InletScalarKinds,2> sides;
+};
+struct Sco2NuSelection {
+    std::uint32_t mode=0;
+    std::array<std::optional<double>,2> alpha;
+    std::string parameter_version,source,applicability;
+};
 
 struct PortInput2D {
     std::int32_t direction=0;
@@ -37,8 +56,10 @@ struct CaseInput2D {
     UniformGeometryInput geometry;
     std::array<InletInput2D,2> sides;
     std::optional<double> physical_depth_m;
-    // Only the current uniform and CFD-smooth selections are implemented here.
+    // Uniform geometry; DF 0 selects CFD and 1 selects existing experiments.
     std::uint32_t geometry_mode=0,df_mode=0;
+    Sco2NuSelection sco2_nu;
+    CaseScalarKinds kinds;
 };
 struct PreparationOptions {
     std::optional<double> chi_override;
@@ -58,6 +79,9 @@ struct PreparationDragEvidence {
     DfSummary base_permeability,base_forchheimer,applied_permeability,applied_forchheimer;
     double scale_permeability=1.,scale_forchheimer=1.;
     std::string campaign,scope;
+    std::optional<DfSelection> selection;
+    std::string application_scope,fluid;
+    std::vector<std::array<std::string,2>> calibration;
 };
 struct PreparedSide2D {
     InletInput2D inlet;
@@ -68,6 +92,7 @@ struct PreparedSide2D {
     std::vector<double> inlet_geometry,outlet_geometry,inlet_profile,outlet_profile,outlet_u_fraction;
     std::array<double,2> inlet_bounds{},outlet_bounds{};
     PreparationDragEvidence drag_evidence;
+    std::array<ScalarKind,13> property_kinds;
 };
 struct PreparationRangeSample {
     bool have_finite=false;
@@ -80,6 +105,7 @@ struct PreparationRange {
     std::array<double,2> bounds;
     std::vector<std::size_t> shape;
     PreparationRangeSample sample,last;
+    bool bounds_list=false;
 };
 enum class PreparationEventKind : std::uint32_t {log=0,warning=1,floating_point=2};
 struct PreparationEvent {
@@ -100,6 +126,14 @@ struct PreparationEvidence {
     std::vector<PreparationRange> ranges;
     std::vector<std::string> warnings;
     std::vector<PreparationEvent> events;
+    std::vector<std::string> notices;
+    std::string sco2_nu_model_version;
+    std::array<std::array<double,3>,2> sco2_nu_coefficients{};
+    bool co2_geometry=false;
+    std::string co2_version,co2_application_version;
+    double co2_pressure_multiplier=1.,co2_nu_multiplier=1.;
+    DfPair co2_drag_factors{1.,1.};
+    std::array<double,2> co2_re_range{},co2_pr_range{};
 };
 struct PreparedCase2D {
     CaseInput2D input;
@@ -110,11 +144,24 @@ struct PreparedCase2D {
     std::vector<double> cell_length,wall_thickness,total_porosity,solid_conductivity,hydraulic_radius;
     std::array<PreparedSide2D,2> sides;
     PreparationEvidence evidence;
+    std::array<ScalarKind,5> field_kinds;
+};
+
+struct PreparationFailureCause {std::uint32_t kind;std::string message;};
+class PreparationError : public std::runtime_error {
+public:
+    PreparationError(int status,std::string message,std::uint32_t kind=1,
+                     std::uint32_t side=2,std::vector<PreparationFailureCause> causes={});
+    int status;
+    std::uint32_t kind,side;
+    std::vector<PreparationFailureCause> causes;
+    tpmshx_property_failure_v1 property{};
+    bool have_property=false;
 };
 
 // No input or callback storage is retained. All returned arrays are owned.
 // Physical cell fields use C order (x,y). Flow fields use (cross,stream).
-// This entry supports uniform symmetric air/air and prescribed velocity.
+// This entry supports uniform symmetric fluids at prescribed velocity.
 PreparedCase2D prepare_case_2d(const CaseInput2D&,const PreparationOptions& = {},
                               const PreparationCallbacks& = {});
 
