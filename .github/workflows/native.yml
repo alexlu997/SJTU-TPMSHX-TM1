@@ -15,7 +15,7 @@ jobs:
   native-build:
     name: native-build
     runs-on: ${{ inputs.os }}
-    timeout-minutes: 30
+    timeout-minutes: 60
     env:
       PYTHONHASHSEED: "0"
       MPLCONFIGDIR: .cache/matplotlib
