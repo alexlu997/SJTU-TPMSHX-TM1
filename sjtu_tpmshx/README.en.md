@@ -22,7 +22,8 @@ compute -> preprocess.api.prepare_case -> CaseData -> solvers.api.run_case -> Fi
 ```
 
 `compute` also manages stage progress, cancellation, elapsed times and warnings.
-`postprocess/metrics.py` selects recorded evidence and calls the result core. `postprocess/export.py` exports results.
+`postprocess/api.py` sends full 2D/3D evaluation and independent queries to the native result stage.
+`shared/_native_result_stage.py` adapts evidence, NumPy events and returned objects. `postprocess/export.py` exports results.
 Current full computations support rectangular 2D and cuboid 3D domains.
 See the [examples](../examples/three_module/) and [data contract](../docs/contracts/three_module_v1/README.md) for public inputs and file transport.
 The [capabilities](../docs/capabilities.en.md) list approximation modes and extension status.
@@ -55,7 +56,8 @@ Use this table to find the C++ owner of a numerical rule.
 
 Geometry uses geometry ABI 1 and field ABI 2. Preparation uses preparation ABI 1. Results use result ABI 2.
 Start at the drivers above for SIMPLE, pressure and energy implementations. See [C++ interfaces](../docs/cpp-migration.md) for their boundaries.
-Python keeps configuration, DTOs, I/O, caches, evidence selection, status interpretation, the GUI, searches and offline research.
+Python keeps configuration, DTOs, I/O, caches, NumPy event handling, the GUI, searches and offline research.
+The native result stage owns full evidence selection and qualification; Python adapts its outputs for applications.
 See [retained Python responsibilities](../docs/architecture.md#retained-python-responsibilities) for their exact scope.
 
 ### Rebuild after a change

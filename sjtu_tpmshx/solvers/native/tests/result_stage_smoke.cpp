@@ -1,6 +1,7 @@
 #include "tpmshx/result_stage.hpp"
 #include "tpmshx/result_stage_c_api.h"
 #include <cmath>
+#include <cstddef>
 #include <cstring>
 #include <iostream>
 #include <limits>
@@ -140,9 +141,93 @@ void c_contract() {
         reinterpret_cast<char*>(good.bytes.data()), good.bytes.size()) != 0, "C invalid array fails before report publication");
     require(arithmetic::to_float(good.array().at(0)) == 42., "C early failure preserves unvisited borrowed storage");
 }
+struct HostProbe {std::uint32_t cause{}; std::size_t calls{};};
+int TPMSHX_RESULT_CALL reject_event(void* context, const tpmshx_result_diagnostics_v1* events,
+                                   tpmshx_stage_host_error_v2* error) {
+    auto& probe = *static_cast<HostProbe*>(context);
+    require(events->event_count > 0, "host receives a real numerical event");
+    ++probe.calls;
+    *error = {probe.cause, 0, 77, "host policy rejected this operation"};
+    return 1;
+}
+void host_contract() {
+    tpmshx_result_evidence_v1 evidence{};
+    evidence.abi_version = TPMSHX_RESULT_STAGE_ABI_VERSION; evidence.struct_size = sizeof(evidence);
+    evidence.result_id = "host"; evidence.dimension = 2; evidence.converged = -1;
+    evidence.model_active_b = -1; evidence.richardson_extrapolated = -1;
+    evidence.active_fluids[0] = evidence.active_fluids[1] = 1;
+    auto epsilon = tensor({1, 1}, {-1.});
+    auto density = tensor({}, {std::numeric_limits<double>::max()});
+    auto width = tensor({1}, {1.});
+    const auto eps = epsilon.raw(), rho = density.raw(), dx = width.raw();
+    evidence.design_epsilon = &eps; evidence.grid.widths[0] = evidence.grid.widths[1] = &dx;
+    HostProbe probe{TPMSHX_RESULT_VALUE_ERROR, 0};
+    tpmshx_stage_input_v2 input{};
+    input.abi_version = 2; input.struct_size = sizeof(input); input.evidence = &evidence;
+    input.solid_density = &rho; input.context = &probe; input.events = reject_event;
+    tpmshx_stage_output_v1 output{}; output.struct_size = sizeof(output);
+    tpmshx_result_diagnostics_v1 diagnostics{}; std::uint64_t token{};
+    tpmshx_stage_metric_spec_v1 requested{"mass", "kg/m", "three_module_v1", ""};
+    char error[1024]{};
+    require(tpmshx_result_stage_query_v2(&input, 0, &requested, nullptr, 0,
+        &output, &diagnostics, &token, error, sizeof(error)) == 0, "metric consumes a host ValueError");
+    require(probe.calls == 1 && output.metric_count == 1, "one original primitive boundary");
+    require(std::strcmp(output.metrics[0].status, "invalid") == 0 && token == 0,
+            "consumed callback errors do not escape the successful stage");
+    tpmshx_result_stage_release_v1(&output);
+    probe.cause = 8; probe.calls = 0;
+    const auto before = output;
+    require(tpmshx_result_stage_query_v2(&input, 0, &requested, nullptr, 0,
+        &output, &diagnostics, &token, error, sizeof(error)) == TPMSHX_RESULT_NUMERIC,
+        "unhandled host error stops the stage");
+    require(probe.calls == 1 && token == 77 && diagnostics.python_cause == 8,
+        "unhandled callback keeps its original host identity");
+    require(std::memcmp(&before, &output, sizeof(output)) == 0, "host failure does not publish a report");
+}
+
+void deferred_alias_contract() {
+    for (int kind = 0; kind < 10; ++kind) for (int channel = 0; channel < 4; ++channel) {
+        alignas(std::max_align_t) unsigned char borrowed[4096]{};
+        tpmshx_result_evidence_v1 evidence{};
+        evidence.abi_version = TPMSHX_RESULT_STAGE_ABI_VERSION; evidence.struct_size = sizeof(evidence);
+        evidence.result_id = "deferred-alias"; evidence.dimension = 2; evidence.converged = -1;
+        evidence.model_active_b = -1; evidence.richardson_extrapolated = -1;
+        evidence.active_fluids[0] = evidence.active_fluids[1] = 1;
+        switch (kind) {
+        case 0: evidence.pressure[0] = reinterpret_cast<tpmshx_stage_pressure_v1*>(borrowed); break;
+        case 1: evidence.thermal.energy = reinterpret_cast<tpmshx_stage_energy_v1*>(borrowed); break;
+        case 2: evidence.thermal.model_h = reinterpret_cast<tpmshx_stage_model_certificate_v1*>(borrowed); break;
+        case 3: evidence.thermal.true_h = reinterpret_cast<tpmshx_stage_true_h_v1*>(borrowed); break;
+        case 4: evidence.fine = reinterpret_cast<tpmshx_stage_fine_v1*>(borrowed); break;
+        case 5: evidence.true_h_certificate = reinterpret_cast<tpmshx_stage_true_h_certificate_v1*>(borrowed); break;
+        case 6: evidence.outer_index = reinterpret_cast<int*>(borrowed); break;
+        case 7: evidence.solid_density = reinterpret_cast<tpmshx_result_scalar_v1*>(borrowed); break;
+        case 8: evidence.applicability = reinterpret_cast<tpmshx_stage_applicability_v1*>(borrowed); break;
+        case 9: evidence.thermal_state = reinterpret_cast<char*>(borrowed); break;
+        }
+        tpmshx_stage_input_error_v2 failure{borrowed, TPMSHX_RESULT_TYPE_ERROR, "deferred input", 17};
+        tpmshx_stage_input_v2 input{};
+        input.abi_version = 2; input.struct_size = sizeof(input); input.evidence = &evidence;
+        input.errors = &failure; input.error_count = 1;
+        tpmshx_stage_output_v1 result{}; result.struct_size = sizeof(result);
+        tpmshx_result_diagnostics_v1 diagnostic{}; std::uint64_t token{}; char error[128]{};
+        auto* output = channel == 0 ? reinterpret_cast<tpmshx_stage_output_v1*>(borrowed) : &result;
+        if (channel == 0) output->struct_size = sizeof(*output);
+        auto* diagnostics = channel == 1 ? reinterpret_cast<tpmshx_result_diagnostics_v1*>(borrowed) : &diagnostic;
+        auto* identity = channel == 2 ? reinterpret_cast<std::uint64_t*>(borrowed) : &token;
+        auto* message = channel == 3 ? reinterpret_cast<char*>(borrowed) : error;
+        unsigned char before[sizeof(borrowed)]; std::memcpy(before, borrowed, sizeof(borrowed));
+        const auto status = tpmshx_result_stage_query_v2(&input, 1, nullptr, nullptr, 0,
+            output, diagnostics, identity, message, sizeof(error));
+        require(status != 0, "v2 writable storage cannot alias a deferred input");
+        require(std::memcmp(before, borrowed, sizeof(borrowed)) == 0,
+                "v2 deferred input storage remains unchanged after rejection");
+    }
+}
+
 }
 int main() {
-    try {cpp_contract(); c_contract(); std::cout << "result stage contracts passed\n";}
+    try {cpp_contract(); c_contract(); host_contract(); deferred_alias_contract(); std::cout << "result stage contracts passed\n";}
     catch (const std::exception& error) {std::cerr << error.what() << '\n'; return 1;}
     return 0;
 }

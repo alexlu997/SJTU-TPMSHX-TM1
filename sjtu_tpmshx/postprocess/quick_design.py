@@ -66,3 +66,46 @@ def evaluate_metric(result, name):
         a, b = evaluate_metric(result, 'Q'), evaluate_metric(result, 'Q_cold')
         return native.quick_energy_imbalance(a, b)
     raise NotImplementedError(f'quick-design does not supply {name}')
+
+
+def evaluate(result, metric_spec=None):
+    """Keep the Quick Design numeric protocol until its stage is integrated."""
+    from uuid import uuid4
+    from sjtu_tpmshx.shared.domain.metric_spec import MetricSpec
+    from sjtu_tpmshx.shared.domain.performance_result import MetricValue, PerformanceResult
+    from sjtu_tpmshx.shared.domain.persistence_validation import validate_result_declarations
+    from sjtu_tpmshx.shared._native_result_stage import evaluate_qualification
+
+    dimension = validate_result_declarations(result)
+    if dimension not in (2, 3):
+        raise ValueError('postprocessing requires physical dimension 2 or 3')
+    definitions = {
+        'Q': ('Q', 'W'), 'dP_A': ('dP', 'Pa'), 'dP_B': ('dP', 'Pa'),
+        'T_out_A': ('T_out', 'K'), 'T_out_B': ('T_out', 'K'),
+        'mass_flow_A': ('mass_flow', 'kg/s'), 'mass_flow_B': ('mass_flow', 'kg/s'),
+        'mass_imbalance_rel_A': ('mass_imbalance_rel', '1'),
+        'mass_imbalance_rel_B': ('mass_imbalance_rel', '1'),
+        'energy_imbalance_rel': ('energy_imbalance_rel', '1'), 'mass': ('mass', 'kg'),
+        **DEFINITIONS,
+    }
+    metrics = {}
+    for name, (kind, unit) in definitions.items():
+        if metric_spec is not None and metric_spec.name not in (kind, name):
+            continue
+        spec = metric_spec or MetricSpec(kind, unit, 'three_module_v1', '')
+        try:
+            if spec.unit != unit or spec.definition_version != 'three_module_v1':
+                raise NotImplementedError(f'unsupported requested definition: {spec}')
+            value = float(evaluate_metric(result, name))
+            if not np.isfinite(value):
+                raise ValueError('native evidence produced a non-finite metric')
+            metrics[name] = MetricValue(value, spec)
+        except (KeyError, TypeError) as error:
+            metrics[name] = MetricValue(None, spec, 'insufficient_data', f'missing or incomplete evidence: {error}')
+        except NotImplementedError as error:
+            metrics[name] = MetricValue(None, spec, 'unsupported', str(error))
+        except (ValueError, IndexError) as error:
+            metrics[name] = MetricValue(None, spec, 'invalid', str(error))
+    if metric_spec is not None and not metrics:
+        metrics[metric_spec.name] = MetricValue(None, metric_spec, 'unsupported', 'unknown metric')
+    return PerformanceResult(str(uuid4()), result.result_id, metrics, evaluate_qualification(result, metrics))
