@@ -128,6 +128,31 @@ jobs:
       - name: Run independent native callers
         shell: bash
         run: '"$CI_PYTHON" engineering/scripts/build_native_dependencies.py verify'
+      - name: Check the installed C++ stage SDK outside the source tree
+        shell: bash
+        run: '"$CI_PYTHON" engineering/scripts/build_native_dependencies.py check-stages'
+      - name: Compare native preparation and complete stage results
+        shell: bash
+        run: |
+          "$CI_PYTHON" - <<'PYTHON'
+          import os
+          from pathlib import Path
+          host = 'windows-x64' if os.name == 'nt' else 'macos-arm64'
+          prefix, suffix = ('', '.dll') if os.name == 'nt' else ('lib', '.dylib')
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as output:
+              for component in ('solver', 'geometry', 'preparation', 'result'):
+                  folder = component if component in ('preparation', 'result') else 'pilot'
+                  library = Path('.cache/native-deps/build') / (folder + '-' + host) / (prefix + 'tpmshx_' + component + '_shared' + suffix)
+                  name = 'TPMSHX_NATIVE_SOLVER_LIBRARY' if component == 'solver' else 'TPMSHX_' + component.upper() + '_LIBRARY'
+                  output.write(f'{name}={library.resolve().as_posix()}\n')
+          PYTHON
+      - name: Check exact stage contracts
+        shell: bash
+        run: >-
+          "$CI_PYTHON" -m pytest -q --junitxml=.cache/native-deps/logs/stage-contracts.xml
+          sjtu_tpmshx/development/tests/test_native_preparation_case.py
+          sjtu_tpmshx/development/tests/test_native_stage_run.py
+          sjtu_tpmshx/development/tests/test_native_result_stage.py
       - name: Pack native runtime files with executable permissions
         shell: bash
         run: |
@@ -170,6 +195,7 @@ jobs:
           files += [preparation / (name + executable_suffix) for name in ('preparation_c_static', 'preparation_c_shared')]
           files += [result / (prefix + 'tpmshx_result_shared' + suffix)]
           files += [result / (name + executable_suffix) for name in ('result_c_static', 'result_c_shared', 'result_kernel_smoke')]
+          files += sorted((build.parent / 'stage-result').iterdir())
           files += [build.parent / ('coolprop-' + host) / 'coolprop-build.json']
           if host == 'macos-arm64':
               files += [build.parent / ('coolprop-preparation-' + host) / 'coolprop-build.json']

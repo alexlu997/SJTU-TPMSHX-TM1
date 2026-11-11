@@ -1,0 +1,148 @@
+#include "tpmshx/result_stage.hpp"
+#include "tpmshx/result_stage_c_api.h"
+#include <cmath>
+#include <cstring>
+#include <iostream>
+#include <limits>
+#include <stdexcept>
+
+using namespace tpmshx::result;
+using namespace tpmshx::result::stage;
+namespace {
+void require(bool condition, const char* message) {if (!condition) throw std::runtime_error(message);}
+Tensor tensor(std::vector<std::size_t> shape, std::initializer_list<double> values) {
+    Tensor out(std::move(shape), TPMSHX_RESULT_F64);
+    require(out.size() == values.size(), "fixture shape");
+    std::size_t i = 0;
+    for (auto value : values) out.put(i++, arithmetic::python_float(value));
+    return out;
+}
+Tensor zero(std::vector<std::size_t> shape) {
+    Tensor out(std::move(shape), TPMSHX_RESULT_F64);
+    for (std::size_t i = 0; i < out.size(); ++i) out.put(i, arithmetic::python_float(0));
+    return out;
+}
+ModelCertificate model(double q) {
+    ModelCertificate out; out.passed = true; out.physical_boundary_complete = true;
+    for (std::size_t side = 0; side < 2; ++side) {
+        out.sides[side].physical_boundary_complete = true;
+        const auto first = side ? q / 2 : q, last = side ? q : q / 2;
+        out.sides[side].staggered_power = {tensor({3, 2}, {first, first, 0, 0, last, last}), zero({2, 3})};
+    }
+    return out;
+}
+EnergyEvidence ledger() {
+    EnergyEvidence out; out.definition = "physical_heat_ledger_v1"; out.power_units = "W/m";
+    out.physical_dimension = 2; out.physical_boundary_complete = true; out.prescribed_b_power = zero({});
+    for (const auto& name : {"A", "B", "solid"}) {
+        EnergyPhaseEvidence phase; phase.solved = true; phase.residual = zero({2, 2}); phase.source_integral = zero({});
+        for (const auto& face : {"x-", "x+", "y-", "y+", "z-", "z+"}) {
+            const auto shape = face[0] == 'z' ? std::vector<std::size_t>{2, 2} : std::vector<std::size_t>{2, 1};
+            phase.advective_out.emplace(face, zero(shape)); phase.diffusive_out.emplace(face, zero(shape));
+        }
+        out.phases.emplace(name, std::move(phase));
+    }
+    return out;
+}
+ResultEvidence fixture() {
+    ResultEvidence out; out.result_id = "native-stage"; out.dimension = 2; out.metadata_dimension = 2;
+    out.thermal_mode = "model_h"; out.grid.widths[0] = tensor({2}, {.1, .1}); out.grid.widths[1] = tensor({2}, {.1, .1});
+    out.fields.emplace("Ta", tensor({2, 2}, {350, 360, 300, 320}));
+    out.fields.emplace("Tb", tensor({2, 2}, {300, 300, 300, 300}));
+    out.fields.emplace("Ts", tensor({2, 2}, {325, 325, 325, 325}));
+    out.fields.emplace("Ta_display", tensor({2, 2}, {1000, 1000, 1000, 1000}));
+    for (std::size_t side = 0; side < 2; ++side) {
+        out.fields.emplace(side ? "P_report_B" : "P_report_A", tensor({2, 2}, {100, 100, 20, 20}));
+        out.thermal.mass[side] = {tensor({3, 2}, {1, 3, 1, 3, 1, 3}), zero({2, 3})};
+        out.direction[side] = 0;
+        out.inlet_geom_fraction[side] = tensor({2}, {.25, .75}); out.outlet_geom_fraction[side] = tensor({2}, {.3, .9});
+        PressureEvidence p; p.outlet_geom_fraction = tensor({2}, {.3, .9}); out.pressure[side] = std::move(p);
+    }
+    out.thermal.model_h = model(10); out.thermal.energy = ledger();
+    FineEvidence fine; fine.grid = out.grid; fine.fields = out.fields; fine.thermal.model_h = model(13); fine.thermal.energy = ledger();
+    out.fine = std::move(fine);
+    out.model_certificates.emplace("main", model(10)); out.model_certificates.emplace("fine", model(13));
+    out.richardson_extrapolated = true; out.execution = "completed"; out.converged = true;
+    out.convergence_gates.emplace("richardson_ok", true);
+    out.execution_version = "full_execution_v1";
+    out.executed_sides.emplace("A", ExecutionSide{std::string("air"), true}); out.executed_sides.emplace("B", ExecutionSide{std::string("air"), true});
+    ApplicabilityEvidence applicability; applicability.inlet_recorded = true;
+    RangeSample sample; sample.captured = true; sample.side = "A"; sample.quantity = "Re"; sample.source = {"nu", "air"};
+    sample.bounds = {100, 200}; sample.size = 1; sample.minimum = 150; sample.maximum = 150;
+    applicability.groups.emplace("inlet", std::vector<RangeSample>{sample}); applicability.groups.emplace("final", std::vector<RangeSample>{});
+    out.applicability = std::move(applicability);
+    return out;
+}
+void cpp_contract() {
+    auto input = fixture();
+    auto output = evaluate(input);
+    require(output.metrics.size() == 17, "full 2D definitions");
+    require(output.metrics.at("Q").value == 10, "main A duty");
+    require(output.metrics.at("Q_B").value == -10, "signed B duty");
+    require(output.metrics.at("Q_richardson_A").value == 14, "fine duty remains separate");
+    require(output.metrics.at("dP_A").value == 160, "physical pressure faces");
+    require(output.metrics.at("T_out_A").value == 315, "native outward weighting");
+    require(output.metrics.at("mass_flow_A").value == 4, "native inflow");
+    require(output.metrics.at("mass").status == "insufficient_data", "missing mass evidence");
+    require(output.qualification.design_eligible == true, "recorded qualification gates");
+    require(output.metrics.at("Q_A").spec.description.rfind("Signed A-side", 0) == 0, "metric definition text");
+    input.executed_sides.at("A").fluid = "sco2";
+    output = evaluate(input);
+    require(!output.qualification.design_eligible, "sCO2 model scope stays unverified");
+    require(output.qualification.optimization.passed == true, "recorded sCO2 numerical study scope");
+    input.applicability.reset();
+    require(!evaluate(input).qualification.optimization.passed, "missing range evidence stays unverified");
+    require(evaluate_applicability(input).status == "unavailable", "historical missing range status");
+    input.thermal.mass[0].clear();
+    output = evaluate(input);
+    require(output.metrics.at("mass_flow_A").status == "insufficient_data", "missing native faces");
+    require(output.metrics.at("Q").value == 10, "duty does not borrow mass report");
+    input = fixture();
+    input.fields.at("Ta").put(0, arithmetic::python_float(std::numeric_limits<double>::quiet_NaN()));
+    require(evaluate(input).qualification.convergence.passed == false, "raw nonfinite field rejects convergence");
+    const auto unsupported = evaluate(input, MetricSpec{"Q", "W/m", "three_module_v1", ""});
+    require(unsupported.metrics.at("Q").status == "unsupported", "metric version selection");
+    const auto unknown = evaluate(input, MetricSpec{"unknown", "1", "v1", ""});
+    require(unknown.metrics.at("unknown").reason == "unknown metric", "unknown metric status");
+    input = fixture(); input.applicability->groups.at("inlet")[0].maximum = 221;
+    require(evaluate_applicability(input).within_limits == false, "range policy retains existing margin");
+}
+void c_contract() {
+    tpmshx_result_evidence_v1 input{};
+    input.abi_version = TPMSHX_RESULT_STAGE_ABI_VERSION; input.struct_size = sizeof(input);
+    input.result_id = "historical"; input.dimension = 2; input.converged = -1;
+    input.model_active_b = -1; input.richardson_extrapolated = -1;
+    input.active_fluids[0] = input.active_fluids[1] = 1;
+    tpmshx_stage_output_v1 output{}; output.struct_size = sizeof(output);
+    char error[1024]{};
+    require(tpmshx_result_stage_applicability_v1(&input, &output, error, sizeof(error)) == 0, "C applicability");
+    require(std::strstr(output.json, "original-bound and final-state evidence was not recorded") != nullptr, "C missing evidence reason");
+    tpmshx_result_stage_release_v1(&output);
+    require(!output.owner && !output.json && output.struct_size == sizeof(output), "creating library releases output");
+    require(tpmshx_result_stage_evaluate_v1(&input, nullptr, &output, error, sizeof(error)) == 0, "C complete evaluation");
+    require(output.metric_count == 17, "C typed metric list");
+    require(std::strstr(output.json, "unverified") != nullptr, "C historical qualification");
+    tpmshx_result_stage_release_v1(&output);
+    input.struct_size = 0;
+    const auto before = output;
+    require(tpmshx_result_stage_evaluate_v1(&input, nullptr, &output, error, sizeof(error)) != 0, "C ABI size check");
+    require(std::memcmp(&before, &output, sizeof(output)) == 0, "C failed output is atomic");
+    require(std::strstr(error, "ABI") != nullptr, "C bounded error");
+    input.struct_size = sizeof(input);
+    require(tpmshx_result_stage_evaluate_v1(&input, nullptr, &output, reinterpret_cast<char*>(&input), sizeof(input)) != 0,
+            "C output cannot overwrite borrowed evidence");
+    require(input.abi_version == TPMSHX_RESULT_STAGE_ABI_VERSION, "C alias rejection preserves inputs");
+    auto good = tensor({1}, {42.});
+    auto bad = good.raw(); bad.dtype = 0;
+    tpmshx_stage_named_array_v1 fields[]{{"first", bad}, {"last", good.raw()}};
+    input.fields = fields; input.field_count = 2;
+    require(tpmshx_result_stage_evaluate_v1(&input, nullptr, &output,
+        reinterpret_cast<char*>(good.bytes.data()), good.bytes.size()) != 0, "C invalid array fails before report publication");
+    require(arithmetic::to_float(good.array().at(0)) == 42., "C early failure preserves unvisited borrowed storage");
+}
+}
+int main() {
+    try {cpp_contract(); c_contract(); std::cout << "result stage contracts passed\n";}
+    catch (const std::exception& error) {std::cerr << error.what() << '\n'; return 1;}
+    return 0;
+}

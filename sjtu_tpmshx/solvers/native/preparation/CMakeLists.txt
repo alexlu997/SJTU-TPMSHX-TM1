@@ -26,13 +26,15 @@ add_library(tpmshx_preparation STATIC "${TPMSHX_NATIVE_ROOT}/src/preparation_flo
     "${TPMSHX_NATIVE_ROOT}/src/preparation_properties.cpp"
     "${TPMSHX_NATIVE_ROOT}/src/preparation_df.cpp"
     "${TPMSHX_NATIVE_ROOT}/src/preparation_df_corrections.cpp"
-    "${TPMSHX_NATIVE_ROOT}/src/preparation_df_projection.cpp")
+    "${TPMSHX_NATIVE_ROOT}/src/preparation_df_projection.cpp"
+    "${TPMSHX_NATIVE_ROOT}/src/preparation_case.cpp")
 target_include_directories(tpmshx_preparation PUBLIC "${TPMSHX_NATIVE_ROOT}/include")
 target_link_libraries(tpmshx_preparation PUBLIC tpmshx_geometry tpmshx_models)
 set(TPMSHX_PREPARATION_C_SOURCES "${TPMSHX_NATIVE_ROOT}/src/preparation_c_api.cpp"
     "${TPMSHX_NATIVE_ROOT}/src/preparation_flow_c_api.cpp"
     "${TPMSHX_NATIVE_ROOT}/src/property_c_api.cpp"
-    "${TPMSHX_NATIVE_ROOT}/src/preparation_df_c_api.cpp")
+    "${TPMSHX_NATIVE_ROOT}/src/preparation_df_c_api.cpp"
+    "${TPMSHX_NATIVE_ROOT}/src/preparation_case_c_api.cpp")
 add_library(tpmshx_preparation_c STATIC ${TPMSHX_PREPARATION_C_SOURCES})
 add_library(tpmshx_preparation_shared SHARED ${TPMSHX_PREPARATION_C_SOURCES})
 target_compile_definitions(tpmshx_preparation_shared PRIVATE TPMSHX_PREPARATION_BUILD_SHARED)
@@ -73,4 +75,22 @@ foreach(kind IN ITEMS static shared)
         set_target_properties(preparation_c_${kind} PROPERTIES BUILD_RPATH_USE_ORIGIN YES)
     endif()
     add_test(NAME preparation_c_${kind} COMMAND preparation_c_${kind})
+endforeach()
+
+foreach(kind IN ITEMS static shared)
+    add_executable(preparation_case_c_${kind} "${TPMSHX_NATIVE_ROOT}/tests/preparation_case_c_smoke.c")
+    target_compile_features(preparation_case_c_${kind} PRIVATE c_std_11)
+    set_target_properties(preparation_case_c_${kind} PROPERTIES LINKER_LANGUAGE CXX C_EXTENSIONS OFF)
+    if(kind STREQUAL static)
+        target_link_libraries(preparation_case_c_${kind} PRIVATE tpmshx_preparation_c)
+    else()
+        target_link_libraries(preparation_case_c_${kind} PRIVATE tpmshx_preparation_shared)
+        target_compile_definitions(preparation_case_c_${kind} PRIVATE TPMSHX_PREPARATION_USE_SHARED)
+    endif()
+    if(APPLE)
+        set_target_properties(preparation_case_c_${kind} PROPERTIES BUILD_RPATH "@loader_path")
+    elseif(UNIX)
+        set_target_properties(preparation_case_c_${kind} PROPERTIES BUILD_RPATH_USE_ORIGIN YES)
+    endif()
+    add_test(NAME preparation_case_c_${kind} COMMAND preparation_case_c_${kind})
 endforeach()

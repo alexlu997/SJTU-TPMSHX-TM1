@@ -18,6 +18,7 @@ TM1 将 TPMS 换热器的前处理、求解和后处理拆为独立维护的模�
 
 包内六类目录是 `preprocess/`、`solvers/`、`postprocess/`、`shared/`、`applications/` 和 `development/`。
 [模块地图](sjtu_tpmshx/README.md)说明各自职责；C++ 源码仍在 [solvers/native/](sjtu_tpmshx/solvers/native/)。
+[原生阶段 SDK](docs/native-stages.zh-CN.md)说明独立 C++ 前处理、求解和后处理接口及当前覆盖范围。
 GUI、CLI、设计与恢复实现位于 `applications/`；测试、验证和诊断工具位于 `development/`。
 根 [engineering/](engineering/) 保存构建脚本、打包配置和依赖锁；[docs/contracts/](docs/contracts/) 保存数据契约。
 `.github/workflows/` 保存 CI 配置。GUI 与 CLI 继续用 `python -m sjtu_tpmshx.main` 和 `python -m sjtu_tpmshx.cli` 启动。

@@ -10,10 +10,11 @@ import argparse
 import csv
 from importlib.resources import files
 import math
+import json
 from pathlib import Path
 
 from sjtu_tpmshx.shared.configs.model_parameters import (
-    load_co2_coefficients, load_model_parameters, load_preparation_df_parameters)
+    MODEL_VERSIONS, load_co2_coefficients, load_model_parameters, load_preparation_df_parameters)
 
 
 def array(name, values):
@@ -41,6 +42,8 @@ def header():
         "// Topology table rows: Diamond, Gyroid. Nu columns: c, a[, d].",
         "#pragma once", "#include <array>", "", "namespace tpmshx::model_coefficients {",
     ]
+    lines.extend(f"inline constexpr char {name}_version[] = {json.dumps(version)};"
+                 for name, version in MODEL_VERSIONS.items())
     for name, value in (("gas_constant", constants['gas_constant']),
                         ("air_molar_mass", constants['air_molar_mass']),
                         ("pr_air", nu['pr_air']), ("nu_roughness_factor", nu['roughness_factor']),

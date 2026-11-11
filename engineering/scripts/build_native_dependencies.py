@@ -614,7 +614,7 @@ def verify(cache: Path, host: str, component: str = "all") -> None:
     suffix = ".exe" if host == "windows-x64" else ""
     if result_only or component == "all":
         result_dir = cache / "build" / f"result-{host}"
-        for caller in ("result_c_static", "result_c_shared", "result_kernel_smoke"):
+        for caller in ("result_c_static", "result_c_shared", "result_kernel_smoke", "result_stage_smoke"):
             run([result_dir / f"{caller}{suffix}"], log)
         verify_model_exports(result_dir, host, "result", log)
         result_build_record(cache, host)
@@ -627,7 +627,8 @@ def verify(cache: Path, host: str, component: str = "all") -> None:
         print(f"PASS: {host} locked CMake and independent geometry callers", flush=True)
         return
     preparation_dir = cache / "build" / f"preparation-{host}"
-    for caller in ("preparation_c_static", "preparation_c_shared"):
+    for caller in ("preparation_c_static", "preparation_c_shared",
+                   "preparation_case_c_static", "preparation_case_c_shared"):
         run([preparation_dir / f"{caller}{suffix}"], log)
     prefix, shared_suffix = ("", ".dll") if host == "windows-x64" else ("lib", ".dylib")
     preparation = ct.CDLL(str(preparation_dir / (prefix + 'tpmshx_preparation_shared' + shared_suffix)))
@@ -792,9 +793,70 @@ def publish(cache: Path, host: str, python: Path, lock: Path, component: str = "
     return selected[0][2]
 
 
+
+def check_stages(cache: Path, host: str, python: Path, lock: Path, component: str) -> None:
+    """Build the installed public SDK and run callers outside the source tree."""
+    require_component(host, component)
+    if component not in {"all", "result"}:
+        raise ValueError("check-stages supports only --component all or result")
+    check_environment(cache, python, lock)
+    cmake = cmake_path(cache, host)
+    stage_build = cache / "build" / f"stages-{host}"
+    log = cache / "logs" / f"check-stages-{host}.log"
+    components = ["result"] if component == "result" else ["geometry", "preparation", "solver", "result"]
+    options = [f"-DTPMSHX_COMPONENTS={';'.join(components)}",
+               f"-DTPMSHX_NATIVE_DEPS_ROOT={cache}", f"-DTPMSHX_MODEL_INCLUDE_DIR={cache / 'generated'}"]
+    for name in components:
+        if name != "geometry":
+            directory = "pilot" if name == "solver" else name
+            options.append(f"-DTPMSHX_{name.upper()}_BUILD_DIR={cache / 'build' / f'{directory}-{host}'}")
+    if component == "all":
+        for role in ("solver", "preparation"):
+            coolprop_build_record(cache, host, role)
+            options.append(f"-DTPMSHX_{role.upper()}_COOLPROP_LIBRARY={coolprop_library(cache, host, role)}")
+    generator = ["-G", LOCK["cmake"][host]["generator"]]
+    if host == "windows-x64":
+        generator += ["-A", "x64"]
+    run([cmake, "-S", ROOT / "sjtu_tpmshx/solvers/native", "-B", stage_build,
+         *generator, *options], log)
+    run([cmake, "--build", stage_build, "--config", "Release", "--parallel", "1"], log)
+    if component == "all":
+        geometry = stage_build / "geometry"
+        run([cmake, "--build", geometry, "--config", "Release", "--target", "geometry_c_shared"], log)
+        run([geometry / ("geometry_c_shared.exe" if host == "windows-x64" else "geometry_c_shared")], log)
+    ctest = cmake.with_name("ctest.exe" if host == "windows-x64" else "ctest")
+    with tempfile.TemporaryDirectory(prefix="tpmshx-stage-sdk-") as temporary:
+        independent = Path(temporary)
+        prefix = independent / "sdk"
+        run([cmake, "--install", stage_build, "--config", "Release", "--prefix", prefix], log)
+        shutil.copytree(ROOT / "examples/cpp", independent / "examples")
+        sources = ["examples"]
+        if component == "all":
+            tests = independent / "tests"
+            shutil.copytree(ROOT / "sjtu_tpmshx/solvers/native/tests/stages", tests / "stages")
+            shutil.copy2(ROOT / "sjtu_tpmshx/solvers/native/tests/stage_run_smoke.cpp", tests)
+            sources.append("tests/stages")
+        env = {key: value for key, value in os.environ.items()
+               if key not in {"PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV"} and not key.startswith("TPMSHX_")}
+        env["PATH"] = os.defpath
+        for source in sources:
+            build_dir = independent / (source.replace("/", "-") + "-build")
+            run([cmake, "-S", independent / source, "-B", build_dir, *generator,
+                 f"-DCMAKE_PREFIX_PATH={prefix}"], log, cwd=independent)
+            targets = (["result_client", "air_2d"] if component == "all" else ["result_client"]) \
+                if source == "examples" else ["stage_run_smoke"]
+            run([cmake, "--build", build_dir, "--config", "Release", "--parallel", "2", "--target", *targets],
+                log, cwd=independent)
+            run([ctest, "--test-dir", build_dir, "-C", "Release", "--output-on-failure"],
+                log, cwd=independent, env=env)
+            if source == "tests/stages":
+                shutil.copytree(build_dir / "stage-result", cache / "build/stage-result", dirs_exist_ok=True)
+    print(f"PASS: {host} installed SDK and independent C++ stage callers", flush=True)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("fetch", "fetch-cmake", "fetch-eigen", "build", "verify", "publish"))
+    parser.add_argument("action", choices=("fetch", "fetch-cmake", "fetch-eigen", "build", "verify", "publish", "check-stages"))
     parser.add_argument("--cache", type=Path, default=ROOT / ".cache/native-deps")
     parser.add_argument("--python-lock", type=Path, default=ROOT / "engineering/requirements/base.txt")
     parser.add_argument("--component", choices=("all", "coolprop", "pilot", "geometry", "preparation", "result"), default="all")
@@ -803,8 +865,8 @@ def main() -> None:
     if not cache.is_relative_to(ROOT / ".cache"):
         raise RuntimeError("Native dependency outputs must remain under this worktree's .cache/")
     require_component(host, args.component)
-    if host == "linux-x86_64" and args.action not in {"fetch-cmake", "build", "verify", "publish"}:
-        raise RuntimeError("Linux result builds allow only fetch-cmake, build, verify, or publish")
+    if host == "linux-x86_64" and args.action not in {"fetch-cmake", "build", "verify", "publish", "check-stages"}:
+        raise RuntimeError("Linux result builds allow only fetch-cmake, build, verify, publish, or check-stages")
     if args.action == "fetch":
         fetch(cache, host)
     elif args.action == "fetch-cmake":
@@ -813,6 +875,8 @@ def main() -> None:
         fetch_eigen(cache)
     elif args.action == "build":
         build(cache, host, python, args.python_lock.resolve(), args.component)
+    elif args.action == "check-stages":
+        check_stages(cache, host, python, args.python_lock.resolve(), args.component)
     elif args.action == "publish":
         publish(cache, host, python, args.python_lock.resolve(), args.component)
     else:

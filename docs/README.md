@@ -12,6 +12,7 @@
 | --- | --- |
 | 模块职责、调用关系和物理约束 | [architecture.zh-CN.md](architecture.zh-CN.md) |
 | C++ 数值后端、原生 ABI 与构建 | [C++ 接入说明](cpp-migration.zh-CN.md) |
+| 独立 C++ 阶段 SDK 与安装后示例 | [C++ 阶段接口](native-stages.zh-CN.md) |
 | 已授权的稳态单相求解器设计与任务节点 | [统一求解器设计](unified-solver.zh-CN.md) |
 | macOS/Windows 项目文件夹运行与可选打包 | [桌面运行说明](desktop.md) |
 | CaseData、FieldResult、指标与文件交接 | [三模块数据契约](contracts/three_module_v1/README.zh-CN.md) |

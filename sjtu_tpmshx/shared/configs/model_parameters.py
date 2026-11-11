@@ -4,6 +4,17 @@ import json
 import math
 
 
+# These versions identify the extracted V2 formulas, not experimental accuracy.
+MODEL_VERSIONS = {
+    'quick_design': 'v2-5f1cafb',
+    'fluid': 'v2-5f1cafb',
+    'co2_fluid': 'co2-fixed-factors-20261009-v1',
+    'co2_geometry': 'co2-segment2-20261002-v1',
+    'geometry': 'v2-5f1cafb',
+    'darcy_forchheimer': 'cfd_full_core_3cell_fixed_v2',
+}
+
+
 _SCALARS = {
     'constants': ('gas_constant', 'air_molar_mass', 'standard_pressure_pa',
                   'celsius_zero_K', 'model_h_reference_K'),

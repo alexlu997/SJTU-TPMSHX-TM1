@@ -1,0 +1,93 @@
+# 原生阶段接口
+
+[中文](native-stages.zh-CN.md) | [English](native-stages.md)
+
+## 范围
+
+原生阶段工作增加可独立调用的准备、执行和评估接口。对应阶段通过验收前，现有 Python
+入口继续作为正式运行路径。首批准备接口支持均匀、对称的二维 air/air，以及指定入口速度。
+其他模式必须在该接口明确报错。这一限制不删除现有 Python 工作流支持的任何模式。
+
+C++ 调用顺序是 `prepare_case`、`run_case`、`evaluate`。调用者提供尺寸、设计值、
+边界条件和控制参数。准备库生成物理场，求解库使用该准备态，结果库评估记录的证据。
+
+## 所有权和单位
+
+- 使用输入字段名标明的单位。设计输入使用 mm，保存的物理设计场使用 m。执行适配生成
+  输运和闭合输入时，保留原有 mm→m→mm 运算顺序。
+- 请求网格数和实际网格数是不同字段。物理二维场形状是 `(nx, ny)`、C 顺序。
+  每侧流动场使用现有 `(cross, stream)` 顺序。
+- C 调用成功后返回一个 owner。全部数组和文本视图都属于这个 owner。最后一次使用后，
+  通过创建它的同一库释放。不得复制 owner 或通过调用者分配器释放它的缓冲区。
+- 回调在调用线程接收借用的事件视图，不承担数值准备。保留事件顺序、logger 名和消息。
+- 宿主负责 case ID、时间戳、文件路径和 Python 对象转换。原生阶段负责物理规则、数值默认值和证据。
+- 准备库、求解库使用各自锁定的 CoolProp 构建。结果库不链接准备库、求解库、CoolProp 或 Qt。
+- 现有低层 ABI 版本继续保留。归档运行库恢复保存的运行态时，不得依赖新增准备符号。
+
+## 构建和安装
+
+先按 [README](../README.md) 配置环境和锁定依赖。新 CMake 入口只使用已经准备的本地依赖，
+不获取源码、安装 Python 包或替换已发布的运行库。
+
+使用 `.venv-path` 指定的解释器生成两个模型头文件：
+
+```sh
+"$PYTHON" -m engineering.scripts.generate_native_model_coefficients \
+  --output .cache/stages/generated/tpmshx/model_coefficients.hpp \
+  --df-output .cache/stages/generated/tpmshx/preparation_df_data.hpp
+```
+
+使用锁定的 CMake 可执行文件。macOS 分别提供已验收依赖缓存中的准备和求解 archive：
+
+```sh
+"$CMAKE" -S sjtu_tpmshx/solvers/native -B .cache/stages/build \
+  -DTPMSHX_NATIVE_DEPS_ROOT="$PWD/.cache/native-deps" \
+  -DTPMSHX_MODEL_INCLUDE_DIR="$PWD/.cache/stages/generated" \
+  -DTPMSHX_PREPARATION_COOLPROP_LIBRARY="$PWD/.cache/native-deps/build/coolprop-preparation-macos-arm64/libCoolProp.a" \
+  -DTPMSHX_SOLVER_COOLPROP_LIBRARY="$PWD/.cache/native-deps/build/coolprop-macos-arm64/libCoolProp.a" \
+  -DCMAKE_INSTALL_PREFIX="$PWD/.cache/stages/install"
+"$CMAKE" --build .cache/stages/build --config Release --parallel 1
+"$CMAKE" --install .cache/stages/build --config Release
+```
+
+Windows 使用 `-A x64`，两种角色都使用锁定的 `Release/CoolProp.lib` archive；具体路径
+取自已验收的依赖缓存。独立组件工程保留原有编译选项和导出符号。
+
+设置 `-DTPMSHX_COMPONENTS=result` 可独立构建结果库，无需模型头文件或 EOS 依赖。
+Linux 只支持这一组件。安装内容包括选定的共享库、C ABI 头文件、CMake 包配置及相应源码声明。
+
+外部 C++ 工程可使用安装后的包：
+
+```cmake
+find_package(tpmshx CONFIG REQUIRED COMPONENTS result)
+target_link_libraries(my_program PRIVATE tpmshx::result)
+```
+
+[外部结果客户端](../examples/cpp/result_client.cpp)通过公开头文件检查数组并评估历史证据。
+[完整二维示例](../examples/cpp/air_2d.cpp)从原始尺寸、工况和边界输入开始，依次准备、求解并评估。
+它不读取 Python 预生成的数值场，也不启动或链接 Python。
+两个示例只使用安装的公开头文件与共享库。Windows 构建会将所需 DLL 复制到可执行文件旁。
+
+```sh
+"$CMAKE" -S examples/cpp -B .cache/stages/examples \
+  -DCMAKE_PREFIX_PATH="$PWD/.cache/stages/install"
+"$CMAKE" --build .cache/stages/examples --config Release
+"$CTEST" --test-dir .cache/stages/examples -C Release --output-on-failure
+```
+
+准备态、运行结果和评估结果是可移动、不可复制的 C++ 对象。运行结果拥有评估所需的证据，
+因此调用 `run_case` 后可以释放准备态。直接 C 调用的 owner 与借用视图规则见对应头文件。
+空的评估请求返回该模式全部指标；指定指标时保留其单位、定义版本、可用状态和原因。
+独立适用性、物理平衡和资格查询使用同一个结果库。
+
+现有依赖构建完成后，以下检查会复用组件构建目录，临时安装 SDK，并在源码树外构建和运行调用程序：
+
+```sh
+"$PYTHON" engineering/scripts/build_native_dependencies.py check-stages
+```
+
+该命令使用当前环境的适用锁；BO 环境须传对应的 `--python-lock`。
+Linux 另传 `--component result --python-lock engineering/requirements/postprocess.txt`。
+检查命令保留日志与二维对照字段，删除临时安装和外部构建目录。
+这条基础二维路径不代表固定质量流量、其他流体、分区、三维或 Quick Design 已完成阶段迁移。
+Python 接入及检查点恢复仍有各自的验收关口。

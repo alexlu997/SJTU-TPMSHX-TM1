@@ -14,7 +14,8 @@ add_library(tpmshx_result STATIC
     "${TPMSHX_NATIVE_ROOT}/src/result_arithmetic.cpp"
     "${TPMSHX_NATIVE_ROOT}/src/result_metrics.cpp"
     "${TPMSHX_NATIVE_ROOT}/src/result_balance.cpp"
-    "${TPMSHX_NATIVE_ROOT}/src/result_checks.cpp")
+    "${TPMSHX_NATIVE_ROOT}/src/result_checks.cpp"
+    "${TPMSHX_NATIVE_ROOT}/src/result_stage.cpp")
 target_include_directories(tpmshx_result PUBLIC "${TPMSHX_NATIVE_ROOT}/include")
 if(APPLE)
     target_sources(tpmshx_result PRIVATE "${TPMSHX_NATIVE_ROOT}/src/result_complex_sqrt.c")
@@ -26,7 +27,8 @@ set(TPMSHX_RESULT_C_SOURCES
     "${TPMSHX_NATIVE_ROOT}/src/result_c_api.cpp"
     "${TPMSHX_NATIVE_ROOT}/src/result_metrics_c_api.cpp"
     "${TPMSHX_NATIVE_ROOT}/src/result_balance_c_api.cpp"
-    "${TPMSHX_NATIVE_ROOT}/src/result_checks_c_api.cpp")
+    "${TPMSHX_NATIVE_ROOT}/src/result_checks_c_api.cpp"
+    "${TPMSHX_NATIVE_ROOT}/src/result_stage_c_api.cpp")
 add_library(tpmshx_result_c STATIC ${TPMSHX_RESULT_C_SOURCES})
 add_library(tpmshx_result_shared SHARED ${TPMSHX_RESULT_C_SOURCES})
 target_compile_definitions(tpmshx_result_shared PRIVATE TPMSHX_RESULT_BUILD_SHARED)
@@ -74,3 +76,8 @@ add_executable(result_kernel_smoke "${TPMSHX_NATIVE_ROOT}/tests/result_smoke.cpp
 target_link_libraries(result_kernel_smoke PRIVATE tpmshx_result)
 target_compile_features(result_kernel_smoke PRIVATE cxx_std_17)
 add_test(NAME result_kernel_smoke COMMAND result_kernel_smoke)
+
+add_executable(result_stage_smoke "${TPMSHX_NATIVE_ROOT}/tests/result_stage_smoke.cpp")
+target_link_libraries(result_stage_smoke PRIVATE tpmshx_result_c)
+target_compile_features(result_stage_smoke PRIVATE cxx_std_17)
+add_test(NAME result_stage_smoke COMMAND result_stage_smoke)

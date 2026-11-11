@@ -1,0 +1,15 @@
+cmake_minimum_required(VERSION 3.31.8)
+project(tpmshx_stage_consumer LANGUAGES CXX)
+enable_testing()
+find_package(tpmshx CONFIG REQUIRED COMPONENTS preparation solver result)
+add_executable(stage_run_smoke ../stage_run_smoke.cpp)
+target_compile_features(stage_run_smoke PRIVATE cxx_std_17)
+target_link_libraries(stage_run_smoke PRIVATE tpmshx::preparation tpmshx::solver tpmshx::result)
+if(WIN32)
+    foreach(component IN ITEMS preparation solver result)
+        add_custom_command(TARGET stage_run_smoke POST_BUILD
+            COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                "$<TARGET_FILE:tpmshx::${component}>" "$<TARGET_FILE_DIR:stage_run_smoke>")
+    endforeach()
+endif()
+add_test(NAME stage_run_smoke COMMAND stage_run_smoke "${CMAKE_BINARY_DIR}/stage-result")

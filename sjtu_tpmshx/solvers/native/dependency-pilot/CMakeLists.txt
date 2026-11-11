@@ -226,6 +226,10 @@ add_library(tpmshx_solver_shared SHARED "${TPMSHX_NATIVE_ROOT}/src/solver_c_api.
     "${TPMSHX_NATIVE_ROOT}/src/full_2d_c_api.cpp" "${TPMSHX_NATIVE_ROOT}/src/full_3d_c_api.cpp")
 target_compile_definitions(tpmshx_solver_shared PRIVATE TPMSHX_THERMAL_BUILD_SHARED)
 target_link_libraries(tpmshx_solver_shared PUBLIC tpmshx_quick_design tpmshx_full_2d tpmshx_full_3d)
+foreach(target IN ITEMS tpmshx_solver tpmshx_solver_shared)
+    target_sources(${target} PRIVATE "${TPMSHX_NATIVE_ROOT}/src/stage_run.cpp"
+        "${TPMSHX_NATIVE_ROOT}/src/stage_capture_2d.cpp")
+endforeach()
 set_target_properties(tpmshx_solver_shared PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS OFF)
 if(APPLE)
     # Keep each statically linked EOS registry private to its library image.
