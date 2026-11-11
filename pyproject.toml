@@ -125,7 +125,7 @@ include-package-data = false
 
 [tool.setuptools.packages.find]
 include = ["sjtu_tpmshx*"]
-exclude = ["sjtu_tpmshx.solvers.native*"]
+exclude = ["sjtu_tpmshx.solvers.native*", "sjtu_tpmshx.development.tests", "sjtu_tpmshx.development.tests.*"]
 
 [tool.setuptools.package-data]
 sjtu_tpmshx = [

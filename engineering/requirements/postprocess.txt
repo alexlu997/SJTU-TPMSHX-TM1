@@ -1,4 +1,4 @@
-# Minimal source-based offline I/O/postprocessing acceptance; no solver or Qt.
+# Minimal offline I/O/postprocessing acceptance; no solver or Qt.
 colorama==0.4.6; sys_platform == "win32"
 h5py==3.16.0
 iniconfig==2.3.1

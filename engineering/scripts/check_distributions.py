@@ -20,6 +20,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = "sjtu_tpmshx"
 NATIVE = PurePosixPath(PACKAGE) / "solvers/native"
+TESTS = PurePosixPath(PACKAGE) / "development/tests"
 FORBIDDEN_PARTS = {".cache", ".git", ".venv", "__pycache__", ".pytest_cache", "build", "dist"}
 FORBIDDEN_SUFFIXES = {".pyc", ".pyo", ".nbi", ".nbc", ".a", ".lib", ".dylib", ".dll", ".so",
                       ".o", ".obj", ".pdb", ".exe", ".h5", ".hdf5", ".npz", ".npy", ".checkpoint", ".ckpt"}
@@ -54,7 +55,7 @@ def source_files(root: Path, directory: str) -> set[str]:
 
 def expected_source_files(root: Path) -> set[str]:
     expected = {"pyproject.toml", "MANIFEST.in", "LICENSE", "README.md", "README.en.md", "requirements.txt"}
-    for directory in (f"{PACKAGE}/solvers/native", "engineering", "docs", "examples"):
+    for directory in (str(NATIVE), str(TESTS), "engineering", "docs", "examples"):
         expected.update(source_files(root, directory))
     expected.update(path.relative_to(root).as_posix() for path in (root / PACKAGE).rglob("*.py")
                     if not forbidden(path.relative_to(root).as_posix()))
@@ -125,7 +126,8 @@ def inspect_wheel(archive: Path, root: Path) -> list[str]:
     resources = declared_resources(root)
     python = {path.relative_to(root).as_posix() for path in (root / PACKAGE).rglob("*.py")
               if not forbidden(path.relative_to(root).as_posix())
-              and not path.relative_to(root).is_relative_to(NATIVE)}
+              and not path.relative_to(root).is_relative_to(NATIVE)
+              and not path.relative_to(root).is_relative_to(TESTS)}
     with zipfile.ZipFile(archive) as source:
         files = sorted(name for name in source.namelist() if not name.endswith("/"))
         metadata = {PurePosixPath(name).parts[0] for name in files if ".dist-info/" in name}
@@ -133,6 +135,7 @@ def inspect_wheel(archive: Path, root: Path) -> list[str]:
             raise ValueError("Python wheel must have one package metadata directory")
         metadata_root, = metadata
         extra = [name for name in files if forbidden(name) or retired_module(name)
+                 or PurePosixPath(name).is_relative_to(TESTS)
                  or (name not in python | resources and not name.startswith(metadata_root + "/"))]
         if extra:
             raise ValueError(f"Python wheel includes undeclared data, native code or state: {extra}")
