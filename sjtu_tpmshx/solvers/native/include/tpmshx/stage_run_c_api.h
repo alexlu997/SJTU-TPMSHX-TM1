@@ -2,10 +2,12 @@
 #define TPMSHX_STAGE_RUN_C_API_H
 #include "tpmshx/preparation_case_c_api.h"
 #include "tpmshx/full_2d_c_api.h"
+#include "tpmshx/full_2d_run_c_api.h"
 #include "tpmshx/result_stage_c_api.h"
 
 #define TPMSHX_STAGE_RUN_ABI_VERSION 1u
 #define TPMSHX_STAGE_RUN_ABI_VERSION_V2 2u
+#define TPMSHX_STAGE_RUN_ABI_VERSION_V3 3u
 
 typedef struct { uint32_t present; size_t value; } tpmshx_stage_size_option_v1;
 typedef struct { uint32_t present; double value; } tpmshx_stage_double_option_v1;
@@ -29,6 +31,17 @@ typedef struct {
     tpmshx_stage_run_request_2d_v1 values;
     const char* envelope_mode;
 } tpmshx_stage_run_request_2d_v2;
+/* Partial controls use defaults from this library. They cannot be combined
+ * with values.values.explicit_energy or active model_h controls. */
+typedef struct {
+    uint32_t abi_version;
+    size_t struct_size;
+    tpmshx_stage_run_request_2d_v2 values;
+    tpmshx_stage_size_option_v1 energy_iterations,energy_sweeps;
+    tpmshx_stage_double_option_v1 energy_omega,energy_update_tolerance;
+    tpmshx_stage_double_option_v1 energy_coupled_tolerance,energy_equation_tolerance;
+    uint32_t require_enthalpy_update_on_temperature;
+} tpmshx_stage_run_request_2d_v3;
 typedef struct {
     const char* result_id;
     const char* table_directory;
@@ -82,6 +95,32 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_run_case_2d_v3(
     const tpmshx_stage_run_control_v1*,tpmshx_stage_run_result_2d_v1*,char*,size_t);
 TPMSHX_THERMAL_API void TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_release_v1(
     tpmshx_stage_run_result_2d_v1*);
+/* Supply exactly one preparation view: uniform v2 or continuous v4.
+ * The run borrows this view and its storage until take_result or release.
+ * Keep that storage unchanged. Controls and numerical inputs are copied.
+ * Callback context must remain valid until release. Calls must not overlap.
+ * Initialize *run=NULL. Failure preserves it. Create/restore retain the v2
+ * status and storage rules. Restore uses the existing typed full 2D state,
+ * build identity and validation. A positive CPU limit can change on restore. */
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_create_v1(
+    const tpmshx_preparation_case_2d_v2*,const tpmshx_preparation_continuous_case_2d_v4*,
+    const tpmshx_stage_run_request_2d_v3*,const tpmshx_stage_run_control_v1*,void**,char*,size_t);
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_restore_v1(
+    const tpmshx_preparation_case_2d_v2*,const tpmshx_preparation_continuous_case_2d_v4*,
+    const tpmshx_stage_run_request_2d_v3*,const tpmshx_stage_run_control_v1*,
+    const tpmshx_run_state_field_v1*,size_t,void**,char*,size_t);
+/* Phases and safe snapshot boundaries match full_2d_run_c_api.h.
+ * Snapshots own independent storage; use tpmshx_run_state_release_v1. */
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_advance_step_v1(void*,uint32_t*,char*,size_t);
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_phase_v1(const void*,uint32_t*);
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_snapshot_v1(
+    const void*,tpmshx_run_state_v1*,char*,size_t);
+/* Transfer one completed result. A cancelled run returns 6 without output.
+ * Initialize the output as for run_case. Release it with stage_run_2d_release.
+ * All raw queries and releases must use this same library. */
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_take_result_v1(
+    void*,tpmshx_stage_run_result_2d_v1*,char*,size_t);
+TPMSHX_THERMAL_API void TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_release_run_v1(void**);
 #ifdef __cplusplus
 }
 #endif

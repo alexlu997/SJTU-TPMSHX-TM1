@@ -99,6 +99,9 @@ Resolved uniform flow cases use run v2. Both routes retain the v1 result owner.
 No v1/v2/v3 preparation C layout or Python production route changes.
 `preparation_case.cpp` owns that complete preparation sequence.
 `stage_run.cpp` adapts it to the existing full 2D driver.
+Its lifecycle interface uses the same full 2D run object, typed snapshots and restore checks.
+Partial energy controls use defaults from the selected library.
+Preparation evidence remains borrowed until result transfer or run release.
 `stage_capture_2d.cpp` records the actual run evidence for `result_stage.cpp`.
 The installed C ABI and `stages.hpp` support external C++ callers.
 Current Python entry points retain their existing behavior and all supported modes.
