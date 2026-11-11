@@ -66,6 +66,7 @@ def test_coolprop_build_has_only_the_required_archive_roles(tmp_path, monkeypatc
 @pytest.fixture
 def publication(tmp_path, monkeypatch):
     monkeypatch.setattr(native, "ROOT", tmp_path)
+    (tmp_path / ".git").mkdir()
     events = []
     monkeypatch.setattr(native, "build", lambda *args: events.append("build"))
     monkeypatch.setattr(native, "verify", lambda *args: events.append("verify"))
@@ -117,6 +118,7 @@ def test_publish_rebuilds_verifies_and_preserves_previous_library(publication):
     assert json.loads((backup / "build.json").read_text())["source_commit"] == "previous"
     record = json.loads(target.with_name("build.json").read_text())
     assert record["source_commit"] == "test-commit"
+    assert record["source_changes"] == []
     assert record["configuration"] == "Release"
     assert record["target_library"] == str(target)
     geometry = target.with_name(GEOMETRY_LIBRARY)
@@ -154,7 +156,23 @@ def test_publish_rebuilds_verifies_and_preserves_previous_library(publication):
     assert (backup / GEOMETRY_LIBRARY).read_bytes() == b"previous qualified geometry"
 
 
-@pytest.mark.parametrize("stage", ["build", "verify", "copy"])
+def test_archive_publication_records_unavailable_git_source(publication, monkeypatch):
+    cache, _, target, events = publication
+    (native.ROOT / ".git").rmdir()
+
+    def unexpected_run(command, *args, **kwargs):
+        pytest.fail(f"Archive publication ran a command: {command}")
+
+    monkeypatch.setattr(native, "run", unexpected_run)
+    assert native.publish(cache, "macos-arm64", Path("/python"), Path("/lock")) == target
+    assert events == ["build", "verify"]
+    for name in ("build.json", GEOMETRY_RECORD, PREPARATION_RECORD, RESULT_RECORD):
+        record = json.loads(target.with_name(name).read_text())
+        assert record["source_commit"] is None
+        assert record["source_changes"] is None
+
+
+@pytest.mark.parametrize("stage", ["build", "verify", "run", "copy"])
 def test_failed_publication_keeps_current_library_and_record(publication, monkeypatch, stage):
     cache, _, target, _ = publication
     before = _published_state(target)

@@ -98,6 +98,8 @@ $tm1Lock = 'engineering/requirements/base.txt'
 默认完整发布先构建并验证求解库、几何库、准备库和结果库，再以同一事务替换四个库。
 求解库保留 `build.json`，几何库使用 `geometry-build.json`，
 准备库使用 `preparation-build.json`，结果库使用 `result-build.json`。
+Git 检出的 `source_commit` 记录完整提交号，`source_changes` 逐行记录已跟踪文件的变更。
+空 `source_changes` 列表表示没有已跟踪文件变更。源码归档的两个字段均为 `null`。
 替换失败时恢复选定文件及元数据；回滚失败时保留暂存文件并报告恢复路径。
 旧求解检查点仍须使用精确保留的运行库、准备态输入和控制量。
 

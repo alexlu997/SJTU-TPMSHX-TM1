@@ -61,9 +61,9 @@ Linux x86_64 仅支持独立结果评估，不提供完整求解器或桌面部�
 
 这是 Python 源码项目，下载后需要安装锁定依赖。首次运行使用 macOS + Python 3.13，
 或 Windows x64 + Python 3.12 / 3.13，与[平台 CI](.github/workflows/ci.yml)一致。
-先安装对应版本的 [Python](https://www.python.org/downloads/)，克隆方式还需要 Git。
-也可在仓库页面选择 **Code → Download ZIP** 并解压；ZIP 用户直接进入解压后的
-仓库根目录，跳过下面的 `git clone` / `cd`，其余命令相同。
+先安装对应版本的 [Python](https://www.python.org/downloads/)。完整原生依赖的获取与校验需要 Git 工具。
+也可在仓库页面选择 **Code → Download ZIP** 并解压。从解压后的源码根目录运行命令，
+跳过下面的 `git clone` 和 `cd`。
 
 以下环境创建和安装步骤仅用于首次配置。已有合规 `.venv-path` 时直接复用，
 不要覆盖共享环境。所有命令均在包含 `pyproject.toml` 的仓库根目录逐条执行；
@@ -233,7 +233,7 @@ Windows（PowerShell）：
 此命令离线构建并验证求解库、几何库、准备库与结果库，再以同一事务替换本平台的四个库。
 缺少锁定依赖或验证失败时停止。改变库内容前，旧库及匹配记录保存在同目录的 `previous/`；
 重复发布相同库保留已有回退副本。求解库使用 `build.json`，几何库使用 `geometry-build.json`，准备库使用 `preparation-build.json`，结果库使用 `result-build.json`，
-分别记录源码提交、未提交改动、构建配置及路径。替换失败恢复选定库及元数据；回滚失败保留暂存文件并报告恢复路径。
+分别记录构建配置、路径和可用的 Git 来源。替换失败恢复选定库及元数据。回滚失败保留暂存文件并报告恢复路径。
 `sjtu_tpmshx/solvers/native/lib/` 是 Git 忽略的本地交付目录。停止相关程序后，回退选定组件时，
 从 `previous/` 恢复该库及对应记录，同时恢复匹配源码、Python 环境和物性版本。
 发布检查不替代数值回归或桌面验收。日常启动不执行构建、安装或下载。
