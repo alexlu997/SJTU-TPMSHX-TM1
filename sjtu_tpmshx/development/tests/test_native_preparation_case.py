@@ -371,3 +371,34 @@ def test_native_preparation_rejects_unimplemented_modes(native, selection, expec
                                          error, len(error)) == 1
     assert expected in error.value.decode()
     assert bytes(result) == before
+
+
+@pytest.mark.parametrize('selection,expected', [
+    ('temperature-before-fluid', 'ComputeConfig.fluid_A.T_in_K=-1.0 — must be finite and > 0'),
+    ('speed-before-fluid', 'ComputeConfig.fluid_A.u_mps=0.0 — must be finite and > 0'),
+    ('flag-before-df', 'preparation case flags require 0 or 1'),
+    ('flag-before-geometry', 'preparation case flags require 0 or 1'),
+    ('df-before-length', "native 2D preparation currently requires df_mode='cfd_smooth'"),
+    ('fluid-before-domain', 'native 2D preparation currently supports air/air only'),
+])
+def test_native_preparation_keeps_v1_scope_error_order(native, selection, expected):
+    config, _ = _configuration('baseline')
+    source = _input(config)
+    if selection == 'temperature-before-fluid':
+        source.sides[0].fluid, source.sides[0].temperature_K = 1, -1.
+    elif selection == 'speed-before-fluid':
+        source.sides[0].fluid, source.sides[0].velocity_m_s = 2, 0.
+        source.sides[0].pressure_Pa = 7.8e6
+    elif selection.startswith('flag-before-'):
+        source.port_wall_refine = 2
+        setattr(source, 'df_mode' if selection == 'flag-before-df' else 'geometry_mode', 1)
+    elif selection == 'df-before-length':
+        source.df_mode, source.length_m = 1, -1.
+    else:
+        source.sides[0].fluid, source.length_m = 1, 11.
+    result = _Result(1, ct.sizeof(_Result))
+    before, error = bytes(result), ct.create_string_buffer(4096)
+    assert native.tpmshx_prepare_case_2d_v1(ct.byref(source), None, None, ct.byref(result),
+                                         error, len(error)) == 1
+    assert error.value.decode() == expected
+    assert bytes(result) == before

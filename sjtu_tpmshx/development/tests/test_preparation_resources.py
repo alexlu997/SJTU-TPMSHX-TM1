@@ -19,6 +19,7 @@ def test_preparation_data_match_frozen_corrections_and_domain():
         np.testing.assert_array_equal(data['air_specimen']['sf'][topology], reference._AIR_SF[topology])
     np.testing.assert_array_equal(data['air_specimen']['t_nodes_mm'], reference._AIR_T)
     hx = data['hx']
+    assert hx['domain_m'] == [.182, .042, .042]
     for fluid in ('air', 'water', 'sco2'):
         for topology in ('Diamond', 'Gyroid'):
             key = (fluid, topology)
@@ -38,6 +39,7 @@ def test_preparation_data_match_frozen_corrections_and_domain():
     (('method',), 'unknown'), (('domain', 'L_nodes_mm'), [4., 5., 6., 8., 7.]),
     (('domain', 't_nodes_mm'), [.3, .4]), (('bracket_relative_tolerance',), True),
     (('hx', 'sf', 'air', 'Gyroid'), 0.),
+    (('hx', 'domain_m'), [.182, .042]), (('hx', 'domain_m'), [.182, -.042, .042]),
     (('hx', 'runtime_u_mps', 'air', 'Gyroid'), [float('nan'), 23.]),
     (('hx', 'application_scope'), ''), (('hx', 'gyroid_air_calibration'), {})])
 def test_preparation_resource_rejects_invalid_fixed_data(tmp_path, monkeypatch, path, value):
