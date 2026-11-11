@@ -17,6 +17,11 @@ from sjtu_tpmshx.shared._native_fp import floating_events
 ROOT = Path(__file__).resolve().parents[3]
 
 
+class LibraryStub(SimpleNamespace):
+    def __getitem__(self, name):
+        return getattr(self, name)
+
+
 def test_cold_import_and_archived_result_read_do_not_load_native_code(tmp_path):
     from sjtu_tpmshx.shared.domain.field_result import FieldResult
     from sjtu_tpmshx.shared.io.result_io import save_result
@@ -92,17 +97,17 @@ def test_missing_or_empty_override_is_a_deployment_error(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize('version', [0, 1, 3])
 def test_abi_mismatch_is_a_runtime_error(monkeypatch, version):
-    handle = SimpleNamespace(tpmshx_result_abi_version_v1=lambda: version)
+    handle = LibraryStub(tpmshx_result_abi_version_v1=lambda: version)
     monkeypatch.setattr(native.ct, 'CDLL', lambda path: handle)
     with pytest.raises(RuntimeError, match='unsupported native result ABI'):
         native._Library('/prebuilt-result')
 
 
 def test_missing_symbol_and_load_failure_are_deployment_errors(monkeypatch):
-    monkeypatch.setattr(native.ct, 'CDLL', lambda path: SimpleNamespace())
+    monkeypatch.setattr(native.ct, 'CDLL', lambda path: LibraryStub())
     with pytest.raises(RuntimeError, match='lacks tpmshx_result_abi_version_v1'):
         native._Library('/prebuilt-result')
-    handle = SimpleNamespace(tpmshx_result_abi_version_v1=lambda: 2)
+    handle = LibraryStub(tpmshx_result_abi_version_v1=lambda: 2)
     monkeypatch.setattr(native.ct, 'CDLL', lambda path: handle)
     owner = native._Library('/prebuilt-result')
     with pytest.raises(RuntimeError, match='lacks a_required_result_symbol'):

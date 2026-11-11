@@ -15,9 +15,13 @@ The full application retains its macOS arm64 and Windows x64 platforms.
 | `src/result_metrics.cpp` | Pressure faces, duties, mass flow, outlet values, integrated mass and Quick Design metrics. |
 | `src/result_balance.cpp` | Independent signed mass and energy balances, residual norms and zone statistics. |
 | `src/result_checks.cpp` | Range observations, qualification predicates, envelope helpers and physical mass bounds. |
+| `src/result_stage.cpp` | Full metric selection, definitions, statuses, applicability, physical balances and qualification. |
+| `src/result_stage_c_api.cpp` | Owned stage reports, borrowed evidence and versioned host event/error control. |
 | `src/result_c_api.cpp` and family C interfaces | Versioned C functions with checked buffers and ordered floating-point diagnostics. |
 
-Python retains evidence selection, DTOs, type and shape adaptation, status and reason text, and file I/O.
+Python retains DTOs, type and shape adaptation, original object identity, NumPy event handling and file I/O.
+The result stage owns full 2D/3D evidence selection, status and reason text.
+Quick Design metric arithmetic retains its existing Python protocol owner until that stage is integrated.
 The four public computation entries remain unchanged.
 Independent original numerical references stay under `development/tests/`.
 Production result calculations do not call those references.
@@ -68,7 +72,10 @@ ABI 2 requires an explicit complex-square mode in the zone standard-deviation an
 Mode 0 uses separate products; mode 1 uses component FMA. Other values fail before output publication.
 The borrowed POD descriptions retain their `_v1` layouts.
 The adapter rejects earlier library ABIs before binding numerical calls.
-Its declarations are in `include/tpmshx/result_c_api.h` and the three family headers.
+Its declarations are in `include/tpmshx/result_c_api.h` and the family and stage headers.
+The stage host query uses a separate v2 input declaration. It preserves all published v1 C layouts.
+Deferred conversion errors and NumPy callbacks are consumed at the original metric or qualification boundary.
+Uncaught host exceptions return their original token. Stage outputs are released through their originating library.
 Only the symbols in `result.exports` and `result.map` are public.
 There is no public arithmetic opcode evaluator or numerical callback.
 
@@ -88,7 +95,8 @@ There is no numerical fallback or runtime compilation.
 
 `shared/_native_result.py` loads the image only when a numerical call needs it.
 Public imports and pure HDF/JSON reads do not load it.
-An evaluation with missing evidence can return its original reason before a native call.
+Full evaluation and independent result queries require the current stage image, including queries with missing evidence.
+A missing stage symbol is a deployment error. Missing physical evidence retains its original result status and reason.
 Explicit object and arbitrary integer protocols remain at demonstrated Python-only conversion points.
 These branches are selected before native execution; they do not handle a native failure.
 

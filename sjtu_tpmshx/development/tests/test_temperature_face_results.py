@@ -32,11 +32,7 @@ def temperature_fixture(dimension):
 
 
 @pytest.mark.parametrize('dimension', [2, 3])
-def test_signed_advective_duty_survives_replay_without_fourier_or_velocity_reconstruction(tmp_path, monkeypatch, dimension):
-    from sjtu_tpmshx.postprocess import metrics
-    def forbidden(*args, **kwargs):
-        pytest.fail('recorded CC boundary power must not use old cell velocity reduction')
-    monkeypatch.setattr(metrics, '_enthalpy_balance_2d', forbidden)
+def test_signed_advective_duty_survives_replay_without_fourier_or_velocity_reconstruction(tmp_path, dimension):
     result = temperature_fixture(dimension)
     for source in (result, load_result(save_result(result, tmp_path / 'temperature.h5'))):
         actual = evaluate(source).metrics

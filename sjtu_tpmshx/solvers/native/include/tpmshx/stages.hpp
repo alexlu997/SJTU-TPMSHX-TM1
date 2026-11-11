@@ -70,6 +70,12 @@ struct RunRequest2D : tpmshx_stage_run_request_2d_v1 {
         abi_version=TPMSHX_STAGE_RUN_ABI_VERSION;struct_size=sizeof(tpmshx_stage_run_request_2d_v1);
     }
 };
+struct RunRequest2Dv2 : tpmshx_stage_run_request_2d_v2 {
+    RunRequest2Dv2():tpmshx_stage_run_request_2d_v2{} {
+        abi_version=TPMSHX_STAGE_RUN_ABI_VERSION_V2;struct_size=sizeof(tpmshx_stage_run_request_2d_v2);
+        values=RunRequest2D{};
+    }
+};
 struct RunControl : tpmshx_stage_run_control_v1 {
     RunControl():tpmshx_stage_run_control_v1{} {
         const auto logical=std::thread::hardware_concurrency();cpu_threads=std::min(8u,logical?logical:1u);
@@ -119,6 +125,13 @@ inline RunResult2D run_case(const PreparedCase2D& prepared,const RunControl& con
     output.abi_version=TPMSHX_STAGE_RUN_ABI_VERSION;output.struct_size=sizeof(output);
     char error[4096]{};
     detail::check(tpmshx_run_case_2d_v1(&prepared.view(),&request,&control,&output,error,sizeof(error)),error);
+    return RunResult2D(output);
+}
+inline RunResult2D run_case(const PreparedCase2Dv2& prepared,const RunControl& control,const RunRequest2Dv2& request={}) {
+    tpmshx_stage_run_result_2d_v1 output{};
+    output.abi_version=TPMSHX_STAGE_RUN_ABI_VERSION;output.struct_size=sizeof(output);
+    char error[4096]{};
+    detail::check(tpmshx_run_case_2d_v2(&prepared.view(),&request,&control,&output,error,sizeof(error)),error);
     return RunResult2D(output);
 }
 inline Evaluation evaluate(const RunResult2D& result,const tpmshx_stage_metric_spec_v1* metric=nullptr) {
