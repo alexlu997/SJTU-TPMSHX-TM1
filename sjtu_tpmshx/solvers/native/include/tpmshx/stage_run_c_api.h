@@ -57,8 +57,10 @@ typedef struct {
     tpmshx_full_2d_config_v2 resolved;
 } tpmshx_stage_run_result_2d_v1;
 
-/* Scalar values derived from the recorded main and fine thermal states.
- * Index 0 is main; index 1 is fine. Unavailable entries are zero. */
+/* Scalar values derived from recorded thermal states.
+ * model_h_* and red_black use level indices: 0=main, 1=fine.
+ * nu_*, pressure_*, absolute_duty and application_hv use side indices: 0=A, 1=B.
+ * Pressure limits use the main thermal state. Unavailable entries are zero. */
 typedef struct {
     uint32_t model_h_available[2],nu_available[2],pressure_available;
     size_t model_h_cell_count[2];
@@ -68,7 +70,8 @@ typedef struct {
     size_t pressure_clip_hits;
     uint32_t have_finite_duty,red_black[2];
 } tpmshx_stage_capture_2d_v1;
-/* These are saved application properties, separate from thermal geometry. */
+/* Saved application properties, separate from thermal geometry.
+ * Both arrays use side indices: 0=A, 1=B. */
 typedef struct {
     double area_density_per_m[2],surface_htc_W_m2K[2];
 } tpmshx_stage_application_2d_v1;
