@@ -63,7 +63,7 @@ import runpy
 import sys
 sys.path.insert(0, sys.argv[1])
 import sjtu_tpmshx
-assert Path(sjtu_tpmshx.__file__).resolve().is_relative_to(Path(sys.argv[1]))
+assert Path(sjtu_tpmshx.__file__).resolve().is_relative_to(Path(sys.argv[1]).resolve())
 runpy.run_path(sys.argv[2])['_check_archives'](sys.argv[3])
 assert not any(name.split('.')[0] in ('CoolProp', 'PySide6') for name in sys.modules)
 print('installed real 2D/3D result evaluation passed')
