@@ -78,6 +78,11 @@ def _evaluate(evidence):
 
 def _assert_exact(preparation_library, stage_library, config, request, tmp_path, *, water_rejection=False):
     table = str(Path(__file__).resolve().parents[3] / '.cache/native-deps/tables')
+    (tmp_path / 'input.json').write_text(json.dumps(config.to_dict(), indent=2))
+    (tmp_path / 'control.json').write_text(json.dumps({
+        'cpu_threads': 2, 'result_id': 'uniform-stage', 'table_directory': table,
+        'native_library': str(library_path()), 'default_request': request is None,
+        'water_rejection': water_rejection}, indent=2))
     status, prepared, _, error, _, source = preparation._call(preparation_library, config)
     assert status == 0, error
     result = _Result(1, ct.sizeof(_Result))
@@ -102,6 +107,8 @@ def _assert_exact(preparation_library, stage_library, config, request, tmp_path,
                     native_library=str(library_path()), native_table_directory=table))
             (tmp_path / 'reference-error.json').write_text(json.dumps({'type': type(failure.value).__name__, 'message': str(failure.value)}))
             assert native_error == str(failure.value)
+            (tmp_path / 'verdict.json').write_text(json.dumps({'passed': True,
+                'status': status, 'exception': 'WaterStateError', 'output_unchanged': True}))
             return
         assert status == 0, error.value.decode()
     finally:
@@ -134,6 +141,12 @@ def _assert_exact(preparation_library, stage_library, config, request, tmp_path,
         assert progress == expected_progress
         for side in (0, 1):
             assert [row for row in residuals if row[0] == side] == [row for row in expected_residuals if row[0] == side]
+        (tmp_path / 'events.json').write_text(json.dumps({
+            'native_progress': progress, 'reference_progress': expected_progress,
+            'native_residuals': residuals, 'reference_residuals': expected_residuals}))
+        (tmp_path / 'verdict.json').write_text(json.dumps({'passed': True,
+            'bitwise_fields': len(expected.fields), 'metrics_and_qualification_exact': True,
+            'progress_and_side_residuals_exact': True}))
     finally:
         stage_library.tpmshx_stage_run_2d_release_v1(ct.byref(result))
 
