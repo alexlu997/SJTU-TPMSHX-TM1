@@ -116,7 +116,7 @@ public:
             stride=fields::c_api::product(stride,stored.shape[axis-1]);
         }
         stored.value={data,fields::c_api::product(size,sizeof(double)),0,TPMSHX_RESULT_F64,
-            shape.size()?TPMSHX_RESULT_NUMPY_ARRAY:TPMSHX_RESULT_PYTHON_FLOAT,
+            static_cast<uint32_t>(shape.size()?TPMSHX_RESULT_NUMPY_ARRAY:TPMSHX_RESULT_PYTHON_FLOAT),
             TPMSHX_RESULT_NATIVE_ENDIAN,0,shape.size(),stored.shape.data(),stored.strides.data()};
         return &stored.value;
     }

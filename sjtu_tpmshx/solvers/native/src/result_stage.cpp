@@ -10,6 +10,7 @@
 #include <numeric>
 #include <sstream>
 #include <stdexcept>
+#include <string_view>
 
 namespace tpmshx::result::stage {
 namespace {
@@ -20,13 +21,13 @@ const std::array<std::string, 3> phase_names{{"A", "B", "solid"}};
 class Missing : public std::runtime_error {public: using std::runtime_error::runtime_error;};
 class Unsupported : public std::runtime_error {public: using std::runtime_error::runtime_error;};
 
-template<class T> const T& need(const std::optional<T>& value, std::string key) {
-    if (!value) throw Missing("'" + key + "'");
+template<class T> const T& need(const std::optional<T>& value, std::string_view key) {
+    if (!value) throw Missing("'" + std::string(key) + "'");
     return *value;
 }
-template<class T> const T& entry(const std::map<std::string, T>& values, std::string key) {
-    const auto found = values.find(key);
-    if (found == values.end()) throw Missing("'" + key + "'");
+template<class T> const T& entry(const std::map<std::string, T>& values, std::string_view key) {
+    const auto found = values.find(std::string(key));
+    if (found == values.end()) throw Missing("'" + std::string(key) + "'");
     return found->second;
 }
 void record(const ResultEvidence& result, const std::string& path) {
