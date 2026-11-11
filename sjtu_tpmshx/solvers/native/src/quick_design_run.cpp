@@ -113,24 +113,26 @@ extern "C" int TPMSHX_THERMAL_CALL tpmshx_run_quick_design_v1(
     const tpmshx_quick_prepared_v1* prepared,const tpmshx_quick_run_control_v1* control,
     tpmshx_quick_run_result_v1* result,char* error,size_t capacity) {
     if(!boundary::error_buffer_valid(error,capacity))return TPMSHX_INVALID_ARGUMENT;
-    bool report_safe=true;
+    bool report_safe=false;
     try {
-        try {require_disjoint(error,capacity,result,result?1:0);}
-        catch(...) {report_safe=false;throw;}
+        require_disjoint(error,capacity,result,result?1:0);
         const auto storage=[&](const auto* value,size_t size) {
-            try {require_disjoint(error,capacity,value,size);}
-            catch(...) {report_safe=false;throw;}
+            require_disjoint(error,capacity,value,size);
             require_disjoint(result,result?1:0,value,size);
         };
         storage(prepared,prepared?1:0);storage(control,control?1:0);
-        version(prepared);version(result);boundary::require_buffer(control,1);
-        if(result->owner)throw std::invalid_argument("release the previous quick-design run owner before reuse");
-        if(!control->result_id)throw std::invalid_argument("quick-design run requires a result label");
-        storage(control->result_id,1);
-        storage(control->result_id,std::strlen(control->result_id)+1);
+        version(prepared);boundary::require_buffer(control,1);
+        if(control->result_id) {
+            storage(control->result_id,1);
+            storage(control->result_id,std::strlen(control->result_id)+1);
+        }
         for(const auto values:prepared->widths)storage(values.data,values.size);
         for(const auto values:{prepared->epsilon,prepared->epsilon_a,prepared->solid_conductivity})storage(values.data,values.size);
         if(prepared->resolved.warm_start)for(const auto values:prepared->initial)storage(values.data,values.size);
+        report_safe=true;
+        version(result);
+        if(result->owner)throw std::invalid_argument("release the previous quick-design run owner before reuse");
+        if(!control->result_id)throw std::invalid_argument("quick-design run requires a result label");
         auto owner=std::make_unique<Owner>(*prepared,control->result_id);
         auto& o=*owner;
         std::array<std::vector<double>*,9> values{&o.widths[0],&o.widths[1],&o.widths[2],&o.fields[14],

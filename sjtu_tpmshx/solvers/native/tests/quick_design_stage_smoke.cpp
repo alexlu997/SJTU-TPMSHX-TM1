@@ -136,10 +136,48 @@ void failures() {
     aliased.resolved.warm_start=1;
     aliased.initial[0]={reinterpret_cast<const double*>(&run),1};
     reject_alias(&aliased,&control);
+    for(unsigned failure=0;failure<3;++failure) {
+        std::array<double,32> borrowed;
+        std::memset(borrowed.data(),0x5a,sizeof(borrowed));
+        std::memcpy(borrowed.data(),"borrowed-label",sizeof("borrowed-label"));
+        const auto original_borrowed=borrowed;
+        auto invalid=prepared.view();
+        if(failure==0) {
+            invalid.widths[0]={nullptr,1};
+            control.result_id=reinterpret_cast<const char*>(borrowed.data());
+        } else {
+            invalid.epsilon={borrowed.data(),borrowed.size()};
+            if(failure==1)invalid.widths[0]={reinterpret_cast<const double*>(&run),1};
+            else run.owner=reinterpret_cast<void*>(1);
+        }
+        const auto original_run=run;
+        require(tpmshx_run_quick_design_v1(&invalid,&control,&run,
+            reinterpret_cast<char*>(borrowed.data()),sizeof(borrowed))==TPMSHX_INVALID_ARGUMENT,
+            "early failure accepted aliased error storage");
+        require(std::memcmp(borrowed.data(),original_borrowed.data(),sizeof(borrowed))==0,
+            "early failure changed borrowed input bytes");
+        require(std::memcmp(&run,&original_run,sizeof(run))==0,"early failure changed output");
+        require(callback_calls==0,"early failure called a callback");
+        run=before;control.result_id="quick-boundary";
+    }
+    control.result_id=nullptr;
+    require(tpmshx_run_quick_design_v1(&prepared.view(),&control,&run,error,sizeof(error))==TPMSHX_INVALID_ARGUMENT,
+        "missing result label accepted");
+    require(std::string(error)=="quick-design run requires a result label","missing label diagnostic changed");
+    require(std::memcmp(&run,&before,sizeof(run))==0,"missing label changed output");
+    control.result_id="quick-boundary";run.owner=reinterpret_cast<void*>(1);
+    const auto occupied=run;
+    require(tpmshx_run_quick_design_v1(&prepared.view(),&control,&run,error,sizeof(error))==TPMSHX_INVALID_ARGUMENT,
+        "nonempty run owner accepted");
+    require(std::string(error)=="release the previous quick-design run owner before reuse","owner diagnostic changed");
+    require(std::memcmp(&run,&occupied,sizeof(run))==0,"owner rejection changed output");
+    require(callback_calls==0,"semantic failure called a callback");
+    run=before;
     control.callbacks={};
     auto malformed=prepared.view();--malformed.epsilon.size;
     require(tpmshx_run_quick_design_v1(&malformed,&control,&run,error,sizeof(error))==1,"malformed prepared field accepted");
     require(std::memcmp(&run,&before,sizeof(run))==0,"failed run changed output");
+    require(std::string(error)=="quick-design prepared array has the wrong extent","prepared extent diagnostic changed");
     control.callbacks.cancel=cancel;
     require(tpmshx_run_quick_design_v1(&prepared.view(),&control,&run,error,sizeof(error))==TPMSHX_QUICK_STAGE_CANCELLED,"cancelled run status changed");
     require(std::memcmp(&run,&before,sizeof(run))==0,"cancelled run published evidence");
