@@ -251,9 +251,9 @@ def test_nested_record_error_is_read_at_its_original_boundary(name):
 
 @pytest.mark.parametrize('query', ['evaluate', 'applicability', 'physical_balance', 'qualification'])
 def test_missing_stage_symbol_is_a_deployment_error(monkeypatch, query):
-    from types import SimpleNamespace
+    from sjtu_tpmshx.development.tests.test_native_result_loader import LibraryStub
     from sjtu_tpmshx.shared import _native_result as core
-    handle = SimpleNamespace(tpmshx_result_abi_version_v1=lambda: 2)
+    handle = LibraryStub(tpmshx_result_abi_version_v1=lambda: 2)
     monkeypatch.setattr(core.ct, 'CDLL', lambda _: handle)
     library = core._Library('historical-result-image')
     monkeypatch.setattr(core, '_library', lambda: library)
@@ -423,3 +423,13 @@ def test_metric_callback_precedes_delayed_qualification_inputs(damage):
                 assert caught.value is exception
     finally:
         np.seterrcall(handler)
+
+
+
+def test_host_calls_keep_their_signature_after_an_independent_c_wire_call():
+    from sjtu_tpmshx.development.tests.result_stage_fixture import native_report
+    result = result_fixture(3)
+    expected = performance(reference.evaluate(result))
+    assert_values(performance(native.evaluate(result)), expected)
+    native_report(result, native.core._library().library)
+    assert_values(performance(native.evaluate(result)), expected)
