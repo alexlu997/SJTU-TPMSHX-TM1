@@ -63,7 +63,8 @@ Windows 准备库使用原锁定的 Windows 归档。
 结果目标位于 `solvers/native/result/`，只使用 C++17 与系统库，不依赖求解状态或模型资源。
 具名指标、平衡与检查核心保留独立场归约及原始运算顺序。
 `shared/_native_result.py` 按需加载预构建库；导入与纯 HDF/JSON 读取不加载该库。
-Python 保留 DTO、证据选择、类型／shape 适配、策略解释和状态文本。
+Python 保留 DTO、类型／shape 适配、NumPy 事件和应用显示。
+原生结果阶段选择完整 2D/3D 证据，并负责其状态、原因和资格。
 带类型的字节视图保留整数存储、扩展精度、字节序与有符号步长。
 失败不提交数值输出；有序浮点事件继续使用调用方的 NumPy 错误策略。
 只有已证实的 Python 专用转换点保留显式对象及任意精度整数协议。
@@ -73,9 +74,10 @@ Python 保留 DTO、证据选择、类型／shape 适配、策略解释和状态
 Linux x86_64 支持独立结果评估；完整求解器仍支持 macOS arm64 与 Windows x64。
 
 [原生阶段 SDK](native-stages.zh-CN.md)新增具有明确所有权的准备态、运行结果与独立评估。
-准备 v1 和 run 路径支持规定速度、CFD 阻力的均匀对称二维 air/air。
+准备 v1 和 run v1 路径支持规定速度、CFD 阻力的均匀对称二维 air/air。
 准备 v2 在相同几何和入口模式下支持 air/water/sCO2/CO2 的全部 16 个有序配对，
-保留现有实验 DF/Nu 选择、状态失败和证据，并用标量标记保留字段精度。run 路径尚不消费 v2。
+保留现有实验 DF/Nu 选择、状态失败和证据，并用标量标记保留字段精度。
+run v2 通过现有 model-h 或 true-h 路线消费该准备态，并记录实际热状态证据。
 `preparation_case.cpp`负责完整准备流程，`stage_run.cpp`将它适配到现有完整二维驱动。
 `stage_capture_2d.cpp`记录实际运行证据，供`result_stage.cpp`评估。
 安装的 C ABI 和`stages.hpp`供外部 C++ 程序调用。
@@ -88,7 +90,8 @@ Python 对象和数值类型合同仍需独立的接入验收。
 
 <a id="retained-python-responsibilities"></a>
 
-Python 保留公共 API、配置与数据对象、类型／字节序／shape 适配、文件读写、缓存、证据选择、状态与警告文本。
+Python 保留公共 API、配置与数据对象、类型／字节序／shape 适配、文件读写、缓存和应用警告文本。
+完整结果的证据选择与资格属于原生阶段；Python 适配返回对象并应用 NumPy 事件策略。
 GUI 显示、输入校验、应用搜索／BO、离线数据处理与拟合继续由各自 Python 模块负责。
 以下边界保留原有计算表达式和消费者：
 
@@ -411,7 +414,7 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
 - 原生 CC/QD、交错 temperature、model-h 和 conservative-energy 共用有限体积行，但保留物理模型及调用方的面准备职责。空气／水 full2D CC 主／细及 full3D CC Nz=1 调用严格 `solve_model_h_2d`；Nz>1 调用严格 `solve_model_h_3d`。它们使用接受的热状态 SIMPLE 质量面、既有空气／水 h(T)，并保留准备态 K/h_v。二维／Nz=1 为 A-SOU/B-FOU，Nz>1 两侧 SOU。增量 `get_model_enthalpy_evidence_v1` 在后续流动／物性更新和释放前捕获该热状态。可移植 `model_enthalpy_temperature_v1` 记录 h(T) 系数、求解相、残差、源／储库和向外平流／Fourier 平面；二维主／细身份分开，不使用旧热容账本布局。新字段缺声明时无效；不含新账本的历史文件保留原归约。真实三维 Nz=1 将质量除以深度交给二维，再将积分功率乘深度一次；温度不缩放。fullCC 不支持非零源，给定 B 为外部储库，不提供 B 求解证据。QD／独立 CC 保留每阶段固定系数的热容输运。full3D true-h 保留 CC 输入校验和交错投影准备，在所选 EOS 能量求解前不执行温度扫描。私有 G4 迭代行和交错预热专用行已退役。单 A 侧 sCO2 执行仍由原生输入边界拒绝；空气／水关闭 B 的校验以及独立交错／MAC 研究契约保留。
 
   迭代、不完整边界和构建要求见[原生使用方契约](cpp-migration.zh-CN.md#shared-finite-volume-temperature-consumers)。
-- `postprocess/api.py` 负责完整 `evaluate` 流程；`metrics.py` 保留指标公式与归约辅助函数。后处理归约记录的场、通量和压力，不重跑求解器或访问私有运行时对象补证据。完整计算评估只在本次调用内，按侧别和主／细证据延迟复用已成功的热与质量归约。每个请求指标仍单独处理缺失、不支持和无效状态。
+- `postprocess/api.py` 保留公开评估接口。原生结果阶段负责完整 2D/3D 指标选择、定义、状态，以及独立适用性、物理平衡和资格查询。`shared/_native_result_stage.py` 转换证据与返回对象，并在每个原语边界送达 NumPy 事件。Quick Design 保留独立的类型化数值协议，等待对应阶段接入。`postprocess/conservation.py` 保留完整公开守恒证书；原始结果辅助函数保留现有消费者和 Python 协议。后处理归约记录的场、通量和压力，不重跑求解器或访问私有运行时对象补证据。完整计算评估只在本次调用内，按侧别和主／细证据延迟复用已成功的热与质量归约。每个请求指标仍单独处理缺失、不支持和无效状态。
 - `shared/models/` 和 `shared/df_surrogate/` 负责共享纯闭合和带版本资源。显式清洗／标定位于 `preprocess/offline/`。
 - `shared/io/` 负责严格 YAML/HDF5/JSON 交换。`cli_options` 将共享主机参数映射为 RunControl，不把主机路径写入工况／配置，也不让 CLI 使用方依赖工作流。VTK 导出是记录数据的后处理视图，不是新数值状态。
 - `shared/configs/` 负责随包工况配置。

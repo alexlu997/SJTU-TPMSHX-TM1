@@ -11,11 +11,18 @@ uniform, symmetric 2D air/air with prescribed inlet velocity and CFD drag.
 Preparation v2 supports all 16 ordered pairs of air, water, sCO2 and CO2 in that
 geometry and inlet mode. It keeps existing experimental DF and sCO2 Nu choices,
 state checks and application limits. Each side retains its selected model evidence.
-The full run interface still accepts only the v1 air/air CFD path.
+Run v2 consumes preparation v2 through the existing model-h or true-h driver.
+Run v1 retains its air/air CFD scope and published layout.
 Nonzero delta, zones, continuous fields and prescribed mass flow remain outside
 this preparation v2 scope. These limits do not remove existing Python modes.
 A separate Quick Design entry accepts native double operating points for
 air, water and sCO2. It uses the existing prescribed-flow LTNE driver.
+
+Full 2D/3D Python evaluation now calls the native result stage. Independent applicability, physical-balance and qualification queries use that stage.
+Quick Design metric arithmetic retains its current protocol owner. The public Python entry points and saved formats stay available.
+The host query uses borrowed typed evidence and preserves deferred input errors. It delivers NumPy events before each primitive returns.
+A callback error is handled at the original metric or qualification boundary. An uncaught host error retains its original Python object.
+Published v1 C layouts and queries remain available. Release every output through the library that created it.
 
 The C++ call sequence is `prepare_case`, `run_case`, then `evaluate`.
 The caller supplies dimensions, design values, boundary conditions and controls.
@@ -49,6 +56,12 @@ that prepared state. The result library evaluates recorded evidence.
   their existing CFD values, including the CO2 factors where applicable.
 - Existing low-level ABI versions remain available. A retained run library
   must not need a new preparation symbol to restore its saved run state.
+- Run v2 records actual thermal mass, boundary power, energy settings and
+  certificates for result evaluation. It copies preparation notices and keeps
+  the current sCO2 scope limit. It does not certify an unverified model.
+- Run v2 uses the v1 result owner and release function. Its cancellation
+  status is 6; status 4 retains the full driver's envelope failure meaning.
+  Run v1 keeps its original cancellation status of 4.
 
 ## Build and install
 
@@ -100,6 +113,8 @@ It prepares, solves and evaluates the case without numerical fields from Python.
 It does not start or link Python.
 The [fluid preparation example](../examples/cpp/prepare_fluids_2d.cpp) prepares a CO2/water case through v2.
 It links only the preparation library and does not execute a solve.
+The [uniform-fluid example](../examples/cpp/uniform_2d.cpp) executes all three
+stages for CO2/water. Evaluation remains valid after the prepared owner is released.
 The [Quick Design example](../examples/cpp/quick_design.cpp) starts with raw
 operating points and dimensions. It calls `prepare_quick_design`, `run_case`
 and `evaluate`.
@@ -130,7 +145,7 @@ It builds and runs external callers outside the source tree:
 Use the applicable environment lock. A BO environment needs its matching `--python-lock` option.
 On Linux, add `--component result --python-lock engineering/requirements/postprocess.txt`.
 The check retains logs, 2D comparison fields and Quick Design comparison fields. It removes the temporary installation and external build directories.
-This basic 2D path does not establish stage migration for fixed flow, other fluids, zones or 3D.
+These native paths do not establish stage migration for fixed flow, zones or 3D.
 Python integration and checkpoint recovery have separate acceptance gates.
 
 ## Quick Design stage

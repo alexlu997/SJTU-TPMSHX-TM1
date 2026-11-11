@@ -19,7 +19,7 @@ endif()
 if("preparation" IN_LIST tpmshx_AVAILABLE_COMPONENTS AND "solver" IN_LIST tpmshx_AVAILABLE_COMPONENTS
     AND "result" IN_LIST tpmshx_AVAILABLE_COMPONENTS)
     find_package(tpmshx CONFIG REQUIRED COMPONENTS preparation solver)
-    foreach(example IN ITEMS air_2d quick_design)
+    foreach(example IN ITEMS air_2d uniform_2d quick_design)
         add_executable(${example} ${example}.cpp)
         target_compile_features(${example} PRIVATE cxx_std_17)
         target_link_libraries(${example} PRIVATE tpmshx::preparation tpmshx::solver tpmshx::result)

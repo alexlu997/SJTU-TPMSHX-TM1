@@ -176,6 +176,40 @@ typedef struct {
     size_t metric_count;
     tpmshx_result_diagnostics_v1 diagnostics;
 } tpmshx_stage_output_v1;
+/* v2 keeps host conversion failures lazy and delivers NumPy notices in order.
+ * A fault points to its borrowed v1 scalar, array, string, or record storage.
+ * Callback failure codes use result numerical causes, plus 6: KeyError,
+ * 7: NotImplementedError, and 8: an unchanged host exception.
+ */
+typedef struct {
+    const void* value;
+    uint32_t cause;
+    const char* message;
+    uint64_t token;
+} tpmshx_stage_input_error_v2;
+typedef struct {
+    uint32_t cause;
+    int32_t error_number;
+    uint64_t token;
+    const char* message;
+} tpmshx_stage_host_error_v2;
+typedef int (TPMSHX_RESULT_CALL *tpmshx_stage_events_v2)(
+    void*, const tpmshx_result_diagnostics_v1*, tpmshx_stage_host_error_v2*);
+typedef struct {
+    uint32_t abi_version;
+    size_t struct_size;
+    const tpmshx_result_evidence_v1* evidence;
+    const tpmshx_stage_input_error_v2* errors;
+    size_t error_count;
+    const void* const* none_values;
+    size_t none_count;
+    const tpmshx_result_array_v1 *solid_density, *split_a, *inlet_temperature[2];
+    const char* invalid_mode_repr;
+    const int *physical_dimension_index, *physical_dimension_slice, *qualification_error;
+    void* context;
+    tpmshx_stage_events_v2 events;
+} tpmshx_stage_input_v2;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -190,6 +224,15 @@ TPMSHX_RESULT_API int TPMSHX_RESULT_CALL tpmshx_result_stage_physical_balance_v1
 TPMSHX_RESULT_API int TPMSHX_RESULT_CALL tpmshx_result_stage_qualification_v1(
     const tpmshx_result_evidence_v1*, const tpmshx_stage_metric_value_v1*, size_t,
     tpmshx_stage_output_v1*, char*, size_t);
+/* query: 0 evaluate, 1 applicability, 2 physical balance, 3 qualification.
+ * A host may omit report-only gate values and restore them after this call.
+ * Gate truth declarations and deferred comparisons still control native policy.
+ * Diagnostic/cause storage is independent of the success-only output.
+ */
+TPMSHX_RESULT_API int TPMSHX_RESULT_CALL tpmshx_result_stage_query_v2(
+    const tpmshx_stage_input_v2*, uint32_t,
+    const tpmshx_stage_metric_spec_v1*, const tpmshx_stage_metric_value_v1*, size_t,
+    tpmshx_stage_output_v1*, tpmshx_result_diagnostics_v1*, uint64_t*, char*, size_t);
 TPMSHX_RESULT_API void TPMSHX_RESULT_CALL tpmshx_result_stage_release_v1(tpmshx_stage_output_v1*);
 #ifdef __cplusplus
 }

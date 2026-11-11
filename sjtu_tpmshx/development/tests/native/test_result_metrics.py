@@ -15,7 +15,8 @@ from sjtu_tpmshx.development.tests.native.result_reference import shared_math as
 from sjtu_tpmshx.development.tests.native.result_reference import metrics as original_metrics
 from sjtu_tpmshx.development.tests.native.result_reference import quick_design as original_quick
 from sjtu_tpmshx.development.tests.postprocess_tm1.test_reduction_reuse import native_result
-from sjtu_tpmshx.postprocess import api, metrics, quick_design
+from sjtu_tpmshx.postprocess import api, quick_design
+from sjtu_tpmshx.development.tests import result_primitive_wire as raw
 from sjtu_tpmshx.shared import result_math
 from sjtu_tpmshx.shared import _native_result_metrics as native
 from sjtu_tpmshx.shared import _native_result as wire
@@ -167,7 +168,8 @@ def test_two_d_mass_metric_keeps_sign_and_literal_rules(dtype):
     result = native_result(2)
     faces = tuple(np.asarray(face, dtype=dtype) for face in result.boundary_fluxes['mass_A'])
     result = replace(result, boundary_fluxes={**result.boundary_fluxes, 'mass_A': faces})
-    assert_observation(observe(metrics._mass_flow, result, 'A'),
+    planes = (faces[0][0], faces[0][-1], faces[1][:, 0], faces[1][:, -1])
+    assert_observation(observe(raw.boundary_mass, planes, 2),
                        observe(original_metrics._mass_flow, result, 'A'))
 
 
@@ -231,7 +233,7 @@ def test_capture_area_matrix_and_sum_keep_original_typed_outer_product(dtype, la
 
 @pytest.mark.parametrize('value', [0., -0., 1., -1., float('inf'), -float('inf'), float('nan')])
 def test_formal_duty_magnitude_keeps_original_float_contract(value):
-    assert_observation(observe(native.duty_magnitude, value), observe(abs, value))
+    assert_observation(observe(raw.duty_magnitude, value), observe(abs, value))
 
 
 @pytest.mark.parametrize('size', [0, 1, 2])
@@ -326,7 +328,9 @@ def solid_mass_result(layout, dtype=np.float64, *, density=1., epsilon=.5):
 def test_two_d_solid_mass_keeps_original_sequential_width_broadcast(layout, dtype):
     result = solid_mass_result(layout, dtype, density=1.3)
     arguments = dict(dimension=2, duty=None, mass_flow=None)
-    assert_observation(observe(metrics._evaluate_metric, result, 'mass', **arguments),
+    assert_observation(observe(raw.solid_mass, np.asarray(result.metadata['design_fields']['eps_arr']),
+                               result.metadata['solid_density_kg_m3'],
+                               (np.asarray(result.grid['dx']), np.asarray(result.grid['dy']))),
                        observe(original_metrics._evaluate_metric, result, 'mass', **arguments))
 
 
@@ -335,7 +339,9 @@ def test_two_d_solid_mass_keeps_original_sequential_width_broadcast(layout, dtyp
 def test_two_d_solid_mass_fp_precedes_later_width_broadcast(layout, policy):
     result = solid_mass_result(layout, np.float16, density=65504., epsilon=-1.)
     arguments = dict(dimension=2, duty=None, mass_flow=None)
-    assert_observation(observe(metrics._evaluate_metric, result, 'mass', policy=policy, **arguments),
+    assert_observation(observe(raw.solid_mass, np.asarray(result.metadata['design_fields']['eps_arr']),
+                               result.metadata['solid_density_kg_m3'],
+                               (np.asarray(result.grid['dx']), np.asarray(result.grid['dy'])), policy=policy),
                        observe(original_metrics._evaluate_metric, result, 'mass', policy=policy, **arguments))
 
 
@@ -360,7 +366,7 @@ def test_two_d_solid_mass_keeps_original_nd_fortran_width_indexing():
     dy = np.asfortranarray([[.25, 1.], [.5, 2.]])
     result = SimpleNamespace(grid=dict(dx=dx, dy=dy),
         metadata=dict(solid_density_kg_m3=1., design_fields=dict(eps_arr=np.array(.5))))
-    assert_observation(observe(native.solid_mass, np.array(.5), 1., (dx, dy)),
+    assert_observation(observe(raw.solid_mass, np.array(.5), 1., (dx, dy)),
                        observe(original_metrics._evaluate_metric, result, 'mass',
                                dimension=2, duty=None, mass_flow=None))
 
