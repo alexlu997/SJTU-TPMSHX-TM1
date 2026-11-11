@@ -791,7 +791,7 @@ g::Scalar flow_scalar(double value,ScalarKind kind) {
 InletGeometry2D prepare_inlet_geometry(const CaseInput2D& input,ScalarKind depth_kind,
     const PreparationOptions& options,const PreparationCallbacks& callbacks,InletFlow2D& flow) {
     const auto inlets=validate(input,CaseScope::uniform_mass_v3,true);
-    InletGeometry2D output;output.material=material_geometry(input,options);
+    InletGeometry2D output{};output.material=material_geometry(input,options);
     output.grid=physical_grid(input.grid,inlets);
     Records records{flow.evidence,callbacks,{},{}};record_grid(input,output.grid,records);
     for (std::size_t i=0;i<2;++i) {output.sides[i].inlet=inlets[i];prepare_ports(output.grid,output.sides[i]);}
