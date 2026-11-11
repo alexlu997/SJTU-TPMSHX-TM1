@@ -31,10 +31,16 @@ The [capabilities](../docs/capabilities.en.md) list approximation modes and exte
 The [native stage SDK](../docs/native-stages.md) provides a separate C++ call sequence.
 Its initial complete path supports uniform symmetric 2D air/air with prescribed velocity.
 Preparation v2 adds all 16 ordered air/water/sCO2/CO2 pairs for uniform symmetric 2D geometry and prescribed velocity.
-The full run path remains the v1 air/air CFD case.
+Preparation v3 adds independent capacity, inlet-flow resolution and complete preparation for uniform 2D total mass flow.
+It reuses the physical inlet grid and keeps preliminary records separate from final preparation evidence.
+Preparation v4 adds canonical continuous XY fields and full local drag.
+The Python preparation entries use v3/v4 for symmetric uniform and continuous 2D inputs.
+Nonzero-delta uniform, discrete zones, sigmoid and 3D keep their explicit existing routes.
+CaseData and saved-file contracts stay unchanged. Native failures propagate without another preparation route.
+Run v2 consumes preparation v2 through the existing model-h or true-h driver.
 The separate Quick Design path supports native double operating points and retains the existing LTNE model.
 Python Quick Design execution calls its native run stage with saved prepared data.
-Raw Python preparation and Quick Design metric adapters retain their current type protocols.
+Raw Python preparation retains its current type protocols. The native result stage owns Quick Design metrics.
 The Python entries above retain all current modes while stage migration continues.
 
 ## Edit numerical functions
