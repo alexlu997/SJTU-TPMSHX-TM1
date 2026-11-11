@@ -76,7 +76,8 @@ Linux x86_64 支持独立结果评估；完整求解器仍支持 macOS arm64 与
 [原生阶段 SDK](native-stages.zh-CN.md)新增具有明确所有权的准备态、运行结果与独立评估。
 准备 v1 和 run 路径支持规定速度、CFD 阻力的均匀对称二维 air/air。
 准备 v2 在相同几何和入口模式下支持 air/water/sCO2/CO2 的全部 16 个有序配对，
-保留现有实验 DF/Nu 选择、状态失败和证据，并用标量标记保留字段精度。run 路径尚不消费 v2。
+保留现有实验 DF/Nu 选择、状态失败和证据，并用标量标记保留字段精度。
+run v2 通过现有 model-h 或 true-h 路线消费该准备态，并记录实际热状态证据。
 `preparation_case.cpp`负责完整准备流程，`stage_run.cpp`将它适配到现有完整二维驱动。
 `stage_capture_2d.cpp`记录实际运行证据，供`result_stage.cpp`评估。
 安装的 C ABI 和`stages.hpp`供外部 C++ 程序调用。
