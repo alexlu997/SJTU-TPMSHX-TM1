@@ -73,11 +73,13 @@ Mode 0 uses separate products; mode 1 uses component FMA. Other values fail befo
 The borrowed POD descriptions retain their `_v1` layouts.
 The adapter rejects earlier library ABIs before binding numerical calls.
 Its declarations are in `include/tpmshx/result_c_api.h` and the family and stage headers.
-The stage host query uses a separate v2 input declaration. It preserves all published v1 C layouts.
+The stage host queries use separate v2 and v3 input declarations. They preserve published v1 and v2 C layouts.
+V3 carries typed Quick operands and raw labels. Native code owns label comparisons and policy.
+Fixed named host callbacks retain only Python value protocols at the native-selected operation.
 Deferred conversion errors and NumPy callbacks are consumed at the original metric or qualification boundary.
 Uncaught host exceptions return their original token. Stage outputs are released through their originating library.
 Only the symbols in `result.exports` and `result.map` are public.
-There is no public arithmetic opcode evaluator or numerical callback.
+There is no public arithmetic opcode evaluator or callback that supplies complete metrics.
 
 Arrays borrow typed bytes, shape metadata and signed byte strides for one call.
 The descriptor states the storage extent, logical-zero offset, dtype, byte order and origin.

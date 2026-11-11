@@ -104,6 +104,19 @@ public:
             throw std::invalid_argument("Quick value requires one numeric view or object token");
         return numeric ? QuickValue(*numeric) : QuickValue(value->object);
     }
+    Recorded<StageLabel> label(const tpmshx_stage_label_v3* value) {
+        if (!value) return {};
+        sequence(value, 1);
+        const auto text = string(value->text);
+        const auto object = quick_value(value->value);
+        if (const auto* failure = error(value)) return Recorded<StageLabel>(*failure);
+        if (text.has_value() == object.has_value())
+            throw std::invalid_argument("stage label requires text or one non-text value");
+        StageLabel result;
+        if (text) result.text = *text;
+        else result.value = *object;
+        return result;
+    }
     std::vector<Tensor> arrays(const RawArray* values, std::size_t count) {
         if (const auto* failure = count ? nullptr : error(values)) {
             Tensor deferred({}, TPMSHX_RESULT_F64);
@@ -389,6 +402,8 @@ ResultEvidence evidence(Inputs& input, const tpmshx_result_evidence_v1* value) {
     else out.model_active_b = truth(value->model_active_b);
     out.richardson_extrapolated = truth(value->richardson_extrapolated);
     out.execution_version = input.string(value->execution_version);
+    if (const auto* failure = input.error(&value->executed_side_count))
+        out.execution_sides_access_error = Recorded<int>(*failure);
     input.sequence(value->executed_sides, value->executed_side_count);
     if (const auto* failure = input.error(value->executed_sides)) {
         input.sequence(value->executed_sides, 1);
@@ -427,9 +442,11 @@ MetricSpec spec(Inputs& input, const tpmshx_stage_metric_spec_v1& value) {
         input.text(value.definition_version, "a metric definition version"), input.string(value.description).value_or("")};
 }
 void copy_quick(Inputs& input, const tpmshx_stage_input_v3& value, ResultEvidence& evidence) {
+    evidence.execution_label = input.label(value.execution_version);
+    if (!value.model) return;
     QuickTypedEvidence quick;
-    quick.model_supported = input.optional(value.model_supported);
-    quick.cross = input.optional(value.cross);
+    quick.model = input.label(value.model);
+    quick.arrangement = input.label(value.arrangement);
     quick.hydraulic_diameter = input.quick_value(value.hydraulic_diameter);
     for (std::size_t i = 0; i < 2; ++i) {
         const auto& from = value.sides[i]; auto& to = quick.sides[i];
@@ -475,6 +492,11 @@ void quick_callback_error(Inputs& input, int status, const tpmshx_stage_host_err
 QuickHost quick_host(Inputs& input, const tpmshx_stage_quick_protocol_v3& protocol) {
     QuickHost host;
     const auto context = protocol.context;
+    if (protocol.text_equal) host.text_equal = [&, context, call=protocol.text_equal](const QuickValue& value, const std::string& expected) {
+        const QuickView argument(value); int output{}; tpmshx_stage_host_error_v2 failure{};
+        quick_callback_error(input, call(context, &argument.value, expected.c_str(), &output, &failure), failure);
+        return boolean(output);
+    };
     if (protocol.temperature_difference) host.temperature_difference = [&, context, call=protocol.temperature_difference](const QuickValue& inlet, double outlet) {
         const QuickView first(inlet); tpmshx_stage_quick_value_v3 value{}; tpmshx_stage_host_error_v2 failure{};
         quick_callback_error(input, call(context, &first.value, outlet, &value, &failure), failure);

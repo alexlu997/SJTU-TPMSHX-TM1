@@ -234,17 +234,22 @@ struct QuickValue {
     QuickValue(Tensor value):numeric(std::move(value)) {}
     explicit QuickValue(std::uint64_t token):object(token) {}
 };
+struct StageLabel {
+    std::optional<std::string> text;
+    QuickValue value;
+};
 struct QuickTypedSide {
     Recorded<int> boundary_access, properties_access, pressure_access;
     Recorded<QuickValue> inlet_temperature, mass_flow, cp, rho, velocity, viscosity;
     Recorded<QuickValue> inlet_pressure, outlet_pressure;
 };
 struct QuickTypedEvidence {
-    Recorded<int> model_supported, cross;
+    Recorded<StageLabel> model, arrangement;
     std::array<QuickTypedSide, 2> sides;
     Recorded<QuickValue> hydraulic_diameter;
 };
 struct QuickHost {
+    std::function<bool(const QuickValue&, const std::string&)> text_equal;
     std::function<QuickValue(const QuickValue&, double)> temperature_difference;
     std::function<QuickValue(const QuickValue&, const QuickValue&)> capacity_product;
     std::function<QuickValue(const QuickValue&, const QuickValue&, bool)> duty_product;
@@ -287,7 +292,8 @@ struct ResultEvidence {
     Recorded<bool> model_active_b;
     Truth richardson_extrapolated;
     Recorded<std::string> execution_version;
-    Recorded<int> execution_sides_error;
+    Recorded<StageLabel> execution_label;
+    Recorded<int> execution_sides_error, execution_sides_access_error;
     std::map<std::string, ExecutionSide> executed_sides;
     Recorded<ApplicabilityEvidence> applicability;
     std::array<bool, 2> active_fluids{{true, true}};

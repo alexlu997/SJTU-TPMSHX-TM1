@@ -39,6 +39,8 @@ that prepared state. The result library evaluates recorded evidence.
   Do not copy owners or free their buffers with a caller allocator.
 - Callbacks receive borrowed event views on the caller thread. They do not
   perform numerical preparation. Keep event order, logger names and messages.
+- Result v3 carries raw labels and typed Quick operands. C++ owns label comparisons and metric policy.
+  Fixed named host callbacks retain Python value protocols at the selected operation.
 - The host owns case IDs, timestamps, file paths and Python object conversion.
   The native stages own physical rules, numerical defaults and evidence.
 - Preparation and solver libraries use their separate locked CoolProp builds.

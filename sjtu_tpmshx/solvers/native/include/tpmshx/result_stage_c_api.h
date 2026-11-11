@@ -221,6 +221,12 @@ typedef struct {
     const tpmshx_result_array_v1* numeric;
     uint64_t object;
 } tpmshx_stage_quick_value_v3;
+/* A label borrows text or one original non-text value. Native policy owns the
+ * comparison text. The host supplies only the non-text equality protocol. */
+typedef struct {
+    const char* text;
+    const tpmshx_stage_quick_value_v3* value;
+} tpmshx_stage_label_v3;
 typedef struct {
     const int *boundary_access, *properties_access, *pressure_access;
     const tpmshx_stage_quick_value_v3 *inlet_temperature, *mass_flow, *cp, *rho, *velocity, *viscosity;
@@ -230,6 +236,8 @@ typedef struct {
  * only at the existing Python protocol boundary and in the original order. */
 typedef struct {
     void* context;
+    int (TPMSHX_RESULT_CALL *text_equal)(void*, const tpmshx_stage_quick_value_v3*, const char*,
+        int*, tpmshx_stage_host_error_v2*);
     int (TPMSHX_RESULT_CALL *temperature_difference)(void*, const tpmshx_stage_quick_value_v3*, double,
         tpmshx_stage_quick_value_v3*, tpmshx_stage_host_error_v2*);
     int (TPMSHX_RESULT_CALL *capacity_product)(void*, const tpmshx_stage_quick_value_v3*, const tpmshx_stage_quick_value_v3*,
@@ -251,7 +259,7 @@ typedef struct {
     uint32_t abi_version;
     size_t struct_size;
     const tpmshx_stage_input_v2* host;
-    const int *model_supported, *cross;
+    const tpmshx_stage_label_v3 *model, *arrangement, *execution_version;
     tpmshx_stage_quick_side_v3 sides[2];
     const tpmshx_stage_quick_value_v3* hydraulic_diameter;
     tpmshx_stage_quick_protocol_v3 protocol;
@@ -281,6 +289,8 @@ TPMSHX_RESULT_API int TPMSHX_RESULT_CALL tpmshx_result_stage_query_v2(
     const tpmshx_stage_metric_spec_v1*, const tpmshx_stage_metric_value_v1*, size_t,
     tpmshx_stage_output_v1*, tpmshx_result_diagnostics_v1*, uint64_t*, char*, size_t);
 /* V3 uses the same queries, output ownership and deferred-error rules as v2.
+ * A null model omits typed Quick operands. The execution label remains usable
+ * by full-result queries.
  * All input and callback-returned storage must be disjoint from writable output.
  * Missing protocol callbacks are errors when the selected input requires one.
  */

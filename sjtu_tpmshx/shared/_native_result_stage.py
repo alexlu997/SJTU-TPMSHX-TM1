@@ -90,19 +90,21 @@ Input = record('Input', [('abi_version', ct.c_uint32), ('struct_size', Z), ('evi
     ('context', ct.c_void_p), ('events', Events)])
 QuickValue = record('QuickValue', [('numeric', AP), ('object', ct.c_uint64)])
 QVP = P(QuickValue)
+StageLabel = record('StageLabel', [('text', S), ('value', QVP)])
+QuickTextEqual = ct.CFUNCTYPE(I, ct.c_void_p, QVP, S, P(I), P(HostError))
 QuickDifference = ct.CFUNCTYPE(I, ct.c_void_p, QVP, D, QVP, P(HostError))
 QuickPair = ct.CFUNCTYPE(I, ct.c_void_p, QVP, QVP, QVP, P(HostError))
 QuickDuty = ct.CFUNCTYPE(I, ct.c_void_p, QVP, QVP, I, QVP, P(HostError))
 QuickFloat = ct.CFUNCTYPE(I, ct.c_void_p, QVP, P(D), P(HostError))
 QuickEmptyMean = ct.CFUNCTYPE(I, ct.c_void_p, P(HostError))
-QuickProtocols = record('QuickProtocols', [('context', ct.c_void_p),
+QuickProtocols = record('QuickProtocols', [('context', ct.c_void_p), ('text_equal', QuickTextEqual),
     ('temperature_difference', QuickDifference), ('capacity_product', QuickPair), ('duty_product', QuickDuty),
     ('pressure_difference', QuickPair), ('reynolds_flow', QuickPair), ('reynolds_length', QuickPair),
     ('reynolds_quotient', QuickPair), ('metric_float', QuickFloat), ('empty_mean', QuickEmptyMean)])
 QuickSide = record('QuickSide', [(name, P(I)) for name in ('boundary_access', 'properties_access', 'pressure_access')]
     + [(name, QVP) for name in ('inlet_temperature', 'mass_flow', 'cp', 'rho', 'velocity', 'viscosity', 'inlet_pressure', 'outlet_pressure')])
 QuickInput = record('QuickInput', [('abi_version', ct.c_uint32), ('struct_size', Z), ('host', P(Input)),
-    ('model_supported', P(I)), ('cross', P(I)), ('sides', QuickSide * 2), ('hydraulic_diameter', QVP),
+    ('model', P(StageLabel)), ('arrangement', P(StageLabel)), ('execution_version', P(StageLabel)), ('sides', QuickSide * 2), ('hydraulic_diameter', QVP),
     ('protocol', QuickProtocols)])
 _MISSING = object()
 _REQUIRED = object()
@@ -239,6 +241,14 @@ class _Packed:
             except BaseException as error:
                 return self.callback_error(error, failure)
 
+        @QuickTextEqual
+        def text_equal(context, value, expected, output, failure):
+            try:
+                output[0] = bool(self.quick_read(value) == expected.decode('utf-8'))
+                return 0
+            except BaseException as error:
+                return self.callback_error(error, failure)
+
         @QuickDifference
         def temperature_difference(context, inlet, outlet, output, failure):
             return result(output, failure, lambda: self.quick_read(inlet) - outlet)
@@ -283,18 +293,17 @@ class _Packed:
             except BaseException as error:
                 return self.callback_error(error, failure)
 
-        callbacks = (temperature_difference, capacity_product, duty_product, pressure_difference,
+        callbacks = (text_equal, temperature_difference, capacity_product, duty_product, pressure_difference,
             reynolds_flow, reynolds_length, reynolds_quotient, metric_float, empty_mean)
         self.keep.extend(callbacks)
         return QuickProtocols(None, *callbacks)
 
-    def quick_flag(self, value, expected):
-        try:
-            if isinstance(value, _Fault):
-                raise value.error
-            return self.pointer(I(bool(value == expected)))
-        except (TypeError, ValueError, KeyError, IndexError, AttributeError) as error:
-            return self.fault(self.pointer(I()), error)
+    def label(self, value):
+        if isinstance(value, _Fault):
+            return self.fault(self.pointer(StageLabel()), value.error)
+        if isinstance(value, str):
+            return self.pointer(StageLabel(text=self.text(value)))
+        return self.pointer(StageLabel(value=self.quick_value(value)))
 
     def quick_access(self, value):
         return self.fault(self.pointer(I()), value.error) if isinstance(value, _Fault) else self.pointer(I(1))
@@ -555,6 +564,7 @@ class _Evidence(_Packed):
         self.density = self.split = self.invalid_mode_repr = self.dimension_index = self.dimension_slice = None
         self.qualification_error = None
         self.quick = None
+        self.execution_label = None
         self.inlet_temperature = (AP * 2)()
         metadata, flux = result.metadata, result.boundary_fluxes
         output = self.raw = Evidence(abi_version=1, struct_size=ct.sizeof(Evidence),
@@ -659,8 +669,8 @@ class _Evidence(_Packed):
     def _quick(self, metadata, flux, pressures):
         parameters = _read(metadata, 'parameters')
         output = QuickInput(3, ct.sizeof(QuickInput),
-            model_supported=self.quick_flag(_read(metadata, 'model'), 'plug_ltne_analytic_dp_v1'),
-            cross=self.quick_flag(_read(parameters, 'arrangement'), 'cross'),
+            model=self.label(_read(metadata, 'model')),
+            arrangement=self.label(_read(parameters, 'arrangement')),
             hydraulic_diameter=self.quick_value(_read(parameters, 'D_h')), protocol=self.quick_protocols())
         properties = _read(metadata, 'properties')
         for index, side in enumerate('AB'):
@@ -726,14 +736,14 @@ class _Evidence(_Packed):
             output.model_active_b = int(active_b is not None)
         output.richardson_extrapolated = _truth(_read(_read(diagnostics, 'richardson_info', {}), 'extrapolated', None))
         execution = metadata.get('execution_record', {})
+        self.execution_label = self.label(_read(execution, 'version', None))
+        sides = _read(execution, 'sides', {})
+        access = _read(sides, 'A', {})
+        if isinstance(access, _Fault):
+            self.fault(ct.byref(output, Evidence.executed_side_count.offset), access.error)
         try:
-            supported = bool(execution.get('version') == 'full_execution_v1')
-            output.execution_version = b'full_execution_v1' if supported else None
-        except (TypeError, ValueError, KeyError, IndexError, AttributeError) as error:
-            output.execution_version = self.text(_Fault(error))
-            return
-        sides = execution.get('sides', {}) if supported else {}
-        try:
+            if isinstance(sides, _Fault):
+                raise sides.error
             if not isinstance(sides, Mapping):
                 set(sides)
                 sides.values()
@@ -786,10 +796,12 @@ def _query(result, query, metric_spec=None, metrics=None):
             for name, value in (metrics or {}).items()]
     supplied = packed.sequence(Metric, rows)
     argument = borrowed
-    if packed.quick is not None:
-        packed.quick.host = ct.pointer(borrowed)
-        argument = packed.quick
-    call = library.bind('tpmshx_result_stage_query_v3' if packed.quick is not None else 'tpmshx_result_stage_query_v2',
+    if query in (0, 3):
+        argument = packed.quick if packed.quick is not None else QuickInput(3, ct.sizeof(QuickInput),
+            protocol=packed.quick_protocols())
+        argument.host = ct.pointer(borrowed)
+        argument.execution_version = packed.execution_label
+    call = library.bind('tpmshx_result_stage_query_v3' if isinstance(argument, QuickInput) else 'tpmshx_result_stage_query_v2',
         [P(type(argument)), ct.c_uint32, P(Spec), P(Metric), Z,
          P(Output), P(core._Diagnostics), P(ct.c_uint64), P(ct.c_char), Z])
     release = library.bind('tpmshx_result_stage_release_v1', [P(Output)], None)

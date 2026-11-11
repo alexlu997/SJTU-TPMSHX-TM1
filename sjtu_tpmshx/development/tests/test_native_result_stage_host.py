@@ -259,7 +259,8 @@ def test_missing_stage_symbol_is_a_deployment_error(monkeypatch, query):
     monkeypatch.setattr(core, '_library', lambda: library)
     function = getattr(native, 'evaluate' if query == 'evaluate' else 'evaluate_' + query)
     arguments = (sample_result(2), {}) if query == 'qualification' else (sample_result(2),)
-    with pytest.raises(RuntimeError, match='lacks tpmshx_result_stage_query_v2'):
+    version = 3 if query in ('evaluate', 'qualification') else 2
+    with pytest.raises(RuntimeError, match=f'lacks tpmshx_result_stage_query_v{version}'):
         function(*arguments)
 
 
@@ -433,3 +434,16 @@ def test_host_calls_keep_their_signature_after_an_independent_c_wire_call():
     assert_values(performance(native.evaluate(result)), expected)
     native_report(result, native.core._library().library)
     assert_values(performance(native.evaluate(result)), expected)
+
+
+@pytest.mark.parametrize('mode', ['full', 'quick_design'])
+@pytest.mark.parametrize('version', [None, 4, False, (), {'key': 1}, np.asarray(1),
+    np.asarray([1]), np.asarray([]), np.asarray([1, 2]), 'historical', 'full_execution_v1'])
+@pytest.mark.parametrize('sides', [None, (), 4])
+def test_raw_execution_label_keeps_native_selection_and_host_equality(mode, version, sides):
+    result = sample_result(2)
+    result = replace(result, metadata={**result.metadata, 'mode': mode,
+        'execution_record': {'version': version, 'sides': sides}})
+    expected = observe(lambda: reference.evaluate_qualification(result, {}))
+    actual = observe(lambda: native.evaluate_qualification(result, {}))
+    assert_observation(actual, expected)

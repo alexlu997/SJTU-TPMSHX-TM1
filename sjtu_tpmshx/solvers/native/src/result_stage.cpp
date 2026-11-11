@@ -543,13 +543,12 @@ void quick_access(const ResultEvidence& result, std::size_t side, Recorded<int> 
     if (result.quick_typed) (void)need(result.quick_typed->sides[side].*access, path.substr(path.rfind('.') + 1));
     else record(result, path);
 }
-bool quick_flag(const Recorded<int>& value, const char* name) {
-    const auto flag = need(value, name);
-    if (flag != 0 && flag != 1) throw std::invalid_argument("Quick comparison requires a boolean declaration");
-    return flag == 1;
+bool label_equal(const StageLabel& value, const std::string& expected) {
+    return value.text ? *value.text == expected
+        : quick_protocol(quick_host().text_equal, value.value, expected);
 }
 QuickValue quick_metric_value(const ResultEvidence& result, const std::string& name, Diagnostics& diag) {
-    const bool supported = result.quick_typed ? quick_flag(result.quick_typed->model_supported, "model")
+    const bool supported = result.quick_typed ? label_equal(need(result.quick_typed->model, "model"), "plug_ltne_analytic_dp_v1")
         : need(result.quick_model, "model") == "plug_ltne_analytic_dp_v1";
     if (!supported) throw Unsupported("unsupported quick-design metric definition");
     const std::size_t side = ends_with(name, "_B") || name == "Q_cold" ? 1 : 0;
@@ -557,7 +556,7 @@ QuickValue quick_metric_value(const ResultEvidence& result, const std::string& n
         const auto& t = entry(result.fields, side ? "Tb" : "Ta");
         bool cross = false;
         if (side) {
-            if (result.quick_typed) cross = quick_flag(result.quick_typed->cross, "arrangement");
+            if (result.quick_typed) cross = label_equal(need(result.quick_typed->arrangement, "arrangement"), "cross");
             else {record(result, "metadata.parameters"); cross = need(result.arrangement, "arrangement") == "cross";}
         }
         (void)t.array();
@@ -1123,7 +1122,10 @@ Qualification evaluate_qualification(const ResultEvidence& result, const std::ma
         {{"gates", gates}, {"raw_fields", raw_fields}, {"thermal_state", nullable(result.thermal_state)}, {"pressure_states", pressure_states}});
     const bool full_compute = result.mode == "full";
     const std::map<std::string, ExecutionSide> empty_sides;
-    const auto& sides = result.execution_version == "full_execution_v1" ? result.executed_sides : empty_sides;
+    const bool full_execution = result.execution_label
+        ? label_equal(*result.execution_label, "full_execution_v1")
+        : result.execution_version == "full_execution_v1";
+    const auto& sides = full_execution ? result.executed_sides : empty_sides;
     out.physical = verdict({}, "boundary_fluxes and metadata.diagnostics", {{"checks", List{}}});
     if (full_compute) {
         try {
@@ -1145,6 +1147,8 @@ Qualification evaluate_qualification(const ResultEvidence& result, const std::ma
             const auto& mass = std::get<Object>(physical.details.at("mass").value);
             for (std::size_t side = 0; side < 2; ++side) {
                 const auto found = sides.find(side_name(side));
+                if (!result.pressure[side] && full_execution && result.execution_sides_access_error)
+                    (void)*result.execution_sides_access_error;
                 if (result.pressure[side] || (found != sides.end() && found->second.solved.is_true())) {
                     const auto& row = std::get<Object>(mass.at(side_name(side)).value);
                     checks_list.emplace_back(side_name(side) + " thermal mass faces available",
@@ -1211,7 +1215,7 @@ Qualification evaluate_qualification(const ResultEvidence& result, const std::ma
     }
     const auto available = all_known(availability);
     out.metrics = verdict(available, "PerformanceResult.metrics", {{"required", statuses}});
-    if (result.execution_sides_error) (void)*result.execution_sides_error;
+    if (full_execution && result.execution_sides_error) (void)*result.execution_sides_error;
     const bool recorded = sides.size() == 2 && sides.count("A") && sides.count("B") &&
         std::all_of(sides.begin(), sides.end(), [](const auto& row){return row.second.fluid && !row.second.fluid->empty() && row.second.solved.is_bool;});
     Truth scope = recorded ? Truth(true) : Truth{};

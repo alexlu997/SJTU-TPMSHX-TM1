@@ -214,3 +214,15 @@ def test_published_quick_field_abi_keeps_each_typed_intermediate(dtype, values, 
 
     assert_observation(observe(native_chain), expected)
 
+
+@pytest.mark.parametrize('label', [None, 4, False, (), {'key': 1}, np.asarray(1),
+    np.asarray([1]), np.asarray([]), np.asarray([1, 2]), 'unknown'])
+@pytest.mark.parametrize('field,name', [('model', 'Q'), ('arrangement', 'T_out_B')])
+def test_raw_quick_labels_keep_native_policy_and_host_equality(label, field, name):
+    result = quick_result()
+    metadata = dict(result.metadata)
+    if field == 'model':
+        metadata[field] = label
+    else:
+        metadata['parameters'] = {**metadata['parameters'], field: label}
+    compare(replace(result, metadata=metadata), name)

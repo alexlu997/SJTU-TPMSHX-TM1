@@ -241,6 +241,16 @@ int TPMSHX_RESULT_CALL quick_pressure(void* context, const tpmshx_stage_quick_va
     *value = {probe.numeric, 0};
     return 0;
 }
+int TPMSHX_RESULT_CALL quick_label_equal(void* context, const tpmshx_stage_quick_value_v3* value,
+    const char* expected, int* output, tpmshx_stage_host_error_v2*) {
+    auto& calls = *static_cast<std::size_t*>(context);
+    ++calls;
+    require(value->object == 19, "label host keeps its original object token");
+    require(std::strcmp(expected, "plug_ltne_analytic_dp_v1") == 0,
+        "native model policy supplies the comparison text");
+    *output = 1;
+    return 0;
+}
 void quick_host_contract() {
     tpmshx_result_evidence_v1 evidence{};
     evidence.abi_version = TPMSHX_RESULT_STAGE_ABI_VERSION; evidence.struct_size = sizeof(evidence);
@@ -253,7 +263,8 @@ void quick_host_contract() {
     tpmshx_stage_quick_value_v3 inlet{&first_array, 0}, outlet{&second_array, 0};
     const int yes = 1;
     tpmshx_stage_input_v3 input{}; input.abi_version = 3; input.struct_size = sizeof(input);
-    input.host = &host; input.model_supported = &yes; input.sides[0].pressure_access = &yes;
+    const tpmshx_stage_label_v3 model_label{"plug_ltne_analytic_dp_v1", nullptr};
+    input.host = &host; input.model = &model_label; input.sides[0].pressure_access = &yes;
     input.sides[0].inlet_pressure = &inlet; input.sides[0].outlet_pressure = &outlet;
     tpmshx_stage_output_v1 output{}; output.struct_size = sizeof(output);
     tpmshx_result_diagnostics_v1 diagnostics{}; std::uint64_t token{}; char error[1024]{};
@@ -274,6 +285,15 @@ void quick_host_contract() {
         &output, &diagnostics, &token, error, sizeof(error)) == 0 && output.metrics[0].value == 1.,
         "v2 wide scalar cancellation needs no new host");
     tpmshx_result_stage_release_v1(&output);
+    const tpmshx_stage_quick_value_v3 host_label_value{nullptr, 19};
+    const tpmshx_stage_label_v3 host_label{nullptr, &host_label_value};
+    std::size_t label_calls{};
+    input.model = &host_label; input.protocol.context = &label_calls;
+    input.protocol.text_equal = quick_label_equal;
+    require(call() == 0 && label_calls == 1 && output.metrics[0].value == 9.,
+        "native model comparison uses only the fixed host equality protocol");
+    tpmshx_result_stage_release_v1(&output);
+    input.model = &model_label; input.protocol.text_equal = nullptr;
     inlet = {nullptr, 11};
     const auto before = output;
     require(call() == TPMSHX_RESULT_RUNTIME && std::strstr(error, "named Python protocol callback"),
