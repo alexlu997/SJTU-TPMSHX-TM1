@@ -52,7 +52,7 @@ See [retained Python responsibilities](../docs/architecture.md#retained-python-r
 After changing C++ functions or compiled model data, pass the [current environment checks](../README.en.md#first-run).
 Rebuild and publish the four libraries from the repository root. Then restart the process.
 The commands below use the base lock. If `.venv-path` selects a BO environment, use `bo-macos.txt` or `bo-windows.txt` from `engineering/requirements/`.
-For a new build cache in a Git checkout, run `fetch` as shown in [First run](../README.en.md#first-run).
+For a new build cache, run `fetch` as shown in [First run](../README.en.md#first-run).
 Use the same cache for the commands below.
 
 macOS:
