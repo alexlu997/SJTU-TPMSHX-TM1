@@ -11,7 +11,8 @@ uniform, symmetric 2D air/air with prescribed inlet velocity and CFD drag.
 Preparation v2 supports all 16 ordered pairs of air, water, sCO2 and CO2 in that
 geometry and inlet mode. It keeps existing experimental DF and sCO2 Nu choices,
 state checks and application limits. Each side retains its selected model evidence.
-The run interface still accepts only the v1 air/air CFD path.
+Run v2 consumes preparation v2 through the existing model-h or true-h driver.
+Run v1 retains its air/air CFD scope and published layout.
 Nonzero delta, zones, continuous fields and prescribed mass flow remain outside
 this preparation v2 scope. These limits do not remove existing Python modes.
 
@@ -47,6 +48,12 @@ that prepared state. The result library evaluates recorded evidence.
   their existing CFD values, including the CO2 factors where applicable.
 - Existing low-level ABI versions remain available. A retained run library
   must not need a new preparation symbol to restore its saved run state.
+- Run v2 records actual thermal mass, boundary power, energy settings and
+  certificates for result evaluation. It copies preparation notices and keeps
+  the current sCO2 scope limit. It does not certify an unverified model.
+- Run v2 uses the v1 result owner and release function. Its cancellation
+  status is 6; status 4 retains the full driver's envelope failure meaning.
+  Run v1 keeps its original cancellation status of 4.
 
 ## Build and install
 
@@ -98,6 +105,8 @@ It prepares, solves and evaluates the case without numerical fields from Python.
 It does not start or link Python.
 The [fluid preparation example](../examples/cpp/prepare_fluids_2d.cpp) prepares a CO2/water case through v2.
 It links only the preparation library and does not execute a solve.
+The [uniform-fluid example](../examples/cpp/uniform_2d.cpp) executes all three
+stages for CO2/water. Evaluation remains valid after the prepared owner is released.
 These examples use only installed public headers and shared libraries.
 The Windows build copies the required DLLs beside each executable.
 
@@ -125,5 +134,5 @@ It builds and runs external callers outside the source tree:
 Use the applicable environment lock. A BO environment needs its matching `--python-lock` option.
 On Linux, add `--component result --python-lock engineering/requirements/postprocess.txt`.
 The check retains logs and 2D comparison fields. It removes the temporary installation and external build directories.
-The basic run path does not establish stage migration for fixed flow, other fluids, zones, 3D or Quick Design.
+The uniform run path does not establish stage migration for fixed flow, zones, 3D or Quick Design.
 Python integration and checkpoint recovery have separate acceptance gates.

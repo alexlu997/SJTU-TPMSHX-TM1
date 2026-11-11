@@ -84,7 +84,8 @@ The [native stage SDK](native-stages.md) adds an owned preparation state, a run 
 Preparation v1 and the run path support uniform symmetric 2D air/air with prescribed velocity and CFD drag.
 Preparation v2 supports all 16 ordered air/water/sCO2/CO2 pairs in the same geometry and inlet mode.
 It retains existing experimental DF/Nu selections, state failures and evidence.
-Its scalar tags retain field precision. The run path does not yet consume v2.
+Its scalar tags retain field precision. Run v2 consumes this state through the
+existing model-h or true-h route and records the actual thermal evidence.
 `preparation_case.cpp` owns that complete preparation sequence.
 `stage_run.cpp` adapts it to the existing full 2D driver.
 `stage_capture_2d.cpp` records the actual run evidence for `result_stage.cpp`.

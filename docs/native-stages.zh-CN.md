@@ -8,7 +8,8 @@
 入口继续作为正式运行路径。准备 v1 支持规定入口速度、CFD 阻力的均匀对称二维 air/air。
 准备 v2 在相同几何和入口模式下支持 air、water、sCO2、CO2 的全部 16 个有序配对，
 保留现有实验 DF 和 sCO2 Nu 选择、状态检查及适用限制，并分别保存两侧模型证据。
-run 接口仍只接受 v1 的 air/air CFD 路径。
+run v2 通过现有 model-h 或 true-h 驱动消费准备 v2。
+run v1 保留 air/air CFD 范围及已公开布局。
 非零 delta、分区、连续场和规定质量流量仍不在这一准备 v2 范围内。
 这些限制不删除现有 Python 工作流支持的任何模式。
 
@@ -31,6 +32,10 @@ C++ 调用顺序是 `prepare_case`、`run_case`、`evaluate`。调用者提供�
 - 任一 CO2 侧会为两侧选择共同的 CO2 几何。固定阻力和 Nu 因子只应用于 CO2 侧，sCO2 仍是独立模型。
   实验 DF 修正流动种子和行数组；入口静态 DF 保留原 CFD 值，并在适用时包含 CO2 固定因子。
 - 现有低层 ABI 版本继续保留。归档运行库恢复保存的运行态时，不得依赖新增准备符号。
+- run v2 记录实际热质量流、边界功率、能量设置和证书，供结果评估使用。
+  它复制准备阶段 notice，保留当前 sCO2 适用范围限制，不为未经验证的模型授予合格结论。
+- run v2 使用 v1 结果 owner 和释放函数。取消状态为 6，状态 4 保留完整驱动的包络失败含义。
+  run v1 保留原取消状态 4。
 
 ## 构建和安装
 
@@ -75,7 +80,9 @@ target_link_libraries(my_program PRIVATE tpmshx::result)
 [完整二维示例](../examples/cpp/air_2d.cpp)从原始尺寸、工况和边界输入开始，依次准备、求解并评估。
 它不读取 Python 预生成的数值场，也不启动或链接 Python。
 [多流体准备示例](../examples/cpp/prepare_fluids_2d.cpp)通过 v2 准备 CO2/water，
-只链接准备库，不执行求解。这些示例只使用安装的公开头文件与共享库。
+只链接准备库，不执行求解。
+[均匀流体示例](../examples/cpp/uniform_2d.cpp)对 CO2/water 执行完整三个阶段。
+释放准备态后，结果评估仍有效。这些示例只使用安装的公开头文件与共享库。
 Windows 构建会将所需 DLL 复制到可执行文件旁。
 
 ```sh
@@ -99,5 +106,5 @@ Windows 构建会将所需 DLL 复制到可执行文件旁。
 该命令使用当前环境的适用锁；BO 环境须传对应的 `--python-lock`。
 Linux 另传 `--component result --python-lock engineering/requirements/postprocess.txt`。
 检查命令保留日志与二维对照字段，删除临时安装和外部构建目录。
-这条基础运行路径不代表固定质量流量、其他流体、分区、三维或 Quick Design 已完成阶段迁移。
+这条均匀运行路径不代表固定质量流量、分区、三维或 Quick Design 已完成阶段迁移。
 Python 接入及检查点恢复仍有各自的验收关口。

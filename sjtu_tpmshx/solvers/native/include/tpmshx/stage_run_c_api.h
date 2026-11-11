@@ -5,6 +5,7 @@
 #include "tpmshx/result_stage_c_api.h"
 
 #define TPMSHX_STAGE_RUN_ABI_VERSION 1u
+#define TPMSHX_STAGE_RUN_ABI_VERSION_V2 2u
 
 typedef struct { uint32_t present; size_t value; } tpmshx_stage_size_option_v1;
 typedef struct { uint32_t present; double value; } tpmshx_stage_double_option_v1;
@@ -22,6 +23,12 @@ typedef struct {
     const tpmshx_energy_options_v1* energy;
     const tpmshx_full_2d_energy_control_v4* explicit_energy;
 } tpmshx_stage_run_request_2d_v1;
+typedef struct {
+    uint32_t abi_version;
+    size_t struct_size;
+    tpmshx_stage_run_request_2d_v1 values;
+    const char* envelope_mode;
+} tpmshx_stage_run_request_2d_v2;
 typedef struct {
     const char* result_id;
     const char* table_directory;
@@ -48,10 +55,23 @@ extern "C" {
  * result. Cancellation returns status 4 and does not publish a result.
  * The raw result is borrowed. Use its existing evidence queries, but do not
  * release it separately. Release the stage owner through this same library.
+ * Inputs, strings, result and error storage must be disjoint.
+ * Error text is written only after all input storage checks complete.
  * Callback lifetime and exception rules match the existing full 2D API.
  */
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_run_case_2d_v1(
     const tpmshx_preparation_case_2d_v1*,const tpmshx_stage_run_request_2d_v1*,
+    const tpmshx_stage_run_control_v1*,tpmshx_stage_run_result_2d_v1*,char*,size_t);
+/* V2 consumes uniform symmetric four-fluid preparation. It uses the current
+ * model-h or true-h route and its existing defaults. The optional request
+ * retains v1 values and selects envelope_mode; NULL means "raise".
+ * Output keeps the v1 layout and release function. Status 6 means cancelled.
+ * Status 1/2/3/4/5 means invalid input/water state/arithmetic/envelope/native
+ * failure. All input, string, result and error storage must be disjoint.
+ * Error text is written only after all input storage checks complete.
+ * Failure preserves result. The same lifetime rules apply as for v1. */
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_run_case_2d_v2(
+    const tpmshx_preparation_case_2d_v2*,const tpmshx_stage_run_request_2d_v2*,
     const tpmshx_stage_run_control_v1*,tpmshx_stage_run_result_2d_v1*,char*,size_t);
 TPMSHX_THERMAL_API void TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_release_v1(
     tpmshx_stage_run_result_2d_v1*);

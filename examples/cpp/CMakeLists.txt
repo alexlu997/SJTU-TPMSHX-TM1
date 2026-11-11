@@ -19,17 +19,19 @@ endif()
 if("preparation" IN_LIST tpmshx_AVAILABLE_COMPONENTS AND "solver" IN_LIST tpmshx_AVAILABLE_COMPONENTS
     AND "result" IN_LIST tpmshx_AVAILABLE_COMPONENTS)
     find_package(tpmshx CONFIG REQUIRED COMPONENTS preparation solver)
-    add_executable(air_2d air_2d.cpp)
-    target_compile_features(air_2d PRIVATE cxx_std_17)
-    target_link_libraries(air_2d PRIVATE tpmshx::preparation tpmshx::solver tpmshx::result)
-    add_test(NAME air_2d COMMAND air_2d)
-    if(WIN32)
-        foreach(component IN ITEMS preparation solver result)
-            add_custom_command(TARGET air_2d POST_BUILD
-                COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-                    "$<TARGET_FILE:tpmshx::${component}>" "$<TARGET_FILE_DIR:air_2d>")
-        endforeach()
-    endif()
+    foreach(example IN ITEMS air_2d uniform_2d)
+        add_executable(${example} ${example}.cpp)
+        target_compile_features(${example} PRIVATE cxx_std_17)
+        target_link_libraries(${example} PRIVATE tpmshx::preparation tpmshx::solver tpmshx::result)
+        add_test(NAME ${example} COMMAND ${example})
+        if(WIN32)
+            foreach(component IN ITEMS preparation solver result)
+                add_custom_command(TARGET ${example} POST_BUILD
+                    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                        "$<TARGET_FILE:tpmshx::${component}>" "$<TARGET_FILE_DIR:${example}>")
+            endforeach()
+        endif()
+    endforeach()
 endif()
 
 if("preparation" IN_LIST tpmshx_AVAILABLE_COMPONENTS)
