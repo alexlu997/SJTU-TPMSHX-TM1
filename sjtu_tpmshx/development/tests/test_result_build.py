@@ -86,7 +86,7 @@ def test_result_environment_failure_stops_before_configure(result_build, monkeyp
     assert not any('-S' in command for command in commands) and records == []
 
 
-def test_result_verification_runs_only_three_independent_callers(result_build, monkeypatch):
+def test_result_verification_runs_all_independent_callers(result_build, monkeypatch):
     host, _, cache, _, _, cmake, commands, _ = result_build
     exported, metadata = [], []
     monkeypatch.setattr(native, 'verify_model_exports', lambda *args: exported.append(args[:3]))
@@ -95,11 +95,11 @@ def test_result_verification_runs_only_three_independent_callers(result_build, m
     suffix = '.exe' if host == 'windows-x64' else ''
     build = cache/'build'/f'result-{host}'
     assert commands == [(str(cmake), '--version')] + [(str(build/(name+suffix)),)
-        for name in ('result_c_static', 'result_c_shared', 'result_kernel_smoke')]
+        for name in ('result_c_static', 'result_c_shared', 'result_kernel_smoke', 'result_stage_smoke')]
     assert exported == [(build, host, 'result')] and metadata == [(cache, host)]
 
 
-@pytest.mark.parametrize('action', ['fetch-cmake', 'build', 'verify', 'publish'])
+@pytest.mark.parametrize('action', ['fetch-cmake', 'build', 'verify', 'publish', 'check-stages'])
 def test_linux_cli_allows_only_result_actions(tmp_path, monkeypatch, action):
     cache = tmp_path/'.cache/native-deps'
     monkeypatch.setattr(native, 'ROOT', tmp_path)
@@ -107,7 +107,7 @@ def test_linux_cli_allows_only_result_actions(tmp_path, monkeypatch, action):
     monkeypatch.setattr(native, 'platform_name', lambda: 'linux-x86_64')
     monkeypatch.setattr(native, 'check_environment', lambda *args: None)
     calls = []
-    for name in ('fetch_cmake', 'build', 'verify', 'publish'):
+    for name in ('fetch_cmake', 'build', 'verify', 'publish', 'check_stages'):
         monkeypatch.setattr(native, name, lambda *args, name=name: calls.append((name, args)))
     monkeypatch.setattr(sys, 'argv', ['native-build', action, '--cache', str(cache), '--component', 'result'])
     native.main()
@@ -125,7 +125,7 @@ def test_linux_cli_rejects_full_solver_scope_before_actions(tmp_path, monkeypatc
     def forbidden(*args, **kwargs):
         pytest.fail('unsupported Linux action reached execution')
 
-    for name in ('fetch', 'fetch_eigen', 'fetch_cmake', 'build', 'verify', 'publish', 'check_environment'):
+    for name in ('fetch', 'fetch_eigen', 'fetch_cmake', 'build', 'verify', 'publish', 'check_stages', 'check_environment'):
         monkeypatch.setattr(native, name, forbidden)
     monkeypatch.setattr(sys, 'argv', ['native-build', action, '--cache', str(tmp_path/'.cache/native-deps'),
                                     '--component', component])
@@ -133,7 +133,7 @@ def test_linux_cli_rejects_full_solver_scope_before_actions(tmp_path, monkeypatc
         native.main()
 
 
-@pytest.mark.parametrize('operation', ['fetch', 'build', 'verify', 'publish'])
+@pytest.mark.parametrize('operation', ['fetch', 'build', 'verify', 'publish', 'check_stages'])
 def test_linux_direct_full_solver_calls_stop_before_environment(tmp_path, monkeypatch, operation):
     def forbidden(*args, **kwargs):
         pytest.fail('unsupported Linux component reached a build or source operation')
@@ -141,7 +141,7 @@ def test_linux_direct_full_solver_calls_stop_before_environment(tmp_path, monkey
     monkeypatch.setattr(native, 'fetch_source', forbidden)
     function = getattr(native, operation)
     args = (tmp_path, 'linux-x86_64')
-    if operation in {'build', 'publish'}:
+    if operation in {'build', 'publish', 'check_stages'}:
         args += (Path('/python'), Path('/lock'), 'all')
     with pytest.raises(RuntimeError, match='only --component result'):
         function(*args)
@@ -344,3 +344,29 @@ def test_result_publication_uses_its_platform_image_without_eos_records(result_b
     assert json.loads((target.parent/'previous/result-build.json').read_text())['source_commit'] == 'previous-result'
     assert not any('solver' in path.name or 'preparation' in path.name or 'geometry' in path.name
                    for path in target.parent.iterdir())
+
+
+def test_installed_result_stage_has_no_eos_or_python_runtime(result_build, monkeypatch):
+    host, root, cache, python, lock, cmake, commands, _ = result_build
+    examples = root / 'examples/cpp'
+    examples.mkdir(parents=True)
+    (examples / 'CMakeLists.txt').write_text('project(test)\n')
+    runs = []
+    original = native.run
+
+    def record(command, *args, **kwargs):
+        runs.append((tuple(map(str, command)), kwargs))
+        return original(command, *args, **kwargs)
+
+    monkeypatch.setattr(native, 'run', record)
+    monkeypatch.setenv('PYTHONPATH', '/must-not-reach-native-caller')
+    monkeypatch.setenv('VIRTUAL_ENV', '/must-not-reach-native-caller')
+    native.check_stages(cache, host, python, lock, 'result')
+    configure = next(command for command in commands if '-DTPMSHX_COMPONENTS=result' in command)
+    assert f'-DTPMSHX_RESULT_BUILD_DIR={cache / "build" / f"result-{host}"}' in configure
+    assert not any('COOLPROP' in part for command in commands for part in command)
+    consumer, = [command for command in commands if '--target' in command]
+    assert consumer[consumer.index('--target') + 1:] == ('result_client',)
+    checks, = [(command, options) for command, options in runs if '--test-dir' in command]
+    assert not checks[1]['cwd'].is_relative_to(root)
+    assert 'PYTHONPATH' not in checks[1]['env'] and 'VIRTUAL_ENV' not in checks[1]['env']

@@ -1,0 +1,32 @@
+@PACKAGE_INIT@
+
+set(tpmshx_AVAILABLE_COMPONENTS "@TPMSHX_COMPONENTS@")
+if(NOT tpmshx_FIND_COMPONENTS)
+    set(tpmshx_FIND_COMPONENTS ${tpmshx_AVAILABLE_COMPONENTS})
+endif()
+foreach(component IN LISTS tpmshx_FIND_COMPONENTS)
+    if(NOT component IN_LIST tpmshx_AVAILABLE_COMPONENTS)
+        set(tpmshx_${component}_FOUND FALSE)
+        continue()
+    endif()
+    if(NOT TARGET tpmshx::${component})
+        add_library(tpmshx::${component} SHARED IMPORTED)
+        string(TOUPPER "${component}" macro)
+        if(component STREQUAL "solver")
+            set(macro THERMAL)
+        endif()
+        set_target_properties(tpmshx::${component} PROPERTIES
+            INTERFACE_INCLUDE_DIRECTORIES "@PACKAGE_CMAKE_INSTALL_INCLUDEDIR@"
+            INTERFACE_COMPILE_DEFINITIONS "TPMSHX_${macro}_USE_SHARED")
+        if(WIN32)
+            set_target_properties(tpmshx::${component} PROPERTIES
+                IMPORTED_LOCATION "@PACKAGE_CMAKE_INSTALL_BINDIR@/tpmshx_${component}_shared.dll"
+                IMPORTED_IMPLIB "@PACKAGE_CMAKE_INSTALL_LIBDIR@/tpmshx_${component}_shared.lib")
+        else()
+            set_target_properties(tpmshx::${component} PROPERTIES
+                IMPORTED_LOCATION "@PACKAGE_CMAKE_INSTALL_LIBDIR@/@CMAKE_SHARED_LIBRARY_PREFIX@tpmshx_${component}_shared@CMAKE_SHARED_LIBRARY_SUFFIX@")
+        endif()
+    endif()
+    set(tpmshx_${component}_FOUND TRUE)
+endforeach()
+check_required_components(tpmshx)

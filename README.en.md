@@ -15,6 +15,8 @@ TM1 separates TPMS heat-exchanger preprocessing, solving, and postprocessing int
 
 The package has six directory groups: `preprocess/`, `solvers/`, `postprocess/`, `shared/`, `applications/` and `development/`.
 The [module map](sjtu_tpmshx/README.en.md) defines their responsibilities. C++ source stays in [solvers/native](sjtu_tpmshx/solvers/native/).
+The [native stage SDK](docs/native-stages.md) documents the independent C++ preparation,
+execution and evaluation interfaces and their current scope.
 GUI, CLI, design and recovery implementations are in `applications/`. Tests, validation and diagnostic tools are in `development/`.
 Root [engineering](engineering/) holds build scripts, packaging configuration and dependency locks. [docs/contracts](docs/contracts/) holds data contracts.
 `.github/workflows/` holds CI configuration. Keep using `python -m sjtu_tpmshx.main` for the GUI and `python -m sjtu_tpmshx.cli` for the CLI.

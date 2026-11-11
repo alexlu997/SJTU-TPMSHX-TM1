@@ -52,6 +52,9 @@ assert 'inline constexpr double gas_constant = 8.314;' in text
 assert 'model_h_air{{1004.5, 0.172, -7.56e-05, 273.15, 300.0}};' in text
 assert 'model_h_water{{4182.0, 0.0, 0.0, 273.15, 300.0}};' in text
 df = df_header()
+from sjtu_tpmshx.shared.configs.model_parameters import MODEL_VERSIONS
+for name, version in MODEL_VERSIONS.items():
+    assert f'inline constexpr char {name}_version[] = \"{version}\";' in text
 assert 'namespace tpmshx::preparation::df_data' in df
 assert 'cfd_full_core_3cell_fixed_v2' in df
 assert 'inline constexpr double df_values[2][5][4][2]' in df

@@ -16,6 +16,7 @@ Use the [first run instructions](../README.en.md#first-run) to run the applicati
 | --- | --- |
 | Module responsibilities, data flow and physical constraints | [Architecture](architecture.md) |
 | C++ numerical backend, native ABI and builds | [C++ integration](cpp-migration.md) |
+| Independent C++ stage SDK and installed examples | [C++ stages](native-stages.md) |
 | Authorized steady single-phase solver design and task nodes | [Unified solver design](unified-solver.md) |
 | macOS/Windows project folders and optional packaging | [Desktop operation](desktop.en.md) |
 | CaseData, FieldResult, metrics and file transport | [Public data contract](contracts/three_module_v1/README.md) |

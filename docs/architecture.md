@@ -80,6 +80,15 @@ The [result source record](../sjtu_tpmshx/solvers/native/result/sources.md) defi
 Separate result publication builds no solver, run_state, CoolProp or generated coefficients.
 Linux x86_64 supports independent result evaluation. Full-solver platforms remain macOS arm64 and Windows x64.
 
+The [native stage SDK](native-stages.md) adds an owned preparation state, a run result and independent evaluation.
+The initial prepare/run path supports uniform symmetric 2D air/air with prescribed velocity.
+`preparation_case.cpp` owns that complete preparation sequence.
+`stage_run.cpp` adapts it to the existing full 2D driver.
+`stage_capture_2d.cpp` records the actual run evidence for `result_stage.cpp`.
+The installed C ABI and `stages.hpp` support external C++ callers.
+Current Python entry points retain their existing behavior and all supported modes.
+The migration gates must pass before their numerical and policy bodies can retire.
+
 <a id="retained-python-responsibilities"></a>
 
 Python keeps public APIs, configuration, data objects, type/byte-order/shape adaptation, file I/O, caches, evidence selection, and status and warning text.

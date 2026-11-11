@@ -72,6 +72,13 @@ Python 保留 DTO、证据选择、类型／shape 适配、策略解释和状态
 结果单独发布不构建求解器、run_state、CoolProp 或生成系数。
 Linux x86_64 支持独立结果评估；完整求解器仍支持 macOS arm64 与 Windows x64。
 
+[原生阶段 SDK](native-stages.zh-CN.md)新增具有明确所有权的准备态、运行结果与独立评估。
+首条 prepare/run 路径支持规定速度的均匀、对称二维 air/air。
+`preparation_case.cpp`负责完整准备流程，`stage_run.cpp`将它适配到现有完整二维驱动。
+`stage_capture_2d.cpp`记录实际运行证据，供`result_stage.cpp`评估。
+安装的 C ABI 和`stages.hpp`供外部 C++ 程序调用。
+当前 Python 入口保留原有行为及全部支持模式；相应迁移关口通过后，才能退役其数值与策略实现。
+
 <a id="retained-python-responsibilities"></a>
 
 Python 保留公共 API、配置与数据对象、类型／字节序／shape 适配、文件读写、缓存、证据选择、状态与警告文本。

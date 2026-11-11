@@ -1,0 +1,413 @@
+#include "tpmshx/result_stage_c_api.h"
+#include "tpmshx/result_stage.hpp"
+
+#include <algorithm>
+#include <cstdio>
+#include <cstring>
+#include <limits>
+#include <memory>
+#include <stdexcept>
+#include <utility>
+
+namespace {
+using namespace tpmshx::result;
+using namespace tpmshx::result::stage;
+
+// The stage has a variable number of arrays. All borrowed spans remain read-only.
+class Inputs {
+public:
+    struct Span {std::uintptr_t first, last;};
+    std::vector<Span> spans;
+    template<class T> const T* sequence(const T* pointer, std::size_t count) {
+        add(pointer, count, sizeof(T), alignof(T));
+        return pointer;
+    }
+    void add(const void* pointer, std::size_t count, std::size_t width, std::size_t alignment) {
+        if (!count) return;
+        const auto address = reinterpret_cast<std::uintptr_t>(pointer);
+        if (!pointer || address % alignment) throw std::invalid_argument("result buffer requires valid aligned storage");
+        if (count > std::numeric_limits<std::size_t>::max() / width)
+            throw std::invalid_argument("result buffer extent overflows size_t");
+        const auto length = count * width;
+        if (length - 1 > std::numeric_limits<std::uintptr_t>::max() - address)
+            throw std::invalid_argument("result buffer address range overflows");
+        spans.push_back({address, address + length - 1});
+    }
+    bool disjoint(const void* pointer, std::size_t bytes) const {
+        if (!pointer || !bytes) return false;
+        const auto first = reinterpret_cast<std::uintptr_t>(pointer);
+        if (bytes - 1 > std::numeric_limits<std::uintptr_t>::max() - first) return false;
+        const auto last = first + bytes - 1;
+        return std::none_of(spans.begin(), spans.end(), [&](const auto& input){return first <= input.last && input.first <= last;});
+    }
+    std::optional<std::string> string(const char* value) {
+        if (!value) return {};
+        sequence(value, std::strlen(value) + 1);
+        return std::string(value);
+    }
+    std::string text(const char* value, const char* name) {
+        const auto result = string(value);
+        if (!result) throw std::invalid_argument(std::string("stage record requires ") + name);
+        return *result;
+    }
+    template<class T> std::optional<T> optional(const T* value) {
+        if (!value) return {};
+        sequence(value, 1); return *value;
+    }
+    std::optional<Number> number(const RawScalar* value) {
+        if (!value) return {};
+        sequence(value, 1); return read_scalar(*value);
+    }
+    Tensor array(const RawArray& value) {
+        add(value.data, value.bytes, 1, 1);
+        sequence(value.shape, value.rank); sequence(value.strides, value.rank);
+        return arithmetic::copy(Array(value));
+    }
+    std::optional<Tensor> array(const RawArray* value) {
+        if (!value) return {};
+        sequence(value, 1); return array(*value);
+    }
+    std::vector<Tensor> arrays(const RawArray* values, std::size_t count) {
+        sequence(values, count);
+        std::vector<Tensor> out;
+        for (std::size_t i = 0; i < count; ++i) out.push_back(array(values[i]));
+        return out;
+    }
+    Arrays named(const tpmshx_stage_named_array_v1* values, std::size_t count) {
+        sequence(values, count); Arrays out;
+        for (std::size_t i = 0; i < count; ++i) {
+            const auto name = text(values[i].name, "an array name");
+            if (!out.emplace(name, array(values[i].value)).second) throw std::invalid_argument("duplicate stage array name");
+        }
+        return out;
+    }
+    std::vector<std::string> strings(const char* const* values, std::size_t count) {
+        sequence(values, count); std::vector<std::string> out;
+        for (std::size_t i = 0; i < count; ++i) out.push_back(text(values[i], "a string"));
+        return out;
+    }
+};
+Truth truth(int value) {
+    if (value < -3 || value > 1) throw std::invalid_argument("invalid stage truth declaration");
+    return value == -1 ? Truth{} : Truth(value == 1 || value == -2);
+}
+bool boolean(int value) {
+    const auto converted = truth(value);
+    if (value < 0) throw std::invalid_argument("stage flag requires an explicit boolean");
+    return *converted;
+}
+GridEvidence grid(Inputs& input, const tpmshx_stage_grid_v1& value) {
+    GridEvidence out;
+    for (std::size_t i = 0; i < 3; ++i) out.widths[i] = input.array(value.widths[i]);
+    return out;
+}
+std::optional<PressureEvidence> pressure(Inputs& input, const tpmshx_stage_pressure_v1* value) {
+    if (!value) return {};
+    input.sequence(value, 1); PressureEvidence out;
+    out.pressure = input.array(value->pressure); out.grid = grid(input, value->grid);
+    out.inlet_fraction = input.array(value->inlet_fraction); out.outlet_fraction = input.array(value->outlet_fraction);
+    out.outlet_geom_fraction = input.array(value->outlet_geom_fraction);
+    out.reference = input.number(value->reference); out.inlet_absolute = input.number(value->inlet_absolute);
+    out.outlet_absolute = input.number(value->outlet_absolute); out.unit = input.string(value->unit);
+    return out;
+}
+std::optional<EnergyEvidence> energy(Inputs& input, const tpmshx_stage_energy_v1* value) {
+    if (!value) return {};
+    input.sequence(value, 1); EnergyEvidence out;
+    out.definition = input.string(value->definition); out.power_units = input.string(value->power_units);
+    out.physical_dimension = value->physical_dimension;
+    out.physical_boundary_complete = truth(value->physical_boundary_complete);
+    out.physical_boundary_complete_is_bool = value->physical_boundary_complete >= -1;
+    input.sequence(value->phases, value->phase_count);
+    for (std::size_t i = 0; i < value->phase_count; ++i) {
+        const auto& raw = value->phases[i]; EnergyPhaseEvidence phase;
+        phase.solved = truth(raw.solved); phase.solved_is_bool = raw.solved >= -1; phase.residual = input.array(raw.residual);
+        phase.advective_out = input.named(raw.advective_out, raw.advective_count);
+        phase.diffusive_out = input.named(raw.diffusive_out, raw.diffusive_count);
+        phase.source_integral = input.array(raw.source_integral);
+        if (!out.phases.emplace(input.text(raw.name, "a phase name"), std::move(phase)).second)
+            throw std::invalid_argument("duplicate stage energy phase");
+    }
+    out.prescribed_b_power = input.array(value->prescribed_b_power);
+    return out;
+}
+ModelCertificate model(Inputs& input, const tpmshx_stage_model_certificate_v1& value) {
+    ModelCertificate out;
+    out.passed = truth(value.passed); out.physical_boundary_complete = truth(value.physical_boundary_complete);
+    out.passed_is_bool = value.passed >= -1; out.physical_boundary_complete_is_bool = value.physical_boundary_complete >= -1;
+    for (std::size_t i = 0; i < 2; ++i) {
+        const auto& side = value.sides[i];
+        out.sides[i].physical_boundary_complete = truth(side.physical_boundary_complete);
+        out.sides[i].physical_boundary_complete_is_bool = side.physical_boundary_complete >= -1;
+        out.sides[i].staggered_power = input.arrays(side.staggered_power, side.staggered_count);
+        out.sides[i].boundary_power = input.named(side.boundary_power, side.boundary_count);
+    }
+    return out;
+}
+ThermalEvidence thermal(Inputs& input, const tpmshx_stage_thermal_v1& value) {
+    ThermalEvidence out;
+    for (std::size_t i = 0; i < 2; ++i) {
+        out.mass[i] = input.arrays(value.mass[i], value.mass_count[i]);
+        out.report_direction[i] = input.optional(value.report_direction[i]);
+    }
+    out.energy = energy(input, value.energy); out.temperature = energy(input, value.temperature);
+    if (value.model_h) {input.sequence(value.model_h, 1); out.model_h = model(input, *value.model_h);}
+    if (value.true_h) {
+        input.sequence(value.true_h, 1); const auto& raw = *value.true_h; TrueHEvidence record;
+        record.energy_algorithm = input.string(raw.energy_algorithm);
+        record.boundary_power_units = input.string(raw.boundary_power_units);
+        record.energy_algorithm_version = input.optional(raw.energy_algorithm_version);
+        record.physical_boundary_complete = raw.physical_boundary_complete == -4 ? Truth{} : truth(raw.physical_boundary_complete);
+        record.physical_boundary_complete_recorded = raw.physical_boundary_complete != -4;
+        record.physical_boundary_complete_is_bool = raw.physical_boundary_complete >= -1;
+        record.energy_algorithm_version_is_int = !raw.invalid_version_type;
+        for (std::size_t i = 0; i < 2; ++i) {
+            record.enthalpy[i] = input.array(raw.enthalpy[i]); record.inlet_enthalpy[i] = input.number(raw.inlet_enthalpy[i]);
+            record.mass[i] = input.arrays(raw.mass[i], raw.mass_count[i]);
+            record.boundary_power[i] = input.named(raw.boundary_power[i], raw.boundary_count[i]);
+        }
+        out.true_h = std::move(record);
+    }
+    return out;
+}
+std::vector<RangeSample> ranges(Inputs& input, const tpmshx_stage_range_sample_v1* values, std::size_t count) {
+    input.sequence(values, count); std::vector<RangeSample> out;
+    for (std::size_t i = 0; i < count; ++i) {
+        const auto& raw = values[i]; RangeSample sample;
+        sample.captured = truth(raw.captured).value_or(false); sample.captured_is_bool = raw.captured >= 0;
+        sample.side = input.text(raw.side, "a range side"); sample.quantity = input.text(raw.quantity, "a range quantity");
+        sample.source = input.strings(raw.source, raw.source_count);
+        sample.constraint = input.string(raw.constraint).value_or("parameter");
+        sample.bounds = {raw.bounds[0], raw.bounds[1]};
+        input.sequence(raw.shape, raw.rank);
+        if (raw.rank) sample.shape.assign(raw.shape, raw.shape + raw.rank);
+        sample.size = raw.size; sample.low = raw.low; sample.high = raw.high; sample.nonfinite = raw.nonfinite;
+        sample.minimum = input.optional(raw.minimum); sample.maximum = input.optional(raw.maximum);
+        for (const auto& provenance : std::array<std::pair<const char*, const char*>, 5>{{
+            {"stage", raw.stage}, {"layout", raw.layout}, {"unit", raw.unit}, {"reason", raw.reason}, {"constraint", raw.constraint}}}) {
+            const auto text = input.string(provenance.second);
+            if (text) sample.captured_record.emplace(provenance.first, *text);
+        }
+        for (const auto& extreme : std::array<std::pair<const char*, bool>, 2>{{{"minimum", false}, {"maximum", true}}}) {
+            const auto number = extreme.second ? sample.maximum : sample.minimum;
+            Report value;
+            if (number) {
+                const auto indices = extreme.second ? raw.maximum_index : raw.minimum_index;
+                input.sequence(indices, raw.rank); Report::List index;
+                for (std::size_t axis = 0; axis < raw.rank; ++axis) index.emplace_back(static_cast<std::int64_t>(indices[axis]));
+                value = Report::List{*number, std::move(index)};
+            }
+            if (sample.captured) sample.captured_record.emplace(extreme.first, std::move(value));
+        }
+        out.push_back(std::move(sample));
+    }
+    return out;
+}
+std::optional<ApplicabilityEvidence> applicability(Inputs& input, const tpmshx_stage_applicability_v1* value) {
+    if (!value) return {};
+    input.sequence(value, 1); ApplicabilityEvidence out;
+    out.version = input.text(value->version, "an applicability version");
+    out.inlet_recorded = truth(value->inlet_recorded).value_or(false);
+    out.groups.emplace("inlet", ranges(input, value->inlet, value->inlet_count));
+    out.groups.emplace("final", ranges(input, value->final_state, value->final_count));
+    input.sequence(value->required, value->required_count);
+    for (std::size_t i = 0; i < value->required_count; ++i) {
+        const auto& raw = value->required[i];
+        out.required.push_back({input.text(raw.group, "a required range group"), input.text(raw.side, "a required range side"), input.strings(raw.source, raw.source_count)});
+    }
+    for (const auto& note : input.strings(value->scope_notes, value->scope_note_count)) out.scope_notes.emplace_back(note);
+    return out;
+}
+ResultEvidence evidence(Inputs& input, const tpmshx_result_evidence_v1* value) {
+    input.sequence(value, 1);
+    if (value->abi_version != TPMSHX_RESULT_STAGE_ABI_VERSION || value->struct_size != sizeof(*value))
+        throw std::invalid_argument("unsupported result stage evidence ABI");
+    ResultEvidence out;
+    out.result_id = input.text(value->result_id, "a result ID"); out.dimension = value->dimension;
+    out.metadata_dimension = input.optional(value->metadata_dimension);
+    out.quantity_basis = input.string(value->quantity_basis); out.mass_unit = input.string(value->mass_unit);
+    out.mode = input.string(value->mode).value_or("full");
+    out.thermal_mode = input.string(value->thermal_mode); out.temperature_transport = input.string(value->temperature_transport);
+    out.grid = grid(input, value->grid); out.fields = input.named(value->fields, value->field_count);
+    input.sequence(value->field_metadata, value->field_metadata_count);
+    for (std::size_t i = 0; i < value->field_metadata_count; ++i) {
+        const auto& row = value->field_metadata[i];
+        if (!out.field_metadata.emplace(input.text(row.name, "a field name"), FieldDeclaration{input.text(row.unit, "a field unit"), input.string(row.state)}).second)
+            throw std::invalid_argument("duplicate stage field declaration");
+    }
+    for (std::size_t i = 0; i < 2; ++i) out.pressure[i] = pressure(input, value->pressure[i]);
+    out.thermal = thermal(input, value->thermal);
+    if (value->fine) {
+        input.sequence(value->fine, 1); FineEvidence fine; fine.empty_record = boolean(value->fine->empty_record);
+        fine.grid = grid(input, value->fine->grid); fine.fields = input.named(value->fine->fields, value->fine->field_count);
+        fine.thermal = thermal(input, value->fine->thermal); fine.epsilon = input.array(value->fine->epsilon);
+        for (std::size_t i = 0; i < 2; ++i) {
+            fine.rho_cp[i] = input.array(value->fine->rho_cp[i]); fine.inlet_fraction[i] = input.array(value->fine->inlet_fraction[i]);
+            fine.outlet_fraction[i] = input.array(value->fine->outlet_fraction[i]);
+        }
+        out.fine = std::move(fine);
+    }
+    out.thermal_state = input.string(value->thermal_state); out.execution = input.string(value->execution);
+    out.converged = truth(value->converged); out.outer_index = input.optional(value->outer_index);
+    input.sequence(value->convergence_gates, value->convergence_gate_count);
+    for (std::size_t i = 0; i < value->convergence_gate_count; ++i) {
+        const auto& gate = value->convergence_gates[i];
+        if (!out.convergence_gates.emplace(input.text(gate.name, "a convergence gate name"), truth(gate.value)).second)
+            throw std::invalid_argument("duplicate stage convergence gate");
+    }
+    if (value->true_h_certificate) {
+        input.sequence(value->true_h_certificate, 1); TrueHCertificate cert;
+        cert.converged = truth(value->true_h_certificate->converged);
+        cert.clip_counts = input.array(value->true_h_certificate->clip_counts);
+        for (std::size_t i = 0; i < 2; ++i) {
+            cert.ratios[i] = input.number(value->true_h_certificate->ratios[i]);
+            cert.tolerances[i] = input.number(value->true_h_certificate->tolerances[i]);
+        }
+        out.true_h_certificate = std::move(cert);
+    }
+    input.sequence(value->model_certificates, value->model_certificate_count);
+    for (std::size_t i = 0; i < value->model_certificate_count; ++i) {
+        const auto& row = value->model_certificates[i];
+        if (!out.model_certificates.emplace(input.text(row.level, "a model certificate level"), model(input, row.value)).second)
+            throw std::invalid_argument("duplicate stage model certificate");
+    }
+    for (std::size_t i = 0; i < 4; ++i) out.strict_ratios[i] = input.optional(value->strict_ratios[i]);
+    for (std::size_t i = 0; i < 2; ++i) out.source_power[i] = input.optional(value->source_power[i]);
+    out.model_active_b = truth(value->model_active_b); out.richardson_extrapolated = truth(value->richardson_extrapolated);
+    out.execution_version = input.string(value->execution_version);
+    input.sequence(value->executed_sides, value->executed_side_count);
+    for (std::size_t i = 0; i < value->executed_side_count; ++i) {
+        const auto& row = value->executed_sides[i];
+        if (!out.executed_sides.emplace(input.text(row.side, "an executed side"), ExecutionSide{input.string(row.fluid), truth(row.solved)}).second)
+            throw std::invalid_argument("duplicate stage executed side");
+    }
+    out.applicability = applicability(input, value->applicability);
+    for (std::size_t i = 0; i < 2; ++i) {
+        out.active_fluids[i] = boolean(value->active_fluids[i]); out.direction[i] = input.optional(value->direction[i]);
+        out.inlet_temperature[i] = input.number(value->inlet_temperature[i]);
+        out.inlet_geom_fraction[i] = input.array(value->inlet_geom_fraction[i]);
+        out.outlet_geom_fraction[i] = input.array(value->outlet_geom_fraction[i]); out.rho_cp[i] = input.array(value->rho_cp[i]);
+        const auto& raw = value->quick[i]; auto& side = out.quick[i];
+        side.inlet_temperature = input.number(raw.inlet_temperature); side.mass_flow = input.number(raw.mass_flow);
+        side.cp = input.number(raw.cp); side.rho = input.number(raw.rho); side.velocity = input.number(raw.velocity);
+        side.viscosity = input.number(raw.viscosity);
+    }
+    out.parameter_epsilon = input.array(value->parameter_epsilon); out.design_epsilon = input.array(value->design_epsilon);
+    out.split_a = input.number(value->split_a); out.solid_density = input.number(value->solid_density);
+    out.quick_model = input.string(value->quick_model); out.arrangement = input.string(value->arrangement);
+    out.hydraulic_diameter = input.number(value->hydraulic_diameter);
+    out.absent_records = input.strings(value->absent_records, value->absent_record_count);
+    out.model_certificate_error = input.string(value->model_certificate_error);
+    return out;
+}
+MetricSpec spec(Inputs& input, const tpmshx_stage_metric_spec_v1& value) {
+    return {input.text(value.name, "a metric name"), input.text(value.unit, "a metric unit"),
+        input.text(value.definition_version, "a metric definition version"), input.string(value.description).value_or("")};
+}
+struct Output {
+    Evaluation evaluation;
+    std::string json_text;
+    std::vector<tpmshx_stage_metric_value_v1> metrics;
+    void bind_metrics() {
+        for (const auto& row : evaluation.metrics) {
+            const auto& v = row.second;
+            metrics.push_back({row.first.c_str(), {v.spec.name.c_str(), v.spec.unit.c_str(), v.spec.definition_version.c_str(), v.spec.description.c_str()},
+                v.value ? 1 : 0, v.value.value_or(0.0), v.status.c_str(), v.reason.c_str()});
+        }
+    }
+};
+
+template<class Run> int boundary(const tpmshx_result_evidence_v1* value, tpmshx_stage_output_v1* output,
+                                 char* error, std::size_t capacity, Run run) noexcept {
+    FloatingEnvironment environment;
+    Inputs input;
+    int status = TPMSHX_RESULT_OK;
+    const char* message = "";
+    std::string saved_message;
+    const auto save_message = [&](const char* value, const char* fallback) noexcept {
+        try {saved_message = value; message = saved_message.c_str();}
+        catch (...) {message = fallback;}
+    };
+    bool output_valid = false, copy_started = false, copied_inputs = false;
+    try {
+        if (!error || !capacity) throw std::invalid_argument("result calls require nonempty error storage");
+        Inputs writable;
+        writable.sequence(output, 1); writable.sequence(error, capacity);
+        if (reinterpret_cast<std::uintptr_t>(output) <= reinterpret_cast<std::uintptr_t>(error) + capacity - 1 &&
+            reinterpret_cast<std::uintptr_t>(error) <= reinterpret_cast<std::uintptr_t>(output) + sizeof(*output) - 1)
+            throw std::invalid_argument("result writable storage overlaps another buffer");
+        output_valid = true;
+        if (output->struct_size != sizeof(*output)) throw std::invalid_argument("unsupported result stage output size");
+        if (output->owner) throw std::invalid_argument("release the previous result stage output before reuse");
+        input.sequence(value, 1);
+        if (value->abi_version != TPMSHX_RESULT_STAGE_ABI_VERSION || value->struct_size != sizeof(*value))
+            throw std::invalid_argument("unsupported result stage evidence ABI");
+        copy_started = true;
+        const auto copied = evidence(input, value);
+        copied_inputs = true;
+        auto owned = std::make_unique<Output>();
+        run(input, copied, *owned);
+        if (!input.disjoint(output, sizeof(*output)) || !input.disjoint(error, capacity))
+            throw std::invalid_argument("result writable storage overlaps another buffer");
+        owned->bind_metrics();
+        tpmshx_stage_output_v1 published{sizeof(*output), owned.get(), owned->json_text.c_str(),
+            owned->metrics.data(), owned->metrics.size(), owned->evaluation.diagnostics};
+        *output = published;
+        owned.release();
+    } catch (const NumericError& failure) {status = TPMSHX_RESULT_NUMERIC; save_message(failure.what(), "native result numerical failure");}
+    catch (const std::invalid_argument& failure) {status = TPMSHX_RESULT_INVALID; save_message(failure.what(), "invalid native result input");}
+    catch (const std::bad_alloc&) {status = TPMSHX_RESULT_ALLOCATION; message = "native result allocation failed";}
+    catch (const std::exception& failure) {status = TPMSHX_RESULT_RUNTIME; save_message(failure.what(), "native result runtime failure");}
+    catch (...) {status = TPMSHX_RESULT_RUNTIME; message = "unknown native result failure";}
+    // An interrupted copy can leave unvisited borrowed spans. Do not write there.
+    if ((!copy_started || copied_inputs) && error && capacity && input.disjoint(error, capacity) && output_valid &&
+        !(reinterpret_cast<std::uintptr_t>(output) <= reinterpret_cast<std::uintptr_t>(error) + capacity - 1 &&
+          reinterpret_cast<std::uintptr_t>(error) <= reinterpret_cast<std::uintptr_t>(output) + sizeof(*output) - 1))
+        std::snprintf(error, capacity, "%s", message);
+    return status;
+}
+}  // namespace
+
+extern "C" {
+int TPMSHX_RESULT_CALL tpmshx_result_stage_evaluate_v1(const tpmshx_result_evidence_v1* value,
+    const tpmshx_stage_metric_spec_v1* requested, tpmshx_stage_output_v1* output, char* error, size_t capacity) {
+    return boundary(value, output, error, capacity, [&](Inputs& input, const ResultEvidence& copied, Output& owned) {
+        std::optional<MetricSpec> selection;
+        if (requested) {input.sequence(requested, 1); selection = spec(input, *requested);}
+        owned.evaluation = evaluate(copied, selection);
+        owned.json_text = json(report(owned.evaluation));
+    });
+}
+int TPMSHX_RESULT_CALL tpmshx_result_stage_applicability_v1(const tpmshx_result_evidence_v1* value,
+    tpmshx_stage_output_v1* output, char* error, size_t capacity) {
+    return boundary(value, output, error, capacity, [](Inputs&, const ResultEvidence& copied, Output& owned) {
+        owned.json_text = json(report(evaluate_applicability(copied)));
+    });
+}
+int TPMSHX_RESULT_CALL tpmshx_result_stage_physical_balance_v1(const tpmshx_result_evidence_v1* value,
+    tpmshx_stage_output_v1* output, char* error, size_t capacity) {
+    return boundary(value, output, error, capacity, [](Inputs&, const ResultEvidence& copied, Output& owned) {
+        owned.json_text = json(report(evaluate_physical_balance(copied)));
+    });
+}
+int TPMSHX_RESULT_CALL tpmshx_result_stage_qualification_v1(const tpmshx_result_evidence_v1* value,
+    const tpmshx_stage_metric_value_v1* metrics, size_t count, tpmshx_stage_output_v1* output, char* error, size_t capacity) {
+    return boundary(value, output, error, capacity, [&](Inputs& input, const ResultEvidence& copied, Output& owned) {
+        input.sequence(metrics, count); std::map<std::string, MetricValue> values;
+        for (std::size_t i = 0; i < count; ++i) {
+            const auto& raw = metrics[i];
+            const auto present = boolean(raw.has_value);
+            MetricValue metric{present ? std::optional<double>(raw.value) : std::nullopt, spec(input, raw.spec),
+                input.text(raw.status, "a metric status"), input.string(raw.reason).value_or("")};
+            if (!values.emplace(input.text(raw.name, "a metric key"), std::move(metric)).second)
+                throw std::invalid_argument("duplicate stage metric key");
+        }
+        owned.json_text = json(report(evaluate_qualification(copied, values)));
+    });
+}
+void TPMSHX_RESULT_CALL tpmshx_result_stage_release_v1(tpmshx_stage_output_v1* value) {
+    if (!value || value->struct_size != sizeof(*value)) return;
+    delete static_cast<Output*>(value->owner);
+    *value = {}; value->struct_size = sizeof(*value);
+}
+}

@@ -2,15 +2,8 @@
 from sjtu_tpmshx.shared.domain.compute_config import Sco2NuConfig
 from sjtu_tpmshx.shared.domain.model_refs import ModelRef
 
-# These versions identify the extracted V2 formulas, not experimental accuracy.
-MODEL_VERSIONS = {
-    'quick_design': 'v2-5f1cafb',
-    'fluid': 'v2-5f1cafb',
-    'co2_fluid': 'co2-fixed-factors-20261009-v1',
-    'co2_geometry': 'co2-segment2-20261002-v1',
-    'geometry': 'v2-5f1cafb',
-    'darcy_forchheimer': 'cfd_full_core_3cell_fixed_v2',
-}
+from sjtu_tpmshx.shared.configs.model_parameters import MODEL_VERSIONS
+
 
 
 def resolve_model(ref: ModelRef):
