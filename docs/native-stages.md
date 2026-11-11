@@ -93,6 +93,9 @@ Symmetric uniform and continuous 2D Python runs and checkpoints use the saved-in
 `SavedCase2D` borrows a validated v2 view and saved thermal geometry. It does not prepare the case again.
 Uniform saved inputs can include cell thermal geometry and local drag while keeping uniform closure mode.
 Missing range records and empty records stay distinct. Uncaptured rows do not receive numerical samples.
+Saved scalar and field kinds retain the original unit-conversion and closure-ratio precision.
+With model-h controls, the saved interface checks the requested energy algorithm before execution.
+It does not pass two sets of iteration controls to the numerical driver.
 Keep inputs and range flags valid until result transfer or run release.
 
 Python checks the selected library capability before execution. Archived libraries, nonzero delta and unported zone modes use their existing protocol.

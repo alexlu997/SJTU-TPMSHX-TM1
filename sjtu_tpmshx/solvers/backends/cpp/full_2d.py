@@ -544,7 +544,11 @@ def run_case(case, control=RunControl(), *, resume_state=None, checkpoint=None, 
     stage_layout = (case.metadata['design_mode'] in ('uniform', 'continuous')
         and cfg['compute_cfg'].geometry.delta_levelset == 0
         and (cfg['zone_config'] is None or cfg['z_axis'] == 'continuous'))
-    if stage_layout and hasattr(driver.library, 'tpmshx_stage_run_2d_create_saved_v1'):
+    saved_entries = [hasattr(driver.library, 'tpmshx_stage_run_2d_' + name + '_saved_v1')
+                     for name in ('create', 'restore')]
+    if stage_layout and any(saved_entries) and not all(saved_entries):
+        raise ValueError('native library has an incomplete saved 2D stage protocol')
+    if stage_layout and all(saved_entries):
         from .full_2d_stage import run_stage
         result = run_stage(driver, case, cfg, prepared, control, resume_state=resume_state,
             checkpoint=checkpoint, checkpoint_due=checkpoint_due)

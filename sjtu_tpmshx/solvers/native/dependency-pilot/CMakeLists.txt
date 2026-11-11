@@ -57,6 +57,7 @@ set_property(SOURCE
     "${TPMSHX_NATIVE_ROOT}/src/temperature_staggered.cpp"
     "${TPMSHX_NATIVE_ROOT}/src/model_h_2d.cpp"
     "${TPMSHX_NATIVE_ROOT}/src/model_h_3d.cpp"
+    "${TPMSHX_NATIVE_ROOT}/src/preparation_flow.cpp"
     "${TPMSHX_NATIVE_ROOT}/tests/conservative_energy_smoke.cpp"
     APPEND PROPERTY COMPILE_OPTIONS "${TPMSHX_ENERGY_ROW_FP_OPTION}")
 unset(TPMSHX_ENERGY_ROW_FP_OPTION)
@@ -249,6 +250,7 @@ endif()
 foreach(target IN ITEMS tpmshx_solver tpmshx_solver_shared)
     target_link_libraries(${target} PRIVATE tpmshx_capture_math)
     target_sources(${target} PRIVATE "${TPMSHX_NATIVE_ROOT}/src/stage_run.cpp"
+        "${TPMSHX_NATIVE_ROOT}/src/preparation_flow.cpp"
         "${TPMSHX_NATIVE_ROOT}/src/stage_capture_2d.cpp")
 endforeach()
 set_target_properties(tpmshx_solver_shared PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS OFF)

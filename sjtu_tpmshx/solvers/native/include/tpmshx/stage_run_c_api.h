@@ -11,7 +11,7 @@
 
 typedef struct { uint32_t present; size_t value; } tpmshx_stage_size_option_v1;
 typedef struct { uint32_t present; double value; } tpmshx_stage_double_option_v1;
-/* Active model_h controls and an explicit energy pointer are exclusive.
+/* For prepared views, active model_h controls and an energy pointer are exclusive.
  * A null energy pointer keeps the defaults for the selected thermal route. */
 typedef struct {
     uint32_t abi_version;
@@ -84,7 +84,11 @@ typedef struct {
  * Saved local drag uses the existing full 2D validation. inlet_recorded is 0
  * for absent inlet range evidence and 1 for a recorded set, including empty.
  * range_captured has prepared->values.range_count flags (0 or 1). NULL means
- * all ranges were captured. Uncaptured ranges do not supply sample values. */
+ * all ranges were captured. Uncaptured ranges do not supply sample values.
+ * Kinds retain saved SI scalar/array precision through unit conversion and
+ * closure-ratio arithmetic. Use precision 16/32/64, strong 0/1 for floating
+ * values, or strong 2 with precision 8/16/32/64 for integers. Layout 0/1/2
+ * denotes Python scalar, NumPy scalar, or array, as in preparation kinds. */
 typedef struct {
     uint32_t abi_version;
     size_t struct_size;
@@ -92,6 +96,7 @@ typedef struct {
     tpmshx_preparation_array_v1 area_density_per_m,hydraulic_diameter_m,fluid_conductivity[2];
     uint32_t inlet_recorded;
     const uint32_t* range_captured;
+    tpmshx_preparation_scalar_kind_v2 reference_cell_kind,cell_field_kind,hydraulic_diameter_kind;
 } tpmshx_stage_saved_case_2d_v1;
 
 #ifdef __cplusplus
@@ -157,7 +162,9 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_restore_v1(
     const tpmshx_run_state_field_v1*,size_t,void**,char*,size_t);
 /* Saved views use the same lifecycle, status, storage and restore rules.
  * Keep this descriptor and all referenced storage unchanged until transfer
- * or release. Set abi_version=1 and struct_size=sizeof this descriptor. */
+ * or release. Set abi_version=1 and struct_size=sizeof this descriptor.
+ * With model_h controls, request.energy records the requested algorithm for
+ * validation only. It is not passed as a second set of iteration controls. */
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_create_saved_v1(
     const tpmshx_stage_saved_case_2d_v1*,const tpmshx_stage_run_request_2d_v3*,
     const tpmshx_stage_run_control_v1*,void**,char*,size_t);

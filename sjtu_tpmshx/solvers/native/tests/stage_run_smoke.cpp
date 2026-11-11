@@ -60,6 +60,9 @@ void check_saved(const tpmshx_preparation_case_2d_v1& prepared,tpmshx::stages::R
     malformed=saved;--malformed.hydraulic_diameter_m.size;
     require(tpmshx_stage_run_2d_create_saved_v1(&malformed,nullptr,&control,&handle,error,sizeof(error))==1 && !handle,
         "saved geometry extent mismatch accepted");
+    malformed=saved;malformed.cell_field_kind.precision=24;
+    require(tpmshx_stage_run_2d_create_saved_v1(&malformed,nullptr,&control,&handle,error,sizeof(error))==1 && !handle,
+        "saved geometry accepted an invalid precision");
     captured[0]=2;
     require(tpmshx_stage_run_2d_create_saved_v1(&saved,nullptr,&control,&handle,error,sizeof(error))==1 && !handle,
         "saved range capture flag accepted invalid value");

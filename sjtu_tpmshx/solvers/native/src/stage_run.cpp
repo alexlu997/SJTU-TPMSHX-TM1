@@ -1,5 +1,6 @@
 #include "tpmshx/stage_run_c_api.h"
 #include "stage_capture_2d.hpp"
+#include "tpmshx/preparation_flow.hpp"
 #include "field_c_boundary.hpp"
 
 #include <array>
@@ -118,27 +119,38 @@ struct Packed2D {
             throw std::invalid_argument("convergence_mode must be 'f2'; the legacy mass/velocity exit has been retired");
         auto set=[&](size_t i,tpmshx_preparation_array_v1 value) {arrays[i]=value.data;sizes[i]=value.size;};
         set(0,p.dx);set(1,p.dy);arrays[2]=&depth;sizes[2]=1;
-        // Preserve the saved SI design, restored mm, then transport SI order.
-        const double restored_cell_mm=p.cell_length_m*1e3;
+        namespace g=tpmshx::grid;
+        const auto scalar=[](double value,const tpmshx_preparation_scalar_kind_v2& kind) {
+            return g::Scalar{value,kind.precision,kind.strong};
+        };
+        if(saved)for(const auto& kind:{saved->reference_cell_kind,saved->cell_field_kind,saved->hydraulic_diameter_kind}) {
+            if(kind.layout>2)throw std::invalid_argument("saved geometry scalar layout is invalid");
+            g::checked(scalar(0.,kind));
+        }
+        // Keep the saved dtype at both unit operations and the closure ratio.
+        const auto reference=g::multiply(saved?scalar(p.cell_length_m,saved->reference_cell_kind):g::weak(p.cell_length_m),g::weak(1e3));
+        auto cell_kind=reference;
+        const auto diameter_kind=saved?scalar(0.,saved->hydraulic_diameter_kind):g::Scalar{0.,64,1};
+        std::vector<double> cell_mm(cells,reference.value);
         const auto area=continuous?continuous->area_density_per_m:saved?saved->area_density_per_m:tpmshx_preparation_array_v1{};
         const auto diameter=continuous?continuous->hydraulic_diameter_m:saved?saved->hydraulic_diameter_m:tpmshx_preparation_array_v1{};
         if(spatial) {
             const auto conductivity_a=continuous?continuous->fluid_conductivity[0]:saved->fluid_conductivity[0];
             const auto conductivity_b=continuous?continuous->fluid_conductivity[1]:saved->fluid_conductivity[1];
             for(const auto value:{p.cell_length,area,diameter,conductivity_a,conductivity_b})array(value,cells);
-            fields[4].resize(cells);fields[5].resize(cells);
+            fields[4].resize(cells);
             for(size_t i=0;i<cells;++i) {
-                const double restored_mm=p.cell_length.data[i]*1e3;
-                fields[4][i]=restored_mm*1e-3;
-                fields[5][i]=(diameter.data[i]*1000.)/restored_mm;
+                const auto restored=g::multiply(saved?scalar(p.cell_length.data[i],saved->cell_field_kind):
+                    g::Scalar{p.cell_length.data[i],64,1},g::weak(1e3));
+                cell_mm[i]=restored.value;cell_kind=restored;
+                fields[4][i]=g::multiply(restored,g::weak(1e-3)).value;
             }
             set(3,conductivity_a);set(4,conductivity_b);set(7,area);set(8,diameter);
         } else {
             const double values[]{p.sides[0].properties.fluid_conductivity_W_mK,
                 p.sides[1].properties.fluid_conductivity_W_mK,p.area_density_per_m,
-                p.hydraulic_diameter_m,restored_cell_mm*1e-3,
-                (p.hydraulic_diameter_m*1000.)/restored_cell_mm};
-            for (size_t i=0;i<6;++i) fields[i].assign(cells,values[i]);
+                p.hydraulic_diameter_m,g::multiply(reference,g::weak(1e-3)).value};
+            for (size_t i=0;i<5;++i) fields[i].assign(cells,values[i]);
             set(3,{fields[0].data(),cells});set(4,{fields[1].data(),cells});
             set(7,{fields[2].data(),cells});set(8,{fields[3].data(),cells});
             if(saved) {
@@ -146,10 +158,12 @@ struct Packed2D {
                     throw std::invalid_argument("saved uniform stage uses inlet conductivity properties");
                 if(area.size || diameter.size) {
                     array(area,cells);array(diameter,cells);set(7,area);set(8,diameter);
-                    for(size_t i=0;i<cells;++i)fields[5][i]=(diameter.data[i]*1000.)/restored_cell_mm;
                 }
             }
         }
+        fields[5]=tpmshx::preparation::closure_geometry_ratio(
+            {{arrays[8],cells},diameter_kind.precision,diameter_kind.strong},
+            {{cell_mm.data(),cells},cell_kind.precision,cell_kind.strong}).values;
         set(5,p.solid_conductivity);set(6,p.total_porosity);
         set(9,{fields[4].data(),cells});
         set(28,{fields[5].data(),cells});
@@ -157,7 +171,7 @@ struct Packed2D {
         const bool eos=p.sides[0].inlet.fluid>=2 || p.sides[1].inlet.fluid>=2;
         const bool water=p.sides[0].inlet.fluid==1 || p.sides[1].inlet.fluid==1;
         c.topology=p.input.topology;c.thermal_mode=eos?2:1;c.spatial_geometry=spatial?1:0;
-        c.reference_cell_length=restored_cell_mm*1e-3;
+        c.reference_cell_length=g::multiply(reference,g::weak(1e-3)).value;
         c.reference_porosity=p.epsilon;c.split_a=p.split_a;c.sco2_nu_multiplier=1.;
         if(uniform && eos && uniform->sco2_nu.mode)c.sco2_nu_multiplier=uniform->sco2_nu.alpha[p.input.topology];
         flag(request.solid_seed_K.present);c.have_solid_seed=request.solid_seed_K.present;
@@ -348,6 +362,16 @@ int run(const tpmshx_preparation_case_2d_v1* prepared,
         const auto& h=selected.model_h;
         const auto* model_h=(h.max_iterations || h.temperature_tolerance || h.q_relative_tolerance)?&h:nullptr;
         const auto* energy=model_h || packed.explicit_energy?selected.energy:&packed.energy;
+        if(model_h && start && start->saved) {
+            if(packed.explicit_energy || packed.config.thermal_mode==2)
+                throw std::invalid_argument("model-h iteration controls require an integral h(T) route");
+            tpmshx_energy_effective_settings_v1 values{};
+            const auto& sides=packed.config.sides;
+            if(tpmshx_full_enthalpy_defaults_v1(2,packed.energy.algorithm,
+                    sides[0].fluid==1 || sides[1].fluid==1,&values))
+                throw std::invalid_argument("invalid native full enthalpy defaults request");
+            energy=nullptr;
+        }
         if(packed.explicit_energy==&packed.partial_energy)energy=nullptr;
         if(start) {
             auto owner=std::make_unique<StageRun2D>(prepared,uniform,continuous,packed.config,control->result_id,start->saved);

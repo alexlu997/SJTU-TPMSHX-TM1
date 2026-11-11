@@ -98,6 +98,7 @@ struct RunRequest2Dv3 : tpmshx_stage_run_request_2d_v3 {
 };
 struct SavedCase2D : tpmshx_stage_saved_case_2d_v1 {
     SavedCase2D():tpmshx_stage_saved_case_2d_v1{} {
+        reference_cell_kind={64,0,0};cell_field_kind=hydraulic_diameter_kind={64,1,2};
         abi_version=TPMSHX_STAGE_RUN_ABI_VERSION;struct_size=sizeof(tpmshx_stage_saved_case_2d_v1);
         inlet_recorded=1;
     }

@@ -3,8 +3,9 @@ import ctypes as ct
 
 import numpy as np
 
+from sjtu_tpmshx.shared.models import _native_flow
 from sjtu_tpmshx.shared.models._native_preparation_case import (
-    _Array, _Range, _ResultV1, _ResultV2, _Text,
+    _Array, _Kind, _Range, _ResultV1, _ResultV2, _Text,
 )
 from ..prepared_2d import _validated_outlet_fraction
 
@@ -67,7 +68,9 @@ def prepare_stage(case, cfg, prepared):
     values.nx, values.ny = len(prepared['energy_dx']), len(prepared['energy_dy'])
     values.dx = _array(prepared['energy_dx'], keepalive)
     values.dy = _array(prepared['energy_dy'], keepalive)
-    values.cell_length_m = case.parameters['L_cell_m']
+    reference = _native_flow._scalar(case.parameters['L_cell_m'])
+    values.cell_length_m = reference.value
+    reference_kind = _Kind(reference.precision, reference.strong, int(bool(reference.strong)))
     values.wall_thickness_m = case.parameters['t_wall_m']
     values.epsilon = cfg['eps']
     values.total_porosity = _array(case.design_fields['eps_arr'], keepalive)
@@ -77,12 +80,19 @@ def prepare_stage(case, cfg, prepared):
     values.area_density_per_m = geometry['uniform']['A_0']
     values.hydraulic_diameter_m = geometry['uniform']['D_h']
     area, diameter = _Array(), _Array()
+    selected_geometry = geometry['uniform'] if geometry['fields'] is None else geometry['fields']
+    diameter_storage, diameter_values = _native_flow._values(selected_geometry['D_h'], preserve_scalar=True)
+    diameter_kind = _Kind(diameter_values.precision, diameter_values.strong,
+        2 if isinstance(selected_geometry['D_h'], np.ndarray) else int(bool(diameter_values.strong)))
     if geometry['fields'] is not None:
         area = _array(geometry['fields']['A_0'], keepalive)
-        diameter = _array(geometry['fields']['D_h'], keepalive)
+        diameter = _array(diameter_storage, keepalive)
     conductivity = (_Array(), _Array())
+    cell_field_kind = _Kind(64, 1, 2)
     if values.input.geometry_mode:
-        values.cell_length = _array(case.design_fields['L_field_m'], keepalive)
+        cell_storage, cell_values = _native_flow._values(case.design_fields['L_field_m'])
+        values.cell_length = _array(cell_storage, keepalive)
+        cell_field_kind = _Kind(cell_values.precision, cell_values.strong, 2)
         conductivity = tuple(_array(cfg['za']['K_ff' + side + '_arr'], keepalive) for side in 'AB')
     nu = cfg['compute_cfg'].sco2_nu
     uniform.sco2_nu.mode = nu.mode != 'cfd_smooth'
@@ -120,4 +130,5 @@ def prepare_stage(case, cfg, prepared):
         _text(notice, keepalive) for notice in case.metadata['notices']))
     keepalive.append(notices)
     uniform.notices, uniform.notice_count = notices, len(notices)
-    return uniform, area, diameter, conductivity, 'applicability_inputs' in case.metadata, captured, keepalive
+    kinds = reference_kind, cell_field_kind, diameter_kind
+    return uniform, area, diameter, conductivity, 'applicability_inputs' in case.metadata, captured, kinds, keepalive

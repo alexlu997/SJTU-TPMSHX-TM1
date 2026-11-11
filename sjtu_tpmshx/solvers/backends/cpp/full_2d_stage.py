@@ -6,7 +6,7 @@ from sjtu_tpmshx.shared._native_result_stage import Evidence, record
 from sjtu_tpmshx.shared.domain.cancellation import CancelledError
 from sjtu_tpmshx.shared.domain.compute_config import validate_simple_velocity_relaxation
 from sjtu_tpmshx.shared.domain.run_environment import run_environment
-from sjtu_tpmshx.shared.models._native_preparation_case import _Array, _ResultV2
+from sjtu_tpmshx.shared.models._native_preparation_case import _Array, _Kind, _ResultV2
 from sjtu_tpmshx.shared.models.envelope import ChokedFlowError
 from ._full_2d_abi import _Callbacks, _Config, _EnergyControl, _EnergyEvidence, _Result
 from .enthalpy import _EnergyOptions, _energy_algorithm_query, _energy_options
@@ -38,7 +38,8 @@ _Control = record('StageControl', [('result_id', ct.c_char_p), ('table_directory
 _Saved = record('SavedCase', [('abi_version', _U), ('struct_size', _S),
     ('prepared', ct.POINTER(_ResultV2)), ('area_density_per_m', _Array),
     ('hydraulic_diameter_m', _Array), ('fluid_conductivity', _Array * 2),
-    ('inlet_recorded', _U), ('range_captured', ct.POINTER(_U))])
+    ('inlet_recorded', _U), ('range_captured', ct.POINTER(_U)),
+    ('reference_cell_kind', _Kind), ('cell_field_kind', _Kind), ('hydraulic_diameter_kind', _Kind)])
 
 
 class _StageResult(ct.Structure):
@@ -87,8 +88,7 @@ def _request(cfg):
     model_h = _iteration_options(vars(solver))
     if model_h is not None:
         values.model_h = model_h
-    else:
-        values.energy = ct.pointer(energy)
+    values.energy = ct.pointer(energy)
     for name, target, kind in (
             ('ltne_enthalpy_outer', 'energy_iterations', _Size),
             ('ltne_enthalpy_nsweep', 'energy_sweeps', _Size),
@@ -150,9 +150,9 @@ def run_stage(driver, case, cfg, prepared, control, *, resume_state=None, checkp
     except AttributeError as error:
         raise ValueError('native library has an incomplete saved 2D stage protocol') from error
     control.check_cancelled()
-    uniform, area, diameter, conductivity, recorded, captured, keepalive = prepare_stage(case, cfg, prepared)
+    uniform, area, diameter, conductivity, recorded, captured, kinds, keepalive = prepare_stage(case, cfg, prepared)
     saved = _Saved(1, ct.sizeof(_Saved), ct.pointer(uniform), area, diameter,
-                   (_Array * 2)(*conductivity), recorded, captured)
+                   (_Array * 2)(*conductivity), recorded, captured, *kinds)
     request, energy = _request(cfg)
     callbacks, errors = _callbacks(control)
     stage_control = _Control(case.case_id.encode(), driver.table_directory, control.native_cpu_threads(), callbacks)

@@ -260,14 +260,15 @@ def test_selected_retained_runtime_has_no_new_stage_dependency(monkeypatch):
     _same(replace(resumed, result_id=wanted.result_id), wanted)
 
 
-def test_incomplete_stage_protocol_is_not_retried(monkeypatch):
+@pytest.mark.parametrize('missing', ['create', 'restore'])
+def test_incomplete_stage_protocol_is_not_retried(monkeypatch, missing):
     original = full_2d.NativeFull2DDriver
     _, case = _case()
     class Library:
         def __init__(self, actual):
             self.actual = actual
         def __getattr__(self, name):
-            if name == 'tpmshx_stage_run_2d_restore_saved_v1':
+            if name == 'tpmshx_stage_run_2d_' + missing + '_saved_v1':
                 raise AttributeError(name)
             return getattr(self.actual, name)
     class Driver(original):
@@ -277,7 +278,7 @@ def test_incomplete_stage_protocol_is_not_retried(monkeypatch):
         def run_prepared(self, *args, **kwargs):
             raise AssertionError('incomplete native protocol must not select the old driver')
     monkeypatch.setattr(full_2d, 'NativeFull2DDriver', Driver)
-    with pytest.raises(ValueError, match='continuation controls'):
+    with pytest.raises(ValueError, match='incomplete saved 2D stage protocol'):
         full_2d.run_case(case, _control([]))
 
 
@@ -297,3 +298,60 @@ def test_application_input_error_stays_after_native_execution(property_name):
     assert messages[0] == messages[1]
     assert any(row[0] == 'outer' for row in records[0])
     _events_equal(*records)
+
+
+@pytest.mark.parametrize('spatial,algorithm', list(product((False, True), ('temperature_fou', 'legacy_h_fou'))))
+def test_model_h_controls_keep_retired_algorithm_rejection(spatial, algorithm):
+    config, _ = _case(spatial)
+    config.solver.enthalpy_algorithm = algorithm
+    case = prepare_case(config, case_id='model-h-rejection')
+    for run in (_old, full_2d.run_case):
+        events = []
+        with pytest.raises(ValueError, match='^invalid native full enthalpy defaults request$'):
+            run(case, _control(events))
+        assert events == []
+
+
+@pytest.mark.parametrize('selection', ['cell32', 'cell16', 'diameter32', 'both32', 'both16',
+    'uniform-cell32', 'uniform-diameter32', 'uniform-fields32'])
+def test_saved_geometry_precision_and_resume(selection, tmp_path, monkeypatch):
+    spatial = not selection.startswith('uniform')
+    _, case = _case(spatial)
+    parameters, design = mutable_data(case.parameters), mutable_data(case.design_fields)
+    dtype = np.float16 if selection.endswith('16') else np.float32
+    if selection.startswith(('cell', 'both')) or selection == 'uniform-cell32':
+        design['L_field_m'] = design['L_field_m'].astype(dtype)
+    if selection == 'uniform-cell32':
+        parameters['L_cell_m'] = dtype(parameters['L_cell_m'])
+    geometry = parameters['thermal_geometry']
+    if selection.startswith(('diameter', 'both')):
+        geometry['fields']['D_h'] = geometry['fields']['D_h'].astype(dtype)
+    elif selection == 'uniform-diameter32':
+        geometry['uniform']['D_h'] = dtype(geometry['uniform']['D_h'])
+    elif selection == 'uniform-fields32':
+        shape = design['L_field_m'].shape
+        geometry['fields'] = {name: np.full(shape, value, dtype=dtype)
+                              for name, value in geometry['uniform'].items()}
+    case = replace(case, parameters=parameters, design_fields=design)
+    if spatial:
+        save_case(case, tmp_path / 'typed-case.h5')
+        case = load_case(tmp_path / 'typed-case.h5')
+    snapshots = []
+    class Paused(Exception):
+        pass
+    def pause(snapshot):
+        snapshots.append(snapshot)
+        raise Paused
+    for run in (_old, full_2d.run_case):
+        with pytest.raises(Paused):
+            run(case, _control([]), checkpoint=pause)
+    state._state_equal(snapshots[1], snapshots[0])
+    for key in ('input.cell_length', 'input.nu_geometry_ratio', 'input.reference_cell_length'):
+        assert key in snapshots[1]
+    np.savez(tmp_path / 'phase-1.npz', **snapshots[1])
+    _compare(case, tmp_path, monkeypatch)
+    if selection == 'cell32':
+        expected = _old(case, _control([]), resume_state=snapshots[0])
+        actual = full_2d.run_case(case, _control([]), resume_state=snapshots[1])
+        _same(replace(actual, result_id=expected.result_id), expected)
+        save_result(actual, tmp_path / 'resumed-1.h5')
