@@ -149,10 +149,13 @@ final-pass scalars. It also retains the complete driver pass records.
 Cancellation returns status 6 and publishes no result. The driver has no
 per-call CPU setting; process thread controls keep their existing behavior.
 
-The native double path is distinct from Python's scalar and object protocols.
-Python preparation, saved-case validation, warning routing and Quick Design
-metric adapters remain active. Numeric arrays, NumPy error policy, arbitrary
-integers and objects need their own boundary checks before production changes.
-The native example does not establish those checks or complete N12 retirement.
+Python execution calls this run stage with a borrowed view of saved CaseData.
+It does not repeat preparation. It copies returned fields and their declarations
+before it releases the native result. The original grid, fixed-field dtypes,
+mass rates and inlet temperatures remain in the public result.
+Python keeps saved-case validation, warning routing and exception mapping.
+Raw Python preparation and Quick Design metric adapters retain their current
+scalar, object and NumPy event protocols. Their stage integration remains open.
+The native example does not complete N12 retirement.
 Quick Design remains a sizing approximation. Numerical convergence does not
 establish its physical validation, applicability or design qualification.

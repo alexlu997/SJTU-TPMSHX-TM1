@@ -31,6 +31,8 @@ The [capabilities](../docs/capabilities.en.md) list approximation modes and exte
 The [native stage SDK](../docs/native-stages.md) provides a separate C++ call sequence.
 Its initial complete path supports uniform symmetric 2D air/air with prescribed velocity.
 The separate Quick Design path supports native double operating points and retains the existing LTNE model.
+Python Quick Design execution calls its native run stage with saved prepared data.
+Raw Python preparation and Quick Design metric adapters retain their current type protocols.
 The Python entries above retain all current modes while stage migration continues.
 
 ## Edit numerical functions

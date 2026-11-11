@@ -91,7 +91,10 @@ The separate Quick Design stage accepts raw native double operating points.
 `quick_design_prepare.cpp` reuses geometry, property and analytical D-F owners.
 `quick_design_run.cpp` uses the existing driver and copies its result evidence.
 Its const/mean, cross/counter and warm-start rules stay unchanged.
-Python object and numeric-type contracts still need separate integration checks.
+Python Quick Design execution uses this run stage with the saved prepared fields.
+It copies native fields and declarations before release and keeps the original
+grid, fixed-field dtypes and operating-point scalars in the public result.
+Raw Python preparation and Quick Design evaluation retain their current type protocols.
 Current Python entry points retain their existing behavior and all supported modes.
 The migration gates must pass before their numerical and policy bodies can retire.
 
@@ -467,8 +470,9 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
 - `solvers/backends/cpp/` exposes the independent prepared Quick Design and
   full 2D/3D drivers through `RunControl`, which defaults to C++. The host library path is not serialized in CaseData. Shared QD validation and
   result mapping belong to `solvers/backends/quick_design.py`. Numerical property
-  passes, liquid-state guards and thermal iteration belong to the C++ driver. Its returned scalar pass evidence is expanded into the same fields and warning
-  records for postprocessing.
+  passes, liquid-state guards and thermal iteration belong to the C++ driver.
+  The Quick Design run stage expands its scalar evidence into fields and declarations.
+  Python copies the owned output and uses the pass evidence for warning records.
 
   Full 2D/3D own SIMPLE, pressure references, outer
   property/thermal coupling and final certificates in C++. 2D also owns
