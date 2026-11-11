@@ -11,7 +11,7 @@ import pytest
 
 from sjtu_tpmshx.development.tests import test_native_preparation_case as v1
 from sjtu_tpmshx.development.tests import test_native_preparation_fluids as v2
-from sjtu_tpmshx.preprocess import api
+from sjtu_tpmshx.development.tests import preparation_api_reference as api
 from sjtu_tpmshx.shared.domain.run_warnings import (
     range_observations, warning_messages, warning_scope,
 )
@@ -90,7 +90,7 @@ def _release(native, result):
 
 
 def _reference(monkeypatch, operation, config, targets=None, *, chi=None):
-    from sjtu_tpmshx.preprocess.two_d import preparation
+    from sjtu_tpmshx.development.tests import preparation_case_reference as preparation
     from sjtu_tpmshx.shared.models.tpms_calc import compute
     from sjtu_tpmshx.shared.models.tpms_geometry import compute_geometry
     compute.cache_clear(); compute_geometry.cache_clear()

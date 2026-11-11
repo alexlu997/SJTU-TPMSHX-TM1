@@ -31,6 +31,8 @@ compute -> preprocess.api.prepare_case -> CaseData -> solvers.api.run_case -> Fi
 并将前段记录与最终准备证据分开。
 run v2 支持均匀四流体准备态，包括已解析的总质量流量。准备 v4 提供连续 XY 物理场，供 run v3 使用。
 run v1 保留原 air/air CFD 范围。阶段迁移期间，上述 Python 入口继续保留全部现有模式。
+Python 准备入口对对称均匀和连续二维输入使用 v3/v4；非零 delta 均匀、离散分区、sigmoid 与三维保留明确原路径。
+CaseData 与保存文件契约不变，原生失败直接传播，不选择其他准备路线。
 
 ## 修改数值函数
 

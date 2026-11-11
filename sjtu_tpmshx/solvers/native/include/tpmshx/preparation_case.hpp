@@ -126,10 +126,16 @@ struct PreparationEvent {
     std::string logger,message;
     std::uint32_t floating_event=0;
 };
+struct PreparationInletCache;
 struct PreparationCallbacks {
     // The event is borrowed until this call returns. The callback may throw.
     void (*event)(void*,const PreparationEvent&)=nullptr;
     void* context=nullptr;
+    // This optional hook checks host objects, never physical values.
+    void (*validate_host_input)(void*,std::uint32_t,std::uint32_t)=nullptr;
+    // Cache hooks transport completed values. A miss uses the native calculation.
+    bool (*geometry_cache)(void*,bool,geometry::Geometry&)=nullptr;
+    bool (*inlet_cache)(void*,bool,std::uint32_t,const InletInput2D&,ScalarKind,PreparationInletCache&)=nullptr;
 };
 struct PreparationModelRef {
     std::string name,version,side;
@@ -147,6 +153,12 @@ struct PreparationEvidence {
     double co2_pressure_multiplier=1.,co2_nu_multiplier=1.;
     DfPair co2_drag_factors{1.,1.};
     std::array<double,2> co2_re_range{},co2_pr_range{};
+};
+struct PreparationInletCache {
+    geometry::Geometry geometry{};
+    UniformInletProperties properties{};
+    std::array<ScalarKind,13> kinds{};
+    PreparationEvidence evidence;
 };
 struct PreparedCase2D {
     CaseInput2D input;

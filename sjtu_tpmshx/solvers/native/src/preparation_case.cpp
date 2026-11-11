@@ -419,6 +419,20 @@ struct Records {
     std::vector<std::pair<bool,std::size_t>> warning_order;
     std::vector<std::string> plain_warnings;
 
+    void merge(const PreparationEvidence& evidence,const std::string& side={}) {
+        for (const auto& range:evidence.ranges) {
+            const auto bound_side=side.empty()?range.side:side;
+            const auto bound_stage=side.empty()?range.stage:"inlet";
+            const auto bound_layout=side.empty()?range.layout:"scalar";
+            collect(range.source,bound_side,bound_stage,bound_layout,range.label,range.quantity.c_str(),
+                range.unit.c_str(),range.bounds,range.shape,range.sample,range.bounds_list);
+            for (auto& saved:output.ranges) if (saved.source==range.source && saved.shape==range.shape
+                    && saved.side==bound_side && saved.stage==bound_stage && saved.layout==bound_layout)
+                saved.last=range.last;
+        }
+        for (const auto& message:evidence.warnings) warning(message);
+        output.events.insert(output.events.end(),evidence.events.begin(),evidence.events.end());
+    }
     void emit(PreparationEvent event) {
         output.events.push_back(std::move(event));
         if (callbacks.event) callbacks.event(callbacks.context,output.events.back());
@@ -575,6 +589,7 @@ void check_co2_inlet(const InletInput2D& inlet,std::size_t side) {
         throw failure;
     }
 }
+geometry::MaterialGeometry material_geometry(const CaseInput2D&,const PreparationOptions&,const PreparationCallbacks& = {});
 void preflight(const CaseInput2D& input,const PreparationOptions& options,const geometry::Geometry& geometry,
                const std::array<InletInput2D,2>& sides,Records& records) {
     for (std::size_t i=0;i<2;++i) {
@@ -583,7 +598,9 @@ void preflight(const CaseInput2D& input,const PreparationOptions& options,const 
         check_co2_inlet(inlet,i);
         const double rho=property(0,inlet,kinds,"unbound","unbound",records);
         const double mu=property(1,inlet,kinds,"unbound","unbound",records);
-        const double re=inlet_re(rho,inlet.velocity_m_s,geometry.hydraulic_diameter,mu,kinds.velocity,records).values.front();
+        const auto diameter=records.callbacks.geometry_cache?
+            material_geometry(input,options,records.callbacks).geometry.hydraulic_diameter:geometry.hydraulic_diameter;
+        const double re=inlet_re(rho,inlet.velocity_m_s,diameter,mu,kinds.velocity,records).values.front();
         const auto& bounds=re_range(inlet.fluid);
         const auto fluid=std::string(fluid_name(inlet.fluid));
         records.range({"nu",fluid,topology_name(input.geometry.topology)},side,"inlet-preflight","scalar",
@@ -787,7 +804,7 @@ void model_evidence(const CaseInput2D& input,PreparationEvidence& evidence) {
             "accuracy for variable-property heat exchangers or geometry gradients.");
     }
 }
-geometry::MaterialGeometry material_geometry(const CaseInput2D& input,const PreparationOptions& options) {
+geometry::MaterialGeometry material_geometry(const CaseInput2D& input,const PreparationOptions& options,const PreparationCallbacks& callbacks) {
     const auto& model=input.geometry;
     geometry::MaterialGeometry output;
     const auto calibration=geometry::calibration(model.topology);
@@ -800,8 +817,12 @@ geometry::MaterialGeometry material_geometry(const CaseInput2D& input,const Prep
     } else {
         const auto cell=scalar(model.cell_length_mm,input.kinds.cell_length);
         const auto wall=scalar(model.wall_thickness_mm,input.kinds.wall_thickness);
-        output.geometry=geometry::standard_geometry(geometry_index(model.topology),calibration,
-            cell.value,wall.value,cell.precision,g::result_precision(wall,cell));
+        const bool hit=callbacks.geometry_cache && callbacks.geometry_cache(callbacks.context,false,output.geometry);
+        if (!hit) {
+            output.geometry=geometry::standard_geometry(geometry_index(model.topology),calibration,
+                cell.value,wall.value,cell.precision,g::result_precision(wall,cell));
+            if (callbacks.geometry_cache) callbacks.geometry_cache(callbacks.context,true,output.geometry);
+        }
         output.solid_conductivity=geometry::solid_conductivity(calibration.solid_tortuosity,
             output.geometry.epsilon,model.solid_conductivity_W_mK,options.chi_override,
             input.kinds.solid_conductivity.precision);
@@ -904,11 +925,13 @@ struct InletGeometry2D {
 PreparedCase2D prepare_case(const CaseInput2D& input,const PreparationOptions& options,
                               const PreparationCallbacks& callbacks,CaseScope scope,const InletGeometry2D* inlet_geometry=nullptr) {
     FloatingEnvironment floating_environment;
+    if (callbacks.validate_host_input) callbacks.validate_host_input(callbacks.context,0,2);
     const auto inlets=validate(input,scope);
     PreparedCase2D output{};output.input=input;output.options=options;
     Records records{output.evidence,callbacks,{},{}};
     const auto& model=input.geometry;
-    output.uniform_geometry=inlet_geometry?inlet_geometry->material:material_geometry(input,options);
+    if (callbacks.validate_host_input) callbacks.validate_host_input(callbacks.context,1,2);
+    output.uniform_geometry=inlet_geometry && !callbacks.geometry_cache?inlet_geometry->material:material_geometry(input,options,callbacks);
     const auto& uniform=output.uniform_geometry.geometry;
     output.hydraulic_radius_m=geometry::hydraulic_radius(uniform.hydraulic_diameter);
     preflight(input,options,uniform,inlets,records);
@@ -941,8 +964,35 @@ PreparedCase2D prepare_case(const CaseInput2D& input,const PreparationOptions& o
         if (!inlet_geometry) prepare_ports(output.grid,side);
         prepare_drag(input,i,drag,side,records,local?&local_drag:nullptr,local?&output.grid:nullptr);
     }
-    for (std::size_t i=0;i<2;++i)
-        output.sides[i].properties=inlet_properties(input,inlets[i],i,output.uniform_geometry,records,output.sides[i].property_kinds);
+    // The thermal and final geometry facades use the same scalar cache.
+    if (callbacks.geometry_cache) output.uniform_geometry=material_geometry(input,options,callbacks);
+    for (std::size_t i=0;i<2;++i) {
+        if (callbacks.validate_host_input)
+            callbacks.validate_host_input(callbacks.context,2,static_cast<std::uint32_t>(i));
+        auto& side=output.sides[i];
+        if (!callbacks.inlet_cache) {
+            side.properties=inlet_properties(input,inlets[i],i,output.uniform_geometry,records,side.property_kinds);
+            continue;
+        }
+        PreparationInletCache cached{};
+        const auto index=static_cast<std::uint32_t>(i);
+        const bool hit=callbacks.inlet_cache(callbacks.context,false,index,inlets[i],input.kinds.sides[i].velocity,cached);
+        if (!hit) {
+            const auto geometry=material_geometry(input,options,callbacks);
+            cached.geometry=geometry.geometry;
+            Records local_records{cached.evidence,callbacks,{},{}};
+            cached.properties=inlet_properties(input,inlets[i],i,geometry,local_records,cached.kinds);
+            callbacks.inlet_cache(callbacks.context,true,index,inlets[i],input.kinds.sides[i].velocity,cached);
+        }
+        records.merge(cached.evidence,i?"B":"A");
+        side.properties=cached.properties;side.property_kinds=cached.kinds;
+        const auto calibration=geometry::calibration(model.topology);
+        side.properties.solid_conductivity_W_mK=geometry::solid_conductivity(calibration.solid_tortuosity,
+            cached.geometry.epsilon,model.solid_conductivity_W_mK,options.chi_override,
+            co2_geometry(input)?64u:input.kinds.solid_conductivity.precision);
+        side.property_kinds[12]=solid_result_kind(input);
+    }
+    if (callbacks.geometry_cache) output.uniform_geometry=material_geometry(input,options,callbacks);
     const auto cells=count(output.grid.nx,output.grid.ny);
     output.cell_length_m=g::multiply(scalar(model.cell_length_mm,input.kinds.cell_length),g::weak(1e-3)).value;
     output.wall_thickness_m=g::multiply(scalar(model.wall_thickness_mm,input.kinds.wall_thickness),g::weak(1e-3)).value;
@@ -995,7 +1045,8 @@ g::Scalar flow_scalar(double value,ScalarKind kind) {
 InletGeometry2D prepare_inlet_geometry(const CaseInput2D& input,ScalarKind depth_kind,
     const PreparationOptions& options,const PreparationCallbacks& callbacks,InletFlow2D& flow) {
     const auto inlets=validate(input,flow_scope(input),true);
-    InletGeometry2D output{};output.material=material_geometry(input,options);
+    if (callbacks.validate_host_input) callbacks.validate_host_input(callbacks.context,1,2);
+    InletGeometry2D output{};output.material=material_geometry(input,options,callbacks);
     output.grid=physical_grid(input.grid,inlets);
     Records records{flow.evidence,callbacks,{},{}};record_grid(input,output.grid,records);
     for (std::size_t i=0;i<2;++i) {output.sides[i].inlet=inlets[i];prepare_ports(output.grid,output.sides[i]);}
