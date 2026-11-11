@@ -258,14 +258,17 @@ def test_native_uniform_fluid_pairs(native, monkeypatch, topology, pair, mode):
         native.tpmshx_preparation_case_2d_release_v2(ct.byref(result))
 
 
-@pytest.mark.parametrize('selection', ['saved-nu', 'inactive-nu', 'smooth-provenance', 'specimen', 'hx-extrapolation', 'typed-material-16', 'typed-material-32', 'typed-inlet-32', 'typed-cell-32', 'typed-co2-32', 'typed-inlet-16', 'typed-cell-16', 'typed-extrapolation'])
+@pytest.mark.parametrize('selection', ['saved-nu', 'saved-nu-unicode', 'inactive-nu', 'smooth-provenance', 'specimen', 'hx-extrapolation', 'typed-material-16', 'typed-material-32', 'typed-material-64', 'typed-material-array-16', 'typed-material-array-32', 'typed-material-array-64', 'typed-material-co2-array-32', 'typed-inlet-32', 'typed-cell-32', 'typed-co2-32', 'typed-inlet-16', 'typed-cell-16', 'typed-extrapolation'])
 def test_native_uniform_saved_selection_and_precision(native, monkeypatch, selection):
     config = _configuration('Gyroid', ('sco2', 'water'))
-    if selection in ('saved-nu', 'inactive-nu', 'smooth-provenance'):
+    if selection in ('saved-nu', 'saved-nu-unicode', 'inactive-nu', 'smooth-provenance'):
         config.sco2_nu = replace(config.sco2_nu,
             mode='cfd_smooth' if selection == 'smooth-provenance' else 'experimental',
             alpha_D=1.13, alpha_G=2.27, parameter_version='saved-test-version',
             source='retained source', applicability='retained scope')
+        if selection == 'saved-nu-unicode':
+            config.sco2_nu = replace(config.sco2_nu, parameter_version='保留版本',
+                source='\u00a0实验测量来源\u3000', applicability='保留适用范围')
         if selection == 'inactive-nu':
             config.fluid_A.type = 'co2'
     elif selection == 'specimen':
@@ -277,7 +280,10 @@ def test_native_uniform_saved_selection_and_precision(native, monkeypatch, selec
     else:
         config = _configuration('Diamond', ('air', 'water'))
         if selection.startswith('typed-material'):
-            config.geometry.k_s_W_mK = getattr(np, 'float' + selection.rsplit('-', 1)[1])(1.337)
+            dtype = getattr(np, 'float' + selection.rsplit('-', 1)[1])
+            config.geometry.k_s_W_mK = np.array(1.337, dtype=dtype) if '-array-' in selection else dtype(1.337)
+            if '-co2-' in selection:
+                config.fluid_A.type, config.fluid_A.T_in_K, config.fluid_A.P_in_Pa = 'co2', 400., 8e6
         elif selection in ('typed-inlet-32', 'typed-extrapolation'):
             config.fluid_A.u_mps = np.float32(1000.12 if selection == 'typed-extrapolation' else 6.12)
             config.fluid_A.T_in_K = np.float32(351.13)
@@ -383,6 +389,24 @@ def test_native_uniform_first_error_and_cause(native, monkeypatch, selection):
     if selection.startswith('water-') or selection.startswith('co2-'):
         assert failure.have_property
         assert failure.property.reason
+
+
+@pytest.mark.parametrize('field', ['parameter_version', 'source', 'applicability'])
+@pytest.mark.parametrize('blank', [' \t\n\r\f\v', '\x1c\x1d\x1e\x1f'] + [chr(code) for code in (
+    0x85, 0xa0, 0x1680, *range(0x2000, 0x200b), 0x2028, 0x2029, 0x202f, 0x205f, 0x3000)])
+def test_native_uniform_nu_rejects_blank_provenance(native, field, blank):
+    config = _configuration('Gyroid', ('sco2', 'water'))
+    config.sco2_nu = replace(config.sco2_nu, mode='experimental', alpha_D=1.13, alpha_G=2.27,
+        parameter_version='saved version', source='retained source', applicability='retained scope')
+    config.sco2_nu = replace(config.sco2_nu, **{field: blank})
+    with pytest.raises(ValueError) as expected:
+        prepare_case(config, case_id='native-uniform-nu-provenance-reference')
+    status, result, failure, error, events, _ = _call(native, config)
+    assert status == 1
+    assert error == str(expected.value)
+    assert failure.kind == 1
+    assert not events
+    assert bytes(result) == bytes(_Result(2, ct.sizeof(_Result)))
 
 
 def test_python_preparation_keeps_unhashable_velocity_failure(monkeypatch):
