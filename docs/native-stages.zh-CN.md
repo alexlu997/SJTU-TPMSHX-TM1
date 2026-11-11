@@ -5,8 +5,12 @@
 ## 范围
 
 原生阶段工作增加可独立调用的准备、执行和评估接口。对应阶段通过验收前，现有 Python
-入口继续作为正式运行路径。首批准备接口支持均匀、对称的二维 air/air，以及指定入口速度。
-其他模式必须在该接口明确报错。这一限制不删除现有 Python 工作流支持的任何模式。
+入口继续作为正式运行路径。准备 v1 支持规定入口速度、CFD 阻力的均匀对称二维 air/air。
+准备 v2 在相同几何和入口模式下支持 air、water、sCO2、CO2 的全部 16 个有序配对，
+保留现有实验 DF 和 sCO2 Nu 选择、状态检查及适用限制，并分别保存两侧模型证据。
+完整 run 接口仍只接受 v1 的 air/air CFD 路径。
+非零 delta、分区、连续场和规定质量流量仍不在这一准备 v2 范围内。
+这些限制不删除现有 Python 工作流支持的任何模式。
 独立 Quick Design 入口接受 air、water、sCO2 的 native double 工况，复用既有给定流量 LTNE 驱动。
 
 完整 2D/3D 的 Python 评估现已调用原生结果阶段；独立适用性、物理平衡和资格查询也使用该阶段。
@@ -29,6 +33,10 @@ C++ 调用顺序是 `prepare_case`、`run_case`、`evaluate`。调用者提供�
 - 回调在调用线程接收借用的事件视图，不承担数值准备。保留事件顺序、logger 名和消息。
 - 宿主负责 case ID、时间戳、文件路径和 Python 对象转换。原生阶段负责物理规则、数值默认值和证据。
 - 准备库、求解库使用各自锁定的 CoolProp 构建。结果库不链接准备库、求解库、CoolProp 或 Qt。
+- 准备 v2 增加显式标量精度、强弱类型和布局标记。缓冲区采用 double 传输，结果标记保留原字段精度。
+  失败结果为宿主保留状态细节和异常 cause；Python 特有的类型及对象检查仍由宿主负责。
+- 任一 CO2 侧会为两侧选择共同的 CO2 几何。固定阻力和 Nu 因子只应用于 CO2 侧，sCO2 仍是独立模型。
+  实验 DF 修正流动种子和行数组；入口静态 DF 保留原 CFD 值，并在适用时包含 CO2 固定因子。
 - 现有低层 ABI 版本继续保留。归档运行库恢复保存的运行态时，不得依赖新增准备符号。
 
 ## 构建和安装
@@ -73,8 +81,11 @@ target_link_libraries(my_program PRIVATE tpmshx::result)
 [外部结果客户端](../examples/cpp/result_client.cpp)通过公开头文件检查数组并评估历史证据。
 [完整二维示例](../examples/cpp/air_2d.cpp)从原始尺寸、工况和边界输入开始，依次准备、求解并评估。
 它不读取 Python 预生成的数值场，也不启动或链接 Python。
+[多流体准备示例](../examples/cpp/prepare_fluids_2d.cpp)通过 v2 准备 CO2/water，
+只链接准备库，不执行求解。
 [Quick Design 示例](../examples/cpp/quick_design.cpp)从原始工况和尺寸开始，调用
-`prepare_quick_design`、`run_case`、`evaluate`。这些示例只使用安装的公开头文件与共享库。Windows 构建会将所需 DLL 复制到可执行文件旁。
+`prepare_quick_design`、`run_case`、`evaluate`。这些示例只使用安装的公开头文件与共享库。
+Windows 构建会将所需 DLL 复制到可执行文件旁。
 
 ```sh
 "$CMAKE" -S examples/cpp -B .cache/stages/examples \

@@ -6,10 +6,14 @@
 
 The native stage work adds independent preparation, execution and evaluation
 interfaces. The existing Python entry points remain the production route until
-the corresponding stage passes its acceptance checks. The current first-stage
-preparation interface supports uniform, symmetric 2D air/air cases with a
-prescribed inlet velocity. Other modes must report an error at that interface.
-This limit does not remove any mode from the existing Python workflow.
+the corresponding stage passes its acceptance checks. Preparation v1 supports
+uniform, symmetric 2D air/air with prescribed inlet velocity and CFD drag.
+Preparation v2 supports all 16 ordered pairs of air, water, sCO2 and CO2 in that
+geometry and inlet mode. It keeps existing experimental DF and sCO2 Nu choices,
+state checks and application limits. Each side retains its selected model evidence.
+The full run interface still accepts only the v1 air/air CFD path.
+Nonzero delta, zones, continuous fields and prescribed mass flow remain outside
+this preparation v2 scope. These limits do not remove existing Python modes.
 A separate Quick Design entry accepts native double operating points for
 air, water and sCO2. It uses the existing prescribed-flow LTNE driver.
 
@@ -41,6 +45,14 @@ that prepared state. The result library evaluates recorded evidence.
   The native stages own physical rules, numerical defaults and evidence.
 - Preparation and solver libraries use their separate locked CoolProp builds.
   The result library does not link preparation, solver, CoolProp or Qt.
+- Preparation v2 adds explicit scalar precision, strength and layout tags.
+  Its buffers use double transport. Result tags retain the original field precision.
+  The failure result retains state details and exception causes for the host.
+  The host still owns Python-specific type and object checks.
+- A CO2 side selects the common CO2 geometry for both sides. Its fixed drag
+  and Nu factors apply only to CO2 sides. sCO2 remains a separate model.
+  Experimental DF changes flow seeds and rows. Static inlet DF values keep
+  their existing CFD values, including the CO2 factors where applicable.
 - Existing low-level ABI versions remain available. A retained run library
   must not need a new preparation symbol to restore its saved run state.
 
@@ -91,9 +103,13 @@ target_link_libraries(my_program PRIVATE tpmshx::result)
 The [external result client](../examples/cpp/result_client.cpp) checks arrays and evaluates historical evidence through public headers.
 The [complete 2D example](../examples/cpp/air_2d.cpp) starts with raw dimensions, conditions and boundaries.
 It prepares, solves and evaluates the case without numerical fields from Python.
-It does not start or link Python. The [Quick Design example](../examples/cpp/quick_design.cpp) starts with raw
+It does not start or link Python.
+The [fluid preparation example](../examples/cpp/prepare_fluids_2d.cpp) prepares a CO2/water case through v2.
+It links only the preparation library and does not execute a solve.
+The [Quick Design example](../examples/cpp/quick_design.cpp) starts with raw
 operating points and dimensions. It calls `prepare_quick_design`, `run_case`
-and `evaluate`. These examples use only installed public headers and shared libraries.
+and `evaluate`.
+These examples use only installed public headers and shared libraries.
 The Windows build copies the required DLLs beside each executable.
 
 ```sh
