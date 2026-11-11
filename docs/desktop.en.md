@@ -7,7 +7,7 @@
 [中文](desktop.md) | [English](desktop.en.md)
 
 Normal delivery uses a project folder with Python/Qt, source, model resources, and matching native libraries. Version 0.2 uses C++ for numerical execution. macOS arm64 and Windows x64 use the same interface. An `.app` is not required. Existing frozen packaging instructions stay below for explicit packaging needs.
-Numerical and platform acceptance for the result core is in progress. Desktop delivery still requires the final checklist below.
+See [C++ scope and delivery records](cpp-migration.md#cpp-core-scope) for library builds and numerical CI. Visible desktop delivery still requires the final checklist below.
 
 <a id="source-folder"></a>
 

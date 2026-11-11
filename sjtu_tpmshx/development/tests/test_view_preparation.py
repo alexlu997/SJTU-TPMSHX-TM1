@@ -52,10 +52,10 @@ def test_imports_share_one_worker_and_deliver_on_gui_thread(win, imports):
     _wait_for(lambda: not background_tasks.has_active_tasks(win))
     assert calls == [QApplication.instance().thread()] * 2
     assert [name for name, _ in imports.calls] == [
-        'sjtu_tpmshx.applications.gui.ui.panel_vis_3d', 'scipy.interpolate']
+        'sjtu_tpmshx.applications.gui.ui.panel_vis_3d']
     _wait_for(win.spin_cpu_cores.isEnabled)
     background_tasks.prepare_3d(win, lambda: calls.append('already ready'))
-    assert calls[-1] == 'already ready' and len(imports.calls) == 2
+    assert calls[-1] == 'already ready' and len(imports.calls) == 1
 
 
 @pytest.mark.parametrize('failure', [False, True])

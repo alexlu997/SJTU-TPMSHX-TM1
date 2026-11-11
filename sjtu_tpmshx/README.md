@@ -23,26 +23,48 @@ compute -> preprocess.api.prepare_case -> CaseData -> solvers.api.run_case -> Fi
 当前正式计算支持矩形二维与长方体三维。公开输入和文件交接见[示例](../examples/three_module/)与[数据契约](../docs/contracts/three_module_v1/README.zh-CN.md)。
 近似模式和扩展状态见[能力范围](../docs/capabilities.md)。
 
-标准、CO2、非对称几何与 chi/Kss 的数值所有者位于
-[native/src/geometry.cpp](solvers/native/src/geometry.cpp) 和
-[native/src/asym_geometry.cpp](solvers/native/src/asym_geometry.cpp)。
-[shared/models/_native_geometry.py](shared/models/_native_geometry.py) 通过 ctypes 延迟加载独立几何 ABI 1 库，
-保留 Python 公共入口、类型和缓存，不导入求解器后端。
-第三批的网格／端口和六方向轴映射由 [grid.cpp](solvers/native/src/grid.cpp) 与 [ports.cpp](solvers/native/src/ports.cpp) 负责。
-压力求解器和前处理共用同一端口实现。
-[field_continuous.cpp](solvers/native/src/field_continuous.cpp)、sigmoid／LUT 核心及 [zones.cpp](solvers/native/src/zones.cpp)
-负责设计场插值、分区和 Gaussian 平滑，仍部署在同一几何库中。
-Python 保留配置、类型／数组适配、数据对象、I/O、缓存、GUI 和 BO 编排。
-已替换的 Python 数值体已退役；独立参考只供 development 回归使用。
-第四批由 [fluid_properties.cpp](solvers/native/src/fluid_properties.cpp)、`preparation_properties.cpp`、`preparation_df*.cpp` 和 `preparation_flow.cpp`
-负责物性／闭合、固定 DF／实验修正、投影、固定流量与设计准备数值。
-[shared/models/_native_preparation.py](shared/models/_native_preparation.py) 延迟加载独立 preparation ABI 1 库；几何 ABI 1／field ABI 2 不变。
-Python 保留配置、DTO、I/O、缓存、GUI／BO 策略和离线拟合；正式数值与开发独立参考分开。
-第五批的 [result/](solvers/native/result/) 是独立 C++ 结果核心，负责指标、物理平衡、分区统计和数值资格检查。
-[shared/_native_result.py](shared/_native_result.py) 按需加载结果 ABI 2；读取文件不加载求解器、准备库或结果库。
-Python 保留证据选择、状态解释和文件接口。四个日常入口不变；修改数值函数时进入对应 C++ 源文件，重新构建并重启进程。
-第五批仍在数值与平台验收中，六批目标尚未完成。
-独立构建和四库交付见[原生结果核心](../docs/cpp-migration.zh-CN.md#native-result-core)。
+## 修改数值函数
+
+修改数值规则时，从下表找到 C++ 所有者。
+公开输入／输出契约位于 `shared/domain/`；Python 绑定负责类型与数组传递。
+
+| 修改内容 | C++ 文件与代表函数 |
+| --- | --- |
+| 单元几何、chi 与固体导热率 | [geometry.cpp](solvers/native/src/geometry.cpp): `standard_geometry`, `solid_conductivity`; [asym_geometry.cpp](solvers/native/src/asym_geometry.cpp) |
+| 网格与物理端口 | [grid.cpp](solvers/native/src/grid.cpp): `uniform`, `wall`; [ports.cpp](solvers/native/src/ports.cpp): `port_overlap_1d`, `port_fractions_1d` |
+| 连续场、sigmoid、LUT 与分区 | [field_continuous.cpp](solvers/native/src/field_continuous.cpp); [field_sigmoid.cpp](solvers/native/src/field_sigmoid.cpp); [field_lut.cpp](solvers/native/src/field_lut.cpp); [zones.cpp](solvers/native/src/zones.cpp) |
+| 物性与 Nu 闭合 | [fluid_properties.cpp](solvers/native/src/fluid_properties.cpp): `PropertyEvaluator::evaluate`, `fluid_nusselt`; [preparation_properties.cpp](solvers/native/src/preparation_properties.cpp) |
+| 固定 DF、修正、投影与规定流量 | [preparation_df.cpp](solvers/native/src/preparation_df.cpp): `fixed_df`; [preparation_df_corrections.cpp](solvers/native/src/preparation_df_corrections.cpp); [preparation_df_projection.cpp](solvers/native/src/preparation_df_projection.cpp); [preparation_flow.cpp](solvers/native/src/preparation_flow.cpp): `inlet_capacity_2d`, `inlet_speed` |
+| 完整二维／三维与 Quick Design | [full_2d.cpp](solvers/native/src/full_2d.cpp): `solve_full_2d`; [full_3d.cpp](solvers/native/src/full_3d.cpp): `solve_full_3d`; [quick_design_driver.cpp](solvers/native/src/quick_design_driver.cpp): `solve_quick_design` |
+| 指标、物理平衡、分区统计与检查 | [result_metrics.cpp](solvers/native/src/result_metrics.cpp): `pressure_face`, `boundary_enthalpy_duty`; [result_balance.cpp](solvers/native/src/result_balance.cpp): `mass`, `energy`, `zone_std`; [result_checks.cpp](solvers/native/src/result_checks.cpp): `collect_range`, `strict_certificate` |
+
+几何库使用 geometry ABI 1／field ABI 2，准备库使用 preparation ABI 1，结果库使用 result ABI 2。
+求解器的算法细节从上表 driver 进入对应 SIMPLE、压力和能量实现；[C++ 说明](../docs/cpp-migration.zh-CN.md)给出接口边界。
+Python 保留配置、DTO、I/O、缓存、证据选择、状态解释、GUI／搜索和离线研究。
+具体保留边界见[架构](../docs/architecture.zh-CN.md#retained-python-responsibilities)。
+
+### 修改后重新构建
+
+修改 C++ 函数或编入库的模型数据后，先通过[当前环境检查](../README.md#first-run)。
+从仓库根目录重新构建并发布四库，最后重启进程。
+下列命令使用基础锁；若 `.venv-path` 指向 BO 环境，换成 `engineering/requirements/` 中对应的 `bo-macos.txt` 或 `bo-windows.txt`。
+在 Git 检出中首次使用构建缓存时，先执行[首次运行](../README.md#first-run)中的 `fetch` 命令，再用同一缓存执行下列命令。
+
+macOS:
+
+```sh
+PYTHON="$(head -n 1 .venv-path)"
+"$PYTHON" engineering/scripts/build_native_dependencies.py publish --python-lock engineering/requirements/base.txt
+```
+
+Windows (PowerShell):
+
+```powershell
+$tm1Python = Get-Content .venv-path -TotalCount 1
+& $tm1Python engineering/scripts/build_native_dependencies.py publish --python-lock engineering/requirements/base.txt
+```
+
+组件单独发布和旧检查点运行库保留规则见[C++ 构建说明](../docs/cpp-migration.zh-CN.md#native-geometry-core)。
 
 <a id="三模块主线"></a>
 <a id="支撑模块与应用入口"></a>

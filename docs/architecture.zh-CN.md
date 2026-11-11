@@ -15,7 +15,7 @@ Python 数值迭代器、Numba／PyAMG 依赖和 Python 专用研究入口已退
 [model_parameters_v1.json](../sjtu_tpmshx/shared/configs/model_parameters_v1.json)。
 `shared.configs.model_parameters` 读取器仅使用 Python 标准库。
 Python 模型模块与原生头文件生成器使用同一资源数据。
-第一批统一数据来源；第二批将几何计算迁入 C++。
+几何计算由独立 C++ 核心负责。
 几何核心负责标准、CO2 和非对称几何、chi/Kss，以及 sigmoid LUT 节点和派生几何。
 `shared/models/_native_geometry.py` 通过几何 ABI 1 提供延迟加载的 ctypes 接口，
 加载独立预构建几何库，不导入求解器后端。
@@ -30,12 +30,10 @@ Python 选择 dtype 元数据并适配输出类型，不提供数值回退。
 正式非零偏移几何准备保持原有 L/t 和长度的显式 Python-float 转换。
 其原生算术仍为 float64。
 
-第三批将网格、端口、轴映射、连续 XY/XYZ 场、sigmoid、线性 LUT、分区及 Gaussian 平滑接入同一库。
-每条已迁移数值规则由唯一 C++ 实现负责；Python 保留配置、数据对象、类型／数组适配、I/O、缓存及应用编排。
-第四批增加独立 preparation ABI 1，负责物性、闭合、DF、修正、投影和准备数值。
-第五批将结果数学迁入独立结果 ABI 2 核心，数值与平台验收仍在进行。
-六批迁移尚未完成，详见[模型资源](model-resources.md#当前资源与研究输出)。
-既有求解器 CI 记录不构成本批验收；完整工况检查、受支持平台 CI 和最终验收仍须完成。
+几何库负责网格、端口、轴映射和设计场。
+独立 preparation ABI 1 负责物性、闭合、DF、修正、投影和准备数值。
+独立 result ABI 2 负责指标、物理平衡、分区统计及数值检查。
+实现范围与交付记录见[C++ 范围](cpp-migration.zh-CN.md#cpp-core-scope)。
 
 准备目标位于 `solvers/native/preparation/`，复用几何／网格核心及 `fluid_properties.cpp` 的共享数值所有者。
 它链接锁定的 CoolProp 静态库，不包含完整求解器、run_state、SuperLU 或 AMG。
@@ -48,10 +46,10 @@ Preparation ABI 1 的状态 1 表示无效输入，2 表示分配失败，3 表�
 原始经验物性 getter、带检查的 EOS 状态和 Nu 闭合保留各自不同契约。
 迁移保留原公式、校验、警告、下限和范围观测，不把每个 getter 合并为同一带检查状态策略。
 固定 DF 插值、实验因子与速度窗口使用原始来源数据及校验顺序。
-新增 [preparation_df_v1.json](../sjtu_tpmshx/shared/configs/preparation_df_v1.json) 统一持有方法、修正数据、三个窗口与标定来源。
+[preparation_df_v1.json](../sjtu_tpmshx/shared/configs/preparation_df_v1.json) 持有方法、修正数据、三个窗口与标定来源。
 固定 CFD CSV 仍是系数权威；生成器直接读取这些资源并生成原生头文件。
 Python 保留配置、DTO、shape／类型适配、I/O、缓存、警告、GUI／BO 策略和离线拟合。
-本批替换的生产数值体在同批退役；冻结的开发参考保持独立。
+被替换的生产数值体已退役；冻结的开发参考保持独立。
 
 完整发布以同一事务部署求解库、几何库、准备库与结果库。
 准备库单独发布使用已构建的锁定 CoolProp，不构建求解器或 run_state。
@@ -73,6 +71,18 @@ Python 保留 DTO、证据选择、类型／shape 适配、策略解释和状态
 [结果来源说明](../sjtu_tpmshx/solvers/native/result/sources.md)定义接口及数值来源。
 结果单独发布不构建求解器、run_state、CoolProp 或生成系数。
 Linux x86_64 支持独立结果评估；完整求解器仍支持 macOS arm64 与 Windows x64。
+
+<a id="retained-python-responsibilities"></a>
+
+Python 保留公共 API、配置与数据对象、类型／字节序／shape 适配、文件读写、缓存、证据选择、状态与警告文本。
+GUI 显示、输入校验、应用搜索／BO、离线数据处理与拟合继续由各自 Python 模块负责。
+以下边界保留原有计算表达式和消费者：
+
+- 显式 Python object／任意精度整数协议，在进入 typed ABI 前选择；原生错误仍直接报告。
+- 配置控制节点、单位换算、序列化 grid edges 和存档自洽校验；温度初值及配置校验保留原错误顺序。
+- 独立 getter／几何／sCO2 文案的范围摘要、GUI 预览和 nTop 导出描述统计；正式范围采集与资格检查仍由 C++ 负责。
+- `ports_complete` 的注入 ledger 检查，以及独立低层 driver 的默认输入适配。当前原生 ledger 已返回明确完整性标志。
+- `_emit_audit` 的历史 3D 显示 taper、开发独立参考及研究拟合；正式端口与指标使用实际原生面证据。
 
 原生 full-compute CC 通过严格 model-h 驱动使用既有空气／水积分焓 h(T)。早期可变 cp 的 m*cp*T 失败保留在历史记录。
 固定系数 Quick Design、独立温度、true-h 热学准备和私有 C++ 组件路线保留各自契约；删除 Python 入口不扩大这些契约。
@@ -521,7 +531,7 @@ LUT 对象保留捕获的轴／表引用及创建库，查询缓冲区仅在调�
 已替换的 Python 插值、重叠、分区与滤波数值体已退役，独立参考保留在 `development/tests/`。
 Python 保留 DTO、NPZ／缓存 I/O、校验、GUI 和 BO 编排。
 本批不提供数值回退或运行时进入 Python 的数值回调。
-第三批没有新增分发运行库或数值框架。来源和许可义务见[固定来源与本地修改](../sjtu_tpmshx/solvers/native/geometry/fields-sources.md)。
+网格与设计场使用同一几何运行库，不增加分发库或数值框架。来源和许可义务见[固定来源与本地修改](../sjtu_tpmshx/solvers/native/geometry/fields-sources.md)。
 
 连续场每轴至少一个控制点。单点位于域中面，该轴保持恒定；其他轴的实际阶数为
 `min(spline_order, control_count - 1)`。每轴至少两点的既有 XY 场保留原双变量样条。

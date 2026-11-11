@@ -21,7 +21,7 @@ Fixed coefficients, bounds and reference states come from
 [model_parameters_v1.json](../sjtu_tpmshx/shared/configs/model_parameters_v1.json).
 The `shared.configs.model_parameters` reader uses only the Python standard library.
 Python model modules and the native header generator use the same resource data.
-The first migration stage unified data sources. The second moved geometry calculations to C++.
+An independent C++ core calculates geometry.
 The geometry core owns standard, CO2 and asymmetric geometry, chi/Kss, and sigmoid LUT nodes and derived geometry.
 `shared/models/_native_geometry.py` uses ctypes to load geometry ABI 1 on demand.
 It loads a separate prebuilt library without importing the solver backend.
@@ -36,12 +36,10 @@ Python selects dtype metadata and adapts output types; it supplies no numerical 
 Formal nonzero asymmetric preparation keeps the original explicit Python-float conversion of L/t and length.
 Its native arithmetic stays float64.
 
-Stage three adds grids, ports, axis maps, continuous XY/XYZ fields, sigmoid, linear LUTs, zones and Gaussian filtering to the same library.
-Each migrated numerical rule has one C++ owner. Python keeps configuration, data objects, type/array adaptation, I/O, caches and application orchestration.
-Stage four adds independent preparation ABI 1 for properties, closures, DF, corrections, projection and preparation mathematics.
-Stage five puts result mathematics in an independent result ABI 2 core. Its numerical and platform acceptance is in progress.
-The six-stage migration remains incomplete. See [model resources](model-resources.en.md#当前资源与研究输出).
-Earlier solver CI records do not establish acceptance for this batch. Complete-case checks, supported-platform CI and final acceptance remain required.
+The geometry library calculates grids, ports, axis maps and design fields.
+Independent preparation ABI 1 calculates properties, closures, DF, corrections, projection and preparation mathematics.
+Independent result ABI 2 calculates metrics, physical balances, zone statistics and numerical checks.
+See [C++ scope and delivery records](cpp-migration.md#cpp-core-scope).
 
 The preparation target is `solvers/native/preparation/`. It reuses the geometry/grid core and the shared `fluid_properties.cpp` numerical owner.
 It links the locked CoolProp static library, without full solvers, run_state, SuperLU or AMG.
@@ -55,10 +53,10 @@ Raw empirical property getters, checked EOS states and Nu closures keep their di
 The move preserves their original formulas, guards, warnings, floors and range observations.
 It does not route every getter through one checked-state policy.
 Fixed DF interpolation, experiment factors and velocity windows use the original source data and validation order.
-The new [preparation_df_v1.json](../sjtu_tpmshx/shared/configs/preparation_df_v1.json) owns method, correction data, three windows and campaign provenance.
+[preparation_df_v1.json](../sjtu_tpmshx/shared/configs/preparation_df_v1.json) defines the method, correction data, three windows and campaign provenance.
 The fixed CFD CSV remains the coefficient authority. The generator reads these resources directly into native headers.
 Python keeps configuration, DTOs, shape/type adaptation, I/O, caches, warnings, GUI/BO policies and offline fitting.
-Replaced production numerical bodies are retired in this batch. Frozen development references remain independent.
+Replaced production numerical bodies are retired. Frozen development references remain independent.
 
 Full publication deploys solver, geometry, preparation and result libraries in one transaction.
 Separate preparation publication uses previously built locked CoolProp. It builds no solver or run_state.
@@ -81,6 +79,18 @@ Missing libraries, symbols and incompatible ABIs remain deployment errors, with 
 The [result source record](../sjtu_tpmshx/solvers/native/result/sources.md) defines the interface and numerical sources.
 Separate result publication builds no solver, run_state, CoolProp or generated coefficients.
 Linux x86_64 supports independent result evaluation. Full-solver platforms remain macOS arm64 and Windows x64.
+
+<a id="retained-python-responsibilities"></a>
+
+Python keeps public APIs, configuration, data objects, type/byte-order/shape adaptation, file I/O, caches, evidence selection, and status and warning text.
+Python modules also own GUI display, input validation, application searches, BO, offline data processing and fitting.
+The following boundaries keep their original arithmetic and consumers:
+
+- Explicit Python object and arbitrary-precision integer protocols, selected before the typed ABI. Native errors still propagate.
+- Configuration control nodes, unit conversion, serialized grid edges and archive consistency checks. Initial-temperature and configuration checks keep their error order.
+- Range summaries for standalone getter, geometry and sCO2 messages, GUI previews and nTop export statistics. C++ still owns formal range collection and qualification checks.
+- The `ports_complete` injected-ledger check and default input adaptation for independent low-level drivers. Current native ledgers return an explicit completeness flag.
+- The historical 3D display taper under `_emit_audit`, independent development references and research fits. Formal ports and metrics use actual native face evidence.
 
 The native full-compute CC route uses the existing air/water integral h(T)
 model through strict model-h drivers. Earlier variable-cp m*cp*T failures
@@ -939,7 +949,7 @@ Returned NumPy arrays do not expose native temporary storage.
 Replaced Python interpolation, overlap, zone and filter bodies are retired. Independent references remain under `development/tests/`.
 Python retains DTOs, NPZ/cache I/O, validation, GUI and BO orchestration.
 There is no numerical fallback or numerical callback into Python.
-Stage three added no distributed library or numerical framework.
+Grids and design fields use the same geometry runtime. They add no distributed library or numerical framework.
 See the [fixed sources and local changes](../sjtu_tpmshx/solvers/native/geometry/fields-sources.md) for provenance and license duties.
 
 Each continuous-field axis accepts at least one control. A singleton is

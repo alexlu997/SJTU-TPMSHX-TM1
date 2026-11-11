@@ -38,11 +38,23 @@ Former Python/C++ comparisons remain evidence of their recorded builds in
 [version 0.1](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/v0.1.0/docs/cpp-migration.md).
 They are not rerun with a retained Python solver in 0.2.
 
+<a id="cpp-core-scope"></a>
+
+## 2026-11 C++ core scope
+
+The six-stage scope is implemented: model data consolidation, geometry/design fields, preparation, results, and final consumer checks and code retirement.
+It preserves algorithms, features, physical gates and file interfaces.
+Change records: [data PR275](https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/275), [geometry PR276](https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/276), [grids/fields PR277](https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/277), [preparation PR278](https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/278), [results PR279](https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/279).
+Final consumer checks removed the obsolete GUI interpolation import. Explicit object protocols, configuration, I/O, GUI/search/research, injected ledgers and audit/export summaries keep their declared boundaries.
+The [source map](../sjtu_tpmshx/README.en.md) lists C++ edit locations. See [retained Python responsibilities](architecture.md#retained-python-responsibilities) for the exact scope.
+These six stages differ from the historical solver stages 0–4 at the end of this document.
+PR CI, merged-main CI, visible desktop delivery, performance and experimental accuracy remain separate checks.
+
 ## Native geometry core
 
-The second migration stage put standard, CO2 and asymmetric geometry, plus chi/Kss, in C++.
+The independent geometry core calculates standard, CO2 and asymmetric geometry, plus chi/Kss.
 Sigmoid LUT nodes and derived geometry also use this core.
-Stage three adds grids, ports, six-direction axis mapping, continuous XY/XYZ fields, sigmoid, linear LUTs, zones and Gaussian filtering.
+The same core calculates grids, ports, six-direction axis maps, continuous XY/XYZ fields, sigmoid, linear LUTs, zones and Gaussian filtering.
 The same `tpmshx_geometry_shared` file provides these calculations. There is no extra runtime library or numerical framework.
 The numerical sources remain under `sjtu_tpmshx/solvers/native/`.
 `shared/models/_native_geometry.py` uses ctypes to load the independent geometry ABI 1 library on demand.
@@ -53,8 +65,7 @@ The independent CMake project is `sjtu_tpmshx/solvers/native/geometry/`.
 Its `tpmshx_geometry_shared` target uses the C++ standard library, the marching-cubes port and a restricted C17 FITPACK subset.
 It needs no CoolProp, SuperLU, AMGCL, Eigen or solver runtime.
 The full dependency pilot includes the same target.
-Stage four adds the separate preparation core below. Stage five connects the independent result core and result mathematics.
-The six-stage migration is incomplete. Stage-five numerical and platform acceptance is in progress.
+The independent cores below calculate preparation and results. See the [implementation and retirement scope](#cpp-core-scope).
 
 The [architecture](architecture.md#native-grids-and-design-fields) defines numerical ownership, types and buffer lifetimes.
 The [field source record](../sjtu_tpmshx/solvers/native/geometry/fields-sources.md) identifies fixed sources, local changes and BSD notices.
@@ -120,12 +131,13 @@ Desktop packaging requires all four prebuilt inputs; see [desktop delivery](desk
 
 ## Native preparation core
 
-Stage four puts properties, Nu closures, fixed DF, experiment corrections, projection and preparation mathematics in C++.
+The independent preparation core calculates properties, Nu closures, fixed DF, experiment corrections, projection and preparation mathematics.
 The independent CMake project is `sjtu_tpmshx/solvers/native/preparation/`.
 Its targets are `tpmshx_preparation`, `tpmshx_preparation_c` and `tpmshx_preparation_shared`.
 They reuse geometry/grid and the shared model implementation, including the locked CoolProp static library.
 This project builds no full solver or run_state and needs no SuperLU or AMG.
 The full build script builds the pilot and preparation projects separately. They share one property and DF numerical implementation.
+The Python preparation entry calls the independent result library to collect range observations. The preparation library does not link it.
 
 `shared/models/_native_preparation.py` loads preparation ABI 1 through ctypes when needed.
 Named property, DF and flow adapters preserve the existing public Python interfaces.
@@ -194,18 +206,15 @@ Rebuild affected libraries and restart the process after changing C++ functions 
 Solver, geometry, preparation and result build records are separate from versioned property-table caches.
 Relinking the solver gives it a new build identity. Old checkpoints still require their exact retained solver, prepared input and controls.
 Keep matching current/previous runtimes and run records while they have consumers.
-The independent lightweight Linux result core is part of stage five. Full-solver Linux support remains outside this scope.
-Stage-five result mathematics is connected, with numerical and platform acceptance in progress.
-The stage-six final consumer and retirement audit remains incomplete.
-Required checks must pass before delivery. This section does not report new CI, Windows or complete acceptance results.
+Linux x86_64 supports independent result evaluation. Full-solver and desktop support remain limited to macOS arm64 and Windows x64.
+See [scope and delivery records](#cpp-core-scope).
 
 ## Native result core
 
-Stage five connects independent result ABI 2 for metrics, signed physical balances, zone statistics and numerical qualification checks.
+Independent result ABI 2 calculates metrics, signed physical balances, zone statistics and numerical qualification checks.
 Python selects recorded evidence and keeps status, reason, type and file interfaces.
 The standalone `solvers/native/result/` project uses only C++17 and system libraries.
 It does not load the solver, preparation, geometry, CoolProp or model resources.
-Numerical and platform acceptance for this stage is in progress.
 
 Pure imports and HDF/JSON reads remain native-free. Actual metric arithmetic needs the prebuilt result image.
 Use `TPMSHX_RESULT_LIBRARY` for an absolute alternate file. Default paths are `solvers/native/lib/<host>/` under the package.
@@ -791,12 +800,8 @@ The generator does not import numerical model implementations.
 The build writes `tpmshx/model_coefficients.hpp` and `tpmshx/preparation_df_data.hpp` under the selected cache's `generated/` directory.
 The default directory is `.cache/native-deps/generated/`.
 C++ uses the generated constants without runtime JSON parsing or Python calls.
-The first stage unified data sources. The second added the independent geometry core described above.
-The third adds grids and design-field calculations to the same library, with one owner for each numerical rule.
-Stage four adds the independent preparation target for properties, DF and preparation mathematics. Existing model identities and fitted coefficients stay unchanged.
-Stage-five result mathematics is connected, with numerical and platform acceptance in progress.
-The final stage-six consumer and retirement audit remains incomplete.
-See [model resources](model-resources.en.md#当前资源与研究输出).
+Geometry, preparation and solver code use the declared model resources. Existing model identities, units, fitted coefficients and experimental conclusions stay unchanged.
+See [implementation and retirement scope](#cpp-core-scope) and [model resources](model-resources.en.md#当前资源与研究输出).
 
 The Python wheel includes code, JSON and CSV resources. It does not include native libraries.
 Native solver libraries still require a separate explicit build.
@@ -883,7 +888,7 @@ tests on macOS/Python 3.13 and Windows/Python 3.12/3.13. A missing executable
 fails the required job. Optional local component runs can skip an unbuilt pilot.
 That skip does not show native qualification. Both platforms have actual
 required native CI passes. The evidence is bounded to those builds and cases.
-These earlier solver/dependency records do not establish acceptance for the current preparation migration.
+These records apply only to their recorded builds and cases.
 
 <a id="remaining-stages-and-acceptance-gates"></a>
 

@@ -38,15 +38,10 @@ uses only the Python standard library. It reads and validates the resource.
 Python model modules construct constants from the same data.
 They keep the existing names and tuple/dict types.
 The C++ header generator reads resources directly, without importing numerical models.
-The first stage unified data sources.
-The second moves standard, CO2 and asymmetric geometry, plus chi/Kss, to an independent C++ geometry core.
-Stage three adds grids, ports, continuous XY/XYZ fields, sigmoid, linear LUTs, zones and Gaussian filtering to the same geometry library.
-Each C++ core owns its numerical formulas. Python keeps configuration, type adaptation, data objects, I/O, caches and application orchestration.
-Stage four moves properties, closures, fixed DF, experiment corrections, projection and preparation mathematics to an independent preparation library.
-The new resource collects original values. Existing model identities, units, fitted coefficients and experimental conclusions stay unchanged.
-Stage five connects the independent result core for metrics, physical balances, zone statistics and numerical qualification checks.
-Its numerical and platform acceptance is in progress.
-The six-stage goal remains incomplete. Acceptance for each batch requires platform CI and final checks.
+Geometry, preparation and solver code use the declared model resources. The independent result core uses data from its callers. It does not load model resources.
+Python keeps configuration, type adaptation, data objects, I/O, caches, application workflows and explicit research interfaces.
+Resource consolidation and language migration preserve model identities, units, fitted coefficients and experimental conclusions.
+See [C++ implementation and retirement scope](cpp-migration.md#cpp-core-scope).
 
 Python geometry interfaces keep types, caches and per-call explicit/environment/fit selection for chi.
 They have no numerical fallback.

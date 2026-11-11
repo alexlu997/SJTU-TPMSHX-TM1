@@ -63,7 +63,7 @@ A changed geometry library keeps its previous library and metadata under `previo
 Geometry-only publication does not replace solver or run-state files.
 The runtime loader override is `TPMSHX_GEOMETRY_LIBRARY`.
 Desktop packaging uses a separate prebuilt input, `TPMSHX_NATIVE_GEOMETRY_LIBRARY`.
-It places geometry beside solver and preparation under the bundle's `native/` directory.
+It places geometry beside the solver, preparation and result libraries in the bundle's `native/` directory.
 The new static targets do not add a distributed library or change these commands and paths.
 Rebuild each affected library after changing C/C++ source or compiled model data. Then restart the process.
 
@@ -106,10 +106,12 @@ Each query selects each table's arithmetic path from its current dtype, byte ord
 Returned arrays do not borrow native temporary storage.
 
 See [field sources and local changes](fields-sources.md) for algorithms, fusion rules and license duties.
-Source integration does not establish complete-case, Windows or final CI acceptance.
-Stage four adds a separate [preparation core](../../../../docs/cpp-migration.md#native-preparation-core) for properties, DF and preparation mathematics.
-Geometry ABI 1 and field ABI 2 remain unchanged. Preparation has its own ABI 1 and error mapping.
-Stage five still requires an independent result core and result mathematics. Complete-case, platform and final acceptance remain separate gates.
+The separate [preparation core](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/main/docs/cpp-migration.md#native-preparation-core) calculates properties, DF and preparation values.
+It uses preparation ABI 1 and its own error mapping.
+The independent [result core](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/main/docs/cpp-migration.md#native-result-core) calculates metrics, balances, zone statistics and numerical checks.
+It uses result ABI 2 and does not link geometry.
+See [scope and delivery records](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/main/docs/cpp-migration.md#cpp-core-scope).
+Desktop operation and experimental validation remain separate checks.
 
 ## Upstream sources
 

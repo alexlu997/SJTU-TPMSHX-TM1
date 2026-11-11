@@ -19,15 +19,11 @@ GUI, CLI, design and recovery implementations are in `applications/`. Tests, val
 Root [engineering](engineering/) holds build scripts, packaging configuration and dependency locks. [docs/contracts](docs/contracts/) holds data contracts.
 `.github/workflows/` holds CI configuration. Keep using `python -m sjtu_tpmshx.main` for the GUI and `python -m sjtu_tpmshx.cli` for the CLI.
 
-Standard, CO2 and asymmetric geometry, plus chi/Kss, use an independent C++ geometry core.
-Stage three adds grids, ports, six-direction axis mapping, continuous XY/XYZ fields, sigmoid, linear LUTs, zones and Gaussian filtering to that library.
-Python keeps configuration, data objects, file I/O, caches, GUI and BO orchestration.
-Stage four moves properties, closures, fixed DF, experiment corrections, projection, fixed-flow and design preparation mathematics to preparation ABI 1.
-Preparation needs matching geometry and preparation libraries. Full computation also needs solver and result libraries. Full publication deploys all four.
-Stage five connects the independent result core for metrics, physical balances, zone statistics and numerical qualification checks.
-Numerical and platform acceptance is in progress. The final stage-six consumer and retirement audit remains incomplete.
-Acceptance for this batch requires supported-platform CI and final checks. Earlier solver CI does not replace them.
-The six-stage goal remains incomplete. See [native geometry](docs/cpp-migration.md#native-geometry-core) for builds, runtimes and research entries.
+The package's C++ cores calculate geometry, properties, closures, solutions and results.
+Python keeps public entries, configuration, data objects, file I/O, caches, the GUI and design/optimization workflows.
+Preparation uses matching geometry, preparation and result libraries. The result library collects range observations. Full computation also uses the solver library.
+The [source map](sjtu_tpmshx/README.en.md) lists C++ files, functions and rebuild steps.
+See [C++ scope and delivery records](docs/cpp-migration.md#cpp-core-scope) for implementation boundaries and delivery records.
 
 Version 0.2 uses C++ for numerical execution. Python keeps the GUI, CLI, preparation, postprocessing, optimization and Quick Design interfaces.
 Full 2D/3D computation and Quick Design use the same prepared-data and result contracts.
@@ -597,10 +593,8 @@ Previous rectangular files still load. [Fixed history](docs/history/retired-tool
 `shared/models/`, `shared/df_surrogate/`, and related layers give shared technical support, not a fourth business module. Previous pipeline/application entries call public modules in one direction. See [architecture](docs/architecture.md).
 
 C++ is the only numerical backend. Quick Design and full 2D/3D use the matching local macOS arm64 or Windows x64 library. `RunControl(native_library=...)` or CLI `--native-library` can override its location. See [C++ migration](docs/cpp-migration.md) for paths, builds, and limits.
-The earlier solver-migration record includes required native-build, independent-call and numerical-comparison CI passes.
-It covers macOS/Python 3.13 and Windows/Python 3.12 and 3.13.
-Record checks for the second geometry migration batch separately.
-Visible desktop delivery and complete performance acceptance stay separate.
+See [C++ scope and delivery records](docs/cpp-migration.md#cpp-core-scope) for each implementation boundary.
+Visible desktop delivery, complete performance and experimental accuracy need separate checks.
 
 Full 2D uses ABI 2. Distribute matching libraries, headers, and adapters. The former Python outer-loop/C++ sweep hybrid is retired. Python numerical and research-only entries are retired. Saved results remain readable; ordinary cases use current `ComputeConfig` preparation. OpenFOAM, REFPROP, extended h/f/PEC definitions, and adjoints stay under M-B and original scope limits. Directories or interfaces do not show implementation.
 
