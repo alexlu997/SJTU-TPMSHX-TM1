@@ -117,6 +117,12 @@ Preparation evidence remains borrowed until result transfer or run release.
 `stage_capture_2d.cpp` records the actual run evidence for `result_stage.cpp`.
 Its scalar capture query reuses static result arithmetic and separate saved application properties.
 The existing raw result remains the owner of fields, histories and numerical ledgers.
+Symmetric uniform and continuous 2D Python runs use the same native lifecycle through the saved-input interface.
+`prepared_stage_2d.py` borrows validated CaseData. `full_2d_stage.py` binds runs, snapshots and capture.
+It does not prepare saved cases again. Missing ranges, uncaptured samples, uniform local drag and optional thermal geometry stay distinct.
+The selected library capability and geometry mode select the protocol before execution. Archived libraries and unported modes retain their existing interfaces.
+Missing new-protocol symbols and execution failures are errors. They do not start another run through the old route.
+The single `FieldResult` assembler is in `full_2d_capture.py`. It preserves warning and application-property check order.
 The installed C ABI and `stages.hpp` support external C++ callers.
 Current Python entry points retain their existing behavior and all supported modes.
 The migration gates must pass before their numerical and policy bodies can retire.
@@ -704,7 +710,7 @@ Temperature is not scaled. FullCC nonzero sources stay
   `prepared_models.py` owns shared resource-role, fluid, Nu-setting and topology checks.
   Each builder keeps its check order and dimension-specific grid, port and design validation.
   Callers can request writable design copies; the binding borrows immutable arrays through the same checks.
-  `solvers/backends/capture_2d.py` captures portable native 2D evidence. Numerical drivers remain in C++.
+  `solvers/backends/cpp/full_2d_capture.py` captures portable native 2D evidence. Numerical drivers remain in C++.
 - `applications/gui/ui/` owns PySide6 and PyVista presentation only. `ResultCache` owns one published `ComputeResult` for the accepted dimension.
   Both dimensions publish separate scalar, metadata, diagnostic and warning containers while sharing field arrays.
   The footer, history, diagnostic text, plots and exports read this result. Display timing is added to its metadata after publication.

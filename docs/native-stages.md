@@ -89,8 +89,15 @@ enthalpy-update gate. Missing values use the selected library's defaults.
 These controls require the existing true-h route. They cannot be combined with
 the complete explicit-energy pointer or active model-h controls.
 Existing one-shot interfaces retain their layouts and behavior.
-This interface does not replace the Python production checkpoint route or
-provide the complete `FieldResult` capture needed for that replacement.
+Symmetric uniform and continuous 2D Python runs and checkpoints use the saved-input interface.
+`SavedCase2D` borrows a validated v2 view and saved thermal geometry. It does not prepare the case again.
+Uniform saved inputs can include cell thermal geometry and local drag while keeping uniform closure mode.
+Missing range records and empty records stay distinct. Uncaptured rows do not receive numerical samples.
+Keep inputs and range flags valid until result transfer or run release.
+
+Python checks the selected library capability before execution. Archived libraries, nonzero delta and unported zone modes use their existing protocol.
+An incomplete new protocol or a failed run is an error. All queries, state releases and result releases use that same selected library.
+Saved formats, same-build restoration, CPU-change rules and public Python interfaces stay unchanged.
 
 ## Capture scalars
 

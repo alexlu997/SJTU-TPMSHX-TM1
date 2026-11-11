@@ -16,7 +16,7 @@ from sjtu_tpmshx.shared.domain.module_ports import RunControl
 from sjtu_tpmshx.shared.domain.run_environment import run_environment
 from sjtu_tpmshx.shared.models.envelope import ChokedFlowError
 from sjtu_tpmshx.shared.models.fluid_props import WaterStateError
-from sjtu_tpmshx.shared.models.grid import _port_overlap_1d, _port_fractions_1d
+from ..prepared_2d import _validated_outlet_fraction
 from sjtu_tpmshx.shared.domain.run_environment import require_f2_mode
 from ._simple_abi import _F2
 from .physical_ledger import HeatLedger2D, heat_ledger_query, copy_heat_ledger
@@ -76,7 +76,7 @@ def _flow(f, physical_shape):
     return out
 
 
-def _thermal(t, actual, abi):
+def _thermal(t, actual, abi, *, capture_scalars=None, level=0):
     shape = (t.nx, t.ny)
     out = dict(shape=shape, mode=('temperature', 'model_h', 'true_h')[t.mode], stop=t.stop,
                iterations=t.iterations, residual=t.residual, q_b=t.q_b)
@@ -93,7 +93,11 @@ def _thermal(t, actual, abi):
     out['model_h'], out['true_h'] = None, None
     masses = list(zip(out['mass_x'], out['mass_y']))
     if t.mode == 1:
-        out['model_h'] = _plane_info(t.model_h, shape, (out['dx'], out['dy']), masses)
+        scalar = None if capture_scalars is None else capture_scalars['model_h'][level]
+        if capture_scalars is not None and scalar is None:
+            raise RuntimeError('native full 2D model-h capture is unavailable')
+        out['model_h'] = _plane_info(t.model_h, shape, (out['dx'], out['dy']), masses,
+                                   capture_scalars=scalar)
         out['model_h']['energy_finishing_checks'] = [dict(iterations=t.model_h.finishing_checks[i].iterations,
             passed=bool(t.model_h.finishing_checks[i].gates[0]), equations_ok=bool(t.model_h.finishing_checks[i].gates[1]))
             for i in range(t.model_h.finishing_count)]
@@ -111,13 +115,53 @@ def _thermal(t, actual, abi):
     return out
 
 
-def _set_native_metadata(result, abi, algorithm, red_black):
-    for stage in (result['main'], result['fine']):
+def _set_native_metadata(result, abi, algorithm, red_black, *, captured_red_black=None):
+    for level, stage in enumerate((result['main'], result['fine'])):
         if stage is not None:
             actual = stage['temperature_evidence']['algorithm'] if 'temperature_evidence' in stage else algorithm
             stage['native_metadata'] = dict(abi=abi, algorithm=actual,
-                red_black=bool(red_black and np.prod(stage['shape']) > 30000))
+                red_black=(bool(red_black and np.prod(stage['shape']) > 30000)
+                           if captured_red_black is None else captured_red_black[level]))
     result['native_metadata'] = result['main']['native_metadata']
+
+
+def _callbacks(control):
+    errors = []
+
+    @_Cancel
+    def cancelled(_):
+        if errors:
+            return 1
+        try:
+            return int(bool(control.cancel_check())) if control.cancel_check is not None else 0
+        except BaseException as error:
+            errors.append(error)
+            return 1
+
+    @_Progress
+    def progress(_, done, total):
+        if errors:
+            return
+        try:
+            control.report_progress(10 + int(80 * done / total))
+            if control.iteration is not None:
+                control.iteration(f'iter {done + 1}/{total}')
+            if control.outer_iteration is not None:
+                control.outer_iteration(done, total)
+        except BaseException as error:
+            errors.append(error)
+
+    @_Residual
+    def residual(_, side, iteration, value):
+        if errors:
+            return
+        try:
+            if control.residual is not None:
+                control.residual(('A', 'B')[side], iteration, value)
+        except BaseException as error:
+            errors.append(error)
+
+    return _Callbacks(cancelled, progress, residual, None), errors
 
 
 class NativeFull2DDriver:
@@ -240,42 +284,7 @@ class NativeFull2DDriver:
             energy_query.argtypes = [ct.POINTER(_Result), ct.POINTER(_EnergyEvidence)]
             energy_query.restype = ct.c_int
         arrays = [np.require(np.asarray(x, dtype=np.float64), requirements=['C', 'A']) for x in arrays]
-        errors = []
-
-        @_Cancel
-        def cancelled(_):
-            if errors:
-                return 1
-            try:
-                return int(bool(control.cancel_check())) if control.cancel_check is not None else 0
-            except BaseException as error:
-                errors.append(error)
-                return 1
-
-        @_Progress
-        def progress(_, done, total):
-            if errors:
-                return
-            try:
-                control.report_progress(10 + int(80 * done / total))
-                if control.iteration is not None:
-                    control.iteration(f'iter {done + 1}/{total}')
-                if control.outer_iteration is not None:
-                    control.outer_iteration(done, total)
-            except BaseException as error:
-                errors.append(error)
-
-        @_Residual
-        def residual(_, side, iteration, value):
-            if errors:
-                return
-            try:
-                if control.residual is not None:
-                    control.residual(('A', 'B')[side], iteration, value)
-            except BaseException as error:
-                errors.append(error)
-
-        callbacks = _Callbacks(cancelled, progress, residual, None)
+        callbacks, errors = _callbacks(control)
         dp = ct.POINTER(ct.c_double)
         pointers = (dp*len(arrays))(*(x.ctypes.data_as(dp) for x in arrays))
         sizes = (ct.c_size_t*len(arrays))(*(x.size for x in arrays))
@@ -311,104 +320,121 @@ class NativeFull2DDriver:
             if status:
                 exception = {1: ValueError, 2: WaterStateError, 3: FloatingPointError, 4: ChokedFlowError}.get(status, RuntimeError)
                 raise exception(error.value.decode('utf-8', errors='replace'))
-            if result.cancelled:
-                raise CancelledError('compute cancelled by user')
-            actual = _FullEnergyEffectiveSettings()
-            if self.query_settings(ct.byref(result), ct.byref(actual)):
-                raise RuntimeError('native full 2D effective settings query failed')
-            if actual.outer_count != result.outer_history_count:
-                raise RuntimeError('native full 2D effective settings do not match the thermal history')
-            out = {name: bool(getattr(result, name)) for name in (*_FLAGS, *_FINE_FLAGS)}
-            out.update(iterations=result.iterations, flow=[_flow(f, shape) for f in result.flow],
-                       main=_thermal(result.main, actual.last, entry_version),
-                       fine=_thermal(result.fine, actual.last, entry_version) if result.have_fine else None)
-            out['property_sampling'] = copy_sampling(self.query_sampling, result)
-            out['enthalpy_update_normalization'] = _copy_update_scale(self.query_update_scale, result)
-            out['simple_velocity_relaxation'] = config.alpha_velocity
-            out['model_h_iterations'] = _copy_iteration_records(self.query_model_h, result)
-            for name in ('density', 'viscosity', 'rho_cp'):
-                out[name] = [_copy(x, shape) for x in getattr(result, name)]
-            for name in ('fine_duty', 'extrapolated_duty', 'pressure_drop', 'outlet_temperature', 'inlet_mass', 'duty'):
-                out[name] = list(getattr(result, name))
-            for name in ('q_total', 'q_solid', 'energy_imbalance'):
-                out[name] = getattr(result, name)
-            out['last_closure_ranges'] = copy_last_ranges(self.query_last_ranges, result)
-            out['sco2_nu_observations'] = {side: copy_nu_observation(value, shape)
-                                         for side, value in zip(('A', 'B'), result.nu_observations)}
-            from sjtu_tpmshx.shared.models.co2_correlations import NU_MULTIPLIER
-            for i, side in enumerate('AB'):
-                if config.sides[i].fluid == 3 and out['sco2_nu_observations'][side]:
-                    out['sco2_nu_observations'][side]['floor'] *= NU_MULTIPLIER
-            out['range_observations'] = copy_range_observations(result.range_observations, result.range_observation_count)
-            out['outer_history'] = []
-            for i in range(result.outer_history_count):
-                h = result.outer_history[i]
-                out['outer_history'].append(dict(iteration=h.iteration, thermal_iterations=h.thermal_iterations,
-                    thermal_converged=bool(h.thermal_converged), outer_converged=bool(h.outer_converged),
-                    relative_density_change=list(h.relative_density_change), temperature_change=list(h.temperature_change)))
-                if out['main']['true_h'] is not None:
-                    info = dict(effective_settings={})
-                    _executed_energy_settings(info, actual.outer[i], entry_version)
-                    out['outer_history'][-1]['energy_info'] = info
-            if resume_state is not None:
-                out['continuation'] = dict(format='full_2d_continuation_v1', build=resume_state['build'],
-                    completed_outer_steps=int(resume_state['state.result.outer_history.size'][0]),
-                    saved_phase=int(resume_state['state.phase'][0]))
-            methods = (_FlowMethod*2)()
-            if self.query_flow_methods(ct.byref(result), methods):
-                raise RuntimeError('native full 2D flow method query failed')
-            out['simple_flow'] = {side: dict(algorithm=value.algorithm.decode() if value.algorithm else None,
-                iterations=value.iterations, proposal_steps=value.proposal_steps,
-                accepted_proposals=value.accepted_proposals) for side, value in zip('AB', methods)}
-            out['entry_version'] = entry_version
-            if thread_call:
-                out['runtime_resources'] = dict(cpu_thread_limit=control.native_cpu_threads(),
-                    requested_cpu_threads=control.cpu_threads, policy='native_cpu_limit_v1')
-            if energy_query and actual.last.available:
-                extra = _EnergyEvidence()
-                if energy_query(ct.byref(result), ct.byref(extra)):
-                    raise RuntimeError('native full 2D energy evidence query failed')
-                if out['main']['true_h'] is None or extra.outer_count != len(out['outer_history']):
-                    raise RuntimeError('native full 2D energy evidence does not match the thermal history')
-                info = out['main']['true_h']
-                _energy_result_info(info, extra.main.energy,
-                    temperature_tol=actual.last.temperature_update_tolerance, abi=entry_version, version_query=version_query, state_update='per_side_energy_relation')
-                _energy_native_state(info, extra.main, (*shape, 1), 'W/m')
-                out['main']['mode'] = 'conservative_energy'
-                if out['fine'] is not None:
-                    raise RuntimeError('native conservative energy unexpectedly returned Richardson evidence')
-                for index, row in enumerate(out['outer_history']):
-                    _energy_result_info(row['energy_info'], extra.outer[index],
-                        temperature_tol=actual.outer[index].temperature_update_tolerance, abi=entry_version,
-                        version_query=version_query)
-            if out['main']['mode'] == 'temperature':
-                query = self.library.tpmshx_full_2d_get_model_enthalpy_evidence_v1
-                query.argtypes = [ct.POINTER(_Result), ct.POINTER(TemperatureEvidence2D)]
-                query.restype = ct.c_int
-                extra = TemperatureEvidence2D()
-                if query(ct.byref(result), ct.byref(extra)):
-                    raise RuntimeError('native full 2D temperature evidence query failed')
-                out['main']['temperature_evidence'] = copy_temperature_evidence(extra.main, (*shape, 1), 2)
-                if out['fine'] is not None:
-                    fine_shape = (len(out['fine']['dx']), len(out['fine']['dy']), 1)
-                    out['fine']['temperature_evidence'] = copy_temperature_evidence(extra.fine, fine_shape, 2)
-            if 'temperature_evidence' not in out['main']:
-                ledger = HeatLedger2D()
-                if self.query_heat_ledger(ct.byref(result), ct.byref(ledger)):
-                    raise RuntimeError('native full 2D heat ledger query failed')
-                out['main']['physical_ledger'] = copy_heat_ledger(ledger.main, (*shape, 1), 2)
-                if out['fine'] is not None:
-                    fine_shape = (len(out['fine']['dx']), len(out['fine']['dy']), 1)
-                    out['fine']['physical_ledger'] = copy_heat_ledger(ledger.fine, fine_shape, 2)
-            if out['main']['mode'] in ('model_h', 'temperature'):
-                algorithm = (_model_h_algorithm(self.library, 2) if out['main']['mode'] == 'model_h'
-                             else out['main']['temperature_evidence']['algorithm'])
-                _set_native_metadata(out, self.abi, algorithm, config.red_black)
-            return out
+            return self.copy_result(result, shape, config, entry_version=entry_version, control=control,
+                have_cpu_limit=thread_call is not None, energy_query=energy_query, version_query=version_query,
+                resume_state=resume_state)
         finally:
             if result.owner:
                 self.release(ct.byref(result))
 
+
+    def copy_result(self, result, shape, config, *, entry_version, control=RunControl(),
+                    have_cpu_limit=False, energy_query=None, version_query=None,
+                    resume_state=None, capture_scalars=None):
+        """Copy borrowed result views through queries from their selected library."""
+        if result.cancelled:
+            raise CancelledError('compute cancelled by user')
+        actual = _FullEnergyEffectiveSettings()
+        if self.query_settings(ct.byref(result), ct.byref(actual)):
+            raise RuntimeError('native full 2D effective settings query failed')
+        if actual.outer_count != result.outer_history_count:
+            raise RuntimeError('native full 2D effective settings do not match the thermal history')
+        out = {name: bool(getattr(result, name)) for name in (*_FLAGS, *_FINE_FLAGS)}
+        out.update(iterations=result.iterations, flow=[_flow(f, shape) for f in result.flow],
+                   main=_thermal(result.main, actual.last, entry_version, capture_scalars=capture_scalars),
+                   fine=_thermal(result.fine, actual.last, entry_version, capture_scalars=capture_scalars, level=1)
+                   if result.have_fine else None)
+        out['property_sampling'] = copy_sampling(self.query_sampling, result)
+        out['enthalpy_update_normalization'] = _copy_update_scale(self.query_update_scale, result)
+        out['simple_velocity_relaxation'] = config.alpha_velocity
+        out['model_h_iterations'] = _copy_iteration_records(self.query_model_h, result)
+        for name in ('density', 'viscosity', 'rho_cp'):
+            out[name] = [_copy(x, shape) for x in getattr(result, name)]
+        for name in ('fine_duty', 'extrapolated_duty', 'pressure_drop', 'outlet_temperature', 'inlet_mass', 'duty'):
+            out[name] = list(getattr(result, name))
+        for name in ('q_total', 'q_solid', 'energy_imbalance'):
+            out[name] = getattr(result, name)
+        out['last_closure_ranges'] = copy_last_ranges(self.query_last_ranges, result)
+        out['sco2_nu_observations'] = {}
+        for i, (side, value) in enumerate(zip('AB', result.nu_observations)):
+            scalar = None if capture_scalars is None else capture_scalars['nu'][i]
+            if capture_scalars is not None and value.available and scalar is None:
+                raise RuntimeError('native full 2D Nu capture is unavailable')
+            out['sco2_nu_observations'][side] = copy_nu_observation(value, shape, capture_scalars=scalar)
+        if capture_scalars is None:
+            from sjtu_tpmshx.shared.models.co2_correlations import NU_MULTIPLIER
+            for i, side in enumerate('AB'):
+                if config.sides[i].fluid == 3 and out['sco2_nu_observations'][side]:
+                    out['sco2_nu_observations'][side]['floor'] *= NU_MULTIPLIER
+        out['range_observations'] = copy_range_observations(result.range_observations, result.range_observation_count)
+        out['outer_history'] = []
+        for i in range(result.outer_history_count):
+            h = result.outer_history[i]
+            out['outer_history'].append(dict(iteration=h.iteration, thermal_iterations=h.thermal_iterations,
+                thermal_converged=bool(h.thermal_converged), outer_converged=bool(h.outer_converged),
+                relative_density_change=list(h.relative_density_change), temperature_change=list(h.temperature_change)))
+            if out['main']['true_h'] is not None:
+                info = dict(effective_settings={})
+                _executed_energy_settings(info, actual.outer[i], entry_version)
+                out['outer_history'][-1]['energy_info'] = info
+        if resume_state is not None:
+            out['continuation'] = dict(format='full_2d_continuation_v1', build=resume_state['build'],
+                completed_outer_steps=int(resume_state['state.result.outer_history.size'][0]),
+                saved_phase=int(resume_state['state.phase'][0]))
+        methods = (_FlowMethod*2)()
+        if self.query_flow_methods(ct.byref(result), methods):
+            raise RuntimeError('native full 2D flow method query failed')
+        out['simple_flow'] = {side: dict(algorithm=value.algorithm.decode() if value.algorithm else None,
+            iterations=value.iterations, proposal_steps=value.proposal_steps,
+            accepted_proposals=value.accepted_proposals) for side, value in zip('AB', methods)}
+        out['entry_version'] = entry_version
+        if have_cpu_limit:
+            out['runtime_resources'] = dict(cpu_thread_limit=control.native_cpu_threads(),
+                requested_cpu_threads=control.cpu_threads, policy='native_cpu_limit_v1')
+        if energy_query and actual.last.available:
+            extra = _EnergyEvidence()
+            if energy_query(ct.byref(result), ct.byref(extra)):
+                raise RuntimeError('native full 2D energy evidence query failed')
+            if out['main']['true_h'] is None or extra.outer_count != len(out['outer_history']):
+                raise RuntimeError('native full 2D energy evidence does not match the thermal history')
+            info = out['main']['true_h']
+            _energy_result_info(info, extra.main.energy,
+                temperature_tol=actual.last.temperature_update_tolerance, abi=entry_version, version_query=version_query, state_update='per_side_energy_relation')
+            _energy_native_state(info, extra.main, (*shape, 1), 'W/m')
+            out['main']['mode'] = 'conservative_energy'
+            if out['fine'] is not None:
+                raise RuntimeError('native conservative energy unexpectedly returned Richardson evidence')
+            for index, row in enumerate(out['outer_history']):
+                _energy_result_info(row['energy_info'], extra.outer[index],
+                    temperature_tol=actual.outer[index].temperature_update_tolerance, abi=entry_version,
+                    version_query=version_query)
+        if out['main']['mode'] == 'temperature':
+            query = self.library.tpmshx_full_2d_get_model_enthalpy_evidence_v1
+            query.argtypes = [ct.POINTER(_Result), ct.POINTER(TemperatureEvidence2D)]
+            query.restype = ct.c_int
+            extra = TemperatureEvidence2D()
+            if query(ct.byref(result), ct.byref(extra)):
+                raise RuntimeError('native full 2D temperature evidence query failed')
+            out['main']['temperature_evidence'] = copy_temperature_evidence(extra.main, (*shape, 1), 2)
+            if out['fine'] is not None:
+                fine_shape = (len(out['fine']['dx']), len(out['fine']['dy']), 1)
+                out['fine']['temperature_evidence'] = copy_temperature_evidence(extra.fine, fine_shape, 2)
+        if 'temperature_evidence' not in out['main']:
+            ledger = HeatLedger2D()
+            if self.query_heat_ledger(ct.byref(result), ct.byref(ledger)):
+                raise RuntimeError('native full 2D heat ledger query failed')
+            out['main']['physical_ledger'] = copy_heat_ledger(ledger.main, (*shape, 1), 2)
+            if out['fine'] is not None:
+                fine_shape = (len(out['fine']['dx']), len(out['fine']['dy']), 1)
+                out['fine']['physical_ledger'] = copy_heat_ledger(ledger.fine, fine_shape, 2)
+        if out['main']['mode'] in ('model_h', 'temperature'):
+            algorithm = (_model_h_algorithm(self.library, 2) if out['main']['mode'] == 'model_h'
+                         else out['main']['temperature_evidence']['algorithm'])
+            _set_native_metadata(out, self.abi, algorithm, config.red_black,
+                captured_red_black=None if capture_scalars is None else capture_scalars['red_black'])
+        if capture_scalars is not None:
+            out['capture_scalars'] = capture_scalars
+        return out
 
 
 def configure_convergence(solver, cfg, solver_config=None):
@@ -460,19 +486,11 @@ def _pack(cfg, prepared, table_directory, library):
         config.sco2_nu_multiplier = getattr(nu, 'alpha_G' if cfg['tpms_type'] == 'Gyroid' else 'alpha_D')
     for i, side in enumerate(('A', 'B')):
         flow, opening, port = cfg['flow_inputs'][side], cfg['boundary_openings'][side], cfg['cfg'+side]
-        for end in ('in', 'out'):
-            fractions = _port_fractions_1d(flow['dx'], port[end+'_ctr']-port[end+'_w']/2,
-                port[end+'_ctr']+port[end+'_w']/2,
-                uniform=end == 'in' and port.get('uniform_inlet_2d', False))
-            for kind, expected in zip(('geom', 'profile'), fractions):
-                name = end+'_'+kind+'_frac'
-                supplied = np.asarray(opening[name])
-                if supplied.shape != expected.shape or not np.allclose(supplied, expected, rtol=1e-12, atol=1e-15):
-                    raise ValueError(f'prepared Fluid {side} {name} disagrees with its grid and port geometry')
+        outlet_fraction = _validated_outlet_fraction(flow, opening, port, side)
         arrays.extend([flow['K_m2'], flow['cF_per_m'], flow.get('K_field_m2', np.empty(0)),
             flow.get('cF_field_per_m', np.empty(0)), opening['in_geom_frac'], opening['out_geom_frac'],
             opening['in_profile_frac'], opening['out_profile_frac'],
-            _port_overlap_1d(flow['dx'], port['out_ctr']-port['out_w']/2, port['out_ctr']+port['out_w']/2, staggered=True)])
+            outlet_fraction])
         physical = getattr(cfg['compute_cfg'], 'fluid_'+side)
         side_geometry = (cfg['thermal_geometry']['side_geometry'] or {}).get(side, (0., 0., 0., 0.))
         config.sides[i] = _Side(('air', 'water', 'sco2', 'co2').index(cfg['fluid_'+side]), cfg['dir_'+side],
@@ -523,8 +541,17 @@ def run_case(case, control=RunControl(), *, resume_state=None, checkpoint=None, 
     control.check_cancelled()
     cfg, prepared = build_execution_inputs(case, copy_design=False)
     driver = NativeFull2DDriver(control.native_library, table_directory=control.native_table_directory)
-    native = driver.run_prepared(cfg, prepared, control, resume_state=resume_state, checkpoint=checkpoint, checkpoint_due=checkpoint_due)
-    control.check_cancelled()
-    result = capture_result(case, cfg, prepared, native)
+    stage_layout = (case.metadata['design_mode'] in ('uniform', 'continuous')
+        and cfg['compute_cfg'].geometry.delta_levelset == 0
+        and (cfg['zone_config'] is None or cfg['z_axis'] == 'continuous'))
+    if stage_layout and hasattr(driver.library, 'tpmshx_stage_run_2d_create_saved_v1'):
+        from .full_2d_stage import run_stage
+        result = run_stage(driver, case, cfg, prepared, control, resume_state=resume_state,
+            checkpoint=checkpoint, checkpoint_due=checkpoint_due)
+    else:
+        native = driver.run_prepared(cfg, prepared, control, resume_state=resume_state,
+            checkpoint=checkpoint, checkpoint_due=checkpoint_due)
+        control.check_cancelled()
+        result = capture_result(case, cfg, prepared, native)
     control.report_progress(100)
     return result

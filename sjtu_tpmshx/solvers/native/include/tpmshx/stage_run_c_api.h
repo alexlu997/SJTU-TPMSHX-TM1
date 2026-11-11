@@ -75,6 +75,24 @@ typedef struct {
 typedef struct {
     double area_density_per_m[2],surface_htc_W_m2K[2];
 } tpmshx_stage_application_2d_v1;
+/* Validated saved inputs. No preparation operation is performed.
+ * prepared->values.input.geometry_mode selects uniform (0) or continuous (1).
+ * Continuous cases supply cell_length and all four arrays with nx*ny values.
+ * Uniform cases can supply both thermal geometry arrays, with nx*ny values,
+ * or leave both empty to use the prepared scalars. Their conductivity arrays
+ * must be empty; the saved inlet properties supply the uniform values.
+ * Saved local drag uses the existing full 2D validation. inlet_recorded is 0
+ * for absent inlet range evidence and 1 for a recorded set, including empty.
+ * range_captured has prepared->values.range_count flags (0 or 1). NULL means
+ * all ranges were captured. Uncaptured ranges do not supply sample values. */
+typedef struct {
+    uint32_t abi_version;
+    size_t struct_size;
+    const tpmshx_preparation_case_2d_v2* prepared;
+    tpmshx_preparation_array_v1 area_density_per_m,hydraulic_diameter_m,fluid_conductivity[2];
+    uint32_t inlet_recorded;
+    const uint32_t* range_captured;
+} tpmshx_stage_saved_case_2d_v1;
 
 #ifdef __cplusplus
 extern "C" {
@@ -137,6 +155,15 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_restore_v1(
     const tpmshx_preparation_case_2d_v2*,const tpmshx_preparation_continuous_case_2d_v4*,
     const tpmshx_stage_run_request_2d_v3*,const tpmshx_stage_run_control_v1*,
     const tpmshx_run_state_field_v1*,size_t,void**,char*,size_t);
+/* Saved views use the same lifecycle, status, storage and restore rules.
+ * Keep this descriptor and all referenced storage unchanged until transfer
+ * or release. Set abi_version=1 and struct_size=sizeof this descriptor. */
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_create_saved_v1(
+    const tpmshx_stage_saved_case_2d_v1*,const tpmshx_stage_run_request_2d_v3*,
+    const tpmshx_stage_run_control_v1*,void**,char*,size_t);
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_restore_saved_v1(
+    const tpmshx_stage_saved_case_2d_v1*,const tpmshx_stage_run_request_2d_v3*,
+    const tpmshx_stage_run_control_v1*,const tpmshx_run_state_field_v1*,size_t,void**,char*,size_t);
 /* Phases and safe snapshot boundaries match full_2d_run_c_api.h.
  * Snapshots own independent storage; use tpmshx_run_state_release_v1. */
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_advance_step_v1(void*,uint32_t*,char*,size_t);

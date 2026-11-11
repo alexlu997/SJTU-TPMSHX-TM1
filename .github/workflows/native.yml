@@ -161,6 +161,7 @@ jobs:
           sjtu_tpmshx/development/tests/test_native_stage_continuous.py
           sjtu_tpmshx/development/tests/test_native_stage_state.py
           sjtu_tpmshx/development/tests/test_native_stage_capture.py
+          sjtu_tpmshx/development/tests/test_native_run_adapter.py
           sjtu_tpmshx/development/tests/test_native_result_stage.py
           sjtu_tpmshx/development/tests/test_native_result_stage_host.py
       - name: Pack native runtime files with executable permissions

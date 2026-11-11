@@ -4,6 +4,7 @@
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <vector>
 
 namespace {
 void require(bool value,const char* message) {if(!value)throw std::runtime_error(message);}
@@ -29,6 +30,52 @@ void write(const std::filesystem::path& directory,const tpmshx_stage_run_result_
         index<<field.name<<'\t'<<array.shape[0]<<'\t'<<array.shape[1]<<'\n';
     }
     require(index.good(),"could not write stage field index");
+}
+void check_saved(const tpmshx_preparation_case_2d_v1& prepared,tpmshx::stages::RunControl control) {
+    using namespace tpmshx::stages;
+    tpmshx_preparation_case_2d_v2 view{};
+    view.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V2;view.struct_size=sizeof(view);view.values=prepared;
+    const auto cells=prepared.nx*prepared.ny;
+    std::vector<double> area(cells,prepared.area_density_per_m),diameter(cells,prepared.hydraulic_diameter_m);
+    std::vector<double> permeability[2],forchheimer[2];
+    for(size_t side=0;side<2;++side) {
+        permeability[side].assign(cells,prepared.sides[side].row_permeability.data[0]);
+        forchheimer[side].assign(cells,prepared.sides[side].row_forchheimer.data[0]);
+        view.values.sides[side].permeability={permeability[side].data(),cells};
+        view.values.sides[side].forchheimer={forchheimer[side].data(),cells};
+    }
+    std::vector<uint32_t> captured(prepared.range_count,1);
+    SavedCase2D saved;saved.prepared=&view;saved.area_density_per_m={area.data(),cells};
+    saved.hydraulic_diameter_m={diameter.data(),cells};saved.range_captured=captured.data();
+    void* handle=nullptr;char error[4096]="preserve-saved-error";
+    auto malformed=saved;malformed.range_captured=reinterpret_cast<const uint32_t*>(&handle);
+    require(prepared.range_count>0,"saved smoke requires prepared ranges");
+    require(tpmshx_stage_run_2d_create_saved_v1(&malformed,nullptr,&control,&handle,error,sizeof(error))==1,
+        "saved capture flags alias output");
+    require(!handle && std::strcmp(error,"preserve-saved-error")==0,"saved flag alias changed output or error");
+    malformed=saved;malformed.area_density_per_m.data=reinterpret_cast<const double*>(error);
+    require(tpmshx_stage_run_2d_create_saved_v1(&malformed,nullptr,&control,&handle,error,sizeof(error))==1,
+        "saved geometry aliases error storage");
+    require(!handle && std::strcmp(error,"preserve-saved-error")==0,"saved geometry alias changed output or error");
+    malformed=saved;--malformed.hydraulic_diameter_m.size;
+    require(tpmshx_stage_run_2d_create_saved_v1(&malformed,nullptr,&control,&handle,error,sizeof(error))==1 && !handle,
+        "saved geometry extent mismatch accepted");
+    captured[0]=2;
+    require(tpmshx_stage_run_2d_create_saved_v1(&saved,nullptr,&control,&handle,error,sizeof(error))==1 && !handle,
+        "saved range capture flag accepted invalid value");
+    captured[0]=0;saved.inlet_recorded=0;
+    auto state=[&] {
+        Run2D run(saved,control);
+        require(run.advance_step()==TPMSHX_FULL2D_OUTER_BOUNDARY,"saved stage initial boundary changed");
+        require(run.advance_step()==TPMSHX_FULL2D_FLOW,"saved stage flow boundary changed");
+        return run.snapshot();
+    }();
+    control.cpu_threads=1;control.callbacks.cancel=cancel;
+    Run2D restored(saved,control,{},&state);
+    require(restored.phase()==TPMSHX_FULL2D_FLOW,"saved restore lost its phase");
+    require(restored.advance_step()==TPMSHX_FULL2D_CANCELLED,"saved restore ignored cancellation");
+    try {auto result=restored.take_result();throw std::runtime_error("cancelled saved stage published a result");}
+    catch(const NativeError& failure) {require(failure.status()==6,"saved cancellation status changed");}
 }
 }
 int main(int argc,char** argv) {
@@ -84,6 +131,7 @@ int main(int argc,char** argv) {
             require(std::memcmp(&failure,&before,sizeof(failure))==0,"option conflict changed output");
         }
         control.callbacks.cancel=nullptr;
+        check_saved(prepared.view(),control);
         auto run=[&] {auto local=prepare_case(input());return run_case(local,control);}();
         // The prepared owner has gone. All saved evidence must remain valid.
         auto performance=evaluate(run);
