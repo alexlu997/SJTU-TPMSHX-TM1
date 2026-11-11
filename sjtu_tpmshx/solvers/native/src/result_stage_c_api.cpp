@@ -468,8 +468,8 @@ template<class Run> int boundary(const tpmshx_result_evidence_v1* value, tpmshx_
                 const auto& fault = extension->errors[i];
                 if (!fault.value || !fault.cause || fault.cause > host_exception)
                     throw std::invalid_argument("invalid deferred result input error");
-                const auto message = input.text(fault.message, "a deferred error message");
-                if (!input.errors.emplace(fault.value, InputError{fault.cause, message, fault.token}).second)
+                const auto fault_message = input.text(fault.message, "a deferred error message");
+                if (!input.errors.emplace(fault.value, InputError{fault.cause, fault_message, fault.token}).second)
                     throw std::invalid_argument("duplicate deferred result input error");
             }
             input.sequence(extension->none_values, extension->none_count);
