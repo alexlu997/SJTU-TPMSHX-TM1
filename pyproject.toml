@@ -95,7 +95,7 @@ files = [
     "sjtu_tpmshx/preprocess/api.py",
     "sjtu_tpmshx/solvers/api.py",
     "sjtu_tpmshx/postprocess/api.py",
-    "sjtu_tpmshx/postprocess/metrics.py",
+    "sjtu_tpmshx/shared/_native_result_stage.py",
 ]
 python_version = "3.12"
 ignore_missing_imports = true
@@ -112,7 +112,7 @@ module = [
     "sjtu_tpmshx.preprocess.api",
     "sjtu_tpmshx.solvers.api",
     "sjtu_tpmshx.postprocess.api",
-    "sjtu_tpmshx.postprocess.metrics",
+    "sjtu_tpmshx.shared._native_result_stage",
 ]
 # 这些边界文件中的无注解辅助函数也必须检查函数体。
 check_untyped_defs = true

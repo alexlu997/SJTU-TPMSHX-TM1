@@ -81,6 +81,7 @@
     tpmshx_result_zone_speed_from_squared_v1;
     tpmshx_result_zone_spread_v1;
     tpmshx_result_zone_std_v1;
+    tpmshx_result_stage_query_v2;
     tpmshx_result_stage_evaluate_v1;
     tpmshx_result_stage_applicability_v1;
     tpmshx_result_stage_physical_balance_v1;
