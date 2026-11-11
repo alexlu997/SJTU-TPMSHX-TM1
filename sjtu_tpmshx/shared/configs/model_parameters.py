@@ -138,6 +138,9 @@ def load_preparation_df_parameters():
     _vector(data['hx']['geometry_mm'], 2, 'HX geometry')
     if any(value <= 0. for value in data['hx']['geometry_mm']):
         raise ValueError('HX geometry must be positive')
+    _vector(data['hx']['domain_m'], 3, 'HX domain')
+    if any(value <= 0. for value in data['hx']['domain_m']):
+        raise ValueError('HX domain must be positive')
     for topology in ('Diamond', 'Gyroid'):
         rows = data['air_specimen']['sf'][topology]
         if not isinstance(rows, list) or len(rows) != 2:
