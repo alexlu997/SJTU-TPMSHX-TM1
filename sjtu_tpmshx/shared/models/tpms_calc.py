@@ -36,7 +36,8 @@ convention on both sides, so downstream Q calculations are consistent.
 ──────────────────────────────────────────────────────────────────────
 """
 
-import functools
+from . import preparation_cache
+import sys
 import warnings
 import numpy as np  # noqa: F401 - preserve existing module surface
 from sjtu_tpmshx.shared.domain.run_warnings import (
@@ -150,7 +151,15 @@ def adaptive_grid(L_domain: float, H_domain: float,
 
 # ── Main interface ────────────────────────────────────────────
 
-@functools.lru_cache(maxsize=4096)
+class _InletCacheValue(tuple):
+    """Keep native-only intermediate values outside the public property mapping."""
+    def __new__(cls, values, records, cp, pr):
+        result = super().__new__(cls, (values, records))
+        result.cp, result.pr = cp, pr
+        return result
+
+
+@preparation_cache.scalar_cache(maxsize=4096)
 def _compute_cached(tpms_type: str,
                     L_cell_mm: float,
                     t_mm: float,
@@ -240,10 +249,12 @@ def _compute_cached(tpms_type: str,
         _nu_lo, _nu_hi = _RE_FIT_RANGE_BY_FLUID.get(fluid_type, NU_RE_FIT_RANGE)
         # A run records the actual Nu source below; standalone keeps this notice.
         if not (_nu_lo <= Re <= _nu_hi) and current_warnings() is None:
+            # Direct __wrapped__ calls do not have the Python cache frame.
+            cache_frame = sys._getframe(1).f_code.co_filename == preparation_cache.__file__
             warnings.warn(
                 f"{tpms_type}: Re = {Re:.1f} is outside the validated range "
                 f"[{_nu_lo:.0f}, {_nu_hi:.0f}]. Correlation accuracy may be reduced.",
-                UserWarning, stacklevel=2
+                UserWarning, stacklevel=3 if cache_frame else 2
             )
 
         # ── Nusselt number and heat transfer coefficient ──────────
@@ -274,7 +285,7 @@ def _compute_cached(tpms_type: str,
         # ── Effective thermal conductivities (volume-averaged) ────
         K_ff = _native_properties.pore_conductivity(eps_A, k_f)
 
-        return {
+        return _InletCacheValue({
             'epsilon':   eps,
             'epsilon_A': eps_A,
             'epsilon_B': eps_A,     # symmetric sheet HX: ε_B = ε_A = ε/2
@@ -290,7 +301,7 @@ def _compute_cached(tpms_type: str,
             'rho':       rho,
             'mu':        mu,
             'k_f':       k_f,
-        }, records
+        }, records, cp_f, Pr_f)
 
 
 # ── Public cached property calculation ────────────────────────
@@ -335,3 +346,4 @@ def compute(tpms_type: str,
 # Tests and property sweeps explicitly inspect or clear this process-local cache.
 compute.cache_clear = _compute_cached.cache_clear
 compute.cache_info = _compute_cached.cache_info
+compute.cache_parameters = _compute_cached.cache_parameters

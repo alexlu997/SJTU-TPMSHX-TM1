@@ -52,6 +52,17 @@ typedef struct {
     int (TPMSHX_PREPARATION_CALL *event)(void*,const tpmshx_preparation_event_v1*);
     void* context;
 } tpmshx_preparation_case_callbacks_v1;
+/* V3/v4 entries also accept this descriptor through &values.
+ * Set values.abi_version=2 and values.struct_size=sizeof(this descriptor).
+ * Host stages: 0=begin final preparation, 1=nominal geometry, 2=inlet properties.
+ * Side: 0=A, 1=B, 2=shared. The hook validates host objects and supplies no
+ * numerical value. It must not throw. Nonzero status stops the operation.
+ * Its storage is borrowed until the call returns. Stored events are unchanged.
+ */
+typedef struct {
+    tpmshx_preparation_case_callbacks_v1 values;
+    int (TPMSHX_PREPARATION_CALL *validate_host_input)(void*,uint32_t,uint32_t);
+} tpmshx_preparation_case_callbacks_v2;
 typedef struct {
     double rho,mu,k_f,cp,pr,re,nu;
     double permeability_m2,forchheimer_per_m,pressure_gradient_Pa_m;
@@ -189,6 +200,30 @@ typedef struct {
     const tpmshx_preparation_event_v1* events;
     size_t event_count;
 } tpmshx_preparation_flow_evidence_v3;
+/* Cache lookup (action=0) sets hit to 0 or 1. Publication (action=1)
+ * receives completed values and must not change them. A callback return of
+ * nonzero stops the operation. No callback calculates physical values.
+ * Lookup storage belongs to the host and stays valid until the stage returns.
+ * Publication views stay valid only during the callback. Copy them before return.
+ * Nested views must not overlap the stage result, failure or error storage.
+ * Invalid borrowed storage leaves all three output buffers unchanged.
+ */
+typedef struct {
+    double epsilon,epsilon_a,epsilon_b,area_density_per_m,hydraulic_diameter_m;
+} tpmshx_preparation_geometry_cache_v3;
+typedef struct {
+    tpmshx_preparation_geometry_cache_v3 geometry;
+    tpmshx_preparation_inlet_properties_v1 properties;
+    tpmshx_preparation_scalar_kind_v2 kinds[13];
+    tpmshx_preparation_flow_evidence_v3 evidence;
+} tpmshx_preparation_inlet_cache_v3;
+typedef struct {
+    tpmshx_preparation_case_callbacks_v2 values;
+    int (TPMSHX_PREPARATION_CALL *geometry_cache)(void*,uint32_t,tpmshx_preparation_geometry_cache_v3*,uint32_t*);
+    int (TPMSHX_PREPARATION_CALL *inlet_cache)(void*,uint32_t,uint32_t,
+        const tpmshx_preparation_inlet_2d_v1*,tpmshx_preparation_scalar_kind_v2,
+        tpmshx_preparation_inlet_cache_v3*,uint32_t*);
+} tpmshx_preparation_case_callbacks_v3;
 typedef struct {
     uint32_t abi_version;
     size_t struct_size;

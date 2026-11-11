@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 
 from sjtu_tpmshx.development.tests import test_native_preparation_case as v1
-from sjtu_tpmshx.preprocess.api import prepare_case
+from sjtu_tpmshx.development.tests.preparation_api_reference import prepare_case
 from sjtu_tpmshx.shared.domain.compute_config import ComputeConfig
 from sjtu_tpmshx.shared.domain.run_warnings import RangeRecord, range_observations, warning_scope
 from sjtu_tpmshx.shared.models._native_properties import _Failure as _PropertyFailure
@@ -97,8 +97,8 @@ def _configuration(topology, pair, mode='cfd_smooth'):
 
 
 def _capture_reference(config, monkeypatch):
-    from sjtu_tpmshx.preprocess import api
-    from sjtu_tpmshx.preprocess.two_d import preparation
+    from sjtu_tpmshx.development.tests import preparation_api_reference as api
+    from sjtu_tpmshx.development.tests import preparation_case_reference as preparation
     from sjtu_tpmshx.shared.models.tpms_calc import compute
     from sjtu_tpmshx.shared.models.tpms_geometry import compute_geometry
     compute.cache_clear()
@@ -417,7 +417,7 @@ def test_native_uniform_nu_rejects_blank_provenance(native, field, blank):
 def test_python_preparation_keeps_unhashable_velocity_failure(monkeypatch):
     config = _configuration('Diamond', ('air', 'water'))
     config.fluid_A.u_mps = np.array(6.12, dtype=np.float32)
-    from sjtu_tpmshx.preprocess.two_d import preparation
+    from sjtu_tpmshx.development.tests import preparation_case_reference as preparation
     logs = []
     monkeypatch.setattr(preparation._log, 'info', logs.append)
     with pytest.raises(TypeError, match="unhashable type: 'numpy.ndarray'"):

@@ -26,6 +26,9 @@ The geometry core owns standard, CO2 and asymmetric geometry, chi/Kss, and sigmo
 `shared/models/_native_geometry.py` uses ctypes to load geometry ABI 1 on demand.
 It loads a separate prebuilt library without importing the solver backend.
 Python keeps public types, cache interfaces and per-call explicit/environment/fit selection for chi.
+`shared/models/preparation_cache.py` owns the bounded geometry and inlet-property caches.
+Public scalar calls and native preparation checkpoints use the same values, types, range records and access order.
+Cache misses use the existing C++ numerical functions; current material conductivity and chi are not cached.
 
 Scalar standard geometry keeps the original NumPy float16, float32 and float64 intermediate rounding in C++.
 The binding sends precision metadata for cell conversion and the wall/cell ratio.
@@ -92,7 +95,13 @@ Preparation v4 adds canonical continuous XY controls to capacity, resolution and
 It samples the physical grid with the existing spline and geometry cores, then retains full local drag.
 Its prepared view adds only area density, original hydraulic diameter and the two fluid conductivities.
 Experimental transfer keeps the current Shanghai contract, separate early range labels and final application metadata.
-No v1/v2/v3 C layout or Python production route changes.
+No v1/v2/v3 C layout changes.
+Python preparation uses the owned v3/v4 stages for symmetric uniform and canonical continuous XY 2D inputs.
+Nonzero-delta uniform, discrete zones, sigmoid and 3D retain explicit existing routes.
+The adapter preserves CaseData fields, scalar types, events, source ranges and saved model selections.
+A versioned host hook preserves object errors and warning scopes at their original execution points.
+It supplies no numerical values. A native failure never selects another preparation route.
+The replaced continuous Python branches are retired; independent frozen references remain under `development/tests`.
 `preparation_case.cpp` owns that complete preparation sequence.
 `stage_run.cpp` adapts it to the existing full 2D driver.
 `stage_capture_2d.cpp` records the actual run evidence for `result_stage.cpp`.

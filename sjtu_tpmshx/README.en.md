@@ -32,7 +32,11 @@ Its initial complete path supports uniform symmetric 2D air/air with prescribed 
 Preparation v2 adds all 16 ordered air/water/sCO2/CO2 pairs for uniform symmetric 2D geometry and prescribed velocity.
 Preparation v3 adds independent capacity, inlet-flow resolution and complete preparation for uniform 2D total mass flow.
 It reuses the physical inlet grid and keeps preliminary records separate from final preparation evidence.
-The run path remains the v1 air/air CFD case. The Python entries above retain all current modes while stage migration continues.
+Preparation v4 adds canonical continuous XY fields and full local drag.
+The Python preparation entries use v3/v4 for symmetric uniform and continuous 2D inputs.
+Nonzero-delta uniform, discrete zones, sigmoid and 3D keep their explicit existing routes.
+CaseData and saved-file contracts stay unchanged. Native failures propagate without another preparation route.
+The run path remains the v1 air/air CFD case in this stage scope.
 
 ## Edit numerical functions
 
