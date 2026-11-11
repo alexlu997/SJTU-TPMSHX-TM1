@@ -663,3 +663,13 @@ def test_native_3d_nonempty_text_requires_storage(native):
     assert native.tpmshx_prepare_case_3d_v1(ct.byref(source), None, None,
         ct.byref(result), ct.byref(failure), error, len(error)) != 0
     assert (bytes(result), bytes(failure), bytes(error)) == before
+
+
+@pytest.mark.parametrize('field,value', [
+    ('L_cell_mm', np.nan), ('t_wall_mm', np.nan), ('k_s_W_mK', -1.),
+])
+def test_native_3d_geometry_failure_precedes_depth(native, field, value):
+    config = _configuration()
+    setattr(config.geometry, field, value)
+    config.geometry.Lz_m = np.inf
+    _compare_failure(native, config)

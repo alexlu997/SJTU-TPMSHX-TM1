@@ -1245,16 +1245,18 @@ CaseInput3D validate_3d(CaseInput3D input) {
     validate_nu(input.sco2_nu);
     if (input.df_mode>1) throw std::invalid_argument("native 3D preparation DF mode must be CFD or experimental");
     const char* dimensions[]{"geometry.L_dom_m","geometry.H_dom_m","geometry.Lz_m"};
-    for (std::size_t axis=0;axis<3;++axis) {
+    for (std::size_t axis=0;axis<2;++axis) {
         input.grid.lengths[axis]=g::checked(input.grid.lengths[axis]);
         positive(input.grid.lengths[axis].value,dimensions[axis]);
     }
-    // The original 3D parser converts only depth to a Python float.
-    input.grid.lengths[2]=g::weak(input.grid.lengths[2].value);
     const auto& model=input.geometry;
     positive(model.cell_length_mm,"geometry.L_cell_mm");
     positive(model.wall_thickness_mm,"geometry.t_wall_mm");
     positive(model.solid_conductivity_W_mK,"geometry.k_s_W_mK");
+    input.grid.lengths[2]=g::checked(input.grid.lengths[2]);
+    positive(input.grid.lengths[2].value,dimensions[2]);
+    // The original 3D parser converts only depth to a Python float.
+    input.grid.lengths[2]=g::weak(input.grid.lengths[2].value);
     for (std::size_t i=0;i<2;++i) {
         const auto& inlet=input.sides[i];const std::string side=i?"B":"A";
         if (inlet.mass_flow_kg_s)
