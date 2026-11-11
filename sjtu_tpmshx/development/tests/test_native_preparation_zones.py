@@ -414,3 +414,52 @@ def test_native_zoned_typed_rectangle_order_matches_reference(native, monkeypatc
     assert status == 1 and failure.kind == 1
     assert error == str(reference.value)
     assert bytes(result) == bytes(_Result(5, ct.sizeof(_Result)))
+
+
+@pytest.mark.parametrize('mode', ['x', 'y', 'grid'])
+@pytest.mark.parametrize('topology', ['Diamond', 'Gyroid'])
+@pytest.mark.parametrize('dtype', [np.float16, np.float32])
+@pytest.mark.parametrize('strong_wall', [False, True])
+def test_native_zoned_typed_pore_guard_matches_reference(native, monkeypatch, mode, topology, dtype, strong_wall):
+    config = _config(mode);config.geometry.tpms = topology
+    config.zones.config.tpms_type = topology;config.zones.grid['tpms_type'] = topology
+    cell, wall = (4.00000001, dtype(2.)) if strong_wall else (dtype(4.), 1.999999995)
+    if mode == 'grid':
+        config.zones.grid['cells'][0].update(L=cell, t=wall)
+    else:
+        first = config.zones.config.zones[0];first.L_mm, first.t_mm = cell, wall
+    with pytest.raises(ValueError, match='no pore space') as reference:
+        v3._reference(monkeypatch, 'prepare_flow_case', config)
+    status, result, failure, error, _, _ = _call(native, config)
+    assert status == 1 and failure.kind == 1
+    assert error == str(reference.value)
+    assert bytes(result) == bytes(_Result(5, ct.sizeof(_Result)))
+
+
+@pytest.mark.parametrize('mode', ['x', 'y', 'grid'])
+@pytest.mark.parametrize('topology', ['Diamond', 'Gyroid'])
+def test_native_zoned_degenerate_geometry_keeps_context(native, monkeypatch, mode, topology):
+    config = _config(mode);config.geometry.tpms = topology
+    config.zones.config.tpms_type = topology;config.zones.grid['tpms_type'] = topology
+    if mode == 'grid':
+        config.zones.grid['cells'][0].update(L=4., t=1.9)
+    else:
+        first = config.zones.config.zones[0];first.L_mm, first.t_mm = 4., 1.9
+    with pytest.raises(ValueError, match='Degenerate TPMS geometry: ' + topology) as reference:
+        v3._reference(monkeypatch, 'prepare_flow_case', config)
+    status, result, failure, error, _, _ = _call(native, config)
+    assert status == 1 and failure.kind == 1
+    assert error == str(reference.value)
+    assert bytes(result) == bytes(_Result(5, ct.sizeof(_Result)))
+
+
+@pytest.mark.parametrize('field', ['L', 't'])
+@pytest.mark.parametrize('dtype', [np.float16, np.float32])
+def test_native_zoned_nan_geometry_keeps_first_failure(native, monkeypatch, field, dtype):
+    config = _config('grid');config.zones.grid['cells'][0][field] = dtype(np.nan)
+    with pytest.raises(ValueError) as reference:
+        v3._reference(monkeypatch, 'prepare_flow_case', config)
+    status, result, failure, error, _, _ = _call(native, config)
+    assert status == 1 and failure.kind == 1
+    assert error == str(reference.value)
+    assert bytes(result) == bytes(_Result(5, ct.sizeof(_Result)))

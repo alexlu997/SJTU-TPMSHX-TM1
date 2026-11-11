@@ -1110,12 +1110,15 @@ struct ZonedCache {
         if (found==geometries.end()) {
             if (key[0]<=0.) throw std::invalid_argument("L_mm must be positive, got "+decimal(key[0]));
             if (key[1]<=0.) throw std::invalid_argument("t_mm must be positive, got "+decimal(key[1]));
-            if (2.*key[1]>=key[0]) throw std::invalid_argument("Wall thickness t="+decimal(key[1])+
-                "mm >= L="+decimal(key[0])+"mm, no pore space");
+            const auto length=scalar(key[0],input.kinds.cell_length);
+            const auto twice_wall=g::multiply(g::weak(2.),scalar(key[1],input.kinds.wall_thickness));
+            if (!std::isnan(length.value) && !std::isnan(twice_wall.value) && !g::less(twice_wall,length))
+                throw std::invalid_argument("Wall thickness t="+decimal(key[1])+
+                    "mm >= L="+decimal(key[0])+"mm, no pore space");
             geometry::Geometry value;
             try {value=material_geometry(input,options).geometry;}
             catch (const std::invalid_argument& error) {
-                if (std::string_view(error.what()).substr(0,24)=="Degenerate TPMS geometry:")
+                if (std::string_view(error.what()).find("Degenerate TPMS geometry:")==0)
                     throw std::invalid_argument("Degenerate TPMS geometry: "+std::string(topology_name(model.topology))+
                         " L="+decimal(key[0])+"mm t="+decimal(key[1])+"mm has no usable pore space. Reduce t or increase L.");
                 throw;
