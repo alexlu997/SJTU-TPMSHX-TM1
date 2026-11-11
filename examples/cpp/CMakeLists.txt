@@ -36,13 +36,15 @@ endif()
 
 if("preparation" IN_LIST tpmshx_AVAILABLE_COMPONENTS)
     find_package(tpmshx CONFIG REQUIRED COMPONENTS preparation)
-    add_executable(prepare_fluids_2d prepare_fluids_2d.cpp)
-    target_compile_features(prepare_fluids_2d PRIVATE cxx_std_17)
-    target_link_libraries(prepare_fluids_2d PRIVATE tpmshx::preparation)
-    add_test(NAME prepare_fluids_2d COMMAND prepare_fluids_2d)
-    if(WIN32)
-        add_custom_command(TARGET prepare_fluids_2d POST_BUILD
-            COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-                "$<TARGET_FILE:tpmshx::preparation>" "$<TARGET_FILE_DIR:prepare_fluids_2d>")
-    endif()
+    foreach(example prepare_fluids_2d prepare_mass_2d prepare_continuous_2d)
+        add_executable(${example} ${example}.cpp)
+        target_compile_features(${example} PRIVATE cxx_std_17)
+        target_link_libraries(${example} PRIVATE tpmshx::preparation)
+        add_test(NAME ${example} COMMAND ${example})
+        if(WIN32)
+            add_custom_command(TARGET ${example} POST_BUILD
+                COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                    "$<TARGET_FILE:tpmshx::preparation>" "$<TARGET_FILE_DIR:${example}>")
+        endif()
+    endforeach()
 endif()

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "tpmshx/geometry.hpp"
+#include "tpmshx/grid.hpp"
 #include "tpmshx/preparation_df.hpp"
 #include "tpmshx/property_c_api.h"
 #include <array>
@@ -51,22 +52,30 @@ struct UniformGeometryInput {
     double cell_length_mm,wall_thickness_mm,solid_conductivity_W_mK;
     double delta_levelset=0.;
 };
+struct ContinuousControls2D {
+    std::size_t nx=0,ny=0;
+    std::uint32_t order=3;
+    bool symmetric_y=true;
+    std::array<double,2> cell_bounds_mm{},wall_bounds_mm{};
+    std::vector<double> decision_mm;
+};
 struct CaseInput2D {
     GridInput2D grid;
     UniformGeometryInput geometry;
     std::array<InletInput2D,2> sides;
     std::optional<double> physical_depth_m;
-    // Uniform geometry; DF 0 selects CFD and 1 selects existing experiments.
+    // Geometry mode 1 requires continuous controls. DF 0/1 selects CFD/experiments.
     std::uint32_t geometry_mode=0,df_mode=0;
     Sco2NuSelection sco2_nu;
     CaseScalarKinds kinds;
+    std::optional<ContinuousControls2D> continuous;
 };
 struct PreparationOptions {
     std::optional<double> chi_override;
     bool allow_extrapolation=false;
 };
 // Keep each C interface's scope checks in the shared validation order.
-enum class CaseScope { air_cfd_v1, uniform_fluids_v2 };
+enum class CaseScope { air_cfd_v1, uniform_fluids_v2, uniform_mass_v3, continuous_v4 };
 
 struct PhysicalGrid2D {
     std::size_t nx=0,ny=0;
@@ -83,6 +92,8 @@ struct PreparationDragEvidence {
     std::string campaign,scope;
     std::optional<DfSelection> selection;
     std::string application_scope,fluid;
+    std::string transfer_policy,geometry_application;
+    std::optional<std::array<double,2>> reference_geometry_mm;
     std::vector<std::array<std::string,2>> calibration;
 };
 struct PreparedSide2D {
@@ -145,8 +156,28 @@ struct PreparedCase2D {
     double hydraulic_radius_m=0.,cell_length_m=0.,wall_thickness_m=0.,split_a=.5;
     std::vector<double> cell_length,wall_thickness,total_porosity,solid_conductivity,hydraulic_radius;
     std::array<PreparedSide2D,2> sides;
+    std::vector<double> area_density,hydraulic_diameter;
+    std::array<std::vector<double>,2> fluid_conductivity;
     PreparationEvidence evidence;
     std::array<ScalarKind,5> field_kinds;
+};
+
+struct InletFlowRequest2D {
+    CaseInput2D input;
+    ScalarKind physical_depth_kind;
+    std::array<ScalarKind,2> target_kinds;
+    // Explicit batch targets replace both stored targets in the resolved input.
+    std::optional<std::array<double,2>> explicit_targets;
+};
+struct InletFlow2D {
+    CaseInput2D input;
+    bool have_capacities=false;
+    std::array<grid::Scalar,2> capacities{},speeds{};
+    PreparationEvidence evidence;
+};
+struct PreparedFlowCase2D {
+    PreparedCase2D prepared;
+    InletFlow2D flow;
 };
 
 struct PreparationFailureCause {std::uint32_t kind;std::string message;};
@@ -167,5 +198,14 @@ public:
 PreparedCase2D prepare_case_2d(const CaseInput2D&,const PreparationOptions& = {},
                               const PreparationCallbacks& = {},
                               CaseScope = CaseScope::uniform_fluids_v2);
+
+// These queries do not evaluate Nu or create a complete prepared case.
+InletFlow2D prepare_inlet_mass_capacities_2d(const CaseInput2D&,ScalarKind physical_depth_kind={},
+    const PreparationOptions& = {},const PreparationCallbacks& = {});
+InletFlow2D resolve_inlet_flow_2d(const InletFlowRequest2D&,
+    const PreparationOptions& = {},const PreparationCallbacks& = {});
+// Preliminary flow evidence stays separate from final preparation evidence.
+PreparedFlowCase2D prepare_flow_case_2d(const InletFlowRequest2D&,
+    const PreparationOptions& = {},const PreparationCallbacks& = {});
 
 }  // namespace tpmshx::preparation

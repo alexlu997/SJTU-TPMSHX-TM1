@@ -16,6 +16,11 @@ Run v1 retains its air/air CFD scope and published layout.
 Nonzero delta, zones, continuous fields and prescribed mass flow remain outside
 this preparation v2 scope. These limits do not remove existing Python modes.
 
+Preparation v3 adds total mass flow for the same uniform symmetric 2D fluid matrix.
+It provides separate capacity and inlet-flow resolution queries, plus complete preparation.
+It preserves the existing physical depth, calibration and scalar arithmetic rules.
+Continuous fields, zones and nonzero delta remain outside v3. The run interface is unchanged.
+
 The C++ call sequence is `prepare_case`, `run_case`, then `evaluate`.
 The caller supplies dimensions, design values, boundary conditions and controls.
 The preparation library computes the physical fields. The solver library uses
@@ -54,6 +59,51 @@ that prepared state. The result library evaluates recorded evidence.
 - Run v2 uses the v1 result owner and release function. Its cancellation
   status is 6; status 4 retains the full driver's envelope failure meaning.
   Run v1 keeps its original cancellation status of 4.
+
+## Uniform total mass flow
+
+`FlowInput2D` selects stored per-side targets or an explicit pair of total targets.
+A stored target replaces only that side's speed and remains in the resolved input.
+An explicit pair replaces both stored targets and clears them in the resolved input.
+All total targets use kg/s and require a positive physical depth in m.
+The prepared 2D fields and solver quantities retain their per-unit-depth basis.
+
+`prepare_inlet_mass_capacities` uses the physical inlet pore area, profile and inlet density.
+It does not use an obsolete speed or evaluate Nu. It calculates both side capacities.
+`resolve_inlet_flow` divides each selected target by its capacity, then validates resolved speeds.
+Without targets, it returns a copied input without physical validation or capacity work.
+The Python adapter retains its existing no-target object identity rule.
+
+`prepare_case(FlowInput2D)` reuses the physical inlet grid and geometry for final preparation.
+Its preliminary flow records stay in `flow.evidence`. Final records stay in `prepared`.
+Callbacks report both phases in execution order. A complete flow-case result owns both views.
+Their nested owner fields are null; release only the complete result.
+Depth and target tags retain the existing floating and integer scalar arithmetic.
+Python object validation and configuration snapshots remain host responsibilities.
+
+## Continuous XY fields
+
+Preparation v4 uses `ContinuousInput2D` for canonical continuous XY controls.
+It supports prescribed speed and the v3 total-flow queries and preparation.
+It keeps v1/v2/v3 C layouts and the existing Python production routes.
+The control input gives integer counts, order 1..3, a y-mirror flag, bounds and decisions.
+Decisions contain L values followed by t values, in mm and C order.
+With y mirroring, each field stores its lower half, including an odd central row.
+The existing geometry bounds apply to controls and clipping bounds.
+
+The existing spline core samples actual physical cell centres.
+Fixed-flow preparation reuses those fields when it resolves inlet speeds.
+The complete result carries the existing prepared and preliminary flow views.
+It adds four physical-cell arrays: area density, original hydraulic diameter and two fluid conductivities.
+Local permeability and Forchheimer arrays use each side's existing `(cross, stream)` view.
+Rows retain their pressure-seed role. The complete local fields remain available to the run adapter.
+
+CFD mode supports both topologies and all 16 ordered fluid pairs.
+Experimental transfer retains the Shanghai Gyroid air-A/water-B contract at nominal 7/0.6 mm.
+Its domain, velocity rules and exploratory evidence remain unchanged.
+The CO2/CO2 fixed-factor path also remains available in experimental mode.
+Early range labels retain their transfer context. Final metadata retains the continuous application scope and reference geometry.
+These preparation interfaces do not change the run interface or certify gradient accuracy.
 
 ## Build and install
 
@@ -107,6 +157,10 @@ The [fluid preparation example](../examples/cpp/prepare_fluids_2d.cpp) prepares 
 It links only the preparation library and does not execute a solve.
 The [uniform-fluid example](../examples/cpp/uniform_2d.cpp) executes all three
 stages for CO2/water. Evaluation remains valid after the prepared owner is released.
+The [mass-flow preparation example](../examples/cpp/prepare_mass_2d.cpp) queries capacities, resolves an explicit pair and prepares the case.
+It also links only preparation and does not execute a solve.
+The [continuous preparation example](../examples/cpp/prepare_continuous_2d.cpp) starts with XY decisions and total flow.
+It exposes physical fields and local drag through v4, with only the preparation library.
 These examples use only installed public headers and shared libraries.
 The Windows build copies the required DLLs beside each executable.
 
