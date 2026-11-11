@@ -69,6 +69,21 @@ jobs:
       - name: Check source and wheel distribution contents
         shell: bash
         run: '"$CI_PYTHON" engineering/scripts/check_distributions.py --output-dir .cache/distribution-check'
+      - name: Check installed wheel entry points and resources
+        shell: bash
+        env:
+          TM1_WHEEL_DIR: .cache/distribution-check
+        run: '"$CI_PYTHON" -m pytest sjtu_tpmshx/development/tests/test_distribution_contents.py -q'
+      - name: Save Python wheels for isolated postprocessing
+        uses: actions/upload-artifact@v7
+        with:
+          name: python-distributions-${{ inputs.os }}
+          path: |
+            .cache/distribution-check/wheel-direct/*.whl
+            .cache/distribution-check/wheel-from-sdist/*.whl
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
       - name: Fetch the locked build tool for the independent result core
         shell: bash
         run: '"$CI_PYTHON" engineering/scripts/build_native_dependencies.py fetch-cmake --component result'

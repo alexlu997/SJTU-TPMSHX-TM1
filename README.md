@@ -261,8 +261,8 @@ BO 环境仍须替换为对应 BO 锁。独立 `build`／`verify` 同样接受 `
 结果库可用 `publish --component result` 独立发布，不构建求解器或模型库。使用当前解释器对应的精确锁。
 实际后处理运算需要该库；纯 HDF/JSON 文件读取不加载原生库。
 Linux x86_64 只支持独立结果评估，命令见[结果核心](docs/cpp-migration.zh-CN.md#native-result-core)。
-Python wheel 包含代码和模型资源，不包含这四个本机原生库。
-源码发行包包含原生源码、构建文件、依赖锁和来源记录。
+Python wheel 包含运行代码、已发布的开发／验证工具和模型资源，不包含测试或这四个本机原生库。
+Git 和源码发行包保留完整测试树，包括原生测试桥；源码发行包还包含原生源码、构建文件、依赖锁和来源记录。
 可用 `engineering/scripts/check_distributions.py` 检查源码包与 wheel 内容。
 须通过 `--output-dir` 指定 `.cache/` 下的新目录。
 原生构建仍是环境配置后的显式步骤。
