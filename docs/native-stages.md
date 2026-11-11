@@ -10,6 +10,8 @@ the corresponding stage passes its acceptance checks. The current first-stage
 preparation interface supports uniform, symmetric 2D air/air cases with a
 prescribed inlet velocity. Other modes must report an error at that interface.
 This limit does not remove any mode from the existing Python workflow.
+A separate Quick Design entry accepts native double operating points for
+air, water and sCO2. It uses the existing prescribed-flow LTNE driver.
 
 The C++ call sequence is `prepare_case`, `run_case`, then `evaluate`.
 The caller supplies dimensions, design values, boundary conditions and controls.
@@ -83,7 +85,9 @@ target_link_libraries(my_program PRIVATE tpmshx::result)
 The [external result client](../examples/cpp/result_client.cpp) checks arrays and evaluates historical evidence through public headers.
 The [complete 2D example](../examples/cpp/air_2d.cpp) starts with raw dimensions, conditions and boundaries.
 It prepares, solves and evaluates the case without numerical fields from Python.
-It does not start or link Python. Both examples use only installed public headers and shared libraries.
+It does not start or link Python. The [Quick Design example](../examples/cpp/quick_design.cpp) starts with raw
+operating points and dimensions. It calls `prepare_quick_design`, `run_case`
+and `evaluate`. These examples use only installed public headers and shared libraries.
 The Windows build copies the required DLLs beside each executable.
 
 ```sh
@@ -109,6 +113,40 @@ It builds and runs external callers outside the source tree:
 
 Use the applicable environment lock. A BO environment needs its matching `--python-lock` option.
 On Linux, add `--component result --python-lock engineering/requirements/postprocess.txt`.
-The check retains logs and 2D comparison fields. It removes the temporary installation and external build directories.
-This basic 2D path does not establish stage migration for fixed flow, other fluids, zones, 3D or Quick Design.
+The check retains logs, 2D comparison fields and Quick Design comparison fields. It removes the temporary installation and external build directories.
+This basic 2D path does not establish stage migration for fixed flow, other fluids, zones or 3D.
 Python integration and checkpoint recovery have separate acceptance gates.
+
+## Quick Design stage
+
+`quick_design_stage_c_api.h` declares a separate version 1 contract.
+It does not change an existing ABI. The preparation library owns geometry,
+uniform grids, inlet-state properties and analytical D-F pressure fractions.
+The solver library calls the existing Quick Design driver. It does not run SIMPLE.
+The result library evaluates its recorded fields and final-pass scalars.
+
+Raw cell length and wall thickness use mm. Dimensions use m, temperatures use K,
+absolute pressures use Pa, and mass flows use kg/s. Cross flow keeps the
+`(60, 40, 1)` grid. Counter flow keeps `(60, 1, 2)`. Optional flags distinguish
+an omitted value from an invalid explicit value. Height defaults to span,
+solid conductivity to 16 W/(m K), and tolerance to `1e-5`.
+The current arrangement budgets, relaxation, chunk sizes and heat tolerance remain.
+The fixed CFD table supplies D-F. The host resolves its environment selection
+before it calls this native entry. This entry reads no environment variables.
+
+Preparation copies an external warm start. The run copies the prepared fields
+and does not change them. Constant properties use one thermal pass; mean
+properties use two. The second pass uses the first pass's returned temperatures.
+Analytical inlet pressure fractions remain fixed through both passes.
+The result owns all 15 fields, physical grid widths, pressure evidence and
+final-pass scalars. It also retains the complete driver pass records.
+Cancellation returns status 6 and publishes no result. The driver has no
+per-call CPU setting; process thread controls keep their existing behavior.
+
+The native double path is distinct from Python's scalar and object protocols.
+Python preparation, saved-case validation, warning routing and Quick Design
+metric adapters remain active. Numeric arrays, NumPy error policy, arbitrary
+integers and objects need their own boundary checks before production changes.
+The native example does not establish those checks or complete N12 retirement.
+Quick Design remains a sizing approximation. Numerical convergence does not
+establish its physical validation, applicability or design qualification.

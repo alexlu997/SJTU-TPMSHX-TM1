@@ -86,6 +86,11 @@ The initial prepare/run path supports uniform symmetric 2D air/air with prescrib
 `stage_run.cpp` adapts it to the existing full 2D driver.
 `stage_capture_2d.cpp` records the actual run evidence for `result_stage.cpp`.
 The installed C ABI and `stages.hpp` support external C++ callers.
+The separate Quick Design stage accepts raw native double operating points.
+`quick_design_prepare.cpp` reuses geometry, property and analytical D-F owners.
+`quick_design_run.cpp` uses the existing driver and copies its result evidence.
+Its const/mean, cross/counter and warm-start rules stay unchanged.
+Python object and numeric-type contracts still need separate integration checks.
 Current Python entry points retain their existing behavior and all supported modes.
 The migration gates must pass before their numerical and policy bodies can retire.
 

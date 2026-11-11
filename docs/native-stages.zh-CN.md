@@ -7,6 +7,7 @@
 原生阶段工作增加可独立调用的准备、执行和评估接口。对应阶段通过验收前，现有 Python
 入口继续作为正式运行路径。首批准备接口支持均匀、对称的二维 air/air，以及指定入口速度。
 其他模式必须在该接口明确报错。这一限制不删除现有 Python 工作流支持的任何模式。
+独立 Quick Design 入口接受 air、water、sCO2 的 native double 工况，复用既有给定流量 LTNE 驱动。
 
 C++ 调用顺序是 `prepare_case`、`run_case`、`evaluate`。调用者提供尺寸、设计值、
 边界条件和控制参数。准备库生成物理场，求解库使用该准备态，结果库评估记录的证据。
@@ -66,7 +67,8 @@ target_link_libraries(my_program PRIVATE tpmshx::result)
 [外部结果客户端](../examples/cpp/result_client.cpp)通过公开头文件检查数组并评估历史证据。
 [完整二维示例](../examples/cpp/air_2d.cpp)从原始尺寸、工况和边界输入开始，依次准备、求解并评估。
 它不读取 Python 预生成的数值场，也不启动或链接 Python。
-两个示例只使用安装的公开头文件与共享库。Windows 构建会将所需 DLL 复制到可执行文件旁。
+[Quick Design 示例](../examples/cpp/quick_design.cpp)从原始工况和尺寸开始，调用
+`prepare_quick_design`、`run_case`、`evaluate`。这些示例只使用安装的公开头文件与共享库。Windows 构建会将所需 DLL 复制到可执行文件旁。
 
 ```sh
 "$CMAKE" -S examples/cpp -B .cache/stages/examples \
@@ -88,6 +90,31 @@ target_link_libraries(my_program PRIVATE tpmshx::result)
 
 该命令使用当前环境的适用锁；BO 环境须传对应的 `--python-lock`。
 Linux 另传 `--component result --python-lock engineering/requirements/postprocess.txt`。
-检查命令保留日志与二维对照字段，删除临时安装和外部构建目录。
-这条基础二维路径不代表固定质量流量、其他流体、分区、三维或 Quick Design 已完成阶段迁移。
+检查命令保留日志、二维对照字段和 Quick Design 对照字段，删除临时安装和外部构建目录。
+这条基础二维路径不代表固定质量流量、其他流体、分区或三维已完成阶段迁移。
 Python 接入及检查点恢复仍有各自的验收关口。
+
+## Quick Design 阶段
+
+`quick_design_stage_c_api.h` 定义独立的版本 1 合同，不修改既有 ABI。
+准备库负责几何、均匀网格、入口态物性和解析 D-F 压降分数。
+求解库调用既有 Quick Design 驱动，不运行 SIMPLE。
+结果库评价记录的字段和最终物性过程标量。
+
+原始胞元长度和壁厚使用 mm；外形尺寸使用 m，温度使用 K，绝对压力使用 Pa，
+质量流量使用 kg/s。叉流保持 `(60, 40, 1)` 网格；逆流保持 `(60, 1, 2)`。
+可选标志区分缺省值和显式无效值。高度默认取宽度，固体导热率默认为
+16 W/(m K)，容差默认为 `1e-5`。各流向的预算、松弛、分块和热量容差保持不变。
+D-F 继续使用固定 CFD 表。宿主在调用前解析环境中的方法选择；原生入口不读环境变量。
+
+准备态复制外部热启动场；运行复制准备场且不修改原准备态。const 物性执行一次
+热过程，mean 执行两次，第二次使用第一次返回的温度。入口解析压降分数在两次
+过程中保持不变。结果拥有全部 15 个场、物理网格宽度、压力证据、最终物性标量，
+并保留驱动返回的完整过程记录。取消返回状态 6 且不发布结果。
+现有驱动没有每次调用的 CPU 参数；进程线程控制保持原行为。
+
+原生 double 路径与 Python 标量和对象协议分别验收。Python 准备、保存态验证、
+警告路由和 Quick Design 指标适配仍有生产消费者。数值数组、NumPy 错误策略、
+任意精度整数和对象需要独立的边界检查，之后才能切换生产入口。
+C++ 示例不代表这些检查已通过，也不代表 N12 退役已完成。
+Quick Design 保持定尺近似；数值收敛不建立物理验证、适用性或设计资格。

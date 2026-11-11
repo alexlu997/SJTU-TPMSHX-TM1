@@ -77,6 +77,11 @@ Linux x86_64 支持独立结果评估；完整求解器仍支持 macOS arm64 与
 `preparation_case.cpp`负责完整准备流程，`stage_run.cpp`将它适配到现有完整二维驱动。
 `stage_capture_2d.cpp`记录实际运行证据，供`result_stage.cpp`评估。
 安装的 C ABI 和`stages.hpp`供外部 C++ 程序调用。
+独立 Quick Design 阶段接受原始 native double 工况。
+`quick_design_prepare.cpp` 复用几何、物性与解析 D-F 的现有实现；
+`quick_design_run.cpp` 调用既有驱动并复制结果证据。
+const/mean、叉流/逆流和热启动规则保持不变。
+Python 对象和数值类型合同仍需独立的接入验收。
 当前 Python 入口保留原有行为及全部支持模式；相应迁移关口通过后，才能退役其数值与策略实现。
 
 <a id="retained-python-responsibilities"></a>

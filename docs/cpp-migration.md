@@ -250,6 +250,11 @@ There is no numerical fallback, runtime compiler or universal numerical callback
 
 ## Complete Quick Design capability
 
+The [Quick Design stage](native-stages.md#quick-design-stage) adds raw operating-point
+preparation and owned result evidence for native double callers. Its separate
+version 1 C contract preserves the existing driver ABI described below.
+Python production integration has separate type and event acceptance checks.
+
 `quick_design_driver.hpp` owns the complete prepared const/mean property-pass
 calculation. This includes original empirical air/water or HEOS sCO2 properties,
 existing Nu, one or two temperature passes, and full-field warm starts.
