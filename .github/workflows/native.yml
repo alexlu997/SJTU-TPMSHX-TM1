@@ -154,6 +154,7 @@ jobs:
           sjtu_tpmshx/development/tests/test_native_preparation_fluids.py
           sjtu_tpmshx/development/tests/test_native_preparation_mass_flow.py
           sjtu_tpmshx/development/tests/test_native_preparation_continuous.py
+          sjtu_tpmshx/development/tests/test_native_preparation_zones.py
           sjtu_tpmshx/development/tests/test_native_prepare_adapter.py
           sjtu_tpmshx/development/tests/test_preparation_cache.py
           sjtu_tpmshx/development/tests/test_native_stage_run.py

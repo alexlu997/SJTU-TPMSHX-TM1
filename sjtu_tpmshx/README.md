@@ -29,6 +29,9 @@ compute -> preprocess.api.prepare_case -> CaseData -> solvers.api.run_case -> Fi
 准备 v3 为均匀二维总质量流量增加独立容量查询、入口流量解析和完整准备，复用物理入口网格，
 并将前段记录与最终准备证据分开。
 准备 v4 增加规范连续 XY 场与完整局部阻力。
+准备 v5 增加规定速度、CFD 阻力和零 delta 下的原始 air/air 条带与矩形。
+它的独立热几何与行阻力保留原离散规则。
+
 Python 准备入口对对称均匀和连续二维输入使用 v3/v4；非零 delta 均匀、离散分区、sigmoid 与三维保留明确原路径。
 CaseData 与保存文件契约不变，原生失败直接传播，不选择其他准备路线。
 本阶段范围中的 run 路径仍为 v1 的 air/air CFD 工况。

@@ -96,6 +96,10 @@ It samples the physical grid with the existing spline and geometry cores, then r
 Its prepared view adds only area density, original hydraulic diameter and the two fluid conductivities.
 Experimental transfer keeps the current Shanghai contract, separate early range labels and final application metadata.
 No v1/v2/v3 C layout changes.
+Preparation v5 adds raw air/air stripes and rectangles at prescribed velocity, with CFD drag and zero delta.
+It preserves L/t projection before row D-F, discrete smoothing and separate thermal geometry fields.
+It owns per-call typed caches and accepts only the v1 event callback.
+It does not change Python route selection or enable mass targets, sigmoid fields or nonzero delta.
 Python preparation uses the owned v3/v4 stages for symmetric uniform and canonical continuous XY 2D inputs.
 Nonzero-delta uniform, discrete zones, sigmoid and 3D retain explicit existing routes.
 The adapter preserves CaseData fields, scalar types, events, source ranges and saved model selections.

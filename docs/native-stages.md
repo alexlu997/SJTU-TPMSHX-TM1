@@ -100,6 +100,34 @@ The CO2/CO2 fixed-factor path also remains available in experimental mode.
 Early range labels retain their transfer context. Final metadata retains the continuous application scope and reference geometry.
 These preparation interfaces do not change the run interface or certify gradient accuracy.
 
+## Discrete zones
+
+Preparation v5 uses `ZonedInput2D` for raw stripes and rectangles.
+It accepts air/air, prescribed inlet velocity, CFD drag and zero delta.
+Configured or explicit mass targets, experimental drag and sigmoid controls stay outside this interface.
+The Python production route and the run interface do not change.
+Nonzero-delta uniform preparation also remains outside the native stage interfaces.
+
+Each region gives bounds, a name, L/t and scalar kinds.
+Stripes use the first two bounds along x or y and retain stable sorting.
+Rectangles use x0/x1/y0/y1 and retain input order, overlaps and partial coverage.
+Assignment keeps the existing first-match rule and each layout's gap rule.
+The stage samples the requested grid, then the final physical grid.
+It projects raw L/t with transverse physical widths before it predicts row D-F.
+This order differs from the continuous field's local-coefficient route.
+
+Design porosity, solid conductivity, both fluid conductivities and both volumetric transfer fields retain the existing Gaussian smoothing.
+L/t, area density, hydraulic radius and zone IDs are not smoothed.
+Separate thermal porosity, area density and diameter come from the raw float64 L/t fields.
+The result owns copied region descriptions, per-region properties, physical fields, row drag, ports and ordered evidence.
+Only the outer result has an owner. Release it through the matching v5 function.
+
+A raw call starts with empty, bounded geometry and inlet-property caches.
+Equal keys retain the first successful scalar types and their completed range records.
+Material conductivity uses the current chi and solid conductivity on each call.
+This interface accepts the event-only v1 callback. It does not use the shared Python caches or their host hooks.
+The existing Python routes and every v1-v4 scope remain available.
+
 ## Python preparation adapter
 
 The public preparation, capacity and resolution entries use v3 or v4 for supported 2D inputs.
@@ -184,6 +212,8 @@ The [mass-flow preparation example](../examples/cpp/prepare_mass_2d.cpp) queries
 It also links only preparation and does not execute a solve.
 The [continuous preparation example](../examples/cpp/prepare_continuous_2d.cpp) starts with XY decisions and total flow.
 It exposes physical fields and local drag through v4, with only the preparation library.
+The [zoned preparation example](../examples/cpp/prepare_zoned_2d.cpp) starts with raw stripe bounds and per-region L/t.
+It returns prepared fields and row drag through v5, with only the preparation library.
 These examples use only installed public headers and shared libraries.
 The Windows build copies the required DLLs beside each executable.
 

@@ -178,6 +178,34 @@ struct PreparedCase2D {
     std::array<ScalarKind,5> field_kinds;
 };
 
+struct ZoneRegion2D {
+    std::string name;
+    // Stripes use bounds[0:2]; rectangles use x0,x1,y0,y1.
+    std::array<grid::Scalar,4> bounds{{{0.,64,0},{0.,64,0},{0.,64,0},{0.,64,0}}};
+    double cell_length_mm=0.,wall_thickness_mm=0.;
+    ScalarKind cell_kind,wall_kind;
+};
+struct ZonedInput2D {
+    CaseInput2D input;
+    std::uint32_t kind=0,axis=1;
+    std::vector<ZoneRegion2D> regions;
+};
+struct PreparedZone2D {
+    ZoneRegion2D region;
+    geometry::MaterialGeometry geometry;
+    std::array<UniformInletProperties,2> properties;
+    std::array<geometry::Geometry,2> property_geometry;
+    std::array<std::array<ScalarKind,13>,2> property_kinds;
+};
+struct PreparedZonedCase2D {
+    PreparedCase2D prepared;
+    std::uint32_t kind=0,axis=1;
+    std::vector<PreparedZone2D> regions;
+    std::vector<std::int32_t> zone_id;
+    std::vector<double> thermal_porosity,design_area_density;
+    std::array<std::vector<double>,2> volumetric_transfer;
+};
+
 struct InletFlowRequest2D {
     CaseInput2D input;
     ScalarKind physical_depth_kind;
@@ -214,6 +242,11 @@ public:
 PreparedCase2D prepare_case_2d(const CaseInput2D&,const PreparationOptions& = {},
                               const PreparationCallbacks& = {},
                               CaseScope = CaseScope::uniform_fluids_v2);
+
+// Raw stripes and rectangles retain their existing row-averaged CFD drag.
+// This entry accepts air/air, prescribed velocity and zero delta only.
+PreparedZonedCase2D prepare_zoned_case_2d(const ZonedInput2D&,
+    const PreparationOptions& = {},const PreparationCallbacks& = {});
 
 // These queries do not evaluate Nu or create a complete prepared case.
 InletFlow2D prepare_inlet_mass_capacities_2d(const CaseInput2D&,ScalarKind physical_depth_kind={},

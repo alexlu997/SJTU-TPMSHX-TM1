@@ -33,6 +33,9 @@ Preparation v2 adds all 16 ordered air/water/sCO2/CO2 pairs for uniform symmetri
 Preparation v3 adds independent capacity, inlet-flow resolution and complete preparation for uniform 2D total mass flow.
 It reuses the physical inlet grid and keeps preliminary records separate from final preparation evidence.
 Preparation v4 adds canonical continuous XY fields and full local drag.
+Preparation v5 adds raw air/air stripes and rectangles at prescribed velocity, CFD drag and zero delta.
+Its separate thermal geometry and row drag preserve the existing discrete rules.
+
 The Python preparation entries use v3/v4 for symmetric uniform and continuous 2D inputs.
 Nonzero-delta uniform, discrete zones, sigmoid and 3D keep their explicit existing routes.
 CaseData and saved-file contracts stay unchanged. Native failures propagate without another preparation route.

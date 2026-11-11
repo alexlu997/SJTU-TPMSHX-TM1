@@ -9,6 +9,7 @@
 #define TPMSHX_PREPARATION_CASE_ABI_VERSION_V2 2u
 #define TPMSHX_PREPARATION_CASE_ABI_VERSION_V3 3u
 #define TPMSHX_PREPARATION_CASE_ABI_VERSION_V4 4u
+#define TPMSHX_PREPARATION_CASE_ABI_VERSION_V5 5u
 
 typedef struct {
     int32_t direction;
@@ -287,6 +288,42 @@ typedef struct {
     void* owner;
 } tpmshx_preparation_continuous_case_2d_v4;
 
+
+typedef struct {
+    tpmshx_preparation_text_v1 name;
+    tpmshx_grid_scalar_v1 bounds[4];
+    double cell_length_mm,wall_thickness_mm;
+    tpmshx_preparation_scalar_kind_v2 cell_kind,wall_kind;
+} tpmshx_preparation_zone_region_v5;
+typedef struct {
+    uint32_t abi_version;
+    size_t struct_size;
+    tpmshx_preparation_case_input_2d_v2 values;
+    uint32_t kind,axis;
+    const tpmshx_preparation_zone_region_v5* regions;
+    size_t region_count;
+} tpmshx_preparation_zoned_input_2d_v5;
+typedef struct {
+    tpmshx_preparation_zone_region_v5 region;
+    tpmshx_preparation_geometry_cache_v3 geometry,property_geometry[2];
+    double solid_conductivity;
+    tpmshx_preparation_inlet_properties_v1 properties[2];
+    tpmshx_preparation_scalar_kind_v2 property_kinds[2][13];
+} tpmshx_preparation_zone_values_v5;
+typedef struct {
+    uint32_t abi_version;
+    size_t struct_size;
+    tpmshx_preparation_case_2d_v2 prepared;
+    uint32_t kind,axis;
+    const tpmshx_preparation_zone_values_v5* regions;
+    size_t region_count;
+    const int32_t* zone_id;
+    size_t cell_count;
+    tpmshx_preparation_array_v1 thermal_porosity,area_density_per_m,hydraulic_diameter_m,design_area_density_per_m;
+    tpmshx_preparation_array_v1 fluid_conductivity[2],volumetric_transfer[2];
+    void* owner;
+} tpmshx_preparation_zoned_case_2d_v5;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -415,6 +452,32 @@ TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_continuou
     tpmshx_preparation_continuous_flow_2d_v4*);
 TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_continuous_case_2d_release_v4(
     tpmshx_preparation_continuous_case_2d_v4*);
+
+
+/* V5 accepts raw stripes (kind=0) or rectangles (kind=1), geometry_mode=2.
+ * Values retain their v2/v1 versions. Axis 0=x, 1=y. Stripe bounds use the
+ * first two scalars. Rectangle bounds use x0,x1,y0,y1. Names and regions are
+ * borrowed for the call, then copied. Scalar kinds retain the first equal-key
+ * geometry/property result within the call. No host cache is read or changed.
+ * Stripes are stably sorted. Rectangle order stays unchanged. Existing first
+ * match and gap rules remain active. Row drag projects L/t before prediction.
+ * This entry accepts air/air, prescribed velocity, CFD drag and zero delta.
+ * It does not accept mass targets, sigmoid fields or host callback v2/v3.
+ * The v1 event callback is optional. All v2 failure/storage rules still apply.
+ * Design porosity, solid/fluid conductivity and transfer are smoothed. L/t,
+ * radius, design area density and zone IDs are not smoothed. Thermal porosity,
+ * area density and diameter come from the unsmoothed float64 L/t fields.
+ * All physical arrays use C order (nx,ny). Nested prepared owners are NULL.
+ * The prepared subview does not enable a zoned run through a v1/v2 run entry.
+ * Initialize the outer owner to NULL and release it once with this library.
+ */
+TPMSHX_PREPARATION_API uint32_t TPMSHX_PREPARATION_CALL tpmshx_preparation_case_abi_version_v5(void);
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_zoned_case_2d_v5(
+    const tpmshx_preparation_zoned_input_2d_v5*,const tpmshx_preparation_case_options_v1*,
+    const tpmshx_preparation_case_callbacks_v1*,tpmshx_preparation_zoned_case_2d_v5*,
+    tpmshx_preparation_case_failure_v2*,char*,size_t);
+TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_zoned_case_2d_release_v5(
+    tpmshx_preparation_zoned_case_2d_v5*);
 
 #ifdef __cplusplus
 }
