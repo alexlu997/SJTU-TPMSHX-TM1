@@ -57,6 +57,22 @@ typedef struct {
     tpmshx_full_2d_config_v2 resolved;
 } tpmshx_stage_run_result_2d_v1;
 
+/* Scalar values derived from the recorded main and fine thermal states.
+ * Index 0 is main; index 1 is fine. Unavailable entries are zero. */
+typedef struct {
+    uint32_t model_h_available[2],nu_available[2],pressure_available;
+    size_t model_h_cell_count[2];
+    double model_h_area_m2[2],nu_floor[2],nu_floor_fraction[2];
+    double pressure_min_Pa[2],pressure_max_Pa[2];
+    double q_net,absolute_duty[2],application_hv[2];
+    size_t pressure_clip_hits;
+    uint32_t have_finite_duty,red_black[2];
+} tpmshx_stage_capture_2d_v1;
+/* These are saved application properties, separate from thermal geometry. */
+typedef struct {
+    double area_density_per_m[2],surface_htc_W_m2K[2];
+} tpmshx_stage_application_2d_v1;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -93,6 +109,15 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_run_case_2d_v2(
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_run_case_2d_v3(
     const tpmshx_preparation_continuous_case_2d_v4*,const tpmshx_stage_run_request_2d_v2*,
     const tpmshx_stage_run_control_v1*,tpmshx_stage_run_result_2d_v1*,char*,size_t);
+/* Copy derived scalars from a live result created by this library.
+ * Application inputs retain the existing nonnegative check and IEEE arithmetic.
+ * Result, application and output storage must be disjoint. Failure preserves
+ * output. Status 1 means invalid input; status 5 means capture failure.
+ * No arrays or strings are owned by the copied summary. Existing raw evidence
+ * queries still supply the complete fields, histories and numerical ledgers. */
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_get_capture_v1(
+    const tpmshx_stage_run_result_2d_v1*,const tpmshx_stage_application_2d_v1*,
+    tpmshx_stage_capture_2d_v1*);
 TPMSHX_THERMAL_API void TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_release_v1(
     tpmshx_stage_run_result_2d_v1*);
 /* Supply exactly one preparation view: uniform v2 or continuous v4.

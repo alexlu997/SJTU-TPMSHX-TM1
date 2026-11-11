@@ -84,6 +84,22 @@ Existing one-shot interfaces retain their layouts and behavior.
 This interface does not replace the Python production checkpoint route or
 provide the complete `FieldResult` capture needed for that replacement.
 
+## Capture scalars
+
+`capture_summary(result, application)` returns copied scalars from the completed stage.
+It retains main and fine model-h area and cell counts, Nu floor observations,
+main thermal pressure limits, signed duty sum, absolute duties and pressure clip counts.
+The area and reductions reuse the existing result arithmetic, linked statically.
+The solver has no new shared result-library dependency.
+
+Supply the two saved application area densities and surface heat-transfer coefficients.
+They are separate from the solver's thermal geometry and final h_v fields.
+The query multiplies each pair after the existing nonnegative check.
+NaN, infinity and signed zero retain their existing arithmetic behavior.
+The copied summary owns no pointers and remains valid after result release.
+Use existing raw evidence queries for fields, histories and numerical ledgers.
+The Python production mapper and its historical-runtime route remain unchanged.
+
 ## Uniform total mass flow
 
 `FlowInput2D` selects stored per-side targets or an explicit pair of total targets.

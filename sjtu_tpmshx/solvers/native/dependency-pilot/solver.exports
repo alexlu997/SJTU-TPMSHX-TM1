@@ -78,4 +78,5 @@ _tpmshx_stage_run_2d_phase_v1
 _tpmshx_stage_run_2d_snapshot_v1
 _tpmshx_stage_run_2d_take_result_v1
 _tpmshx_stage_run_2d_release_run_v1
+_tpmshx_stage_run_2d_get_capture_v1
 _tpmshx_stage_run_2d_release_v1

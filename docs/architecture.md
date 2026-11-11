@@ -103,6 +103,8 @@ Its lifecycle interface uses the same full 2D run object, typed snapshots and re
 Partial energy controls use defaults from the selected library.
 Preparation evidence remains borrowed until result transfer or run release.
 `stage_capture_2d.cpp` records the actual run evidence for `result_stage.cpp`.
+Its scalar capture query reuses static result arithmetic and separate saved application properties.
+The existing raw result remains the owner of fields, histories and numerical ledgers.
 The installed C ABI and `stages.hpp` support external C++ callers.
 Current Python entry points retain their existing behavior and all supported modes.
 The migration gates must pass before their numerical and policy bodies can retire.
