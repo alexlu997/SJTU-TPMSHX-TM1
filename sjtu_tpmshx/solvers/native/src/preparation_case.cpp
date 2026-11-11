@@ -15,6 +15,7 @@
 #include <locale>
 #include <sstream>
 #include <stdexcept>
+#include <string_view>
 #include <utility>
 
 namespace tpmshx::preparation {
@@ -84,11 +85,35 @@ const char* fluid_name(Fluid fluid) {
 bool co2_geometry(const CaseInput2D& input) {
     return input.sides[0].fluid==Fluid::co2 || input.sides[1].fluid==Fluid::co2;
 }
+ScalarKind solid_result_kind(const CaseInput2D& input) {
+    if (co2_geometry(input)) return numpy_double;
+    const auto kind=input.kinds.solid_conductivity;
+    // Standard geometry converts a zero-dimensional material array to a Python float.
+    return kind.layout==2?ScalarKind{}:kind;
+}
 g::Scalar scalar(double value,ScalarKind kind) {
     if (kind.strong>1 || kind.layout>2 || (!kind.strong && (kind.precision!=64 || kind.layout))
         || (kind.strong && !kind.layout))
         throw std::invalid_argument("preparation scalar tags must follow the property scalar contract");
     return g::checked({value,kind.precision,kind.strong});
+}
+bool blank_text(std::string_view text) {
+    // Python strips these Unicode spaces and the listed ASCII controls.
+    constexpr std::array<std::string_view,19> spaces{{
+        "\xC2\x85","\xC2\xA0","\xE1\x9A\x80","\xE2\x80\x80","\xE2\x80\x81",
+        "\xE2\x80\x82","\xE2\x80\x83","\xE2\x80\x84","\xE2\x80\x85","\xE2\x80\x86",
+        "\xE2\x80\x87","\xE2\x80\x88","\xE2\x80\x89","\xE2\x80\x8A","\xE2\x80\xA8",
+        "\xE2\x80\xA9","\xE2\x80\xAF","\xE2\x81\x9F","\xE3\x80\x80"}};
+    while (!text.empty()) {
+        const auto first=static_cast<unsigned char>(text.front());
+        if ((first>=9 && first<=13) || (first>=28 && first<=32)) {text.remove_prefix(1);continue;}
+        const auto found=std::find_if(spaces.begin(),spaces.end(),[&](auto space) {
+            return text.substr(0,space.size())==space;
+        });
+        if (found==spaces.end()) return false;
+        text.remove_prefix(found->size());
+    }
+    return true;
 }
 void validate_nu(const Sco2NuSelection& selected) {
     if (selected.mode>1) throw std::invalid_argument("unsupported sCO2 Nu mode");
@@ -100,7 +125,7 @@ void validate_nu(const Sco2NuSelection& selected) {
     }
     const std::array<std::pair<const char*,const std::string*>,3> texts{{
         {"parameter_version",&selected.parameter_version},{"source",&selected.source},{"applicability",&selected.applicability}}};
-    for (const auto& text:texts) if (selected.mode && text.second->find_first_not_of(" \t\n\r\f\v")==std::string::npos)
+    for (const auto& text:texts) if (selected.mode && blank_text(*text.second))
         throw std::invalid_argument(std::string("sCO2 Nu requires ")+text.first);
 }
 std::pair<DfSelection,DfPair> experiment_selection(const CaseInput2D& input,const InletInput2D& inlet,
@@ -171,11 +196,15 @@ PortInput2D checked_port(PortInput2D port,const GridInput2D& grid,const std::str
     return port;
 }
 
-std::array<InletInput2D,2> validate(const CaseInput2D& input) {
+std::array<InletInput2D,2> validate(const CaseInput2D& input,CaseScope scope) {
     if (input.geometry_mode!=0)
         throw std::invalid_argument("native 2D preparation currently requires uniform geometry");
-    validate_nu(input.sco2_nu);
-    if (input.df_mode>1) throw std::invalid_argument("native 2D preparation DF mode must be CFD or experimental");
+    if (scope==CaseScope::air_cfd_v1) {
+        if (input.df_mode) throw std::invalid_argument("native 2D preparation currently requires df_mode='cfd_smooth'");
+    } else {
+        validate_nu(input.sco2_nu);
+        if (input.df_mode>1) throw std::invalid_argument("native 2D preparation DF mode must be CFD or experimental");
+    }
     const auto& geometry=input.geometry;
     positive(input.grid.length_m,"geometry.L_dom_m");
     positive(input.grid.height_m,"geometry.H_dom_m");
@@ -200,7 +229,7 @@ std::array<InletInput2D,2> validate(const CaseInput2D& input) {
     if (geometry.cell_length_mm<df_data::df_L_nodes.front() || geometry.cell_length_mm>df_data::df_L_nodes.back()
         || geometry.wall_thickness_mm<df_data::df_t_nodes.front() || geometry.wall_thickness_mm>df_data::df_t_nodes.back())
         throw std::invalid_argument("V2 geometry must lie inside the CFD grid: 4 <= L <= 8 mm, 0.3 <= t <= 0.6 mm");
-    for (std::size_t side=0;side<2;++side) if (sides[side].fluid==Fluid::sco2) {
+    for (std::size_t side=0;side<2;++side) if (scope==CaseScope::uniform_fluids_v2 && sides[side].fluid==Fluid::sco2) {
         const auto& inlet=sides[side];
         if (!(data::sco2_temperature_range[0]<=inlet.temperature_K && inlet.temperature_K<=data::sco2_temperature_range[1]))
             throw PreparationError(1,std::string("sCO2 fluid ")+(side?"B":"A")+" temperature must be 280..700 K",1,
@@ -210,10 +239,12 @@ std::array<InletInput2D,2> validate(const CaseInput2D& input) {
                                    static_cast<std::uint32_t>(side));
         if (geometry.delta_levelset!=0.) throw std::invalid_argument("sCO2 V2 requires delta_levelset=0");
     }
-    if (co2_geometry(input) && geometry.delta_levelset!=0.)
+    if (scope==CaseScope::uniform_fluids_v2 && co2_geometry(input) && geometry.delta_levelset!=0.)
         throw std::invalid_argument("CO2 requires symmetric delta_levelset=0 geometry");
     for (std::size_t side=0;side<2;++side)
         positive(sides[side].velocity_m_s,std::string("fluid_")+(side?"B":"A")+".u_mps");
+    if (scope==CaseScope::air_cfd_v1) for (const auto& side:sides) if (side.fluid!=Fluid::air)
+        throw std::invalid_argument("native 2D preparation currently supports air/air only");
     for (const auto& side:sides) fluid_name(side.fluid);
     if (input.df_mode) for (std::size_t side=0;side<2;++side) if (sides[side].fluid!=Fluid::co2) {
         const auto selected=experiment_selection(input,sides[side],side).first;
@@ -560,7 +591,7 @@ UniformInletProperties inlet_properties(const CaseInput2D& input,const InletInpu
     result=pore_conductivity(operand(epsilon_a,co2_geometry(input)?numpy_double:ScalarKind{}),operand(output.k_f));
     records.floating(result.events);output.fluid_conductivity_W_mK=result.values.front();output_kinds[11]=result_kind(result);
     output.solid_conductivity_W_mK=geometry.solid_conductivity;
-    output_kinds[12]=co2_geometry(input)?numpy_double:input.kinds.solid_conductivity;
+    output_kinds[12]=solid_result_kind(input);
     return output;
 }
 
@@ -639,9 +670,9 @@ void model_evidence(const CaseInput2D& input,PreparationEvidence& evidence) {
 }  // namespace
 
 PreparedCase2D prepare_case_2d(const CaseInput2D& input,const PreparationOptions& options,
-                              const PreparationCallbacks& callbacks) {
+                              const PreparationCallbacks& callbacks,CaseScope scope) {
     FloatingEnvironment floating_environment;
-    const auto inlets=validate(input);
+    const auto inlets=validate(input,scope);
     PreparedCase2D output{};output.input=input;output.options=options;
     Records records{output.evidence,callbacks,{},{}};
     const auto& model=input.geometry;
@@ -695,7 +726,7 @@ PreparedCase2D prepare_case_2d(const CaseInput2D& input,const PreparationOptions
     output.solid_conductivity.assign(cells,output.uniform_geometry.solid_conductivity);
     output.hydraulic_radius.assign(cells,output.hydraulic_radius_m);
     output.field_kinds={input.kinds.cell_length,input.kinds.wall_thickness,ScalarKind{},
-                        co2?numpy_double:input.kinds.solid_conductivity,numpy_double};
+                        solid_result_kind(input),numpy_double};
     model_evidence(input,output.evidence);
     const std::vector<std::size_t> shape{output.grid.nx,output.grid.ny};
     records.range({"geometry","L_field_m"},"shared","prepared-geometry","physical-cell","fixed geometry domain","cell length","mm",

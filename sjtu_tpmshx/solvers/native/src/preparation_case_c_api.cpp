@@ -244,11 +244,7 @@ extern "C" int TPMSHX_PREPARATION_CALL tpmshx_prepare_case_2d_v1(
         const p::PreparationCallbacks sink{callbacks && callbacks->event?emit:nullptr,
                                           const_cast<tpmshx_preparation_case_callbacks_v1*>(callbacks)};
         try {
-            if (source->geometry_mode) throw std::invalid_argument("native 2D preparation currently requires uniform geometry");
-            if (source->df_mode) throw std::invalid_argument("native 2D preparation currently requires df_mode='cfd_smooth'");
-            for (const auto& side:source->sides) if (side.fluid)
-                throw std::invalid_argument("native 2D preparation currently supports air/air only");
-            auto owner=std::make_unique<Owner>(p::prepare_case_2d(input(*source),options(selected),sink));
+            auto owner=std::make_unique<Owner>(p::prepare_case_2d(input(*source),options(selected),sink,p::CaseScope::air_cfd_v1));
             const auto prepared=view(*owner,*source);*result=prepared;owner.release();
         } catch (const p::PreparationError& failure) {
             throw p::c_api::StateError(failure.status,failure.what());

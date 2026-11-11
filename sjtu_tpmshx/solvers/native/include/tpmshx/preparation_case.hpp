@@ -65,6 +65,8 @@ struct PreparationOptions {
     std::optional<double> chi_override;
     bool allow_extrapolation=false;
 };
+// Keep each C interface's scope checks in the shared validation order.
+enum class CaseScope { air_cfd_v1, uniform_fluids_v2 };
 
 struct PhysicalGrid2D {
     std::size_t nx=0,ny=0;
@@ -163,6 +165,7 @@ public:
 // Physical cell fields use C order (x,y). Flow fields use (cross,stream).
 // This entry supports uniform symmetric fluids at prescribed velocity.
 PreparedCase2D prepare_case_2d(const CaseInput2D&,const PreparationOptions& = {},
-                              const PreparationCallbacks& = {});
+                              const PreparationCallbacks& = {},
+                              CaseScope = CaseScope::uniform_fluids_v2);
 
 }  // namespace tpmshx::preparation
