@@ -1057,11 +1057,16 @@ void validate_zone_bounds(const ZonedInput2D& request) {
     if (request.regions.empty()) throw std::invalid_argument("Enabled grid zones require non-empty grid cells");
     for (std::size_t i=0;i<request.regions.size();++i) for (std::size_t axis=0;axis<2;++axis) {
         const auto& values=request.regions[i].bounds;
-        const auto start=values[2*axis].value,end=values[2*axis+1].value;
-        if (!(std::isfinite(start) && std::isfinite(end) && 0.<=start && start<end && end<=1.))
+        const auto start=values[2*axis],end=values[2*axis+1];
+        if (!(std::isfinite(start.value) && std::isfinite(end.value)
+            && !g::less(start,g::weak(0.)) && g::less(start,end) && !g::less(g::weak(1.),end)))
             throw std::invalid_argument("Zone grid cell "+std::to_string(i+1)+": "+(axis?"y":"x")+
                 " coordinates must be finite and satisfy 0 <= start < end <= 1");
     }
+}
+bool exceeds_zone_tolerance(g::Scalar value) {
+    value.value=std::abs(value.value);
+    return g::less(g::weak(1e-9),value);
 }
 void sort_stripes(std::vector<ZoneRegion2D>& regions) {
     if (regions.empty()) throw std::invalid_argument("At least one zone is required");
@@ -1069,23 +1074,24 @@ void sort_stripes(std::vector<ZoneRegion2D>& regions) {
         if (!std::isfinite(row.bounds[0].value) || !std::isfinite(row.bounds[1].value))
             throw std::invalid_argument("Zone '"+row.name+"': endpoints must be finite");
     std::stable_sort(regions.begin(),regions.end(),[](const auto& a,const auto& b) {
-        return a.bounds[0].value<b.bounds[0].value;
+        return g::less(a.bounds[0],b.bounds[0]);
     });
-    if (std::abs(regions.front().bounds[0].value)>1e-9)
+    if (exceeds_zone_tolerance(regions.front().bounds[0]))
         throw std::invalid_argument("First zone must start at 0, got "+decimal(regions.front().bounds[0].value));
-    if (std::abs(regions.back().bounds[1].value-1.)>1e-9)
+    if (exceeds_zone_tolerance(g::subtract(regions.back().bounds[1],g::weak(1.))))
         throw std::invalid_argument("Last zone must end at 1.0, got "+decimal(regions.back().bounds[1].value));
     for (std::size_t i=0;i+1<regions.size();++i)
-        if (std::abs(regions[i].bounds[1].value-regions[i+1].bounds[0].value)>1e-9)
+        if (exceeds_zone_tolerance(g::subtract(regions[i].bounds[1],regions[i+1].bounds[0])))
             throw std::invalid_argument("Gap/overlap between zone '"+regions[i].name+"' (end="+
                 decimal(regions[i].bounds[1].value)+") and '"+regions[i+1].name+"' (start="+
                 decimal(regions[i+1].bounds[0].value)+")");
     for (const auto& row:regions) {
-        if (row.bounds[1].value<=row.bounds[0].value)
+        if (!g::less(row.bounds[0],row.bounds[1]))
             throw std::invalid_argument("Zone '"+row.name+"': end <= start");
-        if (!(1.<=row.cell_length_mm && row.cell_length_mm<=20.))
+        const auto cell=scalar(row.cell_length_mm,row.cell_kind),wall=scalar(row.wall_thickness_mm,row.wall_kind);
+        if (std::isnan(cell.value) || g::less(cell,g::weak(1.)) || g::less(g::weak(20.),cell))
             throw std::invalid_argument("Zone '"+row.name+"': L_mm="+decimal(row.cell_length_mm)+" outside [1, 20]");
-        if (!(.1<=row.wall_thickness_mm && row.wall_thickness_mm<=2.))
+        if (std::isnan(wall.value) || g::less(wall,g::weak(.1)) || g::less(g::weak(2.),wall))
             throw std::invalid_argument("Zone '"+row.name+"': t_mm="+decimal(row.wall_thickness_mm)+" outside [0.1, 2.0]");
     }
 }

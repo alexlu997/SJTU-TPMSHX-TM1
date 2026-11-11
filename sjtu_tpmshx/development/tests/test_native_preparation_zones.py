@@ -356,3 +356,61 @@ def test_native_zoned_borrowed_storage_cannot_overlap_outputs(native, borrowed, 
         ct.byref(failure), error, len(error))
     assert status == 1
     assert [bytes(value) for value in (source, result, failure, error)] == before
+
+
+@pytest.mark.parametrize('mode', ['x', 'y'])
+@pytest.mark.parametrize('dtype', [np.float16, np.float32])
+@pytest.mark.parametrize('strong_end', [False, True])
+@pytest.mark.parametrize('reverse', [False, True])
+def test_native_zoned_mixed_bound_gap_preserves_scalar_types(native, monkeypatch, mode, dtype, strong_end, reverse):
+    config = _config(mode)
+    first, last = config.zones.config.zones
+    first.y_frac_end, last.y_frac_start = ((dtype(.5), .500000005) if strong_end
+                                          else (.500000005, dtype(.5)))
+    if reverse:
+        config.zones.config.zones.reverse()
+    _full(native, monkeypatch, config)
+
+
+@pytest.mark.parametrize('mode', ['x', 'y'])
+@pytest.mark.parametrize('dtype', [np.float16, np.float32])
+@pytest.mark.parametrize('change', ['sort-tie', 'narrow', 'strong-gap', 'wall-limit', 'nan-cell', 'nan-wall'])
+def test_native_zoned_typed_stripe_failure_matches_reference(native, monkeypatch, mode, dtype, change):
+    config = _config(mode)
+    if change == 'sort-tie':
+        config.zones.config.zones = [Zone('first', 0., dtype(.5), 7., .4),
+            Zone('weak', .500000005, 1., 6., .5), Zone('strong', dtype(.5), 1., 6., .5)]
+    elif change == 'narrow':
+        config.zones.config.zones = [Zone('first', 0., dtype(.5), 7., .4),
+            Zone('narrow', dtype(.5), .500000005, 6., .5), Zone('last', .500000005, 1., 6., .5)]
+    elif change == 'strong-gap':
+        first, last = config.zones.config.zones
+        first.y_frac_end, last.y_frac_start = dtype(.5), np.float64(.500000005)
+    elif change == 'wall-limit':
+        config.zones.config.zones[0].t_mm = dtype(.1)
+    elif change == 'nan-cell':
+        config.zones.config.zones[0].L_mm = dtype(np.nan)
+    else:
+        config.zones.config.zones[0].t_mm = dtype(np.nan)
+    with pytest.raises(ValueError) as reference:
+        v3._reference(monkeypatch, 'prepare_flow_case', config)
+    status, result, failure, error, _, _ = _call(native, config)
+    assert status == 1 and failure.kind == 1
+    assert error == str(reference.value)
+    assert bytes(result) == bytes(_Result(5, ct.sizeof(_Result)))
+
+
+@pytest.mark.parametrize('axis', ['x', 'y'])
+@pytest.mark.parametrize('dtype', [np.float16, np.float32])
+@pytest.mark.parametrize('strong_end', [False, True])
+def test_native_zoned_typed_rectangle_order_matches_reference(native, monkeypatch, axis, dtype, strong_end):
+    config = _config('grid')
+    first = config.zones.grid['cells'][0]
+    first[axis + '0'], first[axis + '1'] = ((.499999995, dtype(.5)) if strong_end
+                                          else (dtype(.5), .500000005))
+    with pytest.raises(ValueError) as reference:
+        v3._reference(monkeypatch, 'prepare_flow_case', config)
+    status, result, failure, error, _, _ = _call(native, config)
+    assert status == 1 and failure.kind == 1
+    assert error == str(reference.value)
+    assert bytes(result) == bytes(_Result(5, ct.sizeof(_Result)))
