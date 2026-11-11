@@ -4,6 +4,7 @@
 #include "tpmshx/preparation_case_c_api.h"
 
 #define TPMSHX_PREPARATION_CASE_3D_ABI_VERSION 1u
+#define TPMSHX_PREPARATION_FLOW_3D_ABI_VERSION 2u
 
 typedef struct {
     uint32_t fluid;
@@ -55,6 +56,31 @@ typedef struct {
     void* owner;
 } tpmshx_preparation_case_3d_v1;
 
+typedef struct {
+    uint32_t abi_version;
+    size_t struct_size;
+    tpmshx_preparation_case_input_3d_v1 input;
+    tpmshx_preparation_scalar_kind_v2 target_kinds[2];
+    uint32_t have_explicit_targets;
+    double explicit_targets_kg_s[2];
+} tpmshx_preparation_flow_input_3d_v2;
+typedef struct {
+    uint32_t abi_version;
+    size_t struct_size;
+    tpmshx_preparation_case_input_3d_v1 input;
+    uint32_t have_capacities;
+    tpmshx_grid_scalar_v1 capacities[2],speeds[2];
+    tpmshx_preparation_flow_evidence_v3 evidence;
+    void* owner;
+} tpmshx_preparation_flow_3d_v2;
+typedef struct {
+    uint32_t abi_version;
+    size_t struct_size;
+    tpmshx_preparation_case_3d_v1 prepared;
+    tpmshx_preparation_flow_3d_v2 flow;
+    void* owner;
+} tpmshx_preparation_flow_case_3d_v2;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -76,6 +102,28 @@ TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_case_3d_v1(
     tpmshx_preparation_case_failure_v2*,char*,size_t);
 TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_case_3d_release_v1(
     tpmshx_preparation_case_3d_v1*);
+/* Capacity queries ignore old speeds and do not evaluate Nu or velocity windows.
+ * Explicit targets replace both configured mass inputs. Resolution without a
+ * target copies the input without physical preparation. Complete preparation
+ * reuses the same geometry and records static evidence before speed checks.
+ * Nested views in the combined result are borrowed and have NULL owners.
+ * All calls retain the v1 storage, callback and same-library release rules.
+ */
+TPMSHX_PREPARATION_API uint32_t TPMSHX_PREPARATION_CALL tpmshx_preparation_flow_3d_abi_version_v2(void);
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_inlet_mass_capacities_3d_v2(
+    const tpmshx_preparation_flow_input_3d_v2*,const tpmshx_preparation_case_options_v1*,
+    const tpmshx_preparation_case_callbacks_v1*,tpmshx_preparation_flow_3d_v2*,
+    tpmshx_preparation_case_failure_v2*,char*,size_t);
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_resolve_inlet_flow_3d_v2(
+    const tpmshx_preparation_flow_input_3d_v2*,const tpmshx_preparation_case_options_v1*,
+    const tpmshx_preparation_case_callbacks_v1*,tpmshx_preparation_flow_3d_v2*,
+    tpmshx_preparation_case_failure_v2*,char*,size_t);
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_flow_case_3d_v2(
+    const tpmshx_preparation_flow_input_3d_v2*,const tpmshx_preparation_case_options_v1*,
+    const tpmshx_preparation_case_callbacks_v1*,tpmshx_preparation_flow_case_3d_v2*,
+    tpmshx_preparation_case_failure_v2*,char*,size_t);
+TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_flow_3d_release_v2(tpmshx_preparation_flow_3d_v2*);
+TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_flow_case_3d_release_v2(tpmshx_preparation_flow_case_3d_v2*);
 #ifdef __cplusplus
 }
 #endif

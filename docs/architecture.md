@@ -106,7 +106,9 @@ It supports both topologies and all 16 fluid pairs with existing CFD or experime
 The owned state retains physical `(x,y,z)` fields, typed ports, axis maps for six directions and model evidence.
 Side porosity is already split. Base K/cF fields remain unscaled; side evidence retains the application factors.
 The host supplies the resolved cell cap. This interface uses v1 event callbacks without host cache hooks.
-3D run/capture integration, total mass-flow preparation and spatial/asymmetric preparation remain separate gates.
+The separate 3D flow v2 reuses that geometry for capacity, flow resolution and complete preparation.
+It integrates side porosity on the actual inlet face and keeps static evidence before resolved-speed checks.
+3D run/capture integration and spatial/asymmetric preparation remain separate gates.
 Memory use near the cell cap and real 3D BO also need separate acceptance.
 Python preparation uses the owned v3/v4 stages for symmetric uniform and canonical continuous XY 2D inputs.
 Nonzero-delta uniform, discrete zones, sigmoid and 3D retain explicit existing routes.

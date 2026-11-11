@@ -29,4 +29,7 @@ The sequence keeps A then B inlet properties, air-only bulk Nu observations,
 then DF application evidence. Existing state and calibration limits remain.
 The raw C interface owns returned buffers and accepts v1 event callbacks.
 Python production preparation and its host cache hooks remain separate consumers.
-This interface adds no 3D solve, capture, mass-flow or spatial/asymmetric preparation.
+The separate 3D flow v2 uses the same static geometry and speed-dependent finish steps.
+It reuses `inlet_capacity_3d` and `inlet_speed` from `preparation_flow.cpp`.
+Capacity queries omit speed-dependent work. Complete preparation preserves one geometry and the original evidence order.
+These interfaces add no 3D solve, capture or spatial/asymmetric preparation.

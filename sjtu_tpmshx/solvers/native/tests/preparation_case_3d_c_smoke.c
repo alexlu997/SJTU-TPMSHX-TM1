@@ -31,13 +31,14 @@ int main(void) {
         input.kinds.sides[i].velocity=input.kinds.sides[i].temperature=input.kinds.sides[i].pressure=weak;
         input.sides[i].velocity_m_s=5.;input.sides[i].temperature_K=i?300.:400.;input.sides[i].pressure_Pa=101325.;
     }
-    input.sides[1].port.direction=5;
+    input.sides[1].port.direction=5;input.sides[0].mass_flow_kg_s=123.;
     input.sco2_nu.source.data=source;input.sco2_nu.source.size=strlen(source);original=input;
     CHECK(tpmshx_preparation_case_3d_abi_version_v1()==1);
     CHECK(!tpmshx_prepare_case_3d_v1(&input,&options,NULL,&output,&failure,error,sizeof(error)));
     CHECK(!failure.kind && output.owner && !memcmp(&input,&original,sizeof(input)));
     CHECK(output.cell_length.size==120 && output.sides[1].inlet_opening.size==30 && output.sides[1].axes[6]==1);
     CHECK(output.geometry.epsilon_a==output.side_porosity.data[0] && isfinite(output.solid_conductivity.data[0]));
+    CHECK(!output.input.sides[0].have_mass_flow && output.input.sides[0].mass_flow_kg_s==123.);
     CHECK(output.input.sco2_nu.source.data!=source);source[0]='X';
     CHECK(!memcmp(output.input.sco2_nu.source.data,"source",6));before=output;
     CHECK(tpmshx_prepare_case_3d_v1(&input,&options,NULL,&output,&failure,error,sizeof(error))==1);
@@ -56,6 +57,57 @@ int main(void) {
         (tpmshx_preparation_case_failure_v2*)&output,error,sizeof(error))==1);
     CHECK(!memcmp(&before,&output,sizeof(output)) && !memcmp(error,saved_error,sizeof(error)));
     CHECK(!memcmp(&failure,&saved_failure,sizeof(failure)));
+    {
+        tpmshx_preparation_flow_input_3d_v2 request={0},saved_request;
+        tpmshx_preparation_flow_3d_v2 flow={0},saved_flow;
+        tpmshx_preparation_flow_case_3d_v2 combined={0},saved_combined;
+        request.abi_version=flow.abi_version=combined.abi_version=2;
+        request.struct_size=sizeof(request);flow.struct_size=sizeof(flow);combined.struct_size=sizeof(combined);
+        request.input=original;request.input.sides[0].velocity_m_s=NAN;request.input.sides[1].velocity_m_s=-99.;
+        request.target_kinds[0]=request.target_kinds[1]=weak;saved_request=request;
+        CHECK(tpmshx_preparation_flow_3d_abi_version_v2()==2);
+        CHECK(!tpmshx_prepare_inlet_mass_capacities_3d_v2(&request,&options,NULL,&flow,&failure,error,sizeof(error)));
+        CHECK(flow.have_capacities && flow.owner && !memcmp(&request,&saved_request,sizeof(request)));
+        CHECK(flow.capacities[0].value>0. && flow.capacities[1].value>0.);
+        request.have_explicit_targets=1;
+        for (i=0;i<2;++i) {
+            request.explicit_targets_kg_s[i]=flow.capacities[i].value*5.;
+            request.input.sides[i].have_mass_flow=1;request.input.sides[i].mass_flow_kg_s=-1.;
+        }
+        tpmshx_preparation_flow_3d_release_v2(&flow);CHECK(!flow.owner && !flow.struct_size);
+        flow.abi_version=2;flow.struct_size=sizeof(flow);
+        CHECK(!tpmshx_resolve_inlet_flow_3d_v2(&request,&options,NULL,&flow,&failure,error,sizeof(error)));
+        CHECK(!tpmshx_prepare_flow_case_3d_v2(&request,&options,NULL,&combined,&failure,error,sizeof(error)));
+        CHECK(combined.owner && !combined.flow.owner && !combined.prepared.owner && combined.prepared.cell_length.size==120);
+        for (i=0;i<2;++i) {
+            CHECK(combined.prepared.input.sides[i].velocity_m_s==flow.speeds[i].value);
+            CHECK(!combined.prepared.input.sides[i].have_mass_flow && !combined.flow.input.sides[i].have_mass_flow);
+        }
+        saved_combined=combined;
+        CHECK(tpmshx_prepare_flow_case_3d_v2(&request,&options,NULL,&combined,&failure,error,sizeof(error))==1);
+        CHECK(!memcmp(&combined,&saved_combined,sizeof(combined)));
+        tpmshx_preparation_flow_case_3d_release_v2(&combined);
+        tpmshx_preparation_flow_case_3d_release_v2(&combined);tpmshx_preparation_flow_case_3d_release_v2(NULL);
+        tpmshx_preparation_flow_3d_release_v2(&flow);tpmshx_preparation_flow_3d_release_v2(NULL);
+        flow.abi_version=2;flow.struct_size=sizeof(flow);saved_flow=flow;
+        request=saved_request;request.input.lengths_m[0].value=-1.;
+        CHECK(!tpmshx_resolve_inlet_flow_3d_v2(&request,&options,NULL,&flow,&failure,error,sizeof(error)));
+        CHECK(!flow.have_capacities && flow.input.lengths_m[0].value==-1. && isnan(flow.input.sides[0].velocity_m_s));
+        CHECK(flow.input.sco2_nu.source.data!=source);
+        tpmshx_preparation_flow_3d_release_v2(&flow);flow=saved_flow;
+        request=saved_request;request.have_explicit_targets=1;request.explicit_targets_kg_s[0]=-1.;
+        CHECK(tpmshx_resolve_inlet_flow_3d_v2(&request,&options,NULL,&flow,&failure,error,sizeof(error))==1);
+        CHECK(strstr(error,"mass_flow_A_kg_s") && !memcmp(&flow,&saved_flow,sizeof(flow)));
+        saved_request=request;saved_failure=failure;
+        CHECK(tpmshx_resolve_inlet_flow_3d_v2(&request,&options,NULL,&flow,&failure,
+            (char*)&request,sizeof(request))==1);
+        CHECK(!memcmp(&request,&saved_request,sizeof(request)) && !memcmp(&failure,&saved_failure,sizeof(failure)));
+        CHECK(!memcmp(&flow,&saved_flow,sizeof(flow)));
+        combined.abi_version=2;combined.struct_size=sizeof(combined);saved_combined=combined;
+        request.explicit_targets_kg_s[0]=request.explicit_targets_kg_s[1]=1e-15;calls=0;
+        CHECK(tpmshx_prepare_flow_case_3d_v2(&request,&options,&callback,&combined,&failure,error,sizeof(error))==3);
+        CHECK(calls==1 && failure.kind==3 && !memcmp(&combined,&saved_combined,sizeof(combined)));
+    }
     puts("3D preparation C ownership and failure checks passed");
     return 0;
 }

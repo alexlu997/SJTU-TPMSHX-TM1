@@ -236,6 +236,22 @@ struct PreparedFlowCase2D {
     InletFlow2D flow;
 };
 
+struct InletFlowRequest3D {
+    CaseInput3D input;
+    std::array<ScalarKind,2> target_kinds;
+    std::optional<std::array<double,2>> explicit_targets;
+};
+struct InletFlow3D {
+    CaseInput3D input;
+    bool have_capacities=false;
+    std::array<grid::Scalar,2> capacities{},speeds{};
+    PreparationEvidence evidence;
+};
+struct PreparedFlowCase3D {
+    PreparedCase3D prepared;
+    InletFlow3D flow;
+};
+
 struct PreparationFailureCause {std::uint32_t kind;std::string message;};
 class PreparationError : public std::runtime_error {
 public:
@@ -258,6 +274,14 @@ PreparedCase2D prepare_case_2d(const CaseInput2D&,const PreparationOptions& = {}
 // The 3D stage owns physical (x,y,z) fields and unswapped physical port masks.
 PreparedCase3D prepare_case_3d(const CaseInput3D&,const PreparationOptions& = {},
                               const PreparationCallbacks& = {});
+
+InletFlow3D prepare_inlet_mass_capacities_3d(const CaseInput3D&,
+    const PreparationOptions& = {},const PreparationCallbacks& = {});
+InletFlow3D resolve_inlet_flow_3d(const InletFlowRequest3D&,
+    const PreparationOptions& = {},const PreparationCallbacks& = {});
+// Final evidence retains static-property records before resolved-speed checks.
+PreparedFlowCase3D prepare_flow_case_3d(const InletFlowRequest3D&,
+    const PreparationOptions& = {},const PreparationCallbacks& = {});
 
 // These queries do not evaluate Nu or create a complete prepared case.
 InletFlow2D prepare_inlet_mass_capacities_2d(const CaseInput2D&,ScalarKind physical_depth_kind={},
