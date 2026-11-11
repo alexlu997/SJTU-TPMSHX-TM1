@@ -799,7 +799,7 @@ Gates energy_gates(const ResultEvidence& result) {
     if (need(result.metadata_dimension, "dimension") == 2) {
         record(result, "metadata.diagnostics");
         if (result.model_certificate_error) throw Missing(*result.model_certificate_error);
-        if (result.model_certificates.empty()) throw Missing("'model_h_balance'");
+        if (result.model_certificates.empty() && !result.model_certificates_recorded) throw Missing("'model_h_balance'");
         Gates gates;
         auto levels = result.model_certificate_order;
         if (levels.empty()) for (const auto& row : result.model_certificates) levels.push_back(row.first);
@@ -966,12 +966,11 @@ Qualification evaluate_qualification(const ResultEvidence& result, const std::ma
     const Truth completed = result.execution ? Truth(*result.execution == "completed") : Truth{};
     out.execution = verdict(completed, "run_status.execution", {{"state", nullable(result.execution)}});
     Object gates, raw_fields, pressure_states;
-    std::vector<Truth> convergence_values{result.converged.qualified()}, raw_values;
+    std::vector<Truth> raw_values;
     for (const auto& name : {"simple_ok", "ltne_ok", "outer_converged", "fields_finite", "envelope_ok", "richardson_ok"}) {
         const auto found = result.convergence_gates.find(name);
         if (found != result.convergence_gates.end()) {
             gates.emplace(name, found->second.recorded);
-            if (found->second.value) convergence_values.push_back(found->second.qualified());
         }
     }
     auto field_names = result.field_order;
@@ -987,12 +986,24 @@ Qualification evaluate_qualification(const ResultEvidence& result, const std::ma
     }
     for (const auto& field : raw_fields)
         raw_values.push_back(std::holds_alternative<bool>(field.second.value) ? Truth(std::get<bool>(field.second.value)) : Truth{});
-    convergence_values.push_back(all_known(raw_values));
+    Truth convergence_passed = true;
+    const auto consume = [&](const TruthEvidence& value) {
+        if (convergence_passed == false) return;
+        const auto checked = value.qualified();
+        if (checked != true) convergence_passed = checked;
+    };
+    consume(result.converged);
+    const auto raw_passed = all_known(raw_values);
+    consume(raw_passed ? TruthEvidence(*raw_passed) : TruthEvidence{});
+    for (const auto& gate : gates) {
+        const auto& value = result.convergence_gates.at(gate.first);
+        if (value.value) consume(value);
+    }
     for (std::size_t side = 0; side < 2; ++side) if (result.pressure[side]) {
         const auto found = result.field_metadata.find("P_report_" + side_name(side));
         pressure_states.emplace(side_name(side), found == result.field_metadata.end() ? Report() : nullable(found->second.state));
     }
-    out.convergence = verdict(all_known(convergence_values), "run_status.converged, metadata.diagnostics.convergence_detail and raw fields",
+    out.convergence = verdict(convergence_passed, "run_status.converged, metadata.diagnostics.convergence_detail and raw fields",
         {{"gates", gates}, {"raw_fields", raw_fields}, {"thermal_state", nullable(result.thermal_state)}, {"pressure_states", pressure_states}});
     const bool full_compute = result.mode == "full";
     const std::map<std::string, ExecutionSide> empty_sides;

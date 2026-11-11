@@ -16,6 +16,7 @@ from sjtu_tpmshx.development.tests.test_native_result_balance import assert_valu
 from sjtu_tpmshx.development.tests.test_conservative_energy_results import result_fixture
 from sjtu_tpmshx.development.tests.test_temperature_face_results import temperature_fixture
 from sjtu_tpmshx.development.tests.postprocess_tm1.test_physical_balance import sample_result
+from sjtu_tpmshx.development.tests.postprocess_tm1.test_qualification import qualified_result, required_metrics
 
 
 def plain(value):
@@ -288,3 +289,137 @@ def test_nested_qualification_error_follows_metric_callback():
     actual = run(native.evaluate)
     assert actual[0]
     assert actual == run(reference.evaluate)
+
+
+@pytest.mark.parametrize('value', [42, [], None])
+@pytest.mark.parametrize('query', ['qualification', 'evaluate'])
+def test_unrelated_model_certificate_does_not_stop_a_conservative_query(value, query):
+    result = result_fixture(2)
+    metadata = mutable_data(result.metadata)
+    metadata['diagnostics']['model_h_balance'] = value
+    result = replace(result, metadata=metadata)
+    if query == 'qualification':
+        assert_observation(observe(lambda: native.evaluate_qualification(result, {})),
+                           observe(lambda: reference.evaluate_qualification(result, {})))
+    else:
+        compare(result, query, MetricSpec('Q', 'W/m', 'native_boundary_v1'))
+
+
+@pytest.mark.parametrize('value', [(True, False), (), np.array([True]), np.array([False]),
+                                  np.array([True, False]), np.array([], dtype=bool)])
+@pytest.mark.parametrize('earlier_false', ['none', 'run', 'field', 'gate'])
+def test_gate_comparison_keeps_raw_values_and_short_circuit_order(value, earlier_false):
+    result = qualified_result()
+    metadata = mutable_data(result.metadata)
+    detail = metadata['diagnostics']['convergence_detail']
+    detail['ltne_ok'] = value
+    if earlier_false == 'gate':
+        detail['simple_ok'] = False
+    result = replace(result, metadata=metadata)
+    if earlier_false == 'run':
+        result = replace(result, run_status=dict(result.run_status, converged=False))
+    elif earlier_false == 'field':
+        fields = mutable_data(result.fields)
+        fields['Ta'][0, 0, 0] = np.nan
+        result = replace(result, fields=fields)
+    metrics = required_metrics()
+    assert_observation(observe(lambda: native.evaluate_qualification(result, metrics)),
+                       observe(lambda: reference.evaluate_qualification(result, metrics)))
+
+
+@pytest.mark.parametrize('value', [(True, False), np.array([True]), np.array([False]), np.array([True, False])])
+@pytest.mark.parametrize('where', ['converged', 'air_solved', 'sco2_solved'])
+def test_nonboolean_run_and_execution_flags_keep_their_consumption_point(value, where):
+    result = qualified_result()
+    if where == 'converged':
+        result = replace(result, run_status=dict(result.run_status, converged=value))
+    else:
+        metadata = mutable_data(result.metadata)
+        metadata['execution_record']['sides']['A'].update(solved=value,
+            fluid='sco2' if where == 'sco2_solved' else 'air')
+        result = replace(result, metadata=metadata)
+    metrics = required_metrics()
+    assert_observation(observe(lambda: native.evaluate_qualification(result, metrics)),
+                       observe(lambda: reference.evaluate_qualification(result, metrics)))
+
+
+def complete_two_dimensional_model_result():
+    result = qualified_result(2)
+    metadata, flux = mutable_data(result.metadata), mutable_data(result.boundary_fluxes)
+    metadata['diagnostics']['model_h_balance'] = {
+        level: dict(passed=True, A=dict(physical_boundary_complete=True),
+                    B=dict(physical_boundary_complete=True)) for level in ('main', 'fine')}
+    metadata['diagnostics']['convergence_detail']['richardson_ok'] = True
+    flux['fine'] = dict(energy=mutable_data(flux['energy']),
+        dx=result.grid['dx'], dy=result.grid['dy'],
+        **{name: result.fields[name] for name in ('Ta', 'Tb', 'Ts')})
+    return replace(result, metadata=metadata, boundary_fluxes=flux)
+
+
+@pytest.mark.parametrize('damage', ['missing', 'none', 'empty', 'passed', 'B', 'boundary',
+                                    'passed_none', 'passed_false', 'boundary_none', 'boundary_false'])
+def test_model_certificate_absence_does_not_become_a_physical_failure(damage):
+    result = complete_two_dimensional_model_result()
+    metadata = mutable_data(result.metadata)
+    diagnostics = metadata['diagnostics']
+    model = diagnostics['model_h_balance']
+    if damage == 'missing':
+        diagnostics.pop('model_h_balance')
+    elif damage in ('none', 'empty'):
+        diagnostics['model_h_balance'] = None if damage == 'none' else {}
+    elif damage in ('passed', 'B'):
+        model['main'].pop(damage)
+    elif damage == 'boundary':
+        model['main']['B'].pop('physical_boundary_complete')
+    elif damage.startswith('passed_'):
+        model['main']['passed'] = None if damage.endswith('none') else False
+    else:
+        model['main']['B']['physical_boundary_complete'] = None if damage.endswith('none') else False
+    result = replace(result, metadata=metadata)
+    metrics = required_metrics(2)
+    assert_observation(observe(lambda: native.evaluate_qualification(result, metrics)),
+                       observe(lambda: reference.evaluate_qualification(result, metrics)))
+
+
+@pytest.mark.parametrize('key', ['enthalpy_clip_counts', 'converged', 'coupled_energy_balance',
+                                'equation_energy_balance', 'effective_settings'])
+def test_true_h_certificate_preserves_the_first_missing_key(key):
+    result = result_fixture(3)
+    metadata = mutable_data(result.metadata)
+    metadata['diagnostics']['true_h_balance'] = dict(
+        enthalpy_clip_counts=dict(total=np.zeros(2)), converged=True,
+        coupled_energy_balance=dict(ratio=0.), equation_energy_balance=dict(ratio=0.),
+        effective_settings=dict(coupled_energy_tol=.01, equation_energy_tol=.01))
+    metadata['diagnostics']['true_h_balance'].pop(key)
+    result = replace(result, metadata=metadata)
+    assert_observation(observe(lambda: native.evaluate_qualification(result, {})),
+                       observe(lambda: reference.evaluate_qualification(result, {})))
+
+
+@pytest.mark.parametrize('damage', ['model', 'gate'])
+def test_metric_callback_precedes_delayed_qualification_inputs(damage):
+    result = result_fixture(3)
+    metadata = mutable_data(result.metadata)
+    if damage == 'model':
+        metadata['diagnostics']['model_h_balance'] = 42
+    else:
+        metadata['diagnostics'].setdefault('convergence_detail', {})['simple_ok'] = np.array([True, False])
+    pressure = mutable_data(result.pressure_evidence)
+    pressure['A'].update(P=np.full((2, 2, 2), np.finfo(float).max),
+        dx=np.ones(2), dy=np.ones(2), dz=np.ones(2),
+        inlet_frac=np.ones((2, 2)), outlet_frac=np.ones((2, 2)))
+    result = replace(result, metadata=metadata, pressure_evidence=pressure)
+    request = MetricSpec('dP', 'Pa', 'pressure_face_v1')
+    exception = FloatingPointError('metric callback before qualification')
+    handler = np.geterrcall()
+    try:
+        def callback(label, flags):
+            raise exception
+        np.seterrcall(callback)
+        with np.errstate(all='call'):
+            for evaluate in (reference.evaluate, native.evaluate):
+                with pytest.raises(FloatingPointError) as caught:
+                    evaluate(result, request)
+                assert caught.value is exception
+    finally:
+        np.seterrcall(handler)

@@ -49,8 +49,8 @@ public:
         return std::none_of(spans.begin(), spans.end(), [&](const auto& input){return first <= input.last && input.first <= last;});
     }
     Recorded<std::string> string(const char* value) {
-        if (const auto* failure = error(value)) return Recorded<std::string>(*failure);
         if (!value) return {};
+        if (const auto* failure = error(value)) {sequence(value, 1); return Recorded<std::string>(*failure);}
         sequence(value, std::strlen(value) + 1);
         return std::string(value);
     }
@@ -60,21 +60,25 @@ public:
         return *result;
     }
     template<class T> Recorded<T> optional(const T* value) {
-        if (const auto* failure = error(value)) return Recorded<T>(*failure);
         if (!value) return {};
-        sequence(value, 1); return *value;
+        sequence(value, 1);
+        if (const auto* failure = error(value)) return Recorded<T>(*failure);
+        return *value;
     }
     Recorded<Number> number(const RawScalar* value) {
-        if (const auto* failure = error(value)) return Recorded<Number>(*failure);
         if (!value) return {};
-        sequence(value, 1); return read_scalar(*value);
+        sequence(value, 1);
+        if (const auto* failure = error(value)) return Recorded<Number>(*failure);
+        return read_scalar(*value);
     }
     Recorded<Tensor> scalar_array(const RawScalar* value) {
+        if (value) sequence(value, 1);
         if (const auto* failure = error(value)) return Recorded<Tensor>(*failure);
         const auto scalar = number(value);
         return scalar ? Recorded<Tensor>(Tensor(*scalar)) : Recorded<Tensor>{};
     }
     Tensor array(const RawArray& value) {
+        add(value.data, value.bytes, 1, 1);
         if (const auto* failure = error(&value)) {
             sequence(value.shape, value.rank); sequence(value.strides, value.rank);
             Tensor deferred({}, TPMSHX_RESULT_F64);
@@ -83,7 +87,6 @@ public:
             deferred.input_error = *failure;
             return deferred;
         }
-        add(value.data, value.bytes, 1, 1);
         sequence(value.shape, value.rank); sequence(value.strides, value.rank);
         return arithmetic::copy(Array(value));
     }
@@ -104,8 +107,8 @@ public:
     }
     Arrays named(const tpmshx_stage_named_array_v1* values, std::size_t count) {
         Arrays out;
-        if (const auto* failure = error(values)) {out.input_error = *failure; return out;}
         sequence(values, count);
+        if (const auto* failure = error(values)) {out.input_error = *failure; return out;}
         for (std::size_t i = 0; i < count; ++i) {
             const auto name = text(values[i].name, "an array name");
             if (!out.emplace(name, array(values[i].value)).second) throw std::invalid_argument("duplicate stage array name");
@@ -131,6 +134,8 @@ TruthEvidence declared_truth(int value) {
 }
 TruthEvidence gate_evidence(Inputs& input, const tpmshx_stage_gate_v1& gate) {
     auto out = declared_truth(gate.value);
+    if (const auto* failure = input.error(&gate.value)) out.equals_false = Recorded<bool>(*failure);
+    if (input.host_input && !gate.recorded_number && !gate.recorded_text) return out;
     const auto number = input.number(gate.recorded_number);
     const auto text = input.string(gate.recorded_text);
     if (out.is_bool || !out.value) {
@@ -166,8 +171,9 @@ GridEvidence grid(Inputs& input, const tpmshx_stage_grid_v1& value) {
 }
 Recorded<PressureEvidence> pressure(Inputs& input, const tpmshx_stage_pressure_v1* value) {
     if (!value) return {};
+    input.sequence(value, 1);
     if (const auto* failure = input.error(value)) return Recorded<PressureEvidence>(*failure);
-    input.sequence(value, 1); PressureEvidence out;
+    PressureEvidence out;
     out.pressure = input.array(value->pressure); out.grid = grid(input, value->grid);
     out.inlet_fraction = input.array(value->inlet_fraction); out.outlet_fraction = input.array(value->outlet_fraction);
     out.outlet_geom_fraction = input.array(value->outlet_geom_fraction);
@@ -177,8 +183,9 @@ Recorded<PressureEvidence> pressure(Inputs& input, const tpmshx_stage_pressure_v
 }
 Recorded<EnergyEvidence> energy(Inputs& input, const tpmshx_stage_energy_v1* value) {
     if (!value) return {};
+    input.sequence(value, 1);
     if (const auto* failure = input.error(value)) return Recorded<EnergyEvidence>(*failure);
-    input.sequence(value, 1); EnergyEvidence out;
+    EnergyEvidence out;
     out.definition = input.string(value->definition); out.power_units = input.string(value->power_units);
     out.physical_dimension = value->physical_dimension;
     out.physical_boundary_complete = truth(value->physical_boundary_complete);
@@ -200,10 +207,18 @@ ModelCertificate model(Inputs& input, const tpmshx_stage_model_certificate_v1& v
     ModelCertificate out;
     out.passed = truth(value.passed); out.physical_boundary_complete = truth(value.physical_boundary_complete);
     out.passed_is_bool = value.passed >= -1; out.physical_boundary_complete_is_bool = value.physical_boundary_complete >= -1;
+    if (const auto* failure = input.error(&value.passed)) {out.passed = Recorded<bool>(*failure); out.passed_is_bool = true;}
+    if (const auto* failure = input.error(&value.physical_boundary_complete)) {
+        out.physical_boundary_complete = Recorded<bool>(*failure); out.physical_boundary_complete_is_bool = true;
+    }
     for (std::size_t i = 0; i < 2; ++i) {
         const auto& side = value.sides[i];
         out.sides[i].physical_boundary_complete = truth(side.physical_boundary_complete);
         out.sides[i].physical_boundary_complete_is_bool = side.physical_boundary_complete >= -1;
+        if (const auto* failure = input.error(&side.physical_boundary_complete)) {
+            out.sides[i].physical_boundary_complete = Recorded<bool>(*failure);
+            out.sides[i].physical_boundary_complete_is_bool = true;
+        }
         out.sides[i].staggered_power = input.arrays(side.staggered_power, side.staggered_count);
         out.sides[i].boundary_power = input.named(side.boundary_power, side.boundary_count);
     }
@@ -219,12 +234,14 @@ ThermalEvidence thermal(Inputs& input, const tpmshx_stage_thermal_v1& value) {
     }
     out.energy = energy(input, value.energy); out.temperature = energy(input, value.temperature);
     if (value.model_h) {
+        input.sequence(value.model_h, 1);
         if (const auto* failure = input.error(value.model_h)) out.model_h = Recorded<ModelCertificate>(*failure);
-        else {input.sequence(value.model_h, 1); out.model_h = model(input, *value.model_h);}
+        else {out.model_h = model(input, *value.model_h);}
     }
+    if (value.true_h) input.sequence(value.true_h, 1);
     if (value.true_h && input.error(value.true_h)) out.true_h = Recorded<TrueHEvidence>(*input.error(value.true_h));
     else if (value.true_h) {
-        input.sequence(value.true_h, 1); const auto& raw = *value.true_h; TrueHEvidence record;
+        const auto& raw = *value.true_h; TrueHEvidence record;
         record.energy_algorithm = input.string(raw.energy_algorithm);
         record.boundary_power_units = input.string(raw.boundary_power_units);
         record.energy_algorithm_version = input.optional(raw.energy_algorithm_version);
@@ -276,8 +293,9 @@ std::vector<RangeSample> ranges(Inputs& input, const tpmshx_stage_range_sample_v
 }
 Recorded<ApplicabilityEvidence> applicability(Inputs& input, const tpmshx_stage_applicability_v1* value) {
     if (!value) return {};
+    input.sequence(value, 1);
     if (const auto* failure = input.error(value)) return Recorded<ApplicabilityEvidence>(*failure);
-    input.sequence(value, 1); ApplicabilityEvidence out;
+    ApplicabilityEvidence out;
     out.version = input.text(value->version, "an applicability version");
     out.inlet_recorded = truth(value->inlet_recorded).value_or(false);
     out.groups.emplace("inlet", ranges(input, value->inlet, value->inlet_count));
@@ -311,9 +329,10 @@ ResultEvidence evidence(Inputs& input, const tpmshx_result_evidence_v1* value) {
     }
     for (std::size_t i = 0; i < 2; ++i) out.pressure[i] = pressure(input, value->pressure[i]);
     out.thermal = thermal(input, value->thermal);
+    if (value->fine) input.sequence(value->fine, 1);
     if (value->fine && input.error(value->fine)) out.fine = Recorded<FineEvidence>(*input.error(value->fine));
     else if (value->fine) {
-        input.sequence(value->fine, 1); FineEvidence fine; fine.empty_record = boolean(value->fine->empty_record);
+        FineEvidence fine; fine.empty_record = boolean(value->fine->empty_record);
         fine.grid = grid(input, value->fine->grid); fine.fields = input.named(value->fine->fields, value->fine->field_count);
         fine.thermal = thermal(input, value->fine->thermal); fine.epsilon = input.array(value->fine->epsilon);
         for (std::size_t i = 0; i < 2; ++i) {
@@ -323,18 +342,23 @@ ResultEvidence evidence(Inputs& input, const tpmshx_result_evidence_v1* value) {
         out.fine = std::move(fine);
     }
     out.thermal_state = input.string(value->thermal_state); out.execution = input.string(value->execution);
-    out.converged = declared_truth(value->converged); out.outer_index = input.optional(value->outer_index);
+    out.converged = declared_truth(value->converged);
+    if (const auto* failure = input.error(&value->converged)) out.converged.equals_false = Recorded<bool>(*failure);
+    out.outer_index = input.optional(value->outer_index);
     input.sequence(value->convergence_gates, value->convergence_gate_count);
     for (std::size_t i = 0; i < value->convergence_gate_count; ++i) {
         const auto& gate = value->convergence_gates[i];
         if (!out.convergence_gates.emplace(input.text(gate.name, "a convergence gate name"), gate_evidence(input, gate)).second)
             throw std::invalid_argument("duplicate stage convergence gate");
     }
+    if (value->true_h_certificate) input.sequence(value->true_h_certificate, 1);
     if (value->true_h_certificate && input.error(value->true_h_certificate))
         out.true_h_certificate = Recorded<TrueHCertificate>(*input.error(value->true_h_certificate));
     else if (value->true_h_certificate) {
-        input.sequence(value->true_h_certificate, 1); TrueHCertificate cert;
+        TrueHCertificate cert;
         cert.converged = declared_truth(value->true_h_certificate->converged);
+        if (const auto* failure = input.error(&value->true_h_certificate->converged))
+            cert.converged.identity_access = Recorded<int>(*failure);
         cert.clip_counts = input.array(value->true_h_certificate->clip_counts);
         for (std::size_t i = 0; i < 2; ++i) {
             cert.ratios[i] = input.number(value->true_h_certificate->ratios[i]);
@@ -358,7 +382,9 @@ ResultEvidence evidence(Inputs& input, const tpmshx_result_evidence_v1* value) {
     input.sequence(value->executed_sides, value->executed_side_count);
     for (std::size_t i = 0; i < value->executed_side_count; ++i) {
         const auto& row = value->executed_sides[i];
-        if (!out.executed_sides.emplace(input.text(row.side, "an executed side"), ExecutionSide{input.string(row.fluid), declared_truth(row.solved)}).second)
+        auto solved = declared_truth(row.solved);
+        if (const auto* failure = input.error(&row.solved)) solved.value = Recorded<bool>(*failure);
+        if (!out.executed_sides.emplace(input.text(row.side, "an executed side"), ExecutionSide{input.string(row.fluid), std::move(solved)}).second)
             throw std::invalid_argument("duplicate stage executed side");
     }
     out.applicability = applicability(input, value->applicability);
@@ -378,6 +404,8 @@ ResultEvidence evidence(Inputs& input, const tpmshx_result_evidence_v1* value) {
     out.hydraulic_diameter = input.number(value->hydraulic_diameter);
     out.absent_records = input.strings(value->absent_records, value->absent_record_count);
     out.model_certificate_error = input.string(value->model_certificate_error);
+    out.model_certificates_recorded = input.host_input && std::find(out.absent_records.begin(), out.absent_records.end(),
+        "metadata.diagnostics.model_h_balance") == out.absent_records.end();
     return out;
 }
 MetricSpec spec(Inputs& input, const tpmshx_stage_metric_spec_v1& value) {

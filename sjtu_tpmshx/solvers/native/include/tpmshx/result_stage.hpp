@@ -124,14 +124,19 @@ struct Report {
 };
 // Qualification needs both exact bool identity and equality to False.
 struct TruthEvidence {
-    Truth value;
-    bool is_bool{}, equals_false{};
+    Recorded<bool> value;
+    Recorded<int> identity_access;
+    bool is_bool{};
+    Recorded<bool> equals_false{false};
     Report recorded;
     TruthEvidence() = default;
     TruthEvidence(bool input):value(input),is_bool(true),equals_false(!input),recorded(input) {}
-    bool is_true() const {return is_bool && value == true;}
+    bool is_true() const {
+        if (identity_access) (void)*identity_access;
+        return is_bool && value == true;
+    }
     Truth qualified() const {
-        if (equals_false) return false;
+        if (*equals_false) return false;
         return is_true() ? Truth(true) : Truth{};
     }
 };
@@ -160,13 +165,13 @@ struct EnergyEvidence {
     Recorded<Tensor> prescribed_b_power;
 };
 struct ModelSideEvidence {
-    Truth physical_boundary_complete;
+    Recorded<bool> physical_boundary_complete;
     bool physical_boundary_complete_is_bool{true};
     std::vector<Tensor> staggered_power;
     Arrays boundary_power;
 };
 struct ModelCertificate {
-    Truth passed, physical_boundary_complete;
+    Recorded<bool> passed, physical_boundary_complete;
     bool passed_is_bool{true}, physical_boundary_complete_is_bool{true};
     std::array<ModelSideEvidence, 2> sides;
 };
@@ -246,6 +251,7 @@ struct ResultEvidence {
     std::map<std::string, TruthEvidence> convergence_gates;
     Recorded<TrueHCertificate> true_h_certificate;
     std::map<std::string, ModelCertificate> model_certificates;
+    bool model_certificates_recorded{};
     std::array<Recorded<double>, 4> strict_ratios;
     std::array<Recorded<double>, 2> source_power;
     Recorded<bool> model_active_b;

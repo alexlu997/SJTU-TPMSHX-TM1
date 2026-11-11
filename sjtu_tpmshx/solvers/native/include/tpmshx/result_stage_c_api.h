@@ -225,6 +225,8 @@ TPMSHX_RESULT_API int TPMSHX_RESULT_CALL tpmshx_result_stage_qualification_v1(
     const tpmshx_result_evidence_v1*, const tpmshx_stage_metric_value_v1*, size_t,
     tpmshx_stage_output_v1*, char*, size_t);
 /* query: 0 evaluate, 1 applicability, 2 physical balance, 3 qualification.
+ * A host may omit report-only gate values and restore them after this call.
+ * Gate truth declarations and deferred comparisons still control native policy.
  * Diagnostic/cause storage is independent of the success-only output.
  */
 TPMSHX_RESULT_API int TPMSHX_RESULT_CALL tpmshx_result_stage_query_v2(

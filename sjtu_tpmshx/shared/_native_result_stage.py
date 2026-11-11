@@ -117,6 +117,19 @@ def _text(value):
     return value.encode('utf-8')
 
 
+def _equality_flag(value):
+    try:
+        if isinstance(value, _Fault):
+            raise value.error
+        if value is None or value is _MISSING:
+            return -1, None
+        if type(value) is bool:
+            return int(value), None
+        return (-3 if False == value else -2), None
+    except (TypeError, ValueError, KeyError, IndexError, AttributeError) as error:
+        return -2, error
+
+
 def _truth(value):
     if value is None or value is _MISSING:
         return -1
@@ -299,14 +312,23 @@ class _Packed:
         output.prescribed_b_power = self.array(_read(value, 'prescribed_b_power'))
         return output
 
-    def model(self, value, certificate=None):
+    def identity_flag(self, owner, name, value):
+        setattr(owner, name, int(value) if type(value) is bool else -1 if value is None else -2)
+        if isinstance(value, _Fault):
+            self.fault(ct.byref(owner, getattr(type(owner), name).offset), value.error)
+
+    def model(self, value, certificate=None, *, required=False, output=None):
         certificate = value if certificate is None else certificate
-        output = Model(passed=_truth(_read(certificate, 'passed', None)),
-            physical_boundary_complete=_truth(_read(certificate, 'physical_boundary_complete', None)))
+        output = Model() if output is None else output
+        self.identity_flag(output, 'passed', _read(certificate, 'passed', _REQUIRED if required else None))
+        self.identity_flag(output, 'physical_boundary_complete', _read(certificate, 'physical_boundary_complete', None))
         for index, side in enumerate('AB'):
-            row = _read(value, side, {})
+            row = _read(value, side, _REQUIRED if required else {})
             recorded = _read(_read(certificate, 'sides', {}), side, row)
-            output.sides[index].physical_boundary_complete = _truth(_read(recorded, 'physical_boundary_complete', None))
+            self.identity_flag(output.sides[index], 'physical_boundary_complete',
+                _read(recorded, 'physical_boundary_complete', _REQUIRED if required else None))
+            if required:
+                continue
             powers = _read(row, 'h_faces_W_per_m', ())
             output.sides[index].staggered_power, output.sides[index].staggered_count = self.arrays(powers)
             faces = {name: item for name, item in row.items()
@@ -361,8 +383,11 @@ class _Packed:
         return output
 
     def true_certificate(self, value):
-        output = TrueCertificate(converged=_truth(_read(value, 'converged', None)),
-            clip_counts=self.array(_read(_read(value, 'enthalpy_clip_counts', {}), 'total', _MISSING)))
+        clips = _read(_read(value, 'enthalpy_clip_counts'), 'total')
+        if isinstance(clips, _Fault):
+            raise clips.error
+        output = TrueCertificate(clip_counts=self.array(clips))
+        self.identity_flag(output, 'converged', _read(value, 'converged'))
         settings = _read(value, 'effective_settings')
         for index, name in enumerate(('coupled', 'equation')):
             row = _read(value, name + '_energy_balance')
@@ -457,6 +482,7 @@ class _Evidence(_Packed):
         output.field_metadata, output.field_metadata_count = self.sequence(Declaration, declarations), len(declarations)
         containers: tuple[str, ...] = ('metadata.parameters', 'metadata.design_fields', 'metadata.diagnostics',
             'metadata.diagnostics.richardson_info', 'metadata.diagnostics.convergence_detail',
+            'metadata.diagnostics.model_h_balance',
             'metadata.parameters.boundary_openings', 'metadata.parameters.boundary_openings.A',
             'metadata.parameters.boundary_openings.B', 'boundary_fluxes.report',
             'boundary_fluxes.report.A', 'boundary_fluxes.report.B')
@@ -510,33 +536,40 @@ class _Evidence(_Packed):
             return
         execution_state = result.run_status.get('execution')
         output.execution = self.text(execution_state if isinstance(execution_state, str) or execution_state is None else repr(execution_state))
-        output.converged = _truth(result.run_status.get('converged'))
-        gates = []
+        output.converged, failure = _equality_flag(result.run_status.get('converged'))
+        if failure is not None:
+            self.fault(ct.byref(output, Evidence.converged.offset), failure)
+        gates, failures = [], []
         for name in ('simple_ok', 'ltne_ok', 'outer_converged', 'fields_finite', 'envelope_ok', 'richardson_ok'):
             if name not in detail:
                 continue
             value = detail[name]
-            gate = Gate(name=_text(name), value=_truth(value))
-            if value is not None and type(value) is not bool:
-                if isinstance(value, str):
-                    gate.recorded_text = self.text(value)
-                else:
-                    gate.recorded_number = self.scalar(value)
-            gates.append(gate)
+            flag, failure = _equality_flag(value)
+            gates.append(Gate(name=_text(name), value=flag))
+            failures.append(failure)
         output.convergence_gates, output.convergence_gate_count = self.sequence(Gate, gates), len(gates)
+        for index, failure in enumerate(failures):
+            if failure is not None:
+                self.fault(ct.byref(output.convergence_gates[index], Gate.value.offset), failure)
         output.true_h_certificate = self.record(TrueCertificate,
             _read(diagnostics, 'true_h_balance', None), self.true_certificate)
-        levels = []
-        model = _read(diagnostics, 'model_h_balance', None)
-        if dimension == 2 and model is not None:
-            for level, row in model.items():
-                if isinstance(row, Mapping):
-                    levels.append(ModelLevel(self.text(level), self.model(row)))
-                elif output.model_certificate_error is None:
-                    output.model_certificate_error = self.text(f"'{type(row).__name__}' object is not subscriptable")
-        elif dimension == 3 and model is not None:
-            levels.append(ModelLevel(b'main', self.model({}, model)))
-        output.model_certificates, output.model_certificate_count = self.sequence(ModelLevel, levels), len(levels)
+        model = _read(diagnostics, 'model_h_balance', _MISSING)
+        try:
+            if isinstance(model, _Fault):
+                raise model.error
+            if dimension == 2 and model is not _MISSING:
+                levels = list(model.items())
+                output.model_certificates = self.sequence(ModelLevel,
+                    [ModelLevel(level=self.text(level)) for level, _ in levels])
+                output.model_certificate_count = len(levels)
+                for index, (_, row) in enumerate(levels):
+                    self.model(row, required=True, output=output.model_certificates[index].value)
+            elif dimension == 3 and model is not _MISSING and model is not None:
+                output.model_certificates = self.sequence(ModelLevel, [ModelLevel(level=b'main')])
+                output.model_certificate_count = 1
+                self.model({}, model, output=output.model_certificates[0].value)
+        except (TypeError, ValueError, KeyError, IndexError, AttributeError) as error:
+            output.model_certificate_error = self.text(_Fault(error))
         for index, name in enumerate(('eps_A_strict', 'eps_A_strict_cellmax', 'eps_B_strict', 'eps_B_strict_cellmax')):
             output.strict_ratios[index] = self.number(D, _read(diagnostics, name, None))
         for index, side in enumerate('AB'):
@@ -550,9 +583,19 @@ class _Evidence(_Packed):
         execution = metadata.get('execution_record', {})
         output.execution_version = self.text(_read(execution, 'version', None))
         sides = _read(execution, 'sides', {})
-        records = [ExecutionSide(self.text(name), self.text(_read(row, 'fluid', None)), _truth(_read(row, 'solved', None)))
-                   for name, row in sides.items()]
-        output.executed_sides, output.executed_side_count = self.sequence(ExecutionSide, records), len(records)
+        records = list(sides.items())
+        output.executed_sides = self.sequence(ExecutionSide, [ExecutionSide() for _ in records])
+        output.executed_side_count = len(records)
+        for index, (name, row) in enumerate(records):
+            target = output.executed_sides[index]
+            target.side, target.fluid = self.text(name), self.text(_read(row, 'fluid', None))
+            value = _read(row, 'solved', None)
+            self.identity_flag(target, 'solved', value)
+            if value is not None and type(value) is not bool and not isinstance(value, _Fault):
+                try:
+                    target.solved = -2 if bool(value) else -5
+                except (TypeError, ValueError) as error:
+                    self.fault(ct.byref(target, ExecutionSide.solved.offset), error)
 
 
 def _spec(value):
