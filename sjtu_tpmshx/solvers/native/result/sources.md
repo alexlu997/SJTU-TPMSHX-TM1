@@ -21,7 +21,7 @@ The full application retains its macOS arm64 and Windows x64 platforms.
 
 Python retains DTOs, type and shape adaptation, original object identity, NumPy event handling and file I/O.
 The result stage owns full 2D/3D evidence selection, status and reason text.
-Quick Design metric arithmetic retains its existing Python protocol owner until that stage is integrated.
+The stage also owns Quick Design metric arithmetic. V3 retains typed intermediate values and fixed named host operations for existing Python object, exact integer and final conversion protocols.
 The four public computation entries remain unchanged.
 Independent original numerical references stay under `development/tests/`.
 Production result calculations do not call those references.

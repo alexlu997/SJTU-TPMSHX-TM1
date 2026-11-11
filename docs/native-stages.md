@@ -16,7 +16,7 @@ Nonzero delta, zones, continuous fields and prescribed mass flow remain outside
 this preparation v2 scope. These limits do not remove existing Python modes.
 
 Full 2D/3D Python evaluation now calls the native result stage. Independent applicability, physical-balance and qualification queries use that stage.
-Quick Design metric arithmetic retains its current protocol owner. The public Python entry points and saved formats stay available.
+The native result stage owns Quick Design metrics and retains typed intermediate values. V3 uses fixed named host operations for existing Python object, exact integer and final conversion protocols. The public Python entry points and saved formats stay available.
 The host query uses borrowed typed evidence and preserves deferred input errors. It delivers NumPy events before each primitive returns.
 A callback error is handled at the original metric or qualification boundary. An uncaught host error retains its original Python object.
 Published v1 C layouts and queries remain available. Release every output through the library that created it.

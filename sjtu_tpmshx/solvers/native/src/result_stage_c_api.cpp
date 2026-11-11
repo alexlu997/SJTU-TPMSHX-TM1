@@ -22,6 +22,7 @@ public:
     std::map<const void*, InputError> errors;
     std::set<const void*> none_values;
     bool host_input{};
+    bool copied_inputs{};
     const InputError* error(const void* value) const {
         const auto found = errors.find(value);
         return found == errors.end() ? nullptr : &found->second;
@@ -93,6 +94,15 @@ public:
     Recorded<Tensor> array(const RawArray* value) {
         if (!value) return {};
         sequence(value, 1); return array(*value);
+    }
+    Recorded<QuickValue> quick_value(const tpmshx_stage_quick_value_v3* value) {
+        if (!value) return {};
+        sequence(value, 1);
+        auto numeric = array(value->numeric);
+        if (const auto* failure = error(value)) return Recorded<QuickValue>(*failure);
+        if (numeric.has_value() == (value->object != 0))
+            throw std::invalid_argument("Quick value requires one numeric view or object token");
+        return numeric ? QuickValue(*numeric) : QuickValue(value->object);
     }
     std::vector<Tensor> arrays(const RawArray* values, std::size_t count) {
         if (const auto* failure = count ? nullptr : error(values)) {
@@ -380,6 +390,10 @@ ResultEvidence evidence(Inputs& input, const tpmshx_result_evidence_v1* value) {
     out.richardson_extrapolated = truth(value->richardson_extrapolated);
     out.execution_version = input.string(value->execution_version);
     input.sequence(value->executed_sides, value->executed_side_count);
+    if (const auto* failure = input.error(value->executed_sides)) {
+        input.sequence(value->executed_sides, 1);
+        out.execution_sides_error = Recorded<int>(*failure);
+    }
     for (std::size_t i = 0; i < value->executed_side_count; ++i) {
         const auto& row = value->executed_sides[i];
         auto solved = declared_truth(row.solved);
@@ -412,6 +426,92 @@ MetricSpec spec(Inputs& input, const tpmshx_stage_metric_spec_v1& value) {
     return {input.text(value.name, "a metric name"), input.text(value.unit, "a metric unit"),
         input.text(value.definition_version, "a metric definition version"), input.string(value.description).value_or("")};
 }
+void copy_quick(Inputs& input, const tpmshx_stage_input_v3& value, ResultEvidence& evidence) {
+    QuickTypedEvidence quick;
+    quick.model_supported = input.optional(value.model_supported);
+    quick.cross = input.optional(value.cross);
+    quick.hydraulic_diameter = input.quick_value(value.hydraulic_diameter);
+    for (std::size_t i = 0; i < 2; ++i) {
+        const auto& from = value.sides[i]; auto& to = quick.sides[i];
+        to.boundary_access = input.optional(from.boundary_access);
+        to.properties_access = input.optional(from.properties_access);
+        to.pressure_access = input.optional(from.pressure_access);
+        to.inlet_temperature = input.quick_value(from.inlet_temperature);
+        to.mass_flow = input.quick_value(from.mass_flow); to.cp = input.quick_value(from.cp);
+        to.rho = input.quick_value(from.rho); to.velocity = input.quick_value(from.velocity);
+        to.viscosity = input.quick_value(from.viscosity);
+        to.inlet_pressure = input.quick_value(from.inlet_pressure);
+        to.outlet_pressure = input.quick_value(from.outlet_pressure);
+    }
+    evidence.quick_typed = std::move(quick);
+}
+struct QuickView {
+    RawArray numeric{};
+    tpmshx_stage_quick_value_v3 value{};
+    explicit QuickView(const QuickValue& source) {
+        if (source.object) value.object = source.object;
+        else {numeric = source.numeric.raw(); value.numeric = &numeric;}
+    }
+};
+void callback_error(int status, const tpmshx_stage_host_error_v2& failure) {
+    if (!status) return;
+    if (!failure.cause || failure.cause > host_exception || !failure.message)
+        throw std::runtime_error("invalid result host callback error");
+    HostError error(failure.cause, failure.message, failure.token);
+    error.error_number = failure.error_number;
+    throw error;
+}
+QuickValue callback_value(Inputs& input, const tpmshx_stage_quick_value_v3& value) {
+    const bool complete = input.copied_inputs;
+    input.copied_inputs = false;
+    auto copied = *input.quick_value(&value);
+    input.copied_inputs = complete;
+    return copied;
+}
+void quick_callback_error(Inputs& input, int status, const tpmshx_stage_host_error_v2& failure) {
+    if (status && failure.message) (void)input.string(failure.message);
+    callback_error(status, failure);
+}
+QuickHost quick_host(Inputs& input, const tpmshx_stage_quick_protocol_v3& protocol) {
+    QuickHost host;
+    const auto context = protocol.context;
+    if (protocol.temperature_difference) host.temperature_difference = [&, context, call=protocol.temperature_difference](const QuickValue& inlet, double outlet) {
+        const QuickView first(inlet); tpmshx_stage_quick_value_v3 value{}; tpmshx_stage_host_error_v2 failure{};
+        quick_callback_error(input, call(context, &first.value, outlet, &value, &failure), failure);
+        return callback_value(input, value);
+    };
+    const auto pair = [&, context](auto call) -> std::function<QuickValue(const QuickValue&, const QuickValue&)> {
+        if (!call) return {};
+        return [&, context, call](const QuickValue& left, const QuickValue& right) {
+            const QuickView first(left), second(right);
+            tpmshx_stage_quick_value_v3 value{}; tpmshx_stage_host_error_v2 failure{};
+            quick_callback_error(input, call(context, &first.value, &second.value, &value, &failure), failure);
+            return callback_value(input, value);
+        };
+    };
+    host.capacity_product = pair(protocol.capacity_product);
+    host.pressure_difference = pair(protocol.pressure_difference);
+    host.reynolds_flow = pair(protocol.reynolds_flow);
+    host.reynolds_length = pair(protocol.reynolds_length);
+    host.reynolds_quotient = pair(protocol.reynolds_quotient);
+    if (protocol.duty_product) host.duty_product = [&, context, call=protocol.duty_product](const QuickValue& capacity, const QuickValue& delta, bool cold) {
+        const QuickView first(capacity), second(delta);
+        tpmshx_stage_quick_value_v3 value{}; tpmshx_stage_host_error_v2 failure{};
+        quick_callback_error(input, call(context, &first.value, &second.value, cold ? 1 : 0, &value, &failure), failure);
+        return callback_value(input, value);
+    };
+    if (protocol.metric_float) host.metric_float = [&, context, call=protocol.metric_float](const QuickValue& source) {
+        const QuickView argument(source); double value{}; tpmshx_stage_host_error_v2 failure{};
+        quick_callback_error(input, call(context, &argument.value, &value, &failure), failure);
+        return value;
+    };
+    if (protocol.empty_mean) host.empty_mean = [&, context, call=protocol.empty_mean]() {
+        tpmshx_stage_host_error_v2 failure{};
+        quick_callback_error(input, call(context, &failure), failure);
+    };
+    return host;
+}
+
 struct Output {
     Evaluation evaluation;
     std::string json_text;
@@ -434,7 +534,8 @@ struct Output {
 template<class Run> int boundary(const tpmshx_result_evidence_v1* value, tpmshx_stage_output_v1* output,
                                  char* error, std::size_t capacity, Run run,
                                  const tpmshx_stage_input_v2* extension = nullptr,
-                                 Diagnostics* diagnostics = nullptr, std::uint64_t* error_token = nullptr) noexcept {
+                                 Diagnostics* diagnostics = nullptr, std::uint64_t* error_token = nullptr,
+                                 const tpmshx_stage_input_v3* quick_extension = nullptr) noexcept {
     FloatingEnvironment environment;
     Inputs input;
     int status = TPMSHX_RESULT_OK;
@@ -446,7 +547,7 @@ template<class Run> int boundary(const tpmshx_result_evidence_v1* value, tpmshx_
         try {saved_message = value; message = saved_message.c_str();}
         catch (...) {message = fallback;}
     };
-    bool output_valid = false, copy_started = false, copied_inputs = false;
+    bool output_valid = false, copy_started = false;
     try {
         if (!error || !capacity) throw std::invalid_argument("result calls require nonempty error storage");
         Inputs writable;
@@ -454,6 +555,13 @@ template<class Run> int boundary(const tpmshx_result_evidence_v1* value, tpmshx_
         if (reinterpret_cast<std::uintptr_t>(output) <= reinterpret_cast<std::uintptr_t>(error) + capacity - 1 &&
             reinterpret_cast<std::uintptr_t>(error) <= reinterpret_cast<std::uintptr_t>(output) + sizeof(*output) - 1)
             throw std::invalid_argument("result writable storage overlaps another buffer");
+        if (quick_extension) {
+            input.sequence(quick_extension, 1);
+            if (quick_extension->abi_version != 3 || quick_extension->struct_size != sizeof(*quick_extension))
+                throw std::invalid_argument("unsupported Quick result host ABI");
+            extension = quick_extension->host;
+            if (!extension) throw std::invalid_argument("Quick result host requires its v2 input");
+        }
         if (extension) {
             input.host_input = true;
             writable.sequence(diagnostics, 1); writable.sequence(error_token, 1);
@@ -499,9 +607,11 @@ template<class Run> int boundary(const tpmshx_result_evidence_v1* value, tpmshx_
                 copied.inlet_temperature_none[i] = input.none_values.count(extension->inlet_temperature[i]) != 0;
             }
         }
-        copied_inputs = true;
+        if (quick_extension) copy_quick(input, *quick_extension, copied);
+        input.copied_inputs = true;
         auto owned = std::make_unique<Output>();
         run(input, copied, *owned);
+        if (!input.copied_inputs) throw std::invalid_argument("incomplete Quick callback storage");
         if (!input.disjoint(output, sizeof(*output)) || !input.disjoint(error, capacity))
             throw std::invalid_argument("result writable storage overlaps another buffer");
         if (extension && (!input.disjoint(diagnostics, sizeof(*diagnostics)) ||
@@ -524,16 +634,53 @@ template<class Run> int boundary(const tpmshx_result_evidence_v1* value, tpmshx_
     catch (const std::exception& failure) {status = TPMSHX_RESULT_RUNTIME; save_message(failure.what(), "native result runtime failure");}
     catch (...) {status = TPMSHX_RESULT_RUNTIME; message = "unknown native result failure";}
     // An interrupted copy can leave unvisited borrowed spans. Do not write there.
-    if ((!copy_started || copied_inputs) && error && capacity && input.disjoint(error, capacity) && output_valid &&
+    if ((!copy_started || input.copied_inputs) && error && capacity && input.disjoint(error, capacity) && output_valid &&
         !(reinterpret_cast<std::uintptr_t>(output) <= reinterpret_cast<std::uintptr_t>(error) + capacity - 1 &&
           reinterpret_cast<std::uintptr_t>(error) <= reinterpret_cast<std::uintptr_t>(output) + sizeof(*output) - 1))
         std::snprintf(error, capacity, "%s", message);
-    if (extension && copied_inputs && diagnostics && error_token &&
+    if (extension && input.copied_inputs && diagnostics && error_token &&
         input.disjoint(diagnostics, sizeof(*diagnostics)) && input.disjoint(error_token, sizeof(*error_token))) {
         *diagnostics = failure_diagnostics;
         *error_token = failure_token;
     }
     return status;
+}
+int query_stage(const tpmshx_stage_input_v2* input, const tpmshx_stage_input_v3* quick,
+    uint32_t query, const tpmshx_stage_metric_spec_v1* requested,
+    const tpmshx_stage_metric_value_v1* metrics, size_t count,
+    tpmshx_stage_output_v1* output, Diagnostics* diagnostics, uint64_t* error_token,
+    char* error, size_t capacity) {
+    return boundary(nullptr, output, error, capacity, [&](Inputs& packed, const ResultEvidence& copied, Output& owned) {
+        const auto* base = quick ? quick->host : input;
+        HostControl host;
+        host.events = [base](const Diagnostics& events) {
+            if (!base->events) return;
+            tpmshx_stage_host_error_v2 failure{};
+            callback_error(base->events(base->context, &events, &failure), failure);
+        };
+        if (quick) host.quick = quick_host(packed, quick->protocol);
+        if (query == 0) {
+            std::optional<MetricSpec> selection;
+            if (requested) {packed.sequence(requested, 1); selection = spec(packed, *requested);}
+            owned.evaluation = evaluate(copied, selection, &host);
+            owned.json_text = json(report(owned.evaluation));
+        } else if (query == 1) {
+            owned.json_text = json(report(evaluate_applicability(copied, &host)));
+        } else if (query == 2) {
+            owned.json_text = json(report(evaluate_physical_balance(copied, &host)));
+        } else if (query == 3) {
+            packed.sequence(metrics, count);
+            std::map<std::string, MetricValue> values;
+            for (std::size_t i = 0; i < count; ++i) {
+                const auto& raw = metrics[i];
+                MetricValue metric{boolean(raw.has_value) ? std::optional<double>(raw.value) : std::nullopt,
+                    spec(packed, raw.spec), packed.text(raw.status, "a metric status"), packed.string(raw.reason).value_or("")};
+                if (!values.emplace(packed.text(raw.name, "a metric key"), std::move(metric)).second)
+                    throw std::invalid_argument("duplicate stage metric key");
+            }
+            owned.json_text = json(report(evaluate_qualification(copied, values, &host)));
+        } else throw std::invalid_argument("unsupported result stage query");
+    }, input, diagnostics, error_token, quick);
 }
 }  // namespace
 
@@ -579,39 +726,14 @@ int TPMSHX_RESULT_CALL tpmshx_result_stage_query_v2(const tpmshx_stage_input_v2*
     const tpmshx_stage_metric_value_v1* metrics, size_t count,
     tpmshx_stage_output_v1* output, Diagnostics* diagnostics, uint64_t* error_token,
     char* error, size_t capacity) {
-    HostControl host;
-    host.events = [input](const Diagnostics& events) {
-        if (!input->events) return;
-        tpmshx_stage_host_error_v2 failure{};
-        if (input->events(input->context, &events, &failure)) {
-            if (!failure.cause || failure.cause > host_exception || !failure.message)
-                throw std::runtime_error("invalid result host callback error");
-            throw HostError(failure.cause, failure.message, failure.token);
-        }
-    };
-    return boundary(nullptr, output, error, capacity, [&](Inputs& packed, const ResultEvidence& copied, Output& owned) {
-        if (query == 0) {
-            std::optional<MetricSpec> selection;
-            if (requested) {packed.sequence(requested, 1); selection = spec(packed, *requested);}
-            owned.evaluation = evaluate(copied, selection, &host);
-            owned.json_text = json(report(owned.evaluation));
-        } else if (query == 1) {
-            owned.json_text = json(report(evaluate_applicability(copied, &host)));
-        } else if (query == 2) {
-            owned.json_text = json(report(evaluate_physical_balance(copied, &host)));
-        } else if (query == 3) {
-            packed.sequence(metrics, count);
-            std::map<std::string, MetricValue> values;
-            for (std::size_t i = 0; i < count; ++i) {
-                const auto& raw = metrics[i];
-                MetricValue metric{boolean(raw.has_value) ? std::optional<double>(raw.value) : std::nullopt,
-                    spec(packed, raw.spec), packed.text(raw.status, "a metric status"), packed.string(raw.reason).value_or("")};
-                if (!values.emplace(packed.text(raw.name, "a metric key"), std::move(metric)).second)
-                    throw std::invalid_argument("duplicate stage metric key");
-            }
-            owned.json_text = json(report(evaluate_qualification(copied, values, &host)));
-        } else throw std::invalid_argument("unsupported result stage query");
-    }, input, diagnostics, error_token);
+    return query_stage(input, nullptr, query, requested, metrics, count, output, diagnostics, error_token, error, capacity);
+}
+int TPMSHX_RESULT_CALL tpmshx_result_stage_query_v3(const tpmshx_stage_input_v3* input,
+    uint32_t query, const tpmshx_stage_metric_spec_v1* requested,
+    const tpmshx_stage_metric_value_v1* metrics, size_t count,
+    tpmshx_stage_output_v1* output, Diagnostics* diagnostics, uint64_t* error_token,
+    char* error, size_t capacity) {
+    return query_stage(nullptr, input, query, requested, metrics, count, output, diagnostics, error_token, error, capacity);
 }
 void TPMSHX_RESULT_CALL tpmshx_result_stage_release_v1(tpmshx_stage_output_v1* value) {
     if (!value || value->struct_size != sizeof(*value)) return;

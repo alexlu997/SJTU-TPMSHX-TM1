@@ -22,7 +22,7 @@ compute -> preprocess.api.prepare_case -> CaseData -> solvers.api.run_case -> Fi
 ```
 
 `compute` also manages stage progress, cancellation, elapsed times and warnings.
-`postprocess/api.py` sends full 2D/3D evaluation and independent queries to the native result stage.
+`postprocess/api.py` sends full 2D/3D and Quick Design evaluation and independent queries to the native result stage.
 `shared/_native_result_stage.py` adapts evidence, NumPy events and returned objects. `postprocess/export.py` exports results.
 Current full computations support rectangular 2D and cuboid 3D domains.
 See the [examples](../examples/three_module/) and [data contract](../docs/contracts/three_module_v1/README.md) for public inputs and file transport.

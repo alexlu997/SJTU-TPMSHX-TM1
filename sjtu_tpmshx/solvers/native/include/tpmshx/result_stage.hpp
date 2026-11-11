@@ -225,6 +225,36 @@ struct ApplicabilityEvidence {
     bool inlet_recorded{};
     Report::List scope_notes;
 };
+// Quick values keep typed intermediate arrays or a host-only protocol value.
+struct QuickValue {
+    Tensor numeric{{}, TPMSHX_RESULT_F64};
+    std::uint64_t object{};
+    QuickValue() = default;
+    QuickValue(Number value):numeric(value) {}
+    QuickValue(Tensor value):numeric(std::move(value)) {}
+    explicit QuickValue(std::uint64_t token):object(token) {}
+};
+struct QuickTypedSide {
+    Recorded<int> boundary_access, properties_access, pressure_access;
+    Recorded<QuickValue> inlet_temperature, mass_flow, cp, rho, velocity, viscosity;
+    Recorded<QuickValue> inlet_pressure, outlet_pressure;
+};
+struct QuickTypedEvidence {
+    Recorded<int> model_supported, cross;
+    std::array<QuickTypedSide, 2> sides;
+    Recorded<QuickValue> hydraulic_diameter;
+};
+struct QuickHost {
+    std::function<QuickValue(const QuickValue&, double)> temperature_difference;
+    std::function<QuickValue(const QuickValue&, const QuickValue&)> capacity_product;
+    std::function<QuickValue(const QuickValue&, const QuickValue&, bool)> duty_product;
+    std::function<QuickValue(const QuickValue&, const QuickValue&)> pressure_difference;
+    std::function<QuickValue(const QuickValue&, const QuickValue&)> reynolds_flow;
+    std::function<QuickValue(const QuickValue&, const QuickValue&)> reynolds_length;
+    std::function<QuickValue(const QuickValue&, const QuickValue&)> reynolds_quotient;
+    std::function<double(const QuickValue&)> metric_float;
+    std::function<void()> empty_mean;
+};
 struct QuickSideEvidence {
     Recorded<Number> inlet_temperature, mass_flow, cp, rho, velocity, viscosity;
 };
@@ -257,6 +287,7 @@ struct ResultEvidence {
     Recorded<bool> model_active_b;
     Truth richardson_extrapolated;
     Recorded<std::string> execution_version;
+    Recorded<int> execution_sides_error;
     std::map<std::string, ExecutionSide> executed_sides;
     Recorded<ApplicabilityEvidence> applicability;
     std::array<bool, 2> active_fluids{{true, true}};
@@ -269,6 +300,7 @@ struct ResultEvidence {
     Recorded<std::string> quick_model, arrangement;
     std::array<QuickSideEvidence, 2> quick;
     Recorded<Number> hydraulic_diameter;
+    std::optional<QuickTypedEvidence> quick_typed;
     std::vector<std::string> absent_records;
     Recorded<std::string> model_certificate_error;
 };
@@ -305,6 +337,7 @@ struct Evaluation {
 };
 struct HostControl {
     std::function<void(const Diagnostics&)> events;
+    QuickHost quick;
 };
 Evaluation evaluate(const ResultEvidence&, const std::optional<MetricSpec>& = std::nullopt, const HostControl* = nullptr);
 Applicability evaluate_applicability(const ResultEvidence&, const HostControl* = nullptr);

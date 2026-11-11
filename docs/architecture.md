@@ -643,7 +643,7 @@ Temperature is not scaled. FullCC nonzero sources stay
 - `postprocess/api.py` keeps the public evaluation interface. The native result stage owns full 2D/3D metric selection, definitions and status.
   It also owns independent applicability, physical-balance and qualification queries.
   `shared/_native_result_stage.py` converts evidence and returned objects. It delivers NumPy events at each primitive boundary.
-  Quick Design retains its separate typed numeric protocol until that stage is integrated.
+  Quick Design uses the same native stage, with typed intermediate values and fixed named host operations for its existing Python protocols.
   `postprocess/conservation.py` retains the complete public conservation certificate. Raw result helpers retain their existing consumers and Python protocols.
   Postprocessing reduces recorded fields, fluxes and pressure states. It never reruns a solver or reads private runtime objects for missing evidence.
   Full-compute evaluation reuses successful heat and mass reductions only within
