@@ -438,7 +438,8 @@ def test_host_calls_keep_their_signature_after_an_independent_c_wire_call():
 
 @pytest.mark.parametrize('mode', ['full', 'quick_design'])
 @pytest.mark.parametrize('version', [None, 4, False, (), {'key': 1}, np.asarray(1),
-    np.asarray([1]), np.asarray([]), np.asarray([1, 2]), 'historical', 'full_execution_v1'])
+    np.asarray([1]), np.asarray([]), np.asarray([1, 2]), 'historical', 'full_execution_v1',
+    'full_execution_v1\0extra', '\0', '\ud800', 'full_execution_v1\ud800'])
 @pytest.mark.parametrize('sides', [None, (), 4])
 def test_raw_execution_label_keeps_native_selection_and_host_equality(mode, version, sides):
     result = sample_result(2)

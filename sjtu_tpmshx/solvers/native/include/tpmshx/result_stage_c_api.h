@@ -221,8 +221,9 @@ typedef struct {
     const tpmshx_result_array_v1* numeric;
     uint64_t object;
 } tpmshx_stage_quick_value_v3;
-/* A label borrows text or one original non-text value. Native policy owns the
- * comparison text. The host supplies only the non-text equality protocol. */
+/* A label borrows null-terminated UTF-8 text or one original host value.
+ * Use a host value for text that this C string cannot represent without loss.
+ * Native policy owns the comparison text. The host supplies only equality. */
 typedef struct {
     const char* text;
     const tpmshx_stage_quick_value_v3* value;

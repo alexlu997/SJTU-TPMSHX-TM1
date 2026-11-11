@@ -302,7 +302,13 @@ class _Packed:
         if isinstance(value, _Fault):
             return self.fault(self.pointer(StageLabel()), value.error)
         if isinstance(value, str):
-            return self.pointer(StageLabel(text=self.text(value)))
+            try:
+                encoded = value.encode('utf-8')
+            except UnicodeEncodeError:
+                pass
+            else:
+                if b'\0' not in encoded:
+                    return self.pointer(StageLabel(text=encoded))
         return self.pointer(StageLabel(value=self.quick_value(value)))
 
     def quick_access(self, value):
