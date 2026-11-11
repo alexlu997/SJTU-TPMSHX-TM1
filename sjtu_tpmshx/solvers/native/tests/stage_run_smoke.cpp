@@ -43,6 +43,16 @@ int main(int argc,char** argv) {
         char error[4096]{};
         require(tpmshx_run_case_2d_v1(&malformed,nullptr,&control,&failure,error,sizeof(error))==1,"malformed field accepted");
         require(std::memcmp(&failure,&before,sizeof(failure))==0,"failed stage changed output");
+        require(tpmshx_run_case_2d_v1(&prepared.view(),nullptr,
+            reinterpret_cast<const tpmshx_stage_run_control_v1*>(&failure),&failure,error,sizeof(error))==1,
+            "control aliases the complete output");
+        require(std::strstr(error,"overlaps") && std::memcmp(&failure,&before,sizeof(failure))==0,
+                "control alias changed output or escaped boundary validation");
+        malformed=prepared.view();malformed.dx.data=reinterpret_cast<const double*>(&failure);
+        require(tpmshx_run_case_2d_v1(&malformed,nullptr,&control,&failure,error,sizeof(error))==1,
+                "prepared array aliases the complete output");
+        require(std::strstr(error,"overlaps") && std::memcmp(&failure,&before,sizeof(failure))==0,
+                "array alias changed output or escaped boundary validation");
         control.callbacks.cancel=cancel;
         require(tpmshx_run_case_2d_v1(&prepared.view(),nullptr,&control,&failure,error,sizeof(error))==4,"cancellation status changed");
         require(std::memcmp(&failure,&before,sizeof(failure))==0,"cancelled stage published a result");
