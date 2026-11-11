@@ -1,10 +1,11 @@
 """Check actual archive boundaries without reading manifest rules as expectations."""
 from io import BytesIO
 import os
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import subprocess
 import sys
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 import tarfile
 import zipfile
 
@@ -175,7 +176,7 @@ import importlib.metadata
 import importlib.util
 from importlib.resources import files
 import json
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import sys
 
 installed = Path(sys.argv[1]).resolve()
@@ -234,3 +235,19 @@ def test_installed_wheel_runtime(kind):
                                  json.dumps(sorted(distributions.declared_resources(root)))],
                                 cwd=directory, env=env, capture_output=True, text=True, timeout=120)
         assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_wheel_check_accepts_windows_source_paths(project, tmp_path, monkeypatch):
+    archive = tmp_path / "package.whl"
+    wheel_archive(project, archive)
+    rglob = Path.rglob
+
+    def windows_paths(directory, pattern):
+        for path in rglob(directory, pattern):
+            yield SimpleNamespace(
+                is_file=path.is_file,
+                relative_to=lambda root, path=path: PureWindowsPath(path.relative_to(root)),
+            )
+
+    monkeypatch.setattr(Path, "rglob", windows_paths)
+    assert distributions.inspect_wheel(archive, project)

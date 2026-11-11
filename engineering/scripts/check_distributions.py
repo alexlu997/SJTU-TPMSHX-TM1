@@ -124,10 +124,9 @@ def check_native_closure(root: Path) -> dict:
 
 def inspect_wheel(archive: Path, root: Path) -> list[str]:
     resources = declared_resources(root)
-    python = {path.relative_to(root).as_posix() for path in (root / PACKAGE).rglob("*.py")
-              if not forbidden(path.relative_to(root).as_posix())
-              and not path.relative_to(root).is_relative_to(NATIVE)
-              and not path.relative_to(root).is_relative_to(TESTS)}
+    python = {name for name in source_files(root, PACKAGE) if name.endswith(".py")
+              and not PurePosixPath(name).is_relative_to(NATIVE)
+              and not PurePosixPath(name).is_relative_to(TESTS)}
     with zipfile.ZipFile(archive) as source:
         files = sorted(name for name in source.namelist() if not name.endswith("/"))
         metadata = {PurePosixPath(name).parts[0] for name in files if ".dist-info/" in name}
