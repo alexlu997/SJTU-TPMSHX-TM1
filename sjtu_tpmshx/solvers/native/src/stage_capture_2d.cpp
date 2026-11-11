@@ -278,10 +278,10 @@ public:
             make_model(model[1],f);fine.thermal.model_h=&model[1].view;model_levels[1]={"fine",model[1].view};
             e.model_certificate_count=2;e.fine=&fine;
         }
-        gates={{{"simple_ok",static_cast<int>(raw.simple_ok)},{"ltne_ok",static_cast<int>(raw.thermal_ok)},
-            {"outer_converged",static_cast<int>(raw.outer_converged)},
-            {"richardson_ok",raw.have_fine?(raw.fine.stop==0 && raw.fine_extrapolated?1:0):-1},
-            {"envelope_ok",static_cast<int>(raw.envelope_ok)}}};
+        gates={{{"simple_ok",static_cast<int>(raw.simple_ok),nullptr,nullptr},{"ltne_ok",static_cast<int>(raw.thermal_ok),nullptr,nullptr},
+            {"outer_converged",static_cast<int>(raw.outer_converged),nullptr,nullptr},
+            {"richardson_ok",raw.have_fine?(raw.fine.stop==0 && raw.fine_extrapolated?1:0):-1,nullptr,nullptr},
+            {"envelope_ok",static_cast<int>(raw.envelope_ok),nullptr,nullptr}}};
         e.convergence_gates=gates.data();e.convergence_gate_count=gates.size();
         e.execution_version="full_execution_v1";e.executed_sides=execution.data();e.executed_side_count=2;
         prepared_ranges(p);final_state_ranges();required_ranges(p.input.topology?"Gyroid":"Diamond");e.applicability=&applicability;

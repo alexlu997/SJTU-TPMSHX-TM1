@@ -15,7 +15,7 @@ def record(name, fields):
 
 
 Named = record('Named', [('name', S), ('value', core._Array)])
-Gate = record('Gate', [('name', S), ('value', I)])
+Gate = record('Gate', [('name', S), ('value', I), ('recorded_number', SP), ('recorded_text', S)])
 Grid = record('Grid', [('widths', AP * 3)])
 Declaration = record('Declaration', [('name', S), ('unit', S), ('state', S)])
 Pressure = record('Pressure', [('pressure', AP), ('grid', Grid), ('inlet_fraction', AP),
@@ -75,7 +75,10 @@ def text(value):
 
 
 def truth(value):
-    return -1 if value is None else int(value) if type(value) is bool else -2 if value else -3
+    if value is None: return -1
+    if type(value) is bool: return int(value)
+    if value == False: return -3
+    return -2 if value else -5
 
 
 class PackedEvidence:
@@ -116,7 +119,15 @@ class PackedEvidence:
         e.converged = truth(result.run_status.get('converged'))
         e.outer_index = self.number(I, result.run_status.get('outer_index'))
         detail = diagnostics.get('convergence_detail', {})
-        gates = [Gate(text(k), truth(detail[k])) for k in ('simple_ok', 'ltne_ok', 'outer_converged', 'fields_finite', 'envelope_ok', 'richardson_ok') if k in detail]
+        gates = []
+        for k in ('simple_ok', 'ltne_ok', 'outer_converged', 'fields_finite', 'envelope_ok', 'richardson_ok'):
+            if k not in detail: continue
+            value = detail[k]
+            gate = Gate(text(k), truth(value))
+            if value is not None and type(value) is not bool:
+                if isinstance(value, str): gate.recorded_text = text(value)
+                else: gate.recorded_number = self.scalar(value)
+            gates.append(gate)
         e.convergence_gates, e.convergence_gate_count = self.sequence(Gate, gates), len(gates)
         true_certificate = diagnostics.get('true_h_balance')
         if true_certificate:

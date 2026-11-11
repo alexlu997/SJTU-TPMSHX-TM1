@@ -16,18 +16,32 @@ using Truth = std::optional<bool>;
 struct Report {
     using List = std::vector<Report>;
     using Object = std::map<std::string, Report>;
-    std::variant<std::nullptr_t, bool, std::int64_t, double, std::string, List, Object> value;
+    std::variant<std::nullptr_t, bool, std::int64_t, std::uint64_t, double, std::string, List, Object> value;
     Report():value(nullptr) {}
     Report(std::nullptr_t):value(nullptr) {}
     Report(bool v):value(v) {}
     Report(int v):value(static_cast<std::int64_t>(v)) {}
     Report(std::int64_t v):value(v) {}
+    Report(std::uint64_t v):value(v) {}
     Report(double v):value(v) {}
     Report(const char* v):value(std::string(v)) {}
     Report(std::string v):value(std::move(v)) {}
     Report(List v):value(std::move(v)) {}
     Report(Object v):value(std::move(v)) {}
     Report(Truth v):Report() {if(v) value=*v;}
+};
+// Qualification needs both exact bool identity and equality to False.
+struct TruthEvidence {
+    Truth value;
+    bool is_bool{}, equals_false{};
+    Report recorded;
+    TruthEvidence() = default;
+    TruthEvidence(bool input):value(input),is_bool(true),equals_false(!input),recorded(input) {}
+    bool is_true() const {return is_bool && value == true;}
+    Truth qualified() const {
+        if (equals_false) return false;
+        return is_true() ? Truth(true) : Truth{};
+    }
 };
 struct GridEvidence {std::array<std::optional<Tensor>, 3> widths;};
 struct FieldDeclaration {std::string unit; std::optional<std::string> state;};
@@ -90,11 +104,11 @@ struct FineEvidence {
     std::optional<Tensor> epsilon;
 };
 struct TrueHCertificate {
-    Truth converged;
+    TruthEvidence converged;
     std::optional<Tensor> clip_counts;
     std::array<std::optional<Number>, 2> ratios, tolerances;
 };
-struct ExecutionSide {std::optional<std::string> fluid; Truth solved;};
+struct ExecutionSide {std::optional<std::string> fluid; TruthEvidence solved;};
 struct RangeSample {
     bool captured{}, captured_is_bool{true};
     std::string side, quantity, constraint{"parameter"};
@@ -131,9 +145,9 @@ struct ResultEvidence {
     ThermalEvidence thermal;
     std::optional<FineEvidence> fine;
     std::optional<std::string> thermal_state, execution;
-    Truth converged;
+    TruthEvidence converged;
     std::optional<int> outer_index;
-    std::map<std::string, Truth> convergence_gates;
+    std::map<std::string, TruthEvidence> convergence_gates;
     std::optional<TrueHCertificate> true_h_certificate;
     std::map<std::string, ModelCertificate> model_certificates;
     std::array<std::optional<double>, 4> strict_ratios;

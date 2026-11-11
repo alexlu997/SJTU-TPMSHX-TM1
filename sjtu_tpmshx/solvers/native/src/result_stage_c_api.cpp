@@ -88,8 +88,40 @@ public:
     }
 };
 Truth truth(int value) {
-    if (value < -3 || value > 1) throw std::invalid_argument("invalid stage truth declaration");
+    if ((value < -3 && value != -5) || value > 1) throw std::invalid_argument("invalid stage truth declaration");
     return value == -1 ? Truth{} : Truth(value == 1 || value == -2);
+}
+TruthEvidence declared_truth(int value) {
+    TruthEvidence out;
+    out.value = truth(value); out.is_bool = value == 0 || value == 1;
+    out.equals_false = value == 0 || value == -3;
+    if (out.is_bool) out.recorded = Report(*out.value);
+    return out;
+}
+TruthEvidence gate_evidence(Inputs& input, const tpmshx_stage_gate_v1& gate) {
+    auto out = declared_truth(gate.value);
+    const auto number = input.number(gate.recorded_number);
+    const auto text = input.string(gate.recorded_text);
+    if (out.is_bool || !out.value) {
+        if (number || text) throw std::invalid_argument("boolean or unknown gate has a redundant recorded value");
+        return out;
+    }
+    if (number.has_value() == text.has_value())
+        throw std::invalid_argument("non-boolean gate requires its recorded numeric scalar or text");
+    int expected;
+    if (number) {
+        if (complex_type(number->dtype) || number->dtype == TPMSHX_RESULT_BOOL)
+            throw std::invalid_argument("non-boolean gate requires an original real numeric scalar");
+        expected = zero(*number) ? -3 : -2;
+        if (integer_type(number->dtype))
+            out.recorded = signed_type(number->dtype) ? Report(number->signed_value) : Report(number->unsigned_value);
+        else out.recorded = Report(arithmetic::to_float(*number));
+    } else {
+        expected = text->empty() ? -5 : -2;
+        out.recorded = Report(*text);
+    }
+    if (gate.value != expected) throw std::invalid_argument("gate truth declaration disagrees with its recorded value");
+    return out;
 }
 bool boolean(int value) {
     const auto converted = truth(value);
@@ -248,16 +280,16 @@ ResultEvidence evidence(Inputs& input, const tpmshx_result_evidence_v1* value) {
         out.fine = std::move(fine);
     }
     out.thermal_state = input.string(value->thermal_state); out.execution = input.string(value->execution);
-    out.converged = truth(value->converged); out.outer_index = input.optional(value->outer_index);
+    out.converged = declared_truth(value->converged); out.outer_index = input.optional(value->outer_index);
     input.sequence(value->convergence_gates, value->convergence_gate_count);
     for (std::size_t i = 0; i < value->convergence_gate_count; ++i) {
         const auto& gate = value->convergence_gates[i];
-        if (!out.convergence_gates.emplace(input.text(gate.name, "a convergence gate name"), truth(gate.value)).second)
+        if (!out.convergence_gates.emplace(input.text(gate.name, "a convergence gate name"), gate_evidence(input, gate)).second)
             throw std::invalid_argument("duplicate stage convergence gate");
     }
     if (value->true_h_certificate) {
         input.sequence(value->true_h_certificate, 1); TrueHCertificate cert;
-        cert.converged = truth(value->true_h_certificate->converged);
+        cert.converged = declared_truth(value->true_h_certificate->converged);
         cert.clip_counts = input.array(value->true_h_certificate->clip_counts);
         for (std::size_t i = 0; i < 2; ++i) {
             cert.ratios[i] = input.number(value->true_h_certificate->ratios[i]);
@@ -278,7 +310,7 @@ ResultEvidence evidence(Inputs& input, const tpmshx_result_evidence_v1* value) {
     input.sequence(value->executed_sides, value->executed_side_count);
     for (std::size_t i = 0; i < value->executed_side_count; ++i) {
         const auto& row = value->executed_sides[i];
-        if (!out.executed_sides.emplace(input.text(row.side, "an executed side"), ExecutionSide{input.string(row.fluid), truth(row.solved)}).second)
+        if (!out.executed_sides.emplace(input.text(row.side, "an executed side"), ExecutionSide{input.string(row.fluid), declared_truth(row.solved)}).second)
             throw std::invalid_argument("duplicate stage executed side");
     }
     out.applicability = applicability(input, value->applicability);

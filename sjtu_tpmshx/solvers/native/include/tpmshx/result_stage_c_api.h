@@ -6,10 +6,18 @@
 
 /* All input storage is borrowed for the call. A null pointer means absent
  * evidence. Truth values are -1 (unknown), 0 (false), and 1 (true).
- * Values -2 and -3 retain non-boolean true/false declarations for validation.
+ * Values -2 and -3 retain non-boolean truthy and False-equal declarations.
+ * Value -5 retains a falsy declaration that does not compare equal to False.
  * A true-h completeness value of -4 means that the key was not recorded. */
 typedef struct { const char* name; tpmshx_result_array_v1 value; } tpmshx_stage_named_array_v1;
-typedef struct { const char* name; int value; } tpmshx_stage_gate_v1;
+/* Non-boolean gates require their original numeric scalar or text for reports.
+ * Supply one recorded value. Boolean and unknown gates need neither pointer. */
+typedef struct {
+    const char* name;
+    int value;
+    const tpmshx_result_scalar_v1* recorded_number;
+    const char* recorded_text;
+} tpmshx_stage_gate_v1;
 typedef struct { const tpmshx_result_array_v1* widths[3]; } tpmshx_stage_grid_v1;
 typedef struct { const char* name; const char* unit; const char* state; } tpmshx_stage_field_declaration_v1;
 typedef struct {

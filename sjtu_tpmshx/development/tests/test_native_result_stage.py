@@ -219,3 +219,34 @@ for prefix in ('sjtu_tpmshx.solvers', 'sjtu_tpmshx.preprocess', 'CoolProp', 'num
     expected = python_report(load_result(path))['metrics']['Q_A']['value']
     run = subprocess.run([sys.executable, '-c', code, str(path), stage_library._name, repr(expected)], capture_output=True, text=True, timeout=30)
     assert run.returncode == 0, run.stderr
+
+
+@pytest.mark.parametrize('value', [None, False, True, 0, 1, 2, 0.0, 1.0, '', 'recorded'])
+@pytest.mark.parametrize('field', ['converged', 'simple_ok', 'ltne_ok', 'true_h_converged', 'solved_air', 'solved_sco2'])
+def test_qualification_preserves_boolean_identity_and_false_equality(stage_library, field, value):
+    from sjtu_tpmshx.development.tests.postprocess_tm1.test_qualification import qualified_result, required_metrics
+    from sjtu_tpmshx.postprocess.api import evaluate_qualification
+    result = qualified_result(3)
+    metadata, status = mutable_data(result.metadata), mutable_data(result.run_status)
+    if field == 'converged':
+        status['converged'] = value
+    elif field == 'simple_ok':
+        metadata['diagnostics']['convergence_detail']['simple_ok'] = value
+    elif field == 'ltne_ok':
+        metadata['thermal_mode'] = 'temperature'
+        metadata['temperature_transport'] = 'model_enthalpy_temperature_v1'
+        metadata['diagnostics']['convergence_detail']['ltne_ok'] = value
+    elif field == 'true_h_converged':
+        metadata['thermal_mode'] = 'true_h'
+        metadata['diagnostics']['true_h_balance'] = dict(converged=value,
+            enthalpy_clip_counts={'total': [0, 0]}, effective_settings=dict(coupled_energy_tol=.001, equation_energy_tol=.001),
+            coupled_energy_balance={'ratio': 0.}, equation_energy_balance={'ratio': 0.})
+    else:
+        metadata['execution_record']['sides']['A'].update(fluid=field.removeprefix('solved_'), solved=value)
+    result = replace(result, metadata=metadata, run_status=status)
+    metrics = required_metrics(3)
+    expected = thaw(evaluate_qualification(result, metrics))
+    actual = native_report(result, stage_library, 'qualification', metrics=metrics)
+    assert actual == expected
+    if field in ('simple_ok', 'ltne_ok'):
+        assert type(actual['convergence']['gates'][field]) is type(value)

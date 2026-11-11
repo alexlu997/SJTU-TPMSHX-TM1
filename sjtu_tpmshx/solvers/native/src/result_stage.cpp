@@ -20,11 +20,11 @@ const std::array<std::string, 3> phase_names{{"A", "B", "solid"}};
 class Missing : public std::runtime_error {public: using std::runtime_error::runtime_error;};
 class Unsupported : public std::runtime_error {public: using std::runtime_error::runtime_error;};
 
-template<class T> const T& need(const std::optional<T>& value, const std::string& key) {
+template<class T> const T& need(const std::optional<T>& value, std::string key) {
     if (!value) throw Missing("'" + key + "'");
     return *value;
 }
-template<class T> const T& entry(const std::map<std::string, T>& values, const std::string& key) {
+template<class T> const T& entry(const std::map<std::string, T>& values, std::string key) {
     const auto found = values.find(key);
     if (found == values.end()) throw Missing("'" + key + "'");
     return found->second;
@@ -713,7 +713,7 @@ Gates energy_gates(const ResultEvidence& result) {
         record(result, "metadata.diagnostics");
         const auto& certificate = need(result.true_h_certificate, "true_h_balance");
         const auto& clips = need(certificate.clip_counts, "total");
-        Gates gates{{"true-h thermal solve converged", certificate.converged == true},
+        Gates gates{{"true-h thermal solve converged", certificate.converged.is_true()},
             {"true-h enthalpy remains unclipped", clips.shape == std::vector<std::size_t>{2} && checks::array_checks(clips.array()).all_zero}};
         Diagnostics diag{};
         for (std::size_t i = 0; i < 2; ++i) {
@@ -728,7 +728,7 @@ Gates energy_gates(const ResultEvidence& result) {
             throw Unsupported("capacity-temperature has no common energy certificate");
         record(result, "metadata.diagnostics");
         record(result, "metadata.diagnostics.convergence_detail");
-        return {{"native strict integral-enthalpy thermal gate", entry(result.convergence_gates, "ltne_ok") == true}};
+        return {{"native strict integral-enthalpy thermal gate", entry(result.convergence_gates, "ltne_ok").is_true()}};
     }
     if (mode != "model_h") throw Unsupported("thermal route has no common energy certificate");
     if (need(result.metadata_dimension, "dimension") == 2) {
@@ -749,7 +749,7 @@ Gates energy_gates(const ResultEvidence& result) {
         if (result.model_certificates.size() != 2 || !result.model_certificates.count("main") || !result.model_certificates.count("fine"))
             throw std::invalid_argument("2D energy certificate requires main and fine thermal results");
         record(result, "metadata.diagnostics.convergence_detail");
-        gates.emplace_back("2D native Richardson check", entry(result.convergence_gates, "richardson_ok") == true);
+        gates.emplace_back("2D native Richardson check", entry(result.convergence_gates, "richardson_ok").is_true());
         return gates;
     }
     record(result, "metadata.diagnostics");
@@ -895,12 +895,12 @@ Qualification evaluate_qualification(const ResultEvidence& result, const std::ma
     const Truth completed = result.execution ? Truth(*result.execution == "completed") : Truth{};
     out.execution = verdict(completed, "run_status.execution", {{"state", nullable(result.execution)}});
     Object gates, raw_fields, pressure_states;
-    std::vector<Truth> convergence_values{result.converged}, raw_values;
+    std::vector<Truth> convergence_values{result.converged.qualified()}, raw_values;
     for (const auto& name : {"simple_ok", "ltne_ok", "outer_converged", "fields_finite", "envelope_ok", "richardson_ok"}) {
         const auto found = result.convergence_gates.find(name);
         if (found != result.convergence_gates.end()) {
-            gates.emplace(name, Report(found->second));
-            if (found->second) convergence_values.push_back(found->second);
+            gates.emplace(name, found->second.recorded);
+            if (found->second.value) convergence_values.push_back(found->second.qualified());
         }
     }
     for (const auto& field : result.fields)
@@ -945,7 +945,7 @@ Qualification evaluate_qualification(const ResultEvidence& result, const std::ma
             const auto& mass = std::get<Object>(physical.details.at("mass").value);
             for (std::size_t side = 0; side < 2; ++side) {
                 const auto found = sides.find(side_name(side));
-                if (result.pressure[side] || (found != sides.end() && found->second.solved == true)) {
+                if (result.pressure[side] || (found != sides.end() && found->second.solved.is_true())) {
                     const auto& row = std::get<Object>(mass.at(side_name(side)).value);
                     checks_list.emplace_back(side_name(side) + " thermal mass faces available",
                         std::get<std::string>(row.at("status").value) == "available" ? Truth(true) : Truth{});
@@ -1006,10 +1006,10 @@ Qualification evaluate_qualification(const ResultEvidence& result, const std::ma
     const auto available = all_known(availability);
     out.metrics = verdict(available, "PerformanceResult.metrics", {{"required", statuses}});
     const bool recorded = sides.size() == 2 && sides.count("A") && sides.count("B") &&
-        std::all_of(sides.begin(), sides.end(), [](const auto& row){return row.second.fluid && !row.second.fluid->empty() && row.second.solved.has_value();});
+        std::all_of(sides.begin(), sides.end(), [](const auto& row){return row.second.fluid && !row.second.fluid->empty() && row.second.solved.is_bool;});
     Truth scope = recorded ? Truth(true) : Truth{};
     std::string scope_reason = recorded ? "" : "executed side models were not fully recorded";
-    const bool sco2 = std::any_of(sides.begin(), sides.end(), [](const auto& row){return row.second.fluid == "sco2" && row.second.solved == true;});
+    const bool sco2 = std::any_of(sides.begin(), sides.end(), [](const auto& row){return row.second.fluid == "sco2" && row.second.solved.value == true;});
     if (sco2) {scope.reset(); scope_reason = "sCO2 joint P/T/Pr and wall heating or cooling qualification remains unverified";}
     out.model_scope = verdict(scope, "metadata.execution_record.sides", {{"reason", scope_reason}});
     const std::vector<std::pair<std::string, Truth>> requirements{{"execution", completed}, {"convergence", out.convergence.passed},
@@ -1131,7 +1131,7 @@ void json_value(std::ostream& out, const Report& value) {
         } else if constexpr (std::is_same_v<T, double>) {
             if (std::isnan(item)) out << "NaN";
             else if (std::isinf(item)) out << (item > 0 ? "Infinity" : "-Infinity");
-            else out << std::setprecision(std::numeric_limits<double>::max_digits10) << item;
+            else out << std::setprecision(std::numeric_limits<double>::max_digits10) << std::showpoint << item << std::noshowpoint;
         } else out << item;
     }, value.value);
 }
