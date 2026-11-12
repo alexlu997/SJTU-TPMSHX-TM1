@@ -272,8 +272,6 @@ for prefix in ('sjtu_tpmshx.solvers', 'sjtu_tpmshx.preprocess', 'CoolProp', 'num
 @pytest.mark.parametrize('mode', ['true_h', 'conservative_energy'])
 @pytest.mark.parametrize('damage', [None, 'convergence', 'clips', 'coupled', 'equation', 'nonfinite', 'missing'])
 def test_true_h_common_verdict_keeps_native_energy_gates(dimension, mode, damage):
-    from types import SimpleNamespace
-    from sjtu_tpmshx.postprocess.qualification import _energy_gates
     balance = dict(converged=True, enthalpy_clip_counts={'total': [0, 0]},
         effective_settings={'coupled_energy_tol': .001, 'equation_energy_tol': .001},
         coupled_energy_balance={'ratio': .0002}, equation_energy_balance={'ratio': .0003})
@@ -287,12 +285,16 @@ def test_true_h_common_verdict_keeps_native_energy_gates(dimension, mode, damage
         balance['equation_energy_balance']['ratio'] = float('nan')
     elif damage == 'missing':
         del balance['equation_energy_balance']
-    field = SimpleNamespace(metadata={'dimension': dimension, 'thermal_mode': mode,
-                                     'diagnostics': {'true_h_balance': balance}})
+    field = qualified_result(dimension)
+    metadata = mutable_data(field.metadata)
+    metadata.update(thermal_mode=mode)
+    metadata['diagnostics']['true_h_balance'] = balance
+    quality = evaluate_qualification(replace(field, metadata=metadata), required_metrics(dimension))
+    checks = quality['physical']['checks']
     if damage == 'missing':
-        with pytest.raises(KeyError):
-            _energy_gates(field)
+        assert ['route energy certificate unavailable', None] in checks
+        assert quality['physical']['reason'] == "'equation_energy_balance'"
     else:
-        gates = _energy_gates(field)
+        gates = [row for row in checks if row[0].startswith('true-h')]
         assert len(gates) == 4 and all(type(passed) is bool for _, passed in gates)
         assert all(passed for _, passed in gates) == (damage is None)
