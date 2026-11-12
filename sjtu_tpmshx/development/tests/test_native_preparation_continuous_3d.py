@@ -522,3 +522,34 @@ def test_continuous_3d_typed_grid_with_exact_width_coverage(native, monkeypatch,
     config.solver.Nx = config.solver.Ny = config.solver.Nz = 4
     config.geometry.L_dom_m, config.geometry.H_dom_m, config.geometry.Lz_m = map(dtype, (.081, .063, .047))
     _full(native, monkeypatch, config)
+
+
+@pytest.mark.parametrize('operation', _OPERATIONS)
+@pytest.mark.parametrize('axis', ['x', 'y'])
+@pytest.mark.parametrize('nz', [None, 1], ids=['xy', 'xyz'])
+@pytest.mark.parametrize('constant', [False, True])
+@pytest.mark.parametrize('width_failure', [False, True])
+def test_continuous_3d_rejects_rounded_control_axes_before_sampling(
+        native, monkeypatch, operation, axis, nz, constant, width_failure):
+    counts = {'nx': 4097, 'ny': 2} if axis == 'x' else {'nx': 2, 'ny': 4097}
+    config = _configuration(**counts, nz=nz, mirror=False)
+    config.solver.Nx = 5 if width_failure else 4
+    config.solver.Ny = config.solver.Nz = 4
+    config.geometry.L_dom_m = np.float16(.081)
+    config.geometry.H_dom_m = np.float16(.063)
+    if constant:
+        count = len(config.zones.config['x_decision']) // 2
+        config.zones.config['x_decision'] = [7.] * count + [.6] * count
+    state, targets = {}, (.003, .03)
+    with pytest.raises(ValueError) as reference:
+        flow._reference(monkeypatch, operation, config, targets, scoped=True, state=state)
+    assert str(reference.value) == (
+        'control axes must increase across the domain, or use its midpoint for one control')
+    status, result, failure, error, live, _ = _call(native, operation, config, targets)
+    try:
+        assert status != 0 and error == str(reference.value)
+        assert failure.kind == 1 and failure.cause_count == 0
+        assert bytes(result) == bytes(type(result)(3, ct.sizeof(result)))
+        assert two._host_events(live) == state['events']
+    finally:
+        _release(native, result)

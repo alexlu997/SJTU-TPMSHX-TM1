@@ -1377,11 +1377,20 @@ void continuous_geometry_3d(PreparedCase3D& output) {
     const std::size_t sizes[]{nx,ny,nz};
     std::array<std::vector<double>,3> axes,centres;
     for (std::size_t axis=0;axis<dimension;++axis) {
+        const auto length=input.grid.lengths[axis];
+        auto& nodes=axes[axis];nodes=control_axis(counts[axis],length);
+        bool valid=nodes.size()==1?nodes[0]==g::divide(length,g::weak(2.)).value:
+            nodes.front()==0. && nodes.back()==length.value;
+        for (std::size_t i=0;i<nodes.size();++i)
+            valid=valid && std::isfinite(nodes[i]) && (!i || nodes[i]>nodes[i-1]);
+        if (!valid)
+            throw std::invalid_argument("control axes must increase across the domain, or use its midpoint for one control");
+    }
+    for (std::size_t axis=0;axis<dimension;++axis) {
         const auto length=input.grid.lengths[axis];const auto& widths=output.widths[axis];
         const double total=0.+tpmshx::detail::contiguous_sum({widths.data(),widths.size()});
         if (!(std::abs(total-length.value)<=g::multiply(g::weak(1e-12),length).value))
             throw std::invalid_argument("cell widths must be finite, positive and cover the field domain");
-        axes[axis]=control_axis(counts[axis],length);
         centres[axis]=g::continuous_centres(sizes[axis],length,&widths);
     }
     const auto half_y=controls.symmetric_y?controls.ny/2+controls.ny%2:controls.ny;
