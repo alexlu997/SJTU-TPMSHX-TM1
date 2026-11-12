@@ -686,3 +686,34 @@ def test_deferred_exception_relations_keep_cycles_and_group_identity():
     assert second.__context__ is first
     assert first.errno == 7 and first.args == (7, 'first')
     assert second.args == ('second',)
+
+
+@pytest.mark.parametrize('base', [RuntimeError, ExceptionGroup])
+def test_exception_cleanup_does_not_call_subclass_accessors(base):
+    lookups = []
+
+    class Failure(base):
+        def __getattribute__(self, name):
+            if name in ('__cause__', '__context__', 'exceptions'):
+                lookups.append(name)
+                raise AssertionError('unexpected exception accessor')
+            return super().__getattribute__(name)
+
+    cause = OSError(7, 'original cause')
+    context = ValueError('original context')
+    failure = Failure('original', [cause]) if base is ExceptionGroup else Failure('original')
+    failure.__cause__, failure.__context__ = cause, context
+
+    class Label(str):
+        def __ne__(self, other):
+            raise failure
+
+    field = quick_result()
+    field = replace(field, metadata=dict(field.metadata, model=Label('model')))
+    with pytest.raises(Failure) as caught:
+        native.evaluate(field)
+    assert caught.value is failure and lookups == []
+    assert BaseException.__cause__.__get__(failure) is cause
+    assert BaseException.__context__.__get__(failure) is context
+    if base is ExceptionGroup:
+        assert BaseExceptionGroup.exceptions.__get__(failure) == (cause,)

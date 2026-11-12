@@ -189,9 +189,12 @@ class _Packed:
                 continue
             visited.add(id(current))
             BaseException.with_traceback(current, None)
-            pending.extend(value for value in (current.__cause__, current.__context__) if value is not None)
+            # Read stored relations without calling an exception subclass accessor.
+            relations = (BaseException.__dict__['__cause__'].__get__(current),
+                         BaseException.__dict__['__context__'].__get__(current))
+            pending.extend(value for value in relations if value is not None)
             if isinstance(current, BaseExceptionGroup):
-                pending.extend(current.exceptions)
+                pending.extend(BaseExceptionGroup.__dict__['exceptions'].__get__(current))
         self.exceptions[token] = error
         return token
 
