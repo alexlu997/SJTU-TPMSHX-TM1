@@ -4,6 +4,9 @@ from copy import deepcopy
 from dataclasses import asdict, replace
 from itertools import product
 import os
+from pathlib import Path
+import subprocess
+import sys
 import warnings
 
 import numpy as np
@@ -454,3 +457,44 @@ def test_flow_owned_output_keeps_safe_reuse_diagnostics(native, version, operati
         assert all(ct.string_at(address, len(saved)) == saved for address, saved in buffers)
     finally:
         release(library, result)
+
+
+_INVALID_OUTPUT_ADDRESS = r"""
+import ctypes as ct
+import os
+import sys
+if os.name == 'posix':
+    import resource
+    resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+from sjtu_tpmshx.development.tests import test_native_preparation_continuous as v4
+from sjtu_tpmshx.development.tests import test_native_preparation_mass_flow as v3
+from sjtu_tpmshx.development.tests import test_native_preparation_fluids as v2
+os.environ['TPMSHX_PREPARATION_CASE_LIBRARY'] = sys.argv[1]
+version, operation, kind = int(sys.argv[2]), sys.argv[3], sys.argv[4]
+module = v3 if version == 3 else v4
+library = module.native.__wrapped__()
+config = v3._configuration('Gyroid', ('air', 'air')) if version == 3 else v4._configuration(pair=('air', 'air'))
+source = module._input(config)
+result_type = module._Result if operation == 'prepare_flow_case' else module._Flow
+address = 1 if kind == 'unaligned' else ct.c_size_t(-1).value & -ct.alignment(result_type)
+result = ct.cast(ct.c_void_p(address), ct.POINTER(result_type))
+failure = v2._Failure(2, ct.sizeof(v2._Failure))
+error = ct.create_string_buffer(b'unchanged', 64)
+before_failure, before_error = bytes(failure), bytes(error)
+status = getattr(library, 'tpmshx_' + operation + f'_2d_v{version}')(
+    ct.byref(source), None, None, result, ct.byref(failure), error, len(error))
+assert status == 1
+assert bytes(failure) == before_failure and bytes(error) == before_error
+print('invalid output address rejected')
+"""
+
+
+@pytest.mark.parametrize('version', [3, 4])
+@pytest.mark.parametrize('operation', _OWNED_OPERATIONS)
+@pytest.mark.parametrize('address_kind', ['unaligned', 'overflow'])
+def test_flow_output_address_is_checked_before_owner(native, version, operation, address_kind):
+    result = subprocess.run([sys.executable, '-c', _INVALID_OUTPUT_ADDRESS,
+        str(native._name), str(version), operation, address_kind],
+        cwd=Path(__file__).resolve().parents[3], capture_output=True, text=True, timeout=20)
+    assert result.returncode == 0, (result.returncode, result.stdout, result.stderr)
+    assert result.stdout.strip() == 'invalid output address rejected'

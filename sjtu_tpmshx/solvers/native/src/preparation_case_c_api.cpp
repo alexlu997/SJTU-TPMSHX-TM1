@@ -369,6 +369,7 @@ template<class Source,class Result,class Function> int flow_boundary(
     const FlowOutputStorage storage{reinterpret_cast<const unsigned char*>(result),
         result?sizeof(*result):0,failure,error,capacity};
     try {
+        require_buffer(result,result?1:0);
         if (result && result->owner) storage.owned(*result);
         require_disjoint(error,capacity,source,source?1:0);require_disjoint(error,capacity,result,result?1:0);
         require_disjoint(error,capacity,selected,selected?1:0);require_disjoint(error,capacity,callbacks,callbacks?1:0);
