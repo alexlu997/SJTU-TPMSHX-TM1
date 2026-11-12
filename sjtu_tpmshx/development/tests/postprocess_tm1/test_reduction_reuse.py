@@ -1,5 +1,4 @@
 """Lazy reductions retain side/fine isolation and expire after one evaluate."""
-from collections import Counter
 from dataclasses import replace
 
 import numpy as np
@@ -8,7 +7,8 @@ import pytest
 from sjtu_tpmshx.shared.domain.field_result import FieldResult
 from sjtu_tpmshx.shared.domain.metric_spec import MetricSpec
 from sjtu_tpmshx.shared.domain.portable_data import mutable_data
-from sjtu_tpmshx.postprocess import api, metrics, three_d
+from sjtu_tpmshx.postprocess import api
+from sjtu_tpmshx.development.tests.native.result_reference import api as reference
 
 
 def native_result(dimension):
@@ -36,24 +36,9 @@ def native_result(dimension):
 
 
 @pytest.mark.parametrize('dimension', [2, 3])
-def test_each_successful_reduction_runs_once_per_evaluate(monkeypatch, dimension):
-    owner = metrics if dimension == 2 else three_d
-    heat_name = '_side_duty' if dimension == 2 else 'thermal_duty'
-    original_heat, original_mass = getattr(owner, heat_name), owner._mass_flow
-    calls = Counter()
-
-    def heat(result, side, **kwargs):
-        calls['heat', side, kwargs.get('fine', False)] += 1
-        return original_heat(result, side, **kwargs)
-
-    def mass(result, side):
-        calls['mass', side] += 1
-        return original_mass(result, side)
-
-    monkeypatch.setattr(owner, heat_name, heat)
-    monkeypatch.setattr(owner, '_mass_flow', mass)
+def test_side_and_fine_reductions_are_isolated_across_evaluations(dimension):
     result = native_result(dimension)
-    for invocation in (1, 2):
+    for _ in range(2):
         values = api.evaluate(result).metrics
         assert values['Q'].value == values['Q_A'].value == 10.
         assert values['Q_B'].value == -10.
@@ -61,11 +46,43 @@ def test_each_successful_reduction_runs_once_per_evaluate(monkeypatch, dimension
         for side in ('A', 'B'):
             assert values['mass_flow_'+side].value == 2.
             assert values['mass_imbalance_rel_'+side].value == 0.
-            assert calls['heat', side, False] == invocation
-            assert calls['mass', side] == invocation
             if dimension == 2:
                 assert values['Q_richardson_'+side].value == 14.
-                assert calls['heat', side, True] == invocation
+
+
+@pytest.mark.parametrize('dimension', [2, 3])
+@pytest.mark.parametrize('callback_fails', [False, True])
+def test_reduction_event_counts_match_success_and_failure_cache(dimension, callback_fails):
+    result = native_result(dimension)
+    flux = mutable_data(result.boundary_fluxes)
+    for level in (flux, flux['fine']) if dimension == 2 else (flux,):
+        balance = level.get('model_h', level.get('model_h_balance'))
+        for side in ('A', 'B'):
+            if dimension == 2:
+                balance[side]['h_faces_W_per_m'][0][0, :] = np.finfo(float).max
+            else:
+                balance[side]['x-'][:] = np.finfo(float).max
+    result = replace(result, boundary_fluxes=flux)
+
+    def count(evaluate):
+        events = []
+        def callback(message, flag):
+            events.append((message, flag))
+            if callback_fails:
+                raise ValueError('test reduction callback')
+        previous = np.geterrcall()
+        np.seterrcall(callback)
+        try:
+            with np.errstate(over='call', invalid='ignore'):
+                evaluate(result)
+                first = len(events)
+                evaluate(result)
+            assert first and len(events) == 2 * first
+            return events
+        finally:
+            np.seterrcall(previous)
+
+    assert count(api.evaluate) == count(reference.evaluate)
 
 
 @pytest.mark.parametrize('dimension', [2, 3])

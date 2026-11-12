@@ -16,8 +16,11 @@ and geometry so runtime does not re-read the solid homogenization environment. `
 `K_m2/cF_per_m` row coefficients, scalar `seed_K_m2/seed_cF_per_m`, and D-F
 applicability metadata.
 
-Non-continuous zones (1D, discrete grid and the legacy
-grid sigmoid path) keep the row model. This model averages physical L/t fields
+1D zones, discrete grids and grid sigmoid keep the row model.
+Saved sigmoid cases keep `parameters.z_axis="grid"` and
+`metadata.design_mode="continuous"`. Execution uses `z_axis` to select the
+row model; `design_mode` describes the design field.
+The row model averages physical L/t fields
 across the transverse width with physical cell-width weights. It then evaluates
 the fixed D-F model and orders rows in the actual flow direction. For `zones.axis="continuous"`, each side additionally records complete local
 `K_field_m2/cF_field_per_m` arrays in its SIMPLE `(cross, stream)` coordinates. These are evaluated from each physical L/t cell, with streamwise reversal for
@@ -28,7 +31,7 @@ initialization only. Momentum consumes the complete local arrays. Where
 experimental continuous-field transfer is supported, preparation applies the
 resolved fixed correction factors to the local CFD arrays and records
 `continuous-field-extrapolation`. Execution consumes those corrected arrays. The executor validates the grids and coefficients, including required local
-arrays for continuous cases, against the physical grid.
+arrays for canonical spline cases, against the physical grid.
 
 Receiver D-F
 environment settings cannot replace them. Temperature-dependent properties,

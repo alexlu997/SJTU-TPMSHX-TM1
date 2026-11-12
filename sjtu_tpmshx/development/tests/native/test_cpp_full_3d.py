@@ -365,13 +365,19 @@ def test_native_call_borrows_case_arrays_and_recovers(native_path, monkeypatch, 
 
     def init(self, *args, **kwargs):
         original_init(self, *args, **kwargs)
-        symbol = 'tpmshx_solve_full_2d_v6' if dimension == 2 else 'tpmshx_solve_full_3d_v5'
+        symbol = 'tpmshx_stage_run_2d_create_saved_v1' if dimension == 2 else 'tpmshx_solve_full_3d_v5'
         original_call = getattr(self.library, symbol)
 
         def call(*args):
             if dimension == 2:
-                pointers = {key: args[1][index] for key, index in (
-                    ('K_ffA_arr', 3), ('K_ffB_arr', 4), ('K_ss_arr', 5), ('eps_arr', 6))}
+                saved = args[0]._obj
+                data = saved.prepared.contents.values
+                pointers = {
+                    'K_ffA_arr': saved.fluid_conductivity[0].data,
+                    'K_ffB_arr': saved.fluid_conductivity[1].data,
+                    'K_ss_arr': data.solid_conductivity.data,
+                    'eps_arr': data.total_porosity.data,
+                }
             else:
                 data = args[0]._obj
                 pointers = {key: getattr(data, field).data for key, field in (

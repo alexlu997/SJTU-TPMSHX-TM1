@@ -120,7 +120,7 @@ TPMSHX_THERMAL_API uint32_t TPMSHX_THERMAL_CALL tpmshx_full_2d_abi_version(void)
  * Geometry/Kff inputs retain the already-prepared case's values. Full K/cF
  * use +y SIMPLE coordinates; thermal arrays use physical x/y. All required
  * buffers must have declared extents and outlive the synchronous call.
- * Fluid=air0/water1/CO2=2, topology=diamond0/gyroid1,
+ * Fluid=air0/water1/sCO2=2/CO2=3, topology=diamond0/gyroid1,
  * thermal_mode=temperature0/model_h1/true_h2. Booleans require 0/1.
  * spatial_geometry retains original scalar-versus-field provenance during
  * refinement; uniform Kff/Kss/epsilon buffers must be constant.
