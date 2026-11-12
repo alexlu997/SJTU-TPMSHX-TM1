@@ -149,6 +149,13 @@ inline tpmshx_stage_capture_2d_v1 capture_summary(const RunResult2D& result,
     return output;
 }
 
+inline tpmshx_stage_capture_3d_v1 capture_summary(const RunResult3D& result,bool include_audit=false) {
+    tpmshx_stage_capture_3d_v1 output{};
+    detail::check(tpmshx_stage_run_3d_get_capture_v1(&result.view(),include_audit?1u:0u,&output),
+        "native 3D capture summary failed");
+    return output;
+}
+
 struct SavedCase3D : tpmshx_stage_saved_case_3d_v1 {
     SavedCase3D():tpmshx_stage_saved_case_3d_v1{} {
         abi_version=TPMSHX_STAGE_RUN_3D_ABI_VERSION;struct_size=sizeof(tpmshx_stage_saved_case_3d_v1);

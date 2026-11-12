@@ -1,5 +1,7 @@
 #include "stage_capture_3d.hpp"
 #include "field_c_boundary.hpp"
+#include "tpmshx/fluid_properties.hpp"
+#include "tpmshx/result_metrics.hpp"
 
 #include <algorithm>
 #include <array>
@@ -79,6 +81,51 @@ bool final_stage(const std::string& value) {
 class Capture3D {
 public:
     tpmshx_full3d_result_v1 raw{};
+    tpmshx_stage_capture_3d_v1 summary{};
+    std::array<uint32_t,2> fluid{};
+    std::array<std::vector<double>,2> audit_outlet;
+    void capture_scalars(const tpmshx_full3d_input_v1& input) {
+        namespace boundary=tpmshx::fields::c_api;
+        summary.model_h_cell_count=boundary::product(boundary::product(input.shape[0],input.shape[1]),input.shape[2]);
+        summary.q_net=tpmshx::result::arithmetic::python_float_sum({raw.solid_exchange[0],raw.solid_exchange[1]});
+        for(size_t side=0;side<2;++side) {
+            fluid[side]=input.sides[side].fluid;
+            const auto& nu=raw.nu_observations[side];summary.nu_available[side]=nu.available;
+            if(nu.available) {
+                if(!nu.cells)throw std::runtime_error("native Nu observation has no cells");
+                summary.nu_floor[side]=nusselt_floor(static_cast<Fluid>(fluid[side]));
+                summary.nu_floor_fraction[side]=static_cast<double>(nu.floor_cells)/static_cast<double>(nu.cells);
+            }
+            const auto& flow=raw.flow[side];if(!flow.widths[0].size)continue;
+            const auto clips=flow.last.pressure_clip_hits;
+            if(clips>std::numeric_limits<size_t>::max()-summary.pressure_clip_hits)
+                throw std::overflow_error("native pressure clip count exceeds size_t");
+            summary.pressure_clip_hits+=clips;
+        }
+    }
+    tpmshx_stage_capture_3d_v1 capture_summary(bool include_audit) {
+        auto value=summary;
+        if(!include_audit)return value;
+        for(size_t side=0;side<2;++side) {
+            const auto& flow=raw.flow[side];if(!flow.widths[0].size)continue;
+            if(audit_outlet[side].empty()) {
+                const size_t nx=flow.widths[0].size,nz=flow.widths[2].size;
+                auto& values=audit_outlet[side];values.assign(flow.outlet_opening.data,flow.outlet_opening.data+flow.outlet_opening.size);
+                if(fluid[side]<2)for(size_t i=0;i<nx;++i)for(size_t k=0;k<nz;++k) {
+                    double taper=1.;
+                    for(const auto item:{std::array<size_t,2>{i,nx},std::array<size_t,2>{k,nz}}) {
+                        const auto distance=std::min(item[0]+1,item[1]-item[0]);
+                        if(distance<=std::min(size_t{8},item[1]/2))
+                            taper=std::min(taper,std::max(.2,1.-.8*std::exp(-static_cast<double>(distance))));
+                    }
+                    values[i*nz+k]*=taper;
+                }
+            }
+            value.audit_outlet[side]={audit_outlet[side].data(),audit_outlet[side].size()};
+        }
+        return value;
+    }
+
     tpmshx_full3d_control_v1 resolved{};
     tpmshx_result_evidence_v1 evidence{};
     tpmshx_stage_input_v2 evaluation{};
@@ -484,7 +531,7 @@ Capture3D* capture_3d(const tpmshx_stage_saved_case_3d_v1& saved,tpmshx_full3d_r
     if(!result_id)throw std::invalid_argument("3D capture requires a result identifier");
     owner->result_id=result_id;
     if(resolved.table_directory) {owner->table_directory=resolved.table_directory;owner->resolved.table_directory=owner->table_directory.c_str();}
-    if(owner->raw.stop!=2)owner->populate(saved);
+    if(owner->raw.stop!=2) {owner->populate(saved);owner->capture_scalars(*saved.input);}
     return owner.release();
 }
 tpmshx_stage_run_result_3d_v1 stage_view(Capture3D& owner) {
@@ -492,3 +539,22 @@ tpmshx_stage_run_result_3d_v1 stage_view(Capture3D& owner) {
 }
 void release_capture_3d(Capture3D* owner) noexcept {delete owner;}
 }  // namespace tpmshx::stages
+
+extern "C" uint32_t TPMSHX_THERMAL_CALL tpmshx_stage_capture_3d_abi_version(void) {
+    return TPMSHX_STAGE_CAPTURE_3D_ABI_VERSION;
+}
+
+extern "C" int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_get_capture_v1(
+    const tpmshx_stage_run_result_3d_v1* result,uint32_t include_audit,tpmshx_stage_capture_3d_v1* output) {
+    namespace boundary=tpmshx::fields::c_api;
+    try {
+        boundary::require_buffer(result,1);boundary::require_buffer(output,1);
+        const auto first=reinterpret_cast<uintptr_t>(result),second=reinterpret_cast<uintptr_t>(output);
+        if(first<=second+sizeof(*output)-1 && second<=first+sizeof(*result)-1)return 1;
+        if(include_audit>1 || result->abi_version!=TPMSHX_STAGE_RUN_3D_ABI_VERSION
+            || result->struct_size!=sizeof(*result) || !result->owner || result->raw.stop>1)return 1;
+        auto& owner=*static_cast<tpmshx::stages::Capture3D*>(result->owner);
+        const auto value=owner.capture_summary(include_audit!=0);*output=value;return 0;
+    } catch(const std::invalid_argument&) {return 1;}
+    catch(...) {return 4;}
+}

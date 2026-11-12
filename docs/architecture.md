@@ -115,7 +115,7 @@ The 3D spatial v4 adds XY grid rectangles and the existing global offset rules.
 It assigns physical XY centres, smooths L/t separately, then extends fields along z.
 The existing asymmetric owner supplies nominal split and thermal side/reference geometry.
 Local total porosity remains symmetric; each side capacity uses its own split field.
-The v1/v2/v3 layouts remain unchanged. Python 3D preparation and production run integration remain separate gates.
+The v1/v2/v3 layouts remain unchanged. Python 3D preparation retains its separate host integration gate.
 Memory use near the cell cap and real 3D BO also need separate acceptance.
 Python preparation uses the owned v3/v4 stages for symmetric uniform and canonical continuous XY 2D inputs.
 Nonzero-delta uniform, discrete zones, sigmoid and 3D retain explicit existing routes.
@@ -130,7 +130,12 @@ The replaced continuous Python branches are retired; independent frozen referenc
 `stage_run_3d.cpp` connects all four 3D preparation families and saved inputs to `Full3DRun`.
 `stage_capture_3d.cpp` owns the complete raw result and its independent evaluation evidence.
 Final flow supplies pressure and display. The last completed thermal inputs supply mass, thermal pressure and energy.
-The result survives preparation and run release. The Python 3D production route remains unchanged.
+The result survives preparation and run release. Python full 3D runs use its saved-input lifecycle.
+`full_3d_stage.py` retains recorded input validation and borrows the existing XYZ fields.
+The driver keeps one input pack, callback bridge and raw DTO decoder. `full_3d_capture.py` remains the single result assembler.
+Native capture supplies heat-source sums, pressure clip counts, Nu statistics, cell counts and optional audit outlet weights.
+Complete protocol selection occurs before execution. Archived libraries retain their direct execution and restore interfaces.
+Partial protocols and native failures do not select another route. Direct low-level DTO callers keep their complete outputs.
 The 2D lifecycle interface uses the same full 2D run object, typed snapshots and restore checks.
 Partial energy controls use defaults from the selected library.
 Preparation evidence remains borrowed until result transfer or run release.
@@ -158,7 +163,7 @@ The following boundaries keep their original arithmetic and consumers:
 - Configuration control nodes, unit conversion, serialized grid edges and archive consistency checks. Initial-temperature and configuration checks keep their error order.
 - Range summaries for standalone getter, geometry and sCO2 messages, GUI previews and nTop export statistics. C++ still owns formal range collection and qualification checks.
 - The `ports_complete` injected-ledger check and default input adaptation for independent low-level drivers. Current native ledgers return an explicit completeness flag.
-- The historical 3D display taper under `_emit_audit`, independent development references and research fits. Formal ports and metrics use actual native face evidence.
+- Direct low-level and archived-runtime 3D capture calculations, independent development references and research fits. Current saved-stage capture owns the audit display taper. Formal ports and metrics use actual native face evidence.
 
 The native full-compute CC route uses the existing air/water integral h(T)
 model through strict model-h drivers. Earlier variable-cp m*cp*T failures

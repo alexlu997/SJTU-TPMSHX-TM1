@@ -26,7 +26,7 @@ Its resolved uniform prepared view uses run v2, including total-flow cases.
 
 The separate 3D preparation v1 accepts raw symmetric uniform cases at prescribed inlet speeds.
 It supports both topologies, all 16 ordered fluid pairs and the existing CFD and experimental DF selections.
-Its physical grid, typed ports and field evidence do not change the Python 3D production route.
+Its physical grid, typed ports and field evidence do not change Python 3D preparation.
 The separate 3D flow v2 adds capacity queries, flow resolution and complete preparation at the resolved speeds.
 Continuous v3 adds XY/XYZ controls. Spatial v4 adds XY grid rectangles and the existing global offset rules.
 The [uniform 3D preparation contract](#uniform-3d-preparation) defines its inputs and remaining gates.
@@ -233,7 +233,7 @@ Grid and offset geometry retain the existing air/water scope, state checks and e
 In particular, grid experimental preparation remains unsupported; uniform air/air core calibration keeps its existing offset support.
 The owner copies rectangle and text inputs. Nested prepared and flow views have null owners.
 The v1/v2/v3 C layouts remain unchanged.
-Python 3D preparation, host cache hooks and production run integration remain separate gates.
+Python 3D preparation and host cache hooks remain separate gates.
 Memory checks near the cell cap and real 3D BO also need separate acceptance.
 Saved CaseData still uses its existing validators and must not be prepared again.
 
@@ -256,7 +256,7 @@ Restore retains exact build, input and control identity. The positive CPU limit 
 `SavedCase3D` accepts an existing `full3d_input_v1` and recorded preparation evidence.
 It does not call raw preparation or replace saved grids, ports, models, K/cF, thermal geometry or solid conductivity.
 Missing inlet evidence, an empty recorded set and uncaptured range samples remain distinct.
-The later Python adapter must retain the public saved-schema validation before it creates this view.
+The Python adapter retains public saved-schema validation before it creates this view.
 
 The result owns the complete raw 3D DTO, generic v1 evidence and a v2 evaluation input.
 Use its `evaluation` member with `tpmshx_result_stage_query_v2`. The C++ `evaluate` overload does this.
@@ -272,7 +272,22 @@ C status 1, 2, 3 or 4 means invalid input, water state, arithmetic or native fai
 Status zero means a result was transferred; it does not establish convergence.
 A cancelled result retains raw diagnostics with `raw.stop=2` and no completed evaluation evidence.
 A successful result can be transferred only once. Output and error buffers must not overlap inputs or each other.
-This interface does not switch Python production execution or retire its current result adapter.
+Python full 3D runs and checkpoints use this saved lifecycle after `prepared_3d` validates CaseData.
+`full_3d_stage.py` packs recorded evidence and binds the owned run. It does not prepare raw inputs again.
+The driver keeps one input pack, callback bridge and complete raw decoder for both protocols.
+It selects the complete stage protocol before execution. A partial protocol is an error.
+The capture ABI version and query jointly identify the current host protocol.
+Archived libraries without both markers retain the existing direct run and restore interfaces, including the earlier raw 3D stage library.
+A single missing marker is a partial protocol error.
+A stage failure never starts a second run through another interface.
+
+`capture_summary(result, include_audit)` returns cell count, heat-source sum, pressure clip count and Nu statistics.
+The optional audit outlet arrays retain the historical display taper. They do not replace physical openings.
+Python copies these values before the stage result is released, then uses the single `full_3d_capture.py` assembler.
+Direct low-level DTO callers and archived runtimes retain their existing capture calculations.
+Those calculations stay until these supported consumers have an accepted replacement.
+Public schemas, model choices, warning order and immutable result buffers retain their existing contracts.
+Python raw 3D preparation, its host cache hooks, real 3D BO and visible desktop acceptance remain separate gates.
 
 ## Python preparation adapter
 
@@ -399,5 +414,5 @@ It builds and runs external callers outside the source tree:
 Use the applicable environment lock. A BO environment needs its matching `--python-lock` option.
 On Linux, add `--component result --python-lock engineering/requirements/postprocess.txt`.
 The check retains logs and 2D comparison fields. It removes the temporary installation and external build directories.
-These native interfaces do not complete production migration for discrete zones, 3D or Quick Design.
+These interfaces do not complete production preparation migration for discrete zones, 3D or Quick Design.
 Python integration and checkpoint recovery have separate acceptance gates.

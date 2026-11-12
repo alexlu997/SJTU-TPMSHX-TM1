@@ -5,6 +5,7 @@
 #include "tpmshx/full_3d_run_c_api.h"
 
 #define TPMSHX_STAGE_RUN_3D_ABI_VERSION 1u
+#define TPMSHX_STAGE_CAPTURE_3D_ABI_VERSION 1u
 
 typedef struct { uint32_t present,value; } tpmshx_stage_uint_option_v1;
 /* Absent values select the current application defaults, not the low-level
@@ -67,6 +68,17 @@ typedef struct {
     tpmshx_stage_input_v2 evaluation;
 } tpmshx_stage_run_result_3d_v1;
 
+/* Capture values retain the Python application reduction order. Audit outlet
+ * arrays are borrowed from this result owner and use solver cross-plane order.
+ * They are display evidence only; raw openings own the solved physical faces. */
+typedef struct {
+    uint32_t nu_available[2];
+    size_t model_h_cell_count;
+    double nu_floor[2],nu_floor_fraction[2],q_net;
+    size_t pressure_clip_hits;
+    tpmshx_full3d_array_v1 audit_outlet[2];
+} tpmshx_stage_capture_3d_v1;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -113,6 +125,12 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_take_result_v1(
     void*,tpmshx_stage_run_result_3d_v1*,char*,size_t);
 TPMSHX_THERMAL_API void TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_release_run_v1(void**);
 TPMSHX_THERMAL_API void TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_release_v1(tpmshx_stage_run_result_3d_v1*);
+/* This version and the capture query identify the complete host protocol. */
+TPMSHX_THERMAL_API uint32_t TPMSHX_THERMAL_CALL tpmshx_stage_capture_3d_abi_version(void);
+/* include_audit is 0 or 1. Query only completed results. Failure preserves
+ * output. Status 1 is invalid storage/input; 4 is a native failure. */
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_get_capture_v1(
+    const tpmshx_stage_run_result_3d_v1*,uint32_t include_audit,tpmshx_stage_capture_3d_v1*);
 /* One-shot execution uses create, advance_step and take_result on the same owner.
  * Status 0 reports transfer, not convergence. Check raw.stop and raw.converged. */
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_run_case_3d_v1(
