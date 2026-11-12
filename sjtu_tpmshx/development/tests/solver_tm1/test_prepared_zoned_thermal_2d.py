@@ -1,5 +1,8 @@
 """Zoned heat transfer follows physical cells through the prepared SI handoff."""
 import builtins
+import json
+import subprocess
+import sys
 from dataclasses import replace
 
 import numpy as np
@@ -92,7 +95,7 @@ def test_continuous_geometry_is_resampled_on_nonuniform_cells(monkeypatch, tmp_p
     from sjtu_tpmshx.shared.df_surrogate.predict import predict_K_cF_vec
     # A small real LUT is sufficient to test coordinate transport, not LUT accuracy.
     lut = sigmoid_field.GeometryLUT('Gyroid', n_L=2, n_t=2, N=16, cache_dir=tmp_path)
-    monkeypatch.setattr(sigmoid_field, 'get_geometry_lut', lambda *a, **k: lut)
+    monkeypatch.setitem(sigmoid_field._lut_cache, ('Gyroid',), lut)
     decision = np.column_stack((np.linspace(5., 8., 18), np.linspace(.3, .6, 18))).ravel()
     config = _config('grid')
     config = replace(config,
@@ -192,3 +195,93 @@ def test_required_surrogate_import_failure_is_not_an_empty_warning_list(monkeypa
     monkeypatch.setattr(builtins, '__import__', unavailable)
     with pytest.raises(ImportError, match='required surrogate unavailable'):
         surrogate_extrap_reasons(_config(), allow_extrap=True)
+
+
+def test_sigmoid_saved_execution_keeps_row_drag(monkeypatch, tmp_path):
+    from sjtu_tpmshx.applications.result_adapter import to_compute_result
+    from sjtu_tpmshx.postprocess.api import evaluate
+    from sjtu_tpmshx.preprocess import api as preparation_api
+    from sjtu_tpmshx.shared.domain.module_ports import RunControl
+    from sjtu_tpmshx.shared.domain.portable_data import mutable_data
+    from sjtu_tpmshx.shared.io.case_io import save_case, load_case
+    from sjtu_tpmshx.shared.io.result_io import save_result, load_result
+    from sjtu_tpmshx.shared.io.metrics_io import save_metrics
+    from sjtu_tpmshx.shared.models import sigmoid_field, tpms_props, _native_preparation_case
+    from sjtu_tpmshx.solvers.api import run_case
+
+    # This small real LUT checks saved execution, not LUT accuracy.
+    lut = sigmoid_field.GeometryLUT('Gyroid', n_L=2, n_t=2, N=16, cache_dir=tmp_path / 'lut')
+    monkeypatch.setattr(sigmoid_field, 'get_geometry_lut', lambda *a, **k: lut)
+    config = _config('grid')
+    config.zones.pareto_x_decision = np.column_stack((
+        np.linspace(5., 8., 18), np.linspace(.3, .6, 18))).ravel().tolist()
+    config.to_json(tmp_path / 'input.json')
+    case = replace(prepare_case(config, case_id='sigmoid-saved-execution'), config_snapshot={})
+    save_case(case, tmp_path / 'case.yaml')
+    loaded = load_case(tmp_path / 'case.yaml')
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError('saved execution must not prepare geometry again')
+
+    monkeypatch.setattr(preparation_api, 'prepare_case', forbidden)
+    monkeypatch.setattr(_native_preparation_case, 'operation', forbidden)
+    monkeypatch.setattr(tpms_props, 'geometry', forbidden)
+    monkeypatch.setattr(sigmoid_field, 'get_geometry_lut', forbidden)
+    results, reports = [], []
+    for prepared in (case, loaded):
+        assert not prepared.config_snapshot
+        assert prepared.metadata['design_mode'] == 'continuous'
+        assert prepared.parameters['z_axis'] == 'grid'
+        assert prepared.parameters['continuous_field'] is None
+        cfg, _ = build_execution_inputs(prepared)
+        assert not cfg['compute_cfg'].zones.enabled
+        assert cfg['z_axis'] == 'grid'
+        for side in 'AB':
+            flow = cfg['flow_inputs'][side]
+            assert 'K_field_m2' not in flow and 'cF_field_per_m' not in flow
+            for key in ('K_m2', 'cF_per_m'):
+                np.testing.assert_array_equal(flow[key], case.parameters['flow_inputs'][side][key])
+        for key, values in case.parameters['thermal_geometry']['fields'].items():
+            np.testing.assert_array_equal(cfg['thermal_geometry']['fields'][key], values)
+        result = run_case(prepared, RunControl(cpu_threads=1))
+        assert result.run_status['execution'] == 'completed'
+        assert result.metadata['design_mode'] == 'continuous'
+        assert result.metadata['parameters']['z_axis'] == 'grid'
+        for key, values in case.design_fields.items():
+            np.testing.assert_array_equal(result.metadata['design_fields'][key], values)
+        performance = evaluate(result)
+        display = to_compute_result(result, performance)
+        np.testing.assert_array_equal(display.fields['za']['L_field'],
+                                      case.design_fields['L_field_m'] * 1e3)
+        assert performance.metrics['Q_B'].spec.unit == 'W/m'
+        results.append(result)
+        reports.append(performance)
+    assert results[0].run_status == results[1].run_status
+    assert results[0].fields.keys() == results[1].fields.keys()
+    for key in results[0].fields:
+        np.testing.assert_array_equal(results[0].fields[key], results[1].fields[key])
+    assert reports[0].metrics == reports[1].metrics
+    original, restored = (mutable_data(report.qualification) for report in reports)
+    for report in (original, restored):
+        report.pop('source_result_id')
+    assert original == restored
+    assert results[0].metadata['diagnostics']['warnings_list'] == results[1].metadata['diagnostics']['warnings_list']
+    save_metrics(reports[0], tmp_path / 'original-metrics.json')
+    save_metrics(reports[1], tmp_path / 'loaded-metrics.json')
+    save_result(results[0], tmp_path / 'original-result.h5')
+    save_result(results[1], tmp_path / 'loaded-result.h5')
+
+    completed = subprocess.run([sys.executable, '-m', 'sjtu_tpmshx.applications.cli.stages',
+        'solve', str(tmp_path / 'case.yaml'), str(tmp_path / 'cli-result.h5'),
+        '--cpu-threads', '1'], capture_output=True, text=True, check=False)
+    (tmp_path / 'cli.log').write_text(completed.stdout + completed.stderr)
+    assert completed.returncode == (0 if results[1].run_status['converged'] else 2), completed.stderr
+    cli = load_result(tmp_path / 'cli-result.h5')
+    assert cli.run_status == results[1].run_status
+    for key in cli.fields:
+        np.testing.assert_array_equal(cli.fields[key], results[1].fields[key])
+    (tmp_path / 'verdict.json').write_text(json.dumps(dict(
+        execution='completed', original_loaded_cli_fields_exact=True,
+        config_snapshot_empty=True, preparation_forbidden=True,
+        lut_accuracy_qualified=False, run_status=mutable_data(results[1].run_status),
+        qualification=mutable_data(reports[1].qualification)), indent=2) + '\n')

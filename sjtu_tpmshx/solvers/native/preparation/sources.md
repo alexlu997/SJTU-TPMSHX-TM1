@@ -16,3 +16,41 @@ The macOS arm64 quotient keeps the fused expressions in the locked Python and Nu
 Other supported targets keep separate operations. Global floating-point options stay unchanged.
 The independent Python references remain under `development/tests/`.
 They do not call the native formulas that they check.
+
+## Spatial flow stages
+
+`src/preparation_case.cpp` owns raw spatial capacity, resolution and complete fixed-flow preparation.
+`prepare_spatial_inlet_geometry` uses the existing zone/sigmoid geometry and port cores before any speed-dependent closure.
+`prepare_capacities` and `resolve_speeds` reuse `src/preparation_flow.cpp` for capacity and target arithmetic.
+Final preparation retains the physical grid, spatial geometry and per-call cache, with the original requested-grid observations.
+Discrete design smoothing, sigmoid LUT geometry, thermal geometry and row D-F keep their separate owners and operation order.
+`src/preparation_case_c_api.cpp` exposes v8 inputs and owned views without changing earlier C layouts.
+The [external spatial flow caller](../../../../examples/cpp/prepare_spatial_flow_2d.cpp) uses installed headers and only the preparation library.
+
+## Spatial host cache transport
+
+V9 adds typed geometry and inlet probes without changing v1-v8 layouts.
+Its spatial model carries the actual conductivity value and scalar kind.
+The original configuration comparison can accept different nominal and spatial values through narrow-scalar equality.
+Spatial material uses the accepted spatial value; nominal calculations keep their original value.
+The probes carry actual L/t, scalar kinds, fluid state and optional Nu selection.
+`preprocess/native_preparation.py` uses the existing shared cache owners for
+lookup, publication and evidence transport. It does not call numerical cache functions.
+`ZonedCache` uses those hooks when supplied; native code calculates each miss.
+The original per-call cache remains available for independent native callers.
+The LUT hook exchanges tables at each path's original geometry checkpoint.
+Python owns disk/memory I/O. `build_sigmoid_lut_2d` owns missing-table construction.
+The [external cache caller](../../../../examples/cpp/prepare_spatial_cache_2d.cpp)
+checks all six v9 operations, typed probes and copied LUT lifetime.
+Public zone/sigmoid combination queries retain standalone consumers.
+Their later migration must preserve supplied properties and custom controls.
+
+## Existing offset geometry
+
+V10 adds the existing nonzero-delta uniform and spatial preparation modes.
+`prepare_thermal_sides` calls the existing asymmetric geometry owner with its N128 index.
+It runs at the original thermal checkpoint and keeps nominal sides separate from design and cell thermal geometry.
+The owned complete result adds two thermal-side tuples and retains the existing split fraction.
+Capacity and fixed-flow entries keep their previous delta rejection and validation order.
+Earlier C layouts and scopes stay unchanged. No physical model is added.
+The [external offset caller](../../../../examples/cpp/offset_2d.cpp) prepares, runs and evaluates the existing modes through installed headers.

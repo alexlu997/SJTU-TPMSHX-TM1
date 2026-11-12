@@ -103,11 +103,11 @@ def test_water_error_reports_first_broadcast_cell(bad):
 @pytest.mark.parametrize('dimension', [2, 3])
 def test_pipeline_inlet_checks_both_water_sides_before_domain_work(side, dimension):
     from sjtu_tpmshx.shared.domain.compute_config import ComputeConfig, FluidConfig
-    from sjtu_tpmshx.preprocess.two_d.preparation import _parse_inputs_cfg
+    from sjtu_tpmshx.preprocess.two_d.preparation import prepare_case
     from sjtu_tpmshx.preprocess.three_d.preparation import _parse_inputs_3d_cfg
     cfg = ComputeConfig(fluid_A=FluidConfig(type='water'),
                         fluid_B=FluidConfig(type='water'))
     getattr(cfg, 'fluid_' + side).T_in_K = 400.
     cfg.geometry.Lz_m = .042
     with pytest.raises(WaterStateError, match='inlet ' + side):
-        (_parse_inputs_cfg if dimension == 2 else _parse_inputs_3d_cfg)(cfg)
+        prepare_case(cfg, case_id='water-inlet') if dimension == 2 else _parse_inputs_3d_cfg(cfg)

@@ -90,16 +90,12 @@ def test_fixed_flow_matches_native_faces_after_density_update(monkeypatch, direc
 @pytest.mark.parametrize('direction', range(4))
 @pytest.mark.parametrize('design_mode', ['uniform', 'continuous'])
 @pytest.mark.parametrize('port_profile', ['full', 'uniform-partial', 'tapered-partial'])
-def test_fixed_flow_2d_preserves_prescribed_inlet_after_density_update(monkeypatch, direction, design_mode,
+def test_fixed_flow_2d_preserves_prescribed_inlet_after_density_update(direction, design_mode,
                                                 port_profile):
-    from sjtu_tpmshx.preprocess.two_d import preparation as preparation_2d
     from sjtu_tpmshx.development.tests.native.prepared_snapshot import native_prepared_state
 
-    shape, lengths = (9, 10), (.04, .05)
-    widths = tuple(np.linspace(.3, 1.7, count) * length / count
-                   for count, length in zip(shape, lengths))
-    monkeypatch.setattr(preparation_2d, '_prepare_mesh', lambda cfg: dict(
-        energy_dx=widths[0], energy_dy=widths[1], _x_breaks=(), _y_breaks=()))
+    # The native stage builds the physical grid and aligns all port segments.
+    shape, lengths = (12, 12), (.04, .05)
 
     def port(d):
         span = lengths[1 if d < 2 else 0]
@@ -127,6 +123,7 @@ def test_fixed_flow_2d_preserves_prescribed_inlet_after_density_update(monkeypat
     case = prepare_fixed_mass_flow_case(
         config, mass_flow_A_kg_s=targets['A'], mass_flow_B_kg_s=targets['B'],
         case_id='fixed-mass-2d')
+    assert np.ptp(case.grid['dx']) > 0. or np.ptp(case.grid['dy']) > 0.
     cfg, grid, state = native_prepared_state(case)
     for index, side in enumerate('AB'):
         prefix = f'state.result.flow.{index}.'
@@ -197,16 +194,16 @@ def test_fixed_flow_uses_only_resolved_velocities(monkeypatch, dimension, design
     snapshot = asdict(old)
     from unittest.mock import patch
     from sjtu_tpmshx.preprocess.two_d import preparation as prep2d
+    from sjtu_tpmshx.shared.models import _native_preparation_case as native
     with patch.object(preparation, '_prepare_geometry_data', wraps=preparation._prepare_geometry_data) as geometry, \
-         patch.object(prep2d, '_prepare_mesh', wraps=prep2d._prepare_mesh) as mesh, \
-         patch.object(prep2d, '_build_zone_arrays', wraps=prep2d._build_zone_arrays) as zones:
+         patch.object(prep2d, 'prepare_case', side_effect=AssertionError('fixed flow prepared twice')) as full, \
+         patch.object(native, 'operation', wraps=native.operation) as stage:
         actual = prepare_fixed_mass_flow_case(old, **targets, case_id='fixed')
     if dimension == 3:
         assert geometry.call_count == 1
     else:
-        assert mesh.call_count == 1
-        assert zones.call_count == 2  # Final inlet geometry, then original nominal validation.
-        assert zones.call_args_list[0].kwargs['geometry_only']
+        assert stage.call_count == 1 and stage.call_args.args[0] == 'prepare_flow_case'
+        full.assert_not_called()
         assert actual.design_fields['eps_arr'].shape != (4, 4)
     assert asdict(old) == snapshot
     assert actual.config_snapshot == expected.config_snapshot
@@ -227,7 +224,7 @@ def test_fixed_flow_uses_only_resolved_velocities(monkeypatch, dimension, design
 
 
 @pytest.mark.parametrize('design_mode', ['x', 'y', 'grid', 'sigmoid'])
-def test_fixed_flow_preserves_legacy_2d_geometry_and_input(monkeypatch, tmp_path, design_mode):
+def test_fixed_flow_preserves_spatial_2d_geometry_and_input(monkeypatch, tmp_path, design_mode):
     from sjtu_tpmshx.shared.models.zone_config import Zone, ZoneConfig
 
     config = ComputeConfig(
@@ -249,7 +246,7 @@ def test_fixed_flow_preserves_legacy_2d_geometry_and_input(monkeypatch, tmp_path
     if design_mode == 'sigmoid':
         from sjtu_tpmshx.shared.models import sigmoid_field
         lut = sigmoid_field.GeometryLUT('Gyroid', n_L=3, n_t=3, N=16, cache_dir=str(tmp_path))
-        monkeypatch.setattr(sigmoid_field, 'get_geometry_lut', lambda *_: lut)
+        monkeypatch.setitem(sigmoid_field._lut_cache, ('Gyroid',), lut)
         config.zones.pareto_x_decision = [value for cell in np.linspace(6., 7., 18)
                                         for value in (float(cell), .4)]
     snapshot = asdict(config)
@@ -264,9 +261,12 @@ def test_fixed_flow_preserves_legacy_2d_geometry_and_input(monkeypatch, tmp_path
     from sjtu_tpmshx.preprocess.two_d import preparation as prep2d
     from sjtu_tpmshx.development.tests.native.test_cpp_full_3d import compare
     from unittest.mock import patch
-    with patch.object(prep2d, '_prepare_mesh', wraps=prep2d._prepare_mesh) as mesh:
+    from sjtu_tpmshx.shared.models import _native_preparation_case as native
+    with patch.object(prep2d, 'prepare_case', side_effect=AssertionError('fixed flow prepared twice')) as full, \
+         patch.object(native, 'operation', wraps=native.operation) as stage:
         actual = prepare_fixed_mass_flow_case(old, **targets, case_id='legacy-fixed')
-    assert mesh.call_count == 1
+    full.assert_not_called()
+    assert stage.call_count == 1 and stage.call_args.args[0] == 'prepare_flow_case'
     assert asdict(config) == snapshot
     assert old.fluid_A.u_mps == .001
     assert actual.config_snapshot == expected.config_snapshot
@@ -285,7 +285,7 @@ def test_capacity_preparation_validates_static_inputs_before_building_fields(mon
     def forbidden(*args):
         raise AssertionError('invalid static input reached field construction')
 
-    monkeypatch.setattr(preparation_2d, '_prepare_inlet_data', forbidden)
+    monkeypatch.setattr(preparation_2d, '_execute', forbidden)
     monkeypatch.setattr(preparation, '_prepare_geometry_data', forbidden)
     for dimension in (2, 3):
         config = ComputeConfig(geometry=GeometryConfig(Lz_m=.042),
@@ -304,9 +304,9 @@ def test_capacity_preparation_validates_static_inputs_before_building_fields(mon
 
 
 @pytest.mark.parametrize('continuous', [False, True])
-def test_fixed_flow_retains_only_reused_inlet_geometry(monkeypatch, continuous):
-    import weakref
-    from sjtu_tpmshx.preprocess.two_d import preparation as prep2d
+def test_fixed_flow_releases_native_owner_after_copy(monkeypatch, continuous):
+    from contextlib import contextmanager
+    from sjtu_tpmshx.shared.models import _native_preparation_case as native
 
     config = ComputeConfig(geometry=GeometryConfig(Lz_m=.042),
                            solver=SolverConfig(Nx=4, Ny=4), extrap=ExtrapPolicy(allow=True))
@@ -315,20 +315,20 @@ def test_fixed_flow_retains_only_reused_inlet_geometry(monkeypatch, continuous):
             'x_decision': [7.] * 4 + [.6] * 4, 'n_ctrl_x': 2, 'n_ctrl_y': 2,
             'symmetric_y': False, 'spline_order': 1,
             'L_bounds': [4., 8.], 't_bounds': [.3, .6]})
-    inlet, finish = prep2d._prepare_inlet_data, prep2d._prepare_case
-    references = []
+    original = native.operation
+    owners = []
 
-    def tracked_inlet(config):
-        data = inlet(config)
-        references.append(weakref.ref(data[0]['eps_arr']))
-        return data
+    @contextmanager
+    def tracked(*args, **kwargs):
+        with original(*args, **kwargs) as result:
+            owners.append(result)
+            assert result.owner
+            yield result
+            assert result.owner
 
-    def tracked_finish(*args, **kwargs):
-        assert (references[0]() is not None) == continuous
-        return finish(*args, **kwargs)
-
-    monkeypatch.setattr(prep2d, '_prepare_inlet_data', tracked_inlet)
-    monkeypatch.setattr(prep2d, '_prepare_case', tracked_finish)
-    prepare_fixed_mass_flow_case(config, mass_flow_A_kg_s=.01,
-                                 mass_flow_B_kg_s=.02, case_id='inlet-lifetime')
-    assert references[0]() is None
+    monkeypatch.setattr(native, 'operation', tracked)
+    case = prepare_fixed_mass_flow_case(config, mass_flow_A_kg_s=.01,
+                                       mass_flow_B_kg_s=.02, case_id='inlet-lifetime')
+    assert len(owners) == 1 and not owners[0].owner
+    assert np.all(np.isfinite(case.design_fields['eps_arr']))
+    assert not case.design_fields['eps_arr'].flags.writeable

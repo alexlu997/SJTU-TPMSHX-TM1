@@ -1,9 +1,13 @@
 #include "stage_capture_2d.hpp"
 #include "field_c_boundary.hpp"
+#include "tpmshx/fluid_properties.hpp"
+#include "tpmshx/result_metrics.hpp"
 
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <cmath>
+#include <limits>
 #include <deque>
 #include <iomanip>
 #include <locale>
@@ -32,14 +36,14 @@ struct RangeStorage {
     std::vector<size_t> shape,minimum_index,maximum_index;
     double minimum=0.,maximum=0.;
     tpmshx_stage_range_sample_v1 value{};
-    void finish(bool finite,size_t min_index,size_t max_index) {
+    void finish(bool finite,size_t min_index,size_t max_index,bool captured=true) {
         for(const auto& s:source)source_view.push_back(s.c_str());
-        value.captured=1;value.side=side.c_str();value.stage=stage.c_str();value.layout=layout.c_str();
+        value.captured=captured?1:0;value.side=side.c_str();value.stage=stage.c_str();value.layout=layout.c_str();
         value.quantity=quantity.c_str();value.unit=unit.c_str();
         value.constraint=!source.empty() && source[0]=="geometry"?"hard_bounds":nullptr;
         value.source=source_view.data();value.source_count=source_view.size();
         value.shape=shape.data();value.rank=shape.size();
-        if(finite) {
+        if(captured && finite) {
             value.minimum=&minimum;value.maximum=&maximum;
             minimum_index.resize(shape.size());maximum_index.resize(shape.size());
             for(size_t axis=shape.size();axis>0;--axis) {
@@ -83,6 +87,7 @@ public:
     tpmshx_full_2d_result_v2 raw{};
     tpmshx_full_2d_config_v2 resolved{};
     tpmshx_result_evidence_v1 evidence{};
+    tpmshx_stage_capture_2d_v1 summary{};
     std::string result_id,table_directory,envelope_mode;
     std::vector<std::string> notices;
     std::vector<const char*> notice_views;
@@ -109,6 +114,7 @@ public:
     std::array<tpmshx_stage_execution_side_v1,2> execution{};
     tpmshx_stage_fine_v1 fine{};
     tpmshx_full_2d_physical_heat_ledger_v1 ledgers{};
+    tpmshx_full_2d_model_enthalpy_evidence_v1 temperature{};
     std::deque<RangeStorage> ranges;
     std::vector<tpmshx_stage_range_sample_v1> inlet_ranges,final_ranges;
     std::vector<tpmshx_stage_required_range_v1> required;
@@ -156,9 +162,10 @@ public:
         main_fields.push_back({name,*array(value,{raw.main.nx,raw.main.ny})});
         declarations.push_back({name,unit,state});
     }
-    void make_energy(EnergyStorage& out,const tpmshx_physical_heat_ledger_v1& native,size_t nx,size_t ny) {
+    template<class Ledger> void make_energy(EnergyStorage& out,const Ledger& native,size_t nx,size_t ny,
+                                           const char* definition="physical_heat_ledger_v1") {
         if(!native.available)return;
-        out.view.definition="physical_heat_ledger_v1";out.view.power_units="W/m";
+        out.view.definition=definition;out.view.power_units="W/m";
         out.view.physical_dimension=2;out.view.physical_boundary_complete=static_cast<int>(native.boundary_complete);
         out.view.phases=out.phases.data();out.view.phase_count=3;
         out.view.prescribed_b_power=constant(native.prescribed_b_power);
@@ -175,6 +182,17 @@ public:
             p.advective_out=out.advection[phase].data();p.advective_count=6;
             p.diffusive_out=out.diffusion[phase].data();p.diffusive_count=6;
         }
+    }
+    void make_temperature(EnergyStorage& out,const tpmshx_model_enthalpy_evidence_v1& native,size_t nx,size_t ny) {
+        if(native.available!=1 || native.physical_dimension!=2 || !native.algorithm)
+            throw std::runtime_error("native temperature evidence is unavailable or has the wrong dimension");
+        if(native.boundary_complete>1 || std::any_of(std::begin(native.solved),std::end(native.solved),
+                [](uint32_t value){return value>1;}))
+            throw std::runtime_error("native temperature evidence has invalid state flags");
+        for(size_t side=0;side<2;++side)if(native.solved[side])
+            for(auto value:native.cp_coefficients[side])if(!std::isfinite(value))
+                throw std::runtime_error("native temperature evidence has invalid enthalpy coefficients");
+        make_energy(out,native,nx,ny,"model_enthalpy_temperature_v1");
     }
     void make_model(ModelStorage& out,const tpmshx_full_2d_thermal_v2& native) {
         const auto& audit=native.model_h.plane;
@@ -228,17 +246,20 @@ public:
         }
         evidence.thermal.true_h=&true_h;evidence.true_h_certificate=&true_h_certificate;
     }
-    void prepared_ranges(const tpmshx_preparation_case_2d_v1& prepared) {
+    void prepared_ranges(const tpmshx_preparation_case_2d_v1& prepared,const uint32_t* range_captured) {
         for(size_t i=0;i<prepared.range_count;++i) {
             const auto& r=prepared.ranges[i];ranges.emplace_back();auto& out=ranges.back();
             for(size_t j=0;j<r.source_count;++j)out.source.push_back(text(r.source[j]));
             out.side=text(r.side);out.stage=text(r.stage);out.layout=text(r.layout);
             out.quantity=text(r.quantity);out.unit=text(r.unit);out.shape.assign(r.shape,r.shape+r.rank);
+            const bool captured=!range_captured || range_captured[i];
             const auto& sample=r.sample;auto& v=out.value;
-            v.bounds[0]=r.bounds[0];v.bounds[1]=r.bounds[1];v.size=sample.size;
-            v.low=sample.low;v.high=sample.high;v.nonfinite=sample.nonfinite;
-            out.minimum=sample.minimum;out.maximum=sample.maximum;
-            out.finish(sample.have_finite!=0,sample.minimum_index,sample.maximum_index);
+            v.bounds[0]=r.bounds[0];v.bounds[1]=r.bounds[1];
+            if(captured) {
+                v.size=sample.size;v.low=sample.low;v.high=sample.high;v.nonfinite=sample.nonfinite;
+                out.minimum=sample.minimum;out.maximum=sample.maximum;
+            }
+            out.finish(sample.have_finite!=0,sample.minimum_index,sample.maximum_index,captured);
             inlet_ranges.push_back(out.value);
         }
     }
@@ -310,14 +331,53 @@ public:
         for(const auto& notice:notices)notice_views.push_back(notice.c_str());
         applicability.scope_notes=notice_views.data();applicability.scope_note_count=notice_views.size();
     }
-    void populate(const tpmshx_preparation_case_2d_v1& p) {
+    void capture_scalars() {
+        namespace a=tpmshx::result::arithmetic;
+        namespace metrics=tpmshx::result::metrics;
+        tpmshx::result::Diagnostics diagnostics;
+        const tpmshx_full_2d_thermal_v2* thermal[]{&raw.main,raw.have_fine?&raw.fine:nullptr};
+        for(size_t level=0;level<2;++level) {
+            if(!thermal[level])continue;
+            const auto& t=*thermal[level];
+            const auto cells=fields::c_api::product(t.nx,t.ny);
+            summary.red_black[level]=resolved.red_black && cells>30000;
+            if(t.mode==1) {
+                summary.model_h_available[level]=1;summary.model_h_cell_count[level]=cells;
+                const tpmshx::result::Array dx(*array(t.dx,{t.nx})),dy(*array(t.dy,{t.ny}));
+                summary.model_h_area_m2[level]=metrics::capture_area(dx,dy,diagnostics);
+            }
+        }
+        summary.pressure_available=raw.main.mode==2;
+        for(size_t side=0;side<2;++side) {
+            const auto& nu=raw.nu_observations[side];summary.nu_available[side]=nu.available;
+            if(nu.available) {
+                if(!nu.cells)throw std::runtime_error("native Nu observation has no cells");
+                summary.nu_floor[side]=nusselt_floor(static_cast<Fluid>(resolved.sides[side].fluid));
+                summary.nu_floor_fraction[side]=static_cast<double>(nu.floor_cells)/static_cast<double>(nu.cells);
+            }
+            if(summary.pressure_available) {
+                const tpmshx::result::Array pressure(*array(raw.main.pressure[side],{raw.main.nx,raw.main.ny}));
+                summary.pressure_min_Pa[side]=a::to_float(a::minimum(pressure,diagnostics));
+                summary.pressure_max_Pa[side]=a::to_float(a::maximum(pressure,diagnostics));
+            }
+            summary.absolute_duty[side]=metrics::duty_magnitude(raw.duty[side]);
+            summary.have_finite_duty|=std::isfinite(raw.duty[side]);
+            const auto clips=raw.flow[side].result.pressure_clip_hits;
+            if(clips>std::numeric_limits<size_t>::max()-summary.pressure_clip_hits)
+                throw std::overflow_error("native pressure clip count exceeds size_t");
+            summary.pressure_clip_hits+=clips;
+        }
+        summary.q_net=a::python_float_sum({raw.duty[0],raw.duty[1]});
+    }
+    void populate(const tpmshx_preparation_case_2d_v1& p,const uint32_t* range_captured) {
         auto& e=evidence;const auto& main=raw.main;
-        if(main.mode!=1 && main.mode!=2)throw std::invalid_argument("uniform stage returned an unsupported thermal mode");
+        if(main.mode>2)throw std::invalid_argument("stage returned an unsupported thermal mode");
         for(const auto& side:resolved.sides)
             if(side.fluid>3)throw std::invalid_argument("uniform stage returned an invalid fluid");
         e.abi_version=TPMSHX_RESULT_STAGE_ABI_VERSION;e.struct_size=sizeof(e);e.result_id=result_id.c_str();
         e.dimension=2;e.metadata_dimension=&dimension;e.quantity_basis="per_unit_depth";e.mass_unit="kg/(s m)";
-        e.mode="full";e.thermal_mode=main.mode==2?"conservative_energy":"model_h";e.thermal_state="last main thermal input";
+        e.mode="full";e.thermal_mode=main.mode==2?"conservative_energy":main.mode==1?"model_h":"temperature";
+        e.thermal_state="last main thermal input";
         e.execution="completed";e.converged=static_cast<int>(raw.converged);outer_index=static_cast<int>(raw.iterations)-1;e.outer_index=&outer_index;
         e.grid.widths[0]=array(main.dx,{main.nx});e.grid.widths[1]=array(main.dy,{main.ny});
         for(size_t i=0;i<3;++i)field(i==0?"Ta":i==1?"Tb":"Ts",main.temperature[i],"K","raw last main thermal return");
@@ -340,8 +400,8 @@ public:
             e.direction[side]=&direction[side];e.inlet_temperature[side]=scalar(s.inlet.temperature_K);
             e.inlet_geom_fraction[side]=copy(s.inlet_geometry);e.outlet_geom_fraction[side]=copy(s.outlet_geometry);
             if(main.mode!=2)e.rho_cp[side]=array(main.rho_cp[side],{main.nx,main.ny});
-            masses[side]={*array(main.mode==2?main.mass_x[side]:flow.mass_x,{main.nx+1,main.ny}),
-                          *array(main.mode==2?main.mass_y[side]:flow.mass_y,{main.nx,main.ny+1})};
+            masses[side]={*array(main.mode!=1?main.mass_x[side]:flow.mass_x,{main.nx+1,main.ny}),
+                          *array(main.mode!=1?main.mass_y[side]:flow.mass_y,{main.nx,main.ny+1})};
             e.thermal.mass[side]=masses[side].data();e.thermal.mass_count[side]=2;
             auto& pressure=pressures[side];pressure.pressure=array(flow.pressure,{flow.dx.size,flow.dy.size});
             pressure.grid.widths[0]=array(flow.dx,{flow.dx.size});pressure.grid.widths[1]=array(flow.dy,{flow.dy.size});
@@ -351,12 +411,20 @@ public:
             pressure.unit="Pa";e.pressure[side]=&pressure;e.active_fluids[side]=1;
             execution[side]={labels[side],fluids[resolved.sides[side].fluid],1};
         }
-        if(tpmshx_full_2d_get_physical_heat_ledger_v1(&raw,&ledgers))throw std::runtime_error("native full 2D heat ledger query failed");
-        make_energy(energy[0],ledgers.main,main.nx,main.ny);if(ledgers.main.available)e.thermal.energy=&energy[0].view;
-        if(main.mode==2)make_true_h();
-        else {
-            make_model(model[0],main);e.thermal.model_h=&model[0].view;model_levels[0]={"main",model[0].view};
-            e.model_certificates=model_levels.data();e.model_certificate_count=1;
+        if(main.mode==0) {
+            if(tpmshx_full_2d_get_model_enthalpy_evidence_v1(&raw,&temperature))
+                throw std::runtime_error("native full 2D temperature evidence query failed");
+            make_temperature(energy[0],temperature.main,main.nx,main.ny);
+            e.thermal.temperature=&energy[0].view;e.temperature_transport="model_enthalpy_temperature_v1";
+        } else {
+            if(tpmshx_full_2d_get_physical_heat_ledger_v1(&raw,&ledgers))
+                throw std::runtime_error("native full 2D heat ledger query failed");
+            make_energy(energy[0],ledgers.main,main.nx,main.ny);if(ledgers.main.available)e.thermal.energy=&energy[0].view;
+            if(main.mode==2)make_true_h();
+            else {
+                make_model(model[0],main);e.thermal.model_h=&model[0].view;model_levels[0]={"main",model[0].view};
+                e.model_certificates=model_levels.data();e.model_certificate_count=1;
+            }
         }
         e.model_active_b=-1;
         e.richardson_extrapolated=raw.have_fine?static_cast<int>(raw.fine_extrapolated):-1;
@@ -371,9 +439,18 @@ public:
                 fine.outlet_fraction[side]=array(f.outlet_profile[side],{f.outlet_profile[side].size});
             }
             fine.fields=fine_fields.data();fine.field_count=fine_fields.size();fine.epsilon=array(f.epsilon,{f.nx,f.ny});
-            make_energy(energy[1],ledgers.fine,f.nx,f.ny);if(ledgers.fine.available)fine.thermal.energy=&energy[1].view;
-            make_model(model[1],f);fine.thermal.model_h=&model[1].view;model_levels[1]={"fine",model[1].view};
-            e.model_certificate_count=2;e.fine=&fine;
+            if(f.mode==0) {
+                make_temperature(energy[1],temperature.fine,f.nx,f.ny);fine.thermal.temperature=&energy[1].view;
+                for(size_t side=0;side<2;++side) {
+                    fine_masses[side]={*array(f.mass_x[side],{f.nx+1,f.ny}),*array(f.mass_y[side],{f.nx,f.ny+1})};
+                    fine.thermal.mass[side]=fine_masses[side].data();fine.thermal.mass_count[side]=2;
+                }
+            } else {
+                make_energy(energy[1],ledgers.fine,f.nx,f.ny);if(ledgers.fine.available)fine.thermal.energy=&energy[1].view;
+                make_model(model[1],f);fine.thermal.model_h=&model[1].view;model_levels[1]={"fine",model[1].view};
+                e.model_certificate_count=2;
+            }
+            e.fine=&fine;
         } else {
             // Preserve the recorded empty fine ledger when Richardson did not run.
             fine.empty_record=1;e.fine=&fine;
@@ -384,21 +461,50 @@ public:
             {"envelope_ok",static_cast<int>(raw.envelope_ok),nullptr,nullptr}}};
         e.convergence_gates=gates.data();e.convergence_gate_count=gates.size();
         e.execution_version="full_execution_v1";e.executed_sides=execution.data();e.executed_side_count=2;
-        prepared_ranges(p);final_state_ranges();required_ranges(p.input.topology?"Gyroid":"Diamond");e.applicability=&applicability;
+        prepared_ranges(p,range_captured);final_state_ranges();required_ranges(p.input.topology?"Gyroid":"Diamond");e.applicability=&applicability;
     }
 };
 
 Capture2D* capture_2d(const tpmshx_preparation_case_2d_v1& prepared,
     tpmshx_full_2d_result_v2& raw,const tpmshx_full_2d_config_v2& resolved,const char* result_id,
-    const tpmshx_preparation_case_2d_v2* uniform) {
+    const tpmshx_preparation_case_2d_v2* uniform,bool inlet_recorded,const uint32_t* range_captured) {
     auto owner=std::make_unique<Capture2D>();owner->raw=raw;raw={};owner->resolved=resolved;
     owner->result_id=result_id;
     if(resolved.table_directory) {owner->table_directory=resolved.table_directory;owner->resolved.table_directory=owner->table_directory.c_str();}
     if(resolved.envelope_mode) {owner->envelope_mode=resolved.envelope_mode;owner->resolved.envelope_mode=owner->envelope_mode.c_str();}
-    owner->populate(prepared);if(uniform)owner->scope_notes(*uniform);return owner.release();
+    owner->populate(prepared,range_captured);owner->capture_scalars();
+    owner->applicability.inlet_recorded=inlet_recorded?1:0;
+    if(uniform)owner->scope_notes(*uniform);
+    return owner.release();
 }
 tpmshx_stage_run_result_2d_v1 stage_view(Capture2D& owner) {
     return {TPMSHX_STAGE_RUN_ABI_VERSION,sizeof(tpmshx_stage_run_result_2d_v1),&owner,owner.raw,owner.evidence,owner.resolved};
 }
 void release_capture_2d(Capture2D* owner) noexcept {delete owner;}
 }  // namespace tpmshx::stages
+
+extern "C" int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_get_capture_v1(
+    const tpmshx_stage_run_result_2d_v1* result,const tpmshx_stage_application_2d_v1* application,
+    tpmshx_stage_capture_2d_v1* output) {
+    namespace boundary=tpmshx::fields::c_api;
+    try {
+        boundary::require_buffer(result,1);boundary::require_buffer(application,1);boundary::require_buffer(output,1);
+        const auto overlaps=[](const void* first,size_t first_size,const void* second,size_t second_size) {
+            const auto a=reinterpret_cast<uintptr_t>(first),b=reinterpret_cast<uintptr_t>(second);
+            return a<=b+second_size-1 && b<=a+first_size-1;
+        };
+        if(overlaps(result,sizeof(*result),output,sizeof(*output))
+            || overlaps(application,sizeof(*application),output,sizeof(*output))
+            || overlaps(result,sizeof(*result),application,sizeof(*application)))return 1;
+        if(result->abi_version!=TPMSHX_STAGE_RUN_ABI_VERSION || result->struct_size!=sizeof(*result) || !result->owner)return 1;
+        const auto& owner=*static_cast<const tpmshx::stages::Capture2D*>(result->owner);
+        auto value=owner.summary;
+        for(size_t side=0;side<2;++side) {
+            const auto area=application->area_density_per_m[side],htc=application->surface_htc_W_m2K[side];
+            if(area<0. || htc<0.)return 1;
+            value.application_hv[side]=area*htc;
+        }
+        *output=value;return 0;
+    } catch(const std::invalid_argument&) {return 1;}
+    catch(...) {return 5;}
+}

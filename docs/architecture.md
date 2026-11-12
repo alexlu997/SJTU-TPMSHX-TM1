@@ -26,6 +26,9 @@ The geometry core owns standard, CO2 and asymmetric geometry, chi/Kss, and sigmo
 `shared/models/_native_geometry.py` uses ctypes to load geometry ABI 1 on demand.
 It loads a separate prebuilt library without importing the solver backend.
 Python keeps public types, cache interfaces and per-call explicit/environment/fit selection for chi.
+`shared/models/preparation_cache.py` owns the bounded geometry and inlet-property caches.
+Public scalar calls and native preparation checkpoints use the same values, types, range records and access order.
+Cache misses use the existing C++ numerical functions; current material conductivity and chi are not cached.
 
 Scalar standard geometry keeps the original NumPy float16, float32 and float64 intermediate rounding in C++.
 The binding sends precision metadata for cell conversion and the wall/cell ratio.
@@ -89,10 +92,69 @@ Its scalar tags retain field precision. Run v2 consumes this state through the
 existing model-h or true-h route and records the actual thermal evidence.
 Preparation v3 adds independent capacity, inlet-flow resolution and complete preparation for uniform 2D total mass flow.
 It reuses physical inlet geometry and keeps preliminary evidence separate from final preparation evidence.
-The existing v1/v2 C layouts, Python production entries and run interface are unchanged.
+The existing v1/v2 C layouts and Python production entries are unchanged.
+Preparation v4 adds canonical continuous XY controls to capacity, resolution and complete preparation.
+It samples the physical grid with the existing spline and geometry cores, then retains full local drag.
+Its prepared view adds only area density, original hydraulic diameter and the two fluid conductivities.
+Experimental transfer keeps the current Shanghai contract, separate early range labels and final application metadata.
+Run v3 consumes this continuous state with the existing full 2D driver.
+It preserves local drag, original hydraulic diameter, unit order and nominal reference geometry.
+Resolved uniform flow cases use run v2. Both routes retain the v1 result owner.
+No v1/v2/v3 C layout changes.
+Preparation v5 adds raw air/air stripes and rectangles at prescribed velocity, with CFD drag and zero delta.
+It preserves L/t projection before row D-F, discrete smoothing and separate thermal geometry fields.
+It owns per-call typed caches and accepts only the v1 event callback.
+It does not change Python route selection or enable mass targets, sigmoid fields or nonzero delta.
+Preparation v6 adds raw air/air sigmoid controls under the same velocity, drag and delta limits.
+It keeps ordered blending, typed transitions, separate design/thermal geometry and row D-F projection, without Gaussian smoothing.
+An owned LUT can be built from raw geometry or supplied by the caller; each table keeps its interpolation mode.
+The native cold defaults are 41x31 nodes at voxel resolution 256. Python keeps disk and memory cache policy.
+Preparation v7 carries domain and port scalar kinds through the same grid, opening and spatial-field owners.
+It keeps v3-v6 payloads and releases; earlier entries retain weak double domain and port values.
+Preparation v8 adds raw spatial capacity, flow resolution and complete fixed-flow preparation for the same air/air CFD scope.
+It uses design porosity at the actual inlet, resolves speeds, then completes properties on the retained physical grid and geometry.
+Discrete smoothing, sigmoid LUT geometry, separate thermal geometry and row D-F keep their existing rules.
+Its flow results own copied spatial controls and LUTs; preliminary and final evidence remain separate.
+The v8 raw boundary retains event-only callbacks.
+Preparation v9 carries typed geometry and inlet cache keys, including actual L/t and optional Nu selection.
+`preprocess/native_preparation.py` transports cache values and evidence through the existing shared cache owners.
+Native misses calculate the values; Python keeps lookup, LRU order, publication and warning filters.
+The sigmoid LUT hook loads or publishes host storage at the original geometry checkpoint; missing tables use native construction.
+Public configuration keeps its original topology and conductivity comparisons, including narrow-scalar equality.
+V9 retains the actual spatial conductivity value and kind; nominal calculations retain their original value.
+Preparation v10 adds the existing nonzero-delta uniform air/water and air/air spatial modes at prescribed speed.
+It adds nominal thermal-side tuples and retains the existing asymmetric N128 geometry calculation and split fraction.
+Design fields and cell thermal geometry remain separate. Continuous fields, CO2/sCO2, experimental models and total mass flow keep their existing limits.
+Python uniform preparation uses v10; its capacity and flow-resolution queries retain v7 with v3 results.
+Canonical continuous XY entries retain v7 with v4 results. Air/air stripes, rectangles and sigmoid fields use v10 for all three operations.
+Earlier preparation layouts and scopes remain unchanged. 3D preparation retains its explicit existing route.
+Public ZoneConfig and sigmoid combination queries retain standalone consumers until their separate migration passes.
+The adapter preserves CaseData fields, scalar types, events, source ranges and saved model selections.
+The v2 host hook preserves object errors and warning scopes at their original execution points.
+It supplies no numerical values. The v3 hooks exchange completed cache entries and synchronous observations.
+Callback v4 keeps that layout and adds a host-object check immediately before physical grid construction.
+Python retains warning filters, source locations and completed observations after a later failure.
+A native failure never selects another preparation route.
+The replaced Python 2D preparation sequence and row D-F projection are retired; independent frozen references remain under `development/tests`.
+`preprocess/two_d/preparation.py` retains the native adapter. `shared/models/zone_units.py` owns saved zone-unit conversion.
+Nominal x/y grid warnings have separate host emission sites in the retained preparation adapter.
 `preparation_case.cpp` owns that complete preparation sequence.
 `stage_run.cpp` adapts it to the existing full 2D driver.
+Its lifecycle interface uses the same full 2D run object, typed snapshots and restore checks.
+Partial energy controls use defaults from the selected library.
+Preparation evidence remains borrowed until result transfer or run release.
 `stage_capture_2d.cpp` records the actual run evidence for `result_stage.cpp`.
+Its scalar capture query reuses static result arithmetic and separate saved application properties.
+The existing raw result remains the owner of fields, histories and numerical ledgers.
+2D Python runs use the same native lifecycle through the selected library's complete saved-input interface.
+`prepared_stage_2d.py` borrows validated CaseData. `full_2d_stage.py` binds runs, snapshots and capture.
+It does not prepare saved cases again. Missing ranges, uncaptured samples, uniform local drag and optional thermal geometry stay distinct.
+Saved descriptor v2 adds nominal side geometry and accepts discrete and sigmoid fields without changing the v1 layout.
+The descriptor and its nested storage remain borrowed through result transfer or run release.
+Python selects complete saved v2 first, then v1 for symmetric uniform or continuous inputs.
+Archived libraries without the applicable saved protocol retain their existing interfaces.
+Missing new-protocol symbols and execution failures are errors. They do not start another run through the old route.
+The single `FieldResult` assembler is in `full_2d_capture.py`. It preserves warning and application-property check order.
 The installed C ABI and `stages.hpp` support external C++ callers.
 The separate Quick Design stage accepts raw native double operating points.
 `quick_design_prepare.cpp` reuses geometry, property and analytical D-F owners.
@@ -685,7 +747,7 @@ Temperature is not scaled. FullCC nonzero sources stay
   `prepared_models.py` owns shared resource-role, fluid, Nu-setting and topology checks.
   Each builder keeps its check order and dimension-specific grid, port and design validation.
   Callers can request writable design copies; the binding borrows immutable arrays through the same checks.
-  `solvers/backends/capture_2d.py` captures portable native 2D evidence. Numerical drivers remain in C++.
+  `solvers/backends/cpp/full_2d_capture.py` captures portable native 2D evidence. Numerical drivers remain in C++.
 - `applications/gui/ui/` owns PySide6 and PyVista presentation only. `ResultCache` owns one published `ComputeResult` for the accepted dimension.
   Both dimensions publish separate scalar, metadata, diagnostic and warning containers while sharing field arrays.
   The footer, history, diagnostic text, plots and exports read this result. Display timing is added to its metadata after publication.
@@ -950,7 +1012,9 @@ Grid scalar metadata preserves NumPy16/32/64 intermediate rounding before float6
 Mixed Python-float sum prefixes, first-maximum allocation ties and final-cell compensation retain their original order.
 Raw staggered overlap retains its narrow array arithmetic and output dtype.
 The original full-solver double entries keep their finite, positive-width checks.
-Python keeps configuration `set`/`sorted`, control-axis `np.linspace` and the original Continuous `np.isclose` coverage check.
+Public design-field construction keeps configuration `set`/`sorted`, control-axis `np.linspace` and the original Continuous `np.isclose` coverage check.
+The 2D preparation stage owns the corresponding control axes and coverage checks.
+Its host adapter retains the original floating-error policy, warning source and validation order.
 Continuous NumPy integer counts retain their initial quotient promotion metadata.
 
 XY and XYZ keep distinct solve orders. The XYZ scalar band solve is not a bitwise LAPACK/BLAS replacement.
