@@ -965,7 +965,9 @@ Grid scalar metadata preserves NumPy16/32/64 intermediate rounding before float6
 Mixed Python-float sum prefixes, first-maximum allocation ties and final-cell compensation retain their original order.
 Raw staggered overlap retains its narrow array arithmetic and output dtype.
 The original full-solver double entries keep their finite, positive-width checks.
-Python keeps configuration `set`/`sorted`, control-axis `np.linspace` and the original Continuous `np.isclose` coverage check.
+Public design-field construction keeps configuration `set`/`sorted`, control-axis `np.linspace` and the original Continuous `np.isclose` coverage check.
+The 2D preparation stage owns the corresponding control axes and coverage checks.
+Its host adapter retains the original floating-error policy, warning source and validation order.
 Continuous NumPy integer counts retain their initial quotient promotion metadata.
 
 XY and XYZ keep distinct solve orders. The XYZ scalar band solve is not a bitwise LAPACK/BLAS replacement.

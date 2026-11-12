@@ -456,9 +456,9 @@ struct Records {
         output.events.push_back(std::move(event));
         if (callbacks.event) callbacks.event(callbacks.context,output.events.back());
     }
-    void floating(const std::array<std::uint32_t,property_event_count>& events) {
+    void floating(const std::array<std::uint32_t,property_event_count>& events,const char* source="") {
         for (auto encoded:events) if (encoded)
-            emit({PreparationEventKind::floating_point,"","",encoded});
+            emit({PreparationEventKind::floating_point,"",source,encoded});
     }
     void warning(std::string message) {
         if (std::find(plain_warnings.begin(),plain_warnings.end(),message)!=plain_warnings.end()) return;
@@ -894,28 +894,61 @@ void finish_warnings(Records& records) {
 struct LocalGeometry2D {
     std::vector<double> cell_mm,wall_mm,epsilon,solid,radius,area,diameter;
 };
-std::vector<double> control_axis(std::size_t count,g::Scalar length) {
-    if (count==1) return {g::divide(length,g::weak(2.)).value};
+double control_midpoint(g::Scalar length,Records* records,const char* source="control-axis-midpoint") {
+    std::array<std::uint32_t,property_event_count> events{};PropertyArithmetic arithmetic(events,records!=nullptr);
+    const auto value=arithmetic.divide({length,0.,0,length.strong?1u:0u},{g::weak(2.)});
+    if (records) records->floating(events,source);
+    return value.real.value;
+}
+std::vector<double> control_axis(std::size_t count,g::Scalar length,Records* records=nullptr) {
+    if (count==1) return {control_midpoint(length,records)};
     if (length.strong==2) length={length.value,64,1};
-    const auto divisor=g::weak(static_cast<double>(count-1));
-    const auto step=g::divide(length,divisor);
+    length.strong=1;
+    const PropertyNumber divisor{g::weak(static_cast<double>(count-1))},delta{length,0.,0,1};
+    std::array<std::uint32_t,property_event_count> events{};PropertyArithmetic arithmetic(events,records!=nullptr);
+    const auto step=arithmetic.divide(delta,divisor);
+    if (records) records->floating(events,"control-axis-step");
+    events.fill(0);
     std::vector<double> values(count);
     for (std::size_t i=0;i<count;++i) {
-        const auto index=g::checked({static_cast<double>(i),length.precision,1});
-        values[i]=(step.value==0.?g::multiply(g::divide(index,divisor),length):g::multiply(index,step)).value;
+        const PropertyNumber index{g::checked({static_cast<double>(i),length.precision,1}),0.,0,3};
+        PropertyArithmetic element(events,records!=nullptr);
+        values[i]=(step.real.value==0.?element.multiply(element.divide(index,divisor),delta):
+            element.multiply(index,step)).real.value;
+    }
+    if (records) for (const auto event:events) if (event) {
+        const auto operation=(event>>8)&255u;
+        const auto source=step.real.value!=0.?"control-axis-multiply":
+            operation==3?"control-axis-scale":"control-axis-divide";
+        records->emit({PreparationEventKind::floating_point,"",source,event});
     }
     values.back()=length.value;
-    for (std::size_t i=0;i<values.size();++i)
-        if (!std::isfinite(values[i]) || (i && values[i]<=values[i-1]))
-            throw std::invalid_argument("control axes must increase across the domain, or use its midpoint for one control");
     return values;
 }
+std::array<std::vector<double>,2> control_axes(const CaseInput2D& input,Records& records) {
+    const auto& controls=*input.continuous;
+    const std::array<g::Scalar,2> lengths{{grid_scalar(input.grid.length_m,input.grid.kinds[0]),
+        grid_scalar(input.grid.height_m,input.grid.kinds[1])}};
+    std::array<std::vector<double>,2> axes{{control_axis(controls.nx,lengths[0],&records),
+        control_axis(controls.ny,lengths[1],&records)}};
+    for (std::size_t axis=0;axis<2;++axis) {
+        const auto& values=axes[axis];
+        for (std::size_t i=0;i<values.size();++i)
+            if (!std::isfinite(values[i]) || (i && values[i]<=values[i-1]))
+                throw std::invalid_argument("control axes must increase across the domain, or use its midpoint for one control");
+        if (values.size()==1?values[0]!=control_midpoint(lengths[axis],&records,"control-axis-check-midpoint"):
+                values.front()!=0. || values.back()!=lengths[axis].value)
+            throw std::invalid_argument("control axes must increase across the domain, or use its midpoint for one control");
+    }
+    return axes;
+}
 LocalGeometry2D local_geometry(const CaseInput2D& input,const PhysicalGrid2D& grid,
-                               const PreparationOptions& options) {
+                               const PreparationOptions& options,Records& records) {
     const auto& controls=*input.continuous;
     const auto length=grid_scalar(input.grid.length_m,input.grid.kinds[0]);
     const auto height=grid_scalar(input.grid.height_m,input.grid.kinds[1]);
-    const auto x=control_axis(controls.nx,length),y=control_axis(controls.ny,height);
+    const auto axes=control_axes(input,records);
+    const auto& x=axes[0];const auto& y=axes[1];
     for (std::size_t axis=0;axis<2;++axis) {
         const auto extent=axis?height:length;const auto& widths=axis?grid.dy:grid.dx;
         const double total=0.+tpmshx::detail::contiguous_sum({widths.data(),widths.size()});
@@ -985,6 +1018,8 @@ PreparedCase2D prepare_case(const CaseInput2D& input,const PreparationOptions& o
     const auto& uniform=output.uniform_geometry.geometry;
     output.hydraulic_radius_m=geometry::hydraulic_radius(uniform.hydraulic_diameter);
     preflight(input,options,uniform,inlets,records);
+    // The original first field construction precedes conductivity and mesh checks.
+    if (input.continuous) control_axes(input,records);
     // Full host preparation reads both conductivities before and after its mesh.
     if (input.continuous) for (std::size_t i=0;i<2;++i)
         property(2,inlets[i],input.kinds.sides[i],"unbound","unbound",records);
@@ -994,7 +1029,8 @@ PreparedCase2D prepare_case(const CaseInput2D& input,const PreparationOptions& o
     std::optional<LocalGeometry2D> local;
     std::vector<DfPair> local_drag;
     if (input.continuous) {
-        local=inlet_geometry?inlet_geometry->local:std::optional<LocalGeometry2D>{local_geometry(input,output.grid,options)};
+        if (inlet_geometry) control_axes(input,records);
+        local=inlet_geometry?inlet_geometry->local:std::optional<LocalGeometry2D>{local_geometry(input,output.grid,options,records)};
         std::vector<double> epsilon_half(local->epsilon.size());
         for (std::size_t i=0;i<epsilon_half.size();++i) epsilon_half[i]=local->epsilon[i]*.5;
         for (std::size_t i=0;i<2;++i) {
@@ -1497,7 +1533,7 @@ InletGeometry2D prepare_inlet_geometry(const CaseInput2D& input,ScalarKind depth
     output.grid=physical_grid(input.grid,inlets);
     Records records{flow.evidence,callbacks,{},{}};record_grid(input,output.grid,records);
     for (std::size_t i=0;i<2;++i) {output.sides[i].inlet=inlets[i];prepare_ports(output.grid,output.sides[i]);}
-    if (input.continuous) output.local=local_geometry(input,output.grid,options);
+    if (input.continuous) output.local=local_geometry(input,output.grid,options,records);
     std::array<double,2> densities;
     for (std::size_t i=0;i<2;++i)
         densities[i]=property(0,inlets[i],input.kinds.sides[i],"unbound","unbound",records);

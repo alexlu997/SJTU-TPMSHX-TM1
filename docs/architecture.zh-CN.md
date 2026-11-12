@@ -540,7 +540,9 @@ Python 每次调用依次解析显式 chi、当前 `TPMSHX_CHI_S`，再选择原
 混合序列的 Python-float 求和前缀、分配相同时的首个最大项及最后格补偿保留原顺序。
 原始 staggered 重叠保留窄数组算术和输出 dtype。
 原完整求解器 double 入口继续检查有限端点与有限、正单元宽度。
-Python 保留配置 `set`／`sorted`、控制轴 `np.linspace` 及原 Continuous `np.isclose` 覆盖检查。
+公开设计场构造仍保留配置 `set`／`sorted`、控制轴 `np.linspace` 及原 Continuous `np.isclose` 覆盖检查。
+二维准备阶段负责其对应的控制轴与覆盖检查。
+宿主适配保留原浮点错误策略、警告来源与验证顺序。
 Continuous 的 NumPy 整数计数保留初始商的类型提升元数据。
 
 XY 和 XYZ 保留不同求解顺序；XYZ 标量带状求解不是 LAPACK／BLAS 的逐位替代。

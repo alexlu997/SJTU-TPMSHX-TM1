@@ -3,6 +3,7 @@ import ctypes as ct
 from copy import deepcopy
 from dataclasses import asdict
 import os
+import warnings
 
 import numpy as np
 import pytest
@@ -600,3 +601,85 @@ def test_public_typed_case_keeps_saved_grid_and_ports(monkeypatch, tmp_path, sco
     expected, _ = build_execution_inputs(expected_case, copy_design=False)
     for name in ('cfgA', 'cfgB', 'boundary_openings', 'flow_inputs'):
         adapter._same(actual[name], expected[name])
+
+
+def _axis_config(count, axis):
+    config = v4._configuration(pair=('air', 'air'), nx=count if axis == 'x' else 1,
+                               ny=count if axis == 'y' else 1, mirror=False, order=1)
+    config.geometry.L_dom_m, config.geometry.H_dom_m = np.float16(.125), np.float16(.0625)
+    config.zones.config['x_decision'] = [7.] * count + [.6] * count
+    return config
+
+
+def _axis_failure(monkeypatch, module, config, operation, *, filter_module=False):
+    from sjtu_tpmshx.shared.logutil import get_logger
+    events = []
+    targets = (.003, .004)
+    with monkeypatch.context() as patch, warnings.catch_warnings():
+        warnings.simplefilter('always')
+        if filter_module:
+            warnings.filterwarnings('error', module=r'^numpy\._core\.function_base$')
+        patch.setattr(warnings, 'showwarning', lambda message, category, filename, lineno, *args, **kwargs:
+                      events.append((category.__name__, str(message), filename, lineno)))
+        patch.setattr(get_logger('sjtu_tpmshx.preprocess.two_d.preparation'), 'info',
+                      lambda message: events.append(('log', message)))
+        with pytest.raises(Exception) as caught:
+            if operation == 'capacity':
+                module.prepare_inlet_mass_capacities(config)
+            elif operation == 'resolve':
+                module.resolve_fixed_mass_flow_config(config,
+                    mass_flow_A_kg_s=targets[0], mass_flow_B_kg_s=targets[1])
+            elif operation == 'fixed':
+                module.prepare_fixed_mass_flow_case(config, case_id='axis-error',
+                    mass_flow_A_kg_s=targets[0], mass_flow_B_kg_s=targets[1])
+            else:
+                module.prepare_case(config, case_id='axis-error')
+    return type(caught.value), str(caught.value), events
+
+
+@pytest.mark.parametrize('count', [4097, 65521])
+@pytest.mark.parametrize('axis', ['x', 'y'])
+@pytest.mark.parametrize('policy', ['warn', 'raise'])
+@pytest.mark.parametrize('operation', ['full', 'capacity', 'resolve', 'fixed'])
+def test_control_axis_failure_keeps_host_events(monkeypatch, count, axis, policy, operation):
+    config = _axis_config(count, axis)
+    with np.errstate(over=policy, invalid=policy):
+        expected = _axis_failure(monkeypatch, adapter.reference, config, operation)
+        actual = _axis_failure(monkeypatch, adapter.api, config, operation)
+    assert actual == expected
+
+
+@pytest.mark.parametrize('operation', ['full', 'capacity', 'resolve', 'fixed'])
+def test_control_axis_keeps_original_warning_module_filter(monkeypatch, operation):
+    config = _axis_config(65521, 'x')
+    with np.errstate(over='warn', invalid='warn'):
+        expected = _axis_failure(monkeypatch, adapter.reference, config, operation, filter_module=True)
+        actual = _axis_failure(monkeypatch, adapter.api, config, operation, filter_module=True)
+    assert expected[0] is RuntimeWarning
+    assert actual == expected
+
+
+@pytest.mark.parametrize('axis', ['x', 'y'])
+@pytest.mark.parametrize('operation', ['full', 'capacity', 'resolve', 'fixed'])
+def test_control_axis_error_precedes_only_later_host_grid_error(monkeypatch, axis, operation):
+    config = _axis_config(4097, axis)
+    name = 'H_dom_m' if axis == 'x' else 'L_dom_m'
+    setattr(config.geometry, name, np.asarray(getattr(config.geometry, name)))
+    assert _axis_failure(monkeypatch, adapter.api, config, operation) == _axis_failure(
+        monkeypatch, adapter.reference, config, operation)
+
+
+@pytest.mark.parametrize('operation', _OPERATIONS)
+@pytest.mark.parametrize('axis', ['x', 'y'])
+def test_raw_control_axis_keeps_cast_and_divide_events(native, operation, axis):
+    config = _axis_config(65521, axis)
+    targets = (.003, .004) if operation == 'resolve_inlet_flow' else None
+    status, result, failure, error, events, _, _ = _call(native, 'continuous', config, operation, targets)
+    try:
+        assert status != 0 and failure.kind == 1 and not result.owner
+        assert error.startswith('control axes must increase')
+        assert [event[3] for event in events if event[0] == 2] == [4 | 8 << 8, 4 | 8 << 8, 1 | 4 << 8]
+        assert [event[0] for event in events] == ([2, 2, 2] if operation == 'prepare_flow_case'
+                                                 else [0, 2, 2, 2])
+    finally:
+        _release(native, 'continuous', result)

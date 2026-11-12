@@ -2,7 +2,7 @@
 from contextlib import contextmanager
 import ctypes as ct
 import dis
-from functools import lru_cache
+from functools import lru_cache, partial
 import warnings
 
 import numpy as np
@@ -188,16 +188,36 @@ def _check_status(status, error, failure):
     raise problem
 
 
-def _source_warning(function, message, *, call=None):
+def _source_warning(function, message, *, call=None, binary=None, category=UserWarning):
     """Keep the original warning module, source line and filter registry."""
     code = function.__code__
-    line = (next(item.positions.lineno for item in dis.get_instructions(function)
-                 if item.opname.startswith('LOAD_')
-                 and (item.argval == call or item.opname.startswith('LOAD_FAST')
-                      and isinstance(item.argval, tuple) and call in item.argval)) if call else
-            max(line for _start, _end, line in code.co_lines() if line is not None))
-    warnings.warn_explicit(message, UserWarning, code.co_filename, line,
-        module=function.__module__, registry=function.__globals__.setdefault('__warningregistry__', {}))
+    if binary is not None:
+        operator, occurrence = binary
+        line = [item.positions.lineno for item in dis.get_instructions(function)
+                if item.opname == 'BINARY_OP' and item.argrepr == operator][occurrence]
+        module = function.__globals__['__name__']
+    else:
+        line = (next(item.positions.lineno for item in dis.get_instructions(function)
+                     if item.opname.startswith('LOAD_')
+                     and (item.argval == call or item.opname.startswith('LOAD_FAST')
+                          and isinstance(item.argval, tuple) and call in item.argval)) if call else
+                max(line for _start, _end, line in code.co_lines() if line is not None))
+        module = function.__module__
+    warnings.warn_explicit(message, category, code.co_filename, line,
+        module=module, registry=function.__globals__.setdefault('__warningregistry__', {}))
+
+
+def _control_axis_warning(source, message):
+    from .continuous_field import ContinuousFieldConfig, control_axis
+    function, operator, occurrence = {
+        'control-axis-step': (np.linspace.__wrapped__, '/', 0),
+        'control-axis-divide': (np.linspace.__wrapped__, '/=', 0),
+        'control-axis-scale': (np.linspace.__wrapped__, '*=', 0),
+        'control-axis-multiply': (np.linspace.__wrapped__, '*=', 1),
+        'control-axis-midpoint': (control_axis, '/', 0),
+        'control-axis-check-midpoint': (ContinuousFieldConfig.__post_init__, '/', 0),
+    }[source]
+    _source_warning(function, message, binary=(operator, occurrence), category=RuntimeWarning)
 
 
 @contextmanager
@@ -221,7 +241,8 @@ def operation(name, source, options, validate_host_input, geometry_cache=None, i
                 from .input_validation import surrogate_extrap_reasons
                 _source_warning(surrogate_extrap_reasons, _text(item.message), call='check_surrogate_domain_at_point')
             elif item.kind == 2:
-                _native_properties._floating_events([item.floating_event])
+                warn = partial(_control_axis_warning, _text(item.message)) if item.message.size else None
+                _native_properties._floating_events([item.floating_event], warn=warn)
             else:
                 raise RuntimeError(f'unknown preparation event kind {item.kind}')
             return 0
