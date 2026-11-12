@@ -54,12 +54,10 @@ def prepare_inlet_mass_capacities(config: ComputeConfig) -> dict[str, float]:
     if native_preparation.supports(config):
         return native_preparation.capacities(config)
     if config.is_3d:
-        from .three_d.preparation import _parse_geometry_inputs_3d_cfg, _prepare_geometry_data
-        prepared = _prepare_geometry_data(_parse_geometry_inputs_3d_cfg(config))
-        design, parameters, grid = prepared['design'], {'prepared': prepared}, {'dimension': 3}
-    else:
-        from .two_d.preparation import _prepare_inlet_data
-        design, parameters, grid = _prepare_inlet_data(config)
+        from .three_d.preparation import capacities
+        return capacities(config)
+    from .two_d.preparation import _prepare_inlet_data
+    design, parameters, grid = _prepare_inlet_data(config)
     return {side: total_inlet_mass_capacity(design, parameters, grid, side) for side in ('A', 'B')}
 
 
@@ -102,26 +100,8 @@ def _prepare_mass_flow_case(config, targets, *, case_id):
         del design, parameters
         return _prepare_with_metadata(_prepare_case, resolved, case_id=case_id, inlet_grid=grid)
 
-    def prepare():
-        from .three_d.preparation import (
-            _parse_geometry_inputs_3d_cfg, _prepare_geometry_data, _finish_problem_data,
-            _set_run_environment, _case_from_prepared,
-        )
-        from .inlet_flow import total_inlet_mass_capacity
-        from sjtu_tpmshx.shared.models.input_validation import surrogate_extrap_reasons
-
-        config.validate_static_inputs()
-        cfg = _parse_geometry_inputs_3d_cfg(config)
-        _set_run_environment(cfg)
-        prepared = _prepare_geometry_data(cfg)
-        capacities = {side: total_inlet_mass_capacity(
-            prepared['design'], {'prepared': prepared}, {'dimension': 3}, side) for side in 'AB'}
-        resolved = _resolve_inlet_speeds(config, targets, capacities)
-        prepared['cfg'].update(u_A=resolved.fluid_A.u_mps, u_B=resolved.fluid_B.u_mps,
-            compute_cfg=resolved, extrap_reasons=surrogate_extrap_reasons(resolved, bool(resolved.extrap.allow)))
-        return _case_from_prepared(resolved, _finish_problem_data(prepared), case_id=case_id)
-
-    return _prepare_with_metadata(prepare)
+    from .three_d.preparation import prepare_mass_flow_case
+    return prepare_mass_flow_case(config, targets, case_id=case_id)
 
 
 def resolve_fixed_mass_flow_config(
@@ -132,6 +112,9 @@ def resolve_fixed_mass_flow_config(
     from .two_d import native_preparation
     if native_preparation.supports(config):
         return native_preparation.resolve(config, targets=tuple(targets[side] for side in 'AB'))
+    if config.is_3d:
+        from .three_d.preparation import resolve
+        return resolve(config, targets=tuple(targets[side] for side in 'AB'))
     return _resolve_inlet_speeds(config, targets, prepare_inlet_mass_capacities(config))
 
 
@@ -144,6 +127,9 @@ def resolve_inlet_flow_config(config: ComputeConfig) -> ComputeConfig:
     from .two_d import native_preparation
     if native_preparation.supports(config):
         return native_preparation.resolve(config)
+    if config.is_3d:
+        from .three_d.preparation import resolve
+        return resolve(config)
     return _resolve_inlet_speeds(config, targets, prepare_inlet_mass_capacities(config))
 
 

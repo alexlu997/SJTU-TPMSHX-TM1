@@ -9,7 +9,7 @@ from sjtu_tpmshx.development.tests import grid_ports_reference as coordinates
 from sjtu_tpmshx.development.tests import grid_source_reference as reference
 from sjtu_tpmshx.shared.models import _native_grid as native
 from sjtu_tpmshx.shared.models import grid
-from sjtu_tpmshx.shared.models.grid_3d import _build_grid_3d, _resolve_axis_map
+from sjtu_tpmshx.preprocess.three_d.preparation import _axis_data
 
 KINDS = (float, np.float16, np.float32, np.float64)
 INTEGER_KINDS = (np.int8, np.uint8, np.int16, np.uint16,
@@ -313,11 +313,10 @@ def test_rectangles_and_partial_masks_keep_physical_edges(kind):
 def test_axis_map_borrows_widths_and_keeps_direction(direction, axes, permutation, reverse):
     lengths = (np.float16(.182), np.float32(.042), .035)
     counts = (7, 5, 3)
-    widths = _build_grid_3d(*lengths, *counts)
+    widths = tuple(native.uniform(count, length) for count, length in zip(counts, lengths))
     for actual, length, count in zip(widths[:3], lengths, counts):
         _exact(actual, np.full(count, length / count, dtype=np.float64))
-    assert all(left is right for left, right in zip(widths[3:], counts))
-    mapping = _resolve_axis_map({'dir': direction}, *counts, *lengths, *widths[:3])
+    mapping = _axis_data(native.axis_map(direction), widths, lengths)
     assert mapping['solver_to_real_perm'] == permutation
     assert mapping['is_reverse'] is reverse
     for key, axis in zip(('cross1', 'stream', 'cross2'), axes):

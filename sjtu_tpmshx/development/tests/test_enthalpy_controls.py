@@ -2,7 +2,7 @@
 import pytest
 
 from sjtu_tpmshx.shared.domain.compute_config import ComputeConfig
-from sjtu_tpmshx.preprocess.three_d.preparation import _parse_geometry_inputs_3d_cfg
+from sjtu_tpmshx.preprocess.api import prepare_case
 
 
 STRICT = dict(ltne_enthalpy_outer=1000, ltne_enthalpy_nsweep=25,
@@ -14,6 +14,7 @@ STRICT = dict(ltne_enthalpy_outer=1000, ltne_enthalpy_nsweep=25,
 
 def config(algorithm):
     cfg = ComputeConfig()
+    cfg.solver.Nx, cfg.solver.Ny = 4, 4
     cfg.geometry.Lz_m = .012
     cfg.solver.Nz = 3
     cfg.solver.enthalpy_algorithm = algorithm
@@ -30,7 +31,7 @@ def test_strict_controls_survive_json_and_override_route_defaults(tmp_path, algo
     cfg.to_json(path)
     restored = ComputeConfig.from_json(path)
     assert restored == cfg
-    parsed = _parse_geometry_inputs_3d_cfg(restored)
+    parsed = prepare_case(restored, case_id='controls').parameters
     assert {key: parsed[key] for key in STRICT} == STRICT
     assert parsed['enthalpy_algorithm'] == algorithm
     assert parsed['enthalpy_temperature_tol_K'] == 1e-8
@@ -40,7 +41,7 @@ def test_strict_controls_survive_json_and_override_route_defaults(tmp_path, algo
 @pytest.mark.parametrize('algorithm', ['legacy_h_fou', 'temperature_fou', 'temperature_sou'])
 def test_unspecified_controls_remain_unset_for_native_resolution(algorithm):
     cfg = config(algorithm)
-    parsed = _parse_geometry_inputs_3d_cfg(cfg)
+    parsed = prepare_case(cfg, case_id='controls').parameters
     assert all(key not in parsed for key in STRICT)
 
 
@@ -62,6 +63,7 @@ def test_invalid_control_is_rejected_before_preparation(key, value):
 @pytest.mark.parametrize('algorithm', ['legacy_h_fou', 'temperature_fou', 'temperature_sou'])
 def test_two_dimensional_controls_survive_serialization(algorithm):
     cfg = ComputeConfig()
+    cfg.solver.Nx, cfg.solver.Ny = 4, 4
     cfg.solver.enthalpy_algorithm = algorithm
     for key, value in STRICT.items():
         setattr(cfg.solver, key, value)

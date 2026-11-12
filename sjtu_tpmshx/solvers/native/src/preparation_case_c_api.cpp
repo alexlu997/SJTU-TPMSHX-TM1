@@ -165,6 +165,10 @@ struct FlowCaseOwner {
 std::size_t callback_bytes(const tpmshx_preparation_case_callbacks_v1* callbacks) {
     require_buffer(callbacks,callbacks?1:0);
     if (!callbacks) return 0;
+    if (callbacks->abi_version==9) {
+        require_buffer(reinterpret_cast<const tpmshx_preparation_case_callbacks_v9*>(callbacks),1);
+        return sizeof(tpmshx_preparation_case_callbacks_v9);
+    }
     if (callbacks->abi_version==3 || callbacks->abi_version==4) require_buffer(reinterpret_cast<const tpmshx_preparation_case_callbacks_v3*>(callbacks),1);
     else if (callbacks->abi_version==2) require_buffer(reinterpret_cast<const tpmshx_preparation_case_callbacks_v2*>(callbacks),1);
     if (callbacks->abi_version==3 || callbacks->abi_version==4) return sizeof(tpmshx_preparation_case_callbacks_v3);
@@ -268,6 +272,55 @@ struct FlowCallbackContext {
     void owned(const tpmshx_preparation_sigmoid_flow_2d_v8& value) const {owned(value.flow);owned(value.input);}
     void owned(const tpmshx_preparation_zoned_flow_case_2d_v8& value) const {owned(value.prepared);owned(value.flow);}
     void owned(const tpmshx_preparation_sigmoid_flow_case_2d_v8& value) const {owned(value.prepared);owned(value.flow);}
+    void owned(const tpmshx_preparation_zoned_flow_2d_v9& value) const {owned(value.values);}
+    void owned(const tpmshx_preparation_sigmoid_flow_2d_v9& value) const {owned(value.values);}
+    void owned(const tpmshx_preparation_zoned_flow_case_2d_v9& value) const {owned(value.values);borrowed(value.design_pore_porosity);}
+    void owned(const tpmshx_preparation_sigmoid_flow_case_2d_v9& value) const {owned(value.values);borrowed(value.design_pore_porosity);}
+    void owned(const tpmshx_preparation_case_input_3d_v1& value) const {
+        for (const auto item:{value.sco2_nu.parameter_version,value.sco2_nu.source,value.sco2_nu.applicability}) borrowed(item);
+    }
+    void owned(const tpmshx_preparation_case_3d_v1& value) const {
+        owned(value.input);
+        for (const auto item:value.widths) borrowed(item);
+        for (const auto item:value.edges) borrowed(item);
+        for (const auto item:{value.cell_length,value.wall_thickness,value.total_porosity,value.side_porosity,
+            value.permeability,value.forchheimer,value.solid_conductivity}) borrowed(item);
+        for (const auto& side:value.sides) {
+            borrowed(side.inlet_opening);borrowed(side.outlet_opening);
+            borrowed(side.drag_evidence.campaign);borrowed(side.drag_evidence.scope);
+            const auto& drag=side.drag_selection;
+            borrowed(drag.application_scope);borrowed(drag.fluid);borrowed(drag.calibration,drag.calibration_count);
+            for (std::size_t i=0;i<drag.calibration_count;++i) {
+                borrowed(drag.calibration[i].key);borrowed(drag.calibration[i].value);
+            }
+        }
+        for (const auto& model:value.models) {borrowed(model.name);borrowed(model.version);borrowed(model.side);}
+        evidence(value.evidence);
+        for (const auto item:{value.sco2_nu_model_version,value.sco2_nu_interpretation,value.co2.version,value.co2.application_version,
+            value.co2.pressure_model,value.co2.correction_source,value.co2.property_model,value.co2.common_geometry}) borrowed(item);
+        borrowed(value.notices,value.notice_count);
+        for (std::size_t i=0;i<value.notice_count;++i) borrowed(value.notices[i]);
+    }
+    void owned(const tpmshx_preparation_flow_3d_v2& value) const {owned(value.input);evidence(value.evidence);}
+    void owned(const tpmshx_preparation_flow_case_3d_v2& value) const {owned(value.prepared);owned(value.flow);}
+    void owned(const tpmshx_preparation_continuous_flow_3d_v3& value) const {
+        owned(value.flow);borrowed(value.controls.decision_mm);
+    }
+    void owned(const tpmshx_preparation_continuous_case_3d_v3& value) const {
+        owned(value.prepared);owned(value.flow);borrowed(value.controls.decision_mm);
+        for (const auto item:{value.area_density_per_m,value.hydraulic_diameter_m,value.thermal_porosity}) borrowed(item);
+        for (const auto& drag:value.drag) {borrowed(drag.transfer_policy);borrowed(drag.geometry_application);}
+    }
+    void owned(const tpmshx_preparation_spatial_flow_3d_v4& value) const {
+        owned(value.flow);borrowed(value.cells,value.cell_count);
+    }
+    void owned(const tpmshx_preparation_spatial_case_3d_v4& value) const {
+        owned(value.prepared);owned(value.flow);borrowed(value.cells,value.cell_count);
+        for (const auto item:{value.side_b_porosity,value.area_density_per_m,value.hydraulic_diameter_m,value.thermal_porosity}) borrowed(item);
+    }
+    void lut(const tpmshx_preparation_sigmoid_lut_view_v6& value) const {
+        for (const auto item:{value.cell_mm,value.wall_mm,value.porosity,value.area_density_per_m}) borrowed(item);
+    }
 
 };
 void validate_host_input(void* context,std::uint32_t stage,std::uint32_t side) {
@@ -302,14 +355,14 @@ p::PreparationRangeSample cache_sample(const tpmshx_preparation_range_sample_v1&
     return {value.have_finite!=0,value.minimum,value.maximum,value.minimum_index,value.maximum_index,
             value.low,value.high,value.size,value.nonfinite};
 }
-p::PreparationEvidence cache_evidence(const tpmshx_preparation_flow_evidence_v3& value) {
+p::PreparationEvidence cache_evidence(const tpmshx_preparation_flow_evidence_v3& value,std::size_t max_rank=2) {
     require_buffer(value.ranges,value.range_count);require_buffer(value.range_bounds_list,value.range_count);
     require_buffer(value.warnings,value.warning_count);
     if (value.event_count) throw std::invalid_argument("cached inlet evidence cannot contain live events");
     p::PreparationEvidence output;
     for (std::size_t i=0;i<value.range_count;++i) {
         const auto& item=value.ranges[i];require_buffer(item.source,item.source_count);require_buffer(item.shape,item.rank);
-        if (!item.source_count || item.rank>2) throw std::invalid_argument("cached inlet range shape is invalid");
+        if (!item.source_count || item.rank>max_rank) throw std::invalid_argument("cached inlet range shape is invalid");
         p::PreparationRange range;
         for (std::size_t n=0;n<item.source_count;++n) range.source.push_back(cache_text(item.source[n]));
         range.side=cache_text(item.side);range.stage=cache_text(item.stage);range.layout=cache_text(item.layout);
@@ -334,13 +387,8 @@ bool geometry_cache(void* context,bool publish,tpmshx::geometry::Geometry& value
     if (!publish && hit) values=cache_geometry(view);
     return hit!=0;
 }
-bool inlet_cache(void* context,bool publish,std::uint32_t side,const p::InletInput2D& inlet,
-                 p::ScalarKind velocity_kind,p::PreparationInletCache& values) {
-    auto& state=*static_cast<FlowCallbackContext*>(context);
-    const auto& callbacks=*reinterpret_cast<const tpmshx_preparation_case_callbacks_v3*>(state.callbacks);
-    if (!callbacks.inlet_cache) return false;
-    const auto inlet_input=inlet_view(inlet);const auto& props=values.properties;
-    EvidenceViews evidence(values.evidence);
+tpmshx_preparation_inlet_cache_v3 inlet_cache_view(const p::PreparationInletCache& values,const EvidenceViews& evidence) {
+    const auto& props=values.properties;
     tpmshx_preparation_inlet_cache_v3 view{};view.geometry=geometry_view(values.geometry);
     view.properties={props.rho,props.mu,props.k_f,props.cp,props.pr,props.re,props.nu,
         props.permeability_m2,props.forchheimer_per_m,props.pressure_gradient_Pa_m,
@@ -348,24 +396,95 @@ bool inlet_cache(void* context,bool publish,std::uint32_t side,const p::InletInp
     for (std::size_t i=0;i<13;++i) view.kinds[i]=kind(values.kinds[i]);
     view.evidence={evidence.ranges.data(),evidence.ranges.size(),evidence.range_bounds_list.data(),
         evidence.warnings.data(),evidence.warnings.size(),nullptr,0};
+    return view;
+}
+void copy_inlet_cache(const tpmshx_preparation_inlet_cache_v3& view,p::PreparationInletCache& values,std::size_t max_rank) {
+    values.geometry=cache_geometry(view.geometry);const auto& q=view.properties;
+    values.properties={q.rho,q.mu,q.k_f,q.cp,q.pr,q.re,q.nu,q.permeability_m2,q.forchheimer_per_m,
+        q.pressure_gradient_Pa_m,q.surface_transfer_W_m2K,q.fluid_conductivity_W_mK,q.solid_conductivity_W_mK};
+    for (std::size_t i=0;i<13;++i) {
+        const auto tag=view.kinds[i];
+        if ((tag.precision!=16 && tag.precision!=32 && tag.precision!=64) || tag.strong>1 || tag.layout>2
+            || (!tag.strong && (tag.precision!=64 || tag.layout)) || (tag.strong && !tag.layout))
+            throw std::invalid_argument("cached inlet scalar tags are invalid");
+        values.kinds[i]=kind(tag);
+    }
+    values.evidence=cache_evidence(view.evidence,max_rank);
+}
+bool inlet_cache(void* context,bool publish,std::uint32_t side,const p::InletInput2D& inlet,
+                 p::ScalarKind velocity_kind,p::PreparationInletCache& values) {
+    auto& state=*static_cast<FlowCallbackContext*>(context);
+    const auto& callbacks=*reinterpret_cast<const tpmshx_preparation_case_callbacks_v3*>(state.callbacks);
+    if (!callbacks.inlet_cache) return false;
+    const auto inlet_input=inlet_view(inlet);
+    EvidenceViews evidence(values.evidence);auto view=inlet_cache_view(values,evidence);
     std::uint32_t hit=0;
     state.storage_safe=false;
     const auto status=callbacks.inlet_cache(callbacks.values.values.context,publish?1u:0u,side,&inlet_input,kind(velocity_kind),&view,&hit);
     state.evidence(view.evidence);state.storage_safe=true;
     if (status) throw std::runtime_error("preparation inlet cache callback failed");
     flag(hit);
-    if (!publish && hit) {
-        values.geometry=cache_geometry(view.geometry);const auto& q=view.properties;
-        values.properties={q.rho,q.mu,q.k_f,q.cp,q.pr,q.re,q.nu,q.permeability_m2,q.forchheimer_per_m,
-            q.pressure_gradient_Pa_m,q.surface_transfer_W_m2K,q.fluid_conductivity_W_mK,q.solid_conductivity_W_mK};
-        for (std::size_t i=0;i<13;++i) {
-            const auto tag=view.kinds[i];
-            if ((tag.precision!=16 && tag.precision!=32 && tag.precision!=64) || tag.strong>1 || tag.layout>2
-                || (!tag.strong && (tag.precision!=64 || tag.layout)) || (tag.strong && !tag.layout))
-                throw std::invalid_argument("cached inlet scalar tags are invalid");
-            values.kinds[i]=kind(tag);
+    if (!publish && hit) copy_inlet_cache(view,values,2);
+    return hit!=0;
+}
+
+tpmshx_preparation_geometry_key_v9 geometry_key_view(const p::PreparationGeometryKey& value) {
+    return {static_cast<std::uint32_t>(value.topology),value.cell_length_mm,value.wall_thickness_mm,
+        kind(value.cell_kind),kind(value.wall_kind)};
+}
+tpmshx_preparation_inlet_key_v9 inlet_key_view(const p::PreparationInletKey& value) {
+    tpmshx_preparation_inlet_key_v9 output{};
+    output.geometry=geometry_key_view(value.geometry);output.fluid=static_cast<std::uint32_t>(value.fluid);
+    output.velocity_m_s=value.velocity_m_s;output.temperature_K=value.temperature_K;output.pressure_Pa=value.pressure_Pa;
+    output.kinds={kind(value.kinds.velocity),kind(value.kinds.temperature),kind(value.kinds.pressure)};
+    output.have_sco2_nu=value.sco2_nu?1u:0u;output.co2_geometry=value.co2_geometry?1u:0u;
+    if (value.sco2_nu) {
+        const auto& nu=*value.sco2_nu;output.sco2_nu.mode=nu.mode;
+        for (std::size_t i=0;i<2;++i) {
+            output.sco2_nu.have_alpha[i]=nu.alpha[i]?1u:0u;output.sco2_nu.alpha[i]=nu.alpha[i].value_or(0.);
         }
-        values.evidence=cache_evidence(view.evidence);
+        output.sco2_nu.parameter_version=text(nu.parameter_version);output.sco2_nu.source=text(nu.source);
+        output.sco2_nu.applicability=text(nu.applicability);
+    }
+    return output;
+}
+bool geometry_cache_at(void* context,bool publish,const p::PreparationGeometryKey& key,tpmshx::geometry::Geometry& values) {
+    auto& state=*static_cast<FlowCallbackContext*>(context);
+    const auto& callbacks=*reinterpret_cast<const tpmshx_preparation_case_callbacks_v9*>(state.callbacks);
+    const auto probe=geometry_key_view(key);auto view=geometry_view(values);std::uint32_t hit=0;
+    if (callbacks.geometry_cache_at(callbacks.values.values.values.context,publish?1u:0u,&probe,&view,&hit))
+        throw std::runtime_error("preparation typed geometry cache callback failed");
+    flag(hit);if (!publish && hit) values=cache_geometry(view);return hit!=0;
+}
+bool inlet_cache_at(void* context,bool publish,const p::PreparationInletKey& key,p::PreparationInletCache& values) {
+    auto& state=*static_cast<FlowCallbackContext*>(context);
+    const auto& callbacks=*reinterpret_cast<const tpmshx_preparation_case_callbacks_v9*>(state.callbacks);
+    const auto probe=inlet_key_view(key);EvidenceViews evidence(values.evidence);
+    auto view=inlet_cache_view(values,evidence);std::uint32_t hit=0;
+    state.storage_safe=false;
+    const auto status=callbacks.inlet_cache_at(callbacks.values.values.values.context,publish?1u:0u,&probe,&view,&hit);
+    state.evidence(view.evidence);state.storage_safe=true;
+    if (status) throw std::runtime_error("preparation typed inlet cache callback failed");
+    flag(hit);if (!publish && hit) copy_inlet_cache(view,values,3);return hit!=0;
+}
+bool sigmoid_lut_cache(void* context,bool publish,tpmshx::Topology topology,std::size_t resolution,p::SigmoidLUT2D& values) {
+    auto& state=*static_cast<FlowCallbackContext*>(context);
+    const auto& callbacks=*reinterpret_cast<const tpmshx_preparation_case_callbacks_v9*>(state.callbacks);
+    tpmshx_preparation_sigmoid_lut_view_v6 view{array(values.cell_mm),array(values.wall_mm),
+        array(values.porosity),array(values.area_density),values.porosity_fast,values.area_fast};
+    std::uint32_t hit=0;state.storage_safe=false;
+    const auto status=callbacks.sigmoid_lut_cache(callbacks.values.values.values.context,publish?1u:0u,
+        static_cast<std::uint32_t>(topology),resolution,&view,&hit);
+    state.lut(view);state.storage_safe=true;
+    if (status) throw std::runtime_error("preparation sigmoid LUT cache callback failed");
+    flag(hit);
+    if (!publish && hit) {
+        flag(view.porosity_fast);flag(view.area_fast);
+        const auto copy=[](tpmshx_preparation_array_v1 item) {
+            return item.size?std::vector<double>(item.data,item.data+item.size):std::vector<double>{};
+        };
+        values={copy(view.cell_mm),copy(view.wall_mm),copy(view.porosity),copy(view.area_density_per_m),
+            view.porosity_fast,view.area_fast};
     }
     return hit!=0;
 }
@@ -551,6 +670,11 @@ template<class T> void version8(const T* value) {
     if (value->abi_version!=TPMSHX_PREPARATION_CASE_ABI_VERSION_V8 || value->struct_size!=sizeof(T))
         throw std::invalid_argument("preparation case v8 ABI version or struct size is invalid");
 }
+template<class T> void version9(const T* value) {
+    require_buffer(value,1);
+    if (value->abi_version!=TPMSHX_PREPARATION_CASE_ABI_VERSION_V9 || value->struct_size!=sizeof(T))
+        throw std::invalid_argument("preparation case v9 ABI version or struct size is invalid");
+}
 const tpmshx_preparation_case_input_2d_v2& case_source(const tpmshx_preparation_flow_input_2d_v3& value) {return value.values;}
 const tpmshx_preparation_case_input_2d_v2& case_source(const tpmshx_preparation_continuous_input_2d_v4& value) {return value.values.values;}
 const tpmshx_preparation_case_input_2d_v2& case_source(const tpmshx_preparation_zoned_input_2d_v5& value) {return value.values;}
@@ -563,6 +687,11 @@ const tpmshx_preparation_zoned_input_2d_v5& zone_source(const tpmshx_preparation
 const tpmshx_preparation_zoned_input_2d_v5& zone_source(const tpmshx_preparation_sigmoid_flow_input_2d_v8& value) {return value.values.values;}
 const tpmshx_preparation_sigmoid_input_2d_v6& sigmoid_source(const tpmshx_preparation_sigmoid_input_2d_v6& value) {return value;}
 const tpmshx_preparation_sigmoid_input_2d_v6& sigmoid_source(const tpmshx_preparation_sigmoid_flow_input_2d_v8& value) {return value.values;}
+const tpmshx_preparation_case_input_2d_v2& case_source(const tpmshx_preparation_zoned_flow_input_2d_v9& value) {return case_source(value.values);}
+const tpmshx_preparation_case_input_2d_v2& case_source(const tpmshx_preparation_sigmoid_flow_input_2d_v9& value) {return case_source(value.values);}
+const tpmshx_preparation_zoned_input_2d_v5& zone_source(const tpmshx_preparation_zoned_flow_input_2d_v9& value) {return zone_source(value.values);}
+const tpmshx_preparation_zoned_input_2d_v5& zone_source(const tpmshx_preparation_sigmoid_flow_input_2d_v9& value) {return zone_source(value.values);}
+const tpmshx_preparation_sigmoid_input_2d_v6& sigmoid_source(const tpmshx_preparation_sigmoid_flow_input_2d_v9& value) {return value.values.values;}
 p::ZonedInput2D input(const tpmshx_preparation_zoned_input_2d_v5& source) {
     p::ZonedInput2D output;output.input=input(source.values);output.kind=source.kind;output.axis=source.axis;
     for (std::size_t i=0;i<source.region_count;++i) {
@@ -599,6 +728,19 @@ template<class Source> p::ZonedFlowRequest2D zoned_flow_input(const Source& sour
 }
 p::ZonedFlowRequest2D input(const tpmshx_preparation_zoned_flow_input_2d_v8& source) {return zoned_flow_input(source);}
 p::ZonedFlowRequest2D input(const tpmshx_preparation_sigmoid_flow_input_2d_v8& source) {return zoned_flow_input(source);}
+p::SpatialModel2D spatial_model(const tpmshx_preparation_spatial_model_2d_v9& value) {
+    flag(value.allow_geometry_extrapolation);flag(value.load_default_lut);
+    return {kind(value.solid_conductivity_kind),value.allow_geometry_extrapolation!=0,value.load_default_lut!=0};
+}
+tpmshx_preparation_spatial_model_2d_v9 spatial_model(const p::SpatialModel2D& value) {
+    return {kind(value.solid_conductivity_kind),value.allow_geometry_extrapolation?1u:0u,value.load_default_lut?1u:0u};
+}
+p::ZonedFlowRequest2D input(const tpmshx_preparation_zoned_flow_input_2d_v9& source) {
+    auto output=input(source.values);output.input.spatial_model=spatial_model(source.model);return output;
+}
+p::ZonedFlowRequest2D input(const tpmshx_preparation_sigmoid_flow_input_2d_v9& source) {
+    auto output=input(source.values);output.input.spatial_model=spatial_model(source.model);return output;
+}
 tpmshx_preparation_zone_region_v5 zone_region_view(const p::ZoneRegion2D& source) {
     tpmshx_preparation_zone_region_v5 output{};
     output.name=text(source.name);output.cell_length_mm=source.cell_length_mm;
@@ -687,6 +829,38 @@ tpmshx_preparation_sigmoid_flow_2d_v8 sigmoid_flow_view(ZonedFlowOwner& owner,co
     output.input.lut=sigmoid_lut_view(owner.input.sigmoid->lut);
     output.owner=&owner;return output;
 }
+tpmshx_preparation_zoned_flow_2d_v9 zoned_flow_view(ZonedFlowOwner& owner,const tpmshx_preparation_zoned_flow_input_2d_v9& source) {
+    tpmshx_preparation_zoned_flow_2d_v9 output{};
+    output.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V9;output.struct_size=sizeof(output);
+    output.values=zoned_flow_view(owner,source.values.values);output.values.owner=nullptr;
+    output.model=spatial_model(*owner.input.spatial_model);output.owner=&owner;return output;
+}
+tpmshx_preparation_zoned_flow_case_2d_v9 zoned_flow_view(ZonedFlowCaseOwner& owner,const tpmshx_preparation_zoned_flow_input_2d_v9& source) {
+    tpmshx_preparation_zoned_flow_case_2d_v9 output{};
+    output.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V9;output.struct_size=sizeof(output);
+    auto& nested=output.values;nested.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V8;nested.struct_size=sizeof(nested);
+    const auto resolved=resolved_input(owner.prepared.prepared.value.input,case_source(source));
+    nested.prepared=zoned_view(owner.prepared,resolved);nested.prepared.owner=nullptr;
+    nested.flow=zoned_flow_view(owner.flow,source.values.values);nested.flow.owner=nullptr;
+    output.design_pore_porosity=array(owner.prepared.value.design_pore_porosity);
+    output.model=spatial_model(*owner.flow.input.spatial_model);output.owner=&owner;return output;
+}
+tpmshx_preparation_sigmoid_flow_2d_v9 sigmoid_flow_view(ZonedFlowOwner& owner,const tpmshx_preparation_sigmoid_flow_input_2d_v9& source) {
+    tpmshx_preparation_sigmoid_flow_2d_v9 output{};
+    output.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V9;output.struct_size=sizeof(output);
+    output.values=sigmoid_flow_view(owner,source.values.values);output.values.owner=nullptr;
+    output.model=spatial_model(*owner.input.spatial_model);output.owner=&owner;return output;
+}
+tpmshx_preparation_sigmoid_flow_case_2d_v9 sigmoid_flow_view(ZonedFlowCaseOwner& owner,const tpmshx_preparation_sigmoid_flow_input_2d_v9& source) {
+    tpmshx_preparation_sigmoid_flow_case_2d_v9 output{};
+    output.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V9;output.struct_size=sizeof(output);
+    auto& nested=output.values;nested.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V8;nested.struct_size=sizeof(nested);
+    const auto resolved=resolved_input(owner.prepared.prepared.value.input,case_source(source));
+    nested.prepared=sigmoid_view(owner.prepared,resolved);nested.prepared.owner=nullptr;
+    nested.flow=sigmoid_flow_view(owner.flow,source.values.values);nested.flow.owner=nullptr;
+    output.design_pore_porosity=array(owner.prepared.value.design_pore_porosity);
+    output.model=spatial_model(*owner.flow.input.spatial_model);output.owner=&owner;return output;
+}
 tpmshx_preparation_continuous_controls_2d_v4 controls_view(const p::CaseInput2D& input) {
     const auto& controls=*input.continuous;
     return {controls.nx,controls.ny,controls.order,controls.symmetric_y?1u:0u,
@@ -741,7 +915,8 @@ template<class Source,class Result,class Function> int flow_boundary(
             }
         }
         if constexpr (std::is_same_v<Source,tpmshx_preparation_sigmoid_input_2d_v6>
-            || std::is_same_v<Source,tpmshx_preparation_sigmoid_flow_input_2d_v8>) {
+            || std::is_same_v<Source,tpmshx_preparation_sigmoid_flow_input_2d_v8>
+            || std::is_same_v<Source,tpmshx_preparation_sigmoid_flow_input_2d_v9>) {
             if (source) for (const auto values:{sigmoid_source(*source).controls.decision_mm,sigmoid_source(*source).lut.cell_mm,
                     sigmoid_source(*source).lut.wall_mm,sigmoid_source(*source).lut.porosity,sigmoid_source(*source).lut.area_density_per_m}) {
                 require_disjoint(grid,1,values.data,values.size);
@@ -753,7 +928,9 @@ template<class Source,class Result,class Function> int flow_boundary(
         if constexpr (std::is_same_v<Source,tpmshx_preparation_zoned_input_2d_v5>
             || std::is_same_v<Source,tpmshx_preparation_sigmoid_input_2d_v6>
             || std::is_same_v<Source,tpmshx_preparation_zoned_flow_input_2d_v8>
-            || std::is_same_v<Source,tpmshx_preparation_sigmoid_flow_input_2d_v8>) {
+            || std::is_same_v<Source,tpmshx_preparation_sigmoid_flow_input_2d_v8>
+            || std::is_same_v<Source,tpmshx_preparation_zoned_flow_input_2d_v9>
+            || std::is_same_v<Source,tpmshx_preparation_sigmoid_flow_input_2d_v9>) {
             if (source) {
                 const auto& zones=zone_source(*source);
                 require_disjoint(grid,1,zones.regions,zones.region_count);
@@ -783,7 +960,20 @@ template<class Source,class Result,class Function> int flow_boundary(
     try {
         if (grid->abi_version!=TPMSHX_PREPARATION_CASE_ABI_VERSION_V7 || grid->struct_size!=sizeof(*grid))
             throw std::invalid_argument("preparation grid v7 ABI version or struct size is invalid");
-        if constexpr (std::is_same_v<Source,tpmshx_preparation_zoned_flow_input_2d_v8>
+        if constexpr (std::is_same_v<Source,tpmshx_preparation_zoned_flow_input_2d_v9>
+            || std::is_same_v<Source,tpmshx_preparation_sigmoid_flow_input_2d_v9>) {
+            version9(source);version9(result);version8(&source->values);version5(&zone_source(*source));
+            if constexpr (std::is_same_v<Source,tpmshx_preparation_sigmoid_flow_input_2d_v9>) version6(&source->values.values);
+            if (callbacks) {
+                if (callbacks->abi_version==9) {
+                    if (callbacks->struct_size!=sizeof(tpmshx_preparation_case_callbacks_v9))
+                        throw std::invalid_argument("preparation host callback struct size is invalid");
+                    const auto& hooks=*reinterpret_cast<const tpmshx_preparation_case_callbacks_v9*>(callbacks);
+                    if (hooks.values.geometry_cache || hooks.values.inlet_cache)
+                        throw std::invalid_argument("preparation v9 callbacks require typed cache hooks");
+                } else version(callbacks);
+            }
+        } else if constexpr (std::is_same_v<Source,tpmshx_preparation_zoned_flow_input_2d_v8>
             || std::is_same_v<Source,tpmshx_preparation_sigmoid_flow_input_2d_v8>) {
             version8(source);version8(result);version5(&zone_source(*source));
             if constexpr (std::is_same_v<Source,tpmshx_preparation_sigmoid_flow_input_2d_v8>) version6(&source->values);
@@ -809,13 +999,20 @@ template<class Source,class Result,class Function> int flow_boundary(
         staged_failure.struct_size=sizeof(staged_failure);staged_failure.side=2;failure_ready=true;
         try {
             if (result->owner) throw std::invalid_argument("release the previous flow result before reusing its result");
-            const p::PreparationCallbacks sink{callbacks && callbacks->event?emit_flow:nullptr,&context,
+            p::PreparationCallbacks sink{callbacks && callbacks->event?emit_flow:nullptr,&context,
                 callbacks && callbacks->abi_version>=2?validate_host_input:nullptr,
                 callbacks && callbacks->abi_version>=3?geometry_cache:nullptr,
                 callbacks && callbacks->abi_version>=3?inlet_cache:nullptr,
                 callbacks && callbacks->abi_version>=3?observe_range:nullptr,
                 callbacks && callbacks->abi_version>=3?observe_notice:nullptr,
-                callbacks && callbacks->abi_version==4?validate_grid:nullptr};
+                callbacks && (callbacks->abi_version==4 || callbacks->abi_version==9)?validate_grid:nullptr};
+            if (callbacks && callbacks->abi_version==9) {
+                const auto& hooks=*reinterpret_cast<const tpmshx_preparation_case_callbacks_v9*>(callbacks);
+                sink.geometry_cache=nullptr;sink.inlet_cache=nullptr;
+                sink.geometry_cache_at=hooks.geometry_cache_at?geometry_cache_at:nullptr;
+                sink.inlet_cache_at=hooks.inlet_cache_at?inlet_cache_at:nullptr;
+                sink.sigmoid_lut_cache=hooks.sigmoid_lut_cache?sigmoid_lut_cache:nullptr;
+            }
             auto request=input(*source);
             if constexpr (std::is_same_v<decltype(request),p::ZonedFlowRequest2D>) grid_kinds(request.input.input,*grid);
             else grid_kinds(request.input,*grid);
@@ -1207,6 +1404,9 @@ tpmshx_preparation_case_3d_v1 view(Owner3D& owner,const tpmshx_preparation_case_
 }
 }  // namespace
 
+extern "C" uint32_t TPMSHX_PREPARATION_CALL tpmshx_preparation_host_3d_abi_version_v5(void) {
+    return TPMSHX_PREPARATION_HOST_3D_ABI_VERSION;
+}
 extern "C" uint32_t TPMSHX_PREPARATION_CALL tpmshx_preparation_case_3d_abi_version_v1(void) {
     return TPMSHX_PREPARATION_CASE_3D_ABI_VERSION;
 }
@@ -1220,16 +1420,22 @@ template<class Source,class Result,class Function> int boundary_3d(
     const tpmshx_preparation_case_callbacks_v1* callbacks,Result* result,
     tpmshx_preparation_case_failure_v2* failure,char* error,size_t capacity,Function function) {
     if (!tpmshx::fields::c_api::error_buffer_valid(error,capacity)) return TPMSHX_PREPARATION_INVALID;
+    FlowCallbackContext context{callbacks,reinterpret_cast<const unsigned char*>(result),sizeof(Result),failure,error,capacity};
+    const auto* callback_data=reinterpret_cast<const unsigned char*>(callbacks);
+    std::size_t callback_count=0;
     try {
+        require_buffer(result,result?1:0);
+        if (result && result->owner) context.owned(*result);
+        callback_count=callback_bytes(callbacks);
         require_buffer(source,source?1:0);require_buffer(result,result?1:0);require_buffer(failure,failure?1:0);
-        require_buffer(selected,selected?1:0);require_buffer(callbacks,callbacks?1:0);
+        require_buffer(selected,selected?1:0);require_buffer(callback_data,callback_count);
         require_disjoint(error,capacity,source,source?1:0);require_disjoint(error,capacity,result,result?1:0);
-        require_disjoint(error,capacity,selected,selected?1:0);require_disjoint(error,capacity,callbacks,callbacks?1:0);
+        require_disjoint(error,capacity,selected,selected?1:0);require_disjoint(error,capacity,callback_data,callback_count);
         require_disjoint(error,capacity,failure,failure?1:0);
         require_disjoint(source,source?1:0,result,result?1:0);require_disjoint(source,source?1:0,failure,failure?1:0);
         require_disjoint(result,result?1:0,failure,failure?1:0);
         require_disjoint(selected,selected?1:0,result,result?1:0);require_disjoint(selected,selected?1:0,failure,failure?1:0);
-        require_disjoint(callbacks,callbacks?1:0,result,result?1:0);require_disjoint(callbacks,callbacks?1:0,failure,failure?1:0);
+        require_disjoint(callback_data,callback_count,result,result?1:0);require_disjoint(callback_data,callback_count,failure,failure?1:0);
         if constexpr (std::is_same_v<Source,tpmshx_preparation_continuous_input_3d_v3>) {
             if (source) {
                 const auto values=source->controls.decision_mm;
@@ -1251,7 +1457,9 @@ template<class Source,class Result,class Function> int boundary_3d(
             require_disjoint(value.data,value.size,result,result?1:0);require_disjoint(value.data,value.size,failure,failure?1:0);
         }
     } catch (...) {return TPMSHX_PREPARATION_INVALID;}
-    return p::c_api::boundary(error,capacity,[&] {
+    tpmshx_preparation_case_failure_v2 staged_failure{};
+    bool failure_ready=false;std::exception_ptr saved_exception;
+    try {
         if constexpr (std::is_same_v<Source,tpmshx_preparation_case_input_3d_v1>) {version(source);version(result);}
         else if constexpr (std::is_same_v<Source,tpmshx_preparation_flow_input_3d_v2>) {
             version2(source);version2(result);version(&source->input);
@@ -1261,39 +1469,60 @@ template<class Source,class Result,class Function> int boundary_3d(
             version4(source);version4(result);version2(&source->values);version(&source->values.input);
         }
         version2(failure);
-        if(selected)version(selected);if(callbacks)version(callbacks);
-        *failure={};failure->abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V2;failure->struct_size=sizeof(*failure);failure->side=2;
+        if(selected)version(selected);
+        if (callbacks) {
+            if (callbacks->abi_version==9) {
+                if (callbacks->struct_size!=sizeof(tpmshx_preparation_case_callbacks_v9))
+                    throw std::invalid_argument("preparation host callback struct size is invalid");
+                const auto& hooks=*reinterpret_cast<const tpmshx_preparation_case_callbacks_v9*>(callbacks);
+                if (hooks.values.geometry_cache || hooks.values.inlet_cache || hooks.sigmoid_lut_cache)
+                    throw std::invalid_argument("3D host callbacks require typed geometry and inlet cache hooks");
+            } else version(callbacks);
+        }
+        staged_failure.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V2;staged_failure.struct_size=sizeof(staged_failure);staged_failure.side=2;failure_ready=true;
         try {
             if (result->owner) throw std::invalid_argument("release the previous prepared case before reusing its result");
-            const p::PreparationCallbacks sink{callbacks && callbacks->event?emit:nullptr,
-                const_cast<tpmshx_preparation_case_callbacks_v1*>(callbacks)};
+            p::PreparationCallbacks sink{callbacks && callbacks->event?emit_flow:nullptr,&context};
+            if (callbacks && callbacks->abi_version==9) {
+                const auto& hooks=*reinterpret_cast<const tpmshx_preparation_case_callbacks_v9*>(callbacks);
+                sink.validate_host_input=hooks.values.values.validate_host_input?validate_host_input:nullptr;
+                sink.observe_range=hooks.values.observe_range?observe_range:nullptr;
+                sink.observe_notice=hooks.values.observe_notice?observe_notice:nullptr;
+                sink.geometry_cache_at=hooks.geometry_cache_at?geometry_cache_at:nullptr;
+                sink.inlet_cache_at=hooks.inlet_cache_at?inlet_cache_at:nullptr;
+            }
             function(input(*source),options(selected),sink);
         } catch (const p::PreparationError& problem) {
-            failure->kind=problem.kind;failure->side=problem.side;
-            failure->have_property=problem.have_property?1u:0u;failure->property=problem.property;
-            failure->cause_count=static_cast<std::uint32_t>(std::min(problem.causes.size(),std::size_t{2}));
-            for (std::size_t i=0;i<failure->cause_count;++i) {
-                failure->causes[i].kind=problem.causes[i].kind;
-                tpmshx::fields::c_api::message(failure->causes[i].message,sizeof(failure->causes[i].message),problem.causes[i].message.c_str());
+            staged_failure.kind=problem.kind;staged_failure.side=problem.side;
+            staged_failure.have_property=problem.have_property?1u:0u;staged_failure.property=problem.property;
+            staged_failure.cause_count=static_cast<std::uint32_t>(std::min(problem.causes.size(),std::size_t{2}));
+            for (std::size_t i=0;i<staged_failure.cause_count;++i) {
+                staged_failure.causes[i].kind=problem.causes[i].kind;
+                tpmshx::fields::c_api::message(staged_failure.causes[i].message,sizeof(staged_failure.causes[i].message),problem.causes[i].message.c_str());
             }
             throw p::c_api::StateError(problem.status,problem.what());
         } catch (const p::PropertyError& problem) {
-            const auto& value=problem.failure;failure->kind=problem.status==3?3u:1u;failure->have_property=1;
-            failure->property={value.reason,value.input,value.index,value.first_t_index,value.first_p_index,
+            const auto& value=problem.failure;staged_failure.kind=problem.status==3?3u:1u;staged_failure.have_property=1;
+            staged_failure.property={value.reason,value.input,value.index,value.first_t_index,value.first_p_index,
                 value.temperature,value.pressure,value.detail,value.fp};
             if constexpr (std::is_same_v<Source,tpmshx_preparation_continuous_input_3d_v3>
                           || std::is_same_v<Source,tpmshx_preparation_spatial_input_3d_v4>) {
                 const std::string prefix="CO2 requires a stable single-phase PT state; saturation, two-phase and critical-point states are unsupported. ";
                 const std::string message=problem.what();
                 if (message.compare(0,prefix.size(),prefix)==0) {
-                    failure->cause_count=1;failure->causes[0].kind=1;
-                    tpmshx::fields::c_api::message(failure->causes[0].message,sizeof(failure->causes[0].message),
+                    staged_failure.cause_count=1;staged_failure.causes[0].kind=1;
+                    tpmshx::fields::c_api::message(staged_failure.causes[0].message,sizeof(staged_failure.causes[0].message),
                         message.c_str()+prefix.size());
                 }
             }
             throw p::c_api::StateError(problem.status,problem.what());
-        } catch (const std::invalid_argument&) {failure->kind=1;throw;}
-        catch (...) {failure->kind=3;throw;}
+        } catch (const std::invalid_argument&) {staged_failure.kind=1;throw;}
+        catch (...) {staged_failure.kind=3;throw;}
+    } catch (...) {saved_exception=std::current_exception();}
+    if (!context.storage_safe) return TPMSHX_PREPARATION_INVALID;
+    return p::c_api::boundary(error,capacity,[&] {
+        if (failure_ready) *failure=staged_failure;
+        if (saved_exception) std::rethrow_exception(saved_exception);
     });
 }
 }  // namespace
@@ -1699,6 +1928,92 @@ extern "C" void TPMSHX_PREPARATION_CALL tpmshx_preparation_sigmoid_flow_2d_relea
 }
 extern "C" void TPMSHX_PREPARATION_CALL tpmshx_preparation_sigmoid_flow_case_2d_release_v8(
     tpmshx_preparation_sigmoid_flow_case_2d_v8* result) {
+    if (!result) return;
+    delete static_cast<ZonedFlowCaseOwner*>(result->owner);*result={};
+}
+
+extern "C" uint32_t TPMSHX_PREPARATION_CALL tpmshx_preparation_case_abi_version_v9(void) {
+    return TPMSHX_PREPARATION_CASE_ABI_VERSION_V9;
+}
+extern "C" int TPMSHX_PREPARATION_CALL tpmshx_prepare_zoned_inlet_mass_capacities_2d_v9(
+    const tpmshx_preparation_zoned_flow_input_2d_v9* source,const tpmshx_preparation_grid_kinds_2d_v7* grid,
+    const tpmshx_preparation_case_options_v1* selected,
+    const tpmshx_preparation_case_callbacks_v1* callbacks,tpmshx_preparation_zoned_flow_2d_v9* result,
+    tpmshx_preparation_case_failure_v2* failure,char* error,size_t capacity) {
+    return flow_boundary(source,grid,selected,callbacks,result,failure,error,capacity,[&](const auto& request,const auto& options,const auto& sink) {
+        if (request.explicit_targets) throw std::invalid_argument("capacity query does not accept explicit targets");
+        auto owner=std::make_unique<ZonedFlowOwner>(p::prepare_zoned_inlet_mass_capacities_2d(request.input,request.physical_depth_kind,options,sink));
+        *result=zoned_flow_view(*owner,*source);owner.release();
+    });
+}
+extern "C" int TPMSHX_PREPARATION_CALL tpmshx_resolve_zoned_inlet_flow_2d_v9(
+    const tpmshx_preparation_zoned_flow_input_2d_v9* source,const tpmshx_preparation_grid_kinds_2d_v7* grid,
+    const tpmshx_preparation_case_options_v1* selected,
+    const tpmshx_preparation_case_callbacks_v1* callbacks,tpmshx_preparation_zoned_flow_2d_v9* result,
+    tpmshx_preparation_case_failure_v2* failure,char* error,size_t capacity) {
+    return flow_boundary(source,grid,selected,callbacks,result,failure,error,capacity,[&](const auto& request,const auto& options,const auto& sink) {
+        auto owner=std::make_unique<ZonedFlowOwner>(p::resolve_zoned_inlet_flow_2d(request,options,sink));
+        *result=zoned_flow_view(*owner,*source);owner.release();
+    });
+}
+extern "C" int TPMSHX_PREPARATION_CALL tpmshx_prepare_zoned_flow_case_2d_v9(
+    const tpmshx_preparation_zoned_flow_input_2d_v9* source,const tpmshx_preparation_grid_kinds_2d_v7* grid,
+    const tpmshx_preparation_case_options_v1* selected,
+    const tpmshx_preparation_case_callbacks_v1* callbacks,tpmshx_preparation_zoned_flow_case_2d_v9* result,
+    tpmshx_preparation_case_failure_v2* failure,char* error,size_t capacity) {
+    return flow_boundary(source,grid,selected,callbacks,result,failure,error,capacity,[&](const auto& request,const auto& options,const auto& sink) {
+        auto owner=std::make_unique<ZonedFlowCaseOwner>(p::prepare_zoned_flow_case_2d(request,options,sink));
+        *result=zoned_flow_view(*owner,*source);owner.release();
+    });
+}
+extern "C" void TPMSHX_PREPARATION_CALL tpmshx_preparation_zoned_flow_2d_release_v9(
+    tpmshx_preparation_zoned_flow_2d_v9* result) {
+    if (!result) return;
+    delete static_cast<ZonedFlowOwner*>(result->owner);*result={};
+}
+extern "C" void TPMSHX_PREPARATION_CALL tpmshx_preparation_zoned_flow_case_2d_release_v9(
+    tpmshx_preparation_zoned_flow_case_2d_v9* result) {
+    if (!result) return;
+    delete static_cast<ZonedFlowCaseOwner*>(result->owner);*result={};
+}
+extern "C" int TPMSHX_PREPARATION_CALL tpmshx_prepare_sigmoid_inlet_mass_capacities_2d_v9(
+    const tpmshx_preparation_sigmoid_flow_input_2d_v9* source,const tpmshx_preparation_grid_kinds_2d_v7* grid,
+    const tpmshx_preparation_case_options_v1* selected,
+    const tpmshx_preparation_case_callbacks_v1* callbacks,tpmshx_preparation_sigmoid_flow_2d_v9* result,
+    tpmshx_preparation_case_failure_v2* failure,char* error,size_t capacity) {
+    return flow_boundary(source,grid,selected,callbacks,result,failure,error,capacity,[&](const auto& request,const auto& options,const auto& sink) {
+        if (request.explicit_targets) throw std::invalid_argument("capacity query does not accept explicit targets");
+        auto owner=std::make_unique<ZonedFlowOwner>(p::prepare_zoned_inlet_mass_capacities_2d(request.input,request.physical_depth_kind,options,sink));
+        *result=sigmoid_flow_view(*owner,*source);owner.release();
+    });
+}
+extern "C" int TPMSHX_PREPARATION_CALL tpmshx_resolve_sigmoid_inlet_flow_2d_v9(
+    const tpmshx_preparation_sigmoid_flow_input_2d_v9* source,const tpmshx_preparation_grid_kinds_2d_v7* grid,
+    const tpmshx_preparation_case_options_v1* selected,
+    const tpmshx_preparation_case_callbacks_v1* callbacks,tpmshx_preparation_sigmoid_flow_2d_v9* result,
+    tpmshx_preparation_case_failure_v2* failure,char* error,size_t capacity) {
+    return flow_boundary(source,grid,selected,callbacks,result,failure,error,capacity,[&](const auto& request,const auto& options,const auto& sink) {
+        auto owner=std::make_unique<ZonedFlowOwner>(p::resolve_zoned_inlet_flow_2d(request,options,sink));
+        *result=sigmoid_flow_view(*owner,*source);owner.release();
+    });
+}
+extern "C" int TPMSHX_PREPARATION_CALL tpmshx_prepare_sigmoid_flow_case_2d_v9(
+    const tpmshx_preparation_sigmoid_flow_input_2d_v9* source,const tpmshx_preparation_grid_kinds_2d_v7* grid,
+    const tpmshx_preparation_case_options_v1* selected,
+    const tpmshx_preparation_case_callbacks_v1* callbacks,tpmshx_preparation_sigmoid_flow_case_2d_v9* result,
+    tpmshx_preparation_case_failure_v2* failure,char* error,size_t capacity) {
+    return flow_boundary(source,grid,selected,callbacks,result,failure,error,capacity,[&](const auto& request,const auto& options,const auto& sink) {
+        auto owner=std::make_unique<ZonedFlowCaseOwner>(p::prepare_zoned_flow_case_2d(request,options,sink));
+        *result=sigmoid_flow_view(*owner,*source);owner.release();
+    });
+}
+extern "C" void TPMSHX_PREPARATION_CALL tpmshx_preparation_sigmoid_flow_2d_release_v9(
+    tpmshx_preparation_sigmoid_flow_2d_v9* result) {
+    if (!result) return;
+    delete static_cast<ZonedFlowOwner*>(result->owner);*result={};
+}
+extern "C" void TPMSHX_PREPARATION_CALL tpmshx_preparation_sigmoid_flow_case_2d_release_v9(
+    tpmshx_preparation_sigmoid_flow_case_2d_v9* result) {
     if (!result) return;
     delete static_cast<ZonedFlowCaseOwner*>(result->owner);*result={};
 }

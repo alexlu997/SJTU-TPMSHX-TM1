@@ -32,7 +32,7 @@ def prepare_case(config: ComputeConfig, *, case_id: str) -> CaseData:
     if targets:
         return _prepare_mass_flow_case(deepcopy(config), targets, case_id=case_id)
     if config.is_3d:
-        from sjtu_tpmshx.preprocess.three_d.preparation import prepare_case as prepare
+        from sjtu_tpmshx.development.tests.preparation_3d_reference import prepare_case as prepare
     else:
         from sjtu_tpmshx.development.tests.preparation_case_reference import prepare_case as prepare
     return _prepare_with_metadata(prepare, config, case_id=case_id)
@@ -48,7 +48,7 @@ def prepare_inlet_mass_capacities(config: ComputeConfig) -> dict[str, float]:
 
     config = deepcopy(config).validate_static_inputs()
     if config.is_3d:
-        from sjtu_tpmshx.preprocess.three_d.preparation import _parse_geometry_inputs_3d_cfg, _prepare_geometry_data
+        from sjtu_tpmshx.development.tests.preparation_3d_reference import _parse_geometry_inputs_3d_cfg, _prepare_geometry_data
         prepared = _prepare_geometry_data(_parse_geometry_inputs_3d_cfg(config))
         design, parameters, grid = prepared['design'], {'prepared': prepared}, {'dimension': 3}
     else:
@@ -96,7 +96,7 @@ def _prepare_mass_flow_case(config, targets, *, case_id):
                                       inlet_grid=grid, spline_geometry=spline_geometry)
 
     def prepare():
-        from sjtu_tpmshx.preprocess.three_d.preparation import (
+        from sjtu_tpmshx.development.tests.preparation_3d_reference import (
             _parse_geometry_inputs_3d_cfg, _prepare_geometry_data, _finish_problem_data,
             _set_run_environment, _case_from_prepared,
         )

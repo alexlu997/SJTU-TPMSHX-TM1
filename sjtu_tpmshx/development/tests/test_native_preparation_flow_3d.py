@@ -1,4 +1,4 @@
-"""Compare native 3D inlet-flow stages with the unchanged Python 3D path."""
+"""Compare native 3D inlet-flow stages with the frozen Python 3D path."""
 import ctypes as ct
 from contextlib import contextmanager, nullcontext
 from dataclasses import asdict, replace
@@ -11,8 +11,8 @@ import pytest
 
 from sjtu_tpmshx.development.tests import test_native_preparation_3d as three
 from sjtu_tpmshx.development.tests import test_native_preparation_mass_flow as flow
-from sjtu_tpmshx.preprocess import api
-from sjtu_tpmshx.preprocess.three_d import preparation
+from sjtu_tpmshx.development.tests import preparation_api_reference as api
+from sjtu_tpmshx.development.tests import preparation_3d_reference as preparation
 from sjtu_tpmshx.shared.domain.run_warnings import (
     current_warnings, range_observations, warning_messages, warning_scope,
 )

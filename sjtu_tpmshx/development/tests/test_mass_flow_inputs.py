@@ -53,7 +53,7 @@ def test_mixed_flow_input_resolves_before_speed_validation_and_replays(tmp_path,
 @pytest.mark.parametrize('bad', [0., -1., float('nan'), float('inf'), True, '0.01'])
 def test_bad_target_rejected_before_geometry_preparation(monkeypatch, bad):
     from sjtu_tpmshx.preprocess.three_d import preparation
-    monkeypatch.setattr(preparation, '_prepare_geometry_data', lambda *a: pytest.fail('bad target reached geometry'))
+    monkeypatch.setattr(preparation, '_execute', lambda *a: pytest.fail('bad target reached geometry'))
     cfg = _config()
     cfg.fluid_A = replace(cfg.fluid_A, mass_flow_kg_s=bad)
     with pytest.raises(ValueError, match='mass_flow_kg_s'):

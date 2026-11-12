@@ -2,7 +2,7 @@
 import pytest
 
 from sjtu_tpmshx.shared.domain.compute_config import ComputeConfig
-from sjtu_tpmshx.preprocess.three_d.preparation import _parse_geometry_inputs_3d_cfg
+from sjtu_tpmshx.preprocess.api import prepare_case
 
 
 STRICT = dict(model_h_max_iterations=24000, model_h_temperature_tol_K=1e-5,
@@ -12,6 +12,7 @@ STRICT = dict(model_h_max_iterations=24000, model_h_temperature_tol_K=1e-5,
 @pytest.mark.parametrize('dimension', [2, 3])
 def test_model_h_controls_survive_config_and_preparation(tmp_path, dimension):
     cfg = ComputeConfig()
+    cfg.solver.Nx, cfg.solver.Ny = 4, 4
     if dimension == 3:
         cfg.geometry.Lz_m = .012
         cfg.solver.Nz = 3
@@ -23,16 +24,17 @@ def test_model_h_controls_survive_config_and_preparation(tmp_path, dimension):
     restored = ComputeConfig.from_json(path)
     assert {key: getattr(restored.solver, key) for key in STRICT} == STRICT
     if dimension == 3:
-        parsed = _parse_geometry_inputs_3d_cfg(restored)
+        parsed = prepare_case(restored, case_id='controls').parameters
         assert {key: parsed[key] for key in STRICT} == STRICT
 
 
 def test_unset_model_h_controls_preserve_route_resolution():
     cfg = ComputeConfig()
+    cfg.solver.Nx, cfg.solver.Ny = 4, 4
     cfg.geometry.Lz_m = .012
     cfg.solver.Nz = 3
     assert all(getattr(cfg.solver, key) is None for key in STRICT)
-    parsed = _parse_geometry_inputs_3d_cfg(cfg)
+    parsed = prepare_case(cfg, case_id='controls').parameters
     assert all(key not in parsed for key in STRICT)
 
 
@@ -44,6 +46,7 @@ def test_unset_model_h_controls_preserve_route_resolution():
 ])
 def test_invalid_model_h_control_is_rejected_before_preparation(key, value):
     cfg = ComputeConfig()
+    cfg.solver.Nx, cfg.solver.Ny = 4, 4
     setattr(cfg.solver, key, value)
     with pytest.raises(ValueError, match=key):
         cfg.validate_static_inputs()

@@ -184,7 +184,7 @@ def prepared(pair="air-air", *, directions=None, counts=None, mesh=None, **contr
     if counts is not None and counts[2] == 1:
         # Explicitly exercise the 3D runtime's retained Nz=1 delegate. Public
         # automatic preparation ordinarily routes this configuration to 2D.
-        from sjtu_tpmshx.preprocess.three_d.preparation import _parse_inputs_3d_cfg, _prepare_problem_data
+        from sjtu_tpmshx.development.tests.preparation_3d_reference import _parse_inputs_3d_cfg, _prepare_problem_data
         c = _parse_inputs_3d_cfg(cfg)
         p = _prepare_problem_data(c)
         c = p.pop("cfg")
@@ -197,8 +197,9 @@ def prepared(pair="air-air", *, directions=None, counts=None, mesh=None, **contr
                 for w, length in zip(widths, (lx, ly, lz)):
                     w *= length / w.sum()
                 return *widths, nx, ny, nz
-            with patch("sjtu_tpmshx.preprocess.three_d.preparation._build_grid_3d", graded):
-                case = prepare_case(cfg, case_id="native-full3d-"+pair)
+            from sjtu_tpmshx.development.tests import preparation_api_reference
+            with patch("sjtu_tpmshx.development.tests.preparation_3d_reference._build_grid_3d", graded):
+                case = preparation_api_reference.prepare_case(cfg, case_id="native-full3d-"+pair)
         else:
             case = prepare_case(cfg, case_id="native-full3d-"+pair)
     c, p = build_execution_inputs(case)
@@ -316,7 +317,7 @@ def audit_full(actual, cfg, p):
 
 
 def outflow_case(shape, direction):
-    from sjtu_tpmshx.shared.models.grid_3d import _resolve_axis_map
+    from sjtu_tpmshx.development.tests.preparation_3d_reference import _resolve_axis_map
     widths = [np.linspace(.7, 1.6, n) for n in shape]
     axis_map = _resolve_axis_map(dict(dir=direction), *shape,
                                 *(w.sum() for w in widths), *widths)

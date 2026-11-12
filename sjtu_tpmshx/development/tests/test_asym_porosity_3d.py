@@ -9,7 +9,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.shared.models.asym_split import _asym_split_A, _eps_sides_for_run
+from sjtu_tpmshx.shared.models import _native_geometry
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.api import run_case
 from sjtu_tpmshx.development.tests.cases_3d import air_air_config
@@ -19,29 +19,28 @@ from sjtu_tpmshx.shared.df_surrogate import kappa_asym
 # ── split + per-side void fraction ───────────────────────────────────────────
 
 def test_split_delta0_is_exactly_half():
-    assert _asym_split_A({'delta_levelset': 0.0}, 'Gyroid', 7.0, 0.6) == 0.5
+    assert _native_geometry.split_from_index('Gyroid', 7.0, 0.6, 0.) == 0.5
 
 
 @pytest.mark.parametrize("tpms", ["Gyroid", "Diamond"])
 def test_split_positive_delta_grows_A(tpms):
-    s = _asym_split_A({'delta_levelset': 0.6}, tpms, 7.0, 0.6)
+    s = _native_geometry.split_from_index(tpms, 7.0, 0.6, .6)
     assert 0.5 < s < 1.0
 
 
-def test_eps_sides_delta0_object_identity():
-    """δ=0 MUST return the same eps_f_arr object → golden bit-identity."""
-    eps = np.full((3, 3, 3), 0.74)
-    epsf = eps / 2.0
-    a, b = _eps_sides_for_run({'delta_levelset': 0.0}, 'Gyroid', 7.0, 0.6, eps, epsf)
-    assert a is epsf and b is epsf
+def test_eps_sides_delta0_bit_identity():
+    case = prepare_case(air_air_config(), case_id='split-zero')
+    np.testing.assert_array_equal(case.design_fields['eps_A'], case.design_fields['eps_B'])
+    np.testing.assert_array_equal(case.design_fields['eps_A'], case.design_fields['eps_arr'] / 2.)
 
 
 def test_eps_sides_delta_pos_total_preserved():
-    eps = np.full((3, 3, 3), 0.74)
-    epsf = eps / 2.0
-    a, b = _eps_sides_for_run({'delta_levelset': 0.6}, 'Gyroid', 7.0, 0.6, eps, epsf)
-    assert np.allclose(a + b, eps)          # total ε preserved (cfg['eps'] honoured)
-    assert a.mean() > b.mean()              # A is the gained (big-channel) side
+    config = air_air_config()
+    config.geometry.delta_levelset = .6
+    case = prepare_case(config, case_id='split-offset')
+    a, b, eps = (case.design_fields[key] for key in ('eps_A', 'eps_B', 'eps_arr'))
+    np.testing.assert_allclose(a + b, eps)
+    assert a.mean() > b.mean()
 
 
 # ── κ correction layer ───────────────────────────────────────────────────────

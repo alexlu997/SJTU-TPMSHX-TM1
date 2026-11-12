@@ -1,0 +1,520 @@
+"""Frozen d5f455d5 3D preparation reference for native host qualification."""
+from __future__ import annotations
+from typing import Any
+import os
+import numpy as np
+from sjtu_tpmshx.shared.domain.compute_config import ComputeConfig, bc_to_dict, reject_retired_research_options
+from sjtu_tpmshx.shared.models.tpms_props import geometry as tpms_geometry, geometry_fields
+from sjtu_tpmshx.shared.models import co2_correlations
+from sjtu_tpmshx.shared.models.input_validation import validate_domain_dims, surrogate_extrap_reasons
+from sjtu_tpmshx.shared.models.field_coordinates_3d import _build_partial_masks
+
+def _parse_inputs_3d_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
+    cfg = _parse_geometry_inputs_3d_cfg(compute_cfg)
+    cfg['extrap_reasons'] = surrogate_extrap_reasons(
+        compute_cfg, bool(compute_cfg.extrap.allow))
+    return cfg
+
+
+def _parse_geometry_inputs_3d_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
+    """Read typed physical input and prepare the numerical parameter mapping.
+    """
+    # ── scalar geometry + grid + fluids ─────────────────────────────
+    L = compute_cfg.geometry.L_dom_m
+    H = compute_cfg.geometry.H_dom_m
+    # Lz contract (2026-07-12): GeometryConfig's docstring says the 3D path
+    # *requires* Lz_m, but this line silently substituted the Shanghai depth
+    # (0.042 m) whenever it was None — so a config that never specified a depth
+    # still produced a 3D result, computed against a magic constant the user
+    # never chose, and every extensive 3D scalar (Q, mass, dP_B) scaled with it.
+    # Nz >= 2 already routes here (ComputeConfig.is_3d), so arriving with
+    # Lz_m=None is a config error, not a default. Fail loud.
+    if compute_cfg.geometry.Lz_m is None:
+        raise ValueError(
+            "GeometryConfig.Lz_m is None but the 3D path was selected "
+            f"(solver.Nz={compute_cfg.solver.Nz} >= 2). The 3D solver requires "
+            "an explicit domain depth — it used to silently fall back to "
+            "0.042 m (the Shanghai HX depth), which every extensive 3D scalar "
+            "then scaled with. Set geometry.Lz_m explicitly.")
+    Lz = float(compute_cfg.geometry.Lz_m)
+    Nx = compute_cfg.solver.Nx
+    Ny = compute_cfg.solver.Ny
+    Nz = compute_cfg.solver.Nz
+
+    for name, val in [('L', L), ('H', H), ('Lz', Lz)]:
+        if val <= 0:
+            raise ValueError(
+                f"Domain dimension {name!r} must be > 0 (got {val})")
+    validate_domain_dims([('L', L), ('H', H), ('Lz', Lz)])
+    for name, val in [('Nx', Nx), ('Ny', Ny), ('Nz', Nz)]:
+        if val < 1:
+            raise ValueError(
+                f"Grid count {name!r} must be >= 1 (got {val})")
+
+    u_A = compute_cfg.fluid_A.u_mps
+    u_B = compute_cfg.fluid_B.u_mps
+    T_inA = compute_cfg.fluid_A.T_in_K
+    T_inB = compute_cfg.fluid_B.T_in_K
+    T_s_init = compute_cfg.solver.T_s_init_K
+    P_inA = compute_cfg.fluid_A.P_in_Pa
+    P_inB = compute_cfg.fluid_B.P_in_Pa
+    Lcell = compute_cfg.geometry.L_cell_mm
+    t_wall = compute_cfg.geometry.t_wall_mm
+    k_s = compute_cfg.geometry.k_s_W_mK
+    tpms_type = compute_cfg.geometry.tpms
+
+    geometry_model = co2_correlations.geometry if co2_correlations.uses_co2(compute_cfg) else tpms_geometry
+    g = geometry_model(tpms_type, Lcell, t_wall, k_s)
+    eps = g['epsilon']
+    D_h = g['D_h']
+
+    # Partial-pipe BC dicts — side A full-face fallback, side B raw partial.
+    fluid_A_cfg = bc_to_dict(compute_cfg.bc_A, L, H, side='A', with_z=True)
+    fluid_B_cfg = bc_to_dict(compute_cfg.bc_B, L, H, side='B', with_z=True)
+    if fluid_B_cfg is None:
+        # A typed case always has two fluids. Zero port widths select a full face.
+        fluid_B_cfg = bc_to_dict(compute_cfg.bc_B, L, H, side='A', with_z=True)
+
+    # Both-side applicability checks are required; import and validation
+    # failures propagate rather than becoming an empty warning list.
+    from sjtu_tpmshx.shared.models.fluid_props import check_water_state
+    for side, config in (('A', compute_cfg.fluid_A), ('B', compute_cfg.fluid_B)):
+        check_water_state(config.type, config.T_in_K, config.P_in_Pa,
+                          where=f'pipeline inlet {side}')
+
+    from sjtu_tpmshx.shared.models.tpms_calc import validate_fluid_type
+    fluid_type_A = compute_cfg.fluid_A.type
+    fluid_type_B = compute_cfg.fluid_B.type
+    validate_fluid_type(fluid_type_A, 'A')
+    validate_fluid_type(fluid_type_B, 'B')
+
+    # Feature flags — sourced from cfg.flags + cfg.zones.
+    zone_grid_cells = None
+    continuous_field = None
+    if compute_cfg.zones.enabled:
+        compute_cfg.zones.validate()
+        if compute_cfg.zones.axis == 'continuous':
+            from copy import deepcopy
+            continuous_field = deepcopy(compute_cfg.zones.config)
+        elif compute_cfg.zones.axis == 'grid':
+            zone_grid_cells = compute_cfg.zones.grid['cells']
+        else:
+            raise NotImplementedError('3D zones support grid or continuous mode only')
+
+    enthalpy_controls = {}
+    for name in ('ltne_enthalpy_outer', 'ltne_enthalpy_nsweep', 'ltne_enthalpy_omega',
+                 'ltne_enthalpy_tol', 'ltne_enthalpy_coupled_energy_tol',
+                 'ltne_enthalpy_equation_energy_tol'):
+        value = getattr(compute_cfg.solver, name)
+        if value is not None:
+            enthalpy_controls[name] = value
+    if compute_cfg.solver.require_enthalpy_update_on_temperature:
+        enthalpy_controls['require_enthalpy_update_on_temperature'] = True
+
+    return dict(
+        L=L, H=H, Lz=Lz, Nx=Nx, Ny=Ny, Nz=Nz,
+        u_A=u_A, u_B=u_B, T_inA=T_inA, T_inB=T_inB,
+        P_inA=P_inA, P_inB=P_inB,
+        T_s_init=T_s_init,
+        envelope_mode=getattr(compute_cfg, 'envelope_mode', 'raise'),
+        Lcell=Lcell, t_wall=t_wall, k_s=k_s, tpms_type=tpms_type,
+        eps=eps, D_h=D_h,
+        delta_levelset=float(compute_cfg.geometry.delta_levelset),
+        fluid_A_cfg=fluid_A_cfg,
+        fluid_B_cfg=fluid_B_cfg,
+        port_wall_refine=compute_cfg.flags.port_wall_refine,
+        variable_rho_cp=bool(compute_cfg.flags.variable_rho_cp),
+        # R3 (2026-07-07): production solver knobs (None = run_stack's
+        # dim-specific autos; see SolverConfig docstring).
+        max_iter_simple=compute_cfg.solver.max_iter_simple,
+        simple_velocity_relaxation=compute_cfg.solver.simple_velocity_relaxation,
+        max_outer_ltne=compute_cfg.solver.max_outer_ltne,
+        outer_tol_K=compute_cfg.solver.outer_tol_K,
+        enthalpy_algorithm=compute_cfg.solver.enthalpy_algorithm,
+        enthalpy_temperature_tol_K=compute_cfg.solver.enthalpy_temperature_tol_K,
+        **enthalpy_controls,
+        **{name: getattr(compute_cfg.solver, name) for name in (
+            'model_h_max_iterations', 'model_h_temperature_tol_K', 'model_h_q_relative_tol')
+            if getattr(compute_cfg.solver, name) is not None},
+        # F2 convergence gates (ledger C6/C7). None -> _apply_accel_flags'
+        # resolution: env TPMSHX_CONV_MODE > cfg > default 'f2'.
+        **{k: v for k, v in (
+            ('convergence_mode', compute_cfg.solver.convergence_mode),
+            ('mom_tol', compute_cfg.solver.mom_tol),
+            ('mass_local_tol', compute_cfg.solver.mass_local_tol),
+            ('mass_global_tol', compute_cfg.solver.mass_global_tol),
+        ) if v is not None},
+        zone_grid_cells=zone_grid_cells,
+        continuous_field=continuous_field,
+        fluid_type_A=fluid_type_A,
+        fluid_type_B=fluid_type_B,
+        df_mode=compute_cfg.df_mode,
+        sco2_nu=compute_cfg.sco2_nu,
+        compute_cfg=compute_cfg,
+    )
+
+
+
+
+def _prepare_problem_data(cfg):
+    return _finish_problem_data(_prepare_geometry_data(cfg))
+
+
+def _finish_problem_data(prepared):
+    cfg = prepared['cfg']
+    spatial = bool(cfg.get('zone_grid_cells')) or cfg.get('continuous_field') is not None
+    design = prepared['design']
+    _record_air_bulk_ranges(
+        cfg, design['L_field_m'] * 1e3 if spatial else None,
+        (prepared['Nx'], prepared['Ny'], prepared['Nz']))
+    cfg['df_application'] = _prepare_df_application(
+        cfg, prepared['axes'], design['K_m2'], design['cF_per_m'])
+    return prepared
+
+
+def _prepare_geometry_data(cfg):
+    """Resolve physical data for the existing low-level 3D input convention."""
+    reject_retired_research_options(cfg)
+    if cfg.get('wall_refine_3d', False) is not False:
+        raise ValueError('wall_refine_3d is retired. Select port_wall_refine with total grid counts.')
+    from sjtu_tpmshx.shared.models import fluid_props
+    from sjtu_tpmshx.shared.models import _native_geometry
+    from sjtu_tpmshx.shared.models.tpms_props import _resolve_chi_s
+    from sjtu_tpmshx.shared.df_surrogate.predict import predict_K_cF_vec, SCO2_DF_METHOD
+
+    cfg = dict(cfg)
+    profile = cfg.get('sweep_profile')
+    max_outer = None
+    ltne_max_iter, compact = 20000, False
+    if profile == 'fast_sweep':
+        max_outer, compact = 3, True
+        for key in ('Nx', 'Ny', 'Nz'):
+            cfg[key] = min(cfg.get(key, 20), 15)
+    elif profile == 'full_validate':
+        max_outer, ltne_max_iter = 12, 50000
+    if cfg.get('max_outer_ltne') is not None:
+        max_outer = int(cfg['max_outer_ltne'])
+        if max_outer < 1:
+            raise ValueError('max_outer_ltne must be >= 1; zero iterations solves nothing')
+    L, H, Lz = cfg['L'], cfg['H'], cfg['Lz']
+    if cfg.get('port_wall_refine', False):
+        from sjtu_tpmshx.shared.models.grid import build_port_wall_grid
+        dx, dy, dz = build_port_wall_grid(
+            (L, H, Lz), (cfg['Nx'], cfg['Ny'], cfg['Nz']),
+            (cfg['fluid_A_cfg'], cfg['fluid_B_cfg']))
+        nx, ny, nz = map(len, (dx, dy, dz))
+    else:
+        dx, dy, dz, nx, ny, nz = _build_grid_3d(
+            L, H, Lz, cfg['Nx'], cfg['Ny'], cfg['Nz'])
+    cap = int(cfg.get('max_cells_3d', os.environ.get('TPMSHX_MAX_CELLS_3D', '2000000')))
+    if nx * ny * nz > cap:
+        raise ValueError(f'3D grid {nx}x{ny}x{nz} exceeds the {cap}-cell cap')
+    co2_geometry = any(cfg.get('fluid_type_' + side) == 'co2' for side in ('A', 'B'))
+    geometry_model = co2_correlations.geometry if co2_geometry else tpms_geometry
+    geometry = geometry_model(cfg['tpms_type'], cfg['Lcell'], cfg['t_wall'], cfg['k_s'])
+    cells = cfg.get('zone_grid_cells')
+    continuous = cfg.get('continuous_field')
+    continuous_geometry = None
+    spatial = bool(cells) or continuous is not None
+    if co2_geometry and (cells or cfg.get('delta_levelset', 0.) != 0.):
+        raise ValueError('CO2 supports symmetric uniform or continuous geometry only')
+    if cfg.get('df_mode', 'cfd_smooth') == 'experimental' and spatial and continuous is None:
+        raise ValueError('experimental calibration currently requires uniform L/t')
+    if continuous is not None:
+        from sjtu_tpmshx.shared.domain.compute_config import ZoneInputConfig
+        from sjtu_tpmshx.shared.models.continuous_field import from_decision_vector
+        ZoneInputConfig(enabled=True, axis='continuous', config=continuous).validate()
+        if cells:
+            raise ValueError('Continuous field cannot also supply zone_grid_cells')
+        if cfg.get('delta_levelset', 0.) != 0.:
+            raise ValueError('Continuous spatial fields require delta_levelset=0')
+        spec = dict(continuous)
+        volume = 'n_ctrl_z' in spec
+        field = from_decision_vector(spec.pop('x_decision'), cfg['tpms_type'], cfg['k_s'],
+                                     L, H, **({'Lz_domain': Lz} if volume else {}), **spec)
+        local_L, local_t = (field.evaluate_volume(nx, ny, nz, dx, dy, dz) if volume
+                            else field.evaluate_grid(nx, ny, dx, dy))
+        # Thermal geometry consumes the recorded SI field converted back to mm.
+        thermal_L, thermal_t = local_L * 1e-3 * 1e3, local_t * 1e-3 * 1e3
+        if co2_geometry:
+            local_eps = np.empty(local_L.shape)
+            continuous_geometry = {key: np.empty(local_L.shape) for key in ('A_0', 'D_h', 'epsilon')}
+            for index in np.ndindex(local_eps.shape):
+                local = geometry_model(
+                    cfg['tpms_type'], float(local_L[index]), float(local_t[index]), cfg['k_s'])
+                local_eps[index] = local['epsilon']
+                if thermal_L[index] != local_L[index] or thermal_t[index] != local_t[index]:
+                    local = geometry_model(
+                        cfg['tpms_type'], float(thermal_L[index]), float(thermal_t[index]), cfg['k_s'])
+                for key in continuous_geometry:
+                    continuous_geometry[key][index] = local[key]
+        else:
+            local_eps = geometry_fields(cfg['tpms_type'], local_L, local_t, cfg['k_s'])['epsilon']
+            thermal = geometry_fields(cfg['tpms_type'], thermal_L, thermal_t, cfg['k_s'])
+            continuous_geometry = {key: thermal[key] for key in ('A_0', 'D_h', 'epsilon')}
+        if volume:
+            lfield, tfield, eps = local_L, local_t, local_eps
+        else:
+            lfield, tfield, eps = (np.repeat(values[:, :, None], nz, axis=2)
+                                  for values in (local_L, local_t, local_eps))
+            continuous_geometry = {key: np.repeat(values[:, :, None], nz, axis=2)
+                                   for key, values in continuous_geometry.items()}
+    elif cells:
+        lfield, tfield, eps = _build_zone_fields_3d(
+            cells, dx, dy, nz, cfg['tpms_type'], cfg['k_s'], cfg['Lcell'], cfg['t_wall'])
+    else:
+        lfield = np.full((nx, ny, nz), cfg['Lcell'])
+        tfield = np.full((nx, ny, nz), cfg['t_wall'])
+        eps = np.full((nx, ny, nz), cfg['eps'])
+    from sjtu_tpmshx.preprocess.thermal_geometry import prepare_thermal_geometry
+    cfg['thermal_geometry'] = prepare_thermal_geometry(
+        cfg['tpms_type'], cfg['Lcell'], cfg['t_wall'], cfg['k_s'],
+        L_field=lfield * 1e-3 * 1e3 if spatial and continuous_geometry is None else None,
+        t_field=tfield * 1e-3 * 1e3 if spatial and continuous_geometry is None else None,
+        delta=float(cfg.get('delta_levelset', 0.)), co2_geometry=co2_geometry)
+    if continuous_geometry is not None:
+        cfg['thermal_geometry']['fields'] = continuous_geometry
+    from sjtu_tpmshx.shared.models.roughness import resolve_mode_from_env
+    mode, eps_um = resolve_mode_from_env(default='norris_1a')
+    cfg['roughness_resolved'] = {'mode': mode, 'eps_m': eps_um * 1e-6}
+    symmetric = _native_geometry.split_fields(eps, .5)['epsilon_A']
+    permeability, forchheimer = predict_K_cF_vec(
+        cfg['tpms_type'], lfield, tfield, symmetric, method=SCO2_DF_METHOD)
+    eps_A, eps_B = _eps_sides_for_run(cfg, cfg['tpms_type'], cfg['Lcell'], cfg['t_wall'], eps, symmetric)
+    axes, openings, properties = {}, {}, {}
+    for side in ('A', 'B'):
+        port = cfg.get('fluid_' + side + '_cfg')
+        if port is not None:
+            axis = _resolve_axis_map(port, nx, ny, nz, L, H, Lz, dx, dy, dz)
+            axes[side] = axis
+            inlet, outlet = _build_partial_masks(port, axis['dcross1'], axis['dcross2'], axis['N_cross2'])
+            openings[side] = {'inlet': inlet, 'outlet': outlet}
+        fluid = cfg.get('fluid_type_' + side, 'air')
+        model = fluid_props.get(fluid)
+        temperature, pressure = cfg['T_in' + side], cfg.get('P_in' + side, cfg['P_inA'])
+        fluid_props.check_water_state(fluid, temperature, pressure, where=f'3D prepared inlet {side}')
+        properties[side] = {key: float(getattr(model, key)(temperature, pressure)) for key in ('rho', 'mu', 'cp', 'k')}
+    return dict(cfg=cfg, dx=dx, dy=dy, dz=dz, Nx=nx, Ny=ny, Nz=nz,
+                max_outer=max_outer, ltne_max_iter=ltne_max_iter, compact=compact,
+                geometry=geometry, axes=axes, openings=openings, properties=properties,
+                design=dict(L_field_m=lfield * 1e-3, t_field_m=tfield * 1e-3,
+                            eps_arr=eps, eps_A=eps_A, eps_B=eps_B,
+                            K_m2=permeability, cF_per_m=forchheimer,
+                            K_ss=_native_geometry.material_fields(
+                                cfg['tpms_type'], eps, cfg['k_s'],
+                                chi_s=_resolve_chi_s())['K_ss']))
+
+
+def _prepare_df_application(cfg, axes, permeability, forchheimer):
+    """Resolve experimental calibration once; runtime still consumes K/cF fields."""
+    experimental = cfg.get('df_mode', 'cfd_smooth') == 'experimental'
+    if not experimental and not any(cfg['fluid_type_' + side] == 'co2' for side in axes):
+        return None
+    from sjtu_tpmshx.shared.df_surrogate.experimental_correction import apply_correction
+    from sjtu_tpmshx.shared.domain.run_warnings import range_context
+    result = {}
+    for side in axes:
+        if cfg['fluid_type_' + side] == 'co2':
+            _, _, result[side] = co2_correlations.apply_drag(permeability, forchheimer)
+            continue
+        if not experimental:
+            continue
+        with range_context(side=side, stage='prepared-df', layout='scalar'):
+            _, _, result[side] = apply_correction(
+                cfg['tpms_type'], cfg['fluid_type_' + side], cfg['Lcell'], cfg['t_wall'],
+                float(permeability.flat[0]), float(forchheimer.flat[0]),
+                u_mps=abs(float(cfg.get('u_' + side, cfg['u_A']))),
+                allow_hx_extrapolation=cfg.get('continuous_field') is not None)
+        if cfg.get('continuous_field') is not None:
+            # Frozen specimen factors are transferred to each local CFD cell.
+            result[side].update(
+                geometry_application='continuous-field-extrapolation',
+                reference_geometry_mm={'L': cfg['Lcell'], 't': cfg['t_wall']},
+                application_scope='Exploratory continuous L/t trend prediction using '
+                                  'frozen uniform-HX factors; gradient accuracy unvalidated')
+    return result
+
+
+def _record_air_bulk_ranges(cfg, lfield, shape):
+    """Preserve inlet air observations without storing unused bulk h_v fields."""
+    from sjtu_tpmshx.shared.models.tpms_calc import compute
+    from sjtu_tpmshx.shared.models.nu_correlations import record_air_nu_scalar_ranges, record_raw_nu_range
+    from sjtu_tpmshx.shared.domain.run_warnings import range_context
+    for side in ('A', 'B'):
+        if cfg.get('fluid_type_' + side, 'air') != 'air':
+            continue
+        with range_context(side=side, stage='inlet', layout='scalar-hv-bulk'):
+            if lfield is None:
+                compute(cfg['tpms_type'], cfg['Lcell'], cfg['t_wall'],
+                        cfg.get('u_' + side, cfg['u_A']), cfg['T_in' + side],
+                        cfg.get('P_in' + side, cfg['P_inA']), cfg['k_s'],
+                        co2_geometry=any(cfg.get('fluid_type_' + s) == 'co2' for s in ('A', 'B')))
+            else:
+                from sjtu_tpmshx.shared.models import fluid_props, _native_properties
+                model = fluid_props.get('air')
+                geometry = cfg['thermal_geometry']['fields']
+                temperature = cfg['T_in' + side]
+                pressure = cfg.get('P_in' + side, cfg['P_inA'])
+                # These property calls also retain the original inlet range evidence.
+                with range_context(layout='scalar-zoned-call'):
+                    mu, _k, rho, _cp = (float(getattr(model, key)(temperature, pressure))
+                                        for key in ('mu', 'k', 'rho', 'cp'))
+                raw_Re = _native_properties.reynolds(
+                    rho, cfg.get('u_' + side, cfg['u_A']), geometry['D_h'], mu)
+                with range_context(layout='scalar-zoned-call'):
+                    record_air_nu_scalar_ranges(cfg['tpms_type'], raw_Re)
+                with range_context(layout='real-cell(x,y,z)-bulk-Re'):
+                    record_raw_nu_range('air', cfg['tpms_type'], raw_Re)
+
+
+def prepare_case(config: ComputeConfig, *, case_id: str):
+    from dataclasses import asdict
+    config = ComputeConfig.from_dict(asdict(config))
+    if not config.is_3d:
+        raise ValueError('3D preparation requires solver.Nz >= 2')
+    cfg = _parse_inputs_3d_cfg(config)
+    _set_run_environment(cfg)
+    return _case_from_prepared(config, _prepare_problem_data(cfg), case_id=case_id)
+
+
+def _set_run_environment(cfg):
+    from sjtu_tpmshx.shared.domain.run_environment import capture_environment
+    cfg['_environment'] = capture_environment()
+    cfg.setdefault('use_adaptive_amg_tol', (cfg['_environment']['TPMSHX_PHASE_A'] or '1') != '0')
+    cfg.setdefault('use_anderson', (cfg['_environment']['TPMSHX_PHASE_B'] or '0') == '1')
+    cfg.setdefault('use_coarse_bootstrap', (cfg['_environment']['TPMSHX_PHASE_C'] or '0') == '1')
+
+
+def _case_from_prepared(config, prepared, *, case_id, config_snapshot=None):
+    from dataclasses import asdict
+    from sjtu_tpmshx.shared.domain.case_data import CaseData
+    from sjtu_tpmshx.shared.domain.model_refs import ModelRef
+    from sjtu_tpmshx.shared.models.catalog import MODEL_VERSIONS
+    from sjtu_tpmshx.shared.models.nu_correlations import sco2_nu_metadata, sco2_nu_notices
+    parameters = dict(prepared['cfg'])
+    parameters.pop('compute_cfg', None)
+    parameters['sco2_nu'] = asdict(parameters['sco2_nu'])
+    parameters['L_cell_m'] = parameters.pop('Lcell') * 1e-3
+    parameters['t_wall_m'] = parameters.pop('t_wall') * 1e-3
+    cells = parameters.get('zone_grid_cells')
+    if cells:
+        parameters['zone_grid_cells'] = [dict((('L_m' if key == 'L' else 't_m' if key == 't' else key),
+                                               value*1e-3 if key in ('L', 't') else value)
+                                              for key, value in cell.items()) for cell in cells]
+    parameters['prepared'] = {key: value for key, value in prepared.items()
+                              if key not in ('cfg', 'dx', 'dy', 'dz', 'design')}
+    grid = {'dimension': 3, 'axis_order': ('x', 'y', 'z'), 'length_unit': 'm'}
+    for axis in ('x', 'y', 'z'):
+        widths = prepared['d' + axis]
+        grid['d' + axis] = widths
+        grid[axis + '_edges'] = np.r_[0., np.cumsum(widths)]
+    refs = tuple(ModelRef('co2_fluid' if fluid.type == 'co2' else 'fluid',
+                          MODEL_VERSIONS['co2_fluid' if fluid.type == 'co2' else 'fluid'],
+                          {'fluid': fluid.type, 'sco2_nu': asdict(config.sco2_nu)}, f'side {side}')
+                 for side, fluid in (('A', config.fluid_A), ('B', config.fluid_B)))
+    geometry_ref = 'co2_geometry' if co2_correlations.uses_co2(config) else 'geometry'
+    refs += (ModelRef(geometry_ref, MODEL_VERSIONS[geometry_ref]),
+             ModelRef('darcy_forchheimer', MODEL_VERSIONS['darcy_forchheimer'], {'topology': config.geometry.tpms}))
+    continuous = parameters.get('continuous_field')
+    if continuous is not None:
+        design_mode = 'continuous_xyz' if 'n_ctrl_z' in continuous else 'continuous_xy_extruded'
+    else:
+        design_mode = 'xy_extruded' if cells else 'uniform'
+    return CaseData(case_id=case_id, config_snapshot=(config.to_dict() if config_snapshot is None else config_snapshot), grid=grid,
+        design_fields=prepared['design'], parameters=parameters, model_refs=refs,
+        metadata={'preprocessor': 'three_d_v1', 'quantity_basis': 'total',
+                  'model_metadata': {'sco2_nu': sco2_nu_metadata(config.sco2_nu),
+                                     **co2_correlations.model_metadata(config)},
+                  'notices': sco2_nu_notices(config) + co2_correlations.notices(config),
+                  'design_mode': design_mode,
+                  'model_roles': {'fluid_A': 0, 'fluid_B': 1, 'geometry': 2, 'darcy_forchheimer': 3}})
+
+
+def _resolve_axis_map(fA: dict, Nx: int, Ny: int, Nz: int,
+                      L: float, H: float, Lz: float,
+                      dx: np.ndarray, dy: np.ndarray,
+                      dz: np.ndarray) -> dict:
+    """Pack native axis metadata and retain the original width objects."""
+    from sjtu_tpmshx.shared.models import _native_grid
+    cross1, stream, cross2, p0, p1, p2, reverse = _native_grid.axis_map(fA['dir'])
+    counts, lengths, widths = (Nx, Ny, Nz), (L, H, Lz), (dx, dy, dz)
+    return dict(
+        is_x_stream=stream == 0, is_y_stream=stream == 1, is_z_stream=stream == 2,
+        is_reverse=bool(reverse),
+        solver_init=dict(Lx=lengths[cross1], Ly=lengths[stream], Lz=lengths[cross2],
+                         Nx=counts[cross1], Ny=counts[stream], Nz=counts[cross2]),
+        N_stream=counts[stream], N_cross1=counts[cross1], N_cross2=counts[cross2],
+        L_stream=lengths[stream], L_cross1=lengths[cross1], L_cross2=lengths[cross2],
+        dstream=widths[stream], dcross1=widths[cross1], dcross2=widths[cross2],
+        stream_real_axis=stream, cross1_real_axis=cross1, cross2_real_axis=cross2,
+        solver_to_real_perm=(p0, p1, p2),
+    )
+
+
+def _build_zone_fields_3d(cells: list[dict], dx: np.ndarray, dy: np.ndarray, Nz: int,
+                           tpms_type: str, k_s: float,
+                           default_L: float, default_t: float,
+                           ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Map 2D grid zones to 3D (Nx, Ny, Nz) L/t/eps fields (z-uniform).
+
+    **3D geometry is currently a z-uniform extrusion of the 2D design** —
+    a design change in (x, y) propagates identically through all Nz
+    layers. This matches the "extrude the 2D TPMS pattern along z" MVP
+    assumption. True 3D zoning (design varies along z as well) would
+    require an Nz-dimensional decision vector in the optimiser and a
+    different cell list shape — not wired in yet.
+
+    cells: list of dicts {y0, y1, x0, x1, L, t} with physical x/y fractions.
+    dx/dy: actual physical cell widths. Uncovered cells retain the defaults;
+    later rectangles override earlier ones where they overlap. The existing
+    sigma=2 Gaussian smoothing remains in grid-index units, including on a
+    nonuniform mesh; this function does not change its smoothing length rule.
+    Returns L_field / t_field / eps_field (mm, mm, 0-1).
+    """
+    from sjtu_tpmshx.shared.models import _native_zones
+    from sjtu_tpmshx.shared.models.tpms_props import geometry_fields
+    dx, dy = np.asarray(dx), np.asarray(dy)
+    Nx, Ny = len(dx), len(dy)
+    ids = _native_zones.assign(
+        2, Nx, Ny, [(cell['x0'], cell['x1'], cell['y0'], cell['y1']) for cell in cells],
+        dx=dx, dy=dy)
+    L_2d = _native_zones.gaussian(np.asarray(
+        [float(cell['L']) for cell in cells] + [float(default_L)])[ids])
+    t_2d = _native_zones.gaussian(np.asarray(
+        [float(cell['t']) for cell in cells] + [float(default_t)])[ids])
+    eps_2d = geometry_fields(tpms_type, L_2d, t_2d, float(k_s))['epsilon']
+    L_field = np.broadcast_to(L_2d[:, :, None], (Nx, Ny, Nz)).copy()
+    t_field = np.broadcast_to(t_2d[:, :, None], (Nx, Ny, Nz)).copy()
+    eps_field = np.broadcast_to(eps_2d[:, :, None], (Nx, Ny, Nz)).copy()
+    return L_field, t_field, eps_field
+
+
+def _build_grid_3d(L: float, H: float, Lz: float,
+                   Nx_u: int, Ny_u: int, Nz_u: int,
+                   ) -> tuple[np.ndarray, np.ndarray, np.ndarray,
+                              int, int, int]:
+    """Return native uniform widths and the original requested counts."""
+    from sjtu_tpmshx.shared.models import _native_grid
+    dx = _native_grid.uniform(Nx_u, L)
+    dy = _native_grid.uniform(Ny_u, H)
+    dz = _native_grid.uniform(Nz_u, Lz)
+    return dx, dy, dz, Nx_u, Ny_u, Nz_u
+
+
+def _asym_split_A(cfg, tpms_type, Lcell, t_wall):
+    """Return the fraction of total porosity assigned to side A."""
+    from sjtu_tpmshx.shared.models import _native_geometry
+    delta = float(cfg.get('delta_levelset', 0.0))
+    if delta == 0.0:
+        return 0.5
+    return float(_native_geometry.split_from_index(tpms_type, Lcell, t_wall, delta))
+
+
+def _eps_sides_for_run(cfg, tpms_type, Lcell, t_wall, eps_arr, eps_f_arr):
+    """Split the supplied total porosity; retain both zero-offset aliases."""
+    if float(cfg.get('delta_levelset', 0.0)) == 0.0:
+        return eps_f_arr, eps_f_arr
+    from sjtu_tpmshx.shared.models import _native_geometry
+    fraction = _asym_split_A(cfg, tpms_type, Lcell, t_wall)
+    fields = _native_geometry.split_fields(eps_arr, fraction)
+    return fields['epsilon_A'], fields['epsilon_B']

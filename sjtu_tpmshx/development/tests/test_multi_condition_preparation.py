@@ -6,7 +6,7 @@ import pytest
 
 from sjtu_tpmshx.shared.domain.compute_config import (
     ComputeConfig, FluidConfig, GeometryConfig, PartialBCConfig,
-    SolverConfig, ZoneInputConfig, ExtrapPolicy,
+    SolverConfig, ZoneInputConfig, ExtrapPolicy, FeatureFlags,
 )
 from sjtu_tpmshx.applications.optimization.multi_condition import prepare_fixed_mass_flow_case
 from sjtu_tpmshx.preprocess.three_d import preparation
@@ -23,9 +23,6 @@ from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
 @pytest.mark.parametrize('input_mode', ['explicit_batch', 'configured_flow'])
 def test_fixed_flow_matches_native_faces_after_density_update(monkeypatch, direction, design_mode, input_mode):
     shape, lengths = (6, 5, 4), (.04, .05, .06)
-    widths = tuple(np.arange(1., count + 1.) * length / sum(range(1, count + 1))
-                   for count, length in zip(shape, lengths))
-    monkeypatch.setattr(preparation, '_build_grid_3d', lambda *args: (*widths, *shape))
     port = PartialBCConfig(in_ctr=.018, in_w=.027, out_ctr=.023, out_w=.021,
                            in_z_ctr=.020, in_z_w=.031, out_z_ctr=.024, out_z_w=.019)
     config = ComputeConfig(
@@ -33,6 +30,7 @@ def test_fixed_flow_matches_native_faces_after_density_update(monkeypatch, direc
         fluid_B=FluidConfig(type='water', u_mps=.05, T_in_K=300., P_in_Pa=200000.),
         geometry=GeometryConfig(L_dom_m=lengths[0], H_dom_m=lengths[1],
                                 Lz_m=lengths[2], L_cell_mm=6., t_wall_mm=.4),
+        flags=FeatureFlags(port_wall_refine=True),
         solver=SolverConfig(Nx=shape[0], Ny=shape[1], Nz=shape[2],
                             max_iter_simple=1, max_outer_ltne=2),
         # direction=0 includes the Shanghai A:+x / B:-y orientation.
@@ -74,7 +72,8 @@ def test_fixed_flow_matches_native_faces_after_density_update(monkeypatch, direc
         assert snapshot['u_mps'] != fluid.u_mps
         assert dict(case.config_snapshot['bc_' + side]) == original['bc_' + side]
         fractions = prepared['openings'][side]['inlet']
-        assert np.any((fractions > 0.) & (fractions < 1.))
+        assert np.any(fractions > 0.)
+        assert any(np.ptp(case.grid['d' + axis]) > 0. for axis in 'xyz')
         if design_mode != 'uniform':
             assert np.ptp(case.design_fields['eps_' + side]) > 0.
         axis, edge = axes['stream_real_axis'], -1 if axes['is_reverse'] else 0
@@ -195,13 +194,14 @@ def test_fixed_flow_uses_only_resolved_velocities(monkeypatch, dimension, design
     from unittest.mock import patch
     from sjtu_tpmshx.preprocess.two_d import preparation as prep2d
     from sjtu_tpmshx.shared.models import _native_preparation_case as native
-    with patch.object(preparation, '_prepare_geometry_data', wraps=preparation._prepare_geometry_data) as geometry, \
+    from sjtu_tpmshx.shared.models import _native_preparation_3d as native3d
+    with patch.object(native3d, 'operation', wraps=native3d.operation) as geometry, \
          patch.object(prep2d, '_prepare_mesh', wraps=prep2d._prepare_mesh) as mesh, \
          patch.object(prep2d, '_build_zone_arrays', wraps=prep2d._build_zone_arrays) as zones, \
          patch.object(native, 'operation', wraps=native.operation) as stage:
         actual = prepare_fixed_mass_flow_case(old, **targets, case_id='fixed')
     if dimension == 3:
-        assert geometry.call_count == 1
+        assert geometry.call_count == 1 and geometry.call_args.args[0] == 'prepare_flow_case'
     else:
         assert stage.call_count == 1 and stage.call_args.args[0] == 'prepare_flow_case'
         assert mesh.call_count == zones.call_count == 0
@@ -284,7 +284,7 @@ def test_capacity_preparation_validates_static_inputs_before_building_fields(mon
         raise AssertionError('invalid static input reached field construction')
 
     monkeypatch.setattr(preparation_2d, '_prepare_inlet_data', forbidden)
-    monkeypatch.setattr(preparation, '_prepare_geometry_data', forbidden)
+    monkeypatch.setattr(preparation, '_execute', forbidden)
     for dimension in (2, 3):
         config = ComputeConfig(geometry=GeometryConfig(Lz_m=.042),
                                solver=SolverConfig(Nz=dimension - 1))

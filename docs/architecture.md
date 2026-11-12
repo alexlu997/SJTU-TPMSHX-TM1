@@ -105,7 +105,7 @@ The separate `tpmshx_prepare_case_3d_v1` prepares raw symmetric uniform 3D input
 It supports both topologies and all 16 fluid pairs with existing CFD or experimental DF limits.
 The owned state retains physical `(x,y,z)` fields, typed ports, axis maps for six directions and model evidence.
 Side porosity is already split. Base K/cF fields remain unscaled; side evidence retains the application factors.
-The host supplies the resolved cell cap. This interface uses v1 event callbacks without host cache hooks.
+The host supplies the resolved cell cap. The raw interface accepts v1 event callbacks; host v5 adds typed v9 cache callbacks.
 The separate 3D flow v2 reuses that geometry for capacity, flow resolution and complete preparation.
 It integrates side porosity on the actual inlet face and keeps static evidence before resolved-speed checks.
 The 3D continuous v3 accepts XY extrusion or XYZ controls for the same three flow operations.
@@ -115,7 +115,10 @@ The 3D spatial v4 adds XY grid rectangles and the existing global offset rules.
 It assigns physical XY centres, smooths L/t separately, then extends fields along z.
 The existing asymmetric owner supplies nominal split and thermal side/reference geometry.
 Local total porosity remains symmetric; each side capacity uses its own split field.
-The v1/v2/v3 layouts remain unchanged. Python 3D preparation retains its separate host integration gate.
+The v1/v2/v3/v4 layouts remain unchanged. Python 3D preparation uses host v5 and its typed cache callbacks.
+`preprocess/three_d/preparation.py` keeps config conversion, environment parsing and immutable DTO assembly.
+`preprocess/native_preparation.py` shares cache and warning transport with 2D.
+The C++ owner builds the physical grid once and retains static evidence before resolved-speed checks.
 Memory use near the cell cap and real 3D BO also need separate acceptance.
 Preparation v5 adds raw air/air stripes and rectangles at prescribed velocity, with CFD drag and zero delta.
 It preserves L/t projection before row D-F, discrete smoothing and separate thermal geometry fields.
@@ -1878,7 +1881,7 @@ explicit numerical-model change with directly relevant validation.
    with a constant-density or isothermal shortcut.
 2. **Porosity is split one time.** Symmetric LTNE callers pass the full porosity.
    The energy solver forms the two half-porosity streams. For an offset
-   isosurface, `shared/models/asym_split.py` computes the upstream `eps_A`/`eps_B`
+   isosurface, `solvers/native/src/preparation_case.cpp` computes the upstream `eps_A`/`eps_B`
    split. Its sides sum to the full porosity. The kernel does not halve those
    values again.
 

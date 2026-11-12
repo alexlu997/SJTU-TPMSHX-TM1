@@ -124,12 +124,17 @@ def test_3d_graded_zone_uses_physical_centres_without_changing_smoothing(tmp_pat
 
 
 def test_3d_zone_default_overlap_and_index_smoothing_are_preserved():
-    from sjtu_tpmshx.shared.models.grid_3d import _build_zone_fields_3d
-    dx, dy = np.array([.01, .02, .03]), np.array([.003, .007, .02])
     cells = [dict(x0=0., x1=.5, y0=0., y1=1., L=4., t=.3),
              dict(x0=0., x1=1., y0=0., y1=.2, L=8., t=.5)]
-    L, t, _ = _build_zone_fields_3d(cells, dx, dy, 2, 'Gyroid', 16., 6., .4)
-    expected_L = gaussian_filter(np.array([[8., 4., 4.], [8., 4., 4.], [8., 6., 6.]]), 2.)
-    expected_t = gaussian_filter(np.array([[.5, .3, .3], [.5, .3, .3], [.5, .4, .4]]), 2.)
-    np.testing.assert_allclose(L, np.repeat(expected_L[:, :, None], 2, axis=2))
-    np.testing.assert_allclose(t, np.repeat(expected_t[:, :, None], 2, axis=2))
+    cfg = ComputeConfig(
+        geometry=GeometryConfig(L_dom_m=.06, H_dom_m=.03, Lz_m=.02,
+                                L_cell_mm=6., t_wall_mm=.4, tpms='Gyroid'),
+        solver=SolverConfig(Nx=6, Ny=5, Nz=2),
+        zones=ZoneInputConfig(enabled=True, axis='grid', grid={'cells': cells}),
+        extrap=ExtrapPolicy(allow=True))
+    case = prepare_case(cfg, case_id='grid-overlap')
+    x, y = np.meshgrid(_centres(case.grid['dx']), _centres(case.grid['dy']), indexing='ij')
+    expected_L = gaussian_filter(np.where(y < .2, 8., np.where(x < .5, 4., 6.)), 2.)
+    expected_t = gaussian_filter(np.where(y < .2, .5, np.where(x < .5, .3, .4)), 2.)
+    np.testing.assert_allclose(case.design_fields['L_field_m'], np.repeat(expected_L[:, :, None] * 1e-3, 2, axis=2))
+    np.testing.assert_allclose(case.design_fields['t_field_m'], np.repeat(expected_t[:, :, None] * 1e-3, 2, axis=2))

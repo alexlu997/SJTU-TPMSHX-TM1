@@ -4,7 +4,7 @@
 
 ## Purpose
 Define the allocation and transport rules for asymmetric 2D porosity.
-The shared geometry entry is `shared/models/asym_split.py`.
+The shared geometry entry is `shared/models/_native_geometry.py`.
 Fluid and offset applicability stay subject to `docs/architecture.md`.
 Version 0.2 uses `prepare_case → run_case → evaluate` with the native full 2D driver.
 Prepared inputs contain total porosity and the geometry split; the native driver derives both side fractions.

@@ -26,7 +26,7 @@ Its resolved uniform prepared view uses run v2, including total-flow cases.
 
 The separate 3D preparation v1 accepts raw symmetric uniform cases at prescribed inlet speeds.
 It supports both topologies, all 16 ordered fluid pairs and the existing CFD and experimental DF selections.
-Its physical grid, typed ports and field evidence do not change Python 3D preparation.
+Its physical grid, typed ports and field evidence also serve Python 3D preparation through host v5.
 The separate 3D flow v2 adds capacity queries, flow resolution and complete preparation at the resolved speeds.
 Continuous v3 adds XY/XYZ controls. Spatial v4 adds XY grid rectangles and the existing global offset rules.
 The [uniform 3D preparation contract](#uniform-3d-preparation) defines its inputs and remaining gates.
@@ -237,7 +237,17 @@ Grid and offset geometry retain the existing air/water scope, state checks and e
 In particular, grid experimental preparation remains unsupported; uniform air/air core calibration keeps its existing offset support.
 The owner copies rectangle and text inputs. Nested prepared and flow views have null owners.
 The v1/v2/v3 C layouts remain unchanged.
-Python 3D preparation and host cache hooks remain separate gates.
+Python 3D preparation uses host v5 with the existing v3/v4 inputs and owned results.
+`tpmshx_preparation_host_3d_abi_version_v5` identifies this host contract.
+The v9 callback descriptor supplies typed geometry and inlet cache keys. V1 event callbacks remain accepted.
+The host keeps cache policy, scalar object types, warning filters and source locations.
+Host stages 10 through 16 preserve domain, port, fluid, grid, cell-cap, roughness and grid-cell conversion validation order.
+Stages 17 through 19 validate each count before its physical axis is built.
+The library owns physical grid construction, local geometry, total-flow resolution and final preparation.
+`preprocess/three_d/preparation.py` copies native views into immutable CaseData before releasing the owner.
+Native failure preserves the original host exception and does not select another preparation route.
+The old 3D numerical host route and its exclusive grid/asymmetric helpers are retired.
+A frozen test reference retains their independent comparison and synthetic saved-grid fixtures.
 Memory checks near the cell cap and real 3D BO also need separate acceptance.
 Saved CaseData still uses its existing validators and must not be prepared again.
 
@@ -291,7 +301,7 @@ Python copies these values before the stage result is released, then uses the si
 Direct low-level DTO callers and archived runtimes retain their existing capture calculations.
 Those calculations stay until these supported consumers have an accepted replacement.
 Public schemas, model choices, warning order and immutable result buffers retain their existing contracts.
-Python raw 3D preparation, its host cache hooks, real 3D BO and visible desktop acceptance remain separate gates.
+Real 3D BO and visible desktop acceptance remain separate gates.
 
 ## Discrete zones
 

@@ -112,7 +112,6 @@ def test_metadata_and_source_notice_are_independent_of_df():
 def test_real_pipeline_heat_builders_share_selected_parameters():
     from sjtu_tpmshx.shared.domain.compute_config import FluidConfig, GeometryConfig
     from sjtu_tpmshx.preprocess.api import prepare_case
-    from sjtu_tpmshx.preprocess.three_d.preparation import _parse_inputs_3d_cfg
     cfg = ComputeConfig(fluid_A=FluidConfig(type='sco2', u_mps=1., T_in_K=400., P_in_Pa=10e6),
                         fluid_B=FluidConfig(type='sco2', u_mps=1., T_in_K=350., P_in_Pa=10e6),
                         geometry=GeometryConfig(tpms='Diamond', Lz_m=.042))
@@ -123,7 +122,8 @@ def test_real_pipeline_heat_builders_share_selected_parameters():
         assert selected[side]['A_0'] * selected[side]['H_sf'] == pytest.approx(
             .8 * original[side]['A_0'] * original[side]['H_sf'])
     cfg.solver.Nz = 2
-    assert _parse_inputs_3d_cfg(cfg)['sco2_nu'] is SYNTHETIC
+    from dataclasses import asdict
+    assert dict(prepare_case(cfg, case_id='nu-3d').parameters['sco2_nu']) == asdict(SYNTHETIC)
 
 
 def test_cli_preserves_selected_model_and_reports_it(tmp_path, monkeypatch, capsys):

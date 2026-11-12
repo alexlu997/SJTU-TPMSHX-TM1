@@ -77,12 +77,12 @@ def test_envelope_mode_field_and_from_dict():
 def test_envelope_mode_propagates_into_3d_cfg():
     from dataclasses import replace
     from sjtu_tpmshx.shared.domain.compute_config import ComputeConfig
-    from sjtu_tpmshx.preprocess.three_d.preparation import _parse_inputs_3d_cfg
+    from sjtu_tpmshx.preprocess.api import prepare_case
     base = ComputeConfig()
     cc = replace(base,
                  geometry=replace(base.geometry, t_wall_mm=0.5, Lz_m=0.042),
-                 envelope_mode='warn')
-    cfg = _parse_inputs_3d_cfg(cc)
+                 solver=replace(base.solver, Nx=4, Ny=4, Nz=2), envelope_mode='warn')
+    cfg = prepare_case(cc, case_id='envelope').parameters
     assert cfg['envelope_mode'] == 'warn'
 
 

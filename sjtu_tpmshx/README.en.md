@@ -42,7 +42,8 @@ The 3D flow v2 adds total mass flow. Continuous v3 adds XY/XYZ controls.
 Spatial v4 adds XY grid rectangles and existing global offset rules with separate side porosity and thermal geometry.
 Native 3D run/capture connects those prepared families and saved views to the same `Full3DRun` lifecycle.
 The result owns complete raw fields and evaluation evidence after preparation and run release.
-Python 3D preparation and its host cache hooks remain separate gates.
+Python 3D preparation uses host v5 with shared typed cache callbacks.
+`preprocess/three_d/preparation.py` assembles immutable CaseData from the owned native result.
 Memory use near the cell cap and real 3D BO need separate acceptance.
 The Python entries above retain all current modes while stage migration continues.
 Preparation v4 adds canonical continuous XY fields and full local drag.
@@ -56,7 +57,8 @@ It retains the physical grid and geometry, resolves speeds before transfer calcu
 Typed domain/port inputs and separate preliminary evidence remain explicit; Python spatial routes and caches stay unchanged.
 
 The Python preparation entries use v7 with v3/v4 payloads for symmetric uniform and continuous 2D inputs.
-Nonzero-delta uniform, discrete zones, sigmoid and 3D keep their explicit existing routes.
+Nonzero-delta uniform, discrete zones and sigmoid retain their explicit 2D routes.
+All supported 3D preparation modes use the native host stage.
 CaseData and saved-file contracts stay unchanged. Native failures propagate without another preparation route.
 Symmetric uniform and continuous 2D execution uses the saved native lifecycle, including checkpoints and complete result capture.
 Archived selected libraries and unported modes keep their existing execution protocol.

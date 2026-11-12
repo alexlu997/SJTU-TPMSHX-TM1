@@ -165,6 +165,20 @@ struct PreparationEvent {
     std::uint32_t floating_event=0;
 };
 struct PreparationInletCache;
+struct SigmoidLUT2D;
+struct PreparationGeometryKey {
+    Topology topology;
+    double cell_length_mm,wall_thickness_mm;
+    ScalarKind cell_kind,wall_kind;
+};
+struct PreparationInletKey {
+    PreparationGeometryKey geometry;
+    Fluid fluid;
+    double velocity_m_s,temperature_K,pressure_Pa;
+    InletScalarKinds kinds;
+    std::optional<Sco2NuSelection> sco2_nu;
+    bool co2_geometry=false;
+};
 struct PreparationCallbacks {
     // The event is borrowed until this call returns. The callback may throw.
     void (*event)(void*,const PreparationEvent&)=nullptr;
@@ -179,6 +193,10 @@ struct PreparationCallbacks {
     // Notice 0 is standalone inlet Re; notice 1 records a preflight reason.
     void (*observe_notice)(void*,std::uint32_t,std::uint32_t,double,const std::string&)=nullptr;
     void (*validate_grid)(void*)=nullptr;
+    // Spatial and 3D stages identify each actual scalar cache access.
+    bool (*geometry_cache_at)(void*,bool,const PreparationGeometryKey&,geometry::Geometry&)=nullptr;
+    bool (*inlet_cache_at)(void*,bool,const PreparationInletKey&,PreparationInletCache&)=nullptr;
+    bool (*sigmoid_lut_cache)(void*,bool,Topology,std::size_t,SigmoidLUT2D&)=nullptr;
 };
 struct PreparationModelRef {
     std::string name,version,side;
@@ -260,11 +278,16 @@ struct SigmoidInput2D {
     SigmoidControls2D controls;
     SigmoidLUT2D lut;
 };
+struct SpatialModel2D {
+    ScalarKind solid_conductivity_kind;
+    bool allow_geometry_extrapolation=false,load_default_lut=false;
+};
 struct ZonedInput2D {
     CaseInput2D input;
     std::uint32_t kind=0,axis=1;
     std::vector<ZoneRegion2D> regions;
     std::optional<SigmoidInput2D> sigmoid;
+    std::optional<SpatialModel2D> spatial_model;
 };
 struct PreparedZone2D {
     ZoneRegion2D region;
@@ -278,7 +301,7 @@ struct PreparedZonedCase2D {
     std::uint32_t kind=0,axis=1;
     std::vector<PreparedZone2D> regions;
     std::vector<std::int32_t> zone_id;
-    std::vector<double> thermal_porosity,design_area_density;
+    std::vector<double> thermal_porosity,design_area_density,design_pore_porosity;
     std::array<std::vector<double>,2> volumetric_transfer;
     std::optional<SigmoidControls2D> sigmoid;
 };

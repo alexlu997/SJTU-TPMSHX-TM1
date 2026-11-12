@@ -7,7 +7,7 @@
 <a id="purpose"></a>
 
 ## 用途
-规定二维非对称孔隙率的分配和输运约束。当前共享几何入口为 `shared/models/asym_split.py`。流体和偏移的适用范围仍受 `docs/architecture.md` 约束。
+规定二维非对称孔隙率的分配和输运约束。当前共享几何入口为 `shared/models/_native_geometry.py`。流体和偏移的适用范围仍受 `docs/architecture.md` 约束。
 0.2 通过 `prepare_case → run_case → evaluate` 调用原生完整二维驱动。准备态保存总孔隙率和几何分配比例，原生驱动据此生成两侧孔隙率。
 [0.1 规范](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/v0.1.0/openspec/specs/asymmetric-porosity-2d/spec.zh-CN.md)保留已退役 Python 入口和核的原始要求。
 
