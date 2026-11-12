@@ -844,7 +844,7 @@ def check_stages(cache: Path, host: str, python: Path, lock: Path, component: st
             build_dir = independent / (source.replace("/", "-") + "-build")
             run([cmake, "-S", independent / source, "-B", build_dir, *generator,
                  f"-DCMAKE_PREFIX_PATH={prefix}"], log, cwd=independent)
-            targets = (["result_client", "air_2d", "prepare_fluids_2d", "quick_design"] if component == "all" else ["result_client"]) \
+            targets = (["result_client", "air_2d", "uniform_2d", "prepare_fluids_2d", "prepare_mass_2d", "prepare_continuous_2d", "quick_design"] if component == "all" else ["result_client"]) \
                 if source == "examples" else ["stage_run_smoke", "quick_design_stage_smoke"]
             run([cmake, "--build", build_dir, "--config", "Release", "--parallel", "2", "--target", *targets],
                 log, cwd=independent)

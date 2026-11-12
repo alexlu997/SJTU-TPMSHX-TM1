@@ -15,7 +15,7 @@ jobs:
   native-build:
     name: native-build
     runs-on: ${{ inputs.os }}
-    timeout-minutes: 30
+    timeout-minutes: 60
     env:
       PYTHONHASHSEED: "0"
       MPLCONFIGDIR: .cache/matplotlib
@@ -152,9 +152,13 @@ jobs:
           "$CI_PYTHON" -m pytest -q --junitxml=.cache/native-deps/logs/stage-contracts.xml
           sjtu_tpmshx/development/tests/test_native_preparation_case.py
           sjtu_tpmshx/development/tests/test_native_preparation_fluids.py
+          sjtu_tpmshx/development/tests/test_native_preparation_mass_flow.py
+          sjtu_tpmshx/development/tests/test_native_preparation_continuous.py
           sjtu_tpmshx/development/tests/test_native_stage_run.py
+          sjtu_tpmshx/development/tests/test_native_stage_uniform.py
           sjtu_tpmshx/development/tests/test_native_result_stage.py
           sjtu_tpmshx/development/tests/test_native_result_stage_host.py
+          sjtu_tpmshx/development/tests/test_native_quick_result_stage.py
       - name: Pack native runtime files with executable permissions
         shell: bash
         run: |

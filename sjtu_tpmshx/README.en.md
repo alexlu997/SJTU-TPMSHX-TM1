@@ -22,7 +22,7 @@ compute -> preprocess.api.prepare_case -> CaseData -> solvers.api.run_case -> Fi
 ```
 
 `compute` also manages stage progress, cancellation, elapsed times and warnings.
-`postprocess/api.py` sends full 2D/3D evaluation and independent queries to the native result stage.
+`postprocess/api.py` sends full 2D/3D and Quick Design evaluation and independent queries to the native result stage.
 `shared/_native_result_stage.py` adapts evidence, NumPy events and returned objects. `postprocess/export.py` exports results.
 Current full computations support rectangular 2D and cuboid 3D domains.
 See the [examples](../examples/three_module/) and [data contract](../docs/contracts/three_module_v1/README.md) for public inputs and file transport.
@@ -31,10 +31,14 @@ The [capabilities](../docs/capabilities.en.md) list approximation modes and exte
 The [native stage SDK](../docs/native-stages.md) provides a separate C++ call sequence.
 Its initial complete path supports uniform symmetric 2D air/air with prescribed velocity.
 Preparation v2 adds all 16 ordered air/water/sCO2/CO2 pairs for uniform symmetric 2D geometry and prescribed velocity.
-The full run path remains the v1 air/air CFD case.
+Preparation v3 adds independent capacity, inlet-flow resolution and complete preparation for uniform 2D total mass flow.
+It reuses the physical inlet grid and keeps preliminary records separate from final preparation evidence.
+Run v2 consumes preparation v2 through the existing model-h or true-h driver.
+Run v1 retains its air/air CFD scope.
 The separate Quick Design path supports native double operating points and retains the existing LTNE model.
 Python Quick Design execution calls its native run stage with saved prepared data.
-Raw Python preparation and Quick Design metric adapters retain their current type protocols.
+Raw Python preparation retains its current type protocols.
+Quick Design evaluation uses the native result stage with host type and event adaptation.
 The Python entries above retain all current modes while stage migration continues.
 
 ## Edit numerical functions
@@ -51,7 +55,7 @@ Use this table to find the C++ owner of a numerical rule.
 | Fixed DF, corrections, projection and prescribed flow | [preparation_df.cpp](solvers/native/src/preparation_df.cpp): `fixed_df`; [preparation_df_corrections.cpp](solvers/native/src/preparation_df_corrections.cpp); [preparation_df_projection.cpp](solvers/native/src/preparation_df_projection.cpp); [preparation_flow.cpp](solvers/native/src/preparation_flow.cpp): `inlet_capacity_2d`, `inlet_speed` |
 | Full 2D/3D and Quick Design | [full_2d.cpp](solvers/native/src/full_2d.cpp): `solve_full_2d`; [full_3d.cpp](solvers/native/src/full_3d.cpp): `solve_full_3d`; [quick_design_driver.cpp](solvers/native/src/quick_design_driver.cpp): `solve_quick_design` |
 | Metrics, physical balances, zone statistics and checks | [result_metrics.cpp](solvers/native/src/result_metrics.cpp): `pressure_face`, `boundary_enthalpy_duty`; [result_balance.cpp](solvers/native/src/result_balance.cpp): `mass`, `energy`, `zone_std`; [result_checks.cpp](solvers/native/src/result_checks.cpp): `collect_range`, `strict_certificate` |
-| Complete stage preparation and execution | [preparation_case.cpp](solvers/native/src/preparation_case.cpp): `prepare_case_2d`; [stage_run.cpp](solvers/native/src/stage_run.cpp): `tpmshx_run_case_2d_v1`; [stage_capture_2d.cpp](solvers/native/src/stage_capture_2d.cpp) |
+| Complete stage preparation and execution | [preparation_case.cpp](solvers/native/src/preparation_case.cpp): `prepare_case_2d`; [stage_run.cpp](solvers/native/src/stage_run.cpp): `tpmshx_run_case_2d_v1`, `tpmshx_run_case_2d_v2`; [stage_capture_2d.cpp](solvers/native/src/stage_capture_2d.cpp) |
 | Quick Design stage preparation and execution | [quick_design_prepare.cpp](solvers/native/src/quick_design_prepare.cpp): `tpmshx_prepare_quick_design_v1`; [quick_design_run.cpp](solvers/native/src/quick_design_run.cpp): `tpmshx_run_quick_design_v1` |
 | Stage evaluation and qualification | [result_stage.cpp](solvers/native/src/result_stage.cpp): `evaluate`, `evaluate_applicability`, `evaluate_physical_balance`, `evaluate_qualification` |
 

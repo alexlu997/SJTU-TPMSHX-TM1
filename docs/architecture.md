@@ -82,10 +82,19 @@ Separate result publication builds no solver, run_state, CoolProp or generated c
 Linux x86_64 supports independent result evaluation. Full-solver platforms remain macOS arm64 and Windows x64.
 
 The [native stage SDK](native-stages.md) adds an owned preparation state, a run result and independent evaluation.
-Preparation v1 and the run path support uniform symmetric 2D air/air with prescribed velocity and CFD drag.
+Preparation v1 and run v1 support uniform symmetric 2D air/air with prescribed velocity and CFD drag.
 Preparation v2 supports all 16 ordered air/water/sCO2/CO2 pairs in the same geometry and inlet mode.
 It retains existing experimental DF/Nu selections, state failures and evidence.
-Its scalar tags retain field precision. The run path does not yet consume v2.
+Its scalar tags retain field precision. Run v2 consumes this state through the
+existing model-h or true-h route and records the actual thermal evidence.
+Preparation v3 adds independent capacity, inlet-flow resolution and complete preparation for uniform 2D total mass flow.
+It reuses physical inlet geometry and keeps preliminary evidence separate from final preparation evidence.
+The existing v1/v2 C layouts, Python production entries and run interface are unchanged.
+Preparation v4 adds canonical continuous XY controls to capacity, resolution and complete preparation.
+It samples the physical grid with the existing spline and geometry cores, then retains full local drag.
+Its prepared view adds only area density, original hydraulic diameter and the two fluid conductivities.
+Experimental transfer keeps the current Shanghai contract, separate early range labels and final application metadata.
+No v1/v2/v3 C layout or Python production route changes.
 `preparation_case.cpp` owns that complete preparation sequence.
 `stage_run.cpp` adapts it to the existing full 2D driver.
 `stage_capture_2d.cpp` records the actual run evidence for `result_stage.cpp`.
@@ -97,7 +106,8 @@ Its const/mean, cross/counter and warm-start rules stay unchanged.
 Python Quick Design execution uses this run stage with the saved prepared fields.
 It copies native fields and declarations before release and keeps the original
 grid, fixed-field dtypes and operating-point scalars in the public result.
-Raw Python preparation and Quick Design evaluation retain their current type protocols.
+Raw Python preparation retains its current type protocols.
+Quick Design evaluation uses the native result stage and keeps host type and event adaptation.
 Current Python entry points retain their existing behavior and all supported modes.
 The migration gates must pass before their numerical and policy bodies can retire.
 
@@ -652,7 +662,7 @@ Temperature is not scaled. FullCC nonzero sources stay
 - `postprocess/api.py` keeps the public evaluation interface. The native result stage owns full 2D/3D metric selection, definitions and status.
   It also owns independent applicability, physical-balance and qualification queries.
   `shared/_native_result_stage.py` converts evidence and returned objects. It delivers NumPy events at each primitive boundary.
-  Quick Design retains its separate typed numeric protocol until that stage is integrated.
+  Quick Design uses the same native stage, with typed intermediate values and fixed named host operations for its existing Python protocols.
   `postprocess/conservation.py` retains the complete public conservation certificate. Raw result helpers retain their existing consumers and Python protocols.
   Postprocessing reduces recorded fields, fluxes and pressure states. It never reruns a solver or reads private runtime objects for missing evidence.
   Full-compute evaluation reuses successful heat and mass reductions only within
