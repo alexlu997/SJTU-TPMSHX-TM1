@@ -1,4 +1,5 @@
 #include "tpmshx/preparation_case.hpp"
+#include "tpmshx/preparation_flow.hpp"
 #include "tpmshx/grid.hpp"
 #include "tpmshx/model_coefficients.hpp"
 #include "tpmshx/preparation_df.hpp"
@@ -196,7 +197,7 @@ PortInput2D checked_port(PortInput2D port,const GridInput2D& grid,const std::str
     return port;
 }
 
-std::array<InletInput2D,2> validate(const CaseInput2D& input,CaseScope scope) {
+std::array<InletInput2D,2> validate(const CaseInput2D& input,CaseScope scope,bool static_only=false) {
     if (input.geometry_mode!=0)
         throw std::invalid_argument("native 2D preparation currently requires uniform geometry");
     if (scope==CaseScope::air_cfd_v1) {
@@ -204,6 +205,14 @@ std::array<InletInput2D,2> validate(const CaseInput2D& input,CaseScope scope) {
     } else {
         validate_nu(input.sco2_nu);
         if (input.df_mode>1) throw std::invalid_argument("native 2D preparation DF mode must be CFD or experimental");
+    }
+    if (scope==CaseScope::uniform_mass_v3) for (std::size_t i=0;i<2;++i) {
+        const auto target=input.sides[i].mass_flow_kg_s;
+        if (target) {
+            positive(*target,std::string("fluid_")+(i?"B":"A")+".mass_flow_kg_s");
+            if (!input.physical_depth_m)
+                throw std::invalid_argument("Total mass flow requires an explicit positive geometry.Lz_m");
+        }
     }
     const auto& geometry=input.geometry;
     positive(input.grid.length_m,"geometry.L_dom_m");
@@ -215,7 +224,7 @@ std::array<InletInput2D,2> validate(const CaseInput2D& input,CaseScope scope) {
     auto sides=input.sides;
     for (std::size_t side=0;side<2;++side) {
         const auto name=std::string(side?"B":"A");
-        if (sides[side].mass_flow_kg_s)
+        if (sides[side].mass_flow_kg_s && scope!=CaseScope::uniform_mass_v3)
             throw std::invalid_argument("native 2D preparation currently requires prescribed inlet velocity");
         positive(sides[side].temperature_K,"fluid_"+name+".T_in_K");
         positive(sides[side].pressure_Pa,"fluid_"+name+".P_in_Pa");
@@ -229,7 +238,7 @@ std::array<InletInput2D,2> validate(const CaseInput2D& input,CaseScope scope) {
     if (geometry.cell_length_mm<df_data::df_L_nodes.front() || geometry.cell_length_mm>df_data::df_L_nodes.back()
         || geometry.wall_thickness_mm<df_data::df_t_nodes.front() || geometry.wall_thickness_mm>df_data::df_t_nodes.back())
         throw std::invalid_argument("V2 geometry must lie inside the CFD grid: 4 <= L <= 8 mm, 0.3 <= t <= 0.6 mm");
-    for (std::size_t side=0;side<2;++side) if (scope==CaseScope::uniform_fluids_v2 && sides[side].fluid==Fluid::sco2) {
+    for (std::size_t side=0;side<2;++side) if (scope!=CaseScope::air_cfd_v1 && sides[side].fluid==Fluid::sco2) {
         const auto& inlet=sides[side];
         if (!(data::sco2_temperature_range[0]<=inlet.temperature_K && inlet.temperature_K<=data::sco2_temperature_range[1]))
             throw PreparationError(1,std::string("sCO2 fluid ")+(side?"B":"A")+" temperature must be 280..700 K",1,
@@ -239,14 +248,14 @@ std::array<InletInput2D,2> validate(const CaseInput2D& input,CaseScope scope) {
                                    static_cast<std::uint32_t>(side));
         if (geometry.delta_levelset!=0.) throw std::invalid_argument("sCO2 V2 requires delta_levelset=0");
     }
-    if (scope==CaseScope::uniform_fluids_v2 && co2_geometry(input) && geometry.delta_levelset!=0.)
+    if (scope!=CaseScope::air_cfd_v1 && co2_geometry(input) && geometry.delta_levelset!=0.)
         throw std::invalid_argument("CO2 requires symmetric delta_levelset=0 geometry");
-    for (std::size_t side=0;side<2;++side)
+    if (!static_only) for (std::size_t side=0;side<2;++side)
         positive(sides[side].velocity_m_s,std::string("fluid_")+(side?"B":"A")+".u_mps");
     if (scope==CaseScope::air_cfd_v1) for (const auto& side:sides) if (side.fluid!=Fluid::air)
         throw std::invalid_argument("native 2D preparation currently supports air/air only");
     for (const auto& side:sides) fluid_name(side.fluid);
-    if (input.df_mode) for (std::size_t side=0;side<2;++side) if (sides[side].fluid!=Fluid::co2) {
+    if (!static_only && input.df_mode) for (std::size_t side=0;side<2;++side) if (sides[side].fluid!=Fluid::co2) {
         const auto selected=experiment_selection(input,sides[side],side).first;
         const auto close=[](double a,double b) {return std::abs(a-b)<=1e-9*std::max(std::abs(a),std::abs(b));};
         if (selected.scope && (geometry.delta_levelset!=0. || !close(input.grid.length_m,df_data::hx_domain_m[0])
@@ -276,13 +285,13 @@ std::array<InletInput2D,2> validate(const CaseInput2D& input,CaseScope scope) {
             decimal(length)+" m exceeds 10.0 m. Likely unit slip — GUI expects meters here, while L_cell and t use millimeters. Re-check input.");
     }
     topology_name(geometry.topology);
-    if (geometry.delta_levelset!=0.)
+    if (geometry.delta_levelset!=0. && !static_only)
         throw std::invalid_argument("native 2D preparation currently requires symmetric delta_levelset=0 geometry");
     scalar(geometry.cell_length_mm,input.kinds.cell_length);
     scalar(geometry.wall_thickness_mm,input.kinds.wall_thickness);
     scalar(geometry.solid_conductivity_W_mK,input.kinds.solid_conductivity);
     for (std::size_t i=0;i<2;++i) {
-        scalar(sides[i].velocity_m_s,input.kinds.sides[i].velocity);
+        if (!static_only) scalar(sides[i].velocity_m_s,input.kinds.sides[i].velocity);
         scalar(sides[i].temperature_K,input.kinds.sides[i].temperature);
         scalar(sides[i].pressure_Pa,input.kinds.sides[i].pressure);
     }
@@ -667,54 +676,83 @@ void model_evidence(const CaseInput2D& input,PreparationEvidence& evidence) {
             "accuracy for variable-property heat exchangers or geometry gradients.");
     }
 }
-}  // namespace
-
-PreparedCase2D prepare_case_2d(const CaseInput2D& input,const PreparationOptions& options,
-                              const PreparationCallbacks& callbacks,CaseScope scope) {
-    FloatingEnvironment floating_environment;
-    const auto inlets=validate(input,scope);
-    PreparedCase2D output{};output.input=input;output.options=options;
-    Records records{output.evidence,callbacks,{},{}};
+geometry::MaterialGeometry material_geometry(const CaseInput2D& input,const PreparationOptions& options) {
     const auto& model=input.geometry;
+    geometry::MaterialGeometry output;
     const auto calibration=geometry::calibration(model.topology);
     const bool co2=co2_geometry(input);
     if (co2) {
         static const std::array<geometry::Co2GeometryTable,2> tables{{geometry::Co2GeometryTable::from_generated(Topology::diamond),
                                                                    geometry::Co2GeometryTable::from_generated(Topology::gyroid)}};
-        output.uniform_geometry=tables[static_cast<std::size_t>(model.topology)].evaluate(
+        output=tables[static_cast<std::size_t>(model.topology)].evaluate(
             model.cell_length_mm,model.wall_thickness_mm,model.solid_conductivity_W_mK,options.chi_override);
     } else {
         const auto cell=scalar(model.cell_length_mm,input.kinds.cell_length);
         const auto wall=scalar(model.wall_thickness_mm,input.kinds.wall_thickness);
-        output.uniform_geometry.geometry=geometry::standard_geometry(geometry_index(model.topology),calibration,
+        output.geometry=geometry::standard_geometry(geometry_index(model.topology),calibration,
             cell.value,wall.value,cell.precision,g::result_precision(wall,cell));
-        output.uniform_geometry.solid_conductivity=geometry::solid_conductivity(calibration.solid_tortuosity,
-            output.uniform_geometry.geometry.epsilon,model.solid_conductivity_W_mK,options.chi_override,
+        output.solid_conductivity=geometry::solid_conductivity(calibration.solid_tortuosity,
+            output.geometry.epsilon,model.solid_conductivity_W_mK,options.chi_override,
             input.kinds.solid_conductivity.precision);
     }
+    return output;
+}
+
+void prepare_ports(const PhysicalGrid2D& grid,PreparedSide2D& side) {
+    const auto& port=side.inlet.port;
+    const bool x=port.direction==0 || port.direction==1;
+    side.cross_widths=x?grid.dy:grid.dx;
+    side.stream_widths=x?grid.dx:grid.dy;
+    if (port.direction==1 || port.direction==3) std::reverse(side.stream_widths.begin(),side.stream_widths.end());
+    side.inlet_bounds={port.inlet_center_m-port.inlet_width_m/2.,port.inlet_center_m+port.inlet_width_m/2.};
+    side.outlet_bounds={port.outlet_center_m-port.outlet_width_m/2.,port.outlet_center_m+port.outlet_width_m/2.};
+    auto openings=g::port_fractions(side.cross_widths,g::weak(side.inlet_bounds[0]),g::weak(side.inlet_bounds[1]),port.uniform_inlet);
+    side.inlet_geometry=std::move(openings[0]);side.inlet_profile=std::move(openings[1]);
+    openings=g::port_fractions(side.cross_widths,g::weak(side.outlet_bounds[0]),g::weak(side.outlet_bounds[1]));
+    side.outlet_geometry=std::move(openings[0]);side.outlet_profile=std::move(openings[1]);
+    side.outlet_u_fraction=g::port_overlap(side.cross_widths,g::weak(side.outlet_bounds[0]),g::weak(side.outlet_bounds[1]),true);
+}
+
+void record_grid(const CaseInput2D& input,const PhysicalGrid2D& grid,Records& records) {
+    if (grid.nx!=input.grid.requested_nx || grid.ny!=input.grid.requested_ny)
+        records.emit({PreparationEventKind::log,logger,"[run_calculation] Wall-refined grid: "+
+            std::to_string(grid.nx)+"×"+std::to_string(grid.ny)+" cells (4-wall BL resolved)"});
+}
+
+void finish_warnings(Records& records) {
+    for (const auto item:records.warning_order) {
+        const auto warning=item.first?range_warning(records.output.ranges[item.second]):records.plain_warnings[item.second];
+        if (!warning.empty() && std::find(records.output.warnings.begin(),records.output.warnings.end(),warning)==records.output.warnings.end())
+            records.output.warnings.push_back(warning);
+    }
+}
+
+struct InletGeometry2D {
+    geometry::MaterialGeometry material;
+    PhysicalGrid2D grid;
+    std::array<PreparedSide2D,2> sides;
+};
+
+PreparedCase2D prepare_case(const CaseInput2D& input,const PreparationOptions& options,
+                              const PreparationCallbacks& callbacks,CaseScope scope,const InletGeometry2D* inlet_geometry=nullptr) {
+    FloatingEnvironment floating_environment;
+    const auto inlets=validate(input,scope);
+    PreparedCase2D output{};output.input=input;output.options=options;
+    Records records{output.evidence,callbacks,{},{}};
+    const auto& model=input.geometry;
+    output.uniform_geometry=inlet_geometry?inlet_geometry->material:material_geometry(input,options);
     const auto& uniform=output.uniform_geometry.geometry;
     output.hydraulic_radius_m=geometry::hydraulic_radius(uniform.hydraulic_diameter);
     preflight(input,options,uniform,inlets,records);
-    output.grid=physical_grid(input.grid,inlets);
-    if (output.grid.nx!=input.grid.requested_nx || output.grid.ny!=input.grid.requested_ny)
-        records.emit({PreparationEventKind::log,logger,"[run_calculation] Wall-refined grid: "+
-            std::to_string(output.grid.nx)+"×"+std::to_string(output.grid.ny)+" cells (4-wall BL resolved)"});
+    output.grid=inlet_geometry?inlet_geometry->grid:physical_grid(input.grid,inlets);
+    if (!inlet_geometry) record_grid(input,output.grid,records);
     const auto drag=fixed_df(static_cast<std::uint32_t>(model.topology),model.cell_length_mm,model.wall_thickness_mm);
     for (std::size_t i=0;i<2;++i) {
-        auto& side=output.sides[i];side.inlet=inlets[i];
-        const auto& port=side.inlet.port;
-        const bool x=port.direction==0 || port.direction==1;
-        side.cross_widths=x?output.grid.dy:output.grid.dx;
-        side.stream_widths=x?output.grid.dx:output.grid.dy;
-        if (port.direction==1 || port.direction==3) std::reverse(side.stream_widths.begin(),side.stream_widths.end());
+        auto& side=output.sides[i];
+        if (inlet_geometry) side=inlet_geometry->sides[i];
+        side.inlet=inlets[i];
+        if (!inlet_geometry) prepare_ports(output.grid,side);
         prepare_drag(input,i,drag,side,records);
-        side.inlet_bounds={port.inlet_center_m-port.inlet_width_m/2.,port.inlet_center_m+port.inlet_width_m/2.};
-        side.outlet_bounds={port.outlet_center_m-port.outlet_width_m/2.,port.outlet_center_m+port.outlet_width_m/2.};
-        auto openings=g::port_fractions(side.cross_widths,g::weak(side.inlet_bounds[0]),g::weak(side.inlet_bounds[1]),port.uniform_inlet);
-        side.inlet_geometry=std::move(openings[0]);side.inlet_profile=std::move(openings[1]);
-        openings=g::port_fractions(side.cross_widths,g::weak(side.outlet_bounds[0]),g::weak(side.outlet_bounds[1]));
-        side.outlet_geometry=std::move(openings[0]);side.outlet_profile=std::move(openings[1]);
-        side.outlet_u_fraction=g::port_overlap(side.cross_widths,g::weak(side.outlet_bounds[0]),g::weak(side.outlet_bounds[1]),true);
     }
     for (std::size_t i=0;i<2;++i)
         output.sides[i].properties=inlet_properties(input,inlets[i],i,output.uniform_geometry,records,output.sides[i].property_kinds);
@@ -735,11 +773,113 @@ PreparedCase2D prepare_case_2d(const CaseInput2D& input,const PreparationOptions
     records.range({"geometry","t_field_m"},"shared","prepared-geometry","physical-cell","fixed geometry domain","wall thickness","mm",
                   {df_data::df_t_nodes.front(),df_data::df_t_nodes.back()},
                   g::multiply(scalar(output.wall_thickness_m,input.kinds.wall_thickness),g::weak(1e3)).value,shape);
-    for (const auto item:records.warning_order) {
-        const auto warning=item.first?range_warning(output.evidence.ranges[item.second]):records.plain_warnings[item.second];
-        if (!warning.empty() && std::find(output.evidence.warnings.begin(),output.evidence.warnings.end(),warning)==output.evidence.warnings.end())
-            output.evidence.warnings.push_back(warning);
+    finish_warnings(records);
+    return output;
+}
+
+
+g::Scalar flow_scalar(double value,ScalarKind kind) {
+    const bool floating=kind.precision==16 || kind.precision==32 || kind.precision==64;
+    const bool integer=kind.precision==8 || floating;
+    if (!((kind.strong==0 && kind.precision==64 && kind.layout==0)
+        || (kind.strong==1 && floating && (kind.layout==1 || kind.layout==2))
+        || (kind.strong==2 && integer && (kind.layout==1 || kind.layout==2))))
+        throw std::invalid_argument("inlet-flow scalar precision, strength or layout is invalid");
+    return {value,kind.precision,kind.strong};
+}
+
+InletGeometry2D prepare_inlet_geometry(const CaseInput2D& input,ScalarKind depth_kind,
+    const PreparationOptions& options,const PreparationCallbacks& callbacks,InletFlow2D& flow) {
+    const auto inlets=validate(input,CaseScope::uniform_mass_v3,true);
+    InletGeometry2D output{};output.material=material_geometry(input,options);
+    output.grid=physical_grid(input.grid,inlets);
+    Records records{flow.evidence,callbacks,{},{}};record_grid(input,output.grid,records);
+    for (std::size_t i=0;i<2;++i) {output.sides[i].inlet=inlets[i];prepare_ports(output.grid,output.sides[i]);}
+    std::array<double,2> densities;
+    for (std::size_t i=0;i<2;++i)
+        densities[i]=property(0,inlets[i],input.kinds.sides[i],"unbound","unbound",records);
+    for (std::size_t i=0;i<2;++i) {
+        if (!input.physical_depth_m || !std::isfinite(*input.physical_depth_m) || *input.physical_depth_m<=0.)
+            throw std::invalid_argument("2D total mass flow requires a positive physical Lz_m");
+        if (input.geometry.delta_levelset!=0.)
+            throw std::invalid_argument("2D fixed-flow optimization currently requires delta_levelset=0");
+        const auto& side=output.sides[i];
+        const std::vector<double> epsilon(side.cross_widths.size(),output.material.geometry.epsilon);
+        const auto field=[](const std::vector<double>& values) {return FlowValues{{values.data(),values.size()},64,1};};
+        flow.capacities[i]=inlet_capacity_2d(field(epsilon),field(side.inlet_profile),field(side.inlet_geometry),
+            field(side.cross_widths),g::weak(densities[i]),flow_scalar(*input.physical_depth_m,depth_kind));
+        if (!std::isfinite(flow.capacities[i].value) || flow.capacities[i].value<=0.)
+            throw std::invalid_argument("side "+std::string(i?"B":"A")+
+                ": inlet density times open pore area must be finite and positive");
     }
+    flow.have_capacities=true;finish_warnings(records);return output;
+}
+
+std::array<std::optional<double>,2> flow_targets(const InletFlowRequest2D& request,CaseInput2D& input) {
+    input=request.input;
+    if (request.explicit_targets) {
+        if (!input.physical_depth_m || !std::isfinite(*input.physical_depth_m) || *input.physical_depth_m<=0.)
+            throw std::invalid_argument("2D total mass flow requires a positive physical Lz_m");
+        for (std::size_t i=0;i<2;++i) {
+            const auto target=(*request.explicit_targets)[i];
+            if (!std::isfinite(target) || target<=0.)
+                throw std::invalid_argument("mass_flow_"+std::string(i?"B":"A")+"_kg_s must be finite and positive");
+            input.sides[i].mass_flow_kg_s.reset();
+        }
+        return {(*request.explicit_targets)[0],(*request.explicit_targets)[1]};
+    }
+    return {input.sides[0].mass_flow_kg_s,input.sides[1].mass_flow_kg_s};
+}
+
+void resolve_speeds(const InletFlowRequest2D& request,const std::array<std::optional<double>,2>& targets,
+                    InletFlow2D& flow) {
+    for (std::size_t i=0;i<2;++i) {
+        auto& inlet=flow.input.sides[i];auto& kind=flow.input.kinds.sides[i].velocity;
+        if (targets[i]) {
+            const auto target_kind=request.target_kinds[i];
+            flow.speeds[i]=inlet_speed(flow_scalar(*targets[i],target_kind),flow.capacities[i]);
+            inlet.velocity_m_s=flow.speeds[i].value;
+            kind={flow.speeds[i].precision,flow.speeds[i].strong,flow.speeds[i].strong?1u:0u};
+        } else flow.speeds[i]={inlet.velocity_m_s,kind.precision,kind.strong};
+    }
+    validate(flow.input,CaseScope::uniform_mass_v3);
+}
+}  // namespace
+
+PreparedCase2D prepare_case_2d(const CaseInput2D& input,const PreparationOptions& options,
+    const PreparationCallbacks& callbacks,CaseScope scope) {
+    return prepare_case(input,options,callbacks,scope);
+}
+
+InletFlow2D prepare_inlet_mass_capacities_2d(const CaseInput2D& input,ScalarKind depth_kind,
+    const PreparationOptions& options,const PreparationCallbacks& callbacks) {
+    FloatingEnvironment floating_environment;
+    InletFlow2D output;output.input=input;
+    prepare_inlet_geometry(input,depth_kind,options,callbacks,output);
+    return output;
+}
+
+InletFlow2D resolve_inlet_flow_2d(const InletFlowRequest2D& request,
+    const PreparationOptions& options,const PreparationCallbacks& callbacks) {
+    FloatingEnvironment floating_environment;
+    InletFlow2D output;const auto targets=flow_targets(request,output.input);
+    if (!targets[0] && !targets[1]) return output;
+    prepare_inlet_geometry(output.input,request.physical_depth_kind,options,callbacks,output);
+    resolve_speeds(request,targets,output);return output;
+}
+
+PreparedFlowCase2D prepare_flow_case_2d(const InletFlowRequest2D& request,
+    const PreparationOptions& options,const PreparationCallbacks& callbacks) {
+    FloatingEnvironment floating_environment;
+    PreparedFlowCase2D output;const auto targets=flow_targets(request,output.flow.input);
+    if (!targets[0] && !targets[1]) {
+        output.prepared=prepare_case(output.flow.input,options,callbacks,CaseScope::uniform_mass_v3);
+        return output;
+    }
+    const auto inlet_geometry=prepare_inlet_geometry(output.flow.input,request.physical_depth_kind,
+        options,callbacks,output.flow);
+    resolve_speeds(request,targets,output.flow);
+    output.prepared=prepare_case(output.flow.input,options,callbacks,CaseScope::uniform_mass_v3,&inlet_geometry);
     return output;
 }
 
