@@ -128,6 +128,27 @@ Material conductivity uses the current chi and solid conductivity on each call.
 This interface accepts the event-only v1 callback. It does not use the shared Python caches or their host hooks.
 The existing Python routes and every v1-v4 scope remain available.
 
+## Sigmoid fields
+
+Preparation v6 accepts the existing air/air grid sigmoid controls, prescribed speeds, CFD drag and zero delta.
+The input contains at least 36 interleaved L/t values in mm, plus typed inlet and outlet transitions.
+The stage uses the first 36 values and samples the requested grid, then the final physical grid.
+It keeps the existing ordered blending, clipping, extrapolation notices and row D-F projection.
+Sigmoid fields do not use discrete Gaussian smoothing.
+Design geometry comes from the LUT; separate thermal geometry comes from raw L/t fields.
+Mass targets, experimental drag and nonzero delta remain outside this v6 scope.
+The Python production route and its cache policy remain unchanged.
+
+`build_sigmoid_lut` creates an owned native table over the existing training bounds.
+Its defaults are 41 cell-length nodes, 31 wall nodes and voxel resolution 256.
+It uses raw geometry, including raw degenerate nodes, without Python or disk I/O.
+A caller can reuse this resource or supply normalized axes and captured table values.
+Each table has its own interpolation flag. In-place table NaNs retain the existing query behavior.
+The complete preparation result owns copied controls, fields and evidence.
+Its nested views have null owners. Release the LUT and prepared result with their separate v6 functions.
+Releasing the LUT does not invalidate an already prepared result.
+The event-only v1 callback and earlier ABI layouts remain unchanged.
+
 ## Python preparation adapter
 
 The public preparation, capacity and resolution entries use v3 or v4 for supported 2D inputs.
@@ -214,6 +235,8 @@ The [continuous preparation example](../examples/cpp/prepare_continuous_2d.cpp) 
 It exposes physical fields and local drag through v4, with only the preparation library.
 The [zoned preparation example](../examples/cpp/prepare_zoned_2d.cpp) starts with raw stripe bounds and per-region L/t.
 It returns prepared fields and row drag through v5, with only the preparation library.
+The [sigmoid preparation example](../examples/cpp/prepare_sigmoid_2d.cpp) creates the production-resolution LUT and prepares two cases from raw controls.
+It reuses the LUT and links only preparation.
 These examples use only installed public headers and shared libraries.
 The Windows build copies the required DLLs beside each executable.
 

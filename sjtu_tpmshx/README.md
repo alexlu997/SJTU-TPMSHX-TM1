@@ -31,6 +31,8 @@ compute -> preprocess.api.prepare_case -> CaseData -> solvers.api.run_case -> Fi
 准备 v4 增加规范连续 XY 场与完整局部阻力。
 准备 v5 增加规定速度、CFD 阻力和零 delta 下的原始 air/air 条带与矩形。
 它的独立热几何与行阻力保留原离散规则。
+准备 v6 增加原始 air/air sigmoid 控制，以及支持生产分辨率冷构建、可复用的原生 LUT。
+它保留独立热几何和行阻力，不使用离散平滑；Python 缓存和路由保持不变。
 
 Python 准备入口对对称均匀和连续二维输入使用 v3/v4；非零 delta 均匀、离散分区、sigmoid 与三维保留明确原路径。
 CaseData 与保存文件契约不变，原生失败直接传播，不选择其他准备路线。

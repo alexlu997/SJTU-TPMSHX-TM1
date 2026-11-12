@@ -453,9 +453,17 @@ template<class T> void version5(const T* value) {
     if (value->abi_version!=TPMSHX_PREPARATION_CASE_ABI_VERSION_V5 || value->struct_size!=sizeof(T))
         throw std::invalid_argument("preparation case v5 ABI version or struct size is invalid");
 }
+template<class T> void version6(const T* value) {
+    require_buffer(value,1);
+    if (value->abi_version!=TPMSHX_PREPARATION_CASE_ABI_VERSION_V6 || value->struct_size!=sizeof(T))
+        throw std::invalid_argument("preparation case v6 ABI version or struct size is invalid");
+}
 const tpmshx_preparation_case_input_2d_v2& case_source(const tpmshx_preparation_flow_input_2d_v3& value) {return value.values;}
 const tpmshx_preparation_case_input_2d_v2& case_source(const tpmshx_preparation_continuous_input_2d_v4& value) {return value.values.values;}
 const tpmshx_preparation_case_input_2d_v2& case_source(const tpmshx_preparation_zoned_input_2d_v5& value) {return value.values;}
+const tpmshx_preparation_case_input_2d_v2& case_source(const tpmshx_preparation_sigmoid_input_2d_v6& value) {return value.values.values;}
+const tpmshx_preparation_zoned_input_2d_v5& zone_source(const tpmshx_preparation_zoned_input_2d_v5& value) {return value;}
+const tpmshx_preparation_zoned_input_2d_v5& zone_source(const tpmshx_preparation_sigmoid_input_2d_v6& value) {return value.values;}
 p::ZonedInput2D input(const tpmshx_preparation_zoned_input_2d_v5& source) {
     p::ZonedInput2D output;output.input=input(source.values);output.kind=source.kind;output.axis=source.axis;
     for (std::size_t i=0;i<source.region_count;++i) {
@@ -466,6 +474,20 @@ p::ZonedInput2D input(const tpmshx_preparation_zoned_input_2d_v5& source) {
         output.regions.push_back(std::move(region));
     }
     return output;
+}
+p::ZonedInput2D input(const tpmshx_preparation_sigmoid_input_2d_v6& source) {
+    auto output=input(source.values);p::SigmoidInput2D sigmoid;
+    const auto copy=[](tpmshx_preparation_array_v1 values) {
+        return values.size?std::vector<double>(values.data,values.data+values.size):std::vector<double>{};
+    };
+    sigmoid.controls.decision_mm=copy(source.controls.decision_mm);
+    const auto scalar=[](tpmshx_grid_scalar_v1 value) {return tpmshx::grid::Scalar{value.value,value.precision,value.strong};};
+    sigmoid.controls.inlet_transition=scalar(source.controls.inlet_transition);
+    sigmoid.controls.outlet_transition=scalar(source.controls.outlet_transition);
+    sigmoid.lut.cell_mm=copy(source.lut.cell_mm);sigmoid.lut.wall_mm=copy(source.lut.wall_mm);
+    sigmoid.lut.porosity=copy(source.lut.porosity);sigmoid.lut.area_density=copy(source.lut.area_density_per_m);
+    sigmoid.lut.porosity_fast=source.lut.porosity_fast;sigmoid.lut.area_fast=source.lut.area_fast;
+    output.sigmoid=std::move(sigmoid);return output;
 }
 struct ZonedOwner {
     Owner prepared;
@@ -490,6 +512,21 @@ struct ZonedOwner {
         }
     }
 };
+tpmshx_preparation_zoned_case_2d_v5 zoned_view(ZonedOwner& owner,const tpmshx_preparation_case_input_2d_v2& source) {
+    tpmshx_preparation_zoned_case_2d_v5 output{};
+    output.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V5;output.struct_size=sizeof(output);
+    output.prepared=view(owner.prepared,source);output.prepared.values.owner=nullptr;
+    const auto& values=owner.value;const auto& prepared=owner.prepared.value;
+    output.kind=values.kind;output.axis=values.axis;output.regions=owner.regions.data();output.region_count=owner.regions.size();
+    output.zone_id=values.zone_id.data();output.cell_count=values.zone_id.size();
+    output.thermal_porosity=array(values.thermal_porosity);output.area_density_per_m=array(prepared.area_density);
+    output.hydraulic_diameter_m=array(prepared.hydraulic_diameter);output.design_area_density_per_m=array(values.design_area_density);
+    for (std::size_t i=0;i<2;++i) {
+        output.fluid_conductivity[i]=array(prepared.fluid_conductivity[i]);
+        output.volumetric_transfer[i]=array(values.volumetric_transfer[i]);
+    }
+    output.owner=&owner;return output;
+}
 tpmshx_preparation_continuous_controls_2d_v4 controls_view(const p::CaseInput2D& input) {
     const auto& controls=*input.continuous;
     return {controls.nx,controls.ny,controls.order,controls.symmetric_y?1u:0u,
@@ -517,14 +554,24 @@ template<class Source,class Result,class Function> int flow_boundary(
                 require_disjoint(values.data,values.size,failure,failure?1:0);
             }
         }
-        if constexpr (std::is_same_v<Source,tpmshx_preparation_zoned_input_2d_v5>) {
+        if constexpr (std::is_same_v<Source,tpmshx_preparation_sigmoid_input_2d_v6>) {
+            if (source) for (const auto values:{source->controls.decision_mm,source->lut.cell_mm,
+                    source->lut.wall_mm,source->lut.porosity,source->lut.area_density_per_m}) {
+                require_disjoint(error,capacity,values.data,values.size);require_buffer(values.data,values.size);
+                require_disjoint(values.data,values.size,result,result?1:0);
+                require_disjoint(values.data,values.size,failure,failure?1:0);
+            }
+        }
+        if constexpr (std::is_same_v<Source,tpmshx_preparation_zoned_input_2d_v5>
+            || std::is_same_v<Source,tpmshx_preparation_sigmoid_input_2d_v6>) {
             if (source) {
-                require_disjoint(error,capacity,source->regions,source->region_count);
-                require_buffer(source->regions,source->region_count);
-                require_disjoint(source->regions,source->region_count,result,result?1:0);
-                require_disjoint(source->regions,source->region_count,failure,failure?1:0);
-                for (std::size_t i=0;i<source->region_count;++i) {
-                    const auto name=source->regions[i].name;
+                const auto& zones=zone_source(*source);
+                require_disjoint(error,capacity,zones.regions,zones.region_count);
+                require_buffer(zones.regions,zones.region_count);
+                require_disjoint(zones.regions,zones.region_count,result,result?1:0);
+                require_disjoint(zones.regions,zones.region_count,failure,failure?1:0);
+                for (std::size_t i=0;i<zones.region_count;++i) {
+                    const auto name=zones.regions[i].name;
                     require_disjoint(error,capacity,name.data,name.size);require_buffer(name.data,name.size);
                     require_disjoint(name.data,name.size,result,result?1:0);
                     require_disjoint(name.data,name.size,failure,failure?1:0);
@@ -542,8 +589,12 @@ template<class Source,class Result,class Function> int flow_boundary(
     tpmshx_preparation_case_failure_v2 staged_failure{};
     bool failure_ready=false;std::exception_ptr saved_exception;
     try {
-        if constexpr (std::is_same_v<Source,tpmshx_preparation_zoned_input_2d_v5>) {
-            version5(source);version5(result);if(callbacks)version(callbacks);
+        if constexpr (std::is_same_v<Source,tpmshx_preparation_zoned_input_2d_v5>
+            || std::is_same_v<Source,tpmshx_preparation_sigmoid_input_2d_v6>) {
+            if constexpr (std::is_same_v<Source,tpmshx_preparation_sigmoid_input_2d_v6>) {
+                version6(source);version6(result);version5(&source->values);
+            } else {version5(source);version5(result);}
+            if(callbacks)version(callbacks);
         } else {
             if constexpr (std::is_same_v<Source,tpmshx_preparation_continuous_input_2d_v4>) {version4(source);version4(result);}
             else {version3(source);version3(result);}
@@ -803,22 +854,54 @@ extern "C" int TPMSHX_PREPARATION_CALL tpmshx_prepare_zoned_case_2d_v5(
     tpmshx_preparation_case_failure_v2* failure,char* error,size_t capacity) {
     return flow_boundary(source,selected,callbacks,result,failure,error,capacity,[&](const auto& request,const auto& options,const auto& sink) {
         auto owner=std::make_unique<ZonedOwner>(p::prepare_zoned_case_2d(request,options,sink));
-        tpmshx_preparation_zoned_case_2d_v5 output{};
-        output.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V5;output.struct_size=sizeof(output);
-        output.prepared=view(owner->prepared,source->values);output.prepared.values.owner=nullptr;
-        const auto& values=owner->value;const auto& prepared=owner->prepared.value;
-        output.kind=values.kind;output.axis=values.axis;output.regions=owner->regions.data();output.region_count=owner->regions.size();
-        output.zone_id=values.zone_id.data();output.cell_count=values.zone_id.size();
-        output.thermal_porosity=array(values.thermal_porosity);output.area_density_per_m=array(prepared.area_density);
-        output.hydraulic_diameter_m=array(prepared.hydraulic_diameter);output.design_area_density_per_m=array(values.design_area_density);
-        for (std::size_t i=0;i<2;++i) {
-            output.fluid_conductivity[i]=array(prepared.fluid_conductivity[i]);
-            output.volumetric_transfer[i]=array(values.volumetric_transfer[i]);
-        }
-        output.owner=owner.get();*result=output;owner.release();
+        *result=zoned_view(*owner,source->values);owner.release();
     });
 }
 extern "C" void TPMSHX_PREPARATION_CALL tpmshx_preparation_zoned_case_2d_release_v5(tpmshx_preparation_zoned_case_2d_v5* result) {
+    if (!result) return;
+    delete static_cast<ZonedOwner*>(result->owner);*result={};
+}
+
+extern "C" uint32_t TPMSHX_PREPARATION_CALL tpmshx_preparation_case_abi_version_v6(void) {
+    return TPMSHX_PREPARATION_CASE_ABI_VERSION_V6;
+}
+extern "C" int TPMSHX_PREPARATION_CALL tpmshx_preparation_sigmoid_lut_create_v6(
+    uint32_t topology,size_t cell_nodes,size_t wall_nodes,size_t resolution,
+    tpmshx_preparation_sigmoid_lut_v6* result,char* error,size_t capacity) {
+    if (!tpmshx::fields::c_api::error_buffer_valid(error,capacity)) return TPMSHX_PREPARATION_INVALID;
+    try {require_disjoint(error,capacity,result,result?1:0);} catch (...) {return TPMSHX_PREPARATION_INVALID;}
+    return p::c_api::boundary(error,capacity,[&] {
+        version6(result);
+        if (result->owner) throw std::invalid_argument("release the previous sigmoid LUT before reusing its result");
+        auto owner=std::make_unique<p::SigmoidLUT2D>(p::build_sigmoid_lut_2d(
+            static_cast<tpmshx::Topology>(topology),cell_nodes,wall_nodes,resolution));
+        tpmshx_preparation_sigmoid_lut_v6 output{};
+        output.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V6;output.struct_size=sizeof(output);
+        output.values={array(owner->cell_mm),array(owner->wall_mm),array(owner->porosity),array(owner->area_density),
+            owner->porosity_fast,owner->area_fast};
+        output.owner=owner.get();*result=output;owner.release();
+    });
+}
+extern "C" void TPMSHX_PREPARATION_CALL tpmshx_preparation_sigmoid_lut_release_v6(tpmshx_preparation_sigmoid_lut_v6* result) {
+    if (!result) return;
+    delete static_cast<p::SigmoidLUT2D*>(result->owner);*result={};
+}
+extern "C" int TPMSHX_PREPARATION_CALL tpmshx_prepare_sigmoid_case_2d_v6(
+    const tpmshx_preparation_sigmoid_input_2d_v6* source,const tpmshx_preparation_case_options_v1* selected,
+    const tpmshx_preparation_case_callbacks_v1* callbacks,tpmshx_preparation_sigmoid_case_2d_v6* result,
+    tpmshx_preparation_case_failure_v2* failure,char* error,size_t capacity) {
+    return flow_boundary(source,selected,callbacks,result,failure,error,capacity,[&](const auto& request,const auto& options,const auto& sink) {
+        auto owner=std::make_unique<ZonedOwner>(p::prepare_zoned_case_2d(request,options,sink));
+        tpmshx_preparation_sigmoid_case_2d_v6 output{};
+        output.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V6;output.struct_size=sizeof(output);
+        output.values=zoned_view(*owner,source->values.values);output.values.owner=nullptr;
+        const auto& controls=*owner->value.sigmoid;
+        const auto scalar=[](tpmshx::grid::Scalar value) {return tpmshx_grid_scalar_v1{value.value,value.precision,value.strong};};
+        output.controls={array(controls.decision_mm),scalar(controls.inlet_transition),scalar(controls.outlet_transition)};
+        output.owner=owner.get();*result=output;owner.release();
+    });
+}
+extern "C" void TPMSHX_PREPARATION_CALL tpmshx_preparation_sigmoid_case_2d_release_v6(tpmshx_preparation_sigmoid_case_2d_v6* result) {
     if (!result) return;
     delete static_cast<ZonedOwner*>(result->owner);*result={};
 }

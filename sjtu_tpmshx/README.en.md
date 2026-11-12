@@ -35,6 +35,8 @@ It reuses the physical inlet grid and keeps preliminary records separate from fi
 Preparation v4 adds canonical continuous XY fields and full local drag.
 Preparation v5 adds raw air/air stripes and rectangles at prescribed velocity, CFD drag and zero delta.
 Its separate thermal geometry and row drag preserve the existing discrete rules.
+Preparation v6 adds raw air/air sigmoid controls and a reusable native LUT with production-resolution cold construction.
+It retains separate thermal geometry and row drag without discrete smoothing; the Python cache and route stay unchanged.
 
 The Python preparation entries use v3/v4 for symmetric uniform and continuous 2D inputs.
 Nonzero-delta uniform, discrete zones, sigmoid and 3D keep their explicit existing routes.

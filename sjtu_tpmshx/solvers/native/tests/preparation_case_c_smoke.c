@@ -575,6 +575,59 @@ static int check_v5(void) {
     return 0;
 }
 
+static int check_v6(void) {
+    tpmshx_preparation_sigmoid_lut_v6 lut = {0}, lut_before;
+    tpmshx_preparation_sigmoid_input_2d_v6 source = {0};
+    tpmshx_preparation_sigmoid_case_2d_v6 result = {0}, before;
+    tpmshx_preparation_zone_region_v5 region = {0};
+    tpmshx_preparation_case_failure_v2 failure = {0}, failure_before;
+    tpmshx_preparation_case_options_v1 options = {1, sizeof(options), 0, 1, 0.};
+    const tpmshx_preparation_scalar_kind_v2 weak = {64, 0, 0};
+    double decisions[36]; char error[4096]; size_t i;
+    lut.abi_version = source.abi_version = result.abi_version = 6;
+    lut.struct_size = sizeof(lut); source.struct_size = sizeof(source); result.struct_size = sizeof(result);
+    source.values.abi_version = 5; source.values.struct_size = sizeof(source.values);
+    source.values.values.abi_version = failure.abi_version = 2;
+    source.values.values.struct_size = sizeof(source.values.values); failure.struct_size = sizeof(failure);
+    source.values.values.values = input(); source.values.values.values.geometry_mode = 2;
+    source.values.values.values.requested_nx = 8; source.values.values.values.requested_ny = 6;
+    source.values.values.kinds.cell_length = source.values.values.kinds.wall_thickness = source.values.values.kinds.solid_conductivity = weak;
+    for (i = 0; i < 2; ++i)
+        source.values.values.kinds.sides[i].velocity = source.values.values.kinds.sides[i].temperature = source.values.values.kinds.sides[i].pressure = weak;
+    for (i = 0; i < 4; ++i) {region.bounds[i].precision = 64; region.bounds[i].value = i % 2 ? 1. : 0.;}
+    region.cell_length_mm = 7.; region.wall_thickness_mm = .4; region.cell_kind = region.wall_kind = weak;
+    source.values.kind = source.values.axis = 1; source.values.regions = &region; source.values.region_count = 1;
+    for (i = 0; i < 18; ++i) {decisions[2*i] = 7.; decisions[2*i+1] = .4;}
+    source.controls.decision_mm.data = decisions; source.controls.decision_mm.size = 36;
+    source.controls.inlet_transition.value = source.controls.outlet_transition.value = .2;
+    source.controls.inlet_transition.precision = source.controls.outlet_transition.precision = 64;
+    CHECK(tpmshx_preparation_case_abi_version_v6() == 6);
+    CHECK(!tpmshx_preparation_sigmoid_lut_create_v6(1, 2, 2, 16, &lut, error, sizeof(error)));
+    CHECK(lut.owner && lut.values.porosity.size == 4 && lut.values.porosity_fast == 1);
+    lut_before = lut;
+    CHECK(tpmshx_preparation_sigmoid_lut_create_v6(1, 2, 2, 16, &lut, error, sizeof(error)) == TPMSHX_PREPARATION_INVALID);
+    CHECK(!memcmp(&lut, &lut_before, sizeof(lut)));
+    source.lut = lut.values;
+    CHECK(!tpmshx_prepare_sigmoid_case_2d_v6(&source, &options, NULL, &result, &failure, error, sizeof(error)));
+    CHECK(result.owner && !result.values.owner && !result.values.prepared.values.owner);
+    CHECK(result.values.kind == 2 && !result.values.region_count && result.values.cell_count == 48);
+    CHECK(result.controls.decision_mm.size == 36 && result.values.thermal_porosity.size == 48);
+    tpmshx_preparation_sigmoid_lut_release_v6(&lut);
+    CHECK(!lut.owner && !lut.values.porosity.data);
+    decisions[0] = -1.; CHECK(result.controls.decision_mm.data[0] == 7.);
+    CHECK(isfinite(result.values.volumetric_transfer[0].data[0]));
+    tpmshx_preparation_sigmoid_case_2d_release_v6(&result);
+    CHECK(!result.owner && !result.values.zone_id && !result.controls.decision_mm.data);
+    tpmshx_preparation_sigmoid_case_2d_release_v6(&result); tpmshx_preparation_sigmoid_case_2d_release_v6(NULL);
+    tpmshx_preparation_sigmoid_lut_release_v6(&lut); tpmshx_preparation_sigmoid_lut_release_v6(NULL);
+    result.abi_version = 6; result.struct_size = sizeof(result); before = result; failure_before = failure;
+    source.lut.cell_mm.data = (const double*)&result; source.lut.cell_mm.size = 1;
+    CHECK(tpmshx_prepare_sigmoid_case_2d_v6(&source, &options, NULL, &result, &failure, error, sizeof(error)) == TPMSHX_PREPARATION_INVALID);
+    CHECK(!memcmp(&before, &result, sizeof(result)) && !memcmp(&failure_before, &failure, sizeof(failure)));
+    CHECK(tpmshx_preparation_sigmoid_lut_create_v6(1, 2, 2, 16, &lut, (char*)&lut, sizeof(lut)) == TPMSHX_PREPARATION_INVALID);
+    return 0;
+}
+
 int main(void) {
     tpmshx_preparation_case_input_2d_v1 source = input(), original = source;
     tpmshx_preparation_case_2d_v1 result = empty_result(), before;
@@ -629,5 +682,6 @@ int main(void) {
     CHECK(!check_v2());
     CHECK(!check_v3());
     CHECK(!check_v4());
-    return check_v5();
+    CHECK(!check_v5());
+    return check_v6();
 }

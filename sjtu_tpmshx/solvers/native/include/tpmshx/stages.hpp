@@ -40,6 +40,8 @@ using PreparedFlowCase2D=detail::Owned<tpmshx_preparation_flow_case_2d_v3,tpmshx
 using ContinuousInletFlow2D=detail::Owned<tpmshx_preparation_continuous_flow_2d_v4,tpmshx_preparation_continuous_flow_2d_release_v4>;
 using PreparedContinuousCase2D=detail::Owned<tpmshx_preparation_continuous_case_2d_v4,tpmshx_preparation_continuous_case_2d_release_v4>;
 using PreparedZonedCase2D=detail::Owned<tpmshx_preparation_zoned_case_2d_v5,tpmshx_preparation_zoned_case_2d_release_v5>;
+using SigmoidLUT2D=detail::Owned<tpmshx_preparation_sigmoid_lut_v6,tpmshx_preparation_sigmoid_lut_release_v6>;
+using PreparedSigmoidCase2D=detail::Owned<tpmshx_preparation_sigmoid_case_2d_v6,tpmshx_preparation_sigmoid_case_2d_release_v6>;
 using RunResult2D=detail::Owned<tpmshx_stage_run_result_2d_v1,tpmshx_stage_run_2d_release_v1>;
 using Evaluation=detail::Owned<tpmshx_stage_output_v1,tpmshx_result_stage_release_v1>;
 
@@ -80,6 +82,13 @@ struct ZonedInput2D : tpmshx_preparation_zoned_input_2d_v5 {
         values=CaseInput2Dv2{};values.values.geometry_mode=2;axis=1;
     }
 };
+struct SigmoidInput2D : tpmshx_preparation_sigmoid_input_2d_v6 {
+    SigmoidInput2D():tpmshx_preparation_sigmoid_input_2d_v6{} {
+        abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V6;struct_size=sizeof(tpmshx_preparation_sigmoid_input_2d_v6);
+        values=ZonedInput2D{};values.kind=1;
+        controls.inlet_transition=controls.outlet_transition={.2,64,0};
+    }
+};
 struct RunRequest2D : tpmshx_stage_run_request_2d_v1 {
     RunRequest2D():tpmshx_stage_run_request_2d_v1{} {
         abi_version=TPMSHX_STAGE_RUN_ABI_VERSION;struct_size=sizeof(tpmshx_stage_run_request_2d_v1);
@@ -112,6 +121,23 @@ inline PreparedZonedCase2D prepare_case(const ZonedInput2D& input,const Preparat
     char error[4096]{};
     detail::check(tpmshx_prepare_zoned_case_2d_v5(&input,&options,nullptr,&output,&failure,error,sizeof(error)),error);
     return PreparedZonedCase2D(output);
+}
+inline SigmoidLUT2D build_sigmoid_lut(std::uint32_t topology,std::size_t cell_nodes=41,
+    std::size_t wall_nodes=31,std::size_t resolution=256) {
+    tpmshx_preparation_sigmoid_lut_v6 output{};
+    output.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V6;output.struct_size=sizeof(output);
+    char error[4096]{};
+    detail::check(tpmshx_preparation_sigmoid_lut_create_v6(topology,cell_nodes,wall_nodes,resolution,
+        &output,error,sizeof(error)),error);
+    return SigmoidLUT2D(output);
+}
+inline PreparedSigmoidCase2D prepare_case(const SigmoidInput2D& input,const PreparationOptions& options={}) {
+    tpmshx_preparation_sigmoid_case_2d_v6 output{};tpmshx_preparation_case_failure_v2 failure{};
+    output.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V6;output.struct_size=sizeof(output);
+    failure.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V2;failure.struct_size=sizeof(failure);
+    char error[4096]{};
+    detail::check(tpmshx_prepare_sigmoid_case_2d_v6(&input,&options,nullptr,&output,&failure,error,sizeof(error)),error);
+    return PreparedSigmoidCase2D(output);
 }
 inline InletFlow2D prepare_inlet_mass_capacities(const FlowInput2D& input,const PreparationOptions& options={}) {
     tpmshx_preparation_flow_2d_v3 output{};tpmshx_preparation_case_failure_v2 failure{};

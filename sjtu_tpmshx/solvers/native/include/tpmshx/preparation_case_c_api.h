@@ -10,6 +10,7 @@
 #define TPMSHX_PREPARATION_CASE_ABI_VERSION_V3 3u
 #define TPMSHX_PREPARATION_CASE_ABI_VERSION_V4 4u
 #define TPMSHX_PREPARATION_CASE_ABI_VERSION_V5 5u
+#define TPMSHX_PREPARATION_CASE_ABI_VERSION_V6 6u
 
 typedef struct {
     int32_t direction;
@@ -324,6 +325,35 @@ typedef struct {
     void* owner;
 } tpmshx_preparation_zoned_case_2d_v5;
 
+typedef struct {
+    tpmshx_preparation_array_v1 cell_mm,wall_mm,porosity,area_density_per_m;
+    uint32_t porosity_fast,area_fast;
+} tpmshx_preparation_sigmoid_lut_view_v6;
+typedef struct {
+    uint32_t abi_version;
+    size_t struct_size;
+    tpmshx_preparation_sigmoid_lut_view_v6 values;
+    void* owner;
+} tpmshx_preparation_sigmoid_lut_v6;
+typedef struct {
+    tpmshx_preparation_array_v1 decision_mm;
+    tpmshx_grid_scalar_v1 inlet_transition,outlet_transition;
+} tpmshx_preparation_sigmoid_controls_2d_v6;
+typedef struct {
+    uint32_t abi_version;
+    size_t struct_size;
+    tpmshx_preparation_zoned_input_2d_v5 values;
+    tpmshx_preparation_sigmoid_controls_2d_v6 controls;
+    tpmshx_preparation_sigmoid_lut_view_v6 lut;
+} tpmshx_preparation_sigmoid_input_2d_v6;
+typedef struct {
+    uint32_t abi_version;
+    size_t struct_size;
+    tpmshx_preparation_zoned_case_2d_v5 values;
+    tpmshx_preparation_sigmoid_controls_2d_v6 controls;
+    void* owner;
+} tpmshx_preparation_sigmoid_case_2d_v6;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -478,6 +508,21 @@ TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_zoned_case_2d_
     tpmshx_preparation_case_failure_v2*,char*,size_t);
 TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_zoned_case_2d_release_v5(
     tpmshx_preparation_zoned_case_2d_v5*);
+
+TPMSHX_PREPARATION_API uint32_t TPMSHX_PREPARATION_CALL tpmshx_preparation_case_abi_version_v6(void);
+/* Build the existing training-range LUT once; preparation borrows its view. */
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_preparation_sigmoid_lut_create_v6(
+    uint32_t topology,size_t cell_nodes,size_t wall_nodes,size_t resolution,
+    tpmshx_preparation_sigmoid_lut_v6*,char*,size_t);
+TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_sigmoid_lut_release_v6(
+    tpmshx_preparation_sigmoid_lut_v6*);
+/* Supplied LUT axes are normalized and validated by their resource owner. */
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_sigmoid_case_2d_v6(
+    const tpmshx_preparation_sigmoid_input_2d_v6*,const tpmshx_preparation_case_options_v1*,
+    const tpmshx_preparation_case_callbacks_v1*,tpmshx_preparation_sigmoid_case_2d_v6*,
+    tpmshx_preparation_case_failure_v2*,char*,size_t);
+TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_sigmoid_case_2d_release_v6(
+    tpmshx_preparation_sigmoid_case_2d_v6*);
 
 #ifdef __cplusplus
 }

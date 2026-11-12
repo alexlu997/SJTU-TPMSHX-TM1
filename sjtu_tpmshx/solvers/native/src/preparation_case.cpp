@@ -8,6 +8,8 @@
 #include "preparation_df_fields.hpp"
 #include "preparation_properties.hpp"
 #include "field_continuous.hpp"
+#include "field_lut.hpp"
+#include "field_sigmoid.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -1162,6 +1164,143 @@ CaseInput2D region_input(const CaseInput2D& input,const ZoneRegion2D& region) {
     result.kinds.cell_length=region.cell_kind;result.kinds.wall_thickness=region.wall_kind;
     return result;
 }
+PropertyResult sigmoid_air_property(Empirical getter,const InletInput2D& inlet,
+    const InletScalarKinds& kinds,Records& records) {
+    if (getter!=Empirical::air_density) {
+        const std::string name=getter==Empirical::air_conductivity?"air_conductivity":"air_viscosity";
+        records.range({"property",name},"unbound","unbound","source",name,"T","K",
+            data::air_temperature_range,inlet.temperature_K);
+    }
+    auto result=empirical(getter,operand(inlet.temperature_K,kinds.temperature),operand(inlet.pressure_Pa,kinds.pressure));
+    records.floating(result.events);return result;
+}
+std::array<g::Scalar,6> sigmoid_boundaries(const SigmoidControls2D& controls,Records& records) {
+    std::array<std::uint32_t,property_event_count> events{};PropertyArithmetic arithmetic(events);
+    const auto number=[](g::Scalar value) {return PropertyNumber{g::checked(value),0.,0,value.strong?1u:0u};};
+    const auto inlet=number(controls.inlet_transition),outlet=number(controls.outlet_transition);
+    const auto one=number(g::weak(1.)),two=number(g::weak(2.)),three=number(g::weak(3.));
+    const auto dy_in=arithmetic.divide(inlet,three),dy_out=arithmetic.divide(outlet,three);
+    std::array<g::Scalar,6> result{{dy_in.real,arithmetic.multiply(two,dy_in).real,inlet.real,
+        arithmetic.subtract(one,outlet).real,{},{}}};
+    const auto fourth=arithmetic.subtract(one,outlet);
+    result[4]=arithmetic.add(fourth,dy_out).real;
+    const auto fifth=arithmetic.subtract(one,outlet),twice_out=arithmetic.multiply(two,dy_out);
+    result[5]=arithmetic.add(fifth,twice_out).real;
+    records.floating(events);return result;
+}
+void sigmoid_fields(PreparedZonedCase2D& output,const ZonedInput2D& request,const PhysicalGrid2D& grid,
+                    bool physical,Records& records) {
+    auto& prepared=output.prepared;const auto& input=prepared.input;
+    const auto& sigmoid=*request.sigmoid;const auto& controls=sigmoid.controls;
+    if (controls.decision_mm.size()<36)
+        throw std::invalid_argument("sigmoid controls require at least 36 interleaved L/t values");
+    const auto x=g::sigmoid_centres(grid.nx,g::weak(input.grid.length_m),physical?&grid.dx:nullptr);
+    const auto y=g::sigmoid_centres(grid.ny,g::weak(input.grid.height_m),physical?&grid.dy:nullptr);
+    const auto cells=count(grid.nx,grid.ny);
+    std::vector<double> xf(cells),yf(cells);
+    for (std::size_t i=0;i<grid.nx;++i) for (std::size_t j=0;j<grid.ny;++j) {
+        xf[i*grid.ny+j]=x[i];yf[i*grid.ny+j]=y[j];
+    }
+    for (std::size_t field=0;field<2;++field) {
+        std::array<g::Scalar,9> inlet_values,outlet_values;
+        for (std::size_t i=0;i<9;++i) {
+            inlet_values[i]={controls.decision_mm[2*i+field],64,1};
+            outlet_values[i]={controls.decision_mm[18+2*i+field],64,1};
+        }
+        const auto uniform=field?scalar(input.geometry.wall_thickness_mm,input.kinds.wall_thickness):
+            scalar(input.geometry.cell_length_mm,input.kinds.cell_length);
+        const auto boundaries=sigmoid_boundaries(controls,records);
+        // Full preparation uses float64 coordinates, so both exp modes use libm.
+        auto sampled=fields::sigmoid_field(xf.data(),yf.data(),cells,{0.,64,1},{0.,64,1},
+            inlet_values,outlet_values,uniform,boundaries,g::weak(.05),g::weak(.02),fields::ExpMode::libm);
+        auto& values=field?prepared.wall_thickness:prepared.cell_length;
+        values=std::move(sampled.values);
+    }
+    const std::array<double,2> cell_limits{{df_data::df_L_nodes.front(),df_data::df_L_nodes.back()}};
+    const std::array<double,2> wall_limits{{df_data::df_t_nodes.front(),df_data::df_t_nodes.back()}};
+    if (!prepared.options.allow_extrapolation) {
+        prepared.cell_length=fields::clip_values(prepared.cell_length.data(),cells,{0.,64,1},
+            g::weak(cell_limits[0]),g::weak(cell_limits[1])).values;
+        prepared.wall_thickness=fields::clip_values(prepared.wall_thickness.data(),cells,{0.,64,1},
+            g::weak(wall_limits[0]),g::weak(wall_limits[1])).values;
+    } else {
+        const auto extrema=[](const std::vector<double>& values) {
+            if (std::any_of(values.begin(),values.end(),[](double value){return std::isnan(value);}))
+                return std::array<double,2>{{NAN,NAN}};
+            const auto pair=std::minmax_element(values.begin(),values.end());
+            return std::array<double,2>{{*pair.first,*pair.second}};
+        };
+        const auto lengths=extrema(prepared.cell_length),walls=extrema(prepared.wall_thickness);
+        if (lengths[0]<cell_limits[0] || lengths[1]>cell_limits[1] || walls[0]<wall_limits[0] || walls[1]>wall_limits[1])
+            records.emit({PreparationEventKind::warning,"","[geometry extrap] L=["+fixed(lengths[0],2)+","+
+                fixed(lengths[1],2)+"]mm t=["+fixed(walls[0],3)+","+fixed(walls[1],3)+"]mm outside fit L("+
+                decimal(cell_limits[0])+", "+decimal(cell_limits[1])+") / t("+decimal(wall_limits[0])+", "+
+                decimal(wall_limits[1])+"); geometry LUT extrapolated."});
+    }
+    const auto& lut=sigmoid.lut;
+    if (lut.area_density.size()!=lut.porosity.size()) throw std::invalid_argument("incorrect LUT extent or path");
+    const auto sampled=fields::sample_lut({lut.cell_mm.data(),lut.wall_mm.data(),lut.porosity.data(),lut.area_density.data(),
+        lut.cell_mm.size(),lut.wall_mm.size(),lut.porosity.size(),lut.porosity_fast,lut.area_fast},
+        prepared.cell_length.data(),prepared.wall_thickness.data(),cells);
+    output.zone_id.assign(cells,0);prepared.total_porosity.resize(cells);prepared.solid_conductivity.resize(cells);
+    prepared.hydraulic_radius.resize(cells);prepared.area_density.resize(cells);prepared.hydraulic_diameter.resize(cells);
+    output.design_area_density.resize(cells);std::vector<double> pore_porosity(cells),diameter_mm(cells);
+    for (std::size_t i=0;i<cells;++i) {
+        const auto value=geometry::lut_geometry(geometry::calibration(input.geometry.topology).solid_tortuosity,
+            sampled[0][i],sampled[1][i],input.geometry.solid_conductivity_W_mK,prepared.options.chi_override);
+        prepared.total_porosity[i]=value.material.geometry.epsilon;
+        prepared.solid_conductivity[i]=value.material.solid_conductivity;
+        prepared.hydraulic_radius[i]=value.hydraulic_radius;
+        prepared.area_density[i]=output.design_area_density[i]=value.material.geometry.area_density;
+        pore_porosity[i]=value.material.geometry.epsilon_a;
+        prepared.hydraulic_diameter[i]=value.hydraulic_radius*2.;
+        diameter_mm[i]=prepared.hydraulic_diameter[i]*1000.;
+    }
+    const auto field=[](const std::vector<double>& values) {return PropertyInput{{values.data(),values.size()},{0.,64,1},3};};
+    std::array<PropertyResult,2> conductivity,viscosity,density,re,nu;
+    for (std::size_t i=0;i<2;++i) {
+        const auto& inlet=input.sides[i];const auto& kinds=input.kinds.sides[i];
+        conductivity[i]=sigmoid_air_property(Empirical::air_conductivity,inlet,kinds,records);
+        viscosity[i]=sigmoid_air_property(Empirical::air_viscosity,inlet,kinds,records);
+        density[i]=sigmoid_air_property(Empirical::air_density,inlet,kinds,records);
+    }
+    const auto broadcast=[&](PropertyResult& value) {
+        value.values.resize(cells,value.values.front());
+        return PropertyInput{{value.values.data(),cells},value.kind,value.kind.strong?1u:0u};
+    };
+    const auto scalar_field=[](const std::vector<double>& values,ScalarKind kind={}) {
+        return PropertyInput{{values.data(),values.size()},{0.,kind.precision,kind.strong},kind.layout};
+    };
+    for (std::size_t i=0;i<2;++i) {
+        const std::vector<double> speeds(cells,input.sides[i].velocity_m_s);
+        const auto rho=broadcast(density[i]),mu=broadcast(viscosity[i]);
+        re[i]=reynolds(rho,scalar_field(speeds,input.kinds.sides[i].velocity),field(prepared.hydraulic_diameter),mu);
+        records.floating(re[i].events);
+        re[i].values=fields::clip_values(re[i].values.data(),cells,{0.,64,1},g::weak(10.),g::weak(INFINITY)).values;
+    }
+    const std::vector<double> floors(cells,10.),prandtl_values(cells,data::pr_air);
+    for (std::size_t i=0;i<2;++i) {
+        std::array<double,4> extrema{};
+        auto values=nu_inputs(NuRoute::air_vector,field(re[i].values),{}, {}, {},scalar_field(floors),extrema);
+        records.floating(values.events);
+        records.range({"nu","air",topology_name(input.geometry.topology)},"unbound","unbound","source",
+            "[Nu extrap] "+std::string(topology_name(input.geometry.topology)),"Re","-",data::air_nu_re_range,
+            re[i].values,{grid.nx,grid.ny});
+        nu[i]=nusselt(NuRoute::air_vector,input.geometry.topology,field(values.values),scalar_field(prandtl_values),
+            field(prepared.cell_length),field(diameter_mm),g::weak(1.));
+        records.floating(nu[i].events);
+    }
+    for (std::size_t i=0;i<2;++i) {
+        const auto conductivity_field=broadcast(conductivity[i]);
+        auto transfer=inlet_transfer(field(nu[i].values),conductivity_field,
+            field(prepared.hydraulic_diameter),field(prepared.area_density),field(pore_porosity));
+        for (const auto& value:transfer) records.floating(value.events);
+        output.volumetric_transfer[i]=std::move(transfer[1].values);
+        prepared.fluid_conductivity[i]=std::move(transfer[2].values);
+    }
+    records.emit({PreparationEventKind::log,logger,"[ZONE] Continuous Sigmoid field ("+
+        std::to_string(grid.nx)+"x"+std::to_string(grid.ny)+")"});
+}
 void zoned_fields(PreparedZonedCase2D& output,const ZonedInput2D& request,const PhysicalGrid2D& grid,
                   bool physical,ZonedCache& cache,Records& records) {
     auto& prepared=output.prepared;const auto& input=prepared.input;
@@ -1227,6 +1366,8 @@ PreparedZonedCase2D prepare_zoned_case(const ZonedInput2D& request,const Prepara
                                      const PreparationCallbacks& callbacks) {
     FloatingEnvironment floating_environment;
     validate_zone_bounds(request);
+    if (request.sigmoid && request.kind!=1)
+        throw std::invalid_argument("sigmoid preparation requires grid zones");
     if (request.input.geometry_mode!=2 || request.input.continuous)
         throw std::invalid_argument("native zoned preparation requires geometry_mode=2 and raw regions");
     if (callbacks.validate_host_input || callbacks.geometry_cache || callbacks.inlet_cache
@@ -1236,16 +1377,19 @@ PreparedZonedCase2D prepare_zoned_case(const ZonedInput2D& request,const Prepara
     const auto inlets=validate(input,CaseScope::air_cfd_v1);input.sides=inlets;
     PreparedZonedCase2D output;auto& prepared=output.prepared;
     prepared.input=input;prepared.input.geometry_mode=2;prepared.options=options;
-    output.kind=request.kind;output.axis=request.axis;
+    output.kind=request.sigmoid?2:request.kind;output.axis=request.axis;
+    if (request.sigmoid) output.sigmoid=request.sigmoid->controls;
     Records records{prepared.evidence,callbacks,{},{}};ZonedCache cache;
     prepared.uniform_geometry=cache.material(input,options);
     preflight(input,options,prepared.uniform_geometry.geometry,inlets,records);
     auto regions=request.regions;if (!request.kind) sort_stripes(regions);
-    for (const auto& region:regions) output.regions.push_back({region,{},{},{},{}});
+    if (!request.sigmoid) for (const auto& region:regions) output.regions.push_back({region,{},{},{},{}});
     PhysicalGrid2D requested;requested.nx=input.grid.requested_nx;requested.ny=input.grid.requested_ny;
-    zoned_fields(output,request,requested,false,cache,records);
+    if (request.sigmoid) sigmoid_fields(output,request,requested,false,records);
+    else zoned_fields(output,request,requested,false,cache,records);
     prepared.grid=physical_grid(input.grid,inlets,true);record_grid(input,prepared.grid,records);
-    zoned_fields(output,request,prepared.grid,true,cache,records);
+    if (request.sigmoid) sigmoid_fields(output,request,prepared.grid,true,records);
+    else zoned_fields(output,request,prepared.grid,true,cache,records);
     const auto topology=static_cast<std::uint32_t>(input.geometry.topology);
     const auto base=fixed_df(topology,input.geometry.cell_length_mm,input.geometry.wall_thickness_mm);
     const auto& grid=prepared.grid;
@@ -1380,6 +1524,30 @@ void resolve_speeds(const InletFlowRequest2D& request,const std::array<std::opti
     validate(flow.input,flow_scope(flow.input));
 }
 }  // namespace
+
+SigmoidLUT2D build_sigmoid_lut_2d(Topology topology,std::size_t cell_nodes,
+    std::size_t wall_nodes,std::size_t resolution) {
+    FloatingEnvironment floating_environment;
+    const auto cells=count(cell_nodes,wall_nodes);
+    const auto axis=[](std::size_t count,double lower,double upper) {
+        if (!count) return std::vector<double>{};
+        if (count==1) return std::vector<double>{lower};
+        auto values=control_axis(count,upper-lower);
+        for (auto& value:values) value+=lower;
+        values.back()=upper;return values;
+    };
+    SigmoidLUT2D output;
+    output.cell_mm=axis(cell_nodes,df_data::df_L_nodes.front(),df_data::df_L_nodes.back());
+    output.wall_mm=axis(wall_nodes,df_data::df_t_nodes.front(),df_data::df_t_nodes.back());
+    output.porosity.reserve(cells);output.area_density.reserve(cells);
+    const auto index=geometry::PhiIndex::from_topology(topology,resolution);
+    const auto model=geometry::calibration(topology);
+    for (const auto cell:output.cell_mm) for (const auto wall:output.wall_mm) {
+        const auto value=geometry::raw_geometry(index,model,cell,wall);
+        output.porosity.push_back(value.epsilon);output.area_density.push_back(value.area_density);
+    }
+    return output;
+}
 
 PreparedCase2D prepare_case_2d(const CaseInput2D& input,const PreparationOptions& options,
     const PreparationCallbacks& callbacks,CaseScope scope) {

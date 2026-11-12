@@ -100,6 +100,10 @@ Preparation v5 adds raw air/air stripes and rectangles at prescribed velocity, w
 It preserves L/t projection before row D-F, discrete smoothing and separate thermal geometry fields.
 It owns per-call typed caches and accepts only the v1 event callback.
 It does not change Python route selection or enable mass targets, sigmoid fields or nonzero delta.
+Preparation v6 adds raw air/air sigmoid controls under the same velocity, drag and delta limits.
+It keeps ordered blending, typed transitions, separate design/thermal geometry and row D-F projection, without Gaussian smoothing.
+An owned LUT can be built from raw geometry or supplied by the caller; each table keeps its interpolation mode.
+The native cold defaults are 41x31 nodes at voxel resolution 256. Python keeps disk and memory cache policy.
 Python preparation uses the owned v3/v4 stages for symmetric uniform and canonical continuous XY 2D inputs.
 Nonzero-delta uniform, discrete zones, sigmoid and 3D retain explicit existing routes.
 The adapter preserves CaseData fields, scalar types, events, source ranges and saved model selections.
