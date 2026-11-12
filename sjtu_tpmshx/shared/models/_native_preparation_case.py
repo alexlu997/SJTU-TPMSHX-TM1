@@ -74,6 +74,8 @@ _ResultV1 = _structure('Result', [('abi_version', _U), ('struct_size', _S), ('in
 
 _struct = _structure
 _Kind = _struct('Kind', [(name, _U) for name in ('precision', 'strong', 'layout')])
+_GridKinds = _struct('GridKinds', [('abi_version', _U), ('struct_size', _S),
+    ('lengths', _Kind * 2), ('ports', (_Kind * 4) * 2)])
 _InletKinds = _struct('InletKinds', [(name, _Kind) for name in ('velocity', 'temperature', 'pressure')])
 _Kinds = _struct('Kinds', [(name, _Kind) for name in ('cell_length', 'wall_thickness', 'solid_conductivity')] + [('sides', _InletKinds * 2)])
 _Nu = _struct('Nu', [('mode', _U), ('have_alpha', _U * 2), ('alpha', _D * 2)] + [(name, _Text) for name in ('parameter_version', 'source', 'applicability')])
@@ -138,9 +140,10 @@ class _Bindings:
                 (4, _ContinuousInput, _ContinuousFlow, _ContinuousCase, 'continuous')):
             for name in ('prepare_inlet_mass_capacities', 'resolve_inlet_flow', 'prepare_flow_case'):
                 result = full if name == 'prepare_flow_case' else flow
+                entry = name if version == 3 else name.replace('_', '_continuous_', 1)
                 self.operations[version, name] = self.owner.bind(
-                    f'tpmshx_{name}_2d_v{version}',
-                    [ct.POINTER(source), ct.POINTER(_Options), ct.POINTER(_Callbacks),
+                    f'tpmshx_{entry}_2d_v7',
+                    [ct.POINTER(source), ct.POINTER(_GridKinds), ct.POINTER(_Options), ct.POINTER(_Callbacks),
                      ct.POINTER(result), ct.POINTER(_Failure), ct.POINTER(ct.c_char), _S])
             for result, suffix in ((flow, 'flow' if version == 4 else ''), (full, 'case')):
                 middle = '_'.join(value for value in (prefix, suffix) if value)
@@ -273,13 +276,13 @@ def operation(name, source, options, validate_host_input, geometry_cache=None, i
         callbacks = _HostCallbacks(_Callbacks(2, ct.sizeof(_HostCallbacks), event_function, None), host_function)
         descriptor = callbacks.values
     else:
-        callbacks = _CacheCallbacks(_HostCallbacks(_Callbacks(3, ct.sizeof(_CacheCallbacks), event_function, None), host_function),
+        callbacks = _CacheCallbacks(_HostCallbacks(_Callbacks(4, ct.sizeof(_CacheCallbacks), event_function, None), host_function),
                                    _GeometryCacheFunction(geometry), _InletCacheFunction(inlet),
                                    _RangeFunction(observe), _NoticeFunction(notice))
         descriptor = callbacks.values.values
     try:
         status = bindings.operations[version, name](
-            ct.byref(source), ct.byref(options), ct.byref(descriptor), ct.byref(result),
+            ct.byref(source), ct.byref(source._grid_kinds), ct.byref(options), ct.byref(descriptor), ct.byref(result),
             ct.byref(failure), error, len(error))
         if callback_errors:
             raise callback_errors[0]

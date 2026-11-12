@@ -15,7 +15,7 @@ from sjtu_tpmshx.shared.domain.run_warnings import (
     RangeRecord, current_warnings, merge_warnings, warning_messages, record_warning, _range_context,
 )
 from sjtu_tpmshx.shared.models import _native_preparation_case as native
-from sjtu_tpmshx.shared.models import _native_flow, _native_geometry
+from sjtu_tpmshx.shared.models import _native_flow, _native_geometry, _native_grid
 
 
 def supports(config):
@@ -92,6 +92,24 @@ def _input(config, targets, operation):
         buffers.append(decision)
     else:
         source = flow
+    source._grid_error = None
+
+    def grid_kind(value):
+        try:
+            scalar = _native_grid._scalar(value)
+        except TypeError as error:
+            if source._grid_error is None:
+                source._grid_error = str(error)
+            return native._Kind(64, 0, 0)
+        return native._Kind(scalar.precision, scalar.strong, int(bool(scalar.strong)))
+
+    source._grid_kinds = native._GridKinds(7, ct.sizeof(native._GridKinds),
+        (native._Kind * 2)(*map(grid_kind, (geometry.L_dom_m, geometry.H_dom_m))))
+    for index, side in enumerate('AB'):
+        port = getattr(config, 'bc_' + side)
+        source._grid_kinds.ports[index] = (native._Kind * 4)(
+            *(grid_kind(getattr(port, name)) if port.in_w > 0. and port.out_w > 0.
+              else native._Kind(64, 0, 0) for name in ('in_ctr', 'in_w', 'out_ctr', 'out_w')))
     source._buffers = buffers
     return source
 
@@ -479,6 +497,9 @@ def _execute(config, operation, *, targets=None, case_id=None, own_metadata=Fals
                 hash((config.geometry.tpms, config.geometry.L_cell_mm, config.geometry.t_wall_mm,
                       speed, fluid.T_in_K, fluid.P_in_Pa, config.sco2_nu,
                       'co2' in (config.fluid_A.type, config.fluid_B.type)))
+            elif stage == 3:
+                if source._grid_error is not None:
+                    raise TypeError(source._grid_error)
             else:
                 raise RuntimeError(f'unknown preparation host stage {stage}')
 

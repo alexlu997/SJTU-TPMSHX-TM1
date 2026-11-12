@@ -628,6 +628,52 @@ static int check_v6(void) {
     return 0;
 }
 
+static int check_v7(void) {
+    tpmshx_preparation_flow_input_2d_v3 source = {0}, original;
+    tpmshx_preparation_flow_case_2d_v3 result = {0}, before;
+    tpmshx_preparation_grid_kinds_2d_v7 grid = {0}, original_grid;
+    tpmshx_preparation_case_failure_v2 failure = {0};
+    tpmshx_preparation_case_options_v1 options = {1, sizeof(options), 0, 1, 0.};
+    const tpmshx_preparation_scalar_kind_v2 weak = {64, 0, 0};
+    const tpmshx_preparation_scalar_kind_v2 integer = {8, 2, 1}, half = {16, 1, 1};
+    char error[4096]; size_t side, column;
+    CHECK(tpmshx_preparation_case_abi_version_v7() == 7);
+    source.abi_version = result.abi_version = 3;
+    source.struct_size = sizeof(source); result.struct_size = sizeof(result);
+    source.values.abi_version = failure.abi_version = 2;
+    source.values.struct_size = sizeof(source.values); failure.struct_size = sizeof(failure);
+    source.values.values = input();
+    source.values.values.length_m = 1.; source.values.values.height_m = 2.;
+    source.values.values.requested_nx = source.values.values.requested_ny = 12;
+    source.values.kinds.cell_length = source.values.kinds.wall_thickness = source.values.kinds.solid_conductivity = weak;
+    source.physical_depth_kind = source.target_kinds[0] = source.target_kinds[1] = weak;
+    grid.abi_version = 7; grid.struct_size = sizeof(grid);
+    for (side = 0; side < 2; ++side) {
+        grid.lengths[side] = integer;
+        source.values.kinds.sides[side].velocity = source.values.kinds.sides[side].temperature = source.values.kinds.sides[side].pressure = weak;
+        for (column = 0; column < 4; ++column) grid.ports[side][column] = weak;
+    }
+    source.values.values.sides[0].port.inlet_center_m = source.values.values.sides[0].port.outlet_center_m = 1.;
+    source.values.values.sides[0].port.inlet_width_m = source.values.values.sides[0].port.outlet_width_m = .199951171875;
+    grid.ports[0][0] = grid.ports[0][2] = integer;
+    grid.ports[0][1] = grid.ports[0][3] = half;
+    original = source; original_grid = grid;
+    CHECK(!tpmshx_prepare_flow_case_2d_v7(&source, &grid, &options, NULL, &result, &failure, error, sizeof(error)));
+    CHECK(result.prepared.values.sides[0].inlet_bounds[0] == .89990234375);
+    CHECK(result.prepared.values.sides[0].inlet_bounds[1] == 1.099609375);
+    CHECK(!memcmp(&source, &original, sizeof(source)) && !memcmp(&grid, &original_grid, sizeof(grid)));
+    CHECK(result.owner && !result.prepared.values.owner && !result.flow.owner);
+    tpmshx_preparation_flow_case_2d_release_v3(&result);
+    result.abi_version = 3; result.struct_size = sizeof(result); before = result;
+    CHECK(tpmshx_prepare_flow_case_2d_v7(&source, &grid, &options, NULL, &result, &failure,
+        (char*)&grid, sizeof(grid)) == TPMSHX_PREPARATION_INVALID);
+    CHECK(!memcmp(&grid, &original_grid, sizeof(grid)) && !memcmp(&result, &before, sizeof(result)));
+    CHECK(tpmshx_prepare_flow_case_2d_v7(&source, NULL, &options, NULL, &result, &failure,
+        error, sizeof(error)) == TPMSHX_PREPARATION_INVALID);
+    CHECK(!memcmp(&result, &before, sizeof(result)));
+    return 0;
+}
+
 int main(void) {
     tpmshx_preparation_case_input_2d_v1 source = input(), original = source;
     tpmshx_preparation_case_2d_v1 result = empty_result(), before;
@@ -683,5 +729,6 @@ int main(void) {
     CHECK(!check_v3());
     CHECK(!check_v4());
     CHECK(!check_v5());
-    return check_v6();
+    CHECK(!check_v6());
+    return check_v7();
 }

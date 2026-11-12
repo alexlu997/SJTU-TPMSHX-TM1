@@ -104,11 +104,14 @@ Preparation v6 adds raw air/air sigmoid controls under the same velocity, drag a
 It keeps ordered blending, typed transitions, separate design/thermal geometry and row D-F projection, without Gaussian smoothing.
 An owned LUT can be built from raw geometry or supplied by the caller; each table keeps its interpolation mode.
 The native cold defaults are 41x31 nodes at voxel resolution 256. Python keeps disk and memory cache policy.
-Python preparation uses the owned v3/v4 stages for symmetric uniform and canonical continuous XY 2D inputs.
+Preparation v7 carries domain and port scalar kinds through the same grid, opening and spatial-field owners.
+It keeps v3-v6 payloads and releases; earlier entries retain weak double domain and port values.
+Python preparation uses v7 with owned v3/v4 results for symmetric uniform and canonical continuous XY 2D inputs.
 Nonzero-delta uniform, discrete zones, sigmoid and 3D retain explicit existing routes.
 The adapter preserves CaseData fields, scalar types, events, source ranges and saved model selections.
 The v2 host hook preserves object errors and warning scopes at their original execution points.
 It supplies no numerical values. The v3 hooks exchange completed cache entries and synchronous observations.
+Callback v4 keeps that layout and adds a host-object check immediately before physical grid construction.
 Python retains warning filters, source locations and completed observations after a later failure.
 A native failure never selects another preparation route.
 The replaced continuous Python branches are retired; independent frozen references remain under `development/tests`.

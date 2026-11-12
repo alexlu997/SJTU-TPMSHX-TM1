@@ -120,6 +120,9 @@ Python wheel 包含代码和模型资源，不包含原生库。
 它们复用几何／网格和共享模型实现，链接锁定的 CoolProp 静态库，
 不构建完整求解器或 run_state，也不需要 SuperLU 或 AMG。
 完整构建脚本分别构建 pilot 和 preparation 工程，共用一套物性和 DF 数值实现。
+完整二维准备使用 v7 域长／端口类型描述符及 v3/v4 载荷。
+共享网格和端口核心保留整数与窄浮点混合运算。
+已保存的准备工况继续使用记录的网格，适配器不重建历史网格。
 Python 前处理入口调用独立结果库采集范围记录。准备库本身不链接结果库。
 
 `shared/models/_native_preparation.py` 在需要时通过 ctypes 加载 preparation ABI 1。

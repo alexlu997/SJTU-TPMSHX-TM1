@@ -89,6 +89,13 @@ struct SigmoidInput2D : tpmshx_preparation_sigmoid_input_2d_v6 {
         controls.inlet_transition=controls.outlet_transition={.2,64,0};
     }
 };
+struct GridKinds2D : tpmshx_preparation_grid_kinds_2d_v7 {
+    GridKinds2D():tpmshx_preparation_grid_kinds_2d_v7{} {
+        abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V7;struct_size=sizeof(tpmshx_preparation_grid_kinds_2d_v7);
+        for (auto& value:lengths) value={64,0,0};
+        for (auto& side:ports) for (auto& value:side) value={64,0,0};
+    }
+};
 struct RunRequest2D : tpmshx_stage_run_request_2d_v1 {
     RunRequest2D():tpmshx_stage_run_request_2d_v1{} {
         abi_version=TPMSHX_STAGE_RUN_ABI_VERSION;struct_size=sizeof(tpmshx_stage_run_request_2d_v1);
@@ -185,6 +192,78 @@ inline PreparedContinuousCase2D prepare_case(const ContinuousInput2D& input,cons
     failure.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V2;failure.struct_size=sizeof(failure);
     char error[4096]{};
     detail::check(tpmshx_prepare_flow_case_2d_v4(&input,&options,nullptr,&output,&failure,error,sizeof(error)),error);
+    return PreparedContinuousCase2D(output);
+}
+inline PreparedZonedCase2D prepare_case(const ZonedInput2D& input,const GridKinds2D& grid,
+    const PreparationOptions& options) {
+    tpmshx_preparation_zoned_case_2d_v5 output{};tpmshx_preparation_case_failure_v2 failure{};
+    output.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V5;output.struct_size=sizeof(output);
+    failure.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V2;failure.struct_size=sizeof(failure);
+    char error[4096]{};
+    detail::check(tpmshx_prepare_zoned_case_2d_v7(&input,&grid,&options,nullptr,&output,&failure,error,sizeof(error)),error);
+    return PreparedZonedCase2D(output);
+}
+inline PreparedSigmoidCase2D prepare_case(const SigmoidInput2D& input,const GridKinds2D& grid,
+    const PreparationOptions& options) {
+    tpmshx_preparation_sigmoid_case_2d_v6 output{};tpmshx_preparation_case_failure_v2 failure{};
+    output.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V6;output.struct_size=sizeof(output);
+    failure.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V2;failure.struct_size=sizeof(failure);
+    char error[4096]{};
+    detail::check(tpmshx_prepare_sigmoid_case_2d_v7(&input,&grid,&options,nullptr,&output,&failure,error,sizeof(error)),error);
+    return PreparedSigmoidCase2D(output);
+}
+inline InletFlow2D prepare_inlet_mass_capacities(const FlowInput2D& input,const GridKinds2D& grid,
+    const PreparationOptions& options) {
+    tpmshx_preparation_flow_2d_v3 output{};tpmshx_preparation_case_failure_v2 failure{};
+    output.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V3;output.struct_size=sizeof(output);
+    failure.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V2;failure.struct_size=sizeof(failure);
+    char error[4096]{};
+    detail::check(tpmshx_prepare_inlet_mass_capacities_2d_v7(&input,&grid,&options,nullptr,&output,&failure,error,sizeof(error)),error);
+    return InletFlow2D(output);
+}
+inline InletFlow2D resolve_inlet_flow(const FlowInput2D& input,const GridKinds2D& grid,
+    const PreparationOptions& options) {
+    tpmshx_preparation_flow_2d_v3 output{};tpmshx_preparation_case_failure_v2 failure{};
+    output.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V3;output.struct_size=sizeof(output);
+    failure.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V2;failure.struct_size=sizeof(failure);
+    char error[4096]{};
+    detail::check(tpmshx_resolve_inlet_flow_2d_v7(&input,&grid,&options,nullptr,&output,&failure,error,sizeof(error)),error);
+    return InletFlow2D(output);
+}
+inline PreparedFlowCase2D prepare_case(const FlowInput2D& input,const GridKinds2D& grid,
+    const PreparationOptions& options) {
+    tpmshx_preparation_flow_case_2d_v3 output{};tpmshx_preparation_case_failure_v2 failure{};
+    output.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V3;output.struct_size=sizeof(output);
+    failure.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V2;failure.struct_size=sizeof(failure);
+    char error[4096]{};
+    detail::check(tpmshx_prepare_flow_case_2d_v7(&input,&grid,&options,nullptr,&output,&failure,error,sizeof(error)),error);
+    return PreparedFlowCase2D(output);
+}
+inline ContinuousInletFlow2D prepare_inlet_mass_capacities(const ContinuousInput2D& input,const GridKinds2D& grid,
+    const PreparationOptions& options) {
+    tpmshx_preparation_continuous_flow_2d_v4 output{};tpmshx_preparation_case_failure_v2 failure{};
+    output.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V4;output.struct_size=sizeof(output);
+    failure.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V2;failure.struct_size=sizeof(failure);
+    char error[4096]{};
+    detail::check(tpmshx_prepare_continuous_inlet_mass_capacities_2d_v7(&input,&grid,&options,nullptr,&output,&failure,error,sizeof(error)),error);
+    return ContinuousInletFlow2D(output);
+}
+inline ContinuousInletFlow2D resolve_inlet_flow(const ContinuousInput2D& input,const GridKinds2D& grid,
+    const PreparationOptions& options) {
+    tpmshx_preparation_continuous_flow_2d_v4 output{};tpmshx_preparation_case_failure_v2 failure{};
+    output.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V4;output.struct_size=sizeof(output);
+    failure.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V2;failure.struct_size=sizeof(failure);
+    char error[4096]{};
+    detail::check(tpmshx_resolve_continuous_inlet_flow_2d_v7(&input,&grid,&options,nullptr,&output,&failure,error,sizeof(error)),error);
+    return ContinuousInletFlow2D(output);
+}
+inline PreparedContinuousCase2D prepare_case(const ContinuousInput2D& input,const GridKinds2D& grid,
+    const PreparationOptions& options) {
+    tpmshx_preparation_continuous_case_2d_v4 output{};tpmshx_preparation_case_failure_v2 failure{};
+    output.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V4;output.struct_size=sizeof(output);
+    failure.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V2;failure.struct_size=sizeof(failure);
+    char error[4096]{};
+    detail::check(tpmshx_prepare_continuous_flow_case_2d_v7(&input,&grid,&options,nullptr,&output,&failure,error,sizeof(error)),error);
     return PreparedContinuousCase2D(output);
 }
 inline RunResult2D run_case(const PreparedCase2D& prepared,const RunControl& control,const RunRequest2D& request={}) {
