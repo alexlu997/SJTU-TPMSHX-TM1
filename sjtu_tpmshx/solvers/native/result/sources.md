@@ -79,6 +79,8 @@ Fixed named host callbacks retain only Python value protocols at the native-sele
 Object equality and inequality use separate callbacks. String subclasses retain their original comparison operators.
 Deferred conversion errors and NumPy callbacks are consumed at the original metric or qualification boundary.
 Uncaught host exceptions return their original token. Stage outputs are released through their originating library.
+Stage calls reject a wrong output size or an owner that was not released.
+Those rejected calls leave borrowed inputs, the old output, error text and host diagnostics unchanged.
 Only the symbols in `result.exports` and `result.map` are public.
 There is no public arithmetic opcode evaluator or callback that supplies complete metrics.
 

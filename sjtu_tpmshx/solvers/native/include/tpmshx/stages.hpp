@@ -1,5 +1,6 @@
 #pragma once
 #include "tpmshx/stage_run_c_api.h"
+#include "tpmshx/preparation_case_3d_c_api.h"
 #include "tpmshx/quick_design_stage_c_api.h"
 #include <algorithm>
 #include <stdexcept>
@@ -40,7 +41,13 @@ using InletFlow2D=detail::Owned<tpmshx_preparation_flow_2d_v3,tpmshx_preparation
 using PreparedFlowCase2D=detail::Owned<tpmshx_preparation_flow_case_2d_v3,tpmshx_preparation_flow_case_2d_release_v3>;
 using ContinuousInletFlow2D=detail::Owned<tpmshx_preparation_continuous_flow_2d_v4,tpmshx_preparation_continuous_flow_2d_release_v4>;
 using PreparedContinuousCase2D=detail::Owned<tpmshx_preparation_continuous_case_2d_v4,tpmshx_preparation_continuous_case_2d_release_v4>;
+using PreparedCase3D=detail::Owned<tpmshx_preparation_case_3d_v1,tpmshx_preparation_case_3d_release_v1>;
+using InletFlow3D=detail::Owned<tpmshx_preparation_flow_3d_v2,tpmshx_preparation_flow_3d_release_v2>;
+using PreparedFlowCase3D=detail::Owned<tpmshx_preparation_flow_case_3d_v2,tpmshx_preparation_flow_case_3d_release_v2>;
+using ContinuousInletFlow3D=detail::Owned<tpmshx_preparation_continuous_flow_3d_v3,tpmshx_preparation_continuous_flow_3d_release_v3>;
+using PreparedContinuousCase3D=detail::Owned<tpmshx_preparation_continuous_case_3d_v3,tpmshx_preparation_continuous_case_3d_release_v3>;
 using RunResult2D=detail::Owned<tpmshx_stage_run_result_2d_v1,tpmshx_stage_run_2d_release_v1>;
+using RunState=detail::Owned<tpmshx_run_state_v1,tpmshx_run_state_release_v1>;
 using Evaluation=detail::Owned<tpmshx_stage_output_v1,tpmshx_result_stage_release_v1>;
 
 struct CaseInput2D : tpmshx_preparation_case_input_2d_v1 {
@@ -59,6 +66,28 @@ struct CaseInput2Dv2 : tpmshx_preparation_case_input_2d_v2 {
         values=CaseInput2D{};
         kinds.cell_length=kinds.wall_thickness=kinds.solid_conductivity={64,0,0};
         for (auto& side:kinds.sides) side.velocity=side.temperature=side.pressure={64,0,0};
+    }
+};
+struct CaseInput3D : tpmshx_preparation_case_input_3d_v1 {
+    CaseInput3D():tpmshx_preparation_case_input_3d_v1{} {
+        abi_version=TPMSHX_PREPARATION_CASE_3D_ABI_VERSION;struct_size=sizeof(tpmshx_preparation_case_input_3d_v1);
+        max_cells=2000000;
+        for (auto& length:lengths_m) length={0.,64,0};
+        kinds.cell_length=kinds.wall_thickness=kinds.solid_conductivity={64,0,0};
+        for (auto& side:kinds.sides) side.velocity=side.temperature=side.pressure={64,0,0};
+        for (auto& side:sides) side.port.active=1;
+    }
+};
+struct FlowInput3D : tpmshx_preparation_flow_input_3d_v2 {
+    FlowInput3D():tpmshx_preparation_flow_input_3d_v2{} {
+        abi_version=TPMSHX_PREPARATION_FLOW_3D_ABI_VERSION;struct_size=sizeof(tpmshx_preparation_flow_input_3d_v2);
+        input=CaseInput3D{};target_kinds[0]=target_kinds[1]={64,0,0};
+    }
+};
+struct ContinuousInput3D : tpmshx_preparation_continuous_input_3d_v3 {
+    ContinuousInput3D():tpmshx_preparation_continuous_input_3d_v3{} {
+        abi_version=TPMSHX_PREPARATION_CONTINUOUS_3D_ABI_VERSION;struct_size=sizeof(tpmshx_preparation_continuous_input_3d_v3);
+        values=FlowInput3D{};values.input.geometry_mode=1;
     }
 };
 struct FlowInput2D : tpmshx_preparation_flow_input_2d_v3 {
@@ -90,6 +119,80 @@ struct RunControl : tpmshx_stage_run_control_v1 {
         const auto logical=std::thread::hardware_concurrency();cpu_threads=std::min(8u,logical?logical:1u);
     }
 };
+struct RunRequest2Dv3 : tpmshx_stage_run_request_2d_v3 {
+    RunRequest2Dv3():tpmshx_stage_run_request_2d_v3{} {
+        abi_version=TPMSHX_STAGE_RUN_ABI_VERSION_V3;struct_size=sizeof(tpmshx_stage_run_request_2d_v3);
+        values=RunRequest2Dv2{};
+    }
+};
+struct SavedCase2D : tpmshx_stage_saved_case_2d_v1 {
+    SavedCase2D():tpmshx_stage_saved_case_2d_v1{} {
+        reference_cell_kind={64,0,0};cell_field_kind=hydraulic_diameter_kind={64,1,2};
+        abi_version=TPMSHX_STAGE_RUN_ABI_VERSION;struct_size=sizeof(tpmshx_stage_saved_case_2d_v1);
+        inlet_recorded=1;
+    }
+};
+inline tpmshx_stage_capture_2d_v1 capture_summary(const RunResult2D& result,
+    const tpmshx_stage_application_2d_v1& application) {
+    tpmshx_stage_capture_2d_v1 output{};
+    detail::check(tpmshx_stage_run_2d_get_capture_v1(&result.view(),&application,&output),
+        "native 2D capture summary failed");
+    return output;
+}
+
+// Keep the prepared owner alive and unchanged until take_result or release.
+class Run2D {
+public:
+    Run2D(const PreparedCase2Dv2& prepared,const RunControl& control,const RunRequest2Dv3& request={},
+        const RunState* state=nullptr):Run2D(&prepared.view(),nullptr,control,request,state) {}
+    Run2D(const PreparedFlowCase2D& prepared,const RunControl& control,const RunRequest2Dv3& request={},
+        const RunState* state=nullptr):Run2D(&prepared.view().prepared,nullptr,control,request,state) {}
+    Run2D(const PreparedContinuousCase2D& prepared,const RunControl& control,const RunRequest2Dv3& request={},
+        const RunState* state=nullptr):Run2D(nullptr,&prepared.view(),control,request,state) {}
+    Run2D(const tpmshx_stage_saved_case_2d_v1& saved,const RunControl& control,const RunRequest2Dv3& request={},
+        const RunState* state=nullptr) {
+        char error[4096]{};
+        const auto status=state?tpmshx_stage_run_2d_restore_saved_v1(&saved,&request,&control,
+            state->view().fields,state->view().count,&run_,error,sizeof(error)):
+            tpmshx_stage_run_2d_create_saved_v1(&saved,&request,&control,&run_,error,sizeof(error));
+        detail::check(status,error);
+    }
+    ~Run2D() {tpmshx_stage_run_2d_release_run_v1(&run_);}
+    Run2D(const Run2D&)=delete;
+    Run2D& operator=(const Run2D&)=delete;
+    Run2D(Run2D&& other) noexcept:run_(std::exchange(other.run_,nullptr)) {}
+    Run2D& operator=(Run2D&& other) noexcept {
+        if(this!=&other) {tpmshx_stage_run_2d_release_run_v1(&run_);run_=std::exchange(other.run_,nullptr);}
+        return *this;
+    }
+    uint32_t phase() const {
+        uint32_t value=0;
+        detail::check(tpmshx_stage_run_2d_phase_v1(run_,&value),"invalid stage run");return value;
+    }
+    uint32_t advance_step() {
+        uint32_t value=0;char error[4096]{};
+        detail::check(tpmshx_stage_run_2d_advance_step_v1(run_,&value,error,sizeof(error)),error);return value;
+    }
+    RunState snapshot() const {
+        tpmshx_run_state_v1 value{};char error[4096]{};
+        detail::check(tpmshx_stage_run_2d_snapshot_v1(run_,&value,error,sizeof(error)),error);return RunState(value);
+    }
+    RunResult2D take_result() {
+        tpmshx_stage_run_result_2d_v1 value{};char error[4096]{};
+        value.abi_version=TPMSHX_STAGE_RUN_ABI_VERSION;value.struct_size=sizeof(value);
+        detail::check(tpmshx_stage_run_2d_take_result_v1(run_,&value,error,sizeof(error)),error);return RunResult2D(value);
+    }
+private:
+    Run2D(const tpmshx_preparation_case_2d_v2* prepared,const tpmshx_preparation_continuous_case_2d_v4* continuous,
+        const RunControl& control,const RunRequest2Dv3& request,const RunState* state) {
+        char error[4096]{};
+        const auto status=state?tpmshx_stage_run_2d_restore_v1(prepared,continuous,&request,&control,
+            state->view().fields,state->view().count,&run_,error,sizeof(error)):
+            tpmshx_stage_run_2d_create_v1(prepared,continuous,&request,&control,&run_,error,sizeof(error));
+        detail::check(status,error);
+    }
+    void* run_=nullptr;
+};
 inline PreparedCase2D prepare_case(const CaseInput2D& input,const PreparationOptions& options={}) {
     tpmshx_preparation_case_2d_v1 output{};
     output.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION;output.struct_size=sizeof(output);
@@ -104,6 +207,62 @@ inline PreparedCase2Dv2 prepare_case(const CaseInput2Dv2& input,const Preparatio
     char error[4096]{};
     detail::check(tpmshx_prepare_case_2d_v2(&input,&options,nullptr,&output,&failure,error,sizeof(error)),error);
     return PreparedCase2Dv2(output);
+}
+inline PreparedCase3D prepare_case(const CaseInput3D& input,const PreparationOptions& options={}) {
+    tpmshx_preparation_case_3d_v1 output{};tpmshx_preparation_case_failure_v2 failure{};
+    output.abi_version=TPMSHX_PREPARATION_CASE_3D_ABI_VERSION;output.struct_size=sizeof(output);
+    failure.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V2;failure.struct_size=sizeof(failure);
+    char error[4096]{};
+    detail::check(tpmshx_prepare_case_3d_v1(&input,&options,nullptr,&output,&failure,error,sizeof(error)),error);
+    return PreparedCase3D(output);
+}
+inline InletFlow3D prepare_inlet_mass_capacities(const FlowInput3D& input,const PreparationOptions& options={}) {
+    tpmshx_preparation_flow_3d_v2 output{};tpmshx_preparation_case_failure_v2 failure{};
+    output.abi_version=TPMSHX_PREPARATION_FLOW_3D_ABI_VERSION;output.struct_size=sizeof(output);
+    failure.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V2;failure.struct_size=sizeof(failure);
+    char error[4096]{};
+    detail::check(tpmshx_prepare_inlet_mass_capacities_3d_v2(&input,&options,nullptr,&output,&failure,error,sizeof(error)),error);
+    return InletFlow3D(output);
+}
+inline InletFlow3D resolve_inlet_flow(const FlowInput3D& input,const PreparationOptions& options={}) {
+    tpmshx_preparation_flow_3d_v2 output{};tpmshx_preparation_case_failure_v2 failure{};
+    output.abi_version=TPMSHX_PREPARATION_FLOW_3D_ABI_VERSION;output.struct_size=sizeof(output);
+    failure.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V2;failure.struct_size=sizeof(failure);
+    char error[4096]{};
+    detail::check(tpmshx_resolve_inlet_flow_3d_v2(&input,&options,nullptr,&output,&failure,error,sizeof(error)),error);
+    return InletFlow3D(output);
+}
+inline PreparedFlowCase3D prepare_case(const FlowInput3D& input,const PreparationOptions& options={}) {
+    tpmshx_preparation_flow_case_3d_v2 output{};tpmshx_preparation_case_failure_v2 failure{};
+    output.abi_version=TPMSHX_PREPARATION_FLOW_3D_ABI_VERSION;output.struct_size=sizeof(output);
+    failure.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V2;failure.struct_size=sizeof(failure);
+    char error[4096]{};
+    detail::check(tpmshx_prepare_flow_case_3d_v2(&input,&options,nullptr,&output,&failure,error,sizeof(error)),error);
+    return PreparedFlowCase3D(output);
+}
+inline ContinuousInletFlow3D prepare_inlet_mass_capacities(const ContinuousInput3D& input,const PreparationOptions& options={}) {
+    tpmshx_preparation_continuous_flow_3d_v3 output{};tpmshx_preparation_case_failure_v2 failure{};
+    output.abi_version=TPMSHX_PREPARATION_CONTINUOUS_3D_ABI_VERSION;output.struct_size=sizeof(output);
+    failure.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V2;failure.struct_size=sizeof(failure);
+    char error[4096]{};
+    detail::check(tpmshx_prepare_inlet_mass_capacities_3d_v3(&input,&options,nullptr,&output,&failure,error,sizeof(error)),error);
+    return ContinuousInletFlow3D(output);
+}
+inline ContinuousInletFlow3D resolve_inlet_flow(const ContinuousInput3D& input,const PreparationOptions& options={}) {
+    tpmshx_preparation_continuous_flow_3d_v3 output{};tpmshx_preparation_case_failure_v2 failure{};
+    output.abi_version=TPMSHX_PREPARATION_CONTINUOUS_3D_ABI_VERSION;output.struct_size=sizeof(output);
+    failure.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V2;failure.struct_size=sizeof(failure);
+    char error[4096]{};
+    detail::check(tpmshx_resolve_inlet_flow_3d_v3(&input,&options,nullptr,&output,&failure,error,sizeof(error)),error);
+    return ContinuousInletFlow3D(output);
+}
+inline PreparedContinuousCase3D prepare_case(const ContinuousInput3D& input,const PreparationOptions& options={}) {
+    tpmshx_preparation_continuous_case_3d_v3 output{};tpmshx_preparation_case_failure_v2 failure{};
+    output.abi_version=TPMSHX_PREPARATION_CONTINUOUS_3D_ABI_VERSION;output.struct_size=sizeof(output);
+    failure.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V2;failure.struct_size=sizeof(failure);
+    char error[4096]{};
+    detail::check(tpmshx_prepare_flow_case_3d_v3(&input,&options,nullptr,&output,&failure,error,sizeof(error)),error);
+    return PreparedContinuousCase3D(output);
 }
 inline InletFlow2D prepare_inlet_mass_capacities(const FlowInput2D& input,const PreparationOptions& options={}) {
     tpmshx_preparation_flow_2d_v3 output{};tpmshx_preparation_case_failure_v2 failure{};
@@ -165,6 +324,20 @@ inline RunResult2D run_case(const PreparedCase2Dv2& prepared,const RunControl& c
     output.abi_version=TPMSHX_STAGE_RUN_ABI_VERSION;output.struct_size=sizeof(output);
     char error[4096]{};
     detail::check(tpmshx_run_case_2d_v2(&prepared.view(),&request,&control,&output,error,sizeof(error)),error);
+    return RunResult2D(output);
+}
+inline RunResult2D run_case(const PreparedFlowCase2D& prepared,const RunControl& control,const RunRequest2Dv2& request={}) {
+    tpmshx_stage_run_result_2d_v1 output{};
+    output.abi_version=TPMSHX_STAGE_RUN_ABI_VERSION;output.struct_size=sizeof(output);
+    char error[4096]{};
+    detail::check(tpmshx_run_case_2d_v2(&prepared.view().prepared,&request,&control,&output,error,sizeof(error)),error);
+    return RunResult2D(output);
+}
+inline RunResult2D run_case(const PreparedContinuousCase2D& prepared,const RunControl& control,const RunRequest2Dv2& request={}) {
+    tpmshx_stage_run_result_2d_v1 output{};
+    output.abi_version=TPMSHX_STAGE_RUN_ABI_VERSION;output.struct_size=sizeof(output);
+    char error[4096]{};
+    detail::check(tpmshx_run_case_2d_v3(&prepared.view(),&request,&control,&output,error,sizeof(error)),error);
     return RunResult2D(output);
 }
 inline Evaluation evaluate(const RunResult2D& result,const tpmshx_stage_metric_spec_v1* metric=nullptr) {

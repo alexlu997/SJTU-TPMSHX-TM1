@@ -33,11 +33,21 @@ Its initial complete path supports uniform symmetric 2D air/air with prescribed 
 Preparation v2 adds all 16 ordered air/water/sCO2/CO2 pairs for uniform symmetric 2D geometry and prescribed velocity.
 Preparation v3 adds independent capacity, inlet-flow resolution and complete preparation for uniform 2D total mass flow.
 It reuses the physical inlet grid and keeps preliminary records separate from final preparation evidence.
-Preparation v4 adds canonical continuous XY fields and full local drag.
+Run v2 supports uniform four-fluid preparation, including resolved total mass flow.
+Preparation v4 supplies continuous XY fields and full local drag to run v3. Run v1 keeps its air/air CFD scope.
+Separate 3D preparation v1 accepts raw symmetric uniform inputs at prescribed speeds for all 16 ordered fluid pairs.
+It retains physical grids, typed ports, six directions, the cell cap and existing CFD/experimental limits.
+Side porosity is already split; base K/cF fields and side application factors remain separate.
+Separate 3D flow v2 adds capacity queries, total-flow resolution and complete preparation with one geometry calculation.
+Continuous 3D v3 prepares raw XY extrusion and XYZ controls, with capacity queries and total-flow resolution.
+3D run/capture, grid zones, asymmetric fields and host cache hooks remain separate integration gates.
+Memory use near the cell cap and real 3D BO need separate acceptance.
+The Python entries above retain all current modes while stage migration continues.
 The Python preparation entries use v3/v4 for symmetric uniform and continuous 2D inputs.
 Nonzero-delta uniform, discrete zones, sigmoid and 3D keep their explicit existing routes.
 CaseData and saved-file contracts stay unchanged. Native failures propagate without another preparation route.
-Run v2 consumes preparation v2 through the existing model-h or true-h driver.
+Symmetric uniform and continuous 2D execution uses the saved native lifecycle, including checkpoints and complete result capture.
+Archived selected libraries and unported modes keep their existing execution protocol.
 Quick Design preparation v2 accepts typed raw inputs and provides a separate pressure query without thermal grid or design-field arrays.
 Python uses `_native_quick_prepare.py` for fixed host protocols and copies native output into CaseData.
 The replaced `shared/models/quick_design.py` is removed. Defaults come from `shared/configs/model_parameters_v1.json` and generated C++ constants.
@@ -60,7 +70,7 @@ Use this table to find the C++ owner of a numerical rule.
 | Fixed DF, corrections, projection and prescribed flow | [preparation_df.cpp](solvers/native/src/preparation_df.cpp): `fixed_df`; [preparation_df_corrections.cpp](solvers/native/src/preparation_df_corrections.cpp); [preparation_df_projection.cpp](solvers/native/src/preparation_df_projection.cpp); [preparation_flow.cpp](solvers/native/src/preparation_flow.cpp): `inlet_capacity_2d`, `inlet_speed` |
 | Full 2D/3D and Quick Design | [full_2d.cpp](solvers/native/src/full_2d.cpp): `solve_full_2d`; [full_3d.cpp](solvers/native/src/full_3d.cpp): `solve_full_3d`; [quick_design_driver.cpp](solvers/native/src/quick_design_driver.cpp): `solve_quick_design` |
 | Metrics, physical balances, zone statistics and checks | [result_metrics.cpp](solvers/native/src/result_metrics.cpp): `pressure_face`, `boundary_enthalpy_duty`; [result_balance.cpp](solvers/native/src/result_balance.cpp): `mass`, `energy`, `zone_std`; [result_checks.cpp](solvers/native/src/result_checks.cpp): `collect_range`, `strict_certificate` |
-| Complete stage preparation and execution | [preparation_case.cpp](solvers/native/src/preparation_case.cpp): `prepare_case_2d`; [stage_run.cpp](solvers/native/src/stage_run.cpp): `tpmshx_run_case_2d_v1`, `tpmshx_run_case_2d_v2`; [stage_capture_2d.cpp](solvers/native/src/stage_capture_2d.cpp) |
+| Complete stage preparation and execution | [preparation_case.cpp](solvers/native/src/preparation_case.cpp): `prepare_case_2d`, `prepare_case_3d`; [stage_run.cpp](solvers/native/src/stage_run.cpp): `tpmshx_run_case_2d_v1/v2/v3`, `tpmshx_stage_run_2d_create_v1/create_saved_v1`; [stage_capture_2d.cpp](solvers/native/src/stage_capture_2d.cpp): `tpmshx_stage_run_2d_get_capture_v1` |
 | Quick Design stage preparation and execution | [quick_design_prepare_v2.cpp](solvers/native/src/quick_design_prepare_v2.cpp): `tpmshx_prepare_quick_design_v2`, `tpmshx_quick_pressure_fractions_v2`; [quick_design_prepare.cpp](solvers/native/src/quick_design_prepare.cpp): kept v1; [quick_design_run.cpp](solvers/native/src/quick_design_run.cpp): `tpmshx_run_quick_design_v1` |
 | Stage evaluation and qualification | [result_stage.cpp](solvers/native/src/result_stage.cpp): `evaluate`, `evaluate_applicability`, `evaluate_physical_balance`, `evaluate_qualification` |
 

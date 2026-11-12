@@ -85,19 +85,34 @@ Separate result publication builds no solver, run_state, CoolProp or generated c
 Linux x86_64 supports independent result evaluation. Full-solver platforms remain macOS arm64 and Windows x64.
 
 The [native stage SDK](native-stages.md) adds an owned preparation state, a run result and independent evaluation.
-Preparation v1 and the run path support uniform symmetric 2D air/air with prescribed velocity and CFD drag.
+Preparation v1 and run v1 support uniform symmetric 2D air/air with prescribed velocity and CFD drag.
 Preparation v2 supports all 16 ordered air/water/sCO2/CO2 pairs in the same geometry and inlet mode.
 It retains existing experimental DF/Nu selections, state failures and evidence.
 Its scalar tags retain field precision. Run v2 consumes this state through the
 existing model-h or true-h route and records the actual thermal evidence.
 Preparation v3 adds independent capacity, inlet-flow resolution and complete preparation for uniform 2D total mass flow.
 It reuses physical inlet geometry and keeps preliminary evidence separate from final preparation evidence.
-The existing v1/v2 C layouts, Python production entries and run interface are unchanged.
+The existing v1/v2 C layouts and public Python interfaces are unchanged.
 Preparation v4 adds canonical continuous XY controls to capacity, resolution and complete preparation.
 It samples the physical grid with the existing spline and geometry cores, then retains full local drag.
 Its prepared view adds only area density, original hydraulic diameter and the two fluid conductivities.
 Experimental transfer keeps the current Shanghai contract, separate early range labels and final application metadata.
-No v1/v2/v3 C layout changes.
+Run v3 consumes this continuous state with the existing full 2D driver.
+It preserves local drag, original hydraulic diameter, unit order and nominal reference geometry.
+Resolved uniform flow cases use run v2. Both routes retain the v1 result owner.
+No v1/v2/v3 preparation C layout changes.
+The separate `tpmshx_prepare_case_3d_v1` prepares raw symmetric uniform 3D inputs at prescribed inlet speeds.
+It supports both topologies and all 16 fluid pairs with existing CFD or experimental DF limits.
+The owned state retains physical `(x,y,z)` fields, typed ports, axis maps for six directions and model evidence.
+Side porosity is already split. Base K/cF fields remain unscaled; side evidence retains the application factors.
+The host supplies the resolved cell cap. This interface uses v1 event callbacks without host cache hooks.
+The separate 3D flow v2 reuses that geometry for capacity, flow resolution and complete preparation.
+It integrates side porosity on the actual inlet face and keeps static evidence before resolved-speed checks.
+The 3D continuous v3 accepts XY extrusion or XYZ controls for the same three flow operations.
+It samples final physical centres and retains raw design geometry separately from the thermal SI round trip.
+Full local K/cF and side porosity keep their original meaning. Existing v1/v2 layouts remain unchanged.
+3D run/capture integration, grid zones and asymmetric preparation remain separate gates.
+Memory use near the cell cap and real 3D BO also need separate acceptance.
 Python preparation uses the owned v3/v4 stages for symmetric uniform and canonical continuous XY 2D inputs.
 Nonzero-delta uniform, discrete zones, sigmoid and 3D retain explicit existing routes.
 The adapter preserves CaseData fields, scalar types, events, source ranges and saved model selections.
@@ -106,9 +121,20 @@ It supplies no numerical values. The v3 hooks exchange completed cache entries a
 Python retains warning filters, source locations and completed observations after a later failure.
 A native failure never selects another preparation route.
 The replaced continuous Python branches are retired; independent frozen references remain under `development/tests`.
-`preparation_case.cpp` owns that complete preparation sequence.
+`preparation_case.cpp` owns the 2D preparation sequences and the uniform or continuous 3D sequences.
 `stage_run.cpp` adapts it to the existing full 2D driver.
+Its lifecycle interface uses the same full 2D run object, typed snapshots and restore checks.
+Partial energy controls use defaults from the selected library.
+Preparation evidence remains borrowed until result transfer or run release.
 `stage_capture_2d.cpp` records the actual run evidence for `result_stage.cpp`.
+Its scalar capture query reuses static result arithmetic and separate saved application properties.
+The existing raw result remains the owner of fields, histories and numerical ledgers.
+Symmetric uniform and continuous 2D Python runs use the same native lifecycle through the saved-input interface.
+`prepared_stage_2d.py` borrows validated CaseData. `full_2d_stage.py` binds runs, snapshots and capture.
+It does not prepare saved cases again. Missing ranges, uncaptured samples, uniform local drag and optional thermal geometry stay distinct.
+The selected library capability and geometry mode select the protocol before execution. Archived libraries and unported modes retain their existing interfaces.
+Missing new-protocol symbols and execution failures are errors. They do not start another run through the old route.
+The single `FieldResult` assembler is in `full_2d_capture.py`. It preserves warning and application-property check order.
 The installed C ABI and `stages.hpp` support external C++ callers.
 Quick Design preparation v2 accepts typed raw operating points.
 `quick_design_prepare_v2.cpp` owns the complete numerical sequence, including geometry, grids, inlet properties and analytical D-F pressure fractions.
@@ -711,7 +737,7 @@ Temperature is not scaled. FullCC nonzero sources stay
   `prepared_models.py` owns shared resource-role, fluid, Nu-setting and topology checks.
   Each builder keeps its check order and dimension-specific grid, port and design validation.
   Callers can request writable design copies; the binding borrows immutable arrays through the same checks.
-  `solvers/backends/capture_2d.py` captures portable native 2D evidence. Numerical drivers remain in C++.
+  `solvers/backends/cpp/full_2d_capture.py` captures portable native 2D evidence. Numerical drivers remain in C++.
 - `applications/gui/ui/` owns PySide6 and PyVista presentation only. `ResultCache` owns one published `ComputeResult` for the accepted dimension.
   Both dimensions publish separate scalar, metadata, diagnostic and warning containers while sharing field arrays.
   The footer, history, diagnostic text, plots and exports read this result. Display timing is added to its metadata after publication.

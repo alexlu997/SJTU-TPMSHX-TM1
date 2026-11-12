@@ -1,4 +1,5 @@
 #include "tpmshx/preparation_case_c_api.h"
+#include "tpmshx/preparation_case_3d_c_api.h"
 #include "tpmshx/preparation_case.hpp"
 #include "preparation_c_boundary.hpp"
 #include "preparation_properties.hpp"
@@ -121,18 +122,20 @@ struct EvidenceViews {
         for (const auto& event:evidence.events) events.push_back(event_view(event));
     }
 };
-struct Owner {
-    p::PreparedCase2D value;
+template<class Prepared> struct CaseOwner {
+    Prepared value;
     EvidenceViews evidence;
     std::vector<tpmshx_preparation_text_v1> notices;
     std::array<std::vector<tpmshx_preparation_text_field_v2>,2> calibration;
-    explicit Owner(p::PreparedCase2D prepared):value(std::move(prepared)),evidence(value.evidence) {
+    explicit CaseOwner(Prepared prepared):value(std::move(prepared)),evidence(value.evidence) {
         for (const auto& notice:value.evidence.notices) notices.push_back(text(notice));
         for (std::size_t i=0;i<2;++i)
             for (const auto& item:value.sides[i].drag_evidence.calibration)
                 calibration[i].push_back({text(item[0]),text(item[1])});
     }
 };
+using Owner=CaseOwner<p::PreparedCase2D>;
+using Owner3D=CaseOwner<p::PreparedCase3D>;
 struct FlowOwner {
     p::InletFlow2D value;
     EvidenceViews evidence;
@@ -160,14 +163,12 @@ void host_callback_version(const tpmshx_preparation_case_callbacks_v1* callbacks
             throw std::invalid_argument("preparation host callback struct size is invalid");
     } else version(callbacks);
 }
-struct FlowCallbackContext {
-    const tpmshx_preparation_case_callbacks_v1* callbacks;
+struct FlowOutputStorage {
     const unsigned char* result;
     std::size_t result_bytes;
     tpmshx_preparation_case_failure_v2* failure;
     char* error;
     std::size_t error_bytes;
-    bool storage_safe=true;
 
     template<class T> void borrowed(const T* pointer,std::size_t count) const {
         require_buffer(pointer,count);
@@ -189,6 +190,51 @@ struct FlowCallbackContext {
             borrowed(value.events[i].logger);borrowed(value.events[i].message);
         }
     }
+    void borrowed(tpmshx_preparation_array_v1 value) const {borrowed(value.data,value.size);}
+    void owned(const tpmshx_preparation_case_input_2d_v2& value) const {
+        for (const auto item:{value.sco2_nu.parameter_version,value.sco2_nu.source,value.sco2_nu.applicability}) borrowed(item);
+    }
+    void owned(const tpmshx_preparation_case_2d_v2& value) const {
+        const auto& base=value.values;
+        for (const auto item:{base.dx,base.dy,base.x_edges,base.y_edges,base.x_breaks,base.y_breaks,
+            base.cell_length,base.wall_thickness,base.total_porosity,base.solid_conductivity,base.hydraulic_radius}) borrowed(item);
+        for (const auto& side:base.sides) {
+            for (const auto item:{side.cross_widths,side.stream_widths,side.row_permeability,side.row_forchheimer,
+                side.permeability,side.forchheimer,side.inlet_geometry,side.outlet_geometry,
+                side.inlet_profile,side.outlet_profile,side.outlet_u_fraction}) borrowed(item);
+            borrowed(side.drag_evidence.campaign);borrowed(side.drag_evidence.scope);
+        }
+        for (const auto& model:base.models) {borrowed(model.name);borrowed(model.version);borrowed(model.side);}
+        evidence({base.ranges,base.range_count,value.range_bounds_list,
+            base.warnings,base.warning_count,base.events,base.event_count});
+        for (const auto item:{value.sco2_nu.parameter_version,value.sco2_nu.source,value.sco2_nu.applicability,
+            value.sco2_nu_model_version,value.sco2_nu_interpretation,value.co2.version,value.co2.application_version,
+            value.co2.pressure_model,value.co2.correction_source,value.co2.property_model,value.co2.common_geometry}) borrowed(item);
+        for (const auto& drag:value.drag) {
+            borrowed(drag.application_scope);borrowed(drag.fluid);borrowed(drag.calibration,drag.calibration_count);
+            for (std::size_t i=0;i<drag.calibration_count;++i) {
+                borrowed(drag.calibration[i].key);borrowed(drag.calibration[i].value);
+            }
+        }
+        borrowed(value.notices,value.notice_count);
+        for (std::size_t i=0;i<value.notice_count;++i) borrowed(value.notices[i]);
+    }
+    void owned(const tpmshx_preparation_flow_2d_v3& value) const {owned(value.input);evidence(value.evidence);}
+    void owned(const tpmshx_preparation_flow_case_2d_v3& value) const {owned(value.prepared);owned(value.flow);}
+    void owned(const tpmshx_preparation_continuous_flow_2d_v4& value) const {
+        owned(value.flow);borrowed(value.controls.decision_mm);
+    }
+    void owned(const tpmshx_preparation_continuous_case_2d_v4& value) const {
+        owned(value.prepared);owned(value.flow);borrowed(value.controls.decision_mm);
+        for (const auto item:{value.area_density_per_m,value.hydraulic_diameter_m,
+            value.fluid_conductivity[0],value.fluid_conductivity[1]}) borrowed(item);
+        for (const auto& drag:value.drag) {borrowed(drag.transfer_policy);borrowed(drag.geometry_application);}
+    }
+};
+struct FlowCallbackContext {
+    const tpmshx_preparation_case_callbacks_v1* callbacks;
+    FlowOutputStorage storage;
+    bool storage_safe=true;
 };
 void validate_host_input(void* context,std::uint32_t stage,std::uint32_t side) {
     const auto& state=*static_cast<const FlowCallbackContext*>(context);
@@ -270,7 +316,7 @@ bool inlet_cache(void* context,bool publish,std::uint32_t side,const p::InletInp
     std::uint32_t hit=0;
     state.storage_safe=false;
     const auto status=callbacks.inlet_cache(callbacks.values.values.context,publish?1u:0u,side,&inlet_input,kind(velocity_kind),&view,&hit);
-    state.evidence(view.evidence);state.storage_safe=true;
+    state.storage.evidence(view.evidence);state.storage_safe=true;
     if (status) throw std::runtime_error("preparation inlet cache callback failed");
     flag(hit);
     if (!publish && hit) {
@@ -358,22 +404,14 @@ tpmshx_preparation_case_2d_v1 view(Owner& owner,const tpmshx_preparation_case_in
     result.events=owner.evidence.events.data();result.event_count=owner.evidence.events.size();result.owner=&owner;
     return result;
 }
-tpmshx_preparation_case_2d_v2 view(Owner& owner,const tpmshx_preparation_case_input_2d_v2& original) {
-    const auto& value=owner.value;const auto& evidence=value.evidence;
-    tpmshx_preparation_case_2d_v2 output{};
-    output.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V2;output.struct_size=sizeof(output);
-    output.values=view(owner,original.values);output.input_kinds=kinds(value.input.kinds);
-    for (std::size_t i=0;i<5;++i) output.field_kinds[i]=kind(value.field_kinds[i]);
-    for (std::size_t i=0;i<2;++i) {
-        for (std::size_t j=0;j<13;++j) output.property_kinds[i][j]=kind(value.sides[i].property_kinds[j]);
-        const auto& drag=value.sides[i].drag_evidence;auto& target=output.drag[i];
-        target.have_selection=drag.selection?1u:0u;if(drag.selection)target.selection=*drag.selection;
-        target.application_scope=text(drag.application_scope);target.fluid=text(drag.fluid);
-        target.calibration=owner.calibration[i].data();target.calibration_count=owner.calibration[i].size();
-    }
-    const auto& nu=value.input.sco2_nu;auto& selected=output.sco2_nu;selected.mode=nu.mode;
+tpmshx_preparation_sco2_nu_v2 nu_view(const p::Sco2NuSelection& nu) {
+    tpmshx_preparation_sco2_nu_v2 selected{};selected.mode=nu.mode;
     for (std::size_t i=0;i<2;++i) {selected.have_alpha[i]=nu.alpha[i]?1u:0u;selected.alpha[i]=nu.alpha[i].value_or(0.);}
     selected.parameter_version=text(nu.parameter_version);selected.source=text(nu.source);selected.applicability=text(nu.applicability);
+    return selected;
+}
+template<class Prepared,class View> void model_view(const Prepared& value,View& output) {
+    const auto& evidence=value.evidence;const auto& nu=value.input.sco2_nu;
     output.sco2_nu_model_version=text(evidence.sco2_nu_model_version);
     output.sco2_nu_interpretation=text(nu.mode?"Total C_eff times the CFD base, applied once; not measured local Nu":"");
     for (std::size_t i=0;i<2;++i) std::copy(evidence.sco2_nu_coefficients[i].begin(),evidence.sco2_nu_coefficients[i].end(),output.sco2_nu_coefficients[i]);
@@ -390,6 +428,21 @@ tpmshx_preparation_case_2d_v2 view(Owner& owner,const tpmshx_preparation_case_in
         std::copy(evidence.co2_re_range.begin(),evidence.co2_re_range.end(),co2.re_range);
         std::copy(evidence.co2_pr_range.begin(),evidence.co2_pr_range.end(),co2.pr_range);
     }
+}
+tpmshx_preparation_case_2d_v2 view(Owner& owner,const tpmshx_preparation_case_input_2d_v2& original) {
+    const auto& value=owner.value;
+    tpmshx_preparation_case_2d_v2 output{};
+    output.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V2;output.struct_size=sizeof(output);
+    output.values=view(owner,original.values);output.input_kinds=kinds(value.input.kinds);
+    for (std::size_t i=0;i<5;++i) output.field_kinds[i]=kind(value.field_kinds[i]);
+    for (std::size_t i=0;i<2;++i) {
+        for (std::size_t j=0;j<13;++j) output.property_kinds[i][j]=kind(value.sides[i].property_kinds[j]);
+        const auto& drag=value.sides[i].drag_evidence;auto& target=output.drag[i];
+        target.have_selection=drag.selection?1u:0u;if(drag.selection)target.selection=*drag.selection;
+        target.application_scope=text(drag.application_scope);target.fluid=text(drag.fluid);
+        target.calibration=owner.calibration[i].data();target.calibration_count=owner.calibration[i].size();
+    }
+    output.sco2_nu=nu_view(value.input.sco2_nu);model_view(value,output);
     output.notices=owner.notices.data();output.notice_count=owner.notices.size();
     output.range_bounds_list=owner.evidence.range_bounds_list.data();
     return output;
@@ -459,10 +512,14 @@ template<class Source,class Result,class Function> int flow_boundary(
     const tpmshx_preparation_case_callbacks_v1* callbacks,Result* result,
     tpmshx_preparation_case_failure_v2* failure,char* error,size_t capacity,Function function) {
     if (!tpmshx::fields::c_api::error_buffer_valid(error,capacity)) return TPMSHX_PREPARATION_INVALID;
-    // Prove all described storage before an error can write into an input.
+    // Keep diagnostics separate from input and retained output storage.
     const auto* callback_data=reinterpret_cast<const unsigned char*>(callbacks);
     std::size_t callback_count=0;
+    const FlowOutputStorage storage{reinterpret_cast<const unsigned char*>(result),
+        result?sizeof(*result):0,failure,error,capacity};
     try {
+        require_buffer(result,result?1:0);
+        if (result && result->owner) storage.owned(*result);
         callback_count=callback_bytes(callbacks);
         require_disjoint(error,capacity,source,source?1:0);require_disjoint(error,capacity,result,result?1:0);
         require_disjoint(error,capacity,selected,selected?1:0);require_disjoint(error,capacity,callback_data,callback_count);
@@ -482,7 +539,7 @@ template<class Source,class Result,class Function> int flow_boundary(
             require_disjoint(value.data,value.size,failure,failure?1:0);
         }
     } catch (...) {return TPMSHX_PREPARATION_INVALID;}
-    FlowCallbackContext context{callbacks,reinterpret_cast<const unsigned char*>(result),sizeof(Result),failure,error,capacity};
+    FlowCallbackContext context{callbacks,storage};
     tpmshx_preparation_case_failure_v2 staged_failure{};
     bool failure_ready=false;std::exception_ptr saved_exception;
     try {
@@ -733,4 +790,342 @@ extern "C" void TPMSHX_PREPARATION_CALL tpmshx_preparation_continuous_case_2d_re
     tpmshx_preparation_continuous_case_2d_v4* result) {
     if (!result) return;
     delete static_cast<FlowCaseOwner*>(result->owner);*result={};
+}
+namespace {
+p::Sco2NuSelection nu_input(const tpmshx_preparation_sco2_nu_v2& source) {
+    p::Sco2NuSelection value;value.mode=source.mode;
+    for (std::size_t i=0;i<2;++i) {flag(source.have_alpha[i]);if(source.have_alpha[i])value.alpha[i]=source.alpha[i];}
+    value.parameter_version=cache_text(source.parameter_version);value.source=cache_text(source.source);
+    value.applicability=cache_text(source.applicability);return value;
+}
+tpmshx::grid::Scalar grid_scalar(tpmshx_grid_scalar_v1 value) {
+    return tpmshx::grid::checked({value.value,value.precision,value.strong});
+}
+tpmshx_grid_scalar_v1 grid_scalar(tpmshx::grid::Scalar value) {
+    return {value.value,value.precision,value.strong};
+}
+tpmshx::grid::Port port(const tpmshx_grid_port_v1& source) {
+    flag(source.active);tpmshx::grid::Port value{source.direction,source.active!=0,{}};
+    for (std::size_t i=0;i<2;++i) {
+        std::optional<tpmshx::grid::Scalar>* fields[]{&value.ends[i].center,&value.ends[i].width,
+            &value.ends[i].center2,&value.ends[i].width2};
+        for (std::size_t j=0;j<4;++j) {flag(source.present[i][j]);if(source.present[i][j])*fields[j]=grid_scalar(source.values[i][j]);}
+    }
+    return value;
+}
+tpmshx_grid_port_v1 port_view(const tpmshx::grid::Port& source) {
+    tpmshx_grid_port_v1 value{};value.direction=source.direction;value.active=source.active?1u:0u;
+    for (std::size_t i=0;i<2;++i) {
+        const std::optional<tpmshx::grid::Scalar> fields[]{source.ends[i].center,source.ends[i].width,
+            source.ends[i].center2,source.ends[i].width2};
+        for (std::size_t j=0;j<4;++j) if (fields[j]) {value.present[i][j]=1;value.values[i][j]=grid_scalar(*fields[j]);}
+    }
+    return value;
+}
+p::CaseInput3D input(const tpmshx_preparation_case_input_3d_v1& source) {
+    p::CaseInput3D output{};flag(source.port_wall_refine);
+    for (std::size_t i=0;i<3;++i) {output.grid.lengths[i]=grid_scalar(source.lengths_m[i]);output.grid.counts[i]=source.counts[i];}
+    output.grid.max_cells=source.max_cells;output.grid.port_wall_refine=source.port_wall_refine!=0;
+    output.geometry={static_cast<tpmshx::Topology>(source.topology),source.cell_length_mm,source.wall_thickness_mm,
+        source.solid_conductivity_W_mK,source.delta_levelset};
+    for (std::size_t i=0;i<2;++i) {
+        const auto& side=source.sides[i];flag(side.have_mass_flow);
+        output.sides[i]={static_cast<tpmshx::Fluid>(side.fluid),side.velocity_m_s,side.temperature_K,side.pressure_Pa,
+            port(side.port),side.have_mass_flow?std::optional<double>(side.mass_flow_kg_s):std::nullopt};
+    }
+    output.geometry_mode=source.geometry_mode;output.df_mode=source.df_mode;
+    output.kinds=kinds(source.kinds);output.sco2_nu=nu_input(source.sco2_nu);return output;
+}
+tpmshx_preparation_case_input_3d_v1 resolved_input(const p::CaseInput3D& value,
+    const tpmshx_preparation_case_input_3d_v1& source) {
+    auto output=source;output.kinds=kinds(value.kinds);output.sco2_nu=nu_view(value.sco2_nu);
+    for (std::size_t i=0;i<3;++i) output.lengths_m[i]=grid_scalar(value.grid.lengths[i]);
+    for (std::size_t i=0;i<2;++i) {
+        auto& target=output.sides[i];const auto& inlet=value.sides[i];
+        target.velocity_m_s=inlet.velocity_m_s;target.have_mass_flow=inlet.mass_flow_kg_s?1u:0u;
+        target.mass_flow_kg_s=inlet.mass_flow_kg_s.value_or(0.);target.port=port_view(inlet.port);
+    }
+    return output;
+}
+struct FlowOwner3D {
+    p::InletFlow3D value;
+    EvidenceViews evidence;
+    explicit FlowOwner3D(p::InletFlow3D flow):value(std::move(flow)),evidence(value.evidence) {}
+};
+struct FlowCaseOwner3D {
+    Owner3D prepared;
+    FlowOwner3D flow;
+    explicit FlowCaseOwner3D(p::PreparedFlowCase3D value)
+        :prepared(std::move(value.prepared)),flow(std::move(value.flow)) {}
+};
+p::InletFlowRequest3D input(const tpmshx_preparation_flow_input_3d_v2& source) {
+    p::InletFlowRequest3D output;output.input=input(source.input);
+    for (std::size_t i=0;i<2;++i) output.target_kinds[i]=kind(source.target_kinds[i]);
+    flag(source.have_explicit_targets);
+    if (source.have_explicit_targets) output.explicit_targets=std::array<double,2>{source.explicit_targets_kg_s[0],source.explicit_targets_kg_s[1]};
+    return output;
+}
+p::InletFlowRequest3D input(const tpmshx_preparation_continuous_input_3d_v3& source) {
+    auto output=input(source.values);const auto& controls=source.controls;
+    flag(controls.symmetric_y);flag(controls.have_ctrl_z);
+    p::ContinuousControls3D value;
+    value.nx=controls.n_ctrl_x;value.ny=controls.n_ctrl_y;value.order=controls.spline_order;
+    if (controls.have_ctrl_z) value.nz=controls.n_ctrl_z;
+    value.symmetric_y=controls.symmetric_y!=0;
+    std::copy_n(controls.L_bounds_mm,2,value.cell_bounds_mm.begin());
+    std::copy_n(controls.t_bounds_mm,2,value.wall_bounds_mm.begin());
+    if (controls.decision_mm.size) value.decision_mm.assign(
+        controls.decision_mm.data,controls.decision_mm.data+controls.decision_mm.size);
+    output.input.continuous=std::move(value);return output;
+}
+tpmshx_preparation_continuous_controls_3d_v3 controls_view(const p::CaseInput3D& input) {
+    const auto& controls=*input.continuous;
+    return {controls.nx,controls.ny,controls.nz.value_or(1),controls.nz?1u:0u,
+        controls.order,controls.symmetric_y?1u:0u,
+        {controls.cell_bounds_mm[0],controls.cell_bounds_mm[1]},
+        {controls.wall_bounds_mm[0],controls.wall_bounds_mm[1]},array(controls.decision_mm)};
+}
+tpmshx_preparation_flow_3d_v2 view(FlowOwner3D& owner,const tpmshx_preparation_case_input_3d_v1& source) {
+    tpmshx_preparation_flow_3d_v2 output{};output.abi_version=TPMSHX_PREPARATION_FLOW_3D_ABI_VERSION;output.struct_size=sizeof(output);
+    output.input=resolved_input(owner.value.input,source);output.have_capacities=owner.value.have_capacities?1u:0u;
+    for (std::size_t i=0;i<2;++i) {
+        output.capacities[i]=grid_scalar(owner.value.capacities[i]);output.speeds[i]=grid_scalar(owner.value.speeds[i]);
+    }
+    const auto& evidence=owner.evidence;
+    output.evidence={evidence.ranges.data(),evidence.ranges.size(),evidence.range_bounds_list.data(),
+        evidence.warnings.data(),evidence.warnings.size(),evidence.events.data(),evidence.events.size()};
+    output.owner=&owner;return output;
+}
+tpmshx_preparation_case_3d_v1 view(Owner3D& owner,const tpmshx_preparation_case_input_3d_v1& source) {
+    tpmshx_preparation_case_3d_v1 output{};output.abi_version=TPMSHX_PREPARATION_CASE_3D_ABI_VERSION;output.struct_size=sizeof(output);
+    const auto& value=owner.value;output.input=source;output.input.sco2_nu=nu_view(value.input.sco2_nu);
+    output.options={TPMSHX_PREPARATION_CASE_ABI_VERSION,sizeof(output.options),value.options.chi_override?1u:0u,
+        value.options.allow_extrapolation?1u:0u,value.options.chi_override.value_or(0.)};
+    for (std::size_t i=0;i<3;++i) {
+        output.input.lengths_m[i]=grid_scalar(value.input.grid.lengths[i]);
+        output.widths[i]=array(value.widths[i]);output.edges[i]=array(value.edges[i]);
+    }
+    output.geometry=geometry_view(value.uniform_geometry.geometry);
+    output.uniform_solid_conductivity=value.uniform_geometry.solid_conductivity;
+    output.cell_length=array(value.cell_length);output.wall_thickness=array(value.wall_thickness);
+    output.total_porosity=array(value.total_porosity);output.side_porosity=array(value.side_porosity);
+    output.permeability=array(value.permeability);output.forchheimer=array(value.forchheimer);
+    output.solid_conductivity=array(value.solid_conductivity);
+    for (std::size_t i=0;i<2;++i) {
+        output.length_kinds[i]=kind(value.length_kinds[i]);output.input.sides[i].port=port_view(value.input.sides[i].port);
+        const auto& side=value.sides[i];auto& target=output.sides[i];
+        std::copy(side.axes.begin(),side.axes.end(),target.axes);
+        target.inlet_opening=array(side.openings[0]);target.outlet_opening=array(side.openings[1]);
+        target.rho=side.properties[0];target.mu=side.properties[1];target.cp=side.properties[2];target.k_f=side.properties[3];
+        target.have_drag_application=side.have_drag_application?1u:0u;
+        const auto& drag=side.drag_evidence;
+        target.drag_evidence={drag.base_permeability,drag.base_forchheimer,drag.applied_permeability,
+            drag.applied_forchheimer,drag.scale_permeability,drag.scale_forchheimer,text(drag.campaign),text(drag.scope)};
+        target.drag_selection.have_selection=drag.selection?1u:0u;if(drag.selection)target.drag_selection.selection=*drag.selection;
+        target.drag_selection.application_scope=text(drag.application_scope);target.drag_selection.fluid=text(drag.fluid);
+        target.drag_selection.calibration=owner.calibration[i].data();target.drag_selection.calibration_count=owner.calibration[i].size();
+    }
+    for (std::size_t i=0;i<4;++i) {
+        const auto& model=value.evidence.models[i];output.models[i]={text(model.name),text(model.version),text(model.side)};
+    }
+    output.evidence={owner.evidence.ranges.data(),owner.evidence.ranges.size(),owner.evidence.range_bounds_list.data(),
+        owner.evidence.warnings.data(),owner.evidence.warnings.size(),owner.evidence.events.data(),owner.evidence.events.size()};
+    model_view(value,output);output.notices=owner.notices.data();output.notice_count=owner.notices.size();output.owner=&owner;
+    return output;
+}
+}  // namespace
+
+extern "C" uint32_t TPMSHX_PREPARATION_CALL tpmshx_preparation_case_3d_abi_version_v1(void) {
+    return TPMSHX_PREPARATION_CASE_3D_ABI_VERSION;
+}
+namespace {
+const tpmshx_preparation_case_input_3d_v1& case_source(const tpmshx_preparation_case_input_3d_v1& source) {return source;}
+const tpmshx_preparation_case_input_3d_v1& case_source(const tpmshx_preparation_flow_input_3d_v2& source) {return source.input;}
+const tpmshx_preparation_case_input_3d_v1& case_source(const tpmshx_preparation_continuous_input_3d_v3& source) {return source.values.input;}
+template<class Source,class Result,class Function> int boundary_3d(
+    const Source* source,const tpmshx_preparation_case_options_v1* selected,
+    const tpmshx_preparation_case_callbacks_v1* callbacks,Result* result,
+    tpmshx_preparation_case_failure_v2* failure,char* error,size_t capacity,Function function) {
+    if (!tpmshx::fields::c_api::error_buffer_valid(error,capacity)) return TPMSHX_PREPARATION_INVALID;
+    try {
+        require_buffer(source,source?1:0);require_buffer(result,result?1:0);require_buffer(failure,failure?1:0);
+        require_buffer(selected,selected?1:0);require_buffer(callbacks,callbacks?1:0);
+        require_disjoint(error,capacity,source,source?1:0);require_disjoint(error,capacity,result,result?1:0);
+        require_disjoint(error,capacity,selected,selected?1:0);require_disjoint(error,capacity,callbacks,callbacks?1:0);
+        require_disjoint(error,capacity,failure,failure?1:0);
+        require_disjoint(source,source?1:0,result,result?1:0);require_disjoint(source,source?1:0,failure,failure?1:0);
+        require_disjoint(result,result?1:0,failure,failure?1:0);
+        require_disjoint(selected,selected?1:0,result,result?1:0);require_disjoint(selected,selected?1:0,failure,failure?1:0);
+        require_disjoint(callbacks,callbacks?1:0,result,result?1:0);require_disjoint(callbacks,callbacks?1:0,failure,failure?1:0);
+        if constexpr (std::is_same_v<Source,tpmshx_preparation_continuous_input_3d_v3>) {
+            if (source) {
+                const auto values=source->controls.decision_mm;
+                require_buffer(values.data,values.size);require_disjoint(error,capacity,values.data,values.size);
+                require_disjoint(values.data,values.size,result,result?1:0);
+                require_disjoint(values.data,values.size,failure,failure?1:0);
+            }
+        }
+        if (source) for (const auto value:{case_source(*source).sco2_nu.parameter_version,case_source(*source).sco2_nu.source,case_source(*source).sco2_nu.applicability}) {
+            require_buffer(value.data,value.size);require_disjoint(error,capacity,value.data,value.size);
+            require_disjoint(value.data,value.size,result,result?1:0);require_disjoint(value.data,value.size,failure,failure?1:0);
+        }
+    } catch (...) {return TPMSHX_PREPARATION_INVALID;}
+    return p::c_api::boundary(error,capacity,[&] {
+        if constexpr (std::is_same_v<Source,tpmshx_preparation_case_input_3d_v1>) {version(source);version(result);}
+        else if constexpr (std::is_same_v<Source,tpmshx_preparation_flow_input_3d_v2>) {
+            version2(source);version2(result);version(&source->input);
+        } else {
+            version3(source);version3(result);version2(&source->values);version(&source->values.input);
+        }
+        version2(failure);
+        if(selected)version(selected);if(callbacks)version(callbacks);
+        *failure={};failure->abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V2;failure->struct_size=sizeof(*failure);failure->side=2;
+        try {
+            if (result->owner) throw std::invalid_argument("release the previous prepared case before reusing its result");
+            const p::PreparationCallbacks sink{callbacks && callbacks->event?emit:nullptr,
+                const_cast<tpmshx_preparation_case_callbacks_v1*>(callbacks)};
+            function(input(*source),options(selected),sink);
+        } catch (const p::PreparationError& problem) {
+            failure->kind=problem.kind;failure->side=problem.side;
+            failure->have_property=problem.have_property?1u:0u;failure->property=problem.property;
+            failure->cause_count=static_cast<std::uint32_t>(std::min(problem.causes.size(),std::size_t{2}));
+            for (std::size_t i=0;i<failure->cause_count;++i) {
+                failure->causes[i].kind=problem.causes[i].kind;
+                tpmshx::fields::c_api::message(failure->causes[i].message,sizeof(failure->causes[i].message),problem.causes[i].message.c_str());
+            }
+            throw p::c_api::StateError(problem.status,problem.what());
+        } catch (const p::PropertyError& problem) {
+            const auto& value=problem.failure;failure->kind=problem.status==3?3u:1u;failure->have_property=1;
+            failure->property={value.reason,value.input,value.index,value.first_t_index,value.first_p_index,
+                value.temperature,value.pressure,value.detail,value.fp};
+            if constexpr (std::is_same_v<Source,tpmshx_preparation_continuous_input_3d_v3>) {
+                const std::string prefix="CO2 requires a stable single-phase PT state; saturation, two-phase and critical-point states are unsupported. ";
+                const std::string message=problem.what();
+                if (message.compare(0,prefix.size(),prefix)==0) {
+                    failure->cause_count=1;failure->causes[0].kind=1;
+                    tpmshx::fields::c_api::message(failure->causes[0].message,sizeof(failure->causes[0].message),
+                        message.c_str()+prefix.size());
+                }
+            }
+            throw p::c_api::StateError(problem.status,problem.what());
+        } catch (const std::invalid_argument&) {failure->kind=1;throw;}
+        catch (...) {failure->kind=3;throw;}
+    });
+}
+}  // namespace
+
+extern "C" int TPMSHX_PREPARATION_CALL tpmshx_prepare_case_3d_v1(
+    const tpmshx_preparation_case_input_3d_v1* source,const tpmshx_preparation_case_options_v1* selected,
+    const tpmshx_preparation_case_callbacks_v1* callbacks,tpmshx_preparation_case_3d_v1* result,
+    tpmshx_preparation_case_failure_v2* failure,char* error,size_t capacity) {
+    return boundary_3d(source,selected,callbacks,result,failure,error,capacity,[&](const auto& request,const auto& options,const auto& sink) {
+        auto owner=std::make_unique<Owner3D>(p::prepare_case_3d(request,options,sink));
+        *result=view(*owner,*source);owner.release();
+    });
+}
+extern "C" uint32_t TPMSHX_PREPARATION_CALL tpmshx_preparation_flow_3d_abi_version_v2(void) {
+    return TPMSHX_PREPARATION_FLOW_3D_ABI_VERSION;
+}
+extern "C" int TPMSHX_PREPARATION_CALL tpmshx_prepare_inlet_mass_capacities_3d_v2(
+    const tpmshx_preparation_flow_input_3d_v2* source,const tpmshx_preparation_case_options_v1* selected,
+    const tpmshx_preparation_case_callbacks_v1* callbacks,tpmshx_preparation_flow_3d_v2* result,
+    tpmshx_preparation_case_failure_v2* failure,char* error,size_t capacity) {
+    return boundary_3d(source,selected,callbacks,result,failure,error,capacity,[&](const auto& request,const auto& options,const auto& sink) {
+        auto owner=std::make_unique<FlowOwner3D>(p::prepare_inlet_mass_capacities_3d(request.input,options,sink));
+        *result=view(*owner,source->input);owner.release();
+    });
+}
+extern "C" int TPMSHX_PREPARATION_CALL tpmshx_resolve_inlet_flow_3d_v2(
+    const tpmshx_preparation_flow_input_3d_v2* source,const tpmshx_preparation_case_options_v1* selected,
+    const tpmshx_preparation_case_callbacks_v1* callbacks,tpmshx_preparation_flow_3d_v2* result,
+    tpmshx_preparation_case_failure_v2* failure,char* error,size_t capacity) {
+    return boundary_3d(source,selected,callbacks,result,failure,error,capacity,[&](const auto& request,const auto& options,const auto& sink) {
+        auto owner=std::make_unique<FlowOwner3D>(p::resolve_inlet_flow_3d(request,options,sink));
+        *result=view(*owner,source->input);owner.release();
+    });
+}
+extern "C" int TPMSHX_PREPARATION_CALL tpmshx_prepare_flow_case_3d_v2(
+    const tpmshx_preparation_flow_input_3d_v2* source,const tpmshx_preparation_case_options_v1* selected,
+    const tpmshx_preparation_case_callbacks_v1* callbacks,tpmshx_preparation_flow_case_3d_v2* result,
+    tpmshx_preparation_case_failure_v2* failure,char* error,size_t capacity) {
+    return boundary_3d(source,selected,callbacks,result,failure,error,capacity,[&](const auto& request,const auto& options,const auto& sink) {
+        auto owner=std::make_unique<FlowCaseOwner3D>(p::prepare_flow_case_3d(request,options,sink));
+        tpmshx_preparation_flow_case_3d_v2 value{};
+        value.abi_version=TPMSHX_PREPARATION_FLOW_3D_ABI_VERSION;value.struct_size=sizeof(value);
+        value.prepared=view(owner->prepared,resolved_input(owner->prepared.value.input,source->input));value.prepared.owner=nullptr;
+        value.flow=view(owner->flow,source->input);value.flow.owner=nullptr;value.owner=owner.get();
+        *result=value;owner.release();
+    });
+}
+extern "C" void TPMSHX_PREPARATION_CALL tpmshx_preparation_flow_3d_release_v2(tpmshx_preparation_flow_3d_v2* result) {
+    if (!result) return;
+    delete static_cast<FlowOwner3D*>(result->owner);*result={};
+}
+extern "C" void TPMSHX_PREPARATION_CALL tpmshx_preparation_flow_case_3d_release_v2(tpmshx_preparation_flow_case_3d_v2* result) {
+    if (!result) return;
+    delete static_cast<FlowCaseOwner3D*>(result->owner);*result={};
+}
+extern "C" void TPMSHX_PREPARATION_CALL tpmshx_preparation_case_3d_release_v1(tpmshx_preparation_case_3d_v1* result) {
+    if (!result) return;
+    delete static_cast<Owner3D*>(result->owner);*result={};
+}
+
+extern "C" uint32_t TPMSHX_PREPARATION_CALL tpmshx_preparation_continuous_3d_abi_version_v3(void) {
+    return TPMSHX_PREPARATION_CONTINUOUS_3D_ABI_VERSION;
+}
+extern "C" int TPMSHX_PREPARATION_CALL tpmshx_prepare_inlet_mass_capacities_3d_v3(
+    const tpmshx_preparation_continuous_input_3d_v3* source,const tpmshx_preparation_case_options_v1* selected,
+    const tpmshx_preparation_case_callbacks_v1* callbacks,tpmshx_preparation_continuous_flow_3d_v3* result,
+    tpmshx_preparation_case_failure_v2* failure,char* error,size_t capacity) {
+    return boundary_3d(source,selected,callbacks,result,failure,error,capacity,[&](const auto& request,const auto& options,const auto& sink) {
+        auto owner=std::make_unique<FlowOwner3D>(p::prepare_inlet_mass_capacities_3d(request.input,options,sink));
+        tpmshx_preparation_continuous_flow_3d_v3 output{};
+        output.abi_version=TPMSHX_PREPARATION_CONTINUOUS_3D_ABI_VERSION;output.struct_size=sizeof(output);
+        output.flow=view(*owner,source->values.input);output.flow.owner=nullptr;
+        output.controls=controls_view(owner->value.input);output.owner=owner.get();*result=output;owner.release();
+    });
+}
+extern "C" int TPMSHX_PREPARATION_CALL tpmshx_resolve_inlet_flow_3d_v3(
+    const tpmshx_preparation_continuous_input_3d_v3* source,const tpmshx_preparation_case_options_v1* selected,
+    const tpmshx_preparation_case_callbacks_v1* callbacks,tpmshx_preparation_continuous_flow_3d_v3* result,
+    tpmshx_preparation_case_failure_v2* failure,char* error,size_t capacity) {
+    return boundary_3d(source,selected,callbacks,result,failure,error,capacity,[&](const auto& request,const auto& options,const auto& sink) {
+        auto owner=std::make_unique<FlowOwner3D>(p::resolve_inlet_flow_3d(request,options,sink));
+        tpmshx_preparation_continuous_flow_3d_v3 output{};
+        output.abi_version=TPMSHX_PREPARATION_CONTINUOUS_3D_ABI_VERSION;output.struct_size=sizeof(output);
+        output.flow=view(*owner,source->values.input);output.flow.owner=nullptr;
+        output.controls=controls_view(owner->value.input);output.owner=owner.get();*result=output;owner.release();
+    });
+}
+extern "C" int TPMSHX_PREPARATION_CALL tpmshx_prepare_flow_case_3d_v3(
+    const tpmshx_preparation_continuous_input_3d_v3* source,const tpmshx_preparation_case_options_v1* selected,
+    const tpmshx_preparation_case_callbacks_v1* callbacks,tpmshx_preparation_continuous_case_3d_v3* result,
+    tpmshx_preparation_case_failure_v2* failure,char* error,size_t capacity) {
+    return boundary_3d(source,selected,callbacks,result,failure,error,capacity,[&](const auto& request,const auto& options,const auto& sink) {
+        auto owner=std::make_unique<FlowCaseOwner3D>(p::prepare_flow_case_3d(request,options,sink));
+        tpmshx_preparation_continuous_case_3d_v3 output{};
+        output.abi_version=TPMSHX_PREPARATION_CONTINUOUS_3D_ABI_VERSION;output.struct_size=sizeof(output);
+        const auto& prepared=owner->prepared.value;
+        output.prepared=view(owner->prepared,resolved_input(prepared.input,source->values.input));output.prepared.owner=nullptr;
+        output.flow=view(owner->flow,source->values.input);output.flow.owner=nullptr;
+        output.controls=controls_view(prepared.input);output.area_density_per_m=array(prepared.area_density);
+        output.hydraulic_diameter_m=array(prepared.hydraulic_diameter);output.thermal_porosity=array(prepared.thermal_porosity);
+        for (std::size_t i=0;i<2;++i) {
+            const auto& evidence=prepared.sides[i].drag_evidence;auto& drag=output.drag[i];
+            drag.transfer_policy=text(evidence.transfer_policy);drag.geometry_application=text(evidence.geometry_application);
+            drag.have_reference_geometry=evidence.reference_geometry_mm?1u:0u;
+            if (evidence.reference_geometry_mm) std::copy_n(evidence.reference_geometry_mm->begin(),2,drag.reference_geometry_mm);
+        }
+        output.owner=owner.get();*result=output;owner.release();
+    });
+}
+extern "C" void TPMSHX_PREPARATION_CALL tpmshx_preparation_continuous_flow_3d_release_v3(
+    tpmshx_preparation_continuous_flow_3d_v3* result) {
+    if (!result) return;
+    delete static_cast<FlowOwner3D*>(result->owner);*result={};
+}
+extern "C" void TPMSHX_PREPARATION_CALL tpmshx_preparation_continuous_case_3d_release_v3(
+    tpmshx_preparation_continuous_case_3d_v3* result) {
+    if (!result) return;
+    delete static_cast<FlowCaseOwner3D*>(result->owner);*result={};
 }

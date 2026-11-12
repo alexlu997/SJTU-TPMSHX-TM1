@@ -22,18 +22,28 @@ Preparation v2 adds typed raw inputs and an independent pressure-fraction query.
 Python uses v2 preparation with fixed named host operations for its existing value protocols.
 The preparation/query fluid registry includes CO2; this does not expand the existing air/water/sCO2 LTNE run scope.
 
+Preparation v3 adds total mass flow for the same uniform symmetric 2D fluid matrix.
+It provides separate capacity and inlet-flow resolution queries, plus complete preparation.
+It preserves the existing physical depth, calibration and scalar arithmetic rules.
+Continuous fields, zones and nonzero delta remain outside preparation v3.
+Its resolved uniform prepared view uses run v2, including total-flow cases.
+
+The separate 3D preparation v1 accepts raw symmetric uniform cases at prescribed inlet speeds.
+It supports both topologies, all 16 ordered fluid pairs and the existing CFD and experimental DF selections.
+Its physical grid, typed ports and field evidence do not change the Python 3D production route.
+The separate 3D flow v2 adds capacity queries, flow resolution and complete preparation at the resolved speeds.
+The [uniform 3D preparation contract](#uniform-3d-preparation) defines its inputs and remaining gates.
+
 Full 2D/3D Python evaluation now calls the native result stage. Independent applicability, physical-balance and qualification queries use that stage.
 The native result stage owns Quick Design metrics and retains typed intermediate values. V3 uses fixed named host operations for existing Python object, exact integer and final conversion protocols. The public Python entry points and saved formats stay available.
 The host query uses borrowed typed evidence and preserves deferred input errors. It delivers NumPy events before each primitive returns.
 A callback error is handled at the original metric or qualification boundary. An uncaught host error retains its original Python object.
+Callbacks do not own query state. Deferred errors keep their exception objects, cause/context links and group members. Earlier tracebacks on those objects are discarded. Query exit clears deferred error references, including input-packing failures; borrowed fields do not wait for cyclic garbage collection.
 Published v1 C layouts and queries remain available. Release every output through the library that created it.
+Result calls reject a wrong output size or an owner that was not released.
+Those rejected calls preserve borrowed inputs, the old output and diagnostic storage.
 
-Preparation v3 adds total mass flow for the same uniform symmetric 2D fluid matrix.
-It provides separate capacity and inlet-flow resolution queries, plus complete preparation.
-It preserves the existing physical depth, calibration and scalar arithmetic rules.
-Continuous fields, zones and nonzero delta remain outside v3. The run interface is unchanged.
-
-The C++ call sequence is `prepare_case`, `run_case`, then `evaluate`.
+The supported 2D C++ call sequence is `prepare_case`, `run_case`, then `evaluate`.
 The caller supplies dimensions, design values, boundary conditions and controls.
 The preparation library computes the physical fields. The solver library uses
 that prepared state. The result library evaluates recorded evidence.
@@ -64,7 +74,7 @@ that prepared state. The result library evaluates recorded evidence.
   The host still owns Python-specific type and object checks.
 - A CO2 side selects the common CO2 geometry for both sides. Its fixed drag
   and Nu factors apply only to CO2 sides. sCO2 remains a separate model.
-  Experimental DF changes flow seeds and rows. Static inlet DF values keep
+  In 2D, experimental DF changes flow seeds and rows. Static inlet DF values keep
   their existing CFD values, including the CO2 factors where applicable.
 - Existing low-level ABI versions remain available. A retained run library
   must not need a new preparation symbol to restore its saved run state.
@@ -74,6 +84,55 @@ that prepared state. The result library evaluates recorded evidence.
 - Run v2 uses the v1 result owner and release function. Its cancellation
   status is 6; status 4 retains the full driver's envelope failure meaning.
   Run v1 keeps its original cancellation status of 4.
+
+## Run continuation
+
+`Run2D` accepts the uniform v2 or continuous v4 preparation view.
+It supports creation, step advancement, phase queries, snapshots, restoration
+and result transfer. It uses the existing full 2D state machine and typed state.
+It does not reset consumed work. Restoration requires the same build, prepared
+inputs and numerical controls. The positive CPU thread limit can change.
+
+Keep the preparation owner alive and unchanged until result transfer or run release.
+The run copies numerical inputs and controls. It borrows preparation evidence for capture.
+Keep callback context alive until run release. Calls on one run must not overlap.
+Snapshots own independent storage. A completed result also owns its evidence
+after preparation and run release. Use the creating library for all queries and releases.
+Cancellation cannot publish a successful stage result.
+
+`RunRequest2Dv3` adds six independent optional energy controls and the optional
+enthalpy-update gate. Missing values use the selected library's defaults.
+These controls require the existing true-h route. They cannot be combined with
+the complete explicit-energy pointer or active model-h controls.
+Existing one-shot interfaces retain their layouts and behavior.
+Symmetric uniform and continuous 2D Python runs and checkpoints use the saved-input interface.
+`SavedCase2D` borrows a validated v2 view and saved thermal geometry. It does not prepare the case again.
+Uniform saved inputs can include cell thermal geometry and local drag while keeping uniform closure mode.
+Missing range records and empty records stay distinct. Uncaptured rows do not receive numerical samples.
+Saved scalar and field kinds retain the original unit-conversion and closure-ratio precision.
+With model-h controls, the saved interface checks the requested energy algorithm before execution.
+It does not pass two sets of iteration controls to the numerical driver.
+Keep inputs and range flags valid until result transfer or run release.
+
+Python checks the selected library capability before execution. Archived libraries, nonzero delta and unported zone modes use their existing protocol.
+An incomplete new protocol or a failed run is an error. All queries, state releases and result releases use that same selected library.
+Saved formats, same-build restoration, CPU-change rules and public Python interfaces stay unchanged.
+
+## Capture scalars
+
+`capture_summary(result, application)` returns copied scalars from the completed stage.
+It retains main and fine model-h area and cell counts, Nu floor observations,
+main thermal pressure limits, signed duty sum, absolute duties and pressure clip counts.
+The area and reductions reuse the existing result arithmetic, linked statically.
+The solver has no new shared result-library dependency.
+
+Supply the two saved application area densities and surface heat-transfer coefficients.
+They are separate from the solver's thermal geometry and final h_v fields.
+The query multiplies each pair after the existing nonnegative check.
+NaN, infinity and signed zero retain their existing arithmetic behavior.
+The copied summary owns no pointers and remains valid after result release.
+Use existing raw evidence queries for fields, histories and numerical ledgers.
+The Python production mapper and its historical-runtime route remain unchanged.
 
 ## Uniform total mass flow
 
@@ -118,7 +177,56 @@ Experimental transfer retains the Shanghai Gyroid air-A/water-B contract at nomi
 Its domain, velocity rules and exploratory evidence remain unchanged.
 The CO2/CO2 fixed-factor path also remains available in experimental mode.
 Early range labels retain their transfer context. Final metadata retains the continuous application scope and reference geometry.
-These preparation interfaces do not change the run interface or certify gradient accuracy.
+Run v3 consumes preparation v4 through the existing model-h or true-h driver.
+It uses the supplied physical cell fields and local drag in their existing order.
+The saved SI cell lengths first return to mm, then produce transport SI and closure ratios.
+Nominal reference geometry remains separate from the actual physical fields.
+Requests, cancellation status, result ownership and evaluation use the v2 run contracts.
+This interface does not certify gradient accuracy.
+
+## Uniform 3D preparation
+
+`prepare_case(CaseInput3D)` calls `tpmshx_prepare_case_3d_v1` from
+`preparation_case_3d_c_api.h`. It returns an owned `PreparedCase3D`.
+Provide three positive physical lengths, three grid counts and an explicit cell cap.
+Depth is required and `Nz` must be at least 2. The C++ input defaults the cap to 2,000,000 cells.
+The host resolves configuration and environment limits before the call; the library does not read them.
+
+Both sides require active ports. The interface supports all six flow directions,
+full faces, partial ports and optional second transverse windows.
+Port values retain their scalar tags. Uniform and `port_wall_refine` grids use the existing physical grid rules.
+Fields have physical `(x,y,z)` shape and C order. Opening masks use physical `(cross1,cross2)` order.
+Each side records its axis permutation and reverse flag without reversing the physical widths.
+
+The owner retains nominal geometry, physical widths and edges, design fields,
+inlet properties, model selections, ranges, notices and DF application evidence.
+Side porosity already includes the symmetric split. Do not divide it again.
+The returned K/cF fields retain the unscaled CFD values.
+Side evidence records CO2 or experimental factors separately for later execution.
+Keep the original state checks, calibration limits and sCO2 Nu selections.
+
+This interface borrows its inputs and v1 event callbacks until return.
+Success commits one owner; failure does not publish a prepared result.
+Release the owner through the creating preparation library after the last use of its views.
+The v1 interface excludes total mass-flow targets. The separate `FlowInput3D` v2 supports
+`prepare_inlet_mass_capacities`, `resolve_inlet_flow` and `prepare_case` for the same uniform geometry.
+Capacity uses the actual physical inlet slice, its side porosity, open area and density.
+It ignores old speeds and does not evaluate Nu or experimental velocity windows.
+Explicit targets replace both configured mass inputs; mixed inputs retain the other side's velocity.
+Resolution without a target copies the input without physical preparation.
+Complete preparation builds geometry once, resolves both speeds, then applies the original speed and model checks.
+Its final evidence retains static-property observations before resolved-speed preflight and final air/DF observations.
+The combined owner exposes borrowed preparation and flow views with null nested owners.
+`ContinuousInput3D` v3 adds canonical XY extrusion and true XYZ controls to all three flow operations.
+`have_ctrl_z` selects XYZ even when its control count is one. Decisions store all L values, then all t values, with z fastest.
+Sampling uses the final physical cell centres. XY and XYZ retain their separate spline rules and optional y symmetry.
+The owner keeps raw design geometry and the separate thermal mm-to-m-to-mm path.
+It returns full local K/cF, area density, hydraulic diameter and thermal porosity.
+The existing continuous Shanghai transfer limits and CO2 factors remain unchanged.
+Discrete zones and nonzero delta remain outside these raw interfaces.
+Python 3D preparation, host cache hooks, native 3D run/capture integration,
+memory checks near the cell cap and real 3D BO remain separate migration and acceptance gates.
+Saved CaseData still uses its existing validators and must not be prepared again.
 
 ## Python preparation adapter
 
@@ -200,6 +308,19 @@ It prepares, solves and evaluates the case without numerical fields from Python.
 It does not start or link Python.
 The [fluid preparation example](../examples/cpp/prepare_fluids_2d.cpp) prepares a CO2/water case through v2.
 It links only the preparation library and does not execute a solve.
+The [3D preparation example](../examples/cpp/prepare_3d.cpp) prepares raw CO2/water inputs with different physical lengths and grid counts on each axis.
+It checks the reverse z-direction port and field evidence, with only the preparation library.
+The [3D mass-flow example](../examples/cpp/prepare_mass_3d.cpp) resolves total flow on reverse inlet faces before complete preparation.
+The [continuous 3D example](../examples/cpp/prepare_continuous_3d.cpp) prepares both XY extrusion and XYZ controls with resolved total flows.
+The [mass-flow preparation example](../examples/cpp/prepare_mass_2d.cpp) queries capacities, resolves an explicit pair and prepares the case.
+It also links only preparation and does not execute a solve.
+The [continuous preparation example](../examples/cpp/prepare_continuous_2d.cpp) starts with XY decisions and total flow.
+It exposes physical fields and local drag through v4, with only the preparation library.
+The [continuous run example](../examples/cpp/continuous_2d.cpp) starts with XY decisions and fixed mass flow.
+It prepares and runs the case, releases the prepared owner, then evaluates the result.
+The [continuation example](../examples/cpp/resume_2d.cpp) creates a run from raw inputs,
+retains a flow snapshot, releases the run and restores it with a different CPU limit.
+
 The [uniform-fluid example](../examples/cpp/uniform_2d.cpp) executes all three
 stages for CO2/water. Evaluation remains valid after the prepared owner is released.
 The [Quick Design example](../examples/cpp/quick_design.cpp) starts with raw
@@ -208,10 +329,6 @@ and `evaluate` through the existing v1 contract.
 The [typed Quick preparation example](../examples/cpp/prepare_quick_design.cpp) uses `QuickDesignInputV2`.
 It calls `pressure_fractions` and `prepare_quick_design`, with only the preparation library.
 It does a check of owned fields and absent counterflow qtol/chunk controls without starting a solve.
-The [mass-flow preparation example](../examples/cpp/prepare_mass_2d.cpp) queries capacities, resolves an explicit pair and prepares the case.
-It also links only preparation and does not execute a solve.
-The [continuous preparation example](../examples/cpp/prepare_continuous_2d.cpp) starts with XY decisions and total flow.
-It exposes physical fields and local drag through v4, with only the preparation library.
 These examples use only installed public headers and shared libraries.
 The Windows build copies the required DLLs beside each executable.
 
@@ -239,7 +356,7 @@ It builds and runs external callers outside the source tree:
 Use the applicable environment lock. A BO environment needs its matching `--python-lock` option.
 On Linux, add `--component result --python-lock engineering/requirements/postprocess.txt`.
 The check retains logs, 2D comparison fields and Quick Design comparison fields. It removes the temporary installation and external build directories.
-The uniform run path does not establish stage migration for fixed flow, zones or 3D.
+These native paths do not establish stage migration for discrete zones or 3D.
 Python integration and checkpoint recovery have separate acceptance gates.
 
 ## Quick Design stage

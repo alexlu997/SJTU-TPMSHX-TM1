@@ -3,6 +3,7 @@ import ast
 import ctypes as ct
 import json
 import warnings
+import weakref
 from collections.abc import Mapping
 from uuid import uuid4
 
@@ -180,6 +181,20 @@ class _Packed:
 
     def token(self, error):
         token = len(self.exceptions) + 1
+        # Contexts and group members can also retain borrowed fields through frames.
+        pending, visited = [error], set()
+        while pending:
+            current = pending.pop()
+            if id(current) in visited:
+                continue
+            visited.add(id(current))
+            BaseException.with_traceback(current, None)
+            # Read stored relations without calling an exception subclass accessor.
+            relations = (BaseException.__dict__['__cause__'].__get__(current),
+                         BaseException.__dict__['__context__'].__get__(current))
+            pending.extend(value for value in relations if value is not None)
+            if isinstance(current, BaseExceptionGroup):
+                pending.extend(BaseExceptionGroup.__dict__['exceptions'].__get__(current))
         self.exceptions[token] = error
         return token
 
@@ -238,64 +253,66 @@ class _Packed:
         return 1
 
     def quick_protocols(self):
+        # The query owns this state; callbacks must not extend its lifetime.
+        owner = weakref.proxy(self)
         def result(output, failure, operation):
             try:
-                output[0] = self.quick_value(operation()).contents
+                output[0] = owner.quick_value(operation()).contents
                 return 0
             except BaseException as error:
-                return self.callback_error(error, failure)
+                return owner.callback_error(error, failure)
 
         @QuickTextEqual
         def text_equal(context, value, expected, output, failure):
             try:
-                output[0] = bool(self.quick_read(value) == expected.decode('utf-8'))
+                output[0] = bool(owner.quick_read(value) == expected.decode('utf-8'))
                 return 0
             except BaseException as error:
-                return self.callback_error(error, failure)
+                return owner.callback_error(error, failure)
 
         @QuickTextEqual
         def text_not_equal(context, value, expected, output, failure):
             try:
-                output[0] = bool(self.quick_read(value) != expected.decode('utf-8'))
+                output[0] = bool(owner.quick_read(value) != expected.decode('utf-8'))
                 return 0
             except BaseException as error:
-                return self.callback_error(error, failure)
+                return owner.callback_error(error, failure)
 
         @QuickDifference
         def temperature_difference(context, inlet, outlet, output, failure):
-            return result(output, failure, lambda: self.quick_read(inlet) - outlet)
+            return result(output, failure, lambda: owner.quick_read(inlet) - outlet)
 
         @QuickPair
         def capacity_product(context, mass, cp, output, failure):
-            return result(output, failure, lambda: self.quick_read(mass) * self.quick_read(cp))
+            return result(output, failure, lambda: owner.quick_read(mass) * owner.quick_read(cp))
 
         @QuickDuty
         def duty_product(context, capacity, delta, cold, output, failure):
-            return result(output, failure, lambda: self.quick_read(capacity) * self.quick_read(delta) * (-1 if cold else 1))
+            return result(output, failure, lambda: owner.quick_read(capacity) * owner.quick_read(delta) * (-1 if cold else 1))
 
         @QuickPair
         def pressure_difference(context, inlet, outlet, output, failure):
-            return result(output, failure, lambda: self.quick_read(inlet) - self.quick_read(outlet))
+            return result(output, failure, lambda: owner.quick_read(inlet) - owner.quick_read(outlet))
 
         @QuickPair
         def reynolds_flow(context, rho, velocity, output, failure):
-            return result(output, failure, lambda: self.quick_read(rho) * abs(self.quick_read(velocity)))
+            return result(output, failure, lambda: owner.quick_read(rho) * abs(owner.quick_read(velocity)))
 
         @QuickPair
         def reynolds_length(context, flow, diameter, output, failure):
-            return result(output, failure, lambda: self.quick_read(flow) * self.quick_read(diameter))
+            return result(output, failure, lambda: owner.quick_read(flow) * owner.quick_read(diameter))
 
         @QuickPair
         def reynolds_quotient(context, numerator, mu, output, failure):
-            return result(output, failure, lambda: self.quick_read(numerator) / self.quick_read(mu))
+            return result(output, failure, lambda: owner.quick_read(numerator) / owner.quick_read(mu))
 
         @QuickFloat
         def metric_float(context, value, output, failure):
             try:
-                output[0] = float(self.quick_read(value))
+                output[0] = float(owner.quick_read(value))
                 return 0
             except BaseException as error:
-                return self.callback_error(error, failure)
+                return owner.callback_error(error, failure)
 
         @QuickEmptyMean
         def empty_mean(context, failure):
@@ -303,7 +320,7 @@ class _Packed:
                 warnings.warn('Mean of empty slice', RuntimeWarning, stacklevel=6)
                 return 0
             except BaseException as error:
-                return self.callback_error(error, failure)
+                return owner.callback_error(error, failure)
 
         callbacks = (text_equal, text_not_equal, temperature_difference, capacity_product, duty_product, pressure_difference,
             reynolds_flow, reynolds_length, reynolds_quotient, metric_float, empty_mean)
@@ -576,8 +593,7 @@ class _Packed:
 
 
 class _Evidence(_Packed):
-    def __init__(self, result, query):
-        super().__init__()
+    def pack(self, result, query):
         self.result, self.query = result, query
         self.density = self.split = self.invalid_mode_repr = self.dimension_index = self.dimension_slice = None
         self.qualification_error = None
@@ -788,42 +804,45 @@ def _spec(value):
 
 
 def _query(result, query, metric_spec=None, metrics=None):
-    packed = _Evidence(result, query)
-    library = core._library()
+    packed = _Evidence()
     output, diagnostics, token = Output(struct_size=ct.sizeof(Output)), core._Diagnostics(), ct.c_uint64()
     error = ct.create_string_buffer(4096)
 
-    @Events
-    def events(context, values, failure):
-        try:
-            core.notify(values.contents, stacklevel=6)
-            return 0
-        except BaseException as exception:
-            identity = packed.token(exception)
-            message = _text(str(exception))
-            packed.keep.append(message)
-            failure[0] = HostError(_cause(exception), 0, identity, message)
-            return 1
-
-    errors = packed.sequence(InputError, packed.errors)
-    none_values = packed.sequence(ct.c_void_p, packed.none_values)
-    borrowed = Input(2, ct.sizeof(Input), ct.pointer(packed.raw), errors, len(errors), none_values, len(none_values),
-        packed.density, packed.split, packed.inlet_temperature, packed.invalid_mode_repr, packed.dimension_index, packed.dimension_slice, packed.qualification_error, None, events)
-    selection = _spec(metric_spec) if metric_spec is not None else None
-    rows = [Metric(_text(name), Spec(b'', b'', b'', b''), 0, 0., _text(value.status), None)
-            for name, value in (metrics or {}).items()]
-    supplied = packed.sequence(Metric, rows)
-    argument = borrowed
-    if query in (0, 3):
-        argument = packed.quick if packed.quick is not None else QuickInput(3, ct.sizeof(QuickInput),
-            protocol=packed.quick_protocols())
-        argument.host = ct.pointer(borrowed)
-        argument.execution_version = packed.execution_label
-    call = library.bind('tpmshx_result_stage_query_v3' if isinstance(argument, QuickInput) else 'tpmshx_result_stage_query_v2',
-        [P(type(argument)), ct.c_uint32, P(Spec), P(Metric), Z,
-         P(Output), P(core._Diagnostics), P(ct.c_uint64), P(ct.c_char), Z])
-    release = library.bind('tpmshx_result_stage_release_v1', [P(Output)], None)
     try:
+        packed.pack(result, query)
+        library = core._library()
+        owner = weakref.proxy(packed)
+
+        @Events
+        def events(context, values, failure):
+            try:
+                core.notify(values.contents, stacklevel=6)
+                return 0
+            except BaseException as exception:
+                identity = owner.token(exception)
+                message = _text(str(exception))
+                owner.keep.append(message)
+                failure[0] = HostError(_cause(exception), 0, identity, message)
+                return 1
+
+        errors = packed.sequence(InputError, packed.errors)
+        none_values = packed.sequence(ct.c_void_p, packed.none_values)
+        borrowed = Input(2, ct.sizeof(Input), ct.pointer(packed.raw), errors, len(errors), none_values, len(none_values),
+            packed.density, packed.split, packed.inlet_temperature, packed.invalid_mode_repr, packed.dimension_index, packed.dimension_slice, packed.qualification_error, None, events)
+        selection = _spec(metric_spec) if metric_spec is not None else None
+        rows = [Metric(_text(name), Spec(b'', b'', b'', b''), 0, 0., _text(value.status), None)
+                for name, value in (metrics or {}).items()]
+        supplied = packed.sequence(Metric, rows)
+        argument = borrowed
+        if query in (0, 3):
+            argument = packed.quick if packed.quick is not None else QuickInput(3, ct.sizeof(QuickInput),
+                protocol=packed.quick_protocols())
+            argument.host = ct.pointer(borrowed)
+            argument.execution_version = packed.execution_label
+        call = library.bind('tpmshx_result_stage_query_v3' if isinstance(argument, QuickInput) else 'tpmshx_result_stage_query_v2',
+            [P(type(argument)), ct.c_uint32, P(Spec), P(Metric), Z,
+             P(Output), P(core._Diagnostics), P(ct.c_uint64), P(ct.c_char), Z])
+        release = library.bind('tpmshx_result_stage_release_v1', [P(Output)], None)
         status = call(ct.byref(argument), query, ct.byref(selection) if selection is not None else None,
             supplied, len(rows), ct.byref(output), ct.byref(diagnostics), ct.byref(token), error, len(error))
         core.notify(diagnostics, stacklevel=5)
@@ -862,8 +881,13 @@ def _query(result, query, metric_spec=None, metrics=None):
                 row.status.decode('utf-8'), row.reason.decode('utf-8'))
         return PerformanceResult(str(uuid4()), result.result_id, restored, report['qualification'])
     finally:
-        if output.owner:
-            release(ct.byref(output))
+        try:
+            if output.owner:
+                release(ct.byref(output))
+        finally:
+            # Deferred tracebacks can refer to the query and its borrowed fields.
+            packed.exceptions.clear()
+            packed.array_errors.clear()
 
 
 def evaluate(result, metric_spec=None):

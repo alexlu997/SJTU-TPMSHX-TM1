@@ -7,10 +7,25 @@ from sjtu_tpmshx.shared.domain.portable_data import mutable_data as _mutable_dat
 from sjtu_tpmshx.shared.domain.compute_config import ComputeConfig
 from sjtu_tpmshx.shared.domain.persistence_validation import validate_grid, validate_thermal_geometry
 from sjtu_tpmshx.shared.models.zone_config import Zone, ZoneConfig
+from sjtu_tpmshx.shared.models.grid import _port_fractions_1d, _port_overlap_1d
 from .prepared_models import resolve_models, validate_fluid, validate_nu_settings, validate_topology
 
 
 from sjtu_tpmshx.shared.models.zone_units import _legacy_zone_units
+
+
+def _validated_outlet_fraction(flow, opening, port, side):
+    for end in ('in', 'out'):
+        fractions = _port_fractions_1d(flow['dx'], port[end + '_ctr'] - port[end + '_w'] / 2,
+            port[end + '_ctr'] + port[end + '_w'] / 2,
+            uniform=end == 'in' and port.get('uniform_inlet_2d', False))
+        for kind, expected in zip(('geom', 'profile'), fractions):
+            name = end + '_' + kind + '_frac'
+            supplied = np.asarray(opening[name])
+            if supplied.shape != expected.shape or not np.allclose(supplied, expected, rtol=1e-12, atol=1e-15):
+                raise ValueError(f'prepared Fluid {side} {name} disagrees with its grid and port geometry')
+    return _port_overlap_1d(flow['dx'], port['out_ctr'] - port['out_w'] / 2,
+                            port['out_ctr'] + port['out_w'] / 2, staggered=True)
 
 
 def build_execution_inputs(case: CaseData, *, copy_design=True):
@@ -44,7 +59,7 @@ def build_execution_inputs(case: CaseData, *, copy_design=True):
             value = flow[key]
             if not np.isscalar(value) or not np.isfinite(value) or (value <= 0 if positive else value < 0):
                 raise ValueError(f'invalid prepared flow {side} {key}')
-        if case.metadata['design_mode'] == 'continuous':
+        if cfg['z_axis'] == 'continuous':
             for key, positive in (('K_field_m2', True), ('cF_field_per_m', False)):
                 values = np.asarray(flow.get(key))
                 if (values.shape != (len(cross), len(stream)) or not np.all(np.isfinite(values))
@@ -53,7 +68,7 @@ def build_execution_inputs(case: CaseData, *, copy_design=True):
     cfg['N_x'], cfg['N_y'] = len(dx), len(dy)
     cfg['Lcell'], cfg['t_wall'] = cfg.pop('L_cell_m') * 1e3, cfg.pop('t_wall_m') * 1e3
     run_settings = _legacy_zone_units(cfg.pop('run_settings'))
-    if case.metadata['design_mode'] == 'continuous':
+    if cfg['z_axis'] == 'continuous':
         run_settings['zones'] = dict(enabled=True, axis='continuous', config=cfg['continuous_field'])
     cfg['compute_cfg'] = ComputeConfig.from_dict(run_settings, prepared_grid=True)
     providers = resolve_models(case)

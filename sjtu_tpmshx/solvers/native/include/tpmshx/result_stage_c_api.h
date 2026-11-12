@@ -271,7 +271,9 @@ typedef struct {
 #ifdef __cplusplus
 extern "C" {
 #endif
-/* Output storage is set only on success. Release it in the creating library. */
+/* Output storage is set only on success. Release it in the creating library.
+ * A wrong output size or a nonempty owner leaves diagnostic storage unchanged.
+ */
 TPMSHX_RESULT_API int TPMSHX_RESULT_CALL tpmshx_result_stage_evaluate_v1(
     const tpmshx_result_evidence_v1*, const tpmshx_stage_metric_spec_v1*,
     tpmshx_stage_output_v1*, char*, size_t);

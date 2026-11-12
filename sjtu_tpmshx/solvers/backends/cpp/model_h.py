@@ -176,7 +176,7 @@ def _copy(view, shape=None):
     return result if shape is None else result.reshape(shape)
 
 
-def _plane_info(result, shape, widths, masses):
+def _plane_info(result, shape, widths, masses, *, capture_scalars=None):
     audit = result.plane
     sides = {}
     for label, side, mass in zip(('A', 'B'), audit.sides, masses):
@@ -200,9 +200,10 @@ def _plane_info(result, shape, widths, masses):
             strict_normalization_W_per_m=side.normalization, residual_cellmax_rel=side.cell_ratio)
     return dict(
         units='W/m; kg/(s m)', state='raw final thermal return', boundary_order=['-x', '+x', '-y', '+y'],
-        **sides, sou_A=True, sou_B=True, cell_count=int(np.prod(shape)),
+        **sides, sou_A=True, sou_B=True,
+        cell_count=int(np.prod(shape)) if capture_scalars is None else capture_scalars['cell_count'],
         dx_m=widths[0].tolist(), dy_m=widths[1].tolist(),
-        area_m2=capture_area(widths[0], widths[1]),
+        area_m2=capture_area(widths[0], widths[1]) if capture_scalars is None else capture_scalars['area_m2'],
         solid_boundary_W_per_m=0., solid_source_W_per_m=0.,
         solid_residual_sum_W_per_m=audit.solid_sum, solid_residual_max_abs_W_per_m=audit.solid_max,
         solid_residual_cellmax_rel=audit.solid_cell_ratio, equation_tolerance=.01,
