@@ -829,3 +829,42 @@ def test_raw_spatial_half_domain_keeps_nominal_event(native, scope, axis):
         assert len([event for event in events if event[2] == 'nominal-grid-' + axis]) == 1
     finally:
         _release(native, scope, result)
+
+
+@pytest.mark.parametrize('destination', ['error', 'failure'])
+@pytest.mark.parametrize('invalid', [None, 'source', 'result', 'grid'])
+def test_typed_sigmoid_owned_views_reject_diagnostic_aliases(native, destination, invalid):
+    config, table = _configuration('sigmoid'), v6._table()
+    status, result, _, error, _, source, kinds = _call(native, 'sigmoid', config, table=table)
+    assert status == 0, error
+    if invalid is not None:
+        {'source': source, 'result': result, 'grid': kinds}[invalid].abi_version = 0
+    before = bytes(source), bytes(kinds)
+    try:
+        labels = v4._check_owned_aliases(lambda failure, error, capacity:
+            native.tpmshx_prepare_sigmoid_case_2d_v7(ct.byref(source), ct.byref(kinds),
+                None, None, ct.byref(result), failure, error, capacity), result, destination)
+        assert any(name.endswith('.controls.decision_mm') for name in labels)
+        assert any(name.endswith('.values.thermal_porosity') for name in labels)
+        assert any('.volumetric_transfer[' in name for name in labels)
+        assert (bytes(source), bytes(kinds)) == before
+    finally:
+        _release(native, 'sigmoid', result)
+
+
+def test_typed_sigmoid_owned_result_keeps_safe_reuse_diagnostics(native):
+    config, table = _configuration('sigmoid'), v6._table()
+    status, result, _, error, _, source, kinds = _call(native, 'sigmoid', config, table=table)
+    assert status == 0, error
+    before = bytes(result), bytes(source), bytes(kinds)
+    buffers = [(address, ct.string_at(address, size)) for _, address, size in v4._visible_buffers(result)]
+    failure, error = v2._Failure(2, ct.sizeof(v2._Failure)), ct.create_string_buffer(4096)
+    try:
+        status = native.tpmshx_prepare_sigmoid_case_2d_v7(ct.byref(source), ct.byref(kinds),
+            None, None, ct.byref(result), ct.byref(failure), error, len(error))
+        assert status == 1 and failure.kind == 1
+        assert b'release the previous flow result' in error.value
+        assert (bytes(result), bytes(source), bytes(kinds)) == before
+        assert all(ct.string_at(address, len(saved)) == saved for address, saved in buffers)
+    finally:
+        _release(native, 'sigmoid', result)

@@ -120,6 +120,9 @@ Python wheel 包含代码和模型资源，不包含原生库。
 它们复用几何／网格和共享模型实现，链接锁定的 CoolProp 静态库，
 不构建完整求解器或 run_state，也不需要 SuperLU 或 AMG。
 完整构建脚本分别构建 pilot 和 preparation 工程，共用一套物性和 DF 数值实现。
+
+`shared/models/_native_preparation.py` 在需要时通过 ctypes 加载 preparation ABI 1。
+具名物性、DF 和流量适配器保留现有 Python 公共接口。
 二维准备将 v7 域长／端口标量类型描述符与适用的版本载荷配合使用。
 共享网格和端口核心保留整数与窄浮点混合运算。
 原始空间准备 v8 为 air/air 条带、矩形和 sigmoid 场增加容量、解析及完整固定流量入口。
@@ -142,15 +145,45 @@ Python 均匀及空间准备使用 v10；均匀容量和解析仍使用 v7/v3，
 保存运行描述符 v2 携带名义侧元组，通过既有完整二维生命周期接收离散及 sigmoid 场。
 它保留 saved v1、结果所有权与同构建恢复，不重新准备保存算例。
 公共分区与 sigmoid 组合查询在单独迁移前仍保留独立调用消费者。
+它们保留调用方提供的物性及自定义 sigmoid 控制。
 `preprocess/two_d/preparation.py` 为原生适配器；被替代的 Python 二维准备流程及行 D-F 投影已退役。
-冻结测试参考保留原流程与投影；既有三维准备路径仍单独保留。
+冻结测试参考保留原流程与投影。
+原始操作和结果所有权见[空间阶段接口](native-stages.zh-CN.md#空间几何总质量流量)。
 回调与所有权合同见[空间宿主接口](native-stages.zh-CN.md#空间几何宿主缓存接口)。
 v10 范围见[偏移几何](native-stages.zh-CN.md#既有偏移几何)，输入借用规则见[运行续算](native-stages.zh-CN.md#运行续算)。
 已保存的准备工况继续使用记录的网格，适配器不重建历史网格。
 Python 前处理入口调用独立结果库采集范围记录。准备库本身不链接结果库。
 
-`shared/models/_native_preparation.py` 在需要时通过 ctypes 加载 preparation ABI 1。
-具名物性、DF 和流量适配器保留现有 Python 公共接口。
+独立的 `preparation_case_3d_c_api.h` 提供规定入口速度的均匀对称三维准备，
+支持两种拓扑、全部 16 个有序流体配对及原有状态和实验限制。
+owner 保留物理网格场、六个端口流向、标量类型标记和模型证据。
+两侧孔隙率已拆分；K/cF 场未缩放，逐侧证据记录应用因子。
+宿主提供已解析的单元数上限；[阶段契约](native-stages.zh-CN.md#均匀三维准备)定义所有权与端口规则。
+Python 三维准备现通过 `preprocess/three_d/preparation.py` 使用此原生阶段。
+独立的三维流量 v2 为配置或显式总质量流量增加容量、解析及完整准备，复用同一物理几何，
+保留静态观测到速度观测的原证据顺序。三维 continuous v3 为这些流量操作增加 XY 挤出和 XYZ 控制点，
+复用现有样条及几何所有者，分别保留原始设计场与热几何的 SI 往返换算。
+三维 spatial v4 为三个操作增加原始 XY 网格矩形及现有全局偏置规则，复用现有分区与非对称所有者，
+提供分配、平滑、侧孔隙率及名义热侧／参考几何。原有 air/water 范围与实验限制不变，v1/v2/v3 C 布局不变。
+独立 `stage_run_3d_c_api.h` 现将全部三维准备家族及保存视图接到 `Full3DRun`，
+提供一次性运行、步进、带类型快照、恢复及完整原始结果转移。
+捕获 owner 向独立结果阶段提供最终流场与最后热态证据。
+所有权和默认控制量见[原生三维执行](native-stages.zh-CN.md#原生三维执行)。
+Python 完整三维执行通过 `full_3d_stage.py` 使用保存输入生命周期。
+它与直接低层驱动共用输入打包、回调和完整 DTO 解码。
+原生捕获提供应用归约量及审计出口权重；`full_3d_capture.py` 仍是唯一结果组装器。
+协议在执行前选择；归档库保留直接运行与恢复接口，协议缺符号或原生失败不启动其他路线。
+host v5 通过共享 v9 回调描述符保留带类型的几何与入口缓存。
+Python 保留配置、缓存策略、警告、环境解析和不可变 CaseData 组装。
+被替代的三维 Python 数值体及其专属 `shared/models/grid_3d.py` 和 `asym_split.py` 助手已删除。
+独立冻结参考保留在 `development/tests/preparation_3d_reference.py`。
+私有 `scalar_range_samples.hpp` 将每侧空气场标量观测限制在八个以内，保留原通知、极值和最后样本。
+完整原始数组记录仍包含每个单元。准备与结果分别编译该选择规则，两者之间没有运行时链接。
+接近单元上限的内存使用及真实三维 BO 仍是验收关口；原始接口不替代保存 CaseData 的校验。
+
+Quick 准备 v2 增加带类型的原始输入及独立压降分数查询。
+`shared/models/_native_quick_prepare.py` 通过固定具名操作保留宿主协议。
+阶段负责几何、网格、物性和压降计算及其执行顺序；仅压降查询不创建热网格或设计场数组。
 Preparation 状态 0 表示成功，1 表示无效输入，2 表示分配失败，3 表示运行时错误；
 状态 10、11、12 分别表示水、CO2、sCO2 状态错误。
 几何 ABI 1 与 field ABI 2 不变，继续使用各自错误映射。
@@ -273,9 +306,15 @@ CI 保留完整 macOS／Windows 构建，并增加独立 Ubuntu `result-build` �
 
 ## 完整 Quick Design 能力
 
-[Quick Design 阶段](native-stages.zh-CN.md#quick-design-阶段)为 native double 调用者增加
-原始工况准备和具有独立所有权的结果证据。独立的版本 1 C 合同保留下述既有驱动 ABI。
-Python 生产接入仍需单独完成类型与事件验收。
+[Quick Design 阶段](native-stages.zh-CN.md#quick-design-阶段)提供带类型的原始准备 v2 和仅压降查询，
+保留已公开的 native-double v1 准备与运行契约。
+v2 阶段负责原数值及校验顺序，固定具名宿主操作保留 Python 标量、对象、缓存、警告和快照协议。
+宿主操作不提供模型计算；原 `shared/models/quick_design.py` 已删除。
+独立冻结参考保留在 `development/tests/`，供回归检查使用。
+薄准备入口组装 CaseData，保留逆流保存态的 `qtol=None` 和 `chunk=None`。
+Python 执行通过保存的准备场调用 run 阶段。
+阶段提供场数组及声明，Python 在释放前复制这些数据，保留原固定场 dtype，并映射过程警告和错误。
+原生结果阶段负责 Quick Design 指标，保留既有类型及事件协议。
 
 `quick_design_driver.hpp` 负责完整准备态 const/mean 物性阶段计算。它包含原有经验空气／水或 HEOS sCO2 物性、既有 Nu、一次或两次温度计算、全场热启动、逐阶段液态水检查、迭代预算、进度和取消。准备好的入口状态解析压降比例保持固定。这是既有给定流量尺寸设计近似，`physical_validation=not_established`。
 
@@ -496,6 +535,9 @@ TPMSHX_REQUIRE_CPP_TESTS=1 TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1 \
 资源读取器仅使用 Python 标准库，生成器不导入数值模型实现。
 构建在所选缓存的 `generated/` 目录下生成 `tpmshx/model_coefficients.hpp` 和 `tpmshx/preparation_df_data.hpp`，默认目录为 `.cache/native-deps/generated/`。
 C++ 使用生成的常量，运行时不解析 JSON，也不调用 Python。
+`quick_design` 资源统一提供导热率、网格数、几何分辨率、容差和各流向控制量，供两版准备及 Python 消费者使用。
+逆流 qtol/chunk 在资源中保持 null，在 CaseData 中保持 `None`。
+v1 准备态驱动配置保留已解析默认值 `max(tol*10, 1e-4)` 和 250。
 几何、准备和求解代码使用已声明的模型资源；既有模型身份、单位、拟合系数和实验结论不变。
 本次实施与退休范围见[范围说明](#cpp-core-scope)，数据来源见[模型资源](model-resources.md#当前资源与研究输出)。
 

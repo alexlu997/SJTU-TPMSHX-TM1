@@ -670,3 +670,46 @@ def test_sigmoid_production_cold_nodes_and_repeated_warm_preparation(native, mon
         _release(native, resource)
         for result in results:
             _release(native, result)
+
+
+@pytest.mark.parametrize('destination', ['error', 'failure'])
+@pytest.mark.parametrize('invalid', [None, 'source', 'result'])
+def test_sigmoid_owned_views_reject_diagnostic_aliases(native, destination, invalid):
+    from sjtu_tpmshx.development.tests.test_native_preparation_continuous import _check_owned_aliases
+    config, table = _configuration(), _table()
+    status, result, _, error, _, _ = _call(native, config, table)
+    assert status == 0, error
+    source = _input(config, table)
+    if invalid is not None:
+        (source if invalid == 'source' else result).abi_version = 0
+    source_before = bytes(source)
+    try:
+        labels = _check_owned_aliases(lambda failure, error, capacity:
+            native.tpmshx_prepare_sigmoid_case_2d_v6(ct.byref(source), None, None,
+                ct.byref(result), failure, error, capacity), result, destination)
+        assert any(name.endswith('.controls.decision_mm') for name in labels)
+        assert any(name.endswith('.values.thermal_porosity') for name in labels)
+        assert any('.volumetric_transfer[' in name for name in labels)
+        assert bytes(source) == source_before
+    finally:
+        _release(native, result)
+
+
+def test_sigmoid_owned_result_keeps_safe_reuse_diagnostics(native):
+    from sjtu_tpmshx.development.tests.test_native_preparation_continuous import _visible_buffers
+    config, table = _configuration(), _table()
+    status, result, _, error, _, _ = _call(native, config, table)
+    assert status == 0, error
+    source = _input(config, table)
+    before = bytes(result)
+    buffers = [(address, ct.string_at(address, size)) for _, address, size in _visible_buffers(result)]
+    failure, error = v2._Failure(2, ct.sizeof(v2._Failure)), ct.create_string_buffer(4096)
+    try:
+        status = native.tpmshx_prepare_sigmoid_case_2d_v6(ct.byref(source), None, None,
+            ct.byref(result), ct.byref(failure), error, len(error))
+        assert status == 1 and failure.kind == 1
+        assert b'release the previous flow result' in error.value
+        assert bytes(result) == before
+        assert all(ct.string_at(address, len(saved)) == saved for address, saved in buffers)
+    finally:
+        _release(native, result)

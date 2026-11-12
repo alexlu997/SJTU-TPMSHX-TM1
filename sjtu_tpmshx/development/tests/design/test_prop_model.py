@@ -47,7 +47,7 @@ def test_mean_threads_solve_Lx_and_converges():
 
 @pytest.mark.parametrize('side,value', [(i, v) for i in range(3) for v in (np.nan, np.inf)])
 def test_forward_rejects_nonfinite_external_seed_before_properties(monkeypatch, side, value):
-    preparation = importlib.import_module('sjtu_tpmshx.preprocess.app_modes.quick_design')
+    preparation = importlib.import_module('sjtu_tpmshx.shared.models._native_quick_prepare')
     execution = importlib.import_module('sjtu_tpmshx.solvers.backends.cpp.quick_design')
     seed = [np.full((2, 2, 1), 400.) for _ in range(3)]
     seed[side][0, 0, 0] = value
@@ -55,7 +55,14 @@ def test_forward_rejects_nonfinite_external_seed_before_properties(monkeypatch, 
     def unexpected(*args, **kwargs):
         pytest.fail('bad external seed reached geometry/properties/thermal solve')
 
-    monkeypatch.setattr(preparation, 'tpms_geometry', unexpected)
+    original = preparation._HostState.dispatch
+
+    def before_models(state, request):
+        if request.operation in (6, 7, 10):
+            unexpected()
+        return original(state, request)
+
+    monkeypatch.setattr(preparation._HostState, 'dispatch', before_models)
     monkeypatch.setattr(execution, 'run_case', unexpected)
     case = _case(100.)
     case.T_in_h = 600.

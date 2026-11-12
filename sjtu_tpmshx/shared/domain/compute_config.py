@@ -155,7 +155,7 @@ class GeometryConfig:
     Lz_m: Optional[float] = None
     # Asymmetric porosity: offset-isosurface centre δ (φ-units). 0.0 →
     # symmetric 50/50 (bit-identical). |δ|>0 → ε_A (φ<δ−C) ≠ ε_B (φ>δ+C);
-    # consumed by models.asym_split._eps_sides_for_run. Human targets
+    # consumed by native 3D geometry preparation. Human targets
     # (A%/B%) convert to δ in run scripts via runs/diagnostics/asym_target_scan.
     delta_levelset: float = 0.0
 
@@ -283,7 +283,7 @@ def bc_to_dict(bc: 'PartialBCConfig', L_dom: float, H_dom: float,
       partially-degenerate BC returns the raw partial dict (no full-face
       fallback). 3D side B only.
 
-      NOTE: the ComputeConfig→3D boundary (``preprocess.three_d.preparation._parse_inputs_3d_cfg``)
+      NOTE: the ComputeConfig→3D boundary (``preprocess.three_d.preparation.prepare_case``)
       rebuilds a full-face B from a None here, because via ComputeConfig
       fluid_B is always a configured 2nd fluid (a None there is just the
       ``PartialBCConfig`` default widths, meaning full-face cross-flow).

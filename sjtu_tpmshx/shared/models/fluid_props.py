@@ -99,6 +99,13 @@ def _nu_sco2(tpms_type, Re, eps_f, L_mm, D_h_mm, Pr, *, settings=None):
     return nu_correlations.nu_sco2_topo(tpms_type, Re, Pr, L_mm, D_h_mm)
 
 
+def _require_sco2_pressure(pressure):
+    if pressure is None:
+        raise ValueError(
+            "sCO2 properties require pressure P [Pa]; caller passed P=None. "
+            "Fix the call site to forward the inlet/local pressure.")
+
+
 def _sco2_prop(key):
     """Adapt the native sCO2 query and require absolute pressure.
 
@@ -106,10 +113,7 @@ def _sco2_prop(key):
     The native backend reads inlet or local pressure from those inputs.
     """
     def _wrapped(T, P=None):
-        if P is None:
-            raise ValueError(
-                "sCO2 properties require pressure P [Pa]; caller passed P=None. "
-                "Fix the call site to forward the inlet/local pressure.")
+        _require_sco2_pressure(P)
         return sco2_props.sco2_prop(key, T, P)
     return _wrapped
 

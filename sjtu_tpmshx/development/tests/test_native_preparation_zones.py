@@ -464,3 +464,47 @@ def test_native_zoned_nan_geometry_keeps_first_failure(native, monkeypatch, fiel
     assert status == 1 and failure.kind == 1
     assert error == str(reference.value)
     assert bytes(result) == bytes(_Result(5, ct.sizeof(_Result)))
+
+
+@pytest.mark.parametrize('destination', ['error', 'failure'])
+@pytest.mark.parametrize('invalid', [None, 'source', 'result'])
+def test_native_zoned_owned_views_reject_diagnostic_aliases(native, destination, invalid):
+    from sjtu_tpmshx.development.tests.test_native_preparation_continuous import _check_owned_aliases
+    config = _config('y')
+    status, result, _, error, _, _ = _call(native, config)
+    assert status == 0, error
+    source = _input(config)
+    if invalid is not None:
+        (source if invalid == 'source' else result).abi_version = 0
+    source_before = bytes(source)
+    try:
+        labels = _check_owned_aliases(lambda failure, error, capacity:
+            native.tpmshx_prepare_zoned_case_2d_v5(ct.byref(source), None, None,
+                ct.byref(result), failure, error, capacity), result, destination)
+        assert any('.regions[' in name and name.endswith('.region.name') for name in labels)
+        assert any(name.endswith('.zone_id') for name in labels)
+        assert any(name.endswith('.thermal_porosity') for name in labels)
+        assert any('.volumetric_transfer[' in name for name in labels)
+        assert bytes(source) == source_before
+    finally:
+        _release(native, result)
+
+
+def test_native_zoned_owned_result_keeps_safe_reuse_diagnostics(native):
+    from sjtu_tpmshx.development.tests.test_native_preparation_continuous import _visible_buffers
+    config = _config('y')
+    status, result, _, error, _, _ = _call(native, config)
+    assert status == 0, error
+    source = _input(config)
+    before = bytes(result)
+    buffers = [(address, ct.string_at(address, size)) for _, address, size in _visible_buffers(result)]
+    failure, error = v2._Failure(2, ct.sizeof(v2._Failure)), ct.create_string_buffer(4096)
+    try:
+        status = native.tpmshx_prepare_zoned_case_2d_v5(ct.byref(source), None, None,
+            ct.byref(result), ct.byref(failure), error, len(error))
+        assert status == 1 and failure.kind == 1
+        assert b'release the previous flow result' in error.value
+        assert bytes(result) == before
+        assert all(ct.string_at(address, len(saved)) == saved for address, saved in buffers)
+    finally:
+        _release(native, result)

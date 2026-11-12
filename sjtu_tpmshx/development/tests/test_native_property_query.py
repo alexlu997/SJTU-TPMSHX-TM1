@@ -202,6 +202,28 @@ def test_frozen_query_does_not_call_production_combination(monkeypatch):
     assert result['rho'] > 0 and result['K_df'] > 0
 
 
+def test_frozen_3d_air_reference_does_not_call_production_combination(monkeypatch):
+    from sjtu_tpmshx.development.tests import preparation_3d_reference as preparation
+    from sjtu_tpmshx.development.tests.test_native_preparation_3d import _configuration
+    from sjtu_tpmshx.shared.models import _native_preparation_case as native
+
+    def forbidden(*args, **kwargs):
+        pytest.fail('The 3D reference called the production property combination')
+
+    config = _configuration(pair=('air', 'air'))
+    with monkeypatch.context() as patch, warning_scope({}) as records:
+        for name in ('TPMSHX_CHI_S', 'TPMSHX_ALLOW_EXTRAP', 'TPMSHX_MAX_CELLS_3D'):
+            patch.delenv(name, raising=False)
+        patch.setattr(tpms_calc, 'compute', forbidden)
+        patch.setattr(tpms_calc, '_compute_cached', forbidden)
+        patch.setattr(native, 'inlet_query', forbidden)
+        case = preparation.prepare_case(config, case_id='independent-3d-air')
+    assert case.grid['dimension'] == 3
+    contexts = {key[-1] for key in records if key[:3] == ('nu', 'air', 'Gyroid')}
+    assert contexts == {(side, stage, layout) for side in 'AB'
+                        for stage, layout in (('inlet-preflight', 'scalar'), ('inlet', 'scalar-hv-bulk'))}
+
+
 @pytest.mark.parametrize('policy', ['warn', 'raise'])
 def test_selected_model_keeps_floating_events_and_failure_cache(policy):
     settings = replace(Sco2NuConfig(), mode='experimental', alpha_D=1.e308, alpha_G=1.e308,

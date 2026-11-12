@@ -211,7 +211,7 @@ def test_sigmoid_saved_execution_keeps_row_drag(monkeypatch, tmp_path):
 
     # This small real LUT checks saved execution, not LUT accuracy.
     lut = sigmoid_field.GeometryLUT('Gyroid', n_L=2, n_t=2, N=16, cache_dir=tmp_path / 'lut')
-    monkeypatch.setattr(sigmoid_field, 'get_geometry_lut', lambda *a, **k: lut)
+    monkeypatch.setitem(sigmoid_field._lut_cache, ('Gyroid',), lut)
     config = _config('grid')
     config.zones.pareto_x_decision = np.column_stack((
         np.linspace(5., 8., 18), np.linspace(.3, .6, 18))).ravel().tolist()

@@ -5,7 +5,7 @@ import pytest
 
 from sjtu_tpmshx.shared.domain.compute_config import (
     ComputeConfig, FluidConfig, GeometryConfig, SolverConfig, PartialBCConfig)
-from sjtu_tpmshx.preprocess.three_d.preparation import _parse_inputs_3d_cfg
+from sjtu_tpmshx.preprocess.api import prepare_case
 
 
 def _cfg(dir_B):
@@ -25,7 +25,7 @@ def _cfg(dir_B):
 
 @pytest.mark.parametrize('dir_B', [1, 2, 3, 5])
 def test_degenerate_bc_b_becomes_full_face(dir_B):
-    parsed = _parse_inputs_3d_cfg(_cfg(dir_B))
+    parsed = prepare_case(_cfg(dir_B), case_id='full-face').parameters
     fb = parsed['fluid_B_cfg']
     assert fb is not None, (
         "degenerate bc_B at the ComputeConfig boundary must become full-face, "

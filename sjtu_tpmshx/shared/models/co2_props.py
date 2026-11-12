@@ -5,7 +5,7 @@ saturation. All actual states must be finite, single phase, above the triple
 point; exceptions are propagated with their T/p context. Not a solid-CO2 model.
 """
 from __future__ import annotations
-from functools import lru_cache
+from .preparation_cache import scalar_cache
 import numpy as np
 from . import _native_properties
 
@@ -34,7 +34,7 @@ def _evaluate(keys,t,p):
         raise ValueError(text) from cause
 
 
-@lru_cache(maxsize=4096)
+@scalar_cache(maxsize=4096)
 def _scalar(T,P):
     try:
         return _native_properties.co2_scalar_bundle(T, P)

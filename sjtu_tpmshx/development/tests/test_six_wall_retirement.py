@@ -44,7 +44,7 @@ def test_enabled_historical_flag_requires_an_explicit_new_grid(tmp_path):
 def test_old_script_assignment_fails_before_grid_construction(monkeypatch, enabled):
     from sjtu_tpmshx.preprocess.three_d import preparation
     config = _full_face_config(False)
-    monkeypatch.setattr(preparation, '_build_grid_3d',
+    monkeypatch.setattr(preparation, '_execute',
                         lambda *args: pytest.fail('retired script input reached grid construction'))
     with pytest.raises(AttributeError, match='wall_refine_3d'):
         config.flags.wall_refine_3d = enabled
@@ -91,14 +91,14 @@ def test_prepared_archive_keeps_its_actual_grid_and_snapshot(tmp_path, dimension
     assert path.read_bytes() == original
 
 
-def test_low_level_preparation_rejects_old_constructor_before_grid_build(monkeypatch):
+def test_retired_constructor_is_rejected_before_native_dispatch(monkeypatch):
     from sjtu_tpmshx.preprocess.three_d import preparation
-    cfg = preparation._parse_inputs_3d_cfg(_full_face_config(False))
-    cfg['wall_refine_3d'] = True
-    monkeypatch.setattr(preparation, '_build_grid_3d',
-                        lambda *args: pytest.fail('retired input reached grid construction'))
+    payload = _full_face_config(False).to_dict()
+    payload['flags']['wall_refine_3d'] = True
+    monkeypatch.setattr(preparation, '_execute',
+                        lambda *args, **kwargs: pytest.fail('retired input reached native preparation'))
     with pytest.raises(ValueError, match='wall_refine_3d is retired'):
-        preparation._prepare_geometry_data(cfg)
+        prepare_case(ComputeConfig.from_dict(payload), case_id='retired')
 
 
 @pytest.mark.parametrize('retired', [False, True])

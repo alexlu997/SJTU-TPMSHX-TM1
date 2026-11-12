@@ -217,7 +217,7 @@ def _plane_info(result, shape, widths, masses, *, capture_scalars=None):
         thermal_residual_K=result.residual)
 
 
-def _volume_info(result, shape, *, include_faces=True):
+def _volume_info(result, shape, *, include_faces=True, cell_count=None):
     audit = result.volume
     sides, native_faces, strict = {}, {}, {}
     for label, side in zip(('A', 'B'), audit.sides):
@@ -241,7 +241,7 @@ def _volume_info(result, shape, *, include_faces=True):
             strict_normalization_W=side.normalization)
         strict.update({f'eps_{label}_strict': side.global_ratio, f'eps_{label}_strict_cellmax': side.cell_ratio,
                        f'Q_s{label}': side.exchange})
-    balance = dict(reference_K=audit.sides[0].cp_coefficients[4], cell_count=int(np.prod(shape)),
+    balance = dict(reference_K=audit.sides[0].cp_coefficients[4], cell_count=int(np.prod(shape)) if cell_count is None else cell_count,
         full_volume_m3=audit.volume, mass_source='completed SIMPLE raw faces before capacity balance/MAC',
         thermal_state='last returned temperatures; nonlinear model h and temperature SOU', sides=sides,
         physical_boundary_complete=bool(audit.boundary_complete), numerical_external_inward_W=audit.numerical_external_in,

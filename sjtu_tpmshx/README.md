@@ -29,7 +29,7 @@ compute -> preprocess.api.prepare_case -> CaseData -> solvers.api.run_case -> Fi
 准备 v2 为规定速度、均匀对称二维几何增加 air/water/sCO2/CO2 的全部 16 个有序配对。
 准备 v3 为均匀二维总质量流量增加独立容量查询、入口流量解析和完整准备，复用物理入口网格，
 并将前段记录与最终准备证据分开。
-准备 v4 增加规范连续 XY 场与完整局部阻力。
+run v2 支持均匀四流体准备态，包括已解析的总质量流量。准备 v4 提供连续 XY 物理场和完整局部阻力，供 run v3 使用。run v1 保留原 air/air CFD 范围。
 准备 v5 增加规定速度、CFD 阻力和零 delta 下的原始 air/air 条带与矩形。
 它的独立热几何与行阻力保留原离散规则。
 准备 v6 增加原始 air/air sigmoid 控制，以及支持生产分辨率冷构建、可复用的原生 LUT。
@@ -46,15 +46,29 @@ Python 保留 LUT 存储，缺表时原生代码在原几何检查点构建。
 它单独携带名义热侧元组，保留既有分流和 N128 几何计算，与设计场及逐单元热几何分开。
 连续场、CO2/sCO2、实验模型和总质量流量的既有限制不变；此前 C 布局及范围均保留。
 Python 均匀和空间准备使用 v10；均匀容量和解析仍使用 v7/v3，连续入口仍使用 v7/v4。
-空间容量和解析使用 v10，沿用 v9 结果视图和释放函数；三维准备保留明确原路径。
+空间容量和解析使用 v10，沿用 v9 结果视图和释放函数。
 公共 ZoneConfig 与 sigmoid 组合查询在单独迁移通过前仍保留独立调用消费者。
+它们保留调用方提供的物性及自定义 sigmoid 控制。
 `preprocess/two_d/preparation.py` 为原生适配器，被替代的 Python 准备流程及行 D-F 投影已退役。
 独立准备参考保留在 `development/tests`；`shared/models/zone_units.py` 负责保存分区数据的单位转换。
 CaseData 与保存文件契约不变，原生失败直接传播，不选择其他准备路线。
-run v2 支持均匀四流体准备态，包括已解析的总质量流量。准备 v4 提供连续 XY 物理场，供 run v3 使用。
-run v1 保留原 air/air CFD 范围。
-独立 Quick Design 路径支持 native double 工况，并保留既有 LTNE 模型。
-阶段迁移期间，上述 Python 入口继续保留全部现有模式。
+
+独立的三维准备 v1 接收规定速度的原始对称均匀输入，覆盖全部 16 个有序流体配对，
+保留物理网格、带类型的端口、六个流向、单元数上限和原有 CFD／实验限制。
+两侧孔隙率已拆分，K/cF 基础场与逐侧应用因子分开保存。
+独立的三维流量 v2 增加容量查询、总流量解析和完整准备，只计算一次几何。
+连续三维 v3 从原始 XY 挤出或 XYZ 控制点完成准备，并支持容量查询及总流量解析。
+spatial v4 增加 XY 网格矩形和现有全局偏置规则，分别保留侧孔隙率及热几何。
+原生三维运行／捕获将这些准备家族及保存视图接到同一 `Full3DRun` 生命周期。
+结果在准备态及运行释放后拥有完整原始场与评估证据。
+Python 完整三维执行通过 `full_3d_stage.py` 使用该保存输入生命周期。
+`full_3d_capture.py` 仍是结果组装器；原生捕获提供应用归约量及可选审计出口权重。
+Python 三维准备使用 host v5 和共享的带类型缓存回调。
+空气场每侧最多选择八个标量观测值，完整原始数组记录仍保留全部单元。
+`preprocess/three_d/preparation.py` 从拥有独立存储的原生结果组装不可变 CaseData。
+被替代的 `shared/models/grid_3d.py` 和 `asym_split.py` 助手已退役。
+`development/tests/preparation_3d_reference.py` 保留独立数值参考。
+接近单元上限的内存使用及真实三维 BO 需要单独验收。
 
 二维执行使用所选库的完整保存输入原生生命周期，包括检查点与完整结果捕获。
 保存输入描述符 v2 增加名义侧几何并接收离散与 sigmoid 场；saved v1 保持不变。
@@ -64,6 +78,14 @@ Python 优先选择 v2，其次为对称均匀或连续输入选择 v1；不具�
 Python 保留几何选择、共享缓存、可变结果副本、逐次 K_ss 查询、对象转换和警告策略。
 `shared/models/_native_preparation_case.py` 传输十二个带类型的查询值，并与准备适配器共享范围观测。
 [入口物性查询](../docs/native-stages.zh-CN.md#入口物性查询) 向 C 和 C++ 调用者提供同一计算，不需要网格或求解器。
+
+Quick Design 准备 v2 接受带类型的原始输入，并提供不创建热网格或设计场数组的独立压降查询。
+Python 通过 `_native_quick_prepare.py` 执行固定宿主协议，将原生输出复制到 CaseData。
+被替代的 `shared/models/quick_design.py` 已删除；默认值统一来自 `shared/configs/model_parameters_v1.json` 及生成的 C++ 常量。
+native-double v1 契约与既有 LTNE 模型继续可用。
+Python 执行通过保存的准备态调用原生 run 阶段；原生结果阶段负责 Quick Design 指标。
+准备与结果的宿主操作保留既有 Python 类型、缓存、警告和事件协议。
+阶段迁移期间，上述 Python 入口继续保留全部现有模式。
 
 ## 修改数值函数
 
@@ -80,11 +102,11 @@ Python 保留几何选择、共享缓存、可变结果副本、逐次 K_ss 查�
 | 固定 DF、修正、投影与规定流量 | [preparation_df.cpp](solvers/native/src/preparation_df.cpp): `fixed_df`; [preparation_df_corrections.cpp](solvers/native/src/preparation_df_corrections.cpp); [preparation_df_projection.cpp](solvers/native/src/preparation_df_projection.cpp); [preparation_flow.cpp](solvers/native/src/preparation_flow.cpp): `inlet_capacity_2d`, `inlet_speed` |
 | 完整二维／三维与 Quick Design | [full_2d.cpp](solvers/native/src/full_2d.cpp): `solve_full_2d`; [full_3d.cpp](solvers/native/src/full_3d.cpp): `solve_full_3d`; [quick_design_driver.cpp](solvers/native/src/quick_design_driver.cpp): `solve_quick_design` |
 | 指标、物理平衡、分区统计与检查 | [result_metrics.cpp](solvers/native/src/result_metrics.cpp): `pressure_face`, `boundary_enthalpy_duty`; [result_balance.cpp](solvers/native/src/result_balance.cpp): `mass`, `energy`, `zone_std`; [result_checks.cpp](solvers/native/src/result_checks.cpp): `collect_range`, `strict_certificate` |
-| 完整阶段准备与执行 | [preparation_case.cpp](solvers/native/src/preparation_case.cpp): `prepare_case_2d`, `prepare_zoned_flow_case_2d`, `prepare_thermal_sides`; [stage_run.cpp](solvers/native/src/stage_run.cpp): `tpmshx_run_case_2d_v1/v2/v3`, `tpmshx_stage_run_2d_create_v1/create_saved_v1/create_saved_v2`; [stage_capture_2d.cpp](solvers/native/src/stage_capture_2d.cpp)：`tpmshx_stage_run_2d_get_capture_v1` |
-| Quick Design 阶段准备与执行 | [quick_design_prepare.cpp](solvers/native/src/quick_design_prepare.cpp): `tpmshx_prepare_quick_design_v1`; [quick_design_run.cpp](solvers/native/src/quick_design_run.cpp): `tpmshx_run_quick_design_v1` |
+| 完整阶段准备与执行 | [preparation_case.cpp](solvers/native/src/preparation_case.cpp): `prepare_case_2d`, `prepare_zoned_flow_case_2d`, `prepare_thermal_sides`, `prepare_case_3d`; [stage_run.cpp](solvers/native/src/stage_run.cpp): `tpmshx_run_case_2d_v1/v2/v3`, `tpmshx_stage_run_2d_create_v1/create_saved_v1/create_saved_v2`; [stage_capture_2d.cpp](solvers/native/src/stage_capture_2d.cpp)：`tpmshx_stage_run_2d_get_capture_v1`; [stage_run_3d.cpp](solvers/native/src/stage_run_3d.cpp): `tpmshx_run_case_3d_v1`; [stage_capture_3d.cpp](solvers/native/src/stage_capture_3d.cpp): `capture_3d`, `tpmshx_stage_run_3d_get_capture_v1` |
+| Quick Design 阶段准备与执行 | [quick_design_prepare_v2.cpp](solvers/native/src/quick_design_prepare_v2.cpp): `tpmshx_prepare_quick_design_v2`, `tpmshx_quick_pressure_fractions_v2`; [quick_design_prepare.cpp](solvers/native/src/quick_design_prepare.cpp)：保留 v1; [quick_design_run.cpp](solvers/native/src/quick_design_run.cpp): `tpmshx_run_quick_design_v1` |
 | 阶段评估与资格判断 | [result_stage.cpp](solvers/native/src/result_stage.cpp): `evaluate`, `evaluate_applicability`, `evaluate_physical_balance`, `evaluate_qualification` |
 
-几何库使用 geometry ABI 1／field ABI 2，准备库使用 preparation ABI 1，结果库使用 result ABI 2。
+几何库使用 geometry ABI 1／field ABI 2；准备库保留 ABI 1 加载入口，并增加带版本的 Quick 准备 v2 契约；结果库使用 result ABI 2。
 求解器的算法细节从上表 driver 进入对应 SIMPLE、压力和能量实现；[C++ 说明](../docs/cpp-migration.zh-CN.md)给出接口边界。
 Python 保留配置、DTO、I/O、缓存、NumPy 事件处理、GUI／搜索和离线研究。
 原生结果阶段负责完整结果的证据选择与资格；Python 将其输出适配到应用接口。
