@@ -2,6 +2,8 @@
 import ast
 import ctypes as ct
 import json
+import warnings
+import weakref
 from collections.abc import Mapping
 from uuid import uuid4
 
@@ -87,6 +89,25 @@ Input = record('Input', [('abi_version', ct.c_uint32), ('struct_size', Z), ('evi
     ('errors', P(InputError)), ('error_count', Z), ('none_values', P(ct.c_void_p)), ('none_count', Z),
     ('solid_density', AP), ('split_a', AP), ('inlet_temperature', AP * 2), ('invalid_mode_repr', S), ('physical_dimension_index', P(I)), ('physical_dimension_slice', P(I)), ('qualification_error', P(I)),
     ('context', ct.c_void_p), ('events', Events)])
+QuickValue = record('QuickValue', [('numeric', AP), ('object', ct.c_uint64)])
+QVP = P(QuickValue)
+StageLabel = record('StageLabel', [('text', S), ('value', QVP)])
+QuickTextEqual = ct.CFUNCTYPE(I, ct.c_void_p, QVP, S, P(I), P(HostError))
+QuickDifference = ct.CFUNCTYPE(I, ct.c_void_p, QVP, D, QVP, P(HostError))
+QuickPair = ct.CFUNCTYPE(I, ct.c_void_p, QVP, QVP, QVP, P(HostError))
+QuickDuty = ct.CFUNCTYPE(I, ct.c_void_p, QVP, QVP, I, QVP, P(HostError))
+QuickFloat = ct.CFUNCTYPE(I, ct.c_void_p, QVP, P(D), P(HostError))
+QuickEmptyMean = ct.CFUNCTYPE(I, ct.c_void_p, P(HostError))
+QuickProtocols = record('QuickProtocols', [('context', ct.c_void_p), ('text_equal', QuickTextEqual),
+    ('text_not_equal', QuickTextEqual),
+    ('temperature_difference', QuickDifference), ('capacity_product', QuickPair), ('duty_product', QuickDuty),
+    ('pressure_difference', QuickPair), ('reynolds_flow', QuickPair), ('reynolds_length', QuickPair),
+    ('reynolds_quotient', QuickPair), ('metric_float', QuickFloat), ('empty_mean', QuickEmptyMean)])
+QuickSide = record('QuickSide', [(name, P(I)) for name in ('boundary_access', 'properties_access', 'pressure_access')]
+    + [(name, QVP) for name in ('inlet_temperature', 'mass_flow', 'cp', 'rho', 'velocity', 'viscosity', 'inlet_pressure', 'outlet_pressure')])
+QuickInput = record('QuickInput', [('abi_version', ct.c_uint32), ('struct_size', Z), ('host', P(Input)),
+    ('model', P(StageLabel)), ('arrangement', P(StageLabel)), ('execution_version', P(StageLabel)), ('sides', QuickSide * 2), ('hydraulic_diameter', QVP),
+    ('protocol', QuickProtocols)])
 _MISSING = object()
 _REQUIRED = object()
 
@@ -147,6 +168,7 @@ class _Packed:
         self.exceptions = {}
         self.array_errors = {}
         self.none_values = []
+        self.quick_objects = {}
 
     def pointer(self, value):
         self.keep.append(value)
@@ -159,6 +181,20 @@ class _Packed:
 
     def token(self, error):
         token = len(self.exceptions) + 1
+        # Contexts and group members can also retain borrowed fields through frames.
+        pending, visited = [error], set()
+        while pending:
+            current = pending.pop()
+            if id(current) in visited:
+                continue
+            visited.add(id(current))
+            BaseException.with_traceback(current, None)
+            # Read stored relations without calling an exception subclass accessor.
+            relations = (BaseException.__dict__['__cause__'].__get__(current),
+                         BaseException.__dict__['__context__'].__get__(current))
+            pending.extend(value for value in relations if value is not None)
+            if isinstance(current, BaseExceptionGroup):
+                pending.extend(BaseExceptionGroup.__dict__['exceptions'].__get__(current))
         self.exceptions[token] = error
         return token
 
@@ -176,6 +212,136 @@ class _Packed:
             return self.pointer(core.scalar(value))
         except (TypeError, ValueError, OverflowError, KeyError, IndexError, AttributeError) as error:
             return self.fault(self.pointer(core._Scalar()), error)
+
+    def quick_object(self, value):
+        token = len(self.quick_objects) + 1
+        self.quick_objects[token] = value
+        return self.pointer(QuickValue(object=token))
+
+    def quick_value(self, value):
+        if isinstance(value, _Fault):
+            return self.fault(self.pointer(QuickValue()), value.error)
+        protocol = (not isinstance(value, (int, float, complex, np.number))
+            and not (isinstance(value, np.ndarray) and value.dtype.kind in 'biufc'))
+        if protocol or core.integer_product_requires_python((value,)):
+            return self.quick_object(value)
+        owner = core.array(value)
+        self.keep.append(owner)
+        return self.pointer(QuickValue(numeric=self.pointer(owner.raw)))
+
+    def quick_read(self, pointer):
+        value = pointer.contents
+        if value.object:
+            return self.quick_objects[value.object]
+        raw = value.numeric.contents
+        dtype = core._DTYPES[raw.dtype]
+        if raw.byte_order:
+            dtype = dtype.newbyteorder('<' if raw.byte_order == 1 else '>')
+        shape = tuple(raw.shape[:raw.rank])
+        array = np.ndarray(shape, dtype=dtype, buffer=ct.string_at(raw.data, raw.bytes),
+                           offset=raw.offset, strides=tuple(raw.strides[:raw.rank]))
+        if raw.origin == 2:
+            return array
+        scalar = array[()]
+        conversion = {0: float, 3: int, 4: bool, 5: complex}.get(raw.origin)
+        return conversion(scalar) if conversion is not None else scalar
+
+    def callback_error(self, error, failure):
+        message = _text(str(error))
+        self.keep.append(message)
+        failure[0] = HostError(_cause(error), getattr(error, 'errno', 0) or 0, self.token(error), message)
+        return 1
+
+    def quick_protocols(self):
+        # The query owns this state; callbacks must not extend its lifetime.
+        owner = weakref.proxy(self)
+        def result(output, failure, operation):
+            try:
+                output[0] = owner.quick_value(operation()).contents
+                return 0
+            except BaseException as error:
+                return owner.callback_error(error, failure)
+
+        @QuickTextEqual
+        def text_equal(context, value, expected, output, failure):
+            try:
+                output[0] = bool(owner.quick_read(value) == expected.decode('utf-8'))
+                return 0
+            except BaseException as error:
+                return owner.callback_error(error, failure)
+
+        @QuickTextEqual
+        def text_not_equal(context, value, expected, output, failure):
+            try:
+                output[0] = bool(owner.quick_read(value) != expected.decode('utf-8'))
+                return 0
+            except BaseException as error:
+                return owner.callback_error(error, failure)
+
+        @QuickDifference
+        def temperature_difference(context, inlet, outlet, output, failure):
+            return result(output, failure, lambda: owner.quick_read(inlet) - outlet)
+
+        @QuickPair
+        def capacity_product(context, mass, cp, output, failure):
+            return result(output, failure, lambda: owner.quick_read(mass) * owner.quick_read(cp))
+
+        @QuickDuty
+        def duty_product(context, capacity, delta, cold, output, failure):
+            return result(output, failure, lambda: owner.quick_read(capacity) * owner.quick_read(delta) * (-1 if cold else 1))
+
+        @QuickPair
+        def pressure_difference(context, inlet, outlet, output, failure):
+            return result(output, failure, lambda: owner.quick_read(inlet) - owner.quick_read(outlet))
+
+        @QuickPair
+        def reynolds_flow(context, rho, velocity, output, failure):
+            return result(output, failure, lambda: owner.quick_read(rho) * abs(owner.quick_read(velocity)))
+
+        @QuickPair
+        def reynolds_length(context, flow, diameter, output, failure):
+            return result(output, failure, lambda: owner.quick_read(flow) * owner.quick_read(diameter))
+
+        @QuickPair
+        def reynolds_quotient(context, numerator, mu, output, failure):
+            return result(output, failure, lambda: owner.quick_read(numerator) / owner.quick_read(mu))
+
+        @QuickFloat
+        def metric_float(context, value, output, failure):
+            try:
+                output[0] = float(owner.quick_read(value))
+                return 0
+            except BaseException as error:
+                return owner.callback_error(error, failure)
+
+        @QuickEmptyMean
+        def empty_mean(context, failure):
+            try:
+                warnings.warn('Mean of empty slice', RuntimeWarning, stacklevel=6)
+                return 0
+            except BaseException as error:
+                return owner.callback_error(error, failure)
+
+        callbacks = (text_equal, text_not_equal, temperature_difference, capacity_product, duty_product, pressure_difference,
+            reynolds_flow, reynolds_length, reynolds_quotient, metric_float, empty_mean)
+        self.keep.extend(callbacks)
+        return QuickProtocols(None, *callbacks)
+
+    def label(self, value):
+        if isinstance(value, _Fault):
+            return self.fault(self.pointer(StageLabel()), value.error)
+        if type(value) is str:
+            try:
+                encoded = value.encode('utf-8')
+            except UnicodeEncodeError:
+                pass
+            else:
+                if b'\0' not in encoded:
+                    return self.pointer(StageLabel(text=encoded))
+        return self.pointer(StageLabel(value=self.quick_object(value)))
+
+    def quick_access(self, value):
+        return self.fault(self.pointer(I()), value.error) if isinstance(value, _Fault) else self.pointer(I(1))
 
     def number(self, kind, value):
         if value is _MISSING or value is None:
@@ -427,11 +593,12 @@ class _Packed:
 
 
 class _Evidence(_Packed):
-    def __init__(self, result, query):
-        super().__init__()
+    def pack(self, result, query):
         self.result, self.query = result, query
         self.density = self.split = self.invalid_mode_repr = self.dimension_index = self.dimension_slice = None
         self.qualification_error = None
+        self.quick = None
+        self.execution_label = None
         self.inlet_temperature = (AP * 2)()
         metadata, flux = result.metadata, result.boundary_fluxes
         output = self.raw = Evidence(abi_version=1, struct_size=ct.sizeof(Evidence),
@@ -476,7 +643,9 @@ class _Evidence(_Packed):
         output.thermal = self.thermal(flux, _read(diagnostics, 'model_h_balance', None) if dimension == 3 else None)
         output.fine = self.record(Fine, flux.get('fine'), self.fine)
         for index, side in enumerate('AB'):
-            output.pressure[index] = self.record(Pressure, result.pressure_evidence.get(side), self.pressure)
+            pressure = result.pressure_evidence.get(side)
+            if mode != 'quick_design' or isinstance(pressure, Mapping):
+                output.pressure[index] = self.record(Pressure, pressure, self.pressure)
         declarations = [Declaration(self.text(name), self.text(_read(row, 'unit', '')), self.text(row.get('state')) if isinstance(row, Mapping) and isinstance(row.get('state'), str) else None)
                         for name, row in result.field_metadata.items()]
         output.field_metadata, output.field_metadata_count = self.sequence(Declaration, declarations), len(declarations)
@@ -511,6 +680,9 @@ class _Evidence(_Packed):
         self._qualification(metadata, diagnostics, parameters, dimension)
         if query == 3:
             return
+        if mode == 'quick_design':
+            self.quick = self._quick(metadata, flux, result.pressure_evidence)
+            return
         for index, side in enumerate('AB'):
             output.active_fluids[index] = int(side in metadata.get('active_fluids', ('A', 'B')))
             output.direction[index] = self.number(I, _read(parameters, 'dir_' + side, _MISSING))
@@ -527,6 +699,23 @@ class _Evidence(_Packed):
         self.split = self.array(metadata.get('split_A', _MISSING), preserve_origin=True)
         self.density = self.array(metadata.get('solid_density_kg_m3', _MISSING), preserve_origin=True)
 
+
+    def _quick(self, metadata, flux, pressures):
+        parameters = _read(metadata, 'parameters')
+        output = QuickInput(3, ct.sizeof(QuickInput),
+            model=self.label(_read(metadata, 'model')),
+            arrangement=self.label(_read(parameters, 'arrangement')),
+            hydraulic_diameter=self.quick_value(_read(parameters, 'D_h')), protocol=self.quick_protocols())
+        properties = _read(metadata, 'properties')
+        for index, side in enumerate('AB'):
+            boundary, props, pressure = _read(flux, side), _read(properties, side), _read(pressures, side)
+            output.sides[index] = QuickSide(
+                self.quick_access(boundary), self.quick_access(props), self.quick_access(pressure),
+                *(self.quick_value(_read(values, key)) for values, key in (
+                    (boundary, 'inlet_temperature_K'), (boundary, 'mass_flow_kg_s'), (boundary, 'cp_J_kgK'),
+                    (props, 'rho'), (boundary, 'velocity_m_s'), (props, 'mu'),
+                    (pressure, 'inlet_absolute_Pa'), (pressure, 'outlet_absolute_Pa'))))
+        return output
 
     def _qualification(self, metadata, diagnostics, parameters, dimension):
         output, result = self.raw, self.result
@@ -581,9 +770,21 @@ class _Evidence(_Packed):
             output.model_active_b = int(active_b is not None)
         output.richardson_extrapolated = _truth(_read(_read(diagnostics, 'richardson_info', {}), 'extrapolated', None))
         execution = metadata.get('execution_record', {})
-        output.execution_version = self.text(_read(execution, 'version', None))
+        self.execution_label = self.label(_read(execution, 'version', None))
         sides = _read(execution, 'sides', {})
-        records = list(sides.items())
+        access = _read(sides, 'A', {})
+        if isinstance(access, _Fault):
+            self.fault(ct.byref(output, Evidence.executed_side_count.offset), access.error)
+        try:
+            if isinstance(sides, _Fault):
+                raise sides.error
+            if not isinstance(sides, Mapping):
+                set(sides)
+                sides.values()
+            records = list(sides.items())
+        except (TypeError, ValueError, KeyError, IndexError, AttributeError) as error:
+            output.executed_sides = self.fault(self.pointer(ExecutionSide()), error)
+            return
         output.executed_sides = self.sequence(ExecutionSide, [ExecutionSide() for _ in records])
         output.executed_side_count = len(records)
         for index, (name, row) in enumerate(records):
@@ -603,36 +804,46 @@ def _spec(value):
 
 
 def _query(result, query, metric_spec=None, metrics=None):
-    packed = _Evidence(result, query)
-    library = core._library()
+    packed = _Evidence()
     output, diagnostics, token = Output(struct_size=ct.sizeof(Output)), core._Diagnostics(), ct.c_uint64()
     error = ct.create_string_buffer(4096)
 
-    @Events
-    def events(context, values, failure):
-        try:
-            core.notify(values.contents, stacklevel=6)
-            return 0
-        except BaseException as exception:
-            identity = packed.token(exception)
-            message = _text(str(exception))
-            packed.keep.append(message)
-            failure[0] = HostError(_cause(exception), 0, identity, message)
-            return 1
-
-    errors = packed.sequence(InputError, packed.errors)
-    none_values = packed.sequence(ct.c_void_p, packed.none_values)
-    borrowed = Input(2, ct.sizeof(Input), ct.pointer(packed.raw), errors, len(errors), none_values, len(none_values),
-        packed.density, packed.split, packed.inlet_temperature, packed.invalid_mode_repr, packed.dimension_index, packed.dimension_slice, packed.qualification_error, None, events)
-    selection = _spec(metric_spec) if metric_spec is not None else None
-    rows = [Metric(_text(name), Spec(b'', b'', b'', b''), 0, 0., _text(value.status), None)
-            for name, value in (metrics or {}).items()]
-    supplied = packed.sequence(Metric, rows)
-    call = library.bind('tpmshx_result_stage_query_v2', [P(Input), ct.c_uint32, P(Spec), P(Metric), Z,
-        P(Output), P(core._Diagnostics), P(ct.c_uint64), P(ct.c_char), Z])
-    release = library.bind('tpmshx_result_stage_release_v1', [P(Output)], None)
     try:
-        status = call(ct.byref(borrowed), query, ct.byref(selection) if selection is not None else None,
+        packed.pack(result, query)
+        library = core._library()
+        owner = weakref.proxy(packed)
+
+        @Events
+        def events(context, values, failure):
+            try:
+                core.notify(values.contents, stacklevel=6)
+                return 0
+            except BaseException as exception:
+                identity = owner.token(exception)
+                message = _text(str(exception))
+                owner.keep.append(message)
+                failure[0] = HostError(_cause(exception), 0, identity, message)
+                return 1
+
+        errors = packed.sequence(InputError, packed.errors)
+        none_values = packed.sequence(ct.c_void_p, packed.none_values)
+        borrowed = Input(2, ct.sizeof(Input), ct.pointer(packed.raw), errors, len(errors), none_values, len(none_values),
+            packed.density, packed.split, packed.inlet_temperature, packed.invalid_mode_repr, packed.dimension_index, packed.dimension_slice, packed.qualification_error, None, events)
+        selection = _spec(metric_spec) if metric_spec is not None else None
+        rows = [Metric(_text(name), Spec(b'', b'', b'', b''), 0, 0., _text(value.status), None)
+                for name, value in (metrics or {}).items()]
+        supplied = packed.sequence(Metric, rows)
+        argument = borrowed
+        if query in (0, 3):
+            argument = packed.quick if packed.quick is not None else QuickInput(3, ct.sizeof(QuickInput),
+                protocol=packed.quick_protocols())
+            argument.host = ct.pointer(borrowed)
+            argument.execution_version = packed.execution_label
+        call = library.bind('tpmshx_result_stage_query_v3' if isinstance(argument, QuickInput) else 'tpmshx_result_stage_query_v2',
+            [P(type(argument)), ct.c_uint32, P(Spec), P(Metric), Z,
+             P(Output), P(core._Diagnostics), P(ct.c_uint64), P(ct.c_char), Z])
+        release = library.bind('tpmshx_result_stage_release_v1', [P(Output)], None)
+        status = call(ct.byref(argument), query, ct.byref(selection) if selection is not None else None,
             supplied, len(rows), ct.byref(output), ct.byref(diagnostics), ct.byref(token), error, len(error))
         core.notify(diagnostics, stacklevel=5)
         if status:
@@ -670,8 +881,13 @@ def _query(result, query, metric_spec=None, metrics=None):
                 row.status.decode('utf-8'), row.reason.decode('utf-8'))
         return PerformanceResult(str(uuid4()), result.result_id, restored, report['qualification'])
     finally:
-        if output.owner:
-            release(ct.byref(output))
+        try:
+            if output.owner:
+                release(ct.byref(output))
+        finally:
+            # Deferred tracebacks can refer to the query and its borrowed fields.
+            packed.exceptions.clear()
+            packed.array_errors.clear()
 
 
 def evaluate(result, metric_spec=None):
