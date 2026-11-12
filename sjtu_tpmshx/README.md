@@ -34,7 +34,11 @@ compute -> preprocess.api.prepare_case -> CaseData -> solvers.api.run_case -> Fi
 准备 v6 增加原始 air/air sigmoid 控制，以及支持生产分辨率冷构建、可复用的原生 LUT。
 它保留独立热几何和行阻力，不使用离散平滑；Python 缓存和路由保持不变。
 
-Python 准备入口对对称均匀和连续二维输入使用 v3/v4；非零 delta 均匀、离散分区、sigmoid 与三维保留明确原路径。
+准备 v8 为这些 air/air 空间输入增加容量查询、流量解析和完整固定流量准备。
+它保留物理网格和几何，在换热计算前解析速度，并拥有复制后的区域、控制点与 LUT。
+域长／端口类型输入与独立的前段证据仍明确保留，Python 空间路由和缓存不变。
+
+Python 准备入口对对称均匀和连续二维输入使用 v7 及 v3/v4 载荷；非零 delta 均匀、离散分区、sigmoid 与三维保留明确原路径。
 CaseData 与保存文件契约不变，原生失败直接传播，不选择其他准备路线。
 本阶段范围中的 run 路径仍为 v1 的 air/air CFD 工况。
 
@@ -52,7 +56,7 @@ CaseData 与保存文件契约不变，原生失败直接传播，不选择其�
 | 固定 DF、修正、投影与规定流量 | [preparation_df.cpp](solvers/native/src/preparation_df.cpp): `fixed_df`; [preparation_df_corrections.cpp](solvers/native/src/preparation_df_corrections.cpp); [preparation_df_projection.cpp](solvers/native/src/preparation_df_projection.cpp); [preparation_flow.cpp](solvers/native/src/preparation_flow.cpp): `inlet_capacity_2d`, `inlet_speed` |
 | 完整二维／三维与 Quick Design | [full_2d.cpp](solvers/native/src/full_2d.cpp): `solve_full_2d`; [full_3d.cpp](solvers/native/src/full_3d.cpp): `solve_full_3d`; [quick_design_driver.cpp](solvers/native/src/quick_design_driver.cpp): `solve_quick_design` |
 | 指标、物理平衡、分区统计与检查 | [result_metrics.cpp](solvers/native/src/result_metrics.cpp): `pressure_face`, `boundary_enthalpy_duty`; [result_balance.cpp](solvers/native/src/result_balance.cpp): `mass`, `energy`, `zone_std`; [result_checks.cpp](solvers/native/src/result_checks.cpp): `collect_range`, `strict_certificate` |
-| 完整阶段准备与执行 | [preparation_case.cpp](solvers/native/src/preparation_case.cpp): `prepare_case_2d`; [stage_run.cpp](solvers/native/src/stage_run.cpp): `tpmshx_run_case_2d_v1`; [stage_capture_2d.cpp](solvers/native/src/stage_capture_2d.cpp) |
+| 完整阶段准备与执行 | [preparation_case.cpp](solvers/native/src/preparation_case.cpp): `prepare_case_2d`, `prepare_zoned_flow_case_2d`; [stage_run.cpp](solvers/native/src/stage_run.cpp): `tpmshx_run_case_2d_v1`; [stage_capture_2d.cpp](solvers/native/src/stage_capture_2d.cpp) |
 | 阶段评估与资格判断 | [result_stage.cpp](solvers/native/src/result_stage.cpp): `evaluate`, `evaluate_applicability`, `evaluate_physical_balance`, `evaluate_qualification` |
 
 几何库使用 geometry ABI 1／field ABI 2，准备库使用 preparation ABI 1，结果库使用 result ABI 2。

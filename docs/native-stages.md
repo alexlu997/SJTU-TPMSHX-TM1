@@ -22,6 +22,10 @@ It provides separate capacity and inlet-flow resolution queries, plus complete p
 It preserves the existing physical depth, calibration and scalar arithmetic rules.
 Continuous fields, zones and nonzero delta remain outside v3. The run interface is unchanged.
 
+Preparation v8 adds capacity, flow resolution and complete preparation for raw air/air stripes, rectangles and sigmoid fields.
+It keeps CFD drag, zero delta and separate typed domain and port inputs.
+Python spatial routes and caches remain unchanged.
+
 The C++ call sequence is `prepare_case`, `run_case`, then `evaluate`.
 The caller supplies dimensions, design values, boundary conditions and controls.
 The preparation library computes the physical fields. The solver library uses
@@ -160,6 +164,30 @@ Keep it with a resolved input when preparing that input again. Release results w
 Earlier C and C++ entries keep weak double domain and port values.
 This interface changes no physical scope or saved-file format.
 
+## Spatial total mass flow
+
+Preparation v8 uses `ZonedFlowInput2D` or `SigmoidFlowInput2D` with `GridKinds2D` and preparation options.
+Each input contains the existing raw spatial descriptor, depth and target kinds, and an optional explicit target pair.
+The six C entries provide capacity, resolution and complete preparation for both spatial input types.
+They accept air/air, CFD drag and zero delta. Existing v1-v7 layouts and scopes remain unchanged.
+
+Capacity uses the actual physical inlet slice of design porosity, the opening profile, widths, density and physical depth.
+Discrete design porosity retains Gaussian smoothing; sigmoid geometry has no Gaussian filter.
+The query does not calculate Nu or transfer coefficients from obsolete inlet speeds.
+Resolution applies configured one-side or two-side targets, or an explicit pair, with the existing scalar arithmetic.
+Explicit targets clear stored targets. Without targets, resolution copies the raw input without physical preparation.
+
+Complete fixed-flow preparation builds one physical grid and retains its geometry through speed resolution.
+Final properties use the resolved speeds. Requested-grid observations, per-call cache order and row D-F projection remain in their original order.
+Preliminary records are in `flow.flow.evidence`; final records remain in the prepared view.
+These raw operations accept only the event callback. They do not use Python cache hooks.
+
+Capacity and resolution results own copied region names, controls and LUT arrays in their `input` views.
+Keep the matching grid descriptor and scalar kinds when using a resolved input again.
+Nested owner fields are null. Release only the outer result with its matching v8 release function.
+The [spatial flow example](../examples/cpp/prepare_spatial_flow_2d.cpp) uses all six operations and releases original inputs before complete preparation.
+It checks ownership and typed ports with a small LUT for the smoke test; it does not qualify the LUT's physical accuracy.
+
 ## Python preparation adapter
 
 The public preparation, capacity and resolution entries use v7 with v3/v4 payloads for supported 2D inputs.
@@ -251,6 +279,8 @@ The [zoned preparation example](../examples/cpp/prepare_zoned_2d.cpp) starts wit
 It returns prepared fields and row drag through v5, with only the preparation library.
 The [sigmoid preparation example](../examples/cpp/prepare_sigmoid_2d.cpp) creates the production-resolution LUT and prepares two cases from raw controls.
 It reuses the LUT and links only preparation.
+The [spatial flow example](../examples/cpp/prepare_spatial_flow_2d.cpp) queries, resolves and prepares zones and sigmoid fields through v8.
+It also links only preparation and retains row drag and separate thermal geometry.
 These examples use only installed public headers and shared libraries.
 The Windows build copies the required DLLs beside each executable.
 

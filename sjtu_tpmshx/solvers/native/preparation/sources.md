@@ -16,3 +16,13 @@ The macOS arm64 quotient keeps the fused expressions in the locked Python and Nu
 Other supported targets keep separate operations. Global floating-point options stay unchanged.
 The independent Python references remain under `development/tests/`.
 They do not call the native formulas that they check.
+
+## Spatial flow stages
+
+`src/preparation_case.cpp` owns raw spatial capacity, resolution and complete fixed-flow preparation.
+`prepare_spatial_inlet_geometry` uses the existing zone/sigmoid geometry and port cores before any speed-dependent closure.
+`prepare_capacities` and `resolve_speeds` reuse `src/preparation_flow.cpp` for capacity and target arithmetic.
+Final preparation retains the physical grid, spatial geometry and per-call cache, with the original requested-grid observations.
+Discrete design smoothing, sigmoid LUT geometry, thermal geometry and row D-F keep their separate owners and operation order.
+`src/preparation_case_c_api.cpp` exposes v8 inputs and owned views without changing earlier C layouts.
+The [external spatial flow caller](../../../../examples/cpp/prepare_spatial_flow_2d.cpp) uses installed headers and only the preparation library.

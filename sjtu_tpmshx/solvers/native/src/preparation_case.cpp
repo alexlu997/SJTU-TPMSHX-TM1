@@ -1280,8 +1280,16 @@ std::array<g::Scalar,6> sigmoid_boundaries(const SigmoidControls2D& controls,Rec
     result[5]=arithmetic.add(fifth,twice_out).real;
     records.floating(events);return result;
 }
-void sigmoid_fields(PreparedZonedCase2D& output,const ZonedInput2D& request,const PhysicalGrid2D& grid,
-                    bool physical,Records& records) {
+void spatial_log(const PreparedZonedCase2D& output,const PhysicalGrid2D& grid,Records& records) {
+    std::string message;
+    if (output.kind==2) message="[ZONE] Continuous Sigmoid field ("+
+        std::to_string(grid.nx)+"x"+std::to_string(grid.ny)+")";
+    else if (output.kind) message="[ZONE] Grid "+std::to_string(output.regions.size())+" cells (discrete)";
+    else message="[ZONE] "+std::to_string(output.regions.size())+" zones along "+(output.axis?"y":"x");
+    records.emit({PreparationEventKind::log,logger,std::move(message)});
+}
+void sigmoid_geometry(PreparedZonedCase2D& output,const ZonedInput2D& request,const PhysicalGrid2D& grid,
+                      bool physical,Records& records) {
     auto& prepared=output.prepared;const auto& input=prepared.input;
     const auto& sigmoid=*request.sigmoid;const auto& controls=sigmoid.controls;
     if (controls.decision_mm.size()<36)
@@ -1336,7 +1344,7 @@ void sigmoid_fields(PreparedZonedCase2D& output,const ZonedInput2D& request,cons
         prepared.cell_length.data(),prepared.wall_thickness.data(),cells);
     output.zone_id.assign(cells,0);prepared.total_porosity.resize(cells);prepared.solid_conductivity.resize(cells);
     prepared.hydraulic_radius.resize(cells);prepared.area_density.resize(cells);prepared.hydraulic_diameter.resize(cells);
-    output.design_area_density.resize(cells);std::vector<double> pore_porosity(cells),diameter_mm(cells);
+    output.design_area_density.resize(cells);
     for (std::size_t i=0;i<cells;++i) {
         const auto value=geometry::lut_geometry(geometry::calibration(input.geometry.topology).solid_tortuosity,
             sampled[0][i],sampled[1][i],input.geometry.solid_conductivity_W_mK,prepared.options.chi_override);
@@ -1344,8 +1352,14 @@ void sigmoid_fields(PreparedZonedCase2D& output,const ZonedInput2D& request,cons
         prepared.solid_conductivity[i]=value.material.solid_conductivity;
         prepared.hydraulic_radius[i]=value.hydraulic_radius;
         prepared.area_density[i]=output.design_area_density[i]=value.material.geometry.area_density;
-        pore_porosity[i]=value.material.geometry.epsilon_a;
         prepared.hydraulic_diameter[i]=value.hydraulic_radius*2.;
+    }
+}
+void sigmoid_properties(PreparedZonedCase2D& output,const PhysicalGrid2D& grid,Records& records) {
+    auto& prepared=output.prepared;const auto& input=prepared.input;const auto cells=count(grid.nx,grid.ny);
+    std::vector<double> pore_porosity(cells),diameter_mm(cells);
+    for (std::size_t i=0;i<cells;++i) {
+        pore_porosity[i]=prepared.total_porosity[i]*.5;
         diameter_mm[i]=prepared.hydraulic_diameter[i]*1000.;
     }
     const auto field=[](const std::vector<double>& values) {return PropertyInput{{values.data(),values.size()},{0.,64,1},3};};
@@ -1390,11 +1404,52 @@ void sigmoid_fields(PreparedZonedCase2D& output,const ZonedInput2D& request,cons
         output.volumetric_transfer[i]=std::move(transfer[1].values);
         prepared.fluid_conductivity[i]=std::move(transfer[2].values);
     }
-    records.emit({PreparationEventKind::log,logger,"[ZONE] Continuous Sigmoid field ("+
-        std::to_string(grid.nx)+"x"+std::to_string(grid.ny)+")"});
+    spatial_log(output,grid,records);
+}
+void take_spatial_geometry(PreparedZonedCase2D& output,PreparedZonedCase2D& geometry) {
+    auto& target=output.prepared;auto& source=geometry.prepared;
+    for (auto member:{&PreparedCase2D::cell_length,&PreparedCase2D::wall_thickness,
+                     &PreparedCase2D::total_porosity,&PreparedCase2D::solid_conductivity,
+                     &PreparedCase2D::hydraulic_radius,&PreparedCase2D::area_density,&PreparedCase2D::hydraulic_diameter})
+        (target.*member).swap(source.*member);
+    output.zone_id.swap(geometry.zone_id);output.design_area_density.swap(geometry.design_area_density);
+}
+void sigmoid_fields(PreparedZonedCase2D& output,const ZonedInput2D& request,const PhysicalGrid2D& grid,
+                    bool physical,Records& records,PreparedZonedCase2D* retained=nullptr) {
+    if (retained) {
+        take_spatial_geometry(output,*retained);
+        for (const auto& event:retained->prepared.evidence.events) records.emit(event);
+    } else sigmoid_geometry(output,request,grid,physical,records);
+    sigmoid_properties(output,grid,records);
+}
+void zoned_geometry(PreparedZonedCase2D& output,const ZonedInput2D& request,const PhysicalGrid2D& grid,
+                    bool physical,ZonedCache& cache,bool assign_first=false) {
+    auto& prepared=output.prepared;const auto& input=prepared.input;
+    std::vector<zones::Bounds> bounds;bounds.reserve(output.regions.size());
+    for (const auto& zone:output.regions) bounds.push_back(zone.region.bounds);
+    if (!assign_first) for (auto& zone:output.regions)
+        zone.geometry=cache.material(region_input(input,zone.region),prepared.options);
+    output.zone_id=zones::assign(request.kind,grid.nx,grid.ny,static_cast<int>(request.axis),
+        grid_scalar(request.axis?input.grid.height_m:input.grid.length_m,input.grid.kinds[request.axis]),bounds,
+        physical?&grid.dx:nullptr,physical?&grid.dy:nullptr);
+    if (assign_first) for (auto& zone:output.regions)
+        zone.geometry=cache.material(region_input(input,zone.region),prepared.options);
+    const auto cells=count(grid.nx,grid.ny);
+    prepared.cell_length.resize(cells);prepared.wall_thickness.resize(cells);prepared.total_porosity.resize(cells);
+    prepared.solid_conductivity.resize(cells);prepared.hydraulic_radius.resize(cells);prepared.area_density.resize(cells);
+    prepared.hydraulic_diameter.resize(cells);output.design_area_density.resize(cells);
+    for (std::size_t i=0;i<cells;++i) {
+        const auto index=static_cast<std::size_t>(output.zone_id[i]);const auto& zone=output.regions[index];
+        const auto& geometry=zone.geometry.geometry;
+        prepared.cell_length[i]=zone.region.cell_length_mm;prepared.wall_thickness[i]=zone.region.wall_thickness_mm;
+        prepared.total_porosity[i]=geometry.epsilon;prepared.solid_conductivity[i]=zone.geometry.solid_conductivity;
+        prepared.hydraulic_radius[i]=geometry::hydraulic_radius(geometry.hydraulic_diameter);
+        prepared.area_density[i]=geometry.area_density;output.design_area_density[i]=geometry.area_density;
+        prepared.hydraulic_diameter[i]=geometry.hydraulic_diameter;
+    }
 }
 void zoned_fields(PreparedZonedCase2D& output,const ZonedInput2D& request,const PhysicalGrid2D& grid,
-                  bool physical,ZonedCache& cache,Records& records) {
+                  bool physical,ZonedCache& cache,Records& records,PreparedZonedCase2D* retained=nullptr) {
     auto& prepared=output.prepared;const auto& input=prepared.input;
     // Each zone computes A then B before the geometry-only scatter.
     for (auto current=output.regions.begin();current!=output.regions.end();++current) {
@@ -1414,14 +1469,10 @@ void zoned_fields(PreparedZonedCase2D& output,const ZonedInput2D& request,const 
             zone.property_kinds[side]=cached.kinds;
         }
     }
-    std::vector<zones::Bounds> bounds;bounds.reserve(output.regions.size());
-    for (auto& zone:output.regions) {
-        zone.geometry=cache.material(region_input(input,zone.region),prepared.options);
-        bounds.push_back(zone.region.bounds);
-    }
-    output.zone_id=zones::assign(request.kind,grid.nx,grid.ny,static_cast<int>(request.axis),
-        grid_scalar(request.axis?input.grid.height_m:input.grid.length_m,input.grid.kinds[request.axis]),bounds,
-        physical?&grid.dx:nullptr,physical?&grid.dy:nullptr);
+    if (retained) {
+        for (auto& zone:output.regions) zone.geometry=cache.material(region_input(input,zone.region),prepared.options);
+        take_spatial_geometry(output,*retained);
+    } else zoned_geometry(output,request,grid,physical,cache);
     std::array<std::vector<double>,2> transfer;
     for (std::size_t side=0;side<2;++side) for (const auto& zone:output.regions) {
         const auto result=volumetric_transfer(operand(zone.properties[side].surface_transfer_W_m2K,zone.property_kinds[side][10]),
@@ -1429,34 +1480,23 @@ void zoned_fields(PreparedZonedCase2D& output,const ZonedInput2D& request,const 
         records.floating(result.events);transfer[side].push_back(result.values.front());
     }
     const auto cells=count(grid.nx,grid.ny);
-    prepared.cell_length.resize(cells);prepared.wall_thickness.resize(cells);prepared.total_porosity.resize(cells);
-    prepared.solid_conductivity.resize(cells);prepared.hydraulic_radius.resize(cells);prepared.area_density.resize(cells);
-    prepared.hydraulic_diameter.resize(cells);output.design_area_density.resize(cells);
-    for (std::size_t side=0;side<2;++side) {prepared.fluid_conductivity[side].resize(cells);output.volumetric_transfer[side].resize(cells);}
-    for (std::size_t i=0;i<cells;++i) {
-        const auto index=static_cast<std::size_t>(output.zone_id[i]);const auto& zone=output.regions[index];
-        const auto& geometry=zone.geometry.geometry;
-        prepared.cell_length[i]=zone.region.cell_length_mm;prepared.wall_thickness[i]=zone.region.wall_thickness_mm;
-        prepared.total_porosity[i]=geometry.epsilon;prepared.solid_conductivity[i]=zone.geometry.solid_conductivity;
-        prepared.hydraulic_radius[i]=geometry::hydraulic_radius(geometry.hydraulic_diameter);
-        prepared.area_density[i]=geometry.area_density;output.design_area_density[i]=geometry.area_density;
-        prepared.hydraulic_diameter[i]=geometry.hydraulic_diameter;
-        for (std::size_t side=0;side<2;++side) {
-            prepared.fluid_conductivity[side][i]=zone.properties[side].fluid_conductivity_W_mK;
+    for (std::size_t side=0;side<2;++side) {
+        prepared.fluid_conductivity[side].resize(cells);output.volumetric_transfer[side].resize(cells);
+        for (std::size_t i=0;i<cells;++i) {
+            const auto index=static_cast<std::size_t>(output.zone_id[i]);
+            prepared.fluid_conductivity[side][i]=output.regions[index].properties[side].fluid_conductivity_W_mK;
             output.volumetric_transfer[side][i]=transfer[side][index];
         }
     }
-    records.emit({PreparationEventKind::log,logger,request.kind?
-        "[ZONE] Grid "+std::to_string(output.regions.size())+" cells (discrete)":
-        "[ZONE] "+std::to_string(output.regions.size())+" zones along "+(request.axis?"y":"x")});
+    spatial_log(output,grid,records);
     for (auto* field:{&prepared.fluid_conductivity[0],&prepared.fluid_conductivity[1],&prepared.solid_conductivity,
-                     &output.volumetric_transfer[0],&output.volumetric_transfer[1],&prepared.total_porosity})
+                     &output.volumetric_transfer[0],&output.volumetric_transfer[1],&prepared.total_porosity}) {
+        if (retained && (field==&prepared.solid_conductivity || field==&prepared.total_porosity)) continue;
         *field=zones::gaussian_sigma2(*field,grid.nx,grid.ny);
+    }
 }
 
-PreparedZonedCase2D prepare_zoned_case(const ZonedInput2D& request,const PreparationOptions& options,
-                                     const PreparationCallbacks& callbacks) {
-    FloatingEnvironment floating_environment;
+void validate_zoned_request(const ZonedInput2D& request,const PreparationCallbacks& callbacks) {
     validate_zone_bounds(request);
     if (request.sigmoid && request.kind!=1)
         throw std::invalid_argument("sigmoid preparation requires grid zones");
@@ -1465,24 +1505,37 @@ PreparedZonedCase2D prepare_zoned_case(const ZonedInput2D& request,const Prepara
     if (callbacks.validate_host_input || callbacks.geometry_cache || callbacks.inlet_cache
         || callbacks.observe_range || callbacks.observe_notice)
         throw std::invalid_argument("native zoned preparation currently accepts event callbacks only");
-    auto input=request.input;input.geometry_mode=0;validate_nu(input.sco2_nu);
-    const auto inlets=validate(input,CaseScope::air_cfd_v1);input.sides=inlets;
-    PreparedZonedCase2D output;auto& prepared=output.prepared;
-    prepared.input=input;prepared.input.geometry_mode=2;prepared.options=options;
-    output.kind=request.sigmoid?2:request.kind;output.axis=request.axis;
+}
+PreparedZonedCase2D spatial_output(const ZonedInput2D& request,const CaseInput2D& input,
+                                  const PreparationOptions& options) {
+    PreparedZonedCase2D output;output.prepared.input=input;output.prepared.input.geometry_mode=2;
+    output.prepared.options=options;output.kind=request.sigmoid?2:request.kind;output.axis=request.axis;
     if (request.sigmoid) output.sigmoid=request.sigmoid->controls;
-    Records records{prepared.evidence,callbacks,{},{}};ZonedCache cache;
+    return output;
+}
+void spatial_regions(PreparedZonedCase2D& output,const ZonedInput2D& request) {
+    auto regions=request.regions;if (!request.kind) sort_stripes(regions);
+    if (!request.sigmoid) for (const auto& region:regions) output.regions.push_back({region,{},{},{},{}});
+}
+PreparedZonedCase2D prepare_zoned_case(const ZonedInput2D& request,const PreparationOptions& options,
+                                     const PreparationCallbacks& callbacks,ZonedCache& cache,PreparedZonedCase2D* retained=nullptr) {
+    FloatingEnvironment floating_environment;
+    validate_zoned_request(request,callbacks);
+    auto input=request.input;input.geometry_mode=0;validate_nu(input.sco2_nu);
+    const auto inlets=validate(input,retained?CaseScope::uniform_mass_v3:CaseScope::air_cfd_v1);input.sides=inlets;
+    auto output=spatial_output(request,input,options);auto& prepared=output.prepared;
+    Records records{prepared.evidence,callbacks,{},{}};
     nominal_grid_steps(input,records);
     prepared.uniform_geometry=cache.material(input,options);
     preflight(input,options,prepared.uniform_geometry.geometry,inlets,records);
-    auto regions=request.regions;if (!request.kind) sort_stripes(regions);
-    if (!request.sigmoid) for (const auto& region:regions) output.regions.push_back({region,{},{},{},{}});
+    spatial_regions(output,request);
     PhysicalGrid2D requested;requested.nx=input.grid.requested_nx;requested.ny=input.grid.requested_ny;
     if (request.sigmoid) sigmoid_fields(output,request,requested,false,records);
     else zoned_fields(output,request,requested,false,cache,records);
-    prepared.grid=physical_grid(input.grid,inlets,true);record_grid(input,prepared.grid,records);
-    if (request.sigmoid) sigmoid_fields(output,request,prepared.grid,true,records);
-    else zoned_fields(output,request,prepared.grid,true,cache,records);
+    if (retained) prepared.grid=std::move(retained->prepared.grid);
+    else {prepared.grid=physical_grid(input.grid,inlets,true);record_grid(input,prepared.grid,records);}
+    if (request.sigmoid) sigmoid_fields(output,request,prepared.grid,true,records,retained);
+    else zoned_fields(output,request,prepared.grid,true,cache,records,retained);
     const auto topology=static_cast<std::uint32_t>(input.geometry.topology);
     const auto base=fixed_df(topology,input.geometry.cell_length_mm,input.geometry.wall_thickness_mm);
     const auto& grid=prepared.grid;
@@ -1550,6 +1603,37 @@ g::Scalar flow_scalar(double value,ScalarKind kind) {
     return {value,kind.precision,kind.strong};
 }
 
+void prepare_capacities(const CaseInput2D& input,ScalarKind depth_kind,const PhysicalGrid2D& grid,
+    const std::array<PreparedSide2D,2>& sides,double uniform_epsilon,const std::vector<double>* spatial_epsilon,
+    Records& records,InletFlow2D& flow) {
+    std::array<double,2> densities;
+    for (std::size_t i=0;i<2;++i)
+        densities[i]=property(0,sides[i].inlet,input.kinds.sides[i],"unbound","unbound",records);
+    for (std::size_t i=0;i<2;++i) {
+        if (!input.physical_depth_m || !std::isfinite(*input.physical_depth_m) || *input.physical_depth_m<=0.)
+            throw std::invalid_argument("2D total mass flow requires a positive physical Lz_m");
+        if (input.geometry.delta_levelset!=0.)
+            throw std::invalid_argument("2D fixed-flow optimization currently requires delta_levelset=0");
+        const auto& side=sides[i];
+        std::vector<double> epsilon(side.cross_widths.size(),uniform_epsilon);
+        if (spatial_epsilon) {
+            const auto direction=side.inlet.port.direction;
+            for (std::size_t j=0;j<epsilon.size();++j) {
+                const auto index=direction==0?j:direction==1?(grid.nx-1)*grid.ny+j:
+                    direction==2?j*grid.ny:j*grid.ny+grid.ny-1;
+                epsilon[j]=(*spatial_epsilon)[index];
+            }
+        }
+        const auto field=[](const std::vector<double>& values) {return FlowValues{{values.data(),values.size()},64,1};};
+        flow.capacities[i]=inlet_capacity_2d(field(epsilon),field(side.inlet_profile),field(side.inlet_geometry),
+            field(side.cross_widths),g::weak(densities[i]),flow_scalar(*input.physical_depth_m,depth_kind));
+        if (!std::isfinite(flow.capacities[i].value) || flow.capacities[i].value<=0.)
+            throw std::invalid_argument("side "+std::string(i?"B":"A")+
+                ": inlet density times open pore area must be finite and positive");
+    }
+    flow.have_capacities=true;
+}
+
 InletGeometry2D prepare_inlet_geometry(const CaseInput2D& input,ScalarKind depth_kind,
     const PreparationOptions& options,const PreparationCallbacks& callbacks,InletFlow2D& flow) {
     const auto inlets=validate(input,flow_scope(input),true);
@@ -1561,32 +1645,9 @@ InletGeometry2D prepare_inlet_geometry(const CaseInput2D& input,ScalarKind depth
     record_grid(input,output.grid,records);
     for (std::size_t i=0;i<2;++i) {output.sides[i].inlet=inlets[i];prepare_ports(output.grid,output.sides[i]);}
     if (input.continuous) output.local=local_geometry(input,output.grid,options,records);
-    std::array<double,2> densities;
-    for (std::size_t i=0;i<2;++i)
-        densities[i]=property(0,inlets[i],input.kinds.sides[i],"unbound","unbound",records);
-    for (std::size_t i=0;i<2;++i) {
-        if (!input.physical_depth_m || !std::isfinite(*input.physical_depth_m) || *input.physical_depth_m<=0.)
-            throw std::invalid_argument("2D total mass flow requires a positive physical Lz_m");
-        if (input.geometry.delta_levelset!=0.)
-            throw std::invalid_argument("2D fixed-flow optimization currently requires delta_levelset=0");
-        const auto& side=output.sides[i];
-        std::vector<double> epsilon(side.cross_widths.size(),output.material.geometry.epsilon);
-        if (output.local) {
-            const auto direction=side.inlet.port.direction;
-            for (std::size_t j=0;j<epsilon.size();++j) {
-                const auto index=direction==0?j:direction==1?(output.grid.nx-1)*output.grid.ny+j:
-                    direction==2?j*output.grid.ny:j*output.grid.ny+output.grid.ny-1;
-                epsilon[j]=output.local->epsilon[index];
-            }
-        }
-        const auto field=[](const std::vector<double>& values) {return FlowValues{{values.data(),values.size()},64,1};};
-        flow.capacities[i]=inlet_capacity_2d(field(epsilon),field(side.inlet_profile),field(side.inlet_geometry),
-            field(side.cross_widths),g::weak(densities[i]),flow_scalar(*input.physical_depth_m,depth_kind));
-        if (!std::isfinite(flow.capacities[i].value) || flow.capacities[i].value<=0.)
-            throw std::invalid_argument("side "+std::string(i?"B":"A")+
-                ": inlet density times open pore area must be finite and positive");
-    }
-    flow.have_capacities=true;finish_warnings(records);return output;
+    prepare_capacities(input,depth_kind,output.grid,output.sides,output.material.geometry.epsilon,
+        output.local?&output.local->epsilon:nullptr,records,flow);
+    finish_warnings(records);return output;
 }
 
 std::array<std::optional<double>,2> flow_targets(const InletFlowRequest2D& request,CaseInput2D& input) {
@@ -1618,6 +1679,39 @@ void resolve_speeds(const InletFlowRequest2D& request,const std::array<std::opti
     }
     validate(flow.input,flow_scope(flow.input));
 }
+InletFlowRequest2D spatial_flow_request(const ZonedFlowRequest2D& source) {
+    InletFlowRequest2D output{source.input.input,source.physical_depth_kind,source.target_kinds,source.explicit_targets};
+    output.input.geometry_mode=0;return output;
+}
+PreparedZonedCase2D prepare_spatial_inlet_geometry(const ZonedInput2D& request,ScalarKind depth_kind,
+    const PreparationOptions& options,const PreparationCallbacks& callbacks,ZonedCache& cache,InletFlow2D& flow) {
+    validate_zoned_request(request,callbacks);
+    auto input=request.input;input.geometry_mode=0;
+    const auto inlets=validate(input,CaseScope::uniform_mass_v3,true);input.sides=inlets;
+    if (input.df_mode) throw std::invalid_argument("native 2D preparation currently requires df_mode='cfd_smooth'");
+    for (const auto& side:inlets) if (side.fluid!=Fluid::air)
+        throw std::invalid_argument("native 2D preparation currently supports air/air only");
+    Records records{flow.evidence,callbacks,{},{}};nominal_grid_steps(input,records);
+    auto output=spatial_output(request,input,options);auto& prepared=output.prepared;
+    prepared.uniform_geometry=cache.material(input,options);
+    prepared.grid=physical_grid(input.grid,inlets,true);record_grid(input,prepared.grid,records);
+    spatial_regions(output,request);
+    Records geometry_records{prepared.evidence,callbacks,{},{}};
+    if (request.sigmoid) sigmoid_geometry(output,request,prepared.grid,true,geometry_records);
+    else zoned_geometry(output,request,prepared.grid,true,cache,true);
+    records.merge(prepared.evidence);
+    spatial_log(output,prepared.grid,records);
+    if (!request.sigmoid) for (auto* field:{&prepared.solid_conductivity,&prepared.total_porosity})
+        *field=zones::gaussian_sigma2(*field,prepared.grid.nx,prepared.grid.ny);
+    for (std::size_t i=0;i<2;++i) {prepared.sides[i].inlet=inlets[i];prepare_ports(prepared.grid,prepared.sides[i]);}
+    prepare_capacities(input,depth_kind,prepared.grid,prepared.sides,prepared.uniform_geometry.geometry.epsilon,
+        &prepared.total_porosity,records,flow);
+    finish_warnings(records);return output;
+}
+void resolved_spatial_input(ZonedInletFlow2D& output) {
+    output.flow.input.geometry_mode=2;output.input.input=output.flow.input;
+}
+
 }  // namespace
 
 SigmoidLUT2D build_sigmoid_lut_2d(Topology topology,std::size_t cell_nodes,
@@ -1683,7 +1777,45 @@ PreparedFlowCase2D prepare_flow_case_2d(const InletFlowRequest2D& request,
 
 PreparedZonedCase2D prepare_zoned_case_2d(const ZonedInput2D& input,const PreparationOptions& options,
     const PreparationCallbacks& callbacks) {
-    return prepare_zoned_case(input,options,callbacks);
+    ZonedCache cache;return prepare_zoned_case(input,options,callbacks,cache);
+}
+
+ZonedInletFlow2D prepare_zoned_inlet_mass_capacities_2d(const ZonedInput2D& input,ScalarKind depth_kind,
+    const PreparationOptions& options,const PreparationCallbacks& callbacks) {
+    FloatingEnvironment floating_environment;
+    ZonedInletFlow2D output;output.input=input;output.flow.input=input.input;ZonedCache cache;
+    prepare_spatial_inlet_geometry(input,depth_kind,options,callbacks,cache,output.flow);
+    return output;
+}
+
+ZonedInletFlow2D resolve_zoned_inlet_flow_2d(const ZonedFlowRequest2D& request,
+    const PreparationOptions& options,const PreparationCallbacks& callbacks) {
+    FloatingEnvironment floating_environment;
+    ZonedInletFlow2D output;output.input=request.input;
+    const auto flow_request=spatial_flow_request(request);
+    const auto targets=flow_targets(flow_request,output.flow.input);
+    if (!targets[0] && !targets[1]) {output.flow.input=request.input.input;return output;}
+    output.input.input=output.flow.input;output.input.input.geometry_mode=2;
+    ZonedCache cache;
+    prepare_spatial_inlet_geometry(output.input,request.physical_depth_kind,options,callbacks,cache,output.flow);
+    resolve_speeds(flow_request,targets,output.flow);resolved_spatial_input(output);return output;
+}
+
+PreparedZonedFlowCase2D prepare_zoned_flow_case_2d(const ZonedFlowRequest2D& request,
+    const PreparationOptions& options,const PreparationCallbacks& callbacks) {
+    FloatingEnvironment floating_environment;
+    PreparedZonedFlowCase2D output;output.flow.input=request.input;ZonedCache cache;
+    const auto flow_request=spatial_flow_request(request);
+    const auto targets=flow_targets(flow_request,output.flow.flow.input);
+    output.flow.input.input=output.flow.flow.input;output.flow.input.input.geometry_mode=2;
+    if (!targets[0] && !targets[1]) {
+        resolved_spatial_input(output.flow);
+        output.prepared=prepare_zoned_case(output.flow.input,options,callbacks,cache);return output;
+    }
+    auto geometry=prepare_spatial_inlet_geometry(output.flow.input,request.physical_depth_kind,
+        options,callbacks,cache,output.flow.flow);
+    resolve_speeds(flow_request,targets,output.flow.flow);resolved_spatial_input(output.flow);
+    output.prepared=prepare_zoned_case(output.flow.input,options,callbacks,cache,&geometry);return output;
 }
 
 }  // namespace tpmshx::preparation

@@ -241,6 +241,21 @@ struct PreparedFlowCase2D {
     InletFlow2D flow;
 };
 
+struct ZonedFlowRequest2D {
+    ZonedInput2D input;
+    ScalarKind physical_depth_kind;
+    std::array<ScalarKind,2> target_kinds;
+    std::optional<std::array<double,2>> explicit_targets;
+};
+struct ZonedInletFlow2D {
+    InletFlow2D flow;
+    ZonedInput2D input;
+};
+struct PreparedZonedFlowCase2D {
+    PreparedZonedCase2D prepared;
+    ZonedInletFlow2D flow;
+};
+
 struct PreparationFailureCause {std::uint32_t kind;std::string message;};
 class PreparationError : public std::runtime_error {
 public:
@@ -276,6 +291,14 @@ InletFlow2D resolve_inlet_flow_2d(const InletFlowRequest2D&,
     const PreparationOptions& = {},const PreparationCallbacks& = {});
 // Preliminary flow evidence stays separate from final preparation evidence.
 PreparedFlowCase2D prepare_flow_case_2d(const InletFlowRequest2D&,
+    const PreparationOptions& = {},const PreparationCallbacks& = {});
+
+// These entries retain the copied spatial controls and separate flow evidence.
+ZonedInletFlow2D prepare_zoned_inlet_mass_capacities_2d(const ZonedInput2D&,ScalarKind physical_depth_kind={},
+    const PreparationOptions& = {},const PreparationCallbacks& = {});
+ZonedInletFlow2D resolve_zoned_inlet_flow_2d(const ZonedFlowRequest2D&,
+    const PreparationOptions& = {},const PreparationCallbacks& = {});
+PreparedZonedFlowCase2D prepare_zoned_flow_case_2d(const ZonedFlowRequest2D&,
     const PreparationOptions& = {},const PreparationCallbacks& = {});
 
 }  // namespace tpmshx::preparation

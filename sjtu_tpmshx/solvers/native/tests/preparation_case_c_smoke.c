@@ -674,6 +674,29 @@ static int check_v7(void) {
     return 0;
 }
 
+static int check_v8(void) {
+    tpmshx_preparation_zoned_flow_input_2d_v8 source = {0};
+    tpmshx_preparation_zoned_flow_2d_v8 result = {8, sizeof(result)}, before;
+    tpmshx_preparation_sigmoid_flow_2d_v8 sigmoid = {8, sizeof(sigmoid)};
+    tpmshx_preparation_grid_kinds_2d_v7 grid = {7, sizeof(grid)};
+    tpmshx_preparation_case_failure_v2 failure = {2, sizeof(failure)};
+    char error[4096];
+    CHECK(tpmshx_preparation_case_abi_version_v8() == 8);
+    before = result;
+    source.abi_version = 99; source.struct_size = sizeof(source);
+    CHECK(tpmshx_prepare_zoned_inlet_mass_capacities_2d_v8(&source, &grid, NULL, NULL,
+        &result, &failure, error, sizeof(error)) == TPMSHX_PREPARATION_INVALID);
+    CHECK(strstr(error, "v8 ABI version") && !memcmp(&result, &before, sizeof(result)));
+    tpmshx_preparation_zoned_flow_2d_release_v8(&result);
+    tpmshx_preparation_sigmoid_flow_2d_release_v8(&sigmoid);
+    CHECK(!result.struct_size && !sigmoid.struct_size);
+    tpmshx_preparation_zoned_flow_2d_release_v8(NULL);
+    tpmshx_preparation_zoned_flow_case_2d_release_v8(NULL);
+    tpmshx_preparation_sigmoid_flow_2d_release_v8(NULL);
+    tpmshx_preparation_sigmoid_flow_case_2d_release_v8(NULL);
+    return 0;
+}
+
 int main(void) {
     tpmshx_preparation_case_input_2d_v1 source = input(), original = source;
     tpmshx_preparation_case_2d_v1 result = empty_result(), before;
@@ -730,5 +753,6 @@ int main(void) {
     CHECK(!check_v4());
     CHECK(!check_v5());
     CHECK(!check_v6());
-    return check_v7();
+    CHECK(!check_v7());
+    return check_v8();
 }
