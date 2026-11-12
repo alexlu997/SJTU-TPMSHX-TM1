@@ -363,7 +363,7 @@ def _check_status(status, error, failure):
     raise problem
 
 
-def _source_warning(function, message, *, call=None, binary=None, category=UserWarning):
+def _source_warning(function, message, *, call=None, occurrence=0, binary=None, category=UserWarning):
     """Keep the original warning module, source line and filter registry."""
     code = function.__code__
     if binary is not None:
@@ -372,10 +372,10 @@ def _source_warning(function, message, *, call=None, binary=None, category=UserW
                 if item.opname == 'BINARY_OP' and item.argrepr == operator][occurrence]
         module = function.__globals__['__name__']
     else:
-        line = (next(item.positions.lineno for item in dis.get_instructions(function)
+        line = ([item.positions.lineno for item in dis.get_instructions(function)
                      if item.opname.startswith('LOAD_')
                      and (item.argval == call or item.opname.startswith('LOAD_FAST')
-                          and isinstance(item.argval, tuple) and call in item.argval)) if call else
+                          and isinstance(item.argval, tuple) and call in item.argval)][occurrence] if call else
                 max(line for _start, _end, line in code.co_lines() if line is not None))
         module = function.__module__
     warnings.warn_explicit(message, category, code.co_filename, line,
@@ -574,9 +574,13 @@ def inlet_query(topology, cell, wall, velocity, temperature, pressure, fluid,
     except Exception as problem:
         errors[1] = problem
     fluid_name = model.name if model is not None else 'air'
+    eos = fluid_name in ('sco2', 'co2')
 
     def pack(value, step, *, coerce=False):
         try:
+            # The original property owner emits conversion warnings at each use.
+            if coerce and isinstance(value, np.complexfloating):
+                value = value.real
             array, scalar, layout = _native_properties._typed(value, coerce=coerce)
             return float(array), _Kind(scalar.precision, scalar.strong, layout)
         except Exception as problem:
@@ -588,7 +592,7 @@ def inlet_query(topology, cell, wall, velocity, temperature, pressure, fluid,
     length, length_kind = pack(cell, 7)
     thickness, thickness_kind = pack(wall, 8)
     speed, speed_kind = pack(velocity, 6)
-    temp, temp_kind = pack(temperature, 2, coerce=fluid_name != 'air')
+    temp, temp_kind = pack(temperature, 'temperature' if eos else 2, coerce=fluid_name != 'air')
     if fluid_name == 'air' and 2 in errors:
         # A property observes its source temperature before its operand check.
         range_errors[2] = errors.pop(2)
@@ -600,7 +604,7 @@ def inlet_query(topology, cell, wall, velocity, temperature, pressure, fluid,
     if fluid_name == 'water':
         press, press_kind = 0., _Kind(64, 0, 0)
     else:
-        press, press_kind = pack(pressure, 4 if fluid_name == 'air' else 2,
+        press, press_kind = pack(pressure, 'pressure' if eos else 4,
                                  coerce=fluid_name != 'air')
     settings = _Nu()
     if model is not None and model.name == 'sco2' and selection is not None:
@@ -621,11 +625,33 @@ def inlet_query(topology, cell, wall, velocity, temperature, pressure, fluid,
     source = _InletQueryInput(1, ct.sizeof(_InletQueryInput), key, diameter, epsilon,
                              diameter_kind, epsilon_kind, fluid == 'co2')
 
+    def conversion_warning(value, origin, occurrence=0):
+        if isinstance(value, np.complexfloating):
+            _source_warning(origin, 'Casting complex values to real discards the imaginary part',
+                call='asarray', occurrence=occurrence, category=np.exceptions.ComplexWarning)
+
     def validate(stage, step):
         if stage != 4:
             raise RuntimeError(f'unknown property query host stage {stage}')
+        if step in (2, 3, 4, 5) and eos:
+            if pressure is None:
+                if fluid_name == 'co2':
+                    raise ValueError('CO2 requires absolute pressure P in Pa')
+                raise ValueError('sCO2 properties require pressure P [Pa]; caller passed P=None. '
+                                 'Fix the call site to forward the inlet/local pressure.')
+            from . import co2_props, sco2_props
+            origin = co2_props._states if fluid_name == 'co2' else sco2_props.sco2_prop
+            conversion_warning(temperature, origin)
+            if 'temperature' in errors:
+                raise errors['temperature']
+            conversion_warning(pressure, origin, int(fluid_name == 'sco2'))
+            if 'pressure' in errors:
+                raise errors['pressure']
+        if step in (2, 3, 4, 5) and fluid_name in ('air', 'water'):
+            from . import tpms_props
+            conversion_warning(temperature, tpms_props._warn_range_once)
         if step == 2 and fluid_name == 'air':
-            np.asarray(temperature, dtype=float)
+            np.asarray(temperature.real if isinstance(temperature, np.complexfloating) else temperature, dtype=float)
             if not isinstance(temperature, (float, int, np.number, np.ndarray)):
                 range_errors[2] = TypeError(
                     f"unsupported operand type(s) for /: '{type(temperature).__name__}' and 'float'")
@@ -636,11 +662,6 @@ def inlet_query(topology, cell, wall, velocity, temperature, pressure, fluid,
             raise TypeError(f"unsupported operand type(s) for *: '{type(pressure).__name__}' and 'float'")
         if step in errors:
             raise errors[step]
-        if step == 2 and fluid_name in ('sco2', 'co2') and pressure is None:
-            if fluid_name == 'co2':
-                raise ValueError('CO2 requires absolute pressure P in Pa')
-            raise ValueError('sCO2 properties require pressure P [Pa]; caller passed P=None. '
-                             'Fix the call site to forward the inlet/local pressure.')
         if step == 8:
             float(cell), float(wall), float(geometry['epsilon_A'])
 
@@ -648,6 +669,8 @@ def inlet_query(topology, cell, wall, velocity, temperature, pressure, fluid,
         observe_range(value, bounds_list, cached, scalar, selection, records=records)
         if range_errors:
             raise range_errors[2]
+        if fluid_name == 'water' and _text(value.quantity) == 'T':
+            conversion_warning(temperature, _native_properties._typed)
 
     callbacks, _descriptor, callback_errors = _callback_bridge(
         validate, observe_range=observe, observe_notice=notice, query=True)

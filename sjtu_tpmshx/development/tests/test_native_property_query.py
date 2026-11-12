@@ -3,6 +3,7 @@ import ctypes as ct
 from contextlib import nullcontext
 from dataclasses import asdict, is_dataclass, replace
 import os
+import re
 import warnings
 
 import numpy as np
@@ -12,7 +13,10 @@ from sjtu_tpmshx.development.tests import property_reference as reference
 from sjtu_tpmshx.development.tests import test_native_preparation_fluids as abi
 from sjtu_tpmshx.shared.domain.compute_config import Sco2NuConfig
 from sjtu_tpmshx.shared.domain.run_warnings import range_context, warning_scope
-from sjtu_tpmshx.shared.models import nu_correlations, tpms_calc, tpms_props
+from sjtu_tpmshx.shared.models import (
+    _native_properties, co2_props, fluid_props, nu_correlations, sco2_props,
+    tpms_calc, tpms_props,
+)
 from sjtu_tpmshx.shared.models.tpms_geometry import compute_geometry
 
 
@@ -418,3 +422,102 @@ def test_raw_co2_error_keeps_visible_cause_chain(temperature, pressure, message,
         assert str(caught.value.__cause__) == cause
         assert caught.value.__cause__.__cause__ is None
     assert tpms_calc.compute.cache_info().currsize == 0
+
+
+_CONVERSION_OWNERS = (fluid_props, tpms_props, _native_properties, co2_props, sco2_props)
+
+
+def _conversion_error(error):
+    cause = error.__cause__
+    return (type(error), error.args, error.__suppress_context__,
+            None if cause is None else _conversion_error(cause))
+
+
+def _conversion_registries():
+    return {owner.__name__: {key: value for key, value in
+            owner.__dict__.get('__warningregistry__', {}).items() if key != 'version'}
+            for owner in _CONVERSION_OWNERS}
+
+
+def _observe_conversions(call, policy, warning_owner):
+    with warnings.catch_warnings(record=True) as caught, warning_scope({}):
+        warnings.simplefilter('always')
+        if policy.endswith('error') and policy != 'error':
+            warnings.filterwarnings('error', category=np.exceptions.ComplexWarning,
+                                    module=re.escape(warning_owner.__name__) + '$')
+        else:
+            warnings.simplefilter(policy, np.exceptions.ComplexWarning)
+        try:
+            result = ('value', call())
+        except Exception as error:
+            result = ('error', _conversion_error(error))
+        notices = [(item.category, str(item.message), item.filename, item.lineno)
+                   for item in caught]
+        registries = _conversion_registries()
+    return result, notices, registries
+
+
+@pytest.mark.parametrize('fluid,policy', [
+    (fluid, policy) for fluid in ('air', 'water', 'co2', 'sco2')
+    for policy in ('always', 'default', 'error', 'source-error')
+] + [('water', 'water-state-error'), ('water', 'water-native-error')])
+@pytest.mark.parametrize('case', [
+    'numpy-T', 'numpy-P', 'bad-T-complex-P', 'complex-T-complex-P',
+    'bad-T-no-P', 'complex-T-no-P',
+])
+def test_compound_inputs_keep_conversion_warnings_and_first_error(monkeypatch, fluid, policy, case):
+    temperature, pressure = {'air': (300., 101325.), 'water': (320., 200000.),
+                             'co2': (300., 4500000.), 'sco2': (480., 9000000.)}[fluid]
+    temperature, pressure = {
+        'numpy-T': (np.complex128(temperature), pressure),
+        'numpy-P': (temperature, np.complex128(pressure)),
+        'bad-T-complex-P': ('bad', np.complex128(pressure)),
+        'complex-T-complex-P': (1+2j, np.complex128(pressure)),
+        'bad-T-no-P': ('bad', None),
+        'complex-T-no-P': (1+2j, None),
+    }[case]
+    warning_owner = {'air': tpms_props, 'water': tpms_props,
+                     'co2': co2_props, 'sco2': sco2_props}[fluid]
+    if policy == 'water-state-error':
+        warning_owner = fluid_props
+    elif policy == 'water-native-error':
+        warning_owner = _native_properties
+    entered_cache = []
+
+    def expected_call():
+        fluid_props.check_water_state(fluid, temperature, pressure, where='compute inlet')
+        entered_cache.append(True)
+        model = fluid_props.get(fluid)
+        mu, conductivity, density, _cp = (float(function(temperature, pressure))
+            for function in (model.mu, model.k, model.rho, model.cp))
+        return mu, conductivity, density
+
+    def actual_call():
+        result = tpms_calc.compute('Gyroid', 7., .5, 6., temperature, pressure, 16., fluid)
+        return tuple(result[name] for name in ('mu', 'k_f', 'rho'))
+
+    def reset():
+        _clear(tpms_calc)
+        co2_props._scalar.cache_clear()
+        sco2_props._prop.cache_clear()
+        for owner in _CONVERSION_OWNERS:
+            monkeypatch.setattr(owner, '__warningregistry__', {}, raising=False)
+
+    reset()
+    expected = _observe_conversions(expected_call, policy, warning_owner)
+    reset()
+    actual = _observe_conversions(actual_call, policy, warning_owner)
+    _same(actual[:2], expected[:2])
+    assert actual[2] == expected[2]
+    success = actual[0][0] == 'value'
+    info = tpms_calc.compute.cache_info()
+    assert (info.hits, info.misses, info.currsize) == (0, len(entered_cache), int(success))
+
+    if success and fluid in ('co2', 'sco2'):
+        with warnings.catch_warnings(record=True) as caught, warning_scope({}):
+            warnings.simplefilter('always')
+            _same(actual_call(), actual[0][1])
+        assert not caught
+        assert _conversion_registries() == actual[2]
+        info = tpms_calc.compute.cache_info()
+        assert (info.hits, info.misses, info.currsize) == (1, 1, 1)
