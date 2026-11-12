@@ -4,7 +4,7 @@ Cell length and full wall thickness use mm. Area density uses 1/m.
 Hydraulic diameter uses m. The default voxel resolution remains N=128.
 The native core owns phi generation, inclusive counts and calibrated geometry.
 """
-from functools import lru_cache
+from .preparation_cache import scalar_cache
 
 import numpy as np
 
@@ -38,7 +38,7 @@ def minimum_solid_geometry(tpms_type, L_bounds, t_bounds):
     return {key: float(result[key]) for key in ('L_mm', 't_mm', 'epsilon')}
 
 
-@lru_cache(maxsize=32768)
+@scalar_cache(maxsize=32768)
 def _compute_geometry_cached(tpms_type: str, L_mm: float, t_mm: float,
                              N: int = 128) -> dict:
     """Cache scalar geometry without material or environment state."""
@@ -95,3 +95,4 @@ def compute_geometry_fields(tpms_type: str, L_field_mm, t_field_mm,
 
 compute_geometry.cache_clear = _compute_geometry_cached.cache_clear
 compute_geometry.cache_info = _compute_geometry_cached.cache_info
+compute_geometry.cache_parameters = _compute_geometry_cached.cache_parameters

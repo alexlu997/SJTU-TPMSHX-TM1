@@ -42,8 +42,13 @@ def _observe(tpms, quantity, values, bounds):
                     label=f'[CO2 Nu extrap] {tpms}', quantity=quantity, unit='-'):
         return
     if np.any((values < bounds[0]) | (values > bounds[1])):
-        warnings.warn(f'CO2 {quantity} outside CFD calibration {bounds}; '
-                      'extrapolation, not validation.', UserWarning, stacklevel=3)
+        warnings.warn(_calibration_notice(quantity, bounds), UserWarning, stacklevel=3)
+
+
+def _calibration_notice(quantity, bounds):
+    """Keep the existing standalone CO2 source notice text."""
+    return (f'CO2 {quantity} outside CFD calibration {bounds}; '
+            'extrapolation, not validation.')
 
 
 def nusselt(tpms, Re, Pr, L_mm, Dh_mm):
