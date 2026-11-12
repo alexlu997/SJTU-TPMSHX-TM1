@@ -22,6 +22,7 @@ class NativeRun:
     """Advance one native boundary at a time. Close each run after use."""
 
     advance_name = 'advance'
+    entry_names = {}
     error_types = {1: ValueError, 2: WaterStateError, 3: FloatingPointError}
 
     def __init__(self, library, common, args, callbacks, state):
@@ -41,22 +42,29 @@ class NativeRun:
         try:
             for name, arguments in signatures.items():
                 version = self.creation_version if name in ('create', 'restore') else 1
-                entry = self.advance_name if name == 'advance' else name
+                entry = self.entry_names.get(name, self.advance_name if name == 'advance' else name)
                 function = getattr(library, f'{self.api_prefix}_{entry}_v{version}')
                 function.argtypes = arguments
                 function.restype = None if name == 'release' else ct.c_int
                 setattr(self, '_'+name, function)
             self._release_snapshot = library.tpmshx_run_state_release_v1
+            self._release_result = getattr(library, self.result_release_name)
         except AttributeError as error:
             raise ValueError(f'native library lacks {self.api_prefix} continuation controls v{self.creation_version}') from error
         self._release_snapshot.argtypes = [ct.POINTER(_Snapshot)]
         self._release_snapshot.restype = None
-        if state is None:
-            self._call(self._create, *args, ct.byref(self.handle))
-        else:
-            fields, keepalive = self._fields(state)
-            self._call(self._restore, *args, fields, len(fields), ct.byref(self.handle))
-            del keepalive
+        self._release_result.argtypes = [ct.POINTER(self.result_type)]
+        self._release_result.restype = None
+        try:
+            if state is None:
+                self._call(self._create, *args, ct.byref(self.handle))
+            else:
+                fields, keepalive = self._fields(state)
+                self._call(self._restore, *args, fields, len(fields), ct.byref(self.handle))
+                del keepalive
+        except BaseException:
+            self.close()
+            raise
 
     @staticmethod
     def _fields(state):
@@ -100,8 +108,8 @@ class NativeRun:
 
     def snapshot(self):
         result = _Snapshot()
-        self._call(self._snapshot, self.handle, ct.byref(result))
         try:
+            self._call(self._snapshot, self.handle, ct.byref(result))
             fields = {}
             for index in range(result.count):
                 field = result.fields[index]
@@ -123,8 +131,12 @@ class NativeRun:
 
     def take_result(self):
         result = self.result_type()
-        self._call(self._take_result, self.handle, ct.byref(result))
-        return result
+        try:
+            self._call(self._take_result, self.handle, ct.byref(result))
+            return result
+        except BaseException:
+            self._release_result(ct.byref(result))
+            raise
 
     def close(self):
         self._release(ct.byref(self.handle))

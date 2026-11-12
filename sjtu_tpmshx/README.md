@@ -27,7 +27,23 @@ compute -> preprocess.api.prepare_case -> CaseData -> solvers.api.run_case -> Fi
 [原生阶段 SDK](../docs/native-stages.zh-CN.md)提供独立的 C++ 调用流程。
 首条完整路径支持规定入口速度的均匀、对称二维 air/air。
 准备 v2 为规定速度、均匀对称二维几何增加 air/water/sCO2/CO2 的全部 16 个有序配对。
-run 路径仍为 v1 的 air/air CFD 工况。阶段迁移期间，上述 Python 入口继续保留全部现有模式。
+准备 v3 为均匀二维总质量流量增加独立容量查询、入口流量解析和完整准备，复用物理入口网格，
+并将前段记录与最终准备证据分开。
+run v2 支持均匀四流体准备态，包括已解析的总质量流量。准备 v4 提供连续 XY 物理场，供 run v3 使用。
+独立的三维准备 v1 接收规定速度的原始对称均匀输入，覆盖全部 16 个有序流体配对，
+保留物理网格、带类型的端口、六个流向、单元数上限和原有 CFD／实验限制。
+两侧孔隙率已拆分，K/cF 基础场与逐侧应用因子分开保存。
+三维流量 v2 增加总质量流量，continuous v3 增加 XY/XYZ 控制点；
+spatial v4 增加 XY 网格矩形和现有全局偏置规则，分别保留侧孔隙率及热几何。
+原生三维运行／捕获将这些准备家族及保存视图接到同一 `Full3DRun` 生命周期。
+结果在准备态及运行释放后拥有完整原始场与评估证据。
+Python 三维准备、生产运行接入及宿主缓存钩子仍有独立关口。
+接近单元上限的内存使用及真实三维 BO 需要单独验收。
+run v1 保留原 air/air CFD 范围。阶段迁移期间，上述 Python 入口继续保留全部现有模式。
+Python 准备入口对对称均匀和连续二维输入使用 v3/v4；非零 delta 均匀、离散分区、sigmoid 与三维保留明确原路径。
+CaseData 与保存文件契约不变，原生失败直接传播，不选择其他准备路线。
+对称均匀和连续二维执行使用保存输入的原生生命周期，包括检查点与完整结果捕获。
+显式选择的归档库和未迁移模式保留原执行协议。
 
 ## 修改数值函数
 
@@ -43,7 +59,7 @@ run 路径仍为 v1 的 air/air CFD 工况。阶段迁移期间，上述 Python 
 | 固定 DF、修正、投影与规定流量 | [preparation_df.cpp](solvers/native/src/preparation_df.cpp): `fixed_df`; [preparation_df_corrections.cpp](solvers/native/src/preparation_df_corrections.cpp); [preparation_df_projection.cpp](solvers/native/src/preparation_df_projection.cpp); [preparation_flow.cpp](solvers/native/src/preparation_flow.cpp): `inlet_capacity_2d`, `inlet_speed` |
 | 完整二维／三维与 Quick Design | [full_2d.cpp](solvers/native/src/full_2d.cpp): `solve_full_2d`; [full_3d.cpp](solvers/native/src/full_3d.cpp): `solve_full_3d`; [quick_design_driver.cpp](solvers/native/src/quick_design_driver.cpp): `solve_quick_design` |
 | 指标、物理平衡、分区统计与检查 | [result_metrics.cpp](solvers/native/src/result_metrics.cpp): `pressure_face`, `boundary_enthalpy_duty`; [result_balance.cpp](solvers/native/src/result_balance.cpp): `mass`, `energy`, `zone_std`; [result_checks.cpp](solvers/native/src/result_checks.cpp): `collect_range`, `strict_certificate` |
-| 完整阶段准备与执行 | [preparation_case.cpp](solvers/native/src/preparation_case.cpp): `prepare_case_2d`; [stage_run.cpp](solvers/native/src/stage_run.cpp): `tpmshx_run_case_2d_v1`, `tpmshx_run_case_2d_v2`; [stage_capture_2d.cpp](solvers/native/src/stage_capture_2d.cpp) |
+| 完整阶段准备与执行 | [preparation_case.cpp](solvers/native/src/preparation_case.cpp): `prepare_case_2d`, `prepare_case_3d`; [stage_run.cpp](solvers/native/src/stage_run.cpp): `tpmshx_run_case_2d_v1/v2/v3`, `tpmshx_stage_run_2d_create_v1/create_saved_v1`; [stage_capture_2d.cpp](solvers/native/src/stage_capture_2d.cpp)：`tpmshx_stage_run_2d_get_capture_v1`; [stage_run_3d.cpp](solvers/native/src/stage_run_3d.cpp): `tpmshx_run_case_3d_v1`; [stage_capture_3d.cpp](solvers/native/src/stage_capture_3d.cpp): `capture_3d`, `tpmshx_stage_run_3d_get_capture_v1` |
 | 阶段评估与资格判断 | [result_stage.cpp](solvers/native/src/result_stage.cpp): `evaluate`, `evaluate_applicability`, `evaluate_physical_balance`, `evaluate_qualification` |
 
 几何库使用 geometry ABI 1／field ABI 2，准备库使用 preparation ABI 1，结果库使用 result ABI 2。

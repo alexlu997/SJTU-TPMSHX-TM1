@@ -50,8 +50,9 @@ def _pressure(p):
                 passed=bool(p.passed), definition=p.definition.decode())
 
 
-def _model_info(r, shape, *, include_faces):
-    info = _volume_info(r, shape, include_faces=include_faces)
+def _model_info(r, shape, *, include_faces, capture_scalars=None):
+    info = _volume_info(r, shape, include_faces=include_faces,
+        cell_count=None if capture_scalars is None else capture_scalars['model_h_cell_count'])
     names = [f'{side} strict {metric} < 1 %' for side in ('A', 'B') for metric in ('global', 'cellmax')]
     names += ['full-volume LTNE source balance < 1 %', 'physical boundary data complete']
     info['energy_finishing_checks'] = [dict(iterations=r.finishing_checks[i].iterations,
@@ -126,7 +127,7 @@ class NativeFull3DDriver:
         return self._run_prepared(cfg, p, control, resume_state=resume_state, checkpoint=checkpoint, checkpoint_due=checkpoint_due)
 
     def _run_prepared(self, cfg, p, control=RunControl(), *, application_only=False,
-                      resume_state=None, checkpoint=None, checkpoint_due=None):
+                      resume_state=None, checkpoint=None, checkpoint_due=None, stage_case=None):
         control.check_cancelled()
         reject_retired_research_options(cfg)
         energy = _energy_options(cfg.get('enthalpy_algorithm', 'temperature_sou'),
@@ -285,8 +286,22 @@ class NativeFull3DDriver:
                 callback(control.outer_iteration, done, total)
         callbacks = _Callbacks(cancelled, progress, outer, None)
         result, error = _Result(), ct.create_string_buffer(2048)
+        stage_result = capture_scalars = None
         try:
-            if resume_state is not None or checkpoint is not None:
+            if stage_case is not None:
+                from .full_3d_stage import SavedRun
+                with SavedRun(self.library, stage_case, cfg, p, data, c, energy, model_h_options,
+                              callbacks, callback_errors, control, resume_state) as run:
+                    while run.phase not in (3, 4):
+                        phase = run.advance()
+                        if (checkpoint is not None and phase in (1, 2, 6, 7, 8, 9, 10)
+                                and (checkpoint_due is None or checkpoint_due())):
+                            checkpoint(run.snapshot())
+                    stage_result = run.take_result()
+                result = stage_result.raw
+                c = stage_result.resolved
+                code = 0
+            elif resume_state is not None or checkpoint is not None:
                 from .full_3d_run import NativeFull3DRun
                 true_h = data.solve_b and any(side.fluid in (2, 3) for side in data.sides)
                 options = energy if strict_options else (_EnergyOptionsV2(
@@ -327,13 +342,17 @@ class NativeFull3DDriver:
                 raise cancelled_error
             if result.stop not in (0,1):
                 raise RuntimeError('invalid native full 3D exit')
+            if stage_result is not None:
+                from .full_3d_stage import copy_summary
+                capture_scalars = copy_summary(self.library, stage_result, emit_audit=bool(cfg.get('_emit_audit', False)))
             actual = _FullEnergyEffectiveSettings()
             if self.query_settings(ct.byref(result), ct.byref(actual)):
                 raise RuntimeError('native full 3D effective settings query failed')
             if actual.outer_count != result.outer_count:
                 raise RuntimeError('native full 3D effective settings do not match the thermal history')
             detached=_detach(result, shape, c, actual, entry_version,
-                             emit_audit=bool(cfg.get('_emit_audit',False)), application_only=application_only)
+                             emit_audit=bool(cfg.get('_emit_audit',False)), application_only=application_only,
+                             capture_scalars=capture_scalars)
             if energy_query and actual.last.available:
                 extra = _EnergyEvidence()
                 if energy_query(ct.byref(result), ct.byref(extra)):
@@ -396,10 +415,13 @@ class NativeFull3DDriver:
                 if self.query_heat_ledger(ct.byref(result), ct.byref(ledger)):
                     raise RuntimeError('native full 3D heat ledger query failed')
                 detached['physical_ledger'] = copy_heat_ledger(ledger, shape, 3)
-            from sjtu_tpmshx.shared.models.co2_correlations import NU_MULTIPLIER
-            for label in 'AB':
-                if cfg['fluid_type_'+label] == 'co2' and detached['nu_observations'][label]:
-                    detached['nu_observations'][label]['floor'] *= NU_MULTIPLIER
+            if capture_scalars is None:
+                from sjtu_tpmshx.shared.models.co2_correlations import NU_MULTIPLIER
+                for label in 'AB':
+                    if cfg['fluid_type_'+label] == 'co2' and detached['nu_observations'][label]:
+                        detached['nu_observations'][label]['floor'] *= NU_MULTIPLIER
+            else:
+                detached['capture_scalars'] = capture_scalars
             detached['bootstrap_trace'] = bootstrap_traces
             replay_range_observations(detached['range_observations'])
             from sjtu_tpmshx.shared.models.nu_correlations import warn_sco2_nu_evidence
@@ -410,11 +432,14 @@ class NativeFull3DDriver:
                         t_mm=p['design']['t_field_m']*1e3 if spatial else cfg['t_wall'],P_in=cfg['P_in'+label])
             return detached
         finally:
-            if result.owner:
+            if stage_result is not None:
+                from .full_3d_stage import release_result
+                release_result(self.library, stage_result)
+            elif result.owner:
                 self.release(ct.byref(result))
 
 
-def _detach(r, shape, settings, energy_settings, entry_version, *, emit_audit=False, application_only=False):
+def _detach(r, shape, settings, energy_settings, entry_version, *, emit_audit=False, application_only=False, capture_scalars=None):
     result = {name: getattr(r, name) if name == 'stop' else bool(getattr(r, name)) for name in _FLAGS}
     result.update({name: list(getattr(r, name)) for name in _PAIRS})
     result.update({name: getattr(r, name) for name in ('energy_imbalance', 'interior_duty', 'interior_imbalance', 'enthalpy_imbalance')})
@@ -482,7 +507,7 @@ def _detach(r, shape, settings, energy_settings, entry_version, *, emit_audit=Fa
         flow['bootstrap']=None if not b.available else dict(applied=bool(b.applied),coarse_converged=bool(b.converged),
             coarse_iters=b.iterations,coarse_shape=tuple(b.shape),coarse_residual=b.residual,reason=b.reason.decode())
         result['flow'].append(flow)
-    result['model_h'] = _model_info(r.model_h,shape,include_faces=True) if r.has_model_h else None
+    result['model_h'] = _model_info(r.model_h,shape,include_faces=True,capture_scalars=capture_scalars) if r.has_model_h else None
     result['true_h'] = _full_enthalpy_info(r.true_h,energy_settings.last,entry_version) if r.has_true_h else None
     if r.has_true_h:
         true_h=result['true_h']
@@ -512,7 +537,7 @@ def _detach(r, shape, settings, energy_settings, entry_version, *, emit_audit=Fa
                 reason=h.rejected_startup_reasons[k].decode()) for k in range(h.rejected_startup_count)],
                 total_iterations=h.startup_total_iterations,iteration_budget=settings.thermal_iterations)
         if h.has_model_h:
-            info=_model_info(h.model_h,shape,include_faces=False)
+            info=_model_info(h.model_h,shape,include_faces=False,capture_scalars=capture_scalars)
             row['energy_finishing_checks']=info['energy_finishing_checks']
             row['model_h_balance']=dict(info['model_h_balance'],outer_index=h.outer_index,converged=bool(h.thermal_converged),iterations=h.thermal_iterations)
         if h.has_true_h:
@@ -521,7 +546,9 @@ def _detach(r, shape, settings, energy_settings, entry_version, *, emit_audit=Fa
     result['simple_failures']=[r.simple_failures[i].decode() for i in range(r.simple_failure_count)]
     result['warnings']=[r.warnings[i].decode() for i in range(r.warning_count)]
     result['envelope_reasons']=[r.envelope_reasons[i].decode() for i in range(r.envelope_reason_count)]
-    result['nu_observations']={label:copy_nu_observation(n,shape) for label,n in zip('AB',r.nu_observations)}
+    result['nu_observations']={label:copy_nu_observation(n,shape,
+        capture_scalars=None if capture_scalars is None else capture_scalars['nu'][side])
+        for side,(label,n) in enumerate(zip('AB',r.nu_observations))}
     result['range_observations']=copy_range_observations(r.range_observations,r.range_observation_count)
     result['final_conductivity']=tuple(_copy(v,shape) if emit_audit else None for v in r.final_conductivity)
     result['final_rho_cp']=tuple(_copy(v,shape) if emit_audit else None for v in r.final_rho_cp)
@@ -539,6 +566,9 @@ def run_case(case, control=RunControl(), *, resume_state=None, checkpoint=None, 
     control.check_cancelled()
     cfg,p=build_execution_inputs(case, copy_design=False)
     driver=NativeFull3DDriver(control.native_library, table_directory=getattr(control,'native_table_directory',None))
-    r=driver._run_prepared(cfg,p,control,application_only=True, resume_state=resume_state, checkpoint=checkpoint, checkpoint_due=checkpoint_due)
+    from .full_3d_stage import has_saved_stage
+    stage_case = case if has_saved_stage(driver.library) else None
+    r=driver._run_prepared(cfg,p,control,application_only=True, resume_state=resume_state,
+        checkpoint=checkpoint, checkpoint_due=checkpoint_due, stage_case=stage_case)
     control.check_cancelled()
     return capture_result(case, cfg, p, r, driver.abi)

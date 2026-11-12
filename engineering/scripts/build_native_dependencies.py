@@ -628,7 +628,8 @@ def verify(cache: Path, host: str, component: str = "all") -> None:
         return
     preparation_dir = cache / "build" / f"preparation-{host}"
     for caller in ("preparation_c_static", "preparation_c_shared",
-                   "preparation_case_c_static", "preparation_case_c_shared"):
+                   "preparation_case_c_static", "preparation_case_c_shared",
+                   "preparation_case_3d_c_static", "preparation_case_3d_c_shared"):
         run([preparation_dir / f"{caller}{suffix}"], log)
     prefix, shared_suffix = ("", ".dll") if host == "windows-x64" else ("lib", ".dylib")
     preparation = ct.CDLL(str(preparation_dir / (prefix + 'tpmshx_preparation_shared' + shared_suffix)))
@@ -835,6 +836,7 @@ def check_stages(cache: Path, host: str, python: Path, lock: Path, component: st
             tests = independent / "tests"
             shutil.copytree(ROOT / "sjtu_tpmshx/solvers/native/tests/stages", tests / "stages")
             shutil.copy2(ROOT / "sjtu_tpmshx/solvers/native/tests/stage_run_smoke.cpp", tests)
+            shutil.copy2(ROOT / "sjtu_tpmshx/solvers/native/tests/stage_run_3d_smoke.c", tests)
             sources.append("tests/stages")
         env = {key: value for key, value in os.environ.items()
                if key not in {"PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV"} and not key.startswith("TPMSHX_")}
@@ -843,8 +845,8 @@ def check_stages(cache: Path, host: str, python: Path, lock: Path, component: st
             build_dir = independent / (source.replace("/", "-") + "-build")
             run([cmake, "-S", independent / source, "-B", build_dir, *generator,
                  f"-DCMAKE_PREFIX_PATH={prefix}"], log, cwd=independent)
-            targets = (["result_client", "air_2d", "uniform_2d", "prepare_fluids_2d"] if component == "all" else ["result_client"]) \
-                if source == "examples" else ["stage_run_smoke"]
+            targets = (["result_client", "air_2d", "uniform_2d", "continuous_2d", "resume_2d", "prepare_fluids_2d", "prepare_mass_2d", "prepare_continuous_2d", "prepare_3d", "prepare_mass_3d", "prepare_continuous_3d", "prepare_spatial_3d", "run_3d"] if component == "all" else ["result_client"]) \
+                if source == "examples" else ["stage_run_smoke", "stage_run_3d_smoke"]
             run([cmake, "--build", build_dir, "--config", "Release", "--parallel", "2", "--target", *targets],
                 log, cwd=independent)
             run([ctest, "--test-dir", build_dir, "-C", "Release", "--output-on-failure"],

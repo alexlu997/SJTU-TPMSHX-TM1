@@ -13,3 +13,16 @@ if(WIN32)
     endforeach()
 endif()
 add_test(NAME stage_run_smoke COMMAND stage_run_smoke "${CMAKE_BINARY_DIR}/stage-result")
+
+enable_language(C)
+add_executable(stage_run_3d_smoke ../stage_run_3d_smoke.c)
+target_compile_features(stage_run_3d_smoke PRIVATE c_std_11)
+target_link_libraries(stage_run_3d_smoke PRIVATE tpmshx::preparation tpmshx::solver tpmshx::result)
+if(WIN32)
+    foreach(component IN ITEMS preparation solver result)
+        add_custom_command(TARGET stage_run_3d_smoke POST_BUILD
+            COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                "$<TARGET_FILE:tpmshx::${component}>" "$<TARGET_FILE_DIR:stage_run_3d_smoke>")
+    endforeach()
+endif()
+add_test(NAME stage_run_3d_smoke COMMAND stage_run_3d_smoke)
