@@ -1,5 +1,6 @@
 #include "tpmshx/preparation_case.hpp"
 #include "tpmshx/preparation_flow.hpp"
+#include "tpmshx/asym_geometry.hpp"
 #include "tpmshx/grid.hpp"
 #include "tpmshx/model_coefficients.hpp"
 #include "tpmshx/preparation_df.hpp"
@@ -7,6 +8,7 @@
 #include "preparation_df_fields.hpp"
 #include "preparation_properties.hpp"
 #include "field_continuous.hpp"
+#include "contiguous_sum.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -199,10 +201,10 @@ PortInput2D checked_port(PortInput2D port,const GridInput2D& grid,const std::str
     return port;
 }
 
-void validate_controls(const ContinuousControls2D& controls) {
+template<class Controls> void validate_controls(const Controls& controls,std::size_t nz=1) {
     if (controls.order<1 || controls.order>3)
         throw std::invalid_argument("Continuous field spline_order must be 1..3");
-    if (!controls.nx || !controls.ny)
+    if (!controls.nx || !controls.ny || !nz)
         throw std::invalid_argument("Continuous field needs >=1 controls per axis");
     for (double value:controls.decision_mm) if (!std::isfinite(value))
         throw std::invalid_argument("Continuous field x_decision must be a list of finite numbers");
@@ -219,7 +221,7 @@ void validate_controls(const ContinuousControls2D& controls) {
                 " must be ordered within ("+decimal(lower)+", "+decimal(upper)+") mm");
     }
     const auto columns=controls.symmetric_y?controls.ny/2+controls.ny%2:controls.ny;
-    const auto half=count(controls.nx,columns),expected=count(half,2);
+    const auto half=count(count(controls.nx,columns),nz),expected=count(half,2);
     if (controls.decision_mm.size()!=expected)
         throw std::invalid_argument("Continuous field x_decision must contain "+std::to_string(expected)+" values");
     for (std::size_t i=0;i<expected;++i) {
@@ -897,16 +899,22 @@ void finish_warnings(Records& records) {
 struct LocalGeometry2D {
     std::vector<double> cell_mm,wall_mm,epsilon,solid,radius,area,diameter;
 };
-std::vector<double> control_axis(std::size_t count,double length) {
-    if (count==1) return {length/2.};
-    std::vector<double> values(count);const auto step=length/static_cast<double>(count-1);
-    for (std::size_t i=0;i<count;++i) values[i]=static_cast<double>(i)*step;
-    values.back()=length;return values;
+std::vector<double> control_axis(std::size_t count,g::Scalar length) {
+    if (count==1) return {g::divide(length,g::weak(2.)).value};
+    if (length.strong==2) length={length.value,64,1};
+    const auto divisor=g::weak(static_cast<double>(count-1));
+    const auto step=g::divide(length,divisor);
+    std::vector<double> values(count);
+    for (std::size_t i=0;i<count;++i) {
+        const auto index=g::checked({static_cast<double>(i),length.precision,1});
+        values[i]=(step.value==0.?g::multiply(g::divide(index,divisor),length):g::multiply(index,step)).value;
+    }
+    values.back()=length.value;return values;
 }
 LocalGeometry2D local_geometry(const CaseInput2D& input,const PhysicalGrid2D& grid,
                                const PreparationOptions& options) {
     const auto& controls=*input.continuous;
-    const auto x=control_axis(controls.nx,input.grid.length_m),y=control_axis(controls.ny,input.grid.height_m);
+    const auto x=control_axis(controls.nx,g::weak(input.grid.length_m)),y=control_axis(controls.ny,g::weak(input.grid.height_m));
     const auto xc=g::continuous_centres(grid.nx,g::weak(input.grid.length_m),&grid.dx);
     const auto yc=g::continuous_centres(grid.ny,g::weak(input.grid.height_m),&grid.dy);
     const auto half_y=controls.symmetric_y?controls.ny/2+controls.ny%2:controls.ny;
@@ -1240,9 +1248,15 @@ g::Port checked_port_3d(g::Port port,const GridInput3D& input,const std::string&
 }
 
 CaseInput3D validate_3d(CaseInput3D input,bool allow_mass=false,bool velocities=true) {
-    if (input.geometry_mode || input.geometry.delta_levelset!=0.)
+    if (input.continuous) {
+        if (input.geometry_mode!=1)
+            throw std::invalid_argument("native continuous 3D preparation requires geometry_mode=1");
+        validate_controls(*input.continuous,input.continuous->nz.value_or(1));
+    } else if (input.geometry_mode || input.geometry.delta_levelset!=0.)
         throw std::invalid_argument("native 3D preparation currently requires symmetric uniform geometry");
     validate_nu(input.sco2_nu);
+    if (input.continuous && input.geometry.delta_levelset!=0.)
+        throw std::invalid_argument("Continuous spatial fields require delta_levelset=0");
     if (input.df_mode>1) throw std::invalid_argument("native 3D preparation DF mode must be CFD or experimental");
     if (allow_mass) for (std::size_t i=0;i<2;++i) if (input.sides[i].mass_flow_kg_s)
         positive(*input.sides[i].mass_flow_kg_s,std::string("fluid_")+(i?"B":"A")+".mass_flow_kg_s");
@@ -1282,8 +1296,17 @@ CaseInput3D validate_3d(CaseInput3D input,bool allow_mass=false,bool velocities=
         }
     }
     if (velocities) for (std::size_t i=0;i<2;++i) positive(input.sides[i].velocity_m_s,std::string("fluid_")+(i?"B":"A")+".u_mps");
+    if (velocities && input.continuous && input.df_mode) {
+        const bool shanghai=model.topology==Topology::gyroid && input.sides[0].fluid==Fluid::air
+            && input.sides[1].fluid==Fluid::water && std::abs(model.cell_length_mm-7.)<=1e-12
+            && std::abs(model.wall_thickness_mm-.6)<=1e-12;
+        if (!shanghai && (input.sides[0].fluid!=Fluid::co2 || input.sides[1].fluid!=Fluid::co2))
+            throw std::invalid_argument("experimental calibration currently requires uniform L/t; "
+                "continuous Shanghai Gyroid air/water fields may use "
+                "the 7/0.6 calibration as an exploratory extrapolation");
+    }
     if (velocities && input.df_mode) for (std::size_t i=0;i<2;++i) if (input.sides[i].fluid!=Fluid::co2) {
-        const auto selected=experiment_selection(input,input.sides[i],i).first;
+        const auto selected=experiment_selection(input,input.sides[i],i,input.continuous.has_value()).first;
         if (selected.scope) for (std::size_t axis=0;axis<3;++axis) {
             const auto length=input.grid.lengths[axis].value,target=df_data::hx_domain_m[axis];
             if (std::abs(length-target)>1e-9*std::max(std::abs(length),std::abs(target)))
@@ -1346,6 +1369,117 @@ void physical_grid_3d(PreparedCase3D& output) {
             " exceeds the "+std::to_string(input.max_cells)+"-cell cap");
 }
 
+void continuous_geometry_3d(PreparedCase3D& output) {
+    const auto& input=output.input;const auto& controls=*input.continuous;
+    const auto nx=output.widths[0].size(),ny=output.widths[1].size(),nz=output.widths[2].size();
+    const auto dimension=controls.nz?3u:2u;
+    const std::size_t counts[]{controls.nx,controls.ny,controls.nz.value_or(1)};
+    const std::size_t sizes[]{nx,ny,nz};
+    std::array<std::vector<double>,3> axes,centres;
+    for (std::size_t axis=0;axis<dimension;++axis) {
+        const auto length=input.grid.lengths[axis];const auto& widths=output.widths[axis];
+        const double total=0.+tpmshx::detail::contiguous_sum({widths.data(),widths.size()});
+        if (!(std::abs(total-length.value)<=g::multiply(g::weak(1e-12),length).value))
+            throw std::invalid_argument("cell widths must be finite, positive and cover the field domain");
+        axes[axis]=control_axis(counts[axis],length);
+        centres[axis]=g::continuous_centres(sizes[axis],length,&widths);
+    }
+    const auto half_y=controls.symmetric_y?controls.ny/2+controls.ny%2:controls.ny;
+    const auto half=count(count(controls.nx,half_y),counts[2]);
+    std::array<std::vector<double>,2> sampled;
+    for (std::size_t field=0;field<2;++field) {
+        std::vector<double> values(count(count(controls.nx,controls.ny),counts[2]));
+        for (std::size_t i=0;i<controls.nx;++i) for (std::size_t j=0;j<controls.ny;++j)
+            for (std::size_t k=0;k<counts[2];++k) {
+                const auto source=controls.symmetric_y && j>=half_y?controls.ny-1-j:j;
+                values[(i*controls.ny+j)*counts[2]+k]=controls.decision_mm[field*half+(i*half_y+source)*counts[2]+k];
+            }
+        const auto& limits=field?controls.wall_bounds_mm:controls.cell_bounds_mm;
+        if (!controls.nz && controls.nx>1 && controls.ny>1) {
+            fields::XYFit fit(axes[0].data(),counts[0],axes[1].data(),counts[1],values.data(),values.size(),
+                static_cast<int>(std::min<std::size_t>(controls.order,counts[0]-1)),
+                static_cast<int>(std::min<std::size_t>(controls.order,counts[1]-1)));
+            sampled[field]=fit.sample(values.data(),values.size(),centres[0].data(),nx,centres[1].data(),ny,limits[0],limits[1]);
+        } else {
+            const double* nodes[]{axes[0].data(),axes[1].data(),axes[2].data()};
+            const double* points[]{centres[0].data(),centres[1].data(),centres[2].data()};
+            sampled[field]=fields::sample_tensor(dimension,counts,nodes,values.data(),values.size(),
+                static_cast<int>(controls.order),sizes,points,limits[0],limits[1]);
+        }
+    }
+    const auto local_count=sampled[0].size();const auto& model=input.geometry;
+    std::array<std::vector<double>,2> thermal;
+    for (std::size_t field=0;field<2;++field) {
+        thermal[field].resize(local_count);
+        for (std::size_t i=0;i<local_count;++i) thermal[field][i]=(sampled[field][i]*1e-3)*1e3;
+    }
+    std::vector<double> epsilon(local_count),area(local_count),diameter(local_count),thermal_epsilon(local_count);
+    if (co2_geometry(input)) {
+        const auto table=geometry::Co2GeometryTable::from_generated(model.topology);
+        for (std::size_t i=0;i<local_count;++i) {
+            auto material=table.evaluate(sampled[0][i],sampled[1][i],model.solid_conductivity_W_mK,output.options.chi_override);
+            epsilon[i]=material.geometry.epsilon;
+            if (thermal[0][i]!=sampled[0][i] || thermal[1][i]!=sampled[1][i])
+                material=table.evaluate(thermal[0][i],thermal[1][i],model.solid_conductivity_W_mK,output.options.chi_override);
+            area[i]=material.geometry.area_density;diameter[i]=material.geometry.hydraulic_diameter;
+            thermal_epsilon[i]=material.geometry.epsilon;
+        }
+    } else {
+        const auto& index=geometry_index(model.topology);const auto calibration=geometry::calibration(model.topology);
+        auto materials=geometry::standard_material_geometry_batch(index,calibration,
+            {sampled[0].data(),local_count},{sampled[1].data(),local_count},model.solid_conductivity_W_mK,output.options.chi_override);
+        for (std::size_t i=0;i<local_count;++i) epsilon[i]=materials[i].geometry.epsilon;
+        materials=geometry::standard_material_geometry_batch(index,calibration,
+            {thermal[0].data(),local_count},{thermal[1].data(),local_count},model.solid_conductivity_W_mK,output.options.chi_override);
+        for (std::size_t i=0;i<local_count;++i) {
+            area[i]=materials[i].geometry.area_density;diameter[i]=materials[i].geometry.hydraulic_diameter;
+            thermal_epsilon[i]=materials[i].geometry.epsilon;
+        }
+    }
+    const auto extrude=[&](std::vector<double> values) {
+        if (controls.nz) return values;
+        std::vector<double> volume(count(values.size(),nz));
+        for (std::size_t i=0;i<values.size();++i)
+            std::fill_n(volume.begin()+static_cast<std::ptrdiff_t>(i*nz),nz,values[i]);
+        return volume;
+    };
+    auto cell_mm=extrude(std::move(sampled[0])),wall_mm=extrude(std::move(sampled[1]));
+    output.total_porosity=extrude(std::move(epsilon));output.area_density=extrude(std::move(area));
+    output.hydraulic_diameter=extrude(std::move(diameter));output.thermal_porosity=extrude(std::move(thermal_epsilon));
+    const auto cells=cell_mm.size();
+    output.side_porosity=geometry::asym::split_porosity({output.total_porosity.data(),cells},.5).a;
+    const auto drag=fixed_df_batch(static_cast<std::uint32_t>(model.topology),
+        {cell_mm.data(),cells},{wall_mm.data(),cells});
+    output.permeability.resize(cells);output.forchheimer.resize(cells);
+    for (std::size_t i=0;i<cells;++i) {output.permeability[i]=drag[i].K;output.forchheimer[i]=drag[i].cF;}
+    output.cell_length.resize(cells);output.wall_thickness.resize(cells);
+    for (std::size_t i=0;i<cells;++i) {
+        output.cell_length[i]=cell_mm[i]*1e-3;output.wall_thickness[i]=wall_mm[i]*1e-3;
+    }
+    output.length_kinds={ScalarKind{64,1,2},ScalarKind{64,1,2}};
+}
+
+void air_spatial_ranges_3d(const PreparedCase3D& output,std::size_t side,Records& records) {
+    const auto& input=output.input;const auto& inlet=input.sides[side];const auto& kinds=input.kinds.sides[side];
+    const auto name=std::string(side?"B":"A");
+    const auto mu=property(1,inlet,kinds,name,"inlet",records,"scalar-zoned-call");
+    property(2,inlet,kinds,name,"inlet",records,"scalar-zoned-call");
+    const auto rho=property(0,inlet,kinds,name,"inlet",records,"scalar-zoned-call");
+    property(3,inlet,kinds,name,"inlet",records,"scalar-zoned-call");
+    PropertyResult re;re.values.reserve(output.hydraulic_diameter.size());
+    for (const auto diameter:output.hydraulic_diameter)
+        re.values.push_back(reynolds_point({g::weak(rho)},
+            {scalar(inlet.velocity_m_s,kinds.velocity),0.,0,kinds.velocity.layout},
+            {{diameter,64,1},0.,0,3},{g::weak(mu)},re.events).real.value);
+    records.floating(re.events);
+    const auto topology=std::string(topology_name(input.geometry.topology));
+    for (const auto value:re.values)
+        records.range({"nu","air",topology},name,"inlet","scalar-zoned-call","[Nu extrap] "+topology,
+            "Re","-",re_range(Fluid::air),value);
+    records.range({"nu_raw","air",topology},name,"inlet","real-cell(x,y,z)-bulk-Re","[air Nu raw] "+topology,
+        "Re","-",re_range(Fluid::air),re.values,{output.widths[0].size(),output.widths[1].size(),output.widths[2].size()});
+}
+
 void prepare_geometry_3d(PreparedCase3D& output,Records& records,bool check_speed) {
     const auto& input=output.input;const auto& model=input.geometry;const auto& options=output.options;
     output.uniform_geometry=material_geometry(input,options);
@@ -1354,11 +1488,14 @@ void prepare_geometry_3d(PreparedCase3D& output,Records& records,bool check_spee
     physical_grid_3d(output);
     const auto cells=count(count(output.widths[0].size(),output.widths[1].size()),output.widths[2].size());
     const auto& uniform=output.uniform_geometry.geometry;
-    output.total_porosity.assign(cells,uniform.epsilon);
-    output.side_porosity.assign(cells,uniform.epsilon_a);
-    const auto drag=fixed_df_batch(static_cast<std::uint32_t>(model.topology),
-        {&model.cell_length_mm,1},{&model.wall_thickness_mm,1}).front();
-    output.permeability.assign(cells,drag.K);output.forchheimer.assign(cells,drag.cF);
+    if (input.continuous) continuous_geometry_3d(output);
+    else {
+        output.total_porosity.assign(cells,uniform.epsilon);
+        output.side_porosity.assign(cells,uniform.epsilon_a);
+        const auto drag=fixed_df_batch(static_cast<std::uint32_t>(model.topology),
+            {&model.cell_length_mm,1},{&model.wall_thickness_mm,1}).front();
+        output.permeability.assign(cells,drag.K);output.forchheimer.assign(cells,drag.cF);
+    }
     for (std::size_t i=0;i<2;++i) {
         const auto& inlet=input.sides[i];auto& side=output.sides[i];
         side.axes=g::axis_map(inlet.port.direction);
@@ -1370,28 +1507,36 @@ void prepare_geometry_3d(PreparedCase3D& output,Records& records,bool check_spee
         for (std::size_t j=0;j<order.size();++j)
             side.properties[j]=property(order[j],inlet,input.kinds.sides[i],"unbound","unbound",records);
     }
-    output.cell_length.assign(cells,g::multiply(scalar(model.cell_length_mm,input.kinds.cell_length),g::weak(1e-3)).value);
-    output.wall_thickness.assign(cells,g::multiply(scalar(model.wall_thickness_mm,input.kinds.wall_thickness),g::weak(1e-3)).value);
-    output.length_kinds={input.kinds.cell_length,input.kinds.wall_thickness};
     const auto calibration=geometry::calibration(model.topology);
-    const auto solid=geometry::solid_conductivity(calibration.solid_tortuosity,uniform.epsilon,
-        model.solid_conductivity_W_mK,options.chi_override,64);
-    output.solid_conductivity.assign(cells,solid);
+    if (input.continuous) {
+        output.solid_conductivity=geometry::solid_conductivity(calibration.solid_tortuosity,
+            {output.total_porosity.data(),cells},model.solid_conductivity_W_mK,options.chi_override,64);
+    } else {
+        output.cell_length.assign(cells,g::multiply(scalar(model.cell_length_mm,input.kinds.cell_length),g::weak(1e-3)).value);
+        output.wall_thickness.assign(cells,g::multiply(scalar(model.wall_thickness_mm,input.kinds.wall_thickness),g::weak(1e-3)).value);
+        output.length_kinds={input.kinds.cell_length,input.kinds.wall_thickness};
+        const auto solid=geometry::solid_conductivity(calibration.solid_tortuosity,uniform.epsilon,
+            model.solid_conductivity_W_mK,options.chi_override,64);
+        output.solid_conductivity.assign(cells,solid);
+    }
 }
 
 void finish_case_3d(PreparedCase3D& output,Records& records) {
     const auto& input=output.input;
     const auto cells=output.total_porosity.size();
     for (std::size_t i=0;i<2;++i) if (input.sides[i].fluid==Fluid::air) {
-        std::array<ScalarKind,13> kinds{};
-        inlet_properties(input,input.sides[i],i,output.uniform_geometry,records,kinds,"scalar-hv-bulk");
+        if (input.continuous) air_spatial_ranges_3d(output,i,records);
+        else {
+            std::array<ScalarKind,13> kinds{};
+            inlet_properties(input,input.sides[i],i,output.uniform_geometry,records,kinds,"scalar-hv-bulk");
+        }
     }
     for (std::size_t i=0;i<2;++i) {
         const auto& inlet=input.sides[i];auto& side=output.sides[i];
         if (inlet.fluid!=Fluid::co2 && !input.df_mode) continue;
         side.have_drag_application=true;
         auto& evidence=side.drag_evidence;
-        const auto factors=drag_factors(input,inlet,i,records,evidence,false,"scalar");
+        const auto factors=drag_factors(input,inlet,i,records,evidence,input.continuous.has_value(),"scalar");
         const bool scalar_summary=inlet.fluid!=Fluid::co2;
         const std::size_t size=scalar_summary?1:cells;
         const std::vector<double> scale_k(size,factors.K),scale_f(size,factors.cF);
@@ -1402,17 +1547,33 @@ void finish_case_3d(PreparedCase3D& output,Records& records) {
         evidence.applied_permeability=df_summary({applied_k.data(),size},scalar_summary);
         evidence.applied_forchheimer=df_summary({applied_f.data(),size},scalar_summary);
         evidence.scale_permeability=factors.K;evidence.scale_forchheimer=factors.cF;
+        if (input.continuous && inlet.fluid!=Fluid::co2) {
+            evidence.geometry_application="continuous-field-extrapolation";
+            evidence.reference_geometry_mm=std::array<double,2>{input.geometry.cell_length_mm,input.geometry.wall_thickness_mm};
+            evidence.application_scope="Exploratory continuous L/t trend prediction using "
+                "frozen uniform-HX factors; gradient accuracy unvalidated";
+        }
     }
     for (std::size_t axis=0;axis<3;++axis)
         output.edges[axis]=g::cumulative_widths({output.widths[axis].data(),output.widths[axis].size()});
-    model_evidence(input,output.evidence);
+    model_evidence(input,output.evidence,input.continuous.has_value());
     const std::vector<std::size_t> shape{output.widths[0].size(),output.widths[1].size(),output.widths[2].size()};
-    records.range({"geometry","L_field_m"},"shared","prepared-geometry","physical-cell","fixed geometry domain","cell length","mm",
-        {df_data::df_L_nodes.front(),df_data::df_L_nodes.back()},
-        g::multiply(scalar(output.cell_length.front(),input.kinds.cell_length),g::weak(1e3)).value,shape);
-    records.range({"geometry","t_field_m"},"shared","prepared-geometry","physical-cell","fixed geometry domain","wall thickness","mm",
-        {df_data::df_t_nodes.front(),df_data::df_t_nodes.back()},
-        g::multiply(scalar(output.wall_thickness.front(),input.kinds.wall_thickness),g::weak(1e3)).value,shape);
+    if (input.continuous) {
+        auto cell_mm=output.cell_length,wall_mm=output.wall_thickness;
+        for (auto& value:cell_mm) value*=1e3;
+        for (auto& value:wall_mm) value*=1e3;
+        records.range({"geometry","L_field_m"},"shared","prepared-geometry","physical-cell","fixed geometry domain","cell length","mm",
+            {df_data::df_L_nodes.front(),df_data::df_L_nodes.back()},cell_mm,shape);
+        records.range({"geometry","t_field_m"},"shared","prepared-geometry","physical-cell","fixed geometry domain","wall thickness","mm",
+            {df_data::df_t_nodes.front(),df_data::df_t_nodes.back()},wall_mm,shape);
+    } else {
+        records.range({"geometry","L_field_m"},"shared","prepared-geometry","physical-cell","fixed geometry domain","cell length","mm",
+            {df_data::df_L_nodes.front(),df_data::df_L_nodes.back()},
+            g::multiply(scalar(output.cell_length.front(),input.kinds.cell_length),g::weak(1e3)).value,shape);
+        records.range({"geometry","t_field_m"},"shared","prepared-geometry","physical-cell","fixed geometry domain","wall thickness","mm",
+            {df_data::df_t_nodes.front(),df_data::df_t_nodes.back()},
+            g::multiply(scalar(output.wall_thickness.front(),input.kinds.wall_thickness),g::weak(1e3)).value,shape);
+    }
     finish_warnings(records);
 }
 

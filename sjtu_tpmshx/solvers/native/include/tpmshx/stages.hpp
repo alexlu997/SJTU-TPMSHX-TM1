@@ -43,6 +43,8 @@ using PreparedContinuousCase2D=detail::Owned<tpmshx_preparation_continuous_case_
 using PreparedCase3D=detail::Owned<tpmshx_preparation_case_3d_v1,tpmshx_preparation_case_3d_release_v1>;
 using InletFlow3D=detail::Owned<tpmshx_preparation_flow_3d_v2,tpmshx_preparation_flow_3d_release_v2>;
 using PreparedFlowCase3D=detail::Owned<tpmshx_preparation_flow_case_3d_v2,tpmshx_preparation_flow_case_3d_release_v2>;
+using ContinuousInletFlow3D=detail::Owned<tpmshx_preparation_continuous_flow_3d_v3,tpmshx_preparation_continuous_flow_3d_release_v3>;
+using PreparedContinuousCase3D=detail::Owned<tpmshx_preparation_continuous_case_3d_v3,tpmshx_preparation_continuous_case_3d_release_v3>;
 using RunResult2D=detail::Owned<tpmshx_stage_run_result_2d_v1,tpmshx_stage_run_2d_release_v1>;
 using RunState=detail::Owned<tpmshx_run_state_v1,tpmshx_run_state_release_v1>;
 using Evaluation=detail::Owned<tpmshx_stage_output_v1,tpmshx_result_stage_release_v1>;
@@ -79,6 +81,12 @@ struct FlowInput3D : tpmshx_preparation_flow_input_3d_v2 {
     FlowInput3D():tpmshx_preparation_flow_input_3d_v2{} {
         abi_version=TPMSHX_PREPARATION_FLOW_3D_ABI_VERSION;struct_size=sizeof(tpmshx_preparation_flow_input_3d_v2);
         input=CaseInput3D{};target_kinds[0]=target_kinds[1]={64,0,0};
+    }
+};
+struct ContinuousInput3D : tpmshx_preparation_continuous_input_3d_v3 {
+    ContinuousInput3D():tpmshx_preparation_continuous_input_3d_v3{} {
+        abi_version=TPMSHX_PREPARATION_CONTINUOUS_3D_ABI_VERSION;struct_size=sizeof(tpmshx_preparation_continuous_input_3d_v3);
+        values=FlowInput3D{};values.input.geometry_mode=1;
     }
 };
 struct FlowInput2D : tpmshx_preparation_flow_input_2d_v3 {
@@ -230,6 +238,30 @@ inline PreparedFlowCase3D prepare_case(const FlowInput3D& input,const Preparatio
     char error[4096]{};
     detail::check(tpmshx_prepare_flow_case_3d_v2(&input,&options,nullptr,&output,&failure,error,sizeof(error)),error);
     return PreparedFlowCase3D(output);
+}
+inline ContinuousInletFlow3D prepare_inlet_mass_capacities(const ContinuousInput3D& input,const PreparationOptions& options={}) {
+    tpmshx_preparation_continuous_flow_3d_v3 output{};tpmshx_preparation_case_failure_v2 failure{};
+    output.abi_version=TPMSHX_PREPARATION_CONTINUOUS_3D_ABI_VERSION;output.struct_size=sizeof(output);
+    failure.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V2;failure.struct_size=sizeof(failure);
+    char error[4096]{};
+    detail::check(tpmshx_prepare_inlet_mass_capacities_3d_v3(&input,&options,nullptr,&output,&failure,error,sizeof(error)),error);
+    return ContinuousInletFlow3D(output);
+}
+inline ContinuousInletFlow3D resolve_inlet_flow(const ContinuousInput3D& input,const PreparationOptions& options={}) {
+    tpmshx_preparation_continuous_flow_3d_v3 output{};tpmshx_preparation_case_failure_v2 failure{};
+    output.abi_version=TPMSHX_PREPARATION_CONTINUOUS_3D_ABI_VERSION;output.struct_size=sizeof(output);
+    failure.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V2;failure.struct_size=sizeof(failure);
+    char error[4096]{};
+    detail::check(tpmshx_resolve_inlet_flow_3d_v3(&input,&options,nullptr,&output,&failure,error,sizeof(error)),error);
+    return ContinuousInletFlow3D(output);
+}
+inline PreparedContinuousCase3D prepare_case(const ContinuousInput3D& input,const PreparationOptions& options={}) {
+    tpmshx_preparation_continuous_case_3d_v3 output{};tpmshx_preparation_case_failure_v2 failure{};
+    output.abi_version=TPMSHX_PREPARATION_CONTINUOUS_3D_ABI_VERSION;output.struct_size=sizeof(output);
+    failure.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V2;failure.struct_size=sizeof(failure);
+    char error[4096]{};
+    detail::check(tpmshx_prepare_flow_case_3d_v3(&input,&options,nullptr,&output,&failure,error,sizeof(error)),error);
+    return PreparedContinuousCase3D(output);
 }
 inline InletFlow2D prepare_inlet_mass_capacities(const FlowInput2D& input,const PreparationOptions& options={}) {
     tpmshx_preparation_flow_2d_v3 output{};tpmshx_preparation_case_failure_v2 failure{};

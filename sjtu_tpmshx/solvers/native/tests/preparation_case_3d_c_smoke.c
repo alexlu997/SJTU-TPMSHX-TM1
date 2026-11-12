@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#define CHECK(test) do { if (!(test)) { fprintf(stderr, "line %d: %s\n", __LINE__, #test); return 1; } } while (0)
+#define CHECK(test) do { if (!(test)) { fprintf(stderr, "line %d: %s\n%s\n", __LINE__, #test, error); return 1; } } while (0)
 
 static int TPMSHX_PREPARATION_CALL stop_event(void* context,const tpmshx_preparation_event_v1* event) {
     size_t* count=(size_t*)context;
@@ -18,7 +18,7 @@ int main(void) {
     tpmshx_preparation_case_callbacks_v1 callback={1,sizeof(callback),stop_event,NULL};
     const tpmshx_preparation_scalar_kind_v2 weak={64,0,0};
     const tpmshx_grid_scalar_v1 dimensions[3]={{.182,64,0},{.042,64,0},{.031,64,0}};
-    char error[4096],saved_error[4096],source[]="source";
+    char error[4096]={0},saved_error[4096],source[]="source";
     size_t i,calls=0;
     input.abi_version=output.abi_version=1;input.struct_size=sizeof(input);output.struct_size=sizeof(output);
     failure.abi_version=2;failure.struct_size=sizeof(failure);
@@ -107,6 +107,60 @@ int main(void) {
         request.explicit_targets_kg_s[0]=request.explicit_targets_kg_s[1]=1e-15;calls=0;
         CHECK(tpmshx_prepare_flow_case_3d_v2(&request,&options,&callback,&combined,&failure,error,sizeof(error))==3);
         CHECK(calls==1 && failure.kind==3 && !memcmp(&combined,&saved_combined,sizeof(combined)));
+    }
+    {
+        tpmshx_preparation_continuous_input_3d_v3 request={0},saved_request;
+        tpmshx_preparation_continuous_flow_3d_v3 flow={0};
+        tpmshx_preparation_continuous_case_3d_v3 combined={0},saved_combined;
+        double decisions[]={4.5,6.,7.5,5.4,.31,.42,.59,.36},saved_decisions[8];
+        request.abi_version=flow.abi_version=combined.abi_version=3;
+        request.struct_size=sizeof(request);flow.struct_size=sizeof(flow);combined.struct_size=sizeof(combined);
+        request.values.abi_version=2;request.values.struct_size=sizeof(request.values);
+        request.values.input=original;request.values.input.geometry_mode=1;
+        request.values.target_kinds[0]=request.values.target_kinds[1]=weak;
+        request.controls.n_ctrl_x=request.controls.n_ctrl_y=2;request.controls.n_ctrl_z=1;
+        request.controls.spline_order=1;request.controls.L_bounds_mm[0]=4.;request.controls.L_bounds_mm[1]=8.;
+        request.controls.t_bounds_mm[0]=.3;request.controls.t_bounds_mm[1]=.6;
+        request.controls.decision_mm.data=decisions;request.controls.decision_mm.size=8;
+        memcpy(saved_decisions,decisions,sizeof(decisions));saved_request=request;
+        CHECK(tpmshx_preparation_continuous_3d_abi_version_v3()==3);
+        CHECK(!tpmshx_prepare_inlet_mass_capacities_3d_v3(&request,&options,NULL,&flow,&failure,error,sizeof(error)));
+        CHECK(flow.owner && !flow.flow.owner && flow.flow.have_capacities);
+        CHECK(flow.controls.decision_mm.data!=decisions && !memcmp(flow.controls.decision_mm.data,decisions,sizeof(decisions)));
+        request.values.have_explicit_targets=1;
+        for (i=0;i<2;++i) request.values.explicit_targets_kg_s[i]=flow.flow.capacities[i].value*5.;
+        tpmshx_preparation_continuous_flow_3d_release_v3(&flow);
+        flow.abi_version=3;flow.struct_size=sizeof(flow);
+        CHECK(!tpmshx_resolve_inlet_flow_3d_v3(&request,&options,NULL,&flow,&failure,error,sizeof(error)));
+        CHECK(!tpmshx_prepare_flow_case_3d_v3(&request,&options,NULL,&combined,&failure,error,sizeof(error)));
+        CHECK(combined.owner && !combined.prepared.owner && !combined.flow.owner);
+        CHECK(combined.area_density_per_m.size==120 && combined.hydraulic_diameter_m.size==120 && combined.thermal_porosity.size==120);
+        CHECK(!memcmp(decisions,saved_decisions,sizeof(decisions)));
+        saved_combined=combined;
+        CHECK(tpmshx_prepare_flow_case_3d_v3(&request,&options,NULL,&combined,&failure,error,sizeof(error))==1);
+        CHECK(!memcmp(&combined,&saved_combined,sizeof(combined)));
+        tpmshx_preparation_continuous_case_3d_release_v3(&combined);
+        tpmshx_preparation_continuous_case_3d_release_v3(&combined);tpmshx_preparation_continuous_case_3d_release_v3(NULL);
+        tpmshx_preparation_continuous_flow_3d_release_v3(&flow);tpmshx_preparation_continuous_flow_3d_release_v3(NULL);
+        request=saved_request;request.controls.have_ctrl_z=1;
+        combined.abi_version=3;combined.struct_size=sizeof(combined);
+        CHECK(!tpmshx_prepare_flow_case_3d_v3(&request,&options,NULL,&combined,&failure,error,sizeof(error)));
+        CHECK(combined.controls.have_ctrl_z && combined.controls.n_ctrl_z==1);
+        tpmshx_preparation_continuous_case_3d_release_v3(&combined);
+        flow.abi_version=3;flow.struct_size=sizeof(flow);
+        request.values.input.lengths_m[0].value=-1.;request.controls.spline_order=99;
+        CHECK(!tpmshx_resolve_inlet_flow_3d_v3(&request,&options,NULL,&flow,&failure,error,sizeof(error)));
+        CHECK(!flow.flow.have_capacities && flow.controls.spline_order==99 && flow.flow.input.lengths_m[0].value==-1.);
+        tpmshx_preparation_continuous_flow_3d_release_v3(&flow);
+        request=saved_request;combined.abi_version=3;combined.struct_size=sizeof(combined);saved_combined=combined;
+        memset(error,17,sizeof(error));memcpy(saved_error,error,sizeof(error));saved_failure=failure;
+        CHECK(tpmshx_prepare_flow_case_3d_v3(&request,&options,NULL,&combined,&failure,(char*)decisions,sizeof(decisions))==1);
+        CHECK(!memcmp(decisions,saved_decisions,sizeof(decisions)) && !memcmp(&failure,&saved_failure,sizeof(failure)));
+        CHECK(!memcmp(&combined,&saved_combined,sizeof(combined)));
+        request.controls.decision_mm.data=(double*)&combined;request.controls.decision_mm.size=1;
+        CHECK(tpmshx_prepare_flow_case_3d_v3(&request,&options,NULL,&combined,&failure,error,sizeof(error))==1);
+        CHECK(!memcmp(&combined,&saved_combined,sizeof(combined)) && !memcmp(error,saved_error,sizeof(error)));
+        CHECK(!memcmp(&failure,&saved_failure,sizeof(failure)));
     }
     puts("3D preparation C ownership and failure checks passed");
     return 0;

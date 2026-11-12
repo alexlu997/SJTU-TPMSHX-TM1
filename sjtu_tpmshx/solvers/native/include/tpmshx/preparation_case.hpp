@@ -82,6 +82,14 @@ struct InletInput3D {
     grid::Port port;
     std::optional<double> mass_flow_kg_s;
 };
+struct ContinuousControls3D {
+    std::size_t nx=0,ny=0;
+    std::optional<std::size_t> nz;
+    std::uint32_t order=3;
+    bool symmetric_y=true;
+    std::array<double,2> cell_bounds_mm{},wall_bounds_mm{};
+    std::vector<double> decision_mm;
+};
 struct CaseInput3D {
     GridInput3D grid;
     UniformGeometryInput geometry;
@@ -89,6 +97,7 @@ struct CaseInput3D {
     std::uint32_t geometry_mode=0,df_mode=0;
     Sco2NuSelection sco2_nu;
     CaseScalarKinds kinds;
+    std::optional<ContinuousControls3D> continuous;
 };
 struct PreparationOptions {
     std::optional<double> chi_override;
@@ -213,6 +222,8 @@ struct PreparedCase3D {
     geometry::MaterialGeometry uniform_geometry;
     std::vector<double> cell_length,wall_thickness,total_porosity,side_porosity;
     std::vector<double> permeability,forchheimer,solid_conductivity;
+    // Thermal fields use the recorded SI lengths converted back to mm.
+    std::vector<double> area_density,hydraulic_diameter,thermal_porosity;
     std::array<PreparedSide3D,2> sides;
     PreparationEvidence evidence;
     std::array<ScalarKind,2> length_kinds;

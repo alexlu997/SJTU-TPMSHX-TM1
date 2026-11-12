@@ -207,7 +207,13 @@ Resolution without a target copies the input without physical preparation.
 Complete preparation builds geometry once, resolves both speeds, then applies the original speed and model checks.
 Its final evidence retains static-property observations before resolved-speed preflight and final air/DF observations.
 The combined owner exposes borrowed preparation and flow views with null nested owners.
-Spatial fields and nonzero delta remain outside these raw interfaces.
+`ContinuousInput3D` v3 adds canonical XY extrusion and true XYZ controls to all three flow operations.
+`have_ctrl_z` selects XYZ even when its control count is one. Decisions store all L values, then all t values, with z fastest.
+Sampling uses the final physical cell centres. XY and XYZ retain their separate spline rules and optional y symmetry.
+The owner keeps raw design geometry and the separate thermal mm-to-m-to-mm path.
+It returns full local K/cF, area density, hydraulic diameter and thermal porosity.
+The existing continuous Shanghai transfer limits and CO2 factors remain unchanged.
+Discrete zones and nonzero delta remain outside these raw interfaces.
 Python 3D preparation, host cache hooks, native 3D run/capture integration,
 memory checks near the cell cap and real 3D BO remain separate migration and acceptance gates.
 Saved CaseData still uses its existing validators and must not be prepared again.
@@ -294,6 +300,7 @@ The [fluid preparation example](../examples/cpp/prepare_fluids_2d.cpp) prepares 
 It links only the preparation library and does not execute a solve.
 The [3D preparation example](../examples/cpp/prepare_3d.cpp) prepares raw CO2/water inputs with different physical lengths and grid counts on each axis.
 The [3D mass-flow example](../examples/cpp/prepare_mass_3d.cpp) resolves total flow on reverse inlet faces before complete preparation.
+The [continuous 3D example](../examples/cpp/prepare_continuous_3d.cpp) prepares both XY extrusion and XYZ controls with resolved total flows.
 It checks the reverse z-direction port and field evidence, with only the preparation library.
 The [uniform-fluid example](../examples/cpp/uniform_2d.cpp) executes all three
 stages for CO2/water. Evaluation remains valid after the prepared owner is released.

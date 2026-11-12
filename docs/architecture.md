@@ -108,7 +108,10 @@ Side porosity is already split. Base K/cF fields remain unscaled; side evidence 
 The host supplies the resolved cell cap. This interface uses v1 event callbacks without host cache hooks.
 The separate 3D flow v2 reuses that geometry for capacity, flow resolution and complete preparation.
 It integrates side porosity on the actual inlet face and keeps static evidence before resolved-speed checks.
-3D run/capture integration and spatial/asymmetric preparation remain separate gates.
+The 3D continuous v3 accepts XY extrusion or XYZ controls for the same three flow operations.
+It samples final physical centres and retains raw design geometry separately from the thermal SI round trip.
+Full local K/cF and side porosity keep their original meaning. Existing v1/v2 layouts remain unchanged.
+3D run/capture integration, grid zones and asymmetric preparation remain separate gates.
 Memory use near the cell cap and real 3D BO also need separate acceptance.
 Python preparation uses the owned v3/v4 stages for symmetric uniform and canonical continuous XY 2D inputs.
 Nonzero-delta uniform, discrete zones, sigmoid and 3D retain explicit existing routes.
@@ -118,7 +121,7 @@ It supplies no numerical values. The v3 hooks exchange completed cache entries a
 Python retains warning filters, source locations and completed observations after a later failure.
 A native failure never selects another preparation route.
 The replaced continuous Python branches are retired; independent frozen references remain under `development/tests`.
-`preparation_case.cpp` owns the 2D preparation sequences and the separate uniform 3D sequence.
+`preparation_case.cpp` owns the 2D preparation sequences and the uniform or continuous 3D sequences.
 `stage_run.cpp` adapts it to the existing full 2D driver.
 Its lifecycle interface uses the same full 2D run object, typed snapshots and restore checks.
 Partial energy controls use defaults from the selected library.
