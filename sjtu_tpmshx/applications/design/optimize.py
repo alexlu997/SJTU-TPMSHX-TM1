@@ -7,7 +7,10 @@ import numpy as np
 from scipy.optimize import minimize
 
 from .sizing import size_fixed_cell, Design, RHO_S
-from sjtu_tpmshx.shared.models.quick_design import K_STEEL
+from sjtu_tpmshx.shared.configs.model_parameters import load_quick_design_parameters
+
+_QUICK_PARAMETERS = load_quick_design_parameters()
+K_STEEL = _QUICK_PARAMETERS['k_s']
 from sjtu_tpmshx.shared.domain.module_ports import RunControl
 
 # 训练凸包 [mm] — single source in df_surrogate/_domain.py.

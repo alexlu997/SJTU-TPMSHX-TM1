@@ -138,6 +138,9 @@ Python 三维生产路径保持不变。
 
 `shared/models/_native_preparation.py` 在需要时通过 ctypes 加载 preparation ABI 1。
 具名物性、DF 和流量适配器保留现有 Python 公共接口。
+Quick 准备 v2 增加带类型的原始输入及独立压降分数查询。
+`shared/models/_native_quick_prepare.py` 通过固定具名操作保留宿主协议。
+阶段负责几何、网格、物性和压降计算及其执行顺序；仅压降查询不创建热网格或设计场数组。
 Preparation 状态 0 表示成功，1 表示无效输入，2 表示分配失败，3 表示运行时错误；
 状态 10、11、12 分别表示水、CO2、sCO2 状态错误。
 几何 ABI 1 与 field ABI 2 不变，继续使用各自错误映射。
@@ -215,7 +218,7 @@ Linux x86_64 支持独立结果评估。完整求解器与桌面支持仍限 mac
 独立 result ABI 2 负责指标、有符号物理平衡、分区统计及数值资格检查。
 结果阶段选择已记录证据，负责完整 2D/3D 指标定义、状态和资格。
 Python 保留公开 DTO 和文件接口、原对象身份及 NumPy 事件处理。
-三个独立结果查询使用同一原生阶段；Quick Design 指标运算保留当前 Python 协议 owner。
+三个独立结果查询使用同一原生阶段；Quick Design 指标运算也由同一阶段负责，固定具名宿主操作保留既有 Python 对象、任意精度整数和转换协议。
 带版本的宿主查询保留延迟输入错误和回调异常，不改变已发布的 v1 C 布局。
 独立 `solvers/native/result/` 项目只使用 C++17 和系统库，
 不加载求解器、准备库、几何库、CoolProp 或模型资源。
@@ -251,6 +254,16 @@ CI 保留完整 macOS／Windows 构建，并增加独立 Ubuntu `result-build` �
 <a id="complete-quick-design-capability"></a>
 
 ## 完整 Quick Design 能力
+
+[Quick Design 阶段](native-stages.zh-CN.md#quick-design-阶段)提供带类型的原始准备 v2 和仅压降查询，
+保留已公开的 native-double v1 准备与运行契约。
+v2 阶段负责原数值及校验顺序，固定具名宿主操作保留 Python 标量、对象、缓存、警告和快照协议。
+宿主操作不提供模型计算；原 `shared/models/quick_design.py` 已删除。
+独立冻结参考保留在 `development/tests/`，供回归检查使用。
+薄准备入口组装 CaseData，保留逆流保存态的 `qtol=None` 和 `chunk=None`。
+Python 执行通过保存的准备场调用 run 阶段。
+阶段提供场数组及声明，Python 在释放前复制这些数据，保留原固定场 dtype，并映射过程警告和错误。
+原生结果阶段负责 Quick Design 指标，保留既有类型及事件协议。
 
 `quick_design_driver.hpp` 负责完整准备态 const/mean 物性阶段计算。它包含原有经验空气／水或 HEOS sCO2 物性、既有 Nu、一次或两次温度计算、全场热启动、逐阶段液态水检查、迭代预算、进度和取消。准备好的入口状态解析压降比例保持固定。这是既有给定流量尺寸设计近似，`physical_validation=not_established`。
 
@@ -471,6 +484,9 @@ TPMSHX_REQUIRE_CPP_TESTS=1 TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1 \
 资源读取器仅使用 Python 标准库，生成器不导入数值模型实现。
 构建在所选缓存的 `generated/` 目录下生成 `tpmshx/model_coefficients.hpp` 和 `tpmshx/preparation_df_data.hpp`，默认目录为 `.cache/native-deps/generated/`。
 C++ 使用生成的常量，运行时不解析 JSON，也不调用 Python。
+`quick_design` 资源统一提供导热率、网格数、几何分辨率、容差和各流向控制量，供两版准备及 Python 消费者使用。
+逆流 qtol/chunk 在资源中保持 null，在 CaseData 中保持 `None`。
+v1 准备态驱动配置保留已解析默认值 `max(tol*10, 1e-4)` 和 250。
 几何、准备和求解代码使用已声明的模型资源；既有模型身份、单位、拟合系数和实验结论不变。
 本次实施与退休范围见[范围说明](#cpp-core-scope)，数据来源见[模型资源](model-resources.md#当前资源与研究输出)。
 

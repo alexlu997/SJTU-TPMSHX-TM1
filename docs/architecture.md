@@ -85,14 +85,14 @@ Separate result publication builds no solver, run_state, CoolProp or generated c
 Linux x86_64 supports independent result evaluation. Full-solver platforms remain macOS arm64 and Windows x64.
 
 The [native stage SDK](native-stages.md) adds an owned preparation state, a run result and independent evaluation.
-Preparation v1 and the run path support uniform symmetric 2D air/air with prescribed velocity and CFD drag.
+Preparation v1 and run v1 support uniform symmetric 2D air/air with prescribed velocity and CFD drag.
 Preparation v2 supports all 16 ordered air/water/sCO2/CO2 pairs in the same geometry and inlet mode.
 It retains existing experimental DF/Nu selections, state failures and evidence.
 Its scalar tags retain field precision. Run v2 consumes this state through the
 existing model-h or true-h route and records the actual thermal evidence.
 Preparation v3 adds independent capacity, inlet-flow resolution and complete preparation for uniform 2D total mass flow.
 It reuses physical inlet geometry and keeps preliminary evidence separate from final preparation evidence.
-The existing v1/v2 C layouts and Python production entries are unchanged.
+The existing v1/v2 C layouts and public Python interfaces are unchanged.
 Preparation v4 adds canonical continuous XY controls to capacity, resolution and complete preparation.
 It samples the physical grid with the existing spline and geometry cores, then retains full local drag.
 Its prepared view adds only area density, original hydraulic diameter and the two fluid conductivities.
@@ -100,7 +100,7 @@ Experimental transfer keeps the current Shanghai contract, separate early range 
 Run v3 consumes this continuous state with the existing full 2D driver.
 It preserves local drag, original hydraulic diameter, unit order and nominal reference geometry.
 Resolved uniform flow cases use run v2. Both routes retain the v1 result owner.
-No v1/v2/v3 C layout changes.
+No v1/v2/v3 preparation C layout changes.
 The separate `tpmshx_prepare_case_3d_v1` prepares raw symmetric uniform 3D inputs at prescribed inlet speeds.
 It supports both topologies and all 16 fluid pairs with existing CFD or experimental DF limits.
 The owned state retains physical `(x,y,z)` fields, typed ports, axis maps for six directions and model evidence.
@@ -140,8 +140,22 @@ The selected library capability and geometry mode select the protocol before exe
 Missing new-protocol symbols and execution failures are errors. They do not start another run through the old route.
 The single `FieldResult` assembler is in `full_2d_capture.py`. It preserves warning and application-property check order.
 The installed C ABI and `stages.hpp` support external C++ callers.
-Current Python entry points retain their existing behavior and all supported modes.
-The migration gates must pass before their numerical and policy bodies can retire.
+Quick Design preparation v2 accepts typed raw operating points.
+`quick_design_prepare_v2.cpp` owns the complete numerical sequence, including geometry, grids, inlet properties and analytical D-F pressure fractions.
+Its separate pressure query creates no thermal grid or design-field arrays.
+`shared/models/_native_quick_prepare.py` keeps Python object protocols, cache exchanges, warnings and snapshots through fixed named host operations.
+These operations cannot call numerical models. C++ selects their order and all numerical branches.
+`preprocess/app_modes/quick_design.py` assembles CaseData from the copied native output.
+The replaced `shared/models/quick_design.py` is removed; its frozen reference remains in `development/tests/quick_prepare_reference.py` for regression checks.
+Quick defaults have one source in `shared/configs/model_parameters_v1.json`.
+Python reads that resource; C++ uses its generated constants. Stored counterflow `qtol` and `chunk` remain `None`.
+The native-double v1 preparation in `quick_design_prepare.cpp` and its published layouts remain available.
+`quick_design_run.cpp` uses the existing driver and copies its result evidence.
+Its const/mean, cross/counter and warm-start rules stay unchanged.
+Python execution uses this run stage with saved prepared fields, without new preparation.
+It copies native fields and declarations before release and keeps the original grid, fixed-field dtypes and operating-point scalars.
+The native result stage owns Quick Design metrics. Fixed host operations keep the existing type and event protocols.
+Current Python entry points keep their supported modes. This migration does not establish physical validation.
 
 <a id="retained-python-responsibilities"></a>
 
@@ -150,7 +164,7 @@ Full result evidence selection and qualification belong to the native stage. Pyt
 Python modules also own GUI display, input validation, application searches, BO, offline data processing and fitting.
 The following boundaries keep their original arithmetic and consumers:
 
-- Explicit Python object and arbitrary-precision integer protocols, selected before the typed ABI. Native errors still propagate.
+- Explicit Python object and arbitrary-precision integer protocols at their declared boundaries. Quick preparation and result stages select fixed named host operations. Native errors still propagate.
 - Configuration control nodes, unit conversion, serialized grid edges and archive consistency checks. Initial-temperature and configuration checks keep their error order.
 - Range summaries for standalone getter, geometry and sCO2 messages, GUI previews and nTop export statistics. C++ still owns formal range collection and qualification checks.
 - The `ports_complete` injected-ledger check and default input adaptation for independent low-level drivers. Current native ledgers return an explicit completeness flag.
@@ -515,8 +529,9 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
 - `solvers/backends/cpp/` exposes the independent prepared Quick Design and
   full 2D/3D drivers through `RunControl`, which defaults to C++. The host library path is not serialized in CaseData. Shared QD validation and
   result mapping belong to `solvers/backends/quick_design.py`. Numerical property
-  passes, liquid-state guards and thermal iteration belong to the C++ driver. Its returned scalar pass evidence is expanded into the same fields and warning
-  records for postprocessing.
+  passes, liquid-state guards and thermal iteration belong to the C++ driver.
+  The Quick Design run stage expands its scalar evidence into fields and declarations.
+  Python copies the owned output and uses the pass evidence for warning records.
 
   Full 2D/3D own SIMPLE, pressure references, outer
   property/thermal coupling and final certificates in C++. 2D also owns
@@ -693,7 +708,7 @@ Temperature is not scaled. FullCC nonzero sources stay
 - `postprocess/api.py` keeps the public evaluation interface. The native result stage owns full 2D/3D metric selection, definitions and status.
   It also owns independent applicability, physical-balance and qualification queries.
   `shared/_native_result_stage.py` converts evidence and returned objects. It delivers NumPy events at each primitive boundary.
-  Quick Design retains its separate typed numeric protocol until that stage is integrated.
+  Quick Design uses the same native stage, with typed intermediate values and fixed named host operations for its existing Python protocols.
   `postprocess/conservation.py` retains the complete public conservation certificate. Raw result helpers retain their existing consumers and Python protocols.
   Postprocessing reduces recorded fields, fluxes and pressure states. It never reruns a solver or reads private runtime objects for missing evidence.
   Full-compute evaluation reuses successful heat and mass reductions only within

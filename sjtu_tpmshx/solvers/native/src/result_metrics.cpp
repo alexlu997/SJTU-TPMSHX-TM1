@@ -26,10 +26,23 @@ Number representative(const Array& value) {
     if (value.size()) return value.at(0);
     Number out{};out.dtype=value.raw().dtype;out.origin=value.raw().origin;return out;
 }
+bool quick_less(const Number& first,const Number& second,Diagnostics& target) {
+    Diagnostics comparison{};
+    const auto deliver=[&]() {
+        for(std::size_t i=0;i<comparison.event_count;++i) {
+            const auto& event=comparison.events[i];
+            // NumPy comparison casts report overflow, but suppress underflow.
+            const auto flags=event.operation==TPMSHX_RESULT_CAST?event.flags&~4u:event.flags;
+            if(flags)append_event(target,flags,event.operation,event.scalar!=0);
+        }
+    };
+    try {const bool value=a::less(first,second,comparison);deliver();return value;}
+    catch(...) {deliver();throw;}
+}
 bool quick_denominator_less(const Array& first,const Array& second,Diagnostics& d) {
     // The numerator has checked broadcasting before Python max tests this shape.
     const auto size=first.size() && second.size()?std::max(first.size(),second.size()):0;
-    const bool comparison=a::less(representative(first),representative(second),d);
+    const bool comparison=quick_less(representative(first),representative(second),d);
     if (!size) throw NumericError(TPMSHX_RESULT_VALUE_ERROR,
         "The truth value of an empty array is ambiguous. Use `array.size > 0` to check that an array is not empty.");
     if (size!=1) throw NumericError(TPMSHX_RESULT_VALUE_ERROR,
@@ -189,8 +202,8 @@ double full_energy_imbalance(double x,double y) {return std::abs(x+y)/maximum3(s
 Number quick_energy_imbalance(const Number& x,const Number& y,Diagnostics& d) {
     const auto numerator=a::scalar_result(a::absolute(a::scalar_result(a::subtract(x,y,d)),d));
     auto denominator=a::scalar_result(a::absolute(x,d));const auto other=a::scalar_result(a::absolute(y,d)),floor=a::python_float(1e-30);
-    if (a::less(denominator,other,d)) denominator=other;
-    if (a::less(denominator,floor,d)) denominator=floor;
+    if (quick_less(denominator,other,d)) denominator=other;
+    if (quick_less(denominator,floor,d)) denominator=floor;
     return a::scalar_result(a::divide(numerator,denominator,d));
 }
 double richardson_duty(double fine,double coarse) {return (4.*std::abs(fine)-std::abs(coarse))/3.;}

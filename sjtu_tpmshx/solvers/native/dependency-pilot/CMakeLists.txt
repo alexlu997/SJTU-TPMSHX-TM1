@@ -251,7 +251,8 @@ foreach(target IN ITEMS tpmshx_solver tpmshx_solver_shared)
     target_link_libraries(${target} PRIVATE tpmshx_capture_math)
     target_sources(${target} PRIVATE "${TPMSHX_NATIVE_ROOT}/src/stage_run.cpp"
         "${TPMSHX_NATIVE_ROOT}/src/preparation_flow.cpp"
-        "${TPMSHX_NATIVE_ROOT}/src/stage_capture_2d.cpp")
+        "${TPMSHX_NATIVE_ROOT}/src/stage_capture_2d.cpp"
+        "${TPMSHX_NATIVE_ROOT}/src/quick_design_run.cpp")
 endforeach()
 set_target_properties(tpmshx_solver_shared PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS OFF)
 if(APPLE)

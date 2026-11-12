@@ -59,7 +59,7 @@ def build_execution_inputs(case: CaseData, *, copy_design=True):
             value = flow[key]
             if not np.isscalar(value) or not np.isfinite(value) or (value <= 0 if positive else value < 0):
                 raise ValueError(f'invalid prepared flow {side} {key}')
-        if case.metadata['design_mode'] == 'continuous':
+        if cfg['z_axis'] == 'continuous':
             for key, positive in (('K_field_m2', True), ('cF_field_per_m', False)):
                 values = np.asarray(flow.get(key))
                 if (values.shape != (len(cross), len(stream)) or not np.all(np.isfinite(values))
@@ -68,7 +68,7 @@ def build_execution_inputs(case: CaseData, *, copy_design=True):
     cfg['N_x'], cfg['N_y'] = len(dx), len(dy)
     cfg['Lcell'], cfg['t_wall'] = cfg.pop('L_cell_m') * 1e3, cfg.pop('t_wall_m') * 1e3
     run_settings = _legacy_zone_units(cfg.pop('run_settings'))
-    if case.metadata['design_mode'] == 'continuous':
+    if cfg['z_axis'] == 'continuous':
         run_settings['zones'] = dict(enabled=True, axis='continuous', config=cfg['continuous_field'])
     cfg['compute_cfg'] = ComputeConfig.from_dict(run_settings, prepared_grid=True)
     providers = resolve_models(case)
