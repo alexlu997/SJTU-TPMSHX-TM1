@@ -82,7 +82,7 @@ Separate result publication builds no solver, run_state, CoolProp or generated c
 Linux x86_64 supports independent result evaluation. Full-solver platforms remain macOS arm64 and Windows x64.
 
 The [native stage SDK](native-stages.md) adds an owned preparation state, a run result and independent evaluation.
-Preparation v1 and the run path support uniform symmetric 2D air/air with prescribed velocity and CFD drag.
+Preparation v1 and run v1 support uniform symmetric 2D air/air with prescribed velocity and CFD drag.
 Preparation v2 supports all 16 ordered air/water/sCO2/CO2 pairs in the same geometry and inlet mode.
 It retains existing experimental DF/Nu selections, state failures and evidence.
 Its scalar tags retain field precision. Run v2 consumes this state through the
@@ -91,6 +91,11 @@ existing model-h or true-h route and records the actual thermal evidence.
 `stage_run.cpp` adapts it to the existing full 2D driver.
 `stage_capture_2d.cpp` records the actual run evidence for `result_stage.cpp`.
 The installed C ABI and `stages.hpp` support external C++ callers.
+The separate Quick Design stage accepts raw native double operating points.
+`quick_design_prepare.cpp` reuses geometry, property and analytical D-F owners.
+`quick_design_run.cpp` uses the existing driver and copies its result evidence.
+Its const/mean, cross/counter and warm-start rules stay unchanged.
+Python object and numeric-type contracts still need separate integration checks.
 Current Python entry points retain their existing behavior and all supported modes.
 The migration gates must pass before their numerical and policy bodies can retire.
 

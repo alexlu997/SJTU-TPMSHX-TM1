@@ -228,7 +228,8 @@ target_compile_definitions(tpmshx_solver_shared PRIVATE TPMSHX_THERMAL_BUILD_SHA
 target_link_libraries(tpmshx_solver_shared PUBLIC tpmshx_quick_design tpmshx_full_2d tpmshx_full_3d)
 foreach(target IN ITEMS tpmshx_solver tpmshx_solver_shared)
     target_sources(${target} PRIVATE "${TPMSHX_NATIVE_ROOT}/src/stage_run.cpp"
-        "${TPMSHX_NATIVE_ROOT}/src/stage_capture_2d.cpp")
+        "${TPMSHX_NATIVE_ROOT}/src/stage_capture_2d.cpp"
+        "${TPMSHX_NATIVE_ROOT}/src/quick_design_run.cpp")
 endforeach()
 set_target_properties(tpmshx_solver_shared PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS OFF)
 if(APPLE)

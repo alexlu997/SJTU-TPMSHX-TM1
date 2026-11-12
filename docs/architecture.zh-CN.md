@@ -74,13 +74,18 @@ Python 保留 DTO、类型／shape 适配、NumPy 事件和应用显示。
 Linux x86_64 支持独立结果评估；完整求解器仍支持 macOS arm64 与 Windows x64。
 
 [原生阶段 SDK](native-stages.zh-CN.md)新增具有明确所有权的准备态、运行结果与独立评估。
-准备 v1 和 run 路径支持规定速度、CFD 阻力的均匀对称二维 air/air。
+准备 v1 和 run v1 路径支持规定速度、CFD 阻力的均匀对称二维 air/air。
 准备 v2 在相同几何和入口模式下支持 air/water/sCO2/CO2 的全部 16 个有序配对，
 保留现有实验 DF/Nu 选择、状态失败和证据，并用标量标记保留字段精度。
 run v2 通过现有 model-h 或 true-h 路线消费该准备态，并记录实际热状态证据。
 `preparation_case.cpp`负责完整准备流程，`stage_run.cpp`将它适配到现有完整二维驱动。
 `stage_capture_2d.cpp`记录实际运行证据，供`result_stage.cpp`评估。
 安装的 C ABI 和`stages.hpp`供外部 C++ 程序调用。
+独立 Quick Design 阶段接受原始 native double 工况。
+`quick_design_prepare.cpp` 复用几何、物性与解析 D-F 的现有实现；
+`quick_design_run.cpp` 调用既有驱动并复制结果证据。
+const/mean、叉流/逆流和热启动规则保持不变。
+Python 对象和数值类型合同仍需独立的接入验收。
 当前 Python 入口保留原有行为及全部支持模式；相应迁移关口通过后，才能退役其数值与策略实现。
 
 <a id="retained-python-responsibilities"></a>
