@@ -116,19 +116,24 @@ def predict_dP_compressible(tpms_type: str, L_mm: float, t_mm: float,
     result, P_out_sq, no_positive_outlet = _native_df.pressure(
         tpms_type, L_mm, t_mm, G, T, P_in, mu, L, compressible=True, strict=strict)
     if no_positive_outlet:
-        # No positive P_out: preserve each return policy without interpreting
-        # failure of this approximation as a physical choking diagnosis.
-        _choke_key = (tpms_type, round(float(L_mm), 2), round(float(t_mm), 2),
-                      bool(strict))
-        return_policy = ("returning NaN (strict=True)." if strict else
-                         "returning P_in as a fallback dP (strict=False).")
-        message = (
-            f"[D-F approximation] 1D isothermal air pressure model has no "
-            f"positive outlet pressure solution (P_out^2={P_out_sq:.3e} <= 0); "
-            f"{return_policy} This is not a physical choking diagnosis. "
-            "Check mass flux, channel length and inlet pressure.")
-        if (not record_warning(('df_choke', *_choke_key), message)
-                and _choke_key not in _CHOKE_WARNED):
-            _CHOKE_WARNED.add(_choke_key)
-            warnings.warn(message, stacklevel=2)
+        _record_pressure_limit(tpms_type, L_mm, t_mm, P_out_sq, strict)
     return result
+
+
+def _record_pressure_limit(tpms_type, L_mm, t_mm, P_out_sq, strict):
+    """Map pressure-limit evidence through the existing warning owner."""
+    # No positive P_out: preserve each return policy without interpreting
+    # failure of this approximation as a physical choking diagnosis.
+    _choke_key = (tpms_type, round(float(L_mm), 2), round(float(t_mm), 2),
+                  bool(strict))
+    return_policy = ("returning NaN (strict=True)." if strict else
+                     "returning P_in as a fallback dP (strict=False).")
+    message = (
+        f"[D-F approximation] 1D isothermal air pressure model has no "
+        f"positive outlet pressure solution (P_out^2={P_out_sq:.3e} <= 0); "
+        f"{return_policy} This is not a physical choking diagnosis. "
+        "Check mass flux, channel length and inlet pressure.")
+    if (not record_warning(('df_choke', *_choke_key), message)
+            and _choke_key not in _CHOKE_WARNED):
+        _CHOKE_WARNED.add(_choke_key)
+        warnings.warn(message, stacklevel=3)

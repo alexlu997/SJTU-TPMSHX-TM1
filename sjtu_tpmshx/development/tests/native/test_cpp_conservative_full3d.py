@@ -183,7 +183,6 @@ def test_executed_algorithm_and_original_convergence_gates(completed):
 
 def test_actual_side_models_six_face_powers_and_postprocess(completed, monkeypatch):
     from CoolProp import AbstractState, PT_INPUTS
-    from sjtu_tpmshx.postprocess import three_d
     from sjtu_tpmshx.development.tests.native.full_thermal_reference import model_enthalpy
 
     prepared, result = completed
@@ -244,9 +243,6 @@ def test_actual_side_models_six_face_powers_and_postprocess(completed, monkeypat
         assert duties[side] == pytest.approx(result.metadata['diagnostics']['true_h_balance']['Q_' + side], rel=2e-12, abs=1e-10)
     assert differs_from_fou
 
-    def forbidden(*args, **kwargs):
-        pytest.fail('candidate duty reconstructed the legacy FOU boundary')
-    monkeypatch.setattr(three_d, '_boundary_enthalpy_duty', forbidden)
     metrics = evaluate(result).metrics
     for side in 'AB':
         assert metrics['Q_' + side].status == 'available'

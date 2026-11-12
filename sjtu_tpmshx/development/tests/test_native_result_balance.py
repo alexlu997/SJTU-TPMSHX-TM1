@@ -9,9 +9,10 @@ import pytest
 
 from sjtu_tpmshx.development.tests import result_balance_reference as reference
 from sjtu_tpmshx.development.tests.postprocess_tm1.test_physical_balance import sample_result
-from sjtu_tpmshx.postprocess import physical_balance
+from sjtu_tpmshx.postprocess import api as physical_balance
+from sjtu_tpmshx.shared.domain.field_result import FieldResult
 from sjtu_tpmshx.shared import _native_result as core
-from sjtu_tpmshx.shared import _native_result_balance as native
+from sjtu_tpmshx.development.tests import result_primitive_wire as native
 from sjtu_tpmshx.shared.domain.portable_data import mutable_data
 
 
@@ -77,14 +78,14 @@ def test_norms_keep_typed_reductions_and_layout(dtype, layout):
         values = values[::-1, ::-1]
     elif layout == 'step':
         values = values[::2, ::2]
-    assert_observation(observe(lambda: physical_balance._norms(values)),
+    assert_observation(observe(lambda: native.norms(values)),
                        observe(lambda: reference._norms(values)))
 
 
 @pytest.mark.parametrize('dtype', ['>i2', '>u8', '>f2', '>f4', '>f8', '<i2', '<u8', '<f4'])
 def test_norms_keep_explicit_byte_order(dtype):
     values = (np.arange(1507).reshape(137, 11) % 37).astype(dtype)
-    assert_observation(observe(lambda: physical_balance._norms(values)),
+    assert_observation(observe(lambda: native.norms(values)),
                        observe(lambda: reference._norms(values)))
 
 
@@ -92,14 +93,14 @@ def test_norms_keep_explicit_byte_order(dtype):
 def test_norms_keep_integer_wrap_before_float(dtype):
     info = np.iinfo(dtype)
     values = np.array([info.min, info.max, info.max, 1, 1, 1, 1, 1], dtype=dtype)
-    assert_observation(observe(lambda: physical_balance._norms(values)),
+    assert_observation(observe(lambda: native.norms(values)),
                        observe(lambda: reference._norms(values)))
 
 
 @pytest.mark.parametrize('dtype', [np.int8, np.int16, np.int32, np.int64])
 def test_norms_keep_minimum_integer_absolute_value(dtype):
     values = np.array([np.iinfo(dtype).min], dtype=dtype)
-    assert_observation(observe(lambda: physical_balance._norms(values)),
+    assert_observation(observe(lambda: native.norms(values)),
                        observe(lambda: reference._norms(values)))
 
 
@@ -107,7 +108,7 @@ def test_norms_keep_minimum_integer_absolute_value(dtype):
 @pytest.mark.parametrize('policy', ['warn', 'raise', 'ignore'])
 def test_norms_keep_finite_input_overflow_policy(dtype, policy):
     values = np.full(137, np.finfo(dtype).max, dtype=dtype)
-    assert_observation(observe(lambda: physical_balance._norms(values), policy),
+    assert_observation(observe(lambda: native.norms(values), policy),
                        observe(lambda: reference._norms(values), policy))
 
 
@@ -131,8 +132,10 @@ def _mass_inputs(dimension, dtype):
 def test_mass_summary_keeps_signed_faces_and_axis_order(dimension, dtype):
     faces, grid = _mass_inputs(dimension, dtype)
     original = [value.copy() for value in faces]
-    args = (faces, grid, dimension, 'original units', 'original source')
-    assert_observation(observe(lambda: physical_balance._mass_summary(*args)),
+    args = (faces, grid, dimension, 'kg/(s m)' if dimension == 2 else 'kg/s', 'boundary_fluxes.mass_A')
+    assert_observation(observe(lambda: physical_balance.evaluate_physical_balance(FieldResult('mass', 'case', 'fixture',
+        grid=dict(grid, dimension=args[2]), metadata={'dimension': args[2]},
+        boundary_fluxes={'mass_A': faces}))['mass']['A']),
                        observe(lambda: reference._mass_summary(*args)))
     for value, old in zip(faces, original):
         np.testing.assert_array_equal(value, old)
@@ -143,8 +146,10 @@ def test_mass_summary_keeps_signed_faces_and_axis_order(dimension, dtype):
 def test_mass_summary_keeps_mixed_axis_promotion(dtypes):
     faces, grid = _mass_inputs(len(dtypes), np.float64)
     faces = [value.astype(dtype) for value, dtype in zip(faces, dtypes)]
-    args = (faces, grid, len(dtypes), 'units', 'source')
-    assert_observation(observe(lambda: physical_balance._mass_summary(*args)),
+    args = (faces, grid, len(dtypes), 'kg/(s m)' if len(dtypes) == 2 else 'kg/s', 'boundary_fluxes.mass_A')
+    assert_observation(observe(lambda: physical_balance.evaluate_physical_balance(FieldResult('mass', 'case', 'fixture',
+        grid=dict(grid, dimension=args[2]), metadata={'dimension': args[2]},
+        boundary_fluxes={'mass_A': faces}))['mass']['A']),
                        observe(lambda: reference._mass_summary(*args)))
 
 

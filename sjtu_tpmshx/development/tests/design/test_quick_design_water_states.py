@@ -1,6 +1,5 @@
 """Quick-design scalar and full-field water states with controlled thermal solves."""
 from dataclasses import replace
-import importlib
 
 import numpy as np
 import pytest
@@ -30,29 +29,24 @@ def test_scalar_water_state_uses_pressure_before_liquid_properties():
 
 @pytest.mark.parametrize('side', ['hot', 'cold'])
 def test_public_preparation_rejects_nonliquid_water_before_drag(monkeypatch, side):
-    preparation = importlib.import_module('sjtu_tpmshx.preprocess.app_modes.quick_design')
-    model = importlib.import_module('sjtu_tpmshx.shared.models.quick_design')
-    monkeypatch.setattr(preparation, 'tpms_geometry', lambda *a, **kw: {
-        'epsilon': .6, 'epsilon_A': .3, 'A_0': 1000., 'D_h': .002})
-    def forbidden(*args, **kwargs):
-        pytest.fail('invalid water state reached the drag calculation')
-    monkeypatch.setattr(model, '_dp_one', forbidden)
+    from sjtu_tpmshx.shared.models._native_quick_prepare import _HostState
+    original, entered = _HostState.dispatch, []
+    def observe(host, request):
+        entered.append(request.operation)
+        return original(host, request)
+    monkeypatch.setattr(_HostState, 'dispatch', observe)
     suffix = 'h' if side == 'hot' else 'c'
     case = replace(_case(), **{side + '_fluid': 'water',
                               'T_in_' + suffix: 350., 'P_in_' + suffix: 10000.})
     with pytest.raises(fluid_props.WaterStateError, match='quick-design properties'):
         prepare_quick_design(case, 'Diamond', 7., .5, .084, .05, case_id='invalid-water')
+    assert 16 not in entered  # Neither pressure side starts before water validation.
 
 
 @pytest.mark.parametrize('side', ['hot', 'cold'])
-def test_invalid_external_water_field_never_reaches_thermal(monkeypatch, side):
-    preparation = importlib.import_module('sjtu_tpmshx.preprocess.app_modes.quick_design')
-    model = importlib.import_module('sjtu_tpmshx.shared.models.quick_design')
+def test_invalid_external_water_field_never_reaches_thermal(side):
     from sjtu_tpmshx.shared.domain.module_ports import RunControl
     progress = []
-    monkeypatch.setattr(preparation, 'tpms_geometry', lambda *a, **kw: {
-        'epsilon': .6, 'epsilon_A': .3, 'A_0': 1000., 'D_h': .002})
-    monkeypatch.setattr(model, '_dp_one', lambda *a, **kw: 100.)
     case = (_case() if side == 'cold' else
             replace(_case(), hot_fluid='water', T_in_h=360., P_in_h=200000.,
                     cold_fluid='air', T_in_c=300.))
@@ -66,14 +60,9 @@ def test_invalid_external_water_field_never_reaches_thermal(monkeypatch, side):
     assert progress == []
 
 
-def test_persisted_input_water_failure_is_not_a_candidate_field_failure(monkeypatch):
-    preparation = importlib.import_module('sjtu_tpmshx.preprocess.app_modes.quick_design')
-    model = importlib.import_module('sjtu_tpmshx.shared.models.quick_design')
+def test_persisted_input_water_failure_is_not_a_candidate_field_failure():
     from sjtu_tpmshx.shared.domain.module_ports import RunControl
     progress = []
-    monkeypatch.setattr(preparation, 'tpms_geometry', lambda *a, **kw: {
-        'epsilon': .6, 'epsilon_A': .3, 'A_0': 1000., 'D_h': .002})
-    monkeypatch.setattr(model, '_dp_one', lambda *a, **kw: 100.)
     prepared = prepare_quick_design(_case(), 'Diamond', 7., .5, .084, .05, case_id='persisted-water')
     op = {**prepared.parameters['operating_point'], 'P_in_c': 10000., 'T_in_c': 350.}
     prepared = replace(prepared, parameters={**prepared.parameters, 'operating_point': op})

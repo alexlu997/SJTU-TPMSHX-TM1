@@ -61,3 +61,69 @@ def test_all_v9_owned_views_reject_diagnostic_aliases(mode, operation, destinati
     finally:
         release(ct.byref(result))
         assert not result.owner
+
+
+@pytest.mark.parametrize('hook', ['inlet', 'lut'])
+@pytest.mark.parametrize('destination', ['result', 'failure', 'error'])
+@pytest.mark.parametrize('callback_status,cache_hit', [
+    pytest.param(0, 1, id='hit'), pytest.param(0, 0, id='miss'), pytest.param(1, 0, id='failure'),
+])
+def test_v9_cache_callbacks_reject_borrowed_diagnostic_aliases(hook, destination, callback_status, cache_hit):
+    from sjtu_tpmshx.shared.models import _native_preparation_case as binding
+
+    mode = 'sigmoid' if hook == 'lut' else 'x'
+    config = old._configuration(mode)
+    source_type, _, result_type = _types(mode)
+    table = old.v6._table() if mode == 'sigmoid' else None
+    base = old._input(mode, config, table, None)
+    source = source_type(9, ct.sizeof(source_type), base,
+        _Model(config.geometry.k_s_W_mK, old.v2._Kind(64, 0, 0), 1, int(hook == 'lut')))
+    result = result_type(9, ct.sizeof(result_type))
+    failure = old.v2._Failure(2, ct.sizeof(old.v2._Failure))
+    error = ct.create_string_buffer(b'unchanged', 4096)
+    target = {'result': result, 'failure': failure, 'error': error}[destination]
+    # Keep the text container separate so a missing guard cannot read an arbitrary pointer.
+    warnings = (binding._Text * 1)(binding._Text(ct.cast(ct.byref(target), ct.POINTER(ct.c_char)), 1))
+    calls = []
+
+    def cache(_context, action, *args):
+        value, hit = args[-2:]
+        calls.append(action)
+        if hook == 'inlet':
+            value.contents.evidence.warnings = warnings
+            value.contents.evidence.warning_count = 1
+        else:
+            value.contents.cell_mm = binding._Array(ct.cast(ct.byref(target), ct.POINTER(old.v1._D)), 1)
+        hit[0] = cache_hit
+        return callback_status
+
+    def cache_miss(_context, _action, _key, _value, hit):
+        hit[0] = 0
+        return 0
+
+    callbacks = binding._KeyedCallbacks()
+    callbacks.values.values.values.abi_version = 9
+    callbacks.values.values.values.struct_size = ct.sizeof(callbacks)
+    callbacks.geometry_cache_at = binding._GeometryAtFunction(cache_miss)
+    callbacks.inlet_cache_at = binding._InletAtFunction(cache_miss)
+    if hook == 'inlet':
+        callbacks.inlet_cache_at = binding._InletAtFunction(cache)
+    else:
+        callbacks.sigmoid_lut_cache = binding._LUTCacheFunction(cache)
+    grid = old.v7._kinds(config)
+    options = old.v1._Options(1, ct.sizeof(old.v1._Options), 0, 1, 0.)
+    library = ct.CDLL(os.environ['TPMSHX_PREPARATION_CASE_LIBRARY'])
+    call = getattr(library, 'tpmshx_' + old._name(mode, 'prepare') + '_2d_v9')
+    call.argtypes = [ct.POINTER(source_type), ct.POINTER(old.v7._GridKinds), ct.POINTER(old.v1._Options),
+        ct.POINTER(old.v1._Callbacks), ct.POINTER(result_type), ct.POINTER(old.v2._Failure),
+        ct.POINTER(ct.c_char), _S]
+    call.restype = ct.c_int
+    watched = [source, result, failure, error, grid, callbacks, warnings, *old._borrowed(base, mode)]
+    before = [bytes(value) for value in watched]
+    status = call(ct.byref(source), ct.byref(grid), ct.byref(options),
+        ct.cast(ct.byref(callbacks), ct.POINTER(old.v1._Callbacks)),
+        ct.byref(result), ct.byref(failure), error, len(error))
+    assert calls == [0], (status, failure.kind, error.value.decode(), calls)
+    assert status == 1
+    assert [bytes(value) for value in watched] == before
+    assert not result.owner

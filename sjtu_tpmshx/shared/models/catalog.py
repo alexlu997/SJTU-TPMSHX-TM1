@@ -16,8 +16,8 @@ def resolve_model(ref: ModelRef):
     if ref.name == 'quick_design':
         if parameters:
             raise ValueError('quick-design closure takes no fixed parameters')
-        from . import quick_design
-        return quick_design
+        from sjtu_tpmshx.shared.configs.model_parameters import load_quick_design_parameters
+        return load_quick_design_parameters()
     if ref.name in ('fluid', 'co2_fluid'):
         from .fluid_props import get
         if set(parameters) - {'fluid', 'sco2_nu'} or 'fluid' not in parameters:
@@ -29,10 +29,10 @@ def resolve_model(ref: ModelRef):
             settings = Sco2NuConfig(**settings).validate()
         return get(parameters['fluid'], sco2_nu=settings)
     if ref.name == 'co2_geometry':
-        from .co2_correlations import geometry
+        from .co2_correlations import geometry as co2_geometry
         if parameters:
             raise ValueError('CO2 geometry resource takes no fixed parameters')
-        return geometry
+        return co2_geometry
     if ref.name == 'geometry':
         from .tpms_props import geometry
         if parameters:

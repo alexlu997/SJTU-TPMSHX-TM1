@@ -66,13 +66,7 @@ def sources(result, tmp_path):
 @pytest.mark.parametrize('dimension', [2, 3])
 @pytest.mark.parametrize('algorithm,version', [('temperature_fou', 1),
     ('temperature_sou', 1), ('temperature_sou', 2)])
-def test_captured_power_and_transport_survive_save_replay(tmp_path, monkeypatch, dimension, algorithm, version):
-    from sjtu_tpmshx.postprocess import metrics, three_d
-
-    def forbidden(*args, **kwargs):
-        pytest.fail('candidate duty must never reconstruct the legacy FOU boundary')
-    monkeypatch.setattr(metrics, '_boundary_enthalpy_duty', forbidden)
-    monkeypatch.setattr(three_d, '_boundary_enthalpy_duty', forbidden)
+def test_captured_power_and_transport_survive_save_replay(tmp_path, dimension, algorithm, version):
     result = result_fixture(dimension, algorithm, version)
     for source in sources(result, tmp_path):
         assert source.boundary_fluxes['true_h']['energy_algorithm'] == algorithm

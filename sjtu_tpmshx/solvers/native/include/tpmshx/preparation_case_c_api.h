@@ -519,7 +519,8 @@ TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_case_2d_r
 
 /* V2 adds four fluids and existing uniform experimental DF/Nu choices.
  * values keeps its v1 layout/version; df_mode=0/1 selects CFD/experimental.
- * It does not enable nonzero delta, zones, prescribed mass flow or run_case.
+ * The result is accepted by tpmshx_run_case_2d_v2. Nonzero delta, zones and
+ * prescribed mass flow are not supported by this preparation entry.
  * Scalar tags use precision 16/32/64, strong 0/1 and layout 0/1/2.
  * A weak scalar uses precision=64 and layout=0. A strong scalar uses 1/2.
  * Nu mode 0=CFD, 1=experimental. Both experimental alphas and provenance
@@ -635,6 +636,8 @@ TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_continuou
  * All physical arrays use C order (nx,ny). Nested prepared owners are NULL.
  * The prepared subview does not enable a zoned run through a v1/v2 run entry.
  * Initialize the outer owner to NULL and release it once with this library.
+ * Diagnostic storage must not overlap any view of an owned result.
+ * An overlapping call preserves that result and all diagnostic storage.
  */
 TPMSHX_PREPARATION_API uint32_t TPMSHX_PREPARATION_CALL tpmshx_preparation_case_abi_version_v5(void);
 TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_zoned_case_2d_v5(
@@ -651,7 +654,10 @@ TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_preparation_sigmoid_lu
     tpmshx_preparation_sigmoid_lut_v6*,char*,size_t);
 TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_sigmoid_lut_release_v6(
     tpmshx_preparation_sigmoid_lut_v6*);
-/* Supplied LUT axes are normalized and validated by their resource owner. */
+/* Supplied LUT axes are normalized and validated by their resource owner.
+ * Diagnostic storage must not overlap any owned prepared view or copied control.
+ * An overlapping call preserves that result and all diagnostic storage.
+ */
 TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_sigmoid_case_2d_v6(
     const tpmshx_preparation_sigmoid_input_2d_v6*,const tpmshx_preparation_case_options_v1*,
     const tpmshx_preparation_case_callbacks_v1*,tpmshx_preparation_sigmoid_case_2d_v6*,

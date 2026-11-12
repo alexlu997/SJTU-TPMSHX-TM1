@@ -176,7 +176,7 @@ def _copy(view, shape=None):
     return result if shape is None else result.reshape(shape)
 
 
-def _plane_info(result, shape, widths, masses):
+def _plane_info(result, shape, widths, masses, *, capture_scalars=None):
     audit = result.plane
     sides = {}
     for label, side, mass in zip(('A', 'B'), audit.sides, masses):
@@ -200,9 +200,10 @@ def _plane_info(result, shape, widths, masses):
             strict_normalization_W_per_m=side.normalization, residual_cellmax_rel=side.cell_ratio)
     return dict(
         units='W/m; kg/(s m)', state='raw final thermal return', boundary_order=['-x', '+x', '-y', '+y'],
-        **sides, sou_A=True, sou_B=True, cell_count=int(np.prod(shape)),
+        **sides, sou_A=True, sou_B=True,
+        cell_count=int(np.prod(shape)) if capture_scalars is None else capture_scalars['cell_count'],
         dx_m=widths[0].tolist(), dy_m=widths[1].tolist(),
-        area_m2=capture_area(widths[0], widths[1]),
+        area_m2=capture_area(widths[0], widths[1]) if capture_scalars is None else capture_scalars['area_m2'],
         solid_boundary_W_per_m=0., solid_source_W_per_m=0.,
         solid_residual_sum_W_per_m=audit.solid_sum, solid_residual_max_abs_W_per_m=audit.solid_max,
         solid_residual_cellmax_rel=audit.solid_cell_ratio, equation_tolerance=.01,
@@ -216,7 +217,7 @@ def _plane_info(result, shape, widths, masses):
         thermal_residual_K=result.residual)
 
 
-def _volume_info(result, shape, *, include_faces=True):
+def _volume_info(result, shape, *, include_faces=True, cell_count=None):
     audit = result.volume
     sides, native_faces, strict = {}, {}, {}
     for label, side in zip(('A', 'B'), audit.sides):
@@ -240,7 +241,7 @@ def _volume_info(result, shape, *, include_faces=True):
             strict_normalization_W=side.normalization)
         strict.update({f'eps_{label}_strict': side.global_ratio, f'eps_{label}_strict_cellmax': side.cell_ratio,
                        f'Q_s{label}': side.exchange})
-    balance = dict(reference_K=audit.sides[0].cp_coefficients[4], cell_count=int(np.prod(shape)),
+    balance = dict(reference_K=audit.sides[0].cp_coefficients[4], cell_count=int(np.prod(shape)) if cell_count is None else cell_count,
         full_volume_m3=audit.volume, mass_source='completed SIMPLE raw faces before capacity balance/MAC',
         thermal_state='last returned temperatures; nonlinear model h and temperature SOU', sides=sides,
         physical_boundary_complete=bool(audit.boundary_complete), numerical_external_inward_W=audit.numerical_external_in,

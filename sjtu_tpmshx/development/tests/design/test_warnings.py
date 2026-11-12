@@ -94,14 +94,14 @@ def test_forward_labels_without_extra_property_or_thermal_calls(
     f = importlib.import_module('sjtu_tpmshx.applications.design.forward')
     execution = importlib.import_module('sjtu_tpmshx.solvers.backends.cpp.quick_design')
     postprocess = importlib.import_module('sjtu_tpmshx.postprocess.api')
-    model_source = importlib.import_module('sjtu_tpmshx.shared.models.quick_design')
+    from sjtu_tpmshx.shared.models._native_quick_prepare import _HostState
     from sjtu_tpmshx.shared.models import design_fluids as fluids
     from sjtu_tpmshx.shared.models import tpms_props
     from sjtu_tpmshx.shared.domain.run_warnings import record_range, warning_messages
     calls, solves, diagnostics = [], [], []
     evaluate, native_run = postprocess.evaluate, execution.run_case
     record_native = execution.record_native_design_ranges
-    properties, temperatures = fluids.fluid_props, tpms_props.record_temperature_ranges
+    original_host, temperatures = _HostState.dispatch, tpms_props.record_temperature_ranges
 
     def evaluated(*args, **kwargs):
         performance = evaluate(*args, **kwargs)
@@ -116,11 +116,14 @@ def test_forward_labels_without_extra_property_or_thermal_calls(
         diagnostics.append(metrics.get('energy_imbalance_rel'))
         return replace(performance, metrics=metrics)
 
-    def props(*args):
-        calls.append(args)
-        record_range(('property', args[0]), args[1], (0., 1.),
-                     label=args[0], quantity='T', unit='K')
-        return properties(*args)
+    def observe(host, request):
+        result = original_host(host, request)
+        if request.operation == 10:
+            calls.append(host.inlet)
+            fluid, temperature, _pressure = host.inlet
+            record_range(('property', fluid), temperature, (0., 1.),
+                         label=fluid, quantity='T', unit='K')
+        return result
 
     def ranges(fluid, temperature, *args, **kwargs):
         temperatures(fluid, temperature, *args, **kwargs)
@@ -137,8 +140,7 @@ def test_forward_labels_without_extra_property_or_thermal_calls(
         solves.append(result)
         return result
 
-    monkeypatch.setattr(fluids, 'fluid_props', props)
-    monkeypatch.setattr(model_source, 'fluid_props', props)
+    monkeypatch.setattr(_HostState, 'dispatch', observe)
     monkeypatch.setattr(fluids, 'record_temperature_ranges', ranges)
     monkeypatch.setattr(tpms_props, 'record_temperature_ranges', ranges)
     monkeypatch.setattr(execution, 'record_native_design_ranges', evidence)
