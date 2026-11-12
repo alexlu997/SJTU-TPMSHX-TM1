@@ -292,8 +292,10 @@ std::array<InletInput2D,2> validate(const CaseInput2D& input,CaseScope scope,boo
     }
     for (std::size_t side=0;side<2;++side)
         sides[side].port=checked_port(sides[side].port,input.grid,side?"B":"A");
-    if (geometry.cell_length_mm<df_data::df_L_nodes.front() || geometry.cell_length_mm>df_data::df_L_nodes.back()
-        || geometry.wall_thickness_mm<df_data::df_t_nodes.front() || geometry.wall_thickness_mm>df_data::df_t_nodes.back())
+    const auto cell=scalar(geometry.cell_length_mm,input.kinds.cell_length);
+    const auto wall=scalar(geometry.wall_thickness_mm,input.kinds.wall_thickness);
+    if (g::less(cell,g::weak(df_data::df_L_nodes.front())) || g::less(g::weak(df_data::df_L_nodes.back()),cell)
+        || g::less(wall,g::weak(df_data::df_t_nodes.front())) || g::less(g::weak(df_data::df_t_nodes.back()),wall))
         throw std::invalid_argument("V2 geometry must lie inside the CFD grid: 4 <= L <= 8 mm, 0.3 <= t <= 0.6 mm");
     for (std::size_t side=0;side<2;++side) if (scope!=CaseScope::air_cfd_v1 && sides[side].fluid==Fluid::sco2) {
         const auto& inlet=sides[side];
@@ -680,14 +682,23 @@ void preflight(const Input& input,const PreparationOptions& options,const geomet
                 reasons.push_back("Fluid "+side+": Pr="+significant(pr,6)+" outside CO2 Nu window ["+
                                   significant(data::co2_nu_pr_range[0],6)+", "+significant(data::co2_nu_pr_range[1],6)+"].");
         }
+        const auto nu_count=reasons.size();
+        if (input.geometry.cell_length_mm<df_data::df_L_nodes.front()
+            || input.geometry.cell_length_mm>df_data::df_L_nodes.back())
+            reasons.push_back("V2 L_cell must be inside the 4..8 mm CFD grid.");
+        if (input.geometry.wall_thickness_mm<df_data::df_t_nodes.front()
+            || input.geometry.wall_thickness_mm>df_data::df_t_nodes.back())
+            reasons.push_back("V2 wall thickness must be inside the 0.3..0.6 mm CFD grid.");
         if (!reasons.empty() && !options.allow_extrapolation) {
             std::string text;for (const auto& reason:reasons) {if(!text.empty())text+=" | ";text+=reason;}
             throw PreparationError(1,std::move(text),1,static_cast<std::uint32_t>(i));
         }
         for (const auto& reason:reasons)
             records.emit({PreparationEventKind::warning,"", "[surrogate extrap] "+reason});
-        // The original per-side record keeps the first preflight reason.
-        if (!reasons.empty()) {
+        if (records.callbacks.observe_notice) for (std::size_t j=nu_count;j<reasons.size();++j)
+            records.callbacks.observe_notice(records.callbacks.context,2,static_cast<std::uint32_t>(i),0.,reasons[j]);
+        // The original per-side record keeps the first Nu reason.
+        if (nu_count) {
             records.warning(reasons.front());
             if (records.callbacks.observe_notice)
                 records.callbacks.observe_notice(records.callbacks.context,1,static_cast<std::uint32_t>(i),0.,reasons.front());
@@ -1619,6 +1630,7 @@ PreparedZonedCase2D prepare_zoned_case(const ZonedInput2D& request,const Prepara
     if (callbacks.validate_host_input) callbacks.validate_host_input(callbacks.context,1,2);
     prepared.uniform_geometry=cache.material(input,options);
     preflight(input,options,prepared.uniform_geometry.geometry,inlets,records);
+    if (callbacks.validate_host_input) callbacks.validate_host_input(callbacks.context,4,2);
     spatial_regions(output,request);
     PhysicalGrid2D requested;requested.nx=input.grid.requested_nx;requested.ny=input.grid.requested_ny;
     if (request.sigmoid) sigmoid_fields(output,request,requested,false,records,cache);
@@ -1763,7 +1775,7 @@ std::array<std::optional<double>,2> flow_targets(const InletFlowRequest2D& reque
 }
 
 void resolve_speeds(const InletFlowRequest2D& request,const std::array<std::optional<double>,2>& targets,
-                    InletFlow2D& flow) {
+                    InletFlow2D& flow,bool spatial=false) {
     for (std::size_t i=0;i<2;++i) {
         auto& inlet=flow.input.sides[i];auto& kind=flow.input.kinds.sides[i].velocity;
         if (targets[i]) {
@@ -1772,6 +1784,13 @@ void resolve_speeds(const InletFlowRequest2D& request,const std::array<std::opti
             inlet.velocity_m_s=flow.speeds[i].value;
             kind={flow.speeds[i].precision,flow.speeds[i].strong,flow.speeds[i].strong?1u:0u};
         } else flow.speeds[i]={inlet.velocity_m_s,kind.precision,kind.strong};
+    }
+    if (spatial && flow.input.df_mode) {
+        for (std::size_t side=0;side<2;++side)
+            positive(flow.input.sides[side].velocity_m_s,std::string("fluid_")+(side?"B":"A")+".u_mps");
+        throw std::invalid_argument("experimental calibration currently requires uniform L/t; "
+            "continuous Shanghai Gyroid air/water fields may use "
+            "the 7/0.6 calibration as an exploratory extrapolation");
     }
     validate(flow.input,flow_scope(flow.input));
 }
@@ -1794,6 +1813,7 @@ PreparedZonedCase2D prepare_spatial_inlet_geometry(const ZonedInput2D& request,S
     prepared.uniform_geometry=cache.material(input,options);
     if (callbacks.validate_grid) callbacks.validate_grid(callbacks.context);
     prepared.grid=physical_grid(input.grid,inlets,true);record_grid(input,prepared.grid,records);
+    if (callbacks.validate_host_input) callbacks.validate_host_input(callbacks.context,4,2);
     spatial_regions(output,request);
     Records geometry_records{prepared.evidence,callbacks,{},{}};
     if (request.sigmoid) sigmoid_geometry(output,request,prepared.grid,true,geometry_records,cache.lut(request));
@@ -2504,7 +2524,7 @@ ZonedInletFlow2D resolve_zoned_inlet_flow_2d(const ZonedFlowRequest2D& request,
     output.input.input=output.flow.input;output.input.input.geometry_mode=2;
     ZonedCache cache{callbacks,{},{},{}};
     prepare_spatial_inlet_geometry(output.input,request.physical_depth_kind,options,callbacks,cache,output.flow);
-    resolve_speeds(flow_request,targets,output.flow);resolved_spatial_input(output);
+    resolve_speeds(flow_request,targets,output.flow,request.input.spatial_model.has_value());resolved_spatial_input(output);
     cache.retain_lut(output.input);return output;
 }
 
@@ -2523,7 +2543,7 @@ PreparedZonedFlowCase2D prepare_zoned_flow_case_2d(const ZonedFlowRequest2D& req
     }
     auto geometry=prepare_spatial_inlet_geometry(output.flow.input,request.physical_depth_kind,
         options,callbacks,cache,output.flow.flow);
-    resolve_speeds(flow_request,targets,output.flow.flow);resolved_spatial_input(output.flow);
+    resolve_speeds(flow_request,targets,output.flow.flow,request.input.spatial_model.has_value());resolved_spatial_input(output.flow);
     if (callbacks.validate_host_input) callbacks.validate_host_input(callbacks.context,0,2);
     output.prepared=prepare_zoned_case(output.flow.input,options,callbacks,cache,&geometry);
     cache.retain_lut(output.flow.input);return output;

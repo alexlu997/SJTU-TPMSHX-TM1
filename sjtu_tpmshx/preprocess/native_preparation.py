@@ -166,6 +166,7 @@ class PreparationCacheBridge:
         self.chi_error = chi_error
         self.buffers = []
         self.inlet_geometry = {}
+        self.extrap_reasons = []
         self._active_inlet_key = None
 
     def geometry_at(self, action, key, value):
@@ -253,6 +254,8 @@ class PreparationCacheBridge:
         """Use the native notice from the actual inlet topology and fluid."""
         if kind == 1:
             record_warning(('nu_preflight', 'AB'[side]), message)
+        elif kind == 2:
+            self.extrap_reasons.append(message)
         elif kind == 0:
             if current_warnings() is None and message:
                 from sjtu_tpmshx.shared.models import tpms_calc

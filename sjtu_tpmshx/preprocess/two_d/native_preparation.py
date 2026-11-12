@@ -24,7 +24,9 @@ from sjtu_tpmshx.shared.models import _native_flow, _native_geometry, _native_gr
 
 def supports(config):
     """Keep unported physical modes on their explicit preparation route."""
-    return not config.is_3d and config.geometry.delta_levelset == 0.
+    spatial = config.zones.enabled and config.zones.axis != 'continuous'
+    return (not config.is_3d and config.geometry.delta_levelset == 0.
+            and (not spatial or (config.fluid_A.type == 'air' and config.fluid_B.type == 'air')))
 
 
 def _input(config, targets, operation):
@@ -113,6 +115,8 @@ def _spatial_input(config, flow, buffers):
                                     cell['L'], cell['t']) for cell in zones.grid['cells']]
     else:
         model = asdict(zones.config) if hasattr(zones.config, '__dataclass_fields__') else zones.config
+        if model is None:
+            model = dict(zones=[], k_s=config.geometry.k_s_W_mK)
         rows = [(row['name'], [row['y_frac_start'], row['y_frac_end'], 0., 0.], row['L_mm'], row['t_mm'])
                 for row in model['zones']]
     regions = []
@@ -227,7 +231,7 @@ def _drag(result, index, continuous):
     return metadata
 
 
-def _case(result, config, case_id, side_geometry=None, pore_porosity=None):
+def _case(result, config, case_id, side_geometry=None, pore_porosity=None, extrap_reasons=()):
     from .preparation import _zone_data_si
     value = result.prepared.values
     continuous = isinstance(result, native._ContinuousCase)
@@ -307,7 +311,7 @@ def _case(result, config, case_id, side_geometry=None, pore_porosity=None):
         k_s=geometry.k_s_W_mK, eps=uniform['epsilon'], r_h=np.float64(value.hydraulic_radius_m),
         z_axis='continuous' if continuous else 'y',
         continuous_field=dict(config.zones.config) if continuous else None,
-        fluid_A=config.fluid_A.type, fluid_B=config.fluid_B.type, warnings_list=[], extrap_reasons=[],
+        fluid_A=config.fluid_A.type, fluid_B=config.fluid_B.type, warnings_list=[], extrap_reasons=list(extrap_reasons),
         _environment=capture_environment(), thermal_geometry=thermal,
         zone_config='continuous' if continuous else None, flow_inputs={}, boundary_openings={}, static_properties={})
     if spatial:
@@ -374,6 +378,7 @@ def _execute(config, operation, *, targets=None, case_id=None, own_metadata=Fals
     allow = config.extrap.allow or os.environ.get('TPMSHX_ALLOW_EXTRAP', '').lower() in ('1', 'true', 'yes')
     options = native._Options(1, ct.sizeof(native._Options), chi is not None, allow, chi or 0.)
     metadata = {}
+    extrap_reasons = []
     cache_buffers, cache_keys, side_geometry = [], {}, {}
     from sjtu_tpmshx.shared.models.tpms_geometry import _compute_geometry_cached
     from sjtu_tpmshx.shared.models.tpms_calc import _compute_cached, _InletCacheValue
@@ -464,6 +469,8 @@ def _execute(config, operation, *, targets=None, case_id=None, own_metadata=Fals
     def observe_notice(kind, side, value, message):
         if kind == 1:
             record_warning(('nu_preflight', 'AB'[side]), message)
+        elif kind == 2:
+            extrap_reasons.append(message)
         elif kind == 0:
             if current_warnings() is None:
                 from sjtu_tpmshx.shared.models import tpms_calc
@@ -499,6 +506,9 @@ def _execute(config, operation, *, targets=None, case_id=None, own_metadata=Fals
             elif stage == 3:
                 if source._grid_error is not None:
                     raise TypeError(source._grid_error)
+            elif stage == 4:
+                if config.zones.axis != 'grid' and config.zones.config is None:
+                    raise ValueError('Enabled 1D zones require a ZoneConfig')
             else:
                 raise RuntimeError(f'unknown preparation host stage {stage}')
 
@@ -532,9 +542,9 @@ def _execute(config, operation, *, targets=None, case_id=None, own_metadata=Fals
                 prepared = result.values.prepared
                 if isinstance(result, native._SigmoidHostCase):
                     prepared = prepared.values
-                case = _case(prepared, resolved, case_id, side_geometry, result.design_pore_porosity)
+                case = _case(prepared, resolved, case_id, side_geometry, result.design_pore_porosity, bridge.extrap_reasons)
             else:
-                case = _case(result, resolved, case_id, side_geometry)
+                case = _case(result, resolved, case_id, side_geometry, extrap_reasons=extrap_reasons)
             return api._finish_metadata(case, metadata['provenance'], metadata['records']) if own_metadata else case
 
 

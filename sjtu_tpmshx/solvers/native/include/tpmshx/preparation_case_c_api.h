@@ -228,7 +228,8 @@ typedef struct {
  * replays completed records. Have_scalar=1 supplies the standalone notice scalar.
  * Nu notices use the existing prepared Re; their records keep the raw Re.
  * Notice kind 0 supplies side and inlet Re. Kind 1 supplies side and the first
- * preflight reason. Side is 0=A or 1=B. All observation views are read-only and
+ * Nu preflight reason. Kind 2 supplies each geometry extrapolation reason.
+ * Side is 0=A or 1=B. All observation views are read-only and
  * valid only during the callback. Nonzero status stops the operation.
  */
 typedef struct {
@@ -429,6 +430,7 @@ typedef struct {
  * Keys and their text views are valid only during the callback. Set the v3
  * geometry_cache and inlet_cache slots to NULL; use the typed hooks instead.
  * LUT lookup returns borrowed arrays; publication receives read-only arrays.
+ * Spatial operations call host stage=4,side=2 before region preparation.
  */
 typedef struct {
     tpmshx_preparation_case_callbacks_v3 values;
@@ -748,7 +750,7 @@ TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_sigmoid_f
 TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_sigmoid_flow_case_2d_release_v8(
     tpmshx_preparation_sigmoid_flow_case_2d_v8*);
 
-/* V9 adds typed host caches and a separate spatial material. V1 event callbacks
+/* V9 adds typed host caches, a separate spatial material and explicit geometry extrapolation policy. V1 event callbacks
  * and v9 callbacks are accepted. Old input and callback layouts are unchanged.
  * Initialize only the outer result header and set its owner to NULL. Nested
  * owners are NULL; release only the outer result with its matching v9 function.

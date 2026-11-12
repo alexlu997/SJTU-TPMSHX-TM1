@@ -190,7 +190,7 @@ struct PreparationCallbacks {
     bool (*inlet_cache)(void*,bool,std::uint32_t,const InletInput2D&,ScalarKind,PreparationInletCache&)=nullptr;
     // Observe at the source. Cached records do not repeat standalone notices.
     void (*observe_range)(void*,const PreparationRange&,bool,std::optional<double>)=nullptr;
-    // Notice 0 is standalone inlet Re; notice 1 records a preflight reason.
+    // Notice 0 is inlet Re, 1 is a Nu reason, and 2 is a geometry reason.
     void (*observe_notice)(void*,std::uint32_t,std::uint32_t,double,const std::string&)=nullptr;
     void (*validate_grid)(void*)=nullptr;
     // Spatial and 3D stages identify each actual scalar cache access.

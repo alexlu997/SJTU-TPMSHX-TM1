@@ -50,15 +50,19 @@ Preparation v4 adds canonical continuous XY fields and full local drag.
 Preparation v5 adds raw air/air stripes and rectangles at prescribed velocity, CFD drag and zero delta.
 Its separate thermal geometry and row drag preserve the existing discrete rules.
 Preparation v6 adds raw air/air sigmoid controls and a reusable native LUT with production-resolution cold construction.
-It retains separate thermal geometry and row drag without discrete smoothing; the Python cache and route stay unchanged.
+It retains separate thermal geometry and row drag without discrete smoothing.
 
 Preparation v8 adds capacity, flow resolution and complete fixed-flow preparation for these air/air spatial inputs.
 It retains the physical grid and geometry, resolves speeds before transfer calculations, and owns copied regions, controls and LUTs.
-Typed domain/port inputs and separate preliminary evidence remain explicit; Python spatial routes and caches stay unchanged.
+Typed domain/port inputs and separate preliminary evidence remain explicit.
+Preparation v9 connects symmetric spatial Python preparation, capacity and resolution through typed host-cache hooks.
+`preprocess/native_preparation.py` shares cache and evidence transport; misses calculate in the native stage.
+Python retains LUT storage. Native code builds missing tables at the original geometry checkpoint.
 
-The Python preparation entries use v7 with v3/v4 payloads for symmetric uniform and continuous 2D inputs.
-Nonzero-delta uniform, discrete zones and sigmoid retain their explicit 2D routes.
+The Python preparation entries use v7 with v3/v4 payloads for symmetric uniform and continuous 2D inputs, and v9 for air/air spatial inputs.
+Nonzero-delta 2D preparation keeps its explicit existing route.
 All supported 3D preparation modes use the native host stage.
+Public ZoneConfig and sigmoid combination queries retain standalone and offset consumers until separate migration passes.
 CaseData and saved-file contracts stay unchanged. Native failures propagate without another preparation route.
 Symmetric uniform and continuous 2D execution uses the saved native lifecycle, including checkpoints and complete result capture.
 Archived selected libraries and unported modes keep their existing execution protocol.
