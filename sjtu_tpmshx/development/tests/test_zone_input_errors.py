@@ -237,12 +237,10 @@ def test_zone_builder_error_propagates(builder, monkeypatch):
         monkeypatch.setattr(ZoneConfig, 'compute_properties', lambda *a, **kw: None)
     cfg = ComputeConfig(geometry=GeometryConfig(tpms='Diamond'),
         zones=zones, extrap=ExtrapPolicy(allow=True))
-    solve, finalize = Mock(), Mock()
+    from sjtu_tpmshx.preprocess.two_d.preparation import _build_zone_arrays
     with pytest.raises(RuntimeError, match='zone builder failed') as caught:
-        compute(cfg, solve=solve, evaluate=finalize)
+        _build_zone_arrays(cfg, 4, 4)
     assert caught.value is failure
-    solve.assert_not_called()
-    finalize.assert_not_called()
 
 
 @pytest.mark.parametrize('dimension', [2, 3])
@@ -263,5 +261,24 @@ def test_invalid_grid_rectangle_never_solves(dimension, axis, start, end, monkey
     solve, finalize = Mock(), Mock()
     with pytest.raises(ValueError, match=f'cell 1.*{axis}'):
         compute(cfg, solve=solve, evaluate=finalize)
+    solve.assert_not_called()
+    finalize.assert_not_called()
+
+
+@pytest.mark.parametrize('axis', ['x', 'y', 'grid'])
+def test_native_zone_stage_error_never_solves_or_finalizes(monkeypatch, axis):
+    from sjtu_tpmshx.shared.models import _native_preparation_case as native
+    zones = ZoneInputConfig(enabled=True, axis=axis,
+        config=ZoneConfig.single_zone(6, .3, 'Diamond', 16),
+        grid=dict(cells=[dict(x0=0., x1=1., y0=0., y1=1., L=6., t=.3)],
+                  tpms_type='Diamond', k_s=16.))
+    cfg = ComputeConfig(geometry=GeometryConfig(tpms='Diamond'),
+        zones=zones, extrap=ExtrapPolicy(allow=True))
+    failure = RuntimeError('native zone stage failed')
+    monkeypatch.setattr(native, 'operation', Mock(side_effect=failure))
+    solve, finalize = Mock(), Mock()
+    with pytest.raises(RuntimeError, match='native zone stage failed') as caught:
+        compute(cfg, solve=solve, evaluate=finalize)
+    assert caught.value is failure
     solve.assert_not_called()
     finalize.assert_not_called()

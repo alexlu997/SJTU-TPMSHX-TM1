@@ -130,6 +130,70 @@ _CacheCallbacks = _struct('CacheCallbacks', [('values', _HostCallbacks),
     ('observe_range', _RangeFunction), ('observe_notice', _NoticeFunction)])
 
 
+_GridScalar = _native_flow._Scalar
+_Region = _struct('ZoneRegion', [('name', _Text), ('bounds', _GridScalar * 4),
+    ('cell_length_mm', _D), ('wall_thickness_mm', _D), ('cell_kind', _Kind), ('wall_kind', _Kind)])
+_ZonedInput = _struct('ZonedInput', [('abi_version', _U), ('struct_size', _S), ('values', _InputV2),
+    ('kind', _U), ('axis', _U), ('regions', ct.POINTER(_Region)), ('region_count', _S)])
+_RegionValues = _struct('ZoneValues', [('region', _Region), ('geometry', _GeometryCache),
+    ('property_geometry', _GeometryCache * 2), ('solid_conductivity', _D),
+    ('properties', _Properties * 2), ('property_kinds', (_Kind * 13) * 2)])
+_ZonedCase = _struct('ZonedCase', [('abi_version', _U), ('struct_size', _S), ('prepared', _ResultV2),
+    ('kind', _U), ('axis', _U), ('regions', ct.POINTER(_RegionValues)), ('region_count', _S),
+    ('zone_id', ct.POINTER(ct.c_int32)), ('cell_count', _S),
+    *[(name, _Array) for name in ('thermal_porosity', 'area_density_per_m', 'hydraulic_diameter_m',
+                                'design_area_density_per_m')],
+    ('fluid_conductivity', _Array * 2), ('volumetric_transfer', _Array * 2), ('owner', ct.c_void_p)])
+_LUTView = _struct('SigmoidLUTView', [(name, _Array) for name in
+    ('cell_mm', 'wall_mm', 'porosity', 'area_density_per_m')] + [('porosity_fast', _U), ('area_fast', _U)])
+_SigmoidControls = _struct('SigmoidControls', [('decision_mm', _Array),
+    ('inlet_transition', _GridScalar), ('outlet_transition', _GridScalar)])
+_SigmoidInput = _struct('SigmoidInput', [('abi_version', _U), ('struct_size', _S),
+    ('values', _ZonedInput), ('controls', _SigmoidControls), ('lut', _LUTView)])
+_SigmoidCase = _struct('SigmoidCase', [('abi_version', _U), ('struct_size', _S),
+    ('values', _ZonedCase), ('controls', _SigmoidControls), ('owner', ct.c_void_p)])
+_FlowOptions = [('physical_depth_kind', _Kind), ('target_kinds', _Kind * 2),
+                ('have_explicit_targets', _U), ('explicit_targets_kg_s', _D * 2)]
+_ZonedFlowInput = _struct('ZonedFlowInput', [('abi_version', _U), ('struct_size', _S),
+    ('values', _ZonedInput), *_FlowOptions])
+_SigmoidFlowInput = _struct('SigmoidFlowInput', [('abi_version', _U), ('struct_size', _S),
+    ('values', _SigmoidInput), *_FlowOptions])
+_ZonedFlow = _struct('ZonedFlow', [('abi_version', _U), ('struct_size', _S),
+    ('flow', _Flow), ('input', _ZonedInput), ('owner', ct.c_void_p)])
+_SigmoidFlow = _struct('SigmoidFlow', [('abi_version', _U), ('struct_size', _S),
+    ('flow', _Flow), ('input', _SigmoidInput), ('owner', ct.c_void_p)])
+_ZonedFlowCase = _struct('ZonedFlowCase', [('abi_version', _U), ('struct_size', _S),
+    ('prepared', _ZonedCase), ('flow', _ZonedFlow), ('owner', ct.c_void_p)])
+_SigmoidFlowCase = _struct('SigmoidFlowCase', [('abi_version', _U), ('struct_size', _S),
+    ('prepared', _SigmoidCase), ('flow', _SigmoidFlow), ('owner', ct.c_void_p)])
+_SpatialModel = _struct('SpatialModel', [('solid_conductivity_kind', _Kind), ('allow_geometry_extrapolation', _U), ('load_default_lut', _U)])
+_ZonedHostInput = _struct('ZonedHostInput', [('abi_version', _U), ('struct_size', _S),
+    ('values', _ZonedFlowInput), ('model', _SpatialModel)])
+_SigmoidHostInput = _struct('SigmoidHostInput', [('abi_version', _U), ('struct_size', _S),
+    ('values', _SigmoidFlowInput), ('model', _SpatialModel)])
+_ZonedHostFlow = _struct('ZonedHostFlow', [('abi_version', _U), ('struct_size', _S),
+    ('values', _ZonedFlow), ('model', _SpatialModel), ('owner', ct.c_void_p)])
+_SigmoidHostFlow = _struct('SigmoidHostFlow', [('abi_version', _U), ('struct_size', _S),
+    ('values', _SigmoidFlow), ('model', _SpatialModel), ('owner', ct.c_void_p)])
+_ZonedHostCase = _struct('ZonedHostCase', [('abi_version', _U), ('struct_size', _S),
+    ('values', _ZonedFlowCase), ('model', _SpatialModel), ('design_pore_porosity', _Array), ('owner', ct.c_void_p)])
+_SigmoidHostCase = _struct('SigmoidHostCase', [('abi_version', _U), ('struct_size', _S),
+    ('values', _SigmoidFlowCase), ('model', _SpatialModel), ('design_pore_porosity', _Array), ('owner', ct.c_void_p)])
+_GeometryKey = _struct('GeometryKey', [('topology', _U), *_doubles('cell_length_mm wall_thickness_mm'),
+    ('cell_kind', _Kind), ('wall_kind', _Kind)])
+_InletKey = _struct('InletKey', [('geometry', _GeometryKey), ('fluid', _U),
+    *_doubles('velocity_m_s temperature_K pressure_Pa'), ('kinds', _InletKinds),
+    ('have_sco2_nu', _U), ('sco2_nu', _Nu), ('co2_geometry', _U)])
+_GeometryAtFunction = ct.CFUNCTYPE(ct.c_int, ct.c_void_p, _U, ct.POINTER(_GeometryKey),
+                                 ct.POINTER(_GeometryCache), ct.POINTER(_U))
+_InletAtFunction = ct.CFUNCTYPE(ct.c_int, ct.c_void_p, _U, ct.POINTER(_InletKey),
+                              ct.POINTER(_InletCache), ct.POINTER(_U))
+_LUTCacheFunction = ct.CFUNCTYPE(ct.c_int, ct.c_void_p, _U, _U, _S, ct.POINTER(_LUTView), ct.POINTER(_U))
+_KeyedCallbacks = _struct('KeyedCallbacks', [('values', _CacheCallbacks),
+    ('geometry_cache_at', _GeometryAtFunction), ('inlet_cache_at', _InletAtFunction),
+    ('sigmoid_lut_cache', _LUTCacheFunction)])
+
+
 class _Bindings:
     def __init__(self, path):
         self.owner = _native_preparation._load_library(path)
@@ -149,6 +213,21 @@ class _Bindings:
                 middle = '_'.join(value for value in (prefix, suffix) if value)
                 self.releases[result] = self.owner.bind(
                     f'tpmshx_preparation_{middle}_2d_release_v{version}', [ct.POINTER(result)], None)
+
+
+        for source, flow, full, prefix in (
+                (_ZonedHostInput, _ZonedHostFlow, _ZonedHostCase, 'zoned'),
+                (_SigmoidHostInput, _SigmoidHostFlow, _SigmoidHostCase, 'sigmoid')):
+            for name in ('prepare_inlet_mass_capacities', 'resolve_inlet_flow', 'prepare_flow_case'):
+                result = full if name == 'prepare_flow_case' else flow
+                entry = name.replace('_', '_' + prefix + '_', 1)
+                self.operations[source, name] = self.owner.bind(
+                    f'tpmshx_{entry}_2d_v9',
+                    [ct.POINTER(source), ct.POINTER(_GridKinds), ct.POINTER(_Options), ct.POINTER(_Callbacks),
+                     ct.POINTER(result), ct.POINTER(_Failure), ct.POINTER(ct.c_char), _S])
+            for result, suffix in ((flow, 'flow'), (full, 'flow_case')):
+                self.releases[result] = self.owner.bind(
+                    f'tpmshx_preparation_{prefix}_{suffix}_2d_release_v9', [ct.POINTER(result)], None)
 
 
 @lru_cache(maxsize=1)
@@ -220,16 +299,10 @@ def _control_axis_warning(source, message):
     _source_warning(function, message, binary=(operator, occurrence), category=RuntimeWarning)
 
 
-@contextmanager
-def operation(name, source, options, validate_host_input, geometry_cache=None, inlet_cache=None,
-              observe_range=None, observe_notice=None, nominal_grid_warning=None):
-    """Keep the complete owner alive until the caller copies all required data."""
-    version = source.abi_version
-    result_type = ((_ContinuousCase if name == 'prepare_flow_case' else _ContinuousFlow)
-                   if version == 4 else (_FlowCase if name == 'prepare_flow_case' else _Flow))
-    result = result_type(version, ct.sizeof(result_type))
-    failure, error = _Failure(2, ct.sizeof(_Failure)), ct.create_string_buffer(4096)
-    bindings = _bindings(_native_preparation._library().path)
+def _callback_bridge(validate_host_input, geometry_cache=None, inlet_cache=None,
+                     observe_range=None, observe_notice=None, nominal_grid_warning=None, *,
+                     geometry_cache_at=None, inlet_cache_at=None, sigmoid_lut_cache=None):
+    """Own callbacks and preserve their first exception across the C boundary."""
     callback_errors = []
 
     def event(_context, pointer):
@@ -238,8 +311,13 @@ def operation(name, source, options, validate_host_input, geometry_cache=None, i
             if item.kind == 0:
                 get_logger(_text(item.logger).removeprefix('tpmshx.')).info(_text(item.message))
             elif item.kind == 1:
-                from .input_validation import surrogate_extrap_reasons
-                _source_warning(surrogate_extrap_reasons, _text(item.message), call='check_surrogate_domain_at_point')
+                message = _text(item.message)
+                if message.startswith('[geometry extrap]'):
+                    from .sigmoid_field import build_continuous_geometry
+                    _source_warning(build_continuous_geometry, message, call='_geometry_from_fields')
+                else:
+                    from .input_validation import surrogate_extrap_reasons
+                    _source_warning(surrogate_extrap_reasons, message, call='check_surrogate_domain_at_point')
             elif item.kind == 2:
                 source = _text(item.message)
                 if source in ('nominal-grid-x', 'nominal-grid-y'):
@@ -296,8 +374,40 @@ def operation(name, source, options, validate_host_input, geometry_cache=None, i
             callback_errors.append(problem)
             return 1
 
+    def geometry_at(_context, action, key, value, hit):
+        try:
+            hit[0] = geometry_cache_at(action, key.contents, value.contents)
+            return 0
+        except BaseException as problem:
+            callback_errors.append(problem)
+            return 1
+
+    def inlet_at(_context, action, key, value, hit):
+        try:
+            hit[0] = inlet_cache_at(action, key.contents, value.contents)
+            return 0
+        except BaseException as problem:
+            callback_errors.append(problem)
+            return 1
+
+    def lut_cache(_context, action, topology, resolution, value, hit):
+        try:
+            hit[0] = sigmoid_lut_cache(action, topology, resolution, value.contents)
+            return 0
+        except BaseException as problem:
+            callback_errors.append(problem)
+            return 1
+
     event_function, host_function = _EventFunction(event), _HostFunction(validate)
-    if geometry_cache is None and inlet_cache is None and observe_range is None and observe_notice is None:
+    if geometry_cache_at is not None or inlet_cache_at is not None or sigmoid_lut_cache is not None:
+        callbacks = _KeyedCallbacks(_CacheCallbacks(_HostCallbacks(
+            _Callbacks(9, ct.sizeof(_KeyedCallbacks), event_function, None), host_function),
+            _GeometryCacheFunction(), _InletCacheFunction(), _RangeFunction(observe), _NoticeFunction(notice)),
+            _GeometryAtFunction(geometry_at) if geometry_cache_at else _GeometryAtFunction(),
+            _InletAtFunction(inlet_at) if inlet_cache_at else _InletAtFunction(),
+            _LUTCacheFunction(lut_cache) if sigmoid_lut_cache else _LUTCacheFunction())
+        descriptor = callbacks.values.values.values
+    elif geometry_cache is None and inlet_cache is None and observe_range is None and observe_notice is None:
         callbacks = _HostCallbacks(_Callbacks(2, ct.sizeof(_HostCallbacks), event_function, None), host_function)
         descriptor = callbacks.values
     else:
@@ -305,8 +415,30 @@ def operation(name, source, options, validate_host_input, geometry_cache=None, i
                                    _GeometryCacheFunction(geometry), _InletCacheFunction(inlet),
                                    _RangeFunction(observe), _NoticeFunction(notice))
         descriptor = callbacks.values.values
+    return callbacks, descriptor, callback_errors
+
+
+@contextmanager
+def operation(name, source, options, validate_host_input, geometry_cache=None, inlet_cache=None,
+              observe_range=None, observe_notice=None, nominal_grid_warning=None, *,
+              geometry_cache_at=None, inlet_cache_at=None, sigmoid_lut_cache=None):
+    """Keep the complete owner alive until the caller copies all required data."""
+    version = source.abi_version
+    result_type = ((_ContinuousCase if name == 'prepare_flow_case' else _ContinuousFlow)
+                   if version == 4 else (_FlowCase if name == 'prepare_flow_case' else _Flow))
+    if version == 9:
+        result_type = ((_SigmoidHostCase if name == 'prepare_flow_case' else _SigmoidHostFlow)
+                       if isinstance(source, _SigmoidHostInput) else
+                       (_ZonedHostCase if name == 'prepare_flow_case' else _ZonedHostFlow))
+    result = result_type(version, ct.sizeof(result_type))
+    failure, error = _Failure(2, ct.sizeof(_Failure)), ct.create_string_buffer(4096)
+    bindings = _bindings(_native_preparation._library().path)
+    callbacks, descriptor, callback_errors = _callback_bridge(
+        validate_host_input, geometry_cache, inlet_cache, observe_range, observe_notice,
+        nominal_grid_warning, geometry_cache_at=geometry_cache_at, inlet_cache_at=inlet_cache_at,
+        sigmoid_lut_cache=sigmoid_lut_cache)
     try:
-        status = bindings.operations[version, name](
+        status = bindings.operations[type(source) if version == 9 else version, name](
             ct.byref(source), ct.byref(source._grid_kinds), ct.byref(options), ct.byref(descriptor), ct.byref(result),
             ct.byref(failure), error, len(error))
         if callback_errors:

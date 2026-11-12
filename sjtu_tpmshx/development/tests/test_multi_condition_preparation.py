@@ -225,7 +225,7 @@ def test_fixed_flow_uses_only_resolved_velocities(monkeypatch, dimension, design
 
 
 @pytest.mark.parametrize('design_mode', ['x', 'y', 'grid', 'sigmoid'])
-def test_fixed_flow_preserves_legacy_2d_geometry_and_input(monkeypatch, tmp_path, design_mode):
+def test_fixed_flow_preserves_spatial_2d_geometry_and_input(monkeypatch, tmp_path, design_mode):
     from sjtu_tpmshx.shared.models.zone_config import Zone, ZoneConfig
 
     config = ComputeConfig(
@@ -247,7 +247,7 @@ def test_fixed_flow_preserves_legacy_2d_geometry_and_input(monkeypatch, tmp_path
     if design_mode == 'sigmoid':
         from sjtu_tpmshx.shared.models import sigmoid_field
         lut = sigmoid_field.GeometryLUT('Gyroid', n_L=3, n_t=3, N=16, cache_dir=str(tmp_path))
-        monkeypatch.setattr(sigmoid_field, 'get_geometry_lut', lambda *_: lut)
+        monkeypatch.setitem(sigmoid_field._lut_cache, ('Gyroid',), lut)
         config.zones.pareto_x_decision = [value for cell in np.linspace(6., 7., 18)
                                         for value in (float(cell), .4)]
     snapshot = asdict(config)
@@ -262,9 +262,12 @@ def test_fixed_flow_preserves_legacy_2d_geometry_and_input(monkeypatch, tmp_path
     from sjtu_tpmshx.preprocess.two_d import preparation as prep2d
     from sjtu_tpmshx.development.tests.native.test_cpp_full_3d import compare
     from unittest.mock import patch
-    with patch.object(prep2d, '_prepare_mesh', wraps=prep2d._prepare_mesh) as mesh:
+    from sjtu_tpmshx.shared.models import _native_preparation_case as native
+    with patch.object(prep2d, '_prepare_mesh', wraps=prep2d._prepare_mesh) as mesh, \
+         patch.object(native, 'operation', wraps=native.operation) as stage:
         actual = prepare_fixed_mass_flow_case(old, **targets, case_id='legacy-fixed')
-    assert mesh.call_count == 1
+    assert mesh.call_count == 0
+    assert stage.call_count == 1 and stage.call_args.args[0] == 'prepare_flow_case'
     assert asdict(config) == snapshot
     assert old.fluid_A.u_mps == .001
     assert actual.config_snapshot == expected.config_snapshot

@@ -92,7 +92,7 @@ def test_continuous_geometry_is_resampled_on_nonuniform_cells(monkeypatch, tmp_p
     from sjtu_tpmshx.shared.df_surrogate.predict import predict_K_cF_vec
     # A small real LUT is sufficient to test coordinate transport, not LUT accuracy.
     lut = sigmoid_field.GeometryLUT('Gyroid', n_L=2, n_t=2, N=16, cache_dir=tmp_path)
-    monkeypatch.setattr(sigmoid_field, 'get_geometry_lut', lambda *a, **k: lut)
+    monkeypatch.setitem(sigmoid_field._lut_cache, ('Gyroid',), lut)
     decision = np.column_stack((np.linspace(5., 8., 18), np.linspace(.3, .6, 18))).ravel()
     config = _config('grid')
     config = replace(config,
