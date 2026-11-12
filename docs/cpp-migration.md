@@ -216,7 +216,10 @@ See [scope and delivery records](#cpp-core-scope).
 ## Native result core
 
 Independent result ABI 2 calculates metrics, signed physical balances, zone statistics and numerical qualification checks.
-Python selects recorded evidence and keeps status, reason, type and file interfaces.
+The result stage selects recorded evidence and owns full 2D/3D metric definitions, statuses and qualification.
+Python keeps public DTO and file interfaces, original object identity and NumPy event handling.
+The three independent result queries use the same native stage. The same stage owns Quick Design metric arithmetic. Fixed named host operations preserve its existing Python object, exact integer and conversion protocols.
+The versioned host query preserves deferred input errors and callback exceptions without changing the published v1 C layouts.
 The standalone `solvers/native/result/` project uses only C++17 and system libraries.
 It does not load the solver, preparation, geometry, CoolProp or model resources.
 
@@ -249,6 +252,11 @@ The [source and interface record](../sjtu_tpmshx/solvers/native/result/sources.m
 There is no numerical fallback, runtime compiler or universal numerical callback.
 
 ## Complete Quick Design capability
+
+The [Quick Design stage](native-stages.md#quick-design-stage) adds raw operating-point
+preparation and owned result evidence for native double callers. Its separate
+version 1 C contract preserves the existing driver ABI described below.
+Python production integration has separate type and event acceptance checks.
 
 `quick_design_driver.hpp` owns the complete prepared const/mean property-pass
 calculation. This includes original empirical air/water or HEOS sCO2 properties,

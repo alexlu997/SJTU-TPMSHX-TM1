@@ -71,7 +71,8 @@ See [preparation builds and runtime paths](cpp-migration.md#native-preparation-c
 The result target is `solvers/native/result/`. It uses C++17 and system libraries without solver state or model resources.
 Named metric, balance and check kernels preserve independent field reductions and their original operation order.
 `shared/_native_result.py` loads the prebuilt image on demand. Imports and pure HDF/JSON reads do not load it.
-Python keeps DTOs, evidence selection, type and shape adaptation, policy interpretation and status text.
+Python keeps DTOs, type and shape adaptation, NumPy events and application display.
+The native result stage selects full 2D/3D evidence and owns its status, reason and qualification.
 Typed byte views preserve integer storage, extended precision, byte order and signed strides.
 Failure does not commit numerical outputs. Ordered floating-point events retain the caller's NumPy error policy.
 Explicit object and arbitrary integer protocols remain only at demonstrated Python-only conversion points.
@@ -81,10 +82,11 @@ Separate result publication builds no solver, run_state, CoolProp or generated c
 Linux x86_64 supports independent result evaluation. Full-solver platforms remain macOS arm64 and Windows x64.
 
 The [native stage SDK](native-stages.md) adds an owned preparation state, a run result and independent evaluation.
-Preparation v1 and the run path support uniform symmetric 2D air/air with prescribed velocity and CFD drag.
+Preparation v1 and run v1 support uniform symmetric 2D air/air with prescribed velocity and CFD drag.
 Preparation v2 supports all 16 ordered air/water/sCO2/CO2 pairs in the same geometry and inlet mode.
 It retains existing experimental DF/Nu selections, state failures and evidence.
-Its scalar tags retain field precision. The run path does not yet consume v2.
+Its scalar tags retain field precision. Run v2 consumes this state through the
+existing model-h or true-h route and records the actual thermal evidence.
 Preparation v3 adds independent capacity, inlet-flow resolution and complete preparation for uniform 2D total mass flow.
 It reuses physical inlet geometry and keeps preliminary evidence separate from final preparation evidence.
 The existing v1/v2 C layouts, Python production entries and run interface are unchanged.
@@ -97,12 +99,18 @@ No v1/v2/v3 C layout or Python production route changes.
 `stage_run.cpp` adapts it to the existing full 2D driver.
 `stage_capture_2d.cpp` records the actual run evidence for `result_stage.cpp`.
 The installed C ABI and `stages.hpp` support external C++ callers.
+The separate Quick Design stage accepts raw native double operating points.
+`quick_design_prepare.cpp` reuses geometry, property and analytical D-F owners.
+`quick_design_run.cpp` uses the existing driver and copies its result evidence.
+Its const/mean, cross/counter and warm-start rules stay unchanged.
+Python object and numeric-type contracts still need separate integration checks.
 Current Python entry points retain their existing behavior and all supported modes.
 The migration gates must pass before their numerical and policy bodies can retire.
 
 <a id="retained-python-responsibilities"></a>
 
-Python keeps public APIs, configuration, data objects, type/byte-order/shape adaptation, file I/O, caches, evidence selection, and status and warning text.
+Python keeps public APIs, configuration, data objects, type/byte-order/shape adaptation, file I/O, caches and application warning text.
+Full result evidence selection and qualification belong to the native stage. Python adapts the returned objects and applies NumPy event policy.
 Python modules also own GUI display, input validation, application searches, BO, offline data processing and fitting.
 The following boundaries keep their original arithmetic and consumers:
 
@@ -646,7 +654,11 @@ Temperature is not scaled. FullCC nonzero sources stay
 
   See [native consumer contracts](cpp-migration.md#shared-finite-volume-temperature-consumers)
   for iteration, incomplete-boundary and build requirements.
-- `postprocess/api.py` owns the complete `evaluate` sequence. `metrics.py` holds metric formulas and reduction helpers.
+- `postprocess/api.py` keeps the public evaluation interface. The native result stage owns full 2D/3D metric selection, definitions and status.
+  It also owns independent applicability, physical-balance and qualification queries.
+  `shared/_native_result_stage.py` converts evidence and returned objects. It delivers NumPy events at each primitive boundary.
+  Quick Design uses the same native stage, with typed intermediate values and fixed named host operations for its existing Python protocols.
+  `postprocess/conservation.py` retains the complete public conservation certificate. Raw result helpers retain their existing consumers and Python protocols.
   Postprocessing reduces recorded fields, fluxes and pressure states. It never reruns a solver or reads private runtime objects for missing evidence.
   Full-compute evaluation reuses successful heat and mass reductions only within
   that call, lazily by side and by coarse/fine evidence. Each requested metric

@@ -319,3 +319,138 @@ def test_continuous_sco2_nu_provenance_and_gradient_notice(native, monkeypatch, 
     config.sco2_nu = replace(config.sco2_nu, mode='experimental', alpha_D=1.13, alpha_G=2.27,
         parameter_version='saved continuous version', source='retained source', applicability='retained scope')
     _full(native, monkeypatch, config)
+
+
+def _visible_buffers(value, path='result'):
+    """Enumerate public views without using the native owner's private layout."""
+    counts = {'ranges': 'range_count', 'warnings': 'warning_count',
+              'events': 'event_count', 'source': 'source_count', 'shape': 'rank',
+              'notices': 'notice_count', 'calibration': 'calibration_count'}
+    if isinstance(value, (v1._Array, v1._Text)):
+        if value.size:
+            yield path, ct.cast(value.data, ct.c_void_p).value, value.size * ct.sizeof(value.data._type_)
+    elif isinstance(value, ct.Structure):
+        for name, field in value._fields_:
+            item, label = getattr(value, name), path + '.' + name
+            if issubclass(field, ct._Pointer):
+                if name == 'range_bounds_list':
+                    size = getattr(value, 'values', value).range_count
+                else:
+                    assert name in counts, label
+                    size = getattr(value, counts[name])
+                if size:
+                    yield label, ct.cast(item, ct.c_void_p).value, size * ct.sizeof(field._type_)
+                    if issubclass(field._type_, ct.Structure):
+                        for index in range(size):
+                            yield from _visible_buffers(item[index], f'{label}[{index}]')
+            elif isinstance(item, (ct.Structure, ct.Array)):
+                yield from _visible_buffers(item, label)
+    elif isinstance(value, ct.Array):
+        for index, item in enumerate(value):
+            yield from _visible_buffers(item, f'{path}[{index}]')
+
+
+def _check_owned_aliases(call, result, destination):
+    buffers = list(_visible_buffers(result))
+    assert buffers
+    before = [(label, address, ct.string_at(address, size)) for label, address, size in buffers]
+    outer = bytes(result)
+    for label, address, _ in buffers:
+        failure = v2._Failure(2, ct.sizeof(v2._Failure))
+        error = ct.create_string_buffer(b'unchanged', 4096)
+        failure_before, error_before = bytes(failure), bytes(error)
+        failure_pointer = ct.cast(address, ct.POINTER(v2._Failure)) if destination == 'failure' else ct.byref(failure)
+        error_pointer = ct.cast(address, ct.POINTER(ct.c_char)) if destination == 'error' else error
+        status = call(failure_pointer, error_pointer, 1 if destination == 'error' else len(error))
+        assert status == 1, label
+        assert bytes(result) == outer, label
+        assert bytes(failure) == failure_before and bytes(error) == error_before, label
+        for name, pointer, saved in before:
+            assert ct.string_at(pointer, len(saved)) == saved, (label, name)
+    return [label for label, _, _ in buffers]
+
+
+_OWNED_OPERATIONS = ('prepare_inlet_mass_capacities', 'resolve_inlet_flow', 'prepare_flow_case')
+
+
+@pytest.mark.parametrize('version,operation,model', [
+    (version, operation, 'air') for version in (3, 4) for operation in _OWNED_OPERATIONS
+] + [(3, 'prepare_flow_case', 'co2'), (4, 'prepare_flow_case', 'experimental')])
+@pytest.mark.parametrize('destination', ['error', 'failure'])
+def test_flow_owned_views_reject_diagnostic_aliases(native, version, operation, model, destination):
+    library = v3.native.__wrapped__() if version == 3 else native
+    create, make_source, release = (v3._call, v3._input, v3._release) if version == 3 else (_call, _input, _release)
+    config = v3._configuration('Gyroid', ('air', 'air')) if version == 3 else _configuration(pair=('air', 'air'))
+    if model == 'co2':
+        config = v3._configuration('Gyroid', ('co2', 'air'))
+    elif model == 'experimental':
+        config = _configuration(pair=('air', 'water'), mode='experimental')
+    config.geometry.Lz_m = .042
+    if operation == 'resolve_inlet_flow':
+        config.fluid_A.mass_flow_kg_s, config.fluid_B.mass_flow_kg_s = .002, .003
+    status, result, _, error, _, _ = create(library, operation, config)
+    assert status == 0, error
+    source = make_source(config)
+    source_before = bytes(source)
+    function = getattr(library, 'tpmshx_' + operation + f'_2d_v{version}')
+    try:
+        labels = _check_owned_aliases(lambda failure, error, capacity: function(
+            ct.byref(source), None, None, ct.byref(result), failure, error, capacity), result, destination)
+        if version == 4:
+            assert any('.controls.decision_mm' in label for label in labels)
+        if operation == 'prepare_flow_case':
+            assert any('.total_porosity' in label for label in labels)
+        assert bytes(source) == source_before
+    finally:
+        release(library, result)
+
+
+@pytest.mark.parametrize('operation', _OWNED_OPERATIONS)
+@pytest.mark.parametrize('destination', ['error', 'failure'])
+@pytest.mark.parametrize('invalid', ['source_abi', 'source_size', 'result_abi', 'result_size'])
+def test_continuous_owned_alias_guard_precedes_header_errors(native, operation, destination, invalid):
+    config = _configuration(pair=('air', 'air'))
+    if operation == 'resolve_inlet_flow':
+        config.fluid_A.mass_flow_kg_s, config.fluid_B.mass_flow_kg_s = .002, .003
+    status, result, _, error, _, _ = _call(native, operation, config)
+    assert status == 0, error
+    source = _input(config)
+    target = source if invalid.startswith('source') else result
+    setattr(target, 'abi_version' if invalid.endswith('abi') else 'struct_size', 0)
+    function = getattr(native, 'tpmshx_' + operation + '_2d_v4')
+    try:
+        _check_owned_aliases(lambda failure, error, capacity: function(
+            ct.byref(source), None, None, ct.byref(result), failure, error, capacity), result, destination)
+    finally:
+        _release(native, result)
+
+
+@pytest.mark.parametrize('version', [3, 4])
+@pytest.mark.parametrize('operation', _OWNED_OPERATIONS)
+def test_flow_owned_output_keeps_safe_reuse_diagnostics(native, version, operation):
+    library = v3.native.__wrapped__() if version == 3 else native
+    create, make_source, release = (v3._call, v3._input, v3._release) if version == 3 else (_call, _input, _release)
+    config = v3._configuration('Gyroid', ('air', 'air')) if version == 3 else _configuration(pair=('air', 'air'))
+    if operation == 'resolve_inlet_flow':
+        config.fluid_A.mass_flow_kg_s, config.fluid_B.mass_flow_kg_s = .002, .003
+    status, result, _, error, _, _ = create(library, operation, config)
+    assert status == 0, error
+    source = make_source(config)
+    outer = bytes(result)
+    buffers = [(address, ct.string_at(address, size)) for _, address, size in _visible_buffers(result)]
+    failure, error = v2._Failure(2, ct.sizeof(v2._Failure)), ct.create_string_buffer(4096)
+    events = []
+    def event(_context, _pointer):
+        events.append(True)
+        return 0
+    callback = v1._EventFunction(event)
+    callbacks = v1._Callbacks(1, ct.sizeof(v1._Callbacks), callback, None)
+    try:
+        status = getattr(library, 'tpmshx_' + operation + f'_2d_v{version}')(
+            ct.byref(source), None, ct.byref(callbacks), ct.byref(result), ct.byref(failure), error, len(error))
+        assert status == 1 and failure.kind == 1
+        assert b'release the previous flow result' in error.value and not events
+        assert bytes(result) == outer
+        assert all(ct.string_at(address, len(saved)) == saved for address, saved in buffers)
+    finally:
+        release(library, result)

@@ -11,14 +11,26 @@ uniform, symmetric 2D air/air with prescribed inlet velocity and CFD drag.
 Preparation v2 supports all 16 ordered pairs of air, water, sCO2 and CO2 in that
 geometry and inlet mode. It keeps existing experimental DF and sCO2 Nu choices,
 state checks and application limits. Each side retains its selected model evidence.
-The run interface still accepts only the v1 air/air CFD path.
+Run v2 consumes preparation v2 through the existing model-h or true-h driver.
+Run v1 retains its air/air CFD scope and published layout.
 Nonzero delta, zones, continuous fields and prescribed mass flow remain outside
 this preparation v2 scope. These limits do not remove existing Python modes.
+A separate Quick Design entry accepts native double operating points for
+air, water and sCO2. It uses the existing prescribed-flow LTNE driver.
 
 Preparation v3 adds total mass flow for the same uniform symmetric 2D fluid matrix.
 It provides separate capacity and inlet-flow resolution queries, plus complete preparation.
 It preserves the existing physical depth, calibration and scalar arithmetic rules.
 Continuous fields, zones and nonzero delta remain outside v3. The run interface is unchanged.
+
+Full 2D/3D Python evaluation now calls the native result stage. Independent applicability, physical-balance and qualification queries use that stage.
+The native result stage owns Quick Design metrics and retains typed intermediate values. V3 uses fixed named host operations for existing Python object, exact integer and final conversion protocols. The public Python entry points and saved formats stay available.
+The host query uses borrowed typed evidence and preserves deferred input errors. It delivers NumPy events before each primitive returns.
+A callback error is handled at the original metric or qualification boundary. An uncaught host error retains its original Python object.
+Callbacks do not own query state. Deferred errors keep their exception objects, cause/context links and group members. Earlier tracebacks on those objects are discarded. Query exit clears deferred error references, including input-packing failures; borrowed fields do not wait for cyclic garbage collection.
+Published v1 C layouts and queries remain available. Release every output through the library that created it.
+Result calls reject a wrong output size or an owner that was not released.
+Those rejected calls preserve borrowed inputs, the old output and diagnostic storage.
 
 The C++ call sequence is `prepare_case`, `run_case`, then `evaluate`.
 The caller supplies dimensions, design values, boundary conditions and controls.
@@ -38,6 +50,9 @@ that prepared state. The result library evaluates recorded evidence.
   Do not copy owners or free their buffers with a caller allocator.
 - Callbacks receive borrowed event views on the caller thread. They do not
   perform numerical preparation. Keep event order, logger names and messages.
+- Result v3 carries raw labels and typed Quick operands. C++ owns label comparisons and metric policy.
+  Fixed named host callbacks retain Python value protocols at the selected operation.
+  Object equality and inequality use separate callbacks; string subclasses keep their original operators.
 - The host owns case IDs, timestamps, file paths and Python object conversion.
   The native stages own physical rules, numerical defaults and evidence.
 - Preparation and solver libraries use their separate locked CoolProp builds.
@@ -52,6 +67,12 @@ that prepared state. The result library evaluates recorded evidence.
   their existing CFD values, including the CO2 factors where applicable.
 - Existing low-level ABI versions remain available. A retained run library
   must not need a new preparation symbol to restore its saved run state.
+- Run v2 records actual thermal mass, boundary power, energy settings and
+  certificates for result evaluation. It copies preparation notices and keeps
+  the current sCO2 scope limit. It does not certify an unverified model.
+- Run v2 uses the v1 result owner and release function. Its cancellation
+  status is 6; status 4 retains the full driver's envelope failure meaning.
+  Run v1 keeps its original cancellation status of 4.
 
 ## Uniform total mass flow
 
@@ -152,6 +173,12 @@ The [mass-flow preparation example](../examples/cpp/prepare_mass_2d.cpp) queries
 It also links only preparation and does not execute a solve.
 The [continuous preparation example](../examples/cpp/prepare_continuous_2d.cpp) starts with XY decisions and total flow.
 It exposes physical fields and local drag through v4, with only the preparation library.
+
+The [uniform-fluid example](../examples/cpp/uniform_2d.cpp) executes all three
+stages for CO2/water. Evaluation remains valid after the prepared owner is released.
+The [Quick Design example](../examples/cpp/quick_design.cpp) starts with raw
+operating points and dimensions. It calls `prepare_quick_design`, `run_case`
+and `evaluate`.
 These examples use only installed public headers and shared libraries.
 The Windows build copies the required DLLs beside each executable.
 
@@ -178,6 +205,40 @@ It builds and runs external callers outside the source tree:
 
 Use the applicable environment lock. A BO environment needs its matching `--python-lock` option.
 On Linux, add `--component result --python-lock engineering/requirements/postprocess.txt`.
-The check retains logs and 2D comparison fields. It removes the temporary installation and external build directories.
-The basic run path does not establish stage migration for fixed flow, other fluids, zones, 3D or Quick Design.
+The check retains logs, 2D comparison fields and Quick Design comparison fields. It removes the temporary installation and external build directories.
+These native paths do not establish stage migration for fixed flow, zones or 3D.
 Python integration and checkpoint recovery have separate acceptance gates.
+
+## Quick Design stage
+
+`quick_design_stage_c_api.h` declares a separate version 1 contract.
+It does not change an existing ABI. The preparation library owns geometry,
+uniform grids, inlet-state properties and analytical D-F pressure fractions.
+The solver library calls the existing Quick Design driver. It does not run SIMPLE.
+The result library evaluates its recorded fields and final-pass scalars.
+
+Raw cell length and wall thickness use mm. Dimensions use m, temperatures use K,
+absolute pressures use Pa, and mass flows use kg/s. Cross flow keeps the
+`(60, 40, 1)` grid. Counter flow keeps `(60, 1, 2)`. Optional flags distinguish
+an omitted value from an invalid explicit value. Height defaults to span,
+solid conductivity to 16 W/(m K), and tolerance to `1e-5`.
+The current arrangement budgets, relaxation, chunk sizes and heat tolerance remain.
+The fixed CFD table supplies D-F. The host resolves its environment selection
+before it calls this native entry. This entry reads no environment variables.
+
+Preparation copies an external warm start. The run copies the prepared fields
+and does not change them. Constant properties use one thermal pass; mean
+properties use two. The second pass uses the first pass's returned temperatures.
+Analytical inlet pressure fractions remain fixed through both passes.
+The result owns all 15 fields, physical grid widths, pressure evidence and
+final-pass scalars. It also retains the complete driver pass records.
+Cancellation returns status 6 and publishes no result. The driver has no
+per-call CPU setting; process thread controls keep their existing behavior.
+
+The native double path is distinct from Python's scalar and object protocols.
+Python preparation, saved-case validation, warning routing and Quick Design
+metric adapters remain active. Numeric arrays, NumPy error policy, arbitrary
+integers and objects need their own boundary checks before production changes.
+The native example does not establish those checks or complete N12 retirement.
+Quick Design remains a sizing approximation. Numerical convergence does not
+establish its physical validation, applicability or design qualification.

@@ -292,13 +292,84 @@ tpmshx_preparation_continuous_controls_2d_v4 controls_view(const p::CaseInput2D&
         {controls.cell_bounds_mm[0],controls.cell_bounds_mm[1]},
         {controls.wall_bounds_mm[0],controls.wall_bounds_mm[1]},array(controls.decision_mm)};
 }
+struct FlowOutputStorage {
+    const unsigned char* result;
+    std::size_t result_bytes;
+    tpmshx_preparation_case_failure_v2* failure;
+    char* error;
+    std::size_t error_bytes;
+
+    template<class T> void borrowed(const T* pointer,std::size_t count) const {
+        require_buffer(pointer,count);
+        require_disjoint(pointer,count,result,result_bytes);
+        require_disjoint(pointer,count,failure,failure?1:0);
+        require_disjoint(pointer,count,error,error_bytes);
+    }
+    void borrowed(tpmshx_preparation_text_v1 value) const {borrowed(value.data,value.size);}
+    void evidence(const tpmshx_preparation_flow_evidence_v3& value) const {
+        borrowed(value.ranges,value.range_count);borrowed(value.range_bounds_list,value.range_count);
+        borrowed(value.warnings,value.warning_count);borrowed(value.events,value.event_count);
+        for (std::size_t i=0;i<value.range_count;++i) {
+            const auto& range=value.ranges[i];borrowed(range.source,range.source_count);borrowed(range.shape,range.rank);
+            for (std::size_t j=0;j<range.source_count;++j) borrowed(range.source[j]);
+            for (const auto item:{range.side,range.stage,range.layout,range.label,range.quantity,range.unit}) borrowed(item);
+        }
+        for (std::size_t i=0;i<value.warning_count;++i) borrowed(value.warnings[i]);
+        for (std::size_t i=0;i<value.event_count;++i) {
+            borrowed(value.events[i].logger);borrowed(value.events[i].message);
+        }
+    }
+    void borrowed(tpmshx_preparation_array_v1 value) const {borrowed(value.data,value.size);}
+    void owned(const tpmshx_preparation_case_input_2d_v2& value) const {
+        for (const auto item:{value.sco2_nu.parameter_version,value.sco2_nu.source,value.sco2_nu.applicability}) borrowed(item);
+    }
+    void owned(const tpmshx_preparation_case_2d_v2& value) const {
+        const auto& base=value.values;
+        for (const auto item:{base.dx,base.dy,base.x_edges,base.y_edges,base.x_breaks,base.y_breaks,
+            base.cell_length,base.wall_thickness,base.total_porosity,base.solid_conductivity,base.hydraulic_radius}) borrowed(item);
+        for (const auto& side:base.sides) {
+            for (const auto item:{side.cross_widths,side.stream_widths,side.row_permeability,side.row_forchheimer,
+                side.permeability,side.forchheimer,side.inlet_geometry,side.outlet_geometry,
+                side.inlet_profile,side.outlet_profile,side.outlet_u_fraction}) borrowed(item);
+            borrowed(side.drag_evidence.campaign);borrowed(side.drag_evidence.scope);
+        }
+        for (const auto& model:base.models) {borrowed(model.name);borrowed(model.version);borrowed(model.side);}
+        evidence({base.ranges,base.range_count,value.range_bounds_list,
+            base.warnings,base.warning_count,base.events,base.event_count});
+        for (const auto item:{value.sco2_nu.parameter_version,value.sco2_nu.source,value.sco2_nu.applicability,
+            value.sco2_nu_model_version,value.sco2_nu_interpretation,value.co2.version,value.co2.application_version,
+            value.co2.pressure_model,value.co2.correction_source,value.co2.property_model,value.co2.common_geometry}) borrowed(item);
+        for (const auto& drag:value.drag) {
+            borrowed(drag.application_scope);borrowed(drag.fluid);borrowed(drag.calibration,drag.calibration_count);
+            for (std::size_t i=0;i<drag.calibration_count;++i) {
+                borrowed(drag.calibration[i].key);borrowed(drag.calibration[i].value);
+            }
+        }
+        borrowed(value.notices,value.notice_count);
+        for (std::size_t i=0;i<value.notice_count;++i) borrowed(value.notices[i]);
+    }
+    void owned(const tpmshx_preparation_flow_2d_v3& value) const {owned(value.input);evidence(value.evidence);}
+    void owned(const tpmshx_preparation_flow_case_2d_v3& value) const {owned(value.prepared);owned(value.flow);}
+    void owned(const tpmshx_preparation_continuous_flow_2d_v4& value) const {
+        owned(value.flow);borrowed(value.controls.decision_mm);
+    }
+    void owned(const tpmshx_preparation_continuous_case_2d_v4& value) const {
+        owned(value.prepared);owned(value.flow);borrowed(value.controls.decision_mm);
+        for (const auto item:{value.area_density_per_m,value.hydraulic_diameter_m,
+            value.fluid_conductivity[0],value.fluid_conductivity[1]}) borrowed(item);
+        for (const auto& drag:value.drag) {borrowed(drag.transfer_policy);borrowed(drag.geometry_application);}
+    }
+};
 template<class Source,class Result,class Function> int flow_boundary(
     const Source* source,const tpmshx_preparation_case_options_v1* selected,
     const tpmshx_preparation_case_callbacks_v1* callbacks,Result* result,
     tpmshx_preparation_case_failure_v2* failure,char* error,size_t capacity,Function function) {
     if (!tpmshx::fields::c_api::error_buffer_valid(error,capacity)) return TPMSHX_PREPARATION_INVALID;
-    // Prove all described storage before an error can write into an input.
+    // Keep diagnostics separate from input and retained output storage.
+    const FlowOutputStorage storage{reinterpret_cast<const unsigned char*>(result),
+        result?sizeof(*result):0,failure,error,capacity};
     try {
+        if (result && result->owner) storage.owned(*result);
         require_disjoint(error,capacity,source,source?1:0);require_disjoint(error,capacity,result,result?1:0);
         require_disjoint(error,capacity,selected,selected?1:0);require_disjoint(error,capacity,callbacks,callbacks?1:0);
         require_disjoint(error,capacity,failure,failure?1:0);

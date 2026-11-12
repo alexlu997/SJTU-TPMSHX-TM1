@@ -1,10 +1,9 @@
 """One result verdict for postprocessing and application consumers."""
 import numpy as np
 
-from sjtu_tpmshx.shared import _native_result_checks
 
 from .applicability import evaluate_applicability
-from .physical_balance import evaluate_physical_balance
+from sjtu_tpmshx.development.tests.result_balance_reference import evaluate_physical_balance
 
 
 _REQUIRED_METRICS = ('Q', 'Q_B', 'dP_A', 'dP_B', 'T_out_A', 'T_out_B')
@@ -21,18 +20,23 @@ def _verdict(passed, source, **evidence):
 
 
 def _energy_gates(field):
-    from sjtu_tpmshx.postprocess.conservation import compute_phase2a
+    from .shared_math import compute_phase2a as raw_certificate
+    def compute_phase2a(field):
+        return raw_certificate({**field.metadata["diagnostics"],
+            "_audit_fB": field.metadata["parameters"]["fluid_B_cfg"],
+            "h_vB_field": field.fields["h_vB"]})
     metadata = field.metadata
     if metadata['thermal_mode'] in ('true_h', 'conservative_energy'):
         balance = metadata['diagnostics']['true_h_balance']
         clips = np.asarray(balance['enthalpy_clip_counts']['total'])
         gates = [['true-h thermal solve converged', balance['converged'] is True],
-                 ['true-h enthalpy remains unclipped', bool(clips.shape == (2,) and _native_result_checks.all_zero(clips))]]
+                 ['true-h enthalpy remains unclipped', bool(clips.shape == (2,) and np.all(clips == 0))]]
         for name in ('coupled', 'equation'):
             ratio = balance[name + '_energy_balance']['ratio']
             tolerance = balance['effective_settings'][name + '_energy_tol']
             gates.append([f'true-h {name} energy balance',
-                          _native_result_checks.energy_ratio(ratio, tolerance)])
+                          bool(np.isfinite(ratio) and np.isfinite(tolerance)
+                               and 0 <= ratio <= tolerance and tolerance > 0)])
         return gates
     if metadata['thermal_mode'] == 'temperature':
         if metadata.get('temperature_transport') != 'model_enthalpy_temperature_v1':
@@ -65,14 +69,14 @@ def evaluate_qualification(result, metrics):
     detail = metadata.get('diagnostics', {}).get('convergence_detail', {})
     gates = {key: detail[key] for key in ('simple_ok', 'ltne_ok', 'outer_converged',
              'fields_finite', 'envelope_ok', 'richardson_ok') if key in detail}
-    raw_fields = {name: _native_result_checks.all_finite(values)
+    raw_fields = {name: bool(np.all(np.isfinite(values)))
                   for name, values in result.fields.items() if not name.endswith('_display')}
     for name in ('Ta', 'Tb', 'Ts'):
         raw_fields.setdefault(name, None)
     fine = result.boundary_fluxes.get('fine')
     if fine:
         for name in ('Ta', 'Tb', 'Ts'):
-            raw_fields['fine.' + name] = (_native_result_checks.all_finite(fine[name])
+            raw_fields['fine.' + name] = (bool(np.all(np.isfinite(fine[name])))
                                           if fine.get(name) is not None else None)
     convergence = _verdict(_all_known((result.run_status.get('converged'), _all_known(raw_fields.values()),
         *(value for value in gates.values() if value is not None))),

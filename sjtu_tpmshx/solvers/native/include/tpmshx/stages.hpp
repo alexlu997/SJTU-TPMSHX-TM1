@@ -1,5 +1,6 @@
 #pragma once
 #include "tpmshx/stage_run_c_api.h"
+#include "tpmshx/quick_design_stage_c_api.h"
 #include <algorithm>
 #include <stdexcept>
 #include <thread>
@@ -78,6 +79,12 @@ struct RunRequest2D : tpmshx_stage_run_request_2d_v1 {
         abi_version=TPMSHX_STAGE_RUN_ABI_VERSION;struct_size=sizeof(tpmshx_stage_run_request_2d_v1);
     }
 };
+struct RunRequest2Dv2 : tpmshx_stage_run_request_2d_v2 {
+    RunRequest2Dv2():tpmshx_stage_run_request_2d_v2{} {
+        abi_version=TPMSHX_STAGE_RUN_ABI_VERSION_V2;struct_size=sizeof(tpmshx_stage_run_request_2d_v2);
+        values=RunRequest2D{};
+    }
+};
 struct RunControl : tpmshx_stage_run_control_v1 {
     RunControl():tpmshx_stage_run_control_v1{} {
         const auto logical=std::thread::hardware_concurrency();cpu_threads=std::min(8u,logical?logical:1u);
@@ -153,7 +160,41 @@ inline RunResult2D run_case(const PreparedCase2D& prepared,const RunControl& con
     detail::check(tpmshx_run_case_2d_v1(&prepared.view(),&request,&control,&output,error,sizeof(error)),error);
     return RunResult2D(output);
 }
+inline RunResult2D run_case(const PreparedCase2Dv2& prepared,const RunControl& control,const RunRequest2Dv2& request={}) {
+    tpmshx_stage_run_result_2d_v1 output{};
+    output.abi_version=TPMSHX_STAGE_RUN_ABI_VERSION;output.struct_size=sizeof(output);
+    char error[4096]{};
+    detail::check(tpmshx_run_case_2d_v2(&prepared.view(),&request,&control,&output,error,sizeof(error)),error);
+    return RunResult2D(output);
+}
 inline Evaluation evaluate(const RunResult2D& result,const tpmshx_stage_metric_spec_v1* metric=nullptr) {
+    tpmshx_stage_output_v1 output{};output.struct_size=sizeof(output);
+    char error[4096]{};
+    detail::check(tpmshx_result_stage_evaluate_v1(&result.view().evidence,metric,&output,error,sizeof(error)),error);
+    return Evaluation(output);
+}
+using PreparedQuickDesign=detail::Owned<tpmshx_quick_prepared_v1,tpmshx_quick_prepared_release_v1>;
+using RunResultQuickDesign=detail::Owned<tpmshx_quick_run_result_v1,tpmshx_quick_run_release_v1>;
+struct QuickDesignInput : tpmshx_quick_input_v1 {
+    QuickDesignInput():tpmshx_quick_input_v1{} {
+        abi_version=TPMSHX_QUICK_DESIGN_STAGE_ABI_VERSION;struct_size=sizeof(tpmshx_quick_input_v1);
+    }
+};
+inline PreparedQuickDesign prepare_quick_design(const QuickDesignInput& input) {
+    tpmshx_quick_prepared_v1 output{};
+    output.abi_version=TPMSHX_QUICK_DESIGN_STAGE_ABI_VERSION;output.struct_size=sizeof(output);
+    char error[4096]{};
+    detail::check(tpmshx_prepare_quick_design_v1(&input,&output,error,sizeof(error)),error);
+    return PreparedQuickDesign(output);
+}
+inline RunResultQuickDesign run_case(const PreparedQuickDesign& prepared,const tpmshx_quick_run_control_v1& control) {
+    tpmshx_quick_run_result_v1 output{};
+    output.abi_version=TPMSHX_QUICK_DESIGN_STAGE_ABI_VERSION;output.struct_size=sizeof(output);
+    char error[4096]{};
+    detail::check(tpmshx_run_quick_design_v1(&prepared.view(),&control,&output,error,sizeof(error)),error);
+    return RunResultQuickDesign(output);
+}
+inline Evaluation evaluate(const RunResultQuickDesign& result,const tpmshx_stage_metric_spec_v1* metric=nullptr) {
     tpmshx_stage_output_v1 output{};output.struct_size=sizeof(output);
     char error[4096]{};
     detail::check(tpmshx_result_stage_evaluate_v1(&result.view().evidence,metric,&output,error,sizeof(error)),error);
