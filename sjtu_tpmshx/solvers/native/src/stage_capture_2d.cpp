@@ -345,7 +345,7 @@ public:
                 summary.pressure_max_Pa[side]=a::to_float(a::maximum(pressure,diagnostics));
             }
             summary.absolute_duty[side]=metrics::duty_magnitude(raw.duty[side]);
-            summary.have_finite_duty|=std::isfinite(raw.duty[side]);
+            if(std::isfinite(raw.duty[side]))summary.have_finite_duty=1;
             const auto clips=raw.flow[side].result.pressure_clip_hits;
             if(clips>std::numeric_limits<size_t>::max()-summary.pressure_clip_hits)
                 throw std::overflow_error("native pressure clip count exceeds size_t");
