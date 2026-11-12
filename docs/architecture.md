@@ -92,7 +92,7 @@ Its scalar tags retain field precision. Run v2 consumes this state through the
 existing model-h or true-h route and records the actual thermal evidence.
 Preparation v3 adds independent capacity, inlet-flow resolution and complete preparation for uniform 2D total mass flow.
 It reuses physical inlet geometry and keeps preliminary evidence separate from final preparation evidence.
-The existing v1/v2 C layouts and Python production entries are unchanged.
+The existing v1/v2 C layouts and public Python interfaces are unchanged.
 Preparation v4 adds canonical continuous XY controls to capacity, resolution and complete preparation.
 It samples the physical grid with the existing spline and geometry cores, then retains full local drag.
 Its prepared view adds only area density, original hydraulic diameter and the two fluid conductivities.
@@ -100,11 +100,11 @@ Experimental transfer keeps the current Shanghai contract, separate early range 
 Run v3 consumes this continuous state with the existing full 2D driver.
 It preserves local drag, original hydraulic diameter, unit order and nominal reference geometry.
 Resolved uniform flow cases use run v2. Both routes retain the v1 result owner.
-No v1/v2/v3 C layout changes.
+No v1/v2/v3 preparation C layout changes.
 Preparation v5 adds raw air/air stripes and rectangles at prescribed velocity, with CFD drag and zero delta.
 It preserves L/t projection before row D-F, discrete smoothing and separate thermal geometry fields.
 It owns per-call typed caches and accepts only the v1 event callback.
-It does not change Python route selection or enable mass targets, sigmoid fields or nonzero delta.
+This raw v5 interface does not select Python routes or accept mass targets, sigmoid fields or nonzero delta.
 Preparation v6 adds raw air/air sigmoid controls under the same velocity, drag and delta limits.
 It keeps ordered blending, typed transitions, separate design/thermal geometry and row D-F projection, without Gaussian smoothing.
 An owned LUT can be built from raw geometry or supplied by the caller; each table keeps its interpolation mode.
@@ -112,7 +112,7 @@ The native cold defaults are 41x31 nodes at voxel resolution 256. Python keeps d
 Preparation v7 carries domain and port scalar kinds through the same grid, opening and spatial-field owners.
 It keeps v3-v6 payloads and releases; earlier entries retain weak double domain and port values.
 Preparation v8 adds raw spatial capacity, flow resolution and complete fixed-flow preparation for the same air/air CFD scope.
-It uses design porosity at the actual inlet, resolves speeds, then completes properties on the retained physical grid and geometry.
+It uses design porosity at the actual inlet, resolves speeds, then completes properties on the same physical grid and geometry.
 Discrete smoothing, sigmoid LUT geometry, separate thermal geometry and row D-F keep their existing rules.
 Its flow results own copied spatial controls and LUTs; preliminary and final evidence remain separate.
 The v8 raw boundary retains event-only callbacks.
@@ -127,8 +127,33 @@ It adds nominal thermal-side tuples and retains the existing asymmetric N128 geo
 Design fields and cell thermal geometry remain separate. Continuous fields, CO2/sCO2, experimental models and total mass flow keep their existing limits.
 Python uniform preparation uses v10; its capacity and flow-resolution queries retain v7 with v3 results.
 Canonical continuous XY entries retain v7 with v4 results. Air/air stripes, rectangles and sigmoid fields use v10 for all three operations.
-Earlier preparation layouts and scopes remain unchanged. 3D preparation retains its explicit existing route.
+Earlier preparation layouts and scopes remain unchanged.
 Public ZoneConfig and sigmoid combination queries retain standalone consumers until their separate migration passes.
+These public interfaces keep supplied properties and custom sigmoid controls.
+
+The separate `tpmshx_prepare_case_3d_v1` prepares raw symmetric uniform 3D inputs at prescribed inlet speeds.
+It supports both topologies and all 16 fluid pairs with existing CFD or experimental DF limits.
+The owned state retains physical `(x,y,z)` fields, typed ports, axis maps for six directions and model evidence.
+Side porosity is already split. Base K/cF fields remain unscaled; side evidence retains the application factors.
+The host supplies the resolved cell cap. The raw interface accepts v1 event callbacks; host v5 adds typed v9 cache callbacks.
+The separate 3D flow v2 reuses that geometry for capacity, flow resolution and complete preparation.
+It integrates side porosity on the actual inlet face and keeps static evidence before resolved-speed checks.
+The 3D continuous v3 accepts XY extrusion or XYZ controls for the same three flow operations.
+It samples final physical centres and retains raw design geometry separately from the thermal SI round trip.
+Full local K/cF and side porosity keep their original meaning. Existing v1/v2 layouts remain unchanged.
+The 3D spatial v4 adds XY grid rectangles and the existing global offset rules.
+It assigns physical XY centres, smooths L/t separately, then extends fields along z.
+The existing asymmetric owner supplies nominal split and thermal side/reference geometry.
+Local total porosity remains symmetric; each side capacity uses its own split field.
+The v1/v2/v3/v4 layouts remain unchanged. Python 3D preparation uses host v5 and its typed cache callbacks.
+`preprocess/three_d/preparation.py` keeps config conversion, environment parsing and immutable DTO assembly.
+`preprocess/native_preparation.py` shares cache and warning transport with 2D.
+The C++ owner builds the physical grid once and keeps static evidence before resolved-speed checks.
+Air-field scalar observations use at most eight selected values per side, with the original notices, extrema and last sample.
+Full raw-array range records keep all physical cells.
+The replaced 3D Python bodies and exclusive `shared/models/grid_3d.py` and `asym_split.py` are removed.
+Their frozen reference remains in `development/tests/preparation_3d_reference.py`.
+Memory use near the cell cap and real 3D BO also need separate acceptance.
 The adapter preserves CaseData fields, scalar types, events, source ranges and saved model selections.
 The v2 host hook preserves object errors and warning scopes at their original execution points.
 It supplies no numerical values. The v3 hooks exchange completed cache entries and synchronous observations.
@@ -138,9 +163,18 @@ A native failure never selects another preparation route.
 The replaced Python 2D preparation sequence and row D-F projection are retired; independent frozen references remain under `development/tests`.
 `preprocess/two_d/preparation.py` retains the native adapter. `shared/models/zone_units.py` owns saved zone-unit conversion.
 Nominal x/y grid warnings have separate host emission sites in the retained preparation adapter.
-`preparation_case.cpp` owns that complete preparation sequence.
+`preparation_case.cpp` owns 2D preparation and uniform, continuous or grid/offset 3D preparation.
 `stage_run.cpp` adapts it to the existing full 2D driver.
-Its lifecycle interface uses the same full 2D run object, typed snapshots and restore checks.
+`stage_run_3d.cpp` connects all four 3D preparation families and saved inputs to `Full3DRun`.
+`stage_capture_3d.cpp` owns the complete raw result and its independent evaluation evidence.
+Final flow supplies pressure and display. The last completed thermal inputs supply mass, thermal pressure and energy.
+The result survives preparation and run release. Python full 3D runs use its saved-input lifecycle.
+`full_3d_stage.py` retains recorded input validation and borrows the existing XYZ fields.
+The driver keeps one input pack, callback bridge and raw DTO decoder. `full_3d_capture.py` remains the single result assembler.
+Native capture supplies heat-source sums, pressure clip counts, Nu statistics, cell counts and optional audit outlet weights.
+Complete protocol selection occurs before execution. Archived libraries retain their direct execution and restore interfaces.
+Partial protocols and native failures do not select another route. Direct low-level DTO callers keep their complete outputs.
+The 2D lifecycle interface uses the same full 2D run object, typed snapshots and restore checks.
 Partial energy controls use defaults from the selected library.
 Preparation evidence remains borrowed until result transfer or run release.
 `stage_capture_2d.cpp` records the actual run evidence for `result_stage.cpp`.
@@ -156,13 +190,22 @@ Archived libraries without the applicable saved protocol retain their existing i
 Missing new-protocol symbols and execution failures are errors. They do not start another run through the old route.
 The single `FieldResult` assembler is in `full_2d_capture.py`. It preserves warning and application-property check order.
 The installed C ABI and `stages.hpp` support external C++ callers.
-The separate Quick Design stage accepts raw native double operating points.
-`quick_design_prepare.cpp` reuses geometry, property and analytical D-F owners.
+Quick Design preparation v2 accepts typed raw operating points.
+`quick_design_prepare_v2.cpp` owns the complete numerical sequence, including geometry, grids, inlet properties and analytical D-F pressure fractions.
+Its separate pressure query creates no thermal grid or design-field arrays.
+`shared/models/_native_quick_prepare.py` keeps Python object protocols, cache exchanges, warnings and snapshots through fixed named host operations.
+These operations cannot call numerical models. C++ selects their order and all numerical branches.
+`preprocess/app_modes/quick_design.py` assembles CaseData from the copied native output.
+The replaced `shared/models/quick_design.py` is removed; its frozen reference remains in `development/tests/quick_prepare_reference.py` for regression checks.
+Quick defaults have one source in `shared/configs/model_parameters_v1.json`.
+Python reads that resource; C++ uses its generated constants. Stored counterflow `qtol` and `chunk` remain `None`.
+The native-double v1 preparation in `quick_design_prepare.cpp` and its published layouts remain available.
 `quick_design_run.cpp` uses the existing driver and copies its result evidence.
 Its const/mean, cross/counter and warm-start rules stay unchanged.
-Python object and numeric-type contracts still need separate integration checks.
-Current Python entry points retain their existing behavior and all supported modes.
-The migration gates must pass before their numerical and policy bodies can retire.
+Python execution uses this run stage with saved prepared fields, without new preparation.
+It copies native fields and declarations before release and keeps the original grid, fixed-field dtypes and operating-point scalars.
+The native result stage owns Quick Design metrics. Fixed host operations keep the existing type and event protocols.
+Current Python entry points keep their supported modes. This migration does not establish physical validation.
 
 <a id="retained-python-responsibilities"></a>
 
@@ -171,11 +214,11 @@ Full result evidence selection and qualification belong to the native stage. Pyt
 Python modules also own GUI display, input validation, application searches, BO, offline data processing and fitting.
 The following boundaries keep their original arithmetic and consumers:
 
-- Explicit Python object and arbitrary-precision integer protocols, selected before the typed ABI. Native errors still propagate.
+- Explicit Python object and arbitrary-precision integer protocols at their declared boundaries. Quick preparation and result stages select fixed named host operations. Native errors still propagate.
 - Configuration control nodes, unit conversion, serialized grid edges and archive consistency checks. Initial-temperature and configuration checks keep their error order.
 - Range summaries for standalone getter, geometry and sCO2 messages, GUI previews and nTop export statistics. C++ still owns formal range collection and qualification checks.
 - The `ports_complete` injected-ledger check and default input adaptation for independent low-level drivers. Current native ledgers return an explicit completeness flag.
-- The historical 3D display taper under `_emit_audit`, independent development references and research fits. Formal ports and metrics use actual native face evidence.
+- Direct low-level and archived-runtime 3D capture calculations, independent development references and research fits. Current saved-stage capture owns the audit display taper. Formal ports and metrics use actual native face evidence.
 
 The native full-compute CC route uses the existing air/water integral h(T)
 model through strict model-h drivers. Earlier variable-cp m*cp*T failures
@@ -536,8 +579,9 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
 - `solvers/backends/cpp/` exposes the independent prepared Quick Design and
   full 2D/3D drivers through `RunControl`, which defaults to C++. The host library path is not serialized in CaseData. Shared QD validation and
   result mapping belong to `solvers/backends/quick_design.py`. Numerical property
-  passes, liquid-state guards and thermal iteration belong to the C++ driver. Its returned scalar pass evidence is expanded into the same fields and warning
-  records for postprocessing.
+  passes, liquid-state guards and thermal iteration belong to the C++ driver.
+  The Quick Design run stage expands its scalar evidence into fields and declarations.
+  Python copies the owned output and uses the pass evidence for warning records.
 
   Full 2D/3D own SIMPLE, pressure references, outer
   property/thermal coupling and final certificates in C++. 2D also owns
@@ -1874,7 +1918,7 @@ explicit numerical-model change with directly relevant validation.
    with a constant-density or isothermal shortcut.
 2. **Porosity is split one time.** Symmetric LTNE callers pass the full porosity.
    The energy solver forms the two half-porosity streams. For an offset
-   isosurface, `shared/models/asym_split.py` computes the upstream `eps_A`/`eps_B`
+   isosurface, `solvers/native/src/preparation_case.cpp` computes the upstream `eps_A`/`eps_B`
    split. Its sides sum to the full porosity. The kernel does not halve those
    values again.
 

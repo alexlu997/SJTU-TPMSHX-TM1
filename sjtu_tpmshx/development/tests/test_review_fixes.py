@@ -19,15 +19,9 @@ import pytest
 
 
 def test_domain_firewall_blocks_meter_typed_as_mm():
-    """The domain unit firewall (L > 10 m → ValueError, catching the
-    classic mm-vs-m slip of typing 182 into a metre field) must guard the
-    PRODUCTION parse boundary. Since B2 2.1c that boundary is
-    ``_parse_inputs_3d_cfg`` (driven by preprocess.api.prepare_case); the
-    window adapter the original test used was deleted with the legacy
-    entrypoints.
-    """
+    """Reject a domain above 10 m at the public preparation boundary."""
     from sjtu_tpmshx.shared.domain.compute_config import ComputeConfig, GeometryConfig, SolverConfig
-    from sjtu_tpmshx.preprocess.three_d.preparation import _parse_inputs_3d_cfg
+    from sjtu_tpmshx.preprocess.api import prepare_case
 
     cc = ComputeConfig(
         geometry=GeometryConfig(L_dom_m=182.0,    # unit slip: meant 0.182
@@ -35,7 +29,7 @@ def test_domain_firewall_blocks_meter_typed_as_mm():
         solver=SolverConfig(Nx=30, Ny=20, Nz=5),
     )
     with pytest.raises(ValueError) as excinfo:
-        _parse_inputs_3d_cfg(cc)
+        prepare_case(cc, case_id='invalid-domain')
     assert "exceeds" in str(excinfo.value) or "unit" in str(excinfo.value).lower(), (
         f"Expected unit firewall message, got: {excinfo.value}")
     print("test_domain_firewall_blocks_meter_typed_as_mm PASS")

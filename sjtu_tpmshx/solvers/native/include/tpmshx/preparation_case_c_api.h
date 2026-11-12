@@ -665,6 +665,8 @@ TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_continuou
  * All physical arrays use C order (nx,ny). Nested prepared owners are NULL.
  * The prepared subview does not enable a zoned run through a v1/v2 run entry.
  * Initialize the outer owner to NULL and release it once with this library.
+ * Diagnostic storage must not overlap any view of an owned result.
+ * An overlapping call preserves that result and all diagnostic storage.
  */
 TPMSHX_PREPARATION_API uint32_t TPMSHX_PREPARATION_CALL tpmshx_preparation_case_abi_version_v5(void);
 TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_zoned_case_2d_v5(
@@ -681,7 +683,10 @@ TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_preparation_sigmoid_lu
     tpmshx_preparation_sigmoid_lut_v6*,char*,size_t);
 TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_sigmoid_lut_release_v6(
     tpmshx_preparation_sigmoid_lut_v6*);
-/* Supplied LUT axes are normalized and validated by their resource owner. */
+/* Supplied LUT axes are normalized and validated by their resource owner.
+ * Diagnostic storage must not overlap any owned prepared view or copied control.
+ * An overlapping call preserves that result and all diagnostic storage.
+ */
 TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_sigmoid_case_2d_v6(
     const tpmshx_preparation_sigmoid_input_2d_v6*,const tpmshx_preparation_case_options_v1*,
     const tpmshx_preparation_case_callbacks_v1*,tpmshx_preparation_sigmoid_case_2d_v6*,
@@ -780,7 +785,7 @@ TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_sigmoid_f
 TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_sigmoid_flow_case_2d_release_v8(
     tpmshx_preparation_sigmoid_flow_case_2d_v8*);
 
-/* V9 adds typed host caches and explicit geometry extrapolation policy. V1 event callbacks
+/* V9 adds typed host caches, a separate spatial material and explicit geometry extrapolation policy. V1 event callbacks
  * and v9 callbacks are accepted. Old input and callback layouts are unchanged.
  * Initialize only the outer result header and set its owner to NULL. Nested
  * owners are NULL; release only the outer result with its matching v9 function.

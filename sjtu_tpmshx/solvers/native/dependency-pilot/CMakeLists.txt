@@ -45,6 +45,7 @@ target_include_directories(tpmshx_energy PUBLIC "${TPMSHX_NATIVE_ROOT}/include")
 target_link_libraries(tpmshx_energy PUBLIC Threads::Threads)
 # Sources that emit common finite-volume rows use one contraction policy.
 # Weak-symbol selection must not change the arithmetic.
+# Capture keeps the separate rounding steps of the original NumPy operations.
 if(MSVC)
     set(TPMSHX_ENERGY_ROW_FP_OPTION /fp:strict)
 else()
@@ -58,6 +59,7 @@ set_property(SOURCE
     "${TPMSHX_NATIVE_ROOT}/src/model_h_2d.cpp"
     "${TPMSHX_NATIVE_ROOT}/src/model_h_3d.cpp"
     "${TPMSHX_NATIVE_ROOT}/src/preparation_flow.cpp"
+    "${TPMSHX_NATIVE_ROOT}/src/stage_capture_3d.cpp"
     "${TPMSHX_NATIVE_ROOT}/tests/conservative_energy_smoke.cpp"
     APPEND PROPERTY COMPILE_OPTIONS "${TPMSHX_ENERGY_ROW_FP_OPTION}")
 unset(TPMSHX_ENERGY_ROW_FP_OPTION)
@@ -252,6 +254,8 @@ foreach(target IN ITEMS tpmshx_solver tpmshx_solver_shared)
     target_sources(${target} PRIVATE "${TPMSHX_NATIVE_ROOT}/src/stage_run.cpp"
         "${TPMSHX_NATIVE_ROOT}/src/preparation_flow.cpp"
         "${TPMSHX_NATIVE_ROOT}/src/stage_capture_2d.cpp"
+        "${TPMSHX_NATIVE_ROOT}/src/stage_run_3d.cpp"
+        "${TPMSHX_NATIVE_ROOT}/src/stage_capture_3d.cpp"
         "${TPMSHX_NATIVE_ROOT}/src/quick_design_run.cpp")
 endforeach()
 set_target_properties(tpmshx_solver_shared PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS OFF)

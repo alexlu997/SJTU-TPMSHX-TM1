@@ -22,7 +22,7 @@ They do not call the native formulas that they check.
 `src/preparation_case.cpp` owns raw spatial capacity, resolution and complete fixed-flow preparation.
 `prepare_spatial_inlet_geometry` uses the existing zone/sigmoid geometry and port cores before any speed-dependent closure.
 `prepare_capacities` and `resolve_speeds` reuse `src/preparation_flow.cpp` for capacity and target arithmetic.
-Final preparation retains the physical grid, spatial geometry and per-call cache, with the original requested-grid observations.
+Final preparation keeps the physical grid, spatial geometry and per-call cache, with the original requested-grid observations.
 Discrete design smoothing, sigmoid LUT geometry, thermal geometry and row D-F keep their separate owners and operation order.
 `src/preparation_case_c_api.cpp` exposes v8 inputs and owned views without changing earlier C layouts.
 The [external spatial flow caller](../../../../examples/cpp/prepare_spatial_flow_2d.cpp) uses installed headers and only the preparation library.
@@ -54,3 +54,43 @@ The owned complete result adds two thermal-side tuples and retains the existing 
 Capacity and fixed-flow entries keep their previous delta rejection and validation order.
 Earlier C layouts and scopes stay unchanged. No physical model is added.
 The [external offset caller](../../../../examples/cpp/offset_2d.cpp) prepares, runs and evaluates the existing modes through installed headers.
+
+## 3D preparation
+
+The separate `prepare_case_3d` sequence in [preparation_case.cpp](../src/preparation_case.cpp)
+uses the existing grid, geometry, property and DF cores.
+It retains the production 3D physical `(x,y,z)` order, six axis maps,
+typed port arithmetic and the resolved cell cap.
+Its uniform side porosity is already split. Base K/cF fields remain unscaled;
+side evidence records the CO2 or experimental application factors.
+The sequence keeps A then B inlet properties, air-only bulk Nu observations,
+then DF application evidence. Existing state and calibration limits remain.
+The raw C interface owns returned buffers and accepts v1 event callbacks.
+The Python host path adds typed cache callbacks without changing raw v1-v4 layouts.
+The separate 3D flow v2 uses the same static geometry and speed-dependent finish steps.
+It reuses `inlet_capacity_3d` and `inlet_speed` from `preparation_flow.cpp`.
+Capacity queries omit speed-dependent work. Complete preparation preserves one geometry and the original evidence order.
+Continuous v3 samples raw XY or XYZ controls through `field_continuous.cpp` on the final physical grid.
+`have_ctrl_z` preserves the XYZ rule when its control count is one.
+Raw and thermal geometry retain separate evaluation order and unit conversions.
+The existing geometry and DF owners provide full local fields without 2D row projection.
+Air range observations reuse `reynolds_point` with the original scalar and array types.
+Spatial v4 uses `zones::assign` on physical XY centres, then `gaussian_sigma2` on L and t separately.
+It extends those fields along z and retains the separate thermal SI round trip.
+`asym::prepare_from_index` supplies the existing nominal split and thermal side/reference geometry.
+`asym::split_porosity` applies each fraction to local symmetric total porosity.
+Capacity uses the corresponding side field. Base DF and solid conductivity keep the existing symmetric geometry.
+The raw owner copies rectangle inputs and keeps borrowed nested views with null owners.
+The v1/v2/v3 C layouts and their original scope remain unchanged.
+These raw interfaces add no 3D solve or capture.
+Python 3D preparation uses host v5 through the existing v3/v4 inputs and owned results.
+The shared v9 descriptor transports typed geometry and inlet cache values and evidence.
+Native code owns grid, geometry, flow resolution and final preparation.
+Python keeps configuration conversion, cache policy, warnings, environment parsing and immutable CaseData assembly.
+The replaced 3D Python bodies and exclusive `shared/models/grid_3d.py` and `asym_split.py` helpers are removed.
+Their independent frozen reference remains in `development/tests/preparation_3d_reference.py`.
+
+3D air-field observations use `src/scalar_range_samples.hpp`, also used by result range queries.
+The selection keeps the original scalar notices, extrema and last sample with at most eight host observations per side.
+Full raw-array range records keep every cell and their original sample denominator.
+Preparation and result compile this rule separately; preparation does not link the result library.

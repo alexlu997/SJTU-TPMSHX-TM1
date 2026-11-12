@@ -47,16 +47,12 @@ def prepare_inlet_mass_capacities(config: ComputeConfig) -> dict[str, float]:
     Geometry, ports and static inputs are validated before constructing fields.
     The caller must still prepare the final case after prescribing its speeds.
     """
-    from .inlet_flow import total_inlet_mass_capacity
-
     config = deepcopy(config).validate_static_inputs()
     from .two_d import preparation
     if not config.is_3d:
         return preparation.capacities(config)
-    from .three_d.preparation import _parse_geometry_inputs_3d_cfg, _prepare_geometry_data
-    prepared = _prepare_geometry_data(_parse_geometry_inputs_3d_cfg(config))
-    design, parameters, grid = prepared['design'], {'prepared': prepared}, {'dimension': 3}
-    return {side: total_inlet_mass_capacity(design, parameters, grid, side) for side in ('A', 'B')}
+    from .three_d.preparation import capacities
+    return capacities(config)
 
 
 def prepare_fixed_mass_flow_case(
@@ -89,26 +85,8 @@ def _prepare_mass_flow_case(config, targets, *, case_id):
     if not config.is_3d:
         return preparation.prepare_mass_flow_case(config, targets, case_id=case_id)
 
-    def prepare():
-        from .three_d.preparation import (
-            _parse_geometry_inputs_3d_cfg, _prepare_geometry_data, _finish_problem_data,
-            _set_run_environment, _case_from_prepared,
-        )
-        from .inlet_flow import total_inlet_mass_capacity
-        from sjtu_tpmshx.shared.models.input_validation import surrogate_extrap_reasons
-
-        config.validate_static_inputs()
-        cfg = _parse_geometry_inputs_3d_cfg(config)
-        _set_run_environment(cfg)
-        prepared = _prepare_geometry_data(cfg)
-        capacities = {side: total_inlet_mass_capacity(
-            prepared['design'], {'prepared': prepared}, {'dimension': 3}, side) for side in 'AB'}
-        resolved = _resolve_inlet_speeds(config, targets, capacities)
-        prepared['cfg'].update(u_A=resolved.fluid_A.u_mps, u_B=resolved.fluid_B.u_mps,
-            compute_cfg=resolved, extrap_reasons=surrogate_extrap_reasons(resolved, bool(resolved.extrap.allow)))
-        return _case_from_prepared(resolved, _finish_problem_data(prepared), case_id=case_id)
-
-    return _prepare_with_metadata(prepare)
+    from .three_d.preparation import prepare_mass_flow_case
+    return prepare_mass_flow_case(config, targets, case_id=case_id)
 
 
 def resolve_fixed_mass_flow_config(
@@ -119,7 +97,8 @@ def resolve_fixed_mass_flow_config(
     from .two_d import preparation
     if not config.is_3d:
         return preparation.resolve(config, targets=tuple(targets[side] for side in 'AB'))
-    return _resolve_inlet_speeds(config, targets, prepare_inlet_mass_capacities(config))
+    from .three_d.preparation import resolve
+    return resolve(config, targets=tuple(targets[side] for side in 'AB'))
 
 
 def resolve_inlet_flow_config(config: ComputeConfig) -> ComputeConfig:
@@ -131,7 +110,8 @@ def resolve_inlet_flow_config(config: ComputeConfig) -> ComputeConfig:
     from .two_d import preparation
     if not config.is_3d:
         return preparation.resolve(config)
-    return _resolve_inlet_speeds(config, targets, prepare_inlet_mass_capacities(config))
+    from .three_d.preparation import resolve
+    return resolve(config)
 
 
 def _fixed_mass_flow_inputs(config, flow_a, flow_b):
@@ -149,15 +129,6 @@ def _fixed_mass_flow_inputs(config, flow_a, flow_b):
     config = replace(config, **{'fluid_' + side: replace(getattr(config, 'fluid_' + side),
                        mass_flow_kg_s=None) for side in 'AB'})
     return config, targets
-
-
-def _resolve_inlet_speeds(config, targets, capacities):
-    from sjtu_tpmshx.shared.models import _native_flow
-    speeds = _native_flow.inlet_speeds(targets.values(), (capacities[side] for side in targets))
-    fluids = {'fluid_' + side: replace(getattr(config, 'fluid_' + side),
-                                       u_mps=speed)
-              for side, speed in zip(targets, speeds)}
-    return replace(config, **fluids).validate(resolved_inlet_speeds=True)
 
 
 def prepare_quick_design(*args, **kwargs) -> CaseData:

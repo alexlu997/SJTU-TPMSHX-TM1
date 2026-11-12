@@ -628,7 +628,9 @@ def verify(cache: Path, host: str, component: str = "all") -> None:
         return
     preparation_dir = cache / "build" / f"preparation-{host}"
     for caller in ("preparation_c_static", "preparation_c_shared",
-                   "preparation_case_c_static", "preparation_case_c_shared"):
+                   "preparation_case_c_static", "preparation_case_c_shared",
+                   "preparation_case_3d_c_static", "preparation_case_3d_c_shared",
+                   "quick_prepare_c_static", "quick_prepare_c_shared"):
         run([preparation_dir / f"{caller}{suffix}"], log)
     prefix, shared_suffix = ("", ".dll") if host == "windows-x64" else ("lib", ".dylib")
     preparation = ct.CDLL(str(preparation_dir / (prefix + 'tpmshx_preparation_shared' + shared_suffix)))
@@ -836,6 +838,7 @@ def check_stages(cache: Path, host: str, python: Path, lock: Path, component: st
             shutil.copytree(ROOT / "sjtu_tpmshx/solvers/native/tests/stages", tests / "stages")
             for smoke in ("stage_run_smoke", "quick_design_stage_smoke"):
                 shutil.copy2(ROOT / f"sjtu_tpmshx/solvers/native/tests/{smoke}.cpp", tests)
+            shutil.copy2(ROOT / "sjtu_tpmshx/solvers/native/tests/stage_run_3d_smoke.c", tests)
             sources.append("tests/stages")
         env = {key: value for key, value in os.environ.items()
                if key not in {"PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV"} and not key.startswith("TPMSHX_")}

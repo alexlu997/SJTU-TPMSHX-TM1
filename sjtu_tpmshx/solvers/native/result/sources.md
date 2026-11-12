@@ -15,9 +15,13 @@ The full application retains its macOS arm64 and Windows x64 platforms.
 | `src/result_metrics.cpp` | Pressure faces, duties, mass flow, outlet values, integrated mass and Quick Design metrics. |
 | `src/result_balance.cpp` | Independent signed mass and energy balances, residual norms and zone statistics. |
 | `src/result_checks.cpp` | Range observations, qualification predicates, envelope helpers and physical mass bounds. |
+| `src/scalar_range_samples.hpp` | Scalar observation selection shared with preparation; first notices, extrema and the last sample. |
 | `src/result_stage.cpp` | Full metric selection, definitions, statuses, applicability, physical balances and qualification. |
 | `src/result_stage_c_api.cpp` | Owned stage reports, borrowed evidence and versioned host event/error control. |
 | `src/result_c_api.cpp` and family C interfaces | Versioned C functions with checked buffers and ordered floating-point diagnostics. |
+
+`scalar_range_samples.hpp` is a private source dependency.
+Preparation and result compile it separately; preparation does not link the result library.
 
 Python retains DTOs, type and shape adaptation, original object identity, NumPy event handling and file I/O.
 The result stage owns full 2D/3D evidence selection, status and reason text.
@@ -79,6 +83,10 @@ Fixed named host callbacks retain only Python value protocols at the native-sele
 Object equality and inequality use separate callbacks. String subclasses retain their original comparison operators.
 Deferred conversion errors and NumPy callbacks are consumed at the original metric or qualification boundary.
 Uncaught host exceptions return their original token. Stage outputs are released through their originating library.
+Host callbacks do not own query state. Query exit clears deferred error references, including errors from input packing.
+Deferred errors retain their exception objects, cause/context links and group members, without their earlier tracebacks.
+Stage calls reject a wrong output size or an owner that was not released.
+Those rejected calls leave borrowed inputs, the old output, error text and host diagnostics unchanged.
 Only the symbols in `result.exports` and `result.map` are public.
 There is no public arithmetic opcode evaluator or callback that supplies complete metrics.
 

@@ -614,9 +614,9 @@ template<class Run> int boundary(const tpmshx_result_evidence_v1* value, tpmshx_
             }
             value = extension->evidence;
         }
-        output_valid = true;
         if (output->struct_size != sizeof(*output)) throw std::invalid_argument("unsupported result stage output size");
         if (output->owner) throw std::invalid_argument("release the previous result stage output before reuse");
+        output_valid = true;
         input.sequence(value, 1);
         if (value->abi_version != TPMSHX_RESULT_STAGE_ABI_VERSION || value->struct_size != sizeof(*value))
             throw std::invalid_argument("unsupported result stage evidence ABI");
