@@ -37,8 +37,8 @@ def test_prepared_only_b20_air_baseline(monkeypatch):
     case = prepare_case(baseline_config(), case_id='B20-air')
     def forbidden(*args, **kwargs):
         raise AssertionError('execution called preprocessing')
-    monkeypatch.setattr(preparation, '_parse_inputs_cfg', forbidden)
-    monkeypatch.setattr(preparation, '_prepare_grid', forbidden)
+    monkeypatch.setattr(preparation, 'prepare_case', forbidden)
+    monkeypatch.setattr(preparation, '_execute', forbidden)
     progress, iterations, residuals = [], [], []
     result = run_case(replace(case, config_snapshot={}), RunControl(
         progress=progress.append, iteration=iterations.append,

@@ -14,6 +14,7 @@
 #define TPMSHX_PREPARATION_CASE_ABI_VERSION_V7 7u
 #define TPMSHX_PREPARATION_CASE_ABI_VERSION_V8 8u
 #define TPMSHX_PREPARATION_CASE_ABI_VERSION_V9 9u
+#define TPMSHX_PREPARATION_CASE_ABI_VERSION_V10 10u
 
 typedef struct {
     int32_t direction;
@@ -489,6 +490,34 @@ typedef struct {
     void* owner;
 } tpmshx_preparation_sigmoid_flow_case_2d_v9;
 
+/* Nominal asymmetric thermal sides: area, diameter, reference area and diameter.
+ * The split fraction remains in the nested prepared case. */
+typedef struct {
+    uint32_t have_side_geometry;
+    double side_geometry[2][4];
+} tpmshx_preparation_thermal_sides_2d_v10;
+typedef struct {
+    uint32_t abi_version;
+    size_t struct_size;
+    tpmshx_preparation_flow_case_2d_v3 values;
+    tpmshx_preparation_thermal_sides_2d_v10 thermal;
+    void* owner;
+} tpmshx_preparation_flow_case_2d_v10;
+typedef struct {
+    uint32_t abi_version;
+    size_t struct_size;
+    tpmshx_preparation_zoned_flow_case_2d_v9 values;
+    tpmshx_preparation_thermal_sides_2d_v10 thermal;
+    void* owner;
+} tpmshx_preparation_zoned_flow_case_2d_v10;
+typedef struct {
+    uint32_t abi_version;
+    size_t struct_size;
+    tpmshx_preparation_sigmoid_flow_case_2d_v9 values;
+    tpmshx_preparation_thermal_sides_2d_v10 thermal;
+    void* owner;
+} tpmshx_preparation_sigmoid_flow_case_2d_v10;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -790,6 +819,49 @@ TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_sigmoid_f
     tpmshx_preparation_sigmoid_flow_2d_v9*);
 TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_sigmoid_flow_case_2d_release_v9(
     tpmshx_preparation_sigmoid_flow_case_2d_v9*);
+
+/* V10 adds existing nonzero-offset preparation. Continuous and CO2 restrictions
+ * remain unchanged. Capacity and fixed-flow operations still reject nonzero delta.
+ * Spatial non-air rejection follows nominal preparation or the capacity mesh.
+ * Inputs and callbacks keep their existing versions. New complete results own
+ * all nested buffers; initialize only their v10 header and NULL owner.
+ * Capacity and resolution retain v9 results and their v9 release functions.
+ * Failure kind 4 denotes an unsupported physical mode. */
+TPMSHX_PREPARATION_API uint32_t TPMSHX_PREPARATION_CALL tpmshx_preparation_case_abi_version_v10(void);
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_flow_case_2d_v10(
+    const tpmshx_preparation_flow_input_2d_v3*,const tpmshx_preparation_grid_kinds_2d_v7*,
+    const tpmshx_preparation_case_options_v1*,const tpmshx_preparation_case_callbacks_v1*,
+    tpmshx_preparation_flow_case_2d_v10*,tpmshx_preparation_case_failure_v2*,char*,size_t);
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_zoned_flow_case_2d_v10(
+    const tpmshx_preparation_zoned_flow_input_2d_v9*,const tpmshx_preparation_grid_kinds_2d_v7*,
+    const tpmshx_preparation_case_options_v1*,const tpmshx_preparation_case_callbacks_v1*,
+    tpmshx_preparation_zoned_flow_case_2d_v10*,tpmshx_preparation_case_failure_v2*,char*,size_t);
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_sigmoid_flow_case_2d_v10(
+    const tpmshx_preparation_sigmoid_flow_input_2d_v9*,const tpmshx_preparation_grid_kinds_2d_v7*,
+    const tpmshx_preparation_case_options_v1*,const tpmshx_preparation_case_callbacks_v1*,
+    tpmshx_preparation_sigmoid_flow_case_2d_v10*,tpmshx_preparation_case_failure_v2*,char*,size_t);
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_zoned_inlet_mass_capacities_2d_v10(
+    const tpmshx_preparation_zoned_flow_input_2d_v9*,const tpmshx_preparation_grid_kinds_2d_v7*,
+    const tpmshx_preparation_case_options_v1*,const tpmshx_preparation_case_callbacks_v1*,
+    tpmshx_preparation_zoned_flow_2d_v9*,tpmshx_preparation_case_failure_v2*,char*,size_t);
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_resolve_zoned_inlet_flow_2d_v10(
+    const tpmshx_preparation_zoned_flow_input_2d_v9*,const tpmshx_preparation_grid_kinds_2d_v7*,
+    const tpmshx_preparation_case_options_v1*,const tpmshx_preparation_case_callbacks_v1*,
+    tpmshx_preparation_zoned_flow_2d_v9*,tpmshx_preparation_case_failure_v2*,char*,size_t);
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_sigmoid_inlet_mass_capacities_2d_v10(
+    const tpmshx_preparation_sigmoid_flow_input_2d_v9*,const tpmshx_preparation_grid_kinds_2d_v7*,
+    const tpmshx_preparation_case_options_v1*,const tpmshx_preparation_case_callbacks_v1*,
+    tpmshx_preparation_sigmoid_flow_2d_v9*,tpmshx_preparation_case_failure_v2*,char*,size_t);
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_resolve_sigmoid_inlet_flow_2d_v10(
+    const tpmshx_preparation_sigmoid_flow_input_2d_v9*,const tpmshx_preparation_grid_kinds_2d_v7*,
+    const tpmshx_preparation_case_options_v1*,const tpmshx_preparation_case_callbacks_v1*,
+    tpmshx_preparation_sigmoid_flow_2d_v9*,tpmshx_preparation_case_failure_v2*,char*,size_t);
+TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_flow_case_2d_release_v10(
+    tpmshx_preparation_flow_case_2d_v10*);
+TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_zoned_flow_case_2d_release_v10(
+    tpmshx_preparation_zoned_flow_case_2d_v10*);
+TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_sigmoid_flow_case_2d_release_v10(
+    tpmshx_preparation_sigmoid_flow_case_2d_v10*);
 
 #ifdef __cplusplus
 }

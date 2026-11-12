@@ -6,8 +6,9 @@
 
 The native stage work adds independent preparation, execution and evaluation
 interfaces. Python keeps the public entry points and their existing data contracts.
-Symmetric uniform, canonical continuous XY and air/air spatial 2D preparation use the native stage.
-Nonzero-delta and 3D preparation use their explicit existing routes.
+Uniform, canonical continuous XY and air/air spatial 2D preparation use the native stage.
+Preparation v10 includes the existing nonzero-delta uniform and air/air spatial modes.
+3D preparation retains its explicit existing route.
 A native loading or execution error does not select another route. Preparation v1 supports
 uniform, symmetric 2D air/air with prescribed inlet velocity and CFD drag.
 Preparation v2 supports all 16 ordered pairs of air, water, sCO2 and CO2 in that
@@ -35,6 +36,8 @@ Published v1 C layouts and queries remain available. Release every output throug
 Preparation v8 adds capacity, flow resolution and complete preparation for raw air/air stripes, rectangles and sigmoid fields.
 It keeps CFD drag, zero delta and separate typed domain and port inputs.
 Preparation v9 connects these symmetric spatial Python routes to the native stage through typed cache hooks.
+Preparation v10 retains those hooks and adds nominal asymmetric thermal-side geometry.
+It preserves the existing restrictions on continuous fields, CO2/sCO2, experimental models and total mass flow.
 
 Full 2D/3D Python evaluation now calls the native result stage. Independent applicability, physical-balance and qualification queries use that stage.
 The native result stage owns Quick Design metrics and retains typed intermediate values. V3 uses fixed named host operations for existing Python object, exact integer and final conversion protocols. The public Python entry points and saved formats stay available.
@@ -87,7 +90,7 @@ that prepared state. The result library evaluates recorded evidence.
 
 ## Run continuation
 
-`Run2D` accepts the uniform v2 or continuous v4 preparation view.
+`Run2D` accepts the uniform v2 or continuous v4 preparation view, or a saved v1/v2 descriptor.
 It supports creation, step advancement, phase queries, snapshots, restoration
 and result transfer. It uses the existing full 2D state machine and typed state.
 It does not reset consumed work. Restoration requires the same build, prepared
@@ -105,7 +108,7 @@ enthalpy-update gate. Missing values use the selected library's defaults.
 These controls require the existing true-h route. They cannot be combined with
 the complete explicit-energy pointer or active model-h controls.
 Existing one-shot interfaces retain their layouts and behavior.
-Symmetric uniform and continuous 2D Python runs and checkpoints use the saved-input interface.
+2D Python runs and checkpoints use the selected library's saved-input interface when its complete protocol is available.
 `SavedCase2D` borrows a validated v2 view and saved thermal geometry. It does not prepare the case again.
 Uniform saved inputs can include cell thermal geometry and local drag while keeping uniform closure mode.
 Missing range records and empty records stay distinct. Uncaptured rows do not receive numerical samples.
@@ -114,7 +117,15 @@ With model-h controls, the saved interface checks the requested energy algorithm
 It does not pass two sets of iteration controls to the numerical driver.
 Keep inputs and range flags valid until result transfer or run release.
 
-Python checks the selected library capability before execution. Archived libraries, nonzero delta and unported zone modes use their existing protocol.
+`SavedCase2Dv2` adds the two nominal thermal-side tuples for nonzero delta and accepts the existing discrete and sigmoid field views.
+It keeps nominal side geometry separate from cell thermal geometry and design fields.
+`saved_case` converts a v10 preparation owner to this borrowed descriptor.
+Keep the descriptor and its preparation owner alive and unchanged until result transfer or run release.
+The v10 `run_case` overloads keep the descriptor alive for the complete synchronous call.
+The new create/restore entries use the existing lifecycle, snapshot and result owners; saved v1 layouts remain unchanged.
+
+Python selects a complete saved v2 protocol first, then saved v1 for symmetric uniform or continuous inputs.
+Archived libraries without the applicable saved protocol use their existing interface.
 An incomplete new protocol or a failed run is an error. All queries, state releases and result releases use that same selected library.
 Saved formats, same-build restoration, CPU-change rules and public Python interfaces stay unchanged.
 
@@ -189,8 +200,8 @@ This interface does not certify gradient accuracy.
 Preparation v5 uses `ZonedInput2D` for raw stripes and rectangles.
 It accepts air/air, prescribed inlet velocity, CFD drag and zero delta.
 Configured or explicit mass targets, experimental drag and sigmoid controls stay outside this interface.
-The Python production route and the run interface do not change.
-Nonzero-delta uniform preparation also remains outside the native stage interfaces.
+The v5 interface does not change earlier Python or run contracts.
+Preparation v10 separately adds the existing nonzero-delta modes described below.
 
 Each region gives bounds, a name, L/t and scalar kinds.
 Stripes use the first two bounds along x or y and retain stable sorting.
@@ -221,7 +232,7 @@ It keeps the existing ordered blending, clipping, extrapolation notices and row 
 Sigmoid fields do not use discrete Gaussian smoothing.
 Design geometry comes from the LUT; separate thermal geometry comes from raw L/t fields.
 Mass targets, experimental drag and nonzero delta remain outside this v6 scope.
-The v9 adapter below supplies the Python route and cache policy.
+The host adapter below supplies the Python route and cache policy.
 
 `build_sigmoid_lut` creates an owned native table over the existing training bounds.
 Its defaults are 41 cell-length nodes, 31 wall nodes and voxel resolution 256.
@@ -297,10 +308,29 @@ The [spatial cache example](../examples/cpp/prepare_spatial_cache_2d.cpp) exerci
 It supplies a small LUT through the cache hook, then reuses the copied LUT after the original owner is released.
 This is interface evidence, not a physical qualification of the small table.
 
+## Existing offset geometry
+
+Preparation v10 uses `prepare_offset_case` for uniform `FlowInput2D`, `ZonedFlowInput2Dv9` or `SigmoidFlowInput2Dv9` inputs.
+It includes the existing nonzero-delta uniform air/water pairs and air/air stripes, rectangles and sigmoid fields at prescribed speed.
+Zero-delta inputs keep their existing physical scope. Continuous fields and CO2/sCO2 still require zero delta.
+Experimental model limits remain unchanged. Capacity queries and prescribed total-flow preparation still reject nonzero delta in the original validation order.
+The spatial capacity and resolution entries also use v10; their result views and release functions remain v9.
+
+The complete v10 result adds `thermal.have_side_geometry` and two four-value `side_geometry` tuples to the existing owned view.
+Each tuple contains side area density, hydraulic diameter and their nominal reference values.
+The nested prepared view retains `split_a`. The existing asymmetric geometry core uses its N128 index at the original thermal checkpoint.
+Nominal side values stay separate from design porosity, solid conductivity and cell thermal geometry.
+The stage does not calculate a new offset model for each zone.
+Release only the outer complete result, through its matching v10 release function.
+Earlier preparation layouts and scopes remain unchanged.
+The [offset example](../examples/cpp/offset_2d.cpp) prepares, runs and evaluates uniform, stripe, rectangle and sigmoid cases through v10 and saved v2.
+Its small sigmoid LUT checks the interface, not physical accuracy.
+
 ## Python preparation adapter
 
-Public uniform and canonical continuous 2D entries use v7 with v3/v4 payloads.
-Symmetric air/air stripes, rectangles and sigmoid fields use v9 for preparation, capacity and flow resolution.
+Public uniform 2D preparation uses v10; its capacity and flow-resolution queries retain v7 with v3 payloads.
+Canonical continuous XY entries retain v7 with v4 payloads.
+Air/air stripes, rectangles and sigmoid fields use v10 for preparation, capacity and flow resolution.
 Capacity-only queries keep configuration validation and do not calculate drag. Complete spatial preparation still requires CFD drag.
 `preprocess/native_preparation.py` transports shared cache values and evidence without numerical cache calls.
 The adapter copies arrays, scalar types and evidence before it releases the native owner.
@@ -329,10 +359,12 @@ The shared Python owners retain the 32768-entry geometry cache and 4096-entry in
 They preserve untyped keys, LRU order, statistics, clearing, concurrent publication and `__wrapped__` access.
 Equal keys retain the first successful value's scalar types. Material conductivity and chi stay outside these caches.
 
-Continuous-only Python field, local-drag and reused-spline branches are retired from production preparation.
-The frozen 2026-11-11 reference under `development/tests/preparation_*_reference.py` qualifies the native stage and adapter.
-It is not a production route. Retain it while independent preparation comparison requires that reference.
-Public ZoneConfig and sigmoid field queries still serve standalone callers and nonzero-delta preparation.
+The replaced Python 2D preparation sequence and row D-F projection are retired.
+`preprocess/two_d/preparation.py` is the retained native adapter; `shared/models/zone_units.py` owns the saved zone-unit conversion.
+Nominal x/y grid warnings use separate host emission sites in that preparation adapter.
+Frozen references under `development/tests/preparation_*_reference.py` retain the original sequence and complete row D-F projection.
+They are not production routes. Retain them while independent preparation comparison requires those references.
+Public ZoneConfig and sigmoid field queries still serve standalone callers.
 Their remaining combination calculations require separate migration and acceptance before retirement.
 
 ## Build and install

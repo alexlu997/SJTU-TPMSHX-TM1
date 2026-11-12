@@ -13,7 +13,7 @@ from sjtu_tpmshx.shared.models.zone_config import Zone, ZoneConfig
 def test_canonical_1d_json_restores_the_same_zone_fields(tmp_path, capsys, axis):
     import json
     from sjtu_tpmshx.applications.cli.main import main
-    from sjtu_tpmshx.preprocess.two_d.preparation import _parse_inputs_cfg
+    from sjtu_tpmshx.preprocess.two_d.preparation import prepare_case
 
     cfg = ComputeConfig(
         geometry=GeometryConfig(tpms='Diamond'),
@@ -25,11 +25,13 @@ def test_canonical_1d_json_restores_the_same_zone_fields(tmp_path, capsys, axis)
     cfg.to_json(path)
     loaded = ComputeConfig.from_json(path)
     assert isinstance(loaded.zones.config, dict)
-    expected = _parse_inputs_cfg(cfg)['za']
-    parsed = _parse_inputs_cfg(loaded)
+    from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
+    expected = prepare_case(cfg, case_id='original').design_fields
+    case = prepare_case(loaded, case_id='loaded')
+    parsed, _ = build_execution_inputs(case)
     assert isinstance(parsed['zone_config'], ZoneConfig)
     assert all(isinstance(zone, Zone) for zone in parsed['zone_config'].zones)
-    restored = parsed['za']
+    restored = case.design_fields
     assert restored['axis'] == axis
     for key in ('zone_id', 'eps_arr', 'K_ffA_arr', 'K_ffB_arr', 'h_vA_arr', 'h_vB_arr'):
         assert restored[key] == pytest.approx(expected[key])
@@ -50,7 +52,7 @@ def test_canonical_loader_keeps_unused_1d_config_semantics(enabled, axis):
 def test_canonical_1d_stage_does_not_mutate_or_share_source_dict():
     from copy import deepcopy
     from dataclasses import asdict
-    from sjtu_tpmshx.preprocess.two_d.preparation import _parse_inputs_cfg
+    from sjtu_tpmshx.preprocess.two_d.preparation import prepare_case
 
     cfg = ComputeConfig(geometry=GeometryConfig(tpms='Diamond'),
         solver=SolverConfig(Nx=8, Ny=6), extrap=ExtrapPolicy(allow=True),
@@ -62,7 +64,9 @@ def test_canonical_1d_stage_does_not_mutate_or_share_source_dict():
     original = deepcopy(source)
     loaded = ComputeConfig.from_dict(source)
     assert source == original
-    restored = _parse_inputs_cfg(loaded)['zone_config']
+    from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
+    case = prepare_case(loaded, case_id='detached')
+    restored = build_execution_inputs(case)[0]['zone_config']
     assert source == original
     assert restored.zones[0].name == 'inlet'
     restored.zones[0].props_A['saved'] = [99]
@@ -72,7 +76,7 @@ def test_canonical_1d_stage_does_not_mutate_or_share_source_dict():
 @pytest.mark.parametrize('invalid', ['gap', 'missing_field'])
 def test_canonical_1d_json_does_not_swallow_invalid_zones(tmp_path, invalid):
     import json
-    from sjtu_tpmshx.preprocess.two_d.preparation import _parse_inputs_cfg
+    from sjtu_tpmshx.preprocess.two_d.preparation import prepare_case
 
     cfg = ComputeConfig(geometry=GeometryConfig(tpms='Diamond'),
         zones=ZoneInputConfig(enabled=True,
@@ -89,7 +93,7 @@ def test_canonical_1d_json_does_not_swallow_invalid_zones(tmp_path, invalid):
     loaded = ComputeConfig.from_json(path)
     with pytest.raises(ValueError if invalid == 'gap' else TypeError,
                        match='start at 0' if invalid == 'gap' else 'L_mm'):
-        _parse_inputs_cfg(loaded)
+        prepare_case(loaded, case_id='invalid-zone')
 
 
 def test_valid_partial_grid_coverage_is_not_redefined():
@@ -159,31 +163,30 @@ def test_disabled_zone_axis_remains_an_unchecked_draft():
 
 
 @pytest.mark.parametrize('dimension', [2, 3])
-def test_direct_stage_parse_rejects_invalid_grid(dimension):
-    from sjtu_tpmshx.preprocess.two_d.preparation import _parse_inputs_cfg
+def test_direct_stage_rejects_invalid_grid(dimension):
+    from sjtu_tpmshx.preprocess.two_d.preparation import prepare_case
     from sjtu_tpmshx.preprocess.three_d.preparation import _parse_inputs_3d_cfg
     cfg = ComputeConfig(
         geometry=GeometryConfig(Lz_m=0.042), solver=SolverConfig(Nz=dimension - 1),
         extrap=ExtrapPolicy(allow=True), zones=ZoneInputConfig(
             enabled=True, axis='grid', grid=dict(
                 cells=[dict(x0=1, x1=0, y0=0, y1=1, L=6, t=0.3)])))
-    parse = _parse_inputs_cfg if dimension == 2 else _parse_inputs_3d_cfg
     with pytest.raises(ValueError, match='cell 1.*x'):
-        parse(cfg)
+        prepare_case(cfg, case_id='invalid-grid') if dimension == 2 else _parse_inputs_3d_cfg(cfg)
 
 
 @pytest.mark.parametrize('axis', ['x', 'y', 'grid'])
 def test_supported_air_zones_build_fields(axis):
-    from sjtu_tpmshx.preprocess.two_d.preparation import _parse_inputs_cfg
+    from sjtu_tpmshx.preprocess.two_d.preparation import prepare_case
     grid = dict(cells=[dict(x0=0, x1=1, y0=0, y1=1, L=6, t=0.3)],
                 tpms_type='Diamond', k_s=16)
     zones = ZoneInputConfig(enabled=True, axis=axis, grid=grid,
                             config=ZoneConfig.single_zone(6, 0.3, 'Diamond', 16))
-    parsed = _parse_inputs_cfg(ComputeConfig(
-        zones=zones, solver=SolverConfig(Nx=4, Ny=4),
-        extrap=ExtrapPolicy(allow=True)))
-    assert parsed['za']['eps_arr'].shape == (4, 4)
-    assert parsed['zone_config'] is not None
+    case = prepare_case(ComputeConfig(
+        zones=zones, geometry=GeometryConfig(tpms='Diamond'), solver=SolverConfig(Nx=4, Ny=4),
+        extrap=ExtrapPolicy(allow=True)), case_id='air-zones')
+    assert case.design_fields['eps_arr'].shape == (len(case.grid['dx']), len(case.grid['dy']))
+    assert case.parameters['zone_config'] is not None
 
 
 def test_supported_3d_grid_is_consumed():
@@ -223,24 +226,24 @@ def test_missing_zones_never_solve_or_finalize(dimension, axis, grid, monkeypatc
     finalize.assert_not_called()
 
 
-@pytest.mark.parametrize('builder', ['compute_properties', 'build_structured_arrays', 'build_grid_arrays'])
-def test_zone_builder_error_propagates(builder, monkeypatch):
-    zones = ZoneInputConfig(enabled=True,
-                            config=ZoneConfig.single_zone(6, 0.3, 'Diamond', 16))
-    if builder == 'build_grid_arrays':
-        zones.axis = 'grid'
-        zones.grid = dict(cells=[dict(x0=0, x1=1, y0=0, y1=1, L=6, t=0.3)],
-                          tpms_type='Diamond', k_s=16)
-    failure = RuntimeError('zone builder failed')
-    monkeypatch.setattr(ZoneConfig, builder, Mock(side_effect=failure))
-    if builder == 'build_structured_arrays':
-        monkeypatch.setattr(ZoneConfig, 'compute_properties', lambda *a, **kw: None)
+@pytest.mark.parametrize('callback', ['geometry_at', 'inlet_at', 'observe_range'])
+@pytest.mark.parametrize('axis', ['x', 'y', 'grid'])
+def test_native_zone_callback_error_propagates(callback, axis, monkeypatch):
+    from sjtu_tpmshx.preprocess.native_preparation import PreparationCacheBridge
+    zones = ZoneInputConfig(enabled=True, axis=axis,
+        config=ZoneConfig.single_zone(6, .3, 'Diamond', 16),
+        grid=dict(cells=[dict(x0=0, x1=1, y0=0, y1=1, L=6, t=.3)],
+                  tpms_type='Diamond', k_s=16))
+    failure = RuntimeError('zone callback failed')
+    monkeypatch.setattr(PreparationCacheBridge, callback, Mock(side_effect=failure))
     cfg = ComputeConfig(geometry=GeometryConfig(tpms='Diamond'),
-        zones=zones, extrap=ExtrapPolicy(allow=True))
-    from sjtu_tpmshx.preprocess.two_d.preparation import _build_zone_arrays
-    with pytest.raises(RuntimeError, match='zone builder failed') as caught:
-        _build_zone_arrays(cfg, 4, 4)
+        solver=SolverConfig(Nx=4, Ny=4), zones=zones, extrap=ExtrapPolicy(allow=True))
+    solve, finalize = Mock(), Mock()
+    with pytest.raises(RuntimeError, match='zone callback failed') as caught:
+        compute(cfg, solve=solve, evaluate=finalize)
     assert caught.value is failure
+    solve.assert_not_called()
+    finalize.assert_not_called()
 
 
 @pytest.mark.parametrize('dimension', [2, 3])

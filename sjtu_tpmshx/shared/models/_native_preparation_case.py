@@ -179,6 +179,13 @@ _ZonedHostCase = _struct('ZonedHostCase', [('abi_version', _U), ('struct_size', 
     ('values', _ZonedFlowCase), ('model', _SpatialModel), ('design_pore_porosity', _Array), ('owner', ct.c_void_p)])
 _SigmoidHostCase = _struct('SigmoidHostCase', [('abi_version', _U), ('struct_size', _S),
     ('values', _SigmoidFlowCase), ('model', _SpatialModel), ('design_pore_porosity', _Array), ('owner', ct.c_void_p)])
+_ThermalSides = _struct('ThermalSides', [('have_side_geometry', _U), ('side_geometry', (_D * 4) * 2)])
+_OffsetFlowCase = _struct('OffsetFlowCase', [('abi_version', _U), ('struct_size', _S),
+    ('values', _FlowCase), ('thermal', _ThermalSides), ('owner', ct.c_void_p)])
+_OffsetZonedCase = _struct('OffsetZonedCase', [('abi_version', _U), ('struct_size', _S),
+    ('values', _ZonedHostCase), ('thermal', _ThermalSides), ('owner', ct.c_void_p)])
+_OffsetSigmoidCase = _struct('OffsetSigmoidCase', [('abi_version', _U), ('struct_size', _S),
+    ('values', _SigmoidHostCase), ('thermal', _ThermalSides), ('owner', ct.c_void_p)])
 _GeometryKey = _struct('GeometryKey', [('topology', _U), *_doubles('cell_length_mm wall_thickness_mm'),
     ('cell_kind', _Kind), ('wall_kind', _Kind)])
 _InletKey = _struct('InletKey', [('geometry', _GeometryKey), ('fluid', _U),
@@ -230,6 +237,27 @@ class _Bindings:
                     f'tpmshx_preparation_{prefix}_{suffix}_2d_release_v9', [ct.POINTER(result)], None)
 
 
+        query = self.owner.bind('tpmshx_preparation_case_abi_version_v10', [], _U)
+        if query() != 10:
+            raise RuntimeError('native preparation v10 ABI version is invalid')
+        for source, full, prefix in (
+                (_FlowInput, _OffsetFlowCase, ''),
+                (_ZonedHostInput, _OffsetZonedCase, 'zoned_'),
+                (_SigmoidHostInput, _OffsetSigmoidCase, 'sigmoid_')):
+            for name in ('prepare_inlet_mass_capacities', 'resolve_inlet_flow', 'prepare_flow_case'):
+                if not prefix and name != 'prepare_flow_case':
+                    continue
+                result = full if name == 'prepare_flow_case' else (
+                    _ZonedHostFlow if source is _ZonedHostInput else _SigmoidHostFlow)
+                entry = name.replace('_', '_' + prefix, 1) if prefix else name
+                self.operations[10, source, name] = self.owner.bind(
+                    f'tpmshx_{entry}_2d_v10',
+                    [ct.POINTER(source), ct.POINTER(_GridKinds), ct.POINTER(_Options), ct.POINTER(_Callbacks),
+                     ct.POINTER(result), ct.POINTER(_Failure), ct.POINTER(ct.c_char), _S])
+            self.releases[full] = self.owner.bind(
+                f'tpmshx_preparation_{prefix}flow_case_2d_release_v10', [ct.POINTER(full)], None)
+
+
 @lru_cache(maxsize=1)
 def _bindings(path):
     return _Bindings(path)
@@ -256,7 +284,7 @@ def _check_status(status, error, failure):
     if not status:
         return
     from .fluid_props import WaterStateError
-    classes = {1: ValueError, 2: WaterStateError, 3: RuntimeError}
+    classes = {1: ValueError, 2: WaterStateError, 3: RuntimeError, 4: NotImplementedError}
     exception = MemoryError if status == 2 else classes.get(failure.kind, RuntimeError)
     problem = exception(error.value.decode('utf-8', errors='replace'))
     current = problem
@@ -421,7 +449,7 @@ def _callback_bridge(validate_host_input, geometry_cache=None, inlet_cache=None,
 @contextmanager
 def operation(name, source, options, validate_host_input, geometry_cache=None, inlet_cache=None,
               observe_range=None, observe_notice=None, nominal_grid_warning=None, *,
-              geometry_cache_at=None, inlet_cache_at=None, sigmoid_lut_cache=None):
+              geometry_cache_at=None, inlet_cache_at=None, sigmoid_lut_cache=None, offset_scope=False):
     """Keep the complete owner alive until the caller copies all required data."""
     version = source.abi_version
     result_type = ((_ContinuousCase if name == 'prepare_flow_case' else _ContinuousFlow)
@@ -430,6 +458,13 @@ def operation(name, source, options, validate_host_input, geometry_cache=None, i
         result_type = ((_SigmoidHostCase if name == 'prepare_flow_case' else _SigmoidHostFlow)
                        if isinstance(source, _SigmoidHostInput) else
                        (_ZonedHostCase if name == 'prepare_flow_case' else _ZonedHostFlow))
+    operation_key = (type(source) if version == 9 else version, name)
+    if offset_scope and version != 4 and (version == 9 or name == 'prepare_flow_case'):
+        operation_key = (10, type(source), name)
+        if name == 'prepare_flow_case':
+            result_type = (_OffsetSigmoidCase if isinstance(source, _SigmoidHostInput) else
+                           _OffsetZonedCase if isinstance(source, _ZonedHostInput) else _OffsetFlowCase)
+            version = 10
     result = result_type(version, ct.sizeof(result_type))
     failure, error = _Failure(2, ct.sizeof(_Failure)), ct.create_string_buffer(4096)
     bindings = _bindings(_native_preparation._library().path)
@@ -438,7 +473,7 @@ def operation(name, source, options, validate_host_input, geometry_cache=None, i
         nominal_grid_warning, geometry_cache_at=geometry_cache_at, inlet_cache_at=inlet_cache_at,
         sigmoid_lut_cache=sigmoid_lut_cache)
     try:
-        status = bindings.operations[type(source) if version == 9 else version, name](
+        status = bindings.operations[operation_key](
             ct.byref(source), ct.byref(source._grid_kinds), ct.byref(options), ct.byref(descriptor), ct.byref(result),
             ct.byref(failure), error, len(error))
         if callback_errors:

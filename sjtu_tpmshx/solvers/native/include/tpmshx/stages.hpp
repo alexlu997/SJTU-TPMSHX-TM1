@@ -51,6 +51,9 @@ using ZonedInletFlow2Dv9=detail::Owned<tpmshx_preparation_zoned_flow_2d_v9,tpmsh
 using PreparedZonedFlowCase2Dv9=detail::Owned<tpmshx_preparation_zoned_flow_case_2d_v9,tpmshx_preparation_zoned_flow_case_2d_release_v9>;
 using SigmoidInletFlow2Dv9=detail::Owned<tpmshx_preparation_sigmoid_flow_2d_v9,tpmshx_preparation_sigmoid_flow_2d_release_v9>;
 using PreparedSigmoidFlowCase2Dv9=detail::Owned<tpmshx_preparation_sigmoid_flow_case_2d_v9,tpmshx_preparation_sigmoid_flow_case_2d_release_v9>;
+using PreparedFlowCase2Dv10=detail::Owned<tpmshx_preparation_flow_case_2d_v10,tpmshx_preparation_flow_case_2d_release_v10>;
+using PreparedZonedFlowCase2Dv10=detail::Owned<tpmshx_preparation_zoned_flow_case_2d_v10,tpmshx_preparation_zoned_flow_case_2d_release_v10>;
+using PreparedSigmoidFlowCase2Dv10=detail::Owned<tpmshx_preparation_sigmoid_flow_case_2d_v10,tpmshx_preparation_sigmoid_flow_case_2d_release_v10>;
 using RunResult2D=detail::Owned<tpmshx_stage_run_result_2d_v1,tpmshx_stage_run_2d_release_v1>;
 using RunState=detail::Owned<tpmshx_run_state_v1,tpmshx_run_state_release_v1>;
 using Evaluation=detail::Owned<tpmshx_stage_output_v1,tpmshx_result_stage_release_v1>;
@@ -159,6 +162,12 @@ struct SavedCase2D : tpmshx_stage_saved_case_2d_v1 {
         inlet_recorded=1;
     }
 };
+struct SavedCase2Dv2 : tpmshx_stage_saved_case_2d_v2 {
+    SavedCase2Dv2():tpmshx_stage_saved_case_2d_v2{} {
+        abi_version=TPMSHX_STAGE_RUN_ABI_VERSION_V2;struct_size=sizeof(tpmshx_stage_saved_case_2d_v2);
+        values=SavedCase2D{};
+    }
+};
 inline tpmshx_stage_capture_2d_v1 capture_summary(const RunResult2D& result,
     const tpmshx_stage_application_2d_v1& application) {
     tpmshx_stage_capture_2d_v1 output{};
@@ -182,6 +191,14 @@ public:
         const auto status=state?tpmshx_stage_run_2d_restore_saved_v1(&saved,&request,&control,
             state->view().fields,state->view().count,&run_,error,sizeof(error)):
             tpmshx_stage_run_2d_create_saved_v1(&saved,&request,&control,&run_,error,sizeof(error));
+        detail::check(status,error);
+    }
+    Run2D(const tpmshx_stage_saved_case_2d_v2& saved,const RunControl& control,const RunRequest2Dv3& request={},
+        const RunState* state=nullptr) {
+        char error[4096]{};
+        const auto status=state?tpmshx_stage_run_2d_restore_saved_v2(&saved,&request,&control,
+            state->view().fields,state->view().count,&run_,error,sizeof(error)):
+            tpmshx_stage_run_2d_create_saved_v2(&saved,&request,&control,&run_,error,sizeof(error));
         detail::check(status,error);
     }
     ~Run2D() {tpmshx_stage_run_2d_release_run_v1(&run_);}
@@ -493,6 +510,125 @@ inline PreparedSigmoidFlowCase2Dv9 prepare_case(const SigmoidFlowInput2Dv9& inpu
     detail::check(tpmshx_prepare_sigmoid_flow_case_2d_v9(&input,&grid,&options,
         callbacks?&callbacks->values.values.values:nullptr,&output,&failure,error,sizeof(error)),error);
     return PreparedSigmoidFlowCase2Dv9(output);
+}
+inline PreparedFlowCase2Dv10 prepare_offset_case(const FlowInput2D& input,const GridKinds2D& grid={},
+    const PreparationOptions& options={},const tpmshx_preparation_case_callbacks_v1* callbacks=nullptr) {
+    tpmshx_preparation_flow_case_2d_v10 output{};tpmshx_preparation_case_failure_v2 failure{};
+    output.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V10;output.struct_size=sizeof(output);
+    failure.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V2;failure.struct_size=sizeof(failure);
+    char error[4096]{};
+    detail::check(tpmshx_prepare_flow_case_2d_v10(&input,&grid,&options,callbacks,
+        &output,&failure,error,sizeof(error)),error);
+    return PreparedFlowCase2Dv10(output);
+}
+inline PreparedZonedFlowCase2Dv10 prepare_offset_case(const ZonedFlowInput2Dv9& input,const GridKinds2D& grid={},
+    const PreparationOptions& options={},const tpmshx_preparation_case_callbacks_v1* callbacks=nullptr) {
+    tpmshx_preparation_zoned_flow_case_2d_v10 output{};tpmshx_preparation_case_failure_v2 failure{};
+    output.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V10;output.struct_size=sizeof(output);
+    failure.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V2;failure.struct_size=sizeof(failure);
+    char error[4096]{};
+    detail::check(tpmshx_prepare_zoned_flow_case_2d_v10(&input,&grid,&options,callbacks,
+        &output,&failure,error,sizeof(error)),error);
+    return PreparedZonedFlowCase2Dv10(output);
+}
+inline PreparedSigmoidFlowCase2Dv10 prepare_offset_case(const SigmoidFlowInput2Dv9& input,const GridKinds2D& grid={},
+    const PreparationOptions& options={},const tpmshx_preparation_case_callbacks_v1* callbacks=nullptr) {
+    tpmshx_preparation_sigmoid_flow_case_2d_v10 output{};tpmshx_preparation_case_failure_v2 failure{};
+    output.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V10;output.struct_size=sizeof(output);
+    failure.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V2;failure.struct_size=sizeof(failure);
+    char error[4096]{};
+    detail::check(tpmshx_prepare_sigmoid_flow_case_2d_v10(&input,&grid,&options,callbacks,
+        &output,&failure,error,sizeof(error)),error);
+    return PreparedSigmoidFlowCase2Dv10(output);
+}
+inline ZonedInletFlow2Dv9 prepare_offset_inlet_mass_capacities(const ZonedFlowInput2Dv9& input,const GridKinds2D& grid={},
+    const PreparationOptions& options={},const tpmshx_preparation_case_callbacks_v1* callbacks=nullptr) {
+    tpmshx_preparation_zoned_flow_2d_v9 output{};tpmshx_preparation_case_failure_v2 failure{};
+    output.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V9;output.struct_size=sizeof(output);
+    failure.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V2;failure.struct_size=sizeof(failure);
+    char error[4096]{};
+    detail::check(tpmshx_prepare_zoned_inlet_mass_capacities_2d_v10(&input,&grid,&options,callbacks,&output,&failure,error,sizeof(error)),error);
+    return ZonedInletFlow2Dv9(output);
+}
+inline ZonedInletFlow2Dv9 resolve_offset_inlet_flow(const ZonedFlowInput2Dv9& input,const GridKinds2D& grid={},
+    const PreparationOptions& options={},const tpmshx_preparation_case_callbacks_v1* callbacks=nullptr) {
+    tpmshx_preparation_zoned_flow_2d_v9 output{};tpmshx_preparation_case_failure_v2 failure{};
+    output.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V9;output.struct_size=sizeof(output);
+    failure.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V2;failure.struct_size=sizeof(failure);
+    char error[4096]{};
+    detail::check(tpmshx_resolve_zoned_inlet_flow_2d_v10(&input,&grid,&options,callbacks,&output,&failure,error,sizeof(error)),error);
+    return ZonedInletFlow2Dv9(output);
+}
+inline SigmoidInletFlow2Dv9 prepare_offset_inlet_mass_capacities(const SigmoidFlowInput2Dv9& input,const GridKinds2D& grid={},
+    const PreparationOptions& options={},const tpmshx_preparation_case_callbacks_v1* callbacks=nullptr) {
+    tpmshx_preparation_sigmoid_flow_2d_v9 output{};tpmshx_preparation_case_failure_v2 failure{};
+    output.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V9;output.struct_size=sizeof(output);
+    failure.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V2;failure.struct_size=sizeof(failure);
+    char error[4096]{};
+    detail::check(tpmshx_prepare_sigmoid_inlet_mass_capacities_2d_v10(&input,&grid,&options,callbacks,&output,&failure,error,sizeof(error)),error);
+    return SigmoidInletFlow2Dv9(output);
+}
+inline SigmoidInletFlow2Dv9 resolve_offset_inlet_flow(const SigmoidFlowInput2Dv9& input,const GridKinds2D& grid={},
+    const PreparationOptions& options={},const tpmshx_preparation_case_callbacks_v1* callbacks=nullptr) {
+    tpmshx_preparation_sigmoid_flow_2d_v9 output{};tpmshx_preparation_case_failure_v2 failure{};
+    output.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V9;output.struct_size=sizeof(output);
+    failure.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V2;failure.struct_size=sizeof(failure);
+    char error[4096]{};
+    detail::check(tpmshx_resolve_sigmoid_inlet_flow_2d_v10(&input,&grid,&options,callbacks,&output,&failure,error,sizeof(error)),error);
+    return SigmoidInletFlow2Dv9(output);
+}
+// Keep the returned descriptor and prepared owner alive through result transfer.
+inline SavedCase2Dv2 saved_case(const PreparedFlowCase2Dv10& prepared) {
+    SavedCase2Dv2 output;
+    const auto& value=prepared.view();output.values.prepared=&value.values.prepared;
+    output.values.reference_cell_kind=value.values.prepared.input_kinds.cell_length;
+    output.have_side_geometry=value.thermal.have_side_geometry;
+    for(size_t side=0;side<2;++side)std::copy_n(value.thermal.side_geometry[side],4,output.side_geometry[side]);
+    return output;
+}
+inline SavedCase2Dv2 saved_case(const PreparedZonedFlowCase2Dv10& prepared) {
+    SavedCase2Dv2 output;
+    const auto& value=prepared.view();const auto& spatial=value.values.values.prepared;
+    output.values.prepared=&spatial.prepared;
+    output.values.reference_cell_kind=spatial.prepared.input_kinds.cell_length;
+    output.values.cell_field_kind=spatial.prepared.field_kinds[0];
+    output.values.area_density_per_m=spatial.area_density_per_m;
+    output.values.hydraulic_diameter_m=spatial.hydraulic_diameter_m;
+    std::copy_n(spatial.fluid_conductivity,2,output.values.fluid_conductivity);
+    output.have_side_geometry=value.thermal.have_side_geometry;
+    for(size_t side=0;side<2;++side)std::copy_n(value.thermal.side_geometry[side],4,output.side_geometry[side]);
+    return output;
+}
+inline SavedCase2Dv2 saved_case(const PreparedSigmoidFlowCase2Dv10& prepared) {
+    SavedCase2Dv2 output;
+    const auto& value=prepared.view();const auto& spatial=value.values.values.prepared.values;
+    output.values.prepared=&spatial.prepared;
+    output.values.reference_cell_kind=spatial.prepared.input_kinds.cell_length;
+    output.values.cell_field_kind=spatial.prepared.field_kinds[0];
+    output.values.area_density_per_m=spatial.area_density_per_m;
+    output.values.hydraulic_diameter_m=spatial.hydraulic_diameter_m;
+    std::copy_n(spatial.fluid_conductivity,2,output.values.fluid_conductivity);
+    output.have_side_geometry=value.thermal.have_side_geometry;
+    for(size_t side=0;side<2;++side)std::copy_n(value.thermal.side_geometry[side],4,output.side_geometry[side]);
+    return output;
+}
+inline RunResult2D run_case(const PreparedFlowCase2Dv10& prepared,const RunControl& control,
+    const RunRequest2Dv3& request={}) {
+    auto saved=saved_case(prepared);Run2D run(saved,control,request);
+    while(run.phase()!=TPMSHX_FULL2D_COMPLETED)run.advance_step();
+    return run.take_result();
+}
+inline RunResult2D run_case(const PreparedZonedFlowCase2Dv10& prepared,const RunControl& control,
+    const RunRequest2Dv3& request={}) {
+    auto saved=saved_case(prepared);Run2D run(saved,control,request);
+    while(run.phase()!=TPMSHX_FULL2D_COMPLETED)run.advance_step();
+    return run.take_result();
+}
+inline RunResult2D run_case(const PreparedSigmoidFlowCase2Dv10& prepared,const RunControl& control,
+    const RunRequest2Dv3& request={}) {
+    auto saved=saved_case(prepared);Run2D run(saved,control,request);
+    while(run.phase()!=TPMSHX_FULL2D_COMPLETED)run.advance_step();
+    return run.take_result();
 }
 inline RunResult2D run_case(const PreparedCase2D& prepared,const RunControl& control,const RunRequest2D& request={}) {
     tpmshx_stage_run_result_2d_v1 output{};

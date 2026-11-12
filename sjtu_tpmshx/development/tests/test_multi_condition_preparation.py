@@ -196,15 +196,14 @@ def test_fixed_flow_uses_only_resolved_velocities(monkeypatch, dimension, design
     from sjtu_tpmshx.preprocess.two_d import preparation as prep2d
     from sjtu_tpmshx.shared.models import _native_preparation_case as native
     with patch.object(preparation, '_prepare_geometry_data', wraps=preparation._prepare_geometry_data) as geometry, \
-         patch.object(prep2d, '_prepare_mesh', wraps=prep2d._prepare_mesh) as mesh, \
-         patch.object(prep2d, '_build_zone_arrays', wraps=prep2d._build_zone_arrays) as zones, \
+         patch.object(prep2d, 'prepare_case', side_effect=AssertionError('fixed flow prepared twice')) as full, \
          patch.object(native, 'operation', wraps=native.operation) as stage:
         actual = prepare_fixed_mass_flow_case(old, **targets, case_id='fixed')
     if dimension == 3:
         assert geometry.call_count == 1
     else:
         assert stage.call_count == 1 and stage.call_args.args[0] == 'prepare_flow_case'
-        assert mesh.call_count == zones.call_count == 0
+        full.assert_not_called()
         assert actual.design_fields['eps_arr'].shape != (4, 4)
     assert asdict(old) == snapshot
     assert actual.config_snapshot == expected.config_snapshot
@@ -263,10 +262,10 @@ def test_fixed_flow_preserves_spatial_2d_geometry_and_input(monkeypatch, tmp_pat
     from sjtu_tpmshx.development.tests.native.test_cpp_full_3d import compare
     from unittest.mock import patch
     from sjtu_tpmshx.shared.models import _native_preparation_case as native
-    with patch.object(prep2d, '_prepare_mesh', wraps=prep2d._prepare_mesh) as mesh, \
+    with patch.object(prep2d, 'prepare_case', side_effect=AssertionError('fixed flow prepared twice')) as full, \
          patch.object(native, 'operation', wraps=native.operation) as stage:
         actual = prepare_fixed_mass_flow_case(old, **targets, case_id='legacy-fixed')
-    assert mesh.call_count == 0
+    full.assert_not_called()
     assert stage.call_count == 1 and stage.call_args.args[0] == 'prepare_flow_case'
     assert asdict(config) == snapshot
     assert old.fluid_A.u_mps == .001
@@ -286,7 +285,7 @@ def test_capacity_preparation_validates_static_inputs_before_building_fields(mon
     def forbidden(*args):
         raise AssertionError('invalid static input reached field construction')
 
-    monkeypatch.setattr(preparation_2d, '_prepare_inlet_data', forbidden)
+    monkeypatch.setattr(preparation_2d, '_execute', forbidden)
     monkeypatch.setattr(preparation, '_prepare_geometry_data', forbidden)
     for dimension in (2, 3):
         config = ComputeConfig(geometry=GeometryConfig(Lz_m=.042),

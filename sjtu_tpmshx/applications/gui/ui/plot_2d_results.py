@@ -2,7 +2,7 @@
 
 Extracted from ``runs/run_calculation.py`` in batch-3 (2026-06-13), mirroring
 ``ui/plot_3d_results.py``: holds the matplotlib canvas population for the
-temperature / pressure / velocity tabs so the compute stage module
+temperature / pressure / velocity tabs so the preparation adapter
 (``preprocess/two_d/preparation.py``) stays Qt/matplotlib-free.
 
 Public entry points (consumed by ``ui.mixins.run_controller`` and ``main``):

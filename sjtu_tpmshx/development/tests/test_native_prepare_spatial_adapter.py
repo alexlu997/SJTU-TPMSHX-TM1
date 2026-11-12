@@ -118,7 +118,7 @@ def test_spatial_failure_keeps_completed_cache_entries(monkeypatch, tmp_path, mo
 
 @pytest.mark.parametrize('mode', ['x', 'y', 'grid', 'sigmoid'])
 def test_spatial_host_does_not_reenter_python_preparation(monkeypatch, tmp_path, mode):
-    from sjtu_tpmshx.preprocess.two_d import preparation
+    from sjtu_tpmshx.shared.models import _native_df, _native_geometry
     from sjtu_tpmshx.shared.models.zone_config import ZoneConfig
     config = configuration(monkeypatch, tmp_path, mode)
     expected = _capture(monkeypatch, reference, 'full', config)
@@ -126,8 +126,8 @@ def test_spatial_host_does_not_reenter_python_preparation(monkeypatch, tmp_path,
     def forbidden(*args, **kwargs):
         pytest.fail('native host reentered a Python numerical workflow')
 
-    for name in ('_build_zone_arrays', '_prepare_flow_inputs', '_prepare_grid'):
-        monkeypatch.setattr(preparation, name, forbidden)
+    monkeypatch.setattr(_native_df, 'project_rows', forbidden)
+    monkeypatch.setattr(_native_geometry, 'prepare_sides', forbidden)
     for name in ('compute_properties', 'build_structured_arrays', 'build_structured_geometry',
                  'build_grid_arrays', 'build_grid_geometry'):
         monkeypatch.setattr(ZoneConfig, name, forbidden)
@@ -146,7 +146,7 @@ def test_capacity_ignores_unconsumed_experimental_drag(monkeypatch, tmp_path, mo
 @pytest.mark.parametrize('mode', ['x', 'y', 'grid'])
 def test_standalone_spatial_warning_origins(monkeypatch, tmp_path, mode):
     from sjtu_tpmshx.development.tests import preparation_case_reference
-    from sjtu_tpmshx.preprocess.two_d import native_preparation
+    from sjtu_tpmshx.preprocess.two_d import preparation as native_preparation
     config = configuration(monkeypatch, tmp_path, mode)
     config.fluid_A.u_mps = 1.e-6
     config.extrap = replace(config.extrap, allow=True)
@@ -381,7 +381,7 @@ def test_geometry_cache_queries_receive_initialized_storage(monkeypatch, tmp_pat
 
 @pytest.mark.parametrize('value', [0., -1., float('nan'), float('inf')])
 def test_raw_spatial_model_rejects_invalid_conductivity(monkeypatch, tmp_path, value):
-    from sjtu_tpmshx.preprocess.two_d import native_preparation
+    from sjtu_tpmshx.preprocess.two_d import preparation as native_preparation
     config = configuration(monkeypatch, tmp_path, 'x')
     original = native_preparation._input
     def invalid(*args, **kwargs):

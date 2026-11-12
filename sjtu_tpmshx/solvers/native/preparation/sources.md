@@ -42,5 +42,15 @@ The LUT hook exchanges tables at each path's original geometry checkpoint.
 Python owns disk/memory I/O. `build_sigmoid_lut_2d` owns missing-table construction.
 The [external cache caller](../../../../examples/cpp/prepare_spatial_cache_2d.cpp)
 checks all six v9 operations, typed probes and copied LUT lifetime.
-Public zone/sigmoid combination queries retain standalone and offset consumers.
+Public zone/sigmoid combination queries retain standalone consumers.
 Their later migration must preserve supplied properties and custom controls.
+
+## Existing offset geometry
+
+V10 adds the existing nonzero-delta uniform and spatial preparation modes.
+`prepare_thermal_sides` calls the existing asymmetric geometry owner with its N128 index.
+It runs at the original thermal checkpoint and keeps nominal sides separate from design and cell thermal geometry.
+The owned complete result adds two thermal-side tuples and retains the existing split fraction.
+Capacity and fixed-flow entries keep their previous delta rejection and validation order.
+Earlier C layouts and scopes stay unchanged. No physical model is added.
+The [external offset caller](../../../../examples/cpp/offset_2d.cpp) prepares, runs and evaluates the existing modes through installed headers.

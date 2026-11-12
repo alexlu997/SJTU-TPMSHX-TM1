@@ -242,11 +242,11 @@ void validate_controls(const ContinuousControls2D& controls) {
     }
 }
 CaseScope flow_scope(const CaseInput2D& input) {
-    return input.continuous?CaseScope::continuous_v4:CaseScope::uniform_mass_v3;
+    return input.continuous?CaseScope::continuous_v4:input.offset_scope?CaseScope::offset_v10:CaseScope::uniform_mass_v3;
 }
 std::array<InletInput2D,2> validate(const CaseInput2D& input,CaseScope scope,bool static_only=false) {
     const bool continuous=scope==CaseScope::continuous_v4;
-    const bool mass=continuous || scope==CaseScope::uniform_mass_v3;
+    const bool mass=continuous || scope==CaseScope::uniform_mass_v3 || scope==CaseScope::offset_v10;
     if (continuous) {
         if (input.geometry_mode!=1 || !input.continuous)
             throw std::invalid_argument("native continuous preparation requires canonical XY controls and geometry_mode=1");
@@ -351,7 +351,7 @@ std::array<InletInput2D,2> validate(const CaseInput2D& input,CaseScope scope,boo
             decimal(length)+" m exceeds 10.0 m. Likely unit slip — GUI expects meters here, while L_cell and t use millimeters. Re-check input.");
     }
     topology_name(geometry.topology);
-    if (geometry.delta_levelset!=0. && !static_only)
+    if (geometry.delta_levelset!=0. && !static_only && scope!=CaseScope::offset_v10)
         throw std::invalid_argument("native 2D preparation currently requires symmetric delta_levelset=0 geometry");
     scalar(geometry.cell_length_mm,input.kinds.cell_length);
     scalar(geometry.wall_thickness_mm,input.kinds.wall_thickness);
@@ -1060,6 +1060,14 @@ struct InletGeometry2D {
     std::optional<LocalGeometry2D> local;
 };
 
+void prepare_thermal_sides(PreparedCase2D& output,const CaseInput2D& input) {
+    if (!input.offset_scope || input.geometry.delta_levelset==0.) return;
+    const auto& model=input.geometry;
+    const auto value=geometry::asym::prepare_from_index(geometry_index(model.topology),
+        geometry::calibration(model.topology),model.cell_length_mm,model.wall_thickness_mm,model.delta_levelset);
+    output.split_a=value.split_a;output.thermal_sides=value.sides;
+}
+
 PreparedCase2D prepare_case(const CaseInput2D& input,const PreparationOptions& options,
                               const PreparationCallbacks& callbacks,CaseScope scope,const InletGeometry2D* inlet_geometry=nullptr) {
     FloatingEnvironment floating_environment;
@@ -1109,6 +1117,7 @@ PreparedCase2D prepare_case(const CaseInput2D& input,const PreparationOptions& o
     }
     // The thermal and final geometry facades use the same scalar cache.
     if (callbacks.geometry_cache) output.uniform_geometry=material_geometry(input,options,callbacks);
+    prepare_thermal_sides(output,input);
     for (std::size_t i=0;i<2;++i) {
         if (callbacks.validate_host_input)
             callbacks.validate_host_input(callbacks.context,2,static_cast<std::uint32_t>(i));
@@ -1589,6 +1598,12 @@ void validate_zoned_request(const ZonedInput2D& request,const PreparationCallbac
             throw std::invalid_argument("native zoned preparation currently accepts event callbacks only");
     }
 }
+void require_spatial_air(const CaseInput2D& input) {
+    if (input.sides[0].fluid==Fluid::air && input.sides[1].fluid==Fluid::air) return;
+    throw PreparationError(1,std::string("Zoned 2D compute supports air only (fluid_A='")+fluid_name(input.sides[0].fluid)+
+        "', fluid_B='"+fluid_name(input.sides[1].fluid)+"'); the zone property builders would silently use "
+        "air properties for a non-air side. Disable zones or run a uniform (non-zoned) case for water.",4);
+}
 PreparedZonedCase2D spatial_output(const ZonedInput2D& request,const CaseInput2D& input,
                                   const PreparationOptions& options) {
     PreparedZonedCase2D output;output.prepared.input=input;output.prepared.input.geometry_mode=2;
@@ -1605,13 +1620,18 @@ PreparedZonedCase2D prepare_zoned_case(const ZonedInput2D& request,const Prepara
     FloatingEnvironment floating_environment;
     validate_zoned_request(request,callbacks);
     auto input=request.input;input.geometry_mode=0;validate_nu(input.sco2_nu);
-    const auto inlets=validate(input,retained?CaseScope::uniform_mass_v3:CaseScope::air_cfd_v1);input.sides=inlets;
+    const auto inlets=validate(input,input.offset_scope?CaseScope::offset_v10:retained?CaseScope::uniform_mass_v3:CaseScope::air_cfd_v1);input.sides=inlets;
+    if (input.offset_scope && input.df_mode)
+        throw std::invalid_argument("experimental calibration currently requires uniform L/t; "
+            "continuous Shanghai Gyroid air/water fields may use "
+            "the 7/0.6 calibration as an exploratory extrapolation");
     auto output=spatial_output(request,input,options);auto& prepared=output.prepared;
     Records records{prepared.evidence,callbacks,{},{}};
     nominal_grid_steps(input,records);
     if (callbacks.validate_host_input) callbacks.validate_host_input(callbacks.context,1,2);
     prepared.uniform_geometry=cache.material(input,options);
     preflight(input,options,prepared.uniform_geometry.geometry,inlets,records);
+    if (input.offset_scope) require_spatial_air(input);
     if (callbacks.validate_host_input) callbacks.validate_host_input(callbacks.context,4,2);
     spatial_regions(output,request);
     PhysicalGrid2D requested;requested.nx=input.grid.requested_nx;requested.ny=input.grid.requested_ny;
@@ -1660,6 +1680,7 @@ PreparedZonedCase2D prepare_zoned_case(const ZonedInput2D& request,const Prepara
         prepared.area_density[i]=thermal[i].geometry.area_density;
         prepared.hydraulic_diameter[i]=thermal[i].geometry.hydraulic_diameter;
     }
+    prepare_thermal_sides(prepared,input);
     for (std::size_t i=0;i<2;++i) {
         const auto cached=cache.properties(input,i,true,options,records);
         prepared.sides[i].properties=cached.properties;prepared.sides[i].property_kinds=cached.kinds;
@@ -1787,7 +1808,7 @@ PreparedZonedCase2D prepare_spatial_inlet_geometry(const ZonedInput2D& request,S
     const auto inlets=validate(input,CaseScope::uniform_mass_v3,true);input.sides=inlets;
     if (input.df_mode && !request.spatial_model)
         throw std::invalid_argument("native 2D preparation currently requires df_mode='cfd_smooth'");
-    for (const auto& side:inlets) if (side.fluid!=Fluid::air)
+    if (!input.offset_scope) for (const auto& side:inlets) if (side.fluid!=Fluid::air)
         throw std::invalid_argument("native 2D preparation currently supports air/air only");
     Records records{flow.evidence,callbacks,{},{}};nominal_grid_steps(input,records);
     auto output=spatial_output(request,input,options);auto& prepared=output.prepared;
@@ -1795,6 +1816,7 @@ PreparedZonedCase2D prepare_spatial_inlet_geometry(const ZonedInput2D& request,S
     prepared.uniform_geometry=cache.material(input,options);
     if (callbacks.validate_grid) callbacks.validate_grid(callbacks.context);
     prepared.grid=physical_grid(input.grid,inlets,true);record_grid(input,prepared.grid,records);
+    if (input.offset_scope) require_spatial_air(input);
     if (callbacks.validate_host_input) callbacks.validate_host_input(callbacks.context,4,2);
     spatial_regions(output,request);
     Records geometry_records{prepared.evidence,callbacks,{},{}};

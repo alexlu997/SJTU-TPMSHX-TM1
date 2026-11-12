@@ -70,7 +70,7 @@ def test_fractional_nz_is_rejected_before_geometry_preparation(monkeypatch):
     from sjtu_tpmshx.shared.domain.compute_config import SolverConfig
     from sjtu_tpmshx.preprocess.api import prepare_case
     from sjtu_tpmshx.preprocess.two_d import preparation
-    monkeypatch.setattr(preparation, 'tpms_geometry',
+    monkeypatch.setattr(preparation, '_execute',
                         lambda *a, **kw: pytest.fail('invalid grid reached geometry'))
     config = ComputeConfig(solver=SolverConfig(Nz=1.9))
     with pytest.raises(ValueError, match='Nz'):

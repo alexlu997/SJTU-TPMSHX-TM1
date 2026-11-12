@@ -12,7 +12,6 @@ from sjtu_tpmshx.development.tests import preparation_api_reference as reference
 from sjtu_tpmshx.development.tests import test_native_preparation_continuous as continuous
 from sjtu_tpmshx.development.tests import test_native_preparation_mass_flow as uniform
 from sjtu_tpmshx.preprocess import api
-from sjtu_tpmshx.preprocess.two_d import native_preparation
 from sjtu_tpmshx.shared.domain.run_warnings import range_observations, warning_scope
 
 
@@ -202,20 +201,29 @@ def test_no_target_resolution_keeps_identity_without_library(monkeypatch):
     assert api.resolve_inlet_flow_config(config) is config
 
 
-def test_missing_library_does_not_call_old_physical_route(monkeypatch):
-    from sjtu_tpmshx.preprocess.two_d import preparation
+def test_missing_library_is_reported(monkeypatch):
     config = uniform._configuration()
     monkeypatch.setenv('TPMSHX_PREPARATION_LIBRARY', '/missing/preparation/library')
-    monkeypatch.setattr(preparation, '_prepare_case', lambda *args, **kwargs: pytest.fail('old route executed'))
     with pytest.raises(FileNotFoundError, match='prebuilt native preparation library is missing'):
         api.prepare_case(config, case_id='missing')
 
 
-def test_nonzero_delta_keeps_explicit_original_route(monkeypatch):
+def test_direct_2d_preparation_keeps_dimension_guard():
+    from sjtu_tpmshx.preprocess.two_d import preparation
+    config = uniform._configuration()
+    config.solver.Nz = 2
+    with pytest.raises(ValueError, match='2D preparation requires solver.Nz == 1'):
+        preparation.prepare_case(config, case_id='wrong-dimension')
+
+
+def test_nonzero_delta_uses_native_thermal_geometry(monkeypatch):
+    from sjtu_tpmshx.shared.models import _native_geometry
     config = uniform._configuration()
     config.geometry.delta_levelset = .1
-    monkeypatch.setattr(native_preparation, '_execute', lambda *args, **kwargs: pytest.fail('native symmetric route executed'))
-    _same(_capture(monkeypatch, api, 'full', config), _capture(monkeypatch, reference, 'full', config))
+    expected = _capture(monkeypatch, reference, 'full', config)
+    monkeypatch.setattr(_native_geometry, 'prepare_sides',
+                        lambda *args, **kwargs: pytest.fail('native stage reentered Python thermal geometry'))
+    _same(_capture(monkeypatch, api, 'full', config), expected)
 
 
 def test_callback_exception_restores_scope_and_releases_owner(monkeypatch):

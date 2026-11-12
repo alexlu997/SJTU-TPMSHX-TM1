@@ -1,6 +1,7 @@
 #pragma once
 
 #include "tpmshx/geometry.hpp"
+#include "tpmshx/asym_geometry.hpp"
 #include "tpmshx/grid.hpp"
 #include "tpmshx/preparation_df.hpp"
 #include "tpmshx/property_c_api.h"
@@ -71,13 +72,15 @@ struct CaseInput2D {
     Sco2NuSelection sco2_nu;
     CaseScalarKinds kinds;
     std::optional<ContinuousControls2D> continuous;
+    // Only the v10 interface enables the existing nonzero-offset scope.
+    bool offset_scope=false;
 };
 struct PreparationOptions {
     std::optional<double> chi_override;
     bool allow_extrapolation=false;
 };
 // Keep each C interface's scope checks in the shared validation order.
-enum class CaseScope { air_cfd_v1, uniform_fluids_v2, uniform_mass_v3, continuous_v4 };
+enum class CaseScope { air_cfd_v1, uniform_fluids_v2, uniform_mass_v3, continuous_v4, offset_v10 };
 
 struct PhysicalGrid2D {
     std::size_t nx=0,ny=0;
@@ -191,6 +194,7 @@ struct PreparedCase2D {
     PhysicalGrid2D grid;
     geometry::MaterialGeometry uniform_geometry;
     double hydraulic_radius_m=0.,cell_length_m=0.,wall_thickness_m=0.,split_a=.5;
+    std::optional<std::array<geometry::asym::ThermalSide,2>> thermal_sides;
     std::vector<double> cell_length,wall_thickness,total_porosity,solid_conductivity,hydraulic_radius;
     std::array<PreparedSide2D,2> sides;
     std::vector<double> area_density,hydraulic_diameter;

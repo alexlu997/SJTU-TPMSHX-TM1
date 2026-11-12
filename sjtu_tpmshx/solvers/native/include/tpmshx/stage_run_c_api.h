@@ -98,6 +98,18 @@ typedef struct {
     const uint32_t* range_captured;
     tpmshx_preparation_scalar_kind_v2 reference_cell_kind,cell_field_kind,hydraulic_diameter_kind;
 } tpmshx_stage_saved_case_2d_v1;
+/* V2 also accepts discrete spatial geometry (geometry_mode=2) and the
+ * existing offset model. All spatial modes supply the same cell arrays.
+ * Side geometry is optional. When present, each row is area, diameter,
+ * reference area, reference diameter. The existing solver checks offset sides.
+ * The nested descriptor keeps version 1. Initialize this descriptor as version 2. */
+typedef struct {
+    uint32_t abi_version;
+    size_t struct_size;
+    tpmshx_stage_saved_case_2d_v1 values;
+    uint32_t have_side_geometry;
+    double side_geometry[2][4];
+} tpmshx_stage_saved_case_2d_v2;
 
 #ifdef __cplusplus
 extern "C" {
@@ -170,6 +182,14 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_create_saved_v1(
     const tpmshx_stage_run_control_v1*,void**,char*,size_t);
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_restore_saved_v1(
     const tpmshx_stage_saved_case_2d_v1*,const tpmshx_stage_run_request_2d_v3*,
+    const tpmshx_stage_run_control_v1*,const tpmshx_run_state_field_v1*,size_t,void**,char*,size_t);
+/* V2 saved calls retain the same lifecycle and result owner. The descriptor
+ * and all nested storage stay borrowed until transfer or release. */
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_create_saved_v2(
+    const tpmshx_stage_saved_case_2d_v2*,const tpmshx_stage_run_request_2d_v3*,
+    const tpmshx_stage_run_control_v1*,void**,char*,size_t);
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_restore_saved_v2(
+    const tpmshx_stage_saved_case_2d_v2*,const tpmshx_stage_run_request_2d_v3*,
     const tpmshx_stage_run_control_v1*,const tpmshx_run_state_field_v1*,size_t,void**,char*,size_t);
 /* Phases and safe snapshot boundaries match full_2d_run_c_api.h.
  * Snapshots own independent storage; use tpmshx_run_state_release_v1. */

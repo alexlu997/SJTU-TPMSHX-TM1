@@ -143,7 +143,7 @@ The Python preparation entry calls the independent result library to collect ran
 
 `shared/models/_native_preparation.py` loads preparation ABI 1 through ctypes when needed.
 Named property, DF and flow adapters preserve the existing public Python interfaces.
-Full 2D preparation uses v7 domain/port scalar kinds with v3/v4 payloads.
+2D preparation uses the v7 domain/port scalar-kind descriptor with the applicable versioned payload.
 The shared grid and port cores retain mixed integer and narrow-float arithmetic.
 Raw spatial preparation v8 adds capacity, resolution and complete fixed-flow entries for air/air stripes, rectangles and sigmoid fields.
 These entries retain CFD drag and zero delta. They resolve speeds before Nu or transfer calculations and reuse the physical grid.
@@ -155,8 +155,20 @@ Python keeps LUT memory/disk I/O; native code builds missing tables at the origi
 The v9 model preserves the actual spatial conductivity, its kind and separate geometry-extrapolation/default-LUT flags.
 Public configuration retains its original topology and conductivity comparisons, including narrow-scalar equality.
 Spatial calculations use the accepted spatial value; nominal calculations keep their original value.
-Public zone and sigmoid combination queries retain standalone and offset consumers pending separate migration.
+Preparation v10 adds the existing nonzero-delta uniform air/water and air/air spatial modes at prescribed speed.
+Complete results carry nominal asymmetric thermal-side tuples separately from design and cell thermal fields.
+The existing split calculation, scalar conversion order and N128 geometry index remain unchanged.
+Python uniform and spatial preparation use v10. Uniform capacity and resolution retain v7/v3; continuous entries retain v7/v4.
+Spatial capacity and resolution use v10 with the existing v9 result views and release functions.
+Capacity and prescribed total-flow preparation still reject nonzero delta in the original validation order.
+Continuous fields, CO2/sCO2 and experimental models retain their existing restrictions. Earlier C layouts and scopes remain available.
+Saved run descriptor v2 carries the nominal side tuples and accepts discrete and sigmoid fields through the existing full 2D lifecycle.
+It preserves saved v1, result ownership and same-build recovery. It does not prepare saved cases again.
+Public zone and sigmoid combination queries retain standalone consumers pending separate migration.
+`preprocess/two_d/preparation.py` is the native adapter. The replaced Python 2D preparation sequence and row D-F projection are retired.
+Frozen test references retain the original sequence and projection. The existing 3D preparation route remains separate.
 See [spatial host interfaces](native-stages.md#spatial-host-cache-interface) for callbacks and ownership.
+See [offset geometry](native-stages.md#existing-offset-geometry) for the v10 scope and [run continuation](native-stages.md#run-continuation) for borrowed inputs.
 Saved prepared cases keep their recorded grids; the adapter does not reconstruct historical grids.
 Preparation uses statuses 0 for success, 1 for invalid input, 2 for allocation and 3 for runtime errors.
 State errors use 10 for water, 11 for CO2 and 12 for sCO2.

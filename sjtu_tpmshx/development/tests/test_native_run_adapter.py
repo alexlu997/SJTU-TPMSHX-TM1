@@ -1,5 +1,6 @@
 """Keep complete saved 2D results and continuation through the native stage."""
 import ctypes as ct
+from collections.abc import Mapping
 from dataclasses import replace
 import json
 from itertools import product
@@ -52,6 +53,17 @@ def _events_equal(actual, expected):
             row for row in expected if row[:2] == ('residual', side)]
 
 
+def _hdf_scalars(value):
+    # HDF keeps NumPy array types but stores NumPy scalars as Python values.
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, Mapping):
+        return {key: _hdf_scalars(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return type(value)(_hdf_scalars(item) for item in value)
+    return value
+
+
 def _compare(case, tmp_path, monkeypatch):
     from sjtu_tpmshx.shared.models import _native_preparation_case
     expected_events, actual_events = [], []
@@ -69,7 +81,7 @@ def _compare(case, tmp_path, monkeypatch):
     save_result(actual, tmp_path / 'stage.h5')
     stored_case = load_case(tmp_path / 'case.h5')
     _same(stored_case.grid, case.grid, 'case.grid')
-    _same(stored_case.design_fields, case.design_fields, 'case.design_fields')
+    _same(stored_case.design_fields, _hdf_scalars(case.design_fields), 'case.design_fields')
     _same(replace(load_result(tmp_path / 'stage.h5'), result_id=expected.result_id), load_result(tmp_path / 'reference.h5'))
     (tmp_path / 'events.json').write_text(json.dumps(dict(actual=actual_events, expected=expected_events)))
     (tmp_path / 'verdict.json').write_text(json.dumps(dict(complete_result_exact=True, events_exact=True,
@@ -261,14 +273,16 @@ def test_selected_retained_runtime_has_no_new_stage_dependency(monkeypatch):
 
 
 @pytest.mark.parametrize('missing', ['create', 'restore'])
-def test_incomplete_stage_protocol_is_not_retried(monkeypatch, missing):
+@pytest.mark.parametrize('version', [1, 2])
+def test_incomplete_stage_protocol_is_not_retried(monkeypatch, missing, version):
     original = full_2d.NativeFull2DDriver
     _, case = _case()
     class Library:
         def __init__(self, actual):
             self.actual = actual
         def __getattr__(self, name):
-            if name == 'tpmshx_stage_run_2d_' + missing + '_saved_v1':
+            if (name == f'tpmshx_stage_run_2d_{missing}_saved_v{version}'
+                    or version == 1 and name.endswith('_saved_v2')):
                 raise AttributeError(name)
             return getattr(self.actual, name)
     class Driver(original):

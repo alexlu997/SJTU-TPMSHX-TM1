@@ -40,6 +40,8 @@ _Saved = record('SavedCase', [('abi_version', _U), ('struct_size', _S),
     ('hydraulic_diameter_m', _Array), ('fluid_conductivity', _Array * 2),
     ('inlet_recorded', _U), ('range_captured', ct.POINTER(_U)),
     ('reference_cell_kind', _Kind), ('cell_field_kind', _Kind), ('hydraulic_diameter_kind', _Kind)])
+_SavedV2 = record('SavedCaseV2', [('abi_version', _U), ('struct_size', _S),
+    ('values', _Saved), ('have_side_geometry', _U), ('side_geometry', (_D * 4) * 2)])
 
 
 class _StageResult(ct.Structure):
@@ -113,7 +115,8 @@ class _Run(NativeRun):
 
     def __init__(self, library, saved, request, control, errors, state):
         self.errors = errors
-        common = [ct.POINTER(_Saved), ct.POINTER(_Request), ct.POINTER(_Control)]
+        self.creation_version = saved.abi_version
+        common = [ct.POINTER(type(saved)), ct.POINTER(_Request), ct.POINTER(_Control)]
         super().__init__(library, common, [ct.byref(saved), ct.byref(request), ct.byref(control)], control, state)
 
     def _call(self, function, *args):
@@ -138,7 +141,8 @@ def _scalars(summary):
         red_black=[bool(value) for value in summary.red_black])
 
 
-def run_stage(driver, case, cfg, prepared, control, *, resume_state=None, checkpoint=None, checkpoint_due=None):
+def run_stage(driver, case, cfg, prepared, control, *, saved_version=1,
+              resume_state=None, checkpoint=None, checkpoint_due=None):
     """Keep preparation and result storage alive through late application capture."""
     library = driver.library
     try:
@@ -153,6 +157,12 @@ def run_stage(driver, case, cfg, prepared, control, *, resume_state=None, checkp
     uniform, area, diameter, conductivity, recorded, captured, kinds, keepalive = prepare_stage(case, cfg, prepared)
     saved = _Saved(1, ct.sizeof(_Saved), ct.pointer(uniform), area, diameter,
                    (_Array * 2)(*conductivity), recorded, captured, *kinds)
+    if saved_version == 2:
+        sides = cfg['thermal_geometry']['side_geometry']
+        saved = _SavedV2(2, ct.sizeof(_SavedV2), saved, sides is not None)
+        if sides is not None:
+            for index, side in enumerate('AB'):
+                saved.side_geometry[index][:] = sides[side]
     request, energy = _request(cfg)
     callbacks, errors = _callbacks(control)
     stage_control = _Control(case.case_id.encode(), driver.table_directory, control.native_cpu_threads(), callbacks)
