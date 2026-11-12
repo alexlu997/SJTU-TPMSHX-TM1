@@ -82,9 +82,11 @@ Linux x86_64 支持独立结果评估；完整求解器仍支持 macOS arm64 与
 保留现有实验 DF/Nu 选择、状态失败和证据，并用标量标记保留字段精度。
 run v2 通过现有 model-h 或 true-h 路线消费该准备态，并记录实际热状态证据。
 准备 v3 为均匀二维总质量流量增加独立容量查询、入口流量解析和完整准备，复用物理入口几何，
-并将前段证据与最终准备证据分开。现有 v1/v2 C 布局、Python 正式入口和 run 接口保持不变。
+并将前段证据与最终准备证据分开。现有 v1/v2 C 布局和 Python 正式入口保持不变。
 准备 v4 为容量、解析和完整准备增加规范的连续 XY 控制点，复用现有样条及几何核心在物理网格采样，并保留完整局部阻力。
 准备视图只增加面积密度、原始水力直径和两侧流体有效导热率。
+run v3 通过现有完整二维驱动消费连续准备态，保留局部阻力、原始水力直径、单位顺序及名义参考几何。
+已解析的均匀流量案例使用 run v2；两条路线都沿用 v1 结果所有者。
 实验转移保留现有上海契约、独立的前段范围标签和最终适用元数据，不改变 v1/v2/v3 C 布局。
 准备 v5 增加规定速度、CFD 阻力和零 delta 下的原始 air/air 条带与矩形。
 它保留先投影 L/t 再计算行 D-F、离散平滑和单独的热几何场。
@@ -118,7 +120,17 @@ v3 钩子交换已完成的缓存项与同步观测，Python 保留警告过滤�
 原生失败不会选择其他准备路线。
 被替代的连续 Python 分支已退役，独立冻结参考继续保留在 `development/tests`。
 `preparation_case.cpp`负责完整准备流程，`stage_run.cpp`将它适配到现有完整二维驱动。
+生命周期接口复用同一个完整二维运行对象、带类型的快照与恢复校验。
+部分能量控制由所选运行库补齐默认值；准备证据借用至结果转移或运行释放。
 `stage_capture_2d.cpp`记录实际运行证据，供`result_stage.cpp`评估。
+其标量捕获查询复用静态结果算术，并单独接收保存的应用层物性。
+现有原始结果继续拥有场、历史和数值账本。
+Python 对称均匀及连续二维运行通过保存输入接口使用同一原生生命周期。
+`prepared_stage_2d.py` 借用已验证 CaseData；`full_2d_stage.py` 绑定运行、快照和捕获。
+不重新准备保存算例；缺少范围记录、未捕获样本、均匀局部阻力和可选热几何分别保留。
+执行前按所选库能力及几何模式选择协议；归档库和未迁移模式继续使用原接口。
+新协议缺符号或执行失败直接报错，不重新运行旧路线。
+唯一 `FieldResult` 组装器位于 `full_2d_capture.py`，并保留原告警及应用物性检查顺序。
 安装的 C ABI 和`stages.hpp`供外部 C++ 程序调用。
 独立 Quick Design 阶段接受原始 native double 工况。
 `quick_design_prepare.cpp` 复用几何、物性与解析 D-F 的现有实现；
@@ -461,7 +473,7 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
 - `RunControl` 提供进度、取消及其他主机回调；准备态字典不能包含运行时回调。保存结果保留单位、坐标，以及最终流动和最后热状态的区别。
 - 旧 `pipelines.run_stack_3d` 入口和字典模板已退役。前处理与助手从所属模块导入；原 `stages_2d`、`stages_3d`、`_stage_common`、`solvers.envelope` 和 `solvers.roughness` 门面保持退役。不使用导入时别名或向后端注入函数。正式压力归约在后处理中使用记录的物理端口面。
 - `compute.py` 负责配置校验和统一的准备、求解、评估顺序，在阶段之间及后处理完成后检查取消。阶段耗时和警告写入返回的 `FieldResult` 元数据，结果身份及不可变数组存储不变。工作流返回 `CaseData`、`FieldResult` 和 `PerformanceResult`。总体进度由此工作流报告；`RunControl` 保留原始求解器进度、后端选择和主机回调。`applications/result_adapter.compute_result` 调用公共工作流及唯一应用结果映射器 `to_compute_result`。GUI、直接摘要 CLI 和验证工具使用该入口；文件 CLI 使用同一工作流和可移植结果。旧二维／三维映射只作为真实原生结果比较的冻结测试参考保留。
-- `solvers/backends/prepared_2d.py` 和 `prepared_3d.py` 为原生执行校验输入。调用方可请求可写设计副本；绑定通过相同检查借用不可变数组。`solvers/backends/capture_2d.py` 捕获原生可移植二维证据；数值驱动位于 C++。
+- `solvers/backends/prepared_2d.py` 和 `prepared_3d.py` 为原生执行校验输入。调用方可请求可写设计副本；绑定通过相同检查借用不可变数组。`solvers/backends/cpp/full_2d_capture.py` 捕获原生可移植二维证据；数值驱动位于 C++。
   `prepared_models.py` 负责共用的资源角色、流体、Nu 设置和拓扑检查。
   各构建函数保留检查顺序及对应维度的网格、端口和设计校验。
 - `applications/gui/ui/` 仅负责 PySide6 和 PyVista 展示。`ResultCache` 为已接受维度持有唯一已发布 `ComputeResult`。两维均发布独立的标量、元数据、诊断和警告容器，同时共享场数组。底栏、历史、诊断文本、场图和导出从该结果读取；发布完成后，显示耗时写入其元数据。失败或取消保留上次接受结果用于显示／导出，与当前草稿输入独立。画布工作台复用左侧几何／边界／求解控件。相位和三维 z 切片读取接受结果快照，草稿编辑不替换来源。图像导出遵循当前视图；CSV 保留摘要。三维 NPZ 保留完整物理 XYZ 显示温度（K）、两侧速度分量及模（m/s）、显示压力 `P_fA/P_fB`（Pa）、`L_mm/t_mm`（mm）和 `dx/dy/dz`（m）。旧 `vmag/P_kPa` 为 A 侧模和 kPa 压力别名。显示压力参考不变；完整原生热状态和通量属于 results.h5。`applications/gui/ui/typography.py` 为 Qt 使用系统无衬线字体，为 Matplotlib/VTK 保留出版字体，不捆绑字体或向低层导入 Qt。GUI 计算通过 `RunControl` 传递原生线程上限；优化保留独立进程／线程策略。桌面入口在开口内用均匀速度，开启局部密度热输运；端口／壁面细化通过网格方案选择。载入不同退役设置的预设／会话时报告转换并保存当前显式值；脚本设置另行管理。

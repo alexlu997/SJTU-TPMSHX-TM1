@@ -92,11 +92,14 @@ Its scalar tags retain field precision. Run v2 consumes this state through the
 existing model-h or true-h route and records the actual thermal evidence.
 Preparation v3 adds independent capacity, inlet-flow resolution and complete preparation for uniform 2D total mass flow.
 It reuses physical inlet geometry and keeps preliminary evidence separate from final preparation evidence.
-The existing v1/v2 C layouts, Python production entries and run interface are unchanged.
+The existing v1/v2 C layouts and Python production entries are unchanged.
 Preparation v4 adds canonical continuous XY controls to capacity, resolution and complete preparation.
 It samples the physical grid with the existing spline and geometry cores, then retains full local drag.
 Its prepared view adds only area density, original hydraulic diameter and the two fluid conductivities.
 Experimental transfer keeps the current Shanghai contract, separate early range labels and final application metadata.
+Run v3 consumes this continuous state with the existing full 2D driver.
+It preserves local drag, original hydraulic diameter, unit order and nominal reference geometry.
+Resolved uniform flow cases use run v2. Both routes retain the v1 result owner.
 No v1/v2/v3 C layout changes.
 Preparation v5 adds raw air/air stripes and rectangles at prescribed velocity, with CFD drag and zero delta.
 It preserves L/t projection before row D-F, discrete smoothing and separate thermal geometry fields.
@@ -132,7 +135,18 @@ A native failure never selects another preparation route.
 The replaced continuous Python branches are retired; independent frozen references remain under `development/tests`.
 `preparation_case.cpp` owns that complete preparation sequence.
 `stage_run.cpp` adapts it to the existing full 2D driver.
+Its lifecycle interface uses the same full 2D run object, typed snapshots and restore checks.
+Partial energy controls use defaults from the selected library.
+Preparation evidence remains borrowed until result transfer or run release.
 `stage_capture_2d.cpp` records the actual run evidence for `result_stage.cpp`.
+Its scalar capture query reuses static result arithmetic and separate saved application properties.
+The existing raw result remains the owner of fields, histories and numerical ledgers.
+Symmetric uniform and continuous 2D Python runs use the same native lifecycle through the saved-input interface.
+`prepared_stage_2d.py` borrows validated CaseData. `full_2d_stage.py` binds runs, snapshots and capture.
+It does not prepare saved cases again. Missing ranges, uncaptured samples, uniform local drag and optional thermal geometry stay distinct.
+The selected library capability and geometry mode select the protocol before execution. Archived libraries and unported modes retain their existing interfaces.
+Missing new-protocol symbols and execution failures are errors. They do not start another run through the old route.
+The single `FieldResult` assembler is in `full_2d_capture.py`. It preserves warning and application-property check order.
 The installed C ABI and `stages.hpp` support external C++ callers.
 The separate Quick Design stage accepts raw native double operating points.
 `quick_design_prepare.cpp` reuses geometry, property and analytical D-F owners.
@@ -725,7 +739,7 @@ Temperature is not scaled. FullCC nonzero sources stay
   `prepared_models.py` owns shared resource-role, fluid, Nu-setting and topology checks.
   Each builder keeps its check order and dimension-specific grid, port and design validation.
   Callers can request writable design copies; the binding borrows immutable arrays through the same checks.
-  `solvers/backends/capture_2d.py` captures portable native 2D evidence. Numerical drivers remain in C++.
+  `solvers/backends/cpp/full_2d_capture.py` captures portable native 2D evidence. Numerical drivers remain in C++.
 - `applications/gui/ui/` owns PySide6 and PyVista presentation only. `ResultCache` owns one published `ComputeResult` for the accepted dimension.
   Both dimensions publish separate scalar, metadata, diagnostic and warning containers while sharing field arrays.
   The footer, history, diagnostic text, plots and exports read this result. Display timing is added to its metadata after publication.

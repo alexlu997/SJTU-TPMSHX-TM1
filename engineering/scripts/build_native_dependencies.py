@@ -845,3 +845,48 @@ def check_stages(cache: Path, host: str, python: Path, lock: Path, component: st
             run([cmake, "-S", independent / source, "-B", build_dir, *generator,
                  f"-DCMAKE_PREFIX_PATH={prefix}"], log, cwd=independent)
             run([cmake, "--build", build_dir, "--config", "Release", "--parallel", "2"],
+                log, cwd=independent)
+            run([ctest, "--test-dir", build_dir, "-C", "Release", "--output-on-failure"],
+                log, cwd=independent, env=env)
+            if source == "tests/stages":
+                for name in ("stage-result", "quick-design-stage-result"):
+                    shutil.copytree(build_dir / name, cache / "build" / name, dirs_exist_ok=True)
+    print(f"PASS: {host} installed SDK and independent C++ stage callers", flush=True)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("action", choices=("fetch", "fetch-cmake", "fetch-eigen", "build", "verify", "publish", "check-stages"))
+    parser.add_argument("--cache", type=Path, default=ROOT / ".cache/native-deps")
+    parser.add_argument("--python-lock", type=Path, default=ROOT / "engineering/requirements/base.txt")
+    parser.add_argument("--component", choices=("all", "coolprop", "pilot", "geometry", "preparation", "result"), default="all")
+    args = parser.parse_args()
+    python, host, cache = configured_python(), platform_name(), args.cache.resolve()
+    if not cache.is_relative_to(ROOT / ".cache"):
+        raise RuntimeError("Native dependency outputs must remain under this worktree's .cache/")
+    require_component(host, args.component)
+    if host == "linux-x86_64" and args.action not in {"fetch-cmake", "build", "verify", "publish", "check-stages"}:
+        raise RuntimeError("Linux result builds allow only fetch-cmake, build, verify, publish, or check-stages")
+    if args.action == "fetch":
+        fetch(cache, host)
+    elif args.action == "fetch-cmake":
+        fetch_cmake(cache, host)
+    elif args.action == "fetch-eigen":
+        fetch_eigen(cache)
+    elif args.action == "build":
+        build(cache, host, python, args.python_lock.resolve(), args.component)
+    elif args.action == "check-stages":
+        check_stages(cache, host, python, args.python_lock.resolve(), args.component)
+    elif args.action == "publish":
+        publish(cache, host, python, args.python_lock.resolve(), args.component)
+    else:
+        check_environment(cache, python, args.python_lock.resolve())
+        verify(cache, host, args.component)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (OSError, RuntimeError, ValueError) as error:
+        print(f"native dependency pilot: {error}", file=sys.stderr)
+        raise SystemExit(1) from error

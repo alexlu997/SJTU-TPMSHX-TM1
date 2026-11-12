@@ -7,10 +7,25 @@ from sjtu_tpmshx.shared.domain.portable_data import mutable_data as _mutable_dat
 from sjtu_tpmshx.shared.domain.compute_config import ComputeConfig
 from sjtu_tpmshx.shared.domain.persistence_validation import validate_grid, validate_thermal_geometry
 from sjtu_tpmshx.shared.models.zone_config import Zone, ZoneConfig
+from sjtu_tpmshx.shared.models.grid import _port_fractions_1d, _port_overlap_1d
 from .prepared_models import resolve_models, validate_fluid, validate_nu_settings, validate_topology
 
 
 from sjtu_tpmshx.shared.models.zone_units import _legacy_zone_units
+
+
+def _validated_outlet_fraction(flow, opening, port, side):
+    for end in ('in', 'out'):
+        fractions = _port_fractions_1d(flow['dx'], port[end + '_ctr'] - port[end + '_w'] / 2,
+            port[end + '_ctr'] + port[end + '_w'] / 2,
+            uniform=end == 'in' and port.get('uniform_inlet_2d', False))
+        for kind, expected in zip(('geom', 'profile'), fractions):
+            name = end + '_' + kind + '_frac'
+            supplied = np.asarray(opening[name])
+            if supplied.shape != expected.shape or not np.allclose(supplied, expected, rtol=1e-12, atol=1e-15):
+                raise ValueError(f'prepared Fluid {side} {name} disagrees with its grid and port geometry')
+    return _port_overlap_1d(flow['dx'], port['out_ctr'] - port['out_w'] / 2,
+                            port['out_ctr'] + port['out_w'] / 2, staggered=True)
 
 
 def build_execution_inputs(case: CaseData, *, copy_design=True):
