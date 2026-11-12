@@ -90,6 +90,11 @@ existing model-h or true-h route and records the actual thermal evidence.
 Preparation v3 adds independent capacity, inlet-flow resolution and complete preparation for uniform 2D total mass flow.
 It reuses physical inlet geometry and keeps preliminary evidence separate from final preparation evidence.
 The existing v1/v2 C layouts, Python production entries and run interface are unchanged.
+Preparation v4 adds canonical continuous XY controls to capacity, resolution and complete preparation.
+It samples the physical grid with the existing spline and geometry cores, then retains full local drag.
+Its prepared view adds only area density, original hydraulic diameter and the two fluid conductivities.
+Experimental transfer keeps the current Shanghai contract, separate early range labels and final application metadata.
+No v1/v2/v3 C layout or Python production route changes.
 `preparation_case.cpp` owns that complete preparation sequence.
 `stage_run.cpp` adapts it to the existing full 2D driver.
 `stage_capture_2d.cpp` records the actual run evidence for `result_stage.cpp`.

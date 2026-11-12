@@ -89,7 +89,7 @@ def _release(native, result):
     getattr(native, name)(ct.byref(result))
 
 
-def _reference(monkeypatch, operation, config, targets=None):
+def _reference(monkeypatch, operation, config, targets=None, *, chi=None):
     from sjtu_tpmshx.preprocess.two_d import preparation
     from sjtu_tpmshx.shared.models.tpms_calc import compute
     from sjtu_tpmshx.shared.models.tpms_geometry import compute_geometry
@@ -112,6 +112,8 @@ def _reference(monkeypatch, operation, config, targets=None):
     with monkeypatch.context() as patch:
         patch.delenv('TPMSHX_CHI_S', raising=False)
         patch.delenv('TPMSHX_ALLOW_EXTRAP', raising=False)
+        if chi is not None:
+            patch.setenv('TPMSHX_CHI_S', str(chi))
         patch.setattr(api, 'warning_scope', final_scope)
         patch.setattr(preparation, '_prepare_case', final_prepare)
         patch.setattr(preparation._log, 'info', lambda message: state['events'][state['phase']].append(

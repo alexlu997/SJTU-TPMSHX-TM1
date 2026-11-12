@@ -8,6 +8,7 @@
 #define TPMSHX_PREPARATION_CASE_ABI_VERSION 1u
 #define TPMSHX_PREPARATION_CASE_ABI_VERSION_V2 2u
 #define TPMSHX_PREPARATION_CASE_ABI_VERSION_V3 3u
+#define TPMSHX_PREPARATION_CASE_ABI_VERSION_V4 4u
 
 typedef struct {
     int32_t direction;
@@ -205,6 +206,41 @@ typedef struct {
     void* owner;
 } tpmshx_preparation_flow_case_2d_v3;
 
+typedef struct {
+    size_t n_ctrl_x,n_ctrl_y;
+    uint32_t spline_order,symmetric_y;
+    double L_bounds_mm[2],t_bounds_mm[2];
+    tpmshx_preparation_array_v1 decision_mm;
+} tpmshx_preparation_continuous_controls_2d_v4;
+typedef struct {
+    uint32_t abi_version;
+    size_t struct_size;
+    tpmshx_preparation_flow_input_2d_v3 values;
+    tpmshx_preparation_continuous_controls_2d_v4 controls;
+} tpmshx_preparation_continuous_input_2d_v4;
+typedef struct {
+    tpmshx_preparation_text_v1 transfer_policy,geometry_application;
+    uint32_t have_reference_geometry;
+    double reference_geometry_mm[2];
+} tpmshx_preparation_continuous_drag_v4;
+typedef struct {
+    uint32_t abi_version;
+    size_t struct_size;
+    tpmshx_preparation_flow_2d_v3 flow;
+    tpmshx_preparation_continuous_controls_2d_v4 controls;
+    void* owner;
+} tpmshx_preparation_continuous_flow_2d_v4;
+typedef struct {
+    uint32_t abi_version;
+    size_t struct_size;
+    tpmshx_preparation_case_2d_v2 prepared;
+    tpmshx_preparation_flow_2d_v3 flow;
+    tpmshx_preparation_continuous_controls_2d_v4 controls;
+    tpmshx_preparation_array_v1 area_density_per_m,hydraulic_diameter_m,fluid_conductivity[2];
+    tpmshx_preparation_continuous_drag_v4 drag[2];
+    void* owner;
+} tpmshx_preparation_continuous_case_2d_v4;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -302,6 +338,38 @@ TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_flow_2d_r
     tpmshx_preparation_flow_2d_v3* result);
 TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_flow_case_2d_release_v3(
     tpmshx_preparation_flow_case_2d_v3* result);
+
+/* V4 accepts canonical continuous XY controls. Nested versions remain v3/v2/v1.
+ * geometry_mode is 1. Decisions contain L controls then t controls in mm.
+ * Each field uses C order (x,y). A symmetric field stores the lower half of y,
+ * including the central row for an odd count. Controls and bounds must stay
+ * within the current CFD geometry domain. spline_order is 1, 2 or 3.
+ * Capacity and resolution retain the v3 target and static-input contracts.
+ * The complete result adds four C-order physical fields. Its existing local
+ * drag views use (cross,stream), with the stream reversed for directions 1/3.
+ * All nested owners are NULL. Controls, arrays and text are copied or borrowed
+ * from the outer owner. Release that owner once with the matching v4 release.
+ * Complete preparation supports CFD for all pairs, Shanghai Gyroid air/water
+ * experimental transfer at nominal 7/0.6, and the existing CO2/CO2 bypass.
+ * All failure, alias, callback and ownership rules from v3 remain in effect.
+ */
+TPMSHX_PREPARATION_API uint32_t TPMSHX_PREPARATION_CALL tpmshx_preparation_case_abi_version_v4(void);
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_inlet_mass_capacities_2d_v4(
+    const tpmshx_preparation_continuous_input_2d_v4*,const tpmshx_preparation_case_options_v1*,
+    const tpmshx_preparation_case_callbacks_v1*,tpmshx_preparation_continuous_flow_2d_v4*,
+    tpmshx_preparation_case_failure_v2*,char*,size_t);
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_resolve_inlet_flow_2d_v4(
+    const tpmshx_preparation_continuous_input_2d_v4*,const tpmshx_preparation_case_options_v1*,
+    const tpmshx_preparation_case_callbacks_v1*,tpmshx_preparation_continuous_flow_2d_v4*,
+    tpmshx_preparation_case_failure_v2*,char*,size_t);
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_flow_case_2d_v4(
+    const tpmshx_preparation_continuous_input_2d_v4*,const tpmshx_preparation_case_options_v1*,
+    const tpmshx_preparation_case_callbacks_v1*,tpmshx_preparation_continuous_case_2d_v4*,
+    tpmshx_preparation_case_failure_v2*,char*,size_t);
+TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_continuous_flow_2d_release_v4(
+    tpmshx_preparation_continuous_flow_2d_v4*);
+TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_continuous_case_2d_release_v4(
+    tpmshx_preparation_continuous_case_2d_v4*);
 
 #ifdef __cplusplus
 }

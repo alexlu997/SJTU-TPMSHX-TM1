@@ -177,6 +177,91 @@ static int check_v3(void) {
     return 0;
 }
 
+static int check_v4(void) {
+    tpmshx_preparation_continuous_input_2d_v4 source = {0};
+    tpmshx_preparation_continuous_flow_2d_v4 capacity = {0}, resolved = {0};
+    tpmshx_preparation_continuous_case_2d_v4 result = {0}, before;
+    tpmshx_preparation_case_failure_v2 failure = {0}, failure_before;
+    tpmshx_preparation_case_options_v1 options = {1, sizeof(options), 0, 1, 0.};
+    tpmshx_preparation_case_callbacks_v1 callbacks = {1, sizeof(callbacks), cancel_event, NULL};
+    tpmshx_preparation_scalar_kind_v2 weak = {64, 0, 0};
+    double decisions[] = {4.5, 6., 7.5, 5.4, .31, .42, .59, .36}, saved[8];
+    char error[4096];
+    size_t i, calls = 0;
+    source.abi_version = 4; source.struct_size = sizeof(source);
+    source.values.abi_version = 3; source.values.struct_size = sizeof(source.values);
+    source.values.values.abi_version = 2; source.values.values.struct_size = sizeof(source.values.values);
+    source.values.values.values = input(); source.values.values.values.geometry_mode = 1;
+    source.values.values.values.have_physical_depth = 1; source.values.values.values.physical_depth_m = .042;
+    source.values.values.kinds.cell_length = source.values.values.kinds.wall_thickness = weak;
+    source.values.values.kinds.solid_conductivity = source.values.physical_depth_kind = weak;
+    for (i = 0; i < 2; ++i) {
+        source.values.values.kinds.sides[i].velocity = source.values.values.kinds.sides[i].temperature = weak;
+        source.values.values.kinds.sides[i].pressure = source.values.target_kinds[i] = weak;
+        source.values.values.values.sides[i].velocity_m_s = -99.;
+    }
+    source.controls.n_ctrl_x = source.controls.n_ctrl_y = 2; source.controls.spline_order = 1;
+    source.controls.L_bounds_mm[0] = 4.; source.controls.L_bounds_mm[1] = 8.;
+    source.controls.t_bounds_mm[0] = .3; source.controls.t_bounds_mm[1] = .6;
+    source.controls.decision_mm.data = decisions; source.controls.decision_mm.size = 8;
+    capacity.abi_version = resolved.abi_version = result.abi_version = 4;
+    capacity.struct_size = sizeof(capacity); resolved.struct_size = sizeof(resolved); result.struct_size = sizeof(result);
+    failure.abi_version = 2; failure.struct_size = sizeof(failure);
+    CHECK(tpmshx_preparation_case_abi_version_v4() == 4);
+    CHECK(!tpmshx_prepare_inlet_mass_capacities_2d_v4(&source, &options, NULL, &capacity, &failure, error, sizeof(error)));
+    CHECK(capacity.owner && !capacity.flow.owner && capacity.flow.have_capacities);
+    CHECK(capacity.controls.decision_mm.data != decisions && capacity.controls.decision_mm.size == 8);
+    source.values.have_explicit_targets = 1;
+    for (i = 0; i < 2; ++i) source.values.explicit_targets_kg_s[i] = capacity.flow.capacities[i].value * 6.;
+    CHECK(!tpmshx_resolve_inlet_flow_2d_v4(&source, &options, NULL, &resolved, &failure, error, sizeof(error)));
+    CHECK(!tpmshx_prepare_flow_case_2d_v4(&source, &options, NULL, &result, &failure, error, sizeof(error)));
+    CHECK(result.owner && !result.prepared.values.owner && !result.flow.owner);
+    CHECK(result.area_density_per_m.size == result.prepared.values.nx * result.prepared.values.ny);
+    CHECK(result.hydraulic_diameter_m.size == result.area_density_per_m.size);
+    for (i = 0; i < 2; ++i) {
+        CHECK(result.fluid_conductivity[i].size == result.area_density_per_m.size);
+        CHECK(result.prepared.values.sides[i].permeability.size == result.area_density_per_m.size);
+        CHECK(result.prepared.values.sides[i].inlet.velocity_m_s == resolved.flow.speeds[i].value);
+    }
+    CHECK(result.controls.decision_mm.size == 8);
+    memcpy(saved, result.controls.decision_mm.data, sizeof(saved));
+    failure_before = failure; before = result;
+    CHECK(tpmshx_prepare_flow_case_2d_v4(&source, &options, NULL, &result, &failure,
+        (char*)result.controls.decision_mm.data, sizeof(double)) == TPMSHX_PREPARATION_INVALID);
+    CHECK(!memcmp(saved, result.controls.decision_mm.data, sizeof(saved)));
+    CHECK(!memcmp(&before, &result, sizeof(result)) && !memcmp(&failure_before, &failure, sizeof(failure)));
+    decisions[0] = -1.;
+    CHECK(capacity.controls.decision_mm.data[0] == 4.5 && result.controls.decision_mm.data[0] == 4.5);
+    tpmshx_preparation_continuous_flow_2d_release_v4(&capacity);
+    tpmshx_preparation_continuous_flow_2d_release_v4(&resolved);
+    tpmshx_preparation_continuous_case_2d_release_v4(&result);
+    CHECK(!result.owner && !result.prepared.values.cell_length.data);
+    tpmshx_preparation_continuous_case_2d_release_v4(&result);
+    tpmshx_preparation_continuous_case_2d_release_v4(NULL);
+    result.abi_version = 4; result.struct_size = sizeof(result); before = result;
+    CHECK(tpmshx_prepare_flow_case_2d_v4(&source, &options, NULL, &result, &failure, error, sizeof(error)) == 1);
+    CHECK(failure.kind == 1 && !memcmp(&before, &result, sizeof(result)));
+    decisions[0] = 4.5; memcpy(saved, decisions, sizeof(saved)); failure_before = failure;
+    CHECK(tpmshx_prepare_flow_case_2d_v4(&source, &options, NULL, &result, &failure, (char*)decisions, sizeof(decisions)) != 0);
+    CHECK(!memcmp(saved, decisions, sizeof(saved)) && !memcmp(&before, &result, sizeof(result)));
+    CHECK(!memcmp(&failure_before, &failure, sizeof(failure)));
+    source.controls.decision_mm.data = (const double*)&result;
+    source.controls.decision_mm.size = 1;
+    CHECK(tpmshx_prepare_flow_case_2d_v4(&source, &options, NULL, &result, &failure, error, sizeof(error)) != 0);
+    CHECK(!memcmp(&before, &result, sizeof(result)) && !memcmp(&failure_before, &failure, sizeof(failure)));
+    source.controls.decision_mm.data = NULL;
+    CHECK(tpmshx_prepare_flow_case_2d_v4(&source, &options, NULL, &result, &failure, error, sizeof(error)) != 0);
+    CHECK(!memcmp(&before, &result, sizeof(result)));
+    source.controls.decision_mm.data = decisions; source.controls.decision_mm.size = 8;
+    callbacks.context = &calls;
+    CHECK(tpmshx_prepare_flow_case_2d_v4(&source, &options, &callbacks, &result, &failure, error, sizeof(error)) == TPMSHX_PREPARATION_RUNTIME);
+    CHECK(calls == 1 && failure.kind == 3 && !memcmp(&before, &result, sizeof(result)));
+    source.controls.symmetric_y = 2;
+    CHECK(tpmshx_prepare_flow_case_2d_v4(&source, &options, NULL, &result, &failure, error, sizeof(error)) == 1);
+    CHECK(!memcmp(&before, &result, sizeof(result)));
+    return 0;
+}
+
 int main(void) {
     tpmshx_preparation_case_input_2d_v1 source = input(), original = source;
     tpmshx_preparation_case_2d_v1 result = empty_result(), before;
@@ -229,5 +314,6 @@ int main(void) {
     CHECK(tpmshx_prepare_case_2d_v1(&original, NULL, NULL, &result, (char*)&result, sizeof(result)) == TPMSHX_PREPARATION_INVALID);
     CHECK(!memcmp(&before, &result, sizeof(result)));
     CHECK(!check_v2());
-    return check_v3();
+    CHECK(!check_v3());
+    return check_v4();
 }
