@@ -1,5 +1,6 @@
 #pragma once
 #include "tpmshx/stage_run_c_api.h"
+#include "tpmshx/stage_run_3d_c_api.h"
 #include "tpmshx/preparation_case_3d_c_api.h"
 #include <algorithm>
 #include <stdexcept>
@@ -48,6 +49,7 @@ using PreparedContinuousCase3D=detail::Owned<tpmshx_preparation_continuous_case_
 using SpatialInletFlow3D=detail::Owned<tpmshx_preparation_spatial_flow_3d_v4,tpmshx_preparation_spatial_flow_3d_release_v4>;
 using PreparedSpatialCase3D=detail::Owned<tpmshx_preparation_spatial_case_3d_v4,tpmshx_preparation_spatial_case_3d_release_v4>;
 using RunResult2D=detail::Owned<tpmshx_stage_run_result_2d_v1,tpmshx_stage_run_2d_release_v1>;
+using RunResult3D=detail::Owned<tpmshx_stage_run_result_3d_v1,tpmshx_stage_run_3d_release_v1>;
 using RunState=detail::Owned<tpmshx_run_state_v1,tpmshx_run_state_release_v1>;
 using Evaluation=detail::Owned<tpmshx_stage_output_v1,tpmshx_result_stage_release_v1>;
 
@@ -146,6 +148,79 @@ inline tpmshx_stage_capture_2d_v1 capture_summary(const RunResult2D& result,
         "native 2D capture summary failed");
     return output;
 }
+
+struct SavedCase3D : tpmshx_stage_saved_case_3d_v1 {
+    SavedCase3D():tpmshx_stage_saved_case_3d_v1{} {
+        abi_version=TPMSHX_STAGE_RUN_3D_ABI_VERSION;struct_size=sizeof(tpmshx_stage_saved_case_3d_v1);
+        inlet_recorded=1;
+    }
+};
+struct RunRequest3D : tpmshx_stage_run_request_3d_v1 {
+    RunRequest3D():tpmshx_stage_run_request_3d_v1{} {
+        abi_version=TPMSHX_STAGE_RUN_3D_ABI_VERSION;struct_size=sizeof(tpmshx_stage_run_request_3d_v1);
+    }
+};
+struct RunControl3D : tpmshx_stage_run_control_3d_v1 {
+    RunControl3D():tpmshx_stage_run_control_3d_v1{} {
+        result_id="native-3d";cpu_threads=std::max(1u,std::thread::hardware_concurrency());
+    }
+};
+// Keep the prepared owner alive and unchanged until take_result or release.
+class Run3D {
+public:
+    Run3D(const PreparedCase3D& prepared,const RunControl3D& control,const RunRequest3D& request={},
+        const RunState* state=nullptr):Run3D(&prepared.view(),nullptr,nullptr,control,request,state) {}
+    Run3D(const PreparedFlowCase3D& prepared,const RunControl3D& control,const RunRequest3D& request={},
+        const RunState* state=nullptr):Run3D(&prepared.view().prepared,nullptr,nullptr,control,request,state) {}
+    Run3D(const PreparedContinuousCase3D& prepared,const RunControl3D& control,const RunRequest3D& request={},
+        const RunState* state=nullptr):Run3D(nullptr,&prepared.view(),nullptr,control,request,state) {}
+    Run3D(const PreparedSpatialCase3D& prepared,const RunControl3D& control,const RunRequest3D& request={},
+        const RunState* state=nullptr):Run3D(nullptr,nullptr,&prepared.view(),control,request,state) {}
+    Run3D(const tpmshx_stage_saved_case_3d_v1& saved,const RunControl3D& control,const RunRequest3D& request={},
+        const RunState* state=nullptr) {
+        char error[4096]{};
+        const auto status=state?tpmshx_stage_run_3d_restore_saved_v1(&saved,&request,&control,
+            state->view().fields,state->view().count,&run_,error,sizeof(error)):
+            tpmshx_stage_run_3d_create_saved_v1(&saved,&request,&control,&run_,error,sizeof(error));
+        detail::check(status,error);
+    }
+    ~Run3D() {tpmshx_stage_run_3d_release_run_v1(&run_);}
+    Run3D(const Run3D&)=delete;
+    Run3D& operator=(const Run3D&)=delete;
+    Run3D(Run3D&& other) noexcept:run_(std::exchange(other.run_,nullptr)) {}
+    Run3D& operator=(Run3D&& other) noexcept {
+        if(this!=&other) {tpmshx_stage_run_3d_release_run_v1(&run_);run_=std::exchange(other.run_,nullptr);}
+        return *this;
+    }
+    uint32_t phase() const {
+        uint32_t value=0;
+        detail::check(tpmshx_stage_run_3d_phase_v1(run_,&value),"invalid 3D stage run");return value;
+    }
+    uint32_t advance_step() {
+        uint32_t value=0;char error[4096]{};
+        detail::check(tpmshx_stage_run_3d_advance_step_v1(run_,&value,error,sizeof(error)),error);return value;
+    }
+    RunState snapshot() const {
+        tpmshx_run_state_v1 value{};char error[4096]{};
+        detail::check(tpmshx_stage_run_3d_snapshot_v1(run_,&value,error,sizeof(error)),error);return RunState(value);
+    }
+    RunResult3D take_result() {
+        tpmshx_stage_run_result_3d_v1 value{};char error[4096]{};
+        value.abi_version=TPMSHX_STAGE_RUN_3D_ABI_VERSION;value.struct_size=sizeof(value);
+        detail::check(tpmshx_stage_run_3d_take_result_v1(run_,&value,error,sizeof(error)),error);return RunResult3D(value);
+    }
+private:
+    Run3D(const tpmshx_preparation_case_3d_v1* uniform,const tpmshx_preparation_continuous_case_3d_v3* continuous,
+        const tpmshx_preparation_spatial_case_3d_v4* spatial,const RunControl3D& control,const RunRequest3D& request,
+        const RunState* state) {
+        char error[4096]{};
+        const auto status=state?tpmshx_stage_run_3d_restore_v1(uniform,continuous,spatial,&request,&control,
+            state->view().fields,state->view().count,&run_,error,sizeof(error)):
+            tpmshx_stage_run_3d_create_v1(uniform,continuous,spatial,&request,&control,&run_,error,sizeof(error));
+        detail::check(status,error);
+    }
+    void* run_=nullptr;
+};
 
 // Keep the prepared owner alive and unchanged until take_result or release.
 class Run2D {
@@ -370,6 +445,35 @@ inline RunResult2D run_case(const PreparedContinuousCase2D& prepared,const RunCo
     char error[4096]{};
     detail::check(tpmshx_run_case_2d_v3(&prepared.view(),&request,&control,&output,error,sizeof(error)),error);
     return RunResult2D(output);
+}
+namespace detail {
+inline RunResult3D run_3d(const tpmshx_preparation_case_3d_v1* uniform,
+    const tpmshx_preparation_continuous_case_3d_v3* continuous,const tpmshx_preparation_spatial_case_3d_v4* spatial,
+    const RunControl3D& control,const RunRequest3D& request) {
+    tpmshx_stage_run_result_3d_v1 output{};char error[4096]{};
+    output.abi_version=TPMSHX_STAGE_RUN_3D_ABI_VERSION;output.struct_size=sizeof(output);
+    check(tpmshx_run_case_3d_v1(uniform,continuous,spatial,&request,&control,&output,error,sizeof(error)),error);
+    return RunResult3D(output);
+}
+}
+inline RunResult3D run_case(const PreparedCase3D& prepared,const RunControl3D& control,const RunRequest3D& request={}) {
+    return detail::run_3d(&prepared.view(),nullptr,nullptr,control,request);
+}
+inline RunResult3D run_case(const PreparedFlowCase3D& prepared,const RunControl3D& control,const RunRequest3D& request={}) {
+    return detail::run_3d(&prepared.view().prepared,nullptr,nullptr,control,request);
+}
+inline RunResult3D run_case(const PreparedContinuousCase3D& prepared,const RunControl3D& control,const RunRequest3D& request={}) {
+    return detail::run_3d(nullptr,&prepared.view(),nullptr,control,request);
+}
+inline RunResult3D run_case(const PreparedSpatialCase3D& prepared,const RunControl3D& control,const RunRequest3D& request={}) {
+    return detail::run_3d(nullptr,nullptr,&prepared.view(),control,request);
+}
+inline Evaluation evaluate(const RunResult3D& result,const tpmshx_stage_metric_spec_v1* metric=nullptr) {
+    tpmshx_stage_output_v1 output{};output.struct_size=sizeof(output);char error[4096]{};
+    tpmshx_result_diagnostics_v1 diagnostics{};uint64_t token=0;
+    detail::check(tpmshx_result_stage_query_v2(&result.view().evaluation,0,metric,nullptr,0,
+        &output,&diagnostics,&token,error,sizeof(error)),error);
+    return Evaluation(output);
 }
 inline Evaluation evaluate(const RunResult2D& result,const tpmshx_stage_metric_spec_v1* metric=nullptr) {
     tpmshx_stage_output_v1 output{};output.struct_size=sizeof(output);

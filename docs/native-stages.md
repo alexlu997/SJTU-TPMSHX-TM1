@@ -233,9 +233,46 @@ Grid and offset geometry retain the existing air/water scope, state checks and e
 In particular, grid experimental preparation remains unsupported; uniform air/air core calibration keeps its existing offset support.
 The owner copies rectangle and text inputs. Nested prepared and flow views have null owners.
 The v1/v2/v3 C layouts remain unchanged.
-Python 3D preparation, host cache hooks, native 3D run/capture integration,
-memory checks near the cell cap and real 3D BO remain separate migration and acceptance gates.
+Python 3D preparation, host cache hooks and production run integration remain separate gates.
+Memory checks near the cell cap and real 3D BO also need separate acceptance.
 Saved CaseData still uses its existing validators and must not be prepared again.
+
+## Native 3D execution
+
+`stage_run_3d_c_api.h` connects prepared v1/v2/v3/v4 views to the existing `Full3DRun`.
+`run_case` overloads accept uniform, fixed-flow, continuous or spatial C++ preparation owners.
+`Run3D` gives create, step, phase, snapshot, restore and result transfer through the same lifecycle.
+It keeps the existing thermal-first order and safe phases 1, 2, 6, 7, 8, 9 and 10.
+Prepared storage must stay alive and unchanged until result transfer or run release.
+Numerical inputs and controls are copied. Callback functions and context must stay alive until run release.
+
+`RunRequest3D` distinguishes absent controls from explicit values.
+Default initial and warm SIMPLE budgets are 2000 and 600. The thermal budget is 20000.
+An explicit SIMPLE budget sets both flow budgets. Supply saved profile budgets explicitly, including 50000 for full validation.
+The stage does not change grid counts. The host resolves environment settings and supplies a positive CPU limit.
+Model-h and EOS control conflicts retain their existing rejection rules.
+Restore retains exact build, input and control identity. The positive CPU limit can change.
+
+`SavedCase3D` accepts an existing `full3d_input_v1` and recorded preparation evidence.
+It does not call raw preparation or replace saved grids, ports, models, K/cF, thermal geometry or solid conductivity.
+Missing inlet evidence, an empty recorded set and uncaptured range samples remain distinct.
+The later Python adapter must retain the public saved-schema validation before it creates this view.
+
+The result owns the complete raw 3D DTO, generic v1 evidence and a v2 evaluation input.
+Use its `evaluation` member with `tpmshx_result_stage_query_v2`. The C++ `evaluate` overload does this.
+The v2 input preserves explicit None mass-face records; v1 alone cannot express that state.
+It remains valid after preparation and run release. All raw queries must use its creating solver library.
+The raw view is borrowed from the stage result and must not be released separately.
+Capture uses final SIMPLE fields for pressure and display.
+Mass, thermal pressure and energy evidence use the last completed thermal inputs. Heat uses W and mass uses kg/s.
+Display and true-h mass aliases have independent array headers and share immutable data buffers.
+The independent result library owns metric definitions, reasons, applicability, physical balance and qualification.
+
+C status 1, 2, 3 or 4 means invalid input, water state, arithmetic or native failure.
+Status zero means a result was transferred; it does not establish convergence.
+A cancelled result retains raw diagnostics with `raw.stop=2` and no completed evaluation evidence.
+A successful result can be transferred only once. Output and error buffers must not overlap inputs or each other.
+This interface does not switch Python production execution or retire its current result adapter.
 
 ## Python preparation adapter
 
@@ -317,6 +354,8 @@ It prepares, solves and evaluates the case without numerical fields from Python.
 It does not start or link Python.
 The [fluid preparation example](../examples/cpp/prepare_fluids_2d.cpp) prepares a CO2/water case through v2.
 It links only the preparation library and does not execute a solve.
+The [3D run example](../examples/cpp/run_3d.cpp) prepares, pauses, restores, runs and evaluates a bounded case.
+The installed plain-C smoke checks the same lifecycle and cancellation ownership.
 The [3D preparation example](../examples/cpp/prepare_3d.cpp) prepares raw CO2/water inputs with different physical lengths and grid counts on each axis.
 The [3D mass-flow example](../examples/cpp/prepare_mass_3d.cpp) resolves total flow on reverse inlet faces before complete preparation.
 The [continuous 3D example](../examples/cpp/prepare_continuous_3d.cpp) prepares both XY extrusion and XYZ controls with resolved total flows.
@@ -360,5 +399,5 @@ It builds and runs external callers outside the source tree:
 Use the applicable environment lock. A BO environment needs its matching `--python-lock` option.
 On Linux, add `--component result --python-lock engineering/requirements/postprocess.txt`.
 The check retains logs and 2D comparison fields. It removes the temporary installation and external build directories.
-These 2D run paths and raw 3D preparation do not complete migration for discrete zones, 3D or Quick Design.
+These native interfaces do not complete production migration for discrete zones, 3D or Quick Design.
 Python integration and checkpoint recovery have separate acceptance gates.

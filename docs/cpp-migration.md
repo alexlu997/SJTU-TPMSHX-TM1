@@ -154,7 +154,11 @@ It reuses the existing spline and geometry owners. Raw design fields and thermal
 The 3D spatial v4 adds raw XY grid rectangles and the existing global offset rules to all three operations.
 Existing zone and asymmetric owners supply assignment, smoothing, side porosity and nominal thermal side/reference geometry.
 The original air/water scope and experimental restrictions remain. The v1/v2/v3 C layouts remain unchanged.
-Host cache hooks, Python 3D preparation and native 3D run/capture need separate stage integration.
+The separate `stage_run_3d_c_api.h` now connects all prepared 3D families and saved views to `Full3DRun`.
+It provides one-shot execution, steps, typed snapshots, restore and complete raw result transfer.
+Its capture owner supplies the independent result stage with final-flow and last-thermal evidence.
+See [native 3D execution](native-stages.md#native-3d-execution) for ownership and control defaults.
+Host cache hooks, Python 3D preparation and production run integration remain separate gates.
 Memory use near the cell cap and real 3D BO remain acceptance gates.
 This raw interface does not replace saved CaseData validation.
 

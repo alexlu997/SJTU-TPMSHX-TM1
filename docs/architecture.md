@@ -115,7 +115,7 @@ The 3D spatial v4 adds XY grid rectangles and the existing global offset rules.
 It assigns physical XY centres, smooths L/t separately, then extends fields along z.
 The existing asymmetric owner supplies nominal split and thermal side/reference geometry.
 Local total porosity remains symmetric; each side capacity uses its own split field.
-The v1/v2/v3 layouts remain unchanged. Python 3D preparation and native run/capture integration remain separate gates.
+The v1/v2/v3 layouts remain unchanged. Python 3D preparation and production run integration remain separate gates.
 Memory use near the cell cap and real 3D BO also need separate acceptance.
 Python preparation uses the owned v3/v4 stages for symmetric uniform and canonical continuous XY 2D inputs.
 Nonzero-delta uniform, discrete zones, sigmoid and 3D retain explicit existing routes.
@@ -127,7 +127,11 @@ A native failure never selects another preparation route.
 The replaced continuous Python branches are retired; independent frozen references remain under `development/tests`.
 `preparation_case.cpp` owns 2D preparation and uniform, continuous or grid/offset 3D preparation.
 `stage_run.cpp` adapts it to the existing full 2D driver.
-Its lifecycle interface uses the same full 2D run object, typed snapshots and restore checks.
+`stage_run_3d.cpp` connects all four 3D preparation families and saved inputs to `Full3DRun`.
+`stage_capture_3d.cpp` owns the complete raw result and its independent evaluation evidence.
+Final flow supplies pressure and display. The last completed thermal inputs supply mass, thermal pressure and energy.
+The result survives preparation and run release. The Python 3D production route remains unchanged.
+The 2D lifecycle interface uses the same full 2D run object, typed snapshots and restore checks.
 Partial energy controls use defaults from the selected library.
 Preparation evidence remains borrowed until result transfer or run release.
 `stage_capture_2d.cpp` records the actual run evidence for `result_stage.cpp`.
