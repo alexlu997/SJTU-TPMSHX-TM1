@@ -222,7 +222,7 @@ def _control_axis_warning(source, message):
 
 @contextmanager
 def operation(name, source, options, validate_host_input, geometry_cache=None, inlet_cache=None,
-              observe_range=None, observe_notice=None):
+              observe_range=None, observe_notice=None, nominal_grid_warning=None):
     """Keep the complete owner alive until the caller copies all required data."""
     version = source.abi_version
     result_type = ((_ContinuousCase if name == 'prepare_flow_case' else _ContinuousFlow)
@@ -241,7 +241,11 @@ def operation(name, source, options, validate_host_input, geometry_cache=None, i
                 from .input_validation import surrogate_extrap_reasons
                 _source_warning(surrogate_extrap_reasons, _text(item.message), call='check_surrogate_domain_at_point')
             elif item.kind == 2:
-                warn = partial(_control_axis_warning, _text(item.message)) if item.message.size else None
+                source = _text(item.message)
+                if source in ('nominal-grid-x', 'nominal-grid-y'):
+                    warn = partial(nominal_grid_warning, source[-1]) if nominal_grid_warning else None
+                else:
+                    warn = partial(_control_axis_warning, source) if source else None
                 _native_properties._floating_events([item.floating_event], warn=warn)
             else:
                 raise RuntimeError(f'unknown preparation event kind {item.kind}')

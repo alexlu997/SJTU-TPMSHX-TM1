@@ -310,8 +310,11 @@ def _case(result, config, case_id, side_geometry=None):
         thermal['fields'] = dict(A_0=native._array(result.area_density_per_m, shape),
                                 D_h=native._array(result.hydraulic_diameter_m, shape), epsilon=design['eps_arr'])
     geometry = config.geometry
+    # Native preparation has already emitted these nominal-grid events.
+    with np.errstate(all='ignore'):
+        dx, dy = geometry.L_dom_m/config.solver.Nx, geometry.H_dom_m/config.solver.Ny
     params = dict(L=geometry.L_dom_m, H=geometry.H_dom_m, N_x=value.nx, N_y=value.ny,
-        dx=geometry.L_dom_m/config.solver.Nx, dy=geometry.H_dom_m/config.solver.Ny,
+        dx=dx, dy=dy,
         u_A=config.fluid_A.u_mps, u_B=config.fluid_B.u_mps,
         T_inA=config.fluid_A.T_in_K, T_inB=config.fluid_B.T_in_K, T_s_init=config.solver.T_s_init_K,
         envelope_mode=getattr(config, 'envelope_mode', 'raise'), tpms_type=geometry.tpms,
@@ -480,6 +483,11 @@ def _execute(config, operation, *, targets=None, case_id=None, own_metadata=Fals
         else:
             raise RuntimeError(f'unknown preparation notice kind {kind}')
 
+    def nominal_grid_warning(axis, message):
+        from .preparation import _parse_geometry_inputs_cfg
+        native._source_warning(_parse_geometry_inputs_cfg, message,
+                               binary=('/', int(axis == 'y')), category=RuntimeWarning)
+
     with ExitStack() as scopes:
         def host_input(stage, side):
             if stage == 0:
@@ -504,7 +512,7 @@ def _execute(config, operation, *, targets=None, case_id=None, own_metadata=Fals
                 raise RuntimeError(f'unknown preparation host stage {stage}')
 
         with native.operation(operation, source, options, host_input, geometry_cache, inlet_cache,
-                              observe_range, observe_notice) as result:
+                              observe_range, observe_notice, nominal_grid_warning) as result:
             flow = result.flow if hasattr(result, 'flow') else result
             if operation == 'prepare_inlet_mass_capacities':
                 return {side: _native_flow._restore(flow.capacities[index]) for index, side in enumerate('AB')}

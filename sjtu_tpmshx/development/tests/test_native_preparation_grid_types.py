@@ -2,6 +2,7 @@
 import ctypes as ct
 from copy import deepcopy
 from dataclasses import asdict
+import dis
 import os
 import warnings
 
@@ -611,10 +612,15 @@ def _axis_config(count, axis):
     return config
 
 
-def _axis_failure(monkeypatch, module, config, operation, *, filter_module=False):
+def _axis_observation(monkeypatch, module, config, operation, *, filter_module=False):
     from sjtu_tpmshx.shared.logutil import get_logger
+    from sjtu_tpmshx.shared.models.tpms_calc import compute
+    from sjtu_tpmshx.shared.models.tpms_geometry import compute_geometry
+    compute.cache_clear()
+    compute_geometry.cache_clear()
     events = []
     targets = (.003, .004)
+    result, failure = None, None
     with monkeypatch.context() as patch, warnings.catch_warnings():
         warnings.simplefilter('always')
         if filter_module:
@@ -623,18 +629,27 @@ def _axis_failure(monkeypatch, module, config, operation, *, filter_module=False
                       events.append((category.__name__, str(message), filename, lineno)))
         patch.setattr(get_logger('sjtu_tpmshx.preprocess.two_d.preparation'), 'info',
                       lambda message: events.append(('log', message)))
-        with pytest.raises(Exception) as caught:
+        try:
             if operation == 'capacity':
-                module.prepare_inlet_mass_capacities(config)
+                result = module.prepare_inlet_mass_capacities(config)
             elif operation == 'resolve':
-                module.resolve_fixed_mass_flow_config(config,
+                result = module.resolve_fixed_mass_flow_config(config,
                     mass_flow_A_kg_s=targets[0], mass_flow_B_kg_s=targets[1])
             elif operation == 'fixed':
-                module.prepare_fixed_mass_flow_case(config, case_id='axis-error',
+                result = module.prepare_fixed_mass_flow_case(config, case_id='axis-error',
                     mass_flow_A_kg_s=targets[0], mass_flow_B_kg_s=targets[1])
             else:
-                module.prepare_case(config, case_id='axis-error')
-    return type(caught.value), str(caught.value), events
+                result = module.prepare_case(config, case_id='axis-error')
+        except Exception as caught:
+            failure = type(caught), str(caught)
+    return result, failure, events
+
+
+def _axis_failure(monkeypatch, module, config, operation, *, filter_module=False):
+    _result, failure, events = _axis_observation(
+        monkeypatch, module, config, operation, filter_module=filter_module)
+    assert failure is not None
+    return *failure, events
 
 
 @pytest.mark.parametrize('count', [4097, 65521])
@@ -683,3 +698,132 @@ def test_raw_control_axis_keeps_cast_and_divide_events(native, operation, axis):
                                                  else [0, 2, 2, 2])
     finally:
         _release(native, 'continuous', result)
+
+
+
+def _underflow_config(axis, sampling, *, one_cell=False):
+    count = 1 if sampling else 2
+    config = v4._configuration(pair=('air', 'air'), nx=count if axis == 'x' else 1,
+                               ny=count if axis == 'y' else 1, mirror=False, order=1)
+    config.geometry.L_dom_m, config.geometry.H_dom_m = np.float16(.125), np.float16(.0625)
+    setattr(config.geometry, 'L_dom_m' if axis == 'x' else 'H_dom_m',
+            np.float16(2. ** (-24 if sampling else -15)))
+    config.solver.Nx = config.solver.Ny = 4
+    setattr(config.solver, 'Nx' if axis == 'x' else 'Ny', 1 if one_cell else 4 if sampling else 3)
+    config.flags.port_wall_refine = False
+    config.bc_A = PartialBCConfig(dir=0 if axis == 'x' else 2)
+    config.bc_B = PartialBCConfig(dir=0 if axis == 'x' else 2)
+    return config
+
+
+def _nominal_divide_sources():
+    from sjtu_tpmshx.development.tests import preparation_case_reference
+    from sjtu_tpmshx.preprocess.two_d import preparation
+
+    def locations(module):
+        function = module._parse_geometry_inputs_cfg
+        return [(function.__code__.co_filename, item.positions.lineno)
+                for item in dis.get_instructions(function)
+                if item.opname == 'BINARY_OP' and item.argrepr == '/']
+
+    original, current = locations(preparation_case_reference), locations(preparation)
+    assert len(original) == len(current) == 2
+    return dict(zip(original, current))
+
+
+def _normalize_nominal_sources(events):
+    sources = _nominal_divide_sources()
+    return [(*event[:2], *sources.get(event[2:], event[2:])) if len(event) == 4 else event
+            for event in events]
+
+
+@pytest.mark.parametrize('sampling', [False, True], ids=['nominal-quotient', 'requested-sampling'])
+@pytest.mark.parametrize('axis', ['x', 'y'])
+@pytest.mark.parametrize('policy', ['warn', 'raise'])
+@pytest.mark.parametrize('operation', ['full', 'capacity', 'resolve', 'fixed'])
+def test_half_domain_underflow_keeps_host_failure_order(monkeypatch, sampling, axis, policy, operation):
+    config = _underflow_config(axis, sampling)
+    with np.errstate(under=policy):
+        error, message, events = _axis_failure(monkeypatch, adapter.reference, config, operation)
+        actual = _axis_failure(monkeypatch, adapter.api, config, operation)
+    expected_events = _normalize_nominal_sources(events)
+    assert actual == (error, message, expected_events)
+    if policy == 'raise':
+        assert error is FloatingPointError and message == 'underflow encountered in scalar divide'
+    else:
+        assert error is ValueError
+        floating = [event for event in expected_events if event[0] == 'RuntimeWarning']
+        assert floating[0] == ('RuntimeWarning', 'underflow encountered in scalar divide',
+                              *tuple(_nominal_divide_sources().values())[axis == 'y'])
+        if operation == 'full':
+            assert len(floating) == (3 if sampling else 1)
+            assert message == ('sampling axes must be finite, increasing and inside the field domain'
+                               if sampling else 'cell widths must be finite, positive and cover the field domain')
+
+
+@pytest.mark.parametrize('axis', ['x', 'y'])
+def test_one_cell_half_domain_keeps_success_and_midpoint_sources(monkeypatch, axis):
+    config = _underflow_config(axis, True, one_cell=True)
+    with np.errstate(under='warn'):
+        expected = _axis_observation(monkeypatch, adapter.reference, config, 'full')
+        actual = _axis_observation(monkeypatch, adapter.api, config, 'full')
+    assert expected[1] is None
+    adapter._same(actual, expected)
+    floating = [event for event in expected[2] if event[0] == 'RuntimeWarning']
+    assert len(floating) == 4
+    assert all(event[1] == 'underflow encountered in scalar divide' for event in floating)
+    assert not any(event[2:] in _nominal_divide_sources() for event in floating)
+
+
+@pytest.mark.parametrize('sampling', [False, True], ids=['nominal-quotient', 'requested-sampling'])
+@pytest.mark.parametrize('axis', ['x', 'y'])
+def test_raw_half_domain_keeps_nominal_and_midpoint_event_order(native, axis, sampling):
+    config = _underflow_config(axis, sampling)
+    status, result, failure, error, events, _, _ = _call(native, 'continuous', config)
+    try:
+        assert status != 0 and failure.kind == 1 and not result.owner
+        assert error == ('sampling axes must be finite, increasing and inside the field domain'
+                         if sampling else 'cell widths must be finite, positive and cover the field domain')
+        sources = ['nominal-grid-' + axis]
+        if sampling:
+            sources += ['control-axis-midpoint', 'control-axis-check-midpoint']
+        assert [(event[2], event[3]) for event in events if event[0] == 2] == [
+            (name, 8 | 4 << 8 | 0x10000) for name in sources]
+    finally:
+        _release(native, 'continuous', result)
+
+
+@pytest.mark.parametrize('axis', ['x', 'y'])
+@pytest.mark.parametrize('policy', ['warn', 'raise'])
+def test_uniform_half_domain_keeps_one_nominal_event(monkeypatch, axis, policy):
+    config = _underflow_config(axis, False)
+    config.zones.enabled = False
+    with np.errstate(under=policy):
+        expected, failure, events = _axis_observation(monkeypatch, adapter.reference, config, 'full')
+        actual = _axis_observation(monkeypatch, adapter.api, config, 'full')
+    adapter._same(actual, (expected, failure, _normalize_nominal_sources(events)))
+    if policy == 'warn':
+        assert failure is None
+        assert len([event for event in events if event[0] == 'RuntimeWarning']) == 1
+    else:
+        assert failure == (FloatingPointError, 'underflow encountered in scalar divide')
+
+
+@pytest.mark.parametrize('scope', ['zones', 'sigmoid'])
+@pytest.mark.parametrize('axis', ['x', 'y'])
+def test_raw_spatial_half_domain_keeps_nominal_event(native, scope, axis):
+    config = v5._config('grid') if scope == 'zones' else v6._configuration()
+    narrow = _underflow_config(axis, False)
+    config.geometry.L_dom_m, config.geometry.H_dom_m = narrow.geometry.L_dom_m, narrow.geometry.H_dom_m
+    config.solver.Nx, config.solver.Ny = narrow.solver.Nx, narrow.solver.Ny
+    config.bc_A, config.bc_B = narrow.bc_A, narrow.bc_B
+    config.flags.port_wall_refine = False
+    table = v6._table(config.geometry.tpms) if scope == 'sigmoid' else None
+    status, result, failure, error, events, _, _ = _call(native, scope, config, table=table)
+    try:
+        assert status == 0, error
+        assert result.owner and not failure.kind
+        assert events[0] == (2, '', 'nominal-grid-' + axis, 8 | 4 << 8 | 0x10000)
+        assert len([event for event in events if event[2] == 'nominal-grid-' + axis]) == 1
+    finally:
+        _release(native, scope, result)

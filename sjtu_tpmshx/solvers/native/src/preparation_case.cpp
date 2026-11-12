@@ -524,6 +524,16 @@ struct Records {
     }
 };
 
+void nominal_grid_steps(const CaseInput2D& input,Records& records) {
+    for (std::size_t axis=0;axis<2;++axis) {
+        const auto length=grid_scalar(axis?input.grid.height_m:input.grid.length_m,input.grid.kinds[axis]);
+        const auto count=axis?input.grid.requested_ny:input.grid.requested_nx;
+        std::array<std::uint32_t,property_event_count> events{};PropertyArithmetic arithmetic(events);
+        arithmetic.divide({length,0.,0,length.strong?1u:0u},{g::weak(static_cast<double>(count))});
+        records.floating(events,axis?"nominal-grid-y":"nominal-grid-x");
+    }
+}
+
 std::string sample_index(const PreparationRange& range,std::size_t index) {
     if (range.shape.empty()) return "()";
     if (range.shape.size()==1) return "("+std::to_string(index)+",)";
@@ -942,21 +952,35 @@ std::array<std::vector<double>,2> control_axes(const CaseInput2D& input,Records&
     }
     return axes;
 }
+std::array<std::vector<double>,2> sampling_axes(const CaseInput2D& input,const PhysicalGrid2D* grid=nullptr) {
+    std::array<std::vector<double>,2> axes;
+    for (std::size_t axis=0;axis<2;++axis) {
+        const auto extent=grid_scalar(axis?input.grid.height_m:input.grid.length_m,input.grid.kinds[axis]);
+        const auto count=grid?(axis?grid->ny:grid->nx):(axis?input.grid.requested_ny:input.grid.requested_nx);
+        const auto* widths=grid?(axis?&grid->dy:&grid->dx):nullptr;
+        if (widths) {
+            const double total=0.+tpmshx::detail::contiguous_sum({widths->data(),widths->size()});
+            if (!(std::abs(total-extent.value)<=g::multiply(g::weak(1e-12),extent).value))
+                throw std::invalid_argument("cell widths must be finite, positive and cover the field domain");
+        }
+        axes[axis]=g::continuous_centres(count,extent,widths);
+    }
+    for (std::size_t axis=0;axis<2;++axis) {
+        const auto& points=axes[axis];
+        const char* error="sampling axes must be finite, increasing and inside the field domain";
+        try {fields::sample_axis(points.data(),points.size());}
+        catch (const std::invalid_argument&) {throw std::invalid_argument(error);}
+        if (points.front()<0. || points.back()>(axis?input.grid.height_m:input.grid.length_m))
+            throw std::invalid_argument(error);
+    }
+    return axes;
+}
 LocalGeometry2D local_geometry(const CaseInput2D& input,const PhysicalGrid2D& grid,
                                const PreparationOptions& options,Records& records) {
     const auto& controls=*input.continuous;
-    const auto length=grid_scalar(input.grid.length_m,input.grid.kinds[0]);
-    const auto height=grid_scalar(input.grid.height_m,input.grid.kinds[1]);
-    const auto axes=control_axes(input,records);
+    const auto axes=control_axes(input,records),samples=sampling_axes(input,&grid);
     const auto& x=axes[0];const auto& y=axes[1];
-    for (std::size_t axis=0;axis<2;++axis) {
-        const auto extent=axis?height:length;const auto& widths=axis?grid.dy:grid.dx;
-        const double total=0.+tpmshx::detail::contiguous_sum({widths.data(),widths.size()});
-        if (!(std::abs(total-extent.value)<=g::multiply(g::weak(1e-12),extent).value))
-            throw std::invalid_argument("cell widths must be finite, positive and cover the field domain");
-    }
-    const auto xc=g::continuous_centres(grid.nx,length,&grid.dx);
-    const auto yc=g::continuous_centres(grid.ny,height,&grid.dy);
+    const auto& xc=samples[0];const auto& yc=samples[1];
     const auto half_y=controls.symmetric_y?controls.ny/2+controls.ny%2:controls.ny;
     const auto half=count(controls.nx,half_y);
     std::array<std::vector<double>,2> sampled;
@@ -1012,6 +1036,7 @@ PreparedCase2D prepare_case(const CaseInput2D& input,const PreparationOptions& o
     const auto inlets=validate(input,scope);
     PreparedCase2D output{};output.input=input;output.options=options;
     Records records{output.evidence,callbacks,{},{}};
+    nominal_grid_steps(input,records);
     const auto& model=input.geometry;
     if (callbacks.validate_host_input) callbacks.validate_host_input(callbacks.context,1,2);
     output.uniform_geometry=inlet_geometry && !callbacks.geometry_cache?inlet_geometry->material:material_geometry(input,options,callbacks);
@@ -1019,7 +1044,7 @@ PreparedCase2D prepare_case(const CaseInput2D& input,const PreparationOptions& o
     output.hydraulic_radius_m=geometry::hydraulic_radius(uniform.hydraulic_diameter);
     preflight(input,options,uniform,inlets,records);
     // The original first field construction precedes conductivity and mesh checks.
-    if (input.continuous) control_axes(input,records);
+    if (input.continuous) {control_axes(input,records);sampling_axes(input);}
     // Full host preparation reads both conductivities before and after its mesh.
     if (input.continuous) for (std::size_t i=0;i<2;++i)
         property(2,inlets[i],input.kinds.sides[i],"unbound","unbound",records);
@@ -1447,6 +1472,7 @@ PreparedZonedCase2D prepare_zoned_case(const ZonedInput2D& request,const Prepara
     output.kind=request.sigmoid?2:request.kind;output.axis=request.axis;
     if (request.sigmoid) output.sigmoid=request.sigmoid->controls;
     Records records{prepared.evidence,callbacks,{},{}};ZonedCache cache;
+    nominal_grid_steps(input,records);
     prepared.uniform_geometry=cache.material(input,options);
     preflight(input,options,prepared.uniform_geometry.geometry,inlets,records);
     auto regions=request.regions;if (!request.kind) sort_stripes(regions);
@@ -1527,11 +1553,12 @@ g::Scalar flow_scalar(double value,ScalarKind kind) {
 InletGeometry2D prepare_inlet_geometry(const CaseInput2D& input,ScalarKind depth_kind,
     const PreparationOptions& options,const PreparationCallbacks& callbacks,InletFlow2D& flow) {
     const auto inlets=validate(input,flow_scope(input),true);
+    Records records{flow.evidence,callbacks,{},{}};nominal_grid_steps(input,records);
     if (callbacks.validate_host_input) callbacks.validate_host_input(callbacks.context,1,2);
     InletGeometry2D output{};output.material=material_geometry(input,options,callbacks);
     if (callbacks.validate_grid) callbacks.validate_grid(callbacks.context);
     output.grid=physical_grid(input.grid,inlets);
-    Records records{flow.evidence,callbacks,{},{}};record_grid(input,output.grid,records);
+    record_grid(input,output.grid,records);
     for (std::size_t i=0;i<2;++i) {output.sides[i].inlet=inlets[i];prepare_ports(output.grid,output.sides[i]);}
     if (input.continuous) output.local=local_geometry(input,output.grid,options,records);
     std::array<double,2> densities;
