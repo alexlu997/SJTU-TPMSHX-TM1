@@ -19,7 +19,7 @@ compute -> preprocess.api.prepare_case -> CaseData -> solvers.api.run_case -> Fi
                                                                        -> postprocess.api.evaluate -> PerformanceResult
 ```
 
-`compute` 同时处理阶段进度、取消、耗时与警告。`postprocess/api.py` 将完整 2D/3D 评估及独立查询交给原生结果阶段。
+`compute` 同时处理阶段进度、取消、耗时与警告。`postprocess/api.py` 将完整 2D/3D、Quick Design 评估及独立查询交给原生结果阶段。
 `shared/_native_result_stage.py` 适配证据、NumPy 事件与返回对象；`postprocess/export.py` 负责导出。
 当前正式计算支持矩形二维与长方体三维。公开输入和文件交接见[示例](../examples/three_module/)与[数据契约](../docs/contracts/three_module_v1/README.zh-CN.md)。
 近似模式和扩展状态见[能力范围](../docs/capabilities.md)。
