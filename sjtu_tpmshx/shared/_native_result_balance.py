@@ -1,4 +1,4 @@
-"""Pack physical balance and selected zone data for the native result core."""
+"""Pack selected zone data for the native result core."""
 import ctypes as ct
 
 import numpy as np
@@ -11,74 +11,8 @@ _AP = ct.POINTER(core._Array)
 _SP = ct.POINTER(core._Scalar)
 
 
-class _Norms(ct.Structure):
-    _fields_ = [('signed_sum', _D), ('l1', _D), ('cell_max', _D), ('cell_count', core._Size)]
-
-
-class _Mass(ct.Structure):
-    _fields_ = [('residual', _Norms), ('inflow', _D), ('outflow', _D), ('scale', _D),
-                ('relative_net', _D), ('relative_l1', _D), ('boundary_out', _D * 6),
-                ('telescoping_error', _D), ('has_scale', core._UInt), ('reserved', core._UInt)]
-
-
-class _Planes(ct.Structure):
-    _fields_ = [('values', _D * 6), ('total', _D)]
-
-
-class _EnergyPhase(ct.Structure):
-    _fields_ = [('residual', _Norms), ('source_integral', _D),
-                ('advective_out_sum', _D), ('diffusive_out_sum', _D)]
-
-
-class _Energy(ct.Structure):
-    _fields_ = [(name, _D) for name in (
-        'boundary_out', 'source_integral', 'prescribed_b_power', 'net_external_in',
-        'residual_sum', 'telescoping_error', 'scale', 'relative_external_imbalance')]
-    _fields_ += [('l1_relative', _D * 3), ('cell_max_relative', _D * 3)]
-
-
 def _call(name, argtypes, *arguments):
     return core.call(f'tpmshx_result_{name}_v1', argtypes, *arguments)
-
-
-def norm_record(value):
-    return dict(signed_sum=value.signed_sum, l1=value.l1,
-                cell_max=value.cell_max, cell_count=value.cell_count)
-
-
-def norms(value):
-    owner, output = core.array(value), _Norms()
-    _call('balance_norms', [_AP, ct.POINTER(_Norms)], ct.byref(owner.raw), ct.byref(output))
-    return norm_record(output)
-
-
-def mass(faces):
-    owners = [core.array(face) for face in faces]
-    inputs = (core._Array * len(owners))(*(owner.raw for owner in owners))
-    output = _Mass()
-    _call('balance_mass', [_AP, core._Size, ct.POINTER(_Mass)], inputs, len(owners), ct.byref(output))
-    return output
-
-
-def plane_sums(planes):
-    owners = [core.array(plane) for plane in planes]
-    inputs = (core._Array * len(owners))(*(owner.raw for owner in owners))
-    output = _Planes()
-    _call('balance_planes', [_AP, core._Size, ct.POINTER(_Planes)], inputs, len(owners), ct.byref(output))
-    return output
-
-
-def energy_totals(phases, reservoir):
-    records = []
-    for row in phases:
-        values = row['residual']
-        norms = _Norms(values['signed_sum'], values['l1'], values['cell_max'], values['cell_count'])
-        records.append(_EnergyPhase(norms, row['source_integral'], row['advective_out_sum'], row['diffusive_out_sum']))
-    inputs = (_EnergyPhase * len(records))(*records)
-    output = _Energy()
-    _call('balance_energy', [ct.POINTER(_EnergyPhase), core._Size, _D, ct.POINTER(_Energy)],
-          inputs, len(records), reservoir, ct.byref(output))
-    return output
 
 
 def zone_mean(value, weights=None):

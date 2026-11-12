@@ -834,7 +834,8 @@ def check_stages(cache: Path, host: str, python: Path, lock: Path, component: st
         if component == "all":
             tests = independent / "tests"
             shutil.copytree(ROOT / "sjtu_tpmshx/solvers/native/tests/stages", tests / "stages")
-            shutil.copy2(ROOT / "sjtu_tpmshx/solvers/native/tests/stage_run_smoke.cpp", tests)
+            for smoke in ("stage_run_smoke", "quick_design_stage_smoke"):
+                shutil.copy2(ROOT / f"sjtu_tpmshx/solvers/native/tests/{smoke}.cpp", tests)
             sources.append("tests/stages")
         env = {key: value for key, value in os.environ.items()
                if key not in {"PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV"} and not key.startswith("TPMSHX_")}
@@ -843,14 +844,15 @@ def check_stages(cache: Path, host: str, python: Path, lock: Path, component: st
             build_dir = independent / (source.replace("/", "-") + "-build")
             run([cmake, "-S", independent / source, "-B", build_dir, *generator,
                  f"-DCMAKE_PREFIX_PATH={prefix}"], log, cwd=independent)
-            targets = (["result_client", "air_2d", "uniform_2d", "continuous_2d", "prepare_fluids_2d", "prepare_mass_2d", "prepare_continuous_2d"] if component == "all" else ["result_client"]) \
-                if source == "examples" else ["stage_run_smoke"]
+            targets = (["result_client", "air_2d", "uniform_2d", "continuous_2d", "prepare_fluids_2d", "prepare_mass_2d", "prepare_continuous_2d", "quick_design"] if component == "all" else ["result_client"]) \
+                if source == "examples" else ["stage_run_smoke", "quick_design_stage_smoke"]
             run([cmake, "--build", build_dir, "--config", "Release", "--parallel", "2", "--target", *targets],
                 log, cwd=independent)
             run([ctest, "--test-dir", build_dir, "-C", "Release", "--output-on-failure"],
                 log, cwd=independent, env=env)
             if source == "tests/stages":
-                shutil.copytree(build_dir / "stage-result", cache / "build/stage-result", dirs_exist_ok=True)
+                for name in ("stage-result", "quick-design-stage-result"):
+                    shutil.copytree(build_dir / name, cache / "build" / name, dirs_exist_ok=True)
     print(f"PASS: {host} installed SDK and independent C++ stage callers", flush=True)
 
 
