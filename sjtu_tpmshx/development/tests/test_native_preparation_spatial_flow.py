@@ -399,6 +399,130 @@ def test_spatial_flow_owned_output_requires_release(native, mode, operation):
         _release(native, mode, result)
 
 
+def _visible_buffers(value, path='result'):
+    """Enumerate public views without using the native owner's private layout."""
+    counts = {'ranges': 'range_count', 'warnings': 'warning_count',
+              'events': 'event_count', 'source': 'source_count', 'shape': 'rank',
+              'notices': 'notice_count', 'regions': 'region_count',
+              'zone_id': 'cell_count', 'calibration': 'calibration_count'}
+    if isinstance(value, (v1._Array, v1._Text)):
+        if value.size:
+            yield path, ct.cast(value.data, ct.c_void_p).value, value.size * ct.sizeof(value.data._type_)
+    elif isinstance(value, ct.Structure):
+        for name, field in value._fields_:
+            item, label = getattr(value, name), path + '.' + name
+            if issubclass(field, ct._Pointer):
+                if name == 'range_bounds_list':
+                    size = getattr(value, 'values', value).range_count
+                else:
+                    assert name in counts, label
+                    size = getattr(value, counts[name])
+                if size:
+                    yield label, ct.cast(item, ct.c_void_p).value, size * ct.sizeof(field._type_)
+                    if issubclass(field._type_, ct.Structure):
+                        for index in range(size):
+                            yield from _visible_buffers(item[index], f'{label}[{index}]')
+            elif isinstance(item, (ct.Structure, ct.Array)):
+                yield from _visible_buffers(item, label)
+    elif isinstance(value, ct.Array):
+        for index, item in enumerate(value):
+            yield from _visible_buffers(item, f'{path}[{index}]')
+
+
+def _check_owned_aliases(call, result, destination):
+    buffers = list(_visible_buffers(result))
+    assert buffers
+    before = [(label, address, ct.string_at(address, size)) for label, address, size in buffers]
+    outer = bytes(result)
+    for label, address, _ in buffers:
+        failure = v2._Failure(2, ct.sizeof(v2._Failure))
+        error = ct.create_string_buffer(b'unchanged', 4096)
+        failure_before, error_before = bytes(failure), bytes(error)
+        failure_pointer = ct.cast(address, ct.POINTER(v2._Failure)) if destination == 'failure' else ct.byref(failure)
+        error_pointer = ct.cast(address, ct.POINTER(ct.c_char)) if destination == 'error' else error
+        status = call(failure_pointer, error_pointer, 1 if destination == 'error' else len(error))
+        assert status == 1, label
+        assert bytes(result) == outer, label
+        assert bytes(failure) == failure_before and bytes(error) == error_before, label
+        for name, pointer, saved in before:
+            assert ct.string_at(pointer, len(saved)) == saved, (label, name)
+    return [label for label, _, _ in buffers]
+
+
+@pytest.mark.parametrize('mode', ['x', 'sigmoid'])
+@pytest.mark.parametrize('operation', _OPERATIONS)
+@pytest.mark.parametrize('destination', ['error', 'failure'])
+@pytest.mark.parametrize('invalid', [None, 'source', 'result'])
+def test_spatial_owned_views_reject_diagnostic_aliases(native, mode, operation, destination, invalid):
+    config = _configuration(mode)
+    config.fluid_A.mass_flow_kg_s, config.fluid_B.mass_flow_kg_s = .002, .003
+    table = v6._table() if mode == 'sigmoid' else None
+    status, result, _, error, _, _ = _call(native, mode, operation, config, table=table)
+    assert status == 0, error
+    source = _input(mode, config, table, None)
+    grid = v7._kinds(config)
+    try:
+        if invalid is not None:
+            (source if invalid == 'source' else result).abi_version = 0
+        borrowed = _borrowed(source, mode)
+        source_before = [bytes(item) for item in borrowed]
+        def call(failure, error, capacity):
+            return getattr(native, 'tpmshx_' + _name(mode, operation) + '_2d_v8')(
+                ct.byref(source), ct.byref(grid), None, None, ct.byref(result), failure, error, capacity)
+        labels = _check_owned_aliases(call, result, destination)
+        assert any('.input.' in label and '.regions' in label for label in labels)
+        assert any('.evidence.events' in label for label in labels)
+        if operation == 'prepare':
+            assert any('.prepared.' in label and '.total_porosity' in label for label in labels)
+            assert any('.ranges' in label for label in labels)
+        if mode == 'sigmoid':
+            assert any('.lut.porosity' in label for label in labels)
+            assert any('.controls.decision_mm' in label for label in labels)
+        assert [bytes(item) for item in borrowed] == source_before
+    finally:
+        _release(native, mode, result)
+
+
+@pytest.mark.parametrize('version,operation,model', [(3, 'prepare_inlet_mass_capacities', 'air'),
+    (3, 'prepare_flow_case', 'air'), (4, 'prepare_inlet_mass_capacities', 'air'),
+    (4, 'prepare_flow_case', 'air'), (5, 'prepare', 'air'), (6, 'prepare', 'air'),
+    (3, 'prepare_flow_case', 'co2'), (4, 'prepare_flow_case', 'experimental')])
+@pytest.mark.parametrize('destination', ['error', 'failure'])
+def test_existing_flow_owners_reject_diagnostic_aliases(version, operation, model, destination):
+    from sjtu_tpmshx.development.tests import test_native_preparation_continuous as v4
+    module = {3: v3, 4: v4, 5: v5, 6: v6}[version]
+    library = module.native.__wrapped__()
+    config = (v3._configuration('Gyroid', ('air', 'air')) if version == 3 else
+              v4._configuration(pair=('air', 'air')) if version == 4 else _configuration('x' if version == 5 else 'sigmoid'))
+    if model == 'co2':
+        config = v3._configuration('Gyroid', ('co2', 'air'))
+    elif model == 'experimental':
+        config = v4._configuration(pair=('air', 'water'), mode='experimental')
+    config.geometry.Lz_m = .042
+    if version in (3, 4):
+        status, result, _, error, _, _ = module._call(library, operation, config)
+        source = module._input(config)
+        function = getattr(library, 'tpmshx_' + operation + f'_2d_v{version}')
+        release = lambda: module._release(library, result)
+    elif version == 5:
+        status, result, _, error, _, _ = module._call(library, config)
+        source = module._input(config)
+        function = library.tpmshx_prepare_zoned_case_2d_v5
+        release = lambda: library.tpmshx_preparation_zoned_case_2d_release_v5(ct.byref(result))
+    else:
+        table = v6._table()
+        status, result, _, error, _, _ = module._call(library, config, table)
+        source = module._input(config, table)
+        function = library.tpmshx_prepare_sigmoid_case_2d_v6
+        release = lambda: library.tpmshx_preparation_sigmoid_case_2d_release_v6(ct.byref(result))
+    assert status == 0, error
+    try:
+        _check_owned_aliases(lambda failure, error, capacity: function(ct.byref(source), None, None,
+            ct.byref(result), failure, error, capacity), result, destination)
+    finally:
+        release()
+
+
 @pytest.mark.parametrize('mode', ['x', 'y', 'grid', 'sigmoid'])
 def test_spatial_no_target_resolve_preserves_invalid_unconsumed_input(native, mode):
     config = _configuration(mode)
