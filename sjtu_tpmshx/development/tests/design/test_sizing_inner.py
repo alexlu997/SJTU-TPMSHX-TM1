@@ -164,7 +164,9 @@ def _controlled_forward(monkeypatch, mode):
                     for side, suffix in (('A', 'h'), ('B', 'c'))}
         return field_result(case, dict(zip(('Ta', 'Tb', 'Ts'), fields)),
                             props, props, 1., 1., [{'converged': True}],
-                            pressure=pressure, backend_id='cpp')
+                            pressure=pressure, backend_id='cpp', result_id='sizing-test',
+                            field_metadata={key: dict(unit='K', axes=('x', 'y', 'z'), location='cell',
+                                state='last quick-design thermal pass') for key in ('Ta', 'Tb', 'Ts')})
 
     monkeypatch.setattr(execution, 'run_case', thermal)
     case = DesignCase(1, 'air', 600., 4e5, .05, 'air', 300., 4e5, .05,
