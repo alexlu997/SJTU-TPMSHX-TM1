@@ -519,7 +519,8 @@ TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_case_2d_r
 
 /* V2 adds four fluids and existing uniform experimental DF/Nu choices.
  * values keeps its v1 layout/version; df_mode=0/1 selects CFD/experimental.
- * It does not enable nonzero delta, zones, prescribed mass flow or run_case.
+ * The result is accepted by tpmshx_run_case_2d_v2. Nonzero delta, zones and
+ * prescribed mass flow are not supported by this preparation entry.
  * Scalar tags use precision 16/32/64, strong 0/1 and layout 0/1/2.
  * A weak scalar uses precision=64 and layout=0. A strong scalar uses 1/2.
  * Nu mode 0=CFD, 1=experimental. Both experimental alphas and provenance

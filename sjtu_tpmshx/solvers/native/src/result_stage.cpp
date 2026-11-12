@@ -18,10 +18,10 @@ using Object = Report::Object;
 using List = Report::List;
 const std::array<std::string, 6> face_names{{"x-", "x+", "y-", "y+", "z-", "z+"}};
 const std::array<std::string, 3> phase_names{{"A", "B", "solid"}};
-class Missing : public std::runtime_error {public: using std::runtime_error::runtime_error;};
-class Unsupported : public std::runtime_error {public: using std::runtime_error::runtime_error;};
+class Missing : public NumericError {public: explicit Missing(std::string message):NumericError(key_error, std::move(message)) {}};
+class Unsupported : public NumericError {public: explicit Unsupported(std::string message):NumericError(not_implemented, std::move(message)) {}};
 
-template<class T> const T& need(const std::optional<T>& value, std::string_view key) {
+template<class T> const T& need(const Recorded<T>& value, std::string_view key) {
     if (!value) throw Missing("'" + std::string(key) + "'");
     return *value;
 }
@@ -30,13 +30,43 @@ template<class T> const T& entry(const std::map<std::string, T>& values, std::st
     if (found == values.end()) throw Missing("'" + std::string(key) + "'");
     return found->second;
 }
+const Tensor& entry(const Arrays& values, std::string_view key) {
+    values.check();
+    return entry(static_cast<const std::map<std::string, Tensor>&>(values), key);
+}
 void record(const ResultEvidence& result, const std::string& path) {
     if (std::find(result.absent_records.begin(), result.absent_records.end(), path) != result.absent_records.end())
         throw Missing("'" + path.substr(path.rfind('.') + 1) + "'");
 }
+thread_local const HostControl* active_host{};
+class HostScope {
+    const HostControl* previous_;
+public:
+    explicit HostScope(const HostControl* value):previous_(active_host) {active_host = value;}
+    ~HostScope() {active_host = previous_;}
+};
+void deliver(Diagnostics& diagnostics) {
+    if (!active_host || !diagnostics.event_count) return;
+    const auto saved = diagnostics;
+    diagnostics.event_count = 0;
+    const auto* host = active_host;
+    HostScope suspended(nullptr);
+    host->events(saved);
+}
+template<class Operation> auto host_call(Diagnostics& diagnostics, Operation operation) {
+    try {
+        auto value = operation();
+        deliver(diagnostics);
+        return value;
+    } catch (...) {
+        deliver(diagnostics);
+        throw;
+    }
+}
+
 std::string side_name(std::size_t side) {return side ? "B" : "A";}
-Report nullable(const std::optional<std::string>& value) {return value ? Report(*value) : Report();}
-Report nullable(const std::optional<int>& value) {return value ? Report(*value) : Report();}
+Report nullable(const Recorded<std::string>& value) {return value ? Report(*value) : Report();}
+Report nullable(const Recorded<int>& value) {return value ? Report(*value) : Report();}
 List strings(const std::vector<std::string>& values) {
     List result;
     for (const auto& value : values) result.emplace_back(value);
@@ -60,10 +90,8 @@ Verdict verdict(Truth passed, std::string source, Object details = {}) {
             std::move(source), passed, std::move(details)};
 }
 Report verdict_report(const Verdict& value) {
-    auto out = value.details;
-    out.insert_or_assign("status", value.status);
-    out.insert_or_assign("passed", Report(value.passed));
-    out.insert_or_assign("source", value.source);
+    Object out{{"status", value.status}, {"passed", Report(value.passed)}, {"source", value.source}};
+    for (const auto& row : value.details) out.emplace(row.first, row.second);
     return out;
 }
 bool ends_with(const std::string& value, const std::string& suffix) {
@@ -72,6 +100,10 @@ bool ends_with(const std::string& value, const std::string& suffix) {
 bool starts_with(const std::string& value, const std::string& prefix) {return value.rfind(prefix, 0) == 0;}
 
 void declarations(const ResultEvidence& result) {
+    if (result.declaration_error) {
+        const auto& error = *result.declaration_error;
+        throw HostError(error.cause, error.message, error.token);
+    }
     const auto d = result.dimension;
     if (result.metadata_dimension && *result.metadata_dimension != d)
         throw std::invalid_argument("result metadata dimension disagrees with grid");
@@ -158,7 +190,9 @@ Tensor broadcast(const Tensor& values, const std::vector<std::size_t>& shape) {
 Tensor scalar(double value) {return arithmetic::scalar(arithmetic::python_float(value));}
 Tensor full(const std::vector<std::size_t>& shape, double value) {return broadcast(scalar(value), shape);}
 std::vector<std::size_t> boundary_shape(const std::vector<Tensor>& faces, int dimension,
-                                      const GridEvidence& grid, bool planes = false) {
+                                      const GridEvidence& grid, bool planes = false,
+                                      const Recorded<int>& dimension_index = {}) {
+    if (faces.size() == 1 && faces[0].input_error) faces[0].raw();
     if (faces.size() != static_cast<std::size_t>(dimension * (planes ? 2 : 1))) {
         if (planes) throw std::invalid_argument("native boundary requires all boundary face planes");
         throw std::invalid_argument(dimension == 3 ? "native boundary requires all three axis face arrays" : "native boundary requires all two axis face arrays");
@@ -173,6 +207,7 @@ std::vector<std::size_t> boundary_shape(const std::vector<Tensor>& faces, int di
         if (!shape[0]) throw std::invalid_argument("native boundary faces do not share a consistent cell shape");
         --shape[0];
     }
+    if (dimension_index) (void)*dimension_index;
     for (const auto n : shape) if (!n) throw std::invalid_argument("native boundary faces do not share a consistent cell shape");
     for (int axis = 0; axis < dimension; ++axis) {
         auto expected = shape;
@@ -203,6 +238,7 @@ std::vector<Array> arrays(const std::vector<Tensor>& values) {
     return out;
 }
 std::vector<Tensor> six_planes(const Arrays& values, const char* message) {
+    values.check();
     if (values.size() != 6 || std::any_of(face_names.begin(), face_names.end(), [&](const auto& name){return !values.count(name);}))
         throw std::invalid_argument(message);
     std::vector<Tensor> out;
@@ -210,7 +246,7 @@ std::vector<Tensor> six_planes(const Arrays& values, const char* message) {
     return out;
 }
 bool real_finite(const Tensor& values) {
-    return values.dtype != TPMSHX_RESULT_BOOL && !complex_type(values.dtype) && checks::array_checks(values.array()).all_finite;
+    return values.dtype != 0 && values.dtype != TPMSHX_RESULT_BOOL && !complex_type(values.dtype) && checks::array_checks(values.array()).all_finite;
 }
 void finite_values(const Tensor& values, const std::string& name) {
     if (!real_finite(values)) throw std::invalid_argument("physical balance requires finite " + name);
@@ -224,7 +260,7 @@ double plane_duty(const Arrays& powers, int dimension, const GridEvidence& grid,
     if (dimension == 2 && shape[2] != 1) throw std::invalid_argument("2D conservative energy requires singleton-z boundary planes");
     for (const auto& face : planes)
         if (!real_finite(face)) throw std::invalid_argument("conservative boundary powers must be finite real values");
-    return metrics::plane_duty(arrays(planes), diag);
+    return host_call(diag, [&] {return metrics::plane_duty(arrays(planes), diag);});
 }
 double temperature_duty(const EnergyEvidence& ledger, std::size_t side, int dimension,
                         const GridEvidence& grid, Diagnostics& diag) {
@@ -272,8 +308,8 @@ double enthalpy_duty(const TrueHEvidence& ledger, std::size_t side, int dimensio
         h_planes.push_back(plane(h, axis, h.shape[axis] - 1));
     }
     const auto m = arrays(mass_planes), e = arrays(h_planes);
-    return metrics::boundary_enthalpy_duty({e[0], e[1], e[2], e[3], e[4], e[5]},
-        {m[0], m[1], m[2], m[3], m[4], m[5]}, need(ledger.inlet_enthalpy[side], "h_in_" + side_name(side)), diag);
+    return host_call(diag, [&] {return metrics::boundary_enthalpy_duty({e[0], e[1], e[2], e[3], e[4], e[5]},
+        {m[0], m[1], m[2], m[3], m[4], m[5]}, need(ledger.inlet_enthalpy[side], "h_in_" + side_name(side)), diag);});
 }
 
 double legacy_temperature_duty(const ResultEvidence& result, std::size_t side, bool fine, Diagnostics& diag) {
@@ -284,28 +320,38 @@ double legacy_temperature_duty(const ResultEvidence& result, std::size_t side, b
     const auto& rho = need(fine ? result.fine->rho_cp[side] : result.rho_cp[side], "rho_cp_" + side_name(side));
     const auto rho_cp = broadcast(rho, temperature.shape);
     const auto& eps = need(fine ? result.fine->epsilon : result.parameter_epsilon, "eps");
-    const auto split = metrics::capacity_split(need(result.split_a, "split_A"), side != 0, diag);
-    const auto split_tensor = arithmetic::scalar(split);
-    const auto epsilon = metrics::capacity_porosity(eps.array(), split_tensor.array(), diag);
-    const auto direction = need(result.direction[side], "dir_" + side_name(side));
-    const std::size_t axis = direction < 2 ? 0 : 1;
-    const auto i_in = direction % 2 ? temperature.shape[axis] - 1 : 0;
-    const auto i_out = direction % 2 ? 0 : temperature.shape[axis] - 1;
-    const auto& velocity = entry(data, (axis ? "vc" : "uc") + side_name(side));
-    const auto& area = need(grid.widths[1 - axis], axis ? "dx" : "dy");
+    const auto& raw_split = need(result.split_a, "split_A");
+    const Tensor split_tensor = !side ? raw_split : host_call(diag, [&] {
+        return raw_split.shape.empty() ? Tensor(metrics::capacity_split(raw_split.array().at(0), true, diag))
+                                      : Tensor(metrics::capacity_split_field(raw_split.array(), diag));
+    });
     const auto& pressure = need(result.pressure[side], side_name(side));
+    const auto& u = entry(data, "uc" + side_name(side));
+    const auto& v = entry(data, "vc" + side_name(side));
+    const auto direction = need(result.direction[side], "dir_" + side_name(side));
+    const auto& dx = need(grid.widths[0], "dx");
+    const auto& dy = need(grid.widths[1], "dy");
     const auto& mi = fine ? result.fine->inlet_fraction[side] : pressure.inlet_fraction;
     const auto& mo = fine ? result.fine->outlet_fraction[side] : pressure.outlet_fraction;
-    const auto inlet_mask = mi ? arithmetic::cast(mi->array(), TPMSHX_RESULT_F64, diag) : full({temperature.shape[1 - axis]}, 1.0);
-    const auto outlet_mask = mo ? arithmetic::cast(mo->array(), TPMSHX_RESULT_F64, diag) : full({temperature.shape[1 - axis]}, 1.0);
-    const auto eps_in = epsilon.shape.empty() ? epsilon : plane(epsilon, axis, i_in);
-    const auto eps_out = epsilon.shape.empty() ? epsilon : plane(epsilon, axis, i_out);
-    const auto rho_in = plane(rho_cp, axis, i_in), rho_out = plane(rho_cp, axis, i_out);
+    const auto epsilon = host_call(diag, [&] {return metrics::capacity_porosity(eps.array(), split_tensor.array(), diag);});
+    const auto& inlet = need(result.inlet_temperature[side], "T_in" + side_name(side));
+    const std::size_t axis = direction == 0 || direction == 1 ? 0 : 1;
+    const bool reverse_flow = direction != 0 && direction != 2;
+    const auto i_in = reverse_flow ? temperature.shape[axis] - 1 : 0;
+    const auto i_out = reverse_flow ? 0 : temperature.shape[axis] - 1;
+    const auto& velocity = axis ? v : u;
+    const auto& area = axis ? dx : dy;
+    const auto inlet_mask = mi ? host_call(diag, [&] {return arithmetic::cast(mi->array(), TPMSHX_RESULT_F64, diag);}) : full({temperature.shape[1 - axis]}, 1.0);
+    const auto outlet_mask = mo ? host_call(diag, [&] {return arithmetic::cast(mo->array(), TPMSHX_RESULT_F64, diag);}) : full({temperature.shape[1 - axis]}, 1.0);
     const auto u_in = plane(velocity, axis, i_in), u_out = plane(velocity, axis, i_out);
-    const auto t_in = arithmetic::cast(arithmetic::scalar(need(result.inlet_temperature[side], "T_in" + side_name(side))).array(), TPMSHX_RESULT_F64, diag);
-    const auto t_out = plane(temperature, axis, i_out);
-    return metrics::capacity_duty({eps_in.array(), rho_in.array(), u_in.array(), area.array(), inlet_mask.array()},
-        {eps_out.array(), rho_out.array(), u_out.array(), area.array(), outlet_mask.array()}, t_in.array(), t_out.array(), diag);
+    const auto rho_in = plane(rho_cp, axis, i_in), rho_out = plane(rho_cp, axis, i_out);
+    const auto default_inlet = plane(temperature, axis, i_in), t_out = plane(temperature, axis, i_out);
+    const auto eps_in = epsilon.shape.empty() ? scalar(arithmetic::to_float(epsilon.array().at(0))) : plane(epsilon, axis, i_in);
+    const auto eps_out = epsilon.shape.empty() ? eps_in : plane(epsilon, axis, i_out);
+    const auto t_in = result.inlet_temperature_none[side] ? default_inlet
+        : Tensor(host_call(diag, [&] {return arithmetic::cast(inlet.array(), TPMSHX_RESULT_F64, diag);}));
+    return host_call(diag, [&] {return metrics::capacity_duty({eps_in.array(), rho_in.array(), u_in.array(), area.array(), inlet_mask.array()},
+        {eps_out.array(), rho_out.array(), u_out.array(), area.array(), outlet_mask.array()}, t_in.array(), t_out.array(), diag);});
 }
 
 double thermal_duty(const ResultEvidence& result, std::size_t side, bool fine, Diagnostics& diag) {
@@ -323,16 +369,19 @@ double thermal_duty(const ResultEvidence& result, std::size_t side, bool fine, D
     if (mode == "model_h") {
         const auto& model = need(thermal.model_h, fine ? "model_h_balance" : "model_h");
         const auto& evidence = model.sides[side];
+        const auto side_path = std::string(fine ? "boundary_fluxes.fine.model_h_balance." : "boundary_fluxes.model_h.") + side_name(side);
+        if (result.dimension == 2) record(result, side_path);
         if (evidence.physical_boundary_complete != true)
             throw std::invalid_argument("unknown inflow prevents a complete heat duty");
         if (result.dimension == 2) {
             const auto faces = boundary_planes(evidence.staggered_power, 2, grid);
             const auto p = arrays(faces);
-            return metrics::staggered_power_duty_2d({p[0], p[1], p[2], p[3]}, diag);
+            return host_call(diag, [&] {return metrics::staggered_power_duty_2d({p[0], p[1], p[2], p[3]}, diag);});
         }
+        record(result, side_path);
         const auto planes = six_planes(evidence.boundary_power, "3D model-h requires all six physical boundary faces");
         boundary_shape(planes, 3, grid, true);
-        return metrics::plane_duty(arrays(planes), diag);
+        return host_call(diag, [&] {return metrics::plane_duty(arrays(planes), diag);});
     }
     if (result.dimension == 2 && mode != "temperature") throw Unsupported("unsupported thermal mode: " + mode);
     const bool transport = result.temperature_transport || result.thermal.temperature ||
@@ -364,18 +413,18 @@ std::array<double, 2> port_pressures(const PressureEvidence& evidence, Diagnosti
     for (const auto& opening : std::array<std::pair<const Tensor*, std::string>, 2>{{{&in, "inlet"}, {&out, "outlet"}}})
         if (opening.first->shape != std::vector<std::size_t>{p.shape[0], p.shape[2]} || !metrics::port_opening_valid(opening.first->array()))
             throw std::invalid_argument("pressure " + opening.second + " fractions must be nonnegative, finite and match faces");
-    const auto weights = metrics::port_weights(evidence.grid.widths[0]->array(), evidence.grid.widths[2]->array(), in.array(), out.array(), diag);
+    const auto weights = host_call(diag, [&] {return metrics::port_weights(evidence.grid.widths[0]->array(), evidence.grid.widths[2]->array(), in.array(), out.array(), diag);});
     auto pin = plane(p, 1, 0), pout = plane(p, 1, p.shape[1] - 1);
     if (p.shape[1] >= 2) {
         const auto& dy = *evidence.grid.widths[1];
         const auto d0 = plane(dy, 0, 0), d1 = plane(dy, 0, 1);
         const auto dn = plane(dy, 0, p.shape[1] - 1), dm = plane(dy, 0, p.shape[1] - 2);
-        const auto ri = metrics::pressure_ratio(d0.array(), d1.array(), diag);
-        const auto ro = metrics::pressure_ratio(dn.array(), dm.array(), diag);
-        pin = metrics::pressure_face(pin.array(), plane(p, 1, 1).array(), ri.array(), diag);
-        pout = metrics::pressure_face(pout.array(), plane(p, 1, p.shape[1] - 2).array(), ro.array(), diag);
+        const auto ri = host_call(diag, [&] {return metrics::pressure_ratio(d0.array(), d1.array(), diag);});
+        const auto ro = host_call(diag, [&] {return metrics::pressure_ratio(dn.array(), dm.array(), diag);});
+        pin = host_call(diag, [&] {return metrics::pressure_face(pin.array(), plane(p, 1, 1).array(), ri.array(), diag);});
+        pout = host_call(diag, [&] {return metrics::pressure_face(pout.array(), plane(p, 1, p.shape[1] - 2).array(), ro.array(), diag);});
     }
-    return {metrics::weighted_mean(pin.array(), weights[0].array(), diag), metrics::weighted_mean(pout.array(), weights[1].array(), diag)};
+    return {host_call(diag, [&] {return metrics::weighted_mean(pin.array(), weights[0].array(), diag);}), host_call(diag, [&] {return metrics::weighted_mean(pout.array(), weights[1].array(), diag);})};
 }
 std::array<double, 2> pressures(const ResultEvidence& result, std::size_t side, Diagnostics& diag) {
     if (result.dimension == 3) return port_pressures(need(result.pressure[side], side_name(side)), diag);
@@ -397,79 +446,211 @@ std::array<double, 2> pressures(const ResultEvidence& result, std::size_t side, 
 }
 std::array<double, 2> mass_flow(const ResultEvidence& result, std::size_t side, Diagnostics& diag) {
     const auto& mass = result.thermal.mass[side];
-    if (mass.empty()) throw Missing("'mass_" + side_name(side) + "'");
+    if (!result.thermal.mass_recorded[side] && mass.empty()) throw Missing("'mass_" + side_name(side) + "'");
+    if (result.thermal.mass_none[side]) throw Missing("'native boundary faces'");
     const auto planes = boundary_planes(mass, result.dimension, result.grid);
     const auto p = arrays(planes);
-    return result.dimension == 2 ? metrics::boundary_mass_2d({p[0], p[1], p[2], p[3]}, diag)
-        : metrics::boundary_mass_3d({p[0], p[1], p[2], p[3], p[4], p[5]}, diag);
+    return host_call(diag, [&] {return result.dimension == 2 ? metrics::boundary_mass_2d({p[0], p[1], p[2], p[3]}, diag)
+        : metrics::boundary_mass_3d({p[0], p[1], p[2], p[3], p[4], p[5]}, diag);});
 }
 double outlet_temperature(const ResultEvidence& result, std::size_t side, Diagnostics& diag) {
+    std::optional<int> direction;
+    if (result.dimension == 3) {
+        record(result, "boundary_fluxes.report");
+        record(result, "boundary_fluxes.report." + side_name(side));
+        direction = need(result.thermal.report_direction[side], "direction");
+        if (!result.thermal.mass_recorded[side] && result.thermal.mass[side].empty())
+            throw Missing("'mass_" + side_name(side) + "'");
+    }
     const auto& temperature = entry(result.fields, side ? "Tb" : "Ta");
     const auto& mass = result.thermal.mass[side];
-    if (mass.empty()) throw Missing("'mass_" + side_name(side) + "'");
+    if (!result.thermal.mass_recorded[side] && mass.empty()) throw Missing("'mass_" + side_name(side) + "'");
+    if (result.thermal.mass_none[side]) {
+        if (result.dimension == 2) throw NumericError(TPMSHX_RESULT_TYPE_ERROR, "'NoneType' object is not iterable");
+        throw Missing("'native boundary faces'");
+    }
     if (boundary_shape(mass, result.dimension, result.grid) != temperature.shape)
         throw std::invalid_argument("outlet temperature cells disagree with native mass faces");
-    if (result.dimension == 2) record(result, "metadata.parameters");
-    else {record(result, "boundary_fluxes.report"); record(result, "boundary_fluxes.report." + side_name(side));}
-    const auto direction = need(result.dimension == 2 ? result.direction[side] : result.thermal.report_direction[side],
-                                result.dimension == 2 ? "dir_" + side_name(side) : "direction");
-    const std::size_t axis = result.dimension == 2 ? static_cast<std::size_t>(direction < 2 ? 0 : 1) : static_cast<std::size_t>(direction / 2);
+    if (result.dimension == 2) {
+        record(result, "metadata.parameters");
+        direction = need(result.direction[side], "dir_" + side_name(side));
+    }
+    const std::size_t axis = result.dimension == 2 ? static_cast<std::size_t>(*direction < 2 ? 0 : 1) : static_cast<std::size_t>(*direction / 2);
     if (axis >= mass.size()) throw std::invalid_argument("boundary plane index is outside the recorded field");
-    const auto t = plane(temperature, axis, direction % 2 ? 0 : temperature.shape[axis] - 1);
-    const auto flux = plane(mass[axis], axis, direction % 2 ? 0 : mass[axis].shape[axis] - 1);
-    if (result.dimension == 3) return metrics::outlet_temperature_3d(t.array(), flux.array(), direction % 2 != 0, diag);
+    const auto t = plane(temperature, axis, *direction % 2 ? 0 : temperature.shape[axis] - 1);
+    const auto flux = plane(mass[axis], axis, *direction % 2 ? 0 : mass[axis].shape[axis] - 1);
+    if (result.dimension == 3) return host_call(diag, [&] {return metrics::outlet_temperature_3d(t.array(), flux.array(), *direction % 2 != 0, diag);});
     const auto& opening = need(need(result.pressure[side], side_name(side)).outlet_geom_fraction, "outlet_geom_frac");
-    return metrics::outlet_temperature_2d(t.array(), flux.array(), opening.array(), direction != 0 && direction != 2, diag);
+    return host_call(diag, [&] {return metrics::outlet_temperature_2d(t.array(), flux.array(), opening.array(), *direction != 0 && *direction != 2, diag);});
 }
 
-double quick_metric(const ResultEvidence& result, const std::string& name, Diagnostics& diag) {
-    if (need(result.quick_model, "model") != "plug_ltne_analytic_dp_v1") throw Unsupported("unsupported quick-design metric definition");
+const QuickHost& quick_host() {
+    if (!active_host) throw std::runtime_error("Quick input requires its Python protocol host");
+    return active_host->quick;
+}
+template<class Function, class... Arguments> auto quick_protocol(const Function& function, Arguments&&... arguments) {
+    if (!function) throw std::runtime_error("Quick input requires its named Python protocol callback");
+    HostScope suspended(nullptr);
+    return function(std::forward<Arguments>(arguments)...);
+}
+Number quick_number(const QuickValue& value) {
+    if (value.object) throw NumericError(TPMSHX_RESULT_TYPE_ERROR, "Quick numeric input requires a typed value");
+    return value.numeric.array().at(0);
+}
+bool quick_integer(const QuickValue& value) {
+    if (value.object || !value.numeric.shape.empty()) return false;
+    const auto number = quick_number(value);
+    return number.origin == TPMSHX_RESULT_PYTHON_INT || number.origin == TPMSHX_RESULT_PYTHON_BOOL;
+}
+unsigned quick_bits(const QuickValue& value) {
+    const auto number = quick_number(value);
+    auto magnitude = signed_type(number.dtype) ? static_cast<std::uint64_t>(number.signed_value) : number.unsigned_value;
+    if (signed_type(number.dtype) && number.signed_value < 0) magnitude = std::uint64_t{} - magnitude;
+    unsigned bits = 0;
+    for (; magnitude; magnitude >>= 1) ++bits;
+    return bits;
+}
+bool quick_python_product(std::initializer_list<const QuickValue*> values) {
+    for (const auto* value : values) if (value->object) return true;
+    unsigned bits = 0;
+    for (const auto* value : values) {
+        if (!quick_integer(*value)) break;
+        bits += quick_bits(*value);
+        if (bits > 63) return true;
+    }
+    return false;
+}
+template<class Scalar, class Field> QuickValue quick_numeric_pair(const QuickValue& first, const QuickValue& second,
+    Diagnostics& diagnostics, Scalar scalar, Field field) {
+    if (first.object || second.object)
+        throw NumericError(TPMSHX_RESULT_TYPE_ERROR, "Quick numeric input requires a typed value");
+    if (!first.numeric.shape.empty() || !second.numeric.shape.empty())
+        return Tensor(host_call(diagnostics, [&] {return field(first.numeric.array(), second.numeric.array(), diagnostics);}));
+    return host_call(diagnostics, [&] {return scalar(quick_number(first), quick_number(second), diagnostics);});
+}
+double quick_float(const QuickValue& value) {
+    if (value.object || !value.numeric.shape.empty())
+        return quick_protocol(quick_host().metric_float, value);
+    return arithmetic::to_float(quick_number(value));
+}
+QuickValue quick_input(const ResultEvidence& result, std::size_t side,
+    Recorded<QuickValue> QuickTypedSide::*typed, Recorded<Number> QuickSideEvidence::*scalar, const char* name) {
+    if (result.quick_typed) return need(result.quick_typed->sides[side].*typed, name);
+    return need(result.quick[side].*scalar, name);
+}
+void quick_access(const ResultEvidence& result, std::size_t side, Recorded<int> QuickTypedSide::*access,
+                  const std::string& path) {
+    if (result.quick_typed) (void)need(result.quick_typed->sides[side].*access, path.substr(path.rfind('.') + 1));
+    else record(result, path);
+}
+bool label_equal(const StageLabel& value, const std::string& expected) {
+    return value.text ? *value.text == expected
+        : quick_protocol(quick_host().text_equal, value.value, expected);
+}
+bool label_not_equal(const StageLabel& value, const std::string& expected) {
+    return value.text ? *value.text != expected
+        : quick_protocol(quick_host().text_not_equal, value.value, expected);
+}
+QuickValue quick_metric_value(const ResultEvidence& result, const std::string& name, Diagnostics& diag) {
+    const bool supported = result.quick_typed ? !label_not_equal(need(result.quick_typed->model, "model"), "plug_ltne_analytic_dp_v1")
+        : need(result.quick_model, "model") == "plug_ltne_analytic_dp_v1";
+    if (!supported) throw Unsupported("unsupported quick-design metric definition");
     const std::size_t side = ends_with(name, "_B") || name == "Q_cold" ? 1 : 0;
-    const auto& q = result.quick[side];
     if (name == "T_out_A" || name == "T_out_B") {
         const auto& t = entry(result.fields, side ? "Tb" : "Ta");
-        if (side) record(result, "metadata.parameters");
-        const auto axis = side && need(result.arrangement, "arrangement") == "cross" ? 1u : 0u;
-        const auto index = side && axis == 0 ? 0 : t.shape.at(axis) - 1;
-        return metrics::outlet_mean(plane(t, axis, index).array(), diag);
+        bool cross = false;
+        if (side) {
+            if (result.quick_typed) cross = label_equal(need(result.quick_typed->arrangement, "arrangement"), "cross");
+            else {record(result, "metadata.parameters"); cross = need(result.arrangement, "arrangement") == "cross";}
+        }
+        (void)t.array();
+        if (result.quick_typed && t.shape.size() < 3) throw NumericError(TPMSHX_RESULT_INDEX_ERROR,
+            "too many indices for array: array is " + std::to_string(t.shape.size()) + "-dimensional, but 3 were indexed");
+        const auto axis = side && cross ? 1u : 0u;
+        const bool last = !side || cross;
+        if (result.quick_typed && !t.shape[axis]) throw NumericError(TPMSHX_RESULT_INDEX_ERROR,
+            "index " + std::string(last ? "-1" : "0") + " is out of bounds for axis " + std::to_string(axis) + " with size 0");
+        const auto selected = plane(t, axis, last ? t.shape.at(axis) - 1 : 0);
+        if (!selected.size() && result.quick_typed) quick_protocol(quick_host().empty_mean);
+        return arithmetic::python_float(host_call(diag, [&] {return metrics::outlet_mean(selected.array(), diag);}));
     }
     if (name == "Q" || name == "Q_cold") {
-        record(result, "boundary_fluxes." + side_name(side));
-        const auto& inlet = need(q.inlet_temperature, "inlet_temperature_K");
-        const auto out = quick_metric(result, side ? "T_out_B" : "T_out_A", diag);
-        const auto delta = metrics::quick_temperature_difference(inlet, out, diag);
-        const auto& mass = need(q.mass_flow, "mass_flow_kg_s");
-        const auto& cp = need(q.cp, "cp_J_kgK");
-        const auto capacity = metrics::quick_capacity_product(mass, cp, diag);
-        return arithmetic::to_float(metrics::quick_duty_from_capacity(capacity, delta, side != 0, diag));
+        quick_access(result, side, &QuickTypedSide::boundary_access, "boundary_fluxes." + side_name(side));
+        const auto inlet = quick_input(result, side, &QuickTypedSide::inlet_temperature, &QuickSideEvidence::inlet_temperature, "inlet_temperature_K");
+        const auto outlet = quick_float(quick_metric_value(result, side ? "T_out_B" : "T_out_A", diag));
+        QuickValue delta;
+        if (result.quick_typed && quick_python_product({&inlet})) delta = quick_protocol(quick_host().temperature_difference, inlet, outlet);
+        else if (!inlet.numeric.shape.empty()) delta = Tensor(host_call(diag, [&] {return metrics::quick_temperature_difference_field(inlet.numeric.array(), outlet, diag);}));
+        else delta = host_call(diag, [&] {return metrics::quick_temperature_difference(quick_number(inlet), outlet, diag);});
+        const auto mass = quick_input(result, side, &QuickTypedSide::mass_flow, &QuickSideEvidence::mass_flow, "mass_flow_kg_s");
+        const auto cp = quick_input(result, side, &QuickTypedSide::cp, &QuickSideEvidence::cp, "cp_J_kgK");
+        const bool protocol = result.quick_typed && quick_python_product({&mass, &cp});
+        const auto capacity = protocol ? quick_protocol(quick_host().capacity_product, mass, cp)
+            : quick_numeric_pair(mass, cp, diag, metrics::quick_capacity_product, metrics::quick_capacity_product_field);
+        if (protocol) return quick_protocol(quick_host().duty_product, capacity, delta, side != 0);
+        if (capacity.object || delta.object) throw NumericError(TPMSHX_RESULT_TYPE_ERROR, "Quick numeric input requires a typed value");
+        if (!capacity.numeric.shape.empty() || !delta.numeric.shape.empty())
+            return Tensor(host_call(diag, [&] {return metrics::quick_duty_from_capacity_field(capacity.numeric.array(), delta.numeric.array(), side != 0, diag);}));
+        return host_call(diag, [&] {return metrics::quick_duty_from_capacity(quick_number(capacity), quick_number(delta), side != 0, diag);});
     }
     if (name == "dP_A" || name == "dP_B") {
-        const auto& p = need(result.pressure[side], side_name(side));
-        const auto& inlet = need(p.inlet_absolute, "inlet_absolute_Pa");
-        const auto& outlet = need(p.outlet_absolute, "outlet_absolute_Pa");
-        return arithmetic::to_float(metrics::pressure_difference(inlet, outlet, diag));
+        QuickValue inlet, outlet;
+        if (result.quick_typed) {
+            const auto& pressure = result.quick_typed->sides[side];
+            quick_access(result, side, &QuickTypedSide::pressure_access, "pressure_evidence." + side_name(side));
+            inlet = need(pressure.inlet_pressure, "inlet_absolute_Pa");
+            outlet = need(pressure.outlet_pressure, "outlet_absolute_Pa");
+        } else {
+            const auto& pressure = need(result.pressure[side], side_name(side));
+            inlet = need(pressure.inlet_absolute, "inlet_absolute_Pa");
+            outlet = need(pressure.outlet_absolute, "outlet_absolute_Pa");
+        }
+        const bool wide = quick_integer(inlet) && quick_integer(outlet) && std::max(quick_bits(inlet), quick_bits(outlet)) > 62;
+        if (result.quick_typed && (inlet.object || outlet.object || wide))
+            return quick_protocol(quick_host().pressure_difference, inlet, outlet);
+        return quick_numeric_pair(inlet, outlet, diag, metrics::pressure_difference, metrics::pressure_difference_field);
     }
     if (name == "Re_A" || name == "Re_B") {
-        record(result, "metadata.properties");
-        record(result, "metadata.properties." + side_name(side));
-        record(result, "boundary_fluxes." + side_name(side));
-        const auto& velocity = need(q.velocity, "velocity_m_s");
-        const auto& rho = need(q.rho, "rho");
-        const auto flow = metrics::quick_reynolds_flow(rho, velocity, diag);
-        record(result, "metadata.parameters");
-        const auto numerator = metrics::quick_reynolds_length(flow, need(result.hydraulic_diameter, "D_h"), diag);
-        return arithmetic::to_float(metrics::quick_reynolds_quotient(numerator, need(q.viscosity, "mu"), diag));
+        if (!result.quick_typed) record(result, "metadata.properties");
+        quick_access(result, side, &QuickTypedSide::properties_access, "metadata.properties." + side_name(side));
+        quick_access(result, side, &QuickTypedSide::boundary_access, "boundary_fluxes." + side_name(side));
+        const auto velocity = quick_input(result, side, &QuickTypedSide::velocity, &QuickSideEvidence::velocity, "velocity_m_s");
+        const auto rho = quick_input(result, side, &QuickTypedSide::rho, &QuickSideEvidence::rho, "rho");
+        bool protocol = result.quick_typed && quick_python_product({&rho, &velocity});
+        if (result.quick_typed && quick_integer(velocity)) {
+            const auto value = quick_number(velocity);
+            protocol = protocol || (value.origin == TPMSHX_RESULT_PYTHON_INT && signed_type(value.dtype) &&
+                                     value.signed_value == std::numeric_limits<std::int64_t>::min());
+        }
+        const auto flow = protocol ? quick_protocol(quick_host().reynolds_flow, rho, velocity)
+            : quick_numeric_pair(rho, velocity, diag, metrics::quick_reynolds_flow, metrics::quick_reynolds_flow_field);
+        QuickValue diameter;
+        if (result.quick_typed) diameter = need(result.quick_typed->hydraulic_diameter, "D_h");
+        else {record(result, "metadata.parameters"); diameter = need(result.hydraulic_diameter, "D_h");}
+        protocol = protocol || (result.quick_typed && quick_python_product({&flow, &diameter}));
+        const auto numerator = protocol ? quick_protocol(quick_host().reynolds_length, flow, diameter)
+            : quick_numeric_pair(flow, diameter, diag, metrics::quick_reynolds_length, metrics::quick_reynolds_length_field);
+        const auto mu = quick_input(result, side, &QuickTypedSide::viscosity, &QuickSideEvidence::viscosity, "mu");
+        const bool wide = quick_integer(numerator) && quick_integer(mu) && std::max(quick_bits(numerator), quick_bits(mu)) > 53;
+        if (result.quick_typed && (protocol || quick_python_product({&mu}) || wide))
+            return quick_protocol(quick_host().reynolds_quotient, numerator, mu);
+        return quick_numeric_pair(numerator, mu, diag, metrics::quick_reynolds_quotient, metrics::quick_reynolds_quotient_field);
     }
     if (name == "mass_flow_A" || name == "mass_flow_B") {
-        record(result, "boundary_fluxes." + side_name(side));
-        return arithmetic::to_float(need(q.mass_flow, "mass_flow_kg_s"));
+        quick_access(result, side, &QuickTypedSide::boundary_access, "boundary_fluxes." + side_name(side));
+        return quick_input(result, side, &QuickTypedSide::mass_flow, &QuickSideEvidence::mass_flow, "mass_flow_kg_s");
     }
     if (name == "energy_imbalance_rel") {
-        const auto a = arithmetic::python_float(quick_metric(result, "Q", diag));
-        const auto b = arithmetic::python_float(quick_metric(result, "Q_cold", diag));
-        return arithmetic::to_float(metrics::quick_energy_imbalance(a, b, diag));
+        auto first = quick_metric_value(result, "Q", diag);
+        if (!result.quick_typed) first = arithmetic::python_float(quick_float(first));
+        auto second = quick_metric_value(result, "Q_cold", diag);
+        if (!result.quick_typed) second = arithmetic::python_float(quick_float(second));
+        return quick_numeric_pair(first, second, diag, metrics::quick_energy_imbalance, metrics::quick_energy_imbalance_field);
     }
     throw Unsupported("quick-design does not supply " + name);
+}
+double quick_metric(const ResultEvidence& result, const std::string& name, Diagnostics& diag) {
+    return quick_float(quick_metric_value(result, name, diag));
 }
 
 class MetricEvaluation {
@@ -495,8 +676,8 @@ public:
         }
         if (starts_with(name, "dP_") || starts_with(name, "P_out_")) {
             const auto p = pressures(result, side, diag);
-            if (starts_with(name, "dP_")) return arithmetic::to_float(metrics::pressure_difference(arithmetic::python_float(p[0]), arithmetic::python_float(p[1]), diag));
-            return result.dimension == 2 ? p[1] : arithmetic::to_float(metrics::absolute_outlet_pressure(arithmetic::python_float(p[1]), need(need(result.pressure[side], side_name(side)).reference, "P_ref_abs"), diag));
+            if (starts_with(name, "dP_")) return arithmetic::to_float(host_call(diag, [&] {return metrics::pressure_difference(arithmetic::python_float(p[0]), arithmetic::python_float(p[1]), diag);}));
+            return result.dimension == 2 ? p[1] : arithmetic::to_float(host_call(diag, [&] {return metrics::absolute_outlet_pressure(arithmetic::python_float(p[1]), need(need(result.pressure[side], side_name(side)).reference, "P_ref_abs"), diag);}));
         }
         if (starts_with(name, "T_out_")) return outlet_temperature(result, side, diag);
         if (starts_with(name, "mass_flow_")) return mass(side)[0];
@@ -506,13 +687,13 @@ public:
             return metrics::full_energy_imbalance(a, b);
         }
         if (name == "mass") {
-            const auto density = arithmetic::scalar(need(result.solid_density, "solid_density_kg_m3"));
+            const auto& density = need(result.solid_density, "solid_density_kg_m3");
             record(result, "metadata.design_fields");
             const auto& epsilon = need(result.design_epsilon, "eps_arr");
             const auto& dx = need(result.grid.widths[0], "dx");
             const auto& dy = need(result.grid.widths[1], "dy");
-            if (result.dimension == 2) return metrics::solid_mass_2d(epsilon.array(), density.array(), dx.array(), dy.array(), diag);
-            return metrics::solid_mass_3d(epsilon.array(), density.array(), dx.array(), dy.array(), need(result.grid.widths[2], "dz").array(), diag);
+            if (result.dimension == 2) return host_call(diag, [&] {return metrics::solid_mass_2d(epsilon.array(), density.array(), dx.array(), dy.array(), diag);});
+            return host_call(diag, [&] {return metrics::solid_mass_3d(epsilon.array(), density.array(), dx.array(), dy.array(), need(result.grid.widths[2], "dz").array(), diag);});
         }
         throw Unsupported("unsupported metric: " + name);
     }
@@ -537,13 +718,14 @@ Object norm_record(const balance::NormValues& value) {
             {"cell_count", static_cast<std::int64_t>(value.cell_count)}};
 }
 Object mass_summary(const std::vector<Tensor>& faces, const GridEvidence& grid, int dimension,
-                    const std::string& units, const std::string& source) {
-    if (faces.empty()) return {{"status", "unavailable"}, {"reason", "mass faces were not recorded"}, {"source", source}};
-    boundary_shape(faces, dimension, grid);
+                    const std::string& units, const std::string& source, bool unavailable,
+                    const Recorded<int>& dimension_index) {
+    if (faces.empty() && unavailable) return {{"status", "unavailable"}, {"reason", "mass faces were not recorded"}, {"source", source}};
+    boundary_shape(faces, dimension, grid, false, dimension_index);
     std::vector<RawArray> raw;
     for (const auto& face : faces) {finite_values(face, "mass faces"); raw.push_back(face.raw());}
     Diagnostics diag{};
-    const auto value = balance::mass(raw.data(), static_cast<std::size_t>(dimension), diag);
+    const auto value = host_call(diag, [&] {return balance::mass(raw.data(), static_cast<std::size_t>(dimension), diag);});
     Object boundaries;
     for (int i = 0; i < dimension * 2; ++i) boundaries.emplace(face_names[static_cast<std::size_t>(i)], value.boundary_out[i]);
     return {{"status", "available"}, {"source", source}, {"units", units},
@@ -553,7 +735,7 @@ Object mass_summary(const std::vector<Tensor>& faces, const GridEvidence& grid, 
         {"relative_l1", value.has_scale ? Report(value.relative_l1) : Report()},
         {"boundary_out", boundaries}, {"telescoping_error", value.telescoping_error}};
 }
-Object energy_summary(const ResultEvidence& result, const std::optional<EnergyEvidence>& optional, const GridEvidence& grid,
+Object energy_summary(const ResultEvidence& result, const Recorded<EnergyEvidence>& optional, const GridEvidence& grid,
                       int dimension, const std::string& source) {
     if (!optional) return {{"status", "unavailable"}, {"reason", "physical energy audit was not recorded"}, {"source", source}};
     const auto& evidence = *optional;
@@ -569,6 +751,7 @@ Object energy_summary(const ResultEvidence& result, const std::optional<EnergyEv
         const auto found = evidence.phases.find(phase);
         return found == evidence.phases.end() || !found->second.solved || !found->second.solved_is_bool;
     })) throw std::invalid_argument("heat ledger requires solved flags for each phase");
+    if (result.physical_dimension_slice) (void)*result.physical_dimension_slice;
     std::vector<std::size_t> shape;
     for (int axis = 0; axis < dimension; ++axis) {
         const auto& width = need(grid.widths[static_cast<std::size_t>(axis)], std::string("d") + "xyz"[axis]);
@@ -596,7 +779,7 @@ Object energy_summary(const ResultEvidence& result, const std::optional<EnergyEv
         finite_values(residual, "energy residual");
         if (residual.shape != shape) throw std::invalid_argument("heat ledger residual shape disagrees with grid");
         balance::EnergyPhase value{};
-        value.residual = balance::norms(residual.raw(), diag);
+        value.residual = host_call(diag, [&] {return balance::norms(residual.raw(), diag);});
         Object row{{"status", "available"}, {"residual", norm_record(value.residual)}};
         record(result, source + ".source_integral");
         const auto& source_power = need(input.source_integral, phase);
@@ -614,7 +797,7 @@ Object energy_summary(const ResultEvidence& result, const std::optional<EnergyEv
                 throw std::invalid_argument("heat ledger boundary shape disagrees with grid");
             std::array<RawArray, 6> raw{};
             for (std::size_t i = 0; i < 6; ++i) raw[i] = planes[i].raw();
-            const auto values = balance::plane_sums(raw.data(), 6, diag);
+            const auto values = host_call(diag, [&] {return balance::plane_sums(raw.data(), 6, diag);});
             Object sums;
             for (std::size_t i = 0; i < 6; ++i) sums.emplace(face_names[i], values.values[i]);
             row.emplace(key, sums);
@@ -635,9 +818,9 @@ Object energy_summary(const ResultEvidence& result, const std::optional<EnergyEv
     }
     return {{"status", "available"}, {"source", source}, {"units", units}, {"evidence_definition", definition},
         {"physical_boundary_complete", Report(evidence.physical_boundary_complete)}, {"phases", phases},
-        {"boundary_out", solved.empty() ? 0.0 : total.boundary_out}, {"source_integral", solved.empty() ? 0.0 : total.source_integral},
+        {"boundary_out", solved.empty() ? Report(0) : Report(total.boundary_out)}, {"source_integral", solved.empty() ? Report(0) : Report(total.source_integral)},
         {"prescribed_b_power", total.prescribed_b_power}, {"net_external_in", total.net_external_in},
-        {"residual_sum", solved.empty() ? 0.0 : total.residual_sum}, {"telescoping_error", total.telescoping_error},
+        {"residual_sum", solved.empty() ? Report(0) : Report(total.residual_sum)}, {"telescoping_error", total.telescoping_error},
         {"scale", total.scale}, {"scale_definition", "max(1 native power unit, abs phase net boundary power, abs phase source, abs reservoir power)"},
         {"relative_external_imbalance", total.relative_external_imbalance}};
 }
@@ -720,7 +903,7 @@ Gates energy_gates(const ResultEvidence& result) {
         for (std::size_t i = 0; i < 2; ++i) {
             const std::string name = i ? "equation" : "coupled";
             gates.emplace_back("true-h " + name + " energy balance",
-                checks::energy_ratio(need(certificate.ratios[i], "ratio"), need(certificate.tolerances[i], name + "_energy_tol"), diag));
+                host_call(diag, [&] {return checks::energy_ratio(need(certificate.ratios[i], "ratio"), need(certificate.tolerances[i], name + "_energy_tol"), diag);}));
         }
         return gates;
     }
@@ -735,10 +918,11 @@ Gates energy_gates(const ResultEvidence& result) {
     if (need(result.metadata_dimension, "dimension") == 2) {
         record(result, "metadata.diagnostics");
         if (result.model_certificate_error) throw Missing(*result.model_certificate_error);
-        if (result.model_certificates.empty()) throw Missing("'model_h_balance'");
+        if (result.model_certificates.empty() && !result.model_certificates_recorded) throw Missing("'model_h_balance'");
         Gates gates;
-        // Native capture records the main thermal state before the fine state.
-        for (const auto& level : std::array<std::string, 2>{{"main", "fine"}}) {
+        auto levels = result.model_certificate_order;
+        if (levels.empty()) for (const auto& row : result.model_certificates) levels.push_back(row.first);
+        for (const auto& level : levels) {
             const auto found = result.model_certificates.find(level);
             if (found == result.model_certificates.end()) continue;
             const auto& certificate = found->second;
@@ -831,7 +1015,8 @@ std::string spec_repr(const MetricSpec& value) {
 }
 }  // namespace
 
-PhysicalBalance evaluate_physical_balance(const ResultEvidence& result) {
+PhysicalBalance evaluate_physical_balance(const ResultEvidence& result, const HostControl* host) {
+    HostScope host_scope(host);
     declarations(result);
     if (result.dimension != 2 && result.dimension != 3) throw std::invalid_argument("physical balances require dimension 2 or 3");
     PhysicalBalance out;
@@ -839,7 +1024,8 @@ PhysicalBalance evaluate_physical_balance(const ResultEvidence& result) {
     Object mass;
     for (std::size_t side = 0; side < 2; ++side)
         mass.emplace(side_name(side), mass_summary(result.thermal.mass[side], result.grid, result.dimension,
-            result.dimension == 2 ? "kg/(s m)" : "kg/s", "boundary_fluxes.mass_" + side_name(side)));
+            result.dimension == 2 ? "kg/(s m)" : "kg/s", "boundary_fluxes.mass_" + side_name(side),
+            !result.thermal.mass_recorded[side] || result.thermal.mass_none[side], result.physical_dimension_index));
     const bool energy = static_cast<bool>(result.thermal.energy);
     out.details = {{"state", result.thermal_state.value_or("not_recorded")}, {"outer_index", nullable(result.outer_index)},
         {"mass", mass}, {"energy", energy_summary(result, energy ? result.thermal.energy : result.thermal.temperature, result.grid,
@@ -855,7 +1041,8 @@ PhysicalBalance evaluate_physical_balance(const ResultEvidence& result) {
     return out;
 }
 
-Applicability evaluate_applicability(const ResultEvidence& result) {
+Applicability evaluate_applicability(const ResultEvidence& result, const HostControl* host) {
+    HostScope host_scope(host);
     Applicability out;
     if (!result.applicability) {
         out.status = "unavailable";
@@ -890,22 +1077,25 @@ Applicability evaluate_applicability(const ResultEvidence& result) {
     return out;
 }
 
-Qualification evaluate_qualification(const ResultEvidence& result, const std::map<std::string, MetricValue>& metrics_values) {
+Qualification evaluate_qualification(const ResultEvidence& result, const std::map<std::string, MetricValue>& metrics_values, const HostControl* host) {
+    HostScope host_scope(host);
+    if (result.qualification_error) (void)*result.qualification_error;
     Qualification out;
     out.source_result_id = result.result_id;
     const Truth completed = result.execution ? Truth(*result.execution == "completed") : Truth{};
     out.execution = verdict(completed, "run_status.execution", {{"state", nullable(result.execution)}});
     Object gates, raw_fields, pressure_states;
-    std::vector<Truth> convergence_values{result.converged.qualified()}, raw_values;
+    std::vector<Truth> raw_values;
     for (const auto& name : {"simple_ok", "ltne_ok", "outer_converged", "fields_finite", "envelope_ok", "richardson_ok"}) {
         const auto found = result.convergence_gates.find(name);
         if (found != result.convergence_gates.end()) {
             gates.emplace(name, found->second.recorded);
-            if (found->second.value) convergence_values.push_back(found->second.qualified());
         }
     }
-    for (const auto& field : result.fields)
-        if (!ends_with(field.first, "_display")) raw_fields.emplace(field.first, checks::array_checks(field.second.array()).all_finite != 0);
+    auto field_names = result.field_order;
+    if (field_names.empty()) for (const auto& field : result.fields) field_names.push_back(field.first);
+    for (const auto& name : field_names)
+        if (!ends_with(name, "_display")) raw_fields.emplace(name, checks::array_checks(result.fields.at(name).array()).all_finite != 0);
     for (const auto& name : {"Ta", "Tb", "Ts"}) if (!raw_fields.count(name)) raw_fields.emplace(name, Report());
     if (result.fine && !result.fine->empty_record) {
         for (const auto& name : {"Ta", "Tb", "Ts"}) {
@@ -915,20 +1105,35 @@ Qualification evaluate_qualification(const ResultEvidence& result, const std::ma
     }
     for (const auto& field : raw_fields)
         raw_values.push_back(std::holds_alternative<bool>(field.second.value) ? Truth(std::get<bool>(field.second.value)) : Truth{});
-    convergence_values.push_back(all_known(raw_values));
+    Truth convergence_passed = true;
+    const auto consume = [&](const TruthEvidence& value) {
+        if (convergence_passed == false) return;
+        const auto checked = value.qualified();
+        if (checked != true) convergence_passed = checked;
+    };
+    consume(result.converged);
+    const auto raw_passed = all_known(raw_values);
+    consume(raw_passed ? TruthEvidence(*raw_passed) : TruthEvidence{});
+    for (const auto& gate : gates) {
+        const auto& value = result.convergence_gates.at(gate.first);
+        if (value.value) consume(value);
+    }
     for (std::size_t side = 0; side < 2; ++side) if (result.pressure[side]) {
         const auto found = result.field_metadata.find("P_report_" + side_name(side));
         pressure_states.emplace(side_name(side), found == result.field_metadata.end() ? Report() : nullable(found->second.state));
     }
-    out.convergence = verdict(all_known(convergence_values), "run_status.converged, metadata.diagnostics.convergence_detail and raw fields",
+    out.convergence = verdict(convergence_passed, "run_status.converged, metadata.diagnostics.convergence_detail and raw fields",
         {{"gates", gates}, {"raw_fields", raw_fields}, {"thermal_state", nullable(result.thermal_state)}, {"pressure_states", pressure_states}});
     const bool full_compute = result.mode == "full";
     const std::map<std::string, ExecutionSide> empty_sides;
-    const auto& sides = result.execution_version == "full_execution_v1" ? result.executed_sides : empty_sides;
+    const bool full_execution = result.execution_label
+        ? label_equal(*result.execution_label, "full_execution_v1")
+        : result.execution_version == "full_execution_v1";
+    const auto& sides = full_execution ? result.executed_sides : empty_sides;
     out.physical = verdict({}, "boundary_fluxes and metadata.diagnostics", {{"checks", List{}}});
     if (full_compute) {
         try {
-            const auto physical = evaluate_physical_balance(result);
+            const auto physical = evaluate_physical_balance(result, host);
             Gates checks_list;
             std::vector<std::string> stages{"energy"};
             if (physical.physical_dimension == 2 && (result.thermal_mode == "model_h" || result.thermal_mode == "temperature")) stages.push_back("fine_energy");
@@ -946,6 +1151,8 @@ Qualification evaluate_qualification(const ResultEvidence& result, const std::ma
             const auto& mass = std::get<Object>(physical.details.at("mass").value);
             for (std::size_t side = 0; side < 2; ++side) {
                 const auto found = sides.find(side_name(side));
+                if (!result.pressure[side] && full_execution && result.execution_sides_access_error)
+                    (void)*result.execution_sides_access_error;
                 if (result.pressure[side] || (found != sides.end() && found->second.solved.is_true())) {
                     const auto& row = std::get<Object>(mass.at(side_name(side)).value);
                     checks_list.emplace_back(side_name(side) + " thermal mass faces available",
@@ -955,10 +1162,8 @@ Qualification evaluate_qualification(const ResultEvidence& result, const std::ma
             try {
                 const auto route = energy_gates(result);
                 checks_list.insert(checks_list.end(), route.begin(), route.end());
-            } catch (const Missing& error) {
-                checks_list.emplace_back("route energy certificate unavailable", Truth{});
-                out.physical.details.emplace("reason", error.what());
-            } catch (const Unsupported& error) {
+            } catch (const NumericError& error) {
+                if (error.cause != key_error && error.cause != TPMSHX_RESULT_TYPE_ERROR && error.cause != not_implemented) throw;
                 checks_list.emplace_back("route energy certificate unavailable", Truth{});
                 out.physical.details.emplace("reason", error.what());
             }
@@ -966,12 +1171,18 @@ Qualification evaluate_qualification(const ResultEvidence& result, const std::ma
             out.physical.details.emplace("balance", report(physical));
             out.physical.passed = gate_passed(checks_list);
             out.physical.status = verdict(out.physical.passed, "").status;
-        } catch (const Missing& error) {out.physical.details.emplace("reason", error.what());}
+        } catch (const NumericError& error) {
+            if (error.cause == key_error || error.cause == TPMSHX_RESULT_TYPE_ERROR)
+                out.physical.details.emplace("reason", error.what());
+            else if (error.cause == TPMSHX_RESULT_VALUE_ERROR || error.cause == TPMSHX_RESULT_INDEX_ERROR)
+                out.physical = verdict(false, out.physical.source, {{"checks", List{}}, {"reason", error.what()}});
+            else throw;
+        }
         catch (const std::invalid_argument& error) {out.physical = verdict(false, out.physical.source, {{"checks", List{}}, {"reason", error.what()}});}
         catch (const std::out_of_range& error) {out.physical = verdict(false, out.physical.source, {{"checks", List{}}, {"reason", error.what()}});}
     } else out.physical.details.emplace("reason", "Quick Design does not provide a full physical solve");
     try {
-        const auto application = evaluate_applicability(result);
+        const auto application = evaluate_applicability(result, host);
         List checks_list;
         const auto found = application.details.find("checks");
         if (found != application.details.end()) {
@@ -989,7 +1200,9 @@ Qualification evaluate_qualification(const ResultEvidence& result, const std::ma
             {"missing", application.details.count("missing") ? application.details.at("missing") : Report(List{})},
             {"scope_notes", application.details.count("scope_notes") ? application.details.at("scope_notes") : Report(List{})},
             {"checks", checks_list}});
-    } catch (const Missing& error) {
+    } catch (const NumericError& error) {
+        if (error.cause != key_error && error.cause != TPMSHX_RESULT_TYPE_ERROR &&
+            error.cause != TPMSHX_RESULT_VALUE_ERROR && error.cause != TPMSHX_RESULT_INDEX_ERROR) throw;
         out.applicability = verdict(false, "metadata.applicability_evidence", {{"reason", error.what()}});
     } catch (const std::invalid_argument& error) {
         out.applicability = verdict(false, "metadata.applicability_evidence", {{"reason", error.what()}});
@@ -1006,6 +1219,7 @@ Qualification evaluate_qualification(const ResultEvidence& result, const std::ma
     }
     const auto available = all_known(availability);
     out.metrics = verdict(available, "PerformanceResult.metrics", {{"required", statuses}});
+    if (full_execution && result.execution_sides_error) (void)*result.execution_sides_error;
     const bool recorded = sides.size() == 2 && sides.count("A") && sides.count("B") &&
         std::all_of(sides.begin(), sides.end(), [](const auto& row){return row.second.fluid && !row.second.fluid->empty() && row.second.solved.is_bool;});
     Truth scope = recorded ? Truth(true) : Truth{};
@@ -1037,9 +1251,11 @@ Qualification evaluate_qualification(const ResultEvidence& result, const std::ma
     return out;
 }
 
-Evaluation evaluate(const ResultEvidence& result, const std::optional<MetricSpec>& requested) {
+Evaluation evaluate(const ResultEvidence& result, const std::optional<MetricSpec>& requested, const HostControl* host) {
+    HostScope host_scope(host);
     declarations(result);
     if (result.dimension != 2 && result.dimension != 3) throw std::invalid_argument("postprocessing requires physical dimension 2 or 3");
+    if (result.invalid_mode_repr) throw std::invalid_argument("unsupported postprocessing mode: " + *result.invalid_mode_repr);
     if (result.mode != "full" && result.mode != "quick_design") throw std::invalid_argument("unsupported postprocessing mode: " + python_repr(result.mode));
     Evaluation out;
     out.source_result_id = result.result_id;
@@ -1058,35 +1274,40 @@ Evaluation evaluate(const ResultEvidence& result, const std::optional<MetricSpec
         } catch (const Missing& error) {value.status = "insufficient_data"; value.reason = "missing or incomplete evidence: " + std::string(error.what());}
         catch (const Unsupported& error) {value.status = "unsupported"; value.reason = error.what();}
         catch (const NumericError& error) {
-            if (error.cause != TPMSHX_RESULT_TYPE_ERROR && error.cause != TPMSHX_RESULT_VALUE_ERROR && error.cause != TPMSHX_RESULT_INDEX_ERROR) throw;
-            value.status = error.cause == TPMSHX_RESULT_TYPE_ERROR ? "insufficient_data" : "invalid";
-            value.reason = error.cause == TPMSHX_RESULT_TYPE_ERROR ? "missing or incomplete evidence: " + std::string(error.what()) : error.what();
+            if (error.cause == key_error || error.cause == TPMSHX_RESULT_TYPE_ERROR) {
+                value.status = "insufficient_data";
+                value.reason = "missing or incomplete evidence: " + std::string(error.what());
+            } else if (error.cause == not_implemented) {
+                value.status = "unsupported"; value.reason = error.what();
+            } else if (error.cause == TPMSHX_RESULT_VALUE_ERROR || error.cause == TPMSHX_RESULT_INDEX_ERROR) {
+                value.status = "invalid"; value.reason = error.what();
+            } else throw;
         } catch (const std::invalid_argument& error) {value.status = "invalid"; value.reason = error.what();}
         catch (const std::out_of_range& error) {value.status = "invalid"; value.reason = error.what();}
+        out.metric_order.push_back(definition.name);
         out.metrics.emplace(definition.name, std::move(value));
     }
-    if (requested && out.metrics.empty()) out.metrics.emplace(requested->name, MetricValue{{}, *requested, "unsupported", "unknown metric"});
-    out.qualification = evaluate_qualification(result, out.metrics);
+    if (requested && out.metrics.empty()) {
+        out.metric_order.push_back(requested->name);
+        out.metrics.emplace(requested->name, MetricValue{{}, *requested, "unsupported", "unknown metric"});
+    }
+    out.qualification = evaluate_qualification(result, out.metrics, host);
     return out;
 }
 
 Report report(const Applicability& value) {
-    auto out = value.details;
-    out.insert_or_assign("definition", value.definition);
-    out.insert_or_assign("status", value.status);
-    out.insert_or_assign("within_limits", Report(value.within_limits));
+    Object out{{"definition", value.definition}, {"status", value.status}, {"within_limits", Report(value.within_limits)}};
+    for (const auto& row : value.details) out.emplace(row.first, row.second);
     return out;
 }
 Report report(const PhysicalBalance& value) {
-    auto out = value.details;
-    out.insert_or_assign("definition", value.definition);
-    out.insert_or_assign("physical_dimension", value.physical_dimension);
+    Object out{{"definition", value.definition}, {"physical_dimension", value.physical_dimension}};
+    for (const auto& row : value.details) out.emplace(row.first, row.second);
     return out;
 }
 Report report(const Qualification& value) {
-    auto design = value.design_details;
-    design.insert_or_assign("status", value.design_status);
-    design.insert_or_assign("eligible", Report(value.design_eligible));
+    Object design{{"status", value.design_status}, {"eligible", Report(value.design_eligible)}};
+    for (const auto& row : value.design_details) design.emplace(row.first, row.second);
     return Object{{"definition", value.definition}, {"source_result_id", value.source_result_id},
         {"execution", verdict_report(value.execution)}, {"convergence", verdict_report(value.convergence)},
         {"physical", verdict_report(value.physical)}, {"applicability", verdict_report(value.applicability)},
