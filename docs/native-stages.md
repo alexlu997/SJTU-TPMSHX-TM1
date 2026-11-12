@@ -24,6 +24,8 @@ The host query uses borrowed typed evidence and preserves deferred input errors.
 A callback error is handled at the original metric or qualification boundary. An uncaught host error retains its original Python object.
 Callbacks do not own query state. Deferred errors keep their exception objects, cause/context links and group members. Earlier tracebacks on those objects are discarded. Query exit clears deferred error references, including input-packing failures; borrowed fields do not wait for cyclic garbage collection.
 Published v1 C layouts and queries remain available. Release every output through the library that created it.
+Result calls reject a wrong output size or an owner that was not released.
+Those rejected calls preserve borrowed inputs, the old output and diagnostic storage.
 
 The C++ call sequence is `prepare_case`, `run_case`, then `evaluate`.
 The caller supplies dimensions, design values, boundary conditions and controls.

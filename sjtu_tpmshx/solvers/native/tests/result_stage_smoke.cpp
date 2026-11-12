@@ -141,6 +141,60 @@ void c_contract() {
         reinterpret_cast<char*>(good.bytes.data()), good.bytes.size()) != 0, "C invalid array fails before report publication");
     require(arithmetic::to_float(good.array().at(0)) == 42., "C early failure preserves unvisited borrowed storage");
 }
+void rejected_output_storage_contract() {
+    for (unsigned version = 1; version <= 3; ++version) for (unsigned query = 0; query < 4; ++query)
+        for (bool wrong_size : {false, true}) {
+            char borrowed[128] = "retained-output";
+            char before_input[sizeof(borrowed)]; std::memcpy(before_input, borrowed, sizeof(borrowed));
+            tpmshx_result_evidence_v1 evidence{};
+            evidence.abi_version = TPMSHX_RESULT_STAGE_ABI_VERSION; evidence.struct_size = sizeof(evidence);
+            evidence.result_id = borrowed; evidence.dimension = 2; evidence.converged = -1;
+            evidence.model_active_b = -1; evidence.richardson_extrapolated = -1;
+            evidence.active_fluids[0] = evidence.active_fluids[1] = 1;
+            tpmshx_stage_output_v1 output{}; output.struct_size = sizeof(output);
+            char error[128]{};
+            require(tpmshx_result_stage_applicability_v1(&evidence, &output, error, sizeof(error)) == 0,
+                    "rejected-output fixture owns a valid report");
+            require(output.owner != nullptr, "rejected-output fixture has a real owner");
+            const std::string before_json(output.json);
+            if (wrong_size) output.struct_size = 0;
+            const auto before_output = output;
+            tpmshx_stage_input_v2 input{};
+            input.abi_version = 2; input.struct_size = sizeof(input); input.evidence = &evidence;
+            tpmshx_stage_input_v3 quick{};
+            quick.abi_version = 3; quick.struct_size = sizeof(quick); quick.host = &input;
+            tpmshx_result_diagnostics_v1 diagnostics{}; diagnostics.python_cause = 99;
+            const auto before_diagnostics = diagnostics;
+            std::uint64_t token = 77;
+            int status{};
+            if (version == 1) {
+                switch (query) {
+                case 0: status = tpmshx_result_stage_evaluate_v1(&evidence, nullptr, &output, borrowed, sizeof(borrowed)); break;
+                case 1: status = tpmshx_result_stage_applicability_v1(&evidence, &output, borrowed, sizeof(borrowed)); break;
+                case 2: status = tpmshx_result_stage_physical_balance_v1(&evidence, &output, borrowed, sizeof(borrowed)); break;
+                case 3: status = tpmshx_result_stage_qualification_v1(&evidence, nullptr, 0, &output, borrowed, sizeof(borrowed)); break;
+                }
+            } else if (version == 2) {
+                status = tpmshx_result_stage_query_v2(&input, query, nullptr, nullptr, 0,
+                    &output, &diagnostics, &token, borrowed, sizeof(borrowed));
+            } else {
+                status = tpmshx_result_stage_query_v3(&quick, query, nullptr, nullptr, 0,
+                    &output, &diagnostics, &token, borrowed, sizeof(borrowed));
+            }
+            const bool input_preserved = std::memcmp(before_input, borrowed, sizeof(borrowed)) == 0;
+            const bool output_preserved = std::memcmp(&before_output, &output, sizeof(output)) == 0;
+            const bool report_preserved = before_json == output.json;
+            output.struct_size = sizeof(output);
+            tpmshx_result_stage_release_v1(&output);
+            require(status == TPMSHX_RESULT_INVALID, "owned or wrong-size output is rejected");
+            require(input_preserved, "rejected output preserves unvisited borrowed input");
+            require(output_preserved && report_preserved, "rejected output preserves its previous report");
+            require(std::memcmp(&before_diagnostics, &diagnostics, sizeof(diagnostics)) == 0 && token == 77,
+                    "rejected output preserves host diagnostics and token");
+            require(!output.owner && !output.json && output.struct_size == sizeof(output),
+                    "original output remains releasable after rejection");
+        }
+}
 struct HostProbe {std::uint32_t cause{}; std::size_t calls{};};
 int TPMSHX_RESULT_CALL reject_event(void* context, const tpmshx_result_diagnostics_v1* events,
                                    tpmshx_stage_host_error_v2* error) {
@@ -354,7 +408,7 @@ void quick_host_contract() {
 
 }
 int main() {
-    try {cpp_contract(); c_contract(); host_contract(); deferred_alias_contract(); quick_host_contract(); std::cout << "result stage contracts passed\n";}
+    try {cpp_contract(); c_contract(); rejected_output_storage_contract(); host_contract(); deferred_alias_contract(); quick_host_contract(); std::cout << "result stage contracts passed\n";}
     catch (const std::exception& error) {std::cerr << error.what() << '\n'; return 1;}
     return 0;
 }
