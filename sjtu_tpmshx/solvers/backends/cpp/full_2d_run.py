@@ -13,6 +13,7 @@ class NativeFull2DRun(NativeRun):
     api_prefix = 'tpmshx_full_2d_run'
     creation_version = 2
     result_type = _Result
+    result_release_name = 'tpmshx_full_2d_release_v2'
     error_types = {**NativeRun.error_types, 4: ChokedFlowError}
 
     def __init__(self, library, shape, arrays, sizes, config, callbacks, *,

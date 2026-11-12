@@ -109,6 +109,7 @@ class _Run(NativeRun):
     entry_names = {'create': 'create_saved', 'restore': 'restore_saved', 'release': 'release_run'}
     creation_version = 1
     result_type = _StageResult
+    result_release_name = 'tpmshx_stage_run_2d_release_v1'
     error_types = {**NativeRun.error_types, 4: ChokedFlowError, 6: CancelledError}
 
     def __init__(self, library, saved, request, control, errors, state):

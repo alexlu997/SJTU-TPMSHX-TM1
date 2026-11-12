@@ -109,6 +109,7 @@ class SavedRun(NativeRun):
     advance_name = 'advance_step'
     entry_names = {'create': 'create_saved', 'restore': 'restore_saved', 'release': 'release_run'}
     result_type = _StageResult
+    result_release_name = 'tpmshx_stage_run_3d_release_v1'
 
     def __init__(self, library, case, cfg, prepared, data, controls, energy, model_h, callbacks, errors, control, state):
         self.errors, self.keepalive = errors, []
