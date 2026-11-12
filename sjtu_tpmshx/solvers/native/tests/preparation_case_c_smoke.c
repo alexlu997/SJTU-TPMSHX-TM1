@@ -784,6 +784,47 @@ static int check_v10(void) {
     return 0;
 }
 
+static int check_inlet_query(void) {
+    tpmshx_preparation_inlet_query_input_v1 source = {0}, original;
+    tpmshx_preparation_inlet_query_result_v1 result = {1, sizeof(result)}, before;
+    tpmshx_preparation_case_failure_v2 failure = {2, sizeof(failure)};
+    tpmshx_preparation_case_callbacks_v3 callbacks = {0};
+    const tpmshx_preparation_scalar_kind_v2 weak = {64, 0, 0};
+    host_checks checks = {0};
+    char error[4096]; size_t i;
+    source.abi_version = 1; source.struct_size = sizeof(source);
+    source.inlet.geometry.topology = 1;
+    source.inlet.geometry.cell_length_mm = 7.; source.inlet.geometry.wall_thickness_mm = .5;
+    source.inlet.geometry.cell_kind = source.inlet.geometry.wall_kind = weak;
+    source.inlet.velocity_m_s = 6.; source.inlet.temperature_K = 380.; source.inlet.pressure_Pa = 160000.;
+    source.inlet.kinds.velocity = source.inlet.kinds.temperature = source.inlet.kinds.pressure = weak;
+    source.hydraulic_diameter_m = .002; source.epsilon_a = .4;
+    source.diameter_kind = source.epsilon_kind = weak;
+    original = source;
+    CHECK(!tpmshx_query_inlet_properties_v1(&source, NULL, &result, &failure, error, sizeof(error)));
+    CHECK(!error[0] && !failure.kind && !memcmp(&source, &original, sizeof(source)));
+    for (i = 0; i < 12; ++i)
+        CHECK(isfinite(result.values[i].real) && !result.values[i].category && result.values[i].imaginary == 0.);
+    CHECK(result.values[0].real > 0. && result.values[7].real > 0.);
+    before = result; source.inlet.temperature_K = -300.;
+    CHECK(tpmshx_query_inlet_properties_v1(&source, NULL, &result, &failure, error, sizeof(error)) == TPMSHX_PREPARATION_RUNTIME);
+    CHECK(!memcmp(&result, &before, sizeof(result)) && failure.have_property && failure.property.fp.python_cause == 4);
+    source = original; source.inlet.velocity_m_s = -.2;
+    CHECK(!tpmshx_query_inlet_properties_v1(&source, NULL, &result, &failure, error, sizeof(error)));
+    CHECK(result.values[6].category == 1 && result.values[10].category == 1);
+    CHECK(!failure.kind && !failure.have_property && !error[0]);
+    before = result; source = original; source.abi_version = 99;
+    CHECK(tpmshx_query_inlet_properties_v1(&source, NULL, &result, &failure, error, sizeof(error)) == TPMSHX_PREPARATION_INVALID);
+    CHECK(!memcmp(&result, &before, sizeof(result)));
+    source = original; checks.cancel_at = 1;
+    callbacks.values.values.abi_version = 3; callbacks.values.values.struct_size = sizeof(callbacks);
+    callbacks.values.values.context = &checks; callbacks.values.validate_host_input = check_host_input;
+    CHECK(tpmshx_query_inlet_properties_v1(&source, &callbacks, &result, &failure, error, sizeof(error)) == TPMSHX_PREPARATION_RUNTIME);
+    CHECK(checks.count == 1 && checks.stage[0] == 4 && checks.side[0] == 0);
+    CHECK(!memcmp(&result, &before, sizeof(result)) && !memcmp(&source, &original, sizeof(source)));
+    return 0;
+}
+
 int main(void) {
     tpmshx_preparation_case_input_2d_v1 source = input(), original = source;
     tpmshx_preparation_case_2d_v1 result = empty_result(), before;
@@ -843,5 +884,6 @@ int main(void) {
     CHECK(!check_v7());
     CHECK(!check_v8());
     CHECK(!check_v9());
-    return check_v10();
+    CHECK(!check_v10());
+    return check_inlet_query();
 }

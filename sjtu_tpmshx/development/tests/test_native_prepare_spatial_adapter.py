@@ -42,7 +42,7 @@ def test_complete_spatial_case_and_cache_counts(monkeypatch, tmp_path, mode, top
         operation = 'full'
     before = asdict(config)
     expected = _capture(monkeypatch, reference, operation, config, targets)
-    counts = _cache_info()
+    counts = _cache_info(reference)
     actual = _capture(monkeypatch, api, operation, config, targets)
     _same(actual, expected)
     assert _cache_info() == counts
@@ -58,7 +58,7 @@ def test_conflicting_spatial_material_keeps_public_rejection(monkeypatch, tmp_pa
     config.zones.config.tpms_type, config.zones.config.k_s = spatial, np.float32(22.)
     config.zones.grid.update(tpms_type=spatial, k_s=np.float32(22.))
     expected = _failure(monkeypatch, reference, config, targets)
-    counts = _cache_info()
+    counts = _cache_info(reference)
     actual = _failure(monkeypatch, api, config, targets)
     assert actual == expected
     assert _cache_info() == counts
@@ -91,7 +91,7 @@ def test_spatial_equal_typed_cache_keys(monkeypatch, tmp_path, mode, dtype, warm
             changed.zones.config.k_s = 22.
             changed.zones.grid['k_s'] = 22.
             first = _capture(monkeypatch, module, 'full', changed, clear_cache=False)
-        return first, _cache_info()
+        return first, _cache_info(module)
 
     _same(sequence(api), sequence(reference))
 
@@ -110,7 +110,7 @@ def test_spatial_failure_keeps_completed_cache_entries(monkeypatch, tmp_path, mo
         config.fluid_A.u_mps = 1.e-6
         config.extrap = replace(config.extrap, allow=False)
     expected = _failure(monkeypatch, reference, config)
-    counts = _cache_info()
+    counts = _cache_info(reference)
     actual = _failure(monkeypatch, api, config)
     assert actual == expected
     assert _cache_info() == counts
@@ -200,7 +200,7 @@ def test_spatial_physical_ports_and_single_target(monkeypatch, tmp_path, mode, d
     config.fluid_A.mass_flow_kg_s = .001
     config.fluid_A.u_mps = float('nan')
     expected = _capture(monkeypatch, reference, 'full', config)
-    counts = _cache_info()
+    counts = _cache_info(reference)
     _same(_capture(monkeypatch, api, 'full', config), expected)
     assert _cache_info() == counts
 
@@ -244,7 +244,7 @@ def test_spatial_unhashable_region_keeps_first_error_and_cache(monkeypatch, tmp_
         zone = config.zones.config.zones[1]
         zone.L_mm = np.asarray(zone.L_mm)
     expected = _failure(monkeypatch, reference, config)
-    counts = _cache_info()
+    counts = _cache_info(reference)
     assert _failure(monkeypatch, api, config) == expected
     assert _cache_info() == counts
 
@@ -273,7 +273,7 @@ def test_missing_stripe_config_keeps_error_order(monkeypatch, tmp_path, mode, op
     elif earlier == 'chi':
         monkeypatch.setenv('TPMSHX_CHI_S', 'invalid')
     expected = _observe_prepare(monkeypatch, reference, operation, config, targets)
-    counts = _cache_info()
+    counts = _cache_info(reference)
     _same(_observe_prepare(monkeypatch, api, operation, config, targets), expected)
     assert _cache_info() == counts
 
@@ -292,7 +292,7 @@ def test_typed_geometry_limits_keep_validation_and_cache_order(monkeypatch, tmp_
     config.geometry.t_wall_mm = dtype(wall)
     config.extrap = replace(config.extrap, allow=allow)
     expected = _observe_prepare(monkeypatch, reference, operation, config)
-    counts = _cache_info()
+    counts = _cache_info(reference)
     _same(_observe_prepare(monkeypatch, api, operation, config), expected)
     assert _cache_info() == counts
 

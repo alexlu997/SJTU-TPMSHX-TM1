@@ -29,6 +29,15 @@ Python keeps public types, cache interfaces and per-call explicit/environment/fi
 `shared/models/preparation_cache.py` owns the bounded geometry and inlet-property caches.
 Public scalar calls and native preparation checkpoints use the same values, types, range records and access order.
 Cache misses use the existing C++ numerical functions; current material conductivity and chi are not cached.
+`tpms_calc._compute_cached` sends each inlet-property miss to one native `query_inlet_properties` call after the existing geometry query.
+`preparation_case.cpp` combines the existing property, Re, Pr, Nu, fixed DF and heat-transfer owners in their original order.
+The query returns twelve typed scalars without a grid, CaseData or solver.
+Python retains cache keys and access order, mutable public result copies, and the private cp/Pr cache fields.
+It also retains object conversion, warning filters and source locations, and NumPy event policy.
+`shared/models/_native_preparation_case.py` shares range-record transport with the preparation adapters.
+Raw complex Nu and surface-transfer values retain their existing behavior; complete-case physical guards stay unchanged.
+The combined query calls native EOS directly. Standalone EOS wrappers retain their own caches.
+See the [inlet-property query](native-stages.md#inlet-property-query) for its C and C++ interfaces.
 
 Scalar standard geometry keeps the original NumPy float16, float32 and float64 intermediate rounding in C++.
 The binding sends precision metadata for cell conversion and the wall/cell ratio.

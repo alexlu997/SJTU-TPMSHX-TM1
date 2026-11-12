@@ -99,7 +99,7 @@ def _configuration(topology, pair, mode='cfd_smooth'):
 def _capture_reference(config, monkeypatch):
     from sjtu_tpmshx.development.tests import preparation_api_reference as api
     from sjtu_tpmshx.development.tests import preparation_case_reference as preparation
-    from sjtu_tpmshx.shared.models.tpms_calc import compute
+    from sjtu_tpmshx.development.tests.property_reference import compute
     from sjtu_tpmshx.shared.models.tpms_geometry import compute_geometry
     compute.cache_clear()
     compute_geometry.cache_clear()
@@ -149,7 +149,7 @@ def _check_values(result, expected, config):
         _same(getattr(actual, name), params['static_properties']['geometry'][key], key)
     for index, side in enumerate('AB'):
         value, flow = actual.sides[index], params['flow_inputs'][side]
-        from sjtu_tpmshx.shared.models.tpms_calc import compute
+        from sjtu_tpmshx.development.tests.property_reference import compute
         fluid, geometry = getattr(config, 'fluid_' + side), config.geometry
         with warning_scope({}):
             raw_properties = compute(geometry.tpms, geometry.L_cell_mm, geometry.t_wall_mm,

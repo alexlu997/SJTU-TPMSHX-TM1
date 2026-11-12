@@ -3,16 +3,15 @@ tpms_calc.py — TPMS Property Calculator
 
 Given TPMS geometry (type, L_cell, t) and flow conditions (u, T_in, P_in),
 computes geometry and closure parameters for prepared solver inputs:
-  epsilon, A_0, D_h, Re, Nu, f, dP/L, H_sf, K_ff, K_ss, rho, mu, k_f
+  epsilon, A_0, D_h, Re, Nu, dP/L, H_sf, K_ff, K_ss, rho, mu, k_f
 
 Includes:
-  - Geometry via numerical TPMS voxelization (epsilon, A_0 for any L, t)
-  - Air property correlations (Sutherland, ideal gas)
-  - Nu correlations (Diamond / Gyroid)
-  - Darcy-Forchheimer dP closure (no f-Re): dP via df_surrogate K / c_F
+  - Geometry and material queries through the native geometry library
+  - One native query for properties, Nu and fixed CFD Darcy-Forchheimer drag
+  - Public caches, scalar types and warning records in the Python host
 
 Supported TPMS types: 'Diamond', 'Gyroid'
-Fluids: air, water, and sCO2 through the shared property registry
+Fluids: air, water, sCO2 and CO2 with their existing property and Nu models
 
 ──────────────────────────────────────────────────────────────────────
 REYNOLDS NUMBER CONVENTION (project-wide, confirmed 2026-04-22)
@@ -44,7 +43,7 @@ from sjtu_tpmshx.shared.domain.run_warnings import (
     cache_warning_records, current_warnings, merge_warnings,
 )
 from .tpms_geometry import compute_geometry as _tpms_geom
-from . import _native_properties
+from . import _native_preparation_case
 
 # Geometry and property primitives live in tpms_props. Current consumers may
 # also import the explicitly re-exported names from models.tpms_calc.
@@ -55,7 +54,7 @@ from .tpms_props import (  # noqa: F401 — re-exports
     water_conductivity, water_cp, water_density, water_viscosity,
     _warn_range_once,
 )
-from sjtu_tpmshx.shared.df_surrogate.predict import predict_K_cF, SCO2_DF_METHOD
+from sjtu_tpmshx.shared.df_surrogate.predict import predict_K_cF, SCO2_DF_METHOD  # noqa: F401 - public re-exports
 
 from sjtu_tpmshx.shared.logutil import get_logger
 
@@ -71,21 +70,7 @@ _SUPPORTED_FLUIDS = {'air', 'water', 'sco2', 'co2'}
 
 
 def validate_fluid_type(fluid_type: str, side: str) -> None:
-    """Raise NotImplementedError for fluid types without fitted correlations.
-
-    Air + water + sCO2 are supported. sCO2 uses direct CoolProp properties and
-    the smooth-wall CFD Nu correlation. Production K/cF are selected only by
-    TPMS topology, L, and t from the fixed water+sCO2 CFD table; they do not
-    depend on fluid type or Reynolds number.
-
-    For water:
-      * Properties: NIST-grade rho/mu/k (Vogel viscosity, < 2 % vs NIST 0–90 °C).
-      * Nu (heat transfer): nu_water_topo — per-topology direct water-CFD
-        fit (WATER_NU_COEFFS, Re 100-50000, smooth-wall, no air ×1.28).
-        nu_water_from_Re (Pr-substitution) and nu_water_gyroid_yan6 (Yan
-        2024 [6]) are retired to cross-check / test only.
-      * dP closure: the same geometry-only fixed CFD K/cF used by all fluids.
-    """
+    """Reject fluid names outside the supported air, water, sCO2 and CO2 set."""
     if fluid_type not in _SUPPORTED_FLUIDS:
         label = {'water': 'Water', 'sco2': 'sCO₂'}.get(fluid_type, fluid_type)
         raise NotImplementedError(
@@ -225,70 +210,23 @@ def _compute_cached(tpms_type: str,
         eps   = g['epsilon']
         A0    = g['A_0']
         D_h_m = g['D_h']
-        D_h_mm = D_h_m * 1000.0        # [mm]  (used in Nu correlation)
-
-        # ── Fluid properties at inlet conditions ──────────────────
-        # B1 1.1 (2026-06-12): property primitives via the fluid_props
-        # registry (water rho ignores P — incompressible; air ideal-gas).
-        from sjtu_tpmshx.shared.models import fluid_props as _fluids
-        _m = _fluids.get(fluid_type, sco2_nu=sco2_nu)
-        # Pass absolute P to all primitives: air density and all sCO2
-        # properties use it; the remaining air/water fits are T-only.
-        mu = float(_m.mu(T_in_K, P_in_Pa))
-        k_f = float(_m.k(T_in_K, P_in_Pa))
-        rho = float(_m.rho(T_in_K, P_in_Pa))
-        cp_f = float(_m.cp(T_in_K, P_in_Pa))
-
-        # ── Reynolds number ──────────────────────────────────────
-        # Re = rho * u * D_h / mu   (length scale = D_h, not r_h)
-        #
-        # Uses ACTUAL inlet density (at inlet T and inlet P), because physical
-        # Nu depends on true Re, not on a canonical atmospheric Re (previous
-        # bug was rho_ref=P_atm, which under-predicted high-Re Q by ~22%).
-        #
-        # D_h convention: Re = ρ·u·D_h / μ (single-channel interstitial u).
-        # Training Excel: m_total = Re × μ / D_h × A × 2 (×2 for two channels).
-        # Nu correlations fitted on D_h-convention Re.
-        Re = _native_properties.reynolds(rho, u, D_h_m, mu)
-
-        # Warn if outside correlation valid range. Single-sourced to the per-fluid
-        # fit windows in nu_correlations (was a duplicate hard-coded [600, 30000];
-        # unified 2026-06-25). Fluid-aware since 2026-06-28 (N5): water/sCO2 have
-        # their own windows, so warning them against the air window mis-flagged.
-        # A run records the actual Nu source below; standalone keeps this notice.
-        notice = _reynolds_notice(tpms_type, Re, fluid_type) if current_warnings() is None else None
-        if notice is not None:
-            # Direct __wrapped__ calls do not have the Python cache frame.
-            cache_frame = sys._getframe(1).f_code is _compute_cached.__code__
-            warnings.warn(notice, UserWarning, stacklevel=3 if cache_frame else 2)
-
-        # ── Nusselt number and heat transfer coefficient ──────────
-        # Single-stream convention (post-refit 2026-04-26): pass ε_A (per-stream
-        # void fraction; sheet HX splits ε equally between two fluid channels).
         eps_A = g['epsilon_A']
-        # The registry applies the existing 1.28 roughness factor only to air.
-        # Water/sCO2 use their own smooth-wall correlations and supplied Pr.
-        Pr_f = _native_properties.prandtl(mu, cp_f, k_f)
-        Nu = _m.nu(tpms_type, Re, eps_A, L_cell_mm, D_h_mm, Pr_f)
+        caller = sys._getframe(1)
+        if caller.f_code is _compute_cached.__code__:
+            caller = caller.f_back
 
-        H_sf = _native_properties.surface_transfer(Nu, k_f, D_h_m)
+        def notice(kind, side, value, message):
+            if kind != 0:
+                raise RuntimeError(f'unknown property query notice kind {kind}')
+            message = _reynolds_notice(tpms_type, value, fluid_type) if current_warnings() is None else None
+            if message is not None:
+                warnings.warn_explicit(message, UserWarning, caller.f_code.co_filename, caller.f_lineno,
+                    module=caller.f_globals['__name__'],
+                    registry=caller.f_globals.setdefault('__warningregistry__', {}))
 
-        # ── Pressure drop via fixed geometry-only CFD D-F table ─────────
-        # dP/L = μu/K + ρ c_F u² (interstitial form; matches simple_solver
-        # convention, see df_surrogate/predict.py). Import is module-level since
-        # arch-b-c-e batch B (tpms_props leaf broke the old two-way coupling).
-        K_df, cF_df = predict_K_cF(
-            tpms_type, float(L_cell_mm), float(t_mm), float(eps_A),
-            method=SCO2_DF_METHOD,
-        )
-        if fluid_type == 'co2':
-            from .co2_correlations import apply_drag
-            K_df, cF_df, _ = apply_drag(K_df, cF_df)
-        from ._native_df import pressure_gradient
-        dP_per_L = pressure_gradient(rho, mu, u, K_df, cF_df)
-
-        # ── Effective thermal conductivities (volume-averaged) ────
-        K_ff = _native_properties.pore_conductivity(eps_A, k_f)
+        rho, mu, k_f, cp_f, Pr_f, Re, Nu, K_df, cF_df, dP_per_L, H_sf, K_ff = (
+            _native_preparation_case.inlet_query(tpms_type, L_cell_mm, t_mm, u, T_in_K,
+                P_in_Pa, fluid_type, sco2_nu, g, records, notice))
 
         return _InletCacheValue({
             'epsilon':   eps,
@@ -327,9 +265,7 @@ def compute(tpms_type: str,
     not select a different backend. Experimental correction, when requested,
     is applied by the caller after assembling these CFD properties.
 
-    Cache hits used to return the SAME mutable dict object; a caller
-       mutating its result would silently poison every later hit. The
-       wrapper returns a shallow copy (values are scalars).
+    Return a fresh shallow copy with scalar values on every call.
     """
     from .fluid_props import check_water_state
     check_water_state(fluid_type, T_in_K, P_in_Pa, where='compute inlet')

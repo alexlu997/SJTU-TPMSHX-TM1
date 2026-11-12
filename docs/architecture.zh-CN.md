@@ -23,6 +23,15 @@ Python 保留公共类型、缓存接口和逐次调用的 chi 显式值／环�
 `shared/models/preparation_cache.py` 持有有界的几何与入口物性缓存。
 公共标量调用和原生准备检查点共享相同值、类型、范围记录与访问顺序。
 未命中时使用既有 C++ 数值函数；当前材料导热系数和 chi 不缓存。
+`tpms_calc._compute_cached` 在既有几何查询后，将每次入口物性缓存未命中交给单次原生 `query_inlet_properties` 调用。
+`preparation_case.cpp` 按原顺序组合既有物性、Re、Pr、Nu、固定 DF 和换热数值实现。
+查询返回十二个带类型的标量，不需要网格、CaseData 或求解器。
+Python 保留缓存键与访问顺序、可变的公共结果副本，以及私有缓存中的 cp/Pr 字段。
+对象转换、警告过滤器与来源位置、NumPy 事件策略也由 Python 保留。
+`shared/models/_native_preparation_case.py` 与准备适配器共享范围记录传输。
+原始查询中的复数 Nu 和表面换热系数保留既有行为；完整算例的物理校验不变。
+组合查询直接调用原生 EOS；独立 EOS 包装器保留自身缓存。
+C 与 C++ 接口见[入口物性查询](native-stages.zh-CN.md#入口物性查询)。
 
 标准标量几何由 C++ 保留原 NumPy float16、float32 和 float64 的中间舍入规则。
 绑定传入单元长度转换和壁厚／单元长度比的精度元数据。

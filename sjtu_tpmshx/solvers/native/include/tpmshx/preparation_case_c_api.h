@@ -518,11 +518,49 @@ typedef struct {
     void* owner;
 } tpmshx_preparation_sigmoid_flow_case_2d_v10;
 
+typedef struct {
+    double real,imaginary;
+    tpmshx_preparation_scalar_kind_v2 kind;
+    uint32_t category;
+} tpmshx_preparation_property_scalar_v1;
+typedef struct {
+    uint32_t abi_version;
+    size_t struct_size;
+    tpmshx_preparation_inlet_key_v9 inlet;
+    double hydraulic_diameter_m,epsilon_a;
+    tpmshx_preparation_scalar_kind_v2 diameter_kind,epsilon_kind;
+    uint32_t exact_co2_drag;
+} tpmshx_preparation_inlet_query_input_v1;
+typedef struct {
+    uint32_t abi_version;
+    size_t struct_size;
+    tpmshx_preparation_property_scalar_v1 values[12];
+} tpmshx_preparation_inlet_query_result_v1;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 TPMSHX_PREPARATION_API uint32_t TPMSHX_PREPARATION_CALL tpmshx_preparation_case_abi_version_v1(void);
+/* Query the existing inlet combination from a cached geometry result.
+ * No grid, ports, CaseData or solver is required. Both structures use version1.
+ * Values: rho,mu,k,cp,Pr,Re,Nu,K,cF,dP_per_L,H_sf,K_ff. Category 1 is complex.
+ * Scalar kinds also accept the existing property integer tags (strong=2).
+ * exact_co2_drag retains the standalone facade's exact CO2 branch.
+ * The optional callbacks use v3. Cache hooks must be NULL. Host validation
+ * uses stage4 and steps:0=diameter,1=model,2=mu,3=k,4=rho,5=cp,6=Re,
+ * 7=Nu,8=DF,9=K_ff. These hooks check host objects, never numerical values.
+ * FP, range and notice callbacks retain calculation order. Nonzero callback
+ * status stops the query. A failed call preserves result. A successful call
+ * clears failure. Result, failure and error must be mutually disjoint. They
+ * must not overlap input, callbacks or borrowed input text.
+ * No owner is created. The existing property failure retains Python causes.
+ */
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_query_inlet_properties_v1(
+    const tpmshx_preparation_inlet_query_input_v1* input,
+    const tpmshx_preparation_case_callbacks_v3* callbacks,
+    tpmshx_preparation_inlet_query_result_v1* result,
+    tpmshx_preparation_case_failure_v2* failure,char* error,size_t error_capacity);
 /* Units are explicit in field names. Fluid: air=0,water=1,sco2=2,co2=3.
  * Topology: Diamond=0,Gyroid=1. Geometry mode and DF mode are currently 0.
  * This entry accepts uniform symmetric air/air at prescribed velocity.

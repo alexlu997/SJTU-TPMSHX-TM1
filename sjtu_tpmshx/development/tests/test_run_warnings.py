@@ -132,24 +132,24 @@ def test_compute_cache_hit_replays_warnings_without_recomputation(standalone_reg
         assert compute.cache_info().misses == misses
 
 
-def test_failed_cache_miss_restores_recording_context(monkeypatch):
+def test_failed_cache_miss_restores_recording_context():
     from sjtu_tpmshx.shared.domain import run_warnings
     from sjtu_tpmshx.shared.models import tpms_calc
 
-    def fail(*args, **kwargs):
-        raise ValueError('DF failure after properties and Nu')
-
-    with monkeypatch.context() as patch:
-        patch.setattr(tpms_calc, 'predict_K_cF', fail)
-        with warning_scope({}), pytest.raises(ValueError, match='DF failure'):
-            tpms_calc.compute('Diamond', 6.91, 0.59, 0.00123, 370.12,
+    tpms_calc.compute.cache_clear()
+    with warning_scope({}) as failed_records:
+        with pytest.raises(ValueError, match='outside'):
+            tpms_calc.compute('Diamond', 7., np.float32(.6), .00123, 370.12,
                               101325, 16, 'water')
+    key = ('nu', 'water', 'Diamond', (), ('unbound', 'unbound', 'source'))
+    assert key in failed_records
+    assert tpms_calc.compute.cache_info().currsize == 0
     assert current_warnings() is None
     assert run_warnings._cache_records.get() is None
     with warning_scope({}) as records:
-        tpms_calc.compute('Diamond', 6.91, 0.59, 0.00123, 370.12,
+        tpms_calc.compute('Diamond', 6.91, .59, .00123, 370.12,
                           101325, 16, 'water')
-    assert ('nu', 'water', 'Diamond', (), ('unbound', 'unbound', 'source')) in records
+    assert key in records
 
 
 @pytest.mark.parametrize('policies', [(False, True), (True, False)])

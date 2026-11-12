@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 from sjtu_tpmshx.development.tests import preparation_api_reference as reference
+from sjtu_tpmshx.development.tests import preparation_case_reference as preparation_reference
 from sjtu_tpmshx.development.tests import test_native_preparation_continuous as continuous
 from sjtu_tpmshx.development.tests import test_native_preparation_mass_flow as uniform
 from sjtu_tpmshx.preprocess import api
@@ -19,6 +20,7 @@ from sjtu_tpmshx.shared.domain.run_warnings import range_observations, warning_s
 def _release_test_cache_state():
     yield
     # Warm-order cases must not prewarm unrelated independent stage tests.
+    _property_compute(reference).cache_clear()
     from sjtu_tpmshx.shared.models.tpms_calc import compute
     from sjtu_tpmshx.shared.models.tpms_geometry import compute_geometry
     compute.cache_clear()
@@ -51,8 +53,17 @@ def _same(actual, expected, path='case'):
         assert type(actual) is type(expected) and actual == expected, path
 
 
+def _property_compute(module):
+    """Keep reference cache storage separate from the measured production API."""
+    if module in (reference, preparation_reference):
+        from sjtu_tpmshx.development.tests.property_reference import compute
+    else:
+        from sjtu_tpmshx.shared.models.tpms_calc import compute
+    return compute
+
+
 def _capture(monkeypatch, module, operation, config, targets=None, *, clear_cache=True):
-    from sjtu_tpmshx.shared.models.tpms_calc import compute
+    compute = _property_compute(module)
     from sjtu_tpmshx.shared.models.tpms_geometry import compute_geometry
     from sjtu_tpmshx.shared.logutil import get_logger
     if clear_cache:
@@ -151,7 +162,7 @@ def test_existing_experimental_selection(monkeypatch, spatial, topology, pair):
 
 
 def _failure(monkeypatch, module, config, targets=None):
-    from sjtu_tpmshx.shared.models.tpms_calc import compute
+    compute = _property_compute(module)
     from sjtu_tpmshx.shared.models.tpms_geometry import compute_geometry
     compute.cache_clear()
     compute_geometry.cache_clear()
@@ -332,10 +343,9 @@ def test_equal_values_keep_existing_cache_order(monkeypatch, field, first_strong
     _same(actual, expected)
 
 
-def _cache_info():
-    from sjtu_tpmshx.shared.models.tpms_calc import compute
+def _cache_info(module=api):
     from sjtu_tpmshx.shared.models.tpms_geometry import compute_geometry
-    return compute_geometry.cache_info(), compute.cache_info()
+    return tuple(compute_geometry.cache_info()), tuple(_property_compute(module).cache_info())
 
 
 @pytest.mark.parametrize('spatial', [False, True])
@@ -344,7 +354,7 @@ def _cache_info():
 def test_native_entry_keeps_shared_cache_counts(monkeypatch, spatial, operation, targets):
     config = (continuous._configuration if spatial else uniform._configuration)()
     expected = _capture(monkeypatch, reference, operation, config, targets)
-    counts = _cache_info()
+    counts = _cache_info(reference)
     actual = _capture(monkeypatch, api, operation, config, targets)
     _same(actual, expected)
     assert _cache_info() == counts
@@ -353,30 +363,29 @@ def test_native_entry_keeps_shared_cache_counts(monkeypatch, spatial, operation,
 @pytest.mark.parametrize('entry', ['geometry', 'properties'])
 @pytest.mark.parametrize('direction', ['public-first', 'prepare-first'])
 def test_public_cache_and_native_preparation_share_values(monkeypatch, entry, direction):
-    from sjtu_tpmshx.shared.models.tpms_calc import compute
     from sjtu_tpmshx.shared.models.tpms_geometry import compute_geometry
     config = uniform._configuration()
     config.geometry.L_cell_mm = np.float32(7.)
     config.fluid_A.u_mps = np.float32(6.)
 
-    def public():
+    def public(module):
         if entry == 'geometry':
             return compute_geometry(config.geometry.tpms, 7., config.geometry.t_wall_mm)
         fluid = config.fluid_A
-        return compute(config.geometry.tpms, 7., config.geometry.t_wall_mm, 6., fluid.T_in_K,
+        return _property_compute(module)(config.geometry.tpms, 7., config.geometry.t_wall_mm, 6., fluid.T_in_K,
                        fluid.P_in_Pa, config.geometry.k_s_W_mK, fluid.type,
                        sco2_nu=config.sco2_nu, co2_geometry=False)
 
     def sequence(module):
-        compute.cache_clear()
+        _property_compute(module).cache_clear()
         compute_geometry.cache_clear()
         if direction == 'public-first':
-            public()
+            public(module)
             result = _capture(monkeypatch, module, 'full', config, clear_cache=False)
         else:
             _capture(monkeypatch, module, 'full', config, clear_cache=False)
-            result = public()
-        return result, _cache_info()
+            result = public(module)
+        return result, _cache_info(module)
 
     expected = sequence(reference)
     actual = sequence(api)
@@ -394,7 +403,7 @@ def test_failed_preparation_keeps_only_completed_cache_entries(monkeypatch, fail
         config.fluid_A.u_mps = .000001
         config.extrap = replace(config.extrap, allow=False)
     expected = _failure(monkeypatch, reference, config)
-    counts = _cache_info()
+    counts = _cache_info(reference)
     actual = _failure(monkeypatch, api, config)
     assert actual == expected
     assert _cache_info() == counts
@@ -402,7 +411,6 @@ def test_failed_preparation_keeps_only_completed_cache_entries(monkeypatch, fail
 
 @pytest.mark.parametrize('cleared', ['geometry', 'properties'])
 def test_independent_cache_clear_preserves_other_cache_values(monkeypatch, cleared):
-    from sjtu_tpmshx.shared.models.tpms_calc import compute
     from sjtu_tpmshx.shared.models.tpms_geometry import compute_geometry
     first, second = uniform._configuration(), uniform._configuration()
     first.geometry.L_cell_mm = np.float32(7.)
@@ -410,8 +418,8 @@ def test_independent_cache_clear_preserves_other_cache_values(monkeypatch, clear
 
     def sequence(module):
         _capture(monkeypatch, module, 'full', first)
-        (compute_geometry if cleared == 'geometry' else compute).cache_clear()
-        return _capture(monkeypatch, module, 'full', second, clear_cache=False), _cache_info()
+        (compute_geometry if cleared == 'geometry' else _property_compute(module)).cache_clear()
+        return _capture(monkeypatch, module, 'full', second, clear_cache=False), _cache_info(module)
 
     _same(sequence(api), sequence(reference))
 
@@ -425,7 +433,7 @@ def test_warm_property_values_do_not_repeat_floating_operations(monkeypatch):
         with np.errstate(over='ignore', invalid='ignore'):
             _capture(monkeypatch, module, 'full', config)
         with np.errstate(over='raise', invalid='raise'):
-            return _capture(monkeypatch, module, 'full', config, clear_cache=False), _cache_info()
+            return _capture(monkeypatch, module, 'full', config, clear_cache=False), _cache_info(module)
 
     _same(sequence(api), sequence(reference))
 
@@ -457,7 +465,8 @@ def _observe_prepare(monkeypatch, module, operation, config, targets=None, *, sc
     """Observe public warning filters and partial failure effects independently."""
     from sjtu_tpmshx.shared.domain.run_warnings import range_context
     from sjtu_tpmshx.shared.models import tpms_props, nu_correlations
-    from sjtu_tpmshx.shared.models.tpms_calc import compute
+    from sjtu_tpmshx.development.tests import property_reference
+    compute = _property_compute(module)
     from sjtu_tpmshx.shared.models.tpms_geometry import compute_geometry
     from sjtu_tpmshx.shared.logutil import get_logger
     compute.cache_clear()
@@ -465,6 +474,8 @@ def _observe_prepare(monkeypatch, module, operation, config, targets=None, *, sc
     records, observations = {}, []
     with monkeypatch.context() as patch:
         patch.setattr(tpms_props, '_range_warnings_emitted', set())
+        patch.setattr(property_reference, '_range_warnings_emitted', set())
+        patch.setattr(property_reference, '_query_nu_warned', set())
         for name in ('_EXTRAP_WARNED', '_WATER_NU_WARNED', '_SCO2_NU_WARNED'):
             patch.setattr(nu_correlations, name, set())
         patch.setattr(get_logger('sjtu_tpmshx.preprocess.two_d.preparation'), 'info',
@@ -497,11 +508,17 @@ def _observe_prepare(monkeypatch, module, operation, config, targets=None, *, sc
                                 chain.append((type(error).__name__, str(error)))
                                 error = error.__cause__
                             errors.append(chain)
-        registries = tuple(sorted(value) for value in (tpms_props._range_warnings_emitted,
+        registries = [set(value) for value in (tpms_props._range_warnings_emitted,
             nu_correlations._EXTRAP_WARNED, nu_correlations._WATER_NU_WARNED,
-            nu_correlations._SCO2_NU_WARNED))
+            nu_correlations._SCO2_NU_WARNED)]
+        if module in (reference, preparation_reference):
+            registries[0].update(property_reference._range_warnings_emitted)
+            for fluid, topology, side in property_reference._query_nu_warned:
+                registries[{'air': 1, 'water': 2, 'sco2': 3}[fluid]].add(
+                    (topology, side) if fluid == 'air' else side)
+        registries = tuple(sorted(value) for value in registries)
     return (results, errors, observations, range_observations(records),
-            range_observations(records, last=True), _cache_info(), registries)
+            range_observations(records, last=True), _cache_info(module), registries)
 
 
 @pytest.mark.parametrize('spatial', [False, True])

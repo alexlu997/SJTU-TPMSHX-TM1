@@ -566,8 +566,21 @@ std::string range_warning(const PreparationRange& range) {
 PropertyInput operand(const double& value,ScalarKind kind={}) {
     return {{&value,1},scalar(value,kind),kind.layout};
 }
+PropertyInput query_operand(const double& value,ScalarKind kind={}) {
+    if (kind.strong>2 || kind.layout>2 || (!kind.strong && (kind.precision!=64 || kind.layout))
+        || (kind.strong && !kind.layout))
+        throw std::invalid_argument("inlet query tags must follow the property scalar contract");
+    return {{&value,1},g::checked({value,kind.precision,kind.strong}),kind.layout};
+}
+PropertyInput query_operand(const PropertyScalar& value) {
+    auto output=query_operand(value.real,value.kind);
+    output.imaginary=value.imaginary;output.category=value.category;return output;
+}
 ScalarKind result_kind(const PropertyResult& value) {
     return {value.kind.precision,value.kind.strong,value.kind.strong?1u:0u};
+}
+PropertyScalar query_scalar(const PropertyResult& value) {
+    return {value.values.front(),value.category?value.imaginary.front():0.,result_kind(value),value.category};
 }
 const std::array<double,2>& re_range(Fluid fluid) {
     switch (fluid) {
@@ -579,7 +592,7 @@ const std::array<double,2>& re_range(Fluid fluid) {
     throw std::invalid_argument("unknown preparation fluid");
 }
 double property(std::uint32_t quantity,const InletInput2D& inlet,const InletScalarKinds& kinds,
-                const std::string& side,const std::string& stage,Records& records) {
+                const std::string& side,const std::string& stage,Records& records,bool raw_query=false) {
     const auto temperature=inlet.temperature_K,pressure=inlet.pressure_Pa;
     if (inlet.fluid==Fluid::co2) return co2_pt({}, {&temperature,1},{&pressure,1},true).at(quantity);
     if (inlet.fluid==Fluid::sco2) {
@@ -597,9 +610,16 @@ double property(std::uint32_t quantity,const InletInput2D& inlet,const InletScal
         records.range({"property",name},side,stage,side=="unbound"?"source":"scalar",name,"T","K",bounds,temperature);
     }
     const auto getter=water?static_cast<Empirical>(4+quantity):air[quantity];
-    const auto result=empirical(getter,operand(temperature,kinds.temperature),operand(pressure,kinds.pressure));
+    const auto result=raw_query?
+        empirical(getter,query_operand(temperature,kinds.temperature),
+            !water && quantity==0?query_operand(pressure,kinds.pressure):PropertyInput{}):
+        empirical(getter,operand(temperature,kinds.temperature),operand(pressure,kinds.pressure));
     records.floating(result.events);
     // The public inlet registry converts each property to a Python float.
+    if (raw_query && result.category) {
+        PropertyFailure failure;failure.fp.python_cause=4;
+        throw PropertyError(3,"float() argument must be a string or a real number, not 'complex'",failure);
+    }
     return result.values.front();
 }
 PropertyResult inlet_re(double rho,double velocity,double diameter,double mu,ScalarKind speed,Records& records) {
@@ -694,76 +714,117 @@ void preflight(const CaseInput2D& input,const PreparationOptions& options,const 
     }
 }
 
+InletQueryResult inlet_property_values(const InletPropertyQuery& query,Records& records,
+    const std::string& side,const std::string& stage,const std::string& layout,bool raw_query,
+    std::uint32_t notice_side=0) {
+    const auto& input=query.inlet;
+    const InletInput2D inlet{input.fluid,input.velocity_m_s,input.temperature_K,input.pressure_Pa,{}, {}};
+    const auto typed=[&](const double& value,ScalarKind kind=ScalarKind{}) {
+        return raw_query?query_operand(value,kind):operand(value,kind);
+    };
+    const auto validate_host=[&](std::uint32_t step) {
+        if (raw_query && records.callbacks.validate_host_input)
+            records.callbacks.validate_host_input(records.callbacks.context,4,step);
+    };
+    double diameter_mm=0.;ScalarKind diameter_mm_kind=numpy_double;
+    if (raw_query) {
+        validate_host(0);
+        const auto diameter=query_operand(query.hydraulic_diameter_m,query.diameter_kind);
+        std::array<std::uint32_t,property_event_count> events{};PropertyArithmetic arithmetic(events);
+        const auto value=arithmetic.multiply({diameter.kind,0.,0,diameter.layout},{g::weak(1000.)});
+        records.floating(events);diameter_mm=value.real.value;
+        diameter_mm_kind={value.real.precision,value.real.strong,value.real.strong?1u:0u};
+        validate_host(1);
+        if (input.fluid==Fluid::sco2 && input.sco2_nu) validate_nu(*input.sco2_nu);
+    }
+    InletQueryResult output{};
+    constexpr std::array<std::uint32_t,4> quantities{1,2,0,3};
+    for (std::size_t i=0;i<quantities.size();++i) {
+        validate_host(static_cast<std::uint32_t>(2+i));
+        const auto quantity=quantities[i];
+        output[quantity].real=property(quantity,inlet,input.kinds,side,stage,records,raw_query);
+    }
+    validate_host(6);
+    auto result=reynolds(typed(output[0].real),typed(input.velocity_m_s,input.kinds.velocity),
+        typed(query.hydraulic_diameter_m,query.diameter_kind),typed(output[1].real));
+    records.floating(result.events);output[5]=query_scalar(result);
+    if (records.callbacks.observe_notice) {
+        const auto& bounds=re_range(input.fluid);
+        const auto message=bounds[0]<=output[5].real && output[5].real<=bounds[1]?std::string{}:
+            std::string(topology_name(input.geometry.topology))+": Re = "+fixed(output[5].real,1)+
+            " is outside the validated range ["+fixed(bounds[0],0)+", "+fixed(bounds[1],0)+
+            "]. Correlation accuracy may be reduced.";
+        records.callbacks.observe_notice(records.callbacks.context,0,notice_side,output[5].real,message);
+    }
+    result=prandtl(typed(output[1].real),typed(output[3].real),typed(output[2].real));
+    records.floating(result.events);output[4]=query_scalar(result);
+    if (!raw_query) diameter_mm=query.hydraulic_diameter_m*1000.;
+    validate_host(7);
+    std::array<double,4> extrema{};
+    const auto route=input.fluid==Fluid::air?NuRoute::air_direct:input.fluid==Fluid::water?NuRoute::water:
+                     input.fluid==Fluid::sco2?NuRoute::sco2:NuRoute::co2;
+    const auto co2=input.fluid==Fluid::co2;
+    const auto cell=input.geometry.cell_length_mm;
+    result=nu_inputs(route,typed(output[5].real,co2?ScalarKind{64,1,2}:output[5].kind),
+        typed(output[4].real,co2?ScalarKind{64,1,2}:output[4].kind),
+        typed(cell,co2?ScalarKind{64,1,2}:input.geometry.cell_kind),
+        typed(diameter_mm,co2?ScalarKind{64,1,2}:diameter_mm_kind),{},extrema);
+    records.floating(result.events);
+    const auto prepared_kind=result_kind(result);
+    double prepared_re=result.values.front(),pr=input.fluid==Fluid::air?data::pr_air:output[4].real;
+    const auto label=input.fluid==Fluid::air?"[Nu extrap] ":input.fluid==Fluid::water?"[water Nu extrap] ":
+                     input.fluid==Fluid::sco2?"[sCO2 Nu extrap] ":"[CO2 Nu extrap] ";
+    records.range({"nu",fluid_name(input.fluid),topology_name(input.geometry.topology)},side,stage,layout,
+        std::string(label)+topology_name(input.geometry.topology),"Re","-",re_range(input.fluid),output[5].real,{},false,extrema[0]);
+    if (co2) records.range({"nu_pr","co2",topology_name(input.geometry.topology)},side,stage,layout,
+        std::string(label)+topology_name(input.geometry.topology),"Pr","-",data::co2_nu_pr_range,output[4].real,{},true);
+    const double alpha=input.fluid==Fluid::sco2 && input.sco2_nu && input.sco2_nu->mode?
+        *input.sco2_nu->alpha[static_cast<std::size_t>(input.geometry.topology)]:1.;
+    result=nusselt(route,input.geometry.topology,typed(prepared_re,co2?ScalarKind{64,1,2}:prepared_kind),
+        typed(pr,co2?ScalarKind{64,1,2}:ScalarKind{}),
+        typed(cell,co2?ScalarKind{64,1,2}:input.geometry.cell_kind),
+        typed(diameter_mm,co2?ScalarKind{64,1,2}:diameter_mm_kind),g::weak(alpha));
+    records.floating(result.events);output[6]=query_scalar(result);
+    if (co2) output[6].kind={};
+    result=surface_transfer(query_operand(output[6]),typed(output[2].real),
+        typed(query.hydraulic_diameter_m,query.diameter_kind));
+    records.floating(result.events);output[10]=query_scalar(result);
+    validate_host(8);
+    const auto drag=fixed_df(static_cast<std::uint32_t>(input.geometry.topology),cell,input.geometry.wall_thickness_mm);
+    output[7].real=drag.K;output[8].real=drag.cF;
+    if (query.exact_co2_drag) {
+        const auto factors=df_co2_factors();
+        output[7].real=df_apply_scale({&drag.K,1},{&factors.K,1},false).front();
+        output[8].real=df_apply_scale({&drag.cF,1},{&factors.cF,1},false).front();
+        output[7].kind=output[8].kind=numpy_double;
+    }
+    result=df_pressure_gradient(typed(output[0].real),typed(output[1].real),typed(input.velocity_m_s,input.kinds.velocity),
+        typed(output[7].real,output[7].kind),typed(output[8].real,output[8].kind));
+    records.floating(result.events);output[9]=query_scalar(result);
+    validate_host(9);
+    result=pore_conductivity(typed(query.epsilon_a,query.epsilon_kind),typed(output[2].real));
+    records.floating(result.events);output[11]=query_scalar(result);
+    return output;
+}
+
 UniformInletProperties inlet_properties(const CaseInput2D& input,const InletInput2D& inlet,std::size_t index,
                                        const geometry::MaterialGeometry& geometry,Records& records,
                                        std::array<ScalarKind,13>& output_kinds,bool unbound=false) {
-    const std::string side=unbound?"unbound":index?"B":"A";
-    const char* stage=unbound?"unbound":"inlet";
-    const char* layout=unbound?"source":"scalar";
-    UniformInletProperties output{};
-    const auto& kinds=input.kinds.sides[index];
-    output.mu=property(1,inlet,kinds,side,stage,records);
-    output.k_f=property(2,inlet,kinds,side,stage,records);
-    output.rho=property(0,inlet,kinds,side,stage,records);
-    output.cp=property(3,inlet,kinds,side,stage,records);
-    double diameter=geometry.geometry.hydraulic_diameter,velocity=inlet.velocity_m_s;
-    auto result=inlet_re(output.rho,velocity,diameter,output.mu,kinds.velocity,records);
-    output.re=result.values.front();output_kinds[5]=result_kind(result);
-    if (records.callbacks.observe_notice) {
-        const auto& bounds=re_range(inlet.fluid);
-        const auto message=bounds[0]<=output.re && output.re<=bounds[1]?std::string{}:
-            std::string(topology_name(input.geometry.topology))+": Re = "+fixed(output.re,1)+
-            " is outside the validated range ["+fixed(bounds[0],0)+", "+fixed(bounds[1],0)+
-            "]. Correlation accuracy may be reduced.";
-        records.callbacks.observe_notice(records.callbacks.context,0,static_cast<std::uint32_t>(index),output.re,message);
-    }
-    result=prandtl(operand(output.mu),operand(output.cp),operand(output.k_f));
-    records.floating(result.events);output.pr=result.values.front();
-    output_kinds[4]=result_kind(result);
-    std::array<double,4> extrema{};
-    const auto route=inlet.fluid==Fluid::air?NuRoute::air_direct:inlet.fluid==Fluid::water?NuRoute::water:
-                     inlet.fluid==Fluid::sco2?NuRoute::sco2:NuRoute::co2;
-    double cell=input.geometry.cell_length_mm,diameter_mm=diameter*1000.;
-    const auto co2=inlet.fluid==Fluid::co2;
-    result=nu_inputs(route,operand(output.re,co2?ScalarKind{64,1,2}:output_kinds[5]),
-        operand(output.pr,co2?ScalarKind{64,1,2}:output_kinds[4]),
-        operand(cell,co2?ScalarKind{64,1,2}:input.kinds.cell_length),
-        operand(diameter_mm,co2?ScalarKind{64,1,2}:numpy_double),{},extrema);
-    records.floating(result.events);
-    const auto prepared_kind=result_kind(result);
-    double prepared_re=result.values.front(),pr=inlet.fluid==Fluid::air?data::pr_air:output.pr;
-    const auto label=inlet.fluid==Fluid::air?"[Nu extrap] ":inlet.fluid==Fluid::water?"[water Nu extrap] ":
-                     inlet.fluid==Fluid::sco2?"[sCO2 Nu extrap] ":"[CO2 Nu extrap] ";
-    records.range({"nu",fluid_name(inlet.fluid),topology_name(input.geometry.topology)},side,stage,layout,
-                  std::string(label)+topology_name(input.geometry.topology),"Re","-",re_range(inlet.fluid),output.re,{},false,extrema[0]);
-    if (co2) records.range({"nu_pr","co2",topology_name(input.geometry.topology)},side,stage,layout,
-                          std::string(label)+topology_name(input.geometry.topology),"Pr","-",data::co2_nu_pr_range,output.pr,{},true);
-    const double alpha=inlet.fluid==Fluid::sco2 && input.sco2_nu.mode?
-        *input.sco2_nu.alpha[static_cast<std::size_t>(input.geometry.topology)]:1.;
-    result=nusselt(route,input.geometry.topology,operand(prepared_re,co2?ScalarKind{64,1,2}:prepared_kind),
-        operand(pr,co2?ScalarKind{64,1,2}:ScalarKind{}),
-        operand(cell,co2?ScalarKind{64,1,2}:input.kinds.cell_length),
-        operand(diameter_mm,co2?ScalarKind{64,1,2}:numpy_double),g::weak(alpha));
-    records.floating(result.events);output.nu=result.values.front();output_kinds[6]=co2?ScalarKind{}:result_kind(result);
-    result=surface_transfer(operand(output.nu,output_kinds[6]),operand(output.k_f),operand(diameter,numpy_double));
-    records.floating(result.events);output.surface_transfer_W_m2K=result.values.front();output_kinds[10]=result_kind(result);
-    const auto drag=fixed_df(static_cast<std::uint32_t>(input.geometry.topology),cell,input.geometry.wall_thickness_mm);
-    output.permeability_m2=drag.K;output.forchheimer_per_m=drag.cF;
-    if (co2) {
-        const auto factors=df_co2_factors();
-        output.permeability_m2=df_apply_scale({&drag.K,1},{&factors.K,1},false).front();
-        output.forchheimer_per_m=df_apply_scale({&drag.cF,1},{&factors.cF,1},false).front();
-        output_kinds[7]=output_kinds[8]=numpy_double;
-    }
-    result=df_pressure_gradient(operand(output.rho),operand(output.mu),operand(velocity,kinds.velocity),
-        operand(output.permeability_m2,output_kinds[7]),operand(output.forchheimer_per_m,output_kinds[8]));
-    records.floating(result.events);output.pressure_gradient_Pa_m=result.values.front();output_kinds[9]=result_kind(result);
-    double epsilon_a=geometry.geometry.epsilon_a;
-    result=pore_conductivity(operand(epsilon_a,co2_geometry(input)?numpy_double:ScalarKind{}),operand(output.k_f));
-    records.floating(result.events);output.fluid_conductivity_W_mK=result.values.front();output_kinds[11]=result_kind(result);
-    output.solid_conductivity_W_mK=geometry.solid_conductivity;
+    InletPropertyQuery query;
+    query.inlet=inlet_key(input,index,true);
+    query.inlet.fluid=inlet.fluid;query.inlet.velocity_m_s=inlet.velocity_m_s;
+    query.inlet.temperature_K=inlet.temperature_K;query.inlet.pressure_Pa=inlet.pressure_Pa;
+    query.hydraulic_diameter_m=geometry.geometry.hydraulic_diameter;
+    query.epsilon_a=geometry.geometry.epsilon_a;
+    query.epsilon_kind=co2_geometry(input)?numpy_double:ScalarKind{};
+    query.exact_co2_drag=inlet.fluid==Fluid::co2;
+    const auto values=inlet_property_values(query,records,unbound?"unbound":index?"B":"A",
+        unbound?"unbound":"inlet",unbound?"source":"scalar",false,static_cast<std::uint32_t>(index));
+    for (std::size_t i=0;i<values.size();++i) output_kinds[i]=values[i].kind;
     output_kinds[12]=solid_result_kind(input);
-    return output;
+    return {values[0].real,values[1].real,values[2].real,values[3].real,values[4].real,values[5].real,
+        values[6].real,values[7].real,values[8].real,values[9].real,values[10].real,values[11].real,
+        geometry.solid_conductivity};
 }
 
 void prepare_drag(const CaseInput2D& input,std::size_t index,DfPair base,PreparedSide2D& side,Records& records,
@@ -1836,6 +1897,13 @@ void resolved_spatial_input(ZonedInletFlow2D& output) {
 }
 
 }  // namespace
+
+InletQueryResult query_inlet_properties(const InletPropertyQuery& input,const PreparationCallbacks& callbacks) {
+    FloatingEnvironment floating_environment;
+    topology_name(input.inlet.geometry.topology);fluid_name(input.inlet.fluid);
+    PreparationEvidence evidence;Records records{evidence,callbacks,{},{}};
+    return inlet_property_values(input,records,"unbound","unbound","source",true);
+}
 
 SigmoidLUT2D build_sigmoid_lut_2d(Topology topology,std::size_t cell_nodes,
     std::size_t wall_nodes,std::size_t resolution) {

@@ -10,6 +10,9 @@ import numpy as np
 from . import _native_flow, _native_preparation, _native_properties
 from ._native_properties import _Failure as _PropertyFailure
 from sjtu_tpmshx.shared.logutil import get_logger
+from sjtu_tpmshx.shared.domain.run_warnings import (
+    RangeRecord, current_warnings, merge_warnings, _range_context,
+)
 
 
 _U = ct.c_uint32
@@ -201,6 +204,14 @@ _KeyedCallbacks = _struct('KeyedCallbacks', [('values', _CacheCallbacks),
     ('sigmoid_lut_cache', _LUTCacheFunction)])
 
 
+_PropertyScalar = _struct('PropertyScalar', [*_doubles('real imaginary'), ('kind', _Kind), ('category', _U)])
+_InletQueryInput = _struct('InletQueryInput', [('abi_version', _U), ('struct_size', _S),
+    ('inlet', _InletKey), *_doubles('hydraulic_diameter_m epsilon_a'),
+    ('diameter_kind', _Kind), ('epsilon_kind', _Kind), ('exact_co2_drag', _U)])
+_InletQueryResult = _struct('InletQueryResult', [('abi_version', _U), ('struct_size', _S),
+    ('values', _PropertyScalar * 12)])
+
+
 class _Bindings:
     def __init__(self, path):
         self.owner = _native_preparation._load_library(path)
@@ -267,6 +278,63 @@ def _text(value):
     return ct.string_at(value.data, value.size).decode('utf-8')
 
 
+def _sample(value, shape):
+    def extreme(name):
+        if not value.have_finite:
+            return None
+        index = tuple(int(item) for item in np.unravel_index(getattr(value, name + '_index'), shape))
+        return getattr(value, name), index
+    return dict(minimum=extreme('minimum'), maximum=extreme('maximum'),
+                **{name: getattr(value, name) for name in ('low', 'high', 'size', 'nonfinite')})
+
+
+def _range_record(value, bounds_list):
+    shape = tuple(value.shape[:value.rank])
+    source = tuple(_text(item) for item in value.source[:value.source_count])
+    context = tuple(_text(getattr(value, name)) for name in ('side', 'stage', 'layout'))
+    bounds = list(value.bounds) if bounds_list else tuple(value.bounds)
+    record = RangeRecord(_text(value.label), _text(value.quantity), _text(value.unit),
+                         bounds, **_sample(value.sample, shape), last=_sample(value.last, shape))
+    return (*source, shape, context), record
+
+
+def observe_range(value, bounds_list, cached, scalar, selection=None, *, records=None):
+    """Replay source records and the original standalone warning filters."""
+    key, record = _range_record(value, bounds_list)
+    if key[-1] == ('unbound', 'unbound', 'source'):
+        key = (*key[:-1], _range_context.get())
+    merge_warnings(current_warnings(), [{key: record}])
+    merge_warnings(records, [{key[:-1]: record}])
+    if cached or current_warnings() is not None or scalar is None:
+        return
+    from sjtu_tpmshx.shared.models import tpms_props, fluid_props, nu_correlations, co2_correlations
+    source = key[:-2]
+    if source[0] == 'property':
+        fluid, property_name = source[1].split('_', 1)
+        notice = tpms_props._range_notice(source[1], scalar, scalar, *record.bounds)
+        if notice is not None:
+            attribute = {'density': 'rho', 'viscosity': 'mu', 'conductivity': 'k', 'cp': 'cp'}[property_name]
+            _source_warning(getattr(fluid_props.get(fluid), attribute), notice)
+    elif source[0] in ('nu', 'nu_pr') and _text(value.stage) in ('inlet', 'unbound'):
+        fluid, topology = source[1:]
+        if fluid == 'air':
+            notices = nu_correlations._extrap_notices(topology, scalar, scalar)
+            origin = fluid_props._nu_air
+        elif fluid == 'water':
+            notices = nu_correlations._water_nu_notices(scalar, scalar, topology)
+            origin = fluid_props._nu_water
+        elif fluid == 'sco2':
+            notices = nu_correlations._sco2_nu_notices(scalar, scalar, topology)
+            origin = (nu_correlations.nu_sco2_selected if selection is not None and selection.mode != 'cfd_smooth'
+                      else nu_correlations.nu_sco2_topo)
+        else:
+            notices = ([co2_correlations._calibration_notice(record.quantity, record.bounds)]
+                       if scalar < record.bounds[0] or scalar > record.bounds[1] else [])
+            origin = fluid_props._nu_co2
+        for notice in notices:
+            _source_warning(origin, notice)
+
+
 def _array(value, shape=None, *, precision=64):
     result = (np.ctypeslib.as_array(value.data, shape=(value.size,)).astype(f'float{precision}', copy=True)
               if value.size else np.empty(0, dtype=f'float{precision}'))
@@ -329,7 +397,7 @@ def _control_axis_warning(source, message):
 
 def _callback_bridge(validate_host_input, geometry_cache=None, inlet_cache=None,
                      observe_range=None, observe_notice=None, nominal_grid_warning=None, *,
-                     geometry_cache_at=None, inlet_cache_at=None, sigmoid_lut_cache=None):
+                     geometry_cache_at=None, inlet_cache_at=None, sigmoid_lut_cache=None, query=False):
     """Own callbacks and preserve their first exception across the C boundary."""
     callback_errors = []
 
@@ -439,8 +507,9 @@ def _callback_bridge(validate_host_input, geometry_cache=None, inlet_cache=None,
         callbacks = _HostCallbacks(_Callbacks(2, ct.sizeof(_HostCallbacks), event_function, None), host_function)
         descriptor = callbacks.values
     else:
-        callbacks = _CacheCallbacks(_HostCallbacks(_Callbacks(4, ct.sizeof(_CacheCallbacks), event_function, None), host_function),
-                                   _GeometryCacheFunction(geometry), _InletCacheFunction(inlet),
+        callbacks = _CacheCallbacks(_HostCallbacks(_Callbacks(3 if query else 4, ct.sizeof(_CacheCallbacks), event_function, None), host_function),
+                                   _GeometryCacheFunction(geometry) if geometry_cache else _GeometryCacheFunction(),
+                                   _InletCacheFunction(inlet) if inlet_cache else _InletCacheFunction(),
                                    _RangeFunction(observe), _NoticeFunction(notice))
         descriptor = callbacks.values.values
     return callbacks, descriptor, callback_errors
@@ -482,3 +551,139 @@ def operation(name, source, options, validate_host_input, geometry_cache=None, i
         yield result
     finally:
         bindings.releases[result_type](ct.byref(result))
+
+
+@lru_cache(maxsize=1)
+def _inlet_query_function(path):
+    owner = _native_preparation._load_library(path)
+    return owner.bind('tpmshx_query_inlet_properties_v1', [
+        ct.POINTER(_InletQueryInput), ct.POINTER(_CacheCallbacks),
+        ct.POINTER(_InletQueryResult), ct.POINTER(_Failure), ct.POINTER(ct.c_char), _S])
+
+
+def inlet_query(topology, cell, wall, velocity, temperature, pressure, fluid,
+                selection, geometry, records, notice):
+    """Transport one scalar query without a mesh or a prepared case."""
+    from . import fluid_props
+    from .tpms_geometry import _TOPOLOGIES
+
+    errors, buffers, range_errors = {}, [], {}
+    model = None
+    try:
+        model = fluid_props.get(fluid, sco2_nu=selection)
+    except Exception as problem:
+        errors[1] = problem
+    fluid_name = model.name if model is not None else 'air'
+
+    def pack(value, step, *, coerce=False):
+        try:
+            array, scalar, layout = _native_properties._typed(value, coerce=coerce)
+            return float(array), _Kind(scalar.precision, scalar.strong, layout)
+        except Exception as problem:
+            errors.setdefault(step, problem)
+            return 0., _Kind(64, 0, 0)
+
+    diameter, diameter_kind = pack(geometry['D_h'], 0)
+    epsilon, epsilon_kind = pack(geometry['epsilon_A'], 9)
+    length, length_kind = pack(cell, 7)
+    thickness, thickness_kind = pack(wall, 8)
+    speed, speed_kind = pack(velocity, 6)
+    temp, temp_kind = pack(temperature, 2, coerce=fluid_name != 'air')
+    if fluid_name == 'air' and 2 in errors:
+        # A property observes its source temperature before its operand check.
+        range_errors[2] = errors.pop(2)
+        try:
+            observed = temperature.real if isinstance(temperature, np.complexfloating) else temperature
+            temp = float(np.asarray(observed, dtype=float))
+        except Exception as problem:
+            errors[2] = problem
+    if fluid_name == 'water':
+        press, press_kind = 0., _Kind(64, 0, 0)
+    else:
+        press, press_kind = pack(pressure, 4 if fluid_name == 'air' else 2,
+                                 coerce=fluid_name != 'air')
+    settings = _Nu()
+    if model is not None and model.name == 'sco2' and selection is not None:
+        settings.mode = int(selection.mode == 'experimental')
+        for index, name in enumerate(('alpha_D', 'alpha_G')):
+            value = getattr(selection, name)
+            settings.have_alpha[index] = value is not None
+            settings.alpha[index] = float(value) if value is not None else 0.
+        for name in ('parameter_version', 'source', 'applicability'):
+            encoded = getattr(selection, name).encode('utf-8')
+            buffer = ct.create_string_buffer(encoded)
+            buffers.append(buffer)
+            setattr(settings, name, _Text(ct.cast(buffer, ct.POINTER(ct.c_char)), len(encoded)))
+    key = _InletKey(_GeometryKey(_TOPOLOGIES.index(topology), length, thickness,
+        length_kind, thickness_kind), _FLUIDS.index(fluid_name), speed, temp, press,
+        _InletKinds(speed_kind, temp_kind, press_kind),
+        model is not None and model.name == 'sco2' and selection is not None, settings, False)
+    source = _InletQueryInput(1, ct.sizeof(_InletQueryInput), key, diameter, epsilon,
+                             diameter_kind, epsilon_kind, fluid == 'co2')
+
+    def validate(stage, step):
+        if stage != 4:
+            raise RuntimeError(f'unknown property query host stage {stage}')
+        if step == 2 and fluid_name == 'air':
+            np.asarray(temperature, dtype=float)
+            if not isinstance(temperature, (float, int, np.number, np.ndarray)):
+                range_errors[2] = TypeError(
+                    f"unsupported operand type(s) for /: '{type(temperature).__name__}' and 'float'")
+        if step == 4 and fluid_name == 'air' and not isinstance(
+                pressure, (float, int, np.number, np.ndarray)):
+            if isinstance(pressure, (str, bytes, list, tuple)):
+                raise TypeError("can't multiply sequence by non-int of type 'float'")
+            raise TypeError(f"unsupported operand type(s) for *: '{type(pressure).__name__}' and 'float'")
+        if step in errors:
+            raise errors[step]
+        if step == 2 and fluid_name in ('sco2', 'co2') and pressure is None:
+            if fluid_name == 'co2':
+                raise ValueError('CO2 requires absolute pressure P in Pa')
+            raise ValueError('sCO2 properties require pressure P [Pa]; caller passed P=None. '
+                             'Fix the call site to forward the inlet/local pressure.')
+        if step == 8:
+            float(cell), float(wall), float(geometry['epsilon_A'])
+
+    def observe(value, bounds_list, cached, scalar):
+        observe_range(value, bounds_list, cached, scalar, selection, records=records)
+        if range_errors:
+            raise range_errors[2]
+
+    callbacks, _descriptor, callback_errors = _callback_bridge(
+        validate, observe_range=observe, observe_notice=notice, query=True)
+    result = _InletQueryResult(1, ct.sizeof(_InletQueryResult))
+    failure, error = _Failure(2, ct.sizeof(_Failure)), ct.create_string_buffer(4096)
+    status = _inlet_query_function(_native_preparation._library().path)(
+        ct.byref(source), ct.byref(callbacks), ct.byref(result), ct.byref(failure), error, len(error))
+    if callback_errors:
+        raise callback_errors[0]
+    if status and failure.have_property:
+        import errno
+        import os
+        fp = failure.property.fp
+        _native_properties._floating_events(fp.events[:fp.event_count])
+        text = error.value.decode('utf-8', errors='replace')
+        if fp.python_cause == 2:
+            raise OverflowError(errno.ERANGE, os.strerror(errno.ERANGE))
+        if fp.python_cause:
+            exception = {1: ZeroDivisionError, 3: ValueError, 4: TypeError}.get(fp.python_cause, RuntimeError)
+            raise exception(text)
+        if status == 11 and fluid_name == 'co2':
+            if failure.property.reason in (1, 5):
+                raise ValueError(text) from None
+            prefix = ('CO2 requires a stable single-phase PT state; '
+                      'saturation, two-phase and critical-point states are unsupported. ')
+            raise ValueError(text) from ValueError(text.removeprefix(prefix))
+        if status in (10, 12):
+            raise ValueError(text) from None
+    _check_status(status, error, failure)
+    values = []
+    for item in result.values:
+        if item.category:
+            value = complex(item.real, item.imaginary)
+            if item.kind.strong:
+                value = np.dtype(f'complex{item.kind.precision * 2}').type(value)
+        else:
+            value = _restore(item.real, item.kind)
+        values.append(value)
+    return values

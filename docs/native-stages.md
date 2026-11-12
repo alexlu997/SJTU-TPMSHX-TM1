@@ -51,6 +51,50 @@ The caller supplies dimensions, design values, boundary conditions and controls.
 The preparation library computes the physical fields. The solver library uses
 that prepared state. The result library evaluates recorded evidence.
 
+## Inlet-property query
+
+`InletPropertyQuery` and `query_inlet_properties` in `stages.hpp` expose the existing scalar inlet combination.
+The C entry is `tpmshx_query_inlet_properties_v1` in `preparation_case_c_api.h`.
+Supply topology, L/t in mm, inlet velocity, temperature, pressure and optional sCO2 Nu selection.
+Also supply hydraulic diameter in m and single-stream porosity from the selected geometry owner.
+The query calculates no geometry, grid, ports or solver fields.
+It uses the existing four-fluid property, Nu and fixed CFD drag rules in their original order.
+`exact_co2_drag` selects the existing CO2 drag factors independently of the supplied geometry.
+
+The result contains twelve inline values in this order:
+
+| Index | Value | Unit |
+| --- | --- | --- |
+| 0 | rho | kg/m³ |
+| 1 | mu | Pa·s |
+| 2 | k_f | W/(m·K) |
+| 3 | cp | J/(kg·K) |
+| 4 | Pr | dimensionless |
+| 5 | Re | dimensionless |
+| 6 | Nu | dimensionless |
+| 7 | K_df | m² |
+| 8 | cF_df | 1/m |
+| 9 | dP_per_L | Pa/m |
+| 10 | H_sf | W/(m²·K) |
+| 11 | K_ff | W/(m·K) |
+
+Each value carries real and imaginary components, scalar kind and category.
+Category 1 denotes a complex value. Raw Nu and H_sf retain existing complex intermediates.
+This query does not change complete-case validation or add a physical mode.
+It creates no owner. Copy the result freely; no release call is needed.
+Failure preserves the result and returns the existing property diagnostics and Python cause code through the C failure structure.
+
+Optional callbacks use the v3 layout, with both cache hooks set to NULL.
+Range, notice and floating-point callbacks run synchronously in calculation order.
+Host stage 4 defers object checks to the original operation; it supplies no numerical values.
+A nonzero callback result stops the query. Result, failure and error storage must be mutually disjoint.
+They must not overlap input, callbacks or borrowed input text.
+
+Python `tpms_calc.compute` keeps its public fields, cache methods and fresh result copies.
+It selects geometry before the query and calculates current K_ss with the existing material owner after the cache lookup.
+Its binding shares range and warning transport with complete preparation.
+The [fluid preparation example](../examples/cpp/prepare_fluids_2d.cpp) also queries all four fluids through installed headers.
+
 ## Ownership and units
 
 - Use the units in the input field names. The design input uses mm. Saved
@@ -59,7 +103,7 @@ that prepared state. The result library evaluates recorded evidence.
 - The requested grid counts and the actual grid counts are different fields.
   Physical 2D fields have shape `(nx, ny)` and C order. Flow fields use the
   existing `(cross, stream)` order for each side.
-- A successful C call returns one owner. All array and text views belong to
+- An owned stage call returns one owner. All array and text views belong to
   that owner. Release it through the same library after the last use.
   Do not copy owners or free their buffers with a caller allocator.
 - Callbacks receive borrowed event views on the caller thread. They do not

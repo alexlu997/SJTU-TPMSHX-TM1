@@ -39,7 +39,7 @@ def test_uniform_offset_exact_contract(monkeypatch, topology, pair, delta, direc
     config.bc_B = replace(config.bc_B, dir=(direction + 2) % 4, in_w=0., out_w=0.)
     before = asdict(config)
     expected = _capture(monkeypatch, reference, 'full', config)
-    counts = _cache_info()
+    counts = _cache_info(reference)
     _same(_capture(monkeypatch, api, 'full', config), expected)
     assert _cache_info() == counts
     _same(asdict(config), before)
@@ -56,7 +56,7 @@ def test_spatial_offset_exact_contract(monkeypatch, tmp_path, mode, topology, de
     config.bc_B = replace(config.bc_B, dir=(direction + 2) % 4, in_w=0., out_w=0.)
     before = asdict(config)
     expected = _capture(monkeypatch, reference, 'full', config)
-    counts = _cache_info()
+    counts = _cache_info(reference)
     _same(_capture(monkeypatch, api, 'full', config), expected)
     assert _cache_info() == counts
     _same(asdict(config), before)
@@ -100,7 +100,7 @@ def test_rejected_offset_preserves_first_error_and_observations(monkeypatch, tmp
     elif problem == 'nonair' and mode != 'uniform':
         config.fluid_B.type = 'water'
     expected = _observe_prepare(monkeypatch, reference, operation, config, targets, scoped=True)
-    counts = _cache_info()
+    counts = _cache_info(reference)
     actual = _observe_prepare(monkeypatch, api, operation, config, targets, scoped=True)
     _same(actual, expected)
     assert _cache_info() == counts
@@ -119,7 +119,7 @@ def test_nonair_spatial_guard_keeps_earlier_work(monkeypatch, tmp_path, mode, fa
     elif failure == 'nominal-chi':
         monkeypatch.setenv('TPMSHX_CHI_S', 'invalid')
     expected = _observe_prepare(monkeypatch, reference, 'full', config, scoped=True)
-    counts = _cache_info()
+    counts = _cache_info(reference)
     _same(_observe_prepare(monkeypatch, api, 'full', config, scoped=True), expected)
     assert _cache_info() == counts
 

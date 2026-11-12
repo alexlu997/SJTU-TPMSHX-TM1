@@ -1006,6 +1006,82 @@ template<class Source,class Result,class Function> int flow_boundary(
 extern "C" uint32_t TPMSHX_PREPARATION_CALL tpmshx_preparation_case_abi_version_v1(void) {
     return TPMSHX_PREPARATION_CASE_ABI_VERSION;
 }
+extern "C" int TPMSHX_PREPARATION_CALL tpmshx_query_inlet_properties_v1(
+    const tpmshx_preparation_inlet_query_input_v1* source,
+    const tpmshx_preparation_case_callbacks_v3* callbacks,
+    tpmshx_preparation_inlet_query_result_v1* result,
+    tpmshx_preparation_case_failure_v2* failure,char* error,size_t capacity) {
+    if (!tpmshx::fields::c_api::error_buffer_valid(error,capacity)) return TPMSHX_PREPARATION_INVALID;
+    const auto* base=callbacks?&callbacks->values.values:nullptr;
+    FlowCallbackContext context{base,reinterpret_cast<const unsigned char*>(result),sizeof(*result),failure,error,capacity};
+    try {
+        require_buffer(result,result?1:0);require_buffer(failure,failure?1:0);
+        context.borrowed(source,source?1:0);context.borrowed(callbacks,callbacks?1:0);
+        require_disjoint(result,result?1:0,failure,failure?1:0);
+        require_disjoint(result,result?1:0,error,capacity);require_disjoint(failure,failure?1:0,error,capacity);
+        if (source) for (const auto text:{source->inlet.sco2_nu.parameter_version,
+                source->inlet.sco2_nu.source,source->inlet.sco2_nu.applicability}) context.borrowed(text);
+    } catch (...) {return TPMSHX_PREPARATION_INVALID;}
+    tpmshx_preparation_case_failure_v2 staged_failure{};
+    tpmshx_preparation_inlet_query_result_v1 staged_result{};
+    bool failure_ready=false;std::exception_ptr saved_exception;
+    try {
+        version(source);version(result);version2(failure);
+        if (callbacks) {
+            if (base->abi_version!=3 || base->struct_size!=sizeof(*callbacks))
+                throw std::invalid_argument("inlet query callbacks require the v3 layout");
+            if (callbacks->geometry_cache || callbacks->inlet_cache)
+                throw std::invalid_argument("inlet query callbacks cannot supply cache hooks");
+        }
+        staged_failure.abi_version=2;staged_failure.struct_size=sizeof(staged_failure);
+        staged_failure.side=2;failure_ready=true;
+        try {
+            const auto& key=source->inlet;
+            flag(key.have_sco2_nu);flag(key.co2_geometry);flag(source->exact_co2_drag);
+            p::InletPropertyQuery request;
+            request.inlet.geometry={static_cast<tpmshx::Topology>(key.geometry.topology),
+                key.geometry.cell_length_mm,key.geometry.wall_thickness_mm,
+                kind(key.geometry.cell_kind),kind(key.geometry.wall_kind)};
+            request.inlet.fluid=static_cast<tpmshx::Fluid>(key.fluid);
+            request.inlet.velocity_m_s=key.velocity_m_s;request.inlet.temperature_K=key.temperature_K;
+            request.inlet.pressure_Pa=key.pressure_Pa;
+            request.inlet.kinds={kind(key.kinds.velocity),kind(key.kinds.temperature),kind(key.kinds.pressure)};
+            request.inlet.co2_geometry=key.co2_geometry!=0;
+            if (key.have_sco2_nu) {
+                p::Sco2NuSelection selected;selected.mode=key.sco2_nu.mode;
+                for (std::size_t i=0;i<2;++i) {
+                    flag(key.sco2_nu.have_alpha[i]);
+                    if (key.sco2_nu.have_alpha[i]) selected.alpha[i]=key.sco2_nu.alpha[i];
+                }
+                selected.parameter_version=cache_text(key.sco2_nu.parameter_version);
+                selected.source=cache_text(key.sco2_nu.source);selected.applicability=cache_text(key.sco2_nu.applicability);
+                request.inlet.sco2_nu=std::move(selected);
+            }
+            request.hydraulic_diameter_m=source->hydraulic_diameter_m;request.epsilon_a=source->epsilon_a;
+            request.diameter_kind=kind(source->diameter_kind);request.epsilon_kind=kind(source->epsilon_kind);
+            request.exact_co2_drag=source->exact_co2_drag!=0;
+            p::PreparationCallbacks sink{base && base->event?emit_flow:nullptr,&context,
+                callbacks && callbacks->values.validate_host_input?validate_host_input:nullptr,
+                nullptr,nullptr,callbacks && callbacks->observe_range?observe_range:nullptr,
+                callbacks && callbacks->observe_notice?observe_notice:nullptr};
+            const auto values=p::query_inlet_properties(request,sink);
+            staged_result.abi_version=1;staged_result.struct_size=sizeof(staged_result);
+            for (std::size_t i=0;i<values.size();++i)
+                staged_result.values[i]={values[i].real,values[i].imaginary,kind(values[i].kind),values[i].category};
+        } catch (const p::PropertyError& problem) {
+            const auto& value=problem.failure;staged_failure.kind=problem.status==3?3u:1u;staged_failure.have_property=1;
+            staged_failure.property={value.reason,value.input,value.index,value.first_t_index,value.first_p_index,
+                value.temperature,value.pressure,value.detail,value.fp};
+            throw p::c_api::StateError(problem.status,problem.what());
+        } catch (const std::invalid_argument&) {staged_failure.kind=1;throw;}
+        catch (...) {staged_failure.kind=3;throw;}
+    } catch (...) {saved_exception=std::current_exception();}
+    return p::c_api::boundary(error,capacity,[&] {
+        if (failure_ready) *failure=staged_failure;
+        if (saved_exception) std::rethrow_exception(saved_exception);
+        *result=staged_result;
+    });
+}
 extern "C" int TPMSHX_PREPARATION_CALL tpmshx_prepare_case_2d_v1(
     const tpmshx_preparation_case_input_2d_v1* source,const tpmshx_preparation_case_options_v1* selected,
     const tpmshx_preparation_case_callbacks_v1* callbacks,tpmshx_preparation_case_2d_v1* result,

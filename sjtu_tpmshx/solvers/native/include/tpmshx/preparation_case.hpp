@@ -188,6 +188,21 @@ struct PreparationInletCache {
     std::array<ScalarKind,13> kinds{};
     PreparationEvidence evidence;
 };
+struct PropertyScalar {
+    double real=0.,imaginary=0.;
+    ScalarKind kind{};
+    std::uint32_t category=0;
+};
+struct InletPropertyQuery {
+    PreparationInletKey inlet;
+    double hydraulic_diameter_m=0.,epsilon_a=0.;
+    ScalarKind diameter_kind{64,1,1},epsilon_kind{};
+    bool exact_co2_drag=false;
+};
+// Order: rho, mu, k, cp, Pr, Re, Nu, K, cF, dP, Hsf, Kff.
+using InletQueryResult=std::array<PropertyScalar,12>;
+InletQueryResult query_inlet_properties(const InletPropertyQuery&,
+    const PreparationCallbacks& = {});
 struct PreparedCase2D {
     CaseInput2D input;
     PreparationOptions options;

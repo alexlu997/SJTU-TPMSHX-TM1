@@ -5,7 +5,7 @@ import numpy as np
 
 from sjtu_tpmshx.shared.domain.compute_config import Sco2NuConfig
 from sjtu_tpmshx.shared.domain.run_warnings import (
-    RangeRecord, current_warnings, merge_warnings, warning_messages, record_warning, _range_context,
+    RangeRecord, current_warnings, warning_messages, record_warning,
 )
 from sjtu_tpmshx.shared.models import _native_flow, _native_preparation_case as native
 from sjtu_tpmshx.shared.models.tpms_geometry import _TOPOLOGIES, _compute_geometry_cached
@@ -37,24 +37,8 @@ def _summary(value):
     return value.minimum if value.scalar else {'min': value.minimum, 'max': value.maximum}
 
 
-def _sample(value, shape):
-    def extreme(name):
-        if not value.have_finite:
-            return None
-        index = tuple(int(item) for item in np.unravel_index(getattr(value, name + '_index'), shape))
-        return getattr(value, name), index
-    return dict(minimum=extreme('minimum'), maximum=extreme('maximum'),
-                **{name: getattr(value, name) for name in ('low', 'high', 'size', 'nonfinite')})
-
-
-def _range_record(value, bounds_list):
-    shape = tuple(value.shape[:value.rank])
-    source = tuple(native._text(item) for item in value.source[:value.source_count])
-    context = tuple(native._text(getattr(value, name)) for name in ('side', 'stage', 'layout'))
-    bounds = list(value.bounds) if bounds_list else tuple(value.bounds)
-    record = RangeRecord(native._text(value.label), native._text(value.quantity), native._text(value.unit),
-                         bounds, **_sample(value.sample, shape), last=_sample(value.last, shape))
-    return (*source, shape, context), record
+_sample = native._sample
+_range_record = native._range_record
 
 
 def _records(evidence, bounds_list):
@@ -215,40 +199,8 @@ class PreparationCacheBridge:
         return False
 
     def observe_range(self, value, bounds_list, cached, scalar):
-        """Replay source records and the original standalone warning filters."""
-        key, record = _range_record(value, bounds_list)
-        if key[-1] == ('unbound', 'unbound', 'source'):
-            key = (*key[:-1], _range_context.get())
-        merge_warnings(current_warnings(), [{key: record}])
-        if cached or current_warnings() is not None or scalar is None:
-            return
-        from sjtu_tpmshx.shared.models import tpms_props, fluid_props, nu_correlations, co2_correlations
-        source = key[:-2]
-        if source[0] == 'property':
-            fluid, property_name = source[1].split('_', 1)
-            notice = tpms_props._range_notice(source[1], scalar, scalar, *record.bounds)
-            if notice is not None:
-                attribute = {'density': 'rho', 'viscosity': 'mu', 'conductivity': 'k', 'cp': 'cp'}[property_name]
-                native._source_warning(getattr(fluid_props.get(fluid), attribute), notice)
-        elif source[0] in ('nu', 'nu_pr') and native._text(value.stage) in ('inlet', 'unbound'):
-            fluid, topology = source[1:]
-            if fluid == 'air':
-                notices = nu_correlations._extrap_notices(topology, scalar, scalar)
-                origin = fluid_props._nu_air
-            elif fluid == 'water':
-                notices = nu_correlations._water_nu_notices(scalar, scalar, topology)
-                origin = fluid_props._nu_water
-            elif fluid == 'sco2':
-                notices = nu_correlations._sco2_nu_notices(scalar, scalar, topology)
-                selection = self._active_inlet_key[7] if self._active_inlet_key is not None else self.config.sco2_nu
-                origin = (nu_correlations.nu_sco2_selected if selection is not None and selection.mode != 'cfd_smooth'
-                          else nu_correlations.nu_sco2_topo)
-            else:
-                notices = ([co2_correlations._calibration_notice(record.quantity, record.bounds)]
-                           if scalar < record.bounds[0] or scalar > record.bounds[1] else [])
-                origin = fluid_props._nu_co2
-            for notice in notices:
-                native._source_warning(origin, notice)
+        selection = self._active_inlet_key[7] if self._active_inlet_key is not None else self.config.sco2_nu
+        native.observe_range(value, bounds_list, cached, scalar, selection)
 
     def observe_notice(self, kind, side, value, message):
         """Use the native notice from the actual inlet topology and fluid."""

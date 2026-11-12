@@ -177,6 +177,14 @@ Calls borrow aligned buffers with explicit element counts. Failure preserves num
 Contexts must be released by the library that created them, after their last call.
 Missing libraries, ABI mismatches and missing symbols fail explicitly. No runtime build or numerical fallback is available.
 
+The public scalar inlet combination also uses `preparation_case.cpp::query_inlet_properties`.
+It shares one property sequence with complete preparation and returns twelve typed inline values through `tpmshx_query_inlet_properties_v1`.
+The `stages.hpp` wrapper needs only the preparation library and supplied geometry scalars; no CaseData or solver is required.
+Python keeps geometry/cache selection, the per-call K_ss query, mutable result copies, type conversion and ordered warning policy.
+The replaced `tpms_calc._compute_cached` numerical combination is retired; its public cache and callable interfaces remain.
+Raw complex Nu and H_sf retain their existing behavior. Fluid models, limits, saved files and earlier ABI layouts stay unchanged.
+See the [inlet-property query](native-stages.md#inlet-property-query) for value order, callbacks and lifetime.
+
 Raw empirical getters, checked EOS calls and Nu closures keep separate guards, floors and warning rules.
 DF interpolation keeps its original bracket tolerance, NaN propagation and endpoint behavior.
 Projection retains each input's reduction order before C-order packing, including weighted and single-axis fields.

@@ -158,6 +158,14 @@ Preparation 状态 0 表示成功，1 表示无效输入，2 表示分配失败�
 上下文在最后一次调用后必须由创建库释放。
 缺库、ABI 不符或符号缺失时明确失败，不提供运行时构建或数值 fallback。
 
+公共标量入口组合也使用 `preparation_case.cpp::query_inlet_properties`。
+它与完整准备共享同一物性流程，通过 `tpmshx_query_inlet_properties_v1` 返回十二个内嵌的带类型数值。
+`stages.hpp` 包装器只需要准备库和提供的几何标量，不需要 CaseData 或求解器。
+Python 保留几何／缓存选择、逐次 K_ss 查询、可变结果副本、类型转换和有序警告策略。
+被替代的 `tpms_calc._compute_cached` 数值组合已退役；公开缓存与调用接口继续保留。
+原始复数 Nu 和 H_sf 保留既有行为；流体模型、限制、保存文件和此前 ABI 布局均不变。
+数值顺序、回调与生命周期见[入口物性查询](native-stages.zh-CN.md#入口物性查询)。
+
 原始经验 getter、带检查的 EOS 调用和 Nu 闭合保留不同校验、下限与警告规则。
 DF 插值保留原 bracket 容差、NaN 传播及端点行为。
 投影在 C-order 打包前保留每个输入的归约顺序，包括加权和单轴字段。
