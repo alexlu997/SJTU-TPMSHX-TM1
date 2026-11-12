@@ -21,10 +21,15 @@ from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
 @pytest.mark.parametrize('direction', range(6))
 @pytest.mark.parametrize('design_mode', ['uniform', 'grid', 'continuous'])
 @pytest.mark.parametrize('input_mode', ['explicit_batch', 'configured_flow'])
-def test_fixed_flow_matches_native_faces_after_density_update(monkeypatch, direction, design_mode, input_mode):
-    shape, lengths = (6, 5, 4), (.04, .05, .06)
-    port = PartialBCConfig(in_ctr=.018, in_w=.027, out_ctr=.023, out_w=.021,
-                           in_z_ctr=.020, in_z_w=.031, out_z_ctr=.024, out_z_w=.019)
+def test_fixed_flow_matches_native_faces_after_density_update(direction, design_mode, input_mode):
+    shape, lengths = (30, 30, 30), (.04, .05, .06)
+
+    def port(selected):
+        cross = lengths[1 if selected < 2 else 0]
+        other = lengths[2 if selected < 4 else 1]
+        return PartialBCConfig(dir=selected,
+            in_ctr=.5 * cross, in_w=.5 * cross, out_ctr=.5 * cross, out_w=.5 * cross,
+            in_z_ctr=.5 * other, in_z_w=.5 * other, out_z_ctr=.5 * other, out_z_w=.5 * other)
     config = ComputeConfig(
         fluid_A=FluidConfig(type='air', u_mps=5., T_in_K=340., P_in_Pa=160000.),
         fluid_B=FluidConfig(type='water', u_mps=.05, T_in_K=300., P_in_Pa=200000.),
@@ -34,7 +39,7 @@ def test_fixed_flow_matches_native_faces_after_density_update(monkeypatch, direc
         solver=SolverConfig(Nx=shape[0], Ny=shape[1], Nz=shape[2],
                             max_iter_simple=1, max_outer_ltne=2),
         # direction=0 includes the Shanghai A:+x / B:-y orientation.
-        bc_A=replace(port, dir=direction), bc_B=replace(port, dir=(direction + 3) % 6))
+        bc_A=port(direction), bc_B=port((direction + 3) % 6))
     if design_mode == 'grid':
         cells = [dict(x0=x0, x1=x1, y0=y0, y1=y1, L=cell, t=wall)
                  for x0, x1, y0, y1, cell, wall in (
@@ -63,7 +68,8 @@ def test_fixed_flow_matches_native_faces_after_density_update(monkeypatch, direc
     assert dict(case.config_snapshot['geometry']) == original['geometry']
     assert case.config_snapshot['df_mode'] == config.df_mode
     params, prepared = build_execution_inputs(case)
-    raw = NativeFull3DDriver(resolve_control(RunControl()).native_library).run_prepared(params, prepared)
+    control = resolve_control(RunControl(cpu_threads=2))
+    raw = NativeFull3DDriver(control.native_library).run_prepared(params, prepared, control)
     for index, side in enumerate('AB'):
         flow, axes = raw['flow'][index], prepared['axes'][side]
         fluid = getattr(config, 'fluid_' + side)
