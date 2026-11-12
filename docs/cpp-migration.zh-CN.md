@@ -201,7 +201,7 @@ Linux x86_64 支持独立结果评估。完整求解器与桌面支持仍限 mac
 独立 result ABI 2 负责指标、有符号物理平衡、分区统计及数值资格检查。
 结果阶段选择已记录证据，负责完整 2D/3D 指标定义、状态和资格。
 Python 保留公开 DTO 和文件接口、原对象身份及 NumPy 事件处理。
-三个独立结果查询使用同一原生阶段；Quick Design 指标运算保留当前 Python 协议 owner。
+三个独立结果查询使用同一原生阶段；Quick Design 指标运算也由同一阶段负责，固定具名宿主操作保留既有 Python 对象、任意精度整数和转换协议。
 带版本的宿主查询保留延迟输入错误和回调异常，不改变已发布的 v1 C 布局。
 独立 `solvers/native/result/` 项目只使用 C++17 和系统库，
 不加载求解器、准备库、几何库、CoolProp 或模型资源。
@@ -237,6 +237,13 @@ CI 保留完整 macOS／Windows 构建，并增加独立 Ubuntu `result-build` �
 <a id="complete-quick-design-capability"></a>
 
 ## 完整 Quick Design 能力
+
+[Quick Design 阶段](native-stages.zh-CN.md#quick-design-阶段)为 native double 调用者增加
+原始工况准备和具有独立所有权的结果证据。独立的版本 1 C 合同保留下述既有驱动 ABI。
+Python 执行现通过保存的准备场调用这一 run 阶段。阶段提供场数组及声明，Python
+在释放前复制这些数据，保留原固定场 dtype，并映射过程警告和错误。
+原始准备仍保留现有类型及事件协议。
+Quick Design 评估使用原生结果阶段，宿主继续适配类型和事件。
 
 `quick_design_driver.hpp` 负责完整准备态 const/mean 物性阶段计算。它包含原有经验空气／水或 HEOS sCO2 物性、既有 Nu、一次或两次温度计算、全场热启动、逐阶段液态水检查、迭代预算、进度和取消。准备好的入口状态解析压降比例保持固定。这是既有给定流量尺寸设计近似，`physical_validation=not_established`。
 

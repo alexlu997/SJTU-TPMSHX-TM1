@@ -160,14 +160,12 @@ void host_callback_version(const tpmshx_preparation_case_callbacks_v1* callbacks
             throw std::invalid_argument("preparation host callback struct size is invalid");
     } else version(callbacks);
 }
-struct FlowCallbackContext {
-    const tpmshx_preparation_case_callbacks_v1* callbacks;
+struct FlowOutputStorage {
     const unsigned char* result;
     std::size_t result_bytes;
     tpmshx_preparation_case_failure_v2* failure;
     char* error;
     std::size_t error_bytes;
-    bool storage_safe=true;
 
     template<class T> void borrowed(const T* pointer,std::size_t count) const {
         require_buffer(pointer,count);
@@ -189,6 +187,51 @@ struct FlowCallbackContext {
             borrowed(value.events[i].logger);borrowed(value.events[i].message);
         }
     }
+    void borrowed(tpmshx_preparation_array_v1 value) const {borrowed(value.data,value.size);}
+    void owned(const tpmshx_preparation_case_input_2d_v2& value) const {
+        for (const auto item:{value.sco2_nu.parameter_version,value.sco2_nu.source,value.sco2_nu.applicability}) borrowed(item);
+    }
+    void owned(const tpmshx_preparation_case_2d_v2& value) const {
+        const auto& base=value.values;
+        for (const auto item:{base.dx,base.dy,base.x_edges,base.y_edges,base.x_breaks,base.y_breaks,
+            base.cell_length,base.wall_thickness,base.total_porosity,base.solid_conductivity,base.hydraulic_radius}) borrowed(item);
+        for (const auto& side:base.sides) {
+            for (const auto item:{side.cross_widths,side.stream_widths,side.row_permeability,side.row_forchheimer,
+                side.permeability,side.forchheimer,side.inlet_geometry,side.outlet_geometry,
+                side.inlet_profile,side.outlet_profile,side.outlet_u_fraction}) borrowed(item);
+            borrowed(side.drag_evidence.campaign);borrowed(side.drag_evidence.scope);
+        }
+        for (const auto& model:base.models) {borrowed(model.name);borrowed(model.version);borrowed(model.side);}
+        evidence({base.ranges,base.range_count,value.range_bounds_list,
+            base.warnings,base.warning_count,base.events,base.event_count});
+        for (const auto item:{value.sco2_nu.parameter_version,value.sco2_nu.source,value.sco2_nu.applicability,
+            value.sco2_nu_model_version,value.sco2_nu_interpretation,value.co2.version,value.co2.application_version,
+            value.co2.pressure_model,value.co2.correction_source,value.co2.property_model,value.co2.common_geometry}) borrowed(item);
+        for (const auto& drag:value.drag) {
+            borrowed(drag.application_scope);borrowed(drag.fluid);borrowed(drag.calibration,drag.calibration_count);
+            for (std::size_t i=0;i<drag.calibration_count;++i) {
+                borrowed(drag.calibration[i].key);borrowed(drag.calibration[i].value);
+            }
+        }
+        borrowed(value.notices,value.notice_count);
+        for (std::size_t i=0;i<value.notice_count;++i) borrowed(value.notices[i]);
+    }
+    void owned(const tpmshx_preparation_flow_2d_v3& value) const {owned(value.input);evidence(value.evidence);}
+    void owned(const tpmshx_preparation_flow_case_2d_v3& value) const {owned(value.prepared);owned(value.flow);}
+    void owned(const tpmshx_preparation_continuous_flow_2d_v4& value) const {
+        owned(value.flow);borrowed(value.controls.decision_mm);
+    }
+    void owned(const tpmshx_preparation_continuous_case_2d_v4& value) const {
+        owned(value.prepared);owned(value.flow);borrowed(value.controls.decision_mm);
+        for (const auto item:{value.area_density_per_m,value.hydraulic_diameter_m,
+            value.fluid_conductivity[0],value.fluid_conductivity[1]}) borrowed(item);
+        for (const auto& drag:value.drag) {borrowed(drag.transfer_policy);borrowed(drag.geometry_application);}
+    }
+};
+struct FlowCallbackContext {
+    const tpmshx_preparation_case_callbacks_v1* callbacks;
+    FlowOutputStorage storage;
+    bool storage_safe=true;
 };
 void validate_host_input(void* context,std::uint32_t stage,std::uint32_t side) {
     const auto& state=*static_cast<const FlowCallbackContext*>(context);
@@ -270,7 +313,7 @@ bool inlet_cache(void* context,bool publish,std::uint32_t side,const p::InletInp
     std::uint32_t hit=0;
     state.storage_safe=false;
     const auto status=callbacks.inlet_cache(callbacks.values.values.context,publish?1u:0u,side,&inlet_input,kind(velocity_kind),&view,&hit);
-    state.evidence(view.evidence);state.storage_safe=true;
+    state.storage.evidence(view.evidence);state.storage_safe=true;
     if (status) throw std::runtime_error("preparation inlet cache callback failed");
     flag(hit);
     if (!publish && hit) {
@@ -459,10 +502,14 @@ template<class Source,class Result,class Function> int flow_boundary(
     const tpmshx_preparation_case_callbacks_v1* callbacks,Result* result,
     tpmshx_preparation_case_failure_v2* failure,char* error,size_t capacity,Function function) {
     if (!tpmshx::fields::c_api::error_buffer_valid(error,capacity)) return TPMSHX_PREPARATION_INVALID;
-    // Prove all described storage before an error can write into an input.
+    // Keep diagnostics separate from input and retained output storage.
     const auto* callback_data=reinterpret_cast<const unsigned char*>(callbacks);
     std::size_t callback_count=0;
+    const FlowOutputStorage storage{reinterpret_cast<const unsigned char*>(result),
+        result?sizeof(*result):0,failure,error,capacity};
     try {
+        require_buffer(result,result?1:0);
+        if (result && result->owner) storage.owned(*result);
         callback_count=callback_bytes(callbacks);
         require_disjoint(error,capacity,source,source?1:0);require_disjoint(error,capacity,result,result?1:0);
         require_disjoint(error,capacity,selected,selected?1:0);require_disjoint(error,capacity,callback_data,callback_count);
@@ -482,7 +529,7 @@ template<class Source,class Result,class Function> int flow_boundary(
             require_disjoint(value.data,value.size,failure,failure?1:0);
         }
     } catch (...) {return TPMSHX_PREPARATION_INVALID;}
-    FlowCallbackContext context{callbacks,reinterpret_cast<const unsigned char*>(result),sizeof(Result),failure,error,capacity};
+    FlowCallbackContext context{callbacks,storage};
     tpmshx_preparation_case_failure_v2 staged_failure{};
     bool failure_ready=false;std::exception_ptr saved_exception;
     try {
