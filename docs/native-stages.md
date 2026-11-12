@@ -18,6 +18,11 @@ this preparation v2 scope. These limits do not remove existing Python modes.
 A separate Quick Design entry accepts native double operating points for
 air, water and sCO2. It uses the existing prescribed-flow LTNE driver.
 
+Preparation v3 adds total mass flow for the same uniform symmetric 2D fluid matrix.
+It provides separate capacity and inlet-flow resolution queries, plus complete preparation.
+It preserves the existing physical depth, calibration and scalar arithmetic rules.
+Continuous fields, zones and nonzero delta remain outside v3. The run interface is unchanged.
+
 Full 2D/3D Python evaluation now calls the native result stage. Independent applicability, physical-balance and qualification queries use that stage.
 The native result stage owns Quick Design metrics and retains typed intermediate values. V3 uses fixed named host operations for existing Python object, exact integer and final conversion protocols. The public Python entry points and saved formats stay available.
 The host query uses borrowed typed evidence and preserves deferred input errors. It delivers NumPy events before each primitive returns.
@@ -66,6 +71,27 @@ that prepared state. The result library evaluates recorded evidence.
 - Run v2 uses the v1 result owner and release function. Its cancellation
   status is 6; status 4 retains the full driver's envelope failure meaning.
   Run v1 keeps its original cancellation status of 4.
+
+## Uniform total mass flow
+
+`FlowInput2D` selects stored per-side targets or an explicit pair of total targets.
+A stored target replaces only that side's speed and remains in the resolved input.
+An explicit pair replaces both stored targets and clears them in the resolved input.
+All total targets use kg/s and require a positive physical depth in m.
+The prepared 2D fields and solver quantities retain their per-unit-depth basis.
+
+`prepare_inlet_mass_capacities` uses the physical inlet pore area, profile and inlet density.
+It does not use an obsolete speed or evaluate Nu. It calculates both side capacities.
+`resolve_inlet_flow` divides each selected target by its capacity, then validates resolved speeds.
+Without targets, it returns a copied input without physical validation or capacity work.
+The Python adapter retains its existing no-target object identity rule.
+
+`prepare_case(FlowInput2D)` reuses the physical inlet grid and geometry for final preparation.
+Its preliminary flow records stay in `flow.evidence`. Final records stay in `prepared`.
+Callbacks report both phases in execution order. A complete flow-case result owns both views.
+Their nested owner fields are null; release only the complete result.
+Depth and target tags retain the existing floating and integer scalar arithmetic.
+Python object validation and configuration snapshots remain host responsibilities.
 
 ## Build and install
 
@@ -117,6 +143,9 @@ It prepares, solves and evaluates the case without numerical fields from Python.
 It does not start or link Python.
 The [fluid preparation example](../examples/cpp/prepare_fluids_2d.cpp) prepares a CO2/water case through v2.
 It links only the preparation library and does not execute a solve.
+The [mass-flow preparation example](../examples/cpp/prepare_mass_2d.cpp) queries capacities, resolves an explicit pair and prepares the case.
+It also links only preparation and does not execute a solve.
+
 The [uniform-fluid example](../examples/cpp/uniform_2d.cpp) executes all three
 stages for CO2/water. Evaluation remains valid after the prepared owner is released.
 The [Quick Design example](../examples/cpp/quick_design.cpp) starts with raw

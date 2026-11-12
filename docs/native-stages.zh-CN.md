@@ -14,6 +14,10 @@ run v1 保留 air/air CFD 范围及已公开布局。
 这些限制不删除现有 Python 工作流支持的任何模式。
 独立 Quick Design 入口接受 air、water、sCO2 的 native double 工况，复用既有给定流量 LTNE 驱动。
 
+准备 v3 在同一均匀对称二维流体矩阵内增加总质量流量输入，提供独立的入口容量查询、
+入口流量解析和完整准备。物理深度、标定限制与标量算术规则保持不变。
+连续场、分区和非零 delta 仍不在 v3 范围内，run 接口不变。
+
 完整 2D/3D 的 Python 评估现已调用原生结果阶段；独立适用性、物理平衡和资格查询也使用该阶段。
 原生结果阶段负责 Quick Design 指标并保留类型化中间值。V3 通过固定具名宿主操作保留既有 Python 对象、任意精度整数和最终转换协议。公开 Python 入口和保存格式继续可用。
 宿主查询借用类型化证据，保留延迟输入错误，并在每个原语返回前送达 NumPy 事件。
@@ -47,6 +51,23 @@ C++ 调用顺序是 `prepare_case`、`run_case`、`evaluate`。调用者提供�
   它复制准备阶段 notice，保留当前 sCO2 适用范围限制，不为未经验证的模型授予合格结论。
 - run v2 使用 v1 结果 owner 和释放函数。取消状态为 6，状态 4 保留完整驱动的包络失败含义。
   run v1 保留原取消状态 4。
+
+## 均匀几何的总质量流量
+
+`FlowInput2D` 选择配置中逐侧保存的目标，或显式给出的两个总流量目标。
+保存的目标只替换对应侧速度，并保留在解析后的输入中；显式目标替换两侧保存目标，
+并在解析后的输入中清空它们。总目标使用 kg/s，必须给出正的物理深度（m）。
+准备的二维场和求解器量继续采用原有单位深度基准。
+
+`prepare_inlet_mass_capacities` 使用物理入口的孔隙开口面积、轮廓和入口密度，
+不使用过时速度、不评估 Nu，并计算两侧容量。
+`resolve_inlet_flow` 用各目标除以容量，再校验解析后的速度。
+没有目标时，它复制返回输入，不做物理校验或容量计算；Python 适配保留原有的无目标对象身份规则。
+
+`prepare_case(FlowInput2D)` 在最终准备中复用物理入口网格和几何。
+前段流量记录保存在 `flow.evidence`，最终记录保存在 `prepared`；回调按实际顺序报告两个阶段。
+完整 flow-case 结果拥有两组视图；内部 owner 字段为 null，只释放完整结果。
+深度和目标标记保留原浮点与整数标量算术，Python 对象校验和配置快照仍由宿主负责。
 
 ## 构建和安装
 
@@ -92,6 +113,9 @@ target_link_libraries(my_program PRIVATE tpmshx::result)
 它不读取 Python 预生成的数值场，也不启动或链接 Python。
 [多流体准备示例](../examples/cpp/prepare_fluids_2d.cpp)通过 v2 准备 CO2/water，
 只链接准备库，不执行求解。
+[质量流量准备示例](../examples/cpp/prepare_mass_2d.cpp)查询容量、解析显式双侧目标，再准备工况；
+它同样只链接准备库，不执行求解。
+
 [均匀流体示例](../examples/cpp/uniform_2d.cpp)对 CO2/water 执行完整三个阶段。
 释放准备态后，结果评估仍有效。
 [Quick Design 示例](../examples/cpp/quick_design.cpp)从原始工况和尺寸开始，调用

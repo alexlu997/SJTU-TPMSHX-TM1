@@ -3,9 +3,11 @@
 
 #include "tpmshx/preparation_c_api.h"
 #include "tpmshx/preparation_df_c_api.h"
+#include "tpmshx/grid_c_api.h"
 
 #define TPMSHX_PREPARATION_CASE_ABI_VERSION 1u
 #define TPMSHX_PREPARATION_CASE_ABI_VERSION_V2 2u
+#define TPMSHX_PREPARATION_CASE_ABI_VERSION_V3 3u
 
 typedef struct {
     int32_t direction;
@@ -169,6 +171,40 @@ typedef struct {
     tpmshx_preparation_failure_cause_v2 causes[2];
 } tpmshx_preparation_case_failure_v2;
 
+typedef struct {
+    uint32_t abi_version;
+    size_t struct_size;
+    tpmshx_preparation_case_input_2d_v2 values;
+    tpmshx_preparation_scalar_kind_v2 physical_depth_kind,target_kinds[2];
+    uint32_t have_explicit_targets;
+    double explicit_targets_kg_s[2];
+} tpmshx_preparation_flow_input_2d_v3;
+typedef struct {
+    const tpmshx_preparation_range_v1* ranges;
+    size_t range_count;
+    const uint32_t* range_bounds_list;
+    const tpmshx_preparation_text_v1* warnings;
+    size_t warning_count;
+    const tpmshx_preparation_event_v1* events;
+    size_t event_count;
+} tpmshx_preparation_flow_evidence_v3;
+typedef struct {
+    uint32_t abi_version;
+    size_t struct_size;
+    tpmshx_preparation_case_input_2d_v2 input;
+    uint32_t have_capacities;
+    tpmshx_grid_scalar_v1 capacities[2],speeds[2];
+    tpmshx_preparation_flow_evidence_v3 evidence;
+    void* owner;
+} tpmshx_preparation_flow_2d_v3;
+typedef struct {
+    uint32_t abi_version;
+    size_t struct_size;
+    tpmshx_preparation_case_2d_v2 prepared;
+    tpmshx_preparation_flow_2d_v3 flow;
+    void* owner;
+} tpmshx_preparation_flow_case_2d_v3;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -225,6 +261,47 @@ TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_case_2d_v2(
     char* error,size_t error_capacity);
 TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_case_2d_release_v2(
     tpmshx_preparation_case_2d_v2* result);
+
+/* V3 adds uniform symmetric 2D total mass flow. Existing v1/v2 inputs stay
+ * unchanged. values and its nested values retain their v2/v1 versions.
+ * Configured targets come from values.values.sides. Explicit targets replace
+ * both stored targets and clear them in the resolved input. Flag is 0 or 1.
+ * Target/depth kinds also permit strong=2 with precision 8/16/32/64 for the
+ * existing integer scalar arithmetic. A zero-dimensional value uses its
+ * extracted scalar kind. These numeric tags do not encode Python objects.
+ * Capacity-only rejects have_explicit_targets=1. It ignores old speeds and
+ * does not evaluate Nu. Resolve without targets returns a copied input and
+ * have_capacities=0. Otherwise both capacities are evaluated before division.
+ * Callback order includes preliminary flow work followed by final prepare.
+ * flow.evidence is separate from prepared.values ranges/warnings/events.
+ * Failure uses the v2 contract. All output storage is preserved on failure.
+ * Query outputs own copied text and evidence. Initialize owner to NULL.
+ * In a flow-case result, prepared and flow are borrowed, with NULL owners.
+ * Release only the complete result with its matching release function.
+ */
+TPMSHX_PREPARATION_API uint32_t TPMSHX_PREPARATION_CALL tpmshx_preparation_case_abi_version_v3(void);
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_inlet_mass_capacities_2d_v3(
+    const tpmshx_preparation_flow_input_2d_v3* input,
+    const tpmshx_preparation_case_options_v1* options,
+    const tpmshx_preparation_case_callbacks_v1* callbacks,
+    tpmshx_preparation_flow_2d_v3* result,tpmshx_preparation_case_failure_v2* failure,
+    char* error,size_t error_capacity);
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_resolve_inlet_flow_2d_v3(
+    const tpmshx_preparation_flow_input_2d_v3* input,
+    const tpmshx_preparation_case_options_v1* options,
+    const tpmshx_preparation_case_callbacks_v1* callbacks,
+    tpmshx_preparation_flow_2d_v3* result,tpmshx_preparation_case_failure_v2* failure,
+    char* error,size_t error_capacity);
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_flow_case_2d_v3(
+    const tpmshx_preparation_flow_input_2d_v3* input,
+    const tpmshx_preparation_case_options_v1* options,
+    const tpmshx_preparation_case_callbacks_v1* callbacks,
+    tpmshx_preparation_flow_case_2d_v3* result,tpmshx_preparation_case_failure_v2* failure,
+    char* error,size_t error_capacity);
+TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_flow_2d_release_v3(
+    tpmshx_preparation_flow_2d_v3* result);
+TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_flow_case_2d_release_v3(
+    tpmshx_preparation_flow_case_2d_v3* result);
 
 #ifdef __cplusplus
 }
