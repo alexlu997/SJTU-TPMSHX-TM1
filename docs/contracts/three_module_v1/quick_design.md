@@ -62,6 +62,13 @@ are rejected. Model versions identify formulas, not experimental accuracy.
 
 ## Native result and independent evaluation
 
+Execution passes saved CaseData to `tpmshx_run_quick_design_v1` without new preparation.
+The stage returns owned fields and their unit/state declarations. The host
+copies them before release. It keeps the original grid, `K_ss` and `eps` dtypes,
+mass rates and inlet-temperature scalars in FieldResult.
+Raw preparation retains its current type protocols. Evaluation uses the native
+result stage with host type adaptation, object operations and NumPy event policy.
+
 Temperature, prescribed velocity, fluid/solid conductivity, volumetric coupling
 and porosity fields have explicit units, x/y/z cell placement and final-pass
 state metadata. `boundary_fluxes.A/B` keep prescribed mass rates (kg/s), inlet

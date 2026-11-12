@@ -36,6 +36,9 @@ It reuses the physical inlet grid and keeps preliminary records separate from fi
 Run v2 supports uniform four-fluid preparation, including resolved total mass flow.
 Preparation v4 supplies continuous XY physical fields to run v3. Run v1 keeps its air/air CFD scope.
 The separate Quick Design path supports native double operating points and retains the existing LTNE model.
+Python Quick Design execution calls its native run stage with saved prepared data.
+Raw Python preparation retains its current type protocols.
+Quick Design evaluation uses the native result stage with host type and event adaptation.
 The Python entries above retain all current modes while stage migration continues.
 
 ## Edit numerical functions

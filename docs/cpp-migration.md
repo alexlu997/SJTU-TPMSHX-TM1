@@ -256,7 +256,11 @@ There is no numerical fallback, runtime compiler or universal numerical callback
 The [Quick Design stage](native-stages.md#quick-design-stage) adds raw operating-point
 preparation and owned result evidence for native double callers. Its separate
 version 1 C contract preserves the existing driver ABI described below.
-Python production integration has separate type and event acceptance checks.
+Python execution now calls this run stage with saved prepared fields.
+The stage supplies the field arrays and declarations. Python copies them before
+release, keeps original fixed-field dtypes and maps pass warnings and errors.
+Raw preparation retains its current type and event protocols.
+Quick Design evaluation uses the native result stage with host type and event adaptation.
 
 `quick_design_driver.hpp` owns the complete prepared const/mean property-pass
 calculation. This includes original empirical air/water or HEOS sCO2 properties,
