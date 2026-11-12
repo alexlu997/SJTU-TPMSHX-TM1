@@ -401,7 +401,7 @@ def test_spatial_3d_zero_offset_keeps_original_alias_and_no_side_geometry(native
 
 
 def test_spatial_3d_raw_and_thermal_fields_keep_the_si_round_trip(native, monkeypatch):
-    from sjtu_tpmshx.preprocess import thermal_geometry
+    from sjtu_tpmshx.development.tests import preparation_case_reference as thermal_geometry
     from sjtu_tpmshx.shared.models import tpms_props
     calls = []
     original = tpms_props.geometry_fields

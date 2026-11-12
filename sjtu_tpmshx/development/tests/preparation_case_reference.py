@@ -3,12 +3,34 @@ from __future__ import annotations
 from typing import Any
 import numpy as np
 from sjtu_tpmshx.shared.domain.compute_config import ComputeConfig, bc_to_dict
-from sjtu_tpmshx.shared.models.tpms_props import geometry as tpms_geometry, geometry_fields
+from sjtu_tpmshx.shared.models.tpms_props import geometry as tpms_geometry, geometry_fields, _resolve_chi_s
 from sjtu_tpmshx.shared.models import co2_correlations, _native_geometry
 from sjtu_tpmshx.shared.models.input_validation import validate_domain_dims, surrogate_extrap_reasons
 from sjtu_tpmshx.shared.logutil import get_logger
 
 _log = get_logger('sjtu_tpmshx.preprocess.two_d.preparation')
+
+
+def prepare_thermal_geometry(tpms, cell_mm, wall_mm, conductivity, *,
+                             L_field=None, t_field=None, delta=0., co2_geometry=False):
+    geometry_model = tpms_geometry
+    if co2_geometry:
+        from sjtu_tpmshx.shared.models.co2_correlations import geometry as geometry_model
+        if delta != 0.:
+            raise ValueError('CO2 geometry requires delta=0')
+    uniform = geometry_model(tpms, cell_mm, wall_mm, conductivity)
+    fields = None
+    if L_field is not None:
+        if t_field is None or np.shape(L_field) != np.shape(t_field):
+            raise ValueError('thermal geometry requires matching cell and wall fields')
+        if co2_geometry:
+            local = _native_geometry.co2_fields(
+                tpms, L_field, t_field, conductivity, chi_s=_resolve_chi_s())
+        else:
+            local = geometry_fields(tpms, L_field, t_field, conductivity)
+        fields = {key: local[key] for key in ('A_0', 'D_h', 'epsilon')}
+    sides = _native_geometry.prepare_sides(tpms, cell_mm, wall_mm, delta)
+    return dict(uniform=uniform, fields=fields, **sides)
 
 def _check_zoned_fluid_support(compute_cfg: ComputeConfig) -> None:
     """Guard: the 2D zone property builders (ZoneConfig.compute_properties /
@@ -305,7 +327,6 @@ def _complete_grid(cfg, physical_grid, *, spline_geometry=None):
         cfg['zone_config'], cfg['za'] = zone_config, za
 
     cfg['flow_inputs'] = _prepare_flow_inputs(cfg, energy_dx, energy_dy)
-    from sjtu_tpmshx.preprocess.thermal_geometry import prepare_thermal_geometry
     cfg['thermal_geometry'] = prepare_thermal_geometry(
         cfg['tpms_type'], cfg['Lcell'], cfg['t_wall'], cfg['k_s'],
         L_field=None if za is None else za['L_field'],

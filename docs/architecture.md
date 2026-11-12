@@ -1041,6 +1041,9 @@ Array queries use the count index without adding entries to the scalar result ca
 Floating-point powers preserve the scalar formula's rounding.
 Three-dimensional preparation evaluates original and SI-roundtripped lengths separately.
 This keeps design porosity and thermal geometry on their original inputs.
+Full 2D/3D preparation combines thermal geometry in the native stage.
+The replaced Python helper is retained only in the independent development reference.
+Saved `parameters.thermal_geometry` fields and their validation remain unchanged.
 Solid conductivity retains the shared chi rule and its explicit and environment overrides.
 Python resolves explicit chi, then the current `TPMSHX_CHI_S`, then the native fit on each call.
 Cached geometry does not freeze a material override.
