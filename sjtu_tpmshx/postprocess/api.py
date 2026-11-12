@@ -11,8 +11,5 @@ from sjtu_tpmshx.shared._native_result_stage import (
 
 def evaluate(result: FieldResult, metric_spec: MetricSpec | None = None) -> PerformanceResult:
     """Return metrics and qualification from recorded evidence."""
-    if result.metadata.get('mode') == 'quick_design':
-        from .quick_design import evaluate
-    else:
-        from sjtu_tpmshx.shared._native_result_stage import evaluate
+    from sjtu_tpmshx.shared._native_result_stage import evaluate
     return evaluate(result, metric_spec)

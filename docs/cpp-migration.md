@@ -218,7 +218,7 @@ See [scope and delivery records](#cpp-core-scope).
 Independent result ABI 2 calculates metrics, signed physical balances, zone statistics and numerical qualification checks.
 The result stage selects recorded evidence and owns full 2D/3D metric definitions, statuses and qualification.
 Python keeps public DTO and file interfaces, original object identity and NumPy event handling.
-The three independent result queries use the same native stage. Quick Design metric arithmetic retains its current Python protocol owner.
+The three independent result queries use the same native stage. The same stage owns Quick Design metric arithmetic. Fixed named host operations preserve its existing Python object, exact integer and conversion protocols.
 The versioned host query preserves deferred input errors and callback exceptions without changing the published v1 C layouts.
 The standalone `solvers/native/result/` project uses only C++17 and system libraries.
 It does not load the solver, preparation, geometry, CoolProp or model resources.

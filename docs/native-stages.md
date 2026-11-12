@@ -19,9 +19,10 @@ A separate Quick Design entry accepts native double operating points for
 air, water and sCO2. It uses the existing prescribed-flow LTNE driver.
 
 Full 2D/3D Python evaluation now calls the native result stage. Independent applicability, physical-balance and qualification queries use that stage.
-Quick Design metric arithmetic retains its current protocol owner. The public Python entry points and saved formats stay available.
+The native result stage owns Quick Design metrics and retains typed intermediate values. V3 uses fixed named host operations for existing Python object, exact integer and final conversion protocols. The public Python entry points and saved formats stay available.
 The host query uses borrowed typed evidence and preserves deferred input errors. It delivers NumPy events before each primitive returns.
 A callback error is handled at the original metric or qualification boundary. An uncaught host error retains its original Python object.
+Callbacks do not own query state. Deferred errors keep their exception objects, cause/context links and group members. Earlier tracebacks on those objects are discarded. Query exit clears deferred error references, including input-packing failures; borrowed fields do not wait for cyclic garbage collection.
 Published v1 C layouts and queries remain available. Release every output through the library that created it.
 
 The C++ call sequence is `prepare_case`, `run_case`, then `evaluate`.
@@ -42,6 +43,9 @@ that prepared state. The result library evaluates recorded evidence.
   Do not copy owners or free their buffers with a caller allocator.
 - Callbacks receive borrowed event views on the caller thread. They do not
   perform numerical preparation. Keep event order, logger names and messages.
+- Result v3 carries raw labels and typed Quick operands. C++ owns label comparisons and metric policy.
+  Fixed named host callbacks retain Python value protocols at the selected operation.
+  Object equality and inequality use separate callbacks; string subclasses keep their original operators.
 - The host owns case IDs, timestamps, file paths and Python object conversion.
   The native stages own physical rules, numerical defaults and evidence.
 - Preparation and solver libraries use their separate locked CoolProp builds.
