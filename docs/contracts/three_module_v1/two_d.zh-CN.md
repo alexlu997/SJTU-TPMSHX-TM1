@@ -8,7 +8,7 @@
 
 `parameters` 包含解析后的入口温度（K）、速度（m/s）、尺寸（m）、各侧端口中心和宽度（m），以及方向（0:+x、1:-x、2:+y、3:-y）。还包含 `L_cell_m`、`t_wall_m`、导热率（W/(m K)）、孔隙率和水力半径（m）。`run_settings` 保存既有数值／控制 dataclass 数据，几何量使用 m。分区已由准备态分区数据负责，因此从该设置中移除。`static_properties` 包含入口物性和几何评估值，运行时无需重新读取固体均质化环境。
 
-`flow_inputs.A/B` 记录实际 SIMPLE 横向／流向宽度（m）、`K_m2/cF_per_m` 行系数、标量 `seed_K_m2/seed_cF_per_m` 和 D-F 适用范围元数据。非连续分区保留行模型，包括一维分区、离散网格和原网格 sigmoid 路径。它们按真实单元宽度对横向 L/t 场加权平均，再评估固定 D-F 模型，并按实际流向排列各行。
+`flow_inputs.A/B` 记录实际 SIMPLE 横向／流向宽度（m）、`K_m2/cF_per_m` 行系数、标量 `seed_K_m2/seed_cF_per_m` 和 D-F 适用范围元数据。非样条分区保留行模型，包括一维分区、离散网格和网格 sigmoid。保存后的 sigmoid 算例保留 `parameters.z_axis="grid"` 和 `metadata.design_mode="continuous"`。执行通过 `z_axis` 选择行模型；`design_mode` 描述设计场。它们按真实单元宽度对横向 L/t 场加权平均，再评估固定 D-F 模型，并按实际流向排列各行。
 
 对于 `zones.axis="continuous"`，各侧还记录其 SIMPLE `(cross, stream)` 坐标中的完整 `K_field_m2/cF_field_per_m` 局部数组。每个物理 L/t 单元独立评估；负向流动沿流向反转。横向均值只填入用于压力初始化的行数组；动量方程消费完整局部数组。在支持实验连续场迁移时，前处理将已解析的固定修正因子应用于局部 CFD 数组，并记录 `continuous-field-extrapolation`。执行使用这些已修正数组。
 
