@@ -590,3 +590,99 @@ def test_native_failure_releases_borrowed_fields(without_cyclic_collection, kind
         return references
 
     assert all(reference() is None for reference in exercise())
+
+
+@pytest.mark.parametrize('kind', [2, 3, 'quick'])
+@pytest.mark.parametrize('invalid_field', [None, ('bad',)])
+@pytest.mark.parametrize('query', ['evaluate', 'qualification'])
+@pytest.mark.parametrize('packing_failure', [False, True])
+def test_chained_input_error_releases_fields(without_cyclic_collection, kind, invalid_field, query, packing_failure):
+    def exercise():
+        field = _lifetime_result(kind)
+        metadata = dict(field.metadata)
+        if packing_failure:
+            metadata['diagnostics'] = dict(richardson_info=dict(extrapolated=np.ones(2)))
+        field = replace(field, fields=dict(field.fields, Ta=invalid_field), metadata=metadata)
+        references = weakref.ref(field), weakref.ref(field.fields['Tb'])
+        function = native.evaluate if query == 'evaluate' else native.evaluate_qualification
+        arguments = (field,) if query == 'evaluate' else (field, {})
+        try:
+            function(*arguments)
+        except (TypeError, ValueError) as error:
+            assert type(error) is (ValueError if packing_failure else TypeError)
+        else:
+            pytest.fail('invalid input must raise at its original boundary')
+        return references
+
+    assert all(reference() is None for reference in exercise())
+
+
+@pytest.mark.parametrize('kind', [3, 'quick'])
+@pytest.mark.parametrize('exception_type', [ValueError, RuntimeError, ExceptionGroup])
+def test_chained_callback_error_releases_fields(without_cyclic_collection, kind, exception_type):
+    def fail():
+        members = []
+        try:
+            raise OSError(7, 'callback source')
+        except OSError as cause:
+            if exception_type is ExceptionGroup:
+                members.append(cause)
+            else:
+                raise exception_type('query callback') from cause
+        raise ExceptionGroup('query callback', members)
+
+    def exercise():
+        if kind == 'quick':
+            class Label(str):
+                def __ne__(self, other):
+                    fail()
+            field = quick_result()
+            field = replace(field, metadata=dict(field.metadata, model=Label('model')))
+            request = MetricSpec('Q', 'W', 'three_module_v1')
+        else:
+            field = result_fixture(3)
+            pressure = mutable_data(field.pressure_evidence)
+            pressure['A'].update(P=np.full((2, 2, 2), np.finfo(float).max),
+                dx=np.ones(2), dy=np.ones(2), dz=np.ones(2),
+                inlet_frac=np.ones((2, 2)), outlet_frac=np.ones((2, 2)))
+            field = replace(field, pressure_evidence=pressure)
+            request = MetricSpec('dP', 'Pa', 'pressure_face_v1')
+        references = weakref.ref(field), weakref.ref(field.fields['Ta'])
+        previous = np.geterrcall()
+        np.seterrcall(lambda label, flags: fail())
+        try:
+            with np.errstate(all='call'):
+                try:
+                    report = native.evaluate(field, request)
+                except (RuntimeError, ExceptionGroup) as error:
+                    assert type(error) is exception_type
+                    if isinstance(error, ExceptionGroup):
+                        assert error.__cause__ is None and error.__context__ is None
+                        assert len(error.exceptions) == 1 and error.exceptions[0].errno == 7
+                    else:
+                        assert error.__cause__ is error.__context__
+                        assert error.__cause__.errno == 7
+                else:
+                    assert exception_type is ValueError
+                    assert 'invalid' in {row.status for row in report.metrics.values()}
+        finally:
+            np.seterrcall(previous)
+        return references
+
+    assert all(reference() is None for reference in exercise())
+
+
+def test_deferred_exception_relations_keep_cycles_and_group_identity():
+    first = OSError(7, 'first')
+    second = ValueError('second')
+    group = ExceptionGroup('recorded group', [first, second])
+    first.__cause__, first.__context__ = second, group
+    second.__context__ = first
+    packed = native._Packed()
+    token = packed.token(group)
+    assert packed.exceptions[token] is group
+    assert group.exceptions == (first, second)
+    assert first.__cause__ is second and first.__context__ is group
+    assert second.__context__ is first
+    assert first.errno == 7 and first.args == (7, 'first')
+    assert second.args == ('second',)

@@ -181,8 +181,18 @@ class _Packed:
 
     def token(self, error):
         token = len(self.exceptions) + 1
-        # The delayed error must not retain frames that own borrowed fields.
-        self.exceptions[token] = BaseException.with_traceback(error, None)
+        # Contexts and group members can also retain borrowed fields through frames.
+        pending, visited = [error], set()
+        while pending:
+            current = pending.pop()
+            if id(current) in visited:
+                continue
+            visited.add(id(current))
+            BaseException.with_traceback(current, None)
+            pending.extend(value for value in (current.__cause__, current.__context__) if value is not None)
+            if isinstance(current, BaseExceptionGroup):
+                pending.extend(current.exceptions)
+        self.exceptions[token] = error
         return token
 
     def fault(self, pointer, error):
@@ -580,8 +590,7 @@ class _Packed:
 
 
 class _Evidence(_Packed):
-    def __init__(self, result, query):
-        super().__init__()
+    def pack(self, result, query):
         self.result, self.query = result, query
         self.density = self.split = self.invalid_mode_repr = self.dimension_index = self.dimension_slice = None
         self.qualification_error = None
@@ -792,11 +801,12 @@ def _spec(value):
 
 
 def _query(result, query, metric_spec=None, metrics=None):
-    packed = _Evidence(result, query)
+    packed = _Evidence()
     output, diagnostics, token = Output(struct_size=ct.sizeof(Output)), core._Diagnostics(), ct.c_uint64()
     error = ct.create_string_buffer(4096)
 
     try:
+        packed.pack(result, query)
         library = core._library()
         owner = weakref.proxy(packed)
 

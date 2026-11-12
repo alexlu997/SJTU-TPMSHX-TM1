@@ -20,7 +20,7 @@ Full 2D/3D Python evaluation now calls the native result stage. Independent appl
 The native result stage owns Quick Design metrics and retains typed intermediate values. V3 uses fixed named host operations for existing Python object, exact integer and final conversion protocols. The public Python entry points and saved formats stay available.
 The host query uses borrowed typed evidence and preserves deferred input errors. It delivers NumPy events before each primitive returns.
 A callback error is handled at the original metric or qualification boundary. An uncaught host error retains its original Python object.
-Callbacks do not own query state. Deferred errors keep their identity and exception chains, but discard earlier internal tracebacks. Query exit clears deferred error references; borrowed fields do not wait for cyclic garbage collection.
+Callbacks do not own query state. Deferred errors keep their exception objects, cause/context links and group members. Earlier tracebacks on those objects are discarded. Query exit clears deferred error references, including input-packing failures; borrowed fields do not wait for cyclic garbage collection.
 Published v1 C layouts and queries remain available. Release every output through the library that created it.
 
 The C++ call sequence is `prepare_case`, `run_case`, then `evaluate`.
