@@ -19,7 +19,7 @@ compute -> preprocess.api.prepare_case -> CaseData -> solvers.api.run_case -> Fi
                                                                        -> postprocess.api.evaluate -> PerformanceResult
 ```
 
-`compute` 同时处理阶段进度、取消、耗时与警告。`postprocess/api.py` 将完整 2D/3D 评估及独立查询交给原生结果阶段。
+`compute` 同时处理阶段进度、取消、耗时与警告。`postprocess/api.py` 将完整 2D/3D、Quick Design 评估及独立查询交给原生结果阶段。
 `shared/_native_result_stage.py` 适配证据、NumPy 事件与返回对象；`postprocess/export.py` 负责导出。
 当前正式计算支持矩形二维与长方体三维。公开输入和文件交接见[示例](../examples/three_module/)与[数据契约](../docs/contracts/three_module_v1/README.zh-CN.md)。
 近似模式和扩展状态见[能力范围](../docs/capabilities.md)。
@@ -30,6 +30,7 @@ compute -> preprocess.api.prepare_case -> CaseData -> solvers.api.run_case -> Fi
 准备 v3 为均匀二维总质量流量增加独立容量查询、入口流量解析和完整准备，复用物理入口网格，
 并将前段记录与最终准备证据分开。
 run v2 通过现有 model-h 或 true-h 驱动消费准备 v2；run v1 保留原 air/air CFD 范围。
+独立 Quick Design 路径支持 native double 工况，并保留既有 LTNE 模型。
 阶段迁移期间，上述 Python 入口继续保留全部现有模式。
 
 ## 修改数值函数
@@ -47,6 +48,7 @@ run v2 通过现有 model-h 或 true-h 驱动消费准备 v2；run v1 保留原 
 | 完整二维／三维与 Quick Design | [full_2d.cpp](solvers/native/src/full_2d.cpp): `solve_full_2d`; [full_3d.cpp](solvers/native/src/full_3d.cpp): `solve_full_3d`; [quick_design_driver.cpp](solvers/native/src/quick_design_driver.cpp): `solve_quick_design` |
 | 指标、物理平衡、分区统计与检查 | [result_metrics.cpp](solvers/native/src/result_metrics.cpp): `pressure_face`, `boundary_enthalpy_duty`; [result_balance.cpp](solvers/native/src/result_balance.cpp): `mass`, `energy`, `zone_std`; [result_checks.cpp](solvers/native/src/result_checks.cpp): `collect_range`, `strict_certificate` |
 | 完整阶段准备与执行 | [preparation_case.cpp](solvers/native/src/preparation_case.cpp): `prepare_case_2d`; [stage_run.cpp](solvers/native/src/stage_run.cpp): `tpmshx_run_case_2d_v1`, `tpmshx_run_case_2d_v2`; [stage_capture_2d.cpp](solvers/native/src/stage_capture_2d.cpp) |
+| Quick Design 阶段准备与执行 | [quick_design_prepare.cpp](solvers/native/src/quick_design_prepare.cpp): `tpmshx_prepare_quick_design_v1`; [quick_design_run.cpp](solvers/native/src/quick_design_run.cpp): `tpmshx_run_quick_design_v1` |
 | 阶段评估与资格判断 | [result_stage.cpp](solvers/native/src/result_stage.cpp): `evaluate`, `evaluate_applicability`, `evaluate_physical_balance`, `evaluate_qualification` |
 
 几何库使用 geometry ABI 1／field ABI 2，准备库使用 preparation ABI 1，结果库使用 result ABI 2。

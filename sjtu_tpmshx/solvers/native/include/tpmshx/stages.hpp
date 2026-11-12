@@ -1,5 +1,6 @@
 #pragma once
 #include "tpmshx/stage_run_c_api.h"
+#include "tpmshx/quick_design_stage_c_api.h"
 #include <algorithm>
 #include <stdexcept>
 #include <thread>
@@ -135,6 +136,33 @@ inline RunResult2D run_case(const PreparedCase2Dv2& prepared,const RunControl& c
     return RunResult2D(output);
 }
 inline Evaluation evaluate(const RunResult2D& result,const tpmshx_stage_metric_spec_v1* metric=nullptr) {
+    tpmshx_stage_output_v1 output{};output.struct_size=sizeof(output);
+    char error[4096]{};
+    detail::check(tpmshx_result_stage_evaluate_v1(&result.view().evidence,metric,&output,error,sizeof(error)),error);
+    return Evaluation(output);
+}
+using PreparedQuickDesign=detail::Owned<tpmshx_quick_prepared_v1,tpmshx_quick_prepared_release_v1>;
+using RunResultQuickDesign=detail::Owned<tpmshx_quick_run_result_v1,tpmshx_quick_run_release_v1>;
+struct QuickDesignInput : tpmshx_quick_input_v1 {
+    QuickDesignInput():tpmshx_quick_input_v1{} {
+        abi_version=TPMSHX_QUICK_DESIGN_STAGE_ABI_VERSION;struct_size=sizeof(tpmshx_quick_input_v1);
+    }
+};
+inline PreparedQuickDesign prepare_quick_design(const QuickDesignInput& input) {
+    tpmshx_quick_prepared_v1 output{};
+    output.abi_version=TPMSHX_QUICK_DESIGN_STAGE_ABI_VERSION;output.struct_size=sizeof(output);
+    char error[4096]{};
+    detail::check(tpmshx_prepare_quick_design_v1(&input,&output,error,sizeof(error)),error);
+    return PreparedQuickDesign(output);
+}
+inline RunResultQuickDesign run_case(const PreparedQuickDesign& prepared,const tpmshx_quick_run_control_v1& control) {
+    tpmshx_quick_run_result_v1 output{};
+    output.abi_version=TPMSHX_QUICK_DESIGN_STAGE_ABI_VERSION;output.struct_size=sizeof(output);
+    char error[4096]{};
+    detail::check(tpmshx_run_quick_design_v1(&prepared.view(),&control,&output,error,sizeof(error)),error);
+    return RunResultQuickDesign(output);
+}
+inline Evaluation evaluate(const RunResultQuickDesign& result,const tpmshx_stage_metric_spec_v1* metric=nullptr) {
     tpmshx_stage_output_v1 output{};output.struct_size=sizeof(output);
     char error[4096]{};
     detail::check(tpmshx_result_stage_evaluate_v1(&result.view().evidence,metric,&output,error,sizeof(error)),error);

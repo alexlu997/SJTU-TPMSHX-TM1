@@ -21,7 +21,7 @@ The full application retains its macOS arm64 and Windows x64 platforms.
 
 Python retains DTOs, type and shape adaptation, original object identity, NumPy event handling and file I/O.
 The result stage owns full 2D/3D evidence selection, status and reason text.
-Quick Design metric arithmetic retains its existing Python protocol owner until that stage is integrated.
+The stage also owns Quick Design metric arithmetic. V3 retains typed intermediate values and fixed named host operations for existing Python object, exact integer and final conversion protocols.
 The four public computation entries remain unchanged.
 Independent original numerical references stay under `development/tests/`.
 Production result calculations do not call those references.
@@ -73,11 +73,14 @@ Mode 0 uses separate products; mode 1 uses component FMA. Other values fail befo
 The borrowed POD descriptions retain their `_v1` layouts.
 The adapter rejects earlier library ABIs before binding numerical calls.
 Its declarations are in `include/tpmshx/result_c_api.h` and the family and stage headers.
-The stage host query uses a separate v2 input declaration. It preserves all published v1 C layouts.
+The stage host queries use separate v2 and v3 input declarations. They preserve published v1 and v2 C layouts.
+V3 carries typed Quick operands and raw labels. Native code owns label comparisons and policy.
+Fixed named host callbacks retain only Python value protocols at the native-selected operation.
+Object equality and inequality use separate callbacks. String subclasses retain their original comparison operators.
 Deferred conversion errors and NumPy callbacks are consumed at the original metric or qualification boundary.
 Uncaught host exceptions return their original token. Stage outputs are released through their originating library.
 Only the symbols in `result.exports` and `result.map` are public.
-There is no public arithmetic opcode evaluator or numerical callback.
+There is no public arithmetic opcode evaluator or callback that supplies complete metrics.
 
 Arrays borrow typed bytes, shape metadata and signed byte strides for one call.
 The descriptor states the storage extent, logical-zero offset, dtype, byte order and origin.
