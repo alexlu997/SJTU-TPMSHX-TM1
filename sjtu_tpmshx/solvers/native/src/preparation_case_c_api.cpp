@@ -135,7 +135,21 @@ template<class Prepared> struct CaseOwner {
     }
 };
 using Owner=CaseOwner<p::PreparedCase2D>;
-using Owner3D=CaseOwner<p::PreparedCase3D>;
+std::vector<tpmshx_preparation_grid_cell_3d_v4> grid_cells_view(const p::CaseInput3D& input) {
+    std::vector<tpmshx_preparation_grid_cell_3d_v4> cells(input.grid_cells.size());
+    for (std::size_t i=0;i<cells.size();++i) {
+        const auto& source=input.grid_cells[i];auto& target=cells[i];
+        for (std::size_t j=0;j<4;++j) {
+            const auto bound=source.bounds[j];target.bounds[j]={bound.value,bound.precision,bound.strong};
+        }
+        target.cell_length_mm=source.cell_length_mm;target.wall_thickness_mm=source.wall_thickness_mm;
+    }
+    return cells;
+}
+struct Owner3D : CaseOwner<p::PreparedCase3D> {
+    std::vector<tpmshx_preparation_grid_cell_3d_v4> cells;
+    explicit Owner3D(p::PreparedCase3D prepared):CaseOwner(std::move(prepared)),cells(grid_cells_view(value.input)) {}
+};
 struct FlowOwner {
     p::InletFlow2D value;
     EvidenceViews evidence;
@@ -803,7 +817,8 @@ tpmshx_preparation_case_input_3d_v1 resolved_input(const p::CaseInput3D& value,
 struct FlowOwner3D {
     p::InletFlow3D value;
     EvidenceViews evidence;
-    explicit FlowOwner3D(p::InletFlow3D flow):value(std::move(flow)),evidence(value.evidence) {}
+    std::vector<tpmshx_preparation_grid_cell_3d_v4> cells;
+    explicit FlowOwner3D(p::InletFlow3D flow):value(std::move(flow)),evidence(value.evidence),cells(grid_cells_view(value.input)) {}
 };
 struct FlowCaseOwner3D {
     Owner3D prepared;
@@ -830,6 +845,15 @@ p::InletFlowRequest3D input(const tpmshx_preparation_continuous_input_3d_v3& sou
     if (controls.decision_mm.size) value.decision_mm.assign(
         controls.decision_mm.data,controls.decision_mm.data+controls.decision_mm.size);
     output.input.continuous=std::move(value);return output;
+}
+p::InletFlowRequest3D input(const tpmshx_preparation_spatial_input_3d_v4& source) {
+    auto output=input(source.values);output.input.grid_cells.resize(source.cell_count);
+    for (std::size_t i=0;i<source.cell_count;++i) {
+        const auto& cell=source.cells[i];auto& target=output.input.grid_cells[i];
+        for (std::size_t j=0;j<4;++j) target.bounds[j]=grid_scalar(cell.bounds[j]);
+        target.cell_length_mm=cell.cell_length_mm;target.wall_thickness_mm=cell.wall_thickness_mm;
+    }
+    return output;
 }
 tpmshx_preparation_continuous_controls_3d_v3 controls_view(const p::CaseInput3D& input) {
     const auto& controls=*input.continuous;
@@ -895,6 +919,7 @@ namespace {
 const tpmshx_preparation_case_input_3d_v1& case_source(const tpmshx_preparation_case_input_3d_v1& source) {return source;}
 const tpmshx_preparation_case_input_3d_v1& case_source(const tpmshx_preparation_flow_input_3d_v2& source) {return source.input;}
 const tpmshx_preparation_case_input_3d_v1& case_source(const tpmshx_preparation_continuous_input_3d_v3& source) {return source.values.input;}
+const tpmshx_preparation_case_input_3d_v1& case_source(const tpmshx_preparation_spatial_input_3d_v4& source) {return source.values.input;}
 template<class Source,class Result,class Function> int boundary_3d(
     const Source* source,const tpmshx_preparation_case_options_v1* selected,
     const tpmshx_preparation_case_callbacks_v1* callbacks,Result* result,
@@ -918,6 +943,14 @@ template<class Source,class Result,class Function> int boundary_3d(
                 require_disjoint(values.data,values.size,failure,failure?1:0);
             }
         }
+        if constexpr (std::is_same_v<Source,tpmshx_preparation_spatial_input_3d_v4>) {
+            if (source) {
+                require_buffer(source->cells,source->cell_count);
+                require_disjoint(error,capacity,source->cells,source->cell_count);
+                require_disjoint(source->cells,source->cell_count,result,result?1:0);
+                require_disjoint(source->cells,source->cell_count,failure,failure?1:0);
+            }
+        }
         if (source) for (const auto value:{case_source(*source).sco2_nu.parameter_version,case_source(*source).sco2_nu.source,case_source(*source).sco2_nu.applicability}) {
             require_buffer(value.data,value.size);require_disjoint(error,capacity,value.data,value.size);
             require_disjoint(value.data,value.size,result,result?1:0);require_disjoint(value.data,value.size,failure,failure?1:0);
@@ -927,8 +960,10 @@ template<class Source,class Result,class Function> int boundary_3d(
         if constexpr (std::is_same_v<Source,tpmshx_preparation_case_input_3d_v1>) {version(source);version(result);}
         else if constexpr (std::is_same_v<Source,tpmshx_preparation_flow_input_3d_v2>) {
             version2(source);version2(result);version(&source->input);
-        } else {
+        } else if constexpr (std::is_same_v<Source,tpmshx_preparation_continuous_input_3d_v3>) {
             version3(source);version3(result);version2(&source->values);version(&source->values.input);
+        } else {
+            version4(source);version4(result);version2(&source->values);version(&source->values.input);
         }
         version2(failure);
         if(selected)version(selected);if(callbacks)version(callbacks);
@@ -951,7 +986,8 @@ template<class Source,class Result,class Function> int boundary_3d(
             const auto& value=problem.failure;failure->kind=problem.status==3?3u:1u;failure->have_property=1;
             failure->property={value.reason,value.input,value.index,value.first_t_index,value.first_p_index,
                 value.temperature,value.pressure,value.detail,value.fp};
-            if constexpr (std::is_same_v<Source,tpmshx_preparation_continuous_input_3d_v3>) {
+            if constexpr (std::is_same_v<Source,tpmshx_preparation_continuous_input_3d_v3>
+                          || std::is_same_v<Source,tpmshx_preparation_spatial_input_3d_v4>) {
                 const std::string prefix="CO2 requires a stable single-phase PT state; saturation, two-phase and critical-point states are unsupported. ";
                 const std::string message=problem.what();
                 if (message.compare(0,prefix.size(),prefix)==0) {
@@ -1079,6 +1115,73 @@ extern "C" void TPMSHX_PREPARATION_CALL tpmshx_preparation_continuous_flow_3d_re
 }
 extern "C" void TPMSHX_PREPARATION_CALL tpmshx_preparation_continuous_case_3d_release_v3(
     tpmshx_preparation_continuous_case_3d_v3* result) {
+    if (!result) return;
+    delete static_cast<FlowCaseOwner3D*>(result->owner);*result={};
+}
+
+extern "C" uint32_t TPMSHX_PREPARATION_CALL tpmshx_preparation_spatial_3d_abi_version_v4(void) {
+    return TPMSHX_PREPARATION_SPATIAL_3D_ABI_VERSION;
+}
+extern "C" int TPMSHX_PREPARATION_CALL tpmshx_prepare_inlet_mass_capacities_3d_v4(
+    const tpmshx_preparation_spatial_input_3d_v4* source,const tpmshx_preparation_case_options_v1* selected,
+    const tpmshx_preparation_case_callbacks_v1* callbacks,tpmshx_preparation_spatial_flow_3d_v4* result,
+    tpmshx_preparation_case_failure_v2* failure,char* error,size_t capacity) {
+    return boundary_3d(source,selected,callbacks,result,failure,error,capacity,[&](const auto& request,const auto& options,const auto& sink) {
+        auto owner=std::make_unique<FlowOwner3D>(p::prepare_inlet_mass_capacities_3d(
+            request.input,options,sink,p::CaseScope3D::spatial_v4));
+        tpmshx_preparation_spatial_flow_3d_v4 output{};
+        output.abi_version=TPMSHX_PREPARATION_SPATIAL_3D_ABI_VERSION;output.struct_size=sizeof(output);
+        output.flow=view(*owner,source->values.input);output.flow.owner=nullptr;
+        output.cells=owner->cells.data();output.cell_count=owner->cells.size();
+        output.owner=owner.get();*result=output;owner.release();
+    });
+}
+extern "C" int TPMSHX_PREPARATION_CALL tpmshx_resolve_inlet_flow_3d_v4(
+    const tpmshx_preparation_spatial_input_3d_v4* source,const tpmshx_preparation_case_options_v1* selected,
+    const tpmshx_preparation_case_callbacks_v1* callbacks,tpmshx_preparation_spatial_flow_3d_v4* result,
+    tpmshx_preparation_case_failure_v2* failure,char* error,size_t capacity) {
+    return boundary_3d(source,selected,callbacks,result,failure,error,capacity,[&](const auto& request,const auto& options,const auto& sink) {
+        auto owner=std::make_unique<FlowOwner3D>(p::resolve_inlet_flow_3d(
+            request,options,sink,p::CaseScope3D::spatial_v4));
+        tpmshx_preparation_spatial_flow_3d_v4 output{};
+        output.abi_version=TPMSHX_PREPARATION_SPATIAL_3D_ABI_VERSION;output.struct_size=sizeof(output);
+        output.flow=view(*owner,source->values.input);output.flow.owner=nullptr;
+        output.cells=owner->cells.data();output.cell_count=owner->cells.size();
+        output.owner=owner.get();*result=output;owner.release();
+    });
+}
+extern "C" int TPMSHX_PREPARATION_CALL tpmshx_prepare_flow_case_3d_v4(
+    const tpmshx_preparation_spatial_input_3d_v4* source,const tpmshx_preparation_case_options_v1* selected,
+    const tpmshx_preparation_case_callbacks_v1* callbacks,tpmshx_preparation_spatial_case_3d_v4* result,
+    tpmshx_preparation_case_failure_v2* failure,char* error,size_t capacity) {
+    return boundary_3d(source,selected,callbacks,result,failure,error,capacity,[&](const auto& request,const auto& options,const auto& sink) {
+        auto owner=std::make_unique<FlowCaseOwner3D>(p::prepare_flow_case_3d(
+            request,options,sink,p::CaseScope3D::spatial_v4));
+        tpmshx_preparation_spatial_case_3d_v4 output{};
+        output.abi_version=TPMSHX_PREPARATION_SPATIAL_3D_ABI_VERSION;output.struct_size=sizeof(output);
+        const auto& prepared=owner->prepared.value;
+        output.prepared=view(owner->prepared,resolved_input(prepared.input,source->values.input));output.prepared.owner=nullptr;
+        output.flow=view(owner->flow,source->values.input);output.flow.owner=nullptr;
+        output.cells=owner->prepared.cells.data();output.cell_count=owner->prepared.cells.size();
+        output.side_b_porosity=array(prepared.side_b_porosity.empty()?prepared.side_porosity:prepared.side_b_porosity);
+        output.area_density_per_m=array(prepared.area_density);output.hydraulic_diameter_m=array(prepared.hydraulic_diameter);
+        output.thermal_porosity=array(prepared.thermal_porosity);output.split_a=prepared.thermal_sides.split_a;
+        output.have_side_geometry=prepared.thermal_sides.sides?1u:0u;
+        if (prepared.thermal_sides.sides) for (std::size_t i=0;i<2;++i) {
+            const auto& side=(*prepared.thermal_sides.sides)[i];
+            output.side_geometry[i][0]=side.area;output.side_geometry[i][1]=side.diameter;
+            output.side_geometry[i][2]=side.reference_area;output.side_geometry[i][3]=side.reference_diameter;
+        }
+        output.owner=owner.get();*result=output;owner.release();
+    });
+}
+extern "C" void TPMSHX_PREPARATION_CALL tpmshx_preparation_spatial_flow_3d_release_v4(
+    tpmshx_preparation_spatial_flow_3d_v4* result) {
+    if (!result) return;
+    delete static_cast<FlowOwner3D*>(result->owner);*result={};
+}
+extern "C" void TPMSHX_PREPARATION_CALL tpmshx_preparation_spatial_case_3d_release_v4(
+    tpmshx_preparation_spatial_case_3d_v4* result) {
     if (!result) return;
     delete static_cast<FlowCaseOwner3D*>(result->owner);*result={};
 }

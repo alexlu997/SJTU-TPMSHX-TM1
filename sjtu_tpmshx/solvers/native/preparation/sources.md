@@ -37,4 +37,11 @@ Continuous v3 samples raw XY or XYZ controls through `field_continuous.cpp` on t
 Raw and thermal geometry retain separate evaluation order and unit conversions.
 The existing geometry and DF owners provide full local fields without 2D row projection.
 Air range observations reuse `reynolds_point` with the original scalar and array types.
-These interfaces add no 3D solve, capture, grid zones or asymmetric preparation.
+Spatial v4 uses `zones::assign` on physical XY centres, then `gaussian_sigma2` on L and t separately.
+It extends those fields along z and retains the separate thermal SI round trip.
+`asym::prepare_from_index` supplies the existing nominal split and thermal side/reference geometry.
+`asym::split_porosity` applies each fraction to local symmetric total porosity.
+Capacity uses the corresponding side field. Base DF and solid conductivity keep the existing symmetric geometry.
+The raw owner copies rectangle inputs and keeps borrowed nested views with null owners.
+The v1/v2/v3 C layouts and their original scope remain unchanged.
+These interfaces add no 3D solve or capture and do not switch Python production preparation.

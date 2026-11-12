@@ -1,6 +1,7 @@
 #include "tpmshx/preparation_case.hpp"
 #include "tpmshx/preparation_flow.hpp"
 #include "tpmshx/asym_geometry.hpp"
+#include "tpmshx/zones.hpp"
 #include "tpmshx/grid.hpp"
 #include "tpmshx/model_coefficients.hpp"
 #include "tpmshx/preparation_df.hpp"
@@ -1247,11 +1248,23 @@ g::Port checked_port_3d(g::Port port,const GridInput3D& input,const std::string&
     return port;
 }
 
-CaseInput3D validate_3d(CaseInput3D input,bool allow_mass=false,bool velocities=true) {
+CaseInput3D validate_3d(CaseInput3D input,CaseScope3D scope,bool allow_mass=false,bool velocities=true) {
     if (input.continuous) {
         if (input.geometry_mode!=1)
             throw std::invalid_argument("native continuous 3D preparation requires geometry_mode=1");
         validate_controls(*input.continuous,input.continuous->nz.value_or(1));
+    } else if (scope==CaseScope3D::spatial_v4) {
+        if (input.geometry_mode==2) {
+            if (input.grid_cells.empty()) throw std::invalid_argument("Enabled grid zones require non-empty grid cells");
+            for (std::size_t i=0;i<input.grid_cells.size();++i) for (std::size_t axis=0;axis<2;++axis) {
+                const auto& bounds=input.grid_cells[i].bounds;
+                const auto lower=bounds[2*axis].value,upper=bounds[2*axis+1].value;
+                if (!std::isfinite(lower) || !std::isfinite(upper) || !(0.<=lower && lower<upper && upper<=1.))
+                    throw std::invalid_argument("Zone grid cell "+std::to_string(i+1)+": "+(axis?"y":"x")+
+                        " coordinates must be finite and satisfy 0 <= start < end <= 1");
+            }
+        } else if (input.geometry_mode || !input.grid_cells.empty())
+            throw std::invalid_argument("native spatial 3D preparation requires uniform mode 0 or grid mode 2");
     } else if (input.geometry_mode || input.geometry.delta_levelset!=0.)
         throw std::invalid_argument("native 3D preparation currently requires symmetric uniform geometry");
     validate_nu(input.sco2_nu);
@@ -1295,9 +1308,17 @@ CaseInput3D validate_3d(CaseInput3D input,bool allow_mass=false,bool velocities=
                 throw PreparationError(1,std::string("sCO2 fluid ")+(i?"B":"A")+" pressure must be 7.9..16 MPa",1,static_cast<std::uint32_t>(i));
         }
     }
+    if (scope==CaseScope3D::spatial_v4) {
+        const bool sco2=std::any_of(input.sides.begin(),input.sides.end(),[](const auto& side) {return side.fluid==Fluid::sco2;});
+        if (sco2 && input.geometry_mode==2) throw std::invalid_argument("sCO2 V2 does not support discrete zones");
+        if (sco2 && model.delta_levelset!=0.) throw std::invalid_argument("sCO2 V2 requires delta_levelset=0");
+        if (co2_geometry(input) && input.geometry_mode==2) throw std::invalid_argument("CO2 does not support discrete zones");
+        if (co2_geometry(input) && model.delta_levelset!=0.)
+            throw std::invalid_argument("CO2 requires symmetric delta_levelset=0 geometry");
+    }
     if (velocities) for (std::size_t i=0;i<2;++i) positive(input.sides[i].velocity_m_s,std::string("fluid_")+(i?"B":"A")+".u_mps");
-    if (velocities && input.continuous && input.df_mode) {
-        const bool shanghai=model.topology==Topology::gyroid && input.sides[0].fluid==Fluid::air
+    if (velocities && (input.continuous || input.geometry_mode==2) && input.df_mode) {
+        const bool shanghai=input.continuous && model.topology==Topology::gyroid && input.sides[0].fluid==Fluid::air
             && input.sides[1].fluid==Fluid::water && std::abs(model.cell_length_mm-7.)<=1e-12
             && std::abs(model.wall_thickness_mm-.6)<=1e-12;
         if (!shanghai && (input.sides[0].fluid!=Fluid::co2 || input.sides[1].fluid!=Fluid::co2))
@@ -1309,7 +1330,7 @@ CaseInput3D validate_3d(CaseInput3D input,bool allow_mass=false,bool velocities=
         const auto selected=experiment_selection(input,input.sides[i],i,input.continuous.has_value()).first;
         if (selected.scope) for (std::size_t axis=0;axis<3;++axis) {
             const auto length=input.grid.lengths[axis].value,target=df_data::hx_domain_m[axis];
-            if (std::abs(length-target)>1e-9*std::max(std::abs(length),std::abs(target)))
+            if (model.delta_levelset!=0. || std::abs(length-target)>1e-9*std::max(std::abs(length),std::abs(target)))
                 throw PreparationError(1,"experimental calibration side "+std::string(i?"B":"A")+
                     " is HX-effective and requires delta=0 with the matching 0.182 x 0.042 x 0.042 m campaign domain",1,static_cast<std::uint32_t>(i));
         }
@@ -1367,6 +1388,29 @@ void physical_grid_3d(PreparedCase3D& output) {
         throw std::invalid_argument("3D grid "+std::to_string(output.widths[0].size())+"x"+
             std::to_string(output.widths[1].size())+"x"+std::to_string(output.widths[2].size())+
             " exceeds the "+std::to_string(input.max_cells)+"-cell cap");
+}
+
+void prepare_thermal_sides_3d(PreparedCase3D& output) {
+    const auto& model=output.input.geometry;
+    if (model.delta_levelset!=0.)
+        output.thermal_sides=geometry::asym::prepare_from_index(geometry_index(model.topology),
+            geometry::calibration(model.topology),model.cell_length_mm,model.wall_thickness_mm,model.delta_levelset);
+}
+
+void store_spatial_fields_3d(PreparedCase3D& output,std::vector<double> cell_mm,std::vector<double> wall_mm) {
+    const auto& model=output.input.geometry;
+    prepare_thermal_sides_3d(output);
+    const auto cells=cell_mm.size();
+    output.side_porosity=geometry::asym::split_porosity({output.total_porosity.data(),cells},.5).a;
+    const auto drag=fixed_df_batch(static_cast<std::uint32_t>(model.topology),
+        {cell_mm.data(),cells},{wall_mm.data(),cells});
+    output.permeability.resize(cells);output.forchheimer.resize(cells);
+    for (std::size_t i=0;i<cells;++i) {output.permeability[i]=drag[i].K;output.forchheimer[i]=drag[i].cF;}
+    output.cell_length.resize(cells);output.wall_thickness.resize(cells);
+    for (std::size_t i=0;i<cells;++i) {
+        output.cell_length[i]=cell_mm[i]*1e-3;output.wall_thickness[i]=wall_mm[i]*1e-3;
+    }
+    output.length_kinds={ScalarKind{64,1,2},ScalarKind{64,1,2}};
 }
 
 void continuous_geometry_3d(PreparedCase3D& output) {
@@ -1455,17 +1499,47 @@ void continuous_geometry_3d(PreparedCase3D& output) {
     auto cell_mm=extrude(std::move(sampled[0])),wall_mm=extrude(std::move(sampled[1]));
     output.total_porosity=extrude(std::move(epsilon));output.area_density=extrude(std::move(area));
     output.hydraulic_diameter=extrude(std::move(diameter));output.thermal_porosity=extrude(std::move(thermal_epsilon));
-    const auto cells=cell_mm.size();
-    output.side_porosity=geometry::asym::split_porosity({output.total_porosity.data(),cells},.5).a;
-    const auto drag=fixed_df_batch(static_cast<std::uint32_t>(model.topology),
-        {cell_mm.data(),cells},{wall_mm.data(),cells});
-    output.permeability.resize(cells);output.forchheimer.resize(cells);
-    for (std::size_t i=0;i<cells;++i) {output.permeability[i]=drag[i].K;output.forchheimer[i]=drag[i].cF;}
-    output.cell_length.resize(cells);output.wall_thickness.resize(cells);
-    for (std::size_t i=0;i<cells;++i) {
-        output.cell_length[i]=cell_mm[i]*1e-3;output.wall_thickness[i]=wall_mm[i]*1e-3;
+    store_spatial_fields_3d(output,std::move(cell_mm),std::move(wall_mm));
+}
+
+void grid_geometry_3d(PreparedCase3D& output) {
+    const auto& input=output.input;const auto& model=input.geometry;
+    const auto nx=output.widths[0].size(),ny=output.widths[1].size(),nz=output.widths[2].size();
+    std::vector<zones::Bounds> bounds;bounds.reserve(input.grid_cells.size());
+    for (const auto& cell:input.grid_cells) bounds.push_back(cell.bounds);
+    const auto ids=zones::assign(2,nx,ny,1,g::weak(1.),bounds,&output.widths[0],&output.widths[1]);
+    std::array<std::vector<double>,2> local;
+    for (std::size_t field=0;field<2;++field) {
+        auto& values=local[field];values.resize(ids.size());
+        for (std::size_t i=0;i<ids.size();++i) {
+            if (ids[i]<0) values[i]=field?model.wall_thickness_mm:model.cell_length_mm;
+            else {
+                const auto& cell=input.grid_cells[static_cast<std::size_t>(ids[i])];
+                values[i]=field?cell.wall_thickness_mm:cell.cell_length_mm;
+            }
+        }
+        values=zones::gaussian_sigma2(values,nx,ny);
     }
-    output.length_kinds={ScalarKind{64,1,2},ScalarKind{64,1,2}};
+    const auto& index=geometry_index(model.topology);const auto calibration=geometry::calibration(model.topology);
+    auto materials=geometry::standard_material_geometry_batch(index,calibration,
+        {local[0].data(),ids.size()},{local[1].data(),ids.size()},model.solid_conductivity_W_mK,output.options.chi_override);
+    const auto cells=count(ids.size(),nz);
+    std::vector<double> cell_mm(cells),wall_mm(cells),thermal_cell(cells),thermal_wall(cells);
+    output.total_porosity.resize(cells);
+    for (std::size_t i=0;i<ids.size();++i) for (std::size_t k=0;k<nz;++k) {
+        const auto j=i*nz+k;cell_mm[j]=local[0][i];wall_mm[j]=local[1][i];
+        output.total_porosity[j]=materials[i].geometry.epsilon;
+        thermal_cell[j]=(cell_mm[j]*1e-3)*1e3;thermal_wall[j]=(wall_mm[j]*1e-3)*1e3;
+    }
+    materials=geometry::standard_material_geometry_batch(index,calibration,
+        {thermal_cell.data(),cells},{thermal_wall.data(),cells},model.solid_conductivity_W_mK,output.options.chi_override);
+    output.area_density.resize(cells);output.hydraulic_diameter.resize(cells);output.thermal_porosity.resize(cells);
+    for (std::size_t i=0;i<cells;++i) {
+        const auto& geometry=materials[i].geometry;
+        output.area_density[i]=geometry.area_density;output.hydraulic_diameter[i]=geometry.hydraulic_diameter;
+        output.thermal_porosity[i]=geometry.epsilon;
+    }
+    store_spatial_fields_3d(output,std::move(cell_mm),std::move(wall_mm));
 }
 
 void air_spatial_ranges_3d(const PreparedCase3D& output,std::size_t side,Records& records) {
@@ -1497,13 +1571,21 @@ void prepare_geometry_3d(PreparedCase3D& output,Records& records,bool check_spee
     physical_grid_3d(output);
     const auto cells=count(count(output.widths[0].size(),output.widths[1].size()),output.widths[2].size());
     const auto& uniform=output.uniform_geometry.geometry;
+    if (input.geometry_mode==2 && input.df_mode)
+        throw std::invalid_argument("experimental calibration currently requires uniform L/t");
     if (input.continuous) continuous_geometry_3d(output);
+    else if (input.geometry_mode==2) grid_geometry_3d(output);
     else {
+        prepare_thermal_sides_3d(output);
         output.total_porosity.assign(cells,uniform.epsilon);
         output.side_porosity.assign(cells,uniform.epsilon_a);
         const auto drag=fixed_df_batch(static_cast<std::uint32_t>(model.topology),
             {&model.cell_length_mm,1},{&model.wall_thickness_mm,1}).front();
         output.permeability.assign(cells,drag.K);output.forchheimer.assign(cells,drag.cF);
+    }
+    if (model.delta_levelset!=0.) {
+        auto split=geometry::asym::split_porosity({output.total_porosity.data(),cells},output.thermal_sides.split_a);
+        output.side_porosity=std::move(split.a);output.side_b_porosity=std::move(split.b);
     }
     for (std::size_t i=0;i<2;++i) {
         const auto& inlet=input.sides[i];auto& side=output.sides[i];
@@ -1517,7 +1599,7 @@ void prepare_geometry_3d(PreparedCase3D& output,Records& records,bool check_spee
             side.properties[j]=property(order[j],inlet,input.kinds.sides[i],"unbound","unbound",records);
     }
     const auto calibration=geometry::calibration(model.topology);
-    if (input.continuous) {
+    if (input.continuous || input.geometry_mode==2) {
         output.solid_conductivity=geometry::solid_conductivity(calibration.solid_tortuosity,
             {output.total_porosity.data(),cells},model.solid_conductivity_W_mK,options.chi_override,64);
     } else {
@@ -1534,7 +1616,7 @@ void finish_case_3d(PreparedCase3D& output,Records& records) {
     const auto& input=output.input;
     const auto cells=output.total_porosity.size();
     for (std::size_t i=0;i<2;++i) if (input.sides[i].fluid==Fluid::air) {
-        if (input.continuous) air_spatial_ranges_3d(output,i,records);
+        if (input.continuous || input.geometry_mode==2) air_spatial_ranges_3d(output,i,records);
         else {
             std::array<ScalarKind,13> kinds{};
             inlet_properties(input,input.sides[i],i,output.uniform_geometry,records,kinds,"scalar-hv-bulk");
@@ -1565,9 +1647,9 @@ void finish_case_3d(PreparedCase3D& output,Records& records) {
     }
     for (std::size_t axis=0;axis<3;++axis)
         output.edges[axis]=g::cumulative_widths({output.widths[axis].data(),output.widths[axis].size()});
-    model_evidence(input,output.evidence,input.continuous.has_value());
+    model_evidence(input,output.evidence,input.continuous.has_value() || input.geometry_mode==2);
     const std::vector<std::size_t> shape{output.widths[0].size(),output.widths[1].size(),output.widths[2].size()};
-    if (input.continuous) {
+    if (input.continuous || input.geometry_mode==2) {
         auto cell_mm=output.cell_length,wall_mm=output.wall_thickness;
         for (auto& value:cell_mm) value*=1e3;
         for (auto& value:wall_mm) value*=1e3;
@@ -1591,7 +1673,8 @@ void capacities_3d(const PreparedCase3D& prepared,InletFlow3D& flow) {
     const auto field=[](const std::vector<double>& values) {return FlowValues{{values.data(),values.size()},64,1};};
     for (std::size_t i=0;i<2;++i) {
         const auto& side=prepared.sides[i];
-        flow.capacities[i]=inlet_capacity_3d(field(prepared.side_porosity),shape,prepared.input.sides[i].port.direction,
+        const auto& porosity=i && !prepared.side_b_porosity.empty()?prepared.side_b_porosity:prepared.side_porosity;
+        flow.capacities[i]=inlet_capacity_3d(field(porosity),shape,prepared.input.sides[i].port.direction,
             field(prepared.widths[static_cast<std::size_t>(side.axes[0])]),
             field(prepared.widths[static_cast<std::size_t>(side.axes[2])]),field(side.openings[0]),g::weak(side.properties[0]));
         if (!std::isfinite(flow.capacities[i].value) || flow.capacities[i].value<=0.)
@@ -1615,7 +1698,7 @@ std::array<std::optional<double>,2> flow_targets(const InletFlowRequest3D& reque
 }
 
 void resolve_speeds(const InletFlowRequest3D& request,const std::array<std::optional<double>,2>& targets,
-                    InletFlow3D& flow) {
+                    InletFlow3D& flow,CaseScope3D scope) {
     for (std::size_t i=0;i<2;++i) {
         auto& inlet=flow.input.sides[i];auto& kind=flow.input.kinds.sides[i].velocity;
         if (targets[i]) {
@@ -1624,53 +1707,53 @@ void resolve_speeds(const InletFlowRequest3D& request,const std::array<std::opti
             kind={flow.speeds[i].precision,flow.speeds[i].strong,flow.speeds[i].strong?1u:0u};
         } else flow.speeds[i]={inlet.velocity_m_s,kind.precision,kind.strong};
     }
-    flow.input=validate_3d(flow.input,true);
+    flow.input=validate_3d(flow.input,scope,true);
 }
 }  // namespace
 
 PreparedCase3D prepare_case_3d(const CaseInput3D& requested,const PreparationOptions& options,
-                             const PreparationCallbacks& callbacks) {
+                             const PreparationCallbacks& callbacks,CaseScope3D scope) {
     FloatingEnvironment floating_environment;
-    PreparedCase3D output{};output.input=validate_3d(requested);output.options=options;
+    PreparedCase3D output{};output.input=validate_3d(requested,scope);output.options=options;
     Records records{output.evidence,callbacks,{},{}};
     prepare_geometry_3d(output,records,true);finish_case_3d(output,records);
     return output;
 }
 
 InletFlow3D prepare_inlet_mass_capacities_3d(const CaseInput3D& input,const PreparationOptions& options,
-                                          const PreparationCallbacks& callbacks) {
+                                          const PreparationCallbacks& callbacks,CaseScope3D scope) {
     FloatingEnvironment floating_environment;
     InletFlow3D output;output.input=input;
-    PreparedCase3D prepared{};prepared.input=validate_3d(input,true,false);prepared.options=options;
+    PreparedCase3D prepared{};prepared.input=validate_3d(input,scope,true,false);prepared.options=options;
     Records records{prepared.evidence,callbacks,{},{}};
     prepare_geometry_3d(prepared,records,false);capacities_3d(prepared,output);finish_warnings(records);
     output.evidence=std::move(prepared.evidence);return output;
 }
 
 InletFlow3D resolve_inlet_flow_3d(const InletFlowRequest3D& request,const PreparationOptions& options,
-                               const PreparationCallbacks& callbacks) {
+                               const PreparationCallbacks& callbacks,CaseScope3D scope) {
     FloatingEnvironment floating_environment;
     InletFlow3D output;const auto targets=flow_targets(request,output.input);
     if (!targets[0] && !targets[1]) return output;
-    output=prepare_inlet_mass_capacities_3d(output.input,options,callbacks);
-    resolve_speeds(request,targets,output);return output;
+    output=prepare_inlet_mass_capacities_3d(output.input,options,callbacks,scope);
+    resolve_speeds(request,targets,output,scope);return output;
 }
 
 PreparedFlowCase3D prepare_flow_case_3d(const InletFlowRequest3D& request,const PreparationOptions& options,
-                                     const PreparationCallbacks& callbacks) {
+                                     const PreparationCallbacks& callbacks,CaseScope3D scope) {
     FloatingEnvironment floating_environment;
     PreparedFlowCase3D output;const auto targets=flow_targets(request,output.flow.input);
     if (!targets[0] && !targets[1]) {
-        output.prepared=prepare_case_3d(output.flow.input,options,callbacks);return output;
+        output.prepared=prepare_case_3d(output.flow.input,options,callbacks,scope);return output;
     }
     auto& prepared=output.prepared;
-    prepared.input=validate_3d(output.flow.input,true,false);prepared.options=options;
+    prepared.input=validate_3d(output.flow.input,scope,true,false);prepared.options=options;
     Records records{prepared.evidence,callbacks,{},{}};
     prepare_geometry_3d(prepared,records,false);capacities_3d(prepared,output.flow);
     output.flow.evidence=prepared.evidence;
     Records preliminary{output.flow.evidence,callbacks,records.warning_order,records.plain_warnings};
     finish_warnings(preliminary);
-    resolve_speeds(request,targets,output.flow);
+    resolve_speeds(request,targets,output.flow,scope);
     prepared.input=output.flow.input;
     preflight(prepared.input,options,prepared.uniform_geometry.geometry,prepared.input.sides,records);
     finish_case_3d(prepared,records);return output;

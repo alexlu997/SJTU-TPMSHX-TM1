@@ -28,6 +28,7 @@ The separate 3D preparation v1 accepts raw symmetric uniform cases at prescribed
 It supports both topologies, all 16 ordered fluid pairs and the existing CFD and experimental DF selections.
 Its physical grid, typed ports and field evidence do not change the Python 3D production route.
 The separate 3D flow v2 adds capacity queries, flow resolution and complete preparation at the resolved speeds.
+Continuous v3 adds XY/XYZ controls. Spatial v4 adds XY grid rectangles and the existing global offset rules.
 The [uniform 3D preparation contract](#uniform-3d-preparation) defines its inputs and remaining gates.
 
 Full 2D/3D Python evaluation now calls the native result stage. Independent applicability, physical-balance and qualification queries use that stage.
@@ -213,7 +214,25 @@ Sampling uses the final physical cell centres. XY and XYZ retain their separate 
 The owner keeps raw design geometry and the separate thermal mm-to-m-to-mm path.
 It returns full local K/cF, area density, hydraulic diameter and thermal porosity.
 The existing continuous Shanghai transfer limits and CO2 factors remain unchanged.
-Discrete zones and nonzero delta remain outside these raw interfaces.
+`SpatialInput3D` v4 adds uniform or XY grid geometry with the existing global level-set offset rules.
+It supports the same capacity, resolution and complete-preparation operations.
+Set `geometry_mode=0` for uniform geometry or `geometry_mode=2` for a nonempty rectangle array.
+Rectangle bounds use domain fractions with scalar tags. Each row supplies L/t in mm as doubles.
+Assignment uses physical XY cell centres. Later rectangles replace earlier matches; uncovered cells use nominal L/t.
+The existing fixed Gaussian filter smooths L and t separately in grid-index units before geometry evaluation.
+The prepared fields then extend along z. Raw design geometry and thermal SI conversions remain separate.
+
+Nonzero delta uses one nominal split for the complete domain.
+Each side's porosity is the local total porosity multiplied by its global fraction.
+Capacity uses that side's actual porosity. K/cF and solid conductivity retain their original symmetric geometry.
+The result adds side-B porosity, thermal fields, the split fraction and both thermal side/reference tuples.
+Each tuple contains area density, hydraulic diameter, reference area density and reference hydraulic diameter.
+At delta zero, both side views share the symmetric array and no side tuple is present.
+Uniform inputs have no local thermal arrays. Grid inputs retain complete thermal arrays.
+Grid and offset geometry retain the existing air/water scope, state checks and experimental calibration restrictions.
+In particular, grid experimental preparation remains unsupported; uniform air/air core calibration keeps its existing offset support.
+The owner copies rectangle and text inputs. Nested prepared and flow views have null owners.
+The v1/v2/v3 C layouts remain unchanged.
 Python 3D preparation, host cache hooks, native 3D run/capture integration,
 memory checks near the cell cap and real 3D BO remain separate migration and acceptance gates.
 Saved CaseData still uses its existing validators and must not be prepared again.
@@ -302,6 +321,8 @@ The [3D preparation example](../examples/cpp/prepare_3d.cpp) prepares raw CO2/wa
 The [3D mass-flow example](../examples/cpp/prepare_mass_3d.cpp) resolves total flow on reverse inlet faces before complete preparation.
 The [continuous 3D example](../examples/cpp/prepare_continuous_3d.cpp) prepares both XY extrusion and XYZ controls with resolved total flows.
 It checks the reverse z-direction port and field evidence, with only the preparation library.
+The [spatial 3D example](../examples/cpp/prepare_spatial_3d.cpp) prepares overlapping XY rectangles with a nonzero global offset.
+It checks capacities, resolved flows, copied inputs and side geometry through the preparation library.
 The [uniform-fluid example](../examples/cpp/uniform_2d.cpp) executes all three
 stages for CO2/water. Evaluation remains valid after the prepared owner is released.
 The [mass-flow preparation example](../examples/cpp/prepare_mass_2d.cpp) queries capacities, resolves an explicit pair and prepares the case.
