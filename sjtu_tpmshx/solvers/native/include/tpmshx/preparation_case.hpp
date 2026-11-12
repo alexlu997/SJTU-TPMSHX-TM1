@@ -1,6 +1,7 @@
 #pragma once
 
 #include "tpmshx/geometry.hpp"
+#include "tpmshx/asym_geometry.hpp"
 #include "tpmshx/grid.hpp"
 #include "tpmshx/preparation_df.hpp"
 #include "tpmshx/property_c_api.h"
@@ -72,12 +73,47 @@ struct CaseInput2D {
     CaseScalarKinds kinds;
     std::optional<ContinuousControls2D> continuous;
 };
+struct GridInput3D {
+    std::array<grid::Scalar,3> lengths;
+    std::array<std::size_t,3> counts;
+    std::size_t max_cells=2000000;
+    bool port_wall_refine=false;
+};
+struct InletInput3D {
+    Fluid fluid=Fluid::air;
+    double velocity_m_s,temperature_K,pressure_Pa;
+    grid::Port port;
+    std::optional<double> mass_flow_kg_s;
+};
+struct ContinuousControls3D {
+    std::size_t nx=0,ny=0;
+    std::optional<std::size_t> nz;
+    std::uint32_t order=3;
+    bool symmetric_y=true;
+    std::array<double,2> cell_bounds_mm{},wall_bounds_mm{};
+    std::vector<double> decision_mm;
+};
+struct GridCell3D {
+    std::array<grid::Scalar,4> bounds;
+    double cell_length_mm,wall_thickness_mm;
+};
+struct CaseInput3D {
+    GridInput3D grid;
+    UniformGeometryInput geometry;
+    std::array<InletInput3D,2> sides;
+    std::uint32_t geometry_mode=0,df_mode=0;
+    Sco2NuSelection sco2_nu;
+    CaseScalarKinds kinds;
+    std::optional<ContinuousControls3D> continuous;
+    std::vector<GridCell3D> grid_cells;
+};
 struct PreparationOptions {
     std::optional<double> chi_override;
     bool allow_extrapolation=false;
 };
 // Keep each C interface's scope checks in the shared validation order.
 enum class CaseScope { air_cfd_v1, uniform_fluids_v2, uniform_mass_v3, continuous_v4 };
+enum class CaseScope3D { symmetric_v3, spatial_v4 };
 
 struct PhysicalGrid2D {
     std::size_t nx=0,ny=0;
@@ -223,6 +259,31 @@ struct PreparedZonedCase2D {
     std::optional<SigmoidControls2D> sigmoid;
 };
 
+struct PreparedSide3D {
+    std::array<std::int32_t,7> axes;
+    std::array<std::vector<double>,2> openings;
+    // The original 3D inlet registry reads rho, mu, cp, then k.
+    std::array<double,4> properties;
+    bool have_drag_application=false;
+    PreparationDragEvidence drag_evidence;
+};
+struct PreparedCase3D {
+    CaseInput3D input;
+    PreparationOptions options;
+    std::array<std::vector<double>,3> widths,edges;
+    geometry::MaterialGeometry uniform_geometry;
+    std::vector<double> cell_length,wall_thickness,total_porosity,side_porosity;
+    std::vector<double> permeability,forchheimer,solid_conductivity;
+    // Thermal fields use the recorded SI lengths converted back to mm.
+    std::vector<double> area_density,hydraulic_diameter,thermal_porosity;
+    // Empty B storage keeps the symmetric A/B view identity.
+    std::vector<double> side_b_porosity;
+    geometry::asym::PreparedSides thermal_sides{.5,std::nullopt};
+    std::array<PreparedSide3D,2> sides;
+    PreparationEvidence evidence;
+    std::array<ScalarKind,2> length_kinds;
+};
+
 struct InletFlowRequest2D {
     CaseInput2D input;
     ScalarKind physical_depth_kind;
@@ -256,6 +317,22 @@ struct PreparedZonedFlowCase2D {
     ZonedInletFlow2D flow;
 };
 
+struct InletFlowRequest3D {
+    CaseInput3D input;
+    std::array<ScalarKind,2> target_kinds;
+    std::optional<std::array<double,2>> explicit_targets;
+};
+struct InletFlow3D {
+    CaseInput3D input;
+    bool have_capacities=false;
+    std::array<grid::Scalar,2> capacities{},speeds{};
+    PreparationEvidence evidence;
+};
+struct PreparedFlowCase3D {
+    PreparedCase3D prepared;
+    InletFlow3D flow;
+};
+
 struct PreparationFailureCause {std::uint32_t kind;std::string message;};
 class PreparationError : public std::runtime_error {
 public:
@@ -283,6 +360,17 @@ PreparedZonedCase2D prepare_zoned_case_2d(const ZonedInput2D&,
 // The caller retains this resource across preparations. Disk caches stay in the host.
 SigmoidLUT2D build_sigmoid_lut_2d(Topology,std::size_t cell_nodes=41,
     std::size_t wall_nodes=31,std::size_t resolution=256);
+// The 3D stage owns physical (x,y,z) fields and unswapped physical port masks.
+PreparedCase3D prepare_case_3d(const CaseInput3D&,const PreparationOptions& = {},
+                              const PreparationCallbacks& = {},CaseScope3D = CaseScope3D::symmetric_v3);
+
+InletFlow3D prepare_inlet_mass_capacities_3d(const CaseInput3D&,
+    const PreparationOptions& = {},const PreparationCallbacks& = {},CaseScope3D = CaseScope3D::symmetric_v3);
+InletFlow3D resolve_inlet_flow_3d(const InletFlowRequest3D&,
+    const PreparationOptions& = {},const PreparationCallbacks& = {},CaseScope3D = CaseScope3D::symmetric_v3);
+// Final evidence retains static-property records before resolved-speed checks.
+PreparedFlowCase3D prepare_flow_case_3d(const InletFlowRequest3D&,
+    const PreparationOptions& = {},const PreparationCallbacks& = {},CaseScope3D = CaseScope3D::symmetric_v3);
 
 // These queries do not evaluate Nu or create a complete prepared case.
 InletFlow2D prepare_inlet_mass_capacities_2d(const CaseInput2D&,ScalarKind physical_depth_kind={},

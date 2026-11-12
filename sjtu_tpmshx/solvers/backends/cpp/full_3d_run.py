@@ -12,6 +12,7 @@ class NativeFull3DRun(NativeRun):
     creation_version = 3
     advance_name = 'advance_step'
     result_type = _Result
+    result_release_name = 'tpmshx_full_3d_release_v1'
 
     def __init__(self, library, data, controls, energy, callbacks, *, model_h=None, state=None, cpu_threads=None):
         common = [ct.POINTER(_Input), ct.POINTER(_Control), ct.POINTER(_EnergyOptionsV2),

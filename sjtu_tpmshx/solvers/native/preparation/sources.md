@@ -22,7 +22,36 @@ They do not call the native formulas that they check.
 `src/preparation_case.cpp` owns raw spatial capacity, resolution and complete fixed-flow preparation.
 `prepare_spatial_inlet_geometry` uses the existing zone/sigmoid geometry and port cores before any speed-dependent closure.
 `prepare_capacities` and `resolve_speeds` reuse `src/preparation_flow.cpp` for capacity and target arithmetic.
-Final preparation retains the physical grid, spatial geometry and per-call cache, with the original requested-grid observations.
+Final preparation keeps the physical grid, spatial geometry and per-call cache, with the original requested-grid observations.
 Discrete design smoothing, sigmoid LUT geometry, thermal geometry and row D-F keep their separate owners and operation order.
 `src/preparation_case_c_api.cpp` exposes v8 inputs and owned views without changing earlier C layouts.
 The [external spatial flow caller](../../../../examples/cpp/prepare_spatial_flow_2d.cpp) uses installed headers and only the preparation library.
+
+## 3D preparation
+
+The separate `prepare_case_3d` sequence in [preparation_case.cpp](../src/preparation_case.cpp)
+uses the existing grid, geometry, property and DF cores.
+It retains the production 3D physical `(x,y,z)` order, six axis maps,
+typed port arithmetic and the resolved cell cap.
+Its uniform side porosity is already split. Base K/cF fields remain unscaled;
+side evidence records the CO2 or experimental application factors.
+The sequence keeps A then B inlet properties, air-only bulk Nu observations,
+then DF application evidence. Existing state and calibration limits remain.
+The raw C interface owns returned buffers and accepts v1 event callbacks.
+Python production preparation and its host cache hooks remain separate consumers.
+The separate 3D flow v2 uses the same static geometry and speed-dependent finish steps.
+It reuses `inlet_capacity_3d` and `inlet_speed` from `preparation_flow.cpp`.
+Capacity queries omit speed-dependent work. Complete preparation preserves one geometry and the original evidence order.
+Continuous v3 samples raw XY or XYZ controls through `field_continuous.cpp` on the final physical grid.
+`have_ctrl_z` preserves the XYZ rule when its control count is one.
+Raw and thermal geometry retain separate evaluation order and unit conversions.
+The existing geometry and DF owners provide full local fields without 2D row projection.
+Air range observations reuse `reynolds_point` with the original scalar and array types.
+Spatial v4 uses `zones::assign` on physical XY centres, then `gaussian_sigma2` on L and t separately.
+It extends those fields along z and retains the separate thermal SI round trip.
+`asym::prepare_from_index` supplies the existing nominal split and thermal side/reference geometry.
+`asym::split_porosity` applies each fraction to local symmetric total porosity.
+Capacity uses the corresponding side field. Base DF and solid conductivity keep the existing symmetric geometry.
+The raw owner copies rectangle inputs and keeps borrowed nested views with null owners.
+The v1/v2/v3 C layouts and their original scope remain unchanged.
+These interfaces add no 3D solve or capture and do not switch Python production preparation.

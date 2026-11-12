@@ -141,16 +141,46 @@ This project builds no full solver or run_state and needs no SuperLU or AMG.
 The full build script builds the pilot and preparation projects separately. They share one property and DF numerical implementation.
 The Python preparation entry calls the independent result library to collect range observations. The preparation library does not link it.
 
+The separate `preparation_case_3d_c_api.h` exposes uniform symmetric 3D preparation at prescribed inlet speeds.
+It supports both topologies and all 16 ordered fluid pairs with the existing state and experimental limits.
+The owner keeps physical grid fields, six port directions, scalar tags and model evidence.
+Side porosity is already split. K/cF fields remain unscaled; side evidence records the application factors.
+The host supplies the resolved cell cap. The [stage contract](native-stages.md#uniform-3d-preparation) defines ownership and port rules.
+Python 3D raw preparation retains its existing route.
+The separate 3D flow v2 adds capacity, resolution and complete preparation for configured or explicit total mass flow.
+It reuses one physical geometry and retains the original static-to-speed evidence order.
+The 3D continuous v3 adds XY extrusion and XYZ controls to those flow operations.
+It reuses the existing spline and geometry owners. Raw design fields and thermal SI round trips stay separate.
+The 3D spatial v4 adds raw XY grid rectangles and the existing global offset rules to all three operations.
+Existing zone and asymmetric owners supply assignment, smoothing, side porosity and nominal thermal side/reference geometry.
+The original air/water scope and experimental restrictions remain. The v1/v2/v3 C layouts remain unchanged.
+The separate `stage_run_3d_c_api.h` now connects all prepared 3D families and saved views to `Full3DRun`.
+It provides one-shot execution, steps, typed snapshots, restore and complete raw result transfer.
+Its capture owner supplies the independent result stage with final-flow and last-thermal evidence.
+See [native 3D execution](native-stages.md#native-3d-execution) for ownership and control defaults.
+Python full 3D execution uses the saved-input lifecycle through `full_3d_stage.py`.
+It shares input packing, callbacks and complete DTO decoding with the direct low-level driver.
+Native capture supplies the application reductions and audit outlet weights; `full_3d_capture.py` remains the single result assembler.
+Protocol selection precedes execution. Archived libraries retain their direct run and restore interfaces.
+Missing protocol symbols and native failures do not start another route.
+Host cache hooks and Python 3D raw preparation remain separate gates.
+Memory use near the cell cap and real 3D BO remain acceptance gates.
+This raw interface does not replace saved CaseData validation.
+
 `shared/models/_native_preparation.py` loads preparation ABI 1 through ctypes when needed.
 Named property, DF and flow adapters preserve the existing public Python interfaces.
-Full 2D preparation uses v7 domain/port scalar kinds with v3/v4 payloads.
+The Python entries for symmetric uniform and continuous 2D preparation use v7 domain/port scalar kinds with v3/v4 payloads.
 The shared grid and port cores retain mixed integer and narrow-float arithmetic.
 Raw spatial preparation v8 adds capacity, resolution and complete fixed-flow entries for air/air stripes, rectangles and sigmoid fields.
-These entries retain CFD drag and zero delta. They resolve speeds before Nu or transfer calculations and reuse the physical grid.
+These entries keep CFD drag and zero delta. They resolve speeds before Nu or transfer calculations and reuse the physical grid.
 The flow owner keeps copied regions, controls and LUTs. Its preliminary evidence stays separate from final preparation evidence.
-The v7 grid descriptor and v8 depth/target kinds retain scalar arithmetic; Python spatial routes and caches are unchanged.
+The v7 grid descriptor and v8 depth/target kinds keep scalar arithmetic; Python spatial routes and caches are unchanged.
 See [spatial stage interfaces](native-stages.md#spatial-total-mass-flow) for the six entries and their ownership contract.
 Saved prepared cases keep their recorded grids; the adapter does not reconstruct historical grids.
+Quick preparation v2 adds typed raw inputs and a separate pressure-fraction query.
+`shared/models/_native_quick_prepare.py` keeps host protocols through fixed named operations.
+The stage owns geometry, grid, property and pressure arithmetic and their execution order.
+The pressure query creates no thermal grid or design-field arrays.
 Preparation uses statuses 0 for success, 1 for invalid input, 2 for allocation and 3 for runtime errors.
 State errors use 10 for water, 11 for CO2 and 12 for sCO2.
 Geometry ABI 1 and field ABI 2 remain unchanged, with their own status mappings.
@@ -224,7 +254,10 @@ See [scope and delivery records](#cpp-core-scope).
 ## Native result core
 
 Independent result ABI 2 calculates metrics, signed physical balances, zone statistics and numerical qualification checks.
-Python selects recorded evidence and keeps status, reason, type and file interfaces.
+The result stage selects recorded evidence and owns full 2D/3D metric definitions, statuses and qualification.
+Python keeps public DTO and file interfaces, original object identity and NumPy event handling.
+The three independent result queries use the same native stage. The same stage owns Quick Design metric arithmetic. Fixed named host operations preserve its existing Python object, exact integer and conversion protocols.
+The versioned host query preserves deferred input errors and callback exceptions without changing the published v1 C layouts.
 The standalone `solvers/native/result/` project uses only C++17 and system libraries.
 It does not load the solver, preparation, geometry, CoolProp or model resources.
 
@@ -257,6 +290,17 @@ The [source and interface record](../sjtu_tpmshx/solvers/native/result/sources.m
 There is no numerical fallback, runtime compiler or universal numerical callback.
 
 ## Complete Quick Design capability
+
+The [Quick Design stage](native-stages.md#quick-design-stage) provides typed raw preparation v2 and a pressure-only query.
+It keeps the published native-double v1 preparation and run contracts.
+The v2 stage owns the original numerical and validation sequence.
+Fixed named host operations keep Python scalar, object, cache, warning and snapshot protocols.
+They do not supply model calculations. The former `shared/models/quick_design.py` is removed.
+Its independent frozen reference remains under `development/tests/` for regression checks.
+The thin preparation entry assembles CaseData and keeps stored counterflow `qtol=None` and `chunk=None`.
+Python execution calls the run stage with saved prepared fields.
+The stage supplies field arrays and declarations. Python copies them before release, keeps original fixed-field dtypes and maps pass warnings and errors.
+The native result stage owns Quick Design metrics and keeps the existing type and event protocols.
 
 `quick_design_driver.hpp` owns the complete prepared const/mean property-pass
 calculation. This includes original empirical air/water or HEOS sCO2 properties,
@@ -812,6 +856,9 @@ The generator does not import numerical model implementations.
 The build writes `tpmshx/model_coefficients.hpp` and `tpmshx/preparation_df_data.hpp` under the selected cache's `generated/` directory.
 The default directory is `.cache/native-deps/generated/`.
 C++ uses the generated constants without runtime JSON parsing or Python calls.
+The `quick_design` resource supplies conductivity, grid counts, geometry resolution, tolerance and arrangement controls.
+Both preparation versions and Python consumers use it. Counterflow qtol/chunk stay null in the resource and `None` in CaseData.
+The v1 prepared driver configuration keeps its resolved defaults: `max(tol*10, 1e-4)` and 250.
 Geometry, preparation and solver code use the declared model resources. Existing model identities, units, fitted coefficients and experimental conclusions stay unchanged.
 See [implementation and retirement scope](#cpp-core-scope) and [model resources](model-resources.en.md#当前资源与研究输出).
 
