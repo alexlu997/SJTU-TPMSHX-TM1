@@ -112,13 +112,15 @@ enum tpmshx_quick_host_operation_v2 {
     TPMSHX_QUICK_PRESSURE_RESULT, TPMSHX_QUICK_FRACTION_PACK,
     TPMSHX_QUICK_CONFIG_SNAPSHOT, TPMSHX_QUICK_UNIT_PACK,
     TPMSHX_QUICK_UNIT_RESULT, TPMSHX_QUICK_FINAL_SNAPSHOT,
-    TPMSHX_QUICK_FAILURE, TPMSHX_QUICK_SECTIONS_RESULT
+    TPMSHX_QUICK_FAILURE, TPMSHX_QUICK_SECTIONS_RESULT,
+    TPMSHX_QUICK_EOS_CACHE_LOOKUP, TPMSHX_QUICK_EOS_CACHE_STORE
 };
 /* A request is borrowed only during its callback. The operation fixes which
  * fields are inputs and outputs; see native-stages.md. Index identifies an
  * axis, positive-input slot or property (rho,mu,k,cp,Pr). Side is 0=A,1=B.
  * property_inputs carry already-broadcast buffers with original scalar tags.
- * property_values and geometry are observations, never writable model outputs.
+ * property_values supplies a stored EOS result only for cache lookup. Other
+ * property_values and geometry fields are observations, not model callbacks.
  * Host scalars/flags/text contain only raw packing or fixed operator results.
  */
 typedef struct {

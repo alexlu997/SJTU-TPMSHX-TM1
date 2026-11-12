@@ -13,6 +13,7 @@ from sjtu_tpmshx.development.tests.native.test_result_metrics import assert_valu
 from sjtu_tpmshx.preprocess.app_modes import quick_design as production
 from sjtu_tpmshx.shared.domain.run_warnings import warning_scope
 from sjtu_tpmshx.shared.models.tpms_geometry import compute_geometry
+from sjtu_tpmshx.shared.models import co2_props, sco2_props
 
 
 def _case(**changes):
@@ -426,3 +427,91 @@ def test_pressure_options_are_copied_separately_for_each_side():
             return 'cfd_full_core_3cell_fixed_v2'
     _value(_compare(lambda: _args(df_options=Options()), pressure=True, trace=trace))
     assert trace.count(('item', 'method')) == 2
+
+
+@pytest.mark.parametrize('side', ['hot', 'cold'])
+@pytest.mark.parametrize('label', ['sco2', ' SCO2 '])
+@pytest.mark.parametrize('temperature', [480., 'invalid-temperature'])
+def test_sco2_missing_pressure_precedes_temperature_conversion(side, label, temperature):
+    suffix = 'h' if side == 'hot' else 'c'
+    actual = _compare(lambda: _args(case=_case(**{side + '_fluid': label,
+        'T_in_' + suffix: temperature, 'P_in_' + suffix: None})), pressure=True)
+    assert actual['result'][1] == (ValueError, (
+        'sCO2 properties require pressure P [Pa]; caller passed P=None. '
+        'Fix the call site to forward the inlet/local pressure.',), None)
+
+
+@pytest.mark.parametrize('side', ['hot', 'cold'])
+@pytest.mark.parametrize('temperatures,pressures', [([np.nan, 480.], [9e6] * 3),
+    ([480.] * 2, [9e6] * 3), ([200., 480.], [9e6] * 3),
+    ([480.] * 2, [np.nan, 9e6, 9e6])])
+def test_sco2_shape_failures_keep_original_state_precedence(side, temperatures, pressures):
+    suffix = 'h' if side == 'hot' else 'c'
+    actual = _compare(lambda: _args(case=_case(**{side + '_fluid': 'sco2',
+        'T_in_' + suffix: np.asarray(temperatures),
+        'P_in_' + suffix: np.asarray(pressures)})), pressure=True)
+    assert actual['result'][0] == 'error'
+
+
+@pytest.mark.parametrize('pressure', [False, True])
+@pytest.mark.parametrize('fluid', ['sco2', 'co2'])
+@pytest.mark.parametrize('warm', [False, True])
+def test_eos_scalar_caches_share_external_warming_and_clear(pressure, fluid, warm):
+    owner = sco2_props._prop if fluid == 'sco2' else co2_props._scalar
+    external = sco2_props.sco2_prop if fluid == 'sco2' else co2_props.co2_prop
+    outcomes = []
+    for function in _functions(pressure):
+        owner.cache_clear()
+        compute_geometry.cache_clear()
+        if warm:
+            external('D', 480., 9e6)
+        arguments = _args(case=_case(hot_fluid=fluid))
+        if not pressure:
+            arguments['case_id'] = 'eos-cache'
+        rows = []
+        for clear in (False, False, True):
+            if clear:
+                owner.cache_clear()
+            observed = _observe(function, arguments)
+            _value(observed)
+            rows.append((observed, tuple(owner.cache_info())))
+        outcomes.append(rows)
+    assert_value(outcomes[1], outcomes[0])
+    assert outcomes[1][-1][1] == ((0, 4, 4096, 4) if fluid == 'sco2' else (3, 1, 4096, 1))
+    owner.cache_clear()
+
+
+@pytest.mark.parametrize('fluid,temperature,pressure_value,expected', [
+    ('sco2', 200., 9e6, (0, 1, 4096, 0)),
+    ('co2', 480., -1., (0, 0, 4096, 0)),
+    ('sco2', np.asarray([480.]), np.asarray([9e6]), (0, 0, 4096, 0)),
+    ('co2', np.asarray([480.]), np.asarray([9e6]), (0, 0, 4096, 0)),
+])
+def test_eos_cache_failures_and_array_queries_do_not_publish(fluid, temperature, pressure_value, expected):
+    owner = sco2_props._prop if fluid == 'sco2' else co2_props._scalar
+    outcomes = []
+    for function in _functions(True):
+        owner.cache_clear()
+        compute_geometry.cache_clear()
+        observed = _observe(function, _args(case=_case(hot_fluid=fluid,
+            T_in_h=temperature, P_in_h=pressure_value)))
+        outcomes.append((observed, tuple(owner.cache_info())))
+    assert_value(outcomes[1], outcomes[0])
+    assert outcomes[1][1] == expected
+    owner.cache_clear()
+
+
+def test_co2_failed_scalar_eos_query_counts_a_miss_without_publication():
+    import CoolProp.CoolProp as CP
+    temperature, pressure = CP.PropsSI('Tcrit', 'CO2'), CP.PropsSI('Pcrit', 'CO2')
+    outcomes = []
+    for function in _functions(True):
+        co2_props._scalar.cache_clear()
+        compute_geometry.cache_clear()
+        observed = _observe(function, _args(case=_case(hot_fluid='co2',
+            T_in_h=temperature, P_in_h=pressure)))
+        outcomes.append((observed, tuple(co2_props._scalar.cache_info())))
+    assert_value(outcomes[1], outcomes[0])
+    assert outcomes[1][0]['result'][1][0] is ValueError
+    assert outcomes[1][1] == (0, 1, 4096, 0)
+    co2_props._scalar.cache_clear()

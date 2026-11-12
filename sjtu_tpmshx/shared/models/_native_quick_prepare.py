@@ -15,7 +15,7 @@ from sjtu_tpmshx.shared.domain.run_warnings import range_context, record_range
 from sjtu_tpmshx.shared.df_surrogate import predict as df
 from . import _native_df, _native_flow, _native_geometry, _native_grid, _native_preparation, _native_properties
 from . import fluid_props as registry
-from . import tpms_geometry, tpms_props
+from . import co2_props, sco2_props, tpms_geometry, tpms_props
 from ._native_preparation_case import _Array, _GeometryCache, _Text
 
 
@@ -317,8 +317,29 @@ class _HostState:
             self.sections = [_native_flow._restore(request.scalars[n]) for n in range(4)]
             self.sections[1] = self.length
             self.sections[3] = self.s if self.cross else self.length
+        elif operation in (29, 30):
+            self.eos_cache(request, publish=operation == 30)
         else:
             raise RuntimeError(f'unknown Quick host operation {operation}')
+
+    def eos_cache(self, request, *, publish):
+        if self.eos_temperature.ndim or self.eos_pressure.ndim:
+            return
+        sco2 = request.flags[0] == 2
+        owner = sco2_props._prop if sco2 else co2_props._scalar
+        state = (float(self.eos_temperature), float(self.eos_pressure))
+        key = (('D', 'V', 'L', 'C')[request.index], *state) if sco2 else state
+        if publish:
+            values = tuple(float(value) for value in _copy(request.property_values))
+            owner.store(key, None, values[0] if sco2 else values)
+            return
+        found, value = owner.lookup(key)
+        request.flags[1] = found
+        if found:
+            self.property_shape = ()
+            self.buffers = [np.asarray([value] if sco2 else value, dtype=np.float64)]
+            storage = self.buffers[0]
+            request.property_values = _Array(storage.ctypes.data_as(ct.POINTER(_D)), storage.size)
 
     def state_pack(self, request):
         _fluid, temperature, pressure = self.inlet
@@ -345,6 +366,8 @@ class _HostState:
             if getter == 7:
                 self.property_shape = ()
         else:
+            if fluid == 2:
+                registry._require_sco2_pressure(pressure)
             if fluid == 3 and pressure is None:
                 raise ValueError('CO2 requires absolute pressure P in Pa')
             self.eos_temperature, self.eos_pressure = np.asarray(temperature, dtype=float), np.asarray(pressure, dtype=float)
@@ -412,7 +435,9 @@ class _HostState:
                 raise problem from None
             cause = registry.WaterStateError(message) if failure.reason == 6 else ValueError(message)
             raise problem from cause
-        if phase in (2, 4, 5) and request.status in (11, 12):
+        if phase == 4 and request.status == 12:
+            sco2_props._raise_state_error(message, failure, self.eos_temperature, self.eos_pressure)
+        if phase in (2, 5) and request.status in (11, 12):
             raise ValueError(message) from None
         if phase == 3 and request.status == 11:
             prefix = ('CO2 requires a stable single-phase PT state; '

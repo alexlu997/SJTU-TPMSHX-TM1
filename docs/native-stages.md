@@ -312,6 +312,8 @@ Fields described as observations are read-only. Other listed fields carry raw pa
 | `OPERATING_SNAPSHOT` | Capture original operating values and resolved DF options; no numerical output. |
 | `PROPERTY_ENTRY` | Open the side's range scope; return the validated fluid label in `text`. |
 | `STATE_PACK`, `PROPERTY_PACK` | Pack broadcast operands in `property_inputs`. `flags[0]` identifies the fluid; state `flags[1]` selects scalar EOS return shape. Property `index` selects the getter. |
+| `EOS_CACHE_LOOKUP` | `flags[0]` identifies sCO2 or CO2. Return a hit in `flags[1]` and the completed scalar value or five-value bundle in `property_values`. The stage copies and checks the view. |
+| `EOS_CACHE_STORE` | Observe a completed scalar result in `property_values` and publish it through the existing cache owner. No calculation is permitted. |
 | `PROPERTY_RESULT` | Observe property arrays, kind, category and floating events. Restore the host scalar/array and deliver NumPy events. |
 | `PRANDTL_PACK` | Pack mu, cp and k in `property_inputs`, with `imaginary_inputs` and `categories` for the original value protocols. |
 | `SECTIONS_PACK` | Pack porosity, span, length and height in `scalars[0:4]`; `flags[0]` returns the original crossflow comparison. |
@@ -330,6 +332,9 @@ Fields described as observations are read-only. Other listed fields carry raw pa
 The geometry cache callback uses action 0 for lookup and action 1 for publication.
 A hit supplies a completed geometry value and sets `hit=1`; a miss sets `hit=0` and C++ computes the value.
 Python keeps the shared cache key, hit/miss behavior and original stored value types. It does not add a Quick-only cache.
+The EOS operations share `sco2_props._prop` and `co2_props._scalar`, including their original 4096-item limit and keys.
+sCO2 looks up scalar entries before state validation; CO2 validates first. Arrays bypass both scalar caches.
+Only successful native calculations publish values. External property calls and cache clearing use these same owners.
 The replaced `shared/models/quick_design.py` is removed. Its frozen reference in `development/tests/quick_prepare_reference.py` remains for independent regression checks.
 `preprocess/app_modes/quick_design.py` only assembles CaseData from copied native fields and host snapshots.
 

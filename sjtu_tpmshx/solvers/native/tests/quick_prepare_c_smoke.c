@@ -26,6 +26,8 @@ static tpmshx_quick_pressure_v2 pressure(void) {
 struct context {
     size_t widths,properties,pressures;uint32_t stop;void* alias;
     uint32_t populated;tpmshx_preparation_geometry_cache_v3 geometry;
+    uint32_t use_eos,eos_have[4];double eos_values[4][5];size_t eos_sizes[4];
+    size_t eos_lookups,eos_hits,eos_stores,eos_bad_size;void* eos_alias;
 };
 static int TPMSHX_PREPARATION_CALL cached_geometry(void* raw,uint32_t action,
     tpmshx_preparation_geometry_cache_v3* value,uint32_t* hit) {
@@ -44,6 +46,21 @@ static int TPMSHX_PREPARATION_CALL observe(void* raw,tpmshx_quick_host_request_v
     if(state->alias && request->operation==TPMSHX_QUICK_PROPERTY_PACK) {
         request->property_inputs[0].values=(const double*)state->alias;
         request->property_inputs[0].count=1;
+    }
+    if(state->use_eos && request->operation==TPMSHX_QUICK_EOS_CACHE_LOOKUP) {
+        size_t at=request->flags[0]==3?0:request->index;
+        ++state->eos_lookups;
+        if(state->eos_have[at]) {
+            ++state->eos_hits;request->flags[1]=1;
+            request->property_values.data=state->eos_alias?(const double*)state->eos_alias:state->eos_values[at];
+            request->property_values.size=state->eos_bad_size?state->eos_bad_size:state->eos_sizes[at];
+        }
+    }
+    if(state->use_eos && request->operation==TPMSHX_QUICK_EOS_CACHE_STORE) {
+        size_t at=request->flags[0]==3?0:request->index;
+        ++state->eos_stores;state->eos_have[at]=1;state->eos_sizes[at]=request->property_values.size;
+        if(request->property_values.size>5)return 1;
+        memcpy(state->eos_values[at],request->property_values.data,request->property_values.size*sizeof(double));
     }
     return request->operation==state->stop;
 }
@@ -117,6 +134,26 @@ int main(void) {
             tpmshx_quick_prepared_release_v2(&full);
         }
     }
-    puts("Quick preparation v2: owned fields, typed controls, pressure query and failure boundaries passed");
+    {
+        const char* fluids[]={"sco2","co2"};size_t fluid;
+        for(fluid=0;fluid<2;++fluid) {
+            double first;memset(&state,0,sizeof(state));state.use_eos=1;
+            raw=input();raw.fluids[0]=text(fluids[fluid]);dp=pressure();full=prepared();
+            CHECK(tpmshx_quick_pressure_fractions_v2(&raw,&callbacks,&dp,error,sizeof(error))==0);
+            first=dp.fractions[0].value;
+            CHECK(state.eos_lookups==4 && state.eos_stores==(fluid?1u:4u) && state.eos_hits==(fluid?3u:0u));
+            CHECK(tpmshx_prepare_quick_design_v2(&raw,&callbacks,&full,error,sizeof(error))==0);
+            CHECK(full.fractions[0].value==first && state.eos_lookups==8 && state.eos_hits==(fluid?7u:4u));
+            tpmshx_quick_prepared_release_v2(&full);
+            dp=pressure();state.eos_bad_size=2;
+            CHECK(tpmshx_quick_pressure_fractions_v2(&raw,&callbacks,&dp,error,sizeof(error))!=0);
+            CHECK(dp.fractions[0].precision==0);state.eos_bad_size=0;state.eos_alias=&dp;
+            CHECK(tpmshx_quick_pressure_fractions_v2(&raw,&callbacks,&dp,error,sizeof(error))!=0);
+            CHECK(dp.fractions[0].precision==0);state.eos_alias=0;state.stop=TPMSHX_QUICK_EOS_CACHE_LOOKUP;
+            CHECK(tpmshx_quick_pressure_fractions_v2(&raw,&callbacks,&dp,error,sizeof(error))==TPMSHX_QUICK_HOST_FAILURE);
+            CHECK(dp.fractions[0].precision==0);
+        }
+    }
+    puts("Quick preparation v2: owned fields, typed controls, EOS caches and failure boundaries passed");
     return 0;
 }

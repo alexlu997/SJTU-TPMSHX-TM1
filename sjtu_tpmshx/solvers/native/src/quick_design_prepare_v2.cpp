@@ -231,19 +231,34 @@ struct Engine {
             if(fluids[side]<2) {
                 output=property_call([&]{return p::empirical(static_cast<p::Empirical>(fluids[side]?4+at:air_getters[at]),first,second);},side,1,at);
             } else {
-                property_call([&]{if(fluids[side]==3)p::validate_co2_pt(first.values,second.values);
-                    else p::validate_sco2(first.values,second.values);return 0;},side,fluids[side]==3?2:4,at);
-                auto query=request(TPMSHX_QUICK_STATE_PACK,side,at+1);query.flags[0]=fluids[side];query.flags[1]=1;
-                query.property_inputs[0]=pack.property_inputs[0];query.property_inputs[1]=pack.property_inputs[1];call(query);
-                const auto t=property(query.property_inputs[0]),pr=property(query.property_inputs[1]);
-                output.values=property_call([&]{
-                    if(fluids[side]==3) {
-                        auto queried=p::co2_pt({at},t.values,pr.values,query.flags[1]!=0);
-                        return query.flags[1]?std::vector<double>{queried.at(at)}:queried;
+                if(fluids[side]==3)
+                    property_call([&]{p::validate_co2_pt(first.values,second.values);return 0;},side,2,at);
+                auto cache=request(TPMSHX_QUICK_EOS_CACHE_LOOKUP,side,at);
+                cache.flags[0]=fluids[side];call(cache);flag(cache.flags[1]);
+                std::vector<double> values;uint32_t scalar_output=1;
+                if(cache.flags[1]) {
+                    safe(cache.property_values.data,cache.property_values.size);
+                    if(cache.property_values.size!=(fluids[side]==3?5u:1u))
+                        throw std::invalid_argument("Quick EOS cache extent is incorrect");
+                    values.assign(cache.property_values.data,cache.property_values.data+cache.property_values.size);
+                } else {
+                    if(fluids[side]==2)
+                        property_call([&]{p::validate_sco2(first.values,second.values);return 0;},side,4,at);
+                    auto query=request(TPMSHX_QUICK_STATE_PACK,side,at+1);query.flags[0]=fluids[side];query.flags[1]=1;
+                    query.property_inputs[0]=pack.property_inputs[0];query.property_inputs[1]=pack.property_inputs[1];call(query);
+                    flag(query.flags[1]);scalar_output=query.flags[1];
+                    const auto t=property(query.property_inputs[0]),pr=property(query.property_inputs[1]);
+                    values=property_call([&]{
+                        if(fluids[side]==3)return p::co2_pt({at},t.values,pr.values,scalar_output!=0);
+                        return p::sco2_pt(scalar_output?0:1,{eos_keys[at]},t.values,pr.values);
+                    },side,fluids[side]==3?3:5,at);
+                    if(scalar_output) {
+                        auto store=request(TPMSHX_QUICK_EOS_CACHE_STORE,side,at);
+                        store.flags[0]=fluids[side];store.property_values=view(values);call(store);
                     }
-                    return p::sco2_pt(query.flags[1]?0:1,{eos_keys[at]},t.values,pr.values);
-                },side,fluids[side]==3?3:5,at);
-                output.kind={0.,64,query.flags[1]?0u:1u};
+                }
+                output.values=fluids[side]==3 && scalar_output?std::vector<double>{values.at(at)}:std::move(values);
+                output.kind={0.,64,scalar_output?0u:1u};
             }
             observe_property(side,at);
         }

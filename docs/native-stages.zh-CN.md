@@ -265,6 +265,8 @@ C++ 选择每项操作及数值分支；宿主操作可打包原始操作数或�
 | `OPERATING_SNAPSHOT` | 捕获原工况值及已解析 DF 选项，不输出数值。 |
 | `PROPERTY_ENTRY` | 打开该侧范围作用域，在 `text` 返回已验证流体标签。 |
 | `STATE_PACK`、`PROPERTY_PACK` | 在 `property_inputs` 打包广播后的操作数。`flags[0]` 标识流体，状态 `flags[1]` 选择标量 EOS 返回 shape；物性 `index` 选择 getter。 |
+| `EOS_CACHE_LOOKUP` | `flags[0]` 标识 sCO2 或 CO2；`flags[1]` 返回命中状态，`property_values` 提供已完成的标量值或五值组合。阶段检查并复制该视图。 |
+| `EOS_CACHE_STORE` | 在 `property_values` 观测已完成的标量结果，通过既有缓存 owner 发布；不得执行计算。 |
 | `PROPERTY_RESULT` | 观测物性数组、kind、category 和浮点事件，恢复宿主标量／数组并送达 NumPy 事件。 |
 | `PRANDTL_PACK` | 在 `property_inputs` 打包 mu、cp、k；`imaginary_inputs` 和 `categories` 保留原值协议。 |
 | `SECTIONS_PACK` | `scalars[0:4]` 打包孔隙率、宽度、长度和高度；`flags[0]` 返回原叉流比较。 |
@@ -283,6 +285,9 @@ C++ 选择每项操作及数值分支；宿主操作可打包原始操作数或�
 几何缓存回调以 action 0 查询、action 1 发布。
 命中时提供已完成的几何值并设置 `hit=1`；未命中时设置 `hit=0`，由 C++ 计算。
 Python 保留共享缓存键、命中／未命中行为及原存储值类型，不增加 Quick 专用缓存。
+EOS 操作共享 `sco2_props._prop` 与 `co2_props._scalar`，保留原 4096 项上限及键。
+sCO2 在状态校验前查找标量缓存，CO2 先校验；数组均绕过标量缓存。
+只有成功的原生计算发布结果；外部物性调用和缓存清空使用同一 owner。
 被替代的 `shared/models/quick_design.py` 已删除；冻结参考 `development/tests/quick_prepare_reference.py` 保留用于独立回归检查。
 `preprocess/app_modes/quick_design.py` 只用复制的原生场和宿主快照组装 CaseData。
 
