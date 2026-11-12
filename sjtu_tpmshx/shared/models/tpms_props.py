@@ -95,6 +95,13 @@ def _warn_range_once(name: str, T, lo: float, hi: float) -> None:
         return
     T_min = float(T_arr.min())
     T_max = float(T_arr.max())
+    message = _range_notice(name, T_min, T_max, lo, hi)
+    if message is not None:
+        warnings.warn(message, stacklevel=3)
+
+
+def _range_notice(name, T_min, T_max, lo, hi):
+    """Select the existing standalone message and consume its registry key."""
     if T_min < lo or T_max > hi:
         message = (
             f"{name}: T=[{T_min:.1f}, {T_max:.1f}] K outside fitted range "
@@ -103,7 +110,7 @@ def _warn_range_once(name: str, T, lo: float, hi: float) -> None:
         if key in _range_warnings_emitted:
             return
         _range_warnings_emitted.add(key)
-        warnings.warn(message, stacklevel=3)
+        return message
 
 
 def air_viscosity(T_K: float) -> float:

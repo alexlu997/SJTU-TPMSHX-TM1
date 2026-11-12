@@ -57,6 +57,7 @@ set_property(SOURCE
     "${TPMSHX_NATIVE_ROOT}/src/temperature_staggered.cpp"
     "${TPMSHX_NATIVE_ROOT}/src/model_h_2d.cpp"
     "${TPMSHX_NATIVE_ROOT}/src/model_h_3d.cpp"
+    "${TPMSHX_NATIVE_ROOT}/src/preparation_flow.cpp"
     "${TPMSHX_NATIVE_ROOT}/tests/conservative_energy_smoke.cpp"
     APPEND PROPERTY COMPILE_OPTIONS "${TPMSHX_ENERGY_ROW_FP_OPTION}")
 unset(TPMSHX_ENERGY_ROW_FP_OPTION)
@@ -226,9 +227,33 @@ add_library(tpmshx_solver_shared SHARED "${TPMSHX_NATIVE_ROOT}/src/solver_c_api.
     "${TPMSHX_NATIVE_ROOT}/src/full_2d_c_api.cpp" "${TPMSHX_NATIVE_ROOT}/src/full_3d_c_api.cpp")
 target_compile_definitions(tpmshx_solver_shared PRIVATE TPMSHX_THERMAL_BUILD_SHARED)
 target_link_libraries(tpmshx_solver_shared PUBLIC tpmshx_quick_design tpmshx_full_2d tpmshx_full_3d)
+# Reuse the result arithmetic without a shared result-library dependency.
+add_library(tpmshx_capture_math STATIC
+    "${TPMSHX_NATIVE_ROOT}/src/result_core.cpp"
+    "${TPMSHX_NATIVE_ROOT}/src/result_arithmetic.cpp"
+    "${TPMSHX_NATIVE_ROOT}/src/result_metrics.cpp")
+target_include_directories(tpmshx_capture_math PUBLIC "${TPMSHX_NATIVE_ROOT}/include")
+set_target_properties(tpmshx_capture_math PROPERTIES CXX_VISIBILITY_PRESET hidden
+    C_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES)
+if(APPLE)
+    target_sources(tpmshx_capture_math PRIVATE "${TPMSHX_NATIVE_ROOT}/src/result_complex_sqrt.c")
+    target_compile_features(tpmshx_capture_math PRIVATE c_std_11)
+    set_source_files_properties("${TPMSHX_NATIVE_ROOT}/src/result_complex_sqrt.c" PROPERTIES
+        COMPILE_OPTIONS "-fno-builtin-csqrt;-fno-builtin-csqrtf;-fno-builtin-csqrtl")
+endif()
+if(MSVC)
+    target_compile_options(tpmshx_capture_math PRIVATE /W4 /WX /EHsc /fp:strict /utf-8)
+else()
+    target_compile_options(tpmshx_capture_math PRIVATE -Wall -Wextra -Wpedantic -Werror
+        -fno-fast-math -ffp-contract=off -fno-builtin-pow)
+endif()
 foreach(target IN ITEMS tpmshx_solver tpmshx_solver_shared)
+    target_link_libraries(${target} PRIVATE tpmshx_capture_math)
     target_sources(${target} PRIVATE "${TPMSHX_NATIVE_ROOT}/src/stage_run.cpp"
-        "${TPMSHX_NATIVE_ROOT}/src/stage_capture_2d.cpp")
+        "${TPMSHX_NATIVE_ROOT}/src/preparation_flow.cpp"
+        "${TPMSHX_NATIVE_ROOT}/src/stage_capture_2d.cpp"
+        "${TPMSHX_NATIVE_ROOT}/src/stage_run_3d.cpp"
+        "${TPMSHX_NATIVE_ROOT}/src/stage_capture_3d.cpp")
 endforeach()
 set_target_properties(tpmshx_solver_shared PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS OFF)
 if(APPLE)

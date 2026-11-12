@@ -7,7 +7,7 @@ import warnings
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.preprocess.api import prepare_case
+from sjtu_tpmshx.development.tests.preparation_api_reference import prepare_case
 from sjtu_tpmshx.shared.domain.compute_config import ComputeConfig
 from sjtu_tpmshx.shared.models._native_preparation import _library_path
 
@@ -192,11 +192,11 @@ def test_native_preparation_matches_existing_stage(native, monkeypatch, selectio
     monkeypatch.delenv('TPMSHX_ALLOW_EXTRAP', raising=False)
     from sjtu_tpmshx.shared.models.tpms_calc import compute
     compute.cache_clear()
-    from sjtu_tpmshx.preprocess.two_d import preparation
+    from sjtu_tpmshx.development.tests import preparation_case_reference as preparation
     expected_events = []
     monkeypatch.setattr(preparation._log, 'info', lambda message: expected_events.append(
         (0, preparation._log.name, message, 0)))
-    from sjtu_tpmshx.preprocess import api
+    from sjtu_tpmshx.development.tests import preparation_api_reference as api
     from sjtu_tpmshx.shared.domain.run_warnings import RangeRecord, range_observations, warning_scope
     reference_records = {}
     @contextmanager

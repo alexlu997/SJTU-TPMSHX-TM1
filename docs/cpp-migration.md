@@ -141,6 +141,27 @@ This project builds no full solver or run_state and needs no SuperLU or AMG.
 The full build script builds the pilot and preparation projects separately. They share one property and DF numerical implementation.
 The Python preparation entry calls the independent result library to collect range observations. The preparation library does not link it.
 
+The separate `preparation_case_3d_c_api.h` exposes uniform symmetric 3D preparation at prescribed inlet speeds.
+It supports both topologies and all 16 ordered fluid pairs with the existing state and experimental limits.
+The owner keeps physical grid fields, six port directions, scalar tags and model evidence.
+Side porosity is already split. K/cF fields remain unscaled; side evidence records the application factors.
+The host supplies the resolved cell cap. The [stage contract](native-stages.md#uniform-3d-preparation) defines ownership and port rules.
+The Python 3D production routes remain unchanged.
+The separate 3D flow v2 adds capacity, resolution and complete preparation for configured or explicit total mass flow.
+It reuses one physical geometry and retains the original static-to-speed evidence order.
+The 3D continuous v3 adds XY extrusion and XYZ controls to those flow operations.
+It reuses the existing spline and geometry owners. Raw design fields and thermal SI round trips stay separate.
+The 3D spatial v4 adds raw XY grid rectangles and the existing global offset rules to all three operations.
+Existing zone and asymmetric owners supply assignment, smoothing, side porosity and nominal thermal side/reference geometry.
+The original air/water scope and experimental restrictions remain. The v1/v2/v3 C layouts remain unchanged.
+The separate `stage_run_3d_c_api.h` now connects all prepared 3D families and saved views to `Full3DRun`.
+It provides one-shot execution, steps, typed snapshots, restore and complete raw result transfer.
+Its capture owner supplies the independent result stage with final-flow and last-thermal evidence.
+See [native 3D execution](native-stages.md#native-3d-execution) for ownership and control defaults.
+Host cache hooks, Python 3D preparation and production run integration remain separate gates.
+Memory use near the cell cap and real 3D BO remain acceptance gates.
+This raw interface does not replace saved CaseData validation.
+
 `shared/models/_native_preparation.py` loads preparation ABI 1 through ctypes when needed.
 Named property, DF and flow adapters preserve the existing public Python interfaces.
 Preparation uses statuses 0 for success, 1 for invalid input, 2 for allocation and 3 for runtime errors.
