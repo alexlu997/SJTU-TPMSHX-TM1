@@ -9,6 +9,10 @@
 #define TPMSHX_PREPARATION_CASE_ABI_VERSION_V2 2u
 #define TPMSHX_PREPARATION_CASE_ABI_VERSION_V3 3u
 #define TPMSHX_PREPARATION_CASE_ABI_VERSION_V4 4u
+#define TPMSHX_PREPARATION_CASE_ABI_VERSION_V5 5u
+#define TPMSHX_PREPARATION_CASE_ABI_VERSION_V6 6u
+#define TPMSHX_PREPARATION_CASE_ABI_VERSION_V7 7u
+#define TPMSHX_PREPARATION_CASE_ABI_VERSION_V8 8u
 
 typedef struct {
     int32_t direction;
@@ -235,6 +239,12 @@ typedef struct {
     int (TPMSHX_PREPARATION_CALL *observe_range)(void*,uint32_t,const tpmshx_preparation_range_v1*,uint32_t,uint32_t,double);
     int (TPMSHX_PREPARATION_CALL *observe_notice)(void*,uint32_t,uint32_t,double,tpmshx_preparation_text_v1);
 } tpmshx_preparation_case_callbacks_v3;
+/* V4 retains the v3 layout. Set the nested ABI to 4. It also calls the host
+ * input hook at stage=3,side=2 immediately before physical grid construction.
+ * This check preserves host object errors after earlier preparation checks.
+ * Earlier callback versions do not receive this stage. No value is returned.
+ */
+typedef tpmshx_preparation_case_callbacks_v3 tpmshx_preparation_case_callbacks_v4;
 typedef struct {
     uint32_t abi_version;
     size_t struct_size;
@@ -286,6 +296,117 @@ typedef struct {
     tpmshx_preparation_continuous_drag_v4 drag[2];
     void* owner;
 } tpmshx_preparation_continuous_case_2d_v4;
+
+
+typedef struct {
+    tpmshx_preparation_text_v1 name;
+    tpmshx_grid_scalar_v1 bounds[4];
+    double cell_length_mm,wall_thickness_mm;
+    tpmshx_preparation_scalar_kind_v2 cell_kind,wall_kind;
+} tpmshx_preparation_zone_region_v5;
+typedef struct {
+    uint32_t abi_version;
+    size_t struct_size;
+    tpmshx_preparation_case_input_2d_v2 values;
+    uint32_t kind,axis;
+    const tpmshx_preparation_zone_region_v5* regions;
+    size_t region_count;
+} tpmshx_preparation_zoned_input_2d_v5;
+typedef struct {
+    tpmshx_preparation_zone_region_v5 region;
+    tpmshx_preparation_geometry_cache_v3 geometry,property_geometry[2];
+    double solid_conductivity;
+    tpmshx_preparation_inlet_properties_v1 properties[2];
+    tpmshx_preparation_scalar_kind_v2 property_kinds[2][13];
+} tpmshx_preparation_zone_values_v5;
+typedef struct {
+    uint32_t abi_version;
+    size_t struct_size;
+    tpmshx_preparation_case_2d_v2 prepared;
+    uint32_t kind,axis;
+    const tpmshx_preparation_zone_values_v5* regions;
+    size_t region_count;
+    const int32_t* zone_id;
+    size_t cell_count;
+    tpmshx_preparation_array_v1 thermal_porosity,area_density_per_m,hydraulic_diameter_m,design_area_density_per_m;
+    tpmshx_preparation_array_v1 fluid_conductivity[2],volumetric_transfer[2];
+    void* owner;
+} tpmshx_preparation_zoned_case_2d_v5;
+
+typedef struct {
+    tpmshx_preparation_array_v1 cell_mm,wall_mm,porosity,area_density_per_m;
+    uint32_t porosity_fast,area_fast;
+} tpmshx_preparation_sigmoid_lut_view_v6;
+typedef struct {
+    uint32_t abi_version;
+    size_t struct_size;
+    tpmshx_preparation_sigmoid_lut_view_v6 values;
+    void* owner;
+} tpmshx_preparation_sigmoid_lut_v6;
+typedef struct {
+    tpmshx_preparation_array_v1 decision_mm;
+    tpmshx_grid_scalar_v1 inlet_transition,outlet_transition;
+} tpmshx_preparation_sigmoid_controls_2d_v6;
+typedef struct {
+    uint32_t abi_version;
+    size_t struct_size;
+    tpmshx_preparation_zoned_input_2d_v5 values;
+    tpmshx_preparation_sigmoid_controls_2d_v6 controls;
+    tpmshx_preparation_sigmoid_lut_view_v6 lut;
+} tpmshx_preparation_sigmoid_input_2d_v6;
+typedef struct {
+    uint32_t abi_version;
+    size_t struct_size;
+    tpmshx_preparation_zoned_case_2d_v5 values;
+    tpmshx_preparation_sigmoid_controls_2d_v6 controls;
+    void* owner;
+} tpmshx_preparation_sigmoid_case_2d_v6;
+
+typedef struct {
+    uint32_t abi_version;
+    size_t struct_size;
+    tpmshx_preparation_zoned_input_2d_v5 values;
+    tpmshx_preparation_scalar_kind_v2 physical_depth_kind,target_kinds[2];
+    uint32_t have_explicit_targets;
+    double explicit_targets_kg_s[2];
+} tpmshx_preparation_zoned_flow_input_2d_v8;
+typedef struct {
+    uint32_t abi_version;
+    size_t struct_size;
+    tpmshx_preparation_flow_2d_v3 flow;
+    tpmshx_preparation_zoned_input_2d_v5 input;
+    void* owner;
+} tpmshx_preparation_zoned_flow_2d_v8;
+typedef struct {
+    uint32_t abi_version;
+    size_t struct_size;
+    tpmshx_preparation_zoned_case_2d_v5 prepared;
+    tpmshx_preparation_zoned_flow_2d_v8 flow;
+    void* owner;
+} tpmshx_preparation_zoned_flow_case_2d_v8;
+
+typedef struct {
+    uint32_t abi_version;
+    size_t struct_size;
+    tpmshx_preparation_sigmoid_input_2d_v6 values;
+    tpmshx_preparation_scalar_kind_v2 physical_depth_kind,target_kinds[2];
+    uint32_t have_explicit_targets;
+    double explicit_targets_kg_s[2];
+} tpmshx_preparation_sigmoid_flow_input_2d_v8;
+typedef struct {
+    uint32_t abi_version;
+    size_t struct_size;
+    tpmshx_preparation_flow_2d_v3 flow;
+    tpmshx_preparation_sigmoid_input_2d_v6 input;
+    void* owner;
+} tpmshx_preparation_sigmoid_flow_2d_v8;
+typedef struct {
+    uint32_t abi_version;
+    size_t struct_size;
+    tpmshx_preparation_sigmoid_case_2d_v6 prepared;
+    tpmshx_preparation_sigmoid_flow_2d_v8 flow;
+    void* owner;
+} tpmshx_preparation_sigmoid_flow_case_2d_v8;
 
 #ifdef __cplusplus
 extern "C" {
@@ -416,6 +537,138 @@ TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_continuou
     tpmshx_preparation_continuous_flow_2d_v4*);
 TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_continuous_case_2d_release_v4(
     tpmshx_preparation_continuous_case_2d_v4*);
+
+
+/* V5 accepts raw stripes (kind=0) or rectangles (kind=1), geometry_mode=2.
+ * Values retain their v2/v1 versions. Axis 0=x, 1=y. Stripe bounds use the
+ * first two scalars. Rectangle bounds use x0,x1,y0,y1. Names and regions are
+ * borrowed for the call, then copied. Scalar kinds retain the first equal-key
+ * geometry/property result within the call. No host cache is read or changed.
+ * Stripes are stably sorted. Rectangle order stays unchanged. Existing first
+ * match and gap rules remain active. Row drag projects L/t before prediction.
+ * This entry accepts air/air, prescribed velocity, CFD drag and zero delta.
+ * It does not accept mass targets, sigmoid fields or host callback v2/v3.
+ * The v1 event callback is optional. All v2 failure/storage rules still apply.
+ * Design porosity, solid/fluid conductivity and transfer are smoothed. L/t,
+ * radius, design area density and zone IDs are not smoothed. Thermal porosity,
+ * area density and diameter come from the unsmoothed float64 L/t fields.
+ * All physical arrays use C order (nx,ny). Nested prepared owners are NULL.
+ * The prepared subview does not enable a zoned run through a v1/v2 run entry.
+ * Initialize the outer owner to NULL and release it once with this library.
+ */
+TPMSHX_PREPARATION_API uint32_t TPMSHX_PREPARATION_CALL tpmshx_preparation_case_abi_version_v5(void);
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_zoned_case_2d_v5(
+    const tpmshx_preparation_zoned_input_2d_v5*,const tpmshx_preparation_case_options_v1*,
+    const tpmshx_preparation_case_callbacks_v1*,tpmshx_preparation_zoned_case_2d_v5*,
+    tpmshx_preparation_case_failure_v2*,char*,size_t);
+TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_zoned_case_2d_release_v5(
+    tpmshx_preparation_zoned_case_2d_v5*);
+
+TPMSHX_PREPARATION_API uint32_t TPMSHX_PREPARATION_CALL tpmshx_preparation_case_abi_version_v6(void);
+/* Build the existing training-range LUT once; preparation borrows its view. */
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_preparation_sigmoid_lut_create_v6(
+    uint32_t topology,size_t cell_nodes,size_t wall_nodes,size_t resolution,
+    tpmshx_preparation_sigmoid_lut_v6*,char*,size_t);
+TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_sigmoid_lut_release_v6(
+    tpmshx_preparation_sigmoid_lut_v6*);
+/* Supplied LUT axes are normalized and validated by their resource owner. */
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_sigmoid_case_2d_v6(
+    const tpmshx_preparation_sigmoid_input_2d_v6*,const tpmshx_preparation_case_options_v1*,
+    const tpmshx_preparation_case_callbacks_v1*,tpmshx_preparation_sigmoid_case_2d_v6*,
+    tpmshx_preparation_case_failure_v2*,char*,size_t);
+TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_sigmoid_case_2d_release_v6(
+    tpmshx_preparation_sigmoid_case_2d_v6*);
+
+/* V7 supplies scalar kinds for the existing domain and port values.
+ * lengths: L,H. ports: A,B; each row is inlet center,width,outlet center,width.
+ * Weak scalars use precision=64,strong=0,layout=0. Floating scalars use
+ * precision=16/32/64,strong=1,layout=1. Integer scalars use
+ * precision=8/16/32/64,strong=2,layout=1. Array layouts are not accepted.
+ * The descriptor is required and disjoint from all other described storage.
+ * Input/output versions, scopes and release functions retain v3-v6 layouts.
+ * Keep the descriptor with a resolved input if that input is prepared again.
+ * Earlier entry points retain weak domain and port scalars.
+ */
+typedef struct {
+    uint32_t abi_version;
+    size_t struct_size;
+    tpmshx_preparation_scalar_kind_v2 lengths[2],ports[2][4];
+} tpmshx_preparation_grid_kinds_2d_v7;
+TPMSHX_PREPARATION_API uint32_t TPMSHX_PREPARATION_CALL tpmshx_preparation_case_abi_version_v7(void);
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_inlet_mass_capacities_2d_v7(
+    const tpmshx_preparation_flow_input_2d_v3*,const tpmshx_preparation_grid_kinds_2d_v7*,
+    const tpmshx_preparation_case_options_v1*,const tpmshx_preparation_case_callbacks_v1*,
+    tpmshx_preparation_flow_2d_v3*,tpmshx_preparation_case_failure_v2*,char*,size_t);
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_resolve_inlet_flow_2d_v7(
+    const tpmshx_preparation_flow_input_2d_v3*,const tpmshx_preparation_grid_kinds_2d_v7*,
+    const tpmshx_preparation_case_options_v1*,const tpmshx_preparation_case_callbacks_v1*,
+    tpmshx_preparation_flow_2d_v3*,tpmshx_preparation_case_failure_v2*,char*,size_t);
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_flow_case_2d_v7(
+    const tpmshx_preparation_flow_input_2d_v3*,const tpmshx_preparation_grid_kinds_2d_v7*,
+    const tpmshx_preparation_case_options_v1*,const tpmshx_preparation_case_callbacks_v1*,
+    tpmshx_preparation_flow_case_2d_v3*,tpmshx_preparation_case_failure_v2*,char*,size_t);
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_continuous_inlet_mass_capacities_2d_v7(
+    const tpmshx_preparation_continuous_input_2d_v4*,const tpmshx_preparation_grid_kinds_2d_v7*,
+    const tpmshx_preparation_case_options_v1*,const tpmshx_preparation_case_callbacks_v1*,
+    tpmshx_preparation_continuous_flow_2d_v4*,tpmshx_preparation_case_failure_v2*,char*,size_t);
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_resolve_continuous_inlet_flow_2d_v7(
+    const tpmshx_preparation_continuous_input_2d_v4*,const tpmshx_preparation_grid_kinds_2d_v7*,
+    const tpmshx_preparation_case_options_v1*,const tpmshx_preparation_case_callbacks_v1*,
+    tpmshx_preparation_continuous_flow_2d_v4*,tpmshx_preparation_case_failure_v2*,char*,size_t);
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_continuous_flow_case_2d_v7(
+    const tpmshx_preparation_continuous_input_2d_v4*,const tpmshx_preparation_grid_kinds_2d_v7*,
+    const tpmshx_preparation_case_options_v1*,const tpmshx_preparation_case_callbacks_v1*,
+    tpmshx_preparation_continuous_case_2d_v4*,tpmshx_preparation_case_failure_v2*,char*,size_t);
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_zoned_case_2d_v7(
+    const tpmshx_preparation_zoned_input_2d_v5*,const tpmshx_preparation_grid_kinds_2d_v7*,
+    const tpmshx_preparation_case_options_v1*,const tpmshx_preparation_case_callbacks_v1*,
+    tpmshx_preparation_zoned_case_2d_v5*,tpmshx_preparation_case_failure_v2*,char*,size_t);
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_sigmoid_case_2d_v7(
+    const tpmshx_preparation_sigmoid_input_2d_v6*,const tpmshx_preparation_grid_kinds_2d_v7*,
+    const tpmshx_preparation_case_options_v1*,const tpmshx_preparation_case_callbacks_v1*,
+    tpmshx_preparation_sigmoid_case_2d_v6*,tpmshx_preparation_case_failure_v2*,char*,size_t);
+
+/* V8 adds spatial capacity, flow resolution and complete fixed-flow preparation.
+ * It retains the v5/v6 raw inputs and uses separate v7 domain/port kinds.
+ * These entries accept the v1 event callback only. Capacity does not use Nu/hv.
+ * Flow results own copied zone names, controls and LUT arrays. Their raw input
+ * views can be used after the caller releases its input storage. Nested owners
+ * are NULL; release only the outer result with its matching v8 function.
+ * Preliminary flow evidence and final preparation evidence remain separate.
+ */
+TPMSHX_PREPARATION_API uint32_t TPMSHX_PREPARATION_CALL tpmshx_preparation_case_abi_version_v8(void);
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_zoned_inlet_mass_capacities_2d_v8(
+    const tpmshx_preparation_zoned_flow_input_2d_v8*,const tpmshx_preparation_grid_kinds_2d_v7*,
+    const tpmshx_preparation_case_options_v1*,const tpmshx_preparation_case_callbacks_v1*,
+    tpmshx_preparation_zoned_flow_2d_v8*,tpmshx_preparation_case_failure_v2*,char*,size_t);
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_resolve_zoned_inlet_flow_2d_v8(
+    const tpmshx_preparation_zoned_flow_input_2d_v8*,const tpmshx_preparation_grid_kinds_2d_v7*,
+    const tpmshx_preparation_case_options_v1*,const tpmshx_preparation_case_callbacks_v1*,
+    tpmshx_preparation_zoned_flow_2d_v8*,tpmshx_preparation_case_failure_v2*,char*,size_t);
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_zoned_flow_case_2d_v8(
+    const tpmshx_preparation_zoned_flow_input_2d_v8*,const tpmshx_preparation_grid_kinds_2d_v7*,
+    const tpmshx_preparation_case_options_v1*,const tpmshx_preparation_case_callbacks_v1*,
+    tpmshx_preparation_zoned_flow_case_2d_v8*,tpmshx_preparation_case_failure_v2*,char*,size_t);
+TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_zoned_flow_2d_release_v8(
+    tpmshx_preparation_zoned_flow_2d_v8*);
+TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_zoned_flow_case_2d_release_v8(
+    tpmshx_preparation_zoned_flow_case_2d_v8*);
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_sigmoid_inlet_mass_capacities_2d_v8(
+    const tpmshx_preparation_sigmoid_flow_input_2d_v8*,const tpmshx_preparation_grid_kinds_2d_v7*,
+    const tpmshx_preparation_case_options_v1*,const tpmshx_preparation_case_callbacks_v1*,
+    tpmshx_preparation_sigmoid_flow_2d_v8*,tpmshx_preparation_case_failure_v2*,char*,size_t);
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_resolve_sigmoid_inlet_flow_2d_v8(
+    const tpmshx_preparation_sigmoid_flow_input_2d_v8*,const tpmshx_preparation_grid_kinds_2d_v7*,
+    const tpmshx_preparation_case_options_v1*,const tpmshx_preparation_case_callbacks_v1*,
+    tpmshx_preparation_sigmoid_flow_2d_v8*,tpmshx_preparation_case_failure_v2*,char*,size_t);
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_sigmoid_flow_case_2d_v8(
+    const tpmshx_preparation_sigmoid_flow_input_2d_v8*,const tpmshx_preparation_grid_kinds_2d_v7*,
+    const tpmshx_preparation_case_options_v1*,const tpmshx_preparation_case_callbacks_v1*,
+    tpmshx_preparation_sigmoid_flow_case_2d_v8*,tpmshx_preparation_case_failure_v2*,char*,size_t);
+TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_sigmoid_flow_2d_release_v8(
+    tpmshx_preparation_sigmoid_flow_2d_v8*);
+TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_sigmoid_flow_case_2d_release_v8(
+    tpmshx_preparation_sigmoid_flow_case_2d_v8*);
 
 #ifdef __cplusplus
 }

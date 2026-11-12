@@ -45,3 +45,12 @@ Capacity uses the corresponding side field. Base DF and solid conductivity keep 
 The raw owner copies rectangle inputs and keeps borrowed nested views with null owners.
 The v1/v2/v3 C layouts and their original scope remain unchanged.
 These interfaces add no 3D solve or capture and do not switch Python production preparation.
+## Spatial flow stages
+
+`src/preparation_case.cpp` owns raw spatial capacity, resolution and complete fixed-flow preparation.
+`prepare_spatial_inlet_geometry` uses the existing zone/sigmoid geometry and port cores before any speed-dependent closure.
+`prepare_capacities` and `resolve_speeds` reuse `src/preparation_flow.cpp` for capacity and target arithmetic.
+Final preparation retains the physical grid, spatial geometry and per-call cache, with the original requested-grid observations.
+Discrete design smoothing, sigmoid LUT geometry, thermal geometry and row D-F keep their separate owners and operation order.
+`src/preparation_case_c_api.cpp` exposes v8 inputs and owned views without changing earlier C layouts.
+The [external spatial flow caller](../../../../examples/cpp/prepare_spatial_flow_2d.cpp) uses installed headers and only the preparation library.

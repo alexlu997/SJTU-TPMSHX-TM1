@@ -169,6 +169,14 @@ This raw interface does not replace saved CaseData validation.
 
 `shared/models/_native_preparation.py` loads preparation ABI 1 through ctypes when needed.
 Named property, DF and flow adapters preserve the existing public Python interfaces.
+Full 2D preparation uses v7 domain/port scalar kinds with v3/v4 payloads.
+The shared grid and port cores retain mixed integer and narrow-float arithmetic.
+Raw spatial preparation v8 adds capacity, resolution and complete fixed-flow entries for air/air stripes, rectangles and sigmoid fields.
+These entries retain CFD drag and zero delta. They resolve speeds before Nu or transfer calculations and reuse the physical grid.
+The flow owner keeps copied regions, controls and LUTs. Its preliminary evidence stays separate from final preparation evidence.
+The v7 grid descriptor and v8 depth/target kinds retain scalar arithmetic; Python spatial routes and caches are unchanged.
+See [spatial stage interfaces](native-stages.md#spatial-total-mass-flow) for the six entries and their ownership contract.
+Saved prepared cases keep their recorded grids; the adapter does not reconstruct historical grids.
 Preparation uses statuses 0 for success, 1 for invalid input, 2 for allocation and 3 for runtime errors.
 State errors use 10 for water, 11 for CO2 and 12 for sCO2.
 Geometry ABI 1 and field ABI 2 remain unchanged, with their own status mappings.

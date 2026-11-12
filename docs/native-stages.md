@@ -37,7 +37,11 @@ The host query uses borrowed typed evidence and preserves deferred input errors.
 A callback error is handled at the original metric or qualification boundary. An uncaught host error retains its original Python object.
 Published v1 C layouts and queries remain available. Release every output through the library that created it.
 
-The supported 2D C++ call sequence is `prepare_case`, `run_case`, then `evaluate`.
+Preparation v8 adds capacity, flow resolution and complete preparation for raw air/air stripes, rectangles and sigmoid fields.
+It keeps CFD drag, zero delta and separate typed domain and port inputs.
+Python spatial routes and caches remain unchanged.
+
+The C++ call sequence is `prepare_case`, `run_case`, then `evaluate`.
 The caller supplies dimensions, design values, boundary conditions and controls.
 The preparation library computes the physical fields. The solver library uses
 that prepared state. The result library evaluates recorded evidence.
@@ -289,9 +293,93 @@ Those calculations stay until these supported consumers have an accepted replace
 Public schemas, model choices, warning order and immutable result buffers retain their existing contracts.
 Python raw 3D preparation, its host cache hooks, real 3D BO and visible desktop acceptance remain separate gates.
 
+## Discrete zones
+
+Preparation v5 uses `ZonedInput2D` for raw stripes and rectangles.
+It accepts air/air, prescribed inlet velocity, CFD drag and zero delta.
+Configured or explicit mass targets, experimental drag and sigmoid controls stay outside this interface.
+The Python production route and the run interface do not change.
+Nonzero-delta uniform preparation also remains outside the native stage interfaces.
+
+Each region gives bounds, a name, L/t and scalar kinds.
+Stripes use the first two bounds along x or y and retain stable sorting.
+Rectangles use x0/x1/y0/y1 and retain input order, overlaps and partial coverage.
+Assignment keeps the existing first-match rule and each layout's gap rule.
+The stage samples the requested grid, then the final physical grid.
+It projects raw L/t with transverse physical widths before it predicts row D-F.
+This order differs from the continuous field's local-coefficient route.
+
+Design porosity, solid conductivity, both fluid conductivities and both volumetric transfer fields retain the existing Gaussian smoothing.
+L/t, area density, hydraulic radius and zone IDs are not smoothed.
+Separate thermal porosity, area density and diameter come from the raw float64 L/t fields.
+The result owns copied region descriptions, per-region properties, physical fields, row drag, ports and ordered evidence.
+Only the outer result has an owner. Release it through the matching v5 function.
+
+A raw call starts with empty, bounded geometry and inlet-property caches.
+Equal keys retain the first successful scalar types and their completed range records.
+Material conductivity uses the current chi and solid conductivity on each call.
+This interface accepts the event-only v1 callback. It does not use the shared Python caches or their host hooks.
+The existing Python routes and every v1-v4 scope remain available.
+
+## Sigmoid fields
+
+Preparation v6 accepts the existing air/air grid sigmoid controls, prescribed speeds, CFD drag and zero delta.
+The input contains at least 36 interleaved L/t values in mm, plus typed inlet and outlet transitions.
+The stage uses the first 36 values and samples the requested grid, then the final physical grid.
+It keeps the existing ordered blending, clipping, extrapolation notices and row D-F projection.
+Sigmoid fields do not use discrete Gaussian smoothing.
+Design geometry comes from the LUT; separate thermal geometry comes from raw L/t fields.
+Mass targets, experimental drag and nonzero delta remain outside this v6 scope.
+The Python production route and its cache policy remain unchanged.
+
+`build_sigmoid_lut` creates an owned native table over the existing training bounds.
+Its defaults are 41 cell-length nodes, 31 wall nodes and voxel resolution 256.
+It uses raw geometry, including raw degenerate nodes, without Python or disk I/O.
+A caller can reuse this resource or supply normalized axes and captured table values.
+Each table has its own interpolation flag. In-place table NaNs retain the existing query behavior.
+The complete preparation result owns copied controls, fields and evidence.
+Its nested views have null owners. Release the LUT and prepared result with their separate v6 functions.
+Releasing the LUT does not invalidate an already prepared result.
+The event-only v1 callback and earlier ABI layouts remain unchanged.
+
+## Typed domain and ports
+
+Preparation v7 adds `GridKinds2D` for the existing domain lengths and four port values on each side.
+It retains NumPy integer and float16/32/64 arithmetic in grids, openings, capacity and spatial sampling.
+Pass this descriptor as the second C++ argument and preparation options as the third argument.
+The [typed grid example](../examples/cpp/prepare_typed_grid_2d.cpp) checks mixed integer and float16 ports with fixed mass flow.
+The C entries use the same descriptor with the existing v3-v6 input and output layouts.
+Keep it with a resolved input when preparing that input again. Release results with their original functions.
+Earlier C and C++ entries keep weak double domain and port values.
+This interface changes no physical scope or saved-file format.
+
+## Spatial total mass flow
+
+Preparation v8 uses `ZonedFlowInput2D` or `SigmoidFlowInput2D` with `GridKinds2D` and preparation options.
+Each input contains the existing raw spatial descriptor, depth and target kinds, and an optional explicit target pair.
+The six C entries provide capacity, resolution and complete preparation for both spatial input types.
+They accept air/air, CFD drag and zero delta. Existing v1-v7 layouts and scopes remain unchanged.
+
+Capacity uses the actual physical inlet slice of design porosity, the opening profile, widths, density and physical depth.
+Discrete design porosity retains Gaussian smoothing; sigmoid geometry has no Gaussian filter.
+The query does not calculate Nu or transfer coefficients from obsolete inlet speeds.
+Resolution applies configured one-side or two-side targets, or an explicit pair, with the existing scalar arithmetic.
+Explicit targets clear stored targets. Without targets, resolution copies the raw input without physical preparation.
+
+Complete fixed-flow preparation builds one physical grid and retains its geometry through speed resolution.
+Final properties use the resolved speeds. Requested-grid observations, per-call cache order and row D-F projection remain in their original order.
+Preliminary records are in `flow.flow.evidence`; final records remain in the prepared view.
+These raw operations accept only the event callback. They do not use Python cache hooks.
+
+Capacity and resolution results own copied region names, controls and LUT arrays in their `input` views.
+Keep the matching grid descriptor and scalar kinds when using a resolved input again.
+Nested owner fields are null. Release only the outer result with its matching v8 release function.
+The [spatial flow example](../examples/cpp/prepare_spatial_flow_2d.cpp) uses all six operations and releases original inputs before complete preparation.
+It checks ownership and typed ports with a small LUT for the smoke test; it does not qualify the LUT's physical accuracy.
+
 ## Python preparation adapter
 
-The public preparation, capacity and resolution entries use v3 or v4 for supported 2D inputs.
+The public preparation, capacity and resolution entries use v7 with v3/v4 payloads for supported 2D inputs.
 The adapter copies arrays, scalar types and evidence before it releases the native owner.
 Stored cases keep their schema, SI fields, controls and model references.
 Preliminary mass-flow records remain outside the final preparation warning scope.
@@ -308,6 +396,9 @@ Its range and notice hooks report each observation at its original calculation p
 The host keeps warning filters, source locations and completed observations when a later step fails.
 Cached records do not repeat standalone notices. Warning exceptions stop the native operation.
 Use `values.values`, version 3 and the complete descriptor size.
+Callback version 4 retains this layout and adds host validation at stage 3, side 2, before physical grid construction.
+The Python adapter uses this point to preserve unsupported object errors after earlier geometry and property checks.
+It returns no numerical values. Earlier callback versions do not receive stage 3.
 A cache miss uses the C++ calculation. The host can return a completed cached value and its raw range records.
 Lookup views stay valid until the stage returns. Publication views stay valid only during the callback; copy them before return.
 Nested views must not overlap result, failure or error storage. Invalid storage leaves those outputs unchanged.
@@ -387,6 +478,12 @@ The [continuous run example](../examples/cpp/continuous_2d.cpp) starts with XY d
 It prepares, runs and evaluates the case, then releases the prepared owner before evaluation.
 The [continuation example](../examples/cpp/resume_2d.cpp) creates a run from raw inputs,
 retains a flow snapshot, releases the run and restores it with a different CPU limit.
+The [zoned preparation example](../examples/cpp/prepare_zoned_2d.cpp) starts with raw stripe bounds and per-region L/t.
+It returns prepared fields and row drag through v5, with only the preparation library.
+The [sigmoid preparation example](../examples/cpp/prepare_sigmoid_2d.cpp) creates the production-resolution LUT and prepares two cases from raw controls.
+It reuses the LUT and links only preparation.
+The [spatial flow example](../examples/cpp/prepare_spatial_flow_2d.cpp) queries, resolves and prepares zones and sigmoid fields through v8.
+It also links only preparation and retains row drag and separate thermal geometry.
 These examples use only installed public headers and shared libraries.
 The Windows build copies the required DLLs beside each executable.
 
