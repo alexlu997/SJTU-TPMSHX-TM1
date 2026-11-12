@@ -1,4 +1,5 @@
 #include "tpmshx/result_checks.hpp"
+#include "scalar_range_samples.hpp"
 
 #include <algorithm>
 #include <cerrno>
@@ -47,26 +48,8 @@ tpmshx_result_range_sample_v1 collect_range(const Array& values, double lower, d
 tpmshx_result_scalar_sample_indices_v1 scalar_samples(const Array& values, double lower, double upper) {
     require_double(values);
     tpmshx_result_scalar_sample_indices_v1 output{};
-    if (!values.size()) return output;
-    std::vector<std::size_t> selected{0,values.size()-1};
-    const auto sample=collect_range(values,lower,upper);
-    if (sample.have_finite) {
-        selected.push_back(sample.minimum_index);
-        selected.push_back(sample.maximum_index);
-    }
-    bool first_nonfinite=true,first_below=true,first_above=true,first_violation=true;
-    for (std::size_t index=0; index<values.size(); ++index) {
-        const double value=double_at(values,index);
-        const bool is_finite=std::isfinite(value),below=value<lower,above=value>upper;
-        if (first_nonfinite && !is_finite) {selected.push_back(index);first_nonfinite=false;}
-        if (first_below && below) {selected.push_back(index);first_below=false;}
-        if (first_above && above) {selected.push_back(index);first_above=false;}
-        if (first_violation && is_finite && (below || above)) {
-            selected.push_back(index);first_violation=false;
-        }
-    }
-    std::sort(selected.begin(),selected.end());
-    selected.erase(std::unique(selected.begin(),selected.end()),selected.end());
+    const auto selected=detail::scalar_range_samples(values.size(),
+        [&](std::size_t index) {return double_at(values,index);},lower,upper);
     output.count=selected.size();
     std::copy(selected.begin(),selected.end(),output.indices);
     return output;

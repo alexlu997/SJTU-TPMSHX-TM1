@@ -353,3 +353,37 @@ def test_weak_scalar_bounds_keep_later_df_validation(monkeypatch, mode, dtype):
     else:
         _same(_capture(monkeypatch, api, 'full', config),
               _capture(monkeypatch, reference, 'full', config))
+
+
+@pytest.mark.parametrize('mode', ['xy', 'xyz', 'grid'])
+@pytest.mark.parametrize('targets', [None, (.001, .001)])
+def test_air_field_observations_keep_original_bounded_sequence(monkeypatch, mode, targets):
+    from sjtu_tpmshx.preprocess.native_preparation import PreparationCacheBridge
+    from sjtu_tpmshx.shared.domain.run_warnings import _range_context
+    from sjtu_tpmshx.shared.models import nu_correlations as nu
+    from sjtu_tpmshx.shared.models import _native_preparation_case as native
+
+    config = _configuration(mode, pair=('air', 'air'))
+    config.solver.Nx, config.solver.Ny, config.solver.Nz = 30, 20, 10
+    expected_calls, actual_calls = [], []
+    original_notice, original_observe = nu._warn_extrap, PreparationCacheBridge.observe_range
+
+    def notice(topology, minimum, maximum, value):
+        side, stage, layout = _range_context.get()
+        if stage == 'inlet' and layout == 'scalar-zoned-call':
+            expected_calls.append((side, value))
+        return original_notice(topology, minimum, maximum, value)
+
+    def observe(self, value, bounds_list, cached, scalar):
+        if (native._text(value.layout) == 'scalar-zoned-call'
+                and [native._text(item) for item in value.source[:value.source_count]][:2] == ['nu', 'air']):
+            actual_calls.append((native._text(value.side), scalar))
+        return original_observe(self, value, bounds_list, cached, scalar)
+
+    monkeypatch.setattr(nu, '_warn_extrap', notice)
+    expected = _capture(monkeypatch, reference, 'full', config, targets)
+    monkeypatch.setattr(PreparationCacheBridge, 'observe_range', observe)
+    actual = _capture(monkeypatch, api, 'full', config, targets)
+    _same(actual, expected)
+    assert 2 <= len(expected_calls) <= 16
+    assert actual_calls == expected_calls

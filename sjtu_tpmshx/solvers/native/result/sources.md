@@ -15,6 +15,7 @@ The full application retains its macOS arm64 and Windows x64 platforms.
 | `src/result_metrics.cpp` | Pressure faces, duties, mass flow, outlet values, integrated mass and Quick Design metrics. |
 | `src/result_balance.cpp` | Independent signed mass and energy balances, residual norms and zone statistics. |
 | `src/result_checks.cpp` | Range observations, qualification predicates, envelope helpers and physical mass bounds. |
+| `src/scalar_range_samples.hpp` | Scalar observation selection shared with preparation; first notices, extrema and the last sample. |
 | `src/result_stage.cpp` | Full metric selection, definitions, statuses, applicability, physical balances and qualification. |
 | `src/result_stage_c_api.cpp` | Owned stage reports, borrowed evidence and versioned host event/error control. |
 | `src/result_c_api.cpp` and family C interfaces | Versioned C functions with checked buffers and ordered floating-point diagnostics. |

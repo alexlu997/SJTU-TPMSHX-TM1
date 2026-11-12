@@ -72,3 +72,8 @@ The [external cache caller](../../../../examples/cpp/prepare_spatial_cache_2d.cp
 checks all six v9 operations, typed probes and copied LUT lifetime.
 Public zone/sigmoid combination queries retain standalone and offset consumers.
 Their later migration must preserve supplied properties and custom controls.
+
+3D air-field observations use `src/scalar_range_samples.hpp`, also used by result range queries.
+The selection retains the original scalar notices, extrema and last sample with at most eight host observations per side.
+Full raw-array range records retain every cell and their original sample denominator.
+Preparation and result compile this rule separately; preparation does not link the result library.

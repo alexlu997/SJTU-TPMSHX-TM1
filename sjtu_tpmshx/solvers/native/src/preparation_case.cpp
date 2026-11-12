@@ -12,6 +12,7 @@
 #include "field_lut.hpp"
 #include "field_sigmoid.hpp"
 #include "contiguous_sum.hpp"
+#include "scalar_range_samples.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -2271,9 +2272,12 @@ void air_spatial_ranges_3d(const PreparedCase3D& output,std::size_t side,Records
             {{diameter,64,1},0.,0,3},{g::weak(mu)},re.events).real.value);
     records.floating(re.events);
     const auto topology=std::string(topology_name(input.geometry.topology));
-    for (const auto value:re.values)
+    const auto limits=re_range(Fluid::air);
+    const auto selected=detail::scalar_range_samples(re.values.size(),
+        [&](std::size_t index) {return re.values[index];},limits[0],limits[1]);
+    for (const auto index:selected)
         records.range({"nu","air",topology},name,"inlet","scalar-zoned-call","[Nu extrap] "+topology,
-            "Re","-",re_range(Fluid::air),value);
+            "Re","-",limits,re.values[index]);
     records.range({"nu_raw","air",topology},name,"inlet","real-cell(x,y,z)-bulk-Re","[air Nu raw] "+topology,
         "Re","-",re_range(Fluid::air),re.values,{output.widths[0].size(),output.widths[1].size(),output.widths[2].size()});
 }
