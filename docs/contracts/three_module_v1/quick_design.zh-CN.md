@@ -10,13 +10,21 @@
 
 ## 准备态输入
 
-`preprocess.api.prepare_quick_design` 接受既有 DesignCase，以及几何和尺寸设计选项。`config_snapshot` 记录原始 DesignCase，执行不使用它。准备态数据包含：
+`preprocess.api.prepare_quick_design` 接受既有 DesignCase，以及几何和尺寸设计选项。
+它调用 `tpmshx_prepare_quick_design_v2`，将具有独立所有权的场复制到 CaseData。
+C++ 负责数值顺序；固定具名宿主操作保留标量和对象协议、缓存项、警告及快照顺序。
+`config_snapshot` 记录原始 DesignCase，执行不使用它；保存 schema、单位和 ModelRef 版本不变。
+
+Quick 默认值通过 Python 加载器和生成的 C++ 常量统一来自 `shared/configs/model_parameters_v1.json`。
+独立 `tpmshx_quick_pressure_fractions_v2` 查询供尺寸设计使用，不创建热网格或设计场数组。
+它保留较窄的校验顺序；仅在此查询中，所有非 `cross` 流向均使用逆流截面。
+此行为不扩大完整准备接受的标签或执行支持的流体范围。准备态数据包含：
 
 - 物理 `grid`：维度为 3，含 x/y/z 轴、宽度和累计边缘，单位为 m。交叉流使用 60 × 40 × 1，并委托既有二维核；逆流使用 60 × 1 × 2。两种模式都保留真实物理高度。即使 Nz=1 委托二维核，输出热负荷仍为总 W，不是 W/m。
 - `design_fields`：均匀总孔隙率 `eps`、单侧 `eps_A=eps/2` 和有效固体导热率 `K_ss`（W/(m K)），均位于准备态网格。此模式拒绝非均匀场或不会被消费的场。
 - `parameters.operating_point`：冷热流体标识、入口温度（K）、绝对压力（Pa）和给定质量流量（kg/s）。
 - 几何：`L_cell_m`、`t_wall_m`、`Lx`、`s`、`height`、`D_h` 单位为 m；`A_0` 为 1/m，`k_s` 为 W/(m K)。原有几何分辨率为 128。
-- `controls`：既有方向、欠松弛、最大迭代数、热负荷容差和分块大小。交叉流保留 alpha 0.7、8000、qtol 1e-4 和 chunk 100。逆流保留 alpha 0.3、20000，以及核的 qtol/chunk 默认值。请求的热 `tol` 独立保留。
+- `controls`：既有方向、欠松弛、最大迭代数、热负荷容差和分块大小。交叉流保留 alpha 0.7、8000、qtol 1e-4 和 chunk 100。逆流保留 alpha 0.3、20000，保存态为 `qtol=None`、`chunk=None`；执行时才使用既有核默认值解析这两项。请求的热 `tol` 独立保留。
 - `initial_fields`：可以缺省，或提供三个有限的单元温度数组（K）。副本跨越契约边界，接收求解使用其数值。
 - `df_options`：仅含已解析的 `method`，即 `cfd_full_core_3cell_fixed_v2`。它优先于接收进程环境，但不进行进程全局重放。旧覆盖标志和残差修正标志已退役。
 - `inlet_pressure_fractions`：准备好的 A/B 解析 dP/P_in，无量纲、有限且非负。生产者使用 `df_options` 执行既有入口状态 D-F 计算；执行不得启动标定或重载训练数据。入口条件或几何改变后，必须重新准备这些固定值。缺少它们的旧中间 Case 必须拒绝。
@@ -35,7 +43,7 @@ sCO2 Nu 独立保留 480 K / 9 MPa 约定。这些约定不能证明实验精度
 执行将保存的 CaseData 传给 `tpmshx_run_quick_design_v1`，不重复准备。
 阶段返回具有所有权的场和单位／状态声明，宿主在释放前复制这些数据。
 FieldResult 保留原网格、`K_ss` 和 `eps` 的 dtype、质量流量及入口温度标量。
-原始准备与指标适配仍保留现有类型协议。
+准备和指标使用原生阶段，固定具名宿主操作保留既有类型及事件协议。
 
 温度、给定速度、流体／固体导热率、体积耦合和孔隙率场具有显式单位、x/y/z 单元位置和最终阶段状态元数据。`boundary_fluxes.A/B` 保留给定质量流量（kg/s）、入口温度（K）、本阶段 cp（J/(kg K)）、密度（kg/m3）和速度（m/s）。出口仍对相应完整面采用原有算术平均。
 

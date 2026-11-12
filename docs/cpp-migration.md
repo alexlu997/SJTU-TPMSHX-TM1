@@ -143,6 +143,10 @@ The Python preparation entry calls the independent result library to collect ran
 
 `shared/models/_native_preparation.py` loads preparation ABI 1 through ctypes when needed.
 Named property, DF and flow adapters preserve the existing public Python interfaces.
+Quick preparation v2 adds typed raw inputs and a separate pressure-fraction query.
+`shared/models/_native_quick_prepare.py` keeps host protocols through fixed named operations.
+The stage owns geometry, grid, property and pressure arithmetic and their execution order.
+The pressure query creates no thermal grid or design-field arrays.
 Preparation uses statuses 0 for success, 1 for invalid input, 2 for allocation and 3 for runtime errors.
 State errors use 10 for water, 11 for CO2 and 12 for sCO2.
 Geometry ABI 1 and field ABI 2 remain unchanged, with their own status mappings.
@@ -253,13 +257,16 @@ There is no numerical fallback, runtime compiler or universal numerical callback
 
 ## Complete Quick Design capability
 
-The [Quick Design stage](native-stages.md#quick-design-stage) adds raw operating-point
-preparation and owned result evidence for native double callers. Its separate
-version 1 C contract preserves the existing driver ABI described below.
-Python execution now calls this run stage with saved prepared fields.
-The stage supplies the field arrays and declarations. Python copies them before
-release, keeps original fixed-field dtypes and maps pass warnings and errors.
-Raw preparation and Quick Design evaluation retain their current type and event protocols.
+The [Quick Design stage](native-stages.md#quick-design-stage) provides typed raw preparation v2 and a pressure-only query.
+It keeps the published native-double v1 preparation and run contracts.
+The v2 stage owns the original numerical and validation sequence.
+Fixed named host operations keep Python scalar, object, cache, warning and snapshot protocols.
+They do not supply model calculations. The former `shared/models/quick_design.py` is removed.
+Its independent frozen reference remains under `development/tests/` for regression checks.
+The thin preparation entry assembles CaseData and keeps stored counterflow `qtol=None` and `chunk=None`.
+Python execution calls the run stage with saved prepared fields.
+The stage supplies field arrays and declarations. Python copies them before release, keeps original fixed-field dtypes and maps pass warnings and errors.
+The native result stage owns Quick Design metrics and keeps the existing type and event protocols.
 
 `quick_design_driver.hpp` owns the complete prepared const/mean property-pass
 calculation. This includes original empirical air/water or HEOS sCO2 properties,
@@ -815,6 +822,9 @@ The generator does not import numerical model implementations.
 The build writes `tpmshx/model_coefficients.hpp` and `tpmshx/preparation_df_data.hpp` under the selected cache's `generated/` directory.
 The default directory is `.cache/native-deps/generated/`.
 C++ uses the generated constants without runtime JSON parsing or Python calls.
+The `quick_design` resource supplies conductivity, grid counts, geometry resolution, tolerance and arrangement controls.
+Both preparation versions and Python consumers use it. Counterflow qtol/chunk stay null in the resource and `None` in CaseData.
+The v1 prepared driver configuration keeps its resolved defaults: `max(tol*10, 1e-4)` and 250.
 Geometry, preparation and solver code use the declared model resources. Existing model identities, units, fitted coefficients and experimental conclusions stay unchanged.
 See [implementation and retirement scope](#cpp-core-scope) and [model resources](model-resources.en.md#当前资源与研究输出).
 

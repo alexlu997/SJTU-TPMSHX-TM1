@@ -5,7 +5,10 @@ import pytest
 
 from sjtu_tpmshx.applications.design.cases import DesignCase
 from sjtu_tpmshx.applications.design.forward import forward
-from sjtu_tpmshx.shared.models.quick_design import SIZING_QTOL, SIZING_CHUNK
+from sjtu_tpmshx.shared.configs.model_parameters import load_quick_design_parameters
+
+_CROSS = load_quick_design_parameters()['arrangements']['cross']
+SIZING_QTOL, SIZING_CHUNK = _CROSS['qtol'], _CROSS['chunk']
 from sjtu_tpmshx.preprocess.api import prepare_quick_design
 from sjtu_tpmshx.solvers.api import run_case
 from sjtu_tpmshx.postprocess.api import evaluate

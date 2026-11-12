@@ -593,7 +593,6 @@ from PySide6.QtCore import QObject, Slot
 from PySide6.QtWidgets import QApplication
 from sjtu_tpmshx.shared.domain.module_ports import RunControl
 from sjtu_tpmshx.solvers import api
-from sjtu_tpmshx.preprocess.app_modes import quick_design as preparation
 from sjtu_tpmshx.applications.gui.ui.quick_design_panel import _make_worker_class
 
 app = QApplication(['native-qd-worker', '-platform', 'offscreen'])
@@ -662,10 +661,8 @@ def traced_run(case, control):
     assert result.backend_id == 'cpp'
     return result
 
-# A small grid keeps real worker completion below the test deadline.
-with (patch.object(preparation, 'NX', 8),
-      patch.dict(preparation._ARR, cross={**preparation._ARR['cross'], 'ny': 6}),
-      patch.object(api, 'run_case', traced_run)):
+# Use the fixed production Quick grid for real worker completion.
+with patch.object(api, 'run_case', traced_run):
     worker.start()
     deadline = time.monotonic() + 50
     while not receiver.finished_count and time.monotonic() < deadline:

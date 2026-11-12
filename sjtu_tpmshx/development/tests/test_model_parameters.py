@@ -42,6 +42,59 @@ def test_model_resource_rejects_invalid_data(tmp_path, monkeypatch, section, key
         resources.load_model_parameters()
 
 
+def test_quick_design_defaults_keep_values_types_and_independent_ownership():
+    data = resources.load_quick_design_parameters()
+    assert data == {
+        'k_s': 16.0, 'nx': 60, 'tol': 1e-5, 'geometry_resolution': 128,
+        'arrangements': {
+            'cross': dict(dirB=2, ny=40, nz=1, alpha=.7, maxit=8000, qtol=1e-4, chunk=100),
+            'counter': dict(dirB=1, ny=1, nz=2, alpha=.3, maxit=20000, qtol=None, chunk=None),
+        },
+    }
+    assert type(data['k_s']) is float and type(data['tol']) is float
+    for row in data['arrangements'].values():
+        assert type(row['alpha']) is float
+        assert all(type(row[key]) is int for key in ('dirB', 'ny', 'nz', 'maxit'))
+    data['arrangements']['counter']['chunk'] = 250
+    assert resources.load_quick_design_parameters()['arrangements']['counter']['chunk'] is None
+
+
+@pytest.mark.parametrize('path,value', [
+    (('nx',), True), (('geometry_resolution',), 128.0),
+    (('k_s',), 0.), (('tol',), float('nan')), (('arrangements',), {}),
+    (('arrangements', 'cross', 'dirB'), 1), (('arrangements', 'cross', 'ny'), 0),
+    (('arrangements', 'cross', 'alpha'), 1.1), (('arrangements', 'cross', 'maxit'), False),
+    (('arrangements', 'cross', 'qtol'), float('inf')),
+    (('arrangements', 'counter', 'chunk'), 250.5),
+])
+def test_quick_design_resource_rejects_invalid_defaults(tmp_path, monkeypatch, path, value):
+    data = resources.load_model_parameters()
+    row = data['quick_design']
+    for name in path[:-1]:
+        row = row[name]
+    row[path[-1]] = value
+    (tmp_path / 'model_parameters_v1.json').write_text(json.dumps(data), encoding='utf-8')
+    monkeypatch.setattr(resources, 'files', lambda _: tmp_path)
+    with pytest.raises(ValueError, match='quick_design'):
+        resources.load_quick_design_parameters()
+
+
+def test_quick_design_catalog_checks_versions_and_returns_owned_defaults():
+    from sjtu_tpmshx.shared.domain.model_refs import ModelRef
+    from sjtu_tpmshx.shared.models.catalog import resolve_model
+
+    version = resources.MODEL_VERSIONS['quick_design']
+    model = ModelRef('quick_design', version, {})
+    first = resolve_model(model)
+    assert first == resources.load_quick_design_parameters()
+    first['arrangements']['counter']['qtol'] = 0.1
+    assert resolve_model(model)['arrangements']['counter']['qtol'] is None
+    with pytest.raises(ValueError, match='unknown model resource'):
+        resolve_model(ModelRef('quick_design', 'unknown', {}))
+    with pytest.raises(ValueError, match='takes no fixed parameters'):
+        resolve_model(ModelRef('quick_design', version, {'nx': 1}))
+
+
 def test_native_coefficient_generation_needs_only_standard_library():
     root = Path(__file__).resolve().parents[3]
     probe = subprocess.run([sys.executable, '-S', '-c', '''
@@ -51,6 +104,22 @@ text = header()
 assert 'inline constexpr double gas_constant = 8.314;' in text
 assert 'model_h_air{{1004.5, 0.172, -7.56e-05, 273.15, 300.0}};' in text
 assert 'model_h_water{{4182.0, 0.0, 0.0, 273.15, 300.0}};' in text
+assert 'inline constexpr double quick_design_k_s = 16.0;' in text
+assert 'inline constexpr double quick_design_tol = 1e-05;' in text
+assert 'inline constexpr std::size_t quick_design_nx = 60;' in text
+assert 'inline constexpr std::size_t quick_design_geometry_resolution = 128;' in text
+assert 'inline constexpr int quick_design_cross_dir_b{2};' in text
+assert 'inline constexpr std::size_t quick_design_cross_ny{40};' in text
+assert 'inline constexpr double quick_design_cross_alpha{0.7};' in text
+assert 'inline constexpr std::size_t quick_design_cross_maxit{8000};' in text
+assert 'inline constexpr std::optional<double> quick_design_cross_qtol{0.0001};' in text
+assert 'inline constexpr std::optional<std::size_t> quick_design_cross_chunk{100};' in text
+assert 'inline constexpr int quick_design_counter_dir_b{1};' in text
+assert 'inline constexpr std::size_t quick_design_counter_nz{2};' in text
+assert 'inline constexpr double quick_design_counter_alpha{0.3};' in text
+assert 'inline constexpr std::size_t quick_design_counter_maxit{20000};' in text
+assert 'inline constexpr std::optional<double> quick_design_counter_qtol{std::nullopt};' in text
+assert 'inline constexpr std::optional<std::size_t> quick_design_counter_chunk{std::nullopt};' in text
 df = df_header()
 from sjtu_tpmshx.shared.configs.model_parameters import MODEL_VERSIONS
 for name, version in MODEL_VERSIONS.items():

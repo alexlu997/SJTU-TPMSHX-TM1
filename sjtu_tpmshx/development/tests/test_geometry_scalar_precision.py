@@ -330,10 +330,7 @@ def test_public_preparation_keeps_material_values_and_field_dtype(
                       t_field_m=np.full(shape, .5 * 1e-3))
     else:
         from sjtu_tpmshx.applications.design.cases import DesignCase
-        from sjtu_tpmshx.preprocess.app_modes import quick_design as preparation
 
-        monkeypatch.setattr(preparation, 'NX', 8)
-        monkeypatch.setitem(preparation._ARR, 'cross', {**preparation._ARR['cross'], 'ny': 6})
         condition = DesignCase(1, 'air', 688.23, 1088700., .2855,
                                'water', 320., 200000., .5, 30000., .075, .05)
         case = prepare_quick_design(condition, topology, 7., .5, .084, .025,

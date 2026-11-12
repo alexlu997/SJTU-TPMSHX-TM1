@@ -187,6 +187,27 @@ inline PreparedQuickDesign prepare_quick_design(const QuickDesignInput& input) {
     detail::check(tpmshx_prepare_quick_design_v1(&input,&output,error,sizeof(error)),error);
     return PreparedQuickDesign(output);
 }
+using PreparedQuickDesignV2=detail::Owned<tpmshx_quick_prepared_v2,tpmshx_quick_prepared_release_v2>;
+struct QuickDesignInputV2 : tpmshx_quick_input_v2 {
+    QuickDesignInputV2():tpmshx_quick_input_v2{} {
+        abi_version=2;struct_size=sizeof(tpmshx_quick_input_v2);
+        for(auto& value:values)value={0.,64,0};
+    }
+};
+inline PreparedQuickDesignV2 prepare_quick_design(const QuickDesignInputV2& input,
+                                                 const tpmshx_quick_callbacks_v2* callbacks=nullptr) {
+    tpmshx_quick_prepared_v2 output{};output.abi_version=2;output.struct_size=sizeof(output);
+    char error[4096]{};
+    detail::check(tpmshx_prepare_quick_design_v2(&input,callbacks,&output,error,sizeof(error)),error);
+    return PreparedQuickDesignV2(output);
+}
+inline tpmshx_quick_pressure_v2 pressure_fractions(const QuickDesignInputV2& input,
+                                                 const tpmshx_quick_callbacks_v2* callbacks=nullptr) {
+    tpmshx_quick_pressure_v2 output{};output.abi_version=2;output.struct_size=sizeof(output);
+    char error[4096]{};
+    detail::check(tpmshx_quick_pressure_fractions_v2(&input,callbacks,&output,error,sizeof(error)),error);
+    return output;
+}
 inline RunResultQuickDesign run_case(const PreparedQuickDesign& prepared,const tpmshx_quick_run_control_v1& control) {
     tpmshx_quick_run_result_v1 output{};
     output.abi_version=TPMSHX_QUICK_DESIGN_STAGE_ABI_VERSION;output.struct_size=sizeof(output);

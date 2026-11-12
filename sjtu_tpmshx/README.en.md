@@ -38,9 +38,12 @@ The Python preparation entries use v3/v4 for symmetric uniform and continuous 2D
 Nonzero-delta uniform, discrete zones, sigmoid and 3D keep their explicit existing routes.
 CaseData and saved-file contracts stay unchanged. Native failures propagate without another preparation route.
 Run v2 consumes preparation v2 through the existing model-h or true-h driver.
-The separate Quick Design path supports native double operating points and retains the existing LTNE model.
-Python Quick Design execution calls its native run stage with saved prepared data.
-Raw Python preparation retains its current type protocols. The native result stage owns Quick Design metrics.
+Quick Design preparation v2 accepts typed raw inputs and provides a separate pressure query without thermal grid or design-field arrays.
+Python uses `_native_quick_prepare.py` for fixed host protocols and copies native output into CaseData.
+The replaced `shared/models/quick_design.py` is removed. Defaults come from `shared/configs/model_parameters_v1.json` and generated C++ constants.
+The native-double v1 contract and the existing LTNE model remain available.
+Python execution calls the native run stage with saved prepared data. The native result stage owns Quick Design metrics.
+Preparation and result host operations keep the existing Python type, cache, warning and event protocols.
 The Python entries above retain all current modes while stage migration continues.
 
 ## Edit numerical functions
@@ -58,10 +61,10 @@ Use this table to find the C++ owner of a numerical rule.
 | Full 2D/3D and Quick Design | [full_2d.cpp](solvers/native/src/full_2d.cpp): `solve_full_2d`; [full_3d.cpp](solvers/native/src/full_3d.cpp): `solve_full_3d`; [quick_design_driver.cpp](solvers/native/src/quick_design_driver.cpp): `solve_quick_design` |
 | Metrics, physical balances, zone statistics and checks | [result_metrics.cpp](solvers/native/src/result_metrics.cpp): `pressure_face`, `boundary_enthalpy_duty`; [result_balance.cpp](solvers/native/src/result_balance.cpp): `mass`, `energy`, `zone_std`; [result_checks.cpp](solvers/native/src/result_checks.cpp): `collect_range`, `strict_certificate` |
 | Complete stage preparation and execution | [preparation_case.cpp](solvers/native/src/preparation_case.cpp): `prepare_case_2d`; [stage_run.cpp](solvers/native/src/stage_run.cpp): `tpmshx_run_case_2d_v1`, `tpmshx_run_case_2d_v2`; [stage_capture_2d.cpp](solvers/native/src/stage_capture_2d.cpp) |
-| Quick Design stage preparation and execution | [quick_design_prepare.cpp](solvers/native/src/quick_design_prepare.cpp): `tpmshx_prepare_quick_design_v1`; [quick_design_run.cpp](solvers/native/src/quick_design_run.cpp): `tpmshx_run_quick_design_v1` |
+| Quick Design stage preparation and execution | [quick_design_prepare_v2.cpp](solvers/native/src/quick_design_prepare_v2.cpp): `tpmshx_prepare_quick_design_v2`, `tpmshx_quick_pressure_fractions_v2`; [quick_design_prepare.cpp](solvers/native/src/quick_design_prepare.cpp): kept v1; [quick_design_run.cpp](solvers/native/src/quick_design_run.cpp): `tpmshx_run_quick_design_v1` |
 | Stage evaluation and qualification | [result_stage.cpp](solvers/native/src/result_stage.cpp): `evaluate`, `evaluate_applicability`, `evaluate_physical_balance`, `evaluate_qualification` |
 
-Geometry uses geometry ABI 1 and field ABI 2. Preparation uses preparation ABI 1. Results use result ABI 2.
+Geometry uses geometry ABI 1 and field ABI 2. The preparation library keeps its ABI 1 loader and adds the versioned Quick preparation v2 contract. Results use result ABI 2.
 Start at the drivers above for SIMPLE, pressure and energy implementations. See [C++ interfaces](../docs/cpp-migration.md) for their boundaries.
 Python keeps configuration, DTOs, I/O, caches, NumPy event handling, the GUI, searches and offline research.
 The native result stage owns full evidence selection and qualification; Python adapts its outputs for applications.

@@ -110,16 +110,22 @@ The replaced continuous Python branches are retired; independent frozen referenc
 `stage_run.cpp` adapts it to the existing full 2D driver.
 `stage_capture_2d.cpp` records the actual run evidence for `result_stage.cpp`.
 The installed C ABI and `stages.hpp` support external C++ callers.
-The separate Quick Design stage accepts raw native double operating points.
-`quick_design_prepare.cpp` reuses geometry, property and analytical D-F owners.
+Quick Design preparation v2 accepts typed raw operating points.
+`quick_design_prepare_v2.cpp` owns the complete numerical sequence, including geometry, grids, inlet properties and analytical D-F pressure fractions.
+Its separate pressure query creates no thermal grid or design-field arrays.
+`shared/models/_native_quick_prepare.py` keeps Python object protocols, cache exchanges, warnings and snapshots through fixed named host operations.
+These operations cannot call numerical models. C++ selects their order and all numerical branches.
+`preprocess/app_modes/quick_design.py` assembles CaseData from the copied native output.
+The replaced `shared/models/quick_design.py` is removed; its frozen reference remains in `development/tests/quick_prepare_reference.py` for regression checks.
+Quick defaults have one source in `shared/configs/model_parameters_v1.json`.
+Python reads that resource; C++ uses its generated constants. Stored counterflow `qtol` and `chunk` remain `None`.
+The native-double v1 preparation in `quick_design_prepare.cpp` and its published layouts remain available.
 `quick_design_run.cpp` uses the existing driver and copies its result evidence.
 Its const/mean, cross/counter and warm-start rules stay unchanged.
-Python Quick Design execution uses this run stage with the saved prepared fields.
-It copies native fields and declarations before release and keeps the original
-grid, fixed-field dtypes and operating-point scalars in the public result.
-Raw Python preparation and Quick Design evaluation retain their current type protocols.
-Current Python entry points retain their existing behavior and all supported modes.
-The migration gates must pass before their numerical and policy bodies can retire.
+Python execution uses this run stage with saved prepared fields, without new preparation.
+It copies native fields and declarations before release and keeps the original grid, fixed-field dtypes and operating-point scalars.
+The native result stage owns Quick Design metrics. Fixed host operations keep the existing type and event protocols.
+Current Python entry points keep their supported modes. This migration does not establish physical validation.
 
 <a id="retained-python-responsibilities"></a>
 
@@ -128,7 +134,7 @@ Full result evidence selection and qualification belong to the native stage. Pyt
 Python modules also own GUI display, input validation, application searches, BO, offline data processing and fitting.
 The following boundaries keep their original arithmetic and consumers:
 
-- Explicit Python object and arbitrary-precision integer protocols, selected before the typed ABI. Native errors still propagate.
+- Explicit Python object and arbitrary-precision integer protocols at their declared boundaries. Quick preparation and result stages select fixed named host operations. Native errors still propagate.
 - Configuration control nodes, unit conversion, serialized grid edges and archive consistency checks. Initial-temperature and configuration checks keep their error order.
 - Range summaries for standalone getter, geometry and sCO2 messages, GUI previews and nTop export statistics. C++ still owns formal range collection and qualification checks.
 - The `ports_complete` injected-ledger check and default input adaptation for independent low-level drivers. Current native ledgers return an explicit completeness flag.

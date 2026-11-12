@@ -1,6 +1,7 @@
 #include "tpmshx/quick_design_stage_c_api.h"
 #include "tpmshx/geometry.hpp"
 #include "tpmshx/grid.hpp"
+#include "tpmshx/model_coefficients.hpp"
 #include "tpmshx/preparation_df.hpp"
 #include "tpmshx/preparation_flow.hpp"
 #include "preparation_c_boundary.hpp"
@@ -17,6 +18,7 @@
 namespace {
 namespace p=tpmshx::preparation;
 namespace g=tpmshx::grid;
+namespace data=tpmshx::model_coefficients;
 using p::c_api::require_buffer;
 using p::c_api::require_disjoint;
 
@@ -37,10 +39,10 @@ tpmshx_preparation_array_v1 array(const std::vector<double>& values) {
 }
 const tpmshx::geometry::PhiIndex& index(uint32_t topology) {
     if(topology==TPMSHX_DIAMOND) {
-        static const auto value=tpmshx::geometry::PhiIndex::from_topology(tpmshx::Topology::diamond,128);
+        static const auto value=tpmshx::geometry::PhiIndex::from_topology(tpmshx::Topology::diamond,data::quick_design_geometry_resolution);
         return value;
     }
-    static const auto value=tpmshx::geometry::PhiIndex::from_topology(tpmshx::Topology::gyroid,128);
+    static const auto value=tpmshx::geometry::PhiIndex::from_topology(tpmshx::Topology::gyroid,data::quick_design_geometry_resolution);
     return value;
 }
 struct Owner {
@@ -69,8 +71,8 @@ struct Owner {
             throw std::invalid_argument("unsupported quick-design arrangement or property model");
         flag(input.have_height);flag(input.have_solid_conductivity);flag(input.have_tolerance);
         const double height=input.have_height?input.height_m:input.span_m;
-        const double conductivity_s=input.have_solid_conductivity?input.solid_conductivity_W_mK:16.;
-        const double tolerance=input.have_tolerance?input.tolerance:1e-5;
+        const double conductivity_s=input.have_solid_conductivity?input.solid_conductivity_W_mK:data::quick_design_k_s;
+        const double tolerance=input.have_tolerance?input.tolerance:data::quick_design_tol;
         positive(input.cell_length_mm,"l");positive(input.wall_thickness_mm,"t");
         positive(input.span_m,"s");positive(input.length_m,"Lx");positive(height,"height");
         positive(conductivity_s,"k_s");positive(tolerance,"tol");
@@ -78,7 +80,9 @@ struct Owner {
         positive(input.sides[0].temperature_K,"T_in_h");positive(input.sides[1].temperature_K,"T_in_c");
         positive(input.sides[0].pressure_Pa,"P_in_h");positive(input.sides[1].pressure_Pa,"P_in_c");
         const bool cross=input.arrangement==TPMSHX_CROSS;
-        value.shape[0]=60;value.shape[1]=cross?40:1;value.shape[2]=cross?1:2;
+        value.shape[0]=data::quick_design_nx;
+        value.shape[1]=cross?data::quick_design_cross_ny:data::quick_design_counter_ny;
+        value.shape[2]=cross?data::quick_design_cross_nz:data::quick_design_counter_nz;
         const size_t cells=value.shape[0]*value.shape[1]*value.shape[2];
         if(input.warm_start) {
             for(size_t axis=0;axis<3;++axis)if(input.initial_shape[axis]!=value.shape[axis])
@@ -107,9 +111,12 @@ struct Owner {
         c.length=input.length_m;c.span=input.span_m;c.height=height;c.cell_length=input.cell_length_mm/1000.;
         c.area_density=geo.area_density;c.hydraulic_diameter=geo.hydraulic_diameter;
         value.wall_thickness_m=input.wall_thickness_mm/1000.;
-        value.solid_conductivity_W_mK=conductivity_s;value.tolerance=tolerance;value.geometry_resolution=128;
-        c.max_iterations=cross?8000:20000;c.chunk_iterations=cross?100:250;
-        c.q_relative_tolerance=cross?1e-4:std::max(tolerance*10.,1e-4);c.alpha=cross?.7:.3;
+        value.solid_conductivity_W_mK=conductivity_s;value.tolerance=tolerance;value.geometry_resolution=data::quick_design_geometry_resolution;
+        c.max_iterations=cross?data::quick_design_cross_maxit:data::quick_design_counter_maxit;
+        c.chunk_iterations=(cross?data::quick_design_cross_chunk:data::quick_design_counter_chunk).value_or(250);
+        const auto qtol=cross?data::quick_design_cross_qtol:data::quick_design_counter_qtol;
+        c.q_relative_tolerance=qtol?*qtol:std::max(tolerance*10.,1e-4);
+        c.alpha=cross?data::quick_design_cross_alpha:data::quick_design_counter_alpha;
         tpmshx::PropertyEvaluator evaluator;
         std::array<tpmshx::FluidProperties,2> properties;
         for(size_t side=0;side<2;++side) {
