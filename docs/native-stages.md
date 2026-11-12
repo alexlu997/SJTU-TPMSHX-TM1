@@ -390,9 +390,10 @@ It checks ownership and typed ports with a small LUT for the smoke test; it does
 ## Spatial host cache interface
 
 Preparation v9 adds `ZonedFlowInput2Dv9` and `SigmoidFlowInput2Dv9` over the v8 inputs.
-The `model` member carries the spatial conductivity kind, geometry-extrapolation flag and default-LUT flag.
-Public configuration requires matching nominal and spatial topology and conductivity values.
-Equal conductivity values can have different scalar kinds; v9 preserves the spatial kind.
+The `model` member carries the actual spatial conductivity, its scalar kind, geometry-extrapolation flag and default-LUT flag.
+Public configuration retains its existing topology and conductivity comparison rules.
+A narrow nominal scalar can compare equal to a different spatial value.
+V9 preserves the actual spatial value and kind. Nominal calculations retain their original conductivity.
 The optional default-LUT query runs at each path's original geometry checkpoint.
 Prescribed-speed preparation keeps preflight before this query. Capacity uses geometry alone before speed resolution.
 Python owns memory and disk lookup and publication. A miss builds the existing 41x31 native table at voxel resolution 256.
@@ -405,7 +406,7 @@ The host owns keys, lookup, LRU order and publication; native misses calculate a
 Keys last for the callback. Returned cache arrays must remain valid until the stage returns.
 Publication arrays are read-only and must be copied before callback return.
 The original observation and validation hooks retain their timing and failure behavior.
-Spatial operations add host stage 4, side 2, before region preparation. It preserves missing host-configuration errors after earlier checks.
+Spatial operations add host stage 4, side 2, before region preparation. It preserves missing configuration and canonical stripe-construction errors after earlier checks.
 Notice kind 2 transports each geometry extrapolation reason. It remains separate from Nu warning records and retains per-side order.
 
 All six v9 operations return one outer owner; nested owners are null.

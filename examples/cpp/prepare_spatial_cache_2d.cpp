@@ -79,6 +79,7 @@ int main() {
         std::array<double,2> zone_targets{},sigmoid_targets{};
         auto zones=[&] {
             ZonedFlowInput2Dv9 input;configure(input.values.values.values.values);
+            input.model.solid_conductivity_W_mK=input.values.values.values.values.solid_conductivity_W_mK;
             input.model.solid_conductivity_kind={64,0,0};
             std::array<tpmshx_preparation_zone_region_v5,2> regions{{region(0.,.4,7.),region(.4,1.,6.)}};
             input.values.values.regions=regions.data();input.values.values.region_count=regions.size();
@@ -100,6 +101,7 @@ int main() {
 
         auto sigmoid=[&] {
             SigmoidFlowInput2Dv9 input;configure(input.values.values.values.values.values);
+            input.model.solid_conductivity_W_mK=input.values.values.values.values.values.solid_conductivity_W_mK;
             input.model.solid_conductivity_kind={64,0,0};input.model.load_default_lut=1;
             auto bounds=region(0.,1.,7.);
             input.values.values.values.regions=&bounds;input.values.values.values.region_count=1;

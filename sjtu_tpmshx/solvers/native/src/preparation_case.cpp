@@ -897,7 +897,7 @@ template<class Input> void model_evidence(const Input& input,PreparationEvidence
 template<class Input>
 geometry::MaterialGeometry material_geometry(const Input& input,const PreparationOptions& options,const PreparationCallbacks& callbacks) {
     const auto& model=input.geometry;
-    geometry::MaterialGeometry output;
+    geometry::MaterialGeometry output{};
     const auto calibration=geometry::calibration(model.topology);
     const bool co2=co2_geometry(input);
     if (co2) {
@@ -1269,7 +1269,7 @@ struct ZonedCache {
     geometry::MaterialGeometry material(const CaseInput2D& input,const PreparationOptions& options) {
         const auto& model=input.geometry;
         const std::array<double,3> key{model.cell_length_mm,model.wall_thickness_mm,static_cast<double>(model.topology)};
-        const auto probe=geometry_key(input);geometry::Geometry value;
+        const auto probe=geometry_key(input);geometry::Geometry value{};
         bool hit=false;
         if (callbacks.geometry_cache_at) hit=callbacks.geometry_cache_at(callbacks.context,false,probe,value);
         else {
@@ -1351,7 +1351,10 @@ CaseInput2D region_input(const CaseInput2D& input,const ZoneRegion2D& region,con
     scalar(region.cell_length_mm,region.cell_kind);scalar(region.wall_thickness_mm,region.wall_kind);
     auto result=input;result.geometry.cell_length_mm=region.cell_length_mm;
     result.geometry.wall_thickness_mm=region.wall_thickness_mm;
-    if (request.spatial_model) result.kinds.solid_conductivity=request.spatial_model->solid_conductivity_kind;
+    if (request.spatial_model) {
+        result.geometry.solid_conductivity_W_mK=request.spatial_model->solid_conductivity_W_mK;
+        result.kinds.solid_conductivity=request.spatial_model->solid_conductivity_kind;
+    }
     result.kinds.cell_length=region.cell_kind;result.kinds.wall_thickness=region.wall_kind;
     return result;
 }
@@ -1597,6 +1600,7 @@ void zoned_fields(PreparedZonedCase2D& output,const ZonedInput2D& request,const 
 
 void validate_zoned_request(const ZonedInput2D& request,const PreparationCallbacks& callbacks) {
     validate_zone_bounds(request);
+    if (request.spatial_model) positive(request.spatial_model->solid_conductivity_W_mK,"spatial.solid_conductivity_W_mK");
     if (request.sigmoid && request.kind!=1)
         throw std::invalid_argument("sigmoid preparation requires grid zones");
     if (request.input.geometry_mode!=2 || request.input.continuous)

@@ -730,10 +730,12 @@ p::ZonedFlowRequest2D input(const tpmshx_preparation_zoned_flow_input_2d_v8& sou
 p::ZonedFlowRequest2D input(const tpmshx_preparation_sigmoid_flow_input_2d_v8& source) {return zoned_flow_input(source);}
 p::SpatialModel2D spatial_model(const tpmshx_preparation_spatial_model_2d_v9& value) {
     flag(value.allow_geometry_extrapolation);flag(value.load_default_lut);
-    return {kind(value.solid_conductivity_kind),value.allow_geometry_extrapolation!=0,value.load_default_lut!=0};
+    return {value.solid_conductivity_W_mK,kind(value.solid_conductivity_kind),
+        value.allow_geometry_extrapolation!=0,value.load_default_lut!=0};
 }
 tpmshx_preparation_spatial_model_2d_v9 spatial_model(const p::SpatialModel2D& value) {
-    return {kind(value.solid_conductivity_kind),value.allow_geometry_extrapolation?1u:0u,value.load_default_lut?1u:0u};
+    return {value.solid_conductivity_W_mK,kind(value.solid_conductivity_kind),
+        value.allow_geometry_extrapolation?1u:0u,value.load_default_lut?1u:0u};
 }
 p::ZonedFlowRequest2D input(const tpmshx_preparation_zoned_flow_input_2d_v9& source) {
     auto output=input(source.values);output.input.spatial_model=spatial_model(source.model);return output;

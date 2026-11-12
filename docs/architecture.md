@@ -139,7 +139,8 @@ Preparation v9 carries typed geometry and inlet cache keys, including actual L/t
 `preprocess/native_preparation.py` transports cache values and evidence through the existing shared cache owners.
 Native misses calculate the values; Python keeps lookup, LRU order, publication and warning filters.
 The sigmoid LUT hook loads or publishes host storage at the original geometry checkpoint; missing tables use native construction.
-The public configuration requires matching nominal/spatial topology and conductivity values; v9 retains the spatial conductivity kind.
+Public configuration keeps its original topology and conductivity comparisons, including narrow-scalar equality.
+V9 retains the actual spatial conductivity value and kind; nominal calculations retain their original value.
 Python preparation uses v7 with owned v3/v4 results for symmetric uniform and canonical continuous XY 2D inputs.
 Symmetric air/air stripes, rectangles and sigmoid fields use v9 for preparation, capacity and flow resolution.
 Nonzero-delta 2D preparation retains its existing route. All supported 3D preparation uses the native host stage.

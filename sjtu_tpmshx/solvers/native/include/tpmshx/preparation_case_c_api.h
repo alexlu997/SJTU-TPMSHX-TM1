@@ -442,6 +442,7 @@ typedef struct {
         tpmshx_preparation_sigmoid_lut_view_v6*,uint32_t*);
 } tpmshx_preparation_case_callbacks_v9;
 typedef struct {
+    double solid_conductivity_W_mK;
     tpmshx_preparation_scalar_kind_v2 solid_conductivity_kind;
     uint32_t allow_geometry_extrapolation,load_default_lut;
 } tpmshx_preparation_spatial_model_2d_v9;

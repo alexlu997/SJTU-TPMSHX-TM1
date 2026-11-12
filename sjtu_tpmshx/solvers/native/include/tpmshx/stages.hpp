@@ -151,13 +151,13 @@ struct SigmoidFlowInput2D : tpmshx_preparation_sigmoid_flow_input_2d_v8 {
 struct ZonedFlowInput2Dv9 : tpmshx_preparation_zoned_flow_input_2d_v9 {
     ZonedFlowInput2Dv9():tpmshx_preparation_zoned_flow_input_2d_v9{} {
         abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V9;struct_size=sizeof(tpmshx_preparation_zoned_flow_input_2d_v9);
-        values=ZonedFlowInput2D{};model.solid_conductivity_kind={64,0,0};
+        values=ZonedFlowInput2D{};model.solid_conductivity_W_mK=16.;model.solid_conductivity_kind={64,0,0};
     }
 };
 struct SigmoidFlowInput2Dv9 : tpmshx_preparation_sigmoid_flow_input_2d_v9 {
     SigmoidFlowInput2Dv9():tpmshx_preparation_sigmoid_flow_input_2d_v9{} {
         abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V9;struct_size=sizeof(tpmshx_preparation_sigmoid_flow_input_2d_v9);
-        values=SigmoidFlowInput2D{};model.solid_conductivity_kind={64,0,0};
+        values=SigmoidFlowInput2D{};model.solid_conductivity_W_mK=16.;model.solid_conductivity_kind={64,0,0};
     }
 };
 struct GridKinds2D : tpmshx_preparation_grid_kinds_2d_v7 {

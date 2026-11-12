@@ -166,7 +166,7 @@ _ZonedFlowCase = _struct('ZonedFlowCase', [('abi_version', _U), ('struct_size', 
     ('prepared', _ZonedCase), ('flow', _ZonedFlow), ('owner', ct.c_void_p)])
 _SigmoidFlowCase = _struct('SigmoidFlowCase', [('abi_version', _U), ('struct_size', _S),
     ('prepared', _SigmoidCase), ('flow', _SigmoidFlow), ('owner', ct.c_void_p)])
-_SpatialModel = _struct('SpatialModel', [('solid_conductivity_kind', _Kind), ('allow_geometry_extrapolation', _U), ('load_default_lut', _U)])
+_SpatialModel = _struct('SpatialModel', [('solid_conductivity_W_mK', _D), ('solid_conductivity_kind', _Kind), ('allow_geometry_extrapolation', _U), ('load_default_lut', _U)])
 _ZonedHostInput = _struct('ZonedHostInput', [('abi_version', _U), ('struct_size', _S),
     ('values', _ZonedFlowInput), ('model', _SpatialModel)])
 _SigmoidHostInput = _struct('SigmoidHostInput', [('abi_version', _U), ('struct_size', _S),

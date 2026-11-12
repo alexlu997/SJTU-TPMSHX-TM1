@@ -58,6 +58,9 @@ The [external spatial flow caller](../../../../examples/cpp/prepare_spatial_flow
 ## Spatial host cache transport
 
 V9 adds typed geometry and inlet probes without changing v1-v8 layouts.
+Its spatial model carries the actual conductivity value and scalar kind.
+The original configuration comparison can accept different nominal and spatial values through narrow-scalar equality.
+Spatial material uses the accepted spatial value; nominal calculations keep their original value.
 The probes carry actual L/t, scalar kinds, fluid state and optional Nu selection.
 `preprocess/native_preparation.py` uses the existing shared cache owners for
 lookup, publication and evidence transport. It does not call numerical cache functions.
