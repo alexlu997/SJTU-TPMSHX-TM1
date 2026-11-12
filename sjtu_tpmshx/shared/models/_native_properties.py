@@ -211,7 +211,8 @@ def _floating_events(events, *, warn=None):
                 handler.write('Warning: ' + text + '\n')
 
 
-def empirical(getter, temperature, pressure=101325.0):
+def _empirical_inputs(getter, temperature, pressure):
+    """Pack one fixed empirical operation without evaluating a model."""
     water = getter >= 4
     if not water:
         def operand(value, operation, reverse=False):
@@ -227,13 +228,18 @@ def empirical(getter, temperature, pressure=101325.0):
         else:
             operand(temperature, '-' if getter == 3 else '/')
     values = (temperature, pressure) if getter == 2 else (temperature,)
-    shape, buffers, inputs = _inputs(values, coerce=water)
+    return _inputs(values, coerce=water)
+
+
+def empirical(getter, temperature, pressure=101325.0):
+    shape, buffers, inputs = _empirical_inputs(getter, temperature, pressure)
     result = _Result(1 if getter == 7 else buffers[0].size)
     _call('empirical', getter, inputs[0], inputs[1] if getter == 2 else _Input(), result.output)
     return result.restore(()) if getter == 7 else result.restore(shape)
 
 
-def _derived(name, values, count):
+def _derived_inputs(name, values):
+    """Pack derived-property operands without evaluating their expression."""
     if name in ('prandtl', 'surface_transfer'):
         real, imaginary, categories = [], [], []
         for value in values:
@@ -253,6 +259,11 @@ def _derived(name, values, count):
         inputs = [_Operand(value, imag, category) for value, imag, category in zip(packed, imaginary, categories)]
     else:
         shape, buffers, inputs = _inputs(values)
+    return shape, buffers, inputs
+
+
+def _derived(name, values, count):
+    shape, buffers, inputs = _derived_inputs(name, values)
     outputs = [_Result(buffers[0].size) for _ in range(count)]
     _call(name, *inputs, *(value.output for value in outputs))
     restored = tuple(value.restore(shape) for value in outputs)

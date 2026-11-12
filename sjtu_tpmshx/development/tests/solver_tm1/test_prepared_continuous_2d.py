@@ -174,3 +174,12 @@ def test_constant_controls_match_uniform_native_numerics():
         assert spline_metrics[name].spec.unit == uniform_metrics[name].spec.unit
         assert spline_metrics[name].value == pytest.approx(uniform_metrics[name].value, rel=1e-10, abs=1e-10)
     assert spline_metrics['Q_B'].spec.unit == 'W/m'
+
+
+@pytest.mark.parametrize('spec', [None, {}, {'n_ctrl_x': 2}])
+def test_continuous_replay_requires_canonical_spec(spec):
+    case = prepare_case(_config(), case_id='invalid-continuous-spec')
+    parameters = mutable_data(case.parameters)
+    parameters['continuous_field'] = spec
+    with pytest.raises(ValueError, match='Continuous field config requires'):
+        build_execution_inputs(replace(case, parameters=parameters, config_snapshot={}))

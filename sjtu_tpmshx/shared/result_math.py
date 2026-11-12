@@ -208,11 +208,6 @@ def _boundary_plane_duty(powers, side, dimension, grid):
     return native.plane_duty(faces)
 
 
-def _cold_outlet(Tb, arrangement):
-    Tb = np.asarray(Tb)
-    return native.outlet_mean(Tb[:, -1, :] if arrangement == "cross" else Tb[0, :, :])
-
-
 def compute_phase2a(res):
     """Consume the existing strict certificate and actual model-h face ledger.
 

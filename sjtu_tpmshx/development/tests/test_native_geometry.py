@@ -111,7 +111,6 @@ def test_public_quick_design_replays_without_geometry_calls(geometry, tmp_path, 
     from sjtu_tpmshx.development.tests.native.shared_library import library_path
     from sjtu_tpmshx.postprocess.api import evaluate
     from sjtu_tpmshx.preprocess.api import prepare_quick_design
-    from sjtu_tpmshx.preprocess.app_modes import quick_design as preparation
     from sjtu_tpmshx.shared.domain.module_ports import RunControl
     from sjtu_tpmshx.shared.io.case_io import load_case, save_case
     from sjtu_tpmshx.solvers.api import run_case
@@ -119,8 +118,6 @@ def test_public_quick_design_replays_without_geometry_calls(geometry, tmp_path, 
     control = RunControl(native_library=str(library_path()), cpu_threads=1)
     condition = DesignCase(1, 'air', 688.23, 1088700., .2855,
                            'water', 320., 200000., .5, 30000., .075, .05)
-    monkeypatch.setattr(preparation, 'NX', 8)
-    monkeypatch.setitem(preparation._ARR, 'cross', {**preparation._ARR['cross'], 'ny': 6})
     case = prepare_quick_design(condition, 'Diamond', 7., .5, .084, .025,
                                 case_id='geometry-free-quick-design-replay')
     archive = tmp_path / 'case.yaml'
