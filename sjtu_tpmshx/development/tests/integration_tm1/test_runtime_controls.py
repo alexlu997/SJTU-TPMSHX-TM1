@@ -65,13 +65,14 @@ def test_three_d_callback_failure_stops_before_result_capture(monkeypatch, callb
 def test_two_d_residual_failure_preserves_original_exception(monkeypatch, error):
     """The full public solve propagates failures from the real SIMPLE callback."""
     from dataclasses import replace
-    from sjtu_tpmshx.solvers.backends.cpp import full_2d_capture
+    from sjtu_tpmshx.solvers.backends.cpp import full_2d_capture, full_2d_stage
     from sjtu_tpmshx.development.tests.test_pipeline_2d_smoke import _shanghai_like_cfg
 
     def forbidden(*args, **kwargs):
         pytest.fail('result capture after residual callback failure')
 
     monkeypatch.setattr(full_2d_capture, 'capture_result', forbidden)
+    monkeypatch.setattr(full_2d_stage, 'capture_result', forbidden)
     config = _shanghai_like_cfg()
     config = replace(config, solver=replace(config.solver, Nx=4, Ny=4,
                                             max_iter_simple=1))

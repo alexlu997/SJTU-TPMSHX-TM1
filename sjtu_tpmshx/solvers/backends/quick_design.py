@@ -1,7 +1,6 @@
 """Prepared Quick Design validation and FieldResult mapping shared by backends."""
 from dataclasses import asdict
 from types import SimpleNamespace
-from uuid import uuid4
 
 import numpy as np
 
@@ -59,18 +58,13 @@ def prepared_input(case):
 
 
 def field_result(case, fields, props_a, props_b, u_a, u_b, pass_info, *,
-                 pressure, backend_id, native_metadata=None):
+                 pressure, backend_id, field_metadata, result_id, native_metadata=None):
     op = SimpleNamespace(**case.parameters['operating_point'])
-    units = {**{k: 'K' for k in ('Ta', 'Tb', 'Ts')},
-             **{k: 'm/s' for k in ('ucA', 'vcA', 'wcA', 'ucB', 'vcB', 'wcB')},
-             **{k: 'W/(m K)' for k in ('K_ffA', 'K_ffB', 'K_ss')},
-             'h_vA': 'W/(m3 K)', 'h_vB': 'W/(m3 K)', 'eps': '1'}
     converged = bool(pass_info[-1]['converged'])
     return FieldResult(
-        result_id=str(uuid4()), case_id=case.case_id, backend_id=backend_id,
+        result_id=result_id, case_id=case.case_id, backend_id=backend_id,
         backend_version='quick_design_v1', grid=case.grid, fields=fields,
-        field_metadata={key: dict(unit=units[key], axes=('x', 'y', 'z'), location='cell',
-                                  state='last quick-design thermal pass') for key in fields},
+        field_metadata=field_metadata,
         pressure_evidence=pressure,
         boundary_fluxes={side: dict(mass_flow_kg_s=mdot, inlet_temperature_K=tin,
                                     cp_J_kgK=props.cp, velocity_m_s=speed, density_kg_m3=props.rho)
