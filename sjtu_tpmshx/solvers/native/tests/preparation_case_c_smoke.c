@@ -255,6 +255,14 @@ static int check_cache_v3(const tpmshx_preparation_flow_input_2d_v3* source) {
     kss = result.prepared.values.uniform_solid_conductivity;
     counts[0] = checks.geometry_reads; counts[1] = checks.geometry_writes;
     counts[2] = checks.inlet_reads; counts[3] = checks.inlet_writes;
+    before = result; failure_before = failure;
+    memcpy(saved_error.data, result.prepared.values.cell_length.data, sizeof(double));
+    CHECK(tpmshx_prepare_flow_case_2d_v3(source, &options, &callbacks.values.values, &result, &failure,
+        (char*)result.prepared.values.cell_length.data, sizeof(double)) == TPMSHX_PREPARATION_INVALID);
+    CHECK(!memcmp(&result, &before, sizeof(result)) && !memcmp(&failure, &failure_before, sizeof(failure)));
+    CHECK(!memcmp(saved_error.data, result.prepared.values.cell_length.data, sizeof(double)));
+    CHECK(checks.geometry_reads == counts[0] && checks.geometry_writes == counts[1]);
+    CHECK(checks.inlet_reads == counts[2] && checks.inlet_writes == counts[3]);
     tpmshx_preparation_flow_case_2d_release_v3(&result); result.abi_version = 3; result.struct_size = sizeof(result);
     CHECK(!tpmshx_prepare_flow_case_2d_v3(source, &options, &callbacks.values.values, &result, &failure, error.data, sizeof(error.data)));
     CHECK(checks.geometry_reads > counts[0] && checks.geometry_writes == counts[1]);
@@ -466,6 +474,13 @@ static int check_v4(void) {
         CHECK(result.prepared.values.sides[i].permeability.size == result.area_density_per_m.size);
         CHECK(result.prepared.values.sides[i].inlet.velocity_m_s == resolved.flow.speeds[i].value);
     }
+    CHECK(result.controls.decision_mm.size == 8);
+    memcpy(saved, result.controls.decision_mm.data, sizeof(saved));
+    failure_before = failure; before = result;
+    CHECK(tpmshx_prepare_flow_case_2d_v4(&source, &options, NULL, &result, &failure,
+        (char*)result.controls.decision_mm.data, sizeof(double)) == TPMSHX_PREPARATION_INVALID);
+    CHECK(!memcmp(saved, result.controls.decision_mm.data, sizeof(saved)));
+    CHECK(!memcmp(&before, &result, sizeof(result)) && !memcmp(&failure_before, &failure, sizeof(failure)));
     decisions[0] = -1.;
     CHECK(capacity.controls.decision_mm.data[0] == 4.5 && result.controls.decision_mm.data[0] == 4.5);
     tpmshx_preparation_continuous_flow_2d_release_v4(&capacity);

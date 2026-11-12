@@ -139,6 +139,26 @@ Its targets are `tpmshx_preparation`, `tpmshx_preparation_c` and `tpmshx_prepara
 They reuse geometry/grid and the shared model implementation, including the locked CoolProp static library.
 This project builds no full solver or run_state and needs no SuperLU or AMG.
 The full build script builds the pilot and preparation projects separately. They share one property and DF numerical implementation.
+
+`shared/models/_native_preparation.py` loads preparation ABI 1 through ctypes when needed.
+Named property, DF and flow adapters preserve the existing public Python interfaces.
+The Python entries for symmetric uniform and continuous 2D preparation use v7 domain/port scalar kinds with v3/v4 payloads.
+The shared grid and port cores retain mixed integer and narrow-float arithmetic.
+Raw spatial preparation v8 adds capacity, resolution and complete fixed-flow entries for air/air stripes, rectangles and sigmoid fields.
+These entries keep CFD drag and zero delta. They resolve speeds before Nu or transfer calculations and reuse the physical grid.
+The flow owner keeps copied regions, controls and LUTs. Its preliminary evidence stays separate from final preparation evidence.
+The v7 grid descriptor and v8 depth/target kinds retain scalar arithmetic.
+Preparation v9 switches symmetric spatial Python preparation, capacity and flow resolution to these native owners.
+Typed cache hooks preserve actual keys, optional Nu selection, publication order and evidence through the existing host caches.
+Python keeps LUT memory/disk I/O; native code builds missing tables at the original geometry checkpoint.
+The v9 model preserves the actual spatial conductivity, its kind and separate geometry-extrapolation/default-LUT flags.
+Public configuration retains its original topology and conductivity comparisons, including narrow-scalar equality.
+Spatial calculations use the accepted spatial value; nominal calculations keep their original value.
+Public zone and sigmoid combination queries retain standalone and offset consumers.
+They keep supplied properties and custom sigmoid controls.
+See [spatial stage interfaces](native-stages.md#spatial-total-mass-flow) for raw operations and owned results.
+The [spatial host interface](native-stages.md#spatial-host-cache-interface) adds typed callbacks and cache transport.
+Saved prepared cases keep their recorded grids; the adapter does not reconstruct historical grids.
 The Python preparation entry calls the independent result library to collect range observations. The preparation library does not link it.
 
 The separate `preparation_case_3d_c_api.h` exposes uniform symmetric 3D preparation at prescribed inlet speeds.
@@ -163,28 +183,19 @@ It shares input packing, callbacks and complete DTO decoding with the direct low
 Native capture supplies the application reductions and audit outlet weights; `full_3d_capture.py` remains the single result assembler.
 Protocol selection precedes execution. Archived libraries retain their direct run and restore interfaces.
 Missing protocol symbols and native failures do not start another route.
-Host v5 retains typed geometry and inlet caches through the shared v9 callback descriptor.
+Host v5 keeps typed geometry and inlet caches through the shared v9 callback descriptor.
 Python keeps configuration, cache policy, warnings, environment parsing and immutable CaseData assembly.
+The replaced 3D Python bodies and exclusive `shared/models/grid_3d.py` and `asym_split.py` helpers are removed.
+Their independent frozen reference remains in `development/tests/preparation_3d_reference.py`.
+The private `scalar_range_samples.hpp` keeps at most eight air-field scalar observations per side, including the original notices, extrema and last sample.
+Full raw-array records keep every cell. Preparation and result compile this selection separately, without a runtime link between them.
 Memory use near the cell cap and real 3D BO remain acceptance gates.
 This raw interface does not replace saved CaseData validation.
 
-`shared/models/_native_preparation.py` loads preparation ABI 1 through ctypes when needed.
-Named property, DF and flow adapters preserve the existing public Python interfaces.
-Full 2D preparation uses v7 domain/port scalar kinds with v3/v4 payloads.
-The shared grid and port cores retain mixed integer and narrow-float arithmetic.
-Raw spatial preparation v8 adds capacity, resolution and complete fixed-flow entries for air/air stripes, rectangles and sigmoid fields.
-These entries retain CFD drag and zero delta. They resolve speeds before Nu or transfer calculations and reuse the physical grid.
-The flow owner keeps copied regions, controls and LUTs. Its preliminary evidence stays separate from final preparation evidence.
-The v7 grid descriptor and v8 depth/target kinds retain scalar arithmetic.
-Preparation v9 switches symmetric spatial Python preparation, capacity and flow resolution to these native owners.
-Typed cache hooks preserve actual keys, optional Nu selection, publication order and evidence through the existing host caches.
-Python keeps LUT memory/disk I/O; native code builds missing tables at the original geometry checkpoint.
-The v9 model preserves the actual spatial conductivity, its kind and separate geometry-extrapolation/default-LUT flags.
-Public configuration retains its original topology and conductivity comparisons, including narrow-scalar equality.
-Spatial calculations use the accepted spatial value; nominal calculations keep their original value.
-Public zone and sigmoid combination queries retain standalone and offset consumers pending separate migration.
-See [spatial host interfaces](native-stages.md#spatial-host-cache-interface) for callbacks and ownership.
-Saved prepared cases keep their recorded grids; the adapter does not reconstruct historical grids.
+Quick preparation v2 adds typed raw inputs and a separate pressure-fraction query.
+`shared/models/_native_quick_prepare.py` keeps host protocols through fixed named operations.
+The stage owns geometry, grid, property and pressure arithmetic and their execution order.
+The pressure query creates no thermal grid or design-field arrays.
 Preparation uses statuses 0 for success, 1 for invalid input, 2 for allocation and 3 for runtime errors.
 State errors use 10 for water, 11 for CO2 and 12 for sCO2.
 Geometry ABI 1 and field ABI 2 remain unchanged, with their own status mappings.
@@ -260,7 +271,7 @@ See [scope and delivery records](#cpp-core-scope).
 Independent result ABI 2 calculates metrics, signed physical balances, zone statistics and numerical qualification checks.
 The result stage selects recorded evidence and owns full 2D/3D metric definitions, statuses and qualification.
 Python keeps public DTO and file interfaces, original object identity and NumPy event handling.
-The three independent result queries use the same native stage. Quick Design metric arithmetic retains its current Python protocol owner.
+The three independent result queries use the same native stage. The same stage owns Quick Design metric arithmetic. Fixed named host operations preserve its existing Python object, exact integer and conversion protocols.
 The versioned host query preserves deferred input errors and callback exceptions without changing the published v1 C layouts.
 The standalone `solvers/native/result/` project uses only C++17 and system libraries.
 It does not load the solver, preparation, geometry, CoolProp or model resources.
@@ -294,6 +305,17 @@ The [source and interface record](../sjtu_tpmshx/solvers/native/result/sources.m
 There is no numerical fallback, runtime compiler or universal numerical callback.
 
 ## Complete Quick Design capability
+
+The [Quick Design stage](native-stages.md#quick-design-stage) provides typed raw preparation v2 and a pressure-only query.
+It keeps the published native-double v1 preparation and run contracts.
+The v2 stage owns the original numerical and validation sequence.
+Fixed named host operations keep Python scalar, object, cache, warning and snapshot protocols.
+They do not supply model calculations. The former `shared/models/quick_design.py` is removed.
+Its independent frozen reference remains under `development/tests/` for regression checks.
+The thin preparation entry assembles CaseData and keeps stored counterflow `qtol=None` and `chunk=None`.
+Python execution calls the run stage with saved prepared fields.
+The stage supplies field arrays and declarations. Python copies them before release, keeps original fixed-field dtypes and maps pass warnings and errors.
+The native result stage owns Quick Design metrics and keeps the existing type and event protocols.
 
 `quick_design_driver.hpp` owns the complete prepared const/mean property-pass
 calculation. This includes original empirical air/water or HEOS sCO2 properties,
@@ -849,6 +871,9 @@ The generator does not import numerical model implementations.
 The build writes `tpmshx/model_coefficients.hpp` and `tpmshx/preparation_df_data.hpp` under the selected cache's `generated/` directory.
 The default directory is `.cache/native-deps/generated/`.
 C++ uses the generated constants without runtime JSON parsing or Python calls.
+The `quick_design` resource supplies conductivity, grid counts, geometry resolution, tolerance and arrangement controls.
+Both preparation versions and Python consumers use it. Counterflow qtol/chunk stay null in the resource and `None` in CaseData.
+The v1 prepared driver configuration keeps its resolved defaults: `max(tol*10, 1e-4)` and 250.
 Geometry, preparation and solver code use the declared model resources. Existing model identities, units, fitted coefficients and experimental conclusions stay unchanged.
 See [implementation and retirement scope](#cpp-core-scope) and [model resources](model-resources.en.md#当前资源与研究输出).
 

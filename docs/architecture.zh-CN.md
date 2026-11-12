@@ -77,17 +77,39 @@ Python 保留 DTO、类型／shape 适配、NumPy 事件和应用显示。
 Linux x86_64 支持独立结果评估；完整求解器仍支持 macOS arm64 与 Windows x64。
 
 [原生阶段 SDK](native-stages.zh-CN.md)新增具有明确所有权的准备态、运行结果与独立评估。
-准备 v1 和 run 路径支持规定速度、CFD 阻力的均匀对称二维 air/air。
+准备 v1 和 run v1 路径支持规定速度、CFD 阻力的均匀对称二维 air/air。
 准备 v2 在相同几何和入口模式下支持 air/water/sCO2/CO2 的全部 16 个有序配对，
 保留现有实验 DF/Nu 选择、状态失败和证据，并用标量标记保留字段精度。
 run v2 通过现有 model-h 或 true-h 路线消费该准备态，并记录实际热状态证据。
 准备 v3 为均匀二维总质量流量增加独立容量查询、入口流量解析和完整准备，复用物理入口几何，
-并将前段证据与最终准备证据分开。现有 v1/v2 C 布局和 Python 正式入口保持不变。
+并将前段证据与最终准备证据分开。现有 v1/v2 C 布局和 Python 公开接口保持不变。
 准备 v4 为容量、解析和完整准备增加规范的连续 XY 控制点，复用现有样条及几何核心在物理网格采样，并保留完整局部阻力。
 准备视图只增加面积密度、原始水力直径和两侧流体有效导热率。
+实验转移保留现有上海契约、独立的前段范围标签和最终适用元数据，不改变 v1/v2/v3 准备 C 布局。
 run v3 通过现有完整二维驱动消费连续准备态，保留局部阻力、原始水力直径、单位顺序及名义参考几何。
 已解析的均匀流量案例使用 run v2；两条路线都沿用 v1 结果所有者。
-实验转移保留现有上海契约、独立的前段范围标签和最终适用元数据，不改变 v1/v2/v3 C 布局。
+准备 v5 增加规定速度、CFD 阻力和零 delta 下的原始 air/air 条带与矩形。
+它保留先投影 L/t 再计算行 D-F、离散平滑和单独的热几何场。
+它拥有每次调用的类型化缓存，且只接受 v1 事件回调。
+此原始 v5 接口不选择 Python 路由，也不接受质量流量目标、sigmoid 场或非零 delta。
+准备 v6 在相同的速度、阻力和 delta 限制下增加原始 air/air sigmoid 控制。
+它保留有序混合、过渡量类型、独立设计／热几何和行 D-F 投影，不使用高斯平滑。
+具有独立所有权的 LUT 可由 raw 几何生成或由调用方提供；两个表各自保留插值模式。
+原生冷构建默认使用 41x31 个节点和 256 体素分辨率；磁盘与内存缓存策略仍由 Python 负责。
+准备 v7 将域长和端口的标量类型传给同一网格、开口和空间场数值实现。
+准备 v7 保留 v3-v6 载荷及释放函数；此前入口继续将域长和端口值作为弱类型 double。
+准备 v8 为相同 air/air CFD 范围增加原始空间几何的容量查询、流量解析和完整固定流量准备。
+它使用实际入口处的设计孔隙率，先解析速度，再用保留的物理网格和几何完成物性计算。
+离散平滑、sigmoid LUT 几何、独立热几何及行 D-F 保留各自既有规则。
+流量结果拥有复制后的空间控制点和 LUT，前段与最终证据保持分开。
+v8 原始边界仍只接收事件回调。
+准备 v9 携带带类型的几何及入口缓存键，包括实际 L/t 和可选 Nu 选择。
+`preprocess/native_preparation.py` 通过既有共享缓存所有者传输缓存值和证据。
+未命中时由原生计算数值，Python 保留查询、LRU 顺序、发布与警告过滤器。
+sigmoid LUT 钩子在原几何检查点加载或发布宿主存储，缺表时由原生构建。
+公共配置保留原拓扑和导热系数比较规则，包括窄标量的相等比较。
+v9 保留空间导热系数实际值和类型，名义计算继续使用原值。
+
 独立的 `tpmshx_prepare_case_3d_v1` 从原始输入准备规定入口速度的对称均匀三维算例。
 它支持两种拓扑和全部 16 个流体配对，保留现有 CFD 或实验 DF 限制。
 其独立存储保留物理 `(x,y,z)` 场、带类型的端口、六方向轴映射和模型证据。
@@ -104,36 +126,21 @@ v4 布局也保持不变；Python 三维准备使用 host v5 及其带类型缓�
 `preprocess/three_d/preparation.py` 保留配置转换、环境解析及不可变 DTO 组装。
 `preprocess/native_preparation.py` 与二维共享缓存及警告传递。
 C++ owner 只构建一次物理网格，并保留静态证据在解析速度检查之前的顺序。
+空气场每侧最多选择八个标量观测值，保留原通知、极值和最后样本。
+完整原始数组范围记录仍包含全部物理单元。
+被替代的三维 Python 数值体及其专属 `shared/models/grid_3d.py` 和 `asym_split.py` 已删除。
+独立冻结参考保留在 `development/tests/preparation_3d_reference.py`。
 接近单元上限的内存使用及真实三维 BO 也需要单独验收。
-准备 v5 增加规定速度、CFD 阻力和零 delta 下的原始 air/air 条带与矩形。
-它保留先投影 L/t 再计算行 D-F、离散平滑和单独的热几何场。
-它拥有每次调用的类型化缓存，且只接受 v1 事件回调。
-它不改变 Python 路由，也不启用质量流量目标、sigmoid 场或非零 delta。
-准备 v6 在相同的速度、阻力和 delta 限制下增加原始 air/air sigmoid 控制。
-它保留有序混合、过渡量类型、独立设计／热几何和行 D-F 投影，不使用高斯平滑。
-具有独立所有权的 LUT 可由 raw 几何生成或由调用方提供；两个表各自保留插值模式。
-原生冷构建默认使用 41x31 个节点和 256 体素分辨率；磁盘与内存缓存策略仍由 Python 负责。
-准备 v7 将域长和端口的标量类型传给同一网格、开口和空间场数值实现。
-回调 v4 保留 v3 布局，在物理网格构建前增加宿主对象检查点。
-准备 v7 保留 v3-v6 载荷及释放函数；此前入口继续将域长和端口值作为弱类型 double。
-准备 v8 为相同 air/air CFD 范围增加原始空间几何的容量查询、流量解析和完整固定流量准备。
-它使用实际入口处的设计孔隙率，先解析速度，再用保留的物理网格和几何完成物性计算。
-离散平滑、sigmoid LUT 几何、独立热几何及行 D-F 保留各自既有规则。
-流量结果拥有复制后的空间控制点和 LUT，前段与最终证据保持分开。
-v8 原始边界仍只接收事件回调。
-准备 v9 携带带类型的几何及入口缓存键，包括实际 L/t 和可选 Nu 选择。
-`preprocess/native_preparation.py` 通过既有共享缓存所有者传输缓存值和证据。
-未命中时由原生计算数值，Python 保留查询、LRU 顺序、发布与警告过滤器。
-sigmoid LUT 钩子在原几何检查点加载或发布宿主存储，缺表时由原生构建。
-公共配置保留原拓扑和导热系数比较规则，包括窄标量的相等比较。
-v9 保留空间导热系数实际值和类型，名义计算继续使用原值。
 Python 准备对对称均匀和规范连续 XY 二维输入使用 v7 及拥有独立所有权的 v3/v4 结果。
 对称 air/air 条带、矩形和 sigmoid 场的准备、容量查询及流量解析使用 v9。
 非零 delta 二维准备保留原路径；全部受支持三维准备使用原生宿主阶段。
-公共 ZoneConfig 和 sigmoid 组合查询在独立迁移通过前，仍保留独立调用与偏移几何消费者。
+公共 ZoneConfig 和 sigmoid 组合查询仍保留独立调用与偏移几何消费者。
+这些公开接口保留调用方提供的物性及自定义 sigmoid 控制。
 适配器保留 CaseData 字段、标量类型、事件、来源范围和保存的模型选择。
 v2 宿主钩子在原执行点保留对象错误与警告作用域，不提供数值。
-v3 钩子交换已完成的缓存项与同步观测，Python 保留警告过滤器、来源位置，以及后续失败前已完成的观测。
+v3 钩子交换已完成的缓存项与同步观测。
+回调 v4 保留该布局，在物理网格构建前增加宿主对象检查点。
+Python 保留警告过滤器、来源位置，以及后续失败前已完成的观测。
 原生失败不会选择其他准备路线。
 被替代的连续 Python 分支已退役，独立冻结参考继续保留在 `development/tests`。
 `preparation_case.cpp` 负责二维准备流程及均匀、连续或网格／偏置三维流程；`stage_run.cpp` 将二维准备态适配到现有完整二维驱动。
@@ -158,7 +165,22 @@ Python 对称均匀及连续二维运行通过保存输入接口使用同一原�
 新协议缺符号或执行失败直接报错，不重新运行旧路线。
 唯一 `FieldResult` 组装器位于 `full_2d_capture.py`，并保留原告警及应用物性检查顺序。
 安装的 C ABI 和`stages.hpp`供外部 C++ 程序调用。
-当前 Python 入口保留原有行为及全部支持模式；相应迁移关口通过后，才能退役其数值与策略实现。
+Quick Design 准备 v2 接受带类型的原始工况。
+`quick_design_prepare_v2.cpp` 负责完整数值顺序，包括几何、网格、入口物性和解析 D-F 压降分数。
+独立压降查询不创建热网格或设计场数组。
+`shared/models/_native_quick_prepare.py` 通过固定具名宿主操作保留 Python 对象协议、缓存交换、警告和快照。
+这些操作不得调用数值模型；其顺序及全部数值分支由 C++ 决定。
+`preprocess/app_modes/quick_design.py` 用复制后的原生输出组装 CaseData。
+被替代的 `shared/models/quick_design.py` 已删除；冻结参考保留在 `development/tests/quick_prepare_reference.py`，供回归检查使用。
+Quick 默认值统一来自 `shared/configs/model_parameters_v1.json`。
+Python 读取该资源，C++ 使用生成的常量；逆流保存态的 `qtol` 和 `chunk` 仍为 `None`。
+`quick_design_prepare.cpp` 中的 native-double v1 准备及其公开布局继续可用。
+`quick_design_run.cpp` 调用既有驱动并复制结果证据。
+const/mean、叉流/逆流和热启动规则保持不变。
+Python 执行用保存的准备场调用这一 run 阶段，不重复准备。
+它在释放前复制原生场及声明，保留原网格、固定场 dtype 和工况标量。
+原生结果阶段负责 Quick Design 指标，固定宿主操作保留既有类型和事件协议。
+当前 Python 入口保留支持模式；此迁移不建立物理验证。
 
 <a id="retained-python-responsibilities"></a>
 
@@ -167,7 +189,7 @@ Python 保留公共 API、配置与数据对象、类型／字节序／shape 适
 GUI 显示、输入校验、应用搜索／BO、离线数据处理与拟合继续由各自 Python 模块负责。
 以下边界保留原有计算表达式和消费者：
 
-- 显式 Python object／任意精度整数协议，在进入 typed ABI 前选择；原生错误仍直接报告。
+- 显式 Python object／任意精度整数协议保留在声明的边界；Quick 准备与结果阶段选择固定具名宿主操作，原生错误仍直接报告。
 - 配置控制节点、单位换算、序列化 grid edges 和存档自洽校验；温度初值及配置校验保留原错误顺序。
 - 独立 getter／几何／sCO2 文案的范围摘要、GUI 预览和 nTop 导出描述统计；正式范围采集与资格检查仍由 C++ 负责。
 - `ports_complete` 的注入 ledger 检查，以及独立低层 driver 的默认输入适配。当前原生 ledger 已返回明确完整性标志。
@@ -454,7 +476,7 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
 
 - `shared/domain/` 负责不可变 CaseData、FieldResult、指标定义和运行控制端口，不依赖 Qt。
 - `preprocess/` 负责物理网格／边界准备、固定几何和系数、模型／资源选择，以及可移植执行输入。
-- `solvers/backends/cpp/` 通过默认使用 C++ 的 `RunControl` 提供独立准备态 Quick Design 和 full 2D/3D。主机库路径不存入 CaseData。共享 QD 校验和结果映射位于 `solvers/backends/quick_design.py`；物性阶段、液态水约束和热迭代由 C++ 驱动负责。返回的标量阶段证据扩展为相同场和警告记录，供后处理使用。full 2D/3D 在 C++ 中负责 SIMPLE、压力参考、外物性／热耦合和最终证据；二维还负责 Richardson 细化。完整计算绑定在同步原生调用中借用准备态只读设计数组，持有强引用直至调用和结果捕获完成；既有 dtype、对齐和单位转换仍按需分配。公共 Python 输入构造器继续返回独立可写设计数组。绑定将原生证据映射到同一 FieldResult，不调用 Python 数值核。full 3D ABI 2 删除外层物性 Anderson 控制项和状态，保留固定物性松弛与热方程 Anderson。full 2D ABI 2 保留原准备态 Nu 几何比，不在单位转换后重建。C++ 是唯一数值后端。必需原生 CI 已在 macOS arm64/Python 3.13 和 Windows x64/Python 3.12、3.13 通过。可见桌面与完整性能资格保持独立。
+- `solvers/backends/cpp/` 通过默认使用 C++ 的 `RunControl` 提供独立准备态 Quick Design 和 full 2D/3D。主机库路径不存入 CaseData。共享 QD 校验和结果映射位于 `solvers/backends/quick_design.py`；物性阶段、液态水约束和热迭代由 C++ 驱动负责。Quick Design run 阶段将标量证据扩展为场及声明；Python 复制具有所有权的输出，并用过程证据生成警告记录。full 2D/3D 在 C++ 中负责 SIMPLE、压力参考、外物性／热耦合和最终证据；二维还负责 Richardson 细化。完整计算绑定在同步原生调用中借用准备态只读设计数组，持有强引用直至调用和结果捕获完成；既有 dtype、对齐和单位转换仍按需分配。公共 Python 输入构造器继续返回独立可写设计数组。绑定将原生证据映射到同一 FieldResult，不调用 Python 数值核。full 3D ABI 2 删除外层物性 Anderson 控制项和状态，保留固定物性松弛与热方程 Anderson。full 2D ABI 2 保留原准备态 Nu 几何比，不在单位转换后重建。C++ 是唯一数值后端。必需原生 CI 已在 macOS arm64/Python 3.13 和 Windows x64/Python 3.12、3.13 通过。可见桌面与完整性能资格保持独立。
 - `Simple2DSolver` 和 `Simple3DSolver` 保留每个活动流动调用。`start` 开始调用；`advance` 完成普通步骤及已启用的二维候选，再执行 F2 检查。现有一次性入口使用这些操作。活动快照独立持有各场、F2 连续确认及停滞状态、结果、历史、入口流量目标、裁剪累计和压力层级构建状态。恢复保留原迭代预算、动量观测位置和压力重建节奏，在写入调用方场前校验保存状态。初始修正数组保留原有未使用值规则。热启动调用之间的快照与活动调用快照分开。回调不能保存或重入未完成步骤。每次普通或候选步骤前检查取消。物理方程和最终边界证据保持不变。两个完整控制器均归档活动流动态，供应用恢复。
 - `EnthalpyRun` 持有 T-SOU 的 Picard 迭代状态。每次推进完成一个原始迭代，包括其中的 SOU 候选。初始化复用现有物性工作分区，并保留相同物理检查。完成的运行向完整控制器转移最终有效导热系数，避免在相同热状态上重复计算 EOS。活动快照独立保存五个解场、输运值、结果证据和 Anderson 历史；H 算法独占的焓界限、表界限和反算数组已退役。恢复要求相同输入与控制参数，并在写入调用方数组前校验保存状态。EOS 求值器与临时数组重新构建。失败或取消的运行不能导出活动快照；回调不能保存或重入未完成步骤。现有 `solve_enthalpy` 入口使用此所有者，原来两个仅依赖栈状态的迭代循环已退役。物理检查、最终审计、迭代预算和取消位置保持不变。该组件接口尚不提供文件或应用层恢复。
   直接调用 `EnthalpyRun` 时，每侧可设置 `inlet_direction=-1`，将该侧标量入口状态用于所有外部入流。
@@ -486,7 +508,7 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
 - 原生 CC/QD、交错 temperature、model-h 和 conservative-energy 共用有限体积行，但保留物理模型及调用方的面准备职责。空气／水 full2D CC 主／细及 full3D CC Nz=1 调用严格 `solve_model_h_2d`；Nz>1 调用严格 `solve_model_h_3d`。它们使用接受的热状态 SIMPLE 质量面、既有空气／水 h(T)，并保留准备态 K/h_v。二维／Nz=1 为 A-SOU/B-FOU，Nz>1 两侧 SOU。增量 `get_model_enthalpy_evidence_v1` 在后续流动／物性更新和释放前捕获该热状态。可移植 `model_enthalpy_temperature_v1` 记录 h(T) 系数、求解相、残差、源／储库和向外平流／Fourier 平面；二维主／细身份分开，不使用旧热容账本布局。新字段缺声明时无效；不含新账本的历史文件保留原归约。真实三维 Nz=1 将质量除以深度交给二维，再将积分功率乘深度一次；温度不缩放。fullCC 不支持非零源，给定 B 为外部储库，不提供 B 求解证据。QD／独立 CC 保留每阶段固定系数的热容输运。full3D true-h 保留 CC 输入校验和交错投影准备，在所选 EOS 能量求解前不执行温度扫描。私有 G4 迭代行和交错预热专用行已退役。单 A 侧 sCO2 执行仍由原生输入边界拒绝；空气／水关闭 B 的校验以及独立交错／MAC 研究契约保留。
 
   迭代、不完整边界和构建要求见[原生使用方契约](cpp-migration.zh-CN.md#shared-finite-volume-temperature-consumers)。
-- `postprocess/api.py` 保留公开评估接口。原生结果阶段负责完整 2D/3D 指标选择、定义、状态，以及独立适用性、物理平衡和资格查询。`shared/_native_result_stage.py` 转换证据与返回对象，并在每个原语边界送达 NumPy 事件。Quick Design 保留独立的类型化数值协议，等待对应阶段接入。`postprocess/conservation.py` 保留完整公开守恒证书；原始结果辅助函数保留现有消费者和 Python 协议。后处理归约记录的场、通量和压力，不重跑求解器或访问私有运行时对象补证据。完整计算评估只在本次调用内，按侧别和主／细证据延迟复用已成功的热与质量归约。每个请求指标仍单独处理缺失、不支持和无效状态。
+- `postprocess/api.py` 保留公开评估接口。原生结果阶段负责完整 2D/3D 指标选择、定义、状态，以及独立适用性、物理平衡和资格查询。`shared/_native_result_stage.py` 转换证据与返回对象，并在每个原语边界送达 NumPy 事件。Quick Design 使用同一原生阶段，保留类型化中间值，并通过固定具名宿主操作执行既有 Python 协议。`postprocess/conservation.py` 保留完整公开守恒证书；原始结果辅助函数保留现有消费者和 Python 协议。后处理归约记录的场、通量和压力，不重跑求解器或访问私有运行时对象补证据。完整计算评估只在本次调用内，按侧别和主／细证据延迟复用已成功的热与质量归约。每个请求指标仍单独处理缺失、不支持和无效状态。
 - `shared/models/` 和 `shared/df_surrogate/` 负责共享纯闭合和带版本资源。显式清洗／标定位于 `preprocess/offline/`。
 - `shared/io/` 负责严格 YAML/HDF5/JSON 交换。`cli_options` 将共享主机参数映射为 RunControl，不把主机路径写入工况／配置，也不让 CLI 使用方依赖工作流。VTK 导出是记录数据的后处理视图，不是新数值状态。
 - `shared/configs/` 负责随包工况配置。

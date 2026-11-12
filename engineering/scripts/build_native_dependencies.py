@@ -629,7 +629,8 @@ def verify(cache: Path, host: str, component: str = "all") -> None:
     preparation_dir = cache / "build" / f"preparation-{host}"
     for caller in ("preparation_c_static", "preparation_c_shared",
                    "preparation_case_c_static", "preparation_case_c_shared",
-                   "preparation_case_3d_c_static", "preparation_case_3d_c_shared"):
+                   "preparation_case_3d_c_static", "preparation_case_3d_c_shared",
+                   "quick_prepare_c_static", "quick_prepare_c_shared"):
         run([preparation_dir / f"{caller}{suffix}"], log)
     prefix, shared_suffix = ("", ".dll") if host == "windows-x64" else ("lib", ".dylib")
     preparation = ct.CDLL(str(preparation_dir / (prefix + 'tpmshx_preparation_shared' + shared_suffix)))
@@ -835,7 +836,8 @@ def check_stages(cache: Path, host: str, python: Path, lock: Path, component: st
         if component == "all":
             tests = independent / "tests"
             shutil.copytree(ROOT / "sjtu_tpmshx/solvers/native/tests/stages", tests / "stages")
-            shutil.copy2(ROOT / "sjtu_tpmshx/solvers/native/tests/stage_run_smoke.cpp", tests)
+            for smoke in ("stage_run_smoke", "quick_design_stage_smoke"):
+                shutil.copy2(ROOT / f"sjtu_tpmshx/solvers/native/tests/{smoke}.cpp", tests)
             shutil.copy2(ROOT / "sjtu_tpmshx/solvers/native/tests/stage_run_3d_smoke.c", tests)
             sources.append("tests/stages")
         env = {key: value for key, value in os.environ.items()
@@ -850,7 +852,8 @@ def check_stages(cache: Path, host: str, python: Path, lock: Path, component: st
             run([ctest, "--test-dir", build_dir, "-C", "Release", "--output-on-failure"],
                 log, cwd=independent, env=env)
             if source == "tests/stages":
-                shutil.copytree(build_dir / "stage-result", cache / "build/stage-result", dirs_exist_ok=True)
+                for name in ("stage-result", "quick-design-stage-result"):
+                    shutil.copytree(build_dir / name, cache / "build" / name, dirs_exist_ok=True)
     print(f"PASS: {host} installed SDK and independent C++ stage callers", flush=True)
 
 

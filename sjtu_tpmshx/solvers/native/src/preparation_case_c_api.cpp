@@ -181,14 +181,12 @@ void host_callback_version(const tpmshx_preparation_case_callbacks_v1* callbacks
             throw std::invalid_argument("preparation host callback struct size is invalid");
     } else version(callbacks);
 }
-struct FlowCallbackContext {
-    const tpmshx_preparation_case_callbacks_v1* callbacks;
+struct FlowOutputStorage {
     const unsigned char* result;
     std::size_t result_bytes;
     tpmshx_preparation_case_failure_v2* failure;
     char* error;
     std::size_t error_bytes;
-    bool storage_safe=true;
 
     template<class T> void borrowed(const T* pointer,std::size_t count) const {
         require_buffer(pointer,count);
@@ -323,6 +321,11 @@ struct FlowCallbackContext {
     }
 
 };
+struct FlowCallbackContext {
+    const tpmshx_preparation_case_callbacks_v1* callbacks;
+    FlowOutputStorage storage;
+    bool storage_safe=true;
+};
 void validate_host_input(void* context,std::uint32_t stage,std::uint32_t side) {
     const auto& state=*static_cast<const FlowCallbackContext*>(context);
     const auto& callbacks=*reinterpret_cast<const tpmshx_preparation_case_callbacks_v2*>(state.callbacks);
@@ -421,7 +424,7 @@ bool inlet_cache(void* context,bool publish,std::uint32_t side,const p::InletInp
     std::uint32_t hit=0;
     state.storage_safe=false;
     const auto status=callbacks.inlet_cache(callbacks.values.values.context,publish?1u:0u,side,&inlet_input,kind(velocity_kind),&view,&hit);
-    state.evidence(view.evidence);state.storage_safe=true;
+    state.storage.evidence(view.evidence);state.storage_safe=true;
     if (status) throw std::runtime_error("preparation inlet cache callback failed");
     flag(hit);
     if (!publish && hit) copy_inlet_cache(view,values,2);
@@ -463,7 +466,7 @@ bool inlet_cache_at(void* context,bool publish,const p::PreparationInletKey& key
     auto view=inlet_cache_view(values,evidence);std::uint32_t hit=0;
     state.storage_safe=false;
     const auto status=callbacks.inlet_cache_at(callbacks.values.values.values.context,publish?1u:0u,&probe,&view,&hit);
-    state.evidence(view.evidence);state.storage_safe=true;
+    state.storage.evidence(view.evidence);state.storage_safe=true;
     if (status) throw std::runtime_error("preparation typed inlet cache callback failed");
     flag(hit);if (!publish && hit) copy_inlet_cache(view,values,3);return hit!=0;
 }
@@ -475,7 +478,7 @@ bool sigmoid_lut_cache(void* context,bool publish,tpmshx::Topology topology,std:
     std::uint32_t hit=0;state.storage_safe=false;
     const auto status=callbacks.sigmoid_lut_cache(callbacks.values.values.values.context,publish?1u:0u,
         static_cast<std::uint32_t>(topology),resolution,&view,&hit);
-    state.lut(view);state.storage_safe=true;
+    state.storage.lut(view);state.storage_safe=true;
     if (status) throw std::runtime_error("preparation sigmoid LUT cache callback failed");
     flag(hit);
     if (!publish && hit) {
@@ -892,13 +895,14 @@ template<class Source,class Result,class Function> int flow_boundary(
     const tpmshx_preparation_case_callbacks_v1* callbacks,Result* result,
     tpmshx_preparation_case_failure_v2* failure,char* error,size_t capacity,Function function) {
     if (!tpmshx::fields::c_api::error_buffer_valid(error,capacity)) return TPMSHX_PREPARATION_INVALID;
-    // Check inputs and an existing result before error or failure writes.
-    FlowCallbackContext context{callbacks,reinterpret_cast<const unsigned char*>(result),sizeof(Result),failure,error,capacity};
+    // Keep diagnostics separate from input and retained output storage.
     const auto* callback_data=reinterpret_cast<const unsigned char*>(callbacks);
     std::size_t callback_count=0;
+    const FlowOutputStorage storage{reinterpret_cast<const unsigned char*>(result),
+        result?sizeof(*result):0,failure,error,capacity};
     try {
         require_buffer(result,result?1:0);
-        if (result && result->owner) context.owned(*result);
+        if (result && result->owner) storage.owned(*result);
         require_buffer(grid,1);
         callback_count=callback_bytes(callbacks);require_buffer(source,source?1:0);
         require_disjoint(grid,1,error,capacity);require_disjoint(grid,1,source,source?1:0);
@@ -957,6 +961,7 @@ template<class Source,class Result,class Function> int flow_boundary(
             require_disjoint(value.data,value.size,failure,failure?1:0);
         }
     } catch (...) {return TPMSHX_PREPARATION_INVALID;}
+    FlowCallbackContext context{callbacks,storage};
     tpmshx_preparation_case_failure_v2 staged_failure{};
     bool failure_ready=false;std::exception_ptr saved_exception;
     try {
@@ -1422,12 +1427,13 @@ template<class Source,class Result,class Function> int boundary_3d(
     const tpmshx_preparation_case_callbacks_v1* callbacks,Result* result,
     tpmshx_preparation_case_failure_v2* failure,char* error,size_t capacity,Function function) {
     if (!tpmshx::fields::c_api::error_buffer_valid(error,capacity)) return TPMSHX_PREPARATION_INVALID;
-    FlowCallbackContext context{callbacks,reinterpret_cast<const unsigned char*>(result),sizeof(Result),failure,error,capacity};
+    const FlowOutputStorage storage{reinterpret_cast<const unsigned char*>(result),
+        result?sizeof(*result):0,failure,error,capacity};
     const auto* callback_data=reinterpret_cast<const unsigned char*>(callbacks);
     std::size_t callback_count=0;
     try {
         require_buffer(result,result?1:0);
-        if (result && result->owner) context.owned(*result);
+        if (result && result->owner) storage.owned(*result);
         callback_count=callback_bytes(callbacks);
         require_buffer(source,source?1:0);require_buffer(result,result?1:0);require_buffer(failure,failure?1:0);
         require_buffer(selected,selected?1:0);require_buffer(callback_data,callback_count);
@@ -1459,6 +1465,7 @@ template<class Source,class Result,class Function> int boundary_3d(
             require_disjoint(value.data,value.size,result,result?1:0);require_disjoint(value.data,value.size,failure,failure?1:0);
         }
     } catch (...) {return TPMSHX_PREPARATION_INVALID;}
+    FlowCallbackContext context{callbacks,storage};
     tpmshx_preparation_case_failure_v2 staged_failure{};
     bool failure_ready=false;std::exception_ptr saved_exception;
     try {

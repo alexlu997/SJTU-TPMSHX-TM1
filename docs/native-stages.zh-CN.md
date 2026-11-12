@@ -13,10 +13,18 @@ run v2 通过现有 model-h 或 true-h 驱动消费准备 v2。
 run v1 保留 air/air CFD 范围及已公开布局。
 非零 delta、分区、连续场和规定质量流量仍不在这一准备 v2 范围内。
 这些限制不删除现有 Python 工作流支持的任何模式。
+Quick Design 保留面向 air、water、sCO2 的 native-double v1 准备及运行接口。
+准备 v2 增加带类型的原始输入及独立压降分数查询。
+Python 使用 v2 准备，通过固定具名宿主操作保留既有值协议。
+准备／查询的流体注册表包括 CO2；这不扩大既有 air/water/sCO2 LTNE 运行范围。
 
 准备 v3 在同一均匀对称二维流体矩阵内增加总质量流量输入，提供独立的入口容量查询、
 入口流量解析和完整准备。物理深度、标定限制与标量算术规则保持不变。
 连续场、分区和非零 delta 仍不在准备 v3 范围内；已解析的均匀准备视图使用 run v2，包括总流量案例。
+
+准备 v8 为原始 air/air 条带、矩形和 sigmoid 场增加容量查询、流量解析与完整准备。
+它保留 CFD 阻力、零 delta，以及独立的域长和端口类型输入。
+准备 v9 通过带类型的缓存钩子，将这些对称空间几何 Python 路由连接到原生阶段。
 
 独立的三维准备 v1 接收规定入口速度的原始对称均匀算例，支持两种拓扑、全部 16 个有序流体配对，
 以及现有 CFD 和实验 DF 选择。其物理网格、带类型的端口与字段证据也通过 host v5 服务于 Python 三维准备。
@@ -25,16 +33,14 @@ Continuous v3 增加 XY/XYZ 控制点；spatial v4 增加 XY 网格矩形和现�
 [均匀三维准备契约](#均匀三维准备)说明输入要求与剩余关口。
 
 完整 2D/3D 的 Python 评估现已调用原生结果阶段；独立适用性、物理平衡和资格查询也使用该阶段。
-Quick Design 指标运算保留当前协议 owner。公开 Python 入口和保存格式继续可用。
+原生结果阶段负责 Quick Design 指标并保留类型化中间值。V3 通过固定具名宿主操作保留既有 Python 对象、任意精度整数和最终转换协议。公开 Python 入口和保存格式继续可用。
 宿主查询借用类型化证据，保留延迟输入错误，并在每个原语返回前送达 NumPy 事件。
 回调错误在原指标或资格边界处理；未捕获的宿主错误保留原 Python 对象。
+回调不拥有查询状态。延迟错误保留异常对象、cause/context 链接和异常组成员，但不保留这些对象原有的 traceback。查询退出时清空延迟错误引用，覆盖输入打包失败；借用的场不等待循环垃圾回收。
 已发布的 v1 C 布局和查询继续保留；每个输出须通过创建它的库释放。
+结果调用会拒绝错误的输出尺寸或尚未释放的 owner；这类拒绝保留借用输入、旧输出和诊断存储。
 
-准备 v8 为原始 air/air 条带、矩形和 sigmoid 场增加容量查询、流量解析与完整准备。
-它保留 CFD 阻力、零 delta，以及独立的域长和端口类型输入。
-准备 v9 通过带类型的缓存钩子，将这些对称空间几何 Python 路由连接到原生阶段。
-
-C++ 调用顺序是 `prepare_case`、`run_case`、`evaluate`。调用者提供尺寸、设计值、
+已支持的二维和三维 C++ 调用顺序是 `prepare_case`、`run_case`、`evaluate`。调用者提供尺寸、设计值、
 边界条件和控制参数。准备库生成物理场，求解库使用该准备态，结果库评估记录的证据。
 
 ## 所有权和单位
@@ -43,9 +49,13 @@ C++ 调用顺序是 `prepare_case`、`run_case`、`evaluate`。调用者提供�
   输运和闭合输入时，保留原有 mm→m→mm 运算顺序。
 - 请求网格数和实际网格数是不同字段。物理二维场形状是 `(nx, ny)`、C 顺序。
   每侧流动场使用现有 `(cross, stream)` 顺序。
-- C 调用成功后返回一个 owner。全部数组和文本视图都属于这个 owner。最后一次使用后，
-  通过创建它的同一库释放。不得复制 owner 或通过调用者分配器释放它的缓冲区。
+- 返回具有所有权数组的成功 C 调用包含一个 owner，数组和文本视图均属于该 owner。
+  最后一次使用后通过同一个库释放，不复制 owner，也不使用调用方分配器释放内部缓冲区。
+  仅返回标量的查询（包括 Quick 压降分数 v2）直接返回值，无需释放。
 - 回调在调用线程接收借用的事件视图，不承担数值准备。保留事件顺序、logger 名和消息。
+- 结果 v3 传输原始标签和带类型的 Quick 操作数；C++ 拥有标签比较和指标规则。
+  固定具名宿主回调只在选定运算处保留 Python 值协议。
+  对象相等与不等比较使用独立回调；字符串子类保留原运算符。
 - 宿主负责 case ID、时间戳、文件路径和 Python 对象转换。原生阶段负责物理规则、数值默认值和证据。
 - 准备库、求解库使用各自锁定的 CoolProp 构建。结果库不链接准备库、求解库、CoolProp 或 Qt。
 - 准备 v2 增加显式标量精度、强弱类型和布局标记。缓冲区采用 double 传输，结果标记保留原字段精度。
@@ -195,7 +205,11 @@ v9 回调描述符提供带类型的几何与入口缓存键；v1 事件回调�
 库持有物理网格构建、局部几何、总流量解析和最终准备。
 `preprocess/three_d/preparation.py` 在释放 owner 前将原生视图复制为不可变 CaseData。
 原生失败保留原始宿主异常，不选择其他准备路线。
-旧三维数值宿主路径及其专属网格／非对称助手已退役；冻结测试参考保留独立比较和合成保存网格夹具。
+旧三维数值宿主路径及其专属 `shared/models/grid_3d.py` 和 `asym_split.py` 助手已退役。
+`development/tests/preparation_3d_reference.py` 保留独立比较和合成保存网格夹具。
+三维空气场每侧最多选择八个标量观测值，保留原通知、极值和最后样本。
+原始数组范围记录仍包含全部物理单元。
+准备与结果分别编译同一私有选择规则。
 接近单元上限的内存检查及真实三维 BO 也需单独验收。
 保存的 CaseData 继续使用现有校验器，不得重新准备。
 
@@ -250,7 +264,8 @@ Python 在阶段结果释放前复制这些值，再使用唯一的 `full_3d_cap
 准备 v5 通过 `ZonedInput2D` 接收原始条带和矩形。
 它接受 air/air、规定入口速度、CFD 阻力与零 delta。
 配置或显式总质量流量、实验阻力和 sigmoid 控制不属于该接口。
-Python 生产路径与运行接口不变。非零 delta 均匀准备也仍未迁入原生阶段接口。
+准备 v5 是原始 C/C++ 接口；下述 v9 适配器连接 Python 空间准备。
+运行接口保留既有合同。非零 delta 均匀准备也仍未迁入原生阶段接口。
 
 每个区域提供边界、名称、L/t 和标量类型。
 条带沿 x 或 y 使用前两个边界，保留稳定排序。
@@ -265,12 +280,14 @@ L/t、面积密度、水力半径与区域 ID 不平滑。
 单独的热几何孔隙率、面积密度和直径由原始 float64 L/t 场得到。
 结果拥有复制的区域描述、逐区物性、物理场、行阻力、端口和有序证据。
 仅外层结果拥有 owner，必须用匹配的 v5 函数释放。
+诊断存储不得与已有结果的任何视图重叠。
+发生重叠时，调用保持结果及全部诊断存储不变。
 
 每次原始调用从空的有界几何和入口物性缓存开始。
 相等键保留第一次成功值的标量类型和已完成范围记录。
 材料导热率每次使用当前 chi 和固体导热率。
 此接口只接受 v1 事件回调，不使用 Python 共享缓存及其 host hooks。
-原 Python 路径与全部 v1-v4 范围保持可用。
+此前 v1-v4 范围保持不变；公开分区方法仍支持独立调用和非零 delta 调用方。
 
 ## Sigmoid 场
 
@@ -346,12 +363,16 @@ Python 负责内存、磁盘查询与发布；未命中时按既有 41x31 节点
 宿主负责键、查询、LRU 顺序和发布；未命中时全部物理数值由原生实现计算。
 键仅在回调期间有效；查询返回的缓存数组必须保持有效直到阶段返回。
 发布数组为只读，必须在回调返回前复制。
+返回的缓存及 LUT 视图不得与 result、failure 或 error 存储重叠。
+边界先检查这些视图，再使用回调状态。
 原观测与校验钩子保留执行时序和失败行为。
 空间操作在区域准备前增加 stage 为 4、side 为 2 的宿主检查点，保留缺失宿主配置及规范条带对象构造错误在先前检查之后报错的顺序。
 通知 kind 为 2 时逐条传递几何外推原因，与 Nu 警告记录分开，并保留各侧的原始顺序。
 
 全部六个 v9 操作只返回一个外层 owner，嵌套 owner 为空。
 完整结果还通过 `design_pore_porosity` 提供 Python CaseData 对应字段。
+诊断存储必须与已有结果拥有的每个视图分开，包括复制的控制量、LUT 和 `design_pore_porosity`。
+拒绝重叠时保留结果与诊断存储不变。
 使用匹配的 v9 释放函数；此前 C 布局与 v8 操作不变。
 [空间缓存示例](../examples/cpp/prepare_spatial_cache_2d.cpp)在 Python 外调用全部六个入口和带类型的回调。
 它通过缓存钩子提供小型 LUT，并在原 owner 释放后复用复制后的 LUT。
@@ -386,7 +407,7 @@ Python 适配器通过该检查点，在此前几何和物性检查之后保留�
 `development/tests/preparation_*_reference.py` 下的 2026-11-11 冻结参考用于原生阶段和适配器资格比较，
 不作为生产路线；独立准备比较仍需要该参考时继续保留。
 公共 ZoneConfig 与 sigmoid 场查询仍服务于独立调用和非零 delta 准备。
-其剩余组合计算须单独迁移并验收后才能退役。
+这些消费者和独立参考测试仍使用其共享助手。
 
 ## 构建和安装
 
@@ -432,27 +453,34 @@ target_link_libraries(my_program PRIVATE tpmshx::result)
 它不读取 Python 预生成的数值场，也不启动或链接 Python。
 [多流体准备示例](../examples/cpp/prepare_fluids_2d.cpp)通过 v2 准备 CO2/water，
 只链接准备库，不执行求解。
-[三维质量流量示例](../examples/cpp/prepare_mass_3d.cpp)在反向入口面解析总流量后完成准备。
-[连续三维示例](../examples/cpp/prepare_continuous_3d.cpp)在解析总流量后，分别准备 XY 挤出和 XYZ 控制点。
-[空间三维示例](../examples/cpp/prepare_spatial_3d.cpp)准备带非零全局偏置的重叠 XY 矩形，
-通过准备库检查容量、解析流量、输入副本和侧几何。
 [三维运行示例](../examples/cpp/run_3d.cpp) 准备、暂停、恢复、运行并评估一个限预算工况。
 安装后的纯 C 检查覆盖相同生命周期及取消所有权。
 [三维准备示例](../examples/cpp/prepare_3d.cpp)从原始 CO2/water 输入生成各轴长度及网格数不同的物理网格，
 检查反向 z 端口和字段证据，只链接准备库。
-[均匀流体示例](../examples/cpp/uniform_2d.cpp)对 CO2/water 执行完整三个阶段。
-释放准备态后，结果评估仍有效。
+[三维质量流量示例](../examples/cpp/prepare_mass_3d.cpp)在反向入口面解析总流量后完成准备。
+[连续三维示例](../examples/cpp/prepare_continuous_3d.cpp)在解析总流量后，分别准备 XY 挤出和 XYZ 控制点。
+[空间三维示例](../examples/cpp/prepare_spatial_3d.cpp)准备带非零全局偏置的重叠 XY 矩形，
+通过准备库检查容量、解析流量、输入副本和侧几何。
 [质量流量准备示例](../examples/cpp/prepare_mass_2d.cpp)查询容量、解析显式双侧目标，再准备工况；
 它同样只链接准备库，不执行求解。
 [连续场准备示例](../examples/cpp/prepare_continuous_2d.cpp)从 XY 决策和总流量开始，通过 v4 提供物理场与局部阻力，且只链接准备库。
-[连续场运行示例](../examples/cpp/continuous_2d.cpp)从 XY 决策和固定质量流量开始，完成准备、运行和评估；评估前已释放准备态。
-[续算示例](../examples/cpp/resume_2d.cpp)从原始输入创建运行，保留流动快照、释放运行，并更换 CPU 线程数后恢复。
 [分区准备示例](../examples/cpp/prepare_zoned_2d.cpp)从原始条带边界和逐区 L/t 开始，通过 v5 提供准备场和行阻力，且只链接准备库。
 [Sigmoid 准备示例](../examples/cpp/prepare_sigmoid_2d.cpp)创建生产分辨率 LUT，并从原始控制量准备两个工况。
 它复用 LUT，且只链接准备库。
+诊断存储必须与全部具有所有权的准备视图及复制的控制量分开。
 [空间流量示例](../examples/cpp/prepare_spatial_flow_2d.cpp)通过 v8 查询、解析并准备分区和 sigmoid 场。
 [空间缓存示例](../examples/cpp/prepare_spatial_cache_2d.cpp)增加 v9 带类型的缓存及 LUT 回调。
-它同样只链接准备库，并保留行阻力与独立热几何。
+两个示例都只链接准备库，并保留行阻力与独立热几何。
+[连续场运行示例](../examples/cpp/continuous_2d.cpp)从 XY 决策和固定质量流量开始，完成准备与运行，释放准备态后再评估结果。
+[续算示例](../examples/cpp/resume_2d.cpp)从原始输入创建运行，保留流动快照、释放运行，并更换 CPU 线程数后恢复。
+
+[均匀流体示例](../examples/cpp/uniform_2d.cpp)对 CO2/water 执行完整三个阶段。
+释放准备态后，结果评估仍有效。
+[Quick Design 示例](../examples/cpp/quick_design.cpp)从原始工况和尺寸开始，调用
+`prepare_quick_design`、`run_case`、`evaluate`，使用保留的 v1 契约。
+[类型化 Quick 准备示例](../examples/cpp/prepare_quick_design.cpp)使用 `QuickDesignInputV2`，
+只链接准备库，调用 `pressure_fractions` 和 `prepare_quick_design`。
+它检查具有所有权的场及逆流缺省 qtol/chunk 控制量，不执行求解。
 这些示例只使用安装的公开头文件与共享库。
 Windows 构建会将所需 DLL 复制到可执行文件旁。
 
@@ -476,6 +504,116 @@ Windows 构建会将所需 DLL 复制到可执行文件旁。
 
 该命令使用当前环境的适用锁；BO 环境须传对应的 `--python-lock`。
 Linux 另传 `--component result --python-lock engineering/requirements/postprocess.txt`。
-检查命令保留日志与二维对照字段，删除临时安装和外部构建目录。
-这些原生接口不代表离散分区、三维或 Quick Design 已完成生产准备阶段迁移。
-Python 接入及检查点恢复仍有各自的验收关口。
+检查命令保留日志、二维对照字段和 Quick Design 对照字段，删除临时安装和外部构建目录。
+非零 delta 和三维的 Python 准备仍采用明确保留的原有路径。
+它们的原生宿主接入有独立验收关口。
+
+## Quick Design 阶段
+
+`quick_design_stage_c_api.h` 保留 native-double v1 准备与运行契约。
+独立的准备 v2 契约增加 `tpmshx_prepare_quick_design_v2` 和 `tpmshx_quick_pressure_fractions_v2`。
+已公开的 v1 布局不变；`quick_design_prepare_v2.cpp` 负责两条新增数值顺序。
+准备库复用几何、网格、物性和解析 D-F 实现。
+求解库使用既有 Quick Design 驱动；结果库评价记录的场与最终阶段标量。
+
+### 类型化原始准备与压降查询
+
+v2 输入包含 13 个带类型标量：胞元长度、壁厚、宽度、长度、高度、导热率、容差、双侧质量流量、双侧温度和双侧压力。
+胞元长度与壁厚使用 mm，外形尺寸使用 m，温度使用 K，压力使用 Pa(abs)，质量流量使用 kg/s。
+文本字段具有显式字节长度。原生调用方填写全部标量槽；`have_height=0` 将高度槽替换为宽度。
+无宿主钩子时，阶段不读取环境变量，使用固定 CFD D-F 表。
+Python 宿主在原边界保留方法、chi、原始对象和快照协议。
+
+叉流保留 `(60, 40, 1)`，逆流保留 `(60, 1, 2)`。
+共享 `model_parameters_v1.json` 资源统一提供网格数、几何分辨率、导热率、容差及流向控制量。
+Python 读取该资源，原生准备使用生成的常量。
+Python 默认值仍为 16 W/(m K)、`1e-5` 和几何分辨率 128。
+v2 通过 `have_q_relative_tolerance=0` 和 `have_chunk_iterations=0` 保留逆流 qtol/chunk 的缺省状态。
+CaseData 将两者存为 `None`；执行时使用既有核默认值解析。
+v1 继续返回已解析的驱动配置，逆流包含 `max(tol*10, 1e-4)` 和 chunk 250。
+
+完整准备保留以下顺序：热启动检查、标签、正值输入、shape、几何／材料、网格和工况快照。
+随后计算 A/B 入口物性、截面、A/B 压力状态和压降分数。
+配置快照在压降之后；设计场、mm 到 m 换算及最终环境／模型快照随后执行。
+此顺序保留每项警告、错误、转换与缓存观测的原执行点。
+
+仅压降查询只使用几何／材料及入口压降顺序。
+它跳过完整准备校验、热网格、设计场数组、配置快照和最终单位转换。
+仅在该查询中，所有非 `cross` 流向均使用逆流截面。
+完整准备入口仍检查其支持的流向及物性模式标签。
+查询保留入口物性、液态水与解析压降检查，不执行热求解。
+
+v2 描述符须初始化 ABI 2 及准确的 `struct_size`；完整结果须初始化 `owner=NULL`。
+失败不修改结果存储。输入、输出与错误存储须互不重叠；错误缓冲区须可写且非空。
+完整输出拥有网格宽度、边缘、复制的初始场和设计场，并包含带类型的压降分数与保存控制量。
+数组使用 double 传输，精度标签供宿主复制时恢复原字段 dtype。
+通过创建该输出的准备库调用 `tpmshx_quick_prepared_release_v2` 释放。
+压降输出只按值保存分数及压力证据，没有 owner。
+`stages.hpp` 提供 `QuickDesignInputV2`、`PreparedQuickDesignV2`、`prepare_quick_design` 和 `pressure_fractions`。
+v2 输出没有新增 run 重载；Python 将它映射到 CaseData，交给现有运行适配器。
+
+### 固定宿主操作
+
+原生类型化输入可不提供 `tpmshx_quick_callbacks_v2`。
+原生输入及观测使用 `raw_objects=0`；Python 原始对象协议使用 1，并且必须提供 host 回调。
+C++ 选择每项操作及数值分支；宿主操作可打包原始操作数或执行指定对象操作。
+它不得调用几何、物性、压降或求解器的数值实现。
+已完成的几何缓存项通过独立回调交换。
+请求与观测视图均为借用；打包输入缓冲区须保持有效直到下一次回调或原生调用结束，观测须在回调返回前复制。
+回调返回非零值时，阶段以状态 20 停止；C 调用返回后，Python 抛出保存的原异常。
+后续步骤失败时，已完成的警告与缓存观测仍保留。
+
+下表省略 `TPMSHX_QUICK_` 前缀；`side` 为 0 时表示 A，为 1 时表示 B。
+物性索引依次为 rho、mu、k、cp、Pr；标量槽顺序由各行说明。
+标为观测的字段只读，其余所列字段传递宿主原始打包值或固定操作结果。
+
+| 操作 | 宿主边界与请求字段 |
+| --- | --- |
+| `WARM_CHECK`、`LABEL_CHECK` | 检查原热启动对象与标签，不输出数值。 |
+| `POSITIVE_SNAPSHOT`、`POSITIVE_CHECK` | 按原顺序读取一次输入；`index` 选择 13 项中的一项，`flags[0]` 返回有限正值检查结果。 |
+| `SHAPE_CHECK` | 检查热启动场 shape；`flags[0]` 返回叉流选择，网格数由原生常量提供。 |
+| `GEOMETRY_PACK` | `scalars[0:2]` 打包胞元长度／壁厚；`flags[0:3]` 传递拓扑、胞元精度和比例精度。 |
+| `MATERIAL_PACK` | 观测 `geometry`；`scalars[0:2]` 打包导热率和 chi，`flags[0:3]` 传递拓扑／chi 存在标志／精度。`index=1` 选择 chi=1 的最终导热率。 |
+| `WIDTH_PACK` | `index` 选择 x/y/z；`scalars[0]` 打包原始长度，`flags[0]` 传递数组精度。 |
+| `OPERATING_SNAPSHOT` | 捕获原工况值及已解析 DF 选项，不输出数值。 |
+| `PROPERTY_ENTRY` | 打开该侧范围作用域，在 `text` 返回已验证流体标签。 |
+| `STATE_PACK`、`PROPERTY_PACK` | 在 `property_inputs` 打包广播后的操作数。`flags[0]` 标识流体，状态 `flags[1]` 选择标量 EOS 返回 shape；物性 `index` 选择 getter。 |
+| `EOS_CACHE_LOOKUP` | `flags[0]` 标识 sCO2 或 CO2；`flags[1]` 返回命中状态，`property_values` 提供已完成的标量值或五值组合。阶段检查并复制该视图。 |
+| `EOS_CACHE_STORE` | 在 `property_values` 观测已完成的标量结果，通过既有缓存 owner 发布；不得执行计算。 |
+| `PROPERTY_RESULT` | 观测物性数组、kind、category 和浮点事件，恢复宿主标量／数组并送达 NumPy 事件。 |
+| `PRANDTL_PACK` | 在 `property_inputs` 打包 mu、cp、k；`imaginary_inputs` 和 `categories` 保留原值协议。 |
+| `SECTIONS_PACK` | `scalars[0:4]` 打包孔隙率、宽度、长度和高度；`flags[0]` 返回原叉流比较。 |
+| `SECTIONS_RESULT` | 在 `scalars[0:4]` 观测 A 面积／长度和 B 面积／长度，保留原宿主长度对象。 |
+| `PRESSURE_ENTRY` | 在原压降边界读取该侧原始入口值并复制 DF 选项。 |
+| `FLOW_PACK`、`FLOW_RESULT` | `scalars[0:3]` 打包质量流量、面积、密度；`flags[0]` 返回原 air 比较。结果 `scalars[0:2]` 观测质量通量及速度。 |
+| `PRESSURE_COMPARE` | `flags[0]` 返回独立的原 air 比较，用于选择压降分支。 |
+| `PRESSURE_PACK` | `flags[0:3]` 传递 air、拓扑、strict。空气在 `scalars[0:5]` 打包质量通量／T／P／mu／长度，其余流体在 `scalars[0:4]` 打包速度／rho／mu／长度。胞元长度位于 `scalars[5]`，壁厚位于 `property_kind`。 |
+| `PRESSURE_RESULT` | 观测 `pressure`，送达浮点事件和既有压降限制警告或错误。 |
+| `FRACTION_PACK` | `scalars[0:2]` 打包已保留压降值与原入口压力，由 C++ 执行除法。 |
+| `CONFIG_SNAPSHOT` | 在压降计算后执行原 `asdict` 转换。 |
+| `UNIT_PACK`、`UNIT_RESULT` | `index` 选择胞元／壁厚；打包原始标量供原生除法使用。`flags[0]=1` 时在宿主保留自定义对象除法协议；标志为零时观测原生转换。 |
+| `FINAL_SNAPSHOT` | 在原最终边界捕获环境和 ModelRef。 |
+| `FAILURE` | 观测状态、文本、物性失败信息及 `flags[1]` 中的阶段；送达事件并映射原异常及原因链。 |
+
+几何缓存回调以 action 0 查询、action 1 发布。
+命中时提供已完成的几何值并设置 `hit=1`；未命中时设置 `hit=0`，由 C++ 计算。
+Python 保留共享缓存键、命中／未命中行为及原存储值类型，不增加 Quick 专用缓存。
+EOS 操作共享 `sco2_props._prop` 与 `co2_props._scalar`，保留原 4096 项上限及键。
+sCO2 在状态校验前查找标量缓存，CO2 先校验；数组均绕过标量缓存。
+只有成功的原生计算发布结果；外部物性调用和缓存清空使用同一 owner。
+被替代的 `shared/models/quick_design.py` 已删除；冻结参考 `development/tests/quick_prepare_reference.py` 保留用于独立回归检查。
+`preprocess/app_modes/quick_design.py` 只用复制的原生场和宿主快照组装 CaseData。
+
+### 准备态执行与证据
+
+保留的 v1 run 阶段复制传入准备场，不重复准备或修改原准备态。
+const 物性执行一次热过程，mean 执行两次，第二次使用第一次返回的温度。
+入口解析压降分数在两次过程中保持不变。
+结果拥有全部 15 个场、物理网格宽度、压力证据、最终阶段标量和完整驱动过程记录。
+取消返回状态 6 且不发布结果。驱动没有每次调用的 CPU 参数，继续应用既有进程线程控制。
+
+Python 传递保存 CaseData 的借用视图，在释放原生结果前复制返回场和声明。
+公开结果保留原网格、固定场 dtype、质量流量和入口温度。
+Python 保留保存态校验、警告路由和异常映射；原生结果阶段负责 Quick Design 评估。
+准备示例不能证明 N12 已完整交付；数值、打包、CI 和独立审查仍有各自关口。
+Quick Design 保持定尺近似；数值收敛不建立物理验证、适用性或设计资格。

@@ -635,7 +635,8 @@ template<class Inlet> void check_co2_inlet(const Inlet& inlet,std::size_t side) 
         throw failure;
     }
 }
-template<class Input> PreparationGeometryKey geometry_key(const Input& input) {
+template<class Input>
+PreparationGeometryKey geometry_key(const Input& input) {
     return {input.geometry.topology,input.geometry.cell_length_mm,input.geometry.wall_thickness_mm,
         input.kinds.cell_length,input.kinds.wall_thickness};
 }
@@ -713,7 +714,7 @@ UniformInletProperties inlet_properties(const Input& input,const Inlet& inlet,st
                                        std::array<ScalarKind,13>& output_kinds,bool unbound=false,const std::string& bound_layout="scalar") {
     const std::string side=unbound?"unbound":index?"B":"A";
     const char* stage=unbound?"unbound":"inlet";
-    const std::string& layout=unbound?std::string("source"):bound_layout;
+    const std::string layout=unbound?"source":bound_layout;
     UniformInletProperties output{};
     const auto& kinds=input.kinds.sides[index];
     output.mu=property(1,inlet,kinds,side,stage,records,layout);
@@ -1890,6 +1891,54 @@ PreparedFlowCase2D prepare_flow_case_2d(const InletFlowRequest2D& request,
     return output;
 }
 
+PreparedZonedCase2D prepare_zoned_case_2d(const ZonedInput2D& input,const PreparationOptions& options,
+    const PreparationCallbacks& callbacks) {
+    ZonedCache cache{callbacks,{},{},{}};return prepare_zoned_case(input,options,callbacks,cache);
+}
+
+ZonedInletFlow2D prepare_zoned_inlet_mass_capacities_2d(const ZonedInput2D& input,ScalarKind depth_kind,
+    const PreparationOptions& options,const PreparationCallbacks& callbacks) {
+    FloatingEnvironment floating_environment;
+    ZonedInletFlow2D output;output.input=input;output.flow.input=input.input;ZonedCache cache{callbacks,{},{},{}};
+    prepare_spatial_inlet_geometry(input,depth_kind,options,callbacks,cache,output.flow);
+    cache.retain_lut(output.input);return output;
+}
+
+ZonedInletFlow2D resolve_zoned_inlet_flow_2d(const ZonedFlowRequest2D& request,
+    const PreparationOptions& options,const PreparationCallbacks& callbacks) {
+    FloatingEnvironment floating_environment;
+    ZonedInletFlow2D output;output.input=request.input;
+    const auto flow_request=spatial_flow_request(request);
+    const auto targets=flow_targets(flow_request,output.flow.input);
+    if (!targets[0] && !targets[1]) {output.flow.input=request.input.input;return output;}
+    output.input.input=output.flow.input;output.input.input.geometry_mode=2;
+    ZonedCache cache{callbacks,{},{},{}};
+    prepare_spatial_inlet_geometry(output.input,request.physical_depth_kind,options,callbacks,cache,output.flow);
+    resolve_speeds(flow_request,targets,output.flow,request.input.spatial_model.has_value());resolved_spatial_input(output);
+    cache.retain_lut(output.input);return output;
+}
+
+PreparedZonedFlowCase2D prepare_zoned_flow_case_2d(const ZonedFlowRequest2D& request,
+    const PreparationOptions& options,const PreparationCallbacks& callbacks) {
+    FloatingEnvironment floating_environment;
+    PreparedZonedFlowCase2D output;output.flow.input=request.input;ZonedCache cache{callbacks,{},{},{}};
+    const auto flow_request=spatial_flow_request(request);
+    const auto targets=flow_targets(flow_request,output.flow.flow.input);
+    output.flow.input.input=output.flow.flow.input;output.flow.input.input.geometry_mode=2;
+    if (!targets[0] && !targets[1]) {
+        resolved_spatial_input(output.flow);
+        if (callbacks.validate_host_input) callbacks.validate_host_input(callbacks.context,0,2);
+        output.prepared=prepare_zoned_case(output.flow.input,options,callbacks,cache);
+        cache.retain_lut(output.flow.input);return output;
+    }
+    auto geometry=prepare_spatial_inlet_geometry(output.flow.input,request.physical_depth_kind,
+        options,callbacks,cache,output.flow.flow);
+    resolve_speeds(flow_request,targets,output.flow.flow,request.input.spatial_model.has_value());resolved_spatial_input(output.flow);
+    if (callbacks.validate_host_input) callbacks.validate_host_input(callbacks.context,0,2);
+    output.prepared=prepare_zoned_case(output.flow.input,options,callbacks,cache,&geometry);
+    cache.retain_lut(output.flow.input);return output;
+}
+
 namespace {
 
 g::Port checked_port_3d(g::Port port,const GridInput3D& input,const std::string& side) {
@@ -2507,54 +2556,6 @@ PreparedFlowCase3D prepare_flow_case_3d(const InletFlowRequest3D& request,const 
     prepared.input=output.flow.input;
     preflight(prepared.input,options,prepared.uniform_geometry.geometry,prepared.input.sides,records);
     finish_case_3d(prepared,records);return output;
-}
-
-PreparedZonedCase2D prepare_zoned_case_2d(const ZonedInput2D& input,const PreparationOptions& options,
-    const PreparationCallbacks& callbacks) {
-    ZonedCache cache{callbacks,{},{},{}};return prepare_zoned_case(input,options,callbacks,cache);
-}
-
-ZonedInletFlow2D prepare_zoned_inlet_mass_capacities_2d(const ZonedInput2D& input,ScalarKind depth_kind,
-    const PreparationOptions& options,const PreparationCallbacks& callbacks) {
-    FloatingEnvironment floating_environment;
-    ZonedInletFlow2D output;output.input=input;output.flow.input=input.input;ZonedCache cache{callbacks,{},{},{}};
-    prepare_spatial_inlet_geometry(input,depth_kind,options,callbacks,cache,output.flow);
-    cache.retain_lut(output.input);return output;
-}
-
-ZonedInletFlow2D resolve_zoned_inlet_flow_2d(const ZonedFlowRequest2D& request,
-    const PreparationOptions& options,const PreparationCallbacks& callbacks) {
-    FloatingEnvironment floating_environment;
-    ZonedInletFlow2D output;output.input=request.input;
-    const auto flow_request=spatial_flow_request(request);
-    const auto targets=flow_targets(flow_request,output.flow.input);
-    if (!targets[0] && !targets[1]) {output.flow.input=request.input.input;return output;}
-    output.input.input=output.flow.input;output.input.input.geometry_mode=2;
-    ZonedCache cache{callbacks,{},{},{}};
-    prepare_spatial_inlet_geometry(output.input,request.physical_depth_kind,options,callbacks,cache,output.flow);
-    resolve_speeds(flow_request,targets,output.flow,request.input.spatial_model.has_value());resolved_spatial_input(output);
-    cache.retain_lut(output.input);return output;
-}
-
-PreparedZonedFlowCase2D prepare_zoned_flow_case_2d(const ZonedFlowRequest2D& request,
-    const PreparationOptions& options,const PreparationCallbacks& callbacks) {
-    FloatingEnvironment floating_environment;
-    PreparedZonedFlowCase2D output;output.flow.input=request.input;ZonedCache cache{callbacks,{},{},{}};
-    const auto flow_request=spatial_flow_request(request);
-    const auto targets=flow_targets(flow_request,output.flow.flow.input);
-    output.flow.input.input=output.flow.flow.input;output.flow.input.input.geometry_mode=2;
-    if (!targets[0] && !targets[1]) {
-        resolved_spatial_input(output.flow);
-        if (callbacks.validate_host_input) callbacks.validate_host_input(callbacks.context,0,2);
-        output.prepared=prepare_zoned_case(output.flow.input,options,callbacks,cache);
-        cache.retain_lut(output.flow.input);return output;
-    }
-    auto geometry=prepare_spatial_inlet_geometry(output.flow.input,request.physical_depth_kind,
-        options,callbacks,cache,output.flow.flow);
-    resolve_speeds(flow_request,targets,output.flow.flow,request.input.spatial_model.has_value());resolved_spatial_input(output.flow);
-    if (callbacks.validate_host_input) callbacks.validate_host_input(callbacks.context,0,2);
-    output.prepared=prepare_zoned_case(output.flow.input,options,callbacks,cache,&geometry);
-    cache.retain_lut(output.flow.input);return output;
 }
 
 }  // namespace tpmshx::preparation
