@@ -1,7 +1,6 @@
 """Pack named metric requests for the independent result image."""
 import ctypes as ct
 from itertools import zip_longest
-import warnings
 
 import numpy as np
 
@@ -99,12 +98,6 @@ def plane_duty(faces):
     return output.value
 
 
-def outlet_mean(plane):
-    if np.size(plane) == 0:
-        warnings.warn('Mean of empty slice', RuntimeWarning, stacklevel=2)
-    return _double_arrays('outlet_mean', (plane,))
-
-
 def capture_area(dx, dy):
     return _double_arrays('capture_area', (dx, dy))
 
@@ -112,70 +105,3 @@ def capture_area(dx, dy):
 def capture_area_weights(dx, dy):
     return _array_call('capture_area_weights', (dx, dy),
                        (np.size(dx), np.size(dy)), np.result_type(dx, dy))
-
-
-def _scalar_pair(name, first, second):
-    a, b, output = native.scalar(first), native.scalar(second), native._Scalar()
-    _call(name, [_SP, _SP, _SP], ct.byref(a), ct.byref(b), ct.byref(output))
-    return native.restore_scalar(output)
-
-
-def pressure_difference(first, second):
-    return _metric_pair('pressure_difference', first, second)
-
-
-def quick_energy_imbalance(first, second):
-    return _metric_pair('quick_energy_imbalance', first, second, division=True)
-
-
-def quick_capacity_product(mass, cp):
-    return _metric_pair('quick_capacity_product', mass, cp)
-
-
-def quick_temperature_difference(inlet, outlet):
-    if np.ndim(inlet):
-        source = native.array(inlet)
-        output = _output(np.shape(inlet), np.result_type(inlet, outlet), inlet)
-        target = native.array(output)
-        _call('quick_temperature_difference_field', [_AP, ct.c_double, _AP],
-              ct.byref(source.raw), outlet, ct.byref(target.raw))
-        return output
-    value, output = native.scalar(inlet), native._Scalar()
-    _call('quick_temperature_difference', [_SP, ct.c_double, _SP], ct.byref(value), outlet, ct.byref(output))
-    return native.restore_scalar(output)
-
-
-def quick_duty_from_capacity(capacity, delta, cold):
-    if np.ndim(capacity) or np.ndim(delta):
-        owners = [native.array(value) for value in (capacity, delta)]
-        output = _output(_shape(capacity, delta), np.result_type(capacity, delta),
-                         capacity if np.ndim(capacity) else delta)
-        target = native.array(output)
-        _call('quick_duty_from_capacity_field', [_AP, _AP, native._UInt, _AP],
-              *(ct.byref(item.raw) for item in owners), int(cold), ct.byref(target.raw))
-        return output
-    a, b, output = native.scalar(capacity), native.scalar(delta), native._Scalar()
-    _call('quick_duty_from_capacity', [_SP, _SP, native._UInt, _SP],
-          ct.byref(a), ct.byref(b), int(cold), ct.byref(output))
-    return native.restore_scalar(output)
-
-
-def quick_reynolds_flow(rho, velocity):
-    return _metric_pair('quick_reynolds_flow', rho, velocity)
-
-
-def quick_reynolds_length(flow, diameter):
-    return _metric_pair('quick_reynolds_length', flow, diameter)
-
-
-def quick_reynolds_quotient(numerator, mu):
-    return _metric_pair('quick_reynolds_quotient', numerator, mu, division=True)
-
-
-def _metric_pair(name, first, second, *, division=False):
-    if not (np.ndim(first) or np.ndim(second)):
-        return _scalar_pair(name, first, second)
-    dtype = np.result_type(first, second)
-    if division and dtype.kind in 'biu':
-        dtype = np.dtype('float64')
-    return _array_call(name + '_field', (first, second), _shape(first, second), dtype)

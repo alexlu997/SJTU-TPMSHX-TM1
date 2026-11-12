@@ -34,7 +34,8 @@ set(TPMSHX_PREPARATION_C_SOURCES "${TPMSHX_NATIVE_ROOT}/src/preparation_c_api.cp
     "${TPMSHX_NATIVE_ROOT}/src/preparation_flow_c_api.cpp"
     "${TPMSHX_NATIVE_ROOT}/src/property_c_api.cpp"
     "${TPMSHX_NATIVE_ROOT}/src/preparation_df_c_api.cpp"
-    "${TPMSHX_NATIVE_ROOT}/src/preparation_case_c_api.cpp")
+    "${TPMSHX_NATIVE_ROOT}/src/preparation_case_c_api.cpp"
+    "${TPMSHX_NATIVE_ROOT}/src/quick_design_prepare.cpp")
 add_library(tpmshx_preparation_c STATIC ${TPMSHX_PREPARATION_C_SOURCES})
 add_library(tpmshx_preparation_shared SHARED ${TPMSHX_PREPARATION_C_SOURCES})
 target_compile_definitions(tpmshx_preparation_shared PRIVATE TPMSHX_PREPARATION_BUILD_SHARED)

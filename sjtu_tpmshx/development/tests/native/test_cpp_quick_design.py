@@ -116,7 +116,7 @@ def test_pressure_evidence_copies_native_output(native_control, monkeypatch):
     case = prepared('counter', 'const')
     load = quick_design.ct.CDLL
     library = load(native_control.native_library)
-    native_call = library.tpmshx_solve_quick_design_v1
+    native_call = library.tpmshx_run_quick_design_v1
     sentinel = ((310123.25, 270456.5, 1), (420789.75, 410987.125, 0))
     calls = []
 
@@ -124,14 +124,14 @@ def test_pressure_evidence_copies_native_output(native_control, monkeypatch):
         native_call.argtypes, native_call.restype = substitute_pressure.argtypes, substitute_pressure.restype
         status = native_call(*args)
         assert status == 0
-        result = quick_design.ct.cast(args[5], quick_design.ct.POINTER(quick_design._Result)).contents
+        result = quick_design.ct.cast(args[2], quick_design.ct.POINTER(quick_design._StageResult)).contents.raw
         assert result.stop in (0, 1) and result.completed_passes == 1
         calls.append(tuple((side.inlet, side.outlet, side.choked) for side in result.pressure))
         for side, values in zip(result.pressure, sentinel):
             side.inlet, side.outlet, side.choked = values
         return status
 
-    monkeypatch.setattr(library, 'tpmshx_solve_quick_design_v1', substitute_pressure)
+    monkeypatch.setattr(library, 'tpmshx_run_quick_design_v1', substitute_pressure)
 
     def observed_library(path, *args, **kwargs):
         if Path(path).resolve() == Path(native_control.native_library):
@@ -145,6 +145,117 @@ def test_pressure_evidence_copies_native_output(native_control, monkeypatch):
         assert dict(actual.pressure_evidence[side]) == dict(
             inlet_absolute_Pa=inlet, outlet_absolute_Pa=outlet,
             model='inlet_state_analytic_df', choked=bool(choked))
+
+
+def test_stage_preserves_saved_grid_types_and_owned_output(native_control, monkeypatch):
+    from sjtu_tpmshx.preprocess import api
+    from sjtu_tpmshx.solvers.backends.cpp import quick_design
+    case = prepared('counter', 'const')
+    fixed = {key: np.array(value, dtype=np.float32) for key, value in case.design_fields.items()}
+    grid = {**case.grid, 'dx': np.array(case.grid['dx'])}
+    grid['dx'][:2] += [1e-7, -1e-7]
+    grid['x_edges'] = np.concatenate(([0.], np.cumsum(grid['dx'])))
+    op = {**case.parameters['operating_point'], 'T_in_h': np.int64(380), 'mdot_h': np.float32(.04)}
+    case = replace(case, design_fields=fixed, grid=grid,
+                   parameters={**case.parameters, 'operating_point': op})
+    load = quick_design.ct.CDLL
+    library = load(native_control.native_library)
+    call, release = library.tpmshx_run_quick_design_v1, library.tpmshx_quick_run_release_v1
+    observed = []
+
+    def run(*args):
+        call.argtypes, call.restype = run.argtypes, run.restype
+        view = quick_design.ct.cast(args[0], quick_design.ct.POINTER(quick_design._Prepared)).contents
+        assert view.owner is None
+        np.testing.assert_array_equal(np.ctypeslib.as_array(view.widths[0].data,
+                                      shape=(view.widths[0].size,)), case.grid['dx'])
+        status = call(*args)
+        output = quick_design.ct.cast(args[2], quick_design.ct.POINTER(quick_design._StageResult)).contents
+        assert status == 0 and output.owner
+        observed.append(output.evidence.result_id.decode())
+        return status
+
+    def free(pointer):
+        release.argtypes, release.restype = free.argtypes, free.restype
+        release(pointer)
+        assert quick_design.ct.cast(pointer, quick_design.ct.POINTER(quick_design._StageResult)).contents.owner is None
+        observed.append('released')
+
+    def forbidden(*args, **kwargs):
+        pytest.fail('saved Quick Design execution prepared the case again')
+
+    monkeypatch.setattr(api, 'prepare_quick_design', forbidden)
+    monkeypatch.setattr(library, 'tpmshx_run_quick_design_v1', run)
+    monkeypatch.setattr(library, 'tpmshx_quick_run_release_v1', free)
+    monkeypatch.setattr(quick_design.ct, 'CDLL', lambda path: library if Path(path).resolve()
+                        == Path(native_control.native_library) else load(path))
+    actual = run_case(case, native_control)
+    assert observed == [actual.result_id, 'released']
+    for key in ('K_ss', 'eps'):
+        assert actual.fields[key].dtype == np.float32
+        np.testing.assert_array_equal(actual.fields[key], case.design_fields[key])
+    for key in case.grid:
+        np.testing.assert_array_equal(actual.grid[key], case.grid[key])
+    for key, source in (('inlet_temperature_K', 'T_in_h'), ('mass_flow_kg_s', 'mdot_h')):
+        original = case.parameters['operating_point'][source]
+        assert type(actual.boundary_fluxes['A'][key]) is type(original)
+        assert actual.boundary_fluxes['A'][key] == original
+    assert np.isfinite(actual.fields['Ta']).all()
+
+
+@pytest.mark.parametrize('termination', ['cancel', 'callback', 'native_error'])
+def test_stage_releases_output_on_errors(native_control, monkeypatch, termination):
+    from sjtu_tpmshx.solvers.backends.cpp import quick_design
+    case = prepared('counter', 'const')
+    load = quick_design.ct.CDLL
+    library = load(native_control.native_library)
+    release = library.tpmshx_quick_run_release_v1
+    released = []
+
+    def free(pointer):
+        release.argtypes, release.restype = free.argtypes, free.restype
+        release(pointer)
+        released.append(True)
+
+    def fail(_):
+        raise LookupError('stage callback failed')
+
+    control = native_control
+    if termination == 'cancel':
+        progress = []
+        control = replace(control, progress=progress.append, cancel_check=lambda: bool(progress))
+        exception, message = CancelledError, 'Solver cancelled by user'
+    elif termination == 'callback':
+        control = replace(control, progress=fail)
+        exception, message = LookupError, 'stage callback failed'
+    else:
+        op = {**case.parameters['operating_point'], 'T_in_c': 500.}
+        case = replace(case, parameters={**case.parameters, 'operating_point': op})
+        exception, message = WaterStateError, 'water'
+    monkeypatch.setattr(library, 'tpmshx_quick_run_release_v1', free)
+    monkeypatch.setattr(quick_design.ct, 'CDLL', lambda path: library if Path(path).resolve()
+                        == Path(native_control.native_library) else load(path))
+    with pytest.raises(exception, match=message):
+        run_case(case, control)
+    assert released == [True]
+
+
+def test_stage_symbol_is_required(native_control, monkeypatch):
+    from sjtu_tpmshx.solvers.backends.cpp import quick_design
+    case = prepared('counter', 'const')
+    library = quick_design.ct.CDLL(native_control.native_library)
+
+    class MissingStage:
+        def __getattr__(self, name):
+            if name == 'tpmshx_run_quick_design_v1':
+                raise AttributeError(name)
+            if name == 'tpmshx_solve_quick_design_v1':
+                pytest.fail('missing stage silently selected the low-level driver')
+            return getattr(library, name)
+
+    monkeypatch.setattr(quick_design.ct, 'CDLL', lambda _: MissingStage())
+    with pytest.raises(AttributeError, match='tpmshx_run_quick_design_v1'):
+        run_case(case, native_control)
 
 
 def test_warnings_use_native_pass_evidence_without_python_numerics(native_control, quick_design_native, monkeypatch):
