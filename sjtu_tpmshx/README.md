@@ -31,6 +31,9 @@ compute -> preprocess.api.prepare_case -> CaseData -> solvers.api.run_case -> Fi
 并将前段记录与最终准备证据分开。
 run v2 通过现有 model-h 或 true-h 驱动消费准备 v2；run v1 保留原 air/air CFD 范围。
 独立 Quick Design 路径支持 native double 工况，并保留既有 LTNE 模型。
+Python Quick Design 执行通过保存的准备态调用原生 run 阶段。
+原始 Python 准备仍保留现有类型协议。
+Quick Design 评估使用原生结果阶段，宿主继续适配类型和事件。
 阶段迁移期间，上述 Python 入口继续保留全部现有模式。
 
 ## 修改数值函数

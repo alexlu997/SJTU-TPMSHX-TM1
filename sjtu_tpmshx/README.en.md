@@ -36,6 +36,9 @@ It reuses the physical inlet grid and keeps preliminary records separate from fi
 Run v2 consumes preparation v2 through the existing model-h or true-h driver.
 Run v1 retains its air/air CFD scope.
 The separate Quick Design path supports native double operating points and retains the existing LTNE model.
+Python Quick Design execution calls its native run stage with saved prepared data.
+Raw Python preparation retains its current type protocols.
+Quick Design evaluation uses the native result stage with host type and event adaptation.
 The Python entries above retain all current modes while stage migration continues.
 
 ## Edit numerical functions
