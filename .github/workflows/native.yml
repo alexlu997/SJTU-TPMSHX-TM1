@@ -154,6 +154,9 @@ jobs:
           sjtu_tpmshx/development/tests/test_native_preparation_fluids.py
           sjtu_tpmshx/development/tests/test_native_preparation_mass_flow.py
           sjtu_tpmshx/development/tests/test_native_preparation_continuous.py
+          sjtu_tpmshx/development/tests/test_native_preparation_zones.py
+          sjtu_tpmshx/development/tests/test_native_preparation_sigmoid.py
+          sjtu_tpmshx/development/tests/test_native_preparation_grid_types.py
           sjtu_tpmshx/development/tests/test_native_preparation_3d.py
           sjtu_tpmshx/development/tests/test_native_preparation_flow_3d.py
           sjtu_tpmshx/development/tests/test_native_preparation_continuous_3d.py
@@ -169,6 +172,8 @@ jobs:
           sjtu_tpmshx/development/tests/test_native_run_adapter.py
           sjtu_tpmshx/development/tests/test_native_result_stage.py
           sjtu_tpmshx/development/tests/test_native_result_stage_host.py
+          sjtu_tpmshx/development/tests/test_native_quick_result_stage.py
+          sjtu_tpmshx/development/tests/test_native_quick_prepare.py
       - name: Pack native runtime files with executable permissions
         shell: bash
         run: |
