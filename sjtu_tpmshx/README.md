@@ -74,6 +74,13 @@ Python 三维准备使用 host v5 和共享的带类型缓存回调。
 保存输入描述符 v2 增加名义侧几何并接收离散与 sigmoid 场；saved v1 保持不变。
 Python 优先选择 v2，其次为对称均匀或连续输入选择 v1；不具备适用协议的归档库继续使用原接口。
 
+当前公共保存态 2D/3D 运行在原生结果释放前复制适用性分组和必需记录。
+`solvers/applicability_evidence.py` 按原生顺序保留保存的入口字段和标量类型，并在 C 提供 constraint 时采用该值。
+公共 API 发布这些分组，不重复分类。
+Python 将完整 case notices 与运行期 `nu-evidence` 警告记录合并为 `scope_notes`；独立 C++ 阶段保留原生通知。
+直接及归档运行库路径保留 `capture_applicability`；捕获失败不选择该路径。
+`solvers/execution_record.py` 解释实际执行身份和物性采样；原生结果阶段判断资格。
+
 独立的 `shared/models/tpms_calc.compute` 与完整准备使用同一原生入口物性组合。
 Python 保留几何选择、共享缓存、可变结果副本、逐次 K_ss 查询、对象转换和警告策略。
 `shared/models/_native_preparation_case.py` 传输十二个带类型的查询值，并与准备适配器共享范围观测。
@@ -109,7 +116,7 @@ Python 执行通过保存的准备态调用原生 run 阶段；原生结果阶�
 几何库使用 geometry ABI 1／field ABI 2；准备库保留 ABI 1 加载入口，并增加带版本的 Quick 准备 v2 契约；结果库使用 result ABI 2。
 求解器的算法细节从上表 driver 进入对应 SIMPLE、压力和能量实现；[C++ 说明](../docs/cpp-migration.zh-CN.md)给出接口边界。
 Python 保留配置、DTO、I/O、缓存、NumPy 事件处理、GUI／搜索和离线研究。
-原生结果阶段负责完整结果的证据选择与资格；Python 将其输出适配到应用接口。
+原生结果阶段负责完整评估与资格；Python 保留来源数据和宿主通知，并解释执行记录。
 具体保留边界见[架构](../docs/architecture.zh-CN.md#retained-python-responsibilities)。
 
 ### 修改后重新构建

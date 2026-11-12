@@ -410,6 +410,10 @@ class NativeFull3DDriver:
                         algorithm = detached['temperature_evidence']['algorithm']
                 detached['native_metadata'] = dict(abi=self.abi, algorithm=algorithm, red_black=red_black)
             detached['last_closure_ranges'] = copy_last_ranges(self.query_last_ranges, result)
+            if stage_result is not None and application_only:
+                from sjtu_tpmshx.solvers.applicability_evidence import copy_applicability
+                detached['_native_applicability'] = copy_applicability(
+                    stage_result.evidence.applicability, stage_case.metadata.get('applicability_inputs', ()))
             if 'temperature_evidence' not in detached:
                 ledger = HeatLedger()
                 if self.query_heat_ledger(ct.byref(result), ct.byref(ledger)):
@@ -571,4 +575,8 @@ def run_case(case, control=RunControl(), *, resume_state=None, checkpoint=None, 
     r=driver._run_prepared(cfg,p,control,application_only=True, resume_state=resume_state,
         checkpoint=checkpoint, checkpoint_due=checkpoint_due, stage_case=stage_case)
     control.check_cancelled()
-    return capture_result(case, cfg, p, r, driver.abi)
+    result = capture_result(case, cfg, p, r, driver.abi)
+    if '_native_applicability' in r:
+        from dataclasses import replace
+        result = replace(result, metadata=dict(result.metadata, _native_applicability=r['_native_applicability']))
+    return result

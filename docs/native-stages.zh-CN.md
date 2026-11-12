@@ -47,6 +47,16 @@ Continuous v3 增加 XY/XYZ 控制点；spatial v4 增加 XY 网格矩形和现�
 已支持的二维和三维 C++ 调用顺序是 `prepare_case`、`run_case`、`evaluate`。调用者提供尺寸、设计值、
 边界条件和控制参数。准备库生成物理场，求解库使用该准备态，结果库评估记录的证据。
 
+当前公共保存态 2D/3D 运行在结果释放前，从现有 C 证据复制适用性分组和必需记录。
+API 发布这些值，不重复分类。
+保存的入口行按原生顺序保留宿主字段和标量类型；存在原生 constraint 时，用它替换已记录的 constraint。
+Python 将 case notices 与运行期 `nu-evidence` 警告记录合并为 `scope_notes`。
+它保留完整字符串和回调记录，包括嵌入 NUL 字符。
+它保留这些记录的顺序并移除重复消息。
+独立 C++ 阶段使用自己的原生 scope notes。
+直接及归档运行库路径保留 `capture_applicability`；捕获错误不选择该路径。
+`execution_record.py` 解释实际执行身份和物性采样；结果阶段判断资格。
+
 ## 入口物性查询
 
 `stages.hpp` 中的 `InletPropertyQuery` 与 `query_inlet_properties` 提供既有标量入口组合查询。
@@ -164,7 +174,7 @@ Python 优先选择完整的 saved v2 协议，其次为对称均匀或连续输
 NaN、无穷大和有符号零保留现有算术行为。
 复制的摘要不持有指针，结果释放后仍然有效。
 场、历史和数值账本继续通过现有原始证据查询取得。
-Python 正式结果映射及其历史运行库路径保持不变。
+标量映射和历史运行库的捕获计算保留原有行为。
 
 ## 均匀几何的总质量流量
 

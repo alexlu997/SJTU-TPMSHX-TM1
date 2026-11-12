@@ -85,7 +85,7 @@ The result target is `solvers/native/result/`. It uses C++17 and system librarie
 Named metric, balance and check kernels preserve independent field reductions and their original operation order.
 `shared/_native_result.py` loads the prebuilt image on demand. Imports and pure HDF/JSON reads do not load it.
 Python keeps DTOs, type and shape adaptation, NumPy events and application display.
-The native result stage selects full 2D/3D evidence and owns its status, reason and qualification.
+The native result stage evaluates full 2D/3D evidence and owns its status, reasons and qualification.
 Typed byte views preserve integer storage, extended precision, byte order and signed strides.
 Failure does not commit numerical outputs. Ordered floating-point events retain the caller's NumPy error policy.
 Explicit object and arbitrary integer protocols remain only at demonstrated Python-only conversion points.
@@ -220,7 +220,8 @@ Current Python entry points keep their supported modes. This migration does not 
 <a id="retained-python-responsibilities"></a>
 
 Python keeps public APIs, configuration, data objects, type/byte-order/shape adaptation, file I/O, caches and application warning text.
-Full result evidence selection and qualification belong to the native stage. Python adapts the returned objects and applies NumPy event policy.
+The native stages classify applicability ranges and select required records for current saved runs.
+The native result stage owns evaluation and qualification. Python keeps original source fields, host notices and NumPy event policy.
 Python modules also own GUI display, input validation, application searches, BO, offline data processing and fitting.
 The following boundaries keep their original arithmetic and consumers:
 
@@ -306,6 +307,8 @@ It records each side's flow and heat-transfer resource separately from its energ
 An EOS energy relation records the HEOS fluid and the actual thermal pressure field.
 Integral h(T), capacity temperature transport and prescribed temperatures remain distinct.
 The record copies returned algorithm identifiers, effective settings and state labels.
+`execution_record.py` selects recorded energy samples and describes each side's actual execution identity.
+This host interpretation does not decide qualification.
 A missing algorithm identifier stays null; requested settings do not establish execution.
 For CO2 and sCO2, the initial inverse backend applies only to its listed sides.
 The HEOS finishing flag remains explicit.
@@ -504,6 +507,17 @@ They retain scalar shape, first ties, the worst sample and the last sample.
 The separate raw-Re observation still uses the full cell array.
 The additive C queries borrow the existing result owner. The bindings copy
 their values before release and require a current library.
+
+Current saved 2D/3D runs copy the native version, `inlet_recorded` flag, inlet/final groups and required records before result release.
+`solvers/api.py` publishes these values without repeating range classification.
+Saved inlet rows retain their host fields and scalar types in native order.
+A native constraint replaces the recorded constraint when present.
+Missing records, empty sets, uncaptured rows and samples with no finite values remain distinct.
+The host combines case notices and run `nu-evidence` warning records into `scope_notes`.
+This preserves empty strings, embedded NUL characters, callback records, order and duplicate removal.
+Independent C++ stages keep their native scope notes.
+Direct and archived-runtime paths retain `capture_applicability`.
+A capture failure in the current stage raises an error; it does not select that path.
 
 `postprocess.api.evaluate_applicability(result)` reads this evidence without
 an EOS or solver call. It checks the inlet and last local correlation inputs,

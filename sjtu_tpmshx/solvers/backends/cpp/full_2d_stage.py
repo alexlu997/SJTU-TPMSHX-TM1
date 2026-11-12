@@ -1,5 +1,6 @@
 """Run saved 2D inputs through one native lifecycle and capture owner."""
 import ctypes as ct
+from dataclasses import replace
 from types import SimpleNamespace
 
 from sjtu_tpmshx.shared._native_result_stage import Evidence, record
@@ -199,7 +200,11 @@ def run_stage(driver, case, cfg, prepared, control, *, saved_version=1,
                 raise RuntimeError('native full 2D application capture query failed')
             return values.application_hv[0]
 
-        return capture_result(case, cfg, prepared, native, application_hv=application_hv)
+        field = capture_result(case, cfg, prepared, native, application_hv=application_hv)
+        from sjtu_tpmshx.solvers.applicability_evidence import copy_applicability
+        applicability = copy_applicability(result.evidence.applicability, case.metadata.get(
+            'applicability_inputs', ()))
+        return replace(field, metadata=dict(field.metadata, _native_applicability=applicability))
     finally:
         if result.owner:
             release(ct.byref(result))
