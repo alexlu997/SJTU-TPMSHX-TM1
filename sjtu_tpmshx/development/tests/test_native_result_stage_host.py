@@ -1,8 +1,10 @@
 """Check the production stage boundary against independent result references."""
 from collections.abc import Mapping
 from dataclasses import replace
+import gc
 import os
 from pathlib import Path
+import weakref
 
 import numpy as np
 import pytest
@@ -12,6 +14,7 @@ from sjtu_tpmshx.shared.domain.metric_spec import MetricSpec
 from sjtu_tpmshx.shared.domain.portable_data import mutable_data
 from sjtu_tpmshx.shared.io.result_io import load_result
 from sjtu_tpmshx.development.tests.native.result_reference import api as reference
+from sjtu_tpmshx.development.tests.native.test_result_metrics import quick_result
 from sjtu_tpmshx.development.tests.test_native_result_balance import assert_values, observe, assert_observation
 from sjtu_tpmshx.development.tests.test_conservative_energy_results import result_fixture
 from sjtu_tpmshx.development.tests.test_temperature_face_results import temperature_fixture
@@ -448,3 +451,142 @@ def test_raw_execution_label_keeps_native_selection_and_host_equality(mode, vers
     expected = observe(lambda: reference.evaluate_qualification(result, {}))
     actual = observe(lambda: native.evaluate_qualification(result, {}))
     assert_observation(actual, expected)
+
+
+@pytest.fixture
+def without_cyclic_collection():
+    enabled = gc.isenabled()
+    gc.disable()
+    try:
+        yield
+    finally:
+        if enabled:
+            gc.enable()
+
+
+def _lifetime_result(kind):
+    return quick_result() if kind == 'quick' else result_fixture(kind)
+
+
+@pytest.mark.parametrize('kind', [2, 3, 'quick'])
+@pytest.mark.parametrize('query', ['evaluate', 'applicability', 'physical_balance', 'qualification'])
+def test_query_releases_borrowed_fields_without_collection(without_cyclic_collection, kind, query):
+    field = _lifetime_result(kind)
+    references = weakref.ref(field), weakref.ref(field.fields['Ta'])
+    function = getattr(native, 'evaluate' if query == 'evaluate' else 'evaluate_' + query)
+    report = function(field, {}) if query == 'qualification' else function(field)
+    del field
+    assert report is not None
+    assert all(reference() is None for reference in references)
+
+
+@pytest.mark.parametrize('kind', [3, 'quick'])
+@pytest.mark.parametrize('missing', ['library', 'query', 'release'])
+def test_binding_failure_releases_borrowed_fields(without_cyclic_collection, monkeypatch, kind, missing):
+    from sjtu_tpmshx.shared import _native_result as core
+    library = core._library()
+
+    class MissingSymbol:
+        def bind(self, name, *arguments):
+            if missing in name:
+                raise RuntimeError('missing ' + missing)
+            return library.bind(name, *arguments)
+
+    def load():
+        if missing == 'library':
+            raise RuntimeError('missing library')
+        return MissingSymbol()
+
+    monkeypatch.setattr(core, '_library', load)
+
+    def exercise():
+        field = _lifetime_result(kind)
+        references = weakref.ref(field), weakref.ref(field.fields['Ta'])
+        try:
+            native.evaluate(field)
+        except RuntimeError as error:
+            assert str(error) == 'missing ' + missing
+        else:
+            pytest.fail('the selected binding must fail')
+        return references
+
+    assert all(reference() is None for reference in exercise())
+
+
+@pytest.mark.parametrize('kind', [3, 'quick'])
+@pytest.mark.parametrize('exception_type', [ValueError, RuntimeError])
+def test_callback_failure_releases_borrowed_fields(without_cyclic_collection, kind, exception_type):
+    def exercise():
+        if kind == 'quick':
+            class Label(str):
+                def __ne__(self, other):
+                    raise exception_type('query callback')
+            field = quick_result()
+            field = replace(field, metadata=dict(field.metadata, model=Label('model')))
+            request = MetricSpec('Q', 'W', 'three_module_v1')
+        else:
+            field = result_fixture(3)
+            pressure = mutable_data(field.pressure_evidence)
+            pressure['A'].update(P=np.full((2, 2, 2), np.finfo(float).max),
+                dx=np.ones(2), dy=np.ones(2), dz=np.ones(2),
+                inlet_frac=np.ones((2, 2)), outlet_frac=np.ones((2, 2)))
+            field = replace(field, pressure_evidence=pressure)
+            request = MetricSpec('dP', 'Pa', 'pressure_face_v1')
+
+        def callback(label, flags):
+            raise exception_type('query callback')
+
+        references = weakref.ref(field), weakref.ref(field.fields['Ta'])
+        previous = np.geterrcall()
+        np.seterrcall(callback)
+        try:
+            with np.errstate(all='call'):
+                try:
+                    report = native.evaluate(field, request)
+                except RuntimeError as error:
+                    assert exception_type is RuntimeError
+                    assert str(error) == 'query callback'
+                else:
+                    assert exception_type is ValueError
+                    assert 'invalid' in {row.status for row in report.metrics.values()}
+        finally:
+            np.seterrcall(previous)
+        return references
+
+    assert all(reference() is None for reference in exercise())
+
+
+def test_deferred_callback_error_keeps_identity_and_exception_chain():
+    cause = LookupError('original cause')
+    context = ValueError('original context')
+    failure = OSError(5, 'original callback')
+    failure.__cause__, failure.__context__ = cause, context
+
+    class Label(str):
+        def __ne__(self, other):
+            raise failure
+
+    field = quick_result()
+    field = replace(field, metadata=dict(field.metadata, model=Label('model')))
+    with pytest.raises(OSError) as caught:
+        native.evaluate(field)
+    assert caught.value is failure
+    assert failure.errno == 5 and failure.args == (5, 'original callback')
+    assert failure.__cause__ is cause and failure.__context__ is context
+
+
+@pytest.mark.parametrize('kind', [3, 'quick'])
+def test_native_failure_releases_borrowed_fields(without_cyclic_collection, kind):
+    def exercise():
+        field = _lifetime_result(kind)
+        field = replace(field, metadata=dict(field.metadata, mode='unsupported mode'))
+        references = weakref.ref(field), weakref.ref(field.fields['Ta'])
+        try:
+            native.evaluate(field)
+        except ValueError as error:
+            assert 'unsupported mode' in str(error)
+        else:
+            pytest.fail('the native stage must reject the mode')
+        return references
+
+    assert all(reference() is None for reference in exercise())

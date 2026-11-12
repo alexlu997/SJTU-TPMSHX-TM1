@@ -1,12 +1,33 @@
 """Actual numerical archives consumed in the isolated minimal CI environment."""
+import gc
 import os
 from pathlib import Path
 import subprocess
 import sys
 from tempfile import TemporaryDirectory
+import weakref
 
 import numpy as np
 import pytest
+
+
+def _evaluate_archive(archive, *, require_converged=False):
+    from sjtu_tpmshx.shared.io.result_io import load_result
+    from sjtu_tpmshx.postprocess.api import evaluate
+    enabled = gc.isenabled()
+    gc.disable()
+    try:
+        result = load_result(archive)
+        if require_converged:
+            assert result.run_status['converged'] is True
+        references = [weakref.ref(result), *(weakref.ref(value) for value in result.fields.values())]
+        report = evaluate(result)
+        del result
+        assert all(reference() is None for reference in references)
+        return report.metrics
+    finally:
+        if enabled:
+            gc.enable()
 
 
 def test_real_archives_in_minimal_environment():
@@ -18,17 +39,13 @@ def test_real_archives_in_minimal_environment():
 
 def _check_archives(directory):
     from sjtu_tpmshx.development.runs.tools.check_three_module_environment import main
-    from sjtu_tpmshx.shared.io.result_io import load_result
     from sjtu_tpmshx.shared.io.metrics_io import load_metrics
-    from sjtu_tpmshx.postprocess.api import evaluate
     main()
     archives = list(Path(directory).glob('**/handoff/results.h5'))
     assert len(archives) == 2, 'require both real 2D and 3D producer archives'
     units = set()
     for archive in archives:
-        result = load_result(archive)
-        assert result.run_status['converged'] is True
-        actual = evaluate(result).metrics
+        actual = _evaluate_archive(archive, require_converged=True)
         expected = load_metrics(archive.with_name('metrics.json')).metrics
         assert actual.keys() == expected.keys()
         for name, metric in actual.items():
@@ -56,14 +73,11 @@ def test_quick_archives_in_minimal_environment():
 
 def _check_quick_archives(directory):
     from sjtu_tpmshx.development.runs.tools.check_three_module_environment import main
-    from sjtu_tpmshx.shared.io.result_io import load_result
     from sjtu_tpmshx.shared.io.metrics_io import load_metrics
-    from sjtu_tpmshx.postprocess.api import evaluate
     main()
     for case in ('cross-const', 'cross-mean', 'counter-const'):
         archive = Path(directory) / f'quick-design-{case}/results.h5'
-        result = load_result(archive)
-        actual = evaluate(result).metrics
+        actual = _evaluate_archive(archive)
         expected = load_metrics(archive.with_name('metrics.json')).metrics
         assert actual.keys() == expected.keys()
         for name, metric in actual.items():
