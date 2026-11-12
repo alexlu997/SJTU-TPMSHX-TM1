@@ -7,7 +7,7 @@ import pytest
 from sjtu_tpmshx.development.tests import test_native_preparation_spatial_flow as old
 
 _U, _S = old._U, old._S
-_Model = old._struct('ModelV9', [('solid_conductivity_kind', old.v2._Kind),
+_Model = old._struct('ModelV9', [('solid_conductivity_W_mK', old.v1._D), ('solid_conductivity_kind', old.v2._Kind),
     ('allow_geometry_extrapolation', _U), ('load_default_lut', _U)])
 
 
@@ -30,7 +30,7 @@ def test_all_v9_owned_views_reject_diagnostic_aliases(mode, operation, destinati
     source_type, flow_type, case_type = _types(mode)
     table = old.v6._table() if mode == 'sigmoid' else None
     base = old._input(mode, config, table, None)
-    source = source_type(9, ct.sizeof(source_type), base, _Model(old.v2._Kind(64, 0, 0), 1, 0))
+    source = source_type(9, ct.sizeof(source_type), base, _Model(config.geometry.k_s_W_mK, old.v2._Kind(64, 0, 0), 1, 0))
     result_type = case_type if operation == 'prepare' else flow_type
     result = result_type(9, ct.sizeof(result_type))
     library = ct.CDLL(os.environ['TPMSHX_PREPARATION_CASE_LIBRARY'])

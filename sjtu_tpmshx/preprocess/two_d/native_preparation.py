@@ -108,13 +108,25 @@ def _input(config, targets, operation):
 
 def _spatial_input(config, flow, buffers):
     zones = config.zones
+    zone_error = None
     sigmoid = zones.axis == 'grid' and zones.pareto_x_decision is not None
     if zones.axis == 'grid':
         model = dict(k_s=config.geometry.k_s_W_mK) if sigmoid else zones.grid
         rows = [('', [cell[key] for key in ('x0', 'x1', 'y0', 'y1')],
-                                    cell['L'], cell['t']) for cell in zones.grid['cells']]
+                 config.geometry.L_cell_mm if sigmoid else cell['L'],
+                 config.geometry.t_wall_mm if sigmoid else cell['t']) for cell in zones.grid['cells']]
     else:
         model = asdict(zones.config) if hasattr(zones.config, '__dataclass_fields__') else zones.config
+        if isinstance(zones.config, dict):
+            from sjtu_tpmshx.shared.models.zone_config import Zone, ZoneConfig
+            try:
+                zone_data = deepcopy(model)
+                zone_data['zones'] = [Zone(**row) for row in zone_data['zones']]
+                ZoneConfig(**zone_data)
+            except (KeyError, TypeError) as error:
+                # Keep constructor errors at the original region checkpoint.
+                zone_error = error
+                model = None
         if model is None:
             model = dict(zones=[], k_s=config.geometry.k_s_W_mK)
         rows = [(row['name'], [row['y_frac_start'], row['y_frac_end'], 0., 0.], row['L_mm'], row['t_mm'])
@@ -143,8 +155,10 @@ def _spatial_input(config, flow, buffers):
         flow_type, host_type = native._ZonedFlowInput, native._ZonedHostInput
     spatial_flow = flow_type(8, ct.sizeof(flow_type), zoned, flow.physical_depth_kind,
         flow.target_kinds, flow.have_explicit_targets, flow.explicit_targets_kg_s)
-    return host_type(9, ct.sizeof(host_type), spatial_flow,
-        native._SpatialModel(_kind(model['k_s']), bool(config.extrap.allow), sigmoid))
+    source = host_type(9, ct.sizeof(host_type), spatial_flow,
+        native._SpatialModel(model['k_s'], _kind(model['k_s']), bool(config.extrap.allow), sigmoid))
+    source._zone_error = zone_error
+    return source
 
 
 def _lut_cache():
@@ -509,6 +523,8 @@ def _execute(config, operation, *, targets=None, case_id=None, own_metadata=Fals
             elif stage == 4:
                 if config.zones.axis != 'grid' and config.zones.config is None:
                     raise ValueError('Enabled 1D zones require a ZoneConfig')
+                if source._zone_error is not None:
+                    raise source._zone_error
             else:
                 raise RuntimeError(f'unknown preparation host stage {stage}')
 

@@ -152,8 +152,9 @@ The v7 grid descriptor and v8 depth/target kinds retain scalar arithmetic.
 Preparation v9 switches symmetric spatial Python preparation, capacity and flow resolution to these native owners.
 Typed cache hooks preserve actual keys, optional Nu selection, publication order and evidence through the existing host caches.
 Python keeps LUT memory/disk I/O; native code builds missing tables at the original geometry checkpoint.
-The v9 model preserves the spatial conductivity kind and separate geometry-extrapolation/default-LUT flags.
-Public configuration still rejects conflicting spatial topology or conductivity values.
+The v9 model preserves the actual spatial conductivity, its kind and separate geometry-extrapolation/default-LUT flags.
+Public configuration retains its original topology and conductivity comparisons, including narrow-scalar equality.
+Spatial calculations use the accepted spatial value; nominal calculations keep their original value.
 Public zone and sigmoid combination queries retain standalone and offset consumers pending separate migration.
 See [spatial host interfaces](native-stages.md#spatial-host-cache-interface) for callbacks and ownership.
 Saved prepared cases keep their recorded grids; the adapter does not reconstruct historical grids.

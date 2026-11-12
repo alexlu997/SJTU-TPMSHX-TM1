@@ -305,3 +305,89 @@ def test_preflight_keeps_nu_and_geometry_reasons_separate(monkeypatch, tmp_path,
     config.extrap = replace(config.extrap, allow=allow)
     _same(_observe_prepare(monkeypatch, api, 'full', config),
           _observe_prepare(monkeypatch, reference, 'full', config))
+
+
+@pytest.mark.parametrize('mode', ['x', 'y'])
+@pytest.mark.parametrize('fault', ['missing-cell', 'row-extra', 'config-extra', 'missing-zones', 'missing-topology', 'missing-conductivity'])
+@pytest.mark.parametrize('operation,targets', [('full', None), ('capacity', None), ('full', (.001, .001))])
+@pytest.mark.parametrize('earlier', [None, 'chi', 'preflight'])
+def test_canonical_stripe_schema_keeps_error_order(monkeypatch, tmp_path, mode, fault, operation, targets, earlier):
+    config = configuration(monkeypatch, tmp_path, mode)
+    model = config.zones.config = asdict(config.zones.config)
+    if fault == 'missing-cell':
+        del model['zones'][0]['L_mm']
+    elif fault == 'row-extra':
+        model['zones'][0]['unexpected'] = 1
+    elif fault == 'config-extra':
+        model['unexpected'] = 1
+    else:
+        del model[{'missing-zones': 'zones', 'missing-topology': 'tpms_type', 'missing-conductivity': 'k_s'}[fault]]
+    if earlier == 'chi':
+        monkeypatch.setenv('TPMSHX_CHI_S', 'invalid')
+    elif earlier == 'preflight':
+        config.fluid_A.u_mps = 1.e-6
+        config.extrap = replace(config.extrap, allow=False)
+    _same(_observe_prepare(monkeypatch, api, operation, config, targets),
+          _observe_prepare(monkeypatch, reference, operation, config, targets))
+
+
+@pytest.mark.parametrize('operation,targets', [('full', None), ('capacity', None), ('full', (.001, .001)), ('resolve', (.001, .001))])
+@pytest.mark.parametrize('unused', ['absent', 'invalid'])
+def test_sigmoid_does_not_consume_discrete_material_fields(monkeypatch, tmp_path, operation, targets, unused):
+    config = configuration(monkeypatch, tmp_path, 'sigmoid')
+    for cell in config.zones.grid['cells']:
+        for key in ('L', 't'):
+            if unused == 'absent':
+                del cell[key]
+            else:
+                cell[key] = 'unused'
+    _same(_capture(monkeypatch, api, operation, config, targets),
+          _capture(monkeypatch, reference, operation, config, targets))
+
+
+@pytest.mark.parametrize('mode', ['x', 'y', 'grid'])
+@pytest.mark.parametrize('dtype,other', [(np.float16, 16.0001), (np.float32, 16.0000001)])
+@pytest.mark.parametrize('reverse', [False, True])
+@pytest.mark.parametrize('operation,targets', [('full', None), ('capacity', None), ('full', (.001, .001))])
+def test_spatial_conductivity_keeps_value_after_weak_comparison(monkeypatch, tmp_path, mode, dtype, other, reverse, operation, targets):
+    config = configuration(monkeypatch, tmp_path, mode)
+    nominal, spatial = (other, dtype(16.)) if reverse else (dtype(16.), other)
+    assert nominal == spatial and float(nominal) != float(spatial)
+    config.geometry.k_s_W_mK = nominal
+    if mode == 'grid':
+        config.zones.grid['k_s'] = spatial
+    else:
+        config.zones.config.k_s = spatial
+    _same(_capture(monkeypatch, api, operation, config, targets),
+          _capture(monkeypatch, reference, operation, config, targets))
+
+
+@pytest.mark.parametrize('operation,targets', [('full', None), ('capacity', None), ('full', (.001, .001))])
+def test_geometry_cache_queries_receive_initialized_storage(monkeypatch, tmp_path, operation, targets):
+    from sjtu_tpmshx.preprocess.native_preparation import PreparationCacheBridge
+    original = PreparationCacheBridge.geometry_at
+    lookups = []
+    def observed(self, action, key, value):
+        if not action:
+            assert all(getattr(value, name) == 0. for name, _ in value._fields_)
+            lookups.append((key.cell_length_mm, key.wall_thickness_mm))
+        return original(self, action, key, value)
+    config = configuration(monkeypatch, tmp_path, 'x')
+    expected = _capture(monkeypatch, reference, operation, config, targets)
+    monkeypatch.setattr(PreparationCacheBridge, 'geometry_at', observed)
+    _same(_capture(monkeypatch, api, operation, config, targets), expected)
+    assert lookups
+
+
+@pytest.mark.parametrize('value', [0., -1., float('nan'), float('inf')])
+def test_raw_spatial_model_rejects_invalid_conductivity(monkeypatch, tmp_path, value):
+    from sjtu_tpmshx.preprocess.two_d import native_preparation
+    config = configuration(monkeypatch, tmp_path, 'x')
+    original = native_preparation._input
+    def invalid(*args, **kwargs):
+        source = original(*args, **kwargs)
+        source.model.solid_conductivity_W_mK = value
+        return source
+    monkeypatch.setattr(native_preparation, '_input', invalid)
+    with pytest.raises(ValueError, match='spatial.solid_conductivity_W_mK'):
+        api.prepare_case(config, case_id='invalid-spatial-material')

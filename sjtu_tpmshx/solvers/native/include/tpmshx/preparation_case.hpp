@@ -219,6 +219,7 @@ struct SigmoidInput2D {
     SigmoidLUT2D lut;
 };
 struct SpatialModel2D {
+    double solid_conductivity_W_mK=16.;
     ScalarKind solid_conductivity_kind;
     bool allow_geometry_extrapolation=false,load_default_lut=false;
 };
