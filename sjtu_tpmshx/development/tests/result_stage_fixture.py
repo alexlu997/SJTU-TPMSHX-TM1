@@ -350,7 +350,7 @@ def native_report(result, library, query='evaluate', request=None, metrics=None)
 
 
 def python_report(result, request=None):
-    from sjtu_tpmshx.postprocess.api import evaluate
+    from sjtu_tpmshx.development.tests.native.result_reference.api import evaluate
     value = evaluate(result, request)
     return {'source_result_id': value.source_result_id,
             'metrics': {k: asdict(v) for k, v in value.metrics.items()},

@@ -102,8 +102,8 @@ def _build_zone_arrays(compute_cfg, N_x, N_y, *, dx_arr=None, dy_arr=None, geome
             _log.info(f"[ZONE] {len(zone_config.zones)} zones along "
                       f"{z_axis}")
 
-    # Smooth discrete and sigmoid property arrays at their boundaries.
-    if za is not None and zone_config is not None:
+    # Sigmoid fields keep their continuous geometry without this filter.
+    if za is not None and zone_config is not None and za.get('axis') != 'continuous':
         from sjtu_tpmshx.shared.models._native_zones import gaussian
         for _key in ('K_ffA_arr', 'K_ffB_arr', 'K_ss_arr',
                      'h_vA_arr', 'h_vB_arr', 'eps_arr'):

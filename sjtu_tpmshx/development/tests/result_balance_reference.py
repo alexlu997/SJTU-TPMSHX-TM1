@@ -2,7 +2,7 @@
 import numpy as np
 
 from sjtu_tpmshx.shared.domain.persistence_validation import validate_result_declarations
-from sjtu_tpmshx.shared.result_math import _boundary_face_shape
+from sjtu_tpmshx.development.tests.native.result_reference.shared_math import _boundary_face_shape
 
 
 _PHASES = ('A', 'B', 'solid')

@@ -14,7 +14,13 @@ from sjtu_tpmshx.shared.models.tpms_calc import geometry as tpms_geometry
 from sjtu_tpmshx.shared.models.design_fluids import fluid_props, nu_re_window
 from sjtu_tpmshx.shared.models.fluid_props import QuickDesignWaterFieldError
 from .forward import forward
-from sjtu_tpmshx.shared.models.quick_design import dP_fracs, K_STEEL, GEOM_N, LTNE_TOL
+from sjtu_tpmshx.shared.configs.model_parameters import load_quick_design_parameters
+from sjtu_tpmshx.shared.models._native_quick_prepare import pressure_fractions as dP_fracs
+
+_QUICK_PARAMETERS = load_quick_design_parameters()
+K_STEEL = _QUICK_PARAMETERS['k_s']
+GEOM_N = _QUICK_PARAMETERS['geometry_resolution']
+LTNE_TOL = _QUICK_PARAMETERS['tol']
 from sjtu_tpmshx.shared.models import _native_flow
 
 DP_DEGEN_FRAC = 0.30      # 单侧归一化压损 > 此 = 压降近进口压 → 退化 (超音速/迎风缩崩)

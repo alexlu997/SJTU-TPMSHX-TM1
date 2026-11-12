@@ -54,7 +54,7 @@ def real_result(request):
 
 @pytest.mark.parametrize('query', ['evaluate', 'applicability', 'physical_balance', 'qualification'])
 def test_real_2d_3d_all_queries_exact(stage_library, real_result, query, tmp_path):
-    from sjtu_tpmshx.postprocess import api
+    from sjtu_tpmshx.development.tests.native.result_reference import api
     result = load_result(save_result(real_result, tmp_path / 'result.h5'))
     metrics = api.evaluate(result).metrics
     if query == 'evaluate':
@@ -132,7 +132,7 @@ def test_invalid_conservative_evidence_retains_status_and_reason(stage_library, 
 @pytest.mark.parametrize('mode', ['true_h', 'conservative_energy', 'model_h'])
 def test_qualification_keeps_route_and_empty_fine_evidence(stage_library, dimension, fine, mode):
     from sjtu_tpmshx.development.tests.postprocess_tm1.test_qualification import qualified_result, required_metrics
-    from sjtu_tpmshx.postprocess.api import evaluate_qualification
+    from sjtu_tpmshx.development.tests.native.result_reference.api import evaluate_qualification
     result = qualified_result(dimension)
     metadata = mutable_data(result.metadata)
     metadata['thermal_mode'] = mode
@@ -159,7 +159,7 @@ def test_metric_selection_retains_versions_and_unknown_reasons(stage_library, se
 @pytest.mark.parametrize('damage', ['complete_type', 'residual_shape', 'source_shape', 'nan', 'missing_mass'])
 def test_physical_query_preserves_invalid_or_missing_evidence(stage_library, dimension, damage):
     from sjtu_tpmshx.development.tests.postprocess_tm1.test_physical_balance import sample_result
-    from sjtu_tpmshx.postprocess.api import evaluate_physical_balance
+    from sjtu_tpmshx.development.tests.native.result_reference.api import evaluate_physical_balance
     result = sample_result(dimension)
     flux = mutable_data(result.boundary_fluxes)
     if damage == 'complete_type': flux['energy']['physical_boundary_complete'] = 1
@@ -181,7 +181,7 @@ def test_physical_query_preserves_invalid_or_missing_evidence(stage_library, dim
 @pytest.mark.parametrize('damage', ['missing', 'captured_type', 'nonfinite', 'counts', 'hard_bounds'])
 def test_independent_applicability_and_qualification_share_original_policy(stage_library, damage):
     from sjtu_tpmshx.development.tests.postprocess_tm1.test_applicability import result_with_evidence
-    from sjtu_tpmshx.postprocess.api import evaluate_applicability
+    from sjtu_tpmshx.development.tests.native.result_reference.api import evaluate_applicability
     result = result_with_evidence()
     metadata = mutable_data(result.metadata)
     if damage == 'missing':
@@ -225,7 +225,7 @@ for prefix in ('sjtu_tpmshx.solvers', 'sjtu_tpmshx.preprocess', 'CoolProp', 'num
 @pytest.mark.parametrize('field', ['converged', 'simple_ok', 'ltne_ok', 'true_h_converged', 'solved_air', 'solved_sco2'])
 def test_qualification_preserves_boolean_identity_and_false_equality(stage_library, field, value):
     from sjtu_tpmshx.development.tests.postprocess_tm1.test_qualification import qualified_result, required_metrics
-    from sjtu_tpmshx.postprocess.api import evaluate_qualification
+    from sjtu_tpmshx.development.tests.native.result_reference.api import evaluate_qualification
     result = qualified_result(3)
     metadata, status = mutable_data(result.metadata), mutable_data(result.run_status)
     if field == 'converged':

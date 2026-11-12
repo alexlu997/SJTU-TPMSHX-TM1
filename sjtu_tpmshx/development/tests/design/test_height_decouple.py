@@ -7,7 +7,7 @@ import math
 
 from sjtu_tpmshx.applications.design.cases import DesignCase
 from sjtu_tpmshx.applications.design.forward import forward
-from sjtu_tpmshx.shared.models.quick_design import dP_fracs
+from sjtu_tpmshx.shared.models._native_quick_prepare import pressure_fractions as dP_fracs
 
 
 def _case():
