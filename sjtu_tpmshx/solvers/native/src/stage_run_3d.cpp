@@ -1,6 +1,7 @@
 #include "tpmshx/stage_run_3d_c_api.h"
 #include "stage_capture_3d.hpp"
 #include "field_c_boundary.hpp"
+#include "enthalpy_c_views.hpp"
 #include "tpmshx/grid.hpp"
 
 #include <algorithm>
@@ -290,6 +291,7 @@ struct Controls3D {
         if(tpmshx_full_enthalpy_defaults_v1(3,selected.algorithm,
                 input.sides[0].fluid==1 || input.sides[1].fluid==1,&defaults))
             throw std::invalid_argument("invalid native full enthalpy defaults request");
+        tpmshx::energy_algorithm(selected);
         flag(r.require_enthalpy_update_on_temperature);
         const bool strict=r.require_enthalpy_update_on_temperature || r.energy_coupled_tolerance.present
             || r.energy_equation_tolerance.present;

@@ -522,6 +522,66 @@ def test_stage_rejection_preserves_output(preparation_libraries, stage_library, 
             assert error.value == b'unchanged'
 
 
+@pytest.mark.parametrize('saved', [False, True])
+@pytest.mark.parametrize('model_h', [False, True])
+@pytest.mark.parametrize('tolerance', [0., -1., float('nan'), float('inf'), 1e-8])
+def test_create_validates_energy_before_route_selection(
+        preparation_libraries, stage_library, saved, model_h, tolerance, monkeypatch):
+    from sjtu_tpmshx.shared.domain.compute_config import validate_enthalpy_algorithm
+    from sjtu_tpmshx.solvers.backends.cpp.full_3d import NativeFull3DDriver
+    from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
+
+    valid = np.isfinite(tolerance) and tolerance > 0.
+    if valid:
+        validate_enthalpy_algorithm('temperature_sou', tolerance)
+    else:
+        with pytest.raises(ValueError, match='finite and positive'):
+            validate_enthalpy_algorithm('temperature_sou', tolerance)
+    config, request = _configuration()
+    if not model_h:
+        request.model_h = _IterationOptions()
+    recipe = _EnergyOptions(2, tolerance)
+    request.energy = ct.pointer(recipe)
+    cfg, inputs = build_execution_inputs(prepare_case(config, case_id='energy-validation'))
+    driver = NativeFull3DDriver(library_path())
+    events, cancellation_checks, calls = [], [], []
+    host = _control(events, cancel=lambda: cancellation_checks.append(True) or False)
+
+    class CreationChecked(Exception):
+        pass
+
+    with _prepared(preparation_libraries, config, 'uniform') as prepared:
+        def create_only(data, *unused):
+            calls.append(True)
+            source = _Saved(1, ct.sizeof(_Saved), ct.cast(data, ct.POINTER(abi._Input)),
+                config.geometry.L_cell_mm, config.geometry.t_wall_mm, prepared.geometry.epsilon,
+                prepared.wall_thickness, prepared.evidence, prepared.notices, prepared.notice_count, 1, None)
+            arguments = [ct.byref(source)] if saved else _arguments(prepared)
+            name = 'tpmshx_stage_run_3d_create' + ('_saved' if saved else '') + '_v1'
+            handle, error = ct.c_void_p(), ct.create_string_buffer(4096)
+            before = bytes(handle)
+            try:
+                status = getattr(stage_library, name)(*arguments, ct.byref(request), ct.byref(host),
+                    ct.byref(handle), error, len(error))
+                assert status == (0 if valid else 1), error.value.decode()
+                if valid:
+                    phase = _U(999)
+                    assert stage_library.tpmshx_stage_run_3d_phase_v1(handle, ct.byref(phase)) == 0
+                    assert phase.value == 0
+                else:
+                    assert bytes(handle) == before
+                    assert error.value == b'invalid conservative energy options'
+                assert events == [] and cancellation_checks == []
+            finally:
+                stage_library.tpmshx_stage_run_3d_release_run_v1(ct.byref(handle))
+            raise CreationChecked
+
+        monkeypatch.setattr(driver.library, 'tpmshx_solve_full_3d_v5', create_only)
+        with pytest.raises(CreationChecked):
+            driver.run_prepared(cfg, inputs, RunControl(cpu_threads=2))
+    assert calls == [True]
+
+
 @pytest.mark.parametrize('moment', ['entry', 'outer'])
 def test_cancel_retains_only_raw_diagnostics(preparation_libraries, stage_library, moment):
     config, request = _configuration()
