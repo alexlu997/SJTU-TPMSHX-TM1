@@ -484,54 +484,173 @@ double outlet_temperature(const ResultEvidence& result, std::size_t side, Diagno
     return host_call(diag, [&] {return metrics::outlet_temperature_2d(t.array(), flux.array(), opening.array(), *direction != 0 && *direction != 2, diag);});
 }
 
-double quick_metric(const ResultEvidence& result, const std::string& name, Diagnostics& diag) {
-    if (need(result.quick_model, "model") != "plug_ltne_analytic_dp_v1") throw Unsupported("unsupported quick-design metric definition");
+const QuickHost& quick_host() {
+    if (!active_host) throw std::runtime_error("Quick input requires its Python protocol host");
+    return active_host->quick;
+}
+template<class Function, class... Arguments> auto quick_protocol(const Function& function, Arguments&&... arguments) {
+    if (!function) throw std::runtime_error("Quick input requires its named Python protocol callback");
+    HostScope suspended(nullptr);
+    return function(std::forward<Arguments>(arguments)...);
+}
+Number quick_number(const QuickValue& value) {
+    if (value.object) throw NumericError(TPMSHX_RESULT_TYPE_ERROR, "Quick numeric input requires a typed value");
+    return value.numeric.array().at(0);
+}
+bool quick_integer(const QuickValue& value) {
+    if (value.object || !value.numeric.shape.empty()) return false;
+    const auto number = quick_number(value);
+    return number.origin == TPMSHX_RESULT_PYTHON_INT || number.origin == TPMSHX_RESULT_PYTHON_BOOL;
+}
+unsigned quick_bits(const QuickValue& value) {
+    const auto number = quick_number(value);
+    auto magnitude = signed_type(number.dtype) ? static_cast<std::uint64_t>(number.signed_value) : number.unsigned_value;
+    if (signed_type(number.dtype) && number.signed_value < 0) magnitude = std::uint64_t{} - magnitude;
+    unsigned bits = 0;
+    for (; magnitude; magnitude >>= 1) ++bits;
+    return bits;
+}
+bool quick_python_product(std::initializer_list<const QuickValue*> values) {
+    for (const auto* value : values) if (value->object) return true;
+    unsigned bits = 0;
+    for (const auto* value : values) {
+        if (!quick_integer(*value)) break;
+        bits += quick_bits(*value);
+        if (bits > 63) return true;
+    }
+    return false;
+}
+template<class Scalar, class Field> QuickValue quick_numeric_pair(const QuickValue& first, const QuickValue& second,
+    Diagnostics& diagnostics, Scalar scalar, Field field) {
+    if (first.object || second.object)
+        throw NumericError(TPMSHX_RESULT_TYPE_ERROR, "Quick numeric input requires a typed value");
+    if (!first.numeric.shape.empty() || !second.numeric.shape.empty())
+        return Tensor(host_call(diagnostics, [&] {return field(first.numeric.array(), second.numeric.array(), diagnostics);}));
+    return host_call(diagnostics, [&] {return scalar(quick_number(first), quick_number(second), diagnostics);});
+}
+double quick_float(const QuickValue& value) {
+    if (value.object || !value.numeric.shape.empty())
+        return quick_protocol(quick_host().metric_float, value);
+    return arithmetic::to_float(quick_number(value));
+}
+QuickValue quick_input(const ResultEvidence& result, std::size_t side,
+    Recorded<QuickValue> QuickTypedSide::*typed, Recorded<Number> QuickSideEvidence::*scalar, const char* name) {
+    if (result.quick_typed) return need(result.quick_typed->sides[side].*typed, name);
+    return need(result.quick[side].*scalar, name);
+}
+void quick_access(const ResultEvidence& result, std::size_t side, Recorded<int> QuickTypedSide::*access,
+                  const std::string& path) {
+    if (result.quick_typed) (void)need(result.quick_typed->sides[side].*access, path.substr(path.rfind('.') + 1));
+    else record(result, path);
+}
+bool label_equal(const StageLabel& value, const std::string& expected) {
+    return value.text ? *value.text == expected
+        : quick_protocol(quick_host().text_equal, value.value, expected);
+}
+bool label_not_equal(const StageLabel& value, const std::string& expected) {
+    return value.text ? *value.text != expected
+        : quick_protocol(quick_host().text_not_equal, value.value, expected);
+}
+QuickValue quick_metric_value(const ResultEvidence& result, const std::string& name, Diagnostics& diag) {
+    const bool supported = result.quick_typed ? !label_not_equal(need(result.quick_typed->model, "model"), "plug_ltne_analytic_dp_v1")
+        : need(result.quick_model, "model") == "plug_ltne_analytic_dp_v1";
+    if (!supported) throw Unsupported("unsupported quick-design metric definition");
     const std::size_t side = ends_with(name, "_B") || name == "Q_cold" ? 1 : 0;
-    const auto& q = result.quick[side];
     if (name == "T_out_A" || name == "T_out_B") {
         const auto& t = entry(result.fields, side ? "Tb" : "Ta");
-        if (side) record(result, "metadata.parameters");
-        const auto axis = side && need(result.arrangement, "arrangement") == "cross" ? 1u : 0u;
-        const auto index = side && axis == 0 ? 0 : t.shape.at(axis) - 1;
-        return host_call(diag, [&] {return metrics::outlet_mean(plane(t, axis, index).array(), diag);});
+        bool cross = false;
+        if (side) {
+            if (result.quick_typed) cross = label_equal(need(result.quick_typed->arrangement, "arrangement"), "cross");
+            else {record(result, "metadata.parameters"); cross = need(result.arrangement, "arrangement") == "cross";}
+        }
+        (void)t.array();
+        if (result.quick_typed && t.shape.size() < 3) throw NumericError(TPMSHX_RESULT_INDEX_ERROR,
+            "too many indices for array: array is " + std::to_string(t.shape.size()) + "-dimensional, but 3 were indexed");
+        const auto axis = side && cross ? 1u : 0u;
+        const bool last = !side || cross;
+        if (result.quick_typed && !t.shape[axis]) throw NumericError(TPMSHX_RESULT_INDEX_ERROR,
+            "index " + std::string(last ? "-1" : "0") + " is out of bounds for axis " + std::to_string(axis) + " with size 0");
+        const auto selected = plane(t, axis, last ? t.shape.at(axis) - 1 : 0);
+        if (!selected.size() && result.quick_typed) quick_protocol(quick_host().empty_mean);
+        return arithmetic::python_float(host_call(diag, [&] {return metrics::outlet_mean(selected.array(), diag);}));
     }
     if (name == "Q" || name == "Q_cold") {
-        record(result, "boundary_fluxes." + side_name(side));
-        const auto& inlet = need(q.inlet_temperature, "inlet_temperature_K");
-        const auto out = quick_metric(result, side ? "T_out_B" : "T_out_A", diag);
-        const auto delta = host_call(diag, [&] {return metrics::quick_temperature_difference(inlet, out, diag);});
-        const auto& mass = need(q.mass_flow, "mass_flow_kg_s");
-        const auto& cp = need(q.cp, "cp_J_kgK");
-        const auto capacity = host_call(diag, [&] {return metrics::quick_capacity_product(mass, cp, diag);});
-        return arithmetic::to_float(host_call(diag, [&] {return metrics::quick_duty_from_capacity(capacity, delta, side != 0, diag);}));
+        quick_access(result, side, &QuickTypedSide::boundary_access, "boundary_fluxes." + side_name(side));
+        const auto inlet = quick_input(result, side, &QuickTypedSide::inlet_temperature, &QuickSideEvidence::inlet_temperature, "inlet_temperature_K");
+        const auto outlet = quick_float(quick_metric_value(result, side ? "T_out_B" : "T_out_A", diag));
+        QuickValue delta;
+        if (result.quick_typed && quick_python_product({&inlet})) delta = quick_protocol(quick_host().temperature_difference, inlet, outlet);
+        else if (!inlet.numeric.shape.empty()) delta = Tensor(host_call(diag, [&] {return metrics::quick_temperature_difference_field(inlet.numeric.array(), outlet, diag);}));
+        else delta = host_call(diag, [&] {return metrics::quick_temperature_difference(quick_number(inlet), outlet, diag);});
+        const auto mass = quick_input(result, side, &QuickTypedSide::mass_flow, &QuickSideEvidence::mass_flow, "mass_flow_kg_s");
+        const auto cp = quick_input(result, side, &QuickTypedSide::cp, &QuickSideEvidence::cp, "cp_J_kgK");
+        const bool protocol = result.quick_typed && quick_python_product({&mass, &cp});
+        const auto capacity = protocol ? quick_protocol(quick_host().capacity_product, mass, cp)
+            : quick_numeric_pair(mass, cp, diag, metrics::quick_capacity_product, metrics::quick_capacity_product_field);
+        if (protocol) return quick_protocol(quick_host().duty_product, capacity, delta, side != 0);
+        if (capacity.object || delta.object) throw NumericError(TPMSHX_RESULT_TYPE_ERROR, "Quick numeric input requires a typed value");
+        if (!capacity.numeric.shape.empty() || !delta.numeric.shape.empty())
+            return Tensor(host_call(diag, [&] {return metrics::quick_duty_from_capacity_field(capacity.numeric.array(), delta.numeric.array(), side != 0, diag);}));
+        return host_call(diag, [&] {return metrics::quick_duty_from_capacity(quick_number(capacity), quick_number(delta), side != 0, diag);});
     }
     if (name == "dP_A" || name == "dP_B") {
-        const auto& p = need(result.pressure[side], side_name(side));
-        const auto& inlet = need(p.inlet_absolute, "inlet_absolute_Pa");
-        const auto& outlet = need(p.outlet_absolute, "outlet_absolute_Pa");
-        return arithmetic::to_float(host_call(diag, [&] {return metrics::pressure_difference(inlet, outlet, diag);}));
+        QuickValue inlet, outlet;
+        if (result.quick_typed) {
+            const auto& pressure = result.quick_typed->sides[side];
+            quick_access(result, side, &QuickTypedSide::pressure_access, "pressure_evidence." + side_name(side));
+            inlet = need(pressure.inlet_pressure, "inlet_absolute_Pa");
+            outlet = need(pressure.outlet_pressure, "outlet_absolute_Pa");
+        } else {
+            const auto& pressure = need(result.pressure[side], side_name(side));
+            inlet = need(pressure.inlet_absolute, "inlet_absolute_Pa");
+            outlet = need(pressure.outlet_absolute, "outlet_absolute_Pa");
+        }
+        const bool wide = quick_integer(inlet) && quick_integer(outlet) && std::max(quick_bits(inlet), quick_bits(outlet)) > 62;
+        if (result.quick_typed && (inlet.object || outlet.object || wide))
+            return quick_protocol(quick_host().pressure_difference, inlet, outlet);
+        return quick_numeric_pair(inlet, outlet, diag, metrics::pressure_difference, metrics::pressure_difference_field);
     }
     if (name == "Re_A" || name == "Re_B") {
-        record(result, "metadata.properties");
-        record(result, "metadata.properties." + side_name(side));
-        record(result, "boundary_fluxes." + side_name(side));
-        const auto& velocity = need(q.velocity, "velocity_m_s");
-        const auto& rho = need(q.rho, "rho");
-        const auto flow = host_call(diag, [&] {return metrics::quick_reynolds_flow(rho, velocity, diag);});
-        record(result, "metadata.parameters");
-        const auto numerator = host_call(diag, [&] {return metrics::quick_reynolds_length(flow, need(result.hydraulic_diameter, "D_h"), diag);});
-        return arithmetic::to_float(host_call(diag, [&] {return metrics::quick_reynolds_quotient(numerator, need(q.viscosity, "mu"), diag);}));
+        if (!result.quick_typed) record(result, "metadata.properties");
+        quick_access(result, side, &QuickTypedSide::properties_access, "metadata.properties." + side_name(side));
+        quick_access(result, side, &QuickTypedSide::boundary_access, "boundary_fluxes." + side_name(side));
+        const auto velocity = quick_input(result, side, &QuickTypedSide::velocity, &QuickSideEvidence::velocity, "velocity_m_s");
+        const auto rho = quick_input(result, side, &QuickTypedSide::rho, &QuickSideEvidence::rho, "rho");
+        bool protocol = result.quick_typed && quick_python_product({&rho, &velocity});
+        if (result.quick_typed && quick_integer(velocity)) {
+            const auto value = quick_number(velocity);
+            protocol = protocol || (value.origin == TPMSHX_RESULT_PYTHON_INT && signed_type(value.dtype) &&
+                                     value.signed_value == std::numeric_limits<std::int64_t>::min());
+        }
+        const auto flow = protocol ? quick_protocol(quick_host().reynolds_flow, rho, velocity)
+            : quick_numeric_pair(rho, velocity, diag, metrics::quick_reynolds_flow, metrics::quick_reynolds_flow_field);
+        QuickValue diameter;
+        if (result.quick_typed) diameter = need(result.quick_typed->hydraulic_diameter, "D_h");
+        else {record(result, "metadata.parameters"); diameter = need(result.hydraulic_diameter, "D_h");}
+        protocol = protocol || (result.quick_typed && quick_python_product({&flow, &diameter}));
+        const auto numerator = protocol ? quick_protocol(quick_host().reynolds_length, flow, diameter)
+            : quick_numeric_pair(flow, diameter, diag, metrics::quick_reynolds_length, metrics::quick_reynolds_length_field);
+        const auto mu = quick_input(result, side, &QuickTypedSide::viscosity, &QuickSideEvidence::viscosity, "mu");
+        const bool wide = quick_integer(numerator) && quick_integer(mu) && std::max(quick_bits(numerator), quick_bits(mu)) > 53;
+        if (result.quick_typed && (protocol || quick_python_product({&mu}) || wide))
+            return quick_protocol(quick_host().reynolds_quotient, numerator, mu);
+        return quick_numeric_pair(numerator, mu, diag, metrics::quick_reynolds_quotient, metrics::quick_reynolds_quotient_field);
     }
     if (name == "mass_flow_A" || name == "mass_flow_B") {
-        record(result, "boundary_fluxes." + side_name(side));
-        return arithmetic::to_float(need(q.mass_flow, "mass_flow_kg_s"));
+        quick_access(result, side, &QuickTypedSide::boundary_access, "boundary_fluxes." + side_name(side));
+        return quick_input(result, side, &QuickTypedSide::mass_flow, &QuickSideEvidence::mass_flow, "mass_flow_kg_s");
     }
     if (name == "energy_imbalance_rel") {
-        const auto a = arithmetic::python_float(quick_metric(result, "Q", diag));
-        const auto b = arithmetic::python_float(quick_metric(result, "Q_cold", diag));
-        return arithmetic::to_float(host_call(diag, [&] {return metrics::quick_energy_imbalance(a, b, diag);}));
+        auto first = quick_metric_value(result, "Q", diag);
+        if (!result.quick_typed) first = arithmetic::python_float(quick_float(first));
+        auto second = quick_metric_value(result, "Q_cold", diag);
+        if (!result.quick_typed) second = arithmetic::python_float(quick_float(second));
+        return quick_numeric_pair(first, second, diag, metrics::quick_energy_imbalance, metrics::quick_energy_imbalance_field);
     }
     throw Unsupported("quick-design does not supply " + name);
+}
+double quick_metric(const ResultEvidence& result, const std::string& name, Diagnostics& diag) {
+    return quick_float(quick_metric_value(result, name, diag));
 }
 
 class MetricEvaluation {
@@ -1007,7 +1126,10 @@ Qualification evaluate_qualification(const ResultEvidence& result, const std::ma
         {{"gates", gates}, {"raw_fields", raw_fields}, {"thermal_state", nullable(result.thermal_state)}, {"pressure_states", pressure_states}});
     const bool full_compute = result.mode == "full";
     const std::map<std::string, ExecutionSide> empty_sides;
-    const auto& sides = result.execution_version == "full_execution_v1" ? result.executed_sides : empty_sides;
+    const bool full_execution = result.execution_label
+        ? label_equal(*result.execution_label, "full_execution_v1")
+        : result.execution_version == "full_execution_v1";
+    const auto& sides = full_execution ? result.executed_sides : empty_sides;
     out.physical = verdict({}, "boundary_fluxes and metadata.diagnostics", {{"checks", List{}}});
     if (full_compute) {
         try {
@@ -1029,6 +1151,8 @@ Qualification evaluate_qualification(const ResultEvidence& result, const std::ma
             const auto& mass = std::get<Object>(physical.details.at("mass").value);
             for (std::size_t side = 0; side < 2; ++side) {
                 const auto found = sides.find(side_name(side));
+                if (!result.pressure[side] && full_execution && result.execution_sides_access_error)
+                    (void)*result.execution_sides_access_error;
                 if (result.pressure[side] || (found != sides.end() && found->second.solved.is_true())) {
                     const auto& row = std::get<Object>(mass.at(side_name(side)).value);
                     checks_list.emplace_back(side_name(side) + " thermal mass faces available",
@@ -1095,6 +1219,7 @@ Qualification evaluate_qualification(const ResultEvidence& result, const std::ma
     }
     const auto available = all_known(availability);
     out.metrics = verdict(available, "PerformanceResult.metrics", {{"required", statuses}});
+    if (full_execution && result.execution_sides_error) (void)*result.execution_sides_error;
     const bool recorded = sides.size() == 2 && sides.count("A") && sides.count("B") &&
         std::all_of(sides.begin(), sides.end(), [](const auto& row){return row.second.fluid && !row.second.fluid->empty() && row.second.solved.is_bool;});
     Truth scope = recorded ? Truth(true) : Truth{};

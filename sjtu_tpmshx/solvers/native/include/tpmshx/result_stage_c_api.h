@@ -210,10 +210,70 @@ typedef struct {
     tpmshx_stage_events_v2 events;
 } tpmshx_stage_input_v2;
 
+
+/* V3 preserves the fixed Quick Design Python protocol boundaries.
+ * Numeric values borrow typed arrays. Nonzero object tokens name host-owned
+ * portable values or exact Python integers. Use exactly one representation.
+ * A callback result stays valid until this synchronous query returns.
+ * Callbacks cannot select metrics, change native policy or replace a report.
+ */
+typedef struct {
+    const tpmshx_result_array_v1* numeric;
+    uint64_t object;
+} tpmshx_stage_quick_value_v3;
+/* A label borrows null-terminated UTF-8 text or one original host value.
+ * Use a host value for text that this C string cannot represent without loss.
+ * Native policy owns the text. The host applies the original comparison operator. */
+typedef struct {
+    const char* text;
+    const tpmshx_stage_quick_value_v3* value;
+} tpmshx_stage_label_v3;
+typedef struct {
+    const int *boundary_access, *properties_access, *pressure_access;
+    const tpmshx_stage_quick_value_v3 *inlet_temperature, *mass_flow, *cp, *rho, *velocity, *viscosity;
+    const tpmshx_stage_quick_value_v3 *inlet_pressure, *outlet_pressure;
+} tpmshx_stage_quick_side_v3;
+/* Each member has one fixed expression. The native stage supplies its operands
+ * only at the existing Python protocol boundary and in the original order. */
+typedef struct {
+    void* context;
+    int (TPMSHX_RESULT_CALL *text_equal)(void*, const tpmshx_stage_quick_value_v3*, const char*,
+        int*, tpmshx_stage_host_error_v2*);
+    int (TPMSHX_RESULT_CALL *text_not_equal)(void*, const tpmshx_stage_quick_value_v3*, const char*,
+        int*, tpmshx_stage_host_error_v2*);
+    int (TPMSHX_RESULT_CALL *temperature_difference)(void*, const tpmshx_stage_quick_value_v3*, double,
+        tpmshx_stage_quick_value_v3*, tpmshx_stage_host_error_v2*);
+    int (TPMSHX_RESULT_CALL *capacity_product)(void*, const tpmshx_stage_quick_value_v3*, const tpmshx_stage_quick_value_v3*,
+        tpmshx_stage_quick_value_v3*, tpmshx_stage_host_error_v2*);
+    int (TPMSHX_RESULT_CALL *duty_product)(void*, const tpmshx_stage_quick_value_v3*, const tpmshx_stage_quick_value_v3*, int,
+        tpmshx_stage_quick_value_v3*, tpmshx_stage_host_error_v2*);
+    int (TPMSHX_RESULT_CALL *pressure_difference)(void*, const tpmshx_stage_quick_value_v3*, const tpmshx_stage_quick_value_v3*,
+        tpmshx_stage_quick_value_v3*, tpmshx_stage_host_error_v2*);
+    int (TPMSHX_RESULT_CALL *reynolds_flow)(void*, const tpmshx_stage_quick_value_v3*, const tpmshx_stage_quick_value_v3*,
+        tpmshx_stage_quick_value_v3*, tpmshx_stage_host_error_v2*);
+    int (TPMSHX_RESULT_CALL *reynolds_length)(void*, const tpmshx_stage_quick_value_v3*, const tpmshx_stage_quick_value_v3*,
+        tpmshx_stage_quick_value_v3*, tpmshx_stage_host_error_v2*);
+    int (TPMSHX_RESULT_CALL *reynolds_quotient)(void*, const tpmshx_stage_quick_value_v3*, const tpmshx_stage_quick_value_v3*,
+        tpmshx_stage_quick_value_v3*, tpmshx_stage_host_error_v2*);
+    int (TPMSHX_RESULT_CALL *metric_float)(void*, const tpmshx_stage_quick_value_v3*, double*, tpmshx_stage_host_error_v2*);
+    int (TPMSHX_RESULT_CALL *empty_mean)(void*, tpmshx_stage_host_error_v2*);
+} tpmshx_stage_quick_protocol_v3;
+typedef struct {
+    uint32_t abi_version;
+    size_t struct_size;
+    const tpmshx_stage_input_v2* host;
+    const tpmshx_stage_label_v3 *model, *arrangement, *execution_version;
+    tpmshx_stage_quick_side_v3 sides[2];
+    const tpmshx_stage_quick_value_v3* hydraulic_diameter;
+    tpmshx_stage_quick_protocol_v3 protocol;
+} tpmshx_stage_input_v3;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
-/* Output storage is set only on success. Release it in the creating library. */
+/* Output storage is set only on success. Release it in the creating library.
+ * A wrong output size or a nonempty owner leaves diagnostic storage unchanged.
+ */
 TPMSHX_RESULT_API int TPMSHX_RESULT_CALL tpmshx_result_stage_evaluate_v1(
     const tpmshx_result_evidence_v1*, const tpmshx_stage_metric_spec_v1*,
     tpmshx_stage_output_v1*, char*, size_t);
@@ -231,6 +291,16 @@ TPMSHX_RESULT_API int TPMSHX_RESULT_CALL tpmshx_result_stage_qualification_v1(
  */
 TPMSHX_RESULT_API int TPMSHX_RESULT_CALL tpmshx_result_stage_query_v2(
     const tpmshx_stage_input_v2*, uint32_t,
+    const tpmshx_stage_metric_spec_v1*, const tpmshx_stage_metric_value_v1*, size_t,
+    tpmshx_stage_output_v1*, tpmshx_result_diagnostics_v1*, uint64_t*, char*, size_t);
+/* V3 uses the same queries, output ownership and deferred-error rules as v2.
+ * A null model omits typed Quick operands. The execution label remains usable
+ * by full-result queries.
+ * All input and callback-returned storage must be disjoint from writable output.
+ * Missing protocol callbacks are errors when the selected input requires one.
+ */
+TPMSHX_RESULT_API int TPMSHX_RESULT_CALL tpmshx_result_stage_query_v3(
+    const tpmshx_stage_input_v3*, uint32_t,
     const tpmshx_stage_metric_spec_v1*, const tpmshx_stage_metric_value_v1*, size_t,
     tpmshx_stage_output_v1*, tpmshx_result_diagnostics_v1*, uint64_t*, char*, size_t);
 TPMSHX_RESULT_API void TPMSHX_RESULT_CALL tpmshx_result_stage_release_v1(tpmshx_stage_output_v1*);

@@ -261,7 +261,7 @@ BO 环境仍须替换为对应 BO 锁。独立 `build`／`verify` 同样接受 `
 运行时用 `TPMSHX_PREPARATION_LIBRARY` 选择准备库。读取历史结果与独立后处理不加载准备库。
 结果库可用 `publish --component result` 独立发布，不构建求解器或模型库。使用当前解释器对应的精确锁。
 完整 2D/3D 评估及三个独立结果查询需要包含当前结果阶段的库。
-Quick Design 指标运算保留独立数值协议 owner；纯 HDF/JSON 文件读取不加载原生库。
+Quick Design 指标也由原生阶段评估，具名宿主操作保留 Python 对象和任意精度整数协议；纯 HDF/JSON 文件读取不加载原生库。
 Linux x86_64 只支持独立结果评估，命令见[结果核心](docs/cpp-migration.zh-CN.md#native-result-core)。
 Python wheel 包含运行代码、已发布的开发／验证工具和模型资源，不包含测试或这四个本机原生库。
 Git 和源码发行包保留完整测试树，包括原生测试桥；源码发行包还包含原生源码、构建文件、依赖锁和来源记录。

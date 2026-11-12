@@ -36,6 +36,7 @@ struct PortInput2D {
     std::int32_t direction=0;
     double inlet_center_m=0.,inlet_width_m=0.,outlet_center_m=0.,outlet_width_m=0.;
     bool uniform_inlet=false;
+    std::array<ScalarKind,4> kinds{};
 };
 struct InletInput2D {
     Fluid fluid=Fluid::air;
@@ -47,6 +48,7 @@ struct GridInput2D {
     double length_m,height_m;
     std::size_t requested_nx,requested_ny;
     bool port_wall_refine=false;
+    std::array<ScalarKind,2> kinds{};
 };
 struct UniformGeometryInput {
     Topology topology;
@@ -176,6 +178,7 @@ struct PreparationCallbacks {
     void (*observe_range)(void*,const PreparationRange&,bool,std::optional<double>)=nullptr;
     // Notice 0 is standalone inlet Re; notice 1 records a preflight reason.
     void (*observe_notice)(void*,std::uint32_t,std::uint32_t,double,const std::string&)=nullptr;
+    void (*validate_grid)(void*)=nullptr;
 };
 struct PreparationModelRef {
     std::string name,version,side;
@@ -212,6 +215,48 @@ struct PreparedCase2D {
     std::array<std::vector<double>,2> fluid_conductivity;
     PreparationEvidence evidence;
     std::array<ScalarKind,5> field_kinds;
+};
+
+struct ZoneRegion2D {
+    std::string name;
+    // Stripes use bounds[0:2]; rectangles use x0,x1,y0,y1.
+    std::array<grid::Scalar,4> bounds{{{0.,64,0},{0.,64,0},{0.,64,0},{0.,64,0}}};
+    double cell_length_mm=0.,wall_thickness_mm=0.;
+    ScalarKind cell_kind,wall_kind;
+};
+struct SigmoidControls2D {
+    std::vector<double> decision_mm;
+    grid::Scalar inlet_transition{.2,64,0},outlet_transition{.2,64,0};
+};
+struct SigmoidLUT2D {
+    std::vector<double> cell_mm,wall_mm,porosity,area_density;
+    std::uint32_t porosity_fast=1,area_fast=1;
+};
+struct SigmoidInput2D {
+    SigmoidControls2D controls;
+    SigmoidLUT2D lut;
+};
+struct ZonedInput2D {
+    CaseInput2D input;
+    std::uint32_t kind=0,axis=1;
+    std::vector<ZoneRegion2D> regions;
+    std::optional<SigmoidInput2D> sigmoid;
+};
+struct PreparedZone2D {
+    ZoneRegion2D region;
+    geometry::MaterialGeometry geometry;
+    std::array<UniformInletProperties,2> properties;
+    std::array<geometry::Geometry,2> property_geometry;
+    std::array<std::array<ScalarKind,13>,2> property_kinds;
+};
+struct PreparedZonedCase2D {
+    PreparedCase2D prepared;
+    std::uint32_t kind=0,axis=1;
+    std::vector<PreparedZone2D> regions;
+    std::vector<std::int32_t> zone_id;
+    std::vector<double> thermal_porosity,design_area_density;
+    std::array<std::vector<double>,2> volumetric_transfer;
+    std::optional<SigmoidControls2D> sigmoid;
 };
 
 struct PreparedSide3D {
@@ -292,6 +337,14 @@ PreparedCase2D prepare_case_2d(const CaseInput2D&,const PreparationOptions& = {}
                               const PreparationCallbacks& = {},
                               CaseScope = CaseScope::uniform_fluids_v2);
 
+// Raw stripes and rectangles retain their existing row-averaged CFD drag.
+// This entry accepts air/air, prescribed velocity and zero delta only.
+PreparedZonedCase2D prepare_zoned_case_2d(const ZonedInput2D&,
+    const PreparationOptions& = {},const PreparationCallbacks& = {});
+
+// The caller retains this resource across preparations. Disk caches stay in the host.
+SigmoidLUT2D build_sigmoid_lut_2d(Topology,std::size_t cell_nodes=41,
+    std::size_t wall_nodes=31,std::size_t resolution=256);
 // The 3D stage owns physical (x,y,z) fields and unswapped physical port masks.
 PreparedCase3D prepare_case_3d(const CaseInput3D&,const PreparationOptions& = {},
                               const PreparationCallbacks& = {},CaseScope3D = CaseScope3D::symmetric_v3);

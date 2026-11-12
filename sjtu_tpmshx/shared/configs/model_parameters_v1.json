@@ -172,6 +172,32 @@
     "pressure_multiplier": 2.5,
     "nu_multiplier": 1.28
   },
+  "quick_design": {
+    "k_s": 16.0,
+    "nx": 60,
+    "tol": 1e-5,
+    "geometry_resolution": 128,
+    "arrangements": {
+      "cross": {
+        "dirB": 2,
+        "ny": 40,
+        "nz": 1,
+        "alpha": 0.7,
+        "maxit": 8000,
+        "qtol": 0.0001,
+        "chunk": 100
+      },
+      "counter": {
+        "dirB": 1,
+        "ny": 1,
+        "nz": 2,
+        "alpha": 0.3,
+        "maxit": 20000,
+        "qtol": null,
+        "chunk": null
+      }
+    }
+  },
   "native_controls": {
     "inlet_pressure_relative_tolerance": 0.0001,
     "model_h_relaxation": 0.2

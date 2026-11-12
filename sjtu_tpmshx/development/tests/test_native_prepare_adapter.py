@@ -93,6 +93,26 @@ def test_complete_case_matches_reference(monkeypatch, spatial, topology, pair):
     _same(asdict(config), before, 'unchanged input')
 
 
+@pytest.mark.parametrize('mode', ['x', 'y', 'grid', 'sigmoid'])
+@pytest.mark.parametrize('operation,targets', [('full', None), ('capacity', None),
+    ('resolve', (.001, .001)), ('full', (.001, .001))])
+def test_retained_zoned_routes_keep_original_smoothing(monkeypatch, tmp_path, mode, operation, targets):
+    from sjtu_tpmshx.development.tests.solver_tm1.test_prepared_zoned_thermal_2d import _config
+    from sjtu_tpmshx.shared.models import sigmoid_field
+    config = _config('grid' if mode == 'sigmoid' else mode)
+    config.geometry.Lz_m = .042
+    if mode == 'sigmoid':
+        config.zones.pareto_x_decision = np.column_stack(
+            (np.linspace(5., 8., 18), np.linspace(.3, .6, 18))).ravel().tolist()
+        lut = sigmoid_field.GeometryLUT('Gyroid', n_L=2, n_t=2, N=16, cache_dir=tmp_path)
+        monkeypatch.setattr(sigmoid_field, 'get_geometry_lut', lambda *args, **kwargs: lut)
+    before = asdict(config)
+    expected = _capture(monkeypatch, reference, operation, config, targets)
+    actual = _capture(monkeypatch, api, operation, config, targets)
+    _same(actual, expected)
+    _same(asdict(config), before, 'unchanged input')
+
+
 @pytest.mark.parametrize('spatial', [False, True])
 @pytest.mark.parametrize('operation', ['capacity', 'resolve', 'full'])
 @pytest.mark.parametrize('explicit', [False, True])

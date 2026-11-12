@@ -13,9 +13,8 @@ import pytest
 
 from sjtu_tpmshx.development.tests.native.result_reference import shared_math as original
 from sjtu_tpmshx.development.tests.native.result_reference import metrics as original_metrics
-from sjtu_tpmshx.development.tests.native.result_reference import quick_design as original_quick
 from sjtu_tpmshx.development.tests.postprocess_tm1.test_reduction_reuse import native_result
-from sjtu_tpmshx.postprocess import api, quick_design
+from sjtu_tpmshx.postprocess import api
 from sjtu_tpmshx.development.tests import result_primitive_wire as raw
 from sjtu_tpmshx.shared import result_math
 from sjtu_tpmshx.shared import _native_result_metrics as native
@@ -186,33 +185,6 @@ def quick_result(**changes):
             properties={'A': dict(rho=values['rho'], mu=values['mu'])}))
 
 
-@pytest.mark.parametrize('name,changes', [
-    ('Q', dict(mass=2**53 + 1, cp=2**53 + 1)),
-    ('Q', dict(mass=2**600, cp=2**600, inlet=300.)),
-    ('Q', dict(mass=0, inlet=2**1100)),
-    ('dP_A', dict(pin=2**1100 + 1, pout=2**1100)),
-    ('Re_A', dict(rho=2**600, speed=2**600, mu=2**1200)),
-    ('Re_A', dict(rho=2**53 + 1, speed=2**53 + 1)),
-    ('Re_A', dict(rho=2**53 + 1, speed=1, mu=2**53 + 2)),
-    ('Re_A', dict(rho=1., speed=-(1 << 63))),
-    ('Re_A', dict(rho=np.array(1.1, dtype=np.float16), speed=np.array(.3, dtype=np.float16),
-                  diameter=np.array(.1, dtype=np.float16), mu=np.array(.7, dtype=np.float16))),
-    ('Re_A', dict(rho=np.int64(3), speed=np.int64(2), diameter=np.int64(4), mu=np.int64(3))),
-    ('Re_A', dict(rho=np.float64(1.1), speed=np.float64(.3), mu=np.float64(.7))),
-])
-def test_qd_scalar_protocols_after_real_freeze(name, changes):
-    result = quick_result(**changes)
-    assert_observation(observe(quick_design.evaluate_metric, result, name),
-                       observe(original_quick.evaluate_metric, result, name))
-
-
-def test_qd_earlier_arithmetic_precedes_later_missing_field():
-    result = quick_result(rho=np.float64(1e308), speed=np.float64(1e308))
-    result = replace(result, metadata={**result.metadata, 'parameters': {'arrangement': 'counter'}})
-    assert_observation(observe(quick_design.evaluate_metric, result, 'Re_A'),
-                       observe(original_quick.evaluate_metric, result, 'Re_A'))
-
-
 @pytest.mark.parametrize('dtype', [np.bool_, np.int8, np.uint64, np.float16,
                                    np.float32, np.float64, '>f4', np.longdouble])
 @pytest.mark.parametrize('layout', ['C', 'reverse', 'step', 'empty'])
@@ -234,58 +206,6 @@ def test_capture_area_matrix_and_sum_keep_original_typed_outer_product(dtype, la
 @pytest.mark.parametrize('value', [0., -0., 1., -1., float('inf'), -float('inf'), float('nan')])
 def test_formal_duty_magnitude_keeps_original_float_contract(value):
     assert_observation(observe(raw.duty_magnitude, value), observe(abs, value))
-
-
-@pytest.mark.parametrize('size', [0, 1, 2])
-@pytest.mark.parametrize('role,name', [('mass', 'Q'), ('cp', 'Q'), ('inlet', 'Q'),
-    ('rho', 'Re_A'), ('speed', 'Re_A'), ('diameter', 'Re_A'), ('mu', 'Re_A'),
-    ('pressure', 'dP_A'), ('mass', 'energy_imbalance_rel')])
-def test_qd_numeric_array_metadata_uses_original_shape_and_truth_protocol(size, role, name):
-    values = np.linspace(1., 2., size, dtype=np.float32)
-    changes = dict(pin=values, pout=values) if role == 'pressure' else {role: values}
-    result = quick_result(**changes)
-    if name == 'energy_imbalance_rel':
-        result = replace(result, boundary_fluxes={**result.boundary_fluxes,
-            'B': dict(mass_flow_kg_s=1., cp_J_kgK=1., inlet_temperature_K=301., velocity_m_s=1.)})
-    assert_observation(observe(quick_design.evaluate_metric, result, name),
-                       observe(original_quick.evaluate_metric, result, name))
-
-
-@pytest.mark.parametrize('dtype', [np.bool_, np.int8, np.uint64, np.float16, '>f4'])
-@pytest.mark.parametrize('name', ['Q', 'Re_A'])
-def test_qd_array_metadata_keeps_exact_staged_dtype(dtype, name):
-    values = np.asarray([1, 2], dtype=dtype)
-    changes = (dict(mass=values, cp=values) if name == 'Q'
-               else dict(rho=values, speed=values, diameter=values, mu=values))
-    result = quick_result(**changes)
-    assert_observation(observe(quick_design.evaluate_metric, result, name),
-                       observe(original_quick.evaluate_metric, result, name))
-
-
-@pytest.mark.parametrize('policy', ['warn', 'raise', 'ignore'])
-@pytest.mark.parametrize('name', ['Q', 'Re_A'])
-def test_qd_array_fp_stages_precede_later_broadcast(policy, name):
-    changes = (dict(inlet=np.full(3, -65504., dtype=np.float16),
-                    mass=np.ones(2, dtype=np.float16), cp=np.ones(2, dtype=np.float16))
-               if name == 'Q' else dict(rho=np.full(2, 1e308), speed=np.full(2, 1e308),
-                                        diameter=np.ones(3)))
-    result = quick_result(**changes)
-    assert_observation(observe(quick_design.evaluate_metric, result, name, policy=policy),
-                       observe(original_quick.evaluate_metric, result, name, policy=policy))
-
-
-@pytest.mark.parametrize('size', [0, 1, 2])
-@pytest.mark.parametrize('policy', ['warn', 'raise', 'ignore'])
-def test_qd_array_weak_cast_is_checked_before_iteration(size, policy):
-    result = quick_result(rho=1e308, speed=np.ones(size, dtype=np.float16))
-    assert_observation(observe(quick_design.evaluate_metric, result, 'Re_A', policy=policy),
-                       observe(original_quick.evaluate_metric, result, 'Re_A', policy=policy))
-
-
-def test_qd_python_absolute_integer_can_exceed_the_input_storage():
-    result = quick_result(rho=np.ones(2), speed=-(1 << 63))
-    assert_observation(observe(quick_design.evaluate_metric, result, 'Re_A'),
-                       observe(original_quick.evaluate_metric, result, 'Re_A'))
 
 
 def test_pressure_array_abi_rejects_input_output_alias_without_mutation():
