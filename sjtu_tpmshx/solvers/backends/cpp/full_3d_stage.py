@@ -135,8 +135,7 @@ class SavedRun(NativeRun):
             raise self.error_types.get(code, RuntimeError)(error.value.decode())
 
 
-def copy_summary(library, result, *, emit_audit):
-    from .full_3d import _copy
+def copy_summary(library, result, *, emit_audit, copy_array):
     query = library.tpmshx_stage_run_3d_get_capture_v1
     query.argtypes, query.restype = [ct.POINTER(_StageResult), _U, ct.POINTER(_Summary)], ct.c_int
     summary = _Summary()
@@ -146,7 +145,7 @@ def copy_summary(library, result, *, emit_audit):
         pressure_clip_hits=summary.pressure_clip_hits,
         nu=[dict(floor=summary.nu_floor[i], floor_fraction=summary.nu_floor_fraction[i])
             if summary.nu_available[i] else None for i in range(2)],
-        audit_outlet=[_copy(value, (result.raw.flow[i].widths[0].size, result.raw.flow[i].widths[2].size))
+        audit_outlet=[copy_array(value, (result.raw.flow[i].widths[0].size, result.raw.flow[i].widths[2].size))
                       for i, value in enumerate(summary.audit_outlet)])
 
 
