@@ -2,7 +2,7 @@
 from contextlib import contextmanager
 import ctypes as ct
 import dis
-from functools import lru_cache
+from functools import lru_cache, partial
 import warnings
 
 import numpy as np
@@ -74,6 +74,8 @@ _ResultV1 = _structure('Result', [('abi_version', _U), ('struct_size', _S), ('in
 
 _struct = _structure
 _Kind = _struct('Kind', [(name, _U) for name in ('precision', 'strong', 'layout')])
+_GridKinds = _struct('GridKinds', [('abi_version', _U), ('struct_size', _S),
+    ('lengths', _Kind * 2), ('ports', (_Kind * 4) * 2)])
 _InletKinds = _struct('InletKinds', [(name, _Kind) for name in ('velocity', 'temperature', 'pressure')])
 _Kinds = _struct('Kinds', [(name, _Kind) for name in ('cell_length', 'wall_thickness', 'solid_conductivity')] + [('sides', _InletKinds * 2)])
 _Nu = _struct('Nu', [('mode', _U), ('have_alpha', _U * 2), ('alpha', _D * 2)] + [(name, _Text) for name in ('parameter_version', 'source', 'applicability')])
@@ -138,9 +140,10 @@ class _Bindings:
                 (4, _ContinuousInput, _ContinuousFlow, _ContinuousCase, 'continuous')):
             for name in ('prepare_inlet_mass_capacities', 'resolve_inlet_flow', 'prepare_flow_case'):
                 result = full if name == 'prepare_flow_case' else flow
+                entry = name if version == 3 else name.replace('_', '_continuous_', 1)
                 self.operations[version, name] = self.owner.bind(
-                    f'tpmshx_{name}_2d_v{version}',
-                    [ct.POINTER(source), ct.POINTER(_Options), ct.POINTER(_Callbacks),
+                    f'tpmshx_{entry}_2d_v7',
+                    [ct.POINTER(source), ct.POINTER(_GridKinds), ct.POINTER(_Options), ct.POINTER(_Callbacks),
                      ct.POINTER(result), ct.POINTER(_Failure), ct.POINTER(ct.c_char), _S])
             for result, suffix in ((flow, 'flow' if version == 4 else ''), (full, 'case')):
                 middle = '_'.join(value for value in (prefix, suffix) if value)
@@ -185,21 +188,41 @@ def _check_status(status, error, failure):
     raise problem
 
 
-def _source_warning(function, message, *, call=None):
+def _source_warning(function, message, *, call=None, binary=None, category=UserWarning):
     """Keep the original warning module, source line and filter registry."""
     code = function.__code__
-    line = (next(item.positions.lineno for item in dis.get_instructions(function)
-                 if item.opname.startswith('LOAD_')
-                 and (item.argval == call or item.opname.startswith('LOAD_FAST')
-                      and isinstance(item.argval, tuple) and call in item.argval)) if call else
-            max(line for _start, _end, line in code.co_lines() if line is not None))
-    warnings.warn_explicit(message, UserWarning, code.co_filename, line,
-        module=function.__module__, registry=function.__globals__.setdefault('__warningregistry__', {}))
+    if binary is not None:
+        operator, occurrence = binary
+        line = [item.positions.lineno for item in dis.get_instructions(function)
+                if item.opname == 'BINARY_OP' and item.argrepr == operator][occurrence]
+        module = function.__globals__['__name__']
+    else:
+        line = (next(item.positions.lineno for item in dis.get_instructions(function)
+                     if item.opname.startswith('LOAD_')
+                     and (item.argval == call or item.opname.startswith('LOAD_FAST')
+                          and isinstance(item.argval, tuple) and call in item.argval)) if call else
+                max(line for _start, _end, line in code.co_lines() if line is not None))
+        module = function.__module__
+    warnings.warn_explicit(message, category, code.co_filename, line,
+        module=module, registry=function.__globals__.setdefault('__warningregistry__', {}))
+
+
+def _control_axis_warning(source, message):
+    from .continuous_field import ContinuousFieldConfig, control_axis
+    function, operator, occurrence = {
+        'control-axis-step': (np.linspace.__wrapped__, '/', 0),
+        'control-axis-divide': (np.linspace.__wrapped__, '/=', 0),
+        'control-axis-scale': (np.linspace.__wrapped__, '*=', 0),
+        'control-axis-multiply': (np.linspace.__wrapped__, '*=', 1),
+        'control-axis-midpoint': (control_axis, '/', 0),
+        'control-axis-check-midpoint': (ContinuousFieldConfig.__post_init__, '/', 0),
+    }[source]
+    _source_warning(function, message, binary=(operator, occurrence), category=RuntimeWarning)
 
 
 @contextmanager
 def operation(name, source, options, validate_host_input, geometry_cache=None, inlet_cache=None,
-              observe_range=None, observe_notice=None):
+              observe_range=None, observe_notice=None, nominal_grid_warning=None):
     """Keep the complete owner alive until the caller copies all required data."""
     version = source.abi_version
     result_type = ((_ContinuousCase if name == 'prepare_flow_case' else _ContinuousFlow)
@@ -218,7 +241,12 @@ def operation(name, source, options, validate_host_input, geometry_cache=None, i
                 from .input_validation import surrogate_extrap_reasons
                 _source_warning(surrogate_extrap_reasons, _text(item.message), call='check_surrogate_domain_at_point')
             elif item.kind == 2:
-                _native_properties._floating_events([item.floating_event])
+                source = _text(item.message)
+                if source in ('nominal-grid-x', 'nominal-grid-y'):
+                    warn = partial(nominal_grid_warning, source[-1]) if nominal_grid_warning else None
+                else:
+                    warn = partial(_control_axis_warning, source) if source else None
+                _native_properties._floating_events([item.floating_event], warn=warn)
             else:
                 raise RuntimeError(f'unknown preparation event kind {item.kind}')
             return 0
@@ -273,13 +301,13 @@ def operation(name, source, options, validate_host_input, geometry_cache=None, i
         callbacks = _HostCallbacks(_Callbacks(2, ct.sizeof(_HostCallbacks), event_function, None), host_function)
         descriptor = callbacks.values
     else:
-        callbacks = _CacheCallbacks(_HostCallbacks(_Callbacks(3, ct.sizeof(_CacheCallbacks), event_function, None), host_function),
+        callbacks = _CacheCallbacks(_HostCallbacks(_Callbacks(4, ct.sizeof(_CacheCallbacks), event_function, None), host_function),
                                    _GeometryCacheFunction(geometry), _InletCacheFunction(inlet),
                                    _RangeFunction(observe), _NoticeFunction(notice))
         descriptor = callbacks.values.values
     try:
         status = bindings.operations[version, name](
-            ct.byref(source), ct.byref(options), ct.byref(descriptor), ct.byref(result),
+            ct.byref(source), ct.byref(source._grid_kinds), ct.byref(options), ct.byref(descriptor), ct.byref(result),
             ct.byref(failure), error, len(error))
         if callback_errors:
             raise callback_errors[0]
