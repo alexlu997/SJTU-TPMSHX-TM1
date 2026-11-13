@@ -161,6 +161,9 @@ Quick preparation v2 adds typed raw inputs and a separate pressure-fraction quer
 `shared/models/_native_quick_prepare.py` keeps host protocols through fixed named operations.
 The stage owns geometry, grid, property and pressure arithmetic and their execution order.
 The pressure query creates no thermal grid or design-field arrays.
+Full 2D preparation uses v7 domain/port scalar kinds with v3/v4 payloads.
+The shared grid and port cores retain mixed integer and narrow-float arithmetic.
+Saved prepared cases keep their recorded grids; the adapter does not reconstruct historical grids.
 Preparation uses statuses 0 for success, 1 for invalid input, 2 for allocation and 3 for runtime errors.
 State errors use 10 for water, 11 for CO2 and 12 for sCO2.
 Geometry ABI 1 and field ABI 2 remain unchanged, with their own status mappings.
