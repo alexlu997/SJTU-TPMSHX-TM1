@@ -10,7 +10,6 @@ from sjtu_tpmshx.shared.models._native_preparation_case import _Array, _Kind, _R
 from sjtu_tpmshx.shared.models.envelope import ChokedFlowError
 from ._full_2d_abi import _Callbacks, _Config, _EnergyControl, _EnergyEvidence, _Result
 from .enthalpy import _EnergyOptions, _energy_algorithm_query, _energy_options
-from .full_2d import _callbacks, configure_convergence
 from .full_2d_capture import capture_result
 from .model_h import _IterationOptions, _iteration_options
 from .prepared_stage_2d import prepare_stage
@@ -61,7 +60,7 @@ _Summary = record('CaptureSummary', [
     ('pressure_clip_hits', _S), ('have_finite_duty', _U), ('red_black', _U * 2)])
 
 
-def _request(cfg):
+def _request(cfg, configure_convergence):
     solver = cfg['compute_cfg'].solver
     request = _Request(3, ct.sizeof(_Request),
         _RequestV2(2, ct.sizeof(_RequestV2), _RequestV1(1, ct.sizeof(_RequestV1))))
@@ -138,7 +137,8 @@ def _scalars(summary):
         red_black=[bool(value) for value in summary.red_black])
 
 
-def run_stage(driver, case, cfg, prepared, control, *, resume_state=None, checkpoint=None, checkpoint_due=None):
+def run_stage(driver, case, cfg, prepared, control, *, configure_convergence, make_callbacks,
+              resume_state=None, checkpoint=None, checkpoint_due=None):
     """Keep preparation and result storage alive through late application capture."""
     library = driver.library
     try:
@@ -153,8 +153,8 @@ def run_stage(driver, case, cfg, prepared, control, *, resume_state=None, checkp
     uniform, area, diameter, conductivity, recorded, captured, kinds, keepalive = prepare_stage(case, cfg, prepared)
     saved = _Saved(1, ct.sizeof(_Saved), ct.pointer(uniform), area, diameter,
                    (_Array * 2)(*conductivity), recorded, captured, *kinds)
-    request, energy = _request(cfg)
-    callbacks, errors = _callbacks(control)
+    request, energy = _request(cfg, configure_convergence)
+    callbacks, errors = make_callbacks(control)
     stage_control = _Control(case.case_id.encode(), driver.table_directory, control.native_cpu_threads(), callbacks)
     energy_query = version_query = None
     if energy.algorithm:
