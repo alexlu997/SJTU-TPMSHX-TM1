@@ -104,6 +104,13 @@ struct RunRequest2Dv3 : tpmshx_stage_run_request_2d_v3 {
         values=RunRequest2Dv2{};
     }
 };
+struct SavedCase2D : tpmshx_stage_saved_case_2d_v1 {
+    SavedCase2D():tpmshx_stage_saved_case_2d_v1{} {
+        reference_cell_kind={64,0,0};cell_field_kind=hydraulic_diameter_kind={64,1,2};
+        abi_version=TPMSHX_STAGE_RUN_ABI_VERSION;struct_size=sizeof(tpmshx_stage_saved_case_2d_v1);
+        inlet_recorded=1;
+    }
+};
 inline tpmshx_stage_capture_2d_v1 capture_summary(const RunResult2D& result,
     const tpmshx_stage_application_2d_v1& application) {
     tpmshx_stage_capture_2d_v1 output{};
@@ -121,6 +128,14 @@ public:
         const RunState* state=nullptr):Run2D(&prepared.view().prepared,nullptr,control,request,state) {}
     Run2D(const PreparedContinuousCase2D& prepared,const RunControl& control,const RunRequest2Dv3& request={},
         const RunState* state=nullptr):Run2D(nullptr,&prepared.view(),control,request,state) {}
+    Run2D(const tpmshx_stage_saved_case_2d_v1& saved,const RunControl& control,const RunRequest2Dv3& request={},
+        const RunState* state=nullptr) {
+        char error[4096]{};
+        const auto status=state?tpmshx_stage_run_2d_restore_saved_v1(&saved,&request,&control,
+            state->view().fields,state->view().count,&run_,error,sizeof(error)):
+            tpmshx_stage_run_2d_create_saved_v1(&saved,&request,&control,&run_,error,sizeof(error));
+        detail::check(status,error);
+    }
     ~Run2D() {tpmshx_stage_run_2d_release_run_v1(&run_);}
     Run2D(const Run2D&)=delete;
     Run2D& operator=(const Run2D&)=delete;

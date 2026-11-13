@@ -36,14 +36,14 @@ struct RangeStorage {
     std::vector<size_t> shape,minimum_index,maximum_index;
     double minimum=0.,maximum=0.;
     tpmshx_stage_range_sample_v1 value{};
-    void finish(bool finite,size_t min_index,size_t max_index) {
+    void finish(bool finite,size_t min_index,size_t max_index,bool captured=true) {
         for(const auto& s:source)source_view.push_back(s.c_str());
-        value.captured=1;value.side=side.c_str();value.stage=stage.c_str();value.layout=layout.c_str();
+        value.captured=captured?1:0;value.side=side.c_str();value.stage=stage.c_str();value.layout=layout.c_str();
         value.quantity=quantity.c_str();value.unit=unit.c_str();
         value.constraint=!source.empty() && source[0]=="geometry"?"hard_bounds":nullptr;
         value.source=source_view.data();value.source_count=source_view.size();
         value.shape=shape.data();value.rank=shape.size();
-        if(finite) {
+        if(captured && finite) {
             value.minimum=&minimum;value.maximum=&maximum;
             minimum_index.resize(shape.size());maximum_index.resize(shape.size());
             for(size_t axis=shape.size();axis>0;--axis) {
@@ -233,17 +233,20 @@ public:
         }
         evidence.thermal.true_h=&true_h;evidence.true_h_certificate=&true_h_certificate;
     }
-    void prepared_ranges(const tpmshx_preparation_case_2d_v1& prepared) {
+    void prepared_ranges(const tpmshx_preparation_case_2d_v1& prepared,const uint32_t* range_captured) {
         for(size_t i=0;i<prepared.range_count;++i) {
             const auto& r=prepared.ranges[i];ranges.emplace_back();auto& out=ranges.back();
             for(size_t j=0;j<r.source_count;++j)out.source.push_back(text(r.source[j]));
             out.side=text(r.side);out.stage=text(r.stage);out.layout=text(r.layout);
             out.quantity=text(r.quantity);out.unit=text(r.unit);out.shape.assign(r.shape,r.shape+r.rank);
+            const bool captured=!range_captured || range_captured[i];
             const auto& sample=r.sample;auto& v=out.value;
-            v.bounds[0]=r.bounds[0];v.bounds[1]=r.bounds[1];v.size=sample.size;
-            v.low=sample.low;v.high=sample.high;v.nonfinite=sample.nonfinite;
-            out.minimum=sample.minimum;out.maximum=sample.maximum;
-            out.finish(sample.have_finite!=0,sample.minimum_index,sample.maximum_index);
+            v.bounds[0]=r.bounds[0];v.bounds[1]=r.bounds[1];
+            if(captured) {
+                v.size=sample.size;v.low=sample.low;v.high=sample.high;v.nonfinite=sample.nonfinite;
+                out.minimum=sample.minimum;out.maximum=sample.maximum;
+            }
+            out.finish(sample.have_finite!=0,sample.minimum_index,sample.maximum_index,captured);
             inlet_ranges.push_back(out.value);
         }
     }
@@ -353,7 +356,7 @@ public:
         }
         summary.q_net=a::python_float_sum({raw.duty[0],raw.duty[1]});
     }
-    void populate(const tpmshx_preparation_case_2d_v1& p) {
+    void populate(const tpmshx_preparation_case_2d_v1& p,const uint32_t* range_captured) {
         auto& e=evidence;const auto& main=raw.main;
         if(main.mode!=1 && main.mode!=2)throw std::invalid_argument("uniform stage returned an unsupported thermal mode");
         for(const auto& side:resolved.sides)
@@ -427,18 +430,19 @@ public:
             {"envelope_ok",static_cast<int>(raw.envelope_ok),nullptr,nullptr}}};
         e.convergence_gates=gates.data();e.convergence_gate_count=gates.size();
         e.execution_version="full_execution_v1";e.executed_sides=execution.data();e.executed_side_count=2;
-        prepared_ranges(p);final_state_ranges();required_ranges(p.input.topology?"Gyroid":"Diamond");e.applicability=&applicability;
+        prepared_ranges(p,range_captured);final_state_ranges();required_ranges(p.input.topology?"Gyroid":"Diamond");e.applicability=&applicability;
     }
 };
 
 Capture2D* capture_2d(const tpmshx_preparation_case_2d_v1& prepared,
     tpmshx_full_2d_result_v2& raw,const tpmshx_full_2d_config_v2& resolved,const char* result_id,
-    const tpmshx_preparation_case_2d_v2* uniform) {
+    const tpmshx_preparation_case_2d_v2* uniform,bool inlet_recorded,const uint32_t* range_captured) {
     auto owner=std::make_unique<Capture2D>();owner->raw=raw;raw={};owner->resolved=resolved;
     owner->result_id=result_id;
     if(resolved.table_directory) {owner->table_directory=resolved.table_directory;owner->resolved.table_directory=owner->table_directory.c_str();}
     if(resolved.envelope_mode) {owner->envelope_mode=resolved.envelope_mode;owner->resolved.envelope_mode=owner->envelope_mode.c_str();}
-    owner->populate(prepared);owner->capture_scalars();
+    owner->populate(prepared,range_captured);owner->capture_scalars();
+    owner->applicability.inlet_recorded=inlet_recorded?1:0;
     if(uniform)owner->scope_notes(*uniform);
     return owner.release();
 }

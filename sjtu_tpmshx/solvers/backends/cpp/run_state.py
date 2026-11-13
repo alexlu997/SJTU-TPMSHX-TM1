@@ -22,6 +22,7 @@ class NativeRun:
     """Advance one native boundary at a time. Close each run after use."""
 
     advance_name = 'advance'
+    entry_names = {}
     error_types = {1: ValueError, 2: WaterStateError, 3: FloatingPointError}
 
     def __init__(self, library, common, args, callbacks, state):
@@ -41,7 +42,7 @@ class NativeRun:
         try:
             for name, arguments in signatures.items():
                 version = self.creation_version if name in ('create', 'restore') else 1
-                entry = self.advance_name if name == 'advance' else name
+                entry = self.entry_names.get(name, self.advance_name if name == 'advance' else name)
                 function = getattr(library, f'{self.api_prefix}_{entry}_v{version}')
                 function.argtypes = arguments
                 function.restype = None if name == 'release' else ct.c_int

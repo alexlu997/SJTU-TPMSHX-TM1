@@ -5,15 +5,16 @@ The shared result-display module supplies display fields and zone reports.
 """
 from copy import deepcopy
 from dataclasses import replace
+from uuid import uuid4
 
 import numpy as np
 
 from sjtu_tpmshx.shared.domain.cancellation import CancelledError
+from sjtu_tpmshx.shared.domain.field_result import FieldResult
 from sjtu_tpmshx.shared.domain.run_warnings import current_warnings, merge_warnings, warning_messages, warning_scope
 from sjtu_tpmshx.shared.domain.validator import compute_volumetric_htc
 from sjtu_tpmshx.shared.models.nu_correlations import warn_sco2_nu_evidence
-from sjtu_tpmshx.shared.result_display import display_fields_2d, zone_statistics_2d
-from sjtu_tpmshx.solvers.backends.capture_2d import capture_result as _capture_result
+from sjtu_tpmshx.shared.result_display import describe_fields, display_fields_2d, zone_statistics_2d
 from .closure_evidence import replay_range_observations
 
 
@@ -55,11 +56,12 @@ def _fine_evidence(fine, balance):
     return evidence
 
 
-def capture_result(case, cfg, prepared, native):
+def capture_result(case, cfg, prepared, native, *, application_hv=None):
     """Capture a completed native return without re-entering Python solvers."""
     if native['cancelled']:
         raise CancelledError('compute cancelled by user')
     main, fine = native['main'], native['fine']
+    capture_scalars = native.get('capture_scalars')
     mode = main['mode']
     model_balance = _model_balance(main, native)
     fine_balance = None if fine is None else _model_balance(fine, native, fine=True)
@@ -85,8 +87,12 @@ def capture_result(case, cfg, prepared, native):
             post_after_last_thermal=bool(native['post_after_last_thermal']),
             state='last true-h solve, before any final post update')
         for side, label in enumerate('AB'):
-            pressure = main['pressure'][side]
-            true_balance['P_' + label + '_range_Pa'] = [float(pressure.min()), float(pressure.max())]
+            if capture_scalars is None:
+                pressure = main['pressure'][side]
+                limits = [float(pressure.min()), float(pressure.max())]
+            else:
+                limits = list(capture_scalars['pressure_ranges'][side])
+            true_balance['P_' + label + '_range_Pa'] = limits
         true_balance.update({key: deepcopy(true_h_info[key]) for key in (
             'exit_reason', 'enthalpy_clip_counts', 'effective_settings',
             'coupled_energy_balance', 'equation_energy_balance', 'energy_algorithm',
@@ -144,7 +150,9 @@ def capture_result(case, cfg, prepared, native):
     evidence['pressure'] = pressure_evidence
     evidence['physical_ledger'] = main.get('physical_ledger')
     if fine is not None and not native['fine_extrapolated']:
-        source = '主网格值' if np.any(np.isfinite(native['duty'])) else ('不可用值' if mode == 'model_h' or 'temperature_evidence' in main else '1D 最后兜底值')
+        have_finite_duty = (np.any(np.isfinite(native['duty'])) if capture_scalars is None
+                            else capture_scalars['have_finite_duty'])
+        source = '主网格值' if have_finite_duty else ('不可用值' if mode == 'model_h' or 'temperature_evidence' in main else '1D 最后兜底值')
         warnings.append(
             f"Richardson 细解或外推未通过，换热量使用{source}，未外推 "
             f"(converged={fine_info['converged']}, iterations={fine_info['iterations']}, "
@@ -167,14 +175,16 @@ def capture_result(case, cfg, prepared, native):
         dP_A=native['pressure_drop'][0], dP_B=native['pressure_drop'][1], Q_total=native['q_total'],
         mass_flow_A_kg_s_per_m=native['inlet_mass'][0], mass_flow_B_kg_s_per_m=native['inlet_mass'][1],
         warnings_list=warnings, solver_converged=bool(native['converged']), convergence_detail=detail,
-        Q_A=native['duty'][0], Q_B=native['duty'][1], Q_net=sum(native['duty']),
+        Q_A=native['duty'][0], Q_B=native['duty'][1], Q_net=sum(native['duty']) if capture_scalars is None else capture_scalars['q_net'],
         energy_imbalance_rel=native['energy_imbalance'],
-        Q_enthalpy_A=abs(native['duty'][0]), Q_enthalpy_B=abs(native['duty'][1]),
+        Q_enthalpy_A=abs(native['duty'][0]) if capture_scalars is None else capture_scalars['absolute_duty'][0],
+        Q_enthalpy_B=abs(native['duty'][1]) if capture_scalars is None else capture_scalars['absolute_duty'][1],
         Q_solid_richardson=native['q_solid'], Q_richardson_warn=bool(native['fine_warning']),
         richardson_info=fine_info, model_h_balance=None if model_balance is None else dict(main=model_balance, fine=fine_balance),
         true_h_balance=true_balance, envelope_valid=bool(native['envelope_ok']),
         envelope_reasons=[f'[{label}] {reason}' for label, flow in zip('AB', native['flow']) for reason in flow['envelope_reasons']],
-        p_clip_hits=sum(flow['result']['pressure_clip_hits'] for flow in native['flow']),
+        p_clip_hits=(sum(flow['result']['pressure_clip_hits'] for flow in native['flow'])
+                     if capture_scalars is None else capture_scalars['pressure_clip_hits']),
         df_metadata=dict(mode=cfg['compute_cfg'].df_mode,
                          **{label: cfg['flow_inputs'][label]['metadata'] for label in 'AB'}),
         native_full_2d=dict(numerical_driver='cpp',
@@ -190,10 +200,11 @@ def capture_result(case, cfg, prepared, native):
         diagnostics['mass_imbalance_rel_' + label] = flow['result']['mass']['global_residual']
     properties = cfg['static_properties']
     r_a, r_b = properties['A'], properties['B']
+    volumetric_htc = compute_volumetric_htc if application_hv is None else application_hv
     application = dict(
         coeffs=dict(K_ffA=r_a['K_ff'], K_ffB=r_b['K_ff'], K_ss=properties['geometry']['K_ss'],
-                    h_vA=compute_volumetric_htc(r_a['A_0'], r_a['H_sf']),
-                    h_vB=compute_volumetric_htc(r_b['A_0'], r_b['H_sf'])),
+                    h_vA=volumetric_htc(r_a['A_0'], r_a['H_sf']),
+                    h_vB=volumetric_htc(r_b['A_0'], r_b['H_sf'])),
         props=dict(rho_A=r_a['rho'], rho_B=r_b['rho'], mu_A=r_a['mu'], mu_B=r_b['mu']),
         zones=zone_statistics_2d(cfg['z_axis'], cfg['zone_config'], cfg['za'], cfg['L'], cfg['H'],
             prepared['energy_dx'], prepared['energy_dy'], *main['temperature']))
@@ -210,3 +221,56 @@ def capture_result(case, cfg, prepared, native):
         enthalpy_update_normalization=native['enthalpy_update_normalization'],
         simple_velocity_relaxation=native['simple_velocity_relaxation'], simple_flow=native['simple_flow'],
         model_h_iterations=native['model_h_iterations']))
+
+
+def _capture_result(case, display_fields, native, application, diagnostics, *,
+                   backend_id='cpp', backend_version='full_2d_v1'):
+    fields = {key: native[key] for key in (
+        'Ta', 'Tb', 'Ts', 'P_thermal_A', 'P_thermal_B', 'P_report_A', 'P_report_B',
+        'h_vA', 'h_vB', 'K_ss')}
+    fields.update(display_fields)
+    for key in ('h_vA', 'h_vB', 'K_ss'):
+        fields[key] = np.broadcast_to(fields[key], np.shape(fields['Ta']))
+    field_metadata = describe_fields(fields, 2)
+    ledger = native.get('physical_ledger')
+    if ledger is not None and ledger['physical_boundary_complete'] is None:
+        from sjtu_tpmshx.solvers.physical_ledger import ports_complete
+        parameters = case.parameters
+        ledger = dict(ledger, physical_boundary_complete=all(ports_complete(
+            native['mass_flux_' + side], parameters['dir_' + side],
+            parameters['boundary_openings'][side]['in_geom_frac'],
+            parameters['boundary_openings'][side]['out_geom_frac']) for side in ('A', 'B')))
+    model_metadata = dict(case.metadata['model_metadata'])
+    for key in ('enthalpy_eos', 'sco2_enthalpy_eos'):
+        if native['true_h'] and key in native['true_h']:
+            model_metadata[key] = native['true_h'][key]
+    return FieldResult(
+        result_id=str(uuid4()), case_id=case.case_id,
+        backend_id=backend_id, backend_version=backend_version, grid=case.grid,
+        fields=fields, field_metadata=field_metadata, model_refs=case.model_refs,
+        boundary_fluxes=dict(
+            energy=ledger,
+            mass_A=native['mass_flux_A'], mass_B=native['mass_flux_B'],
+            mass_unit='kg/(s m)', mass_axes=('x-face', 'y-face'),
+            mass_sign='positive along physical coordinate axis',
+            state='last main thermal input', model_h=native['model_h_balance'],
+            true_h=native['true_h'], fine=native['fine'],
+            **({'temperature': native['temperature']} if 'temperature' in native else {})),
+        pressure_evidence=native['pressure'],
+        run_status=dict(execution='completed', converged=bool(diagnostics['solver_converged']),
+                        envelope_valid=bool(diagnostics['envelope_valid']),
+                        final_flow_after_last_thermal=native['final_after_thermal'],
+                        outer_index=native['outer_index']),
+        metadata=dict(dimension=2, quantity_basis='per_unit_depth',
+                      thermal_mode=native['mode'], split_A=native['split_A'],
+                      **({'temperature_transport': native['temperature']['definition']}
+                         if 'temperature' in native else {}),
+                      rho_cp_A=native['rho_cp_A'], rho_cp_B=native['rho_cp_B'],
+                      parameters=case.parameters, design_fields=case.design_fields,
+                      design_mode=case.metadata['design_mode'], application=application,
+                      model_metadata=model_metadata, notices=case.metadata['notices'],
+                      diagnostics=diagnostics, df_metadata=diagnostics['df_metadata'],
+                      model_roles=case.metadata['model_roles'],
+                      **{key: native[key] for key in ('input_resolution', 'property_sampling') if key in native},
+                      reporting_reference={key: diagnostics[key] for key in (
+                          'Q_total', 'dP_A', 'dP_B', 'T_out_A_K', 'T_out_B_K')}))
