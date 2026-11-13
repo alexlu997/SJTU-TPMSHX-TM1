@@ -628,7 +628,7 @@ TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_continuou
  * Stripes are stably sorted. Rectangle order stays unchanged. Existing first
  * match and gap rules remain active. Row drag projects L/t before prediction.
  * This entry accepts air/air, prescribed velocity, CFD drag and zero delta.
- * It does not accept mass targets, sigmoid fields or host callback v2/v3.
+ * It does not accept mass targets, sigmoid fields or host callbacks.
  * The v1 event callback is optional. All v2 failure/storage rules still apply.
  * Design porosity, solid/fluid conductivity and transfer are smoothed. L/t,
  * radius, design area density and zone IDs are not smoothed. Thermal porosity,
@@ -646,25 +646,6 @@ TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_zoned_case_2d_
     tpmshx_preparation_case_failure_v2*,char*,size_t);
 TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_zoned_case_2d_release_v5(
     tpmshx_preparation_zoned_case_2d_v5*);
-
-TPMSHX_PREPARATION_API uint32_t TPMSHX_PREPARATION_CALL tpmshx_preparation_case_abi_version_v6(void);
-/* Build the existing training-range LUT once; preparation borrows its view. */
-TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_preparation_sigmoid_lut_create_v6(
-    uint32_t topology,size_t cell_nodes,size_t wall_nodes,size_t resolution,
-    tpmshx_preparation_sigmoid_lut_v6*,char*,size_t);
-TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_sigmoid_lut_release_v6(
-    tpmshx_preparation_sigmoid_lut_v6*);
-/* Supplied LUT axes are normalized and validated by their resource owner.
- * Diagnostic storage must not overlap any owned prepared view or copied control.
- * An overlapping call preserves that result and all diagnostic storage.
- */
-TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_sigmoid_case_2d_v6(
-    const tpmshx_preparation_sigmoid_input_2d_v6*,const tpmshx_preparation_case_options_v1*,
-    const tpmshx_preparation_case_callbacks_v1*,tpmshx_preparation_sigmoid_case_2d_v6*,
-    tpmshx_preparation_case_failure_v2*,char*,size_t);
-TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_sigmoid_case_2d_release_v6(
-    tpmshx_preparation_sigmoid_case_2d_v6*);
-
 /* V7 supplies scalar kinds for the existing domain and port values.
  * lengths: L,H. ports: A,B; each row is inlet center,width,outlet center,width.
  * Weak scalars use precision=64,strong=0,layout=0. Floating scalars use
@@ -705,6 +686,25 @@ TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_continuous_flo
     const tpmshx_preparation_continuous_input_2d_v4*,const tpmshx_preparation_grid_kinds_2d_v7*,
     const tpmshx_preparation_case_options_v1*,const tpmshx_preparation_case_callbacks_v1*,
     tpmshx_preparation_continuous_case_2d_v4*,tpmshx_preparation_case_failure_v2*,char*,size_t);
+
+TPMSHX_PREPARATION_API uint32_t TPMSHX_PREPARATION_CALL tpmshx_preparation_case_abi_version_v6(void);
+/* Build the existing training-range LUT once; preparation borrows its view. */
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_preparation_sigmoid_lut_create_v6(
+    uint32_t topology,size_t cell_nodes,size_t wall_nodes,size_t resolution,
+    tpmshx_preparation_sigmoid_lut_v6*,char*,size_t);
+TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_sigmoid_lut_release_v6(
+    tpmshx_preparation_sigmoid_lut_v6*);
+/* Supplied LUT axes are normalized and validated by their resource owner.
+ * Diagnostic storage must not overlap any owned prepared view or copied control.
+ * An overlapping call preserves that result and all diagnostic storage.
+ */
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_sigmoid_case_2d_v6(
+    const tpmshx_preparation_sigmoid_input_2d_v6*,const tpmshx_preparation_case_options_v1*,
+    const tpmshx_preparation_case_callbacks_v1*,tpmshx_preparation_sigmoid_case_2d_v6*,
+    tpmshx_preparation_case_failure_v2*,char*,size_t);
+TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_sigmoid_case_2d_release_v6(
+    tpmshx_preparation_sigmoid_case_2d_v6*);
+
 TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_zoned_case_2d_v7(
     const tpmshx_preparation_zoned_input_2d_v5*,const tpmshx_preparation_grid_kinds_2d_v7*,
     const tpmshx_preparation_case_options_v1*,const tpmshx_preparation_case_callbacks_v1*,

@@ -127,3 +127,44 @@ def test_v9_cache_callbacks_reject_borrowed_diagnostic_aliases(hook, destination
     assert status == 1
     assert [bytes(value) for value in watched] == before
     assert not result.owner
+
+
+@pytest.mark.parametrize('mode', ['x', 'sigmoid'])
+@pytest.mark.parametrize('operation', ['capacity', 'resolve', 'prepare'])
+@pytest.mark.parametrize('field', ['abi_version', 'struct_size'])
+def test_v9_nested_headers_preserve_result(mode, operation, field):
+    config = old._configuration(mode)
+    config.fluid_A.mass_flow_kg_s, config.fluid_B.mass_flow_kg_s = .002, .003
+    source_type, flow_type, case_type = _types(mode)
+    table = old.v6._table() if mode == 'sigmoid' else None
+    base = old._input(mode, config, table, None)
+    source = source_type(9, ct.sizeof(source_type), base,
+        _Model(config.geometry.k_s_W_mK, old.v2._Kind(64, 0, 0), 1, 0))
+    result_type = case_type if operation == 'prepare' else flow_type
+    result = result_type(9, ct.sizeof(result_type))
+    failure, error = old.v2._Failure(2, ct.sizeof(old.v2._Failure)), ct.create_string_buffer(4096)
+    grid = old.v7._kinds(config)
+    options = old.v1._Options(1, ct.sizeof(old.v1._Options), 0, 1, 0.)
+    library = ct.CDLL(os.environ['TPMSHX_PREPARATION_CASE_LIBRARY'])
+    call = getattr(library, 'tpmshx_' + old._name(mode, operation) + '_2d_v9')
+    call.argtypes = [ct.POINTER(source_type), ct.POINTER(old.v7._GridKinds), ct.POINTER(old.v1._Options),
+        ct.POINTER(old.v1._Callbacks), ct.POINTER(result_type), ct.POINTER(old.v2._Failure),
+        ct.POINTER(ct.c_char), _S]
+    call.restype = ct.c_int
+    prefix = 'sigmoid' if mode == 'sigmoid' else 'zoned'
+    suffix = 'flow_case' if operation == 'prepare' else 'flow'
+    release = getattr(library, f'tpmshx_preparation_{prefix}_{suffix}_2d_release_v9')
+    release.argtypes, release.restype = [ct.POINTER(result_type)], None
+    zones = source.values.values.values if mode == 'sigmoid' else source.values.values
+    for target in (source, source.values, source.values.values, zones, zones.values, zones.values.values, result):
+        previous = getattr(target, field)
+        setattr(target, field, 0)
+        before = bytes(result)
+        try:
+            status = call(ct.byref(source), ct.byref(grid), ct.byref(options), None,
+                          ct.byref(result), ct.byref(failure), error, len(error))
+            assert status == 1 and error.value and bytes(result) == before
+        finally:
+            if result.owner:
+                release(ct.byref(result))
+            setattr(target, field, previous)
