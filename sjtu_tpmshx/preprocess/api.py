@@ -9,12 +9,9 @@ from sjtu_tpmshx.shared.domain.run_warnings import warning_scope, warning_messag
 from sjtu_tpmshx.shared.domain.provenance import source_context
 
 
-def _prepare_with_metadata(prepare, *args, **kwargs) -> CaseData:
-    provenance = source_context()
-    with warning_scope({}) as records:
-        case = prepare(*args, **kwargs)
-        from .range_evidence import record_geometry_ranges
-        record_geometry_ranges(case)
+def _finish_metadata(case, provenance, records) -> CaseData:
+    from .range_evidence import record_geometry_ranges
+    record_geometry_ranges(case)
     warnings = tuple(dict.fromkeys((*case.metadata.get('warnings', ()),
                                     *warning_messages(records))))
     inlets = {side: case.config_snapshot.get('fluid_' + side, {}) for side in 'AB'}
@@ -24,6 +21,12 @@ def _prepare_with_metadata(prepare, *args, **kwargs) -> CaseData:
             for side, fluid in inlets.items()}})
     return replace(case, metadata={**case.metadata, 'provenance': provenance,
                                    'warnings': warnings, 'applicability_inputs': range_observations(records)})
+
+
+def _prepare_with_metadata(prepare, *args, **kwargs) -> CaseData:
+    provenance = source_context()
+    with warning_scope({}) as records:
+        return _finish_metadata(prepare(*args, **kwargs), provenance, records)
 
 
 def prepare_case(config: ComputeConfig, *, case_id: str) -> CaseData:
@@ -47,6 +50,9 @@ def prepare_inlet_mass_capacities(config: ComputeConfig) -> dict[str, float]:
     from .inlet_flow import total_inlet_mass_capacity
 
     config = deepcopy(config).validate_static_inputs()
+    from .two_d import native_preparation
+    if native_preparation.supports(config):
+        return native_preparation.capacities(config)
     if config.is_3d:
         from .three_d.preparation import _parse_geometry_inputs_3d_cfg, _prepare_geometry_data
         prepared = _prepare_geometry_data(_parse_geometry_inputs_3d_cfg(config))
@@ -83,6 +89,9 @@ def prepare_fixed_mass_flow_case(
 
 
 def _prepare_mass_flow_case(config, targets, *, case_id):
+    from .two_d import native_preparation
+    if native_preparation.supports(config):
+        return native_preparation.prepare_mass_flow_case(config, targets, case_id=case_id)
     if not config.is_3d:
         from .two_d.preparation import _prepare_inlet_data, _prepare_case
         from .inlet_flow import total_inlet_mass_capacity
@@ -90,10 +99,8 @@ def _prepare_mass_flow_case(config, targets, *, case_id):
         design, parameters, grid = _prepare_inlet_data(deepcopy(config).validate_static_inputs())
         capacities = {side: total_inlet_mass_capacity(design, parameters, grid, side) for side in 'AB'}
         resolved = _resolve_inlet_speeds(config, targets, capacities)
-        spline_geometry = design if config.zones.enabled and config.zones.axis == 'continuous' else None
         del design, parameters
-        return _prepare_with_metadata(_prepare_case, resolved, case_id=case_id,
-                                      inlet_grid=grid, spline_geometry=spline_geometry)
+        return _prepare_with_metadata(_prepare_case, resolved, case_id=case_id, inlet_grid=grid)
 
     def prepare():
         from .three_d.preparation import (
@@ -122,6 +129,9 @@ def resolve_fixed_mass_flow_config(
 ) -> ComputeConfig:
     """Resolve inlet velocities from the actual geometry, then validate them."""
     config, targets = _fixed_mass_flow_inputs(config, mass_flow_A_kg_s, mass_flow_B_kg_s)
+    from .two_d import native_preparation
+    if native_preparation.supports(config):
+        return native_preparation.resolve(config, targets=tuple(targets[side] for side in 'AB'))
     return _resolve_inlet_speeds(config, targets, prepare_inlet_mass_capacities(config))
 
 
@@ -131,6 +141,9 @@ def resolve_inlet_flow_config(config: ComputeConfig) -> ComputeConfig:
                if getattr(config, 'fluid_' + side).mass_flow_kg_s is not None}
     if not targets:
         return config
+    from .two_d import native_preparation
+    if native_preparation.supports(config):
+        return native_preparation.resolve(config)
     return _resolve_inlet_speeds(config, targets, prepare_inlet_mass_capacities(config))
 
 

@@ -5,8 +5,10 @@
 ## Scope
 
 The native stage work adds independent preparation, execution and evaluation
-interfaces. The existing Python entry points remain the production route until
-the corresponding stage passes its acceptance checks. Preparation v1 supports
+interfaces. Python keeps the public entry points and their existing data contracts.
+Symmetric uniform and canonical continuous XY 2D preparation use the native stage.
+Nonzero-delta uniform, discrete zones, sigmoid and 3D use their explicit existing routes.
+A native loading or execution error does not select another route. Preparation v1 supports
 uniform, symmetric 2D air/air with prescribed inlet velocity and CFD drag.
 Preparation v2 supports all 16 ordered pairs of air, water, sCO2 and CO2 in that
 geometry and inlet mode. It keeps existing experimental DF and sCO2 Nu choices,
@@ -139,7 +141,7 @@ Python object validation and configuration snapshots remain host responsibilitie
 
 Preparation v4 uses `ContinuousInput2D` for canonical continuous XY controls.
 It supports prescribed speed and the v3 total-flow queries and preparation.
-It keeps v1/v2/v3 C layouts and the existing Python production routes.
+It keeps all v1/v2/v3 C layouts. Python adapts its owned result to the existing CaseData schema.
 The control input gives integer counts, order 1..3, a y-mirror flag, bounds and decisions.
 Decisions contain L values followed by t values, in mm and C order.
 With y mirroring, each field stores its lower half, including an odd central row.
@@ -163,6 +165,50 @@ The saved SI cell lengths first return to mm, then produce transport SI and clos
 Nominal reference geometry remains separate from the actual physical fields.
 Requests, cancellation status, result ownership and evaluation use the v2 run contracts.
 This interface does not certify gradient accuracy.
+
+## Typed domain and ports
+
+Preparation v7 adds `GridKinds2D` for the existing domain lengths and four port values on each side.
+It retains NumPy integer and float16/32/64 arithmetic in grids, openings, capacity and spatial sampling.
+Pass this descriptor as the second C++ argument and preparation options as the third argument.
+The [typed grid example](../examples/cpp/prepare_typed_grid_2d.cpp) checks mixed integer and float16 ports with fixed mass flow.
+The C entries use the same descriptor with the existing v3/v4 input and output layouts.
+Keep it with a resolved input when preparing that input again. Release results with their original functions.
+Earlier C and C++ entries keep weak double domain and port values.
+This interface changes no physical scope or saved-file format.
+
+## Python preparation adapter
+
+The public preparation, capacity and resolution entries use v7 with v3/v4 payloads for supported 2D inputs.
+The adapter copies arrays, scalar types and evidence before it releases the native owner.
+Stored cases keep their schema, SI fields, controls and model references.
+Preliminary mass-flow records remain outside the final preparation warning scope.
+
+V3/v4 calls can use `tpmshx_preparation_case_callbacks_v2` through its `values` member.
+That member declares version 2 and the complete descriptor size.
+The optional host hook runs at final preparation entry, nominal geometry and each side's inlet-property boundary.
+It checks Python object rules at their original execution points. It supplies no numerical value.
+A hook exception requests cancellation; Python raises the original exception after the C call returns.
+The v1 callback descriptor and all input/result layouts remain unchanged.
+
+The v3 callback descriptor extends v2 with named geometry and inlet-property cache exchanges.
+Its range and notice hooks report each observation at its original calculation point.
+The host keeps warning filters, source locations and completed observations when a later step fails.
+Cached records do not repeat standalone notices. Warning exceptions stop the native operation.
+Use `values.values`, version 3 and the complete descriptor size.
+Callback version 4 retains this layout and adds host validation at stage 3, side 2, before physical grid construction.
+The Python adapter uses this point to preserve unsupported object errors after earlier geometry and property checks.
+It returns no numerical values. Earlier callback versions do not receive stage 3.
+A cache miss uses the C++ calculation. The host can return a completed cached value and its raw range records.
+Lookup views stay valid until the stage returns. Publication views stay valid only during the callback; copy them before return.
+Nested views must not overlap result, failure or error storage. Invalid storage leaves those outputs unchanged.
+The shared Python owners retain the 32768-entry geometry cache and 4096-entry inlet-property cache.
+They preserve untyped keys, LRU order, statistics, clearing, concurrent publication and `__wrapped__` access.
+Equal keys retain the first successful value's scalar types. Material conductivity and chi stay outside these caches.
+
+Continuous-only Python field, local-drag and reused-spline branches are retired from production preparation.
+The frozen 2026-11-11 reference under `development/tests/preparation_*_reference.py` qualifies the native stage and adapter.
+It is not a production route. Retain it while independent preparation comparison requires that reference.
 
 ## Build and install
 

@@ -34,7 +34,10 @@ Preparation v2 adds all 16 ordered air/water/sCO2/CO2 pairs for uniform symmetri
 Preparation v3 adds independent capacity, inlet-flow resolution and complete preparation for uniform 2D total mass flow.
 It reuses the physical inlet grid and keeps preliminary records separate from final preparation evidence.
 Run v2 supports uniform four-fluid preparation, including resolved total mass flow.
-Preparation v4 supplies continuous XY physical fields to run v3. Run v1 keeps its air/air CFD scope.
+Preparation v4 supplies continuous XY fields and full local drag to run v3. Run v1 keeps its air/air CFD scope.
+The Python preparation entries use v7 with v3/v4 payloads for symmetric uniform and continuous 2D inputs.
+Nonzero-delta uniform, discrete zones, sigmoid and 3D keep their explicit existing routes.
+CaseData and saved-file contracts stay unchanged. Native failures propagate without another preparation route.
 The separate Quick Design path supports native double operating points and retains the existing LTNE model.
 Python Quick Design execution calls its native run stage with saved prepared data.
 Raw Python preparation retains its current type protocols.

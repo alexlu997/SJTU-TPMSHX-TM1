@@ -35,6 +35,7 @@ struct PortInput2D {
     std::int32_t direction=0;
     double inlet_center_m=0.,inlet_width_m=0.,outlet_center_m=0.,outlet_width_m=0.;
     bool uniform_inlet=false;
+    std::array<ScalarKind,4> kinds{};
 };
 struct InletInput2D {
     Fluid fluid=Fluid::air;
@@ -46,6 +47,7 @@ struct GridInput2D {
     double length_m,height_m;
     std::size_t requested_nx,requested_ny;
     bool port_wall_refine=false;
+    std::array<ScalarKind,2> kinds{};
 };
 struct UniformGeometryInput {
     Topology topology;
@@ -126,10 +128,21 @@ struct PreparationEvent {
     std::string logger,message;
     std::uint32_t floating_event=0;
 };
+struct PreparationInletCache;
 struct PreparationCallbacks {
     // The event is borrowed until this call returns. The callback may throw.
     void (*event)(void*,const PreparationEvent&)=nullptr;
     void* context=nullptr;
+    // This optional hook checks host objects, never physical values.
+    void (*validate_host_input)(void*,std::uint32_t,std::uint32_t)=nullptr;
+    // Cache hooks transport completed values. A miss uses the native calculation.
+    bool (*geometry_cache)(void*,bool,geometry::Geometry&)=nullptr;
+    bool (*inlet_cache)(void*,bool,std::uint32_t,const InletInput2D&,ScalarKind,PreparationInletCache&)=nullptr;
+    // Observe at the source. Cached records do not repeat standalone notices.
+    void (*observe_range)(void*,const PreparationRange&,bool,std::optional<double>)=nullptr;
+    // Notice 0 is standalone inlet Re; notice 1 records a preflight reason.
+    void (*observe_notice)(void*,std::uint32_t,std::uint32_t,double,const std::string&)=nullptr;
+    void (*validate_grid)(void*)=nullptr;
 };
 struct PreparationModelRef {
     std::string name,version,side;
@@ -147,6 +160,12 @@ struct PreparationEvidence {
     double co2_pressure_multiplier=1.,co2_nu_multiplier=1.;
     DfPair co2_drag_factors{1.,1.};
     std::array<double,2> co2_re_range{},co2_pr_range{};
+};
+struct PreparationInletCache {
+    geometry::Geometry geometry{};
+    UniformInletProperties properties{};
+    std::array<ScalarKind,13> kinds{};
+    PreparationEvidence evidence;
 };
 struct PreparedCase2D {
     CaseInput2D input;

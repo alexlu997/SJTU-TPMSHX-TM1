@@ -70,6 +70,12 @@ def _warn_extrap(tpms_type, Re_min, Re_max, raw):
     if record_range(('nu', 'air', tpms_type), raw, NU_RE_FIT_RANGE,
                     label=f'[Nu extrap] {tpms_type}', quantity='Re', unit='-'):
         return
+    for message in _extrap_notices(tpms_type, Re_min, Re_max):
+        warnings.warn(message, stacklevel=3)
+
+
+def _extrap_notices(tpms_type, Re_min, Re_max):
+    """Yield existing standalone notices in their registry update order."""
     lo, hi = NU_RE_FIT_RANGE
     for side, oob in (('lo', Re_min < lo), ('hi', Re_max > hi)):
         if not oob:
@@ -80,7 +86,7 @@ def _warn_extrap(tpms_type, Re_min, Re_max, raw):
             "Suppressing further warnings for this (tpms, side).")
         if (tpms_type, side) not in _EXTRAP_WARNED:
             _EXTRAP_WARNED.add((tpms_type, side))
-            warnings.warn(message, stacklevel=3)
+            yield message
 
 
 def record_air_nu_scalar_ranges(tpms_type, raw_Re):
@@ -155,6 +161,12 @@ def _warn_water_nu(Re_min, Re_max, tpms_type, raw):
     if record_range(('nu', 'water', tpms_type), raw, WATER_NU_RE_RANGE,
                     label=f'[water Nu extrap] {tpms_type}', quantity='Re', unit='-'):
         return
+    for message in _water_nu_notices(Re_min, Re_max, tpms_type):
+        warnings.warn(message, stacklevel=3)
+
+
+def _water_nu_notices(Re_min, Re_max, tpms_type):
+    """Yield existing standalone notices in their registry update order."""
     lo, hi = WATER_NU_RE_RANGE
     for side, oob in (('lo', Re_min < lo), ('hi', Re_max > hi)):
         if not oob:
@@ -163,7 +175,7 @@ def _warn_water_nu(Re_min, Re_max, tpms_type, raw):
                    f"water-CFD fit window [{lo:.0f},{hi:.0f}].")
         if side not in _WATER_NU_WARNED:
             _WATER_NU_WARNED.add(side)
-            warnings.warn(message, stacklevel=3)
+            yield message
 
 
 def nu_water_topo(tpms_type, Re, Pr_water):
@@ -249,6 +261,12 @@ def _warn_sco2_nu(Re_min, Re_max, tpms_type, raw):
     if record_range(('nu', 'sco2', tpms_type), raw, SCO2_NU_RE_RANGE,
                     label=f'[sCO2 Nu extrap] {tpms_type}', quantity='Re', unit='-'):
         return
+    for message in _sco2_nu_notices(Re_min, Re_max, tpms_type):
+        warnings.warn(message, stacklevel=3)
+
+
+def _sco2_nu_notices(Re_min, Re_max, tpms_type):
+    """Yield existing standalone notices in their registry update order."""
     lo, hi = SCO2_NU_RE_RANGE
     for side, oob in (('lo', Re_min < lo), ('hi', Re_max > hi)):
         if not oob:
@@ -257,7 +275,7 @@ def _warn_sco2_nu(Re_min, Re_max, tpms_type, raw):
                    f"sCO2-CFD fit window [{lo:.0f},{hi:.0f}].")
         if side not in _SCO2_NU_WARNED:
             _SCO2_NU_WARNED.add(side)
-            warnings.warn(message, stacklevel=3)
+            yield message
 
 
 def warn_sco2_nu_evidence(*, side, stage, tpms_type, L_mm, t_mm, P_in):

@@ -7,6 +7,7 @@
 #include "preparation_df_fields.hpp"
 #include "preparation_properties.hpp"
 #include "field_continuous.hpp"
+#include "contiguous_sum.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -99,6 +100,12 @@ g::Scalar scalar(double value,ScalarKind kind) {
         throw std::invalid_argument("preparation scalar tags must follow the property scalar contract");
     return g::checked({value,kind.precision,kind.strong});
 }
+g::Scalar grid_scalar(double value,ScalarKind kind) {
+    if (kind.layout!=(kind.strong?1u:0u))
+        throw std::invalid_argument("preparation grid tags require scalar layout");
+    return g::checked({value,kind.precision,kind.strong});
+}
+ScalarKind grid_kind(g::Scalar value) {return {value.precision,value.strong,value.strong?1u:0u};}
 bool blank_text(std::string_view text) {
     // Python strips these Unicode spaces and the listed ASCII controls.
     constexpr std::array<std::string_view,19> spaces{{
@@ -169,10 +176,13 @@ PortInput2D checked_port(PortInput2D port,const GridInput2D& grid,const std::str
         throw std::invalid_argument(prefix+".in_w and out_w must both be positive, or both be <= 0 for a full-face port");
     if (!std::isfinite(port.inlet_width_m) || !std::isfinite(port.outlet_width_m))
         throw std::invalid_argument("port width must be finite before full-face normalization");
-    const double cross=port.direction==0 || port.direction==1?grid.height_m:grid.length_m;
+    const auto axis=port.direction==0 || port.direction==1?1u:0u;
+    const auto cross=grid_scalar(axis?grid.height_m:grid.length_m,grid.kinds[axis]);
     if (port.inlet_width_m<=0. && port.outlet_width_m<=0.) {
-        port.inlet_center_m=port.outlet_center_m=cross/2.;
-        port.inlet_width_m=port.outlet_width_m=cross;
+        const auto center=g::divide(cross,g::weak(2.));
+        port.inlet_center_m=port.outlet_center_m=center.value;
+        port.inlet_width_m=port.outlet_width_m=cross.value;
+        port.kinds={grid_kind(center),grid_kind(cross),grid_kind(center),grid_kind(cross)};
     }
     if (port.direction<0 || port.direction>5)
         throw std::invalid_argument(prefix+" is invalid: [error] pipe_bad_dir: pipe direction "+
@@ -188,10 +198,10 @@ PortInput2D checked_port(PortInput2D port,const GridInput2D& grid,const std::str
         std::string error;
         if (!std::isfinite(center) || !std::isfinite(width))
             error="[error] pipe_"+name+"_invalid: "+name+" centre and width must be finite numbers";
-        else if (center-width/2.<0. || center+width/2.>cross)
+        else if (center-width/2.<0. || g::less(cross,g::weak(center+width/2.)))
             error="[error] pipe_"+name+"_out_of_domain: "+name+"_ctr ± "+name+"_w/2 = ["+
                   significant(center-width/2.,3)+", "+significant(center+width/2.,3)+
-                  "] m leaves the cross-axis range [0, "+significant(cross,3)+"].";
+                  "] m leaves the cross-axis range [0, "+significant(cross.value,3)+"].";
         if (!error.empty()) {if (!errors.empty()) errors+="; ";errors+=error;}
     }
     if (!errors.empty()) throw std::invalid_argument(prefix+" is invalid: "+errors);
@@ -349,17 +359,18 @@ std::array<InletInput2D,2> validate(const CaseInput2D& input,CaseScope scope,boo
 }
 
 g::Port native_port(const PortInput2D& input) {
-    return {input.direction,true,{{{g::weak(input.inlet_center_m),g::weak(input.inlet_width_m),{},{}},
-                                  {g::weak(input.outlet_center_m),g::weak(input.outlet_width_m),{},{}}}}};
+    return {input.direction,true,{{{grid_scalar(input.inlet_center_m,input.kinds[0]),
+        grid_scalar(input.inlet_width_m,input.kinds[1]),{},{}},
+        {grid_scalar(input.outlet_center_m,input.kinds[2]),grid_scalar(input.outlet_width_m,input.kinds[3]),{},{}}}}};
 }
 g::Scalars unique(g::Scalars values) {
-    std::sort(values.begin(),values.end(),[](auto a,auto b){return a.value<b.value;});
+    std::stable_sort(values.begin(),values.end(),[](auto a,auto b){return a.value<b.value;});
     values.erase(std::unique(values.begin(),values.end(),[](auto a,auto b){return a.value==b.value;}),values.end());
     return values;
 }
-g::Scalars bounds(double length,const g::Scalars& points) {
-    const auto keep=g::aligned_filter(g::weak(length),points);
-    g::Scalars output{g::weak(0.),g::weak(length)};
+g::Scalars bounds(g::Scalar length,const g::Scalars& points) {
+    const auto keep=g::aligned_filter(length,points);
+    g::Scalars output{g::weak(0.),length};
     for (std::size_t i=0;i<points.size();++i) if (keep[i]) output.push_back(points[i]);
     return unique(std::move(output));
 }
@@ -369,7 +380,7 @@ std::vector<double> values(const g::Scalars& input) {
     return result;
 }
 PhysicalGrid2D physical_grid(const GridInput2D& input,const std::array<InletInput2D,2>& sides) {
-    const g::Scalars lengths{g::weak(input.length_m),g::weak(input.height_m)};
+    const g::Scalars lengths{grid_scalar(input.length_m,input.kinds[0]),grid_scalar(input.height_m,input.kinds[1])};
     const std::vector<g::Port> ports{native_port(sides[0].port),native_port(sides[1].port)};
     const std::array<g::Scalars,2> breaks{unique(g::breaks_2d(lengths,ports,0)),unique(g::breaks_2d(lengths,ports,1))};
     PhysicalGrid2D output;
@@ -381,7 +392,7 @@ PhysicalGrid2D physical_grid(const GridInput2D& input,const std::array<InletInpu
             g::Scalars outer{g::weak(0.)};outer.insert(outer.end(),knots.begin(),knots.end());outer.push_back(lengths[axis]);
             std::size_t minimum=0;
             widths[axis]=g::port_wall_axis(2,axis?input.requested_ny:input.requested_nx,outer,
-                                          bounds(lengths[axis].value,knots),minimum,axis);
+                                          bounds(lengths[axis],knots),minimum,axis);
         }
     } else {
         bool refined=false;
@@ -396,7 +407,7 @@ PhysicalGrid2D physical_grid(const GridInput2D& input,const std::array<InletInpu
         }
         if (!refined) for (std::size_t axis=0;axis<2;++axis)
             widths[axis]=g::aligned(axis?input.requested_ny:input.requested_nx,
-                                    bounds(lengths[axis].value,breaks[axis])).widths;
+                                    bounds(lengths[axis],breaks[axis])).widths;
     }
     output.dx=std::move(widths[0]);output.dy=std::move(widths[1]);
     output.nx=output.dx.size();output.ny=output.dy.size();
@@ -419,13 +430,31 @@ struct Records {
     std::vector<std::pair<bool,std::size_t>> warning_order;
     std::vector<std::string> plain_warnings;
 
+    void observe(const PreparationRange& range,bool cached,std::optional<double> scalar={}) {
+        if (callbacks.observe_range) callbacks.observe_range(callbacks.context,range,cached,scalar);
+    }
+    void merge(const PreparationEvidence& evidence,const std::string& side={}) {
+        for (const auto& range:evidence.ranges) {
+            const auto bound_side=side.empty()?range.side:side;
+            const auto bound_stage=side.empty()?range.stage:"inlet";
+            const auto bound_layout=side.empty()?range.layout:"scalar";
+            collect(range.source,bound_side,bound_stage,bound_layout,range.label,range.quantity.c_str(),
+                range.unit.c_str(),range.bounds,range.shape,range.sample,range.bounds_list,{},false);
+            for (auto& saved:output.ranges) if (saved.source==range.source && saved.shape==range.shape
+                    && saved.side==bound_side && saved.stage==bound_stage && saved.layout==bound_layout) {
+                saved.last=range.last;observe(saved,true);break;
+            }
+        }
+        for (const auto& message:evidence.warnings) warning(message);
+        output.events.insert(output.events.end(),evidence.events.begin(),evidence.events.end());
+    }
     void emit(PreparationEvent event) {
         output.events.push_back(std::move(event));
         if (callbacks.event) callbacks.event(callbacks.context,output.events.back());
     }
-    void floating(const std::array<std::uint32_t,property_event_count>& events) {
+    void floating(const std::array<std::uint32_t,property_event_count>& events,const char* source="") {
         for (auto encoded:events) if (encoded)
-            emit({PreparationEventKind::floating_point,"","",encoded});
+            emit({PreparationEventKind::floating_point,"",source,encoded});
     }
     void warning(std::string message) {
         if (std::find(plain_warnings.begin(),plain_warnings.end(),message)!=plain_warnings.end()) return;
@@ -433,7 +462,8 @@ struct Records {
     }
     void range(std::vector<std::string> source,const std::string& side,const std::string& stage,
                const std::string& layout,std::string label,const char* quantity,const char* unit,
-               const std::array<double,2>& limits,double value,std::vector<std::size_t> shape={},bool bounds_list=false) {
+               const std::array<double,2>& limits,double value,std::vector<std::size_t> shape={},bool bounds_list=false,
+               std::optional<double> notice_scalar={}) {
         PreparationRangeSample sample;
         sample.size=1;for (const auto extent:shape) sample.size=count(sample.size,extent);
         sample.have_finite=std::isfinite(value);
@@ -442,7 +472,7 @@ struct Records {
             sample.low=value<limits[0]?sample.size:0;sample.high=value>limits[1]?sample.size:0;
         } else sample.nonfinite=sample.size;
         collect(std::move(source),side,stage,layout,std::move(label),quantity,unit,limits,
-                std::move(shape),sample,bounds_list);
+                std::move(shape),sample,bounds_list,notice_scalar.value_or(value));
     }
     void range(std::vector<std::string> source,const std::string& side,const std::string& stage,
                const std::string& layout,std::string label,const char* quantity,const char* unit,
@@ -462,7 +492,7 @@ struct Records {
     void collect(std::vector<std::string> source,const std::string& side,const std::string& stage,
                  const std::string& layout,std::string label,const char* quantity,const char* unit,
                  const std::array<double,2>& limits,std::vector<std::size_t> shape,
-                 PreparationRangeSample sample,bool bounds_list) {
+                 PreparationRangeSample sample,bool bounds_list,std::optional<double> scalar={},bool notify=true) {
         for (auto& previous:output.ranges) if (previous.source==source && previous.side==side
                 && previous.stage==stage && previous.layout==layout && previous.shape==shape) {
             auto aggregate=previous.sample;
@@ -479,13 +509,26 @@ struct Records {
                 aggregate.have_finite=true;
             }
             aggregate.nonfinite=std::max(aggregate.nonfinite,sample.nonfinite);
-            previous.sample=aggregate;previous.last=sample;return;
+            previous.sample=aggregate;previous.last=sample;
+            if (notify) observe(previous,false,scalar);
+            return;
         }
         warning_order.emplace_back(true,output.ranges.size());
         output.ranges.push_back({std::move(source),side,stage,layout,std::move(label),quantity,unit,limits,
                                  std::move(shape),sample,sample,bounds_list});
+        if (notify) observe(output.ranges.back(),false,scalar);
     }
 };
+
+void nominal_grid_steps(const CaseInput2D& input,Records& records) {
+    for (std::size_t axis=0;axis<2;++axis) {
+        const auto length=grid_scalar(axis?input.grid.height_m:input.grid.length_m,input.grid.kinds[axis]);
+        const auto count=axis?input.grid.requested_ny:input.grid.requested_nx;
+        std::array<std::uint32_t,property_event_count> events{};PropertyArithmetic arithmetic(events);
+        arithmetic.divide({length,0.,0,length.strong?1u:0u},{g::weak(static_cast<double>(count))});
+        records.floating(events,axis?"nominal-grid-y":"nominal-grid-x");
+    }
+}
 
 std::string sample_index(const PreparationRange& range,std::size_t index) {
     if (range.shape.empty()) return "()";
@@ -575,6 +618,7 @@ void check_co2_inlet(const InletInput2D& inlet,std::size_t side) {
         throw failure;
     }
 }
+geometry::MaterialGeometry material_geometry(const CaseInput2D&,const PreparationOptions&,const PreparationCallbacks& = {});
 void preflight(const CaseInput2D& input,const PreparationOptions& options,const geometry::Geometry& geometry,
                const std::array<InletInput2D,2>& sides,Records& records) {
     for (std::size_t i=0;i<2;++i) {
@@ -583,7 +627,9 @@ void preflight(const CaseInput2D& input,const PreparationOptions& options,const 
         check_co2_inlet(inlet,i);
         const double rho=property(0,inlet,kinds,"unbound","unbound",records);
         const double mu=property(1,inlet,kinds,"unbound","unbound",records);
-        const double re=inlet_re(rho,inlet.velocity_m_s,geometry.hydraulic_diameter,mu,kinds.velocity,records).values.front();
+        const auto diameter=records.callbacks.geometry_cache?
+            material_geometry(input,options,records.callbacks).geometry.hydraulic_diameter:geometry.hydraulic_diameter;
+        const double re=inlet_re(rho,inlet.velocity_m_s,diameter,mu,kinds.velocity,records).values.front();
         const auto& bounds=re_range(inlet.fluid);
         const auto fluid=std::string(fluid_name(inlet.fluid));
         records.range({"nu",fluid,topology_name(input.geometry.topology)},side,"inlet-preflight","scalar",
@@ -614,7 +660,11 @@ void preflight(const CaseInput2D& input,const PreparationOptions& options,const 
         for (const auto& reason:reasons)
             records.emit({PreparationEventKind::warning,"", "[surrogate extrap] "+reason});
         // The original per-side record keeps the first preflight reason.
-        if (!reasons.empty()) records.warning(reasons.front());
+        if (!reasons.empty()) {
+            records.warning(reasons.front());
+            if (records.callbacks.observe_notice)
+                records.callbacks.observe_notice(records.callbacks.context,1,static_cast<std::uint32_t>(i),0.,reasons.front());
+        }
     }
 }
 
@@ -631,6 +681,8 @@ UniformInletProperties inlet_properties(const CaseInput2D& input,const InletInpu
     double diameter=geometry.geometry.hydraulic_diameter,velocity=inlet.velocity_m_s;
     auto result=inlet_re(output.rho,velocity,diameter,output.mu,kinds.velocity,records);
     output.re=result.values.front();output_kinds[5]=result_kind(result);
+    if (records.callbacks.observe_notice)
+        records.callbacks.observe_notice(records.callbacks.context,0,static_cast<std::uint32_t>(index),output.re,{});
     result=prandtl(operand(output.mu),operand(output.cp),operand(output.k_f));
     records.floating(result.events);output.pr=result.values.front();
     output_kinds[4]=result_kind(result);
@@ -649,7 +701,7 @@ UniformInletProperties inlet_properties(const CaseInput2D& input,const InletInpu
     const auto label=inlet.fluid==Fluid::air?"[Nu extrap] ":inlet.fluid==Fluid::water?"[water Nu extrap] ":
                      inlet.fluid==Fluid::sco2?"[sCO2 Nu extrap] ":"[CO2 Nu extrap] ";
     records.range({"nu",fluid_name(inlet.fluid),topology_name(input.geometry.topology)},side,"inlet","scalar",
-                  std::string(label)+topology_name(input.geometry.topology),"Re","-",re_range(inlet.fluid),output.re);
+                  std::string(label)+topology_name(input.geometry.topology),"Re","-",re_range(inlet.fluid),output.re,{},false,extrema[0]);
     if (co2) records.range({"nu_pr","co2",topology_name(input.geometry.topology)},side,"inlet","scalar",
                           std::string(label)+topology_name(input.geometry.topology),"Pr","-",data::co2_nu_pr_range,output.pr,{},true);
     const double alpha=inlet.fluid==Fluid::sco2 && input.sco2_nu.mode?
@@ -787,7 +839,7 @@ void model_evidence(const CaseInput2D& input,PreparationEvidence& evidence) {
             "accuracy for variable-property heat exchangers or geometry gradients.");
     }
 }
-geometry::MaterialGeometry material_geometry(const CaseInput2D& input,const PreparationOptions& options) {
+geometry::MaterialGeometry material_geometry(const CaseInput2D& input,const PreparationOptions& options,const PreparationCallbacks& callbacks) {
     const auto& model=input.geometry;
     geometry::MaterialGeometry output;
     const auto calibration=geometry::calibration(model.topology);
@@ -800,8 +852,12 @@ geometry::MaterialGeometry material_geometry(const CaseInput2D& input,const Prep
     } else {
         const auto cell=scalar(model.cell_length_mm,input.kinds.cell_length);
         const auto wall=scalar(model.wall_thickness_mm,input.kinds.wall_thickness);
-        output.geometry=geometry::standard_geometry(geometry_index(model.topology),calibration,
-            cell.value,wall.value,cell.precision,g::result_precision(wall,cell));
+        const bool hit=callbacks.geometry_cache && callbacks.geometry_cache(callbacks.context,false,output.geometry);
+        if (!hit) {
+            output.geometry=geometry::standard_geometry(geometry_index(model.topology),calibration,
+                cell.value,wall.value,cell.precision,g::result_precision(wall,cell));
+            if (callbacks.geometry_cache) callbacks.geometry_cache(callbacks.context,true,output.geometry);
+        }
         output.solid_conductivity=geometry::solid_conductivity(calibration.solid_tortuosity,
             output.geometry.epsilon,model.solid_conductivity_W_mK,options.chi_override,
             input.kinds.solid_conductivity.precision);
@@ -815,13 +871,14 @@ void prepare_ports(const PhysicalGrid2D& grid,PreparedSide2D& side) {
     side.cross_widths=x?grid.dy:grid.dx;
     side.stream_widths=x?grid.dx:grid.dy;
     if (port.direction==1 || port.direction==3) std::reverse(side.stream_widths.begin(),side.stream_widths.end());
-    side.inlet_bounds={port.inlet_center_m-port.inlet_width_m/2.,port.inlet_center_m+port.inlet_width_m/2.};
-    side.outlet_bounds={port.outlet_center_m-port.outlet_width_m/2.,port.outlet_center_m+port.outlet_width_m/2.};
-    auto openings=g::port_fractions(side.cross_widths,g::weak(side.inlet_bounds[0]),g::weak(side.inlet_bounds[1]),port.uniform_inlet);
+    const auto edges=g::rectangles(native_port(port),g::weak(1.));
+    side.inlet_bounds={edges[0].value,edges[1].value};
+    side.outlet_bounds={edges[4].value,edges[5].value};
+    auto openings=g::port_fractions(side.cross_widths,edges[0],edges[1],port.uniform_inlet);
     side.inlet_geometry=std::move(openings[0]);side.inlet_profile=std::move(openings[1]);
-    openings=g::port_fractions(side.cross_widths,g::weak(side.outlet_bounds[0]),g::weak(side.outlet_bounds[1]));
+    openings=g::port_fractions(side.cross_widths,edges[4],edges[5]);
     side.outlet_geometry=std::move(openings[0]);side.outlet_profile=std::move(openings[1]);
-    side.outlet_u_fraction=g::port_overlap(side.cross_widths,g::weak(side.outlet_bounds[0]),g::weak(side.outlet_bounds[1]),true);
+    side.outlet_u_fraction=g::port_overlap(side.cross_widths,edges[4],edges[5],true);
 }
 
 void record_grid(const CaseInput2D& input,const PhysicalGrid2D& grid,Records& records) {
@@ -841,18 +898,83 @@ void finish_warnings(Records& records) {
 struct LocalGeometry2D {
     std::vector<double> cell_mm,wall_mm,epsilon,solid,radius,area,diameter;
 };
-std::vector<double> control_axis(std::size_t count,double length) {
-    if (count==1) return {length/2.};
-    std::vector<double> values(count);const auto step=length/static_cast<double>(count-1);
-    for (std::size_t i=0;i<count;++i) values[i]=static_cast<double>(i)*step;
-    values.back()=length;return values;
+double control_midpoint(g::Scalar length,Records* records,const char* source="control-axis-midpoint") {
+    std::array<std::uint32_t,property_event_count> events{};PropertyArithmetic arithmetic(events,records!=nullptr);
+    const auto value=arithmetic.divide({length,0.,0,length.strong?1u:0u},{g::weak(2.)});
+    if (records) records->floating(events,source);
+    return value.real.value;
+}
+std::vector<double> control_axis(std::size_t count,g::Scalar length,Records* records=nullptr) {
+    if (count==1) return {control_midpoint(length,records)};
+    if (length.strong==2) length={length.value,64,1};
+    length.strong=1;
+    const PropertyNumber divisor{g::weak(static_cast<double>(count-1))},delta{length,0.,0,1};
+    std::array<std::uint32_t,property_event_count> events{};PropertyArithmetic arithmetic(events,records!=nullptr);
+    const auto step=arithmetic.divide(delta,divisor);
+    if (records) records->floating(events,"control-axis-step");
+    events.fill(0);
+    std::vector<double> values(count);
+    for (std::size_t i=0;i<count;++i) {
+        const PropertyNumber index{g::checked({static_cast<double>(i),length.precision,1}),0.,0,3};
+        PropertyArithmetic element(events,records!=nullptr);
+        values[i]=(step.real.value==0.?element.multiply(element.divide(index,divisor),delta):
+            element.multiply(index,step)).real.value;
+    }
+    if (records) for (const auto event:events) if (event) {
+        const auto operation=(event>>8)&255u;
+        const auto source=step.real.value!=0.?"control-axis-multiply":
+            operation==3?"control-axis-scale":"control-axis-divide";
+        records->emit({PreparationEventKind::floating_point,"",source,event});
+    }
+    values.back()=length.value;
+    return values;
+}
+std::array<std::vector<double>,2> control_axes(const CaseInput2D& input,Records& records) {
+    const auto& controls=*input.continuous;
+    const std::array<g::Scalar,2> lengths{{grid_scalar(input.grid.length_m,input.grid.kinds[0]),
+        grid_scalar(input.grid.height_m,input.grid.kinds[1])}};
+    std::array<std::vector<double>,2> axes{{control_axis(controls.nx,lengths[0],&records),
+        control_axis(controls.ny,lengths[1],&records)}};
+    for (std::size_t axis=0;axis<2;++axis) {
+        const auto& values=axes[axis];
+        for (std::size_t i=0;i<values.size();++i)
+            if (!std::isfinite(values[i]) || (i && values[i]<=values[i-1]))
+                throw std::invalid_argument("control axes must increase across the domain, or use its midpoint for one control");
+        if (values.size()==1?values[0]!=control_midpoint(lengths[axis],&records,"control-axis-check-midpoint"):
+                values.front()!=0. || values.back()!=lengths[axis].value)
+            throw std::invalid_argument("control axes must increase across the domain, or use its midpoint for one control");
+    }
+    return axes;
+}
+std::array<std::vector<double>,2> sampling_axes(const CaseInput2D& input,const PhysicalGrid2D* grid=nullptr) {
+    std::array<std::vector<double>,2> axes;
+    for (std::size_t axis=0;axis<2;++axis) {
+        const auto extent=grid_scalar(axis?input.grid.height_m:input.grid.length_m,input.grid.kinds[axis]);
+        const auto count=grid?(axis?grid->ny:grid->nx):(axis?input.grid.requested_ny:input.grid.requested_nx);
+        const auto* widths=grid?(axis?&grid->dy:&grid->dx):nullptr;
+        if (widths) {
+            const double total=0.+tpmshx::detail::contiguous_sum({widths->data(),widths->size()});
+            if (!(std::abs(total-extent.value)<=g::multiply(g::weak(1e-12),extent).value))
+                throw std::invalid_argument("cell widths must be finite, positive and cover the field domain");
+        }
+        axes[axis]=g::continuous_centres(count,extent,widths);
+    }
+    for (std::size_t axis=0;axis<2;++axis) {
+        const auto& points=axes[axis];
+        const char* error="sampling axes must be finite, increasing and inside the field domain";
+        try {fields::sample_axis(points.data(),points.size());}
+        catch (const std::invalid_argument&) {throw std::invalid_argument(error);}
+        if (points.front()<0. || points.back()>(axis?input.grid.height_m:input.grid.length_m))
+            throw std::invalid_argument(error);
+    }
+    return axes;
 }
 LocalGeometry2D local_geometry(const CaseInput2D& input,const PhysicalGrid2D& grid,
-                               const PreparationOptions& options) {
+                               const PreparationOptions& options,Records& records) {
     const auto& controls=*input.continuous;
-    const auto x=control_axis(controls.nx,input.grid.length_m),y=control_axis(controls.ny,input.grid.height_m);
-    const auto xc=g::continuous_centres(grid.nx,g::weak(input.grid.length_m),&grid.dx);
-    const auto yc=g::continuous_centres(grid.ny,g::weak(input.grid.height_m),&grid.dy);
+    const auto axes=control_axes(input,records),samples=sampling_axes(input,&grid);
+    const auto& x=axes[0];const auto& y=axes[1];
+    const auto& xc=samples[0];const auto& yc=samples[1];
     const auto half_y=controls.symmetric_y?controls.ny/2+controls.ny%2:controls.ny;
     const auto half=count(controls.nx,half_y);
     std::array<std::vector<double>,2> sampled;
@@ -870,9 +992,9 @@ LocalGeometry2D local_geometry(const CaseInput2D& input,const PhysicalGrid2D& gr
             sampled[field]=fit.sample(values.data(),values.size(),xc.data(),xc.size(),yc.data(),yc.size(),limits[0],limits[1]);
         } else {
             const std::size_t counts[]{controls.nx,controls.ny},sizes[]{grid.nx,grid.ny};
-            const double* axes[]{x.data(),y.data()};const double* samples[]{xc.data(),yc.data()};
-            sampled[field]=fields::sample_tensor(2,counts,axes,values.data(),values.size(),
-                static_cast<int>(controls.order),sizes,samples,limits[0],limits[1]);
+            const double* axis_data[]{x.data(),y.data()};const double* sample_data[]{xc.data(),yc.data()};
+            sampled[field]=fields::sample_tensor(2,counts,axis_data,values.data(),values.size(),
+                static_cast<int>(controls.order),sizes,sample_data,limits[0],limits[1]);
         }
     }
     LocalGeometry2D output;output.cell_mm=std::move(sampled[0]);output.wall_mm=std::move(sampled[1]);
@@ -904,23 +1026,30 @@ struct InletGeometry2D {
 PreparedCase2D prepare_case(const CaseInput2D& input,const PreparationOptions& options,
                               const PreparationCallbacks& callbacks,CaseScope scope,const InletGeometry2D* inlet_geometry=nullptr) {
     FloatingEnvironment floating_environment;
+    if (callbacks.validate_host_input) callbacks.validate_host_input(callbacks.context,0,2);
     const auto inlets=validate(input,scope);
     PreparedCase2D output{};output.input=input;output.options=options;
     Records records{output.evidence,callbacks,{},{}};
+    nominal_grid_steps(input,records);
     const auto& model=input.geometry;
-    output.uniform_geometry=inlet_geometry?inlet_geometry->material:material_geometry(input,options);
+    if (callbacks.validate_host_input) callbacks.validate_host_input(callbacks.context,1,2);
+    output.uniform_geometry=inlet_geometry && !callbacks.geometry_cache?inlet_geometry->material:material_geometry(input,options,callbacks);
     const auto& uniform=output.uniform_geometry.geometry;
     output.hydraulic_radius_m=geometry::hydraulic_radius(uniform.hydraulic_diameter);
     preflight(input,options,uniform,inlets,records);
+    // The original first field construction precedes conductivity and mesh checks.
+    if (input.continuous) {control_axes(input,records);sampling_axes(input);}
     // Full host preparation reads both conductivities before and after its mesh.
     if (input.continuous) for (std::size_t i=0;i<2;++i)
         property(2,inlets[i],input.kinds.sides[i],"unbound","unbound",records);
+    if (!inlet_geometry && callbacks.validate_grid) callbacks.validate_grid(callbacks.context);
     output.grid=inlet_geometry?inlet_geometry->grid:physical_grid(input.grid,inlets);
     if (!inlet_geometry) record_grid(input,output.grid,records);
     std::optional<LocalGeometry2D> local;
     std::vector<DfPair> local_drag;
     if (input.continuous) {
-        local=inlet_geometry?inlet_geometry->local:std::optional<LocalGeometry2D>{local_geometry(input,output.grid,options)};
+        if (inlet_geometry) control_axes(input,records);
+        local=inlet_geometry?inlet_geometry->local:std::optional<LocalGeometry2D>{local_geometry(input,output.grid,options,records)};
         std::vector<double> epsilon_half(local->epsilon.size());
         for (std::size_t i=0;i<epsilon_half.size();++i) epsilon_half[i]=local->epsilon[i]*.5;
         for (std::size_t i=0;i<2;++i) {
@@ -941,8 +1070,35 @@ PreparedCase2D prepare_case(const CaseInput2D& input,const PreparationOptions& o
         if (!inlet_geometry) prepare_ports(output.grid,side);
         prepare_drag(input,i,drag,side,records,local?&local_drag:nullptr,local?&output.grid:nullptr);
     }
-    for (std::size_t i=0;i<2;++i)
-        output.sides[i].properties=inlet_properties(input,inlets[i],i,output.uniform_geometry,records,output.sides[i].property_kinds);
+    // The thermal and final geometry facades use the same scalar cache.
+    if (callbacks.geometry_cache) output.uniform_geometry=material_geometry(input,options,callbacks);
+    for (std::size_t i=0;i<2;++i) {
+        if (callbacks.validate_host_input)
+            callbacks.validate_host_input(callbacks.context,2,static_cast<std::uint32_t>(i));
+        auto& side=output.sides[i];
+        if (!callbacks.inlet_cache) {
+            side.properties=inlet_properties(input,inlets[i],i,output.uniform_geometry,records,side.property_kinds);
+            continue;
+        }
+        PreparationInletCache cached{};
+        const auto index=static_cast<std::uint32_t>(i);
+        const bool hit=callbacks.inlet_cache(callbacks.context,false,index,inlets[i],input.kinds.sides[i].velocity,cached);
+        if (!hit) {
+            const auto geometry=material_geometry(input,options,callbacks);
+            cached.geometry=geometry.geometry;
+            Records local_records{cached.evidence,callbacks,{},{}};
+            cached.properties=inlet_properties(input,inlets[i],i,geometry,local_records,cached.kinds);
+            callbacks.inlet_cache(callbacks.context,true,index,inlets[i],input.kinds.sides[i].velocity,cached);
+        }
+        side.properties=cached.properties;side.property_kinds=cached.kinds;
+        const auto calibration=geometry::calibration(model.topology);
+        side.properties.solid_conductivity_W_mK=geometry::solid_conductivity(calibration.solid_tortuosity,
+            cached.geometry.epsilon,model.solid_conductivity_W_mK,options.chi_override,
+            co2_geometry(input)?64u:input.kinds.solid_conductivity.precision);
+        side.property_kinds[12]=solid_result_kind(input);
+        records.merge(cached.evidence,i?"B":"A");
+    }
+    if (callbacks.geometry_cache) output.uniform_geometry=material_geometry(input,options,callbacks);
     const auto cells=count(output.grid.nx,output.grid.ny);
     output.cell_length_m=g::multiply(scalar(model.cell_length_mm,input.kinds.cell_length),g::weak(1e-3)).value;
     output.wall_thickness_m=g::multiply(scalar(model.wall_thickness_mm,input.kinds.wall_thickness),g::weak(1e-3)).value;
@@ -995,11 +1151,14 @@ g::Scalar flow_scalar(double value,ScalarKind kind) {
 InletGeometry2D prepare_inlet_geometry(const CaseInput2D& input,ScalarKind depth_kind,
     const PreparationOptions& options,const PreparationCallbacks& callbacks,InletFlow2D& flow) {
     const auto inlets=validate(input,flow_scope(input),true);
-    InletGeometry2D output{};output.material=material_geometry(input,options);
+    Records records{flow.evidence,callbacks,{},{}};nominal_grid_steps(input,records);
+    if (callbacks.validate_host_input) callbacks.validate_host_input(callbacks.context,1,2);
+    InletGeometry2D output{};output.material=material_geometry(input,options,callbacks);
+    if (callbacks.validate_grid) callbacks.validate_grid(callbacks.context);
     output.grid=physical_grid(input.grid,inlets);
-    Records records{flow.evidence,callbacks,{},{}};record_grid(input,output.grid,records);
+    record_grid(input,output.grid,records);
     for (std::size_t i=0;i<2;++i) {output.sides[i].inlet=inlets[i];prepare_ports(output.grid,output.sides[i]);}
-    if (input.continuous) output.local=local_geometry(input,output.grid,options);
+    if (input.continuous) output.local=local_geometry(input,output.grid,options,records);
     std::array<double,2> densities;
     for (std::size_t i=0;i<2;++i)
         densities[i]=property(0,inlets[i],input.kinds.sides[i],"unbound","unbound",records);

@@ -34,6 +34,19 @@ static int TPMSHX_PREPARATION_CALL cancel_event(void* context, const tpmshx_prep
     return 1;
 }
 
+typedef struct {
+    uint32_t stage[8], side[8];
+    size_t count, cancel_at;
+} host_checks;
+static int TPMSHX_PREPARATION_CALL check_host_input(void* context, uint32_t stage, uint32_t side) {
+    host_checks* checks = (host_checks*)context;
+    if (checks->count < 8) {
+        checks->stage[checks->count] = stage; checks->side[checks->count] = side;
+    }
+    ++checks->count;
+    return checks->count == checks->cancel_at;
+}
+
 static int check_v2(void) {
     tpmshx_preparation_case_input_2d_v2 source = {0}, original;
     tpmshx_preparation_case_2d_v2 result = {0}, before;
@@ -94,6 +107,206 @@ static int check_v2(void) {
     CHECK(!memcmp(&before, &result, sizeof(result)));
     CHECK(tpmshx_prepare_case_2d_v2(&source, &options, NULL, &result, NULL, error, sizeof(error)) == 1);
     CHECK(!memcmp(&before, &result, sizeof(result)));
+    return 0;
+}
+
+
+typedef struct {
+    tpmshx_preparation_inlet_cache_v3 value;
+    tpmshx_preparation_range_v1 ranges[64];
+    tpmshx_preparation_text_v1 sources[64][8], warnings[64];
+    size_t shapes[64][2], used;
+    uint32_t bounds[64];
+    char text[32768];
+    int valid;
+} saved_cache;
+typedef struct {
+    tpmshx_preparation_geometry_cache_v3 geometry;
+    saved_cache sides[2];
+    size_t geometry_reads, geometry_writes, inlet_reads, inlet_writes;
+    size_t live_ranges, cached_ranges, notices;
+    int cancel_observation, invalid_observation;
+    int geometry_valid, mode, cancel, publish_only;
+    void* alias;
+    tpmshx_preparation_range_v1 range;
+    tpmshx_preparation_text_v1 source, warning;
+    tpmshx_preparation_event_v1 event;
+    size_t shape;
+    uint32_t bounds;
+} cache_checks;
+static int copy_cache_text(saved_cache* target, tpmshx_preparation_text_v1* output, tpmshx_preparation_text_v1 input) {
+    if (input.size > sizeof(target->text) - target->used) return 1;
+    output->data = target->text + target->used; output->size = input.size;
+    if (input.size) memcpy(target->text + target->used, input.data, input.size);
+    target->used += input.size; return 0;
+}
+static int save_cache(saved_cache* target, const tpmshx_preparation_inlet_cache_v3* input) {
+    size_t i, j;
+    target->used = 0; target->value = *input;
+    if (input->evidence.range_count > 64 || input->evidence.warning_count > 64 || input->evidence.event_count) return 1;
+    target->value.evidence.ranges = target->ranges; target->value.evidence.range_bounds_list = target->bounds;
+    target->value.evidence.warnings = target->warnings;
+    for (i = 0; i < input->evidence.range_count; ++i) {
+        const tpmshx_preparation_range_v1* from = &input->evidence.ranges[i];
+        tpmshx_preparation_range_v1* to = &target->ranges[i];
+        if (from->source_count > 8 || from->rank > 2) return 1;
+        *to = *from; to->source = target->sources[i]; to->shape = target->shapes[i];
+        target->bounds[i] = input->evidence.range_bounds_list[i];
+        for (j = 0; j < from->rank; ++j) target->shapes[i][j] = from->shape[j];
+        for (j = 0; j < from->source_count; ++j)
+            if (copy_cache_text(target, &target->sources[i][j], from->source[j])) return 1;
+        if (copy_cache_text(target, &to->side, from->side) || copy_cache_text(target, &to->stage, from->stage)
+            || copy_cache_text(target, &to->layout, from->layout) || copy_cache_text(target, &to->label, from->label)
+            || copy_cache_text(target, &to->quantity, from->quantity) || copy_cache_text(target, &to->unit, from->unit)) return 1;
+    }
+    for (i = 0; i < input->evidence.warning_count; ++i)
+        if (copy_cache_text(target, &target->warnings[i], input->evidence.warnings[i])) return 1;
+    target->valid = 1; return 0;
+}
+static int TPMSHX_PREPARATION_CALL cache_geometry(void* context, uint32_t action,
+    tpmshx_preparation_geometry_cache_v3* value, uint32_t* hit) {
+    cache_checks* checks = (cache_checks*)context;
+    if (action) { ++checks->geometry_writes; checks->geometry = *value; checks->geometry_valid = 1; }
+    else { ++checks->geometry_reads; *hit = (uint32_t)checks->geometry_valid; if (*hit) *value = checks->geometry; }
+    return 0;
+}
+static int TPMSHX_PREPARATION_CALL cache_inlet(void* context, uint32_t action, uint32_t side,
+    const tpmshx_preparation_inlet_2d_v1* inlet, tpmshx_preparation_scalar_kind_v2 speed,
+    tpmshx_preparation_inlet_cache_v3* value, uint32_t* hit) {
+    cache_checks* checks = (cache_checks*)context;
+    (void)inlet; (void)speed;
+    if (checks->mode && (!checks->publish_only || action)) {
+        tpmshx_preparation_flow_evidence_v3* evidence = &value->evidence;
+        const tpmshx_preparation_text_v1 text = {"cache", 5};
+        *value = checks->sides[side].value;
+        memset(evidence, 0, sizeof(*evidence)); memset(&checks->range, 0, sizeof(checks->range));
+        checks->source = checks->warning = text; checks->shape = 1; checks->bounds = 0;
+        checks->range.source = &checks->source; checks->range.source_count = 1;
+        checks->range.shape = &checks->shape; checks->range.rank = 1;
+        checks->range.side = checks->range.stage = checks->range.layout = text;
+        checks->range.label = checks->range.quantity = checks->range.unit = text;
+        evidence->ranges = &checks->range; evidence->range_count = 1; evidence->range_bounds_list = &checks->bounds;
+        evidence->warnings = &checks->warning; evidence->warning_count = 1;
+        checks->event.kind = 1; checks->event.logger = checks->event.message = text;
+        *hit = 0;
+        switch (checks->mode) {
+        case 1: evidence->ranges = (const tpmshx_preparation_range_v1*)checks->alias; break;
+        case 2: evidence->range_bounds_list = (const uint32_t*)checks->alias; break;
+        case 3: evidence->warnings = (const tpmshx_preparation_text_v1*)checks->alias; break;
+        case 4: checks->range.source = (const tpmshx_preparation_text_v1*)checks->alias; break;
+        case 5: checks->source.data = (const char*)checks->alias; checks->source.size = 1; break;
+        case 6: checks->range.shape = (const size_t*)checks->alias; break;
+        case 7: checks->range.side.data = (const char*)checks->alias; checks->range.side.size = 1; break;
+        case 8: checks->range.stage.data = (const char*)checks->alias; checks->range.stage.size = 1; break;
+        case 9: checks->range.layout.data = (const char*)checks->alias; checks->range.layout.size = 1; break;
+        case 10: checks->range.label.data = (const char*)checks->alias; checks->range.label.size = 1; break;
+        case 11: checks->range.quantity.data = (const char*)checks->alias; checks->range.quantity.size = 1; break;
+        case 12: checks->range.unit.data = (const char*)checks->alias; checks->range.unit.size = 1; break;
+        case 13: checks->warning.data = (const char*)checks->alias; checks->warning.size = 1; break;
+        case 14: evidence->events = (const tpmshx_preparation_event_v1*)checks->alias; evidence->event_count = 1; break;
+        case 15: evidence->events = &checks->event; evidence->event_count = 1; checks->event.logger.data = (const char*)checks->alias; checks->event.logger.size = 1; break;
+        case 16: evidence->events = &checks->event; evidence->event_count = 1; checks->event.message.data = (const char*)checks->alias; checks->event.message.size = 1; break;
+        case 17: evidence->ranges = NULL; break;
+        case 18: evidence->range_count = (size_t)-1; break;
+        case 19: checks->range.source = NULL; break;
+        case 20: checks->source.data = NULL; break;
+        case 21: checks->range.shape = NULL; break;
+        case 22: evidence->ranges = (const tpmshx_preparation_range_v1*)((char*)&checks->range + 1); break;
+        case 23: *hit = 2; break;
+        case 24: *hit = 1; value->kinds[0].layout = 9; break;
+        case 25: *hit = 1; checks->range.sample.have_finite = 2; break;
+        case 26: *hit = 1; checks->range.sample.have_finite = 1; break;
+        case 27: *hit = 1; evidence->events = &checks->event; evidence->event_count = 1; break;
+        }
+        return checks->cancel;
+    }
+    if (action) { ++checks->inlet_writes; return save_cache(&checks->sides[side], value); }
+    ++checks->inlet_reads; *hit = checks->publish_only ? 0u : (uint32_t)checks->sides[side].valid;
+    if (*hit) *value = checks->sides[side].value;
+    return 0;
+}
+static int TPMSHX_PREPARATION_CALL observe_range(void* context, uint32_t cached,
+    const tpmshx_preparation_range_v1* value, uint32_t bounds_list, uint32_t have_scalar, double scalar) {
+    cache_checks* checks = (cache_checks*)context;
+    if (!value || !value->source_count || !value->label.size || cached > 1 || bounds_list > 1
+        || have_scalar > 1 || (have_scalar && !isfinite(scalar))) checks->invalid_observation = 1;
+    if (cached) ++checks->cached_ranges; else ++checks->live_ranges;
+    return checks->cancel_observation == 1;
+}
+static int TPMSHX_PREPARATION_CALL observe_notice(void* context, uint32_t kind, uint32_t side,
+    double value, tpmshx_preparation_text_v1 message) {
+    cache_checks* checks = (cache_checks*)context;
+    if (kind > 1 || side > 1 || !isfinite(value) || (kind == 1 && !message.size)) checks->invalid_observation = 1;
+    ++checks->notices;
+    return checks->cancel_observation == 2;
+}
+static int check_cache_v3(const tpmshx_preparation_flow_input_2d_v3* source) {
+    cache_checks checks = {0};
+    tpmshx_preparation_case_callbacks_v3 callbacks = {{{3, sizeof(callbacks), NULL, &checks}, NULL}, cache_geometry, cache_inlet, observe_range, observe_notice}, callbacks_before;
+    tpmshx_preparation_flow_case_2d_v3 result = {3, sizeof(result)}, before;
+    tpmshx_preparation_case_failure_v2 failure = {2, sizeof(failure)}, failure_before;
+    tpmshx_preparation_case_options_v1 options = {1, sizeof(options), 0, 1, 0.};
+    union { double align; char data[4096]; } error, saved_error;
+    double rho[2], kss; size_t counts[4], side, target; int mode, cancel, publish, status;
+    CHECK(!tpmshx_prepare_flow_case_2d_v3(source, &options, &callbacks.values.values, &result, &failure, error.data, sizeof(error.data)));
+    CHECK(checks.geometry_writes == 1 && checks.inlet_writes == 2 && result.owner);
+    CHECK(checks.live_ranges && checks.notices && !checks.invalid_observation);
+    for (side = 0; side < 2; ++side) rho[side] = result.prepared.values.sides[side].properties.rho;
+    kss = result.prepared.values.uniform_solid_conductivity;
+    counts[0] = checks.geometry_reads; counts[1] = checks.geometry_writes;
+    counts[2] = checks.inlet_reads; counts[3] = checks.inlet_writes;
+    before = result; failure_before = failure;
+    memcpy(saved_error.data, result.prepared.values.cell_length.data, sizeof(double));
+    CHECK(tpmshx_prepare_flow_case_2d_v3(source, &options, &callbacks.values.values, &result, &failure,
+        (char*)result.prepared.values.cell_length.data, sizeof(double)) == TPMSHX_PREPARATION_INVALID);
+    CHECK(!memcmp(&result, &before, sizeof(result)) && !memcmp(&failure, &failure_before, sizeof(failure)));
+    CHECK(!memcmp(saved_error.data, result.prepared.values.cell_length.data, sizeof(double)));
+    CHECK(checks.geometry_reads == counts[0] && checks.geometry_writes == counts[1]);
+    CHECK(checks.inlet_reads == counts[2] && checks.inlet_writes == counts[3]);
+    tpmshx_preparation_flow_case_2d_release_v3(&result); result.abi_version = 3; result.struct_size = sizeof(result);
+    CHECK(!tpmshx_prepare_flow_case_2d_v3(source, &options, &callbacks.values.values, &result, &failure, error.data, sizeof(error.data)));
+    CHECK(checks.geometry_reads > counts[0] && checks.geometry_writes == counts[1]);
+    CHECK(checks.inlet_reads == counts[2] + 2 && checks.inlet_writes == counts[3]);
+    CHECK(checks.cached_ranges && !checks.invalid_observation);
+    for (side = 0; side < 2; ++side) CHECK(result.prepared.values.sides[side].properties.rho == rho[side]);
+    CHECK(result.prepared.values.uniform_solid_conductivity == kss);
+    tpmshx_preparation_flow_case_2d_release_v3(&result); result.abi_version = 3; result.struct_size = sizeof(result); before = result;
+    for (mode = 1; mode <= 22; ++mode) for (target = 0; target < 3; ++target)
+        for (cancel = 0; cancel < 2; ++cancel) for (publish = 0; publish < 2; ++publish) {
+            checks.mode = mode; checks.cancel = cancel; checks.publish_only = publish;
+            checks.alias = target == 0 ? (void*)&result : target == 1 ? (void*)&failure : (void*)error.data;
+            memset(error.data, 'Q', sizeof(error.data)); saved_error = error; failure_before = failure;
+            status = tpmshx_prepare_flow_case_2d_v3(source, &options, &callbacks.values.values, &result, &failure, error.data, sizeof(error.data));
+            CHECK(status == TPMSHX_PREPARATION_INVALID);
+            CHECK(!memcmp(&result, &before, sizeof(result)) && !memcmp(&failure, &failure_before, sizeof(failure)));
+            CHECK(!memcmp(&error, &saved_error, sizeof(error)));
+        }
+    checks.publish_only = 0; checks.cancel = 0;
+    for (mode = 23; mode <= 27; ++mode) {
+        checks.mode = mode;
+        CHECK(tpmshx_prepare_flow_case_2d_v3(source, &options, &callbacks.values.values, &result, &failure, error.data, sizeof(error.data)) == TPMSHX_PREPARATION_INVALID);
+        CHECK(failure.kind == 1 && error.data[0] && !memcmp(&result, &before, sizeof(result)));
+    }
+    checks.mode = 28; checks.cancel = 1;
+    CHECK(tpmshx_prepare_flow_case_2d_v3(source, &options, &callbacks.values.values, &result, &failure, error.data, sizeof(error.data)) == TPMSHX_PREPARATION_RUNTIME);
+    CHECK(failure.kind == 3 && error.data[0] && !memcmp(&result, &before, sizeof(result)));
+    callbacks_before = callbacks; failure_before = failure;
+    CHECK(tpmshx_prepare_flow_case_2d_v3(source, &options, &callbacks.values.values, &result, &failure,
+        (char*)&callbacks.observe_notice, sizeof(callbacks.observe_notice)) == TPMSHX_PREPARATION_INVALID);
+    CHECK(!memcmp(&callbacks, &callbacks_before, sizeof(callbacks)) && !memcmp(&failure, &failure_before, sizeof(failure)));
+    memset(error.data, 'Q', sizeof(error.data)); saved_error = error;
+    CHECK(tpmshx_prepare_flow_case_2d_v3(source, &options,
+        (const tpmshx_preparation_case_callbacks_v1*)((const char*)&callbacks + 1), &result, &failure, error.data, sizeof(error.data)) == TPMSHX_PREPARATION_INVALID);
+    CHECK(!memcmp(&error, &saved_error, sizeof(error)) && !memcmp(&failure, &failure_before, sizeof(failure)));
+    callbacks.geometry_cache = NULL; callbacks.inlet_cache = NULL;
+    for (mode = 1; mode <= 2; ++mode) {
+        size_t ranges = checks.live_ranges, notices = checks.notices;
+        checks.cancel_observation = mode;
+        CHECK(tpmshx_prepare_flow_case_2d_v3(source, &options, &callbacks.values.values,
+            &result, &failure, error.data, sizeof(error.data)) == TPMSHX_PREPARATION_RUNTIME);
+        CHECK(failure.kind == 3 && error.data[0] && !memcmp(&result, &before, sizeof(result)));
+        CHECK(mode == 1 ? checks.live_ranges == ranges + 1 : checks.notices == notices + 1);
+    }
     return 0;
 }
 
@@ -164,6 +377,38 @@ static int check_v3(void) {
     CHECK(tpmshx_prepare_flow_case_2d_v3(&source, &options, NULL, &result, &failure, error, sizeof(error)) == 1);
     CHECK(failure.kind == 1 && !memcmp(&before, &result, sizeof(result)));
     source.physical_depth_kind = weak;
+    {
+        host_checks checks = {0};
+        tpmshx_preparation_case_callbacks_v2 host = {{2, sizeof(host), NULL, &checks}, check_host_input};
+        tpmshx_preparation_case_callbacks_v2 host_before;
+        CHECK(!tpmshx_prepare_flow_case_2d_v3(&source, &options, &host.values, &result, &failure, error, sizeof(error)));
+        CHECK(checks.count == 5 && checks.stage[0] == 1 && checks.stage[1] == 0 && checks.stage[2] == 1);
+        CHECK(checks.stage[3] == 2 && checks.side[3] == 0 && checks.stage[4] == 2 && checks.side[4] == 1);
+        tpmshx_preparation_flow_case_2d_release_v3(&result);
+        result.abi_version = 3; result.struct_size = sizeof(result); before = result;
+        checks.count = 0; checks.cancel_at = 4;
+        CHECK(tpmshx_prepare_flow_case_2d_v3(&source, &options, &host.values, &result, &failure, error, sizeof(error)) == TPMSHX_PREPARATION_RUNTIME);
+        CHECK(checks.count == 4 && failure.kind == 3 && !memcmp(&before, &result, sizeof(result)));
+        checks.count = 0; checks.cancel_at = 0; host_before = host; failure_before = failure;
+        CHECK(tpmshx_prepare_flow_case_2d_v3(&source, &options, &host.values, &result, &failure,
+            (char*)&host.validate_host_input, sizeof(host.validate_host_input)) == TPMSHX_PREPARATION_INVALID);
+        CHECK(!checks.count && !memcmp(&host, &host_before, sizeof(host)) && !memcmp(&failure, &failure_before, sizeof(failure)));
+        --host.values.struct_size;
+        CHECK(tpmshx_prepare_flow_case_2d_v3(&source, &options, &host.values, &result, &failure, error, sizeof(error)) == TPMSHX_PREPARATION_INVALID);
+        CHECK(!checks.count && !memcmp(&before, &result, sizeof(result)));
+        host.values.struct_size = sizeof(host);
+        source.have_explicit_targets = 0;
+        query.abi_version = 3; query.struct_size = sizeof(query);
+        CHECK(!tpmshx_resolve_inlet_flow_2d_v3(&source, &options, &host.values, &query, &failure, error, sizeof(error)));
+        CHECK(!checks.count && !query.have_capacities);
+        tpmshx_preparation_flow_2d_release_v3(&query);
+        query.abi_version = 3; query.struct_size = sizeof(query);
+        CHECK(!tpmshx_prepare_inlet_mass_capacities_2d_v3(&source, &options, &host.values, &query, &failure, error, sizeof(error)));
+        CHECK(checks.count == 1 && checks.stage[0] == 1 && checks.side[0] == 2);
+        tpmshx_preparation_flow_2d_release_v3(&query);
+        source.have_explicit_targets = 1;
+    }
+    CHECK(!check_cache_v3(&source));
     callbacks.context = &calls;
     CHECK(tpmshx_prepare_flow_case_2d_v3(&source, &options, &callbacks, &result, &failure, error, sizeof(error)) == TPMSHX_PREPARATION_RUNTIME);
     CHECK(calls == 1 && failure.kind == 3 && !memcmp(&before, &result, sizeof(result)));
@@ -214,7 +459,13 @@ static int check_v4(void) {
     source.values.have_explicit_targets = 1;
     for (i = 0; i < 2; ++i) source.values.explicit_targets_kg_s[i] = capacity.flow.capacities[i].value * 6.;
     CHECK(!tpmshx_resolve_inlet_flow_2d_v4(&source, &options, NULL, &resolved, &failure, error, sizeof(error)));
-    CHECK(!tpmshx_prepare_flow_case_2d_v4(&source, &options, NULL, &result, &failure, error, sizeof(error)));
+    {
+        host_checks checks = {0};
+        tpmshx_preparation_case_callbacks_v2 host = {{2, sizeof(host), NULL, &checks}, check_host_input};
+        CHECK(!tpmshx_prepare_flow_case_2d_v4(&source, &options, &host.values, &result, &failure, error, sizeof(error)));
+        CHECK(checks.count == 5 && checks.stage[0] == 1 && checks.stage[1] == 0 && checks.stage[2] == 1);
+        CHECK(checks.stage[3] == 2 && checks.side[3] == 0 && checks.stage[4] == 2 && checks.side[4] == 1);
+    }
     CHECK(result.owner && !result.prepared.values.owner && !result.flow.owner);
     CHECK(result.area_density_per_m.size == result.prepared.values.nx * result.prepared.values.ny);
     CHECK(result.hydraulic_diameter_m.size == result.area_density_per_m.size);
@@ -259,6 +510,52 @@ static int check_v4(void) {
     source.controls.symmetric_y = 2;
     CHECK(tpmshx_prepare_flow_case_2d_v4(&source, &options, NULL, &result, &failure, error, sizeof(error)) == 1);
     CHECK(!memcmp(&before, &result, sizeof(result)));
+    return 0;
+}
+
+static int check_v7(void) {
+    tpmshx_preparation_flow_input_2d_v3 source = {0}, original;
+    tpmshx_preparation_flow_case_2d_v3 result = {0}, before;
+    tpmshx_preparation_grid_kinds_2d_v7 grid = {0}, original_grid;
+    tpmshx_preparation_case_failure_v2 failure = {0};
+    tpmshx_preparation_case_options_v1 options = {1, sizeof(options), 0, 1, 0.};
+    const tpmshx_preparation_scalar_kind_v2 weak = {64, 0, 0};
+    const tpmshx_preparation_scalar_kind_v2 integer = {8, 2, 1}, half = {16, 1, 1};
+    char error[4096]; size_t side, column;
+    CHECK(tpmshx_preparation_case_abi_version_v7() == 7);
+    source.abi_version = result.abi_version = 3;
+    source.struct_size = sizeof(source); result.struct_size = sizeof(result);
+    source.values.abi_version = failure.abi_version = 2;
+    source.values.struct_size = sizeof(source.values); failure.struct_size = sizeof(failure);
+    source.values.values = input();
+    source.values.values.length_m = 1.; source.values.values.height_m = 2.;
+    source.values.values.requested_nx = source.values.values.requested_ny = 12;
+    source.values.kinds.cell_length = source.values.kinds.wall_thickness = source.values.kinds.solid_conductivity = weak;
+    source.physical_depth_kind = source.target_kinds[0] = source.target_kinds[1] = weak;
+    grid.abi_version = 7; grid.struct_size = sizeof(grid);
+    for (side = 0; side < 2; ++side) {
+        grid.lengths[side] = integer;
+        source.values.kinds.sides[side].velocity = source.values.kinds.sides[side].temperature = source.values.kinds.sides[side].pressure = weak;
+        for (column = 0; column < 4; ++column) grid.ports[side][column] = weak;
+    }
+    source.values.values.sides[0].port.inlet_center_m = source.values.values.sides[0].port.outlet_center_m = 1.;
+    source.values.values.sides[0].port.inlet_width_m = source.values.values.sides[0].port.outlet_width_m = .199951171875;
+    grid.ports[0][0] = grid.ports[0][2] = integer;
+    grid.ports[0][1] = grid.ports[0][3] = half;
+    original = source; original_grid = grid;
+    CHECK(!tpmshx_prepare_flow_case_2d_v7(&source, &grid, &options, NULL, &result, &failure, error, sizeof(error)));
+    CHECK(result.prepared.values.sides[0].inlet_bounds[0] == .89990234375);
+    CHECK(result.prepared.values.sides[0].inlet_bounds[1] == 1.099609375);
+    CHECK(!memcmp(&source, &original, sizeof(source)) && !memcmp(&grid, &original_grid, sizeof(grid)));
+    CHECK(result.owner && !result.prepared.values.owner && !result.flow.owner);
+    tpmshx_preparation_flow_case_2d_release_v3(&result);
+    result.abi_version = 3; result.struct_size = sizeof(result); before = result;
+    CHECK(tpmshx_prepare_flow_case_2d_v7(&source, &grid, &options, NULL, &result, &failure,
+        (char*)&grid, sizeof(grid)) == TPMSHX_PREPARATION_INVALID);
+    CHECK(!memcmp(&grid, &original_grid, sizeof(grid)) && !memcmp(&result, &before, sizeof(result)));
+    CHECK(tpmshx_prepare_flow_case_2d_v7(&source, NULL, &options, NULL, &result, &failure,
+        error, sizeof(error)) == TPMSHX_PREPARATION_INVALID);
+    CHECK(!memcmp(&result, &before, sizeof(result)));
     return 0;
 }
 
@@ -315,5 +612,6 @@ int main(void) {
     CHECK(!memcmp(&before, &result, sizeof(result)));
     CHECK(!check_v2());
     CHECK(!check_v3());
-    return check_v4();
+    CHECK(!check_v4());
+    return check_v7();
 }

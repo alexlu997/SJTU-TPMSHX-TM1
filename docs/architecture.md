@@ -26,6 +26,9 @@ The geometry core owns standard, CO2 and asymmetric geometry, chi/Kss, and sigmo
 `shared/models/_native_geometry.py` uses ctypes to load geometry ABI 1 on demand.
 It loads a separate prebuilt library without importing the solver backend.
 Python keeps public types, cache interfaces and per-call explicit/environment/fit selection for chi.
+`shared/models/preparation_cache.py` owns the bounded geometry and inlet-property caches.
+Public scalar calls and native preparation checkpoints use the same values, types, range records and access order.
+Cache misses use the existing C++ numerical functions; current material conductivity and chi are not cached.
 
 Scalar standard geometry keeps the original NumPy float16, float32 and float64 intermediate rounding in C++.
 The binding sends precision metadata for cell conversion and the wall/cell ratio.
@@ -89,7 +92,7 @@ Its scalar tags retain field precision. Run v2 consumes this state through the
 existing model-h or true-h route and records the actual thermal evidence.
 Preparation v3 adds independent capacity, inlet-flow resolution and complete preparation for uniform 2D total mass flow.
 It reuses physical inlet geometry and keeps preliminary evidence separate from final preparation evidence.
-The existing v1/v2 C layouts and Python production entries are unchanged.
+The existing v1/v2 C layouts and public Python interfaces are unchanged.
 Preparation v4 adds canonical continuous XY controls to capacity, resolution and complete preparation.
 It samples the physical grid with the existing spline and geometry cores, then retains full local drag.
 Its prepared view adds only area density, original hydraulic diameter and the two fluid conductivities.
@@ -97,7 +100,18 @@ Experimental transfer keeps the current Shanghai contract, separate early range 
 Run v3 consumes this continuous state with the existing full 2D driver.
 It preserves local drag, original hydraulic diameter, unit order and nominal reference geometry.
 Resolved uniform flow cases use run v2. Both routes retain the v1 result owner.
-No v1/v2/v3 preparation C layout or Python production route changes.
+No v1/v2/v3 preparation C layout changes.
+Preparation v7 carries domain and port scalar kinds through the same grid, opening and spatial-field owners.
+It keeps v3/v4 payloads and releases; earlier entries retain weak double domain and port values.
+Python preparation uses v7 with owned v3/v4 results for symmetric uniform and canonical continuous XY 2D inputs.
+Nonzero-delta uniform, discrete zones, sigmoid and 3D retain explicit existing routes.
+The adapter preserves CaseData fields, scalar types, events, source ranges and saved model selections.
+The v2 host hook preserves object errors and warning scopes at their original execution points.
+It supplies no numerical values. The v3 hooks exchange completed cache entries and synchronous observations.
+Callback v4 keeps that layout and adds a host-object check immediately before physical grid construction.
+Python retains warning filters, source locations and completed observations after a later failure.
+A native failure never selects another preparation route.
+The replaced continuous Python branches are retired; independent frozen references remain under `development/tests`.
 `preparation_case.cpp` owns that complete preparation sequence.
 `stage_run.cpp` adapts it to the existing full 2D driver.
 Its lifecycle interface uses the same full 2D run object, typed snapshots and restore checks.
@@ -968,7 +982,9 @@ Grid scalar metadata preserves NumPy16/32/64 intermediate rounding before float6
 Mixed Python-float sum prefixes, first-maximum allocation ties and final-cell compensation retain their original order.
 Raw staggered overlap retains its narrow array arithmetic and output dtype.
 The original full-solver double entries keep their finite, positive-width checks.
-Python keeps configuration `set`/`sorted`, control-axis `np.linspace` and the original Continuous `np.isclose` coverage check.
+Public design-field construction keeps configuration `set`/`sorted`, control-axis `np.linspace` and the original Continuous `np.isclose` coverage check.
+The 2D preparation stage owns the corresponding control axes and coverage checks.
+Its host adapter retains the original floating-error policy, warning source and validation order.
 Continuous NumPy integer counts retain their initial quotient promotion metadata.
 
 XY and XYZ keep distinct solve orders. The XYZ scalar band solve is not a bitwise LAPACK/BLAS replacement.
