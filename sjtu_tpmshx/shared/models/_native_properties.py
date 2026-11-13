@@ -170,7 +170,7 @@ class _Result:
         return result[()] if self.kind.strong else result.item()
 
 
-def _floating_events(events):
+def _floating_events(events, *, warn=None):
     policy = np.geterr()
     operations = {1: 'add', 2: 'subtract', 3: 'multiply', 4: 'divide',
                   5: 'power', 6: 'log', 7: 'exp', 8: 'cast', 9: 'log10'}
@@ -189,7 +189,10 @@ def _floating_events(events):
             text = f'{label} encountered in {operation}'
             mode = policy[category]
             if mode == 'warn':
-                warnings.warn(text, RuntimeWarning, stacklevel=4)
+                if warn is None:
+                    warnings.warn(text, RuntimeWarning, stacklevel=4)
+                else:
+                    warn(text)
             elif mode == 'raise':
                 raise FloatingPointError(text)
             elif mode == 'print':
