@@ -234,7 +234,7 @@ def test_capture_query_preserves_output_on_invalid_request(monkeypatch):
     config, _ = reference._configuration()
     case = prepare_case(config, case_id='capture-query-boundary')
     original, checked = full_3d_stage.copy_summary, []
-    def inspect(library, result, *, emit_audit):
+    def inspect(library, result, *, emit_audit, copy_array):
         function = library.tpmshx_stage_run_3d_get_capture_v1
         function.argtypes = [ct.POINTER(full_3d_stage._StageResult), ct.c_uint32,
                              ct.POINTER(full_3d_stage._Summary)]
@@ -254,7 +254,7 @@ def test_capture_query_preserves_output_on_invalid_request(monkeypatch):
         assert bytes(output) == before
         result.abi_version = 1
         checked.append(True)
-        return original(library, result, emit_audit=emit_audit)
+        return original(library, result, emit_audit=emit_audit, copy_array=copy_array)
     monkeypatch.setattr(full_3d_stage, 'copy_summary', inspect)
     run_case(case, _control())
     assert checked == [True]

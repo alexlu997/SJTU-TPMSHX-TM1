@@ -31,6 +31,18 @@ int main() {
         const auto& next=repeated.view().values;
         for (std::size_t i=0;i<fields.cell_count;++i)
             if (fields.volumetric_transfer[0].data[i]!=next.volumetric_transfer[0].data[i]) return 1;
+        values.length_m=1.;values.height_m=2.;values.requested_nx=values.requested_ny=12;
+        auto& port=values.sides[0].port;
+        port.inlet_center_m=port.outlet_center_m=1.;
+        port.inlet_width_m=port.outlet_width_m=.199951171875;
+        tpmshx::stages::GridKinds2D grid;
+        grid.lengths[0]={8,2,1};grid.lengths[1]={16,2,1};
+        grid.ports[0][0]=grid.ports[0][2]={8,2,1};
+        grid.ports[0][1]=grid.ports[0][3]={16,1,1};
+        auto typed=tpmshx::stages::prepare_case(input,grid,options);
+        const auto& typed_base=typed.view().values.prepared.values;
+        if (typed_base.sides[0].inlet_bounds[0]!=.89990234375
+            || typed_base.sides[0].inlet_bounds[1]!=1.099609375) return 1;
         std::cout<<"Prepared native sigmoid with a 41 x 31, N=256 LUT: "<<base.nx<<" x "<<base.ny<<" cells\n";
         return 0;
     } catch (const std::exception& error) {
