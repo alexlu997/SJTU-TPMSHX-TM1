@@ -903,8 +903,8 @@ template<class Source,class Result,class Function> int flow_boundary(
     try {
         require_buffer(result,result?1:0);
         if (result && result->owner) storage.owned(*result);
-        require_buffer(grid,1);
-        callback_count=callback_bytes(callbacks);require_buffer(source,source?1:0);
+        require_buffer(grid,1);require_buffer(source,source?1:0);
+        callback_count=callback_bytes(callbacks);
         require_disjoint(grid,1,error,capacity);require_disjoint(grid,1,source,source?1:0);
         require_disjoint(grid,1,result,result?1:0);require_disjoint(grid,1,failure,failure?1:0);
         require_disjoint(grid,1,selected,selected?1:0);require_disjoint(grid,1,callback_data,callback_count);
@@ -980,25 +980,35 @@ template<class Source,class Result,class Function> int flow_boundary(
                         throw std::invalid_argument("preparation v9 callbacks require typed cache hooks");
                 } else version(callbacks);
             }
+            const auto& base=case_source(*source);version2(&base);version(&base.values);
         } else if constexpr (std::is_same_v<Source,tpmshx_preparation_zoned_flow_input_2d_v8>
             || std::is_same_v<Source,tpmshx_preparation_sigmoid_flow_input_2d_v8>) {
             version8(source);version8(result);version5(&zone_source(*source));
             if constexpr (std::is_same_v<Source,tpmshx_preparation_sigmoid_flow_input_2d_v8>) version6(&source->values);
             if(callbacks)version(callbacks);
+            const auto& base=case_source(*source);version2(&base);version(&base.values);
         } else if constexpr (std::is_same_v<Source,tpmshx_preparation_zoned_input_2d_v5>
             || std::is_same_v<Source,tpmshx_preparation_sigmoid_input_2d_v6>) {
             if constexpr (std::is_same_v<Source,tpmshx_preparation_sigmoid_input_2d_v6>) {
                 version6(source);version6(result);version5(&source->values);
             } else {version5(source);version5(result);}
             if(callbacks)version(callbacks);
+            const auto& base=case_source(*source);version2(&base);version(&base.values);
         } else {
-            if constexpr (std::is_same_v<Source,tpmshx_preparation_continuous_input_2d_v4>) {version4(source);version4(result);}
-            else {version3(source);version3(result);}
-            version3(&flow_source(*source));host_callback_version(callbacks);
+            if constexpr (std::is_same_v<Source,tpmshx_preparation_continuous_input_2d_v4>) version4(source);
+            else version3(source);
+            const auto& flow=flow_source(*source);version3(&flow);version2(&flow.values);version(&flow.values.values);
+            if constexpr (std::is_same_v<Source,tpmshx_preparation_continuous_input_2d_v4>) version4(result);
+            else version3(result);
         }
-        const auto& base=case_source(*source);version2(&base);version(&base.values);
         version2(failure);
         if(selected)version(selected);
+        if constexpr (!std::is_same_v<Source,tpmshx_preparation_zoned_input_2d_v5>
+            && !std::is_same_v<Source,tpmshx_preparation_sigmoid_input_2d_v6>
+            && !std::is_same_v<Source,tpmshx_preparation_zoned_flow_input_2d_v8>
+            && !std::is_same_v<Source,tpmshx_preparation_sigmoid_flow_input_2d_v8>
+            && !std::is_same_v<Source,tpmshx_preparation_zoned_flow_input_2d_v9>
+            && !std::is_same_v<Source,tpmshx_preparation_sigmoid_flow_input_2d_v9>) host_callback_version(callbacks);
         require_disjoint(source,1,result,1);require_disjoint(source,1,failure,1);require_disjoint(result,1,failure,1);
         require_disjoint(selected,selected?1:0,result,1);require_disjoint(selected,selected?1:0,failure,1);
         require_disjoint(callback_data,callback_count,result,1);require_disjoint(callback_data,callback_count,failure,1);

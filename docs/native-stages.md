@@ -376,6 +376,7 @@ It retains NumPy integer and float16/32/64 arithmetic in grids, openings, capaci
 Pass this descriptor as the second C++ argument and preparation options as the third argument.
 The [typed grid example](../examples/cpp/prepare_typed_grid_2d.cpp) checks mixed integer and float16 ports with fixed mass flow.
 The C entries use the same descriptor with the existing v3-v6 input and output layouts.
+The [zoned](../examples/cpp/prepare_zoned_2d.cpp) and [sigmoid](../examples/cpp/prepare_sigmoid_2d.cpp) examples also check mixed integer and float16 ports.
 Keep it with a resolved input when preparing that input again. Release results with their original functions.
 Earlier C and C++ entries keep weak double domain and port values.
 This interface changes no physical scope or saved-file format.
