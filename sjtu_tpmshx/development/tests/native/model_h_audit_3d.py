@@ -179,7 +179,7 @@ def _model_h_balance(temperatures, Ts, masses, coefficients, directions, inlets,
                   mass_source='completed SIMPLE raw faces before capacity balance/MAC',
                   thermal_state='last returned temperatures; nonlinear model h and temperature SOU',
                   sides={}, _native_faces={})
-    from sjtu_tpmshx.solvers.physical_ledger import FACE_NAMES, boundary_zeros, heat_ledger
+    from sjtu_tpmshx.development.tests.native.thermal_face_audit import FACE_NAMES, boundary_zeros, heat_ledger
     residuals, diffusion = [], []
     exchange_fields = []
     for side, T, mass, coeff, direction, Tin, mask, K, hv, eps, source in zip(

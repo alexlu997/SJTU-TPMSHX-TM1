@@ -1,44 +1,8 @@
-"""Pure data-only math shared by online diagnostics and offline evaluation."""
-from collections.abc import Mapping
-
+"""Raw result queries and the public conservation certificate."""
 import numpy as np
 
 from . import _native_result_metrics as native
 from . import _native_result_checks as checks
-
-
-def _boundary_face_shape(faces, dimension, grid=None, *, planes=False):
-    """Check native face topology without copying arrays; return its cell shape.
-
-    Staggered arrays have one extra cell on their own axis. Boundary planes
-    are ordered x-/x+, y-/y+, z-/z+. Partial in-memory evidence still has to
-    describe a coherent positive cell shape, even when no grid is recorded.
-    """
-    if faces is None:
-        raise KeyError('native boundary faces')
-    shapes = tuple(np.shape(face) for face in faces)
-    if len(shapes) != dimension * (2 if planes else 1):
-        if planes:
-            raise ValueError('native boundary requires all boundary face planes')
-        axes = 'three' if dimension == 3 else 'two'
-        raise ValueError(f'native boundary requires all {axes} axis face arrays')
-    if any(len(shape) != dimension - int(planes) for shape in shapes):
-        raise ValueError('native boundary face rank disagrees with physical dimension')
-    if planes:
-        shape = (shapes[2][0], *shapes[0])
-        expected = tuple(tuple(n for i, n in enumerate(shape) if i != axis)
-                         for axis in range(dimension) for _ in range(2))
-    else:
-        shape = (shapes[0][0] - 1, *shapes[0][1:])
-        expected = tuple(tuple(n + (i == axis) for i, n in enumerate(shape))
-                         for axis in range(dimension))
-    if any(n <= 0 for n in shape) or shapes != expected:
-        raise ValueError('native boundary faces do not share a consistent cell shape')
-    for axis, size in zip('xyz', shape):
-        key = 'd' + axis
-        if key in (grid or {}) and np.shape(grid[key]) != (size,):
-            raise ValueError(f'native boundary faces disagree with {axis} grid')
-    return shape
 
 
 def pressure_face_values(pressure, stream_widths):
@@ -154,58 +118,6 @@ def _boundary_enthalpy_duty(h, h_in, mass_flux):
     return native.boundary_enthalpy_duty(
         (h[0], h[-1], h[:, 0], h[:, -1], h[:, :, 0], h[:, :, -1]),
         (Fx[0], Fx[-1], Fy[:, 0], Fy[:, -1], Fz[:, :, 0], Fz[:, :, -1]), h_in)
-
-
-def _conservative_boundary_power_duty(native, side, dimension, grid):
-    """Reduce captured outward powers without reconstructing a face state.
-
-    Both schemes use the native final-state six-face ledger. In particular,
-    SOU outlet powers cannot be recovered from adjacent cell enthalpies.
-    A 2D ledger retains singleton-z planes, with powers per unit depth.
-    """
-    if native['energy_algorithm'] not in ('temperature_fou', 'temperature_sou'):
-        raise ValueError('unsupported conservative energy algorithm')
-    version = native['energy_algorithm_version']
-    supported_versions = (1,) if native['energy_algorithm'] == 'temperature_fou' else (1, 2)
-    if type(version) is not int or version not in supported_versions:
-        raise ValueError('unsupported conservative energy algorithm version')
-    if native['boundary_power_units'] != ('W/m' if dimension == 2 else 'W'):
-        raise ValueError('conservative boundary power units disagree with physical dimension')
-    if native['physical_boundary_complete'] is not True:
-        raise ValueError('incomplete physical boundary prevents conservative heat duty')
-    return _boundary_plane_duty(native['boundary_power'], side, dimension, grid)
-
-
-def _temperature_boundary_power_duty(native, side, dimension, grid):
-    """Reduce the recorded signed advective duty; Fourier power stays separate."""
-    if native['definition'] != 'model_enthalpy_temperature_v1':
-        raise ValueError('unsupported temperature transport definition')
-    if native['physical_dimension'] != dimension:
-        raise ValueError('temperature evidence dimension disagrees with physical grid')
-    if native['power_units'] != ('W/m' if dimension == 2 else 'W'):
-        raise ValueError('temperature boundary power units disagree with physical dimension')
-    if native['physical_boundary_complete'] is not True:
-        raise ValueError('incomplete physical boundary prevents temperature heat duty')
-    if native['solved'][side] is not True:
-        raise NotImplementedError('prescribed fluid has no solved boundary heat duty')
-    return _boundary_plane_duty(native['advective_out'], side, dimension, grid)
-
-
-def _boundary_plane_duty(powers, side, dimension, grid):
-    ledger = powers[side]
-    keys = ('x-', 'x+', 'y-', 'y+', 'z-', 'z+')
-    if not isinstance(ledger, Mapping) or set(ledger) != set(keys):
-        raise ValueError('conservative energy requires all six physical boundary faces')
-    faces = tuple(np.asarray(ledger[key]) for key in keys)
-    shape = _boundary_face_shape(faces, 3, grid, planes=True)
-    for axis, size in zip('xyz'[:dimension], shape):
-        if np.shape(grid['d' + axis]) != (size,):
-            raise ValueError(f'conservative boundary powers disagree with {axis} grid')
-    if dimension == 2 and shape[2] != 1:
-        raise ValueError('2D conservative energy requires singleton-z boundary planes')
-    if any(face.dtype.kind not in 'fiu' or not checks.all_finite(face) for face in faces):
-        raise ValueError('conservative boundary powers must be finite real values')
-    return native.plane_duty(faces)
 
 
 def compute_phase2a(res):
