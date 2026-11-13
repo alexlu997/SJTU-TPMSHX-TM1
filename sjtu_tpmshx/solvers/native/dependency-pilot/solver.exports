@@ -72,4 +72,5 @@ _tpmshx_superlu_test_solve_csr
 _tpmshx_temperature_algorithm_v1
 _tpmshx_run_case_2d_v1
 _tpmshx_run_case_2d_v2
+_tpmshx_run_case_2d_v3
 _tpmshx_stage_run_2d_release_v1

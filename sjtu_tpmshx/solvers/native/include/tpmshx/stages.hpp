@@ -167,6 +167,20 @@ inline RunResult2D run_case(const PreparedCase2Dv2& prepared,const RunControl& c
     detail::check(tpmshx_run_case_2d_v2(&prepared.view(),&request,&control,&output,error,sizeof(error)),error);
     return RunResult2D(output);
 }
+inline RunResult2D run_case(const PreparedFlowCase2D& prepared,const RunControl& control,const RunRequest2Dv2& request={}) {
+    tpmshx_stage_run_result_2d_v1 output{};
+    output.abi_version=TPMSHX_STAGE_RUN_ABI_VERSION;output.struct_size=sizeof(output);
+    char error[4096]{};
+    detail::check(tpmshx_run_case_2d_v2(&prepared.view().prepared,&request,&control,&output,error,sizeof(error)),error);
+    return RunResult2D(output);
+}
+inline RunResult2D run_case(const PreparedContinuousCase2D& prepared,const RunControl& control,const RunRequest2Dv2& request={}) {
+    tpmshx_stage_run_result_2d_v1 output{};
+    output.abi_version=TPMSHX_STAGE_RUN_ABI_VERSION;output.struct_size=sizeof(output);
+    char error[4096]{};
+    detail::check(tpmshx_run_case_2d_v3(&prepared.view(),&request,&control,&output,error,sizeof(error)),error);
+    return RunResult2D(output);
+}
 inline Evaluation evaluate(const RunResult2D& result,const tpmshx_stage_metric_spec_v1* metric=nullptr) {
     tpmshx_stage_output_v1 output{};output.struct_size=sizeof(output);
     char error[4096]{};

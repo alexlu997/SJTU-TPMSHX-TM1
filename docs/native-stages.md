@@ -21,7 +21,8 @@ air, water and sCO2. It uses the existing prescribed-flow LTNE driver.
 Preparation v3 adds total mass flow for the same uniform symmetric 2D fluid matrix.
 It provides separate capacity and inlet-flow resolution queries, plus complete preparation.
 It preserves the existing physical depth, calibration and scalar arithmetic rules.
-Continuous fields, zones and nonzero delta remain outside v3. The run interface is unchanged.
+Continuous fields, zones and nonzero delta remain outside preparation v3.
+Its resolved uniform prepared view uses run v2, including total-flow cases.
 
 Full 2D/3D Python evaluation now calls the native result stage. Independent applicability, physical-balance and qualification queries use that stage.
 The native result stage owns Quick Design metrics and retains typed intermediate values. V3 uses fixed named host operations for existing Python object, exact integer and final conversion protocols. The public Python entry points and saved formats stay available.
@@ -117,7 +118,12 @@ Experimental transfer retains the Shanghai Gyroid air-A/water-B contract at nomi
 Its domain, velocity rules and exploratory evidence remain unchanged.
 The CO2/CO2 fixed-factor path also remains available in experimental mode.
 Early range labels retain their transfer context. Final metadata retains the continuous application scope and reference geometry.
-These preparation interfaces do not change the run interface or certify gradient accuracy.
+Run v3 consumes preparation v4 through the existing model-h or true-h driver.
+It uses the supplied physical cell fields and local drag in their existing order.
+The saved SI cell lengths first return to mm, then produce transport SI and closure ratios.
+Nominal reference geometry remains separate from the actual physical fields.
+Requests, cancellation status, result ownership and evaluation use the v2 run contracts.
+This interface does not certify gradient accuracy.
 
 ## Build and install
 
@@ -173,6 +179,8 @@ The [mass-flow preparation example](../examples/cpp/prepare_mass_2d.cpp) queries
 It also links only preparation and does not execute a solve.
 The [continuous preparation example](../examples/cpp/prepare_continuous_2d.cpp) starts with XY decisions and total flow.
 It exposes physical fields and local drag through v4, with only the preparation library.
+The [continuous run example](../examples/cpp/continuous_2d.cpp) starts with XY decisions and fixed mass flow.
+It prepares and runs the case, releases the prepared owner, then evaluates the result.
 
 The [uniform-fluid example](../examples/cpp/uniform_2d.cpp) executes all three
 stages for CO2/water. Evaluation remains valid after the prepared owner is released.
@@ -206,7 +214,7 @@ It builds and runs external callers outside the source tree:
 Use the applicable environment lock. A BO environment needs its matching `--python-lock` option.
 On Linux, add `--component result --python-lock engineering/requirements/postprocess.txt`.
 The check retains logs, 2D comparison fields and Quick Design comparison fields. It removes the temporary installation and external build directories.
-These native paths do not establish stage migration for fixed flow, zones or 3D.
+These native paths do not establish stage migration for discrete zones or 3D.
 Python integration and checkpoint recovery have separate acceptance gates.
 
 ## Quick Design stage

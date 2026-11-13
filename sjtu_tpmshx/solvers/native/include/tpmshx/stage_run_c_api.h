@@ -73,6 +73,13 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_run_case_2d_v1(
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_run_case_2d_v2(
     const tpmshx_preparation_case_2d_v2*,const tpmshx_stage_run_request_2d_v2*,
     const tpmshx_stage_run_control_v1*,tpmshx_stage_run_result_2d_v1*,char*,size_t);
+/* V3 consumes continuous preparation v4, including resolved fixed flow.
+ * It uses physical cell geometry and local drag without another preparation.
+ * The request, status, output, storage and lifetime rules are the same as v2.
+ * Preparation controls and flow-resolution evidence are not used by run. */
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_run_case_2d_v3(
+    const tpmshx_preparation_continuous_case_2d_v4*,const tpmshx_stage_run_request_2d_v2*,
+    const tpmshx_stage_run_control_v1*,tpmshx_stage_run_result_2d_v1*,char*,size_t);
 TPMSHX_THERMAL_API void TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_release_v1(
     tpmshx_stage_run_result_2d_v1*);
 #ifdef __cplusplus
