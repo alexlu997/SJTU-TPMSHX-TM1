@@ -165,3 +165,39 @@ def test_offset_narrow_endpoint_keeps_original_df_rejection(monkeypatch, dtype):
     expected = _observe_prepare(monkeypatch, reference, 'full', config, scoped=True)
     assert expected[1] and 'fixed sCO2 CFD grid' in str(expected[1])
     _same(_observe_prepare(monkeypatch, api, 'full', config, scoped=True), expected)
+
+
+
+@pytest.mark.parametrize('mode', ['uniform', 'x', 'sigmoid'])
+@pytest.mark.parametrize('field', ['abi_version', 'struct_size'])
+def test_offset_nested_headers_preserve_result(monkeypatch, tmp_path, mode, field):
+    config = (uniform._configuration('Gyroid', ('air', 'water')) if mode == 'uniform'
+              else configuration(monkeypatch, tmp_path, mode))
+    config.geometry.delta_levelset = .2
+    source = host._input(config, None, 'prepare_flow_case')
+    if mode == 'sigmoid':
+        host._lut_cache()(0, 1, 16, source.values.values.lut)
+        source.model.load_default_lut = 0
+    result_type = (native._OffsetFlowCase if mode == 'uniform' else
+                   native._OffsetSigmoidCase if mode == 'sigmoid' else native._OffsetZonedCase)
+    result = result_type(10, ct.sizeof(result_type))
+    bindings = native._bindings(native._native_preparation._library().path)
+    call = bindings.operations[10, type(source), 'prepare_flow_case']
+    options = native._Options(1, ct.sizeof(native._Options), 0, 1, 0.)
+    failure, error = native._Failure(2, ct.sizeof(native._Failure)), ct.create_string_buffer(4096)
+    targets = [source]
+    while hasattr(targets[-1], 'values'):
+        targets.append(targets[-1].values)
+    for target in [*targets, result]:
+        previous = getattr(target, field)
+        setattr(target, field, 0)
+        before = bytes(result)
+        error.value = b''
+        try:
+            status = call(ct.byref(source), ct.byref(source._grid_kinds), ct.byref(options), None,
+                          ct.byref(result), ct.byref(failure), error, len(error))
+            assert status == 1 and error.value and bytes(result) == before
+        finally:
+            setattr(target, field, previous)
+            if result.owner:
+                bindings.releases[result_type](ct.byref(result))

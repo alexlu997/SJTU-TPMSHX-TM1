@@ -867,3 +867,76 @@ def test_typed_sigmoid_owned_result_keeps_safe_reuse_diagnostics(native):
         assert all(ct.string_at(address, len(saved)) == saved for address, saved in buffers)
     finally:
         _release(native, 'sigmoid', result)
+
+
+@pytest.mark.parametrize('scope', _SCOPES[:2])
+@pytest.mark.parametrize('operation', _OPERATIONS)
+@pytest.mark.parametrize('destination', ['error', 'failure'])
+@pytest.mark.parametrize('invalid', [None, 'source_abi', 'source_size', 'result_abi',
+    'result_size', 'grid_abi', 'grid_size', 'grid_null'])
+def test_typed_owned_views_reject_diagnostic_aliases(native, scope, operation, destination, invalid):
+    config = (v3._configuration('Gyroid', ('air', 'air')) if scope == 'uniform'
+              else v4._configuration(pair=('air', 'air')))
+    config.geometry.Lz_m = .042
+    if operation == 'resolve_inlet_flow':
+        config.fluid_A.mass_flow_kg_s, config.fluid_B.mass_flow_kg_s = .002, .003
+    status, result, _, error, _, source, kinds = _call(native, scope, config, operation)
+    assert status == 0 and result.owner, error
+    if invalid is not None and invalid != 'grid_null':
+        selected, field = invalid.split('_')
+        target = {'source': source, 'result': result, 'grid': kinds}[selected]
+        setattr(target, 'abi_version' if field == 'abi' else 'struct_size', 0)
+    grid_pointer = None if invalid == 'grid_null' else ct.byref(kinds)
+    watched = [kinds, *_storage(source, scope)]
+    before = [bytes(value) for value in watched]
+    name, _, _, _ = _signature(scope, operation)
+    function = getattr(native, 'tpmshx_' + name + '_2d_v7')
+    try:
+        labels = v4._check_owned_aliases(lambda failure, error, capacity: function(
+            ct.byref(source), grid_pointer, None, None, ct.byref(result), failure, error, capacity),
+            result, destination)
+        if scope == 'continuous':
+            assert any('.controls.decision_mm' in label for label in labels)
+        if operation == 'prepare_flow_case':
+            assert any('.total_porosity' in label for label in labels)
+        assert [bytes(value) for value in watched] == before
+    finally:
+        _release(native, scope, result)
+
+
+@pytest.mark.parametrize('scope', _SCOPES[:2])
+@pytest.mark.parametrize('operation', _OPERATIONS)
+def test_typed_owned_output_keeps_safe_reuse_diagnostics(native, scope, operation):
+    config = (v3._configuration('Gyroid', ('air', 'air')) if scope == 'uniform'
+              else v4._configuration(pair=('air', 'air')))
+    config.geometry.Lz_m = .042
+    if operation == 'resolve_inlet_flow':
+        config.fluid_A.mass_flow_kg_s, config.fluid_B.mass_flow_kg_s = .002, .003
+    status, result, _, error, _, source, kinds = _call(native, scope, config, operation)
+    assert status == 0 and result.owner, error
+    outer = bytes(result)
+    buffers = [(address, ct.string_at(address, size))
+               for _, address, size in v4._visible_buffers(result)]
+    watched = [kinds, *_storage(source, scope)]
+    before = [bytes(value) for value in watched]
+    failure, error = v2._Failure(2, ct.sizeof(v2._Failure)), ct.create_string_buffer(4096)
+    events = []
+
+    def event(_context, _pointer):
+        events.append(True)
+        return 0
+
+    callback = v1._EventFunction(event)
+    callbacks = v1._Callbacks(1, ct.sizeof(v1._Callbacks), callback, None)
+    name, _, _, _ = _signature(scope, operation)
+    try:
+        status = getattr(native, 'tpmshx_' + name + '_2d_v7')(
+            ct.byref(source), ct.byref(kinds), None, ct.byref(callbacks), ct.byref(result),
+            ct.byref(failure), error, len(error))
+        assert status == 1 and failure.kind == 1
+        assert b'release the previous flow result' in error.value and not events
+        assert bytes(result) == outer
+        assert all(ct.string_at(address, len(saved)) == saved for address, saved in buffers)
+        assert [bytes(value) for value in watched] == before
+    finally:
+        _release(native, scope, result)
