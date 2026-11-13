@@ -35,6 +35,7 @@ struct PortInput2D {
     std::int32_t direction=0;
     double inlet_center_m=0.,inlet_width_m=0.,outlet_center_m=0.,outlet_width_m=0.;
     bool uniform_inlet=false;
+    std::array<ScalarKind,4> kinds{};
 };
 struct InletInput2D {
     Fluid fluid=Fluid::air;
@@ -46,6 +47,7 @@ struct GridInput2D {
     double length_m,height_m;
     std::size_t requested_nx,requested_ny;
     bool port_wall_refine=false;
+    std::array<ScalarKind,2> kinds{};
 };
 struct UniformGeometryInput {
     Topology topology;
@@ -140,6 +142,7 @@ struct PreparationCallbacks {
     void (*observe_range)(void*,const PreparationRange&,bool,std::optional<double>)=nullptr;
     // Notice 0 is standalone inlet Re; notice 1 records a preflight reason.
     void (*observe_notice)(void*,std::uint32_t,std::uint32_t,double,const std::string&)=nullptr;
+    void (*validate_grid)(void*)=nullptr;
 };
 struct PreparationModelRef {
     std::string name,version,side;
