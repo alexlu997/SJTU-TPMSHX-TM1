@@ -673,3 +673,35 @@ def test_native_3d_geometry_failure_precedes_depth(native, field, value):
     setattr(config.geometry, field, value)
     config.geometry.Lz_m = np.inf
     _compare_failure(native, config)
+
+
+@pytest.mark.parametrize('first_narrow', [False, True], ids=['python-first', 'half-first'])
+def test_native_3d_refined_equal_breakpoints_keep_first_kind(native, monkeypatch, first_narrow):
+    from sjtu_tpmshx.development.tests import grid_source_reference
+    from sjtu_tpmshx.shared.models import grid as shared_grid
+
+    config = _configuration()
+    config.geometry.L_dom_m = config.geometry.H_dom_m = config.geometry.Lz_m = .125
+    config.solver.Nx, config.solver.Ny, config.solver.Nz = 12, 32, 32
+    config.flags.port_wall_refine = True
+    kinds = (np.float16, float) if first_narrow else (float, np.float16)
+    for direction, (side, kind) in enumerate(zip('AB', kinds)):
+        setattr(config, 'bc_' + side, PartialBCConfig(dir=direction,
+            in_ctr=kind(.0625), in_w=kind(.0625), out_ctr=kind(.0625), out_w=kind(.0625),
+            in_z_ctr=kind(.0625), in_z_w=kind(.0625),
+            out_z_ctr=kind(.0625), out_z_w=kind(.0625)))
+
+    calls = []
+    def frozen_grid(lengths, counts, ports):
+        axes = list(grid_source_reference._port_wall_axes(lengths, ports))
+        assert not axes[0][0]
+        for knots, *_settings in axes[1:]:
+            assert knots == [.03125, .09375]
+            assert all(type(value) is kinds[0] for value in knots)
+        calls.append(counts)
+        return grid_source_reference.build_port_wall_grid(lengths, counts, ports)
+
+    # The preparation library must match the frozen grid, including first-key types.
+    monkeypatch.setattr(shared_grid, 'build_port_wall_grid', frozen_grid)
+    _compare(native, config)
+    assert calls == [(12, 32, 32)]

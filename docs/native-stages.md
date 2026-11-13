@@ -210,9 +210,20 @@ Python 3D preparation, host cache hooks, native 3D run/capture integration,
 memory checks near the cell cap and real 3D BO remain separate migration and acceptance gates.
 Saved CaseData still uses its existing validators and must not be prepared again.
 
+## Typed domain and ports
+
+Preparation v7 adds `GridKinds2D` for the existing domain lengths and four port values on each side.
+It retains NumPy integer and float16/32/64 arithmetic in grids, openings, capacity and spatial sampling.
+Pass this descriptor as the second C++ argument and preparation options as the third argument.
+The [typed grid example](../examples/cpp/prepare_typed_grid_2d.cpp) checks mixed integer and float16 ports with fixed mass flow.
+The C entries use the same descriptor with the existing v3/v4 input and output layouts.
+Keep it with a resolved input when preparing that input again. Release results with their original functions.
+Earlier C and C++ entries keep weak double domain and port values.
+This interface changes no physical scope or saved-file format.
+
 ## Python preparation adapter
 
-The public preparation, capacity and resolution entries use v3 or v4 for supported 2D inputs.
+The public preparation, capacity and resolution entries use v7 with v3/v4 payloads for supported 2D inputs.
 The adapter copies arrays, scalar types and evidence before it releases the native owner.
 Stored cases keep their schema, SI fields, controls and model references.
 Preliminary mass-flow records remain outside the final preparation warning scope.
@@ -229,6 +240,9 @@ Its range and notice hooks report each observation at its original calculation p
 The host keeps warning filters, source locations and completed observations when a later step fails.
 Cached records do not repeat standalone notices. Warning exceptions stop the native operation.
 Use `values.values`, version 3 and the complete descriptor size.
+Callback version 4 retains this layout and adds host validation at stage 3, side 2, before physical grid construction.
+The Python adapter uses this point to preserve unsupported object errors after earlier geometry and property checks.
+It returns no numerical values. Earlier callback versions do not receive stage 3.
 A cache miss uses the C++ calculation. The host can return a completed cached value and its raw range records.
 Lookup views stay valid until the stage returns. Publication views stay valid only during the callback; copy them before return.
 Nested views must not overlap result, failure or error storage. Invalid storage leaves those outputs unchanged.

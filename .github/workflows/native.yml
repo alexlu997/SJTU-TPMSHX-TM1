@@ -15,7 +15,7 @@ jobs:
   native-build:
     name: native-build
     runs-on: ${{ inputs.os }}
-    timeout-minutes: 60
+    timeout-minutes: 90
     env:
       PYTHONHASHSEED: "0"
       MPLCONFIGDIR: .cache/matplotlib
@@ -155,6 +155,7 @@ jobs:
           sjtu_tpmshx/development/tests/test_native_preparation_mass_flow.py
           sjtu_tpmshx/development/tests/test_native_preparation_continuous.py
           sjtu_tpmshx/development/tests/test_native_preparation_3d.py
+          sjtu_tpmshx/development/tests/test_native_preparation_grid_types.py
           sjtu_tpmshx/development/tests/test_native_prepare_adapter.py
           sjtu_tpmshx/development/tests/test_preparation_cache.py
           sjtu_tpmshx/development/tests/test_native_stage_run.py
