@@ -75,6 +75,29 @@ that prepared state. The result library evaluates recorded evidence.
   status is 6; status 4 retains the full driver's envelope failure meaning.
   Run v1 keeps its original cancellation status of 4.
 
+## Run continuation
+
+`Run2D` accepts the uniform v2 or continuous v4 preparation view.
+It supports creation, step advancement, phase queries, snapshots, restoration
+and result transfer. It uses the existing full 2D state machine and typed state.
+It does not reset consumed work. Restoration requires the same build, prepared
+inputs and numerical controls. The positive CPU thread limit can change.
+
+Keep the preparation owner alive and unchanged until result transfer or run release.
+The run copies numerical inputs and controls. It borrows preparation evidence for capture.
+Keep callback context alive until run release. Calls on one run must not overlap.
+Snapshots own independent storage. A completed result also owns its evidence
+after preparation and run release. Use the creating library for all queries and releases.
+Cancellation cannot publish a successful stage result.
+
+`RunRequest2Dv3` adds six independent optional energy controls and the optional
+enthalpy-update gate. Missing values use the selected library's defaults.
+These controls require the existing true-h route. They cannot be combined with
+the complete explicit-energy pointer or active model-h controls.
+Existing one-shot interfaces retain their layouts and behavior.
+This interface does not replace the Python production checkpoint route or
+provide the complete `FieldResult` capture needed for that replacement.
+
 ## Uniform total mass flow
 
 `FlowInput2D` selects stored per-side targets or an explicit pair of total targets.
@@ -181,6 +204,8 @@ The [continuous preparation example](../examples/cpp/prepare_continuous_2d.cpp) 
 It exposes physical fields and local drag through v4, with only the preparation library.
 The [continuous run example](../examples/cpp/continuous_2d.cpp) starts with XY decisions and fixed mass flow.
 It prepares and runs the case, releases the prepared owner, then evaluates the result.
+The [continuation example](../examples/cpp/resume_2d.cpp) creates a run from raw inputs,
+retains a flow snapshot, releases the run and restores it with a different CPU limit.
 
 The [uniform-fluid example](../examples/cpp/uniform_2d.cpp) executes all three
 stages for CO2/water. Evaluation remains valid after the prepared owner is released.

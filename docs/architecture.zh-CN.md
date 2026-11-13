@@ -86,6 +86,8 @@ run v2 通过现有 model-h 或 true-h 路线消费该准备态，并记录实�
 run v3 通过现有完整二维驱动消费连续准备态，保留局部阻力、原始水力直径、单位顺序及名义参考几何。
 已解析的均匀流量案例使用 run v2；两条路线都沿用 v1 结果所有者。
 `preparation_case.cpp`负责完整准备流程，`stage_run.cpp`将它适配到现有完整二维驱动。
+生命周期接口复用同一个完整二维运行对象、带类型的快照与恢复校验。
+部分能量控制由所选运行库补齐默认值；准备证据借用至结果转移或运行释放。
 `stage_capture_2d.cpp`记录实际运行证据，供`result_stage.cpp`评估。
 安装的 C ABI 和`stages.hpp`供外部 C++ 程序调用。
 独立 Quick Design 阶段接受原始 native double 工况。

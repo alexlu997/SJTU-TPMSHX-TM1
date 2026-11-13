@@ -41,6 +41,7 @@ using PreparedFlowCase2D=detail::Owned<tpmshx_preparation_flow_case_2d_v3,tpmshx
 using ContinuousInletFlow2D=detail::Owned<tpmshx_preparation_continuous_flow_2d_v4,tpmshx_preparation_continuous_flow_2d_release_v4>;
 using PreparedContinuousCase2D=detail::Owned<tpmshx_preparation_continuous_case_2d_v4,tpmshx_preparation_continuous_case_2d_release_v4>;
 using RunResult2D=detail::Owned<tpmshx_stage_run_result_2d_v1,tpmshx_stage_run_2d_release_v1>;
+using RunState=detail::Owned<tpmshx_run_state_v1,tpmshx_run_state_release_v1>;
 using Evaluation=detail::Owned<tpmshx_stage_output_v1,tpmshx_result_stage_release_v1>;
 
 struct CaseInput2D : tpmshx_preparation_case_input_2d_v1 {
@@ -89,6 +90,57 @@ struct RunControl : tpmshx_stage_run_control_v1 {
     RunControl():tpmshx_stage_run_control_v1{} {
         const auto logical=std::thread::hardware_concurrency();cpu_threads=std::min(8u,logical?logical:1u);
     }
+};
+struct RunRequest2Dv3 : tpmshx_stage_run_request_2d_v3 {
+    RunRequest2Dv3():tpmshx_stage_run_request_2d_v3{} {
+        abi_version=TPMSHX_STAGE_RUN_ABI_VERSION_V3;struct_size=sizeof(tpmshx_stage_run_request_2d_v3);
+        values=RunRequest2Dv2{};
+    }
+};
+// Keep the prepared owner alive and unchanged until take_result or release.
+class Run2D {
+public:
+    Run2D(const PreparedCase2Dv2& prepared,const RunControl& control,const RunRequest2Dv3& request={},
+        const RunState* state=nullptr):Run2D(&prepared.view(),nullptr,control,request,state) {}
+    Run2D(const PreparedFlowCase2D& prepared,const RunControl& control,const RunRequest2Dv3& request={},
+        const RunState* state=nullptr):Run2D(&prepared.view().prepared,nullptr,control,request,state) {}
+    Run2D(const PreparedContinuousCase2D& prepared,const RunControl& control,const RunRequest2Dv3& request={},
+        const RunState* state=nullptr):Run2D(nullptr,&prepared.view(),control,request,state) {}
+    ~Run2D() {tpmshx_stage_run_2d_release_run_v1(&run_);}
+    Run2D(const Run2D&)=delete;
+    Run2D& operator=(const Run2D&)=delete;
+    Run2D(Run2D&& other) noexcept:run_(std::exchange(other.run_,nullptr)) {}
+    Run2D& operator=(Run2D&& other) noexcept {
+        if(this!=&other) {tpmshx_stage_run_2d_release_run_v1(&run_);run_=std::exchange(other.run_,nullptr);}
+        return *this;
+    }
+    uint32_t phase() const {
+        uint32_t value=0;
+        detail::check(tpmshx_stage_run_2d_phase_v1(run_,&value),"invalid stage run");return value;
+    }
+    uint32_t advance_step() {
+        uint32_t value=0;char error[4096]{};
+        detail::check(tpmshx_stage_run_2d_advance_step_v1(run_,&value,error,sizeof(error)),error);return value;
+    }
+    RunState snapshot() const {
+        tpmshx_run_state_v1 value{};char error[4096]{};
+        detail::check(tpmshx_stage_run_2d_snapshot_v1(run_,&value,error,sizeof(error)),error);return RunState(value);
+    }
+    RunResult2D take_result() {
+        tpmshx_stage_run_result_2d_v1 value{};char error[4096]{};
+        value.abi_version=TPMSHX_STAGE_RUN_ABI_VERSION;value.struct_size=sizeof(value);
+        detail::check(tpmshx_stage_run_2d_take_result_v1(run_,&value,error,sizeof(error)),error);return RunResult2D(value);
+    }
+private:
+    Run2D(const tpmshx_preparation_case_2d_v2* prepared,const tpmshx_preparation_continuous_case_2d_v4* continuous,
+        const RunControl& control,const RunRequest2Dv3& request,const RunState* state) {
+        char error[4096]{};
+        const auto status=state?tpmshx_stage_run_2d_restore_v1(prepared,continuous,&request,&control,
+            state->view().fields,state->view().count,&run_,error,sizeof(error)):
+            tpmshx_stage_run_2d_create_v1(prepared,continuous,&request,&control,&run_,error,sizeof(error));
+        detail::check(status,error);
+    }
+    void* run_=nullptr;
 };
 inline PreparedCase2D prepare_case(const CaseInput2D& input,const PreparationOptions& options={}) {
     tpmshx_preparation_case_2d_v1 output{};
