@@ -15,7 +15,7 @@ from sjtu_tpmshx.shared.domain.run_warnings import (
     RangeRecord, current_warnings, merge_warnings, warning_messages, record_warning, _range_context,
 )
 from sjtu_tpmshx.shared.models import _native_preparation_case as native
-from sjtu_tpmshx.shared.models import _native_flow, _native_geometry
+from sjtu_tpmshx.shared.models import _native_flow, _native_geometry, _native_grid
 
 
 def supports(config):
@@ -92,6 +92,24 @@ def _input(config, targets, operation):
         buffers.append(decision)
     else:
         source = flow
+    source._grid_error = None
+
+    def grid_kind(value):
+        try:
+            scalar = _native_grid._scalar(value)
+        except TypeError as error:
+            if source._grid_error is None:
+                source._grid_error = str(error)
+            return native._Kind(64, 0, 0)
+        return native._Kind(scalar.precision, scalar.strong, int(bool(scalar.strong)))
+
+    source._grid_kinds = native._GridKinds(7, ct.sizeof(native._GridKinds),
+        (native._Kind * 2)(*map(grid_kind, (geometry.L_dom_m, geometry.H_dom_m))))
+    for index, side in enumerate('AB'):
+        port = getattr(config, 'bc_' + side)
+        source._grid_kinds.ports[index] = (native._Kind * 4)(
+            *(grid_kind(getattr(port, name)) if port.in_w > 0. and port.out_w > 0.
+              else native._Kind(64, 0, 0) for name in ('in_ctr', 'in_w', 'out_ctr', 'out_w')))
     source._buffers = buffers
     return source
 
@@ -292,8 +310,11 @@ def _case(result, config, case_id, side_geometry=None):
         thermal['fields'] = dict(A_0=native._array(result.area_density_per_m, shape),
                                 D_h=native._array(result.hydraulic_diameter_m, shape), epsilon=design['eps_arr'])
     geometry = config.geometry
+    # Native preparation has already emitted these nominal-grid events.
+    with np.errstate(all='ignore'):
+        dx, dy = geometry.L_dom_m/config.solver.Nx, geometry.H_dom_m/config.solver.Ny
     params = dict(L=geometry.L_dom_m, H=geometry.H_dom_m, N_x=value.nx, N_y=value.ny,
-        dx=geometry.L_dom_m/config.solver.Nx, dy=geometry.H_dom_m/config.solver.Ny,
+        dx=dx, dy=dy,
         u_A=config.fluid_A.u_mps, u_B=config.fluid_B.u_mps,
         T_inA=config.fluid_A.T_in_K, T_inB=config.fluid_B.T_in_K, T_s_init=config.solver.T_s_init_K,
         envelope_mode=getattr(config, 'envelope_mode', 'raise'), tpms_type=geometry.tpms,
@@ -462,6 +483,11 @@ def _execute(config, operation, *, targets=None, case_id=None, own_metadata=Fals
         else:
             raise RuntimeError(f'unknown preparation notice kind {kind}')
 
+    def nominal_grid_warning(axis, message):
+        from .preparation import _parse_geometry_inputs_cfg
+        native._source_warning(_parse_geometry_inputs_cfg, message,
+                               binary=('/', int(axis == 'y')), category=RuntimeWarning)
+
     with ExitStack() as scopes:
         def host_input(stage, side):
             if stage == 0:
@@ -479,11 +505,14 @@ def _execute(config, operation, *, targets=None, case_id=None, own_metadata=Fals
                 hash((config.geometry.tpms, config.geometry.L_cell_mm, config.geometry.t_wall_mm,
                       speed, fluid.T_in_K, fluid.P_in_Pa, config.sco2_nu,
                       'co2' in (config.fluid_A.type, config.fluid_B.type)))
+            elif stage == 3:
+                if source._grid_error is not None:
+                    raise TypeError(source._grid_error)
             else:
                 raise RuntimeError(f'unknown preparation host stage {stage}')
 
         with native.operation(operation, source, options, host_input, geometry_cache, inlet_cache,
-                              observe_range, observe_notice) as result:
+                              observe_range, observe_notice, nominal_grid_warning) as result:
             flow = result.flow if hasattr(result, 'flow') else result
             if operation == 'prepare_inlet_mass_capacities':
                 return {side: _native_flow._restore(flow.capacities[index]) for index, side in enumerate('AB')}

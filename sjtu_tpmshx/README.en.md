@@ -42,7 +42,7 @@ Separate 3D flow v2 adds capacity queries, total-flow resolution and complete pr
 3D run/capture, spatial/asymmetric fields and host cache hooks remain separate integration gates.
 Memory use near the cell cap and real 3D BO need separate acceptance.
 The Python entries above retain all current modes while stage migration continues.
-The Python preparation entries use v3/v4 for symmetric uniform and continuous 2D inputs.
+The Python preparation entries use v7 with v3/v4 payloads for symmetric uniform and continuous 2D inputs.
 Nonzero-delta uniform, discrete zones, sigmoid and 3D keep their explicit existing routes.
 CaseData and saved-file contracts stay unchanged. Native failures propagate without another preparation route.
 Symmetric uniform and continuous 2D execution uses the saved native lifecycle, including checkpoints and complete result capture.

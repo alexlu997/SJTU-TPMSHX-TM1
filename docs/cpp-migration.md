@@ -155,6 +155,9 @@ This raw interface does not replace saved CaseData validation.
 
 `shared/models/_native_preparation.py` loads preparation ABI 1 through ctypes when needed.
 Named property, DF and flow adapters preserve the existing public Python interfaces.
+Full 2D preparation uses v7 domain/port scalar kinds with v3/v4 payloads.
+The shared grid and port cores retain mixed integer and narrow-float arithmetic.
+Saved prepared cases keep their recorded grids; the adapter does not reconstruct historical grids.
 Preparation uses statuses 0 for success, 1 for invalid input, 2 for allocation and 3 for runtime errors.
 State errors use 10 for water, 11 for CO2 and 12 for sCO2.
 Geometry ABI 1 and field ABI 2 remain unchanged, with their own status mappings.
