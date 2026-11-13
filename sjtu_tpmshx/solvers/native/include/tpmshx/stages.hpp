@@ -97,6 +97,14 @@ struct RunRequest2Dv3 : tpmshx_stage_run_request_2d_v3 {
         values=RunRequest2Dv2{};
     }
 };
+inline tpmshx_stage_capture_2d_v1 capture_summary(const RunResult2D& result,
+    const tpmshx_stage_application_2d_v1& application) {
+    tpmshx_stage_capture_2d_v1 output{};
+    detail::check(tpmshx_stage_run_2d_get_capture_v1(&result.view(),&application,&output),
+        "native 2D capture summary failed");
+    return output;
+}
+
 // Keep the prepared owner alive and unchanged until take_result or release.
 class Run2D {
 public:

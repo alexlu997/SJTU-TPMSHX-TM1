@@ -1,9 +1,13 @@
 #include "stage_capture_2d.hpp"
 #include "field_c_boundary.hpp"
+#include "tpmshx/fluid_properties.hpp"
+#include "tpmshx/result_metrics.hpp"
 
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <cmath>
+#include <limits>
 #include <deque>
 #include <iomanip>
 #include <locale>
@@ -83,6 +87,7 @@ public:
     tpmshx_full_2d_result_v2 raw{};
     tpmshx_full_2d_config_v2 resolved{};
     tpmshx_result_evidence_v1 evidence{};
+    tpmshx_stage_capture_2d_v1 summary{};
     std::string result_id,table_directory,envelope_mode;
     std::vector<std::string> notices;
     std::vector<const char*> notice_views;
@@ -310,6 +315,44 @@ public:
         for(const auto& notice:notices)notice_views.push_back(notice.c_str());
         applicability.scope_notes=notice_views.data();applicability.scope_note_count=notice_views.size();
     }
+    void capture_scalars() {
+        namespace a=tpmshx::result::arithmetic;
+        namespace metrics=tpmshx::result::metrics;
+        tpmshx::result::Diagnostics diagnostics;
+        const tpmshx_full_2d_thermal_v2* thermal[]{&raw.main,raw.have_fine?&raw.fine:nullptr};
+        for(size_t level=0;level<2;++level) {
+            if(!thermal[level])continue;
+            const auto& t=*thermal[level];
+            const auto cells=fields::c_api::product(t.nx,t.ny);
+            summary.red_black[level]=resolved.red_black && cells>30000;
+            if(t.mode==1) {
+                summary.model_h_available[level]=1;summary.model_h_cell_count[level]=cells;
+                const tpmshx::result::Array dx(*array(t.dx,{t.nx})),dy(*array(t.dy,{t.ny}));
+                summary.model_h_area_m2[level]=metrics::capture_area(dx,dy,diagnostics);
+            }
+        }
+        summary.pressure_available=raw.main.mode==2;
+        for(size_t side=0;side<2;++side) {
+            const auto& nu=raw.nu_observations[side];summary.nu_available[side]=nu.available;
+            if(nu.available) {
+                if(!nu.cells)throw std::runtime_error("native Nu observation has no cells");
+                summary.nu_floor[side]=nusselt_floor(static_cast<Fluid>(resolved.sides[side].fluid));
+                summary.nu_floor_fraction[side]=static_cast<double>(nu.floor_cells)/static_cast<double>(nu.cells);
+            }
+            if(summary.pressure_available) {
+                const tpmshx::result::Array pressure(*array(raw.main.pressure[side],{raw.main.nx,raw.main.ny}));
+                summary.pressure_min_Pa[side]=a::to_float(a::minimum(pressure,diagnostics));
+                summary.pressure_max_Pa[side]=a::to_float(a::maximum(pressure,diagnostics));
+            }
+            summary.absolute_duty[side]=metrics::duty_magnitude(raw.duty[side]);
+            if(std::isfinite(raw.duty[side]))summary.have_finite_duty=1;
+            const auto clips=raw.flow[side].result.pressure_clip_hits;
+            if(clips>std::numeric_limits<size_t>::max()-summary.pressure_clip_hits)
+                throw std::overflow_error("native pressure clip count exceeds size_t");
+            summary.pressure_clip_hits+=clips;
+        }
+        summary.q_net=a::python_float_sum({raw.duty[0],raw.duty[1]});
+    }
     void populate(const tpmshx_preparation_case_2d_v1& p) {
         auto& e=evidence;const auto& main=raw.main;
         if(main.mode!=1 && main.mode!=2)throw std::invalid_argument("uniform stage returned an unsupported thermal mode");
@@ -395,10 +438,38 @@ Capture2D* capture_2d(const tpmshx_preparation_case_2d_v1& prepared,
     owner->result_id=result_id;
     if(resolved.table_directory) {owner->table_directory=resolved.table_directory;owner->resolved.table_directory=owner->table_directory.c_str();}
     if(resolved.envelope_mode) {owner->envelope_mode=resolved.envelope_mode;owner->resolved.envelope_mode=owner->envelope_mode.c_str();}
-    owner->populate(prepared);if(uniform)owner->scope_notes(*uniform);return owner.release();
+    owner->populate(prepared);owner->capture_scalars();
+    if(uniform)owner->scope_notes(*uniform);
+    return owner.release();
 }
 tpmshx_stage_run_result_2d_v1 stage_view(Capture2D& owner) {
     return {TPMSHX_STAGE_RUN_ABI_VERSION,sizeof(tpmshx_stage_run_result_2d_v1),&owner,owner.raw,owner.evidence,owner.resolved};
 }
 void release_capture_2d(Capture2D* owner) noexcept {delete owner;}
 }  // namespace tpmshx::stages
+
+extern "C" int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_get_capture_v1(
+    const tpmshx_stage_run_result_2d_v1* result,const tpmshx_stage_application_2d_v1* application,
+    tpmshx_stage_capture_2d_v1* output) {
+    namespace boundary=tpmshx::fields::c_api;
+    try {
+        boundary::require_buffer(result,1);boundary::require_buffer(application,1);boundary::require_buffer(output,1);
+        const auto overlaps=[](const void* first,size_t first_size,const void* second,size_t second_size) {
+            const auto a=reinterpret_cast<uintptr_t>(first),b=reinterpret_cast<uintptr_t>(second);
+            return a<=b+second_size-1 && b<=a+first_size-1;
+        };
+        if(overlaps(result,sizeof(*result),output,sizeof(*output))
+            || overlaps(application,sizeof(*application),output,sizeof(*output))
+            || overlaps(result,sizeof(*result),application,sizeof(*application)))return 1;
+        if(result->abi_version!=TPMSHX_STAGE_RUN_ABI_VERSION || result->struct_size!=sizeof(*result) || !result->owner)return 1;
+        const auto& owner=*static_cast<const tpmshx::stages::Capture2D*>(result->owner);
+        auto value=owner.summary;
+        for(size_t side=0;side<2;++side) {
+            const auto area=application->area_density_per_m[side],htc=application->surface_htc_W_m2K[side];
+            if(area<0. || htc<0.)return 1;
+            value.application_hv[side]=area*htc;
+        }
+        *output=value;return 0;
+    } catch(const std::invalid_argument&) {return 1;}
+    catch(...) {return 5;}
+}
