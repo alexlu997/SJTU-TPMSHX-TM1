@@ -992,9 +992,9 @@ LocalGeometry2D local_geometry(const CaseInput2D& input,const PhysicalGrid2D& gr
             sampled[field]=fit.sample(values.data(),values.size(),xc.data(),xc.size(),yc.data(),yc.size(),limits[0],limits[1]);
         } else {
             const std::size_t counts[]{controls.nx,controls.ny},sizes[]{grid.nx,grid.ny};
-            const double* axes[]{x.data(),y.data()};const double* samples[]{xc.data(),yc.data()};
-            sampled[field]=fields::sample_tensor(2,counts,axes,values.data(),values.size(),
-                static_cast<int>(controls.order),sizes,samples,limits[0],limits[1]);
+            const double* axis_data[]{x.data(),y.data()};const double* sample_data[]{xc.data(),yc.data()};
+            sampled[field]=fields::sample_tensor(2,counts,axis_data,values.data(),values.size(),
+                static_cast<int>(controls.order),sizes,sample_data,limits[0],limits[1]);
         }
     }
     LocalGeometry2D output;output.cell_mm=std::move(sampled[0]);output.wall_mm=std::move(sampled[1]);
