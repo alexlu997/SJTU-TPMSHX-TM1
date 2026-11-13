@@ -33,7 +33,7 @@ def _saved(case):
     if sides is not None:
         for index, side in enumerate('AB'):
             saved.side_geometry[index][:] = sides[side]
-    request, energy = stage._request(cfg)
+    request, energy = stage._request(cfg, full_2d.configure_convergence)
     control = stage._Control(b'offset-run', None, 2)
     return saved, request, control, (keepalive, energy)
 
