@@ -36,7 +36,7 @@ endif()
 
 if("preparation" IN_LIST tpmshx_AVAILABLE_COMPONENTS)
     find_package(tpmshx CONFIG REQUIRED COMPONENTS preparation)
-    foreach(example prepare_fluids_2d prepare_mass_2d prepare_continuous_2d)
+    foreach(example prepare_fluids_2d prepare_mass_2d prepare_continuous_2d prepare_typed_grid_2d)
         add_executable(${example} ${example}.cpp)
         target_compile_features(${example} PRIVATE cxx_std_17)
         target_link_libraries(${example} PRIVATE tpmshx::preparation)
