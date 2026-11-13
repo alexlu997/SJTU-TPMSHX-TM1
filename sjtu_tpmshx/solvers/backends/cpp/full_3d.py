@@ -344,7 +344,8 @@ class NativeFull3DDriver:
                 raise RuntimeError('invalid native full 3D exit')
             if stage_result is not None:
                 from .full_3d_stage import copy_summary
-                capture_scalars = copy_summary(self.library, stage_result, emit_audit=bool(cfg.get('_emit_audit', False)))
+                capture_scalars = copy_summary(self.library, stage_result,
+                    emit_audit=bool(cfg.get('_emit_audit', False)), copy_array=_copy)
             actual = _FullEnergyEffectiveSettings()
             if self.query_settings(ct.byref(result), ct.byref(actual)):
                 raise RuntimeError('native full 3D effective settings query failed')

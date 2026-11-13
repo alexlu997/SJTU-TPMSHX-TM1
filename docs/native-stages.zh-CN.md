@@ -383,6 +383,7 @@ LUT 和准备结果须分别用对应的 v6 函数释放。
 C++ 调用将描述符作为第二个参数，将准备选项作为第三个参数。
 [类型网格示例](../examples/cpp/prepare_typed_grid_2d.cpp)检查固定质量流量下的整数与 float16 混合端口。
 C 入口将相同描述符与既有 v3-v6 输入及输出布局配对使用。
+[分区](../examples/cpp/prepare_zoned_2d.cpp)和 [sigmoid](../examples/cpp/prepare_sigmoid_2d.cpp) 示例也检查整数与 float16 混合端口。
 若再次准备已解析输入，须同时保留描述符；结果仍用原对应函数释放。
 此前的 C 和 C++ 入口继续将域长及端口值作为弱类型 double。
 该接口不改变物理范围或保存文件格式。
