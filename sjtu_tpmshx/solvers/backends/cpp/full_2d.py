@@ -551,7 +551,8 @@ def run_case(case, control=RunControl(), *, resume_state=None, checkpoint=None, 
     if stage_layout and all(saved_entries):
         from .full_2d_stage import run_stage
         result = run_stage(driver, case, cfg, prepared, control, resume_state=resume_state,
-            checkpoint=checkpoint, checkpoint_due=checkpoint_due)
+            checkpoint=checkpoint, checkpoint_due=checkpoint_due,
+            configure_convergence=configure_convergence, make_callbacks=_callbacks)
     else:
         native = driver.run_prepared(cfg, prepared, control, resume_state=resume_state,
             checkpoint=checkpoint, checkpoint_due=checkpoint_due)
