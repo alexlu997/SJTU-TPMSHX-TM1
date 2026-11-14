@@ -17,10 +17,11 @@ def test_quick_mode_controls_and_native_unconverged_status(monkeypatch):
     # range; convergence status is independent of the water-state rejection.
     op = replace(_case(), P_in_c=3e6)
     case = prepare_quick_design(op, 'Diamond', 7., .5, .084, .05, case_id='controls')
-    from sjtu_tpmshx.shared.models import quick_design
+    from sjtu_tpmshx.shared.models import _native_quick_prepare
     def forbidden(*args, **kwargs):
         raise AssertionError('execution attempted to rebuild fixed inlet pressure')
-    monkeypatch.setattr(quick_design, '_dp_fractions', forbidden)
+    monkeypatch.setattr(_native_quick_prepare, 'pressure_fractions', forbidden)
+    monkeypatch.setattr(_native_quick_prepare, 'prepare_values', forbidden)
     invalid = {**case.parameters, 'inlet_pressure_fractions': {'A': -1., 'B': 0.}}
     with pytest.raises(ValueError, match='inlet pressure fractions'):
         run_case(replace(case, parameters=invalid))

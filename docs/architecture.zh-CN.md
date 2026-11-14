@@ -122,14 +122,22 @@ Python 对称均匀及连续二维运行通过保存输入接口使用同一原�
 新协议缺符号或执行失败直接报错，不重新运行旧路线。
 唯一 `FieldResult` 组装器位于 `full_2d_capture.py`，并保留原告警及应用物性检查顺序。
 安装的 C ABI 和`stages.hpp`供外部 C++ 程序调用。
-独立 Quick Design 阶段接受原始 native double 工况。
-`quick_design_prepare.cpp` 复用几何、物性与解析 D-F 的现有实现；
+Quick Design 准备 v2 接受带类型的原始工况。
+`quick_design_prepare_v2.cpp` 负责完整数值顺序，包括几何、网格、入口物性和解析 D-F 压降分数。
+独立压降查询不创建热网格或设计场数组。
+`shared/models/_native_quick_prepare.py` 通过固定具名宿主操作保留 Python 对象协议、缓存交换、警告和快照。
+这些操作不得调用数值模型；其顺序及全部数值分支由 C++ 决定。
+`preprocess/app_modes/quick_design.py` 用复制后的原生输出组装 CaseData。
+被替代的 `shared/models/quick_design.py` 已删除；冻结参考保留在 `development/tests/quick_prepare_reference.py`，供回归检查使用。
+Quick 默认值统一来自 `shared/configs/model_parameters_v1.json`。
+Python 读取该资源，C++ 使用生成的常量；逆流保存态的 `qtol` 和 `chunk` 仍为 `None`。
+`quick_design_prepare.cpp` 中的 native-double v1 准备及其公开布局继续可用。
 `quick_design_run.cpp` 调用既有驱动并复制结果证据。
 const/mean、叉流/逆流和热启动规则保持不变。
-Python Quick Design 执行通过保存的准备场调用这一 run 阶段，释放前复制原生场及声明。
-公开结果保留原网格、固定场 dtype 和工况标量；原始 Python 准备仍保留现有类型协议。
-Quick Design 评估使用原生结果阶段，宿主继续适配类型和事件。
-当前 Python 入口保留原有行为及全部支持模式；相应迁移关口通过后，才能退役其数值与策略实现。
+Python 执行用保存的准备场调用这一 run 阶段，不重复准备。
+它在释放前复制原生场及声明，保留原网格、固定场 dtype 和工况标量。
+原生结果阶段负责 Quick Design 指标，固定宿主操作保留既有类型和事件协议。
+当前 Python 入口保留支持模式；此迁移不建立物理验证。
 
 <a id="retained-python-responsibilities"></a>
 
@@ -138,7 +146,7 @@ Python 保留公共 API、配置与数据对象、类型／字节序／shape 适
 GUI 显示、输入校验、应用搜索／BO、离线数据处理与拟合继续由各自 Python 模块负责。
 以下边界保留原有计算表达式和消费者：
 
-- 显式 Python object／任意精度整数协议，在进入 typed ABI 前选择；原生错误仍直接报告。
+- 显式 Python object／任意精度整数协议保留在声明的边界；Quick 准备与结果阶段选择固定具名宿主操作，原生错误仍直接报告。
 - 配置控制节点、单位换算、序列化 grid edges 和存档自洽校验；温度初值及配置校验保留原错误顺序。
 - 独立 getter／几何／sCO2 文案的范围摘要、GUI 预览和 nTop 导出描述统计；正式范围采集与资格检查仍由 C++ 负责。
 - `ports_complete` 的注入 ledger 检查，以及独立低层 driver 的默认输入适配。当前原生 ledger 已返回明确完整性标志。

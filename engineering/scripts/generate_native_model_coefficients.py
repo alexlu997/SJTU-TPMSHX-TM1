@@ -37,10 +37,12 @@ def header():
     water, sco2 = parameters['water'], parameters['sco2']
     envelope, controls = parameters['envelope'], parameters['native_controls']
     states, co2 = parameters['design_nu_reference_states'], load_co2_coefficients()
+    quick = parameters['quick_design']
     lines = [
         "// Generated from shared model data resources. Do not edit.",
         "// Topology table rows: Diamond, Gyroid. Nu columns: c, a[, d].",
-        "#pragma once", "#include <array>", "", "namespace tpmshx::model_coefficients {",
+        "#pragma once", "#include <array>", "#include <cstddef>", "#include <optional>",
+        "", "namespace tpmshx::model_coefficients {",
     ]
     lines.extend(f"inline constexpr char {name}_version[] = {json.dumps(version)};"
                  for name, version in MODEL_VERSIONS.items())
@@ -61,6 +63,17 @@ def header():
                         ("roughness_nu_baseline", nu['roughness_factor']),
                         ("model_h_relaxation", controls['model_h_relaxation'])):
         lines.append(f"inline constexpr double {name} = {float(value)!r};")
+    for name in ('k_s', 'tol'):
+        lines.append(f"inline constexpr double quick_design_{name} = {quick[name]!r};")
+    for name in ('nx', 'geometry_resolution'):
+        lines.append(f"inline constexpr std::size_t quick_design_{name} = {quick[name]};")
+    for arrangement, row in quick['arrangements'].items():
+        for key, native_type in (('dirB', 'int'), ('ny', 'std::size_t'), ('nz', 'std::size_t'),
+                                 ('alpha', 'double'), ('maxit', 'std::size_t'),
+                                 ('qtol', 'std::optional<double>'), ('chunk', 'std::optional<std::size_t>')):
+            value = 'std::nullopt' if row[key] is None else repr(row[key])
+            suffix = 'dir_b' if key == 'dirB' else key
+            lines.append(f'inline constexpr {native_type} quick_design_{arrangement}_{suffix}{{{value}}};')
     vectors = {
         "roughness_petukhov": roughness['petukhov'],
         "roughness_haaland": roughness['haaland'],

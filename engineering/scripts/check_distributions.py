@@ -45,7 +45,8 @@ def forbidden(name: str) -> bool:
 
 def retired_module(name: str) -> bool:
     path = PurePosixPath(name)
-    return path.name == "local_heat_transfer.py" or "local_heat_transfer" in path.parts
+    return (path.name == "local_heat_transfer.py" or "local_heat_transfer" in path.parts
+            or path == PurePosixPath(PACKAGE) / "shared/models/quick_design.py")
 
 
 def source_files(root: Path, directory: str) -> set[str]:

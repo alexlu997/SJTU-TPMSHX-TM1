@@ -23,7 +23,7 @@ def prepared_input(case):
     op = SimpleNamespace(**p['operating_point'])
     if len(case.model_refs) != 3 or case.model_refs[0].name != 'quick_design':
         raise ValueError('quick-design model resources are incomplete')
-    model = resolve_model(case.model_refs[0])
+    resolve_model(case.model_refs[0])
     for ref, fluid in zip(case.model_refs[1:], (op.hot_fluid, op.cold_fluid)):
         if ref.name != 'fluid' or dict(ref.parameters) != {'fluid': fluid}:
             raise ValueError('quick-design fluid resource disagrees with operating point')
@@ -54,7 +54,7 @@ def prepared_input(case):
             or (arr['qtol'] is not None and (not np.isfinite(arr['qtol']) or arr['qtol'] <= 0))
             or (arr['chunk'] is not None and (not isinstance(arr['chunk'], int) or arr['chunk'] <= 0))):
         raise ValueError('invalid quick-design numerical controls')
-    return shape, p, op, model, widths, fixed
+    return shape, p, op, widths, fixed
 
 
 def field_result(case, fields, props_a, props_b, u_a, u_b, pass_info, *,

@@ -89,7 +89,8 @@ def test_preparation_verify_does_not_load_full_solver_programs(preparation_build
     assert names == {name+suffix for name in ('geometry_c_static', 'geometry_c_shared',
         'geometry_kernel_smoke', 'preparation_c_static', 'preparation_c_shared',
         'preparation_case_c_static', 'preparation_case_c_shared',
-        'preparation_case_3d_c_static', 'preparation_case_3d_c_shared')}
+        'preparation_case_3d_c_static', 'preparation_case_3d_c_shared',
+        'quick_prepare_c_static', 'quick_prepare_c_shared')}
 
 
 def test_pilot_build_keeps_solver_archive_and_builds_preparation_separately(preparation_build, monkeypatch):

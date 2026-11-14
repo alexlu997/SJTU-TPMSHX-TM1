@@ -15,6 +15,7 @@ from functools import lru_cache
 from sjtu_tpmshx.shared.configs.model_parameters import load_model_parameters
 from sjtu_tpmshx.shared.domain.compute_config import SCO2_P_RANGE_PA as P_RANGE_PA  # noqa: F401 - public range constant
 from . import _native_properties
+from .preparation_cache import scalar_cache
 T_RANGE_K = tuple(load_model_parameters()['sco2']['temperature_range_K'])
 
 
@@ -28,6 +29,12 @@ def _validate_state(T_K, P_Pa, *, where=None) -> None:
         message, failure = str(error), error.failure
     else:
         return
+    _raise_state_error(message, failure, T, P, where=where)
+
+
+def _raise_state_error(message, failure, T, P, *, where=None):
+    """Keep shape and location errors at the original state boundary."""
+    import numpy as _np
     if failure.reason == 1:
         try:
             _np.broadcast_shapes(T.shape, P.shape)
@@ -50,7 +57,7 @@ def _validate_state(T_K, P_Pa, *, where=None) -> None:
     raise ValueError(message) from None
 
 
-@lru_cache(maxsize=4096)
+@scalar_cache(maxsize=4096)
 def _prop(key: str, T_K: float, P_Pa: float) -> float:
     """Cache scalar CoolProp queries for repeated identical (key, T, P)."""
     _validate_state(T_K, P_Pa)

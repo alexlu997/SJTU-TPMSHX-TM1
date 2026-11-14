@@ -23,6 +23,7 @@ _SCALARS = {
     'roughness': ('nu_gain_power',),
     'envelope': ('r_air_default', 'gamma_air', 'pressure_floor_pa'),
     'geometry': ('area_correction',),
+    'quick_design': ('k_s', 'tol'),
     'co2_application': ('pressure_multiplier', 'nu_multiplier'),
     'native_controls': ('inlet_pressure_relative_tolerance', 'model_h_relaxation'),
 }
@@ -86,9 +87,40 @@ def load_model_parameters():
             raise ValueError(f'geometry.{name} requires Diamond and Gyroid')
         for topology, value in table.items():
             _vector(value, 2, f'geometry.{name}.{topology}')
+    quick = data['quick_design']
+    for name in ('nx', 'geometry_resolution'):
+        value = quick.get(name)
+        if type(value) is not int or value <= 0:
+            raise ValueError(f'quick_design.{name} must be a positive integer')
+    arrangements = quick.get('arrangements')
+    if not isinstance(arrangements, dict) or set(arrangements) != {'cross', 'counter'}:
+        raise ValueError('quick_design.arrangements requires cross and counter')
+    for name, row in arrangements.items():
+        if not isinstance(row, dict) or set(row) != {'dirB', 'ny', 'nz', 'alpha', 'maxit', 'qtol', 'chunk'}:
+            raise ValueError(f'quick_design.arrangements.{name} has invalid controls')
+        for key in ('dirB', 'ny', 'nz', 'maxit', 'chunk'):
+            value = row[key]
+            if key == 'chunk' and value is None:
+                continue
+            if type(value) is not int or value <= 0:
+                raise ValueError(f'quick_design.arrangements.{name}.{key} must be a positive integer')
+        if row['dirB'] != (2 if name == 'cross' else 1):
+            raise ValueError(f'quick_design.arrangements.{name}.dirB disagrees with the arrangement')
+        for key in ('alpha', 'qtol'):
+            value = row[key]
+            if key == 'qtol' and value is None:
+                continue
+            _number(value, f'quick_design.arrangements.{name}.{key}')
+            if value <= 0. or key == 'alpha' and value > 1.:
+                raise ValueError(f'quick_design.arrangements.{name}.{key} is outside its bounds')
     if not isinstance(data['co2_application'].get('version'), str) or not data['co2_application']['version']:
         raise ValueError('CO2 application version is required')
     return data
+
+
+def load_quick_design_parameters():
+    """Return fresh Quick Design defaults with unresolved optional controls."""
+    return load_model_parameters()['quick_design']
 
 
 def load_co2_coefficients(path=None):
