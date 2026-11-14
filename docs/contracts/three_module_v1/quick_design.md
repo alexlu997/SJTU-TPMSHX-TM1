@@ -13,8 +13,16 @@ representative-Pr caveat stays part of the emitted source warnings.
 ## Prepared input
 
 `preprocess.api.prepare_quick_design` accepts an existing DesignCase plus
-geometry and sizing options. `config_snapshot` records the original DesignCase
-and is not used by execution. The prepared data has:
+geometry and sizing options. It calls `tpmshx_prepare_quick_design_v2` and copies its owned fields into CaseData.
+C++ owns the numerical sequence. Fixed named host operations keep scalar and object protocols, cache entries, warnings and snapshot order.
+`config_snapshot` records the original DesignCase and is not used by execution.
+The saved schema, units and ModelRef versions stay unchanged.
+
+Quick defaults come from `shared/configs/model_parameters_v1.json` through the Python loader and generated C++ constants.
+The separate `tpmshx_quick_pressure_fractions_v2` query serves sizing without creating a thermal grid or design-field arrays.
+It keeps its narrower validation sequence. Every non-`cross` arrangement uses counterflow sections in that query only.
+This behavior does not expand the accepted labels of complete preparation or the supported fluids of execution.
+The prepared data has:
 
 - Physical `grid`: dimension 3, x/y/z axes, widths and cumulative edges in m.
   Crossflow uses 60 × 40 × 1 and the existing 2D kernel delegation. Counterflow
@@ -29,8 +37,9 @@ and is not used by execution. The prepared data has:
   `A_0` in 1/m and `k_s` in W/(m K). The existing geometry resolution is 128.
 - `controls`: existing direction, under-relaxation, maximum iterations,
   heat-duty tolerance and chunk size. Crossflow keeps alpha 0.7, 8000,
-  qtol 1e-4 and chunk 100. Counterflow keeps alpha 0.3, 20000 and the kernel
-  qtol/chunk defaults. The requested thermal `tol` stays separate.
+  qtol 1e-4 and chunk 100. Counterflow keeps alpha 0.3, 20000 and stored
+  `qtol=None`, `chunk=None`. Execution resolves those two values with the existing kernel defaults.
+  The requested thermal `tol` stays separate.
 - `initial_fields`: absent or three finite cell temperature arrays in K.
   Copies cross the contract boundary. The receiving solve uses their values.
 - `df_options`: the resolved `method` only (`cfd_full_core_3cell_fixed_v2`). It takes
@@ -66,8 +75,7 @@ Execution passes saved CaseData to `tpmshx_run_quick_design_v1` without new prep
 The stage returns owned fields and their unit/state declarations. The host
 copies them before release. It keeps the original grid, `K_ss` and `eps` dtypes,
 mass rates and inlet-temperature scalars in FieldResult.
-Raw preparation retains its current type protocols. Evaluation uses the native
-result stage with host type adaptation, object operations and NumPy event policy.
+Preparation and metrics use native stages. Their fixed named host operations keep the existing type and event protocols.
 
 Temperature, prescribed velocity, fluid/solid conductivity, volumetric coupling
 and porosity fields have explicit units, x/y/z cell placement and final-pass

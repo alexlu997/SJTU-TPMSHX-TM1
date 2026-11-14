@@ -593,7 +593,6 @@ from PySide6.QtCore import QObject, Slot
 from PySide6.QtWidgets import QApplication
 from sjtu_tpmshx.shared.domain.module_ports import RunControl
 from sjtu_tpmshx.solvers import api
-from sjtu_tpmshx.preprocess.app_modes import quick_design as preparation
 from sjtu_tpmshx.applications.gui.ui.quick_design_panel import _make_worker_class
 
 app = QApplication(['native-qd-worker', '-platform', 'offscreen'])
@@ -662,19 +661,23 @@ def traced_run(case, control):
     assert result.backend_id == 'cpp'
     return result
 
-# A small grid keeps real worker completion below the test deadline.
-with (patch.object(preparation, 'NX', 8),
-      patch.dict(preparation._ARR, cross={**preparation._ARR['cross'], 'ny': 6}),
-      patch.object(api, 'run_case', traced_run)):
+# Use the fixed production Quick grid for real worker completion.
+with patch.object(api, 'run_case', traced_run):
+    started = time.monotonic()
     worker.start()
-    deadline = time.monotonic() + 50
+    # The fixed production grid can exceed 50 seconds on Windows CI.
+    deadline = started + (240 if termination == 'completed' else 50)
     while not receiver.finished_count and time.monotonic() < deadline:
         app.processEvents()
         time.sleep(.001)
-    worker.requestInterruption()
+    timed_out = not receiver.finished_count
+    if timed_out:
+        worker.requestInterruption()
     assert worker.wait(5000), 'native Qt worker did not exit after interruption'
     app.processEvents()
+    elapsed_s = time.monotonic() - started
 
+assert not timed_out, ('native Qt worker exceeded its test deadline', termination, elapsed_s)
 assert receiver.finished_count == 1
 assert calls and all(c['backend'] == 'cpp' and c['library'] == library for c in calls)
 assert all(c['thread'] != main_thread for c in calls)
@@ -707,12 +710,14 @@ print('QD_QT_RESULT=' + json.dumps(dict(termination=termination, native_calls=le
     completed_native_calls=len(native_results), progress_count=len(progress),
     terminal_results=len(receiver.results), errors=receiver.errors,
     cancelled=receiver.cancel_count, finished=receiver.finished_count, no_numba=True,
+    elapsed_s=elapsed_s, timed_out=timed_out,
     selected_Q_W=([float(row['Q_W']) for row in result['best'].percase]
                   if termination == 'completed' else []))))
 '''
     process = subprocess.run([sys.executable, '-c', code, str(source),
                               native_control.native_library, termination],
-                             cwd=ROOT, capture_output=True, text=True, timeout=60)
+                             cwd=ROOT, capture_output=True, text=True,
+                             timeout=260 if termination == 'completed' else 60)
     assert process.returncode == 0, process.stdout + process.stderr
     report = next(line.removeprefix('QD_QT_RESULT=') for line in process.stdout.splitlines()
                   if line.startswith('QD_QT_RESULT='))

@@ -17,8 +17,10 @@ Run v2 consumes preparation v2 through the existing model-h or true-h driver.
 Run v1 retains its air/air CFD scope and published layout.
 Nonzero delta, zones, continuous fields and prescribed mass flow remain outside
 this preparation v2 scope. These limits do not remove existing Python modes.
-A separate Quick Design entry accepts native double operating points for
-air, water and sCO2. It uses the existing prescribed-flow LTNE driver.
+Quick Design keeps its native-double v1 preparation and run interfaces for air, water and sCO2.
+Preparation v2 adds typed raw inputs and an independent pressure-fraction query.
+Python uses v2 preparation with fixed named host operations for its existing value protocols.
+The preparation/query fluid registry includes CO2; this does not expand the existing air/water/sCO2 LTNE run scope.
 
 Preparation v3 adds total mass flow for the same uniform symmetric 2D fluid matrix.
 It provides separate capacity and inlet-flow resolution queries, plus complete preparation.
@@ -54,9 +56,9 @@ that prepared state. The result library evaluates recorded evidence.
 - The requested grid counts and the actual grid counts are different fields.
   Physical 2D fields have shape `(nx, ny)` and C order. Flow fields use the
   existing `(cross, stream)` order for each side.
-- A successful C call returns one owner. All array and text views belong to
-  that owner. Release it through the same library after the last use.
-  Do not copy owners or free their buffers with a caller allocator.
+- A successful call that returns owned arrays has one owner. Its array and text views belong to that owner.
+  Release it through the same library after the last use. Do not copy owners or free their buffers with a caller allocator.
+  Scalar-only queries, including Quick pressure fractions v2, return values and need no release.
 - Callbacks receive borrowed event views on the caller thread. They do not
   perform numerical preparation. Keep event order, logger names and messages.
 - Result v3 carries raw labels and typed Quick operands. C++ owns label comparisons and metric policy.
@@ -337,7 +339,10 @@ The [uniform-fluid example](../examples/cpp/uniform_2d.cpp) executes all three
 stages for CO2/water. Evaluation remains valid after the prepared owner is released.
 The [Quick Design example](../examples/cpp/quick_design.cpp) starts with raw
 operating points and dimensions. It calls `prepare_quick_design`, `run_case`
-and `evaluate`.
+and `evaluate` through the existing v1 contract.
+The [typed Quick preparation example](../examples/cpp/prepare_quick_design.cpp) uses `QuickDesignInputV2`.
+It calls `pressure_fractions` and `prepare_quick_design`, with only the preparation library.
+It does a check of owned fields and absent counterflow qtol/chunk controls without starting a solve.
 These examples use only installed public headers and shared libraries.
 The Windows build copies the required DLLs beside each executable.
 
@@ -370,38 +375,110 @@ Python integration and checkpoint recovery have separate acceptance gates.
 
 ## Quick Design stage
 
-`quick_design_stage_c_api.h` declares a separate version 1 contract.
-It does not change an existing ABI. The preparation library owns geometry,
-uniform grids, inlet-state properties and analytical D-F pressure fractions.
-The solver library calls the existing Quick Design driver. It does not run SIMPLE.
-The result library evaluates its recorded fields and final-pass scalars.
+`quick_design_stage_c_api.h` keeps the native-double v1 preparation and run contracts.
+Its separate preparation v2 contract adds `tpmshx_prepare_quick_design_v2` and `tpmshx_quick_pressure_fractions_v2`.
+No published v1 layout changes. `quick_design_prepare_v2.cpp` owns both new numerical sequences.
+The preparation library reuses geometry, grid, property and analytical D-F implementations.
+The solver library uses the existing Quick Design driver. The result library evaluates its recorded fields and final-pass scalars.
 
-Raw cell length and wall thickness use mm. Dimensions use m, temperatures use K,
-absolute pressures use Pa, and mass flows use kg/s. Cross flow keeps the
-`(60, 40, 1)` grid. Counter flow keeps `(60, 1, 2)`. Optional flags distinguish
-an omitted value from an invalid explicit value. Height defaults to span,
-solid conductivity to 16 W/(m K), and tolerance to `1e-5`.
-The current arrangement budgets, relaxation, chunk sizes and heat tolerance remain.
-The fixed CFD table supplies D-F. The host resolves its environment selection
-before it calls this native entry. This entry reads no environment variables.
+### Typed raw preparation and pressure query
 
-Preparation copies an external warm start. The run copies the prepared fields
-and does not change them. Constant properties use one thermal pass; mean
-properties use two. The second pass uses the first pass's returned temperatures.
+The v2 input contains 13 typed scalars: cell length, wall thickness, span, length, height, conductivity, tolerance, two mass flows, two temperatures and two pressures.
+Cell length and wall thickness use mm. Dimensions use m, temperature uses K, pressure uses Pa(abs), and mass flow uses kg/s.
+Text fields have explicit byte lengths. Native callers supply all scalar slots; `have_height=0` replaces the height slot with span.
+Without host hooks, the stage reads no environment variables and uses the fixed CFD D-F table.
+The Python host keeps method, chi, raw object and snapshot protocols at their original boundaries.
+
+Crossflow keeps `(60, 40, 1)` and counterflow keeps `(60, 1, 2)`.
+The shared `model_parameters_v1.json` resource supplies grid counts, geometry resolution, conductivity, tolerance and arrangement controls.
+Python reads this resource; native preparation uses generated constants.
+The Python defaults remain 16 W/(m K), `1e-5` and geometry resolution 128.
+V2 keeps absent counterflow qtol/chunk through `have_q_relative_tolerance=0` and `have_chunk_iterations=0`.
+CaseData stores both as `None`. Execution resolves them with the existing kernel defaults.
+V1 continues to return its resolved driver configuration, including `max(tol*10, 1e-4)` and chunk 250 for counterflow.
+
+Full preparation keeps this sequence: warm-start checks, labels, positive inputs, shape, geometry/material, grids and operating snapshot.
+It then evaluates A/B inlet properties, sections, A/B pressure states and pressure fractions.
+The configuration snapshot follows pressure work. Design fields, mm-to-m conversions and final environment/model snapshots follow it.
+This order keeps the point of each warning, error, conversion and cache observation.
+
+The pressure query uses the geometry/material and inlet-pressure sequence only.
+It skips full preparation validation, thermal grids, design-field arrays, configuration snapshots and final unit conversions.
+Every non-`cross` arrangement uses counterflow sections in this query only.
+The full preparation entry still validates its supported arrangement and property-mode labels.
+The query keeps inlet property, liquid-water and analytical pressure checks. It does not execute a thermal solve.
+
+Initialize v2 descriptors with ABI 2 and their exact `struct_size`. Initialize the full result with `owner=NULL`.
+Failure leaves result storage unchanged. Input, output and error storage must be disjoint. Error storage must be writable and nonempty.
+Full output owns widths, edges, copied initial fields and design fields, plus typed fractions and stored controls.
+Array data uses double transport; precision tags keep the original field dtype for the host copy.
+Release the full output with `tpmshx_quick_prepared_release_v2` from its creating library.
+The pressure output contains only fractions and pressure evidence by value; it has no owner.
+`stages.hpp` supplies `QuickDesignInputV2`, `PreparedQuickDesignV2`, `prepare_quick_design` and `pressure_fractions`.
+The v2 output has no new run overload. Python maps it to CaseData for the existing run adapter.
+
+### Fixed host operations
+
+`tpmshx_quick_callbacks_v2` is optional for native typed input.
+Set `raw_objects=0` for native inputs and observations. Set it to 1 for the Python raw-object protocol, which requires a host callback.
+C++ selects every operation and numerical branch. A host operation can pack raw operands or perform its named object operation.
+It cannot call geometry, property, pressure or solver numerical implementations.
+Completed geometry-cache exchanges have their separate callback.
+Requests and observation views are borrowed. Keep packed input buffers valid until the next callback or the end of the native call. Copy observations before the callback returns.
+A nonzero callback return stops the stage with status 20. Python raises the saved original exception after the C call.
+Completed warning and cache observations remain visible when a later step fails.
+
+The table omits the `TPMSHX_QUICK_` prefix. `side` is 0 for A and 1 for B.
+Property indices are rho, mu, k, cp and Pr. Scalar slots follow the order stated in each row.
+Fields described as observations are read-only. Other listed fields carry raw packing or fixed operator results from the host.
+
+| Operation | Host boundary and request fields |
+| --- | --- |
+| `WARM_CHECK`, `LABEL_CHECK` | Do checks of the original warm objects and labels; no numerical output. |
+| `POSITIVE_SNAPSHOT`, `POSITIVE_CHECK` | Read inputs once in original order; `index` selects one of the 13 inputs, `flags[0]` returns its finite-positive result. |
+| `SHAPE_CHECK` | Do a check of warm-field shape; `flags[0]` returns the crossflow selection. Native constants supply the grid counts. |
+| `GEOMETRY_PACK` | Pack cell/wall in `scalars[0:2]`; `flags[0:3]` carry topology, cell precision and ratio precision. |
+| `MATERIAL_PACK` | Observe `geometry`; pack conductivity and chi in `scalars[0:2]`, topology/chi-present/precision in `flags[0:3]`. `index=1` selects final conductivity with chi=1. |
+| `WIDTH_PACK` | `index` selects x/y/z; pack raw length in `scalars[0]` and array precision in `flags[0]`. |
+| `OPERATING_SNAPSHOT` | Capture original operating values and resolved DF options; no numerical output. |
+| `PROPERTY_ENTRY` | Open the side's range scope; return the validated fluid label in `text`. |
+| `STATE_PACK`, `PROPERTY_PACK` | Pack broadcast operands in `property_inputs`. `flags[0]` identifies the fluid; state `flags[1]` selects scalar EOS return shape. Property `index` selects the getter. |
+| `EOS_CACHE_LOOKUP` | `flags[0]` identifies sCO2 or CO2. Return a hit in `flags[1]` and the completed scalar value or five-value bundle in `property_values`. The stage copies and checks the view. |
+| `EOS_CACHE_STORE` | Observe a completed scalar result in `property_values` and publish it through the existing cache owner. No calculation is permitted. |
+| `PROPERTY_RESULT` | Observe property arrays, kind, category and floating events. Restore the host scalar/array and deliver NumPy events. |
+| `PRANDTL_PACK` | Pack mu, cp and k in `property_inputs`, with `imaginary_inputs` and `categories` for the original value protocols. |
+| `SECTIONS_PACK` | Pack porosity, span, length and height in `scalars[0:4]`; `flags[0]` returns the original crossflow comparison. |
+| `SECTIONS_RESULT` | Observe A area/length and B area/length in `scalars[0:4]`; keep original host length objects. |
+| `PRESSURE_ENTRY` | Read the side's raw inlet values and copy DF options at the original pressure boundary. |
+| `FLOW_PACK`, `FLOW_RESULT` | Pack mass flow, area and density in `scalars[0:3]`; `flags[0]` returns the original air comparison. Observe mass flux and velocity in result `scalars[0:2]`. |
+| `PRESSURE_COMPARE` | `flags[0]` returns the separate original air comparison for pressure selection. |
+| `PRESSURE_PACK` | `flags[0:3]` carry air, topology and strict. Air packs mass flux/T/P/mu/length in `scalars[0:5]`; other fluids pack velocity/rho/mu/length in `scalars[0:4]`. Cell length is `scalars[5]`; wall thickness is `property_kind`. |
+| `PRESSURE_RESULT` | Observe `pressure`; deliver floating events and the existing pressure-limit warning or error. |
+| `FRACTION_PACK` | Pack the saved pressure-drop value and original inlet pressure in `scalars[0:2]`; C++ performs division. |
+| `CONFIG_SNAPSHOT` | Apply the original `asdict` conversion after pressure work. |
+| `UNIT_PACK`, `UNIT_RESULT` | `index` selects cell/wall. Pack the raw scalar for native division; `flags[0]=1` keeps a custom object's division protocol in the host. Observe the native conversion when the flag is zero. |
+| `FINAL_SNAPSHOT` | Capture environment and ModelRefs at their original final boundary. |
+| `FAILURE` | Observe status, text, property failure and phase in `flags[1]`; deliver events and map the original exception and cause. |
+
+The geometry cache callback uses action 0 for lookup and action 1 for publication.
+A hit supplies a completed geometry value and sets `hit=1`; a miss sets `hit=0` and C++ computes the value.
+Python keeps the shared cache key, hit/miss behavior and original stored value types. It does not add a Quick-only cache.
+The EOS operations share `sco2_props._prop` and `co2_props._scalar`, including their original 4096-item limit and keys.
+sCO2 looks up scalar entries before state validation; CO2 validates first. Arrays bypass both scalar caches.
+Only successful native calculations publish values. External property calls and cache clearing use these same owners.
+The replaced `shared/models/quick_design.py` is removed. Its frozen reference in `development/tests/quick_prepare_reference.py` remains for independent regression checks.
+`preprocess/app_modes/quick_design.py` only assembles CaseData from copied native fields and host snapshots.
+
+### Prepared execution and evidence
+
+The existing v1 run stage copies supplied prepared fields without new preparation or mutation.
+Constant properties use one thermal pass; mean properties use two. The second pass uses the first pass's returned temperatures.
 Analytical inlet pressure fractions remain fixed through both passes.
-The result owns all 15 fields, physical grid widths, pressure evidence and
-final-pass scalars. It also retains the complete driver pass records.
-Cancellation returns status 6 and publishes no result. The driver has no
-per-call CPU setting; process thread controls keep their existing behavior.
+The result owns all 15 fields, physical grid widths, pressure evidence, final-pass scalars and complete driver pass records.
+Cancellation returns status 6 and publishes no result. The driver has no per-call CPU setting; existing process thread controls apply.
 
-Python execution calls this run stage with a borrowed view of saved CaseData.
-It does not repeat preparation. It copies returned fields and their declarations
-before it releases the native result. The original grid, fixed-field dtypes,
-mass rates and inlet temperatures remain in the public result.
-Python keeps saved-case validation, warning routing and exception mapping.
-Raw Python preparation retains its current scalar, object and NumPy event protocols.
-Its stage integration remains open. Quick Design evaluation uses the native result
-stage. The host retains type adaptation, object operations and NumPy event policy.
-The native example does not complete N12 retirement.
-Quick Design remains a sizing approximation. Numerical convergence does not
-establish its physical validation, applicability or design qualification.
+Python passes a borrowed view of saved CaseData and copies returned fields and declarations before releasing the native result.
+The original grid, fixed-field dtypes, mass rates and inlet temperatures remain in the public result.
+Python keeps saved-case validation, warning routing and exception mapping. The native result stage owns Quick Design evaluation.
+A preparation example does not establish complete N12 delivery. Numerical, packaging, CI and independent review gates remain separate.
+Quick Design remains a sizing approximation. Numerical convergence does not establish physical validation, applicability or design qualification.

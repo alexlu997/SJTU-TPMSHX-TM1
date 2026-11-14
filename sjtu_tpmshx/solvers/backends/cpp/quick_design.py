@@ -99,7 +99,7 @@ class _StageResult(ct.Structure):
 
 def run_case(case, control):
     control.check_cancelled()
-    shape, p, op, _, widths, fixed = prepared_input(case)
+    shape, p, op, widths, fixed = prepared_input(case)
     if not control.native_library:
         raise ValueError('cpp requires RunControl.native_library for this host')
     path = Path(control.native_library)

@@ -5,7 +5,11 @@ from sjtu_tpmshx.shared.domain.module_ports import RunControl
 from sjtu_tpmshx.shared.domain.portable_data import mutable_data
 from sjtu_tpmshx.shared.domain.performance_result import MetricValue
 from sjtu_tpmshx.shared.domain.run_warnings import record_warning
-from sjtu_tpmshx.shared.models.quick_design import K_STEEL, LTNE_TOL
+from sjtu_tpmshx.shared.configs.model_parameters import load_quick_design_parameters
+
+_QUICK_PARAMETERS = load_quick_design_parameters()
+K_STEEL = _QUICK_PARAMETERS['k_s']
+LTNE_TOL = _QUICK_PARAMETERS['tol']
 from sjtu_tpmshx.shared.models import _native_flow
 
 @dataclass

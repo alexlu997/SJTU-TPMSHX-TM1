@@ -42,10 +42,12 @@ Python 准备入口对对称均匀和连续二维输入使用 v7 及 v3/v4 载�
 CaseData 与保存文件契约不变，原生失败直接传播，不选择其他准备路线。
 对称均匀和连续二维执行使用保存输入的原生生命周期，包括检查点与完整结果捕获。
 显式选择的归档库和未迁移模式保留原执行协议。
-独立 Quick Design 路径支持 native double 工况，并保留既有 LTNE 模型。
-Python Quick Design 执行通过保存的准备态调用原生 run 阶段。
-原始 Python 准备仍保留现有类型协议。
-Quick Design 评估使用原生结果阶段，宿主继续适配类型和事件。
+Quick Design 准备 v2 接受带类型的原始输入，并提供不创建热网格或设计场数组的独立压降查询。
+Python 通过 `_native_quick_prepare.py` 执行固定宿主协议，将原生输出复制到 CaseData。
+被替代的 `shared/models/quick_design.py` 已删除；默认值统一来自 `shared/configs/model_parameters_v1.json` 及生成的 C++ 常量。
+native-double v1 契约与既有 LTNE 模型继续可用。
+Python 执行通过保存的准备态调用原生 run 阶段；原生结果阶段负责 Quick Design 指标。
+准备与结果的宿主操作保留既有 Python 类型、缓存、警告和事件协议。
 阶段迁移期间，上述 Python 入口继续保留全部现有模式。
 
 ## 修改数值函数
@@ -63,10 +65,10 @@ Quick Design 评估使用原生结果阶段，宿主继续适配类型和事件�
 | 完整二维／三维与 Quick Design | [full_2d.cpp](solvers/native/src/full_2d.cpp): `solve_full_2d`; [full_3d.cpp](solvers/native/src/full_3d.cpp): `solve_full_3d`; [quick_design_driver.cpp](solvers/native/src/quick_design_driver.cpp): `solve_quick_design` |
 | 指标、物理平衡、分区统计与检查 | [result_metrics.cpp](solvers/native/src/result_metrics.cpp): `pressure_face`, `boundary_enthalpy_duty`; [result_balance.cpp](solvers/native/src/result_balance.cpp): `mass`, `energy`, `zone_std`; [result_checks.cpp](solvers/native/src/result_checks.cpp): `collect_range`, `strict_certificate` |
 | 完整阶段准备与执行 | [preparation_case.cpp](solvers/native/src/preparation_case.cpp): `prepare_case_2d`, `prepare_case_3d`; [stage_run.cpp](solvers/native/src/stage_run.cpp): `tpmshx_run_case_2d_v1/v2/v3`, `tpmshx_stage_run_2d_create_v1/create_saved_v1`; [stage_capture_2d.cpp](solvers/native/src/stage_capture_2d.cpp)：`tpmshx_stage_run_2d_get_capture_v1` |
-| Quick Design 阶段准备与执行 | [quick_design_prepare.cpp](solvers/native/src/quick_design_prepare.cpp): `tpmshx_prepare_quick_design_v1`; [quick_design_run.cpp](solvers/native/src/quick_design_run.cpp): `tpmshx_run_quick_design_v1` |
+| Quick Design 阶段准备与执行 | [quick_design_prepare_v2.cpp](solvers/native/src/quick_design_prepare_v2.cpp): `tpmshx_prepare_quick_design_v2`, `tpmshx_quick_pressure_fractions_v2`; [quick_design_prepare.cpp](solvers/native/src/quick_design_prepare.cpp)：保留 v1; [quick_design_run.cpp](solvers/native/src/quick_design_run.cpp): `tpmshx_run_quick_design_v1` |
 | 阶段评估与资格判断 | [result_stage.cpp](solvers/native/src/result_stage.cpp): `evaluate`, `evaluate_applicability`, `evaluate_physical_balance`, `evaluate_qualification` |
 
-几何库使用 geometry ABI 1／field ABI 2，准备库使用 preparation ABI 1，结果库使用 result ABI 2。
+几何库使用 geometry ABI 1／field ABI 2；准备库保留 ABI 1 加载入口，并增加带版本的 Quick 准备 v2 契约；结果库使用 result ABI 2。
 求解器的算法细节从上表 driver 进入对应 SIMPLE、压力和能量实现；[C++ 说明](../docs/cpp-migration.zh-CN.md)给出接口边界。
 Python 保留配置、DTO、I/O、缓存、NumPy 事件处理、GUI／搜索和离线研究。
 原生结果阶段负责完整结果的证据选择与资格；Python 将其输出适配到应用接口。
