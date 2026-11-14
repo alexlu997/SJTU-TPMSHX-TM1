@@ -219,6 +219,29 @@ struct FlowOutputStorage {
         borrowed(value.notices,value.notice_count);
         for (std::size_t i=0;i<value.notice_count;++i) borrowed(value.notices[i]);
     }
+    void owned(const tpmshx_preparation_case_3d_v1& value) const {
+        for (const auto item:value.widths) borrowed(item);
+        for (const auto item:value.edges) borrowed(item);
+        for (const auto item:{value.cell_length,value.wall_thickness,value.total_porosity,value.side_porosity,
+            value.permeability,value.forchheimer,value.solid_conductivity}) borrowed(item);
+        for (const auto& side:value.sides) {
+            borrowed(side.inlet_opening);borrowed(side.outlet_opening);
+            borrowed(side.drag_evidence.campaign);borrowed(side.drag_evidence.scope);
+            const auto& drag=side.drag_selection;
+            borrowed(drag.application_scope);borrowed(drag.fluid);borrowed(drag.calibration,drag.calibration_count);
+            for (std::size_t i=0;i<drag.calibration_count;++i) {
+                borrowed(drag.calibration[i].key);borrowed(drag.calibration[i].value);
+            }
+        }
+        for (const auto& model:value.models) {borrowed(model.name);borrowed(model.version);borrowed(model.side);}
+        evidence(value.evidence);
+        const auto& nu=value.input.sco2_nu;
+        for (const auto item:{nu.parameter_version,nu.source,nu.applicability,value.sco2_nu_model_version,
+            value.sco2_nu_interpretation,value.co2.version,value.co2.application_version,value.co2.pressure_model,
+            value.co2.correction_source,value.co2.property_model,value.co2.common_geometry}) borrowed(item);
+        borrowed(value.notices,value.notice_count);
+        for (std::size_t i=0;i<value.notice_count;++i) borrowed(value.notices[i]);
+    }
     void owned(const tpmshx_preparation_flow_2d_v3& value) const {owned(value.input);evidence(value.evidence);}
     void owned(const tpmshx_preparation_flow_case_2d_v3& value) const {owned(value.prepared);owned(value.flow);}
     void owned(const tpmshx_preparation_continuous_flow_2d_v4& value) const {
@@ -918,8 +941,12 @@ extern "C" int TPMSHX_PREPARATION_CALL tpmshx_prepare_case_3d_v1(
     const tpmshx_preparation_case_callbacks_v1* callbacks,tpmshx_preparation_case_3d_v1* result,
     tpmshx_preparation_case_failure_v2* failure,char* error,size_t capacity) {
     if (!tpmshx::fields::c_api::error_buffer_valid(error,capacity)) return TPMSHX_PREPARATION_INVALID;
+    const FlowOutputStorage storage{reinterpret_cast<const unsigned char*>(result),
+        result?sizeof(*result):0,failure,error,capacity};
     try {
-        require_buffer(source,source?1:0);require_buffer(result,result?1:0);require_buffer(failure,failure?1:0);
+        require_buffer(result,result?1:0);
+        if (result && result->owner) storage.owned(*result);
+        require_buffer(source,source?1:0);require_buffer(failure,failure?1:0);
         require_buffer(selected,selected?1:0);require_buffer(callbacks,callbacks?1:0);
         require_disjoint(error,capacity,source,source?1:0);require_disjoint(error,capacity,result,result?1:0);
         require_disjoint(error,capacity,selected,selected?1:0);require_disjoint(error,capacity,callbacks,callbacks?1:0);
