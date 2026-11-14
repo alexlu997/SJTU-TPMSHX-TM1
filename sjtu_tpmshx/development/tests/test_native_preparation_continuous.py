@@ -329,8 +329,8 @@ def _visible_buffers(value, path='result'):
     counts = {'ranges': 'range_count', 'warnings': 'warning_count',
               'events': 'event_count', 'source': 'source_count', 'shape': 'rank',
               'notices': 'notice_count', 'calibration': 'calibration_count',
-              'regions': 'region_count', 'zone_id': 'cell_count'}
-    if isinstance(value, (v1._Array, v1._Text)):
+              'regions': 'region_count', 'zone_id': 'cell_count', 'cells': 'cell_count'}
+    if getattr(value, '_fields_', None) in (v1._Array._fields_, v1._Text._fields_):
         if value.size:
             yield path, ct.cast(value.data, ct.c_void_p).value, value.size * ct.sizeof(value.data._type_)
     elif isinstance(value, ct.Structure):
