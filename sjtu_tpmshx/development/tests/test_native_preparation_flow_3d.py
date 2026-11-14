@@ -407,3 +407,68 @@ def test_native_3d_query_ranges_keep_standalone_notices_distinct(native, monkeyp
         assert standalone['events'] != scoped['events']
     finally:
         _release(native, result)
+
+
+_OWNED_FLOW_CASES = [('prepare_inlet_mass_capacities', True), ('resolve_inlet_flow', True),
+                     ('prepare_flow_case', True), ('resolve_inlet_flow', False)]
+
+
+@pytest.mark.parametrize('operation,targets', _OWNED_FLOW_CASES)
+@pytest.mark.parametrize('destination', ['error', 'failure'])
+@pytest.mark.parametrize('invalid', ['none', 'source_abi', 'source_size', 'input_abi',
+                                     'input_size', 'result_abi', 'result_size'])
+def test_native_3d_flow_owned_views_reject_diagnostic_aliases(native, operation, targets, destination, invalid):
+    from sjtu_tpmshx.development.tests.test_native_preparation_continuous import _check_owned_aliases
+
+    config = three._configuration()
+    config.sco2_nu = replace(config.sco2_nu, parameter_version='saved version',
+                            source='saved source', applicability='saved range')
+    if not targets:
+        config.fluid_A.T_in_K = -1.
+    status, result, _, error, _, source = _call(native, operation, config, (.003, .03) if targets else None)
+    assert status == 0, error
+    target = source.input if invalid.startswith('input') else source if invalid.startswith('source') else result
+    if invalid != 'none':
+        setattr(target, 'abi_version' if invalid.endswith('abi') else 'struct_size', 0)
+    before = bytes(source), [bytes(buffer) for buffer in source._source._buffers]
+    try:
+        labels = _check_owned_aliases(lambda failure, error, capacity:
+            getattr(native, 'tpmshx_' + operation + '_3d_v2')(ct.byref(source), None, None,
+                ct.byref(result), ct.cast(failure, ct.POINTER(abi._Failure)), error, capacity), result, destination)
+        assert any('.input.sco2_nu.source' in label for label in labels)
+        if targets:
+            assert any('.evidence.ranges' in label for label in labels)
+        else:
+            assert result.evidence.range_count == result.evidence.warning_count == result.evidence.event_count == 0
+        if operation == 'prepare_flow_case':
+            assert not result.prepared.owner and not result.flow.owner
+            assert any('.prepared.permeability' in label for label in labels)
+            assert any('.flow.input.sco2_nu.source' in label for label in labels)
+        assert (bytes(source), [bytes(buffer) for buffer in source._source._buffers]) == before
+    finally:
+        _release(native, result)
+
+
+@pytest.mark.parametrize('operation,targets', _OWNED_FLOW_CASES)
+def test_native_3d_flow_owned_output_keeps_safe_reuse_diagnostics(native, operation, targets):
+    from sjtu_tpmshx.development.tests.test_native_preparation_continuous import _visible_buffers
+
+    config = three._configuration()
+    config.sco2_nu = replace(config.sco2_nu, source='saved source')
+    status, result, _, error, _, source = _call(native, operation, config, (.003, .03) if targets else None)
+    assert status == 0, error
+    try:
+        outer = bytes(result)
+        before = [(label, pointer, ct.string_at(pointer, size)) for label, pointer, size in _visible_buffers(result)]
+        failure, error, events = abi._Failure(2, ct.sizeof(abi._Failure)), ct.create_string_buffer(4096), []
+        event = abi._EventFunction(lambda context, pointer: events.append(1) or 0)
+        callbacks = abi._Callbacks(1, ct.sizeof(abi._Callbacks), event, None)
+        status = getattr(native, 'tpmshx_' + operation + '_3d_v2')(ct.byref(source), None,
+            ct.byref(callbacks), ct.byref(result), ct.byref(failure), error, len(error))
+        assert status == 1 and failure.kind == 1 and b'release' in error.value
+        assert not events and bytes(result) == outer
+        assert before
+        for label, pointer, saved in before:
+            assert ct.string_at(pointer, len(saved)) == saved, label
+    finally:
+        _release(native, result)
