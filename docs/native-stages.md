@@ -29,6 +29,7 @@ Its resolved uniform prepared view uses run v2, including total-flow cases.
 The separate 3D preparation v1 accepts raw symmetric uniform cases at prescribed inlet speeds.
 It supports both topologies, all 16 ordered fluid pairs and the existing CFD and experimental DF selections.
 Its physical grid, typed ports and field evidence do not change the Python 3D production route.
+The separate 3D flow v2 adds capacity queries, flow resolution and complete preparation at the resolved speeds.
 The [uniform 3D preparation contract](#uniform-3d-preparation) defines its inputs and remaining gates.
 
 Full 2D/3D Python evaluation now calls the native result stage. Independent applicability, physical-balance and qualification queries use that stage.
@@ -205,7 +206,16 @@ Keep the original state checks, calibration limits and sCO2 Nu selections.
 This interface borrows its inputs and v1 event callbacks until return.
 Success commits one owner; failure does not publish a prepared result.
 Release the owner through the creating preparation library after the last use of its views.
-Spatial fields, nonzero delta and total mass-flow targets are outside this interface.
+The v1 interface excludes total mass-flow targets. The separate `FlowInput3D` v2 supports
+`prepare_inlet_mass_capacities`, `resolve_inlet_flow` and `prepare_case` for the same uniform geometry.
+Capacity uses the actual physical inlet slice, its side porosity, open area and density.
+It ignores old speeds and does not evaluate Nu or experimental velocity windows.
+Explicit targets replace both configured mass inputs; mixed inputs retain the other side's velocity.
+Resolution without a target copies the input without physical preparation.
+Complete preparation builds geometry once, resolves both speeds, then applies the original speed and model checks.
+Its final evidence retains static-property observations before resolved-speed preflight and final air/DF observations.
+The combined owner exposes borrowed preparation and flow views with null nested owners.
+Spatial fields and nonzero delta remain outside these raw interfaces.
 Python 3D preparation, host cache hooks, native 3D run/capture integration,
 memory checks near the cell cap and real 3D BO remain separate migration and acceptance gates.
 Saved CaseData still uses its existing validators and must not be prepared again.
@@ -306,6 +316,7 @@ The [fluid preparation example](../examples/cpp/prepare_fluids_2d.cpp) prepares 
 It links only the preparation library and does not execute a solve.
 The [3D preparation example](../examples/cpp/prepare_3d.cpp) prepares raw CO2/water inputs with different physical lengths and grid counts on each axis.
 It checks the reverse z-direction port and field evidence, with only the preparation library.
+The [3D mass-flow example](../examples/cpp/prepare_mass_3d.cpp) resolves total flow on reverse inlet faces before complete preparation.
 The [mass-flow preparation example](../examples/cpp/prepare_mass_2d.cpp) queries capacities, resolves an explicit pair and prepares the case.
 It also links only preparation and does not execute a solve.
 The [continuous preparation example](../examples/cpp/prepare_continuous_2d.cpp) starts with XY decisions and total flow.

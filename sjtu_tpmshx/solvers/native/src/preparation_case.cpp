@@ -1333,11 +1333,13 @@ g::Port checked_port_3d(g::Port port,const GridInput3D& input,const std::string&
     return port;
 }
 
-CaseInput3D validate_3d(CaseInput3D input) {
+CaseInput3D validate_3d(CaseInput3D input,bool allow_mass=false,bool velocities=true) {
     if (input.geometry_mode || input.geometry.delta_levelset!=0.)
         throw std::invalid_argument("native 3D preparation currently requires symmetric uniform geometry");
     validate_nu(input.sco2_nu);
     if (input.df_mode>1) throw std::invalid_argument("native 3D preparation DF mode must be CFD or experimental");
+    if (allow_mass) for (std::size_t i=0;i<2;++i) if (input.sides[i].mass_flow_kg_s)
+        positive(*input.sides[i].mass_flow_kg_s,std::string("fluid_")+(i?"B":"A")+".mass_flow_kg_s");
     const char* dimensions[]{"geometry.L_dom_m","geometry.H_dom_m","geometry.Lz_m"};
     for (std::size_t axis=0;axis<2;++axis) {
         input.grid.lengths[axis]=g::checked(input.grid.lengths[axis]);
@@ -1353,7 +1355,7 @@ CaseInput3D validate_3d(CaseInput3D input) {
     input.grid.lengths[2]=g::weak(input.grid.lengths[2].value);
     for (std::size_t i=0;i<2;++i) {
         const auto& inlet=input.sides[i];const std::string side=i?"B":"A";
-        if (inlet.mass_flow_kg_s)
+        if (inlet.mass_flow_kg_s && !allow_mass)
             throw std::invalid_argument("native 3D preparation currently requires prescribed inlet velocity");
         positive(inlet.temperature_K,"fluid_"+side+".T_in_K");positive(inlet.pressure_Pa,"fluid_"+side+".P_in_Pa");
     }
@@ -1373,8 +1375,8 @@ CaseInput3D validate_3d(CaseInput3D input) {
                 throw PreparationError(1,std::string("sCO2 fluid ")+(i?"B":"A")+" pressure must be 7.9..16 MPa",1,static_cast<std::uint32_t>(i));
         }
     }
-    for (std::size_t i=0;i<2;++i) positive(input.sides[i].velocity_m_s,std::string("fluid_")+(i?"B":"A")+".u_mps");
-    if (input.df_mode) for (std::size_t i=0;i<2;++i) if (input.sides[i].fluid!=Fluid::co2) {
+    if (velocities) for (std::size_t i=0;i<2;++i) positive(input.sides[i].velocity_m_s,std::string("fluid_")+(i?"B":"A")+".u_mps");
+    if (velocities && input.df_mode) for (std::size_t i=0;i<2;++i) if (input.sides[i].fluid!=Fluid::co2) {
         const auto selected=experiment_selection(input,input.sides[i],i).first;
         if (selected.scope) for (std::size_t axis=0;axis<3;++axis) {
             const auto length=input.grid.lengths[axis].value,target=df_data::hx_domain_m[axis];
@@ -1393,7 +1395,8 @@ CaseInput3D validate_3d(CaseInput3D input) {
     scalar(model.solid_conductivity_W_mK,input.kinds.solid_conductivity);
     for (std::size_t i=0;i<2;++i) {
         const auto& inlet=input.sides[i];const auto& kinds=input.kinds.sides[i];
-        scalar(inlet.velocity_m_s,kinds.velocity);scalar(inlet.temperature_K,kinds.temperature);scalar(inlet.pressure_Pa,kinds.pressure);
+        if (velocities) scalar(inlet.velocity_m_s,kinds.velocity);
+        scalar(inlet.temperature_K,kinds.temperature);scalar(inlet.pressure_Pa,kinds.pressure);
     }
     return input;
 }
@@ -1437,17 +1440,11 @@ void physical_grid_3d(PreparedCase3D& output) {
             " exceeds the "+std::to_string(input.max_cells)+"-cell cap");
 }
 
-}  // namespace
-
-PreparedCase3D prepare_case_3d(const CaseInput3D& requested,const PreparationOptions& options,
-                             const PreparationCallbacks& callbacks) {
-    FloatingEnvironment floating_environment;
-    PreparedCase3D output{};output.input=validate_3d(requested);output.options=options;
-    const auto& input=output.input;const auto& model=input.geometry;
-    Records records{output.evidence,callbacks,{},{}};
+void prepare_geometry_3d(PreparedCase3D& output,Records& records,bool check_speed) {
+    const auto& input=output.input;const auto& model=input.geometry;const auto& options=output.options;
     output.uniform_geometry=material_geometry(input,options);
     for (std::size_t i=0;i<2;++i) water_inlet_3d(input.sides[i],i,"pipeline inlet");
-    preflight(input,options,output.uniform_geometry.geometry,input.sides,records);
+    if (check_speed) preflight(input,options,output.uniform_geometry.geometry,input.sides,records);
     physical_grid_3d(output);
     const auto cells=count(count(output.widths[0].size(),output.widths[1].size()),output.widths[2].size());
     const auto& uniform=output.uniform_geometry.geometry;
@@ -1474,6 +1471,11 @@ PreparedCase3D prepare_case_3d(const CaseInput3D& requested,const PreparationOpt
     const auto solid=geometry::solid_conductivity(calibration.solid_tortuosity,uniform.epsilon,
         model.solid_conductivity_W_mK,options.chi_override,64);
     output.solid_conductivity.assign(cells,solid);
+}
+
+void finish_case_3d(PreparedCase3D& output,Records& records) {
+    const auto& input=output.input;
+    const auto cells=output.total_porosity.size();
     for (std::size_t i=0;i<2;++i) if (input.sides[i].fluid==Fluid::air) {
         std::array<ScalarKind,13> kinds{};
         inlet_properties(input,input.sides[i],i,output.uniform_geometry,records,kinds,"scalar-hv-bulk");
@@ -1506,7 +1508,96 @@ PreparedCase3D prepare_case_3d(const CaseInput3D& requested,const PreparationOpt
         {df_data::df_t_nodes.front(),df_data::df_t_nodes.back()},
         g::multiply(scalar(output.wall_thickness.front(),input.kinds.wall_thickness),g::weak(1e3)).value,shape);
     finish_warnings(records);
+}
+
+void capacities_3d(const PreparedCase3D& prepared,InletFlow3D& flow) {
+    const std::array<std::size_t,3> shape{{prepared.widths[0].size(),prepared.widths[1].size(),prepared.widths[2].size()}};
+    const auto field=[](const std::vector<double>& values) {return FlowValues{{values.data(),values.size()},64,1};};
+    for (std::size_t i=0;i<2;++i) {
+        const auto& side=prepared.sides[i];
+        flow.capacities[i]=inlet_capacity_3d(field(prepared.side_porosity),shape,prepared.input.sides[i].port.direction,
+            field(prepared.widths[static_cast<std::size_t>(side.axes[0])]),
+            field(prepared.widths[static_cast<std::size_t>(side.axes[2])]),field(side.openings[0]),g::weak(side.properties[0]));
+        if (!std::isfinite(flow.capacities[i].value) || flow.capacities[i].value<=0.)
+            throw std::invalid_argument("side "+std::string(i?"B":"A")+": inlet density times open pore area must be finite and positive");
+    }
+    flow.have_capacities=true;
+}
+
+std::array<std::optional<double>,2> flow_targets(const InletFlowRequest3D& request,CaseInput3D& input) {
+    input=request.input;
+    if (request.explicit_targets) {
+        for (std::size_t i=0;i<2;++i) {
+            const auto target=(*request.explicit_targets)[i];
+            if (!std::isfinite(target) || target<=0.)
+                throw std::invalid_argument("mass_flow_"+std::string(i?"B":"A")+"_kg_s must be finite and positive");
+            input.sides[i].mass_flow_kg_s.reset();
+        }
+        return {(*request.explicit_targets)[0],(*request.explicit_targets)[1]};
+    }
+    return {input.sides[0].mass_flow_kg_s,input.sides[1].mass_flow_kg_s};
+}
+
+void resolve_speeds(const InletFlowRequest3D& request,const std::array<std::optional<double>,2>& targets,
+                    InletFlow3D& flow) {
+    for (std::size_t i=0;i<2;++i) {
+        auto& inlet=flow.input.sides[i];auto& kind=flow.input.kinds.sides[i].velocity;
+        if (targets[i]) {
+            flow.speeds[i]=inlet_speed(flow_scalar(*targets[i],request.target_kinds[i]),flow.capacities[i]);
+            inlet.velocity_m_s=flow.speeds[i].value;
+            kind={flow.speeds[i].precision,flow.speeds[i].strong,flow.speeds[i].strong?1u:0u};
+        } else flow.speeds[i]={inlet.velocity_m_s,kind.precision,kind.strong};
+    }
+    flow.input=validate_3d(flow.input,true);
+}
+}  // namespace
+
+PreparedCase3D prepare_case_3d(const CaseInput3D& requested,const PreparationOptions& options,
+                             const PreparationCallbacks& callbacks) {
+    FloatingEnvironment floating_environment;
+    PreparedCase3D output{};output.input=validate_3d(requested);output.options=options;
+    Records records{output.evidence,callbacks,{},{}};
+    prepare_geometry_3d(output,records,true);finish_case_3d(output,records);
     return output;
+}
+
+InletFlow3D prepare_inlet_mass_capacities_3d(const CaseInput3D& input,const PreparationOptions& options,
+                                          const PreparationCallbacks& callbacks) {
+    FloatingEnvironment floating_environment;
+    InletFlow3D output;output.input=input;
+    PreparedCase3D prepared{};prepared.input=validate_3d(input,true,false);prepared.options=options;
+    Records records{prepared.evidence,callbacks,{},{}};
+    prepare_geometry_3d(prepared,records,false);capacities_3d(prepared,output);finish_warnings(records);
+    output.evidence=std::move(prepared.evidence);return output;
+}
+
+InletFlow3D resolve_inlet_flow_3d(const InletFlowRequest3D& request,const PreparationOptions& options,
+                               const PreparationCallbacks& callbacks) {
+    FloatingEnvironment floating_environment;
+    InletFlow3D output;const auto targets=flow_targets(request,output.input);
+    if (!targets[0] && !targets[1]) return output;
+    output=prepare_inlet_mass_capacities_3d(output.input,options,callbacks);
+    resolve_speeds(request,targets,output);return output;
+}
+
+PreparedFlowCase3D prepare_flow_case_3d(const InletFlowRequest3D& request,const PreparationOptions& options,
+                                     const PreparationCallbacks& callbacks) {
+    FloatingEnvironment floating_environment;
+    PreparedFlowCase3D output;const auto targets=flow_targets(request,output.flow.input);
+    if (!targets[0] && !targets[1]) {
+        output.prepared=prepare_case_3d(output.flow.input,options,callbacks);return output;
+    }
+    auto& prepared=output.prepared;
+    prepared.input=validate_3d(output.flow.input,true,false);prepared.options=options;
+    Records records{prepared.evidence,callbacks,{},{}};
+    prepare_geometry_3d(prepared,records,false);capacities_3d(prepared,output.flow);
+    output.flow.evidence=prepared.evidence;
+    Records preliminary{output.flow.evidence,callbacks,records.warning_order,records.plain_warnings};
+    finish_warnings(preliminary);
+    resolve_speeds(request,targets,output.flow);
+    prepared.input=output.flow.input;
+    preflight(prepared.input,options,prepared.uniform_geometry.geometry,prepared.input.sides,records);
+    finish_case_3d(prepared,records);return output;
 }
 
 }  // namespace tpmshx::preparation

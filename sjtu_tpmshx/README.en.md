@@ -38,7 +38,8 @@ Preparation v4 supplies continuous XY fields and full local drag to run v3. Run 
 Separate 3D preparation v1 accepts raw symmetric uniform inputs at prescribed speeds for all 16 ordered fluid pairs.
 It retains physical grids, typed ports, six directions, the cell cap and existing CFD/experimental limits.
 Side porosity is already split; base K/cF fields and side application factors remain separate.
-3D run/capture, total mass flow, spatial/asymmetric fields and host cache hooks remain separate integration gates.
+Separate 3D flow v2 adds capacity queries, total-flow resolution and complete preparation with one geometry calculation.
+3D run/capture, spatial/asymmetric fields and host cache hooks remain separate integration gates.
 Memory use near the cell cap and real 3D BO need separate acceptance.
 The Python entries above retain all current modes while stage migration continues.
 The Python preparation entries use v7 with v3/v4 payloads for symmetric uniform and continuous 2D inputs.

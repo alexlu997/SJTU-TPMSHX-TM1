@@ -147,7 +147,9 @@ The owner keeps physical grid fields, six port directions, scalar tags and model
 Side porosity is already split. K/cF fields remain unscaled; side evidence records the application factors.
 The host supplies the resolved cell cap. The [stage contract](native-stages.md#uniform-3d-preparation) defines ownership and port rules.
 The Python 3D production routes remain unchanged.
-Host cache hooks, native 3D run/capture, total mass flow and spatial/asymmetric fields need separate stage integration.
+The separate 3D flow v2 adds capacity, resolution and complete preparation for configured or explicit total mass flow.
+It reuses one physical geometry and retains the original static-to-speed evidence order.
+Host cache hooks, native 3D run/capture and spatial/asymmetric fields need separate stage integration.
 Memory use near the cell cap and real 3D BO remain acceptance gates.
 This raw interface does not replace saved CaseData validation.
 
