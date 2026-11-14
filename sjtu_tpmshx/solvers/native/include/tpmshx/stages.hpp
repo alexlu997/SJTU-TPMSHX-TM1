@@ -1,5 +1,6 @@
 #pragma once
 #include "tpmshx/stage_run_c_api.h"
+#include "tpmshx/preparation_case_3d_c_api.h"
 #include "tpmshx/quick_design_stage_c_api.h"
 #include <algorithm>
 #include <stdexcept>
@@ -40,6 +41,7 @@ using InletFlow2D=detail::Owned<tpmshx_preparation_flow_2d_v3,tpmshx_preparation
 using PreparedFlowCase2D=detail::Owned<tpmshx_preparation_flow_case_2d_v3,tpmshx_preparation_flow_case_2d_release_v3>;
 using ContinuousInletFlow2D=detail::Owned<tpmshx_preparation_continuous_flow_2d_v4,tpmshx_preparation_continuous_flow_2d_release_v4>;
 using PreparedContinuousCase2D=detail::Owned<tpmshx_preparation_continuous_case_2d_v4,tpmshx_preparation_continuous_case_2d_release_v4>;
+using PreparedCase3D=detail::Owned<tpmshx_preparation_case_3d_v1,tpmshx_preparation_case_3d_release_v1>;
 using RunResult2D=detail::Owned<tpmshx_stage_run_result_2d_v1,tpmshx_stage_run_2d_release_v1>;
 using RunState=detail::Owned<tpmshx_run_state_v1,tpmshx_run_state_release_v1>;
 using Evaluation=detail::Owned<tpmshx_stage_output_v1,tpmshx_result_stage_release_v1>;
@@ -60,6 +62,16 @@ struct CaseInput2Dv2 : tpmshx_preparation_case_input_2d_v2 {
         values=CaseInput2D{};
         kinds.cell_length=kinds.wall_thickness=kinds.solid_conductivity={64,0,0};
         for (auto& side:kinds.sides) side.velocity=side.temperature=side.pressure={64,0,0};
+    }
+};
+struct CaseInput3D : tpmshx_preparation_case_input_3d_v1 {
+    CaseInput3D():tpmshx_preparation_case_input_3d_v1{} {
+        abi_version=TPMSHX_PREPARATION_CASE_3D_ABI_VERSION;struct_size=sizeof(tpmshx_preparation_case_input_3d_v1);
+        max_cells=2000000;
+        for (auto& length:lengths_m) length={0.,64,0};
+        kinds.cell_length=kinds.wall_thickness=kinds.solid_conductivity={64,0,0};
+        for (auto& side:kinds.sides) side.velocity=side.temperature=side.pressure={64,0,0};
+        for (auto& side:sides) side.port.active=1;
     }
 };
 struct FlowInput2D : tpmshx_preparation_flow_input_2d_v3 {
@@ -186,6 +198,14 @@ inline PreparedCase2Dv2 prepare_case(const CaseInput2Dv2& input,const Preparatio
     char error[4096]{};
     detail::check(tpmshx_prepare_case_2d_v2(&input,&options,nullptr,&output,&failure,error,sizeof(error)),error);
     return PreparedCase2Dv2(output);
+}
+inline PreparedCase3D prepare_case(const CaseInput3D& input,const PreparationOptions& options={}) {
+    tpmshx_preparation_case_3d_v1 output{};tpmshx_preparation_case_failure_v2 failure{};
+    output.abi_version=TPMSHX_PREPARATION_CASE_3D_ABI_VERSION;output.struct_size=sizeof(output);
+    failure.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V2;failure.struct_size=sizeof(failure);
+    char error[4096]{};
+    detail::check(tpmshx_prepare_case_3d_v1(&input,&options,nullptr,&output,&failure,error,sizeof(error)),error);
+    return PreparedCase3D(output);
 }
 inline InletFlow2D prepare_inlet_mass_capacities(const FlowInput2D& input,const PreparationOptions& options={}) {
     tpmshx_preparation_flow_2d_v3 output{};tpmshx_preparation_case_failure_v2 failure{};

@@ -16,3 +16,17 @@ The macOS arm64 quotient keeps the fused expressions in the locked Python and Nu
 Other supported targets keep separate operations. Global floating-point options stay unchanged.
 The independent Python references remain under `development/tests/`.
 They do not call the native formulas that they check.
+
+## Uniform 3D preparation
+
+The separate `prepare_case_3d` sequence in [preparation_case.cpp](../src/preparation_case.cpp)
+uses the existing grid, geometry, property and DF cores.
+It retains the production 3D physical `(x,y,z)` order, six axis maps,
+typed port arithmetic and the resolved cell cap.
+Its uniform side porosity is already split. Base K/cF fields remain unscaled;
+side evidence records the CO2 or experimental application factors.
+The sequence keeps A then B inlet properties, air-only bulk Nu observations,
+then DF application evidence. Existing state and calibration limits remain.
+The raw C interface owns returned buffers and accepts v1 event callbacks.
+Python production preparation and its host cache hooks remain separate consumers.
+This interface adds no 3D solve, capture, mass-flow or spatial/asymmetric preparation.

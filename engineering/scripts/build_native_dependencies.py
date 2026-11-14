@@ -628,7 +628,8 @@ def verify(cache: Path, host: str, component: str = "all") -> None:
         return
     preparation_dir = cache / "build" / f"preparation-{host}"
     for caller in ("preparation_c_static", "preparation_c_shared",
-                   "preparation_case_c_static", "preparation_case_c_shared"):
+                   "preparation_case_c_static", "preparation_case_c_shared",
+                   "preparation_case_3d_c_static", "preparation_case_3d_c_shared"):
         run([preparation_dir / f"{caller}{suffix}"], log)
     prefix, shared_suffix = ("", ".dll") if host == "windows-x64" else ("lib", ".dylib")
     preparation = ct.CDLL(str(preparation_dir / (prefix + 'tpmshx_preparation_shared' + shared_suffix)))
