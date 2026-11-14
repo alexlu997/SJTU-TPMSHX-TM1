@@ -676,3 +676,118 @@ def test_spatial_3d_rejects_invalid_raw_transport(native, operation, selection):
         assert error and failure.kind == 1
     assert bytes(result) == bytes(type(result)(4, ct.sizeof(result)))
     _release(native, result)
+
+
+@pytest.mark.parametrize('operation,targets', flow._OWNED_FLOW_CASES)
+@pytest.mark.parametrize('destination', ['error', 'failure'])
+@pytest.mark.parametrize('spatial,invalid', [pytest.param(True, invalid, id='grid-' + invalid)
+    for invalid in ('none', 'source_abi', 'source_size', 'values_abi', 'values_size',
+                    'input_abi', 'input_size', 'result_abi', 'result_size')]
+    + [pytest.param(False, 'none', id='uniform-none')])
+def test_spatial_3d_owned_views_reject_diagnostic_aliases(native, operation, targets, destination, spatial, invalid):
+    from sjtu_tpmshx.development.tests.test_native_preparation_continuous import _check_owned_aliases
+
+    config = _configuration(spatial=spatial, delta=.12 if spatial else 0.)
+    config.sco2_nu = replace(config.sco2_nu, parameter_version='saved version',
+                            source='saved source', applicability='saved range')
+    if not targets:
+        config.fluid_A.T_in_K = -1.
+        if spatial:
+            config.zones.grid['cells'][0]['x1'] = -1.
+    status, result, _, error, _, source = _call(native, operation, config, (.003, .03) if targets else None)
+    assert status == 0, error
+    target = (source.values.input if invalid.startswith('input') else source.values
+        if invalid.startswith('values') else source if invalid.startswith('source') else result)
+    if invalid != 'none':
+        setattr(target, 'abi_version' if invalid.endswith('abi') else 'struct_size', 0)
+    before = bytes(source), bytes(source._cells), [bytes(buffer) for buffer in source._values._source._buffers]
+    try:
+        labels = _check_owned_aliases(lambda failure, error, capacity:
+            getattr(native, 'tpmshx_' + operation + '_3d_v4')(ct.byref(source), None, None,
+                ct.byref(result), ct.cast(failure, ct.POINTER(abi._Failure)), error, capacity), result, destination)
+        assert ('result.cells' in labels) == spatial
+        assert result.cell_count == (len(config.zones.grid['cells']) if spatial else 0)
+        assert bool(result.cells) == spatial
+        for name in ('parameter_version', 'source', 'applicability'):
+            assert 'result.flow.input.sco2_nu.' + name in labels
+        assert not result.flow.owner
+        if targets:
+            assert any('.flow.evidence.ranges' in label for label in labels)
+        else:
+            assert result.flow.evidence.range_count == result.flow.evidence.warning_count == result.flow.evidence.event_count == 0
+        if operation == 'prepare_flow_case':
+            assert not result.prepared.owner
+            for name in ('prepared.permeability', 'side_b_porosity'):
+                assert 'result.' + name in labels
+            for name in ('area_density_per_m', 'hydraulic_diameter_m', 'thermal_porosity'):
+                assert ('result.' + name in labels) == spatial
+                assert bool(getattr(result, name).data) == spatial
+                assert bool(getattr(result, name).size) == spatial
+            address_a = ct.cast(result.prepared.side_porosity.data, ct.c_void_p).value
+            address_b = ct.cast(result.side_b_porosity.data, ct.c_void_p).value
+            assert (address_a == address_b) == (not spatial)
+        assert (bytes(source), bytes(source._cells), [bytes(buffer) for buffer in source._values._source._buffers]) == before
+    finally:
+        _release(native, result)
+
+
+@pytest.mark.parametrize('operation,targets', flow._OWNED_FLOW_CASES)
+@pytest.mark.parametrize('spatial', [True, False], ids=['grid-offset', 'uniform-zero'])
+def test_spatial_3d_owned_output_keeps_safe_reuse_diagnostics(native, operation, targets, spatial):
+    from sjtu_tpmshx.development.tests.test_native_preparation_continuous import _visible_buffers
+
+    config = _configuration(spatial=spatial, delta=.12 if spatial else 0.)
+    config.sco2_nu = replace(config.sco2_nu, parameter_version='saved version',
+                            source='saved source', applicability='saved range')
+    if not targets:
+        config.fluid_A.T_in_K = -1.
+        if spatial:
+            config.zones.grid['cells'][0]['x1'] = -1.
+    status, result, _, error, _, source = _call(native, operation, config, (.003, .03) if targets else None)
+    assert status == 0, error
+    source_before = bytes(source), bytes(source._cells), [bytes(buffer) for buffer in source._values._source._buffers]
+    try:
+        outer = bytes(result)
+        before = [(label, pointer, ct.string_at(pointer, size)) for label, pointer, size in _visible_buffers(result)]
+        failure, error, events = abi._Failure(2, ct.sizeof(abi._Failure)), ct.create_string_buffer(4096), []
+        event = abi._EventFunction(lambda context, pointer: events.append(1) or 0)
+        callbacks = abi._Callbacks(1, ct.sizeof(abi._Callbacks), event, None)
+        status = getattr(native, 'tpmshx_' + operation + '_3d_v4')(ct.byref(source), None,
+            ct.byref(callbacks), ct.byref(result), ct.byref(failure), error, len(error))
+        assert status == 1 and failure.kind == 1
+        assert error.value == b'release the previous prepared case before reusing its result'
+        assert not events and bytes(result) == outer
+        assert before
+        for label, pointer, saved in before:
+            assert ct.string_at(pointer, len(saved)) == saved, label
+        assert (bytes(source), bytes(source._cells), [bytes(buffer) for buffer in source._values._source._buffers]) == source_before
+    finally:
+        _release(native, result)
+
+
+@pytest.mark.parametrize('view', ['cells', 'side_b_porosity', 'area_density_per_m'])
+def test_spatial_3d_owned_spatial_views_reject_error_aliases(native, view):
+    from sjtu_tpmshx.development.tests.test_native_preparation_continuous import _visible_buffers
+
+    config = _configuration()
+    config.sco2_nu = replace(config.sco2_nu, parameter_version='saved version',
+                            source='saved source', applicability='saved range')
+    status, result, _, error, _, source = _call(native, 'prepare_flow_case', config, (.003, .03))
+    assert status == 0, error
+    source_before = bytes(source), bytes(source._cells), [bytes(buffer) for buffer in source._values._source._buffers]
+    try:
+        outer = bytes(result)
+        before = [(label, pointer, ct.string_at(pointer, size)) for label, pointer, size in _visible_buffers(result)]
+        address, saved = next((pointer, saved) for label, pointer, saved in before if label == 'result.' + view)
+        address += next(index for index, value in enumerate(saved) if value)
+        failure = abi._Failure(2, ct.sizeof(abi._Failure))
+        failure_before = bytes(failure)
+        status = native.tpmshx_prepare_flow_case_3d_v4(ct.byref(source), None, None,
+            ct.byref(result), ct.byref(failure), ct.cast(address, ct.POINTER(ct.c_char)), 1)
+        assert status == 1 and bytes(result) == outer
+        for label, pointer, saved in before:
+            assert ct.string_at(pointer, len(saved)) == saved, label
+        assert bytes(failure) == failure_before
+        assert (bytes(source), bytes(source._cells), [bytes(buffer) for buffer in source._values._source._buffers]) == source_before
+    finally:
+        _release(native, result)
