@@ -553,3 +553,84 @@ def test_continuous_3d_rejects_rounded_control_axes_before_sampling(
         assert two._host_events(live) == state['events']
     finally:
         _release(native, result)
+
+
+@pytest.mark.parametrize('operation,targets', flow._OWNED_FLOW_CASES)
+@pytest.mark.parametrize('destination', ['error', 'failure'])
+@pytest.mark.parametrize('invalid', ['none', 'source_abi', 'source_size', 'values_abi',
+    'values_size', 'input_abi', 'input_size', 'result_abi', 'result_size'])
+def test_continuous_3d_owned_views_reject_diagnostic_aliases(native, operation, targets, destination, invalid):
+    config = _configuration(nz=1)
+    config.sco2_nu = replace(config.sco2_nu, parameter_version='saved version',
+                            source='saved source', applicability='saved range')
+    if not targets:
+        config.fluid_A.T_in_K = -1.
+        config.zones.config['spline_order'] = 0
+    status, result, _, error, _, source = _call(native, operation, config, (.003, .03) if targets else None)
+    assert status == 0, error
+    target = (source.values.input if invalid.startswith('input') else source.values
+        if invalid.startswith('values') else source if invalid.startswith('source') else result)
+    if invalid != 'none':
+        setattr(target, 'abi_version' if invalid.endswith('abi') else 'struct_size', 0)
+    before = bytes(source), [bytes(buffer) for buffer in source._values._source._buffers], source._decision.tobytes()
+    try:
+        labels = two._check_owned_aliases(lambda failure, error, capacity:
+            getattr(native, 'tpmshx_' + operation + '_3d_v3')(ct.byref(source), None, None,
+                ct.byref(result), ct.cast(failure, ct.POINTER(abi._Failure)), error, capacity), result, destination)
+        assert any('.controls.decision_mm' in label for label in labels)
+        assert any('.flow.input.sco2_nu.source' in label for label in labels)
+        assert not result.flow.owner
+        if targets:
+            assert any('.flow.evidence.ranges' in label for label in labels)
+        else:
+            assert result.flow.evidence.range_count == result.flow.evidence.warning_count == result.flow.evidence.event_count == 0
+        if operation == 'prepare_flow_case':
+            assert not result.prepared.owner
+            for name in ('prepared.permeability', 'area_density_per_m', 'hydraulic_diameter_m', 'thermal_porosity'):
+                assert any('.' + name in label for label in labels), name
+        assert (bytes(source), [bytes(buffer) for buffer in source._values._source._buffers], source._decision.tobytes()) == before
+    finally:
+        _release(native, result)
+
+
+@pytest.mark.parametrize('operation,targets', flow._OWNED_FLOW_CASES)
+def test_continuous_3d_owned_output_keeps_safe_reuse_diagnostics(native, operation, targets):
+    config = _configuration(nz=1)
+    config.sco2_nu = replace(config.sco2_nu, source='saved source')
+    if not targets:
+        config.fluid_A.T_in_K = -1.
+        config.zones.config['spline_order'] = 0
+    status, result, _, error, _, source = _call(native, operation, config, (.003, .03) if targets else None)
+    assert status == 0, error
+    try:
+        outer = bytes(result)
+        before = [(label, pointer, ct.string_at(pointer, size)) for label, pointer, size in two._visible_buffers(result)]
+        failure, error, events = abi._Failure(2, ct.sizeof(abi._Failure)), ct.create_string_buffer(4096), []
+        event = abi._EventFunction(lambda context, pointer: events.append(1) or 0)
+        callbacks = abi._Callbacks(1, ct.sizeof(abi._Callbacks), event, None)
+        status = getattr(native, 'tpmshx_' + operation + '_3d_v3')(ct.byref(source), None,
+            ct.byref(callbacks), ct.byref(result), ct.byref(failure), error, len(error))
+        assert status == 1 and failure.kind == 1 and b'release' in error.value
+        assert not events and bytes(result) == outer
+        assert before
+        for label, pointer, saved in before:
+            assert ct.string_at(pointer, len(saved)) == saved, label
+    finally:
+        _release(native, result)
+
+
+@pytest.mark.parametrize('destination', ['error', 'failure'])
+def test_continuous_3d_owned_drag_text_rejects_diagnostic_aliases(native, destination):
+    config = _configuration(mode='experimental', nz=3)
+    config.geometry.L_dom_m, config.geometry.H_dom_m, config.geometry.Lz_m = .182, .042, .042
+    status, result, _, error, _, source = _call(native, 'prepare_flow_case', config)
+    assert status == 0, error
+    try:
+        labels = two._check_owned_aliases(lambda failure, error, capacity:
+            native.tpmshx_prepare_flow_case_3d_v3(ct.byref(source), None, None,
+                ct.byref(result), ct.cast(failure, ct.POINTER(abi._Failure)), error, capacity), result, destination)
+        for side in range(2):
+            for name in ('transfer_policy', 'geometry_application'):
+                assert any(f'.drag[{side}].{name}' in label for label in labels), (side, name)
+    finally:
+        _release(native, result)
