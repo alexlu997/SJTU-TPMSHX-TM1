@@ -705,3 +705,58 @@ def test_native_3d_refined_equal_breakpoints_keep_first_kind(native, monkeypatch
     monkeypatch.setattr(shared_grid, 'build_port_wall_grid', frozen_grid)
     _compare(native, config)
     assert calls == [(12, 32, 32)]
+
+
+@pytest.mark.parametrize('model', ['air', 'co2', 'experimental', 'saved-nu', 'warnings'])
+@pytest.mark.parametrize('destination', ['error', 'failure'])
+def test_native_3d_owned_views_reject_diagnostic_aliases(native, model, destination):
+    from sjtu_tpmshx.development.tests.test_native_preparation_continuous import _check_owned_aliases
+
+    pair = ('co2', 'air') if model == 'co2' else ('sco2', 'water') if model == 'saved-nu' else ('air', 'water')
+    config = _configuration(pair=pair, mode='experimental' if model == 'experimental' else 'cfd_smooth')
+    if model == 'experimental':
+        config.geometry.L_dom_m, config.geometry.H_dom_m, config.geometry.Lz_m = .182, .042, .042
+    elif model == 'warnings':
+        config.fluid_A.u_mps = 1000.
+    elif model == 'saved-nu':
+        config.sco2_nu = replace(config.sco2_nu, mode='experimental', alpha_D=1.13, alpha_G=2.27,
+            parameter_version='saved-test-version', source='saved source', applicability='saved range')
+    status, result, _, error, _, source = _call(native, config)
+    assert status == 0, error
+    source_before = bytes(source)
+    try:
+        labels = _check_owned_aliases(lambda failure, error, capacity: native.tpmshx_prepare_case_3d_v1(
+            ct.byref(source), None, None, ct.byref(result),
+            ct.cast(failure, ct.POINTER(abi._Failure)), error, capacity), result, destination)
+        assert any('.permeability' in label for label in labels)
+        if model == 'co2':
+            assert any('.co2.common_geometry' in label for label in labels)
+            assert any('.notices[' in label for label in labels)
+        elif model == 'experimental':
+            assert any('.calibration[0]' in label for label in labels)
+        elif model == 'saved-nu':
+            assert any('.input.sco2_nu.parameter_version' in label for label in labels)
+            assert any('.notices[' in label for label in labels)
+        elif model == 'warnings':
+            assert any('.evidence.warnings[' in label for label in labels)
+            assert any('.evidence.events[' in label for label in labels)
+        assert bytes(source) == source_before
+    finally:
+        native.tpmshx_preparation_case_3d_release_v1(ct.byref(result))
+
+
+@pytest.mark.parametrize('destination', ['error', 'failure'])
+@pytest.mark.parametrize('invalid', ['source_abi', 'source_size', 'result_abi', 'result_size'])
+def test_native_3d_owned_alias_guard_precedes_header_errors(native, destination, invalid):
+    from sjtu_tpmshx.development.tests.test_native_preparation_continuous import _check_owned_aliases
+
+    status, result, _, error, _, source = _call(native, _configuration())
+    assert status == 0, error
+    target = source if invalid.startswith('source') else result
+    setattr(target, 'abi_version' if invalid.endswith('abi') else 'struct_size', 0)
+    try:
+        _check_owned_aliases(lambda failure, error, capacity: native.tpmshx_prepare_case_3d_v1(
+            ct.byref(source), None, None, ct.byref(result),
+            ct.cast(failure, ct.POINTER(abi._Failure)), error, capacity), result, destination)
+    finally:
+        native.tpmshx_preparation_case_3d_release_v1(ct.byref(result))
