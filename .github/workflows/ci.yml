@@ -220,7 +220,8 @@ jobs:
   result-build:
     needs: scope
     if: needs.scope.outputs.tier != 'docs'
-    runs-on: ubuntu-latest
+    # Keep the result build and its consumer on the accepted Linux image.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
       MPLCONFIGDIR: .cache/matplotlib
@@ -290,7 +291,7 @@ jobs:
   minimal-postprocess:
     needs: [scope, native, result-build]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
       MPLCONFIGDIR: .cache/matplotlib
