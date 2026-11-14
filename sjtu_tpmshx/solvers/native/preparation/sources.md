@@ -17,7 +17,7 @@ Other supported targets keep separate operations. Global floating-point options 
 The independent Python references remain under `development/tests/`.
 They do not call the native formulas that they check.
 
-## Uniform 3D preparation
+## 3D preparation
 
 The separate `prepare_case_3d` sequence in [preparation_case.cpp](../src/preparation_case.cpp)
 uses the existing grid, geometry, property and DF cores.
@@ -32,4 +32,9 @@ Python production preparation and its host cache hooks remain separate consumers
 The separate 3D flow v2 uses the same static geometry and speed-dependent finish steps.
 It reuses `inlet_capacity_3d` and `inlet_speed` from `preparation_flow.cpp`.
 Capacity queries omit speed-dependent work. Complete preparation preserves one geometry and the original evidence order.
-These interfaces add no 3D solve, capture or spatial/asymmetric preparation.
+Continuous v3 samples raw XY or XYZ controls through `field_continuous.cpp` on the final physical grid.
+`have_ctrl_z` preserves the XYZ rule when its control count is one.
+Raw and thermal geometry retain separate evaluation order and unit conversions.
+The existing geometry and DF owners provide full local fields without 2D row projection.
+Air range observations reuse `reynolds_point` with the original scalar and array types.
+These interfaces add no 3D solve, capture, grid zones or asymmetric preparation.

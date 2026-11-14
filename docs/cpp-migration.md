@@ -149,7 +149,9 @@ The host supplies the resolved cell cap. The [stage contract](native-stages.md#u
 The Python 3D production routes remain unchanged.
 The separate 3D flow v2 adds capacity, resolution and complete preparation for configured or explicit total mass flow.
 It reuses one physical geometry and retains the original static-to-speed evidence order.
-Host cache hooks, native 3D run/capture and spatial/asymmetric fields need separate stage integration.
+The 3D continuous v3 adds XY extrusion and XYZ controls to those flow operations.
+It reuses the existing spline and geometry owners. Raw design fields and thermal SI round trips stay separate.
+Host cache hooks, native 3D run/capture, grid zones and asymmetric fields need separate stage integration.
 Memory use near the cell cap and real 3D BO remain acceptance gates.
 This raw interface does not replace saved CaseData validation.
 

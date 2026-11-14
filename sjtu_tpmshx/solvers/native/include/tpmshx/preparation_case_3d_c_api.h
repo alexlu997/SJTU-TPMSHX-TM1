@@ -5,6 +5,7 @@
 
 #define TPMSHX_PREPARATION_CASE_3D_ABI_VERSION 1u
 #define TPMSHX_PREPARATION_FLOW_3D_ABI_VERSION 2u
+#define TPMSHX_PREPARATION_CONTINUOUS_3D_ABI_VERSION 3u
 
 typedef struct {
     uint32_t fluid;
@@ -81,6 +82,36 @@ typedef struct {
     void* owner;
 } tpmshx_preparation_flow_case_3d_v2;
 
+typedef struct {
+    size_t n_ctrl_x,n_ctrl_y,n_ctrl_z;
+    uint32_t have_ctrl_z,spline_order,symmetric_y;
+    double L_bounds_mm[2],t_bounds_mm[2];
+    tpmshx_preparation_array_v1 decision_mm;
+} tpmshx_preparation_continuous_controls_3d_v3;
+typedef struct {
+    uint32_t abi_version;
+    size_t struct_size;
+    tpmshx_preparation_flow_input_3d_v2 values;
+    tpmshx_preparation_continuous_controls_3d_v3 controls;
+} tpmshx_preparation_continuous_input_3d_v3;
+typedef struct {
+    uint32_t abi_version;
+    size_t struct_size;
+    tpmshx_preparation_flow_3d_v2 flow;
+    tpmshx_preparation_continuous_controls_3d_v3 controls;
+    void* owner;
+} tpmshx_preparation_continuous_flow_3d_v3;
+typedef struct {
+    uint32_t abi_version;
+    size_t struct_size;
+    tpmshx_preparation_case_3d_v1 prepared;
+    tpmshx_preparation_flow_3d_v2 flow;
+    tpmshx_preparation_continuous_controls_3d_v3 controls;
+    tpmshx_preparation_array_v1 area_density_per_m,hydraulic_diameter_m,thermal_porosity;
+    tpmshx_preparation_continuous_drag_v4 drag[2];
+    void* owner;
+} tpmshx_preparation_continuous_case_3d_v3;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -124,6 +155,29 @@ TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_flow_case_3d_v
     tpmshx_preparation_case_failure_v2*,char*,size_t);
 TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_flow_3d_release_v2(tpmshx_preparation_flow_3d_v2*);
 TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_flow_case_3d_release_v2(tpmshx_preparation_flow_case_3d_v2*);
+/* V3 accepts canonical XY extrusion or XYZ controls with geometry_mode=1.
+ * have_ctrl_z selects XYZ even when n_ctrl_z is one. Decisions store all L,
+ * then all t, with z fastest. Thermal fields retain the SI round trip.
+ * Nested views are borrowed from the outer owner. Release that owner once.
+ * Existing v1/v2 storage and callback rules remain in force.
+ */
+TPMSHX_PREPARATION_API uint32_t TPMSHX_PREPARATION_CALL tpmshx_preparation_continuous_3d_abi_version_v3(void);
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_inlet_mass_capacities_3d_v3(
+    const tpmshx_preparation_continuous_input_3d_v3*,const tpmshx_preparation_case_options_v1*,
+    const tpmshx_preparation_case_callbacks_v1*,tpmshx_preparation_continuous_flow_3d_v3*,
+    tpmshx_preparation_case_failure_v2*,char*,size_t);
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_resolve_inlet_flow_3d_v3(
+    const tpmshx_preparation_continuous_input_3d_v3*,const tpmshx_preparation_case_options_v1*,
+    const tpmshx_preparation_case_callbacks_v1*,tpmshx_preparation_continuous_flow_3d_v3*,
+    tpmshx_preparation_case_failure_v2*,char*,size_t);
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_flow_case_3d_v3(
+    const tpmshx_preparation_continuous_input_3d_v3*,const tpmshx_preparation_case_options_v1*,
+    const tpmshx_preparation_case_callbacks_v1*,tpmshx_preparation_continuous_case_3d_v3*,
+    tpmshx_preparation_case_failure_v2*,char*,size_t);
+TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_continuous_flow_3d_release_v3(
+    tpmshx_preparation_continuous_flow_3d_v3*);
+TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_continuous_case_3d_release_v3(
+    tpmshx_preparation_continuous_case_3d_v3*);
 #ifdef __cplusplus
 }
 #endif

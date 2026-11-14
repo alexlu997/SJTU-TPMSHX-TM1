@@ -166,7 +166,11 @@ v1 接口不接收总质量流量目标。独立的 `FlowInput3D` v2 为同一�
 完整准备只构建一次几何，解析两侧速度后执行原有速度和模型检查。
 最终证据保留静态物性观测在前、解析速度预检和最终 air/DF 观测在后的原顺序。
 组合 owner 提供借用的准备态和流量视图，嵌套 owner 均为空。
-空间场及非零 delta 仍不属于这些原始接口。
+`ContinuousInput3D` v3 为三个流量操作增加规范的 XY 挤出和真实 XYZ 控制点。
+即使 z 控制点数为一，`have_ctrl_z` 仍选择 XYZ；决策值先保存全部 L，再保存全部 t，z 变化最快。
+采样使用最终物理单元中心；XY 与 XYZ 保留各自的样条规则及可选 y 对称性。
+owner 分别保留原始设计几何与热几何的 mm→m→mm 路径，返回完整局部 K/cF、面积密度、水力直径和热孔隙率。
+原有连续上海转移限制及 CO2 因子保持不变；离散分区和非零 delta 仍不属于这些原始接口。
 Python 三维准备、宿主缓存钩子、原生三维运行／捕获接入、接近单元上限的内存检查，
 以及真实三维 BO 仍是独立的迁移和验收关口。
 保存的 CaseData 继续使用现有校验器，不得重新准备。
@@ -255,6 +259,7 @@ target_link_libraries(my_program PRIVATE tpmshx::result)
 [三维准备示例](../examples/cpp/prepare_3d.cpp)从原始 CO2/water 输入生成各轴长度及网格数不同的物理网格，
 检查反向 z 端口和字段证据，只链接准备库。
 [三维质量流量示例](../examples/cpp/prepare_mass_3d.cpp)在反向入口面解析总流量后完成准备。
+[连续三维示例](../examples/cpp/prepare_continuous_3d.cpp)在解析总流量后，分别准备 XY 挤出和 XYZ 控制点。
 [质量流量准备示例](../examples/cpp/prepare_mass_2d.cpp)查询容量、解析显式双侧目标，再准备工况；
 它同样只链接准备库，不执行求解。
 [连续场准备示例](../examples/cpp/prepare_continuous_2d.cpp)从 XY 决策和总流量开始，通过 v4 提供物理场与局部阻力，且只链接准备库。
