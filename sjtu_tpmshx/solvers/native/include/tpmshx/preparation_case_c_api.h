@@ -524,7 +524,7 @@ TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_zoned_cas
  * precision=16/32/64,strong=1,layout=1. Integer scalars use
  * precision=8/16/32/64,strong=2,layout=1. Array layouts are not accepted.
  * The descriptor is required and disjoint from all other described storage.
- * Input/output versions, scopes and release functions retain v3/v4 layouts.
+ * Input/output versions, scopes and release functions retain v3-v6 layouts.
  * Keep the descriptor with a resolved input if that input is prepared again.
  * Earlier entry points retain weak domain and port scalars.
  */
@@ -576,6 +576,15 @@ TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_sigmoid_case_2
     tpmshx_preparation_case_failure_v2*,char*,size_t);
 TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_sigmoid_case_2d_release_v6(
     tpmshx_preparation_sigmoid_case_2d_v6*);
+
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_zoned_case_2d_v7(
+    const tpmshx_preparation_zoned_input_2d_v5*,const tpmshx_preparation_grid_kinds_2d_v7*,
+    const tpmshx_preparation_case_options_v1*,const tpmshx_preparation_case_callbacks_v1*,
+    tpmshx_preparation_zoned_case_2d_v5*,tpmshx_preparation_case_failure_v2*,char*,size_t);
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_sigmoid_case_2d_v7(
+    const tpmshx_preparation_sigmoid_input_2d_v6*,const tpmshx_preparation_grid_kinds_2d_v7*,
+    const tpmshx_preparation_case_options_v1*,const tpmshx_preparation_case_callbacks_v1*,
+    tpmshx_preparation_sigmoid_case_2d_v6*,tpmshx_preparation_case_failure_v2*,char*,size_t);
 
 #ifdef __cplusplus
 }

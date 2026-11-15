@@ -392,6 +392,24 @@ inline PreparedContinuousCase2D prepare_case(const ContinuousInput2D& input,cons
     detail::check(tpmshx_prepare_flow_case_2d_v4(&input,&options,nullptr,&output,&failure,error,sizeof(error)),error);
     return PreparedContinuousCase2D(output);
 }
+inline PreparedZonedCase2D prepare_case(const ZonedInput2D& input,const GridKinds2D& grid,
+    const PreparationOptions& options) {
+    tpmshx_preparation_zoned_case_2d_v5 output{};tpmshx_preparation_case_failure_v2 failure{};
+    output.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V5;output.struct_size=sizeof(output);
+    failure.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V2;failure.struct_size=sizeof(failure);
+    char error[4096]{};
+    detail::check(tpmshx_prepare_zoned_case_2d_v7(&input,&grid,&options,nullptr,&output,&failure,error,sizeof(error)),error);
+    return PreparedZonedCase2D(output);
+}
+inline PreparedSigmoidCase2D prepare_case(const SigmoidInput2D& input,const GridKinds2D& grid,
+    const PreparationOptions& options) {
+    tpmshx_preparation_sigmoid_case_2d_v6 output{};tpmshx_preparation_case_failure_v2 failure{};
+    output.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V6;output.struct_size=sizeof(output);
+    failure.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V2;failure.struct_size=sizeof(failure);
+    char error[4096]{};
+    detail::check(tpmshx_prepare_sigmoid_case_2d_v7(&input,&grid,&options,nullptr,&output,&failure,error,sizeof(error)),error);
+    return PreparedSigmoidCase2D(output);
+}
 inline InletFlow2D prepare_inlet_mass_capacities(const FlowInput2D& input,const GridKinds2D& grid,
     const PreparationOptions& options) {
     tpmshx_preparation_flow_2d_v3 output{};tpmshx_preparation_case_failure_v2 failure{};

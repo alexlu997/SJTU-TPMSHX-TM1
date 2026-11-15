@@ -15,6 +15,8 @@ from sjtu_tpmshx.development.tests import test_native_preparation_case as v1
 from sjtu_tpmshx.development.tests import test_native_preparation_fluids as v2
 from sjtu_tpmshx.development.tests import test_native_preparation_mass_flow as v3
 from sjtu_tpmshx.development.tests import test_native_preparation_continuous as v4
+from sjtu_tpmshx.development.tests import test_native_preparation_zones as v5
+from sjtu_tpmshx.development.tests import test_native_preparation_sigmoid as v6
 from sjtu_tpmshx.shared.domain.compute_config import (
     ComputeConfig, ExtrapPolicy, GeometryConfig, PartialBCConfig, SolverConfig, bc_to_dict,
 )
@@ -24,7 +26,7 @@ _GridKinds = v1._structure('PreparationGridKindsV7', [
     ('abi_version', v1._U), ('struct_size', v1._S),
     ('lengths', v2._Kind * 2), ('ports', (v2._Kind * 4) * 2)])
 _OPERATIONS = ('prepare_inlet_mass_capacities', 'resolve_inlet_flow', 'prepare_flow_case')
-_SCOPES = ('uniform', 'continuous')
+_SCOPES = ('uniform', 'continuous', 'zones', 'sigmoid')
 _PORT_FIELDS = ('in_ctr', 'in_w', 'out_ctr', 'out_w')
 
 
@@ -36,6 +38,9 @@ def _signature(scope, operation):
                 'resolve_inlet_flow': 'resolve_continuous_inlet_flow',
                 'prepare_flow_case': 'prepare_continuous_flow_case'}[operation]
         return name, v4._Input, v4._Result if operation == _OPERATIONS[2] else v4._Flow, 4
+    if scope == 'zones':
+        return 'prepare_zoned_case', v5._Input, v5._Result, 5
+    return 'prepare_sigmoid_case', v6._Input, v6._Result, 6
 
 
 @pytest.fixture(scope='module')
@@ -43,7 +48,7 @@ def native():
     path = os.environ.get('TPMSHX_PREPARATION_CASE_LIBRARY') or v1._library_path()
     library = ct.CDLL(path)
     for scope in _SCOPES:
-        for operation in _OPERATIONS:
+        for operation in _OPERATIONS if scope in _SCOPES[:2] else (_OPERATIONS[2],):
             name, source, result, _ = _signature(scope, operation)
             function = getattr(library, 'tpmshx_' + name + '_2d_v7')
             function.argtypes = [ct.POINTER(source), ct.POINTER(_GridKinds), ct.POINTER(v1._Options),
@@ -52,7 +57,8 @@ def native():
             function.restype = ct.c_int
     for name, result in [
             ('flow_2d_release_v3', v3._Flow), ('flow_case_2d_release_v3', v3._Result),
-            ('continuous_flow_2d_release_v4', v4._Flow), ('continuous_case_2d_release_v4', v4._Result)]:
+            ('continuous_flow_2d_release_v4', v4._Flow), ('continuous_case_2d_release_v4', v4._Result),
+            ('zoned_case_2d_release_v5', v5._Result), ('sigmoid_case_2d_release_v6', v6._Result)]:
         function = getattr(library, 'tpmshx_preparation_' + name)
         function.argtypes, function.restype = [ct.POINTER(result)], None
     return library
@@ -96,6 +102,10 @@ def _configuration(scope):
         config = v3._configuration(pair=('air', 'air'))
     elif scope == 'continuous':
         config = v4._configuration(pair=('air', 'air'), nx=4, ny=3, mirror=False, order=2)
+    elif scope == 'zones':
+        config = v5._config('grid')
+    else:
+        config = v6._configuration()
     config.geometry.L_dom_m, config.geometry.H_dom_m = np.float16(.125), np.float32(.0625)
     config.geometry.Lz_m = .042
     config.solver.Nx = config.solver.Ny = 16
@@ -107,22 +117,29 @@ def _configuration(scope):
     return config
 
 
-def _source(config, scope, targets=None):
+def _source(config, scope, targets=None, table=None):
     if scope == 'uniform':
         return v3._input(config, targets)
     if scope == 'continuous':
         return v4._input(config, targets)
+    if scope == 'zones':
+        return v5._input(config)
+    return v6._input(config, table)
 
 
 def _storage(source, scope):
+    if scope == 'sigmoid':
+        return [source, source._decision, *source._table.arrays, *_storage(source._base, 'zones')]
+    if scope == 'zones':
+        return [source, source._regions, *source._buffers, *source._base._buffers]
     if scope == 'continuous':
         return [source, source._decision, *_storage(source._flow, 'uniform')]
     return [source, *source._source._buffers]
 
 
 def _call(native, scope, config, operation='prepare_flow_case', targets=None, *,
-          source=None, kinds=None, stop_event=None):
-    source = _source(config, scope, targets) if source is None else source
+          table=None, source=None, kinds=None, stop_event=None):
+    source = _source(config, scope, targets, table) if source is None else source
     kinds = _kinds(config) if kinds is None else kinds
     name, _, result_type, version = _signature(scope, operation)
     result, failure = result_type(version, ct.sizeof(result_type)), v2._Failure(2, ct.sizeof(v2._Failure))
@@ -143,7 +160,12 @@ def _call(native, scope, config, operation='prepare_flow_case', targets=None, *,
 
 
 def _release(native, scope, result):
-    {'uniform': v3._release, 'continuous': v4._release}[scope](native, result)
+    {'uniform': v3._release, 'continuous': v4._release,
+     'zones': v5._release, 'sigmoid': v6._release}[scope](native, result)
+
+
+def _prepared(result, scope):
+    return result.values.prepared if scope == 'sigmoid' else result.prepared
 
 
 def _check_frozen_grid_and_ports(actual, expected, config):
@@ -171,42 +193,64 @@ def _check_frozen_grid_and_ports(actual, expected, config):
                 v1._same(v1._array(output.outlet_u_fraction), staggered, side + ' staggered outlet')
 
 
-def _check_spatial_fields(result, expected):
+def _check_spatial_fields(result, expected, scope):
     shape = expected.design_fields['L_field_m'].shape
+    values = result.values if scope == 'sigmoid' else result
+    if scope in ('zones', 'sigmoid'):
+        v1._same(np.ctypeslib.as_array(values.zone_id, shape=(values.cell_count,)).reshape(shape),
+                 expected.design_fields['zone_id'], 'zone IDs')
+        v1._same(v1._array(values.design_area_density_per_m).reshape(shape),
+                 expected.design_fields['A_0_arr'], 'design area')
+        v1._same(v1._array(values.thermal_porosity).reshape(shape),
+                 expected.parameters['thermal_geometry']['fields']['epsilon'], 'thermal porosity')
     for name, key in [('area_density_per_m', 'A_0'), ('hydraulic_diameter_m', 'D_h')]:
-        v1._same(v1._array(getattr(result, name)).reshape(shape),
+        v1._same(v1._array(getattr(values, name)).reshape(shape),
                  expected.parameters['thermal_geometry']['fields'][key], key)
     for index, side in enumerate('AB'):
-        v1._same(v1._array(result.fluid_conductivity[index]).reshape(shape),
+        v1._same(v1._array(values.fluid_conductivity[index]).reshape(shape),
                  expected.design_fields['K_ff' + side + '_arr'], side + ' fluid conductivity')
+        if scope in ('zones', 'sigmoid'):
+            v1._same(v1._array(values.volumetric_transfer[index]).reshape(shape),
+                     expected.design_fields['h_v' + side + '_arr'], side + ' volumetric transfer')
 
 
 def _full(native, monkeypatch, scope, config, targets=None):
     before = deepcopy(asdict(config))
-    expected, state = v3._reference(monkeypatch, 'prepare_flow_case', config, targets)
-    status, result, failure, error, live, _, kinds = _call(native, scope, config, targets=targets)
+    table = v6._table(config.geometry.tpms) if scope == 'sigmoid' else None
+    expected, state = (v6._reference(monkeypatch, config, table) if scope == 'sigmoid'
+        else v3._reference(monkeypatch, 'prepare_flow_case', config, targets))
+    status, result, failure, error, live, _, kinds = _call(native, scope, config, targets=targets, table=table)
     assert status == 0, error
     try:
         assert result.owner and not failure.kind
         resolved = state['resolved']
-        prepared = result.prepared
+        prepared = _prepared(result, scope)
         assert not prepared.values.owner
         v2._check_values(prepared, expected, resolved)
         final_events = v3._events(prepared.values)
         v2._check_evidence(prepared, expected, state['records']['final'], state['events']['final'],
                            final_events, resolved, event_converter=v4._host_events)
         _check_frozen_grid_and_ports(prepared.values, expected, resolved)
-        assert not result.flow.owner
-        v3._resolved(result.flow, resolved)
-        v3._flow_evidence(result.flow.evidence, state)
-        assert live == v3._events(result.flow.evidence) + final_events
+        if scope in ('uniform', 'continuous'):
+            assert not result.flow.owner
+            v3._resolved(result.flow, resolved)
+            v3._flow_evidence(result.flow.evidence, state)
+            assert live == v3._events(result.flow.evidence) + final_events
+        else:
+            assert live == final_events
+        if scope != 'uniform':
+            _check_spatial_fields(result, expected, scope)
         if scope == 'continuous':
-            _check_spatial_fields(result, expected)
             v4._snapshot(result.controls, config)
             for index, side in enumerate('AB'):
                 metadata = expected.parameters['flow_inputs'][side]['metadata']
                 for name in ('transfer_policy', 'geometry_application'):
                     assert v1._text(getattr(result.drag[index], name)) == metadata.get(name, '')
+        elif scope == 'zones':
+            v5._check_region_values(result, config)
+        elif scope == 'sigmoid':
+            v6._snapshot_controls(result.controls, config)
+            assert not result.values.owner and result.values.kind == 2 and not result.values.region_count
         # The result must remain usable after borrowed type tags are changed.
         kinds.lengths[0].precision = 8
         kinds.ports[0][1].strong = 0
@@ -340,11 +384,23 @@ def test_typed_continuous_domain_controls_and_final_fields(native, monkeypatch, 
     adapter._same(actual, expected)
 
 
+@pytest.mark.parametrize('mode', ['x', 'y', 'grid'])
+def test_raw_typed_zones_keep_physical_fields(native, monkeypatch, mode):
+    config = _configuration('zones')
+    config.zones = v5._config(mode).zones
+    _full(native, monkeypatch, 'zones', config)
+
+
+def test_raw_typed_sigmoid_keeps_both_sampling_passes(native, monkeypatch):
+    _full(native, monkeypatch, 'sigmoid', _configuration('sigmoid'))
+
+
 @pytest.mark.parametrize('scope', _SCOPES)
 @pytest.mark.parametrize('selection', ['version', 'size', 'weak-precision', 'weak-layout',
     'float-precision', 'integer-precision', 'array-layout', 'unknown-strength'])
 def test_typed_grid_descriptor_rejects_invalid_tags(native, scope, selection):
     config = _configuration(scope)
+    table = v6._table() if scope == 'sigmoid' else None
     kinds = _kinds(config)
     if selection == 'version':
         kinds.abi_version = 0
@@ -357,7 +413,7 @@ def test_typed_grid_descriptor_rejects_invalid_tags(native, scope, selection):
                   'array-layout': (32, 1, 2), 'unknown-strength': (64, 3, 1)}[selection]
         tag.precision, tag.strong, tag.layout = values
     _, _, result_type, version = _signature(scope, _OPERATIONS[2])
-    status, result, _, error, _, _, _ = _call(native, scope, config, kinds=kinds)
+    status, result, _, error, _, _, _ = _call(native, scope, config, table=table, kinds=kinds)
     assert status != 0 and error
     assert bytes(result) == bytes(result_type(version, ct.sizeof(result_type)))
 
@@ -366,7 +422,8 @@ def test_typed_grid_descriptor_rejects_invalid_tags(native, scope, selection):
 @pytest.mark.parametrize('target', ['source', 'result', 'failure', 'error', 'options', 'callbacks'])
 def test_typed_descriptor_storage_is_disjoint(native, scope, target):
     config = _configuration(scope)
-    source, kinds = _source(config, scope), _kinds(config)
+    table = v6._table() if scope == 'sigmoid' else None
+    source, kinds = _source(config, scope, table=table), _kinds(config)
     name, source_type, result_type, version = _signature(scope, _OPERATIONS[2])
     result = result_type(version, ct.sizeof(result_type))
     failure, error = v2._Failure(2, ct.sizeof(v2._Failure)), ct.create_string_buffer(b'unchanged', 4096)
@@ -393,14 +450,23 @@ def test_typed_descriptor_storage_is_disjoint(native, scope, target):
     assert [bytes(value) for value in watched] == before
 
 
-@pytest.mark.parametrize('scope,borrowed', [('uniform', 'nu-text'), ('continuous', 'controls')])
+@pytest.mark.parametrize('scope,borrowed', [('uniform', 'nu-text'), ('continuous', 'controls'),
+    ('zones', 'regions'), ('zones', 'name'), ('sigmoid', 'controls'), ('sigmoid', 'lut')])
 def test_typed_descriptor_cannot_overlap_borrowed_payload(native, scope, borrowed):
     config = _configuration(scope)
-    source, kinds = _source(config, scope), _kinds(config)
+    table = v6._table() if scope == 'sigmoid' else None
+    source, kinds = _source(config, scope, table=table), _kinds(config)
     if borrowed == 'nu-text':
         source.values.sco2_nu.source = v1._Text(ct.cast(ct.byref(kinds), ct.POINTER(ct.c_char)), 1)
     elif borrowed == 'controls':
         source.controls.decision_mm = v1._Array(ct.cast(ct.byref(kinds), ct.POINTER(v1._D)), 1)
+    elif borrowed == 'regions':
+        source.regions = ct.cast(ct.byref(kinds), ct.POINTER(v5._Region))
+        source.region_count = 1
+    elif borrowed == 'name':
+        source._regions[0].name = v1._Text(ct.cast(ct.byref(kinds), ct.POINTER(ct.c_char)), 1)
+    else:
+        source.lut.porosity = v1._Array(ct.cast(ct.byref(kinds), ct.POINTER(v1._D)), 1)
     name, _, result_type, version = _signature(scope, _OPERATIONS[2])
     result, failure = result_type(version, ct.sizeof(result_type)), v2._Failure(2, ct.sizeof(v2._Failure))
     error = ct.create_string_buffer(b'unchanged', 4096)
@@ -415,7 +481,8 @@ def test_typed_descriptor_cannot_overlap_borrowed_payload(native, scope, borrowe
 @pytest.mark.parametrize('scope', _SCOPES)
 def test_typed_grid_requires_descriptor_without_partial_output(native, scope):
     config = _configuration(scope)
-    source = _source(config, scope)
+    table = v6._table() if scope == 'sigmoid' else None
+    source = _source(config, scope, table=table)
     name, _, result_type, version = _signature(scope, _OPERATIONS[2])
     result, failure = result_type(version, ct.sizeof(result_type)), v2._Failure(2, ct.sizeof(v2._Failure))
     error = ct.create_string_buffer(4096)
@@ -742,7 +809,66 @@ def test_uniform_half_domain_keeps_one_nominal_event(monkeypatch, axis, policy):
         assert failure == (FloatingPointError, 'underflow encountered in scalar divide')
 
 
-@pytest.mark.parametrize('scope', _SCOPES)
+@pytest.mark.parametrize('scope', ['zones', 'sigmoid'])
+@pytest.mark.parametrize('axis', ['x', 'y'])
+def test_raw_spatial_half_domain_keeps_nominal_event(native, scope, axis):
+    config = v5._config('grid') if scope == 'zones' else v6._configuration()
+    narrow = _underflow_config(axis, False)
+    config.geometry.L_dom_m, config.geometry.H_dom_m = narrow.geometry.L_dom_m, narrow.geometry.H_dom_m
+    config.solver.Nx, config.solver.Ny = narrow.solver.Nx, narrow.solver.Ny
+    config.bc_A, config.bc_B = narrow.bc_A, narrow.bc_B
+    config.flags.port_wall_refine = False
+    table = v6._table(config.geometry.tpms) if scope == 'sigmoid' else None
+    status, result, failure, error, events, _, _ = _call(native, scope, config, table=table)
+    try:
+        assert status == 0, error
+        assert result.owner and not failure.kind
+        assert events[0] == (2, '', 'nominal-grid-' + axis, 8 | 4 << 8 | 0x10000)
+        assert len([event for event in events if event[2] == 'nominal-grid-' + axis]) == 1
+    finally:
+        _release(native, scope, result)
+
+
+@pytest.mark.parametrize('destination', ['error', 'failure'])
+@pytest.mark.parametrize('invalid', [None, 'source', 'result', 'grid'])
+def test_typed_sigmoid_owned_views_reject_diagnostic_aliases(native, destination, invalid):
+    config, table = _configuration('sigmoid'), v6._table()
+    status, result, _, error, _, source, kinds = _call(native, 'sigmoid', config, table=table)
+    assert status == 0, error
+    if invalid is not None:
+        {'source': source, 'result': result, 'grid': kinds}[invalid].abi_version = 0
+    before = bytes(source), bytes(kinds)
+    try:
+        labels = v4._check_owned_aliases(lambda failure, error, capacity:
+            native.tpmshx_prepare_sigmoid_case_2d_v7(ct.byref(source), ct.byref(kinds),
+                None, None, ct.byref(result), failure, error, capacity), result, destination)
+        assert any(name.endswith('.controls.decision_mm') for name in labels)
+        assert any(name.endswith('.values.thermal_porosity') for name in labels)
+        assert any('.volumetric_transfer[' in name for name in labels)
+        assert (bytes(source), bytes(kinds)) == before
+    finally:
+        _release(native, 'sigmoid', result)
+
+
+def test_typed_sigmoid_owned_result_keeps_safe_reuse_diagnostics(native):
+    config, table = _configuration('sigmoid'), v6._table()
+    status, result, _, error, _, source, kinds = _call(native, 'sigmoid', config, table=table)
+    assert status == 0, error
+    before = bytes(result), bytes(source), bytes(kinds)
+    buffers = [(address, ct.string_at(address, size)) for _, address, size in v4._visible_buffers(result)]
+    failure, error = v2._Failure(2, ct.sizeof(v2._Failure)), ct.create_string_buffer(4096)
+    try:
+        status = native.tpmshx_prepare_sigmoid_case_2d_v7(ct.byref(source), ct.byref(kinds),
+            None, None, ct.byref(result), ct.byref(failure), error, len(error))
+        assert status == 1 and failure.kind == 1
+        assert b'release the previous flow result' in error.value
+        assert (bytes(result), bytes(source), bytes(kinds)) == before
+        assert all(ct.string_at(address, len(saved)) == saved for address, saved in buffers)
+    finally:
+        _release(native, 'sigmoid', result)
+
+
+@pytest.mark.parametrize('scope', _SCOPES[:2])
 @pytest.mark.parametrize('operation', _OPERATIONS)
 @pytest.mark.parametrize('destination', ['error', 'failure'])
 @pytest.mark.parametrize('invalid', [None, 'source_abi', 'source_size', 'result_abi',
@@ -777,7 +903,7 @@ def test_typed_owned_views_reject_diagnostic_aliases(native, scope, operation, d
         _release(native, scope, result)
 
 
-@pytest.mark.parametrize('scope', _SCOPES)
+@pytest.mark.parametrize('scope', _SCOPES[:2])
 @pytest.mark.parametrize('operation', _OPERATIONS)
 def test_typed_owned_output_keeps_safe_reuse_diagnostics(native, scope, operation):
     config = (v3._configuration('Gyroid', ('air', 'air')) if scope == 'uniform'

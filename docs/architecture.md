@@ -126,7 +126,7 @@ Local total porosity remains symmetric; each side capacity uses its own split fi
 The v1/v2/v3 layouts remain unchanged. Python 3D preparation and native run/capture integration remain separate gates.
 Memory use near the cell cap and real 3D BO also need separate acceptance.
 Preparation v7 carries domain and port scalar kinds through the same grid, opening and spatial-field owners.
-It keeps v3/v4 payloads and releases; earlier entries retain weak double domain and port values.
+It keeps v3-v6 payloads and releases; earlier entries retain weak double domain and port values.
 Python preparation uses v7 with owned v3/v4 results for symmetric uniform and canonical continuous XY 2D inputs.
 Nonzero-delta uniform, discrete zones, sigmoid and 3D retain explicit existing routes.
 The adapter preserves CaseData fields, scalar types, events, source ranges and saved model selections.

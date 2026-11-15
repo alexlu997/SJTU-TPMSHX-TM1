@@ -708,6 +708,7 @@ template<class Source,class Result,class Function> int flow_boundary(
         if constexpr (std::is_same_v<Source,tpmshx_preparation_sigmoid_input_2d_v6>) {
             if (source) for (const auto values:{source->controls.decision_mm,source->lut.cell_mm,
                     source->lut.wall_mm,source->lut.porosity,source->lut.area_density_per_m}) {
+                require_disjoint(grid,1,values.data,values.size);
                 require_disjoint(error,capacity,values.data,values.size);require_buffer(values.data,values.size);
                 require_disjoint(values.data,values.size,result,result?1:0);
                 require_disjoint(values.data,values.size,failure,failure?1:0);
@@ -717,12 +718,14 @@ template<class Source,class Result,class Function> int flow_boundary(
             || std::is_same_v<Source,tpmshx_preparation_sigmoid_input_2d_v6>) {
             if (source) {
                 const auto& zones=zone_source(*source);
+                require_disjoint(grid,1,zones.regions,zones.region_count);
                 require_disjoint(error,capacity,zones.regions,zones.region_count);
                 require_buffer(zones.regions,zones.region_count);
                 require_disjoint(zones.regions,zones.region_count,result,result?1:0);
                 require_disjoint(zones.regions,zones.region_count,failure,failure?1:0);
                 for (std::size_t i=0;i<zones.region_count;++i) {
                     const auto name=zones.regions[i].name;
+                    require_disjoint(grid,1,name.data,name.size);
                     require_disjoint(error,capacity,name.data,name.size);require_buffer(name.data,name.size);
                     require_disjoint(name.data,name.size,result,result?1:0);
                     require_disjoint(name.data,name.size,failure,failure?1:0);
@@ -741,6 +744,8 @@ template<class Source,class Result,class Function> int flow_boundary(
     tpmshx_preparation_case_failure_v2 staged_failure{};
     bool failure_ready=false;std::exception_ptr saved_exception;
     try {
+        if (grid->abi_version!=TPMSHX_PREPARATION_CASE_ABI_VERSION_V7 || grid->struct_size!=sizeof(*grid))
+            throw std::invalid_argument("preparation grid v7 ABI version or struct size is invalid");
         if constexpr (std::is_same_v<Source,tpmshx_preparation_zoned_input_2d_v5>
             || std::is_same_v<Source,tpmshx_preparation_sigmoid_input_2d_v6>) {
             if constexpr (std::is_same_v<Source,tpmshx_preparation_sigmoid_input_2d_v6>) {
@@ -749,8 +754,6 @@ template<class Source,class Result,class Function> int flow_boundary(
             if(callbacks)version(callbacks);
             const auto& base=case_source(*source);version2(&base);version(&base.values);
         } else {
-            if (grid->abi_version!=TPMSHX_PREPARATION_CASE_ABI_VERSION_V7 || grid->struct_size!=sizeof(*grid))
-                throw std::invalid_argument("preparation grid v7 ABI version or struct size is invalid");
             if constexpr (std::is_same_v<Source,tpmshx_preparation_continuous_input_2d_v4>) version4(source);
             else version3(source);
             const auto& flow=flow_source(*source);version3(&flow);version2(&flow.values);version(&flow.values.values);
@@ -1445,12 +1448,12 @@ extern "C" void TPMSHX_PREPARATION_CALL tpmshx_preparation_spatial_case_3d_relea
 extern "C" uint32_t TPMSHX_PREPARATION_CALL tpmshx_preparation_case_abi_version_v5(void) {
     return TPMSHX_PREPARATION_CASE_ABI_VERSION_V5;
 }
-extern "C" int TPMSHX_PREPARATION_CALL tpmshx_prepare_zoned_case_2d_v5(
-    const tpmshx_preparation_zoned_input_2d_v5* source,const tpmshx_preparation_case_options_v1* selected,
+extern "C" int TPMSHX_PREPARATION_CALL tpmshx_prepare_zoned_case_2d_v7(
+    const tpmshx_preparation_zoned_input_2d_v5* source,const tpmshx_preparation_grid_kinds_2d_v7* grid,
+    const tpmshx_preparation_case_options_v1* selected,
     const tpmshx_preparation_case_callbacks_v1* callbacks,tpmshx_preparation_zoned_case_2d_v5* result,
     tpmshx_preparation_case_failure_v2* failure,char* error,size_t capacity) {
-    const auto grid=weak_grid();
-    return flow_boundary(source,&grid,selected,callbacks,result,failure,error,capacity,[&](const auto& request,const auto& options,const auto& sink) {
+    return flow_boundary(source,grid,selected,callbacks,result,failure,error,capacity,[&](const auto& request,const auto& options,const auto& sink) {
         auto owner=std::make_unique<ZonedOwner>(p::prepare_zoned_case_2d(request,options,sink));
         *result=zoned_view(*owner,source->values);owner.release();
     });
@@ -1484,12 +1487,12 @@ extern "C" void TPMSHX_PREPARATION_CALL tpmshx_preparation_sigmoid_lut_release_v
     if (!result) return;
     delete static_cast<p::SigmoidLUT2D*>(result->owner);*result={};
 }
-extern "C" int TPMSHX_PREPARATION_CALL tpmshx_prepare_sigmoid_case_2d_v6(
-    const tpmshx_preparation_sigmoid_input_2d_v6* source,const tpmshx_preparation_case_options_v1* selected,
+extern "C" int TPMSHX_PREPARATION_CALL tpmshx_prepare_sigmoid_case_2d_v7(
+    const tpmshx_preparation_sigmoid_input_2d_v6* source,const tpmshx_preparation_grid_kinds_2d_v7* grid,
+    const tpmshx_preparation_case_options_v1* selected,
     const tpmshx_preparation_case_callbacks_v1* callbacks,tpmshx_preparation_sigmoid_case_2d_v6* result,
     tpmshx_preparation_case_failure_v2* failure,char* error,size_t capacity) {
-    const auto grid=weak_grid();
-    return flow_boundary(source,&grid,selected,callbacks,result,failure,error,capacity,[&](const auto& request,const auto& options,const auto& sink) {
+    return flow_boundary(source,grid,selected,callbacks,result,failure,error,capacity,[&](const auto& request,const auto& options,const auto& sink) {
         auto owner=std::make_unique<ZonedOwner>(p::prepare_zoned_case_2d(request,options,sink));
         tpmshx_preparation_sigmoid_case_2d_v6 output{};
         output.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V6;output.struct_size=sizeof(output);
@@ -1555,4 +1558,20 @@ extern "C" int TPMSHX_PREPARATION_CALL tpmshx_prepare_flow_case_2d_v4(
     tpmshx_preparation_case_failure_v2* failure,char* error,size_t capacity) {
     const auto grid=weak_grid();
     return tpmshx_prepare_continuous_flow_case_2d_v7(source,&grid,selected,callbacks,result,failure,error,capacity);
+}
+
+extern "C" int TPMSHX_PREPARATION_CALL tpmshx_prepare_zoned_case_2d_v5(
+    const tpmshx_preparation_zoned_input_2d_v5* source,const tpmshx_preparation_case_options_v1* selected,
+    const tpmshx_preparation_case_callbacks_v1* callbacks,tpmshx_preparation_zoned_case_2d_v5* result,
+    tpmshx_preparation_case_failure_v2* failure,char* error,size_t capacity) {
+    const auto grid=weak_grid();
+    return tpmshx_prepare_zoned_case_2d_v7(source,&grid,selected,callbacks,result,failure,error,capacity);
+}
+
+extern "C" int TPMSHX_PREPARATION_CALL tpmshx_prepare_sigmoid_case_2d_v6(
+    const tpmshx_preparation_sigmoid_input_2d_v6* source,const tpmshx_preparation_case_options_v1* selected,
+    const tpmshx_preparation_case_callbacks_v1* callbacks,tpmshx_preparation_sigmoid_case_2d_v6* result,
+    tpmshx_preparation_case_failure_v2* failure,char* error,size_t capacity) {
+    const auto grid=weak_grid();
+    return tpmshx_prepare_sigmoid_case_2d_v7(source,&grid,selected,callbacks,result,failure,error,capacity);
 }

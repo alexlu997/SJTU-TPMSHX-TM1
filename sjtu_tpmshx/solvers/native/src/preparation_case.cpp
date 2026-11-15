@@ -1308,8 +1308,8 @@ void sigmoid_fields(PreparedZonedCase2D& output,const ZonedInput2D& request,cons
     const auto& sigmoid=*request.sigmoid;const auto& controls=sigmoid.controls;
     if (controls.decision_mm.size()<36)
         throw std::invalid_argument("sigmoid controls require at least 36 interleaved L/t values");
-    const auto x=g::sigmoid_centres(grid.nx,g::weak(input.grid.length_m),physical?&grid.dx:nullptr);
-    const auto y=g::sigmoid_centres(grid.ny,g::weak(input.grid.height_m),physical?&grid.dy:nullptr);
+    const auto x=g::sigmoid_centres(grid.nx,grid_scalar(input.grid.length_m,input.grid.kinds[0]),physical?&grid.dx:nullptr);
+    const auto y=g::sigmoid_centres(grid.ny,grid_scalar(input.grid.height_m,input.grid.kinds[1]),physical?&grid.dy:nullptr);
     const auto cells=count(grid.nx,grid.ny);
     std::vector<double> xf(cells),yf(cells);
     for (std::size_t i=0;i<grid.nx;++i) for (std::size_t j=0;j<grid.ny;++j) {
@@ -1442,7 +1442,7 @@ void zoned_fields(PreparedZonedCase2D& output,const ZonedInput2D& request,const 
         bounds.push_back(zone.region.bounds);
     }
     output.zone_id=zones::assign(request.kind,grid.nx,grid.ny,static_cast<int>(request.axis),
-        g::weak(request.axis?input.grid.height_m:input.grid.length_m),bounds,
+        grid_scalar(request.axis?input.grid.height_m:input.grid.length_m,input.grid.kinds[request.axis]),bounds,
         physical?&grid.dx:nullptr,physical?&grid.dy:nullptr);
     std::array<std::vector<double>,2> transfer;
     for (std::size_t side=0;side<2;++side) for (const auto& zone:output.regions) {
@@ -1494,6 +1494,7 @@ PreparedZonedCase2D prepare_zoned_case(const ZonedInput2D& request,const Prepara
     output.kind=request.sigmoid?2:request.kind;output.axis=request.axis;
     if (request.sigmoid) output.sigmoid=request.sigmoid->controls;
     Records records{prepared.evidence,callbacks,{},{}};ZonedCache cache;
+    nominal_grid_steps(input,records);
     prepared.uniform_geometry=cache.material(input,options);
     preflight(input,options,prepared.uniform_geometry.geometry,inlets,records);
     auto regions=request.regions;if (!request.kind) sort_stripes(regions);
