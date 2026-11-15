@@ -174,9 +174,12 @@ void copy_number(const void* source,std::uint32_t source_order,void* destination
     std::array<unsigned char,32> bytes{};
     std::memcpy(bytes.data(),source,width);
     if (source_little!=destination_little) {
-        const auto component=complex_type(dtype)?width/2:width;
-        std::reverse(bytes.begin(),bytes.begin()+static_cast<std::ptrdiff_t>(component));
-        if (complex_type(dtype)) std::reverse(bytes.begin()+static_cast<std::ptrdiff_t>(component),bytes.begin()+static_cast<std::ptrdiff_t>(width));
+        const bool is_complex=complex_type(dtype);
+        const auto component=is_complex?width/2:width;
+        for (std::size_t i=0;i<component/2;++i) {
+            std::swap(bytes[i],bytes[component-1-i]);
+            if (is_complex) std::swap(bytes[component+i],bytes[width-1-i]);
+        }
     }
     std::memcpy(destination,bytes.data(),width);
 }
