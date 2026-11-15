@@ -46,7 +46,9 @@ Side porosity is already split; base K/cF fields and side application factors re
 Separate 3D flow v2 adds capacity queries, total-flow resolution and complete preparation with one geometry calculation.
 Continuous 3D v3 prepares raw XY extrusion and XYZ controls, with capacity queries and total-flow resolution.
 Spatial v4 adds XY grid rectangles and existing global offset rules with separate side porosity and thermal geometry.
-Python 3D preparation, native run/capture and host cache hooks remain separate integration gates.
+Native 3D run/capture connects those prepared families and saved views to the same `Full3DRun` lifecycle.
+The result owns complete raw fields and evaluation evidence after preparation and run release.
+Python 3D preparation, production run integration and host cache hooks remain separate gates.
 Memory use near the cell cap and real 3D BO need separate acceptance.
 The Python entries above retain all current modes while stage migration continues.
 The Python preparation entries use v7 with v3/v4 payloads for symmetric uniform and continuous 2D inputs.
@@ -76,7 +78,7 @@ Use this table to find the C++ owner of a numerical rule.
 | Fixed DF, corrections, projection and prescribed flow | [preparation_df.cpp](solvers/native/src/preparation_df.cpp): `fixed_df`; [preparation_df_corrections.cpp](solvers/native/src/preparation_df_corrections.cpp); [preparation_df_projection.cpp](solvers/native/src/preparation_df_projection.cpp); [preparation_flow.cpp](solvers/native/src/preparation_flow.cpp): `inlet_capacity_2d`, `inlet_speed` |
 | Full 2D/3D and Quick Design | [full_2d.cpp](solvers/native/src/full_2d.cpp): `solve_full_2d`; [full_3d.cpp](solvers/native/src/full_3d.cpp): `solve_full_3d`; [quick_design_driver.cpp](solvers/native/src/quick_design_driver.cpp): `solve_quick_design` |
 | Metrics, physical balances, zone statistics and checks | [result_metrics.cpp](solvers/native/src/result_metrics.cpp): `pressure_face`, `boundary_enthalpy_duty`; [result_balance.cpp](solvers/native/src/result_balance.cpp): `mass`, `energy`, `zone_std`; [result_checks.cpp](solvers/native/src/result_checks.cpp): `collect_range`, `strict_certificate` |
-| Complete stage preparation and execution | [preparation_case.cpp](solvers/native/src/preparation_case.cpp): `prepare_case_2d`, `prepare_case_3d`; [stage_run.cpp](solvers/native/src/stage_run.cpp): `tpmshx_run_case_2d_v1/v2/v3`, `tpmshx_stage_run_2d_create_v1/create_saved_v1`; [stage_capture_2d.cpp](solvers/native/src/stage_capture_2d.cpp): `tpmshx_stage_run_2d_get_capture_v1` |
+| Complete stage preparation and execution | [preparation_case.cpp](solvers/native/src/preparation_case.cpp): `prepare_case_2d`, `prepare_case_3d`; [stage_run.cpp](solvers/native/src/stage_run.cpp): `tpmshx_run_case_2d_v1/v2/v3`, `tpmshx_stage_run_2d_create_v1/create_saved_v1`; [stage_capture_2d.cpp](solvers/native/src/stage_capture_2d.cpp): `tpmshx_stage_run_2d_get_capture_v1`; [stage_run_3d.cpp](solvers/native/src/stage_run_3d.cpp): `tpmshx_run_case_3d_v1`; [stage_capture_3d.cpp](solvers/native/src/stage_capture_3d.cpp): `capture_3d` |
 | Quick Design stage preparation and execution | [quick_design_prepare_v2.cpp](solvers/native/src/quick_design_prepare_v2.cpp): `tpmshx_prepare_quick_design_v2`, `tpmshx_quick_pressure_fractions_v2`; [quick_design_prepare.cpp](solvers/native/src/quick_design_prepare.cpp): kept v1; [quick_design_run.cpp](solvers/native/src/quick_design_run.cpp): `tpmshx_run_quick_design_v1` |
 | Stage evaluation and qualification | [result_stage.cpp](solvers/native/src/result_stage.cpp): `evaluate`, `evaluate_applicability`, `evaluate_physical_balance`, `evaluate_qualification` |
 

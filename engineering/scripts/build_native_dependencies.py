@@ -838,6 +838,7 @@ def check_stages(cache: Path, host: str, python: Path, lock: Path, component: st
             shutil.copytree(ROOT / "sjtu_tpmshx/solvers/native/tests/stages", tests / "stages")
             for smoke in ("stage_run_smoke", "quick_design_stage_smoke"):
                 shutil.copy2(ROOT / f"sjtu_tpmshx/solvers/native/tests/{smoke}.cpp", tests)
+            shutil.copy2(ROOT / "sjtu_tpmshx/solvers/native/tests/stage_run_3d_smoke.c", tests)
             sources.append("tests/stages")
         env = {key: value for key, value in os.environ.items()
                if key not in {"PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV"} and not key.startswith("TPMSHX_")}
