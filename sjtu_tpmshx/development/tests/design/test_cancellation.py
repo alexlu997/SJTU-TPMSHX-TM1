@@ -23,7 +23,11 @@ def test_sizing_stops_between_forward_solves(monkeypatch):
     assert len(calls) == 1
 
 
-@pytest.mark.parametrize('stage', ['search', 'final'])
+@pytest.mark.parametrize('stage', [
+    'search',
+    # The final cancellation follows the complete sizing search.
+    pytest.param('final', marks=pytest.mark.timeout(1200)),
+])
 def test_sizing_cancels_inside_forward(monkeypatch, stage):
     execution = importlib.import_module(
         'sjtu_tpmshx.solvers.backends.cpp.quick_design')
