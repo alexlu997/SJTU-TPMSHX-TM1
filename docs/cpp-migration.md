@@ -310,8 +310,10 @@ Verification runs the independent static C, shared C and C++ kernel callers. It 
 Separate result publication builds no solver state and writes `result-build.json` with actual compiler, options, artifact and SDK metadata.
 Its dependency record is empty and contains no CoolProp build record.
 Full macOS/Windows publication deploys four libraries in one transaction, with their matching previous files retained.
-CI keeps the full macOS/Windows builds and adds an independent Ubuntu `result-build` job.
-That job supplies `result-build-linux-x86_64` to `minimal-postprocess`, together with the separate macOS `real-file-handoff` input.
+CI keeps the full macOS/Windows builds and checks independent result builds on Ubuntu 24.04 and 26.04.
+Both result builds must pass. The `minimal-postprocess` consumer stays on Ubuntu 24.04.
+It uses `result-build-linux-x86_64-ubuntu-24.04` and the separate macOS `real-file-handoff` input.
+The Ubuntu 26.04 build artifact remains separate.
 The minimal job checks independent result references and actual saved 2D/3D files. It builds no solver or model library.
 The [source and interface record](../sjtu_tpmshx/solvers/native/result/sources.md) defines types, buffers, errors and notices.
 There is no numerical fallback, runtime compiler or universal numerical callback.
