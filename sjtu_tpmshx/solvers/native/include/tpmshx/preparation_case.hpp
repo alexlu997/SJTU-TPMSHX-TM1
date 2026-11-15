@@ -224,10 +224,23 @@ struct ZoneRegion2D {
     double cell_length_mm=0.,wall_thickness_mm=0.;
     ScalarKind cell_kind,wall_kind;
 };
+struct SigmoidControls2D {
+    std::vector<double> decision_mm;
+    grid::Scalar inlet_transition{.2,64,0},outlet_transition{.2,64,0};
+};
+struct SigmoidLUT2D {
+    std::vector<double> cell_mm,wall_mm,porosity,area_density;
+    std::uint32_t porosity_fast=1,area_fast=1;
+};
+struct SigmoidInput2D {
+    SigmoidControls2D controls;
+    SigmoidLUT2D lut;
+};
 struct ZonedInput2D {
     CaseInput2D input;
     std::uint32_t kind=0,axis=1;
     std::vector<ZoneRegion2D> regions;
+    std::optional<SigmoidInput2D> sigmoid;
 };
 struct PreparedZone2D {
     ZoneRegion2D region;
@@ -243,6 +256,7 @@ struct PreparedZonedCase2D {
     std::vector<std::int32_t> zone_id;
     std::vector<double> thermal_porosity,design_area_density;
     std::array<std::vector<double>,2> volumetric_transfer;
+    std::optional<SigmoidControls2D> sigmoid;
 };
 
 struct PreparedSide3D {
@@ -328,6 +342,9 @@ PreparedCase2D prepare_case_2d(const CaseInput2D&,const PreparationOptions& = {}
 PreparedZonedCase2D prepare_zoned_case_2d(const ZonedInput2D&,
     const PreparationOptions& = {},const PreparationCallbacks& = {});
 
+// The caller retains this resource across preparations. Disk caches stay in the host.
+SigmoidLUT2D build_sigmoid_lut_2d(Topology,std::size_t cell_nodes=41,
+    std::size_t wall_nodes=31,std::size_t resolution=256);
 // The 3D stage owns physical (x,y,z) fields and unswapped physical port masks.
 PreparedCase3D prepare_case_3d(const CaseInput3D&,const PreparationOptions& = {},
                               const PreparationCallbacks& = {},CaseScope3D = CaseScope3D::symmetric_v3);
