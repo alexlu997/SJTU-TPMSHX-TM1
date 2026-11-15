@@ -151,7 +151,10 @@ The separate 3D flow v2 adds capacity, resolution and complete preparation for c
 It reuses one physical geometry and retains the original static-to-speed evidence order.
 The 3D continuous v3 adds XY extrusion and XYZ controls to those flow operations.
 It reuses the existing spline and geometry owners. Raw design fields and thermal SI round trips stay separate.
-Host cache hooks, native 3D run/capture, grid zones and asymmetric fields need separate stage integration.
+The 3D spatial v4 adds raw XY grid rectangles and the existing global offset rules to all three operations.
+Existing zone and asymmetric owners supply assignment, smoothing, side porosity and nominal thermal side/reference geometry.
+The original air/water scope and experimental restrictions remain. The v1/v2/v3 C layouts remain unchanged.
+Host cache hooks, Python 3D preparation and native 3D run/capture need separate stage integration.
 Memory use near the cell cap and real 3D BO remain acceptance gates.
 This raw interface does not replace saved CaseData validation.
 
@@ -266,7 +269,7 @@ Verification runs the independent static C, shared C and C++ kernel callers. It 
 Separate result publication builds no solver state and writes `result-build.json` with actual compiler, options, artifact and SDK metadata.
 Its dependency record is empty and contains no CoolProp build record.
 Full macOS/Windows publication deploys four libraries in one transaction, with their matching previous files retained.
-CI keeps the full macOS/Windows builds and adds an independent Ubuntu `result-build` job.
+CI keeps the full macOS/Windows builds and uses Ubuntu 24.04 for the independent result build and its minimal-postprocessing consumer.
 That job supplies `result-build-linux-x86_64` to `minimal-postprocess`, together with the separate macOS `real-file-handoff` input.
 The minimal job checks independent result references and actual saved 2D/3D files. It builds no solver or model library.
 The [source and interface record](../sjtu_tpmshx/solvers/native/result/sources.md) defines types, buffers, errors and notices.

@@ -710,7 +710,7 @@ Compare fast, integration, and full-job speed separately with same-platform base
 
 Local timing does not promise CI speedups. Acceptance skips keep specific reasons. Skipped capabilities are not passed.
 Minimal-postprocess CI uses separate `engineering/requirements/postprocess.txt` and real 2D/3D files from another complete environment.
-The independent Ubuntu `result-build` job fetches only locked CMake, then builds and verifies the result library.
+The independent Ubuntu 24.04 `result-build` job fetches only locked CMake, then builds and verifies the result library.
 It supplies `result-build-linux-x86_64` to `minimal-postprocess`.
 The macOS integration step also supplies two public-example results and their metrics as `real-file-handoff` to that Linux minimal environment.
 Both handoffs remain available for seven days and contain no private data.

@@ -162,6 +162,65 @@ int main(void) {
         CHECK(!memcmp(&combined,&saved_combined,sizeof(combined)) && !memcmp(error,saved_error,sizeof(error)));
         CHECK(!memcmp(&failure,&saved_failure,sizeof(failure)));
     }
+    {
+        tpmshx_preparation_spatial_input_3d_v4 request={0},saved_request;
+        tpmshx_preparation_spatial_flow_3d_v4 flow={0};
+        tpmshx_preparation_spatial_case_3d_v4 combined={0},saved_combined;
+        tpmshx_preparation_grid_cell_3d_v4 cells[2]={
+            {{{0.,64,0},{.7,64,0},{0.,64,0},{1.,64,0}},4.5,.31},
+            {{{.4,64,0},{1.,64,0},{.2,64,0},{.8,64,0}},7.5,.59}},saved_cells[2];
+        request.abi_version=flow.abi_version=combined.abi_version=4;
+        request.struct_size=sizeof(request);flow.struct_size=sizeof(flow);combined.struct_size=sizeof(combined);
+        request.values.abi_version=2;request.values.struct_size=sizeof(request.values);
+        request.values.input=original;request.values.input.geometry_mode=2;request.values.input.delta_levelset=.15;
+        request.values.target_kinds[0]=request.values.target_kinds[1]=weak;
+        request.cells=cells;request.cell_count=2;saved_request=request;memcpy(saved_cells,cells,sizeof(cells));
+        CHECK(tpmshx_preparation_spatial_3d_abi_version_v4()==4);
+        CHECK(!tpmshx_prepare_inlet_mass_capacities_3d_v4(&request,&options,NULL,&flow,&failure,error,sizeof(error)));
+        CHECK(flow.owner && !flow.flow.owner && flow.flow.have_capacities && flow.cell_count==2 && flow.cells!=cells);
+        CHECK(!memcmp(&request,&saved_request,sizeof(request)) && !memcmp(cells,saved_cells,sizeof(cells)));
+        request.values.have_explicit_targets=1;
+        for (i=0;i<2;++i) request.values.explicit_targets_kg_s[i]=flow.flow.capacities[i].value*5.;
+        tpmshx_preparation_spatial_flow_3d_release_v4(&flow);flow.abi_version=4;flow.struct_size=sizeof(flow);
+        CHECK(!tpmshx_resolve_inlet_flow_3d_v4(&request,&options,NULL,&flow,&failure,error,sizeof(error)));
+        CHECK(!tpmshx_prepare_flow_case_3d_v4(&request,&options,NULL,&combined,&failure,error,sizeof(error)));
+        CHECK(combined.owner && !combined.prepared.owner && !combined.flow.owner && combined.cell_count==2 && combined.cells!=cells);
+        CHECK(combined.side_b_porosity.size==120 && combined.area_density_per_m.size==120
+            && combined.hydraulic_diameter_m.size==120 && combined.thermal_porosity.size==120 && combined.have_side_geometry);
+        CHECK(combined.split_a>0. && combined.split_a<1.);
+        for (i=0;i<120;++i) {
+            CHECK(combined.prepared.side_porosity.data[i]==combined.prepared.total_porosity.data[i]*combined.split_a);
+            CHECK(combined.side_b_porosity.data[i]==combined.prepared.total_porosity.data[i]*(1.-combined.split_a));
+        }
+        for (i=0;i<2;++i) CHECK(combined.prepared.input.sides[i].velocity_m_s==flow.flow.speeds[i].value);
+        cells[0].cell_length_mm=8.;
+        CHECK(combined.cells[0].cell_length_mm==4.5 && flow.cells[0].cell_length_mm==4.5);
+        memcpy(cells,saved_cells,sizeof(cells));saved_combined=combined;
+        CHECK(tpmshx_prepare_flow_case_3d_v4(&request,&options,NULL,&combined,&failure,error,sizeof(error))==1);
+        CHECK(!memcmp(&combined,&saved_combined,sizeof(combined)));
+        tpmshx_preparation_spatial_case_3d_release_v4(&combined);tpmshx_preparation_spatial_case_3d_release_v4(&combined);
+        tpmshx_preparation_spatial_flow_3d_release_v4(&flow);tpmshx_preparation_spatial_flow_3d_release_v4(&flow);
+        tpmshx_preparation_spatial_case_3d_release_v4(NULL);tpmshx_preparation_spatial_flow_3d_release_v4(NULL);
+        request=saved_request;request.values.input.delta_levelset=0.;
+        combined.abi_version=4;combined.struct_size=sizeof(combined);
+        CHECK(!tpmshx_prepare_flow_case_3d_v4(&request,&options,NULL,&combined,&failure,error,sizeof(error)));
+        CHECK(combined.split_a==.5 && !combined.have_side_geometry
+            && combined.side_b_porosity.data==combined.prepared.side_porosity.data);
+        tpmshx_preparation_spatial_case_3d_release_v4(&combined);
+        flow.abi_version=4;flow.struct_size=sizeof(flow);request.values.input.lengths_m[0].value=-1.;
+        CHECK(!tpmshx_resolve_inlet_flow_3d_v4(&request,&options,NULL,&flow,&failure,error,sizeof(error)));
+        CHECK(!flow.flow.have_capacities && flow.flow.input.lengths_m[0].value==-1. && flow.cell_count==2 && flow.cells!=cells);
+        tpmshx_preparation_spatial_flow_3d_release_v4(&flow);
+        request=saved_request;combined.abi_version=4;combined.struct_size=sizeof(combined);saved_combined=combined;
+        memset(error,17,sizeof(error));memcpy(saved_error,error,sizeof(error));saved_failure=failure;
+        CHECK(tpmshx_prepare_flow_case_3d_v4(&request,&options,NULL,&combined,&failure,(char*)cells,sizeof(cells))==1);
+        CHECK(!memcmp(cells,saved_cells,sizeof(cells)) && !memcmp(&failure,&saved_failure,sizeof(failure)));
+        CHECK(!memcmp(&combined,&saved_combined,sizeof(combined)));
+        request.cells=(const tpmshx_preparation_grid_cell_3d_v4*)&combined;request.cell_count=1;
+        CHECK(tpmshx_prepare_flow_case_3d_v4(&request,&options,NULL,&combined,&failure,error,sizeof(error))==1);
+        CHECK(!memcmp(&combined,&saved_combined,sizeof(combined)) && !memcmp(error,saved_error,sizeof(error)));
+        CHECK(!memcmp(&failure,&saved_failure,sizeof(failure)));
+    }
     puts("3D preparation C ownership and failure checks passed");
     return 0;
 }

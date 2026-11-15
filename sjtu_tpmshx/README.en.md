@@ -40,7 +40,8 @@ It retains physical grids, typed ports, six directions, the cell cap and existin
 Side porosity is already split; base K/cF fields and side application factors remain separate.
 Separate 3D flow v2 adds capacity queries, total-flow resolution and complete preparation with one geometry calculation.
 Continuous 3D v3 prepares raw XY extrusion and XYZ controls, with capacity queries and total-flow resolution.
-3D run/capture, grid zones, asymmetric fields and host cache hooks remain separate integration gates.
+Spatial v4 adds XY grid rectangles and existing global offset rules with separate side porosity and thermal geometry.
+Python 3D preparation, native run/capture and host cache hooks remain separate integration gates.
 Memory use near the cell cap and real 3D BO need separate acceptance.
 The Python entries above retain all current modes while stage migration continues.
 The Python preparation entries use v7 with v3/v4 payloads for symmetric uniform and continuous 2D inputs.

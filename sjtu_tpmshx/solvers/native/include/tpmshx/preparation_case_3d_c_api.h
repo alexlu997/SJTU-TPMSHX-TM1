@@ -6,6 +6,7 @@
 #define TPMSHX_PREPARATION_CASE_3D_ABI_VERSION 1u
 #define TPMSHX_PREPARATION_FLOW_3D_ABI_VERSION 2u
 #define TPMSHX_PREPARATION_CONTINUOUS_3D_ABI_VERSION 3u
+#define TPMSHX_PREPARATION_SPATIAL_3D_ABI_VERSION 4u
 
 typedef struct {
     uint32_t fluid;
@@ -112,6 +113,40 @@ typedef struct {
     void* owner;
 } tpmshx_preparation_continuous_case_3d_v3;
 
+typedef struct {
+    tpmshx_grid_scalar_v1 bounds[4]; /* x0,x1,y0,y1 in domain fractions. */
+    double cell_length_mm,wall_thickness_mm;
+} tpmshx_preparation_grid_cell_3d_v4;
+typedef struct {
+    uint32_t abi_version;
+    size_t struct_size;
+    tpmshx_preparation_flow_input_3d_v2 values;
+    const tpmshx_preparation_grid_cell_3d_v4* cells;
+    size_t cell_count;
+} tpmshx_preparation_spatial_input_3d_v4;
+typedef struct {
+    uint32_t abi_version;
+    size_t struct_size;
+    tpmshx_preparation_flow_3d_v2 flow;
+    const tpmshx_preparation_grid_cell_3d_v4* cells;
+    size_t cell_count;
+    void* owner;
+} tpmshx_preparation_spatial_flow_3d_v4;
+typedef struct {
+    uint32_t abi_version;
+    size_t struct_size;
+    tpmshx_preparation_case_3d_v1 prepared;
+    tpmshx_preparation_flow_3d_v2 flow;
+    const tpmshx_preparation_grid_cell_3d_v4* cells;
+    size_t cell_count;
+    tpmshx_preparation_array_v1 side_b_porosity;
+    tpmshx_preparation_array_v1 area_density_per_m,hydraulic_diameter_m,thermal_porosity;
+    double split_a;
+    uint32_t have_side_geometry;
+    double side_geometry[2][4]; /* area, diameter, reference area, reference diameter. */
+    void* owner;
+} tpmshx_preparation_spatial_case_3d_v4;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -178,6 +213,30 @@ TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_continuou
     tpmshx_preparation_continuous_flow_3d_v3*);
 TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_continuous_case_3d_release_v3(
     tpmshx_preparation_continuous_case_3d_v3*);
+/* V4 accepts uniform mode 0 or nonempty XY grid mode 2, with the original
+ * asymmetric rules. Rectangles are raw input; later rectangles replace earlier
+ * cells. L/t are smoothed separately before geometry, then extruded along z.
+ * Side B aliases the symmetric side view when delta is zero. Thermal fields
+ * are empty for uniform inputs. Nested views are borrowed from the outer owner.
+ * Existing v1/v2/v3 storage and callback rules remain in force.
+ */
+TPMSHX_PREPARATION_API uint32_t TPMSHX_PREPARATION_CALL tpmshx_preparation_spatial_3d_abi_version_v4(void);
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_inlet_mass_capacities_3d_v4(
+    const tpmshx_preparation_spatial_input_3d_v4*,const tpmshx_preparation_case_options_v1*,
+    const tpmshx_preparation_case_callbacks_v1*,tpmshx_preparation_spatial_flow_3d_v4*,
+    tpmshx_preparation_case_failure_v2*,char*,size_t);
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_resolve_inlet_flow_3d_v4(
+    const tpmshx_preparation_spatial_input_3d_v4*,const tpmshx_preparation_case_options_v1*,
+    const tpmshx_preparation_case_callbacks_v1*,tpmshx_preparation_spatial_flow_3d_v4*,
+    tpmshx_preparation_case_failure_v2*,char*,size_t);
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_flow_case_3d_v4(
+    const tpmshx_preparation_spatial_input_3d_v4*,const tpmshx_preparation_case_options_v1*,
+    const tpmshx_preparation_case_callbacks_v1*,tpmshx_preparation_spatial_case_3d_v4*,
+    tpmshx_preparation_case_failure_v2*,char*,size_t);
+TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_spatial_flow_3d_release_v4(
+    tpmshx_preparation_spatial_flow_3d_v4*);
+TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_spatial_case_3d_release_v4(
+    tpmshx_preparation_spatial_case_3d_v4*);
 #ifdef __cplusplus
 }
 #endif

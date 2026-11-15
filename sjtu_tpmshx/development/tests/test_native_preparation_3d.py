@@ -173,7 +173,7 @@ def _check_drag(value, metadata, side):
         assert bool(selected.selection.flags & 2) == metadata['extrapolated']
 
 
-def _check_values(result, expected, config):
+def _check_values(result, expected, config, *, side_b_porosity=None):
     shape = tuple(len(expected.grid['d' + axis]) for axis in 'xyz')
     assert tuple(result.input.counts) == shape
     for index, axis in enumerate('xyz'):
@@ -183,7 +183,8 @@ def _check_values(result, expected, config):
         ('total_porosity', 'eps_arr'), ('side_porosity', 'eps_A'),
         ('permeability', 'K_m2'), ('forchheimer', 'cF_per_m'), ('solid_conductivity', 'K_ss')]:
         _same(_array(getattr(result, name), shape), expected.design_fields[key], key)
-    _same(_array(result.side_porosity, shape), expected.design_fields['eps_B'], 'eps_B')
+    _same(_array(result.side_porosity if side_b_porosity is None else side_b_porosity, shape),
+          expected.design_fields['eps_B'], 'eps_B')
     for index, key in enumerate(('L_field_m', 't_field_m')):
         assert result.length_kinds[index].precision == expected.design_fields[key].dtype.itemsize * 8, key
     params, prepared = expected.parameters, expected.parameters['prepared']

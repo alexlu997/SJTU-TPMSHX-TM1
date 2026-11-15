@@ -111,7 +111,11 @@ It integrates side porosity on the actual inlet face and keeps static evidence b
 The 3D continuous v3 accepts XY extrusion or XYZ controls for the same three flow operations.
 It samples final physical centres and retains raw design geometry separately from the thermal SI round trip.
 Full local K/cF and side porosity keep their original meaning. Existing v1/v2 layouts remain unchanged.
-3D run/capture integration, grid zones and asymmetric preparation remain separate gates.
+The 3D spatial v4 adds XY grid rectangles and the existing global offset rules.
+It assigns physical XY centres, smooths L/t separately, then extends fields along z.
+The existing asymmetric owner supplies nominal split and thermal side/reference geometry.
+Local total porosity remains symmetric; each side capacity uses its own split field.
+The v1/v2/v3 layouts remain unchanged. Python 3D preparation and native run/capture integration remain separate gates.
 Memory use near the cell cap and real 3D BO also need separate acceptance.
 Preparation v7 carries domain and port scalar kinds through the same grid, opening and spatial-field owners.
 It keeps v3/v4 payloads and releases; earlier entries retain weak double domain and port values.
@@ -124,7 +128,7 @@ Callback v4 keeps that layout and adds a host-object check immediately before ph
 Python retains warning filters, source locations and completed observations after a later failure.
 A native failure never selects another preparation route.
 The replaced continuous Python branches are retired; independent frozen references remain under `development/tests`.
-`preparation_case.cpp` owns the 2D preparation sequences and the uniform or continuous 3D sequences.
+`preparation_case.cpp` owns 2D preparation and uniform, continuous or grid/offset 3D preparation.
 `stage_run.cpp` adapts it to the existing full 2D driver.
 Its lifecycle interface uses the same full 2D run object, typed snapshots and restore checks.
 Partial energy controls use defaults from the selected library.

@@ -134,7 +134,9 @@ Python 三维生产路径保持不变。
 独立的三维流量 v2 为配置或显式总质量流量增加容量、解析及完整准备，复用同一物理几何，
 保留静态观测到速度观测的原证据顺序。三维 continuous v3 为这些流量操作增加 XY 挤出和 XYZ 控制点，
 复用现有样条及几何所有者，分别保留原始设计场与热几何的 SI 往返换算。
-宿主缓存钩子、原生三维运行／捕获、网格分区及非对称场需要单独完成阶段接入。
+三维 spatial v4 为三个操作增加原始 XY 网格矩形及现有全局偏置规则，复用现有分区与非对称所有者，
+提供分配、平滑、侧孔隙率及名义热侧／参考几何。原有 air/water 范围与实验限制不变，v1/v2/v3 C 布局不变。
+宿主缓存钩子、Python 三维准备及原生三维运行／捕获需要单独完成阶段接入。
 接近单元上限的内存使用及真实三维 BO 仍是验收关口；原始接口不替代保存 CaseData 的校验。
 
 `shared/models/_native_preparation.py` 在需要时通过 ctypes 加载 preparation ABI 1。
@@ -246,7 +248,7 @@ tm1_python="$(sed -n '1p' .venv-path)"
 独立结果发布不构建求解状态，`result-build.json` 保留实际编译器、选项、产物和 SDK 元数据。
 其依赖记录为空，不包含 CoolProp 构建记录。
 macOS／Windows 完整发布以同一事务部署四个库，并保留各自匹配的前一版本。
-CI 保留完整 macOS／Windows 构建，并增加独立 Ubuntu `result-build` 作业。
+CI 保留完整 macOS／Windows 构建，独立结果构建及其最小后处理消费者使用 Ubuntu 24.04。
 该作业向 `minimal-postprocess` 提供 `result-build-linux-x86_64`，后者还接收独立的 macOS `real-file-handoff` 输入。
 最小作业检查独立结果参考和真实保存的 2D/3D 文件，不构建求解器或模型库。
 [来源与接口说明](../sjtu_tpmshx/solvers/native/result/sources.md)定义类型、缓冲区、错误及许可声明。
