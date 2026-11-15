@@ -805,8 +805,10 @@ BO 不允许跳过测试；集成允许已记录的单项跳过，但全跳过�
 比较速度时区分快测、集成和整个 job，并使用相同平台的基准，不据本地耗时承诺 CI 提速。
 完整验收的 skip 须保留具体原因，不能当作被跳过能力已经通过。最小后处理 CI 使用独立的
 `engineering/requirements/postprocess.txt` 环境，并消费另一完整环境生成的真实 2D/3D
-结果文件。独立 Ubuntu `result-build` 作业只获取锁定 CMake，构建并验证结果库，
-通过 `result-build-linux-x86_64` 传给 `minimal-postprocess`。
+结果文件。独立 `result-build` 矩阵在 Ubuntu 24.04 和 26.04 上运行。
+每个作业只获取锁定 CMake，随后构建并验证结果库。
+两项构建均须通过，Ubuntu 24.04 的 `minimal-postprocess` 才能执行文件检查。
+该作业使用 `result-build-linux-x86_64-ubuntu-24.04`；Ubuntu 26.04 产物单独保留。
 macOS 集成步骤同时将公开算例的两个结果及指标通过 `real-file-handoff`
 传给该 Linux 最小环境。两类交接保留 7 天，不包含私有数据。
 最小作业使用预构建结果库检查独立数值参考和真实文件回读，不构建完整求解器。
