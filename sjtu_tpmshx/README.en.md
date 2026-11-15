@@ -35,6 +35,8 @@ Preparation v3 adds independent capacity, inlet-flow resolution and complete pre
 It reuses the physical inlet grid and keeps preliminary records separate from final preparation evidence.
 Run v2 supports uniform four-fluid preparation, including resolved total mass flow.
 Preparation v4 supplies continuous XY fields and full local drag to run v3. Run v1 keeps its air/air CFD scope.
+Preparation v5 adds raw air/air stripes and rectangles at prescribed velocity, CFD drag and zero delta.
+Its separate thermal geometry and row drag preserve the existing discrete rules.
 Separate 3D preparation v1 accepts raw symmetric uniform inputs at prescribed speeds for all 16 ordered fluid pairs.
 It retains physical grids, typed ports, six directions, the cell cap and existing CFD/experimental limits.
 Side porosity is already split; base K/cF fields and side application factors remain separate.

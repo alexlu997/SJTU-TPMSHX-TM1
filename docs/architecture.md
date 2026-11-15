@@ -101,6 +101,10 @@ Run v3 consumes this continuous state with the existing full 2D driver.
 It preserves local drag, original hydraulic diameter, unit order and nominal reference geometry.
 Resolved uniform flow cases use run v2. Both routes retain the v1 result owner.
 No v1/v2/v3 preparation C layout changes.
+Preparation v5 adds raw air/air stripes and rectangles at prescribed velocity, with CFD drag and zero delta.
+It preserves L/t projection before row D-F, discrete smoothing and separate thermal geometry fields.
+It owns per-call typed caches and accepts only the v1 event callback.
+It does not change Python route selection or enable mass targets, sigmoid fields or nonzero delta.
 The separate `tpmshx_prepare_case_3d_v1` prepares raw symmetric uniform 3D inputs at prescribed inlet speeds.
 It supports both topologies and all 16 fluid pairs with existing CFD or experimental DF limits.
 The owned state retains physical `(x,y,z)` fields, typed ports, axis maps for six directions and model evidence.

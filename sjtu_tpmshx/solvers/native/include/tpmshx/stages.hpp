@@ -41,6 +41,7 @@ using InletFlow2D=detail::Owned<tpmshx_preparation_flow_2d_v3,tpmshx_preparation
 using PreparedFlowCase2D=detail::Owned<tpmshx_preparation_flow_case_2d_v3,tpmshx_preparation_flow_case_2d_release_v3>;
 using ContinuousInletFlow2D=detail::Owned<tpmshx_preparation_continuous_flow_2d_v4,tpmshx_preparation_continuous_flow_2d_release_v4>;
 using PreparedContinuousCase2D=detail::Owned<tpmshx_preparation_continuous_case_2d_v4,tpmshx_preparation_continuous_case_2d_release_v4>;
+using PreparedZonedCase2D=detail::Owned<tpmshx_preparation_zoned_case_2d_v5,tpmshx_preparation_zoned_case_2d_release_v5>;
 using PreparedCase3D=detail::Owned<tpmshx_preparation_case_3d_v1,tpmshx_preparation_case_3d_release_v1>;
 using InletFlow3D=detail::Owned<tpmshx_preparation_flow_3d_v2,tpmshx_preparation_flow_3d_release_v2>;
 using PreparedFlowCase3D=detail::Owned<tpmshx_preparation_flow_case_3d_v2,tpmshx_preparation_flow_case_3d_release_v2>;
@@ -109,6 +110,12 @@ struct ContinuousInput2D : tpmshx_preparation_continuous_input_2d_v4 {
     ContinuousInput2D():tpmshx_preparation_continuous_input_2d_v4{} {
         abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V4;struct_size=sizeof(tpmshx_preparation_continuous_input_2d_v4);
         values=FlowInput2D{};values.values.values.geometry_mode=1;
+    }
+};
+struct ZonedInput2D : tpmshx_preparation_zoned_input_2d_v5 {
+    ZonedInput2D():tpmshx_preparation_zoned_input_2d_v5{} {
+        abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V5;struct_size=sizeof(tpmshx_preparation_zoned_input_2d_v5);
+        values=CaseInput2Dv2{};values.values.geometry_mode=2;axis=1;
     }
 };
 struct GridKinds2D : tpmshx_preparation_grid_kinds_2d_v7 {
@@ -222,6 +229,14 @@ inline PreparedCase2Dv2 prepare_case(const CaseInput2Dv2& input,const Preparatio
     char error[4096]{};
     detail::check(tpmshx_prepare_case_2d_v2(&input,&options,nullptr,&output,&failure,error,sizeof(error)),error);
     return PreparedCase2Dv2(output);
+}
+inline PreparedZonedCase2D prepare_case(const ZonedInput2D& input,const PreparationOptions& options={}) {
+    tpmshx_preparation_zoned_case_2d_v5 output{};tpmshx_preparation_case_failure_v2 failure{};
+    output.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V5;output.struct_size=sizeof(output);
+    failure.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V2;failure.struct_size=sizeof(failure);
+    char error[4096]{};
+    detail::check(tpmshx_prepare_zoned_case_2d_v5(&input,&options,nullptr,&output,&failure,error,sizeof(error)),error);
+    return PreparedZonedCase2D(output);
 }
 inline PreparedCase3D prepare_case(const CaseInput3D& input,const PreparationOptions& options={}) {
     tpmshx_preparation_case_3d_v1 output{};tpmshx_preparation_case_failure_v2 failure{};
