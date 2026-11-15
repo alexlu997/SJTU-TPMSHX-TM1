@@ -220,7 +220,12 @@ jobs:
   result-build:
     needs: scope
     if: needs.scope.outputs.tier != 'docs'
-    runs-on: ubuntu-latest
+    # Keep the accepted image while checking the newer compiler.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-26.04]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     env:
       MPLCONFIGDIR: .cache/matplotlib
@@ -273,7 +278,7 @@ jobs:
       - name: Save the independent Linux result image
         uses: actions/upload-artifact@v7
         with:
-          name: result-build-linux-x86_64
+          name: result-build-linux-x86_64-${{ matrix.os }}
           path: sjtu_tpmshx/solvers/native/lib/linux-x86_64/
           if-no-files-found: error
           retention-days: 7
@@ -281,7 +286,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: result-build-linux-logs
+          name: result-build-linux-logs-${{ matrix.os }}
           path: .cache/native-deps/logs/
           include-hidden-files: true
           if-no-files-found: error
@@ -290,7 +295,7 @@ jobs:
   minimal-postprocess:
     needs: [scope, native, result-build]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
       MPLCONFIGDIR: .cache/matplotlib
@@ -313,7 +318,7 @@ jobs:
       - uses: actions/download-artifact@v8
         if: needs.scope.outputs.tier != 'docs'
         with:
-          name: result-build-linux-x86_64
+          name: result-build-linux-x86_64-ubuntu-24.04
           path: sjtu_tpmshx/solvers/native/lib/linux-x86_64
       - uses: actions/download-artifact@v8
         if: needs.scope.outputs.tier != 'docs'

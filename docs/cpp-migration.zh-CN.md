@@ -271,8 +271,10 @@ tm1_python="$(sed -n '1p' .venv-path)"
 独立结果发布不构建求解状态，`result-build.json` 保留实际编译器、选项、产物和 SDK 元数据。
 其依赖记录为空，不包含 CoolProp 构建记录。
 macOS／Windows 完整发布以同一事务部署四个库，并保留各自匹配的前一版本。
-CI 保留完整 macOS／Windows 构建，并增加独立 Ubuntu `result-build` 作业。
-该作业向 `minimal-postprocess` 提供 `result-build-linux-x86_64`，后者还接收独立的 macOS `real-file-handoff` 输入。
+CI 保留完整 macOS／Windows 构建，并在 Ubuntu 24.04 和 26.04 上检查独立结果构建。
+两项结果构建均须通过，`minimal-postprocess` 消费者继续使用 Ubuntu 24.04。
+它接收 `result-build-linux-x86_64-ubuntu-24.04` 和独立的 macOS `real-file-handoff` 输入。
+Ubuntu 26.04 构建产物单独保留。
 最小作业检查独立结果参考和真实保存的 2D/3D 文件，不构建求解器或模型库。
 [来源与接口说明](../sjtu_tpmshx/solvers/native/result/sources.md)定义类型、缓冲区、错误及许可声明。
 不提供数值回退、运行时编译器或通用数值回调。
