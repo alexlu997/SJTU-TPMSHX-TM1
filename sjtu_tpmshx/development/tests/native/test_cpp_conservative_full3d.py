@@ -460,6 +460,8 @@ def test_existing_true_h_controls_keep_qualified_state(native_path, monkeypatch,
                 cfg[name] = False
                 if name == 'variable_rho_cp':
                     cfg['_environment']['TPMSHX_VAR_RHOCP'] = None
+        # These forced controls use the direct C interface.
+        kwargs['stage_case'] = None
         return run_prepared(driver, cfg, data, run_control, **kwargs)
 
     monkeypatch.setattr(NativeFull3DDriver, '_run_prepared', with_controls)
