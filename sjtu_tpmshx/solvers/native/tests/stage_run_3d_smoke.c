@@ -14,9 +14,11 @@ int main(void) {
     tpmshx_stage_run_control_3d_v1 control={0};
     tpmshx_stage_run_result_3d_v1 result={0},before;
     tpmshx_run_state_v1 snapshot={0};
+    tpmshx_stage_capture_3d_v1 capture={0};
     tpmshx_stage_output_v1 report={0};
     tpmshx_result_diagnostics_v1 diagnostics={0};uint64_t token=0;
     void* run=NULL;void* restored=NULL;uint32_t phase=0;size_t i;
+    REQUIRE(tpmshx_stage_capture_3d_abi_version()==1);
     input.abi_version=1;input.struct_size=sizeof(input);input.max_cells=2000000;
     input.lengths_m[0].value=.182;input.lengths_m[1].value=.042;input.lengths_m[2].value=.031;
     for(i=0;i<3;++i)input.lengths_m[i].precision=64;
@@ -55,6 +57,8 @@ int main(void) {
     tpmshx_stage_run_3d_release_run_v1(&restored);
     tpmshx_preparation_case_3d_release_v1(&prepared);
     REQUIRE(result.raw.stop<=1 && result.evidence.dimension==3 && result.evidence.field_count==25);
+    REQUIRE(tpmshx_stage_run_3d_get_capture_v1(&result,1,&capture)==0);
+    REQUIRE(capture.model_h_cell_count==120 && capture.audit_outlet[0].size==20);
     report.struct_size=sizeof(report);
     REQUIRE(tpmshx_result_stage_query_v2(&result.evaluation,0,NULL,NULL,0,&report,&diagnostics,&token,error,sizeof(error))==0);
     REQUIRE(report.json && report.metric_count==15);
@@ -76,6 +80,8 @@ int main(void) {
     result.abi_version=1;result.struct_size=sizeof(result);control.callbacks.cancel=cancel;
     REQUIRE(tpmshx_run_case_3d_v1(&prepared,NULL,NULL,&request,&control,&result,error,sizeof(error))==0);
     REQUIRE(result.raw.stop==2 && result.evidence.abi_version==0);
+    capture.q_net=123.;
+    REQUIRE(tpmshx_stage_run_3d_get_capture_v1(&result,0,&capture)==1 && capture.q_net==123.);
     tpmshx_preparation_case_3d_release_v1(&prepared);tpmshx_stage_run_3d_release_v1(&result);
     puts("Plain C 3D prepare/run/restore/evaluate passed");return 0;
 }

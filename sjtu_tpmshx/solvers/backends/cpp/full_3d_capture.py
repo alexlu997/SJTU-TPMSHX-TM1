@@ -9,6 +9,7 @@ from sjtu_tpmshx.shared.result_display import describe_fields
 
 
 def capture_result(case, cfg, p, r, abi):
+    scalars = r.get('capture_scalars')
     fields=dict(zip(('Ta','Tb','Ts'), map(freeze_value, r['temperature'])))
     fields.update(h_vA=r['hv'][0],h_vB=r['hv'][1],K_ss=np.asarray(p['design']['K_ss']))
     for s,label in enumerate('AB'):
@@ -83,7 +84,7 @@ def capture_result(case, cfg, p, r, abi):
         u_A=cfg['u_A'],T_in=cfg['T_inA'],T_A_out=r['outlet_temperature'][0],T_B_out=r['outlet_temperature'][1] if r['flow'][1] else None,
         T_out_A=r['outlet_temperature'][0],T_out_B=r['outlet_temperature'][1] if r['flow'][1] else None,
         dir_A=cfg['fluid_A_cfg']['dir'],dir_B=cfg['fluid_B_cfg']['dir'] if r['flow'][1] else None,
-        Q_sA=r['solid_exchange'][0],Q_sB=r['solid_exchange'][1],Q_net=sum(r['solid_exchange']),
+        Q_sA=r['solid_exchange'][0],Q_sB=r['solid_exchange'][1],Q_net=sum(r['solid_exchange']) if scalars is None else scalars['q_net'],
         energy_imbalance_rel=r['energy_imbalance'],mass_imbalance_rel_A=r['mass_imbalance'][0],mass_imbalance_rel_B=r['mass_imbalance'][1],
         Q_AB_imbalance_rel=r['enthalpy_imbalance'],Q_sA_interior=r['interior_exchange'][0],Q_sB_interior=r['interior_exchange'][1],
         Q_interior=r['interior_duty'],AB_interior=r['interior_imbalance'],**strict,_ltne_info=ltne,
@@ -91,7 +92,8 @@ def capture_result(case, cfg, p, r, abi):
         _needs_full_validate=bool(p.get('compact',False) and not all(h['converged'] for h in ltne)),
         sco2_nu_observations=r['nu_observations'],df_metadata=df_metadata,
         solver_converged=r['converged'],envelope_valid=r['envelope_ok'],envelope_reasons=r['envelope_reasons'],
-        envelope_warnings=list(r['warnings']),p_clip_hits=sum(f['last']['pressure_clip_hits'] for f in r['flow'] if f is not None))
+        envelope_warnings=list(r['warnings']),p_clip_hits=(sum(f['last']['pressure_clip_hits'] for f in r['flow'] if f is not None)
+            if scalars is None else scalars['pressure_clip_hits']))
     pressure_states={label:None if f is None else f['inlet_pressure'] for label,f in zip('AB',r['flow'])}
     for label in 'AB':
         state=pressure_states[label]
@@ -142,7 +144,9 @@ def capture_result(case, cfg, p, r, abi):
         for s,label in enumerate('AB'):
             f=r['flow'][s];bc=cfg['fluid_'+label+'_cfg'];axes=p['axes'][label]
             outlet_coeff=None if f is None else f['outlet_opening']
-            if f is not None and cfg['fluid_type_'+label] not in ('sco2', 'co2'):
+            if scalars is not None:
+                outlet_coeff = scalars['audit_outlet'][s]
+            elif f is not None and cfg['fluid_type_'+label] not in ('sco2', 'co2'):
                 # Legacy audit-only display weight; raw opening owns every solved face.
                 outlet_coeff=outlet_coeff*_build_outlet_frac_taper(*outlet_coeff.shape)
             diagnostics['_audit_s'+label+'_face']=None if f is None else dict(

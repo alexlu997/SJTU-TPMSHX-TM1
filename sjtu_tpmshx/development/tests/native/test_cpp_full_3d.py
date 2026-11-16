@@ -365,7 +365,7 @@ def test_native_call_borrows_case_arrays_and_recovers(native_path, monkeypatch, 
 
     def init(self, *args, **kwargs):
         original_init(self, *args, **kwargs)
-        symbol = 'tpmshx_stage_run_2d_create_saved_v1' if dimension == 2 else 'tpmshx_solve_full_3d_v5'
+        symbol = f'tpmshx_stage_run_{dimension}d_create_saved_v1'
         original_call = getattr(self.library, symbol)
 
         def call(*args):
@@ -379,7 +379,7 @@ def test_native_call_borrows_case_arrays_and_recovers(native_path, monkeypatch, 
                     'eps_arr': data.total_porosity.data,
                 }
             else:
-                data = args[0]._obj
+                data = args[0]._obj.input.contents
                 pointers = {key: getattr(data, field).data for key, field in (
                     ('eps_arr', 'epsilon'), ('eps_A', 'epsilon_a'), ('eps_B', 'epsilon_b'),
                     ('K_m2', 'permeability'), ('cF_per_m', 'forchheimer'),

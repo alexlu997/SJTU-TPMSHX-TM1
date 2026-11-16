@@ -25,6 +25,8 @@ int main() {
             while(resumed.phase()!=TPMSHX_FULL3D_COMPLETED)resumed.advance_step();
             return resumed.take_result();
         }();
+        const auto capture=capture_summary(result,true);
+        if(!capture.model_h_cell_count || !capture.audit_outlet[0].size)return 1;
         auto report=evaluate(result);
         std::cout<<report.view().json<<'\n';
         // This small iteration budget can give an ineligible result.
