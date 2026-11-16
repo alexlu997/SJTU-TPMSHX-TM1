@@ -191,8 +191,10 @@ struct FlowOutputStorage {
         require_disjoint(pointer,count,error,error_bytes);
     }
     void borrowed(tpmshx_preparation_text_v1 value) const {borrowed(value.data,value.size);}
-    void evidence(const tpmshx_preparation_flow_evidence_v3& value) const {
-        borrowed(value.ranges,value.range_count);borrowed(value.range_bounds_list,value.range_count);
+    template<class Evidence> void evidence(const Evidence& value) const {
+        borrowed(value.ranges,value.range_count);
+        if constexpr (std::is_same_v<Evidence,tpmshx_preparation_flow_evidence_v3>)
+            borrowed(value.range_bounds_list,value.range_count);
         borrowed(value.warnings,value.warning_count);borrowed(value.events,value.event_count);
         for (std::size_t i=0;i<value.range_count;++i) {
             const auto& range=value.ranges[i];borrowed(range.source,range.source_count);borrowed(range.shape,range.rank);
@@ -208,8 +210,7 @@ struct FlowOutputStorage {
     void owned(const tpmshx_preparation_case_input_2d_v2& value) const {
         for (const auto item:{value.sco2_nu.parameter_version,value.sco2_nu.source,value.sco2_nu.applicability}) borrowed(item);
     }
-    void owned(const tpmshx_preparation_case_2d_v2& value) const {
-        const auto& base=value.values;
+    void owned(const tpmshx_preparation_case_2d_v1& base) const {
         for (const auto item:{base.dx,base.dy,base.x_edges,base.y_edges,base.x_breaks,base.y_breaks,
             base.cell_length,base.wall_thickness,base.total_porosity,base.solid_conductivity,base.hydraulic_radius}) borrowed(item);
         for (const auto& side:base.sides) {
@@ -219,8 +220,11 @@ struct FlowOutputStorage {
             borrowed(side.drag_evidence.campaign);borrowed(side.drag_evidence.scope);
         }
         for (const auto& model:base.models) {borrowed(model.name);borrowed(model.version);borrowed(model.side);}
-        evidence({base.ranges,base.range_count,value.range_bounds_list,
-            base.warnings,base.warning_count,base.events,base.event_count});
+        evidence(base);
+    }
+    void owned(const tpmshx_preparation_case_2d_v2& value) const {
+        borrowed(value.range_bounds_list,value.values.range_count);
+        owned(value.values);
         for (const auto item:{value.sco2_nu.parameter_version,value.sco2_nu.source,value.sco2_nu.applicability,
             value.sco2_nu_model_version,value.sco2_nu_interpretation,value.co2.version,value.co2.application_version,
             value.co2.pressure_model,value.co2.correction_source,value.co2.property_model,value.co2.common_geometry}) borrowed(item);
@@ -301,9 +305,12 @@ struct FlowOutputStorage {
             value.design_area_density_per_m,value.fluid_conductivity[0],value.fluid_conductivity[1],
             value.volumetric_transfer[0],value.volumetric_transfer[1]}) borrowed(item);
     }
+    void owned(const tpmshx_preparation_sigmoid_lut_view_v6& value) const {
+        for (const auto item:{value.cell_mm,value.wall_mm,value.porosity,value.area_density_per_m}) borrowed(item);
+    }
+    void owned(const tpmshx_preparation_sigmoid_lut_v6& value) const {owned(value.values);}
     void owned(const tpmshx_preparation_sigmoid_input_2d_v6& value) const {
-        owned(value.values);borrowed(value.controls.decision_mm);
-        for (const auto item:{value.lut.cell_mm,value.lut.wall_mm,value.lut.porosity,value.lut.area_density_per_m}) borrowed(item);
+        owned(value.values);borrowed(value.controls.decision_mm);owned(value.lut);
     }
     void owned(const tpmshx_preparation_sigmoid_case_2d_v6& value) const {
         owned(value.values);borrowed(value.controls.decision_mm);
@@ -912,7 +919,11 @@ extern "C" int TPMSHX_PREPARATION_CALL tpmshx_prepare_case_2d_v1(
     char* error,size_t capacity) {
     if (!tpmshx::fields::c_api::error_buffer_valid(error,capacity)) return TPMSHX_PREPARATION_INVALID;
     // Check aliases before the boundary can write an error through them.
+    const FlowOutputStorage storage{reinterpret_cast<const unsigned char*>(result),
+        result?sizeof(*result):0,nullptr,error,capacity};
     try {
+        require_buffer(result,result?1:0);
+        if (result && result->owner) storage.owned(*result);
         require_disjoint(error,capacity,source,source?1:0);
         require_disjoint(error,capacity,selected,selected?1:0);
         require_disjoint(error,capacity,callbacks,callbacks?1:0);
@@ -951,7 +962,11 @@ extern "C" int TPMSHX_PREPARATION_CALL tpmshx_prepare_case_2d_v2(
     const tpmshx_preparation_case_callbacks_v1* callbacks,tpmshx_preparation_case_2d_v2* result,
     tpmshx_preparation_case_failure_v2* failure,char* error,size_t capacity) {
     if (!tpmshx::fields::c_api::error_buffer_valid(error,capacity)) return TPMSHX_PREPARATION_INVALID;
+    const FlowOutputStorage storage{reinterpret_cast<const unsigned char*>(result),
+        result?sizeof(*result):0,failure,error,capacity};
     try {
+        require_buffer(result,result?1:0);
+        if (result && result->values.owner) storage.owned(*result);
         require_disjoint(error,capacity,source,source?1:0);require_disjoint(error,capacity,result,result?1:0);
         require_disjoint(error,capacity,selected,selected?1:0);require_disjoint(error,capacity,callbacks,callbacks?1:0);
         require_disjoint(error,capacity,failure,failure?1:0);
@@ -1568,7 +1583,13 @@ extern "C" int TPMSHX_PREPARATION_CALL tpmshx_preparation_sigmoid_lut_create_v6(
     uint32_t topology,size_t cell_nodes,size_t wall_nodes,size_t resolution,
     tpmshx_preparation_sigmoid_lut_v6* result,char* error,size_t capacity) {
     if (!tpmshx::fields::c_api::error_buffer_valid(error,capacity)) return TPMSHX_PREPARATION_INVALID;
-    try {require_disjoint(error,capacity,result,result?1:0);} catch (...) {return TPMSHX_PREPARATION_INVALID;}
+    const FlowOutputStorage storage{reinterpret_cast<const unsigned char*>(result),
+        result?sizeof(*result):0,nullptr,error,capacity};
+    try {
+        require_buffer(result,result?1:0);
+        if (result && result->owner) storage.owned(*result);
+        require_disjoint(error,capacity,result,result?1:0);
+    } catch (...) {return TPMSHX_PREPARATION_INVALID;}
     return p::c_api::boundary(error,capacity,[&] {
         version6(result);
         if (result->owner) throw std::invalid_argument("release the previous sigmoid LUT before reusing its result");

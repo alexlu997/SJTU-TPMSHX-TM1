@@ -713,3 +713,27 @@ def test_sigmoid_owned_result_keeps_safe_reuse_diagnostics(native):
         assert all(ct.string_at(address, len(saved)) == saved for address, saved in buffers)
     finally:
         _release(native, result)
+
+
+@pytest.mark.parametrize('topology', ['Diamond', 'Gyroid'])
+@pytest.mark.parametrize('invalid', ['none', 'version', 'size'])
+def test_standalone_lut_owned_views_reject_error_aliases(native, topology, invalid):
+    from sjtu_tpmshx.development.tests.test_native_preparation_continuous import _check_owned_aliases, _visible_buffers
+
+    result = _cold(native, topology)
+    topology_id = int(topology == 'Gyroid')
+    call = lambda _failure, error, capacity: native.tpmshx_preparation_sigmoid_lut_create_v6(
+        topology_id, 2, 2, 16, ct.byref(result), error, capacity)
+    try:
+        if invalid != 'none':
+            setattr(result, 'struct_size' if invalid == 'size' else 'abi_version', 0)
+        assert set(_check_owned_aliases(call, result, 'error')) == {
+            'result.values.' + name for name in ('cell_mm', 'wall_mm', 'porosity', 'area_density_per_m')}
+        result.abi_version, result.struct_size = 6, ct.sizeof(result)
+        before = [(address, ct.string_at(address, size)) for _, address, size in _visible_buffers(result)]
+        outer, error = bytes(result), ct.create_string_buffer(4096)
+        assert call(None, error, len(error)) == 1 and b'release' in error.value
+        assert bytes(result) == outer
+        assert all(ct.string_at(address, len(saved)) == saved for address, saved in before)
+    finally:
+        _release(native, result)
