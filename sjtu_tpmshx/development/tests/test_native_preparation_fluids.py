@@ -423,3 +423,63 @@ def test_python_preparation_keeps_unhashable_velocity_failure(monkeypatch):
     with pytest.raises(TypeError, match="unhashable type: 'numpy.ndarray'"):
         prepare_case(config, case_id='native-uniform-host-type-reference')
     assert logs == ['[run_calculation] Wall-refined grid: 22×24 cells (4-wall BL resolved)']
+
+
+@pytest.mark.parametrize('model', ['air', 'co2', 'experimental'])
+@pytest.mark.parametrize('invalid', ['none', 'source-version', 'source-size', 'result-version', 'result-size'])
+@pytest.mark.parametrize('destination', ['error', 'failure'])
+def test_standalone_v2_owned_views_reject_diagnostic_aliases(native, model, invalid, destination):
+    from sjtu_tpmshx.development.tests.test_native_preparation_continuous import _check_owned_aliases, _visible_buffers
+
+    pair = ('air', 'sco2') if model == 'experimental' else (model, 'air')
+    config = _configuration('Gyroid', pair, 'experimental' if model == 'experimental' else 'cfd_smooth')
+    if model == 'experimental':
+        config.sco2_nu = replace(config.sco2_nu, mode='experimental', alpha_D=1.13, alpha_G=2.27,
+            parameter_version='retained version', source='retained source', applicability='retained scope')
+    status, result, failure, error, _, source = _call(native, config)
+    assert status == 0, error
+    call = lambda failure, error, capacity: native.tpmshx_prepare_case_2d_v2(
+        ct.byref(source), None, None, ct.byref(result), ct.cast(failure, ct.POINTER(_Failure)), error, capacity)
+    try:
+        if invalid != 'none':
+            target = source if invalid.startswith('source') else result
+            setattr(target, 'struct_size' if invalid.endswith('size') else 'abi_version', 0)
+        labels = _check_owned_aliases(call, result, destination)
+        assert {'result.values.cell_length', 'result.range_bounds_list', 'result.values.ranges[0].source[0]'} <= set(labels)
+        if model == 'experimental':
+            assert 'result.drag[0].calibration[0].key' in labels and 'result.sco2_nu.source' in labels
+        elif model == 'co2':
+            assert 'result.co2.version' in labels
+        source.abi_version, source.struct_size = 2, ct.sizeof(source)
+        result.abi_version, result.struct_size = 2, ct.sizeof(result)
+        before = [(address, ct.string_at(address, size)) for _, address, size in _visible_buffers(result)]
+        outer, error = bytes(result), ct.create_string_buffer(4096)
+        assert call(ct.byref(failure), error, len(error)) == 1 and b'release' in error.value
+        assert failure.kind == 1 and failure.side == 2 and bytes(result) == outer
+        assert all(ct.string_at(address, len(saved)) == saved for address, saved in before)
+    finally:
+        native.tpmshx_preparation_case_2d_release_v2(ct.byref(result))
+
+
+def test_standalone_v2_owned_field_rejects_valid_failure_header(native):
+    from sjtu_tpmshx.development.tests.test_native_preparation_continuous import _visible_buffers
+
+    config = _configuration('Gyroid', ('air', 'air'))
+    config.solver.Nx = config.solver.Ny = 64
+    status, result, _, error, _, source = _call(native, config)
+    assert status == 0, error
+    try:
+        field = result.values.cell_length
+        assert field.size * ct.sizeof(_D) >= ct.sizeof(_Failure)
+        failure = _Failure(2, ct.sizeof(_Failure))
+        failure.kind, failure.side = 77, 77
+        ct.memmove(field.data, ct.byref(failure), ct.sizeof(failure))
+        before = [(address, ct.string_at(address, size)) for _, address, size in _visible_buffers(result)]
+        outer, error = bytes(result), ct.create_string_buffer(b'unchanged', 4096)
+        error_before = bytes(error)
+        status = native.tpmshx_prepare_case_2d_v2(ct.byref(source), None, None,
+            ct.byref(result), ct.cast(field.data, ct.POINTER(_Failure)), error, len(error))
+        assert status == 1 and bytes(result) == outer and bytes(error) == error_before
+        assert all(ct.string_at(address, len(saved)) == saved for address, saved in before)
+    finally:
+        native.tpmshx_preparation_case_2d_release_v2(ct.byref(result))
