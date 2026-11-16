@@ -359,13 +359,18 @@ def _check_owned_aliases(call, result, destination):
     assert buffers
     before = [(label, address, ct.string_at(address, size)) for label, address, size in buffers]
     outer = bytes(result)
-    for label, address, _ in buffers:
+    for label, address, saved in before:
         failure = v2._Failure(2, ct.sizeof(v2._Failure))
         error = ct.create_string_buffer(b'unchanged', 4096)
         failure_before, error_before = bytes(failure), bytes(error)
         failure_pointer = ct.cast(address, ct.POINTER(v2._Failure)) if destination == 'failure' else ct.byref(failure)
-        error_pointer = ct.cast(address, ct.POINTER(ct.c_char)) if destination == 'error' else error
-        status = call(failure_pointer, error_pointer, 1 if destination == 'error' else len(error))
+        error_pointer, capacity = error, len(error)
+        if destination == 'error':
+            # A one-byte error clears a nonzero byte; zero arrays need message space.
+            offset = next((index for index, byte in enumerate(saved) if byte), None)
+            error_pointer = ct.cast(address + (offset or 0), ct.POINTER(ct.c_char))
+            capacity = 1 if offset is not None else min(2, len(saved))
+        status = call(failure_pointer, error_pointer, capacity)
         assert status == 1, label
         assert bytes(result) == outer, label
         assert bytes(failure) == failure_before and bytes(error) == error_before, label

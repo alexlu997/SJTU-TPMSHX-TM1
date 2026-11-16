@@ -402,3 +402,32 @@ def test_native_preparation_keeps_v1_scope_error_order(native, selection, expect
                                          error, len(error)) == 1
     assert error.value.decode() == expected
     assert bytes(result) == before
+
+
+@pytest.mark.parametrize('selection', ['baseline', 'temperature-range'])
+@pytest.mark.parametrize('invalid', ['none', 'source-version', 'source-size', 'result-version', 'result-size'])
+def test_standalone_v1_owned_views_reject_error_aliases(native, selection, invalid):
+    from sjtu_tpmshx.development.tests.test_native_preparation_continuous import _check_owned_aliases, _visible_buffers
+
+    config, _ = _configuration(selection)
+    source, result = _input(config), _Result(1, ct.sizeof(_Result))
+    options = _Options(1, ct.sizeof(_Options), 0, config.extrap.allow, 0.)
+    error = ct.create_string_buffer(4096)
+    call = lambda _failure, error, capacity: native.tpmshx_prepare_case_2d_v1(
+        ct.byref(source), ct.byref(options), None, ct.byref(result), error, capacity)
+    assert call(None, error, len(error)) == 0, error.value
+    try:
+        if invalid != 'none':
+            target = source if invalid.startswith('source') else result
+            setattr(target, 'struct_size' if invalid.endswith('size') else 'abi_version', 0)
+        labels = _check_owned_aliases(call, result, 'error')
+        assert {'result.cell_length', 'result.models[0].name', 'result.ranges[0].source[0]'} <= set(labels)
+        source.abi_version, source.struct_size = 1, ct.sizeof(source)
+        result.abi_version, result.struct_size = 1, ct.sizeof(result)
+        before = [(address, ct.string_at(address, size)) for _, address, size in _visible_buffers(result)]
+        outer = bytes(result)
+        assert call(None, error, len(error)) == 1 and b'release' in error.value
+        assert bytes(result) == outer
+        assert all(ct.string_at(address, len(saved)) == saved for address, saved in before)
+    finally:
+        native.tpmshx_preparation_case_2d_release_v1(ct.byref(result))
