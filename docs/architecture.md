@@ -127,7 +127,7 @@ The separate `tpmshx_prepare_case_3d_v1` prepares raw symmetric uniform 3D input
 It supports both topologies and all 16 fluid pairs with existing CFD or experimental DF limits.
 The owned state retains physical `(x,y,z)` fields, typed ports, axis maps for six directions and model evidence.
 Side porosity is already split. Base K/cF fields remain unscaled; side evidence retains the application factors.
-The host supplies the resolved cell cap. This interface uses v1 event callbacks without host cache hooks.
+The host supplies the resolved cell cap. The raw interface accepts v1 event callbacks; host v5 adds typed v9 cache callbacks.
 The separate 3D flow v2 reuses that geometry for capacity, flow resolution and complete preparation.
 It integrates side porosity on the actual inlet face and keeps static evidence before resolved-speed checks.
 The 3D continuous v3 accepts XY extrusion or XYZ controls for the same three flow operations.
@@ -137,11 +137,18 @@ The 3D spatial v4 adds XY grid rectangles and the existing global offset rules.
 It assigns physical XY centres, smooths L/t separately, then extends fields along z.
 The existing asymmetric owner supplies nominal split and thermal side/reference geometry.
 Local total porosity remains symmetric; each side capacity uses its own split field.
-The v1/v2/v3 layouts remain unchanged. Python 3D preparation retains its separate host integration gate.
+The v1/v2/v3/v4 layouts remain unchanged. Python 3D preparation uses host v5 and its typed cache callbacks.
+`preprocess/three_d/preparation.py` keeps config conversion, environment parsing and immutable DTO assembly.
+`preprocess/native_preparation.py` shares cache and warning transport with 2D.
+The C++ owner builds the physical grid once and keeps static evidence before resolved-speed checks.
+Air-field scalar observations use at most eight selected values per side, with the original notices, extrema and last sample.
+Full raw-array range records keep all physical cells.
+The replaced 3D Python bodies and exclusive `shared/models/grid_3d.py` and `asym_split.py` are removed.
+Their frozen reference remains in `development/tests/preparation_3d_reference.py`.
 Memory use near the cell cap and real 3D BO also need separate acceptance.
 Python preparation uses v7 with owned v3/v4 results for symmetric uniform and canonical continuous XY 2D inputs.
 Symmetric air/air stripes, rectangles and sigmoid fields use v9 for preparation, capacity and flow resolution.
-Nonzero-delta and 3D preparation retain explicit existing routes.
+Nonzero-delta 2D preparation keeps its existing route. All supported 3D preparation uses the native host stage.
 Public ZoneConfig and sigmoid combination queries retain standalone and offset consumers.
 These public interfaces keep supplied properties and custom sigmoid controls.
 The adapter preserves CaseData fields, scalar types, events, source ranges and saved model selections.
@@ -1903,7 +1910,7 @@ explicit numerical-model change with directly relevant validation.
    with a constant-density or isothermal shortcut.
 2. **Porosity is split one time.** Symmetric LTNE callers pass the full porosity.
    The energy solver forms the two half-porosity streams. For an offset
-   isosurface, `shared/models/asym_split.py` computes the upstream `eps_A`/`eps_B`
+   isosurface, `solvers/native/src/preparation_case.cpp` computes the upstream `eps_A`/`eps_B`
    split. Its sides sum to the full porosity. The kernel does not halve those
    values again.
 

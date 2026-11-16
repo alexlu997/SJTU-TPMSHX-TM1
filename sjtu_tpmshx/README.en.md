@@ -57,11 +57,15 @@ Native 3D run/capture connects those prepared families and saved views to the sa
 The result owns complete raw fields and evaluation evidence after preparation and run release.
 Python full 3D execution uses this saved-input lifecycle through `full_3d_stage.py`.
 `full_3d_capture.py` remains the result assembler. Native capture supplies application reductions and optional audit outlet weights.
-Python 3D preparation and host cache hooks remain separate gates.
+Python 3D preparation uses host v5 with shared typed cache callbacks.
+`preprocess/three_d/preparation.py` assembles immutable CaseData from the owned native result.
+The replaced `shared/models/grid_3d.py` and `asym_split.py` helpers are retired.
+`development/tests/preparation_3d_reference.py` keeps the independent numerical reference.
 Memory use near the cell cap and real 3D BO need separate acceptance.
 
 The Python preparation entries use v7 with v3/v4 payloads for symmetric uniform and continuous 2D inputs, and v9 for air/air spatial inputs.
-Nonzero-delta and 3D preparation keep their explicit existing routes.
+Nonzero-delta 2D preparation keeps its explicit existing route.
+All supported 3D preparation modes use the native host stage.
 Public ZoneConfig and sigmoid combination queries retain standalone and offset consumers.
 They keep supplied properties and custom sigmoid controls.
 CaseData and saved-file contracts stay unchanged. Native failures propagate without another preparation route.

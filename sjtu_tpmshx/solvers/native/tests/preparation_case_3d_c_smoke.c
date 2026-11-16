@@ -34,6 +34,7 @@ int main(void) {
     input.sides[1].port.direction=5;input.sides[0].mass_flow_kg_s=123.;
     input.sco2_nu.source.data=source;input.sco2_nu.source.size=strlen(source);original=input;
     CHECK(tpmshx_preparation_case_3d_abi_version_v1()==1);
+    CHECK(tpmshx_preparation_host_3d_abi_version_v5()==5);
     CHECK(!tpmshx_prepare_case_3d_v1(&input,&options,NULL,&output,&failure,error,sizeof(error)));
     CHECK(!failure.kind && output.owner && !memcmp(&input,&original,sizeof(input)));
     CHECK(output.cell_length.size==120 && output.sides[1].inlet_opening.size==30 && output.sides[1].axes[6]==1);

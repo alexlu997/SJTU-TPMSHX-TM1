@@ -7,6 +7,7 @@
 #define TPMSHX_PREPARATION_FLOW_3D_ABI_VERSION 2u
 #define TPMSHX_PREPARATION_CONTINUOUS_3D_ABI_VERSION 3u
 #define TPMSHX_PREPARATION_SPATIAL_3D_ABI_VERSION 4u
+#define TPMSHX_PREPARATION_HOST_3D_ABI_VERSION 5u
 
 typedef struct {
     uint32_t fluid;
@@ -161,6 +162,12 @@ extern "C" {
  * Failure preserves the result. Invalid overlapping output storage preserves
  * the result, failure and error buffers. No run or property table is created.
  */
+/* Host v5 uses typed v9 cache callbacks with the existing 3D input layouts.
+ * Validation stages: 10=domain, 11=ports, 12=fluids, 13=grid input,
+ * 14=cell cap, 15=roughness, 16=grid-cell values, 17/18/19=x/y/z counts.
+ * Side is 2 (shared).
+ */
+TPMSHX_PREPARATION_API uint32_t TPMSHX_PREPARATION_CALL tpmshx_preparation_host_3d_abi_version_v5(void);
 TPMSHX_PREPARATION_API uint32_t TPMSHX_PREPARATION_CALL tpmshx_preparation_case_3d_abi_version_v1(void);
 TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_case_3d_v1(
     const tpmshx_preparation_case_input_3d_v1*,const tpmshx_preparation_case_options_v1*,

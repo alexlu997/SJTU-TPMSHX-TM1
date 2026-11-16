@@ -52,11 +52,15 @@ spatial v4 增加 XY 网格矩形和现有全局偏置规则，分别保留侧�
 结果在准备态及运行释放后拥有完整原始场与评估证据。
 Python 完整三维执行通过 `full_3d_stage.py` 使用该保存输入生命周期。
 `full_3d_capture.py` 仍是结果组装器；原生捕获提供应用归约量及可选审计出口权重。
-Python 三维准备及宿主缓存钩子仍有独立关口。
+Python 三维准备使用 host v5 和共享的带类型缓存回调。
+`preprocess/three_d/preparation.py` 从拥有独立存储的原生结果组装不可变 CaseData。
+被替代的 `shared/models/grid_3d.py` 和 `asym_split.py` 助手已退役。
+`development/tests/preparation_3d_reference.py` 保留独立数值参考。
 接近单元上限的内存使用及真实三维 BO 需要单独验收。
 
 Python 准备入口对对称均匀和连续二维输入使用 v7 及 v3/v4 载荷，对 air/air 空间输入使用 v9。
-非零 delta 与三维准备保留明确原路径。
+非零 delta 二维准备保留明确原路径。
+全部受支持三维准备模式使用原生宿主阶段。
 公共 ZoneConfig 与 sigmoid 组合查询仍保留独立调用和偏移几何消费者。
 它们保留调用方提供的物性及自定义 sigmoid 控制。
 CaseData 与保存文件契约不变，原生失败直接传播，不选择其他准备路线。

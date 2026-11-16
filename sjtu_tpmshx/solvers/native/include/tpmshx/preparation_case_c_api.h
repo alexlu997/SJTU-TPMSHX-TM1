@@ -761,7 +761,7 @@ TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_sigmoid_f
 TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_sigmoid_flow_case_2d_release_v8(
     tpmshx_preparation_sigmoid_flow_case_2d_v8*);
 
-/* V9 adds typed host caches and explicit geometry extrapolation policy. V1 event callbacks
+/* V9 adds typed host caches, a separate spatial material and explicit geometry extrapolation policy. V1 event callbacks
  * and v9 callbacks are accepted. Old input and callback layouts are unchanged.
  * Initialize only the outer result header and set its owner to NULL. Nested
  * owners are NULL; release only the outer result with its matching v9 function.

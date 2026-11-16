@@ -166,7 +166,7 @@ It supports both topologies and all 16 ordered fluid pairs with the existing sta
 The owner keeps physical grid fields, six port directions, scalar tags and model evidence.
 Side porosity is already split. K/cF fields remain unscaled; side evidence records the application factors.
 The host supplies the resolved cell cap. The [stage contract](native-stages.md#uniform-3d-preparation) defines ownership and port rules.
-Python 3D raw preparation retains its existing route.
+Python 3D preparation now uses this native stage through `preprocess/three_d/preparation.py`.
 The separate 3D flow v2 adds capacity, resolution and complete preparation for configured or explicit total mass flow.
 It reuses one physical geometry and retains the original static-to-speed evidence order.
 The 3D continuous v3 adds XY extrusion and XYZ controls to those flow operations.
@@ -183,7 +183,12 @@ It shares input packing, callbacks and complete DTO decoding with the direct low
 Native capture supplies the application reductions and audit outlet weights; `full_3d_capture.py` remains the single result assembler.
 Protocol selection precedes execution. Archived libraries retain their direct run and restore interfaces.
 Missing protocol symbols and native failures do not start another route.
-Host cache hooks and Python 3D raw preparation remain separate gates.
+Host v5 keeps typed geometry and inlet caches through the shared v9 callback descriptor.
+Python keeps configuration, cache policy, warnings, environment parsing and immutable CaseData assembly.
+The replaced 3D Python bodies and exclusive `shared/models/grid_3d.py` and `asym_split.py` helpers are removed.
+Their independent frozen reference remains in `development/tests/preparation_3d_reference.py`.
+The private `scalar_range_samples.hpp` keeps at most eight air-field scalar observations per side, including the original notices, extrema and last sample.
+Full raw-array records keep every cell. Preparation and result compile this selection separately, without a runtime link between them.
 Memory use near the cell cap and real 3D BO remain acceptance gates.
 This raw interface does not replace saved CaseData validation.
 

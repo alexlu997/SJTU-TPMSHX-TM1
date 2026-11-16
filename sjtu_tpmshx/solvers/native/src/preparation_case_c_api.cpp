@@ -241,54 +241,8 @@ struct FlowOutputStorage {
         borrowed(value.notices,value.notice_count);
         for (std::size_t i=0;i<value.notice_count;++i) borrowed(value.notices[i]);
     }
-    void owned(const tpmshx_preparation_case_3d_v1& value) const {
-        for (const auto item:value.widths) borrowed(item);
-        for (const auto item:value.edges) borrowed(item);
-        for (const auto item:{value.cell_length,value.wall_thickness,value.total_porosity,value.side_porosity,
-            value.permeability,value.forchheimer,value.solid_conductivity}) borrowed(item);
-        for (const auto& side:value.sides) {
-            borrowed(side.inlet_opening);borrowed(side.outlet_opening);
-            borrowed(side.drag_evidence.campaign);borrowed(side.drag_evidence.scope);
-            const auto& drag=side.drag_selection;
-            borrowed(drag.application_scope);borrowed(drag.fluid);borrowed(drag.calibration,drag.calibration_count);
-            for (std::size_t i=0;i<drag.calibration_count;++i) {
-                borrowed(drag.calibration[i].key);borrowed(drag.calibration[i].value);
-            }
-        }
-        for (const auto& model:value.models) {borrowed(model.name);borrowed(model.version);borrowed(model.side);}
-        evidence(value.evidence);
-        const auto& nu=value.input.sco2_nu;
-        for (const auto item:{nu.parameter_version,nu.source,nu.applicability,value.sco2_nu_model_version,
-            value.sco2_nu_interpretation,value.co2.version,value.co2.application_version,value.co2.pressure_model,
-            value.co2.correction_source,value.co2.property_model,value.co2.common_geometry}) borrowed(item);
-        borrowed(value.notices,value.notice_count);
-        for (std::size_t i=0;i<value.notice_count;++i) borrowed(value.notices[i]);
-    }
     void owned(const tpmshx_preparation_flow_2d_v3& value) const {owned(value.input);evidence(value.evidence);}
     void owned(const tpmshx_preparation_flow_case_2d_v3& value) const {owned(value.prepared);owned(value.flow);}
-    void owned(const tpmshx_preparation_flow_3d_v2& value) const {
-        const auto& nu=value.input.sco2_nu;
-        for (const auto item:{nu.parameter_version,nu.source,nu.applicability}) borrowed(item);
-        evidence(value.evidence);
-    }
-    void owned(const tpmshx_preparation_flow_case_3d_v2& value) const {owned(value.prepared);owned(value.flow);}
-
-    void owned(const tpmshx_preparation_continuous_flow_3d_v3& value) const {
-        owned(value.flow);borrowed(value.controls.decision_mm);
-    }
-    void owned(const tpmshx_preparation_continuous_case_3d_v3& value) const {
-        owned(value.prepared);owned(value.flow);borrowed(value.controls.decision_mm);
-        for (const auto item:{value.area_density_per_m,value.hydraulic_diameter_m,value.thermal_porosity}) borrowed(item);
-        for (const auto& drag:value.drag) {borrowed(drag.transfer_policy);borrowed(drag.geometry_application);}
-    }
-    void owned(const tpmshx_preparation_spatial_flow_3d_v4& value) const {
-        owned(value.flow);borrowed(value.cells,value.cell_count);
-    }
-    void owned(const tpmshx_preparation_spatial_case_3d_v4& value) const {
-        owned(value.prepared);owned(value.flow);borrowed(value.cells,value.cell_count);
-        for (const auto item:{value.side_b_porosity,value.area_density_per_m,
-            value.hydraulic_diameter_m,value.thermal_porosity}) borrowed(item);
-    }
     void owned(const tpmshx_preparation_continuous_flow_2d_v4& value) const {
         owned(value.flow);borrowed(value.controls.decision_mm);
     }
@@ -327,6 +281,48 @@ struct FlowOutputStorage {
     void owned(const tpmshx_preparation_sigmoid_flow_2d_v9& value) const {owned(value.values);}
     void owned(const tpmshx_preparation_zoned_flow_case_2d_v9& value) const {owned(value.values);borrowed(value.design_pore_porosity);}
     void owned(const tpmshx_preparation_sigmoid_flow_case_2d_v9& value) const {owned(value.values);borrowed(value.design_pore_porosity);}
+    void owned(const tpmshx_preparation_case_input_3d_v1& value) const {
+        for (const auto item:{value.sco2_nu.parameter_version,value.sco2_nu.source,value.sco2_nu.applicability}) borrowed(item);
+    }
+    void owned(const tpmshx_preparation_case_3d_v1& value) const {
+        owned(value.input);
+        for (const auto item:value.widths) borrowed(item);
+        for (const auto item:value.edges) borrowed(item);
+        for (const auto item:{value.cell_length,value.wall_thickness,value.total_porosity,value.side_porosity,
+            value.permeability,value.forchheimer,value.solid_conductivity}) borrowed(item);
+        for (const auto& side:value.sides) {
+            borrowed(side.inlet_opening);borrowed(side.outlet_opening);
+            borrowed(side.drag_evidence.campaign);borrowed(side.drag_evidence.scope);
+            const auto& drag=side.drag_selection;
+            borrowed(drag.application_scope);borrowed(drag.fluid);borrowed(drag.calibration,drag.calibration_count);
+            for (std::size_t i=0;i<drag.calibration_count;++i) {
+                borrowed(drag.calibration[i].key);borrowed(drag.calibration[i].value);
+            }
+        }
+        for (const auto& model:value.models) {borrowed(model.name);borrowed(model.version);borrowed(model.side);}
+        evidence(value.evidence);
+        for (const auto item:{value.sco2_nu_model_version,value.sco2_nu_interpretation,value.co2.version,value.co2.application_version,
+            value.co2.pressure_model,value.co2.correction_source,value.co2.property_model,value.co2.common_geometry}) borrowed(item);
+        borrowed(value.notices,value.notice_count);
+        for (std::size_t i=0;i<value.notice_count;++i) borrowed(value.notices[i]);
+    }
+    void owned(const tpmshx_preparation_flow_3d_v2& value) const {owned(value.input);evidence(value.evidence);}
+    void owned(const tpmshx_preparation_flow_case_3d_v2& value) const {owned(value.prepared);owned(value.flow);}
+    void owned(const tpmshx_preparation_continuous_flow_3d_v3& value) const {
+        owned(value.flow);borrowed(value.controls.decision_mm);
+    }
+    void owned(const tpmshx_preparation_continuous_case_3d_v3& value) const {
+        owned(value.prepared);owned(value.flow);borrowed(value.controls.decision_mm);
+        for (const auto item:{value.area_density_per_m,value.hydraulic_diameter_m,value.thermal_porosity}) borrowed(item);
+        for (const auto& drag:value.drag) {borrowed(drag.transfer_policy);borrowed(drag.geometry_application);}
+    }
+    void owned(const tpmshx_preparation_spatial_flow_3d_v4& value) const {
+        owned(value.flow);borrowed(value.cells,value.cell_count);
+    }
+    void owned(const tpmshx_preparation_spatial_case_3d_v4& value) const {
+        owned(value.prepared);owned(value.flow);borrowed(value.cells,value.cell_count);
+        for (const auto item:{value.side_b_porosity,value.area_density_per_m,value.hydraulic_diameter_m,value.thermal_porosity}) borrowed(item);
+    }
     void lut(const tpmshx_preparation_sigmoid_lut_view_v6& value) const {
         for (const auto item:{value.cell_mm,value.wall_mm,value.porosity,value.area_density_per_m}) borrowed(item);
     }
@@ -1440,6 +1436,9 @@ tpmshx_preparation_case_3d_v1 view(Owner3D& owner,const tpmshx_preparation_case_
 }
 }  // namespace
 
+extern "C" uint32_t TPMSHX_PREPARATION_CALL tpmshx_preparation_host_3d_abi_version_v5(void) {
+    return TPMSHX_PREPARATION_HOST_3D_ABI_VERSION;
+}
 extern "C" uint32_t TPMSHX_PREPARATION_CALL tpmshx_preparation_case_3d_abi_version_v1(void) {
     return TPMSHX_PREPARATION_CASE_3D_ABI_VERSION;
 }
@@ -1455,18 +1454,21 @@ template<class Source,class Result,class Function> int boundary_3d(
     if (!tpmshx::fields::c_api::error_buffer_valid(error,capacity)) return TPMSHX_PREPARATION_INVALID;
     const FlowOutputStorage storage{reinterpret_cast<const unsigned char*>(result),
         result?sizeof(*result):0,failure,error,capacity};
+    const auto* callback_data=reinterpret_cast<const unsigned char*>(callbacks);
+    std::size_t callback_count=0;
     try {
         require_buffer(result,result?1:0);
         if (result && result->owner) storage.owned(*result);
-        require_buffer(source,source?1:0);require_buffer(failure,failure?1:0);
-        require_buffer(selected,selected?1:0);require_buffer(callbacks,callbacks?1:0);
+        callback_count=callback_bytes(callbacks);
+        require_buffer(source,source?1:0);require_buffer(result,result?1:0);require_buffer(failure,failure?1:0);
+        require_buffer(selected,selected?1:0);require_buffer(callback_data,callback_count);
         require_disjoint(error,capacity,source,source?1:0);require_disjoint(error,capacity,result,result?1:0);
-        require_disjoint(error,capacity,selected,selected?1:0);require_disjoint(error,capacity,callbacks,callbacks?1:0);
+        require_disjoint(error,capacity,selected,selected?1:0);require_disjoint(error,capacity,callback_data,callback_count);
         require_disjoint(error,capacity,failure,failure?1:0);
         require_disjoint(source,source?1:0,result,result?1:0);require_disjoint(source,source?1:0,failure,failure?1:0);
         require_disjoint(result,result?1:0,failure,failure?1:0);
         require_disjoint(selected,selected?1:0,result,result?1:0);require_disjoint(selected,selected?1:0,failure,failure?1:0);
-        require_disjoint(callbacks,callbacks?1:0,result,result?1:0);require_disjoint(callbacks,callbacks?1:0,failure,failure?1:0);
+        require_disjoint(callback_data,callback_count,result,result?1:0);require_disjoint(callback_data,callback_count,failure,failure?1:0);
         if constexpr (std::is_same_v<Source,tpmshx_preparation_continuous_input_3d_v3>) {
             if (source) {
                 const auto values=source->controls.decision_mm;
@@ -1488,7 +1490,10 @@ template<class Source,class Result,class Function> int boundary_3d(
             require_disjoint(value.data,value.size,result,result?1:0);require_disjoint(value.data,value.size,failure,failure?1:0);
         }
     } catch (...) {return TPMSHX_PREPARATION_INVALID;}
-    return p::c_api::boundary(error,capacity,[&] {
+    FlowCallbackContext context{callbacks,storage};
+    tpmshx_preparation_case_failure_v2 staged_failure{};
+    bool failure_ready=false;std::exception_ptr saved_exception;
+    try {
         if constexpr (std::is_same_v<Source,tpmshx_preparation_case_input_3d_v1>) {version(source);version(result);}
         else if constexpr (std::is_same_v<Source,tpmshx_preparation_flow_input_3d_v2>) {
             version2(source);version2(result);version(&source->input);
@@ -1498,39 +1503,60 @@ template<class Source,class Result,class Function> int boundary_3d(
             version4(source);version4(result);version2(&source->values);version(&source->values.input);
         }
         version2(failure);
-        if(selected)version(selected);if(callbacks)version(callbacks);
-        *failure={};failure->abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V2;failure->struct_size=sizeof(*failure);failure->side=2;
+        if(selected)version(selected);
+        if (callbacks) {
+            if (callbacks->abi_version==9) {
+                if (callbacks->struct_size!=sizeof(tpmshx_preparation_case_callbacks_v9))
+                    throw std::invalid_argument("preparation host callback struct size is invalid");
+                const auto& hooks=*reinterpret_cast<const tpmshx_preparation_case_callbacks_v9*>(callbacks);
+                if (hooks.values.geometry_cache || hooks.values.inlet_cache || hooks.sigmoid_lut_cache)
+                    throw std::invalid_argument("3D host callbacks require typed geometry and inlet cache hooks");
+            } else version(callbacks);
+        }
+        staged_failure.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V2;staged_failure.struct_size=sizeof(staged_failure);staged_failure.side=2;failure_ready=true;
         try {
             if (result->owner) throw std::invalid_argument("release the previous prepared case before reusing its result");
-            const p::PreparationCallbacks sink{callbacks && callbacks->event?emit:nullptr,
-                const_cast<tpmshx_preparation_case_callbacks_v1*>(callbacks)};
+            p::PreparationCallbacks sink{callbacks && callbacks->event?emit_flow:nullptr,&context};
+            if (callbacks && callbacks->abi_version==9) {
+                const auto& hooks=*reinterpret_cast<const tpmshx_preparation_case_callbacks_v9*>(callbacks);
+                sink.validate_host_input=hooks.values.values.validate_host_input?validate_host_input:nullptr;
+                sink.observe_range=hooks.values.observe_range?observe_range:nullptr;
+                sink.observe_notice=hooks.values.observe_notice?observe_notice:nullptr;
+                sink.geometry_cache_at=hooks.geometry_cache_at?geometry_cache_at:nullptr;
+                sink.inlet_cache_at=hooks.inlet_cache_at?inlet_cache_at:nullptr;
+            }
             function(input(*source),options(selected),sink);
         } catch (const p::PreparationError& problem) {
-            failure->kind=problem.kind;failure->side=problem.side;
-            failure->have_property=problem.have_property?1u:0u;failure->property=problem.property;
-            failure->cause_count=static_cast<std::uint32_t>(std::min(problem.causes.size(),std::size_t{2}));
-            for (std::size_t i=0;i<failure->cause_count;++i) {
-                failure->causes[i].kind=problem.causes[i].kind;
-                tpmshx::fields::c_api::message(failure->causes[i].message,sizeof(failure->causes[i].message),problem.causes[i].message.c_str());
+            staged_failure.kind=problem.kind;staged_failure.side=problem.side;
+            staged_failure.have_property=problem.have_property?1u:0u;staged_failure.property=problem.property;
+            staged_failure.cause_count=static_cast<std::uint32_t>(std::min(problem.causes.size(),std::size_t{2}));
+            for (std::size_t i=0;i<staged_failure.cause_count;++i) {
+                staged_failure.causes[i].kind=problem.causes[i].kind;
+                tpmshx::fields::c_api::message(staged_failure.causes[i].message,sizeof(staged_failure.causes[i].message),problem.causes[i].message.c_str());
             }
             throw p::c_api::StateError(problem.status,problem.what());
         } catch (const p::PropertyError& problem) {
-            const auto& value=problem.failure;failure->kind=problem.status==3?3u:1u;failure->have_property=1;
-            failure->property={value.reason,value.input,value.index,value.first_t_index,value.first_p_index,
+            const auto& value=problem.failure;staged_failure.kind=problem.status==3?3u:1u;staged_failure.have_property=1;
+            staged_failure.property={value.reason,value.input,value.index,value.first_t_index,value.first_p_index,
                 value.temperature,value.pressure,value.detail,value.fp};
             if constexpr (std::is_same_v<Source,tpmshx_preparation_continuous_input_3d_v3>
                           || std::is_same_v<Source,tpmshx_preparation_spatial_input_3d_v4>) {
                 const std::string prefix="CO2 requires a stable single-phase PT state; saturation, two-phase and critical-point states are unsupported. ";
                 const std::string message=problem.what();
                 if (message.compare(0,prefix.size(),prefix)==0) {
-                    failure->cause_count=1;failure->causes[0].kind=1;
-                    tpmshx::fields::c_api::message(failure->causes[0].message,sizeof(failure->causes[0].message),
+                    staged_failure.cause_count=1;staged_failure.causes[0].kind=1;
+                    tpmshx::fields::c_api::message(staged_failure.causes[0].message,sizeof(staged_failure.causes[0].message),
                         message.c_str()+prefix.size());
                 }
             }
             throw p::c_api::StateError(problem.status,problem.what());
-        } catch (const std::invalid_argument&) {failure->kind=1;throw;}
-        catch (...) {failure->kind=3;throw;}
+        } catch (const std::invalid_argument&) {staged_failure.kind=1;throw;}
+        catch (...) {staged_failure.kind=3;throw;}
+    } catch (...) {saved_exception=std::current_exception();}
+    if (!context.storage_safe) return TPMSHX_PREPARATION_INVALID;
+    return p::c_api::boundary(error,capacity,[&] {
+        if (failure_ready) *failure=staged_failure;
+        if (saved_exception) std::rethrow_exception(saved_exception);
     });
 }
 }  // namespace

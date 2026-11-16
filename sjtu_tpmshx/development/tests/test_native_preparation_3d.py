@@ -1,4 +1,4 @@
-"""Compare native 3D preparation with the unchanged Python 3D stage."""
+"""Compare native 3D preparation with the frozen Python 3D stage."""
 import ctypes as ct
 from dataclasses import replace
 from itertools import product
@@ -12,7 +12,7 @@ from sjtu_tpmshx.development.tests import test_native_preparation_case as v1
 from sjtu_tpmshx.development.tests import test_native_preparation_fluids as fluids
 from sjtu_tpmshx.development.tests.test_native_preparation_continuous import _host_events
 from sjtu_tpmshx.preprocess.api import _finish_metadata
-from sjtu_tpmshx.preprocess.three_d import preparation
+from sjtu_tpmshx.development.tests import preparation_3d_reference as preparation
 from sjtu_tpmshx.shared.domain.compute_config import PartialBCConfig
 from sjtu_tpmshx.shared.domain.run_warnings import RangeRecord, range_observations, warning_scope
 from sjtu_tpmshx.shared.models import _native_grid as grid

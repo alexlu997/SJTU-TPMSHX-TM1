@@ -163,6 +163,7 @@ jobs:
           sjtu_tpmshx/development/tests/test_native_preparation_continuous_3d.py
           sjtu_tpmshx/development/tests/test_native_preparation_spatial_3d.py
           sjtu_tpmshx/development/tests/test_native_prepare_adapter.py
+          sjtu_tpmshx/development/tests/test_native_prepare_adapter_3d.py
           sjtu_tpmshx/development/tests/test_native_prepare_spatial_adapter.py
           sjtu_tpmshx/development/tests/test_native_preparation_cache_bridge.py
           sjtu_tpmshx/development/tests/test_native_preparation_spatial_host_boundary.py

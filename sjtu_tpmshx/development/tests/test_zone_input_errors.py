@@ -1,7 +1,6 @@
 """A requested zoned problem must fail instead of solving a uniform one."""
 from unittest.mock import Mock
 
-import numpy as np
 import pytest
 
 from sjtu_tpmshx.compute import compute
@@ -161,13 +160,13 @@ def test_disabled_zone_axis_remains_an_unchecked_draft():
 @pytest.mark.parametrize('dimension', [2, 3])
 def test_direct_stage_parse_rejects_invalid_grid(dimension):
     from sjtu_tpmshx.preprocess.two_d.preparation import _parse_inputs_cfg
-    from sjtu_tpmshx.preprocess.three_d.preparation import _parse_inputs_3d_cfg
+    from sjtu_tpmshx.preprocess.api import prepare_case
     cfg = ComputeConfig(
         geometry=GeometryConfig(Lz_m=0.042), solver=SolverConfig(Nz=dimension - 1),
         extrap=ExtrapPolicy(allow=True), zones=ZoneInputConfig(
             enabled=True, axis='grid', grid=dict(
                 cells=[dict(x0=1, x1=0, y0=0, y1=1, L=6, t=0.3)])))
-    parse = _parse_inputs_cfg if dimension == 2 else _parse_inputs_3d_cfg
+    parse = _parse_inputs_cfg if dimension == 2 else lambda value: prepare_case(value, case_id='invalid-grid')
     with pytest.raises(ValueError, match='cell 1.*x'):
         parse(cfg)
 
@@ -187,21 +186,18 @@ def test_supported_air_zones_build_fields(axis):
 
 
 def test_supported_3d_grid_is_consumed():
-    from sjtu_tpmshx.preprocess.three_d.preparation import _parse_inputs_3d_cfg
-    from sjtu_tpmshx.shared.models.grid_3d import _build_zone_fields_3d
+    from sjtu_tpmshx.preprocess.api import prepare_case
     cells = [dict(x0=0, x1=1, y0=0, y1=1, L=6, t=0.3)]
     cfg = ComputeConfig(geometry=GeometryConfig(Lz_m=0.042),
                         solver=SolverConfig(Nx=4, Ny=4, Nz=2),
                         zones=ZoneInputConfig(enabled=True, axis='grid', grid={'cells': cells}),
                         extrap=ExtrapPolicy(allow=True))
-    parsed = _parse_inputs_3d_cfg(cfg)
-    assert parsed['zone_grid_cells'] == cells
-    lengths, thickness, eps = _build_zone_fields_3d(
-        parsed['zone_grid_cells'], np.full(4, .182 / 4), np.full(4, .042 / 4),
-        2, 'Diamond', 16, 7, 0.6)
+    case = prepare_case(cfg, case_id='grid-consumed')
+    assert case.parameters['zone_grid_cells'][0]['L_m'] == .006
+    lengths, thickness, eps = (case.design_fields[key] for key in ('L_field_m', 't_field_m', 'eps_arr'))
     assert lengths.shape == thickness.shape == eps.shape == (4, 4, 2)
-    assert lengths == pytest.approx(6)
-    assert thickness == pytest.approx(0.3)
+    assert lengths == pytest.approx(.006)
+    assert thickness == pytest.approx(.0003)
 
 
 @pytest.mark.parametrize('dimension,axis,grid', [

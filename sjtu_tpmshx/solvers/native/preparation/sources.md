@@ -56,7 +56,7 @@ side evidence records the CO2 or experimental application factors.
 The sequence keeps A then B inlet properties, air-only bulk Nu observations,
 then DF application evidence. Existing state and calibration limits remain.
 The raw C interface owns returned buffers and accepts v1 event callbacks.
-Python production preparation and its host cache hooks remain separate consumers.
+The Python host path adds typed cache callbacks without changing raw v1-v4 layouts.
 The separate 3D flow v2 uses the same static geometry and speed-dependent finish steps.
 It reuses `inlet_capacity_3d` and `inlet_speed` from `preparation_flow.cpp`.
 Capacity queries omit speed-dependent work. Complete preparation preserves one geometry and the original evidence order.
@@ -72,4 +72,15 @@ It extends those fields along z and retains the separate thermal SI round trip.
 Capacity uses the corresponding side field. Base DF and solid conductivity keep the existing symmetric geometry.
 The raw owner copies rectangle inputs and keeps borrowed nested views with null owners.
 The v1/v2/v3 C layouts and their original scope remain unchanged.
-These interfaces add no 3D solve or capture and do not switch Python production preparation.
+These raw interfaces add no 3D solve or capture.
+Python 3D preparation uses host v5 through the existing v3/v4 inputs and owned results.
+The shared v9 descriptor transports typed geometry and inlet cache values and evidence.
+Native code owns grid, geometry, flow resolution and final preparation.
+Python keeps configuration conversion, cache policy, warnings, environment parsing and immutable CaseData assembly.
+The replaced 3D Python bodies and exclusive `shared/models/grid_3d.py` and `asym_split.py` helpers are removed.
+Their independent frozen reference remains in `development/tests/preparation_3d_reference.py`.
+
+3D air-field observations use `src/scalar_range_samples.hpp`, also used by result range queries.
+The selection keeps the original scalar notices, extrema and last sample with at most eight host observations per side.
+Full raw-array range records keep every cell and their original sample denominator.
+Preparation and result compile this rule separately; preparation does not link the result library.

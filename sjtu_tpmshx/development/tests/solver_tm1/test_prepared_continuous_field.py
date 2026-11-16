@@ -45,21 +45,12 @@ def _config(volume=False):
 
 @pytest.mark.parametrize('volume', [False, True])
 def test_nonuniform_3d_preparation_samples_exact_polynomial_and_replays_case(tmp_path, monkeypatch, volume):
-    from sjtu_tpmshx.preprocess.three_d import preparation
     cfg = _config(volume)
     cfg.flags = FeatureFlags(port_wall_refine=True)
     # Wall-adjacent partial ports need three refined x segments instead of five.
     cfg.bc_B = replace(cfg.bc_B, in_ctr=cfg.geometry.L_dom_m - cfg.bc_B.in_w/2,
                        out_ctr=cfg.bc_B.out_w/2)
     cfg.solver = SolverConfig(Nx=30, Ny=10, Nz=10)
-    observations = []
-    original = preparation._record_air_bulk_ranges
-
-    def record(inputs, local_L, shape):
-        observations.append(local_L.copy())
-        return original(inputs, local_L, shape)
-
-    monkeypatch.setattr(preparation, '_record_air_bulk_ranges', record)
     case = prepare_case(cfg, case_id='continuous-physical-coordinates')
     dx, dy, dz = (case.grid['d' + axis] for axis in 'xyz')
     assert not np.allclose(dx, np.mean(dx))
@@ -71,7 +62,6 @@ def test_nonuniform_3d_preparation_samples_exact_polynomial_and_replays_case(tmp
     expected_t = .32 + .1*x*x + .12*y + .04*z*z + .01*x*z
     np.testing.assert_allclose(case.design_fields['L_field_m'], expected_L * 1e-3, rtol=2e-14)
     np.testing.assert_allclose(case.design_fields['t_field_m'], expected_t * 1e-3, rtol=2e-14)
-    np.testing.assert_array_equal(observations[0], case.design_fields['L_field_m'] * 1e3)
     thermal = case.parameters['thermal_geometry']['fields']
     for index in ((0, 0, 0), (len(dx)//2, len(dy)//2, len(dz)//2),
                   (len(dx)-1, len(dy)-1, len(dz)-1)):

@@ -1,8 +1,8 @@
 #include "tpmshx/preparation_case.hpp"
 #include "tpmshx/preparation_flow.hpp"
 #include "tpmshx/asym_geometry.hpp"
-#include "tpmshx/zones.hpp"
 #include "tpmshx/grid.hpp"
+#include "tpmshx/zones.hpp"
 #include "tpmshx/model_coefficients.hpp"
 #include "tpmshx/preparation_df.hpp"
 #include "tpmshx/preparation_df_data.hpp"
@@ -12,6 +12,7 @@
 #include "field_lut.hpp"
 #include "field_sigmoid.hpp"
 #include "contiguous_sum.hpp"
+#include "scalar_range_samples.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -441,11 +442,11 @@ struct Records {
     void observe(const PreparationRange& range,bool cached,std::optional<double> scalar={}) {
         if (callbacks.observe_range) callbacks.observe_range(callbacks.context,range,cached,scalar);
     }
-    void merge(const PreparationEvidence& evidence,const std::string& side={}) {
+    void merge(const PreparationEvidence& evidence,const std::string& side={},const std::string& layout="scalar") {
         for (const auto& range:evidence.ranges) {
             const auto bound_side=side.empty()?range.side:side;
             const auto bound_stage=side.empty()?range.stage:"inlet";
-            const auto bound_layout=side.empty()?range.layout:"scalar";
+            const auto bound_layout=side.empty()?range.layout:layout;
             collect(range.source,bound_side,bound_stage,bound_layout,range.label,range.quantity.c_str(),
                 range.unit.c_str(),range.bounds,range.shape,range.sample,range.bounds_list,{},false);
             for (auto& saved:output.ranges) if (saved.source==range.source && saved.shape==range.shape
@@ -2043,8 +2044,10 @@ CaseInput3D validate_3d(CaseInput3D input,CaseScope3D scope,bool allow_mass=fals
         throw std::invalid_argument(std::string("ComputeConfig.solver.N")+static_cast<char>('x'+axis)+"=0 — must be >= 1");
     if (input.grid.counts[2]<2) throw std::invalid_argument("3D preparation requires solver.Nz >= 2");
     for (std::size_t i=0;i<2;++i) input.sides[i].port=checked_port_3d(input.sides[i].port,input.grid,i?"B":"A");
-    if (model.cell_length_mm<df_data::df_L_nodes.front() || model.cell_length_mm>df_data::df_L_nodes.back()
-        || model.wall_thickness_mm<df_data::df_t_nodes.front() || model.wall_thickness_mm>df_data::df_t_nodes.back())
+    const auto cell=scalar(model.cell_length_mm,input.kinds.cell_length);
+    const auto wall=scalar(model.wall_thickness_mm,input.kinds.wall_thickness);
+    if (g::less(cell,g::weak(df_data::df_L_nodes.front())) || g::less(g::weak(df_data::df_L_nodes.back()),cell)
+        || g::less(wall,g::weak(df_data::df_t_nodes.front())) || g::less(g::weak(df_data::df_t_nodes.back()),wall))
         throw std::invalid_argument("V2 geometry must lie inside the CFD grid: 4 <= L <= 8 mm, 0.3 <= t <= 0.6 mm");
     for (std::size_t i=0;i<2;++i) {
         const auto& inlet=input.sides[i];fluid_name(inlet.fluid);
@@ -2114,39 +2117,53 @@ void water_inlet_3d(const InletInput3D& inlet,std::size_t side,const std::string
     }
 }
 
-void physical_grid_3d(PreparedCase3D& output) {
+void host_3d(Records& records,std::uint32_t stage) {
+    if (records.callbacks.validate_host_input)
+        records.callbacks.validate_host_input(records.callbacks.context,stage,2);
+}
+
+void physical_grid_3d(PreparedCase3D& output,Records& records) {
+
     const auto& input=output.input.grid;
     const g::Scalars lengths(input.lengths.begin(),input.lengths.end());
     const std::vector<g::Port> ports{output.input.sides[0].port,output.input.sides[1].port};
     for (std::size_t axis=0;axis<3;++axis) {
-        if (!input.port_wall_refine) output.widths[axis]=g::uniform(input.counts[axis],lengths[axis]);
-        else {
+        if (!input.port_wall_refine) {
+            host_3d(records,17+static_cast<std::uint32_t>(axis));
+            output.widths[axis]=g::uniform(input.counts[axis],lengths[axis]);
+        } else {
             const auto knots=unique(g::port_edges(lengths,ports,axis));
             g::Scalars outer{g::weak(0.)};outer.insert(outer.end(),knots.begin(),knots.end());outer.push_back(lengths[axis]);
             const auto keep=g::aligned_filter(lengths[axis],knots);
             g::Scalars bulk{g::weak(0.),lengths[axis]};
             for (std::size_t i=0;i<knots.size();++i) if (keep[i]) bulk.push_back(knots[i]);
             std::size_t minimum=0;
+            host_3d(records,17+static_cast<std::uint32_t>(axis));
             output.widths[axis]=g::port_wall_axis(3,input.counts[axis],outer,unique(std::move(bulk)),minimum,axis);
         }
     }
     const auto cells=count(count(output.widths[0].size(),output.widths[1].size()),output.widths[2].size());
+    host_3d(records,14);
     if (cells>input.max_cells)
         throw std::invalid_argument("3D grid "+std::to_string(output.widths[0].size())+"x"+
             std::to_string(output.widths[1].size())+"x"+std::to_string(output.widths[2].size())+
             " exceeds the "+std::to_string(input.max_cells)+"-cell cap");
 }
 
-void prepare_thermal_sides_3d(PreparedCase3D& output) {
+void prepare_thermal_sides_3d(PreparedCase3D& output,Records& records) {
+    if (records.callbacks.geometry_cache_at)
+        material_geometry(output.input,output.options,records.callbacks);
+
     const auto& model=output.input.geometry;
     if (model.delta_levelset!=0.)
         output.thermal_sides=geometry::asym::prepare_from_index(geometry_index(model.topology),
             geometry::calibration(model.topology),model.cell_length_mm,model.wall_thickness_mm,model.delta_levelset);
+    host_3d(records,15);
 }
 
-void store_spatial_fields_3d(PreparedCase3D& output,std::vector<double> cell_mm,std::vector<double> wall_mm) {
+void store_spatial_fields_3d(PreparedCase3D& output,std::vector<double> cell_mm,std::vector<double> wall_mm,Records& records) {
     const auto& model=output.input.geometry;
-    prepare_thermal_sides_3d(output);
+    prepare_thermal_sides_3d(output,records);
     const auto cells=cell_mm.size();
     output.side_porosity=geometry::asym::split_porosity({output.total_porosity.data(),cells},.5).a;
     const auto drag=fixed_df_batch(static_cast<std::uint32_t>(model.topology),
@@ -2160,7 +2177,7 @@ void store_spatial_fields_3d(PreparedCase3D& output,std::vector<double> cell_mm,
     output.length_kinds={ScalarKind{64,1,2},ScalarKind{64,1,2}};
 }
 
-void continuous_geometry_3d(PreparedCase3D& output) {
+void continuous_geometry_3d(PreparedCase3D& output,Records& records) {
     const auto& input=output.input;const auto& controls=*input.continuous;
     const auto nx=output.widths[0].size(),ny=output.widths[1].size(),nz=output.widths[2].size();
     const auto dimension=controls.nz?3u:2u;
@@ -2169,8 +2186,8 @@ void continuous_geometry_3d(PreparedCase3D& output) {
     std::array<std::vector<double>,3> axes,centres;
     for (std::size_t axis=0;axis<dimension;++axis) {
         const auto length=input.grid.lengths[axis];
-        auto& nodes=axes[axis];nodes=control_axis(counts[axis],length);
-        bool valid=nodes.size()==1?nodes[0]==g::divide(length,g::weak(2.)).value:
+        auto& nodes=axes[axis];nodes=control_axis(counts[axis],length,&records);
+        bool valid=nodes.size()==1?nodes[0]==control_midpoint(length,&records,"control-axis-check-midpoint"):
             nodes.front()==0. && nodes.back()==length.value;
         for (std::size_t i=0;i<nodes.size();++i)
             valid=valid && std::isfinite(nodes[i]) && (!i || nodes[i]>nodes[i-1]);
@@ -2246,15 +2263,16 @@ void continuous_geometry_3d(PreparedCase3D& output) {
     auto cell_mm=extrude(std::move(sampled[0])),wall_mm=extrude(std::move(sampled[1]));
     output.total_porosity=extrude(std::move(epsilon));output.area_density=extrude(std::move(area));
     output.hydraulic_diameter=extrude(std::move(diameter));output.thermal_porosity=extrude(std::move(thermal_epsilon));
-    store_spatial_fields_3d(output,std::move(cell_mm),std::move(wall_mm));
+    store_spatial_fields_3d(output,std::move(cell_mm),std::move(wall_mm),records);
 }
 
-void grid_geometry_3d(PreparedCase3D& output) {
+void grid_geometry_3d(PreparedCase3D& output,Records& records) {
     const auto& input=output.input;const auto& model=input.geometry;
     const auto nx=output.widths[0].size(),ny=output.widths[1].size(),nz=output.widths[2].size();
     std::vector<zones::Bounds> bounds;bounds.reserve(input.grid_cells.size());
     for (const auto& cell:input.grid_cells) bounds.push_back(cell.bounds);
     const auto ids=zones::assign(2,nx,ny,1,g::weak(1.),bounds,&output.widths[0],&output.widths[1]);
+    host_3d(records,16);
     std::array<std::vector<double>,2> local;
     for (std::size_t field=0;field<2;++field) {
         auto& values=local[field];values.resize(ids.size());
@@ -2286,7 +2304,7 @@ void grid_geometry_3d(PreparedCase3D& output) {
         output.area_density[i]=geometry.area_density;output.hydraulic_diameter[i]=geometry.hydraulic_diameter;
         output.thermal_porosity[i]=geometry.epsilon;
     }
-    store_spatial_fields_3d(output,std::move(cell_mm),std::move(wall_mm));
+    store_spatial_fields_3d(output,std::move(cell_mm),std::move(wall_mm),records);
 }
 
 void air_spatial_ranges_3d(const PreparedCase3D& output,std::size_t side,Records& records) {
@@ -2303,27 +2321,36 @@ void air_spatial_ranges_3d(const PreparedCase3D& output,std::size_t side,Records
             {{diameter,64,1},0.,0,3},{g::weak(mu)},re.events).real.value);
     records.floating(re.events);
     const auto topology=std::string(topology_name(input.geometry.topology));
-    for (const auto value:re.values)
+    const auto limits=re_range(Fluid::air);
+    const auto selected=detail::scalar_range_samples(re.values.size(),
+        [&](std::size_t index) {return re.values[index];},limits[0],limits[1]);
+    for (const auto index:selected)
         records.range({"nu","air",topology},name,"inlet","scalar-zoned-call","[Nu extrap] "+topology,
-            "Re","-",re_range(Fluid::air),value);
+            "Re","-",limits,re.values[index]);
     records.range({"nu_raw","air",topology},name,"inlet","real-cell(x,y,z)-bulk-Re","[air Nu raw] "+topology,
         "Re","-",re_range(Fluid::air),re.values,{output.widths[0].size(),output.widths[1].size(),output.widths[2].size()});
 }
 
 void prepare_geometry_3d(PreparedCase3D& output,Records& records,bool check_speed) {
     const auto& input=output.input;const auto& model=input.geometry;const auto& options=output.options;
-    output.uniform_geometry=material_geometry(input,options);
+    host_3d(records,10);
+    output.uniform_geometry=material_geometry(input,options,records.callbacks);
+    host_3d(records,11);
     for (std::size_t i=0;i<2;++i) water_inlet_3d(input.sides[i],i,"pipeline inlet");
+    host_3d(records,12);
     if (check_speed) preflight(input,options,output.uniform_geometry.geometry,input.sides,records);
-    physical_grid_3d(output);
+    host_3d(records,13);
+    physical_grid_3d(output,records);
+    if (records.callbacks.geometry_cache_at)
+        output.uniform_geometry=material_geometry(input,options,records.callbacks);
     const auto cells=count(count(output.widths[0].size(),output.widths[1].size()),output.widths[2].size());
     const auto& uniform=output.uniform_geometry.geometry;
     if (input.geometry_mode==2 && input.df_mode)
         throw std::invalid_argument("experimental calibration currently requires uniform L/t");
-    if (input.continuous) continuous_geometry_3d(output);
-    else if (input.geometry_mode==2) grid_geometry_3d(output);
+    if (input.continuous) continuous_geometry_3d(output,records);
+    else if (input.geometry_mode==2) grid_geometry_3d(output,records);
     else {
-        prepare_thermal_sides_3d(output);
+        prepare_thermal_sides_3d(output,records);
         output.total_porosity.assign(cells,uniform.epsilon);
         output.side_porosity.assign(cells,uniform.epsilon_a);
         const auto drag=fixed_df_batch(static_cast<std::uint32_t>(model.topology),
@@ -2359,15 +2386,40 @@ void prepare_geometry_3d(PreparedCase3D& output,Records& records,bool check_spee
     }
 }
 
+void air_uniform_ranges_3d(const PreparedCase3D& output,std::size_t side,Records& records) {
+    const auto& input=output.input;const auto& inlet=input.sides[side];
+    const auto& callbacks=records.callbacks;
+    if (!callbacks.inlet_cache_at) {
+        std::array<ScalarKind,13> kinds{};
+        inlet_properties(input,inlet,side,output.uniform_geometry,records,kinds,false,"scalar-hv-bulk");
+        return;
+    }
+    const PreparationInletKey key{geometry_key(input),inlet.fluid,inlet.velocity_m_s,
+        inlet.temperature_K,inlet.pressure_Pa,input.kinds.sides[side],{},co2_geometry(input)};
+    PreparationInletCache cached;
+    const bool hit=callbacks.inlet_cache_at(callbacks.context,false,key,cached);
+    if (!hit) {
+        const auto geometry=material_geometry(input,output.options,callbacks);
+        cached.geometry=geometry.geometry;
+        Records local{cached.evidence,callbacks,{},{}};
+        cached.properties=inlet_properties(input,inlet,side,geometry,local,cached.kinds,false,"scalar-hv-bulk");
+        for (auto& range:cached.evidence.ranges) {range.side="unbound";range.stage="unbound";range.layout="source";}
+        callbacks.inlet_cache_at(callbacks.context,true,key,cached);
+    }
+    // Public compute applies the current material after either cache outcome.
+    geometry::solid_conductivity(geometry::calibration(input.geometry.topology).solid_tortuosity,
+        cached.geometry.epsilon,input.geometry.solid_conductivity_W_mK,output.options.chi_override,
+        co2_geometry(input)?64u:input.kinds.solid_conductivity.precision);
+    if (hit) cached.evidence.events.clear();
+    records.merge(cached.evidence,side?"B":"A","scalar-hv-bulk");
+}
+
 void finish_case_3d(PreparedCase3D& output,Records& records) {
     const auto& input=output.input;
     const auto cells=output.total_porosity.size();
     for (std::size_t i=0;i<2;++i) if (input.sides[i].fluid==Fluid::air) {
         if (input.continuous || input.geometry_mode==2) air_spatial_ranges_3d(output,i,records);
-        else {
-            std::array<ScalarKind,13> kinds{};
-            inlet_properties(input,input.sides[i],i,output.uniform_geometry,records,kinds,false,"scalar-hv-bulk");
-        }
+        else air_uniform_ranges_3d(output,i,records);
     }
     for (std::size_t i=0;i<2;++i) {
         const auto& inlet=input.sides[i];auto& side=output.sides[i];
