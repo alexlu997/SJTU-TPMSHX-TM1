@@ -33,7 +33,7 @@ def test_all_v9_owned_views_reject_diagnostic_aliases(mode, operation, destinati
     source = source_type(9, ct.sizeof(source_type), base, _Model(config.geometry.k_s_W_mK, old.v2._Kind(64, 0, 0), 1, 0))
     result_type = case_type if operation == 'prepare' else flow_type
     result = result_type(9, ct.sizeof(result_type))
-    library = ct.CDLL(os.environ['TPMSHX_PREPARATION_CASE_LIBRARY'])
+    library = ct.CDLL(os.environ.get('TPMSHX_PREPARATION_CASE_LIBRARY') or old.v1._library_path())
     call = getattr(library, 'tpmshx_' + old._name(mode, operation) + '_2d_v9')
     call.argtypes = [ct.POINTER(source_type), ct.POINTER(old.v7._GridKinds), ct.POINTER(old.v1._Options),
         ct.POINTER(old.v1._Callbacks), ct.POINTER(result_type), ct.POINTER(old.v2._Failure),
@@ -112,7 +112,7 @@ def test_v9_cache_callbacks_reject_borrowed_diagnostic_aliases(hook, destination
         callbacks.sigmoid_lut_cache = binding._LUTCacheFunction(cache)
     grid = old.v7._kinds(config)
     options = old.v1._Options(1, ct.sizeof(old.v1._Options), 0, 1, 0.)
-    library = ct.CDLL(os.environ['TPMSHX_PREPARATION_CASE_LIBRARY'])
+    library = ct.CDLL(os.environ.get('TPMSHX_PREPARATION_CASE_LIBRARY') or old.v1._library_path())
     call = getattr(library, 'tpmshx_' + old._name(mode, 'prepare') + '_2d_v9')
     call.argtypes = [ct.POINTER(source_type), ct.POINTER(old.v7._GridKinds), ct.POINTER(old.v1._Options),
         ct.POINTER(old.v1._Callbacks), ct.POINTER(result_type), ct.POINTER(old.v2._Failure),
@@ -145,7 +145,7 @@ def test_v9_nested_headers_preserve_result(mode, operation, field):
     failure, error = old.v2._Failure(2, ct.sizeof(old.v2._Failure)), ct.create_string_buffer(4096)
     grid = old.v7._kinds(config)
     options = old.v1._Options(1, ct.sizeof(old.v1._Options), 0, 1, 0.)
-    library = ct.CDLL(os.environ['TPMSHX_PREPARATION_CASE_LIBRARY'])
+    library = ct.CDLL(os.environ.get('TPMSHX_PREPARATION_CASE_LIBRARY') or old.v1._library_path())
     call = getattr(library, 'tpmshx_' + old._name(mode, operation) + '_2d_v9')
     call.argtypes = [ct.POINTER(source_type), ct.POINTER(old.v7._GridKinds), ct.POINTER(old.v1._Options),
         ct.POINTER(old.v1._Callbacks), ct.POINTER(result_type), ct.POINTER(old.v2._Failure),
