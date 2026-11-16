@@ -109,6 +109,14 @@ Preparation v6 adds raw air/air sigmoid controls under the same velocity, drag a
 It keeps ordered blending, typed transitions, separate design/thermal geometry and row D-F projection, without Gaussian smoothing.
 An owned LUT can be built from raw geometry or supplied by the caller; each table keeps its interpolation mode.
 The native cold defaults are 41x31 nodes at voxel resolution 256. Python keeps disk and memory cache policy.
+Preparation v7 carries domain and port scalar kinds through the same grid, opening and spatial-field owners.
+It keeps v3-v6 payloads and releases; earlier entries retain weak double domain and port values.
+Preparation v8 adds raw spatial capacity, flow resolution and complete fixed-flow preparation for the same air/air CFD scope.
+It uses design porosity at the actual inlet, resolves speeds, then completes properties on the same physical grid and geometry.
+Discrete smoothing, sigmoid LUT geometry, separate thermal geometry and row D-F keep their existing rules.
+Its flow results own copied spatial controls and LUTs; preliminary and final evidence remain separate.
+The v8 raw boundary keeps event-only callbacks. Python spatial cache policy and route selection remain unchanged.
+
 The separate `tpmshx_prepare_case_3d_v1` prepares raw symmetric uniform 3D inputs at prescribed inlet speeds.
 It supports both topologies and all 16 fluid pairs with existing CFD or experimental DF limits.
 The owned state retains physical `(x,y,z)` fields, typed ports, axis maps for six directions and model evidence.
@@ -125,8 +133,6 @@ The existing asymmetric owner supplies nominal split and thermal side/reference 
 Local total porosity remains symmetric; each side capacity uses its own split field.
 The v1/v2/v3 layouts remain unchanged. Python 3D preparation retains its separate host integration gate.
 Memory use near the cell cap and real 3D BO also need separate acceptance.
-Preparation v7 carries domain and port scalar kinds through the same grid, opening and spatial-field owners.
-It keeps v3-v6 payloads and releases; earlier entries retain weak double domain and port values.
 Python preparation uses v7 with owned v3/v4 results for symmetric uniform and canonical continuous XY 2D inputs.
 Nonzero-delta uniform, discrete zones, sigmoid and 3D retain explicit existing routes.
 The adapter preserves CaseData fields, scalar types, events, source ranges and saved model selections.
