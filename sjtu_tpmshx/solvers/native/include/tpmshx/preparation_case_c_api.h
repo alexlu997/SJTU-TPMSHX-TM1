@@ -574,6 +574,8 @@ TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_query_inlet_properties
  * exception crosses this boundary. No numerical callback is required.
  * Input/result/error/callback storage must be disjoint. No pointer can prove
  * allocation size. Error requires a nonempty writable buffer.
+ * Diagnostics must not overlap any view of a retained result. An overlapping
+ * call preserves the result and all diagnostic storage.
  */
 TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_case_2d_v1(
     const tpmshx_preparation_case_input_2d_v1* input,
@@ -755,7 +757,10 @@ TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_continuous_flo
     tpmshx_preparation_continuous_case_2d_v4*,tpmshx_preparation_case_failure_v2*,char*,size_t);
 
 TPMSHX_PREPARATION_API uint32_t TPMSHX_PREPARATION_CALL tpmshx_preparation_case_abi_version_v6(void);
-/* Build the existing training-range LUT once; preparation borrows its view. */
+/* Build the existing training-range LUT once; preparation borrows its view.
+ * Error storage must not overlap any owned LUT array. An overlapping call
+ * preserves the LUT and error storage.
+ */
 TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_preparation_sigmoid_lut_create_v6(
     uint32_t topology,size_t cell_nodes,size_t wall_nodes,size_t resolution,
     tpmshx_preparation_sigmoid_lut_v6*,char*,size_t);

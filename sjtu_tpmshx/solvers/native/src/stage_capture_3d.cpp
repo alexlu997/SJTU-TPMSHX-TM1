@@ -404,11 +404,11 @@ public:
         add("inlet","shared","geometry","L_field_m");add("inlet","shared","geometry","t_field_m");
         for(size_t side=0;side<2;++side) {
             if(!raw.flow[side].widths[0].size)continue;
-            const auto fluid=input.sides[side].fluid;const char* topology=input.topology?"Gyroid":"Diamond";
-            add("inlet",labels[side],"nu",fluids[fluid],topology);
-            add("final",labels[side],"nu_raw",fluids[fluid],topology);
-            if(fluid==3)add("final",labels[side],"nu_pr",fluids[fluid],topology);
-            if(fluid<2 && raw.thermal_mode!=2)add("final",labels[side],"property_state",fluid?"water_cp":"air_cp");
+            const auto fluid_kind=input.sides[side].fluid;const char* topology=input.topology?"Gyroid":"Diamond";
+            add("inlet",labels[side],"nu",fluids[fluid_kind],topology);
+            add("final",labels[side],"nu_raw",fluids[fluid_kind],topology);
+            if(fluid_kind==3)add("final",labels[side],"nu_pr",fluids[fluid_kind],topology);
+            if(fluid_kind<2 && raw.thermal_mode!=2)add("final",labels[side],"property_state",fluid_kind?"water_cp":"air_cp");
         }
         applicability.version="applicability_evidence_v1";
         applicability.inlet=inlet_ranges.data();applicability.inlet_count=inlet_ranges.size();
