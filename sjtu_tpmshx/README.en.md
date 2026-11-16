@@ -97,7 +97,7 @@ The replaced `shared/models/quick_design.py` is removed. Defaults come from `sha
 The native-double v1 contract and the existing LTNE model remain available.
 Python execution calls the native run stage with saved prepared data. The native result stage owns Quick Design metrics.
 Preparation and result host operations keep the existing Python type, cache, warning and event protocols.
-The Python entries above retain all current modes while stage migration continues.
+The Python entries above retain all current modes.
 
 ## Edit numerical functions
 
