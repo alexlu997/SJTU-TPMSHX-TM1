@@ -83,6 +83,10 @@ static int check_v2(void) {
     provenance[0] = 'X';
     CHECK(!memcmp(result.sco2_nu.source.data, "saved-source", strlen("saved-source")));
     before = result;
+    CHECK(tpmshx_prepare_case_2d_v2(&source, &options, NULL, &result, &failure,
+        (char*)result.sco2_nu.source.data, 1) == TPMSHX_PREPARATION_INVALID);
+    CHECK(!memcmp(result.sco2_nu.source.data, "saved-source", strlen("saved-source")));
+    CHECK(!memcmp(&before, &result, sizeof(result)) && !failure.kind);
     CHECK(tpmshx_prepare_case_2d_v2(&source, &options, NULL, &result, &failure, error, sizeof(error)) == 1);
     CHECK(!memcmp(&before, &result, sizeof(result)) && failure.kind == 1);
     tpmshx_preparation_case_2d_release_v2(&result);
@@ -620,6 +624,17 @@ static int check_v6(void) {
     CHECK(!tpmshx_preparation_sigmoid_lut_create_v6(1, 2, 2, 16, &lut, error, sizeof(error)));
     CHECK(lut.owner && lut.values.porosity.size == 4 && lut.values.porosity_fast == 1);
     lut_before = lut;
+    {
+        const double cell = lut.values.cell_mm.data[0];
+        const unsigned char* bytes = (const unsigned char*)lut.values.cell_mm.data;
+        size_t offset = 0;
+        while (offset < sizeof(cell) && !bytes[offset]) ++offset;
+        CHECK(offset < sizeof(cell));
+        CHECK(tpmshx_preparation_sigmoid_lut_create_v6(1, 2, 2, 16, &lut,
+            (char*)lut.values.cell_mm.data + offset, 1) == TPMSHX_PREPARATION_INVALID);
+        CHECK(!memcmp(&cell, lut.values.cell_mm.data, sizeof(cell)));
+        CHECK(!memcmp(&lut, &lut_before, sizeof(lut)));
+    }
     CHECK(tpmshx_preparation_sigmoid_lut_create_v6(1, 2, 2, 16, &lut, error, sizeof(error)) == TPMSHX_PREPARATION_INVALID);
     CHECK(!memcmp(&lut, &lut_before, sizeof(lut)));
     source.lut = lut.values;
@@ -756,6 +771,10 @@ int main(void) {
     source.length_m = 2.;
     CHECK(result.input.length_m == original.length_m && result.dx.data[0] == first_width);
     before = result;
+    CHECK(tpmshx_prepare_case_2d_v1(&original, NULL, NULL, &result,
+        (char*)result.models[0].name.data, 1) == TPMSHX_PREPARATION_INVALID);
+    CHECK(!memcmp(result.models[0].name.data, "fluid", 5));
+    CHECK(!memcmp(&before, &result, sizeof(result)));
     CHECK(tpmshx_prepare_case_2d_v1(&original, NULL, NULL, &result, error, sizeof(error)) == TPMSHX_PREPARATION_INVALID);
     CHECK(!memcmp(&before, &result, sizeof(result)) && error[0]);
     tpmshx_preparation_case_2d_release_v1(&result);
