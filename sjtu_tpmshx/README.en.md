@@ -38,11 +38,14 @@ Preparation v4 supplies continuous XY fields and full local drag to run v3. Run 
 Preparation v5 adds raw air/air stripes and rectangles at prescribed velocity, CFD drag and zero delta.
 Its separate thermal geometry and row drag preserve the existing discrete rules.
 Preparation v6 adds raw air/air sigmoid controls and a reusable native LUT with production-resolution cold construction.
-It retains separate thermal geometry and row drag without discrete smoothing; the Python cache and route stay unchanged.
+It retains separate thermal geometry and row drag without discrete smoothing.
 
 Preparation v8 adds capacity, flow resolution and complete fixed-flow preparation for these air/air spatial inputs.
-It keeps the physical grid and geometry, resolves speeds before transfer calculations, and owns copied regions, controls and LUTs.
-Typed domain/port inputs and separate preliminary evidence remain explicit; Python spatial routes and caches stay unchanged.
+It retains the physical grid and geometry, resolves speeds before transfer calculations, and owns copied regions, controls and LUTs.
+Typed domain/port inputs and separate preliminary evidence remain explicit.
+Preparation v9 connects symmetric spatial Python preparation, capacity and resolution through typed host-cache hooks.
+`preprocess/native_preparation.py` shares cache and evidence transport; misses calculate in the native stage.
+Python retains LUT storage. Native code builds missing tables at the original geometry checkpoint.
 
 Separate 3D preparation v1 accepts raw symmetric uniform inputs at prescribed speeds for all 16 ordered fluid pairs.
 It retains physical grids, typed ports, six directions, the cell cap and existing CFD/experimental limits.
@@ -57,8 +60,10 @@ Python full 3D execution uses this saved-input lifecycle through `full_3d_stage.
 Python 3D preparation and host cache hooks remain separate gates.
 Memory use near the cell cap and real 3D BO need separate acceptance.
 
-The Python preparation entries use v7 with v3/v4 payloads for symmetric uniform and continuous 2D inputs.
-Nonzero-delta uniform, discrete zones, sigmoid and 3D keep their explicit existing routes.
+The Python preparation entries use v7 with v3/v4 payloads for symmetric uniform and continuous 2D inputs, and v9 for air/air spatial inputs.
+Nonzero-delta and 3D preparation keep their explicit existing routes.
+Public ZoneConfig and sigmoid combination queries retain standalone and offset consumers.
+They keep supplied properties and custom sigmoid controls.
 CaseData and saved-file contracts stay unchanged. Native failures propagate without another preparation route.
 Symmetric uniform and continuous 2D execution uses the saved native lifecycle, including checkpoints and complete result capture.
 Archived selected libraries and unported modes keep their existing execution protocol.

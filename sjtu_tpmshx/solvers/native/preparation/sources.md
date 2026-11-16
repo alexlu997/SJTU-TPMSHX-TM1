@@ -27,6 +27,24 @@ Discrete design smoothing, sigmoid LUT geometry, thermal geometry and row D-F ke
 `src/preparation_case_c_api.cpp` exposes v8 inputs and owned views without changing earlier C layouts.
 The [external spatial flow caller](../../../../examples/cpp/prepare_spatial_flow_2d.cpp) uses installed headers and only the preparation library.
 
+## Spatial host cache transport
+
+V9 adds typed geometry and inlet probes without changing v1-v8 layouts.
+Its spatial model carries the actual conductivity value and scalar kind.
+The original configuration comparison can accept different nominal and spatial values through narrow-scalar equality.
+Spatial material uses the accepted spatial value; nominal calculations keep their original value.
+The probes carry actual L/t, scalar kinds, fluid state and optional Nu selection.
+`preprocess/native_preparation.py` uses the existing shared cache owners for
+lookup, publication and evidence transport. It does not call numerical cache functions.
+`ZonedCache` uses those hooks when supplied; native code calculates each miss.
+The original per-call cache remains available for independent native callers.
+The LUT hook exchanges tables at each path's original geometry checkpoint.
+Python owns disk/memory I/O. `build_sigmoid_lut_2d` owns missing-table construction.
+The [external cache caller](../../../../examples/cpp/prepare_spatial_cache_2d.cpp)
+checks all six v9 operations, typed probes and copied LUT lifetime.
+Public zone/sigmoid combination queries retain standalone and offset consumers.
+These public interfaces preserve supplied properties and custom controls.
+
 ## 3D preparation
 
 The separate `prepare_case_3d` sequence in [preparation_case.cpp](../src/preparation_case.cpp)

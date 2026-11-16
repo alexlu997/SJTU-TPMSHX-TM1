@@ -104,7 +104,7 @@ No v1/v2/v3 preparation C layout changes.
 Preparation v5 adds raw air/air stripes and rectangles at prescribed velocity, with CFD drag and zero delta.
 It preserves L/t projection before row D-F, discrete smoothing and separate thermal geometry fields.
 It owns per-call typed caches and accepts only the v1 event callback.
-It does not change Python route selection or enable mass targets, sigmoid fields or nonzero delta.
+This raw v5 interface does not select Python routes or accept mass targets, sigmoid fields or nonzero delta.
 Preparation v6 adds raw air/air sigmoid controls under the same velocity, drag and delta limits.
 It keeps ordered blending, typed transitions, separate design/thermal geometry and row D-F projection, without Gaussian smoothing.
 An owned LUT can be built from raw geometry or supplied by the caller; each table keeps its interpolation mode.
@@ -115,7 +115,13 @@ Preparation v8 adds raw spatial capacity, flow resolution and complete fixed-flo
 It uses design porosity at the actual inlet, resolves speeds, then completes properties on the same physical grid and geometry.
 Discrete smoothing, sigmoid LUT geometry, separate thermal geometry and row D-F keep their existing rules.
 Its flow results own copied spatial controls and LUTs; preliminary and final evidence remain separate.
-The v8 raw boundary keeps event-only callbacks. Python spatial cache policy and route selection remain unchanged.
+The v8 raw boundary retains event-only callbacks.
+Preparation v9 carries typed geometry and inlet cache keys, including actual L/t and optional Nu selection.
+`preprocess/native_preparation.py` transports cache values and evidence through the existing shared cache owners.
+Native misses calculate the values; Python keeps lookup, LRU order, publication and warning filters.
+The sigmoid LUT hook loads or publishes host storage at the original geometry checkpoint; missing tables use native construction.
+Public configuration keeps its original topology and conductivity comparisons, including narrow-scalar equality.
+V9 retains the actual spatial conductivity value and kind; nominal calculations retain their original value.
 
 The separate `tpmshx_prepare_case_3d_v1` prepares raw symmetric uniform 3D inputs at prescribed inlet speeds.
 It supports both topologies and all 16 fluid pairs with existing CFD or experimental DF limits.
@@ -134,7 +140,10 @@ Local total porosity remains symmetric; each side capacity uses its own split fi
 The v1/v2/v3 layouts remain unchanged. Python 3D preparation retains its separate host integration gate.
 Memory use near the cell cap and real 3D BO also need separate acceptance.
 Python preparation uses v7 with owned v3/v4 results for symmetric uniform and canonical continuous XY 2D inputs.
-Nonzero-delta uniform, discrete zones, sigmoid and 3D retain explicit existing routes.
+Symmetric air/air stripes, rectangles and sigmoid fields use v9 for preparation, capacity and flow resolution.
+Nonzero-delta and 3D preparation retain explicit existing routes.
+Public ZoneConfig and sigmoid combination queries retain standalone and offset consumers.
+These public interfaces keep supplied properties and custom sigmoid controls.
 The adapter preserves CaseData fields, scalar types, events, source ranges and saved model selections.
 The v2 host hook preserves object errors and warning scopes at their original execution points.
 It supplies no numerical values. The v3 hooks exchange completed cache entries and synchronous observations.

@@ -139,6 +139,26 @@ Its targets are `tpmshx_preparation`, `tpmshx_preparation_c` and `tpmshx_prepara
 They reuse geometry/grid and the shared model implementation, including the locked CoolProp static library.
 This project builds no full solver or run_state and needs no SuperLU or AMG.
 The full build script builds the pilot and preparation projects separately. They share one property and DF numerical implementation.
+
+`shared/models/_native_preparation.py` loads preparation ABI 1 through ctypes when needed.
+Named property, DF and flow adapters preserve the existing public Python interfaces.
+The Python entries for symmetric uniform and continuous 2D preparation use v7 domain/port scalar kinds with v3/v4 payloads.
+The shared grid and port cores retain mixed integer and narrow-float arithmetic.
+Raw spatial preparation v8 adds capacity, resolution and complete fixed-flow entries for air/air stripes, rectangles and sigmoid fields.
+These entries keep CFD drag and zero delta. They resolve speeds before Nu or transfer calculations and reuse the physical grid.
+The flow owner keeps copied regions, controls and LUTs. Its preliminary evidence stays separate from final preparation evidence.
+The v7 grid descriptor and v8 depth/target kinds retain scalar arithmetic.
+Preparation v9 switches symmetric spatial Python preparation, capacity and flow resolution to these native owners.
+Typed cache hooks preserve actual keys, optional Nu selection, publication order and evidence through the existing host caches.
+Python keeps LUT memory/disk I/O; native code builds missing tables at the original geometry checkpoint.
+The v9 model preserves the actual spatial conductivity, its kind and separate geometry-extrapolation/default-LUT flags.
+Public configuration retains its original topology and conductivity comparisons, including narrow-scalar equality.
+Spatial calculations use the accepted spatial value; nominal calculations keep their original value.
+Public zone and sigmoid combination queries retain standalone and offset consumers.
+They keep supplied properties and custom sigmoid controls.
+See [spatial stage interfaces](native-stages.md#spatial-total-mass-flow) for raw operations and owned results.
+The [spatial host interface](native-stages.md#spatial-host-cache-interface) adds typed callbacks and cache transport.
+Saved prepared cases keep their recorded grids; the adapter does not reconstruct historical grids.
 The Python preparation entry calls the independent result library to collect range observations. The preparation library does not link it.
 
 The separate `preparation_case_3d_c_api.h` exposes uniform symmetric 3D preparation at prescribed inlet speeds.
@@ -167,16 +187,6 @@ Host cache hooks and Python 3D raw preparation remain separate gates.
 Memory use near the cell cap and real 3D BO remain acceptance gates.
 This raw interface does not replace saved CaseData validation.
 
-`shared/models/_native_preparation.py` loads preparation ABI 1 through ctypes when needed.
-Named property, DF and flow adapters preserve the existing public Python interfaces.
-The Python entries for symmetric uniform and continuous 2D preparation use v7 domain/port scalar kinds with v3/v4 payloads.
-The shared grid and port cores retain mixed integer and narrow-float arithmetic.
-Raw spatial preparation v8 adds capacity, resolution and complete fixed-flow entries for air/air stripes, rectangles and sigmoid fields.
-These entries keep CFD drag and zero delta. They resolve speeds before Nu or transfer calculations and reuse the physical grid.
-The flow owner keeps copied regions, controls and LUTs. Its preliminary evidence stays separate from final preparation evidence.
-The v7 grid descriptor and v8 depth/target kinds keep scalar arithmetic; Python spatial routes and caches are unchanged.
-See [spatial stage interfaces](native-stages.md#spatial-total-mass-flow) for the six entries and their ownership contract.
-Saved prepared cases keep their recorded grids; the adapter does not reconstruct historical grids.
 Quick preparation v2 adds typed raw inputs and a separate pressure-fraction query.
 `shared/models/_native_quick_prepare.py` keeps host protocols through fixed named operations.
 The stage owns geometry, grid, property and pressure arithmetic and their execution order.

@@ -6,8 +6,8 @@
 
 The native stage work adds independent preparation, execution and evaluation
 interfaces. Python keeps the public entry points and their existing data contracts.
-Symmetric uniform and canonical continuous XY 2D preparation use the native stage.
-Nonzero-delta uniform, discrete zones, sigmoid and 3D use their explicit existing routes.
+Symmetric uniform, canonical continuous XY and air/air spatial 2D preparation use the native stage.
+Nonzero-delta and 3D preparation use their explicit existing routes.
 A native loading or execution error does not select another route. Preparation v1 supports
 uniform, symmetric 2D air/air with prescribed inlet velocity and CFD drag.
 Preparation v2 supports all 16 ordered pairs of air, water, sCO2 and CO2 in that
@@ -30,7 +30,7 @@ Its resolved uniform prepared view uses run v2, including total-flow cases.
 
 Preparation v8 adds capacity, flow resolution and complete preparation for raw air/air stripes, rectangles and sigmoid fields.
 It keeps CFD drag, zero delta and separate typed domain and port inputs.
-Python spatial routes and caches remain unchanged.
+Preparation v9 connects these symmetric spatial Python routes to the native stage through typed cache hooks.
 
 The separate 3D preparation v1 accepts raw symmetric uniform cases at prescribed inlet speeds.
 It supports both topologies, all 16 ordered fluid pairs and the existing CFD and experimental DF selections.
@@ -310,7 +310,8 @@ Python raw 3D preparation, its host cache hooks, real 3D BO and visible desktop 
 Preparation v5 uses `ZonedInput2D` for raw stripes and rectangles.
 It accepts air/air, prescribed inlet velocity, CFD drag and zero delta.
 Configured or explicit mass targets, experimental drag and sigmoid controls stay outside this interface.
-The Python production route and the run interface do not change.
+Preparation v5 is a raw C/C++ interface. The v9 adapter below connects Python spatial preparation.
+The run interface keeps its existing contract.
 Nonzero-delta uniform preparation also remains outside the native stage interfaces.
 
 Each region gives bounds, a name, L/t and scalar kinds.
@@ -333,7 +334,7 @@ A raw call starts with empty, bounded geometry and inlet-property caches.
 Equal keys retain the first successful scalar types and their completed range records.
 Material conductivity uses the current chi and solid conductivity on each call.
 This interface accepts the event-only v1 callback. It does not use the shared Python caches or their host hooks.
-The existing Python routes and every v1-v4 scope remain available.
+Earlier v1-v4 scopes remain unchanged. Public zone methods still support standalone and nonzero-delta callers.
 
 ## Sigmoid fields
 
@@ -344,7 +345,7 @@ It keeps the existing ordered blending, clipping, extrapolation notices and row 
 Sigmoid fields do not use discrete Gaussian smoothing.
 Design geometry comes from the LUT; separate thermal geometry comes from raw L/t fields.
 Mass targets, experimental drag and nonzero delta remain outside this v6 scope.
-The Python production route and its cache policy remain unchanged.
+The v9 adapter below supplies the Python route and cache policy.
 
 `build_sigmoid_lut` creates an owned native table over the existing training bounds.
 Its defaults are 41 cell-length nodes, 31 wall nodes and voxel resolution 256.
@@ -392,9 +393,45 @@ Nested owner fields are null. Release only the outer result with its matching v8
 The [spatial flow example](../examples/cpp/prepare_spatial_flow_2d.cpp) uses all six operations and releases original inputs before complete preparation.
 It uses a small LUT for checks of ownership and typed ports. This smoke test does not qualify the LUT's physical accuracy.
 
+## Spatial host cache interface
+
+Preparation v9 adds `ZonedFlowInput2Dv9` and `SigmoidFlowInput2Dv9` over the v8 inputs.
+The `model` member carries the actual spatial conductivity, its scalar kind, geometry-extrapolation flag and default-LUT flag.
+Public configuration retains its existing topology and conductivity comparison rules.
+A narrow nominal scalar can compare equal to a different spatial value.
+V9 preserves the actual spatial value and kind. Nominal calculations retain their original conductivity.
+The optional default-LUT query runs at each path's original geometry checkpoint.
+Prescribed-speed preparation keeps preflight before this query. Capacity uses geometry alone before speed resolution.
+Python owns memory and disk lookup and publication. A miss builds the existing 41x31 native table at voxel resolution 256.
+
+Use `tpmshx_preparation_case_callbacks_v9` with `values.values.values`, version 9 and the complete descriptor size.
+Keep the earlier geometry and inlet slots null. Set `geometry_cache_at` and `inlet_cache_at` for typed cache exchange.
+Geometry probes carry actual topology, L/t and scalar kinds. Inlet probes also carry fluid, u/T/P, their kinds and model selection.
+An absent Nu selection remains distinct from the nominal default selection.
+The host owns keys, lookup, LRU order and publication; native misses calculate all physical values.
+Keys last for the callback. Returned cache arrays must remain valid until the stage returns.
+Publication arrays are read-only and must be copied before callback return.
+Returned cache and LUT views must not overlap result, failure or error storage.
+The boundary checks these views before it uses the callback status.
+The original observation and validation hooks retain their timing and failure behavior.
+Spatial operations add host stage 4, side 2, before region preparation. It preserves missing configuration and canonical stripe-construction errors after earlier checks.
+Notice kind 2 transports each geometry extrapolation reason. It remains separate from Nu warning records and retains per-side order.
+
+All six v9 operations return one outer owner; nested owners are null.
+Full results also expose `design_pore_porosity` for the Python CaseData field.
+Diagnostic storage must stay separate from every view owned by an existing result.
+This includes copied controls, LUTs and `design_pore_porosity`. Rejected overlap preserves the result and diagnostic storage.
+Use the matching v9 release function. Earlier C layouts and v8 operations remain unchanged.
+The [spatial cache example](../examples/cpp/prepare_spatial_cache_2d.cpp) exercises all six entries and typed callbacks outside Python.
+It supplies a small LUT through the cache hook, then reuses the copied LUT after the original owner is released.
+This is interface evidence, not a physical qualification of the small table.
+
 ## Python preparation adapter
 
-The public preparation, capacity and resolution entries use v7 with v3/v4 payloads for supported 2D inputs.
+Public uniform and canonical continuous 2D entries use v7 with v3/v4 payloads.
+Symmetric air/air stripes, rectangles and sigmoid fields use v9 for preparation, capacity and flow resolution.
+Capacity-only queries keep configuration validation and do not calculate drag. Complete spatial preparation still requires CFD drag.
+`preprocess/native_preparation.py` transports shared cache values and evidence without numerical cache calls.
 The adapter copies arrays, scalar types and evidence before it releases the native owner.
 Stored cases keep their schema, SI fields, controls and model references.
 Preliminary mass-flow records remain outside the final preparation warning scope.
@@ -424,6 +461,8 @@ Equal keys retain the first successful value's scalar types. Material conductivi
 Continuous-only Python field, local-drag and reused-spline branches are retired from production preparation.
 The frozen 2026-11-11 reference under `development/tests/preparation_*_reference.py` qualifies the native stage and adapter.
 It is not a production route. Retain it while independent preparation comparison requires that reference.
+Public ZoneConfig and sigmoid field queries still serve standalone callers and nonzero-delta preparation.
+Their shared helpers remain for these consumers and independent reference tests.
 
 ## Build and install
 
@@ -493,7 +532,8 @@ The [sigmoid preparation example](../examples/cpp/prepare_sigmoid_2d.cpp) create
 It reuses the LUT and links only preparation.
 Diagnostic storage must stay separate from all owned prepared views and copied controls.
 The [spatial flow example](../examples/cpp/prepare_spatial_flow_2d.cpp) queries, resolves and prepares zones and sigmoid fields through v8.
-It also links only preparation and keeps row drag and separate thermal geometry.
+The [spatial cache example](../examples/cpp/prepare_spatial_cache_2d.cpp) adds v9 typed cache and LUT callbacks.
+Both examples link only preparation and keep row drag and separate thermal geometry.
 The [continuous run example](../examples/cpp/continuous_2d.cpp) starts with XY decisions and fixed mass flow.
 It prepares and runs the case, releases the prepared owner, then evaluates the result.
 The [continuation example](../examples/cpp/resume_2d.cpp) creates a run from raw inputs,
@@ -534,7 +574,8 @@ It builds and runs external callers outside the source tree:
 Use the applicable environment lock. A BO environment needs its matching `--python-lock` option.
 On Linux, add `--component result --python-lock engineering/requirements/postprocess.txt`.
 The check retains logs, 2D comparison fields and Quick Design comparison fields. It removes the temporary installation and external build directories.
-Python preparation for discrete zones and 3D retains its existing routes. Their stage integration has separate acceptance gates.
+Python preparation for nonzero delta and 3D retains its explicit existing routes.
+Their native host integration has separate acceptance gates.
 
 ## Quick Design stage
 

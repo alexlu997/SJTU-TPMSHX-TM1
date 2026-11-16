@@ -88,30 +88,25 @@ class GeometryLUT:
 
     def __init__(self, tpms_type, L_range=TRAIN_L, t_range=TRAIN_T,
                  n_L=41, n_t=31, N=256, cache_dir=None):
-        self.tpms_type = tpms_type
         self.L_vals = np.linspace(L_range[0], L_range[1], n_L)
         self.t_vals = np.linspace(t_range[0], t_range[1], n_t)
-        self.N = N
+        self._initialize_cache(tpms_type, N, cache_dir)
+        if not self._load():
+            self._precompute()
+            self._save()
+        self._native_lut = _native_lut.LUT(self.L_vals, self.t_vals,
+                                           self.eps_table, self.A0_table)
 
+    def _initialize_cache(self, tpms_type, N, cache_dir=None):
+        """Set cache identity without calculating or loading table values."""
+        self.tpms_type, self.N = tpms_type, N
         if cache_dir is None:
             cache_dir = os.path.join(
                 os.environ.get('XDG_CACHE_HOME') or os.path.expanduser('~/.cache'),
                 'sjtu-tpmshx', 'geometry')
         os.makedirs(cache_dir, exist_ok=True)
-        # N (voxel resolution) MUST be in the cache key + load-validation: the
-        # Native geometry uses N, so a different N produces a different table. The
-        # old key omitted N → requesting N≠cached silently loaded the stale-
-        # resolution geometry (audit 2026-06-28). Latent while N is the default
-        # 256 everywhere, but a real silent-wrong-geometry bug if N varies.
         self._cache_path = os.path.join(
-            cache_dir, f'lut_{tpms_type}_{n_L}x{n_t}_N{N}.npz')
-
-        if not self._load():
-            self._precompute()
-            self._save()
-
-        self._native_lut = _native_lut.LUT(self.L_vals, self.t_vals,
-                                           self.eps_table, self.A0_table)
+            cache_dir, f'lut_{tpms_type}_{len(self.L_vals)}x{len(self.t_vals)}_N{N}.npz')
 
     def _precompute(self):
         """Compute epsilon and A_0 over the full (L, t) grid."""
