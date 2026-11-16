@@ -67,6 +67,8 @@ that prepared state. The result library evaluates recorded evidence.
 - A successful call that returns owned arrays has one owner. Its array and text views belong to that owner.
   Release it through the same library after the last use. Do not copy owners or free their buffers with a caller allocator.
   Scalar-only queries, including Quick pressure fractions v2, return values and need no release.
+- Diagnostic storage must be separate from every retained preparation view, including owned LUT arrays.
+  An overlapping call returns invalid status without changing the result or diagnostic storage.
 - Callbacks receive borrowed event views on the caller thread. They do not
   perform numerical preparation. Keep event order, logger names and messages.
 - Result v3 carries raw labels and typed Quick operands. C++ owns label comparisons and metric policy.
