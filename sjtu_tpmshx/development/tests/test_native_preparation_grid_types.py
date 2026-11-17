@@ -720,13 +720,14 @@ def _nominal_divide_sources():
     from sjtu_tpmshx.development.tests import preparation_case_reference
     from sjtu_tpmshx.preprocess.two_d import preparation
 
-    def locations(module):
-        function = module._parse_geometry_inputs_cfg
-        return [(function.__code__.co_filename, item.positions.lineno)
+    function = preparation_case_reference._parse_geometry_inputs_cfg
+    original = [(function.__code__.co_filename, item.positions.lineno)
                 for item in dis.get_instructions(function)
                 if item.opname == 'BINARY_OP' and item.argrepr == '/']
-
-    original, current = locations(preparation_case_reference), locations(preparation)
+    function = preparation._nominal_grid_warning
+    current = [(function.__code__.co_filename, item.positions.lineno)
+               for item in dis.get_instructions(function)
+               if item.opname == 'LOAD_ATTR' and item.argval == 'warn']
     assert len(original) == len(current) == 2
     return dict(zip(original, current))
 

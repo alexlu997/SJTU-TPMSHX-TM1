@@ -290,7 +290,6 @@ def _prepare_flow_inputs(cfg, dx, dy):
     """Freeze full local spline drag or the existing legacy row model."""
     from sjtu_tpmshx.shared.df_surrogate.predict import predict_K_cF, predict_K_cF_vec, SCO2_DF_METHOD
     from sjtu_tpmshx.shared.df_surrogate.experimental_correction import apply_correction, cfd_metadata
-    from sjtu_tpmshx.shared.models.df_projection import project_fields_to_streamwise_K_cF
     from sjtu_tpmshx.shared.models._native_df import row_means
     tpms, cell, wall, eps = (cfg[k] for k in ('tpms_type', 'Lcell', 't_wall', 'eps'))
     base_K, base_cF = predict_K_cF(tpms, cell, wall, .5 * eps, method=SCO2_DF_METHOD)
@@ -496,3 +495,42 @@ def _zone_data_si(value):
     if isinstance(value, (list, tuple)):
         return [_zone_data_si(item) for item in value]
     return value
+
+
+def project_fields_to_streamwise_K_cF(L_field: np.ndarray,
+                                       t_field: np.ndarray,
+                                       tpms_type: str,
+                                       k_s: float,
+                                       Ny_sim: int,
+                                       direction: int,
+                                       streamwise_dx: np.ndarray | None = None,
+                                       *, source_grid=None
+                                       ) -> tuple[np.ndarray, np.ndarray]:
+    """Project real XY L/t cells onto SIMPLE's inlet-to-outlet drag rows.
+
+    direction is 0=+x, 1=-x, 2=+y or 3=-y. L/t are averaged across the
+    physical transverse width before predicting K/cF; this retains the 1D
+    row approximation rather than averaging the nonlinear drag coefficients.
+    source_grid=(dx, dy) gives actual source widths. Omission means a uniform
+    source mesh. streamwise_dx describes target rows in inlet-to-outlet order.
+    """
+    from sjtu_tpmshx.shared.df_surrogate.predict import predict_K_cF_vec, SCO2_DF_METHOD
+    from sjtu_tpmshx.shared.models.tpms_calc import geometry as tpms_geometry
+    from sjtu_tpmshx.shared.models import _native_df
+
+    if direction not in (0, 1, 2, 3):
+        raise ValueError(f"direction must be 0, 1, 2 or 3, got {direction!r}")
+    L_row, t_row, _ = _native_df.project_rows(
+        L_field, t_field, Ny_sim, direction, streamwise_dx, source_grid)
+
+    # Per-cell loop kept loop-form: eps_f derives from tpms_geometry per
+    # (L, t) probe and the float evaluation order is gate-pinned.
+    eps_f_row = np.empty(Ny_sim, dtype=np.float64)
+    for j in range(Ny_sim):
+        L_avg, t_avg = float(L_row[j]), float(t_row[j])
+        g = tpms_geometry(tpms_type, L_avg, t_avg, k_s)
+        L_row[j] = L_avg; t_row[j] = t_avg; eps_f_row[j] = g['epsilon_A']
+
+    K_arr, cF_arr = predict_K_cF_vec(
+        tpms_type, L_row, t_row, eps_f_row, method=SCO2_DF_METHOD)
+    return K_arr.astype(np.float64), cF_arr.astype(np.float64)

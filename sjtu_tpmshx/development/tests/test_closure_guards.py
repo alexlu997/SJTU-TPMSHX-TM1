@@ -18,7 +18,8 @@ from sjtu_tpmshx.shared.models.nu_correlations import nu_water_topo
 from sjtu_tpmshx.shared.df_surrogate.predict import predict_dP_compressible
 from sjtu_tpmshx.shared.domain.compute_config import (ComputeConfig, FluidConfig,
                                          ZoneInputConfig)
-from sjtu_tpmshx.preprocess.two_d.preparation import _check_zoned_fluid_support
+from sjtu_tpmshx.preprocess.two_d.preparation import prepare_case
+from sjtu_tpmshx.shared.models.zone_config import ZoneConfig
 
 
 # ── geometry degeneracy floor ──────────────────────────────────────────────
@@ -35,17 +36,27 @@ def test_geometry_valid_still_works():
 
 # ── zoned 2D + non-air side -> fail loud (would silently use air props) ─────
 def test_zoned_water_side_raises_not_implemented():
-    cc = ComputeConfig(fluid_B=FluidConfig(type='water'),
-                       zones=ZoneInputConfig(enabled=True))
+    cc = ComputeConfig(fluid_B=FluidConfig(type='water', u_mps=.02, T_in_K=300., P_in_Pa=2e5))
+    cc.solver.Nx = cc.solver.Ny = 4
+    cc.extrap.allow = True
+    cc.zones = ZoneInputConfig(enabled=True,
+        config=ZoneConfig.single_zone(7., .6, cc.geometry.tpms, cc.geometry.k_s_W_mK))
     with pytest.raises(NotImplementedError):
-        _check_zoned_fluid_support(cc)
+        prepare_case(cc, case_id='unsupported-zoned-water')
 
 
 def test_zoned_air_air_ok_and_disabled_zones_ok():
-    # air-air zoned: fine. zones disabled with water: fine (uniform path).
-    _check_zoned_fluid_support(ComputeConfig(zones=ZoneInputConfig(enabled=True)))
-    _check_zoned_fluid_support(ComputeConfig(fluid_B=FluidConfig(type='water'),
-                                             zones=ZoneInputConfig(enabled=False)))
+    cc = ComputeConfig()
+    cc.solver.Nx = cc.solver.Ny = 4
+    cc.extrap.allow = True
+    cc.zones = ZoneInputConfig(enabled=True,
+        config=ZoneConfig.single_zone(7., .6, cc.geometry.tpms, cc.geometry.k_s_W_mK))
+    zoned = prepare_case(cc, case_id='zoned-air')
+    assert zoned.parameters['zone_config'] is not None
+    cc.zones.enabled = False
+    cc.fluid_B = FluidConfig(type='water', u_mps=.02, T_in_K=300., P_in_Pa=2e5)
+    uniform = prepare_case(cc, case_id='uniform-water')
+    assert uniform.parameters['zone_config'] is None
 
 
 # A T-only correlation warns about its fit, never infers phase without P.

@@ -62,7 +62,7 @@ def prepare_stage(case, cfg, prepared):
     values = uniform.values
     values.input.abi_version, values.input.struct_size = 1, ct.sizeof(values.input)
     values.input.topology = ('Diamond', 'Gyroid').index(cfg['tpms_type'])
-    values.input.geometry_mode = ('uniform', 'continuous').index(case.metadata['design_mode'])
+    values.input.geometry_mode = (0 if cfg['za'] is None else 1 if cfg['z_axis'] == 'continuous' else 2)
     values.input.delta_levelset = cfg['compute_cfg'].geometry.delta_levelset
     values.input.df_mode = ('cfd_smooth', 'experimental').index(cfg['compute_cfg'].df_mode)
     values.nx, values.ny = len(prepared['energy_dx']), len(prepared['energy_dy'])

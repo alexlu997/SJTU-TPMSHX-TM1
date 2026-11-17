@@ -42,6 +42,17 @@ run v2 支持均匀四流体准备态，包括已解析的总质量流量。准�
 `preprocess/native_preparation.py` 共享缓存与证据传输，未命中时由原生阶段计算。
 Python 保留 LUT 存储，缺表时原生代码在原几何检查点构建。
 
+准备 v10 增加规定速度下既有非零 delta 的均匀 air/water 和 air/air 空间模式。
+它单独携带名义热侧元组，保留既有分流和 N128 几何计算，与设计场及逐单元热几何分开。
+连续场、CO2/sCO2、实验模型和总质量流量的既有限制不变；此前 C 布局及范围均保留。
+Python 均匀和空间准备使用 v10；均匀容量和解析仍使用 v7/v3，连续入口仍使用 v7/v4。
+空间容量和解析使用 v10，沿用 v9 结果视图和释放函数。
+公共 ZoneConfig 与 sigmoid 组合查询在单独迁移通过前仍保留独立调用消费者。
+它们保留调用方提供的物性及自定义 sigmoid 控制。
+`preprocess/two_d/preparation.py` 为原生适配器，被替代的 Python 准备流程及行 D-F 投影已退役。
+独立准备参考保留在 `development/tests`；`shared/models/zone_units.py` 负责保存分区数据的单位转换。
+CaseData 与保存文件契约不变，原生失败直接传播，不选择其他准备路线。
+
 独立的三维准备 v1 接收规定速度的原始对称均匀输入，覆盖全部 16 个有序流体配对，
 保留物理网格、带类型的端口、六个流向、单元数上限和原有 CFD／实验限制。
 两侧孔隙率已拆分，K/cF 基础场与逐侧应用因子分开保存。
@@ -53,19 +64,16 @@ spatial v4 增加 XY 网格矩形和现有全局偏置规则，分别保留侧�
 Python 完整三维执行通过 `full_3d_stage.py` 使用该保存输入生命周期。
 `full_3d_capture.py` 仍是结果组装器；原生捕获提供应用归约量及可选审计出口权重。
 Python 三维准备使用 host v5 和共享的带类型缓存回调。
+空气场每侧最多选择八个标量观测值，完整原始数组记录仍保留全部单元。
 `preprocess/three_d/preparation.py` 从拥有独立存储的原生结果组装不可变 CaseData。
 被替代的 `shared/models/grid_3d.py` 和 `asym_split.py` 助手已退役。
 `development/tests/preparation_3d_reference.py` 保留独立数值参考。
 接近单元上限的内存使用及真实三维 BO 需要单独验收。
 
-Python 准备入口对对称均匀和连续二维输入使用 v7 及 v3/v4 载荷，对 air/air 空间输入使用 v9。
-非零 delta 二维准备保留明确原路径。
-全部受支持三维准备模式使用原生宿主阶段。
-公共 ZoneConfig 与 sigmoid 组合查询仍保留独立调用和偏移几何消费者。
-它们保留调用方提供的物性及自定义 sigmoid 控制。
-CaseData 与保存文件契约不变，原生失败直接传播，不选择其他准备路线。
-对称均匀和连续二维执行使用保存输入的原生生命周期，包括检查点与完整结果捕获。
-显式选择的归档库和未迁移模式保留原执行协议。
+二维执行使用所选库的完整保存输入原生生命周期，包括检查点与完整结果捕获。
+保存输入描述符 v2 增加名义侧几何并接收离散与 sigmoid 场；saved v1 保持不变。
+Python 优先选择 v2，其次为对称均匀或连续输入选择 v1；不具备适用协议的归档库继续使用原接口。
+
 Quick Design 准备 v2 接受带类型的原始输入，并提供不创建热网格或设计场数组的独立压降查询。
 Python 通过 `_native_quick_prepare.py` 执行固定宿主协议，将原生输出复制到 CaseData。
 被替代的 `shared/models/quick_design.py` 已删除；默认值统一来自 `shared/configs/model_parameters_v1.json` 及生成的 C++ 常量。
@@ -88,7 +96,7 @@ Python 执行通过保存的准备态调用原生 run 阶段；原生结果阶�
 | 固定 DF、修正、投影与规定流量 | [preparation_df.cpp](solvers/native/src/preparation_df.cpp): `fixed_df`; [preparation_df_corrections.cpp](solvers/native/src/preparation_df_corrections.cpp); [preparation_df_projection.cpp](solvers/native/src/preparation_df_projection.cpp); [preparation_flow.cpp](solvers/native/src/preparation_flow.cpp): `inlet_capacity_2d`, `inlet_speed` |
 | 完整二维／三维与 Quick Design | [full_2d.cpp](solvers/native/src/full_2d.cpp): `solve_full_2d`; [full_3d.cpp](solvers/native/src/full_3d.cpp): `solve_full_3d`; [quick_design_driver.cpp](solvers/native/src/quick_design_driver.cpp): `solve_quick_design` |
 | 指标、物理平衡、分区统计与检查 | [result_metrics.cpp](solvers/native/src/result_metrics.cpp): `pressure_face`, `boundary_enthalpy_duty`; [result_balance.cpp](solvers/native/src/result_balance.cpp): `mass`, `energy`, `zone_std`; [result_checks.cpp](solvers/native/src/result_checks.cpp): `collect_range`, `strict_certificate` |
-| 完整阶段准备与执行 | [preparation_case.cpp](solvers/native/src/preparation_case.cpp): `prepare_case_2d`, `prepare_zoned_flow_case_2d`, `prepare_case_3d`; [stage_run.cpp](solvers/native/src/stage_run.cpp): `tpmshx_run_case_2d_v1/v2/v3`, `tpmshx_stage_run_2d_create_v1/create_saved_v1`; [stage_capture_2d.cpp](solvers/native/src/stage_capture_2d.cpp)：`tpmshx_stage_run_2d_get_capture_v1`; [stage_run_3d.cpp](solvers/native/src/stage_run_3d.cpp): `tpmshx_run_case_3d_v1`; [stage_capture_3d.cpp](solvers/native/src/stage_capture_3d.cpp): `capture_3d`, `tpmshx_stage_run_3d_get_capture_v1` |
+| 完整阶段准备与执行 | [preparation_case.cpp](solvers/native/src/preparation_case.cpp): `prepare_case_2d`, `prepare_zoned_flow_case_2d`, `prepare_thermal_sides`, `prepare_case_3d`; [stage_run.cpp](solvers/native/src/stage_run.cpp): `tpmshx_run_case_2d_v1/v2/v3`, `tpmshx_stage_run_2d_create_v1/create_saved_v1/create_saved_v2`; [stage_capture_2d.cpp](solvers/native/src/stage_capture_2d.cpp)：`tpmshx_stage_run_2d_get_capture_v1`; [stage_run_3d.cpp](solvers/native/src/stage_run_3d.cpp): `tpmshx_run_case_3d_v1`; [stage_capture_3d.cpp](solvers/native/src/stage_capture_3d.cpp): `capture_3d`, `tpmshx_stage_run_3d_get_capture_v1` |
 | Quick Design 阶段准备与执行 | [quick_design_prepare_v2.cpp](solvers/native/src/quick_design_prepare_v2.cpp): `tpmshx_prepare_quick_design_v2`, `tpmshx_quick_pressure_fractions_v2`; [quick_design_prepare.cpp](solvers/native/src/quick_design_prepare.cpp)：保留 v1; [quick_design_run.cpp](solvers/native/src/quick_design_run.cpp): `tpmshx_run_quick_design_v1` |
 | 阶段评估与资格判断 | [result_stage.cpp](solvers/native/src/result_stage.cpp): `evaluate`, `evaluate_applicability`, `evaluate_physical_balance`, `evaluate_qualification` |
 

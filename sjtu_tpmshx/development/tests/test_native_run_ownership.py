@@ -73,6 +73,8 @@ def test_interrupt_after_native_transfer_releases_owner(dimension, saved, bounda
     kind = 'run' if boundary in ('create', 'restore') else 'result' if boundary == 'take_result' else 'snapshot'
 
     def interrupted(self, function, *args):
+        if dimension == 2 and saved:
+            assert self.creation_version == 2
         original_call(self, function, *args)
         if function is getattr(self, '_' + boundary):
             value = args[-1]._obj

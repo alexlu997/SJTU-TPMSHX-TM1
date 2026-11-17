@@ -17,3 +17,23 @@ def _legacy_zone_units(value):
     if isinstance(value, list):
         return [_legacy_zone_units(item) for item in value]
     return value
+
+
+def _zone_data_si(value):
+    """Convert the existing zone builders' explicit millimetre fields to SI."""
+    from collections.abc import Mapping
+    if isinstance(value, Mapping):
+        result = {}
+        for key, item in value.items():
+            if key in ('L_mm', 't_mm', 'L_cell_mm', 't_wall_mm', 'L_field', 't_field'):
+                result[key.replace('_mm', '_m').replace('_field', '_field_m')] = item * 1e-3
+            elif key in ('grid_cells',):
+                result[key] = [dict((('L_m' if k == 'L' else 't_m' if k == 't' else k),
+                                    v * 1e-3 if k in ('L', 't') else v)
+                                   for k, v in cell.items()) for cell in item]
+            else:
+                result[key] = _zone_data_si(item)
+        return result
+    if isinstance(value, (list, tuple)):
+        return [_zone_data_si(item) for item in value]
+    return value

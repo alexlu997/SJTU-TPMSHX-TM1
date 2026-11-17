@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 from sjtu_tpmshx.shared.models.grid import build_master_refined_grid
-from sjtu_tpmshx.shared.models.df_projection import project_fields_to_streamwise_K_cF
+from sjtu_tpmshx.shared.models._native_df import project_rows
 
 
 # ─── build_master_refined_grid ────────────────────────────────────
@@ -35,30 +35,28 @@ def test_build_master_refined_grid_bl_smaller_than_bulk():
     assert dy[0] < dy[len(dy) // 2]
 
 
-# ─── project_fields_to_streamwise_K_cF ─────────────────────────────
+# Row projection is checked separately from complete native preparation.
 
 
 def test_project_fields_returns_correct_shape():
-    """K_arr / cF_arr must have shape (Ny_sim,) for both fluid sides."""
+    """Projected L/t arrays keep the requested row count for both directions."""
     Nx, Ny = 20, 10
     L_field = np.full((Nx, Ny), 6.0)
     t_field = np.full((Nx, Ny), 0.4)
-    K_a, cF_a = project_fields_to_streamwise_K_cF(L_field, t_field, 'Diamond', 16.0, Ny_sim=12, direction=0)
-    K_b, cF_b = project_fields_to_streamwise_K_cF(L_field, t_field, 'Diamond', 16.0, Ny_sim=12, direction=3)
-    assert K_a.shape == (12,) and cF_a.shape == (12,)
-    assert K_b.shape == (12,) and cF_b.shape == (12,)
-    assert K_a.dtype == np.float64
-    assert cF_a.dtype == np.float64
+    for direction in (0, 3):
+        cells, walls, _ = project_rows(L_field, t_field, 12, direction)
+        assert cells.shape == walls.shape == (12,)
+        assert cells.dtype == walls.dtype == np.float64
 
 
 def test_project_fields_uniform_input_returns_uniform_output():
-    """Uniform L and t must give uniform K under the current geometry model."""
+    """Uniform L/t values remain uniform across projected rows."""
     Nx, Ny = 20, 10
     L_field = np.full((Nx, Ny), 6.0)
     t_field = np.full((Nx, Ny), 0.4)
-    K_a, _ = project_fields_to_streamwise_K_cF(L_field, t_field, 'Diamond', 16.0, Ny_sim=8, direction=0)
-    rel_var = (K_a.max() - K_a.min()) / max(abs(K_a.mean()), 1e-30)
-    assert rel_var < 0.05, f"K should be ~uniform; got rel_var={rel_var}"
+    cells, walls, _ = project_rows(L_field, t_field, 8, 0)
+    np.testing.assert_array_equal(cells, np.full(8, 6.))
+    np.testing.assert_allclose(walls, np.full(8, .4), rtol=1e-15, atol=0.)
 
 
 def test_project_fields_invalid_direction_raises():
@@ -66,4 +64,4 @@ def test_project_fields_invalid_direction_raises():
     L_field = np.full((Nx, Ny), 6.0)
     t_field = np.full((Nx, Ny), 0.4)
     with pytest.raises(ValueError):
-        project_fields_to_streamwise_K_cF(L_field, t_field, 'Diamond', 16.0, Ny_sim=8, direction=4)
+        project_rows(L_field, t_field, 8, 4)

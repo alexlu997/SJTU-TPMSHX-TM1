@@ -72,6 +72,8 @@ struct CaseInput2D {
     Sco2NuSelection sco2_nu;
     CaseScalarKinds kinds;
     std::optional<ContinuousControls2D> continuous;
+    // Only the v10 interface enables the existing nonzero-offset scope.
+    bool offset_scope=false;
 };
 struct GridInput3D {
     std::array<grid::Scalar,3> lengths;
@@ -112,7 +114,7 @@ struct PreparationOptions {
     bool allow_extrapolation=false;
 };
 // Keep each C interface's scope checks in the shared validation order.
-enum class CaseScope { air_cfd_v1, uniform_fluids_v2, uniform_mass_v3, continuous_v4 };
+enum class CaseScope { air_cfd_v1, uniform_fluids_v2, uniform_mass_v3, continuous_v4, offset_v10 };
 enum class CaseScope3D { symmetric_v3, spatial_v4 };
 
 struct PhysicalGrid2D {
@@ -227,6 +229,7 @@ struct PreparedCase2D {
     PhysicalGrid2D grid;
     geometry::MaterialGeometry uniform_geometry;
     double hydraulic_radius_m=0.,cell_length_m=0.,wall_thickness_m=0.,split_a=.5;
+    std::optional<std::array<geometry::asym::ThermalSide,2>> thermal_sides;
     std::vector<double> cell_length,wall_thickness,total_porosity,solid_conductivity,hydraulic_radius;
     std::array<PreparedSide2D,2> sides;
     std::vector<double> area_density,hydraulic_diameter;

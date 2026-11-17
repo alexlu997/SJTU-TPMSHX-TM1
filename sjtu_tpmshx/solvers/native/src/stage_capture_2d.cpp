@@ -114,6 +114,7 @@ public:
     std::array<tpmshx_stage_execution_side_v1,2> execution{};
     tpmshx_stage_fine_v1 fine{};
     tpmshx_full_2d_physical_heat_ledger_v1 ledgers{};
+    tpmshx_full_2d_model_enthalpy_evidence_v1 temperature{};
     std::deque<RangeStorage> ranges;
     std::vector<tpmshx_stage_range_sample_v1> inlet_ranges,final_ranges;
     std::vector<tpmshx_stage_required_range_v1> required;
@@ -161,9 +162,10 @@ public:
         main_fields.push_back({name,*array(value,{raw.main.nx,raw.main.ny})});
         declarations.push_back({name,unit,state});
     }
-    void make_energy(EnergyStorage& out,const tpmshx_physical_heat_ledger_v1& native,size_t nx,size_t ny) {
+    template<class Ledger> void make_energy(EnergyStorage& out,const Ledger& native,size_t nx,size_t ny,
+                                           const char* definition="physical_heat_ledger_v1") {
         if(!native.available)return;
-        out.view.definition="physical_heat_ledger_v1";out.view.power_units="W/m";
+        out.view.definition=definition;out.view.power_units="W/m";
         out.view.physical_dimension=2;out.view.physical_boundary_complete=static_cast<int>(native.boundary_complete);
         out.view.phases=out.phases.data();out.view.phase_count=3;
         out.view.prescribed_b_power=constant(native.prescribed_b_power);
@@ -180,6 +182,17 @@ public:
             p.advective_out=out.advection[phase].data();p.advective_count=6;
             p.diffusive_out=out.diffusion[phase].data();p.diffusive_count=6;
         }
+    }
+    void make_temperature(EnergyStorage& out,const tpmshx_model_enthalpy_evidence_v1& native,size_t nx,size_t ny) {
+        if(native.available!=1 || native.physical_dimension!=2 || !native.algorithm)
+            throw std::runtime_error("native temperature evidence is unavailable or has the wrong dimension");
+        if(native.boundary_complete>1 || std::any_of(std::begin(native.solved),std::end(native.solved),
+                [](uint32_t value){return value>1;}))
+            throw std::runtime_error("native temperature evidence has invalid state flags");
+        for(size_t side=0;side<2;++side)if(native.solved[side])
+            for(auto value:native.cp_coefficients[side])if(!std::isfinite(value))
+                throw std::runtime_error("native temperature evidence has invalid enthalpy coefficients");
+        make_energy(out,native,nx,ny,"model_enthalpy_temperature_v1");
     }
     void make_model(ModelStorage& out,const tpmshx_full_2d_thermal_v2& native) {
         const auto& audit=native.model_h.plane;
@@ -358,12 +371,13 @@ public:
     }
     void populate(const tpmshx_preparation_case_2d_v1& p,const uint32_t* range_captured) {
         auto& e=evidence;const auto& main=raw.main;
-        if(main.mode!=1 && main.mode!=2)throw std::invalid_argument("uniform stage returned an unsupported thermal mode");
+        if(main.mode>2)throw std::invalid_argument("stage returned an unsupported thermal mode");
         for(const auto& side:resolved.sides)
             if(side.fluid>3)throw std::invalid_argument("uniform stage returned an invalid fluid");
         e.abi_version=TPMSHX_RESULT_STAGE_ABI_VERSION;e.struct_size=sizeof(e);e.result_id=result_id.c_str();
         e.dimension=2;e.metadata_dimension=&dimension;e.quantity_basis="per_unit_depth";e.mass_unit="kg/(s m)";
-        e.mode="full";e.thermal_mode=main.mode==2?"conservative_energy":"model_h";e.thermal_state="last main thermal input";
+        e.mode="full";e.thermal_mode=main.mode==2?"conservative_energy":main.mode==1?"model_h":"temperature";
+        e.thermal_state="last main thermal input";
         e.execution="completed";e.converged=static_cast<int>(raw.converged);outer_index=static_cast<int>(raw.iterations)-1;e.outer_index=&outer_index;
         e.grid.widths[0]=array(main.dx,{main.nx});e.grid.widths[1]=array(main.dy,{main.ny});
         for(size_t i=0;i<3;++i)field(i==0?"Ta":i==1?"Tb":"Ts",main.temperature[i],"K","raw last main thermal return");
@@ -386,8 +400,8 @@ public:
             e.direction[side]=&direction[side];e.inlet_temperature[side]=scalar(s.inlet.temperature_K);
             e.inlet_geom_fraction[side]=copy(s.inlet_geometry);e.outlet_geom_fraction[side]=copy(s.outlet_geometry);
             if(main.mode!=2)e.rho_cp[side]=array(main.rho_cp[side],{main.nx,main.ny});
-            masses[side]={*array(main.mode==2?main.mass_x[side]:flow.mass_x,{main.nx+1,main.ny}),
-                          *array(main.mode==2?main.mass_y[side]:flow.mass_y,{main.nx,main.ny+1})};
+            masses[side]={*array(main.mode!=1?main.mass_x[side]:flow.mass_x,{main.nx+1,main.ny}),
+                          *array(main.mode!=1?main.mass_y[side]:flow.mass_y,{main.nx,main.ny+1})};
             e.thermal.mass[side]=masses[side].data();e.thermal.mass_count[side]=2;
             auto& pressure=pressures[side];pressure.pressure=array(flow.pressure,{flow.dx.size,flow.dy.size});
             pressure.grid.widths[0]=array(flow.dx,{flow.dx.size});pressure.grid.widths[1]=array(flow.dy,{flow.dy.size});
@@ -397,12 +411,20 @@ public:
             pressure.unit="Pa";e.pressure[side]=&pressure;e.active_fluids[side]=1;
             execution[side]={labels[side],fluids[resolved.sides[side].fluid],1};
         }
-        if(tpmshx_full_2d_get_physical_heat_ledger_v1(&raw,&ledgers))throw std::runtime_error("native full 2D heat ledger query failed");
-        make_energy(energy[0],ledgers.main,main.nx,main.ny);if(ledgers.main.available)e.thermal.energy=&energy[0].view;
-        if(main.mode==2)make_true_h();
-        else {
-            make_model(model[0],main);e.thermal.model_h=&model[0].view;model_levels[0]={"main",model[0].view};
-            e.model_certificates=model_levels.data();e.model_certificate_count=1;
+        if(main.mode==0) {
+            if(tpmshx_full_2d_get_model_enthalpy_evidence_v1(&raw,&temperature))
+                throw std::runtime_error("native full 2D temperature evidence query failed");
+            make_temperature(energy[0],temperature.main,main.nx,main.ny);
+            e.thermal.temperature=&energy[0].view;e.temperature_transport="model_enthalpy_temperature_v1";
+        } else {
+            if(tpmshx_full_2d_get_physical_heat_ledger_v1(&raw,&ledgers))
+                throw std::runtime_error("native full 2D heat ledger query failed");
+            make_energy(energy[0],ledgers.main,main.nx,main.ny);if(ledgers.main.available)e.thermal.energy=&energy[0].view;
+            if(main.mode==2)make_true_h();
+            else {
+                make_model(model[0],main);e.thermal.model_h=&model[0].view;model_levels[0]={"main",model[0].view};
+                e.model_certificates=model_levels.data();e.model_certificate_count=1;
+            }
         }
         e.model_active_b=-1;
         e.richardson_extrapolated=raw.have_fine?static_cast<int>(raw.fine_extrapolated):-1;
@@ -417,9 +439,18 @@ public:
                 fine.outlet_fraction[side]=array(f.outlet_profile[side],{f.outlet_profile[side].size});
             }
             fine.fields=fine_fields.data();fine.field_count=fine_fields.size();fine.epsilon=array(f.epsilon,{f.nx,f.ny});
-            make_energy(energy[1],ledgers.fine,f.nx,f.ny);if(ledgers.fine.available)fine.thermal.energy=&energy[1].view;
-            make_model(model[1],f);fine.thermal.model_h=&model[1].view;model_levels[1]={"fine",model[1].view};
-            e.model_certificate_count=2;e.fine=&fine;
+            if(f.mode==0) {
+                make_temperature(energy[1],temperature.fine,f.nx,f.ny);fine.thermal.temperature=&energy[1].view;
+                for(size_t side=0;side<2;++side) {
+                    fine_masses[side]={*array(f.mass_x[side],{f.nx+1,f.ny}),*array(f.mass_y[side],{f.nx,f.ny+1})};
+                    fine.thermal.mass[side]=fine_masses[side].data();fine.thermal.mass_count[side]=2;
+                }
+            } else {
+                make_energy(energy[1],ledgers.fine,f.nx,f.ny);if(ledgers.fine.available)fine.thermal.energy=&energy[1].view;
+                make_model(model[1],f);fine.thermal.model_h=&model[1].view;model_levels[1]={"fine",model[1].view};
+                e.model_certificate_count=2;
+            }
+            e.fine=&fine;
         } else {
             // Preserve the recorded empty fine ledger when Richardson did not run.
             fine.empty_record=1;e.fine=&fine;

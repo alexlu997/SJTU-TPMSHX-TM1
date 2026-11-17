@@ -83,6 +83,8 @@ Fixed named host callbacks retain only Python value protocols at the native-sele
 Object equality and inequality use separate callbacks. String subclasses retain their original comparison operators.
 Deferred conversion errors and NumPy callbacks are consumed at the original metric or qualification boundary.
 Uncaught host exceptions return their original token. Stage outputs are released through their originating library.
+Host callbacks do not own query state. Query exit clears deferred error references, including errors from input packing.
+Deferred errors retain their exception objects, cause/context links and group members, without their earlier tracebacks.
 Stage calls reject a wrong output size or an owner that was not released.
 Those rejected calls leave borrowed inputs, the old output, error text and host diagnostics unchanged.
 Only the symbols in `result.exports` and `result.map` are public.

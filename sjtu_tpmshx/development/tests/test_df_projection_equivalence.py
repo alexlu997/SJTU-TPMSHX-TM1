@@ -6,19 +6,12 @@ docs/history/README.md links its original file and numerical values.
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.shared.models.df_projection import (
-    project_fields_to_streamwise_K_cF as p2d,
-)
+from sjtu_tpmshx.shared.models._native_df import project_rows
 
 
 @pytest.mark.parametrize('fluid', ['A', 'B'])
 @pytest.mark.parametrize('nonuniform', [False, True])
-def test_projection_coordinates(fluid, nonuniform, monkeypatch):
-    from sjtu_tpmshx.shared.models import df_projection
-
-    # Coefficients expose projected L/t directly; no calibration is involved.
-    monkeypatch.setattr(df_projection, 'predict_K_cF_vec',
-                        lambda topo, L, t, eps, **kwargs: (L * 1e-8, t * 1000.))
+def test_projection_coordinates(fluid, nonuniform):
     L = np.array([[4., 5., 6.], [5., 6., 7.], [6., 7., 8.]])
     t = .1 + L / 20.
     widths = np.array([1., 3.]) if nonuniform else None
@@ -26,10 +19,9 @@ def test_projection_coordinates(fluid, nonuniform, monkeypatch):
         expected = np.array([5., 6. if nonuniform else 7.])
     else:
         expected = np.array([7., 6. if nonuniform else 5.])
-    K, cF = p2d(L, t, 'Gyroid', 16., 2, 0 if fluid == 'A' else 3,
-                 streamwise_dx=widths)
-    np.testing.assert_allclose(K, expected * 1e-8, rtol=1e-12, atol=0.)
-    np.testing.assert_allclose(cF, 100. + expected * 50., rtol=1e-12, atol=0.)
+    cells, walls, _ = project_rows(L, t, 2, 0 if fluid == 'A' else 3, widths)
+    np.testing.assert_allclose(cells, expected, rtol=1e-12, atol=0.)
+    np.testing.assert_allclose(walls, .1 + expected / 20., rtol=1e-12, atol=0.)
 
 
 def test_native_projection_coordinate_rules():
@@ -45,6 +37,5 @@ def test_native_projection_coordinate_rules():
 
 
 def test_invalid_direction_raises():
-    with pytest.raises(ValueError, match="direction must be"):
-        p2d(np.ones((2, 2)) * 5., np.ones((2, 2)) * .4,
-            'Gyroid', 16., 2, 4)
+    with pytest.raises(ValueError, match="direction 0, 1, 2 or 3"):
+        project_rows(np.ones((2, 2)) * 5., np.ones((2, 2)) * .4, 2, 4)

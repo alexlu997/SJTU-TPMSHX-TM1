@@ -12,7 +12,7 @@ from sjtu_tpmshx.development.tests.integration_tm1.test_2d_real import baseline_
 
 def test_full_prepared_flow_consumes_drag_without_prediction(monkeypatch):
     from sjtu_tpmshx.shared.df_surrogate import predict
-    from sjtu_tpmshx.shared.models import df_projection, grid as grids
+    from sjtu_tpmshx.shared.models import _native_df, grid as grids
     config = baseline_config()
     config.solver = replace(config.solver, max_outer_ltne=2, max_iter_simple=500)
     case = prepare_case(config, case_id='prepared-flow')
@@ -21,7 +21,7 @@ def test_full_prepared_flow_consumes_drag_without_prediction(monkeypatch):
         raise AssertionError('execution rebuilt fixed drag or grid')
     for module, names in ((grids, ('_aligned_grid',)),
                           (predict, ('predict_K_cF', 'predict_K_cF_vec')),
-                          (df_projection, ('project_fields_to_streamwise_K_cF',))):
+                          (_native_df, ('project_rows',))):
         for name in names:
             monkeypatch.setattr(module, name, forbidden)
     monkeypatch.setenv('TPMSHX_DF_METHOD', 'rbf')

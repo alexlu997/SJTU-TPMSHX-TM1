@@ -47,18 +47,12 @@ def prepare_inlet_mass_capacities(config: ComputeConfig) -> dict[str, float]:
     Geometry, ports and static inputs are validated before constructing fields.
     The caller must still prepare the final case after prescribing its speeds.
     """
-    from .inlet_flow import total_inlet_mass_capacity
-
     config = deepcopy(config).validate_static_inputs()
-    from .two_d import native_preparation
-    if native_preparation.supports(config):
-        return native_preparation.capacities(config)
-    if config.is_3d:
-        from .three_d.preparation import capacities
-        return capacities(config)
-    from .two_d.preparation import _prepare_inlet_data
-    design, parameters, grid = _prepare_inlet_data(config)
-    return {side: total_inlet_mass_capacity(design, parameters, grid, side) for side in ('A', 'B')}
+    from .two_d import preparation
+    if not config.is_3d:
+        return preparation.capacities(config)
+    from .three_d.preparation import capacities
+    return capacities(config)
 
 
 def prepare_fixed_mass_flow_case(
@@ -87,18 +81,9 @@ def prepare_fixed_mass_flow_case(
 
 
 def _prepare_mass_flow_case(config, targets, *, case_id):
-    from .two_d import native_preparation
-    if native_preparation.supports(config):
-        return native_preparation.prepare_mass_flow_case(config, targets, case_id=case_id)
+    from .two_d import preparation
     if not config.is_3d:
-        from .two_d.preparation import _prepare_inlet_data, _prepare_case
-        from .inlet_flow import total_inlet_mass_capacity
-
-        design, parameters, grid = _prepare_inlet_data(deepcopy(config).validate_static_inputs())
-        capacities = {side: total_inlet_mass_capacity(design, parameters, grid, side) for side in 'AB'}
-        resolved = _resolve_inlet_speeds(config, targets, capacities)
-        del design, parameters
-        return _prepare_with_metadata(_prepare_case, resolved, case_id=case_id, inlet_grid=grid)
+        return preparation.prepare_mass_flow_case(config, targets, case_id=case_id)
 
     from .three_d.preparation import prepare_mass_flow_case
     return prepare_mass_flow_case(config, targets, case_id=case_id)
@@ -109,13 +94,11 @@ def resolve_fixed_mass_flow_config(
 ) -> ComputeConfig:
     """Resolve inlet velocities from the actual geometry, then validate them."""
     config, targets = _fixed_mass_flow_inputs(config, mass_flow_A_kg_s, mass_flow_B_kg_s)
-    from .two_d import native_preparation
-    if native_preparation.supports(config):
-        return native_preparation.resolve(config, targets=tuple(targets[side] for side in 'AB'))
-    if config.is_3d:
-        from .three_d.preparation import resolve
-        return resolve(config, targets=tuple(targets[side] for side in 'AB'))
-    return _resolve_inlet_speeds(config, targets, prepare_inlet_mass_capacities(config))
+    from .two_d import preparation
+    if not config.is_3d:
+        return preparation.resolve(config, targets=tuple(targets[side] for side in 'AB'))
+    from .three_d.preparation import resolve
+    return resolve(config, targets=tuple(targets[side] for side in 'AB'))
 
 
 def resolve_inlet_flow_config(config: ComputeConfig) -> ComputeConfig:
@@ -124,13 +107,11 @@ def resolve_inlet_flow_config(config: ComputeConfig) -> ComputeConfig:
                if getattr(config, 'fluid_' + side).mass_flow_kg_s is not None}
     if not targets:
         return config
-    from .two_d import native_preparation
-    if native_preparation.supports(config):
-        return native_preparation.resolve(config)
-    if config.is_3d:
-        from .three_d.preparation import resolve
-        return resolve(config)
-    return _resolve_inlet_speeds(config, targets, prepare_inlet_mass_capacities(config))
+    from .two_d import preparation
+    if not config.is_3d:
+        return preparation.resolve(config)
+    from .three_d.preparation import resolve
+    return resolve(config)
 
 
 def _fixed_mass_flow_inputs(config, flow_a, flow_b):
@@ -148,15 +129,6 @@ def _fixed_mass_flow_inputs(config, flow_a, flow_b):
     config = replace(config, **{'fluid_' + side: replace(getattr(config, 'fluid_' + side),
                        mass_flow_kg_s=None) for side in 'AB'})
     return config, targets
-
-
-def _resolve_inlet_speeds(config, targets, capacities):
-    from sjtu_tpmshx.shared.models import _native_flow
-    speeds = _native_flow.inlet_speeds(targets.values(), (capacities[side] for side in targets))
-    fluids = {'fluid_' + side: replace(getattr(config, 'fluid_' + side),
-                                       u_mps=speed)
-              for side, speed in zip(targets, speeds)}
-    return replace(config, **fluids).validate(resolved_inlet_speeds=True)
 
 
 def prepare_quick_design(*args, **kwargs) -> CaseData:
