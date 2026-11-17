@@ -168,3 +168,70 @@ def test_v9_nested_headers_preserve_result(mode, operation, field):
             if result.owner:
                 release(ct.byref(result))
             setattr(target, field, previous)
+
+
+def _top_level_signatures():
+    from sjtu_tpmshx.shared.models import _native_preparation_case as binding
+
+    yield 'tpmshx_prepare_case_2d_v1', old.v1._Input, old.v1._Result, 1, False
+    yield 'tpmshx_prepare_case_2d_v2', old.v2._Input, old.v2._Result, 2, False
+    for scope in old.v7._SCOPES:
+        operations = old.v7._OPERATIONS if scope in ('uniform', 'continuous') else ('prepare_flow_case',)
+        for operation in operations:
+            name, source, result, version = old.v7._signature(scope, operation)
+            for api_version in (version, 7):
+                entry = operation if scope == 'continuous' and api_version == 4 else name
+                yield f'tpmshx_{entry}_2d_v{api_version}', source, result, version, api_version == 7
+    for mode in ('x', 'sigmoid'):
+        for version in (8, 9, 10):
+            source, flow, prepared = old._types(mode) if version == 8 else _types(mode)
+            for operation in old._OPERATIONS:
+                result = prepared if operation == 'prepare' else flow
+                if version == 10:
+                    result = binding._OffsetSigmoidCase if mode == 'sigmoid' else binding._OffsetZonedCase
+                yield f'tpmshx_{old._name(mode, operation)}_2d_v{version}', source, result, min(version, 9), True
+    yield 'tpmshx_prepare_flow_case_2d_v10', old.v3._Input, binding._OffsetFlowCase, 3, True
+
+
+@pytest.mark.parametrize('signature,overlap', [
+    pytest.param(signature, overlap, id=signature[0] + '-' + overlap)
+    for signature in _top_level_signatures()
+    for overlap in ('source', 'options', 'callbacks', *(['grid'] if signature[4] else []),
+                    *(['failure'] if not signature[0].endswith('_v1') else []))
+])
+def test_2d_top_level_aliases_preserve_all_buffers(signature, overlap):
+    name, source_type, result_type, source_version, typed = signature
+    types = {'source': source_type, 'options': old.v1._Options, 'callbacks': old.v1._Callbacks,
+             'grid': old.v7._GridKinds, 'failure': old.v2._Failure, 'result': result_type}
+    values = {key: value() for key, value in types.items()}
+    versions = {'source': source_version, 'options': 1, 'callbacks': 1, 'grid': 7, 'failure': 2}
+    for key, version in versions.items():
+        values[key].abi_version, values[key].struct_size = version, ct.sizeof(types[key])
+    calls = []
+
+    def event(_context, _value):
+        calls.append(True)
+        return 0
+
+    callback = old.v1._EventFunction(event)
+    values['callbacks'].event = callback
+    # Pad the aliased input so a regression can inspect the old owner slot safely.
+    storage_type = type('AliasStorage', (ct.Union,), {'_fields_': [
+        ('input', types[overlap]), ('output', result_type)]})
+    storage = storage_type()
+    storage.input = values[overlap]
+    pointers = {key: ct.cast(ct.byref(value), ct.c_void_p) for key, value in values.items()}
+    pointers[overlap] = pointers['result'] = ct.cast(ct.byref(storage), ct.c_void_p)
+    error = ct.create_string_buffer(b'unchanged', 128)
+    before = {key: bytes(value) for key, value in values.items()}
+    storage_before, error_before = bytes(storage), bytes(error)
+    keys = ['source', *(['grid'] if typed else []), 'options', 'callbacks', 'result',
+            *(['failure'] if not name.endswith('_v1') else [])]
+    library = ct.CDLL(os.environ.get('TPMSHX_PREPARATION_CASE_LIBRARY') or old.v1._library_path())
+    function = getattr(library, name)
+    function.argtypes = [ct.c_void_p] * (len(keys) + 1) + [_S]
+    function.restype = ct.c_int
+    assert function(*(pointers[key] for key in keys), error, len(error)) == 1
+    assert bytes(storage) == storage_before and bytes(error) == error_before
+    assert {key: bytes(value) for key, value in values.items()} == before
+    assert not calls

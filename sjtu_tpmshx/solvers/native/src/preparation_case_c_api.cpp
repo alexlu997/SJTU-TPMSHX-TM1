@@ -932,7 +932,6 @@ template<class Source,class Result,class Function> int flow_boundary(
         result?sizeof(*result):0,failure,error,capacity};
     try {
         require_buffer(result,result?1:0);
-        if (result && result->owner) storage.owned(*result);
         require_buffer(grid,1);require_buffer(source,source?1:0);
         callback_count=callback_bytes(callbacks);
         require_disjoint(grid,1,error,capacity);require_disjoint(grid,1,source,source?1:0);
@@ -941,6 +940,11 @@ template<class Source,class Result,class Function> int flow_boundary(
         require_disjoint(error,capacity,source,source?1:0);require_disjoint(error,capacity,result,result?1:0);
         require_disjoint(error,capacity,selected,selected?1:0);require_disjoint(error,capacity,callback_data,callback_count);
         require_disjoint(error,capacity,failure,failure?1:0);
+        require_disjoint(source,source?1:0,result,result?1:0);require_disjoint(source,source?1:0,failure,failure?1:0);
+        require_disjoint(result,result?1:0,failure,failure?1:0);
+        require_disjoint(selected,selected?1:0,result,result?1:0);require_disjoint(selected,selected?1:0,failure,failure?1:0);
+        require_disjoint(callback_data,callback_count,result,result?1:0);require_disjoint(callback_data,callback_count,failure,failure?1:0);
+        if (result && result->owner) storage.owned(*result);
         if constexpr (std::is_same_v<Source,tpmshx_preparation_continuous_input_2d_v4>) {
             if (source) {
                 const auto values=source->controls.decision_mm;
@@ -1040,9 +1044,6 @@ template<class Source,class Result,class Function> int flow_boundary(
             && !std::is_same_v<Source,tpmshx_preparation_sigmoid_flow_input_2d_v8>
             && !std::is_same_v<Source,tpmshx_preparation_zoned_flow_input_2d_v9>
             && !std::is_same_v<Source,tpmshx_preparation_sigmoid_flow_input_2d_v9>) host_callback_version(callbacks);
-        require_disjoint(source,1,result,1);require_disjoint(source,1,failure,1);require_disjoint(result,1,failure,1);
-        require_disjoint(selected,selected?1:0,result,1);require_disjoint(selected,selected?1:0,failure,1);
-        require_disjoint(callback_data,callback_count,result,1);require_disjoint(callback_data,callback_count,failure,1);
         staged_failure.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V2;
         staged_failure.struct_size=sizeof(staged_failure);staged_failure.side=2;failure_ready=true;
         try {
@@ -1104,19 +1105,19 @@ extern "C" int TPMSHX_PREPARATION_CALL tpmshx_prepare_case_2d_v1(
         result?sizeof(*result):0,nullptr,error,capacity};
     try {
         require_buffer(result,result?1:0);
-        if (result && result->owner) storage.owned(*result);
         require_disjoint(error,capacity,source,source?1:0);
         require_disjoint(error,capacity,selected,selected?1:0);
         require_disjoint(error,capacity,callbacks,callbacks?1:0);
         require_disjoint(error,capacity,result,result?1:0);
+        require_disjoint(source,source?1:0,result,result?1:0);
+        require_disjoint(selected,selected?1:0,result,result?1:0);
+        require_disjoint(callbacks,callbacks?1:0,result,result?1:0);
+        if (result && result->owner) storage.owned(*result);
     } catch (...) {return TPMSHX_PREPARATION_INVALID;}
     return p::c_api::boundary(error,capacity,[&] {
         version(source);version(result);
         if (selected) version(selected);
         if (callbacks) version(callbacks);
-        require_disjoint(source,1,result,1);
-        require_disjoint(selected,selected?1:0,result,1);
-        require_disjoint(callbacks,callbacks?1:0,result,1);
         if (result->owner) throw std::invalid_argument("release the previous prepared case before reusing its result");
         const p::PreparationCallbacks sink{callbacks && callbacks->event?emit:nullptr,
                                           const_cast<tpmshx_preparation_case_callbacks_v1*>(callbacks)};
@@ -1147,19 +1148,20 @@ extern "C" int TPMSHX_PREPARATION_CALL tpmshx_prepare_case_2d_v2(
         result?sizeof(*result):0,failure,error,capacity};
     try {
         require_buffer(result,result?1:0);
-        if (result && result->values.owner) storage.owned(*result);
         require_disjoint(error,capacity,source,source?1:0);require_disjoint(error,capacity,result,result?1:0);
         require_disjoint(error,capacity,selected,selected?1:0);require_disjoint(error,capacity,callbacks,callbacks?1:0);
         require_disjoint(error,capacity,failure,failure?1:0);
+        require_disjoint(source,source?1:0,result,result?1:0);require_disjoint(source,source?1:0,failure,failure?1:0);
+        require_disjoint(result,result?1:0,failure,failure?1:0);
+        require_disjoint(selected,selected?1:0,result,result?1:0);require_disjoint(selected,selected?1:0,failure,failure?1:0);
+        require_disjoint(callbacks,callbacks?1:0,result,result?1:0);require_disjoint(callbacks,callbacks?1:0,failure,failure?1:0);
+        if (result && result->values.owner) storage.owned(*result);
         if (source) for (const auto value:{source->sco2_nu.parameter_version,source->sco2_nu.source,source->sco2_nu.applicability})
             require_disjoint(error,capacity,value.data,value.size);
     } catch (...) {return TPMSHX_PREPARATION_INVALID;}
     return p::c_api::boundary(error,capacity,[&] {
         version2(source);version(&source->values);version2(result);version2(failure);
         if(selected)version(selected);if(callbacks)version(callbacks);
-        require_disjoint(source,1,result,1);require_disjoint(source,1,failure,1);require_disjoint(result,1,failure,1);
-        require_disjoint(selected,selected?1:0,result,1);require_disjoint(selected,selected?1:0,failure,1);
-        require_disjoint(callbacks,callbacks?1:0,result,1);require_disjoint(callbacks,callbacks?1:0,failure,1);
         for (const auto value:{source->sco2_nu.parameter_version,source->sco2_nu.source,source->sco2_nu.applicability}) {
             require_disjoint(value.data,value.size,result,1);require_disjoint(value.data,value.size,failure,1);
         }
