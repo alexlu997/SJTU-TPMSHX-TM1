@@ -92,7 +92,7 @@ Python 通过 `_native_quick_prepare.py` 执行固定宿主协议，将原生输
 native-double v1 契约与既有 LTNE 模型继续可用。
 Python 执行通过保存的准备态调用原生 run 阶段；原生结果阶段负责 Quick Design 指标。
 准备与结果的宿主操作保留既有 Python 类型、缓存、警告和事件协议。
-阶段迁移期间，上述 Python 入口继续保留全部现有模式。
+上述 Python 入口保留全部现有模式。
 
 ## 修改数值函数
 

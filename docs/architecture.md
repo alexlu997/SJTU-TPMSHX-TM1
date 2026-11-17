@@ -231,6 +231,11 @@ The following boundaries keep their original arithmetic and consumers:
 - The `ports_complete` injected-ledger check and default input adaptation for independent low-level drivers. Current native ledgers return an explicit completeness flag.
 - Direct low-level and archived-runtime 3D capture calculations, independent development references and research fits. Current saved-stage capture owns the audit display taper. Formal ports and metrics use actual native face evidence.
 
+`shared/result_math.py` keeps the four raw pressure, duty and outlet queries and the public conservation certificate.
+Its unused private boundary-power validation chain is retired; independent result references keep their own implementation.
+The two model-h audit references use `boundary_zeros` and `heat_ledger` from their existing `thermal_face_audit.py` module.
+These test helpers are excluded from runtime wheels. `solvers/physical_ledger.py` retains only the supported `ports_complete` check.
+
 The native full-compute CC route uses the existing air/water integral h(T)
 model through strict model-h drivers. Earlier variable-cp m*cp*T failures
 remain in the historical record. Fixed-coefficient Quick Design, standalone
@@ -1257,17 +1262,19 @@ Public and optimizer batches use the same objective calculation and weights.
 Only a complete numerically accepted batch can publish the two objectives.
 The baseline must have positive B-side heat uptake `-Q_B` and positive pressure
 drops; objective signs and equal weights do not change for CO2/sCO2.
-In addition to native convergence, model-h 3D reuses the existing full-control-volume
-certificate from `postprocess.conservation.compute_phase2a`. Each fluid's
+Native model-h 3D finishing, result qualification and the public conservation audit
+enforce the same full-control-volume rules. Each fluid's
 global/cellmax residual and the LTNE source imbalance must stay below 1%.
 The source ratio uses `max(abs(Q_sA), abs(Q_sB), 1 W)`, the existing
 strict-energy zero-duty scale. Thus the absolute source residual must stay
 below 0.01 W near zero duty. The native result uses this rule.
-The physical boundary ledger must be complete. Native 3D finishing and the
-conservation audit use the same pure certificate function in `shared.result_math`.
-The public postprocessing entry accepts `FieldResult` only and extracts its
-recorded certificate; numerical kernels pass their local evidence directly to
-the pure function.
+The physical boundary ledger must be complete. `model_h_3d.cpp` forms finishing
+gates from local numerical evidence. `result_stage.cpp` calls the native
+`checks::strict_certificate` with recorded result evidence. The public
+`postprocess.conservation.compute_phase2a` entry accepts `FieldResult` only.
+It extracts the recorded evidence and calls `shared.result_math.compute_phase2a`
+to assemble the full public certificate. That function uses native checks for
+numerical reductions and keeps the public labels and missing-evidence rules.
 
 The 2D branch requires the native main/fine
 model-h balances, complete physical boundaries and Richardson acceptance.

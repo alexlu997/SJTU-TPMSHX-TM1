@@ -214,6 +214,11 @@ GUI 显示、输入校验、应用搜索／BO、离线数据处理与拟合继�
 - `ports_complete` 的注入 ledger 检查，以及独立低层 driver 的默认输入适配。当前原生 ledger 已返回明确完整性标志。
 - 直接低层及归档运行库的三维捕获计算、开发独立参考及研究拟合；当前保存态阶段拥有审计显示 taper，正式端口与指标使用实际原生面证据。
 
+`shared/result_math.py` 保留四个原始压力、热量和出口查询，以及公开守恒证书。
+其无消费者的私有边界功率校验链已退役；独立结果参考保留自己的实现。
+两份 model-h 审计参考从既有 `thermal_face_audit.py` 使用 `boundary_zeros` 和 `heat_ledger`。
+这些测试辅助函数不进入运行时 wheel；`solvers/physical_ledger.py` 仅保留受支持的 `ports_complete` 检查。
+
 原生 full-compute CC 通过严格 model-h 驱动使用既有空气／水积分焓 h(T)。早期可变 cp 的 m*cp*T 失败保留在历史记录。
 固定系数 Quick Design、独立温度、true-h 热学准备和私有 C++ 组件路线保留各自契约；删除 Python 入口不扩大这些契约。
 守恒交错温度保留基于物理距离的 minmod 重构和原边界处理；少于三个单元的轴保持一阶。
@@ -714,7 +719,7 @@ Shanghai Gyroid air-A/water-B 的 `df_mode="experimental"` 也支持连续场，
 
 公开批量 API 返回全部内存中的 FieldResult。优化器使用同一批量实现，但只保留经过校验的指标、身份、路径和配置快照。每个候选逐工况读取一个已归档基准结果，完成相同的身份、输入和能量检查，在求解前释放它。各已完成或失败成员保存检查点后退出活动作用域，完整场仍保存在原有归档中。基准文件缺失或无效时，在比较阶段失败。已完成场的内存保留量因此限于一个活动工况，代价是每个候选工况读取一次基准文件。公开批量和优化器使用相同的目标计算与权重。
 
-只有完整数值合格批次可以发布两个目标。除原生收敛外，三维 model-h 复用 `postprocess.conservation.compute_phase2a` 完整控制体证据：各流体全局／cellmax 残差和 LTNE 源不平衡均低于 1%，且物理边界账本完整。源项比值采用 `max(abs(Q_sA), abs(Q_sB), 1 W)`，复用严格能量残差已有的零负荷尺度；因此近零负荷的源项绝对残差必须小于 0.01 W。原生三维收尾与守恒审计共用 `shared.result_math` 中的纯证书函数。公开后处理入口只接受 `FieldResult` 并提取记录的证书；数值核将局部证据直接传给纯函数。二维 model-h 要求原生主／细平衡、完整物理边界及 Richardson 接受。true-h 及其显式守恒能量候选采用自身原生证据：热求解收敛、无焓裁剪、有限的耦合与方程能量比均不超过记录的求解容差；不套用 model-h 或 Richardson。焓算法及温度更新设置必须与基准相同。
+只有完整数值合格批次可以发布两个目标。原生三维 model-h 收尾、结果资格评估和公开守恒审计遵循相同完整控制体规则：各流体全局／cellmax 残差和 LTNE 源不平衡均低于 1%，且物理边界账本完整。源项比值采用 `max(abs(Q_sA), abs(Q_sB), 1 W)`，复用严格能量残差已有的零负荷尺度；因此近零负荷的源项绝对残差必须小于 0.01 W。`model_h_3d.cpp` 从局部数值证据构造收尾门槛；`result_stage.cpp` 用已记录的结果证据调用原生 `checks::strict_certificate`。公开 `postprocess.conservation.compute_phase2a` 入口只接受 `FieldResult`，提取记录证据后调用 `shared.result_math.compute_phase2a` 组装完整公开证书。该函数用原生检查完成数值归约，并保留公开标签和缺失证据规则。二维 model-h 要求原生主／细平衡、完整物理边界及 Richardson 接受。true-h 及其显式守恒能量候选采用自身原生证据：热求解收敛、无焓裁剪、有限的耦合与方程能量比均不超过记录的求解容差；不套用 model-h 或 Richardson。焓算法及温度更新设置必须与基准相同。
 
 这与实验精度、正式对流 `energy_imbalance_rel` 和梯度适用性不同；物理预测仍需后者证据，但不禁止明确标注、使用冻结参考修正的探索搜索。
 
