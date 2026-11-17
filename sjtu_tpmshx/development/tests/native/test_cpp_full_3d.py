@@ -365,12 +365,13 @@ def test_native_call_borrows_case_arrays_and_recovers(native_path, monkeypatch, 
 
     def init(self, *args, **kwargs):
         original_init(self, *args, **kwargs)
-        symbol = f'tpmshx_stage_run_{dimension}d_create_saved_v1'
+        version = 2 if dimension == 2 else 1
+        symbol = f'tpmshx_stage_run_{dimension}d_create_saved_v{version}'
         original_call = getattr(self.library, symbol)
 
         def call(*args):
             if dimension == 2:
-                saved = args[0]._obj
+                saved = args[0]._obj.values
                 data = saved.prepared.contents.values
                 pointers = {
                     'K_ffA_arr': saved.fluid_conductivity[0].data,
