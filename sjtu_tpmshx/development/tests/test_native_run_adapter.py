@@ -14,6 +14,7 @@ from sjtu_tpmshx.development.tests.native.shared_library import library_path
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.shared.domain.module_ports import RunControl
 from sjtu_tpmshx.shared.domain.portable_data import mutable_data
+from sjtu_tpmshx.shared.domain.model_refs import freeze_value
 from sjtu_tpmshx.shared.io.case_io import load_case, save_case
 from sjtu_tpmshx.shared.io.result_io import load_result, save_result
 from sjtu_tpmshx.solvers.backends.cpp import full_2d
@@ -64,6 +65,15 @@ def _hdf_scalars(value):
     return value
 
 
+def _checked_applicability(actual, expected, case):
+    from sjtu_tpmshx.solvers.applicability_evidence import capture_applicability
+    wanted = capture_applicability(case, expected, {})
+    wanted.pop('scope_notes')
+    metadata = dict(actual.metadata)
+    _same(metadata.pop('_native_applicability'), freeze_value(wanted), 'native applicability transfer')
+    return replace(actual, metadata=metadata)
+
+
 def _compare(case, tmp_path, monkeypatch):
     from sjtu_tpmshx.shared.models import _native_preparation_case
     expected_events, actual_events = [], []
@@ -74,6 +84,7 @@ def _compare(case, tmp_path, monkeypatch):
         patch.setattr(full_2d, '_pack', forbidden)
         patch.setattr(_native_preparation_case, 'operation', forbidden)
         actual = full_2d.run_case(case, _control(actual_events))
+    actual = _checked_applicability(actual, expected, case)
     _same(replace(actual, result_id=expected.result_id), expected, 'result')
     _events_equal(actual_events, expected_events)
     save_case(case, tmp_path / 'case.h5')
@@ -96,7 +107,7 @@ def test_complete_saved_stage_result(spatial, pair, tmp_path, monkeypatch):
     _compare(case, tmp_path, monkeypatch)
 
 
-@pytest.mark.parametrize('change', ['thermal-fields', 'local-drag', 'static-application', 'missing-ranges', 'empty-ranges', 'uncaptured-range'])
+@pytest.mark.parametrize('change', ['thermal-fields', 'local-drag', 'static-application', 'missing-ranges', 'empty-ranges', 'uncaptured-range', 'no-finite'])
 def test_modified_saved_inputs(change, tmp_path, monkeypatch):
     _, case = _case()
     parameters, metadata = mutable_data(case.parameters), mutable_data(case.metadata)
@@ -117,6 +128,9 @@ def test_modified_saved_inputs(change, tmp_path, monkeypatch):
         del metadata['applicability_inputs']
     elif change == 'empty-ranges':
         metadata['applicability_inputs'] = []
+    elif change == 'no-finite':
+        row = metadata['applicability_inputs'][0]
+        row.update(minimum=None, maximum=None, low=0, high=0, nonfinite=row['size'])
     else:
         row = metadata['applicability_inputs'][0]
         row['captured'] = False
@@ -198,6 +212,7 @@ def test_saved_stage_states_and_resume(spatial, pair, tmp_path):
         target.setdefault(int(value['state.phase'][0]), value)
     reference = _old(case, _control([]), checkpoint=lambda value: collect(old_states, value))
     actual = full_2d.run_case(case, _control([]), checkpoint=lambda value: collect(stage_states, value))
+    actual = _checked_applicability(actual, reference, case)
     _same(replace(actual, result_id=reference.result_id), reference)
     assert set(stage_states) == set(old_states)
     assert {1, 2}.issubset(stage_states)
@@ -213,6 +228,7 @@ def test_saved_stage_states_and_resume(spatial, pair, tmp_path):
         runtime = replace(_control([]), cpu_threads=1)
         expected = _old(case, runtime, resume_state=snapshot)
         resumed = full_2d.run_case(case, runtime, resume_state=snapshot)
+        resumed = _checked_applicability(resumed, expected, case)
         _same(replace(resumed, result_id=expected.result_id), expected)
         np.savez(tmp_path / f'phase-{phase}.npz', **snapshot)
         save_result(resumed, tmp_path / f'resumed-{phase}.h5')
@@ -367,5 +383,6 @@ def test_saved_geometry_precision_and_resume(selection, tmp_path, monkeypatch):
     if selection == 'cell32':
         expected = _old(case, _control([]), resume_state=snapshots[0])
         actual = full_2d.run_case(case, _control([]), resume_state=snapshots[1])
+        actual = _checked_applicability(actual, expected, case)
         _same(replace(actual, result_id=expected.result_id), expected)
         save_result(actual, tmp_path / 'resumed-1.h5')

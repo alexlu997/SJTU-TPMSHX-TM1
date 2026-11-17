@@ -96,6 +96,7 @@ def test_offset_snapshot_restore_keeps_exact_inputs(monkeypatch, tmp_path, mode)
         assert key in snapshots[1]
     expected = adapter._old(case, adapter._control([]), resume_state=snapshots[0])
     actual = full_2d.run_case(case, adapter._control([]), resume_state=snapshots[1])
+    actual = adapter._checked_applicability(actual, expected, case)
     _same(replace(actual, result_id=expected.result_id), expected)
     np.savez(tmp_path / 'state.npz', **snapshots[1])
 

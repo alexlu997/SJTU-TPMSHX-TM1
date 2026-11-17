@@ -39,7 +39,7 @@ def _control(events=None, library=None, **kwargs):
 def _normalized(value):
     if is_dataclass(value):
         return {field.name: _normalized(getattr(value, field.name)) for field in fields(value)
-                if field.name != 'result_id'}
+                if field.name not in ('result_id', 'source_result_id')}
     if isinstance(value, Mapping):
         return {key: _normalized(item) for key, item in value.items()
                 if key not in ('build_seconds', 'solve_seconds', 'source_result_id')}
@@ -356,3 +356,122 @@ def test_unknown_capture_abi_is_rejected_before_execution(monkeypatch):
     monkeypatch.setattr(full_3d.NativeFull3DDriver, '_run_prepared', forbidden)
     with pytest.raises(ValueError, match='unsupported saved 3D capture ABI 99'):
         run_case(case, _control())
+
+
+@pytest.mark.parametrize('dimension,layout,pair', [
+    *[(2, layout, pair) for layout in (False, True) for pair in
+      (('air', 'water'), ('water', 'air'), ('co2', 'water'), ('sco2', 'air'))],
+    *[(3, layout, pair) for layout, pair in (
+      ('uniform', ('air', 'water')), ('fixed', ('water', 'air')),
+      ('xy', ('water', 'co2')), ('xyz', ('sco2', 'air')),
+      ('asymmetric', ('water', 'air')), ('grid', ('air', 'air')))]])
+def test_public_applicability_uses_native_selection(dimension, layout, pair, monkeypatch, tmp_path):
+    from sjtu_tpmshx.development.tests import test_native_run_adapter as two
+    if dimension == 2:
+        _, case = two._case(layout, pair)
+    else:
+        config, _ = reference._configuration(pair, layout)
+        case = prepare_case(config, case_id='native-applicability')
+    _compare_public_applicability(case, monkeypatch, tmp_path)
+
+
+def _compare_public_applicability(case, monkeypatch, tmp_path, *, control=None):
+    from sjtu_tpmshx.development.tests import test_native_run_adapter as two
+    from sjtu_tpmshx.solvers import applicability_evidence
+    from sjtu_tpmshx.postprocess.api import evaluate
+    control = _control() if control is None else control
+    with monkeypatch.context() as direct:
+        if case.grid['dimension'] == 2:
+            direct.setattr(two.full_2d, 'run_case', two._old)
+        else:
+            direct.setattr(full_3d_stage, 'has_saved_stage', lambda library: False)
+        expected = run_case(case, control)
+    def forbidden(*args, **kwargs):
+        pytest.fail('current stages must use native applicability selection')
+    with monkeypatch.context() as current:
+        current.setattr(applicability_evidence, 'capture_applicability', forbidden)
+        actual = run_case(case, control)
+    assert '_native_applicability' not in actual.metadata
+    assert '_last_closure_ranges' not in actual.metadata
+    _same(_normalized(actual), _normalized(expected), 'complete public result')
+    actual_report, expected_report = evaluate(actual), evaluate(expected)
+    assert actual_report.source_result_id == actual.result_id
+    assert expected_report.source_result_id == expected.result_id
+    _same(_normalized(actual_report), _normalized(expected_report), 'complete public evaluation')
+    save_result(actual, tmp_path / 'native-applicability.h5')
+    save_result(expected, tmp_path / 'direct-applicability.h5')
+    _same(_normalized(load_result(tmp_path / 'native-applicability.h5')),
+          _normalized(load_result(tmp_path / 'direct-applicability.h5')), 'owned saved evidence')
+    return actual
+
+
+@pytest.mark.parametrize('dimension', [2, 3])
+@pytest.mark.parametrize('change', ['missing', 'empty', 'uncaptured', 'no-finite', 'host-fields', 'host-notices'])
+def test_public_applicability_keeps_saved_and_host_evidence(dimension, change, monkeypatch, tmp_path):
+    from sjtu_tpmshx.development.tests import test_native_run_adapter as two
+    from sjtu_tpmshx.shared.domain.run_warnings import record_warning
+    if dimension == 2:
+        _, case = two._case()
+    else:
+        config, _ = reference._configuration(('air', 'water'), 'xyz')
+        case = prepare_case(config, case_id='saved-applicability')
+    metadata = mutable_data(case.metadata)
+    control = _control()
+    if change == 'missing':
+        del metadata['applicability_inputs']
+    elif change == 'empty':
+        metadata['applicability_inputs'] = []
+    elif change == 'uncaptured':
+        metadata['applicability_inputs'][0]['captured'] = False
+    elif change == 'no-finite':
+        row = metadata['applicability_inputs'][0]
+        row.update(minimum=None, maximum=None, low=0, high=0, nonfinite=row['size'])
+    elif change == 'host-fields':
+        for index, row in enumerate(metadata['applicability_inputs']):
+            row.update(reason='saved reason', constraint='saved constraint', extra={'index': index})
+            row['bounds'] = tuple(np.float32(value) for value in row['bounds'])
+        metadata['applicability_inputs'][0]['captured'] = False
+    else:
+        metadata['notices'] = (*metadata['notices'], '', 'saved\0notice', 'same notice', 'same notice')
+        def progress(value):
+            record_warning(('nu-evidence', 'callback'), 'callback\0notice')
+        control = replace(control, progress=progress)
+    case = replace(case, metadata=metadata)
+    result = _compare_public_applicability(case, monkeypatch, tmp_path, control=control)
+    if change == 'host-notices':
+        notes = result.metadata['applicability_evidence']['scope_notes']
+        assert 'saved\0notice' in notes and 'callback\0notice' in notes
+        assert '' in notes and notes.count('same notice') == 1
+
+
+@pytest.mark.parametrize('dimension', [2, 3])
+def test_applicability_transfer_error_releases_without_fallback(dimension, monkeypatch):
+    from sjtu_tpmshx.development.tests import test_native_run_adapter as two
+    from sjtu_tpmshx.solvers import applicability_evidence
+    if dimension == 2:
+        _, case = two._case()
+    else:
+        config, _ = reference._configuration()
+        case = prepare_case(config, case_id='failed-transfer')
+    sentinel = LookupError('evidence transfer failed')
+    from sjtu_tpmshx.solvers.backends.cpp import full_2d_stage
+    run_type = full_2d_stage._Run if dimension == 2 else full_3d_stage.SavedRun
+    original = run_type.take_result
+    owners = []
+    def take(run):
+        result = original(run)
+        owners.append(result)
+        return result
+    def broken(pointer, saved):
+        raise sentinel
+    def forbidden(*args, **kwargs):
+        pytest.fail('a stage transfer error must not use direct capture')
+    monkeypatch.setattr(run_type, 'take_result', take)
+    monkeypatch.setattr(applicability_evidence, 'copy_applicability', broken)
+    monkeypatch.setattr(applicability_evidence, 'capture_applicability', forbidden)
+    with pytest.raises(LookupError) as caught:
+        run_case(case, _control())
+    assert caught.value is sentinel and len(owners) == 1
+    assert not owners[0].owner
+    monkeypatch.undo()
+    run_case(case, _control())

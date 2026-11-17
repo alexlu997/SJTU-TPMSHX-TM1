@@ -56,6 +56,16 @@ The caller supplies dimensions, design values, boundary conditions and controls.
 The preparation library computes the physical fields. The solver library uses
 that prepared state. The result library evaluates recorded evidence.
 
+Current public saved 2D/3D runs copy applicability groups and required records from existing C evidence before result release.
+The API publishes these values without repeating classification.
+Saved inlet rows keep host fields and scalar types in native order; native constraints replace recorded constraints when present.
+Python combines case notices and run `nu-evidence` warning records for `scope_notes`.
+It preserves complete strings and callback records, including embedded NUL characters.
+It retains their order and removes duplicate messages.
+Independent C++ stages use their native scope notes.
+Direct and archived-runtime paths retain `capture_applicability`. A capture error does not select that path.
+`execution_record.py` interprets actual execution identity and property sampling; the result stage decides qualification.
+
 ## Inlet-property query
 
 `InletPropertyQuery` and `query_inlet_properties` in `stages.hpp` expose the existing scalar inlet combination.
@@ -196,7 +206,7 @@ The query multiplies each pair after the existing nonnegative check.
 NaN, infinity and signed zero retain their existing arithmetic behavior.
 The copied summary owns no pointers and remains valid after result release.
 Use existing raw evidence queries for fields, histories and numerical ledgers.
-The Python production mapper and its historical-runtime route remain unchanged.
+The scalar mapper and historical-runtime capture calculations keep their existing behavior.
 
 ## Uniform total mass flow
 

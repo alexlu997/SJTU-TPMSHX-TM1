@@ -79,6 +79,13 @@ Memory use near the cell cap and real 3D BO need separate acceptance.
 Saved descriptor v2 adds nominal side geometry and accepts discrete and sigmoid fields; saved v1 remains unchanged.
 Python selects v2 first, then v1 for symmetric uniform or continuous inputs. Archived libraries without the applicable protocol retain their existing interface.
 
+Current public saved 2D/3D runs copy applicability groups and required records before the native result is released.
+`solvers/applicability_evidence.py` keeps saved inlet fields and scalar types in native order, with constraints from C when present.
+The public API publishes these groups without repeating classification.
+Python combines complete case notices and run `nu-evidence` warning records into `scope_notes`; independent C++ stages keep their native notes.
+Direct and archived-runtime paths retain `capture_applicability`. Capture failures do not select that path.
+`solvers/execution_record.py` interprets actual execution identity and property sampling; the native result stage decides qualification.
+
 Standalone `shared/models/tpms_calc.compute` uses the same native inlet-property combination as complete preparation.
 Python keeps geometry selection, shared caches, mutable result copies, the per-call K_ss query, object conversion and warning policy.
 `shared/models/_native_preparation_case.py` transports the twelve typed query values and shares range observations with the preparation adapters.
@@ -114,7 +121,7 @@ Use this table to find the C++ owner of a numerical rule.
 Geometry uses geometry ABI 1 and field ABI 2. The preparation library keeps its ABI 1 loader and adds the versioned Quick preparation v2 contract. Results use result ABI 2.
 Start at the drivers above for SIMPLE, pressure and energy implementations. See [C++ interfaces](../docs/cpp-migration.md) for their boundaries.
 Python keeps configuration, DTOs, I/O, caches, NumPy event handling, the GUI, searches and offline research.
-The native result stage owns full evidence selection and qualification; Python adapts its outputs for applications.
+The native result stage owns full evaluation and qualification. Python preserves source data and host notices, and interprets execution records.
 See [retained Python responsibilities](../docs/architecture.md#retained-python-responsibilities) for their exact scope.
 
 ### Rebuild after a change
