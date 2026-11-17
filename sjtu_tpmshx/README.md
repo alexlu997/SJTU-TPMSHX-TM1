@@ -74,6 +74,11 @@ Python 三维准备使用 host v5 和共享的带类型缓存回调。
 保存输入描述符 v2 增加名义侧几何并接收离散与 sigmoid 场；saved v1 保持不变。
 Python 优先选择 v2，其次为对称均匀或连续输入选择 v1；不具备适用协议的归档库继续使用原接口。
 
+独立的 `shared/models/tpms_calc.compute` 与完整准备使用同一原生入口物性组合。
+Python 保留几何选择、共享缓存、可变结果副本、逐次 K_ss 查询、对象转换和警告策略。
+`shared/models/_native_preparation_case.py` 传输十二个带类型的查询值，并与准备适配器共享范围观测。
+[入口物性查询](../docs/native-stages.zh-CN.md#入口物性查询) 向 C 和 C++ 调用者提供同一计算，不需要网格或求解器。
+
 Quick Design 准备 v2 接受带类型的原始输入，并提供不创建热网格或设计场数组的独立压降查询。
 Python 通过 `_native_quick_prepare.py` 执行固定宿主协议，将原生输出复制到 CaseData。
 被替代的 `shared/models/quick_design.py` 已删除；默认值统一来自 `shared/configs/model_parameters_v1.json` 及生成的 C++ 常量。
@@ -93,6 +98,7 @@ Python 执行通过保存的准备态调用原生 run 阶段；原生结果阶�
 | 网格与物理端口 | [grid.cpp](solvers/native/src/grid.cpp): `uniform`, `wall`; [ports.cpp](solvers/native/src/ports.cpp): `port_overlap_1d`, `port_fractions_1d` |
 | 连续场、sigmoid、LUT 与分区 | [field_continuous.cpp](solvers/native/src/field_continuous.cpp); [field_sigmoid.cpp](solvers/native/src/field_sigmoid.cpp); [field_lut.cpp](solvers/native/src/field_lut.cpp); [zones.cpp](solvers/native/src/zones.cpp) |
 | 物性与 Nu 闭合 | [fluid_properties.cpp](solvers/native/src/fluid_properties.cpp): `PropertyEvaluator::evaluate`, `fluid_nusselt`; [preparation_properties.cpp](solvers/native/src/preparation_properties.cpp) |
+| 标量入口物性组合 | [preparation_case.cpp](solvers/native/src/preparation_case.cpp): `query_inlet_properties`, `inlet_property_values`; [preparation_case_c_api.cpp](solvers/native/src/preparation_case_c_api.cpp): `tpmshx_query_inlet_properties_v1` |
 | 固定 DF、修正、投影与规定流量 | [preparation_df.cpp](solvers/native/src/preparation_df.cpp): `fixed_df`; [preparation_df_corrections.cpp](solvers/native/src/preparation_df_corrections.cpp); [preparation_df_projection.cpp](solvers/native/src/preparation_df_projection.cpp); [preparation_flow.cpp](solvers/native/src/preparation_flow.cpp): `inlet_capacity_2d`, `inlet_speed` |
 | 完整二维／三维与 Quick Design | [full_2d.cpp](solvers/native/src/full_2d.cpp): `solve_full_2d`; [full_3d.cpp](solvers/native/src/full_3d.cpp): `solve_full_3d`; [quick_design_driver.cpp](solvers/native/src/quick_design_driver.cpp): `solve_quick_design` |
 | 指标、物理平衡、分区统计与检查 | [result_metrics.cpp](solvers/native/src/result_metrics.cpp): `pressure_face`, `boundary_enthalpy_duty`; [result_balance.cpp](solvers/native/src/result_balance.cpp): `mass`, `energy`, `zone_std`; [result_checks.cpp](solvers/native/src/result_checks.cpp): `collect_range`, `strict_certificate` |

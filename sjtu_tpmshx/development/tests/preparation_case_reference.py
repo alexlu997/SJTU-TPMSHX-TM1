@@ -35,6 +35,33 @@ def _check_zoned_fluid_support(compute_cfg: ComputeConfig) -> None:
             "(non-zoned) case for water.")
 
 
+def _grid_property_arrays(Nx, Ny, grid_cells, tpms_type, k_s,
+                          u_A, u_B, T_inA, T_inB, P_in=101325.0,
+                          dx_arr=None, dy_arr=None, *, P_inB=None):
+    """Freeze the grid builder's property order and cache before N13."""
+    from sjtu_tpmshx.development.tests.property_reference import compute
+    from sjtu_tpmshx.shared.models.zone_config import ZoneConfig
+    from sjtu_tpmshx.shared.models._native_properties import volumetric_transfer
+
+    pressure_b = P_in if P_inB is None else P_inB
+    props_cache = {}
+    for cell in grid_cells:
+        key = (cell['L'], cell['t'])
+        if key not in props_cache:
+            first = compute(tpms_type, cell['L'], cell['t'], u_A, T_inA, P_in, k_s)
+            second = compute(tpms_type, cell['L'], cell['t'], u_B, T_inB, pressure_b, k_s)
+            props_cache[key] = first, second
+    arrays = ZoneConfig.build_grid_geometry(Nx, Ny, grid_cells, tpms_type, k_s, dx_arr, dy_arr)
+    zone_id = arrays['zone_id']
+    for side, index in (('A', 0), ('B', 1)):
+        properties = [props_cache[(cell['L'], cell['t'])][index] for cell in grid_cells]
+        arrays['K_ff' + side + '_arr'] = np.asarray(
+            [props['K_ff'] for props in properties], dtype=np.float64)[zone_id]
+        arrays['h_v' + side + '_arr'] = np.asarray(
+            [volumetric_transfer(props['H_sf'], props['A_0']) for props in properties], dtype=np.float64)[zone_id]
+    return arrays
+
+
 def _build_zone_arrays(compute_cfg, N_x, N_y, *, dx_arr=None, dy_arr=None, geometry_only=False):
     """Sample the requested design at the supplied physical cell centres."""
     co2_geometry = co2_correlations.uses_co2(compute_cfg)
@@ -99,7 +126,7 @@ def _build_zone_arrays(compute_cfg, N_x, N_y, *, dx_arr=None, dy_arr=None, geome
                 _log.info(f"[ZONE] Continuous Sigmoid field ({N_x}x{N_y})")
             else:
                 from sjtu_tpmshx.shared.models.zone_config import ZoneConfig
-                builder = ZoneConfig.build_grid_geometry if geometry_only else ZoneConfig.build_grid_arrays
+                builder = ZoneConfig.build_grid_geometry if geometry_only else _grid_property_arrays
                 kwargs = dict(dx_arr=dx_arr, dy_arr=dy_arr)
                 if not geometry_only:
                     kwargs.update(u_A=u_A, u_B=u_B, T_inA=T_inA, T_inB=T_inB,
@@ -122,9 +149,13 @@ def _build_zone_arrays(compute_cfg, N_x, N_y, *, dx_arr=None, dy_arr=None, geome
                 zone_data['zones'] = [Zone(**zone) for zone in zone_data['zones']]
                 zone_config = ZoneConfig(**zone_data)
             if not geometry_only:
-                zone_config.compute_properties(
-                    u_A=u_A, u_B=u_B, T_inA=T_inA, T_inB=T_inB,
-                    P_in=P_in_val, P_inB=P_inB)
+                from sjtu_tpmshx.development.tests.property_reference import compute
+                zone_config.validate()
+                for zone in zone_config.zones:
+                    zone.props_A = compute(zone_config.tpms_type, zone.L_mm, zone.t_mm,
+                        u_A, T_inA, P_in_val, zone_config.k_s)
+                    zone.props_B = compute(zone_config.tpms_type, zone.L_mm, zone.t_mm,
+                        u_B, T_inB, P_inB, zone_config.k_s)
             z_dim = H if z_axis == 'y' else L
             builder = (zone_config.build_structured_geometry if geometry_only
                        else zone_config.build_structured_arrays)
@@ -429,7 +460,7 @@ def _prepare_case(config: ComputeConfig, *, case_id: str, inlet_grid=None, splin
     # Runtime controls are input data. The solver never reparses config_snapshot.
     parsed['run_settings'] = _zone_data_si(config.to_dict())
     parsed['run_settings'].pop('zones')
-    from sjtu_tpmshx.shared.models.tpms_calc import compute
+    from sjtu_tpmshx.development.tests.property_reference import compute
     from sjtu_tpmshx.shared.domain.run_warnings import range_context
     parsed['static_properties'] = {}
     for side, fluid in (('A', config.fluid_A), ('B', config.fluid_B)):

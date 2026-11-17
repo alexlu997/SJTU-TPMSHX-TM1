@@ -66,7 +66,7 @@ def native():
 
 @pytest.fixture(autouse=True)
 def clear_reference_caches():
-    from sjtu_tpmshx.shared.models.tpms_calc import compute
+    from sjtu_tpmshx.development.tests.property_reference import compute
     from sjtu_tpmshx.shared.models.tpms_geometry import compute_geometry
     compute.cache_clear()
     compute_geometry.cache_clear()
@@ -614,7 +614,8 @@ def _axis_config(count, axis):
 
 def _axis_observation(monkeypatch, module, config, operation, *, filter_module=False):
     from sjtu_tpmshx.shared.logutil import get_logger
-    from sjtu_tpmshx.shared.models.tpms_calc import compute
+    from sjtu_tpmshx.development.tests.test_native_prepare_adapter import _property_compute
+    compute = _property_compute(module)
     from sjtu_tpmshx.shared.models.tpms_geometry import compute_geometry
     compute.cache_clear()
     compute_geometry.cache_clear()

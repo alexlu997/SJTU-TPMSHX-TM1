@@ -337,7 +337,7 @@ def _prepare_df_application(cfg, axes, permeability, forchheimer):
 
 def _record_air_bulk_ranges(cfg, lfield, shape):
     """Preserve inlet air observations without storing unused bulk h_v fields."""
-    from sjtu_tpmshx.shared.models.tpms_calc import compute
+    from sjtu_tpmshx.development.tests.property_reference import compute
     from sjtu_tpmshx.shared.models.nu_correlations import record_air_nu_scalar_ranges, record_raw_nu_range
     from sjtu_tpmshx.shared.domain.run_warnings import range_context
     for side in ('A', 'B'):

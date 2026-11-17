@@ -101,7 +101,7 @@ def _release(native, result):
 
 
 def _reference(monkeypatch, operation, config, targets=None, *, scoped=False, state=None):
-    from sjtu_tpmshx.shared.models.tpms_calc import compute
+    from sjtu_tpmshx.development.tests.property_reference import compute
     from sjtu_tpmshx.shared.models.tpms_geometry import compute_geometry
     compute.cache_clear()
     compute_geometry.cache_clear()

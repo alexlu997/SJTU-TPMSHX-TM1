@@ -91,7 +91,7 @@ def _release(native, result):
 
 def _reference(monkeypatch, operation, config, targets=None, *, chi=None):
     from sjtu_tpmshx.development.tests import preparation_case_reference as preparation
-    from sjtu_tpmshx.shared.models.tpms_calc import compute
+    from sjtu_tpmshx.development.tests.property_reference import compute
     from sjtu_tpmshx.shared.models.tpms_geometry import compute_geometry
     compute.cache_clear(); compute_geometry.cache_clear()
     state = {'records': {'preliminary': {}, 'final': {}}, 'events': {'preliminary': [], 'final': []},

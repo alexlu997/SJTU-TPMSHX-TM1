@@ -190,7 +190,7 @@ def test_native_preparation_matches_existing_stage(native, monkeypatch, selectio
     else:
         monkeypatch.setenv('TPMSHX_CHI_S', str(chi))
     monkeypatch.delenv('TPMSHX_ALLOW_EXTRAP', raising=False)
-    from sjtu_tpmshx.shared.models.tpms_calc import compute
+    from sjtu_tpmshx.development.tests.property_reference import compute
     compute.cache_clear()
     from sjtu_tpmshx.development.tests import preparation_case_reference as preparation
     expected_events = []

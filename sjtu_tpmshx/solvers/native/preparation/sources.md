@@ -17,6 +17,23 @@ Other supported targets keep separate operations. Global floating-point options 
 The independent Python references remain under `development/tests/`.
 They do not call the native formulas that they check.
 
+## Scalar inlet-property combination
+
+`src/preparation_case.cpp::inlet_property_values` owns the existing scalar sequence for standalone queries and complete preparation.
+It calls the existing property, Re/Pr, Nu, surface-transfer, fixed DF, pressure-gradient and pore-conductivity implementations.
+It preserves their order, scalar kinds, floating-point events and source range records.
+Raw queries retain the previous complex Nu and H_sf intermediates and Python property-conversion failures.
+Complete preparation keeps its existing physical guards.
+
+`query_inlet_properties` accepts supplied geometry scalars and creates no mesh or solver state.
+`src/preparation_case_c_api.cpp` exposes `tpmshx_query_inlet_properties_v1` with twelve typed inline values and no owner.
+Optional v3 callbacks retain synchronous observations and host-object checks; both cache hooks must be NULL.
+`shared/models/tpms_calc.py` keeps public calls, shared caches, geometry selection and the per-call material query.
+`shared/models/_native_preparation_case.py` owns query transport and the range policy shared with preparation adapters.
+The frozen combination in `development/tests/property_reference.py` supplies independent numerical expectations.
+The [external fluid caller](../../../../examples/cpp/prepare_fluids_2d.cpp) uses `stages.hpp` to query all four fluids with only the preparation library.
+No physical model, coefficient source or external numerical dependency is added.
+
 ## Spatial flow stages
 
 `src/preparation_case.cpp` owns raw spatial capacity, resolution and complete fixed-flow preparation.
