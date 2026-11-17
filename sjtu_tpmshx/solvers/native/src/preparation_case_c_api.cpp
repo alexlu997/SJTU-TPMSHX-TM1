@@ -1483,7 +1483,6 @@ template<class Source,class Result,class Function> int boundary_3d(
     std::size_t callback_count=0;
     try {
         require_buffer(result,result?1:0);
-        if (result && result->owner) storage.owned(*result);
         callback_count=callback_bytes(callbacks);
         require_buffer(source,source?1:0);require_buffer(result,result?1:0);require_buffer(failure,failure?1:0);
         require_buffer(selected,selected?1:0);require_buffer(callback_data,callback_count);
@@ -1494,6 +1493,7 @@ template<class Source,class Result,class Function> int boundary_3d(
         require_disjoint(result,result?1:0,failure,failure?1:0);
         require_disjoint(selected,selected?1:0,result,result?1:0);require_disjoint(selected,selected?1:0,failure,failure?1:0);
         require_disjoint(callback_data,callback_count,result,result?1:0);require_disjoint(callback_data,callback_count,failure,failure?1:0);
+        if (result && result->owner) storage.owned(*result);
         if constexpr (std::is_same_v<Source,tpmshx_preparation_continuous_input_3d_v3>) {
             if (source) {
                 const auto values=source->controls.decision_mm;
