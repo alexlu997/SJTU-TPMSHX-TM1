@@ -44,7 +44,7 @@ tpmshx-gui = "sjtu_tpmshx.desktop:main"
 [tool.tpmshx.native-dependencies]
 # Explicit native builds; Python package installation does not provision these dependencies.
 requirements = ["CMake==4.4.4", "CoolProp==8.0.0", "SuperLU==7.0.1", "AMGCL==1.5.0"]
-lock-file = "sjtu_tpmshx/solvers/native/dependencies-lock.toml"
+lock-file = "engineering/native_build/dependencies-lock.toml"
 build-script = "engineering/scripts/build_native_dependencies.py"
 cache-dir = ".cache/native-deps"
 runtime-auto-fetch = false

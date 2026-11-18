@@ -45,7 +45,7 @@ Platform fast tests, real integration, and minimal postprocessing gates stay req
 
 #### Scenario: Native dependencies are independently qualified
 - **WHEN** native dependency jobs run on macOS/Python 3.13 or Windows/Python 3.12 and 3.13
-- **THEN** one build job per platform fetches pinned source and CMake from `sjtu_tpmshx/solvers/native/dependencies-lock.toml` and builds offline.
+- **THEN** one build job per platform fetches pinned source and CMake from `engineering/native_build/dependencies-lock.toml` and builds offline.
   Qualification jobs use its matching native artifacts and execute independent EOS/pressure, Quick Design, true-h, model-h, and SIMPLE callers.
   The Windows Python 3.12 and 3.13 jobs independently qualify the same platform build. Independent formulas, discrete balances, manufactured solutions, component replay, and fixed historical references check complete drivers and public C interfaces. `TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1` and `TPMSHX_REQUIRE_CPP_TESTS=1` make missing compilers, executables, or libraries failures. Skips cannot substitute for acceptance.
 - **AND** only the independent native job builds dependencies. Ordinary fast shards do not rebuild them. Uploads include build logs and qualification XML. They exclude source archives, property tables, and local experimental data.

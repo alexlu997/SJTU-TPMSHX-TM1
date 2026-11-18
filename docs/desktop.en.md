@@ -22,7 +22,7 @@ Keep these items in the project folder:
 - Complete `sjtu_tpmshx/` source, including `shared/configs/*.json`, `shared/df_surrogate/_prebuilt/*.csv`, and interface resources.
 - This host's `.venv-path`, the corresponding `engineering/requirements/*.txt`, usage examples, and operation instructions.
 - Solver, geometry, preparation and result libraries that match the source revision, platform, and their respective ABIs.
-  Include `sjtu_tpmshx/solvers/native/include/`, `sjtu_tpmshx/solvers/native/dependencies-lock.toml`, `sjtu_tpmshx/solvers/native/THIRD_PARTY_NOTICES.md`, and `sjtu_tpmshx/solvers/native/licenses/`.
+  Include `include/`, `engineering/native_build/dependencies-lock.toml`, `engineering/native_build/licenses/THIRD_PARTY_NOTICES.md`, and `engineering/native_build/licenses/`.
 - Writable model-table and runtime-cache directories. Table files must stay outside dynamic-library and read-only resource directories.
 
 The C++ commands below use the existing build process's output paths.

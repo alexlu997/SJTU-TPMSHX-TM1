@@ -111,7 +111,9 @@ and rework through complete changes, clear decisions, and verified results.
   Do not split or combine code based only on file length or repeated lines.
 - Keep GUI code in `applications/gui/ui/` and `applications/gui/controllers/`.
   Keep lower layers free of Qt.
-  Keep application workflows in `applications/` and numerical implementation in `solvers/`.
+  Keep application workflows in `applications/`. Put C++ preparation, solving, and evaluation in root `preprocess/`, `solver/`, and `postprocess/`.
+  Put geometry in `geometry/`, common numerical functions in `numerics/`, and C/C++ headers in `include/tpmshx/`.
+  Keep native caller tests in `tests/cpp/`.
   Keep shared data, models, resources and file I/O in `shared/`.
   Keep `development/` limited to `tests/`, `validation/` and `runs/`.
   Keep build scripts, packaging and dependency locks in root `engineering/`.

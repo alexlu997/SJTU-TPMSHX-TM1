@@ -7,7 +7,9 @@ TM1 将 TPMS 换热器的前处理、求解和后处理拆为独立维护的模�
 [alexlu997/SJTU-TPMSHX-TM1](https://github.com/alexlu997/SJTU-TPMSHX-TM1)。
 原 SJTU-TPMSHX/V2 是来源参考，本分支不合回原仓库。
 
-**核心源码全部位于 [sjtu_tpmshx/](sjtu_tpmshx/)**，包括 Python 应用与 C++ 数值后端。读计算代码从这四个文件开始：
+**C++ 计算流程**　[前处理](preprocess/) → [求解](solver/) → [后处理](postprocess/)。从[完整二维算例](examples/cpp/air_2d.cpp)可以读到三次调用。几何算法在 [geometry/](geometry/)，共用物性与数值函数在 [numerics/](numerics/)。外部程序使用 [stages.hpp](include/tpmshx/stages.hpp)。
+
+Python 应用通过以下四个公开入口调用计算核心。
 
 | 文件 | 职责 |
 | --- | --- |
@@ -17,13 +19,13 @@ TM1 将 TPMS 换热器的前处理、求解和后处理拆为独立维护的模�
 | [postprocess/api.py](sjtu_tpmshx/postprocess/api.py) | 后处理入口：从记录的结果计算 PerformanceResult |
 
 包内六类目录是 `preprocess/`、`solvers/`、`postprocess/`、`shared/`、`applications/` 和 `development/`。
-[模块地图](sjtu_tpmshx/README.md)说明各自职责；C++ 源码仍在 [solvers/native/](sjtu_tpmshx/solvers/native/)。
+[Python 模块地图](sjtu_tpmshx/README.md)说明入口与应用之间的关系。
 [原生阶段 SDK](docs/native-stages.zh-CN.md)说明独立 C++ 前处理、求解和后处理接口及当前覆盖范围。
 GUI、CLI、设计与恢复实现位于 `applications/`；测试、验证和诊断工具位于 `development/`。
 根 [engineering/](engineering/) 保存构建脚本、打包配置和依赖锁；[docs/contracts/](docs/contracts/) 保存数据契约。
 `.github/workflows/` 保存 CI 配置。GUI 与 CLI 继续用 `python -m sjtu_tpmshx.main` 和 `python -m sjtu_tpmshx.cli` 启动。
 
-几何、物性与闭合、数值求解和结果计算由包内 C++ 核心负责。
+几何、物性与闭合、数值求解和结果计算由上述原生阶段与几何库负责。
 Python 保留公共入口、配置、数据对象、文件读写、缓存、GUI 和设计／优化编排。
 前处理使用匹配的几何、准备和结果库；其中结果库负责范围采集。完整计算还使用求解库。
 具体 C++ 文件、函数及修改后的重建步骤见[源码地图](sjtu_tpmshx/README.md)。

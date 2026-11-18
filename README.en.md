@@ -4,7 +4,9 @@
 
 TM1 separates TPMS heat-exchanger preprocessing, solving, and postprocessing into independently maintained modules. The GUI, optimization, and Quick Design call their public interfaces. The target repository is [alexlu997/SJTU-TPMSHX-TM1](https://github.com/alexlu997/SJTU-TPMSHX-TM1). Original SJTU-TPMSHX/V2 is a source reference. This branch does not merge back into that repository.
 
-**All core source is under [sjtu_tpmshx/](sjtu_tpmshx/).** This includes the Python application and C++ numerical backend. Start with these four computation files:
+**C++ computation** follows [preparation](preprocess/), [solving](solver/), and [evaluation](postprocess/). The [2D air example](examples/cpp/air_2d.cpp) calls all three stages. See [geometry](geometry/) for grids and geometry, and [numerics](numerics/) for common properties and numerical functions. External programs use [stages.hpp](include/tpmshx/stages.hpp).
+
+Python applications use four public computation entries.
 
 | File | Responsibility |
 | --- | --- |
@@ -14,14 +16,14 @@ TM1 separates TPMS heat-exchanger preprocessing, solving, and postprocessing int
 | [postprocess/api.py](sjtu_tpmshx/postprocess/api.py) | Postprocessing entry. Calculate PerformanceResult from recorded results. |
 
 The package has six directory groups: `preprocess/`, `solvers/`, `postprocess/`, `shared/`, `applications/` and `development/`.
-The [module map](sjtu_tpmshx/README.en.md) defines their responsibilities. C++ source stays in [solvers/native](sjtu_tpmshx/solvers/native/).
+The [Python module map](sjtu_tpmshx/README.en.md) shows how the applications use the stages.
 The [native stage SDK](docs/native-stages.md) documents the independent C++ preparation,
 execution and evaluation interfaces and their current scope.
 GUI, CLI, design and recovery implementations are in `applications/`. Tests, validation and diagnostic tools are in `development/`.
 Root [engineering](engineering/) holds build scripts, packaging configuration and dependency locks. [docs/contracts](docs/contracts/) holds data contracts.
 `.github/workflows/` holds CI configuration. Keep using `python -m sjtu_tpmshx.main` for the GUI and `python -m sjtu_tpmshx.cli` for the CLI.
 
-The package's C++ cores calculate geometry, properties, closures, solutions and results.
+The C++ stages and geometry library calculate geometry, properties, closures, solutions and results.
 Python keeps public entries, configuration, data objects, file I/O, caches, the GUI and design/optimization workflows.
 Preparation uses matching geometry, preparation and result libraries. The result library collects range observations. Full computation also uses the solver library.
 The [source map](sjtu_tpmshx/README.en.md) lists C++ files, functions and rebuild steps.

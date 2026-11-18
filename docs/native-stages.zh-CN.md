@@ -514,7 +514,7 @@ Python 适配器通过该检查点，在此前几何和物性检查之后保留�
 使用锁定的 CMake 可执行文件。macOS 分别提供已验收依赖缓存中的准备和求解 archive：
 
 ```sh
-"$CMAKE" -S sjtu_tpmshx/solvers/native -B .cache/stages/build \
+"$CMAKE" -S . -B .cache/stages/build \
   -DTPMSHX_NATIVE_DEPS_ROOT="$PWD/.cache/native-deps" \
   -DTPMSHX_MODEL_INCLUDE_DIR="$PWD/.cache/stages/generated" \
   -DTPMSHX_PREPARATION_COOLPROP_LIBRARY="$PWD/.cache/native-deps/build/coolprop-preparation-macos-arm64/libCoolProp.a" \

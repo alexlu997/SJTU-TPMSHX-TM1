@@ -263,17 +263,10 @@ jobs:
           "$CI_PYTHON" - <<'PY'
           from pathlib import Path
           import shutil
-          native = Path('sjtu_tpmshx/solvers/native')
-          notices = native / 'lib/linux-x86_64/licenses/native'
-          notices.mkdir(parents=True)
-          shutil.copy2('LICENSE', notices.parent / 'LICENSE')
-          shutil.copy2(native / 'THIRD_PARTY_NOTICES.md', notices)
-          shutil.copy2(native / 'dependencies-lock.toml', notices)
-          shutil.copytree(native / 'licenses', notices / 'licenses')
-          for record in ('result/sources.md', 'preparation/sources.md', 'geometry/README.md', 'geometry/fields-sources.md'):
-              target = notices / record
-              target.parent.mkdir(exist_ok=True)
-              shutil.copy2(native / record, target)
+          from engineering.scripts.build_native_dependencies import stage_native_notices
+          notices = Path('sjtu_tpmshx/solvers/native/lib/linux-x86_64/licenses')
+          stage_native_notices(Path.cwd(), notices / 'native')
+          shutil.copy2('LICENSE', notices / 'LICENSE')
           PY
       - name: Save the independent Linux result image
         uses: actions/upload-artifact@v7

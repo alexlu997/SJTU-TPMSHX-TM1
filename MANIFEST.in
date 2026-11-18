@@ -1,4 +1,12 @@
 include LICENSE README.md README.en.md pyproject.toml requirements.txt
+include CMakeLists.txt
+graft preprocess
+graft solver
+graft postprocess
+graft geometry
+graft numerics
+graft include
+graft tests/cpp
 graft sjtu_tpmshx
 graft engineering
 graft docs
