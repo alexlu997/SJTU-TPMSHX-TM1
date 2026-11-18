@@ -88,7 +88,8 @@ SANCTIONED = {
 
 
 def source_paths():
-    for directory in (PKG, PKG.parent / 'tests/python'):
+    roots = (PKG, REPO / 'tests/python') if PKG.name == 'python' else (PKG,)
+    for directory in roots:
         yield from (path for path in directory.rglob('*.py') if '__pycache__' not in path.parts)
 
 

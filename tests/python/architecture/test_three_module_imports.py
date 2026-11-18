@@ -1,20 +1,20 @@
-"""Explicit one-way module boundaries, including imports inside functions."""
+"""Check the public stage boundaries, including imports inside functions."""
 import ast
-from graphlib import TopologicalSorter
+from graphlib import CycleError, TopologicalSorter
 from pathlib import Path
 
 import pytest
 
-from sjtu_tpmshx.development.runs.tools.audit_import_graph import import_targets
+from sjtu_tpmshx.development.runs.tools.audit_import_graph import LAYERS, import_targets, target_unit, unit_of
 
 ROOT = Path(__file__).resolve().parents[3] / 'python'
 RULES = {
-    'physical_models': ('solvers', 'preprocess', 'postprocess', 'applications'),
+    'models': ('solvers', 'preprocess', 'postprocess', 'applications'),
+    'df_surrogate': ('solvers', 'preprocess', 'postprocess', 'applications'),
     'preprocess': ('solvers', 'applications'),
-    'cpp_interface/solver_library': ('preprocess', 'postprocess', 'applications'),
-    'solvers/backends': ('preprocess', 'postprocess', 'applications'),
+    'backend': ('preprocess', 'postprocess', 'applications'),
     'postprocess': ('solvers', 'preprocess', 'applications'),
-    'file_io': ('solvers', 'preprocess', 'applications'),
+    'io': ('solvers', 'preprocess', 'applications'),
 }
 
 
@@ -22,44 +22,48 @@ def forbidden_imports(source, forbidden, package='sjtu_tpmshx'):
     violations = []
     for node in ast.walk(ast.parse(source)):
         for module in import_targets(node, package):
-            if any(module == owner or module.startswith(owner + '.') for owner in (
-                    'sjtu_tpmshx.preprocess.validator', 'sjtu_tpmshx.postprocess.result_display',
-                    'sjtu_tpmshx.postprocess.result_math')):
-                continue  # These modules supply input checks and field descriptions to either stage.
-            if any(module == 'sjtu_tpmshx.' + name or module.startswith('sjtu_tpmshx.' + name + '.')
-                   for name in forbidden):
+            if not module.startswith('sjtu_tpmshx.'):
+                continue
+            owner = target_unit(module, LAYERS)
+            application = module.startswith('sjtu_tpmshx.applications') and owner != 'io'
+            if owner in forbidden or ('applications' in forbidden and application):
                 violations.append((node.lineno, module))
     return violations
 
 
 def test_implementation_import_boundaries():
-    failures = []
-    for directory, forbidden in RULES.items():
-        paths = list((ROOT / directory).rglob('*.py'))
-        assert paths, directory
-        for path in paths:
-            package = '.'.join(('sjtu_tpmshx', *path.relative_to(ROOT).parts[:-1]))
-            for line, module in forbidden_imports(path.read_text(encoding='utf-8'), forbidden, package):
-                failures.append(f'{path.relative_to(ROOT)}:{line}: {module}')
+    failures, checked = [], set()
+    for path in ROOT.rglob('*.py'):
+        relative = path.relative_to(ROOT)
+        owner = unit_of(path)
+        if owner == 'solvers' and (relative.parts[0] == 'cpp_interface' or relative.parts[:2] == ('solvers', 'backends')):
+            owner = 'backend'
+        if owner in RULES:
+            checked.add(owner)
+            package = '.'.join(('sjtu_tpmshx', *relative.parts[:-1]))
+            for line, module in forbidden_imports(path.read_text(encoding='utf-8'), RULES[owner], package):
+                failures.append(f'{relative}:{line}: {module}')
+    assert checked == RULES.keys()
     assert not failures, '\n'.join(failures)
 
 
-def test_checker_detects_nested_illegal_import_and_allows_shared_models():
-    source = 'def evaluate():\n    from sjtu_tpmshx.solvers.api import run_case\n'
-    assert (2, 'sjtu_tpmshx.solvers.api') in forbidden_imports(source, ('solvers',))
+@pytest.mark.parametrize('module', [
+    'solvers.api', 'cpp_interface.full_2d_stage', 'cpp_interface.solver_library.full_2d',
+    'cpp_interface.native_preparation',
+])
+def test_checker_detects_imports_across_stage_boundaries(module):
+    name = 'sjtu_tpmshx.' + module
+    source = f'def evaluate():\n    import {name}\n'
+    assert (2, name) in forbidden_imports(source, RULES['postprocess'])
+
+
+def test_checker_resolves_relative_imports_and_allows_shared_models():
     assert (1, 'sjtu_tpmshx.solvers') in forbidden_imports(
         'from .. import solvers', ('solvers',), 'sjtu_tpmshx.postprocess')
     assert not forbidden_imports('from sjtu_tpmshx.physical_models.catalog import resolve_model', ('solvers',))
 
 
-@pytest.mark.parametrize('layer', ['solvers', 'applications/gui/ui'])
-def test_implementation_imports_have_no_cycles(layer):
-    modules = {
-        '.'.join(('sjtu_tpmshx', *path.relative_to(ROOT).with_suffix('').parts))
-        .removesuffix('.__init__'): path
-        for path in (ROOT / layer).rglob('*.py')
-    }
-    assert modules, layer
+def check_cycles(modules):
     graph = {}
     for module, path in modules.items():
         package = module if path.name == '__init__.py' else module.rsplit('.', 1)[0]
@@ -70,3 +74,22 @@ def test_implementation_imports_have_no_cycles(layer):
             if target in modules
         }
     TopologicalSorter(graph).prepare()
+
+
+@pytest.mark.parametrize('owner', ['solvers', 'ui'])
+def test_implementation_imports_have_no_cycles(owner):
+    modules = {
+        '.'.join(('sjtu_tpmshx', *path.relative_to(ROOT).with_suffix('').parts)).removesuffix('.__init__'): path
+        for path in ROOT.rglob('*.py') if unit_of(path) == owner
+    }
+    assert modules, owner
+    check_cycles(modules)
+
+
+def test_checker_detects_cycle_across_solver_directories(tmp_path):
+    api, stage = 'sjtu_tpmshx.solvers.api', 'sjtu_tpmshx.cpp_interface.full_2d_stage'
+    modules = {api: tmp_path / 'api.py', stage: tmp_path / 'full_2d_stage.py'}
+    modules[api].write_text(f'import {stage}', encoding='utf-8')
+    modules[stage].write_text(f'import {api}', encoding='utf-8')
+    with pytest.raises(CycleError):
+        check_cycles(modules)

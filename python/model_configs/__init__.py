@@ -1,6 +1,6 @@
 """Project-wide configuration loaders.
 
-The ``configs`` package owns shared configuration resources. Model provenance
+The ``model_configs`` package owns the configuration resources. Model provenance
 and applicability are documented in docs/model-resources.md.
 """
 from __future__ import annotations

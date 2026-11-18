@@ -74,6 +74,8 @@ def test_logger_taxonomy_is_packaging_neutral():
     lg2 = get_logger('solvers.threads')
     assert lg2.name == 'tpmshx.solvers.threads'
     assert lg is lg2
+
+
 PUBLIC_NAME_CHECK = """
 import importlib
 from importlib.resources import files
@@ -92,6 +94,12 @@ assert module_ports is importlib.import_module('sjtu_tpmshx.run_control.module_p
 assert validate_geometry is importlib.import_module('sjtu_tpmshx.preprocess.validator').validate_geometry
 assert load_shanghai_baseline is importlib.import_module('sjtu_tpmshx.model_configs').load_shanghai_baseline
 assert files('sjtu_tpmshx.shared.configs').joinpath('shanghai_baseline.json').is_file()
+for dimension in (2, 3):
+    leaf = f'full_{dimension}d'
+    driver = f'NativeFull{dimension}DDriver'
+    before = importlib.import_module('sjtu_tpmshx.solvers.backends.cpp.' + leaf)
+    current = importlib.import_module('sjtu_tpmshx.cpp_interface.solver_library.' + leaf)
+    assert before is current and getattr(before, driver) is getattr(current, driver)
 """
 
 
@@ -102,3 +110,12 @@ def test_checkout_preserves_published_submodule_identity():
                     "from pathlib import Path\nimport sjtu_tpmshx\n"
                     "assert Path(sjtu_tpmshx.__file__).resolve() == Path.cwd() / 'python/__init__.py'\n"
                     + PUBLIC_NAME_CHECK], cwd=root, check=True, timeout=60)
+
+
+def test_published_workbook_module_command():
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[2]
+    result = subprocess.run([sys.executable, '-m', 'sjtu_tpmshx.shared.df_surrogate.ingest_cfd_kappa', '--help'],
+                            cwd=root, capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    assert 'usage:' in result.stdout

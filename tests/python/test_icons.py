@@ -19,7 +19,7 @@ def _opaque_pixels(image):
 
 
 def test_all_bundled_icons_and_aliases_have_visible_content():
-    assets = Path(__file__).resolve().parents[2] / 'applications' / 'gui' / 'ui' / 'assets' / 'icons'
+    assets = Path(__file__).resolve().parents[2] / 'python' / 'applications' / 'gui' / 'ui' / 'assets' / 'icons'
     names = [path.stem for path in assets.glob('*.svg')]
     assert names
     for name in names + ['sliders', 'more-horizontal', 'fit-view']:

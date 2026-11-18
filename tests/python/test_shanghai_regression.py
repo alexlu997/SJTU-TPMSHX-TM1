@@ -24,7 +24,7 @@ import pandas as pd
 
 def test_shanghai_3d_historical_evidence():
     """Check recorded membership, arithmetic and original score bounds only."""
-    path = Path(__file__).resolve().parents[1] / 'validation' / 'shanghai_3d_baseline.csv'
+    path = Path(__file__).resolve().parents[2] / 'python/development/validation' / 'shanghai_3d_baseline.csv'
     df = pd.read_csv(path, comment='#')
     assert df['case'].tolist() == list(range(1, 17))
     assert df['pressure_state_valid'].eq(1).all()

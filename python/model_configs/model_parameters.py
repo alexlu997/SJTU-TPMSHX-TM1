@@ -4,6 +4,9 @@ import json
 import math
 
 
+CO2_RESOURCE = files('sjtu_tpmshx.model_configs') / 'co2_segment2_v1.json'
+
+
 # These versions identify the extracted V2 formulas, not experimental accuracy.
 MODEL_VERSIONS = {
     'quick_design': 'v2-5f1cafb',
@@ -125,7 +128,7 @@ def load_quick_design_parameters():
 
 def load_co2_coefficients(path=None):
     """Read the existing CO2 resource, including explicitly selected test files."""
-    source = (files('sjtu_tpmshx.model_configs') / 'co2_segment2_v1.json') if path is None else path
+    source = CO2_RESOURCE if path is None else path
     data = json.loads(source.read_text(encoding='utf-8'))
     if data['model_version'] != 'co2-segment2-20261002-v1' or data['segment'] != 2:
         raise ValueError('CO2 coefficient resource/version mismatch')

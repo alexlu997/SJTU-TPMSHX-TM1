@@ -23,7 +23,7 @@ _SEARCH_PATH = __file__
 class _SharedNames:
     """Expose one module object for each old and current spelling."""
 
-    def find_spec(self, fullname, target=None):
+    def _shared_target(self, fullname):
         prefix = __name__ + "."
         if fullname.startswith(prefix):
             relative = fullname[len(prefix):]
@@ -44,13 +44,31 @@ class _SharedNames:
                 spelling = _PACKAGES[owner] + separator + tail
             else:
                 return None
-        canonical = __package__ + "." + spelling
+        return __package__ + "." + spelling
+
+    def find_spec(self, fullname, target=None):
+        driver_prefix = __package__ + ".solvers.backends.cpp."
+        if fullname.startswith(driver_prefix):
+            driver = fullname[len(driver_prefix):]
+            directory = ("cpp_interface" if driver in ("full_2d_stage", "full_3d_stage", "quick_design", "run_state")
+                         else "cpp_interface.solver_library")
+            canonical = f"{__package__}.{directory}.{driver}"
+        else:
+            canonical = self._shared_target(fullname)
+        if canonical is None:
+            return None
         spec = find_spec(canonical)
         if spec is None:
             return None
         alias = ModuleSpec(fullname, self, is_package=spec.submodule_search_locations is not None)
+        alias.origin = spec.origin
+        alias.has_location = spec.has_location
         alias.loader_state = canonical
         return alias
+
+    def get_code(self, fullname):
+        canonical = self.find_spec(fullname).loader_state
+        return find_spec(canonical).loader.get_code(canonical)
 
     def create_module(self, spec):
         return None

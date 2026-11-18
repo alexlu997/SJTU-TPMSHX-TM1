@@ -830,7 +830,7 @@ def test_no_shanghai_string_in_visible_ui_sources():
     """De-branding lock: no user-visible 'Shanghai' literal in the UI
     surfaces that render text (field_menu context actions / status)."""
     import pathlib
-    ui_dir = pathlib.Path(__file__).resolve().parents[2] / 'applications' / 'gui' / 'ui'
+    ui_dir = pathlib.Path(__file__).resolve().parents[2] / 'python' / 'applications' / 'gui' / 'ui'
     src = (ui_dir / 'field_menu.py').read_text(encoding='utf-8')
     assert 'Revert to Shanghai' not in src
     assert 'reverted to Shanghai' not in src

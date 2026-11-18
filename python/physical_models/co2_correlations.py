@@ -4,7 +4,6 @@ Nu is the supplied segment-2 fit. Drag uses the existing common three-cell
 CFD base. The factors are application inputs, not a new experimental fit.
 """
 from functools import lru_cache
-from pathlib import Path
 import warnings
 
 import numpy as np
@@ -12,7 +11,7 @@ import numpy as np
 from sjtu_tpmshx.cpp_interface import _native_df, _native_geometry
 
 from sjtu_tpmshx.model_configs.model_parameters import (
-    load_co2_coefficients, load_model_parameters)
+    CO2_RESOURCE as DATA_PATH, load_co2_coefficients, load_model_parameters)
 
 _APPLICATION = load_model_parameters()['co2_application']
 _CO2_DATA = load_co2_coefficients()
@@ -22,7 +21,6 @@ PRESSURE_MULTIPLIER = _APPLICATION['pressure_multiplier']
 NU_MULTIPLIER = _APPLICATION['nu_multiplier']
 RE_RANGE = tuple(_CO2_DATA['bounds']['Re'])
 del _CO2_DATA, _APPLICATION
-DATA_PATH = Path(__file__).resolve().parents[1] / 'configs' / 'co2_segment2_v1.json'
 
 
 @lru_cache(maxsize=1)

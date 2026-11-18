@@ -94,6 +94,19 @@ def test_source_archive_keeps_native_helper_and_its_local_build_closure(project,
         distributions.check_native_closure(project)
 
 
+def test_source_archive_excludes_local_cfd_output(project, tmp_path):
+    name = "python/development/runs/_out/asym_cfd/asym_cfd_worklist.xlsx"
+    path = project / name
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"local test data")
+    archive = tmp_path / "source.tar.gz"
+    source_archive(project, archive, omit={name})
+    distributions.inspect_sdist(archive, project)
+    source_archive(project, archive)
+    with pytest.raises(ValueError, match="excluded state"):
+        distributions.inspect_sdist(archive, project)
+
+
 def test_source_archive_rejects_the_confirmed_native_source_omission(project, tmp_path):
     archive = tmp_path / "source.tar.gz"
     source_archive(project, archive, omit={"numerics/model_complex_log.c"})
@@ -208,12 +221,19 @@ from sjtu_tpmshx.model_configs.model_parameters import (
     load_model_parameters, load_co2_coefficients, load_preparation_df_parameters,
 )
 assert load_shanghai_baseline() and load_model_parameters()
-assert load_co2_coefficients() and load_preparation_df_parameters()
+from sjtu_tpmshx.physical_models.co2_correlations import coefficients
+assert coefficients() == load_co2_coefficients() and load_preparation_df_parameters()
 from sjtu_tpmshx.development.validation.harness._order_fit import fit_order_loglog
 assert abs(fit_order_loglog([1., .5, .25], [1., .25, .0625]).p - 2.) < 1e-12
 from sjtu_tpmshx.development.runs.tools import build_fast_tier_manifest as manifest
+foreign = installed / 'tests/python/foreign.py'
+foreign.parent.mkdir(parents=True)
+foreign.write_text('raise AssertionError("unrelated tests")')
+from sjtu_tpmshx.development.runs.tools import audit_import_graph
+assert foreign not in set(audit_import_graph.source_paths())
 log = Path('durations.log')
 log.write_text('31.0s call test_case.py::test_case\n')
+assert manifest._DEF_OUT == installed / 'sjtu_tpmshx/development/tests/_fast_tier_manifest.txt'
 assert manifest.main(['--log', str(log)]) == 0
 assert manifest._DEF_OUT.read_text().endswith('test_case.py::test_case\n')
 entry, = [item for item in importlib.metadata.distribution('sjtu-tpmshx').entry_points
@@ -251,6 +271,11 @@ def test_installed_wheel_runtime(kind):
                                  json.dumps(sorted(distributions.declared_resources(root)))],
                                 cwd=directory, env=env, capture_output=True, text=True, timeout=120)
         assert result.returncode == 0, result.stdout + result.stderr
+        result = subprocess.run([sys.executable, "-m", "sjtu_tpmshx.shared.df_surrogate.ingest_cfd_kappa", "--help"],
+                                cwd=directory, env=dict(env, PYTHONPATH=str(target)),
+                                capture_output=True, text=True, timeout=60)
+        assert result.returncode == 0, result.stderr
+        assert "usage:" in result.stdout
 
 
 def test_wheel_check_accepts_windows_source_paths(project, tmp_path, monkeypatch):

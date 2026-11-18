@@ -120,10 +120,14 @@ def desktop_spec_prefix(monkeypatch):
     root = Path(__file__).resolve().parents[2]
     spec = root / 'engineering/packaging/desktop.spec'
     tree = ast.parse(spec.read_text(encoding='utf-8'))
-    analysis = next(i for i, node in enumerate(tree.body)
-                    if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call)
-                    and isinstance(node.value.func, ast.Name) and node.value.func.id == 'Analysis')
-    code = compile(ast.Module(body=tree.body[:analysis], type_ignores=[]), str(spec), 'exec')
+    code = compile(tree, str(spec), 'exec')
+
+    class InputsReady(Exception):
+        pass
+
+    def stop_before_build(*args, **kwargs):
+        raise InputsReady
+
     for name in ('PyInstaller', 'PyInstaller.utils'):
         package = ModuleType(name)
         package.__path__ = []
@@ -137,11 +141,14 @@ def desktop_spec_prefix(monkeypatch):
     monkeypatch.setattr(python_source, 'build_package', lambda root, directory: None)
 
     def evaluate(platform):
-        namespace = {'SPECPATH': str(spec.parent)}
+        namespace = {'SPECPATH': str(spec.parent), 'Analysis': stop_before_build}
         with monkeypatch.context() as context:
             context.setattr(sys, 'platform', platform)
             context.setattr(sys, 'path', sys.path.copy())
-            exec(code, namespace)
+            try:
+                exec(code, namespace)
+            except InputsReady:
+                pass
         return namespace
 
     return root, evaluate

@@ -26,7 +26,9 @@ import argparse
 import re
 from pathlib import Path
 
-_DEF_OUT = Path(__file__).resolve().parents[4] / 'tests' / 'python' / '_fast_tier_manifest.txt'
+_PACKAGE = Path(__file__).resolve().parents[3]
+_TESTS = _PACKAGE.parent / 'tests/python' if _PACKAGE.name == 'python' else _PACKAGE / 'development/tests'
+_DEF_OUT = _TESTS / '_fast_tier_manifest.txt'
 
 
 def parse_call_durations(log_path: Path) -> list[tuple[float, str]]:
