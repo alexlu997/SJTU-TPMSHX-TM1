@@ -1,26 +1,26 @@
-# 主体源码：sjtu_tpmshx
+# Python 源码和公开入口
 
 [中文](README.md) | [English](README.en.md)
 
-全部核心源码位于这个包内。首次配置、公开算例和启动步骤见[项目 README](../README.md#first-run)。
+这个目录对应公开的 `sjtu_tpmshx` 包，已有脚本沿用原导入名。首次配置、公开算例和启动步骤见[项目 README](../README.md#first-run)。
 命令均从仓库根目录执行。完整模块边界和物理约束见[架构说明](../docs/architecture.zh-CN.md)。
 
 ## 四个计算入口
 
 | 文件 | 公开入口 | 职责 |
 | --- | --- | --- |
-| [compute.py](compute.py) | `compute` | 主计算入口，校验配置并统一组织三个阶段；返回 CaseData、FieldResult 和 PerformanceResult |
-| [preprocess/api.py](preprocess/api.py) | `prepare_case` | 准备实际网格、边界、设计场、模型资源和可移植运行输入 |
-| [solvers/api.py](solvers/api.py) | `run_case` | 消费 CaseData，经 Python 绑定执行 C++ 数值求解，返回原生场和运行状态 |
-| [postprocess/api.py](postprocess/api.py) | `evaluate` | 从 FieldResult 组织指标评估与资格结论，不重跑求解 |
+| [python/compute.py](compute.py) | `compute` | 主计算入口，校验配置并统一组织三个阶段；返回 CaseData、FieldResult 和 PerformanceResult |
+| [python/preprocess/api.py](preprocess/api.py) | `prepare_case` | 准备实际网格、边界、设计场、模型资源和可移植运行输入 |
+| [python/solvers/api.py](solvers/api.py) | `run_case` | 消费 CaseData，经 Python 绑定执行 C++ 数值求解，返回原生场和运行状态 |
+| [python/postprocess/api.py](postprocess/api.py) | `evaluate` | 从 FieldResult 组织指标评估与资格结论，不重跑求解 |
 
 ```text
 compute -> preprocess.api.prepare_case -> CaseData -> solvers.api.run_case -> FieldResult
                                                                        -> postprocess.api.evaluate -> PerformanceResult
 ```
 
-`compute` 同时处理阶段进度、取消、耗时与警告。`postprocess/api.py` 将完整 2D/3D、Quick Design 评估及独立查询交给原生结果阶段。
-`shared/_native_result_stage.py` 适配证据、NumPy 事件与返回对象；`postprocess/export.py` 负责导出。
+`compute` 同时处理阶段进度、取消、耗时与警告。`python/postprocess/api.py` 将完整 2D/3D、Quick Design 评估及独立查询交给原生结果阶段。
+`python/cpp_interface/_native_result_stage.py` 适配证据、NumPy 事件与返回对象；`python/postprocess/export.py` 负责导出。
 当前正式计算支持矩形二维与长方体三维。公开输入和文件交接见[示例](../examples/three_module/)与[数据契约](../docs/contracts/three_module_v1/README.zh-CN.md)。
 近似模式和扩展状态见[能力范围](../docs/capabilities.md)。
 
@@ -39,7 +39,7 @@ run v2 支持均匀四流体准备态，包括已解析的总质量流量。准�
 它保留物理网格和几何，在换热计算前解析速度，并拥有复制后的区域、控制点与 LUT。
 域长／端口类型输入与独立的前段证据仍明确保留。
 准备 v9 通过带类型的宿主缓存钩子连接对称空间几何的 Python 准备、容量查询与解析。
-`preprocess/native_preparation.py` 共享缓存与证据传输，未命中时由原生阶段计算。
+`python/cpp_interface/native_preparation.py` 共享缓存与证据传输，未命中时由原生阶段计算。
 Python 保留 LUT 存储，缺表时原生代码在原几何检查点构建。
 
 准备 v10 增加规定速度下既有非零 delta 的均匀 air/water 和 air/air 空间模式。
@@ -49,8 +49,8 @@ Python 均匀和空间准备使用 v10；均匀容量和解析仍使用 v7/v3，
 空间容量和解析使用 v10，沿用 v9 结果视图和释放函数。
 公共 ZoneConfig 与 sigmoid 组合查询在单独迁移通过前仍保留独立调用消费者。
 它们保留调用方提供的物性及自定义 sigmoid 控制。
-`preprocess/two_d/preparation.py` 为原生适配器，被替代的 Python 准备流程及行 D-F 投影已退役。
-独立准备参考保留在 `development/tests`；`shared/models/zone_units.py` 负责保存分区数据的单位转换。
+`python/preprocess/two_d/preparation.py` 为原生适配器，被替代的 Python 准备流程及行 D-F 投影已退役。
+独立准备参考保留在 `development/tests`；`python/physical_models/zone_units.py` 负责保存分区数据的单位转换。
 CaseData 与保存文件契约不变，原生失败直接传播，不选择其他准备路线。
 
 独立的三维准备 v1 接收规定速度的原始对称均匀输入，覆盖全部 16 个有序流体配对，
@@ -65,9 +65,9 @@ Python 完整三维执行通过 `full_3d_stage.py` 使用该保存输入生命�
 `full_3d_capture.py` 仍是结果组装器；原生捕获提供应用归约量及可选审计出口权重。
 Python 三维准备使用 host v5 和共享的带类型缓存回调。
 空气场每侧最多选择八个标量观测值，完整原始数组记录仍保留全部单元。
-`preprocess/three_d/preparation.py` 从拥有独立存储的原生结果组装不可变 CaseData。
+`python/preprocess/three_d/preparation.py` 从拥有独立存储的原生结果组装不可变 CaseData。
 被替代的 `shared/models/grid_3d.py` 和 `asym_split.py` 助手已退役。
-`development/tests/preparation_3d_reference.py` 保留独立数值参考。
+`tests/python/preparation_3d_reference.py` 保留独立数值参考。
 接近单元上限的内存使用及真实三维 BO 需要单独验收。
 
 二维执行使用所选库的完整保存输入原生生命周期，包括检查点与完整结果捕获。
@@ -75,20 +75,20 @@ Python 三维准备使用 host v5 和共享的带类型缓存回调。
 Python 优先选择 v2，其次为对称均匀或连续输入选择 v1；不具备适用协议的归档库继续使用原接口。
 
 当前公共保存态 2D/3D 运行在原生结果释放前复制适用性分组和必需记录。
-`solvers/applicability_evidence.py` 按原生顺序保留保存的入口字段和标量类型，并在 C 提供 constraint 时采用该值。
+`python/solvers/applicability_evidence.py` 按原生顺序保留保存的入口字段和标量类型，并在 C 提供 constraint 时采用该值。
 公共 API 发布这些分组，不重复分类。
 Python 将完整 case notices 与运行期 `nu-evidence` 警告记录合并为 `scope_notes`；独立 C++ 阶段保留原生通知。
 直接及归档运行库路径保留 `capture_applicability`；捕获失败不选择该路径。
-`solvers/execution_record.py` 解释实际执行身份和物性采样；原生结果阶段判断资格。
+`python/solvers/execution_record.py` 解释实际执行身份和物性采样；原生结果阶段判断资格。
 
 独立的 `shared/models/tpms_calc.compute` 与完整准备使用同一原生入口物性组合。
 Python 保留几何选择、共享缓存、可变结果副本、逐次 K_ss 查询、对象转换和警告策略。
-`shared/models/_native_preparation_case.py` 传输十二个带类型的查询值，并与准备适配器共享范围观测。
+`python/cpp_interface/_native_preparation_case.py` 传输十二个带类型的查询值，并与准备适配器共享范围观测。
 [入口物性查询](../docs/native-stages.zh-CN.md#入口物性查询) 向 C 和 C++ 调用者提供同一计算，不需要网格或求解器。
 
 Quick Design 准备 v2 接受带类型的原始输入，并提供不创建热网格或设计场数组的独立压降查询。
 Python 通过 `_native_quick_prepare.py` 执行固定宿主协议，将原生输出复制到 CaseData。
-被替代的 `shared/models/quick_design.py` 已删除；默认值统一来自 `shared/configs/model_parameters_v1.json` 及生成的 C++ 常量。
+被替代的 `shared/models/quick_design.py` 已删除；默认值统一来自 `python/model_configs/model_parameters_v1.json` 及生成的 C++ 常量。
 native-double v1 契约与既有 LTNE 模型继续可用。
 Python 执行通过保存的准备态调用原生 run 阶段；原生结果阶段负责 Quick Design 指标。
 准备与结果的宿主操作保留既有 Python 类型、缓存、警告和事件协议。
@@ -97,21 +97,21 @@ Python 执行通过保存的准备态调用原生 run 阶段；原生结果阶�
 ## 修改数值函数
 
 修改数值规则时，从下表找到 C++ 所有者。
-公开输入／输出契约位于 `shared/domain/`；Python 绑定负责类型与数组传递。
+公开输入／输出契约位于 `python/data_types/`；Python 绑定负责类型与数组传递。
 
 | 修改内容 | C++ 文件与代表函数 |
 | --- | --- |
-| 单元几何、chi 与固体导热率 | [geometry.cpp](../sjtu_tpmshx/solvers/native/src/geometry.cpp): `standard_geometry`, `solid_conductivity`; [asym_geometry.cpp](../sjtu_tpmshx/solvers/native/src/asym_geometry.cpp) |
-| 网格与物理端口 | [grid.cpp](../sjtu_tpmshx/solvers/native/src/grid.cpp): `uniform`, `wall`; [ports.cpp](../sjtu_tpmshx/solvers/native/src/ports.cpp): `port_overlap_1d`, `port_fractions_1d` |
-| 连续场、sigmoid、LUT 与分区 | [field_continuous.cpp](../sjtu_tpmshx/solvers/native/src/field_continuous.cpp); [field_sigmoid.cpp](../sjtu_tpmshx/solvers/native/src/field_sigmoid.cpp); [field_lut.cpp](../sjtu_tpmshx/solvers/native/src/field_lut.cpp); [zones.cpp](../sjtu_tpmshx/solvers/native/src/zones.cpp) |
-| 物性与 Nu 闭合 | [fluid_properties.cpp](../sjtu_tpmshx/solvers/native/src/fluid_properties.cpp): `PropertyEvaluator::evaluate`, `fluid_nusselt`; [preparation_properties.cpp](../sjtu_tpmshx/solvers/native/src/preparation_properties.cpp) |
-| 标量入口物性组合 | [preparation_case.cpp](../sjtu_tpmshx/solvers/native/src/preparation_case.cpp): `query_inlet_properties`, `inlet_property_values`; [preparation_case_c_api.cpp](../sjtu_tpmshx/solvers/native/src/preparation_case_c_api.cpp): `tpmshx_query_inlet_properties_v1` |
-| 固定 DF、修正、投影与规定流量 | [preparation_df.cpp](../sjtu_tpmshx/solvers/native/src/preparation_df.cpp): `fixed_df`; [preparation_df_corrections.cpp](../sjtu_tpmshx/solvers/native/src/preparation_df_corrections.cpp); [preparation_df_projection.cpp](../sjtu_tpmshx/solvers/native/src/preparation_df_projection.cpp); [preparation_flow.cpp](../sjtu_tpmshx/solvers/native/src/preparation_flow.cpp): `inlet_capacity_2d`, `inlet_speed` |
-| 完整二维／三维与 Quick Design | [full_2d.cpp](../sjtu_tpmshx/solvers/native/src/full_2d.cpp): `solve_full_2d`; [full_3d.cpp](../sjtu_tpmshx/solvers/native/src/full_3d.cpp): `solve_full_3d`; [quick_design_driver.cpp](../sjtu_tpmshx/solvers/native/src/quick_design_driver.cpp): `solve_quick_design` |
-| 指标、物理平衡、分区统计与检查 | [result_metrics.cpp](../sjtu_tpmshx/solvers/native/src/result_metrics.cpp): `pressure_face`, `boundary_enthalpy_duty`; [result_balance.cpp](../sjtu_tpmshx/solvers/native/src/result_balance.cpp): `mass`, `energy`, `zone_std`; [result_checks.cpp](../sjtu_tpmshx/solvers/native/src/result_checks.cpp): `collect_range`, `strict_certificate` |
-| 完整阶段准备与执行 | [preparation_case.cpp](../sjtu_tpmshx/solvers/native/src/preparation_case.cpp): `prepare_case_2d`, `prepare_zoned_flow_case_2d`, `prepare_thermal_sides`, `prepare_case_3d`; [stage_run.cpp](../sjtu_tpmshx/solvers/native/src/stage_run.cpp): `tpmshx_run_case_2d_v1/v2/v3`, `tpmshx_stage_run_2d_create_v1/create_saved_v1/create_saved_v2`; [stage_capture_2d.cpp](../sjtu_tpmshx/solvers/native/src/stage_capture_2d.cpp)：`tpmshx_stage_run_2d_get_capture_v1`; [stage_run_3d.cpp](../sjtu_tpmshx/solvers/native/src/stage_run_3d.cpp): `tpmshx_run_case_3d_v1`; [stage_capture_3d.cpp](../sjtu_tpmshx/solvers/native/src/stage_capture_3d.cpp): `capture_3d`, `tpmshx_stage_run_3d_get_capture_v1` |
-| Quick Design 阶段准备与执行 | [quick_design_prepare_v2.cpp](../sjtu_tpmshx/solvers/native/src/quick_design_prepare_v2.cpp): `tpmshx_prepare_quick_design_v2`, `tpmshx_quick_pressure_fractions_v2`; [quick_design_prepare.cpp](../sjtu_tpmshx/solvers/native/src/quick_design_prepare.cpp)：保留 v1; [quick_design_run.cpp](../sjtu_tpmshx/solvers/native/src/quick_design_run.cpp): `tpmshx_run_quick_design_v1` |
-| 阶段评估与资格判断 | [result_stage.cpp](../sjtu_tpmshx/solvers/native/src/result_stage.cpp): `evaluate`, `evaluate_applicability`, `evaluate_physical_balance`, `evaluate_qualification` |
+| 单元几何、chi 与固体导热率 | [geometry.cpp](../geometry/geometry.cpp): `standard_geometry`, `solid_conductivity`; [asym_geometry.cpp](../geometry/asym_geometry.cpp) |
+| 网格与物理端口 | [grid.cpp](../geometry/grid.cpp): `uniform`, `wall`; [ports.cpp](../geometry/ports.cpp): `port_overlap_1d`, `port_fractions_1d` |
+| 连续场、sigmoid、LUT 与分区 | [field_continuous.cpp](../geometry/field_continuous.cpp); [field_sigmoid.cpp](../geometry/field_sigmoid.cpp); [field_lut.cpp](../geometry/field_lut.cpp); [zones.cpp](../geometry/zones.cpp) |
+| 物性与 Nu 闭合 | [fluid_properties.cpp](../numerics/fluid_properties.cpp): `PropertyEvaluator::evaluate`, `fluid_nusselt`; [preparation_properties.cpp](../preprocess/preparation_properties.cpp) |
+| 标量入口物性组合 | [preparation_case.cpp](../preprocess/preparation_case.cpp): `query_inlet_properties`, `inlet_property_values`; [preparation_case_c_api.cpp](../preprocess/preparation_case_c_api.cpp): `tpmshx_query_inlet_properties_v1` |
+| 固定 DF、修正、投影与规定流量 | [preparation_df.cpp](../preprocess/preparation_df.cpp): `fixed_df`; [preparation_df_corrections.cpp](../preprocess/preparation_df_corrections.cpp); [preparation_df_projection.cpp](../preprocess/preparation_df_projection.cpp); [preparation_flow.cpp](../preprocess/preparation_flow.cpp): `inlet_capacity_2d`, `inlet_speed` |
+| 完整二维／三维与 Quick Design | [full_2d.cpp](../solver/full_2d.cpp): `solve_full_2d`; [full_3d.cpp](../solver/full_3d.cpp): `solve_full_3d`; [quick_design_driver.cpp](../solver/quick_design_driver.cpp): `solve_quick_design` |
+| 指标、物理平衡、分区统计与检查 | [result_metrics.cpp](../postprocess/result_metrics.cpp): `pressure_face`, `boundary_enthalpy_duty`; [result_balance.cpp](../postprocess/result_balance.cpp): `mass`, `energy`, `zone_std`; [result_checks.cpp](../postprocess/result_checks.cpp): `collect_range`, `strict_certificate` |
+| 完整阶段准备与执行 | [preparation_case.cpp](../preprocess/preparation_case.cpp): `prepare_case_2d`, `prepare_zoned_flow_case_2d`, `prepare_thermal_sides`, `prepare_case_3d`; [stage_run.cpp](../solver/stage_run.cpp): `tpmshx_run_case_2d_v1/v2/v3`, `tpmshx_stage_run_2d_create_v1/create_saved_v1/create_saved_v2`; [stage_capture_2d.cpp](../solver/stage_capture_2d.cpp)：`tpmshx_stage_run_2d_get_capture_v1`; [stage_run_3d.cpp](../solver/stage_run_3d.cpp): `tpmshx_run_case_3d_v1`; [stage_capture_3d.cpp](../solver/stage_capture_3d.cpp): `capture_3d`, `tpmshx_stage_run_3d_get_capture_v1` |
+| Quick Design 阶段准备与执行 | [quick_design_prepare_v2.cpp](../preprocess/quick_design_prepare_v2.cpp): `tpmshx_prepare_quick_design_v2`, `tpmshx_quick_pressure_fractions_v2`; [quick_design_prepare.cpp](../preprocess/quick_design_prepare.cpp)：保留 v1; [quick_design_run.cpp](../solver/quick_design_run.cpp): `tpmshx_run_quick_design_v1` |
+| 阶段评估与资格判断 | [result_stage.cpp](../postprocess/result_stage.cpp): `evaluate`, `evaluate_applicability`, `evaluate_physical_balance`, `evaluate_qualification` |
 
 几何库使用 geometry ABI 1／field ABI 2；准备库保留 ABI 1 加载入口，并增加带版本的 Quick 准备 v2 契约；结果库使用 result ABI 2。
 求解器的算法细节从上表 driver 进入对应 SIMPLE、压力和能量实现；[C++ 说明](../docs/cpp-migration.zh-CN.md)给出接口边界。
@@ -145,19 +145,23 @@ $tm1Python = Get-Content .venv-path -TotalCount 1
 <a id="三模块主线"></a>
 <a id="支撑模块与应用入口"></a>
 
-## 六类目录
+## Python 目录
 
 | 目录 | 职责与边界 |
 | --- | --- |
 | [preprocess/](preprocess/) | 前处理与显式离线模型准备 |
-| [solvers/](../sjtu_tpmshx/solvers/) | 求解 API、准备态适配和 Python C++ 绑定；[native/](../sjtu_tpmshx/solvers/native/) 保存 C++ 源码、独立 C ABI、构建文件及原生调用测试 |
+| [solvers/](solvers/) | 求解 API、准备态适配和 Python C++ 绑定。原生求解实现见[根目录 solver/](../solver/) |
 | [postprocess/](postprocess/) | 已记录结果的指标、物理审计、资格结论和导出 |
-| [shared/](.) | `domain/` 数据契约、`models/` 与 `df_surrogate/` 模型、`io/` 文件交接、`configs/` 资源及共享辅助函数 |
-| [applications/](applications/) | `gui/` 界面和控制器、`cli/` 命令行、`design/` 快速设计、`optimization/` 优化、`execution/` 运行恢复；`result_adapter.py` 统一映射应用结果 |
-| [development/](development/) | 严格保留三类：`tests/` 自动测试，`validation/` 数值与实验验证，`runs/` 演示、诊断和测量工具 |
+| [data_types/](data_types/) | 配置、准备好的工况、场与性能结果的数据定义 |
+| [file_io/](file_io/) | 工况、结果、指标和检查点的文件读写 |
+| [run_control/](run_control/) | 取消、进度、告警、环境与运行库选择 |
+| [physical_models/](physical_models/) 和 [model_configs/](model_configs/) | 物理模型查询及带版本的模型参数 |
+| [cpp_interface/](cpp_interface/) | Python 调用原生库的接口。[solver_library/](cpp_interface/solver_library/) 同时服务底层调用与保存态运行 |
+| [applications/](applications/) | [GUI](applications/gui/)、[CLI](applications/cli/)、[快速设计](applications/design/)、[BO 优化](applications/optimization/)和[历史运行恢复](applications/execution/recovery.py) |
+| [development/](development/) | 数值与实验验证、演示、诊断工具。自动测试在 [tests/python/](../tests/python/) |
 
-GUI 实现在 [applications/gui/main.py](applications/gui/main.py)，CLI 实现在 [applications/cli/main.py](applications/cli/main.py)。
-包顶 [main.py](main.py)、[cli.py](cli.py) 和 [desktop.py](desktop.py) 保留短启动入口。
+GUI 实现在 [python/applications/gui/main.py](applications/gui/main.py)，CLI 实现在 [python/applications/cli/main.py](applications/cli/main.py)。
+包顶 [python/main.py](main.py)、[python/cli.py](cli.py) 和 [python/desktop.py](desktop.py) 保留短启动入口。
 使用 `python -m sjtu_tpmshx.main` 或 `python -m sjtu_tpmshx.cli`；计算代码直接调用上面的四个入口。
 
 根 [engineering/](../engineering/) 保存 `scripts/` 构建与检查脚本、`packaging/` 打包配置和 `requirements/` 依赖锁。

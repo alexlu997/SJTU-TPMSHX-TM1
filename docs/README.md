@@ -2,7 +2,7 @@
 
 [中文](README.md) | [English](README.en.md)
 
-**核心源码全部位于 [sjtu_tpmshx/](../sjtu_tpmshx/)**，包括 Python 应用和 C++ 数值后端。
+C++ 数值实现按计算阶段放在根目录，Python 应用集中在 [python/](../python/)。
 读代码从[模块地图](../python/README.md)开始，运行程序从
 [首次运行说明](../README.md#first-run)开始。
 
@@ -28,7 +28,10 @@
 
 | 目录 | 用途 |
 | --- | --- |
-| [sjtu_tpmshx/](../sjtu_tpmshx/) | 四个计算入口与六类源码目录：前处理、求解、后处理、共享层、应用层、开发验证层 |
+| [preprocess/](../preprocess/)、[solver/](../solver/)、[postprocess/](../postprocess/) | C++ 前处理、求解和后处理 |
+| [geometry/](../geometry/)、[numerics/](../numerics/)、[include/](../include/) | 几何、共用数值函数及头文件 |
+| [tests/cpp/](../tests/cpp/) | C/C++ 调用与内核测试 |
+| [python/](../python/) | 四个计算入口、应用、数据类型、文件读写、模型资源与 C++ 调用接口 |
 | [engineering/](../engineering/) | `scripts/` 构建与检查脚本、`packaging/` 打包配置、`requirements/` 精确依赖锁 |
 | [docs/](./) | 当前说明、`contracts/` 公共数据契约与历史资料入口 |
 | [examples/](../examples/) | 公开调用示例和首次运行配置 |
@@ -36,8 +39,7 @@
 | [.github/workflows/](../.github/workflows/) | macOS / Windows CI 与最小后处理环境检查配置 |
 
 包内 [development/](../python/development/) 保留 `tests/`、`validation/`、`runs/` 三类。
-公共数据契约的实现在 [shared/domain/](../python/data_types/) 和 [shared/io/](../python/file_io/)；
-C++ 数值源码仍在 [solvers/native/](../sjtu_tpmshx/solvers/native/)。
+公共数据契约的实现在 [data_types/](../python/data_types/) 和 [file_io/](../python/file_io/)。
 
 `pyproject.toml` 集中定义构建、依赖声明、pytest、mypy 和 lint 配置。
 根目录 `MANIFEST.in` 选择源码发行包文件；wheel 使用 `pyproject.toml` 中显式声明的资源清单。
@@ -49,7 +51,7 @@ C++ 数值源码仍在 [solvers/native/](../sjtu_tpmshx/solvers/native/)。
 均不随公共代码仓库提交。旧 `reports/` 输出目录也被忽略，避免旧命令重新提交结果表。
 
 一维焓方程参考模型由有效测试直接使用，现放在
-[development/tests/enthalpy_1d_reference.py](../tests/python/enthalpy_1d_reference.py)。
+[tests/python/enthalpy_1d_reference.py](../tests/python/enthalpy_1d_reference.py)。
 生产 CFD 系数 CSV 和测试读取的 MMS 数据继续保留；历史 `golden_3d.json`、旧 γ 快照、
 阶段报告与任务过程文件从固定 Git 历史查阅，不再作为当前测试资源或当前精度说明。
 

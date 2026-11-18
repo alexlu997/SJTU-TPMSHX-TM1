@@ -160,7 +160,7 @@ presentation provenance and explanatory strings. Current 2D/3D producers emit
 these fields. Experimental `alpha_D/alpha_G` are the total effective Nu
 coefficients applied one time to the selected CFD base. There is no serialized
 extra `beta` factor. Explicit current-model selection resolves
-`shared/configs/sco2_effective_nu.json` through `sco2_effective_nu_config()`. Its version,
+`python/model_configs/sco2_effective_nu.json` through `sco2_effective_nu_config()`. Its version,
 source and applicability travel with the values.
 
 Loading a saved configuration

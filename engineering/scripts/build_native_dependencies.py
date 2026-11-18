@@ -33,7 +33,7 @@ import zipfile
 
 
 ROOT = Path(__file__).resolve().parents[2]
-LOCK = tomllib.loads((ROOT / "sjtu_tpmshx/solvers/native/dependencies-lock.toml").read_text())
+LOCK = tomllib.loads((ROOT / "engineering/native_build/dependencies-lock.toml").read_text())
 
 
 def run(command: list[str | Path], log: Path, *, cwd: Path = ROOT,
@@ -50,6 +50,26 @@ def run(command: list[str | Path], log: Path, *, cwd: Path = ROOT,
     if result.returncode:
         raise RuntimeError(f"Command failed ({result.returncode}); see {log}\n{result.stdout[-4000:]}")
     return result.stdout
+
+
+def stage_native_notices(root: Path, destination: Path) -> list[Path]:
+    """Copy the native notices and keep links between distributed files valid."""
+    entries = [line.split("\t") for line in (root / "engineering/native_build/notice-files.tsv")
+               .read_text(encoding="utf-8").splitlines()]
+    for source, installed in entries:
+        path = root / source
+        target = destination / installed
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if path.suffix != ".md":
+            shutil.copyfile(path, target)
+            continue
+        document = path.read_text(encoding="utf-8")
+        for other, packaged in entries:
+            old = os.path.relpath(root / other, path.parent).replace(os.sep, "/")
+            new = os.path.relpath(destination / packaged, target.parent).replace(os.sep, "/")
+            document = document.replace(f"]({old})", f"]({new})").replace(f"]({old}#", f"]({new}#")
+        target.write_text(document, encoding="utf-8")
+    return [destination / installed for _, installed in entries]
 
 
 def platform_name() -> str:
@@ -379,7 +399,7 @@ def build(cache: Path, host: str, python: Path, lock: Path, component: str) -> N
         else:
             options += ["-DCMAKE_OSX_ARCHITECTURES=arm64"]
         build_dir = cache / "build" / f"geometry-{host}"
-        run([cmake, "-S", ROOT / "sjtu_tpmshx/solvers/native/geometry", "-B", build_dir,
+        run([cmake, "-S", ROOT / "geometry", "-B", build_dir,
              *generator, *options], cache / "logs" / f"configure-geometry-{host}.log")
         run([cmake, "--build", build_dir, "--config", "Release", "--parallel", "2"],
             cache / "logs" / f"build-geometry-{host}.log")
@@ -433,8 +453,8 @@ def build(cache: Path, host: str, python: Path, lock: Path, component: str) -> N
                        "-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"]
             if host == "macos-arm64":
                 options += ["-DCMAKE_OSX_ARCHITECTURES=arm64"]
-            source = "preparation" if build_name == "preparation" else "dependency-pilot"
-            run([cmake, "-S", ROOT / "sjtu_tpmshx/solvers/native" / source, "-B", build_dir,
+            source = "preprocess" if build_name == "preparation" else "solver"
+            run([cmake, "-S", ROOT / source, "-B", build_dir,
                  *generator, *options], cache / "logs" / f"configure-{build_name}-{host}.log")
             run([cmake, "--build", build_dir, "--config", "Release", "--parallel", "2"],
                 cache / "logs" / f"build-{build_name}-{host}.log")
@@ -452,7 +472,7 @@ def build_result(cache: Path, host: str) -> None:
     elif host == "macos-arm64":
         options += ["-DCMAKE_OSX_ARCHITECTURES=arm64"]
     _request_build_metadata(build_dir)
-    run([cmake, "-S", ROOT / "sjtu_tpmshx/solvers/native/result", "-B", build_dir,
+    run([cmake, "-S", ROOT / "postprocess", "-B", build_dir,
          *generator, *options], cache / "logs" / f"configure-result-{host}.log")
     run([cmake, "--build", build_dir, "--config", "Release", "--parallel", "2"],
         cache / "logs" / f"build-result-{host}.log")
@@ -540,9 +560,8 @@ def result_build_record(cache: Path, host: str) -> dict:
 
 def verify_model_exports(build_dir: Path, host: str, component: str, log: Path) -> None:
     """Verify each image's C exports and dynamic library boundary."""
-    native_root = ROOT / 'sjtu_tpmshx/solvers/native'
-    folder = 'dependency-pilot' if component == 'solver' else component
-    expected = set((native_root / folder / (component + '.exports')).read_text().splitlines())
+    folder = {'preparation': 'preprocess', 'result': 'postprocess'}.get(component, component)
+    expected = set((ROOT / folder / (component + '.exports')).read_text().splitlines())
     if not expected or any(not name.startswith('_tpmshx_') for name in expected):
         raise RuntimeError(f'Invalid {component} C export list')
     if host == 'macos-arm64':
@@ -819,7 +838,7 @@ def check_stages(cache: Path, host: str, python: Path, lock: Path, component: st
     generator = ["-G", LOCK["cmake"][host]["generator"]]
     if host == "windows-x64":
         generator += ["-A", "x64"]
-    run([cmake, "-S", ROOT / "sjtu_tpmshx/solvers/native", "-B", stage_build,
+    run([cmake, "-S", ROOT, "-B", stage_build,
          *generator, *options], log)
     run([cmake, "--build", stage_build, "--config", "Release", "--parallel", "1"], log)
     if component == "all":
@@ -835,10 +854,10 @@ def check_stages(cache: Path, host: str, python: Path, lock: Path, component: st
         sources = ["examples"]
         if component == "all":
             tests = independent / "tests"
-            shutil.copytree(ROOT / "sjtu_tpmshx/solvers/native/tests/stages", tests / "stages")
+            shutil.copytree(ROOT / "tests/cpp/stages", tests / "stages")
             for smoke in ("stage_run_smoke", "quick_design_stage_smoke"):
-                shutil.copy2(ROOT / f"sjtu_tpmshx/solvers/native/tests/{smoke}.cpp", tests)
-            shutil.copy2(ROOT / "sjtu_tpmshx/solvers/native/tests/stage_run_3d_smoke.c", tests)
+                shutil.copy2(ROOT / f"tests/cpp/{smoke}.cpp", tests)
+            shutil.copy2(ROOT / "tests/cpp/stage_run_3d_smoke.c", tests)
             sources.append("tests/stages")
         env = {key: value for key, value in os.environ.items()
                if key not in {"PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV"} and not key.startswith("TPMSHX_")}

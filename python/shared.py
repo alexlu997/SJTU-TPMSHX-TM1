@@ -25,9 +25,16 @@ class _SharedNames:
 
     def find_spec(self, fullname, target=None):
         prefix = __name__ + "."
-        if not fullname.startswith(prefix):
-            return None
-        relative = fullname[len(prefix):]
+        if fullname.startswith(prefix):
+            relative = fullname[len(prefix):]
+        else:
+            # A from-import asks the canonical package for a child with the old name.
+            parent, _, child = fullname.rpartition(".")
+            owner = next((key for key, value in _PACKAGES.items()
+                          if parent == __package__ + "." + value), None)
+            relative = f"{owner}.{child}"
+            if relative not in _MOVED and not relative.startswith("models._native_"):
+                return None
         owner, separator, tail = relative.partition(".")
         spelling = _MOVED.get(relative)
         if spelling is None:

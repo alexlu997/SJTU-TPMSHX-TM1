@@ -294,7 +294,7 @@ class NativeFull2DDriver:
             tail = (ct.byref(callbacks), ct.byref(result), error, len(error))
             basic_energy = energy if energy_control is None and model_h_options is None else None
             if resume_state is not None or checkpoint is not None:
-                from sjtu_tpmshx.cpp_interface.archived_runtime.full_2d_run import NativeFull2DRun
+                from sjtu_tpmshx.cpp_interface.solver_library.full_2d_run import NativeFull2DRun
                 with NativeFull2DRun(self.library, *args[:3], config, callbacks,
                         energy=basic_energy, energy_control=energy_control, model_h=model_h_options,
                         state=resume_state, cpu_threads=control.native_cpu_threads() if thread_call else None) as run:

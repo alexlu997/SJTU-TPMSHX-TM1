@@ -12,21 +12,24 @@ import zipfile
 import pytest
 
 from engineering.scripts import check_distributions as distributions
+from tests.python.test_import_identity_shim import PUBLIC_NAME_CHECK
 
 
 @pytest.fixture
 def project(tmp_path):
     root = tmp_path / "project"
     root.mkdir()
-    for name in ("LICENSE", "README.md", "README.en.md", "requirements.txt", "MANIFEST.in"):
+    for name in ("LICENSE", "README.md", "README.en.md", "requirements.txt", "MANIFEST.in", "CMakeLists.txt"):
         (root / name).write_text("source input\n")
     (root / "pyproject.toml").write_text(
-        '[tool.setuptools.package-data]\nsjtu_tpmshx = ["shared/configs/*.json", "shared/df_surrogate/_prebuilt/*.csv"]\n')
+        '[tool.setuptools.package-data]\nsjtu_tpmshx = ["model_configs/*.json", "physical_models/df_surrogate/_prebuilt/*.csv"]\n')
     for name in distributions.REQUIRED_RESOURCES:
-        path = root / name
+        path = root / "python" / Path(name).relative_to("sjtu_tpmshx")
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(b"original resource\n")
     files = {
+        "sjtu_tpmshx.py": "",
+        "tests/__init__.py": "",
         "tests/python/__init__.py": "",
         "tests/python/native/reference.py": "value = 1\n",
         "tests/python/native/bridge.cpp": "/* Independent test bridge. */\n",
@@ -34,10 +37,10 @@ def project(tmp_path):
         "python/development/runs/tool.py": "value = 2\n",
         "python/development/validation/reference.py": "value = 3\n",
         "python/__init__.py": '"""Package."""\n',
-        "sjtu_tpmshx/solvers/native/src/model_complex_log.c": '#include "tpmshx/model_math.h"\n',
-        "sjtu_tpmshx/solvers/native/include/tpmshx/model_math.h": "/* Local declaration. */\n",
-        "sjtu_tpmshx/solvers/native/preparation/CMakeLists.txt":
-            'add_library(models "${TPMSHX_NATIVE_ROOT}/src/model_complex_log.c")\n',
+        "numerics/model_complex_log.c": '#include "tpmshx/model_math.h"\n',
+        "include/tpmshx/model_math.h": "/* Local declaration. */\n",
+        "preprocess/CMakeLists.txt":
+            'add_library(models "${TPMSHX_ROOT}/numerics/model_complex_log.c")\n',
         "engineering/scripts/build_native_dependencies.py": '"""Explicit source build."""\n',
         "docs/build.md": "Source instructions.\n",
         "examples/input.json": "{}\n",
@@ -63,11 +66,10 @@ def source_archive(root, output, *, omit=(), extra=None):
 
 def wheel_archive(root, output, *, extra=None, change_resource=False):
     with zipfile.ZipFile(output, "w") as archive:
-        for name in ("python/__init__.py", "python/development/runs/tool.py",
-                     "python/development/validation/reference.py"):
-            archive.writestr(name, (root / name).read_bytes())
+        for name in ("__init__.py", "development/runs/tool.py", "development/validation/reference.py"):
+            archive.writestr("sjtu_tpmshx/" + name, (root / "python" / name).read_bytes())
         for name in distributions.declared_resources(root):
-            value = (root / name).read_bytes()
+            value = (root / "python" / Path(name).relative_to("sjtu_tpmshx")).read_bytes()
             if change_resource and name.endswith("preparation_df_v1.json"):
                 value += b"changed"
             archive.writestr(name, value)
@@ -81,12 +83,12 @@ def test_source_archive_keeps_native_helper_and_its_local_build_closure(project,
     archive = tmp_path / "source.tar.gz"
     source_archive(project, archive, extra={"sjtu_tpmshx.egg-info/PKG-INFO": b"generated metadata"})
     _, files = distributions.inspect_sdist(archive, project)
-    assert "sjtu_tpmshx/solvers/native/src/model_complex_log.c" in files
+    assert "numerics/model_complex_log.c" in files
     assert "tests/python/native/reference.py" in files
     assert "tests/python/native/bridge.cpp" in files
     assert "tests/python/_ci_shard0.txt" in files
     assert distributions.check_native_closure(project)["local_includes"] == 1
-    header = project / "sjtu_tpmshx/solvers/native/include/tpmshx/model_math.h"
+    header = project / "include/tpmshx/model_math.h"
     header.unlink()
     with pytest.raises(ValueError, match="omitted local include"):
         distributions.check_native_closure(project)
@@ -94,7 +96,7 @@ def test_source_archive_keeps_native_helper_and_its_local_build_closure(project,
 
 def test_source_archive_rejects_the_confirmed_native_source_omission(project, tmp_path):
     archive = tmp_path / "source.tar.gz"
-    source_archive(project, archive, omit={"sjtu_tpmshx/solvers/native/src/model_complex_log.c"})
+    source_archive(project, archive, omit={"numerics/model_complex_log.c"})
     with pytest.raises(ValueError, match="omitted source/build inputs"):
         distributions.inspect_sdist(archive, project)
 
@@ -108,11 +110,13 @@ def test_source_archive_rejects_retired_numerics(project, tmp_path, name):
         distributions.inspect_sdist(archive, project)
 
 
-@pytest.mark.parametrize("name", ["sjtu_tpmshx/solvers/native/src/model_complex_log.c",
+@pytest.mark.parametrize("name", ["numerics/model_complex_log.c",
     "sjtu_tpmshx/solvers/native/lib/macos-arm64/libtpmshx_preparation_shared.dylib",
-    "python/physical_models/local_heat_transfer.py",
-    "python/physical_models/quick_design.py",
-    "python/preprocess/thermal_geometry.py",
+    "sjtu_tpmshx/physical_models/local_heat_transfer.py",
+    "sjtu_tpmshx/physical_models/quick_design.py",
+    "sjtu_tpmshx/preprocess/thermal_geometry.py",
+    "sjtu_tpmshx.py",
+    "sjtu_tpmshx/development/tests/native/reference.py",
     "tests/python/__init__.py",
     "tests/python/native/reference.py",
     "tests/python/native/bridge.cpp"])
@@ -128,9 +132,9 @@ def test_wheel_keeps_declared_resource_bytes(project, tmp_path):
     wheel_archive(project, archive)
     files = distributions.inspect_wheel(archive, project)
     assert distributions.REQUIRED_RESOURCES.issubset(files)
-    assert "python/development/runs/tool.py" in files
-    assert "python/development/validation/reference.py" in files
-    assert not any("/development/tests/" in name for name in files)
+    assert "sjtu_tpmshx/development/runs/tool.py" in files
+    assert "sjtu_tpmshx/development/validation/reference.py" in files
+    assert not any(name.startswith("tests/") or "/development/tests/" in name for name in files)
     wheel_archive(project, archive, change_resource=True)
     with pytest.raises(ValueError, match="changed resource bytes"):
         distributions.inspect_wheel(archive, project)
@@ -194,7 +198,8 @@ installed = Path(sys.argv[1]).resolve()
 sys.path.insert(0, str(installed))
 import sjtu_tpmshx
 assert Path(sjtu_tpmshx.__file__).resolve().is_relative_to(installed)
-assert importlib.util.find_spec('tests.python') is None
+""" + PUBLIC_NAME_CHECK + r"""
+assert importlib.util.find_spec('sjtu_tpmshx.development.tests') is None
 package = files('sjtu_tpmshx')
 for name in json.loads(sys.argv[3]):
     assert package.joinpath(*name.split('/')[1:]).read_bytes()

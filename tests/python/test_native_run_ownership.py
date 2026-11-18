@@ -10,10 +10,10 @@ from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.run_control.module_ports import RunControl
 from sjtu_tpmshx.solvers.api import run_case
 from sjtu_tpmshx.cpp_interface.solver_library import full_2d
-from sjtu_tpmshx.cpp_interface.archived_runtime import full_2d_run
+from sjtu_tpmshx.cpp_interface.solver_library import full_2d_run
 from sjtu_tpmshx.cpp_interface import full_2d_stage
 from sjtu_tpmshx.cpp_interface.solver_library import full_3d, full_3d_capture
-from sjtu_tpmshx.cpp_interface.archived_runtime import full_3d_run
+from sjtu_tpmshx.cpp_interface.solver_library import full_3d_run
 from sjtu_tpmshx.cpp_interface import full_3d_stage
 from sjtu_tpmshx.solvers.backends import prepared_2d, prepared_3d
 

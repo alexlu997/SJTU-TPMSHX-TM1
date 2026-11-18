@@ -8,7 +8,7 @@ https://github.com/lucide-icons/lucide/tree/main/icons.
 
 The adjacent `LICENSE` keeps the complete upstream ISC license and the
 Feather-derived icons' MIT notice. Colors are applied at render time by
-`applications/gui/ui/icons.py`. The SVG geometry stays unchanged.
+`python/applications/gui/ui/icons.py`. The SVG geometry stays unchanged.
 
 `chevron-down-light.svg` and `chevron-down-dark.svg` reuse the same Lucide
 geometry with fixed colors selected for the corresponding light/dark theme. These two assets

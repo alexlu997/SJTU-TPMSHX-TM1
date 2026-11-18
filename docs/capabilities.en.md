@@ -24,7 +24,7 @@ A local kernel integration does not complete a full extension node or change its
 | Homogenized parameter calculation, reading, and interpolation | Case design fields, fixed geometry, versioned CFD tables, and independent model support. | Arbitrary directional homogenization models are not implemented. |
 | Backend-independent homogenized intermediate layer | Public SI grid, physical fields, boundaries, and resource descriptions. C++ prepared inputs and FieldResult mappings keep the same contract. | OpenFOAM and general extension mappings require backend-specific acceptance. |
 | Tensor representation preferred for directional parameters | Existing scalar/directional fields with explicit axis meaning. | General tensor contracts and anisotropic discretization stay under X30. |
-| Properties separated from governing equations | Shared air, water, and sCO2 properties and correlations in `shared/models/`. | New providers need real integration. Persistent Cases cannot contain arbitrary callables. |
+| Properties separated from governing equations | Shared air, water, and sCO2 properties and correlations in `python/physical_models/`. | New providers need real integration. Persistent Cases cannot contain arbitrary callables. |
 | Constant-property provider | Quick Design fixes evaluated properties within each thermal iteration pass. | This is not a general configurable constant-property provider. |
 | Tabulated-property provider | Existing closure tables are not fluid-property tables. | No general fluid-property table adapter. |
 | Fitted properties | A shared model supplies existing air/water formulas. | No general user-fit resource registration or cross-backend execution. |

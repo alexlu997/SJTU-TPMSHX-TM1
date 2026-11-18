@@ -16,8 +16,7 @@ from sjtu_tpmshx.applications.gui.ui.mixins.session_presets import SessionPreset
 
 
 def test_legacy_inputs_keep_the_original_package_directory():
-    import sjtu_tpmshx
-    assert user_storage._LEGACY_PACKAGE_DIR == Path(sjtu_tpmshx.__file__).resolve().parent
+    assert user_storage._LEGACY_PACKAGE_DIR == Path(__file__).resolve().parents[2] / 'sjtu_tpmshx'
 
 
 @pytest.fixture

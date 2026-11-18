@@ -270,10 +270,10 @@ v9 回调描述符提供带类型的几何与入口缓存键；v1 事件回调�
 宿主阶段 10 至 16 保留域、端口、流体、网格、单元上限、粗糙度与分区单元转换的校验顺序。
 阶段 17 至 19 在构造各物理轴前校验该轴格数。
 库持有物理网格构建、局部几何、总流量解析和最终准备。
-`preprocess/three_d/preparation.py` 在释放 owner 前将原生视图复制为不可变 CaseData。
+`python/preprocess/three_d/preparation.py` 在释放 owner 前将原生视图复制为不可变 CaseData。
 原生失败保留原始宿主异常，不选择其他准备路线。
 旧三维数值宿主路径及其专属 `shared/models/grid_3d.py` 和 `asym_split.py` 助手已退役。
-`development/tests/preparation_3d_reference.py` 保留独立比较和合成保存网格夹具。
+`tests/python/preparation_3d_reference.py` 保留独立比较和合成保存网格夹具。
 三维空气场每侧最多选择八个标量观测值，保留原通知、极值和最后样本。
 原始数组范围记录仍包含全部物理单元。
 准备与结果分别编译同一私有选择规则。
@@ -470,7 +470,7 @@ Python 负责内存、磁盘查询与发布；未命中时按既有 41x31 节点
 规范连续 XY 入口仍使用 v7 及 v4 载荷。
 air/air 条带、矩形和 sigmoid 场的准备、容量查询及流量解析使用 v10。
 仅容量查询保留配置校验，不计算阻力；完整空间准备仍要求 CFD 阻力。
-`preprocess/native_preparation.py` 传输共享缓存值与证据，不调用缓存函数的数值主体。
+`python/cpp_interface/native_preparation.py` 传输共享缓存值与证据，不调用缓存函数的数值主体。
 适配器先复制数组、标量类型与证据，再释放原生 owner；保存的工况保留原 schema、SI 场、控制量和模型引用。
 前段质量流量记录仍位于最终准备的警告作用域之外。
 
@@ -491,7 +491,7 @@ Python 适配器通过该检查点，在此前几何和物性检查之后保留�
 相等键保留第一个成功值的标量类型，材料导热系数和 chi 仍在这两个缓存之外。
 
 被替代的 Python 二维准备流程与行 D-F 投影已退役。
-`preprocess/two_d/preparation.py` 是保留的原生适配器；`shared/models/zone_units.py` 负责保存分区数据的单位转换。
+`python/preprocess/two_d/preparation.py` 是保留的原生适配器；`python/physical_models/zone_units.py` 负责保存分区数据的单位转换。
 名义 x/y 网格警告在该准备适配器中使用独立的宿主发出位置。
 `development/tests/preparation_*_reference.py` 下的冻结参考保留原流程与完整行 D-F 投影。
 这些参考不作为生产路线；独立准备比较仍需要它们时继续保留。
@@ -507,21 +507,22 @@ Python 适配器通过该检查点，在此前几何和物性检查之后保留�
 
 ```sh
 "$PYTHON" -m engineering.scripts.generate_native_model_coefficients \
-  --output .cache/stages/generated/tpmshx/model_coefficients.hpp \
-  --df-output .cache/stages/generated/tpmshx/preparation_df_data.hpp
+  --output .cache/stages-sdk/generated/tpmshx/model_coefficients.hpp \
+  --df-output .cache/stages-sdk/generated/tpmshx/preparation_df_data.hpp
 ```
 
+从旧源码目录升级时，使用新的构建目录和安装前缀。保留供历史任务使用的已安装运行库。
 使用锁定的 CMake 可执行文件。macOS 分别提供已验收依赖缓存中的准备和求解 archive：
 
 ```sh
-"$CMAKE" -S sjtu_tpmshx/solvers/native -B .cache/stages/build \
+"$CMAKE" -S . -B .cache/stages-sdk/build \
   -DTPMSHX_NATIVE_DEPS_ROOT="$PWD/.cache/native-deps" \
-  -DTPMSHX_MODEL_INCLUDE_DIR="$PWD/.cache/stages/generated" \
+  -DTPMSHX_MODEL_INCLUDE_DIR="$PWD/.cache/stages-sdk/generated" \
   -DTPMSHX_PREPARATION_COOLPROP_LIBRARY="$PWD/.cache/native-deps/build/coolprop-preparation-macos-arm64/libCoolProp.a" \
   -DTPMSHX_SOLVER_COOLPROP_LIBRARY="$PWD/.cache/native-deps/build/coolprop-macos-arm64/libCoolProp.a" \
-  -DCMAKE_INSTALL_PREFIX="$PWD/.cache/stages/install"
-"$CMAKE" --build .cache/stages/build --config Release --parallel 1
-"$CMAKE" --install .cache/stages/build --config Release
+  -DCMAKE_INSTALL_PREFIX="$PWD/.cache/stages-sdk/install"
+"$CMAKE" --build .cache/stages-sdk/build --config Release --parallel 1
+"$CMAKE" --install .cache/stages-sdk/build --config Release
 ```
 
 Windows 使用 `-A x64`，两种角色都使用锁定的 `Release/CoolProp.lib` archive；具体路径
@@ -574,10 +575,10 @@ target_link_libraries(my_program PRIVATE tpmshx::result)
 Windows 构建会将所需 DLL 复制到可执行文件旁。
 
 ```sh
-"$CMAKE" -S examples/cpp -B .cache/stages/examples \
-  -DCMAKE_PREFIX_PATH="$PWD/.cache/stages/install"
-"$CMAKE" --build .cache/stages/examples --config Release
-"$CTEST" --test-dir .cache/stages/examples -C Release --output-on-failure
+"$CMAKE" -S examples/cpp -B .cache/stages-sdk/examples \
+  -DCMAKE_PREFIX_PATH="$PWD/.cache/stages-sdk/install"
+"$CMAKE" --build .cache/stages-sdk/examples --config Release
+"$CTEST" --test-dir .cache/stages-sdk/examples -C Release --output-on-failure
 ```
 
 准备态、运行结果和评估结果是可移动、不可复制的 C++ 对象。运行结果拥有评估所需的证据，
@@ -690,8 +691,8 @@ Python 保留共享缓存键、命中／未命中行为及原存储值类型，�
 EOS 操作共享 `sco2_props._prop` 与 `co2_props._scalar`，保留原 4096 项上限及键。
 sCO2 在状态校验前查找标量缓存，CO2 先校验；数组均绕过标量缓存。
 只有成功的原生计算发布结果；外部物性调用和缓存清空使用同一 owner。
-被替代的 `shared/models/quick_design.py` 已删除；冻结参考 `development/tests/quick_prepare_reference.py` 保留用于独立回归检查。
-`preprocess/app_modes/quick_design.py` 只用复制的原生场和宿主快照组装 CaseData。
+被替代的 `shared/models/quick_design.py` 已删除；冻结参考 `tests/python/quick_prepare_reference.py` 保留用于独立回归检查。
+`python/preprocess/app_modes/quick_design.py` 只用复制的原生场和宿主快照组装 CaseData。
 
 ### 准备态执行与证据
 

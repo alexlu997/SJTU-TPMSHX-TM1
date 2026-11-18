@@ -323,10 +323,10 @@ The host keeps cache policy, scalar object types, warning filters and source loc
 Host stages 10 through 16 preserve domain, port, fluid, grid, cell-cap, roughness and grid-cell conversion validation order.
 Stages 17 through 19 validate each count before its physical axis is built.
 The library owns physical grid construction, local geometry, total-flow resolution and final preparation.
-`preprocess/three_d/preparation.py` copies native views into immutable CaseData before releasing the owner.
+`python/preprocess/three_d/preparation.py` copies native views into immutable CaseData before releasing the owner.
 Native failure preserves the original host exception and does not select another preparation route.
 The old 3D numerical host route and its exclusive `shared/models/grid_3d.py` and `asym_split.py` helpers are retired.
-`development/tests/preparation_3d_reference.py` keeps their independent comparison and synthetic saved-grid fixtures.
+`tests/python/preparation_3d_reference.py` keeps their independent comparison and synthetic saved-grid fixtures.
 3D air-field scalar observations use at most eight selected values per side.
 The selection keeps the original notices, extrema and last sample.
 Raw-array range records still include every physical cell.
@@ -532,7 +532,7 @@ Public uniform 2D preparation uses v10; its capacity and flow-resolution queries
 Canonical continuous XY entries retain v7 with v4 payloads.
 Air/air stripes, rectangles and sigmoid fields use v10 for preparation, capacity and flow resolution.
 Capacity-only queries keep configuration validation and do not calculate drag. Complete spatial preparation still requires CFD drag.
-`preprocess/native_preparation.py` transports shared cache values and evidence without numerical cache calls.
+`python/cpp_interface/native_preparation.py` transports shared cache values and evidence without numerical cache calls.
 The adapter copies arrays, scalar types and evidence before it releases the native owner.
 Stored cases keep their schema, SI fields, controls and model references.
 Preliminary mass-flow records remain outside the final preparation warning scope.
@@ -560,7 +560,7 @@ They preserve untyped keys, LRU order, statistics, clearing, concurrent publicat
 Equal keys retain the first successful value's scalar types. Material conductivity and chi stay outside these caches.
 
 The replaced Python 2D preparation sequence and row D-F projection are retired.
-`preprocess/two_d/preparation.py` is the retained native adapter; `shared/models/zone_units.py` owns the saved zone-unit conversion.
+`python/preprocess/two_d/preparation.py` is the retained native adapter; `python/physical_models/zone_units.py` owns the saved zone-unit conversion.
 Nominal x/y grid warnings use separate host emission sites in that preparation adapter.
 Frozen references under `development/tests/preparation_*_reference.py` retain the original sequence and complete row D-F projection.
 They are not production routes. Retain them while independent preparation comparison requires those references.
@@ -577,22 +577,24 @@ Generate the two model headers with the interpreter from `.venv-path`:
 
 ```sh
 "$PYTHON" -m engineering.scripts.generate_native_model_coefficients \
-  --output .cache/stages/generated/tpmshx/model_coefficients.hpp \
-  --df-output .cache/stages/generated/tpmshx/preparation_df_data.hpp
+  --output .cache/stages-sdk/generated/tpmshx/model_coefficients.hpp \
+  --df-output .cache/stages-sdk/generated/tpmshx/preparation_df_data.hpp
 ```
 
+Use a new build directory and install prefix when upgrading from the previous source layout.
+Keep any installation that supplies a historical run.
 Use the locked CMake executable. On macOS, supply the distinct preparation and
 solver archives from the accepted native dependency cache:
 
 ```sh
-"$CMAKE" -S sjtu_tpmshx/solvers/native -B .cache/stages/build \
+"$CMAKE" -S . -B .cache/stages-sdk/build \
   -DTPMSHX_NATIVE_DEPS_ROOT="$PWD/.cache/native-deps" \
-  -DTPMSHX_MODEL_INCLUDE_DIR="$PWD/.cache/stages/generated" \
+  -DTPMSHX_MODEL_INCLUDE_DIR="$PWD/.cache/stages-sdk/generated" \
   -DTPMSHX_PREPARATION_COOLPROP_LIBRARY="$PWD/.cache/native-deps/build/coolprop-preparation-macos-arm64/libCoolProp.a" \
   -DTPMSHX_SOLVER_COOLPROP_LIBRARY="$PWD/.cache/native-deps/build/coolprop-macos-arm64/libCoolProp.a" \
-  -DCMAKE_INSTALL_PREFIX="$PWD/.cache/stages/install"
-"$CMAKE" --build .cache/stages/build --config Release --parallel 1
-"$CMAKE" --install .cache/stages/build --config Release
+  -DCMAKE_INSTALL_PREFIX="$PWD/.cache/stages-sdk/install"
+"$CMAKE" --build .cache/stages-sdk/build --config Release --parallel 1
+"$CMAKE" --install .cache/stages-sdk/build --config Release
 ```
 
 Windows uses `-A x64` and the locked `Release/CoolProp.lib` archive for both
@@ -654,10 +656,10 @@ These examples use only installed public headers and shared libraries.
 The Windows build copies the required DLLs beside each executable.
 
 ```sh
-"$CMAKE" -S examples/cpp -B .cache/stages/examples \
-  -DCMAKE_PREFIX_PATH="$PWD/.cache/stages/install"
-"$CMAKE" --build .cache/stages/examples --config Release
-"$CTEST" --test-dir .cache/stages/examples -C Release --output-on-failure
+"$CMAKE" -S examples/cpp -B .cache/stages-sdk/examples \
+  -DCMAKE_PREFIX_PATH="$PWD/.cache/stages-sdk/install"
+"$CMAKE" --build .cache/stages-sdk/examples --config Release
+"$CTEST" --test-dir .cache/stages-sdk/examples -C Release --output-on-failure
 ```
 
 C++ preparation, run and evaluation objects can move but cannot copy.
@@ -773,8 +775,8 @@ Python keeps the shared cache key, hit/miss behavior and original stored value t
 The EOS operations share `sco2_props._prop` and `co2_props._scalar`, including their original 4096-item limit and keys.
 sCO2 looks up scalar entries before state validation; CO2 validates first. Arrays bypass both scalar caches.
 Only successful native calculations publish values. External property calls and cache clearing use these same owners.
-The replaced `shared/models/quick_design.py` is removed. Its frozen reference in `development/tests/quick_prepare_reference.py` remains for independent regression checks.
-`preprocess/app_modes/quick_design.py` only assembles CaseData from copied native fields and host snapshots.
+The replaced `shared/models/quick_design.py` is removed. Its frozen reference in `tests/python/quick_prepare_reference.py` remains for independent regression checks.
+`python/preprocess/app_modes/quick_design.py` only assembles CaseData from copied native fields and host snapshots.
 
 ### Prepared execution and evidence
 

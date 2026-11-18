@@ -8,7 +8,7 @@
 文件于 2026-09-20 从 [上游图标目录](https://github.com/lucide-icons/lucide/tree/main/icons)取得。
 
 相邻的 `LICENSE` 保留完整的上游 ISC 许可，以及源自 Feather 图标的 MIT 声明。
-`applications/gui/ui/icons.py` 在渲染时设置颜色；SVG 几何保持不变。
+`python/applications/gui/ui/icons.py` 在渲染时设置颜色；SVG 几何保持不变。
 
 `chevron-down-light.svg` 和 `chevron-down-dark.svg` 使用相同的 Lucide 几何，
 分别固定为浅色与深色主题需要的颜色。

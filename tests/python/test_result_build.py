@@ -51,7 +51,7 @@ def test_result_build_has_no_source_or_model_generation_step(result_build):
         (str(python), '-m', 'pip', 'check')]
     configure, = (command for command in commands if '-S' in command)
     assert configure[0] == str(cmake)
-    assert configure[configure.index('-S')+1] == str(root/'sjtu_tpmshx/solvers/native/result')
+    assert configure[configure.index('-S')+1] == str(root/'postprocess')
     assert configure[configure.index('-B')+1] == str(cache/'build'/f'result-{host}')
     assert '-DCMAKE_BUILD_TYPE=Release' in configure
     assert '-DCMAKE_EXPORT_COMPILE_COMMANDS=ON' in configure
@@ -256,7 +256,7 @@ def test_result_metadata_rejects_unexpected_target_languages_or_missing_options(
 @pytest.mark.parametrize('fault', [None, 'extra-export', 'missing-export', 'private-import', 'foreign-runtime'])
 def test_result_exports_and_runtime_dependencies_are_explicit(tmp_path, monkeypatch, host, fault):
     root = tmp_path/'project'
-    manifest = root/'sjtu_tpmshx/solvers/native/result/result.exports'
+    manifest = root/'postprocess/result.exports'
     manifest.parent.mkdir(parents=True)
     symbol = 'tpmshx_result_abi_version_v1'
     manifest.write_text('_'+symbol+'\n')
@@ -298,7 +298,7 @@ def test_result_exports_and_runtime_dependencies_are_explicit(tmp_path, monkeypa
 @pytest.mark.parametrize('host', ['windows-x64', 'linux-x86_64'])
 def test_result_verifier_requires_an_actual_dependency_listing(tmp_path, monkeypatch, host):
     root = tmp_path/'project'
-    manifest = root/'sjtu_tpmshx/solvers/native/result/result.exports'
+    manifest = root/'postprocess/result.exports'
     manifest.parent.mkdir(parents=True)
     symbol = 'tpmshx_result_abi_version_v1'
     manifest.write_text('_'+symbol+'\n')

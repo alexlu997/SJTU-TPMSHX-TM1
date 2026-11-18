@@ -4,24 +4,26 @@
 
 TM1 separates TPMS heat-exchanger preprocessing, solving, and postprocessing into independently maintained modules. The GUI, optimization, and Quick Design call their public interfaces. The target repository is [alexlu997/SJTU-TPMSHX-TM1](https://github.com/alexlu997/SJTU-TPMSHX-TM1). Original SJTU-TPMSHX/V2 is a source reference. This branch does not merge back into that repository.
 
-**All core source is under [sjtu_tpmshx/](sjtu_tpmshx/).** This includes the Python application and C++ numerical backend. Start with these four computation files:
+**C++ computation** follows [preparation](preprocess/), [solving](solver/), and [evaluation](postprocess/). The [2D air example](examples/cpp/air_2d.cpp) calls all three stages. See [geometry](geometry/) for grids and geometry, and [numerics](numerics/) for common properties and numerical functions. External programs use [stages.hpp](include/tpmshx/stages.hpp).
+
+Python applications use four public computation entries.
 
 | File | Responsibility |
 | --- | --- |
-| [compute.py](python/compute.py) | Main computation entry. Organize preparation, solving and evaluation. |
-| [preprocess/api.py](python/preprocess/api.py) | Preprocessing entry. Prepare CaseData. |
-| [solvers/api.py](python/solvers/api.py) | Solver entry. Call the C++ backend and produce FieldResult. |
-| [postprocess/api.py](python/postprocess/api.py) | Postprocessing entry. Calculate PerformanceResult from recorded results. |
+| [python/compute.py](python/compute.py) | Main computation entry. Organize preparation, solving and evaluation. |
+| [python/preprocess/api.py](python/preprocess/api.py) | Preprocessing entry. Prepare CaseData. |
+| [python/solvers/api.py](python/solvers/api.py) | Solver entry. Call the C++ backend and produce FieldResult. |
+| [python/postprocess/api.py](python/postprocess/api.py) | Postprocessing entry. Calculate PerformanceResult from recorded results. |
 
-The package has six directory groups: `preprocess/`, `solvers/`, `postprocess/`, `shared/`, `applications/` and `development/`.
-The [module map](python/README.en.md) defines their responsibilities. C++ source stays in [solvers/native](sjtu_tpmshx/solvers/native/).
+The Python source is in `python/`. Programs import it as `sjtu_tpmshx`.
+The [Python module map](python/README.en.md) shows how the applications use the stages.
 The [native stage SDK](docs/native-stages.md) documents the independent C++ preparation,
 execution and evaluation interfaces and their current scope.
-GUI, CLI, design and recovery implementations are in `applications/`. Tests, validation and diagnostic tools are in `development/`.
+Open [Quick Design](python/applications/design/), [Bayesian optimization](python/applications/optimization/) or [checkpoint recovery](python/applications/execution/recovery.py) for each workflow. The [Python tests](tests/python/) and [C++ tests](tests/cpp/) are separate from these applications.
 Root [engineering](engineering/) holds build scripts, packaging configuration and dependency locks. [docs/contracts](docs/contracts/) holds data contracts.
 `.github/workflows/` holds CI configuration. Keep using `python -m sjtu_tpmshx.main` for the GUI and `python -m sjtu_tpmshx.cli` for the CLI.
 
-The package's C++ cores calculate geometry, properties, closures, solutions and results.
+The C++ stages and geometry library calculate geometry, properties, closures, solutions and results.
 Python keeps public entries, configuration, data objects, file I/O, caches, the GUI and design/optimization workflows.
 Preparation uses matching geometry, preparation and result libraries. The result library collects range observations. Full computation also uses the solver library.
 The [source map](python/README.en.md) lists C++ files, functions and rebuild steps.
@@ -595,7 +597,7 @@ Current domains support only **rectangular 2D / cuboid 3D**. The interface displ
 
 Previous rectangular files still load. [Fixed history](docs/history/retired-tools.md) keeps polygon code. Reopening those routes requires implementation and verification of mainline physical rules and independent module handoff.
 
-`shared/models/`, `shared/df_surrogate/`, and related layers give shared technical support, not a fourth business module. Previous pipeline/application entries call public modules in one direction. See [architecture](docs/architecture.md).
+`python/physical_models/`, `python/physical_models/df_surrogate/`, and related layers give shared technical support, not a fourth business module. Previous pipeline/application entries call public modules in one direction. See [architecture](docs/architecture.md).
 
 C++ is the only numerical backend. Quick Design and full 2D/3D use the matching local macOS arm64 or Windows x64 library. `RunControl(native_library=...)` or CLI `--native-library` can override its location. See [C++ migration](docs/cpp-migration.md) for paths, builds, and limits.
 See [C++ scope and delivery records](docs/cpp-migration.md#cpp-core-scope) for each implementation boundary.
@@ -623,7 +625,7 @@ PYTHON="$(head -n 1 .venv-path)"
 export MPLCONFIGDIR="$PWD/.cache/matplotlib" XDG_CACHE_HOME="$PWD/.cache/xdg"
 export QT_QPA_PLATFORM=offscreen PYTHONHASHSEED=0
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1
-"$PYTHON" -m mypy --config-file pyproject.toml
+"$PYTHON" -m engineering.scripts.check_types
 "$PYTHON" -m pytest tests/python -q -ra -m "not slow and not heavy" --ignore=tests/python/integration_tm1 -n 2 --dist worksteal --timeout=600 --timeout-method=thread --durations=30 --junitxml=.cache/ci/fast.xml
 "$PYTHON" -m pytest tests/python/integration_tm1 -q -ra --timeout=600 --timeout-method=thread --durations=30 --junitxml=.cache/ci/integration.xml
 # Complete local acceptance: no -m filter. Replace auto with a fixed worker count for available resources.

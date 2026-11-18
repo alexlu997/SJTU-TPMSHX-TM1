@@ -302,7 +302,7 @@ class NativeFull3DDriver:
                 c = stage_result.resolved
                 code = 0
             elif resume_state is not None or checkpoint is not None:
-                from sjtu_tpmshx.cpp_interface.archived_runtime.full_3d_run import NativeFull3DRun
+                from sjtu_tpmshx.cpp_interface.solver_library.full_3d_run import NativeFull3DRun
                 true_h = data.solve_b and any(side.fluid in (2, 3) for side in data.sides)
                 options = energy if strict_options else (_EnergyOptionsV2(
                     energy.algorithm, energy.temperature_update_tolerance,

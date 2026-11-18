@@ -9,7 +9,7 @@ from PySide6.QtCore import QIODevice, QSaveFile, QStandardPaths
 
 
 _APP_DIRECTORY = 'SJTU-TPMSHX-TM1'
-_LEGACY_PACKAGE_DIR = Path(__file__).resolve().parents[3]
+_LEGACY_PACKAGE_DIR = Path(__file__).resolve().parents[4] / 'sjtu_tpmshx'
 _DATA_FILES = (
     '.last_session.json', '.last_session_B.json', '.last_session_C.json',
     '.user_presets.json', '.workspace', '.session_timeline.jsonl', '.first_run_done',

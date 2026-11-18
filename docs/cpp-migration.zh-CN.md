@@ -40,18 +40,18 @@ PR CI、合并后 main CI、可见桌面交付、性能与实验精度仍分别�
 Sigmoid LUT 节点和派生几何也使用该核心。
 同一核心还负责网格、端口、六方向轴映射、连续 XY/XYZ 场、sigmoid、线性 LUT、分区和 Gaussian 平滑。
 这些计算使用同一 `tpmshx_geometry_shared` 文件，不新增运行库或数值框架。
-数值源码仍在 `sjtu_tpmshx/solvers/native/`。
-`shared/models/_native_geometry.py` 在几何查询需要时，通过 ctypes 加载独立几何 ABI 1 库。
+几何数值源码在 [geometry/](../geometry/)。
+`python/cpp_interface/_native_geometry.py` 在几何查询需要时，通过 ctypes 加载独立几何 ABI 1 库。
 Python 保留公共类型、缓存及逐次调用的 chi 显式值／环境值／拟合选择。
 缺库、ABI 不符或符号缺失时明确失败，不使用数值 fallback，也不在运行时构建。
 
-独立 CMake 项目为 `sjtu_tpmshx/solvers/native/geometry/`。
+独立 CMake 项目为 `geometry/`。
 `tpmshx_geometry_shared` 目标使用 C++ 标准库、marching-cubes 移植与受限 C17 FITPACK 子集，
 不需要 CoolProp、SuperLU、AMGCL、Eigen 或求解运行库；完整 dependency pilot 包含同一目标。
 准备与结果计算使用下述独立核心；本次实施与退休范围见[范围说明](#cpp-core-scope)。
 
 [架构说明](architecture.zh-CN.md#native-grids-and-design-fields)定义数值所有权、类型及缓冲区生命周期。
-[设计场来源说明](../sjtu_tpmshx/solvers/native/geometry/fields-sources.md)记录固定来源、本地修改及 BSD 声明。
+[设计场来源说明](../geometry/fields-sources.md)记录固定来源、本地修改及 BSD 声明。
 XY 保留首次拟合的 `s=0` 双变量路线；XYZ 和含单点轴的 XY 保留逐轴拟合并采样。
 标量带状求解不声明与 LAPACK／BLAS 逐位一致，原始数值与物理多项式门槛保持不变。
 XY 与 Apple-arm64 Gaussian 的局部融合设置不启用全局 fast-math；Windows 和完整工况资格仍须分别建立。
@@ -61,7 +61,7 @@ Geometry、grid 和 zones 调用保留几何 ABI 1，状态 2 表示算术域错
 既有几何签名不变。调用按显式长度借用缓冲区，失败时不修改调用方输出。
 XY 句柄持有创建库直至释放；LUT 对象保留捕获的轴、表及创建绑定。
 Python 持有返回数组、配置、DTO、I/O、缓存及 GUI／BO 编排。
-已替换的 Python 数值体已退役，独立参考保留在 `development/tests/`。
+已替换的 Python 数值体已退役，独立参考保留在 `tests/python/`。
 
 macOS arm64 使用 `libtpmshx_geometry_shared.dylib`，Windows x64 使用 `tpmshx_geometry_shared.dll`。
 源码默认目录为 `sjtu_tpmshx/solvers/native/lib/<host>/`，冻结程序使用自身的 `native/`。
@@ -115,13 +115,13 @@ Python wheel 包含代码和模型资源，不包含原生库。
 ## 原生准备核心
 
 独立准备核心负责物性、Nu 闭合、固定 DF、实验修正、投影和准备数值。
-独立 CMake 项目为 `sjtu_tpmshx/solvers/native/preparation/`。
+独立 CMake 项目为 `preprocess/`。
 目标为 `tpmshx_preparation`、`tpmshx_preparation_c` 和 `tpmshx_preparation_shared`。
 它们复用几何／网格和共享模型实现，链接锁定的 CoolProp 静态库，
 不构建完整求解器或 run_state，也不需要 SuperLU 或 AMG。
 完整构建脚本分别构建 pilot 和 preparation 工程，共用一套物性和 DF 数值实现。
 
-`shared/models/_native_preparation.py` 在需要时通过 ctypes 加载 preparation ABI 1。
+`python/cpp_interface/_native_preparation.py` 在需要时通过 ctypes 加载 preparation ABI 1。
 具名物性、DF 和流量适配器保留现有 Python 公共接口。
 二维准备将 v7 域长／端口标量类型描述符与适用的版本载荷配合使用。
 共享网格和端口核心保留整数与窄浮点混合运算。
@@ -146,7 +146,7 @@ Python 均匀及空间准备使用 v10；均匀容量和解析仍使用 v7/v3，
 它保留 saved v1、结果所有权与同构建恢复，不重新准备保存算例。
 公共分区与 sigmoid 组合查询在单独迁移前仍保留独立调用消费者。
 它们保留调用方提供的物性及自定义 sigmoid 控制。
-`preprocess/two_d/preparation.py` 为原生适配器；被替代的 Python 二维准备流程及行 D-F 投影已退役。
+`python/preprocess/two_d/preparation.py` 为原生适配器；被替代的 Python 二维准备流程及行 D-F 投影已退役。
 冻结测试参考保留原流程与投影。
 原始操作和结果所有权见[空间阶段接口](native-stages.zh-CN.md#空间几何总质量流量)。
 回调与所有权合同见[空间宿主接口](native-stages.zh-CN.md#空间几何宿主缓存接口)。
@@ -159,7 +159,7 @@ Python 前处理入口调用独立结果库采集范围记录。准备库本身�
 owner 保留物理网格场、六个端口流向、标量类型标记和模型证据。
 两侧孔隙率已拆分；K/cF 场未缩放，逐侧证据记录应用因子。
 宿主提供已解析的单元数上限；[阶段契约](native-stages.zh-CN.md#均匀三维准备)定义所有权与端口规则。
-Python 三维准备现通过 `preprocess/three_d/preparation.py` 使用此原生阶段。
+Python 三维准备现通过 `python/preprocess/three_d/preparation.py` 使用此原生阶段。
 独立的三维流量 v2 为配置或显式总质量流量增加容量、解析及完整准备，复用同一物理几何，
 保留静态观测到速度观测的原证据顺序。三维 continuous v3 为这些流量操作增加 XY 挤出和 XYZ 控制点，
 复用现有样条及几何所有者，分别保留原始设计场与热几何的 SI 往返换算。
@@ -176,13 +176,13 @@ Python 完整三维执行通过 `full_3d_stage.py` 使用保存输入生命周�
 host v5 通过共享 v9 回调描述符保留带类型的几何与入口缓存。
 Python 保留配置、缓存策略、警告、环境解析和不可变 CaseData 组装。
 被替代的三维 Python 数值体及其专属 `shared/models/grid_3d.py` 和 `asym_split.py` 助手已删除。
-独立冻结参考保留在 `development/tests/preparation_3d_reference.py`。
+独立冻结参考保留在 `tests/python/preparation_3d_reference.py`。
 私有 `scalar_range_samples.hpp` 将每侧空气场标量观测限制在八个以内，保留原通知、极值和最后样本。
 完整原始数组记录仍包含每个单元。准备与结果分别编译该选择规则，两者之间没有运行时链接。
 接近单元上限的内存使用及真实三维 BO 仍是验收关口；原始接口不替代保存 CaseData 的校验。
 
 Quick 准备 v2 增加带类型的原始输入及独立压降分数查询。
-`shared/models/_native_quick_prepare.py` 通过固定具名操作保留宿主协议。
+`python/cpp_interface/_native_quick_prepare.py` 通过固定具名操作保留宿主协议。
 阶段负责几何、网格、物性和压降计算及其执行顺序；仅压降查询不创建热网格或设计场数组。
 Preparation 状态 0 表示成功，1 表示无效输入，2 表示分配失败，3 表示运行时错误；
 状态 10、11、12 分别表示水、CO2、sCO2 状态错误。
@@ -271,7 +271,7 @@ Linux x86_64 支持独立结果评估。完整求解器与桌面支持仍限 mac
 Python 保留公开 DTO 和文件接口、原对象身份及 NumPy 事件处理。
 三个独立结果查询使用同一原生阶段；Quick Design 指标运算也由同一阶段负责，固定具名宿主操作保留既有 Python 对象、任意精度整数和转换协议。
 带版本的宿主查询保留延迟输入错误和回调异常，不改变已发布的 v1 C 布局。
-独立 `solvers/native/result/` 项目只使用 C++17 和系统库，
+独立 `postprocess/` 项目只使用 C++17 和系统库，
 不加载求解器、准备库、几何库、CoolProp 或模型资源。
 
 纯导入和 HDF/JSON 读取不加载原生库；实际指标运算需要预构建结果库。
@@ -301,7 +301,7 @@ CI 保留完整 macOS／Windows 构建，并在 Ubuntu 24.04 和 26.04 上检查
 它接收 `result-build-linux-x86_64-ubuntu-24.04` 和独立的 macOS `real-file-handoff` 输入。
 Ubuntu 26.04 构建产物单独保留。
 最小作业检查独立结果参考和真实保存的 2D/3D 文件，不构建求解器或模型库。
-[来源与接口说明](../sjtu_tpmshx/solvers/native/result/sources.md)定义类型、缓冲区、错误及许可声明。
+[来源与接口说明](../postprocess/sources.md)定义类型、缓冲区、错误及许可声明。
 不提供数值回退、运行时编译器或通用数值回调。
 
 <a id="complete-quick-design-capability"></a>
@@ -312,7 +312,7 @@ Ubuntu 26.04 构建产物单独保留。
 保留已公开的 native-double v1 准备与运行契约。
 v2 阶段负责原数值及校验顺序，固定具名宿主操作保留 Python 标量、对象、缓存、警告和快照协议。
 宿主操作不提供模型计算；原 `shared/models/quick_design.py` 已删除。
-独立冻结参考保留在 `development/tests/`，供回归检查使用。
+独立冻结参考保留在 `tests/python/`，供回归检查使用。
 薄准备入口组装 CaseData，保留逆流保存态的 `qtol=None` 和 `chunk=None`。
 Python 执行通过保存的准备场调用 run 阶段。
 阶段提供场数组及声明，Python 在释放前复制这些数据，保留原固定场 dtype，并映射过程警告和错误。
@@ -422,7 +422,7 @@ SOU 在出口面重构物理焓，因此旧 FOU 单元焓归约不能提供该�
 
 ## 第二个实现单元：真实状态能量审计
 
-同一库在 `sjtu_tpmshx/solvers/native/src/enthalpy_sweeps.cpp` 中提供 `thermal_energy_audit`，执行真实状态能量审计：
+同一库在 `solver/enthalpy_sweeps.cpp` 中提供 `thermal_energy_audit`，执行真实状态能量审计：
 
 - 真实状态 A/B 单元残差为 Fourier 导热＋固体交换－有符号迎风焓散度。调用方提供真实 EOS 温度和有效流体导热率，不使用 sweep 的冻结线性化状态。
 - 计算绝热固体单元残差和六面有符号边界焓热负荷。入口／回流面使用给定入口焓，流出使用单元焓。
@@ -486,18 +486,18 @@ N5 的十二个刻意限预算请求成功返回，并通过十四个已记录�
 已有 POSIX C++17 编译器和 `make` 时，从仓库根执行：
 
 ```sh
-make -f sjtu_tpmshx/solvers/native/Makefile CXX=c++
-make -f sjtu_tpmshx/solvers/native/Makefile check
+make -f engineering/native_build/Makefile CXX=c++
+make -f engineering/native_build/Makefile check
 ```
 
-这生成 `.cache/native/libtpmshx_thermal.a`。C++ 调用方包含 `sjtu_tpmshx/solvers/native/include` 并链接该归档。温度线求解器构建要求既有锁定 Eigen 头文件，并启用 `EIGEN_MPL2_ONLY`。`TPMSHX_EIGEN_INCLUDE` 默认指向锁定 Eigen 源码 `.cache/native-deps/src/Eigen-5.0.1`。隔离源码树可显式设置该变量。目录缺失时构建失败，不下载依赖。
+这生成 `.cache/native/libtpmshx_thermal.a`。C++ 调用方包含 `include` 并链接该归档。温度线求解器构建要求既有锁定 Eigen 头文件，并启用 `EIGEN_MPL2_ONLY`。`TPMSHX_EIGEN_INCLUDE` 默认指向锁定 Eigen 源码 `.cache/native-deps/src/Eigen-5.0.1`。隔离源码树可显式设置该变量。目录缺失时构建失败，不下载依赖。
 
 低层归档不链接 Python、Qt、NumPy、CoolProp/EOS、OpenMP 或绑定库运行时。完整依赖组件库另有 EOS／压力依赖。`check` 构建并运行独立 C++ 温度及守恒能量调用方。原纯热 shared 目标仅导出已退役 H sweep，因此一并移除。完整依赖构建继续在两个目标平台覆盖直接 T-SOU、完整二维／三维、model-h、温度与流动接口的 C 静态／动态调用。该低层库不随 Python wheel 或桌面应用打包，不自动发现，也不在运行中构建。
 
 Windows 已有 x64 Visual Studio 开发者命令提示符时运行：
 
 ```bat
-nmake /f sjtu_tpmshx\solvers\native\Makefile.msvc check
+nmake /f engineering\native_build\Makefile.msvc check
 ```
 
 这在 `.cache/native` 下生成 `tpmshx_thermal.lib`，再运行相同 C++ 调用方。这些命令不安装编译器。完整求解器 C ABI 保留显式 Windows 导出／导入和 `cdecl`；ctypes 通过 `CDLL` 加载其 DLL。
@@ -530,7 +530,7 @@ TPMSHX_REQUIRE_CPP_TESTS=1 TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1 \
 
 ## 隔离 EOS 与压力依赖资格
 
-依赖组件构建为显式步骤，与生产后端选择分开。`sjtu_tpmshx/solvers/native/dependency-pilot/` 是包含几何目标的完整求解器构建项目；[独立几何构建](#native-geometry-core) 只需要锁定 CMake 工具与生成的模型数据。输入锁定在 [sjtu_tpmshx/solvers/native/dependencies-lock.toml](../sjtu_tpmshx/solvers/native/dependencies-lock.toml)：CoolProp 8.0.0 及九个固定提交的 CPM 头文件依赖、SuperLU 7.0.1 及选定的三项 SciPy 1.18.1 double-LU 修正、AMGCL 1.5.0 和可移植 CMake 4.4.4。SuperLU 源码不等同于 SciPy 内附修订。源码、二进制、日志和 EOS 表都保存在本工作树 `.cache/native-deps`。[第三方说明](../sjtu_tpmshx/solvers/native/THIRD_PARTY_NOTICES.md)记录链接组件和原始许可声明。
+依赖组件构建为显式步骤，与生产后端选择分开。`solver/` 是包含几何目标的完整求解器构建项目；[独立几何构建](#native-geometry-core) 只需要锁定 CMake 工具与生成的模型数据。输入锁定在 [engineering/native_build/dependencies-lock.toml](../engineering/native_build/dependencies-lock.toml)：CoolProp 8.0.0 及九个固定提交的 CPM 头文件依赖、SuperLU 7.0.1 及选定的三项 SciPy 1.18.1 double-LU 修正、AMGCL 1.5.0 和可移植 CMake 4.4.4。SuperLU 源码不等同于 SciPy 内附修订。源码、二进制、日志和 EOS 表都保存在本工作树 `.cache/native-deps`。[第三方说明](../engineering/native_build/licenses/THIRD_PARTY_NOTICES.md)记录链接组件和原始许可声明。
 
 `engineering/scripts/generate_native_model_coefficients.py` 读取共享
 `model_parameters_v1.json`、`preparation_df_v1.json`、固定 DF CSV 与既有 CO2 资源。
@@ -573,7 +573,7 @@ EOS 调用方以与 Python 参考相同的具名后端评估 CO2 和 Water，即
 
 SuperLU 调用采用纯 C 错误边界和线程局部分配账本。分配失败和 ABORT 在清理后返回有界错误，跳转不跨 C++ 栈帧。macOS 资格在每个观测到的分配序号注入失败，并在 release 和 ASan/UBSan 构建中检查同进程恢复、长 ABORT 消息、奇异 info 和独立并发线程。Windows 必需 CI 也通过 release 分配、ABORT 和恢复检查；这不将 sanitizer 证据扩展到 Windows。非法输入和未知后端错误不静默回退 LU。这些压力测试本身不能建立完整原生 SIMPLE 或外耦合资格。
 
-完整固定流动 true-h、二维／三维 model-h 和二维／三维 SIMPLE 均已有独立 C++ 实现、带版本 C 接口，以及 `solvers/backends/cpp/` 下的显式 Python 绑定。热绑定返回既有能量和原始边界元数据。原生 model-h 在 C 调用方释放结果前持有审计数组；Python 绑定释放前复制视图。回调异常和取消丢弃部分状态。
+完整固定流动 true-h、二维／三维 model-h 和二维／三维 SIMPLE 均已有独立 C++ 实现、带版本 C 接口，以及 `python/cpp_interface/solver_library/` 下的显式 Python 绑定。热绑定返回既有能量和原始边界元数据。原生 model-h 在 C 调用方释放结果前持有审计数组；Python 绑定释放前复制视图。回调异常和取消丢弃部分状态。
 
 SIMPLE 接口持有逐实例压力缓存，并保留原 F2、出口、热启动状态和原始质量证据。这些可独立调用驱动也支撑上述完整二维／三维外耦合后端。macOS SuperLU 构建使用锁定 SciPy 参考所用的系统 Accelerate BLAS，并为二维 SIMPLE 保留原 CSR／转置 LU 运算顺序。Windows 使用锁定可移植 CBLAS 源码，由必需原生 CI 执行。动量串行循环不表示 BLAS 单线程；线程策略和测得性能须分别记录。
 

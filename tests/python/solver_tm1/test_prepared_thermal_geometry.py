@@ -112,7 +112,7 @@ def test_prepared_openings_match_actual_solver_geometry_before_solving(side, end
     parameters['prepared']['openings'][side][end] = partial.parameters['prepared']['openings'][side][end]
     save_case(replace(full, parameters=parameters), tmp_path / 'case.h5')
     restored = load_case(tmp_path / 'case.h5')
-    from sjtu_tpmshx.cpp_interface.archived_runtime.full_3d_run import NativeFull3DRun
+    from sjtu_tpmshx.cpp_interface.solver_library.full_3d_run import NativeFull3DRun
     monkeypatch.setattr(NativeFull3DRun, 'advance',
                         lambda *a, **k: pytest.fail('conflicting opening reached a PDE'))
     with pytest.raises(ValueError, match='prepared full 3D openings disagree with rectangles'):

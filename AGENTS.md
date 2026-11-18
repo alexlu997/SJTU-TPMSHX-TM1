@@ -109,11 +109,14 @@ and rework through complete changes, clear decisions, and verified results.
 - Organize modules by responsibility. Give shared rules and mutable state clear owners.
   Use explicit inputs, outputs, and interfaces between modules.
   Do not split or combine code based only on file length or repeated lines.
-- Keep GUI code in `applications/gui/ui/` and `applications/gui/controllers/`.
+- Keep GUI code in `python/applications/gui/ui/` and `python/applications/gui/controllers/`.
   Keep lower layers free of Qt.
-  Keep application workflows in `applications/` and numerical implementation in `solvers/`.
-  Keep shared data, models, resources and file I/O in `shared/`.
-  Keep `development/` limited to `tests/`, `validation/` and `runs/`.
+  Keep application workflows in `python/applications/`. Put C++ preparation, solving, and evaluation in root `preprocess/`, `solver/`, and `postprocess/`.
+  Put geometry in `geometry/`, common numerical functions in `numerics/`, and C/C++ headers in `include/tpmshx/`.
+  Keep native caller tests in `tests/cpp/`.
+  Keep portable types in `python/data_types/`, models in `python/physical_models/`, and resources in `python/model_configs/`.
+  Keep file I/O in `python/file_io/`, controls in `python/run_control/`, and native calls in `python/cpp_interface/`.
+  Keep Python tests in `tests/python/`. Keep validation and tools in `python/development/`.
   Keep build scripts, packaging and dependency locks in root `engineering/`.
   Do not duplicate correlations or physical constants between these layers.
 - Reuse an existing rule when its meaning and required behavior match.

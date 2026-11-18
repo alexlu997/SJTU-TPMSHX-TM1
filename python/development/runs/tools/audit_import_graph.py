@@ -26,7 +26,7 @@ REPO = PKG.parent
 
 # intended layering: unit -> layer index (lower = more fundamental)
 LAYERS = {
-    "logutil": 0, "configs": 0, "domain": 0,
+    "logutil": 0, "configs": 0, "domain": 0, "native_values": 0,
     "models": 0.5, "result_math": 0.5, "result_display": 0.5,
     "solvers": 1, "preprocess": 2, "postprocess": 2,
     "df_surrogate": 2, "design": 2, "io": 2,
@@ -53,8 +53,11 @@ OWNERS = {
     "applications.cli.cli_options": "io",
     "cpp_interface.native_preparation": "preprocess",
     **{f"cpp_interface.{name}": "solvers" for name in (
-        "full_2d_stage", "full_3d_stage", "quick_design", "run_state", "solver_library", "archived_runtime")},
-    "cpp_interface": "models",
+        "full_2d_stage", "full_3d_stage", "quick_design", "run_state", "solver_library")},
+    **{f"cpp_interface._native_{name}": "models" for name in (
+        "continuous", "df", "flow", "geometry", "grid", "lut", "preparation", "preparation_3d",
+        "preparation_case", "properties", "quick_prepare", "sigmoid", "zones")},
+    "cpp_interface": "native_values",
     **{f"shared.{name}": name for name in (
         "domain", "models", "df_surrogate", "io", "configs",
         "logutil", "result_math", "result_display")},

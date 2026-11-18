@@ -47,7 +47,7 @@ Python geometry interfaces keep types, caches and per-call explicit/environment/
 They have no numerical fallback.
 Rebuild each affected native library after changing C++ functions or compiled resource parameters. Then restart the process.
 See the [native preparation core](cpp-migration.md#native-preparation-core) and [independent result core](cpp-migration.md#native-result-core) for builds, paths and four-library runtime boundaries.
-The [field source record](../sjtu_tpmshx/solvers/native/geometry/fields-sources.md) identifies fixed XY, XYZ, LUT and Gaussian sources and local numerical changes.
+The [field source record](../geometry/fields-sources.md) identifies fixed XY, XYZ, LUT and Gaussian sources and local numerical changes.
 Percolation, scans, Richardson and target-C research are in
 `python/development/runs/tools/asym_geometry_research.py`. Shared modules keep no former forwarding entries.
 

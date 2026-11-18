@@ -89,7 +89,7 @@ JSON 将其与指标一起保存。缺少此字段的历史 JSON 仍可读取；
 
 ## 应用载荷（当前 v1 草案）
 
-Case 元数据中的 `model_metadata.sco2_nu` 和 `notices` 保存已解析模型的展示来源和说明文字。当前二维和三维生产者均输出这些字段。实验参数 `alpha_D/alpha_G` 是总有效 Nu 系数，仅应用于所选 CFD 基础模型一次。序列化数据中没有额外的 `beta` 因子。显式选择当前模型时，`sco2_effective_nu_config()` 解析 `shared/configs/sco2_effective_nu.json`；版本、来源和适用范围随数值传递。
+Case 元数据中的 `model_metadata.sco2_nu` 和 `notices` 保存已解析模型的展示来源和说明文字。当前二维和三维生产者均输出这些字段。实验参数 `alpha_D/alpha_G` 是总有效 Nu 系数，仅应用于所选 CFD 基础模型一次。序列化数据中没有额外的 `beta` 因子。显式选择当前模型时，`sco2_effective_nu_config()` 解析 `python/model_configs/sco2_effective_nu.json`；版本、来源和适用范围随数值传递。
 
 加载已保存配置或准备态 Case 时，保留它自己的参数，不替换为较新的资源。自定义和历史实验参数仍须提供自身来源。通用默认值 `cfd_smooth` 不变。参见[模型资源](../../model-resources.md#sco2-有效-nu-系数)。本开发草案尚未作为稳定存档格式发布；早期草案夹具不能建立向后兼容承诺。
 

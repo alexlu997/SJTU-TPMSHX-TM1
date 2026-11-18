@@ -112,3 +112,5 @@ python/development/runs/_out/
 # Python packaging metadata (editable installs write into the source tree)
 *.egg-info/
 /build/
+# Keep local outputs and session files from older source checkouts private.
+/sjtu_tpmshx/

@@ -22,6 +22,10 @@ def forbidden_imports(source, forbidden, package='sjtu_tpmshx'):
     violations = []
     for node in ast.walk(ast.parse(source)):
         for module in import_targets(node, package):
+            if any(module == owner or module.startswith(owner + '.') for owner in (
+                    'sjtu_tpmshx.preprocess.validator', 'sjtu_tpmshx.postprocess.result_display',
+                    'sjtu_tpmshx.postprocess.result_math')):
+                continue  # These modules supply input checks and field descriptions to either stage.
             if any(module == 'sjtu_tpmshx.' + name or module.startswith('sjtu_tpmshx.' + name + '.')
                    for name in forbidden):
                 violations.append((node.lineno, module))

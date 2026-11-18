@@ -53,7 +53,7 @@ def test_cold_model_images_keep_serial_results_and_physical_gates(tmp_path, mode
     case = prepare_case(_config(3, False), case_id='model-isolation')
     case_path = tmp_path / 'case.h5'
     save_case(case, case_path)
-    with (isolation.ROOT / 'sjtu_tpmshx/solvers/native/dependencies-lock.toml').open('rb') as source:
+    with (isolation.ROOT / 'engineering/native_build/dependencies-lock.toml').open('rb') as source:
         spec = tomllib.load(source)['sources']['coolprop']
     coolprop = {'version': spec['version'], 'revision': spec['commit']}
     environment = dict(os.environ, TPMSHX_PREPARATION_LIBRARY=model_libraries['preparation'],

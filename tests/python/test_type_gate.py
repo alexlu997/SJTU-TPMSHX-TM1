@@ -9,14 +9,12 @@ import sys
 from pathlib import Path
 
 _REPO = Path(__file__).resolve().parents[2]
-_PKG = _REPO / 'sjtu_tpmshx'
 
 
 def test_mypy_core_surface_clean(tmp_path):
     # Use the repository root to keep package names consistent.
     r = subprocess.run(
-        [sys.executable, '-m', 'mypy',
-         '--config-file', 'pyproject.toml',
+        [sys.executable, '-m', 'engineering.scripts.check_types',
          '--cache-dir', str(tmp_path / 'mypy')],
         capture_output=True, text=True, timeout=600, cwd=str(_REPO))
     assert r.returncode == 0, "mypy findings:\n" + r.stdout[-2000:] + r.stderr[-2000:]
@@ -39,8 +37,7 @@ compute_result("not a config")
     invalid_inputs = tmp_path / 'invalid_inputs.py'
     invalid_inputs.write_text(source, encoding='utf-8')
     result = subprocess.run(
-        [sys.executable, '-m', 'mypy', str(invalid_inputs),
-         '--config-file', 'pyproject.toml',
+        [sys.executable, '-m', 'engineering.scripts.check_types', str(invalid_inputs),
          '--cache-dir', str(tmp_path / 'mypy')],
         capture_output=True, text=True, timeout=600, cwd=str(_REPO))
     assert result.returncode == 1, result.stdout + result.stderr

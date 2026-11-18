@@ -44,7 +44,7 @@ tpmshx-gui = "sjtu_tpmshx.desktop:main"
 [tool.tpmshx.native-dependencies]
 # Explicit native builds; Python package installation does not provision these dependencies.
 requirements = ["CMake==4.4.4", "CoolProp==8.0.0", "SuperLU==7.0.1", "AMGCL==1.5.0"]
-lock-file = "sjtu_tpmshx/solvers/native/dependencies-lock.toml"
+lock-file = "engineering/native_build/dependencies-lock.toml"
 build-script = "engineering/scripts/build_native_dependencies.py"
 cache-dir = ".cache/native-deps"
 runtime-auto-fetch = false
@@ -77,33 +77,32 @@ markers = [
 # Check the selected public interfaces and data contracts from the repository root.
 # Silent imports keep the existing solver type-check scope.
 files = [
-    "python/compute.py",
-    "python/applications/result_adapter.py",
-    "python/data_types/compute_config.py",
-    "python/preprocess/validator.py",
-    "python/data_types/compute_result.py",
-    "python/model_configs/__init__.py",
-    "python/_version.py",
-    "python/cli.py",
-    "python/physical_models/envelope.py",
-    "python/data_types/case_data.py",
-    "python/data_types/field_result.py",
-    "python/data_types/performance_result.py",
-    "python/data_types/metric_spec.py",
-    "python/run_control/module_ports.py",
-    "python/data_types/model_refs.py",
-    "python/preprocess/api.py",
-    "python/solvers/api.py",
-    "python/postprocess/api.py",
-    "python/cpp_interface/_native_result_stage.py",
+    "sjtu_tpmshx/compute.py",
+    "sjtu_tpmshx/applications/result_adapter.py",
+    "sjtu_tpmshx/data_types/compute_config.py",
+    "sjtu_tpmshx/preprocess/validator.py",
+    "sjtu_tpmshx/data_types/compute_result.py",
+    "sjtu_tpmshx/model_configs/__init__.py",
+    "sjtu_tpmshx/_version.py",
+    "sjtu_tpmshx/cli.py",
+    "sjtu_tpmshx/physical_models/envelope.py",
+    "sjtu_tpmshx/data_types/case_data.py",
+    "sjtu_tpmshx/data_types/field_result.py",
+    "sjtu_tpmshx/data_types/performance_result.py",
+    "sjtu_tpmshx/data_types/metric_spec.py",
+    "sjtu_tpmshx/run_control/module_ports.py",
+    "sjtu_tpmshx/data_types/model_refs.py",
+    "sjtu_tpmshx/preprocess/api.py",
+    "sjtu_tpmshx/solvers/api.py",
+    "sjtu_tpmshx/postprocess/api.py",
+    "sjtu_tpmshx/cpp_interface/_native_result_stage.py",
 ]
 python_version = "3.12"
 ignore_missing_imports = true
 follow_imports = "silent"
 warn_unused_ignores = true
 no_implicit_optional = true
-# P1.8b（W0 引入，F2 定型）：explicit_package_bases + 仓库根 cwd ⇒ 模块名
-# 恒为 sjtu_tpmshx.*，与包内 __init__ 上溯一致，杜绝 "found twice" 双名。
+# Use the public package names in the isolated build tree.
 explicit_package_bases = true
 
 [[tool.mypy.overrides]]

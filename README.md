@@ -7,23 +7,25 @@ TM1 将 TPMS 换热器的前处理、求解和后处理拆为独立维护的模�
 [alexlu997/SJTU-TPMSHX-TM1](https://github.com/alexlu997/SJTU-TPMSHX-TM1)。
 原 SJTU-TPMSHX/V2 是来源参考，本分支不合回原仓库。
 
-**核心源码全部位于 [sjtu_tpmshx/](sjtu_tpmshx/)**，包括 Python 应用与 C++ 数值后端。读计算代码从这四个文件开始：
+**C++ 计算流程**　[前处理](preprocess/) → [求解](solver/) → [后处理](postprocess/)。从[完整二维算例](examples/cpp/air_2d.cpp)可以读到三次调用。几何算法在 [geometry/](geometry/)，共用物性与数值函数在 [numerics/](numerics/)。外部程序使用 [stages.hpp](include/tpmshx/stages.hpp)。
+
+Python 应用通过以下四个公开入口调用计算核心。
 
 | 文件 | 职责 |
 | --- | --- |
-| [compute.py](python/compute.py) | 主计算入口，统一组织准备、求解与评估 |
-| [preprocess/api.py](python/preprocess/api.py) | 前处理入口：准备 CaseData |
-| [solvers/api.py](python/solvers/api.py) | 求解入口：调用 C++ 后端，生成 FieldResult |
-| [postprocess/api.py](python/postprocess/api.py) | 后处理入口：从记录的结果计算 PerformanceResult |
+| [python/compute.py](python/compute.py) | 主计算入口，统一组织准备、求解与评估 |
+| [python/preprocess/api.py](python/preprocess/api.py) | 前处理入口：准备 CaseData |
+| [python/solvers/api.py](python/solvers/api.py) | 求解入口：调用 C++ 后端，生成 FieldResult |
+| [python/postprocess/api.py](python/postprocess/api.py) | 后处理入口：从记录的结果计算 PerformanceResult |
 
-包内六类目录是 `preprocess/`、`solvers/`、`postprocess/`、`shared/`、`applications/` 和 `development/`。
-[模块地图](python/README.md)说明各自职责；C++ 源码仍在 [solvers/native/](sjtu_tpmshx/solvers/native/)。
+Python 源码集中在 `python/`。已有脚本继续用 `sjtu_tpmshx` 导入。
+[Python 模块地图](python/README.md)说明入口与应用之间的关系。
 [原生阶段 SDK](docs/native-stages.zh-CN.md)说明独立 C++ 前处理、求解和后处理接口及当前覆盖范围。
-GUI、CLI、设计与恢复实现位于 `applications/`；测试、验证和诊断工具位于 `development/`。
+应用代码按用途分为[快速设计](python/applications/design/)、[BO 优化](python/applications/optimization/)和[检查点恢复](python/applications/execution/recovery.py)。自动测试位于 [tests/python/](tests/python/) 和 [tests/cpp/](tests/cpp/)。
 根 [engineering/](engineering/) 保存构建脚本、打包配置和依赖锁；[docs/contracts/](docs/contracts/) 保存数据契约。
 `.github/workflows/` 保存 CI 配置。GUI 与 CLI 继续用 `python -m sjtu_tpmshx.main` 和 `python -m sjtu_tpmshx.cli` 启动。
 
-几何、物性与闭合、数值求解和结果计算由包内 C++ 核心负责。
+几何、物性与闭合、数值求解和结果计算由上述原生阶段与几何库负责。
 Python 保留公共入口、配置、数据对象、文件读写、缓存、GUI 和设计／优化编排。
 前处理使用匹配的几何、准备和结果库；其中结果库负责范围采集。完整计算还使用求解库。
 具体 C++ 文件、函数及修改后的重建步骤见[源码地图](python/README.md)。
@@ -651,7 +653,7 @@ Pareto CSV 仍可导出几何；旧筛选模式不能再执行或重新计算指
 旧多边形代码通过[固定历史](docs/history/retired-tools.md)保留，重新开放须完成
 主线物理规则及独立模块交接的实现与验证。
 
-`shared/models/`、`shared/df_surrogate/` 等是共享技术支撑，不是第四个业务模块。旧 Pipeline/应用
+`python/physical_models/`、`python/physical_models/df_surrogate/` 等是共享技术支撑，不是第四个业务模块。旧 Pipeline/应用
 入口单向调用公开模块。具体边界见[架构说明](docs/architecture.zh-CN.md)。
 
 唯一数值后端为 C++。默认查找 macOS arm64 或 Windows x64 本机库，
@@ -682,7 +684,7 @@ PYTHON="$(head -n 1 .venv-path)"
 export MPLCONFIGDIR="$PWD/.cache/matplotlib" XDG_CACHE_HOME="$PWD/.cache/xdg"
 export QT_QPA_PLATFORM=offscreen PYTHONHASHSEED=0
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1
-"$PYTHON" -m mypy --config-file pyproject.toml
+"$PYTHON" -m engineering.scripts.check_types
 "$PYTHON" -m pytest tests/python -q -ra -m "not slow and not heavy" --ignore=tests/python/integration_tm1 -n 2 --dist worksteal --timeout=600 --timeout-method=thread --durations=30 --junitxml=.cache/ci/fast.xml
 "$PYTHON" -m pytest tests/python/integration_tm1 -q -ra --timeout=600 --timeout-method=thread --durations=30 --junitxml=.cache/ci/integration.xml
 # 完整本地验收：没有 -m 过滤；按本机 CPU/内存可将 auto 换为固定 worker 数。

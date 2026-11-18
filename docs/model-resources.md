@@ -50,7 +50,7 @@ Python 保留配置、类型适配、数据对象、I/O、缓存、应用编排�
 Python 几何接口保留类型、缓存与逐次调用的 chi 显式值／环境值／拟合选择，不保留数值 fallback。
 修改 C++ 函数或资源中编入库的参数后，须重新构建各受影响原生库并重启进程。
 构建、路径及四库运行边界见[原生准备核心](cpp-migration.zh-CN.md#native-preparation-core)和[独立结果核心](cpp-migration.zh-CN.md#native-result-core)。
-XY、XYZ、LUT 与 Gaussian 的固定来源和局部数值处理见[设计场来源说明](../sjtu_tpmshx/solvers/native/geometry/fields-sources.md)。
+XY、XYZ、LUT 与 Gaussian 的固定来源和局部数值处理见[设计场来源说明](../geometry/fields-sources.md)。
 贯通、扫描、Richardson 和目标 C 研究位于
 `python/development/runs/tools/asym_geometry_research.py`，shared 不保留旧转发入口。
 

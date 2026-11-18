@@ -74,3 +74,31 @@ def test_logger_taxonomy_is_packaging_neutral():
     lg2 = get_logger('solvers.threads')
     assert lg2.name == 'tpmshx.solvers.threads'
     assert lg is lg2
+PUBLIC_NAME_CHECK = """
+import importlib
+from importlib.resources import files
+import sys
+
+assert 'sjtu_tpmshx.shared' not in sys.modules
+from sjtu_tpmshx.data_types.compute_config import ComputeConfig
+from sjtu_tpmshx.shared.domain.compute_config import ComputeConfig as published_config
+assert published_config is ComputeConfig
+importlib.invalidate_caches()
+from sjtu_tpmshx.shared.io import case_io
+from sjtu_tpmshx.shared.domain import module_ports, validate_geometry
+from sjtu_tpmshx.shared.configs import load_shanghai_baseline
+assert case_io is importlib.import_module('sjtu_tpmshx.file_io.case_io')
+assert module_ports is importlib.import_module('sjtu_tpmshx.run_control.module_ports')
+assert validate_geometry is importlib.import_module('sjtu_tpmshx.preprocess.validator').validate_geometry
+assert load_shanghai_baseline is importlib.import_module('sjtu_tpmshx.model_configs').load_shanghai_baseline
+assert files('sjtu_tpmshx.shared.configs').joinpath('shanghai_baseline.json').is_file()
+"""
+
+
+def test_checkout_preserves_published_submodule_identity():
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[2]
+    subprocess.run([sys.executable, '-c',
+                    "from pathlib import Path\nimport sjtu_tpmshx\n"
+                    "assert Path(sjtu_tpmshx.__file__).resolve() == Path.cwd() / 'python/__init__.py'\n"
+                    + PUBLIC_NAME_CHECK], cwd=root, check=True, timeout=60)

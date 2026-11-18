@@ -4,7 +4,7 @@
 
 [中文](README.md) | [English](README.en.md)
 
-All core source is in [sjtu_tpmshx](../sjtu_tpmshx/), including the Python application and C++ numerical backend.
+The root directories contain the C++ stages. The Python applications are in [python](../python/).
 Start with the [module map](../python/README.en.md) to read the code.
 Use the [first run instructions](../README.en.md#first-run) to run the application.
 
@@ -34,7 +34,10 @@ Use the [first run instructions](../README.en.md#first-run) to run the applicati
 
 | Directory | Contents |
 | --- | --- |
-| [sjtu_tpmshx](../sjtu_tpmshx/) | Four computation entries and six source groups: preprocessing, solvers, postprocessing, shared code, applications and development. |
+| [preprocess](../preprocess/), [solver](../solver/), [postprocess](../postprocess/) | C++ preparation, solving, and evaluation. |
+| [geometry](../geometry/), [numerics](../numerics/), [include](../include/) | Geometry, common numerical functions, and headers. |
+| [tests/cpp](../tests/cpp/) | C and C++ tests for callers and numerical functions. |
+| [python](../python/) | Four computation entries, Python applications, data types, file I/O, model resources and native interfaces. |
 | [engineering](../engineering/) | scripts for builds and checks, packaging configuration and exact requirements locks. |
 | [docs](./) | Current documents, public data contracts under contracts, and historical references. |
 | [examples](../examples/) | Public API examples and first run configurations. |
@@ -43,7 +46,6 @@ Use the [first run instructions](../README.en.md#first-run) to run the applicati
 
 Package-level [development](../python/development/) keeps three groups: tests, validation and runs.
 Public data contracts are implemented in [shared/domain](../python/data_types/) and [shared/io](../python/file_io/).
-C++ numerical source stays in [solvers/native](../sjtu_tpmshx/solvers/native/).
 
 `pyproject.toml` defines builds, dependency declarations, pytest, mypy, and lint settings.
 Root `MANIFEST.in` selects source-distribution files. The wheel uses the explicit resource list in `pyproject.toml`.
@@ -52,7 +54,7 @@ Root `MANIFEST.in` selects source-distribution files. The wheel uses the explici
 
 `data-revision.txt` declares the associated data version. Raw experiment and CFD data stay in local `data/raw_data/`. Research scripts and results stay in ignored `.cache/`. Neither location is committed. The previous `reports/` output directory is also ignored.
 
-Active tests use the one-dimensional enthalpy reference in [development/tests/enthalpy_1d_reference.py](../tests/python/enthalpy_1d_reference.py).
+Active tests use the one-dimensional enthalpy reference in [tests/python/enthalpy_1d_reference.py](../tests/python/enthalpy_1d_reference.py).
 Production CFD coefficient CSVs and MMS data used by tests stay.
 Historical `golden_3d.json`, previous gamma snapshots, stage reports and task records are available through fixed Git history.
 They are not current test resources or evidence of current accuracy.

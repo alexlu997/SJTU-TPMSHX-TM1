@@ -23,10 +23,10 @@ The `shared.configs.model_parameters` reader uses only the Python standard libra
 Python model modules and the native header generator use the same resource data.
 An independent C++ core calculates geometry.
 The geometry core owns standard, CO2 and asymmetric geometry, chi/Kss, and sigmoid LUT nodes and derived geometry.
-`shared/models/_native_geometry.py` uses ctypes to load geometry ABI 1 on demand.
+`python/cpp_interface/_native_geometry.py` uses ctypes to load geometry ABI 1 on demand.
 It loads a separate prebuilt library without importing the solver backend.
 Python keeps public types, cache interfaces and per-call explicit/environment/fit selection for chi.
-`shared/models/preparation_cache.py` owns the bounded geometry and inlet-property caches.
+`python/physical_models/preparation_cache.py` owns the bounded geometry and inlet-property caches.
 Public scalar calls and native preparation checkpoints use the same values, types, range records and access order.
 Cache misses use the existing C++ numerical functions; current material conductivity and chi are not cached.
 `tpms_calc._compute_cached` sends each inlet-property miss to one native `query_inlet_properties` call after the existing geometry query.
@@ -34,7 +34,7 @@ Cache misses use the existing C++ numerical functions; current material conducti
 The query returns twelve typed scalars without a grid, CaseData or solver.
 Python retains cache keys and access order, mutable public result copies, and the private cp/Pr cache fields.
 It also retains object conversion, warning filters and source locations, and NumPy event policy.
-`shared/models/_native_preparation_case.py` shares range-record transport with the preparation adapters.
+`python/cpp_interface/_native_preparation_case.py` shares range-record transport with the preparation adapters.
 Raw complex Nu and surface-transfer values retain their existing behavior; complete-case physical guards stay unchanged.
 The combined query calls native EOS directly and does not populate the standalone EOS wrapper caches.
 Quick Design preparation shares those wrapper caches through its host operations.
@@ -54,9 +54,9 @@ Independent preparation ABI 1 calculates properties, closures, DF, corrections, 
 Independent result ABI 2 calculates metrics, physical balances, zone statistics and numerical checks.
 See [C++ scope and delivery records](cpp-migration.md#cpp-core-scope).
 
-The preparation target is `solvers/native/preparation/`. It reuses the geometry/grid core and the shared `fluid_properties.cpp` numerical owner.
+The preparation target is `preprocess/`. It reuses the geometry/grid core and the shared `fluid_properties.cpp` numerical owner.
 It links the locked CoolProp static library, without full solvers, run_state, SuperLU or AMG.
-`shared/models/_native_preparation.py` loads the prebuilt library on demand. Concrete property, DF and flow adapters pack named inputs.
+`python/cpp_interface/_native_preparation.py` loads the prebuilt library on demand. Concrete property, DF and flow adapters pack named inputs.
 Geometry ABI 1 and field ABI 2 retain their separate status contracts.
 Preparation ABI 1 uses status 1 for invalid inputs, 2 for allocation and 3 for runtime errors.
 Its state statuses are 10 for water, 11 for CO2 and 12 for sCO2.
@@ -81,16 +81,16 @@ Archive build records keep the actual compiler, compile fragments and SDK source
 Library build identities remain separate from versioned property-table caches.
 Old checkpoints still need their exact solver runtime, prepared inputs and controls.
 See [preparation builds and runtime paths](cpp-migration.md#native-preparation-core).
-The result target is `solvers/native/result/`. It uses C++17 and system libraries without solver state or model resources.
+The result target is `postprocess/`. It uses C++17 and system libraries without solver state or model resources.
 Named metric, balance and check kernels preserve independent field reductions and their original operation order.
-`shared/_native_result.py` loads the prebuilt image on demand. Imports and pure HDF/JSON reads do not load it.
+`python/cpp_interface/_native_result.py` loads the prebuilt image on demand. Imports and pure HDF/JSON reads do not load it.
 Python keeps DTOs, type and shape adaptation, NumPy events and application display.
 The native result stage evaluates full 2D/3D evidence and owns its status, reasons and qualification.
 Typed byte views preserve integer storage, extended precision, byte order and signed strides.
 Failure does not commit numerical outputs. Ordered floating-point events retain the caller's NumPy error policy.
 Explicit object and arbitrary integer protocols remain only at demonstrated Python-only conversion points.
 Missing libraries, symbols and incompatible ABIs remain deployment errors, with no numerical fallback.
-The [result source record](../sjtu_tpmshx/solvers/native/result/sources.md) defines the interface and numerical sources.
+The [result source record](../postprocess/sources.md) defines the interface and numerical sources.
 Separate result publication builds no solver, run_state, CoolProp or generated coefficients.
 Linux x86_64 supports independent result evaluation. Full-solver platforms remain macOS arm64 and Windows x64.
 
@@ -127,7 +127,7 @@ Discrete smoothing, sigmoid LUT geometry, separate thermal geometry and row D-F 
 Its flow results own copied spatial controls and LUTs; preliminary and final evidence remain separate.
 The v8 raw boundary retains event-only callbacks.
 Preparation v9 carries typed geometry and inlet cache keys, including actual L/t and optional Nu selection.
-`preprocess/native_preparation.py` transports cache values and evidence through the existing shared cache owners.
+`python/cpp_interface/native_preparation.py` transports cache values and evidence through the existing shared cache owners.
 Native misses calculate the values; Python keeps lookup, LRU order, publication and warning filters.
 The sigmoid LUT hook loads or publishes host storage at the original geometry checkpoint; missing tables use native construction.
 Public configuration keeps its original topology and conductivity comparisons, including narrow-scalar equality.
@@ -156,13 +156,13 @@ It assigns physical XY centres, smooths L/t separately, then extends fields alon
 The existing asymmetric owner supplies nominal split and thermal side/reference geometry.
 Local total porosity remains symmetric; each side capacity uses its own split field.
 The v1/v2/v3/v4 layouts remain unchanged. Python 3D preparation uses host v5 and its typed cache callbacks.
-`preprocess/three_d/preparation.py` keeps config conversion, environment parsing and immutable DTO assembly.
-`preprocess/native_preparation.py` shares cache and warning transport with 2D.
+`python/preprocess/three_d/preparation.py` keeps config conversion, environment parsing and immutable DTO assembly.
+`python/cpp_interface/native_preparation.py` shares cache and warning transport with 2D.
 The C++ owner builds the physical grid once and keeps static evidence before resolved-speed checks.
 Air-field scalar observations use at most eight selected values per side, with the original notices, extrema and last sample.
 Full raw-array range records keep all physical cells.
 The replaced 3D Python bodies and exclusive `shared/models/grid_3d.py` and `asym_split.py` are removed.
-Their frozen reference remains in `development/tests/preparation_3d_reference.py`.
+Their frozen reference remains in `tests/python/preparation_3d_reference.py`.
 Memory use near the cell cap and real 3D BO also need separate acceptance.
 The adapter preserves CaseData fields, scalar types, events, source ranges and saved model selections.
 The v2 host hook preserves object errors and warning scopes at their original execution points.
@@ -171,7 +171,7 @@ Callback v4 keeps that layout and adds a host-object check immediately before ph
 Python retains warning filters, source locations and completed observations after a later failure.
 A native failure never selects another preparation route.
 The replaced Python 2D preparation sequence and row D-F projection are retired; independent frozen references remain under `development/tests`.
-`preprocess/two_d/preparation.py` retains the native adapter. `shared/models/zone_units.py` owns saved zone-unit conversion.
+`python/preprocess/two_d/preparation.py` retains the native adapter. `python/physical_models/zone_units.py` owns saved zone-unit conversion.
 Nominal x/y grid warnings have separate host emission sites in the retained preparation adapter.
 `preparation_case.cpp` owns 2D preparation and uniform, continuous or grid/offset 3D preparation.
 `stage_run.cpp` adapts it to the existing full 2D driver.
@@ -203,11 +203,11 @@ The installed C ABI and `stages.hpp` support external C++ callers.
 Quick Design preparation v2 accepts typed raw operating points.
 `quick_design_prepare_v2.cpp` owns the complete numerical sequence, including geometry, grids, inlet properties and analytical D-F pressure fractions.
 Its separate pressure query creates no thermal grid or design-field arrays.
-`shared/models/_native_quick_prepare.py` keeps Python object protocols, cache exchanges, warnings and snapshots through fixed named host operations.
+`python/cpp_interface/_native_quick_prepare.py` keeps Python object protocols, cache exchanges, warnings and snapshots through fixed named host operations.
 These operations cannot call numerical models. C++ selects their order and all numerical branches.
-`preprocess/app_modes/quick_design.py` assembles CaseData from the copied native output.
-The replaced `shared/models/quick_design.py` is removed; its frozen reference remains in `development/tests/quick_prepare_reference.py` for regression checks.
-Quick defaults have one source in `shared/configs/model_parameters_v1.json`.
+`python/preprocess/app_modes/quick_design.py` assembles CaseData from the copied native output.
+The replaced `shared/models/quick_design.py` is removed; its frozen reference remains in `tests/python/quick_prepare_reference.py` for regression checks.
+Quick defaults have one source in `python/model_configs/model_parameters_v1.json`.
 Python reads that resource; C++ uses its generated constants. Stored counterflow `qtol` and `chunk` remain `None`.
 The native-double v1 preparation in `quick_design_prepare.cpp` and its published layouts remain available.
 `quick_design_run.cpp` uses the existing driver and copies its result evidence.
@@ -231,10 +231,10 @@ The following boundaries keep their original arithmetic and consumers:
 - The `ports_complete` injected-ledger check and default input adaptation for independent low-level drivers. Current native ledgers return an explicit completeness flag.
 - Direct low-level and archived-runtime 3D capture calculations, independent development references and research fits. Current saved-stage capture owns the audit display taper. Formal ports and metrics use actual native face evidence.
 
-`shared/result_math.py` keeps the four raw pressure, duty and outlet queries and the public conservation certificate.
+`python/postprocess/result_math.py` keeps the four raw pressure, duty and outlet queries and the public conservation certificate.
 Its unused private boundary-power validation chain is retired; independent result references keep their own implementation.
 The two model-h audit references use `boundary_zeros` and `heat_ledger` from their existing `thermal_face_audit.py` module.
-These test helpers are excluded from runtime wheels. `solvers/physical_ledger.py` retains only the supported `ports_complete` check.
+These test helpers are excluded from runtime wheels. `python/solvers/physical_ledger.py` retains only the supported `ports_complete` check.
 
 The native full-compute CC route uses the existing air/water integral h(T)
 model through strict model-h drivers. Earlier variable-cp m*cp*T failures
@@ -245,7 +245,7 @@ Conservative staggered temperature retains its physical-distance minmod
 reconstruction and original boundary treatment. Axes with fewer than three
 cells stay first order.
 
-`development/tests/native/test_native_engineering_acceptance.py` covers ordered air,
+`tests/python/native/test_native_engineering_acceptance.py` covers ordered air,
 water, CO2 and sCO2 pairs in 2D and 3D. It checks selected physical models,
 convergence, finite fields, mass and energy with the existing limits.
 Independent formulas, discrete balances, manufactured solutions, component
@@ -362,7 +362,7 @@ The native 3D `Runtime` coordinates separate internal owners.
 `ThermalRun` owns the thermal fields, active energy driver and thermal continuation state.
 Both use one `TransportProperties` owner for inlet properties and sampled transport values.
 `RangeRecorder` records model limits. A separate function assembles final result evidence.
-Both dimensions use `sjtu_tpmshx/solvers/native/src/closure_ranges.hpp` for property and Nu range descriptors.
+Both dimensions use `solver/closure_ranges.hpp` for property and Nu range descriptors.
 Each caller keeps its property selection, sampling stage, array layout and observation order.
 The full-run phase controller keeps the outer update order and callback sequence.
 Each owner copies its state to the existing `Full3DRunState` fields.
@@ -514,7 +514,7 @@ The additive C queries borrow the existing result owner. The bindings copy
 their values before release and require a current library.
 
 Current saved 2D/3D runs copy the native version, `inlet_recorded` flag, inlet/final groups and required records before result release.
-`solvers/api.py` publishes these values without repeating range classification.
+`python/solvers/api.py` publishes these values without repeating range classification.
 Saved inlet rows retain their host fields and scalar types in native order.
 A native constraint replaces the recorded constraint when present.
 Missing records, empty sets, uncaptured rows and samples with no finite values remain distinct.
@@ -580,34 +580,26 @@ The former optimizer-only energy evaluator is now part of common postprocessing.
 
 ## Runtime flow
 
-All core source is in `sjtu_tpmshx/`. Package-level `compute.py` is the main computation entry.
-`preprocess/`, `solvers/` and `postprocess/` own the three computation stages.
-`shared/` owns data contracts, models, file interfaces and resources. `applications/` owns GUI, CLI, design, optimization and recovery.
-`development/` keeps tests, validation and runs as three separate groups.
-The package-level `main.py`, `cli.py` and `desktop.py` keep short startup entries.
-`applications/gui/main.py` implements the GUI. `applications/cli/main.py` implements the CLI.
-`solvers/native/` keeps C++ source, C ABI, build files, caller tests and license notices. `solvers/backends/cpp/` contains Python bindings.
-Root `engineering/` holds build scripts, packaging and dependency locks. `docs/contracts/` holds data contracts. `.github/workflows/` contains CI configuration.
+Start in root [preprocess](../preprocess/), [solver](../solver/) and [postprocess](../postprocess/) for the C++ stages. The [public headers](../include/tpmshx/) and [C++ tests](../tests/cpp/) cover the stage interfaces.
 
-`shared/`, `applications/` and `development/` group source for reading; they do not combine dependency layers.
-`OWNERS` in `development/runs/tools/audit_import_graph.py` maps nested paths to the original domain, models, io, main, ui, controllers and result_adapter owners.
-`result_adapter` is Qt-free application result mapping at layer 4, the original controllers mapping layer.
-The three stages and shared units do not depend on GUI or development tools.
-The three `SANCTIONED` edges stay unchanged. Development units remain free consumers; production units cannot import them. Qt isolation stays unchanged.
+The public Python package is `sjtu_tpmshx`. Its source directory is [python](../python/). The four computation entries are `compute`, `prepare_case`, `run_case` and `evaluate`. Native calls go through `python/cpp_interface/`. Portable records, file transport, runtime controls, model queries and model parameters are in `data_types/`, `file_io/`, `run_control/`, `physical_models/` and `model_configs/` in that package.
+
+The [applications](../python/applications/) contain GUI and CLI startup, Quick Design, BO and recovery. The Python tests are in [tests/python](../tests/python/). Validation and diagnostic tools are in `python/development/`. A checkout loads its own code. Setuptools maps the same source to the public package in a wheel. The published shared module names resolve on demand.
+
+The import audit maps source paths to their dependency owners. Low-level native buffer and range checks support both runtime controls and the stages. The audit checks tests as external consumers and retains the three documented DF closure edges. Numerical code is independent of Qt. Build tools and locks are in `engineering/`. File contracts are in `docs/contracts/`.
 
 ```text
 applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
                                                           -> postprocess.api -> PerformanceResult
-                         shared: domain / models / versioned resources / file I/O
+                         data_types / physical_models / model_configs / file_io
 ```
 
-- `shared/domain/` owns immutable CaseData, FieldResult, metric definitions and
-  runtime control ports. It is Qt-free.
+- `python/data_types/` owns immutable CaseData, FieldResult and metric definitions. `python/run_control/` owns runtime controls.
 - `preprocess/` owns physical grid/boundary preparation, fixed geometry and
   coefficients, model/resource selection and portable execution inputs.
-- `solvers/backends/cpp/` exposes the independent prepared Quick Design and
+- `python/cpp_interface/solver_library/` exposes the independent prepared Quick Design and
   full 2D/3D drivers through `RunControl`, which defaults to C++. The host library path is not serialized in CaseData. Shared QD validation and
-  result mapping belong to `solvers/backends/quick_design.py`. Numerical property
+  result mapping belong to `python/solvers/backends/quick_design.py`. Numerical property
   passes, liquid-state guards and thermal iteration belong to the C++ driver.
   The Quick Design run stage expands its scalar evidence into fields and declarations.
   Python copies the owned output and uses the pass evidence for warning records.
@@ -784,23 +776,23 @@ Temperature is not scaled. FullCC nonzero sources stay
 
   See [native consumer contracts](cpp-migration.md#shared-finite-volume-temperature-consumers)
   for iteration, incomplete-boundary and build requirements.
-- `postprocess/api.py` keeps the public evaluation interface. The native result stage owns full 2D/3D metric selection, definitions and status.
+- `python/postprocess/api.py` keeps the public evaluation interface. The native result stage owns full 2D/3D metric selection, definitions and status.
   It also owns independent applicability, physical-balance and qualification queries.
-  `shared/_native_result_stage.py` converts evidence and returned objects. It delivers NumPy events at each primitive boundary.
+  `python/cpp_interface/_native_result_stage.py` converts evidence and returned objects. It delivers NumPy events at each primitive boundary.
   Quick Design uses the same native stage, with typed intermediate values and fixed named host operations for its existing Python protocols.
-  `postprocess/conservation.py` retains the complete public conservation certificate. Raw result helpers retain their existing consumers and Python protocols.
+  `python/postprocess/conservation.py` retains the complete public conservation certificate. Raw result helpers retain their existing consumers and Python protocols.
   Postprocessing reduces recorded fields, fluxes and pressure states. It never reruns a solver or reads private runtime objects for missing evidence.
   Full-compute evaluation reuses successful heat and mass reductions only within
   that call, lazily by side and by coarse/fine evidence. Each requested metric
   keeps its own missing/unsupported/invalid status handling.
-- `shared/models/` and `shared/df_surrogate/` own shared pure closures and versioned resources.
+- `python/physical_models/` and `python/physical_models/df_surrogate/` own shared pure closures and versioned resources.
   Explicit cleaning/calibration entry points live under `preprocess/offline/`.
-- `shared/io/` owns strict YAML/HDF5/JSON interchange. Its `cli_options` module maps
+- `python/file_io/` owns strict YAML/HDF5/JSON interchange. Its `cli_options` module maps
   shared host execution arguments into `RunControl` without adding host paths
   to saved cases/configuration or coupling CLI consumers to workflows.
   VTK export is a postprocessing
   view of recorded data, not a new numerical state.
-- `shared/configs/` owns packaged case configuration.
+- `python/model_configs/` owns packaged case configuration.
 - Public conservation tools prepare a `ComputeConfig` with `preprocess.api.prepare_case`
   and execute it with `solvers.api.run_case`. The Python-only `prepare_research_case`
   entry and `research_three_d_v1` execution are retired. Native component tests retain
@@ -809,18 +801,18 @@ Temperature is not scaled. FullCC nonzero sources stay
   Prepared dictionaries cannot contain runtime callbacks. Saved results preserve
   recorded units, axes and the distinction between final flow and last thermal state.
   Retired pipeline facades and mixed-kernel entries remain absent.
-- `compute.py` owns configuration validation and the common prepare, solve and evaluate sequence.
+- `python/compute.py` owns configuration validation and the common prepare, solve and evaluate sequence.
   It checks cancellation between stages and after postprocessing. It records stage times and warnings in the returned `FieldResult` metadata.
   The result identity and immutable array storage stay unchanged. The workflow returns `CaseData`, `FieldResult` and `PerformanceResult`.
   Overall progress uses this workflow. `RunControl` keeps raw solver progress, backend selection and host callbacks.
   `applications/result_adapter.compute_result` calls this workflow and the sole application result mapper, `to_compute_result`.
   The GUI, direct-summary CLI and validation tools use this entry. The file CLI uses the same workflow and portable results.
   The previous 2D/3D mappings stay only as frozen test references for real native-result comparisons.
-- `solvers/backends/prepared_2d.py` and `prepared_3d.py` validate execution inputs for native execution.
+- `python/solvers/backends/prepared_2d.py` and `prepared_3d.py` validate execution inputs for native execution.
   `prepared_models.py` owns shared resource-role, fluid, Nu-setting and topology checks.
   Each builder keeps its check order and dimension-specific grid, port and design validation.
   Callers can request writable design copies; the binding borrows immutable arrays through the same checks.
-  `solvers/backends/cpp/full_2d_capture.py` captures portable native 2D evidence. Numerical drivers remain in C++.
+  `python/cpp_interface/solver_library/full_2d_capture.py` captures portable native 2D evidence. Numerical drivers remain in C++.
 - `applications/gui/ui/` owns PySide6 and PyVista presentation only. `ResultCache` owns one published `ComputeResult` for the accepted dimension.
   Both dimensions publish separate scalar, metadata, diagnostic and warning containers while sharing field arrays.
   The footer, history, diagnostic text, plots and exports read this result. Display timing is added to its metadata after publication.
@@ -835,7 +827,7 @@ Temperature is not scaled. FullCC nonzero sources stay
 They also include display pressures `P_fA/P_fB` (Pa), `L_mm/t_mm` (mm),
   and `dx/dy/dz` widths (m). Legacy `vmag/P_kPa` keys stay aliases for A-side magnitude and pressure in
   kPa. The display pressure reference is unchanged. Full native thermal states
-  and flux evidence belong to `results.h5`. `applications/gui/ui/typography.py` uses native sans-serif fonts for Qt and
+  and flux evidence belong to `results.h5`. `python/applications/gui/ui/typography.py` uses native sans-serif fonts for Qt and
   keeps publication fonts for Matplotlib/VTK, without bundling font files or
   importing Qt into lower layers.
 
@@ -914,9 +906,9 @@ Historical experimental cases and their original results are indexed in
 [retired tools](history/retired-tools.md). Rerunning their geometry under the
 current model produces a new comparison, not a reproduction of that experiment.
 
-Historical water-Nu comparisons remain in `development/tests/water_nu_reference.py`.
+Historical water-Nu comparisons remain in `tests/python/water_nu_reference.py`.
 The independent one-dimensional enthalpy reference remains in
-`development/tests/enthalpy_1d_reference.py` for its focused regression tests.
+`tests/python/enthalpy_1d_reference.py` for its focused regression tests.
 The former full 2D/3D Python enthalpy iterators are retired.
 Native audits and component replay cover their retained physical contracts.
 Production keeps the direct water CFD closure and native enthalpy driver.
@@ -1053,7 +1045,7 @@ topology/resolution pairs. At N=128, each index uses 32 MiB in addition to the
 Raw voxel and marching-cubes geometry also use C++.
 Sigmoid LUT node generation uses native raw geometry. Linear LUT interpolation now uses the native field core.
 Percolation, scans, Richardson extrapolation and target-C research use
-`development/runs/tools/asym_geometry_research.py`. Shared modules keep no forwarding aliases.
+`python/development/runs/tools/asym_geometry_research.py`. Shared modules keep no forwarding aliases.
 
 Standard symmetric field preparation batches sampled L/t arrays through the same geometry formulas as scalar queries.
 Array queries use the count index without adding entries to the scalar result cache.
@@ -1066,7 +1058,7 @@ Saved `parameters.thermal_geometry` fields and their validation remain unchanged
 Solid conductivity retains the shared chi rule and its explicit and environment overrides.
 Python resolves explicit chi, then the current `TPMSHX_CHI_S`, then the native fit on each call.
 Cached geometry does not freeze a material override.
-The independent `solvers/native/geometry/` CMake target needs no solver or EOS dependencies.
+The independent `geometry/` CMake target needs no solver or EOS dependencies.
 See [geometry build and deployment](cpp-migration.md#native-geometry-core) for library paths and publication.
 Changing C++ functions or compiled model data requires a rebuild and process restart.
 Historical result reading and offline postprocessing do not load the geometry library.
@@ -1113,11 +1105,11 @@ Source-table in-place updates remain visible. Attribute rebinding does not retar
 Each table selects its fast64/general path before double-buffer packing, using its current dtype, byte order and writability.
 Returned NumPy arrays do not expose native temporary storage.
 
-Replaced Python interpolation, overlap, zone and filter bodies are retired. Independent references remain under `development/tests/`.
+Replaced Python interpolation, overlap, zone and filter bodies are retired. Independent references remain under `tests/python/`.
 Python retains DTOs, NPZ/cache I/O, validation, GUI and BO orchestration.
 There is no numerical fallback or numerical callback into Python.
 Grids and design fields use the same geometry runtime. They add no distributed library or numerical framework.
-See the [fixed sources and local changes](../sjtu_tpmshx/solvers/native/geometry/fields-sources.md) for provenance and license duties.
+See the [fixed sources and local changes](../geometry/fields-sources.md) for provenance and license duties.
 
 Each continuous-field axis accepts at least one control. A singleton is
 recorded at the domain midpoint and stays constant along that axis. Other
@@ -1565,7 +1557,7 @@ area. Both dimensions share the same reduction. Air inlet-pressure correction al
 The outlet-cell
 anchor is iterated until the inlet open-area mean meets the specified absolute
 pressure within `1e-4` relative error. Both dimensions share pressure initialization and a bounded
-P-squared update in `sjtu_tpmshx/solvers/native/src/pressure_reference.cpp`. A positive 1D estimate above
+P-squared update in `numerics/pressure_reference.cpp`. A positive 1D estimate above
 the existing pressure floor is used as the initial outlet-cell anchor. An unusable isothermal estimate starts at the
 specified inlet pressure. Downward
 updates consume at most half the remaining squared-pressure distance to the
@@ -1776,12 +1768,12 @@ The public solver entry and native Python binding accept `checkpoint`, `checkpoi
 An optional `checkpoint_due` predicate prevents state export when no save is due.
 `SolverCheckpoint` stores those fields with the absolute prepared-case path and model references.
 Use `full_2d_continuation_v1` for 2D state; 3D retains `full_3d_continuation_v1`.
-The functions in `shared/io/solver_checkpoint_io.py` use the existing typed HDF5 record writer.
+The functions in `python/file_io/solver_checkpoint_io.py` use the existing typed HDF5 record writer.
 The writer closes a temporary file before atomic replacement.
 A failed write or process interruption before replacement preserves the previous checkpoint.
 This contract does not claim recovery from power loss.
 
-`applications.execution.recovery` uses the stages in package-level `compute.py` for start and resume.
+`applications.execution.recovery` uses the stages in package-level `python/compute.py` for start and resume.
 Each run owns a new directory with prepared input, a retained native library, checkpoint, and status.
 Each run retains its own library path. The process reuses a previously retained file only when its bytes match the selected library.
 This avoids repeated native initialization and retained property tables. A changed or moved runtime uses the new retained file.
@@ -1842,7 +1834,7 @@ termination or fixed wall-time cancellation guarantee. Cancelled runs do not pub
 ### UI structure
 
 Desktop preferences and session/history files use platform user directories,
-not the installed package. `applications/gui/controllers/user_storage.py` owns these paths. It imports missing known session/input files without deleting their originals. Appearance settings are read only from the current user configuration directory. Session, preset/configuration and workspace-marker saves use a unique temporary
+not the installed package. `python/applications/gui/controllers/user_storage.py` owns these paths. It imports missing known session/input files without deleting their originals. Appearance settings are read only from the current user configuration directory. Session, preset/configuration and workspace-marker saves use a unique temporary
 file in the destination directory before atomic replacement.
 
 Concurrent saves
@@ -1850,7 +1842,7 @@ are last-successful-replacement-wins. A failed write keeps the previous
 complete target and cleans up only its own temporary file.
 
 This does not merge
-simultaneous edits or give a transaction across separate files. `desktop.py` configures writable caches before loading the GUI and supplies the
+simultaneous edits or give a transaction across separate files. `python/desktop.py` configures writable caches before loading the GUI and supplies the
 installed entry point. Standalone packaging is described in [desktop builds](desktop.en.md).
 
 Existing sessions restore the complete input snapshot, including fluid types,
@@ -1871,7 +1863,7 @@ Both nonpositive primary widths select the full transverse span. Optional 3D spa
 Startup field checks and group error counts accept a blank centre/width pair for each optional 3D second transverse span.
 Incomplete pairs remain invalid. Group error counts exclude inactive inlet inputs, as startup checks do.
 
-The 2D preflight and preparation share physical grid construction in `shared/models/grid.py`.
+The 2D preflight and preparation share physical grid construction in `python/physical_models/grid.py`.
 The captured zone mode and port edges select the grid. Counts and port coverage use its actual cell widths.
 The 3D preflight uses uniform or port/wall grids with the requested total cell counts.
 If construction fails, preflight keeps independent port bounds checks but reports no effective grid or cell coverage.
@@ -1906,16 +1898,16 @@ its current input mode and value.
 Versioned complete files, preset libraries and startup sessions keep their
 full-restore/historical-default rules. Partial import does not redefine them.
 
-- `applications/gui/ui/builders_canvas.py` assembles the visible geometry, result, and
+- `python/applications/gui/ui/builders_canvas.py` assembles the visible geometry, result, and
   optimization workbench. `build_canvas_area()` only coordinates its named
   same-file builders.
-- `applications/gui/ui/mixins/tab_view.py` owns workbench availability and routing, including
+- `python/applications/gui/ui/mixins/tab_view.py` owns workbench availability and routing, including
   the 2D/3D result switch. Hidden widgets are not used as navigation state.
-- `applications/gui/ui/panel_vis_3d.py` owns the PyVista presentation. Its constructor delegates
+- `python/applications/gui/ui/panel_vis_3d.py` owns the PyVista presentation. Its constructor delegates
   toolbar, controls, viewport, state, and timer setup to focused methods while
   rendering behavior stays in the same widget class.
 
-`applications/gui/ui/background_tasks.py` prepares 3D modules in one window-owned QThread.
+`python/applications/gui/ui/background_tasks.py` prepares 3D modules in one window-owned QThread.
 Result display, optimization preview, and optional preinitialization share that preparation.
 Queued GUI callbacks create widgets and render the current data after imports finish.
 Compute controls stay locked until result publication and display finish.
@@ -1924,8 +1916,8 @@ The task owner also updates CPU-control availability; resource setup uses that o
 An import error keeps numerical results available for export and marks the view unavailable.
 Widget creation, font setup, Matplotlib, and OpenGL stay on the GUI thread.
 
-`applications/gui/ui/field_factory.py` owns result-value labels and unit parsing, so widget construction does not import page builders.
-`applications/gui/ui/fmt.py` formats recorded qualification reasons for both diagnostics and the result sidebar.
+`python/applications/gui/ui/field_factory.py` owns result-value labels and unit parsing, so widget construction does not import page builders.
+`python/applications/gui/ui/fmt.py` formats recorded qualification reasons for both diagnostics and the result sidebar.
 The import-cycle check covers UI modules, including imports inside functions.
 
 The result footer and history format scalar values from the published result.
@@ -1952,7 +1944,7 @@ explicit numerical-model change with directly relevant validation.
    with a constant-density or isothermal shortcut.
 2. **Porosity is split one time.** Symmetric LTNE callers pass the full porosity.
    The energy solver forms the two half-porosity streams. For an offset
-   isosurface, `solvers/native/src/preparation_case.cpp` computes the upstream `eps_A`/`eps_B`
+   isosurface, `preprocess/preparation_case.cpp` computes the upstream `eps_A`/`eps_B`
    split. Its sides sum to the full porosity. The kernel does not halve those
    values again.
 
@@ -1989,8 +1981,8 @@ It is not evidence of fluid-intrinsic D-F physics. Differences can absorb pressu
 Selecting them explicitly now raises an error. Their code,
    tables and results stay available through the [history index](history/legacy-models.md).
 5. **Nusselt ownership.** Air, water, and sCO2 base correlations belong to
-   `shared/models/nu_correlations.py`. The sole current sCO2 effective-parameter
-   resource is `shared/configs/sco2_effective_nu.json`, loaded by
+   `python/physical_models/nu_correlations.py`. The sole current sCO2 effective-parameter
+   resource is `python/model_configs/sco2_effective_nu.json`, loaded by
    `sco2_effective_nu_config()` as a validated `Sco2NuConfig`. The kept
    `alpha_D/alpha_G` fields are total Ceff, applied one time to the current base
    before the existing final Nu floor. There is no additional beta layer or
@@ -2012,7 +2004,7 @@ Selecting them explicitly now raises an error. Their code,
 
    See the
    [implementation and paired validation](history/README.en.md#2026-09-18-历史材料整理).
-6. **Compressible envelope.** `shared/models/envelope.py` validates the actual final pressure and local Mach fields. Nonfinite states, pressure at/below the
+6. **Compressible envelope.** `python/physical_models/envelope.py` validates the actual final pressure and local Mach fields. Nonfinite states, pressure at/below the
    existing 1000 Pa floor and Mach >= 1 stay invalid. Positive/subsonic
    fields must also meet the specified physical inlet pressure to converge.
    An unusable isothermal 1D initial estimate is a numerical startup issue,
@@ -2159,10 +2151,10 @@ Water's lower-speed extension
 
 ## Extension points
 
-- Add a fluid through `shared/models/fluid_props.py`.
-  Keep its Nu implementation in `shared/models/nu_correlations.py`.
+- Add a fluid through `python/physical_models/fluid_props.py`.
+  Keep its Nu implementation in `python/physical_models/nu_correlations.py`.
   Record its versioned resource. Use it through the public module APIs.
-- Add a user-facing configuration field to the `shared/domain/compute_config.py`
+- Add a user-facing configuration field to the `python/data_types/compute_config.py`
   dataclasses first. Adapt it one time at the UI boundary.
 - Add a solver behavior behind an existing configuration boundary only when a
   current use case requires it. Do not introduce a factory or interface for a
