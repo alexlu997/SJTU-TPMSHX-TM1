@@ -577,22 +577,24 @@ Generate the two model headers with the interpreter from `.venv-path`:
 
 ```sh
 "$PYTHON" -m engineering.scripts.generate_native_model_coefficients \
-  --output .cache/stages/generated/tpmshx/model_coefficients.hpp \
-  --df-output .cache/stages/generated/tpmshx/preparation_df_data.hpp
+  --output .cache/stages-sdk/generated/tpmshx/model_coefficients.hpp \
+  --df-output .cache/stages-sdk/generated/tpmshx/preparation_df_data.hpp
 ```
 
+Use a new build directory and install prefix when upgrading from the previous source layout.
+Keep any installation that supplies a historical run.
 Use the locked CMake executable. On macOS, supply the distinct preparation and
 solver archives from the accepted native dependency cache:
 
 ```sh
-"$CMAKE" -S . -B .cache/stages/build \
+"$CMAKE" -S . -B .cache/stages-sdk/build \
   -DTPMSHX_NATIVE_DEPS_ROOT="$PWD/.cache/native-deps" \
-  -DTPMSHX_MODEL_INCLUDE_DIR="$PWD/.cache/stages/generated" \
+  -DTPMSHX_MODEL_INCLUDE_DIR="$PWD/.cache/stages-sdk/generated" \
   -DTPMSHX_PREPARATION_COOLPROP_LIBRARY="$PWD/.cache/native-deps/build/coolprop-preparation-macos-arm64/libCoolProp.a" \
   -DTPMSHX_SOLVER_COOLPROP_LIBRARY="$PWD/.cache/native-deps/build/coolprop-macos-arm64/libCoolProp.a" \
-  -DCMAKE_INSTALL_PREFIX="$PWD/.cache/stages/install"
-"$CMAKE" --build .cache/stages/build --config Release --parallel 1
-"$CMAKE" --install .cache/stages/build --config Release
+  -DCMAKE_INSTALL_PREFIX="$PWD/.cache/stages-sdk/install"
+"$CMAKE" --build .cache/stages-sdk/build --config Release --parallel 1
+"$CMAKE" --install .cache/stages-sdk/build --config Release
 ```
 
 Windows uses `-A x64` and the locked `Release/CoolProp.lib` archive for both
@@ -654,10 +656,10 @@ These examples use only installed public headers and shared libraries.
 The Windows build copies the required DLLs beside each executable.
 
 ```sh
-"$CMAKE" -S examples/cpp -B .cache/stages/examples \
-  -DCMAKE_PREFIX_PATH="$PWD/.cache/stages/install"
-"$CMAKE" --build .cache/stages/examples --config Release
-"$CTEST" --test-dir .cache/stages/examples -C Release --output-on-failure
+"$CMAKE" -S examples/cpp -B .cache/stages-sdk/examples \
+  -DCMAKE_PREFIX_PATH="$PWD/.cache/stages-sdk/install"
+"$CMAKE" --build .cache/stages-sdk/examples --config Release
+"$CTEST" --test-dir .cache/stages-sdk/examples -C Release --output-on-failure
 ```
 
 C++ preparation, run and evaluation objects can move but cannot copy.

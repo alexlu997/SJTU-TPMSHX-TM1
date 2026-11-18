@@ -19,7 +19,7 @@ They do not call the native formulas that they check.
 
 ## Scalar inlet-property combination
 
-`src/preparation_case.cpp::inlet_property_values` owns the existing scalar sequence for standalone queries and complete preparation.
+`preprocess/preparation_case.cpp::inlet_property_values` owns the existing scalar sequence for standalone queries and complete preparation.
 It calls the existing property, Re/Pr, Nu, surface-transfer, fixed DF, pressure-gradient and pore-conductivity implementations.
 It preserves their order, scalar kinds, floating-point events and source range records.
 Raw queries retain the previous complex Nu and H_sf intermediates and Python property-conversion failures.

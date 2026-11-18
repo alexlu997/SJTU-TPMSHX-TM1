@@ -507,21 +507,22 @@ Python 适配器通过该检查点，在此前几何和物性检查之后保留�
 
 ```sh
 "$PYTHON" -m engineering.scripts.generate_native_model_coefficients \
-  --output .cache/stages/generated/tpmshx/model_coefficients.hpp \
-  --df-output .cache/stages/generated/tpmshx/preparation_df_data.hpp
+  --output .cache/stages-sdk/generated/tpmshx/model_coefficients.hpp \
+  --df-output .cache/stages-sdk/generated/tpmshx/preparation_df_data.hpp
 ```
 
+从旧源码目录升级时，使用新的构建目录和安装前缀。保留供历史任务使用的已安装运行库。
 使用锁定的 CMake 可执行文件。macOS 分别提供已验收依赖缓存中的准备和求解 archive：
 
 ```sh
-"$CMAKE" -S . -B .cache/stages/build \
+"$CMAKE" -S . -B .cache/stages-sdk/build \
   -DTPMSHX_NATIVE_DEPS_ROOT="$PWD/.cache/native-deps" \
-  -DTPMSHX_MODEL_INCLUDE_DIR="$PWD/.cache/stages/generated" \
+  -DTPMSHX_MODEL_INCLUDE_DIR="$PWD/.cache/stages-sdk/generated" \
   -DTPMSHX_PREPARATION_COOLPROP_LIBRARY="$PWD/.cache/native-deps/build/coolprop-preparation-macos-arm64/libCoolProp.a" \
   -DTPMSHX_SOLVER_COOLPROP_LIBRARY="$PWD/.cache/native-deps/build/coolprop-macos-arm64/libCoolProp.a" \
-  -DCMAKE_INSTALL_PREFIX="$PWD/.cache/stages/install"
-"$CMAKE" --build .cache/stages/build --config Release --parallel 1
-"$CMAKE" --install .cache/stages/build --config Release
+  -DCMAKE_INSTALL_PREFIX="$PWD/.cache/stages-sdk/install"
+"$CMAKE" --build .cache/stages-sdk/build --config Release --parallel 1
+"$CMAKE" --install .cache/stages-sdk/build --config Release
 ```
 
 Windows 使用 `-A x64`，两种角色都使用锁定的 `Release/CoolProp.lib` archive；具体路径
@@ -574,10 +575,10 @@ target_link_libraries(my_program PRIVATE tpmshx::result)
 Windows 构建会将所需 DLL 复制到可执行文件旁。
 
 ```sh
-"$CMAKE" -S examples/cpp -B .cache/stages/examples \
-  -DCMAKE_PREFIX_PATH="$PWD/.cache/stages/install"
-"$CMAKE" --build .cache/stages/examples --config Release
-"$CTEST" --test-dir .cache/stages/examples -C Release --output-on-failure
+"$CMAKE" -S examples/cpp -B .cache/stages-sdk/examples \
+  -DCMAKE_PREFIX_PATH="$PWD/.cache/stages-sdk/install"
+"$CMAKE" --build .cache/stages-sdk/examples --config Release
+"$CTEST" --test-dir .cache/stages-sdk/examples -C Release --output-on-failure
 ```
 
 准备态、运行结果和评估结果是可移动、不可复制的 C++ 对象。运行结果拥有评估所需的证据，

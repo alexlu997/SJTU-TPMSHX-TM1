@@ -25,7 +25,7 @@ All SciPy links use **v1.18.1**. All NumPy links use **v2.5.4**.
 
 ### XY
 
-[src/continuous/xy_fitpack.c](continuous/xy_fitpack.c) retains `fpback`, `fpbspl`, `fpbisp`, `fpgivs`, `fprota` and the interpolation branch of `fpgrre`.
+[geometry/continuous/xy_fitpack.c](continuous/xy_fitpack.c) retains `fpback`, `fpbspl`, `fpbisp`, `fpgivs`, `fprota` and the interpolation branch of `fpgrre`.
 The knot assembly follows the first-fit `fpregr` branch.
 Smoothing search, continued fits, knot insertion and Python extension allocation are excluded.
 The wrapper owns storage and checks dimensions before numerical access.
@@ -37,7 +37,7 @@ It does not establish Windows arithmetic identity.
 
 ### XYZ and singleton XY
 
-[src/continuous/tensor_spline.cpp](continuous/tensor_spline.cpp) uses fixed-size basis storage and project-owned band storage.
+[geometry/continuous/tensor_spline.cpp](continuous/tensor_spline.cpp) uses fixed-size basis storage and project-owned band storage.
 Derivative, periodic and general SciPy extension branches are excluded.
 The scalar band solver uses partial pivoting. It does not copy or link LAPACK `gbsv` or vendor BLAS.
 Each axis is fitted and sampled before the next axis, in x/y/z order.
@@ -49,7 +49,7 @@ Existing raw spline `1e-13` and physical-polynomial `3e-14` checks do not establ
 
 ### Sigmoid and LUT
 
-[src/field_sigmoid.cpp](field_sigmoid.cpp) retains the original project sigmoid and ordered layer blending.
+[geometry/field_sigmoid.cpp](field_sigmoid.cpp) retains the original project sigmoid and ordered layer blending.
 It reuses grid scalar precision operations. It does not replace the sequence with normalized layer weights.
 Float16 exponential inputs use float exp and their original rounding; float64 uses double exp.
 Float32 follows the actual NumPy dispatch. The adapter reads public `np.lib.introspect.opt_func_info` metadata.
@@ -61,7 +61,7 @@ It rejects older candidate field libraries before calling them. Geometry ABI 1 a
 The Python adapter retains the supported exp warning policy and original call order.
 It does not emulate every NumPy ufunc error mode.
 
-[src/field_lut.cpp](field_lut.cpp) implements the two-table linear query in the original corner order.
+[geometry/field_lut.cpp](field_lut.cpp) implements the two-table linear query in the original corner order.
 Each table keeps its own fast64/general path, selected before double-buffer conversion.
 Current dtype, byte order and writability affect that choice.
 The Python DTO captures axes/table references and retains its creating library.
@@ -70,7 +70,7 @@ NPZ validation and cache I/O remain in Python. The native query adds no paramete
 
 ### Grids, ports and zones
 
-[src/grid.cpp](grid.cpp), [src/ports.cpp](ports.cpp) and [src/zones.cpp](zones.cpp) retain the original project rules.
+[geometry/grid.cpp](grid.cpp), [geometry/ports.cpp](ports.cpp) and [geometry/zones.cpp](zones.cpp) retain the original project rules.
 These include ordered assignment, scalar promotion, allocation ties, compensated Python-float sum prefixes and endpoint compensation.
 The pressure solver and preparation use one lightweight port owner.
 No second solver or EOS dependency is introduced.

@@ -169,7 +169,7 @@ Python restores the output dtype and shape; it supplies no numerical fallback.
 Formal nonzero asymmetric preparation keeps the original explicit Python-float conversion for L/t and length.
 Its native arithmetic stays float64.
 
-The local implementation is in [src/geometry](.).
+The local implementation is in [geometry/](.).
 The cell state and ambiguity tests were translated from Cython to C++17.
 Lookup data were decoded into signed-byte C++ tables without changing their dimensions or order.
 The port keeps all 47 non-classic tables. It has no classic, mask, normal or value output mode.
