@@ -112,7 +112,8 @@ def test_checkout_preserves_published_submodule_identity():
                     + PUBLIC_NAME_CHECK], cwd=root, check=True, timeout=60)
 
 
-def test_published_workbook_module_command():
+def test_published_workbook_module_command(monkeypatch):
+    monkeypatch.setenv('PYTHONIOENCODING', 'cp1252:strict')
     from pathlib import Path
     root = Path(__file__).resolve().parents[2]
     result = subprocess.run([sys.executable, '-m', 'sjtu_tpmshx.shared.df_surrogate.ingest_cfd_kappa', '--help'],

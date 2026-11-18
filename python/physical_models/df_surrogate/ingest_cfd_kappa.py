@@ -1,4 +1,4 @@
-"""ingest_cfd_kappa.py — turn external ANSYS Fluent per-side runs into κ tables.
+"""ingest_cfd_kappa.py - turn external ANSYS Fluent per-side runs into kappa tables.
 
 Reads a Fluent results CSV (one row per design point per side) with columns:
 
@@ -7,17 +7,17 @@ Reads a Fluent results CSV (one row per design point per side) with columns:
 computes the **relative-ratio** correction against the existing symmetric
 Darcy-Forchheimer baseline:
 
-    κ_K(r)  = K_cfd  / K_sym ,    κ_cF(r) = cF_cfd / cF_sym ,    r = ε_side/ε_sym
+    kappa_K(r)  = K_cfd  / K_sym ,    kappa_cF(r) = cF_cfd / cF_sym ,    r = epsilon_side/epsilon_sym
 
-where (K_sym, cF_sym) = ``predict.predict_K_cF(tpms, L, t, ε_sym)``. This
+where (K_sym, cF_sym) = ``predict.predict_K_cF(tpms, L, t, epsilon_sym)``. This
 denominator is the current symmetric model prediction, not a paired CFD run;
 the ratio can therefore include differences in CFD recipe and model baseline.
 For the separate same-recipe CFD self-ratio workflow, use
 ``sjtu_tpmshx.development.runs.cfd_asym.asym_postproc_kappa`` instead.
 
-Tables use piecewise linear interpolation on sorted r with flat ends; κ is not
-constrained to be monotone. A (1, 1) point is added only when r≈1 is absent;
-supplied r≈1 values are retained. The outer ``kappa_asym.kappa_KcF`` caller has
+Tables use piecewise linear interpolation on sorted r with flat ends; kappa is not
+constrained to be monotone. A (1, 1) point is added only when r~=1 is absent;
+supplied r~=1 values are retained. The outer ``kappa_asym.kappa_KcF`` caller has
 its own symmetric-r identity guard.
 
 ``ingest`` registers tables in the calling Python process only. Research code
@@ -43,9 +43,9 @@ _log = get_logger(__name__)
 
 
 def _linear_interp(r_pts, k_pts):
-    """Interpolate sorted (r, κ), with flat ends and no monotonicity constraint.
+    """Interpolate sorted (r, kappa), with flat ends and no monotonicity constraint.
 
-    Add (1, 1) only if r≈1 is absent; retain a supplied near-symmetric value.
+    Add (1, 1) only if r~=1 is absent; retain a supplied near-symmetric value.
     """
     r = list(r_pts)
     k = list(k_pts)
@@ -87,9 +87,9 @@ def ingest(path: str) -> dict:
         kappa_asym.set_kappa_table(tpms, kK_fn, kcF_fn)
         summary[tpms] = len(d["r"])
         print(f"[kappa] {tpms}: {len(d['r'])} points, "
-              f"r∈[{min(d['r']):.3f},{max(d['r']):.3f}], "
-              f"κ_K∈[{min(d['kK']):.3f},{max(d['kK']):.3f}], "
-              f"κ_cF∈[{min(d['kcF']):.3f},{max(d['kcF']):.3f}]")
+              f"r in [{min(d['r']):.3f},{max(d['r']):.3f}], "
+              f"kappa_K in [{min(d['kK']):.3f},{max(d['kK']):.3f}], "
+              f"kappa_cF in [{min(d['kcF']):.3f},{max(d['kcF']):.3f}]")
     print(f"[kappa] registered {len(summary)} tpms tables in this process only. "
           "Research callers can explicitly evaluate kappa_KcF(..., enabled=True). "
           "Production preparation does not consume these tables; no calibration was installed.")
