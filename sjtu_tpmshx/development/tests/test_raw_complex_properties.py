@@ -5,7 +5,7 @@ import warnings
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.development.tests import nu_reference, property_reference
+from sjtu_tpmshx.development.tests import df_reference, nu_reference, property_reference
 from sjtu_tpmshx.development.tests.test_property_fp_diagnostics import assert_sentinel, sentinel_result
 from sjtu_tpmshx.shared.models import _native_properties as native
 from sjtu_tpmshx.shared.models import design_fluids, nu_correlations, tpms_calc
@@ -93,7 +93,6 @@ def test_raw_compute_negative_speed_keeps_complex_outputs(monkeypatch):
     diameter = np.float64(.002)
     geometry = dict(epsilon=.8, epsilon_A=.4, epsilon_B=.4, A_0=np.float64(1200.), D_h=diameter)
     monkeypatch.setattr(tpms_calc, '_tpms_geom', lambda *args: dict(geometry))
-    monkeypatch.setattr(tpms_calc, 'predict_K_cF', lambda *args, **kwargs: (1e-8, 100.))
     tpms_calc.compute.cache_clear()
     try:
         with warnings.catch_warnings():
@@ -104,8 +103,11 @@ def test_raw_compute_negative_speed_keeps_complex_outputs(monkeypatch):
         rho = float(property_reference.air_density(300., 101325.))
         re = rho * -.2 * diameter / mu
         nu = nu_reference.nu_from_Re('Gyroid', re, .4, 6., diameter * 1000.)
+        permeability, forchheimer = df_reference.predict_K_cF('Gyroid', 6., .4, .4)
         for actual_value, expected_value in ((actual['Re'], re), (actual['Nu'], nu),
-                                             (actual['H_sf'], nu * k / diameter)):
+                                             (actual['H_sf'], nu * k / diameter),
+                                             (actual['K_df'], permeability),
+                                             (actual['cF_df'], forchheimer)):
             equal(observe(lambda: actual_value), observe(lambda: expected_value))
     finally:
         tpms_calc.compute.cache_clear()

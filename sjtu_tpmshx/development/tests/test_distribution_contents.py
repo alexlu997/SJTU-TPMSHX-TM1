@@ -99,9 +99,11 @@ def test_source_archive_rejects_the_confirmed_native_source_omission(project, tm
         distributions.inspect_sdist(archive, project)
 
 
-def test_source_archive_rejects_retired_quick_numerics(project, tmp_path):
+@pytest.mark.parametrize("name", ["sjtu_tpmshx/shared/models/quick_design.py",
+                                  "sjtu_tpmshx/preprocess/thermal_geometry.py"])
+def test_source_archive_rejects_retired_numerics(project, tmp_path, name):
     archive = tmp_path / "source.tar.gz"
-    source_archive(project, archive, extra={"sjtu_tpmshx/shared/models/quick_design.py": b"retired code"})
+    source_archive(project, archive, extra={name: b"retired code"})
     with pytest.raises(ValueError, match="excluded state or code"):
         distributions.inspect_sdist(archive, project)
 
@@ -110,6 +112,7 @@ def test_source_archive_rejects_retired_quick_numerics(project, tmp_path):
     "sjtu_tpmshx/solvers/native/lib/macos-arm64/libtpmshx_preparation_shared.dylib",
     "sjtu_tpmshx/shared/models/local_heat_transfer.py",
     "sjtu_tpmshx/shared/models/quick_design.py",
+    "sjtu_tpmshx/preprocess/thermal_geometry.py",
     "sjtu_tpmshx/development/tests/__init__.py",
     "sjtu_tpmshx/development/tests/native/reference.py",
     "sjtu_tpmshx/development/tests/native/bridge.cpp"])

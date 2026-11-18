@@ -29,6 +29,16 @@ Python keeps public types, cache interfaces and per-call explicit/environment/fi
 `shared/models/preparation_cache.py` owns the bounded geometry and inlet-property caches.
 Public scalar calls and native preparation checkpoints use the same values, types, range records and access order.
 Cache misses use the existing C++ numerical functions; current material conductivity and chi are not cached.
+`tpms_calc._compute_cached` sends each inlet-property miss to one native `query_inlet_properties` call after the existing geometry query.
+`preparation_case.cpp` combines the existing property, Re, Pr, Nu, fixed DF and heat-transfer owners in their original order.
+The query returns twelve typed scalars without a grid, CaseData or solver.
+Python retains cache keys and access order, mutable public result copies, and the private cp/Pr cache fields.
+It also retains object conversion, warning filters and source locations, and NumPy event policy.
+`shared/models/_native_preparation_case.py` shares range-record transport with the preparation adapters.
+Raw complex Nu and surface-transfer values retain their existing behavior; complete-case physical guards stay unchanged.
+The combined query calls native EOS directly and does not populate the standalone EOS wrapper caches.
+Quick Design preparation shares those wrapper caches through its host operations.
+See the [inlet-property query](native-stages.md#inlet-property-query) for its C and C++ interfaces.
 
 Scalar standard geometry keeps the original NumPy float16, float32 and float64 intermediate rounding in C++.
 The binding sends precision metadata for cell conversion and the wall/cell ratio.
@@ -75,7 +85,7 @@ The result target is `solvers/native/result/`. It uses C++17 and system librarie
 Named metric, balance and check kernels preserve independent field reductions and their original operation order.
 `shared/_native_result.py` loads the prebuilt image on demand. Imports and pure HDF/JSON reads do not load it.
 Python keeps DTOs, type and shape adaptation, NumPy events and application display.
-The native result stage selects full 2D/3D evidence and owns its status, reason and qualification.
+The native result stage evaluates full 2D/3D evidence and owns its status, reasons and qualification.
 Typed byte views preserve integer storage, extended precision, byte order and signed strides.
 Failure does not commit numerical outputs. Ordered floating-point events retain the caller's NumPy error policy.
 Explicit object and arbitrary integer protocols remain only at demonstrated Python-only conversion points.
@@ -210,7 +220,8 @@ Current Python entry points keep their supported modes. This migration does not 
 <a id="retained-python-responsibilities"></a>
 
 Python keeps public APIs, configuration, data objects, type/byte-order/shape adaptation, file I/O, caches and application warning text.
-Full result evidence selection and qualification belong to the native stage. Python adapts the returned objects and applies NumPy event policy.
+The native stages classify applicability ranges and select required records for current saved runs.
+The native result stage owns evaluation and qualification. Python keeps original source fields, host notices and NumPy event policy.
 Python modules also own GUI display, input validation, application searches, BO, offline data processing and fitting.
 The following boundaries keep their original arithmetic and consumers:
 
@@ -219,6 +230,11 @@ The following boundaries keep their original arithmetic and consumers:
 - Range summaries for standalone getter, geometry and sCO2 messages, GUI previews and nTop export statistics. C++ still owns formal range collection and qualification checks.
 - The `ports_complete` injected-ledger check and default input adaptation for independent low-level drivers. Current native ledgers return an explicit completeness flag.
 - Direct low-level and archived-runtime 3D capture calculations, independent development references and research fits. Current saved-stage capture owns the audit display taper. Formal ports and metrics use actual native face evidence.
+
+`shared/result_math.py` keeps the four raw pressure, duty and outlet queries and the public conservation certificate.
+Its unused private boundary-power validation chain is retired; independent result references keep their own implementation.
+The two model-h audit references use `boundary_zeros` and `heat_ledger` from their existing `thermal_face_audit.py` module.
+These test helpers are excluded from runtime wheels. `solvers/physical_ledger.py` retains only the supported `ports_complete` check.
 
 The native full-compute CC route uses the existing air/water integral h(T)
 model through strict model-h drivers. Earlier variable-cp m*cp*T failures
@@ -296,6 +312,8 @@ It records each side's flow and heat-transfer resource separately from its energ
 An EOS energy relation records the HEOS fluid and the actual thermal pressure field.
 Integral h(T), capacity temperature transport and prescribed temperatures remain distinct.
 The record copies returned algorithm identifiers, effective settings and state labels.
+`execution_record.py` selects recorded energy samples and describes each side's actual execution identity.
+This host interpretation does not decide qualification.
 A missing algorithm identifier stays null; requested settings do not establish execution.
 For CO2 and sCO2, the initial inverse backend applies only to its listed sides.
 The HEOS finishing flag remains explicit.
@@ -494,6 +512,17 @@ They retain scalar shape, first ties, the worst sample and the last sample.
 The separate raw-Re observation still uses the full cell array.
 The additive C queries borrow the existing result owner. The bindings copy
 their values before release and require a current library.
+
+Current saved 2D/3D runs copy the native version, `inlet_recorded` flag, inlet/final groups and required records before result release.
+`solvers/api.py` publishes these values without repeating range classification.
+Saved inlet rows retain their host fields and scalar types in native order.
+A native constraint replaces the recorded constraint when present.
+Missing records, empty sets, uncaptured rows and samples with no finite values remain distinct.
+The host combines case notices and run `nu-evidence` warning records into `scope_notes`.
+This preserves empty strings, embedded NUL characters, callback records, order and duplicate removal.
+Independent C++ stages keep their native scope notes.
+Direct and archived-runtime paths retain `capture_applicability`.
+A capture failure in the current stage raises an error; it does not select that path.
 
 `postprocess.api.evaluate_applicability(result)` reads this evidence without
 an EOS or solver call. It checks the inlet and last local correlation inputs,
@@ -1031,6 +1060,9 @@ Array queries use the count index without adding entries to the scalar result ca
 Floating-point powers preserve the scalar formula's rounding.
 Three-dimensional preparation evaluates original and SI-roundtripped lengths separately.
 This keeps design porosity and thermal geometry on their original inputs.
+Full 2D/3D preparation combines thermal geometry in the native stage.
+The replaced Python helper is retained only in the independent development reference.
+Saved `parameters.thermal_geometry` fields and their validation remain unchanged.
 Solid conductivity retains the shared chi rule and its explicit and environment overrides.
 Python resolves explicit chi, then the current `TPMSHX_CHI_S`, then the native fit on each call.
 Cached geometry does not freeze a material override.
@@ -1230,17 +1262,19 @@ Public and optimizer batches use the same objective calculation and weights.
 Only a complete numerically accepted batch can publish the two objectives.
 The baseline must have positive B-side heat uptake `-Q_B` and positive pressure
 drops; objective signs and equal weights do not change for CO2/sCO2.
-In addition to native convergence, model-h 3D reuses the existing full-control-volume
-certificate from `postprocess.conservation.compute_phase2a`. Each fluid's
+Native model-h 3D finishing, result qualification and the public conservation audit
+enforce the same full-control-volume rules. Each fluid's
 global/cellmax residual and the LTNE source imbalance must stay below 1%.
 The source ratio uses `max(abs(Q_sA), abs(Q_sB), 1 W)`, the existing
 strict-energy zero-duty scale. Thus the absolute source residual must stay
 below 0.01 W near zero duty. The native result uses this rule.
-The physical boundary ledger must be complete. Native 3D finishing and the
-conservation audit use the same pure certificate function in `shared.result_math`.
-The public postprocessing entry accepts `FieldResult` only and extracts its
-recorded certificate; numerical kernels pass their local evidence directly to
-the pure function.
+The physical boundary ledger must be complete. `model_h_3d.cpp` forms finishing
+gates from local numerical evidence. `result_stage.cpp` calls the native
+`checks::strict_certificate` with recorded result evidence. The public
+`postprocess.conservation.compute_phase2a` entry accepts `FieldResult` only.
+It extracts the recorded evidence and calls `shared.result_math.compute_phase2a`
+to assemble the full public certificate. That function uses native checks for
+numerical reductions and keeps the public labels and missing-evidence rules.
 
 The 2D branch requires the native main/fine
 model-h balances, complete physical boundaries and Richardson acceptance.

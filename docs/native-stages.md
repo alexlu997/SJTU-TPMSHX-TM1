@@ -47,7 +47,7 @@ The native result stage owns Quick Design metrics and retains typed intermediate
 The host query uses borrowed typed evidence and preserves deferred input errors. It delivers NumPy events before each primitive returns.
 A callback error is handled at the original metric or qualification boundary. An uncaught host error retains its original Python object.
 Callbacks do not own query state. Deferred errors keep their exception objects, cause/context links and group members. Earlier tracebacks on those objects are discarded. Query exit clears deferred error references, including input-packing failures; borrowed fields do not wait for cyclic garbage collection.
-Published v1 C layouts and queries remain available. Release every output through the library that created it.
+Published v1 C layouts and queries remain available. Release each owned output through the library that created it.
 Result calls reject a wrong output size or an owner that was not released.
 Those rejected calls preserve borrowed inputs, the old output and diagnostic storage.
 
@@ -55,6 +55,60 @@ The supported 2D and 3D C++ call sequence is `prepare_case`, `run_case`, then `e
 The caller supplies dimensions, design values, boundary conditions and controls.
 The preparation library computes the physical fields. The solver library uses
 that prepared state. The result library evaluates recorded evidence.
+
+Current public saved 2D/3D runs copy applicability groups and required records from existing C evidence before result release.
+The API publishes these values without repeating classification.
+Saved inlet rows keep host fields and scalar types in native order; native constraints replace recorded constraints when present.
+Python combines case notices and run `nu-evidence` warning records for `scope_notes`.
+It preserves complete strings and callback records, including embedded NUL characters.
+It retains their order and removes duplicate messages.
+Independent C++ stages use their native scope notes.
+Direct and archived-runtime paths retain `capture_applicability`. A capture error does not select that path.
+`execution_record.py` interprets actual execution identity and property sampling; the result stage decides qualification.
+
+## Inlet-property query
+
+`InletPropertyQuery` and `query_inlet_properties` in `stages.hpp` expose the existing scalar inlet combination.
+The C entry is `tpmshx_query_inlet_properties_v1` in `preparation_case_c_api.h`.
+Supply topology, L/t in mm, inlet velocity, temperature, pressure and optional sCO2 Nu selection.
+Also supply hydraulic diameter in m and single-stream porosity from the selected geometry owner.
+The query calculates no geometry, grid, ports or solver fields.
+It uses the existing four-fluid property, Nu and fixed CFD drag rules in their original order.
+`exact_co2_drag` selects the existing CO2 drag factors independently of the supplied geometry.
+
+The result contains twelve inline values in this order:
+
+| Index | Value | Unit |
+| --- | --- | --- |
+| 0 | rho | kg/m³ |
+| 1 | mu | Pa·s |
+| 2 | k_f | W/(m·K) |
+| 3 | cp | J/(kg·K) |
+| 4 | Pr | dimensionless |
+| 5 | Re | dimensionless |
+| 6 | Nu | dimensionless |
+| 7 | K_df | m² |
+| 8 | cF_df | 1/m |
+| 9 | dP_per_L | Pa/m |
+| 10 | H_sf | W/(m²·K) |
+| 11 | K_ff | W/(m·K) |
+
+Each value carries real and imaginary components, scalar kind and category.
+Category 1 denotes a complex value. Raw Nu and H_sf retain existing complex intermediates.
+This query does not change complete-case validation or add a physical mode.
+It creates no owner. Copy the result freely; no release call is needed.
+Failure preserves the result and returns the existing property diagnostics and Python cause code through the C failure structure.
+
+Optional callbacks use the v3 layout, with both cache hooks set to NULL.
+Range, notice and floating-point callbacks run synchronously in calculation order.
+Host stage 4 defers object checks to the original operation; it supplies no numerical values.
+A nonzero callback result stops the query. Result, failure and error storage must be mutually disjoint.
+They must not overlap input, callbacks or borrowed input text.
+
+Python `tpms_calc.compute` keeps its public fields, cache methods and fresh result copies.
+It selects geometry before the query and calculates current K_ss with the existing material owner after the cache lookup.
+Its binding shares range and warning transport with complete preparation.
+The [fluid preparation example](../examples/cpp/prepare_fluids_2d.cpp) also queries all four fluids through installed headers.
 
 ## Ownership and units
 
@@ -66,7 +120,7 @@ that prepared state. The result library evaluates recorded evidence.
   existing `(cross, stream)` order for each side.
 - A successful call that returns owned arrays has one owner. Its array and text views belong to that owner.
   Release it through the same library after the last use. Do not copy owners or free their buffers with a caller allocator.
-  Scalar-only queries, including Quick pressure fractions v2, return values and need no release.
+  Scalar-only queries, including inlet properties v1 and Quick pressure fractions v2, return values and need no release.
 - Diagnostic storage must be separate from every retained preparation view, including owned LUT arrays.
   An overlapping call returns invalid status without changing the result or diagnostic storage.
 - Callbacks receive borrowed event views on the caller thread. They do not
@@ -152,7 +206,7 @@ The query multiplies each pair after the existing nonnegative check.
 NaN, infinity and signed zero retain their existing arithmetic behavior.
 The copied summary owns no pointers and remains valid after result release.
 Use existing raw evidence queries for fields, histories and numerical ledgers.
-The Python production mapper and its historical-runtime route remain unchanged.
+The scalar mapper and historical-runtime capture calculations keep their existing behavior.
 
 ## Uniform total mass flow
 

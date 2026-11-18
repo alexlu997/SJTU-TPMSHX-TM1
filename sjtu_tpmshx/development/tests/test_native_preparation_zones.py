@@ -47,7 +47,7 @@ def native():
 
 @pytest.fixture(autouse=True)
 def clear_reference_caches():
-    from sjtu_tpmshx.shared.models.tpms_calc import compute
+    from sjtu_tpmshx.development.tests.property_reference import compute
     from sjtu_tpmshx.shared.models.tpms_geometry import compute_geometry
     compute.cache_clear();compute_geometry.cache_clear()
     yield
@@ -112,7 +112,8 @@ def _release(native, result):
 
 def _check_region_values(result, config):
     from sjtu_tpmshx.shared.domain.run_warnings import warning_scope
-    from sjtu_tpmshx.shared.models.tpms_calc import compute, geometry
+    from sjtu_tpmshx.development.tests.property_reference import compute
+    from sjtu_tpmshx.shared.models.tpms_calc import geometry
     regions = _regions(config)
     if config.zones.axis != 'grid':
         regions.sort(key=lambda region: region[1][0])

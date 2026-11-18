@@ -84,7 +84,7 @@ def _model_h_balance(Ta, Tb, Ts, K_A, K_B, K_s, hv_A, hv_B, dx, dy,
     def boundaries(face):
         return (-face[0][0], face[0][-1], -face[1][:, 0], face[1][:, -1])
 
-    from sjtu_tpmshx.solvers.physical_ledger import FACE_NAMES, boundary_zeros, heat_ledger
+    from sjtu_tpmshx.development.tests.native.thermal_face_audit import FACE_NAMES, boundary_zeros, heat_ledger
     sides = {}
     advection, diffusion = [], []
     residuals = []

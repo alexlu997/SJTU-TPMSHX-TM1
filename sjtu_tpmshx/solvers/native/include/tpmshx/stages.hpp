@@ -86,6 +86,14 @@ struct CaseInput2Dv2 : tpmshx_preparation_case_input_2d_v2 {
         for (auto& side:kinds.sides) side.velocity=side.temperature=side.pressure={64,0,0};
     }
 };
+struct InletPropertyQuery : tpmshx_preparation_inlet_query_input_v1 {
+    InletPropertyQuery():tpmshx_preparation_inlet_query_input_v1{} {
+        abi_version=1;struct_size=sizeof(tpmshx_preparation_inlet_query_input_v1);
+        inlet.geometry.cell_kind=inlet.geometry.wall_kind={64,0,0};
+        inlet.kinds.velocity=inlet.kinds.temperature=inlet.kinds.pressure={64,0,0};
+        diameter_kind=epsilon_kind={64,0,0};
+    }
+};
 struct CaseInput3D : tpmshx_preparation_case_input_3d_v1 {
     CaseInput3D():tpmshx_preparation_case_input_3d_v1{} {
         abi_version=TPMSHX_PREPARATION_CASE_3D_ABI_VERSION;struct_size=sizeof(tpmshx_preparation_case_input_3d_v1);
@@ -355,6 +363,15 @@ private:
     }
     void* run_=nullptr;
 };
+inline tpmshx_preparation_inlet_query_result_v1 query_inlet_properties(
+    const InletPropertyQuery& input,const tpmshx_preparation_case_callbacks_v3* callbacks=nullptr) {
+    tpmshx_preparation_inlet_query_result_v1 output{};
+    output.abi_version=1;output.struct_size=sizeof(output);
+    tpmshx_preparation_case_failure_v2 failure{};
+    failure.abi_version=2;failure.struct_size=sizeof(failure);char error[4096]{};
+    detail::check(tpmshx_query_inlet_properties_v1(&input,callbacks,&output,&failure,error,sizeof(error)),error);
+    return output;
+}
 inline PreparedCase2D prepare_case(const CaseInput2D& input,const PreparationOptions& options={}) {
     tpmshx_preparation_case_2d_v1 output{};
     output.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION;output.struct_size=sizeof(output);

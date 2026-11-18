@@ -3,12 +3,34 @@ from __future__ import annotations
 from typing import Any
 import numpy as np
 from sjtu_tpmshx.shared.domain.compute_config import ComputeConfig, bc_to_dict
-from sjtu_tpmshx.shared.models.tpms_props import geometry as tpms_geometry, geometry_fields
+from sjtu_tpmshx.shared.models.tpms_props import geometry as tpms_geometry, geometry_fields, _resolve_chi_s
 from sjtu_tpmshx.shared.models import co2_correlations, _native_geometry
 from sjtu_tpmshx.shared.models.input_validation import validate_domain_dims, surrogate_extrap_reasons
 from sjtu_tpmshx.shared.logutil import get_logger
 
 _log = get_logger('sjtu_tpmshx.preprocess.two_d.preparation')
+
+
+def prepare_thermal_geometry(tpms, cell_mm, wall_mm, conductivity, *,
+                             L_field=None, t_field=None, delta=0., co2_geometry=False):
+    geometry_model = tpms_geometry
+    if co2_geometry:
+        from sjtu_tpmshx.shared.models.co2_correlations import geometry as geometry_model
+        if delta != 0.:
+            raise ValueError('CO2 geometry requires delta=0')
+    uniform = geometry_model(tpms, cell_mm, wall_mm, conductivity)
+    fields = None
+    if L_field is not None:
+        if t_field is None or np.shape(L_field) != np.shape(t_field):
+            raise ValueError('thermal geometry requires matching cell and wall fields')
+        if co2_geometry:
+            local = _native_geometry.co2_fields(
+                tpms, L_field, t_field, conductivity, chi_s=_resolve_chi_s())
+        else:
+            local = geometry_fields(tpms, L_field, t_field, conductivity)
+        fields = {key: local[key] for key in ('A_0', 'D_h', 'epsilon')}
+    sides = _native_geometry.prepare_sides(tpms, cell_mm, wall_mm, delta)
+    return dict(uniform=uniform, fields=fields, **sides)
 
 def _check_zoned_fluid_support(compute_cfg: ComputeConfig) -> None:
     """Guard: the 2D zone property builders (ZoneConfig.compute_properties /
@@ -33,6 +55,33 @@ def _check_zoned_fluid_support(compute_cfg: ComputeConfig) -> None:
             f"fluid_B={fB!r}); the zone property builders would silently use "
             "air properties for a non-air side. Disable zones or run a uniform "
             "(non-zoned) case for water.")
+
+
+def _grid_property_arrays(Nx, Ny, grid_cells, tpms_type, k_s,
+                          u_A, u_B, T_inA, T_inB, P_in=101325.0,
+                          dx_arr=None, dy_arr=None, *, P_inB=None):
+    """Freeze the grid builder's property order and cache before N13."""
+    from sjtu_tpmshx.development.tests.property_reference import compute
+    from sjtu_tpmshx.shared.models.zone_config import ZoneConfig
+    from sjtu_tpmshx.shared.models._native_properties import volumetric_transfer
+
+    pressure_b = P_in if P_inB is None else P_inB
+    props_cache = {}
+    for cell in grid_cells:
+        key = (cell['L'], cell['t'])
+        if key not in props_cache:
+            first = compute(tpms_type, cell['L'], cell['t'], u_A, T_inA, P_in, k_s)
+            second = compute(tpms_type, cell['L'], cell['t'], u_B, T_inB, pressure_b, k_s)
+            props_cache[key] = first, second
+    arrays = ZoneConfig.build_grid_geometry(Nx, Ny, grid_cells, tpms_type, k_s, dx_arr, dy_arr)
+    zone_id = arrays['zone_id']
+    for side, index in (('A', 0), ('B', 1)):
+        properties = [props_cache[(cell['L'], cell['t'])][index] for cell in grid_cells]
+        arrays['K_ff' + side + '_arr'] = np.asarray(
+            [props['K_ff'] for props in properties], dtype=np.float64)[zone_id]
+        arrays['h_v' + side + '_arr'] = np.asarray(
+            [volumetric_transfer(props['H_sf'], props['A_0']) for props in properties], dtype=np.float64)[zone_id]
+    return arrays
 
 
 def _build_zone_arrays(compute_cfg, N_x, N_y, *, dx_arr=None, dy_arr=None, geometry_only=False):
@@ -99,7 +148,7 @@ def _build_zone_arrays(compute_cfg, N_x, N_y, *, dx_arr=None, dy_arr=None, geome
                 _log.info(f"[ZONE] Continuous Sigmoid field ({N_x}x{N_y})")
             else:
                 from sjtu_tpmshx.shared.models.zone_config import ZoneConfig
-                builder = ZoneConfig.build_grid_geometry if geometry_only else ZoneConfig.build_grid_arrays
+                builder = ZoneConfig.build_grid_geometry if geometry_only else _grid_property_arrays
                 kwargs = dict(dx_arr=dx_arr, dy_arr=dy_arr)
                 if not geometry_only:
                     kwargs.update(u_A=u_A, u_B=u_B, T_inA=T_inA, T_inB=T_inB,
@@ -122,9 +171,13 @@ def _build_zone_arrays(compute_cfg, N_x, N_y, *, dx_arr=None, dy_arr=None, geome
                 zone_data['zones'] = [Zone(**zone) for zone in zone_data['zones']]
                 zone_config = ZoneConfig(**zone_data)
             if not geometry_only:
-                zone_config.compute_properties(
-                    u_A=u_A, u_B=u_B, T_inA=T_inA, T_inB=T_inB,
-                    P_in=P_in_val, P_inB=P_inB)
+                from sjtu_tpmshx.development.tests.property_reference import compute
+                zone_config.validate()
+                for zone in zone_config.zones:
+                    zone.props_A = compute(zone_config.tpms_type, zone.L_mm, zone.t_mm,
+                        u_A, T_inA, P_in_val, zone_config.k_s)
+                    zone.props_B = compute(zone_config.tpms_type, zone.L_mm, zone.t_mm,
+                        u_B, T_inB, P_inB, zone_config.k_s)
             z_dim = H if z_axis == 'y' else L
             builder = (zone_config.build_structured_geometry if geometry_only
                        else zone_config.build_structured_arrays)
@@ -274,7 +327,6 @@ def _complete_grid(cfg, physical_grid, *, spline_geometry=None):
         cfg['zone_config'], cfg['za'] = zone_config, za
 
     cfg['flow_inputs'] = _prepare_flow_inputs(cfg, energy_dx, energy_dy)
-    from sjtu_tpmshx.preprocess.thermal_geometry import prepare_thermal_geometry
     cfg['thermal_geometry'] = prepare_thermal_geometry(
         cfg['tpms_type'], cfg['Lcell'], cfg['t_wall'], cfg['k_s'],
         L_field=None if za is None else za['L_field'],
@@ -429,7 +481,7 @@ def _prepare_case(config: ComputeConfig, *, case_id: str, inlet_grid=None, splin
     # Runtime controls are input data. The solver never reparses config_snapshot.
     parsed['run_settings'] = _zone_data_si(config.to_dict())
     parsed['run_settings'].pop('zones')
-    from sjtu_tpmshx.shared.models.tpms_calc import compute
+    from sjtu_tpmshx.development.tests.property_reference import compute
     from sjtu_tpmshx.shared.domain.run_warnings import range_context
     parsed['static_properties'] = {}
     for side, fluid in (('A', config.fluid_A), ('B', config.fluid_B)):

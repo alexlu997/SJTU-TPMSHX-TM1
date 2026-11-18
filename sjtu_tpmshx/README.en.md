@@ -79,13 +79,25 @@ Memory use near the cell cap and real 3D BO need separate acceptance.
 Saved descriptor v2 adds nominal side geometry and accepts discrete and sigmoid fields; saved v1 remains unchanged.
 Python selects v2 first, then v1 for symmetric uniform or continuous inputs. Archived libraries without the applicable protocol retain their existing interface.
 
+Current public saved 2D/3D runs copy applicability groups and required records before the native result is released.
+`solvers/applicability_evidence.py` keeps saved inlet fields and scalar types in native order, with constraints from C when present.
+The public API publishes these groups without repeating classification.
+Python combines complete case notices and run `nu-evidence` warning records into `scope_notes`; independent C++ stages keep their native notes.
+Direct and archived-runtime paths retain `capture_applicability`. Capture failures do not select that path.
+`solvers/execution_record.py` interprets actual execution identity and property sampling; the native result stage decides qualification.
+
+Standalone `shared/models/tpms_calc.compute` uses the same native inlet-property combination as complete preparation.
+Python keeps geometry selection, shared caches, mutable result copies, the per-call K_ss query, object conversion and warning policy.
+`shared/models/_native_preparation_case.py` transports the twelve typed query values and shares range observations with the preparation adapters.
+The [inlet-property query](../docs/native-stages.md#inlet-property-query) exposes the same calculation to C and C++ callers without a grid or solver.
+
 Quick Design preparation v2 accepts typed raw inputs and provides a separate pressure query without thermal grid or design-field arrays.
 Python uses `_native_quick_prepare.py` for fixed host protocols and copies native output into CaseData.
 The replaced `shared/models/quick_design.py` is removed. Defaults come from `shared/configs/model_parameters_v1.json` and generated C++ constants.
 The native-double v1 contract and the existing LTNE model remain available.
 Python execution calls the native run stage with saved prepared data. The native result stage owns Quick Design metrics.
 Preparation and result host operations keep the existing Python type, cache, warning and event protocols.
-The Python entries above retain all current modes while stage migration continues.
+The Python entries above retain all current modes.
 
 ## Edit numerical functions
 
@@ -98,6 +110,7 @@ Use this table to find the C++ owner of a numerical rule.
 | Grids and physical ports | [grid.cpp](solvers/native/src/grid.cpp): `uniform`, `wall`; [ports.cpp](solvers/native/src/ports.cpp): `port_overlap_1d`, `port_fractions_1d` |
 | Continuous fields, sigmoid, LUTs and zones | [field_continuous.cpp](solvers/native/src/field_continuous.cpp); [field_sigmoid.cpp](solvers/native/src/field_sigmoid.cpp); [field_lut.cpp](solvers/native/src/field_lut.cpp); [zones.cpp](solvers/native/src/zones.cpp) |
 | Properties and Nu closures | [fluid_properties.cpp](solvers/native/src/fluid_properties.cpp): `PropertyEvaluator::evaluate`, `fluid_nusselt`; [preparation_properties.cpp](solvers/native/src/preparation_properties.cpp) |
+| Scalar inlet-property combination | [preparation_case.cpp](solvers/native/src/preparation_case.cpp): `query_inlet_properties`, `inlet_property_values`; [preparation_case_c_api.cpp](solvers/native/src/preparation_case_c_api.cpp): `tpmshx_query_inlet_properties_v1` |
 | Fixed DF, corrections, projection and prescribed flow | [preparation_df.cpp](solvers/native/src/preparation_df.cpp): `fixed_df`; [preparation_df_corrections.cpp](solvers/native/src/preparation_df_corrections.cpp); [preparation_df_projection.cpp](solvers/native/src/preparation_df_projection.cpp); [preparation_flow.cpp](solvers/native/src/preparation_flow.cpp): `inlet_capacity_2d`, `inlet_speed` |
 | Full 2D/3D and Quick Design | [full_2d.cpp](solvers/native/src/full_2d.cpp): `solve_full_2d`; [full_3d.cpp](solvers/native/src/full_3d.cpp): `solve_full_3d`; [quick_design_driver.cpp](solvers/native/src/quick_design_driver.cpp): `solve_quick_design` |
 | Metrics, physical balances, zone statistics and checks | [result_metrics.cpp](solvers/native/src/result_metrics.cpp): `pressure_face`, `boundary_enthalpy_duty`; [result_balance.cpp](solvers/native/src/result_balance.cpp): `mass`, `energy`, `zone_std`; [result_checks.cpp](solvers/native/src/result_checks.cpp): `collect_range`, `strict_certificate` |
@@ -108,7 +121,7 @@ Use this table to find the C++ owner of a numerical rule.
 Geometry uses geometry ABI 1 and field ABI 2. The preparation library keeps its ABI 1 loader and adds the versioned Quick preparation v2 contract. Results use result ABI 2.
 Start at the drivers above for SIMPLE, pressure and energy implementations. See [C++ interfaces](../docs/cpp-migration.md) for their boundaries.
 Python keeps configuration, DTOs, I/O, caches, NumPy event handling, the GUI, searches and offline research.
-The native result stage owns full evidence selection and qualification; Python adapts its outputs for applications.
+The native result stage owns full evaluation and qualification. Python preserves source data and host notices, and interprets execution records.
 See [retained Python responsibilities](../docs/architecture.md#retained-python-responsibilities) for their exact scope.
 
 ### Rebuild after a change

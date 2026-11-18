@@ -24,6 +24,25 @@ int main() {
             || !std::isfinite(state.values.sides[0].properties.nu)
             || state.values.sides[1].drag_evidence.scale_forchheimer!=1.) return 1;
         std::cout<<"Prepared CO2/water: "<<state.values.nx<<" x "<<state.values.ny<<" cells\n";
+        tpmshx::stages::InletPropertyQuery query;
+        query.inlet.geometry.topology=values.topology;
+        query.inlet.geometry.cell_length_mm=values.cell_length_mm;
+        query.inlet.geometry.wall_thickness_mm=values.wall_thickness_mm;
+        query.hydraulic_diameter_m=state.values.hydraulic_diameter_m;
+        query.epsilon_a=state.values.epsilon_a;
+        const char* fluids[]={"air","water","sco2","co2"};
+        const double temperatures[]={380.,320.,480.,300.};
+        const double pressures[]={160000.,200000.,9000000.,4500000.};
+        query.inlet.velocity_m_s=6.;
+        for (std::uint32_t fluid=0;fluid<4;++fluid) {
+            query.inlet.fluid=fluid;query.inlet.temperature_K=temperatures[fluid];
+            query.inlet.pressure_Pa=pressures[fluid];query.exact_co2_drag=fluid==3;
+            const auto properties=tpmshx::stages::query_inlet_properties(query);
+            for (const auto& scalar:properties.values)
+                if (!std::isfinite(scalar.real) || scalar.imaginary!=0. || scalar.category!=0) return 1;
+            if (properties.values[0].real<=0. || properties.values[7].real<=0.) return 1;
+            std::cout<<"Queried "<<fluids[fluid]<<": rho="<<properties.values[0].real<<" kg/m3\n";
+        }
         return 0;
     } catch (const std::exception& error) {
         std::cerr<<error.what()<<'\n';return 1;

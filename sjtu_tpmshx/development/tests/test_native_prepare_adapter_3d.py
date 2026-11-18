@@ -9,7 +9,9 @@ from sjtu_tpmshx.development.tests import preparation_api_reference as reference
 from sjtu_tpmshx.development.tests import test_native_preparation_3d as uniform
 from sjtu_tpmshx.development.tests import test_native_preparation_continuous_3d as continuous
 from sjtu_tpmshx.development.tests import test_native_preparation_spatial_3d as spatial
-from sjtu_tpmshx.development.tests.test_native_prepare_adapter import _capture, _same, _failure
+from sjtu_tpmshx.development.tests.test_native_prepare_adapter import (
+    _capture, _same, _failure, _property_compute,
+)
 from sjtu_tpmshx.preprocess import api
 
 
@@ -21,6 +23,7 @@ def _isolate_cache(monkeypatch):
     from sjtu_tpmshx.shared.models.tpms_calc import compute
     from sjtu_tpmshx.shared.models.tpms_geometry import compute_geometry
     compute.cache_clear()
+    _property_compute(reference).cache_clear()
     compute_geometry.cache_clear()
 
 
@@ -90,11 +93,11 @@ def test_host_failure_order(monkeypatch, mode, selection):
 
 @pytest.mark.parametrize('mode', ['uniform', 'xy', 'xyz', 'grid', 'offset'])
 def test_cold_warm_cache_order(monkeypatch, mode):
-    from sjtu_tpmshx.shared.models.tpms_calc import compute
     from sjtu_tpmshx.shared.models.tpms_geometry import compute_geometry
     config = _configuration(mode, pair=('air', 'air'))
     outcomes = []
     for module in (reference, api):
+        compute = _property_compute(module)
         results = []
         for cold in (True, False, False):
             results.append((_capture(monkeypatch, module, 'full', config, clear_cache=cold),

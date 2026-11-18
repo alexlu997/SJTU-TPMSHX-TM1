@@ -10,14 +10,14 @@ import numpy as np
 
 from sjtu_tpmshx.preprocess.native_preparation import (
     PreparationCacheBridge, model_metadata, _kind, _flow_kind, _summary,
-    _range_record, _records, _geometry_values, _cache_record_view, _GEOMETRY_NAMES, _PROPERTY_NAMES,
+    _records, _geometry_values, _cache_record_view, _GEOMETRY_NAMES, _PROPERTY_NAMES,
 )
 from sjtu_tpmshx.shared.domain.case_data import CaseData
 from sjtu_tpmshx.shared.domain.compute_config import ComputeConfig, bc_to_dict
 from sjtu_tpmshx.shared.domain.model_refs import ModelRef
 from sjtu_tpmshx.shared.domain.run_environment import capture_environment
 from sjtu_tpmshx.shared.domain.run_warnings import (
-    RangeRecord, current_warnings, merge_warnings, record_warning, _range_context,
+    RangeRecord, current_warnings, record_warning,
 )
 from sjtu_tpmshx.shared.models import _native_preparation_case as native
 from sjtu_tpmshx.shared.models import _native_flow, _native_geometry, _native_grid
@@ -450,38 +450,7 @@ def _execute(config, operation, *, targets=None, case_id=None, own_metadata=Fals
         return False
 
     def observe_range(value, bounds_list, cached, scalar):
-        key, record = _range_record(value, bounds_list)
-        if key[-1] == ('unbound', 'unbound', 'source'):
-            key = (*key[:-1], _range_context.get())
-        merge_warnings(current_warnings(), [{key: record}])
-        if cached or current_warnings() is not None or scalar is None:
-            return
-        from sjtu_tpmshx.shared.models import tpms_props, fluid_props, nu_correlations, co2_correlations
-        source = key[:-2]
-        if source[0] == 'property':
-            fluid, property_name = source[1].split('_', 1)
-            notice = tpms_props._range_notice(source[1], scalar, scalar, *record.bounds)
-            if notice is not None:
-                attribute = {'density': 'rho', 'viscosity': 'mu', 'conductivity': 'k', 'cp': 'cp'}[property_name]
-                native._source_warning(getattr(fluid_props.get(fluid), attribute), notice)
-        elif source[0] in ('nu', 'nu_pr') and native._text(value.stage) == 'inlet':
-            fluid, topology = source[1:]
-            if fluid == 'air':
-                notices = nu_correlations._extrap_notices(topology, scalar, scalar)
-                origin = fluid_props._nu_air
-            elif fluid == 'water':
-                notices = nu_correlations._water_nu_notices(scalar, scalar, topology)
-                origin = fluid_props._nu_water
-            elif fluid == 'sco2':
-                notices = nu_correlations._sco2_nu_notices(scalar, scalar, topology)
-                origin = (nu_correlations.nu_sco2_selected if config.sco2_nu.mode != 'cfd_smooth'
-                          else nu_correlations.nu_sco2_topo)
-            else:
-                notices = ([co2_correlations._calibration_notice(record.quantity, record.bounds)]
-                           if scalar < record.bounds[0] or scalar > record.bounds[1] else [])
-                origin = fluid_props._nu_co2
-            for notice in notices:
-                native._source_warning(origin, notice)
+        native.observe_range(value, bounds_list, cached, scalar, config.sco2_nu)
 
     def observe_notice(kind, side, value, message):
         if kind == 1:

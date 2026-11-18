@@ -266,7 +266,7 @@ def _prepare_geometry_data(cfg):
         lfield = np.full((nx, ny, nz), cfg['Lcell'])
         tfield = np.full((nx, ny, nz), cfg['t_wall'])
         eps = np.full((nx, ny, nz), cfg['eps'])
-    from sjtu_tpmshx.preprocess.thermal_geometry import prepare_thermal_geometry
+    from sjtu_tpmshx.development.tests.preparation_case_reference import prepare_thermal_geometry
     cfg['thermal_geometry'] = prepare_thermal_geometry(
         cfg['tpms_type'], cfg['Lcell'], cfg['t_wall'], cfg['k_s'],
         L_field=lfield * 1e-3 * 1e3 if spatial and continuous_geometry is None else None,
@@ -337,7 +337,7 @@ def _prepare_df_application(cfg, axes, permeability, forchheimer):
 
 def _record_air_bulk_ranges(cfg, lfield, shape):
     """Preserve inlet air observations without storing unused bulk h_v fields."""
-    from sjtu_tpmshx.shared.models.tpms_calc import compute
+    from sjtu_tpmshx.development.tests.property_reference import compute
     from sjtu_tpmshx.shared.models.nu_correlations import record_air_nu_scalar_ranges, record_raw_nu_range
     from sjtu_tpmshx.shared.domain.run_warnings import range_context
     for side in ('A', 'B'):
