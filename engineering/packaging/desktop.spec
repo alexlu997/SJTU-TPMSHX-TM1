@@ -12,8 +12,8 @@ from sjtu_tpmshx._version import __version__
 excluded = ('sjtu_tpmshx.development',)
 hidden = collect_submodules('sjtu_tpmshx', filter=lambda name: not name.startswith(excluded))
 data = collect_data_files('sjtu_tpmshx', includes=[
-    'shared/configs/*.json',
-    'shared/df_surrogate/_prebuilt/*.csv',
+    'model_configs/*.json',
+    'physical_models/df_surrogate/_prebuilt/*.csv',
     'applications/gui/ui/assets/icons/*.svg',
     'applications/gui/ui/assets/icons/LICENSE',
     'applications/gui/ui/assets/icons/README.md',

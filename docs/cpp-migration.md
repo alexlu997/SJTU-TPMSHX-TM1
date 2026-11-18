@@ -46,7 +46,7 @@ The six-stage scope is implemented: model data consolidation, geometry/design fi
 It preserves algorithms, features, physical gates and file interfaces.
 Change records: [data PR275](https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/275), [geometry PR276](https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/276), [grids/fields PR277](https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/277), [preparation PR278](https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/278), [results PR279](https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/279).
 Final consumer checks removed the obsolete GUI interpolation import. Explicit object protocols, configuration, I/O, GUI/search/research, injected ledgers and audit/export summaries keep their declared boundaries.
-The [source map](../sjtu_tpmshx/README.en.md) lists C++ edit locations. See [retained Python responsibilities](architecture.md#retained-python-responsibilities) for the exact scope.
+The [source map](../python/README.en.md) lists C++ edit locations. See [retained Python responsibilities](architecture.md#retained-python-responsibilities) for the exact scope.
 These six stages differ from the historical solver stages 0–4 at the end of this document.
 PR CI, merged-main CI, visible desktop delivery, performance and experimental accuracy remain separate checks.
 
@@ -88,7 +88,7 @@ Set `TPMSHX_GEOMETRY_LIBRARY` to an absolute prebuilt file to select another geo
 Historical result reading and independent postprocessing do not load it.
 Changing C++ functions or compiled model parameters requires a rebuild and process restart.
 The shared JSON resources remain authoritative. Percolation, scans, Richardson and target-C research now use
-`sjtu_tpmshx/development/runs/tools/asym_geometry_research.py`; shared modules keep no forwarding aliases.
+`python/development/runs/tools/asym_geometry_research.py`; shared modules keep no forwarding aliases.
 
 For geometry alone, `fetch-cmake` fetches only the locked build tool.
 `build`, `verify` and `publish --component geometry` still check the configured Python interpreter and selected environment lock.
@@ -833,7 +833,7 @@ tm1_python="$(head -n 1 .venv-path)"
 MPLCONFIGDIR="$PWD/.cache/matplotlib" \
 XDG_CACHE_HOME="$PWD/.cache/xdg" \
 TPMSHX_REQUIRE_CPP_TESTS=1 TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1 \
-"$tm1_python" -m pytest -q sjtu_tpmshx/development/tests/native
+"$tm1_python" -m pytest -q tests/python/native
 ```
 
 Every explicit `TPMSHX_TRUE_H_KERNEL` override is retired, including `numba`
@@ -919,12 +919,12 @@ FetchContent disconnected; it does not fetch optional test or wrapper modules:
 TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1 \
 MPLCONFIGDIR="$PWD/.cache/matplotlib" XDG_CACHE_HOME="$PWD/.cache/xdg" \
 "$tm1_python" -m pytest -q -ra \
-  sjtu_tpmshx/development/tests/native/test_native_eos.py \
-  sjtu_tpmshx/development/tests/native/test_native_pressure.py \
-  sjtu_tpmshx/development/tests/native/test_superlu_error_boundary.py \
-  sjtu_tpmshx/development/tests/native/test_fluid_properties.py \
-  sjtu_tpmshx/development/tests/native/test_quick_design_driver.py \
-  sjtu_tpmshx/development/tests/native/test_cpp_quick_design.py
+  tests/python/native/test_native_eos.py \
+  tests/python/native/test_native_pressure.py \
+  tests/python/native/test_superlu_error_boundary.py \
+  tests/python/native/test_fluid_properties.py \
+  tests/python/native/test_quick_design_driver.py \
+  tests/python/native/test_cpp_quick_design.py
 ```
 
 The EOS caller evaluates CO2 and Water with the same named backend as the

@@ -99,7 +99,7 @@ jobs:
           if [[ "$CI_TIER" == full ]]; then
             coverage=(--covered-by .cache/ci-shards/native-dependencies-${{ matrix.os }}-py${{ matrix.python }}-shard-*/native-manifest)
           else
-            coverage=(--omit-modules sjtu_tpmshx/development/tests/native/_ci_suite.txt)
+            coverage=(--omit-modules tests/python/native/_ci_suite.txt)
           fi
           python engineering/scripts/check_ci_shards.py \
             .cache/ci-shards/test-reports-${{ matrix.os }}-py${{ matrix.python }}-fast-0/fast-manifest \
@@ -203,9 +203,9 @@ jobs:
       - name: Run optimizer and real acquisition tests
         shell: bash
         run: >-
-          "$CI_PYTHON" -m pytest sjtu_tpmshx/development/tests/test_multi_condition_optimizer.py
-          sjtu_tpmshx/development/tests/test_mass_design.py -q -ra
-          -p sjtu_tpmshx.development.tests.ci_shard --ci-manifest=.cache/ci/bo-manifest
+          "$CI_PYTHON" -m pytest tests/python/test_multi_condition_optimizer.py
+          tests/python/test_mass_design.py -q -ra
+          -p tests.python.ci_shard --ci-manifest=.cache/ci/bo-manifest
           --timeout=600 --timeout-method=thread
           --durations=10 --junitxml=.cache/ci/bo.xml
       - name: Save BO test outcomes and timings
@@ -250,14 +250,14 @@ jobs:
       - name: Check result numerical contracts before publication of the artifact
         run: >-
           "$CI_PYTHON" -m pytest -q --junitxml=.cache/native-deps/logs/result-contracts.xml
-          sjtu_tpmshx/development/tests/native/test_result_metrics.py
-          sjtu_tpmshx/development/tests/native/test_result_checks.py
-          sjtu_tpmshx/development/tests/test_native_result_balance.py
-          sjtu_tpmshx/development/tests/test_native_zone_statistics.py
-          sjtu_tpmshx/development/tests/test_native_result_loader.py
-          sjtu_tpmshx/development/tests/test_native_result_stage.py
-          sjtu_tpmshx/development/tests/test_native_result_stage_host.py
-          sjtu_tpmshx/development/tests/test_native_quick_result_stage.py
+          tests/python/native/test_result_metrics.py
+          tests/python/native/test_result_checks.py
+          tests/python/test_native_result_balance.py
+          tests/python/test_native_zone_statistics.py
+          tests/python/test_native_result_loader.py
+          tests/python/test_native_result_stage.py
+          tests/python/test_native_result_stage_host.py
+          tests/python/test_native_quick_result_stage.py
       - name: Include result distribution notices
         run: |
           "$CI_PYTHON" - <<'PY'
@@ -346,19 +346,19 @@ jobs:
           "$CI_PYTHON" -m sjtu_tpmshx.development.runs.tools.check_three_module_environment
       - name: Run file and offline metric checks from source
         if: needs.scope.outputs.tier != 'docs'
-        run: '"$CI_PYTHON" -m pytest sjtu_tpmshx/development/tests/io_tm1 sjtu_tpmshx/development/tests/postprocess_tm1 -q'
+        run: '"$CI_PYTHON" -m pytest tests/python/io_tm1 tests/python/postprocess_tm1 -q'
       - name: Compare result kernels in the minimal Linux environment
         if: needs.scope.outputs.tier != 'docs'
         run: >-
           "$CI_PYTHON" -m pytest -q
-          sjtu_tpmshx/development/tests/native/test_result_metrics.py
-          sjtu_tpmshx/development/tests/native/test_result_checks.py
-          sjtu_tpmshx/development/tests/test_native_result_balance.py
-          sjtu_tpmshx/development/tests/test_native_zone_statistics.py
-          sjtu_tpmshx/development/tests/test_native_result_loader.py
-          sjtu_tpmshx/development/tests/test_native_result_stage.py
-          sjtu_tpmshx/development/tests/test_native_result_stage_host.py
-          sjtu_tpmshx/development/tests/test_native_quick_result_stage.py
+          tests/python/native/test_result_metrics.py
+          tests/python/native/test_result_checks.py
+          tests/python/test_native_result_balance.py
+          tests/python/test_native_zone_statistics.py
+          tests/python/test_native_result_loader.py
+          tests/python/test_native_result_stage.py
+          tests/python/test_native_result_stage_host.py
+          tests/python/test_native_quick_result_stage.py
       - name: Evaluate real files from source and installed wheels in the minimal environment
         if: needs.scope.outputs.tier != 'docs'
-        run: '"$CI_PYTHON" -m pytest sjtu_tpmshx/development/tests/integration_tm1/test_minimal_install.py -q'
+        run: '"$CI_PYTHON" -m pytest tests/python/integration_tm1/test_minimal_install.py -q'

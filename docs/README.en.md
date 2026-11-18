@@ -5,7 +5,7 @@
 [中文](README.md) | [English](README.en.md)
 
 All core source is in [sjtu_tpmshx](../sjtu_tpmshx/), including the Python application and C++ numerical backend.
-Start with the [module map](../sjtu_tpmshx/README.en.md) to read the code.
+Start with the [module map](../python/README.en.md) to read the code.
 Use the [first run instructions](../README.en.md#first-run) to run the application.
 
 <a id="当前文档"></a>
@@ -24,7 +24,7 @@ Use the [first run instructions](../README.en.md#first-run) to run the applicati
 | Offline processing, effective sCO2 Nu and Shanghai air calibration | [Model resources](model-resources.en.md) |
 | Data filenames, closed missing-data items and water Nu selection | [Data catalog](data-catalog.en.md) |
 | Engineering, validation, research and performance tools | [Tool index](tools.en.md) |
-| Numerical/experimental checks and directional-factor research limits | [Validation index](../sjtu_tpmshx/development/validation/README.en.md) |
+| Numerical/experimental checks and directional-factor research limits | [Validation index](../python/development/validation/README.en.md) |
 | Current GUI, porosity and CI requirements | [OpenSpec specifications](../openspec/specs/) |
 | Historical reports, task graphs, benchmarks and retired tools | [History index](history/README.en.md) |
 
@@ -41,8 +41,8 @@ Use the [first run instructions](../README.en.md#first-run) to run the applicati
 | [openspec](../openspec/) | Current requirements grouped by function. |
 | [.github/workflows](../.github/workflows/) | Configuration for macOS/Windows CI and minimal postprocessing checks. |
 
-Package-level [development](../sjtu_tpmshx/development/) keeps three groups: tests, validation and runs.
-Public data contracts are implemented in [shared/domain](../sjtu_tpmshx/shared/domain/) and [shared/io](../sjtu_tpmshx/shared/io/).
+Package-level [development](../python/development/) keeps three groups: tests, validation and runs.
+Public data contracts are implemented in [shared/domain](../python/data_types/) and [shared/io](../python/file_io/).
 C++ numerical source stays in [solvers/native](../sjtu_tpmshx/solvers/native/).
 
 `pyproject.toml` defines builds, dependency declarations, pytest, mypy, and lint settings.
@@ -52,7 +52,7 @@ Root `MANIFEST.in` selects source-distribution files. The wheel uses the explici
 
 `data-revision.txt` declares the associated data version. Raw experiment and CFD data stay in local `data/raw_data/`. Research scripts and results stay in ignored `.cache/`. Neither location is committed. The previous `reports/` output directory is also ignored.
 
-Active tests use the one-dimensional enthalpy reference in [development/tests/enthalpy_1d_reference.py](../sjtu_tpmshx/development/tests/enthalpy_1d_reference.py).
+Active tests use the one-dimensional enthalpy reference in [development/tests/enthalpy_1d_reference.py](../tests/python/enthalpy_1d_reference.py).
 Production CFD coefficient CSVs and MMS data used by tests stay.
 Historical `golden_3d.json`, previous gamma snapshots, stage reports and task records are available through fixed Git history.
 They are not current test resources or evidence of current accuracy.

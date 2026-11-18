@@ -38,9 +38,9 @@ water = load_water('Diamond', source=water_workbook)
 ## 当前资源与研究输出
 
 固定系数、范围和参考态的权威来源是
-[model_parameters_v1.json](../sjtu_tpmshx/shared/configs/model_parameters_v1.json)。
+[model_parameters_v1.json](../python/model_configs/model_parameters_v1.json)。
 仅依赖 Python 标准库的
-[model_parameters.py](../sjtu_tpmshx/shared/configs/model_parameters.py) 读取并校验该资源。
+[model_parameters.py](../python/model_configs/model_parameters.py) 读取并校验该资源。
 Python 模型模块从同一数据构造常量，保留现有名称及 tuple/dict 类型。
 C++ 头文件生成器直接读取资源，不再导入数值模型。
 几何、准备和求解代码使用已声明的模型资源。独立结果核心使用调用方传入的数据，不加载模型资源。
@@ -52,16 +52,16 @@ Python 几何接口保留类型、缓存与逐次调用的 chi 显式值／环�
 构建、路径及四库运行边界见[原生准备核心](cpp-migration.zh-CN.md#native-preparation-core)和[独立结果核心](cpp-migration.zh-CN.md#native-result-core)。
 XY、XYZ、LUT 与 Gaussian 的固定来源和局部数值处理见[设计场来源说明](../sjtu_tpmshx/solvers/native/geometry/fields-sources.md)。
 贯通、扫描、Richardson 和目标 C 研究位于
-`sjtu_tpmshx/development/runs/tools/asym_geometry_research.py`，shared 不保留旧转发入口。
+`python/development/runs/tools/asym_geometry_research.py`，shared 不保留旧转发入口。
 
-[co2_segment2_v1.json](../sjtu_tpmshx/shared/configs/co2_segment2_v1.json)
+[co2_segment2_v1.json](../python/model_configs/co2_segment2_v1.json)
 继续提供 CO2 分段 Nu 和几何数据；
-[sco2_effective_nu.json](../sjtu_tpmshx/shared/configs/sco2_effective_nu.json)
+[sco2_effective_nu.json](../python/model_configs/sco2_effective_nu.json)
 继续提供现行 sCO2 有效 Nu 参数。
 固定 D-F 表仍由
-`sjtu_tpmshx/shared/df_surrogate/_prebuilt/cfd_full_core_3cell_fixed_v2.csv` 提供。
+`python/physical_models/df_surrogate/_prebuilt/cfd_full_core_3cell_fixed_v2.csv` 提供。
 这三个资源各自保持权威，新增资源不重复其中的数据。
-[preparation_df_v1.json](../sjtu_tpmshx/shared/configs/preparation_df_v1.json) 统一持有固定方法标识、bracket 容差、
+[preparation_df_v1.json](../python/model_configs/preparation_df_v1.json) 统一持有固定方法标识、bracket 容差、
 air specimen／HX 修正系数、几何与速度容差、来源标定／应用／运行三个速度窗口，以及标定 provenance。
 `load_preparation_df_parameters()` 返回新的 mapping，Python 保留标定元数据和公开 tuple／dict 接口。
 生成器直接读取该 JSON、固定 CSV 和既有模型资源，不导入数值模型，也不重新拟合。
@@ -93,7 +93,7 @@ Python wheel 包含代码、JSON 和 CSV 资源，不包含本机原生库。
 ## sCO2 有效 Nu 系数
 
 现行实验模式参数的唯一发布资源是
-[sco2_effective_nu.json](../sjtu_tpmshx/shared/configs/sco2_effective_nu.json)，版本
+[sco2_effective_nu.json](../python/model_configs/sco2_effective_nu.json)，版本
 `sco2-effective-nu-20260920-v1`。模型工厂
 `shared.models.nu_correlations.sco2_effective_nu_config()` 读取该资源并返回经过校验的
 `Sco2NuConfig`；调用方不另存一套现行默认系数。

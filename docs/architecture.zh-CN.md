@@ -12,7 +12,7 @@ Python 数值迭代器、Numba／PyAMG 依赖和 Python 专用研究入口已退
 外层物性 Anderson 已退役；固定物性松弛、热方程 Anderson 和已合格流动加速保留原规则。
 
 固定系数、范围和参考态来自
-[model_parameters_v1.json](../sjtu_tpmshx/shared/configs/model_parameters_v1.json)。
+[model_parameters_v1.json](../python/model_configs/model_parameters_v1.json)。
 `shared.configs.model_parameters` 读取器仅使用 Python 标准库。
 Python 模型模块与原生头文件生成器使用同一资源数据。
 几何计算由独立 C++ 核心负责。
@@ -59,7 +59,7 @@ Preparation ABI 1 的状态 1 表示无效输入，2 表示分配失败，3 表�
 原始经验物性 getter、带检查的 EOS 状态和 Nu 闭合保留各自不同契约。
 迁移保留原公式、校验、警告、下限和范围观测，不把每个 getter 合并为同一带检查状态策略。
 固定 DF 插值、实验因子与速度窗口使用原始来源数据及校验顺序。
-[preparation_df_v1.json](../sjtu_tpmshx/shared/configs/preparation_df_v1.json) 持有方法、修正数据、三个窗口与标定来源。
+[preparation_df_v1.json](../python/model_configs/preparation_df_v1.json) 持有方法、修正数据、三个窗口与标定来源。
 固定 CFD CSV 仍是系数权威；生成器直接读取这些资源并生成原生头文件。
 Python 保留配置、DTO、shape／类型适配、I/O、缓存、警告、GUI／BO 策略和离线拟合。
 被替换的生产数值体已退役；冻结的开发参考保持独立。

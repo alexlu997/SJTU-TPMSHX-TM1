@@ -18,7 +18,7 @@ Outer property Anderson is retired. Fixed property relaxation, thermal Anderson
 and qualified flow acceleration keep their existing rules.
 
 Fixed coefficients, bounds and reference states come from
-[model_parameters_v1.json](../sjtu_tpmshx/shared/configs/model_parameters_v1.json).
+[model_parameters_v1.json](../python/model_configs/model_parameters_v1.json).
 The `shared.configs.model_parameters` reader uses only the Python standard library.
 Python model modules and the native header generator use the same resource data.
 An independent C++ core calculates geometry.
@@ -66,7 +66,7 @@ Raw empirical property getters, checked EOS states and Nu closures keep their di
 The move preserves their original formulas, guards, warnings, floors and range observations.
 It does not route every getter through one checked-state policy.
 Fixed DF interpolation, experiment factors and velocity windows use the original source data and validation order.
-[preparation_df_v1.json](../sjtu_tpmshx/shared/configs/preparation_df_v1.json) defines the method, correction data, three windows and campaign provenance.
+[preparation_df_v1.json](../python/model_configs/preparation_df_v1.json) defines the method, correction data, three windows and campaign provenance.
 The fixed CFD CSV remains the coefficient authority. The generator reads these resources directly into native headers.
 Python keeps configuration, DTOs, shape/type adaptation, I/O, caches, warnings, GUI/BO policies and offline fitting.
 Replaced production numerical bodies are retired. Frozen development references remain independent.

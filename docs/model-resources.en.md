@@ -32,8 +32,8 @@ Ordinary full preparation uses the fixed CFD resource. Tests prohibit workbook r
 ## Current resources and research outputs
 
 The authoritative source for fixed coefficients, bounds and reference states is
-[model_parameters_v1.json](../sjtu_tpmshx/shared/configs/model_parameters_v1.json).
-The [model_parameters.py](../sjtu_tpmshx/shared/configs/model_parameters.py) reader
+[model_parameters_v1.json](../python/model_configs/model_parameters_v1.json).
+The [model_parameters.py](../python/model_configs/model_parameters.py) reader
 uses only the Python standard library. It reads and validates the resource.
 Python model modules construct constants from the same data.
 They keep the existing names and tuple/dict types.
@@ -49,16 +49,16 @@ Rebuild each affected native library after changing C++ functions or compiled re
 See the [native preparation core](cpp-migration.md#native-preparation-core) and [independent result core](cpp-migration.md#native-result-core) for builds, paths and four-library runtime boundaries.
 The [field source record](../sjtu_tpmshx/solvers/native/geometry/fields-sources.md) identifies fixed XY, XYZ, LUT and Gaussian sources and local numerical changes.
 Percolation, scans, Richardson and target-C research are in
-`sjtu_tpmshx/development/runs/tools/asym_geometry_research.py`. Shared modules keep no former forwarding entries.
+`python/development/runs/tools/asym_geometry_research.py`. Shared modules keep no former forwarding entries.
 
-[co2_segment2_v1.json](../sjtu_tpmshx/shared/configs/co2_segment2_v1.json)
+[co2_segment2_v1.json](../python/model_configs/co2_segment2_v1.json)
 remains the source for CO2 segment Nu and geometry data.
-[sco2_effective_nu.json](../sjtu_tpmshx/shared/configs/sco2_effective_nu.json)
+[sco2_effective_nu.json](../python/model_configs/sco2_effective_nu.json)
 remains the source for current sCO2 effective Nu parameters.
 The fixed D-F table remains in
-`sjtu_tpmshx/shared/df_surrogate/_prebuilt/cfd_full_core_3cell_fixed_v2.csv`.
+`python/physical_models/df_surrogate/_prebuilt/cfd_full_core_3cell_fixed_v2.csv`.
 Each resource keeps its authority. The added resource does not repeat data from these three resources.
-[preparation_df_v1.json](../sjtu_tpmshx/shared/configs/preparation_df_v1.json) owns the fixed method ID and bracket tolerance.
+[preparation_df_v1.json](../python/model_configs/preparation_df_v1.json) owns the fixed method ID and bracket tolerance.
 It also owns air-specimen/HX factors, geometry/velocity tolerances, source/application/runtime velocity windows and campaign provenance.
 `load_preparation_df_parameters()` returns a fresh mapping. Python keeps campaign metadata and public tuple/dict interfaces.
 The generator reads this JSON, the fixed CSV and existing model resources directly. It imports no numerical model and performs no refit.
@@ -85,7 +85,7 @@ If the one-dimensional isothermal D-F approximation produces nonpositive outlet 
 
 ## sCO2 effective Nu coefficients
 
-The sole current experimental-mode publication resource is [sco2_effective_nu.json](../sjtu_tpmshx/shared/configs/sco2_effective_nu.json), version `sco2-effective-nu-20260920-v1`. The factory `shared.models.nu_correlations.sco2_effective_nu_config()` reads it and returns a validated `Sco2NuConfig`. Callers do not keep another set of current default coefficients.
+The sole current experimental-mode publication resource is [sco2_effective_nu.json](../python/model_configs/sco2_effective_nu.json), version `sco2-effective-nu-20260920-v1`. The factory `shared.models.nu_correlations.sco2_effective_nu_config()` reads it and returns a validated `Sco2NuConfig`. Callers do not keep another set of current default coefficients.
 
 | Field | Current value | Meaning |
 | --- | ---: | --- |

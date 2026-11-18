@@ -28,7 +28,7 @@ application -> preprocess.api -> CaseData -> solvers.api -> FieldResult
 本次六批范围已落实：模型数据归集、几何／设计场、准备、结果核心及消费者／退休收口，保留原算法、功能、物理门与文件接口。
 各批变更记录：[数据来源 PR275](https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/275)、[几何 PR276](https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/276)、[网格与场 PR277](https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/277)、[准备 PR278](https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/278)、[结果 PR279](https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/279)。
 消费者收口移除了过期 GUI 插值预热；显式对象协议、配置、I/O、GUI／搜索／研究、注入 ledger 和审计／导出摘要保持已声明边界。
-[源码地图](../sjtu_tpmshx/README.md)列出 C++ 修改位置；具体保留范围见[Python 职责](architecture.zh-CN.md#retained-python-responsibilities)。
+[源码地图](../python/README.md)列出 C++ 修改位置；具体保留范围见[Python 职责](architecture.zh-CN.md#retained-python-responsibilities)。
 这六批与文末历史求解器迁移的 0–4 阶段不同。
 PR CI、合并后 main CI、可见桌面交付、性能与实验精度仍分别验收。
 
@@ -69,7 +69,7 @@ macOS arm64 使用 `libtpmshx_geometry_shared.dylib`，Windows x64 使用 `tpmsh
 历史结果读取和独立后处理不加载该库。
 修改 C++ 函数或编入库的模型参数后，须重新构建并重启进程；共享 JSON 资源仍是权威来源。
 贯通、扫描、Richardson 和目标 C 研究改用
-`sjtu_tpmshx/development/runs/tools/asym_geometry_research.py`，shared 不保留转发别名。
+`python/development/runs/tools/asym_geometry_research.py`，shared 不保留转发别名。
 
 仅构建几何时，`fetch-cmake` 只获取锁定构建工具。
 `build`、`verify` 与 `publish --component geometry` 仍检查配置的 Python 解释器及选定环境锁。
@@ -513,7 +513,7 @@ tm1_python="$(head -n 1 .venv-path)"
 MPLCONFIGDIR="$PWD/.cache/matplotlib" \
 XDG_CACHE_HOME="$PWD/.cache/xdg" \
 TPMSHX_REQUIRE_CPP_TESTS=1 TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1 \
-"$tm1_python" -m pytest -q sjtu_tpmshx/development/tests/native
+"$tm1_python" -m pytest -q tests/python/native
 ```
 
 所有显式 `TPMSHX_TRUE_H_KERNEL` 覆盖均已退役，包括 `numba` 和 `cpp_sweeps_v1`。已保存准备态请求在流动执行前被拒绝；删除覆盖后使用原生执行。环境快照保留该键仅为明确拒绝。新 Case 不再捕获 `TPMSHX_THERMAL_LIBRARY`，原生库选择属于 `RunControl`。旧结果可在不加载求解库时读取，历史 Python `sweep_kernel` 和 `energy_audit` 记录保留原含义。
@@ -557,12 +557,12 @@ Python wheel 包含代码、JSON 和 CSV 资源，不包含原生库；原生求
 TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1 \
 MPLCONFIGDIR="$PWD/.cache/matplotlib" XDG_CACHE_HOME="$PWD/.cache/xdg" \
 "$tm1_python" -m pytest -q -ra \
-  sjtu_tpmshx/development/tests/native/test_native_eos.py \
-  sjtu_tpmshx/development/tests/native/test_native_pressure.py \
-  sjtu_tpmshx/development/tests/native/test_superlu_error_boundary.py \
-  sjtu_tpmshx/development/tests/native/test_fluid_properties.py \
-  sjtu_tpmshx/development/tests/native/test_quick_design_driver.py \
-  sjtu_tpmshx/development/tests/native/test_cpp_quick_design.py
+  tests/python/native/test_native_eos.py \
+  tests/python/native/test_native_pressure.py \
+  tests/python/native/test_superlu_error_boundary.py \
+  tests/python/native/test_fluid_properties.py \
+  tests/python/native/test_quick_design_driver.py \
+  tests/python/native/test_cpp_quick_design.py
 ```
 
 EOS 调用方以与 Python 参考相同的具名后端评估 CO2 和 Water，即 HEOS 或 BICUBIC&HEOS。检查正向物性、焓反演、既有 CO2 范围、稳定液态水约束和独立可变状态。它不以 CoolProp 数值替代项目经验空气／水输运函数。每个进程使用显式表目录，不改变父 Python EOS 设置。`test_native_eos.py` 固定物性比较容差；它与 PDE 验收以及 BICUBIC 相对 HEOS 的插值误差分别管理。

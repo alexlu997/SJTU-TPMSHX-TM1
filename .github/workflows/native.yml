@@ -73,7 +73,7 @@ jobs:
         shell: bash
         env:
           TM1_WHEEL_DIR: .cache/distribution-check
-        run: '"$CI_PYTHON" -m pytest sjtu_tpmshx/development/tests/test_distribution_contents.py -q'
+        run: '"$CI_PYTHON" -m pytest tests/python/test_distribution_contents.py -q'
       - name: Save Python wheels for isolated postprocessing
         uses: actions/upload-artifact@v7
         with:
@@ -94,11 +94,11 @@ jobs:
         shell: bash
         run: >-
           "$CI_PYTHON" -m pytest -q --junitxml=.cache/native-deps/logs/result-contracts.xml
-          sjtu_tpmshx/development/tests/native/test_result_metrics.py
-          sjtu_tpmshx/development/tests/native/test_result_checks.py
-          sjtu_tpmshx/development/tests/test_native_result_balance.py
-          sjtu_tpmshx/development/tests/test_native_zone_statistics.py
-          sjtu_tpmshx/development/tests/test_native_result_loader.py
+          tests/python/native/test_result_metrics.py
+          tests/python/native/test_result_checks.py
+          tests/python/test_native_result_balance.py
+          tests/python/test_native_zone_statistics.py
+          tests/python/test_native_result_loader.py
       - name: Fetch fixed native sources and build tool
         shell: bash
         run: '"$CI_PYTHON" engineering/scripts/build_native_dependencies.py fetch'
@@ -150,40 +150,40 @@ jobs:
         shell: bash
         run: >-
           "$CI_PYTHON" -m pytest -q --junitxml=.cache/native-deps/logs/stage-contracts.xml
-          sjtu_tpmshx/development/tests/test_native_preparation_case.py
-          sjtu_tpmshx/development/tests/test_native_preparation_fluids.py
-          sjtu_tpmshx/development/tests/test_native_property_query.py
-          sjtu_tpmshx/development/tests/test_native_preparation_mass_flow.py
-          sjtu_tpmshx/development/tests/test_native_preparation_continuous.py
-          sjtu_tpmshx/development/tests/test_native_preparation_zones.py
-          sjtu_tpmshx/development/tests/test_native_preparation_sigmoid.py
-          sjtu_tpmshx/development/tests/test_native_preparation_grid_types.py
-          sjtu_tpmshx/development/tests/test_native_preparation_spatial_flow.py
-          sjtu_tpmshx/development/tests/test_native_preparation_3d.py
-          sjtu_tpmshx/development/tests/test_native_preparation_flow_3d.py
-          sjtu_tpmshx/development/tests/test_native_preparation_continuous_3d.py
-          sjtu_tpmshx/development/tests/test_native_preparation_spatial_3d.py
-          sjtu_tpmshx/development/tests/test_native_prepare_adapter.py
-          sjtu_tpmshx/development/tests/test_native_prepare_adapter_3d.py
-          sjtu_tpmshx/development/tests/test_native_prepare_spatial_adapter.py
-          sjtu_tpmshx/development/tests/test_native_prepare_offset.py
-          sjtu_tpmshx/development/tests/test_native_preparation_cache_bridge.py
-          sjtu_tpmshx/development/tests/test_native_preparation_spatial_host_boundary.py
-          sjtu_tpmshx/development/tests/test_preparation_cache.py
-          sjtu_tpmshx/development/tests/test_native_stage_run.py
-          sjtu_tpmshx/development/tests/test_native_stage_uniform.py
-          sjtu_tpmshx/development/tests/test_native_stage_continuous.py
-          sjtu_tpmshx/development/tests/test_native_stage_state.py
-          sjtu_tpmshx/development/tests/test_native_stage_capture.py
-          sjtu_tpmshx/development/tests/test_native_stage_3d.py
-          sjtu_tpmshx/development/tests/test_native_run_adapter_3d.py
-          sjtu_tpmshx/development/tests/test_native_run_ownership.py
-          sjtu_tpmshx/development/tests/test_native_run_adapter.py
-          sjtu_tpmshx/development/tests/test_native_offset_run.py
-          sjtu_tpmshx/development/tests/test_native_result_stage.py
-          sjtu_tpmshx/development/tests/test_native_result_stage_host.py
-          sjtu_tpmshx/development/tests/test_native_quick_result_stage.py
-          sjtu_tpmshx/development/tests/test_native_quick_prepare.py
+          tests/python/test_native_preparation_case.py
+          tests/python/test_native_preparation_fluids.py
+          tests/python/test_native_property_query.py
+          tests/python/test_native_preparation_mass_flow.py
+          tests/python/test_native_preparation_continuous.py
+          tests/python/test_native_preparation_zones.py
+          tests/python/test_native_preparation_sigmoid.py
+          tests/python/test_native_preparation_grid_types.py
+          tests/python/test_native_preparation_spatial_flow.py
+          tests/python/test_native_preparation_3d.py
+          tests/python/test_native_preparation_flow_3d.py
+          tests/python/test_native_preparation_continuous_3d.py
+          tests/python/test_native_preparation_spatial_3d.py
+          tests/python/test_native_prepare_adapter.py
+          tests/python/test_native_prepare_adapter_3d.py
+          tests/python/test_native_prepare_spatial_adapter.py
+          tests/python/test_native_prepare_offset.py
+          tests/python/test_native_preparation_cache_bridge.py
+          tests/python/test_native_preparation_spatial_host_boundary.py
+          tests/python/test_preparation_cache.py
+          tests/python/test_native_stage_run.py
+          tests/python/test_native_stage_uniform.py
+          tests/python/test_native_stage_continuous.py
+          tests/python/test_native_stage_state.py
+          tests/python/test_native_stage_capture.py
+          tests/python/test_native_stage_3d.py
+          tests/python/test_native_run_adapter_3d.py
+          tests/python/test_native_run_ownership.py
+          tests/python/test_native_run_adapter.py
+          tests/python/test_native_offset_run.py
+          tests/python/test_native_result_stage.py
+          tests/python/test_native_result_stage_host.py
+          tests/python/test_native_quick_result_stage.py
+          tests/python/test_native_quick_prepare.py
       - name: Pack native runtime files with executable permissions
         shell: bash
         run: |
@@ -383,12 +383,12 @@ jobs:
         shell: bash
         run: |
           shard_options=()
-          for group in sjtu_tpmshx/development/tests/native/_ci_"$NATIVE_SHARD_SET"_shard*.txt; do
+          for group in tests/python/native/_ci_"$NATIVE_SHARD_SET"_shard*.txt; do
             shard_options+=("--ci-shard-modules=$group")
           done
           "$CI_PYTHON" -m pytest -q -ra -n 2 --dist loadscope --max-worker-restart=0 \
-          @sjtu_tpmshx/development/tests/native/_ci_suite.txt \
-          -p sjtu_tpmshx.development.tests.ci_shard --ci-shard=${{ matrix.shard }} \
+          @tests/python/native/_ci_suite.txt \
+          -p tests.python.ci_shard --ci-shard=${{ matrix.shard }} \
           "${shard_options[@]}" \
           --ci-manifest=.cache/ci/native-manifest \
           --timeout=600 --timeout-method=thread --durations=20 \
@@ -534,11 +534,11 @@ jobs:
       - name: Run fast test subset
         shell: bash
         run: >-
-          "$CI_PYTHON" -m pytest sjtu_tpmshx/development/tests/ -q -ra
-          -m "not slow and not heavy" --ignore=sjtu_tpmshx/development/tests/integration_tm1
+          "$CI_PYTHON" -m pytest tests/python/ -q -ra
+          -m "not slow and not heavy" --ignore=tests/python/integration_tm1
           -n 2 ${{ matrix.part == 'fast-0' && '--dist load --maxschedchunk=1' || '--dist worksteal' }} --max-worker-restart=0
-          -p sjtu_tpmshx.development.tests.ci_shard --ci-manifest=.cache/ci/fast/fast-manifest
-          --ci-covered-modules=sjtu_tpmshx/development/tests/native/_ci_suite.txt
+          -p tests.python.ci_shard --ci-manifest=.cache/ci/fast/fast-manifest
+          --ci-covered-modules=tests/python/native/_ci_suite.txt
           --ci-shard=${{ matrix.part == 'fast-0' && '0' || '1' }}
           --timeout=600 --timeout-method=thread
           --durations=30 --junitxml=.cache/ci/fast/fast.xml
@@ -557,8 +557,8 @@ jobs:
         if: ${{ !cancelled() && matrix.part == 'fast-1' }}
         shell: bash
         run: >-
-          "$CI_PYTHON" -m pytest sjtu_tpmshx/development/tests/integration_tm1 -q -ra
-          -p sjtu_tpmshx.development.tests.ci_shard --ci-manifest=.cache/ci/integration/integration-manifest
+          "$CI_PYTHON" -m pytest tests/python/integration_tm1 -q -ra
+          -p tests.python.ci_shard --ci-manifest=.cache/ci/integration/integration-manifest
           --basetemp=.cache/real-file-handoff
           --timeout=600 --timeout-method=thread
           --durations=30 --junitxml=.cache/ci/integration/integration.xml
