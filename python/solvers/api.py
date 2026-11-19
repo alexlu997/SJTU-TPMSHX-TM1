@@ -1,4 +1,5 @@
 """Public prepared-case execution entry point."""
+from collections.abc import Callable
 from dataclasses import replace
 from sjtu_tpmshx.data_types.case_data import CaseData
 from sjtu_tpmshx.data_types.field_result import FieldResult
@@ -49,6 +50,7 @@ def run_case(case: CaseData, control: RunControl = RunControl(), *,
     from sjtu_tpmshx.run_control.module_ports import resolve_control
     reject_retired_kernel(case.parameters)
     control = resolve_control(control)
+    run: Callable[..., FieldResult]
     if mode == 'quick_design':
         from sjtu_tpmshx.cpp_interface.quick_design import run_case as run_quick_design
     elif mode != 'full':
