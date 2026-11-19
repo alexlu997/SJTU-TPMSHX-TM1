@@ -13,22 +13,22 @@ Python 应用通过以下四个公开入口调用计算核心。
 
 | 文件 | 职责 |
 | --- | --- |
-| [compute.py](sjtu_tpmshx/compute.py) | 主计算入口，统一组织准备、求解与评估 |
-| [preprocess/api.py](sjtu_tpmshx/preprocess/api.py) | 前处理入口：准备 CaseData |
-| [solvers/api.py](sjtu_tpmshx/solvers/api.py) | 求解入口：调用 C++ 后端，生成 FieldResult |
-| [postprocess/api.py](sjtu_tpmshx/postprocess/api.py) | 后处理入口：从记录的结果计算 PerformanceResult |
+| [python/compute.py](python/compute.py) | 主计算入口，统一组织准备、求解与评估 |
+| [python/preprocess/api.py](python/preprocess/api.py) | 前处理入口：准备 CaseData |
+| [python/solvers/api.py](python/solvers/api.py) | 求解入口：调用 C++ 后端，生成 FieldResult |
+| [python/postprocess/api.py](python/postprocess/api.py) | 后处理入口：从记录的结果计算 PerformanceResult |
 
-包内六类目录是 `preprocess/`、`solvers/`、`postprocess/`、`shared/`、`applications/` 和 `development/`。
-[Python 模块地图](sjtu_tpmshx/README.md)说明入口与应用之间的关系。
+Python 源码集中在 `python/`。已有脚本继续用 `sjtu_tpmshx` 导入。
+[Python 模块地图](python/README.md)说明入口与应用之间的关系。
 [原生阶段 SDK](docs/native-stages.zh-CN.md)说明独立 C++ 前处理、求解和后处理接口及当前覆盖范围。
-GUI、CLI、设计与恢复实现位于 `applications/`；测试、验证和诊断工具位于 `development/`。
+应用代码按用途分为[快速设计](python/applications/design/)、[BO 优化](python/applications/optimization/)和[检查点恢复](python/applications/execution/recovery.py)。自动测试位于 [tests/python/](tests/python/) 和 [tests/cpp/](tests/cpp/)。
 根 [engineering/](engineering/) 保存构建脚本、打包配置和依赖锁；[docs/contracts/](docs/contracts/) 保存数据契约。
 `.github/workflows/` 保存 CI 配置。GUI 与 CLI 继续用 `python -m sjtu_tpmshx.main` 和 `python -m sjtu_tpmshx.cli` 启动。
 
 几何、物性与闭合、数值求解和结果计算由上述原生阶段与几何库负责。
 Python 保留公共入口、配置、数据对象、文件读写、缓存、GUI 和设计／优化编排。
 前处理使用匹配的几何、准备和结果库；其中结果库负责范围采集。完整计算还使用求解库。
-具体 C++ 文件、函数及修改后的重建步骤见[源码地图](sjtu_tpmshx/README.md)。
+具体 C++ 文件、函数及修改后的重建步骤见[源码地图](python/README.md)。
 实现范围和交付记录集中在[C++ 说明](docs/cpp-migration.zh-CN.md#cpp-core-scope)。
 
 0.2 仅使用 C++ 数值后端，保留 Python/Qt 界面、CLI、前后处理、优化和快速设计。
@@ -52,7 +52,7 @@ Linux x86_64 仅支持独立结果评估，不提供完整求解器或桌面部�
 | --- | --- |
 | 在本机运行 | [macOS / Windows 首次运行](#first-run)，含命令行算例和 GUI 启动 |
 | 从界面开始使用 | [GUI 常用流程](#gui-use) |
-| 阅读或修改源码 | [主体源码与模块地图](sjtu_tpmshx/README.md) |
+| 阅读或修改源码 | [主体源码与模块地图](python/README.md) |
 | 理解模块边界 | [架构说明](docs/architecture.zh-CN.md)、[三模块数据契约](docs/contracts/three_module_v1/README.zh-CN.md) |
 | 构建桌面软件 | [独立打包环境、用户文件与交付验证](docs/desktop.md) |
 | 查找文档与其他目录 | [仓库目录与文档导航](docs/README.md) |
@@ -653,7 +653,7 @@ Pareto CSV 仍可导出几何；旧筛选模式不能再执行或重新计算指
 旧多边形代码通过[固定历史](docs/history/retired-tools.md)保留，重新开放须完成
 主线物理规则及独立模块交接的实现与验证。
 
-`shared/models/`、`shared/df_surrogate/` 等是共享技术支撑，不是第四个业务模块。旧 Pipeline/应用
+`python/physical_models/`、`python/physical_models/df_surrogate/` 等是共享技术支撑，不是第四个业务模块。旧 Pipeline/应用
 入口单向调用公开模块。具体边界见[架构说明](docs/architecture.zh-CN.md)。
 
 唯一数值后端为 C++。默认查找 macOS arm64 或 Windows x64 本机库，
@@ -684,11 +684,11 @@ PYTHON="$(head -n 1 .venv-path)"
 export MPLCONFIGDIR="$PWD/.cache/matplotlib" XDG_CACHE_HOME="$PWD/.cache/xdg"
 export QT_QPA_PLATFORM=offscreen PYTHONHASHSEED=0
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1
-"$PYTHON" -m mypy --config-file pyproject.toml
-"$PYTHON" -m pytest sjtu_tpmshx/development/tests -q -ra -m "not slow and not heavy" --ignore=sjtu_tpmshx/development/tests/integration_tm1 -n 2 --dist worksteal --timeout=600 --timeout-method=thread --durations=30 --junitxml=.cache/ci/fast.xml
-"$PYTHON" -m pytest sjtu_tpmshx/development/tests/integration_tm1 -q -ra --timeout=600 --timeout-method=thread --durations=30 --junitxml=.cache/ci/integration.xml
+"$PYTHON" -m engineering.scripts.check_types
+"$PYTHON" -m pytest tests/python -q -ra -m "not slow and not heavy" --ignore=tests/python/integration_tm1 -n 2 --dist worksteal --timeout=600 --timeout-method=thread --durations=30 --junitxml=.cache/ci/fast.xml
+"$PYTHON" -m pytest tests/python/integration_tm1 -q -ra --timeout=600 --timeout-method=thread --durations=30 --junitxml=.cache/ci/integration.xml
 # 完整本地验收：没有 -m 过滤；按本机 CPU/内存可将 auto 换为固定 worker 数。
-"$PYTHON" -m pytest sjtu_tpmshx/development/tests -q -n auto --dist loadscope --timeout=600 --timeout-method=thread
+"$PYTHON" -m pytest tests/python -q -n auto --dist loadscope --timeout=600 --timeout-method=thread
 ```
 
 PowerShell 使用同样的 pytest 参数，以 `$env:变量名=值` 设置上述环境变量，
@@ -743,14 +743,14 @@ envelope 实现、三模块数据契约与公共 API、后处理指标入口；�
 第一条 pytest 排除了 slow/heavy 和 `integration_tm1`，第二条单独完整执行该集成目录，
 避免重复执行其中的快测成员；两者不能代替第三条完整本地验收。
 本地上述命令仍执行未分片的完整子集。CI 中的原生资格测试只在原生组执行，
-共同模块清单为 `sjtu_tpmshx/development/tests/native/_ci_suite.txt`。原生 pytest 使用 `@<清单路径>` 读取它。
+共同模块清单为 `tests/python/native/_ci_suite.txt`。原生 pytest 使用 `@<清单路径>` 读取它。
 应用快测仍记录原完整收集集合，再通过 `--ci-covered-modules=<清单路径>` 移交这些模块。
 清单外的新模块自动保留在应用快测中，不会按目录整体排除。
 复现应用分片时，在第一条 pytest 命令追加
 `-p sjtu_tpmshx.development.tests.ci_shard --ci-shard=0 --ci-manifest=.cache/ci/fast-0
---ci-covered-modules=sjtu_tpmshx/development/tests/native/_ci_suite.txt`。
+--ci-covered-modules=tests/python/native/_ci_suite.txt`。
 另一片改为 `--ci-shard=1` 并使用独立 manifest 目录。
-分片 0 的模块列在 `sjtu_tpmshx/development/tests/_ci_shard0.txt`，其余应用模块自动进入分片 1。
+分片 0 的模块列在 `tests/python/_ci_shard0.txt`，其余应用模块自动进入分片 1。
 移交和分片在原 heavy 标记及 pytest 过滤之后执行，所有原生断言保持不变。
 
 汇总门先验证原生分片完整、互斥且成功，再与应用分片合并核对原完整快测集合。
@@ -767,7 +767,7 @@ envelope 实现、三模块数据契约与公共 API、后处理指标入口；�
 分组依据完整矩阵的实测用例耗时。保守能量测试按共享 fixture 参数分组，
 同组的收敛、物性、能量账本和真实回放检查保持在同片。其他模块保留共享 fixture；
 独立工程用例与二维检查点用例可按完整 node ID 分组。
-分组清单位于 `sjtu_tpmshx/development/tests/native/`：macOS 使用 `_ci_macos_shard0.txt` 至 `_ci_macos_shard1.txt`，
+分组清单位于 `tests/python/native/`：macOS 使用 `_ci_macos_shard0.txt` 至 `_ci_macos_shard1.txt`，
 Windows 使用 `_ci_windows_shard0.txt` 至 `_ci_windows_shard3.txt`。
 按编号顺序将每份清单通过 `--ci-shard-modules=<清单路径>` 重复传入。
 未列出的用例自动进入最后一片，即 macOS 分片 2 或 Windows 分片 4。

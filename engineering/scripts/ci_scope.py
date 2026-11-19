@@ -7,14 +7,14 @@ import subprocess
 
 TIERS = ('docs', 'application', 'full')
 DISPLAY_FILES = {
-    'sjtu_tpmshx/applications/gui/ui/' + name for name in (
+    'python/applications/gui/ui/' + name for name in (
         'icons.py', 'ui_constants.py', 'vis3d_constants.py', 'responsive.py',
         'matplotlib_canvas.py', 'typography.py', 'theme.py', 'theme_manager.py',
         'microanim.py', 'sparkline.py', 'plot_2d_results.py', 'plot_3d_results.py',
         'panel_vis_3d.py', 'coord_inspector.py', 'field_menu.py', 'layout_drawer.py',
     )
 } | {
-    'sjtu_tpmshx/development/tests/' + name for name in (
+    'tests/python/' + name for name in (
         'test_theme_manager.py', 'test_ui_typography.py', 'test_responsive.py',
         'test_ui_layout_hygiene.py', 'test_lazy_result_plots.py',
     )
@@ -33,7 +33,7 @@ def select_scope(event, paths):
     if all(document(path) for path in paths):
         return 'docs'
     if all(document(path) or path in DISPLAY_FILES
-           or path.startswith('sjtu_tpmshx/applications/gui/ui/assets/icons/')
+           or path.startswith('python/applications/gui/ui/assets/icons/')
            and PurePosixPath(path).suffix == '.svg' for path in paths):
         return 'application'
     return 'full'

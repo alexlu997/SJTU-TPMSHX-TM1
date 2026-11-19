@@ -27,7 +27,7 @@ CI SHALL NOT 依赖忽略的本地数据资产。
 快测 SHALL 固定两个 worker，BLAS/OMP/MKL/NumExpr 单线程。各作业 SHALL 输出最慢 30 项与 skip 原因，并保存
 逐项状态及耗时的 JUnit XML，测试报告 artifact 保留 7 天。上传范围为
 `.cache/ci/` 的测试报告、收集/分片清单及资源记录，不包含原生求解结果或本地数据。
-原生资格模块 SHALL 由 `sjtu_tpmshx/development/tests/native/_ci_suite.txt` 共同清单选择，应用快测 SHALL 移交相同模块并保留原完整收集集合。清单外的新模块 SHALL 自动进入应用快测。
+原生资格模块 SHALL 由 `tests/python/native/_ci_suite.txt` 共同清单选择，应用快测 SHALL 移交相同模块并保留原完整收集集合。清单外的新模块 SHALL 自动进入应用快测。
 平台汇总门 SHALL 验证原生分片完整且互斥，再验证应用与原生两组覆盖原完整集合且没有重复，并要求测试分片、集成、BO 及原生依赖资格作业成功。
 平台快测、真实集成和最小后处理门均保留；macOS 3.13、Windows 3.12、Windows 3.13 和 minimal-postprocess 四项检查均为必需门，数值断言/容差不因提速改变。基础与 BO 作业 SHALL 使用相同的平台/Python 版本矩阵；两个 Windows 版本共用 engineering/requirements/bo-windows.txt。
 
@@ -68,11 +68,11 @@ CI SHALL NOT 依赖忽略的本地数据资产。
 - **THEN** 仅保留真实活跃的 change；不要求默认 Python 环境安装 OpenSpec CLI
 
 ### Requirement: Pytest config single source
-仓库根 `pyproject.toml` SHALL 在 `[tool.pytest.ini_options]` 中定义：`testpaths = sjtu_tpmshx/development/tests`、`--strict-markers`，并注册 `slow`、`fast` 与 `heavy` 标记。未注册标记 SHALL 导致收集期报错而非静默通过。
+仓库根 `pyproject.toml` SHALL 在 `[tool.pytest.ini_options]` 中定义：`testpaths = tests/python`、`--strict-markers`，并注册 `slow`、`fast` 与 `heavy` 标记。未注册标记 SHALL 导致收集期报错而非静默通过。
 
 #### Scenario: Bare pytest collects only the real suite
 - **WHEN** 在仓库根运行 `pytest --collect-only -q`
-- **THEN** 收集项全部位于 `sjtu_tpmshx/development/tests/`，无 worktree 副本
+- **THEN** 收集项全部位于 `tests/python/`，无 worktree 副本
 
 #### Scenario: Typo'd marker fails loudly
 - **WHEN** 某测试使用未注册标记（如 `@pytest.mark.slwo`）
@@ -90,10 +90,10 @@ SHALL 对 envelope、前处理 API、求解 API、后处理 API 和后处理 met
 - **THEN** 三处调用均报告参数类型错误；清单中的实际代码仍须零错误
 
 ### Requirement: Parallel local gate
-本地全量门 SHALL 支持 pytest-xdist 并行：`pytest sjtu_tpmshx/development/tests/ -q -n auto --dist loadscope`，且在启动 Python 前设置 `PYTHONHASHSEED=0` 和 BLAS/OMP 单线程。`--dist loadscope` 为本机文档默认，worker 数可按资源改为固定值；128 核服务器保留脚本中的 worksteal 策略。解释器、环境检查和完整命令集中在[根 README](../../../README.md#环境与检查)。pytest-xdist 位于共同依赖锁中。
+本地全量门 SHALL 支持 pytest-xdist 并行：`pytest tests/python/ -q -n auto --dist loadscope`，且在启动 Python 前设置 `PYTHONHASHSEED=0` 和 BLAS/OMP 单线程。`--dist loadscope` 为本机文档默认，worker 数可按资源改为固定值；128 核服务器保留脚本中的 worksteal 策略。解释器、环境检查和完整命令集中在[根 README](../../../README.md#环境与检查)。pytest-xdist 位于共同依赖锁中。
 
 #### Scenario: Parallel full suite green
-- **WHEN** 在 `PYTHONHASHSEED=0` 下运行 `pytest sjtu_tpmshx/development/tests/ -q -n auto --dist loadscope`
+- **WHEN** 在 `PYTHONHASHSEED=0` 下运行 `pytest tests/python/ -q -n auto --dist loadscope`
 - **THEN** 所有实有测试进入验收（0 failed），skip 保留原因；历史耗时不作为跨机器速度承诺
 
 ### Requirement: Slow-marking policy — studies out, invariant gates in

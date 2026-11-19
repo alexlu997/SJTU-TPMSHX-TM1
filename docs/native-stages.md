@@ -323,10 +323,10 @@ The host keeps cache policy, scalar object types, warning filters and source loc
 Host stages 10 through 16 preserve domain, port, fluid, grid, cell-cap, roughness and grid-cell conversion validation order.
 Stages 17 through 19 validate each count before its physical axis is built.
 The library owns physical grid construction, local geometry, total-flow resolution and final preparation.
-`preprocess/three_d/preparation.py` copies native views into immutable CaseData before releasing the owner.
+`python/preprocess/three_d/preparation.py` copies native views into immutable CaseData before releasing the owner.
 Native failure preserves the original host exception and does not select another preparation route.
 The old 3D numerical host route and its exclusive `shared/models/grid_3d.py` and `asym_split.py` helpers are retired.
-`development/tests/preparation_3d_reference.py` keeps their independent comparison and synthetic saved-grid fixtures.
+`tests/python/preparation_3d_reference.py` keeps their independent comparison and synthetic saved-grid fixtures.
 3D air-field scalar observations use at most eight selected values per side.
 The selection keeps the original notices, extrema and last sample.
 Raw-array range records still include every physical cell.
@@ -532,7 +532,7 @@ Public uniform 2D preparation uses v10; its capacity and flow-resolution queries
 Canonical continuous XY entries retain v7 with v4 payloads.
 Air/air stripes, rectangles and sigmoid fields use v10 for preparation, capacity and flow resolution.
 Capacity-only queries keep configuration validation and do not calculate drag. Complete spatial preparation still requires CFD drag.
-`preprocess/native_preparation.py` transports shared cache values and evidence without numerical cache calls.
+`python/cpp_interface/native_preparation.py` transports shared cache values and evidence without numerical cache calls.
 The adapter copies arrays, scalar types and evidence before it releases the native owner.
 Stored cases keep their schema, SI fields, controls and model references.
 Preliminary mass-flow records remain outside the final preparation warning scope.
@@ -560,7 +560,7 @@ They preserve untyped keys, LRU order, statistics, clearing, concurrent publicat
 Equal keys retain the first successful value's scalar types. Material conductivity and chi stay outside these caches.
 
 The replaced Python 2D preparation sequence and row D-F projection are retired.
-`preprocess/two_d/preparation.py` is the retained native adapter; `shared/models/zone_units.py` owns the saved zone-unit conversion.
+`python/preprocess/two_d/preparation.py` is the retained native adapter; `python/physical_models/zone_units.py` owns the saved zone-unit conversion.
 Nominal x/y grid warnings use separate host emission sites in that preparation adapter.
 Frozen references under `development/tests/preparation_*_reference.py` retain the original sequence and complete row D-F projection.
 They are not production routes. Retain them while independent preparation comparison requires those references.
@@ -775,8 +775,8 @@ Python keeps the shared cache key, hit/miss behavior and original stored value t
 The EOS operations share `sco2_props._prop` and `co2_props._scalar`, including their original 4096-item limit and keys.
 sCO2 looks up scalar entries before state validation; CO2 validates first. Arrays bypass both scalar caches.
 Only successful native calculations publish values. External property calls and cache clearing use these same owners.
-The replaced `shared/models/quick_design.py` is removed. Its frozen reference in `development/tests/quick_prepare_reference.py` remains for independent regression checks.
-`preprocess/app_modes/quick_design.py` only assembles CaseData from copied native fields and host snapshots.
+The replaced `shared/models/quick_design.py` is removed. Its frozen reference in `tests/python/quick_prepare_reference.py` remains for independent regression checks.
+`python/preprocess/app_modes/quick_design.py` only assembles CaseData from copied native fields and host snapshots.
 
 ### Prepared execution and evidence
 

@@ -7,11 +7,19 @@ graft geometry
 graft numerics
 graft include
 graft tests/cpp
-graft sjtu_tpmshx
+include sjtu_tpmshx.py tests/__init__.py
+graft python
+graft tests/python
 graft engineering
 graft docs
 graft examples
 prune sjtu_tpmshx/solvers/native/lib
+prune python/development/runs/_out
+prune python/opt_runs
+prune python/nTop_inputs
+prune python/.agents
+prune docs/superpowers
+global-exclude *.xlsx *.xlsm .last_session_*.json .workspace .theme .density .accent .user_presets.json
 prune .cache
 prune data
 prune .venv

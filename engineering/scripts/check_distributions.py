@@ -21,34 +21,37 @@ ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = "sjtu_tpmshx"
 NATIVE_SOURCES = ("preprocess", "solver", "postprocess", "geometry", "numerics", "include", "tests/cpp")
 RUNTIME = PurePosixPath(PACKAGE) / "solvers/native/lib"
-TESTS = PurePosixPath(PACKAGE) / "development/tests"
-FORBIDDEN_PARTS = {".cache", ".git", ".venv", "__pycache__", ".pytest_cache", "build", "dist"}
-FORBIDDEN_SUFFIXES = {".pyc", ".pyo", ".nbi", ".nbc", ".a", ".lib", ".dylib", ".dll", ".so",
+TESTS = PurePosixPath("tests")
+FORBIDDEN_PARTS = {".cache", ".git", ".venv", "__pycache__", ".pytest_cache", "_out", "opt_runs", "nTop_inputs", ".agents", "build", "dist"}
+FORBIDDEN_SUFFIXES = {".xlsx", ".xlsm", ".pyc", ".pyo", ".nbi", ".nbc", ".a", ".lib", ".dylib", ".dll", ".so",
                       ".o", ".obj", ".pdb", ".exe", ".h5", ".hdf5", ".npz", ".npy", ".checkpoint", ".ckpt"}
 PRIVATE_FILES = {".venv-path", ".last_session.json", ".session_timeline.jsonl", ".first_run_done"}
 GENERATED_HEADERS = {"native_state_build.hpp", "tpmshx/model_coefficients.hpp", "tpmshx/preparation_df_data.hpp"}
 REQUIRED_RESOURCES = {
-    f"{PACKAGE}/shared/configs/model_parameters_v1.json",
-    f"{PACKAGE}/shared/configs/preparation_df_v1.json",
-    f"{PACKAGE}/shared/configs/co2_segment2_v1.json",
-    f"{PACKAGE}/shared/configs/sco2_effective_nu.json",
-    f"{PACKAGE}/shared/configs/shanghai_baseline.json",
-    f"{PACKAGE}/shared/df_surrogate/_prebuilt/cfd_full_core_3cell_fixed_v2.csv",
+    f"{PACKAGE}/model_configs/model_parameters_v1.json",
+    f"{PACKAGE}/model_configs/preparation_df_v1.json",
+    f"{PACKAGE}/model_configs/co2_segment2_v1.json",
+    f"{PACKAGE}/model_configs/sco2_effective_nu.json",
+    f"{PACKAGE}/model_configs/shanghai_baseline.json",
+    f"{PACKAGE}/physical_models/df_surrogate/_prebuilt/cfd_full_core_3cell_fixed_v2.csv",
 }
 
 
 def forbidden(name: str) -> bool:
     path = PurePosixPath(name)
     return (bool(FORBIDDEN_PARTS.intersection(path.parts)) or "data" == path.parts[0]
+            or path.is_relative_to("docs/superpowers") or path.match(".last_session_*.json")
+            or path.name in {".workspace", ".theme", ".density", ".accent", ".user_presets.json"}
             or path.name in PRIVATE_FILES or path.suffix.lower() in FORBIDDEN_SUFFIXES
             or path.is_relative_to(RUNTIME))
 
 
 def retired_module(name: str) -> bool:
     path = PurePosixPath(name)
+    relative = "/".join(path.parts[1:])
     return (path.name == "local_heat_transfer.py" or "local_heat_transfer" in path.parts
-            or path in {PurePosixPath(PACKAGE) / "shared/models/quick_design.py",
-                        PurePosixPath(PACKAGE) / "preprocess/thermal_geometry.py"})
+            or (path.parts[0] in ("python", PACKAGE) and relative in {
+                "shared/models/quick_design.py", "physical_models/quick_design.py", "preprocess/thermal_geometry.py"}))
 
 
 def source_files(root: Path, directory: str) -> set[str]:
@@ -58,19 +61,18 @@ def source_files(root: Path, directory: str) -> set[str]:
 
 def expected_source_files(root: Path) -> set[str]:
     expected = {"CMakeLists.txt", "pyproject.toml", "MANIFEST.in", "LICENSE", "README.md", "README.en.md", "requirements.txt"}
-    for directory in (*NATIVE_SOURCES, str(TESTS), "engineering", "docs", "examples"):
+    expected.add("sjtu_tpmshx.py")
+    for directory in (*NATIVE_SOURCES, "python", str(TESTS), "engineering", "docs", "examples"):
         expected.update(source_files(root, directory))
-    expected.update(path.relative_to(root).as_posix() for path in (root / PACKAGE).rglob("*.py")
-                    if not forbidden(path.relative_to(root).as_posix()))
-    expected.update(declared_resources(root))
     return expected
 
 
 def declared_resources(root: Path) -> set[str]:
     project = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
     patterns = project["tool"]["setuptools"]["package-data"][PACKAGE]
-    resources = {path.relative_to(root).as_posix() for pattern in patterns
-                 for path in (root / PACKAGE).glob(pattern) if path.is_file()}
+    source = root / "python"
+    resources = {f"{PACKAGE}/{path.relative_to(source).as_posix()}" for pattern in patterns
+                 for path in source.glob(pattern) if path.is_file()}
     missing = REQUIRED_RESOURCES - resources
     if missing:
         raise ValueError(f"Required runtime resources are not declared: {sorted(missing)}")
@@ -128,8 +130,8 @@ def check_native_closure(root: Path) -> dict:
 
 def inspect_wheel(archive: Path, root: Path) -> list[str]:
     resources = declared_resources(root)
-    python = {name for name in source_files(root, PACKAGE) if name.endswith(".py")
-              and not PurePosixPath(name).is_relative_to(TESTS)}
+    python = {f"{PACKAGE}/{name.removeprefix('python/')}" for name in source_files(root, "python")
+              if name.endswith(".py")}
     with zipfile.ZipFile(archive) as source:
         files = sorted(name for name in source.namelist() if not name.endswith("/"))
         metadata = {PurePosixPath(name).parts[0] for name in files if ".dist-info/" in name}
@@ -145,7 +147,7 @@ def inspect_wheel(archive: Path, root: Path) -> list[str]:
         if missing:
             raise ValueError(f"Python wheel omitted modules or resources: {sorted(missing)}")
         for name in resources:
-            if source.read(name) != (root / name).read_bytes():
+            if source.read(name) != (root / "python" / PurePosixPath(name).relative_to(PACKAGE)).read_bytes():
                 raise ValueError(f"Python wheel changed resource bytes: {name}")
         wheel = Parser().parsestr(source.read(metadata_root + "/WHEEL").decode())
         if wheel["Root-Is-Purelib"] != "true" or wheel.get_all("Tag") != ["py3-none-any"]:

@@ -71,7 +71,7 @@ Rebuild each affected library after changing C/C++ source or compiled model data
 
 Each migrated numerical rule has one native owner. Python keeps configuration, DTOs, array adaptation, I/O, caches, GUI and BO orchestration.
 The replaced Python interpolation, overlap, zone and filter bodies are retired.
-Independent references remain under `development/tests/`; production does not import them.
+Independent references remain under `tests/python/`; production does not import them.
 No numerical callback into Python, new framework or runtime fallback is used.
 
 Grid construction keeps original scalar precision, mixed sum order, allocation ties and final-cell compensation.

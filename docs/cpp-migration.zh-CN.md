@@ -28,7 +28,7 @@ application -> preprocess.api -> CaseData -> solvers.api -> FieldResult
 本次六批范围已落实：模型数据归集、几何／设计场、准备、结果核心及消费者／退休收口，保留原算法、功能、物理门与文件接口。
 各批变更记录：[数据来源 PR275](https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/275)、[几何 PR276](https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/276)、[网格与场 PR277](https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/277)、[准备 PR278](https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/278)、[结果 PR279](https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/279)。
 消费者收口移除了过期 GUI 插值预热；显式对象协议、配置、I/O、GUI／搜索／研究、注入 ledger 和审计／导出摘要保持已声明边界。
-[源码地图](../sjtu_tpmshx/README.md)列出 C++ 修改位置；具体保留范围见[Python 职责](architecture.zh-CN.md#retained-python-responsibilities)。
+[源码地图](../python/README.md)列出 C++ 修改位置；具体保留范围见[Python 职责](architecture.zh-CN.md#retained-python-responsibilities)。
 这六批与文末历史求解器迁移的 0–4 阶段不同。
 PR CI、合并后 main CI、可见桌面交付、性能与实验精度仍分别验收。
 
@@ -41,7 +41,7 @@ Sigmoid LUT 节点和派生几何也使用该核心。
 同一核心还负责网格、端口、六方向轴映射、连续 XY/XYZ 场、sigmoid、线性 LUT、分区和 Gaussian 平滑。
 这些计算使用同一 `tpmshx_geometry_shared` 文件，不新增运行库或数值框架。
 几何数值源码在 [geometry/](../geometry/)。
-`shared/models/_native_geometry.py` 在几何查询需要时，通过 ctypes 加载独立几何 ABI 1 库。
+`python/cpp_interface/_native_geometry.py` 在几何查询需要时，通过 ctypes 加载独立几何 ABI 1 库。
 Python 保留公共类型、缓存及逐次调用的 chi 显式值／环境值／拟合选择。
 缺库、ABI 不符或符号缺失时明确失败，不使用数值 fallback，也不在运行时构建。
 
@@ -61,7 +61,7 @@ Geometry、grid 和 zones 调用保留几何 ABI 1，状态 2 表示算术域错
 既有几何签名不变。调用按显式长度借用缓冲区，失败时不修改调用方输出。
 XY 句柄持有创建库直至释放；LUT 对象保留捕获的轴、表及创建绑定。
 Python 持有返回数组、配置、DTO、I/O、缓存及 GUI／BO 编排。
-已替换的 Python 数值体已退役，独立参考保留在 `development/tests/`。
+已替换的 Python 数值体已退役，独立参考保留在 `tests/python/`。
 
 macOS arm64 使用 `libtpmshx_geometry_shared.dylib`，Windows x64 使用 `tpmshx_geometry_shared.dll`。
 源码默认目录为 `sjtu_tpmshx/solvers/native/lib/<host>/`，冻结程序使用自身的 `native/`。
@@ -69,7 +69,7 @@ macOS arm64 使用 `libtpmshx_geometry_shared.dylib`，Windows x64 使用 `tpmsh
 历史结果读取和独立后处理不加载该库。
 修改 C++ 函数或编入库的模型参数后，须重新构建并重启进程；共享 JSON 资源仍是权威来源。
 贯通、扫描、Richardson 和目标 C 研究改用
-`sjtu_tpmshx/development/runs/tools/asym_geometry_research.py`，shared 不保留转发别名。
+`python/development/runs/tools/asym_geometry_research.py`，shared 不保留转发别名。
 
 仅构建几何时，`fetch-cmake` 只获取锁定构建工具。
 `build`、`verify` 与 `publish --component geometry` 仍检查配置的 Python 解释器及选定环境锁。
@@ -121,7 +121,7 @@ Python wheel 包含代码和模型资源，不包含原生库。
 不构建完整求解器或 run_state，也不需要 SuperLU 或 AMG。
 完整构建脚本分别构建 pilot 和 preparation 工程，共用一套物性和 DF 数值实现。
 
-`shared/models/_native_preparation.py` 在需要时通过 ctypes 加载 preparation ABI 1。
+`python/cpp_interface/_native_preparation.py` 在需要时通过 ctypes 加载 preparation ABI 1。
 具名物性、DF 和流量适配器保留现有 Python 公共接口。
 二维准备将 v7 域长／端口标量类型描述符与适用的版本载荷配合使用。
 共享网格和端口核心保留整数与窄浮点混合运算。
@@ -146,7 +146,7 @@ Python 均匀及空间准备使用 v10；均匀容量和解析仍使用 v7/v3，
 它保留 saved v1、结果所有权与同构建恢复，不重新准备保存算例。
 公共分区与 sigmoid 组合查询在单独迁移前仍保留独立调用消费者。
 它们保留调用方提供的物性及自定义 sigmoid 控制。
-`preprocess/two_d/preparation.py` 为原生适配器；被替代的 Python 二维准备流程及行 D-F 投影已退役。
+`python/preprocess/two_d/preparation.py` 为原生适配器；被替代的 Python 二维准备流程及行 D-F 投影已退役。
 冻结测试参考保留原流程与投影。
 原始操作和结果所有权见[空间阶段接口](native-stages.zh-CN.md#空间几何总质量流量)。
 回调与所有权合同见[空间宿主接口](native-stages.zh-CN.md#空间几何宿主缓存接口)。
@@ -159,7 +159,7 @@ Python 前处理入口调用独立结果库采集范围记录。准备库本身�
 owner 保留物理网格场、六个端口流向、标量类型标记和模型证据。
 两侧孔隙率已拆分；K/cF 场未缩放，逐侧证据记录应用因子。
 宿主提供已解析的单元数上限；[阶段契约](native-stages.zh-CN.md#均匀三维准备)定义所有权与端口规则。
-Python 三维准备现通过 `preprocess/three_d/preparation.py` 使用此原生阶段。
+Python 三维准备现通过 `python/preprocess/three_d/preparation.py` 使用此原生阶段。
 独立的三维流量 v2 为配置或显式总质量流量增加容量、解析及完整准备，复用同一物理几何，
 保留静态观测到速度观测的原证据顺序。三维 continuous v3 为这些流量操作增加 XY 挤出和 XYZ 控制点，
 复用现有样条及几何所有者，分别保留原始设计场与热几何的 SI 往返换算。
@@ -176,13 +176,13 @@ Python 完整三维执行通过 `full_3d_stage.py` 使用保存输入生命周�
 host v5 通过共享 v9 回调描述符保留带类型的几何与入口缓存。
 Python 保留配置、缓存策略、警告、环境解析和不可变 CaseData 组装。
 被替代的三维 Python 数值体及其专属 `shared/models/grid_3d.py` 和 `asym_split.py` 助手已删除。
-独立冻结参考保留在 `development/tests/preparation_3d_reference.py`。
+独立冻结参考保留在 `tests/python/preparation_3d_reference.py`。
 私有 `scalar_range_samples.hpp` 将每侧空气场标量观测限制在八个以内，保留原通知、极值和最后样本。
 完整原始数组记录仍包含每个单元。准备与结果分别编译该选择规则，两者之间没有运行时链接。
 接近单元上限的内存使用及真实三维 BO 仍是验收关口；原始接口不替代保存 CaseData 的校验。
 
 Quick 准备 v2 增加带类型的原始输入及独立压降分数查询。
-`shared/models/_native_quick_prepare.py` 通过固定具名操作保留宿主协议。
+`python/cpp_interface/_native_quick_prepare.py` 通过固定具名操作保留宿主协议。
 阶段负责几何、网格、物性和压降计算及其执行顺序；仅压降查询不创建热网格或设计场数组。
 Preparation 状态 0 表示成功，1 表示无效输入，2 表示分配失败，3 表示运行时错误；
 状态 10、11、12 分别表示水、CO2、sCO2 状态错误。
@@ -312,7 +312,7 @@ Ubuntu 26.04 构建产物单独保留。
 保留已公开的 native-double v1 准备与运行契约。
 v2 阶段负责原数值及校验顺序，固定具名宿主操作保留 Python 标量、对象、缓存、警告和快照协议。
 宿主操作不提供模型计算；原 `shared/models/quick_design.py` 已删除。
-独立冻结参考保留在 `development/tests/`，供回归检查使用。
+独立冻结参考保留在 `tests/python/`，供回归检查使用。
 薄准备入口组装 CaseData，保留逆流保存态的 `qtol=None` 和 `chunk=None`。
 Python 执行通过保存的准备场调用 run 阶段。
 阶段提供场数组及声明，Python 在释放前复制这些数据，保留原固定场 dtype，并映射过程警告和错误。
@@ -513,7 +513,7 @@ tm1_python="$(head -n 1 .venv-path)"
 MPLCONFIGDIR="$PWD/.cache/matplotlib" \
 XDG_CACHE_HOME="$PWD/.cache/xdg" \
 TPMSHX_REQUIRE_CPP_TESTS=1 TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1 \
-"$tm1_python" -m pytest -q sjtu_tpmshx/development/tests/native
+"$tm1_python" -m pytest -q tests/python/native
 ```
 
 所有显式 `TPMSHX_TRUE_H_KERNEL` 覆盖均已退役，包括 `numba` 和 `cpp_sweeps_v1`。已保存准备态请求在流动执行前被拒绝；删除覆盖后使用原生执行。环境快照保留该键仅为明确拒绝。新 Case 不再捕获 `TPMSHX_THERMAL_LIBRARY`，原生库选择属于 `RunControl`。旧结果可在不加载求解库时读取，历史 Python `sweep_kernel` 和 `energy_audit` 记录保留原含义。
@@ -557,12 +557,12 @@ Python wheel 包含代码、JSON 和 CSV 资源，不包含原生库；原生求
 TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1 \
 MPLCONFIGDIR="$PWD/.cache/matplotlib" XDG_CACHE_HOME="$PWD/.cache/xdg" \
 "$tm1_python" -m pytest -q -ra \
-  sjtu_tpmshx/development/tests/native/test_native_eos.py \
-  sjtu_tpmshx/development/tests/native/test_native_pressure.py \
-  sjtu_tpmshx/development/tests/native/test_superlu_error_boundary.py \
-  sjtu_tpmshx/development/tests/native/test_fluid_properties.py \
-  sjtu_tpmshx/development/tests/native/test_quick_design_driver.py \
-  sjtu_tpmshx/development/tests/native/test_cpp_quick_design.py
+  tests/python/native/test_native_eos.py \
+  tests/python/native/test_native_pressure.py \
+  tests/python/native/test_superlu_error_boundary.py \
+  tests/python/native/test_fluid_properties.py \
+  tests/python/native/test_quick_design_driver.py \
+  tests/python/native/test_cpp_quick_design.py
 ```
 
 EOS 调用方以与 Python 参考相同的具名后端评估 CO2 和 Water，即 HEOS 或 BICUBIC&HEOS。检查正向物性、焓反演、既有 CO2 范围、稳定液态水约束和独立可变状态。它不以 CoolProp 数值替代项目经验空气／水输运函数。每个进程使用显式表目录，不改变父 Python EOS 设置。`test_native_eos.py` 固定物性比较容差；它与 PDE 验收以及 BICUBIC 相对 HEOS 的插值误差分别管理。
@@ -573,7 +573,7 @@ EOS 调用方以与 Python 参考相同的具名后端评估 CO2 和 Water，即
 
 SuperLU 调用采用纯 C 错误边界和线程局部分配账本。分配失败和 ABORT 在清理后返回有界错误，跳转不跨 C++ 栈帧。macOS 资格在每个观测到的分配序号注入失败，并在 release 和 ASan/UBSan 构建中检查同进程恢复、长 ABORT 消息、奇异 info 和独立并发线程。Windows 必需 CI 也通过 release 分配、ABORT 和恢复检查；这不将 sanitizer 证据扩展到 Windows。非法输入和未知后端错误不静默回退 LU。这些压力测试本身不能建立完整原生 SIMPLE 或外耦合资格。
 
-完整固定流动 true-h、二维／三维 model-h 和二维／三维 SIMPLE 均已有独立 C++ 实现、带版本 C 接口，以及 `solvers/backends/cpp/` 下的显式 Python 绑定。热绑定返回既有能量和原始边界元数据。原生 model-h 在 C 调用方释放结果前持有审计数组；Python 绑定释放前复制视图。回调异常和取消丢弃部分状态。
+完整固定流动 true-h、二维／三维 model-h 和二维／三维 SIMPLE 均已有独立 C++ 实现、带版本 C 接口，以及 `python/cpp_interface/solver_library/` 下的显式 Python 绑定。热绑定返回既有能量和原始边界元数据。原生 model-h 在 C 调用方释放结果前持有审计数组；Python 绑定释放前复制视图。回调异常和取消丢弃部分状态。
 
 SIMPLE 接口持有逐实例压力缓存，并保留原 F2、出口、热启动状态和原始质量证据。这些可独立调用驱动也支撑上述完整二维／三维外耦合后端。macOS SuperLU 构建使用锁定 SciPy 参考所用的系统 Accelerate BLAS，并为二维 SIMPLE 保留原 CSR／转置 LU 运算顺序。Windows 使用锁定可移植 CBLAS 源码，由必需原生 CI 执行。动量串行循环不表示 BLAS 单线程；线程策略和测得性能须分别记录。
 

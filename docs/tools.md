@@ -20,9 +20,9 @@ GCI 每次默认创建独立的 `.cache/validation/<工具>-<运行ID>/`，
 
 原 Python MMS A3/A4/B4 命令已在 0.2 退役。[原入口](https://github.com/alexlu997/SJTU-TPMSHX-TM1/tree/v0.1.0/sjtu_tpmshx/validation/cases)
 和[冻结 CSV／原测试](history/README.md#mms-reference-retirement)保留在固定历史；当前制造场、网格细化和入口检查见
-[原生 MMS 测试](../sjtu_tpmshx/development/tests/native/test_temperature_mms.py)。
+[原生 MMS 测试](../tests/python/native/test_temperature_mms.py)。
 
-显式相对文件路径按当前工作目录解析。`sjtu_tpmshx/development/validation/` 内剩余的参考 CSV
+显式相对文件路径按当前工作目录解析。`python/development/validation/` 内剩余的参考 CSV
 与历史元数据保留，工具在求解前拒绝向该目录写入，也拒绝指向它的符号链接。
 显式指定的其他输出目录可以复用；需要保留每次结果时使用默认独立目录。
 `validate_sco2_exp_q --csv` 同样在求解前检查 CSV 及 `.meta.json` 的参考目录保护。
@@ -69,22 +69,22 @@ Phase 3 核算热模型的熵产（W/K），不含压力／黏性贡献。它使
 
 未完成的 `asym_pyfluent_runner` 模板已[退役](history/retired-tools.md#pyfluent-template-retirement)。
 CFD 工况表和 nTop 表达式继续保留。Fluent 算例须在仓库外配置并验证；本仓库不提供 Fluent 批量执行入口。
-结果 CSV 继续由 [asym_postproc_kappa](../sjtu_tpmshx/development/runs/cfd_asym/asym_postproc_kappa.py) 处理，字段约定不变。
+结果 CSV 继续由 [asym_postproc_kappa](../python/development/runs/cfd_asym/asym_postproc_kappa.py) 处理，字段约定不变。
 
 | 工具 | 输入 → 输出 | 运行方式与状态 |
 | --- | --- | --- |
 | [examples/](../examples/) | 公开 JSON/YAML 配置 → Case/Result/metrics | README 真实 2D/3D CLI 示例；当前支持范围内的首次运行入口 |
-| [development/runs/smokes/](../sjtu_tpmshx/development/runs/smokes/) | 内置样例 → 控制台及脚本声明的诊断文件 | `python -m sjtu_tpmshx.development.runs.smokes.<模块名>`；GUI 无显示运行须用 `QT_QPA_PLATFORM=offscreen` |
-| [development/runs/demos/](../sjtu_tpmshx/development/runs/demos/) | 内置 3D 工况 → 控制台/可视化 | `python -m sjtu_tpmshx.development.runs.demos.<模块名>`；交互图形依赖桌面，示例不扩大支持域 |
-| [CFD 工况清单](../sjtu_tpmshx/development/runs/tools/asym_build_cfd_worklist_xlsx.py) → [nTop 表达式](../sjtu_tpmshx/development/runs/cfd_asym/asym_ntop_expressions_html.py) | 内置几何/流体 + 可选私有 `water_DG_cfd_results_legacy.xlsx` → XLSX → HTML | 顺序运行下方两条命令；两个工具共用输出目录。旧工作簿由本地数据目录提供；缺文件时 `r1_water_ref` 页保留跳过说明，不补造锚点 |
-| [asym CFD/诊断工具](../sjtu_tpmshx/development/runs/cfd_asym/)、[diagnostics/](../sjtu_tpmshx/development/runs/diagnostics/) | 脚本声明的几何、场/CFD 文件 → 研究结果 | `python -m sjtu_tpmshx.development.runs.<子目录>.<模块名>`；CFD 计算和私有输入文件须在外部准备，仓库保留表格生成、诊断与 CSV 后处理 |
+| [development/runs/smokes/](../python/development/runs/smokes/) | 内置样例 → 控制台及脚本声明的诊断文件 | `python -m sjtu_tpmshx.development.runs.smokes.<模块名>`；GUI 无显示运行须用 `QT_QPA_PLATFORM=offscreen` |
+| [development/runs/demos/](../python/development/runs/demos/) | 内置 3D 工况 → 控制台/可视化 | `python -m sjtu_tpmshx.development.runs.demos.<模块名>`；交互图形依赖桌面，示例不扩大支持域 |
+| [CFD 工况清单](../python/development/runs/tools/asym_build_cfd_worklist_xlsx.py) → [nTop 表达式](../python/development/runs/cfd_asym/asym_ntop_expressions_html.py) | 内置几何/流体 + 可选私有 `water_DG_cfd_results_legacy.xlsx` → XLSX → HTML | 顺序运行下方两条命令；两个工具共用输出目录。旧工作簿由本地数据目录提供；缺文件时 `r1_water_ref` 页保留跳过说明，不补造锚点 |
+| [asym CFD/诊断工具](../python/development/runs/cfd_asym/)、[diagnostics/](../python/development/runs/diagnostics/) | 脚本声明的几何、场/CFD 文件 → 研究结果 | `python -m sjtu_tpmshx.development.runs.<子目录>.<模块名>`；CFD 计算和私有输入文件须在外部准备，仓库保留表格生成、诊断与 CSV 后处理 |
 | [engineering/scripts/](../engineering/scripts/) | 已配置环境/测试选择 → 测试日志 | 两个 PowerShell 测试入口；仓库路径取脚本位置，解释器读取 `.venv-path`，`-LockFile` 选择依赖锁，不自动安装依赖 |
-| [D76 Nu/ε-NTU 历史Q比较](../sjtu_tpmshx/development/validation/cases/validate_sco2_d76.py) | 6 个固定 D-7-6 工况/私有 Excel → smooth-CFD Nu + lumped Q 对照 | `python -m sjtu_tpmshx.development.validation.cases.validate_sco2_d76`；保留原15%最大绝对相对Q误差门，退出码0通过、1未通过；不验证当前有效Nu系数 |
-| [水 Nu 现存表验证](../sjtu_tpmshx/development/validation/cases/validate_water_nu_excel.py) | 1879 条 legacy 水 CFD 结果 → 逐行、拓扑、几何、Re 分段误差 | `python -m sjtu_tpmshx.development.validation.cases.validate_water_nu_excel --out .cache/water-nu-validation`；固定现行关联式，退出码 0 通过、2 精度未通过，数据错误直接报错 |
-| [现行实验修正](../sjtu_tpmshx/development/validation/df_refit/fit_experimental_effective.py)、[跨数据集 cF 对照](../sjtu_tpmshx/development/validation/df_refit/cf_cross_fluid.py) | 实验原表 + 当前固定 CFD 基线 → `.cache/reports/df_refit/` 审查 CSV | `python -m sjtu_tpmshx.development.validation.df_refit.<模块名>`；共享 `development/validation/hx_experiments.py` 读取，不依赖旧 γ/RBF 拟合或六张旧系数表，不更新生产系数 |
-| [sCO2 CFD 基础 Nu 拟合](../sjtu_tpmshx/development/validation/sco2_cfd/fit_nu_sco2.py) | 原 CFD 表 → 基础式研究拟合、几何/压力留一结果 | `python -m sjtu_tpmshx.development.validation.sco2_cfd.fit_nu_sco2`；保留原数据清洗与验证，不自动覆盖现行有效系数；旧实验锚定工具已移至[历史入口](history/legacy-models.md#sco2-nu-旧锚定路线2026-09-20) |
-| [主计算测量](../sjtu_tpmshx/development/runs/tools/benchmark_main_compute.py) | 本地固定 `jobs` 清单（每项 `id/config`，可含 `reference/depth_m`）→ 每次运行独立的 Case/Result/metrics、日志和分段测量 | `python -m sjtu_tpmshx.development.runs.tools.benchmark_main_compute MANIFEST NEW_OUTPUT --warmup --repeat 5`；0=公共设计结论、文件及已声明流量检查通过，2=存在未合格结果，1=执行异常；不代表实验精度通过 |
-| [F2 容差计价](../sjtu_tpmshx/development/validation/cases/price_f2_convergence_3d.py) | 历史计价工况 → 独立 `.cache/validation/f2_pricing-*/` CSV | `python -m sjtu_tpmshx.development.validation.cases.price_f2_convergence_3d --mom-tol 1e-3,1e-4,1e-5 --cases 1,8,16`；扫描 F2，`--out` 可指定受冻结路径保护的输出；该工具使用其声明的全侧端口，不能代替局部端口主计算证据 |
+| [D76 Nu/ε-NTU 历史Q比较](../python/development/validation/cases/validate_sco2_d76.py) | 6 个固定 D-7-6 工况/私有 Excel → smooth-CFD Nu + lumped Q 对照 | `python -m sjtu_tpmshx.development.validation.cases.validate_sco2_d76`；保留原15%最大绝对相对Q误差门，退出码0通过、1未通过；不验证当前有效Nu系数 |
+| [水 Nu 现存表验证](../python/development/validation/cases/validate_water_nu_excel.py) | 1879 条 legacy 水 CFD 结果 → 逐行、拓扑、几何、Re 分段误差 | `python -m sjtu_tpmshx.development.validation.cases.validate_water_nu_excel --out .cache/water-nu-validation`；固定现行关联式，退出码 0 通过、2 精度未通过，数据错误直接报错 |
+| [现行实验修正](../python/development/validation/df_refit/fit_experimental_effective.py)、[跨数据集 cF 对照](../python/development/validation/df_refit/cf_cross_fluid.py) | 实验原表 + 当前固定 CFD 基线 → `.cache/reports/df_refit/` 审查 CSV | `python -m sjtu_tpmshx.development.validation.df_refit.<模块名>`；共享 `python/development/validation/hx_experiments.py` 读取，不依赖旧 γ/RBF 拟合或六张旧系数表，不更新生产系数 |
+| [sCO2 CFD 基础 Nu 拟合](../python/development/validation/sco2_cfd/fit_nu_sco2.py) | 原 CFD 表 → 基础式研究拟合、几何/压力留一结果 | `python -m sjtu_tpmshx.development.validation.sco2_cfd.fit_nu_sco2`；保留原数据清洗与验证，不自动覆盖现行有效系数；旧实验锚定工具已移至[历史入口](history/legacy-models.md#sco2-nu-旧锚定路线2026-09-20) |
+| [主计算测量](../python/development/runs/tools/benchmark_main_compute.py) | 本地固定 `jobs` 清单（每项 `id/config`，可含 `reference/depth_m`）→ 每次运行独立的 Case/Result/metrics、日志和分段测量 | `python -m sjtu_tpmshx.development.runs.tools.benchmark_main_compute MANIFEST NEW_OUTPUT --warmup --repeat 5`；0=公共设计结论、文件及已声明流量检查通过，2=存在未合格结果，1=执行异常；不代表实验精度通过 |
+| [F2 容差计价](../python/development/validation/cases/price_f2_convergence_3d.py) | 历史计价工况 → 独立 `.cache/validation/f2_pricing-*/` CSV | `python -m sjtu_tpmshx.development.validation.cases.price_f2_convergence_3d --mom-tol 1e-3,1e-4,1e-5 --cases 1,8,16`；扫描 F2，`--out` 可指定受冻结路径保护的输出；该工具使用其声明的全侧端口，不能代替局部端口主计算证据 |
 
 无求解 GUI 检查分别运行：
 
@@ -216,7 +216,7 @@ nTop 公开 API／CLI 将 `Lfield.csv`、`tfield.csv`、`provenance.json` 成组
 
 ## 数据与研究工具
 
-CFD 清单到 nTop 的默认目录为 `sjtu_tpmshx/development/runs/_out/asym_cfd/`（Git 忽略）。
+CFD 清单到 nTop 的默认目录为 `python/development/runs/_out/asym_cfd/`（Git 忽略）。
 设置 `TPMSHX_TOOL_OUT_DIR` 时，两次命令须使用同一个值：
 
 ```bash

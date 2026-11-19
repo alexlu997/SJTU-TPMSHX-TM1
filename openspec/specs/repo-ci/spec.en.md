@@ -30,7 +30,7 @@ CI MUST NOT depend on ignored local data assets.
 
 Fast jobs MUST use two workers and one BLAS/OMP/MKL/NumExpr thread. Each job MUST report its 30 slowest tests and skip reasons. JUnit XML MUST record individual statuses and durations. Test report artifacts stay available for 7 days.
 
-Uploads cover reports, collection/shard lists, and resource records under `.cache/ci/`. They exclude native solver results and local data. The shared `sjtu_tpmshx/development/tests/native/_ci_suite.txt` list MUST select native qualification modules. Application shards MUST transfer those modules and keep the original full collection. New modules outside the list MUST enter application tests. Each platform summary MUST check complete, disjoint native shards. It MUST then check that application and native coverage is complete and has no overlap. It MUST require successful test shards, integration, BO, and native dependency qualification jobs.
+Uploads cover reports, collection/shard lists, and resource records under `.cache/ci/`. They exclude native solver results and local data. The shared `tests/python/native/_ci_suite.txt` list MUST select native qualification modules. Application shards MUST transfer those modules and keep the original full collection. New modules outside the list MUST enter application tests. Each platform summary MUST check complete, disjoint native shards. It MUST then check that application and native coverage is complete and has no overlap. It MUST require successful test shards, integration, BO, and native dependency qualification jobs.
 
 Platform fast tests, real integration, and minimal postprocessing gates stay required. The four required checks are macOS 3.13, Windows 3.12, Windows 3.13, and minimal-postprocess. Speed improvements MUST NOT change numerical assertions or tolerances. Base and BO jobs MUST use the same platform/Python matrix. Both Windows versions use engineering/requirements/bo-windows.txt.
 
@@ -73,11 +73,11 @@ Git history MUST keep completed changes. `openspec/changes/` MUST contain only a
 - **THEN** only active changes stay. The default Python environment does not require OpenSpec CLI.
 
 ### Requirement: Pytest config single source
-Root `pyproject.toml` MUST use `[tool.pytest.ini_options]` to set `testpaths = sjtu_tpmshx/development/tests` and `--strict-markers`. It MUST register `slow`, `fast`, and `heavy`. Unregistered markers MUST cause collection errors.
+Root `pyproject.toml` MUST use `[tool.pytest.ini_options]` to set `testpaths = tests/python` and `--strict-markers`. It MUST register `slow`, `fast`, and `heavy`. Unregistered markers MUST cause collection errors.
 
 #### Scenario: Bare pytest collects only the real suite
 - **WHEN** `pytest --collect-only -q` runs at the repository root
-- **THEN** all collected tests belong to `sjtu_tpmshx/development/tests/`, without worktree copies
+- **THEN** all collected tests belong to `tests/python/`, without worktree copies
 
 #### Scenario: Typo'd marker fails loudly
 - **WHEN** a test uses an unregistered marker, such as `@pytest.mark.slwo`
@@ -91,10 +91,10 @@ The `[tool.mypy].files` setting in `pyproject.toml` MUST explicitly list public 
 - **THEN** all three calls report argument type errors. Actual code in the list must still have zero errors.
 
 ### Requirement: Parallel local gate
-The complete local gate MUST support `pytest sjtu_tpmshx/development/tests/ -q -n auto --dist loadscope`. Before Python starts, set `PYTHONHASHSEED=0` and single-threaded BLAS/OMP. Local documentation defaults to `--dist loadscope`. Worker count can be fixed to suit resources. Existing 128-core server scripts keep worksteal. The [root README](../../../README.en.md#环境与检查) defines the interpreter, environment checks, and full command. The common dependency lock includes pytest-xdist.
+The complete local gate MUST support `pytest tests/python/ -q -n auto --dist loadscope`. Before Python starts, set `PYTHONHASHSEED=0` and single-threaded BLAS/OMP. Local documentation defaults to `--dist loadscope`. Worker count can be fixed to suit resources. Existing 128-core server scripts keep worksteal. The [root README](../../../README.en.md#环境与检查) defines the interpreter, environment checks, and full command. The common dependency lock includes pytest-xdist.
 
 #### Scenario: Parallel full suite green
-- **WHEN** `pytest sjtu_tpmshx/development/tests/ -q -n auto --dist loadscope` runs with `PYTHONHASHSEED=0`
+- **WHEN** `pytest tests/python/ -q -n auto --dist loadscope` runs with `PYTHONHASHSEED=0`
 - **THEN** all actual tests enter acceptance, with 0 failures. Skips keep reasons. Historical timings are not speed promises for other machines.
 
 ### Requirement: Slow-marking policy — studies out, invariant gates in

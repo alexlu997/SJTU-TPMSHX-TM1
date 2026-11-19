@@ -14,7 +14,7 @@ The physical coefficients remain in the project model resources.
 The original notices must accompany source and binary distributions that contain these subsets.
 The macOS arm64 quotient keeps the fused expressions in the locked Python and NumPy binaries.
 Other supported targets keep separate operations. Global floating-point options stay unchanged.
-The independent Python references remain under `development/tests/`.
+The independent Python references remain under `tests/python/`.
 They do not call the native formulas that they check.
 
 ## Scalar inlet-property combination
@@ -28,9 +28,9 @@ Complete preparation keeps its existing physical guards.
 `query_inlet_properties` accepts supplied geometry scalars and creates no mesh or solver state.
 `preprocess/preparation_case_c_api.cpp` exposes `tpmshx_query_inlet_properties_v1` with twelve typed inline values and no owner.
 Optional v3 callbacks retain synchronous observations and host-object checks; both cache hooks must be NULL.
-`shared/models/tpms_calc.py` keeps public calls, shared caches, geometry selection and the per-call material query.
-`shared/models/_native_preparation_case.py` owns query transport and the range policy shared with preparation adapters.
-The frozen combination in `development/tests/property_reference.py` supplies independent numerical expectations.
+`python/physical_models/tpms_calc.py` keeps public calls, shared caches, geometry selection and the per-call material query.
+`python/cpp_interface/_native_preparation_case.py` owns query transport and the range policy shared with preparation adapters.
+The frozen combination in `tests/python/property_reference.py` supplies independent numerical expectations.
 The [external fluid caller](../examples/cpp/prepare_fluids_2d.cpp) uses `stages.hpp` to query all four fluids with only the preparation library.
 No physical model, coefficient source or external numerical dependency is added.
 
@@ -51,7 +51,7 @@ Its spatial model carries the actual conductivity value and scalar kind.
 The original configuration comparison can accept different nominal and spatial values through narrow-scalar equality.
 Spatial material uses the accepted spatial value; nominal calculations keep their original value.
 The probes carry actual L/t, scalar kinds, fluid state and optional Nu selection.
-`preprocess/native_preparation.py` uses the existing shared cache owners for
+`python/cpp_interface/native_preparation.py` uses the existing shared cache owners for
 lookup, publication and evidence transport. It does not call numerical cache functions.
 `ZonedCache` uses those hooks when supplied; native code calculates each miss.
 The original per-call cache remains available for independent native callers.
@@ -105,7 +105,7 @@ The shared v9 descriptor transports typed geometry and inlet cache values and ev
 Native code owns grid, geometry, flow resolution and final preparation.
 Python keeps configuration conversion, cache policy, warnings, environment parsing and immutable CaseData assembly.
 The replaced 3D Python bodies and exclusive `shared/models/grid_3d.py` and `asym_split.py` helpers are removed.
-Their independent frozen reference remains in `development/tests/preparation_3d_reference.py`.
+Their independent frozen reference remains in `tests/python/preparation_3d_reference.py`.
 
 3D air-field observations use `numerics/scalar_range_samples.hpp`, also used by result range queries.
 The selection keeps the original scalar notices, extrema and last sample with at most eight host observations per side.

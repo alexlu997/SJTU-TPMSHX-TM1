@@ -20,7 +20,7 @@
 
 项目文件夹保留以下内容：
 
-- 完整 `sjtu_tpmshx/` 源码，包括 `shared/configs/*.json`、`shared/df_surrogate/_prebuilt/*.csv` 和界面资源。
+- 完整 `sjtu_tpmshx/` 源码，包括 `python/model_configs/*.json`、`shared/df_surrogate/_prebuilt/*.csv` 和界面资源。
 - 本机 `.venv-path`、对应 `engineering/requirements/*.txt`、使用示例和运行说明。
 - 与源码版本、平台和各自 ABI 匹配的求解库、几何库、准备库、结果库，以及 `include/`、`engineering/native_build/dependencies-lock.toml`、`engineering/native_build/licenses/THIRD_PARTY_NOTICES.md` 和 `engineering/native_build/licenses/`。
 - 可写的模型表与运行缓存目录；表文件不写入动态库或只读资源目录。

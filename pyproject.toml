@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sjtu-tpmshx"
-dynamic = ["version"]   # 单源：sjtu_tpmshx/_version.py（P1.9）
+dynamic = ["version"]   # 单源：python/_version.py（P1.9）
 description = "Compressible SIMPLE/LTNE solver suite for TPMS heat exchangers (SJTU)"
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
@@ -61,16 +61,16 @@ select = ["F", "E9"]
 
 [tool.ruff.lint.per-file-ignores]
 # 包入口的显式导出。
-"sjtu_tpmshx/**/__init__.py" = ["F401"]
+"python/**/__init__.py" = ["F401"]
 
 [tool.pytest.ini_options]
 # Strict markers make spelling errors fail during collection.
-testpaths = ["sjtu_tpmshx/development/tests"]
+testpaths = ["tests/python"]
 addopts = ["--strict-markers"]
 markers = [
     "slow: heavyweight real-solve test; excluded from the CI fast subset (-m \"not slow\")",
     "fast: cheap smoke subset (opt-in via -m fast)",
-    "heavy: call-duration >= 30s per census manifest (sjtu_tpmshx/development/tests/_fast_tier_manifest.txt, conftest-applied); excluded by the development and CI subset",
+    "heavy: call-duration >= 30s per census manifest (tests/python/_fast_tier_manifest.txt, conftest-applied); excluded by the development and CI subset",
 ]
 
 [tool.mypy]
@@ -79,40 +79,39 @@ markers = [
 files = [
     "sjtu_tpmshx/compute.py",
     "sjtu_tpmshx/applications/result_adapter.py",
-    "sjtu_tpmshx/shared/domain/compute_config.py",
-    "sjtu_tpmshx/shared/domain/validator.py",
-    "sjtu_tpmshx/shared/domain/compute_result.py",
-    "sjtu_tpmshx/shared/configs/__init__.py",
+    "sjtu_tpmshx/data_types/compute_config.py",
+    "sjtu_tpmshx/data_types/validator.py",
+    "sjtu_tpmshx/data_types/compute_result.py",
+    "sjtu_tpmshx/model_configs/__init__.py",
     "sjtu_tpmshx/_version.py",
     "sjtu_tpmshx/cli.py",
-    "sjtu_tpmshx/shared/models/envelope.py",
-    "sjtu_tpmshx/shared/domain/case_data.py",
-    "sjtu_tpmshx/shared/domain/field_result.py",
-    "sjtu_tpmshx/shared/domain/performance_result.py",
-    "sjtu_tpmshx/shared/domain/metric_spec.py",
-    "sjtu_tpmshx/shared/domain/module_ports.py",
-    "sjtu_tpmshx/shared/domain/model_refs.py",
+    "sjtu_tpmshx/physical_models/envelope.py",
+    "sjtu_tpmshx/data_types/case_data.py",
+    "sjtu_tpmshx/data_types/field_result.py",
+    "sjtu_tpmshx/data_types/performance_result.py",
+    "sjtu_tpmshx/data_types/metric_spec.py",
+    "sjtu_tpmshx/run_control/module_ports.py",
+    "sjtu_tpmshx/data_types/model_refs.py",
     "sjtu_tpmshx/preprocess/api.py",
     "sjtu_tpmshx/solvers/api.py",
     "sjtu_tpmshx/postprocess/api.py",
-    "sjtu_tpmshx/shared/_native_result_stage.py",
+    "sjtu_tpmshx/cpp_interface/_native_result_stage.py",
 ]
 python_version = "3.12"
 ignore_missing_imports = true
 follow_imports = "silent"
 warn_unused_ignores = true
 no_implicit_optional = true
-# P1.8b（W0 引入，F2 定型）：explicit_package_bases + 仓库根 cwd ⇒ 模块名
-# 恒为 sjtu_tpmshx.*，与包内 __init__ 上溯一致，杜绝 "found twice" 双名。
+# Use the public package names in the isolated build tree.
 explicit_package_bases = true
 
 [[tool.mypy.overrides]]
 module = [
-    "sjtu_tpmshx.shared.models.envelope",
+    "sjtu_tpmshx.physical_models.envelope",
     "sjtu_tpmshx.preprocess.api",
     "sjtu_tpmshx.solvers.api",
     "sjtu_tpmshx.postprocess.api",
-    "sjtu_tpmshx.shared._native_result_stage",
+    "sjtu_tpmshx.cpp_interface._native_result_stage",
 ]
 # 这些边界文件中的无注解辅助函数也必须检查函数体。
 check_untyped_defs = true
@@ -123,14 +122,13 @@ version = { attr = "sjtu_tpmshx._version.__version__" }
 [tool.setuptools]
 include-package-data = false
 
-[tool.setuptools.packages.find]
-include = ["sjtu_tpmshx*"]
-exclude = ["sjtu_tpmshx.solvers.native*", "sjtu_tpmshx.development.tests", "sjtu_tpmshx.development.tests.*"]
+[tool.setuptools.package-dir]
+sjtu_tpmshx = "python"
 
 [tool.setuptools.package-data]
 sjtu_tpmshx = [
-    "shared/configs/*.json",
-    "shared/df_surrogate/_prebuilt/*.csv",
+    "model_configs/*.json",
+    "physical_models/df_surrogate/_prebuilt/*.csv",
     "development/validation/*.meta.json",
     "applications/gui/ui/assets/icons/*.svg",
     "applications/gui/ui/assets/icons/LICENSE",

@@ -27,7 +27,7 @@ Python retains DTOs, type and shape adaptation, original object identity, NumPy 
 The result stage owns full 2D/3D evidence selection, status and reason text.
 The stage also owns Quick Design metric arithmetic. V3 retains typed intermediate values and fixed named host operations for existing Python object, exact integer and final conversion protocols.
 The four public computation entries remain unchanged.
-Independent original numerical references stay under `development/tests/`.
+Independent original numerical references stay under `tests/python/`.
 Production result calculations do not call those references.
 
 ## Original numerical rules and notices
@@ -104,7 +104,7 @@ The Python adapter applies the caller's NumPy error policy to these events.
 Missing files, symbols or a wrong ABI remain deployment errors.
 There is no numerical fallback or runtime compilation.
 
-`shared/_native_result.py` loads the image only when a numerical call needs it.
+`python/cpp_interface/_native_result.py` loads the image only when a numerical call needs it.
 Public imports and pure HDF/JSON reads do not load it.
 Full evaluation and independent result queries require the current stage image, including queries with missing evidence.
 A missing stage symbol is a deployment error. Missing physical evidence retains its original result status and reason.

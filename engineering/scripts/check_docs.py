@@ -59,7 +59,7 @@ def check(root, paths):
             if any(marker in module for marker in ('<', '>', '...', '…')):
                 continue
             module = module.rstrip('.')
-            location = root.joinpath(*module.split('.'))
+            location = (root / 'python').joinpath(*module.split('.')[1:])
             if not (location.with_suffix('.py').is_file() or (location / '__main__.py').is_file()):
                 failures.append(f'{name}: missing module command {module}')
             commands += 1

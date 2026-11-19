@@ -75,7 +75,7 @@ if ($Fast) {
     $successMessage = 'READY — suite green.'
     $failurePrefix = 'FAILED'
 }
-& $py -u -m pytest sjtu_tpmshx/development/tests/ -q @pytestArgs
+& $py -u -m pytest tests/python/ -q @pytestArgs
 
 if ($LASTEXITCODE -eq 0) {
     Write-Host $successMessage -ForegroundColor Green

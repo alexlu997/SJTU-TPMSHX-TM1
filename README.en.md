@@ -10,23 +10,23 @@ Python applications use four public computation entries.
 
 | File | Responsibility |
 | --- | --- |
-| [compute.py](sjtu_tpmshx/compute.py) | Main computation entry. Organize preparation, solving and evaluation. |
-| [preprocess/api.py](sjtu_tpmshx/preprocess/api.py) | Preprocessing entry. Prepare CaseData. |
-| [solvers/api.py](sjtu_tpmshx/solvers/api.py) | Solver entry. Call the C++ backend and produce FieldResult. |
-| [postprocess/api.py](sjtu_tpmshx/postprocess/api.py) | Postprocessing entry. Calculate PerformanceResult from recorded results. |
+| [python/compute.py](python/compute.py) | Main computation entry. Organize preparation, solving and evaluation. |
+| [python/preprocess/api.py](python/preprocess/api.py) | Preprocessing entry. Prepare CaseData. |
+| [python/solvers/api.py](python/solvers/api.py) | Solver entry. Call the C++ backend and produce FieldResult. |
+| [python/postprocess/api.py](python/postprocess/api.py) | Postprocessing entry. Calculate PerformanceResult from recorded results. |
 
-The package has six directory groups: `preprocess/`, `solvers/`, `postprocess/`, `shared/`, `applications/` and `development/`.
-The [Python module map](sjtu_tpmshx/README.en.md) shows how the applications use the stages.
+The Python source is in `python/`. Programs import it as `sjtu_tpmshx`.
+The [Python module map](python/README.en.md) shows how the applications use the stages.
 The [native stage SDK](docs/native-stages.md) documents the independent C++ preparation,
 execution and evaluation interfaces and their current scope.
-GUI, CLI, design and recovery implementations are in `applications/`. Tests, validation and diagnostic tools are in `development/`.
+Open [Quick Design](python/applications/design/), [Bayesian optimization](python/applications/optimization/) or [checkpoint recovery](python/applications/execution/recovery.py) for each workflow. The [Python tests](tests/python/) and [C++ tests](tests/cpp/) are separate from these applications.
 Root [engineering](engineering/) holds build scripts, packaging configuration and dependency locks. [docs/contracts](docs/contracts/) holds data contracts.
 `.github/workflows/` holds CI configuration. Keep using `python -m sjtu_tpmshx.main` for the GUI and `python -m sjtu_tpmshx.cli` for the CLI.
 
 The C++ stages and geometry library calculate geometry, properties, closures, solutions and results.
 Python keeps public entries, configuration, data objects, file I/O, caches, the GUI and design/optimization workflows.
 Preparation uses matching geometry, preparation and result libraries. The result library collects range observations. Full computation also uses the solver library.
-The [source map](sjtu_tpmshx/README.en.md) lists C++ files, functions and rebuild steps.
+The [source map](python/README.en.md) lists C++ files, functions and rebuild steps.
 See [C++ scope and delivery records](docs/cpp-migration.md#cpp-core-scope) for implementation boundaries and delivery records.
 
 Version 0.2 uses C++ for numerical execution. Python keeps the GUI, CLI, preparation, postprocessing, optimization and Quick Design interfaces.
@@ -47,7 +47,7 @@ M-A merge acceptance for the rectangular 2D/3D three-module mainline is recorded
 | --- | --- |
 | Run locally | [macOS / Windows first run](#first-run), including CLI cases and GUI startup |
 | Use the GUI | [Common GUI workflow](#gui-use) |
-| Read or modify code | [Source and module map](sjtu_tpmshx/README.en.md) |
+| Read or modify code | [Source and module map](python/README.en.md) |
 | Understand module boundaries | [Architecture](docs/architecture.md), [three-module data contract](docs/contracts/three_module_v1/README.md) |
 | Build desktop software | [Separate build environment, user files, and delivery validation](docs/desktop.en.md) |
 | Find documentation and directories | [Repository and document navigation](docs/README.en.md) |
@@ -597,7 +597,7 @@ Current domains support only **rectangular 2D / cuboid 3D**. The interface displ
 
 Previous rectangular files still load. [Fixed history](docs/history/retired-tools.md) keeps polygon code. Reopening those routes requires implementation and verification of mainline physical rules and independent module handoff.
 
-`shared/models/`, `shared/df_surrogate/`, and related layers give shared technical support, not a fourth business module. Previous pipeline/application entries call public modules in one direction. See [architecture](docs/architecture.md).
+`python/physical_models/`, `python/physical_models/df_surrogate/`, and related layers give shared technical support, not a fourth business module. Previous pipeline/application entries call public modules in one direction. See [architecture](docs/architecture.md).
 
 C++ is the only numerical backend. Quick Design and full 2D/3D use the matching local macOS arm64 or Windows x64 library. `RunControl(native_library=...)` or CLI `--native-library` can override its location. See [C++ migration](docs/cpp-migration.md) for paths, builds, and limits.
 See [C++ scope and delivery records](docs/cpp-migration.md#cpp-core-scope) for each implementation boundary.
@@ -625,11 +625,11 @@ PYTHON="$(head -n 1 .venv-path)"
 export MPLCONFIGDIR="$PWD/.cache/matplotlib" XDG_CACHE_HOME="$PWD/.cache/xdg"
 export QT_QPA_PLATFORM=offscreen PYTHONHASHSEED=0
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1
-"$PYTHON" -m mypy --config-file pyproject.toml
-"$PYTHON" -m pytest sjtu_tpmshx/development/tests -q -ra -m "not slow and not heavy" --ignore=sjtu_tpmshx/development/tests/integration_tm1 -n 2 --dist worksteal --timeout=600 --timeout-method=thread --durations=30 --junitxml=.cache/ci/fast.xml
-"$PYTHON" -m pytest sjtu_tpmshx/development/tests/integration_tm1 -q -ra --timeout=600 --timeout-method=thread --durations=30 --junitxml=.cache/ci/integration.xml
+"$PYTHON" -m engineering.scripts.check_types
+"$PYTHON" -m pytest tests/python -q -ra -m "not slow and not heavy" --ignore=tests/python/integration_tm1 -n 2 --dist worksteal --timeout=600 --timeout-method=thread --durations=30 --junitxml=.cache/ci/fast.xml
+"$PYTHON" -m pytest tests/python/integration_tm1 -q -ra --timeout=600 --timeout-method=thread --durations=30 --junitxml=.cache/ci/integration.xml
 # Complete local acceptance: no -m filter. Replace auto with a fixed worker count for available resources.
-"$PYTHON" -m pytest sjtu_tpmshx/development/tests -q -n auto --dist loadscope --timeout=600 --timeout-method=thread
+"$PYTHON" -m pytest tests/python -q -n auto --dist loadscope --timeout=600 --timeout-method=thread
 ```
 
 PowerShell uses the same pytest arguments. Set the listed environment variables and call `& $tm1Python`. Provide a matching native library before tests.
@@ -667,9 +667,9 @@ Fast `test_type_gate.py` runs the same list. It validates the rejection of incor
 
 The first pytest command excludes slow/heavy and `integration_tm1`. The second runs that complete integration directory one time. Neither replaces the third, complete local gate. Local commands run the unsharded subsets.
 
-CI runs native qualification tests only in native shards. The shared module list is `sjtu_tpmshx/development/tests/native/_ci_suite.txt`. Native pytest reads it with `@<list-path>`. Application shards first record the full collection, then transfer these modules with `--ci-covered-modules=<list-path>`. New modules outside this list stay in application tests. The native directory is not excluded as a whole.
+CI runs native qualification tests only in native shards. The shared module list is `tests/python/native/_ci_suite.txt`. Native pytest reads it with `@<list-path>`. Application shards first record the full collection, then transfer these modules with `--ci-covered-modules=<list-path>`. New modules outside this list stay in application tests. The native directory is not excluded as a whole.
 
-To reproduce an application shard, append `-p sjtu_tpmshx.development.tests.ci_shard --ci-shard=0 --ci-manifest=.cache/ci/fast-0 --ci-covered-modules=sjtu_tpmshx/development/tests/native/_ci_suite.txt`. For shard 1, use `--ci-shard=1` with its own manifest directory. `sjtu_tpmshx/development/tests/_ci_shard0.txt` lists modules for shard 0. Remaining application modules enter shard 1. Transfer and sharding occur after existing heavy markers and pytest filters. All native assertions stay unchanged.
+To reproduce an application shard, append `-p sjtu_tpmshx.development.tests.ci_shard --ci-shard=0 --ci-manifest=.cache/ci/fast-0 --ci-covered-modules=tests/python/native/_ci_suite.txt`. For shard 1, use `--ci-shard=1` with its own manifest directory. `tests/python/_ci_shard0.txt` lists modules for shard 0. Remaining application modules enter shard 1. Transfer and sharding occur after existing heavy markers and pytest filters. All native assertions stay unchanged.
 
 The summary gate first checks complete, disjoint, successful native shards. It then combines application and native coverage against the original full fast collection. Duplicate or missing tests, missing workers, and failed records prevent a pass. Download all manifests for the same platform/Python combination, then run:
 
@@ -681,7 +681,7 @@ Pass native shards in numeric order. Without `--ci-covered-modules`, local users
 
 Native qualification uses three shards on macOS and five for each Windows/Python combination. Each shard uses two workers with `loadscope`, which keeps each module or class in one worker. Measured case durations from the full matrix set the groups. Conservative energy tests keep each shared fixture parameter in one shard. Convergence, property, energy ledger and real replay checks for each parameter stay in one shard. Other modules keep their shared fixtures. Independent engineering-pair and 2D checkpoint cases can use complete node IDs.
 
-Group lists are in `sjtu_tpmshx/development/tests/native/`. macOS uses `_ci_macos_shard0.txt` through `_ci_macos_shard1.txt`. Windows uses `_ci_windows_shard0.txt` through `_ci_windows_shard3.txt`. Pass each list through `--ci-shard-modules=<list-path>` in numeric order. Unlisted cases enter the final automatic shard: 2 on macOS or 4 on Windows. All three platform/Python combinations remain supported. Native engineering cases keep per-side physical models, convergence and energy limits.
+Group lists are in `tests/python/native/`. macOS uses `_ci_macos_shard0.txt` through `_ci_macos_shard1.txt`. Windows uses `_ci_windows_shard0.txt` through `_ci_windows_shard3.txt`. Pass each list through `--ci-shard-modules=<list-path>` in numeric order. Unlisted cases enter the final automatic shard: 2 on macOS or 4 on Windows. All three platform/Python combinations remain supported. Native engineering cases keep per-side physical models, convergence and energy limits.
 
 Native jobs set both `TPMSHX_REQUIRE_CPP_TESTS=1` and `TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1`. Missing compilers or native libraries must fail. Existing tests for concurrent threads, process recovery, and result ownership still run in native shards.
 
