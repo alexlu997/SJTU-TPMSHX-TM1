@@ -4,15 +4,19 @@ from collections.abc import Mapping
 import numpy as np
 
 
-def validate_grid(grid):
+def grid_axes(grid):
     dimension = grid.get('dimension')
     if dimension not in (2, 3) or grid.get('length_unit') != 'm':
         raise ValueError('persisted physical grid requires dimension 2/3 and length unit m')
     axes = tuple('xyz'[:dimension])
     if tuple(grid.get('axis_order', ())) != axes:
         raise ValueError('persisted physical grid axis order is invalid')
+    return axes
+
+
+def validate_grid(grid):
     shape = []
-    for axis in axes:
+    for axis in grid_axes(grid):
         widths = np.asarray(grid['d' + axis])
         if widths.dtype.kind not in 'fiu' or widths.ndim != 1 or not len(widths) or not np.all(np.isfinite(widths) & (widths > 0)):
             raise ValueError(f'invalid {axis} grid widths')
@@ -20,6 +24,13 @@ def validate_grid(grid):
             raise ValueError(f'inconsistent {axis} grid edges')
         shape.append(len(widths))
     return tuple(shape)
+
+
+def validate_axis_permutation(axis, side):
+    solver_axes = (axis['cross1_real_axis'], axis['stream_real_axis'], axis['cross2_real_axis'])
+    if (sorted(solver_axes) != [0, 1, 2]
+            or tuple(axis['solver_to_real_perm']) != tuple(solver_axes.index(i) for i in range(3))):
+        raise ValueError(f'prepared fluid {side} axis permutation disagrees with physical axes')
 
 
 def validate_thermal_geometry(data, shape):

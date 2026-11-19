@@ -623,6 +623,11 @@ def run_case(case, control=RunControl(), *, resume_state=None, checkpoint=None, 
     if not control.native_library:
         raise ValueError('cpp requires RunControl.native_library for this host')
     control.check_cancelled()
+    from sjtu_tpmshx.data_types.persistence_validation import grid_axes, validate_axis_permutation
+    grid_axes(case.grid)
+    for side, axes in case.parameters['prepared']['axes'].items():
+        if axes is not None:
+            validate_axis_permutation(axes, side)
     driver=NativeFull3DDriver(control.native_library, table_directory=getattr(control,'native_table_directory',None))
     from sjtu_tpmshx.cpp_interface.full_3d_stage import has_saved_stage
     stage_case = case if has_saved_stage(driver.library) else None
