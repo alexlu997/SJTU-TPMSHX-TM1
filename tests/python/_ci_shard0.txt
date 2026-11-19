@@ -44,6 +44,7 @@ tests/python/test_cli_result_status.py
 tests/python/test_closure_guards.py
 tests/python/test_compute_config.py
 tests/python/test_compute_orchestrator.py
+tests/python/test_condition_workers.py
 tests/python/test_conservation_audit_coordinates.py
 tests/python/test_continuous_field.py
 tests/python/test_continuous_field_volume.py
