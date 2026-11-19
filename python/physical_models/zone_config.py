@@ -24,6 +24,7 @@ Usage:
 """
 
 import numpy as np
+from sjtu_tpmshx.run_control.logutil import format_zone_report as format_zone_report
 from dataclasses import dataclass, field
 from typing import List
 from sjtu_tpmshx.physical_models import tpms_calc
@@ -365,25 +366,3 @@ def compute_zone_statistics(Ta, Tb, Ts, zone_id, zones,
         stats.append(s)
 
     return stats
-
-
-def format_zone_report(stats):
-    """Format zone statistics into a readable string."""
-    lines = []
-    for s in stats:
-        if s['n_cells'] == 0:
-            lines.append(f"  {s['name']}: (empty)")
-            continue
-        lines.append(f"  {s['name']} (L={s['L_mm']}mm, t={s['t_mm']}mm, "
-                     f"{s['n_cells']} cells):")
-        lines.append(f"    Ta: {s['Ta_mean']:.1f} +/- {s['Ta_std']:.1f} K "
-                     f"[{s['Ta_min']:.1f}, {s['Ta_max']:.1f}]")
-        lines.append(f"    Tb: {s['Tb_mean']:.1f} +/- {s['Tb_std']:.1f} K "
-                     f"[{s['Tb_min']:.1f}, {s['Tb_max']:.1f}]")
-        lines.append(f"    Ts: {s['Ts_mean']:.1f} +/- {s['Ts_std']:.1f} K")
-        if 'umag_mean' in s:
-            lines.append(f"    |U|: {s['umag_mean']:.3f} m/s "
-                         f"(CV={s['umag_cv']:.1%})")
-        if 'P_spread' in s:
-            lines.append(f"    P spread: {s['P_spread']:.1f} Pa")
-    return '\n'.join(lines)

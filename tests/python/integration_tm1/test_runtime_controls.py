@@ -11,17 +11,13 @@ from tests.python.test_pipeline_3d_e2e import _small_air_cfg
 
 @pytest.mark.slow
 def test_public_three_d_iteration_and_cancellation(monkeypatch, tmp_path):
-    from sjtu_tpmshx.cpp_interface.solver_library import full_3d_capture as result_capture
+    from sjtu_tpmshx.cpp_interface import full_3d_stage as result_capture
     from sjtu_tpmshx.file_io.result_io import load_result, save_result
     capture = result_capture.capture_result
     def checked_capture(case, cfg, prepared, raw, abi):
         assert not {'_capture_native', '_native_evidence', '_cancel_check',
                     '_progress_cb', '_iter_cb'}.intersection(cfg)
         result = capture(case, cfg, prepared, raw, abi)
-        for side, flow in zip('AB', raw['flow']):
-            np.testing.assert_array_equal(result.fields['P_f'+side+'_display'], flow['pressure_real'])
-            for axis, value in zip(('uc', 'vc', 'wc'), flow['velocity_real']):
-                np.testing.assert_array_equal(result.fields[axis+side], value)
         return result
     monkeypatch.setattr(result_capture, 'capture_result', checked_capture)
     config = _small_air_cfg()
@@ -34,6 +30,12 @@ def test_public_three_d_iteration_and_cancellation(monkeypatch, tmp_path):
         outer_iterations.append((current, total))
     result = run_case(case, RunControl(iteration=iterations.append, progress=progress.append,
                                       outer_iteration=report_outer))
+    from tests.python.test_native_run_adapter_3d import _run
+    direct = _run(case, stage=False)[0]
+    for side, flow in zip('AB', direct['flow']):
+        np.testing.assert_array_equal(result.fields['P_f' + side + '_display'], flow['pressure_real'])
+        for axis, value in zip(('uc', 'vc', 'wc'), flow['velocity_real']):
+            np.testing.assert_array_equal(result.fields[axis + side], value)
     assert result.run_status['converged'] is True
     total = result.metadata['diagnostics']['_max_outer']
     assert iterations == [f'outer {index + 1}/{total}'
@@ -49,11 +51,11 @@ def test_public_three_d_iteration_and_cancellation(monkeypatch, tmp_path):
 
 @pytest.mark.parametrize('callback', ['iteration', 'outer_iteration', 'progress'])
 def test_three_d_callback_failure_stops_before_result_capture(monkeypatch, callback):
-    from sjtu_tpmshx.cpp_interface.solver_library import full_3d_capture
+    from sjtu_tpmshx.cpp_interface import full_3d_stage
     failure = RuntimeError('callback failure')
     def fail(*args):
         raise failure
-    monkeypatch.setattr(full_3d_capture, 'capture_result',
+    monkeypatch.setattr(full_3d_stage, 'capture_result',
                         lambda *a, **k: pytest.fail('result capture after callback failure'))
     with pytest.raises(RuntimeError) as caught:
         run_case(prepare_case(_small_air_cfg(), case_id='callback-failure'),

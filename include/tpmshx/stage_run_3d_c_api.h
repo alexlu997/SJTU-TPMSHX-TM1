@@ -129,6 +129,9 @@ TPMSHX_THERMAL_API void TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_release_v1(tpmsh
 TPMSHX_THERMAL_API uint32_t TPMSHX_THERMAL_CALL tpmshx_stage_capture_3d_abi_version(void);
 /* include_audit is 0 or 1. Query only completed results. Failure preserves
  * output. Status 1 is invalid storage/input; 4 is a native failure. */
+/* A null return indicates an invalid or incomplete result. */
+TPMSHX_THERMAL_API const tpmshx_stage_run_records_v1* TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_records_v1(
+    const tpmshx_stage_run_result_3d_v1* result);
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_get_capture_v1(
     const tpmshx_stage_run_result_3d_v1*,uint32_t include_audit,tpmshx_stage_capture_3d_v1*);
 /* One-shot execution uses create, advance_step and take_result on the same owner.

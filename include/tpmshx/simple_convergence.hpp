@@ -4,6 +4,7 @@
 
 #include <array>
 #include <limits>
+#include <stdexcept>
 #include <vector>
 
 namespace tpmshx {
@@ -11,6 +12,14 @@ namespace tpmshx {
 enum class SimplePhase { idle, active, completed, cancelled, failed };
 
 enum class SimpleStop { ongoing, tol, stall, max_iterations, nonfinite, cancelled, pressure_failure, post_closure };
+
+inline const char* simple_stop_name(SimpleStop stop) {
+    constexpr std::array names{"ongoing","tol","stall","max_iter","nonfinite","cancelled",
+                               "pressure_failure","post_closure"};
+    const auto index=static_cast<std::size_t>(stop);
+    if(index>=names.size())throw std::invalid_argument("invalid SIMPLE stop");
+    return names[index];
+}
 
 struct SimpleF2Control {
     // Resolved caller settings; the native layer supplies no alternate gates.

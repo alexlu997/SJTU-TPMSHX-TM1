@@ -26,12 +26,5 @@ def copy_sampling(query, result):
     view = _Sampling()
     if query(ct.byref(result), ct.byref(view)):
         raise RuntimeError('native property sampling query failed')
-    records = []
-    for index in range(view.count):
-        sample = view.records[index]
-        record = dict(side='AB'[sample.side], outer_index=sample.outer_index)
-        for name, _ in _Sample._fields_[2:]:
-            value = getattr(sample, name)
-            record[name] = value.decode('ascii') if value is not None else None
-        records.append(record)
-    return records
+    from .._native_result_stage import sampling_records
+    return sampling_records(view)

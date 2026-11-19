@@ -137,6 +137,9 @@ int main(int argc,char** argv) {
         check_saved(prepared.view(),control);
         auto run=[&] {auto local=prepare_case(input());return run_case(local,control);}();
         // The prepared owner has gone. All saved evidence must remain valid.
+        const auto* records=tpmshx_stage_run_2d_records_v1(&run.view());
+        require(records && records->sampling.count && records->sampling.records,"missing 2D property sampling");
+        require(!tpmshx_stage_run_2d_records_v1(&failure),"invalid result published 2D records");
         auto performance=evaluate(run);
         require(run.view().raw.converged,"baseline stage solve did not converge");
         require(performance.view().metric_count==17,"stage metric set changed");

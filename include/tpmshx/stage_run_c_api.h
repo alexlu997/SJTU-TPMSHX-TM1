@@ -9,6 +9,31 @@
 #define TPMSHX_STAGE_RUN_ABI_VERSION_V2 2u
 #define TPMSHX_STAGE_RUN_ABI_VERSION_V3 3u
 
+typedef struct {
+    const tpmshx_range_observation_v1* sample;
+    const char *label,*quantity,*unit;
+    size_t source_count,minimum_index[3],maximum_index[3];
+} tpmshx_stage_range_record_v1;
+typedef struct {
+    const char *relation,*provider,*state_update,*eos_fluid;
+    uint32_t solved;
+} tpmshx_stage_energy_relation_v1;
+/* These views remain valid while the completed stage result owns its storage.
+ * Temperature uses the main and optional fine grid. Energy and SIMPLE use sides A and B.
+ * The 3D drag summaries use permeability first and the Forchheimer coefficient second. */
+typedef struct {
+    tpmshx_property_sampling_v1 sampling;
+    const tpmshx_stage_range_record_v1 *observations,*last;
+    size_t observation_count,last_count;
+    const tpmshx_model_enthalpy_evidence_v1* temperature[2];
+    const char* simple_stop[2];
+    tpmshx_stage_energy_relation_v1 energy[2];
+    const char *const *transient_failures,*const *final_failures;
+    size_t transient_count,final_count;
+    tpmshx_preparation_df_summary_v1 base_drag[2],applied_drag[2][2];
+    uint32_t thermal_history_converged;
+} tpmshx_stage_run_records_v1;
+
 typedef struct { uint32_t present; size_t value; } tpmshx_stage_size_option_v1;
 typedef struct { uint32_t present; double value; } tpmshx_stage_double_option_v1;
 /* For prepared views, active model_h controls and an energy pointer are exclusive.
@@ -153,6 +178,9 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_run_case_2d_v3(
  * output. Status 1 means invalid input; status 5 means capture failure.
  * No arrays or strings are owned by the copied summary. Existing raw evidence
  * queries still supply the complete fields, histories and numerical ledgers. */
+/* A null return indicates an invalid or incomplete result. */
+TPMSHX_THERMAL_API const tpmshx_stage_run_records_v1* TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_records_v1(
+    const tpmshx_stage_run_result_2d_v1* result);
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_get_capture_v1(
     const tpmshx_stage_run_result_2d_v1*,const tpmshx_stage_application_2d_v1*,
     tpmshx_stage_capture_2d_v1*);

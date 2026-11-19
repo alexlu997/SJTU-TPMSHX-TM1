@@ -70,6 +70,9 @@ def _checked_applicability(actual, expected, case):
     wanted = capture_applicability(case, expected, {})
     wanted.pop('scope_notes')
     metadata = dict(actual.metadata)
+    if '_native_execution_sides' in metadata:
+        from sjtu_tpmshx.solvers.execution_record import full_execution_record
+        _same(metadata.pop('_native_execution_sides'), full_execution_record(case, expected)['sides'], 'executed side records')
     _same(metadata.pop('_native_applicability'), freeze_value(wanted), 'native applicability transfer')
     return replace(actual, metadata=metadata)
 
@@ -86,6 +89,9 @@ def _compare(case, tmp_path, monkeypatch):
         actual = full_2d.run_case(case, _control(actual_events))
     actual = _checked_applicability(actual, expected, case)
     _same(replace(actual, result_id=expected.result_id), expected, 'result')
+    assert list(actual.fields) == list(expected.fields)
+    for key in ('Ta', 'Tb', 'Ts'):
+        assert np.shares_memory(actual.fields[key], actual.fields[key + '_display'])
     _events_equal(actual_events, expected_events)
     save_case(case, tmp_path / 'case.h5')
     save_result(expected, tmp_path / 'reference.h5')

@@ -123,10 +123,25 @@ def test_saved_inputs_are_used_without_repreparation(change, monkeypatch, tmp_pa
     _same(_normalized(actual), _normalized(expected), change)
     before = {name: value.copy() for name, value in case.design_fields.items()}
     result = run_case(case, _control())
+    assert result.fields['K_ss'].dtype == case.design_fields['K_ss'].dtype
+    assert np.shares_memory(result.fields['Ta'], result.fields['Ta_display'])
     for name, value in before.items():
         np.testing.assert_array_equal(case.design_fields[name], value)
         assert not case.design_fields[name].flags.writeable
     save_result(result, tmp_path / 'public-result.h5')
+
+
+def test_public_drag_capture_preserves_scalar_design_summary():
+    config, _ = reference._configuration(('air', 'water'), 'xyz')
+    case = prepare_case(config, case_id='scalar-drag')
+    design = dict(case.design_fields)
+    design['K_m2'] = np.asarray(design['K_m2'].flat[0])
+    case = replace(case, design_fields=design)
+    expected = _run(case, stage=False)[1].metadata['df_metadata']
+    actual = run_case(case, _control()).metadata['df_metadata']
+    assert actual == expected
+    assert actual['A']['base_K'] == design['K_m2'].item()
+    assert set(actual['A']['applied_K']) == {'min', 'max'}
 
 
 @pytest.mark.parametrize('missing', ['create_saved', 'restore_saved', 'advance_step', 'phase', 'snapshot',

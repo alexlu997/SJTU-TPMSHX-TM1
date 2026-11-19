@@ -87,9 +87,6 @@ class NativeFull3DDriver:
             raise ValueError('native full 3D library lacks executed settings; rebuild the library') from exc
         self.query_settings.argtypes = [ct.POINTER(_Result), ct.POINTER(_FullEnergyEffectiveSettings)]
         self.query_settings.restype = ct.c_int
-        self.query_last_ranges = last_range_query(self.library, 3, _Result)
-        self.query_heat_ledger = heat_ledger_query(self.library, 3, _Result)
-        self.query_sampling = sampling_query(self.library, 3, _Result)
         self.query_update_scale = _update_scale_query(self.library, 3, _Result)
         self.query_model_h = _iteration_query(self.library, 3, _Result)
         self.query_model_h_acceleration = _acceleration_query(self.library, _Result)
@@ -351,9 +348,16 @@ class NativeFull3DDriver:
                 raise RuntimeError('native full 3D effective settings query failed')
             if actual.outer_count != result.outer_count:
                 raise RuntimeError('native full 3D effective settings do not match the thermal history')
+            records = stage_fields = None
+            if stage_result is not None and application_only:
+                from sjtu_tpmshx.cpp_interface._native_result_stage import detach_stage_fields, stage_records
+                records = stage_records(self.library, stage_result)
+                # The public solid conductivity retains the precision of the saved design.
+                stage_fields = detach_stage_fields(stage_result.evidence, shape,
+                    prepared_fields={'K_ss': np.asarray(p['design']['K_ss'])})
             detached=_detach(result, shape, c, actual, entry_version,
                              emit_audit=bool(cfg.get('_emit_audit',False)), application_only=application_only,
-                             capture_scalars=capture_scalars)
+                             capture_scalars=capture_scalars, stage_fields=stage_fields, records=records)
             if energy_query and actual.last.available:
                 extra = _EnergyEvidence()
                 if energy_query(ct.byref(result), ct.byref(extra)):
@@ -371,7 +375,11 @@ class NativeFull3DDriver:
                 detached['continuation'] = dict(format='full_3d_continuation_v1', build=resume_state['build'],
                     completed_outer_steps=int(resume_state['state.result.outer.size'][0]),
                     saved_phase=int(resume_state['state.phase'][0]))
-            detached['property_sampling'] = copy_sampling(self.query_sampling, result)
+            if records is None:
+                detached['property_sampling'] = copy_sampling(sampling_query(self.library, 3, _Result), result)
+            else:
+                from .._native_result_stage import sampling_records
+                detached['property_sampling'] = sampling_records(records.sampling)
             detached['enthalpy_update_normalization'] = _copy_update_scale(self.query_update_scale, result)
             detached['simple_velocity_relaxation'] = c.simple.alpha_velocity
             detached['model_h_iterations'] = _copy_iteration_records(
@@ -395,31 +403,52 @@ class NativeFull3DDriver:
                     if scheme == 2:
                         algorithm = _temperature_algorithm(self.library, scheme)
                 if detached['mode'] == 'model_h' or scheme != 2:
-                    query = self.library.tpmshx_full_3d_get_model_enthalpy_evidence_v1
-                    query.argtypes = [ct.POINTER(_Result), ct.POINTER(TemperatureEvidence)]
-                    query.restype = ct.c_int
-                    extra = TemperatureEvidence()
-                    if query(ct.byref(result), ct.byref(extra)):
-                        raise RuntimeError('native full 3D temperature evidence query failed')
-                    if detached['mode'] == 'model_h':
-                        if extra.available or extra.algorithm:
-                            if extra.available != 1 or extra.physical_dimension != 3 or not extra.algorithm:
-                                raise RuntimeError('native strict model-h identity or ledger is invalid')
-                            algorithm = extra.algorithm.decode('ascii')
+                    if records is not None:
+                        identity = records.temperature[0]
+                        if detached['mode'] == 'model_h':
+                            if identity:
+                                algorithm = identity.contents.algorithm.decode('ascii')
+                        else:
+                            from .._native_result_stage import stage_ledger
+                            detached['temperature_evidence'] = stage_ledger(stage_result.evidence.thermal, identity, shape)
+                            algorithm = detached['temperature_evidence']['algorithm']
                     else:
-                        detached['temperature_evidence'] = copy_temperature_evidence(extra, shape, 3)
-                        algorithm = detached['temperature_evidence']['algorithm']
+                        query = self.library.tpmshx_full_3d_get_model_enthalpy_evidence_v1
+                        query.argtypes = [ct.POINTER(_Result), ct.POINTER(TemperatureEvidence)]
+                        query.restype = ct.c_int
+                        extra = TemperatureEvidence()
+                        if query(ct.byref(result), ct.byref(extra)):
+                            raise RuntimeError('native full 3D temperature evidence query failed')
+                        if detached['mode'] == 'model_h':
+                            if extra.available or extra.algorithm:
+                                if extra.available != 1 or extra.physical_dimension != 3 or not extra.algorithm:
+                                    raise RuntimeError('native strict model-h identity or ledger is invalid')
+                                algorithm = extra.algorithm.decode('ascii')
+                        else:
+                            detached['temperature_evidence'] = copy_temperature_evidence(extra, shape, 3)
+                            algorithm = detached['temperature_evidence']['algorithm']
                 detached['native_metadata'] = dict(abi=self.abi, algorithm=algorithm, red_black=red_black)
-            detached['last_closure_ranges'] = copy_last_ranges(self.query_last_ranges, result)
+            if records is None:
+                detached['last_closure_ranges'] = copy_last_ranges(last_range_query(self.library, 3, _Result), result)
+            else:
+                from .._native_result_stage import stage_closures
+                detached['range_observations'], detached['range_warnings'], detached['last_closure_ranges'] = stage_closures(records)
             if stage_result is not None and application_only:
-                from sjtu_tpmshx.cpp_interface.full_3d_stage import copy_pressure_and_declarations
-                detached['stage_fields'] = copy_pressure_and_declarations(stage_result.evidence, shape)
                 from sjtu_tpmshx.cpp_interface._native_result_stage import copy_applicability
+                if records is not None:
+                    from ..full_3d_stage import diagnostics
+                    detached['stage_diagnostics'] = diagnostics(records, stage_result.evidence, cfg, p['design'])
+                    from .._native_result_stage import execution_sides
+                    detached['_native_execution_sides'] = execution_sides(records, stage_result.evidence, stage_case, stage_fields[1])
                 detached['_native_applicability'] = copy_applicability(
                     stage_result.evidence.applicability, stage_case.metadata.get('applicability_inputs', ()))
-            if 'temperature_evidence' not in detached:
+            if records is not None:
+                if 'temperature_evidence' not in detached:
+                    from .._native_result_stage import stage_ledger
+                    detached['physical_ledger'] = stage_ledger(stage_result.evidence.thermal, None, shape)
+            elif 'temperature_evidence' not in detached:
                 ledger = HeatLedger()
-                if self.query_heat_ledger(ct.byref(result), ct.byref(ledger)):
+                if heat_ledger_query(self.library, 3, _Result)(ct.byref(result), ct.byref(ledger)):
                     raise RuntimeError('native full 3D heat ledger query failed')
                 detached['physical_ledger'] = copy_heat_ledger(ledger, shape, 3)
             if capture_scalars is None:
@@ -430,7 +459,13 @@ class NativeFull3DDriver:
             else:
                 detached['capture_scalars'] = capture_scalars
             detached['bootstrap_trace'] = bootstrap_traces
-            replay_range_observations(detached['range_observations'])
+            if records is None:
+                if 'range_observations' not in detached:
+                    detached['range_observations'] = copy_range_observations(result.range_observations, result.range_observation_count)
+                replay_range_observations(detached['range_observations'])
+            else:
+                from sjtu_tpmshx.run_control.run_warnings import current_warnings, merge_warnings
+                merge_warnings(current_warnings(), [detached.pop('range_warnings')])
             from sjtu_tpmshx.physical_models.nu_correlations import warn_sco2_nu_evidence
             for s,label in enumerate('AB'):
                 if cfg['fluid_type_'+label]=='sco2' and (s==0 or data.solve_b):
@@ -446,13 +481,18 @@ class NativeFull3DDriver:
                 self.release(ct.byref(result))
 
 
-def _detach(r, shape, settings, energy_settings, entry_version, *, emit_audit=False, application_only=False, capture_scalars=None):
+def _detach(r, shape, settings, energy_settings, entry_version, *, emit_audit=False, application_only=False, capture_scalars=None, stage_fields=None, records=None):
     result = {name: getattr(r, name) if name == 'stop' else bool(getattr(r, name)) for name in _FLAGS}
     result.update({name: list(getattr(r, name)) for name in _PAIRS})
     result.update({name: getattr(r, name) for name in ('energy_imbalance', 'interior_duty', 'interior_imbalance', 'enthalpy_imbalance')})
     result['mode'], result['outer_index'] = ('temperature', 'model_h', 'true_h')[r.thermal_mode], r.thermal_outer_index
-    result['temperature'] = tuple(_copy(value, shape) for value in r.temperature)
+    if stage_fields is None:
+        result['temperature'] = tuple(_copy(value, shape) for value in r.temperature)
+    else:
+        result['stage_fields'] = stage_fields
     for key in ('thermal_pressure', 'hv', 'rho_cp', 'conductivity', 'enthalpy'):
+        if stage_fields is not None and key in ('thermal_pressure', 'hv'):
+            continue
         if application_only and key in ('rho_cp', 'conductivity'):
             continue
         result[key] = tuple(_copy(value, shape) for value in getattr(r, key))
@@ -462,7 +502,7 @@ def _detach(r, shape, settings, energy_settings, entry_version, *, emit_audit=Fa
     for key in ('mass', 'face_velocity'):
         result[key] = tuple(tuple(_copy(value, sh) for value,sh in zip(side,face_shapes)) for side in getattr(r,key))
     result['flow'] = []
-    for f in r.flow:
+    for side, f in enumerate(r.flow):
         if not f.widths[0].size:
             result['flow'].append(None)
             continue
@@ -479,10 +519,15 @@ def _detach(r, shape, settings, energy_settings, entry_version, *, emit_audit=Fa
             sizes[key] = shape
         application_arrays = ('permeability', 'forchheimer', 'pressure', 'pressure_real',
                               'speed_real', 'inlet_opening', 'outlet_opening')
+        if stage_fields is not None:
+            application_arrays = ('pressure', 'inlet_opening', 'outlet_opening')
+            if records is None:
+                application_arrays += ('permeability', 'forchheimer')
         audit_arrays = ('u', 'v', 'w', 'density', 'epsilon') if emit_audit else ()
         flow.update({key:_copy(getattr(f,key),sizes[key]) for key in _FLOW_ARRAYS
                      if not application_only or key in application_arrays + audit_arrays})
-        flow['velocity_real'] = tuple(_copy(value,shape) for value in f.velocity_real)
+        if stage_fields is None:
+            flow['velocity_real'] = tuple(_copy(value,shape) for value in f.velocity_real)
         if not application_only:
             flow['face_velocity_real'] = tuple(_copy(value,sh) for value,sh in zip(f.face_velocity_real,face_shapes))
         for key in (('legacy',) if application_only else ('legacy','local_mass','global_mass','momentum')):
@@ -491,7 +536,7 @@ def _detach(r, shape, settings, energy_settings, entry_version, *, emit_audit=Fa
             flow['momentum'] = flow['momentum'].reshape(-1,11)
         last = f.last
         pressure = {name:getattr(last.pressure,name) for name,_ in last.pressure._fields_}
-        flow['last'] = dict(exit_reason=_STOPS.get(last.stop,'ongoing'), converged=bool(last.converged),
+        flow['last'] = dict(exit_reason=records.simple_stop[side].decode() if records is not None else _STOPS.get(last.stop,'ongoing'), converged=bool(last.converged),
             post_closure_measured=bool(last.post_closure_measured), post_closure_certified=bool(last.post_closure_certified),
             iterations=last.iterations, pressure_clip_hits=last.pressure_clip_hits, post_closure_rejections=last.post_closure_rejections,
             final_res=last.legacy_residual, res_norm_ref=last.legacy_reference,
@@ -553,10 +598,16 @@ def _detach(r, shape, settings, energy_settings, entry_version, *, emit_audit=Fa
     result['simple_failures']=[r.simple_failures[i].decode() for i in range(r.simple_failure_count)]
     result['warnings']=[r.warnings[i].decode() for i in range(r.warning_count)]
     result['envelope_reasons']=[r.envelope_reasons[i].decode() for i in range(r.envelope_reason_count)]
-    result['nu_observations']={label:copy_nu_observation(n,shape,
-        capture_scalars=None if capture_scalars is None else capture_scalars['nu'][side])
-        for side,(label,n) in enumerate(zip('AB',r.nu_observations))}
-    result['range_observations']=copy_range_observations(r.range_observations,r.range_observation_count)
+    if records is None:
+        result['nu_observations']={label:copy_nu_observation(n,shape,
+            capture_scalars=None if capture_scalars is None else capture_scalars['nu'][side])
+            for side,(label,n) in enumerate(zip('AB',r.nu_observations))}
+    else:
+        from .._native_result_stage import nu_observation
+        result['nu_observations'] = {label: nu_observation(value, shape, capture_scalars['nu'][side])
+            for side, (label, value) in enumerate(zip('AB', r.nu_observations))}
+    if stage_fields is None:
+        result['range_observations']=copy_range_observations(r.range_observations,r.range_observation_count)
     result['final_conductivity']=tuple(_copy(v,shape) if emit_audit else None for v in r.final_conductivity)
     result['final_rho_cp']=tuple(_copy(v,shape) if emit_audit else None for v in r.final_rho_cp)
     result['inlet_cp']=list(r.inlet_cp)
@@ -564,7 +615,6 @@ def _detach(r, shape, settings, energy_settings, entry_version, *, emit_audit=Fa
 
 
 def run_case(case, control=RunControl(), *, resume_state=None, checkpoint=None, checkpoint_due=None):
-    from .full_3d_capture import capture_result
     from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
     if control.backend != 'cpp':
         raise ValueError('full native 3D requires backend=cpp')
@@ -578,8 +628,15 @@ def run_case(case, control=RunControl(), *, resume_state=None, checkpoint=None, 
     r=driver._run_prepared(cfg,p,control,application_only=True, resume_state=resume_state,
         checkpoint=checkpoint, checkpoint_due=checkpoint_due, stage_case=stage_case)
     control.check_cancelled()
+    if stage_case is None:
+        from .full_3d_capture import capture_result
+    else:
+        from ..full_3d_stage import capture_result
     result = capture_result(case, cfg, p, r, driver.abi)
     if '_native_applicability' in r:
         from dataclasses import replace
-        result = replace(result, metadata=dict(result.metadata, _native_applicability=r['_native_applicability']))
+        metadata = dict(result.metadata, _native_applicability=r['_native_applicability'])
+        if '_native_execution_sides' in r:
+            metadata['_native_execution_sides'] = r['_native_execution_sides']
+        result = replace(result, metadata=metadata)
     return result

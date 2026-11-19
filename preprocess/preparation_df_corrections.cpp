@@ -119,19 +119,6 @@ std::vector<double> df_apply_scale(ArrayView<const double> base,
     return output;
 }
 
-DfSummary df_summary(ArrayView<const double> values, bool scalar) {
-    if (!values.size) throw std::invalid_argument("zero-size array to reduction operation minimum which has no identity");
-    if (scalar) return {values[0], values[0], 1u};
-    double low = values[0], high = values[0];
-    for (std::size_t i = 1; i < values.size; ++i) {
-        const double value = values[i];
-        if (std::isnan(value)) { low = value; high = value; break; }
-        low = value <= low ? value : low;
-        high = value >= high ? value : high;
-    }
-    return {low, high, 0u};
-}
-
 DfPair df_co2_factors() { return {1. / data::co2_pressure_multiplier, data::co2_pressure_multiplier}; }
 
 }  // namespace tpmshx::preparation

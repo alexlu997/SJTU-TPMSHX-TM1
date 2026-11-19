@@ -25,6 +25,7 @@ add_library(tpmshx_preparation STATIC "${TPMSHX_ROOT}/preprocess/preparation_flo
     "${TPMSHX_ROOT}/preprocess/preparation_properties.cpp"
     "${TPMSHX_ROOT}/preprocess/preparation_df.cpp"
     "${TPMSHX_ROOT}/preprocess/preparation_df_corrections.cpp"
+    "${TPMSHX_ROOT}/numerics/df_summary.cpp"
     "${TPMSHX_ROOT}/preprocess/preparation_df_projection.cpp"
     "${TPMSHX_ROOT}/preprocess/preparation_case.cpp")
 target_include_directories(tpmshx_preparation PUBLIC "${TPMSHX_ROOT}/include")

@@ -38,10 +38,11 @@ def _copy(view, shape=None):
     return value if shape is None else value.reshape(shape)
 
 
-def _flow(f, physical_shape):
+def _flow(f, physical_shape, fields, label, stop):
     nx, ny = f.dx.size, f.dy.size
     out = {}
-    for name in _FLOW_ARRAYS:
+    names = ('pressure', 'absolute_pressure', 'uc', 'vc') if stop else _FLOW_ARRAYS
+    for name in names:
         shape = (nx+1, ny) if name in ('u', 'd_u') else (nx, ny+1) if name in ('v', 'd_v') else (nx, ny)
         if name in ('dx', 'dy', 'inlet_velocity'):
             shape = None
@@ -49,11 +50,18 @@ def _flow(f, physical_shape):
             shape = physical_shape
         elif name in ('mass_x', 'mass_y'):
             shape = tuple(n + int(axis == (name == 'mass_y')) for axis, n in enumerate(physical_shape))
-        out[name] = _copy(getattr(f, name), shape)
+        if fields is not None and name in ('absolute_pressure', 'uc', 'vc'):
+            out[name] = fields[('P_report_' if name == 'absolute_pressure' else name) + label]
+        else:
+            out[name] = _copy(getattr(f, name), shape)
     out.update(reference_pressure=f.reference_pressure, taper_flux_scale=f.taper_flux_scale,
-        result=_result_dict(f.result, 1),
+        result=(dict(exit_reason=stop.decode(), converged=bool(f.result.converged), iterations=f.result.iterations,
+                     momentum=dict(maximum=f.result.momentum.maximum),
+                     mass=dict(local_residual=f.result.mass.local_residual, global_residual=f.result.mass.global_residual))
+                if stop else _result_dict(f.result, 1)),
         history={name: _copy(value, (-1, 8) if name == 'momentum' else None)
-                 for name, value in zip(('legacy', 'local_mass', 'global_mass', 'momentum'), f.history)},
+                 for name, value in zip(('legacy', 'local_mass', 'global_mass', 'momentum'), f.history)
+                 if not stop or name == 'legacy'},
         envelope_valid=bool(f.envelope_valid),
         envelope_reasons=[f.envelope_reasons[i].decode() for i in range(f.envelope_reason_count)])
     iterations = []
@@ -76,12 +84,15 @@ def _flow(f, physical_shape):
     return out
 
 
-def _thermal(t, actual, abi, *, capture_scalars=None, level=0):
+def _thermal(t, actual, abi, *, capture_scalars=None, level=0, fields=None):
     shape = (t.nx, t.ny)
     out = dict(shape=shape, mode=('temperature', 'model_h', 'true_h')[t.mode], stop=t.stop,
                iterations=t.iterations, residual=t.residual, q_b=t.q_b)
     for name in ('dx', 'dy', 'epsilon', 'solid_conductivity'):
-        out[name] = _copy(getattr(t, name), shape if name not in ('dx', 'dy') else None)
+        if fields is not None and name == 'solid_conductivity':
+            out[name] = fields['K_ss']
+        else:
+            out[name] = _copy(getattr(t, name), shape if name not in ('dx', 'dy') else None)
     for name in ('temperature', 'hv', 'conductivity', 'pressure', 'rho_cp', 'enthalpy', 'uc', 'vc',
                  'mass_x', 'mass_y', 'inlet_capacity', 'inlet_profile', 'outlet_profile'):
         extent = shape
@@ -89,7 +100,12 @@ def _thermal(t, actual, abi, *, capture_scalars=None, level=0):
             extent = tuple(n+int(axis == (name == 'mass_y')) for axis, n in enumerate(shape))
         elif name in ('inlet_capacity', 'inlet_profile', 'outlet_profile'):
             extent = None
-        out[name] = [_copy(value, extent) for value in getattr(t, name)]
+        if fields is not None and name in ('temperature', 'hv', 'pressure'):
+            keys = {'temperature': ('Ta', 'Tb', 'Ts'), 'hv': ('h_vA', 'h_vB'),
+                    'pressure': ('P_thermal_A', 'P_thermal_B')}[name]
+            out[name] = [fields[key] for key in keys]
+        else:
+            out[name] = [_copy(value, extent) for value in getattr(t, name)]
     out['model_h'], out['true_h'] = None, None
     masses = list(zip(out['mass_x'], out['mass_y']))
     if t.mode == 1:
@@ -192,9 +208,6 @@ class NativeFull2DDriver:
             raise ValueError('native full 2D library lacks executed settings; rebuild the library') from exc
         self.query_settings.argtypes = [ct.POINTER(_Result), ct.POINTER(_FullEnergyEffectiveSettings)]
         self.query_settings.restype = ct.c_int
-        self.query_last_ranges = last_range_query(self.library, 2, _Result)
-        self.query_heat_ledger = heat_ledger_query(self.library, 2, _Result)
-        self.query_sampling = sampling_query(self.library, 2, _Result)
         self.query_update_scale = _update_scale_query(self.library, 2, _Result)
         self.query_model_h = _iteration_query(self.library, 2, _Result)
         self.query_flow_methods = self.library.tpmshx_full_2d_get_flow_methods_v1
@@ -330,7 +343,7 @@ class NativeFull2DDriver:
 
     def copy_result(self, result, shape, config, *, entry_version, control=RunControl(),
                     have_cpu_limit=False, energy_query=None, version_query=None,
-                    resume_state=None, capture_scalars=None):
+                    resume_state=None, capture_scalars=None, fields=None, records=None, evidence=None):
         """Copy borrowed result views through queries from their selected library."""
         if result.cancelled:
             raise CancelledError('compute cancelled by user')
@@ -340,33 +353,49 @@ class NativeFull2DDriver:
         if actual.outer_count != result.outer_history_count:
             raise RuntimeError('native full 2D effective settings do not match the thermal history')
         out = {name: bool(getattr(result, name)) for name in (*_FLAGS, *_FINE_FLAGS)}
-        out.update(iterations=result.iterations, flow=[_flow(f, shape) for f in result.flow],
-                   main=_thermal(result.main, actual.last, entry_version, capture_scalars=capture_scalars),
+        out.update(iterations=result.iterations, flow=[_flow(f, shape, fields, label, records.simple_stop[i] if records is not None else None)
+            for i, (f, label) in enumerate(zip(result.flow, 'AB'))],
+                   main=_thermal(result.main, actual.last, entry_version, capture_scalars=capture_scalars, fields=fields),
                    fine=_thermal(result.fine, actual.last, entry_version, capture_scalars=capture_scalars, level=1)
                    if result.have_fine else None)
-        out['property_sampling'] = copy_sampling(self.query_sampling, result)
+        if records is None:
+            out['property_sampling'] = copy_sampling(sampling_query(self.library, 2, _Result), result)
+        else:
+            from .._native_result_stage import sampling_records
+            out['property_sampling'] = sampling_records(records.sampling)
         out['enthalpy_update_normalization'] = _copy_update_scale(self.query_update_scale, result)
         out['simple_velocity_relaxation'] = config.alpha_velocity
         out['model_h_iterations'] = _copy_iteration_records(self.query_model_h, result)
-        for name in ('density', 'viscosity', 'rho_cp'):
-            out[name] = [_copy(x, shape) for x in getattr(result, name)]
+        if records is None:
+            for name in ('density', 'viscosity', 'rho_cp'):
+                out[name] = [_copy(x, shape) for x in getattr(result, name)]
         for name in ('fine_duty', 'extrapolated_duty', 'pressure_drop', 'outlet_temperature', 'inlet_mass', 'duty'):
             out[name] = list(getattr(result, name))
         for name in ('q_total', 'q_solid', 'energy_imbalance'):
             out[name] = getattr(result, name)
-        out['last_closure_ranges'] = copy_last_ranges(self.query_last_ranges, result)
+        if records is None:
+            out['last_closure_ranges'] = copy_last_ranges(last_range_query(self.library, 2, _Result), result)
+        else:
+            from .._native_result_stage import stage_closures
+            out['range_observations'], out['range_warnings'], out['last_closure_ranges'] = stage_closures(records)
         out['sco2_nu_observations'] = {}
         for i, (side, value) in enumerate(zip('AB', result.nu_observations)):
             scalar = None if capture_scalars is None else capture_scalars['nu'][i]
             if capture_scalars is not None and value.available and scalar is None:
                 raise RuntimeError('native full 2D Nu capture is unavailable')
-            out['sco2_nu_observations'][side] = copy_nu_observation(value, shape, capture_scalars=scalar)
+            if records is None:
+                observation = copy_nu_observation(value, shape, capture_scalars=scalar)
+            else:
+                from .._native_result_stage import nu_observation
+                observation = nu_observation(value, shape, scalar)
+            out['sco2_nu_observations'][side] = observation
         if capture_scalars is None:
             from sjtu_tpmshx.physical_models.co2_correlations import NU_MULTIPLIER
             for i, side in enumerate('AB'):
                 if config.sides[i].fluid == 3 and out['sco2_nu_observations'][side]:
                     out['sco2_nu_observations'][side]['floor'] *= NU_MULTIPLIER
-        out['range_observations'] = copy_range_observations(result.range_observations, result.range_observation_count)
+        if records is None:
+            out['range_observations'] = copy_range_observations(result.range_observations, result.range_observation_count)
         out['outer_history'] = []
         for i in range(result.outer_history_count):
             h = result.outer_history[i]
@@ -408,7 +437,31 @@ class NativeFull2DDriver:
                 _energy_result_info(row['energy_info'], extra.outer[index],
                     temperature_tol=actual.outer[index].temperature_update_tolerance, abi=entry_version,
                     version_query=version_query)
-        if out['main']['mode'] == 'temperature':
+        if records is not None:
+            from .._native_result_stage import _stage_array, stage_ledger
+            out['outer_index'] = evidence.outer_index[0]
+            mass = []
+            for side in range(2):
+                faces = []
+                for axis, name in enumerate(('mass_x', 'mass_y')):
+                    view = evidence.thermal.mass[side][axis]
+                    thermal_face = getattr(result.main, name)[side]
+                    if view.data == ct.cast(thermal_face.data, ct.c_void_p).value:
+                        face = out['main'][name][side]
+                    else:
+                        extent = tuple(n + int(i == axis) for i, n in enumerate(shape))
+                        face = _stage_array(view, extent)
+                    faces.append(face)
+                mass.append(tuple(faces))
+            out['thermal_mass'] = mass
+            for index, name in enumerate(('main', 'fine')):
+                level = out[name]
+                if level is None:
+                    continue
+                thermal = evidence.thermal if index == 0 else evidence.fine.contents.thermal
+                key = 'temperature_evidence' if thermal.temperature else 'physical_ledger'
+                level[key] = stage_ledger(thermal, records.temperature[index], level['shape'])
+        elif out['main']['mode'] == 'temperature':
             query = self.library.tpmshx_full_2d_get_model_enthalpy_evidence_v1
             query.argtypes = [ct.POINTER(_Result), ct.POINTER(TemperatureEvidence2D)]
             query.restype = ct.c_int
@@ -419,9 +472,9 @@ class NativeFull2DDriver:
             if out['fine'] is not None:
                 fine_shape = (len(out['fine']['dx']), len(out['fine']['dy']), 1)
                 out['fine']['temperature_evidence'] = copy_temperature_evidence(extra.fine, fine_shape, 2)
-        if 'temperature_evidence' not in out['main']:
+        if records is None and 'temperature_evidence' not in out['main']:
             ledger = HeatLedger2D()
-            if self.query_heat_ledger(ct.byref(result), ct.byref(ledger)):
+            if heat_ledger_query(self.library, 2, _Result)(ct.byref(result), ct.byref(ledger)):
                 raise RuntimeError('native full 2D heat ledger query failed')
             out['main']['physical_ledger'] = copy_heat_ledger(ledger.main, (*shape, 1), 2)
             if out['fine'] is not None:
@@ -535,7 +588,6 @@ def _pack(cfg, prepared, table_directory, library):
 
 def run_case(case, control=RunControl(), *, resume_state=None, checkpoint=None, checkpoint_due=None):
     from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
-    from .full_2d_capture import capture_result
     if control.backend != 'cpp' or control.native_library is None:
         raise ValueError('full native 2D requires backend=cpp and an explicit native_library')
     control.check_cancelled()
@@ -564,6 +616,7 @@ def run_case(case, control=RunControl(), *, resume_state=None, checkpoint=None, 
         native = driver.run_prepared(cfg, prepared, control, resume_state=resume_state,
             checkpoint=checkpoint, checkpoint_due=checkpoint_due)
         control.check_cancelled()
+        from .full_2d_capture import capture_result
         result = capture_result(case, cfg, prepared, native)
     control.report_progress(100)
     return result

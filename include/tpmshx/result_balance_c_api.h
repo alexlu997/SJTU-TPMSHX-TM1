@@ -61,11 +61,15 @@ typedef struct {
 } tpmshx_result_zone_temperatures_v1;
 
 /* Temperatures and widths use float64. Signed integer labels select zones in
- * physical cell order. Empty zones have zero cells. Other labels are ignored. */
+ * physical cell order. Empty zones have zero cells. Other labels are ignored.
+ * Boundary fractions use the same physical axes as length and height. */
 TPMSHX_RESULT_API int TPMSHX_RESULT_CALL tpmshx_result_zone_temperatures_2d_v1(
     const tpmshx_result_array_v1 widths[2], const tpmshx_result_array_v1* labels,
     const tpmshx_result_array_v1 temperatures[3], size_t zone_count,
-    tpmshx_result_zone_temperatures_v1* output, tpmshx_result_diagnostics_v1* diagnostics,
+    tpmshx_result_zone_temperatures_v1* output, double length_m, double height_m,
+    const double* x_fractions, size_t nx, double* x_positions,
+    const double* y_fractions, size_t ny, double* y_positions,
+    tpmshx_result_diagnostics_v1* diagnostics,
     char* error, size_t error_capacity);
 
 TPMSHX_RESULT_API int TPMSHX_RESULT_CALL tpmshx_result_zone_mean_v1(
