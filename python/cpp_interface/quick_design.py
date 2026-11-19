@@ -1,5 +1,7 @@
 """Thin prepared-case adapter for the independent Quick Design C ABI."""
 import ctypes as ct
+from collections.abc import Mapping
+from dataclasses import asdict
 from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
@@ -12,7 +14,7 @@ from sjtu_tpmshx.run_control.run_warnings import current_warnings, range_context
 from sjtu_tpmshx.physical_models.design_fluids import Props, record_native_design_ranges
 from sjtu_tpmshx.physical_models.fluid_props import WaterStateError, QuickDesignWaterFieldError
 from sjtu_tpmshx.cpp_interface._native_df import _Pressure as _PreparedPressure
-from sjtu_tpmshx.solvers.backends.quick_design import field_result
+from sjtu_tpmshx.data_types.field_result import FieldResult
 from .solver_library._stage_capture_abi import RangeRecordView
 from ._native_preparation_case import _Array
 from ._native_preparation_case import _QuickInputV2 as _InputV2, _QuickPreparedV2 as _PreparedV2
@@ -151,7 +153,7 @@ def _saved_case(case):
     p = case.parameters
     op = SimpleNamespace(**p['operating_point'])
     fractions = p.get('inlet_pressure_fractions')
-    if fractions is None or set(fractions) != {'A', 'B'} or any(not np.isscalar(v) for v in fractions.values()):
+    if not isinstance(fractions, Mapping) or set(fractions) != {'A', 'B'} or any(not np.isscalar(v) for v in fractions.values()):
         raise ValueError('quick-design requires prepared nonnegative inlet pressure fractions')
     if len(case.model_refs) != 3 or case.model_refs[0].name != 'quick_design':
         raise ValueError('quick-design model resources are incomplete')
@@ -167,9 +169,14 @@ def _saved_case(case):
     if set(fixed) != {'eps', 'eps_A', 'K_ss'}:
         raise ValueError('unsupported quick-design fields')
     for name, field in fixed.items():
-        if np.shape(field) != shape:
+        array = np.asarray(field)
+        if array.shape != shape or ((array.dtype.kind in 'iu' and array.itemsize >= 8 or array.itemsize > 8)
+                                    and not np.all(array == array.flat[0])):
             raise ValueError(f'quick-design requires a finite uniform {name} field on its prepared grid')
-    widths = tuple(case.grid['d' + axis] for axis in 'xyz')
+    widths = tuple(np.asarray(case.grid['d' + axis]) for axis in 'xyz')
+    for axis, width, length in zip('xyz', widths, (p['Lx'], p['s'], p['height'])):
+        if not np.isclose(width.sum(), length, rtol=1e-12, atol=0.):
+            raise ValueError(f'prepared {axis} grid disagrees with physical extent')
     return shape, p, op, widths, fixed
 
 
@@ -197,6 +204,8 @@ def _saved_v2(shape, p, op, widths, views, keepalive):
     for i, side in enumerate('AB'):
         prepared.fractions[i].value = p['inlet_pressure_fractions'][side]
     settings = p['controls']
+    if settings['maxit'] is None:
+        raise ValueError('invalid quick-design numerical controls')
     for value in (settings['maxit'], settings['chunk']):
         if value is not None and (not isinstance(value, int) or value <= 0):
             raise ValueError('invalid quick-design numerical controls')
@@ -205,7 +214,7 @@ def _saved_v2(shape, p, op, widths, views, keepalive):
     if settings['dirB'] not in (1, 2):
         raise ValueError('quick-design flow direction disagrees with arrangement')
     c = prepared.controls
-    c.dir_b, c.max_iterations, c.alpha = settings['dirB'], settings['maxit'], settings['alpha']
+    c.dir_b, c.max_iterations, c.alpha = int(settings['dirB']), settings['maxit'], settings['alpha']
     c.ny, c.nz = shape[1:]
     c.have_chunk_iterations, c.have_q_relative_tolerance = settings['chunk'] is not None, settings['qtol'] is not None
     c.chunk_iterations, c.q_relative_tolerance = settings['chunk'] or 0, settings['qtol'] or 0.
@@ -328,3 +337,27 @@ def run_case(case, control):
                         pressure=pressure, backend_id='cpp',
                         native_metadata=dict(solver_abi=abi, capability='quick_design_v1',
                                              temperature_algorithm=algorithm))
+
+
+def field_result(case, fields, props_a, props_b, u_a, u_b, pass_info, *,
+                 pressure, backend_id, field_metadata, result_id, native_metadata=None):
+    op = SimpleNamespace(**case.parameters['operating_point'])
+    converged = bool(pass_info[-1]['converged'])
+    return FieldResult(
+        result_id=result_id, case_id=case.case_id, backend_id=backend_id,
+        backend_version='quick_design_v1', grid=case.grid, fields=fields,
+        field_metadata=field_metadata,
+        pressure_evidence=pressure,
+        boundary_fluxes={side: dict(mass_flow_kg_s=mdot, inlet_temperature_K=tin,
+                                    cp_J_kgK=props.cp, velocity_m_s=speed, density_kg_m3=props.rho)
+                         for side, mdot, tin, props, speed in
+                         (('A', op.mdot_h, op.T_in_h, props_a, u_a), ('B', op.mdot_c, op.T_in_c, props_b, u_b))},
+        model_refs=case.model_refs,
+        run_status=dict(execution='completed', converged=converged, screening=True,
+                        physical_validation='not_established', passes=pass_info),
+        metadata=dict(mode='quick_design', dimension=3, quantity_basis='total',
+                      model=case.metadata['model'], parameters=case.parameters,
+                      properties={'A': asdict(props_a), 'B': asdict(props_b)},
+                      **({} if native_metadata is None else {'native': native_metadata}),
+                      diagnostics={'warnings_list': ([] if converged else ['Quick-design thermal solve did not converge.'])},
+                      applicability=case.metadata['applicability']))

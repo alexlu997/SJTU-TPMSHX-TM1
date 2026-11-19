@@ -200,8 +200,7 @@ class _HostState:
         elif operation == 6:
             if self.topo not in ('Diamond', 'Gyroid'):
                 raise ValueError(f"tpms_type must be 'Diamond' or 'Gyroid', got '{self.topo}'")
-            request.flags[3] = type(self.l) is float and type(self.t) is float
-            if not request.flags[3]:
+            if type(self.l) is not float or type(self.t) is not float:
                 if self.l <= 0:
                     raise ValueError(f'L_mm must be positive, got {self.l}')
                 if self.t <= 0:
@@ -453,11 +452,11 @@ def _operation(state):
             raise state.errors[0]
         if status:
             message = error.value.decode('utf-8', errors='replace')
-            if message == 'quick geometry has no pore space':
+            if message == 'Wall thickness must satisfy 2*t < L, with usable pore space':
                 raise ValueError(f'Wall thickness t={state.t}mm >= L={state.l}mm, no pore space')
-            if message == 'quick geometry cell length must be positive':
+            if message == 'L_mm must be positive':
                 raise ValueError(f'L_mm must be positive, got {state.l}')
-            if message == 'quick geometry wall thickness must be positive':
+            if message == 't_mm must be positive':
                 raise ValueError(f't_mm must be positive, got {state.t}')
             if message.startswith('Degenerate TPMS geometry:'):
                 raise ValueError(f'Degenerate TPMS geometry: {state.topo} L={state.l}mm t={state.t}mm '

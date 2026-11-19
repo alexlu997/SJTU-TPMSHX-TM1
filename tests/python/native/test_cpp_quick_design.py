@@ -14,7 +14,7 @@ import pytest
 
 from sjtu_tpmshx.run_control.cancellation import CancelledError
 from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.file_io.case_io import save_case
+from sjtu_tpmshx.file_io.case_io import load_case, save_case
 from sjtu_tpmshx.file_io.metrics_io import load_metrics
 from sjtu_tpmshx.file_io.result_io import load_result, save_result
 from sjtu_tpmshx.physical_models.fluid_props import WaterStateError, QuickDesignWaterFieldError
@@ -109,6 +109,18 @@ def test_public_fields_metrics_and_pass_contract(native_control, quick_design_na
     raw = quick_design_native(case)
     actual = run_case(case, native_control)
     compare_results(actual, raw, case)
+
+
+def test_saved_width_sequence_and_integral_direction(native_control, tmp_path):
+    case = prepared('counter', 'const')
+    expected = run_case(case, native_control)
+    params = dict(case.parameters, controls=dict(case.parameters['controls'], dirB=1.0))
+    case = replace(case, grid=dict(case.grid, dx=case.grid['dx'].tolist()), parameters=params)
+    path = tmp_path / 'case.h5'
+    save_case(case, path)
+    actual = run_case(load_case(path), native_control)
+    for key in expected.fields:
+        np.testing.assert_array_equal(actual.fields[key], expected.fields[key])
 
 
 def test_pressure_evidence_copies_native_output(native_control, monkeypatch):

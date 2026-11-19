@@ -130,9 +130,12 @@ def test_forward_labels_without_extra_property_or_thermal_calls(
         record_range(('property', fluid), temperature, (0., 1.),
                      label=fluid, quantity='T', unit='K')
 
+    nu_contexts = set()
+
     def evidence(library, output, index, side, fluid):
         before = len(calls)
         record_native(library, output, index, side, fluid)
+        nu_contexts.update(key[-1][:2] for key in execution.current_warnings() if key[0] == 'nu')
         assert len(calls) == before
 
     def solve(case, control):
@@ -158,6 +161,8 @@ def test_forward_labels_without_extra_property_or_thermal_calls(
     messages = '\n'.join(warning_messages(records))
     for side in ('A', 'B'):
         assert f'side={side}, stage=design-dp-inlet' in messages
+    stages = ['design-inlet-pass', 'design-mean-pass'][:passes]
+    assert {(side, stage) for side in ('A', 'B') for stage in stages} <= nu_contexts
     assert 'side=A, stage=design-inlet-pass' in messages
     if passes == 2:
         assert 'side=A, stage=design-mean-pass' in messages
