@@ -350,7 +350,8 @@ class NativeFull3DDriver:
                 raise RuntimeError('native full 3D effective settings do not match the thermal history')
             records = stage_fields = None
             if stage_result is not None and application_only:
-                from sjtu_tpmshx.cpp_interface._native_result_stage import detach_stage_fields, stage_records
+                from sjtu_tpmshx.cpp_interface._native_result_stage import detach_stage_fields
+                from ._stage_capture_abi import stage_records
                 records = stage_records(self.library, stage_result)
                 # The public solid conductivity retains the precision of the saved design.
                 stage_fields = detach_stage_fields(stage_result.evidence, shape,

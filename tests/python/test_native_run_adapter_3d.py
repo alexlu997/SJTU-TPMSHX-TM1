@@ -495,11 +495,11 @@ def test_applicability_transfer_error_releases_without_fallback(dimension, monke
 
 
 def test_saved_stage_without_result_records_can_resume(monkeypatch):
-    from sjtu_tpmshx.cpp_interface import _native_result_stage
+    from sjtu_tpmshx.cpp_interface.solver_library import _stage_capture_abi
 
     config, _ = reference._configuration(('air', 'water'), 'uniform')
     case = prepare_case(config, case_id='saved-stage-without-records')
-    monkeypatch.setattr(_native_result_stage, 'stage_records', lambda library, result: None)
+    monkeypatch.setattr(_stage_capture_abi, 'stage_records', lambda library, result: None)
     states = []
     expected = run_case(case, _control(), checkpoint=states.append)
     resumed = run_case(case, _control(), resume_state=states[0])
