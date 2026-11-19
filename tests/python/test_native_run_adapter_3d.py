@@ -495,6 +495,81 @@ def test_applicability_transfer_error_releases_without_fallback(dimension, monke
     run_case(case, _control())
 
 
+@pytest.mark.parametrize('fault, message', [
+    ('mask', 'openings disagree with rectangles'), ('nan_mask', 'opening mask'),
+    ('permutation', 'axis permutation'),
+    ('axis_length', 'solver geometry'), ('uniform', 'uniform design field'),
+    ('extrusion', 'xy extrusion'), ('model', 'unknown model resource'),
+    ('nu_mode', 'Nu settings'), ('incomplete_nu', 'Nu settings'),
+    ('reverse_wrap', 'reverse direction'),
+])
+def test_saved_v2_rejects_inconsistent_inputs(fault, message):
+    layout = 'xy' if fault == 'extrusion' else 'uniform'
+    config, _ = reference._configuration(('air', 'water'), layout)
+    case = prepare_case(config, case_id='saved-input-check')
+    params = mutable_data(case.parameters)
+    design = mutable_data(case.design_fields)
+    side = params['prepared']['axes']['A']
+    if fault == 'nan_mask':
+        params['prepared']['openings']['A']['inlet'].flat[0] = np.nan
+    elif fault == 'mask':
+        mask = params['prepared']['openings']['A']['inlet']
+        mask.flat[0] = 0.5 if mask.flat[0] != 0.5 else 0.25
+    elif fault == 'permutation':
+        side['solver_to_real_perm'] = [0, 0, 0]
+    elif fault == 'axis_length':
+        side['solver_init']['Lx'] = side['L_cross1'] = 2 * side['L_cross1']
+    elif fault == 'reverse_wrap':
+        side['is_reverse'] += 2**32
+    elif fault == 'nu_mode':
+        params['sco2_nu']['mode'] = 'typographical_error'
+    elif fault == 'incomplete_nu':
+        del params['sco2_nu']['source']
+    elif fault == 'model':
+        refs = list(case.model_refs)
+        refs[0] = replace(refs[0], version='unknown')
+        case = replace(case, model_refs=tuple(refs))
+    else:
+        design['L_field_m'][0, 0, 1] *= 1.01
+    with pytest.raises(ValueError, match=message):
+        run_case(replace(case, parameters=params, design_fields=design), control=_control())
+
+
+def test_saved_opening_preserves_solver_roundoff_tolerance():
+    config, _ = reference._configuration(('air', 'water'), 'uniform')
+    case = prepare_case(config, case_id='rounded-opening')
+    params = mutable_data(case.parameters)
+    mask = params['prepared']['openings']['A']['inlet']
+    index = mask.argmax()
+    assert mask.flat[index] > 0.
+    mask.flat[index] = np.nextafter(mask.flat[index], 0.)
+    rounded = replace(case, parameters=params)
+    states = []
+    result = run_case(rounded, _control(), checkpoint=states.append)
+    restored = run_case(rounded, _control(), resume_state=states[0])
+    assert result.run_status['execution'] == restored.run_status['execution'] == 'completed'
+    for field in result.fields:
+        np.testing.assert_array_equal(restored.fields[field], result.fields[field])
+
+
+def test_restore_rejects_matching_case_and_checkpoint_with_wrong_opening():
+    config, _ = reference._configuration(('air', 'water'), 'uniform')
+    case = prepare_case(config, case_id='restore-opening')
+    states = []
+    run_case(case, _control(), checkpoint=states.append)
+    state = dict(states[0])
+    params = mutable_data(case.parameters)
+    opening = params['prepared']['openings']['A']['inlet']
+    index = opening.argmax()
+    assert opening.flat[index] == 1.
+    opening.flat[index] = 0.5
+    for key in ('input.a.inlet_opening', 'state.result.flow.0.inlet_opening'):
+        state[key] = state[key].copy()
+        state[key].flat[index] = 0.5
+    with pytest.raises(ValueError, match='openings disagree with rectangles'):
+        run_case(replace(case, parameters=params), _control(), resume_state=state)
+
+
 def test_saved_stage_without_result_records_can_resume(monkeypatch):
     from sjtu_tpmshx.cpp_interface.solver_library import _stage_capture_abi
 
@@ -508,3 +583,12 @@ def test_saved_stage_without_result_records_can_resume(monkeypatch):
     for name, values in expected.fields.items():
         np.testing.assert_array_equal(values, resumed.fields[name])
     assert expected.run_status == resumed.run_status
+
+def test_scalar_wall_and_stored_resolution_use_actual_grid():
+    config, _ = reference._configuration(('air', 'water'), 'uniform')
+    case = prepare_case(config, case_id='scalar-wall')
+    design = dict(case.design_fields)
+    design['t_field_m'] = np.asarray(design['t_field_m'].flat[0])
+    params = dict(case.parameters, _input_resolution={'grid_shape': [1, 1, 1]})
+    result = run_case(replace(case, design_fields=design, parameters=params), _control())
+    assert tuple(result.metadata['input_resolution']['grid_shape']) == design['L_field_m'].shape

@@ -4,6 +4,78 @@
 
 #define REQUIRE(value) do {if(!(value)){fprintf(stderr,"3D C stage check failed at %d: %s\n",__LINE__,error);return 1;}} while(0)
 static int TPMSHX_THERMAL_CALL cancel(void* context) {(void)context;return 1;}
+static tpmshx_full3d_array_v1 field(tpmshx_preparation_array_v1 source) {
+    tpmshx_full3d_array_v1 view={source.data,source.size};
+    return view;
+}
+
+static int check_saved(const tpmshx_preparation_case_3d_v1* p,
+        const tpmshx_stage_run_request_3d_v1* request,const tpmshx_stage_run_control_3d_v1* control) {
+    char error[4096]="unchanged";
+    tpmshx_stage_saved_case_3d_v2 saved={0};
+    tpmshx_full3d_input_v1 raw={0};
+    tpmshx_run_state_v1 state={0};
+    double areas[120],diameters[120];
+    size_t i,s;
+    void* run=NULL;
+    uint32_t phase=0,restored_phase=0;
+    REQUIRE(p->cell_length.size==120);
+    for(i=0;i<120;++i) {
+        areas[i]=p->geometry.area_density_per_m;
+        diameters[i]=p->geometry.hydraulic_diameter_m;
+    }
+    raw.area_density.data=areas;raw.area_density.size=120;
+    raw.hydraulic_diameter.data=diameters;raw.hydraulic_diameter.size=120;
+    raw.epsilon=field(p->total_porosity);raw.epsilon_a=raw.epsilon_b=field(p->side_porosity);
+    raw.cell_length=field(p->cell_length);raw.permeability=field(p->permeability);
+    raw.forchheimer=field(p->forchheimer);raw.solid_conductivity=field(p->solid_conductivity);
+    raw.topology=p->input.topology;raw.solve_b=1;
+    raw.reference_hydraulic_diameter=diameters[0];raw.reference_cell_length=p->cell_length.data[0];
+    saved.abi_version=2;saved.struct_size=sizeof(saved);
+    saved.values.abi_version=1;saved.values.struct_size=sizeof(saved.values);
+    saved.values.input=&raw;saved.values.nominal_cell_length_mm=p->input.cell_length_mm;
+    saved.values.nominal_wall_thickness_mm=p->input.wall_thickness_mm;
+    saved.values.nominal_porosity=p->geometry.epsilon;saved.values.wall_thickness_m=p->wall_thickness;
+    saved.values.preparation=p->evidence;saved.values.inlet_recorded=1;
+    memcpy(saved.models,p->models,sizeof(saved.models));
+    saved.resource_fluids[0].data="air";saved.resource_fluids[0].size=3;
+    saved.resource_fluids[1].data="water";saved.resource_fluids[1].size=5;
+    saved.resource_topology.data="Gyroid";saved.resource_topology.size=6;
+    for(i=0;i<3;++i) {
+        raw.widths[i]=field(p->widths[i]);raw.shape[i]=p->widths[i].size;
+        saved.lengths_m[i]=p->input.lengths_m[i].value;
+        saved.reference_kinds[i].precision=64;
+        saved.field_kinds[i].precision=64;saved.field_kinds[i].strong=1;saved.field_kinds[i].layout=2;
+    }
+    for(s=0;s<2;++s) {
+        tpmshx_full3d_side_v1* side=&raw.sides[s];
+        tpmshx_stage_saved_axes_3d_v2* axes=&saved.axes[s];
+        axes->port=p->input.sides[s].port;axes->reverse=axes->port.direction%2;
+        side->fluid=p->input.sides[s].fluid;side->direction=(uint32_t)axes->port.direction;
+        side->inlet_velocity=p->input.sides[s].velocity_m_s;
+        side->inlet_pressure=p->input.sides[s].pressure_Pa;side->inlet_temperature=p->input.sides[s].temperature_K;
+        side->inlet_opening=field(p->sides[s].inlet_opening);side->outlet_opening=field(p->sides[s].outlet_opening);
+        side->permeability_scale=side->forchheimer_scale=side->sco2_nusselt_multiplier=1.;
+        for(i=0;i<3;++i) {
+            const size_t axis=(size_t)p->sides[s].axes[i];
+            side->solver_axes[i]=(uint32_t)axis;axes->solver_to_real[axis]=(int32_t)i;
+            axes->widths[i]=p->widths[axis];axes->counts[i]=axes->solver_counts[i]=raw.shape[axis];
+            axes->lengths[i]=axes->solver_lengths[i]=saved.lengths_m[axis];
+        }
+    }
+    REQUIRE(tpmshx_stage_run_3d_create_saved_v2(&saved,request,control,&run,(char*)&saved,sizeof(saved))==1);
+    REQUIRE(!run && saved.abi_version==2);
+    REQUIRE(tpmshx_stage_run_3d_create_saved_v2(&saved,request,control,&run,error,sizeof(error))==0);
+    REQUIRE(tpmshx_stage_run_3d_advance_step_v1(run,&phase,error,sizeof(error))==0);
+    REQUIRE(tpmshx_stage_run_3d_snapshot_v1(run,&state,error,sizeof(error))==0);
+    tpmshx_stage_run_3d_release_run_v1(&run);
+    REQUIRE(tpmshx_stage_run_3d_restore_saved_v2(&saved,request,control,state.fields,state.count,&run,error,sizeof(error))==0);
+    REQUIRE(tpmshx_stage_run_3d_phase_v1(run,&restored_phase)==0 && restored_phase==phase);
+    tpmshx_stage_run_3d_release_run_v1(&run);
+    tpmshx_run_state_release_v1(&state);
+    return 0;
+}
+
 int main(void) {
     char error[4096]="unchanged";
     tpmshx_preparation_case_input_3d_v1 input={0};
@@ -39,6 +111,7 @@ int main(void) {
     request.max_iter_simple.value=12;request.max_outer_ltne.value=2;
     request.model_h.max_iterations=9;request.model_h.temperature_tolerance=.5;request.model_h.q_relative_tolerance=1e-3;
     control.result_id="plain-C-3d";control.cpu_threads=2;
+    REQUIRE(check_saved(&prepared,&request,&control)==0);
     result.abi_version=1;result.struct_size=sizeof(result);before=result;
     REQUIRE(tpmshx_run_case_3d_v1(&prepared,NULL,NULL,&request,&control,&result,(char*)&prepared,sizeof(prepared))==1);
     REQUIRE(memcmp(&result,&before,sizeof(result))==0);

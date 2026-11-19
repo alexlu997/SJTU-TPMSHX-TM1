@@ -2,7 +2,7 @@
 import numpy as np
 
 from sjtu_tpmshx.data_types.compute_config import Sco2NuConfig, reject_retired_research_options
-from sjtu_tpmshx.data_types.persistence_validation import validate_grid, validate_thermal_geometry
+from sjtu_tpmshx.data_types.persistence_validation import validate_axis_permutation, validate_grid, validate_thermal_geometry
 from sjtu_tpmshx.data_types.portable_data import mutable_data
 from .prepared_models import resolve_models, validate_fluid, validate_nu_settings, validate_topology
 
@@ -44,10 +44,7 @@ def build_execution_inputs(case, *, copy_design=True):
             continue
         if cfg['fluid_' + side + '_cfg']['dir'] // 2 != axis['stream_real_axis']:
             raise ValueError(f'prepared fluid {side} direction and axis map disagree')
-        solver_axes = (axis['cross1_real_axis'], axis['stream_real_axis'], axis['cross2_real_axis'])
-        if (sorted(solver_axes) != [0, 1, 2]
-                or tuple(axis['solver_to_real_perm']) != tuple(solver_axes.index(i) for i in range(3))):
-            raise ValueError(f'prepared fluid {side} axis permutation disagrees with physical axes')
+        validate_axis_permutation(axis, side)
         for prefix, index_key in (('stream', 'stream_real_axis'), ('cross1', 'cross1_real_axis'), ('cross2', 'cross2_real_axis')):
             physical_axis = 'xyz'[axis[index_key]]
             if not np.array_equal(axis['d' + prefix], prepared['d' + physical_axis]):

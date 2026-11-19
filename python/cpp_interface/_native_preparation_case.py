@@ -766,3 +766,54 @@ def borrow_ranges(rows, keepalive):
                 setattr(sample, name, scalar)
                 setattr(sample, name + '_index', int(np.ravel_multi_index(position, row['shape'])))
     return values, captured
+
+
+def _pack_nu(target, settings, keepalive):
+    target.mode = settings.mode == 'experimental'
+    for index, value in enumerate((settings.alpha_D, settings.alpha_G)):
+        target.have_alpha[index] = value is not None
+        target.alpha[index] = value or 0.
+    for name in ('parameter_version', 'source', 'applicability'):
+        setattr(target, name, borrow_text(getattr(settings, name), keepalive))
+
+
+def pack_saved_resources(case, models, nu, saved, settings, keepalive):
+    from sjtu_tpmshx.data_types.compute_config import Sco2NuConfig
+    from sjtu_tpmshx.data_types.model_refs import ModelRef
+
+    roles = case.metadata['model_roles']
+    names = ('fluid_A', 'fluid_B', 'geometry', 'darcy_forchheimer')
+    if set(roles) != set(names) or sorted(roles.values()) != list(range(len(case.model_refs))):
+        raise ValueError(f"{case.grid['dimension']}D model roles must account for every recorded resource")
+    recorded_settings = case.parameters['sco2_nu'] if case.grid['dimension'] == 3 else vars(settings)
+    for index, role in enumerate(names):
+        ref = case.model_refs[roles[role]]
+        if not isinstance(ref, ModelRef):
+            raise TypeError('model resource must be a ModelRef')
+        model = models[index]
+        model.name, model.version = borrow_text(ref.name, keepalive), borrow_text(ref.version, keepalive)
+        params = ref.parameters
+        if index < 2:
+            if set(params) - {'fluid', 'sco2_nu'} or 'fluid' not in params:
+                raise ValueError('fluid model requires fluid and optional sco2_nu parameters')
+            fluid = params['fluid']
+            if (ref.name == 'co2_fluid') != (fluid == 'co2'):
+                raise ValueError('CO2 requires its versioned fluid resource')
+            try:
+                normalized = fluid.strip().lower()
+            except AttributeError:
+                normalized = None
+            if normalized not in ('air', 'co2', 'sco2', 'water'):
+                raise ValueError(f"unknown fluid {fluid!r}; known: ['air', 'co2', 'sco2', 'water']")
+            saved.resource_fluids[index] = borrow_text(normalized, keepalive)
+            if params['sco2_nu'] != recorded_settings:
+                raise ValueError(f'prepared Nu settings and fluid {"AB"[index]} resource disagree')
+            selection = Sco2NuConfig(**params['sco2_nu']).validate()
+            _pack_nu(saved.resource_nu[index], selection, keepalive)
+        elif index == 2 and params:
+            raise ValueError('geometry resource takes no fixed parameters')
+        elif index == 3:
+            if set(params) != {'topology'}:
+                raise ValueError('Darcy-Forchheimer resource requires topology')
+            saved.resource_topology = borrow_text(params['topology'], keepalive)
+    _pack_nu(nu, settings, keepalive)

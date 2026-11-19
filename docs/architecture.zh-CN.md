@@ -141,7 +141,7 @@ Python 均匀准备使用 v10，容量和流量解析查询仍使用 v7 及 v3 �
 分别平滑 L/t 后沿 z 挤出。现有非对称所有者提供名义拆分及热侧／参考几何。
 局部总孔隙率仍为对称值，各侧容量使用自己的拆分字段，v1/v2/v3 布局保持不变。
 v4 布局也保持不变；Python 三维准备使用 host v5 及其带类型缓存回调。
-`python/preprocess/three_d/preparation.py` 保留配置转换、环境解析及不可变 DTO 组装。
+`python/cpp_interface/_native_preparation_3d.py` 保留配置转换、环境解析及不可变 DTO 组装。
 `python/cpp_interface/native_preparation.py` 与二维共享缓存及警告传递。
 C++ owner 只构建一次物理网格，并保留静态证据在解析速度检查之前的顺序。
 空气场每侧最多选择八个标量观测值，保留原通知、极值和最后样本。

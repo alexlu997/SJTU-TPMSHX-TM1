@@ -2,8 +2,7 @@
 #include "stage_capture_2d.hpp"
 #include "tpmshx/preparation_flow.hpp"
 #include "tpmshx/grid.hpp"
-#include "tpmshx/model_coefficients.hpp"
-#include "../preprocess/preparation_nu.hpp"
+#include "stage_saved_models.hpp"
 #include "../geometry/field_c_boundary.hpp"
 
 #include <algorithm>
@@ -100,56 +99,7 @@ template<class Storage> void preparation_storage(const Storage& storage,
         for(const auto value:{range.side,range.stage,range.layout,range.quantity,range.unit})storage(value.data,value.size);
     }
 }
-std::string_view text_view(tpmshx_preparation_text_v1 text) {
-    return text.size ? std::string_view(text.data,text.size) : std::string_view{};
-}
-
-bool same_nu(const tpmshx_preparation_sco2_nu_v2& a,const tpmshx_preparation_sco2_nu_v2& b) {
-    for (size_t i=0;i<2;++i)
-        if (a.have_alpha[i]!=b.have_alpha[i] || (a.have_alpha[i] && a.alpha[i]!=b.alpha[i])) return false;
-    return a.mode==b.mode && text_view(a.parameter_version)==text_view(b.parameter_version)
-        && text_view(a.source)==text_view(b.source) && text_view(a.applicability)==text_view(b.applicability);
-}
-
-void validate_saved_models(const tpmshx_stage_saved_case_2d_v3& saved,
-                           const tpmshx_preparation_case_2d_v2& uniform) {
-    namespace models=tpmshx::model_coefficients;
-    const auto& p=uniform.values;
-    const char* fluids[]{"air","water","sco2","co2"};
-    for (size_t i=0;i<4;++i) {
-        const auto name=text_view(p.models[i].name), version=text_view(p.models[i].version);
-        const bool valid=i<2 ? ((name=="fluid" && version==models::fluid_version) ||
-                                (name=="co2_fluid" && version==models::co2_fluid_version))
-            : i==2 ? ((name=="geometry" && version==models::geometry_version) ||
-                      (name=="co2_geometry" && version==models::co2_geometry_version))
-                   : name=="darcy_forchheimer" && version==models::darcy_forchheimer_version;
-        if (!valid) throw std::invalid_argument("unknown model resource: "+std::string(name)+"@"+std::string(version));
-    }
-    for (const auto* nu:{&uniform.sco2_nu,&saved.resource_nu[0],&saved.resource_nu[1]}) {
-        tpmshx::preparation::Sco2NuSelection selection;
-        selection.mode=nu->mode;
-        for (size_t i=0;i<2;++i) {
-            flag(nu->have_alpha[i]);
-            if (nu->have_alpha[i]) selection.alpha[i]=nu->alpha[i];
-        }
-        selection.parameter_version=text_view(nu->parameter_version);
-        selection.source=text_view(nu->source);
-        selection.applicability=text_view(nu->applicability);
-        tpmshx::preparation::validate_nu(selection);
-    }
-    for (size_t side=0;side<2;++side) {
-        const auto label=std::string(side?"B":"A");
-        const auto fluid=text_view(saved.resource_fluids[side]);
-        if ((text_view(p.models[side].name)=="co2_fluid")!=(fluid=="co2"))
-            throw std::invalid_argument("CO2 requires its versioned fluid resource");
-        if (!same_nu(saved.resource_nu[side],uniform.sco2_nu))
-            throw std::invalid_argument("prepared Nu settings and fluid "+label+" resource disagree");
-        if (p.sides[side].inlet.fluid>3 || fluid!=fluids[p.sides[side].inlet.fluid])
-            throw std::invalid_argument("prepared fluid "+label+" and its model resource disagree");
-    }
-    if (text_view(saved.resource_topology)!=(p.input.topology==0?"Diamond":"Gyroid"))
-        throw std::invalid_argument("prepared topology and Darcy-Forchheimer resource disagree");
-}
+using tpmshx::stages::text_view;
 
 void validate_saved_design(const tpmshx_stage_saved_case_2d_v3& saved,
                            const tpmshx_preparation_case_2d_v2& uniform,size_t cells) {
@@ -281,7 +231,9 @@ struct Packed2D {
                 "stage run currently requires uniform symmetric air/air");
         array(p.dx,p.nx);array(p.dy,p.ny);array(p.total_porosity,cells);array(p.solid_conductivity,cells);
         if (saved_v3) {
-            validate_saved_models(*saved_v3,*uniform);
+            tpmshx::stages::validate_saved_models(p.models,uniform->sco2_nu,saved_v3->resource_nu,
+                saved_v3->resource_fluids,saved_v3->resource_topology,
+                {p.sides[0].inlet.fluid,p.sides[1].inlet.fluid},p.input.topology,false);
             validate_saved_design(*saved_v3,*uniform,cells);
             const tpmshx_preparation_array_v1 widths[]{p.dx,p.dy};
             for (size_t axis=0; axis<2; ++axis) {

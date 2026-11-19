@@ -58,6 +58,28 @@ typedef struct {
     uint32_t inlet_recorded;
     const uint32_t* range_captured;
 } tpmshx_stage_saved_case_3d_v1;
+
+/* Arrays use physical XYZ order. Axis records use cross1, stream, cross2 order.
+ * design_mode selects uniform (0), XY extrusion (1), or XYZ controls (2). */
+typedef struct {
+    int32_t solver_to_real[3], reverse;
+    size_t counts[3], solver_counts[3];
+    double lengths[3], solver_lengths[3];
+    tpmshx_preparation_array_v1 widths[3];
+    tpmshx_grid_port_v1 port;
+} tpmshx_stage_saved_axes_3d_v2;
+typedef struct {
+    uint32_t abi_version;
+    size_t struct_size;
+    tpmshx_stage_saved_case_3d_v1 values;
+    double lengths_m[3];
+    uint32_t design_mode,have_z_controls;
+    tpmshx_preparation_scalar_kind_v2 reference_kinds[3],field_kinds[3];
+    tpmshx_stage_saved_axes_3d_v2 axes[2];
+    tpmshx_preparation_model_ref_v1 models[4];
+    tpmshx_preparation_text_v1 resource_fluids[2],resource_topology;
+    tpmshx_preparation_sco2_nu_v2 sco2_nu,resource_nu[2];
+} tpmshx_stage_saved_case_3d_v2;
 typedef struct {
     uint32_t abi_version;
     size_t struct_size;
@@ -105,6 +127,12 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_create_saved_v1(
     const tpmshx_stage_run_control_3d_v1*,void**,char*,size_t);
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_restore_saved_v1(
     const tpmshx_stage_saved_case_3d_v1*,const tpmshx_stage_run_request_3d_v1*,
+    const tpmshx_stage_run_control_3d_v1*,const tpmshx_run_state_field_v1*,size_t,void**,char*,size_t);
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_create_saved_v2(
+    const tpmshx_stage_saved_case_3d_v2*,const tpmshx_stage_run_request_3d_v1*,
+    const tpmshx_stage_run_control_3d_v1*,void**,char*,size_t);
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_restore_saved_v2(
+    const tpmshx_stage_saved_case_3d_v2*,const tpmshx_stage_run_request_3d_v1*,
     const tpmshx_stage_run_control_3d_v1*,const tpmshx_run_state_field_v1*,size_t,void**,char*,size_t);
 /* Phases, safe boundaries and archive identity match full_3d_run_c_api.h.
  * Restore can change the positive CPU limit. Snapshots own independent storage;

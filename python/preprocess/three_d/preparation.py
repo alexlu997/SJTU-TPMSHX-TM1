@@ -12,7 +12,8 @@ from sjtu_tpmshx.data_types.case_data import CaseData
 from sjtu_tpmshx.data_types.compute_config import ComputeConfig, bc_to_dict
 from sjtu_tpmshx.data_types.model_refs import ModelRef
 from sjtu_tpmshx.run_control.run_environment import capture_environment
-from sjtu_tpmshx.cpp_interface import _native_flow, _native_grid
+from sjtu_tpmshx.cpp_interface import _native_grid as grid
+from sjtu_tpmshx.cpp_interface._native_fp import restore_buffer_scalar
 from sjtu_tpmshx.cpp_interface import _native_preparation_case as native
 from sjtu_tpmshx.cpp_interface import _native_preparation_3d as three
 
@@ -27,17 +28,17 @@ def _input(config, targets, operation):
 
     def scalar(item):
         try:
-            return _native_grid._scalar(item)
+            return grid._scalar(item)
         except TypeError as problem:
             errors.setdefault('grid', problem)
-            return _native_grid._Scalar(float(transport(item)), 64, 0)
+            return grid._Scalar(float(transport(item)), 64, 0)
 
     value.lengths_m[:] = [scalar(geometry.L_dom_m), scalar(geometry.H_dom_m),
-                          _native_grid._Scalar(float(geometry.Lz_m), 64, 0)]
+                          grid._Scalar(float(geometry.Lz_m), 64, 0)]
     counts = []
     for axis, count in enumerate((config.solver.Nx, config.solver.Ny, config.solver.Nz)):
         try:
-            counts.append(_native_grid._count(count))
+            counts.append(grid._count(count))
         except (TypeError, ValueError, OverflowError) as problem:
             errors['count' + str(axis)] = problem
             counts.append(2)
@@ -59,7 +60,7 @@ def _input(config, targets, operation):
         (geometry.L_cell_mm, geometry.t_wall_mm, geometry.k_s_W_mK)))
     for index, side in enumerate('AB'):
         fluid, port = getattr(config, 'fluid_' + side), getattr(config, 'bc_' + side)
-        raw_port = _native_grid._Port()
+        raw_port = grid._Port()
         raw_port.active, raw_port.direction = 1, port.dir
         full = port.in_w <= 0. and port.out_w <= 0.
         for end_index, end in enumerate(('in', 'out')):
@@ -282,15 +283,15 @@ def _resolved(config, flow, targets):
     for index, side in enumerate('AB'):
         fluid = getattr(config, 'fluid_' + side)
         if targets is not None or fluid.mass_flow_kg_s is not None:
-            fluids['fluid_' + side] = replace(fluid, u_mps=_native_flow._restore(flow.speeds[index]),
+            fluids['fluid_' + side] = replace(fluid, u_mps=restore_buffer_scalar(flow.speeds[index]),
                 mass_flow_kg_s=None if targets is not None else fluid.mass_flow_kg_s)
     return replace(config, **fluids).validate(resolved_inlet_speeds=True) if fluids else config
 
 
-def _execute(config, operation, *, targets=None, case_id=None, own_metadata=False):
+def _execute(config, action, *, targets=None, case_id=None, own_metadata=False):
     from sjtu_tpmshx.preprocess import api
     from sjtu_tpmshx.run_control.run_environment import _resolve_chi_s
-    source = _input(config, targets, operation)
+    source = _input(config, targets, action)
     chi_error = None
     try:
         chi = _resolve_chi_s()
@@ -307,9 +308,6 @@ def _execute(config, operation, *, targets=None, case_id=None, own_metadata=Fals
 
         def host_input(stage, side):
             if stage == 10:
-                from sjtu_tpmshx.physical_models.input_validation import validate_domain_dims
-                validate_domain_dims([('L', config.geometry.L_dom_m), ('H', config.geometry.H_dom_m),
-                                      ('Lz', float(config.geometry.Lz_m))])
                 if 'co2' not in (config.fluid_A.type, config.fluid_B.type):
                     hash((config.geometry.tpms, config.geometry.L_cell_mm, config.geometry.t_wall_mm, 128))
                 elif chi_error is not None:
@@ -332,7 +330,7 @@ def _execute(config, operation, *, targets=None, case_id=None, own_metadata=Fals
             elif stage == 13:
                 if 'grid' in source._errors:
                     raise source._errors['grid']
-                if operation == 'prepare_flow_case':
+                if action == 'prepare_flow_case':
                     context['environment'] = capture_environment()
             elif stage == 14:
                 if 'cap' in source._errors:
@@ -354,12 +352,12 @@ def _execute(config, operation, *, targets=None, case_id=None, own_metadata=Fals
             else:
                 raise RuntimeError(f'unknown 3D preparation host stage {stage}')
 
-        with three.operation(operation, source, options, host_input, cache) as result:
+        with three.operation(action, source, options, host_input, cache) as result:
             flow = result.flow
-            if operation == 'prepare_inlet_mass_capacities':
-                return {side: _native_flow._restore(flow.capacities[index]) for index, side in enumerate('AB')}
+            if action == 'prepare_inlet_mass_capacities':
+                return {side: restore_buffer_scalar(flow.capacities[index]) for index, side in enumerate('AB')}
             resolved = _resolved(config, flow, targets)
-            if operation == 'resolve_inlet_flow':
+            if action == 'resolve_inlet_flow':
                 return resolved
             case = _case(result, resolved, case_id, context)
             return api._finish_metadata(case, context['provenance'], context['records']) if own_metadata else case

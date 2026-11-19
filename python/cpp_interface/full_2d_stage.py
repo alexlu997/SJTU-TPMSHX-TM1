@@ -21,7 +21,7 @@ from sjtu_tpmshx.run_control.run_warnings import current_warnings, merge_warning
 from sjtu_tpmshx.physical_models.nu_correlations import warn_sco2_nu_evidence
 from sjtu_tpmshx.cpp_interface.solver_library.model_h import _IterationOptions, _iteration_options
 from . import _native_flow
-from ._native_preparation_case import _ResultV1, borrow_array, borrow_ranges, borrow_text
+from ._native_preparation_case import _ResultV1, pack_saved_resources, borrow_array, borrow_ranges, borrow_text
 from ._native_grid import _Scalar as GridScalar
 from .run_state import NativeRun
 from .solver_library._full_2d_abi import _Cancel, _FINE_FLAGS, _FLAGS, _FLOW_ARRAYS, _FlowMethod, _Pressure, _Progress, _Residual
@@ -93,15 +93,6 @@ _Summary = record('CaptureSummary', [
     ('pressure_clip_hits', _S), ('have_finite_duty', _U), ('red_black', _U * 2)])
 
 
-def _pack_nu(target, settings, keepalive):
-    target.mode = settings.mode == 'experimental'
-    for index, value in enumerate((settings.alpha_D, settings.alpha_G)):
-        target.have_alpha[index] = value is not None
-        target.alpha[index] = value or 0.
-    for name in ('parameter_version', 'source', 'applicability'):
-        setattr(target, name, borrow_text(getattr(settings, name), keepalive))
-
-
 def pack_saved_design(case, uniform, saved, keepalive):
     values = uniform.values
     shape = values.nx, values.ny
@@ -130,47 +121,6 @@ def pack_saved_design(case, uniform, saved, keepalive):
     saved.additional_count = len(extra)
     values.hydraulic_radius_m = case.parameters['r_h']
     values.epsilon = case.parameters['eps']
-
-
-def pack_saved_resources(case, uniform, saved, settings, keepalive):
-    from sjtu_tpmshx.data_types.compute_config import Sco2NuConfig
-    from sjtu_tpmshx.data_types.model_refs import ModelRef
-
-    roles = case.metadata['model_roles']
-    names = ('fluid_A', 'fluid_B', 'geometry', 'darcy_forchheimer')
-    if set(roles) != set(names) or sorted(roles.values()) != list(range(len(case.model_refs))):
-        raise ValueError('2D model roles must account for every recorded resource')
-    _pack_nu(uniform.sco2_nu, settings, keepalive)
-    for index, role in enumerate(names):
-        ref = case.model_refs[roles[role]]
-        if not isinstance(ref, ModelRef):
-            raise TypeError('model resource must be a ModelRef')
-        model = uniform.values.models[index]
-        model.name, model.version = borrow_text(ref.name, keepalive), borrow_text(ref.version, keepalive)
-        params = ref.parameters
-        if index < 2:
-            if set(params) - {'fluid', 'sco2_nu'} or 'fluid' not in params:
-                raise ValueError('fluid model requires fluid and optional sco2_nu parameters')
-            fluid = params['fluid']
-            if (ref.name == 'co2_fluid') != (fluid == 'co2'):
-                raise ValueError('CO2 requires its versioned fluid resource')
-            try:
-                normalized = fluid.strip().lower()
-            except AttributeError:
-                normalized = None
-            if normalized not in ('air', 'co2', 'sco2', 'water'):
-                raise ValueError(f"unknown fluid {fluid!r}; known: ['air', 'co2', 'sco2', 'water']")
-            saved.resource_fluids[index] = borrow_text(normalized, keepalive)
-            selection = Sco2NuConfig(**params['sco2_nu']).validate()
-            if set(params['sco2_nu']) != set(vars(settings)):
-                raise ValueError(f'prepared Nu settings and fluid {"AB"[index]} resource disagree')
-            _pack_nu(saved.resource_nu[index], selection, keepalive)
-        elif index == 2 and params:
-            raise ValueError('geometry resource takes no fixed parameters')
-        elif index == 3:
-            if set(params) != {'topology'}:
-                raise ValueError('Darcy-Forchheimer resource requires topology')
-            saved.resource_topology = borrow_text(params['topology'], keepalive)
 
 
 def prepare_stage(case, cfg, prepared, *, saved_flow_grid=None):
@@ -442,7 +392,7 @@ def run_stage(driver, case, cfg, prepared, control, *, configure_convergence, ma
     if flow_grid is not None:
         saved = _SavedV3(3, ct.sizeof(_SavedV3), saved, (_D * 2)(cfg['L'], cfg['H']), flow_grid)
         pack_saved_design(case, uniform, saved, keepalive)
-        pack_saved_resources(case, uniform, saved, cfg['compute_cfg'].sco2_nu, keepalive)
+        pack_saved_resources(case, uniform.values.models, uniform.sco2_nu, saved, cfg['compute_cfg'].sco2_nu, keepalive)
     request, energy = _request(cfg, configure_convergence)
     callbacks, errors = make_callbacks(control)
     stage_control = _Control(case.case_id.encode(), driver.table_directory, control.native_cpu_threads(), callbacks)

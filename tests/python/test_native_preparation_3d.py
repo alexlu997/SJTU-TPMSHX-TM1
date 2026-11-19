@@ -13,6 +13,7 @@ from tests.python import test_native_preparation_fluids as fluids
 from tests.python.test_native_preparation_continuous import _host_events
 from sjtu_tpmshx.preprocess.api import _finish_metadata
 from tests.python import preparation_3d_reference as preparation
+from tests.python.preparation_range_reference import record_geometry_ranges
 from sjtu_tpmshx.data_types.compute_config import PartialBCConfig
 from sjtu_tpmshx.run_control.run_warnings import RangeRecord, range_observations, warning_scope
 from sjtu_tpmshx.cpp_interface import _native_grid as grid
@@ -125,6 +126,7 @@ def _reference(config):
     with warnings.catch_warnings(record=True) as caught, warning_scope({}) as records:
         warnings.simplefilter('always')
         case = preparation.prepare_case(config, case_id='native-3d-reference')
+        record_geometry_ranges(case)
         case = _finish_metadata(case, {}, records)
     return case, records, [(1, '', str(item.message), 0) for item in caught]
 

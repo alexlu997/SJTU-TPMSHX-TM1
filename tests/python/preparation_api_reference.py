@@ -13,7 +13,7 @@ def _prepare_with_metadata(prepare, *args, **kwargs) -> CaseData:
     provenance = source_context()
     with warning_scope({}) as records:
         case = prepare(*args, **kwargs)
-        from sjtu_tpmshx.preprocess.range_evidence import record_geometry_ranges
+        from tests.python.preparation_range_reference import record_geometry_ranges
         record_geometry_ranges(case)
     warnings = tuple(dict.fromkeys((*case.metadata.get('warnings', ()),
                                     *warning_messages(records))))
