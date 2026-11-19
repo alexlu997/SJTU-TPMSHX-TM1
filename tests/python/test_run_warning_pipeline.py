@@ -26,16 +26,16 @@ def test_real_pipeline_warning_ownership_and_numerical_transparency(monkeypatch,
                 fluid.u_mps, fluid.T_in_K, fluid.P_in_Pa, geometry.k_s_W_mK,
                 fluid.type)
     # No cache_clear: standalone warm-up must not consume a run's notices.
-    owner = importlib.import_module('sjtu_tpmshx.cpp_interface.solver_library.' +
-        ('full_2d_capture' if dimension == '2d' else 'full_3d'))
-    original = owner.replay_range_observations
+    from sjtu_tpmshx.cpp_interface import _native_result_stage as owner
+    original = owner.stage_closures
     observations = []
 
-    def observe(rows):
+    def observe(records):
+        rows, notices, last = original(records)
         observations.extend(rows)
-        return original(rows)
+        return rows, notices, last
 
-    monkeypatch.setattr(owner, 'replay_range_observations', observe)
+    monkeypatch.setattr(owner, 'stage_closures', observe)
     result = compute_result(cfg)
     assert result.converged, result.diagnostics['convergence_detail']
     assert result.diagnostics['convergence_detail']['outer_iters'] > 1
@@ -58,7 +58,7 @@ def test_real_pipeline_warning_ownership_and_numerical_transparency(monkeypatch,
     # Suppress only collection in the comparator; every numerical call remains.
     with monkeypatch.context() as patch:
         patch.setattr(importlib.import_module('sjtu_tpmshx.compute'), 'warning_scope', lambda records: nullcontext(records))
-        patch.setattr(owner, 'replay_range_observations', lambda rows: [])
+        patch.setattr(owner, 'stage_closures', lambda records: ([], {}, []))
         without_capture = compute_result(cfg)
     for other in (repeated, without_capture):
         assert other.converged, other.diagnostics['convergence_detail']

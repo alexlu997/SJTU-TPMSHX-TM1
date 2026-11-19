@@ -1,8 +1,10 @@
 """Map detached full native 3D evidence to the portable result contract."""
 
+from functools import partial
+
 import numpy as np
 
-from ..full_3d_stage import capture_result
+from ..full_3d_stage import capture_result as _capture_result
 from sjtu_tpmshx.data_types.model_refs import freeze_value
 
 
@@ -77,3 +79,7 @@ def _build_outlet_frac_taper(Nx, Nz, n_taper=8, min_frac=0.2):
         arr[:, k] = np.minimum(arr[:, k], taper)
         arr[:, Nz - 1 - k] = np.minimum(arr[:, Nz - 1 - k], taper)
     return arr
+
+
+capture_result = partial(_capture_result, legacy_fields=_legacy_fields, legacy_drag=_legacy_drag,
+                         legacy_ratios=_legacy_ratios, legacy_taper=_build_outlet_frac_taper)

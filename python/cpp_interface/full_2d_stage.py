@@ -274,7 +274,7 @@ def _fine_evidence(fine, balance):
     return evidence
 
 
-def capture_result(case, cfg, prepared, native, *, application_hv=None, zone_summary=None, stage_fields=None):
+def capture_result(case, cfg, prepared, native, *, application_hv=None, zone_summary=None, stage_fields=None, legacy_fields=None):
     """Capture a completed native return without re-entering Python solvers."""
     if native['cancelled']:
         raise CancelledError('compute cancelled by user')
@@ -439,8 +439,7 @@ def capture_result(case, cfg, prepared, native, *, application_hv=None, zone_sum
             prepared['energy_dx'], prepared['energy_dy'], *main['temperature'])
     evidence.update(input_resolution=cfg['_input_resolution'], property_sampling=native['property_sampling'])
     if stage_fields is None:
-        from .solver_library.full_2d_capture import _legacy_fields
-        stage_fields = _legacy_fields(evidence, main, native)
+        stage_fields = legacy_fields(evidence, main, native)
     result = _capture_result(case, stage_fields, evidence, application, diagnostics, backend_id='cpp',
                              backend_version=f"full_2d_v{native.get('entry_version', 2)}")
     if 'continuation' in native:

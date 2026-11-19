@@ -1,8 +1,10 @@
 """Map raw 2D driver fields for standalone and archived runtimes."""
+from functools import partial
+
 import numpy as np
 
 from sjtu_tpmshx.postprocess.result_display import describe_fields, display_fields_2d
-from ..full_2d_stage import capture_result
+from ..full_2d_stage import capture_result as _capture_result
 
 
 def _legacy_fields(evidence, main, native):
@@ -14,3 +16,6 @@ def _legacy_fields(evidence, main, native):
     for key in ('h_vA', 'h_vB', 'K_ss'):
         fields[key] = np.broadcast_to(fields[key], np.shape(fields['Ta']))
     return fields, describe_fields(fields, 2)
+
+
+capture_result = partial(_capture_result, legacy_fields=_legacy_fields)
