@@ -31,12 +31,12 @@ void extent(ArrayView<const double> widths, std::size_t size, double length) {
         throw std::invalid_argument("prepared grid disagrees with physical extent");
 }
 
-double uniform(ArrayView<const double> field, std::size_t n) {
+double uniform(ArrayView<const double> field, std::size_t n, const char* name) {
     if (!field.data || field.size != n || !std::isfinite(field[0]))
         throw std::invalid_argument("invalid quick-design prepared field");
     for (std::size_t i = 1; i < n; ++i)
         if (field[i] != field[0])
-            throw std::invalid_argument("quick-design requires finite uniform fields");
+            throw std::invalid_argument(std::string("quick-design requires a finite uniform ")+name+" field on its prepared grid");
     return field[0];
 }
 
@@ -129,8 +129,8 @@ QuickDesignResult solve_quick_design(
     extent(grid.dx,grid.nx,geometry.length);
     extent(grid.dy,grid.ny,geometry.span);
     extent(grid.dz,grid.nz,geometry.height);
-    const double eps = uniform(geometry.epsilon,n), eps_a = uniform(geometry.epsilon_a,n);
-    const double ks = uniform(geometry.k_ss,n);
+    const double eps = uniform(geometry.epsilon,n,"eps"), eps_a = uniform(geometry.epsilon_a,n,"eps_A");
+    const double ks = uniform(geometry.k_ss,n,"K_ss");
     if (eps <= 0. || eps >= 1. || std::abs(eps_a-eps/2.) > 1e-12*std::abs(eps/2.) || ks <= 0.)
         throw std::invalid_argument("quick-design requires positive symmetric porosity and solid conduction");
     for (const double value : {geometry.cell_length,geometry.area_density,geometry.hydraulic_diameter})

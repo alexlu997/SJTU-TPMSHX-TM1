@@ -162,5 +162,5 @@ def _resolve_inlet_speeds(config, targets, capacities):
 
 def prepare_quick_design(*args, **kwargs) -> CaseData:
     """Explicit prescribed-velocity design mode; no SIMPLE substitution."""
-    from sjtu_tpmshx.preprocess.app_modes.quick_design import prepare_quick_design as prepare
+    from sjtu_tpmshx.cpp_interface._native_quick_prepare import prepare_quick_design as prepare
     return _prepare_with_metadata(prepare, *args, **kwargs)

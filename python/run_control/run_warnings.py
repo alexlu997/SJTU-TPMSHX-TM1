@@ -69,14 +69,18 @@ def record_range(source, values, bounds, *, label, quantity, unit):
         maximum = (sample.maximum, tuple(int(i) for i in np.unravel_index(sample.maximum_index, array.shape)))
     value = RangeRecord(label, quantity, unit, bounds, minimum, maximum,
                         sample.low, sample.high, sample.size, sample.nonfinite)
+    return record_sample((*source, array.shape, _range_context.get()), value)
+
+
+def record_sample(key, value):
+    """Store the same detached sample for a native or Python observer."""
+    records, cached = _current.get(), _cache_records.get()
     value = replace(value, last={name: getattr(value, name) for name in _SAMPLE_FIELDS})
-    # Cache facts carry shape, but never the originating run's side/stage/layout.
-    key = (*source, array.shape)
     if cached is not None:
-        previous = cached.get(key)
-        cached[key] = value if previous is None else previous.merged(value)
+        source = key[:-1]
+        previous = cached.get(source)
+        cached[source] = value if previous is None else previous.merged(value)
     if records is not None:
-        key = (*key, _range_context.get())
         previous = records.get(key)
         records[key] = value if previous is None else previous.merged(value)
     return records is not None

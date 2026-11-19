@@ -188,7 +188,7 @@ Quick Design 准备 v2 接受带类型的原始工况。
 独立压降查询不创建热网格或设计场数组。
 `python/cpp_interface/_native_quick_prepare.py` 通过固定具名宿主操作保留 Python 对象协议、缓存交换、警告和快照。
 这些操作不得调用数值模型；其顺序及全部数值分支由 C++ 决定。
-`python/preprocess/app_modes/quick_design.py` 用复制后的原生输出组装 CaseData。
+`python/cpp_interface/_native_quick_prepare.py` 用复制后的原生输出组装 CaseData。
 被替代的 `shared/models/quick_design.py` 已删除；冻结参考保留在 `tests/python/quick_prepare_reference.py`，供回归检查使用。
 Quick 默认值统一来自 `python/model_configs/model_parameters_v1.json`。
 Python 读取该资源，C++ 使用生成的常量；逆流保存态的 `qtol` 和 `chunk` 仍为 `None`。

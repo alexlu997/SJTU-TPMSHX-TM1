@@ -205,7 +205,7 @@ Quick Design preparation v2 accepts typed raw operating points.
 Its separate pressure query creates no thermal grid or design-field arrays.
 `python/cpp_interface/_native_quick_prepare.py` keeps Python object protocols, cache exchanges, warnings and snapshots through fixed named host operations.
 These operations cannot call numerical models. C++ selects their order and all numerical branches.
-`python/preprocess/app_modes/quick_design.py` assembles CaseData from the copied native output.
+`python/cpp_interface/_native_quick_prepare.py` assembles CaseData from the copied native output.
 The replaced `shared/models/quick_design.py` is removed; its frozen reference remains in `tests/python/quick_prepare_reference.py` for regression checks.
 Quick defaults have one source in `python/model_configs/model_parameters_v1.json`.
 Python reads that resource; C++ uses its generated constants. Stored counterflow `qtol` and `chunk` remain `None`.

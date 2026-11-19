@@ -739,7 +739,7 @@ Array data uses double transport; precision tags keep the original field dtype f
 Release the full output with `tpmshx_quick_prepared_release_v2` from its creating library.
 The pressure output contains only fractions and pressure evidence by value; it has no owner.
 `stages.hpp` supplies `QuickDesignInputV2`, `PreparedQuickDesignV2`, `prepare_quick_design` and `pressure_fractions`.
-The v2 output has no new run overload. Python maps it to CaseData for the existing run adapter.
+Pass the input, prepared v2 fields and run control to `run_case(input, prepared, control)`. The solver uses the stored controls and fields. Python supplies the same views from a saved CaseData.
 
 ### Fixed host operations
 
@@ -791,7 +791,7 @@ The EOS operations share `sco2_props._prop` and `co2_props._scalar`, including t
 sCO2 looks up scalar entries before state validation; CO2 validates first. Arrays bypass both scalar caches.
 Only successful native calculations publish values. External property calls and cache clearing use these same owners.
 The replaced `shared/models/quick_design.py` is removed. Its frozen reference in `tests/python/quick_prepare_reference.py` remains for independent regression checks.
-`python/preprocess/app_modes/quick_design.py` only assembles CaseData from copied native fields and host snapshots.
+`python/cpp_interface/_native_quick_prepare.py` only assembles CaseData from copied native fields and host snapshots.
 
 ### Prepared execution and evidence
 

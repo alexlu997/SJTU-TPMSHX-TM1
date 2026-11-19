@@ -40,7 +40,7 @@ sCO2 Nu 独立保留 480 K / 9 MPa 约定。这些约定不能证明实验精度
 
 ## 原生结果与独立评估
 
-执行将保存的 CaseData 传给 `tpmshx_run_quick_design_v1`，不重复准备。
+执行将保存的 CaseData 传给 `tpmshx_run_quick_design_v2`，不重复准备。
 阶段返回具有所有权的场和单位／状态声明，宿主在释放前复制这些数据。
 FieldResult 保留原网格、`K_ss` 和 `eps` 的 dtype、质量流量及入口温度标量。
 准备和指标使用原生阶段，固定具名宿主操作保留既有类型及事件协议。

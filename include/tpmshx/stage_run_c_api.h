@@ -11,11 +11,6 @@
 #define TPMSHX_STAGE_RUN_ABI_VERSION_V3 3u
 
 typedef struct {
-    const tpmshx_range_observation_v1* sample;
-    const char *label,*quantity,*unit;
-    size_t source_count,minimum_index[3],maximum_index[3];
-} tpmshx_stage_range_record_v1;
-typedef struct {
     const char *relation,*provider,*state_update,*eos_fluid;
     uint32_t solved;
 } tpmshx_stage_energy_relation_v1;

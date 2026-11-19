@@ -1,10 +1,8 @@
-"""Prepared Quick Design validation and FieldResult mapping shared by backends."""
-from dataclasses import asdict
+"""Prepared-case validation for the original Quick Design stage ABI."""
 from types import SimpleNamespace
 
 import numpy as np
 
-from sjtu_tpmshx.data_types.field_result import FieldResult
 from sjtu_tpmshx.data_types.persistence_validation import validate_grid
 from sjtu_tpmshx.data_types.portable_data import mutable_data
 from sjtu_tpmshx.physical_models.catalog import resolve_model
@@ -55,27 +53,3 @@ def prepared_input(case):
             or (arr['chunk'] is not None and (not isinstance(arr['chunk'], int) or arr['chunk'] <= 0))):
         raise ValueError('invalid quick-design numerical controls')
     return shape, p, op, widths, fixed
-
-
-def field_result(case, fields, props_a, props_b, u_a, u_b, pass_info, *,
-                 pressure, backend_id, field_metadata, result_id, native_metadata=None):
-    op = SimpleNamespace(**case.parameters['operating_point'])
-    converged = bool(pass_info[-1]['converged'])
-    return FieldResult(
-        result_id=result_id, case_id=case.case_id, backend_id=backend_id,
-        backend_version='quick_design_v1', grid=case.grid, fields=fields,
-        field_metadata=field_metadata,
-        pressure_evidence=pressure,
-        boundary_fluxes={side: dict(mass_flow_kg_s=mdot, inlet_temperature_K=tin,
-                                    cp_J_kgK=props.cp, velocity_m_s=speed, density_kg_m3=props.rho)
-                         for side, mdot, tin, props, speed in
-                         (('A', op.mdot_h, op.T_in_h, props_a, u_a), ('B', op.mdot_c, op.T_in_c, props_b, u_b))},
-        model_refs=case.model_refs,
-        run_status=dict(execution='completed', converged=converged, screening=True,
-                        physical_validation='not_established', passes=pass_info),
-        metadata=dict(mode='quick_design', dimension=3, quantity_basis='total',
-                      model=case.metadata['model'], parameters=case.parameters,
-                      properties={'A': asdict(props_a), 'B': asdict(props_b)},
-                      **({} if native_metadata is None else {'native': native_metadata}),
-                      diagnostics={'warnings_list': ([] if converged else ['Quick-design thermal solve did not converge.'])},
-                      applicability=case.metadata['applicability']))

@@ -189,6 +189,27 @@ void failures() {
 int main(int argc,char** argv) {
     try {
         failures();
+        {
+            QuickDesignInputV2 source;
+            const double scalars[]{7.,.5,.084,.025,.07,16.,1e-5,.03,.02,480.,320.,9e6,9e6};
+            for(size_t i=0;i<TPMSHX_QUICK_VALUE_COUNT;++i)source.values[i].value=scalars[i];
+            source.topology={"Diamond",7};source.arrangement={"counter",7};source.property_mode={"const",5};
+            source.fluids[0]={"air",3};source.fluids[1]={"air",3};source.have_height=1;
+            tpmshx_quick_run_control_v1 control{};control.result_id="saved-quick-v2";
+            auto result=[&] {
+                auto prepared=prepare_quick_design(source);
+                auto output=run_case(source,prepared,control);
+                auto alias=source;
+                char error[128]="preserve";
+                alias.arrangement={error,7};
+                tpmshx_quick_run_result_v1 empty{};empty.abi_version=1;empty.struct_size=sizeof(empty);
+                require(tpmshx_run_quick_design_v2(&alias,&prepared.view(),&control,&empty,error,sizeof(error))==1 &&
+                    !empty.owner && std::strcmp(error,"preserve")==0,"v2 run changed overlapping storage");
+                return output;
+            }();
+            require(result.view().evidence.field_count==15 && evaluate(result).view().metric_count==14,
+                    "v2 run lost detached fields or metrics");
+        }
         const char* names[]{"cross-const","cross-mean","counter-const","cross-warm","counter-mean","water-air","sco2-sco2"};
         for(size_t sample=0;sample<7;++sample) {
             auto source=input(sample==2 || sample==4?TPMSHX_COUNTER:TPMSHX_CROSS,

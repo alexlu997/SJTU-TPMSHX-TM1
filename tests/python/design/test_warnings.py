@@ -100,7 +100,7 @@ def test_forward_labels_without_extra_property_or_thermal_calls(
     from sjtu_tpmshx.run_control.run_warnings import record_range, warning_messages
     calls, solves, diagnostics = [], [], []
     evaluate, native_run = postprocess.evaluate, execution.run_case
-    record_native = execution.record_native_design_ranges
+    record_native = execution._record_pass
     original_host, temperatures = _HostState.dispatch, tpms_props.record_temperature_ranges
 
     def evaluated(*args, **kwargs):
@@ -130,9 +130,12 @@ def test_forward_labels_without_extra_property_or_thermal_calls(
         record_range(('property', fluid), temperature, (0., 1.),
                      label=fluid, quantity='T', unit='K')
 
-    def evidence(*args):
+    nu_contexts = set()
+
+    def evidence(library, output, index, side, fluid):
         before = len(calls)
-        record_native(*args)
+        record_native(library, output, index, side, fluid)
+        nu_contexts.update(key[-1][:2] for key in execution.current_warnings() if key[0] == 'nu')
         assert len(calls) == before
 
     def solve(case, control):
@@ -143,7 +146,7 @@ def test_forward_labels_without_extra_property_or_thermal_calls(
     monkeypatch.setattr(_HostState, 'dispatch', observe)
     monkeypatch.setattr(fluids, 'record_temperature_ranges', ranges)
     monkeypatch.setattr(tpms_props, 'record_temperature_ranges', ranges)
-    monkeypatch.setattr(execution, 'record_native_design_ranges', evidence)
+    monkeypatch.setattr(execution, '_record_pass', evidence)
     monkeypatch.setattr(execution, 'run_case', solve)
     monkeypatch.setattr(postprocess, 'evaluate', evaluated)
     c = replace(_case(), hot_fluid='water', cold_fluid='sco2',
@@ -157,10 +160,12 @@ def test_forward_labels_without_extra_property_or_thermal_calls(
     assert len(diagnostics) == 1 and result.energy_imbalance is diagnostics[0]
     messages = '\n'.join(warning_messages(records))
     for side in ('A', 'B'):
-        for stage in ('design-inlet-pass', 'design-dp-inlet', 'design-nu-representative-pr'):
-            assert f'side={side}, stage={stage}' in messages
-        if passes == 2:
-            assert f'side={side}, stage=design-mean-pass' in messages
+        assert f'side={side}, stage=design-dp-inlet' in messages
+    stages = ['design-inlet-pass', 'design-mean-pass'][:passes]
+    assert {(side, stage) for side in ('A', 'B') for stage in stages} <= nu_contexts
+    assert 'side=A, stage=design-inlet-pass' in messages
+    if passes == 2:
+        assert 'side=A, stage=design-mean-pass' in messages
     assert '480 K' in messages and '9 MPa' in messages
     assert 'joint qualification' in messages
 
