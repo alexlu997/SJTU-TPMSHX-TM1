@@ -36,7 +36,7 @@ def describe_fields(fields, dimension):
 
 
 def zone_statistics_2d(z_axis, zone_config, za, L, H,
-                       energy_dx, energy_dy, Ta, Tb, Ts):
+                       energy_dx, energy_dy, Ta, Tb, Ts, *, native_summary=None):
     """Return area-weighted zone statistics and physical boundary positions."""
     if zone_config is None or za is None:
         return None
@@ -56,9 +56,11 @@ def zone_statistics_2d(z_axis, zone_config, za, L, H,
         zones.update(boundaries_x=None, boundaries_y=None,
                      boundaries=[z.y_frac_end * (H if z_axis == 'y' else L)
                                  for z in definitions[:-1]])
-    zones['stats'] = compute_zone_statistics(
-        Ta, Tb, Ts, za['zone_id'], definitions,
-        cell_area=capture_area_weights(energy_dx, energy_dy))
+    if native_summary is None:
+        zones['stats'] = compute_zone_statistics(Ta, Tb, Ts, za['zone_id'], definitions,
+            cell_area=capture_area_weights(energy_dx, energy_dy))
+    else:
+        zones['stats'] = native_summary((energy_dx, energy_dy), (Ta, Tb, Ts), za['zone_id'], definitions)
     # Keep the zone-report logger for timestamped output.
     log = get_logger('sjtu_tpmshx.solvers.backends.capture_2d')
     log.info("\n[ZONE STATISTICS]")

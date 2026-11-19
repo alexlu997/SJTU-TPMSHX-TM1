@@ -468,7 +468,8 @@ def test_applicability_transfer_error_releases_without_fallback(dimension, monke
     def forbidden(*args, **kwargs):
         pytest.fail('a stage transfer error must not use direct capture')
     monkeypatch.setattr(run_type, 'take_result', take)
-    monkeypatch.setattr(applicability_evidence, 'copy_applicability', broken)
+    from sjtu_tpmshx.cpp_interface import _native_result_stage
+    monkeypatch.setattr(_native_result_stage, 'copy_applicability', broken)
     monkeypatch.setattr(applicability_evidence, 'capture_applicability', forbidden)
     with pytest.raises(LookupError) as caught:
         run_case(case, _control())

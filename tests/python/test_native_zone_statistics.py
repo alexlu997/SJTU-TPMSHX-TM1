@@ -324,3 +324,17 @@ def test_complex_square_matches_fresh_numpy_cpu_dispatch(dtype, mode):
         cwd=Path(__file__).resolve().parents[2], env=environment, text=True,
         capture_output=True, timeout=30)
     assert process.returncode == 0, process.stdout + '\n' + process.stderr
+
+
+def test_saved_zone_summary_matches_independent_temperature_statistics():
+    from sjtu_tpmshx.cpp_interface._native_result_stage import zone_temperatures
+
+    data = _inputs(shape=(17, 11))
+    data['Tb'] = data['Tb'].T.copy().T + 23.0
+    data['Ts'] = data['Ts'][::-1]
+    data['zone_id'][0, :2] = (-1, 42)
+    widths = (np.linspace(.01, .10, 17), np.linspace(.02, .11, 11))
+    data['cell_area'] = np.multiply.outer(*widths)
+    expected = reference.compute_zone_statistics(**data)
+    actual = zone_temperatures(widths, [data[key] for key in ('Ta', 'Tb', 'Ts')], data['zone_id'], data['zones'])
+    assert_values(actual, expected)

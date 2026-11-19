@@ -1,5 +1,8 @@
 """Bind validated saved 3D inputs to the native run and capture lifecycle."""
 import ctypes as ct
+from math import prod
+
+import numpy as np
 
 from sjtu_tpmshx.cpp_interface._native_result_stage import Evidence, Input as Evaluation, record
 from sjtu_tpmshx.cpp_interface._native_preparation_case import _Array as PreparedArray, _Evidence, _Text
@@ -153,3 +156,22 @@ def release_result(library, result):
     release = library.tpmshx_stage_run_3d_release_v1
     release.argtypes, release.restype = [ct.POINTER(_StageResult)], None
     release(ct.byref(result))
+
+
+def copy_pressure_and_declarations(evidence, shape):
+    """Detach physical-axis gauge fields before the native owner is released."""
+    pressures = {}
+    for named in evidence.fields[:evidence.field_count]:
+        if named.name not in (b'P_gauge_A', b'P_gauge_B'):
+            continue
+        value = named.value
+        if (value.dtype != 12 or value.byte_order != 0 or value.offset or value.rank != 3
+                or tuple(value.shape[:3]) != tuple(shape) or value.bytes != prod(shape) * 8
+                or tuple(value.strides[:3]) != (shape[1] * shape[2] * 8, shape[2] * 8, 8)
+                or not value.data):
+            raise RuntimeError('native 3D gauge field has an invalid layout')
+        pressures[named.name.decode()] = np.frombuffer(ct.string_at(value.data, value.bytes), dtype=np.float64).reshape(shape)
+    declarations = {row.name.decode(): dict(unit=row.unit.decode(), state=row.state.decode(),
+                    axes=('x', 'y', 'z'), location='cell')
+                    for row in evidence.field_metadata[:evidence.field_metadata_count]}
+    return pressures, declarations

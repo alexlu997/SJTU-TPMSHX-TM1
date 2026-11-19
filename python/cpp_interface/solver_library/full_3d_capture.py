@@ -5,7 +5,6 @@ import numpy as np
 
 from sjtu_tpmshx.data_types.field_result import FieldResult
 from sjtu_tpmshx.data_types.model_refs import freeze_value
-from sjtu_tpmshx.postprocess.result_display import describe_fields
 
 
 def capture_result(case, cfg, p, r, abi):
@@ -23,11 +22,13 @@ def capture_result(case, cfg, p, r, abi):
         if f is None:
             continue
         axis=case.parameters['prepared']['axes'][label]
-        # Shape/axis restoration only. All values have already been solved.
-        gauge=f['pressure'].transpose(axis['solver_to_real_perm'])
-        if axis['is_reverse']:
-            gauge=np.flip(gauge,axis=axis['stream_real_axis'])
-        fields['P_gauge_'+label]=np.ascontiguousarray(gauge)
+        if 'stage_fields' in r:
+            fields['P_gauge_'+label] = r['stage_fields'][0]['P_gauge_'+label]
+        else:
+            gauge = f['pressure'].transpose(axis['solver_to_real_perm'])
+            if axis['is_reverse']:
+                gauge = np.flip(gauge, axis=axis['stream_real_axis'])
+            fields['P_gauge_'+label] = np.ascontiguousarray(gauge)
         fields['P_report_'+label]=freeze_value(f['pressure_real'])
         fields['P_f'+label+'_display']=fields['P_report_'+label]
         for name,value in zip(('uc','vc','wc'),f['velocity_real']):
@@ -37,7 +38,11 @@ def capture_result(case, cfg, p, r, abi):
             inlet_frac=f['inlet_opening'],outlet_frac=f['outlet_opening'],P_ref_abs=f['pressure_reference'],axis_map=axis,
             unit='Pa',axes=('solver_x','solver_y','solver_z'),stream_axis=1,state='final SIMPLE flow',method='face_extrapolation_v1')
         report[label]=dict(direction=cfg['fluid_'+label+'_cfg']['dir'])
-    field_metadata = describe_fields(fields, 3)
+    if 'stage_fields' in r:
+        field_metadata = {name: r['stage_fields'][1][name] for name in fields}
+    else:
+        from sjtu_tpmshx.postprocess.result_display import describe_fields
+        field_metadata = describe_fields(fields, 3)
     from sjtu_tpmshx.physical_models.df_surrogate.experimental_correction import cfd_metadata
     df_metadata=dict(mode=cfg.get('df_mode','cfd_smooth'))
     for label,f in zip('AB',r['flow']):

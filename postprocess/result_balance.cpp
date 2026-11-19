@@ -1,6 +1,8 @@
 #include "tpmshx/result_balance.hpp"
+#include "tpmshx/result_metrics.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <stdexcept>
 #include <vector>
@@ -170,6 +172,53 @@ EnergyValues energy(const EnergyPhase* phases, std::size_t count, double reservo
     output.telescoping_error=output.residual_sum-output.net_external_in;
     output.relative_external_imbalance=std::abs(output.net_external_in)/output.scale;
     return output;
+}
+
+std::vector<tpmshx_result_zone_temperatures_v1> zone_temperatures_2d(
+    const RawArray* widths, const RawArray& labels, const RawArray* temperatures,
+    std::size_t zone_count, Diagnostics& diagnostics) {
+    const Array dx(widths[0]), dy(widths[1]), ids(labels);
+    if (widths[0].rank!=1 || widths[1].rank!=1 || widths[0].dtype!=TPMSHX_RESULT_F64 ||
+        widths[1].dtype!=TPMSHX_RESULT_F64 || labels.rank!=2 || !signed_type(labels.dtype) ||
+        labels.shape[0]!=dx.size() || labels.shape[1]!=dy.size())
+        throw std::invalid_argument("zone labels and widths must match the physical grid");
+    const std::array<Array,3> phases{Array(temperatures[0]),Array(temperatures[1]),Array(temperatures[2])};
+    for (const auto& phase:phases) {
+        const auto& field=phase.raw();
+        if (field.dtype!=TPMSHX_RESULT_F64 || field.rank!=2 ||
+            field.shape[0]!=dx.size() || field.shape[1]!=dy.size())
+            throw std::invalid_argument("zone temperatures must match the physical grid");
+    }
+    const auto areas=metrics::capture_area_weights(dx,dy,diagnostics);
+    const auto weights=areas.array();
+    std::vector<std::vector<std::size_t>> members(zone_count);
+    for (std::size_t cell=0;cell<ids.size();++cell) {
+        const auto zone=ids.at(cell).signed_value;
+        if (zone>=0 && static_cast<std::uint64_t>(zone)<zone_count)
+            members[static_cast<std::size_t>(zone)].push_back(cell);
+    }
+    std::vector<tpmshx_result_zone_temperatures_v1> rows(zone_count);
+    for (std::size_t zone=0;zone<zone_count;++zone) {
+        const auto& cells=members[zone];
+        auto& row=rows[zone];
+        row.cells=cells.size();
+        if (cells.empty()) continue;
+        a::Tensor selected_weights({cells.size()},TPMSHX_RESULT_F64);
+        for (std::size_t i=0;i<cells.size();++i) selected_weights.put(i,weights.at(cells[i]));
+        const auto raw_weights=selected_weights.raw();
+        a::Tensor selected({cells.size()},TPMSHX_RESULT_F64);
+        for (std::size_t phase=0;phase<phases.size();++phase) {
+            for (std::size_t i=0;i<cells.size();++i) selected.put(i,phases[phase].at(cells[i]));
+            const auto raw=selected.raw();
+            row.mean[phase]=a::to_float(zone_mean(raw,&raw_weights,diagnostics));
+            row.deviation[phase]=a::to_float(zone_std(raw,&raw_weights,0,diagnostics));
+            if (phase<2) {
+                row.minimum[phase]=a::to_float(zone_minimum(raw,diagnostics));
+                row.maximum[phase]=a::to_float(zone_maximum(raw,diagnostics));
+            }
+        }
+    }
+    return rows;
 }
 
 Number zone_mean(const RawArray& values, const RawArray* weights, Diagnostics& diagnostics) {

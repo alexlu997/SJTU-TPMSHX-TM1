@@ -199,8 +199,13 @@ def run_stage(driver, case, cfg, prepared, control, *, configure_convergence, ma
                 raise RuntimeError('native full 2D application capture query failed')
             return values.application_hv[0]
 
-        field = capture_result(case, cfg, prepared, native, application_hv=application_hv)
-        from sjtu_tpmshx.solvers.applicability_evidence import copy_applicability
+        zone_summary = None
+        if cfg['zone_config'] is not None and cfg['za'] is not None and cfg['z_axis'] != 'continuous':
+            from sjtu_tpmshx.cpp_interface import _native_result_stage as result_stage
+            if hasattr(result_stage.core._library().library, 'tpmshx_result_zone_temperatures_2d_v1'):
+                zone_summary = result_stage.zone_temperatures
+        field = capture_result(case, cfg, prepared, native, application_hv=application_hv, zone_summary=zone_summary)
+        from sjtu_tpmshx.cpp_interface._native_result_stage import copy_applicability
         applicability = copy_applicability(result.evidence.applicability, case.metadata.get(
             'applicability_inputs', ()))
         return replace(field, metadata=dict(field.metadata, _native_applicability=applicability))

@@ -968,3 +968,68 @@ def _restore_balance_fields(report, result):
     report['state'] = result.boundary_fluxes.get('state', 'not_recorded')
     report['outer_index'] = result.run_status.get('outer_index')
     return report
+
+
+def copy_applicability(pointer, saved_inlet):
+    """Copy selected evidence before the native result owner is released."""
+    if not pointer or pointer.contents.version != b'applicability_evidence_v1':
+        raise RuntimeError('native result lacks supported applicability evidence')
+    value = pointer.contents
+    if value.inlet_count < len(saved_inlet):
+        raise RuntimeError('native applicability evidence lacks saved inlet rows')
+    inlet = []
+    for index in range(value.inlet_count):
+        raw = value.inlet[index]
+        # Saved rows retain host fields and scalar types absent from the C descriptor.
+        row = dict(saved_inlet[index]) if index < len(saved_inlet) else _copy_range(raw)
+        if raw.constraint is not None:
+            row['constraint'] = raw.constraint.decode()
+        inlet.append(row)
+    return dict(version=value.version.decode(), inlet_recorded=bool(value.inlet_recorded),
+        inlet=inlet, final=[_copy_range(value.final_state[index]) for index in range(value.final_count)],
+        required=[dict(group=row.group.decode(), side=row.side.decode(),
+            source=tuple(item.decode() for item in row.source[:row.source_count]))
+            for row in value.required[:value.required_count]])
+
+
+def _copy_range(value):
+    row = {name: getattr(value, name).decode() for name in ('side', 'quantity', 'stage', 'layout', 'unit')}
+    row.update(source=tuple(item.decode() for item in value.source[:value.source_count]),
+        captured=bool(value.captured), shape=tuple(value.shape[:value.rank]), bounds=tuple(value.bounds))
+    for name in ('constraint', 'reason'):
+        if getattr(value, name) is not None:
+            row[name] = getattr(value, name).decode()
+    if value.captured:
+        row.update({name: getattr(value, name) for name in ('size', 'low', 'high', 'nonfinite')})
+        for name in ('minimum', 'maximum'):
+            row[name] = ((getattr(value, name)[0], tuple(getattr(value, name + '_index')[:value.rank]))
+                         if getattr(value, name) else None)
+    return row
+
+
+_ZoneTemperatures = record('ZoneTemperatures', [('cells', Z), ('mean', D * 3),
+    ('deviation', D * 3), ('minimum', D * 2), ('maximum', D * 2)])
+
+
+def zone_temperatures(widths, temperatures, zone_id, zones):
+    """Read the native area-weighted summary for each saved zone."""
+    widths = [core.array(value) for value in widths]
+    fields = [core.array(value) for value in temperatures]
+    labels = core.array(zone_id)
+    output = (_ZoneTemperatures * len(zones))()
+    core.call('tpmshx_result_zone_temperatures_2d_v1', [AP, AP, AP, Z, P(_ZoneTemperatures)],
+              (core._Array * 2)(*(value.raw for value in widths)), ct.byref(labels.raw),
+              (core._Array * 3)(*(value.raw for value in fields)), len(zones), output)
+    stats = []
+    for zone, row in zip(zones, output):
+        item = dict(name=zone.name, n_cells=row.cells)
+        if row.cells:
+            item.update(L_mm=zone.L_mm, t_mm=zone.t_mm)
+            for phase, name in enumerate(('Ta', 'Tb', 'Ts')):
+                item[name + '_mean'] = row.mean[phase]
+                item[name + '_std'] = row.deviation[phase]
+                if phase < 2:
+                    item[name + '_min'] = row.minimum[phase]
+                    item[name + '_max'] = row.maximum[phase]
+        stats.append(item)
+    return stats

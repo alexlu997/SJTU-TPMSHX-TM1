@@ -83,6 +83,18 @@ extern "C" int TPMSHX_RESULT_CALL tpmshx_result_balance_energy_v1(
         const auto value=b::energy(phases,count,reservoir); *output=value;
     });
 }
+extern "C" int TPMSHX_RESULT_CALL tpmshx_result_zone_temperatures_2d_v1(
+    const r::RawArray* widths,const r::RawArray* labels,const r::RawArray* temperatures,
+    size_t zone_count,tpmshx_result_zone_temperatures_v1* output,r::Diagnostics* diagnostics,
+    char* error,size_t capacity) {
+    return boundary(diagnostics,error,capacity,[&](Buffers& buffers) {
+        buffers.arrays(widths,2); buffers.arrays(labels,1); buffers.arrays(temperatures,3);
+        buffers.output(output,zone_count);
+    },[&](r::Diagnostics& state) {
+        const auto rows=b::zone_temperatures_2d(widths,*labels,temperatures,zone_count,state);
+        std::copy(rows.begin(),rows.end(),output);
+    });
+}
 extern "C" int TPMSHX_RESULT_CALL tpmshx_result_zone_mean_v1(
     const r::RawArray* values, const r::RawArray* weights, std::uint32_t weighted,
     r::RawScalar* output, r::Diagnostics* diagnostics, char* error, std::size_t capacity) {

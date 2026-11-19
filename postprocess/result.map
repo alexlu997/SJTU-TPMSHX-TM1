@@ -76,6 +76,7 @@
     tpmshx_result_zone_cv_v1;
     tpmshx_result_zone_maximum_v1;
     tpmshx_result_zone_mean_v1;
+    tpmshx_result_zone_temperatures_2d_v1;
     tpmshx_result_zone_minimum_v1;
     tpmshx_result_zone_power_two_v1;
     tpmshx_result_zone_speed_from_squared_v1;

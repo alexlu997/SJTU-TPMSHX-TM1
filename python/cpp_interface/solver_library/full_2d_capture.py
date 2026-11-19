@@ -56,7 +56,7 @@ def _fine_evidence(fine, balance):
     return evidence
 
 
-def capture_result(case, cfg, prepared, native, *, application_hv=None):
+def capture_result(case, cfg, prepared, native, *, application_hv=None, zone_summary=None):
     """Capture a completed native return without re-entering Python solvers."""
     if native['cancelled']:
         raise CancelledError('compute cancelled by user')
@@ -207,7 +207,7 @@ def capture_result(case, cfg, prepared, native, *, application_hv=None):
                     h_vB=volumetric_htc(r_b['A_0'], r_b['H_sf'])),
         props=dict(rho_A=r_a['rho'], rho_B=r_b['rho'], mu_A=r_a['mu'], mu_B=r_b['mu']),
         zones=zone_statistics_2d(cfg['z_axis'], cfg['zone_config'], cfg['za'], cfg['L'], cfg['H'],
-            prepared['energy_dx'], prepared['energy_dy'], *main['temperature']))
+            prepared['energy_dx'], prepared['energy_dy'], *main['temperature'], native_summary=zone_summary))
     evidence.update(input_resolution=cfg['_input_resolution'], property_sampling=native['property_sampling'])
     result = _capture_result(case, display_fields, evidence, application, diagnostics, backend_id='cpp',
                              backend_version=f"full_2d_v{native.get('entry_version', 2)}")
