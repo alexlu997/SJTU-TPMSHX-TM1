@@ -335,7 +335,7 @@ The host keeps cache policy, scalar object types, warning filters and source loc
 Host stages 10 through 16 preserve domain, port, fluid, grid, cell-cap, roughness and grid-cell conversion validation order.
 Stages 17 through 19 validate each count before its physical axis is built.
 The library owns physical grid construction, local geometry, total-flow resolution and final preparation.
-`python/preprocess/three_d/preparation.py` copies native views into immutable CaseData before releasing the owner.
+`python/cpp_interface/_native_preparation_3d.py` copies native views into immutable CaseData before releasing the owner.
 Native failure preserves the original host exception and does not select another preparation route.
 The old 3D numerical host route and its exclusive `shared/models/grid_3d.py` and `asym_split.py` helpers are retired.
 `tests/python/preparation_3d_reference.py` keeps their independent comparison and synthetic saved-grid fixtures.
@@ -381,7 +381,10 @@ C status 1, 2, 3 or 4 means invalid input, water state, arithmetic or native fai
 Status zero means a result was transferred; it does not establish convergence.
 A cancelled result retains raw diagnostics with `raw.stop=2` and no completed evaluation evidence.
 A successful result can be transferred only once. Output and error buffers must not overlap inputs or each other.
-Python full 3D runs and checkpoints use this saved lifecycle after `prepared_3d` validates CaseData.
+Current 3D runs and checkpoint restores use the saved v2 descriptor.
+C++ checks the physical domain, axis maps, port masks, model resources and cell design fields before the first step.
+The Python adapter checks the portable array shapes and keeps borrowed storage alive.
+Direct clients and archived libraries can still use saved v1.
 `full_3d_stage.py` packs recorded evidence and binds the owned run. It does not prepare raw inputs again.
 The driver keeps one input pack, callback bridge and complete raw decoder for both protocols.
 It selects the complete stage protocol before execution. A partial protocol is an error.

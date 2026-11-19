@@ -1,5 +1,6 @@
 #include "tpmshx/stage_run_3d_c_api.h"
 #include "stage_capture_3d.hpp"
+#include "stage_saved_models.hpp"
 #include "../geometry/field_c_boundary.hpp"
 #include "enthalpy_c_views.hpp"
 #include "tpmshx/grid.hpp"
@@ -101,10 +102,25 @@ struct Prepared {
     const tpmshx_preparation_continuous_case_3d_v3* continuous=nullptr;
     const tpmshx_preparation_spatial_case_3d_v4* spatial=nullptr;
     const tpmshx_stage_saved_case_3d_v1* saved=nullptr;
+    const tpmshx_stage_saved_case_3d_v2* saved_v2=nullptr;
 };
 const tpmshx_preparation_case_3d_v1* prepared_storage(const Storage& storage,const Prepared& source) {
     if(bool(source.uniform)+bool(source.continuous)+bool(source.spatial)+bool(source.saved)!=1)
         throw std::invalid_argument("3D stage requires exactly one prepared view");
+    if(source.saved_v2) {
+        storage(source.saved_v2,1);
+        if(source.saved_v2->abi_version!=2 || source.saved_v2->struct_size!=sizeof(*source.saved_v2))
+            throw std::invalid_argument("invalid saved 3D v2 descriptor");
+        const auto& saved=*source.saved_v2;
+        for(const auto& ref:saved.models){storage.text(ref.name);storage.text(ref.version);}
+        for(const auto fluid:saved.resource_fluids)storage.text(fluid);
+        storage.text(saved.resource_topology);
+        for(const auto* nu:{&saved.sco2_nu,&saved.resource_nu[0],&saved.resource_nu[1]}) {
+            storage.text(nu->parameter_version);storage.text(nu->source);storage.text(nu->applicability);
+        }
+        for(const auto& side:saved.axes)
+            for(const auto width:side.widths)storage(width.data,width.size);
+    }
     if(source.saved) {saved_storage(storage,source.saved);return nullptr;}
     const auto* prepared=source.uniform;
     if(source.continuous) {
@@ -204,13 +220,107 @@ grid::Scalar restored_mm(double value,const tpmshx_preparation_scalar_kind_v2& k
     const auto stored=grid::multiply({value,kind.precision,kind.strong},grid::weak(1e-3));
     return grid::multiply(stored,grid::weak(1e3));
 }
+void validate_saved_3d(const tpmshx_stage_saved_case_3d_v2& saved,tpmshx_full3d_input_v1& input) {
+    const auto& values=saved.values;
+    const auto cells=boundary::product(boundary::product(input.shape[0],input.shape[1]),input.shape[2]);
+    if(!cells)throw std::invalid_argument("saved 3D grid requires positive counts");
+    for(size_t axis=0;axis<3;++axis) {
+        const auto widths=input.widths[axis];
+        if(widths.size!=input.shape[axis])throw std::invalid_argument("prepared 3D count and grid disagree");
+        double length=0.;
+        for(size_t i=0;i<widths.size;++i) {
+            if(!std::isfinite(widths.data[i]) || widths.data[i]<=0.)
+                throw std::invalid_argument("invalid prepared grid widths");
+            length+=widths.data[i];
+        }
+        const double target=saved.lengths_m[axis];
+        if(!std::isfinite(target) || !std::isfinite(length) || std::abs(length-target)>1e-15+1e-12*std::abs(target))
+            throw std::invalid_argument(std::string("prepared ")+"xyz"[axis]+" grid does not cover the physical domain");
+    }
+    tpmshx::stages::validate_saved_models(saved.models,saved.sco2_nu,saved.resource_nu,
+        saved.resource_fluids,saved.resource_topology,{input.sides[0].fluid,input.sides[1].fluid},input.topology,true);
+    for(size_t s=0;s<2;++s) {
+        const auto& axes=saved.axes[s];auto& side=input.sides[s];
+        const auto label=std::string("prepared fluid ")+(s?"B":"A");
+        const auto direction=axes.port.direction;
+        flag(axes.port.active);
+        if(!axes.port.active && s && !input.solve_b)continue;
+        if(!axes.port.active || direction<0 || direction>5 || side.direction!=static_cast<uint32_t>(direction)
+            || side.solver_axes[1]!=static_cast<uint32_t>(direction/2))
+            throw std::invalid_argument(label+" direction and axis map disagree");
+        if(axes.reverse!=direction%2)throw std::invalid_argument(label+" reverse direction disagrees");
+        for(size_t i=0;i<3;++i) {
+            const auto axis=side.solver_axes[i];
+            if(axis>2 || axes.solver_to_real[axis]!=static_cast<int32_t>(i))
+                throw std::invalid_argument(label+" axis permutation disagrees with physical axes");
+            const auto width=input.widths[axis];const auto copy=axes.widths[i];
+            if(copy.size!=width.size || !std::equal(copy.data,copy.data+copy.size,width.data))
+                throw std::invalid_argument(label+" axis widths disagree with grid");
+            if(axes.counts[i]!=width.size)throw std::invalid_argument(label+" axis count disagrees with grid");
+            if(axes.solver_counts[i]!=axes.counts[i] || axes.solver_lengths[i]!=axes.lengths[i]
+                || axes.lengths[i]!=saved.lengths_m[axis])
+                throw std::invalid_argument(label+" solver geometry and axis map disagree");
+        }
+        const auto cross1=axes.widths[0],cross2=axes.widths[2];
+        grid::Values first(cross1.data,cross1.data+cross1.size),second(cross2.data,cross2.data+cross2.size);
+        const auto physical_port=port(axes.port);
+        const auto masks=grid::partial_masks(physical_port,first,&second,second.size());
+        double depth=0.;for(double width:second)depth+=width;
+        const auto rectangles=grid::rectangles(physical_port,grid::weak(depth));
+        for(size_t end=0;end<2;++end) {
+            const auto mask=end?side.outlet_opening:side.inlet_opening;
+            if(mask.size!=masks[end].size() || !std::equal(masks[end].begin(),masks[end].end(),mask.data))
+                throw std::invalid_argument(std::string("invalid ")+label+" opening mask");
+            auto* rect=end?side.outlet_rectangle:side.inlet_rectangle;
+            for(size_t i=0;i<4;++i)rect[i]=rectangles[end*4+i].value;
+        }
+    }
+    flag(saved.have_z_controls);
+    if(saved.design_mode>2)throw std::invalid_argument("unsupported prepared 3D design mode");
+    if(saved.design_mode==2 && !saved.have_z_controls)
+        throw std::invalid_argument("continuous_xyz requires recorded 3D control inputs");
+    const tpmshx_full3d_array_v1 fields[]{input.cell_length,view(values.wall_thickness_m),input.epsilon,
+        input.permeability,input.forchheimer,input.epsilon_a,input.epsilon_b,input.solid_conductivity};
+    const char* names[]{"L_field_m","t_field_m","eps_arr","K_m2","cF_per_m","eps_A","eps_B","K_ss"};
+    const double references[]{values.nominal_cell_length_mm,values.nominal_wall_thickness_mm,values.nominal_porosity};
+    for(size_t index=0;index<8;++index) {
+        const auto field=fields[index];const std::string name=names[index];
+        if(field.size!=cells)throw std::invalid_argument("prepared design field "+name+" does not match the grid");
+        grid::Scalar expected=grid::weak(0.);
+        if(index<3) {
+            const auto kind=saved.reference_kinds[index];
+            expected=grid::checked({references[index],kind.precision,kind.strong});
+            if(index<2)expected=grid::multiply(expected,grid::weak(1e-3));
+        }
+        for(size_t i=0;i<cells;++i) {
+            const auto value=field.data[i];
+            if(!std::isfinite(value) || value<=0.)throw std::invalid_argument("prepared design field "+name+" must be finite and positive");
+            if((index==2 || index==5 || index==6) && value>=1.)
+                throw std::invalid_argument("prepared porosity "+name+" must be below one");
+            if(saved.design_mode==0 && index<3) {
+                const auto kind=saved.field_kinds[index];auto actual=grid::checked({value,kind.precision,kind.strong});
+                if(!std::isfinite(expected.value) || grid::less(expected,actual) || grid::less(actual,expected))
+                    throw std::invalid_argument("uniform design field "+name+" disagrees with scalar input");
+            }
+            if(saved.design_mode==0 && (index==3 || index==4) && value!=field.data[0])
+                throw std::invalid_argument("uniform design field "+name+" must be uniform");
+            if(saved.design_mode==1 && index<5 && value!=field.data[i-i%input.shape[2]])
+                throw std::invalid_argument("3D design field "+name+" must be an xy extrusion");
+        }
+    }
+}
+
 struct Packed3D {
     tpmshx_full3d_input_v1 input{};
     tpmshx_stage_saved_case_3d_v1 saved{};
     std::array<std::vector<double>,2> thermal;
     bool refined=false;
     Packed3D(const Prepared& source,const tpmshx_preparation_case_3d_v1* prepared) {
-        if(source.saved) {saved=*source.saved;input=*saved.input;saved.input=&input;return;}
+        if(source.saved) {
+            saved=*source.saved;input=*saved.input;saved.input=&input;
+            if(source.saved_v2)validate_saved_3d(*source.saved_v2,input);
+            return;
+        }
         const auto& p=*prepared;
         if(p.input.topology>1)throw std::invalid_argument("invalid prepared 3D topology");
         const bool continuous=source.continuous!=nullptr,spatial=p.input.geometry_mode!=0;
@@ -412,6 +522,16 @@ int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_restore_saved_v1(const tpmshx_stage_
     const tpmshx_stage_run_request_3d_v1* request,const tpmshx_stage_run_control_3d_v1* control,
     const tpmshx_run_state_field_v1* fields,size_t count,void** output,char* error,size_t capacity) {
     return create({nullptr,nullptr,nullptr,saved},request,control,fields,count,true,output,error,capacity);
+}
+int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_create_saved_v2(const tpmshx_stage_saved_case_3d_v2* saved,
+    const tpmshx_stage_run_request_3d_v1* request,const tpmshx_stage_run_control_3d_v1* control,
+    void** output,char* error,size_t capacity) {
+    return create({nullptr,nullptr,nullptr,saved?&saved->values:nullptr,saved},request,control,nullptr,0,false,output,error,capacity);
+}
+int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_restore_saved_v2(const tpmshx_stage_saved_case_3d_v2* saved,
+    const tpmshx_stage_run_request_3d_v1* request,const tpmshx_stage_run_control_3d_v1* control,
+    const tpmshx_run_state_field_v1* fields,size_t count,void** output,char* error,size_t capacity) {
+    return create({nullptr,nullptr,nullptr,saved?&saved->values:nullptr,saved},request,control,fields,count,true,output,error,capacity);
 }
 int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_advance_step_v1(void* run,uint32_t* phase,char* error,size_t capacity) {
     return guarded(error,capacity,[&](bool& report_safe) {

@@ -9,7 +9,8 @@ from sjtu_tpmshx.data_types.model_refs import freeze_value
 from sjtu_tpmshx.physical_models.df_surrogate import CFD_CAMPAIGN, CFD_SCOPE
 
 from sjtu_tpmshx.cpp_interface._native_result_stage import Evidence, Input as Evaluation, record
-from sjtu_tpmshx.cpp_interface._native_preparation_case import _Array as PreparedArray, _Evidence, _Text
+from sjtu_tpmshx.cpp_interface._native_preparation_case import _Array as PreparedArray, _Evidence, _Text, _Kind, _Model, _Nu, pack_saved_resources
+from ._native_grid import _Port
 from sjtu_tpmshx.cpp_interface.solver_library._full_3d_abi import _Array, _Callbacks, _Control, _Input, _Result
 from sjtu_tpmshx.cpp_interface.solver_library.enthalpy import _EnergyOptions
 from sjtu_tpmshx.cpp_interface.solver_library.model_h import _IterationOptions
@@ -40,6 +41,14 @@ _Saved = record('StageSaved3D', [('abi_version', _U), ('struct_size', _Z), ('inp
     ('wall_thickness_m', PreparedArray), ('preparation', _Evidence),
     ('notices', ct.POINTER(_Text)), ('notice_count', _Z), ('inlet_recorded', _U),
     ('range_captured', ct.POINTER(_U))])
+_Axes = record('SavedAxes3D', [('solver_to_real', ct.c_int32 * 3), ('reverse', ct.c_int32),
+    ('counts', _Z * 3), ('solver_counts', _Z * 3), ('lengths', _D * 3), ('solver_lengths', _D * 3),
+    ('widths', PreparedArray * 3), ('port', _Port)])
+_SavedV2 = record('StageSaved3Dv2', [('abi_version', _U), ('struct_size', _Z), ('values', _Saved),
+    ('lengths_m', _D * 3), ('design_mode', _U), ('have_z_controls', _U),
+    ('reference_kinds', _Kind * 3), ('field_kinds', _Kind * 3), ('axes', _Axes * 2),
+    ('models', _Model * 4), ('resource_fluids', _Text * 2), ('resource_topology', _Text),
+    ('sco2_nu', _Nu), ('resource_nu', _Nu * 2)])
 _Summary = record('StageCapture3D', [('nu_available', _U * 2), ('model_h_cell_count', _Z),
     ('nu_floor', _D * 2), ('nu_floor_fraction', _D * 2), ('q_net', _D),
     ('pressure_clip_hits', _Z), ('audit_outlet', _Array * 2)])
@@ -57,6 +66,10 @@ def has_saved_stage(library):
     """Select the protocol before execution; partial protocols are errors."""
     version = getattr(library, 'tpmshx_stage_capture_3d_abi_version', None)
     capture = getattr(library, 'tpmshx_stage_run_3d_get_capture_v1', None)
+    create = getattr(library, 'tpmshx_stage_run_3d_create_saved_v2', None)
+    restore = getattr(library, 'tpmshx_stage_run_3d_restore_saved_v2', None)
+    if (create is None) != (restore is None) or (create is not None and capture is None):
+        raise ValueError('native library has an incomplete saved 3D stage protocol')
     if version is None and capture is None:
         return False
     names = ('create_saved', 'restore_saved', 'advance_step', 'phase', 'snapshot',
@@ -69,6 +82,85 @@ def has_saved_stage(library):
     if abi != 1:
         raise ValueError(f'unsupported saved 3D capture ABI {abi}; expected 1')
     return True
+
+
+def saved_inputs(case):
+    from sjtu_tpmshx.data_types.compute_config import Sco2NuConfig, reject_retired_research_options
+    from sjtu_tpmshx.data_types.persistence_validation import validate_grid, validate_thermal_geometry
+
+    if case.grid.get('dimension') != 3:
+        raise ValueError('3D execution requires a prepared 3D grid')
+    cfg = dict(case.parameters)
+    reject_retired_research_options(cfg)
+    missing = {'thermal_geometry', 'roughness_resolved', 'df_application'} - cfg.keys()
+    if missing:
+        raise ValueError(f'incomplete prepared 3D execution data: {sorted(missing)}')
+    shape = validate_grid(case.grid)
+    validate_thermal_geometry(cfg['thermal_geometry'], shape)
+    prepared = dict(cfg.pop('prepared'))
+    active = case.metadata.get('active_fluids')
+    if active is not None and (tuple(prepared['axes']) != tuple(active)
+            or set(prepared['openings']) != set(active)
+            or tuple(side for side in 'AB' if cfg['fluid_' + side + '_cfg'] is not None) != tuple(active)):
+        raise ValueError('prepared active fluids disagree with the ports and axis maps')
+    for axis, count in zip('xyz', shape):
+        if prepared['N' + axis] != count:
+            raise ValueError(f'prepared {axis} count and grid disagree')
+        prepared['d' + axis] = case.grid['d' + axis]
+    cfg['Lcell'], cfg['t_wall'] = cfg['L_cell_m'] * 1e3, cfg['t_wall_m'] * 1e3
+    for side in 'AB':
+        axis = prepared['axes'].get(side)
+        if axis is not None:
+            for mask in prepared['openings'][side].values():
+                if np.shape(mask) != (axis['N_cross1'], axis['N_cross2']):
+                    raise ValueError(f'invalid prepared fluid {side} opening mask')
+    cfg['sco2_nu'] = Sco2NuConfig(**cfg['sco2_nu'])
+    known = {'eps_arr', 'eps_A', 'eps_B', 'K_m2', 'cF_per_m', 'K_ss', 'L_field_m', 't_field_m'}
+    for name, field in case.design_fields.items():
+        arr = np.asarray(field)
+        if arr.ndim and arr.shape != shape:
+            raise ValueError(f'prepared design field {name} does not match the grid')
+        if name not in known:
+            if not np.all(np.isfinite(arr) & (arr > 0)):
+                raise ValueError(f'prepared design field {name} must be finite and positive')
+            if name.startswith('eps') and not np.all(arr < 1):
+                raise ValueError(f'prepared porosity {name} must be below one')
+    prepared['design'] = case.design_fields
+    return cfg, prepared
+
+
+def pack_saved_v2(saved, case, cfg, prepared, keepalive):
+    from ._native_fp import buffer_scalar
+    from ._native_grid import _port
+
+    value = _SavedV2(2, ct.sizeof(_SavedV2), saved)
+    pack_saved_resources(case, value.models, value.sco2_nu, value, cfg['sco2_nu'], keepalive)
+    value.lengths_m[:] = [cfg[key] for key in ('L', 'H', 'Lz')]
+    value.design_mode = {'uniform': 0, 'xy_extruded': 1, 'continuous_xy_extruded': 1,
+                         'continuous_xyz': 2}.get(case.metadata['design_mode'], 3)
+    value.have_z_controls = 'n_ctrl_z' in (cfg.get('continuous_field') or {})
+    for index, (key, name) in enumerate(zip(('Lcell', 't_wall', 'eps'), ('L_field_m', 't_field_m', 'eps_arr'))):
+        scalar = buffer_scalar(cfg[key])
+        value.reference_kinds[index] = _Kind(scalar.precision, scalar.strong, int(bool(scalar.strong)))
+        dtype = np.asarray(prepared['design'][name]).dtype
+        value.field_kinds[index] = _Kind(dtype.itemsize * 8, 1 if dtype.kind == 'f' else 2, 2)
+    for index, side in enumerate('AB'):
+        record = value.axes[index]
+        record.port = _port(cfg['fluid_' + side + '_cfg'])
+        if not record.port.active:
+            continue
+        axis = prepared['axes'][side]
+        record.reverse = axis['is_reverse']
+        record.solver_to_real[:] = axis['solver_to_real_perm']
+        for i, name in enumerate(('cross1', 'stream', 'cross2')):
+            width = np.asarray(axis['d' + name])
+            if width.ndim != 1:
+                raise ValueError(f'prepared fluid {side} axis widths disagree with grid')
+            record.widths[i] = _array(width, keepalive)
+            record.counts[i], record.lengths[i] = axis['N_' + name], axis['L_' + name]
+            record.solver_counts[i] = axis['solver_init']['N' + 'xyz'[i]]
+            record.solver_lengths[i] = axis['solver_init']['L' + 'xyz'[i]]
+    return value
 
 
 def _request(cfg, controls, energy, model_h):
@@ -127,10 +219,13 @@ class SavedRun(NativeRun):
         saved = _Saved(1, ct.sizeof(_Saved), ct.pointer(data), cfg['Lcell'], cfg['t_wall'], cfg['eps'],
             _array(prepared['design']['t_field_m'], self.keepalive), evidence, notices, len(notices),
             'applicability_inputs' in case.metadata, captured)
+        if getattr(library, 'tpmshx_stage_run_3d_create_saved_v2', None) is not None:
+            self.creation_version = 2
+            saved = pack_saved_v2(saved, case, cfg, prepared, self.keepalive)
         request = _request(cfg, controls, energy, model_h)
         host = _Host(case.case_id.encode(), controls.table_directory, control.native_cpu_threads(), callbacks)
         self.keepalive.extend((saved, request, host, notices))
-        super().__init__(library, [ct.POINTER(_Saved), ct.POINTER(_Request), ct.POINTER(_Host)],
+        super().__init__(library, [ct.POINTER(type(saved)), ct.POINTER(_Request), ct.POINTER(_Host)],
             [ct.byref(saved), ct.byref(request), ct.byref(host)], callbacks, state)
 
     def _call(self, function, *args):

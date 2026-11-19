@@ -219,8 +219,9 @@ class NativeFull3DDriver:
             a.fluid = ('air', 'water', 'sco2', 'co2').index(cfg['fluid_type_'+label]);a.direction = 3 if bc is None else bc['dir']
             a.solver_axes[:] = [axis[key+'_real_axis'] for key in ('cross1', 'stream', 'cross2')]
             a.inlet_temperature, a.inlet_pressure, a.inlet_velocity = cfg['T_in'+label], cfg['P_in'+label], cfg['u_'+label]
-            rectangles = _port_rectangles(bc, float(sum(axis['dcross2']))) if bc is not None else dict(inlet_rect=(0.,1.,0.,1.),outlet_rect=(0.,1.,0.,1.))
-            a.inlet_rectangle[:], a.outlet_rectangle[:] = rectangles['inlet_rect'], rectangles['outlet_rect']
+            if stage_case is None or not hasattr(self.library, 'tpmshx_stage_run_3d_create_saved_v2') or bc is None:
+                rectangles = _port_rectangles(bc, float(sum(axis['dcross2']))) if bc is not None else dict(inlet_rect=(0.,1.,0.,1.),outlet_rect=(0.,1.,0.,1.))
+                a.inlet_rectangle[:], a.outlet_rectangle[:] = rectangles['inlet_rect'], rectangles['outlet_rect']
             a.inlet_opening, a.outlet_opening = (view(p['openings'][label][end]) for end in ('inlet', 'outlet'))
             correction = (cfg.get('df_application') or {}).get(label, {})
             a.permeability_scale, a.forchheimer_scale = correction.get('scale_K', 1.), correction.get('scale_F', 1.)
@@ -621,10 +622,14 @@ def run_case(case, control=RunControl(), *, resume_state=None, checkpoint=None, 
     if not control.native_library:
         raise ValueError('cpp requires RunControl.native_library for this host')
     control.check_cancelled()
-    cfg,p=build_execution_inputs(case, copy_design=False)
     driver=NativeFull3DDriver(control.native_library, table_directory=getattr(control,'native_table_directory',None))
     from sjtu_tpmshx.cpp_interface.full_3d_stage import has_saved_stage
     stage_case = case if has_saved_stage(driver.library) else None
+    if stage_case is not None and hasattr(driver.library, 'tpmshx_stage_run_3d_create_saved_v2'):
+        from ..full_3d_stage import saved_inputs
+        cfg,p = saved_inputs(case)
+    else:
+        cfg,p = build_execution_inputs(case, copy_design=False)
     r=driver._run_prepared(cfg,p,control,application_only=True, resume_state=resume_state,
         checkpoint=checkpoint, checkpoint_due=checkpoint_due, stage_case=stage_case)
     control.check_cancelled()
@@ -632,6 +637,10 @@ def run_case(case, control=RunControl(), *, resume_state=None, checkpoint=None, 
         from .full_3d_capture import capture_result
     else:
         from ..full_3d_stage import capture_result
+    if '_input_resolution' not in cfg:
+        from sjtu_tpmshx.solvers.execution_record import resolved_input_record
+        cfg['_input_resolution'] = resolved_input_record(case, {side: cfg['fluid_type_' + side] for side in 'AB'},
+            tuple(p['N' + axis] for axis in 'xyz'), {side: cfg['fluid_' + side + '_cfg']['dir'] for side in p['axes']})
     result = capture_result(case, cfg, p, r, driver.abi)
     if '_native_applicability' in r:
         from dataclasses import replace

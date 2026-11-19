@@ -242,6 +242,13 @@ struct SavedCase3D : tpmshx_stage_saved_case_3d_v1 {
         inlet_recorded=1;
     }
 };
+struct SavedCase3Dv2 : tpmshx_stage_saved_case_3d_v2 {
+    SavedCase3Dv2():tpmshx_stage_saved_case_3d_v2{} {
+        abi_version=2;struct_size=sizeof(tpmshx_stage_saved_case_3d_v2);values=SavedCase3D{};
+        for(auto& kind:reference_kinds)kind={64,0,0};
+        for(auto& kind:field_kinds)kind={64,1,1};
+    }
+};
 struct RunRequest3D : tpmshx_stage_run_request_3d_v1 {
     RunRequest3D():tpmshx_stage_run_request_3d_v1{} {
         abi_version=TPMSHX_STAGE_RUN_3D_ABI_VERSION;struct_size=sizeof(tpmshx_stage_run_request_3d_v1);
@@ -269,6 +276,14 @@ public:
         const auto status=state?tpmshx_stage_run_3d_restore_saved_v1(&saved,&request,&control,
             state->view().fields,state->view().count,&run_,error,sizeof(error)):
             tpmshx_stage_run_3d_create_saved_v1(&saved,&request,&control,&run_,error,sizeof(error));
+        detail::check(status,error);
+    }
+    Run3D(const tpmshx_stage_saved_case_3d_v2& saved,const RunControl3D& control,const RunRequest3D& request={},
+        const RunState* state=nullptr) {
+        char error[4096]{};
+        const auto status=state?tpmshx_stage_run_3d_restore_saved_v2(&saved,&request,&control,
+            state->view().fields,state->view().count,&run_,error,sizeof(error)):
+            tpmshx_stage_run_3d_create_saved_v2(&saved,&request,&control,&run_,error,sizeof(error));
         detail::check(status,error);
     }
     ~Run3D() {tpmshx_stage_run_3d_release_run_v1(&run_);}

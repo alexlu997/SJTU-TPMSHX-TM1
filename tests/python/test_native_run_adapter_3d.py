@@ -493,3 +493,32 @@ def test_applicability_transfer_error_releases_without_fallback(dimension, monke
     assert not owners[0].owner
     monkeypatch.undo()
     run_case(case, _control())
+
+
+@pytest.mark.parametrize('fault, message', [
+    ('mask', 'opening mask'), ('permutation', 'axis permutation'),
+    ('axis_length', 'solver geometry'), ('uniform', 'uniform design field'),
+    ('extrusion', 'xy extrusion'), ('model', 'unknown model resource'),
+])
+def test_saved_v2_rejects_inconsistent_inputs(fault, message):
+    layout = 'xy' if fault == 'extrusion' else 'uniform'
+    config, _ = reference._configuration(('air', 'water'), layout)
+    case = prepare_case(config, case_id='saved-input-check')
+    params = mutable_data(case.parameters)
+    design = mutable_data(case.design_fields)
+    side = params['prepared']['axes']['A']
+    if fault == 'mask':
+        mask = params['prepared']['openings']['A']['inlet']
+        mask.flat[0] = 0.5 if mask.flat[0] != 0.5 else 0.25
+    elif fault == 'permutation':
+        side['solver_to_real_perm'] = [0, 0, 0]
+    elif fault == 'axis_length':
+        side['solver_init']['Lx'] = side['L_cross1'] = 2 * side['L_cross1']
+    elif fault == 'model':
+        refs = list(case.model_refs)
+        refs[0] = replace(refs[0], version='unknown')
+        case = replace(case, model_refs=tuple(refs))
+    else:
+        design['L_field_m'][0, 0, 1] *= 1.01
+    with pytest.raises(ValueError, match=message):
+        run_case(replace(case, parameters=params, design_fields=design), control=_control())
