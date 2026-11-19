@@ -51,19 +51,6 @@ def detach_stage_fields(evidence, shape, *, prepared_fields=None):
     return fields, field_declarations(evidence)
 
 
-def stage_records(library, result):
-    from .solver_library._stage_capture_abi import StageRecords
-
-    query = getattr(library, f'tpmshx_stage_run_{result.evidence.dimension}d_records_v1', None)
-    if query is None:
-        return None
-    query.argtypes, query.restype = [P(type(result))], P(StageRecords)
-    records = query(ct.byref(result))
-    if not records:
-        raise RuntimeError('native stage returned no result records')
-    return records.contents
-
-
 def sampling_records(view):
     records = []
     for sample in view.records[:view.count] if view.count else ():
@@ -95,7 +82,8 @@ def execution_sides(records, evidence, case, declarations):
 
 def closure_records(rows, count):
     from sjtu_tpmshx.run_control.run_warnings import RangeRecord
-    samples, records = [], {}
+    samples = []
+    records: dict[tuple, RangeRecord] = {}
     for entry in rows[:count] if count else ():
         value = entry.sample.contents
         row = {name: getattr(value, name).decode() for name in ('view', 'model', 'topology', 'stage', 'layout')}
@@ -108,11 +96,11 @@ def closure_records(rows, count):
             row[key] = (getattr(value, key), tuple(position[:value.ndim])) if value.have_finite else None
         samples.append(row)
         source = (row['view'], row['model'], row['topology'])[:entry.source_count]
-        key = (*source, shape, (row['side'], row['stage'], row['layout']))
+        source_key = (*source, shape, (row['side'], row['stage'], row['layout']))
         record = RangeRecord(entry.label.decode(), entry.quantity.decode(), entry.unit.decode(),
             bounds, row['minimum'], row['maximum'], value.low, value.high, value.size, value.nonfinite)
-        previous = records.get(key)
-        records[key] = record if previous is None else previous.merged(record)
+        previous = records.get(source_key)
+        records[source_key] = record if previous is None else previous.merged(record)
     return samples, records
 
 

@@ -27,3 +27,14 @@ class StageRecords(ct.Structure):
                 ('final_failures', ct.POINTER(ct.c_char_p)), ('transient_count', ct.c_size_t),
                 ('final_count', ct.c_size_t), ('base_drag', DragSummary * 2), ('applied_drag', (DragSummary * 2) * 2),
                 ('thermal_history_converged', ct.c_uint32)]
+
+
+def stage_records(library, result):
+    query = getattr(library, f'tpmshx_stage_run_{result.evidence.dimension}d_records_v1', None)
+    if query is None:
+        return None
+    query.argtypes, query.restype = [ct.POINTER(type(result))], ct.POINTER(StageRecords)
+    records = query(ct.byref(result))
+    if not records:
+        raise RuntimeError('native stage returned no result records')
+    return records.contents

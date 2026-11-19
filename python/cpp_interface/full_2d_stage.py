@@ -7,7 +7,7 @@ from uuid import uuid4
 
 import numpy as np
 
-from sjtu_tpmshx.cpp_interface._native_result_stage import Evidence, detach_stage_fields, record, stage_records
+from sjtu_tpmshx.cpp_interface._native_result_stage import Evidence, detach_stage_fields, record
 from sjtu_tpmshx.run_control.cancellation import CancelledError
 from sjtu_tpmshx.data_types.compute_config import validate_simple_velocity_relaxation
 from sjtu_tpmshx.run_control.run_environment import run_environment
@@ -476,6 +476,7 @@ def run_stage(driver, case, cfg, prepared, control, *, configure_convergence, ma
                  'h_vA', 'h_vB', 'K_ss', 'Ta_display', 'Tb_display', 'Ts_display',
                  'P_fA_display', 'ucA', 'vcA', 'P_fB_display', 'ucB', 'vcB')
         stage_fields = {key: fields[key] for key in names}, {key: declarations[key] for key in names}
+        from .solver_library._stage_capture_abi import stage_records
         records = stage_records(library, result)
         native = driver.copy_result(result.raw, shape, result.resolved,
             entry_version=6, control=control, have_cpu_limit=True, energy_query=energy_query,
