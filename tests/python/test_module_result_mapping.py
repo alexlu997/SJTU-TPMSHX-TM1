@@ -301,8 +301,8 @@ def native_result(request):
             solver=SolverConfig(Nx=8, Ny=10, Nz=1, max_outer_ltne=2, max_iter_simple=500),
             bc_A=PartialBCConfig(dir=0, in_ctr=.015, in_w=.014, out_ctr=.015, out_w=.014))
     module = importlib.import_module(
-        'sjtu_tpmshx.cpp_interface.solver_library.full_2d_capture' if dimension == 2 else
-        'sjtu_tpmshx.cpp_interface.solver_library.full_3d_capture')
+        'sjtu_tpmshx.cpp_interface.full_2d_stage' if dimension == 2 else
+        'sjtu_tpmshx.cpp_interface.full_3d_stage')
     captured = []
     capture_name = '_capture_result' if dimension == 2 else 'capture_result'
     capture = getattr(module, capture_name)
@@ -310,10 +310,11 @@ def native_result(request):
         result = capture(*args, **kwargs)
         diagnostics = args[-1] if dimension == 2 else result.metadata['diagnostics']
         if dimension == 2:
-            raw = legacy_2d_result(args[0], args[1], diagnostics)
+            raw = legacy_2d_result(args[0], args[1][0], diagnostics)
             display_keys = {'Ta_display', 'Tb_display', 'Ts_display', 'P_fA_display', 'P_fB_display',
                             'ucA', 'vcA', 'ucB', 'vcB'}
-            assert args[1].keys() == display_keys
+            assert display_keys <= args[1][0].keys()
+            assert args[1][0].keys() == args[1][1].keys()
             _assert_diagnostic_keys(diagnostics, _DIAGNOSTICS_2D)
             assert diagnostics['true_h_balance'] is None
             detail = diagnostics['convergence_detail']
@@ -356,7 +357,7 @@ def native_result(request):
 
 @pytest.mark.parametrize('audit', [False, True])
 def test_native_3d_producer_preserves_optional_diagnostics(monkeypatch, audit):
-    from sjtu_tpmshx.cpp_interface.solver_library import full_3d_capture as result_capture
+    from sjtu_tpmshx.cpp_interface import full_3d_stage as result_capture
 
     config = _small_air_air_cfg()
     config.solver = replace(config.solver, max_outer_ltne=2, max_iter_simple=500)

@@ -398,8 +398,8 @@ def _compare_public_applicability(case, monkeypatch, tmp_path, *, control=None):
     control = _control() if control is None else control
     with monkeypatch.context() as direct:
         if case.grid['dimension'] == 2:
-            from sjtu_tpmshx.cpp_interface import full_2d_stage
-            direct.setattr(full_2d_stage, 'run_case', two._old)
+            from sjtu_tpmshx.cpp_interface.solver_library import full_2d
+            direct.setattr(full_2d, 'run_case', two._old)
         else:
             direct.setattr(full_3d_stage, 'has_saved_stage', lambda library: False)
         expected = run_case(case, control)
@@ -522,3 +522,18 @@ def test_saved_v2_rejects_inconsistent_inputs(fault, message):
         design['L_field_m'][0, 0, 1] *= 1.01
     with pytest.raises(ValueError, match=message):
         run_case(replace(case, parameters=params, design_fields=design), control=_control())
+
+
+def test_saved_stage_without_result_records_can_resume(monkeypatch):
+    from sjtu_tpmshx.cpp_interface.solver_library import _stage_capture_abi
+
+    config, _ = reference._configuration(('air', 'water'), 'uniform')
+    case = prepare_case(config, case_id='saved-stage-without-records')
+    monkeypatch.setattr(_stage_capture_abi, 'stage_records', lambda library, result: None)
+    states = []
+    expected = run_case(case, _control(), checkpoint=states.append)
+    resumed = run_case(case, _control(), resume_state=states[0])
+    assert expected.fields.keys() == resumed.fields.keys()
+    for name, values in expected.fields.items():
+        np.testing.assert_array_equal(values, resumed.fields[name])
+    assert expected.run_status == resumed.run_status

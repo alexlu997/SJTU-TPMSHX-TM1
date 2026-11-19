@@ -7,7 +7,7 @@ from uuid import uuid4
 
 import numpy as np
 
-from sjtu_tpmshx.cpp_interface._native_result_stage import Evidence, detach_stage_fields, record, stage_records
+from sjtu_tpmshx.cpp_interface._native_result_stage import Evidence, detach_stage_fields, record
 from sjtu_tpmshx.run_control.cancellation import CancelledError
 from sjtu_tpmshx.data_types.compute_config import validate_simple_velocity_relaxation
 from sjtu_tpmshx.run_control.run_environment import run_environment
@@ -426,6 +426,7 @@ def run_stage(driver, case, cfg, prepared, control, *, configure_convergence, ma
                  'h_vA', 'h_vB', 'K_ss', 'Ta_display', 'Tb_display', 'Ts_display',
                  'P_fA_display', 'ucA', 'vcA', 'P_fB_display', 'ucB', 'vcB')
         stage_fields = {key: fields[key] for key in names}, {key: declarations[key] for key in names}
+        from .solver_library._stage_capture_abi import stage_records
         records = stage_records(library, result)
         native = driver.copy_result(result.raw, shape, result.resolved,
             entry_version=6, control=control, have_cpu_limit=True, energy_query=energy_query,
@@ -501,7 +502,7 @@ def _fine_evidence(fine, balance):
     return evidence
 
 
-def capture_result(case, cfg, prepared, native, *, application_hv=None, zone_summary=None, stage_fields=None):
+def capture_result(case, cfg, prepared, native, *, application_hv=None, zone_summary=None, stage_fields=None, legacy_fields=None):
     """Capture a completed native return without re-entering Python solvers."""
     if native['cancelled']:
         raise CancelledError('compute cancelled by user')
@@ -666,8 +667,7 @@ def capture_result(case, cfg, prepared, native, *, application_hv=None, zone_sum
             prepared['energy_dx'], prepared['energy_dy'], *main['temperature'])
     evidence.update(input_resolution=cfg['_input_resolution'], property_sampling=native['property_sampling'])
     if stage_fields is None:
-        from .solver_library.full_2d_capture import _legacy_fields
-        stage_fields = _legacy_fields(evidence, main, native)
+        stage_fields = legacy_fields(evidence, main, native)
     result = _capture_result(case, stage_fields, evidence, application, diagnostics, backend_id='cpp',
                              backend_version=f"full_2d_v{native.get('entry_version', 2)}")
     if 'continuation' in native:
@@ -1069,7 +1069,7 @@ def configure_convergence(solver, cfg, solver_config=None):
     solver.mass_global_tol = float(knob('mass_global_tol', 1e-6))
 
 
-def run_case(case, control=RunControl(), *, resume_state=None, checkpoint=None, checkpoint_due=None):
+def run_case(case, control=RunControl(), *, direct_run, resume_state=None, checkpoint=None, checkpoint_due=None):
     if control.backend != 'cpp' or control.native_library is None:
         raise ValueError('full native 2D requires backend=cpp and an explicit native_library')
     control.check_cancelled()
@@ -1100,12 +1100,6 @@ def run_case(case, control=RunControl(), *, resume_state=None, checkpoint=None, 
             checkpoint=checkpoint, checkpoint_due=checkpoint_due, saved_version=saved_version,
             configure_convergence=configure_convergence, make_callbacks=_callbacks)
     else:
-        from .solver_library.full_2d import NativeFull2DDriver
-        driver = NativeFull2DDriver(control.native_library, table_directory=control.native_table_directory)
-        native = driver.run_prepared(cfg, prepared, control, resume_state=resume_state,
-            checkpoint=checkpoint, checkpoint_due=checkpoint_due)
-        control.check_cancelled()
-        from .solver_library.full_2d_capture import capture_result as capture_direct
-        result = capture_direct(case, cfg, prepared, native)
+        result = direct_run(case, cfg, prepared, control, resume_state, checkpoint, checkpoint_due)
     control.report_progress(100)
     return result

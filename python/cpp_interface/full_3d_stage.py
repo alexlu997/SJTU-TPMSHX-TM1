@@ -283,13 +283,12 @@ def diagnostics(records, evidence, config, design):
                 final=[records.final_failures[i].decode() for i in range(records.final_count)])
 
 
-def capture_result(case, cfg, p, r, abi):
+def capture_result(case, cfg, p, r, abi, *, legacy_fields=None, legacy_drag=None, legacy_ratios=None, legacy_taper=None):
     scalars = r.get('capture_scalars')
     if 'stage_fields' in r:
         fields, field_metadata = r['stage_fields']
     else:
-        from .solver_library.full_3d_capture import _legacy_fields
-        fields, field_metadata = _legacy_fields(case, p, r)
+        fields, field_metadata = legacy_fields(case, p, r)
     pressure,report={},{}
     for s,label in enumerate('AB'):
         f=r['flow'][s]
@@ -302,9 +301,8 @@ def capture_result(case, cfg, p, r, abi):
         report[label]=dict(direction=cfg['fluid_'+label+'_cfg']['dir'])
     captured = r.get('stage_diagnostics')
     if captured is None:
-        from .solver_library.full_3d_capture import _legacy_drag, _legacy_ratios
-        df_metadata = _legacy_drag(cfg, p, r)
-        strict = _legacy_ratios(r)
+        df_metadata = legacy_drag(cfg, p, r)
+        strict = legacy_ratios(r)
     else:
         df_metadata, strict = captured['df_metadata'], captured['strict_ratios']
     model_h_calls=r['model_h_iterations']['records']
@@ -401,8 +399,7 @@ def capture_result(case, cfg, p, r, abi):
                 outlet_coeff = scalars['audit_outlet'][s]
             elif f is not None and cfg['fluid_type_'+label] not in ('sco2', 'co2'):
                 # Legacy audit-only display weight; raw opening owns every solved face.
-                from .solver_library.full_3d_capture import _build_outlet_frac_taper
-                outlet_coeff=outlet_coeff*_build_outlet_frac_taper(*outlet_coeff.shape)
+                outlet_coeff=outlet_coeff*legacy_taper(*outlet_coeff.shape)
             diagnostics['_audit_s'+label+'_face']=None if f is None else dict(
                 u=f['u'],v=f['v'],w=f['w'],rho=f['density'],outlet_coeff=outlet_coeff,
                 inlet_frac=f['inlet_opening'],outlet_frac=f['outlet_opening'],eps=f['epsilon'],
