@@ -45,7 +45,7 @@ inline void capture_energy_relations(tpmshx_stage_run_records_v1& records,const 
 inline void range_coordinates(const size_t* shape, size_t rank, size_t flat, size_t* coordinates) {
     for (size_t axis = rank; axis > 0; --axis) {
         const size_t extent = shape[axis - 1];
-        if (!extent) throw std::invalid_argument("finite range observation has an empty axis");
+        if (!extent) throw std::invalid_argument("captured range has an empty axis");
         coordinates[axis - 1] = flat % extent;
         flat /= extent;
     }
