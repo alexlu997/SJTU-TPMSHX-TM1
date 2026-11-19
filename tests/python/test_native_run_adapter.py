@@ -295,7 +295,7 @@ def test_selected_retained_runtime_has_no_new_stage_dependency(monkeypatch):
 
 
 @pytest.mark.parametrize('missing', ['create', 'restore'])
-@pytest.mark.parametrize('version', [1, 2])
+@pytest.mark.parametrize('version', [1, 2, 3])
 def test_incomplete_stage_protocol_is_not_retried(monkeypatch, missing, version):
     original = full_2d.NativeFull2DDriver
     _, case = _case()
@@ -304,7 +304,7 @@ def test_incomplete_stage_protocol_is_not_retried(monkeypatch, missing, version)
             self.actual = actual
         def __getattr__(self, name):
             if (name == f'tpmshx_stage_run_2d_{missing}_saved_v{version}'
-                    or version == 1 and name.endswith('_saved_v2')):
+                    or any(name.endswith(f'_saved_v{v}') for v in range(version+1, 4))):
                 raise AttributeError(name)
             return getattr(self.actual, name)
     class Driver(original):
@@ -392,3 +392,52 @@ def test_saved_geometry_precision_and_resume(selection, tmp_path, monkeypatch):
         actual = _checked_applicability(actual, expected, case)
         _same(replace(actual, result_id=expected.result_id), expected)
         save_result(actual, tmp_path / 'resumed-1.h5')
+
+
+@pytest.mark.parametrize('fault, message', [
+    ('length', 'grid does not cover'),
+    ('stream', 'grid disagrees'),
+    ('profile', 'out_profile_frac disagrees'),
+])
+def test_saved_stage_rejects_inconsistent_grid(fault, message):
+    _, case = _case()
+    parameters = mutable_data(case.parameters)
+    if fault == 'length':
+        parameters['L'] *= 1.1
+    elif fault == 'stream':
+        parameters['flow_inputs']['A']['dy'][0] *= 1.1
+    else:
+        parameters['boundary_openings']['A']['out_profile_frac'][0] += .25
+    with pytest.raises(ValueError, match=message):
+        full_2d.run_case(replace(case, parameters=parameters), _control([]))
+
+
+@pytest.mark.parametrize('fault, message', [
+    ('version', 'unknown model resource'),
+    ('nu', 'Nu settings and fluid A resource disagree'),
+    ('fluid', 'fluid A and its model resource disagree'),
+    ('topology', 'topology and Darcy-Forchheimer resource disagree'),
+    ('roles', 'roles must account for every recorded resource'),
+])
+def test_saved_stage_checks_resource_identity(fault, message):
+    _, case = _case()
+    roles = dict(case.metadata['model_roles'])
+    refs = list(case.model_refs)
+    index = roles['darcy_forchheimer' if fault == 'topology' else 'fluid_A']
+    ref = refs[index]
+    params = mutable_data(ref.parameters)
+    if fault == 'version':
+        refs[index] = replace(ref, version='unknown')
+    elif fault == 'roles':
+        roles['fluid_A'] = roles['fluid_B']
+    else:
+        if fault == 'nu':
+            params['sco2_nu']['source'] = 'different recorded source'
+        elif fault == 'fluid':
+            params['fluid'] = 'water'
+        else:
+            params['topology'] = 'Gyroid' if params['topology'] == 'Diamond' else 'Diamond'
+        refs[index] = replace(ref, parameters=params)
+    changed = replace(case, metadata={**case.metadata, 'model_roles': roles}, model_refs=refs)
+    with pytest.raises(ValueError, match=message):
+        full_2d.run_case(changed, _control([]))

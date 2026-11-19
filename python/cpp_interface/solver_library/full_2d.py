@@ -587,17 +587,19 @@ def _pack(cfg, prepared, table_directory, library):
 
 
 def run_case(case, control=RunControl(), *, resume_state=None, checkpoint=None, checkpoint_due=None):
-    from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
+    from sjtu_tpmshx.solvers.backends.prepared_2d import _execution_grid, _execution_inputs
     if control.backend != 'cpp' or control.native_library is None:
         raise ValueError('full native 2D requires backend=cpp and an explicit native_library')
     control.check_cancelled()
-    cfg, prepared = build_execution_inputs(case, copy_design=False)
+    shape = _execution_grid(case)
     driver = NativeFull2DDriver(control.native_library, table_directory=control.native_table_directory)
+    have_native_grid = hasattr(driver.library, 'tpmshx_stage_run_2d_create_saved_v3')
+    cfg, prepared = _execution_inputs(case, shape, copy_design=False, native_flow_grid=have_native_grid)
     stage_layout = (case.metadata['design_mode'] in ('uniform', 'continuous')
         and cfg['compute_cfg'].geometry.delta_levelset == 0
         and (cfg['zone_config'] is None or cfg['z_axis'] == 'continuous'))
     saved_version = 0
-    for version in (2, 1):
+    for version in (3, 2, 1):
         if version == 1 and not stage_layout:
             continue
         saved_entries = [hasattr(driver.library, f'tpmshx_stage_run_2d_{name}_saved_v{version}')

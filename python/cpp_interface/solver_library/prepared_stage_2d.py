@@ -7,7 +7,6 @@ from sjtu_tpmshx.cpp_interface import _native_flow
 from sjtu_tpmshx.cpp_interface._native_preparation_case import (
     _Array, _Kind, _Range, _ResultV1, _ResultV2, _Text,
 )
-from sjtu_tpmshx.solvers.backends.prepared_2d import _validated_outlet_fraction
 
 
 def _array(value, keepalive):
@@ -21,6 +20,50 @@ def _text(value, keepalive):
     storage = ct.create_string_buffer(encoded)
     keepalive.append(storage)
     return _Text(ct.cast(storage, ct.POINTER(ct.c_char)), len(encoded))
+
+
+def _pack_nu(target, settings, keepalive):
+    target.mode = settings.mode == 'experimental'
+    for index, value in enumerate((settings.alpha_D, settings.alpha_G)):
+        target.have_alpha[index] = value is not None
+        target.alpha[index] = value or 0.
+    for name in ('parameter_version', 'source', 'applicability'):
+        setattr(target, name, _text(getattr(settings, name), keepalive))
+
+
+def pack_saved_resources(case, uniform, saved, settings, keepalive):
+    from sjtu_tpmshx.data_types.compute_config import Sco2NuConfig
+    from sjtu_tpmshx.data_types.model_refs import ModelRef
+
+    roles = case.metadata['model_roles']
+    names = ('fluid_A', 'fluid_B', 'geometry', 'darcy_forchheimer')
+    if set(roles) != set(names) or sorted(roles.values()) != list(range(len(case.model_refs))):
+        raise ValueError('2D model roles must account for every recorded resource')
+    _pack_nu(uniform.sco2_nu, settings, keepalive)
+    for index, role in enumerate(names):
+        ref = case.model_refs[roles[role]]
+        if not isinstance(ref, ModelRef):
+            raise TypeError('model resource must be a ModelRef')
+        model = uniform.values.models[index]
+        model.name, model.version = _text(ref.name, keepalive), _text(ref.version, keepalive)
+        params = ref.parameters
+        if index < 2:
+            if set(params) - {'fluid', 'sco2_nu'} or 'fluid' not in params:
+                raise ValueError('fluid model requires fluid and optional sco2_nu parameters')
+            fluid = params['fluid']
+            if (ref.name == 'co2_fluid') != (fluid == 'co2'):
+                raise ValueError('CO2 requires its versioned fluid resource')
+            saved.resource_fluids[index] = _text(fluid.strip().lower(), keepalive)
+            selection = Sco2NuConfig(**params['sco2_nu']).validate()
+            if set(params['sco2_nu']) != set(vars(settings)):
+                raise ValueError(f'prepared Nu settings and fluid {"AB"[index]} resource disagree')
+            _pack_nu(saved.resource_nu[index], selection, keepalive)
+        elif index == 2 and params:
+            raise ValueError('geometry resource takes no fixed parameters')
+        elif index == 3:
+            if set(params) != {'topology'}:
+                raise ValueError('Darcy-Forchheimer resource requires topology')
+            saved.resource_topology = _text(params['topology'], keepalive)
 
 
 def _ranges(rows, keepalive):
@@ -54,7 +97,7 @@ def _ranges(rows, keepalive):
     return values, captured
 
 
-def prepare_stage(case, cfg, prepared):
+def prepare_stage(case, cfg, prepared, *, saved_flow_grid=None):
     """Pack outputs from build_execution_inputs; keep all views alive through capture."""
     uniform = _ResultV2(2, ct.sizeof(_ResultV2))
     uniform.values = _ResultV1(1, ct.sizeof(_ResultV1))
@@ -100,7 +143,6 @@ def prepare_stage(case, cfg, prepared):
         uniform.sco2_nu.alpha[:] = (nu.alpha_D, nu.alpha_G)
     for index, side in enumerate('AB'):
         flow, opening, port = cfg['flow_inputs'][side], cfg['boundary_openings'][side], cfg['cfg' + side]
-        outlet_fraction = _validated_outlet_fraction(flow, opening, port, side)
         target = values.sides[index]
         target.inlet.fluid = ('air', 'water', 'sco2', 'co2').index(cfg['fluid_' + side])
         target.inlet.temperature_K = cfg['T_in' + side]
@@ -123,7 +165,26 @@ def prepare_stage(case, cfg, prepared):
         for name, key in (('inlet_geometry', 'in_geom_frac'), ('outlet_geometry', 'out_geom_frac'),
                           ('inlet_profile', 'in_profile_frac'), ('outlet_profile', 'out_profile_frac')):
             setattr(target, name, _array(opening[key], keepalive))
-        target.outlet_u_fraction = _array(outlet_fraction, keepalive)
+        if saved_flow_grid is None:
+            from sjtu_tpmshx.solvers.backends.prepared_2d import _validated_outlet_fraction
+            target.outlet_u_fraction = _array(_validated_outlet_fraction(flow, opening, port, side), keepalive)
+        else:
+            grid = saved_flow_grid[index]
+            from sjtu_tpmshx.cpp_interface import _native_grid
+            grid.direction = port['dir']
+            cross, stream = (np.asarray(flow[name]) for name in ('dx', 'dy'))
+            if any(axis.ndim != 1 or axis.dtype.kind not in 'fiu' for axis in (cross, stream)):
+                raise ValueError(f'prepared flow {side} grid disagrees with the thermal grid')
+            widths, grid.cross_precision = _native_grid._widths(cross)
+            grid.cross = _array(widths, keepalive)
+            grid.stream = _array(stream, keepalive)
+            for end, prefix in enumerate(('in', 'out')):
+                center, half = port[prefix + '_ctr'], port[prefix + '_w'] / 2
+                grid.bounds[2*end] = _native_grid._scalar(center - half)
+                grid.bounds[2*end+1] = _native_grid._scalar(center + half)
+            for name in ('in_geom_frac', 'out_geom_frac', 'in_profile_frac', 'out_profile_frac'):
+                if np.ndim(opening[name]) != 1:
+                    raise ValueError(f'prepared Fluid {side} {name} disagrees with its grid and port geometry')
     ranges, captured = _ranges(case.metadata.get('applicability_inputs', ()), keepalive)
     values.ranges, values.range_count = ranges, len(ranges)
     notices = (_Text * len(case.metadata['notices']))(*(

@@ -10,8 +10,9 @@ from sjtu_tpmshx.run_control.provenance import source_context
 
 
 def _finish_metadata(case, provenance, records) -> CaseData:
-    from .range_evidence import record_geometry_ranges
-    record_geometry_ranges(case)
+    if case.grid.get("dimension") == 3:
+        from .range_evidence import record_geometry_ranges
+        record_geometry_ranges(case)
     warnings = tuple(dict.fromkeys((*case.metadata.get('warnings', ()),
                                     *warning_messages(records))))
     inlets = {side: case.config_snapshot.get('fluid_' + side, {}) for side in 'AB'}

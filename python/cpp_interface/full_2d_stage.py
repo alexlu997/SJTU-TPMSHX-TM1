@@ -11,7 +11,7 @@ from sjtu_tpmshx.cpp_interface._native_result_stage import Evidence, detach_stag
 from sjtu_tpmshx.run_control.cancellation import CancelledError
 from sjtu_tpmshx.data_types.compute_config import validate_simple_velocity_relaxation
 from sjtu_tpmshx.run_control.run_environment import run_environment
-from sjtu_tpmshx.cpp_interface._native_preparation_case import _Array, _Kind, _ResultV2
+from sjtu_tpmshx.cpp_interface._native_preparation_case import _Array, _Kind, _Nu, _ResultV2, _Text
 from sjtu_tpmshx.physical_models.envelope import ChokedFlowError
 from sjtu_tpmshx.cpp_interface.solver_library._full_2d_abi import _Callbacks, _Config, _EnergyControl, _EnergyEvidence, _Result
 from sjtu_tpmshx.cpp_interface.solver_library.enthalpy import _EnergyOptions, _energy_algorithm_query, _energy_options
@@ -20,7 +20,8 @@ from sjtu_tpmshx.data_types.validator import compute_volumetric_htc
 from sjtu_tpmshx.run_control.run_warnings import current_warnings, merge_warnings, warning_messages, warning_scope
 from sjtu_tpmshx.physical_models.nu_correlations import warn_sco2_nu_evidence
 from sjtu_tpmshx.cpp_interface.solver_library.model_h import _IterationOptions, _iteration_options
-from sjtu_tpmshx.cpp_interface.solver_library.prepared_stage_2d import prepare_stage
+from sjtu_tpmshx.cpp_interface.solver_library.prepared_stage_2d import prepare_stage, pack_saved_resources
+from ._native_grid import _Scalar as GridScalar
 from .run_state import NativeRun
 
 _U, _S, _D = ct.c_uint32, ct.c_size_t, ct.c_double
@@ -49,6 +50,12 @@ _Saved = record('SavedCase', [('abi_version', _U), ('struct_size', _S),
     ('reference_cell_kind', _Kind), ('cell_field_kind', _Kind), ('hydraulic_diameter_kind', _Kind)])
 _SavedV2 = record('SavedCaseV2', [('abi_version', _U), ('struct_size', _S),
     ('values', _Saved), ('have_side_geometry', _U), ('side_geometry', (_D * 4) * 2)])
+
+_FlowGrid = record('SavedFlowGrid2D', [('cross', _Array), ('stream', _Array),
+    ('cross_precision', _U), ('direction', _U), ('bounds', GridScalar * 4)])
+_SavedV3 = record('SavedCaseV3', [('abi_version', _U), ('struct_size', _S),
+    ('values', _SavedV2), ('lengths_m', _D * 2), ('flow_grid', _FlowGrid * 2),
+    ('resource_fluids', _Text * 2), ('resource_topology', _Text), ('resource_nu', _Nu * 2)])
 
 
 class _StageResult(ct.Structure):
@@ -162,15 +169,20 @@ def run_stage(driver, case, cfg, prepared, control, *, configure_convergence, ma
     except AttributeError as error:
         raise ValueError('native library has an incomplete saved 2D stage protocol') from error
     control.check_cancelled()
-    uniform, area, diameter, conductivity, recorded, captured, kinds, keepalive = prepare_stage(case, cfg, prepared)
+    flow_grid = (_FlowGrid * 2)() if saved_version == 3 else None
+    uniform, area, diameter, conductivity, recorded, captured, kinds, keepalive = prepare_stage(
+        case, cfg, prepared, saved_flow_grid=flow_grid)
     saved = _Saved(1, ct.sizeof(_Saved), ct.pointer(uniform), area, diameter,
                    (_Array * 2)(*conductivity), recorded, captured, *kinds)
-    if saved_version == 2:
+    if saved_version >= 2:
         sides = cfg['thermal_geometry']['side_geometry']
         saved = _SavedV2(2, ct.sizeof(_SavedV2), saved, sides is not None)
         if sides is not None:
             for index, side in enumerate('AB'):
                 saved.side_geometry[index][:] = sides[side]
+    if flow_grid is not None:
+        saved = _SavedV3(3, ct.sizeof(_SavedV3), saved, (_D * 2)(cfg['L'], cfg['H']), flow_grid)
+        pack_saved_resources(case, uniform, saved, cfg['compute_cfg'].sco2_nu, keepalive)
     request, energy = _request(cfg, configure_convergence)
     callbacks, errors = make_callbacks(control)
     stage_control = _Control(case.case_id.encode(), driver.table_directory, control.native_cpu_threads(), callbacks)
@@ -183,6 +195,11 @@ def run_stage(driver, case, cfg, prepared, control, *, configure_convergence, ma
     result = _StageResult()
     try:
         with _Run(library, saved, request, stage_control, errors, resume_state) as run:
+            if saved_version == 3:
+                from sjtu_tpmshx.solvers.execution_record import resolved_input_record
+                cfg['_input_resolution'] = resolved_input_record(case,
+                    {side: cfg['fluid_' + side] for side in 'AB'}, (uniform.values.nx, uniform.values.ny),
+                    {side: cfg['cfg' + side]['dir'] for side in 'AB'})
             while run.phase not in (3, 4):
                 phase = run.advance()
                 if (checkpoint is not None and phase in (1, 2, 6, 7, 8)
