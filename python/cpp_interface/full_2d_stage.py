@@ -71,7 +71,7 @@ _DesignField = record('SavedDesignField2D', [('name', _Text), ('values', _Array)
 _SavedV3 = record('SavedCaseV3', [('abi_version', _U), ('struct_size', _S),
     ('values', _SavedV2), ('lengths_m', _D * 2), ('flow_grid', _FlowGrid * 2),
     ('resource_fluids', _Text * 2), ('resource_topology', _Text), ('resource_nu', _Nu * 2),
-    ('wall_reference_kind', _Kind), ('additional_fields', ct.POINTER(_DesignField)), ('additional_count', _S)])
+    ('wall_reference_kind', _Kind), ('porosity_reference_kind', _Kind), ('radius_reference_kind', _Kind), ('additional_fields', ct.POINTER(_DesignField)), ('additional_count', _S)])
 
 
 class _StageResult(ct.Structure):
@@ -121,8 +121,10 @@ def pack_saved_design(case, uniform, saved, keepalive):
                 setattr(values, native_names[index], borrow_array(field, keepalive))
         else:
             extra.append(_DesignField(borrow_text(name, keepalive), borrow_array(field, keepalive)))
-    wall = _native_flow._scalar(case.parameters['t_wall_m'])
-    saved.wall_reference_kind = _Kind(wall.precision, wall.strong, int(bool(wall.strong)))
+    for attr, key in (('wall_reference_kind', 't_wall_m'), ('porosity_reference_kind', 'eps'),
+                      ('radius_reference_kind', 'r_h')):
+        reference = _native_flow._scalar(case.parameters[key])
+        setattr(saved, attr, _Kind(reference.precision, reference.strong, int(bool(reference.strong))))
     saved.additional_fields = storage = (_DesignField * len(extra))(*extra)
     keepalive.append(storage)
     saved.additional_count = len(extra)

@@ -159,7 +159,7 @@ typedef struct {
     /* Models in the prepared view are in role order: fluid A, fluid B, geometry, drag. */
     tpmshx_preparation_text_v1 resource_fluids[2],resource_topology;
     tpmshx_preparation_sco2_nu_v2 resource_nu[2];
-    tpmshx_preparation_scalar_kind_v2 wall_reference_kind;
+    tpmshx_preparation_scalar_kind_v2 wall_reference_kind,porosity_reference_kind,radius_reference_kind;
     const tpmshx_stage_design_field_2d_v3* additional_fields;
     size_t additional_count;
 } tpmshx_stage_saved_case_2d_v3;
