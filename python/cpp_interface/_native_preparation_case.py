@@ -785,7 +785,7 @@ def pack_saved_resources(case, models, nu, saved, settings, keepalive):
     names = ('fluid_A', 'fluid_B', 'geometry', 'darcy_forchheimer')
     if set(roles) != set(names) or sorted(roles.values()) != list(range(len(case.model_refs))):
         raise ValueError(f"{case.grid['dimension']}D model roles must account for every recorded resource")
-    _pack_nu(nu, settings, keepalive)
+    recorded_settings = case.parameters['sco2_nu'] if case.grid['dimension'] == 3 else vars(settings)
     for index, role in enumerate(names):
         ref = case.model_refs[roles[role]]
         if not isinstance(ref, ModelRef):
@@ -806,9 +806,9 @@ def pack_saved_resources(case, models, nu, saved, settings, keepalive):
             if normalized not in ('air', 'co2', 'sco2', 'water'):
                 raise ValueError(f"unknown fluid {fluid!r}; known: ['air', 'co2', 'sco2', 'water']")
             saved.resource_fluids[index] = borrow_text(normalized, keepalive)
-            selection = Sco2NuConfig(**params['sco2_nu']).validate()
-            if set(params['sco2_nu']) != set(vars(settings)):
+            if params['sco2_nu'] != recorded_settings:
                 raise ValueError(f'prepared Nu settings and fluid {"AB"[index]} resource disagree')
+            selection = Sco2NuConfig(**params['sco2_nu']).validate()
             _pack_nu(saved.resource_nu[index], selection, keepalive)
         elif index == 2 and params:
             raise ValueError('geometry resource takes no fixed parameters')
@@ -816,3 +816,4 @@ def pack_saved_resources(case, models, nu, saved, settings, keepalive):
             if set(params) != {'topology'}:
                 raise ValueError('Darcy-Forchheimer resource requires topology')
             saved.resource_topology = borrow_text(params['topology'], keepalive)
+    _pack_nu(nu, settings, keepalive)

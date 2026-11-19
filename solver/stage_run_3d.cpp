@@ -285,14 +285,14 @@ void validate_saved_3d(const tpmshx_stage_saved_case_3d_v2& saved,tpmshx_full3d_
     const double references[]{values.nominal_cell_length_mm,values.nominal_wall_thickness_mm,values.nominal_porosity};
     for(size_t index=0;index<8;++index) {
         const auto field=fields[index];const std::string name=names[index];
-        if(field.size!=cells)throw std::invalid_argument("prepared design field "+name+" does not match the grid");
+        if(field.size!=cells && !(index==1 && field.size==1))throw std::invalid_argument("prepared design field "+name+" does not match the grid");
         grid::Scalar expected=grid::weak(0.);
         if(index<3) {
             const auto kind=saved.reference_kinds[index];
             expected=grid::checked({references[index],kind.precision,kind.strong});
             if(index<2)expected=grid::multiply(expected,grid::weak(1e-3));
         }
-        for(size_t i=0;i<cells;++i) {
+        for(size_t i=0;i<field.size;++i) {
             const auto value=field.data[i];
             if(!std::isfinite(value) || value<=0.)throw std::invalid_argument("prepared design field "+name+" must be finite and positive");
             if((index==2 || index==5 || index==6) && value>=1.)
