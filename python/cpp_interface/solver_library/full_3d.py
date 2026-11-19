@@ -628,7 +628,7 @@ def run_case(case, control=RunControl(), *, resume_state=None, checkpoint=None, 
     r=driver._run_prepared(cfg,p,control,application_only=True, resume_state=resume_state,
         checkpoint=checkpoint, checkpoint_due=checkpoint_due, stage_case=stage_case)
     control.check_cancelled()
-    if stage_case is None:
+    if "stage_diagnostics" not in r:
         from .full_3d_capture import capture_result
     else:
         from ..full_3d_stage import capture_result

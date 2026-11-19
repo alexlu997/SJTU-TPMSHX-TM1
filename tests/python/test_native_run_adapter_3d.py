@@ -492,3 +492,18 @@ def test_applicability_transfer_error_releases_without_fallback(dimension, monke
     assert not owners[0].owner
     monkeypatch.undo()
     run_case(case, _control())
+
+
+def test_saved_stage_without_result_records_can_resume(monkeypatch):
+    from sjtu_tpmshx.cpp_interface import _native_result_stage
+
+    config, _ = reference._configuration(('air', 'water'), 'uniform')
+    case = prepare_case(config, case_id='saved-stage-without-records')
+    monkeypatch.setattr(_native_result_stage, 'stage_records', lambda library, result: None)
+    states = []
+    expected = run_case(case, _control(), checkpoint=states.append)
+    resumed = run_case(case, _control(), resume_state=states[0])
+    assert expected.fields.keys() == resumed.fields.keys()
+    for name, values in expected.fields.items():
+        np.testing.assert_array_equal(values, resumed.fields[name])
+    assert expected.run_status == resumed.run_status
