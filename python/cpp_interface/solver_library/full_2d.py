@@ -1,6 +1,7 @@
 """Run a direct 2D solve or restore a library without the saved stage protocol."""
 import ctypes as ct
 from ._full_2d_abi import _Callbacks, _Config, _EnergyControl, _EnergyEvidence, _Result, _Side
+from functools import partial
 from types import SimpleNamespace
 import numpy as np
 from sjtu_tpmshx.data_types.compute_config import validate_simple_velocity_relaxation
@@ -12,7 +13,7 @@ from sjtu_tpmshx.solvers.backends.prepared_2d import _validated_outlet_fraction
 from ._simple_abi import _F2
 from .model_h import _IterationOptions, _iteration_options
 from .enthalpy import _EnergyOptions, _EnergyOptionsV2, _energy_options, _energy_algorithm_query, _full_enthalpy_defaults
-from ..full_2d_stage import StageDriver, _callbacks, _set_native_metadata, configure_convergence, run_case
+from ..full_2d_stage import StageDriver, _callbacks, _set_native_metadata, configure_convergence, run_case as _run_case
 
 
 class NativeFull2DDriver(StageDriver):
@@ -232,3 +233,14 @@ def _pack(cfg, prepared, table_directory, library):
     config.massflux_inlet, config.close_outlet_on_exit = 1, 1
     config.envelope_mode, config.table_directory = cfg.get('envelope_mode', 'raise').encode(), table_directory
     return shape, arrays, config
+
+def _run_direct(case, cfg, prepared, control, resume_state, checkpoint, checkpoint_due):
+    from .full_2d_capture import capture_result
+    driver = NativeFull2DDriver(control.native_library, table_directory=control.native_table_directory)
+    native = driver.run_prepared(cfg, prepared, control, resume_state=resume_state,
+        checkpoint=checkpoint, checkpoint_due=checkpoint_due)
+    control.check_cancelled()
+    return capture_result(case, cfg, prepared, native)
+
+
+run_case = partial(_run_case, direct_run=_run_direct)
