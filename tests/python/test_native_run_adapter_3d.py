@@ -544,8 +544,30 @@ def test_saved_opening_preserves_solver_roundoff_tolerance():
     assert mask.flat[index] > 0.
     mask.flat[index] = np.nextafter(mask.flat[index], 0.)
     rounded = replace(case, parameters=params)
-    result = run_case(rounded, _control())
-    assert result.run_status['execution'] == 'completed'
+    states = []
+    result = run_case(rounded, _control(), checkpoint=states.append)
+    restored = run_case(rounded, _control(), resume_state=states[0])
+    assert result.run_status['execution'] == restored.run_status['execution'] == 'completed'
+    for field in result.fields:
+        np.testing.assert_array_equal(restored.fields[field], result.fields[field])
+
+
+def test_restore_rejects_matching_case_and_checkpoint_with_wrong_opening():
+    config, _ = reference._configuration(('air', 'water'), 'uniform')
+    case = prepare_case(config, case_id='restore-opening')
+    states = []
+    run_case(case, _control(), checkpoint=states.append)
+    state = dict(states[0])
+    params = mutable_data(case.parameters)
+    opening = params['prepared']['openings']['A']['inlet']
+    index = opening.argmax()
+    assert opening.flat[index] == 1.
+    opening.flat[index] = 0.5
+    for key in ('input.a.inlet_opening', 'state.result.flow.0.inlet_opening'):
+        state[key] = state[key].copy()
+        state[key].flat[index] = 0.5
+    with pytest.raises(ValueError, match='openings disagree with rectangles'):
+        run_case(replace(case, parameters=params), _control(), resume_state=state)
 
 
 def test_saved_stage_without_result_records_can_resume(monkeypatch):

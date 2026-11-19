@@ -193,6 +193,17 @@ Full3DThermalMode thermal_mode(const Full3DInput& in,const Full3DControl& c) {
     return Full3DThermalMode::temperature;
 }
 
+void validate_opening(ArrayView<const double> opening,const std::array<double,4>& rectangle,
+                      ArrayView<const double> dx,ArrayView<const double> dz) {
+    const auto x=port_overlap_1d(dx,rectangle[0],rectangle[1]);
+    const auto z=port_overlap_1d(dz,rectangle[2],rectangle[3]);
+    for(std::size_t i=0;i<x.size();++i) for(std::size_t k=0;k<z.size();++k) {
+        const double expected=x[i]*z[k];
+        if(std::abs(opening[i*z.size()+k]-expected)>1e-15+1e-12*std::abs(expected))
+            throw std::invalid_argument("prepared full 3D openings disagree with rectangles");
+    }
+}
+
 void validate(const Full3DInput& in,const Full3DControl& c) {
     const auto& x=in.geometry; const auto& g=x.grid; const auto n=product(product(g.nx,g.ny),g.nz);
     extent(g.dx,g.nx,true);extent(g.dy,g.ny,true);extent(g.dz,g.nz,true);
@@ -230,6 +241,10 @@ void validate(const Full3DInput& in,const Full3DControl& c) {
             extent(a,np,false,true); if(std::any_of(a.data,a.data+a.size,[](double v){return v>1.;}))
                 throw std::invalid_argument("full 3D geometric opening exceeds one");
         }
+        const std::array<ArrayView<const double>,3> widths{g.dx,g.dy,g.dz};
+        const auto dx=widths[s.solver_axes[0]],dz=widths[s.solver_axes[2]];
+        validate_opening(s.inlet_opening,s.inlet_rectangle,dx,dz);
+        validate_opening(s.outlet_opening,s.outlet_rectangle,dx,dz);
     }
     model_h_common::validate_iteration_overrides(c.model_h_iterations);
     if(c.model_h_iterations.active()) {
@@ -575,21 +590,13 @@ void FlowRun::initialize(std::size_t s) {
     drag_cf[s]=geo.spatial?average(state.forchheimer):state.forchheimer[0];
     state.inlet_opening=Values(a.inlet_opening.data,a.inlet_opening.data+a.inlet_opening.size);
     state.outlet_opening=Values(a.outlet_opening.data,a.outlet_opening.data+a.outlet_opening.size);
-    const auto xi=port_overlap_1d(sg.dx,a.inlet_rectangle[0],a.inlet_rectangle[1]);
-    const auto zi=port_overlap_1d(sg.dz,a.inlet_rectangle[2],a.inlet_rectangle[3]);
     const auto xo=port_overlap_1d(sg.dx,a.outlet_rectangle[0],a.outlet_rectangle[1]);
     const auto zo=port_overlap_1d(sg.dz,a.outlet_rectangle[2],a.outlet_rectangle[3]);
     const auto xu=port_overlap_1d(sg.dx,a.outlet_rectangle[0],a.outlet_rectangle[1],true);
     const auto zw=port_overlap_1d(sg.dz,a.outlet_rectangle[2],a.outlet_rectangle[3],true);
     std::vector<unsigned char> opened(state.outlet_opening.size());
     state.outlet_u_fraction.resize((sg.nx+1)*sg.nz);state.outlet_w_fraction.resize(sg.nx*(sg.nz+1));
-    for(std::size_t i=0;i<sg.nx;++i) for(std::size_t k=0;k<sg.nz;++k) {
-        const auto p=i*sg.nz+k;
-        if(std::abs(state.inlet_opening[p]-xi[i]*zi[k])>1e-15+1e-12*std::abs(xi[i]*zi[k])
-           || std::abs(state.outlet_opening[p]-xo[i]*zo[k])>1e-15+1e-12*std::abs(xo[i]*zo[k]))
-            throw std::invalid_argument("prepared full 3D openings disagree with rectangles");
-        opened[p]=state.outlet_opening[p]>0.;
-    }
+    for(std::size_t p=0;p<opened.size();++p) opened[p]=state.outlet_opening[p]>0.;
     for(std::size_t i=0;i<=sg.nx;++i) for(std::size_t k=0;k<sg.nz;++k) state.outlet_u_fraction[i*sg.nz+k]=xu[i]*zo[k];
     for(std::size_t i=0;i<sg.nx;++i) for(std::size_t k=0;k<=sg.nz;++k) state.outlet_w_fraction[i*(sg.nz+1)+k]=xo[i]*zw[k];
     state.temperature.assign(n,a.inlet_temperature);state.density.assign(n,properties.inlet[s].rho);
