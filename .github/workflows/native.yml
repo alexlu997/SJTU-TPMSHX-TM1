@@ -117,7 +117,7 @@ jobs:
             .cache/native-deps/build/coolprop-preparation-macos-arm64/coolprop-build.json
             .cache/native-deps/build/coolprop-windows-x64/Release/CoolProp.lib
             .cache/native-deps/build/coolprop-windows-x64/coolprop-build.json
-          key: coolprop-${{ runner.os }}-${{ runner.arch }}-py3.13-${{ steps.toolchain.outputs.image }}-${{ hashFiles('sjtu_tpmshx/solvers/native/dependencies-lock.toml', 'engineering/scripts/build_native_dependencies.py') }}
+          key: coolprop-${{ runner.os }}-${{ runner.arch }}-py3.13-${{ steps.toolchain.outputs.image }}-${{ hashFiles('engineering/native_build/dependencies-lock.toml', 'engineering/scripts/build_native_dependencies.py') }}
       - name: Build locked CoolProp on cache miss
         if: steps.coolprop.outputs.cache-hit != 'true'
         shell: bash
@@ -238,11 +238,10 @@ jobs:
               for path in files:
                   output.add(path, arcname=path.relative_to(build.parent), recursive=False)
               output.add('LICENSE', arcname='LICENSE')
-              output.add('sjtu_tpmshx/solvers/native/THIRD_PARTY_NOTICES.md', arcname='THIRD_PARTY_NOTICES.md')
-              output.add('sjtu_tpmshx/solvers/native/dependencies-lock.toml', arcname='dependencies-lock.toml')
-              output.add('sjtu_tpmshx/solvers/native/licenses', arcname='licenses')
-              for record in ('preparation/sources.md', 'geometry/README.md', 'geometry/fields-sources.md', 'result/sources.md'):
-                  output.add(Path('sjtu_tpmshx/solvers/native') / record, arcname=record, recursive=False)
+              from engineering.scripts.build_native_dependencies import stage_native_notices
+              notices = Path('.cache/native-deps/runtime-notices')
+              for path in stage_native_notices(Path.cwd(), notices):
+                  output.add(path, arcname=path.relative_to(notices), recursive=False)
           print(f'Packed {len(files)} native runtime files ({archive.stat().st_size} bytes)')
           PY
       - uses: actions/upload-artifact@v7
@@ -519,11 +518,11 @@ jobs:
         run: '"$CI_PYTHON" engineering/scripts/build_native_dependencies.py fetch-eigen'
       - name: Build and run independent C++ callers on macOS
         if: runner.os == 'macOS' && matrix.part == 'fast-0'
-        run: make -f sjtu_tpmshx/solvers/native/Makefile check
+        run: make -f engineering/native_build/Makefile check
       - name: Build and run independent C++ callers on Windows
         if: runner.os == 'Windows' && matrix.part == 'fast-0'
         shell: cmd
-        run: nmake /f sjtu_tpmshx\solvers\native\Makefile.msvc check
+        run: nmake /f engineering\native_build\Makefile.msvc check
       - name: Install fixed Mesa OpenGL for actual Qt rendering
         if: runner.os == 'Windows' && matrix.part == 'fast-1'
         uses: pyvista/setup-headless-display-action@c103a2ff45650d38cb71684b5dc6cdfeb9442c79 # v5.1

@@ -1,0 +1,510 @@
+#include "stage_capture_2d.hpp"
+#include "../geometry/field_c_boundary.hpp"
+#include "tpmshx/fluid_properties.hpp"
+#include "tpmshx/result_metrics.hpp"
+
+#include <algorithm>
+#include <array>
+#include <cstring>
+#include <cmath>
+#include <limits>
+#include <deque>
+#include <iomanip>
+#include <locale>
+#include <sstream>
+#include <string>
+#include <type_traits>
+#include <utility>
+#include <vector>
+
+namespace tpmshx::stages {
+namespace {
+using Array=tpmshx_result_array_v1;
+using Named=tpmshx_stage_named_array_v1;
+constexpr const char* labels[]{"A","B","solid"};
+constexpr const char* fluids[]{"air","water","sco2","co2"};
+constexpr const char* faces[]{"x-","x+","y-","y+","z-","z+"};
+struct ArrayStorage {
+    std::array<size_t,3> shape{};
+    std::array<ptrdiff_t,3> strides{};
+    Array value{};
+};
+struct RangeStorage {
+    std::vector<std::string> source;
+    std::vector<const char*> source_view;
+    std::string side,stage,layout,quantity,unit;
+    std::vector<size_t> shape,minimum_index,maximum_index;
+    double minimum=0.,maximum=0.;
+    tpmshx_stage_range_sample_v1 value{};
+    void finish(bool finite,size_t min_index,size_t max_index,bool captured=true) {
+        for(const auto& s:source)source_view.push_back(s.c_str());
+        value.captured=captured?1:0;value.side=side.c_str();value.stage=stage.c_str();value.layout=layout.c_str();
+        value.quantity=quantity.c_str();value.unit=unit.c_str();
+        value.constraint=!source.empty() && source[0]=="geometry"?"hard_bounds":nullptr;
+        value.source=source_view.data();value.source_count=source_view.size();
+        value.shape=shape.data();value.rank=shape.size();
+        if(captured && finite) {
+            value.minimum=&minimum;value.maximum=&maximum;
+            minimum_index.resize(shape.size());maximum_index.resize(shape.size());
+            for(size_t axis=shape.size();axis>0;--axis) {
+                const auto i=axis-1;
+                if(!shape[i])throw std::invalid_argument("captured range has an empty axis");
+                minimum_index[i]=min_index%shape[i];min_index/=shape[i];
+                maximum_index[i]=max_index%shape[i];max_index/=shape[i];
+            }
+            value.minimum_index=minimum_index.data();value.maximum_index=maximum_index.data();
+        }
+    }
+};
+struct EnergyStorage {
+    tpmshx_stage_energy_v1 view{};
+    std::array<tpmshx_stage_energy_phase_v1,3> phases{};
+    std::array<std::array<Named,6>,3> advection{},diffusion{};
+};
+struct ModelStorage {
+    tpmshx_stage_model_certificate_v1 view{};
+    std::array<std::array<Array,2>,2> power{};
+};
+std::string text(tpmshx_preparation_text_v1 value) {
+    if(!value.size)return {};
+    fields::c_api::require_buffer(value.data,value.size);
+    return {value.data,value.size};
+}
+bool inlet_stage(const std::string& value) {
+    for(const char* stage:{"inlet","inlet-preflight","prepared-df","df-application","asym-ratio",
+                          "main-inlet","richardson-inlet","fallback-inlet"})if(value==stage)return true;
+    return false;
+}
+bool final_stage(const std::string& value) {
+    for(const char* stage:{"main","main-hv","property-refresh","final","main-duty","richardson-duty",
+                          "richardson-return"})if(value==stage)return true;
+    return false;
+}
+}
+
+class Capture2D {
+public:
+    tpmshx_full_2d_result_v2 raw{};
+    tpmshx_full_2d_config_v2 resolved{};
+    tpmshx_result_evidence_v1 evidence{};
+    tpmshx_stage_capture_2d_v1 summary{};
+    std::string result_id,table_directory,envelope_mode;
+    std::vector<std::string> notices;
+    std::vector<const char*> notice_views;
+    int dimension=2,outer_index=0;
+    std::array<int,2> direction{};
+    std::deque<ArrayStorage> arrays;
+    std::deque<tpmshx_result_scalar_v1> scalars;
+    std::deque<std::vector<double>> copies;
+    std::vector<Named> main_fields,fine_fields;
+    std::vector<tpmshx_stage_field_declaration_v1> declarations;
+    std::array<tpmshx_stage_pressure_v1,2> pressures{};
+    std::array<std::array<Array,2>,2> masses{},fine_masses{};
+    std::array<EnergyStorage,2> energy;
+    std::array<ModelStorage,2> model;
+    tpmshx_stage_true_h_v1 true_h{};
+    tpmshx_stage_true_h_certificate_v1 true_h_certificate{};
+    std::array<std::array<Array,3>,2> true_h_masses{};
+    std::array<std::array<Named,6>,2> true_h_power{};
+    tpmshx_full_2d_energy_evidence_v1 energy_evidence{};
+    tpmshx_full_2d_energy_effective_settings_v1 energy_settings{};
+    int energy_version=0;
+    std::array<tpmshx_stage_model_level_v1,2> model_levels{};
+    std::array<tpmshx_stage_gate_v1,5> gates{};
+    std::array<tpmshx_stage_execution_side_v1,2> execution{};
+    tpmshx_stage_fine_v1 fine{};
+    tpmshx_full_2d_physical_heat_ledger_v1 ledgers{};
+    tpmshx_full_2d_model_enthalpy_evidence_v1 temperature{};
+    std::deque<RangeStorage> ranges;
+    std::vector<tpmshx_stage_range_sample_v1> inlet_ranges,final_ranges;
+    std::vector<tpmshx_stage_required_range_v1> required;
+    std::deque<std::array<const char*,3>> required_sources;
+    tpmshx_stage_applicability_v1 applicability{};
+
+    ~Capture2D() {tpmshx_full_2d_release_v2(&raw);}
+    template<class Value> const Array* array(const Value* data,size_t size,std::initializer_list<size_t> shape) {
+        static_assert(std::is_same_v<Value,double> || std::is_same_v<Value,uint64_t>);
+        if(shape.size()>3)throw std::invalid_argument("stage capture rank exceeds three");
+        size_t count=1;
+        for(auto n:shape)count=fields::c_api::product(count,n);
+        if(count!=size)throw std::invalid_argument("native stage evidence has an inconsistent array shape");
+        fields::c_api::require_buffer(data,size);
+        arrays.emplace_back();auto& stored=arrays.back();
+        std::copy(shape.begin(),shape.end(),stored.shape.begin());
+        size_t stride=sizeof(Value);
+        for(size_t axis=shape.size();axis>0;--axis) {
+            stored.strides[axis-1]=static_cast<ptrdiff_t>(stride);
+            stride=fields::c_api::product(stride,stored.shape[axis-1]);
+        }
+        stored.value={data,fields::c_api::product(size,sizeof(Value)),0,
+            std::is_same_v<Value,double>?TPMSHX_RESULT_F64:TPMSHX_RESULT_U64,
+            static_cast<uint32_t>(shape.size()?TPMSHX_RESULT_NUMPY_ARRAY:TPMSHX_RESULT_PYTHON_FLOAT),
+            TPMSHX_RESULT_NATIVE_ENDIAN,0,shape.size(),stored.shape.data(),stored.strides.data()};
+        return &stored.value;
+    }
+    template<class View> const Array* array(View value,std::initializer_list<size_t> shape) {
+        return array(value.data,value.size,shape);
+    }
+    const Array* copy(tpmshx_preparation_array_v1 value) {
+        fields::c_api::require_buffer(value.data,value.size);
+        copies.emplace_back(value.data,value.data+value.size);
+        return array(copies.back().data(),copies.back().size(),{value.size});
+    }
+    const Array* constant(double value) {
+        copies.emplace_back(1,value);return array(copies.back().data(),1,{});
+    }
+    const tpmshx_result_scalar_v1* scalar(double value) {
+        scalars.emplace_back();auto& s=scalars.back();
+        s.dtype=TPMSHX_RESULT_F64;s.origin=TPMSHX_RESULT_PYTHON_FLOAT;s.byte_order=TPMSHX_RESULT_NATIVE_ENDIAN;
+        std::memcpy(s.data,&value,sizeof(value));return &s;
+    }
+    void field(const char* name,tpmshx_model_h_array_v1 value,const char* unit,const char* state) {
+        main_fields.push_back({name,*array(value,{raw.main.nx,raw.main.ny})});
+        declarations.push_back({name,unit,state});
+    }
+    template<class Ledger> void make_energy(EnergyStorage& out,const Ledger& native,size_t nx,size_t ny,
+                                           const char* definition="physical_heat_ledger_v1") {
+        if(!native.available)return;
+        out.view.definition=definition;out.view.power_units="W/m";
+        out.view.physical_dimension=2;out.view.physical_boundary_complete=static_cast<int>(native.boundary_complete);
+        out.view.phases=out.phases.data();out.view.phase_count=3;
+        out.view.prescribed_b_power=constant(native.prescribed_b_power);
+        for(size_t phase=0;phase<3;++phase) {
+            auto& p=out.phases[phase];p.name=labels[phase];p.solved=static_cast<int>(native.solved[phase]);
+            if(!native.solved[phase])continue;
+            p.residual=array(native.residual[phase],{nx,ny});p.source_integral=constant(native.source_integral[phase]);
+            for(size_t face=0;face<6;++face) {
+                const std::array<size_t,2> shape=face<2?std::array<size_t,2>{ny,1}:
+                    face<4?std::array<size_t,2>{nx,1}:std::array<size_t,2>{nx,ny};
+                out.advection[phase][face]={faces[face],*array(native.advective_out[phase][face],{shape[0],shape[1]})};
+                out.diffusion[phase][face]={faces[face],*array(native.diffusive_out[phase][face],{shape[0],shape[1]})};
+            }
+            p.advective_out=out.advection[phase].data();p.advective_count=6;
+            p.diffusive_out=out.diffusion[phase].data();p.diffusive_count=6;
+        }
+    }
+    void make_temperature(EnergyStorage& out,const tpmshx_model_enthalpy_evidence_v1& native,size_t nx,size_t ny) {
+        if(native.available!=1 || native.physical_dimension!=2 || !native.algorithm)
+            throw std::runtime_error("native temperature evidence is unavailable or has the wrong dimension");
+        if(native.boundary_complete>1 || std::any_of(std::begin(native.solved),std::end(native.solved),
+                [](uint32_t value){return value>1;}))
+            throw std::runtime_error("native temperature evidence has invalid state flags");
+        for(size_t side=0;side<2;++side)if(native.solved[side])
+            for(auto value:native.cp_coefficients[side])if(!std::isfinite(value))
+                throw std::runtime_error("native temperature evidence has invalid enthalpy coefficients");
+        make_energy(out,native,nx,ny,"model_enthalpy_temperature_v1");
+    }
+    void make_model(ModelStorage& out,const tpmshx_full_2d_thermal_v2& native) {
+        const auto& audit=native.model_h.plane;
+        out.view.passed=static_cast<int>(audit.passed);out.view.physical_boundary_complete=static_cast<int>(audit.boundary_complete);
+        for(size_t side=0;side<2;++side) {
+            out.view.sides[side].physical_boundary_complete=audit.sides[side].unknown_inflow_faces==0?1:0;
+            out.power[side]={*array(audit.sides[side].h_faces[0],{native.nx+1,native.ny}),
+                             *array(audit.sides[side].h_faces[1],{native.nx,native.ny+1})};
+            out.view.sides[side].staggered_power=out.power[side].data();out.view.sides[side].staggered_count=2;
+        }
+    }
+    void make_true_h() {
+        if(tpmshx_full_2d_get_energy_effective_settings_v1(&raw,&energy_settings)
+            || tpmshx_full_2d_get_energy_evidence_v1(&raw,&energy_evidence))
+            throw std::runtime_error("native full 2D energy evidence query failed");
+        const auto& main=raw.main;const auto& settings=energy_settings.last;
+        const auto& native=energy_evidence.main;
+        if(!settings.available || native.available!=1 || native.energy.has_temperature_update!=1
+            || native.energy.algorithm!=TPMSHX_ENERGY_TEMPERATURE_SOU
+            || energy_settings.outer_count!=raw.outer_history_count
+            || energy_evidence.outer_count!=raw.outer_history_count || raw.have_fine)
+            throw std::runtime_error("native conservative energy omitted its executed state");
+        energy_version=static_cast<int>(tpmshx_energy_algorithm_version_v1(native.energy.algorithm));
+        if(energy_version!=1 && energy_version!=2)
+            throw std::runtime_error("native energy returned an unsupported algorithm version");
+        true_h.energy_algorithm="temperature_sou";true_h.energy_algorithm_version=&energy_version;
+        true_h.boundary_power_units="W/m";true_h.physical_boundary_complete=1;
+        for(size_t side=0;side<2;++side) {
+            true_h.enthalpy[side]=array(main.enthalpy[side],{main.nx,main.ny,1});
+            true_h.inlet_enthalpy[side]=scalar(main.true_h.inlet_enthalpy[side]);
+            copies.emplace_back(fields::c_api::product(fields::c_api::product(main.nx,main.ny),2),0.);
+            true_h_masses[side]={*array(main.mass_x[side],{main.nx+1,main.ny,1}),
+                *array(main.mass_y[side],{main.nx,main.ny+1,1}),
+                *array(copies.back().data(),copies.back().size(),{main.nx,main.ny,2})};
+            true_h.mass[side]=true_h_masses[side].data();true_h.mass_count[side]=3;
+            for(size_t face=0;face<6;++face) {
+                const auto shape=face<2?std::array<size_t,2>{main.ny,1}:
+                    face<4?std::array<size_t,2>{main.nx,1}:std::array<size_t,2>{main.nx,main.ny};
+                true_h_power[side][face]={faces[face],*array(native.boundary_power[side][face],{shape[0],shape[1]})};
+            }
+            true_h.boundary_power[side]=true_h_power[side].data();true_h.boundary_count[side]=6;
+        }
+        true_h_certificate.converged=static_cast<int>(raw.thermal_ok);
+        true_h_certificate.clip_counts=array(main.true_h.total_clips,2,{2});
+        true_h_certificate.tolerances[0]=scalar(settings.coupled_energy_tolerance);
+        true_h_certificate.tolerances[1]=scalar(settings.equation_energy_tolerance);
+        if(main.true_h.audit_available) {
+            true_h_certificate.ratios[0]=scalar(main.true_h.audit.coupled_ratio);
+            if(main.true_h.audit.fluid_equations_computed)
+                true_h_certificate.ratios[1]=scalar(main.true_h.audit.equation_ratio);
+        }
+        evidence.thermal.true_h=&true_h;evidence.true_h_certificate=&true_h_certificate;
+    }
+    void prepared_ranges(const tpmshx_preparation_case_2d_v1& prepared,const uint32_t* range_captured) {
+        for(size_t i=0;i<prepared.range_count;++i) {
+            const auto& r=prepared.ranges[i];ranges.emplace_back();auto& out=ranges.back();
+            for(size_t j=0;j<r.source_count;++j)out.source.push_back(text(r.source[j]));
+            out.side=text(r.side);out.stage=text(r.stage);out.layout=text(r.layout);
+            out.quantity=text(r.quantity);out.unit=text(r.unit);out.shape.assign(r.shape,r.shape+r.rank);
+            const bool captured=!range_captured || range_captured[i];
+            const auto& sample=r.sample;auto& v=out.value;
+            v.bounds[0]=r.bounds[0];v.bounds[1]=r.bounds[1];
+            if(captured) {
+                v.size=sample.size;v.low=sample.low;v.high=sample.high;v.nonfinite=sample.nonfinite;
+                out.minimum=sample.minimum;out.maximum=sample.maximum;
+            }
+            out.finish(sample.have_finite!=0,sample.minimum_index,sample.maximum_index,captured);
+            inlet_ranges.push_back(out.value);
+        }
+    }
+    void final_state_ranges() {
+        tpmshx_range_observations_view_v1 last{};
+        if(tpmshx_full_2d_get_last_closure_ranges_v1(&raw,&last))
+            throw std::runtime_error("native last closure range query failed");
+        for(size_t i=0;i<last.size;++i) {
+            const auto& r=last.data[i];const std::string stage=r.stage,view=r.view;
+            const bool inlet=inlet_stage(stage);
+            const bool final=final_stage(stage) && (view!="property_state" || stage=="final" || stage=="richardson-return");
+            if(!inlet && !final)continue;
+            ranges.emplace_back();auto& out=ranges.back();
+            const bool nu=view=="nu" || view=="nu_raw" || view=="nu_pr";
+            out.source={r.view,r.model};if(nu)out.source.emplace_back(r.topology);
+            out.side=labels[r.side];out.stage=stage;out.layout=r.layout;
+            out.quantity=view=="nu_pr"?"Pr":nu?"Re":"T";out.unit=nu?"-":"K";
+            out.shape.assign(r.shape,r.shape+r.ndim);out.minimum=r.minimum;out.maximum=r.maximum;
+            auto& v=out.value;v.bounds[0]=r.lower;v.bounds[1]=r.upper;v.size=r.size;
+            v.low=r.low;v.high=r.high;v.nonfinite=r.nonfinite;
+            out.finish(r.have_finite!=0,r.minimum_index,r.maximum_index);
+            (inlet?inlet_ranges:final_ranges).push_back(out.value);
+        }
+    }
+    void required_ranges(const char* topology) {
+        auto add=[&](const char* group,const char* side,const char* source,const char* model,const char* shape=nullptr) {
+            required_sources.push_back({source,model,shape});
+            required.push_back({group,side,required_sources.back().data(),shape?size_t{3}:size_t{2}});
+        };
+        add("inlet","shared","geometry","L_field_m");add("inlet","shared","geometry","t_field_m");
+        for(size_t side=0;side<2;++side) {
+            const auto fluid=resolved.sides[side].fluid;
+            add("inlet",labels[side],"nu",fluids[fluid],topology);
+            add("final",labels[side],"nu_raw",fluids[fluid],topology);
+            if(fluid==3)add("final",labels[side],"nu_pr",fluids[fluid],topology);
+            if(fluid<2 && raw.main.mode!=2)
+                add("final",labels[side],"property_state",fluid?"water_cp":"air_cp");
+        }
+        applicability.version="applicability_evidence_v1";applicability.inlet_recorded=1;
+        applicability.inlet=inlet_ranges.data();applicability.inlet_count=inlet_ranges.size();
+        applicability.final_state=final_ranges.data();applicability.final_count=final_ranges.size();
+        applicability.required=required.data();applicability.required_count=required.size();
+    }
+    void scope_notes(const tpmshx_preparation_case_2d_v2& prepared) {
+        const auto add=[&](std::string message) {
+            if(std::find(notices.begin(),notices.end(),message)==notices.end())notices.push_back(std::move(message));
+        };
+        for(size_t i=0;i<prepared.notice_count;++i)add(text(prepared.notices[i]));
+        for(size_t side=0;side<2;++side) {
+            const auto& observation=raw.nu_observations[side];
+            if(resolved.sides[side].fluid!=2 || !observation.available)continue;
+            std::ostringstream message;message.imbue(std::locale::classic());message<<std::setprecision(6);
+            message<<"[sCO2 Nu evidence] 2D main-hv, side="<<labels[side]<<", "
+                <<(prepared.values.input.topology?"Gyroid":"Diamond")<<", L="
+                <<prepared.values.cell_length_m*1e3<<" mm, t="<<prepared.values.wall_thickness_m*1e3
+                <<" mm; Nu uses scalar P_in="<<observation.pressure<<" Pa. "
+                "Joint qualification remains unverified: the old CFD evidence uses "
+                "heating at Twall=Tref+50 K and period-2/3 bulk properties. "
+                "The reported subset requires P>=10 MPa AND Tb>=Tpc(P)-2 K within "
+                "that campaign; Tpc, joint Pr/P/T coverage, actual wall temperature "
+                "and heating/cooling qualification are not established here. "
+                "Pressure or Re-window membership alone is not a PASS.";
+            if(observation.pressure<10e6)
+                message<<" P_in<10 MPa does not meet the subset necessary pressure condition.";
+            if(observation.pressure>15e6)
+                message<<" P_in>15 MPa exceeds the old campaign pressure envelope (8/10/12/15 MPa).";
+            add(message.str());
+        }
+        for(const auto& notice:notices)notice_views.push_back(notice.c_str());
+        applicability.scope_notes=notice_views.data();applicability.scope_note_count=notice_views.size();
+    }
+    void capture_scalars() {
+        namespace a=tpmshx::result::arithmetic;
+        namespace metrics=tpmshx::result::metrics;
+        tpmshx::result::Diagnostics diagnostics;
+        const tpmshx_full_2d_thermal_v2* thermal[]{&raw.main,raw.have_fine?&raw.fine:nullptr};
+        for(size_t level=0;level<2;++level) {
+            if(!thermal[level])continue;
+            const auto& t=*thermal[level];
+            const auto cells=fields::c_api::product(t.nx,t.ny);
+            summary.red_black[level]=resolved.red_black && cells>30000;
+            if(t.mode==1) {
+                summary.model_h_available[level]=1;summary.model_h_cell_count[level]=cells;
+                const tpmshx::result::Array dx(*array(t.dx,{t.nx})),dy(*array(t.dy,{t.ny}));
+                summary.model_h_area_m2[level]=metrics::capture_area(dx,dy,diagnostics);
+            }
+        }
+        summary.pressure_available=raw.main.mode==2;
+        for(size_t side=0;side<2;++side) {
+            const auto& nu=raw.nu_observations[side];summary.nu_available[side]=nu.available;
+            if(nu.available) {
+                if(!nu.cells)throw std::runtime_error("native Nu observation has no cells");
+                summary.nu_floor[side]=nusselt_floor(static_cast<Fluid>(resolved.sides[side].fluid));
+                summary.nu_floor_fraction[side]=static_cast<double>(nu.floor_cells)/static_cast<double>(nu.cells);
+            }
+            if(summary.pressure_available) {
+                const tpmshx::result::Array pressure(*array(raw.main.pressure[side],{raw.main.nx,raw.main.ny}));
+                summary.pressure_min_Pa[side]=a::to_float(a::minimum(pressure,diagnostics));
+                summary.pressure_max_Pa[side]=a::to_float(a::maximum(pressure,diagnostics));
+            }
+            summary.absolute_duty[side]=metrics::duty_magnitude(raw.duty[side]);
+            if(std::isfinite(raw.duty[side]))summary.have_finite_duty=1;
+            const auto clips=raw.flow[side].result.pressure_clip_hits;
+            if(clips>std::numeric_limits<size_t>::max()-summary.pressure_clip_hits)
+                throw std::overflow_error("native pressure clip count exceeds size_t");
+            summary.pressure_clip_hits+=clips;
+        }
+        summary.q_net=a::python_float_sum({raw.duty[0],raw.duty[1]});
+    }
+    void populate(const tpmshx_preparation_case_2d_v1& p,const uint32_t* range_captured) {
+        auto& e=evidence;const auto& main=raw.main;
+        if(main.mode>2)throw std::invalid_argument("stage returned an unsupported thermal mode");
+        for(const auto& side:resolved.sides)
+            if(side.fluid>3)throw std::invalid_argument("uniform stage returned an invalid fluid");
+        e.abi_version=TPMSHX_RESULT_STAGE_ABI_VERSION;e.struct_size=sizeof(e);e.result_id=result_id.c_str();
+        e.dimension=2;e.metadata_dimension=&dimension;e.quantity_basis="per_unit_depth";e.mass_unit="kg/(s m)";
+        e.mode="full";e.thermal_mode=main.mode==2?"conservative_energy":main.mode==1?"model_h":"temperature";
+        e.thermal_state="last main thermal input";
+        e.execution="completed";e.converged=static_cast<int>(raw.converged);outer_index=static_cast<int>(raw.iterations)-1;e.outer_index=&outer_index;
+        e.grid.widths[0]=array(main.dx,{main.nx});e.grid.widths[1]=array(main.dy,{main.ny});
+        for(size_t i=0;i<3;++i)field(i==0?"Ta":i==1?"Tb":"Ts",main.temperature[i],"K","raw last main thermal return");
+        for(size_t side=0;side<2;++side) {
+            field(side?"P_thermal_B":"P_thermal_A",main.pressure[side],"Pa","last thermal input");
+            field(side?"P_report_B":"P_report_A",raw.flow[side].absolute_pressure,"Pa","final flow/report");
+            field(side?"h_vB":"h_vA",main.hv[side],"W/(m3 K)","last thermal input");
+        }
+        field("K_ss",main.solid_conductivity,"W/(m K)","last thermal input");
+        for(size_t i=0;i<3;++i)field(i==0?"Ta_display":i==1?"Tb_display":"Ts_display",main.temperature[i],"K","display");
+        for(size_t side=0;side<2;++side) {
+            field(side?"P_fB_display":"P_fA_display",raw.flow[side].absolute_pressure,"Pa","display");
+            field(side?"ucB":"ucA",raw.flow[side].uc,"m/s","final flow/report");
+            field(side?"vcB":"vcA",raw.flow[side].vc,"m/s","final flow/report");
+        }
+        e.fields=main_fields.data();e.field_count=main_fields.size();e.field_metadata=declarations.data();e.field_metadata_count=declarations.size();
+        e.split_a=scalar(p.split_a);e.parameter_epsilon=array(main.epsilon,{main.nx,main.ny});e.design_epsilon=e.parameter_epsilon;
+        for(size_t side=0;side<2;++side) {
+            const auto& s=p.sides[side];const auto& flow=raw.flow[side];direction[side]=s.inlet.port.direction;
+            e.direction[side]=&direction[side];e.inlet_temperature[side]=scalar(s.inlet.temperature_K);
+            e.inlet_geom_fraction[side]=copy(s.inlet_geometry);e.outlet_geom_fraction[side]=copy(s.outlet_geometry);
+            if(main.mode!=2)e.rho_cp[side]=array(main.rho_cp[side],{main.nx,main.ny});
+            masses[side]={*array(main.mode!=1?main.mass_x[side]:flow.mass_x,{main.nx+1,main.ny}),
+                          *array(main.mode!=1?main.mass_y[side]:flow.mass_y,{main.nx,main.ny+1})};
+            e.thermal.mass[side]=masses[side].data();e.thermal.mass_count[side]=2;
+            auto& pressure=pressures[side];pressure.pressure=array(flow.pressure,{flow.dx.size,flow.dy.size});
+            pressure.grid.widths[0]=array(flow.dx,{flow.dx.size});pressure.grid.widths[1]=array(flow.dy,{flow.dy.size});
+            pressure.inlet_fraction=array(main.inlet_profile[side],{main.inlet_profile[side].size});
+            pressure.outlet_fraction=array(main.outlet_profile[side],{main.outlet_profile[side].size});
+            pressure.outlet_geom_fraction=e.outlet_geom_fraction[side];pressure.reference=scalar(flow.reference_pressure);
+            pressure.unit="Pa";e.pressure[side]=&pressure;e.active_fluids[side]=1;
+            execution[side]={labels[side],fluids[resolved.sides[side].fluid],1};
+        }
+        if(main.mode==0) {
+            if(tpmshx_full_2d_get_model_enthalpy_evidence_v1(&raw,&temperature))
+                throw std::runtime_error("native full 2D temperature evidence query failed");
+            make_temperature(energy[0],temperature.main,main.nx,main.ny);
+            e.thermal.temperature=&energy[0].view;e.temperature_transport="model_enthalpy_temperature_v1";
+        } else {
+            if(tpmshx_full_2d_get_physical_heat_ledger_v1(&raw,&ledgers))
+                throw std::runtime_error("native full 2D heat ledger query failed");
+            make_energy(energy[0],ledgers.main,main.nx,main.ny);if(ledgers.main.available)e.thermal.energy=&energy[0].view;
+            if(main.mode==2)make_true_h();
+            else {
+                make_model(model[0],main);e.thermal.model_h=&model[0].view;model_levels[0]={"main",model[0].view};
+                e.model_certificates=model_levels.data();e.model_certificate_count=1;
+            }
+        }
+        e.model_active_b=-1;
+        e.richardson_extrapolated=raw.have_fine?static_cast<int>(raw.fine_extrapolated):-1;
+        if(raw.have_fine) {
+            const auto& f=raw.fine;fine.grid.widths[0]=array(f.dx,{f.nx});fine.grid.widths[1]=array(f.dy,{f.ny});
+            for(size_t i=0;i<3;++i)fine_fields.push_back({i==0?"Ta":i==1?"Tb":"Ts",*array(f.temperature[i],{f.nx,f.ny})});
+            for(size_t side=0;side<2;++side) {
+                fine_fields.push_back({side?"ucB":"ucA",*array(f.uc[side],{f.nx,f.ny})});
+                fine_fields.push_back({side?"vcB":"vcA",*array(f.vc[side],{f.nx,f.ny})});
+                fine.rho_cp[side]=array(f.rho_cp[side],{f.nx,f.ny});
+                fine.inlet_fraction[side]=array(f.inlet_profile[side],{f.inlet_profile[side].size});
+                fine.outlet_fraction[side]=array(f.outlet_profile[side],{f.outlet_profile[side].size});
+            }
+            fine.fields=fine_fields.data();fine.field_count=fine_fields.size();fine.epsilon=array(f.epsilon,{f.nx,f.ny});
+            if(f.mode==0) {
+                make_temperature(energy[1],temperature.fine,f.nx,f.ny);fine.thermal.temperature=&energy[1].view;
+                for(size_t side=0;side<2;++side) {
+                    fine_masses[side]={*array(f.mass_x[side],{f.nx+1,f.ny}),*array(f.mass_y[side],{f.nx,f.ny+1})};
+                    fine.thermal.mass[side]=fine_masses[side].data();fine.thermal.mass_count[side]=2;
+                }
+            } else {
+                make_energy(energy[1],ledgers.fine,f.nx,f.ny);if(ledgers.fine.available)fine.thermal.energy=&energy[1].view;
+                make_model(model[1],f);fine.thermal.model_h=&model[1].view;model_levels[1]={"fine",model[1].view};
+                e.model_certificate_count=2;
+            }
+            e.fine=&fine;
+        } else {
+            // Preserve the recorded empty fine ledger when Richardson did not run.
+            fine.empty_record=1;e.fine=&fine;
+        }
+        gates={{{"simple_ok",static_cast<int>(raw.simple_ok),nullptr,nullptr},{"ltne_ok",static_cast<int>(raw.thermal_ok),nullptr,nullptr},
+            {"outer_converged",static_cast<int>(raw.outer_converged),nullptr,nullptr},
+            {"richardson_ok",raw.have_fine?(raw.fine.stop==0 && raw.fine_extrapolated?1:0):-1,nullptr,nullptr},
+            {"envelope_ok",static_cast<int>(raw.envelope_ok),nullptr,nullptr}}};
+        e.convergence_gates=gates.data();e.convergence_gate_count=gates.size();
+        e.execution_version="full_execution_v1";e.executed_sides=execution.data();e.executed_side_count=2;
+        prepared_ranges(p,range_captured);final_state_ranges();required_ranges(p.input.topology?"Gyroid":"Diamond");e.applicability=&applicability;
+    }
+};
+
+Capture2D* capture_2d(const tpmshx_preparation_case_2d_v1& prepared,
+    tpmshx_full_2d_result_v2& raw,const tpmshx_full_2d_config_v2& resolved,const char* result_id,
+    const tpmshx_preparation_case_2d_v2* uniform,bool inlet_recorded,const uint32_t* range_captured) {
+    auto owner=std::make_unique<Capture2D>();owner->raw=raw;raw={};owner->resolved=resolved;
+    owner->result_id=result_id;
+    if(resolved.table_directory) {owner->table_directory=resolved.table_directory;owner->resolved.table_directory=owner->table_directory.c_str();}
+    if(resolved.envelope_mode) {owner->envelope_mode=resolved.envelope_mode;owner->resolved.envelope_mode=owner->envelope_mode.c_str();}
+    owner->populate(prepared,range_captured);owner->capture_scalars();
+    owner->applicability.inlet_recorded=inlet_recorded?1:0;
+    if(uniform)owner->scope_notes(*uniform);
+    return owner.release();
+}
+tpmshx_stage_run_result_2d_v1 stage_view(Capture2D& owner) {
+    return {TPMSHX_STAGE_RUN_ABI_VERSION,sizeof(tpmshx_stage_run_result_2d_v1),&owner,owner.raw,owner.evidence,owner.resolved};
+}
+void release_capture_2d(Capture2D* owner) noexcept {delete owner;}
+}  // namespace tpmshx::stages
+
+extern "C" int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_get_capture_v1(
+    const tpmshx_stage_run_result_2d_v1* result,const tpmshx_stage_application_2d_v1* application,
+    tpmshx_stage_capture_2d_v1* output) {
+    namespace boundary=tpmshx::fields::c_api;
+    try {
+        boundary::require_buffer(result,1);boundary::require_buffer(application,1);boundary::require_buffer(output,1);
+        const auto overlaps=[](const void* first,size_t first_size,const void* second,size_t second_size) {
+            const auto a=reinterpret_cast<uintptr_t>(first),b=reinterpret_cast<uintptr_t>(second);
+            return a<=b+second_size-1 && b<=a+first_size-1;
+        };
+        if(overlaps(result,sizeof(*result),output,sizeof(*output))
+            || overlaps(application,sizeof(*application),output,sizeof(*output))
+            || overlaps(result,sizeof(*result),application,sizeof(*application)))return 1;
+        if(result->abi_version!=TPMSHX_STAGE_RUN_ABI_VERSION || result->struct_size!=sizeof(*result) || !result->owner)return 1;
+        const auto& owner=*static_cast<const tpmshx::stages::Capture2D*>(result->owner);
+        auto value=owner.summary;
+        for(size_t side=0;side<2;++side) {
+            const auto area=application->area_density_per_m[side],htc=application->surface_htc_W_m2K[side];
+            if(area<0. || htc<0.)return 1;
+            value.application_hv[side]=area*htc;
+        }
+        *output=value;return 0;
+    } catch(const std::invalid_argument&) {return 1;}
+    catch(...) {return 5;}
+}

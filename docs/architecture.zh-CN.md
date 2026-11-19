@@ -48,7 +48,7 @@ Python 选择 dtype 元数据并适配输出类型，不提供数值回退。
 独立 result ABI 2 负责指标、物理平衡、分区统计及数值检查。
 实现范围与交付记录见[C++ 范围](cpp-migration.zh-CN.md#cpp-core-scope)。
 
-准备目标位于 `solvers/native/preparation/`，复用几何／网格核心及 `fluid_properties.cpp` 的共享数值所有者。
+准备目标位于 `preprocess/`，复用几何／网格核心及 `fluid_properties.cpp` 的共享数值所有者。
 它链接锁定的 CoolProp 静态库，不包含完整求解器、run_state、SuperLU 或 AMG。
 `shared/models/_native_preparation.py` 按需加载预构建库，由具名物性、DF 和流量适配器打包具体输入。
 几何 ABI 1 与 field ABI 2 保留各自错误协议。
@@ -73,7 +73,7 @@ Windows 准备库使用原锁定的 Windows 归档。
 各库构建身份与按版本隔离的物性表缓存保持独立。
 旧检查点仍须精确匹配的求解运行库、准备态输入与控制量。
 构建和运行路径见[原生准备核心](cpp-migration.zh-CN.md#native-preparation-core)。
-结果目标位于 `solvers/native/result/`，只使用 C++17 与系统库，不依赖求解状态或模型资源。
+结果目标位于 `postprocess/`，只使用 C++17 与系统库，不依赖求解状态或模型资源。
 具名指标、平衡与检查核心保留独立场归约及原始运算顺序。
 `shared/_native_result.py` 按需加载预构建库；导入与纯 HDF/JSON 读取不加载该库。
 Python 保留 DTO、类型／shape 适配、NumPy 事件和应用显示。
@@ -82,7 +82,7 @@ Python 保留 DTO、类型／shape 适配、NumPy 事件和应用显示。
 失败不提交数值输出；有序浮点事件继续使用调用方的 NumPy 错误策略。
 只有已证实的 Python 专用转换点保留显式对象及任意精度整数协议。
 缺库、缺符号及 ABI 不符仍为部署错误，不使用数值回退。
-[结果来源说明](../sjtu_tpmshx/solvers/native/result/sources.md)定义接口及数值来源。
+[结果来源说明](../postprocess/sources.md)定义接口及数值来源。
 结果单独发布不构建求解器、run_state、CoolProp 或生成系数。
 Linux x86_64 支持独立结果评估；完整求解器仍支持 macOS arm64 与 Windows x64。
 
@@ -320,7 +320,7 @@ CO2 和 sCO2 在滞后的温度场及入口压力下使用局部物性。
 `ThermalRun` 持有温度场、活动能量驱动和热续算状态。
 两者共用一个 `TransportProperties`，保存入口物性和已采样的输运值。
 `RangeRecorder` 记录模型范围，单独的函数整理最终结果证据。
-两维度通过 `sjtu_tpmshx/solvers/native/src/closure_ranges.hpp` 共用物性和 Nu 范围描述。
+两维度通过 `solver/closure_ranges.hpp` 共用物性和 Nu 范围描述。
 各调用方保留物性选择、采样阶段、数组布局和观察记录顺序。
 完整运行的阶段控制器保留外层更新顺序和回调顺序。
 各所有者将状态写入既有 `Full3DRunState` 字段。
@@ -490,13 +490,13 @@ CLI 退出码仍表示各阶段是否成功，设计状态需单独读取。
 
 ## 运行流程
 
-全部核心源码位于 `sjtu_tpmshx/`。包顶 `compute.py` 是主计算入口。
+Python 应用位于 `sjtu_tpmshx/`。包顶 `compute.py` 是主计算入口。
 `preprocess/`、`solvers/` 和 `postprocess/` 分别负责三个计算阶段。
 `shared/` 负责数据契约、模型、文件接口和资源；`applications/` 负责 GUI、CLI、设计、优化和恢复。
 `development/` 保留 tests、validation、runs 三类。
 包顶 `main.py`、`cli.py` 和 `desktop.py` 保留短启动入口；
 GUI 实现在 `applications/gui/main.py`，CLI 实现在 `applications/cli/main.py`。
-`solvers/native/` 保存 C++ 源码、C ABI、构建文件、原生调用测试和许可声明；`solvers/backends/cpp/` 保存 Python 绑定。
+根目录的 `preprocess/`、`solver/`、`postprocess/` 分别保存 C++ 前处理、求解和后处理。头文件位于 `include/tpmshx/`，原生调用测试位于 `tests/cpp/`。`solvers/backends/cpp/` 保存 Python 绑定。
 根 `engineering/` 保存构建脚本、打包配置和依赖锁，`docs/contracts/` 保存数据契约，`.github/workflows/` 保存 CI 配置。
 
 `shared/`、`applications/` 和 `development/` 是阅读分组，不合并依赖层。
@@ -635,7 +635,7 @@ Sigmoid LUT 节点使用原生 raw 几何生成；线性 LUT 插值现由原生�
 保存的 `parameters.thermal_geometry` 字段及其校验保持不变。
 固体热导率保留共享 chi 规则及显式值、环境变量的覆盖优先级。
 Python 每次调用依次解析显式 chi、当前 `TPMSHX_CHI_S`，再选择原生拟合；缓存几何不冻结材料覆盖值。
-独立 `solvers/native/geometry/` CMake 目标不需要求解器或 EOS 依赖。
+独立 `geometry/` CMake 目标不需要求解器或 EOS 依赖。
 库路径与发布见[几何构建和交付](cpp-migration.zh-CN.md#native-geometry-core)。
 修改 C++ 函数或编入库的模型数据后，须重新构建并重启进程。
 历史结果读取和独立后处理不加载几何库；旧检查点保留精确匹配的求解运行库，几何单独发布不替换它。
@@ -683,7 +683,7 @@ LUT 对象保留捕获的轴／表引用及创建库，查询缓冲区仅在调�
 已替换的 Python 插值、重叠、分区与滤波数值体已退役，独立参考保留在 `development/tests/`。
 Python 保留 DTO、NPZ／缓存 I/O、校验、GUI 和 BO 编排。
 本批不提供数值回退或运行时进入 Python 的数值回调。
-网格与设计场使用同一几何运行库，不增加分发库或数值框架。来源和许可义务见[固定来源与本地修改](../sjtu_tpmshx/solvers/native/geometry/fields-sources.md)。
+网格与设计场使用同一几何运行库，不增加分发库或数值框架。来源和许可义务见[固定来源与本地修改](../geometry/fields-sources.md)。
 
 连续场每轴至少一个控制点。单点位于域中面，该轴保持恒定；其他轴的实际阶数为
 `min(spline_order, control_count - 1)`。每轴至少两点的既有 XY 场保留原双变量样条。
@@ -806,7 +806,7 @@ FieldResult 包含原生场位置／单位、原通量和压力证据、执行�
 
 完整热指标使用 `native_boundary_v1`：Q 为 A 侧主网格边界热损失绝对值，Q_A/Q_B 为有符号热损失，放热为正。能量不平衡用同一原生侧热量。出口温度按向外为正的有符号热质量通量加权原主热温度；质量流量报告热边界总流入。二维 Richardson 热量单独命名 `Q_richardson_A/B`，不替代主 Q，额外求解及物理／收敛检查继续生效。
 
-完整压降采用 `pressure_face_v1`：最终 SIMPLE 压力外推到物理进出口面，再按几何开口面积加权。两维共享归约。空气入口校正也用这些面：迭代出口单元锚点，使入口开口面积均压与指定绝压相对误差不超过 `1e-4`。两维共享 `sjtu_tpmshx/solvers/native/src/pressure_reference.cpp` 的压力初始化和有界 P² 更新。
+完整压降采用 `pressure_face_v1`：最终 SIMPLE 压力外推到物理进出口面，再按几何开口面积加权。两维共享归约。空气入口校正也用这些面：迭代出口单元锚点，使入口开口面积均压与指定绝压相对误差不超过 `1e-4`。两维共享 `numerics/pressure_reference.cpp` 的压力初始化和有界 P² 更新。
 
 高于既有压力下限的正一维估计用作初始出口单元锚点；等温估计不可用时从指定入口压力开始。向下更新至多消耗当前到面／单元压力下限的剩余平方压力距离的一半，然后重算耦合流动。原提案、接受步长和初始化方法保留在入口状态的 `iterations`。这些数值选择不决定物理有效性。
 
@@ -934,7 +934,7 @@ full 2D v6 和 full 3D v5 在不改变结果布局的情况下接收线程预算
 这些约束保护已有证据支持的求解行为。只有显式数值模型变更，并配套直接相关验证，才能修改。
 
 1. **可压缩空气。** 空气采用理想气体密度路径，不能替换成常密度或等温捷径。
-2. **孔隙率只分配一次。** 对称 LTNE 调用方传完整孔隙率，由能量求解器生成两个半孔隙率流体。偏移等值面由上游 `solvers/native/src/preparation_case.cpp` 计算 eps_A/eps_B，两者和为总孔隙率，核不再减半。各侧有效导热率为 `K_ff_i = eps_i * k_i`。对称准备系数因此为 `eps_total/2 * k_i`；偏移因子 `2*split_i` 只应用一次。已有准备态文件保留冻结系数；重新准备原配置才能得到修正值，不改历史输入／结果。
+2. **孔隙率只分配一次。** 对称 LTNE 调用方传完整孔隙率，由能量求解器生成两个半孔隙率流体。偏移等值面由上游 `preprocess/preparation_case.cpp` 计算 eps_A/eps_B，两者和为总孔隙率，核不再减半。各侧有效导热率为 `K_ff_i = eps_i * k_i`。对称准备系数因此为 `eps_total/2 * k_i`；偏移因子 `2*split_i` 只应用一次。已有准备态文件保留冻结系数；重新准备原配置才能得到修正值，不改历史输入／结果。
 3. **质量通量入口。** 可压缩空气在两维均用质量通量入口。求解器速度为孔隙速度，不是表观速度。三维质量不平衡诊断按局部孔隙率积分有符号入口、出口通量，与 SIMPLE 连续方程一致；非均匀孔隙率场不能用未乘孔隙率的积分判断质量守恒。
 4. **Darcy–Forchheimer 归属。** `shared.df_surrogate.predict_K_cF()` 是纯几何基底，全部流体和两侧共用一张水＋sCO2 CFD 表。K0/cF0 只依赖拓扑、L、t，在 4–8 mm × 0.3–0.6 mm 内双线性插值，与 Re 和流体无关。UI 只有两个生产模式：光滑壁 CFD 是通用 ComputeConfig 默认并兼容 V2；内置上海预设默认实验标定，保存输入保留选择，旧文件缺少选择项时保持 CFD。实验标定在流水线组装后、压力初始化／SIMPLE 前，各侧应用一次经审查的固定有效修正；求解期间 K/cF 固定。选择的数据集必须匹配试验批次、边界、压降定义和几何。它不能证明流体固有 D-F 物理差异。修正可能吸收测压点、缩扩口、集流／分配区、整机损失、流动面积／通道数定义、仪表零点和数据减缩；这些贡献未单独建模。没有同装置比较时不能归因于流体。旧 `gamma_df` 和 `rbf` 研究模式已退役，显式选择会报错。代码、表和结果见[历史索引](history/legacy-models.md)。
 5. **Nusselt 归属。** 空气、水、sCO2 基础式位于 `shared/models/nu_correlations.py`。唯一现行 sCO2 有效参数资源为 `shared/configs/sco2_effective_nu.json`，由 `sco2_effective_nu_config()` 返回校验后的 Sco2NuConfig。保留字段 alpha_D/alpha_G 表示总 Ceff，在最终 Nu 下限前只乘当前基础式一次；没有额外 beta 或输出 Q 缩放。通用 cfd_smooth 默认和本次保存参数不变。显式选择才加载当前资源；旧 Case 重放记录值。退役实验 gamma 助手和环境开关不是第二条路线。证据见[模型资源](model-resources.md#sco2-有效-nu-系数)。完整两维通过 `shared/models/local_heat_transfer.local_speed` 重算各侧局部标量 Re/Nu，速度为当前单元孔隙速度模 `sqrt(uc² + vc² [+ wc²])`。不得只取固定入口轴分量或再乘孔隙率。有符号法向分量仍负责质量／焓面通量。真正低速保留现有 Re/Nu 下限。入口范围观测保留，首次局部刷新前不再存冗余 bulk h_v。给定速度近似模式保留原定义。在转弯流中局部应用整体拟合标量 Nu 仍是模型假设，与速度一致性要求不同。见[实现与配对验证](history/README.md#2026-09-18-历史材料整理)。

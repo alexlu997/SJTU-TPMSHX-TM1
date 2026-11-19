@@ -71,10 +71,11 @@ def test_preparation_build_checks_role_and_uses_only_standalone_target(preparati
             str(generated/'model_coefficients.hpp'), '--df-output', str(generated/'preparation_df_data.hpp')) in commands
     configure, = (command for command in commands if '-S' in command)
     assert configure[0] == str(cmake)
-    assert configure[configure.index('-S')+1] == str(root/'sjtu_tpmshx/solvers/native/preparation')
+    assert configure[configure.index('-S')+1] == str(root/'preprocess')
     assert configure[configure.index('-B')+1] == str(cache/'build'/('preparation-'+host))
     assert f'-DTPMSHX_COOLPROP_LIBRARY={library}' in configure
-    assert not any('dependency-pilot' in value or 'SuperLU' in value for value in configure)
+    assert str(root/'solver') not in configure
+    assert not any('SuperLU' in value for value in configure)
     build, = (command for command in commands if '--build' in command)
     assert build[build.index('--build')+1] == str(cache/'build'/('preparation-'+host))
 
@@ -100,9 +101,9 @@ def test_pilot_build_keeps_solver_archive_and_builds_preparation_separately(prep
     configure = [command for command in commands if '-S' in command]
     assert len(configure) == 2
     for command, name, source, role in zip(configure, ('pilot', 'preparation'),
-            ('dependency-pilot', 'preparation'), ('solver', 'preparation')):
+            ('solver', 'preprocess'), ('solver', 'preparation')):
         assert command[command.index('-B')+1] == str(cache/'build'/f'{name}-{host}')
-        assert command[command.index('-S')+1] == str(root/'sjtu_tpmshx/solvers/native'/source)
+        assert command[command.index('-S')+1] == str(root/source)
         assert f'-DTPMSHX_COOLPROP_LIBRARY={native.coolprop_library(cache, host, role)}' in command
     solver_library = native.coolprop_library(cache, host, 'solver')
     assert (solver_library == preparation_library) is (host == 'windows-x64')

@@ -54,7 +54,7 @@ Independent preparation ABI 1 calculates properties, closures, DF, corrections, 
 Independent result ABI 2 calculates metrics, physical balances, zone statistics and numerical checks.
 See [C++ scope and delivery records](cpp-migration.md#cpp-core-scope).
 
-The preparation target is `solvers/native/preparation/`. It reuses the geometry/grid core and the shared `fluid_properties.cpp` numerical owner.
+The preparation target is `preprocess/`. It reuses the geometry/grid core and the shared `fluid_properties.cpp` numerical owner.
 It links the locked CoolProp static library, without full solvers, run_state, SuperLU or AMG.
 `shared/models/_native_preparation.py` loads the prebuilt library on demand. Concrete property, DF and flow adapters pack named inputs.
 Geometry ABI 1 and field ABI 2 retain their separate status contracts.
@@ -81,7 +81,7 @@ Archive build records keep the actual compiler, compile fragments and SDK source
 Library build identities remain separate from versioned property-table caches.
 Old checkpoints still need their exact solver runtime, prepared inputs and controls.
 See [preparation builds and runtime paths](cpp-migration.md#native-preparation-core).
-The result target is `solvers/native/result/`. It uses C++17 and system libraries without solver state or model resources.
+The result target is `postprocess/`. It uses C++17 and system libraries without solver state or model resources.
 Named metric, balance and check kernels preserve independent field reductions and their original operation order.
 `shared/_native_result.py` loads the prebuilt image on demand. Imports and pure HDF/JSON reads do not load it.
 Python keeps DTOs, type and shape adaptation, NumPy events and application display.
@@ -90,7 +90,7 @@ Typed byte views preserve integer storage, extended precision, byte order and si
 Failure does not commit numerical outputs. Ordered floating-point events retain the caller's NumPy error policy.
 Explicit object and arbitrary integer protocols remain only at demonstrated Python-only conversion points.
 Missing libraries, symbols and incompatible ABIs remain deployment errors, with no numerical fallback.
-The [result source record](../sjtu_tpmshx/solvers/native/result/sources.md) defines the interface and numerical sources.
+The [result source record](../postprocess/sources.md) defines the interface and numerical sources.
 Separate result publication builds no solver, run_state, CoolProp or generated coefficients.
 Linux x86_64 supports independent result evaluation. Full-solver platforms remain macOS arm64 and Windows x64.
 
@@ -362,7 +362,7 @@ The native 3D `Runtime` coordinates separate internal owners.
 `ThermalRun` owns the thermal fields, active energy driver and thermal continuation state.
 Both use one `TransportProperties` owner for inlet properties and sampled transport values.
 `RangeRecorder` records model limits. A separate function assembles final result evidence.
-Both dimensions use `sjtu_tpmshx/solvers/native/src/closure_ranges.hpp` for property and Nu range descriptors.
+Both dimensions use `solver/closure_ranges.hpp` for property and Nu range descriptors.
 Each caller keeps its property selection, sampling stage, array layout and observation order.
 The full-run phase controller keeps the outer update order and callback sequence.
 Each owner copies its state to the existing `Full3DRunState` fields.
@@ -580,13 +580,13 @@ The former optimizer-only energy evaluator is now part of common postprocessing.
 
 ## Runtime flow
 
-All core source is in `sjtu_tpmshx/`. Package-level `compute.py` is the main computation entry.
+The Python application is in `sjtu_tpmshx/`. Package-level `compute.py` is the main computation entry.
 `preprocess/`, `solvers/` and `postprocess/` own the three computation stages.
 `shared/` owns data contracts, models, file interfaces and resources. `applications/` owns GUI, CLI, design, optimization and recovery.
 `development/` keeps tests, validation and runs as three separate groups.
 The package-level `main.py`, `cli.py` and `desktop.py` keep short startup entries.
 `applications/gui/main.py` implements the GUI. `applications/cli/main.py` implements the CLI.
-`solvers/native/` keeps C++ source, C ABI, build files, caller tests and license notices. `solvers/backends/cpp/` contains Python bindings.
+The root `preprocess/`, `solver/` and `postprocess/` directories contain the C++ stages. C/C++ headers are in `include/tpmshx/`. External caller tests are in `tests/cpp/`. `solvers/backends/cpp/` contains Python bindings.
 Root `engineering/` holds build scripts, packaging and dependency locks. `docs/contracts/` holds data contracts. `.github/workflows/` contains CI configuration.
 
 `shared/`, `applications/` and `development/` group source for reading; they do not combine dependency layers.
@@ -1066,7 +1066,7 @@ Saved `parameters.thermal_geometry` fields and their validation remain unchanged
 Solid conductivity retains the shared chi rule and its explicit and environment overrides.
 Python resolves explicit chi, then the current `TPMSHX_CHI_S`, then the native fit on each call.
 Cached geometry does not freeze a material override.
-The independent `solvers/native/geometry/` CMake target needs no solver or EOS dependencies.
+The independent `geometry/` CMake target needs no solver or EOS dependencies.
 See [geometry build and deployment](cpp-migration.md#native-geometry-core) for library paths and publication.
 Changing C++ functions or compiled model data requires a rebuild and process restart.
 Historical result reading and offline postprocessing do not load the geometry library.
@@ -1117,7 +1117,7 @@ Replaced Python interpolation, overlap, zone and filter bodies are retired. Inde
 Python retains DTOs, NPZ/cache I/O, validation, GUI and BO orchestration.
 There is no numerical fallback or numerical callback into Python.
 Grids and design fields use the same geometry runtime. They add no distributed library or numerical framework.
-See the [fixed sources and local changes](../sjtu_tpmshx/solvers/native/geometry/fields-sources.md) for provenance and license duties.
+See the [fixed sources and local changes](../geometry/fields-sources.md) for provenance and license duties.
 
 Each continuous-field axis accepts at least one control. A singleton is
 recorded at the domain midpoint and stays constant along that axis. Other
@@ -1565,7 +1565,7 @@ area. Both dimensions share the same reduction. Air inlet-pressure correction al
 The outlet-cell
 anchor is iterated until the inlet open-area mean meets the specified absolute
 pressure within `1e-4` relative error. Both dimensions share pressure initialization and a bounded
-P-squared update in `sjtu_tpmshx/solvers/native/src/pressure_reference.cpp`. A positive 1D estimate above
+P-squared update in `numerics/pressure_reference.cpp`. A positive 1D estimate above
 the existing pressure floor is used as the initial outlet-cell anchor. An unusable isothermal estimate starts at the
 specified inlet pressure. Downward
 updates consume at most half the remaining squared-pressure distance to the
@@ -1952,7 +1952,7 @@ explicit numerical-model change with directly relevant validation.
    with a constant-density or isothermal shortcut.
 2. **Porosity is split one time.** Symmetric LTNE callers pass the full porosity.
    The energy solver forms the two half-porosity streams. For an offset
-   isosurface, `solvers/native/src/preparation_case.cpp` computes the upstream `eps_A`/`eps_B`
+   isosurface, `preprocess/preparation_case.cpp` computes the upstream `eps_A`/`eps_B`
    split. Its sides sum to the full porosity. The kernel does not halve those
    values again.
 

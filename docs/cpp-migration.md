@@ -56,19 +56,19 @@ The independent geometry core calculates standard, CO2 and asymmetric geometry, 
 Sigmoid LUT nodes and derived geometry also use this core.
 The same core calculates grids, ports, six-direction axis maps, continuous XY/XYZ fields, sigmoid, linear LUTs, zones and Gaussian filtering.
 The same `tpmshx_geometry_shared` file provides these calculations. There is no extra runtime library or numerical framework.
-The numerical sources remain under `sjtu_tpmshx/solvers/native/`.
+The numerical geometry source is in [geometry](../geometry/).
 `shared/models/_native_geometry.py` uses ctypes to load the independent geometry ABI 1 library on demand.
 Python keeps public types, caches and per-call explicit/environment/fit selection for chi.
 Missing libraries, incorrect ABI or missing symbols fail explicitly. There is no numerical fallback or runtime build.
 
-The independent CMake project is `sjtu_tpmshx/solvers/native/geometry/`.
+The independent CMake project is `geometry/`.
 Its `tpmshx_geometry_shared` target uses the C++ standard library, the marching-cubes port and a restricted C17 FITPACK subset.
 It needs no CoolProp, SuperLU, AMGCL, Eigen or solver runtime.
 The full dependency pilot includes the same target.
 The independent cores below calculate preparation and results. See the [implementation and retirement scope](#cpp-core-scope).
 
 The [architecture](architecture.md#native-grids-and-design-fields) defines numerical ownership, types and buffer lifetimes.
-The [field source record](../sjtu_tpmshx/solvers/native/geometry/fields-sources.md) identifies fixed sources, local changes and BSD notices.
+The [field source record](../geometry/fields-sources.md) identifies fixed sources, local changes and BSD notices.
 XY keeps the first-fit `s=0` bivariate route. XYZ and singleton XY axes keep sequential one-dimensional fits and samples.
 The scalar band solver does not claim bitwise LAPACK/BLAS identity. Existing raw and physical-polynomial gates remain unchanged.
 Local XY and Apple-arm64 Gaussian fusion settings do not enable global fast-math.
@@ -134,7 +134,7 @@ Desktop packaging requires all four prebuilt inputs; see [desktop delivery](desk
 ## Native preparation core
 
 The independent preparation core calculates properties, Nu closures, fixed DF, experiment corrections, projection and preparation mathematics.
-The independent CMake project is `sjtu_tpmshx/solvers/native/preparation/`.
+The independent CMake project is `preprocess/`.
 Its targets are `tpmshx_preparation`, `tpmshx_preparation_c` and `tpmshx_preparation_shared`.
 They reuse geometry/grid and the shared model implementation, including the locked CoolProp static library.
 This project builds no full solver or run_state and needs no SuperLU or AMG.
@@ -293,7 +293,7 @@ The result stage selects recorded evidence and owns full 2D/3D metric definition
 Python keeps public DTO and file interfaces, original object identity and NumPy event handling.
 The three independent result queries use the same native stage. The same stage owns Quick Design metric arithmetic. Fixed named host operations preserve its existing Python object, exact integer and conversion protocols.
 The versioned host query preserves deferred input errors and callback exceptions without changing the published v1 C layouts.
-The standalone `solvers/native/result/` project uses only C++17 and system libraries.
+The standalone `postprocess/` project uses only C++17 and system libraries.
 It does not load the solver, preparation, geometry, CoolProp or model resources.
 
 Pure imports and HDF/JSON reads remain native-free. Actual metric arithmetic needs the prebuilt result image.
@@ -323,7 +323,7 @@ Both result builds must pass. The `minimal-postprocess` consumer stays on Ubuntu
 It uses `result-build-linux-x86_64-ubuntu-24.04` and the separate macOS `real-file-handoff` input.
 The Ubuntu 26.04 build artifact remains separate.
 The minimal job checks independent result references and actual saved 2D/3D files. It builds no solver or model library.
-The [source and interface record](../sjtu_tpmshx/solvers/native/result/sources.md) defines types, buffers, errors and notices.
+The [source and interface record](../postprocess/sources.md) defines types, buffers, errors and notices.
 There is no numerical fallback, runtime compiler or universal numerical callback.
 
 ## Complete Quick Design capability
@@ -608,7 +608,7 @@ checks, diffusion lines, six-direction face powers and invalid-input checks.
 ## Second implemented slice: actual-state energy audit
 
 The same library exposes `thermal_energy_audit` in
-`sjtu_tpmshx/solvers/native/src/enthalpy_sweeps.cpp`. It audits actual-state energy as follows:
+`solver/enthalpy_sweeps.cpp`. It audits actual-state energy as follows:
 
 - Actual-state A/B cell residuals: Fourier conduction + solid exchange − signed
   upwind enthalpy divergence. The caller supplies actual EOS temperatures and
@@ -790,11 +790,11 @@ convergence and experimental accuracy are distinct facts. The native default doe
 From the repository root, with an existing POSIX C++17 compiler and `make`:
 
 ```sh
-make -f sjtu_tpmshx/solvers/native/Makefile CXX=c++
-make -f sjtu_tpmshx/solvers/native/Makefile check
+make -f engineering/native_build/Makefile CXX=c++
+make -f engineering/native_build/Makefile check
 ```
 
-This builds `.cache/native/libtpmshx_thermal.a`. Include `sjtu_tpmshx/solvers/native/include`. Link that archive from a C++ caller. Building the temperature line solver
+This builds `.cache/native/libtpmshx_thermal.a`. Include `include`. Link that archive from a C++ caller. Building the temperature line solver
 requires the existing locked Eigen headers, compiled with `EIGEN_MPL2_ONLY`. `TPMSHX_EIGEN_INCLUDE` defaults to the locked Eigen source
 under `.cache/native-deps/src/Eigen-5.0.1`. Set it explicitly for an isolated source
 tree.
@@ -812,7 +812,7 @@ wheel or desktop application, discovered automatically, or built during a run.
 From an existing x64 Visual Studio developer command prompt on Windows:
 
 ```bat
-nmake /f sjtu_tpmshx\solvers\native\Makefile.msvc check
+nmake /f engineering\native_build\Makefile.msvc check
 ```
 
 This builds `tpmshx_thermal.lib` under `.cache/native` and runs the same C++ callers.
@@ -874,16 +874,16 @@ engineering cases keep the original F2, convergence and energy gates.
 ## Isolated EOS and pressure dependency qualification
 
 Native dependencies require an explicit build, separate from production backend
-selection. `sjtu_tpmshx/solvers/native/dependency-pilot/` is the full-solver build project and includes geometry.
+selection. `solver/` is the full-solver build project and includes geometry.
 The [independent geometry build](#native-geometry-core) needs only the locked CMake tool and generated model data.
 Its inputs are locked in
-[`sjtu_tpmshx/solvers/native/dependencies-lock.toml`](../sjtu_tpmshx/solvers/native/dependencies-lock.toml).
+[`engineering/native_build/dependencies-lock.toml`](../engineering/native_build/dependencies-lock.toml).
 These include CoolProp 8.0.0, its nine required CPM header dependencies at fixed
 commits, and SuperLU 7.0.1 with three selected SciPy 1.18.1 double-LU corrections.
 The SuperLU source is not identical to SciPy's bundled revision. They also
 include AMGCL 1.5.0 and portable CMake 4.4.4. Source, binaries,
 logs and tabular EOS files stay under the worktree's `.cache/native-deps`.
-[`sjtu_tpmshx/solvers/native/THIRD_PARTY_NOTICES.md`](../sjtu_tpmshx/solvers/native/THIRD_PARTY_NOTICES.md) records the
+[`engineering/native_build/licenses/THIRD_PARTY_NOTICES.md`](../engineering/native_build/licenses/THIRD_PARTY_NOTICES.md) records the
 linked components and their original license notices.
 
 `engineering/scripts/generate_native_model_coefficients.py` reads the shared

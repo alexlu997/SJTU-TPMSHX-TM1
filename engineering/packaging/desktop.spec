@@ -8,6 +8,7 @@ from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 root = Path(SPECPATH).parents[1]
 sys.path.insert(0, str(root))
 from sjtu_tpmshx._version import __version__
+from engineering.scripts.build_native_dependencies import stage_native_notices
 
 excluded = ('sjtu_tpmshx.development',)
 hidden = collect_submodules('sjtu_tpmshx', filter=lambda name: not name.startswith(excluded))
@@ -67,15 +68,10 @@ result_name = {
 if not result_library.is_file() or result_library.name != result_name:
     raise ValueError(f'Expected the prebuilt {result_name} for this desktop target: {result_library}')
 binaries.append((str(result_library), 'native'))
-data += [
-    (str(root / 'sjtu_tpmshx' / 'solvers' / 'native' / 'THIRD_PARTY_NOTICES.md'), 'licenses/native'),
-    (str(root / 'sjtu_tpmshx' / 'solvers' / 'native' / 'dependencies-lock.toml'), 'licenses/native'),
-    (str(root / 'sjtu_tpmshx' / 'solvers' / 'native' / 'licenses'), 'licenses/native/licenses'),
-    (str(root / 'sjtu_tpmshx' / 'solvers' / 'native' / 'preparation' / 'sources.md'), 'licenses/native/preparation'),
-    (str(root / 'sjtu_tpmshx' / 'solvers' / 'native' / 'geometry' / 'README.md'), 'licenses/native/geometry'),
-    (str(root / 'sjtu_tpmshx' / 'solvers' / 'native' / 'geometry' / 'fields-sources.md'), 'licenses/native/geometry'),
-    (str(root / 'sjtu_tpmshx' / 'solvers' / 'native' / 'result' / 'sources.md'), 'licenses/native/result'),
-]
+notices = root / '.cache/desktop/native-notices'
+for notice in stage_native_notices(root, notices):
+    destination = Path('licenses/native') / notice.relative_to(notices).parent
+    data.append((str(notice), destination.as_posix()))
 
 a = Analysis(
     [str(root / 'engineering' / 'packaging' / 'desktop_entry.py')],

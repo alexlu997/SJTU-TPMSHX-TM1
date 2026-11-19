@@ -42,7 +42,7 @@ CI SHALL NOT 依赖忽略的本地数据资产。
 
 #### Scenario: Native dependencies are independently qualified
 - **WHEN** macOS/Python 3.13 或 Windows/Python 3.12、3.13 的原生依赖作业运行
-- **THEN** 每个平台由一个构建作业按 `sjtu_tpmshx/solvers/native/dependencies-lock.toml` 获取固定源码与 CMake，并离线构建。资格作业消费其匹配原生产物，真实执行独立 EOS/压力、Quick Design、true-h、model-h 与 SIMPLE caller；Windows Python 3.12 和 3.13 分别验证同一平台构建。随后用独立公式、离散账本、制造解、组件重放和固定历史参考验证完整驱动和公开 C 接口；`TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1` 与 `TPMSHX_REQUIRE_CPP_TESTS=1` 将缺少编译器、可执行程序或动态库视为失败，不允许以 skip 充当验收
+- **THEN** 每个平台由一个构建作业按 `engineering/native_build/dependencies-lock.toml` 获取固定源码与 CMake，并离线构建。资格作业消费其匹配原生产物，真实执行独立 EOS/压力、Quick Design、true-h、model-h 与 SIMPLE caller；Windows Python 3.12 和 3.13 分别验证同一平台构建。随后用独立公式、离散账本、制造解、组件重放和固定历史参考验证完整驱动和公开 C 接口；`TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1` 与 `TPMSHX_REQUIRE_CPP_TESTS=1` 将缺少编译器、可执行程序或动态库视为失败，不允许以 skip 充当验收
 - **AND** 构建只在独立原生作业发生，普通快测分片不重复构建依赖；上传构建日志和资格测试 XML，不上传源码、物性表或本地实验数据
 
 #### Scenario: CI green on a clean main

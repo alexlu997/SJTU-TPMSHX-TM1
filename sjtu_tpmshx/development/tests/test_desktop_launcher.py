@@ -1,6 +1,5 @@
 """The installed launcher must preserve CLI errors and use writable caches."""
 import sys
-from pathlib import Path
 
 import pytest
 from PySide6.QtCore import QStandardPaths
@@ -166,12 +165,15 @@ def test_bundle_requires_and_collects_four_prebuilt_libraries(desktop_spec_prefi
     platform, libraries = desktop_prebuilt
     namespace = evaluate(platform)
     assert set(namespace['binaries']) == {(str(path.resolve()), 'native') for path in libraries.values()}
-    assert (str(root / 'sjtu_tpmshx/solvers/native/licenses'), 'licenses/native/licenses') in namespace['data']
+    staged = root / '.cache/desktop/native-notices'
+    assert (str(staged / 'THIRD_PARTY_NOTICES.md'), 'licenses/native') in namespace['data']
+    assert (str(staged / 'licenses/CoolProp.txt'), 'licenses/native/licenses') in namespace['data']
+    notices = (staged / 'THIRD_PARTY_NOTICES.md').read_text(encoding='utf-8')
     for record in ('preparation/sources.md', 'geometry/README.md', 'geometry/fields-sources.md', 'result/sources.md'):
-        source = root / 'sjtu_tpmshx/solvers/native' / record
-        target = 'licenses/native/' + Path(record).parent.as_posix()
-        assert source.is_file()
-        assert (str(source), target) in namespace['data']
+        assert (staged / record).is_file()
+        assert record in notices
+    assert '(licenses/CoolProp.txt)' in notices
+    assert (staged / 'licenses/CoolProp.txt').read_bytes() == (root / 'engineering/native_build/licenses/CoolProp.txt').read_bytes()
     assert 'sjtu_tpmshx.development' in namespace['excluded']
 
 

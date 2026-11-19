@@ -19,7 +19,8 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = "sjtu_tpmshx"
-NATIVE = PurePosixPath(PACKAGE) / "solvers/native"
+NATIVE_SOURCES = ("preprocess", "solver", "postprocess", "geometry", "numerics", "include", "tests/cpp")
+RUNTIME = PurePosixPath(PACKAGE) / "solvers/native/lib"
 TESTS = PurePosixPath(PACKAGE) / "development/tests"
 FORBIDDEN_PARTS = {".cache", ".git", ".venv", "__pycache__", ".pytest_cache", "build", "dist"}
 FORBIDDEN_SUFFIXES = {".pyc", ".pyo", ".nbi", ".nbc", ".a", ".lib", ".dylib", ".dll", ".so",
@@ -40,7 +41,7 @@ def forbidden(name: str) -> bool:
     path = PurePosixPath(name)
     return (bool(FORBIDDEN_PARTS.intersection(path.parts)) or "data" == path.parts[0]
             or path.name in PRIVATE_FILES or path.suffix.lower() in FORBIDDEN_SUFFIXES
-            or path.is_relative_to(NATIVE / "lib"))
+            or path.is_relative_to(RUNTIME))
 
 
 def retired_module(name: str) -> bool:
@@ -56,8 +57,8 @@ def source_files(root: Path, directory: str) -> set[str]:
 
 
 def expected_source_files(root: Path) -> set[str]:
-    expected = {"pyproject.toml", "MANIFEST.in", "LICENSE", "README.md", "README.en.md", "requirements.txt"}
-    for directory in (str(NATIVE), str(TESTS), "engineering", "docs", "examples"):
+    expected = {"CMakeLists.txt", "pyproject.toml", "MANIFEST.in", "LICENSE", "README.md", "README.en.md", "requirements.txt"}
+    for directory in (*NATIVE_SOURCES, str(TESTS), "engineering", "docs", "examples"):
         expected.update(source_files(root, directory))
     expected.update(path.relative_to(root).as_posix() for path in (root / PACKAGE).rglob("*.py")
                     if not forbidden(path.relative_to(root).as_posix()))
@@ -94,9 +95,9 @@ def inspect_sdist(archive: Path, root: Path) -> tuple[str, list[str]]:
 
 
 def check_native_closure(root: Path) -> dict:
-    native = root / NATIVE
+    inputs = [path for directory in NATIVE_SOURCES for path in (root / directory).rglob("*")]
     checked, generated = 0, set()
-    for path in native.rglob("*"):
+    for path in inputs:
         if not path.is_file() or path.suffix not in {".c", ".cpp", ".h", ".hpp", ".inc"}:
             continue
         text = path.read_text(encoding="utf-8")
@@ -104,19 +105,20 @@ def check_native_closure(root: Path) -> dict:
             if include in GENERATED_HEADERS:
                 generated.add(include)
                 continue
-            candidates = (path.parent / include, native / "include" / include, native / "src" / include)
+            candidates = (path.parent / include, root / "include" / include)
             if not any(candidate.is_file() for candidate in candidates):
                 raise ValueError(f"Source distribution omitted local include {include} required by {path.relative_to(root)}")
             checked += 1
     cmake_inputs = set()
-    for path in native.rglob("*"):
+    build_files = [root / "CMakeLists.txt", *inputs, *(root / "engineering/native_build/cmake").glob("*.cmake")]
+    for path in build_files:
         if not path.is_file() or not (path.name == "CMakeLists.txt" or path.suffix == ".cmake"):
             continue
         text = path.read_text(encoding="utf-8")
-        for relative in re.findall(r'\$\{TPMSHX_NATIVE_ROOT\}/([^"\s;)]+)', text):
-            if "${" in relative:
+        for relative in re.findall(r'\$\{TPMSHX_ROOT\}/([^"\s;)]+)', text):
+            if "${" in relative or relative.startswith(".cache/"):
                 continue
-            target = native / relative
+            target = root / relative
             if not target.exists():
                 raise ValueError(f"Source distribution omitted CMake input {relative} required by {path.relative_to(root)}")
             cmake_inputs.add(target.relative_to(root).as_posix())
@@ -127,7 +129,6 @@ def check_native_closure(root: Path) -> dict:
 def inspect_wheel(archive: Path, root: Path) -> list[str]:
     resources = declared_resources(root)
     python = {name for name in source_files(root, PACKAGE) if name.endswith(".py")
-              and not PurePosixPath(name).is_relative_to(NATIVE)
               and not PurePosixPath(name).is_relative_to(TESTS)}
     with zipfile.ZipFile(archive) as source:
         files = sorted(name for name in source.namelist() if not name.endswith("/"))

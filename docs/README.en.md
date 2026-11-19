@@ -4,7 +4,7 @@
 
 [中文](README.md) | [English](README.en.md)
 
-All core source is in [sjtu_tpmshx](../sjtu_tpmshx/), including the Python application and C++ numerical backend.
+The root directories contain the C++ stages. The Python applications are in [sjtu_tpmshx](../sjtu_tpmshx/).
 Start with the [module map](../sjtu_tpmshx/README.en.md) to read the code.
 Use the [first run instructions](../README.en.md#first-run) to run the application.
 
@@ -34,6 +34,9 @@ Use the [first run instructions](../README.en.md#first-run) to run the applicati
 
 | Directory | Contents |
 | --- | --- |
+| [preprocess](../preprocess/), [solver](../solver/), [postprocess](../postprocess/) | C++ preparation, solving, and evaluation. |
+| [geometry](../geometry/), [numerics](../numerics/), [include](../include/) | Geometry, common numerical functions, and headers. |
+| [tests/cpp](../tests/cpp/) | C and C++ tests for callers and numerical functions. |
 | [sjtu_tpmshx](../sjtu_tpmshx/) | Four computation entries and six source groups: preprocessing, solvers, postprocessing, shared code, applications and development. |
 | [engineering](../engineering/) | scripts for builds and checks, packaging configuration and exact requirements locks. |
 | [docs](./) | Current documents, public data contracts under contracts, and historical references. |
@@ -43,7 +46,6 @@ Use the [first run instructions](../README.en.md#first-run) to run the applicati
 
 Package-level [development](../sjtu_tpmshx/development/) keeps three groups: tests, validation and runs.
 Public data contracts are implemented in [shared/domain](../sjtu_tpmshx/shared/domain/) and [shared/io](../sjtu_tpmshx/shared/io/).
-C++ numerical source stays in [solvers/native](../sjtu_tpmshx/solvers/native/).
 
 `pyproject.toml` defines builds, dependency declarations, pytest, mypy, and lint settings.
 Root `MANIFEST.in` selects source-distribution files. The wheel uses the explicit resource list in `pyproject.toml`.

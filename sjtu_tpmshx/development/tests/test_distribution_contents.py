@@ -18,7 +18,7 @@ from engineering.scripts import check_distributions as distributions
 def project(tmp_path):
     root = tmp_path / "project"
     root.mkdir()
-    for name in ("LICENSE", "README.md", "README.en.md", "requirements.txt", "MANIFEST.in"):
+    for name in ("LICENSE", "README.md", "README.en.md", "requirements.txt", "MANIFEST.in", "CMakeLists.txt"):
         (root / name).write_text("source input\n")
     (root / "pyproject.toml").write_text(
         '[tool.setuptools.package-data]\nsjtu_tpmshx = ["shared/configs/*.json", "shared/df_surrogate/_prebuilt/*.csv"]\n')
@@ -34,10 +34,10 @@ def project(tmp_path):
         "sjtu_tpmshx/development/runs/tool.py": "value = 2\n",
         "sjtu_tpmshx/development/validation/reference.py": "value = 3\n",
         "sjtu_tpmshx/__init__.py": '"""Package."""\n',
-        "sjtu_tpmshx/solvers/native/src/model_complex_log.c": '#include "tpmshx/model_math.h"\n',
-        "sjtu_tpmshx/solvers/native/include/tpmshx/model_math.h": "/* Local declaration. */\n",
-        "sjtu_tpmshx/solvers/native/preparation/CMakeLists.txt":
-            'add_library(models "${TPMSHX_NATIVE_ROOT}/src/model_complex_log.c")\n',
+        "numerics/model_complex_log.c": '#include "tpmshx/model_math.h"\n',
+        "include/tpmshx/model_math.h": "/* Local declaration. */\n",
+        "preprocess/CMakeLists.txt":
+            'add_library(models "${TPMSHX_ROOT}/numerics/model_complex_log.c")\n',
         "engineering/scripts/build_native_dependencies.py": '"""Explicit source build."""\n',
         "docs/build.md": "Source instructions.\n",
         "examples/input.json": "{}\n",
@@ -81,12 +81,12 @@ def test_source_archive_keeps_native_helper_and_its_local_build_closure(project,
     archive = tmp_path / "source.tar.gz"
     source_archive(project, archive, extra={"sjtu_tpmshx.egg-info/PKG-INFO": b"generated metadata"})
     _, files = distributions.inspect_sdist(archive, project)
-    assert "sjtu_tpmshx/solvers/native/src/model_complex_log.c" in files
+    assert "numerics/model_complex_log.c" in files
     assert "sjtu_tpmshx/development/tests/native/reference.py" in files
     assert "sjtu_tpmshx/development/tests/native/bridge.cpp" in files
     assert "sjtu_tpmshx/development/tests/_ci_shard0.txt" in files
     assert distributions.check_native_closure(project)["local_includes"] == 1
-    header = project / "sjtu_tpmshx/solvers/native/include/tpmshx/model_math.h"
+    header = project / "include/tpmshx/model_math.h"
     header.unlink()
     with pytest.raises(ValueError, match="omitted local include"):
         distributions.check_native_closure(project)
@@ -94,7 +94,7 @@ def test_source_archive_keeps_native_helper_and_its_local_build_closure(project,
 
 def test_source_archive_rejects_the_confirmed_native_source_omission(project, tmp_path):
     archive = tmp_path / "source.tar.gz"
-    source_archive(project, archive, omit={"sjtu_tpmshx/solvers/native/src/model_complex_log.c"})
+    source_archive(project, archive, omit={"numerics/model_complex_log.c"})
     with pytest.raises(ValueError, match="omitted source/build inputs"):
         distributions.inspect_sdist(archive, project)
 
@@ -108,7 +108,7 @@ def test_source_archive_rejects_retired_numerics(project, tmp_path, name):
         distributions.inspect_sdist(archive, project)
 
 
-@pytest.mark.parametrize("name", ["sjtu_tpmshx/solvers/native/src/model_complex_log.c",
+@pytest.mark.parametrize("name", ["numerics/model_complex_log.c",
     "sjtu_tpmshx/solvers/native/lib/macos-arm64/libtpmshx_preparation_shared.dylib",
     "sjtu_tpmshx/shared/models/local_heat_transfer.py",
     "sjtu_tpmshx/shared/models/quick_design.py",

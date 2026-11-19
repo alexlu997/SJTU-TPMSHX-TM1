@@ -2,7 +2,7 @@
 
 [中文](README.md) | [English](README.en.md)
 
-**核心源码全部位于 [sjtu_tpmshx/](../sjtu_tpmshx/)**，包括 Python 应用和 C++ 数值后端。
+C++ 数值实现按计算阶段放在根目录，Python 应用集中在 [sjtu_tpmshx/](../sjtu_tpmshx/)。
 读代码从[模块地图](../sjtu_tpmshx/README.md)开始，运行程序从
 [首次运行说明](../README.md#first-run)开始。
 
@@ -28,6 +28,9 @@
 
 | 目录 | 用途 |
 | --- | --- |
+| [preprocess/](../preprocess/)、[solver/](../solver/)、[postprocess/](../postprocess/) | C++ 前处理、求解和后处理 |
+| [geometry/](../geometry/)、[numerics/](../numerics/)、[include/](../include/) | 几何、共用数值函数及头文件 |
+| [tests/cpp/](../tests/cpp/) | C/C++ 调用与内核测试 |
 | [sjtu_tpmshx/](../sjtu_tpmshx/) | 四个计算入口与六类源码目录：前处理、求解、后处理、共享层、应用层、开发验证层 |
 | [engineering/](../engineering/) | `scripts/` 构建与检查脚本、`packaging/` 打包配置、`requirements/` 精确依赖锁 |
 | [docs/](./) | 当前说明、`contracts/` 公共数据契约与历史资料入口 |
@@ -36,8 +39,7 @@
 | [.github/workflows/](../.github/workflows/) | macOS / Windows CI 与最小后处理环境检查配置 |
 
 包内 [development/](../sjtu_tpmshx/development/) 保留 `tests/`、`validation/`、`runs/` 三类。
-公共数据契约的实现在 [shared/domain/](../sjtu_tpmshx/shared/domain/) 和 [shared/io/](../sjtu_tpmshx/shared/io/)；
-C++ 数值源码仍在 [solvers/native/](../sjtu_tpmshx/solvers/native/)。
+公共数据契约的实现在 [shared/domain/](../sjtu_tpmshx/shared/domain/) 和 [shared/io/](../sjtu_tpmshx/shared/io/)。
 
 `pyproject.toml` 集中定义构建、依赖声明、pytest、mypy 和 lint 配置。
 根目录 `MANIFEST.in` 选择源码发行包文件；wheel 使用 `pyproject.toml` 中显式声明的资源清单。

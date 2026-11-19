@@ -42,7 +42,7 @@ def test_native_runtime_assets_stay_local_and_source_stays_tracked():
         'sjtu_tpmshx/solvers/native/lib/windows-x64/tpmshx_solver_shared.dll',
         'sjtu_tpmshx/solvers/native/lib/macos-arm64/previous/build.json',
     ]
-    paths = [*runtimes, 'sjtu_tpmshx/solvers/native/src/full_2d.cpp']
+    paths = [*runtimes, 'solver/full_2d.cpp']
     result = subprocess.run(
         ['git', '-c', 'core.excludesFile=', 'check-ignore', '--no-index', '--', *paths],
         cwd=_ROOT, check=True, capture_output=True, text=True,
