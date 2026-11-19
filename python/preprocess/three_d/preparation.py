@@ -289,7 +289,7 @@ def _resolved(config, flow, targets):
 
 def _execute(config, operation, *, targets=None, case_id=None, own_metadata=False):
     from sjtu_tpmshx.preprocess import api
-    from sjtu_tpmshx.physical_models.tpms_props import _resolve_chi_s
+    from sjtu_tpmshx.run_control.run_environment import _resolve_chi_s
     source = _input(config, targets, operation)
     chi_error = None
     try:
@@ -324,7 +324,7 @@ def _execute(config, operation, *, targets=None, case_id=None, own_metadata=Fals
                 context['ports'] = {name: bc_to_dict(getattr(config, 'bc_' + name),
                     config.geometry.L_dom_m, config.geometry.H_dom_m, side='A', with_z=True) for name in 'AB'}
             elif stage == 12:
-                from sjtu_tpmshx.physical_models.tpms_calc import validate_fluid_type
+                from sjtu_tpmshx.cpp_interface._native_preparation_case import validate_fluid_type
                 for name in 'AB':
                     validate_fluid_type(getattr(config, 'fluid_' + name).type, name)
                 if config.zones.enabled and config.zones.axis not in ('continuous', 'grid'):

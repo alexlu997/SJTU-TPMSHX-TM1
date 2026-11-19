@@ -171,7 +171,7 @@ Callback v4 keeps that layout and adds a host-object check immediately before ph
 Python retains warning filters, source locations and completed observations after a later failure.
 A native failure never selects another preparation route.
 The replaced Python 2D preparation sequence and row D-F projection are retired; independent frozen references remain under `development/tests`.
-`python/preprocess/two_d/preparation.py` retains the native adapter. `python/physical_models/zone_units.py` owns saved zone-unit conversion.
+`python/cpp_interface/native_preparation.py` retains the native adapter. `python/physical_models/zone_units.py` owns saved zone-unit conversion.
 Nominal x/y grid warnings have separate host emission sites in the retained preparation adapter.
 `preparation_case.cpp` owns 2D preparation and uniform, continuous or grid/offset 3D preparation.
 `stage_run.cpp` adapts it to the existing full 2D driver.
@@ -191,7 +191,7 @@ Preparation evidence remains borrowed until result transfer or run release.
 Its scalar capture query reuses static result arithmetic and separate saved application properties.
 The existing raw result remains the owner of fields, histories and numerical ledgers.
 2D Python runs use the same native lifecycle through the selected library's complete saved-input interface.
-`prepared_stage_2d.py` borrows validated CaseData. `full_2d_stage.py` binds runs, snapshots and capture.
+`full_2d_stage.py` borrows saved CaseData and binds runs, snapshots, and result capture. The native stage validates flow grids, openings, design fields, and model references.
 It does not prepare saved cases again. Missing ranges, uncaptured samples, uniform local drag and optional thermal geometry stay distinct.
 Saved descriptor v2 adds nominal side geometry and accepts discrete and sigmoid fields without changing the v1 layout.
 The descriptor and its nested storage remain borrowed through result transfer or run release.

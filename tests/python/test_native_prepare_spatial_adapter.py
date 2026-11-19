@@ -146,7 +146,7 @@ def test_capacity_ignores_unconsumed_experimental_drag(monkeypatch, tmp_path, mo
 @pytest.mark.parametrize('mode', ['x', 'y', 'grid'])
 def test_standalone_spatial_warning_origins(monkeypatch, tmp_path, mode):
     from tests.python import preparation_case_reference
-    from sjtu_tpmshx.preprocess.two_d import preparation as native_preparation
+    from sjtu_tpmshx.cpp_interface import native_preparation as native_preparation
     config = configuration(monkeypatch, tmp_path, mode)
     config.fluid_A.u_mps = 1.e-6
     config.extrap = replace(config.extrap, allow=True)
@@ -381,7 +381,7 @@ def test_geometry_cache_queries_receive_initialized_storage(monkeypatch, tmp_pat
 
 @pytest.mark.parametrize('value', [0., -1., float('nan'), float('inf')])
 def test_raw_spatial_model_rejects_invalid_conductivity(monkeypatch, tmp_path, value):
-    from sjtu_tpmshx.preprocess.two_d import preparation as native_preparation
+    from sjtu_tpmshx.cpp_interface import native_preparation as native_preparation
     config = configuration(monkeypatch, tmp_path, 'x')
     original = native_preparation._input
     def invalid(*args, **kwargs):

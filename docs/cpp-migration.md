@@ -165,7 +165,7 @@ Saved run descriptor v2 carries the nominal side tuples and accepts discrete and
 It preserves saved v1, result ownership and same-build recovery. It does not prepare saved cases again.
 Public zone and sigmoid combination queries retain standalone consumers pending separate migration.
 They keep supplied properties and custom sigmoid controls.
-`python/preprocess/two_d/preparation.py` is the native adapter. The replaced Python 2D preparation sequence and row D-F projection are retired.
+`python/cpp_interface/native_preparation.py` is the native adapter. The replaced Python 2D preparation sequence and row D-F projection are retired.
 Frozen test references retain the original sequence and projection.
 See [spatial stage interfaces](native-stages.md#spatial-total-mass-flow) for raw operations and owned results.
 See [spatial host interfaces](native-stages.md#spatial-host-cache-interface) for callbacks and ownership.

@@ -117,5 +117,5 @@ def build_execution_inputs(case: CaseData, *, copy_design=True):
     prepared = dict(energy_dx=dx, energy_dy=dy)
     from sjtu_tpmshx.solvers.execution_record import resolved_input_record
     cfg['_input_resolution'] = resolved_input_record(
-        case, cfg['_models'], shape, {side: cfg['cfg' + side]['dir'] for side in ('A', 'B')})
+        case, {side: cfg['fluid_' + side] for side in 'AB'}, shape, {side: cfg['cfg' + side]['dir'] for side in ('A', 'B')})
     return cfg, prepared

@@ -146,7 +146,7 @@ Python 均匀及空间准备使用 v10；均匀容量和解析仍使用 v7/v3，
 它保留 saved v1、结果所有权与同构建恢复，不重新准备保存算例。
 公共分区与 sigmoid 组合查询在单独迁移前仍保留独立调用消费者。
 它们保留调用方提供的物性及自定义 sigmoid 控制。
-`python/preprocess/two_d/preparation.py` 为原生适配器；被替代的 Python 二维准备流程及行 D-F 投影已退役。
+`python/cpp_interface/native_preparation.py` 为原生适配器；被替代的 Python 二维准备流程及行 D-F 投影已退役。
 冻结测试参考保留原流程与投影。
 原始操作和结果所有权见[空间阶段接口](native-stages.zh-CN.md#空间几何总质量流量)。
 回调与所有权合同见[空间宿主接口](native-stages.zh-CN.md#空间几何宿主缓存接口)。

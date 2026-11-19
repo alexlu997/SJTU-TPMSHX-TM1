@@ -92,6 +92,18 @@ _Cause = _struct('Cause', [('kind', _U), ('message', ct.c_char * 4096)])
 _Failure = _struct('Failure', [('abi_version', _U), ('struct_size', _S)] + [(name, _U) for name in ('kind', 'side', 'have_property', 'cause_count')] + [('property', _PropertyFailure), ('causes', _Cause * 2)])
 _FLUIDS = ('air', 'water', 'sco2', 'co2')
 
+
+def validate_fluid_type(fluid_type: str, side: str) -> None:
+    """Reject fluid names outside the supported air, water, sCO2 and CO2 set."""
+    if fluid_type not in _FLUIDS:
+        label = {'water': 'Water', 'sco2': 'sCO₂'}.get(fluid_type, fluid_type)
+        raise NotImplementedError(
+            f"Fluid {side} = {label} is not supported yet — no fitted "
+            f"correlations (Nu / f-Re / D-F surrogate) for this fluid. "
+            f"Supported fluids: air, water, sco2, co2."
+        )
+
+
 _FlowInput = _struct('FlowInput', [('abi_version', _U), ('struct_size', _S),
     ('values', _InputV2), ('physical_depth_kind', _Kind), ('target_kinds', _Kind * 2),
     ('have_explicit_targets', _U), ('explicit_targets_kg_s', _D * 2)])
@@ -710,3 +722,47 @@ def inlet_query(topology, cell, wall, velocity, temperature, pressure, fluid,
             value = _restore(item.real, item.kind)
         values.append(value)
     return values
+
+
+def borrow_array(value, keepalive):
+    storage = np.require(value, dtype=np.float64, requirements=['C', 'A'])
+    keepalive.append(storage)
+    return _Array(storage.ctypes.data_as(ct.POINTER(ct.c_double)), storage.size)
+
+
+def borrow_text(value, keepalive):
+    encoded = value.encode('utf-8')
+    storage = ct.create_string_buffer(encoded)
+    keepalive.append(storage)
+    return _Text(ct.cast(storage, ct.POINTER(ct.c_char)), len(encoded))
+
+
+def borrow_ranges(rows, keepalive):
+    values = (_Range * len(rows))()
+    captured = (ct.c_uint32 * len(rows))()
+    keepalive.extend((values, captured))
+    for index, row in enumerate(rows):
+        value = values[index]
+        source = (_Text * len(row['source']))(*(borrow_text(item, keepalive) for item in row['source']))
+        shape = (ct.c_size_t * len(row['shape']))(*row['shape'])
+        keepalive.extend((source, shape))
+        value.source, value.source_count = source, len(source)
+        value.shape, value.rank = shape, len(shape)
+        for name in ('side', 'stage', 'layout', 'quantity', 'unit'):
+            setattr(value, name, borrow_text(row[name], keepalive))
+        value.bounds[:] = row['bounds']
+        if type(row['captured']) is not bool:
+            raise ValueError('range evidence requires an explicit capture flag')
+        captured[index] = row['captured']
+        if not row['captured']:
+            continue
+        sample = value.sample
+        for name in ('low', 'high', 'size', 'nonfinite'):
+            setattr(sample, name, row[name])
+        sample.have_finite = row['minimum'] is not None
+        if sample.have_finite:
+            for name in ('minimum', 'maximum'):
+                scalar, position = row[name]
+                setattr(sample, name, scalar)
+                setattr(sample, name + '_index', int(np.ravel_multi_index(position, row['shape'])))
+    return values, captured

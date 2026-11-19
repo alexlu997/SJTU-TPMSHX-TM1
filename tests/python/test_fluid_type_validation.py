@@ -1,7 +1,6 @@
 """Supported fluid identifiers and independent material-property checks."""
-from sjtu_tpmshx.physical_models.tpms_calc import (
-    validate_fluid_type, _SUPPORTED_FLUIDS,
-)
+from sjtu_tpmshx.physical_models.tpms_calc import validate_fluid_type
+from sjtu_tpmshx.cpp_interface._native_preparation_case import _FLUIDS
 
 
 
@@ -32,7 +31,7 @@ def test_validate_sco2_passes():
 
 
 def test_supported_full_compute_fluids():
-    assert _SUPPORTED_FLUIDS == {'air', 'water', 'sco2', 'co2'}
+    assert set(_FLUIDS) == {'air', 'water', 'sco2', 'co2'}
 
 
 def test_water_compute_returns_water_density():

@@ -10,8 +10,9 @@ from sjtu_tpmshx.run_control.provenance import source_context
 
 
 def _finish_metadata(case, provenance, records) -> CaseData:
-    from .range_evidence import record_geometry_ranges
-    record_geometry_ranges(case)
+    if case.grid.get("dimension") == 3:
+        from .range_evidence import record_geometry_ranges
+        record_geometry_ranges(case)
     warnings = tuple(dict.fromkeys((*case.metadata.get('warnings', ()),
                                     *warning_messages(records))))
     inlets = {side: case.config_snapshot.get('fluid_' + side, {}) for side in 'AB'}
@@ -37,7 +38,7 @@ def prepare_case(config: ComputeConfig, *, case_id: str) -> CaseData:
     if config.is_3d:
         from .three_d.preparation import prepare_case as prepare
     else:
-        from .two_d.preparation import prepare_case as prepare
+        from sjtu_tpmshx.cpp_interface.native_preparation import prepare_case as prepare
     return _prepare_with_metadata(prepare, config, case_id=case_id)
 
 
@@ -48,8 +49,8 @@ def prepare_inlet_mass_capacities(config: ComputeConfig) -> dict[str, float]:
     The caller must still prepare the final case after prescribing its speeds.
     """
     config = deepcopy(config).validate_static_inputs()
-    from .two_d import preparation
     if not config.is_3d:
+        from sjtu_tpmshx.cpp_interface import native_preparation as preparation
         return preparation.capacities(config)
     from .three_d.preparation import capacities
     return capacities(config)
@@ -81,8 +82,8 @@ def prepare_fixed_mass_flow_case(
 
 
 def _prepare_mass_flow_case(config, targets, *, case_id):
-    from .two_d import preparation
     if not config.is_3d:
+        from sjtu_tpmshx.cpp_interface import native_preparation as preparation
         return preparation.prepare_mass_flow_case(config, targets, case_id=case_id)
 
     from .three_d.preparation import prepare_mass_flow_case
@@ -94,8 +95,8 @@ def resolve_fixed_mass_flow_config(
 ) -> ComputeConfig:
     """Resolve inlet velocities from the actual geometry, then validate them."""
     config, targets = _fixed_mass_flow_inputs(config, mass_flow_A_kg_s, mass_flow_B_kg_s)
-    from .two_d import preparation
     if not config.is_3d:
+        from sjtu_tpmshx.cpp_interface import native_preparation as preparation
         return preparation.resolve(config, targets=tuple(targets[side] for side in 'AB'))
     from .three_d.preparation import resolve
     return resolve(config, targets=tuple(targets[side] for side in 'AB'))
@@ -107,8 +108,8 @@ def resolve_inlet_flow_config(config: ComputeConfig) -> ComputeConfig:
                if getattr(config, 'fluid_' + side).mass_flow_kg_s is not None}
     if not targets:
         return config
-    from .two_d import preparation
     if not config.is_3d:
+        from sjtu_tpmshx.cpp_interface import native_preparation as preparation
         return preparation.resolve(config)
     from .three_d.preparation import resolve
     return resolve(config)

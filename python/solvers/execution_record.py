@@ -105,7 +105,7 @@ def _execution_sides(case, result, mode, eos, integral, table, temperature):
     return sides
 
 
-def resolved_input_record(case, providers, shape, directions):
+def resolved_input_record(case, fluids, shape, directions):
     """Record resources only after the execution builder has validated them."""
     roles = case.metadata['model_roles']
     return dict(version='prepared_input_v1', source='CaseData.parameters',
@@ -115,4 +115,4 @@ def resolved_input_record(case, providers, shape, directions):
                 resources={role: dict(model_ref=index, name=case.model_refs[index].name,
                                       version=case.model_refs[index].version)
                            for role, index in roles.items()},
-                fluids={side: providers['fluid_' + side].name for side in ('A', 'B')})
+                fluids=fluids)

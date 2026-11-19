@@ -14,7 +14,7 @@ from sjtu_tpmshx.solvers.api import run_case
 
 
 def test_effective_grid_and_design_are_consumed_without_preparation(monkeypatch):
-    import sjtu_tpmshx.preprocess.two_d.preparation as preparation
+    from sjtu_tpmshx.cpp_interface import native_preparation as preparation
     case = prepare_case(ComputeConfig(), case_id='prepared')
     def forbidden(*args, **kwargs):
         raise AssertionError('solver called preprocessing')

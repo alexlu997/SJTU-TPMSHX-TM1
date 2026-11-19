@@ -344,7 +344,7 @@ def test_energy_decoder_rejects_unsupported_native_version(executed, version):
 
 @pytest.mark.parametrize('kind', ['cancel', 'callback', 'decode'])
 def test_candidate_exception_releases_and_recovers(driver, monkeypatch, kind):
-    import sjtu_tpmshx.cpp_interface.solver_library.full_2d as binding
+    from sjtu_tpmshx.cpp_interface import full_2d_stage as binding
     cfg, prepared = build_execution_inputs(prepare_case(configuration('temperature_sou'), case_id='energy2d-owner'))
     original, released = driver.release, []
     def release(pointer):

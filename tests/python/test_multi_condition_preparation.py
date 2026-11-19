@@ -198,7 +198,7 @@ def test_fixed_flow_uses_only_resolved_velocities(monkeypatch, dimension, design
                   fluid_B=replace(config.fluid_B, u_mps=.00001))
     snapshot = asdict(old)
     from unittest.mock import patch
-    from sjtu_tpmshx.preprocess.two_d import preparation as prep2d
+    from sjtu_tpmshx.cpp_interface import native_preparation as prep2d
     from sjtu_tpmshx.cpp_interface import _native_preparation_case as native
     from sjtu_tpmshx.cpp_interface import _native_preparation_3d as native3d
     with patch.object(native3d, 'operation', wraps=native3d.operation) as geometry, \
@@ -264,7 +264,7 @@ def test_fixed_flow_preserves_spatial_2d_geometry_and_input(monkeypatch, tmp_pat
                                           reference.grid, side) for side in ('A', 'B')}
     old = replace(config, fluid_A=replace(config.fluid_A, u_mps=.001))
     expected = prepare_case(resolve_fixed_mass_flow_config(old, **targets), case_id='legacy-fixed')
-    from sjtu_tpmshx.preprocess.two_d import preparation as prep2d
+    from sjtu_tpmshx.cpp_interface import native_preparation as prep2d
     from tests.python.native.test_cpp_full_3d import compare
     from unittest.mock import patch
     from sjtu_tpmshx.cpp_interface import _native_preparation_case as native
@@ -286,7 +286,7 @@ def test_fixed_flow_preserves_spatial_2d_geometry_and_input(monkeypatch, tmp_pat
 
 
 def test_capacity_preparation_validates_static_inputs_before_building_fields(monkeypatch):
-    from sjtu_tpmshx.preprocess.two_d import preparation as preparation_2d
+    from sjtu_tpmshx.cpp_interface import native_preparation as preparation_2d
 
     def forbidden(*args):
         raise AssertionError('invalid static input reached field construction')

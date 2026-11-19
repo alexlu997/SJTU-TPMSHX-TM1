@@ -54,7 +54,7 @@ Python uniform and spatial preparation use v10; uniform capacity and resolution 
 Spatial capacity and resolution use v10 with v9 result views and releases.
 Public ZoneConfig and sigmoid combination queries retain standalone consumers until separate migration passes.
 They keep supplied properties and custom sigmoid controls.
-`python/preprocess/two_d/preparation.py` is the native adapter. Its replaced Python preparation sequence and row D-F projection are retired.
+`python/cpp_interface/native_preparation.py` is the native adapter. Its replaced Python preparation sequence and row D-F projection are retired.
 Independent preparation references remain under `development/tests`; `python/physical_models/zone_units.py` owns saved zone-unit conversion.
 CaseData and saved-file contracts stay unchanged. Native failures propagate without another preparation route.
 

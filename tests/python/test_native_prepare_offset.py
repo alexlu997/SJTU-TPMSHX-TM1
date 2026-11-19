@@ -13,7 +13,7 @@ from tests.python.test_native_prepare_adapter import (
 )
 from tests.python.test_native_prepare_spatial_adapter import configuration
 from sjtu_tpmshx.preprocess import api
-from sjtu_tpmshx.preprocess.two_d import preparation as host
+from sjtu_tpmshx.cpp_interface import native_preparation as host
 from sjtu_tpmshx.cpp_interface import _native_preparation_case as native
 from sjtu_tpmshx.physical_models.tpms_calc import compute
 from sjtu_tpmshx.physical_models.tpms_geometry import compute_geometry

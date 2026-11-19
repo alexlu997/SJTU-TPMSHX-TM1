@@ -156,7 +156,7 @@ v3 钩子交换已完成的缓存项与同步观测。
 Python 保留警告过滤器、来源位置，以及后续失败前已完成的观测。
 原生失败不会选择其他准备路线。
 被替代的 Python 二维准备流程及行 D-F 投影已退役，独立冻结参考继续保留在 `development/tests`。
-`python/preprocess/two_d/preparation.py` 保留原生适配器；`python/physical_models/zone_units.py` 负责保存分区数据的单位转换。
+`python/cpp_interface/native_preparation.py` 保留原生适配器；`python/physical_models/zone_units.py` 负责保存分区数据的单位转换。
 名义 x/y 网格警告在保留的准备适配器中具有独立的宿主发出位置。
 `preparation_case.cpp` 负责二维准备流程及均匀、连续或网格／偏置三维流程；`stage_run.cpp` 将二维准备态适配到现有完整二维驱动。
 `stage_run_3d.cpp` 将四类三维准备态及保存输入接到 `Full3DRun`。
@@ -174,7 +174,7 @@ Python 保留警告过滤器、来源位置，以及后续失败前已完成的�
 其标量捕获查询复用静态结果算术，并单独接收保存的应用层物性。
 现有原始结果继续拥有场、历史和数值账本。
 Python 二维运行通过所选库的完整保存输入接口使用同一原生生命周期。
-`prepared_stage_2d.py` 借用已验证 CaseData；`full_2d_stage.py` 绑定运行、快照和捕获。
+`full_2d_stage.py` 借用保存的 CaseData，并绑定运行、快照及结果捕获。原生阶段校验流向网格、端口开度、设计场及模型引用。
 不重新准备保存算例；缺少范围记录、未捕获样本、均匀局部阻力和可选热几何分别保留。
 保存输入描述符 v2 增加名义侧几何并接收离散与 sigmoid 场，不改变 v1 布局。
 描述符及其嵌套存储持续借用至结果转移或运行释放。

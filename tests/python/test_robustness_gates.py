@@ -69,7 +69,7 @@ def test_solver_integers_are_not_coerced(name, value):
 def test_fractional_nz_is_rejected_before_geometry_preparation(monkeypatch):
     from sjtu_tpmshx.data_types.compute_config import SolverConfig
     from sjtu_tpmshx.preprocess.api import prepare_case
-    from sjtu_tpmshx.preprocess.two_d import preparation
+    from sjtu_tpmshx.cpp_interface import native_preparation as preparation
     monkeypatch.setattr(preparation, '_execute',
                         lambda *a, **kw: pytest.fail('invalid grid reached geometry'))
     config = ComputeConfig(solver=SolverConfig(Nz=1.9))

@@ -60,24 +60,8 @@ from sjtu_tpmshx.run_control.logutil import get_logger
 
 _log = get_logger(__name__)
 
-# ── Fluid type validation ─────────────────────────────────────
-
-# Each fluid keeps its own property and Nu model. Production pressure loss uses
-# one geometry-only fixed CFD table shared by both sides and all fluid types.
-_SUPPORTED_FLUIDS = {'air', 'water', 'sco2', 'co2'}
-
-
-
-
-def validate_fluid_type(fluid_type: str, side: str) -> None:
-    """Reject fluid names outside the supported air, water, sCO2 and CO2 set."""
-    if fluid_type not in _SUPPORTED_FLUIDS:
-        label = {'water': 'Water', 'sco2': 'sCO₂'}.get(fluid_type, fluid_type)
-        raise NotImplementedError(
-            f"Fluid {side} = {label} is not supported yet — no fitted "
-            f"correlations (Nu / f-Re / D-F surrogate) for this fluid. "
-            f"Supported fluids: air, water, sco2, co2."
-        )
+from sjtu_tpmshx.cpp_interface._native_preparation_case import validate_fluid_type as validate_fluid_type
+from .preparation_cache import _InletCacheValue
 
 
 # ── Nu correlations ───────────────────────────────────────────
@@ -143,14 +127,6 @@ def _reynolds_notice(tpms_type, Re, fluid_type):
         return (f"{tpms_type}: Re = {Re:.1f} is outside the validated range "
                 f"[{lo:.0f}, {hi:.0f}]. Correlation accuracy may be reduced.")
     return None
-
-
-class _InletCacheValue(tuple):
-    """Keep native-only intermediate values outside the public property mapping."""
-    def __new__(cls, values, records, cp, pr):
-        result = super().__new__(cls, (values, records))
-        result.cp, result.pr = cp, pr
-        return result
 
 
 @preparation_cache.scalar_cache(maxsize=4096)

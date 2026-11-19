@@ -1,6 +1,7 @@
 #ifndef TPMSHX_STAGE_RUN_C_API_H
 #define TPMSHX_STAGE_RUN_C_API_H
 #include "tpmshx/preparation_case_c_api.h"
+#include "tpmshx/grid_c_api.h"
 #include "tpmshx/full_2d_c_api.h"
 #include "tpmshx/full_2d_run_c_api.h"
 #include "tpmshx/result_stage_c_api.h"
@@ -136,6 +137,33 @@ typedef struct {
     double side_geometry[2][4];
 } tpmshx_stage_saved_case_2d_v2;
 
+/* V3 checks the saved flow axes and opening fractions against the physical grid.
+ * Each side supplies cross and stream widths. Bounds are inlet lower/upper,
+ * then outlet lower/upper. They keep their saved scalar precision.
+ * The stage computes the staggered outlet opening. Leave outlet_u_fraction empty. */
+typedef struct {
+    tpmshx_preparation_array_v1 cross,stream;
+    uint32_t cross_precision, direction;
+    tpmshx_grid_scalar_v1 bounds[4];
+} tpmshx_stage_saved_flow_grid_2d_v3;
+typedef struct {
+    tpmshx_preparation_text_v1 name;
+    tpmshx_preparation_array_v1 values;
+} tpmshx_stage_design_field_2d_v3;
+typedef struct {
+    uint32_t abi_version;
+    size_t struct_size;
+    tpmshx_stage_saved_case_2d_v2 values;
+    double lengths_m[2];
+    tpmshx_stage_saved_flow_grid_2d_v3 flow_grid[2];
+    /* Models in the prepared view are in role order: fluid A, fluid B, geometry, drag. */
+    tpmshx_preparation_text_v1 resource_fluids[2],resource_topology;
+    tpmshx_preparation_sco2_nu_v2 resource_nu[2];
+    tpmshx_preparation_scalar_kind_v2 wall_reference_kind,porosity_reference_kind,radius_reference_kind;
+    const tpmshx_stage_design_field_2d_v3* additional_fields;
+    size_t additional_count;
+} tpmshx_stage_saved_case_2d_v3;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -218,6 +246,12 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_create_saved_v2(
     const tpmshx_stage_run_control_v1*,void**,char*,size_t);
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_restore_saved_v2(
     const tpmshx_stage_saved_case_2d_v2*,const tpmshx_stage_run_request_2d_v3*,
+    const tpmshx_stage_run_control_v1*,const tpmshx_run_state_field_v1*,size_t,void**,char*,size_t);
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_create_saved_v3(
+    const tpmshx_stage_saved_case_2d_v3*,const tpmshx_stage_run_request_2d_v3*,
+    const tpmshx_stage_run_control_v1*,void**,char*,size_t);
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_restore_saved_v3(
+    const tpmshx_stage_saved_case_2d_v3*,const tpmshx_stage_run_request_2d_v3*,
     const tpmshx_stage_run_control_v1*,const tpmshx_run_state_field_v1*,size_t,void**,char*,size_t);
 /* Phases and safe snapshot boundaries match full_2d_run_c_api.h.
  * Snapshots own independent storage; use tpmshx_run_state_release_v1. */

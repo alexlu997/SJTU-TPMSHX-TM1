@@ -1,13 +1,18 @@
 #include "tpmshx/stage_run_c_api.h"
 #include "stage_capture_2d.hpp"
 #include "tpmshx/preparation_flow.hpp"
+#include "tpmshx/grid.hpp"
+#include "tpmshx/model_coefficients.hpp"
+#include "../preprocess/preparation_nu.hpp"
 #include "../geometry/field_c_boundary.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstring>
 #include <limits>
 #include <stdexcept>
+#include <string_view>
 #include <type_traits>
 #include <vector>
 
@@ -95,9 +100,159 @@ template<class Storage> void preparation_storage(const Storage& storage,
         for(const auto value:{range.side,range.stage,range.layout,range.quantity,range.unit})storage(value.data,value.size);
     }
 }
+std::string_view text_view(tpmshx_preparation_text_v1 text) {
+    return text.size ? std::string_view(text.data,text.size) : std::string_view{};
+}
+
+bool same_nu(const tpmshx_preparation_sco2_nu_v2& a,const tpmshx_preparation_sco2_nu_v2& b) {
+    for (size_t i=0;i<2;++i)
+        if (a.have_alpha[i]!=b.have_alpha[i] || (a.have_alpha[i] && a.alpha[i]!=b.alpha[i])) return false;
+    return a.mode==b.mode && text_view(a.parameter_version)==text_view(b.parameter_version)
+        && text_view(a.source)==text_view(b.source) && text_view(a.applicability)==text_view(b.applicability);
+}
+
+void validate_saved_models(const tpmshx_stage_saved_case_2d_v3& saved,
+                           const tpmshx_preparation_case_2d_v2& uniform) {
+    namespace models=tpmshx::model_coefficients;
+    const auto& p=uniform.values;
+    const char* fluids[]{"air","water","sco2","co2"};
+    for (size_t i=0;i<4;++i) {
+        const auto name=text_view(p.models[i].name), version=text_view(p.models[i].version);
+        const bool valid=i<2 ? ((name=="fluid" && version==models::fluid_version) ||
+                                (name=="co2_fluid" && version==models::co2_fluid_version))
+            : i==2 ? ((name=="geometry" && version==models::geometry_version) ||
+                      (name=="co2_geometry" && version==models::co2_geometry_version))
+                   : name=="darcy_forchheimer" && version==models::darcy_forchheimer_version;
+        if (!valid) throw std::invalid_argument("unknown model resource: "+std::string(name)+"@"+std::string(version));
+    }
+    for (const auto* nu:{&uniform.sco2_nu,&saved.resource_nu[0],&saved.resource_nu[1]}) {
+        tpmshx::preparation::Sco2NuSelection selection;
+        selection.mode=nu->mode;
+        for (size_t i=0;i<2;++i) {
+            flag(nu->have_alpha[i]);
+            if (nu->have_alpha[i]) selection.alpha[i]=nu->alpha[i];
+        }
+        selection.parameter_version=text_view(nu->parameter_version);
+        selection.source=text_view(nu->source);
+        selection.applicability=text_view(nu->applicability);
+        tpmshx::preparation::validate_nu(selection);
+    }
+    for (size_t side=0;side<2;++side) {
+        const auto label=std::string(side?"B":"A");
+        const auto fluid=text_view(saved.resource_fluids[side]);
+        if ((text_view(p.models[side].name)=="co2_fluid")!=(fluid=="co2"))
+            throw std::invalid_argument("CO2 requires its versioned fluid resource");
+        if (!same_nu(saved.resource_nu[side],uniform.sco2_nu))
+            throw std::invalid_argument("prepared Nu settings and fluid "+label+" resource disagree");
+        if (p.sides[side].inlet.fluid>3 || fluid!=fluids[p.sides[side].inlet.fluid])
+            throw std::invalid_argument("prepared fluid "+label+" and its model resource disagree");
+    }
+    if (text_view(saved.resource_topology)!=(p.input.topology==0?"Diamond":"Gyroid"))
+        throw std::invalid_argument("prepared topology and Darcy-Forchheimer resource disagree");
+}
+
+void validate_saved_design(const tpmshx_stage_saved_case_2d_v3& saved,
+                           const tpmshx_preparation_case_2d_v2& uniform,size_t cells) {
+    namespace g=tpmshx::grid;
+    const auto& p=uniform.values;
+    const bool spatial=p.input.geometry_mode!=0;
+    const auto field=[&](const char* name,tpmshx_preparation_array_v1 data,size_t index,double reference,
+                         tpmshx_preparation_scalar_kind_v2 kind,bool length) {
+        if (spatial && index==4 && !data.size) return;
+        array(data,cells);
+        const auto field_kind=uniform.field_kinds[index];
+        auto expected=g::checked({reference,kind.precision,kind.strong});
+        if (length) expected=g::multiply(expected,g::weak(1e3));
+        for (size_t i=0;i<cells;++i) {
+            auto value=g::checked({data.data[i],field_kind.precision,field_kind.strong});
+            if (length) value=g::multiply(value,g::weak(1e3));
+            if (!std::isfinite(value.value))
+                throw std::invalid_argument(std::string("prepared design field ")+name+" does not match the physical grid");
+            if (spatial && length && value.value<=0.)
+                throw std::invalid_argument(std::string("prepared zoned 2D case requires a positive ")+name+
+                    "; prepare the original configuration again");
+            if (!spatial && (g::less(value,expected) || g::less(expected,value) || !std::isfinite(expected.value)))
+                throw std::invalid_argument(std::string("uniform design field ")+name+" disagrees with its scalar input");
+        }
+    };
+    field("L_field",p.cell_length,0,p.cell_length_m,saved.values.values.reference_cell_kind,true);
+    field("t_field",p.wall_thickness,1,p.wall_thickness_m,saved.wall_reference_kind,true);
+    field("eps_arr",p.total_porosity,2,p.epsilon,saved.porosity_reference_kind,false);
+    field("r_h_arr",p.hydraulic_radius,4,p.hydraulic_radius_m,saved.radius_reference_kind,false);
+    for (size_t i=0;i<cells;++i) {
+        const auto k=p.solid_conductivity.data[i];
+        if (!std::isfinite(k)) throw std::invalid_argument("prepared design field K_ss_arr does not match the physical grid");
+        if (!spatial && (k<=0. || k!=p.solid_conductivity.data[0]))
+            throw std::invalid_argument("uniform solid conductivity must be positive and uniform");
+    }
+    for (size_t i=0;i<saved.additional_count;++i) {
+        const auto& item=saved.additional_fields[i];array(item.values,cells);
+        if (!std::all_of(item.values.data,item.values.data+cells,[](double x){return std::isfinite(x);}))
+            throw std::invalid_argument("prepared design field "+std::string(text_view(item.name))+
+                " does not match the physical grid");
+    }
+}
+
+void validate_saved_drag(const tpmshx_preparation_side_2d_v1& side,const std::string& label,
+                         size_t stream,size_t cells,bool continuous) {
+    const auto valid=[](double value,bool positive) {
+        return std::isfinite(value) && (positive ? value>0. : value>=0.);
+    };
+    const auto values=[&](tpmshx_preparation_array_v1 data,size_t size,bool positive,const char* key,bool local) {
+        if (data.size!=size || !std::all_of(data.data,data.data+data.size,[&](double v){return valid(v,positive);}))
+            throw std::invalid_argument(std::string("invalid prepared ")+(local?"local ":"")+"flow "+label+" "+key);
+    };
+    values(side.row_permeability,stream,true,"K_m2",false);
+    values(side.row_forchheimer,stream,false,"cF_per_m",false);
+    if (!valid(side.seed_permeability_m2,true)) throw std::invalid_argument("invalid prepared flow "+label+" seed_K_m2");
+    if (!valid(side.seed_forchheimer_per_m,false)) throw std::invalid_argument("invalid prepared flow "+label+" seed_cF_per_m");
+    if (continuous) {
+        values(side.permeability,cells,true,"K_field_m2",true);
+        values(side.forchheimer,cells,false,"cF_field_per_m",true);
+    }
+}
+
+std::vector<double> saved_outlet(const tpmshx_preparation_case_2d_v1& prepared,
+    const tpmshx_stage_saved_flow_grid_2d_v3& grid, size_t index) {
+    const auto& side = prepared.sides[index];
+    const auto direction = grid.direction;
+    if (direction > 3 || direction != static_cast<uint32_t>(side.inlet.port.direction))
+        throw std::invalid_argument("prepared flow direction disagrees with the solver direction");
+    const auto cross = direction < 2 ? prepared.dy : prepared.dx;
+    const auto stream = direction < 2 ? prepared.dx : prepared.dy;
+    const std::string label = index ? "B" : "A";
+    const bool reverse = direction == 1 || direction == 3;
+    if (grid.cross.size != cross.size || grid.stream.size != stream.size ||
+        !std::equal(cross.data, cross.data + cross.size, grid.cross.data))
+        throw std::invalid_argument("prepared flow " + label + " grid disagrees with the thermal grid");
+    for (size_t i = 0; i < stream.size; ++i)
+        if (grid.stream.data[i] != stream.data[reverse ? stream.size - 1 - i : i])
+            throw std::invalid_argument("prepared flow " + label + " grid disagrees with the thermal grid");
+    const auto bound = [&](size_t i) {
+        const auto& value = grid.bounds[i];
+        const double expected = i < 2 ? side.inlet_bounds[i] : side.outlet_bounds[i-2];
+        if (value.value != expected) throw std::invalid_argument("saved port bounds disagree");
+        return tpmshx::grid::Scalar{value.value,value.precision,value.strong};
+    };
+    const tpmshx::ArrayView<const double> widths{cross.data,cross.size};
+    for (size_t end = 0; end < 2; ++end) {
+        const auto expected = tpmshx::port_fractions_1d_typed(widths,grid.cross_precision,
+            bound(2*end),bound(2*end+1),end == 0 && side.inlet.port.uniform_inlet);
+        const auto check = [&](tpmshx_preparation_array_v1 saved,const std::vector<double>& wanted,const char* kind) {
+            if (saved.size != wanted.size() || !std::equal(wanted.begin(),wanted.end(),saved.data,
+                [](double reference,double actual) {return std::abs(actual-reference) <= 1e-15+1e-12*std::abs(reference);}))
+                throw std::invalid_argument("prepared Fluid " + label + (end ? " out_" : " in_") + kind +
+                    "_frac disagrees with its grid and port geometry");
+        };
+        check(end ? side.outlet_geometry : side.inlet_geometry,expected.first,"geom");
+        check(end ? side.outlet_profile : side.inlet_profile,expected.second,"profile");
+    }
+    return tpmshx::port_overlap_1d_typed(widths,grid.cross_precision,bound(2),bound(3),true);
+}
 struct Packed2D {
     std::array<size_t,2> shape;
     std::array<std::vector<double>,6> fields;
+    std::array<std::vector<double>,2> outlets;
     std::array<const double*,29> arrays;
     std::array<size_t,29> sizes;
     double depth=1.;
@@ -110,7 +265,8 @@ struct Packed2D {
              const char* envelope,const tpmshx_preparation_continuous_case_2d_v4* continuous,
              const tpmshx_stage_run_request_2d_v3* partial=nullptr,
              const tpmshx_stage_saved_case_2d_v1* saved=nullptr,
-             const tpmshx_stage_saved_case_2d_v2* saved_v2=nullptr):shape{p.nx,p.ny} {
+             const tpmshx_stage_saved_case_2d_v2* saved_v2=nullptr,
+             const tpmshx_stage_saved_case_2d_v3* saved_v3=nullptr):shape{p.nx,p.ny} {
         if (p.abi_version!=TPMSHX_PREPARATION_CASE_ABI_VERSION || p.struct_size!=sizeof(p))
             throw std::invalid_argument("prepared stage ABI version or struct size is invalid");
         if (!p.nx || !p.ny) throw std::invalid_argument("prepared stage requires nonempty physical axes");
@@ -124,6 +280,18 @@ struct Packed2D {
                 uniform?"stage run requires supported uniform symmetric preparation":
                 "stage run currently requires uniform symmetric air/air");
         array(p.dx,p.nx);array(p.dy,p.ny);array(p.total_porosity,cells);array(p.solid_conductivity,cells);
+        if (saved_v3) {
+            validate_saved_models(*saved_v3,*uniform);
+            validate_saved_design(*saved_v3,*uniform,cells);
+            const tpmshx_preparation_array_v1 widths[]{p.dx,p.dy};
+            for (size_t axis=0; axis<2; ++axis) {
+                double length=0.;
+                for (size_t i=0; i<widths[axis].size; ++i) length+=widths[axis].data[i];
+                const auto expected=saved_v3->lengths_m[axis];
+                if (!std::isfinite(expected) || !(std::abs(length-expected)<=1e-15+1e-12*std::abs(expected)))
+                    throw std::invalid_argument(std::string("prepared ")+(axis?"y":"x")+" grid does not cover the physical domain");
+            }
+        }
         if (p.input.topology>1) throw std::invalid_argument("stage run requires Diamond or Gyroid");
         if (request.convergence_mode && std::strcmp(request.convergence_mode,"f2")!=0)
             throw std::invalid_argument("convergence_mode must be 'f2'; the legacy mass/velocity exit has been retired");
@@ -184,7 +352,7 @@ struct Packed2D {
         c.topology=p.input.topology;c.thermal_mode=eos?2:!c.asymmetric && p.input.geometry_mode!=2?1:0;
         c.spatial_geometry=spatial?1:0;
         c.reference_cell_length=g::multiply(reference,g::weak(1e-3)).value;
-        c.reference_porosity=p.epsilon;c.split_a=p.split_a;c.sco2_nu_multiplier=1.;
+        c.reference_porosity=saved_v3 && !spatial?p.total_porosity.data[0]:p.epsilon;c.split_a=p.split_a;c.sco2_nu_multiplier=1.;
         if(uniform && eos && uniform->sco2_nu.mode)c.sco2_nu_multiplier=uniform->sco2_nu.alpha[p.input.topology];
         flag(request.solid_seed_K.present);c.have_solid_seed=request.solid_seed_K.present;
         c.solid_seed=number(request.solid_seed_K,0.,"solid_seed_K");
@@ -195,15 +363,22 @@ struct Packed2D {
             if (port.direction<0 || port.direction>3) throw std::invalid_argument("invalid 2D stage direction");
             flag(port.uniform_inlet);
             const size_t cross=port.direction<2?p.ny:p.nx,stream=port.direction<2?p.nx:p.ny;
+            if (saved_v3) validate_saved_drag(s,side?"B":"A",stream,cells,p.input.geometry_mode==1);
             array(s.row_permeability,stream);array(s.row_forchheimer,stream);
             array(s.inlet_geometry,cross);array(s.outlet_geometry,cross);
-            array(s.inlet_profile,cross);array(s.outlet_profile,cross);array(s.outlet_u_fraction,cross+1);
+            array(s.inlet_profile,cross);array(s.outlet_profile,cross);auto outlet = s.outlet_u_fraction;
+            if (saved_v3) {
+                if (outlet.size) throw std::invalid_argument("saved v3 computes its staggered outlet");
+                outlets[side] = saved_outlet(p,saved_v3->flow_grid[side],side);
+                outlet = {outlets[side].data(),outlets[side].size()};
+            }
+            array(outlet,cross+1);
             if(continuous) {array(s.permeability,cells);array(s.forchheimer,cells);}
             else if (!saved && (s.permeability.size || s.forchheimer.size))
                 throw std::invalid_argument("uniform stage run does not accept local drag fields");
             const std::array<tpmshx_preparation_array_v1,9> side_arrays{s.row_permeability,s.row_forchheimer,
                 s.permeability,s.forchheimer,s.inlet_geometry,s.outlet_geometry,s.inlet_profile,s.outlet_profile,
-                s.outlet_u_fraction};
+                outlet};
             for(size_t i=0;i<9;++i)set(10+9*side+i,side_arrays[i]);
             c.sides[side]={s.inlet.fluid,static_cast<uint32_t>(port.direction),port.uniform_inlet,
                 s.inlet.temperature_K,s.inlet.pressure_Pa,s.inlet.velocity_m_s,s.properties.mu,
@@ -292,6 +467,7 @@ struct StartRun {
     bool restore=false;
     const tpmshx_stage_saved_case_2d_v1* saved=nullptr;
     const tpmshx_stage_saved_case_2d_v2* saved_v2=nullptr;
+    const tpmshx_stage_saved_case_2d_v3* saved_v3=nullptr;
 };
 }
 
@@ -323,6 +499,16 @@ int run(const tpmshx_preparation_case_2d_v1* prepared,
                 throw std::invalid_argument("stage run output overlaps input");
         };
         if(start) {
+            if (start->saved_v3) {
+                const auto& saved=*start->saved_v3;
+                storage(start->saved_v3,1);
+                if (saved.abi_version!=3 || saved.struct_size!=sizeof(saved))
+                    throw std::invalid_argument("saved stage v3 ABI version or struct size is invalid");
+                for (const auto& grid:saved.flow_grid) {
+                    storage(grid.cross.data,grid.cross.size);
+                    storage(grid.stream.data,grid.stream.size);
+                }
+            }
             if(bool(uniform)+bool(continuous)+bool(start->saved)!=1)
                 throw std::invalid_argument("stage run requires exactly one prepared view");
             if(start->request) {
@@ -341,6 +527,24 @@ int run(const tpmshx_preparation_case_2d_v1* prepared,
             }
         }
         preparation_storage(storage,prepared,uniform,continuous,v2,start?start->saved:nullptr,start?start->saved_v2:nullptr);
+        if (start && start->saved_v3) {
+            const auto& saved=*start->saved_v3;
+            for (const auto field:{uniform->values.cell_length,uniform->values.wall_thickness,
+                                   uniform->values.hydraulic_radius}) storage(field.data,field.size);
+            storage(saved.additional_fields,saved.additional_count);
+            for (size_t i=0;i<saved.additional_count;++i) {
+                const auto& item=saved.additional_fields[i];
+                storage(item.name.data,item.name.size);
+                storage(item.values.data,item.values.size);
+            }
+            const auto check_text=[&](tpmshx_preparation_text_v1 value){storage(value.data,value.size);};
+            for (const auto& model:uniform->values.models) {check_text(model.name);check_text(model.version);}
+            check_text(saved.resource_topology);
+            for (const auto& fluid:saved.resource_fluids) check_text(fluid);
+            for (const auto* nu:{&uniform->sco2_nu,&saved.resource_nu[0],&saved.resource_nu[1]}) {
+                check_text(nu->parameter_version);check_text(nu->source);check_text(nu->applicability);
+            }
+        }
         if(v2 && request_v2) {
             storage(request_v2,1);
             if(request_v2->abi_version!=TPMSHX_STAGE_RUN_ABI_VERSION_V2 || request_v2->struct_size!=sizeof(*request_v2))
@@ -377,7 +581,7 @@ int run(const tpmshx_preparation_case_2d_v1* prepared,
         }
         const auto& selected=request?*request:defaults;
         Packed2D packed(*prepared,selected,*control,uniform,request_v2?request_v2->envelope_mode:nullptr,continuous,
-            start?start->request:nullptr,start?start->saved:nullptr,start?start->saved_v2:nullptr);
+            start?start->request:nullptr,start?start->saved:nullptr,start?start->saved_v2:nullptr,start?start->saved_v3:nullptr);
         const auto& h=selected.model_h;
         const auto* model_h=(h.max_iterations || h.temperature_tolerance || h.q_relative_tolerance)?&h:nullptr;
         const auto* energy=model_h || packed.explicit_energy?selected.energy:&packed.energy;
@@ -482,6 +686,18 @@ extern "C" int tpmshx_stage_run_2d_restore_saved_v2(const tpmshx_stage_saved_cas
     const tpmshx_stage_run_request_2d_v3* request,const tpmshx_stage_run_control_v1* control,
     const tpmshx_run_state_field_v1* fields,size_t count,void** output,char* error,size_t capacity) {
     const StartRun start{request,output,fields,count,true,saved?&saved->values:nullptr,saved};
+    return run(nullptr,nullptr,control,nullptr,error,capacity,nullptr,nullptr,true,nullptr,&start);
+}
+extern "C" int tpmshx_stage_run_2d_create_saved_v3(const tpmshx_stage_saved_case_2d_v3* saved,
+    const tpmshx_stage_run_request_2d_v3* request,const tpmshx_stage_run_control_v1* control,
+    void** output,char* error,size_t capacity) {
+    const StartRun start{request,output,nullptr,0,false,saved?&saved->values.values:nullptr,saved?&saved->values:nullptr,saved};
+    return run(nullptr,nullptr,control,nullptr,error,capacity,nullptr,nullptr,true,nullptr,&start);
+}
+extern "C" int tpmshx_stage_run_2d_restore_saved_v3(const tpmshx_stage_saved_case_2d_v3* saved,
+    const tpmshx_stage_run_request_2d_v3* request,const tpmshx_stage_run_control_v1* control,
+    const tpmshx_run_state_field_v1* fields,size_t count,void** output,char* error,size_t capacity) {
+    const StartRun start{request,output,fields,count,true,saved?&saved->values.values:nullptr,saved?&saved->values:nullptr,saved};
     return run(nullptr,nullptr,control,nullptr,error,capacity,nullptr,nullptr,true,nullptr,&start);
 }
 extern "C" int tpmshx_stage_run_2d_advance_step_v1(void* run,uint32_t* phase,char* error,size_t capacity) {
