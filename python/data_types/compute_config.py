@@ -783,9 +783,17 @@ class ComputeConfig:
         ``from_dict``/``from_json`` call this; direct dataclass construction
         stays permissive for callers assembling a configuration in stages.
         """
+        try:
+            return self._validate_inputs(resolved_inlet_speeds, _native_preparation)
+        except (TypeError, ValueError, ArithmeticError):
+            if _native_preparation:
+                self._validate_inputs(resolved_inlet_speeds, False)
+            raise
+
+    def _validate_inputs(self, resolved_inlet_speeds, native_preparation):
         import math
 
-        self.validate_static_inputs(_native_preparation=_native_preparation)
+        self.validate_static_inputs(_native_preparation=native_preparation)
         for side, fluid in (('A', self.fluid_A), ('B', self.fluid_B)):
             if fluid.mass_flow_kg_s is not None and not resolved_inlet_speeds:
                 continue
@@ -797,7 +805,7 @@ class ComputeConfig:
                 raise ValueError(
                     f'ComputeConfig.fluid_{side}.u_mps={fluid.u_mps!r} — must be finite and > 0')
         ge = self.geometry
-        if self.df_mode == 'experimental' and not _native_preparation:
+        if self.df_mode == 'experimental' and not native_preparation:
             from sjtu_tpmshx.physical_models.df_surrogate.experimental_correction import (
                 correction_scale)
             from sjtu_tpmshx.model_configs.model_parameters import load_preparation_df_parameters

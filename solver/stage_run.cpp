@@ -101,8 +101,6 @@ template<class Storage> void preparation_storage(const Storage& storage,
 }
 template<class Storage> void saved_v3_storage(const Storage& storage,const tpmshx_stage_saved_case_2d_v3& saved) {
     storage(&saved,1);
-    if (saved.abi_version!=3 || saved.struct_size!=sizeof(saved))
-        throw std::invalid_argument("saved stage v3 ABI version or struct size is invalid");
     for (const auto& grid:saved.flow_grid) {
         storage(grid.cross.data,grid.cross.size);
         storage(grid.stream.data,grid.stream.size);
@@ -477,6 +475,11 @@ int run(const tpmshx_preparation_case_2d_v1* prepared,
                 throw std::invalid_argument("stage run output overlaps input");
         };
         if(start) {
+            if(start->saved_v3) {
+                storage(start->saved_v3,1);
+                if(start->saved_v3->abi_version!=3 || start->saved_v3->struct_size!=sizeof(*start->saved_v3))
+                    throw std::invalid_argument("saved stage v3 ABI version or struct size is invalid");
+            }
             if(bool(uniform)+bool(continuous)+bool(start->saved)!=1)
                 throw std::invalid_argument("stage run requires exactly one prepared view");
             if(start->request) {

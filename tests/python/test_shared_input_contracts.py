@@ -94,3 +94,17 @@ def test_legacy_supported_and_omitted_domain_fields_still_load():
     assert (default.geometry.L_dom_m, default.geometry.H_dom_m) == (.182, .042)
     actual = ComputeConfig.from_dict({'domain': {'L_dom_m': .08, 'H_dom_m': .04, 'Lz_m': .03}})
     assert (actual.geometry.L_dom_m, actual.geometry.H_dom_m, actual.geometry.Lz_m) == (.08, .04, .03)
+
+
+def test_invalid_port_precedes_invalid_speed_at_public_entries():
+    from sjtu_tpmshx.compute import compute
+    from sjtu_tpmshx.data_types.compute_config import ComputeConfig
+    from sjtu_tpmshx.preprocess.api import prepare_case
+
+    config = ComputeConfig()
+    config.bc_A.in_w = config.bc_A.out_w = .01
+    config.bc_A.in_ctr = 2.
+    config.fluid_A.u_mps = -1.
+    for entry in (compute, prepare_case):
+        with pytest.raises(ValueError, match='pipe_in_out_of_domain'):
+            entry(config, case_id='invalid-input')

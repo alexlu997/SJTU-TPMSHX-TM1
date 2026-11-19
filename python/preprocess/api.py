@@ -36,7 +36,11 @@ def prepare_case(config: ComputeConfig, *, case_id: str) -> CaseData:
         from .three_d.preparation import prepare_case as prepare
     else:
         from sjtu_tpmshx.cpp_interface.native_preparation import prepare_case as prepare
-    return _prepare_with_metadata(prepare, config, case_id=case_id)
+    try:
+        return _prepare_with_metadata(prepare, config, case_id=case_id)
+    except (ValueError, TypeError, ArithmeticError):
+        config.validate()
+        raise
 
 
 def prepare_inlet_mass_capacities(config: ComputeConfig) -> dict[str, float]:
