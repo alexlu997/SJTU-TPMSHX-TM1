@@ -8,6 +8,7 @@ from functools import lru_cache
 
 import numpy as np
 
+from ._df_abi import DragSummary as _Summary
 from . import _native_grid, _native_preparation
 from . import _native_properties as _properties
 from ._native_properties import _EVENTS as _FP_EVENT_COUNT, _FPFailure
@@ -30,10 +31,6 @@ class _Selection(ct.Structure):
     _fields_ = [('branch', _U), ('campaign', _U), ('scope', _U), ('flags', _U),
                 ('scale_K', _D), ('scale_F', _D), ('application_u', _D * 2),
                 ('calibration_u', _D * 2), ('runtime_u', _D * 2)]
-
-
-class _Summary(ct.Structure):
-    _fields_ = [('minimum', _D), ('maximum', _D), ('scalar', _U)]
 
 
 _SIGNATURES = {

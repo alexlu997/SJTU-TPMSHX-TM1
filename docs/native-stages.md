@@ -56,6 +56,14 @@ The caller supplies dimensions, design values, boundary conditions and controls.
 The preparation library computes the physical fields. The solver library uses
 that prepared state. The result library evaluates recorded evidence.
 
+Use `tpmshx_stage_run_2d_records_v1` or `tpmshx_stage_run_3d_records_v1` on a completed stage result.
+The returned view contains property samples, the last closure ranges, and temperature model records for the available grids.
+The view also identifies the energy relation and SIMPLE stop for each side.
+For 3D, it supplies the drag summaries and separates transient and final failures.
+The result owns this storage. Copy the records before you release the result.
+The stage also supplies the cell fields, display aliases, field declarations, and signed heat ledgers.
+The Python result retains the input precision of the saved 3D solid conductivity.
+
 Current public saved 2D/3D runs copy applicability groups and required records from existing C evidence before result release.
 The API publishes these values without repeating classification.
 Saved inlet rows keep host fields and scalar types in native order; native constraints replace recorded constraints when present.

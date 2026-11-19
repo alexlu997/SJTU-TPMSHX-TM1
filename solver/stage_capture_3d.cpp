@@ -1,3 +1,6 @@
+#include "stage_records.hpp"
+#include "tpmshx/simple_convergence.hpp"
+#include "tpmshx/preparation_df.hpp"
 #include "stage_capture_3d.hpp"
 #include "../geometry/field_c_boundary.hpp"
 #include "tpmshx/fluid_properties.hpp"
@@ -34,33 +37,6 @@ struct EnergyStorage {
     tpmshx_stage_energy_v1 view{};
     std::array<tpmshx_stage_energy_phase_v1,3> phases{};
     std::array<std::array<Named,6>,3> advection{},diffusion{};
-};
-struct RangeStorage {
-    std::vector<std::string> source;
-    std::vector<const char*> source_view;
-    std::string side,stage,layout,quantity,unit;
-    std::vector<size_t> shape,minimum_index,maximum_index;
-    double minimum=0.,maximum=0.;
-    tpmshx_stage_range_sample_v1 value{};
-    void finish(bool finite,size_t min_index,size_t max_index,bool captured=true) {
-        for(const auto& s:source)source_view.push_back(s.c_str());
-        value.captured=captured?1:0;value.side=side.c_str();value.stage=stage.c_str();value.layout=layout.c_str();
-        value.quantity=quantity.c_str();value.unit=unit.c_str();
-        value.constraint=!source.empty() && source.front()=="geometry"?"hard_bounds":nullptr;
-        value.source=source_view.data();value.source_count=source_view.size();
-        value.shape=shape.data();value.rank=shape.size();
-        if(captured && finite) {
-            value.minimum=&minimum;value.maximum=&maximum;
-            minimum_index.resize(shape.size());maximum_index.resize(shape.size());
-            for(size_t axis=shape.size();axis>0;--axis) {
-                const auto i=axis-1;
-                if(!shape[i])throw std::invalid_argument("captured range has an empty axis");
-                minimum_index[i]=min_index%shape[i];min_index/=shape[i];
-                maximum_index[i]=max_index%shape[i];max_index/=shape[i];
-            }
-            value.minimum_index=minimum_index.data();value.maximum_index=maximum_index.data();
-        }
-    }
 };
 std::string text(tpmshx_preparation_text_v1 value) {
     fields::c_api::require_buffer(value.data,value.size);
@@ -128,6 +104,9 @@ public:
 
     tpmshx_full3d_control_v1 resolved{};
     tpmshx_result_evidence_v1 evidence{};
+    tpmshx_stage_run_records_v1 records{};
+    StageRangeRecords observed,last_observed;
+    std::vector<const char*> transient_failures,final_failures;
     tpmshx_stage_input_v2 evaluation{};
     std::vector<const void*> none_values;
     std::string result_id,table_directory;
@@ -372,23 +351,21 @@ public:
         if(tpmshx_full_3d_get_last_closure_ranges_v1(&raw,&last))
             throw std::runtime_error("native last closure range query failed");
         fields::c_api::require_buffer(last.data,last.size);
-        for(size_t i=0;i<last.size;++i) {
-            const auto& r=last.data[i];
-            if(!r.stage || !r.view || !r.model || !r.layout || r.side>1 || r.ndim>3)
-                throw std::runtime_error("native last closure range has invalid metadata");
+        observed.capture(raw.range_observations,raw.range_observation_count);
+        last_observed.capture(last.data,last.size);
+        records.observations=observed.rows.data();records.observation_count=observed.rows.size();
+        records.last=last_observed.rows.data();records.last_count=last_observed.rows.size();
+        for(const auto& record:last_observed.rows) {
+            const auto& r=*record.sample;
             const std::string stage=r.stage,view=r.view;
             const bool inlet=inlet_stage(stage);
             const bool final=final_stage(stage) && (view!="property_state" || stage=="final" || stage=="richardson-return");
             if(!inlet && !final)continue;
             ranges.emplace_back();auto& out=ranges.back();
-            const bool nu=view=="nu" || view=="nu_raw" || view=="nu_pr";
             out.source={r.view,r.model};
-            if(nu) {
-                if(!r.topology)throw std::runtime_error("native Nu range has no topology");
-                out.source.emplace_back(r.topology);
-            }
+            if(record.source_count==3)out.source.emplace_back(r.topology);
             out.side=labels[r.side];out.stage=stage;out.layout=r.layout;
-            out.quantity=view=="nu_pr"?"Pr":nu?"Re":"T";out.unit=nu?"-":"K";
+            out.quantity=record.quantity;out.unit=record.unit;
             out.shape.assign(r.shape,r.shape+r.ndim);out.minimum=r.minimum;out.maximum=r.maximum;
             auto& row=out.value;row.bounds[0]=r.lower;row.bounds[1]=r.upper;row.size=r.size;
             row.low=r.low;row.high=r.high;row.nonfinite=r.nonfinite;
@@ -517,8 +494,31 @@ public:
             {"envelope_ok",static_cast<int>(raw.envelope_ok),nullptr,nullptr}}};
         e.convergence_gates=gates.data();e.convergence_gate_count=gates.size();
         e.execution_version="full_execution_v1";e.executed_sides=execution.data();e.executed_side_count=2;
+        for(size_t side=0;side<2;++side)if(raw.flow[side].widths[0].size)
+            records.simple_stop[side]=simple_stop_name(static_cast<SimpleStop>(raw.flow[side].last.stop));
+        if(tpmshx_full_3d_get_property_sampling_v1(&raw,&records.sampling))
+            throw std::runtime_error("native property sampling query failed");
+        if(temperature_ledger.algorithm)records.temperature[0]=&temperature_ledger;
         prepared_ranges(saved);final_state_ranges();required_ranges(input);scope_notes(saved);
         applicability.inlet_recorded=saved.inlet_recorded?1:0;e.applicability=&applicability;
+        capture_energy_relations(records,e);
+        for(size_t i=0;i<raw.simple_failure_count;++i) {
+            const std::string_view name=raw.simple_failures[i];
+            const bool initial=name.substr(0,6)=="A@init" || name.substr(0,6)=="B@init";
+            (initial?transient_failures:final_failures).push_back(raw.simple_failures[i]);
+        }
+        records.transient_failures=transient_failures.data();records.transient_count=transient_failures.size();
+        records.final_failures=final_failures.data();records.final_count=final_failures.size();
+        records.thermal_history_converged=1;
+        for(size_t i=0;i<raw.outer_count;++i)if(!raw.outer[i].thermal_converged)records.thermal_history_converged=0;
+        const auto drag=[](auto view) {
+            return preparation::df_summary({view.data,view.size},view.size==1);
+        };
+        records.base_drag[0]=drag(input.permeability);records.base_drag[1]=drag(input.forchheimer);
+        for(size_t i=0;i<2;++i)if(raw.flow[i].widths[0].size) {
+            records.applied_drag[i][0]=drag(raw.flow[i].permeability);
+            records.applied_drag[i][1]=drag(raw.flow[i].forchheimer);
+        }
         evaluation.abi_version=2;evaluation.struct_size=sizeof(evaluation);evaluation.evidence=&e;
         evaluation.none_values=none_values.data();evaluation.none_count=none_values.size();
         evaluation.physical_dimension_index=evaluation.physical_dimension_slice=&dimension;
@@ -557,4 +557,11 @@ extern "C" int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_get_capture_v1(
         const auto value=owner.capture_summary(include_audit!=0);*output=value;return 0;
     } catch(const std::invalid_argument&) {return 1;}
     catch(...) {return 4;}
+}
+
+extern "C" const tpmshx_stage_run_records_v1* TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_records_v1(
+    const tpmshx_stage_run_result_3d_v1* result) {
+    if(!result || result->abi_version!=TPMSHX_STAGE_RUN_3D_ABI_VERSION || result->struct_size!=sizeof(*result)
+        || !result->owner || result->raw.stop>1)return nullptr;
+    return &static_cast<const tpmshx::stages::Capture3D*>(result->owner)->records;
 }

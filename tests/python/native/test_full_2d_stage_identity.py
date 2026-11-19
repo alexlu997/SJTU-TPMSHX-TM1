@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 
 from sjtu_tpmshx.cpp_interface.solver_library.full_2d import _set_native_metadata
-from sjtu_tpmshx.cpp_interface.solver_library.full_2d_capture import _fine_evidence
+from sjtu_tpmshx.cpp_interface.full_2d_stage import _fine_evidence
 
 
 @pytest.mark.parametrize('main_shape, red_black, expected', [

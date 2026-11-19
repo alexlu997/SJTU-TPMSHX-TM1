@@ -13,6 +13,8 @@ import numpy as np
 
 from sjtu_tpmshx.run_control.run_warnings import record_range
 
+from . import CFD_CAMPAIGN, CFD_SCOPE
+
 CFD_SMOOTH = "cfd_smooth"
 EXPERIMENTAL = "experimental"
 DF_MODES = (CFD_SMOOTH, EXPERIMENTAL)
@@ -131,7 +133,7 @@ def cfd_metadata(K: Any, cF: Any) -> dict[str, Any]:
         "base_K": _summary(K), "base_cF": _summary(cF),
         "applied_K": _summary(K), "applied_cF": _summary(cF),
         "scale_K": 1.0, "scale_F": 1.0,
-        "campaign": "water-sco2-cfd-fixed-v2", "scope": "CFD-smooth-wall",
+        "campaign": CFD_CAMPAIGN, "scope": CFD_SCOPE,
     }
 
 

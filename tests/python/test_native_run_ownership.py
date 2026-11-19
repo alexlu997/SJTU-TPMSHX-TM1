@@ -12,7 +12,7 @@ from sjtu_tpmshx.solvers.api import run_case
 from sjtu_tpmshx.cpp_interface.solver_library import full_2d
 from sjtu_tpmshx.cpp_interface.solver_library import full_2d_run
 from sjtu_tpmshx.cpp_interface import full_2d_stage
-from sjtu_tpmshx.cpp_interface.solver_library import full_3d, full_3d_capture
+from sjtu_tpmshx.cpp_interface.solver_library import full_3d
 from sjtu_tpmshx.cpp_interface.solver_library import full_3d_run
 from sjtu_tpmshx.cpp_interface import full_3d_stage
 from sjtu_tpmshx.solvers.backends import prepared_2d, prepared_3d
@@ -90,7 +90,7 @@ def test_interrupt_after_native_transfer_releases_owner(dimension, saved, bounda
     if saved:
         def forbidden(*args, **kwargs):
             pytest.fail('an interrupted transfer must not publish a FieldResult')
-        monkeypatch.setattr(full_2d_stage if dimension == 2 else full_3d_capture, 'capture_result', forbidden)
+        monkeypatch.setattr(full_2d_stage if dimension == 2 else full_3d_stage, 'capture_result', forbidden)
     options = dict(checkpoint=lambda state: None, checkpoint_due=lambda: boundary == 'snapshot')
     if states:
         options['resume_state'] = states[0]

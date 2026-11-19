@@ -123,10 +123,25 @@ def test_saved_inputs_are_used_without_repreparation(change, monkeypatch, tmp_pa
     _same(_normalized(actual), _normalized(expected), change)
     before = {name: value.copy() for name, value in case.design_fields.items()}
     result = run_case(case, _control())
+    assert result.fields['K_ss'].dtype == case.design_fields['K_ss'].dtype
+    assert np.shares_memory(result.fields['Ta'], result.fields['Ta_display'])
     for name, value in before.items():
         np.testing.assert_array_equal(case.design_fields[name], value)
         assert not case.design_fields[name].flags.writeable
     save_result(result, tmp_path / 'public-result.h5')
+
+
+def test_public_drag_capture_preserves_scalar_design_summary():
+    config, _ = reference._configuration(('air', 'water'), 'xyz')
+    case = prepare_case(config, case_id='scalar-drag')
+    design = dict(case.design_fields)
+    design['K_m2'] = np.asarray(design['K_m2'].flat[0])
+    case = replace(case, design_fields=design)
+    expected = _run(case, stage=False)[1].metadata['df_metadata']
+    actual = run_case(case, _control()).metadata['df_metadata']
+    assert actual == expected
+    assert actual['A']['base_K'] == design['K_m2'].item()
+    assert set(actual['A']['applied_K']) == {'min', 'max'}
 
 
 @pytest.mark.parametrize('missing', ['create_saved', 'restore_saved', 'advance_step', 'phase', 'snapshot',
@@ -468,7 +483,8 @@ def test_applicability_transfer_error_releases_without_fallback(dimension, monke
     def forbidden(*args, **kwargs):
         pytest.fail('a stage transfer error must not use direct capture')
     monkeypatch.setattr(run_type, 'take_result', take)
-    monkeypatch.setattr(applicability_evidence, 'copy_applicability', broken)
+    from sjtu_tpmshx.cpp_interface import _native_result_stage
+    monkeypatch.setattr(_native_result_stage, 'copy_applicability', broken)
     monkeypatch.setattr(applicability_evidence, 'capture_applicability', forbidden)
     with pytest.raises(LookupError) as caught:
         run_case(case, _control())
@@ -476,3 +492,18 @@ def test_applicability_transfer_error_releases_without_fallback(dimension, monke
     assert not owners[0].owner
     monkeypatch.undo()
     run_case(case, _control())
+
+
+def test_saved_stage_without_result_records_can_resume(monkeypatch):
+    from sjtu_tpmshx.cpp_interface.solver_library import _stage_capture_abi
+
+    config, _ = reference._configuration(('air', 'water'), 'uniform')
+    case = prepare_case(config, case_id='saved-stage-without-records')
+    monkeypatch.setattr(_stage_capture_abi, 'stage_records', lambda library, result: None)
+    states = []
+    expected = run_case(case, _control(), checkpoint=states.append)
+    resumed = run_case(case, _control(), resume_state=states[0])
+    assert expected.fields.keys() == resumed.fields.keys()
+    for name, values in expected.fields.items():
+        np.testing.assert_array_equal(values, resumed.fields[name])
+    assert expected.run_status == resumed.run_status

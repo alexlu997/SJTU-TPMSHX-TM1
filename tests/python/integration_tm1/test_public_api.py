@@ -45,16 +45,15 @@ def legacy_2d_result(case, display_fields, diagnostics):
 
 def native_3d_mapping_input(case, cfg, prepared, raw, diagnostics):
     """Read the detached C++ fields for the application-mapping oracle."""
-    a, b = raw['flow']
-    values = dict(zip(('Ta', 'Tb', 'Ts'), raw['temperature']))
-    values.update(vmag=a['speed_real'], vmag_B=b['speed_real'],
-        P_kPa=a['pressure_real']/1000., P_Pa=a['pressure_real'], P_Pa_B=b['pressure_real'],
+    fields, _ = raw['stage_fields']
+    values = {name: fields[name] for name in ('Ta', 'Tb', 'Ts')}
+    values.update(vmag=fields['vmag_A'], vmag_B=fields['vmag_B'],
+        P_kPa=fields['P_report_A']/1000., P_Pa=fields['P_report_A'], P_Pa_B=fields['P_report_B'],
         L_mm=case.design_fields['L_field_m']*1000.,
         dx=case.grid['dx'], dy=case.grid['dy'], dz=case.grid['dz'],
-        h_vA_field=raw['hv'][0], h_vB_field=raw['hv'][1])
-    for suffix, flow in (('', a), ('_B', b)):
-        values.update({axis+'_real'+suffix: field
-                       for axis, field in zip(('uc', 'vc', 'wc'), flow['velocity_real'])})
+        h_vA_field=fields['h_vA'], h_vB_field=fields['h_vB'])
+    for side, suffix in (('A', ''), ('B', '_B')):
+        values.update({axis+'_real'+suffix: fields[axis+side] for axis in ('uc', 'vc', 'wc')})
     values.update(diagnostics)
     if cfg.get('_emit_audit', False):
         values.update(_audit_K_ffA=raw['final_conductivity'][0],
@@ -69,12 +68,12 @@ def test_real_application_mapping_and_offline_readback(monkeypatch, tmp_path, di
     config = baseline_config() if dimension == 2 else _small_air_cfg()
     expected = []
     if dimension == 2:
-        from sjtu_tpmshx.cpp_interface.solver_library import full_2d_capture as result_capture
+        from sjtu_tpmshx.cpp_interface import full_2d_stage as result_capture
         from tests.python.integration_tm1.legacy_result_mapping import _finalize_cfg
         capture = result_capture._capture_result
-        def checked_capture(case, display_fields, native, application, diagnostics, **kwargs):
-            result = capture(case, display_fields, native, application, diagnostics, **kwargs)
-            legacy = legacy_2d_result(case, display_fields, diagnostics)
+        def checked_capture(case, stage_fields, native, application, diagnostics, **kwargs):
+            result = capture(case, stage_fields, native, application, diagnostics, **kwargs)
+            legacy = legacy_2d_result(case, stage_fields[0], diagnostics)
             for group in ('coeffs', 'props'):
                 legacy.update({'_shim_' + name: value
                                for name, value in application[group].items()})
@@ -87,7 +86,7 @@ def test_real_application_mapping_and_offline_readback(monkeypatch, tmp_path, di
             expected.append(lambda: _finalize_cfg(legacy, parsed))
             return result
     else:
-        from sjtu_tpmshx.cpp_interface.solver_library import full_3d_capture as result_capture
+        from sjtu_tpmshx.cpp_interface import full_3d_stage as result_capture
         from tests.python.integration_tm1.legacy_result_mapping import _finalize_3d_cfg
         capture = result_capture.capture_result
         def checked_capture(case, cfg, prepared, native, abi):

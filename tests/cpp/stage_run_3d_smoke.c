@@ -58,6 +58,11 @@ int main(void) {
     tpmshx_preparation_case_3d_release_v1(&prepared);
     REQUIRE(result.raw.stop<=1 && result.evidence.dimension==3 && result.evidence.field_count==25);
     REQUIRE(tpmshx_stage_run_3d_get_capture_v1(&result,1,&capture)==0);
+    const tpmshx_stage_run_records_v1* records=tpmshx_stage_run_3d_records_v1(&result);
+    REQUIRE(records && records->sampling.count && records->sampling.records);
+    REQUIRE(records->base_drag[0].minimum>0. && records->base_drag[0].minimum==records->base_drag[0].maximum);
+    REQUIRE(records->applied_drag[0][0].minimum==result.raw.flow[0].permeability.data[0]);
+    REQUIRE(records->transient_count+records->final_count==result.raw.simple_failure_count);
     REQUIRE(capture.model_h_cell_count==120 && capture.audit_outlet[0].size==20);
     report.struct_size=sizeof(report);
     REQUIRE(tpmshx_result_stage_query_v2(&result.evaluation,0,NULL,NULL,0,&report,&diagnostics,&token,error,sizeof(error))==0);
@@ -80,6 +85,7 @@ int main(void) {
     result.abi_version=1;result.struct_size=sizeof(result);control.callbacks.cancel=cancel;
     REQUIRE(tpmshx_run_case_3d_v1(&prepared,NULL,NULL,&request,&control,&result,error,sizeof(error))==0);
     REQUIRE(result.raw.stop==2 && result.evidence.abi_version==0);
+    REQUIRE(tpmshx_stage_run_3d_records_v1(&result)==NULL);
     capture.q_net=123.;
     REQUIRE(tpmshx_stage_run_3d_get_capture_v1(&result,0,&capture)==1 && capture.q_net==123.);
     tpmshx_preparation_case_3d_release_v1(&prepared);tpmshx_stage_run_3d_release_v1(&result);

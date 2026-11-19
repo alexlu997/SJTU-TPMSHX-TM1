@@ -176,3 +176,9 @@ def merge_warnings(target, sources, *, bind_context=False):
                     target[key] = value if previous is None else previous.merged(value)
                 else:
                     target.setdefault(key, value)
+
+
+def captured_scope_notes(case, records):
+    """Keep complete host notices and callback records in their original order."""
+    return tuple(dict.fromkeys((*case.metadata.get('notices', ()),
+        *(value for key, value in records.items() if key[0] == 'nu-evidence'))))

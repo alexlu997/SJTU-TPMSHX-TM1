@@ -18,6 +18,9 @@ NormValues norms(const RawArray& residual, Diagnostics&);
 MassValues mass(const RawArray* faces, std::size_t dimension, Diagnostics&);
 PlaneValues plane_sums(const RawArray* planes, std::size_t plane_count, Diagnostics&);
 EnergyValues energy(const EnergyPhase* phases, std::size_t phase_count, double reservoir);
+std::vector<tpmshx_result_zone_temperatures_v1> zone_temperatures_2d(
+    const RawArray* widths, const RawArray& labels, const RawArray* temperatures,
+    std::size_t zone_count, Diagnostics& diagnostics);
 Number zone_mean(const RawArray& values, const RawArray* weights, Diagnostics&);
 Number zone_std(const RawArray& values, const RawArray* weights, std::uint32_t square_fused, Diagnostics&);
 Number zone_minimum(const RawArray& values, Diagnostics&);

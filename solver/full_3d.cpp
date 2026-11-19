@@ -414,8 +414,7 @@ void bootstrap(const Full3DSide& a,Full3DFlowState& fine,Simple3DSolver& solver,
         auto& level=trace.levels[level_index];
         level.charged_iterations=c.last.iterations;level.converged=c.last.converged;
         level.solve_started=level.charged_iterations>0;
-        const char* stops[]{"ongoing","tol","stall","max_iter","nonfinite","cancelled","pressure_failure","post_closure"};
-        level.stop=stops[static_cast<unsigned>(c.last.stop)];
+        level.stop=simple_stop_name(c.last.stop);
         if(c.last.stop==SimpleStop::cancelled)throw Cancelled{};
         if(c.last.stop==SimpleStop::pressure_failure)throw std::runtime_error(c.last.linear.detail);
         Values pin(fg.nx*fg.nz);
@@ -645,8 +644,7 @@ bool FlowRun::advance(std::size_t s,const std::string& stage) {
     if(v.last.stop==SimpleStop::pressure_failure) throw std::runtime_error("full 3D SIMPLE pressure solve failed: "+v.last.linear.detail);
     anchor(a,v);v.history=simple[s]->history();
     if(!v.last.converged) {
-        const char* reasons[]{"ongoing","tol","stall","max_iter","nonfinite","cancelled","pressure_failure","post_closure"};
-        result.simple_failures.push_back(std::string(s?"B@":"A@")+stage+"["+reasons[static_cast<unsigned>(v.last.stop)]+"]");
+        result.simple_failures.push_back(std::string(s?"B@":"A@")+stage+"["+simple_stop_name(v.last.stop)+"]");
     }
     update_real(input.geometry.grid,a,v);v.inlet_pressure=inlet_state(a,v);
     return true;

@@ -324,3 +324,24 @@ def test_complex_square_matches_fresh_numpy_cpu_dispatch(dtype, mode):
         cwd=Path(__file__).resolve().parents[2], env=environment, text=True,
         capture_output=True, timeout=30)
     assert process.returncode == 0, process.stdout + '\n' + process.stderr
+
+
+@pytest.mark.parametrize('label_dtype', [np.int64, np.uint8, np.uint64])
+def test_saved_zone_summary_matches_independent_temperature_statistics(label_dtype):
+    from sjtu_tpmshx.cpp_interface._native_result_stage import _zone_temperatures
+
+    data = _inputs(shape=(17, 11))
+    data['Tb'] = data['Tb'].T.copy().T + 23.0
+    data['Ts'] = data['Ts'][::-1]
+    data['zone_id'] = data['zone_id'].astype(label_dtype)
+    data['zone_id'][0, :2] = (np.iinfo(label_dtype).max, 42)
+    if np.issubdtype(label_dtype, np.signedinteger):
+        data['zone_id'][0, 2] = -1
+    widths = (np.linspace(.01, .10, 17), np.linspace(.02, .11, 11))
+    data['cell_area'] = np.multiply.outer(*widths)
+    expected = reference.compute_zone_statistics(**data)
+    zones = [(zone.name, zone.L_mm, zone.t_mm) for zone in data['zones']]
+    actual, x, y = _zone_temperatures(widths, [data[key] for key in ('Ta', 'Tb', 'Ts')], data['zone_id'],
+                                       zones, (2., 3.), ([.75, .125], [.5]))
+    assert x == [1.5, .25] and y == [1.5]
+    assert_values(actual, expected)

@@ -153,14 +153,13 @@ def test_old_full3d_library_missing_query_has_explicit_capability_error(native_p
 
 def run_observed(prepared, native_path):
     from sjtu_tpmshx.cpp_interface.solver_library.full_3d import NativeFull3DDriver
-    original, records = NativeFull3DDriver._run_prepared, []
-    def observed(self, *args, **kwargs):
-        raw = original(self, *args, **kwargs)
-        records.append(raw)
-        return raw
-    with patch.object(NativeFull3DDriver, '_run_prepared', observed):
-        actual = cpp_run(prepared, control(native_path))
-    raw, = records
+    from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
+
+    controls = control(native_path)
+    actual = cpp_run(prepared, controls)
+    cfg, inputs = build_execution_inputs(prepared)
+    driver = NativeFull3DDriver(native_path, table_directory=controls.native_table_directory)
+    raw = driver.run_prepared(cfg, inputs, controls)
     return actual, raw
 
 

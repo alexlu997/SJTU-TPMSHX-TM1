@@ -24,13 +24,10 @@ class RangeObservation(ct.Structure):
 def copy_nu_observation(value, shape, *, capture_scalars=None):
     if not value.available:
         return {}
-    return dict(stage='last local h_v coefficient evaluation (lagged temperature)',
-        shape=list(shape), cells=value.cells, floor_cells=value.floor_cells,
-        floor_fraction=value.floor_cells / value.cells if capture_scalars is None else capture_scalars['floor_fraction'],
-        floor=NU_LAM_FLOOR if capture_scalars is None else capture_scalars['floor'],
-        pre_floor_min=value.raw_min, pre_floor_max=value.raw_max, Re_min=value.re_min, Re_max=value.re_max,
-        Pr_min=value.pr_min, Pr_max=value.pr_max, T_min_K=value.temperature_min, T_max_K=value.temperature_max,
-        P_abs_Pa=value.pressure)
+    from .._native_result_stage import nu_observation
+    summary = capture_scalars if capture_scalars is not None else dict(
+        floor=NU_LAM_FLOOR, floor_fraction=value.floor_cells / value.cells)
+    return nu_observation(value, shape, summary)
 
 
 def copy_range_observations(values, count):
