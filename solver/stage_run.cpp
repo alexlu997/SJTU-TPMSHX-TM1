@@ -529,9 +529,8 @@ int run(const tpmshx_preparation_case_2d_v1* prepared,
         preparation_storage(storage,prepared,uniform,continuous,v2,start?start->saved:nullptr,start?start->saved_v2:nullptr);
         if (start && start->saved_v3) {
             const auto& saved=*start->saved_v3;
-            const auto& prepared=*saved.values.values.prepared;
-            for (const auto field:{prepared.values.cell_length,prepared.values.wall_thickness,
-                                   prepared.values.hydraulic_radius}) storage(field.data,field.size);
+            for (const auto field:{uniform->values.cell_length,uniform->values.wall_thickness,
+                                   uniform->values.hydraulic_radius}) storage(field.data,field.size);
             storage(saved.additional_fields,saved.additional_count);
             for (size_t i=0;i<saved.additional_count;++i) {
                 const auto& item=saved.additional_fields[i];
@@ -539,10 +538,10 @@ int run(const tpmshx_preparation_case_2d_v1* prepared,
                 storage(item.values.data,item.values.size);
             }
             const auto check_text=[&](tpmshx_preparation_text_v1 value){storage(value.data,value.size);};
-            for (const auto& model:prepared.values.models) {check_text(model.name);check_text(model.version);}
+            for (const auto& model:uniform->values.models) {check_text(model.name);check_text(model.version);}
             check_text(saved.resource_topology);
             for (const auto& fluid:saved.resource_fluids) check_text(fluid);
-            for (const auto* nu:{&prepared.sco2_nu,&saved.resource_nu[0],&saved.resource_nu[1]}) {
+            for (const auto* nu:{&uniform->sco2_nu,&saved.resource_nu[0],&saved.resource_nu[1]}) {
                 check_text(nu->parameter_version);check_text(nu->source);check_text(nu->applicability);
             }
         }

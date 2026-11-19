@@ -13,9 +13,9 @@ from sjtu_tpmshx.preprocess import api
 
 
 @pytest.mark.parametrize('entry,module,is_3d', [
-    ('prepare_case', 'two_d.preparation', False),
-    ('prepare_case', 'three_d.preparation', True),
-    ('prepare_quick_design', 'app_modes.quick_design', False),
+    ('prepare_case', 'cpp_interface.native_preparation', False),
+    ('prepare_case', 'preprocess.three_d.preparation', True),
+    ('prepare_quick_design', 'preprocess.app_modes.quick_design', False),
 ])
 def test_public_preparation_keeps_metadata_and_warning_ownership(monkeypatch, entry, module, is_3d):
     # Stub only physical preparation; exercise each real public boundary.
@@ -51,7 +51,7 @@ def test_public_preparation_keeps_metadata_and_warning_ownership(monkeypatch, en
         return original
 
     monkeypatch.setattr(api, 'source_context', source_context)
-    monkeypatch.setattr(import_module('sjtu_tpmshx.preprocess.' + module), entry, prepare)
+    monkeypatch.setattr(import_module('sjtu_tpmshx.' + module), entry, prepare)
     with warning_scope(parent):
         result = getattr(api, entry)(*args, **kwargs)
         assert current_warnings() is parent
