@@ -499,6 +499,8 @@ def test_applicability_transfer_error_releases_without_fallback(dimension, monke
     ('mask', 'opening mask'), ('permutation', 'axis permutation'),
     ('axis_length', 'solver geometry'), ('uniform', 'uniform design field'),
     ('extrusion', 'xy extrusion'), ('model', 'unknown model resource'),
+    ('nu_mode', 'Nu settings'), ('incomplete_nu', 'Nu settings'),
+    ('reverse_wrap', 'reverse direction'),
 ])
 def test_saved_v2_rejects_inconsistent_inputs(fault, message):
     layout = 'xy' if fault == 'extrusion' else 'uniform'
@@ -514,6 +516,12 @@ def test_saved_v2_rejects_inconsistent_inputs(fault, message):
         side['solver_to_real_perm'] = [0, 0, 0]
     elif fault == 'axis_length':
         side['solver_init']['Lx'] = side['L_cross1'] = 2 * side['L_cross1']
+    elif fault == 'reverse_wrap':
+        side['is_reverse'] += 2**32
+    elif fault == 'nu_mode':
+        params['sco2_nu']['mode'] = 'typographical_error'
+    elif fault == 'incomplete_nu':
+        del params['sco2_nu']['source']
     elif fault == 'model':
         refs = list(case.model_refs)
         refs[0] = replace(refs[0], version='unknown')
@@ -537,3 +545,12 @@ def test_saved_stage_without_result_records_can_resume(monkeypatch):
     for name, values in expected.fields.items():
         np.testing.assert_array_equal(values, resumed.fields[name])
     assert expected.run_status == resumed.run_status
+
+def test_scalar_wall_and_stored_resolution_use_actual_grid():
+    config, _ = reference._configuration(('air', 'water'), 'uniform')
+    case = prepare_case(config, case_id='scalar-wall')
+    design = dict(case.design_fields)
+    design['t_field_m'] = np.asarray(design['t_field_m'].flat[0])
+    params = dict(case.parameters, _input_resolution={'grid_shape': [1, 1, 1]})
+    result = run_case(replace(case, design_fields=design, parameters=params), _control())
+    assert tuple(result.metadata['input_resolution']['grid_shape']) == design['L_field_m'].shape

@@ -91,6 +91,7 @@ def saved_inputs(case):
     if case.grid.get('dimension') != 3:
         raise ValueError('3D execution requires a prepared 3D grid')
     cfg = dict(case.parameters)
+    cfg.pop('_input_resolution', None)
     reject_retired_research_options(cfg)
     missing = {'thermal_geometry', 'roughness_resolved', 'df_application'} - cfg.keys()
     if missing:
@@ -131,7 +132,7 @@ def saved_inputs(case):
 
 def pack_saved_v2(saved, case, cfg, prepared, keepalive):
     from ._native_fp import buffer_scalar
-    from ._native_grid import _port
+    from ._native_grid import _count, _port
 
     value = _SavedV2(2, ct.sizeof(_SavedV2), saved)
     pack_saved_resources(case, value.models, value.sco2_nu, value, cfg['sco2_nu'], keepalive)
@@ -146,10 +147,18 @@ def pack_saved_v2(saved, case, cfg, prepared, keepalive):
         value.field_kinds[index] = _Kind(dtype.itemsize * 8, 1 if dtype.kind == 'f' else 2, 2)
     for index, side in enumerate('AB'):
         record = value.axes[index]
-        record.port = _port(cfg['fluid_' + side + '_cfg'])
+        boundary = cfg['fluid_' + side + '_cfg']
+        if boundary is not None and boundary['dir'] not in range(6):
+            raise ValueError(f'prepared fluid {side} direction is invalid')
+        record.port = _port(boundary)
         if not record.port.active:
             continue
         axis = prepared['axes'][side]
+        if axis['is_reverse'] not in (0, 1):
+            raise ValueError(f'prepared fluid {side} reverse direction is invalid')
+        if (any(value not in range(3) for value in axis['solver_to_real_perm'])
+                or any(axis[name + '_real_axis'] not in range(3) for name in ('cross1', 'stream', 'cross2'))):
+            raise ValueError(f'prepared fluid {side} axis permutation is invalid')
         record.reverse = axis['is_reverse']
         record.solver_to_real[:] = axis['solver_to_real_perm']
         for i, name in enumerate(('cross1', 'stream', 'cross2')):
@@ -157,8 +166,8 @@ def pack_saved_v2(saved, case, cfg, prepared, keepalive):
             if width.ndim != 1:
                 raise ValueError(f'prepared fluid {side} axis widths disagree with grid')
             record.widths[i] = _array(width, keepalive)
-            record.counts[i], record.lengths[i] = axis['N_' + name], axis['L_' + name]
-            record.solver_counts[i] = axis['solver_init']['N' + 'xyz'[i]]
+            record.counts[i], record.lengths[i] = _count(axis['N_' + name]), axis['L_' + name]
+            record.solver_counts[i] = _count(axis['solver_init']['N' + 'xyz'[i]])
             record.solver_lengths[i] = axis['solver_init']['L' + 'xyz'[i]]
     return value
 
