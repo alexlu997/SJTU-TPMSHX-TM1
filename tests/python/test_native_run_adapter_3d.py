@@ -496,7 +496,8 @@ def test_applicability_transfer_error_releases_without_fallback(dimension, monke
 
 
 @pytest.mark.parametrize('fault, message', [
-    ('mask', 'opening mask'), ('permutation', 'axis permutation'),
+    ('mask', 'openings disagree with rectangles'), ('nan_mask', 'opening mask'),
+    ('permutation', 'axis permutation'),
     ('axis_length', 'solver geometry'), ('uniform', 'uniform design field'),
     ('extrusion', 'xy extrusion'), ('model', 'unknown model resource'),
     ('nu_mode', 'Nu settings'), ('incomplete_nu', 'Nu settings'),
@@ -509,7 +510,9 @@ def test_saved_v2_rejects_inconsistent_inputs(fault, message):
     params = mutable_data(case.parameters)
     design = mutable_data(case.design_fields)
     side = params['prepared']['axes']['A']
-    if fault == 'mask':
+    if fault == 'nan_mask':
+        params['prepared']['openings']['A']['inlet'].flat[0] = np.nan
+    elif fault == 'mask':
         mask = params['prepared']['openings']['A']['inlet']
         mask.flat[0] = 0.5 if mask.flat[0] != 0.5 else 0.25
     elif fault == 'permutation':
@@ -530,6 +533,19 @@ def test_saved_v2_rejects_inconsistent_inputs(fault, message):
         design['L_field_m'][0, 0, 1] *= 1.01
     with pytest.raises(ValueError, match=message):
         run_case(replace(case, parameters=params, design_fields=design), control=_control())
+
+
+def test_saved_opening_preserves_solver_roundoff_tolerance():
+    config, _ = reference._configuration(('air', 'water'), 'uniform')
+    case = prepare_case(config, case_id='rounded-opening')
+    params = mutable_data(case.parameters)
+    mask = params['prepared']['openings']['A']['inlet']
+    index = mask.argmax()
+    assert mask.flat[index] > 0.
+    mask.flat[index] = np.nextafter(mask.flat[index], 0.)
+    rounded = replace(case, parameters=params)
+    result = run_case(rounded, _control())
+    assert result.run_status['execution'] == 'completed'
 
 
 def test_saved_stage_without_result_records_can_resume(monkeypatch):

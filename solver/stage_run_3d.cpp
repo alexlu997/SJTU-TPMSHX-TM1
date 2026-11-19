@@ -262,14 +262,14 @@ void validate_saved_3d(const tpmshx_stage_saved_case_3d_v2& saved,tpmshx_full3d_
                 throw std::invalid_argument(label+" solver geometry and axis map disagree");
         }
         const auto cross1=axes.widths[0],cross2=axes.widths[2];
-        grid::Values first(cross1.data,cross1.data+cross1.size),second(cross2.data,cross2.data+cross2.size);
         const auto physical_port=port(axes.port);
-        const auto masks=grid::partial_masks(physical_port,first,&second,second.size());
-        double depth=0.;for(double width:second)depth+=width;
+        const auto plane_size=boundary::product(cross1.size,cross2.size);
+        double depth=0.;for(size_t i=0;i<cross2.size;++i)depth+=cross2.data[i];
         const auto rectangles=grid::rectangles(physical_port,grid::weak(depth));
         for(size_t end=0;end<2;++end) {
             const auto mask=end?side.outlet_opening:side.inlet_opening;
-            if(mask.size!=masks[end].size() || !std::equal(masks[end].begin(),masks[end].end(),mask.data))
+            if(mask.size!=plane_size || !std::all_of(mask.data,mask.data+mask.size,
+                    [](double x){return x>=0. && x<=1.;}))
                 throw std::invalid_argument(std::string("invalid ")+label+" opening mask");
             auto* rect=end?side.outlet_rectangle:side.inlet_rectangle;
             for(size_t i=0;i<4;++i)rect[i]=rectangles[end*4+i].value;
