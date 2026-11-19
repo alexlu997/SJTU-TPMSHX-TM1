@@ -39,7 +39,8 @@ def prepare_case(config: ComputeConfig, *, case_id: str) -> CaseData:
     try:
         return _prepare_with_metadata(prepare, config, case_id=case_id)
     except (ValueError, TypeError, ArithmeticError):
-        config.validate()
+        if isinstance(config, ComputeConfig):
+            config.validate()
         raise
 
 
