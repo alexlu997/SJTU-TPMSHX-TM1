@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pytest
 
-from sjtu_tpmshx.preprocess.validator import (
+from sjtu_tpmshx.data_types.validator import (
     FIELD_UNITS,
     POSITIVE_FIELDS,
     COUNT_TOKEN_WHITELIST,

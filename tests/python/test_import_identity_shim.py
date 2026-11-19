@@ -91,7 +91,7 @@ from sjtu_tpmshx.shared.domain import module_ports, validate_geometry
 from sjtu_tpmshx.shared.configs import load_shanghai_baseline
 assert case_io is importlib.import_module('sjtu_tpmshx.file_io.case_io')
 assert module_ports is importlib.import_module('sjtu_tpmshx.run_control.module_ports')
-assert validate_geometry is importlib.import_module('sjtu_tpmshx.preprocess.validator').validate_geometry
+assert validate_geometry is importlib.import_module('sjtu_tpmshx.data_types.validator').validate_geometry
 assert load_shanghai_baseline is importlib.import_module('sjtu_tpmshx.model_configs').load_shanghai_baseline
 assert files('sjtu_tpmshx.shared.configs').joinpath('shanghai_baseline.json').is_file()
 for dimension in (2, 3):

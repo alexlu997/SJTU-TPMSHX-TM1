@@ -7,7 +7,6 @@ import sys
 _PACKAGES = {"configs": "model_configs", "domain": "data_types", "models": "physical_models",
              "df_surrogate": "physical_models.df_surrogate", "io": "file_io"}
 _MOVED = {
-    "domain.validator": "preprocess.validator",
     "domain.range_policy": "physical_models.range_policy",
     "io.cli_options": "applications.cli.cli_options",
     "io.yaml_config": "file_io.config_io",

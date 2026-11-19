@@ -6,7 +6,7 @@ import pytest
 from sjtu_tpmshx.data_types.compute_config import (
     ComputeConfig, GeometryConfig, PartialBCConfig, SolverConfig, ZoneInputConfig, bc_to_dict,
 )
-from sjtu_tpmshx.preprocess.validator import validate_pipe_config
+from sjtu_tpmshx.data_types.validator import validate_pipe_config
 from sjtu_tpmshx.physical_models.zone_config import Zone, ZoneConfig
 from sjtu_tpmshx.preprocess.api import prepare_case
 

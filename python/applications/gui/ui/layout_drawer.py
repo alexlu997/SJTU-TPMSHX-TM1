@@ -106,7 +106,7 @@ def draw_layout_rect_3d(window, ax, L, H, Lz):
 
     def _draw_fluid(cfg, label_tag, label_offset):
         """Both transverse spans use the same axis convention as the inputs."""
-        from sjtu_tpmshx.preprocess.validator import cross_axes_for_dir
+        from sjtu_tpmshx.data_types.validator import cross_axes_for_dir
         d = cfg['dir']
         normal = d // 2
         cross = ['XYZ'.index(axis) for axis in cross_axes_for_dir(d)]

@@ -197,7 +197,7 @@ def child(plan_file):
     plan = json.loads(plan_file.read_text(encoding='utf-8'))
     directory = plan_file.parent
     import sjtu_tpmshx
-    assert Path(sjtu_tpmshx.__file__).resolve().parent == ROOT / 'sjtu_tpmshx'
+    assert Path(sjtu_tpmshx.__file__).resolve().parent == ROOT / 'python'
     os.environ['TPMSHX_PREPARATION_LIBRARY'] = plan['preparation']
     report, trace = {'state': 'running'}, None
     try:

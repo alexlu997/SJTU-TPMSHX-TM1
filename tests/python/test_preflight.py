@@ -221,7 +221,7 @@ if __name__ == '__main__':
 @pytest.mark.parametrize('second_axis', [False, True])
 @pytest.mark.parametrize('failure', ['outside', 'empty', 'narrow'])
 def test_each_port_span_is_checked(direction, end, second_axis, failure):
-    from sjtu_tpmshx.preprocess.validator import cross_axes_for_dir
+    from sjtu_tpmshx.data_types.validator import cross_axes_for_dir
     axes = [axis.lower() for axis in cross_axes_for_dir(direction)]
     cfg = FluidCfg(direction, .021, .02, .021, .02,
                    z_in_ctr=.021, z_in_w=.02, z_out_ctr=.021, z_out_w=.02)
