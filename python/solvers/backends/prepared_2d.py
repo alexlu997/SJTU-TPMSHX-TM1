@@ -28,27 +28,19 @@ def _validated_outlet_fraction(flow, opening, port, side):
                             port['out_ctr'] + port['out_w'] / 2, staggered=True)
 
 
-def _execution_grid(case):
+def build_execution_inputs(case: CaseData, *, copy_design=True):
     if case.grid.get('dimension') != 2:
         raise ValueError('2D execution requires a prepared 2D grid')
-    missing = {'thermal_geometry', 'flow_inputs'} - case.parameters.keys()
+    cfg = _mutable_data(case.parameters)
+    missing = set(('thermal_geometry', 'flow_inputs')) - cfg.keys()
     if missing:
         raise ValueError(f'incomplete prepared 2D execution data: {sorted(missing)}')
-    return validate_grid(case.grid)
-
-
-def build_execution_inputs(case: CaseData, *, copy_design=True):
-    return _execution_inputs(case, _execution_grid(case), copy_design, native_flow_grid=False)
-
-
-def _execution_inputs(case, shape, copy_design, *, native_flow_grid):
-    cfg = _mutable_data(case.parameters)
+    shape = validate_grid(case.grid)
     validate_thermal_geometry(cfg['thermal_geometry'], shape)
     dx, dy = (np.asarray(case.grid[key], dtype=float).copy() for key in ('dx', 'dy'))
-    if not native_flow_grid:
-        for widths, axis, length in ((dx, 'x', cfg['L']), (dy, 'y', cfg['H'])):
-            if not np.isclose(np.cumsum(widths)[-1], length, rtol=1e-12, atol=1e-15):
-                raise ValueError(f'prepared {axis} grid does not cover the physical domain')
+    for widths, axis, length in ((dx, 'x', cfg['L']), (dy, 'y', cfg['H'])):
+        if not np.isclose(np.cumsum(widths)[-1], length, rtol=1e-12, atol=1e-15):
+            raise ValueError(f'prepared {axis} grid does not cover the physical domain')
     if set(cfg['flow_inputs']) != {'A', 'B'}:
         raise ValueError('prepared flow inputs require both physical sides')
     for side, flow in cfg['flow_inputs'].items():
@@ -56,8 +48,7 @@ def _execution_inputs(case, shape, copy_design, *, native_flow_grid):
         cross, stream = (dy, dx) if direction in (0, 1) else (dx, dy)
         if direction in (1, 3):
             stream = stream[::-1]
-        if not native_flow_grid and (not np.array_equal(flow['dx'], cross)
-                                     or not np.array_equal(flow['dy'], stream)):
+        if not np.array_equal(flow['dx'], cross) or not np.array_equal(flow['dy'], stream):
             raise ValueError(f'prepared flow {side} grid disagrees with the thermal grid')
         for key, positive in (('K_m2', True), ('cF_per_m', False)):
             values = np.asarray(flow[key])
@@ -80,13 +71,12 @@ def _execution_inputs(case, shape, copy_design, *, native_flow_grid):
     if cfg['z_axis'] == 'continuous':
         run_settings['zones'] = dict(enabled=True, axis='continuous', config=cfg['continuous_field'])
     cfg['compute_cfg'] = ComputeConfig.from_dict(run_settings, prepared_grid=True)
-    if not native_flow_grid:
-        providers = resolve_models(case)
-        for side in ('A', 'B'):
-            validate_nu_settings(case, side, run_settings['sco2_nu'])
-            validate_fluid(case, providers, side, cfg['fluid_' + side])
-        validate_topology(case, cfg['tpms_type'])
-        cfg['_models'] = providers
+    providers = resolve_models(case)
+    for side in ('A', 'B'):
+        validate_nu_settings(case, side, run_settings['sco2_nu'])
+        validate_fluid(case, providers, side, cfg['fluid_' + side])
+    validate_topology(case, cfg['tpms_type'])
+    cfg['_models'] = providers
     design = _legacy_zone_units({
         key: value if not copy_design and isinstance(value, np.ndarray) else _mutable_data(value)
         for key, value in case.design_fields.items()})
@@ -125,8 +115,7 @@ def _execution_inputs(case, shape, copy_design, *, native_flow_grid):
         zone = ZoneConfig(**zone)
     cfg['zone_config'] = zone
     prepared = dict(energy_dx=dx, energy_dy=dy)
-    if not native_flow_grid:
-        from sjtu_tpmshx.solvers.execution_record import resolved_input_record
-        cfg['_input_resolution'] = resolved_input_record(
-            case, {side: cfg['fluid_' + side] for side in 'AB'}, shape, {side: cfg['cfg' + side]['dir'] for side in ('A', 'B')})
+    from sjtu_tpmshx.solvers.execution_record import resolved_input_record
+    cfg['_input_resolution'] = resolved_input_record(
+        case, {side: cfg['fluid_' + side] for side in 'AB'}, shape, {side: cfg['cfg' + side]['dir'] for side in ('A', 'B')})
     return cfg, prepared

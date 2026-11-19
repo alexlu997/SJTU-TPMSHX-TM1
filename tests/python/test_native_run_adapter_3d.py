@@ -398,7 +398,8 @@ def _compare_public_applicability(case, monkeypatch, tmp_path, *, control=None):
     control = _control() if control is None else control
     with monkeypatch.context() as direct:
         if case.grid['dimension'] == 2:
-            direct.setattr(two.full_2d, 'run_case', two._old)
+            from sjtu_tpmshx.cpp_interface import full_2d_stage
+            direct.setattr(full_2d_stage, 'run_case', two._old)
         else:
             direct.setattr(full_3d_stage, 'has_saved_stage', lambda library: False)
         expected = run_case(case, control)

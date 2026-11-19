@@ -159,7 +159,7 @@ The [fluid preparation example](../examples/cpp/prepare_fluids_2d.cpp) also quer
 
 ## Run continuation
 
-`Run2D` accepts the uniform v2 or continuous v4 preparation view, or a saved v1/v2 descriptor.
+`Run2D` accepts the uniform v2 or continuous v4 preparation view, or a saved v1, v2, or v3 descriptor.
 It supports creation, step advancement, phase queries, snapshots, restoration
 and result transfer. It uses the existing full 2D state machine and typed state.
 It does not reset consumed work. Restoration requires the same build, prepared
@@ -195,7 +195,11 @@ The new create/restore entries use the existing lifecycle, snapshot and result o
 The saved descriptor version does not change result release.
 Use `tpmshx_stage_run_2d_release_v1` for the transferred 2D result.
 
-Python selects a complete saved v2 protocol first, then saved v1 for symmetric uniform or continuous inputs.
+Python first selects the complete saved v3 protocol. The v3 stage checks physical lengths, flow axes, openings, design fields, and model references.
+It computes the staggered outlet from the original width precision and port bounds.
+The descriptor borrows the cell fields and four model references from the prepared view.
+Keep the additional field buffers and model strings alive through result transfer or run release.
+Earlier libraries use saved v2, or saved v1 for symmetric uniform or continuous inputs.
 Archived libraries without the applicable saved protocol use their existing interface.
 An incomplete new protocol or a failed run is an error. All queries, state releases and result releases use that same selected library.
 Saved formats, same-build restoration, CPU-change rules and public Python interfaces stay unchanged.
@@ -568,7 +572,7 @@ They preserve untyped keys, LRU order, statistics, clearing, concurrent publicat
 Equal keys retain the first successful value's scalar types. Material conductivity and chi stay outside these caches.
 
 The replaced Python 2D preparation sequence and row D-F projection are retired.
-`python/preprocess/two_d/preparation.py` is the retained native adapter; `python/physical_models/zone_units.py` owns the saved zone-unit conversion.
+`python/cpp_interface/native_preparation.py` is the retained native adapter; `python/physical_models/zone_units.py` owns the saved zone-unit conversion.
 Nominal x/y grid warnings use separate host emission sites in that preparation adapter.
 Frozen references under `development/tests/preparation_*_reference.py` retain the original sequence and complete row D-F projection.
 They are not production routes. Retain them while independent preparation comparison requires those references.

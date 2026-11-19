@@ -27,7 +27,7 @@ def test_interrupt_after_native_transfer_releases_owner(dimension, saved, bounda
     control = RunControl(native_library=str(library), cpu_threads=2)
     if dimension == 2:
         _, case = plane._case()
-        module, driver_type = full_2d, full_2d.NativeFull2DDriver
+        module, driver_type = (full_2d_stage, full_2d_stage.StageDriver) if saved else (full_2d, full_2d.NativeFull2DDriver)
         run_type = full_2d_stage._Run if saved else full_2d_run.NativeFull2DRun
         inputs = prepared_2d.build_execution_inputs(case, copy_design=False)
     else:
@@ -78,7 +78,7 @@ def test_interrupt_after_native_transfer_releases_owner(dimension, saved, bounda
 
     def interrupted(self, function, *args):
         if dimension == 2 and saved:
-            assert self.creation_version == 2
+            assert self.creation_version == 3
         original_call(self, function, *args)
         if function is getattr(self, '_' + boundary):
             value = args[-1]._obj

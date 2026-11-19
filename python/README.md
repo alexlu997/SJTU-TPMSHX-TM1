@@ -49,7 +49,7 @@ Python 均匀和空间准备使用 v10；均匀容量和解析仍使用 v7/v3，
 空间容量和解析使用 v10，沿用 v9 结果视图和释放函数。
 公共 ZoneConfig 与 sigmoid 组合查询在单独迁移通过前仍保留独立调用消费者。
 它们保留调用方提供的物性及自定义 sigmoid 控制。
-`python/preprocess/two_d/preparation.py` 为原生适配器，被替代的 Python 准备流程及行 D-F 投影已退役。
+`python/cpp_interface/native_preparation.py` 为原生适配器，被替代的 Python 准备流程及行 D-F 投影已退役。
 独立准备参考保留在 `development/tests`；`python/physical_models/zone_units.py` 负责保存分区数据的单位转换。
 CaseData 与保存文件契约不变，原生失败直接传播，不选择其他准备路线。
 

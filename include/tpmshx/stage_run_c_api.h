@@ -147,6 +147,10 @@ typedef struct {
     tpmshx_grid_scalar_v1 bounds[4];
 } tpmshx_stage_saved_flow_grid_2d_v3;
 typedef struct {
+    tpmshx_preparation_text_v1 name;
+    tpmshx_preparation_array_v1 values;
+} tpmshx_stage_design_field_2d_v3;
+typedef struct {
     uint32_t abi_version;
     size_t struct_size;
     tpmshx_stage_saved_case_2d_v2 values;
@@ -155,6 +159,9 @@ typedef struct {
     /* Models in the prepared view are in role order: fluid A, fluid B, geometry, drag. */
     tpmshx_preparation_text_v1 resource_fluids[2],resource_topology;
     tpmshx_preparation_sco2_nu_v2 resource_nu[2];
+    tpmshx_preparation_scalar_kind_v2 wall_reference_kind;
+    const tpmshx_stage_design_field_2d_v3* additional_fields;
+    size_t additional_count;
 } tpmshx_stage_saved_case_2d_v3;
 
 #ifdef __cplusplus

@@ -5,18 +5,17 @@ from functools import lru_cache
 import numpy as np
 
 from . import _native_grid, _native_preparation
+from ._native_fp import (
+    GridScalar as _Scalar, NumericBuffer as _Values, buffer_scalar as _scalar,
+    numeric_buffer as _values, restore_buffer_scalar as _restore,
+)
 
 
-_Scalar = _native_grid._Scalar
 _SP = ct.POINTER(_Scalar)
 _Size = ct.c_size_t
 _UInt = ct.c_uint32
 _DP = ct.POINTER(ct.c_double)
 _Error = [ct.POINTER(ct.c_char), _Size]
-
-
-class _Values(ct.Structure):
-    _fields_ = [('data', _DP), ('count', _Size), ('precision', _UInt), ('strong', _UInt)]
 
 
 _SIGNATURES = {
@@ -50,33 +49,6 @@ def _bindings(path):
 
 def _current():
     return _bindings(_native_preparation._library().path)
-
-
-def _scalar(value):
-    if isinstance(value, np.ndarray) and value.ndim == 0:
-        value = value[()]
-    return _native_grid._scalar(value)
-
-
-def _restore(value):
-    if value.strong == 2:
-        return np.dtype(f'int{value.precision}').type(value.value)
-    return _native_grid._restore(value)
-
-
-def _values(value, *, shape=None, preserve_scalar=False):
-    original, value = value, np.asarray(value)
-    if preserve_scalar and np.isscalar(original):
-        tag = _scalar(original)
-        precision, strong = tag.precision, tag.strong
-    elif value.dtype.kind == 'f' and value.dtype.itemsize in (2, 4, 8):
-        precision, strong = value.dtype.itemsize * 8, 1
-    elif value.dtype.kind in 'iub' and value.dtype.itemsize in (1, 2, 4, 8):
-        precision, strong = value.dtype.itemsize * 8, 2
-    else:
-        raise TypeError('inlet buffers require real floating or integer values')
-    packed = np.ascontiguousarray(value if shape is None else np.broadcast_to(value, shape), dtype=np.float64).ravel()
-    return packed, _Values(packed.ctypes.data_as(_DP), packed.size, precision, strong)
 
 
 def _check_status(status, error):

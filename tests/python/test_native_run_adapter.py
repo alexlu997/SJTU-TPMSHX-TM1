@@ -313,7 +313,8 @@ def test_incomplete_stage_protocol_is_not_retried(monkeypatch, missing, version)
             self.library = Library(self.library)
         def run_prepared(self, *args, **kwargs):
             raise AssertionError('incomplete native protocol must not select the old driver')
-    monkeypatch.setattr(full_2d, 'NativeFull2DDriver', Driver)
+    from sjtu_tpmshx.cpp_interface import full_2d_stage
+    monkeypatch.setattr(full_2d_stage, 'StageDriver', Driver)
     with pytest.raises(ValueError, match='incomplete saved 2D stage protocol'):
         full_2d.run_case(case, _control([]))
 
@@ -441,3 +442,27 @@ def test_saved_stage_checks_resource_identity(fault, message):
     changed = replace(case, metadata={**case.metadata, 'model_roles': roles}, model_refs=refs)
     with pytest.raises(ValueError, match=message):
         full_2d.run_case(changed, _control([]))
+
+
+@pytest.mark.parametrize('fault, message', [
+    ('eps_arr', 'uniform design field eps_arr'),
+    ('L_field_m', 'uniform design field L_field'),
+    ('K_ss_arr', 'uniform solid conductivity'),
+    ('custom', 'design field custom'),
+    ('K_m2', 'invalid prepared flow A K_m2'),
+    ('seed_cF_per_m', 'invalid prepared flow A seed_cF_per_m'),
+])
+def test_saved_stage_checks_design_and_drag(fault, message):
+    _, case = _case()
+    fields, parameters = mutable_data(case.design_fields), mutable_data(case.parameters)
+    if fault == 'custom':
+        fields[fault] = np.full_like(fields['eps_arr'], np.nan)
+    elif fault in fields:
+        fields[fault][0, 0] *= .5
+    elif fault == 'K_m2':
+        parameters['flow_inputs']['A'][fault][0] = 0.
+    else:
+        parameters['flow_inputs']['A'][fault] = -1.
+    invalid = replace(case, design_fields=fields, parameters=parameters)
+    with pytest.raises(ValueError, match=message):
+        full_2d.run_case(invalid, _control([]))

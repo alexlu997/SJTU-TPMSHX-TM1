@@ -33,3 +33,11 @@ def require_f2_mode(mode):
             f"convergence_mode must be 'f2', got {mode!r}; "
             "the legacy mass/velocity exit has been retired")
     return 'f2'
+
+
+def _resolve_chi_s(chi_s=None):
+    """Resolve an explicit value before the current environment setting."""
+    if chi_s is not None:
+        return float(chi_s)
+    value = os.environ.get('TPMSHX_CHI_S')
+    return None if value is None else float(value)

@@ -33,7 +33,7 @@ def baseline_config():
 
 @pytest.mark.slow
 def test_prepared_only_b20_air_baseline(monkeypatch):
-    import sjtu_tpmshx.preprocess.two_d.preparation as preparation
+    from sjtu_tpmshx.cpp_interface import native_preparation as preparation
     case = prepare_case(baseline_config(), case_id='B20-air')
     def forbidden(*args, **kwargs):
         raise AssertionError('execution called preprocessing')

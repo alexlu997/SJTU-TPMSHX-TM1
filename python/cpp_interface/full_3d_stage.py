@@ -13,7 +13,7 @@ from sjtu_tpmshx.cpp_interface._native_preparation_case import _Array as Prepare
 from sjtu_tpmshx.cpp_interface.solver_library._full_3d_abi import _Array, _Callbacks, _Control, _Input, _Result
 from sjtu_tpmshx.cpp_interface.solver_library.enthalpy import _EnergyOptions
 from sjtu_tpmshx.cpp_interface.solver_library.model_h import _IterationOptions
-from sjtu_tpmshx.cpp_interface.solver_library.prepared_stage_2d import _array, _ranges, _text
+from ._native_preparation_case import borrow_array as _array, borrow_ranges as _ranges, borrow_text as _text
 from .run_state import NativeRun
 
 _U, _Z, _D = ct.c_uint32, ct.c_size_t, ct.c_double

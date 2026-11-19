@@ -7,16 +7,14 @@ import numpy as np
 
 from sjtu_tpmshx.cpp_interface import _native_geometry as _geometry
 
+from ._native_fp import GridScalar as _Scalar, grid_scalar as _scalar, grid_widths as _widths, restore_grid_scalar as _restore
+
 _DoubleP = ct.POINTER(ct.c_double)
 _Size = ct.c_size_t
 _Uint = ct.c_uint32
 _SizeP = ct.POINTER(_Size)
 _IntP = ct.POINTER(ct.c_int32)
 _ByteP = ct.POINTER(ct.c_uint8)
-
-
-class _Scalar(ct.Structure):
-    _fields_ = [('value', ct.c_double), ('precision', _Uint), ('strong', _Uint)]
 
 
 class _Port(ct.Structure):
@@ -54,28 +52,6 @@ _SIGNATURES = {
 }
 
 
-def _scalar(value):
-    if isinstance(value, np.floating):
-        precision = value.dtype.itemsize * 8
-        if precision not in (16, 32, 64):
-            raise TypeError('grid scalars support NumPy float16, float32 and float64')
-        return _Scalar(float(value), precision, 1)
-    if isinstance(value, np.integer):
-        precision = value.dtype.itemsize * 8
-        if precision not in (8, 16, 32, 64):
-            raise TypeError('grid scalars support NumPy integers with 8, 16, 32 or 64 bits')
-        return _Scalar(float(value), precision, 2)
-    if isinstance(value, (float, int)):
-        return _Scalar(float(value), 64, 0)
-    raise TypeError('grid scalars require Python float/int or NumPy floating/integer values')
-
-
-def _restore(value):
-    if value.strong:
-        return np.dtype(f'float{value.precision}').type(value.value)
-    return value.value
-
-
 def _scalars(values):
     values = tuple(values)
     return (_Scalar * len(values))(*(_scalar(value) for value in values))
@@ -105,16 +81,6 @@ def _port(config):
 def _ports(configs):
     configs = tuple(configs)
     return (_Port * len(configs))(*(_port(config) for config in configs))
-
-
-def _widths(values):
-    original = np.asarray(values)
-    if original.ndim != 1:
-        raise ValueError('grid widths must be one-dimensional')
-    precision = original.dtype.itemsize * 8 if original.dtype.kind == 'f' else 64
-    if precision not in (16, 32, 64):
-        raise TypeError('grid widths support NumPy float16, float32 and float64')
-    return np.ascontiguousarray(original, dtype=np.float64), precision
 
 
 def _pointer(array):

@@ -73,6 +73,40 @@ void check_saved(const tpmshx_preparation_case_2d_v1& prepared,tpmshx::stages::R
         require(run.advance_step()==TPMSHX_FULL2D_FLOW,"saved stage flow boundary changed");
         return run.snapshot();
     }();
+    {
+        auto raw=view;
+        SavedCase2Dv3 current;
+        current.values.values=saved;
+        current.values.values.prepared=&raw;
+        current.lengths_m[0]=prepared.input.length_m;
+        current.lengths_m[1]=prepared.input.height_m;
+        current.resource_topology={"Gyroid",6};
+        std::vector<double> stream[2];
+        for (auto& kind:raw.field_kinds) kind={64,1,2};
+        for (size_t i=0;i<2;++i) {
+            auto& side=raw.values.sides[i];
+            auto& grid=current.flow_grid[i];
+            grid.direction=side.inlet.port.direction;
+            grid.cross=grid.direction<2?prepared.dy:prepared.dx;
+            const auto axis=grid.direction<2?prepared.dx:prepared.dy;
+            stream[i].assign(axis.data,axis.data+axis.size);
+            if (grid.direction==1 || grid.direction==3) std::reverse(stream[i].begin(),stream[i].end());
+            grid.stream={stream[i].data(),stream[i].size()};
+            grid.cross_precision=64;
+            for (size_t j=0;j<4;++j)
+                grid.bounds[j]={j<2?side.inlet_bounds[j]:side.outlet_bounds[j-2],64,0};
+            current.resource_fluids[i]={"air",3};
+            side.outlet_u_fraction={};
+        }
+        Run2D run(current,control);
+        Run2D resumed(current,control,{},&state);
+        require(resumed.phase()==TPMSHX_FULL2D_FLOW,"saved v3 lost the restored phase");
+        auto invalid=current;
+        invalid.resource_topology={error,2};
+        std::strcpy(error,"preserve-saved-error");
+        require(tpmshx_stage_run_2d_create_saved_v3(&invalid,nullptr,&control,&handle,error,sizeof(error))==1
+            && !handle && std::strcmp(error,"preserve-saved-error")==0,"saved v3 overwrote a borrowed string");
+    }
     control.cpu_threads=1;control.callbacks.cancel=cancel;
     Run2D restored(saved,control,{},&state);
     require(restored.phase()==TPMSHX_FULL2D_FLOW,"saved restore lost its phase");

@@ -73,3 +73,11 @@ def scalar_cache(*, maxsize: int):
         return wrapped
 
     return decorate
+
+
+class _InletCacheValue(tuple):
+    """Keep native-only intermediate values outside the public property mapping."""
+    def __new__(cls, values, records, cp, pr):
+        result = super().__new__(cls, (values, records))
+        result.cp, result.pr = cp, pr
+        return result

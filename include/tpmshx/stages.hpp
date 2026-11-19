@@ -214,6 +214,13 @@ struct SavedCase2Dv2 : tpmshx_stage_saved_case_2d_v2 {
         values=SavedCase2D{};
     }
 };
+struct SavedCase2Dv3 : tpmshx_stage_saved_case_2d_v3 {
+    SavedCase2Dv3():tpmshx_stage_saved_case_2d_v3{} {
+        abi_version=3;struct_size=sizeof(tpmshx_stage_saved_case_2d_v3);
+        values=SavedCase2Dv2{};
+        wall_reference_kind={64,0,0};
+    }
+};
 inline tpmshx_stage_capture_2d_v1 capture_summary(const RunResult2D& result,
     const tpmshx_stage_application_2d_v1& application) {
     tpmshx_stage_capture_2d_v1 output{};
@@ -325,6 +332,14 @@ public:
         const auto status=state?tpmshx_stage_run_2d_restore_saved_v2(&saved,&request,&control,
             state->view().fields,state->view().count,&run_,error,sizeof(error)):
             tpmshx_stage_run_2d_create_saved_v2(&saved,&request,&control,&run_,error,sizeof(error));
+        detail::check(status,error);
+    }
+    Run2D(const tpmshx_stage_saved_case_2d_v3& saved,const RunControl& control,const RunRequest2Dv3& request={},
+        const RunState* state=nullptr) {
+        char error[4096]{};
+        const auto status=state?tpmshx_stage_run_2d_restore_saved_v3(&saved,&request,&control,
+            state->view().fields,state->view().count,&run_,error,sizeof(error)):
+            tpmshx_stage_run_2d_create_saved_v3(&saved,&request,&control,&run_,error,sizeof(error));
         detail::check(status,error);
     }
     ~Run2D() {tpmshx_stage_run_2d_release_run_v1(&run_);}

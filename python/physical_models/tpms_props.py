@@ -14,7 +14,7 @@ Qt-free; Re/Nu conventions are documented in ``models.tpms_calc``.
 """
 from __future__ import annotations
 
-import os
+from sjtu_tpmshx.run_control.run_environment import _resolve_chi_s
 import warnings
 
 import numpy as np
@@ -194,14 +194,6 @@ def water_cp(T_K):
 #
 # Env var TPMSHX_CHI_S (a constant) still overrides everything — legacy
 # escape hatch; the historical default was the uncalibrated 1.0.
-def _resolve_chi_s(chi_s=None):
-    """Resolve an explicit value before the current environment setting."""
-    if chi_s is not None:
-        return float(chi_s)
-    value = os.environ.get('TPMSHX_CHI_S')
-    return None if value is None else float(value)
-
-
 def chi_s_eff(tpms_type: str, eps):
     """Return native tortuosity with the current per-call override."""
     result = _native_geometry.chi_fields(tpms_type, eps, chi_s=_resolve_chi_s())
