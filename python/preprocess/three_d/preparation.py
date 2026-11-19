@@ -285,7 +285,7 @@ def _resolved(config, flow, targets):
         if targets is not None or fluid.mass_flow_kg_s is not None:
             fluids['fluid_' + side] = replace(fluid, u_mps=restore_buffer_scalar(flow.speeds[index]),
                 mass_flow_kg_s=None if targets is not None else fluid.mass_flow_kg_s)
-    return replace(config, **fluids).validate(resolved_inlet_speeds=True, _native_preparation=True) if fluids else config
+    return replace(config, **fluids).validate(resolved_inlet_speeds=True) if fluids else config
 
 
 def _execute(config, action, *, targets=None, case_id=None, own_metadata=False):
@@ -371,7 +371,7 @@ def prepare_case(config: ComputeConfig, *, case_id: str):
 
 
 def prepare_mass_flow_case(config, targets, *, case_id):
-    config = deepcopy(config).validate_static_inputs(_native_preparation=True)
+    config = deepcopy(config).validate_static_inputs()
     explicit = (tuple(targets[side] for side in 'AB')
                 if all(getattr(config, 'fluid_' + side).mass_flow_kg_s is None for side in 'AB') else None)
     return _execute(config, 'prepare_flow_case', targets=explicit, case_id=case_id, own_metadata=True)
@@ -382,4 +382,4 @@ def capacities(config):
 
 
 def resolve(config, *, targets=None):
-    return _execute(deepcopy(config).validate_static_inputs(_native_preparation=True), 'resolve_inlet_flow', targets=targets)
+    return _execute(deepcopy(config).validate_static_inputs(), 'resolve_inlet_flow', targets=targets)

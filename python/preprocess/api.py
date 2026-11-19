@@ -49,7 +49,7 @@ def prepare_inlet_mass_capacities(config: ComputeConfig) -> dict[str, float]:
     Geometry, ports and static inputs are validated before constructing fields.
     The caller must still prepare the final case after prescribing its speeds.
     """
-    config = deepcopy(config).validate_static_inputs(_native_preparation=True)
+    config = deepcopy(config).validate_static_inputs()
     if not config.is_3d:
         from sjtu_tpmshx.cpp_interface import native_preparation as preparation
         return preparation.capacities(config)
