@@ -21,8 +21,8 @@ from sjtu_tpmshx.run_control.module_ports import RunControl
 from sjtu_tpmshx.run_control.run_environment import run_environment, require_f2_mode
 from sjtu_tpmshx.physical_models.fluid_props import WaterStateError
 from sjtu_tpmshx.physical_models.field_coordinates_3d import _port_rectangles
-from .simple_3d import _Config as _SimpleConfig, _STOPS, _count
-from ._simple_abi import _F2
+from .simple_3d import _Config as _SimpleConfig, _STOPS
+from ._simple_abi import simple_count, _F2
 from .physical_ledger import HeatLedger, heat_ledger_query, copy_heat_ledger
 from .model_h import _volume_info, _model_h_algorithm
 from .temperature import _temperature_algorithm
@@ -230,10 +230,10 @@ class NativeFull3DDriver:
             a.heat_transfer_geometry[:] = thermal['side_geometry'][label] if data.asymmetric else (1.,1.,1.,1.)
         data.sources[:] = [view(cfg.get('mms_S_'+s+'_field', np.empty(0))) for s in ('A', 'B', 's')]
         c = _Control()
-        c.max_outer = _count(p['max_outer'] if p['max_outer'] is not None else 12)
-        c.initial_simple_iterations = _count(cfg.get('max_iter_simple') if cfg.get('max_iter_simple') is not None else 2000)
-        c.warm_simple_iterations = _count(cfg.get('max_iter_simple') if cfg.get('max_iter_simple') is not None else 600)
-        c.thermal_iterations = _count(p['ltne_max_iter']);c.outer_temperature_tolerance = cfg.get('outer_tol_K') if cfg.get('outer_tol_K') is not None else .5
+        c.max_outer = simple_count(p['max_outer'] if p['max_outer'] is not None else 12)
+        c.initial_simple_iterations = simple_count(cfg.get('max_iter_simple') if cfg.get('max_iter_simple') is not None else 2000)
+        c.warm_simple_iterations = simple_count(cfg.get('max_iter_simple') if cfg.get('max_iter_simple') is not None else 600)
+        c.thermal_iterations = simple_count(p['ltne_max_iter']);c.outer_temperature_tolerance = cfg.get('outer_tol_K') if cfg.get('outer_tol_K') is not None else .5
         c.thermal_relaxation = cfg.get('ltne_alpha_T', .7)
         c.pressure_shooting = run_environment(cfg, 'TPMSHX_P_IN_SHOOT', '1') != '0'
         vrho = run_environment(cfg, 'TPMSHX_VAR_RHOCP')
@@ -244,7 +244,7 @@ class NativeFull3DDriver:
             and any(side.fluid in (2, 3) for side in data.sides)))
         c.sco2_local_pressure_a = run_environment(cfg, 'TPMSHX_SCO2_COMPRESSIBLE', '').lower() in ('1','true','yes')
         c.coarse_bootstrap = bool(cfg.get('use_coarse_bootstrap', False))
-        c.coarse_iterations = _count(cfg.get('coarse_bootstrap_max_iter', 200))
+        c.coarse_iterations = simple_count(cfg.get('coarse_bootstrap_max_iter', 200))
         c.roughness_mode = ('baseline','norris_1a','bhatti_shah_1b').index(cfg['roughness_resolved']['mode'])
         c.envelope_mode = ('raise','warn','off').index(cfg.get('envelope_mode','raise'))
         c.has_initial_solid_temperature = cfg.get('T_s_init') is not None
@@ -256,8 +256,8 @@ class NativeFull3DDriver:
             int(np.prod(shape)>=int(os.environ.get('TPMSHX_PARALLEL_THRESHOLD','200000'))),
             _F2(cfg.get('mom_tol') or 1e-4, cfg.get('mass_local_tol') or 1e-6, cfg.get('mass_global_tol') or 1e-6,
                 .01, 1e-4, 1e-3, 2, 5, 60))
-        c.enthalpy_iterations = _count(cfg.get('ltne_enthalpy_outer', defaults.max_iterations))
-        c.enthalpy_sweeps = _count(cfg.get('ltne_enthalpy_nsweep', defaults.sweeps), zero=True)
+        c.enthalpy_iterations = simple_count(cfg.get('ltne_enthalpy_outer', defaults.max_iterations))
+        c.enthalpy_sweeps = simple_count(cfg.get('ltne_enthalpy_nsweep', defaults.sweeps), zero=True)
         c.enthalpy_omega = cfg.get('ltne_enthalpy_omega', defaults.omega)
         c.enthalpy_update_tolerance = cfg.get('ltne_enthalpy_tol', defaults.update_tolerance)
         c.table_directory = self.table_directory

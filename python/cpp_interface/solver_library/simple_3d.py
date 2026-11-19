@@ -5,13 +5,12 @@ any explicit coarse seed. All equations, pressure solves, rho/inlet updates,
 raw face flows and F2 decisions execute in C++. No default route is changed.
 """
 import ctypes as ct
-import operator
 from pathlib import Path
 
 import numpy as np
 
 from sjtu_tpmshx.run_control.cancellation import CancelledError
-from ._simple_abi import _Callbacks, _F2, _Mass, _Momentum, make_callbacks
+from ._simple_abi import _Callbacks, _F2, _Mass, _Momentum, make_callbacks, simple_count
 
 
 class _Config(ct.Structure):
@@ -58,13 +57,6 @@ def _status(code, error):
         raise exception(error.value.decode('utf-8', errors='replace'))
 
 
-def _count(value, *, zero=False):
-    value = operator.index(value)
-    if value < (0 if zero else 1) or value > ct.c_size_t(-1).value:
-        raise ValueError('SIMPLE count is outside native size_t bounds')
-    return value
-
-
 def _array(value, shape, *, mutable=False):
     if mutable:
         if (not isinstance(value, np.ndarray) or value.dtype != np.float64
@@ -100,7 +92,7 @@ class NativeSimple3D:
         widths = [np.require(value, dtype=np.float64, requirements=['C', 'A']) for value in (dx, dy, dz)]
         if any(value.ndim != 1 or not value.size for value in widths):
             raise ValueError('SIMPLE grid widths must be nonempty one-dimensional arrays')
-        self.shape = tuple(_count(value.size) for value in widths)
+        self.shape = tuple(simple_count(value.size) for value in widths)
         opening = np.asarray(outlet_open)
         if opening.dtype not in (np.dtype(bool), np.dtype('uint8')) or opening.shape != (self.shape[0], self.shape[2]):
             raise ValueError('SIMPLE outlet_open requires bool/uint8 shape (nx,nz)')
@@ -186,11 +178,11 @@ class NativeSimple3D:
             raise ValueError('SIMPLE flags must be bool or 0/1')
         if ordering not in ('natural', 'red_black'):
             raise ValueError('SIMPLE ordering must be natural or red_black')
-        config = _Config(_count(max_iter), _count(n_inner), _count(pressure_rebuild_every),
+        config = _Config(simple_count(max_iter), simple_count(n_inner), simple_count(pressure_rebuild_every),
             alpha_u, alpha_p, alpha_rho, P_ref_abs, R_gas, pressure_diagonal_drift,
             *(int(value) for value in flags), int(ordering == 'red_black'),
             _F2(mom_tol, mass_local_tol, mass_global_tol, backflow_max, velocity_check_tol,
-                stall_ratio, _count(confirmations), _count(momentum_interval), _count(stall_window, zero=True)))
+                stall_ratio, simple_count(confirmations), simple_count(momentum_interval), simple_count(stall_window, zero=True)))
         callbacks, callback_errors = make_callbacks(cancel_check, progress)
         pointers = (_DOUBLE*len(arrays))(*(value.ctypes.data_as(_DOUBLE) for value in arrays))
         sizes = (ct.c_size_t*len(arrays))(*(value.size for value in arrays))

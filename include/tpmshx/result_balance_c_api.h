@@ -60,7 +60,7 @@ typedef struct {
     double mean[3], deviation[3], minimum[2], maximum[2];
 } tpmshx_result_zone_temperatures_v1;
 
-/* Temperatures and widths use float64. Signed integer labels select zones in
+/* Temperatures and widths use float64. Integer labels select zones in
  * physical cell order. Empty zones have zero cells. Other labels are ignored.
  * Boundary fractions use the same physical axes as length and height. */
 TPMSHX_RESULT_API int TPMSHX_RESULT_CALL tpmshx_result_zone_temperatures_2d_v1(

@@ -179,7 +179,7 @@ std::vector<tpmshx_result_zone_temperatures_v1> zone_temperatures_2d(
     std::size_t zone_count, Diagnostics& diagnostics) {
     const Array dx(widths[0]), dy(widths[1]), ids(labels);
     if (widths[0].rank!=1 || widths[1].rank!=1 || widths[0].dtype!=TPMSHX_RESULT_F64 ||
-        widths[1].dtype!=TPMSHX_RESULT_F64 || labels.rank!=2 || !signed_type(labels.dtype) ||
+        widths[1].dtype!=TPMSHX_RESULT_F64 || labels.rank!=2 || !integer_type(labels.dtype) ||
         labels.shape[0]!=dx.size() || labels.shape[1]!=dy.size())
         throw std::invalid_argument("zone labels and widths must match the physical grid");
     const std::array<Array,3> phases{Array(temperatures[0]),Array(temperatures[1]),Array(temperatures[2])};
@@ -193,8 +193,9 @@ std::vector<tpmshx_result_zone_temperatures_v1> zone_temperatures_2d(
     const auto weights=areas.array();
     std::vector<std::vector<std::size_t>> members(zone_count);
     for (std::size_t cell=0;cell<ids.size();++cell) {
-        const auto zone=ids.at(cell).signed_value;
-        if (zone>=0 && static_cast<std::uint64_t>(zone)<zone_count)
+        const auto label = ids.at(cell);
+        const auto zone = signed_type(label.dtype) ? static_cast<std::uint64_t>(label.signed_value) : label.unsigned_value;
+        if (zone < zone_count)
             members[static_cast<std::size_t>(zone)].push_back(cell);
     }
     std::vector<tpmshx_result_zone_temperatures_v1> rows(zone_count);
