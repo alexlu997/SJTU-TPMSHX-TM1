@@ -251,6 +251,8 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_restore_saved_v3(
 /* Phases and safe snapshot boundaries match full_2d_run_c_api.h.
  * Snapshots own independent storage; use tpmshx_run_state_release_v1. */
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_advance_step_v1(void*,uint32_t*,char*,size_t);
+/* Advance to completion or cancellation with the registered callbacks. */
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_finish_v1(void*,char*,size_t);
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_phase_v1(const void*,uint32_t*);
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_snapshot_v1(
     const void*,tpmshx_run_state_v1*,char*,size_t);

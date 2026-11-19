@@ -364,7 +364,7 @@ def _execute(config, action, *, targets=None, case_id=None, own_metadata=False):
 
 
 def prepare_case(config: ComputeConfig, *, case_id: str):
-    config = ComputeConfig.from_dict(asdict(config))
+    config = ComputeConfig.from_dict(asdict(config), _native_preparation=True)
     if not config.is_3d:
         raise ValueError('3D preparation requires solver.Nz >= 2')
     return _execute(config, 'prepare_flow_case', case_id=case_id)

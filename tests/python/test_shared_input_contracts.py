@@ -94,3 +94,58 @@ def test_legacy_supported_and_omitted_domain_fields_still_load():
     assert (default.geometry.L_dom_m, default.geometry.H_dom_m) == (.182, .042)
     actual = ComputeConfig.from_dict({'domain': {'L_dom_m': .08, 'H_dom_m': .04, 'Lz_m': .03}})
     assert (actual.geometry.L_dom_m, actual.geometry.H_dom_m, actual.geometry.Lz_m) == (.08, .04, .03)
+
+
+def test_invalid_port_precedes_invalid_speed_at_public_entries():
+    from sjtu_tpmshx.compute import compute
+    from sjtu_tpmshx.data_types.compute_config import ComputeConfig
+    from sjtu_tpmshx.preprocess.api import prepare_case
+
+    config = ComputeConfig()
+    config.bc_A.in_w = config.bc_A.out_w = .01
+    config.bc_A.in_ctr = 2.
+    config.fluid_A.u_mps = -1.
+    for entry in (compute, prepare_case):
+        with pytest.raises(ValueError, match='pipe_in_out_of_domain'):
+            entry(config, case_id='invalid-input')
+
+
+def test_mass_flow_entries_preserve_static_port_error_order():
+    from sjtu_tpmshx.data_types.compute_config import ComputeConfig
+    from sjtu_tpmshx.preprocess import api
+
+    config = ComputeConfig()
+    config.geometry.Lz_m = .04
+    config.fluid_A.mass_flow_kg_s = .01
+    config.bc_A.in_w = config.bc_A.out_w = .01
+    config.bc_A.in_ctr = 2.
+    config.solver.mom_tol = -1.
+    fixed = dict(mass_flow_A_kg_s=.01, mass_flow_B_kg_s=.02)
+    for entry, kwargs in (
+        (api.prepare_case, dict(case_id='invalid')),
+        (api.prepare_inlet_mass_capacities, {}),
+        (api.resolve_inlet_flow_config, {}),
+        (api.prepare_fixed_mass_flow_case, dict(case_id='invalid', **fixed)),
+        (api.resolve_fixed_mass_flow_config, fixed),
+    ):
+        with pytest.raises(ValueError, match='pipe_in_out_of_domain'):
+            entry(config, **kwargs)
+
+
+def test_invalid_configuration_precedes_second_cancel_poll():
+    from sjtu_tpmshx.compute import compute
+    from sjtu_tpmshx.data_types.compute_config import ComputeConfig
+    from sjtu_tpmshx.run_control.module_ports import RunControl
+
+    config = ComputeConfig()
+    config.bc_A.in_w = config.bc_A.out_w = .01
+    config.bc_A.in_ctr = 2.
+    polls = []
+
+    def cancel():
+        polls.append(True)
+        return len(polls) == 2
+
+    with pytest.raises(ValueError, match='pipe_in_out_of_domain'):
+        compute(config, control=RunControl(cancel_check=cancel))
+    assert len(polls) == 1

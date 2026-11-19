@@ -160,6 +160,8 @@ Python 保留警告过滤器、来源位置，以及后续失败前已完成的�
 名义 x/y 网格警告在保留的准备适配器中具有独立的宿主发出位置。
 `preparation_case.cpp` 负责二维准备流程及均匀、连续或网格／偏置三维流程；`stage_run.cpp` 将二维准备态适配到现有完整二维驱动。
 `stage_run_3d.cpp` 将四类三维准备态及保存输入接到 `Full3DRun`。
+普通准备态运行由 C++ 推进至结束。启用检查点或使用仅支持步进的历史库时，Python 宿主逐步推进。
+GUI 续算只读取一次检查点、案例和运行记录，将同一份输入传给工作线程。
 `stage_capture_3d.cpp` 拥有完整原始结果和独立评估证据。
 最终流场提供压力及显示，最后完成的热态输入提供质量、热压力和能量。
 结果在准备态与运行释放后仍有效；Python 完整三维运行使用其保存输入生命周期。
@@ -506,7 +508,7 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
 
 - `python/data_types/` 保存不可变的 CaseData、FieldResult 和指标定义，`python/run_control/` 保存运行控制。
 - `preprocess/` 负责物理网格／边界准备、固定几何和系数、模型／资源选择，以及可移植执行输入。
-- `python/cpp_interface/solver_library/` 通过默认使用 C++ 的 `RunControl` 提供独立准备态 Quick Design 和 full 2D/3D。主机库路径不存入 CaseData。共享 QD 校验和结果映射位于 `python/solvers/backends/quick_design.py`；物性阶段、液态水约束和热迭代由 C++ 驱动负责。Quick Design run 阶段将标量证据扩展为场及声明；Python 复制具有所有权的输出，并用过程证据生成警告记录。full 2D/3D 在 C++ 中负责 SIMPLE、压力参考、外物性／热耦合和最终证据；二维还负责 Richardson 细化。完整计算绑定在同步原生调用中借用准备态只读设计数组，持有强引用直至调用和结果捕获完成；既有 dtype、对齐和单位转换仍按需分配。公共 Python 输入构造器继续返回独立可写设计数组。绑定将原生证据映射到同一 FieldResult，不调用 Python 数值核。full 3D ABI 2 删除外层物性 Anderson 控制项和状态，保留固定物性松弛与热方程 Anderson。full 2D ABI 2 保留原准备态 Nu 几何比，不在单位转换后重建。C++ 是唯一数值后端。必需原生 CI 已在 macOS arm64/Python 3.13 和 Windows x64/Python 3.12、3.13 通过。可见桌面与完整性能资格保持独立。
+- `python/cpp_interface/solver_library/` 通过默认使用 C++ 的 `RunControl` 提供独立准备态 Quick Design 和 full 2D/3D。主机库路径不存入 CaseData。Quick Design v2 的结果映射位于 `python/cpp_interface/quick_design.py`，v1 保存输入校验保留在 `python/solvers/backends/quick_design.py`；物性阶段、液态水约束和热迭代由 C++ 驱动负责。Quick Design run 阶段将标量证据扩展为场及声明；Python 复制具有所有权的输出，并用过程证据生成警告记录。full 2D/3D 在 C++ 中负责 SIMPLE、压力参考、外物性／热耦合和最终证据；二维还负责 Richardson 细化。完整计算绑定在同步原生调用中借用准备态只读设计数组，持有强引用直至调用和结果捕获完成；既有 dtype、对齐和单位转换仍按需分配。公共 Python 输入构造器继续返回独立可写设计数组。绑定将原生证据映射到同一 FieldResult，不调用 Python 数值核。full 3D ABI 2 删除外层物性 Anderson 控制项和状态，保留固定物性松弛与热方程 Anderson。full 2D ABI 2 保留原准备态 Nu 几何比，不在单位转换后重建。C++ 是唯一数值后端。必需原生 CI 已在 macOS arm64/Python 3.13 和 Windows x64/Python 3.12、3.13 通过。可见桌面与完整性能资格保持独立。
 - `Simple2DSolver` 和 `Simple3DSolver` 保留每个活动流动调用。`start` 开始调用；`advance` 完成普通步骤及已启用的二维候选，再执行 F2 检查。现有一次性入口使用这些操作。活动快照独立持有各场、F2 连续确认及停滞状态、结果、历史、入口流量目标、裁剪累计和压力层级构建状态。恢复保留原迭代预算、动量观测位置和压力重建节奏，在写入调用方场前校验保存状态。初始修正数组保留原有未使用值规则。热启动调用之间的快照与活动调用快照分开。回调不能保存或重入未完成步骤。每次普通或候选步骤前检查取消。物理方程和最终边界证据保持不变。两个完整控制器均归档活动流动态，供应用恢复。
 - `EnthalpyRun` 持有 T-SOU 的 Picard 迭代状态。每次推进完成一个原始迭代，包括其中的 SOU 候选。初始化复用现有物性工作分区，并保留相同物理检查。完成的运行向完整控制器转移最终有效导热系数，避免在相同热状态上重复计算 EOS。活动快照独立保存五个解场、输运值、结果证据和 Anderson 历史；H 算法独占的焓界限、表界限和反算数组已退役。恢复要求相同输入与控制参数，并在写入调用方数组前校验保存状态。EOS 求值器与临时数组重新构建。失败或取消的运行不能导出活动快照；回调不能保存或重入未完成步骤。现有 `solve_enthalpy` 入口使用此所有者，原来两个仅依赖栈状态的迭代循环已退役。物理检查、最终审计、迭代预算和取消位置保持不变。该组件接口尚不提供文件或应用层恢复。
   直接调用 `EnthalpyRun` 时，每侧可设置 `inlet_direction=-1`，将该侧标量入口状态用于所有外部入流。

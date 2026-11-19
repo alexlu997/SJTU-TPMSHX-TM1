@@ -23,6 +23,7 @@ def compute(config: ComputeConfig, *, case_id: str | None = None,
     progress_cb receives overall progress. RunControl retains raw solver
     progress and the host's backend, cancellation and iteration controls.
     """
+    native_preparation = prepare is None and control.cancel_check is None
     if prepare is None:
         from sjtu_tpmshx.preprocess.api import prepare_case
         prepare = prepare_case
@@ -41,7 +42,7 @@ def compute(config: ComputeConfig, *, case_id: str | None = None,
     solver_control = control if progress_cb is None else replace(control, progress=solver_progress)
     control.check_cancelled()
     with warning_scope({}) as records:
-        config.validate()
+        config.validate(_native_preparation=native_preparation)
         control.check_cancelled()
         started = perf_counter()
         case = prepare(config, case_id=str(uuid4()) if case_id is None else case_id)

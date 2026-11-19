@@ -66,7 +66,7 @@ def _run_compute(config, cancel_token, progress_cb, *, ui_hooks, control=RunCont
         outer_iteration=with_ui_hook('iter_cb', control.outer_iteration))
     if run_directory is None:
         return compute_result(config, progress_cb=progress_cb, control=control)
-    from sjtu_tpmshx.applications.execution.recovery import compute_run, resume_run
+    from sjtu_tpmshx.applications.execution.recovery import compute_run, resume_loaded_run
     kwargs = dict(control=control, progress_cb=progress_cb,
                   checkpoint_interval_s=checkpoint_interval_s,
                   pause_check=cancel_token.pause_requested)
@@ -74,7 +74,9 @@ def _run_compute(config, cancel_token, progress_cb, *, ui_hooks, control=RunCont
         _, result, performance = compute_run(config, run_directory,
                                              gui_provenance=gui_provenance, **kwargs)
     else:
-        _, result, performance = resume_run(resume_checkpoint, run_directory, **kwargs)
+        path, saved, case = resume_checkpoint
+        _, result, performance = resume_loaded_run(path, saved, case, config, run_directory,
+            gui_provenance=gui_provenance, **kwargs)
     display = to_compute_result(result, performance)
     control.check_cancelled()
     return display
@@ -667,7 +669,7 @@ class RunControllerMixin:
             return
         checkpoint_file = Path(checkpoint_file).resolve()
         try:
-            _, case, record = read_run_checkpoint(checkpoint_file)
+            saved, case, record = read_run_checkpoint(checkpoint_file)
             config = ComputeConfig.from_dict(mutable_data(case.config_snapshot), prepared_grid=True)
             saved_provenance = record.get('gui_provenance')
             if saved_provenance is not None and not isinstance(saved_provenance, dict):
@@ -695,7 +697,7 @@ class RunControllerMixin:
             ui_hooks={'iter_label_cb': self.compute.iteration.emit,
                       'iter_cb': lambda k, n: self.compute.iteration.emit(f'outer {k}/{n}')},
             run_directory=directory, checkpoint_interval_s=checkpoint_interval,
-            resume_checkpoint=checkpoint_file)
+            resume_checkpoint=(checkpoint_file, saved, case), gui_provenance=saved_provenance)
         if not self.compute.start(mode, worker, cfg=config):
             self._pending_run_provenance = self._active_run_directory = None
             return

@@ -19,7 +19,7 @@ _DTYPES = (np.dtype('float64'), np.dtype('uint64'), np.dtype('int64'), np.dtype(
 
 
 class NativeRun:
-    """Advance one native boundary at a time. Close each run after use."""
+    """Own one native run and its checkpoint boundaries. Close the run after use."""
 
     advance_name = 'advance'
     entry_names = {}
@@ -105,6 +105,19 @@ class NativeRun:
         phase = ct.c_uint32()
         self._call(self._advance, self.handle, ct.byref(phase))
         return phase.value
+
+    def finish(self, checkpoint, checkpoint_due, checkpoint_phases):
+        if checkpoint is None:
+            finish = getattr(self.library, self.api_prefix + '_finish_v1', None)
+            if finish is not None:
+                finish.argtypes, finish.restype = [ct.c_void_p, ct.POINTER(ct.c_char), ct.c_size_t], ct.c_int
+                self._call(finish, self.handle)
+                return
+        phase = self.phase
+        while phase not in (3, 4):
+            phase = self.advance()
+            if checkpoint is not None and phase in checkpoint_phases and (checkpoint_due is None or checkpoint_due()):
+                checkpoint(self.snapshot())
 
     def snapshot(self):
         result = _Snapshot()

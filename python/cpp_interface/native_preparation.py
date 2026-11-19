@@ -691,7 +691,7 @@ def _execute(config, operation, *, targets=None, case_id=None, own_metadata=Fals
             resolved = _resolved(config, flow, targets)
             if operation == 'resolve_inlet_flow':
                 return resolved
-            resolved = ComputeConfig.from_dict(asdict(resolved))
+            resolved = ComputeConfig.from_dict(asdict(resolved), _native_preparation=True)
             if spatial:
                 for index, side in enumerate('AB'):
                     fluid = getattr(resolved, 'fluid_' + side)
@@ -708,7 +708,7 @@ def _execute(config, operation, *, targets=None, case_id=None, own_metadata=Fals
 
 
 def prepare_case(config, *, case_id):
-    config = ComputeConfig.from_dict(asdict(config))
+    config = ComputeConfig.from_dict(asdict(config), _native_preparation=True)
     if config.is_3d:
         raise ValueError('2D preparation requires solver.Nz == 1')
     return _execute(config, 'prepare_flow_case', case_id=case_id)

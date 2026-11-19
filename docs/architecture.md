@@ -178,6 +178,9 @@ Nominal x/y grid warnings have separate host emission sites in the retained prep
 `stage_run_3d.cpp` connects all four 3D preparation families and saved inputs to `Full3DRun`.
 `stage_capture_3d.cpp` owns the complete raw result and its independent evaluation evidence.
 Final flow supplies pressure and display. The last completed thermal inputs supply mass, thermal pressure and energy.
+An ordinary saved-stage run advances to its terminal phase in C++.
+The Python host steps the run when it needs a checkpoint or uses an archived step-only library.
+GUI resume loads the checkpoint, case, and run record once. It passes the same saved inputs to its worker.
 The result survives preparation and run release. Python full 3D runs use its saved-input lifecycle.
 `full_3d_stage.py` retains recorded input validation and borrows the existing XYZ fields.
 The driver keeps one input pack, callback bridge and raw DTO decoder. `full_3d_capture.py` remains the single result assembler.
@@ -598,8 +601,8 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
 - `preprocess/` owns physical grid/boundary preparation, fixed geometry and
   coefficients, model/resource selection and portable execution inputs.
 - `python/cpp_interface/solver_library/` exposes the independent prepared Quick Design and
-  full 2D/3D drivers through `RunControl`, which defaults to C++. The host library path is not serialized in CaseData. Shared QD validation and
-  result mapping belong to `python/solvers/backends/quick_design.py`. Numerical property
+  full 2D/3D drivers through `RunControl`, which defaults to C++. The host library path is not serialized in CaseData. The Quick Design v2 adapter maps results in `python/cpp_interface/quick_design.py`.
+  The v1 adapter retains its saved-input checks in `python/solvers/backends/quick_design.py`. Numerical property
   passes, liquid-state guards and thermal iteration belong to the C++ driver.
   The Quick Design run stage expands its scalar evidence into fields and declarations.
   Python copies the owned output and uses the pass evidence for warning records.

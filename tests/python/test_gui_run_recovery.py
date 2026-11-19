@@ -25,8 +25,9 @@ def test_gui_worker_uses_recovery_and_maps_only_complete_results(tmp_path, monke
     checkpoint = tmp_path / 'checkpoint.h5' if resume else None
     observed, ui_iterations, original_iterations = [], [], []
 
-    def execute(value, directory, **kwargs):
-        observed.append(value)
+    def execute(value, *args, **kwargs):
+        directory = args[-1]
+        observed.append((value, *args[:-1]) if resume else value)
         assert directory == tmp_path / 'new'
         assert kwargs['checkpoint_interval_s'] == 42
         assert kwargs['control'].backend == 'cpp'
@@ -42,15 +43,16 @@ def test_gui_worker_uses_recovery_and_maps_only_complete_results(tmp_path, monke
         assert result is native and metrics is performance
         return display
 
-    monkeypatch.setattr(recovery, 'resume_run' if resume else 'compute_run', execute)
+    monkeypatch.setattr(recovery, 'resume_loaded_run' if resume else 'compute_run', execute)
     monkeypatch.setattr(module_adapter, 'to_compute_result', convert)
     control = replace(RunControl(backend='cpp', native_library=library),
                       iteration=original_iterations.append)
+    saved, case = object(), object()
     actual = _run_compute(config, token, None, control=control,
         ui_hooks={'iter_label_cb': ui_iterations.append}, run_directory=tmp_path / 'new',
-        checkpoint_interval_s=42, resume_checkpoint=checkpoint, gui_provenance={'mode': '2d'})
+        checkpoint_interval_s=42, resume_checkpoint=(checkpoint, saved, case) if resume else None, gui_provenance={'mode': '2d'})
     assert actual is display
-    assert observed == [checkpoint if resume else config]
+    assert observed == [(checkpoint, saved, case, config) if resume else config]
     assert ui_iterations == original_iterations == ['inner 3']
 
 
@@ -108,8 +110,14 @@ def test_resume_uses_saved_inputs_and_provenance_without_changing_draft(
     case = SimpleNamespace(case_id='saved-physical-input', config_snapshot=asdict(config),
                            grid={'dimension': 3 if mode == '3d' else 2})
     checkpoint = tmp_path / 'old' / 'checkpoint.h5'
-    monkeypatch.setattr(recovery, 'read_run_checkpoint', lambda path:
-        (None, case, {'checkpoint_interval_s': 42, 'gui_provenance': provenance}))
+    reads = []
+    saved_state = object()
+
+    def read_saved(path):
+        reads.append(path)
+        return saved_state, case, {'checkpoint_interval_s': 42, 'gui_provenance': provenance}
+
+    monkeypatch.setattr(recovery, 'read_run_checkpoint', read_saved)
     library = tmp_path / 'explicit-library'
     library.touch()
     win.run_control = replace(win.run_control, native_library=str(library))
@@ -136,7 +144,10 @@ def test_resume_uses_saved_inputs_and_provenance_without_changing_draft(
         assert observed[0][0] == config
         kwargs = observed[0][1]
         assert kwargs['control'].backend == 'cpp'
-        assert kwargs['resume_checkpoint'] == checkpoint
+        assert reads == [checkpoint]
+        source, state, loaded_case = kwargs['resume_checkpoint']
+        assert state is saved_state
+        assert source == checkpoint and loaded_case is case
         assert kwargs['checkpoint_interval_s'] == 42
         assert kwargs['run_directory'].parent == tmp_path
         assert kwargs['run_directory'] != checkpoint.parent

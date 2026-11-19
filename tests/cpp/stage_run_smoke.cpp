@@ -110,7 +110,8 @@ void check_saved(const tpmshx_preparation_case_2d_v1& prepared,tpmshx::stages::R
     control.cpu_threads=1;control.callbacks.cancel=cancel;
     Run2D restored(saved,control,{},&state);
     require(restored.phase()==TPMSHX_FULL2D_FLOW,"saved restore lost its phase");
-    require(restored.advance_step()==TPMSHX_FULL2D_CANCELLED,"saved restore ignored cancellation");
+    restored.finish();
+    require(restored.phase()==TPMSHX_FULL2D_CANCELLED,"saved restore ignored cancellation");
     try {auto result=restored.take_result();throw std::runtime_error("cancelled saved stage published a result");}
     catch(const NativeError& failure) {require(failure.status()==6,"saved cancellation status changed");}
 }

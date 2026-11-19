@@ -290,11 +290,7 @@ class NativeFull3DDriver:
                 from sjtu_tpmshx.cpp_interface.full_3d_stage import SavedRun
                 with SavedRun(self.library, stage_case, cfg, p, data, c, energy, model_h_options,
                               callbacks, callback_errors, control, resume_state) as run:
-                    while run.phase not in (3, 4):
-                        phase = run.advance()
-                        if (checkpoint is not None and phase in (1, 2, 6, 7, 8, 9, 10)
-                                and (checkpoint_due is None or checkpoint_due())):
-                            checkpoint(run.snapshot())
+                    run.finish(checkpoint, checkpoint_due, (1, 2, 6, 7, 8, 9, 10))
                     stage_result = run.take_result()
                 result = stage_result.raw
                 c = stage_result.resolved
