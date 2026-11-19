@@ -466,3 +466,22 @@ def test_saved_stage_checks_design_and_drag(fault, message):
     invalid = replace(case, design_fields=fields, parameters=parameters)
     with pytest.raises(ValueError, match=message):
         full_2d.run_case(invalid, _control([]))
+
+
+@pytest.mark.parametrize('name, field', [('eps', 'eps_arr'), ('r_h', 'r_h_arr')])
+def test_saved_uniform_checks_preserve_scalar_precision(name, field):
+    _, case = _case()
+    fields = mutable_data(case.design_fields)
+    fields[field] = fields[field].astype(np.float32)
+    scalar = np.nextafter(np.float64(fields[field][0, 0]), np.inf)
+    changed = replace(case, design_fields=fields, parameters={**case.parameters, name: scalar})
+    for run in (_old, full_2d.run_case):
+        with pytest.raises(ValueError, match='uniform design field'):
+            run(changed, _control([]))
+
+
+def test_saved_grid_direction_matches_actual_solver_direction():
+    _, case = _case()
+    changed = replace(case, parameters={**case.parameters, 'dir_A': case.parameters['dir_A'] ^ 1})
+    with pytest.raises(ValueError, match='direction disagrees with the solver direction'):
+        full_2d.run_case(changed, _control([]))

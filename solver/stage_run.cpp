@@ -127,8 +127,8 @@ void validate_saved_design(const tpmshx_stage_saved_case_2d_v3& saved,
     };
     field("L_field",p.cell_length,0,p.cell_length_m,saved.values.values.reference_cell_kind,true);
     field("t_field",p.wall_thickness,1,p.wall_thickness_m,saved.wall_reference_kind,true);
-    field("eps_arr",p.total_porosity,2,p.epsilon,{64,0,0},false);
-    field("r_h_arr",p.hydraulic_radius,4,p.hydraulic_radius_m,{64,0,0},false);
+    field("eps_arr",p.total_porosity,2,p.epsilon,saved.porosity_reference_kind,false);
+    field("r_h_arr",p.hydraulic_radius,4,p.hydraulic_radius_m,saved.radius_reference_kind,false);
     for (size_t i=0;i<cells;++i) {
         const auto k=p.solid_conductivity.data[i];
         if (!std::isfinite(k)) throw std::invalid_argument("prepared design field K_ss_arr does not match the physical grid");
@@ -166,7 +166,8 @@ std::vector<double> saved_outlet(const tpmshx_preparation_case_2d_v1& prepared,
     const tpmshx_stage_saved_flow_grid_2d_v3& grid, size_t index) {
     const auto& side = prepared.sides[index];
     const auto direction = grid.direction;
-    if (direction > 3) throw std::invalid_argument("invalid prepared flow direction");
+    if (direction > 3 || direction != static_cast<uint32_t>(side.inlet.port.direction))
+        throw std::invalid_argument("prepared flow direction disagrees with the solver direction");
     const auto cross = direction < 2 ? prepared.dy : prepared.dx;
     const auto stream = direction < 2 ? prepared.dx : prepared.dy;
     const std::string label = index ? "B" : "A";
@@ -480,9 +481,8 @@ int run(const tpmshx_preparation_case_2d_v1* prepared,
         preparation_storage(storage,prepared,uniform,continuous,v2,start?start->saved:nullptr,start?start->saved_v2:nullptr);
         if (start && start->saved_v3) {
             const auto& saved=*start->saved_v3;
-            const auto& prepared=*saved.values.values.prepared;
-            for (const auto field:{prepared.values.cell_length,prepared.values.wall_thickness,
-                                   prepared.values.hydraulic_radius}) storage(field.data,field.size);
+            for (const auto field:{uniform->values.cell_length,uniform->values.wall_thickness,
+                                   uniform->values.hydraulic_radius}) storage(field.data,field.size);
             storage(saved.additional_fields,saved.additional_count);
             for (size_t i=0;i<saved.additional_count;++i) {
                 const auto& item=saved.additional_fields[i];
@@ -490,10 +490,10 @@ int run(const tpmshx_preparation_case_2d_v1* prepared,
                 storage(item.values.data,item.values.size);
             }
             const auto check_text=[&](tpmshx_preparation_text_v1 value){storage(value.data,value.size);};
-            for (const auto& model:prepared.values.models) {check_text(model.name);check_text(model.version);}
+            for (const auto& model:uniform->values.models) {check_text(model.name);check_text(model.version);}
             check_text(saved.resource_topology);
             for (const auto& fluid:saved.resource_fluids) check_text(fluid);
-            for (const auto* nu:{&prepared.sco2_nu,&saved.resource_nu[0],&saved.resource_nu[1]}) {
+            for (const auto* nu:{&uniform->sco2_nu,&saved.resource_nu[0],&saved.resource_nu[1]}) {
                 check_text(nu->parameter_version);check_text(nu->source);check_text(nu->applicability);
             }
         }

@@ -218,7 +218,7 @@ struct SavedCase2Dv3 : tpmshx_stage_saved_case_2d_v3 {
     SavedCase2Dv3():tpmshx_stage_saved_case_2d_v3{} {
         abi_version=3;struct_size=sizeof(tpmshx_stage_saved_case_2d_v3);
         values=SavedCase2Dv2{};
-        wall_reference_kind={64,0,0};
+        wall_reference_kind=porosity_reference_kind=radius_reference_kind={64,0,0};
     }
 };
 inline tpmshx_stage_capture_2d_v1 capture_summary(const RunResult2D& result,
