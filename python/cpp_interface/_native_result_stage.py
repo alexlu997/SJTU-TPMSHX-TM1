@@ -734,6 +734,28 @@ class _Packed:
         return output
 
 
+def _declaration_dimension(result, query):
+    metadata = result.metadata
+    dimension = result.grid.get('dimension', metadata.get('dimension'))
+    # The C interface represents primary sides, integer dimensions and C strings.
+    # Other host values keep their original comparison and exception semantics.
+    def label(value):
+        return type(value) is str and '\0' not in value and value.isascii()
+
+    pressure = result.pressure_evidence
+    if (query == 3 or type(dimension) is not int or dimension not in (2, 3)
+            or type(metadata.get('dimension', dimension)) is not int
+            or metadata.get('dimension', dimension) not in (2, 3)
+            or any(key in row and not label(row[key]) for row, key in
+                   ((metadata, 'mode'), (metadata, 'quantity_basis'), (result.boundary_fluxes, 'mass_unit')))
+            or any(side not in ('A', 'B') or not isinstance(row, Mapping)
+                   or ('unit' in row and not label(row['unit'])) for side, row in pressure.items())
+            or any(not label(key) or not isinstance(row, Mapping) or not label(row.get('unit', ''))
+                   for key, row in result.field_metadata.items())):
+        return validate_result_declarations(result)
+    return dimension
+
+
 class _Evidence(_Packed):
     def pack(self, result, query):
         self.result, self.query = result, query
@@ -751,7 +773,7 @@ class _Evidence(_Packed):
         if query == 1:
             return
         try:
-            dimension = validate_result_declarations(result)
+            dimension = _declaration_dimension(result, query)
             try:
                 ()[:dimension]
             except TypeError as error:
@@ -766,7 +788,9 @@ class _Evidence(_Packed):
             address = ct.byref(output, Evidence.dimension.offset)
             self.fault(address, error)
         output.dimension = dimension
-        output.metadata_dimension = self.number(I, dimension) if 'dimension' in metadata else None
+        if 'dimension' in metadata:
+            declared = metadata['dimension']
+            output.metadata_dimension = self.number(I, declared if type(declared) is int and declared in (2, 3) else dimension)
         output.quantity_basis = self.text(metadata.get('quantity_basis'))
         output.mass_unit = self.text(flux.get('mass_unit'))
         mode = metadata.get('mode', 'full')
@@ -1032,9 +1056,17 @@ def _query(result, query, metric_spec=None, metrics=None):
             packed.array_errors.clear()
 
 
+def _validated_query(result, query, metric_spec=None):
+    try:
+        return _query(result, query, metric_spec)
+    except Exception:
+        # Archived mappings retain their declaration error order on failure.
+        validate_result_declarations(result)
+        raise
+
+
 def evaluate(result, metric_spec=None):
-    validate_result_declarations(result)
-    return _query(result, 0, metric_spec)
+    return _validated_query(result, 0, metric_spec)
 
 
 def evaluate_applicability(result):
@@ -1042,8 +1074,7 @@ def evaluate_applicability(result):
 
 
 def evaluate_physical_balance(result):
-    validate_result_declarations(result)
-    return _query(result, 2)
+    return _validated_query(result, 2)
 
 
 def evaluate_qualification(result, metrics):

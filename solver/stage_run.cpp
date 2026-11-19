@@ -99,6 +99,31 @@ template<class Storage> void preparation_storage(const Storage& storage,
         for(const auto value:{range.side,range.stage,range.layout,range.quantity,range.unit})storage(value.data,value.size);
     }
 }
+template<class Storage> void saved_v3_storage(const Storage& storage,const tpmshx_stage_saved_case_2d_v3& saved) {
+    storage(&saved,1);
+    if (saved.abi_version!=3 || saved.struct_size!=sizeof(saved))
+        throw std::invalid_argument("saved stage v3 ABI version or struct size is invalid");
+    for (const auto& grid:saved.flow_grid) {
+        storage(grid.cross.data,grid.cross.size);
+        storage(grid.stream.data,grid.stream.size);
+    }
+    const auto& prepared=*saved.values.values.prepared;
+    for (const auto field:{prepared.values.cell_length,prepared.values.wall_thickness,
+                           prepared.values.hydraulic_radius}) storage(field.data,field.size);
+    storage(saved.additional_fields,saved.additional_count);
+    for (size_t i=0;i<saved.additional_count;++i) {
+        const auto& item=saved.additional_fields[i];
+        storage(item.name.data,item.name.size);
+        storage(item.values.data,item.values.size);
+    }
+    const auto check_text=[&](tpmshx_preparation_text_v1 value){storage(value.data,value.size);};
+    for (const auto& model:prepared.values.models) {check_text(model.name);check_text(model.version);}
+    check_text(saved.resource_topology);
+    for (const auto& fluid:saved.resource_fluids) check_text(fluid);
+    for (const auto* nu:{&prepared.sco2_nu,&saved.resource_nu[0],&saved.resource_nu[1]}) {
+        check_text(nu->parameter_version);check_text(nu->source);check_text(nu->applicability);
+    }
+}
 using tpmshx::stages::text_view;
 
 void validate_saved_design(const tpmshx_stage_saved_case_2d_v3& saved,
@@ -399,12 +424,13 @@ struct StageRun2D {
     const tpmshx_preparation_continuous_case_2d_v4* continuous;
     const tpmshx_stage_saved_case_2d_v1* saved;
     const tpmshx_stage_saved_case_2d_v2* saved_v2;
+    const tpmshx_stage_saved_case_2d_v3* saved_v3;
     tpmshx_full_2d_config_v2 config;
     std::string result_id,table_directory,envelope_mode;
     StageRun2D(const tpmshx_preparation_case_2d_v1* p,const tpmshx_preparation_case_2d_v2* u,
         const tpmshx_preparation_continuous_case_2d_v4* spatial,const tpmshx_full_2d_config_v2& c,const char* id,
-        const tpmshx_stage_saved_case_2d_v1* saved_case,const tpmshx_stage_saved_case_2d_v2* saved_case_v2)
-        :prepared(p),uniform(u),continuous(spatial),saved(saved_case),saved_v2(saved_case_v2),config(c),result_id(id),
+        const tpmshx_stage_saved_case_2d_v1* saved_case,const tpmshx_stage_saved_case_2d_v2* saved_case_v2,const tpmshx_stage_saved_case_2d_v3* saved_case_v3)
+        :prepared(p),uniform(u),continuous(spatial),saved(saved_case),saved_v2(saved_case_v2),saved_v3(saved_case_v3),config(c),result_id(id),
         table_directory(c.table_directory?c.table_directory:""),envelope_mode(c.envelope_mode?c.envelope_mode:"") {
         config.table_directory=c.table_directory?table_directory.c_str():nullptr;
         config.envelope_mode=c.envelope_mode?envelope_mode.c_str():nullptr;
@@ -451,16 +477,6 @@ int run(const tpmshx_preparation_case_2d_v1* prepared,
                 throw std::invalid_argument("stage run output overlaps input");
         };
         if(start) {
-            if (start->saved_v3) {
-                const auto& saved=*start->saved_v3;
-                storage(start->saved_v3,1);
-                if (saved.abi_version!=3 || saved.struct_size!=sizeof(saved))
-                    throw std::invalid_argument("saved stage v3 ABI version or struct size is invalid");
-                for (const auto& grid:saved.flow_grid) {
-                    storage(grid.cross.data,grid.cross.size);
-                    storage(grid.stream.data,grid.stream.size);
-                }
-            }
             if(bool(uniform)+bool(continuous)+bool(start->saved)!=1)
                 throw std::invalid_argument("stage run requires exactly one prepared view");
             if(start->request) {
@@ -479,24 +495,7 @@ int run(const tpmshx_preparation_case_2d_v1* prepared,
             }
         }
         preparation_storage(storage,prepared,uniform,continuous,v2,start?start->saved:nullptr,start?start->saved_v2:nullptr);
-        if (start && start->saved_v3) {
-            const auto& saved=*start->saved_v3;
-            for (const auto field:{uniform->values.cell_length,uniform->values.wall_thickness,
-                                   uniform->values.hydraulic_radius}) storage(field.data,field.size);
-            storage(saved.additional_fields,saved.additional_count);
-            for (size_t i=0;i<saved.additional_count;++i) {
-                const auto& item=saved.additional_fields[i];
-                storage(item.name.data,item.name.size);
-                storage(item.values.data,item.values.size);
-            }
-            const auto check_text=[&](tpmshx_preparation_text_v1 value){storage(value.data,value.size);};
-            for (const auto& model:uniform->values.models) {check_text(model.name);check_text(model.version);}
-            check_text(saved.resource_topology);
-            for (const auto& fluid:saved.resource_fluids) check_text(fluid);
-            for (const auto* nu:{&uniform->sco2_nu,&saved.resource_nu[0],&saved.resource_nu[1]}) {
-                check_text(nu->parameter_version);check_text(nu->source);check_text(nu->applicability);
-            }
-        }
+        if(start && start->saved_v3)saved_v3_storage(storage,*start->saved_v3);
         if(v2 && request_v2) {
             storage(request_v2,1);
             if(request_v2->abi_version!=TPMSHX_STAGE_RUN_ABI_VERSION_V2 || request_v2->struct_size!=sizeof(*request_v2))
@@ -549,7 +548,7 @@ int run(const tpmshx_preparation_case_2d_v1* prepared,
         }
         if(packed.explicit_energy==&packed.partial_energy)energy=nullptr;
         if(start) {
-            auto owner=std::make_unique<StageRun2D>(prepared,uniform,continuous,packed.config,control->result_id,start->saved,start->saved_v2);
+            auto owner=std::make_unique<StageRun2D>(prepared,uniform,continuous,packed.config,control->result_id,start->saved,start->saved_v2,start->saved_v3);
             const auto status=start->restore?tpmshx_full_2d_run_restore_v2(
                 packed.shape.data(),packed.arrays.data(),packed.sizes.data(),&packed.config,energy,
                 packed.explicit_energy,model_h,control->cpu_threads,&control->callbacks,
@@ -655,6 +654,28 @@ extern "C" int tpmshx_stage_run_2d_restore_saved_v3(const tpmshx_stage_saved_cas
 extern "C" int tpmshx_stage_run_2d_advance_step_v1(void* run,uint32_t* phase,char* error,size_t capacity) {
     return tpmshx_full_2d_run_advance_step_v1(run?static_cast<StageRun2D*>(run)->run:nullptr,phase,error,capacity);
 }
+extern "C" int tpmshx_stage_run_2d_finish_v1(void* run,char* error,size_t capacity) {
+    if(!boundary::error_buffer_valid(error,capacity))return 1;
+    auto* owner=static_cast<StageRun2D*>(run);
+    if(!owner || overlaps(owner,sizeof(*owner),error,capacity))return 1;
+    try {
+        const auto storage=[&](const auto* value,size_t count) {
+            using Element=std::remove_cv_t<std::remove_pointer_t<decltype(value)>>;
+            boundary::require_buffer(value,count);
+            if(overlaps(value,boundary::product(count,sizeof(Element)),error,capacity))
+                throw std::invalid_argument("stage error storage overlaps preparation");
+        };
+        if(owner->prepared)preparation_storage(storage,owner->prepared,owner->uniform,owner->continuous,true,
+            owner->saved,owner->saved_v2);
+        if(owner->saved_v3)saved_v3_storage(storage,*owner->saved_v3);
+    } catch(...) {return 1;}
+    uint32_t phase=0;
+    int status=tpmshx_full_2d_run_phase_v1(owner->run,&phase);
+    while(!status && phase!=TPMSHX_FULL2D_COMPLETED && phase!=TPMSHX_FULL2D_CANCELLED)
+        status=tpmshx_full_2d_run_advance_step_v1(owner->run,&phase,error,capacity);
+    if(!status)boundary::message(error,capacity,"");
+    return status;
+}
 extern "C" int tpmshx_stage_run_2d_phase_v1(const void* run,uint32_t* phase) {
     return tpmshx_full_2d_run_phase_v1(run?static_cast<const StageRun2D*>(run)->run:nullptr,phase);
 }
@@ -683,6 +704,7 @@ extern "C" int tpmshx_stage_run_2d_take_result_v1(void* run,
                     throw std::invalid_argument("stage result storage overlaps preparation");
             };
             preparation_storage(storage,owner.prepared,owner.uniform,owner.continuous,true,owner.saved,owner.saved_v2);
+            if(owner.saved_v3)saved_v3_storage(storage,*owner.saved_v3);
         }
         report_safe=true;
         if(result->abi_version!=TPMSHX_STAGE_RUN_ABI_VERSION || result->struct_size!=sizeof(*result) || result->owner)
@@ -697,7 +719,7 @@ extern "C" int tpmshx_stage_run_2d_take_result_v1(void* run,
                 !owner.saved || owner.saved->inlet_recorded,owner.saved?owner.saved->range_captured:nullptr),
             &tpmshx::stages::release_capture_2d);
         *result=tpmshx::stages::stage_view(*captured.release());
-        owner.prepared=nullptr;owner.uniform=nullptr;owner.continuous=nullptr;owner.saved=nullptr;owner.saved_v2=nullptr;
+        owner.prepared=nullptr;owner.uniform=nullptr;owner.continuous=nullptr;owner.saved=nullptr;owner.saved_v2=nullptr;owner.saved_v3=nullptr;
         boundary::message(error,capacity,"");return 0;
     } catch(const std::invalid_argument& failure) {
         tpmshx_full_2d_release_v2(&raw);if(report_safe)boundary::message(error,capacity,failure.what());return 1;

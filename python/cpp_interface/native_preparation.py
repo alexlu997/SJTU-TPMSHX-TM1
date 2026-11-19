@@ -434,7 +434,7 @@ def _resolved(config, flow, targets):
         if targets is not None or fluid.mass_flow_kg_s is not None:
             fluids['fluid_' + side] = replace(fluid, u_mps=_native_flow._restore(flow.speeds[index]),
                 mass_flow_kg_s=None if targets is not None else fluid.mass_flow_kg_s)
-    return replace(config, **fluids).validate(resolved_inlet_speeds=True) if fluids else config
+    return replace(config, **fluids).validate(resolved_inlet_speeds=True, _native_preparation=True) if fluids else config
 
 
 def _drag(result, index, continuous):
@@ -691,7 +691,7 @@ def _execute(config, operation, *, targets=None, case_id=None, own_metadata=Fals
             resolved = _resolved(config, flow, targets)
             if operation == 'resolve_inlet_flow':
                 return resolved
-            resolved = ComputeConfig.from_dict(asdict(resolved))
+            resolved = ComputeConfig.from_dict(asdict(resolved), _native_preparation=True)
             if spatial:
                 for index, side in enumerate('AB'):
                     fluid = getattr(resolved, 'fluid_' + side)
@@ -708,14 +708,14 @@ def _execute(config, operation, *, targets=None, case_id=None, own_metadata=Fals
 
 
 def prepare_case(config, *, case_id):
-    config = ComputeConfig.from_dict(asdict(config))
+    config = ComputeConfig.from_dict(asdict(config), _native_preparation=True)
     if config.is_3d:
         raise ValueError('2D preparation requires solver.Nz == 1')
     return _execute(config, 'prepare_flow_case', case_id=case_id)
 
 
 def prepare_mass_flow_case(config, targets, *, case_id):
-    config = deepcopy(config).validate_static_inputs()
+    config = deepcopy(config).validate_static_inputs(_native_preparation=True)
     explicit = (tuple(targets[side] for side in 'AB')
                 if all(getattr(config, 'fluid_' + side).mass_flow_kg_s is None for side in 'AB') else None)
     return _execute(config, 'prepare_flow_case', targets=explicit, case_id=case_id, own_metadata=True)
@@ -726,4 +726,4 @@ def capacities(config):
 
 
 def resolve(config, *, targets=None):
-    return _execute(deepcopy(config).validate_static_inputs(), 'resolve_inlet_flow', targets=targets)
+    return _execute(deepcopy(config).validate_static_inputs(_native_preparation=True), 'resolve_inlet_flow', targets=targets)

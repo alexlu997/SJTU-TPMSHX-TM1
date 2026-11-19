@@ -540,6 +540,17 @@ int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_advance_step_v1(void* run,uint32_t* 
         return tpmshx_full_3d_run_advance_step_v1(owner->run,phase,error,capacity);
     });
 }
+int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_finish_v1(void* run,char* error,size_t capacity) {
+    return guarded(error,capacity,[&](bool& report_safe) {
+        auto* owner=static_cast<StageRun3D*>(run);
+        lifecycle_storage(owner,{nullptr,0,error,capacity});report_safe=true;
+        uint32_t phase=0;
+        int status=tpmshx_full_3d_run_phase_v1(owner->run,&phase);
+        while(!status && phase!=TPMSHX_FULL3D_COMPLETED && phase!=TPMSHX_FULL3D_CANCELLED)
+            status=tpmshx_full_3d_run_advance_step_v1(owner->run,&phase,error,capacity);
+        return status;
+    });
+}
 int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_phase_v1(const void* run,uint32_t* phase) {
     try {
         boundary::require_buffer(phase,1);const auto* owner=static_cast<const StageRun3D*>(run);
@@ -594,11 +605,8 @@ int TPMSHX_THERMAL_CALL tpmshx_run_case_3d_v1(const tpmshx_preparation_case_3d_v
         if(status)return status;
         const auto release=[](StageRun3D* owner) {delete owner;};
         std::unique_ptr<StageRun3D,decltype(release)> run(static_cast<StageRun3D*>(raw_run),release);
-        uint32_t phase=TPMSHX_FULL3D_CREATED;
-        while(phase!=TPMSHX_FULL3D_COMPLETED && phase!=TPMSHX_FULL3D_CANCELLED) {
-            const auto advanced=tpmshx_stage_run_3d_advance_step_v1(run.get(),&phase,error,capacity);
-            if(advanced)return advanced;
-        }
+        const auto advanced=tpmshx_stage_run_3d_finish_v1(run.get(),error,capacity);
+        if(advanced)return advanced;
         return tpmshx_stage_run_3d_take_result_v1(run.get(),result,error,capacity);
     });
 }

@@ -125,7 +125,8 @@ int main(void) {
     REQUIRE(tpmshx_stage_run_3d_restore_v1(&prepared,NULL,NULL,&request,&control,
         snapshot.fields,snapshot.count,&restored,error,sizeof(error))==0);
     tpmshx_run_state_release_v1(&snapshot);
-    while(phase!=TPMSHX_FULL3D_COMPLETED)REQUIRE(tpmshx_stage_run_3d_advance_step_v1(restored,&phase,error,sizeof(error))==0);
+    REQUIRE(tpmshx_stage_run_3d_finish_v1(restored,error,sizeof(error))==0);
+    REQUIRE(tpmshx_stage_run_3d_phase_v1(restored,&phase)==0 && phase==TPMSHX_FULL3D_COMPLETED);
     REQUIRE(tpmshx_stage_run_3d_take_result_v1(restored,&result,error,sizeof(error))==0);
     tpmshx_stage_run_3d_release_run_v1(&restored);
     tpmshx_preparation_case_3d_release_v1(&prepared);

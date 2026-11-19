@@ -410,11 +410,7 @@ def run_stage(driver, case, cfg, prepared, control, *, configure_convergence, ma
                 cfg['_input_resolution'] = resolved_input_record(case,
                     {side: cfg['fluid_' + side] for side in 'AB'}, (uniform.values.nx, uniform.values.ny),
                     {side: cfg['cfg' + side]['dir'] for side in 'AB'})
-            while run.phase not in (3, 4):
-                phase = run.advance()
-                if (checkpoint is not None and phase in (1, 2, 6, 7, 8)
-                        and (checkpoint_due is None or checkpoint_due())):
-                    checkpoint(run.snapshot())
+            run.finish(checkpoint, checkpoint_due, (1, 2, 6, 7, 8))
             result = run.take_result()
         summary = _Summary()
         if query(ct.byref(result), ct.byref(_Application()), ct.byref(summary)):

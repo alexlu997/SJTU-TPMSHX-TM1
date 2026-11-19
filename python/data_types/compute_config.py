@@ -72,7 +72,6 @@ follow the read timing stated below.
 """
 from __future__ import annotations
 
-import json
 import warnings
 from dataclasses import asdict, dataclass, field
 from math import isfinite
@@ -542,8 +541,8 @@ class ComputeConfig:
         already consumes, so production validate scripts can switch
         with a one-line change.
         """
-        data = json.loads(Path(path).read_text(encoding='utf-8'))
-        return cls.from_dict(data)
+        from sjtu_tpmshx.file_io.config_io import read_json
+        return cls.from_dict(read_json(path))
 
     def to_dict(self) -> dict[str, Any]:
         """Return a detached archive, omitting unused retired settings."""
@@ -554,12 +553,10 @@ class ComputeConfig:
 
     def to_json(self, path: Union[str, Path]) -> None:
         """Write the configuration archive as JSON."""
-        Path(path).write_text(
-            json.dumps(self.to_dict(), indent=2, ensure_ascii=False),
-            encoding='utf-8',
-        )
+        from sjtu_tpmshx.file_io.config_io import write_json
+        write_json(path, self.to_dict())
 
-    def validate_static_inputs(self) -> 'ComputeConfig':
+    def validate_static_inputs(self, *, _native_preparation: bool = False) -> 'ComputeConfig':
         """Validate before prescribed mass flow has resolved inlet velocities.
 
         This preparation stage checks geometry, thermodynamic inputs, ports
@@ -686,7 +683,6 @@ class ComputeConfig:
         # shared port validator. ComputeConfig always has two fluids, so side
         # B uses the same full-face rule as A; its legacy None means
         # single-fluid only below this boundary.
-        from sjtu_tpmshx.data_types.validator import validate_pipe_config
         for side, bc in (('A', self.bc_A), ('B', self.bc_B)):
             if not isinstance(bc.uniform_inlet_2d, bool):
                 raise ValueError(f'ComputeConfig.bc_{side}.uniform_inlet_2d must be boolean')
@@ -696,6 +692,10 @@ class ComputeConfig:
                     "positive, or both be <= 0 for a full-face port")
             pipe = bc_to_dict(
                 bc, ge.L_dom_m, ge.H_dom_m, side='A', with_z=self.is_3d)
+            if (_native_preparation and type(bc.dir) is int and 0 <= bc.dir < (6 if self.is_3d else 4)
+                    and all(type(value) in (int, float, bool) for value in pipe.values())):
+                continue
+            from sjtu_tpmshx.data_types.validator import validate_pipe_config
             problems = validate_pipe_config(
                 pipe, ge.L_dom_m, ge.H_dom_m,
                 Lz_dom=ge.Lz_m, is_3d=self.is_3d)
@@ -777,7 +777,7 @@ class ComputeConfig:
                 raise ValueError('CO2 requires symmetric delta_levelset=0 geometry')
         return self
 
-    def validate(self, *, resolved_inlet_speeds: bool = False) -> 'ComputeConfig':
+    def validate(self, *, resolved_inlet_speeds: bool = False, _native_preparation: bool = False) -> 'ComputeConfig':
         """Reject non-physical inputs at the script and preparation boundary.
 
         ``from_dict``/``from_json`` call this; direct dataclass construction
@@ -785,7 +785,7 @@ class ComputeConfig:
         """
         import math
 
-        self.validate_static_inputs()
+        self.validate_static_inputs(_native_preparation=_native_preparation)
         for side, fluid in (('A', self.fluid_A), ('B', self.fluid_B)):
             if fluid.mass_flow_kg_s is not None and not resolved_inlet_speeds:
                 continue
@@ -797,7 +797,7 @@ class ComputeConfig:
                 raise ValueError(
                     f'ComputeConfig.fluid_{side}.u_mps={fluid.u_mps!r} — must be finite and > 0')
         ge = self.geometry
-        if self.df_mode == 'experimental':
+        if self.df_mode == 'experimental' and not _native_preparation:
             from sjtu_tpmshx.physical_models.df_surrogate.experimental_correction import (
                 correction_scale)
             from sjtu_tpmshx.model_configs.model_parameters import load_preparation_df_parameters
@@ -843,7 +843,7 @@ class ComputeConfig:
         return self
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any], *, prepared_grid: bool = False) -> 'ComputeConfig':
+    def from_dict(cls, data: Dict[str, Any], *, prepared_grid: bool = False, _native_preparation: bool = False) -> 'ComputeConfig':
         """Build a ComputeConfig from a JSON-shaped dict.
 
         Supports two layouts:
@@ -920,7 +920,7 @@ class ComputeConfig:
                 envelope_mode=data.get('envelope_mode', 'raise'),
                 df_mode=data.get('df_mode', 'cfd_smooth'),
                 sco2_nu=Sco2NuConfig(**data.get('sco2_nu', {})),
-            ).validate()
+            ).validate(_native_preparation=_native_preparation)
 
         # ── legacy shanghai_baseline.json layout ────────────────
         # Keys: _meta / geometry / domain / _excluded

@@ -302,6 +302,10 @@ public:
         uint32_t value=0;char error[4096]{};
         detail::check(tpmshx_stage_run_3d_advance_step_v1(run_,&value,error,sizeof(error)),error);return value;
     }
+    void finish() {
+        char error[4096]{};
+        detail::check(tpmshx_stage_run_3d_finish_v1(run_,error,sizeof(error)),error);
+    }
     RunState snapshot() const {
         tpmshx_run_state_v1 value{};char error[4096]{};
         detail::check(tpmshx_stage_run_3d_snapshot_v1(run_,&value,error,sizeof(error)),error);return RunState(value);
@@ -372,6 +376,10 @@ public:
     uint32_t advance_step() {
         uint32_t value=0;char error[4096]{};
         detail::check(tpmshx_stage_run_2d_advance_step_v1(run_,&value,error,sizeof(error)),error);return value;
+    }
+    void finish() {
+        char error[4096]{};
+        detail::check(tpmshx_stage_run_2d_finish_v1(run_,error,sizeof(error)),error);
     }
     RunState snapshot() const {
         tpmshx_run_state_v1 value{};char error[4096]{};
@@ -860,19 +868,19 @@ inline SavedCase2Dv2 saved_case(const PreparedSigmoidFlowCase2Dv10& prepared) {
 inline RunResult2D run_case(const PreparedFlowCase2Dv10& prepared,const RunControl& control,
     const RunRequest2Dv3& request={}) {
     auto saved=saved_case(prepared);Run2D run(saved,control,request);
-    while(run.phase()!=TPMSHX_FULL2D_COMPLETED)run.advance_step();
+    run.finish();
     return run.take_result();
 }
 inline RunResult2D run_case(const PreparedZonedFlowCase2Dv10& prepared,const RunControl& control,
     const RunRequest2Dv3& request={}) {
     auto saved=saved_case(prepared);Run2D run(saved,control,request);
-    while(run.phase()!=TPMSHX_FULL2D_COMPLETED)run.advance_step();
+    run.finish();
     return run.take_result();
 }
 inline RunResult2D run_case(const PreparedSigmoidFlowCase2Dv10& prepared,const RunControl& control,
     const RunRequest2Dv3& request={}) {
     auto saved=saved_case(prepared);Run2D run(saved,control,request);
-    while(run.phase()!=TPMSHX_FULL2D_COMPLETED)run.advance_step();
+    run.finish();
     return run.take_result();
 }
 inline RunResult2D run_case(const PreparedCase2D& prepared,const RunControl& control,const RunRequest2D& request={}) {

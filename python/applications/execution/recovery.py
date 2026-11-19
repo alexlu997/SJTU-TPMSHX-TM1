@@ -70,9 +70,18 @@ def resume_run(checkpoint_file, directory, *, checkpoint_interval_s,
     control.check_cancelled()
     saved, case, record = read_run_checkpoint(checkpoint_file)
     config = ComputeConfig.from_dict(mutable_data(case.config_snapshot), prepared_grid=True)
+    return resume_loaded_run(checkpoint_file, saved, case, config, directory,
+        checkpoint_interval_s=checkpoint_interval_s, gui_provenance=record.get('gui_provenance'),
+        control=control, progress_cb=progress_cb, pause_check=pause_check, evaluate=evaluate)
+
+
+def resume_loaded_run(checkpoint_file, saved, case, config, directory, *, checkpoint_interval_s,
+                      gui_provenance, control, progress_cb, pause_check, evaluate=None):
+    """Use the checkpoint and configuration already read from the selected run."""
+    control.check_cancelled()
     return _execute(config, directory, checkpoint_interval_s=checkpoint_interval_s,
         case_id=case.case_id, control=control, progress_cb=progress_cb,
-        pause_check=pause_check, gui_provenance=record.get('gui_provenance'),
+        pause_check=pause_check, gui_provenance=gui_provenance,
         saved_case=case, saved_state=saved.native_state,
         resumed_from=str(Path(checkpoint_file).resolve()), evaluate=evaluate)
 
