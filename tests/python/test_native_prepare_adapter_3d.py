@@ -204,7 +204,7 @@ def test_missing_preparation_library_stops_3d_dispatch(monkeypatch):
 
 
 def test_host_exception_keeps_identity_and_releases_owner(monkeypatch):
-    from sjtu_tpmshx.cpp_interface import _native_preparation_3d as preparation
+    from sjtu_tpmshx.preprocess.three_d import preparation
     from sjtu_tpmshx.cpp_interface import _native_preparation_3d as binding
     from sjtu_tpmshx.run_control.run_warnings import warning_scope, current_warnings
     original = binding._Bindings
@@ -238,7 +238,7 @@ def test_host_exception_keeps_identity_and_releases_owner(monkeypatch):
 @pytest.mark.parametrize('alias', ['error', 'failure'])
 def test_owned_3d_views_cannot_be_diagnostic_outputs(mode, alias):
     import ctypes as ct
-    from sjtu_tpmshx.cpp_interface import _native_preparation_3d as preparation
+    from sjtu_tpmshx.preprocess.three_d import preparation
     from sjtu_tpmshx.cpp_interface import _native_preparation_3d as binding
     from sjtu_tpmshx.cpp_interface import _native_preparation_case as native
     from sjtu_tpmshx.cpp_interface import _native_preparation
@@ -269,7 +269,7 @@ def test_owned_3d_views_cannot_be_diagnostic_outputs(mode, alias):
 @pytest.mark.parametrize('alias', ['error', 'failure'])
 def test_cached_3d_evidence_cannot_alias_diagnostics(alias):
     import ctypes as ct
-    from sjtu_tpmshx.cpp_interface import _native_preparation_3d as preparation
+    from sjtu_tpmshx.preprocess.three_d import preparation
     from sjtu_tpmshx.cpp_interface import _native_preparation_3d as binding
     from sjtu_tpmshx.cpp_interface import _native_preparation_case as native
     from sjtu_tpmshx.cpp_interface import _native_preparation
