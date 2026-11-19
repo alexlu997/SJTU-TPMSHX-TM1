@@ -335,7 +335,8 @@ def test_owned_fields_survive_subsequent_and_parallel_calls(native_path):
 @pytest.mark.parametrize('solid_dtype', [np.float64, np.float32])
 def test_native_call_borrows_case_arrays_and_recovers(native_path, monkeypatch, dimension, failure, solid_dtype):
     import ctypes as ct
-    from sjtu_tpmshx.cpp_interface.solver_library import full_2d, full_3d
+    from sjtu_tpmshx.cpp_interface.full_2d_stage import StageDriver
+    from sjtu_tpmshx.cpp_interface.solver_library import full_3d
     from tests.python.native.test_full_2d import configuration
 
     config = configuration(outer=2) if dimension == 2 else _config(3, True)
@@ -352,25 +353,20 @@ def test_native_call_borrows_case_arrays_and_recovers(native_path, monkeypatch, 
         solid_key: prepared.design_fields[solid_key].astype(solid_dtype)})
     before = {key: value.copy() for key, value in prepared.design_fields.items()
               if isinstance(value, np.ndarray)}
-    from sjtu_tpmshx.solvers.backends import prepared_2d as exec2
-    from sjtu_tpmshx.solvers.backends import prepared_3d as exec3
-    execution = exec2 if dimension == 2 else exec3
-    builder = execution.build_execution_inputs
-    with patch.object(execution, 'build_execution_inputs',
-                      lambda case, **_: builder(case, copy_design=True)):
-        reference = cpp_run(prepared, control(native_path))
-    driver_type = full_2d.NativeFull2DDriver if dimension == 2 else full_3d.NativeFull3DDriver
+    copied = replace(prepared, design_fields={**prepared.design_fields, **before})
+    reference = cpp_run(copied, control(native_path))
+    driver_type = StageDriver if dimension == 2 else full_3d.NativeFull3DDriver
     original_init, entered = driver_type.__init__, []
 
     def init(self, *args, **kwargs):
         original_init(self, *args, **kwargs)
-        version = 2 if dimension == 2 else 1
+        version = 3 if dimension == 2 else 2
         symbol = f'tpmshx_stage_run_{dimension}d_create_saved_v{version}'
         original_call = getattr(self.library, symbol)
 
         def call(*args):
             if dimension == 2:
-                saved = args[0]._obj.values
+                saved = args[0]._obj.values.values
                 data = saved.prepared.contents.values
                 pointers = {
                     'K_ffA_arr': saved.fluid_conductivity[0].data,
@@ -379,7 +375,7 @@ def test_native_call_borrows_case_arrays_and_recovers(native_path, monkeypatch, 
                     'eps_arr': data.total_porosity.data,
                 }
             else:
-                data = args[0]._obj.input.contents
+                data = args[0]._obj.values.input.contents
                 pointers = {key: getattr(data, field).data for key, field in (
                     ('eps_arr', 'epsilon'), ('eps_A', 'epsilon_a'), ('eps_B', 'epsilon_b'),
                     ('K_m2', 'permeability'), ('cF_per_m', 'forchheimer'),
