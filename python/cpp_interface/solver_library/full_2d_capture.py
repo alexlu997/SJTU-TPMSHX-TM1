@@ -11,8 +11,8 @@ import numpy as np
 
 from sjtu_tpmshx.run_control.cancellation import CancelledError
 from sjtu_tpmshx.data_types.field_result import FieldResult
+from sjtu_tpmshx.data_types.validator import compute_volumetric_htc
 from sjtu_tpmshx.run_control.run_warnings import current_warnings, merge_warnings, warning_messages, warning_scope
-from sjtu_tpmshx.preprocess.validator import compute_volumetric_htc
 from sjtu_tpmshx.physical_models.nu_correlations import warn_sco2_nu_evidence
 from sjtu_tpmshx.postprocess.result_display import describe_fields, display_fields_2d, zone_statistics_2d
 from .closure_evidence import replay_range_observations

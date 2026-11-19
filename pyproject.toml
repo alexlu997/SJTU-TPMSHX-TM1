@@ -80,7 +80,7 @@ files = [
     "sjtu_tpmshx/compute.py",
     "sjtu_tpmshx/applications/result_adapter.py",
     "sjtu_tpmshx/data_types/compute_config.py",
-    "sjtu_tpmshx/preprocess/validator.py",
+    "sjtu_tpmshx/data_types/validator.py",
     "sjtu_tpmshx/data_types/compute_result.py",
     "sjtu_tpmshx/model_configs/__init__.py",
     "sjtu_tpmshx/_version.py",

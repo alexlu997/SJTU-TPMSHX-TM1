@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 
 from sjtu_tpmshx.physical_models.grid import suggest_grid_3d
-from sjtu_tpmshx.preprocess.validator import (
+from sjtu_tpmshx.data_types.validator import (
     validate_geometry,
     compute_volumetric_htc,
     wall_for_dir,

@@ -144,7 +144,7 @@ def test_zone_cell_validation_follows_actual_column_roles(win, columns):
 def test_3d_layout_rectangles_follow_both_port_axes(direction, monkeypatch):
     from mpl_toolkits.mplot3d.art3d import Poly3DCollection
     from sjtu_tpmshx.applications.gui.ui.layout_drawer import draw_layout_rect_3d
-    from sjtu_tpmshx.preprocess.validator import cross_axes_for_dir
+    from sjtu_tpmshx.data_types.validator import cross_axes_for_dir
     fig = Figure()
     fig.canvas.wheelEvent = lambda event: None
     ax = fig.add_subplot(projection='3d')

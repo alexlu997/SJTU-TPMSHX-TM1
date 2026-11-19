@@ -42,7 +42,6 @@ OWNERS = {
     "physical_models.df_surrogate": "df_surrogate",
     "physical_models.range_policy": "domain",
     "physical_models": "models",
-    "preprocess.validator": "domain",
     "postprocess.result_display": "result_display",
     "postprocess.result_math": "result_math",
     "run_control.logutil": "logutil",

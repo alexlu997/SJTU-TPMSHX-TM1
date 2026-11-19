@@ -686,7 +686,7 @@ class ComputeConfig:
         # shared port validator. ComputeConfig always has two fluids, so side
         # B uses the same full-face rule as A; its legacy None means
         # single-fluid only below this boundary.
-        from sjtu_tpmshx.preprocess.validator import validate_pipe_config
+        from sjtu_tpmshx.data_types.validator import validate_pipe_config
         for side, bc in (('A', self.bc_A), ('B', self.bc_B)):
             if not isinstance(bc.uniform_inlet_2d, bool):
                 raise ValueError(f'ComputeConfig.bc_{side}.uniform_inlet_2d must be boolean')

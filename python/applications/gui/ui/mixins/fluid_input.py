@@ -275,7 +275,7 @@ class FluidInputMixin:
         so user knows which coord they're editing.
         """
         # Cross-axis labels delegated to domain.validator (Phase 4 #4).
-        from sjtu_tpmshx.preprocess.validator import cross_axes_for_dir
+        from sjtu_tpmshx.data_types.validator import cross_axes_for_dir
         for combo, prefix in [(self.combo_dirA, 'pipeA'),
                               (self.combo_dirB, 'pipeB')]:
             try:
@@ -296,11 +296,11 @@ class FluidInputMixin:
         return combo.currentIndex()
 
     def _inlet_wall(self, d):
-        from sjtu_tpmshx.preprocess.validator import wall_for_dir
+        from sjtu_tpmshx.data_types.validator import wall_for_dir
         return wall_for_dir(d, 'inlet')
 
     def _outlet_wall(self, d):
-        from sjtu_tpmshx.preprocess.validator import wall_for_dir
+        from sjtu_tpmshx.data_types.validator import wall_for_dir
         return wall_for_dir(d, 'outlet')
 
     def _fluid_config(self, which):

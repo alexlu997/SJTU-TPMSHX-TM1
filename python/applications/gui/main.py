@@ -600,7 +600,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         # Hard invalid geometry blocks; soft findings join the grid report.
         _geom_warnings = []
         try:
-            from sjtu_tpmshx.preprocess.validator import validate_geometry as _vg
+            from sjtu_tpmshx.data_types.validator import validate_geometry as _vg
             _geom_warnings = _vg(
                 geometry.L_dom_m, geometry.H_dom_m, geometry.Lz_m,
                 geometry.L_cell_mm, geometry.t_wall_mm,
@@ -1021,7 +1021,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
     # so future scripts / widgets can read the same canonical map.
     # The class still surfaces the two names as attributes for the
     # ``_attach_field_validation`` / ``_make_field_handler`` callers.
-    from sjtu_tpmshx.preprocess.validator import (
+    from sjtu_tpmshx.data_types.validator import (
         FIELD_UNITS as _FIELD_UNITS,
         POSITIVE_FIELDS as _POSITIVE_FIELDS,
     )
@@ -1075,7 +1075,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
             r"\s*([+-]?\d+\.?\d*(?:[eE][+-]?\d+)?)\s*"
             r"([A-Za-zμΜ°/··]+[A-Za-z0-9/··]*)\s*$")
 
-        from sjtu_tpmshx.preprocess.validator import (
+        from sjtu_tpmshx.data_types.validator import (
             parse_field_value as _domain_parse_field,
             format_unit_value as _domain_format,
         )

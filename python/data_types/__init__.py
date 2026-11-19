@@ -13,6 +13,6 @@ __all__ = [
 
 def __getattr__(name):
     if name in __all__:
-        import sjtu_tpmshx.preprocess.validator as validator
+        import sjtu_tpmshx.data_types.validator as validator
         return getattr(validator, "Warning" if name == "DomainWarning" else name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
