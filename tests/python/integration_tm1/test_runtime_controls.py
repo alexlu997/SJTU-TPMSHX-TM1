@@ -17,9 +17,7 @@ def test_public_three_d_iteration_and_cancellation(monkeypatch, tmp_path):
     def checked_capture(case, cfg, prepared, raw, abi):
         assert not {'_capture_native', '_native_evidence', '_cancel_check',
                     '_progress_cb', '_iter_cb'}.intersection(cfg)
-        result = capture(case, cfg, prepared, raw, abi)
-        return result
-    monkeypatch.setattr(result_capture, 'capture_result', checked_capture)
+        return capture(case, cfg, prepared, raw, abi)
     config = _small_air_cfg()
     case = prepare_case(config, case_id='B30-controls')
     with pytest.raises(CancelledError):
@@ -28,8 +26,10 @@ def test_public_three_d_iteration_and_cancellation(monkeypatch, tmp_path):
     def report_outer(current, total):
         assert iterations[-1] == f'outer {current}/{total}'
         outer_iterations.append((current, total))
-    result = run_case(case, RunControl(iteration=iterations.append, progress=progress.append,
-                                      outer_iteration=report_outer))
+    with monkeypatch.context() as capture_hook:
+        capture_hook.setattr(result_capture, 'capture_result', checked_capture)
+        result = run_case(case, RunControl(iteration=iterations.append, progress=progress.append,
+                                          outer_iteration=report_outer))
     from tests.python.test_native_run_adapter_3d import _run
     direct = _run(case, stage=False)[0]
     for side, flow in zip('AB', direct['flow']):
