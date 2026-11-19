@@ -9,7 +9,7 @@ from tests.python import grid_ports_reference as coordinates
 from tests.python import grid_source_reference as reference
 from sjtu_tpmshx.cpp_interface import _native_grid as native
 from sjtu_tpmshx.physical_models import grid
-from sjtu_tpmshx.cpp_interface._native_preparation_3d import _axis_data
+from sjtu_tpmshx.preprocess.three_d.preparation import _axis_data
 
 KINDS = (float, np.float16, np.float32, np.float64)
 INTEGER_KINDS = (np.int8, np.uint8, np.int16, np.uint16,
