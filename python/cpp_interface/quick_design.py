@@ -170,6 +170,8 @@ def _saved_case(case):
         raise ValueError('unsupported quick-design fields')
     for name, field in fixed.items():
         array = np.asarray(field)
+        if array.dtype.kind not in 'biuf':
+            raise TypeError(f'quick-design {name} requires a real numeric field')
         if array.shape != shape or ((array.dtype.kind in 'iu' and array.itemsize >= 8 or array.itemsize > 8)
                                     and not np.all(array == array.flat[0])):
             raise ValueError(f'quick-design requires a finite uniform {name} field on its prepared grid')

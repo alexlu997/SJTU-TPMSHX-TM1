@@ -123,6 +123,17 @@ def test_saved_width_sequence_and_integral_direction(native_control, tmp_path):
         np.testing.assert_array_equal(actual.fields[key], expected.fields[key])
 
 
+@pytest.mark.parametrize('name', ['K_ss', 'eps', 'eps_A'])
+def test_saved_text_fields_are_rejected(native_control, tmp_path, name):
+    case = prepared('counter', 'mean')
+    values = dict(case.design_fields)
+    values[name] = values[name].astype(str).tolist()
+    path = tmp_path / 'invalid-fields.h5'
+    save_case(replace(case, design_fields=values), path)
+    with pytest.raises(TypeError, match='real numeric field'):
+        run_case(load_case(path), native_control)
+
+
 def test_pressure_evidence_copies_native_output(native_control, monkeypatch):
     from sjtu_tpmshx.cpp_interface import quick_design
     case = prepared('counter', 'const')
