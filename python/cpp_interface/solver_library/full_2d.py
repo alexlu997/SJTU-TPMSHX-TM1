@@ -13,7 +13,7 @@ from sjtu_tpmshx.solvers.backends.prepared_2d import _validated_outlet_fraction
 from ._simple_abi import _F2
 from .model_h import _IterationOptions, _iteration_options
 from .enthalpy import _EnergyOptions, _EnergyOptionsV2, _energy_options, _energy_algorithm_query, _full_enthalpy_defaults
-from ..full_2d_stage import StageDriver, _callbacks, _set_native_metadata, configure_convergence, run_case as _run_case
+from ..full_2d_stage import StageDriver, _callbacks, configure_convergence, run_case as _run_case
 
 
 class NativeFull2DDriver(StageDriver):

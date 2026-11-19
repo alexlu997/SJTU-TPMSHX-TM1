@@ -60,7 +60,7 @@ from sjtu_tpmshx.run_control.logutil import get_logger
 
 _log = get_logger(__name__)
 
-from sjtu_tpmshx.cpp_interface._native_preparation_case import validate_fluid_type
+from sjtu_tpmshx.cpp_interface._native_preparation_case import validate_fluid_type as validate_fluid_type
 from .preparation_cache import _InletCacheValue
 
 
