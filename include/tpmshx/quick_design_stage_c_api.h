@@ -5,6 +5,7 @@
 #include "tpmshx/solver_c_api.h"
 #include "tpmshx/result_stage_c_api.h"
 #include "tpmshx/property_c_api.h"
+#include "tpmshx/closure_evidence_c_api.h"
 
 #define TPMSHX_QUICK_DESIGN_STAGE_ABI_VERSION 1u
 #define TPMSHX_QUICK_STAGE_CANCELLED 6
@@ -180,6 +181,18 @@ TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_quick_prepared_releas
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_run_quick_design_v1(
     const tpmshx_quick_prepared_v1*,const tpmshx_quick_run_control_v1*,
     tpmshx_quick_run_result_v1*,char*,size_t);
+/* Run the stored V2 controls and fields with the matching input labels.
+ * The input and prepared views stay valid until this call returns. */
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_run_quick_design_v2(
+    const tpmshx_quick_input_v2*,const tpmshx_quick_prepared_v2*,
+    const tpmshx_quick_run_control_v1*,tpmshx_quick_run_result_v1*,char*,size_t);
+typedef struct {
+    const tpmshx_stage_range_record_v1* data;
+    size_t count;
+} tpmshx_quick_ranges_v2;
+/* These pass and side records belong to the live run result. */
+TPMSHX_THERMAL_API tpmshx_quick_ranges_v2 TPMSHX_THERMAL_CALL tpmshx_quick_run_ranges_v2(
+    const tpmshx_quick_run_result_v1*,size_t pass,size_t side);
 TPMSHX_THERMAL_API void TPMSHX_THERMAL_CALL tpmshx_quick_run_release_v1(
     tpmshx_quick_run_result_v1*);
 /* Typed raw preparation retains the original validation and calculation order.

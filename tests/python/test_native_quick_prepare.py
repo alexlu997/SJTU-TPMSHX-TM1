@@ -10,7 +10,7 @@ import pytest
 from sjtu_tpmshx.applications.design.cases import DesignCase
 from tests.python import quick_prepare_reference as reference
 from tests.python.native.test_result_metrics import assert_value
-from sjtu_tpmshx.preprocess.app_modes import quick_design as production
+from sjtu_tpmshx.cpp_interface import _native_quick_prepare as production
 from sjtu_tpmshx.run_control.run_warnings import warning_scope
 from sjtu_tpmshx.physical_models.tpms_geometry import compute_geometry
 from sjtu_tpmshx.physical_models import co2_props, sco2_props

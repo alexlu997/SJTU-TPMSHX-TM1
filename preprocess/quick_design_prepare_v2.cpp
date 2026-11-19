@@ -170,6 +170,12 @@ struct Engine {
             pack.flags[1]=pack.scalars[0].strong==1?pack.scalars[0].precision:64;
             pack.flags[2]=g::result_precision(scalar(pack.scalars[1]),scalar(pack.scalars[0]));call(pack);
             tp=pack.flags[0];if(tp>1)throw std::invalid_argument("invalid Quick geometry topology");
+            if(!hosted() || pack.flags[3]) {
+                if(pack.scalars[0].value<=0.)throw std::invalid_argument("quick geometry cell length must be positive");
+                if(pack.scalars[1].value<=0.)throw std::invalid_argument("quick geometry wall thickness must be positive");
+                if(2.*pack.scalars[1].value>=pack.scalars[0].value)
+                    throw std::invalid_argument("quick geometry has no pore space");
+            }
             const auto model=geo::calibration(static_cast<tpmshx::Topology>(tp));
             result.geometry=packed_geometry(geo::standard_geometry(index(tp),model,pack.scalars[0].value,
                 pack.scalars[1].value,pack.flags[1],pack.flags[2]));

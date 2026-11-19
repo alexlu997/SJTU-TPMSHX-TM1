@@ -980,6 +980,14 @@ inline RunResultQuickDesign run_case(const PreparedQuickDesign& prepared,const t
     detail::check(tpmshx_run_quick_design_v1(&prepared.view(),&control,&output,error,sizeof(error)),error);
     return RunResultQuickDesign(output);
 }
+inline RunResultQuickDesign run_case(const QuickDesignInputV2& input,const PreparedQuickDesignV2& prepared,
+                                    const tpmshx_quick_run_control_v1& control) {
+    tpmshx_quick_run_result_v1 output{};
+    output.abi_version=TPMSHX_QUICK_DESIGN_STAGE_ABI_VERSION;output.struct_size=sizeof(output);
+    char error[4096]{};
+    detail::check(tpmshx_run_quick_design_v2(&input,&prepared.view(),&control,&output,error,sizeof(error)),error);
+    return RunResultQuickDesign(output);
+}
 inline Evaluation evaluate(const RunResultQuickDesign& result,const tpmshx_stage_metric_spec_v1* metric=nullptr) {
     tpmshx_stage_output_v1 output{};output.struct_size=sizeof(output);
     char error[4096]{};

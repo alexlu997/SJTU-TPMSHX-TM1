@@ -17,6 +17,7 @@ from . import _native_df, _native_flow, _native_geometry, _native_grid, _native_
 from sjtu_tpmshx.physical_models import fluid_props as registry
 from sjtu_tpmshx.physical_models import co2_props, sco2_props, tpms_geometry, tpms_props
 from ._native_preparation_case import _Array, _GeometryCache, _Text
+from ._native_preparation_case import _QuickInputV2 as _Input, _QuickPreparedV2 as _Prepared
 
 
 _U, _S, _D = ct.c_uint32, ct.c_size_t, ct.c_double
@@ -29,19 +30,6 @@ def _struct(name, fields):
     return type(name, (ct.Structure,), {'_fields_': fields})
 
 
-_Input = _struct('QuickInput', [('abi_version', _U), ('struct_size', _S), ('values', _Scalar * 13),
-    *((name, _Text) for name in ('topology', 'arrangement', 'property_mode')), ('fluids', _Text * 2),
-    *((name, _U) for name in ('have_height', 'have_chi', 'strict')), ('chi', _D),
-    ('warm_start', _U), ('initial_shape', _S * 3), ('initial', _Array * 3)])
-_Controls = _struct('QuickControls', [('dir_b', _U), *((name, _S) for name in ('ny', 'nz', 'max_iterations')),
-    ('alpha', _D), ('q_relative_tolerance', _D), ('chunk_iterations', _S),
-    ('have_q_relative_tolerance', _U), ('have_chunk_iterations', _U)])
-_Prepared = _struct('QuickPrepared', [('abi_version', _U), ('struct_size', _S), ('owner', ct.c_void_p),
-    ('shape', _S * 3), *((name, _Array * 3) for name in ('widths', 'edges', 'initial')),
-    ('width_precision', _U * 3), ('solid_precision', _U),
-    *((name, _Array) for name in ('epsilon', 'epsilon_a', 'solid_conductivity')),
-    ('geometry', _GeometryCache), ('cell_length_m', _Scalar), ('wall_thickness_m', _Scalar),
-    ('fractions', _Scalar * 2), ('controls', _Controls), ('inlet_pressure', _native_df._Pressure * 2)])
 _Pressure = _struct('QuickPressure', [('abi_version', _U), ('struct_size', _S),
     ('fractions', _Scalar * 2), ('inlet_pressure', _native_df._Pressure * 2)])
 _Request = _struct('QuickRequest', [(name, _U) for name in ('operation', 'side', 'index')] +
@@ -212,12 +200,14 @@ class _HostState:
         elif operation == 6:
             if self.topo not in ('Diamond', 'Gyroid'):
                 raise ValueError(f"tpms_type must be 'Diamond' or 'Gyroid', got '{self.topo}'")
-            if self.l <= 0:
-                raise ValueError(f'L_mm must be positive, got {self.l}')
-            if self.t <= 0:
-                raise ValueError(f't_mm must be positive, got {self.t}')
-            if 2 * self.t >= self.l:
-                raise ValueError(f'Wall thickness t={self.t}mm >= L={self.l}mm, no pore space')
+            request.flags[3] = type(self.l) is float and type(self.t) is float
+            if not request.flags[3]:
+                if self.l <= 0:
+                    raise ValueError(f'L_mm must be positive, got {self.l}')
+                if self.t <= 0:
+                    raise ValueError(f't_mm must be positive, got {self.t}')
+                if 2 * self.t >= self.l:
+                    raise ValueError(f'Wall thickness t={self.t}mm >= L={self.l}mm, no pore space')
             request.flags[0] = _native_geometry._topology(self.topo)
             request.flags[1] = _native_geometry._floating_dtype(self.l, 0.).itemsize * 8
             request.flags[2] = _native_geometry._floating_dtype(self.t, self.l).itemsize * 8
@@ -463,6 +453,12 @@ def _operation(state):
             raise state.errors[0]
         if status:
             message = error.value.decode('utf-8', errors='replace')
+            if message == 'quick geometry has no pore space':
+                raise ValueError(f'Wall thickness t={state.t}mm >= L={state.l}mm, no pore space')
+            if message == 'quick geometry cell length must be positive':
+                raise ValueError(f'L_mm must be positive, got {state.l}')
+            if message == 'quick geometry wall thickness must be positive':
+                raise ValueError(f't_mm must be positive, got {state.t}')
             if message.startswith('Degenerate TPMS geometry:'):
                 raise ValueError(f'Degenerate TPMS geometry: {state.topo} L={state.l}mm t={state.t}mm '
                                  'has no usable pore space. Reduce t or increase L.') from ValueError(message)
@@ -501,3 +497,27 @@ def pressure_fractions(case, topo, l, t, s, Lx, arrangement='cross', height=None
         conductivity=K_STEEL, prop_model='const', tolerance=LTNE_TOL, df_options=df_options, full=False)
     with _operation(state) as output:
         return tuple(_native_flow._restore(value) for value in output.fractions)
+
+
+def prepare_quick_design(case, topo, l, t, s, Lx, arrangement='cross', *,
+                         case_id, init=None, k_s=K_STEEL, prop_model='const',
+                         tol=LTNE_TOL, height=None):
+    from sjtu_tpmshx.data_types.case_data import CaseData
+    state, grid, fields, controls, fractions = prepare_values(
+        case, topo, l, t, s, Lx, arrangement, init=init, k_s=k_s,
+        prop_model=prop_model, tol=tol, height=height)
+    return CaseData(
+        case_id=case_id, config_snapshot=state.config, grid=grid, design_fields=fields,
+        parameters=dict(operating_point=state.operating, topology=topo,
+                        L_cell_m=state.units[0], t_wall_m=state.units[1], Lx=Lx,
+                        s=s, height=state.height, k_s=k_s,
+                        A_0=state.geometry['A_0'], D_h=state.geometry['D_h'],
+                        arrangement=arrangement, prop_model=prop_model, tol=tol,
+                        controls=controls, initial_fields=init, df_options=state.df_options,
+                        _environment=state.environment,
+                        inlet_pressure_fractions=dict(zip(('A', 'B'), fractions))),
+        model_refs=state.model_refs,
+        metadata=dict(mode='quick_design', model='plug_ltne_analytic_dp_v1',
+                      quantity_basis='total', geometry_resolution=_Parameters['geometry_resolution'],
+                      thermal_kernel=('2d_delegation' if fields['eps'].shape[2] == 1 else '3d'),
+                      applicability='Sizing approximation; prescribed velocity, analytical inlet-state dP; not full SIMPLE or experimental validation.'))

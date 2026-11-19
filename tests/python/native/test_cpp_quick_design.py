@@ -116,7 +116,7 @@ def test_pressure_evidence_copies_native_output(native_control, monkeypatch):
     case = prepared('counter', 'const')
     load = quick_design.ct.CDLL
     library = load(native_control.native_library)
-    native_call = library.tpmshx_run_quick_design_v1
+    native_call = library.tpmshx_run_quick_design_v2
     sentinel = ((310123.25, 270456.5, 1), (420789.75, 410987.125, 0))
     calls = []
 
@@ -124,14 +124,14 @@ def test_pressure_evidence_copies_native_output(native_control, monkeypatch):
         native_call.argtypes, native_call.restype = substitute_pressure.argtypes, substitute_pressure.restype
         status = native_call(*args)
         assert status == 0
-        result = quick_design.ct.cast(args[2], quick_design.ct.POINTER(quick_design._StageResult)).contents.raw
+        result = quick_design.ct.cast(args[3], quick_design.ct.POINTER(quick_design._StageResult)).contents.raw
         assert result.stop in (0, 1) and result.completed_passes == 1
         calls.append(tuple((side.inlet, side.outlet, side.choked) for side in result.pressure))
         for side, values in zip(result.pressure, sentinel):
             side.inlet, side.outlet, side.choked = values
         return status
 
-    monkeypatch.setattr(library, 'tpmshx_run_quick_design_v1', substitute_pressure)
+    monkeypatch.setattr(library, 'tpmshx_run_quick_design_v2', substitute_pressure)
 
     def observed_library(path, *args, **kwargs):
         if Path(path).resolve() == Path(native_control.native_library):
@@ -160,17 +160,17 @@ def test_stage_preserves_saved_grid_types_and_owned_output(native_control, monke
                    parameters={**case.parameters, 'operating_point': op})
     load = quick_design.ct.CDLL
     library = load(native_control.native_library)
-    call, release = library.tpmshx_run_quick_design_v1, library.tpmshx_quick_run_release_v1
+    call, release = library.tpmshx_run_quick_design_v2, library.tpmshx_quick_run_release_v1
     observed = []
 
     def run(*args):
         call.argtypes, call.restype = run.argtypes, run.restype
-        view = quick_design.ct.cast(args[0], quick_design.ct.POINTER(quick_design._Prepared)).contents
+        view = quick_design.ct.cast(args[1], quick_design.ct.POINTER(quick_design._PreparedV2)).contents
         assert view.owner is None
         np.testing.assert_array_equal(np.ctypeslib.as_array(view.widths[0].data,
                                       shape=(view.widths[0].size,)), case.grid['dx'])
         status = call(*args)
-        output = quick_design.ct.cast(args[2], quick_design.ct.POINTER(quick_design._StageResult)).contents
+        output = quick_design.ct.cast(args[3], quick_design.ct.POINTER(quick_design._StageResult)).contents
         assert status == 0 and output.owner
         observed.append(output.evidence.result_id.decode())
         return status
@@ -185,7 +185,7 @@ def test_stage_preserves_saved_grid_types_and_owned_output(native_control, monke
         pytest.fail('saved Quick Design execution prepared the case again')
 
     monkeypatch.setattr(api, 'prepare_quick_design', forbidden)
-    monkeypatch.setattr(library, 'tpmshx_run_quick_design_v1', run)
+    monkeypatch.setattr(library, 'tpmshx_run_quick_design_v2', run)
     monkeypatch.setattr(library, 'tpmshx_quick_run_release_v1', free)
     monkeypatch.setattr(quick_design.ct, 'CDLL', lambda path: library if Path(path).resolve()
                         == Path(native_control.native_library) else load(path))
@@ -247,7 +247,7 @@ def test_stage_symbol_is_required(native_control, monkeypatch):
 
     class MissingStage:
         def __getattr__(self, name):
-            if name == 'tpmshx_run_quick_design_v1':
+            if name in ('tpmshx_run_quick_design_v1', 'tpmshx_run_quick_design_v2'):
                 raise AttributeError(name)
             if name == 'tpmshx_solve_quick_design_v1':
                 pytest.fail('missing stage silently selected the low-level driver')
@@ -271,11 +271,12 @@ def test_warnings_use_native_pass_evidence_without_python_numerics(native_contro
     monkeypatch.setattr(design_fluids, 'fluid_props', forbidden)
     monkeypatch.setattr(fluid_props, 'check_water_state', forbidden)
     samples = []
-    original = quick_design.record_native_design_ranges
-    def observe(fluid, topology, temperature, reynolds):
-        samples.append((fluid, topology, temperature, reynolds))
-        return original(fluid, topology, temperature, reynolds)
-    monkeypatch.setattr(quick_design, 'record_native_design_ranges', observe)
+    original = quick_design._record_pass
+    def observe(library, output, index, side, fluid):
+        row = output.raw.passes[index].sides[side]
+        samples.append((fluid, p['topology'], row.evaluation_temperature, row.reynolds))
+        return original(library, output, index, side, fluid)
+    monkeypatch.setattr(quick_design, '_record_pass', observe)
     actual = run_case(case, native_control)
     assert len(samples) == 4
     for index,(fluid,topology,temperature,reynolds) in enumerate(samples):

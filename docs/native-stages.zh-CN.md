@@ -652,7 +652,7 @@ v2 描述符须初始化 ABI 2 及准确的 `struct_size`；完整结果须初�
 通过创建该输出的准备库调用 `tpmshx_quick_prepared_release_v2` 释放。
 压降输出只按值保存分数及压力证据，没有 owner。
 `stages.hpp` 提供 `QuickDesignInputV2`、`PreparedQuickDesignV2`、`prepare_quick_design` 和 `pressure_fractions`。
-v2 输出没有新增 run 重载；Python 将它映射到 CaseData，交给现有运行适配器。
+调用 `run_case(input, prepared, control)` 可将 v2 输入、准备结果和运行控制直接交给求解器。Python 从保存的 CaseData 提供同样的字段和运行控制。
 
 ### 固定宿主操作
 
@@ -704,7 +704,7 @@ EOS 操作共享 `sco2_props._prop` 与 `co2_props._scalar`，保留原 4096 项
 sCO2 在状态校验前查找标量缓存，CO2 先校验；数组均绕过标量缓存。
 只有成功的原生计算发布结果；外部物性调用和缓存清空使用同一 owner。
 被替代的 `shared/models/quick_design.py` 已删除；冻结参考 `tests/python/quick_prepare_reference.py` 保留用于独立回归检查。
-`python/preprocess/app_modes/quick_design.py` 只用复制的原生场和宿主快照组装 CaseData。
+`python/cpp_interface/_native_quick_prepare.py` 只用复制的原生场和宿主快照组装 CaseData。
 
 ### 准备态执行与证据
 

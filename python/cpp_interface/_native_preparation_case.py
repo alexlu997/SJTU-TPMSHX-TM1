@@ -8,6 +8,7 @@ import warnings
 import numpy as np
 
 from . import _native_flow, _native_preparation, _native_properties
+from ._native_df import _Pressure as _DFPressure
 from ._native_properties import _Failure as _PropertyFailure
 from sjtu_tpmshx.run_control.logutil import get_logger
 from sjtu_tpmshx.run_control.run_warnings import (
@@ -816,3 +817,18 @@ def pack_saved_resources(case, models, nu, saved, settings, keepalive):
             if set(params) != {'topology'}:
                 raise ValueError('Darcy-Forchheimer resource requires topology')
             saved.resource_topology = borrow_text(params['topology'], keepalive)
+
+
+_QuickInputV2 = _struct('QuickInput', [('abi_version', _U), ('struct_size', _S), ('values', _GridScalar * 13),
+    *((name, _Text) for name in ('topology', 'arrangement', 'property_mode')), ('fluids', _Text * 2),
+    *((name, _U) for name in ('have_height', 'have_chi', 'strict')), ('chi', _D),
+    ('warm_start', _U), ('initial_shape', _S * 3), ('initial', _Array * 3)])
+_QuickControls = _struct('QuickControls', [('dir_b', _U), *((name, _S) for name in ('ny', 'nz', 'max_iterations')),
+    ('alpha', _D), ('q_relative_tolerance', _D), ('chunk_iterations', _S),
+    ('have_q_relative_tolerance', _U), ('have_chunk_iterations', _U)])
+_QuickPreparedV2 = _struct('QuickPrepared', [('abi_version', _U), ('struct_size', _S), ('owner', ct.c_void_p),
+    ('shape', _S * 3), *((name, _Array * 3) for name in ('widths', 'edges', 'initial')),
+    ('width_precision', _U * 3), ('solid_precision', _U),
+    *((name, _Array) for name in ('epsilon', 'epsilon_a', 'solid_conductivity')),
+    ('geometry', _GeometryCache), ('cell_length_m', _GridScalar), ('wall_thickness_m', _GridScalar),
+    ('fractions', _GridScalar * 2), ('controls', _QuickControls), ('inlet_pressure', _DFPressure * 2)])
