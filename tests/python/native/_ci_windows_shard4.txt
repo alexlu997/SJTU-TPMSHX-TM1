@@ -1,0 +1,5 @@
+# Keep each cold LUT and its independent comparison on one worker.
+tests/python/native/test_cpp_full_2d_run.py::test_full_2d_checkpoint_continues_after_process_exit[temperature_sou]
+tests/python/native/test_model_isolation.py
+tests/python/native/test_temperature_mms.py
+tests/python/test_native_preparation_sigmoid.py::test_sigmoid_production_cold_nodes_and_repeated_warm_preparation[Gyroid]

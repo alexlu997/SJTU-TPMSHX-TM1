@@ -21,9 +21,10 @@ main 仅推送声明的文档路径时使用 docs 层级。未知或空变更使
 在 `PYTHONHASHSEED=0` 下，Python 3.13 快测使用 `-m "not slow and not heavy"`，排除 `integration_tm1`，并采用 `-n 2`。
 `fast-0` 使用 `--dist load --maxschedchunk=1`；`fast-1` 使用 `--dist worksteal`。
 现有 `ci_shard` 插件将快测分为两个独立作业。
-集成作业单独运行 `tests/python/integration_tm1/` 的全部用例，不加 marker 过滤。
+集成进程运行 `tests/python/integration_tm1/` 的全部用例，不加 marker 过滤。
 Windows/Python 3.12 集成再运行 `tests/python/_ci_windows_312.txt` 的渲染和续算用例。
-快测和集成 SHALL 分别保留报告，并在平台构建后独立执行。
+Windows 集成使用独立作业，macOS 集成复用 `fast-0` runner。
+快测和集成 SHALL 在平台构建后分别保留报告。
 常规 Qt 测试使用 offscreen 并禁用 3D 面板；实际渲染使用独立的原生 Qt 进程，其平台要求和证据边界见根 README。
 CI SHALL NOT 依赖忽略的本地数据资产。
 

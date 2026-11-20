@@ -24,9 +24,10 @@ Main pushes with only declared documentation paths use the docs tier. Unknown or
 With `PYTHONHASHSEED=0`, Python 3.13 fast tests use `-m "not slow and not heavy"`, exclude `integration_tm1`, and run with `-n 2`.
 `fast-0` uses `--dist load --maxschedchunk=1`; `fast-1` uses `--dist worksteal`.
 The existing `ci_shard` plugin splits them into two independent jobs.
-Separate integration jobs run all `tests/python/integration_tm1/` tests without marker filtering.
+Each integration process runs all `tests/python/integration_tm1/` tests without marker filtering.
 On Windows/Python 3.12, integration also runs the rendering and resume cases in `tests/python/_ci_windows_312.txt`.
-Fast and integration jobs MUST produce separate reports and run independently after the platform build.
+Windows integration runs in separate jobs. macOS integration uses the `fast-0` runner.
+Fast tests and integration MUST produce separate reports after the platform build.
 Routine Qt tests use offscreen mode with the 3D panel disabled.
 Actual rendering uses a separate native Qt process; its platform requirements and evidence limits are documented in the root README.
 CI MUST NOT depend on ignored local data assets.

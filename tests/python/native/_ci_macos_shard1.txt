@@ -1,6 +1,5 @@
 # macOS native group 1; balance uses complete CI run timings.
 # Keep shared fixture parameters together. The final shard is automatic.
-tests/python/native/test_backend_condition_consumers.py
 tests/python/native/test_native_eos.py
 tests/python/native/test_cpp_conservative_full2d.py::test_actual_thermal_state_and_signed_ledger[temperature_sou-directions12-partialFalse]
 tests/python/native/test_cpp_conservative_full2d.py::test_candidate_exception_releases_and_recovers[decode]
@@ -28,7 +27,6 @@ tests/python/native/test_cpp_quick_design.py
 tests/python/native/test_enthalpy_driver.py
 tests/python/native/test_full_2d_refinement.py
 tests/python/native/test_full_2d_stage_identity.py
-tests/python/native/test_full_3d.py
 tests/python/native/test_native_engineering_acceptance.py::test_continuous_real_fluid_native_cases[sco2-2]
 tests/python/native/test_native_engineering_acceptance.py::test_public_native_cases_keep_physical_gates[air-co2-2]
 tests/python/native/test_native_engineering_acceptance.py::test_public_native_cases_keep_physical_gates[air-co2-3]
@@ -45,7 +43,6 @@ tests/python/native/test_superlu_error_boundary.py
 tests/python/native/test_temperature_driver.py
 # Stage modules collected on Python 3.13.
 tests/python/test_native_stage_uniform.py
-tests/python/test_native_run_adapter.py
 tests/python/test_native_prepare_offset.py
 tests/python/test_native_run_adapter_3d.py
 tests/python/test_native_prepare_spatial_adapter.py

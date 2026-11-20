@@ -428,11 +428,12 @@ def test_parallel_selection_keeps_native_backend_and_infeasible_candidates(
         native_control, monkeypatch, tmp_path):
     from threading import Lock
     from sjtu_tpmshx.applications.design import select
-    from tests.python.design.test_select import _cases
+    from sjtu_tpmshx.applications.design.cases import DesignCase
 
     # The 4 mm cell exceeds this inlet-pressure limit even at the largest
     # build width; the 8 mm cell completes the real sizing search and solve.
-    cases = [replace(_cases()[0], Q=30., dPlim_h=2e-5)]
+    cases = [DesignCase(1, 'air', 688.23, 1088700., .2855, 'water', 320.,
+                        200000., .5, 30., 2e-5, .05)]
     nodes = dict(topo=['Diamond'], l=[4., 8.], t=[.4])
     library = native_control.native_library
     table_directory = str(tmp_path / 'tables')

@@ -634,7 +634,7 @@ export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_TH
 
 PowerShell uses the same pytest arguments. Set the listed environment variables and call `& $tm1Python`. Provide a matching native library before tests.
 
-On macOS and Windows with Python 3.13, CI splits fast test modules between two runners. Each runner uses two workers. `fast-0` uses `load --maxschedchunk=1` to limit work queued behind long sizing tests. `fast-1` uses `worksteal`. Each worker uses one BLAS and OMP thread. Integration runs in parallel with fast tests after the platform build. It has separate manifests and JUnit reports. Windows/Python 3.12 runs all integration tests and [compatibility cases](tests/python/_ci_windows_312.txt) for actual rendering and 2D/3D resume.
+On macOS and Windows with Python 3.13, CI splits fast test modules between two runners. Each runner uses two workers. `fast-0` uses `load --maxschedchunk=1` to limit work queued behind long sizing tests. `fast-1` uses `worksteal`. Each worker uses one BLAS and OMP thread. Windows integration runs in parallel with fast tests after the platform build. macOS runs integration in a separate process on the `fast-0` runner. Both platforms keep separate integration reports. Windows/Python 3.12 runs all integration tests and [compatibility cases](tests/python/_ci_windows_312.txt) for actual rendering and 2D/3D resume.
 
 CI renders a real 3D volume in a separate Qt process. It checks field changes, PNG decoding, scaled images, application export, and closure. macOS uses Cocoa. Windows uses a fixed Mesa OpenGL software renderer. The pixel check explicitly skips macOS arm64 hosts with `Apple Software Renderer`. [PyVistaQt documents this rendering limit](https://github.com/pyvista/pyvistaqt/blob/v0.13.1/pyvistaqt/rwi.py). Full pixel checks on a physical Mac remain required locally for graphics dependency changes. The test artifacts include OpenGL details, process logs, and any generated PNG files and render reports. Physical Windows display acceptance remains separate.
 
@@ -679,9 +679,9 @@ The summary gate first checks complete, disjoint, successful native shards. It t
 
 Pass native shards in numeric order. Without `--ci-covered-modules`, local users can still check both complete fast shards separately.
 
-Python 3.13 native qualification uses three shards on macOS and five on Windows. Each shard uses two workers with `loadscope`, which keeps each module or class in one worker. Measured case durations from the full matrix set the groups. Conservative energy tests keep each shared fixture parameter in one shard. Convergence, property, energy ledger and real replay checks for each parameter stay in one shard. Other modules keep their shared fixtures. Independent engineering-pair and 2D checkpoint cases can use complete node IDs.
+Python 3.13 native qualification uses three shards on macOS and six on Windows. Each shard uses two workers with `loadscope`, which keeps each module or class in one worker. Measured case durations from the full matrix set the groups. Conservative energy tests keep each shared fixture parameter in one shard. Convergence, property, energy ledger and real replay checks for each parameter stay in one shard. Other modules keep their shared fixtures. Independent engineering-pair and 2D checkpoint cases can use complete node IDs.
 
-Group lists are in `tests/python/native/`. macOS uses `_ci_macos_shard0.txt` through `_ci_macos_shard1.txt`. Windows uses `_ci_windows_shard0.txt` through `_ci_windows_shard3.txt`. Pass each list through `--ci-shard-modules=<list-path>` in numeric order. Unlisted cases enter the final automatic shard, 2 on macOS or 4 on Windows. Native engineering cases keep per-side physical models, convergence and energy limits. The 2D adapter tests compare fields, metrics, and callbacks with limited iterations.
+Group lists are in `tests/python/native/`. macOS uses `_ci_macos_shard0.txt` through `_ci_macos_shard1.txt`. Windows uses `_ci_windows_shard0.txt` through `_ci_windows_shard4.txt`. Pass each list through `--ci-shard-modules=<list-path>` in numeric order. Unlisted cases enter the final automatic shard, 2 on macOS or 5 on Windows. Native engineering cases keep per-side physical models, convergence and energy limits. The 2D adapter tests compare fields, metrics, and callbacks with limited iterations.
 
 Native jobs set both `TPMSHX_REQUIRE_CPP_TESTS=1` and `TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1`. Missing compilers or native libraries must fail. Existing tests for concurrent threads, process recovery, and result ownership still run in native shards.
 
@@ -692,9 +692,10 @@ Each platform calls the [native workflow](.github/workflows/native.yml). It buil
 The `application` and `full` tiers both run the complete pilot build.
 Archives include solver, geometry, preparation and result libraries and SDK comparison samples.
 The separate `build --component result` step builds the result library before complete verification with the other libraries.
+The full SDK check builds all C++ examples. It runs representative preparation, solve, resume, and postprocessing paths.
 BO restores geometry, preparation and result libraries from the current platform build. It runs in parallel with that platform's other regression tests.
 
-Build logs use `native-build-logs-<platform>`. Each shard uploads `native-dependencies-<platform>-py<version>-shard-<number>` with JUnit and `native-manifest`. Shard numbers are 0–2 on macOS and 0–4 on Windows. These artifacts are retained for 7 days.
+Build logs use `native-build-logs-<platform>`. Each shard uploads `native-dependencies-<platform>-py<version>-shard-<number>` with JUnit and `native-manifest`. Shard numbers are 0–2 on macOS and 0–5 on Windows. These artifacts are retained for 7 days.
 
 Pass all shard manifests in numeric order to the same set checker. It verifies complete and disjoint selection and requires both `gw0` and `gw1` records per shard. Use `--serial` only for local serial tests with `controller` records. Native logs keep the 20 slowest tests and skip reasons.
 

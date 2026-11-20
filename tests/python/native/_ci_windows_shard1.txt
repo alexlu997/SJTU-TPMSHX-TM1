@@ -33,7 +33,6 @@ tests/python/native/test_native_engineering_acceptance.py::test_public_native_ca
 tests/python/native/test_native_engineering_acceptance.py::test_public_native_cases_keep_physical_gates[water-air-2]
 tests/python/native/test_native_engineering_acceptance.py::test_public_native_cases_keep_physical_gates[water-air-3]
 tests/python/native/test_native_eos.py
-tests/python/native/test_temperature_mms.py
 tests/python/native/test_pressure_reference.py
 tests/python/native/test_quick_design_driver.py
 tests/python/native/test_simple_2d_c_api.py

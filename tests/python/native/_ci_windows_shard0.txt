@@ -1,6 +1,5 @@
 # Windows native group 0; balance uses complete CI run timings.
 # Keep shared fixture parameters together. The final shard is automatic.
-tests/python/native/test_cpp_full_2d_run.py::test_full_2d_checkpoint_hdf5_round_trip[temperature_sou]
 tests/python/native/test_cpp_conservative_full2d.py::test_actual_thermal_state_and_signed_ledger[temperature_sou-directions12-partialTrue]
 tests/python/native/test_cpp_conservative_full2d.py::test_candidate_exception_releases_and_recovers[callback]
 tests/python/native/test_cpp_conservative_full2d.py::test_candidate_exception_releases_and_recovers[cancel]

@@ -42,7 +42,6 @@ _STAGE_PAIRS = (
     pytest.param(('water', 'air'), id='water-air'),
     pytest.param(('co2', 'water'), id='co2-water'),
     pytest.param(('water', 'sco2'), id='water-sco2'),
-    pytest.param(('sco2', 'co2'), id='sco2-co2'),
 )
 
 

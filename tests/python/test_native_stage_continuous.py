@@ -94,7 +94,11 @@ def _assert_exact(preparation_library, stage_library, config, tmp_path, request=
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize('pair', uniform._STAGE_PAIRS)
+@pytest.mark.parametrize('pair', [
+    pytest.param(('air', 'air'), id='air-air'),
+    pytest.param(('air', 'water'), id='air-water'),
+    pytest.param(('sco2', 'co2'), id='sco2-co2'),
+])
 def test_continuous_stage_exact(preparation_library, stage_library, pair, tmp_path):
     config = _configuration(pair)
     request = None if pair == ('air', 'air') else uniform._parity_request(config)

@@ -53,8 +53,11 @@ def _eps_from_C(phi: np.ndarray, C: float) -> float:
 
 def _A0_from_C(phi: np.ndarray, C: float, L_m: float, N: int) -> float:
     """Single-side specific surface area [m^-1] for threshold C."""
+    return _area_from_solid(np.abs(phi) <= C, L_m, N)
+
+
+def _area_from_solid(solid: np.ndarray, L_m: float, N: int) -> float:
     dx = L_m / N
-    solid = np.abs(phi) <= C
     n_faces = 0
     n_faces += np.sum(solid[:-1, :, :] != solid[1:, :, :])
     n_faces += np.sum(solid[:, :-1, :] != solid[:, 1:, :])

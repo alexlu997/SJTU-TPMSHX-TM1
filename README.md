@@ -695,7 +695,8 @@ PowerShell 使用同样的 pytest 参数，以 `$env:变量名=值` 设置上述
 并以 `& $tm1Python` 调用解释器。测试前必须提供匹配的原生库。
 macOS 和 Windows 的 Python 3.13 快测按完整模块分到两个独立 runner，每片固定两个 worker。
 `fast-0` 使用 `load --maxschedchunk=1`，减少长耗时尺寸设计测试后方排队的工作；`fast-1` 使用 `worksteal`。
-每个 worker 的 BLAS/OMP 单线程。集成测试在本平台构建后与快测并行，使用独立的 manifest 和 JUnit 报告。
+每个 worker 的 BLAS/OMP 单线程。Windows 集成测试在本平台构建后与快测并行。
+macOS 在 `fast-0` 中单独运行集成进程，共用 runner。两平台的集成报告独立保存。
 Windows/Python 3.12 跑完整集成和 [兼容性用例](tests/python/_ci_windows_312.txt)，包括实际渲染和二维、三维续算。
 CI 在独立 Qt 进程中渲染真实 3D 体场，检查字段切换、PNG 解码、缩放图像、应用导出及关闭。
 macOS 使用 Cocoa；Windows 使用固定版本的 Mesa OpenGL 软件渲染。
@@ -764,15 +765,15 @@ envelope 实现、三模块数据契约与公共 API、后处理指标入口；�
 
 原生分片必须按编号顺序传入。若本地不使用 `--ci-covered-modules`，仍可单独核对两个完整快测分片。
 
-Python 3.13 原生资格检查在 macOS 分为三片，在 Windows 分为五片。
+Python 3.13 原生资格检查在 macOS 分为三片，在 Windows 分为六片。
 每片使用两个 worker 和 `loadscope`，将同一模块或类保留在同一 worker。
 分组依据完整矩阵的实测用例耗时。保守能量测试按共享 fixture 参数分组，
 同组的收敛、物性、能量账本和真实回放检查保持在同片。其他模块保留共享 fixture；
 独立工程用例与二维检查点用例可按完整 node ID 分组。
 分组清单位于 `tests/python/native/`：macOS 使用 `_ci_macos_shard0.txt` 至 `_ci_macos_shard1.txt`，
-Windows 使用 `_ci_windows_shard0.txt` 至 `_ci_windows_shard3.txt`。
+Windows 使用 `_ci_windows_shard0.txt` 至 `_ci_windows_shard4.txt`。
 按编号顺序将每份清单通过 `--ci-shard-modules=<清单路径>` 重复传入。
-未列出的用例自动进入最后一片，即 macOS 分片 2 或 Windows 分片 4。
+未列出的用例自动进入最后一片，即 macOS 分片 2 或 Windows 分片 5。
 按编号向同一集合校验器传入全部 manifest，核对其完整且互斥；每片必须有 `gw0`、`gw1` 两份记录。
 `--serial` 仅用于本地串行测试的 `controller` 记录。
 原生工程用例保留逐侧物理模型、收敛及能量门槛。二维适配对照用有限迭代比较字段、指标和回调。
@@ -784,6 +785,7 @@ Python 数值对照迁移为独立公式／离散账本、制造解、组件重�
 每个平台调用 [原生工作流](.github/workflows/native.yml)，用 Python 3.13 构建一次原生库并运行独立 C/C++ 调用程序。
 application 和 full tier 均构建完整 pilot。归档包含求解库、几何库、准备库、结果库和 SDK 对照样本。
 结果库通过独立 `build --component result` 构建，再与其余库一起执行完整验证。
+完整 SDK 检查编译全部 C++ 示例，执行有代表性的前处理、求解、续算和后处理路径。
 BO 恢复本轮同平台归档中的几何库、准备库和结果库，与该平台的其他回归并行。
 原生库不链接 Python 运行时。Windows 两个 Python 版本测试同一构建。
 分片在本平台构建完成后启动，不等待其他平台。原生、快测和集成测试共同使用本轮工作流及源码产生的
@@ -791,7 +793,7 @@ BO 恢复本轮同平台归档中的几何库、准备库和结果库，与该�
 CoolProp 精确缓存键绑定平台、架构、Python 3.13、托管工具链镜像版本、原生依赖锁和构建脚本。
 项目 C++ 和模型系数每轮重新构建；缓存命中仍须完成独立调用验证。
 构建日志单独保存在 `native-build-logs-<平台>`。
-每片上传 `native-dependencies-<平台>-py<版本>-shard-<编号>`，macOS 编号为 0–2，Windows 为 0–4，
+每片上传 `native-dependencies-<平台>-py<版本>-shard-<编号>`，macOS 编号为 0–2，Windows 为 0–5，
 包含 JUnit 和 `native-manifest`。以上 artifact 均保留 7 天。
 原生日志保留最慢 20 项和 skip 原因。
 
