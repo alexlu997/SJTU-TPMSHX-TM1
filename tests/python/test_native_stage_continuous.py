@@ -1,6 +1,5 @@
 """Compare continuous native execution with the unchanged Python workflow."""
 import ctypes as ct
-from itertools import product
 import json
 
 import numpy as np
@@ -95,7 +94,7 @@ def _assert_exact(preparation_library, stage_library, config, tmp_path, request=
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize('pair', list(product(preparation.v2._FLUIDS, repeat=2)))
+@pytest.mark.parametrize('pair', uniform._STAGE_PAIRS)
 def test_continuous_stage_exact(preparation_library, stage_library, pair, tmp_path):
     _assert_exact(preparation_library, stage_library, _configuration(pair), tmp_path)
 

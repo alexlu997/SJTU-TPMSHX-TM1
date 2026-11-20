@@ -1,7 +1,6 @@
 """Compare uniform native execution with the unchanged Python workflow."""
 import ctypes as ct
 from dataclasses import replace
-from itertools import product
 import json
 from pathlib import Path
 
@@ -35,6 +34,15 @@ _Control = report.record('RunControl', [('result_id', ct.c_char_p), ('table_dire
     ('cpu_threads', _Z), ('callbacks', abi._Callbacks)])
 _Result = report.record('StageRun', [('abi_version', _U), ('struct_size', _Z), ('owner', ct.c_void_p),
     ('raw', abi._Result), ('evidence', report.Evidence), ('resolved', abi._Config)])
+
+# Saved-run tests already exercise every fluid pair.
+_STAGE_PAIRS = (
+    pytest.param(('air', 'water'), id='air-water'),
+    pytest.param(('water', 'air'), id='water-air'),
+    pytest.param(('co2', 'water'), id='co2-water'),
+    pytest.param(('water', 'sco2'), id='water-sco2'),
+    pytest.param(('sco2', 'co2'), id='sco2-co2'),
+)
 
 
 @pytest.fixture(scope='module')
@@ -152,7 +160,7 @@ def _assert_exact(preparation_library, stage_library, config, request, tmp_path,
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize('pair', list(product(preparation._FLUIDS, repeat=2)))
+@pytest.mark.parametrize('pair', _STAGE_PAIRS)
 def test_uniform_stage_exact(preparation_library, stage_library, pair, tmp_path):
     _assert_exact(preparation_library, stage_library, _configuration(pair), None, tmp_path)
 

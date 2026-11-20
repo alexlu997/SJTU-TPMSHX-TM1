@@ -13,8 +13,8 @@ def pytest_addoption(parser):
                     help='Run a listed group or the final automatic complement.')
     group.addoption('--ci-shard-modules', type=Path, action='append',
                     help='Repeat in shard order; each file lists modules or exact test node IDs.')
-    group.addoption('--ci-covered-modules', type=Path,
-                    help='Modules covered by separate required native shards.')
+    group.addoption('--ci-covered-modules', type=Path, action='append',
+                    help='Repeat for each module list covered by required native shards.')
     group.addoption('--ci-manifest', help='Directory for per-worker collection JSON.')
 
 
@@ -35,9 +35,10 @@ def pytest_collection_modifyitems(config, items):
         return
     shard = config.getoption('ci_shard')
     full = [item.nodeid for item in items]
-    covered_path = config.getoption('ci_covered_modules')
-    if covered_path is not None:
-        covered = set(covered_path.read_text(encoding='utf-8').splitlines())
+    covered_paths = config.getoption('ci_covered_modules')
+    if covered_paths:
+        covered = {module for path in covered_paths
+                   for module in path.read_text(encoding='utf-8').splitlines()}
         kept, removed = [], []
         for item in items:
             module = item.path.relative_to(config.rootpath).as_posix()

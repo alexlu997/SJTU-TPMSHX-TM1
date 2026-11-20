@@ -50,3 +50,6 @@ tests/python/native/test_quick_design_driver.py
 tests/python/native/test_run_recovery.py
 tests/python/native/test_simple_3d_api.py
 tests/python/native/test_temperature_staggered.py
+# Stage modules collected on Python 3.13.
+tests/python/test_native_stage_continuous.py
+tests/python/test_native_preparation_sigmoid.py

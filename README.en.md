@@ -667,9 +667,9 @@ Fast `test_type_gate.py` runs the same list. It validates the rejection of incor
 
 The first pytest command excludes slow/heavy and `integration_tm1`. The second runs that complete integration directory one time. Neither replaces the third, complete local gate. Local commands run the unsharded subsets.
 
-CI runs native qualification tests only in native shards. The shared module list is `tests/python/native/_ci_suite.txt`. Native pytest reads it with `@<list-path>`. Application shards first record the full collection, then transfer these modules with `--ci-covered-modules=<list-path>`. New modules outside this list stay in application tests. The native directory is not excluded as a whole.
+CI runs native qualification tests in native shards. The shared list is `tests/python/native/_ci_suite.txt`. Full CI on Python 3.13 also runs the stage modules in `tests/python/native/_ci_stage_suite.txt`, including their slow cases. Native pytest reads each list with `@<list-path>`. Application shards first record the full collection, then transfer these modules with `--ci-covered-modules=<list-path>`. Unlisted modules stay in application tests.
 
-To reproduce an application shard, append `-p sjtu_tpmshx.development.tests.ci_shard --ci-shard=0 --ci-manifest=.cache/ci/fast-0 --ci-covered-modules=tests/python/native/_ci_suite.txt`. For shard 1, use `--ci-shard=1` with its own manifest directory. `tests/python/_ci_shard0.txt` lists modules for shard 0. Remaining application modules enter shard 1. Transfer and sharding occur after existing heavy markers and pytest filters. All native assertions stay unchanged.
+To reproduce an application shard, append `-p tests.python.ci_shard --ci-shard=0 --ci-manifest=.cache/ci/fast-0 --ci-covered-modules=tests/python/native/_ci_suite.txt`. For full CI on Python 3.13, also pass `--ci-covered-modules=tests/python/native/_ci_stage_suite.txt`. For shard 1, use `--ci-shard=1` with its own manifest directory. `tests/python/_ci_shard0.txt` lists modules for shard 0. Remaining application modules enter shard 1. Transfer and sharding occur after existing heavy markers and pytest filters.
 
 The summary gate first checks complete, disjoint, successful native shards. It then combines application and native coverage against the original full fast collection. Duplicate or missing tests, missing workers, and failed records prevent a pass. Download all manifests for the same platform/Python combination, then run:
 
@@ -689,10 +689,10 @@ Independent formulas, discrete energy balances, manufactured solutions, componen
 
 Each platform calls the [native workflow](.github/workflows/native.yml). It builds native libraries once with Python 3.13 and runs independent C/C++ callers. The native libraries do not link to a Python runtime. macOS tests use Python 3.13. Windows tests use both Python 3.12 and 3.13. Shards start after their platform build and do not wait for other platforms. Native, fast and integration tests use the same `native-build-<platform>` artifact from the current workflow run and source. The archive preserves executable permissions and includes runtime libraries, callers, and license notices. An exact CoolProp cache key binds platform, architecture, Python 3.13, toolchain image, native dependency lock and build script. Project C++ and model coefficients rebuild on every run. Cache hits still require independent caller checks.
 
-The `application` and `full` tiers both retain the complete pilot build and existing solver coverage.
-Archives explicitly include solver, geometry, preparation and result libraries.
+The `application` and `full` tiers both run the complete pilot build.
+Archives include solver, geometry, preparation and result libraries and SDK comparison samples.
 The separate `build --component result` step builds the result library before complete verification with the other libraries.
-BO also restores geometry from the current run's artifact for the same platform. Existing gates remain unchanged.
+BO restores geometry, preparation and result libraries from the current platform build. It runs in parallel with that platform's other regression tests.
 
 Build logs use `native-build-logs-<platform>`. Each shard uploads `native-dependencies-<platform>-py<version>-shard-<number>` with JUnit and `native-manifest`. Shard numbers are 0–2 on macOS and 0–4 on Windows. These artifacts are retained for 7 days.
 

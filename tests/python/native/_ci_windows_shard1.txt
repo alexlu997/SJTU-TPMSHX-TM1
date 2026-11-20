@@ -37,3 +37,6 @@ tests/python/native/test_pressure_reference.py
 tests/python/native/test_quick_design_driver.py
 tests/python/native/test_simple_2d_c_api.py
 tests/python/native/test_temperature_staggered.py
+# Stage modules collected on Python 3.13.
+tests/python/test_native_stage_continuous.py
+tests/python/test_native_prepare_spatial_adapter.py

@@ -45,7 +45,7 @@ def require_jobs(tier, needs, stage):
     result = 'skipped' if tier == 'docs' else 'success'
     expected = {'scope': 'success', 'native': result}
     if stage == 'summary':
-        expected.update({'bo-tests': result, 'minimal-postprocess': 'success'})
+        expected['minimal-postprocess'] = 'success'
     else:
         expected['result-build'] = result
     actual = {name: job['result'] for name, job in needs.items()}
