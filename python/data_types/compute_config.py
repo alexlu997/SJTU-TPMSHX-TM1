@@ -807,15 +807,18 @@ class ComputeConfig:
         ge = self.geometry
         if self.df_mode == 'experimental' and not native_preparation:
             from sjtu_tpmshx.cpp_interface import _native_df
+            from sjtu_tpmshx.model_configs.model_parameters import load_preparation_df_parameters
+
             domain = (ge.L_dom_m, ge.H_dom_m, ge.Lz_m) if self.is_3d else (ge.L_dom_m, ge.H_dom_m)
+            native_domain = all(type(value) in (int, float) for value in (*domain, ge.delta_levelset))
             geometry_mode = (1 if self.zones.axis == 'continuous' else 2) if self.zones.enabled else 0
             fluids = self.fluid_A.type, self.fluid_B.type
-            symmetric = not (ge.delta_levelset != 0.)
+            hx = None
             scope = _native_df.experiment_scope(
-                ge.tpms, fluids, geometry_mode, ge.L_cell_mm, ge.t_wall_mm, symmetric, domain)
+                ge.tpms, fluids, geometry_mode, ge.L_cell_mm, ge.t_wall_mm,
+                native_domain and ge.delta_levelset == 0., domain if native_domain else ())
             if scope is None:
                 # Saved experimental cases can still use a retained preparation library.
-                from sjtu_tpmshx.model_configs.model_parameters import load_preparation_df_parameters
                 hx = load_preparation_df_parameters()['hx']
                 cell, wall = hx['geometry_mm']
                 tolerance = hx['geometry_absolute_tolerance_mm']
@@ -823,10 +826,10 @@ class ComputeConfig:
                             and math.isclose(ge.L_cell_mm, cell, rel_tol=0., abs_tol=tolerance)
                             and math.isclose(ge.t_wall_mm, wall, rel_tol=0., abs_tol=tolerance))
                 layout = not geometry_mode or transfer or fluids == ('co2', 'co2')
-                hx_domain = symmetric and all(math.isclose(value, target)
-                                              for value, target in zip(domain, hx['domain_m']))
             else:
                 transfer, layout, hx_domain = scope
+            if scope is None or not native_domain:
+                hx_domain = None
             if not layout:
                 raise ValueError(
                     "experimental calibration currently requires uniform L/t; "
@@ -847,7 +850,15 @@ class ComputeConfig:
                     raise ValueError(
                         f"experimental calibration unavailable for active side "
                         f"{side}: {exc}") from exc
-                if selection.scope and not hx_domain:
+                if not selection.scope:
+                    continue
+                if hx_domain is None:
+                    # The saved Python value can require conversion at this boundary.
+                    if hx is None:
+                        hx = load_preparation_df_parameters()['hx']
+                    hx_domain = not (ge.delta_levelset != 0.) and all(
+                        math.isclose(value, target) for value, target in zip(domain, hx['domain_m']))
+                if not hx_domain:
                     raise ValueError(
                         f"experimental calibration side {side} is HX-effective "
                         "and requires delta=0 with the matching 0.182 x 0.042"

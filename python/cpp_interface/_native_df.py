@@ -168,10 +168,10 @@ def experiment_scope(topology, fluids, geometry_mode, cell, wall, symmetric, dom
     # Unknown names enter the selector in its existing order.
     codes = [next((i for i, name in enumerate(('air', 'water', 'sco2', 'co2')) if name == fluid), 4)
              for fluid in fluids]
-    length, height, *depth = domain
+    length, height, depth = (domain + (0., 0., 0.))[:3]
     scope = query(
         int(topology == 'Gyroid'), *codes, geometry_mode, int(symmetric), cell, wall,
-        length, height, depth[0] if depth else 0., len(domain))
+        length, height, depth, len(domain))
     return bool(scope & 1), bool(scope & 2), bool(scope & 4)
 
 

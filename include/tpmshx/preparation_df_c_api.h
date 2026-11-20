@@ -72,7 +72,8 @@ enum {
 /* Geometry mode is 0=uniform, 1=continuous, 2=discrete.
  * Fluids are 0=air, 1=water, 2=sCO2, 3=CO2.
  * Symmetric is 1 when delta is zero. L/t use mm.
- * The domain uses m and dimension selects two or three axes.
+ * The domain uses m. Dimension 0 reports layout and transfer only.
+ * Dimensions 2 and 3 also check the campaign extents.
  */
 TPMSHX_PREPARATION_API uint32_t TPMSHX_PREPARATION_CALL tpmshx_preparation_df_experiment_scope_v1(
     uint32_t topology, uint32_t fluid_a, uint32_t fluid_b, uint32_t geometry_mode,

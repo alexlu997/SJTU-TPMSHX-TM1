@@ -214,6 +214,25 @@ def _experimental_hx_cfg(fluid_A, fluid_B, *, dir_A=0, dir_B=1, nz=2, tpms="Diam
         df_mode="experimental")
 
 
+@pytest.mark.parametrize("wall,speed,flow,length,failure,match", [
+    (.5, 20., None, .182, None, None),
+    (.6, None, .001, .182, None, None),
+    (.6, 100., None, .182, ValueError, "HX experiment calibration requires"),
+    (.6, 20., None, .18, ValueError, "matching 0.182 x 0.042"),
+    (.6, 20., None, .182, TypeError, "must be real number"),
+], ids=["specimen", "pending-flow", "velocity", "campaign-length", "hx-depth"])
+def test_saved_text_depth_is_checked_at_hx_selection(wall, speed, flow, length, failure, match):
+    settings = _experimental_hx_cfg("air", "air").to_dict()
+    settings["geometry"].update(t_wall_mm=wall, L_dom_m=length, Lz_m="0.042")
+    settings["fluid_A"].update(u_mps=speed, mass_flow_kg_s=flow)
+    settings["fluid_B"]["mass_flow_kg_s"] = flow
+    if failure is None:
+        assert ComputeConfig.from_dict(settings, prepared_grid=True).geometry.Lz_m == "0.042"
+    else:
+        with pytest.raises(failure, match=match):
+            ComputeConfig.from_dict(settings, prepared_grid=True)
+
+
 @pytest.mark.parametrize(
     "fluid_A,fluid_B",
     [(a, b) for a in _HX_FLUID for b in _HX_FLUID],
