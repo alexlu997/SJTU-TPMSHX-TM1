@@ -8,7 +8,6 @@ import ctypes as ct
 from ._full_3d_abi import (_Array, _BootstrapTrace, _Callbacks, _Cancel, _Control,
                          _EnergyEvidence, _FLAGS, _FLOW_ARRAYS, _Input,
                          _OuterProgress, _PAIRS, _Progress, _Result)
-from .property_sampling import sampling_query, copy_sampling, sampling_records
 from .enthalpy import _update_scale_query, _copy_update_scale, _decode_update_scale
 import os
 from pathlib import Path
@@ -29,8 +28,9 @@ from .temperature import _temperature_algorithm
 from .temperature_evidence import TemperatureEvidence, copy_temperature_evidence
 from .model_h import (_IterationOptions, _iteration_options, _iteration_query, _copy_iteration_records,
                       _acceleration_query, _decode_iteration_records)
-from ._stage_capture_abi import (executed_inputs, executed_view, execution_sides, execution_view_query,
-                                replay_sco2_notices, stage_records, thermal_execution)
+from ._stage_capture_abi import (copy_sampling, executed_inputs, executed_view, execution_sides,
+                                execution_view_query, replay_sco2_notices, sampling_query, sampling_records,
+                                stage_records, thermal_execution)
 from .enthalpy import (_EnergyOptions, _EnergyOptionsV2, _energy_options,
                        _energy_algorithm_query, _energy_result_info, _energy_native_state,
                        _FullEnergyEffectiveSettings, _full_enthalpy_defaults, _full_enthalpy_info)

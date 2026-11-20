@@ -8,8 +8,17 @@ from .._df_abi import DragSummary
 from .closure_evidence import RangeObservation
 from .enthalpy import _EnergyUpdateScale
 from .model_h import _Acceleration, _IterationRecords
-from .property_sampling import _Sampling
 from .temperature_evidence import TemperatureEvidence
+
+
+class _Sample(ct.Structure):
+    _fields_ = [('side', ct.c_uint32), ('outer_index', ct.c_int64)]
+    _fields_ += [(name, ct.c_char_p) for name in
+                ('stage', 'quantity', 'provider', 'temperature', 'pressure', 'operation')]
+
+
+class _Sampling(ct.Structure):
+    _fields_ = [('records', ct.POINTER(_Sample)), ('count', ct.c_size_t)]
 
 
 class RangeRecordView(ct.Structure):
@@ -83,6 +92,34 @@ def stage_records(library, result):
     if not records:
         raise RuntimeError('native stage returned no result records')
     return records.contents
+
+
+def sampling_query(library, dimension, result_type):
+    try:
+        query = getattr(library, f'tpmshx_full_{dimension}d_get_property_sampling_v1')
+    except AttributeError as exc:
+        raise ValueError('native library lacks property sampling records; rebuild the library') from exc
+    query.argtypes = [ct.POINTER(result_type), ct.POINTER(_Sampling)]
+    query.restype = ct.c_int
+    return query
+
+
+def copy_sampling(query, result):
+    view = _Sampling()
+    if query(ct.byref(result), ct.byref(view)):
+        raise RuntimeError('native property sampling query failed')
+    return sampling_records(view)
+
+
+def sampling_records(view):
+    records = []
+    for sample in view.records[:view.count] if view.count else ():
+        row = dict(side='AB'[sample.side], outer_index=sample.outer_index)
+        for name, _ in sample._fields_[2:]:
+            value = getattr(sample, name)
+            row[name] = value.decode('ascii') if value is not None else None
+        records.append(row)
+    return records
 
 
 def executed_inputs(case, evidence):

@@ -24,9 +24,9 @@ from ._native_preparation_case import _ResultV1, pack_saved_resources, borrow_ar
 from ._native_grid import _Scalar as GridScalar
 from .run_state import NativeRun
 from .solver_library._full_2d_abi import _Cancel, _FINE_FLAGS, _FLAGS, _FLOW_ARRAYS, _FlowMethod, _Pressure, _Progress, _Residual
-from .solver_library.property_sampling import sampling_query, copy_sampling, sampling_records
-from .solver_library._stage_capture_abi import (StageExecution, executed_inputs, executed_view, execution_sides,
-    execution_view_query, replay_sco2_notices, stage_records, thermal_execution)
+from .solver_library._stage_capture_abi import (StageExecution, copy_sampling, executed_inputs, executed_view,
+    execution_sides, execution_view_query, replay_sco2_notices, sampling_query, sampling_records,
+    stage_records, thermal_execution)
 from .solver_library.enthalpy import _update_scale_query, _copy_update_scale, _decode_update_scale
 from pathlib import Path
 from sjtu_tpmshx.run_control.module_ports import RunControl
