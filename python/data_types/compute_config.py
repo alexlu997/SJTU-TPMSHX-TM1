@@ -806,17 +806,31 @@ class ComputeConfig:
                     f'ComputeConfig.fluid_{side}.u_mps={fluid.u_mps!r} — must be finite and > 0')
         ge = self.geometry
         if self.df_mode == 'experimental' and not native_preparation:
-            from sjtu_tpmshx.physical_models.df_surrogate.experimental_correction import (
-                correction_scale)
+            from sjtu_tpmshx.cpp_interface import _native_df
             from sjtu_tpmshx.model_configs.model_parameters import load_preparation_df_parameters
-            campaign_domain = load_preparation_df_parameters()['hx']['domain_m']
-            continuous_hx = (self.zones.axis == 'continuous'
-                             and ge.tpms == 'Gyroid'
-                             and self.fluid_A.type == 'air' and self.fluid_B.type == 'water'
-                             and math.isclose(ge.L_cell_mm, 7., rel_tol=0., abs_tol=1e-12)
-                             and math.isclose(ge.t_wall_mm, .6, rel_tol=0., abs_tol=1e-12))
-            if (self.zones.enabled and not continuous_hx
-                    and any(fl.type != 'co2' for fl in (self.fluid_A, self.fluid_B))):
+
+            domain = (ge.L_dom_m, ge.H_dom_m, ge.Lz_m) if self.is_3d else (ge.L_dom_m, ge.H_dom_m)
+            native_domain = all(type(value) in (int, float) for value in (*domain, ge.delta_levelset))
+            geometry_mode = (1 if self.zones.axis == 'continuous' else 2) if self.zones.enabled else 0
+            fluids = self.fluid_A.type, self.fluid_B.type
+            hx = None
+            scope = _native_df.experiment_scope(
+                ge.tpms, fluids, geometry_mode, ge.L_cell_mm, ge.t_wall_mm,
+                native_domain and ge.delta_levelset == 0., domain if native_domain else ())
+            if scope is None:
+                # Saved experimental cases can still use a retained preparation library.
+                hx = load_preparation_df_parameters()['hx']
+                cell, wall = hx['geometry_mm']
+                tolerance = hx['geometry_absolute_tolerance_mm']
+                transfer = (geometry_mode == 1 and ge.tpms == 'Gyroid' and fluids == ('air', 'water')
+                            and math.isclose(ge.L_cell_mm, cell, rel_tol=0., abs_tol=tolerance)
+                            and math.isclose(ge.t_wall_mm, wall, rel_tol=0., abs_tol=tolerance))
+                layout = not geometry_mode or transfer or fluids == ('co2', 'co2')
+            else:
+                transfer, layout, hx_domain = scope
+            if scope is None or not native_domain:
+                hx_domain = None
+            if not layout:
                 raise ValueError(
                     "experimental calibration currently requires uniform L/t; "
                     "continuous Shanghai Gyroid air/water fields may use "
@@ -828,22 +842,23 @@ class ComputeConfig:
                 if fl.mass_flow_kg_s is not None and not resolved_inlet_speeds:
                     continue  # Preparation checks calibration after resolving the prescribed flow.
                 try:
-                    _, _, _, scope = correction_scale(
-                        self.geometry.tpms, fl.type,
-                        self.geometry.L_cell_mm, self.geometry.t_wall_mm,
-                        fl.u_mps, allow_hx_extrapolation=continuous_hx and self.zones.enabled)
+                    selection = _native_df.selection(ge.tpms, fl.type, ge.L_cell_mm, ge.t_wall_mm,
+                                                     fl.u_mps, transfer=transfer)
+                    if not selection.branch:
+                        _native_df.scales(ge.tpms, selection, ge.L_cell_mm, ge.t_wall_mm)
                 except ValueError as exc:
                     raise ValueError(
                         f"experimental calibration unavailable for active side "
                         f"{side}: {exc}") from exc
-                if scope != 'HX-effective':
+                if not selection.scope:
                     continue
-                if (self.geometry.delta_levelset != 0.0
-                        or not math.isclose(ge.L_dom_m, campaign_domain[0])
-                        or not math.isclose(ge.H_dom_m, campaign_domain[1])
-                        or (self.is_3d and (ge.Lz_m is None
-                                            or not math.isclose(
-                                                ge.Lz_m, campaign_domain[2])))):
+                if hx_domain is None:
+                    # The saved Python value can require conversion at this boundary.
+                    if hx is None:
+                        hx = load_preparation_df_parameters()['hx']
+                    hx_domain = not (ge.delta_levelset != 0.) and all(
+                        math.isclose(value, target) for value, target in zip(domain, hx['domain_m']))
+                if not hx_domain:
                     raise ValueError(
                         f"experimental calibration side {side} is HX-effective "
                         "and requires delta=0 with the matching 0.182 x 0.042"

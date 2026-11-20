@@ -68,6 +68,11 @@ It does not route every getter through one checked-state policy.
 Fixed DF interpolation, experiment factors and velocity windows use the original source data and validation order.
 [preparation_df_v1.json](../python/model_configs/preparation_df_v1.json) defines the method, correction data, three windows and campaign provenance.
 The fixed CFD CSV remains the coefficient authority. The generator reads these resources directly into native headers.
+The 2D and 3D preparation stages use one D-F check for spatial layout and the HX campaign domain.
+The current Python configuration preflight uses the same check. The saved settings still require their own
+validation because nominal inputs and prepared fields can differ.
+The import audit puts the D-F, geometry, grid, property and preparation-library bindings in the native values layer.
+They load libraries and transfer data for configuration preflight and the stages that use them.
 Python keeps configuration, DTOs, shape/type adaptation, I/O, caches, warnings, GUI/BO policies and offline fitting.
 Replaced production numerical bodies are retired. Frozen development references remain independent.
 

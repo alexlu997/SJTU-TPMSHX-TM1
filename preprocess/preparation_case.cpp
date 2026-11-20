@@ -121,6 +121,7 @@ std::pair<DfSelection,DfPair> experiment_selection(const Input& input,const Inle
     const auto cell=input.geometry.cell_length_mm,wall=input.geometry.wall_thickness_mm,speed=inlet.velocity_m_s;
     try {
         const auto selected=df_select(topology,fluid,continuous,{&cell,1},{&wall,1},{&speed,1},true);
+        if (selected.branch) return {selected,{selected.scale_K,selected.scale_F}};
         return {selected,df_scales(topology,selected,{&cell,1},{&wall,1}).front()};
     } catch (const std::invalid_argument& error) {
         std::string text=error.what();
@@ -135,6 +136,28 @@ std::pair<DfSelection,DfPair> experiment_selection(const Input& input,const Inle
         causes.insert(causes.begin(),{1,text});
         throw PreparationError(1,"experimental calibration unavailable for active side "+
             std::string(side?"B":"A")+": "+text,1,static_cast<std::uint32_t>(side),std::move(causes));
+    }
+}
+constexpr auto experimental_layout_error =
+    "experimental calibration currently requires uniform L/t; "
+    "continuous Shanghai Gyroid air/water fields may use "
+    "the 7/0.6 calibration as an exploratory extrapolation";
+
+template<class Input,class Inlet>
+void validate_experiment_scope(const Input& input,const std::array<Inlet,2>& sides,
+    std::uint32_t geometry_mode, ArrayView<const double> domain) {
+    const auto& g=input.geometry;
+    const auto scope=df_experiment_scope(static_cast<std::uint32_t>(g.topology),
+        static_cast<std::uint32_t>(sides[0].fluid),static_cast<std::uint32_t>(sides[1].fluid),
+        geometry_mode,g.delta_levelset==0.,g.cell_length_mm,g.wall_thickness_mm,domain);
+    if (!(scope & TPMSHX_DF_EXPERIMENT_LAYOUT))
+        throw std::invalid_argument(experimental_layout_error);
+    for (std::size_t side=0;side<2;++side) if (sides[side].fluid!=Fluid::co2) {
+        const auto selected=experiment_selection(input,sides[side],side,scope & TPMSHX_DF_HX_TRANSFER).first;
+        if (selected.scope && !(scope & TPMSHX_DF_HX_DOMAIN))
+            throw PreparationError(1,"experimental calibration side "+std::string(side?"B":"A")+
+                " is HX-effective and requires delta=0 with the matching 0.182 x 0.042 x 0.042 m campaign domain",1,
+                static_cast<std::uint32_t>(side));
     }
 }
 std::size_t count(std::size_t nx,std::size_t ny) {
@@ -285,23 +308,9 @@ std::array<InletInput2D,2> validate(const CaseInput2D& input,CaseScope scope,boo
     if (scope==CaseScope::air_cfd_v1) for (const auto& side:sides) if (side.fluid!=Fluid::air)
         throw std::invalid_argument("native 2D preparation currently supports air/air only");
     for (const auto& side:sides) fluid_name(side.fluid);
-    if (!static_only && continuous && input.df_mode) {
-        const bool shanghai=geometry.topology==Topology::gyroid && sides[0].fluid==Fluid::air
-            && sides[1].fluid==Fluid::water && std::abs(geometry.cell_length_mm-7.)<=1e-12
-            && std::abs(geometry.wall_thickness_mm-.6)<=1e-12;
-        if (!shanghai && (sides[0].fluid!=Fluid::co2 || sides[1].fluid!=Fluid::co2))
-            throw std::invalid_argument("experimental calibration currently requires uniform L/t; "
-                "continuous Shanghai Gyroid air/water fields may use "
-                "the 7/0.6 calibration as an exploratory extrapolation");
-    }
-    if (!static_only && input.df_mode) for (std::size_t side=0;side<2;++side) if (sides[side].fluid!=Fluid::co2) {
-        const auto selected=experiment_selection(input,sides[side],side,input.continuous.has_value()).first;
-        const auto close=[](double a,double b) {return std::abs(a-b)<=1e-9*std::max(std::abs(a),std::abs(b));};
-        if (selected.scope && (geometry.delta_levelset!=0. || !close(input.grid.length_m,df_data::hx_domain_m[0])
-                              || !close(input.grid.height_m,df_data::hx_domain_m[1])))
-            throw PreparationError(1,"experimental calibration side "+std::string(side?"B":"A")+
-                " is HX-effective and requires delta=0 with the matching 0.182 x 0.042 x 0.042 m campaign domain",1,
-                static_cast<std::uint32_t>(side));
+    if (!static_only && input.df_mode) {
+        const double domain[]{input.grid.length_m,input.grid.height_m};
+        validate_experiment_scope(input,sides,input.geometry_mode,{domain,2});
     }
     for (std::size_t side=0;side<2;++side) if (sides[side].fluid==Fluid::water) {
         const auto& inlet=sides[side];
@@ -1679,9 +1688,7 @@ PreparedZonedCase2D prepare_zoned_case(const ZonedInput2D& request,const Prepara
     auto input=request.input;input.geometry_mode=0;validate_nu(input.sco2_nu);
     const auto inlets=validate(input,input.offset_scope?CaseScope::offset_v10:retained?CaseScope::uniform_mass_v3:CaseScope::air_cfd_v1);input.sides=inlets;
     if (input.offset_scope && input.df_mode)
-        throw std::invalid_argument("experimental calibration currently requires uniform L/t; "
-            "continuous Shanghai Gyroid air/water fields may use "
-            "the 7/0.6 calibration as an exploratory extrapolation");
+        throw std::invalid_argument(experimental_layout_error);
     auto output=spatial_output(request,input,options);auto& prepared=output.prepared;
     Records records{prepared.evidence,callbacks,{},{}};
     nominal_grid_steps(input,records);
@@ -1848,9 +1855,7 @@ void resolve_speeds(const InletFlowRequest2D& request,const std::array<std::opti
     if (spatial && flow.input.df_mode) {
         for (std::size_t side=0;side<2;++side)
             positive(flow.input.sides[side].velocity_m_s,std::string("fluid_")+(side?"B":"A")+".u_mps");
-        throw std::invalid_argument("experimental calibration currently requires uniform L/t; "
-            "continuous Shanghai Gyroid air/water fields may use "
-            "the 7/0.6 calibration as an exploratory extrapolation");
+        throw std::invalid_argument(experimental_layout_error);
     }
     validate(flow.input,flow_scope(flow.input));
 }
@@ -2129,23 +2134,9 @@ CaseInput3D validate_3d(CaseInput3D input,CaseScope3D scope,bool allow_mass=fals
             throw std::invalid_argument("CO2 requires symmetric delta_levelset=0 geometry");
     }
     if (velocities) for (std::size_t i=0;i<2;++i) positive(input.sides[i].velocity_m_s,std::string("fluid_")+(i?"B":"A")+".u_mps");
-    if (velocities && (input.continuous || input.geometry_mode==2) && input.df_mode) {
-        const bool shanghai=input.continuous && model.topology==Topology::gyroid && input.sides[0].fluid==Fluid::air
-            && input.sides[1].fluid==Fluid::water && std::abs(model.cell_length_mm-7.)<=1e-12
-            && std::abs(model.wall_thickness_mm-.6)<=1e-12;
-        if (!shanghai && (input.sides[0].fluid!=Fluid::co2 || input.sides[1].fluid!=Fluid::co2))
-            throw std::invalid_argument("experimental calibration currently requires uniform L/t; "
-                "continuous Shanghai Gyroid air/water fields may use "
-                "the 7/0.6 calibration as an exploratory extrapolation");
-    }
-    if (velocities && input.df_mode) for (std::size_t i=0;i<2;++i) if (input.sides[i].fluid!=Fluid::co2) {
-        const auto selected=experiment_selection(input,input.sides[i],i,input.continuous.has_value()).first;
-        if (selected.scope) for (std::size_t axis=0;axis<3;++axis) {
-            const auto length=input.grid.lengths[axis].value,target=df_data::hx_domain_m[axis];
-            if (model.delta_levelset!=0. || std::abs(length-target)>1e-9*std::max(std::abs(length),std::abs(target)))
-                throw PreparationError(1,"experimental calibration side "+std::string(i?"B":"A")+
-                    " is HX-effective and requires delta=0 with the matching 0.182 x 0.042 x 0.042 m campaign domain",1,static_cast<std::uint32_t>(i));
-        }
+    if (velocities && input.df_mode) {
+        const double domain[]{input.grid.lengths[0].value,input.grid.lengths[1].value,input.grid.lengths[2].value};
+        validate_experiment_scope(input,input.sides,input.geometry_mode,{domain,3});
     }
     for (std::size_t axis=0;axis<3;++axis) if (input.grid.lengths[axis].value>10.) {
         const char* names[]{"L","H","Lz"};

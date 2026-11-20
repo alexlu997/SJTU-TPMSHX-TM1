@@ -147,6 +147,34 @@ def pressure_gradient(rho,mu,u,permeability,inertial):
     return result.restore(shape)
 
 
+@lru_cache(maxsize=1)
+def _experiment_scope(path):
+    library = _native_preparation._load_library(path).library
+    scope = getattr(library, 'tpmshx_preparation_df_experiment_scope_v1', None)
+    if scope is not None:
+        scope.argtypes, scope.restype = [_U, _U, _U, _U, _U, _D, _D, _D, _D, _D, _S], _U
+    return scope
+
+
+def experiment_scope(topology, fluids, geometry_mode, cell, wall, symmetric, domain):
+    try:
+        path = _native_preparation._library().path
+    except (OSError, RuntimeError, ValueError):
+        # Static checks can run before a preparation library is available.
+        return None
+    query = _experiment_scope(path)
+    if query is None:
+        return None
+    # Unknown names enter the selector in its existing order.
+    codes = [next((i for i, name in enumerate(('air', 'water', 'sco2', 'co2')) if name == fluid), 4)
+             for fluid in fluids]
+    length, height, depth = (domain + (0., 0., 0.))[:3]
+    scope = query(
+        int(topology == 'Gyroid'), *codes, geometry_mode, int(symmetric), cell, wall,
+        length, height, depth, len(domain))
+    return bool(scope & 1), bool(scope & 2), bool(scope & 4)
+
+
 def selection(topology, fluid, lengths, walls, velocity=None, *, transfer=False):
     if transfer and (topology != 'Gyroid' or fluid not in ('air', 'water')):
         raise ValueError('HX trend extrapolation is limited to Gyroid air/water')
