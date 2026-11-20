@@ -13,7 +13,7 @@ from tests.python.native.test_result_metrics import assert_value
 from sjtu_tpmshx.cpp_interface import _native_quick_prepare as production
 from sjtu_tpmshx.run_control.run_warnings import warning_scope
 from sjtu_tpmshx.physical_models.tpms_geometry import compute_geometry
-from sjtu_tpmshx.physical_models import co2_props, sco2_props
+from sjtu_tpmshx.physical_models import co2_props, fluid_props, sco2_props
 
 
 def _case(**changes):
@@ -184,6 +184,13 @@ def test_original_labels_keep_their_comparison_and_error_contract(role, value):
                                   'air\0extra', '\ud800', b'air', np.str_('air')])
 def test_raw_fluid_labels_keep_property_normalization_separate_from_pressure(pressure, label):
     _compare(lambda: _args(case=_case(hot_fluid=label)), pressure=pressure)
+
+
+@pytest.mark.parametrize('pressure', [False, True])
+def test_registered_fluid_alias_uses_its_native_model(monkeypatch, pressure):
+    alias = 'quick-air-alias'
+    monkeypatch.setitem(fluid_props.FLUIDS, alias, fluid_props.FLUIDS['air'])
+    _value(_compare(lambda: _args(case=_case(hot_fluid=alias)), pressure=pressure))
 
 
 def test_exact_air_and_normalized_air_keep_distinct_pressure_values():

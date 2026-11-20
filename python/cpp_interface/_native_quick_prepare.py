@@ -237,7 +237,7 @@ class _HostState:
             self.inlet = tuple(getattr(self.case, name) for name in names)
             fluid = self.inlet[0]
             name = fluid.strip().lower() if type(fluid) is str else None
-            if name is None or not name.isascii():
+            if name not in _FLUIDS:
                 name = registry.get(fluid).name
             request.text = self.string(name)
         elif operation == 11:
@@ -458,8 +458,6 @@ def _operation(state):
             raise state.errors[0]
         if status:
             message = error.value.decode('utf-8', errors='replace')
-            if message == 'unknown quick-design fluid; known: air, co2, sco2, water':
-                registry.get(state.inlet[0])
             if message == 'Wall thickness must satisfy 2*t < L, with usable pore space':
                 raise ValueError(f'Wall thickness t={state.t}mm >= L={state.l}mm, no pore space')
             if message == 'L_mm must be positive':
