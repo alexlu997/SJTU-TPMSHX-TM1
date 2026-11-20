@@ -199,11 +199,7 @@ def run_quick_design(window) -> None:
         return
     if getattr(window, "_qd_worker", None) is not None:
         _set_status(window, "设计运行中…"); return
-    # U3 (audit 2026-06-28): _gather_inputs parses free-text numeric fields
-    # (node lists via _flist, the fixed-cell tuple — built even in auto mode).
-    # A non-numeric token raises ValueError; left uncaught it escaped this
-    # clicked slot, Qt swallowed it to stderr, and the Run button silently did
-    # nothing with no _qd_status. Catch it and give feedback instead.
+    # Report input errors before starting the worker.
     try:
         params = _gather_inputs(window)
     except (ValueError, TypeError) as e:

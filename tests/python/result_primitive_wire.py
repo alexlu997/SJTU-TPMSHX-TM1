@@ -90,9 +90,6 @@ def _enthalpy_balance_2d(T_field, uc, vc, rho_cp_field, dir_code,
     integral on the golden air-air case). None keeps the legacy ε-less
     arithmetic for callers that pre-scale externally.
 
-    True-h results use their recorded face mass fluxes and enthalpies through
-    ``_boundary_enthalpy_duty``. The retired scalar-pressure h(T) reconstruction
-    survives only as a historical test reference.
     """
     if dir_code in (0, 1):
         i_in, i_out = (0, -1) if dir_code == 0 else (-1, 0)
