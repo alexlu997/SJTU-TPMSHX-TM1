@@ -37,6 +37,7 @@ _Result = report.record('StageRun', [('abi_version', _U), ('struct_size', _Z), (
 
 # Saved-run tests already exercise every fluid pair.
 _STAGE_PAIRS = (
+    pytest.param(('air', 'air'), id='air-air'),
     pytest.param(('air', 'water'), id='air-water'),
     pytest.param(('water', 'air'), id='water-air'),
     pytest.param(('co2', 'water'), id='co2-water'),

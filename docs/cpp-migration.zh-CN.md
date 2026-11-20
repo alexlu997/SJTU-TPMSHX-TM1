@@ -103,9 +103,12 @@ Git 检出的 `source_commit` 记录完整提交号，`source_changes` 逐行记
 替换失败时恢复选定文件及元数据；回滚失败时保留暂存文件并报告恢复路径。
 旧求解检查点仍须使用精确保留的运行库、准备态输入和控制量。
 
-application 与 full CI tier 均保留完整 native pilot 构建和既有求解器覆盖。
-产物显式包含求解库、几何库、准备库和结果库。
-原生与 BO 消费者从同一平台产物中恢复所需运行库。
+application 与 full CI 层级均构建完整原生 pilot。
+产物包含四个原生库和 SDK 对照样本。
+原生与 BO 作业在各自平台构建完成后启动，并使用本次构建产物。
+完整 CI 的 Python 3.13 原生分片运行阶段测试，包括其中的长测。
+仅涉及显示层的 application 层级将阶段快测与其他应用测试一同运行。
+Linux 结果库构建在两个层级都运行独立结果核测试。
 完整计算仍限于 macOS arm64 与 Windows x64；独立 Linux 结果评估范围见下文。
 Python wheel 包含代码和模型资源，不包含原生库。
 桌面打包要求四个预构建输入，详见[桌面交付](desktop.md#可选冻结打包)。
@@ -297,10 +300,10 @@ tm1_python="$(sed -n '1p' .venv-path)"
 其依赖记录为空，不包含 CoolProp 构建记录。
 macOS／Windows 完整发布以同一事务部署四个库，并保留各自匹配的前一版本。
 CI 保留完整 macOS／Windows 构建，并在 Ubuntu 24.04 和 26.04 上检查独立结果构建。
-两项结果构建均须通过，`minimal-postprocess` 消费者继续使用 Ubuntu 24.04。
+两项结果构建均须通过 SDK 和数值参考测试，`minimal-postprocess` 消费者继续使用 Ubuntu 24.04。
 它接收 `result-build-linux-x86_64-ubuntu-24.04` 和独立的 macOS `real-file-handoff` 输入。
 Ubuntu 26.04 构建产物单独保留。
-最小作业检查独立结果参考和真实保存的 2D/3D 文件，不构建求解器或模型库。
+最小作业从源码和已安装的 wheel 读取并评估真实保存的 2D/3D 文件。
 [来源与接口说明](../postprocess/sources.md)定义类型、缓冲区、错误及许可声明。
 不提供数值回退、运行时编译器或通用数值回调。
 

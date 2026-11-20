@@ -19,7 +19,7 @@
 在 `PYTHONHASHSEED=0` 下，快测使用 `-m "not slow and not heavy"`，排除 `integration_tm1`，并采用 `-n 2`。
 `fast-0` 使用 `--dist load --maxschedchunk=1`；`fast-1` 使用 `--dist worksteal`。
 现有 `ci_shard` 插件将快测分为两个独立作业。
-`fast-1` 作业随后在独立 pytest 进程中完整运行 `development/tests/integration_tm1/`，不加 marker 过滤。
+`fast-1` 作业随后在独立 pytest 进程中完整运行 `tests/python/integration_tm1/`，不加 marker 过滤。
 快测和集成 SHALL 保留各自报告；除非作业已取消，快测失败不得阻止集成执行。
 常规 Qt 测试使用 offscreen 并禁用 3D 面板；实际渲染使用独立的原生 Qt 进程，其平台要求和证据边界见根 README。
 CI SHALL NOT 依赖忽略的本地数据资产。
@@ -27,7 +27,8 @@ CI SHALL NOT 依赖忽略的本地数据资产。
 快测 SHALL 固定两个 worker，BLAS/OMP/MKL/NumExpr 单线程。各作业 SHALL 输出最慢 30 项与 skip 原因，并保存
 逐项状态及耗时的 JUnit XML，测试报告 artifact 保留 7 天。上传范围为
 `.cache/ci/` 的测试报告、收集/分片清单及资源记录，不包含原生求解结果或本地数据。
-原生资格模块 SHALL 由 `tests/python/native/_ci_suite.txt` 共同清单选择，应用快测 SHALL 移交相同模块并保留原完整收集集合。清单外的新模块 SHALL 自动进入应用快测。
+原生资格模块 SHALL 由 `tests/python/native/_ci_suite.txt` 共同清单选择。完整 CI 的 Python 3.13 原生分片再运行 `tests/python/native/_ci_stage_suite.txt`，包括长测。应用快测 SHALL 将相应模块移交原生分片并保留原完整收集集合。清单外的新模块 SHALL 自动进入应用快测。
+`application` 层级只允许省略共同原生清单中的快测覆盖，并将阶段快测留在应用分片。独立结果核数值对照在 Linux 结果库构建中执行。原生分片与 BO 作业在各自平台的构建完成后启动。
 平台汇总门 SHALL 验证原生分片完整且互斥，再验证应用与原生两组覆盖原完整集合且没有重复，并要求测试分片、集成、BO 及原生依赖资格作业成功。
 平台快测、真实集成和最小后处理门均保留；macOS 3.13、Windows 3.12、Windows 3.13 和 minimal-postprocess 四项检查均为必需门，数值断言/容差不因提速改变。基础与 BO 作业 SHALL 使用相同的平台/Python 版本矩阵；两个 Windows 版本共用 engineering/requirements/bo-windows.txt。
 
