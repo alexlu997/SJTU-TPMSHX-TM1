@@ -11,7 +11,7 @@ _P = 8.0e6  # Pa — CO2 pseudocritical T ≈ 307.7 K at this pressure
 
 def test_d1_temperature_duty_retains_capacity_weighting():
     """Temperature-formulation duty retains its independent capacity weighting."""
-    from sjtu_tpmshx.postprocess.result_math import _enthalpy_balance_2d
+    from tests.python.result_primitive_wire import _enthalpy_balance_2d
     rng = np.random.default_rng(0)
     Ta = 300.0 + rng.random((5, 4)) * 50.0
     uc = rng.random((5, 4)) + 0.1

@@ -34,6 +34,12 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
 LOCK = tomllib.loads((ROOT / "engineering/native_build/dependencies-lock.toml").read_text())
+PREPARATION_CALLERS = (
+    "preparation_c_static", "preparation_c_shared",
+    "preparation_case_c_static", "preparation_case_c_shared",
+    "preparation_case_3d_c_static", "preparation_case_3d_c_shared",
+    "quick_prepare_c_static", "quick_prepare_c_shared",
+)
 
 
 def run(command: list[str | Path], log: Path, *, cwd: Path = ROOT,
@@ -456,8 +462,11 @@ def build(cache: Path, host: str, python: Path, lock: Path, component: str) -> N
             source = "preprocess" if build_name == "preparation" else "solver"
             run([cmake, "-S", ROOT / source, "-B", build_dir,
                  *generator, *options], cache / "logs" / f"configure-{build_name}-{host}.log")
-            run([cmake, "--build", build_dir, "--config", "Release", "--parallel", "2"],
-                cache / "logs" / f"build-{build_name}-{host}.log")
+            command = [cmake, "--build", build_dir, "--config", "Release", "--parallel", "2"]
+            if build_name == "preparation" and component != "preparation":
+                # The solver build supplies the independent geometry callers.
+                command += ["--target", *PREPARATION_CALLERS]
+            run(command, cache / "logs" / f"build-{build_name}-{host}.log")
     if component == "all":
         build_result(cache, host)
 
@@ -646,10 +655,7 @@ def verify(cache: Path, host: str, component: str = "all") -> None:
         print(f"PASS: {host} locked CMake and independent geometry callers", flush=True)
         return
     preparation_dir = cache / "build" / f"preparation-{host}"
-    for caller in ("preparation_c_static", "preparation_c_shared",
-                   "preparation_case_c_static", "preparation_case_c_shared",
-                   "preparation_case_3d_c_static", "preparation_case_3d_c_shared",
-                   "quick_prepare_c_static", "quick_prepare_c_shared"):
+    for caller in PREPARATION_CALLERS:
         run([preparation_dir / f"{caller}{suffix}"], log)
     prefix, shared_suffix = ("", ".dll") if host == "windows-x64" else ("lib", ".dylib")
     preparation = ct.CDLL(str(preparation_dir / (prefix + 'tpmshx_preparation_shared' + shared_suffix)))

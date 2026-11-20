@@ -216,7 +216,8 @@ GUI 显示、输入校验、应用搜索／BO、离线数据处理与拟合继�
 - `ports_complete` 的注入 ledger 检查，以及独立低层 driver 的默认输入适配。当前原生 ledger 已返回明确完整性标志。
 - 直接低层及归档运行库的三维捕获计算、开发独立参考及研究拟合；当前保存态阶段拥有审计显示 taper，正式端口与指标使用实际原生面证据。
 
-`python/postprocess/result_math.py` 保留四个原始压力、热量和出口查询，以及公开守恒证书。
+`python/postprocess/result_math.py` 保留原始压力查询和公开守恒证书。
+独立热量和出口检查从测试目录调用结果 C ABI。
 其无消费者的私有边界功率校验链已退役；独立结果参考保留自己的实现。
 两份 model-h 审计参考从既有 `thermal_face_audit.py` 使用 `boundary_zeros` 和 `heat_ledger`。
 这些测试辅助函数不进入运行时 wheel；`python/solvers/physical_ledger.py` 仅保留受支持的 `ports_complete` 检查。

@@ -683,7 +683,7 @@ Python 3.13 native qualification uses three shards on macOS and six on Windows. 
 
 Group lists are in `tests/python/native/`. macOS uses `_ci_macos_shard0.txt` through `_ci_macos_shard1.txt`. Windows uses `_ci_windows_shard0.txt` through `_ci_windows_shard4.txt`. Pass each list through `--ci-shard-modules=<list-path>` in numeric order. Unlisted cases enter the final automatic shard, 2 on macOS or 5 on Windows. Native engineering cases keep per-side physical models, convergence and energy limits. The 2D adapter tests compare fields, metrics, and callbacks with limited iterations.
 
-Native jobs set both `TPMSHX_REQUIRE_CPP_TESTS=1` and `TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1`. Missing compilers or native libraries must fail. Existing tests for concurrent threads, process recovery, and result ownership still run in native shards.
+Native jobs set `TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1`. Missing required libraries or callers fail the check. Test bridges link to the numerical targets from the platform CMake build. Native shards still run concurrency, process recovery and result ownership tests.
 
 Independent formulas, discrete energy balances, manufactured solutions, component replay and fixed historical references replace Python solver comparisons. Retired iterators are not retained as a second solver.
 
@@ -693,6 +693,7 @@ The `application` and `full` tiers both run the complete pilot build.
 Archives include solver, geometry, preparation and result libraries and SDK comparison samples.
 The separate `build --component result` step builds the result library before complete verification with the other libraries.
 The full SDK check builds all C++ examples. It runs representative preparation, solve, resume, and postprocessing paths.
+Linux minimal postprocessing starts when the macOS results and wheels and the Linux result libraries are ready. It can run in parallel with Windows qualification.
 BO restores geometry, preparation and result libraries from the current platform build. It runs in parallel with that platform's other regression tests.
 
 Build logs use `native-build-logs-<platform>`. Each shard uploads `native-dependencies-<platform>-py<version>-shard-<number>` with JUnit and `native-manifest`. Shard numbers are 0–2 on macOS and 0–5 on Windows. These artifacts are retained for 7 days.

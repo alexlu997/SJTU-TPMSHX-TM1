@@ -35,6 +35,7 @@ CI SHALL NOT 依赖忽略的本地数据资产。
 `application` 层级只允许省略共同原生清单中的快测覆盖，并将阶段快测留在应用分片。独立结果核数值对照在 Linux 结果库构建中执行。原生分片与 BO 作业在各自平台的构建完成后启动。
 Python 3.13 汇总门 SHALL 验证原生分片完整且互斥，再验证应用与原生两组覆盖原完整集合且没有重复。每个汇总门 SHALL 要求集成和 BO 报告。Windows/Python 3.12 使用这两份报告验证兼容性。
 平台快测、真实集成和最小后处理门均保留；macOS 3.13、Windows 3.12、Windows 3.13 和 minimal-postprocess 四项检查均为必需门，数值断言/容差不因提速改变。基础与 BO 作业 SHALL 使用相同的平台/Python 版本矩阵；两个 Windows 版本共用 engineering/requirements/bo-windows.txt。
+最小后处理等待 macOS 与 Linux 的产物生成作业，并与 Windows 资格检查并行。
 
 #### Scenario: Integration is executed once per platform
 - **WHEN** 合并两个快测分片和独立集成进程的测试集合
@@ -47,8 +48,8 @@ Python 3.13 汇总门 SHALL 验证原生分片完整且互斥，再验证应用�
 
 #### Scenario: Native dependencies are independently qualified
 - **WHEN** macOS 或 Windows 的 Python 3.13 原生依赖作业运行
-- **THEN** 每个平台由一个构建作业按 `engineering/native_build/dependencies-lock.toml` 获取固定源码与 CMake，并离线构建。资格作业消费其匹配原生产物，真实执行独立 EOS/压力、Quick Design、true-h、model-h 与 SIMPLE caller。随后用独立公式、离散账本、制造解、组件重放和固定历史参考验证完整驱动和公开 C 接口。`TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1` 与 `TPMSHX_REQUIRE_CPP_TESTS=1` 将缺少编译器、可执行程序或动态库视为失败，不允许以 skip 充当验收
-- **AND** 构建只在独立原生作业发生，普通快测分片不重复构建依赖；上传构建日志和资格测试 XML，不上传源码、物性表或本地实验数据
+- **THEN** 每个平台由一个构建作业按 `engineering/native_build/dependencies-lock.toml` 获取固定源码与 CMake，并离线构建。资格作业消费其匹配原生产物，真实执行独立 EOS/压力、Quick Design、true-h、model-h 与 SIMPLE caller。随后用独立公式、离散账本、制造解、组件重放和固定历史参考验证完整驱动和公开 C 接口。`TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1` 将缺少所需可执行程序或动态库视为失败，不允许以 skip 充当验收
+- **AND** 原生构建作业编译测试桥接库并运行独立调用程序。Python 测试分片复用 CMake 构建的桥接库。上传构建日志和资格测试 XML，不上传源码、物性表或本地实验数据
 
 #### Scenario: CI green on a clean main
 - **WHEN** workflow 在当前 main 运行

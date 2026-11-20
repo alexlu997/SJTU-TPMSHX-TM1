@@ -44,9 +44,9 @@ def require_jobs(tier, needs, stage):
     if tier not in TIERS or stage not in {'summary', 'minimal'}:
         raise ValueError('Unknown CI tier or gate')
     result = 'skipped' if tier == 'docs' else 'success'
-    expected = {'scope': 'success', 'native': result}
+    expected = {'scope': 'success', 'native-macos': result}
     if stage == 'summary':
-        expected['minimal-postprocess'] = 'success'
+        expected['native-windows'] = result
     else:
         expected['result-build'] = result
     actual = {name: job['result'] for name, job in needs.items()}

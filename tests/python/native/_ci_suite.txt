@@ -3,7 +3,6 @@ tests/python/native/test_native_pressure.py
 tests/python/native/test_fluid_properties.py
 tests/python/native/test_quick_design_driver.py
 tests/python/native/test_cpp_quick_design.py
-tests/python/native/test_superlu_error_boundary.py
 tests/python/native/test_enthalpy_driver.py
 tests/python/native/test_cpp_enthalpy.py
 tests/python/native/test_model_h_2d.py

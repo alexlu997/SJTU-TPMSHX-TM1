@@ -60,6 +60,7 @@ set_property(SOURCE
     "${TPMSHX_ROOT}/preprocess/preparation_flow.cpp"
     "${TPMSHX_ROOT}/solver/stage_capture_3d.cpp"
     "${TPMSHX_ROOT}/tests/cpp/conservative_energy_smoke.cpp"
+    "${TPMSHX_ROOT}/tests/python/native/anderson_candidate_bridge.cpp"
     APPEND PROPERTY COMPILE_OPTIONS "${TPMSHX_ENERGY_ROW_FP_OPTION}")
 unset(TPMSHX_ENERGY_ROW_FP_OPTION)
 
@@ -380,7 +381,20 @@ endforeach()
 target_link_libraries(simple_3d_c_static PRIVATE tpmshx_simple_3d_c)
 target_link_libraries(simple_3d_c_shared PRIVATE tpmshx_simple_3d_shared)
 target_compile_definitions(simple_3d_c_shared PRIVATE TPMSHX_THERMAL_USE_SHARED)
-add_executable(superlu_error_smoke "${TPMSHX_ROOT}/tests/cpp/superlu_error_smoke.cpp")
+add_library(tpmshx_kernel_test SHARED
+    "${TPMSHX_ROOT}/tests/python/native/anderson_candidate_bridge.cpp"
+    "${TPMSHX_ROOT}/tests/python/native/enthalpy_bridge.cpp"
+    "${TPMSHX_ROOT}/tests/python/native/pressure_reference_bridge.cpp"
+    "${TPMSHX_ROOT}/tests/python/native/simple_pressure_bridge.cpp"
+    "${TPMSHX_ROOT}/tests/python/native/temperature_bridge.cpp")
+target_compile_definitions(tpmshx_kernel_test PRIVATE TPMSHX_THERMAL_BUILD_SHARED EIGEN_MPL2_ONLY)
+target_include_directories(tpmshx_kernel_test SYSTEM PRIVATE "${TPMSHX_NATIVE_DEPS_ROOT}/src/Eigen-5.0.1")
+target_link_libraries(tpmshx_kernel_test PRIVATE tpmshx_temperature tpmshx_pressure_reference tpmshx_simple)
+
+add_executable(superlu_error_smoke "${TPMSHX_ROOT}/tests/cpp/superlu_error_smoke.cpp"
+    "${TPMSHX_ROOT}/solver/superlu_solve.c")
+target_compile_definitions(superlu_error_smoke PRIVATE TPMSHX_SUPERLU_TESTING)
+set_target_properties(superlu_error_smoke PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON)
 target_include_directories(superlu_error_smoke PRIVATE "${TPMSHX_ROOT}/include"
     "${TPMSHX_ROOT}/solver")
 target_link_libraries(superlu_error_smoke PRIVATE SuperLU::LU Threads::Threads)
@@ -402,7 +416,8 @@ foreach(target IN ITEMS tpmshx_run_state tpmshx_energy tpmshx_models tpmshx_temp
         tpmshx_simple_2d_c tpmshx_simple_2d_shared simple_2d_c_static simple_2d_c_shared
         tpmshx_simple_3d_c tpmshx_simple_3d_shared simple_3d_c_static simple_3d_c_shared
         quick_design_c_static quick_design_c_shared quick_design_driver_smoke
-        quick_design_test eos_smoke fluid_properties_smoke pressure_smoke superlu_error_smoke)
+        quick_design_test eos_smoke fluid_properties_smoke pressure_smoke
+        tpmshx_kernel_test superlu_error_smoke)
     if(MSVC)
         target_compile_options(${target} PRIVATE /W4 /WX $<$<COMPILE_LANGUAGE:CXX>:/EHsc>)
     else()

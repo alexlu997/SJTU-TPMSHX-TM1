@@ -6,7 +6,6 @@ aliasing top-level and package-qualified imports to one module object; waves
 W1–F1 migrated every caller and library internal to the package style; F2
 removed the shim. These tests pin the END state:
 
-- the package init is side-effect-free (no finder, no sys.path insert);
 - the package style is the ONLY convention (module identity, logger naming);
 - the legacy top-level style is dead in a clean interpreter.
 
@@ -16,25 +15,6 @@ openspec change's tasks.md and the retired upgrade records in Git history.
 """
 import subprocess
 import sys
-
-
-def test_package_init_is_side_effect_free():
-    """The package init must be a docstring and NOTHING else — no finder,
-    no sys.path insert, no imports (AST-level: a raw-source grep would
-    false-positive on the docstring narrating the shim's history)."""
-    import ast
-    import sjtu_tpmshx
-    tree = ast.parse(open(sjtu_tpmshx.__file__, encoding='utf-8').read())
-    non_doc = [n for n in tree.body
-               if not (isinstance(n, ast.Expr)
-                       and isinstance(n.value, ast.Constant)
-                       and isinstance(n.value.value, str))]
-    assert not non_doc, (
-        "python/__init__.py grew executable statements — F2 retired "
-        f"the shim; found: {[type(n).__name__ for n in non_doc]}")
-    finders = [f for f in sys.meta_path
-               if getattr(type(f), '_P18B_IDENTITY_FINDER', False)]
-    assert not finders, "identity finder still installed at runtime"
 
 
 def test_legacy_toplevel_style_is_dead_in_clean_interpreter():

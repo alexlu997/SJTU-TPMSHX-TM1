@@ -7,7 +7,6 @@ import numpy as np
 from . import _native_result as native
 
 _AP = ct.POINTER(native._Array)
-_SP = ct.POINTER(native._Scalar)
 _DP = ct.POINTER(ct.c_double)
 
 
@@ -62,32 +61,6 @@ def _double_arrays(name, values):
     sources = [native.array(value) for value in values]
     output = ct.c_double()
     _call(name, [_AP] * len(sources) + [_DP], *(ct.byref(item.raw) for item in sources), ct.byref(output))
-    return output.value
-
-
-def capacity_duty(inlet, outlet, inlet_temperature, outlet_temperature):
-    inlet_owners, incoming = _packed(inlet)
-    outlet_owners, outgoing = _packed(outlet)
-    tin, tout = native.array(inlet_temperature), native.array(outlet_temperature)
-    output = ct.c_double()
-    _call('capacity_duty', [_AP, _AP, _AP, _AP, _DP], incoming, outgoing,
-          ct.byref(tin.raw), ct.byref(tout.raw), ct.byref(output))
-    return output.value
-
-
-def outlet_temperature_2d(temperature, mass, opening, reverse):
-    sources = [native.array(value) for value in (temperature, mass, opening)]
-    output = ct.c_double()
-    _call('outlet_temperature_2d', [_AP, _AP, _AP, native._UInt, _DP],
-          *(ct.byref(item.raw) for item in sources), int(reverse), ct.byref(output))
-    return output.value
-
-
-def boundary_enthalpy_duty(adjacent, mass, inlet_h):
-    adjacent_owners, h = _packed(adjacent)
-    mass_owners, flow = _packed(mass)
-    inlet, output = native.scalar(inlet_h), ct.c_double()
-    _call('boundary_enthalpy_duty', [_AP, _AP, _SP, _DP], h, flow, ct.byref(inlet), ct.byref(output))
     return output.value
 
 

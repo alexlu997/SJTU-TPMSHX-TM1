@@ -1,18 +1,11 @@
-"""ui/quick_design_panel.py — 快速设计面板绑定 (仿 optimize_panel.py)。
-
-自由函数 + lazy QThread worker, 操作 duck-typed window 属性。后端不阻塞 UI。
-公开 API: run_quick_design(window) / _gather_inputs(window) / _make_worker_class()。
-"""
+"""Run Quick Design from its Qt dialog."""
 from __future__ import annotations
 from dataclasses import replace
 from math import isfinite
 from pathlib import Path
 import sys
 
-from sjtu_tpmshx.run_control.logutil import get_logger
 from sjtu_tpmshx.run_control.module_ports import RunControl
-
-_log = get_logger(__name__)
 
 _ENERGY_COLUMNS = ['构型', '工况', '热侧 Q [W]', '冷侧 Q [W]', '能量不平衡 [%]',
                    '诊断状态', '诊断原因', '数值收敛', '构型可行', '终验原因']
@@ -22,56 +15,36 @@ def _flist(text, cast=float):
     return [cast(x) for x in str(text).replace("|", ",").split(",") if x.strip()]
 
 def _gather_inputs(window) -> dict:
-    """读面板控件 → dict。缺控件用安全默认 (供测试 duck-typed window)。"""
-    def txt(attr, dflt=""):
-        w = getattr(window, attr, None)
-        return w.text() if (w is not None and hasattr(w, "text")) else dflt
-    def cur(attr, dflt=""):
-        w = getattr(window, attr, None)
-        if w is None:
-            return dflt
-        # Display translations do not enter the worker/backend contract.
-        # Existing text-only combos (including the topology) retain their values.
-        return w.currentData() or w.currentText()
-    def chk(attr, dflt=False):
-        w = getattr(window, attr, None)
-        return bool(w.isChecked()) if (w is not None and hasattr(w, "isChecked")) else dflt
-
-    def positive(attr, default):
-        value = float(txt(attr, str(default)))
+    """Read the selected controls from the Quick Design dialog."""
+    def positive(attr):
+        value = float(getattr(window, attr).text())
         if not isfinite(value) or value <= 0:
             raise ValueError(f"{attr} 必须为有限正数")
         return value
 
-    rho_s = positive("le_qd_rho", 7900)
-    k_s = positive("le_qd_ks", 16)
-    # Keep the existing text-only property selector usable by scripted callers.
-    pm_txt = cur("combo_qd_prop", "均温")
-    prop_model = "const" if ("定" in pm_txt or pm_txt == "const") else "mean"
-    # 矩形迎风 (固定高度) opt-in: 勾选 → 高 [mm]→[m]; 默认关 = 方形 (height=None)
-    height = None
-    if chk("chk_qd_rect"):
-        height = positive("le_qd_height", 750) / 1e3
-    mode = cur("combo_qd_mode", "auto")
+    rho_s = positive("le_qd_rho")
+    k_s = positive("le_qd_ks")
+    height = positive("le_qd_height") / 1e3 if window.chk_qd_rect.isChecked() else None
+    mode = window.combo_qd_mode.currentData()
     params = {
-        "file": txt("le_qd_file"),
+        "file": window.le_qd_file.text(),
         "mode": mode,
-        "arrangement": cur("combo_qd_arr", "counter"),
+        "arrangement": window.combo_qd_arr.currentData(),
         "rho_s": rho_s,
         "k_s": k_s,
-        "prop_model": prop_model,
+        "prop_model": window.combo_qd_prop.currentData(),
         "height": height,
-        "refine": chk("chk_qd_refine"),
+        "refine": window.chk_qd_refine.isChecked(),
     }
     if mode == "fixed":
-        params["cell"] = (cur("combo_qd_cell_topo", "Diamond"),
-                          positive("le_qd_cell_l", 7),
-                          positive("le_qd_cell_t", 0.5))
+        params["cell"] = (window.combo_qd_cell_topo.currentText(),
+                          positive("le_qd_cell_l"),
+                          positive("le_qd_cell_t"))
     else:
         params["nodes"] = {
-            "topo": [s.strip() for s in txt("le_qd_topo", "Diamond,Gyroid").split(",") if s.strip()],
-            "l": _flist(txt("le_qd_l", "4,5,6,7,8")),
-            "t": _flist(txt("le_qd_t", "0.3,0.4,0.5,0.6")),
+            "topo": [s.strip() for s in window.le_qd_topo.text().split(",") if s.strip()],
+            "l": _flist(window.le_qd_l.text()),
+            "t": _flist(window.le_qd_t.text()),
         }
     return params
 
@@ -154,14 +127,10 @@ def _make_worker_class():
     return _QDWorker
 
 def _set_status(window, text):
-    t = getattr(window, "_qd_status", None)
-    if t is not None and hasattr(t, "setText"):
-        try: t.setText(text); return
-        except Exception: pass
-    _log.info(f"[quick-design] {text}")
+    window._qd_status.setText(text)
 
 def _fill_table(window, feasible, *, partial=False):
-    """把可行件按 V 排序填进 window._qd_table (QTableWidget)。无表则打印。"""
+    """Show feasible designs in order of increasing volume."""
     rows = sorted(feasible, key=lambda d: d.V)
     from sjtu_tpmshx.applications.design.select import pareto_tags
     from sjtu_tpmshx.applications.design.report import warning_text
@@ -171,19 +140,7 @@ def _fill_table(window, feasible, *, partial=False):
     def _hmm(d):                       # 矩形取固定高, 方形回退 W=s
         h = getattr(d, "height", 0.0) or d.s
         return f"{d.s*1e3:.0f}×{h*1e3:.0f}"
-    tbl = getattr(window, "_qd_table", None)
-    if tbl is None or not hasattr(tbl, "setRowCount"):
-        for d in rows:
-            vd = getattr(d, "validity", "")
-            _log.info(f"  {d.topo} l={d.l} t={d.t} WxH={_hmm(d)} Lx={d.Lx*1e3:.1f} "
-                      f"V={d.V*1e3:.3f}L wt={d.weight:.3f} dPh={d.dP_hot_max*100:.2f} "
-                      f"dPc={d.dP_cold_max*100:.2f} Re_h={getattr(d,'Re_hot_max',0):.0f} "
-                      f"Re_c={getattr(d,'Re_cold_max',0):.0f} "
-                      f"{'⚠'+vd if vd else ''} {','.join(tags.get(id(d),[]))}")
-            notices = warning_text(d)
-            if notices:
-                _log.info(notices)
-        return
+    tbl = window._qd_table
     cols = ["拓扑","l [mm]","t [mm]","W×H [mm]","Lx [mm]","体积 [L]","重量 [kg]","热侧压损%","冷侧压损%",
             "Re热","Re冷","验证域","标签"]
     tbl.setColumnCount(len(cols)); tbl.setRowCount(len(rows))
@@ -224,11 +181,7 @@ def _fill_energy_table(window, results):
                          str((pc.get('run_status') or {}).get('converged', 'unknown')),
                          '是' if design.feasible else '否',
                          '; '.join(pc.get('acceptance_reasons', []))])
-    table = getattr(window, '_qd_energy_table', None)
-    if table is None:
-        for row in rows:
-            _log.info(' · '.join(f'{label}={value}' for label, value in zip(_ENERGY_COLUMNS, row)))
-        return
+    table = window._qd_energy_table
     from PySide6.QtWidgets import QTableWidgetItem
     table.setColumnCount(len(_ENERGY_COLUMNS))
     table.setHorizontalHeaderLabels(_ENERGY_COLUMNS)
@@ -258,7 +211,7 @@ def run_quick_design(window) -> None:
     if not params["file"]:
         _set_status(window, "请先选工况文件"); return
     Worker = _make_worker_class()
-    worker = Worker(params, control=getattr(window, 'run_control', RunControl()))
+    worker = Worker(params, control=window.run_control)
 
     def _on_done(res):
         feas, best = res["feasible"], res["best"]
@@ -330,17 +283,7 @@ def cancel_quick_design(window) -> None:
 
 
 def build_quick_design_dialog(parent=None):
-    """构建并返回快速设计 QDialog。
-
-    对话框实例即是 run_quick_design(window) 所期望的 duck-typed 'window'：
-    所有合约属性 (le_qd_*, combo_qd_*, chk_qd_refine, _qd_table, _qd_status)
-    直接附加在对话框对象上。
-
-    调用方式::
-
-        dlg = build_quick_design_dialog(parent=self)
-        dlg.show()
-    """
+    """Build the Quick Design dialog for the main window."""
     # ── 延迟导入 Qt (保持模块可在非 GUI 环境导入) ──────────────
     from PySide6.QtWidgets import (
         QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QGridLayout,
@@ -689,10 +632,6 @@ def build_quick_design_dialog(parent=None):
     dlg._qd_table          = tbl
     dlg._qd_energy_table   = energy_table
     dlg._qd_status         = lbl_status
-
-    # ── 测试钩子属性 ─────────────────────────────────────────
-    dlg._qd_run_btn    = btn_run
-    dlg._qd_auto_group = auto_group
-    dlg._qd_fixed_group = fixed_group
+    dlg._qd_run_btn        = btn_run
 
     return dlg

@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from sjtu_tpmshx.run_control.cancellation import CancelledError
-from sjtu_tpmshx.cpp_interface.solver_library.simple_3d import NativeSimple3D
+from tests.python.native.simple_3d_client import NativeSimple3D
 from tests.python.native.simple_inputs import make_3d as make_solver
 from tests.python.native.test_simple_3d import audit_momentum
 from tests.python.native.simple_audit import mass_balance

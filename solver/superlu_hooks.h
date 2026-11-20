@@ -13,7 +13,7 @@ void tpmshx_superlu_free(void* pointer);
 void tpmshx_superlu_abort(const char* message);
 void tpmshx_superlu_abort_at(const char* message, int line, const char* file);
 
-/* Qualification entry point only; no environment/global fail switches. */
+#ifdef TPMSHX_SUPERLU_TESTING
 typedef struct tpmshx_superlu_test_control {
     size_t fail_allocation;  /* 1-based USER_MALLOC call; zero disables. */
     const char* abort_message;
@@ -27,6 +27,7 @@ int tpmshx_superlu_test_solve_csr(
     int n, int nnz, const int* rowptr, const int* colind, double* values,
     double* x, int* perm_c, int* perm_r,
     const tpmshx_superlu_test_control* control, tpmshx_superlu_result* result);
+#endif
 #ifdef __cplusplus
 }
 #endif

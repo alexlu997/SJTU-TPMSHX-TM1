@@ -234,7 +234,8 @@ The following boundaries keep their original arithmetic and consumers:
 - The `ports_complete` injected-ledger check and default input adaptation for independent low-level drivers. Current native ledgers return an explicit completeness flag.
 - Direct low-level and archived-runtime 3D capture calculations, independent development references and research fits. Current saved-stage capture owns the audit display taper. Formal ports and metrics use actual native face evidence.
 
-`python/postprocess/result_math.py` keeps the four raw pressure, duty and outlet queries and the public conservation certificate.
+`python/postprocess/result_math.py` keeps the raw pressure query and the public conservation certificate.
+The independent duty and outlet checks call the result C ABI from the test tree.
 Its unused private boundary-power validation chain is retired; independent result references keep their own implementation.
 The two model-h audit references use `boundary_zeros` and `heat_ledger` from their existing `thermal_face_audit.py` module.
 These test helpers are excluded from runtime wheels. `python/solvers/physical_ledger.py` retains only the supported `ports_complete` check.

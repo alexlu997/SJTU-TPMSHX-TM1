@@ -7,18 +7,13 @@ These porting checks do not relax physical convergence thresholds.
 """
 import ctypes as ct
 import json
-import os
-from pathlib import Path
-import shlex
-import shutil
-import subprocess
-import sys
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
-from engineering.scripts.generate_native_model_coefficients import header
+from tests.python.native.shared_library import kernel_test_path
+
 from tests.python import result_envelope_reference as envelope
 from tests.python.grid_source_reference import _port_fractions_1d, _port_overlap_1d
 from tests.python.native import pressure_audit as original
@@ -78,31 +73,8 @@ class Native:
 
 
 @pytest.fixture(scope='module')
-def native(tmp_path_factory):
-    compiler = shlex.split(os.environ.get('CXX', 'cl' if os.name == 'nt' else 'c++'))
-    if not compiler or not shutil.which(compiler[0]):
-        if (os.environ.get('TPMSHX_REQUIRE_CPP_TESTS') == '1'
-                or os.environ.get('TPMSHX_REQUIRE_NATIVE_DEPS_TESTS') == '1'):
-            pytest.fail('pressure reference qualification requires C++17')
-        pytest.skip('pressure reference qualification requires C++17')
-    root = Path(__file__).resolve().parents[3]
-    build = tmp_path_factory.mktemp('native-pressure-reference')
-    generated = build / 'tpmshx'
-    generated.mkdir()
-    (generated / 'model_coefficients.hpp').write_text(header(), encoding='utf-8')
-    output = build / ('pressure_reference' + ('.dll' if os.name == 'nt' else '.dylib' if sys.platform == 'darwin' else '.so'))
-    sources = [root / 'numerics/pressure_reference.cpp', root / 'geometry/ports.cpp', root / 'geometry/grid.cpp']
-    sources.append(Path(__file__).with_name('pressure_reference_bridge.cpp'))
-    if os.name == 'nt':
-        arguments = ['/nologo', '/std:c++17', '/O2', '/W4', '/WX', '/EHsc', '/MD', '/LD', '/fp:strict',
-                     '/DTPMSHX_THERMAL_BUILD_SHARED', '/I' + str(root / 'include'), '/I' + str(build),
-                     *sources, '/Fe' + str(output), '/link', '/IMPLIB:' + str(build / 'pressure_reference.lib')]
-    else:
-        arguments = ['-std=c++17', '-O2', '-Wall', '-Wextra', '-Wpedantic', '-Werror', '-ffp-contract=off',
-                     '-dynamiclib' if sys.platform == 'darwin' else '-shared', '-fPIC',
-                     '-I', root / 'include', '-I', build, *sources, '-o', output]
-    subprocess.run([*compiler, *arguments], cwd=build, check=True, text=True, capture_output=True)
-    return Native(output)
+def native():
+    return Native(kernel_test_path())
 
 
 @pytest.mark.parametrize('shape', [(5, 7, 1), (5, 1, 1), (4, 6, 3), (4, 1, 3)])

@@ -9,15 +9,11 @@ porting tolerances, not physical F2 acceptance gates.
 from contextlib import contextmanager
 from copy import deepcopy
 import ctypes
-import os
-from pathlib import Path
-import shlex
-import shutil
-import subprocess
-import sys
 
 import numpy as np
 import pytest
+
+from tests.python.native.shared_library import kernel_test_path
 from scipy import sparse
 from scipy.sparse.linalg import spsolve
 
@@ -107,30 +103,8 @@ class NativePressurePrimitives:
 
 
 @pytest.fixture(scope='module')
-def native_simple_pressure(tmp_path_factory):
-    compiler = shlex.split(os.environ.get('CXX', 'cl' if os.name == 'nt' else 'c++'))
-    if not compiler or not shutil.which(compiler[0]):
-        message = 'SIMPLE primitive qualification requires CXX with C++17'
-        if (os.environ.get('TPMSHX_REQUIRE_CPP_TESTS') == '1'
-                or os.environ.get('TPMSHX_REQUIRE_NATIVE_DEPS_TESTS') == '1'):
-            pytest.fail(message)
-        pytest.skip(message)
-    root = Path(__file__).resolve().parents[3]
-    build = tmp_path_factory.mktemp('native-simple-pressure')
-    suffix = '.dll' if os.name == 'nt' else ('.dylib' if sys.platform == 'darwin' else '.so')
-    output = build / ('simple_pressure_test' + suffix)
-    sources = [str(root / 'solver/simple_pressure.cpp'),
-               str(Path(__file__).with_name('simple_pressure_bridge.cpp'))]
-    if os.name == 'nt':
-        arguments = ['/nologo', '/std:c++17', '/O2', '/W4', '/WX', '/EHsc', '/MD', '/LD',
-            '/DTPMSHX_THERMAL_BUILD_SHARED', '/I' + str(root / 'include'), *sources,
-            '/Fe' + str(output), '/link', '/IMPLIB:' + str(build / 'simple_pressure_test.lib')]
-    else:
-        arguments = ['-std=c++17', '-O2', '-ffp-contract=off', '-Wall', '-Wextra', '-Wpedantic', '-Werror',
-            '-dynamiclib' if sys.platform == 'darwin' else '-shared', '-fPIC',
-            '-I', str(root / 'include'), *sources, '-o', str(output)]
-    subprocess.run([*compiler, *arguments], cwd=build, check=True, text=True, capture_output=True)
-    return NativePressurePrimitives(output)
+def native_simple_pressure():
+    return NativePressurePrimitives(kernel_test_path())
 
 
 def case_data(dimension, shape, *, weak=False, partial=True, seed=581031):

@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.postprocess.result_math import _outlet_temperature_2d
+from tests.python.result_primitive_wire import _outlet_temperature_2d
 
 
 @pytest.mark.parametrize('direction', range(4))

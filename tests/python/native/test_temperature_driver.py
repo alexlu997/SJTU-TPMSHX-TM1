@@ -6,53 +6,18 @@ The retired Python implementation remains in Git history.
 """
 
 import ctypes
-import os
-from pathlib import Path
-import shlex
-import shutil
-import subprocess
-import sys
 
 import numpy as np
 import pytest
+
+from tests.python.native.shared_library import kernel_test_path
 
 from tests.python.native.temperature_fv_oracle import physical
 
 
 @pytest.fixture(scope="module")
-def temperature_native(tmp_path_factory):
-    compiler = shlex.split(os.environ.get("CXX", "cl" if os.name == "nt" else "c++"))
-    if os.name not in ("posix", "nt") or not compiler or not shutil.which(compiler[0]):
-        message = "native temperature tests require a C++17 compiler"
-        if os.environ.get("TPMSHX_REQUIRE_CPP_TESTS") == "1":
-            pytest.fail(message)
-        pytest.skip(message)
-    root = Path(__file__).resolve().parents[3]
-    eigen = Path(os.environ.get("TPMSHX_EIGEN_INCLUDE",
-                               root / ".cache/native-deps/src/Eigen-5.0.1")).resolve()
-    if not (eigen / "Eigen/SparseLU").is_file():
-        pytest.fail(f"Missing Eigen/SparseLU in {eigen}; set TPMSHX_EIGEN_INCLUDE "
-                    "to the existing locked Eigen headers")
-    build = tmp_path_factory.mktemp("cpp-temperature")
-    suffix = ".dll" if os.name == "nt" else (".dylib" if sys.platform == "darwin" else ".so")
-    library = build / ("temperature_test" + suffix)
-    sources = [str(root / "solver/temperature_driver.cpp"),
-               str(root / "solver/enthalpy_sweeps.cpp"),
-               str(root / "solver/conservative_energy.cpp"),
-               str(Path(__file__).with_name("temperature_bridge.cpp"))]
-    if os.name == "nt":
-        flags = ["/nologo", "/std:c++17", "/O2", "/W4", "/WX", "/EHsc", "/MD", "/LD",
-                 "/DTPMSHX_THERMAL_BUILD_SHARED", "/DEIGEN_MPL2_ONLY",
-                 "/external:I" + str(eigen), "/external:W0", "/I" + str(root / "include"),
-                 *sources, "/Fe" + str(library), "/link",
-                 "/IMPLIB:" + str(build / "temperature_test.lib")]
-    else:
-        flags = ["-std=c++17", "-O2", "-Wall", "-Wextra", "-Wpedantic", "-Werror", "-fPIC",
-                 "-dynamiclib" if sys.platform == "darwin" else "-shared",
-                 "-DEIGEN_MPL2_ONLY", "-isystem", str(eigen),
-                 "-I", str(root / "include"), *sources, "-o", str(library)]
-    subprocess.run([*compiler, *flags], cwd=build, check=True, capture_output=True, text=True)
-    lib = ctypes.CDLL(str(library))
+def temperature_native():
+    lib = ctypes.CDLL(str(kernel_test_path()))
     function = lib.test_temperature_driver
     size_p = ctypes.POINTER(ctypes.c_size_t)
     double_p = ctypes.POINTER(ctypes.c_double)
