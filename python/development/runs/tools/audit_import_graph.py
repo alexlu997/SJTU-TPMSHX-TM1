@@ -54,9 +54,10 @@ OWNERS = {
     "cpp_interface.native_preparation": "preprocess",
     **{f"cpp_interface.{name}": "solvers" for name in (
         "full_2d_stage", "full_3d_stage", "quick_design", "run_state", "solver_library")},
+    # Case and spatial adapters own model policy. The ABI bindings use native_values.
     **{f"cpp_interface._native_{name}": "models" for name in (
-        "continuous", "df", "flow", "geometry", "grid", "lut", "preparation", "preparation_3d",
-        "preparation_case", "properties", "quick_prepare", "sigmoid", "zones")},
+        "continuous", "flow", "lut", "preparation_3d", "preparation_case", "quick_prepare",
+        "sigmoid", "zones")},
     "cpp_interface": "native_values",
     **{f"shared.{name}": name for name in (
         "domain", "models", "df_surrogate", "io", "configs",
