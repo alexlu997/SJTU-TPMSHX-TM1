@@ -3,3 +3,4 @@ tests/python/native/test_cpp_full_2d_run.py::test_full_2d_checkpoint_continues_a
 tests/python/native/test_model_isolation.py
 tests/python/native/test_temperature_mms.py
 tests/python/test_native_preparation_sigmoid.py::test_sigmoid_production_cold_nodes_and_repeated_warm_preparation[Gyroid]
+tests/python/test_native_stage_uniform.py
