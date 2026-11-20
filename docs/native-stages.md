@@ -722,7 +722,10 @@ The v2 input contains 13 typed scalars: cell length, wall thickness, span, lengt
 Cell length and wall thickness use mm. Dimensions use m, temperature uses K, pressure uses Pa(abs), and mass flow uses kg/s.
 Text fields have explicit byte lengths. Native callers supply all scalar slots; `have_height=0` replaces the height slot with span.
 Without host hooks, the stage reads no environment variables and uses the fixed CFD D-F table.
-The Python host keeps method, chi, raw object and snapshot protocols at their original boundaries.
+The Python host keeps chi, raw object and snapshot protocols at their original boundaries.
+C++ selects the built-in inlet fluid from the normalized label. Python keeps custom label handling
+and records the fixed D-F method at the operating snapshot. The independent pressure query
+resolves its own method and strict options.
 
 Crossflow keeps `(60, 40, 1)` and counterflow keeps `(60, 1, 2)`.
 The shared `model_parameters_v1.json` resource supplies grid counts, geometry resolution, conductivity, tolerance and arrangement controls.
@@ -776,7 +779,7 @@ Fields described as observations are read-only. Other listed fields carry raw pa
 | `MATERIAL_PACK` | Observe `geometry`; pack conductivity and chi in `scalars[0:2]`, topology/chi-present/precision in `flags[0:3]`. `index=1` selects final conductivity with chi=1. |
 | `WIDTH_PACK` | `index` selects x/y/z; pack raw length in `scalars[0]` and array precision in `flags[0]`. |
 | `OPERATING_SNAPSHOT` | Capture original operating values and resolved DF options; no numerical output. |
-| `PROPERTY_ENTRY` | Open the side's range scope; return the validated fluid label in `text`. |
+| `PROPERTY_ENTRY` | Open the side's range scope; return the normalized fluid label in `text`. |
 | `STATE_PACK`, `PROPERTY_PACK` | Pack broadcast operands in `property_inputs`. `flags[0]` identifies the fluid; state `flags[1]` selects scalar EOS return shape. Property `index` selects the getter. |
 | `EOS_CACHE_LOOKUP` | `flags[0]` identifies sCO2 or CO2. Return a hit in `flags[1]` and the completed scalar value or five-value bundle in `property_values`. The stage copies and checks the view. |
 | `EOS_CACHE_STORE` | Observe a completed scalar result in `property_values` and publish it through the existing cache owner. No calculation is permitted. |
@@ -784,7 +787,7 @@ Fields described as observations are read-only. Other listed fields carry raw pa
 | `PRANDTL_PACK` | Pack mu, cp and k in `property_inputs`, with `imaginary_inputs` and `categories` for the original value protocols. |
 | `SECTIONS_PACK` | Pack porosity, span, length and height in `scalars[0:4]`; `flags[0]` returns the original crossflow comparison. |
 | `SECTIONS_RESULT` | Observe A area/length and B area/length in `scalars[0:4]`; keep original host length objects. |
-| `PRESSURE_ENTRY` | Read the side's raw inlet values and copy DF options at the original pressure boundary. |
+| `PRESSURE_ENTRY` | Read the side's raw inlet values and copy per-call DF options for the separate pressure query. |
 | `FLOW_PACK`, `FLOW_RESULT` | Pack mass flow, area and density in `scalars[0:3]`; `flags[0]` returns the original air comparison. Observe mass flux and velocity in result `scalars[0:2]`. |
 | `PRESSURE_COMPARE` | `flags[0]` returns the separate original air comparison for pressure selection. |
 | `PRESSURE_PACK` | `flags[0:3]` carry air, topology and strict. Air packs mass flux/T/P/mu/length in `scalars[0:5]`; other fluids pack velocity/rho/mu/length in `scalars[0:4]`. Cell length is `scalars[5]`; wall thickness is `property_kind`. |
@@ -810,6 +813,9 @@ The existing v1 run stage copies supplied prepared fields without new preparatio
 Constant properties use one thermal pass; mean properties use two. The second pass uses the first pass's returned temperatures.
 Analytical inlet pressure fractions remain fixed through both passes.
 The result owns all 15 fields, physical grid widths, pressure evidence, final-pass scalars and complete driver pass records.
+`tpmshx_quick_run_temperature_algorithm_v1` reports the temperature recipe used for the completed grid.
+Python copies this identity while the result owner is live. Earlier libraries use the standalone
+temperature recipe query.
 Cancellation returns status 6 and publishes no result. The driver has no per-call CPU setting; existing process thread controls apply.
 
 Python passes a borrowed view of saved CaseData and copies returned fields and declarations before releasing the native result.

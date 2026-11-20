@@ -193,6 +193,10 @@ typedef struct {
 /* These pass and side records belong to the live run result. */
 TPMSHX_THERMAL_API tpmshx_quick_ranges_v2 TPMSHX_THERMAL_CALL tpmshx_quick_run_ranges_v2(
     const tpmshx_quick_run_result_v1*,size_t pass,size_t side);
+/* Temperature recipe used by a live completed run. The returned string
+ * is immutable static storage. A missing run owner returns NULL. */
+TPMSHX_THERMAL_API const char* TPMSHX_THERMAL_CALL tpmshx_quick_run_temperature_algorithm_v1(
+    const tpmshx_quick_run_result_v1*);
 TPMSHX_THERMAL_API void TPMSHX_THERMAL_CALL tpmshx_quick_run_release_v1(
     tpmshx_quick_run_result_v1*);
 /* Typed raw preparation retains the original validation and calculation order.

@@ -18,7 +18,6 @@ from sjtu_tpmshx.data_types.field_result import FieldResult
 from .solver_library._stage_capture_abi import RangeRecordView
 from ._native_preparation_case import _Array
 from ._native_preparation_case import _QuickInputV2 as _InputV2, _QuickPreparedV2 as _PreparedV2
-from sjtu_tpmshx.cpp_interface.solver_library.temperature import _temperature_algorithm
 
 
 class _Side(ct.Structure):
@@ -244,7 +243,12 @@ def run_case(case, control):
     else:
         shape, p, op, widths, fixed = _saved_case(case)
     plane = shape[2] == 1
-    algorithm = _temperature_algorithm(library, 0 if plane else 1)
+    recipe = getattr(library, 'tpmshx_quick_run_temperature_algorithm_v1', None)
+    if recipe is None:
+        from .solver_library.temperature import _temperature_algorithm
+        algorithm = _temperature_algorithm(library, 0 if plane else 1)
+    else:
+        recipe.argtypes, recipe.restype = [ct.POINTER(_StageResult)], ct.c_char_p
     double_p = ct.POINTER(ct.c_double)
     release = library.tpmshx_quick_run_release_v1
     release.argtypes, release.restype = [ct.POINTER(_StageResult)], None
@@ -297,6 +301,11 @@ def run_case(case, control):
             exception = {1: ValueError, 2: WaterStateError, 3: QuickDesignWaterFieldError,
                          4: FloatingPointError, 6: CancelledError}.get(status, RuntimeError)
             raise exception(error.value.decode('utf-8', errors='replace'))
+        if recipe is not None:
+            name = recipe(ct.byref(output))
+            if not name:
+                raise RuntimeError('native Quick Design returned no temperature algorithm')
+            algorithm = name.decode('ascii')
         result = _Result.from_buffer_copy(output.raw)
         expected_passes = 2 if p['prop_model'] == 'mean' else 1
         if result.stop not in (0, 1) or result.completed_passes != expected_passes:

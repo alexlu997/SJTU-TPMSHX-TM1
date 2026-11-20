@@ -1,4 +1,6 @@
 #include "tpmshx/quick_design_stage_c_api.h"
+#include "tpmshx/quick_design_driver.hpp"
+#include "tpmshx/temperature_driver_c_api.h"
 #include "../preprocess/preparation_c_boundary.hpp"
 #include "closure_evidence_c_views.hpp"
 #include "closure_ranges.hpp"
@@ -208,6 +210,15 @@ extern "C" tpmshx_quick_ranges_v2 TPMSHX_THERMAL_CALL tpmshx_quick_run_ranges_v2
        !result->owner || pass>=2 || side>=2)return {};
     const auto& rows=static_cast<const Owner*>(result->owner)->ranges[pass][side].records.rows;
     return {rows.data(),rows.size()};
+}
+extern "C" const char* TPMSHX_THERMAL_CALL tpmshx_quick_run_temperature_algorithm_v1(
+    const tpmshx_quick_run_result_v1* result) {
+    if(!result || result->abi_version!=TPMSHX_QUICK_DESIGN_STAGE_ABI_VERSION ||
+       result->struct_size!=sizeof(*result) || !result->owner)return nullptr;
+    const auto nz=static_cast<const Owner*>(result->owner)->shape[2];
+    const auto scheme=tpmshx::quick_temperature_scheme(nz);
+    return tpmshx_temperature_algorithm_v1(scheme==tpmshx::TemperatureScheme::cell_centered_2d
+        ? TPMSHX_TEMPERATURE_CC_2D : TPMSHX_TEMPERATURE_CC_3D);
 }
 extern "C" int TPMSHX_THERMAL_CALL tpmshx_run_quick_design_v2(
     const tpmshx_quick_input_v2* input,const tpmshx_quick_prepared_v2* prepared,
