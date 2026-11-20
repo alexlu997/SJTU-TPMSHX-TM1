@@ -634,9 +634,9 @@ export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_TH
 
 PowerShell uses the same pytest arguments. Set the listed environment variables and call `& $tm1Python`. Provide a matching native library before tests.
 
-CI fast tests split complete modules between two runners. Each runner uses two workers. `fast-0` uses `load --maxschedchunk=1` to limit work queued behind long sizing tests. `fast-1` uses `worksteal`. Each worker has single-threaded BLAS/OMP. After both `fast-1` workers finish, the same job runs complete integration in a separate serial pytest process. Integration keeps separate manifests and JUnit reports. It still runs after fast test failure, unless the workflow was cancelled. Each platform/Python combination uses its existing environment. This removes three jobs and their repeated installations.
+On macOS and Windows with Python 3.13, CI splits fast test modules between two runners. Each runner uses two workers. `fast-0` uses `load --maxschedchunk=1` to limit work queued behind long sizing tests. `fast-1` uses `worksteal`. Each worker uses one BLAS and OMP thread. Integration runs in parallel with fast tests after the platform build. It has separate manifests and JUnit reports. Windows/Python 3.12 runs all integration tests and [compatibility cases](tests/python/_ci_windows_312.txt) for actual rendering and 2D/3D resume.
 
-CI renders a real 3D volume in a separate Qt process. It checks field changes, PNG decoding, scaled images, application export, and closure. macOS uses Cocoa. Windows uses a fixed Mesa OpenGL software renderer. The pixel check explicitly skips macOS arm64 hosts with `Apple Software Renderer`. [PyVistaQt documents this rendering limit](https://github.com/pyvista/pyvistaqt/blob/v0.13.1/pyvistaqt/rwi.py). Full pixel checks on a physical Mac remain required locally for graphics dependency changes. Fast-test artifacts include OpenGL details, process logs, and successfully generated PNG files and render reports. Physical Windows display acceptance remains separate.
+CI renders a real 3D volume in a separate Qt process. It checks field changes, PNG decoding, scaled images, application export, and closure. macOS uses Cocoa. Windows uses a fixed Mesa OpenGL software renderer. The pixel check explicitly skips macOS arm64 hosts with `Apple Software Renderer`. [PyVistaQt documents this rendering limit](https://github.com/pyvista/pyvistaqt/blob/v0.13.1/pyvistaqt/rwi.py). Full pixel checks on a physical Mac remain required locally for graphics dependency changes. The test artifacts include OpenGL details, process logs, and any generated PNG files and render reports. Physical Windows display acceptance remains separate.
 
 Existing test helpers stay. `run_tests_fast.ps1` is development feedback only. Its `not heavy` subset differs from fast CI. The two PowerShell scripts validate the base lock by default. With an existing Windows BO environment, use `./engineering/scripts/run_tests_server.ps1 -LockFile engineering/requirements/bo-windows.txt`.
 
@@ -650,20 +650,20 @@ GitHub workflows use checkout v7, setup-python v7, upload-artifact v7, and downl
 
 They run multi-condition optimizer tests, including both real Log acquisition functions. Base jobs keep the lock without BO and test missing-optional-dependency behavior. BO uploads JUnit reports and full collection manifests for 7 days, without solve data or environments.
 
-PRs select checks through an [explicit path list](engineering/scripts/ci_scope.py):
+PRs and main pushes select checks through an [explicit path list](engineering/scripts/ci_scope.py).
 
-- `docs`: Only root README files, AGENTS, and Markdown files under `docs/`. Check local links, anchors, and concrete project module commands.
-- `application`: Only listed display and layout modules, icons, and their tests, with optional documents. Keep both platforms' builds, application, integration, BO, and real-file postprocessing checks.
+- `docs` applies to root README files, AGENTS, and Markdown files under `docs/` outside `docs/contracts/`. Check local links, anchors, and project module commands.
+- `application` applies only to PRs with listed display and layout modules, icons, their tests, and optional documents. Run both platform builds, application tests, integration, BO, and real-file postprocessing.
 - `full`: Solver, model, public interface, dependency, workflow, and all unlisted paths. Run the full matrix.
 
-Main and manual runs always use `full`. Renames check both old and new paths. Unknown or empty change lists use the full matrix.
-The full matrix has 31 jobs, including the independent Linux result-library build.
-Lighter PR tiers do not provide full-CI timing or numerical research acceptance.
+Only documentation changes can use the `docs` tier on main. Manual runs use `full`. Renames check both old and new paths. Unknown or empty change lists use the full matrix.
+The full matrix has 27 jobs, including the independent Linux result-library builds.
+Use full CI for timing comparisons and the relevant numerical studies for research acceptance.
 Physical changes still require their extended numerical studies. Normal CI does not replace that evidence.
 
 The `[tool.mypy].files` setting in `pyproject.toml` explicitly lists 19 files. Coverage includes configuration, controllers, CLI, the common workflow, current envelope implementation, three-module contracts/APIs, and the postprocessing metric entry. Deleted forwarding modules are excluded. `pyproject.toml` validates unannotated bodies in four boundary implementation modules. This does not show strict typing across each solver.
 
-Fast `test_type_gate.py` runs the same list. It validates the rejection of incorrect inputs by all three public APIs and both workflow entries. The standalone mypy command is for local checks. CI does not add a duplicate step.
+Fast `test_type_gate.py` runs the same list. Use the standalone mypy command for local checks.
 
 The first pytest command excludes slow/heavy and `integration_tm1`. The second runs that complete integration directory one time. Neither replaces the third, complete local gate. Local commands run the unsharded subsets.
 
@@ -679,15 +679,15 @@ The summary gate first checks complete, disjoint, successful native shards. It t
 
 Pass native shards in numeric order. Without `--ci-covered-modules`, local users can still check both complete fast shards separately.
 
-Native qualification uses three shards on macOS and five for each Windows/Python combination. Each shard uses two workers with `loadscope`, which keeps each module or class in one worker. Measured case durations from the full matrix set the groups. Conservative energy tests keep each shared fixture parameter in one shard. Convergence, property, energy ledger and real replay checks for each parameter stay in one shard. Other modules keep their shared fixtures. Independent engineering-pair and 2D checkpoint cases can use complete node IDs.
+Python 3.13 native qualification uses three shards on macOS and five on Windows. Each shard uses two workers with `loadscope`, which keeps each module or class in one worker. Measured case durations from the full matrix set the groups. Conservative energy tests keep each shared fixture parameter in one shard. Convergence, property, energy ledger and real replay checks for each parameter stay in one shard. Other modules keep their shared fixtures. Independent engineering-pair and 2D checkpoint cases can use complete node IDs.
 
-Group lists are in `tests/python/native/`. macOS uses `_ci_macos_shard0.txt` through `_ci_macos_shard1.txt`. Windows uses `_ci_windows_shard0.txt` through `_ci_windows_shard3.txt`. Pass each list through `--ci-shard-modules=<list-path>` in numeric order. Unlisted cases enter the final automatic shard: 2 on macOS or 4 on Windows. All three platform/Python combinations remain supported. Native engineering cases keep per-side physical models, convergence and energy limits.
+Group lists are in `tests/python/native/`. macOS uses `_ci_macos_shard0.txt` through `_ci_macos_shard1.txt`. Windows uses `_ci_windows_shard0.txt` through `_ci_windows_shard3.txt`. Pass each list through `--ci-shard-modules=<list-path>` in numeric order. Unlisted cases enter the final automatic shard, 2 on macOS or 4 on Windows. Native engineering cases keep per-side physical models, convergence and energy limits. The 2D adapter tests compare fields, metrics, and callbacks with limited iterations.
 
 Native jobs set both `TPMSHX_REQUIRE_CPP_TESTS=1` and `TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1`. Missing compilers or native libraries must fail. Existing tests for concurrent threads, process recovery, and result ownership still run in native shards.
 
 Independent formulas, discrete energy balances, manufactured solutions, component replay and fixed historical references replace Python solver comparisons. Retired iterators are not retained as a second solver.
 
-Each platform calls the [native workflow](.github/workflows/native.yml). It builds native libraries once with Python 3.13 and runs independent C/C++ callers. The native libraries do not link to a Python runtime. macOS tests use Python 3.13. Windows tests use both Python 3.12 and 3.13. Shards start after their platform build and do not wait for other platforms. Native, fast and integration tests use the same `native-build-<platform>` artifact from the current workflow run and source. The archive preserves executable permissions and includes runtime libraries, callers, and license notices. An exact CoolProp cache key binds platform, architecture, Python 3.13, toolchain image, native dependency lock and build script. Project C++ and model coefficients rebuild on every run. Cache hits still require independent caller checks.
+Each platform calls the [native workflow](.github/workflows/native.yml). It builds native libraries once with Python 3.13 and runs independent C/C++ callers. The native libraries do not link to a Python runtime. Python 3.12 and 3.13 use the same Windows build. Shards start after their platform build. Native, fast and integration tests use the same `native-build-<platform>` artifact from the current workflow run and source. The archive preserves executable permissions and includes runtime libraries, callers, and license notices. An exact CoolProp cache key binds platform, architecture, Python 3.13, toolchain image, native dependency lock and build script. Project C++ and model coefficients rebuild on every run. Cache hits still require independent caller checks.
 
 The `application` and `full` tiers both run the complete pilot build.
 Archives include solver, geometry, preparation and result libraries and SDK comparison samples.
@@ -705,6 +705,7 @@ The `docs` tier permits only the specified runtime jobs to be skipped. Document 
 Other tiers require successful builds, application, integration, BO, and postprocessing checks.
 The `full` tier requires complete native coverage. The `application` tier permits only exact paths in the native module list to be omitted.
 Each platform/Python summary also requires its BO and integration reports, successful collection records, and complete test counts.
+The Windows/Python 3.12 summary uses these two reports for compatibility checks.
 BO permits no skipped tests. Integration permits recorded individual skips, but a report with every test skipped must fail.
 Unexpected failures, cancellations, skips, missing reports, or coverage gaps cannot pass.
 The `minimal-postprocess` check stays separately required. In the `docs` tier, it only checks the expected job results.

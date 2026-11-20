@@ -128,6 +128,7 @@ The application and full CI tiers build the complete native pilot.
 Their artifacts include the four native libraries and the SDK comparison samples.
 Native and BO jobs start after their platform build and use its artifact.
 In full CI, the Python 3.13 native shards run the stage suite, including its slow cases.
+Windows/Python 3.12 runs real module integration, checkpoint resume, rendering, and BO with the same native build.
 The display-only application tier runs the fast stage tests with the other application tests.
 The Linux result builds run independent result-kernel tests in both tiers.
 Full computation remains limited to macOS arm64 and Windows x64. Independent Linux result evaluation has the scope defined below.
@@ -849,8 +850,8 @@ Python `sweep_kernel` and `energy_audit` records retain their original meaning.
 
 The required flag makes a missing compiler fail this qualification command.
 Optional local component tests can skip when the platform compiler is
-absent. That skip is not native acceptance. Native qualification is required
-in the existing macOS 3.13 and Windows 3.12/3.13 fast CI lanes. A local macOS
+absent. That skip is not native acceptance. Native qualification runs on
+macOS and Windows with Python 3.13. A local macOS
 pass does not show Windows compilation, execution or distribution
 acceptance. No compiler or Python dependency is installed by these tests.
 
@@ -982,8 +983,8 @@ The macOS SuperLU build uses the system Accelerate BLAS used by the pinned SciPy
 required native CI suite. A serial momentum loop does not imply a single-threaded BLAS.
 Thread policy and measured performance must be recorded separately.
 
-The `native-dependencies` CI matrix builds and runs these callers and required
-tests on macOS/Python 3.13 and Windows/Python 3.12/3.13. A missing executable
+CI builds and runs the required callers and native tests on macOS and Windows
+with Python 3.13. A missing executable
 fails the required job. Optional local component runs can skip an unbuilt pilot.
 That skip does not show native qualification. Both platforms have actual
 required native CI passes. The evidence is bounded to those builds and cases.

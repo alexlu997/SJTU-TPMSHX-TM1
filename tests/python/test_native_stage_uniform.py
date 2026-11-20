@@ -67,6 +67,16 @@ def _request():
     return _RequestV2(2, ct.sizeof(_RequestV2), _Request(1, ct.sizeof(_Request)))
 
 
+def _parity_request(config):
+    # Engineering acceptance checks convergence separately.
+    config.solver.max_iter_simple = 3
+    config.solver.max_outer_ltne = 2
+    request = _request()
+    request.values.max_iter_simple = _Size(1, config.solver.max_iter_simple)
+    request.values.max_outer_ltne = _Size(1, config.solver.max_outer_ltne)
+    return request
+
+
 def _evaluate(evidence):
     library = _native_result._library().library
     function = library.tpmshx_result_stage_evaluate_v1
@@ -163,7 +173,9 @@ def _assert_exact(preparation_library, stage_library, config, request, tmp_path,
 @pytest.mark.slow
 @pytest.mark.parametrize('pair', _STAGE_PAIRS)
 def test_uniform_stage_exact(preparation_library, stage_library, pair, tmp_path):
-    _assert_exact(preparation_library, stage_library, _configuration(pair), None, tmp_path)
+    config = _configuration(pair)
+    request = None if pair == ('air', 'air') else _parity_request(config)
+    _assert_exact(preparation_library, stage_library, config, request, tmp_path)
 
 
 @pytest.mark.slow
@@ -187,6 +199,7 @@ def test_uniform_stage_selected_controls(preparation_library, stage_library, sel
         config.flags.port_wall_refine = False
         config.sco2_nu = replace(config.sco2_nu, mode='experimental', alpha_D=1.13, alpha_G=2.27,
             parameter_version='stage-comparison', source='existing experimental selection', applicability='uniform geometry')
+        request = _parity_request(config)
     elif selection == 'model-controls':
         config.solver.max_outer_ltne = 2
         request.values.max_outer_ltne = _Size(1, 2)

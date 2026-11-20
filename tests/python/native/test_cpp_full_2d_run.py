@@ -54,26 +54,30 @@ def compare_result(actual, expected):
 
 
 @pytest.mark.parametrize('route', ['temperature', 'model_h', 'true_h', 'temperature_sou'])
-@pytest.mark.parametrize('cut', [0, 1, 'final'])
-def test_full_2d_checkpoint_hdf5_round_trip(driver, tmp_path, route, cut):
+def test_full_2d_checkpoint_hdf5_round_trip(driver, tmp_path, route):
     prepared = case(route)
     case_path = save_case(prepared, tmp_path/'case.h5')
-    saved_path = tmp_path/'checkpoint.h5'
-    expected = run_case(prepared, control(driver))
+    paths = {cut: tmp_path/f'checkpoint-{cut}.h5' for cut in (0, 1, 'final')}
+    captured = set()
+
     def save_at_boundary(state):
-        if (int(state['state.phase'][0]) == 2 if cut == 'final' else int(state[COUNT][0]) == cut):
-            saved = SolverCheckpoint(str(case_path), prepared.case_id, prepared.model_refs, state, FORMAT)
-            save_solver_checkpoint(saved, saved_path)
-            state['state.result.thermal.temperature.0'][0] = -1.
-            assert saved.native_state['state.result.thermal.temperature.0'][0] > 0.
-            raise PauseCheckpoint
-    with pytest.raises(PauseCheckpoint):
-        run_case(prepared, control(driver), checkpoint=save_at_boundary)
-    saved = load_solver_checkpoint(saved_path)
-    actual = run_case(load_checkpoint_case(saved), control(driver), resume_state=saved.native_state)
-    compare_result(actual, expected)
-    assert actual.metadata['continuation']['completed_outer_steps'] == saved.native_state[COUNT][0]
-    assert actual.metadata['continuation']['format'] == FORMAT
+        cut = 'final' if int(state['state.phase'][0]) == 2 else int(state[COUNT][0])
+        if cut not in paths or cut in captured:
+            return
+        saved = SolverCheckpoint(str(case_path), prepared.case_id, prepared.model_refs, state, FORMAT)
+        save_solver_checkpoint(saved, paths[cut])
+        state['state.result.thermal.temperature.0'][0] = -1.
+        assert saved.native_state['state.result.thermal.temperature.0'][0] > 0.
+        captured.add(cut)
+
+    expected = run_case(prepared, control(driver), checkpoint=save_at_boundary)
+    assert captured == paths.keys()
+    for path in paths.values():
+        saved = load_solver_checkpoint(path)
+        actual = run_case(load_checkpoint_case(saved), control(driver), resume_state=saved.native_state)
+        compare_result(actual, expected)
+        assert actual.metadata['continuation']['completed_outer_steps'] == saved.native_state[COUNT][0]
+        assert actual.metadata['continuation']['format'] == FORMAT
 
 
 @pytest.mark.parametrize('damage', ['build', 'input', 'control', 'type', 'size', 'unknown', 'missing',

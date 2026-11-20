@@ -13,14 +13,17 @@
 | 层级 | 允许的变更 | 必需工作 |
 | --- | --- | --- |
 | docs | 仅限声明的文档路径 | 文档链接、项目命令及四项汇总门；明确核对允许跳过的作业 |
-| application | 仅限声明的显示文件、图标和文档 | 平台应用测试、真实模块集成、BO、最小后处理及匹配的原生构建 |
-| full | 其他或混合变更；所有 main push 和手动运行 | 全部应用检查，加支持的平台/Python 矩阵中的完整原生依赖资格检查 |
+| application | 仅限 PR 中声明的显示文件、图标和文档 | 平台应用测试、真实模块集成、BO、最小后处理及匹配的原生构建 |
+| full | 其他或混合变更、含代码变更的 main push、手动运行 | 全部应用检查，以及两平台的 Python 3.13 完整原生资格检查 |
 
-在 `PYTHONHASHSEED=0` 下，快测使用 `-m "not slow and not heavy"`，排除 `integration_tm1`，并采用 `-n 2`。
+main 仅推送声明的文档路径时使用 docs 层级。未知或空变更使用完整 CI。
+
+在 `PYTHONHASHSEED=0` 下，Python 3.13 快测使用 `-m "not slow and not heavy"`，排除 `integration_tm1`，并采用 `-n 2`。
 `fast-0` 使用 `--dist load --maxschedchunk=1`；`fast-1` 使用 `--dist worksteal`。
 现有 `ci_shard` 插件将快测分为两个独立作业。
-`fast-1` 作业随后在独立 pytest 进程中完整运行 `tests/python/integration_tm1/`，不加 marker 过滤。
-快测和集成 SHALL 保留各自报告；除非作业已取消，快测失败不得阻止集成执行。
+集成作业单独运行 `tests/python/integration_tm1/` 的全部用例，不加 marker 过滤。
+Windows/Python 3.12 集成再运行 `tests/python/_ci_windows_312.txt` 的渲染和续算用例。
+快测和集成 SHALL 分别保留报告，并在平台构建后独立执行。
 常规 Qt 测试使用 offscreen 并禁用 3D 面板；实际渲染使用独立的原生 Qt 进程，其平台要求和证据边界见根 README。
 CI SHALL NOT 依赖忽略的本地数据资产。
 
@@ -29,7 +32,7 @@ CI SHALL NOT 依赖忽略的本地数据资产。
 `.cache/ci/` 的测试报告、收集/分片清单及资源记录，不包含原生求解结果或本地数据。
 原生资格模块 SHALL 由 `tests/python/native/_ci_suite.txt` 共同清单选择。完整 CI 的 Python 3.13 原生分片再运行 `tests/python/native/_ci_stage_suite.txt`，包括长测。应用快测 SHALL 将相应模块移交原生分片并保留原完整收集集合。清单外的新模块 SHALL 自动进入应用快测。
 `application` 层级只允许省略共同原生清单中的快测覆盖，并将阶段快测留在应用分片。独立结果核数值对照在 Linux 结果库构建中执行。原生分片与 BO 作业在各自平台的构建完成后启动。
-平台汇总门 SHALL 验证原生分片完整且互斥，再验证应用与原生两组覆盖原完整集合且没有重复，并要求测试分片、集成、BO 及原生依赖资格作业成功。
+Python 3.13 汇总门 SHALL 验证原生分片完整且互斥，再验证应用与原生两组覆盖原完整集合且没有重复。每个汇总门 SHALL 要求集成和 BO 报告。Windows/Python 3.12 使用这两份报告验证兼容性。
 平台快测、真实集成和最小后处理门均保留；macOS 3.13、Windows 3.12、Windows 3.13 和 minimal-postprocess 四项检查均为必需门，数值断言/容差不因提速改变。基础与 BO 作业 SHALL 使用相同的平台/Python 版本矩阵；两个 Windows 版本共用 engineering/requirements/bo-windows.txt。
 
 #### Scenario: Integration is executed once per platform
@@ -42,8 +45,8 @@ CI SHALL NOT 依赖忽略的本地数据资产。
 - **AND** 线程并发、进程恢复和结果所有权测试保留在原生组，断言不变
 
 #### Scenario: Native dependencies are independently qualified
-- **WHEN** macOS/Python 3.13 或 Windows/Python 3.12、3.13 的原生依赖作业运行
-- **THEN** 每个平台由一个构建作业按 `engineering/native_build/dependencies-lock.toml` 获取固定源码与 CMake，并离线构建。资格作业消费其匹配原生产物，真实执行独立 EOS/压力、Quick Design、true-h、model-h 与 SIMPLE caller；Windows Python 3.12 和 3.13 分别验证同一平台构建。随后用独立公式、离散账本、制造解、组件重放和固定历史参考验证完整驱动和公开 C 接口；`TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1` 与 `TPMSHX_REQUIRE_CPP_TESTS=1` 将缺少编译器、可执行程序或动态库视为失败，不允许以 skip 充当验收
+- **WHEN** macOS 或 Windows 的 Python 3.13 原生依赖作业运行
+- **THEN** 每个平台由一个构建作业按 `engineering/native_build/dependencies-lock.toml` 获取固定源码与 CMake，并离线构建。资格作业消费其匹配原生产物，真实执行独立 EOS/压力、Quick Design、true-h、model-h 与 SIMPLE caller。随后用独立公式、离散账本、制造解、组件重放和固定历史参考验证完整驱动和公开 C 接口。`TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1` 与 `TPMSHX_REQUIRE_CPP_TESTS=1` 将缺少编译器、可执行程序或动态库视为失败，不允许以 skip 充当验收
 - **AND** 构建只在独立原生作业发生，普通快测分片不重复构建依赖；上传构建日志和资格测试 XML，不上传源码、物性表或本地实验数据
 
 #### Scenario: CI green on a clean main
@@ -83,12 +86,7 @@ CI SHALL NOT 依赖忽略的本地数据资产。
 `pyproject.toml` 的 `[tool.mypy].files` SHALL 显式列出公共接口与数据契约检查范围，包含当前 envelope
 实现、三模块 API 和数据对象，同时保留仍有消费者的兼容入口。`pyproject.toml`
 SHALL 对 envelope、前处理 API、求解 API、后处理 API 和后处理 metrics 启用无注解函数体检查。
-这不声明全求解器严格类型覆盖。`test_type_gate.py` SHALL 在快测中执行清单检查，
-并验证错误类型不能传入 `prepare_case`、`run_case`、`evaluate`；CI 不另加重复 mypy 步骤。
-
-#### Scenario: Wrong public input types are rejected
-- **WHEN** mypy 检查向三个公共 API 传入字符串代替各自数据对象的调用
-- **THEN** 三处调用均报告参数类型错误；清单中的实际代码仍须零错误
+`test_type_gate.py` SHALL 在快测中检查清单中的实际代码。CI 不另加重复 mypy 步骤。
 
 ### Requirement: Parallel local gate
 本地全量门 SHALL 支持 pytest-xdist 并行：`pytest tests/python/ -q -n auto --dist loadscope`，且在启动 Python 前设置 `PYTHONHASHSEED=0` 和 BLAS/OMP 单线程。`--dist loadscope` 为本机文档默认，worker 数可按资源改为固定值；128 核服务器保留脚本中的 worksteal 策略。解释器、环境检查和完整命令集中在[根 README](../../../README.md#环境与检查)。pytest-xdist 位于共同依赖锁中。

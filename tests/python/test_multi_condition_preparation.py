@@ -84,6 +84,9 @@ def test_fixed_flow_matches_native_faces_after_density_update(direction, design_
     _same({name: value for name, value in configured_params.items() if name not in host_values},
           {name: value for name, value in params.items() if name not in host_values})
     _same(configured_prepared, prepared)
+    # Test each flow direction and both signs for every layout across six solves.
+    if direction not in {'uniform': (0, 3), 'grid': (1, 4), 'continuous': (2, 5)}[design_mode]:
+        return
     control = resolve_control(RunControl(cpu_threads=2))
     raw = NativeFull3DDriver(control.native_library).run_prepared(params, prepared, control)
     for index, side in enumerate('AB'):

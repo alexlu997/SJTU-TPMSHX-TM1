@@ -17,18 +17,10 @@ tests/python/native/test_cpp_conservative_full3d.py::test_prepared_recipe_and_de
 tests/python/native/test_cpp_conservative_full3d.py::test_prepared_recipe_and_detached_evidence_save_replay[temperature_sou-sco2-water-None]
 tests/python/native/test_cpp_full_2d.py
 tests/python/native/test_cpp_full_2d_capture.py
-tests/python/native/test_cpp_full_2d_run.py::test_full_2d_checkpoint_hdf5_round_trip[0-model_h]
-tests/python/native/test_cpp_full_2d_run.py::test_full_2d_checkpoint_hdf5_round_trip[0-temperature]
-tests/python/native/test_cpp_full_2d_run.py::test_full_2d_checkpoint_hdf5_round_trip[0-temperature_sou]
-tests/python/native/test_cpp_full_2d_run.py::test_full_2d_checkpoint_hdf5_round_trip[0-true_h]
-tests/python/native/test_cpp_full_2d_run.py::test_full_2d_checkpoint_hdf5_round_trip[1-model_h]
-tests/python/native/test_cpp_full_2d_run.py::test_full_2d_checkpoint_hdf5_round_trip[1-temperature]
-tests/python/native/test_cpp_full_2d_run.py::test_full_2d_checkpoint_hdf5_round_trip[1-temperature_sou]
-tests/python/native/test_cpp_full_2d_run.py::test_full_2d_checkpoint_hdf5_round_trip[1-true_h]
-tests/python/native/test_cpp_full_2d_run.py::test_full_2d_checkpoint_hdf5_round_trip[final-model_h]
-tests/python/native/test_cpp_full_2d_run.py::test_full_2d_checkpoint_hdf5_round_trip[final-temperature]
-tests/python/native/test_cpp_full_2d_run.py::test_full_2d_checkpoint_hdf5_round_trip[final-temperature_sou]
-tests/python/native/test_cpp_full_2d_run.py::test_full_2d_checkpoint_hdf5_round_trip[final-true_h]
+tests/python/native/test_cpp_full_2d_run.py::test_full_2d_checkpoint_hdf5_round_trip[model_h]
+tests/python/native/test_cpp_full_2d_run.py::test_full_2d_checkpoint_hdf5_round_trip[temperature]
+tests/python/native/test_cpp_full_2d_run.py::test_full_2d_checkpoint_hdf5_round_trip[temperature_sou]
+tests/python/native/test_cpp_full_2d_run.py::test_full_2d_checkpoint_hdf5_round_trip[true_h]
 tests/python/native/test_cpp_full_3d.py
 tests/python/native/test_cpp_model_h.py
 tests/python/native/test_full_3d_refined_stages.py
@@ -49,6 +41,7 @@ tests/python/native/test_native_pressure.py
 tests/python/native/test_quick_design_driver.py
 tests/python/native/test_run_recovery.py
 tests/python/native/test_simple_3d_api.py
+tests/python/native/test_temperature_mms.py
 tests/python/native/test_temperature_staggered.py
 # Stage modules collected on Python 3.13.
 tests/python/test_native_stage_continuous.py

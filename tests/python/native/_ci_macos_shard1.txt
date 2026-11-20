@@ -1,5 +1,7 @@
 # macOS native group 1; balance uses complete CI run timings.
 # Keep shared fixture parameters together. The final shard is automatic.
+tests/python/native/test_backend_condition_consumers.py
+tests/python/native/test_native_eos.py
 tests/python/native/test_cpp_conservative_full2d.py::test_actual_thermal_state_and_signed_ledger[temperature_sou-directions12-partialFalse]
 tests/python/native/test_cpp_conservative_full2d.py::test_candidate_exception_releases_and_recovers[decode]
 tests/python/native/test_cpp_conservative_full2d.py::test_complete_original_native_acceptance[False-temperature_sou]

@@ -1,25 +1,19 @@
-from sjtu_tpmshx.applications.design.cases import DesignCase
 from sjtu_tpmshx.applications.design.select import enumerate_select
 from sjtu_tpmshx.applications.design import select, sizing
 from sjtu_tpmshx.run_control.module_ports import RunControl
 import pytest
 
 
-def _cases():
-    return [DesignCase(1,"air",688.23,1_088_700.0,0.2855,
-                       "water",320.0,200_000.0,0.5,30_000.0,0.075,0.05)]
-
-def test_enumerate_returns_pareto_and_best():
-    feas, best = enumerate_select(_cases(), arrangement="cross",
-                                  nodes={"topo":["Diamond"],"l":[6.0,7.0],"t":[0.5]})
-    assert isinstance(feas, list)
-    if best is not None:
-        assert best.feasible and best.V > 0
-        assert "min-V" in best_tags(feas, best)  # 最小体积件被标
-
-def best_tags(feas, d):
-    from sjtu_tpmshx.applications.design.select import pareto_tags
-    return pareto_tags(feas).get(id(d), [])
+def test_enumerate_returns_pareto_and_best(monkeypatch):
+    candidates = {
+        6.: sizing.Design(True, l=6., V=.002),
+        7.: sizing.Design(True, l=7., V=.001),
+        8.: sizing.Design(False, l=8.),
+    }
+    monkeypatch.setattr(select, 'size_fixed_cell', lambda cases, topo, l, *a, **kw: candidates[l])
+    designs, best = enumerate_select([], nodes=dict(topo=['Diamond'], l=[6., 7., 8.], t=[.5]))
+    assert designs == list(candidates.values()) and best is candidates[7.]
+    assert 'min-V' in select.pareto_tags(designs)[id(best)]
 
 
 @pytest.mark.parametrize('n_jobs', [1, 2])

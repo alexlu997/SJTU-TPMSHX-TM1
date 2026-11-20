@@ -89,7 +89,7 @@ def check_report(directory, suite, *, allow_skips=False):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('shards', type=Path, nargs='+')
+    parser.add_argument('shards', type=Path, nargs='*')
     parser.add_argument('--baseline', type=Path)
     coverage = parser.add_mutually_exclusive_group()
     coverage.add_argument('--covered-by', type=Path, nargs='+', default=(),
@@ -102,17 +102,20 @@ def main():
                         help='Require one serial pytest manifest per shard.')
     args = parser.parse_args()
     try:
-        omitted = set(args.omit_modules.read_text(encoding='utf-8').splitlines()) if args.omit_modules else ()
-        total, counts = check(args.shards, args.baseline, serial=args.serial,
-                              covered_by=args.covered_by, omitted_modules=omitted)
+        if args.shards:
+            omitted = set(args.omit_modules.read_text(encoding='utf-8').splitlines()) if args.omit_modules else ()
+            total, counts = check(args.shards, args.baseline, serial=args.serial,
+                                  covered_by=args.covered_by, omitted_modules=omitted)
+            mode = 'permitted omissions' if args.omit_modules else 'native coverage' if args.covered_by else 'full selection'
+            print(f'CI collection verified: {total} nodes; selected shard counts {counts}; {mode}')
+        elif not (args.bo_report and args.integration_report):
+            raise ValueError('Expected shards or both platform reports')
         if args.bo_report:
             check_report(args.bo_report, 'bo')
         if args.integration_report:
             check_report(args.integration_report, 'integration', allow_skips=True)
     except (OSError, ValueError, TypeError, KeyError, ElementTree.ParseError) as exc:
         parser.exit(1, f'CI shard manifest check failed: {exc}\n')
-    mode = 'permitted omissions' if args.omit_modules else 'native coverage' if args.covered_by else 'full selection'
-    print(f'CI collection verified: {total} nodes; selected shard counts {counts}; {mode}')
 
 
 if __name__ == '__main__':
