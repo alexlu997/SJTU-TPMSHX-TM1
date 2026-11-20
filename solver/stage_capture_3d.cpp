@@ -4,7 +4,6 @@
 #include "stage_capture_3d.hpp"
 #include "../geometry/field_c_boundary.hpp"
 #include "tpmshx/fluid_properties.hpp"
-#include "tpmshx/grid.hpp"
 #include "tpmshx/result_metrics.hpp"
 #include "tpmshx/temperature_driver_c_api.h"
 
@@ -418,20 +417,15 @@ public:
             message<<"[sCO2 Nu evidence] 3D h_v property refresh, side="<<labels[side]<<", "
                 <<(input.topology?"Gyroid":"Diamond")<<", ";
             if(input.spatial) {
-                const auto extrema=[kinds](const double* data,size_t count,size_t field) {
+                const auto extrema=[](const double* data,size_t count,const tpmshx_preparation_scalar_kind_v2* kind) {
                     fields::c_api::require_buffer(data,count);
                     if(!count)throw std::invalid_argument("spatial scope evidence has an empty geometry field");
                     const auto values=std::minmax_element(data,data+count);
-                    const auto mm=[kinds,field](double value) {
-                        if(!kinds)return value*1e3;
-                        const auto& kind=kinds[field];
-                        return grid::multiply({value,kind.precision,kind.strong},grid::weak(1e3)).value;
-                    };
-                    return std::array<double,2>{mm(*values.first),mm(*values.second)};
+                    return std::array<double,2>{scope_length_mm(*values.first,kind),scope_length_mm(*values.second,kind)};
                 };
                 if(!have_extrema) {
-                    length=extrema(input.cell_length.data,input.cell_length.size,0);
-                    wall=extrema(saved.wall_thickness_m.data,saved.wall_thickness_m.size,1);
+                    length=extrema(input.cell_length.data,input.cell_length.size,kinds);
+                    wall=extrema(saved.wall_thickness_m.data,saved.wall_thickness_m.size,kinds?kinds+1:nullptr);
                     have_extrema=true;
                 }
                 message<<"zoned L=["<<length[0]<<","<<length[1]<<"] mm, t=["<<wall[0]<<","<<wall[1]<<"] mm";

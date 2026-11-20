@@ -430,6 +430,8 @@ def run_stage(driver, case, cfg, prepared, control, *, configure_convergence, ma
             entry_version=6, control=control, cpu_thread_limit=stage_control.cpu_threads, energy_query=energy_query,
             version_query=version_query, resume_state=resume_state, capture_scalars=_scalars(summary), fields=stage_fields[0],
             records=records, evidence=result.evidence, execution=execution)
+        if execution is not None and saved_version == 3:
+            native['sco2_notices'] = tuple(execution.execution.sco2_notices)
         control.check_cancelled()
 
         def application_hv(area_density, surface_htc):
@@ -935,7 +937,6 @@ class StageDriver:
             executed = execution.execution
             out['enthalpy_update_normalization'] = _decode_update_scale(executed.update_scale)
             out['model_h_iterations'] = _decode_iteration_records(executed.model_h)
-            out['sco2_notices'] = tuple(executed.sco2_notices)
         else:
             out['enthalpy_update_normalization'] = _copy_update_scale(self.query_update_scale, result)
             out['model_h_iterations'] = _copy_iteration_records(self.query_model_h, result)

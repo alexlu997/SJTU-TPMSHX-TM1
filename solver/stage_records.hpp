@@ -1,5 +1,6 @@
 #pragma once
 
+#include "tpmshx/grid.hpp"
 #include "tpmshx/stage_run_c_api.h"
 
 #include <algorithm>
@@ -27,6 +28,10 @@ inline size_t add_scope_notice(std::vector<std::string>& notices,std::string mes
     if(existing!=notices.end())return static_cast<size_t>(existing-notices.begin());
     notices.push_back(std::move(message));
     return notices.size()-1;
+}
+
+inline double scope_length_mm(double value,const tpmshx_preparation_scalar_kind_v2* kind) {
+    return kind?grid::multiply({value,kind->precision,kind->strong},grid::weak(1e3)).value:value*1e3;
 }
 
 inline void write_sco2_scope(std::ostream& message,double pressure) {
