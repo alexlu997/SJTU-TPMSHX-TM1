@@ -142,27 +142,18 @@ jobs:
               'refinement_2d_test', 'full_2d_test', 'enthalpy_driver_test',
               'quick_design_test', 'simple_2d_test', 'simple_3d_test', 'tpmshx_kernel_test',
           )
+          # These callers also run in downstream pytest jobs.
           callers = (
-              'geometry_c_static', 'geometry_c_shared', 'geometry_kernel_smoke',
-              'eos_smoke', 'fluid_properties_smoke', 'pressure_smoke', 'temperature_driver_smoke',
-              'quick_design_c_static', 'quick_design_c_shared', 'quick_design_driver_smoke',
-              'enthalpy_c_static', 'enthalpy_c_shared', 'enthalpy_driver_smoke',
-              'conservative_energy_smoke', 'conservative_energy_driver_smoke',
-              'simple_2d_smoke', 'simple_3d_smoke', 'simple_run_smoke',
+              'eos_smoke', 'fluid_properties_smoke', 'pressure_smoke',
+              'quick_design_driver_smoke', 'simple_2d_smoke',
               'simple_2d_c_static', 'simple_2d_c_shared', 'simple_3d_c_static', 'simple_3d_c_shared',
-              'model_h_2d_smoke', 'model_h_3d_smoke', 'model_h_chunk_smoke', 'model_h_run_smoke',
-              'model_h_c_static', 'model_h_c_shared', 'temperature_c_static', 'temperature_c_shared',
-              'temperature_staggered_smoke', 'temperature_run_smoke',
-              'full_2d_c_static', 'full_2d_c_shared', 'full_3d_c_static', 'full_3d_c_shared',
-              'side_physics_smoke',
+              'enthalpy_c_static', 'enthalpy_c_shared', 'temperature_c_static', 'temperature_c_shared',
           )
           executable_suffix = '.exe' if os.name == 'nt' else ''
           files = [build / (prefix + name + suffix) for name in libraries]
           files += [build / (name + executable_suffix) for name in callers]
           files += [preparation / (prefix + 'tpmshx_preparation_shared' + suffix)]
-          files += [preparation / (name + executable_suffix) for name in ('preparation_c_static', 'preparation_c_shared')]
           files += [result / (prefix + 'tpmshx_result_shared' + suffix)]
-          files += [result / (name + executable_suffix) for name in ('result_c_static', 'result_c_shared', 'result_kernel_smoke')]
           files += sorted((build.parent / 'stage-result').iterdir())
           files += sorted((build.parent / 'quick-design-stage-result').glob('*/*'))
           files += [build.parent / ('coolprop-' + host) / 'coolprop-build.json']
