@@ -521,6 +521,7 @@ def test_applicability_transfer_error_releases_without_fallback(dimension, monke
     ('reverse_wrap', 'reverse direction'),
     ('strict_gate_and_convergence', 'must be real number, not str'),
     ('retired_energy_and_mask', 'invalid native full enthalpy defaults request'),
+    ('missing_fluid_and_convergence', 'fluid_type_B'),
 ])
 def test_saved_v2_rejects_inconsistent_inputs(fault, message):
     layout = 'xy' if fault == 'extrusion' else 'uniform'
@@ -556,6 +557,10 @@ def test_saved_v2_rejects_inconsistent_inputs(fault, message):
     elif fault == 'retired_energy_and_mask':
         params['enthalpy_algorithm'] = 'temperature_fou'
         params['prepared']['openings']['A']['inlet'].flat[0] = -.5
+    elif fault == 'missing_fluid_and_convergence':
+        del params['fluid_type_B']
+        params['convergence_mode'] = 'legacy'
+        error = KeyError
     else:
         design['L_field_m'][0, 0, 1] *= 1.01
     with pytest.raises(error, match=message):

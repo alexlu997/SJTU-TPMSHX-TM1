@@ -696,9 +696,9 @@ def run_saved(case, control, library, abi, table_directory, execution_query, *,
     cfg, prepared = case.parameters, case.parameters['prepared']
     control.check_cancelled()
     energy = energy_request(cfg)
+    has_water = 'water' in (cfg['fluid_type_A'], cfg['fluid_type_B'])
     if cfg.get('enthalpy_algorithm', 'temperature_sou') != 'temperature_sou':
-        _full_enthalpy_defaults(library, 3, energy.algorithm,
-            'water' in (cfg['fluid_type_A'], cfg['fluid_type_B']))
+        _full_enthalpy_defaults(library, 3, energy.algorithm, has_water)
     _, strict = validate_energy_controls(cfg)
     model_h = model_h_request(cfg, strict)
     request = _request(cfg, energy, model_h)
