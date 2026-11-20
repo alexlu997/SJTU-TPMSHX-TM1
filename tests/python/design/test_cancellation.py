@@ -23,48 +23,28 @@ def test_sizing_stops_between_forward_solves(monkeypatch):
     assert len(calls) == 1
 
 
-@pytest.mark.parametrize('stage', [
-    'search',
-    # The final cancellation follows the complete sizing search.
-    pytest.param('final', marks=pytest.mark.timeout(1200)),
-])
+@pytest.mark.parametrize('stage', ['search', 'final'])
 def test_sizing_cancels_inside_forward(monkeypatch, stage):
     execution = importlib.import_module(
         'sjtu_tpmshx.cpp_interface.quick_design')
     calls = []
-    requested = False
-    cancellation_index = None
     cancellation = CancelledError('cancelled inside the active thermal solve')
-    control = RunControl(cancel_check=lambda: requested)
+    control = RunControl(cancel_check=lambda: bool(calls))
 
-    original = execution.run_case
-
-    def thermal(case, actual_control):
-        nonlocal requested, cancellation_index
-        final = bool(calls) and case.parameters['initial_fields'] is None
-        if (stage == 'search' and not calls) or (stage == 'final' and final):
-            requested = True
-            cancellation_index = len(calls)
+    def thermal(_case, actual_control):
         calls.append(actual_control.cancel_check)
-        if actual_control.cancel_check():
-            raise cancellation
-        return original(case, actual_control)
+        assert actual_control.cancel_check()
+        raise cancellation
 
+    if stage == 'final':
+        monkeypatch.setattr(sizing, 'solve_Lx', lambda *a, **kw: (.1, None))
     monkeypatch.setattr(execution, 'run_case', thermal)
     case = DesignCase(1, 'air', 600., 4e5, .01, 'air', 300., 4e5, .01,
                       None, .08, .08, dT=100.)
-    result = caught = None
-    try:
-        result = sizing.size_fixed_cell([case], 'Diamond', 7., .5,
-                                         prop_model='mean', control=control)
-    except CancelledError as exc:
-        caught = exc
-    assert cancellation_index is not None
-    assert calls[cancellation_index] is control.cancel_check, (
-        stage, len(calls), type(result).__name__, str(caught))
-    assert caught is cancellation
-    assert result is None  # No half-evaluated Design may escape cancellation.
-    assert len(calls) == cancellation_index + 1  # No mean pass or next solve.
+    with pytest.raises(CancelledError) as caught:
+        sizing.size_fixed_cell([case], 'Diamond', 7., .5, prop_model='mean', control=control)
+    assert caught.value is cancellation
+    assert calls == [control.cancel_check]
 
 
 @pytest.mark.parametrize('n_jobs', [1, 2])

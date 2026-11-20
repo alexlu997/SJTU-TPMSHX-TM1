@@ -3,7 +3,6 @@
 tests/python/native/test_backend_condition_consumers.py
 tests/python/native/test_cpp_conservative_full2d.py::test_complete_original_native_acceptance[False-temperature_sou]
 tests/python/native/test_cpp_conservative_full3d.py::test_mixed_conductivity_copies_the_last_outer_transport[temperature_sou]
-tests/python/native/test_cpp_full_2d_run.py::test_full_2d_checkpoint_hdf5_round_trip[0-temperature_sou]
 tests/python/native/test_full_3d_refined_stages.py
 tests/python/native/test_native_engineering_acceptance.py::test_public_native_cases_keep_physical_gates[co2-air-2]
 tests/python/native/test_native_engineering_acceptance.py::test_public_native_cases_keep_physical_gates[co2-water-2]
@@ -13,7 +12,6 @@ tests/python/native/test_simple_2d.py
 tests/python/native/test_simple_3d.py
 tests/python/native/test_simple_pressure.py
 # Stage modules collected on Python 3.13.
-tests/python/test_native_run_adapter.py
 tests/python/test_native_preparation_spatial_3d.py
 tests/python/test_native_prepare_adapter.py
 tests/python/test_native_stage_run.py

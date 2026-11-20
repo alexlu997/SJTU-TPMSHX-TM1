@@ -28,8 +28,8 @@ jobs:
         id: scope
         env:
           EVENT_NAME: ${{ github.event_name }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           tier=$(python engineering/scripts/ci_scope.py select --event "$EVENT_NAME" --base "$BASE_SHA" --head "$HEAD_SHA")
           echo "tier=$tier" >> "$GITHUB_OUTPUT"
@@ -72,12 +72,12 @@ jobs:
           NEEDS_JSON: ${{ toJSON(needs) }}
         run: python engineering/scripts/ci_scope.py gate --tier '${{ needs.scope.outputs.tier }}' --stage summary
       - uses: actions/download-artifact@v8
-        if: needs.scope.outputs.tier != 'docs'
+        if: needs.scope.outputs.tier != 'docs' && matrix.python == '3.13'
         with:
           pattern: test-reports-${{ matrix.os }}-py${{ matrix.python }}-fast-*
           path: .cache/ci-shards
       - uses: actions/download-artifact@v8
-        if: needs.scope.outputs.tier == 'full'
+        if: needs.scope.outputs.tier == 'full' && matrix.python == '3.13'
         with:
           pattern: native-dependencies-${{ matrix.os }}-py${{ matrix.python }}-shard-*
           path: .cache/ci-shards
@@ -95,16 +95,19 @@ jobs:
         if: needs.scope.outputs.tier != 'docs'
         env:
           CI_TIER: ${{ needs.scope.outputs.tier }}
+          PYTHON_VERSION: ${{ matrix.python }}
         run: |
-          if [[ "$CI_TIER" == full ]]; then
-            coverage=(--covered-by .cache/ci-shards/native-dependencies-${{ matrix.os }}-py${{ matrix.python }}-shard-*/native-manifest)
-          else
-            coverage=(--omit-modules tests/python/native/_ci_suite.txt)
+          shards=()
+          if [[ "$PYTHON_VERSION" == 3.13 ]]; then
+            shards=(.cache/ci-shards/test-reports-${{ matrix.os }}-py3.13-fast-{0,1}/fast-manifest)
+            if [[ "$CI_TIER" == full ]]; then
+              shards+=(--covered-by .cache/ci-shards/native-dependencies-${{ matrix.os }}-py3.13-shard-*/native-manifest)
+            else
+              shards+=(--omit-modules tests/python/native/_ci_suite.txt)
+            fi
           fi
-          python engineering/scripts/check_ci_shards.py \
-            .cache/ci-shards/test-reports-${{ matrix.os }}-py${{ matrix.python }}-fast-0/fast-manifest \
-            .cache/ci-shards/test-reports-${{ matrix.os }}-py${{ matrix.python }}-fast-1/fast-manifest \
-            "${coverage[@]}" --bo-report .cache/ci-shards/bo --integration-report .cache/ci-shards/integration
+          python engineering/scripts/check_ci_shards.py "${shards[@]}" \
+            --bo-report .cache/ci-shards/bo --integration-report .cache/ci-shards/integration
 
   result-build:
     needs: scope

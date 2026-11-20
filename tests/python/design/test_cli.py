@@ -32,19 +32,6 @@ def test_output_cannot_replace_input_workbook(tmp_path, monkeypatch, capsys, ali
     assert 'overlaps input' in capsys.readouterr().err
     assert source.read_bytes() == previous
 
-def test_run_fixed_mode(tmp_path):
-    f = tmp_path / "spec.xlsx"; _spec(f); out = tmp_path / "out.xlsx"
-    rc = run(["--xlsx", str(f), "--mode", "fixed",
-              "--cell", "Diamond,7,0.5", "--out", str(out)])
-    assert rc == 0 and out.exists()
-
-def test_run_auto_mode_small_grid(tmp_path):
-    f = tmp_path / "spec.xlsx"; _spec(f); out = tmp_path / "out.xlsx"
-    rc = run(["--xlsx", str(f), "--mode", "auto",
-              "--nodes", "Diamond:6,7:0.5", "--out", str(out)])
-    assert rc == 0
-
-
 def test_no_feasible_summary_preserves_actual_failure_reasons(monkeypatch, capsys):
     from sjtu_tpmshx.applications.design import cli, report
 

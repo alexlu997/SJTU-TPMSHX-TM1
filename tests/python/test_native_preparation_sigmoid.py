@@ -76,13 +76,14 @@ def _configuration(topology='Gyroid', *, constant=False):
 
 def _raw_tables(topology, cells, walls, resolution):
     """Scan the frozen voxel field; no production geometry supplies these values."""
-    phi = geometry_reference._phi_grid(topology, resolution)
+    absolute = np.abs(geometry_reference._phi_grid(topology, resolution))
     epsilon, area = (np.empty((len(cells), len(walls))) for _ in range(2))
     for i, cell in enumerate(cells):
         for j, wall in enumerate(walls):
             threshold = geometry_reference._C_from_tL(topology, wall / cell)
-            epsilon[i, j] = geometry_reference._eps_from_C(phi, threshold)
-            area[i, j] = geometry_reference._A0_from_C(phi, threshold, cell / 1000., resolution)
+            solid = absolute <= threshold
+            epsilon[i, j] = 1. - solid.mean()
+            area[i, j] = geometry_reference._area_from_solid(solid, cell / 1000., resolution)
     return epsilon, area
 
 

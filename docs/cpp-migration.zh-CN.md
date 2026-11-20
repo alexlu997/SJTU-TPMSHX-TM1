@@ -107,6 +107,7 @@ application 与 full CI 层级均构建完整原生 pilot。
 产物包含四个原生库和 SDK 对照样本。
 原生与 BO 作业在各自平台构建完成后启动，并使用本次构建产物。
 完整 CI 的 Python 3.13 原生分片运行阶段测试，包括其中的长测。
+Windows/Python 3.12 使用相同原生构建执行真实模块集成、检查点续算、渲染和 BO。
 仅涉及显示层的 application 层级将阶段快测与其他应用测试一同运行。
 Linux 结果库构建在两个层级都运行独立结果核测试。
 完整计算仍限于 macOS arm64 与 Windows x64；独立 Linux 结果评估范围见下文。
@@ -521,7 +522,7 @@ TPMSHX_REQUIRE_CPP_TESTS=1 TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1 \
 
 所有显式 `TPMSHX_TRUE_H_KERNEL` 覆盖均已退役，包括 `numba` 和 `cpp_sweeps_v1`。已保存准备态请求在流动执行前被拒绝；删除覆盖后使用原生执行。环境快照保留该键仅为明确拒绝。新 Case 不再捕获 `TPMSHX_THERMAL_LIBRARY`，原生库选择属于 `RunControl`。旧结果可在不加载求解库时读取，历史 Python `sweep_kernel` 和 `energy_audit` 记录保留原含义。
 
-必需标志使缺少编译器或依赖组件成为资格检查失败。可选本地组件测试可以跳过缺失组件，但跳过不代表原生验收。macOS 3.13 和 Windows 3.12/3.13 CI 要求原生资格；本机通过不证明 Windows 分发验收。测试不安装编译器或 Python 依赖。
+必需标志使缺少编译器或依赖组件成为资格检查失败。可选本地组件测试可以跳过缺失组件，但跳过不代表原生验收。macOS 和 Windows 使用 Python 3.13 执行原生资格；本机通过不证明 Windows 分发验收。测试不安装编译器或 Python 依赖。
 
 原生焓 sweep 测试保留固定随机字段、有符号／零面流量、非均匀网格、六方向、单单元轴、零对角元、裁剪与修改前拒绝。独立检查覆盖等温压力相关焓、指数冷却、一阶网格收敛以及边界／源能量平衡。零变化参考保留 `atol=2e-8 J/kg` 和 `atol=2e-11 K`；裁剪次数不超过计费 sweep 预算。原生构建不启用 fast-math。这些检查验证数值算子，不证明 sCO2 实验预测或应用加速。
 
@@ -580,7 +581,7 @@ SuperLU 调用采用纯 C 错误边界和线程局部分配账本。分配失败
 
 SIMPLE 接口持有逐实例压力缓存，并保留原 F2、出口、热启动状态和原始质量证据。这些可独立调用驱动也支撑上述完整二维／三维外耦合后端。macOS SuperLU 构建使用锁定 SciPy 参考所用的系统 Accelerate BLAS，并为二维 SIMPLE 保留原 CSR／转置 LU 运算顺序。Windows 使用锁定可移植 CBLAS 源码，由必需原生 CI 执行。动量串行循环不表示 BLAS 单线程；线程策略和测得性能须分别记录。
 
-`native-dependencies` CI 在 macOS/Python 3.13 和 Windows/Python 3.12/3.13 构建并执行这些调用方与必需测试。可执行文件缺失会使必需作业失败。可选本地组件测试可以跳过未构建组件，但不能据此声明原生资格。两平台均有真实必需 CI 通过记录；证据仅覆盖其构建与工况。
+CI 在 macOS 和 Windows 使用 Python 3.13 构建并执行这些调用方与必需的原生测试。可执行文件缺失会使必需作业失败。可选本地组件测试可以跳过未构建组件，但不能据此声明原生资格。两平台均有真实必需 CI 通过记录；证据仅覆盖其构建与工况。
 这些记录只证明所记录构建与工况的结果。
 
 <a id="remaining-stages-and-acceptance-gates"></a>

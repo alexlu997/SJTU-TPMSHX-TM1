@@ -693,17 +693,17 @@ export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_TH
 
 PowerShell 使用同样的 pytest 参数，以 `$env:变量名=值` 设置上述环境变量，
 并以 `& $tm1Python` 调用解释器。测试前必须提供匹配的原生库。
-CI 快测按完整模块分到两个独立 runner，每片固定两个 worker。
+macOS 和 Windows 的 Python 3.13 快测按完整模块分到两个独立 runner，每片固定两个 worker。
 `fast-0` 使用 `load --maxschedchunk=1`，减少长耗时尺寸设计测试后方排队的工作；`fast-1` 使用 `worksteal`。
-每个 worker 的 BLAS/OMP 单线程。`fast-1` 的两个 worker 结束后，同一作业串行执行完整 integration。
-集成测试使用独立 pytest 进程、manifest 和 JUnit 报告；快测失败后仍执行，取消工作流时停止。
-三个平台/Python 组合分别复用各自环境，减少三个作业及其重复安装。
+每个 worker 的 BLAS/OMP 单线程。Windows 集成测试在本平台构建后与快测并行。
+macOS 在 `fast-0` 中单独运行集成进程，共用 runner。两平台的集成报告独立保存。
+Windows/Python 3.12 跑完整集成和 [兼容性用例](tests/python/_ci_windows_312.txt)，包括实际渲染和二维、三维续算。
 CI 在独立 Qt 进程中渲染真实 3D 体场，检查字段切换、PNG 解码、缩放图像、应用导出及关闭。
 macOS 使用 Cocoa；Windows 使用固定版本的 Mesa OpenGL 软件渲染。
 macOS arm64 托管机若检测到 `Apple Software Renderer`，该像素检查明确跳过。
 [PyVistaQt 记录了此环境的渲染限制](https://github.com/pyvista/pyvistaqt/blob/v0.13.1/pyvistaqt/rwi.py)。
 实体 Mac 的完整像素检查仍是图形依赖变更的本地验收项。
-快测 artifact 保留 OpenGL 信息、进程日志，以及成功生成的 PNG 和渲染报告。
+包含此测试的 artifact 保留 OpenGL 信息、进程日志，以及成功生成的 PNG 和渲染报告。
 实体 Windows 显示器的桌面验收仍单独记录。
 
 现有测试辅助脚本继续保留；`run_tests_fast.ps1` 只提供开发反馈，
@@ -724,21 +724,20 @@ GitHub workflow 使用 checkout v7、setup-python v7、upload-artifact v7，
 采集函数）。基础作业仍使用不含 BO 的锁，覆盖可选依赖缺失时的行为。
 BO 作业上传 JUnit 与完整收集 manifest，保留 7 天，不上传求解数据或虚拟环境。
 
-PR 按 [明确的路径清单](engineering/scripts/ci_scope.py) 选择检查层级：
+PR 和 main 推送按 [明确的路径清单](engineering/scripts/ci_scope.py) 选择检查层级：
 
-- `docs`：仅根目录 README、AGENTS 和 `docs/` 下的 Markdown。检查本地链接、锚点和具体项目模块命令。
-- `application`：仅指定界面显示、布局模块、图标及对应测试，可包含文档。保留两平台构建、应用、集成、BO 与真实文件后处理检查。
+- `docs`：仅根目录 README、AGENTS 和 `docs/` 下的非契约 Markdown。检查本地链接、锚点和具体项目模块命令。
+- `application`：仅用于 PR，覆盖指定界面显示、布局模块、图标及对应测试，可包含文档。保留两平台构建、应用、集成、BO 与真实文件后处理检查。
 - `full`：求解器、模型、公共接口、依赖、工作流和所有未列出的路径。运行完整矩阵。
 
-main 和手动触发始终使用 `full`。重命名同时检查旧、新路径；未知或空的变更集合使用完整矩阵。
-完整矩阵有 31 个作业，包含独立 Linux 结果库构建。较轻 PR 层级不能作为完整 CI 耗时或数值研究验收。
+main 推送中仅纯文档变更使用 `docs`，手动触发始终使用 `full`。重命名同时检查旧、新路径，未知或空的变更集合使用完整矩阵。
+完整矩阵有 27 个作业，包含独立 Linux 结果库构建。较轻层级不能作为完整 CI 耗时或数值研究验收。
 物理变更仍须完成其要求的扩展数值研究；常规 CI 不替代该证据。
 
 `pyproject.toml` 的 `[tool.mypy].files` 显式列出 19 个类型检查文件：覆盖配置、控制器、CLI、统一工作流、当前
 envelope 实现、三模块数据契约与公共 API、后处理指标入口；已删除的转发模块不再列入。
 `pyproject.toml` 还对四个边界实现模块启用无注解函数体检查；这不等于全求解器严格类型覆盖。
-`test_type_gate.py` 在 pytest 快测中执行同一清单，并确认错误类型不能传入三个公共 API 及两个工作流入口；
-上面的 mypy 命令用于本地单独检查，CI 不另加重复步骤。
+`test_type_gate.py` 在 pytest 快测中执行同一清单。上面的 mypy 命令用于本地单独检查。
 
 第一条 pytest 排除了 slow/heavy 和 `integration_tm1`，第二条单独完整执行该集成目录，
 避免重复执行其中的快测成员；两者不能代替第三条完整本地验收。
@@ -766,18 +765,18 @@ envelope 实现、三模块数据契约与公共 API、后处理指标入口；�
 
 原生分片必须按编号顺序传入。若本地不使用 `--ci-covered-modules`，仍可单独核对两个完整快测分片。
 
-原生资格检查在 macOS 分为三片，在每个 Windows/Python 组合分为五片。
+Python 3.13 原生资格检查在 macOS 分为三片，在 Windows 分为六片。
 每片使用两个 worker 和 `loadscope`，将同一模块或类保留在同一 worker。
 分组依据完整矩阵的实测用例耗时。保守能量测试按共享 fixture 参数分组，
 同组的收敛、物性、能量账本和真实回放检查保持在同片。其他模块保留共享 fixture；
 独立工程用例与二维检查点用例可按完整 node ID 分组。
 分组清单位于 `tests/python/native/`：macOS 使用 `_ci_macos_shard0.txt` 至 `_ci_macos_shard1.txt`，
-Windows 使用 `_ci_windows_shard0.txt` 至 `_ci_windows_shard3.txt`。
+Windows 使用 `_ci_windows_shard0.txt` 至 `_ci_windows_shard4.txt`。
 按编号顺序将每份清单通过 `--ci-shard-modules=<清单路径>` 重复传入。
-未列出的用例自动进入最后一片，即 macOS 分片 2 或 Windows 分片 4。
+未列出的用例自动进入最后一片，即 macOS 分片 2 或 Windows 分片 5。
 按编号向同一集合校验器传入全部 manifest，核对其完整且互斥；每片必须有 `gw0`、`gw1` 两份记录。
 `--serial` 仅用于本地串行测试的 `controller` 记录。
-三个平台/Python 组合保持不变。原生工程用例保留逐侧物理模型、收敛及能量门槛。
+原生工程用例保留逐侧物理模型、收敛及能量门槛。二维适配对照用有限迭代比较字段、指标和回调。
 原生组同时设置 `TPMSHX_REQUIRE_CPP_TESTS=1` 和 `TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1`；
 缺少编译器或原生库必须失败。原有线程并发、进程恢复和结果所有权测试仍在原生组执行。
 Python 数值对照迁移为独立公式／离散账本、制造解、组件重放及固定历史参考；
@@ -786,14 +785,15 @@ Python 数值对照迁移为独立公式／离散账本、制造解、组件重�
 每个平台调用 [原生工作流](.github/workflows/native.yml)，用 Python 3.13 构建一次原生库并运行独立 C/C++ 调用程序。
 application 和 full tier 均构建完整 pilot。归档包含求解库、几何库、准备库、结果库和 SDK 对照样本。
 结果库通过独立 `build --component result` 构建，再与其余库一起执行完整验证。
+完整 SDK 检查编译全部 C++ 示例，执行有代表性的前处理、求解、续算和后处理路径。
 BO 恢复本轮同平台归档中的几何库、准备库和结果库，与该平台的其他回归并行。
-原生库不链接 Python 运行时。macOS 使用 Python 3.13 测试；Windows 保留 Python 3.12 和 3.13 两套测试。
+原生库不链接 Python 运行时。Windows 两个 Python 版本测试同一构建。
 分片在本平台构建完成后启动，不等待其他平台。原生、快测和集成测试共同使用本轮工作流及源码产生的
 `native-build-<平台>` artifact。归档保留可执行权限，包含运行库、调用程序和许可声明。
 CoolProp 精确缓存键绑定平台、架构、Python 3.13、托管工具链镜像版本、原生依赖锁和构建脚本。
 项目 C++ 和模型系数每轮重新构建；缓存命中仍须完成独立调用验证。
 构建日志单独保存在 `native-build-logs-<平台>`。
-每片上传 `native-dependencies-<平台>-py<版本>-shard-<编号>`，macOS 编号为 0–2，Windows 为 0–4，
+每片上传 `native-dependencies-<平台>-py<版本>-shard-<编号>`，macOS 编号为 0–2，Windows 为 0–5，
 包含 JUnit 和 `native-manifest`。以上 artifact 均保留 7 天。
 原生日志保留最慢 20 项和 skip 原因。
 
@@ -805,6 +805,7 @@ manifest 附带各 pytest 进程的独立 RSS 峰值；
 `docs` 只允许明确跳过运行时作业；文档检查必须成功。其他层级要求构建、应用、集成、BO 和后处理成功。
 `full` 必须通过完整原生覆盖；`application` 只允许省略原生模块清单中的精确路径，其他遗漏均失败。
 各平台/Python 汇总还要求对应 BO 和集成报告、成功收集记录及完整测试计数。
+Windows/Python 3.12 汇总以这两份报告检查兼容性。
 BO 不允许跳过测试；集成允许已记录的单项跳过，但全跳过必须失败。
 未预期的失败、取消、跳过、缺失报告或覆盖缺口均不能放行。
 `minimal-postprocess` 继续作为独立必需检查；在 `docs` 层级只核对预期作业结果。

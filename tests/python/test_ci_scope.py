@@ -5,7 +5,8 @@ from engineering.scripts.ci_scope import require_jobs, select_scope
 
 
 @pytest.mark.parametrize('event,paths,expected', [
-    ('push', ['README.md'], 'full'),
+    ('push', ['README.md'], 'docs'),
+    ('push', ['python/applications/gui/ui/theme.py', 'docs/desktop.md'], 'full'),
     ('workflow_dispatch', ['README.md'], 'full'),
     ('pull_request', [], 'full'),
     ('pull_request', ['README.md', 'docs/architecture.md'], 'docs'),
@@ -54,7 +55,8 @@ def test_gate_rejects_unknown_tier():
         require_jobs('unknown', {}, 'summary')
 
 
-def test_rename_from_code_to_docs_still_requires_full_ci(tmp_path):
+@pytest.mark.parametrize('event', ['pull_request', 'push'])
+def test_rename_from_code_to_docs_still_requires_full_ci(tmp_path, event):
     from pathlib import Path
     import subprocess
     import sys
@@ -73,6 +75,6 @@ def test_rename_from_code_to_docs_still_requires_full_ci(tmp_path):
     git('mv', 'model.py', 'README.md')
     git('commit', '-qm', 'Move source')
     result = subprocess.check_output(
-        [sys.executable, '-S', str(script), 'select', '--event', 'pull_request',
+        [sys.executable, '-S', str(script), 'select', '--event', event,
          '--base', base, '--head', git('rev-parse', 'HEAD')], cwd=tmp_path, text=True)
     assert result.strip() == 'full'

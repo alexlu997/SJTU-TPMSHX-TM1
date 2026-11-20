@@ -94,9 +94,15 @@ def _assert_exact(preparation_library, stage_library, config, tmp_path, request=
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize('pair', uniform._STAGE_PAIRS)
+@pytest.mark.parametrize('pair', [
+    pytest.param(('air', 'air'), id='air-air'),
+    pytest.param(('air', 'water'), id='air-water'),
+    pytest.param(('sco2', 'co2'), id='sco2-co2'),
+])
 def test_continuous_stage_exact(preparation_library, stage_library, pair, tmp_path):
-    _assert_exact(preparation_library, stage_library, _configuration(pair), tmp_path)
+    config = _configuration(pair)
+    request = None if pair == ('air', 'air') else uniform._parity_request(config)
+    _assert_exact(preparation_library, stage_library, config, tmp_path, request)
 
 
 @pytest.mark.slow
@@ -128,7 +134,7 @@ def test_continuous_stage_selected(preparation_library, stage_library, selection
         config = preparation._configuration(mode='experimental')
         config.flags.port_wall_refine = False
         config.fluid_A.T_in_K += 10.
-    _assert_exact(preparation_library, stage_library, config, tmp_path)
+    _assert_exact(preparation_library, stage_library, config, tmp_path, uniform._parity_request(config))
 
 
 def test_continuous_stage_storage_and_cancel(preparation_library, stage_library):

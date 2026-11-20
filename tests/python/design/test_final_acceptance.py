@@ -34,6 +34,11 @@ def test_final_case_controls_feasibility_and_report(monkeypatch, change, reason)
     monkeypatch.setattr(sizing, 'dP_fracs', lambda *a, **kw: (.01, .01))
     d = sizing.size_fixed_cell([condition], 'Diamond', 6., .4)
     assert d.feasible is (not reason)
+    if d.feasible:
+        light = sizing.size_fixed_cell([condition], 'Diamond', 6., .4, rho_s=2700.)
+        assert light.feasible and light.V == d.V
+        assert d.weight == pytest.approx(.3 * d.V * 7900.)
+        assert light.weight == pytest.approx(.3 * d.V * 2700.)
     assert reason in d.reason
     tags = pareto_tags([d])
     assert bool(tags) is (not reason)

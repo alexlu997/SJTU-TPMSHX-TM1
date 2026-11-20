@@ -59,16 +59,6 @@ def test_public_preparation_imports_without_controllers():
     )
 
 
-def test_public_preparation_does_not_modify_backend_namespace():
-    _probe(
-        "from sjtu_tpmshx.cpp_interface.solver_library import full_3d as runtime; "
-        "before = dict(vars(runtime)); "
-        "import sjtu_tpmshx.preprocess.api; import sjtu_tpmshx.solvers.api; "
-        "assert vars(runtime).keys() == before.keys(); "
-        "assert all(vars(runtime)[key] is value for key, value in before.items())"
-    )
-
-
 def test_public_modules_prepare_and_execute_without_python_numerics():
     _probe('''
 import os

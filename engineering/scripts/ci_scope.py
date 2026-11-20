@@ -28,13 +28,14 @@ def document(path):
 
 
 def select_scope(event, paths):
-    if event != 'pull_request' or not paths:
+    if event not in {'pull_request', 'push'} or not paths:
         return 'full'
     if all(document(path) for path in paths):
         return 'docs'
-    if all(document(path) or path in DISPLAY_FILES
-           or path.startswith('python/applications/gui/ui/assets/icons/')
-           and PurePosixPath(path).suffix == '.svg' for path in paths):
+    if event == 'pull_request' and all(
+            document(path) or path in DISPLAY_FILES
+            or path.startswith('python/applications/gui/ui/assets/icons/')
+            and PurePosixPath(path).suffix == '.svg' for path in paths):
         return 'application'
     return 'full'
 
@@ -66,11 +67,12 @@ def main():
     args = parser.parse_args()
     if args.action == 'select':
         paths = []
-        if args.event == 'pull_request':
-            paths = subprocess.check_output(
+        if args.event in {'pull_request', 'push'} and args.base.strip('0') and args.head:
+            diff = subprocess.run(
                 ['git', 'diff', '--name-only', '--no-renames', '-z',
-                 args.base, args.head, '--'], text=True).split('\0')
-            paths = [path for path in paths if path]
+                 args.base, args.head, '--'], capture_output=True, text=True)
+            if diff.returncode == 0:
+                paths = [path for path in diff.stdout.split('\0') if path]
         print(select_scope(args.event, paths))
     else:
         require_jobs(args.tier, json.loads(os.environ['NEEDS_JSON']), args.stage)

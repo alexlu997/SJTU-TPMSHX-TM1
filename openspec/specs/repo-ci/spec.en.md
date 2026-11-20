@@ -16,14 +16,18 @@ Installation MUST use the common exact lock referenced by `requirements.txt`.
 | Tier | Permitted change | Required work |
 | --- | --- | --- |
 | docs | Only the declared documentation paths | Document links, project commands, and all four summary gates with explicit skipped-job expectations |
-| application | Only declared display files, icons, and documentation | Platform application tests, real module integration, BO, minimal postprocessing, and the matching native build |
-| full | Other or mixed changes; all main pushes and manual runs | All application work plus complete native dependency qualification on the supported platform/Python matrix |
+| application | Only PRs with declared display files, icons, and documentation | Platform application tests, real module integration, BO, minimal postprocessing, and the matching native build |
+| full | Other or mixed changes, main pushes with code changes, and manual runs | All application work and complete native qualification on each platform with Python 3.13 |
 
-With `PYTHONHASHSEED=0`, fast tests use `-m "not slow and not heavy"`, exclude `integration_tm1`, and run with `-n 2`.
+Main pushes with only declared documentation paths use the docs tier. Unknown or empty changes use full CI.
+
+With `PYTHONHASHSEED=0`, Python 3.13 fast tests use `-m "not slow and not heavy"`, exclude `integration_tm1`, and run with `-n 2`.
 `fast-0` uses `--dist load --maxschedchunk=1`; `fast-1` uses `--dist worksteal`.
 The existing `ci_shard` plugin splits them into two independent jobs.
-The `fast-1` job then runs all `tests/python/integration_tm1/` tests in a separate pytest process, without marker filtering.
-It MUST retain separate fast and integration reports. A fast-test failure MUST NOT suppress integration unless the job is cancelled.
+Each integration process runs all `tests/python/integration_tm1/` tests without marker filtering.
+On Windows/Python 3.12, integration also runs the rendering and resume cases in `tests/python/_ci_windows_312.txt`.
+Windows integration runs in separate jobs. macOS integration uses the `fast-0` runner.
+Fast tests and integration MUST produce separate reports after the platform build.
 Routine Qt tests use offscreen mode with the 3D panel disabled.
 Actual rendering uses a separate native Qt process; its platform requirements and evidence limits are documented in the root README.
 CI MUST NOT depend on ignored local data assets.
@@ -31,7 +35,7 @@ CI MUST NOT depend on ignored local data assets.
 Fast jobs MUST use two workers and one BLAS/OMP/MKL/NumExpr thread. Each job MUST report its 30 slowest tests and skip reasons. JUnit XML MUST record individual statuses and durations. Test report artifacts stay available for 7 days.
 
 Uploads cover reports, collection/shard lists, and resource records under `.cache/ci/`. They exclude native solver results and local data. The shared `tests/python/native/_ci_suite.txt` list MUST select native qualification modules. In full CI, Python 3.13 native shards also run `tests/python/native/_ci_stage_suite.txt`, including slow tests. Application shards MUST transfer these modules and keep the original full collection. New modules outside the lists MUST enter application tests.
-The application tier allows omissions only for the shared native list. Fast stage cases stay in the application shards. Linux result builds run the independent numerical comparisons. Native shards and BO jobs start after their own platform build. Each platform summary MUST check complete, disjoint native shards. It MUST then check that application and native coverage is complete and has no overlap. It MUST require successful test shards, integration, BO, and native dependency qualification jobs.
+The application tier allows omissions only for the shared native list. Fast stage cases stay in the application shards. Linux result builds run the independent numerical comparisons. Native shards and BO jobs start after their own platform build. Python 3.13 summaries MUST check complete and disjoint native shards and application coverage. Each summary MUST require its integration and BO reports. Windows/Python 3.12 uses these reports for compatibility.
 
 Platform fast tests, real integration, and minimal postprocessing gates stay required. The four required checks are macOS 3.13, Windows 3.12, Windows 3.13, and minimal-postprocess. Speed improvements MUST NOT change numerical assertions or tolerances. Base and BO jobs MUST use the same platform/Python matrix. Both Windows versions use engineering/requirements/bo-windows.txt.
 
@@ -45,10 +49,10 @@ Platform fast tests, real integration, and minimal postprocessing gates stay req
 - **AND** tests for concurrent threads, process recovery, and result ownership stay in native shards with unchanged assertions
 
 #### Scenario: Native dependencies are independently qualified
-- **WHEN** native dependency jobs run on macOS/Python 3.13 or Windows/Python 3.12 and 3.13
+- **WHEN** native dependency jobs run on macOS or Windows with Python 3.13
 - **THEN** one build job per platform fetches pinned source and CMake from `engineering/native_build/dependencies-lock.toml` and builds offline.
   Qualification jobs use its matching native artifacts and execute independent EOS/pressure, Quick Design, true-h, model-h, and SIMPLE callers.
-  The Windows Python 3.12 and 3.13 jobs independently qualify the same platform build. Independent formulas, discrete balances, manufactured solutions, component replay, and fixed historical references check complete drivers and public C interfaces. `TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1` and `TPMSHX_REQUIRE_CPP_TESTS=1` make missing compilers, executables, or libraries failures. Skips cannot substitute for acceptance.
+  Independent formulas, discrete balances, manufactured solutions, component replay, and fixed historical references check complete drivers and public C interfaces. `TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1` and `TPMSHX_REQUIRE_CPP_TESTS=1` make missing compilers, executables, or libraries failures. Skips cannot substitute for acceptance.
 - **AND** only the independent native job builds dependencies. Ordinary fast shards do not rebuild them. Uploads include build logs and qualification XML. They exclude source archives, property tables, and local experimental data.
 
 #### Scenario: CI green on a clean main
@@ -85,11 +89,7 @@ Root `pyproject.toml` MUST use `[tool.pytest.ini_options]` to set `testpaths = t
 - **THEN** pytest reports a collection error
 
 ### Requirement: Public interface type gate
-The `[tool.mypy].files` setting in `pyproject.toml` MUST explicitly list public interfaces and data contracts. The list includes the current envelope implementation, three-module APIs, data objects, and compatibility entries with active consumers. `pyproject.toml` MUST enable checking of unannotated bodies for envelope, preprocessing API, solver API, postprocessing API, and postprocessing metrics. This does not claim strict type coverage for all solvers. `test_type_gate.py` MUST check the list in fast tests. It MUST verify that `prepare_case`, `run_case`, and `evaluate` reject incorrect input types. CI MUST NOT add a duplicate mypy step.
-
-#### Scenario: Wrong public input types are rejected
-- **WHEN** mypy checks calls that pass strings to the three public APIs instead of their data objects
-- **THEN** all three calls report argument type errors. Actual code in the list must still have zero errors.
+The `[tool.mypy].files` setting in `pyproject.toml` MUST explicitly list public interfaces and data contracts. The list includes the current envelope implementation, three-module APIs, data objects, and compatibility entries with active consumers. `pyproject.toml` MUST enable checking of unannotated bodies for envelope, preprocessing API, solver API, postprocessing API, and postprocessing metrics. `test_type_gate.py` MUST check the listed project code in fast tests. CI MUST NOT add a duplicate mypy step.
 
 ### Requirement: Parallel local gate
 The complete local gate MUST support `pytest tests/python/ -q -n auto --dist loadscope`. Before Python starts, set `PYTHONHASHSEED=0` and single-threaded BLAS/OMP. Local documentation defaults to `--dist loadscope`. Worker count can be fixed to suit resources. Existing 128-core server scripts keep worksteal. The [root README](../../../README.en.md#环境与检查) defines the interpreter, environment checks, and full command. The common dependency lock includes pytest-xdist.

@@ -102,12 +102,14 @@ def _render_panel(destination):
 
 @pytest.mark.skipif(sys.platform not in ('darwin', 'win32'),
                     reason='Actual native Qt rendering requires a supported desktop platform')
-def test_actual_volume_scaled_screenshot_and_application_export():
+def test_actual_volume_scaled_screenshot_and_application_export(pytestconfig):
     platform = 'cocoa' if sys.platform == 'darwin' else 'windows'
     environment = {**os.environ, 'QT_QPA_PLATFORM': platform, 'PYVISTA_OFF_SCREEN': 'false'}
     if sys.platform == 'win32':
         environment['QT_OPENGL'] = 'desktop'
-    output = Path('.cache/ci/fast/render').resolve()
+    report = pytestconfig.getoption('xmlpath')
+    directory = Path(report).resolve().parent if report else Path('.cache/ci/fast').resolve()
+    output = directory / 'render'
     output.mkdir(parents=True, exist_ok=True)
     with (output / 'process.log').open('w') as log:
         result = subprocess.run(
