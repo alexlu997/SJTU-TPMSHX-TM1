@@ -1,5 +1,4 @@
 """Build immutable 3D CaseData from the owned native preparation stage."""
-from contextlib import ExitStack
 from copy import deepcopy
 import ctypes as ct
 from dataclasses import asdict, replace
@@ -288,8 +287,7 @@ def _resolved(config, flow, targets):
     return replace(config, **fluids).validate(resolved_inlet_speeds=True) if fluids else config
 
 
-def _execute(config, action, *, targets=None, case_id=None, own_metadata=False):
-    from sjtu_tpmshx.preprocess import api
+def _execute(config, action, *, targets=None, case_id=None, start_observations=None):
     from sjtu_tpmshx.run_control.run_environment import _resolve_chi_s
     source = _input(config, targets, action)
     chi_error = None
@@ -301,66 +299,63 @@ def _execute(config, action, *, targets=None, case_id=None, own_metadata=False):
     options = native._Options(1, ct.sizeof(native._Options), chi is not None, allow, chi or 0.)
     cache = common.PreparationCacheBridge(config, chi_error)
     context = {'extrap_reasons': cache.extrap_reasons}
-    with ExitStack() as scopes:
-        if own_metadata:
-            context['provenance'] = api.source_context()
-            context['records'] = scopes.enter_context(api.warning_scope({}))
+    if start_observations is not None:
+        start_observations()
 
-        def host_input(stage, side):
-            if stage == 10:
-                if 'co2' not in (config.fluid_A.type, config.fluid_B.type):
-                    hash((config.geometry.tpms, config.geometry.L_cell_mm, config.geometry.t_wall_mm, 128))
-                elif chi_error is not None:
-                    raise chi_error
-                if config.geometry.tpms not in ('Diamond', 'Gyroid'):
-                    from sjtu_tpmshx.physical_models import tpms_props, co2_correlations
-                    geometry_check = (co2_correlations.geometry if 'co2' in
-                        (config.fluid_A.type, config.fluid_B.type) else tpms_props.geometry)
-                    geometry_check(config.geometry.tpms, config.geometry.L_cell_mm,
-                                   config.geometry.t_wall_mm, config.geometry.k_s_W_mK)
-            elif stage == 11:
-                context['ports'] = {name: bc_to_dict(getattr(config, 'bc_' + name),
-                    config.geometry.L_dom_m, config.geometry.H_dom_m, side='A', with_z=True) for name in 'AB'}
-            elif stage == 12:
-                from sjtu_tpmshx.cpp_interface._native_preparation_case import validate_fluid_type
-                for name in 'AB':
-                    validate_fluid_type(getattr(config, 'fluid_' + name).type, name)
-                if config.zones.enabled and config.zones.axis not in ('continuous', 'grid'):
-                    raise NotImplementedError('3D zones support grid or continuous mode only')
-            elif stage == 13:
-                if 'grid' in source._errors:
-                    raise source._errors['grid']
-                if action == 'prepare_flow_case':
-                    context['environment'] = capture_environment()
-            elif stage == 14:
-                if 'cap' in source._errors:
-                    raise source._errors['cap']
-                if source._cell_cap < 0:
-                    shape = config.solver.Nx, config.solver.Ny, config.solver.Nz
-                    raise ValueError(f'3D grid {shape[0]}x{shape[1]}x{shape[2]} exceeds the {source._cell_cap}-cell cap')
-            elif stage == 15:
-                from sjtu_tpmshx.physical_models.roughness import resolve_mode_from_env
-                mode, eps_um = resolve_mode_from_env(default='norris_1a')
-                context['roughness'] = {'mode': mode, 'eps_m': eps_um * 1e-6}
-            elif stage == 16:
-                if 'cells' in source._errors:
-                    raise source._errors['cells']
-            elif stage in (17, 18, 19):
-                key = 'count' + str(stage - 17)
-                if key in source._errors:
-                    raise source._errors[key]
-            else:
-                raise RuntimeError(f'unknown 3D preparation host stage {stage}')
+    def host_input(stage, side):
+        if stage == 10:
+            if 'co2' not in (config.fluid_A.type, config.fluid_B.type):
+                hash((config.geometry.tpms, config.geometry.L_cell_mm, config.geometry.t_wall_mm, 128))
+            elif chi_error is not None:
+                raise chi_error
+            if config.geometry.tpms not in ('Diamond', 'Gyroid'):
+                from sjtu_tpmshx.physical_models import tpms_props, co2_correlations
+                geometry_check = (co2_correlations.geometry if 'co2' in
+                    (config.fluid_A.type, config.fluid_B.type) else tpms_props.geometry)
+                geometry_check(config.geometry.tpms, config.geometry.L_cell_mm,
+                               config.geometry.t_wall_mm, config.geometry.k_s_W_mK)
+        elif stage == 11:
+            context['ports'] = {name: bc_to_dict(getattr(config, 'bc_' + name),
+                config.geometry.L_dom_m, config.geometry.H_dom_m, side='A', with_z=True) for name in 'AB'}
+        elif stage == 12:
+            from sjtu_tpmshx.cpp_interface._native_preparation_case import validate_fluid_type
+            for name in 'AB':
+                validate_fluid_type(getattr(config, 'fluid_' + name).type, name)
+            if config.zones.enabled and config.zones.axis not in ('continuous', 'grid'):
+                raise NotImplementedError('3D zones support grid or continuous mode only')
+        elif stage == 13:
+            if 'grid' in source._errors:
+                raise source._errors['grid']
+            if action == 'prepare_flow_case':
+                context['environment'] = capture_environment()
+        elif stage == 14:
+            if 'cap' in source._errors:
+                raise source._errors['cap']
+            if source._cell_cap < 0:
+                shape = config.solver.Nx, config.solver.Ny, config.solver.Nz
+                raise ValueError(f'3D grid {shape[0]}x{shape[1]}x{shape[2]} exceeds the {source._cell_cap}-cell cap')
+        elif stage == 15:
+            from sjtu_tpmshx.physical_models.roughness import resolve_mode_from_env
+            mode, eps_um = resolve_mode_from_env(default='norris_1a')
+            context['roughness'] = {'mode': mode, 'eps_m': eps_um * 1e-6}
+        elif stage == 16:
+            if 'cells' in source._errors:
+                raise source._errors['cells']
+        elif stage in (17, 18, 19):
+            key = 'count' + str(stage - 17)
+            if key in source._errors:
+                raise source._errors[key]
+        else:
+            raise RuntimeError(f'unknown 3D preparation host stage {stage}')
 
-        with three.operation(action, source, options, host_input, cache) as result:
-            flow = result.flow
-            if action == 'prepare_inlet_mass_capacities':
-                return {side: restore_buffer_scalar(flow.capacities[index]) for index, side in enumerate('AB')}
-            resolved = _resolved(config, flow, targets)
-            if action == 'resolve_inlet_flow':
-                return resolved
-            case = _case(result, resolved, case_id, context)
-            return api._finish_metadata(case, context['provenance'], context['records']) if own_metadata else case
+    with three.operation(action, source, options, host_input, cache) as result:
+        flow = result.flow
+        if action == 'prepare_inlet_mass_capacities':
+            return {side: restore_buffer_scalar(flow.capacities[index]) for index, side in enumerate('AB')}
+        resolved = _resolved(config, flow, targets)
+        if action == 'resolve_inlet_flow':
+            return resolved
+        return _case(result, resolved, case_id, context)
 
 
 def prepare_case(config: ComputeConfig, *, case_id: str):
@@ -370,11 +365,12 @@ def prepare_case(config: ComputeConfig, *, case_id: str):
     return _execute(config, 'prepare_flow_case', case_id=case_id)
 
 
-def prepare_mass_flow_case(config, targets, *, case_id):
+def prepare_mass_flow_case(config, targets, *, case_id, start_observations):
     config = deepcopy(config).validate_static_inputs()
     explicit = (tuple(targets[side] for side in 'AB')
                 if all(getattr(config, 'fluid_' + side).mass_flow_kg_s is None for side in 'AB') else None)
-    return _execute(config, 'prepare_flow_case', targets=explicit, case_id=case_id, own_metadata=True)
+    return _execute(config, 'prepare_flow_case', targets=explicit, case_id=case_id,
+                    start_observations=start_observations)
 
 
 def capacities(config):
