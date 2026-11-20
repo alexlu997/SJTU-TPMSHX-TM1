@@ -175,7 +175,8 @@ Python 三维准备现通过 `python/cpp_interface/_native_preparation_3d.py` �
 所有权和默认控制量见[原生三维执行](native-stages.zh-CN.md#原生三维执行)。
 Python 完整三维执行通过 `full_3d_stage.py` 使用保存输入生命周期。
 它与直接低层驱动共用输入打包、回调和完整 DTO 解码。
-原生捕获提供应用归约量及审计出口权重；`full_3d_capture.py` 仍是唯一结果组装器。
+原生捕获提供应用归约量和审计出口权重。
+`full_3d_stage.py` 发布现行结果，`full_3d_capture.py` 解码早期结果。
 协议在执行前选择；归档库保留直接运行与恢复接口，协议缺符号或原生失败不启动其他路线。
 host v5 通过共享 v9 回调描述符保留带类型的几何与入口缓存。
 Python 保留配置、缓存策略、警告、环境解析和不可变 CaseData 组装。

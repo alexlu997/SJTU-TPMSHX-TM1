@@ -196,7 +196,8 @@ Its capture owner supplies the independent result stage with final-flow and last
 See [native 3D execution](native-stages.md#native-3d-execution) for ownership and control defaults.
 Python full 3D execution uses the saved-input lifecycle through `full_3d_stage.py`.
 It shares input packing, callbacks and complete DTO decoding with the direct low-level driver.
-Native capture supplies the application reductions and audit outlet weights; `full_3d_capture.py` remains the single result assembler.
+Native capture supplies the application reductions and audit outlet weights.
+`full_3d_stage.py` publishes the current result. `full_3d_capture.py` decodes earlier results.
 Protocol selection precedes execution. Archived libraries retain their direct run and restore interfaces.
 Missing protocol symbols and native failures do not start another route.
 Host v5 keeps typed geometry and inlet caches through the shared v9 callback descriptor.

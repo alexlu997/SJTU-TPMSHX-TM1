@@ -334,6 +334,7 @@ def test_selected_controls_models_and_ports(selection, monkeypatch, tmp_path):
     parameters = mutable_data(case.parameters)
     parameters['_emit_audit'] = True
     if selection == 'model-controls':
+        parameters['prepared']['design'] = {'K_ss': 111.}
         monkeypatch.setenv('TPMSHX_PARALLEL_THRESHOLD', '1')
         parameters.update(outer_tol_K=.75, ltne_alpha_T=.65, simple_velocity_relaxation=.4,
             mom_tol=2e-4, mass_local_tol=3e-6, mass_global_tol=4e-6, T_s_init=335.,
@@ -361,6 +362,7 @@ def test_selected_controls_models_and_ports(selection, monkeypatch, tmp_path):
         _same(_normalized(getattr(actual, name)), _normalized(getattr(expected, name)), selection + '.' + name)
     for key in ('diagnostics', 'property_sampling', 'native', 'model_h_iterations', 'simple_velocity_relaxation'):
         _same(_normalized(actual.metadata.get(key)), _normalized(expected.metadata.get(key)), selection + '.' + key)
+    np.testing.assert_array_equal(actual.metadata['application']['coeffs']['K_ss'], actual.fields['K_ss'])
     save_result(actual, tmp_path / 'result.h5')
 
 
@@ -517,6 +519,8 @@ def test_applicability_transfer_error_releases_without_fallback(dimension, monke
     ('extrusion', 'xy extrusion'), ('model', 'unknown model resource'),
     ('nu_mode', 'Nu settings'), ('incomplete_nu', 'Nu settings'),
     ('reverse_wrap', 'reverse direction'),
+    ('strict_gate_and_convergence', 'must be real number, not str'),
+    ('retired_energy_and_mask', 'invalid native full enthalpy defaults request'),
 ])
 def test_saved_v2_rejects_inconsistent_inputs(fault, message):
     layout = 'xy' if fault == 'extrusion' else 'uniform'
@@ -525,6 +529,7 @@ def test_saved_v2_rejects_inconsistent_inputs(fault, message):
     params = mutable_data(case.parameters)
     design = mutable_data(case.design_fields)
     side = params['prepared']['axes']['A']
+    error = ValueError
     if fault == 'nan_mask':
         params['prepared']['openings']['A']['inlet'].flat[0] = np.nan
     elif fault == 'mask':
@@ -544,9 +549,16 @@ def test_saved_v2_rejects_inconsistent_inputs(fault, message):
         refs = list(case.model_refs)
         refs[0] = replace(refs[0], version='unknown')
         case = replace(case, model_refs=tuple(refs))
+    elif fault == 'strict_gate_and_convergence':
+        params.update(model_h_max_iterations=None, model_h_temperature_tol_K=None, model_h_q_relative_tol=None,
+                      ltne_enthalpy_coupled_energy_tol='bad', convergence_mode='legacy')
+        error = TypeError
+    elif fault == 'retired_energy_and_mask':
+        params['enthalpy_algorithm'] = 'temperature_fou'
+        params['prepared']['openings']['A']['inlet'].flat[0] = -.5
     else:
         design['L_field_m'][0, 0, 1] *= 1.01
-    with pytest.raises(ValueError, match=message):
+    with pytest.raises(error, match=message):
         run_case(replace(case, parameters=params, design_fields=design), control=_control())
 
 

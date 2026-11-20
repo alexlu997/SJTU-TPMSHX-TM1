@@ -28,7 +28,7 @@ from .solver_library._stage_capture_abi import (StageExecution, executed_inputs,
 from .solver_library._simple_abi import simple_count
 from .solver_library.closure_evidence import copy_nu_observation, copy_range_observations
 from .solver_library.enthalpy import (_EnergyOptions, _FullEnergyEffectiveSettings, _decode_update_scale,
-    _energy_native_state, _energy_options, _energy_result_info, _full_enthalpy_info)
+    _energy_native_state, _energy_options, _energy_result_info, _full_enthalpy_defaults, _full_enthalpy_info)
 from .solver_library.model_h import _IterationOptions, _decode_iteration_records, _iteration_options, _volume_info
 from .solver_library.simple_3d import _STOPS
 from ._native_preparation_case import borrow_array as _array, borrow_ranges as _ranges, borrow_text as _text
@@ -283,8 +283,21 @@ def validate_flow_options(cfg):
         raise ValueError('use_anderson=True in SIMPLE has been retired; disable TPMSHX_PHASE_B/use_anderson')
 
 
-def _request(cfg, prepared, shape, energy, model_h):
+def _request(cfg, energy, model_h):
     request = _Request(1, ct.sizeof(_Request))
+    request.energy = ct.pointer(_EnergyOptions(energy.algorithm, energy.temperature_update_tolerance))
+    if model_h is not None:
+        request.model_h = model_h
+    for target, source in (('energy_coupled_tolerance', 'ltne_enthalpy_coupled_energy_tol'),
+                           ('energy_equation_tolerance', 'ltne_enthalpy_equation_energy_tol')):
+        value = cfg.get(source)
+        if value is not None:
+            setattr(request, target, _Double(1, value))
+    request.require_enthalpy_update_on_temperature = cfg.get('require_enthalpy_update_on_temperature', False)
+    return request
+
+
+def pack_run_controls(request, cfg, prepared, shape):
     outer = prepared['max_outer']
     request.max_outer_ltne = _Size(1, simple_count(12 if outer is None else outer))
     iterations = cfg.get('max_iter_simple')
@@ -322,19 +335,12 @@ def _request(cfg, prepared, shape, energy, model_h):
     request.mass_local_tol = _Double(1, cfg.get('mass_local_tol') or 1e-6)
     request.mass_global_tol = _Double(1, cfg.get('mass_global_tol') or 1e-6)
     request.convergence_mode = b'f2'
-    if model_h is not None:
-        request.model_h = model_h
-    request.energy = ct.pointer(_EnergyOptions(energy.algorithm, energy.temperature_update_tolerance))
     for target, source in (('energy_iterations', 'ltne_enthalpy_outer'), ('energy_sweeps', 'ltne_enthalpy_nsweep')):
         if source in cfg:
             setattr(request, target, _Size(1, simple_count(cfg[source], zero=target == 'energy_sweeps')))
-    for target, source in (('energy_omega', 'ltne_enthalpy_omega'), ('energy_update_tolerance', 'ltne_enthalpy_tol'),
-                           ('energy_coupled_tolerance', 'ltne_enthalpy_coupled_energy_tol'),
-                           ('energy_equation_tolerance', 'ltne_enthalpy_equation_energy_tol')):
-        if source in cfg and (cfg[source] is not None or target in ('energy_omega', 'energy_update_tolerance')):
+    for target, source in (('energy_omega', 'ltne_enthalpy_omega'), ('energy_update_tolerance', 'ltne_enthalpy_tol')):
+        if source in cfg:
             setattr(request, target, _Double(1, cfg[source]))
-    request.require_enthalpy_update_on_temperature = cfg.get('require_enthalpy_update_on_temperature', False)
-    return request
 
 
 class SavedRun(NativeRun):
@@ -690,13 +696,17 @@ def run_saved(case, control, library, abi, table_directory, execution_query, *,
     cfg, prepared = case.parameters, case.parameters['prepared']
     control.check_cancelled()
     energy = energy_request(cfg)
+    if cfg.get('enthalpy_algorithm', 'temperature_sou') != 'temperature_sou':
+        _full_enthalpy_defaults(library, 3, energy.algorithm,
+            'water' in (cfg['fluid_type_A'], cfg['fluid_type_B']))
     _, strict = validate_energy_controls(cfg)
     model_h = model_h_request(cfg, strict)
+    request = _request(cfg, energy, model_h)
     validate_flow_options(cfg)
     keepalive = []
     data = pack_input(cfg, prepared, case.grid, case.design_fields, shape, cell_mm, nu,
                       keepalive, saved_v2=True)
-    request = _request(cfg, prepared, shape, energy, model_h)
+    pack_run_controls(request, cfg, prepared, shape)
     callbacks, errors = make_callbacks(control)
     cpu_threads = control.native_cpu_threads()
     host = _Host(case.case_id.encode(), table_directory, cpu_threads, callbacks)
@@ -891,7 +901,7 @@ def capture_result(case, cfg, p, r, abi, *, legacy_fields=None, legacy_drag=None
             model_h_iterations=r['model_h_iterations'],
             design_mode=case.metadata['design_mode'],model_metadata=model_metadata,notices=case.metadata['notices'],
             application=dict(coeffs=dict(K_ffA=r['final_conductivity'][0],K_ffB=r['final_conductivity'][1],
-                K_ss=np.asarray(p.get('design', case.design_fields)['K_ss']) if emit_audit else None),
+                K_ss=fields['K_ss'] if emit_audit else None),
                 props=dict(rho_cp_A=r['final_rho_cp'][0],rho_cp_B=r['final_rho_cp'][1],u_A_in_mps=cfg['u_A'],T_in_A_K=cfg['T_inA'])),
             **({'native':r['native_metadata']} if 'native_metadata' in r else {}),
             **{key: r[key] for key in ('_native_applicability', '_native_execution_sides', '_native_thermal_execution') if key in r},

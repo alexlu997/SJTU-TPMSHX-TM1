@@ -119,7 +119,8 @@ class NativeFull3DDriver:
         saved_v2 = stage_case is not None and hasattr(self.library, 'tpmshx_stage_run_3d_create_saved_v2')
         data = stage.pack_input(cfg, p, p, p['design'], shape, cfg['Lcell'], cfg['sco2_nu'],
                                 keepalive, saved_v2=saved_v2)
-        request = stage._request(cfg, p, shape, energy, model_h_options)
+        request = stage._request(cfg, energy, model_h_options)
+        stage.pack_run_controls(request, cfg, p, shape)
         c = _Control()
         c.max_outer = request.max_outer_ltne.value
         c.initial_simple_iterations = request.max_iter_simple.value if request.max_iter_simple.present else 2000

@@ -67,7 +67,8 @@ Spatial v4 adds XY grid rectangles and existing global offset rules with separat
 Native 3D run/capture connects those prepared families and saved views to the same `Full3DRun` lifecycle.
 The result owns complete raw fields and evaluation evidence after preparation and run release.
 Python full 3D execution uses this saved-input lifecycle through `full_3d_stage.py`.
-`full_3d_capture.py` remains the result assembler. Native capture supplies application reductions and optional audit outlet weights.
+`full_3d_stage.py` publishes the current result. `full_3d_capture.py` decodes earlier results.
+Native capture supplies application reductions and optional audit outlet weights.
 Python 3D preparation uses host v5 with shared typed cache callbacks.
 Air-field scalar observations select at most eight values per side; full raw-array records keep all cells.
 `python/preprocess/three_d/preparation.py` assembles immutable CaseData from the owned native result.
