@@ -130,6 +130,12 @@ extern "C" int TPMSHX_PREPARATION_CALL tpmshx_preparation_df_pressure_gradient_v
         std::copy(result.events.begin(),result.events.end(),output.events);
     });
 }
+extern "C" uint32_t TPMSHX_PREPARATION_CALL tpmshx_preparation_df_experiment_scope_v1(
+    uint32_t topology, uint32_t fluid_a, uint32_t fluid_b, uint32_t geometry_mode,
+    uint32_t symmetric, double cell, double wall, double length, double height, double depth, size_t dimension) {
+    const double domain[]{length, height, depth};
+    return p::df_experiment_scope(topology,fluid_a,fluid_b,geometry_mode,symmetric==1,cell,wall,{domain,dimension});
+}
 extern "C" int TPMSHX_PREPARATION_CALL tpmshx_preparation_df_correction_select_v1(
     uint32_t topology,uint32_t fluid,uint32_t transfer,const double* length,size_t length_count,
     const double* wall,size_t wall_count,const double* velocity,size_t velocity_count,uint32_t has_velocity,

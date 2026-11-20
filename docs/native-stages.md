@@ -42,6 +42,12 @@ The separate 3D flow v2 adds capacity queries, flow resolution and complete prep
 Continuous v3 adds XY/XYZ controls. Spatial v4 adds XY grid rectangles and the existing global offset rules.
 The [uniform 3D preparation contract](#uniform-3d-preparation) defines its inputs and remaining gates.
 
+The 2D and 3D stages share the experimental D-F layout and campaign-domain check.
+`tpmshx_preparation_df_experiment_scope_v1` reports layout eligibility, continuous HX transfer
+and domain match for static preflight. Preparation resolves each prescribed mass flow before it
+checks the applicable velocity window. Python uses the same scope check when the preparation
+library supplies it. Static preflight for earlier libraries uses the same model resource in Python.
+
 Full 2D/3D Python evaluation now calls the native result stage. Independent applicability, physical-balance and qualification queries use that stage.
 The native result stage owns Quick Design metrics and retains typed intermediate values. V3 uses fixed named host operations for existing Python object, exact integer and final conversion protocols. The public Python entry points and saved formats stay available.
 The host query uses borrowed typed evidence and preserves deferred input errors. It delivers NumPy events before each primitive returns.

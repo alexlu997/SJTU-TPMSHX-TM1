@@ -35,6 +35,26 @@ double interpolate(double x, const double* values) {
 }
 }  // namespace
 
+std::uint32_t df_experiment_scope(std::uint32_t topology, std::uint32_t fluid_a,
+    std::uint32_t fluid_b, std::uint32_t geometry_mode, bool symmetric,
+    double cell, double wall, ArrayView<const double> domain) {
+    const bool transfer = geometry_mode == 1 && topology == 1 && fluid_a == 0 && fluid_b == 1
+        && at_geometry({&cell, 1}, data::hx_geometry_mm[0])
+        && at_geometry({&wall, 1}, data::hx_geometry_mm[1]);
+    const bool layout = geometry_mode == 0 || transfer || (fluid_a == 3 && fluid_b == 3);
+    bool campaign = symmetric && (domain.size == 2 || domain.size == 3);
+    for (std::size_t axis = 0; campaign && axis < domain.size; ++axis) {
+        const double length = domain[axis], target = data::hx_domain_m[axis];
+        campaign = std::isfinite(length)
+            && std::abs(length - target) <= 1e-9 * std::max(std::abs(length), std::abs(target));
+    }
+    std::uint32_t scope = 0;
+    if (transfer) scope |= TPMSHX_DF_HX_TRANSFER;
+    if (layout) scope |= TPMSHX_DF_EXPERIMENT_LAYOUT;
+    if (campaign) scope |= TPMSHX_DF_HX_DOMAIN;
+    return scope;
+}
+
 DfSelection df_select(std::uint32_t topology, std::uint32_t fluid, bool transfer,
     ArrayView<const double> lengths, ArrayView<const double> walls,
     ArrayView<const double> velocity, bool has_velocity) {

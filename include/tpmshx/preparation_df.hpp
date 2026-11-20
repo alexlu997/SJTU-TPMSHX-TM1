@@ -32,6 +32,9 @@ DfPressure df_compressible(std::uint32_t topology, double length_mm, double wall
 DfPressure df_compressible_typed(std::uint32_t topology, double length_mm, double wall_mm,
     grid::Scalar mass_flux, grid::Scalar temperature, grid::Scalar inlet_pressure,
     grid::Scalar viscosity, grid::Scalar channel_length, bool strict);
+std::uint32_t df_experiment_scope(std::uint32_t topology, std::uint32_t fluid_a,
+    std::uint32_t fluid_b, std::uint32_t geometry_mode, bool symmetric,
+    double cell_length_mm, double wall_thickness_mm, ArrayView<const double> domain);
 DfSelection df_select(std::uint32_t topology, std::uint32_t fluid, bool transfer,
     ArrayView<const double> lengths, ArrayView<const double> walls,
     ArrayView<const double> velocity, bool has_velocity);
