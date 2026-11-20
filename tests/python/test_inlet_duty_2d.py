@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.postprocess.result_math import _enthalpy_balance_2d
+from tests.python.result_primitive_wire import _enthalpy_balance_2d
 
 
 @pytest.mark.parametrize('direction', [0, 1, 2, 3])

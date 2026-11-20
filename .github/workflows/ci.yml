@@ -34,23 +34,28 @@ jobs:
           tier=$(python engineering/scripts/ci_scope.py select --event "$EVENT_NAME" --base "$BASE_SHA" --head "$HEAD_SHA")
           echo "tier=$tier" >> "$GITHUB_OUTPUT"
 
-  native:
+  native-macos:
     needs: scope
     if: needs.scope.outputs.tier != 'docs'
-    name: native (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-15, windows-2022]
+    name: native (macos-15)
     uses: ./.github/workflows/native.yml
     with:
-      os: ${{ matrix.os }}
+      os: macos-15
+      tier: ${{ needs.scope.outputs.tier }}
+
+  native-windows:
+    needs: scope
+    if: needs.scope.outputs.tier != 'docs'
+    name: native (windows-2022)
+    uses: ./.github/workflows/native.yml
+    with:
+      os: windows-2022
       tier: ${{ needs.scope.outputs.tier }}
 
   tests:
     # Keep the protected check names when the macOS runner image changes.
     name: tests (${{ matrix.check_os || matrix.os }}, ${{ matrix.python }})
-    needs: [scope, native, minimal-postprocess]
+    needs: [scope, native-macos, native-windows]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -178,7 +183,7 @@ jobs:
           retention-days: 7
 
   minimal-postprocess:
-    needs: [scope, native, result-build]
+    needs: [scope, native-macos, result-build]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 30

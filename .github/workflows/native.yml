@@ -140,7 +140,7 @@ jobs:
               'model_h_3d_test', 'model_h_2d_history_test', 'model_h_3d_history_test',
               'temperature_staggered_test', 'full_3d_test',
               'refinement_2d_test', 'full_2d_test', 'enthalpy_driver_test',
-              'quick_design_test', 'simple_2d_test', 'simple_3d_test',
+              'quick_design_test', 'simple_2d_test', 'simple_3d_test', 'tpmshx_kernel_test',
           )
           callers = (
               'geometry_c_static', 'geometry_c_shared', 'geometry_kernel_smoke',
@@ -154,7 +154,7 @@ jobs:
               'model_h_c_static', 'model_h_c_shared', 'temperature_c_static', 'temperature_c_shared',
               'temperature_staggered_smoke', 'temperature_run_smoke',
               'full_2d_c_static', 'full_2d_c_shared', 'full_3d_c_static', 'full_3d_c_shared',
-              'side_physics_smoke', 'superlu_error_smoke',
+              'side_physics_smoke',
           )
           executable_suffix = '.exe' if os.name == 'nt' else ''
           files = [build / (prefix + name + suffix) for name in libraries]
@@ -222,23 +222,10 @@ jobs:
       MKL_NUM_THREADS: "1"
       NUMEXPR_NUM_THREADS: "1"
       TPMSHX_REQUIRE_NATIVE_DEPS_TESTS: "1"
-      TPMSHX_REQUIRE_CPP_TESTS: "1"
       QT_QPA_PLATFORM: offscreen
       TPMSHX_DISABLE_3D_PANEL: "1"
     steps:
       - uses: actions/checkout@v7
-      - name: Activate MSVC for native qualification
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-          $installation = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-          if (-not $installation) { throw 'The required MSVC compiler is missing' }
-          & "$installation\Common7\Tools\Launch-VsDevShell.ps1" -Arch amd64 -HostArch amd64 -SkipAutomaticLocation
-          foreach ($name in @('PATH', 'INCLUDE', 'LIB', 'LIBPATH')) {
-            "$name=$([Environment]::GetEnvironmentVariable($name))" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          }
-          'CXX=cl' | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - uses: actions/setup-python@v7
         with:
           python-version: '3.13'
@@ -289,9 +276,6 @@ jobs:
               folder = component if component in ('preparation', 'result') else 'pilot'
               shutil.copy2(Path('.cache/native-deps/build') / (folder + '-' + host) / name, target / name)
           PY
-      - name: Fetch locked Eigen headers for fixture-built libraries
-        shell: bash
-        run: '"$CI_PYTHON" engineering/scripts/build_native_dependencies.py fetch-eigen'
       - name: Require explicit native libraries for thermal evidence tests
         shell: bash
         run: |
@@ -360,22 +344,9 @@ jobs:
       OMP_NUM_THREADS: "1"
       MKL_NUM_THREADS: "1"
       NUMEXPR_NUM_THREADS: "1"
-      TPMSHX_REQUIRE_CPP_TESTS: "1"
       TPMSHX_REQUIRE_NATIVE_DEPS_TESTS: "1"
     steps:
       - uses: actions/checkout@v7
-      - name: Activate MSVC for native tests
-        if: runner.os == 'Windows' && matrix.part != 'integration'
-        shell: pwsh
-        run: |
-          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-          $installation = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-          if (-not $installation) { throw 'The required MSVC compiler is missing' }
-          & "$installation\Common7\Tools\Launch-VsDevShell.ps1" -Arch amd64 -HostArch amd64 -SkipAutomaticLocation
-          foreach ($name in @('PATH', 'INCLUDE', 'LIB', 'LIBPATH')) {
-            "$name=$([Environment]::GetEnvironmentVariable($name))" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          }
-          'CXX=cl' | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python }}
@@ -451,17 +422,6 @@ jobs:
               for name, path in libraries.items():
                   output.write(f'{name}={path.resolve().as_posix()}\n')
           PY
-      - name: Fetch locked Eigen headers for native temperature tests
-        if: matrix.part != 'integration'
-        shell: bash
-        run: '"$CI_PYTHON" engineering/scripts/build_native_dependencies.py fetch-eigen'
-      - name: Build and run independent C++ callers on macOS
-        if: runner.os == 'macOS' && matrix.part == 'fast-0'
-        run: make -f engineering/native_build/Makefile check
-      - name: Build and run independent C++ callers on Windows
-        if: runner.os == 'Windows' && matrix.part == 'fast-0'
-        shell: cmd
-        run: nmake /f engineering\native_build\Makefile.msvc check
       - name: Install fixed Mesa OpenGL for actual Qt rendering
         if: runner.os == 'Windows' && (matrix.part == 'fast-1' || matrix.python == '3.12')
         uses: pyvista/setup-headless-display-action@c103a2ff45650d38cb71684b5dc6cdfeb9442c79 # v5.1

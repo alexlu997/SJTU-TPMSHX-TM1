@@ -69,8 +69,6 @@ _tpmshx_superlu_free
 _tpmshx_superlu_malloc
 _tpmshx_superlu_solve_csc
 _tpmshx_superlu_solve_csr
-_tpmshx_superlu_test_solve_csc
-_tpmshx_superlu_test_solve_csr
 _tpmshx_temperature_algorithm_v1
 _tpmshx_run_case_2d_v1
 _tpmshx_run_case_2d_v2

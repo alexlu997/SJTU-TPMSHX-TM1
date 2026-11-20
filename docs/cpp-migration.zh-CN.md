@@ -506,7 +506,7 @@ nmake /f engineering\native_build\Makefile.msvc check
 
 这在 `.cache/native` 下生成 `tpmshx_thermal.lib`，再运行相同 C++ 调用方。这些命令不安装编译器。完整求解器 C ABI 保留显式 Windows 导出／导入和 `cdecl`；ctypes 通过 `CDLL` 加载其 DLL。
 
-`thermal_c_api.h` 保留共享导出和调用约定宏，冻结 H sweep 导出已退役。完整 C 接口保留有界错误、缓冲区及物理校验；异常不跨越 C 边界。能量审计测试保留仅供测试的桥接。
+`thermal_c_api.h` 保留共享导出和调用约定宏，冻结 H sweep 导出已退役。完整 C 接口保留有界错误、缓冲区及物理校验；异常不跨越 C 边界。Python 数值测试加载完整原生构建产出的测试桥接库。桥接库链接同一 CMake 构建的数值目标。
 
 通过常规环境检查后，使用 `.venv-path` 解释器：
 
@@ -516,13 +516,13 @@ tm1_python="$(head -n 1 .venv-path)"
 "$tm1_python" -m pip check
 MPLCONFIGDIR="$PWD/.cache/matplotlib" \
 XDG_CACHE_HOME="$PWD/.cache/xdg" \
-TPMSHX_REQUIRE_CPP_TESTS=1 TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1 \
+TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1 \
 "$tm1_python" -m pytest -q tests/python/native
 ```
 
 所有显式 `TPMSHX_TRUE_H_KERNEL` 覆盖均已退役，包括 `numba` 和 `cpp_sweeps_v1`。已保存准备态请求在流动执行前被拒绝；删除覆盖后使用原生执行。环境快照保留该键仅为明确拒绝。新 Case 不再捕获 `TPMSHX_THERMAL_LIBRARY`，原生库选择属于 `RunControl`。旧结果可在不加载求解库时读取，历史 Python `sweep_kernel` 和 `energy_audit` 记录保留原含义。
 
-必需标志使缺少编译器或依赖组件成为资格检查失败。可选本地组件测试可以跳过缺失组件，但跳过不代表原生验收。macOS 和 Windows 使用 Python 3.13 执行原生资格；本机通过不证明 Windows 分发验收。测试不安装编译器或 Python 依赖。
+必需标志使缺少所需原生调用程序或动态库成为资格检查失败。可选本地组件测试可以跳过缺失组件，但跳过不代表原生验收。macOS 和 Windows 使用 Python 3.13 执行原生资格；本机通过不证明 Windows 分发验收。测试不安装编译器或 Python 依赖。
 
 原生焓 sweep 测试保留固定随机字段、有符号／零面流量、非均匀网格、六方向、单单元轴、零对角元、裁剪与修改前拒绝。独立检查覆盖等温压力相关焓、指数冷却、一阶网格收敛以及边界／源能量平衡。零变化参考保留 `atol=2e-8 J/kg` 和 `atol=2e-11 K`；裁剪次数不超过计费 sweep 预算。原生构建不启用 fast-math。这些检查验证数值算子，不证明 sCO2 实验预测或应用加速。
 
@@ -563,7 +563,6 @@ MPLCONFIGDIR="$PWD/.cache/matplotlib" XDG_CACHE_HOME="$PWD/.cache/xdg" \
 "$tm1_python" -m pytest -q -ra \
   tests/python/native/test_native_eos.py \
   tests/python/native/test_native_pressure.py \
-  tests/python/native/test_superlu_error_boundary.py \
   tests/python/native/test_fluid_properties.py \
   tests/python/native/test_quick_design_driver.py \
   tests/python/native/test_cpp_quick_design.py
@@ -575,9 +574,9 @@ EOS 调用方以与 Python 参考相同的具名后端评估 CO2 和 Water，即
 
 200 次预算、已解析相对容差，以及复用预条件器时使用当前矩阵乘法的规则不变。仅原 breakdown 路径以 L2 缩放右端重试；资格检查报告未缩放方程残差。最初 AMGCL 压力候选未通过完整工况比较，已被替换。AMGCL 仍用于独立交错温度投影。构建排除 MC64/ILU，并使用三项锁定的 SciPy double-LU 数值修正。
 
-SuperLU 调用采用纯 C 错误边界和线程局部分配账本。分配失败和 ABORT 在清理后返回有界错误，跳转不跨 C++ 栈帧。macOS 资格在每个观测到的分配序号注入失败，并在 release 和 ASan/UBSan 构建中检查同进程恢复、长 ABORT 消息、奇异 info 和独立并发线程。Windows 必需 CI 也通过 release 分配、ABORT 和恢复检查；这不将 sanitizer 证据扩展到 Windows。非法输入和未知后端错误不静默回退 LU。这些压力测试本身不能建立完整原生 SIMPLE 或外耦合资格。
+SuperLU 调用采用纯 C 错误边界和线程局部分配账本。故障注入入口仅编入验证程序，完整原生构建的验证步骤直接执行该程序。分配失败和 ABORT 在清理后返回有界错误，跳转不跨 C++ 栈帧。macOS 资格在每个观测到的分配序号注入失败，并在 release 和 ASan/UBSan 构建中检查同进程恢复、长 ABORT 消息、奇异 info 和独立并发线程。Windows 必需 CI 也通过 release 分配、ABORT 和恢复检查；这不将 sanitizer 证据扩展到 Windows。非法输入和未知后端错误不静默回退 LU。这些压力测试本身不能建立完整原生 SIMPLE 或外耦合资格。
 
-完整固定流动 true-h、二维／三维 model-h 和二维／三维 SIMPLE 均已有独立 C++ 实现、带版本 C 接口，以及 `python/cpp_interface/solver_library/` 下的显式 Python 绑定。热绑定返回既有能量和原始边界元数据。原生 model-h 在 C 调用方释放结果前持有审计数组；Python 绑定释放前复制视图。回调异常和取消丢弃部分状态。
+完整固定流动 true-h、二维／三维 model-h 和二维／三维 SIMPLE 均已有独立 C++ 实现、带版本 C 接口，以及供完整求解或独立原生测试使用的 Python 绑定。热绑定返回既有能量和原始边界元数据。原生 model-h 在 C 调用方释放结果前持有审计数组；Python 绑定释放前复制视图。回调异常和取消丢弃部分状态。
 
 SIMPLE 接口持有逐实例压力缓存，并保留原 F2、出口、热启动状态和原始质量证据。这些可独立调用驱动也支撑上述完整二维／三维外耦合后端。macOS SuperLU 构建使用锁定 SciPy 参考所用的系统 Accelerate BLAS，并为二维 SIMPLE 保留原 CSR／转置 LU 运算顺序。Windows 使用锁定可移植 CBLAS 源码，由必需原生 CI 执行。动量串行循环不表示 BLAS 单线程；线程策略和测得性能须分别记录。
 

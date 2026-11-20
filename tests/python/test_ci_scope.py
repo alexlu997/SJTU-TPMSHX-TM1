@@ -30,12 +30,12 @@ def test_scope_keeps_conservative_boundaries(event, paths, expected):
 @pytest.mark.parametrize('tier', ['docs', 'application', 'full'])
 @pytest.mark.parametrize('stage', ['summary', 'minimal'])
 def test_gate_requires_exact_jobs_and_results(tier, stage):
-    needs = {'scope': {'result': 'success'},
-             'native': {'result': 'skipped' if tier == 'docs' else 'success'}}
+    native = {'result': 'skipped' if tier == 'docs' else 'success'}
+    needs = {'scope': {'result': 'success'}, 'native-macos': native}
     if stage == 'summary':
-        needs['minimal-postprocess'] = {'result': 'success'}
+        needs['native-windows'] = native
     else:
-        needs['result-build'] = dict(needs['native'])
+        needs['result-build'] = native
     require_jobs(tier, needs, stage)
     for name in needs:
         missing = {key: value for key, value in needs.items() if key != name}

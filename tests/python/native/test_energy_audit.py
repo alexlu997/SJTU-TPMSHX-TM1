@@ -2,51 +2,17 @@
 
 from tests.python.native.enthalpy_fv_audit import uniform_face_mass_flux, energy
 import ctypes
-import os
-from pathlib import Path
-import shlex
-import shutil
-import subprocess
-import sys
 
 import numpy as np
 import pytest
 
+from tests.python.native.shared_library import kernel_test_path
+
 
 
 @pytest.fixture(scope="module")
-def native_library(tmp_path_factory):
-    compiler = shlex.split(os.environ.get("CXX", "cl" if os.name == "nt" else "c++"))
-    if os.name not in ("posix", "nt") or not compiler or not shutil.which(compiler[0]):
-        message = "native tests require a C++17 compiler (CXX; MSVC cl on Windows)"
-        if os.environ.get("TPMSHX_REQUIRE_CPP_TESTS") == "1":
-            pytest.fail(message)
-        pytest.skip(message)
-    root = Path(__file__).resolve().parents[3]
-    build = tmp_path_factory.mktemp("cpp-enthalpy")
-    suffix = ".dll" if os.name == "nt" else (".dylib" if sys.platform == "darwin" else ".so")
-    output = build / ("test_thermal" + suffix)
-    sources = [str(root / "solver/enthalpy_sweeps.cpp"),
-               str(Path(__file__).with_name("enthalpy_bridge.cpp"))]
-    if os.name == "nt":
-        arguments = ["/nologo", "/std:c++17", "/O2", "/W4", "/WX", "/EHsc", "/MD",
-                     "/LD", "/DTPMSHX_THERMAL_BUILD_SHARED", "/I" + str(root / "include"),
-                     *sources, "/Fe" + str(output), "/link", "/IMPLIB:" + str(build / "test_thermal.lib")]
-    else:
-        link_flag = "-dynamiclib" if sys.platform == "darwin" else "-shared"
-        arguments = ["-std=c++17", "-O2", "-Wall", "-Wextra", "-Wpedantic", "-Werror",
-                     link_flag, "-fPIC", "-I", str(root / "include"), *sources, "-o", str(output)]
-    subprocess.run(
-        [*compiler, *arguments], cwd=build,
-        check=True, capture_output=True, text=True,
-    )
-    return ctypes.CDLL(str(output))
-
-
-
-
-
-
+def native_library():
+    return ctypes.CDLL(str(kernel_test_path()))
 
 
 def case_data(shape=(4, 3, 2)):

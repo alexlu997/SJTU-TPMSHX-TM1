@@ -777,8 +777,8 @@ Windows 使用 `_ci_windows_shard0.txt` 至 `_ci_windows_shard4.txt`。
 按编号向同一集合校验器传入全部 manifest，核对其完整且互斥；每片必须有 `gw0`、`gw1` 两份记录。
 `--serial` 仅用于本地串行测试的 `controller` 记录。
 原生工程用例保留逐侧物理模型、收敛及能量门槛。二维适配对照用有限迭代比较字段、指标和回调。
-原生组同时设置 `TPMSHX_REQUIRE_CPP_TESTS=1` 和 `TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1`；
-缺少编译器或原生库必须失败。原有线程并发、进程恢复和结果所有权测试仍在原生组执行。
+原生组设置 `TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1`，缺少所需原生库或调用程序时失败。
+测试桥接库复用同一次 CMake 构建的数值目标。线程并发、进程恢复和结果所有权测试仍由原生组执行。
 Python 数值对照迁移为独立公式／离散账本、制造解、组件重放及固定历史参考；
 不保留已退役迭代器作为第二套求解实现。
 
@@ -786,6 +786,7 @@ Python 数值对照迁移为独立公式／离散账本、制造解、组件重�
 application 和 full tier 均构建完整 pilot。归档包含求解库、几何库、准备库、结果库和 SDK 对照样本。
 结果库通过独立 `build --component result` 构建，再与其余库一起执行完整验证。
 完整 SDK 检查编译全部 C++ 示例，执行有代表性的前处理、求解、续算和后处理路径。
+Linux 最小后处理在 macOS 的结果和 wheel 及 Linux 结果库就绪后启动，与 Windows 资格检查并行。
 BO 恢复本轮同平台归档中的几何库、准备库和结果库，与该平台的其他回归并行。
 原生库不链接 Python 运行时。Windows 两个 Python 版本测试同一构建。
 分片在本平台构建完成后启动，不等待其他平台。原生、快测和集成测试共同使用本轮工作流及源码产生的

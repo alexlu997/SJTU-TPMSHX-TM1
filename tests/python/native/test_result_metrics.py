@@ -148,7 +148,7 @@ def test_capacity_products_keep_intermediate_precision(dtype, direction):
     args = (temperature, u, v, rho_cp, direction, dx, dy)
     mask = np.linspace(.2, 1., 5 if direction < 2 else 4)
     kwargs = dict(inlet_mask=mask, outlet_mask=mask[::-1], eps_side=dtype(.3), T_in=500.)
-    assert_observation(observe(result_math._enthalpy_balance_2d, *args, **kwargs),
+    assert_observation(observe(raw._enthalpy_balance_2d, *args, **kwargs),
                        observe(original._enthalpy_balance_2d, *args, **kwargs))
 
 
@@ -157,7 +157,7 @@ def test_true_h_duty_keeps_per_face_dtype_and_plain_addition(dtype):
     h = np.linspace(300., 400., 8).reshape(2, 2, 2).astype(dtype)
     faces = tuple(np.full(tuple(2 + (axis == i) for axis in range(3)), .2, dtype=dtype)
                   for i in range(3))
-    assert_observation(observe(result_math._boundary_enthalpy_duty, h, 350., faces),
+    assert_observation(observe(raw._boundary_enthalpy_duty, h, 350., faces),
                        observe(original._boundary_enthalpy_duty, h, 350., faces))
 
 

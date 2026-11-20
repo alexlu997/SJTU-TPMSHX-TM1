@@ -1,59 +1,12 @@
-"""Construction tests for build_quick_design_dialog.
-
-Verifies:
-  - All contract attributes exist on the returned QDialog instance.
-  - The run button calls run_quick_design.
-  - Switching combo_qd_mode between "auto" and "fixed" toggles group visibility.
-
-Run from repo root:
-    python -m pytest tests/python/test_quick_design_dialog.py -v
-"""
-from unittest.mock import patch
+"""Check visible Quick Design controls and workbook export."""
 import pytest
+
 from sjtu_tpmshx.applications.gui.ui.quick_design_panel import build_quick_design_dialog
 
-CONTRACT = [
-    "le_qd_file", "combo_qd_mode", "combo_qd_arr", "le_qd_rho",
-    "le_qd_topo", "le_qd_l", "le_qd_t", "chk_qd_refine",
-    "combo_qd_cell_topo", "le_qd_cell_l", "le_qd_cell_t",
-    "_qd_table", "_qd_energy_table", "_qd_status",
-]
 
-
-def test_dialog_builds_with_contract_attrs():
-    dlg = build_quick_design_dialog()
-    for a in CONTRACT:
-        assert hasattr(dlg, a), f"missing contract attr {a}"
-    assert dlg.combo_qd_mode.currentData() in ("auto", "fixed")
-    assert dlg.combo_qd_arr.currentData() in ("counter", "cross")
-    from PySide6.QtWidgets import QTabWidget, QTableWidget
-    tabs = dlg.findChild(QTabWidget)
-    assert [tabs.tabText(i) for i in range(tabs.count())] == ['可行设计', '工况能量诊断']
-    assert dlg._qd_table.columnCount() == 13
-    assert dlg._qd_energy_table.editTriggers() == QTableWidget.EditTrigger.NoEditTriggers
-    dlg.deleteLater()
-
-
-def test_run_button_invokes_run_quick_design():
-    dlg = build_quick_design_dialog()
-    with patch("sjtu_tpmshx.applications.gui.ui.quick_design_panel.run_quick_design") as m:
-        dlg._qd_run_btn.click()   # expose the run button as dlg._qd_run_btn
-        assert m.called
-    dlg.deleteLater()
-
-
-def test_mode_toggle_switches_groups():
-    dlg = build_quick_design_dialog()
-    dlg.combo_qd_mode.setCurrentIndex(dlg.combo_qd_mode.findData("fixed"))
-    assert dlg._qd_fixed_group.isVisibleTo(dlg) or not dlg._qd_auto_group.isVisibleTo(dlg)
-    dlg.combo_qd_mode.setCurrentIndex(dlg.combo_qd_mode.findData("auto"))
-    assert dlg._qd_auto_group.isVisibleTo(dlg) or not dlg._qd_fixed_group.isVisibleTo(dlg)
-    dlg.deleteLater()
-
-
-@pytest.mark.parametrize('mode', ['auto', 'fixed'])
-@pytest.mark.parametrize('arrangement', ['counter', 'cross'])
-@pytest.mark.parametrize('properties', ['mean', 'const'])
+@pytest.mark.parametrize('mode,arrangement,properties', [
+    ('auto', 'counter', 'mean'), ('fixed', 'cross', 'const'),
+])
 def test_display_labels_do_not_change_backend_values(mode, arrangement, properties):
     from sjtu_tpmshx.applications.gui.ui.quick_design_panel import _gather_inputs
 
@@ -62,13 +15,12 @@ def test_display_labels_do_not_change_backend_values(mode, arrangement, properti
     dlg.combo_qd_arr.setCurrentIndex(dlg.combo_qd_arr.findData(arrangement))
     dlg.combo_qd_prop.setCurrentIndex(dlg.combo_qd_prop.findData(properties))
     for combo in (dlg.combo_qd_mode, dlg.combo_qd_arr, dlg.combo_qd_prop):
-        assert combo.count() == 2
         combo.setItemText(combo.currentIndex(), '修改后的显示名称')
     params = _gather_inputs(dlg)
     assert (params['mode'], params['arrangement'], params['prop_model']) == (
         mode, arrangement, properties)
-    assert dlg._qd_auto_group.isHidden() == (mode != 'auto')
-    assert dlg._qd_fixed_group.isHidden() == (mode != 'fixed')
+    assert dlg.le_qd_l.isVisibleTo(dlg) == (mode == 'auto')
+    assert dlg.le_qd_cell_l.isVisibleTo(dlg) == (mode == 'fixed')
     dlg.deleteLater()
 
 

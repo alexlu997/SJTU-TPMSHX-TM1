@@ -39,7 +39,6 @@ tests/python/native/test_native_engineering_acceptance.py::test_public_native_ca
 tests/python/native/test_native_engineering_acceptance.py::test_public_native_cases_keep_physical_gates[sco2-water-3]
 tests/python/native/test_native_engineering_acceptance.py::test_public_native_cases_keep_physical_gates[water-co2-2]
 tests/python/native/test_native_engineering_acceptance.py::test_refined_true_h_partial_ports_keep_physical_gates
-tests/python/native/test_superlu_error_boundary.py
 tests/python/native/test_temperature_driver.py
 # Stage modules collected on Python 3.13.
 tests/python/test_native_stage_uniform.py

@@ -23,7 +23,9 @@ typedef struct {
     int armed, status, rowwise;
     Allocation* blocks;
     size_t live_blocks, live_bytes, peak_bytes, attempts;
+#ifdef TPMSHX_SUPERLU_TESTING
     const tpmshx_superlu_test_control* test;
+#endif
     tpmshx_superlu_result* output;
 } Context;
 
@@ -58,8 +60,11 @@ void* tpmshx_superlu_malloc(size_t size) {
     Allocation* block;
     if (!context || !context->armed) abort();
     ++context->attempts;
-    if ((context->test && context->test->fail_allocation == context->attempts)
-        || size > SIZE_MAX-sizeof(Allocation)) {
+    if (size > SIZE_MAX-sizeof(Allocation)
+#ifdef TPMSHX_SUPERLU_TESTING
+        || (context->test && context->test->fail_allocation == context->attempts)
+#endif
+    ) {
         context->status = TPMSHX_SUPERLU_ALLOCATION;
         tpmshx_superlu_abort("SuperLU allocation failed");
     }
@@ -128,11 +133,13 @@ static int protected_solve(Context* context, int n, int nnz,
         options.IterRefine = NOREFINE;
         options.PrintStat = NO;
         StatInit(&statistics);
+#ifdef TPMSHX_SUPERLU_TESTING
         if (context->test && context->test->abort_message) {
             if (context->test->abort_file)
                 tpmshx_superlu_abort_at(context->test->abort_message, 1, context->test->abort_file);
             else ABORT(context->test->abort_message);
         }
+#endif
         dgssv(&options, &matrix, perm_c, perm_r, &lower, &upper, &rhs, &statistics, &info);
         context->output->info = (int)info;
         StatFree(&statistics);
@@ -142,11 +149,9 @@ static int protected_solve(Context* context, int n, int nnz,
     return context->status;
 }
 
-static int solve_sparse(int rowwise,
+static int solve_sparse(Context* context, int rowwise,
     int n, int nnz, const int* colptr, const int* rowind, double* values,
-    double* x, int* perm_c, int* perm_r,
-    const tpmshx_superlu_test_control* control, tpmshx_superlu_result* result) {
-    Context context = {0};
+    double* x, int* perm_c, int* perm_r, tpmshx_superlu_result* result) {
     int status;
     if (!result) return TPMSHX_SUPERLU_INVALID_ARGUMENT;
     memset(result, 0, sizeof(*result));
@@ -159,43 +164,50 @@ static int solve_sparse(int rowwise,
         snprintf(result->message, sizeof(result->message), "invalid SuperLU sparse arguments");
         return TPMSHX_SUPERLU_INVALID_ARGUMENT;
     }
-    context.test = control;
-    context.output = result;
-    context.rowwise = rowwise;
-    active = &context;
-    status = protected_solve(&context, n, nnz, colptr, rowind, values, x, perm_c, perm_r);
-    release(&context);
-    context.armed = 0;
+    context->output = result;
+    context->rowwise = rowwise;
+    active = context;
+    status = protected_solve(context, n, nnz, colptr, rowind, values, x, perm_c, perm_r);
+    release(context);
+    context->armed = 0;
     active = NULL;
-    result->allocation_attempts = context.attempts;
-    result->peak_bytes = context.peak_bytes;
-    result->outstanding_blocks = context.live_blocks;
-    result->outstanding_bytes = context.live_bytes;
+    result->allocation_attempts = context->attempts;
+    result->peak_bytes = context->peak_bytes;
+    result->outstanding_blocks = context->live_blocks;
+    result->outstanding_bytes = context->live_bytes;
     return status;
 }
 
 int tpmshx_superlu_solve_csc(
     int n, int nnz, const int* colptr, const int* rowind, double* values,
     double* x, int* perm_c, int* perm_r, tpmshx_superlu_result* result) {
-    return solve_sparse(0, n, nnz, colptr, rowind, values, x, perm_c, perm_r, NULL, result);
+    Context context = {0};
+    return solve_sparse(&context, 0, n, nnz, colptr, rowind, values, x, perm_c, perm_r, result);
 }
 
 int tpmshx_superlu_solve_csr(
     int n, int nnz, const int* rowptr, const int* colind, double* values,
     double* x, int* perm_c, int* perm_r, tpmshx_superlu_result* result) {
-    return solve_sparse(1, n, nnz, rowptr, colind, values, x, perm_c, perm_r, NULL, result);
+    Context context = {0};
+    return solve_sparse(&context, 1, n, nnz, rowptr, colind, values, x, perm_c, perm_r, result);
 }
 
+#ifdef TPMSHX_SUPERLU_TESTING
 int tpmshx_superlu_test_solve_csc(
     int n, int nnz, const int* colptr, const int* rowind, double* values,
     double* x, int* perm_c, int* perm_r,
     const tpmshx_superlu_test_control* control, tpmshx_superlu_result* result) {
-    return solve_sparse(0, n, nnz, colptr, rowind, values, x, perm_c, perm_r, control, result);
+    Context context = {0};
+    context.test = control;
+    return solve_sparse(&context, 0, n, nnz, colptr, rowind, values, x, perm_c, perm_r, result);
 }
 
 int tpmshx_superlu_test_solve_csr(
     int n, int nnz, const int* rowptr, const int* colind, double* values,
     double* x, int* perm_c, int* perm_r,
     const tpmshx_superlu_test_control* control, tpmshx_superlu_result* result) {
-    return solve_sparse(1, n, nnz, rowptr, colind, values, x, perm_c, perm_r, control, result);
+    Context context = {0};
+    context.test = control;
+    return solve_sparse(&context, 1, n, nnz, rowptr, colind, values, x, perm_c, perm_r, result);
 }
+#endif

@@ -826,7 +826,8 @@ Windows exports/imports and `cdecl`; ctypes loads its DLL through `CDLL`.
 `thermal_c_api.h` keeps shared export and calling-convention macros.
 Its frozen H-sweep export is retired. Complete C interfaces keep bounded
 errors and buffer/physical checks. Exceptions do not cross the C boundary.
-The energy-audit tests keep a test-only bridge.
+Python numerical tests load the test bridge from the full native build.
+The bridge links to the numerical targets from the same CMake build.
 
 Use the interpreter from `.venv-path`, after the normal environment checks:
 
@@ -836,7 +837,7 @@ tm1_python="$(head -n 1 .venv-path)"
 "$tm1_python" -m pip check
 MPLCONFIGDIR="$PWD/.cache/matplotlib" \
 XDG_CACHE_HOME="$PWD/.cache/xdg" \
-TPMSHX_REQUIRE_CPP_TESTS=1 TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1 \
+TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1 \
 "$tm1_python" -m pytest -q tests/python/native
 ```
 
@@ -848,9 +849,9 @@ snapshots only for this explicit rejection. New cases do not capture
 Saved results remain readable without loading a solver library. Historical
 Python `sweep_kernel` and `energy_audit` records retain their original meaning.
 
-The required flag makes a missing compiler fail this qualification command.
-Optional local component tests can skip when the platform compiler is
-absent. That skip is not native acceptance. Native qualification runs on
+The required flag makes a missing native caller or library fail this
+qualification command. Optional local component tests can skip when a
+component is absent. That skip is not native acceptance. Native qualification runs on
 macOS and Windows with Python 3.13. A local macOS
 pass does not show Windows compilation, execution or distribution
 acceptance. No compiler or Python dependency is installed by these tests.
@@ -925,7 +926,6 @@ MPLCONFIGDIR="$PWD/.cache/matplotlib" XDG_CACHE_HOME="$PWD/.cache/xdg" \
 "$tm1_python" -m pytest -q -ra \
   tests/python/native/test_native_eos.py \
   tests/python/native/test_native_pressure.py \
-  tests/python/native/test_superlu_error_boundary.py \
   tests/python/native/test_fluid_properties.py \
   tests/python/native/test_quick_design_driver.py \
   tests/python/native/test_cpp_quick_design.py
@@ -956,7 +956,9 @@ the separate staggered-temperature projection. The build excludes MC64/ILU and u
 the three locked SciPy double-LU numerical corrections.
 
 SuperLU calls now use a pure-C error boundary and a thread-local allocation
-ledger. Allocation failures and ABORT return bounded errors after cleanup. The jump never crosses a C++ frame. macOS qualification injects failure at
+ledger. The fault injector belongs to the qualification executable. Native
+verification runs that executable directly.
+Allocation failures and ABORT return bounded errors after cleanup. The jump never crosses a C++ frame. macOS qualification injects failure at
 each observed allocation ordinal under release and ASan/UBSan builds. It validates same-process recovery, long ABORT messages, singular info and
 simultaneous independent threads in those builds.
 
@@ -969,8 +971,8 @@ unknown backend errors do not silently fall back to LU. These pressure tests
 do not by themselves show complete native SIMPLE or outer coupling qualification.
 
 Complete fixed-flow true-h, 2D/3D model-h, and 2D/3D SIMPLE drivers now have
-independent C++ implementations, versioned C interfaces and explicit Python
-bindings under `python/cpp_interface/solver_library/`. Thermal bindings return the existing
+independent C++ implementations, versioned C interfaces, and Python bindings
+for full solves or independent native tests. Thermal bindings return the existing
 energy and raw-boundary metadata. Native model-h owns its audit arrays until
 the C caller releases the result. The Python binding copies those views
 before release. Callback exceptions and cancellation discard partial states.
