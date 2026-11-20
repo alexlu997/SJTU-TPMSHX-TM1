@@ -235,7 +235,10 @@ class _HostState:
             self.enter(side)
             names = ('hot_fluid', 'T_in_h', 'P_in_h') if side == 0 else ('cold_fluid', 'T_in_c', 'P_in_c')
             self.inlet = tuple(getattr(self.case, name) for name in names)
-            name = registry.get(self.inlet[0]).name
+            fluid = self.inlet[0]
+            name = fluid.strip().lower() if type(fluid) is str else None
+            if name is None or not name.isascii():
+                name = registry.get(fluid).name
             request.text = self.string(name)
         elif operation == 11:
             self.state_pack(request)
@@ -259,7 +262,8 @@ class _HostState:
             self.enter(side)
             names = ('hot_fluid', 'mdot_h', 'T_in_h', 'P_in_h') if side == 0 else ('cold_fluid', 'mdot_c', 'T_in_c', 'P_in_c')
             self.pressure_inlet = tuple(getattr(self.case, name) for name in names)
-            self.options = dict(self.df_options or {})
+            if not self.full:
+                self.options = dict(self.df_options or {})
         elif operation == 17:
             raw_fluid, mass, _temperature, _pressure = self.pressure_inlet
             density = 0. if raw_fluid == 'air' else self.props[side][0]
@@ -384,8 +388,10 @@ class _HostState:
 
     def pressure_pack(self, request):
         air, side = bool(request.flags[0]), request.side
-        method, self.strict = _bind_pressure_options(air, self.options)
-        df._get_model(self.topo, method)
+        self.strict = False
+        if not self.full:
+            method, self.strict = _bind_pressure_options(air, self.options)
+            df._resolve_method(method)
         try:
             length, wall = float(self.l), float(self.t)
         except ValueError as problem:
@@ -452,6 +458,8 @@ def _operation(state):
             raise state.errors[0]
         if status:
             message = error.value.decode('utf-8', errors='replace')
+            if message == 'unknown quick-design fluid; known: air, co2, sco2, water':
+                registry.get(state.inlet[0])
             if message == 'Wall thickness must satisfy 2*t < L, with usable pore space':
                 raise ValueError(f'Wall thickness t={state.t}mm >= L={state.l}mm, no pore space')
             if message == 'L_mm must be positive':

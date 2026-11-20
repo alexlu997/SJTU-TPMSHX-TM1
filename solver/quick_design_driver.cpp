@@ -165,6 +165,8 @@ QuickDesignResult solve_quick_design(
     }
     const std::size_t passes = property_mode == QuickDesignProperties::mean ? 2 : 1;
     const bool cross = arrangement == QuickDesignArrangement::cross;
+    const auto scheme = quick_temperature_scheme(grid.nz);
+    const bool plane = scheme == TemperatureScheme::cell_centered_2d;
     std::array<double,2> evaluation{a.inlet_temperature,b.inlet_temperature};
     const std::vector<double> zero(n,0.);
     std::array<std::vector<double>,2> conductivity, hv, capacity, speed;
@@ -198,12 +200,10 @@ QuickDesignResult solve_quick_design(
             cross ? view(zero) : view(speed[1]),cross ? view(speed[1]) : view(zero),view(zero),
             {cross ? 2 : 1,b.inlet_temperature}};
         PassControl pass_control{control,index,passes};
-        const bool plane = grid.nz == 1;
         TemperatureControl thermal{control.max_iterations,control.chunk_iterations,control.q_relative_tolerance,
             control.alpha,plane ? 1. : control.alpha,plane ? 1. : control.alpha,
             control.warm_start || index > 0,!plane,cancelled,progress,&pass_control};
-        pass.thermal = solve_temperature(plane ? TemperatureScheme::cell_centered_2d : TemperatureScheme::cell_centered_3d,
-                                        grid,fa,fb,geometry.k_ss,state,thermal);
+        pass.thermal = solve_temperature(scheme,grid,fa,fb,geometry.k_ss,state,thermal);
         if (pass.thermal.stop == TemperatureStop::cancelled) return result;
         finite_fields(grid,state,"design thermal return");
         water_fields(evaluator,grid,sides,state,stage+" thermal return");

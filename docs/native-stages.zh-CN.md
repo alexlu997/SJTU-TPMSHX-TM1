@@ -636,7 +636,9 @@ v2 输入包含 13 个带类型标量：胞元长度、壁厚、宽度、长度�
 胞元长度与壁厚使用 mm，外形尺寸使用 m，温度使用 K，压力使用 Pa(abs)，质量流量使用 kg/s。
 文本字段具有显式字节长度。原生调用方填写全部标量槽；`have_height=0` 将高度槽替换为宽度。
 无宿主钩子时，阶段不读取环境变量，使用固定 CFD D-F 表。
-Python 宿主在原边界保留方法、chi、原始对象和快照协议。
+Python 宿主在原边界保留 chi、原始对象和快照协议。
+C++ 从规范化标签选择内建入口流体。Python 处理自定义标签，在工况快照记录固定 D-F 方法。
+独立压降查询解析自己的方法及 strict 选项。
 
 叉流保留 `(60, 40, 1)`，逆流保留 `(60, 1, 2)`。
 共享 `model_parameters_v1.json` 资源统一提供网格数、几何分辨率、导热率、容差及流向控制量。
@@ -690,7 +692,7 @@ C++ 选择每项操作及数值分支；宿主操作可打包原始操作数或�
 | `MATERIAL_PACK` | 观测 `geometry`；`scalars[0:2]` 打包导热率和 chi，`flags[0:3]` 传递拓扑／chi 存在标志／精度。`index=1` 选择 chi=1 的最终导热率。 |
 | `WIDTH_PACK` | `index` 选择 x/y/z；`scalars[0]` 打包原始长度，`flags[0]` 传递数组精度。 |
 | `OPERATING_SNAPSHOT` | 捕获原工况值及已解析 DF 选项，不输出数值。 |
-| `PROPERTY_ENTRY` | 打开该侧范围作用域，在 `text` 返回已验证流体标签。 |
+| `PROPERTY_ENTRY` | 打开该侧范围作用域，在 `text` 返回规范化流体标签。 |
 | `STATE_PACK`、`PROPERTY_PACK` | 在 `property_inputs` 打包广播后的操作数。`flags[0]` 标识流体，状态 `flags[1]` 选择标量 EOS 返回 shape；物性 `index` 选择 getter。 |
 | `EOS_CACHE_LOOKUP` | `flags[0]` 标识 sCO2 或 CO2；`flags[1]` 返回命中状态，`property_values` 提供已完成的标量值或五值组合。阶段检查并复制该视图。 |
 | `EOS_CACHE_STORE` | 在 `property_values` 观测已完成的标量结果，通过既有缓存 owner 发布；不得执行计算。 |
@@ -698,7 +700,7 @@ C++ 选择每项操作及数值分支；宿主操作可打包原始操作数或�
 | `PRANDTL_PACK` | 在 `property_inputs` 打包 mu、cp、k；`imaginary_inputs` 和 `categories` 保留原值协议。 |
 | `SECTIONS_PACK` | `scalars[0:4]` 打包孔隙率、宽度、长度和高度；`flags[0]` 返回原叉流比较。 |
 | `SECTIONS_RESULT` | 在 `scalars[0:4]` 观测 A 面积／长度和 B 面积／长度，保留原宿主长度对象。 |
-| `PRESSURE_ENTRY` | 在原压降边界读取该侧原始入口值并复制 DF 选项。 |
+| `PRESSURE_ENTRY` | 读取该侧原始入口值。独立压降查询复制其调用选项。 |
 | `FLOW_PACK`、`FLOW_RESULT` | `scalars[0:3]` 打包质量流量、面积、密度；`flags[0]` 返回原 air 比较。结果 `scalars[0:2]` 观测质量通量及速度。 |
 | `PRESSURE_COMPARE` | `flags[0]` 返回独立的原 air 比较，用于选择压降分支。 |
 | `PRESSURE_PACK` | `flags[0:3]` 传递 air、拓扑、strict。空气在 `scalars[0:5]` 打包质量通量／T／P／mu／长度，其余流体在 `scalars[0:4]` 打包速度／rho／mu／长度。胞元长度位于 `scalars[5]`，壁厚位于 `property_kind`。 |
@@ -724,6 +726,8 @@ sCO2 在状态校验前查找标量缓存，CO2 先校验；数组均绕过标�
 const 物性执行一次热过程，mean 执行两次，第二次使用第一次返回的温度。
 入口解析压降分数在两次过程中保持不变。
 结果拥有全部 15 个场、物理网格宽度、压力证据、最终阶段标量和完整驱动过程记录。
+`tpmshx_quick_run_temperature_algorithm_v1` 报告已完成网格实际采用的温度算法。
+Python 在结果 owner 释放前复制标识。较早的库使用独立温度算法查询。
 取消返回状态 6 且不发布结果。驱动没有每次调用的 CPU 参数，继续应用既有进程线程控制。
 
 Python 传递保存 CaseData 的借用视图，在释放原生结果前复制返回场和声明。

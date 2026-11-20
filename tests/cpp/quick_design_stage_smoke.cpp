@@ -1,4 +1,5 @@
 #include <tpmshx/stages.hpp>
+#include <tpmshx/temperature_driver_c_api.h>
 #include <array>
 #include <cmath>
 #include <cstring>
@@ -245,6 +246,10 @@ int main(int argc,char** argv) {
                 return result;
             }();
             // The prepared owner is gone before any evaluation reads the fields.
+            const auto* algorithm=tpmshx_quick_run_temperature_algorithm_v1(&run.view());
+            const auto scheme=source.arrangement==TPMSHX_CROSS?TPMSHX_TEMPERATURE_CC_2D:TPMSHX_TEMPERATURE_CC_3D;
+            require(algorithm && std::strcmp(algorithm,tpmshx_temperature_algorithm_v1(scheme))==0,
+                "Quick Design result has the wrong temperature recipe");
             auto performance=evaluate(run);
             require(run.view().raw.stop==TPMSHX_CONVERGED,"Quick Design sample did not converge");
             require(run.view().evidence.field_count==15 && performance.view().metric_count==14,"Quick Design result set changed");

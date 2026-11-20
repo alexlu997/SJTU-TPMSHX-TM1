@@ -10,6 +10,10 @@ namespace tpmshx {
 enum class QuickDesignArrangement { cross, counter };
 enum class QuickDesignProperties { constant, mean };
 
+constexpr TemperatureScheme quick_temperature_scheme(std::size_t nz) {
+    return nz == 1 ? TemperatureScheme::cell_centered_2d : TemperatureScheme::cell_centered_3d;
+}
+
 class QuickDesignWaterFieldError : public WaterStateError {
 public:
     using WaterStateError::WaterStateError;
