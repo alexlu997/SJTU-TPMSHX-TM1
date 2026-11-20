@@ -210,17 +210,22 @@ def partitioned_manifests(suite, tmp_path_factory):
         'def test_keep_native(value): assert value > 0\n', encoding='utf-8')
     (root / 'test_new_native.py').write_text(
         'def test_keep_unlisted_native(): pass\n', encoding='utf-8')
+    (root / 'test_stage.py').write_text(
+        'def test_keep_stage(): pass\n', encoding='utf-8')
     modules = root / 'native-suite.txt'
     modules.write_text('test_native.py\n', encoding='utf-8')
+    stages = root / 'stage-suite.txt'
+    stages.write_text('test_stage.py\n', encoding='utf-8')
     group = root / 'native-shard0.txt'
     group.write_text('test_native.py::test_keep_native[1]\n', encoding='utf-8')
     app = [root / f'app{i}' for i in range(2)]
     native = [root / f'native{i}' for i in range(2)]
     for shard in range(2):
         result = run_pytest(root, f'--ci-shard={shard}', '--ci-manifest', str(app[shard]),
-                            f'--ci-covered-modules={modules}', distribution='worksteal')
+                            f'--ci-covered-modules={modules}', f'--ci-covered-modules={stages}',
+                            distribution='worksteal')
         assert result.returncode == 0, result.stdout
-        result = run_pytest(root, '@' + str(modules), f'--ci-shard={shard}',
+        result = run_pytest(root, '@' + str(modules), '@' + str(stages), f'--ci-shard={shard}',
                             '--ci-manifest', str(native[shard]),
                             f'--ci-shard-modules={group}')
         assert result.returncode == 0, result.stdout
@@ -230,11 +235,12 @@ def partitioned_manifests(suite, tmp_path_factory):
 def test_native_partition_keeps_full_collection_and_unlisted_tests(partitioned_manifests):
     app, native = partitioned_manifests
     records = [json.loads((path / 'gw0.json').read_text()) for path in app]
-    assert all(len(record['full_nodeids']) == 7 for record in records)
+    assert all(len(record['full_nodeids']) == 8 for record in records)
     selected = {node for record in records for node in record['selected_nodeids']}
     assert len(selected) == 5
     assert 'test_new_native.py::test_keep_unlisted_native' in selected
     assert not any(node.startswith('test_native.py::') for node in selected)
+    assert 'test_stage.py::test_keep_stage' not in selected
     result = run_checker(*app, covered_by=native)
     assert result.returncode == 0, result.stdout
     assert run_checker(*app).returncode != 0
@@ -269,9 +275,9 @@ def test_application_tier_allows_only_the_listed_native_modules(partitioned_mani
     from engineering.scripts.check_ci_shards import check
 
     app, native = partitioned_manifests
-    assert check(app, omitted_modules={'test_native.py'}) == (7, [2, 3])
-    for modules in ({'test_native.py::test_keep_native[1]'}, {'test_other.py'},
-                    {'test_native.py', 'test_new_native.py'}):
+    assert check(app, omitted_modules={'test_native.py', 'test_stage.py'}) == (8, [2, 3])
+    for modules in ({'test_native.py'}, {'test_native.py::test_keep_native[1]'}, {'test_other.py'},
+                    {'test_native.py', 'test_stage.py', 'test_new_native.py'}):
         with pytest.raises(ValueError):
             check(app, omitted_modules=modules)
     with pytest.raises(ValueError):

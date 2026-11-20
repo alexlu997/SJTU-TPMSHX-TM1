@@ -22,7 +22,7 @@ Installation MUST use the common exact lock referenced by `requirements.txt`.
 With `PYTHONHASHSEED=0`, fast tests use `-m "not slow and not heavy"`, exclude `integration_tm1`, and run with `-n 2`.
 `fast-0` uses `--dist load --maxschedchunk=1`; `fast-1` uses `--dist worksteal`.
 The existing `ci_shard` plugin splits them into two independent jobs.
-The `fast-1` job then runs all `development/tests/integration_tm1/` tests in a separate pytest process, without marker filtering.
+The `fast-1` job then runs all `tests/python/integration_tm1/` tests in a separate pytest process, without marker filtering.
 It MUST retain separate fast and integration reports. A fast-test failure MUST NOT suppress integration unless the job is cancelled.
 Routine Qt tests use offscreen mode with the 3D panel disabled.
 Actual rendering uses a separate native Qt process; its platform requirements and evidence limits are documented in the root README.
@@ -30,7 +30,8 @@ CI MUST NOT depend on ignored local data assets.
 
 Fast jobs MUST use two workers and one BLAS/OMP/MKL/NumExpr thread. Each job MUST report its 30 slowest tests and skip reasons. JUnit XML MUST record individual statuses and durations. Test report artifacts stay available for 7 days.
 
-Uploads cover reports, collection/shard lists, and resource records under `.cache/ci/`. They exclude native solver results and local data. The shared `tests/python/native/_ci_suite.txt` list MUST select native qualification modules. Application shards MUST transfer those modules and keep the original full collection. New modules outside the list MUST enter application tests. Each platform summary MUST check complete, disjoint native shards. It MUST then check that application and native coverage is complete and has no overlap. It MUST require successful test shards, integration, BO, and native dependency qualification jobs.
+Uploads cover reports, collection/shard lists, and resource records under `.cache/ci/`. They exclude native solver results and local data. The shared `tests/python/native/_ci_suite.txt` list MUST select native qualification modules. In full CI, Python 3.13 native shards also run `tests/python/native/_ci_stage_suite.txt`, including slow tests. Application shards MUST transfer these modules and keep the original full collection. New modules outside the lists MUST enter application tests.
+The application tier allows omissions only for the shared native list. Fast stage cases stay in the application shards. Linux result builds run the independent numerical comparisons. Native shards and BO jobs start after their own platform build. Each platform summary MUST check complete, disjoint native shards. It MUST then check that application and native coverage is complete and has no overlap. It MUST require successful test shards, integration, BO, and native dependency qualification jobs.
 
 Platform fast tests, real integration, and minimal postprocessing gates stay required. The four required checks are macOS 3.13, Windows 3.12, Windows 3.13, and minimal-postprocess. Speed improvements MUST NOT change numerical assertions or tolerances. Base and BO jobs MUST use the same platform/Python matrix. Both Windows versions use engineering/requirements/bo-windows.txt.
 

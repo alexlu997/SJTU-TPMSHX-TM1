@@ -32,8 +32,7 @@ def test_gate_requires_exact_jobs_and_results(tier, stage):
     needs = {'scope': {'result': 'success'},
              'native': {'result': 'skipped' if tier == 'docs' else 'success'}}
     if stage == 'summary':
-        needs.update({'bo-tests': dict(needs['native']),
-                      'minimal-postprocess': {'result': 'success'}})
+        needs['minimal-postprocess'] = {'result': 'success'}
     else:
         needs['result-build'] = dict(needs['native'])
     require_jobs(tier, needs, stage)

@@ -20,8 +20,9 @@ from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
 
 @pytest.mark.parametrize('direction', range(6))
 @pytest.mark.parametrize('design_mode', ['uniform', 'grid', 'continuous'])
-@pytest.mark.parametrize('input_mode', ['explicit_batch', 'configured_flow'])
-def test_fixed_flow_matches_native_faces_after_density_update(direction, design_mode, input_mode):
+def test_fixed_flow_matches_native_faces_after_density_update(direction, design_mode):
+    from tests.python.test_native_prepare_adapter import _same
+
     shape, lengths = (30, 30, 30), (.04, .05, .06)
 
     def port(selected):
@@ -52,31 +53,41 @@ def test_fixed_flow_matches_native_faces_after_density_update(direction, design_
                           [.4, .42, .44, .41, .43, .45, .42, .44, .46],
             'n_ctrl_x': 3, 'n_ctrl_y': 3, 'symmetric_y': False,
             'spline_order': 2, 'L_bounds': [4., 8.], 't_bounds': [.3, .6]}))
-    original = asdict(config)
     targets = {'A': .002, 'B': .03}
-    if input_mode == 'configured_flow':
-        config = replace(config, **{'fluid_' + side: replace(getattr(config, 'fluid_' + side),
-                         u_mps=-1., mass_flow_kg_s=targets[side]) for side in 'AB'})
-        original = asdict(config)
-        case = prepare_case(config, case_id='fixed-mass-flow')
-    else:
-        case = prepare_fixed_mass_flow_case(
-            config, mass_flow_A_kg_s=targets['A'], mass_flow_B_kg_s=targets['B'],
-            case_id='fixed-mass-flow')
-    assert asdict(config) == original
-    assert case.case_id == 'fixed-mass-flow'
-    assert dict(case.config_snapshot['geometry']) == original['geometry']
-    assert case.config_snapshot['df_mode'] == config.df_mode
+    configured = replace(config, **{
+        'fluid_' + side: replace(getattr(config, 'fluid_' + side),
+                                 u_mps=-1., mass_flow_kg_s=targets[side]) for side in 'AB'})
+    original, draft = asdict(config), asdict(configured)
+    case = prepare_fixed_mass_flow_case(
+        config, mass_flow_A_kg_s=targets['A'], mass_flow_B_kg_s=targets['B'],
+        case_id='fixed-mass-flow')
+    configured_case = prepare_case(configured, case_id='fixed-mass-flow')
+    assert asdict(config) == original and asdict(configured) == draft
+    for current, source in ((case, original), (configured_case, draft)):
+        assert current.case_id == 'fixed-mass-flow'
+        assert dict(current.config_snapshot['geometry']) == source['geometry']
+        assert current.config_snapshot['df_mode'] == source['df_mode']
+        for side in 'AB':
+            name = 'fluid_' + side
+            speed = current.parameters['u_' + side]
+            assert speed != source[name]['u_mps']
+            assert dict(current.config_snapshot[name]) == {**source[name], 'u_mps': speed}
+            boundary = 'bc_' + side
+            assert dict(current.config_snapshot[boundary]) == source[boundary]
+
     params, prepared = build_execution_inputs(case)
+    configured_params, configured_prepared = build_execution_inputs(configured_case)
+    _same(configured_case.model_refs, case.model_refs)
+    _same(configured_case.metadata['model_roles'], case.metadata['model_roles'])
+    # The native call uses prepared values, not host records or provider instances.
+    host_values = {'inlet_inputs', '_input_resolution', '_models'}
+    _same({name: value for name, value in configured_params.items() if name not in host_values},
+          {name: value for name, value in params.items() if name not in host_values})
+    _same(configured_prepared, prepared)
     control = resolve_control(RunControl(cpu_threads=2))
     raw = NativeFull3DDriver(control.native_library).run_prepared(params, prepared, control)
     for index, side in enumerate('AB'):
         flow, axes = raw['flow'][index], prepared['axes'][side]
-        fluid = getattr(config, 'fluid_' + side)
-        snapshot = case.config_snapshot['fluid_' + side]
-        assert dict(snapshot) == {**asdict(fluid), 'u_mps': params['u_' + side]}
-        assert snapshot['u_mps'] != fluid.u_mps
-        assert dict(case.config_snapshot['bc_' + side]) == original['bc_' + side]
         fractions = prepared['openings'][side]['inlet']
         assert np.any(fractions > 0.)
         assert any(np.ptp(case.grid['d' + axis]) > 0. for axis in 'xyz')

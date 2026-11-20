@@ -731,7 +731,7 @@ PR 按 [明确的路径清单](engineering/scripts/ci_scope.py) 选择检查层�
 - `full`：求解器、模型、公共接口、依赖、工作流和所有未列出的路径。运行完整矩阵。
 
 main 和手动触发始终使用 `full`。重命名同时检查旧、新路径；未知或空的变更集合使用完整矩阵。
-完整矩阵有 30 个作业，包含独立 Linux 结果库构建。较轻 PR 层级不能作为完整 CI 耗时或数值研究验收。
+完整矩阵有 31 个作业，包含独立 Linux 结果库构建。较轻 PR 层级不能作为完整 CI 耗时或数值研究验收。
 物理变更仍须完成其要求的扩展数值研究；常规 CI 不替代该证据。
 
 `pyproject.toml` 的 `[tool.mypy].files` 显式列出 19 个类型检查文件：覆盖配置、控制器、CLI、统一工作流、当前
@@ -743,15 +743,19 @@ envelope 实现、三模块数据契约与公共 API、后处理指标入口；�
 第一条 pytest 排除了 slow/heavy 和 `integration_tm1`，第二条单独完整执行该集成目录，
 避免重复执行其中的快测成员；两者不能代替第三条完整本地验收。
 本地上述命令仍执行未分片的完整子集。CI 中的原生资格测试只在原生组执行，
-共同模块清单为 `tests/python/native/_ci_suite.txt`。原生 pytest 使用 `@<清单路径>` 读取它。
+共同模块清单为 `tests/python/native/_ci_suite.txt`。完整 CI 中，Python 3.13
+再加入 `tests/python/native/_ci_stage_suite.txt` 的阶段用例，包括其中的长测。
+原生 pytest 使用 `@<清单路径>` 读取这些清单。
 应用快测仍记录原完整收集集合，再通过 `--ci-covered-modules=<清单路径>` 移交这些模块。
 清单外的新模块自动保留在应用快测中，不会按目录整体排除。
 复现应用分片时，在第一条 pytest 命令追加
-`-p sjtu_tpmshx.development.tests.ci_shard --ci-shard=0 --ci-manifest=.cache/ci/fast-0
+`-p tests.python.ci_shard --ci-shard=0 --ci-manifest=.cache/ci/fast-0
 --ci-covered-modules=tests/python/native/_ci_suite.txt`。
+复现完整 CI 的 Python 3.13 分片时，再传入
+`--ci-covered-modules=tests/python/native/_ci_stage_suite.txt`。
 另一片改为 `--ci-shard=1` 并使用独立 manifest 目录。
 分片 0 的模块列在 `tests/python/_ci_shard0.txt`，其余应用模块自动进入分片 1。
-移交和分片在原 heavy 标记及 pytest 过滤之后执行，所有原生断言保持不变。
+移交和分片在原 heavy 标记及 pytest 过滤之后执行。
 
 汇总门先验证原生分片完整、互斥且成功，再与应用分片合并核对原完整快测集合。
 跨组重复、漏测、缺失 worker 或失败记录均阻止通过。下载相同平台/Python 的全部 manifest 后运行：
@@ -780,9 +784,9 @@ Python 数值对照迁移为独立公式／离散账本、制造解、组件重�
 不保留已退役迭代器作为第二套求解实现。
 
 每个平台调用 [原生工作流](.github/workflows/native.yml)，用 Python 3.13 构建一次原生库并运行独立 C/C++ 调用程序。
-application 和 full tier 均保留完整 pilot 与既有求解器覆盖；归档显式包含求解库、几何库、准备库和结果库。
+application 和 full tier 均构建完整 pilot。归档包含求解库、几何库、准备库、结果库和 SDK 对照样本。
 结果库通过独立 `build --component result` 构建，再与其余库一起执行完整验证。
-BO 同样恢复本轮同平台归档中的几何库，不降低既有 gate。
+BO 恢复本轮同平台归档中的几何库、准备库和结果库，与该平台的其他回归并行。
 原生库不链接 Python 运行时。macOS 使用 Python 3.13 测试；Windows 保留 Python 3.12 和 3.13 两套测试。
 分片在本平台构建完成后启动，不等待其他平台。原生、快测和集成测试共同使用本轮工作流及源码产生的
 `native-build-<平台>` artifact。归档保留可执行权限，包含运行库、调用程序和许可声明。
@@ -808,12 +812,12 @@ BO 不允许跳过测试；集成允许已记录的单项跳过，但全跳过�
 完整验收的 skip 须保留具体原因，不能当作被跳过能力已经通过。最小后处理 CI 使用独立的
 `engineering/requirements/postprocess.txt` 环境，并消费另一完整环境生成的真实 2D/3D
 结果文件。独立 `result-build` 矩阵在 Ubuntu 24.04 和 26.04 上运行。
-每个作业只获取锁定 CMake，随后构建并验证结果库。
+每个作业只获取锁定 CMake，随后构建结果库、验证 SDK 并运行独立数值参考。
 两项构建均须通过，Ubuntu 24.04 的 `minimal-postprocess` 才能执行文件检查。
 该作业使用 `result-build-linux-x86_64-ubuntu-24.04`；Ubuntu 26.04 产物单独保留。
 macOS 集成步骤同时将公开算例的两个结果及指标通过 `real-file-handoff`
 传给该 Linux 最小环境。两类交接保留 7 天，不包含私有数据。
-最小作业使用预构建结果库检查独立数值参考和真实文件回读，不构建完整求解器。
+最小作业使用预构建结果库读取并评估真实文件，覆盖源码和已安装的 wheel。
 配置不等于实际 CI 通过。
 
 ## 协作与合并

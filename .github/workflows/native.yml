@@ -90,15 +90,6 @@ jobs:
       - name: Build and verify the independent result library offline
         shell: bash
         run: '"$CI_PYTHON" engineering/scripts/build_native_dependencies.py publish --component result'
-      - name: Check result numerical contracts before the full native build
-        shell: bash
-        run: >-
-          "$CI_PYTHON" -m pytest -q --junitxml=.cache/native-deps/logs/result-contracts.xml
-          tests/python/native/test_result_metrics.py
-          tests/python/native/test_result_checks.py
-          tests/python/test_native_result_balance.py
-          tests/python/test_native_zone_statistics.py
-          tests/python/test_native_result_loader.py
       - name: Fetch fixed native sources and build tool
         shell: bash
         run: '"$CI_PYTHON" engineering/scripts/build_native_dependencies.py fetch'
@@ -131,59 +122,6 @@ jobs:
       - name: Check the installed C++ stage SDK outside the source tree
         shell: bash
         run: '"$CI_PYTHON" engineering/scripts/build_native_dependencies.py check-stages'
-      - name: Compare native preparation and complete stage results
-        shell: bash
-        run: |
-          "$CI_PYTHON" - <<'PYTHON'
-          import os
-          from pathlib import Path
-          host = 'windows-x64' if os.name == 'nt' else 'macos-arm64'
-          prefix, suffix = ('', '.dll') if os.name == 'nt' else ('lib', '.dylib')
-          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as output:
-              for component in ('solver', 'geometry', 'preparation', 'result'):
-                  folder = component if component in ('preparation', 'result') else 'pilot'
-                  library = Path('.cache/native-deps/build') / (folder + '-' + host) / (prefix + 'tpmshx_' + component + '_shared' + suffix)
-                  name = 'TPMSHX_NATIVE_SOLVER_LIBRARY' if component == 'solver' else 'TPMSHX_' + component.upper() + '_LIBRARY'
-                  output.write(f'{name}={library.resolve().as_posix()}\n')
-          PYTHON
-      - name: Check exact stage contracts
-        shell: bash
-        run: >-
-          "$CI_PYTHON" -m pytest -q --junitxml=.cache/native-deps/logs/stage-contracts.xml
-          tests/python/test_native_preparation_case.py
-          tests/python/test_native_preparation_fluids.py
-          tests/python/test_native_property_query.py
-          tests/python/test_native_preparation_mass_flow.py
-          tests/python/test_native_preparation_continuous.py
-          tests/python/test_native_preparation_zones.py
-          tests/python/test_native_preparation_sigmoid.py
-          tests/python/test_native_preparation_grid_types.py
-          tests/python/test_native_preparation_spatial_flow.py
-          tests/python/test_native_preparation_3d.py
-          tests/python/test_native_preparation_flow_3d.py
-          tests/python/test_native_preparation_continuous_3d.py
-          tests/python/test_native_preparation_spatial_3d.py
-          tests/python/test_native_prepare_adapter.py
-          tests/python/test_native_prepare_adapter_3d.py
-          tests/python/test_native_prepare_spatial_adapter.py
-          tests/python/test_native_prepare_offset.py
-          tests/python/test_native_preparation_cache_bridge.py
-          tests/python/test_native_preparation_spatial_host_boundary.py
-          tests/python/test_preparation_cache.py
-          tests/python/test_native_stage_run.py
-          tests/python/test_native_stage_uniform.py
-          tests/python/test_native_stage_continuous.py
-          tests/python/test_native_stage_state.py
-          tests/python/test_native_stage_capture.py
-          tests/python/test_native_stage_3d.py
-          tests/python/test_native_run_adapter_3d.py
-          tests/python/test_native_run_ownership.py
-          tests/python/test_native_run_adapter.py
-          tests/python/test_native_offset_run.py
-          tests/python/test_native_result_stage.py
-          tests/python/test_native_result_stage_host.py
-          tests/python/test_native_quick_result_stage.py
-          tests/python/test_native_quick_prepare.py
       - name: Pack native runtime files with executable permissions
         shell: bash
         run: |
@@ -227,6 +165,7 @@ jobs:
           files += [result / (prefix + 'tpmshx_result_shared' + suffix)]
           files += [result / (name + executable_suffix) for name in ('result_c_static', 'result_c_shared', 'result_kernel_smoke')]
           files += sorted((build.parent / 'stage-result').iterdir())
+          files += sorted((build.parent / 'quick-design-stage-result').glob('*/*'))
           files += [build.parent / ('coolprop-' + host) / 'coolprop-build.json']
           if host == 'macos-arm64':
               files += [build.parent / ('coolprop-preparation-' + host) / 'coolprop-build.json']
@@ -387,6 +326,7 @@ jobs:
           done
           "$CI_PYTHON" -m pytest -q -ra -n 2 --dist loadscope --max-worker-restart=0 \
           @tests/python/native/_ci_suite.txt \
+          ${{ matrix.python == '3.13' && '@tests/python/native/_ci_stage_suite.txt' || '' }} \
           -p tests.python.ci_shard --ci-shard=${{ matrix.shard }} \
           "${shard_options[@]}" \
           --ci-manifest=.cache/ci/native-manifest \
@@ -520,7 +460,7 @@ jobs:
         if: runner.os == 'macOS' && matrix.part == 'fast-0'
         run: make -f engineering/native_build/Makefile check
       - name: Build and run independent C++ callers on Windows
-        if: runner.os == 'Windows' && matrix.part == 'fast-0'
+        if: runner.os == 'Windows' && matrix.python == '3.13' && matrix.part == 'fast-0'
         shell: cmd
         run: nmake /f engineering\native_build\Makefile.msvc check
       - name: Install fixed Mesa OpenGL for actual Qt rendering
@@ -538,6 +478,7 @@ jobs:
           -n 2 ${{ matrix.part == 'fast-0' && '--dist load --maxschedchunk=1' || '--dist worksteal' }} --max-worker-restart=0
           -p tests.python.ci_shard --ci-manifest=.cache/ci/fast/fast-manifest
           --ci-covered-modules=tests/python/native/_ci_suite.txt
+          ${{ inputs.tier == 'full' && matrix.python == '3.13' && '--ci-covered-modules=tests/python/native/_ci_stage_suite.txt' || '' }}
           --ci-shard=${{ matrix.part == 'fast-0' && '0' || '1' }}
           --timeout=600 --timeout-method=thread
           --durations=30 --junitxml=.cache/ci/fast/fast.xml
@@ -582,4 +523,106 @@ jobs:
           path: .cache/ci/integration/
           include-hidden-files: true
           if-no-files-found: error
+          retention-days: 7
+
+  bo-tests:
+    needs: native-build
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ${{ fromJSON(inputs.os == 'macos-15' && '["3.13"]' || '["3.12","3.13"]') }}
+    runs-on: ${{ inputs.os }}
+    timeout-minutes: 30
+    env:
+      BO_LOCK: ${{ inputs.os == 'macos-15' && 'engineering/requirements/bo-macos.txt' || 'engineering/requirements/bo-windows.txt' }}
+      PYTHONHASHSEED: "0"
+      MPLCONFIGDIR: .cache/matplotlib
+      XDG_CACHE_HOME: .cache/xdg
+      QT_QPA_PLATFORM: offscreen
+      TPMSHX_DISABLE_3D_PANEL: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      NUMEXPR_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: |
+            engineering/requirements/base.txt
+            ${{ env.BO_LOCK }}
+      - name: Create isolated BO environment
+        shell: bash
+        run: |
+          python -m venv "$RUNNER_TEMP/sjtu-bo-ci-venv"
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP']) / 'sjtu-bo-ci-venv'
+          interpreter = root / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as output:
+              output.write(f'CI_PYTHON={interpreter.as_posix()}\n')
+          PY
+      - name: Install locked BO dependencies
+        shell: bash
+        run: '"$CI_PYTHON" -m pip install -r "${{ env.BO_LOCK }}"'
+      - name: Check exact BO dependency lock
+        shell: bash
+        run: '"$CI_PYTHON" -m sjtu_tpmshx.development.runs.tools.check_locked_environment "${{ env.BO_LOCK }}"'
+      - name: Check dependency compatibility
+        shell: bash
+        run: '"$CI_PYTHON" -m pip check'
+      - uses: actions/download-artifact@v8
+        with:
+          name: native-build-${{ inputs.os }}
+          path: .cache/ci-native-build
+      - name: Restore verified geometry, preparation and result libraries for BO
+        shell: bash
+        run: |
+          "$CI_PYTHON" - <<'PY'
+          import os
+          from pathlib import Path
+          import shutil
+          import tarfile
+          host = 'windows-x64' if os.name == 'nt' else 'macos-arm64'
+          prefix, suffix = ('', '.dll') if os.name == 'nt' else ('lib', '.dylib')
+          with tarfile.open('.cache/ci-native-build/native-binaries.tar') as archive:
+              for component in ('geometry', 'preparation', 'result'):
+                  name = prefix + 'tpmshx_' + component + '_shared' + suffix
+                  folder = component if component in ('preparation', 'result') else 'pilot'
+                  member = folder + '-' + host + '/' + name
+                  archive.extract(archive.getmember(member), '.cache/native-deps/build', filter='data')
+                  source = Path('.cache/native-deps/build') / member
+                  target = Path('sjtu_tpmshx/solvers/native/lib') / host / name
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  shutil.copy2(source, target)
+                  with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as output:
+                      output.write(f'TPMSHX_{component.upper()}_LIBRARY={target.resolve().as_posix()}\n')
+          PY
+      - name: Require real BO imports
+        shell: bash
+        run: |
+          "$CI_PYTHON" - <<'PY'
+          import torch
+          import botorch
+          import gpytorch
+          print(f'torch={torch.__version__} botorch={botorch.__version__} gpytorch={gpytorch.__version__}')
+          PY
+      - name: Run optimizer and real acquisition tests
+        shell: bash
+        run: >-
+          "$CI_PYTHON" -m pytest tests/python/test_multi_condition_optimizer.py
+          tests/python/test_mass_design.py -q -ra
+          -p tests.python.ci_shard --ci-manifest=.cache/ci/bo-manifest
+          --timeout=600 --timeout-method=thread
+          --durations=10 --junitxml=.cache/ci/bo.xml
+      - name: Save BO test outcomes and timings
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: bo-test-reports-${{ inputs.os }}-py${{ matrix.python }}
+          path: .cache/ci/
+          include-hidden-files: true
           retention-days: 7

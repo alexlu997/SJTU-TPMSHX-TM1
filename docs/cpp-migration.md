@@ -124,9 +124,12 @@ An empty `source_changes` list means there are no tracked changes. Both fields a
 A replacement failure restores selected files and metadata. A failed rollback retains its staging files and reports the recovery path.
 Old solver checkpoints still require their exact retained runtime, prepared input and controls.
 
-The application and full CI tiers retain the complete native pilot build and existing solver coverage.
-Their artifacts explicitly include solver, geometry, preparation and result libraries.
-Native and BO consumers restore the required libraries from the same platform artifact.
+The application and full CI tiers build the complete native pilot.
+Their artifacts include the four native libraries and the SDK comparison samples.
+Native and BO jobs start after their platform build and use its artifact.
+In full CI, the Python 3.13 native shards run the stage suite, including its slow cases.
+The display-only application tier runs the fast stage tests with the other application tests.
+The Linux result builds run independent result-kernel tests in both tiers.
 Full computation remains limited to macOS arm64 and Windows x64. Independent Linux result evaluation has the scope defined below.
 The Python wheel includes code and model resources, without native libraries.
 Desktop packaging requires all four prebuilt inputs; see [desktop delivery](desktop.en.md#可选冻结打包).
@@ -319,10 +322,10 @@ Separate result publication builds no solver state and writes `result-build.json
 Its dependency record is empty and contains no CoolProp build record.
 Full macOS/Windows publication deploys four libraries in one transaction, with their matching previous files retained.
 CI keeps the full macOS/Windows builds and checks independent result builds on Ubuntu 24.04 and 26.04.
-Both result builds must pass. The `minimal-postprocess` consumer stays on Ubuntu 24.04.
+Both result builds must pass their SDK and numerical reference tests. The `minimal-postprocess` consumer stays on Ubuntu 24.04.
 It uses `result-build-linux-x86_64-ubuntu-24.04` and the separate macOS `real-file-handoff` input.
 The Ubuntu 26.04 build artifact remains separate.
-The minimal job checks independent result references and actual saved 2D/3D files. It builds no solver or model library.
+The minimal job reads and evaluates actual saved 2D/3D files from source and installed wheels.
 The [source and interface record](../postprocess/sources.md) defines types, buffers, errors and notices.
 There is no numerical fallback, runtime compiler or universal numerical callback.
 
