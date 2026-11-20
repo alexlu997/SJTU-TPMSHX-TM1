@@ -4,7 +4,9 @@
 #include "stage_capture_3d.hpp"
 #include "../geometry/field_c_boundary.hpp"
 #include "tpmshx/fluid_properties.hpp"
+#include "tpmshx/grid.hpp"
 #include "tpmshx/result_metrics.hpp"
+#include "tpmshx/temperature_driver_c_api.h"
 
 #include <algorithm>
 #include <array>
@@ -126,8 +128,8 @@ public:
     tpmshx_stage_model_level_v1 model_level{};
     tpmshx_stage_true_h_v1 true_h{};
     tpmshx_stage_true_h_certificate_v1 true_h_certificate{};
-    tpmshx_full3d_energy_effective_settings_v1 energy_settings{};
-    tpmshx_full3d_energy_evidence_v1 energy_evidence{};
+    tpmshx_stage_run_3d_execution_v1 execution_view{};
+    std::vector<tpmshx_model_h_acceleration_v1> acceleration;
     tpmshx_physical_heat_ledger_v1 ledger{};
     tpmshx_model_enthalpy_evidence_v1 temperature_ledger{};
     std::array<tpmshx_stage_gate_v1,5> gates{};
@@ -249,9 +251,9 @@ public:
         evidence.model_certificates=&model_level;evidence.model_certificate_count=1;
     }
     void make_true_h() {
-        if(tpmshx_full_3d_get_energy_evidence_v1(&raw,&energy_evidence))
+        if(tpmshx_full_3d_get_energy_evidence_v1(&raw,&execution_view.energy))
             throw std::runtime_error("native full 3D energy evidence query failed");
-        const auto& settings=energy_settings.last;const auto& native=energy_evidence;
+        const auto& settings=execution_view.settings.last;const auto& native=execution_view.energy;
         if(!raw.has_true_h || settings.available!=1 || native.available!=1
             || native.energy.has_temperature_update!=1 || native.energy.algorithm!=TPMSHX_ENERGY_TEMPERATURE_SOU
             || native.outer_count!=raw.outer_count)
@@ -286,11 +288,12 @@ public:
         evidence.thermal.true_h=&true_h;evidence.true_h_certificate=&true_h_certificate;
     }
     void make_thermal() {
-        if(tpmshx_full_3d_get_energy_effective_settings_v1(&raw,&energy_settings))
+        auto& settings=execution_view.settings;
+        if(tpmshx_full_3d_get_energy_effective_settings_v1(&raw,&settings))
             throw std::runtime_error("native full 3D effective settings query failed");
-        if(energy_settings.outer_count!=raw.outer_count)
+        if(settings.outer_count!=raw.outer_count)
             throw std::runtime_error("native full 3D effective settings do not match the thermal history");
-        if(raw.thermal_mode==2 || energy_settings.last.available) {
+        if(raw.thermal_mode==2 || settings.last.available) {
             make_true_h();evidence.thermal_mode="conservative_energy";
         }
         if(raw.has_model_h)make_model();
@@ -323,6 +326,14 @@ public:
             make_energy(energy,ledger,"physical_heat_ledger_v1");
             if(ledger.available)evidence.thermal.energy=&energy.view;
         }
+        auto& executed=execution_view.execution;
+        if(raw.thermal_mode==0) {
+            executed.algorithm=temperature_transport?temperature_ledger.algorithm:tpmshx_temperature_algorithm_v1(2);
+            executed.red_black=resolved.red_black_energy && !temperature_transport;
+        } else if(raw.thermal_mode==1) {
+            executed.algorithm=temperature_ledger.algorithm?temperature_ledger.algorithm:tpmshx_model_h_algorithm_v1(3);
+            executed.red_black=resolved.red_black_energy;
+        } else executed.algorithm=true_h.energy_algorithm;
     }
     void prepared_ranges(const tpmshx_stage_saved_case_3d_v1& saved) {
         const auto& p=saved.preparation;
@@ -392,13 +403,14 @@ public:
         applicability.final_state=final_ranges.data();applicability.final_count=final_ranges.size();
         applicability.required=required.data();applicability.required_count=required.size();
     }
-    void scope_notes(const tpmshx_stage_saved_case_3d_v1& saved) {
-        const auto add=[&](std::string message) {
-            if(std::find(notices.begin(),notices.end(),message)==notices.end())notices.push_back(std::move(message));
-        };
+    void scope_notes(const tpmshx_stage_saved_case_3d_v1& saved,const tpmshx_preparation_scalar_kind_v2* kinds) {
         fields::c_api::require_buffer(saved.notices,saved.notice_count);
-        for(size_t i=0;i<saved.notice_count;++i)add(text(saved.notices[i]));
+        for(size_t i=0;i<saved.notice_count;++i)add_scope_notice(notices,text(saved.notices[i]));
+        constexpr auto absent=std::numeric_limits<size_t>::max();
+        size_t indices[]{absent,absent};
         const auto& input=*saved.input;
+        std::array<double,2> length{},wall{};
+        bool have_extrema=false;
         for(size_t side=0;side<2;++side) {
             if(input.sides[side].fluid!=2 || !raw.flow[side].widths[0].size)continue;
             const auto pressure=input.sides[side].inlet_pressure;
@@ -406,31 +418,33 @@ public:
             message<<"[sCO2 Nu evidence] 3D h_v property refresh, side="<<labels[side]<<", "
                 <<(input.topology?"Gyroid":"Diamond")<<", ";
             if(input.spatial) {
-                const auto extrema=[](const double* data,size_t count) {
+                const auto extrema=[kinds](const double* data,size_t count,size_t field) {
                     fields::c_api::require_buffer(data,count);
                     if(!count)throw std::invalid_argument("spatial scope evidence has an empty geometry field");
                     const auto values=std::minmax_element(data,data+count);
-                    return std::array<double,2>{*values.first*1e3,*values.second*1e3};
+                    const auto mm=[kinds,field](double value) {
+                        if(!kinds)return value*1e3;
+                        const auto& kind=kinds[field];
+                        return grid::multiply({value,kind.precision,kind.strong},grid::weak(1e3)).value;
+                    };
+                    return std::array<double,2>{mm(*values.first),mm(*values.second)};
                 };
-                const auto length=extrema(input.cell_length.data,input.cell_length.size);
-                const auto wall=extrema(saved.wall_thickness_m.data,saved.wall_thickness_m.size);
+                if(!have_extrema) {
+                    length=extrema(input.cell_length.data,input.cell_length.size,0);
+                    wall=extrema(saved.wall_thickness_m.data,saved.wall_thickness_m.size,1);
+                    have_extrema=true;
+                }
                 message<<"zoned L=["<<length[0]<<","<<length[1]<<"] mm, t=["<<wall[0]<<","<<wall[1]<<"] mm";
             } else message<<"L="<<saved.nominal_cell_length_mm<<" mm, t="<<saved.nominal_wall_thickness_mm<<" mm";
-            message<<"; Nu uses scalar P_in="<<pressure<<" Pa. "
-                "Joint qualification remains unverified: the old CFD evidence uses "
-                "heating at Twall=Tref+50 K and period-2/3 bulk properties. "
-                "The reported subset requires P>=10 MPa AND Tb>=Tpc(P)-2 K within "
-                "that campaign; Tpc, joint Pr/P/T coverage, actual wall temperature "
-                "and heating/cooling qualification are not established here. "
-                "Pressure or Re-window membership alone is not a PASS.";
-            if(pressure<10e6)message<<" P_in<10 MPa does not meet the subset necessary pressure condition.";
-            if(pressure>15e6)message<<" P_in>15 MPa exceeds the old campaign pressure envelope (8/10/12/15 MPa).";
-            add(message.str());
+            write_sco2_scope(message,pressure);
+            indices[side]=add_scope_notice(notices,message.str());
         }
         for(const auto& notice:notices)notice_views.push_back(notice.c_str());
+        for(size_t i=0;i<2;++i)
+            if(indices[i]!=absent)execution_view.execution.sco2_notices[i]=notice_views[indices[i]];
         applicability.scope_notes=notice_views.data();applicability.scope_note_count=notice_views.size();
     }
-    void populate(const tpmshx_stage_saved_case_3d_v1& saved) {
+    void populate(const tpmshx_stage_saved_case_3d_v1& saved,const tpmshx_preparation_scalar_kind_v2* kinds) {
         fields::c_api::require_buffer(saved.input,1);const auto& input=*saved.input;
         if(raw.stop>1 || raw.thermal_mode>2)throw std::runtime_error("native full 3D returned an invalid completed state");
         if(raw.thermal_outer_index>static_cast<size_t>(std::numeric_limits<int>::max()))
@@ -499,9 +513,19 @@ public:
         if(tpmshx_full_3d_get_property_sampling_v1(&raw,&records.sampling))
             throw std::runtime_error("native property sampling query failed");
         if(temperature_ledger.algorithm)records.temperature[0]=&temperature_ledger;
-        prepared_ranges(saved);final_state_ranges();required_ranges(input);scope_notes(saved);
+        prepared_ranges(saved);final_state_ranges();required_ranges(input);scope_notes(saved,kinds);
         applicability.inlet_recorded=saved.inlet_recorded?1:0;e.applicability=&applicability;
         capture_energy_relations(records,e);
+        auto& executed=execution_view.execution;
+        if(tpmshx_full_3d_get_energy_update_scale_v1(&raw,&executed.update_scale)
+            || tpmshx_full_3d_get_model_h_iterations_v1(&raw,&executed.model_h))
+            throw std::runtime_error("native full 3D execution record query failed");
+        acceleration.resize(executed.model_h.count);
+        for(size_t i=0;i<acceleration.size();++i)
+            if(tpmshx_full_3d_get_model_h_acceleration_v1(&raw,i,&acceleration[i]))
+                throw std::runtime_error("native full 3D model-h acceleration query failed");
+        executed.acceleration=acceleration.data();
+        finish_execution(executed,e,records);
         for(size_t i=0;i<raw.simple_failure_count;++i) {
             const std::string_view name=raw.simple_failures[i];
             const bool initial=name.substr(0,6)=="A@init" || name.substr(0,6)=="B@init";
@@ -526,12 +550,12 @@ public:
 };
 
 Capture3D* capture_3d(const tpmshx_stage_saved_case_3d_v1& saved,tpmshx_full3d_result_v1& raw,
-    const tpmshx_full3d_control_v1& resolved,const char* result_id) {
+    const tpmshx_full3d_control_v1& resolved,const char* result_id,const tpmshx_preparation_scalar_kind_v2* kinds) {
     auto owner=std::make_unique<Capture3D>();owner->raw=raw;raw={};owner->resolved=resolved;
     if(!result_id)throw std::invalid_argument("3D capture requires a result identifier");
     owner->result_id=result_id;
     if(resolved.table_directory) {owner->table_directory=resolved.table_directory;owner->resolved.table_directory=owner->table_directory.c_str();}
-    if(owner->raw.stop!=2) {owner->populate(saved);owner->capture_scalars(*saved.input);}
+    if(owner->raw.stop!=2) {owner->populate(saved,kinds);owner->capture_scalars(*saved.input);}
     return owner.release();
 }
 tpmshx_stage_run_result_3d_v1 stage_view(Capture3D& owner) {
@@ -564,4 +588,10 @@ extern "C" const tpmshx_stage_run_records_v1* TPMSHX_THERMAL_CALL tpmshx_stage_r
     if(!result || result->abi_version!=TPMSHX_STAGE_RUN_3D_ABI_VERSION || result->struct_size!=sizeof(*result)
         || !result->owner || result->raw.stop>1)return nullptr;
     return &static_cast<const tpmshx::stages::Capture3D*>(result->owner)->records;
+}
+
+extern "C" const tpmshx_stage_run_3d_execution_v1* TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_execution_view_v1(
+    const tpmshx_stage_run_result_3d_v1* result) {
+    if(!tpmshx_stage_run_3d_records_v1(result))return nullptr;
+    return &static_cast<const tpmshx::stages::Capture3D*>(result->owner)->execution_view;
 }

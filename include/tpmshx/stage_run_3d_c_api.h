@@ -89,6 +89,11 @@ typedef struct {
     tpmshx_full3d_control_v1 resolved;
     tpmshx_stage_input_v2 evaluation;
 } tpmshx_stage_run_result_3d_v1;
+typedef struct {
+    tpmshx_stage_execution_v1 execution;
+    tpmshx_full3d_energy_effective_settings_v1 settings;
+    tpmshx_full3d_energy_evidence_v1 energy;
+} tpmshx_stage_run_3d_execution_v1;
 
 /* Capture values retain the Python application reduction order. Audit outlet
  * arrays are borrowed from this result owner and use solver cross-plane order.
@@ -161,6 +166,8 @@ TPMSHX_THERMAL_API uint32_t TPMSHX_THERMAL_CALL tpmshx_stage_capture_3d_abi_vers
  * output. Status 1 is invalid storage/input; 4 is a native failure. */
 /* A null return indicates an invalid or incomplete result. */
 TPMSHX_THERMAL_API const tpmshx_stage_run_records_v1* TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_records_v1(
+    const tpmshx_stage_run_result_3d_v1* result);
+TPMSHX_THERMAL_API const tpmshx_stage_run_3d_execution_v1* TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_execution_view_v1(
     const tpmshx_stage_run_result_3d_v1* result);
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_get_capture_v1(
     const tpmshx_stage_run_result_3d_v1*,uint32_t include_audit,tpmshx_stage_capture_3d_v1*);

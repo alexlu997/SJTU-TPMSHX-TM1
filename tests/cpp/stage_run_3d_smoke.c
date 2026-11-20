@@ -134,6 +134,11 @@ int main(void) {
     REQUIRE(tpmshx_stage_run_3d_get_capture_v1(&result,1,&capture)==0);
     const tpmshx_stage_run_records_v1* records=tpmshx_stage_run_3d_records_v1(&result);
     REQUIRE(records && records->sampling.count && records->sampling.records);
+    const tpmshx_stage_run_3d_execution_v1* executed=tpmshx_stage_run_3d_execution_view_v1(&result);
+    REQUIRE(executed && executed->execution.records==records && executed->settings.outer_count==result.raw.outer_count
+        && executed->execution.acceleration);
+    const size_t last_main=executed->execution.last_main_model_h;
+    REQUIRE(last_main<executed->execution.model_h.count && !executed->execution.model_h.records[last_main].refined);
     REQUIRE(records->base_drag[0].minimum>0. && records->base_drag[0].minimum==records->base_drag[0].maximum);
     REQUIRE(records->applied_drag[0][0].minimum==result.raw.flow[0].permeability.data[0]);
     REQUIRE(records->transient_count+records->final_count==result.raw.simple_failure_count);
@@ -160,6 +165,7 @@ int main(void) {
     REQUIRE(tpmshx_run_case_3d_v1(&prepared,NULL,NULL,&request,&control,&result,error,sizeof(error))==0);
     REQUIRE(result.raw.stop==2 && result.evidence.abi_version==0);
     REQUIRE(tpmshx_stage_run_3d_records_v1(&result)==NULL);
+    REQUIRE(tpmshx_stage_run_3d_execution_view_v1(&result)==NULL);
     capture.q_net=123.;
     REQUIRE(tpmshx_stage_run_3d_get_capture_v1(&result,0,&capture)==1 && capture.q_net==123.);
     tpmshx_preparation_case_3d_release_v1(&prepared);tpmshx_stage_run_3d_release_v1(&result);

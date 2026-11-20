@@ -1,39 +1,43 @@
 """Describe the physical resources and methods of a completed full solve."""
 
 
-def full_execution_record(case, result, *, sides=None):
+def full_execution_record(case, result, *, sides=None, thermal=None):
     """Use returned evidence; requested settings do not prove execution."""
     metadata = result.metadata
-    mode = metadata['thermal_mode']
-    if mode not in ('true_h', 'conservative_energy', 'model_h', 'temperature', 'legacy_temperature'):
-        raise ValueError(f'unsupported executed thermal mode: {mode}')
-    eos = mode in ('true_h', 'conservative_energy')
-    temperature = result.boundary_fluxes.get('temperature') or {}
-    integral = mode == 'model_h' or temperature.get('definition') == 'model_enthalpy_temperature_v1'
-    balance = metadata['diagnostics'].get('true_h_balance') or {}
-    settings = balance.get('effective_settings', {})
     model_h_iterations = metadata.get('model_h_iterations')
-    if integral and model_h_iterations:
-        main_calls = [row for row in model_h_iterations['records'] if row['stage'] == 'outer_thermal']
-        if main_calls:
-            settings = main_calls[-1]['settings']
+    if thermal is None:
+        mode = metadata['thermal_mode']
+        if mode not in ('true_h', 'conservative_energy', 'model_h', 'temperature', 'legacy_temperature'):
+            raise ValueError(f'unsupported executed thermal mode: {mode}')
+        eos = mode in ('true_h', 'conservative_energy')
+        temperature = result.boundary_fluxes.get('temperature') or {}
+        integral = mode == 'model_h' or temperature.get('definition') == 'model_enthalpy_temperature_v1'
+        balance = metadata['diagnostics'].get('true_h_balance') or {}
+        settings = balance.get('effective_settings', {})
+        if integral and model_h_iterations:
+            main_calls = [row for row in model_h_iterations['records'] if row['stage'] == 'outer_thermal']
+            if main_calls:
+                settings = main_calls[-1]['settings']
+        thermal = dict(thermal_mode=mode, unknown='h' if mode == 'true_h' else 'T',
+                       temperature_transport=metadata.get('temperature_transport'), effective_settings=settings)
+        if sides is None:
+            models = metadata.get('model_metadata', {})
+            table = models.get('enthalpy_eos', models.get('sco2_enthalpy_eos', {}))
+            sides = _execution_sides(case, result, mode, eos, integral, table, temperature)
+    settings = thermal['effective_settings']
     native = metadata.get('native', {})
     algorithm = settings.get('energy_algorithm', native.get('algorithm'))
-    models = metadata.get('model_metadata', {})
-    table = models.get('enthalpy_eos', models.get('sco2_enthalpy_eos', {}))
     roles = case.metadata['model_roles']
-    if sides is None:
-        sides = _execution_sides(case, result, mode, eos, integral, table, temperature)
     return dict(version='full_execution_v1', backend=result.backend_id,
                 backend_version=result.backend_version, dimension=case.grid['dimension'],
                 **({'input_resolution': metadata['input_resolution']} if 'input_resolution' in metadata else {}),
                 **({'property_sampling': dict(version='full_sampling_v1', records=metadata['property_sampling'])}
                    if 'property_sampling' in metadata else {}),
                 sides=sides, closure_model_refs={key: roles[key] for key in ('geometry', 'darcy_forchheimer')},
-                numerics=dict(thermal_mode=mode, unknown='h' if mode == 'true_h' else 'T',
+                numerics=dict(thermal_mode=thermal['thermal_mode'], unknown=thermal['unknown'],
                               algorithm=algorithm, algorithm_version=settings.get('energy_algorithm_version'),
                               face_reconstruction=settings.get('enthalpy_face_reconstruction'),
-                              temperature_transport=metadata.get('temperature_transport'),
+                              temperature_transport=thermal['temperature_transport'],
                               effective_settings=settings, native=native,
                               **({'enthalpy_update_normalization': metadata['enthalpy_update_normalization']}
                                  if metadata.get('enthalpy_update_normalization') else {}),
@@ -103,16 +107,3 @@ def _execution_sides(case, result, mode, eos, integral, table, temperature):
         sides[label] = dict(fluid=fluid, solved=solved, flow_and_exchange_model_ref=index,
                             energy=energy, property_evaluation=evaluation)
     return sides
-
-
-def resolved_input_record(case, fluids, shape, directions):
-    """Record resources only after the execution builder has validated them."""
-    roles = case.metadata['model_roles']
-    return dict(version='prepared_input_v1', source='CaseData.parameters',
-                grid_source='CaseData.grid', design_source='CaseData.design_fields',
-                grid_shape=tuple(shape), active_sides=tuple(directions), directions=directions,
-                grid_length_unit='m', cell_length_unit_in_file='m', cell_length_unit_after_resolution='mm',
-                resources={role: dict(model_ref=index, name=case.model_refs[index].name,
-                                      version=case.model_refs[index].version)
-                           for role, index in roles.items()},
-                fluids=fluids)

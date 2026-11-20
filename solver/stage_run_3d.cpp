@@ -579,7 +579,8 @@ int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_take_result_v1(void* run,tpmshx_stag
         if(status)return status;
         try {
             std::unique_ptr<tpmshx::stages::Capture3D,decltype(&tpmshx::stages::release_capture_3d)> captured(
-                tpmshx::stages::capture_3d(owner.packed->saved,raw,owner.resolved,owner.result_id.c_str()),
+                tpmshx::stages::capture_3d(owner.packed->saved,raw,owner.resolved,owner.result_id.c_str(),
+                    owner.source.saved_v2?owner.source.saved_v2->field_kinds:nullptr),
                 &tpmshx::stages::release_capture_3d);
             *result=tpmshx::stages::stage_view(*captured.release());owner.packed.reset();owner.source={};return 0;
         } catch(...) {tpmshx_full_3d_release_v1(&raw);throw;}

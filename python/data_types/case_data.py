@@ -38,3 +38,15 @@ class CaseData:
     def from_compute_config(cls, case_id: str, config: ComputeConfig, **kwargs: Any) -> "CaseData":
         """Capture the existing input authority as a detached case snapshot."""
         return cls(case_id=case_id, config_snapshot=config.to_dict(), **kwargs)
+
+
+def resolved_input_record(case, fluids, shape, directions):
+    """Link executed input facts to the validated case resources."""
+    return dict(version='prepared_input_v1', source='CaseData.parameters',
+                grid_source='CaseData.grid', design_source='CaseData.design_fields',
+                grid_shape=tuple(shape), active_sides=tuple(directions), directions=directions,
+                grid_length_unit='m', cell_length_unit_in_file='m', cell_length_unit_after_resolution='mm',
+                resources={role: dict(model_ref=index, name=case.model_refs[index].name,
+                                      version=case.model_refs[index].version)
+                           for role, index in case.metadata['model_roles'].items()},
+                fluids=fluids)

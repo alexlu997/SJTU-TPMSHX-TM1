@@ -30,6 +30,25 @@ typedef struct {
     uint32_t thermal_history_converged;
 } tpmshx_stage_run_records_v1;
 
+/* Execution views remain valid until stage result release. Model-h settings
+ * refer to the last main call. The index equals count when it is absent.
+ * Acceleration, when present, has one entry per model-h record. */
+typedef struct {
+    const tpmshx_stage_run_records_v1* records;
+    tpmshx_energy_update_scale_v1 update_scale;
+    tpmshx_model_h_iteration_records_v1 model_h;
+    const tpmshx_model_h_acceleration_v1* acceleration;
+    size_t last_main_model_h;
+    const char *unknown,*algorithm;
+    const char* sco2_notices[2];
+    uint32_t red_black;
+} tpmshx_stage_execution_v1;
+typedef struct {
+    tpmshx_stage_execution_v1 execution;
+    tpmshx_full_2d_energy_effective_settings_v1 settings;
+    tpmshx_full_2d_energy_evidence_v1 energy;
+} tpmshx_stage_run_2d_execution_v1;
+
 typedef struct { uint32_t present; size_t value; } tpmshx_stage_size_option_v1;
 typedef struct { uint32_t present; double value; } tpmshx_stage_double_option_v1;
 /* For prepared views, active model_h controls and an energy pointer are exclusive.
@@ -203,6 +222,8 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_run_case_2d_v3(
  * queries still supply the complete fields, histories and numerical ledgers. */
 /* A null return indicates an invalid or incomplete result. */
 TPMSHX_THERMAL_API const tpmshx_stage_run_records_v1* TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_records_v1(
+    const tpmshx_stage_run_result_2d_v1* result);
+TPMSHX_THERMAL_API const tpmshx_stage_run_2d_execution_v1* TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_execution_view_v1(
     const tpmshx_stage_run_result_2d_v1* result);
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_get_capture_v1(
     const tpmshx_stage_run_result_2d_v1*,const tpmshx_stage_application_2d_v1*,

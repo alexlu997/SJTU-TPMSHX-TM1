@@ -51,35 +51,6 @@ def detach_stage_fields(evidence, shape, *, prepared_fields=None):
     return fields, field_declarations(evidence)
 
 
-def sampling_records(view):
-    records = []
-    for sample in view.records[:view.count] if view.count else ():
-        row = dict(side='AB'[sample.side], outer_index=sample.outer_index)
-        for name, _ in sample._fields_[2:]:
-            value = getattr(sample, name)
-            row[name] = value.decode('ascii') if value is not None else None
-        records.append(row)
-    return records
-
-
-def execution_sides(records, evidence, case, declarations):
-    roles = case.metadata['model_roles']
-    sides = {}
-    for index, row in enumerate(records.energy):
-        side = evidence.executed_sides[index].side.decode()
-        model = roles['fluid_' + side]
-        energy = dict(relation=row.relation.decode(), property_provider=row.provider.decode() if row.provider else None,
-                      model_ref=model if row.solved and not row.eos_fluid else None, temperature_field=('Ta', 'Tb')[index])
-        evaluation = dict(state_update=row.state_update.decode() if row.state_update else None)
-        if row.eos_fluid:
-            field = 'P_thermal_' + side
-            energy.update(fluid=row.eos_fluid.decode(), pressure_field=field, pressure_state=declarations[field]['state'])
-            evaluation['final_property_backend'] = 'HEOS'
-        sides[side] = dict(fluid=evidence.executed_sides[index].fluid.decode(), solved=bool(row.solved),
-                           flow_and_exchange_model_ref=model, energy=energy, property_evaluation=evaluation)
-    return sides
-
-
 def closure_records(rows, count):
     from sjtu_tpmshx.run_control.run_warnings import RangeRecord
     samples = []

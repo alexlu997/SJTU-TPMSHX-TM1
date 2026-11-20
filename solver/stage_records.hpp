@@ -2,12 +2,46 @@
 
 #include "tpmshx/stage_run_c_api.h"
 
+#include <algorithm>
+#include <ostream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace tpmshx::stages {
+
+inline void finish_execution(tpmshx_stage_execution_v1& out,const tpmshx_result_evidence_v1& result,
+                             const tpmshx_stage_run_records_v1& records) {
+    out.records=&records;
+    out.unknown=std::string_view(result.thermal_mode)=="true_h"?"h":"T";
+    out.last_main_model_h=out.model_h.count;
+    if(std::string_view(result.thermal_mode)=="model_h" || result.thermal.temperature)
+        for(size_t i=0;i<out.model_h.count;++i)
+            if(!out.model_h.records[i].refined)out.last_main_model_h=i;
+}
+
+inline size_t add_scope_notice(std::vector<std::string>& notices,std::string message) {
+    const auto existing=std::find(notices.begin(),notices.end(),message);
+    if(existing!=notices.end())return static_cast<size_t>(existing-notices.begin());
+    notices.push_back(std::move(message));
+    return notices.size()-1;
+}
+
+inline void write_sco2_scope(std::ostream& message,double pressure) {
+    message<<"; Nu uses scalar P_in="<<pressure<<" Pa. "
+        "Joint qualification remains unverified: the old CFD evidence uses "
+        "heating at Twall=Tref+50 K and period-2/3 bulk properties. "
+        "The reported subset requires P>=10 MPa AND Tb>=Tpc(P)-2 K within "
+        "that campaign; Tpc, joint Pr/P/T coverage, actual wall temperature "
+        "and heating/cooling qualification are not established here. "
+        "Pressure or Re-window membership alone is not a PASS.";
+    if(pressure<10e6)
+        message<<" P_in<10 MPa does not meet the subset necessary pressure condition.";
+    if(pressure>15e6)
+        message<<" P_in>15 MPa exceeds the old campaign pressure envelope (8/10/12/15 MPa).";
+}
 
 inline void capture_energy_relations(tpmshx_stage_run_records_v1& records,const tpmshx_result_evidence_v1& result) {
     const std::string_view mode=result.thermal_mode;

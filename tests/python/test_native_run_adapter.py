@@ -67,12 +67,16 @@ def _hdf_scalars(value):
 
 def _checked_applicability(actual, expected, case):
     from sjtu_tpmshx.solvers.applicability_evidence import capture_applicability
+    from sjtu_tpmshx.solvers.execution_record import full_execution_record
     wanted = capture_applicability(case, expected, {})
     wanted.pop('scope_notes')
     metadata = dict(actual.metadata)
+    execution = full_execution_record(case, expected)
     if '_native_execution_sides' in metadata:
-        from sjtu_tpmshx.solvers.execution_record import full_execution_record
-        _same(metadata.pop('_native_execution_sides'), full_execution_record(case, expected)['sides'], 'executed side records')
+        _same(metadata.pop('_native_execution_sides'), execution['sides'], 'executed side records')
+    if '_native_thermal_execution' in metadata:
+        thermal = metadata.pop('_native_thermal_execution')
+        _same(thermal, {key: execution['numerics'][key] for key in thermal}, 'executed thermal record')
     _same(metadata.pop('_native_applicability'), freeze_value(wanted), 'native applicability transfer')
     return replace(actual, metadata=metadata)
 

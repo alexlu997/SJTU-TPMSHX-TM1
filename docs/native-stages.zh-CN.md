@@ -58,9 +58,14 @@ API 发布这些值，不重复分类。
 Python 将 case notices 与运行期 `nu-evidence` 警告记录合并为 `scope_notes`。
 它保留完整字符串和回调记录，包括嵌入 NUL 字符。
 它保留这些记录的顺序并移除重复消息。
-独立 C++ 阶段使用自己的原生 scope notes。
+完成的求解阶段对每个活跃 sCO2 侧生成一次运行告警。
+Python 在原有告警作用域中按原顺序发布。
 直接及归档运行库路径保留 `capture_applicability`；捕获错误不选择该路径。
-`execution_record.py` 解释实际执行身份和物性采样；结果阶段判断资格。
+`tpmshx_stage_run_2d_execution_view_v1` 与 `tpmshx_stage_run_3d_execution_view_v1` 发布已完成求解的数值证据。
+这些视图提供实际热控制、能量记录、更新尺度和选定的 model-h 调用。
+视图与求解结果共用存储，须在释放结果前复制。
+原有独立查询和阶段 v1 记录仍可使用。
+结果阶段判断资格。
 
 ## 入口物性查询
 

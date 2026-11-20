@@ -81,6 +81,10 @@ def _copy_update_scale(query, result):
     scale = _EnergyUpdateScale()
     if query(ct.byref(result), ct.byref(scale)):
         raise RuntimeError('native energy update scale query failed')
+    return _decode_update_scale(scale)
+
+
+def _decode_update_scale(scale):
     if scale.available == 0:
         return None
     if scale.available != 1 or scale.reference_independent not in (0, 1):
@@ -158,7 +162,8 @@ def _energy_algorithm_query(library):
     return query
 
 
-def _energy_result_info(info, result, *, temperature_tol, abi, version_query, state_update='HEOS_PT'):
+def _energy_result_info(info, result, *, temperature_tol, abi, version_query=None, version=None,
+                        state_update='HEOS_PT'):
     """Decode executed native identity, independently of the requested option."""
     if result.algorithm not in range(len(_ENERGY_NAMES)):
         raise RuntimeError('native energy returned an unknown algorithm')
@@ -169,7 +174,8 @@ def _energy_result_info(info, result, *, temperature_tol, abi, version_query, st
         raise RuntimeError('native energy returned an invalid temperature update')
     if not np.isfinite(result.picard_relaxation) or not 0 < result.picard_relaxation <= 1:
         raise RuntimeError('native energy returned an invalid Picard relaxation')
-    version = version_query(result.algorithm)
+    if version is None:
+        version = version_query(result.algorithm)
     if type(version) is not int or version not in ((1,) if result.algorithm == 1 else (1, 2)):
         raise RuntimeError('native energy returned an unsupported algorithm version')
     info.update(energy_algorithm=name, energy_algorithm_version=version,

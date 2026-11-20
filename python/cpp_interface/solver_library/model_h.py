@@ -75,6 +75,10 @@ def _copy_iteration_records(query, result, acceleration_query=None):
     view = _IterationRecords()
     if query(ct.byref(result), ct.byref(view)):
         raise RuntimeError('native model-h iteration query failed')
+    return _decode_iteration_records(view, acceleration_query=acceleration_query, result=result)
+
+
+def _decode_iteration_records(view, acceleration=None, *, acceleration_query=None, result=None):
     if view.count and not view.records:
         raise RuntimeError('native model-h iteration records are missing')
     records = []
@@ -91,10 +95,13 @@ def _copy_iteration_records(query, result, acceleration_query=None):
                           temperature_update_tolerance_K=row.temperature_tolerance,
                           q_relative_tolerance=row.q_relative_tolerance,
                           total_iteration_budget=row.total_iteration_budget)))
-        if acceleration_query is not None:
-            policy = _Acceleration()
-            if acceleration_query(ct.byref(result), index, ct.byref(policy)):
-                raise RuntimeError('native model-h acceleration query failed')
+        if acceleration is not None or acceleration_query is not None:
+            if acceleration is not None:
+                policy = acceleration[index]
+            else:
+                policy = _Acceleration()
+                if acceleration_query(ct.byref(result), index, ct.byref(policy)):
+                    raise RuntimeError('native model-h acceleration query failed')
             if policy.enabled not in (0, 1) or not policy.sweeps_per_block or policy.history_limit < 2:
                 raise RuntimeError('invalid native model-h acceleration record')
             records[-1]['settings']['acceleration'] = dict(enabled=bool(policy.enabled),

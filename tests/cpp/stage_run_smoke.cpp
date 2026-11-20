@@ -175,6 +175,10 @@ int main(int argc,char** argv) {
         const auto* records=tpmshx_stage_run_2d_records_v1(&run.view());
         require(records && records->sampling.count && records->sampling.records,"missing 2D property sampling");
         require(!tpmshx_stage_run_2d_records_v1(&failure),"invalid result published 2D records");
+        const auto* executed=tpmshx_stage_run_2d_execution_view_v1(&run.view());
+        require(executed && executed->execution.records==records && !std::strcmp(executed->execution.unknown,"T")
+                && executed->execution.algorithm
+                && executed->settings.outer_count==run.view().raw.outer_history_count,"missing 2D executed thermal settings");
         auto performance=evaluate(run);
         require(run.view().raw.converged,"baseline stage solve did not converge");
         require(performance.view().metric_count==17,"stage metric set changed");
