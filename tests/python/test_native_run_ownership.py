@@ -37,7 +37,11 @@ def test_interrupt_after_native_transfer_releases_owner(dimension, saved, bounda
         run_type = full_3d_stage.SavedRun if saved else full_3d_run.NativeFull3DRun
         inputs = prepared_3d.build_execution_inputs(case, copy_design=False)
     driver = driver_type(library)
-    monkeypatch.setattr(module, driver_type.__name__, lambda *args, **kwargs: driver)
+    if dimension == 3 and saved:
+        monkeypatch.setattr(full_3d_stage, 'open_library',
+            lambda *args: (driver.path, driver.library, driver.abi, driver.table_directory))
+    else:
+        monkeypatch.setattr(module, driver_type.__name__, lambda *args, **kwargs: driver)
 
     def execute(**kwargs):
         return run_case(case, control, **kwargs) if saved else driver.run_prepared(*inputs, control, **kwargs)

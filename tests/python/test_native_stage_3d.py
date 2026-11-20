@@ -596,9 +596,8 @@ def test_cancel_retains_only_raw_diagnostics(preparation_libraries, stage_librar
         assert status == 0, error.value.decode()
     try:
         assert checks and result.raw.stop == 2 and bytes(result.evidence) == bytes(evaluation.report.Evidence())
-        from sjtu_tpmshx.cpp_interface.solver_library.full_3d import NativeFull3DDriver
-        driver = NativeFull3DDriver(library_path())
-        assert set(driver._bootstrap_traces(result.raw)) == {'A', 'B'}
+        from sjtu_tpmshx.cpp_interface.full_3d_stage import bootstrap_query, bootstrap_traces
+        assert set(bootstrap_traces(bootstrap_query(stage_library), result.raw)) == {'A', 'B'}
     finally:
         stage_library.tpmshx_stage_run_3d_release_v1(ct.byref(result))
 

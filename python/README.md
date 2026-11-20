@@ -62,7 +62,8 @@ spatial v4 增加 XY 网格矩形和现有全局偏置规则，分别保留侧�
 原生三维运行／捕获将这些准备家族及保存视图接到同一 `Full3DRun` 生命周期。
 结果在准备态及运行释放后拥有完整原始场与评估证据。
 Python 完整三维执行通过 `full_3d_stage.py` 使用该保存输入生命周期。
-`full_3d_capture.py` 仍是结果组装器；原生捕获提供应用归约量及可选审计出口权重。
+`full_3d_stage.py` 发布现行结果，`full_3d_capture.py` 解码早期结果。
+原生捕获提供应用归约量和可选审计出口权重。
 Python 三维准备使用 host v5 和共享的带类型缓存回调。
 空气场每侧最多选择八个标量观测值，完整原始数组记录仍保留全部单元。
 `python/preprocess/three_d/preparation.py` 从拥有独立存储的原生结果组装不可变 CaseData。

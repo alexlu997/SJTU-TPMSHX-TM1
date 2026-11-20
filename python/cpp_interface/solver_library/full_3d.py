@@ -5,79 +5,36 @@ owned output views. SIMPLE, EOS, closure refresh, energy, outer coupling and
 physical convergence verdicts are produced by the C++ call.
 """
 import ctypes as ct
-from ._full_3d_abi import (_Array, _BootstrapTrace, _Callbacks, _Cancel, _Control,
-                         _EnergyEvidence, _FLAGS, _FLOW_ARRAYS, _Input,
-                         _OuterProgress, _PAIRS, _Progress, _Result)
-from .enthalpy import _update_scale_query, _copy_update_scale, _decode_update_scale
-import os
-from pathlib import Path
+from math import prod
 
 import numpy as np
 
-from sjtu_tpmshx.run_control.cancellation import CancelledError
-from sjtu_tpmshx.data_types.compute_config import reject_retired_research_options, validate_simple_velocity_relaxation
+from sjtu_tpmshx.data_types.compute_config import reject_retired_research_options
 from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.run_control.run_environment import run_environment, require_f2_mode
 from sjtu_tpmshx.physical_models.fluid_props import WaterStateError
-from sjtu_tpmshx.physical_models.field_coordinates_3d import _port_rectangles
-from .simple_3d import _Config as _SimpleConfig, _STOPS
-from ._simple_abi import simple_count, _F2
+
+from .. import full_3d_stage as stage
+from ..full_3d_stage import _copy, _detach
+from ._full_3d_abi import _Callbacks, _Control, _EnergyEvidence, _Input, _Result
+from ._simple_abi import _F2
+from ._stage_capture_abi import copy_sampling, executed_inputs, execution_view_query, sampling_query, sampling_records, stage_records
+from .closure_evidence import copy_range_observations, replay_range_observations, last_range_query, copy_last_ranges
+from .enthalpy import (_EnergyOptions, _EnergyOptionsV2, _energy_algorithm_query,
+                       _FullEnergyEffectiveSettings, _full_enthalpy_defaults, _update_scale_query, _copy_update_scale)
+from .model_h import (_IterationOptions, _iteration_query, _copy_iteration_records,
+                      _acceleration_query, _model_h_algorithm)
 from .physical_ledger import HeatLedger, heat_ledger_query, copy_heat_ledger
-from .model_h import _volume_info, _model_h_algorithm
+from .simple_3d import _Config as _SimpleConfig
 from .temperature import _temperature_algorithm
 from .temperature_evidence import TemperatureEvidence, copy_temperature_evidence
-from .model_h import (_IterationOptions, _iteration_options, _iteration_query, _copy_iteration_records,
-                      _acceleration_query, _decode_iteration_records)
-from ._stage_capture_abi import (copy_sampling, executed_inputs, executed_view, execution_sides,
-                                execution_view_query, replay_sco2_notices, sampling_query, sampling_records,
-                                stage_records, thermal_execution)
-from .enthalpy import (_EnergyOptions, _EnergyOptionsV2, _energy_options,
-                       _energy_algorithm_query, _energy_result_info, _energy_native_state,
-                       _FullEnergyEffectiveSettings, _full_enthalpy_defaults, _full_enthalpy_info)
-from .closure_evidence import copy_nu_observation, copy_range_observations, replay_range_observations, last_range_query, copy_last_ranges
-
-
-def _copy(v, shape=None):
-    if not v.size:
-        return None
-    result = np.ctypeslib.as_array(v.data, (v.size,)).copy()
-    return result if shape is None else result.reshape(shape)
-
-
-def _pressure(p):
-    if not p.available:
-        return None
-    return dict(specified_Pa=p.specified, realized_Pa=p.realized, outlet_Pa=p.outlet,
-                outlet_gauge_Pa=p.outlet_gauge, minimum_Pa=p.minimum,
-                relative_error=p.relative_error, relative_tolerance=p.relative_tolerance,
-                passed=bool(p.passed), definition=p.definition.decode())
-
-
-def _model_info(r, shape, *, include_faces, capture_scalars=None):
-    info = _volume_info(r, shape, include_faces=include_faces,
-        cell_count=None if capture_scalars is None else capture_scalars['model_h_cell_count'])
-    names = [f'{side} strict {metric} < 1 %' for side in ('A', 'B') for metric in ('global', 'cellmax')]
-    names += ['full-volume LTNE source balance < 1 %', 'physical boundary data complete']
-    info['energy_finishing_checks'] = [dict(iterations=r.finishing_checks[i].iterations,
-        gates=[(name, bool(value)) for name, value in zip(names, r.finishing_checks[i].gates)]) for i in range(r.finishing_count)]
-    return info
 
 
 class NativeFull3DDriver:
     def __init__(self, library, *, table_directory=None):
-        path = Path(library)
-        if not path.is_absolute():
-            raise ValueError('native full 3D library must be an absolute path')
-        self.path = path.resolve(strict=True)
-        self.library = ct.CDLL(str(self.path))
-        version = self.library.tpmshx_full_3d_abi_version
-        version.argtypes, version.restype = [], ct.c_uint32
-        self.abi = version()
-        if self.abi != 2:
-            raise ValueError(f'unsupported full 3D ABI {self.abi}; expected 2')
-        if table_directory is not None and not Path(table_directory).is_absolute():
-            raise ValueError('native full 3D table directory must be an absolute path')
-        self.table_directory = None if table_directory is None else str(table_directory).encode()
+        self._bind(stage.open_library(library, table_directory))
+
+    def _bind(self, runtime):
+        self.path, self.library, self.abi, self.table_directory = runtime
         self.call = self.library.tpmshx_solve_full_3d_v1
         self.call.argtypes = [ct.POINTER(_Input), ct.POINTER(_Control), ct.POINTER(_Callbacks),
                              ct.POINTER(_Result), ct.POINTER(ct.c_char), ct.c_size_t]
@@ -93,35 +50,7 @@ class NativeFull3DDriver:
         self.query_update_scale = _update_scale_query(self.library, 3, _Result)
         self.query_model_h = _iteration_query(self.library, 3, _Result)
         self.query_model_h_acceleration = _acceleration_query(self.library, _Result)
-        try:
-            self.query_bootstrap = self.library.tpmshx_full_3d_get_bootstrap_trace_v1
-        except AttributeError as exc:
-            raise ValueError('native full 3D library lacks bootstrap trace v1; rebuild the library for this binding') from exc
-        self.query_bootstrap.argtypes = [ct.POINTER(_Result), ct.c_size_t, ct.POINTER(_BootstrapTrace)]
-        self.query_bootstrap.restype = ct.c_int
-
-    def _bootstrap_traces(self, result):
-        traces = {}
-        for side, label in enumerate('AB'):
-            view = _BootstrapTrace()
-            if self.query_bootstrap(ct.byref(result), side, ct.byref(view)):
-                raise RuntimeError('native full 3D bootstrap trace query failed')
-            if not view.available:
-                traces[label] = None
-                continue
-            trace = dict(policy=view.policy.decode(), decision=view.decision.decode(),
-                         selected=bool(view.selected), fine_shape=tuple(view.fine_shape))
-            trace.update({key: getattr(view, key) for key in ('coarse_iteration_cap', 'recursive_iteration_cap',
-                'auto_cell_threshold', 'min_coarse_axis', 'actual_levels', 'started_cap_sum', 'total_charged_iterations')})
-            trace['levels'] = []
-            for index in range(view.level_count):
-                row = view.levels[index]
-                record = dict(depth=row.depth, fine_shape=tuple(row.fine_shape), coarse_shape=tuple(row.coarse_shape),
-                              iteration_cap=row.iteration_cap, charged_iterations=row.charged_iterations, stop=row.stop.decode())
-                record.update({key: bool(getattr(row, key)) for key in ('solve_started', 'applied', 'converged', 'child_selected')})
-                trace['levels'].append(record)
-            traces[label] = trace
-        return traces
+        self.query_bootstrap = stage.bootstrap_query(self.library)
 
     def run_prepared(self, cfg, p, control=RunControl(), *, resume_state=None, checkpoint=None, checkpoint_due=None):
         return self._run_prepared(cfg, p, control, resume_state=resume_state, checkpoint=checkpoint, checkpoint_due=checkpoint_due)
@@ -130,29 +59,17 @@ class NativeFull3DDriver:
                       resume_state=None, checkpoint=None, checkpoint_due=None, stage_case=None):
         control.check_cancelled()
         reject_retired_research_options(cfg)
-        energy = _energy_options(cfg.get('enthalpy_algorithm', 'temperature_sou'),
-                                 cfg.get('enthalpy_temperature_tol_K', 1e-8))
+        energy = stage.energy_request(cfg)
         defaults = _full_enthalpy_defaults(self.library, 3, energy.algorithm,
             'water' in (cfg['fluid_type_A'], cfg['fluid_type_B']))
-        require_h = cfg.get('require_enthalpy_update_on_temperature', False)
-        if type(require_h) is not bool:
-            raise ValueError('require_enthalpy_update_on_temperature must be boolean')
-        strict_options = require_h or any(cfg.get(name) is not None for name in (
-            'ltne_enthalpy_coupled_energy_tol', 'ltne_enthalpy_equation_energy_tol'))
+        require_h, strict_options = stage.validate_energy_controls(cfg)
         thread_call = getattr(self.library, 'tpmshx_solve_full_3d_v5', None)
         if thread_call is None and control.cpu_threads is not None:
             raise ValueError('this retained native library has no CPU thread limit; leave cpu_threads unset')
         energy_call = energy_query = version_query = None
-        execution_query = None
-        if stage_case is not None and application_only:
-            from ..full_3d_stage import _StageResult, _ExecutionView
-            execution_query = execution_view_query(self.library, 3, _StageResult, _ExecutionView)
         entry_version = 1
-        model_h_options = _iteration_options(cfg)
+        model_h_options = stage.model_h_request(cfg, strict_options)
         if model_h_options is not None:
-            if strict_options or any(cfg.get(name) is not None for name in (
-                    'ltne_enthalpy_outer', 'ltne_enthalpy_nsweep', 'ltne_enthalpy_omega', 'ltne_enthalpy_tol')):
-                raise ValueError('model-h iteration controls cannot be combined with EOS controls')
             if thread_call is None:
                 try:
                     energy_call = self.library.tpmshx_solve_full_3d_v4
@@ -188,7 +105,7 @@ class NativeFull3DDriver:
             thread_call.argtypes = [*self.call.argtypes[:2], ct.POINTER(_EnergyOptions),
                 ct.POINTER(_EnergyOptionsV2), ct.POINTER(_IterationOptions), ct.c_size_t, *self.call.argtypes[2:]]
             thread_call.restype = ct.c_int
-        if energy.algorithm and execution_query is None:
+        if energy.algorithm:
             version_query = _energy_algorithm_query(self.library)
             try:
                 energy_query = self.library.tpmshx_full_3d_get_energy_evidence_v1
@@ -196,108 +113,51 @@ class NativeFull3DDriver:
                 raise ValueError(f'native full 3D library lacks conservative energy v{entry_version} evidence') from exc
             energy_query.argtypes = [ct.POINTER(_Result), ct.POINTER(_EnergyEvidence)]
             energy_query.restype = ct.c_int
-        require_f2_mode(cfg.get('convergence_mode') or run_environment(cfg, 'TPMSHX_CONV_MODE', 'f2'))
-        if cfg.get('use_anderson', False):
-            raise ValueError('use_anderson=True in SIMPLE has been retired; disable TPMSHX_PHASE_B/use_anderson')
+        stage.validate_flow_options(cfg)
         shape = tuple(p['N'+a] for a in 'xyz')
         keepalive = []
-        def view(value, expected=None):
-            value = np.asarray(value, dtype=np.float64)
-            if expected is not None:
-                value = np.broadcast_to(value, expected)
-            value = np.require(value, requirements=['C', 'A'])
-            keepalive.append(value)
-            return _Array(value.ctypes.data_as(ct.POINTER(ct.c_double)), value.size)
-        data = _Input()
-        data.shape[:] = shape
-        data.widths[:] = [view(p['d'+axis]) for axis in 'xyz']
-        for key, source in zip(('epsilon', 'epsilon_a', 'epsilon_b', 'permeability', 'forchheimer', 'solid_conductivity', 'cell_length'),
-                               ('eps_arr', 'eps_A', 'eps_B', 'K_m2', 'cF_per_m', 'K_ss', 'L_field_m')):
-            setattr(data, key, view(p['design'][source], shape))
-        thermal = cfg['thermal_geometry']
-        spatial = bool(cfg.get('zone_grid_cells') or cfg.get('continuous_field'))
-        geometry = thermal['fields' if spatial else 'uniform']
-        data.area_density, data.hydraulic_diameter = view(geometry['A_0'], shape), view(geometry['D_h'], shape)
-        data.reference_cell_length, data.reference_hydraulic_diameter = cfg['Lcell']*1e-3, p['geometry']['D_h']
-        data.topology = ('Diamond', 'Gyroid').index(cfg['tpms_type'])
-        data.spatial, data.asymmetric, data.solve_b = spatial, cfg.get('delta_levelset', 0.) != 0., cfg.get('fluid_B_cfg') is not None
-        for s, label in enumerate('AB'):
-            a = data.sides[s];axis = p['axes'][label];bc = cfg['fluid_'+label+'_cfg']
-            a.fluid = ('air', 'water', 'sco2', 'co2').index(cfg['fluid_type_'+label]);a.direction = 3 if bc is None else bc['dir']
-            a.solver_axes[:] = [axis[key+'_real_axis'] for key in ('cross1', 'stream', 'cross2')]
-            a.inlet_temperature, a.inlet_pressure, a.inlet_velocity = cfg['T_in'+label], cfg['P_in'+label], cfg['u_'+label]
-            if stage_case is None or not hasattr(self.library, 'tpmshx_stage_run_3d_create_saved_v2') or bc is None:
-                rectangles = _port_rectangles(bc, float(sum(axis['dcross2']))) if bc is not None else dict(inlet_rect=(0.,1.,0.,1.),outlet_rect=(0.,1.,0.,1.))
-                a.inlet_rectangle[:], a.outlet_rectangle[:] = rectangles['inlet_rect'], rectangles['outlet_rect']
-            a.inlet_opening, a.outlet_opening = (view(p['openings'][label][end]) for end in ('inlet', 'outlet'))
-            correction = (cfg.get('df_application') or {}).get(label, {})
-            a.permeability_scale, a.forchheimer_scale = correction.get('scale_K', 1.), correction.get('scale_F', 1.)
-            a.dispersion = cfg.get('disp_C_'+label, 0.)
-            nu = cfg['sco2_nu']
-            a.sco2_nusselt_multiplier = getattr(nu, 'alpha_D' if data.topology == 0 else 'alpha_G') if nu.mode == 'experimental' else 1.
-            a.heat_transfer_geometry[:] = thermal['side_geometry'][label] if data.asymmetric else (1.,1.,1.,1.)
-        data.sources[:] = [view(cfg.get('mms_S_'+s+'_field', np.empty(0))) for s in ('A', 'B', 's')]
+        saved_v2 = stage_case is not None and hasattr(self.library, 'tpmshx_stage_run_3d_create_saved_v2')
+        data = stage.pack_input(cfg, p, p, p['design'], shape, cfg['Lcell'], cfg['sco2_nu'],
+                                keepalive, saved_v2=saved_v2)
+        request = stage._request(cfg, energy, model_h_options)
+        stage.pack_run_controls(request, cfg, p, shape)
         c = _Control()
-        c.max_outer = simple_count(p['max_outer'] if p['max_outer'] is not None else 12)
-        c.initial_simple_iterations = simple_count(cfg.get('max_iter_simple') if cfg.get('max_iter_simple') is not None else 2000)
-        c.warm_simple_iterations = simple_count(cfg.get('max_iter_simple') if cfg.get('max_iter_simple') is not None else 600)
-        c.thermal_iterations = simple_count(p['ltne_max_iter']);c.outer_temperature_tolerance = cfg.get('outer_tol_K') if cfg.get('outer_tol_K') is not None else .5
-        c.thermal_relaxation = cfg.get('ltne_alpha_T', .7)
-        c.pressure_shooting = run_environment(cfg, 'TPMSHX_P_IN_SHOOT', '1') != '0'
-        vrho = run_environment(cfg, 'TPMSHX_VAR_RHOCP')
-        c.variable_rho_cp = vrho == '1' if vrho in ('0', '1') else bool(cfg.get('variable_rho_cp', True))
-        c.conservative, c.strict_mass_balance, c.force_cell_centered = (bool(cfg.get(k, True)) for k in ('conservative_ltne', 'strict_mass_balance', 'force_cc_ltne'))
-        c.refined_port_energy = bool(cfg.get('port_wall_refine', False))
-        c.red_black_energy = int(np.prod(shape)>30000 and not (energy.algorithm and data.solve_b
+        c.max_outer = request.max_outer_ltne.value
+        c.initial_simple_iterations = request.max_iter_simple.value if request.max_iter_simple.present else 2000
+        c.warm_simple_iterations = request.max_iter_simple.value if request.max_iter_simple.present else 600
+        c.thermal_iterations = request.thermal_iterations.value
+        c.outer_temperature_tolerance = request.outer_tol_K.value
+        c.thermal_relaxation = request.thermal_relaxation.value
+        for name in ('pressure_shooting', 'variable_rho_cp', 'conservative', 'strict_mass_balance',
+                     'force_cell_centered', 'refined_port_energy', 'sco2_local_pressure_a',
+                     'coarse_bootstrap', 'coarse_iterations', 'roughness_mode', 'envelope_mode'):
+            setattr(c, name, getattr(request, name).value)
+        c.red_black_energy = int(prod(shape)>30000 and not (energy.algorithm and data.solve_b
             and any(side.fluid in (2, 3) for side in data.sides)))
-        c.sco2_local_pressure_a = run_environment(cfg, 'TPMSHX_SCO2_COMPRESSIBLE', '').lower() in ('1','true','yes')
-        c.coarse_bootstrap = bool(cfg.get('use_coarse_bootstrap', False))
-        c.coarse_iterations = simple_count(cfg.get('coarse_bootstrap_max_iter', 200))
-        c.roughness_mode = ('baseline','norris_1a','bhatti_shah_1b').index(cfg['roughness_resolved']['mode'])
-        c.envelope_mode = ('raise','warn','off').index(cfg.get('envelope_mode','raise'))
-        c.has_initial_solid_temperature = cfg.get('T_s_init') is not None
-        c.roughness_height, c.initial_solid_temperature = cfg['roughness_resolved']['eps_m'], cfg.get('T_s_init') or 0.
-        relaxation = cfg.get('simple_velocity_relaxation')
-        validate_simple_velocity_relaxation(relaxation)
-        c.simple = _SimpleConfig(2000, 1, 100, .5 if relaxation is None else relaxation, .2, .3, 0., 287.05, .05, 1, 1, 0,
-            bool(cfg.get('use_adaptive_amg_tol', True)), bool(cfg.get('track_momentum_residual', False)),
-            int(np.prod(shape)>=int(os.environ.get('TPMSHX_PARALLEL_THRESHOLD','200000'))),
-            _F2(cfg.get('mom_tol') or 1e-4, cfg.get('mass_local_tol') or 1e-6, cfg.get('mass_global_tol') or 1e-6,
+        c.has_initial_solid_temperature = request.solid_seed_K.present
+        c.roughness_height, c.initial_solid_temperature = request.roughness_height_m.value, request.solid_seed_K.value
+        c.simple = _SimpleConfig(2000, 1, 100, request.simple_velocity_relaxation.value, .2, .3, 0., 287.05, .05, 1, 1, 0,
+            request.adaptive_pressure_tolerance.value, request.track_momentum.value,
+            int(request.parallel_threshold.value == 1),
+            _F2(request.mom_tol.value, request.mass_local_tol.value, request.mass_global_tol.value,
                 .01, 1e-4, 1e-3, 2, 5, 60))
-        c.enthalpy_iterations = simple_count(cfg.get('ltne_enthalpy_outer', defaults.max_iterations))
-        c.enthalpy_sweeps = simple_count(cfg.get('ltne_enthalpy_nsweep', defaults.sweeps), zero=True)
-        c.enthalpy_omega = cfg.get('ltne_enthalpy_omega', defaults.omega)
-        c.enthalpy_update_tolerance = cfg.get('ltne_enthalpy_tol', defaults.update_tolerance)
+        for target, source, default in (
+                ('enthalpy_iterations', 'energy_iterations', defaults.max_iterations),
+                ('enthalpy_sweeps', 'energy_sweeps', defaults.sweeps),
+                ('enthalpy_omega', 'energy_omega', defaults.omega),
+                ('enthalpy_update_tolerance', 'energy_update_tolerance', defaults.update_tolerance)):
+            option = getattr(request, source)
+            setattr(c, target, option.value if option.present else default)
         c.table_directory = self.table_directory
-        callback_errors = []
-        def callback(fn, *args):
-            if not callback_errors:
-                try:
-                    return fn(*args)
-                except BaseException as error:
-                    callback_errors.append(error)
-            return None
-        @_Cancel
-        def cancelled(_):
-            return int(bool(callback_errors) or bool(callback(control.cancel_check) if control.cancel_check else False))
-        @_Progress
-        def progress(_, percent):
-            callback(control.report_progress, int(percent))
-        @_OuterProgress
-        def outer(_, done, total):
-            if control.iteration is not None:
-                callback(control.iteration, f'outer {done}/{total}')
-            if control.outer_iteration is not None:
-                callback(control.outer_iteration, done, total)
-        callbacks = _Callbacks(cancelled, progress, outer, None)
+        callbacks, callback_errors = stage.make_callbacks(control)
         result, error = _Result(), ct.create_string_buffer(2048)
-        stage_result = capture_scalars = execution = None
+        stage_result = capture_scalars = None
         cpu_thread_limit = control.native_cpu_threads() if stage_case is not None or thread_call else None
         try:
             if stage_case is not None:
-                from sjtu_tpmshx.cpp_interface.full_3d_stage import SavedRun
-                with SavedRun(self.library, stage_case, cfg, p, data, c, energy, model_h_options,
-                              callbacks, callback_errors, cpu_thread_limit, resume_state) as run:
+                host = stage._Host(stage_case.case_id.encode(), self.table_directory, cpu_thread_limit, callbacks)
+                with stage.SavedRun(self.library, stage_case, data, cfg['Lcell'], cfg['t_wall'], cfg['sco2_nu'],
+                                    request, host, callback_errors, keepalive, resume_state, version=2 if saved_v2 else 1) as run:
                     run.finish(checkpoint, checkpoint_due, (1, 2, 6, 7, 8, 9, 10))
                     stage_result = run.take_result()
                 result = stage_result.raw
@@ -337,32 +197,20 @@ class NativeFull3DDriver:
                 raise callback_errors[0]
             if code:
                 raise {1:ValueError, 2:WaterStateError, 3:FloatingPointError}.get(code,RuntimeError)(error.value.decode())
-            bootstrap_traces = self._bootstrap_traces(result)
-            if result.stop == 2:
-                cancelled_error = CancelledError('compute cancelled by user')
-                cancelled_error.coarse_bootstrap_trace = bootstrap_traces
-                raise cancelled_error
-            if result.stop not in (0,1):
-                raise RuntimeError('invalid native full 3D exit')
+            bootstrap_traces = stage.bootstrap_traces(self.query_bootstrap, result)
+            stage.require_completed(result, bootstrap_traces)
             if stage_result is not None:
-                from sjtu_tpmshx.cpp_interface.full_3d_stage import copy_summary
-                capture_scalars = copy_summary(self.library, stage_result,
+                capture_scalars = stage.copy_summary(self.library, stage_result,
                     emit_audit=bool(cfg.get('_emit_audit', False)), copy_array=_copy)
-                if execution_query is not None:
-                    execution = executed_view(execution_query, stage_result)
-            if execution is not None:
-                actual = execution.settings
-            else:
-                actual = _FullEnergyEffectiveSettings()
-                if self.query_settings(ct.byref(result), ct.byref(actual)):
-                    raise RuntimeError('native full 3D effective settings query failed')
+            actual = _FullEnergyEffectiveSettings()
+            if self.query_settings(ct.byref(result), ct.byref(actual)):
+                raise RuntimeError('native full 3D effective settings query failed')
             if actual.outer_count != result.outer_count:
                 raise RuntimeError('native full 3D effective settings do not match the thermal history')
             records = stage_fields = None
             if stage_result is not None and application_only:
                 from sjtu_tpmshx.cpp_interface._native_result_stage import detach_stage_fields
-                records = (stage_records(self.library, stage_result) if execution is None
-                           else execution.execution.records.contents)
+                records = stage_records(self.library, stage_result)
                 if hasattr(self.library, 'tpmshx_stage_run_3d_create_saved_v2'):
                     cfg['_input_resolution'] = executed_inputs(stage_case, stage_result.evidence)
                 # The public solid conductivity retains the precision of the saved design.
@@ -371,59 +219,20 @@ class NativeFull3DDriver:
             detached=_detach(result, shape, c, actual, entry_version,
                              emit_audit=bool(cfg.get('_emit_audit',False)), application_only=application_only,
                              capture_scalars=capture_scalars, stage_fields=stage_fields, records=records)
-            if actual.last.available and (execution is not None or energy_query):
-                version = None
-                if execution is not None:
-                    extra = execution.energy
-                    version = stage_result.evidence.thermal.true_h.contents.energy_algorithm_version[0]
-                else:
-                    extra = _EnergyEvidence()
-                    if energy_query(ct.byref(result), ct.byref(extra)):
-                        raise RuntimeError('native full 3D energy evidence query failed')
-                if detached['true_h'] is None or extra.outer_count != len(detached['outer']):
-                    raise RuntimeError('native full 3D energy evidence does not match the thermal history')
-                _energy_result_info(detached['true_h'], extra.energy,
-                    temperature_tol=actual.last.temperature_update_tolerance, abi=entry_version,
-                    version_query=version_query, version=version, state_update='per_side_energy_relation')
-                _energy_native_state(detached['true_h'], extra, shape, 'W')
-                for index, row in enumerate(detached['outer']):
-                    _energy_result_info(row['true_h_info'], extra.outer[index],
-                        temperature_tol=actual.outer[index].temperature_update_tolerance, abi=entry_version,
-                        version_query=version_query, version=version, state_update='per_side_energy_relation')
-                detached['mode'] = 'conservative_energy'
-            if resume_state is not None:
-                detached['continuation'] = dict(format='full_3d_continuation_v1', build=resume_state['build'],
-                    completed_outer_steps=int(resume_state['state.result.outer.size'][0]),
-                    saved_phase=int(resume_state['state.phase'][0]))
+            if actual.last.available and energy_query:
+                extra = _EnergyEvidence()
+                if energy_query(ct.byref(result), ct.byref(extra)):
+                    raise RuntimeError('native full 3D energy evidence query failed')
+                stage.add_energy_evidence(detached, extra, actual, entry_version, shape, version_query=version_query)
             if records is None:
                 detached['property_sampling'] = copy_sampling(sampling_query(self.library, 3, _Result), result)
             else:
                 detached['property_sampling'] = sampling_records(records.sampling)
-            detached['simple_velocity_relaxation'] = c.simple.alpha_velocity
-            if execution is not None:
-                executed = execution.execution
-                detached['enthalpy_update_normalization'] = _decode_update_scale(executed.update_scale)
-                detached['model_h_iterations'] = _decode_iteration_records(executed.model_h, executed.acceleration)
-            else:
-                detached['enthalpy_update_normalization'] = _copy_update_scale(self.query_update_scale, result)
-                detached['model_h_iterations'] = _copy_iteration_records(
-                    self.query_model_h, result, self.query_model_h_acceleration)
-            budgets = {row['outer_index']: row['settings']['total_iteration_budget']
-                       for row in detached['model_h_iterations']['records']}
-            for row in detached['outer']:
-                if 'coupling_startup' in row:
-                    row['coupling_startup']['iteration_budget'] = budgets[row['outer']]
-            detached['entry_version'] = entry_version
-            if cpu_thread_limit is not None:
-                detached['runtime_resources'] = dict(cpu_thread_limit=cpu_thread_limit,
-                    requested_cpu_threads=control.cpu_threads, policy='native_cpu_limit_v1')
-            if execution is not None and detached['mode'] in ('model_h', 'temperature'):
-                if stage_result.evidence.thermal.temperature:
-                    from .._native_result_stage import stage_ledger
-                    detached['temperature_evidence'] = stage_ledger(stage_result.evidence.thermal, records.temperature[0], shape)
-                detached['native_metadata'] = dict(abi=self.abi, algorithm=executed.algorithm.decode(),
-                                                  red_black=bool(executed.red_black))
-            elif detached['mode'] in ('model_h', 'temperature'):
+            detached['enthalpy_update_normalization'] = _copy_update_scale(self.query_update_scale, result)
+            detached['model_h_iterations'] = _copy_iteration_records(
+                self.query_model_h, result, self.query_model_h_acceleration)
+            stage.add_run_evidence(detached, c, entry_version, control, cpu_thread_limit, resume_state)
+            if detached['mode'] in ('model_h', 'temperature'):
                 if detached['mode'] == 'model_h':
                     algorithm = _model_h_algorithm(self.library, 3)
                     red_black = bool(c.red_black_energy)
@@ -460,25 +269,9 @@ class NativeFull3DDriver:
                 detached['native_metadata'] = dict(abi=self.abi, algorithm=algorithm, red_black=red_black)
             if records is None:
                 detached['last_closure_ranges'] = copy_last_ranges(last_range_query(self.library, 3, _Result), result)
-            else:
-                from .._native_result_stage import stage_closures
-                detached['range_observations'], detached['range_warnings'], detached['last_closure_ranges'] = stage_closures(records)
             if stage_result is not None and application_only:
-                from sjtu_tpmshx.cpp_interface._native_result_stage import copy_applicability
-                if records is not None:
-                    from ..full_3d_stage import diagnostics
-                    detached['stage_diagnostics'] = diagnostics(records, stage_result.evidence, cfg, p['design'])
-                    detached['_native_execution_sides'] = execution_sides(records, stage_result.evidence, stage_case, stage_fields[1])
-                if execution is not None:
-                    detached['_native_thermal_execution'] = thermal_execution(executed, stage_result.evidence,
-                        detached['model_h_iterations'], detached['true_h'])
-                detached['_native_applicability'] = copy_applicability(
-                    stage_result.evidence.applicability, stage_case.metadata.get('applicability_inputs', ()))
-            if records is not None:
-                if 'temperature_evidence' not in detached:
-                    from .._native_result_stage import stage_ledger
-                    detached['physical_ledger'] = stage_ledger(stage_result.evidence.thermal, None, shape)
-            elif 'temperature_evidence' not in detached:
+                warnings = stage.add_saved_evidence(detached, stage_case, stage_result.evidence, records, stage_fields, shape)
+            if records is None and 'temperature_evidence' not in detached:
                 ledger = HeatLedger()
                 if heat_ledger_query(self.library, 3, _Result)(ct.byref(result), ct.byref(ledger)):
                     raise RuntimeError('native full 3D heat ledger query failed')
@@ -497,160 +290,22 @@ class NativeFull3DDriver:
                 replay_range_observations(detached['range_observations'])
             else:
                 from sjtu_tpmshx.run_control.run_warnings import current_warnings, merge_warnings
-                merge_warnings(current_warnings(), [detached.pop('range_warnings')])
-            if execution is not None:
-                replay_sco2_notices(executed.sco2_notices, '3D h_v property refresh')
-            else:
-                from sjtu_tpmshx.physical_models.nu_correlations import warn_sco2_nu_evidence
-                for s,label in enumerate('AB'):
-                    if cfg['fluid_type_'+label]=='sco2' and (s==0 or data.solve_b):
-                        warn_sco2_nu_evidence(side=label,stage='3D h_v property refresh',tpms_type=cfg['tpms_type'],
-                            L_mm=p['design']['L_field_m']*1e3 if spatial else cfg['Lcell'],
-                            t_mm=p['design']['t_field_m']*1e3 if spatial else cfg['t_wall'],P_in=cfg['P_in'+label])
+                merge_warnings(current_warnings(), [warnings])
+            from sjtu_tpmshx.physical_models.nu_correlations import warn_sco2_nu_evidence
+            for s,label in enumerate('AB'):
+                if cfg['fluid_type_'+label]=='sco2' and (s==0 or data.solve_b):
+                    warn_sco2_nu_evidence(side=label,stage='3D h_v property refresh',tpms_type=cfg['tpms_type'],
+                        L_mm=p['design']['L_field_m']*1e3 if data.spatial else cfg['Lcell'],
+                        t_mm=p['design']['t_field_m']*1e3 if data.spatial else cfg['t_wall'],P_in=cfg['P_in'+label])
             return detached
         finally:
             if stage_result is not None:
-                from sjtu_tpmshx.cpp_interface.full_3d_stage import release_result
-                release_result(self.library, stage_result)
+                stage.release_result(self.library, stage_result)
             elif result.owner:
                 self.release(ct.byref(result))
 
 
-def _detach(r, shape, settings, energy_settings, entry_version, *, emit_audit=False, application_only=False, capture_scalars=None, stage_fields=None, records=None):
-    result = {name: getattr(r, name) if name == 'stop' else bool(getattr(r, name)) for name in _FLAGS}
-    result.update({name: list(getattr(r, name)) for name in _PAIRS})
-    result.update({name: getattr(r, name) for name in ('energy_imbalance', 'interior_duty', 'interior_imbalance', 'enthalpy_imbalance')})
-    result['mode'], result['outer_index'] = ('temperature', 'model_h', 'true_h')[r.thermal_mode], r.thermal_outer_index
-    if stage_fields is None:
-        result['temperature'] = tuple(_copy(value, shape) for value in r.temperature)
-    else:
-        result['stage_fields'] = stage_fields
-    for key in ('thermal_pressure', 'hv', 'rho_cp', 'conductivity', 'enthalpy'):
-        if stage_fields is not None and key in ('thermal_pressure', 'hv'):
-            continue
-        if application_only and key in ('rho_cp', 'conductivity'):
-            continue
-        result[key] = tuple(_copy(value, shape) for value in getattr(r, key))
-    if not application_only:
-        result['inlet_capacity'] = tuple(_copy(value) for value in r.inlet_capacity)
-    face_shapes = tuple(tuple(n+int(d==axis) for d,n in enumerate(shape)) for axis in range(3))
-    for key in ('mass', 'face_velocity'):
-        result[key] = tuple(tuple(_copy(value, sh) for value,sh in zip(side,face_shapes)) for side in getattr(r,key))
-    result['flow'] = []
-    for side, f in enumerate(r.flow):
-        if not f.widths[0].size:
-            result['flow'].append(None)
-            continue
-        flow = dict(widths=tuple(_copy(value) for value in f.widths), pressure_reference=f.pressure_reference)
-        nx, ny, nz = fshape = tuple(len(w) for w in flow['widths'])
-        sizes = {key:fshape for key in _FLOW_ARRAYS}
-        for axis, names in enumerate((('u','d_u'),('v','d_v'),('w','d_w'))):
-            for key in names:
-                sizes[key] = tuple(n+int(d==axis) for d,n in enumerate(fshape))
-        for key in ('inlet_velocity','inlet_opening','outlet_opening','fixed_inlet_massflux'):
-            sizes[key] = (nx,nz)
-        sizes['outlet_u_fraction'], sizes['outlet_w_fraction'] = (nx+1,nz),(nx,nz+1)
-        for key in ('pressure_real','density_real','speed_real'):
-            sizes[key] = shape
-        application_arrays = ('permeability', 'forchheimer', 'pressure', 'pressure_real',
-                              'speed_real', 'inlet_opening', 'outlet_opening')
-        if stage_fields is not None:
-            application_arrays = ('pressure', 'inlet_opening', 'outlet_opening')
-            if records is None:
-                application_arrays += ('permeability', 'forchheimer')
-        audit_arrays = ('u', 'v', 'w', 'density', 'epsilon') if emit_audit else ()
-        flow.update({key:_copy(getattr(f,key),sizes[key]) for key in _FLOW_ARRAYS
-                     if not application_only or key in application_arrays + audit_arrays})
-        if stage_fields is None:
-            flow['velocity_real'] = tuple(_copy(value,shape) for value in f.velocity_real)
-        if not application_only:
-            flow['face_velocity_real'] = tuple(_copy(value,sh) for value,sh in zip(f.face_velocity_real,face_shapes))
-        for key in (('legacy',) if application_only else ('legacy','local_mass','global_mass','momentum')):
-            flow[key] = _copy(getattr(f,key))
-        if flow.get('momentum') is not None:
-            flow['momentum'] = flow['momentum'].reshape(-1,11)
-        last = f.last
-        pressure = {name:getattr(last.pressure,name) for name,_ in last.pressure._fields_}
-        flow['last'] = dict(exit_reason=records.simple_stop[side].decode() if records is not None else _STOPS.get(last.stop,'ongoing'), converged=bool(last.converged),
-            post_closure_measured=bool(last.post_closure_measured), post_closure_certified=bool(last.post_closure_certified),
-            iterations=last.iterations, pressure_clip_hits=last.pressure_clip_hits, post_closure_rejections=last.post_closure_rejections,
-            final_res=last.legacy_residual, res_norm_ref=last.legacy_reference,
-            final_res_mom=last.momentum.maximum, final_res_mass_local=last.mass.local_residual,
-            final_res_mass_global=last.mass.global_residual, outlet_backflow_frac=last.mass.backflow_fraction,
-            pressure={name:value.decode() if isinstance(value,bytes) else value for name,value in pressure.items()})
-        history = []
-        for i in range(f.pressure_iteration_count):
-            p=f.pressure_iterations[i];row=dict(stage=p.stage.decode(),anchor_Pa=p.anchor)
-            for source,key in (('estimate','estimate_Pa2'),('relative_error','relative_error'),('target','target_Pa2'),('step_fraction','step_fraction')):
-                if getattr(p,'has_'+source):
-                    row[key]=getattr(p,source)
-            if p.method:
-                row['method']=p.method.decode()
-            history.append(row)
-        flow['pressure_iterations']=history;flow['inlet_pressure']=_pressure(f.inlet_pressure)
-        if flow['inlet_pressure'] is not None:
-            flow['inlet_pressure']['iterations']=history
-        b=f.bootstrap
-        flow['bootstrap']=None if not b.available else dict(applied=bool(b.applied),coarse_converged=bool(b.converged),
-            coarse_iters=b.iterations,coarse_shape=tuple(b.shape),coarse_residual=b.residual,reason=b.reason.decode())
-        result['flow'].append(flow)
-    result['model_h'] = _model_info(r.model_h,shape,include_faces=True,capture_scalars=capture_scalars) if r.has_model_h else None
-    result['true_h'] = _full_enthalpy_info(r.true_h,energy_settings.last,entry_version) if r.has_true_h else None
-    if r.has_true_h:
-        true_h=result['true_h']
-        true_h['_native_state']=dict(h_A=result['enthalpy'][0],h_B=result['enthalpy'][1],
-            h_in_A=r.true_h.inlet_enthalpy[0],h_in_B=r.true_h.inlet_enthalpy[1],
-            mass_flux_A=result['mass'][0],mass_flux_B=result['mass'][1])
-        used=[s for s,flag in zip('AB',r.true_h.used_bicubic) if flag]
-        if used:
-            true_h['_native_state']['enthalpy_eos']=dict(algorithm='bicubic_iteration_heos_polish_v2',
-                iteration_backend='BICUBIC&HEOS',final_backend='HEOS',transport_backend='HEOS',
-                coolprop_version=r.true_h.coolprop_version.decode(),sides=used,heos_polish=bool(r.true_h.heos_polish))
-    result['staggered'] = []
-    for p in r.staggered:
-        result['staggered'].append(None if not p.available else dict(skipped=bool(p.skipped),used_bordered_lu=bool(p.used_bordered_lu),
-            cg_iterations=p.cg_iterations,rhs_mean=p.rhs_mean,residual_relative=p.residual_relative,
-            residual_available=bool(p.residual_available),residual_cells=_copy(p.residual_cells,shape),
-            residual_sum=p.residual_sum,residual_max=p.residual_max,exchange=p.exchange,global_ratio=p.global_ratio,cell_ratio=p.cell_ratio))
-    result['outer'] = []
-    for i in range(r.outer_count):
-        h=r.outer[i]
-        row=dict(outer=h.outer_index,iters=h.thermal_iterations,residual=h.thermal_residual,converged=bool(h.thermal_converged),
-                 coupling_converged=bool(h.coupling_converged),temperature_change=dict(zip(('Ta','Tb','Ts'),h.temperature_change)),
-                 inlet_pressure=tuple(_pressure(p) for p in h.inlet_pressure),pressure_reference=list(h.pressure_reference),
-                 pressure_range=[list(p) for p in h.pressure_range])
-        if h.startup_total_iterations:
-            row['coupling_startup']=dict(rejected_attempts=[dict(iterations=h.rejected_startup_iterations[k],
-                reason=h.rejected_startup_reasons[k].decode()) for k in range(h.rejected_startup_count)],
-                total_iterations=h.startup_total_iterations,iteration_budget=settings.thermal_iterations)
-        if h.has_model_h:
-            info=_model_info(h.model_h,shape,include_faces=False,capture_scalars=capture_scalars)
-            row['energy_finishing_checks']=info['energy_finishing_checks']
-            row['model_h_balance']=dict(info['model_h_balance'],outer_index=h.outer_index,converged=bool(h.thermal_converged),iterations=h.thermal_iterations)
-        if h.has_true_h:
-            row['true_h_info']=_full_enthalpy_info(h.true_h,energy_settings.outer[i],entry_version)
-        result['outer'].append(row)
-    result['simple_failures']=[r.simple_failures[i].decode() for i in range(r.simple_failure_count)]
-    result['warnings']=[r.warnings[i].decode() for i in range(r.warning_count)]
-    result['envelope_reasons']=[r.envelope_reasons[i].decode() for i in range(r.envelope_reason_count)]
-    if records is None:
-        result['nu_observations']={label:copy_nu_observation(n,shape,
-            capture_scalars=None if capture_scalars is None else capture_scalars['nu'][side])
-            for side,(label,n) in enumerate(zip('AB',r.nu_observations))}
-    else:
-        from .._native_result_stage import nu_observation
-        result['nu_observations'] = {label: nu_observation(value, shape, capture_scalars['nu'][side])
-            for side, (label, value) in enumerate(zip('AB', r.nu_observations))}
-    if stage_fields is None:
-        result['range_observations']=copy_range_observations(r.range_observations,r.range_observation_count)
-    result['final_conductivity']=tuple(_copy(v,shape) if emit_audit else None for v in r.final_conductivity)
-    result['final_rho_cp']=tuple(_copy(v,shape) if emit_audit else None for v in r.final_rho_cp)
-    result['inlet_cp']=list(r.inlet_cp)
-    return result
-
-
 def run_case(case, control=RunControl(), *, resume_state=None, checkpoint=None, checkpoint_due=None):
-    from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
     if control.backend != 'cpp':
         raise ValueError('full native 3D requires backend=cpp')
     if not control.native_library:
@@ -661,29 +316,35 @@ def run_case(case, control=RunControl(), *, resume_state=None, checkpoint=None, 
     for side, axes in case.parameters['prepared']['axes'].items():
         if axes is not None:
             validate_axis_permutation(axes, side)
-    driver=NativeFull3DDriver(control.native_library, table_directory=getattr(control,'native_table_directory',None))
-    from sjtu_tpmshx.cpp_interface.full_3d_stage import has_saved_stage
-    stage_case = case if has_saved_stage(driver.library) else None
-    if stage_case is not None and hasattr(driver.library, 'tpmshx_stage_run_3d_create_saved_v2'):
-        from ..full_3d_stage import saved_inputs
-        cfg,p = saved_inputs(case)
+    runtime = stage.open_library(control.native_library, getattr(control, 'native_table_directory', None))
+    _, library, abi, table_directory = runtime
+    saved_v2 = hasattr(library, 'tpmshx_stage_run_3d_create_saved_v2')
+    saved = stage.has_saved_stage(library)
+    if saved and saved_v2:
+        query = execution_view_query(library, 3, stage._StageResult, stage._ExecutionView)
+        if query is not None:
+            return stage.run_saved(case, control, library, abi, table_directory, query,
+                resume_state=resume_state, checkpoint=checkpoint, checkpoint_due=checkpoint_due)
+    driver = NativeFull3DDriver.__new__(NativeFull3DDriver)
+    driver._bind(runtime)
+    if saved and saved_v2:
+        _, cell_mm, wall_mm, nu = stage.validate_saved_case(case)
+        cfg = dict(case.parameters, Lcell=cell_mm, t_wall=wall_mm, sco2_nu=nu)
+        cfg.pop('_input_resolution', None)
+        p = dict(case.parameters['prepared'], design=case.design_fields,
+                 **{'d' + axis: case.grid['d' + axis] for axis in 'xyz'})
     else:
-        cfg,p = build_execution_inputs(case, copy_design=False)
-    r=driver._run_prepared(cfg,p,control,application_only=True, resume_state=resume_state,
-        checkpoint=checkpoint, checkpoint_due=checkpoint_due, stage_case=stage_case)
+        from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
+        cfg, p = build_execution_inputs(case, copy_design=False)
+    r = driver._run_prepared(cfg, p, control, application_only=True, resume_state=resume_state,
+        checkpoint=checkpoint, checkpoint_due=checkpoint_due, stage_case=case if saved else None)
     control.check_cancelled()
     if "stage_diagnostics" not in r:
         from .full_3d_capture import capture_result
     else:
-        from ..full_3d_stage import capture_result
+        capture_result = stage.capture_result
     if '_input_resolution' not in cfg:
         from sjtu_tpmshx.data_types.case_data import resolved_input_record
         cfg['_input_resolution'] = resolved_input_record(case, {side: cfg['fluid_type_' + side] for side in 'AB'},
             tuple(p['N' + axis] for axis in 'xyz'), {side: cfg['fluid_' + side + '_cfg']['dir'] for side in p['axes']})
-    result = capture_result(case, cfg, p, r, driver.abi)
-    if '_native_applicability' in r:
-        from dataclasses import replace
-        metadata = dict(result.metadata, _native_applicability=r['_native_applicability'])
-        metadata.update({key: r[key] for key in ('_native_execution_sides', '_native_thermal_execution') if key in r})
-        result = replace(result, metadata=metadata)
-    return result
+    return capture_result(case, cfg, p, r, abi)

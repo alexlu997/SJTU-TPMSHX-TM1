@@ -182,8 +182,10 @@ An ordinary saved-stage run advances to its terminal phase in C++.
 The Python host steps the run when it needs a checkpoint or uses an archived step-only library.
 GUI resume loads the checkpoint, case, and run record once. It passes the same saved inputs to its worker.
 The result survives preparation and run release. Python full 3D runs use its saved-input lifecycle.
-`full_3d_stage.py` retains recorded input validation and borrows the existing XYZ fields.
-The driver keeps one input pack, callback bridge and raw DTO decoder. `full_3d_capture.py` remains the single result assembler.
+`full_3d_stage.py` reads the current saved grid, design arrays, ports and axis maps from CaseData.
+It borrows the aligned fields and sends a typed request to the stage. The native stage resolves the defaults.
+The raw and retained bindings share array packing and result decoding.
+The retained bindings use their own execution and result queries.
 Native capture supplies heat-source sums, pressure clip counts, Nu statistics, cell counts and optional audit outlet weights.
 Complete protocol selection occurs before execution. Archived libraries retain their direct execution and restore interfaces.
 Partial protocols and native failures do not select another route. Direct low-level DTO callers keep their complete outputs.
@@ -1692,11 +1694,10 @@ contiguous immutable bytes buffer with a separate array header. Changing the new
 array's shape or dtype cannot change the original. Sliced fields that would keep
 a larger parent buffer are copied into compact storage.
 
-The C++ full 3D binding detaches native evidence before it releases the native
-owner. `full_3d_capture` maps that evidence to FieldResult. The application path
-copies only arrays needed for this contract; opt-in flow audit arrays are copied
-when requested. `NativeFull3DDriver.run_prepared` retains its complete, detached
-return for direct callers. Both paths share native execution and owner release.
+The full 3D stage binding copies the evidence before it releases the native
+owner and publishes FieldResult. It copies the flow audit arrays on request.
+The retained result decoder supplies fields from older libraries.
+`NativeFull3DDriver.run_prepared` returns complete detached data to direct callers.
 The three temperature/display pairs, two report/display pressure pairs and
 true-h thermal mass-face aliases share immutable buffers with separate array
 headers. Thermal pressure and final flow pressure remain separate states.

@@ -145,27 +145,29 @@ def test_query_rejects_null_and_unowned_results_without_writing_output(dimension
 def test_full_3d_cc_captured_powers_survive_owner_release_and_portable_replay(monkeypatch, tmp_path):
     from sjtu_tpmshx.file_io.result_io import save_result, load_result
     from sjtu_tpmshx.postprocess.api import evaluate
-    from sjtu_tpmshx.cpp_interface.solver_library.full_3d import NativeFull3DDriver, run_case
+    from sjtu_tpmshx.cpp_interface import full_3d_stage
+    from sjtu_tpmshx.cpp_interface.solver_library.full_3d import run_case
+    from dataclasses import replace
     from tests.python.native.test_cpp_full_3d import case, control
 
     path = os.environ.get('TPMSHX_NATIVE_SOLVER_LIBRARY')
     if path is None:
         pytest.skip('explicit native library required')
-    original = NativeFull3DDriver._run_prepared
+    capture = full_3d_stage.capture_result
     returned = []
 
-    def bounded(self, cfg, prepared, runtime_control, **kwargs):
-        cfg = dict(cfg, max_iter_simple=1, variable_rho_cp=False,
-                   conservative_ltne=False, force_cc_ltne=True)
-        cfg['_environment'] = dict(cfg.get('_environment', {}),
-                                   TPMSHX_P_IN_SHOOT='0', TPMSHX_VAR_RHOCP=None)
-        prepared = dict(prepared, max_outer=1, ltne_max_iter=1)
-        raw = original(self, cfg, prepared, runtime_control, **kwargs)
+    def observe(case, cfg, prepared, raw, abi):
         returned.append(raw)
-        return raw
+        return capture(case, cfg, prepared, raw, abi)
 
-    monkeypatch.setattr(NativeFull3DDriver, '_run_prepared', bounded)
-    result = run_case(case('air-air', cap=2), control(Path(path)))
+    monkeypatch.setattr(full_3d_stage, 'capture_result', observe)
+    prepared = case('air-air', cap=2)
+    params = prepared.parameters
+    prepared = replace(prepared, parameters=dict(params, max_iter_simple=1, variable_rho_cp=False,
+        conservative_ltne=False, force_cc_ltne=True,
+        _environment=dict(params['_environment'], TPMSHX_P_IN_SHOOT='0', TPMSHX_VAR_RHOCP=None),
+        prepared=dict(params['prepared'], max_outer=1, ltne_max_iter=1)))
+    result = run_case(prepared, control(Path(path)))
     raw, = returned
     assert raw['mode'] == 'temperature'
     assert result.metadata['temperature_transport'] == 'model_enthalpy_temperature_v1'

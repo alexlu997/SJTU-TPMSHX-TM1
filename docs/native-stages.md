@@ -390,17 +390,17 @@ Current 3D runs and checkpoint restores use the saved v2 descriptor.
 C++ checks the physical domain, axis maps, port masks, model resources and cell design fields before the first step.
 The Python adapter checks the portable array shapes and keeps borrowed storage alive.
 Direct clients and archived libraries can still use saved v1.
-`full_3d_stage.py` packs recorded evidence and binds the owned run. It does not prepare raw inputs again.
-The driver keeps one input pack, callback bridge and complete raw decoder for both protocols.
-It selects the complete stage protocol before execution. A partial protocol is an error.
-The capture ABI version and query jointly identify the current host protocol.
-Archived libraries without both markers retain the existing direct run and restore interfaces, including the earlier raw 3D stage library.
-A single missing marker is a partial protocol error.
-A stage failure never starts a second run through another interface.
+`full_3d_stage.py` passes the saved grid, design fields, ports and axis maps from CaseData.
+It uses the current native stage when the library provides saved v2 and the execution view.
+Earlier captured libraries use their saved lifecycle and result queries.
+Earlier direct libraries use their direct run and restore interfaces.
+These routes share array packing, callbacks and raw result decoding.
+The binding selects a complete protocol before execution and reports partial protocols or native failures directly.
 
 `capture_summary(result, include_audit)` returns cell count, heat-source sum, pressure clip count and Nu statistics.
 The optional audit outlet arrays retain the historical display taper. They do not replace physical openings.
-Python copies these values before the stage result is released, then uses the single `full_3d_capture.py` assembler.
+Python copies these values before it releases the stage result.
+`full_3d_stage.py` publishes the current FieldResult.
 Direct low-level DTO callers and archived runtimes retain their existing capture calculations.
 Those calculations stay until these supported consumers have an accepted replacement.
 Public schemas, model choices, warning order and immutable result buffers retain their existing contracts.

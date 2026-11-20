@@ -123,6 +123,7 @@ def test_saved_inputs_are_used_without_repreparation(change, monkeypatch, tmp_pa
     _same(_normalized(actual), _normalized(expected), change)
     before = {name: value.copy() for name, value in case.design_fields.items()}
     result = run_case(case, _control())
+    _same(result.fields, expected[1].fields, 'public saved fields')
     assert result.fields['K_ss'].dtype == case.design_fields['K_ss'].dtype
     assert np.shares_memory(result.fields['Ta'], result.fields['Ta_display'])
     for name, value in before.items():
@@ -149,10 +150,9 @@ def test_public_drag_capture_preserves_scalar_design_summary():
 def test_partial_stage_protocol_is_rejected_before_execution(missing, monkeypatch):
     config, _ = reference._configuration()
     case = prepare_case(config, case_id='partial-protocol')
-    original_init = full_3d.NativeFull3DDriver.__init__
-    def initialize(self, *args, **kwargs):
-        original_init(self, *args, **kwargs)
-        library = self.library
+    open_library = full_3d_stage.open_library
+    def initialize(*args, **kwargs):
+        path, library, abi, table = open_library(*args, **kwargs)
         class Partial:
             def __getattr__(self, name):
                 symbol = ('tpmshx_stage_capture_3d_abi_version' if missing == 'capture_version'
@@ -160,10 +160,10 @@ def test_partial_stage_protocol_is_rejected_before_execution(missing, monkeypatc
                 if name == symbol:
                     raise AttributeError(name)
                 return getattr(library, name)
-        self.library = Partial()
+        return path, Partial(), abi, table
     def forbidden(*args, **kwargs):
         pytest.fail('partial stage protocols must not execute')
-    monkeypatch.setattr(full_3d.NativeFull3DDriver, '__init__', initialize)
+    monkeypatch.setattr(full_3d_stage, 'open_library', initialize)
     monkeypatch.setattr(full_3d.NativeFull3DDriver, '_run_prepared', forbidden)
     with pytest.raises(ValueError, match='incomplete saved 3D stage protocol'):
         run_case(case, _control())
@@ -292,9 +292,9 @@ def test_capture_failure_releases_same_stage_owner(monkeypatch, failure):
     if failure == 'summary':
         monkeypatch.setattr(full_3d_stage, 'copy_summary', fail)
     elif failure == 'decode':
-        monkeypatch.setattr(full_3d, '_detach', fail)
+        monkeypatch.setattr(full_3d_stage, '_detach', fail)
     else:
-        monkeypatch.setattr(full_3d, 'replay_sco2_notices', fail)
+        monkeypatch.setattr(full_3d_stage, 'replay_sco2_notices', fail)
     with pytest.raises(RuntimeError) as caught:
         run_case(case, _control())
     assert caught.value is sentinel
@@ -334,6 +334,7 @@ def test_selected_controls_models_and_ports(selection, monkeypatch, tmp_path):
     parameters = mutable_data(case.parameters)
     parameters['_emit_audit'] = True
     if selection == 'model-controls':
+        parameters['prepared']['design'] = {'K_ss': 111.}
         monkeypatch.setenv('TPMSHX_PARALLEL_THRESHOLD', '1')
         parameters.update(outer_tol_K=.75, ltne_alpha_T=.65, simple_velocity_relaxation=.4,
             mom_tol=2e-4, mass_local_tol=3e-6, mass_global_tol=4e-6, T_s_init=335.,
@@ -352,22 +353,30 @@ def test_selected_controls_models_and_ports(selection, monkeypatch, tmp_path):
         parameters.update(use_coarse_bootstrap=True, coarse_bootstrap_max_iter=3)
     case = replace(case, parameters=parameters)
     save_case(case, tmp_path / 'case.h5')
-    expected, actual = _run(case, stage=False), _run(case, stage=True)
-    actual[0].pop('capture_scalars')
-    _same(_normalized(actual), _normalized(expected), selection)
-    save_result(actual[1], tmp_path / 'result.h5')
+    _, expected, expected_events, _, _, _ = _run(case, stage=False)
+    events = []
+    with warning_scope({}):
+        actual = full_3d.run_case(case, _control(events))
+    assert events == expected_events
+    for name in ('fields', 'field_metadata', 'boundary_fluxes', 'pressure_evidence', 'run_status'):
+        _same(_normalized(getattr(actual, name)), _normalized(getattr(expected, name)), selection + '.' + name)
+    for key in ('diagnostics', 'property_sampling', 'native', 'model_h_iterations', 'simple_velocity_relaxation'):
+        _same(_normalized(actual.metadata.get(key)), _normalized(expected.metadata.get(key)), selection + '.' + key)
+    np.testing.assert_array_equal(actual.metadata['application']['coeffs']['K_ss'], actual.fields['K_ss'])
+    save_result(actual, tmp_path / 'result.h5')
 
 
 def test_unknown_capture_abi_is_rejected_before_execution(monkeypatch):
     config, _ = reference._configuration()
     case = prepare_case(config, case_id='unknown-capture-abi')
-    original_init = full_3d.NativeFull3DDriver.__init__
-    def initialize(self, *args, **kwargs):
-        original_init(self, *args, **kwargs)
-        self.library.tpmshx_stage_capture_3d_abi_version = lambda: 99
+    open_library = full_3d_stage.open_library
+    def initialize(*args, **kwargs):
+        path, library, abi, table = open_library(*args, **kwargs)
+        library.tpmshx_stage_capture_3d_abi_version = lambda: 99
+        return path, library, abi, table
     def forbidden(*args, **kwargs):
         pytest.fail('unknown capture ABIs must not execute')
-    monkeypatch.setattr(full_3d.NativeFull3DDriver, '__init__', initialize)
+    monkeypatch.setattr(full_3d_stage, 'open_library', initialize)
     monkeypatch.setattr(full_3d.NativeFull3DDriver, '_run_prepared', forbidden)
     with pytest.raises(ValueError, match='unsupported saved 3D capture ABI 99'):
         run_case(case, _control())
@@ -510,6 +519,9 @@ def test_applicability_transfer_error_releases_without_fallback(dimension, monke
     ('extrusion', 'xy extrusion'), ('model', 'unknown model resource'),
     ('nu_mode', 'Nu settings'), ('incomplete_nu', 'Nu settings'),
     ('reverse_wrap', 'reverse direction'),
+    ('strict_gate_and_convergence', 'must be real number, not str'),
+    ('retired_energy_and_mask', 'invalid native full enthalpy defaults request'),
+    ('missing_fluid_and_convergence', 'fluid_type_B'),
 ])
 def test_saved_v2_rejects_inconsistent_inputs(fault, message):
     layout = 'xy' if fault == 'extrusion' else 'uniform'
@@ -518,6 +530,7 @@ def test_saved_v2_rejects_inconsistent_inputs(fault, message):
     params = mutable_data(case.parameters)
     design = mutable_data(case.design_fields)
     side = params['prepared']['axes']['A']
+    error = ValueError
     if fault == 'nan_mask':
         params['prepared']['openings']['A']['inlet'].flat[0] = np.nan
     elif fault == 'mask':
@@ -537,9 +550,20 @@ def test_saved_v2_rejects_inconsistent_inputs(fault, message):
         refs = list(case.model_refs)
         refs[0] = replace(refs[0], version='unknown')
         case = replace(case, model_refs=tuple(refs))
+    elif fault == 'strict_gate_and_convergence':
+        params.update(model_h_max_iterations=None, model_h_temperature_tol_K=None, model_h_q_relative_tol=None,
+                      ltne_enthalpy_coupled_energy_tol='bad', convergence_mode='legacy')
+        error = TypeError
+    elif fault == 'retired_energy_and_mask':
+        params['enthalpy_algorithm'] = 'temperature_fou'
+        params['prepared']['openings']['A']['inlet'].flat[0] = -.5
+    elif fault == 'missing_fluid_and_convergence':
+        del params['fluid_type_B']
+        params['convergence_mode'] = 'legacy'
+        error = KeyError
     else:
         design['L_field_m'][0, 0, 1] *= 1.01
-    with pytest.raises(ValueError, match=message):
+    with pytest.raises(error, match=message):
         run_case(replace(case, parameters=params, design_fields=design), control=_control())
 
 
