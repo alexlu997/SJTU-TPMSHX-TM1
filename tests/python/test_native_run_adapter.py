@@ -67,12 +67,16 @@ def _hdf_scalars(value):
 
 def _checked_applicability(actual, expected, case):
     from sjtu_tpmshx.solvers.applicability_evidence import capture_applicability
+    from sjtu_tpmshx.solvers.execution_record import full_execution_record
     wanted = capture_applicability(case, expected, {})
     wanted.pop('scope_notes')
     metadata = dict(actual.metadata)
+    execution = full_execution_record(case, expected)
     if '_native_execution_sides' in metadata:
-        from sjtu_tpmshx.solvers.execution_record import full_execution_record
-        _same(metadata.pop('_native_execution_sides'), full_execution_record(case, expected)['sides'], 'executed side records')
+        _same(metadata.pop('_native_execution_sides'), execution['sides'], 'executed side records')
+    if '_native_thermal_execution' in metadata:
+        thermal = metadata.pop('_native_thermal_execution')
+        _same(thermal, {key: execution['numerics'][key] for key in thermal}, 'executed thermal record')
     _same(metadata.pop('_native_applicability'), freeze_value(wanted), 'native applicability transfer')
     return replace(actual, metadata=metadata)
 
@@ -111,6 +115,23 @@ def test_complete_saved_stage_result(spatial, pair, tmp_path, monkeypatch):
     config, case = _case(spatial, pair)
     (tmp_path / 'input.json').write_text(json.dumps(config.to_dict()))
     _compare(case, tmp_path, monkeypatch)
+
+
+def test_spatial_sco2_notice_keeps_saved_scalar_precision():
+    from sjtu_tpmshx.file_io.case_io import validate_case
+    from sjtu_tpmshx.solvers.api import run_case
+
+    _, case = _case(True, ('sco2', 'air'))
+    parameters = dict(case.parameters)
+    for name in ('L_cell_m', 't_wall_m'):
+        parameters[name] = np.asarray(parameters[name], dtype=np.float16)
+    case = replace(case, parameters=parameters)
+    validate_case(case)
+    result = run_case(case, _control([]))
+    notice = next(text for text in result.metadata['applicability_evidence']['scope_notes']
+                  if text.startswith('[sCO2 Nu evidence] 2D main-hv'))
+    assert 'L=7 mm, t=0.600098 mm' in notice
+    assert notice in result.metadata['diagnostics']['warnings_list']
 
 
 @pytest.mark.parametrize('change', ['thermal-fields', 'local-drag', 'static-application', 'missing-ranges', 'empty-ranges', 'uncaptured-range', 'no-finite'])

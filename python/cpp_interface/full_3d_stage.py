@@ -11,8 +11,9 @@ from sjtu_tpmshx.physical_models.df_surrogate import CFD_CAMPAIGN, CFD_SCOPE
 from sjtu_tpmshx.cpp_interface._native_result_stage import Evidence, Input as Evaluation, record
 from sjtu_tpmshx.cpp_interface._native_preparation_case import _Array as PreparedArray, _Evidence, _Text, _Kind, _Model, _Nu, pack_saved_resources
 from ._native_grid import _Port
-from sjtu_tpmshx.cpp_interface.solver_library._full_3d_abi import _Array, _Callbacks, _Control, _Input, _Result
-from sjtu_tpmshx.cpp_interface.solver_library.enthalpy import _EnergyOptions
+from sjtu_tpmshx.cpp_interface.solver_library._full_3d_abi import _Array, _Callbacks, _Control, _EnergyEvidence, _Input, _Result
+from sjtu_tpmshx.cpp_interface.solver_library._stage_capture_abi import StageExecution
+from sjtu_tpmshx.cpp_interface.solver_library.enthalpy import _EnergyOptions, _FullEnergyEffectiveSettings
 from sjtu_tpmshx.cpp_interface.solver_library.model_h import _IterationOptions
 from ._native_preparation_case import borrow_array as _array, borrow_ranges as _ranges, borrow_text as _text
 from .run_state import NativeRun
@@ -60,6 +61,10 @@ class _StageResult(ct.Structure):
 
     def __init__(self):
         super().__init__(1, ct.sizeof(type(self)))
+
+
+_ExecutionView = record('ExecutionView3D', [('execution', StageExecution),
+    ('settings', _FullEnergyEffectiveSettings), ('energy', _EnergyEvidence)])
 
 
 def has_saved_stage(library):
@@ -219,7 +224,7 @@ class SavedRun(NativeRun):
     result_type = _StageResult
     result_release_name = 'tpmshx_stage_run_3d_release_v1'
 
-    def __init__(self, library, case, cfg, prepared, data, controls, energy, model_h, callbacks, errors, control, state):
+    def __init__(self, library, case, cfg, prepared, data, controls, energy, model_h, callbacks, errors, cpu_threads, state):
         self.errors, self.keepalive = errors, []
         ranges, captured = _ranges(case.metadata.get('applicability_inputs', ()), self.keepalive)
         notices = (_Text * len(case.metadata['notices']))(*(
@@ -232,7 +237,7 @@ class SavedRun(NativeRun):
             self.creation_version = 2
             saved = pack_saved_v2(saved, case, cfg, prepared, self.keepalive)
         request = _request(cfg, controls, energy, model_h)
-        host = _Host(case.case_id.encode(), controls.table_directory, control.native_cpu_threads(), callbacks)
+        host = _Host(case.case_id.encode(), controls.table_directory, cpu_threads, callbacks)
         self.keepalive.extend((saved, request, host, notices))
         super().__init__(library, [ct.POINTER(type(saved)), ct.POINTER(_Request), ct.POINTER(_Host)],
             [ct.byref(saved), ct.byref(request), ct.byref(host)], callbacks, state)

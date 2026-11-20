@@ -719,7 +719,7 @@ extern "C" int tpmshx_stage_run_2d_take_result_v1(void* run,
         if(status)return status;
         std::unique_ptr<tpmshx::stages::Capture2D,decltype(&tpmshx::stages::release_capture_2d)> captured(
             tpmshx::stages::capture_2d(*owner.prepared,raw,owner.config,owner.result_id.c_str(),owner.uniform,
-                !owner.saved || owner.saved->inlet_recorded,owner.saved?owner.saved->range_captured:nullptr),
+                !owner.saved || owner.saved->inlet_recorded,owner.saved?owner.saved->range_captured:nullptr,owner.saved_v3),
             &tpmshx::stages::release_capture_2d);
         *result=tpmshx::stages::stage_view(*captured.release());
         owner.prepared=nullptr;owner.uniform=nullptr;owner.continuous=nullptr;owner.saved=nullptr;owner.saved_v2=nullptr;owner.saved_v3=nullptr;

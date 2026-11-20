@@ -63,11 +63,16 @@ def test_checker_resolves_relative_imports_and_allows_shared_models():
     assert not forbidden_imports('from sjtu_tpmshx.physical_models.catalog import resolve_model', ('solvers',))
 
 
-@pytest.mark.parametrize('adapter', ['cpp_interface.native_preparation', 'preprocess.three_d.preparation'])
-def test_preparation_adapters_do_not_import_public_api(adapter):
+@pytest.mark.parametrize('adapter, api', [
+    ('cpp_interface.native_preparation', 'preprocess.api'),
+    ('preprocess.three_d.preparation', 'preprocess.api'),
+    ('cpp_interface.full_2d_stage', 'solvers.execution_record'),
+    ('cpp_interface.solver_library.full_3d', 'solvers.execution_record'),
+])
+def test_stage_adapters_do_not_import_publishers(adapter, api):
     path = ROOT.joinpath(*adapter.split('.')).with_suffix('.py')
     package = 'sjtu_tpmshx.' + adapter.rsplit('.', 1)[0]
-    api = 'sjtu_tpmshx.preprocess.api'
+    api = 'sjtu_tpmshx.' + api
     for node in ast.walk(ast.parse(path.read_text(encoding='utf-8'))):
         for module in import_targets(node, package):
             assert module != api and not module.startswith(api + '.'), f'{path}:{node.lineno}'

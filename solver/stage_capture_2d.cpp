@@ -83,8 +83,7 @@ public:
     tpmshx_stage_true_h_certificate_v1 true_h_certificate{};
     std::array<std::array<Array,3>,2> true_h_masses{};
     std::array<std::array<Named,6>,2> true_h_power{};
-    tpmshx_full_2d_energy_evidence_v1 energy_evidence{};
-    tpmshx_full_2d_energy_effective_settings_v1 energy_settings{};
+    tpmshx_stage_run_2d_execution_v1 execution_view{};
     int energy_version=0;
     std::array<tpmshx_stage_model_level_v1,2> model_levels{};
     std::array<tpmshx_stage_gate_v1,5> gates{};
@@ -185,15 +184,13 @@ public:
         }
     }
     void make_true_h() {
-        if(tpmshx_full_2d_get_energy_effective_settings_v1(&raw,&energy_settings)
-            || tpmshx_full_2d_get_energy_evidence_v1(&raw,&energy_evidence))
+        if(tpmshx_full_2d_get_energy_evidence_v1(&raw,&execution_view.energy))
             throw std::runtime_error("native full 2D energy evidence query failed");
-        const auto& main=raw.main;const auto& settings=energy_settings.last;
-        const auto& native=energy_evidence.main;
+        const auto& main=raw.main;const auto& settings=execution_view.settings.last;
+        const auto& native=execution_view.energy.main;
         if(!settings.available || native.available!=1 || native.energy.has_temperature_update!=1
             || native.energy.algorithm!=TPMSHX_ENERGY_TEMPERATURE_SOU
-            || energy_settings.outer_count!=raw.outer_history_count
-            || energy_evidence.outer_count!=raw.outer_history_count || raw.have_fine)
+            || execution_view.energy.outer_count!=raw.outer_history_count || raw.have_fine)
             throw std::runtime_error("native conservative energy omitted its executed state");
         energy_version=static_cast<int>(tpmshx_energy_algorithm_version_v1(native.energy.algorithm));
         if(energy_version!=1 && energy_version!=2)
@@ -288,32 +285,27 @@ public:
         applicability.final_state=final_ranges.data();applicability.final_count=final_ranges.size();
         applicability.required=required.data();applicability.required_count=required.size();
     }
-    void scope_notes(const tpmshx_preparation_case_2d_v2& prepared) {
-        const auto add=[&](std::string message) {
-            if(std::find(notices.begin(),notices.end(),message)==notices.end())notices.push_back(std::move(message));
-        };
-        for(size_t i=0;i<prepared.notice_count;++i)add(text(prepared.notices[i]));
+    void scope_notes(const tpmshx_preparation_case_2d_v2& prepared,const tpmshx_stage_saved_case_2d_v3* saved) {
+        for(size_t i=0;i<prepared.notice_count;++i)add_scope_notice(notices,text(prepared.notices[i]));
+        constexpr auto absent=std::numeric_limits<size_t>::max();
+        size_t indices[]{absent,absent};
+        const auto* cell_kind=saved?&saved->values.values.reference_cell_kind:nullptr;
+        const auto* wall_kind=saved?&saved->wall_reference_kind:nullptr;
         for(size_t side=0;side<2;++side) {
             const auto& observation=raw.nu_observations[side];
             if(resolved.sides[side].fluid!=2 || !observation.available)continue;
             std::ostringstream message;message.imbue(std::locale::classic());message<<std::setprecision(6);
             message<<"[sCO2 Nu evidence] 2D main-hv, side="<<labels[side]<<", "
                 <<(prepared.values.input.topology?"Gyroid":"Diamond")<<", L="
-                <<prepared.values.cell_length_m*1e3<<" mm, t="<<prepared.values.wall_thickness_m*1e3
-                <<" mm; Nu uses scalar P_in="<<observation.pressure<<" Pa. "
-                "Joint qualification remains unverified: the old CFD evidence uses "
-                "heating at Twall=Tref+50 K and period-2/3 bulk properties. "
-                "The reported subset requires P>=10 MPa AND Tb>=Tpc(P)-2 K within "
-                "that campaign; Tpc, joint Pr/P/T coverage, actual wall temperature "
-                "and heating/cooling qualification are not established here. "
-                "Pressure or Re-window membership alone is not a PASS.";
-            if(observation.pressure<10e6)
-                message<<" P_in<10 MPa does not meet the subset necessary pressure condition.";
-            if(observation.pressure>15e6)
-                message<<" P_in>15 MPa exceeds the old campaign pressure envelope (8/10/12/15 MPa).";
-            add(message.str());
+                <<scope_length_mm(prepared.values.cell_length_m,cell_kind)<<" mm, t="
+                <<scope_length_mm(prepared.values.wall_thickness_m,wall_kind)
+                <<" mm";
+            write_sco2_scope(message,observation.pressure);
+            indices[side]=add_scope_notice(notices,message.str());
         }
         for(const auto& notice:notices)notice_views.push_back(notice.c_str());
+        for(size_t i=0;i<2;++i)
+            if(indices[i]!=absent)execution_view.execution.sco2_notices[i]=notice_views[indices[i]];
         applicability.scope_notes=notice_views.data();applicability.scope_note_count=notice_views.size();
     }
     void capture_scalars() {
@@ -362,6 +354,12 @@ public:
         e.abi_version=TPMSHX_RESULT_STAGE_ABI_VERSION;e.struct_size=sizeof(e);e.result_id=result_id.c_str();
         e.dimension=2;e.metadata_dimension=&dimension;e.quantity_basis="per_unit_depth";e.mass_unit="kg/(s m)";
         e.mode="full";e.thermal_mode=main.mode==2?"conservative_energy":main.mode==1?"model_h":"temperature";
+        auto& executed=execution_view.execution;
+        if(tpmshx_full_2d_get_energy_effective_settings_v1(&raw,&execution_view.settings)
+            || execution_view.settings.outer_count!=raw.outer_history_count
+            || tpmshx_full_2d_get_energy_update_scale_v1(&raw,&executed.update_scale)
+            || tpmshx_full_2d_get_model_h_iterations_v1(&raw,&executed.model_h))
+            throw std::runtime_error("native full 2D execution record query failed");
         e.thermal_state="last main thermal input";
         e.execution="completed";e.converged=static_cast<int>(raw.converged);outer_index=static_cast<int>(raw.iterations)-1;e.outer_index=&outer_index;
         e.grid.widths[0]=array(main.dx,{main.nx});e.grid.widths[1]=array(main.dy,{main.ny});
@@ -452,6 +450,9 @@ public:
             throw std::runtime_error("native property sampling query failed");
         if(temperature.main.algorithm)records.temperature[0]=&temperature.main;
         if(temperature.fine.algorithm)records.temperature[1]=&temperature.fine;
+        executed.algorithm=main.mode==2?true_h.energy_algorithm:
+                           main.mode==1?tpmshx_model_h_algorithm_v1(2):temperature.main.algorithm;
+        finish_execution(executed,e,records);
         prepared_ranges(p,range_captured);final_state_ranges();required_ranges(p.input.topology?"Gyroid":"Diamond");e.applicability=&applicability;
         capture_energy_relations(records,e);
     }
@@ -459,14 +460,16 @@ public:
 
 Capture2D* capture_2d(const tpmshx_preparation_case_2d_v1& prepared,
     tpmshx_full_2d_result_v2& raw,const tpmshx_full_2d_config_v2& resolved,const char* result_id,
-    const tpmshx_preparation_case_2d_v2* uniform,bool inlet_recorded,const uint32_t* range_captured) {
+    const tpmshx_preparation_case_2d_v2* uniform,bool inlet_recorded,const uint32_t* range_captured,
+    const tpmshx_stage_saved_case_2d_v3* saved) {
     auto owner=std::make_unique<Capture2D>();owner->raw=raw;raw={};owner->resolved=resolved;
     owner->result_id=result_id;
     if(resolved.table_directory) {owner->table_directory=resolved.table_directory;owner->resolved.table_directory=owner->table_directory.c_str();}
     if(resolved.envelope_mode) {owner->envelope_mode=resolved.envelope_mode;owner->resolved.envelope_mode=owner->envelope_mode.c_str();}
     owner->populate(prepared,range_captured);owner->capture_scalars();
+    owner->execution_view.execution.red_black=owner->summary.red_black[0];
     owner->applicability.inlet_recorded=inlet_recorded?1:0;
-    if(uniform)owner->scope_notes(*uniform);
+    if(uniform)owner->scope_notes(*uniform,saved);
     return owner.release();
 }
 tpmshx_stage_run_result_2d_v1 stage_view(Capture2D& owner) {
@@ -506,4 +509,10 @@ extern "C" const tpmshx_stage_run_records_v1* TPMSHX_THERMAL_CALL tpmshx_stage_r
     if(!result || result->abi_version!=TPMSHX_STAGE_RUN_ABI_VERSION || result->struct_size!=sizeof(*result)
         || !result->owner || result->raw.cancelled)return nullptr;
     return &static_cast<const tpmshx::stages::Capture2D*>(result->owner)->records;
+}
+
+extern "C" const tpmshx_stage_run_2d_execution_v1* TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_execution_view_v1(
+    const tpmshx_stage_run_result_2d_v1* result) {
+    if(!tpmshx_stage_run_2d_records_v1(result))return nullptr;
+    return &static_cast<const tpmshx::stages::Capture2D*>(result->owner)->execution_view;
 }

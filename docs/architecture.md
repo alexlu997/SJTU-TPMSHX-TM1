@@ -316,8 +316,11 @@ It records each side's flow and heat-transfer resource separately from its energ
 An EOS energy relation records the HEOS fluid and the actual thermal pressure field.
 Integral h(T), capacity temperature transport and prescribed temperatures remain distinct.
 The record copies returned algorithm identifiers, effective settings and state labels.
-`execution_record.py` selects recorded energy samples and describes each side's actual execution identity.
-This host interpretation does not decide qualification.
+The completed native stage identifies the actual energy relation for each side.
+It provides the executed method, update scale and last main model-h call.
+Python publishes this evidence with the case resource indices.
+For an archived runtime without this view, Python reads the earlier result fields.
+The independent result stage decides qualification.
 A missing algorithm identifier stays null; requested settings do not establish execution.
 For CO2 and sCO2, the initial inverse backend applies only to its listed sides.
 The HEOS finishing flag remains explicit.
@@ -328,8 +331,9 @@ Thermal and final-flow state labels remain separate after an outer post-update.
 This record describes the completed execution; it is not a new quality certificate.
 Rejected runs and Quick Design keep their existing contracts.
 Saved records retain this metadata. Reading a historical result does not add it.
-The prepared builders also return `input_resolution`, with version `prepared_input_v1`.
+Full solves also return `input_resolution`, with version `prepared_input_v1`.
 This record identifies validated resources, physical grid sizes, active sides, directions and cell-length units.
+Current saved stages supply the grid, active sides, directions and fluids from the completed native result.
 Its input source is `CaseData.parameters`; an edited GUI draft does not change it.
 
 The numerical owners record property sampling under `property_sampling`, with version `full_sampling_v1`.

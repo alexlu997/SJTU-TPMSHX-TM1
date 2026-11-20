@@ -70,9 +70,14 @@ Saved inlet rows keep host fields and scalar types in native order; native const
 Python combines case notices and run `nu-evidence` warning records for `scope_notes`.
 It preserves complete strings and callback records, including embedded NUL characters.
 It retains their order and removes duplicate messages.
-Independent C++ stages use their native scope notes.
+The completed stage supplies the sCO2 runtime notice once per active side.
+Python publishes it through the warning scope in the original order.
 Direct and archived-runtime paths retain `capture_applicability`. A capture error does not select that path.
-`execution_record.py` interprets actual execution identity and property sampling; the result stage decides qualification.
+`tpmshx_stage_run_2d_execution_view_v1` and `tpmshx_stage_run_3d_execution_view_v1` publish the completed run's numerical evidence.
+They give the applied thermal controls, energy records, update scale and selected model-h call.
+Each view uses the same storage as the completed stage result. Copy it before result release.
+The original standalone queries and the v1 stage records remain available.
+The result stage decides qualification.
 
 ## Inlet-property query
 

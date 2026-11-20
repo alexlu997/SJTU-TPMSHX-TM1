@@ -294,8 +294,7 @@ def test_capture_failure_releases_same_stage_owner(monkeypatch, failure):
     elif failure == 'decode':
         monkeypatch.setattr(full_3d, '_detach', fail)
     else:
-        from sjtu_tpmshx.physical_models import nu_correlations
-        monkeypatch.setattr(nu_correlations, 'warn_sco2_nu_evidence', fail)
+        monkeypatch.setattr(full_3d, 'replay_sco2_notices', fail)
     with pytest.raises(RuntimeError) as caught:
         run_case(case, _control())
     assert caught.value is sentinel
@@ -389,6 +388,15 @@ def test_public_applicability_uses_native_selection(dimension, layout, pair, mon
         config, _ = reference._configuration(pair, layout)
         case = prepare_case(config, case_id='native-applicability')
     _compare_public_applicability(case, monkeypatch, tmp_path)
+
+
+def test_spatial_sco2_notice_keeps_saved_field_precision(monkeypatch, tmp_path):
+    config, _ = reference._configuration(('sco2', 'air'), 'xyz')
+    case = prepare_case(config, case_id='sco2-notice-f32')
+    design = dict(case.design_fields)
+    for field in ('L_field_m', 't_field_m'):
+        design[field] = design[field].astype(np.float32)
+    _compare_public_applicability(replace(case, design_fields=design), monkeypatch, tmp_path)
 
 
 def _compare_public_applicability(case, monkeypatch, tmp_path, *, control=None):
@@ -571,11 +579,10 @@ def test_restore_rejects_matching_case_and_checkpoint_with_wrong_opening():
 
 
 def test_saved_stage_without_result_records_can_resume(monkeypatch):
-    from sjtu_tpmshx.cpp_interface.solver_library import _stage_capture_abi
-
     config, _ = reference._configuration(('air', 'water'), 'uniform')
     case = prepare_case(config, case_id='saved-stage-without-records')
-    monkeypatch.setattr(_stage_capture_abi, 'stage_records', lambda library, result: None)
+    monkeypatch.setattr(full_3d, 'stage_records', lambda library, result: None)
+    monkeypatch.setattr(full_3d, 'execution_view_query', lambda *args: None)
     states = []
     expected = run_case(case, _control(), checkpoint=states.append)
     resumed = run_case(case, _control(), resume_state=states[0])

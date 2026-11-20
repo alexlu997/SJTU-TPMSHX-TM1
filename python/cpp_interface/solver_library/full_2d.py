@@ -115,6 +115,7 @@ class NativeFull2DDriver(StageDriver):
         pointers = (dp*len(arrays))(*(x.ctypes.data_as(dp) for x in arrays))
         sizes = (ct.c_size_t*len(arrays))(*(x.size for x in arrays))
         result, error = _Result(), ct.create_string_buffer(2048)
+        cpu_thread_limit = control.native_cpu_threads() if thread_call else None
         try:
             args = ((ct.c_size_t*2)(*shape), pointers, sizes, ct.byref(config))
             tail = (ct.byref(callbacks), ct.byref(result), error, len(error))
@@ -123,7 +124,7 @@ class NativeFull2DDriver(StageDriver):
                 from sjtu_tpmshx.cpp_interface.solver_library.full_2d_run import NativeFull2DRun
                 with NativeFull2DRun(self.library, *args[:3], config, callbacks,
                         energy=basic_energy, energy_control=energy_control, model_h=model_h_options,
-                        state=resume_state, cpu_threads=control.native_cpu_threads() if thread_call else None) as run:
+                        state=resume_state, cpu_threads=cpu_thread_limit) as run:
                     while run.phase not in (3, 4):
                         phase = run.advance()
                         if errors:
@@ -137,7 +138,7 @@ class NativeFull2DDriver(StageDriver):
                 status = thread_call(*args, ct.byref(basic_energy) if basic_energy is not None else None,
                     ct.byref(energy_control) if energy_control is not None else None,
                     ct.byref(model_h_options) if model_h_options is not None else None,
-                    control.native_cpu_threads(), *tail)
+                    cpu_thread_limit, *tail)
             else:
                 options = model_h_options if model_h_options is not None else energy_control if energy_control is not None else energy
                 status = energy_call(*args, ct.byref(options), *tail) if energy_call else self.call(*args, *tail)
@@ -147,7 +148,7 @@ class NativeFull2DDriver(StageDriver):
                 exception = {1: ValueError, 2: WaterStateError, 3: FloatingPointError, 4: ChokedFlowError}.get(status, RuntimeError)
                 raise exception(error.value.decode('utf-8', errors='replace'))
             return self.copy_result(result, shape, config, entry_version=entry_version, control=control,
-                have_cpu_limit=thread_call is not None, energy_query=energy_query, version_query=version_query,
+                cpu_thread_limit=cpu_thread_limit, energy_query=energy_query, version_query=version_query,
                 resume_state=resume_state)
         finally:
             if result.owner:

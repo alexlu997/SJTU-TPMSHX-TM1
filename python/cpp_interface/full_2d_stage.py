@@ -18,15 +18,16 @@ from sjtu_tpmshx.cpp_interface.solver_library.enthalpy import _EnergyOptions, _e
 from sjtu_tpmshx.data_types.field_result import FieldResult
 from sjtu_tpmshx.data_types.validator import compute_volumetric_htc
 from sjtu_tpmshx.run_control.run_warnings import current_warnings, merge_warnings, warning_messages, warning_scope
-from sjtu_tpmshx.physical_models.nu_correlations import warn_sco2_nu_evidence
 from sjtu_tpmshx.cpp_interface.solver_library.model_h import _IterationOptions, _iteration_options
 from . import _native_flow
 from ._native_preparation_case import _ResultV1, pack_saved_resources, borrow_array, borrow_ranges, borrow_text
 from ._native_grid import _Scalar as GridScalar
 from .run_state import NativeRun
 from .solver_library._full_2d_abi import _Cancel, _FINE_FLAGS, _FLAGS, _FLOW_ARRAYS, _FlowMethod, _Pressure, _Progress, _Residual
-from .solver_library.property_sampling import sampling_query, copy_sampling
-from .solver_library.enthalpy import _update_scale_query, _copy_update_scale
+from .solver_library._stage_capture_abi import (StageExecution, copy_sampling, executed_inputs, executed_view,
+    execution_sides, execution_view_query, replay_sco2_notices, sampling_query, sampling_records,
+    stage_records, thermal_execution)
+from .solver_library.enthalpy import _update_scale_query, _copy_update_scale, _decode_update_scale
 from pathlib import Path
 from sjtu_tpmshx.run_control.module_ports import RunControl
 from sjtu_tpmshx.run_control.run_environment import require_f2_mode
@@ -34,7 +35,7 @@ from .solver_library.physical_ledger import HeatLedger2D, heat_ledger_query, cop
 from .solver_library.simple_2d import _result_dict
 from .solver_library.model_h import _plane_info, _model_h_algorithm
 from .solver_library.temperature_evidence import TemperatureEvidence2D, copy_temperature_evidence
-from .solver_library.model_h import _iteration_query, _copy_iteration_records
+from .solver_library.model_h import _iteration_query, _copy_iteration_records, _decode_iteration_records
 from .solver_library.enthalpy import _energy_result_info, _energy_native_state, _FullEnergyEffectiveSettings, _full_enthalpy_info, _executed_energy_settings
 from .solver_library.closure_evidence import copy_nu_observation, copy_range_observations, last_range_query, copy_last_ranges
 
@@ -81,6 +82,9 @@ class _StageResult(ct.Structure):
     def __init__(self):
         super().__init__(1, ct.sizeof(type(self)))
 
+
+_ExecutionView = record('ExecutionView2D', [('execution', StageExecution),
+    ('settings', _FullEnergyEffectiveSettings), ('energy', _EnergyEvidence)])
 
 _Application = record('CaptureApplication', [
     ('area_density_per_m', _D * 2), ('surface_htc_W_m2K', _D * 2)])
@@ -396,8 +400,9 @@ def run_stage(driver, case, cfg, prepared, control, *, configure_convergence, ma
     request, energy = _request(cfg, configure_convergence)
     callbacks, errors = make_callbacks(control)
     stage_control = _Control(case.case_id.encode(), driver.table_directory, control.native_cpu_threads(), callbacks)
+    execution_query = execution_view_query(library, 2, _StageResult, _ExecutionView)
     energy_query = version_query = None
-    if energy.algorithm:
+    if execution_query is None and energy.algorithm:
         energy_query = library.tpmshx_full_2d_get_energy_evidence_v1
         energy_query.argtypes = [ct.POINTER(_Result), ct.POINTER(_EnergyEvidence)]
         energy_query.restype = ct.c_int
@@ -405,13 +410,10 @@ def run_stage(driver, case, cfg, prepared, control, *, configure_convergence, ma
     result = _StageResult()
     try:
         with _Run(library, saved, request, stage_control, errors, resume_state) as run:
-            if saved_version == 3:
-                from sjtu_tpmshx.solvers.execution_record import resolved_input_record
-                cfg['_input_resolution'] = resolved_input_record(case,
-                    {side: cfg['fluid_' + side] for side in 'AB'}, (uniform.values.nx, uniform.values.ny),
-                    {side: cfg['cfg' + side]['dir'] for side in 'AB'})
             run.finish(checkpoint, checkpoint_due, (1, 2, 6, 7, 8))
             result = run.take_result()
+        if saved_version == 3:
+            cfg['_input_resolution'] = executed_inputs(case, result.evidence)
         summary = _Summary()
         if query(ct.byref(result), ct.byref(_Application()), ct.byref(summary)):
             raise RuntimeError('native full 2D capture query failed')
@@ -422,12 +424,14 @@ def run_stage(driver, case, cfg, prepared, control, *, configure_convergence, ma
                  'h_vA', 'h_vB', 'K_ss', 'Ta_display', 'Tb_display', 'Ts_display',
                  'P_fA_display', 'ucA', 'vcA', 'P_fB_display', 'ucB', 'vcB')
         stage_fields = {key: fields[key] for key in names}, {key: declarations[key] for key in names}
-        from .solver_library._stage_capture_abi import stage_records
-        records = stage_records(library, result)
+        execution = executed_view(execution_query, result) if execution_query is not None else None
+        records = stage_records(library, result) if execution is None else execution.execution.records.contents
         native = driver.copy_result(result.raw, shape, result.resolved,
-            entry_version=6, control=control, have_cpu_limit=True, energy_query=energy_query,
+            entry_version=6, control=control, cpu_thread_limit=stage_control.cpu_threads, energy_query=energy_query,
             version_query=version_query, resume_state=resume_state, capture_scalars=_scalars(summary), fields=stage_fields[0],
-            records=records, evidence=result.evidence)
+            records=records, evidence=result.evidence, execution=execution)
+        if execution is not None and saved_version == 3:
+            native['sco2_notices'] = tuple(execution.execution.sco2_notices)
         control.check_cancelled()
 
         def application_hv(area_density, surface_htc):
@@ -451,8 +455,10 @@ def run_stage(driver, case, cfg, prepared, control, *, configure_convergence, ma
             'applicability_inputs', ()))
         metadata = dict(field.metadata, _native_applicability=applicability)
         if records is not None:
-            from ._native_result_stage import execution_sides
             metadata['_native_execution_sides'] = execution_sides(records, result.evidence, case, declarations)
+        if execution is not None:
+            metadata['_native_thermal_execution'] = thermal_execution(execution.execution, result.evidence,
+                                                                       native['model_h_iterations'], native['main']['true_h'])
         return replace(field, metadata=metadata)
     finally:
         if result.owner:
@@ -550,10 +556,14 @@ def capture_result(case, cfg, prepared, native, *, application_hv=None, zone_sum
         warnings.extend(replay_range_observations(native['range_observations']))
     notices = {}
     with warning_scope(notices):
-        for label, observation in native['sco2_nu_observations'].items():
-            if observation and cfg['fluid_' + label] == 'sco2':
-                warn_sco2_nu_evidence(side=label, stage='2D main-hv', tpms_type=cfg['tpms_type'],
-                    L_mm=cfg['Lcell'], t_mm=cfg['t_wall'], P_in=observation['P_abs_Pa'])
+        if 'sco2_notices' in native:
+            replay_sco2_notices(native['sco2_notices'], '2D main-hv')
+        else:
+            from sjtu_tpmshx.physical_models.nu_correlations import warn_sco2_nu_evidence
+            for label, observation in native['sco2_nu_observations'].items():
+                if observation and cfg['fluid_' + label] == 'sco2':
+                    warn_sco2_nu_evidence(side=label, stage='2D main-hv', tpms_type=cfg['tpms_type'],
+                        L_mm=cfg['Lcell'], t_mm=cfg['t_wall'], P_in=observation['P_abs_Pa'])
     merge_warnings(current_warnings(), [notices])
     warnings.extend(warning_messages(notices))
     if not native['outer_converged']:
@@ -666,13 +676,10 @@ def capture_result(case, cfg, prepared, native, *, application_hv=None, zone_sum
         stage_fields = legacy_fields(evidence, main, native)
     result = _capture_result(case, stage_fields, evidence, application, diagnostics, backend_id='cpp',
                              backend_version=f"full_2d_v{native.get('entry_version', 2)}")
-    if 'continuation' in native:
-        result = replace(result, metadata=dict(result.metadata, continuation=native['continuation']))
+    extras = {key: native[key] for key in ('continuation', 'runtime_resources') if key in native}
     if 'native_metadata' in native:
-        result = replace(result, metadata=dict(result.metadata, native=native['native_metadata']))
-    if 'runtime_resources' in native:
-        result = replace(result, metadata=dict(result.metadata, runtime_resources=native['runtime_resources']))
-    return replace(result, metadata=dict(result.metadata, _last_closure_ranges=native['last_closure_ranges'],
+        extras['native'] = native['native_metadata']
+    return replace(result, metadata=dict(result.metadata, **extras, _last_closure_ranges=native['last_closure_ranges'],
         enthalpy_update_normalization=native['enthalpy_update_normalization'],
         simple_velocity_relaxation=native['simple_velocity_relaxation'], simple_flow=native['simple_flow'],
         model_h_iterations=native['model_h_iterations']))
@@ -902,14 +909,17 @@ class StageDriver:
         self.query_flow_methods.restype = ct.c_int
 
     def copy_result(self, result, shape, config, *, entry_version, control=RunControl(),
-                    have_cpu_limit=False, energy_query=None, version_query=None,
-                    resume_state=None, capture_scalars=None, fields=None, records=None, evidence=None):
+                    cpu_thread_limit=None, energy_query=None, version_query=None, resume_state=None,
+                    capture_scalars=None, fields=None, records=None, evidence=None, execution=None):
         """Copy borrowed result views through queries from their selected library."""
         if result.cancelled:
             raise CancelledError('compute cancelled by user')
-        actual = _FullEnergyEffectiveSettings()
-        if self.query_settings(ct.byref(result), ct.byref(actual)):
-            raise RuntimeError('native full 2D effective settings query failed')
+        if execution is not None:
+            actual = execution.settings
+        else:
+            actual = _FullEnergyEffectiveSettings()
+            if self.query_settings(ct.byref(result), ct.byref(actual)):
+                raise RuntimeError('native full 2D effective settings query failed')
         if actual.outer_count != result.outer_history_count:
             raise RuntimeError('native full 2D effective settings do not match the thermal history')
         out = {name: bool(getattr(result, name)) for name in (*_FLAGS, *_FINE_FLAGS)}
@@ -921,11 +931,15 @@ class StageDriver:
         if records is None:
             out['property_sampling'] = copy_sampling(sampling_query(self.library, 2, _Result), result)
         else:
-            from ._native_result_stage import sampling_records
             out['property_sampling'] = sampling_records(records.sampling)
-        out['enthalpy_update_normalization'] = _copy_update_scale(self.query_update_scale, result)
         out['simple_velocity_relaxation'] = config.alpha_velocity
-        out['model_h_iterations'] = _copy_iteration_records(self.query_model_h, result)
+        if execution is not None:
+            executed = execution.execution
+            out['enthalpy_update_normalization'] = _decode_update_scale(executed.update_scale)
+            out['model_h_iterations'] = _decode_iteration_records(executed.model_h)
+        else:
+            out['enthalpy_update_normalization'] = _copy_update_scale(self.query_update_scale, result)
+            out['model_h_iterations'] = _copy_iteration_records(self.query_model_h, result)
         if records is None:
             for name in ('density', 'viscosity', 'rho_cp'):
                 out[name] = [_copy(x, shape) for x in getattr(result, name)]
@@ -977,18 +991,24 @@ class StageDriver:
             iterations=value.iterations, proposal_steps=value.proposal_steps,
             accepted_proposals=value.accepted_proposals) for side, value in zip('AB', methods)}
         out['entry_version'] = entry_version
-        if have_cpu_limit:
-            out['runtime_resources'] = dict(cpu_thread_limit=control.native_cpu_threads(),
+        if cpu_thread_limit is not None:
+            out['runtime_resources'] = dict(cpu_thread_limit=cpu_thread_limit,
                 requested_cpu_threads=control.cpu_threads, policy='native_cpu_limit_v1')
-        if energy_query and actual.last.available:
-            extra = _EnergyEvidence()
-            if energy_query(ct.byref(result), ct.byref(extra)):
-                raise RuntimeError('native full 2D energy evidence query failed')
+        if actual.last.available and (execution is not None or energy_query):
+            version = None
+            if execution is not None:
+                extra = execution.energy
+                version = evidence.thermal.true_h.contents.energy_algorithm_version[0]
+            else:
+                extra = _EnergyEvidence()
+                if energy_query(ct.byref(result), ct.byref(extra)):
+                    raise RuntimeError('native full 2D energy evidence query failed')
             if out['main']['true_h'] is None or extra.outer_count != len(out['outer_history']):
                 raise RuntimeError('native full 2D energy evidence does not match the thermal history')
             info = out['main']['true_h']
             _energy_result_info(info, extra.main.energy,
-                temperature_tol=actual.last.temperature_update_tolerance, abi=entry_version, version_query=version_query, state_update='per_side_energy_relation')
+                temperature_tol=actual.last.temperature_update_tolerance, abi=entry_version,
+                version_query=version_query, version=version, state_update='per_side_energy_relation')
             _energy_native_state(info, extra.main, (*shape, 1), 'W/m')
             out['main']['mode'] = 'conservative_energy'
             if out['fine'] is not None:
@@ -996,7 +1016,7 @@ class StageDriver:
             for index, row in enumerate(out['outer_history']):
                 _energy_result_info(row['energy_info'], extra.outer[index],
                     temperature_tol=actual.outer[index].temperature_update_tolerance, abi=entry_version,
-                    version_query=version_query)
+                    version_query=version_query, version=version)
         if records is not None:
             from ._native_result_stage import _stage_array, stage_ledger
             out['outer_index'] = evidence.outer_index[0]
@@ -1041,8 +1061,11 @@ class StageDriver:
                 fine_shape = (len(out['fine']['dx']), len(out['fine']['dy']), 1)
                 out['fine']['physical_ledger'] = copy_heat_ledger(ledger.fine, fine_shape, 2)
         if out['main']['mode'] in ('model_h', 'temperature'):
-            algorithm = (_model_h_algorithm(self.library, 2) if out['main']['mode'] == 'model_h'
-                         else out['main']['temperature_evidence']['algorithm'])
+            if execution is not None:
+                algorithm = execution.execution.algorithm.decode()
+            else:
+                algorithm = (_model_h_algorithm(self.library, 2) if out['main']['mode'] == 'model_h'
+                             else out['main']['temperature_evidence']['algorithm'])
             _set_native_metadata(out, self.abi, algorithm, config.red_black,
                 captured_red_black=None if capture_scalars is None else capture_scalars['red_black'])
         if capture_scalars is not None:

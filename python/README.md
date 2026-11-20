@@ -79,7 +79,8 @@ Python 优先选择 v2，其次为对称均匀或连续输入选择 v1；不具�
 公共 API 发布这些分组，不重复分类。
 Python 将完整 case notices 与运行期 `nu-evidence` 警告记录合并为 `scope_notes`；独立 C++ 阶段保留原生通知。
 直接及归档运行库路径保留 `capture_applicability`；捕获失败不选择该路径。
-`python/solvers/execution_record.py` 解释实际执行身份和物性采样；原生结果阶段判断资格。
+`python/solvers/execution_record.py` 发布原生求解完成后返回的执行方法与物性采样。
+原生结果阶段判断资格。
 
 独立的 `shared/models/tpms_calc.compute` 与完整准备使用同一原生入口物性组合。
 Python 保留几何选择、共享缓存、可变结果副本、逐次 K_ss 查询、对象转换和警告策略。
