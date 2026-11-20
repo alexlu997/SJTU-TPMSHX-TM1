@@ -34,7 +34,11 @@ def test_final_case_controls_feasibility_and_report(monkeypatch, change, reason)
     monkeypatch.setattr(sizing, 'dP_fracs', lambda *a, **kw: (.01, .01))
     d = sizing.size_fixed_cell([condition], 'Diamond', 6., .4)
     assert d.feasible is (not reason)
-    assert d.weight == pytest.approx(.3 * d.V * 7900.)
+    if d.feasible:
+        light = sizing.size_fixed_cell([condition], 'Diamond', 6., .4, rho_s=2700.)
+        assert light.feasible and light.V == d.V
+        assert d.weight == pytest.approx(.3 * d.V * 7900.)
+        assert light.weight == pytest.approx(.3 * d.V * 2700.)
     assert reason in d.reason
     tags = pareto_tags([d])
     assert bool(tags) is (not reason)
@@ -87,9 +91,8 @@ def test_energy_diagnostic_is_reported_without_a_new_feasibility_gate(
     monkeypatch.setattr(sizing, 'forward', final)
     monkeypatch.setattr(sizing, 'tpms_geometry', lambda *a, **kw: {'epsilon': .7})
     monkeypatch.setattr(sizing, 'dP_fracs', lambda *a, **kw: (.01, .01))
-    design = sizing.size_fixed_cell([condition], 'Diamond', 6., .4, rho_s=2700.)
+    design = sizing.size_fixed_cell([condition], 'Diamond', 6., .4)
     assert design.feasible and design.reason == '' and calls == [1]
-    assert design.weight == pytest.approx(.3 * design.V * 2700.)
     case, = design.percase
     expected_value = metric.value if metric is not None else None
     expected_status = metric.status if metric is not None else 'insufficient_data'
