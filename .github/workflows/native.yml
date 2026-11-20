@@ -108,8 +108,6 @@ jobs:
         shell: bash
         run: '"$CI_PYTHON" engineering/scripts/build_native_dependencies.py build --component coolprop'
       - name: Build current project libraries and callers offline
-        env:
-          CL: ${{ runner.os == 'Windows' && '/MP2' || '' }}
         shell: bash
         run: '"$CI_PYTHON" engineering/scripts/build_native_dependencies.py build --component pilot'
       - name: Build the independent result library offline
