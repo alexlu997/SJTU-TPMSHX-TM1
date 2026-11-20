@@ -3,4 +3,13 @@ tests/python/native/test_cpp_full_2d_run.py::test_full_2d_checkpoint_continues_a
 tests/python/native/test_model_isolation.py
 tests/python/native/test_temperature_mms.py
 tests/python/test_native_preparation_sigmoid.py::test_sigmoid_production_cold_nodes_and_repeated_warm_preparation[Gyroid]
-tests/python/test_native_stage_uniform.py
+tests/python/test_native_stage_uniform.py::test_uniform_stage_exact[air-air]
+tests/python/test_native_stage_uniform.py::test_uniform_stage_exact[air-water]
+tests/python/test_native_stage_uniform.py::test_uniform_stage_exact[water-air]
+tests/python/test_native_stage_uniform.py::test_uniform_stage_exact[co2-water]
+tests/python/test_native_stage_uniform.py::test_uniform_stage_exact[water-sco2]
+tests/python/test_native_stage_uniform.py::test_uniform_stage_selected_controls[negative-partial]
+tests/python/test_native_stage_uniform.py::test_uniform_stage_selected_controls[negative-partial-water-limit]
+tests/python/test_native_stage_uniform.py::test_uniform_stage_selected_controls[model-controls]
+tests/python/test_native_stage_uniform.py::test_uniform_stage_selected_controls[energy-controls]
+tests/python/test_native_stage_uniform.py::test_uniform_stage_boundary_and_cancellation
