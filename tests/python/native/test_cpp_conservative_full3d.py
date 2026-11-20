@@ -441,6 +441,8 @@ def test_zero_sweep_budget_keeps_initial_state_and_energy_gates(native_path, alg
 def test_existing_true_h_controls_keep_qualified_state(native_path, monkeypatch, algorithm, pair, option):
     case = candidate(algorithm, pair=pair)
     baseline = run_case(case, control(native_path, cpu_threads=1))
+    from sjtu_tpmshx.cpp_interface import full_3d_stage
+    monkeypatch.setattr(full_3d_stage, 'has_saved_stage', lambda library: False)
     run_prepared = NativeFull3DDriver._run_prepared
     seen = []
 
@@ -460,8 +462,6 @@ def test_existing_true_h_controls_keep_qualified_state(native_path, monkeypatch,
                 cfg[name] = False
                 if name == 'variable_rho_cp':
                     cfg['_environment'] = dict(cfg['_environment'], TPMSHX_VAR_RHOCP=None)
-        # These forced controls use the direct C interface.
-        kwargs['stage_case'] = None
         return run_prepared(driver, cfg, data, run_control, **kwargs)
 
     monkeypatch.setattr(NativeFull3DDriver, '_run_prepared', with_controls)

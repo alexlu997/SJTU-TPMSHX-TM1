@@ -123,6 +123,7 @@ def test_saved_inputs_are_used_without_repreparation(change, monkeypatch, tmp_pa
     _same(_normalized(actual), _normalized(expected), change)
     before = {name: value.copy() for name, value in case.design_fields.items()}
     result = run_case(case, _control())
+    _same(result.fields, expected[1].fields, 'public saved fields')
     assert result.fields['K_ss'].dtype == case.design_fields['K_ss'].dtype
     assert np.shares_memory(result.fields['Ta'], result.fields['Ta_display'])
     for name, value in before.items():
@@ -149,10 +150,9 @@ def test_public_drag_capture_preserves_scalar_design_summary():
 def test_partial_stage_protocol_is_rejected_before_execution(missing, monkeypatch):
     config, _ = reference._configuration()
     case = prepare_case(config, case_id='partial-protocol')
-    original_init = full_3d.NativeFull3DDriver.__init__
-    def initialize(self, *args, **kwargs):
-        original_init(self, *args, **kwargs)
-        library = self.library
+    open_library = full_3d_stage.open_library
+    def initialize(*args, **kwargs):
+        path, library, abi, table = open_library(*args, **kwargs)
         class Partial:
             def __getattr__(self, name):
                 symbol = ('tpmshx_stage_capture_3d_abi_version' if missing == 'capture_version'
@@ -160,10 +160,10 @@ def test_partial_stage_protocol_is_rejected_before_execution(missing, monkeypatc
                 if name == symbol:
                     raise AttributeError(name)
                 return getattr(library, name)
-        self.library = Partial()
+        return path, Partial(), abi, table
     def forbidden(*args, **kwargs):
         pytest.fail('partial stage protocols must not execute')
-    monkeypatch.setattr(full_3d.NativeFull3DDriver, '__init__', initialize)
+    monkeypatch.setattr(full_3d_stage, 'open_library', initialize)
     monkeypatch.setattr(full_3d.NativeFull3DDriver, '_run_prepared', forbidden)
     with pytest.raises(ValueError, match='incomplete saved 3D stage protocol'):
         run_case(case, _control())
@@ -292,9 +292,9 @@ def test_capture_failure_releases_same_stage_owner(monkeypatch, failure):
     if failure == 'summary':
         monkeypatch.setattr(full_3d_stage, 'copy_summary', fail)
     elif failure == 'decode':
-        monkeypatch.setattr(full_3d, '_detach', fail)
+        monkeypatch.setattr(full_3d_stage, '_detach', fail)
     else:
-        monkeypatch.setattr(full_3d, 'replay_sco2_notices', fail)
+        monkeypatch.setattr(full_3d_stage, 'replay_sco2_notices', fail)
     with pytest.raises(RuntimeError) as caught:
         run_case(case, _control())
     assert caught.value is sentinel
@@ -352,22 +352,29 @@ def test_selected_controls_models_and_ports(selection, monkeypatch, tmp_path):
         parameters.update(use_coarse_bootstrap=True, coarse_bootstrap_max_iter=3)
     case = replace(case, parameters=parameters)
     save_case(case, tmp_path / 'case.h5')
-    expected, actual = _run(case, stage=False), _run(case, stage=True)
-    actual[0].pop('capture_scalars')
-    _same(_normalized(actual), _normalized(expected), selection)
-    save_result(actual[1], tmp_path / 'result.h5')
+    _, expected, expected_events, _, _, _ = _run(case, stage=False)
+    events = []
+    with warning_scope({}):
+        actual = full_3d.run_case(case, _control(events))
+    assert events == expected_events
+    for name in ('fields', 'field_metadata', 'boundary_fluxes', 'pressure_evidence', 'run_status'):
+        _same(_normalized(getattr(actual, name)), _normalized(getattr(expected, name)), selection + '.' + name)
+    for key in ('diagnostics', 'property_sampling', 'native', 'model_h_iterations', 'simple_velocity_relaxation'):
+        _same(_normalized(actual.metadata.get(key)), _normalized(expected.metadata.get(key)), selection + '.' + key)
+    save_result(actual, tmp_path / 'result.h5')
 
 
 def test_unknown_capture_abi_is_rejected_before_execution(monkeypatch):
     config, _ = reference._configuration()
     case = prepare_case(config, case_id='unknown-capture-abi')
-    original_init = full_3d.NativeFull3DDriver.__init__
-    def initialize(self, *args, **kwargs):
-        original_init(self, *args, **kwargs)
-        self.library.tpmshx_stage_capture_3d_abi_version = lambda: 99
+    open_library = full_3d_stage.open_library
+    def initialize(*args, **kwargs):
+        path, library, abi, table = open_library(*args, **kwargs)
+        library.tpmshx_stage_capture_3d_abi_version = lambda: 99
+        return path, library, abi, table
     def forbidden(*args, **kwargs):
         pytest.fail('unknown capture ABIs must not execute')
-    monkeypatch.setattr(full_3d.NativeFull3DDriver, '__init__', initialize)
+    monkeypatch.setattr(full_3d_stage, 'open_library', initialize)
     monkeypatch.setattr(full_3d.NativeFull3DDriver, '_run_prepared', forbidden)
     with pytest.raises(ValueError, match='unsupported saved 3D capture ABI 99'):
         run_case(case, _control())

@@ -1,6 +1,7 @@
 """Recipe identity follows the loaded native library and portable result."""
 import os
 from pathlib import Path
+from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
@@ -98,18 +99,16 @@ def test_full_3d_identity_uses_executed_route(route, counts, options):
     assert raw['native_metadata'] == dict(abi=2, algorithm=expected, red_black=False)
 
 
-def test_full_3d_portable_identity_roundtrip(monkeypatch, tmp_path):
-    from sjtu_tpmshx.cpp_interface.solver_library.full_3d import NativeFull3DDriver, run_case
+def test_full_3d_portable_identity_roundtrip(tmp_path):
+    from sjtu_tpmshx.cpp_interface.solver_library.full_3d import run_case
     from tests.python.native.test_cpp_full_3d import case, control
     from sjtu_tpmshx.file_io.result_io import save_result, load_result
-    original = NativeFull3DDriver._run_prepared
-    def bounded(self, cfg, p, control, **kwargs):
-        cfg = dict(cfg, max_iter_simple=1)
-        cfg['_environment'] = dict(cfg.get('_environment', {}), TPMSHX_P_IN_SHOOT='0', TPMSHX_VAR_RHOCP=None)
-        p = dict(p, max_outer=1, ltne_max_iter=1)
-        return original(self, cfg, p, control, **kwargs)
-    monkeypatch.setattr(NativeFull3DDriver, '_run_prepared', bounded)
-    result = run_case(case('air-air', cap=2), control(library_path('TPMSHX_NATIVE_SOLVER_LIBRARY')))
+    prepared = case('air-air', cap=2)
+    params = prepared.parameters
+    prepared = replace(prepared, parameters=dict(params, max_iter_simple=1,
+        _environment=dict(params['_environment'], TPMSHX_P_IN_SHOOT='0', TPMSHX_VAR_RHOCP=None),
+        prepared=dict(params['prepared'], max_outer=1, ltne_max_iter=1)))
+    result = run_case(prepared, control(library_path('TPMSHX_NATIVE_SOLVER_LIBRARY')))
     assert dict(result.metadata['native']) == dict(abi=2, algorithm='shared_fv_model_h_3d_compensated_v1', red_black=False)
     path = tmp_path/'identity-3d.h5'
     save_result(result, path)

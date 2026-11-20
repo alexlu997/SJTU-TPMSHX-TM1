@@ -335,8 +335,8 @@ def test_owned_fields_survive_subsequent_and_parallel_calls(native_path):
 @pytest.mark.parametrize('solid_dtype', [np.float64, np.float32])
 def test_native_call_borrows_case_arrays_and_recovers(native_path, monkeypatch, dimension, failure, solid_dtype):
     import ctypes as ct
-    from sjtu_tpmshx.cpp_interface.full_2d_stage import StageDriver
-    from sjtu_tpmshx.cpp_interface.solver_library import full_3d
+    from sjtu_tpmshx.cpp_interface.full_2d_stage import _Run
+    from sjtu_tpmshx.cpp_interface.full_3d_stage import SavedRun
     from tests.python.native.test_full_2d import configuration
 
     config = configuration(outer=2) if dimension == 2 else _config(3, True)
@@ -355,16 +355,11 @@ def test_native_call_borrows_case_arrays_and_recovers(native_path, monkeypatch, 
               if isinstance(value, np.ndarray)}
     copied = replace(prepared, design_fields={**prepared.design_fields, **before})
     reference = cpp_run(copied, control(native_path))
-    driver_type = StageDriver if dimension == 2 else full_3d.NativeFull3DDriver
-    original_init, entered = driver_type.__init__, []
+    run_type = _Run if dimension == 2 else SavedRun
+    original_call, entered = run_type._call, []
 
-    def init(self, *args, **kwargs):
-        original_init(self, *args, **kwargs)
-        version = 3 if dimension == 2 else 2
-        symbol = f'tpmshx_stage_run_{dimension}d_create_saved_v{version}'
-        original_call = getattr(self.library, symbol)
-
-        def call(*args):
+    def observe(run, function, *args):
+        if function is run._create:
             if dimension == 2:
                 saved = args[0]._obj.values.values
                 data = saved.prepared.contents.values
@@ -386,12 +381,9 @@ def test_native_call_borrows_case_arrays_and_recovers(native_path, monkeypatch, 
                 assert same_buffer == (source.dtype == np.float64)
                 np.testing.assert_array_equal(np.ctypeslib.as_array(pointer, shape=(source.size,)), source.ravel())
             entered.append(True)
-            original_call.argtypes = call.argtypes
-            return original_call(*args)
+        return original_call(run, function, *args)
 
-        setattr(self.library, symbol, call)
-
-    monkeypatch.setattr(driver_type, '__init__', init)
+    monkeypatch.setattr(run_type, '_call', observe)
 
     def fail(*_):
         raise RuntimeError('borrow callback sentinel')
@@ -492,20 +484,21 @@ def test_two_sided_integral_defaults_keep_physics_and_saved_evidence(native_path
 
 @pytest.mark.parametrize('pair',['air-air','air-water','water-air','air-sco2','sco2-water'])
 def test_runtime_range_evidence_preserves_original_sources_and_denominators(native_path, pair):
-    from sjtu_tpmshx.cpp_interface.solver_library.full_3d import NativeFull3DDriver, run_case as adapter_run
+    from sjtu_tpmshx.cpp_interface import full_3d_stage
+    from sjtu_tpmshx.cpp_interface.solver_library.full_3d import run_case as adapter_run
     from tests.python.native.test_cpp_full_2d_capture import check_range_records
     records, captured = {}, []
-    original = NativeFull3DDriver._run_prepared
-    def observed(self, *args, **kwargs):
-        raw = original(self, *args, **kwargs)
-        captured.append(raw)
-        return raw
-    with warning_scope(records), patch.object(NativeFull3DDriver, '_run_prepared', observed):
+    original = full_3d_stage.stage_closures
+    def observed(*args):
+        rows, warnings, last = original(*args)
+        captured.append((rows, last))
+        return rows, warnings, last
+    with warning_scope(records), patch.object(full_3d_stage, 'stage_closures', observed):
         result = adapter_run(case(pair, 2), control(native_path))
-    raw, = captured
-    check_range_records(records, raw['range_observations'])
-    compare(result.metadata['_last_closure_ranges'], raw['last_closure_ranges'])
-    for row in raw['last_closure_ranges']:
+    (rows, last), = captured
+    check_range_records(records, rows)
+    compare(result.metadata['_last_closure_ranges'], last)
+    for row in last:
         assert row['size'] == int(np.prod(row['shape']))
         for kind in ('minimum', 'maximum'):
             if row[kind] is not None:
@@ -650,7 +643,7 @@ def test_application_failure_releases_native_owner(native_path, monkeypatch, fai
     if failure == 'detach':
         monkeypatch.setattr(full_3d, '_detach', fail)
     else:
-        monkeypatch.setattr(driver, '_bootstrap_traces', fail)
+        monkeypatch.setattr(driver, 'query_bootstrap', fail)
     cfg, p = prepared('air-air', counts=(4, 4, 4), max_iter_simple=1)
     p.update(max_outer=1, ltne_max_iter=1)
     with pytest.raises(RuntimeError, match='capture failure'):

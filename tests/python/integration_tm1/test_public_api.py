@@ -57,7 +57,7 @@ def native_3d_mapping_input(case, cfg, prepared, raw, diagnostics):
     values.update(diagnostics)
     if cfg.get('_emit_audit', False):
         values.update(_audit_K_ffA=raw['final_conductivity'][0],
-            _audit_K_ffB=raw['final_conductivity'][1], _audit_K_ss=prepared['design']['K_ss'],
+            _audit_K_ffB=raw['final_conductivity'][1], _audit_K_ss=case.design_fields['K_ss'],
             _audit_rho_cp_fA=raw['final_rho_cp'][0], _audit_rho_cp_fB=raw['final_rho_cp'][1])
     return values
 
