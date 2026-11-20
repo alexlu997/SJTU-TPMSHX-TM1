@@ -1,4 +1,5 @@
 """Public physical preparation entries and portable CaseData assembly."""
+from contextlib import ExitStack
 from dataclasses import replace
 from copy import deepcopy
 from math import isfinite
@@ -84,12 +85,26 @@ def prepare_fixed_mass_flow_case(
 
 
 def _prepare_mass_flow_case(config, targets, *, case_id):
-    if not config.is_3d:
-        from sjtu_tpmshx.cpp_interface import native_preparation as preparation
-        return preparation.prepare_mass_flow_case(config, targets, case_id=case_id)
+    if config.is_3d:
+        from .three_d.preparation import prepare_mass_flow_case as prepare
+    else:
+        from sjtu_tpmshx.cpp_interface.native_preparation import prepare_mass_flow_case as prepare
+    return _prepare_fixed_flow_with_metadata(prepare, config, targets, case_id=case_id)
 
-    from .three_d.preparation import prepare_mass_flow_case
-    return prepare_mass_flow_case(config, targets, case_id=case_id)
+
+def _prepare_fixed_flow_with_metadata(prepare, config, targets, *, case_id) -> CaseData:
+    with ExitStack() as scopes:
+        provenance: dict
+        records: dict
+
+        # Start collection at the adapter's existing input check boundary.
+        def start_observations():
+            nonlocal provenance, records
+            provenance = source_context()
+            records = scopes.enter_context(warning_scope({}))
+
+        case = prepare(config, targets, case_id=case_id, start_observations=start_observations)
+        return _finish_metadata(case, provenance, records)
 
 
 def resolve_fixed_mass_flow_config(

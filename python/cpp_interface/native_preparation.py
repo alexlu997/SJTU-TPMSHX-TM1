@@ -1,5 +1,4 @@
 """Transport prepared cases, scalar caches, warnings, and evidence across the native boundary."""
-from contextlib import ExitStack
 from copy import deepcopy
 from dataclasses import asdict, replace
 import os
@@ -603,8 +602,7 @@ def _case(result, config, case_id, side_geometry=None, pore_porosity=None, extra
             model_roles={'fluid_A': 0, 'fluid_B': 1, 'geometry': 2, 'darcy_forchheimer': 3}))
 
 
-def _execute(config, operation, *, targets=None, case_id=None, own_metadata=False):
-    from sjtu_tpmshx.preprocess import api
+def _execute(config, operation, *, targets=None, case_id=None, start_observations=None):
     from sjtu_tpmshx.preprocess.two_d.preparation import _nominal_grid_warning
     from sjtu_tpmshx.run_control.run_environment import _resolve_chi_s
     # Preserve the original physical guard before object-key checks.
@@ -619,7 +617,6 @@ def _execute(config, operation, *, targets=None, case_id=None, own_metadata=Fals
         chi, chi_error = None, problem
     allow = config.extrap.allow or os.environ.get('TPMSHX_ALLOW_EXTRAP', '').lower() in ('1', 'true', 'yes')
     options = native._Options(1, ct.sizeof(native._Options), chi is not None, allow, chi or 0.)
-    metadata = {}
     bridge = PreparationCacheBridge(config, chi_error)
     cache_keys, side_geometry = {}, {}
     co2 = 'co2' in (config.fluid_A.type, config.fluid_B.type)
@@ -641,70 +638,68 @@ def _execute(config, operation, *, targets=None, case_id=None, own_metadata=Fals
             side_geometry[side] = bridge.inlet_geometry[key]
         return hit
 
-    with ExitStack() as scopes:
-        def host_input(stage, side):
-            if stage == 0:
-                if own_metadata:
-                    metadata['provenance'] = api.source_context()
-                    metadata['records'] = scopes.enter_context(api.warning_scope({}))
-            elif stage == 1:
-                if 'co2' not in (config.fluid_A.type, config.fluid_B.type):
-                    hash((config.geometry.tpms, config.geometry.L_cell_mm, config.geometry.t_wall_mm, 128))
-                if co2 and chi_error is not None:
-                    raise chi_error
-            elif stage == 2:
-                fluid = getattr(config, 'fluid_' + 'AB'[side])
-                speed = 0. if targets is not None or fluid.mass_flow_kg_s is not None else fluid.u_mps
-                hash((config.geometry.tpms, config.geometry.L_cell_mm, config.geometry.t_wall_mm,
-                      speed, fluid.T_in_K, fluid.P_in_Pa, config.sco2_nu,
-                      'co2' in (config.fluid_A.type, config.fluid_B.type)))
-            elif stage == 3:
-                if source._grid_error is not None:
-                    raise TypeError(source._grid_error)
-            elif stage == 4:
-                if config.zones.axis != 'grid' and config.zones.config is None:
-                    raise ValueError('Enabled 1D zones require a ZoneConfig')
-                if source._zone_error is not None:
-                    raise source._zone_error
-            else:
-                raise RuntimeError(f'unknown preparation host stage {stage}')
+    def host_input(stage, side):
+        if stage == 0:
+            if start_observations is not None:
+                start_observations()
+        elif stage == 1:
+            if 'co2' not in (config.fluid_A.type, config.fluid_B.type):
+                hash((config.geometry.tpms, config.geometry.L_cell_mm, config.geometry.t_wall_mm, 128))
+            if co2 and chi_error is not None:
+                raise chi_error
+        elif stage == 2:
+            fluid = getattr(config, 'fluid_' + 'AB'[side])
+            speed = 0. if targets is not None or fluid.mass_flow_kg_s is not None else fluid.u_mps
+            hash((config.geometry.tpms, config.geometry.L_cell_mm, config.geometry.t_wall_mm,
+                  speed, fluid.T_in_K, fluid.P_in_Pa, config.sco2_nu,
+                  'co2' in (config.fluid_A.type, config.fluid_B.type)))
+        elif stage == 3:
+            if source._grid_error is not None:
+                raise TypeError(source._grid_error)
+        elif stage == 4:
+            if config.zones.axis != 'grid' and config.zones.config is None:
+                raise ValueError('Enabled 1D zones require a ZoneConfig')
+            if source._zone_error is not None:
+                raise source._zone_error
+        else:
+            raise RuntimeError(f'unknown preparation host stage {stage}')
 
-        spatial = source.abi_version == 9
-        hooks = dict(geometry_cache_at=bridge.geometry_at, inlet_cache_at=bridge.inlet_at,
-                     sigmoid_lut_cache=_lut_cache(), observe_range=bridge.observe_range,
-                     observe_notice=bridge.observe_notice) if spatial else dict(
-                         geometry_cache=geometry_cache, inlet_cache=inlet_cache,
-                         observe_range=bridge.observe_range, observe_notice=bridge.observe_notice)
-        with native.operation(operation, source, options, host_input,
-                              nominal_grid_warning=_nominal_grid_warning, offset_scope=True, **hooks) as result:
-            thermal_sides = None
-            if result.abi_version == 10:
-                thermal_sides, result = result.thermal, result.values
-            if spatial:
-                flow = result.values.flow
-                if operation == 'prepare_flow_case':
-                    flow = flow.flow
-            else:
-                flow = result.flow if hasattr(result, 'flow') else result
-            if operation == 'prepare_inlet_mass_capacities':
-                return {side: _native_flow._restore(flow.capacities[index]) for index, side in enumerate('AB')}
-            resolved = _resolved(config, flow, targets)
-            if operation == 'resolve_inlet_flow':
-                return resolved
-            resolved = ComputeConfig.from_dict(asdict(resolved), _native_preparation=True)
-            if spatial:
-                for index, side in enumerate('AB'):
-                    fluid = getattr(resolved, 'fluid_' + side)
-                    key = (resolved.geometry.tpms, resolved.geometry.L_cell_mm, resolved.geometry.t_wall_mm,
-                           fluid.u_mps, fluid.T_in_K, fluid.P_in_Pa, fluid.type, resolved.sco2_nu, False)
-                    side_geometry[index] = bridge.inlet_geometry[key]
-                prepared = result.values.prepared
-                if isinstance(result, native._SigmoidHostCase):
-                    prepared = prepared.values
-                case = _case(prepared, resolved, case_id, side_geometry, result.design_pore_porosity, bridge.extrap_reasons, thermal_sides)
-            else:
-                case = _case(result, resolved, case_id, side_geometry, extrap_reasons=bridge.extrap_reasons, thermal_sides=thermal_sides)
-            return api._finish_metadata(case, metadata['provenance'], metadata['records']) if own_metadata else case
+    spatial = source.abi_version == 9
+    hooks = dict(geometry_cache_at=bridge.geometry_at, inlet_cache_at=bridge.inlet_at,
+                 sigmoid_lut_cache=_lut_cache(), observe_range=bridge.observe_range,
+                 observe_notice=bridge.observe_notice) if spatial else dict(
+                     geometry_cache=geometry_cache, inlet_cache=inlet_cache,
+                     observe_range=bridge.observe_range, observe_notice=bridge.observe_notice)
+    with native.operation(operation, source, options, host_input,
+                          nominal_grid_warning=_nominal_grid_warning, offset_scope=True, **hooks) as result:
+        thermal_sides = None
+        if result.abi_version == 10:
+            thermal_sides, result = result.thermal, result.values
+        if spatial:
+            flow = result.values.flow
+            if operation == 'prepare_flow_case':
+                flow = flow.flow
+        else:
+            flow = result.flow if hasattr(result, 'flow') else result
+        if operation == 'prepare_inlet_mass_capacities':
+            return {side: _native_flow._restore(flow.capacities[index]) for index, side in enumerate('AB')}
+        resolved = _resolved(config, flow, targets)
+        if operation == 'resolve_inlet_flow':
+            return resolved
+        resolved = ComputeConfig.from_dict(asdict(resolved), _native_preparation=True)
+        if spatial:
+            for index, side in enumerate('AB'):
+                fluid = getattr(resolved, 'fluid_' + side)
+                key = (resolved.geometry.tpms, resolved.geometry.L_cell_mm, resolved.geometry.t_wall_mm,
+                       fluid.u_mps, fluid.T_in_K, fluid.P_in_Pa, fluid.type, resolved.sco2_nu, False)
+                side_geometry[index] = bridge.inlet_geometry[key]
+            prepared = result.values.prepared
+            if isinstance(result, native._SigmoidHostCase):
+                prepared = prepared.values
+            case = _case(prepared, resolved, case_id, side_geometry, result.design_pore_porosity, bridge.extrap_reasons, thermal_sides)
+        else:
+            case = _case(result, resolved, case_id, side_geometry, extrap_reasons=bridge.extrap_reasons, thermal_sides=thermal_sides)
+        return case
 
 
 def prepare_case(config, *, case_id):
@@ -714,11 +709,12 @@ def prepare_case(config, *, case_id):
     return _execute(config, 'prepare_flow_case', case_id=case_id)
 
 
-def prepare_mass_flow_case(config, targets, *, case_id):
+def prepare_mass_flow_case(config, targets, *, case_id, start_observations):
     config = deepcopy(config).validate_static_inputs()
     explicit = (tuple(targets[side] for side in 'AB')
                 if all(getattr(config, 'fluid_' + side).mass_flow_kg_s is None for side in 'AB') else None)
-    return _execute(config, 'prepare_flow_case', targets=explicit, case_id=case_id, own_metadata=True)
+    return _execute(config, 'prepare_flow_case', targets=explicit, case_id=case_id,
+                    start_observations=start_observations)
 
 
 def capacities(config):

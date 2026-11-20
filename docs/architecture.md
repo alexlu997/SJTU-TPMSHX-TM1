@@ -1152,6 +1152,9 @@ The native fluid enum appends CO2 as value 3; existing values and POD layouts
 stay unchanged. CO2 execution requires a library built with this model.
 
 `preprocess.api.prepare_fixed_mass_flow_case` owns fixed-flow preparation.
+The public preparation layer publishes the source revision, warnings and
+applicability records from both preparation adapters. The separate capacity
+and inlet speed queries return their own values without publishing a case.
 `FluidConfig.mass_flow_kg_s=None` keeps velocity input. A positive value
 prescribes total inlet flow. The public `prepare_case` resolves only those
 sides through the same inlet integral, before checking their velocity and

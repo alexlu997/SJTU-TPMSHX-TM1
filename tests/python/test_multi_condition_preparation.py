@@ -310,9 +310,12 @@ def test_capacity_preparation_validates_static_inputs_before_building_fields(mon
 
 
 @pytest.mark.parametrize('continuous', [False, True])
-def test_fixed_flow_releases_native_owner_after_copy(monkeypatch, continuous):
+@pytest.mark.parametrize('entry', ['public', 'direct-2d'])
+def test_fixed_flow_releases_native_owner_after_copy(monkeypatch, continuous, entry):
     from contextlib import contextmanager
     from sjtu_tpmshx.cpp_interface import _native_preparation_case as native
+    from sjtu_tpmshx.preprocess.two_d.preparation import prepare_mass_flow_case
+    from sjtu_tpmshx.run_control.run_warnings import current_warnings, warning_scope
 
     config = ComputeConfig(geometry=GeometryConfig(Lz_m=.042),
                            solver=SolverConfig(Nx=4, Ny=4), extrap=ExtrapPolicy(allow=True))
@@ -333,8 +336,14 @@ def test_fixed_flow_releases_native_owner_after_copy(monkeypatch, continuous):
             assert result.owner
 
     monkeypatch.setattr(native, 'operation', tracked)
-    case = prepare_fixed_mass_flow_case(config, mass_flow_A_kg_s=.01,
-                                       mass_flow_B_kg_s=.02, case_id='inlet-lifetime')
+    with warning_scope({}) as records:
+        if entry == 'direct-2d':
+            case = prepare_mass_flow_case(config, {'A': .01, 'B': .02}, case_id='inlet-lifetime')
+        else:
+            case = prepare_fixed_mass_flow_case(config, mass_flow_A_kg_s=.01,
+                                               mass_flow_B_kg_s=.02, case_id='inlet-lifetime')
+        assert current_warnings() is records
     assert len(owners) == 1 and not owners[0].owner
+    assert case.metadata['provenance']['code']['package_version']
     assert np.all(np.isfinite(case.design_fields['eps_arr']))
     assert not case.design_fields['eps_arr'].flags.writeable
