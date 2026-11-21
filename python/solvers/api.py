@@ -57,7 +57,8 @@ def run_case(case: CaseData, control: RunControl = RunControl(), *,
     elif mode != 'full':
         raise ValueError(f'unsupported solver mode: {mode}')
     elif dimension == 2:
-        from sjtu_tpmshx.cpp_interface.solver_library.full_2d import run_case as run
+        from sjtu_tpmshx.cpp_interface.full_2d_stage import run_case as run_2d
+        run = partial(run_2d, direct_run=_run_retained_2d)
     elif dimension == 3:
         from sjtu_tpmshx.cpp_interface.full_3d_stage import run_case as run_3d
         run = partial(run_3d, retained_run=_run_retained_3d)
@@ -89,6 +90,11 @@ def run_case(case: CaseData, control: RunControl = RunControl(), *,
             metadata['applicability_evidence'] = capture_applicability(case, result, records)
         metadata.pop('_last_closure_ranges', None)
     return replace(result, metadata=metadata)
+
+
+def _run_retained_2d(*args):
+    from sjtu_tpmshx.cpp_interface.solver_library.full_2d import _run_direct
+    return _run_direct(*args)
 
 
 def _run_retained_3d(*args, **kwargs):

@@ -189,6 +189,8 @@ GUI resume loads the checkpoint, case, and run record once. It passes the same s
 The result survives preparation and run release. Python full 3D runs use its saved-input lifecycle.
 `full_3d_stage.py` reads the current saved grid, design arrays, ports and axis maps from CaseData.
 It borrows the aligned fields and sends a typed request to the stage. The native stage resolves the defaults.
+Unset outer, SIMPLE, bootstrap and convergence values stay unset in this request.
+The 2D and 3D preparation adapters use the same decoder for native D-F application evidence.
 The raw and retained bindings share array packing and result decoding.
 The retained bindings use their own execution and result queries.
 Native capture supplies heat-source sums, pressure clip counts, Nu statistics, cell counts and optional audit outlet weights.
@@ -201,6 +203,8 @@ Preparation evidence remains borrowed until result transfer or run release.
 Its scalar capture query reuses static result arithmetic and separate saved application properties.
 The existing raw result remains the owner of fields, histories and numerical ledgers.
 2D Python runs use the same native lifecycle through the selected library's complete saved-input interface.
+The public 2D entry imports the direct driver only for a library that needs it.
+Saved stages use the native convergence tolerances when the caller leaves them unset.
 `full_2d_stage.py` borrows saved CaseData and binds runs, snapshots, and result capture. The native stage validates flow grids, openings, design fields, and model references.
 It does not prepare saved cases again. Missing ranges, uncaptured samples, uniform local drag and optional thermal geometry stay distinct.
 Saved descriptor v2 adds nominal side geometry and accepts discrete and sigmoid fields without changing the v1 layout.
@@ -208,7 +212,8 @@ The descriptor and its nested storage remain borrowed through result transfer or
 Python selects complete saved v2 first, then v1 for symmetric uniform or continuous inputs.
 Archived libraries without the applicable saved protocol retain their existing interfaces.
 Missing new-protocol symbols and execution failures are errors. They do not start another run through the old route.
-The single `FieldResult` assembler is in `full_2d_capture.py`. It preserves warning and application-property check order.
+`full_2d_stage.py` assembles the 2D `FieldResult` and preserves warning and application-property check order.
+The retained direct driver supplies its field views through `solver_library/full_2d_capture.py`.
 The installed C ABI and `stages.hpp` support external C++ callers.
 Quick Design preparation v2 accepts typed raw operating points.
 `quick_design_prepare_v2.cpp` owns the complete numerical sequence, including geometry, grids, inlet properties and analytical D-F pressure fractions.
@@ -830,7 +835,7 @@ Temperature is not scaled. FullCC nonzero sources stay
   `prepared_models.py` owns shared resource-role, fluid, Nu-setting and topology checks.
   Each builder keeps its check order and dimension-specific grid, port and design validation.
   Callers can request writable design copies; the binding borrows immutable arrays through the same checks.
-  `python/cpp_interface/solver_library/full_2d_capture.py` captures portable native 2D evidence. Numerical drivers remain in C++.
+  `python/cpp_interface/full_2d_stage.py` captures portable native 2D evidence. Numerical drivers remain in C++.
 - `applications/gui/ui/` owns PySide6 and PyVista presentation only. `ResultCache` owns one published `ComputeResult` for the accepted dimension.
   Both dimensions publish separate scalar, metadata, diagnostic and warning containers while sharing field arrays.
   The footer, history, diagnostic text, plots and exports read this result. Display timing is added to its metadata after publication.

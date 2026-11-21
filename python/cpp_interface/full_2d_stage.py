@@ -2,7 +2,6 @@
 import ctypes as ct
 from copy import deepcopy
 from dataclasses import replace
-from types import SimpleNamespace
 from uuid import uuid4
 
 import numpy as np
@@ -290,7 +289,7 @@ def saved_inputs(case, shape):
     return cfg, dict(energy_dx=case.grid['dx'], energy_dy=case.grid['dy'])
 
 
-def _request(cfg, configure_convergence):
+def _request(cfg):
     solver = cfg['compute_cfg'].solver
     request = _Request(3, ct.sizeof(_Request),
         _RequestV2(2, ct.sizeof(_RequestV2), _RequestV1(1, ct.sizeof(_RequestV1))))
@@ -300,11 +299,10 @@ def _request(cfg, configure_convergence):
         setattr(values, name, _Size(bool(value), value or 0))
     value = solver.outer_tol_K
     values.outer_tol_K = _Double(bool(value), value or 0.)
-    settings = SimpleNamespace()
-    configure_convergence(settings, cfg, solver)
-    values.convergence_mode = settings.convergence_mode.encode()
-    for name in ('mom_tol', 'mass_local_tol', 'mass_global_tol'):
-        setattr(values, name, _Double(1, getattr(settings, name)))
+    mode, tolerances = convergence_controls(cfg, solver)
+    values.convergence_mode = mode.encode()
+    for name, tolerance in tolerances.items():
+        setattr(values, name, _Double(1, tolerance))
     validate_simple_velocity_relaxation(solver.simple_velocity_relaxation)
     if solver.simple_velocity_relaxation is not None:
         values.simple_velocity_relaxation = _Double(1, solver.simple_velocity_relaxation)
@@ -369,7 +367,7 @@ def _scalars(summary):
         red_black=[bool(value) for value in summary.red_black])
 
 
-def run_stage(driver, case, cfg, prepared, control, *, configure_convergence, make_callbacks, saved_version=1,
+def run_stage(driver, case, cfg, prepared, control, *, saved_version=1,
               resume_state=None, checkpoint=None, checkpoint_due=None):
     """Keep preparation and result storage alive through late application capture."""
     library = driver.library
@@ -397,8 +395,8 @@ def run_stage(driver, case, cfg, prepared, control, *, configure_convergence, ma
         saved = _SavedV3(3, ct.sizeof(_SavedV3), saved, (_D * 2)(cfg['L'], cfg['H']), flow_grid)
         pack_saved_design(case, uniform, saved, keepalive)
         pack_saved_resources(case, uniform.values.models, uniform.sco2_nu, saved, cfg['compute_cfg'].sco2_nu, keepalive)
-    request, energy = _request(cfg, configure_convergence)
-    callbacks, errors = make_callbacks(control)
+    request, energy = _request(cfg)
+    callbacks, errors = _callbacks(control)
     stage_control = _Control(case.case_id.encode(), driver.table_directory, control.native_cpu_threads(), callbacks)
     execution_query = execution_view_query(library, 2, _StageResult, _ExecutionView)
     energy_query = version_query = None
@@ -1073,19 +1071,22 @@ class StageDriver:
         return out
 
 
-def configure_convergence(solver, cfg, solver_config=None):
-    """Apply captured environment > typed settings > cfg > shared defaults."""
+def convergence_controls(cfg, solver_config):
+    """Read the convergence mode and caller-supplied tolerances."""
     def knob(name, default):
         value = getattr(solver_config, name, None)
         if value is None:
             value = cfg.get(name)
         return default if value is None else value
 
-    solver.convergence_mode = require_f2_mode(run_environment(
+    mode = require_f2_mode(run_environment(
         cfg, 'TPMSHX_CONV_MODE', knob('convergence_mode', 'f2')))
-    solver.mom_tol = float(knob('mom_tol', 1e-4))
-    solver.mass_local_tol = float(knob('mass_local_tol', 1e-6))
-    solver.mass_global_tol = float(knob('mass_global_tol', 1e-6))
+    tolerances = {}
+    for name in ('mom_tol', 'mass_local_tol', 'mass_global_tol'):
+        value = knob(name, None)
+        if value is not None:
+            tolerances[name] = float(value)
+    return mode, tolerances
 
 
 def run_case(case, control=RunControl(), *, direct_run, resume_state=None, checkpoint=None, checkpoint_due=None):
@@ -1116,8 +1117,7 @@ def run_case(case, control=RunControl(), *, direct_run, resume_state=None, check
             break
     if saved_version:
         result = run_stage(driver, case, cfg, prepared, control, resume_state=resume_state,
-            checkpoint=checkpoint, checkpoint_due=checkpoint_due, saved_version=saved_version,
-            configure_convergence=configure_convergence, make_callbacks=_callbacks)
+            checkpoint=checkpoint, checkpoint_due=checkpoint_due, saved_version=saved_version)
     else:
         result = direct_run(case, cfg, prepared, control, resume_state, checkpoint, checkpoint_due)
     control.report_progress(100)

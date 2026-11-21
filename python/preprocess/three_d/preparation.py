@@ -144,38 +144,6 @@ def _axis_data(axes, widths, lengths):
         solver_to_real_perm=(p0, p1, p2))
 
 
-def _drag(side, config, name, continuous):
-    value, extra = side.drag_evidence, side.drag_selection
-    metadata = {key: common._summary(getattr(value, field)) for field, key in (
-        ('base_permeability', 'base_K'), ('base_forchheimer', 'base_cF'),
-        ('applied_permeability', 'applied_K'), ('applied_forchheimer', 'applied_cF'))}
-    metadata.update(scale_K=value.scale_permeability, scale_F=value.scale_forchheimer,
-                    campaign=native._text(value.campaign), scope=native._text(value.scope))
-    for field in ('application_scope', 'fluid'):
-        text = native._text(getattr(extra, field))
-        if text:
-            metadata[field] = text
-    if extra.calibration_count:
-        metadata['calibration'] = {native._text(item.key): native._text(item.value)
-                                   for item in extra.calibration[:extra.calibration_count]}
-    if extra.have_selection and extra.selection.scope:
-        metadata.update(inlet_u_mps=getattr(config, 'fluid_' + name).u_mps,
-                        extrapolated=bool(extra.selection.flags & 2))
-        for field, key in (('application_u', 'velocity_window_mps'),
-                          ('calibration_u', 'calibration_velocity_window_mps'),
-                          ('runtime_u', 'calibration_runtime_velocity_window_mps')):
-            values = getattr(extra.selection, field)
-            metadata[key] = {'min': values[0], 'max': values[1]}
-    if continuous is not None:
-        for field in ('transfer_policy', 'geometry_application'):
-            text = native._text(getattr(continuous, field))
-            if text:
-                metadata[field] = text
-        if continuous.have_reference_geometry:
-            metadata['reference_geometry_mm'] = dict(zip(('L', 't'), continuous.reference_geometry_mm))
-    return metadata
-
-
 def _parameters(config, uniform, context):
     geometry, solver = config.geometry, config.solver
     continuous = config.zones.enabled and config.zones.axis == 'continuous'
@@ -258,7 +226,8 @@ def _case(result, config, case_id, context):
         properties[side] = {key: getattr(current, name) for name, key in
                             (('rho', 'rho'), ('mu', 'mu'), ('cp', 'cp'), ('k_f', 'k'))}
         if current.have_drag_application:
-            drag[side] = _drag(current, config, side, result.drag[index] if continuous else None)
+            drag[side] = common.drag_application_metadata(current.drag_evidence, current.drag_selection,
+                params['u_' + side], result.drag[index] if continuous else None)
     params.update(thermal_geometry=thermal, df_application=drag or None,
         prepared=dict(Nx=shape[0], Ny=shape[1], Nz=shape[2],
             max_outer=None if config.solver.max_outer_ltne is None else int(config.solver.max_outer_ltne),

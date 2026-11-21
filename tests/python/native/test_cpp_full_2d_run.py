@@ -17,6 +17,7 @@ from sjtu_tpmshx.file_io.solver_checkpoint_io import (
 from sjtu_tpmshx.postprocess.api import evaluate
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.cpp_interface.solver_library.full_2d import run_case
+from sjtu_tpmshx.solvers.api import run_case as run_public_case
 from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
 from tests.python.native import test_cpp_full_2d as public
 from tests.python.native import test_cpp_full_3d as spatial
@@ -136,7 +137,7 @@ from sjtu_tpmshx.file_io.case_io import load_case
 from sjtu_tpmshx.file_io.result_io import save_result
 from sjtu_tpmshx.file_io.solver_checkpoint_io import (
     load_solver_checkpoint, save_solver_checkpoint, load_checkpoint_case)
-from sjtu_tpmshx.cpp_interface.solver_library.full_2d import run_case
+from sjtu_tpmshx.solvers.api import run_case
 mode, case_path, saved_path, result_path, library, tables = sys.argv[1:]
 control = RunControl(backend='cpp', native_library=library, native_table_directory=tables)
 if mode == 'interrupt':
@@ -149,12 +150,14 @@ if mode == 'interrupt':
     run_case(case, control, checkpoint=stop)
     raise RuntimeError('checkpoint boundary was not reached')
 saved = load_solver_checkpoint(saved_path)
-save_result(run_case(load_checkpoint_case(saved), control, resume_state=saved.native_state), result_path)
+result = run_case(load_checkpoint_case(saved), control, resume_state=saved.native_state)
+assert 'sjtu_tpmshx.cpp_interface.solver_library.full_2d' not in sys.modules
+save_result(result, result_path)
 """
 
 
 @pytest.mark.parametrize('route', ['temperature', 'model_h', 'true_h', 'temperature_sou'])
-def test_full_2d_checkpoint_continues_after_process_exit(driver, tmp_path, route):
+def test_full_2d_checkpoint_continues_after_process_exit(native_path, tmp_path, route):
     if route == 'model_h':
         config = configuration(mode='model_h', outer=3)
         config = replace(config, solver=replace(config.solver, model_h_max_iterations=17,
@@ -164,7 +167,8 @@ def test_full_2d_checkpoint_continues_after_process_exit(driver, tmp_path, route
         prepared = case(route)
     case_path = save_case(prepared, tmp_path/'case.h5')
     saved_path, result_path = tmp_path/'checkpoint.h5', tmp_path/'result.h5'
-    arguments = [str(case_path), str(saved_path), str(result_path), str(driver.path), driver.table_directory.decode()]
+    runtime = spatial.control(native_path)
+    arguments = [str(case_path), str(saved_path), str(result_path), str(native_path), runtime.native_table_directory]
     stopped = subprocess.run([sys.executable, '-c', CHILD, 'interrupt', *arguments],
                              cwd=ROOT, capture_output=True, text=True, timeout=120)
     assert stopped.returncode == 23, stopped.stderr
@@ -177,7 +181,7 @@ def test_full_2d_checkpoint_continues_after_process_exit(driver, tmp_path, route
     finished = subprocess.run([sys.executable, '-c', CHILD, 'resume', *arguments],
                               cwd=ROOT, capture_output=True, text=True, timeout=120)
     assert finished.returncode == 0, finished.stderr
-    actual, expected = load_result(result_path), run_case(prepared, control(driver))
+    actual, expected = load_result(result_path), run_public_case(prepared, runtime)
     compare_result(actual, expected)
     if route == 'model_h':
         assert actual.metadata['simple_velocity_relaxation'] == .35
