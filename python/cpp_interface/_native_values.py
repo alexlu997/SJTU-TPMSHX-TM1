@@ -1,9 +1,22 @@
 """Transport native scalar, array, and text values and apply the NumPy error policy."""
 import ctypes as ct
+import operator
 import sys
 import warnings
 
 import numpy as np
+
+
+def bounded_index(value, maximum, error, *, minimum=0):
+    value = operator.index(value)
+    if not minimum <= value <= maximum:
+        raise ValueError(error)
+    return value
+
+
+def iteration_count(value, *, zero=False):
+    return bounded_index(value, ct.c_size_t(-1).value, 'SIMPLE count is outside native size_t bounds',
+                         minimum=0 if zero else 1)
 
 
 def floating_events(events, *, stacklevel):

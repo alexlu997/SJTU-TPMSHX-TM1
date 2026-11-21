@@ -3,7 +3,6 @@
 No preparation, solver equations, convergence decisions or fallback live here.
 """
 import ctypes as ct
-import operator
 
 
 class _F2(ct.Structure):
@@ -59,10 +58,3 @@ class _Mass(ct.Structure):
     _fields_ = [*[(name, ct.c_double) for name in
         ('local_residual', 'mass_in', 'mass_out', 'global_residual', 'backflow_fraction')],
         ('counted_cells', ct.c_size_t)]
-
-
-def simple_count(value, *, zero=False):
-    value = operator.index(value)
-    if value < (0 if zero else 1) or value > ct.c_size_t(-1).value:
-        raise ValueError('SIMPLE count is outside native size_t bounds')
-    return value
