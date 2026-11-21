@@ -16,7 +16,7 @@ from sjtu_tpmshx.physical_models.df_surrogate.backend import resolve_method
 from . import _native_df, _native_flow, _native_geometry, _native_grid, _native_preparation, _native_properties
 from sjtu_tpmshx.physical_models import fluid_props as registry
 from sjtu_tpmshx.physical_models import co2_props, sco2_props, tpms_geometry
-from ._native_preparation_case import _Array, _GeometryCache, _Text
+from ._native_preparation_case import _Array, _GeometryCache, _Sample, _Text
 from ._native_preparation_case import _QuickInputV2 as _Input, _QuickPreparedV2 as _Prepared
 
 
@@ -60,6 +60,19 @@ class _Bindings:
         self.pressure = self.owner.bind('tpmshx_quick_pressure_fractions_v2',
             [*arguments, ct.POINTER(_Pressure), ct.POINTER(ct.c_char), _S])
         self.release = self.owner.bind('tpmshx_quick_prepared_release_v2', [ct.POINTER(_Prepared)], None)
+        self.range_query = getattr(self.owner.library, 'tpmshx_preparation_collect_range_v1', None)
+        if self.range_query is not None:
+            self.range_query.argtypes = [_Array, _D, _D, ct.POINTER(_Sample), ct.POINTER(ct.c_char), _S]
+            self.range_query.restype = ct.c_int
+
+    def collect_range(self, values, lower, upper):
+        storage = np.require(values, dtype=np.float64, requirements=['C', 'A'])
+        view = _Array(storage.ctypes.data_as(ct.POINTER(_D)), storage.size)
+        result, error = _Sample(), ct.create_string_buffer(2048)
+        status = self.range_query(view, lower, upper, ct.byref(result), error, len(error))
+        if status:
+            _native_flow._check_status(status, error)
+        return result
 
 
 @lru_cache(maxsize=1)
@@ -92,7 +105,7 @@ def _bind_pressure_options(compressible, options):
     return bound.arguments['method'], bound.arguments.get('strict', False)
 
 
-def _record_property_range(request, fluid, at, temperature):
+def _record_property_range(request, fluid, at, temperature, collect):
     if request.flags[2]:
         if not request.text.size:
             return
@@ -108,7 +121,8 @@ def _record_property_range(request, fluid, at, temperature):
         bounds = (tpms_props._WATER_T_RANGE if fluid else
                   tpms_props._AIR_CP_RANGE if at == 3 else tpms_props._AIR_T_RANGE)
     values = np.asarray(temperature, dtype=float)
-    if not values.size or record_range(('property', name), values, bounds, label=name, quantity='T', unit='K'):
+    if not values.size or record_range(('property', name), values, bounds,
+                                      label=name, quantity='T', unit='K', collect=collect):
         return
     from sjtu_tpmshx.physical_models.tpms_props import _range_notice
 
@@ -362,7 +376,7 @@ class _HostState:
         fluid, at = request.flags[0], request.index
         _raw_fluid, temperature, pressure = self.inlet
         if fluid < 2:
-            _record_property_range(request, fluid, at, temperature)
+            _record_property_range(request, fluid, at, temperature, self.collect_range)
             getter = _EMPIRICAL[fluid][at]
             self.property_shape, self.buffers, inputs = _native_properties._empirical_inputs(getter, temperature, pressure)
             for n, value in enumerate(inputs):
@@ -459,6 +473,7 @@ class _HostState:
 @contextmanager
 def _operation(state):
     bindings = _bindings(_native_preparation._library().path)
+    state.collect_range = bindings.collect_range if bindings.range_query is not None else None
     source = _Input(2, ct.sizeof(_Input))
     for n in range(13):
         source.values[n] = _Scalar(0., 64, 0)

@@ -466,14 +466,8 @@ struct Records {
                const std::string& layout,std::string label,const char* quantity,const char* unit,
                const std::array<double,2>& limits,const std::vector<double>& values,
                std::vector<std::size_t> shape) {
-        PreparationRangeSample sample;sample.size=values.size();
-        for (std::size_t i=0;i<values.size();++i) {
-            const auto value=values[i];
-            if (!std::isfinite(value)) {++sample.nonfinite;continue;}
-            if (!sample.have_finite || value<sample.minimum) {sample.minimum=value;sample.minimum_index=i;}
-            if (!sample.have_finite || value>sample.maximum) {sample.maximum=value;sample.maximum_index=i;}
-            sample.have_finite=true;sample.low+=value<limits[0]?1:0;sample.high+=value>limits[1]?1:0;
-        }
+        const auto sample=detail::collect_range<PreparationRangeSample>(values.size(),
+            [&](std::size_t index) {return values[index];},limits[0],limits[1]);
         collect(std::move(source),side,stage,layout,std::move(label),quantity,unit,limits,
                 std::move(shape),sample,false);
     }

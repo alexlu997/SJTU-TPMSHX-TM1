@@ -7,6 +7,23 @@
 
 namespace tpmshx::detail {
 
+// Keep the first position when several values share an extremum.
+template<class Sample,class Read>
+Sample collect_range(std::size_t size,Read read,double lower,double upper) {
+    Sample sample{};
+    sample.size=size;
+    for (std::size_t index=0;index<size;++index) {
+        const double value=read(index);
+        if (!std::isfinite(value)) {++sample.nonfinite;continue;}
+        if (!sample.have_finite || value<sample.minimum) {sample.minimum=value;sample.minimum_index=index;}
+        if (!sample.have_finite || value>sample.maximum) {sample.maximum=value;sample.maximum_index=index;}
+        sample.have_finite=true;
+        sample.low+=value<lower;
+        sample.high+=value>upper;
+    }
+    return sample;
+}
+
 // Keep the scalar sequence's extrema, first notices, and final observation.
 template<class Read>
 std::vector<std::size_t> scalar_range_samples(std::size_t size,Read read,double lower,double upper) {
