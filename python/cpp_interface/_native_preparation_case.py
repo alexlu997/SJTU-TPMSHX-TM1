@@ -1,8 +1,10 @@
-"""Transport owned 2D preparation data through the native C interface."""
+"""Bind full preparation operations and manage their native result owners."""
+from collections.abc import Callable
 from contextlib import contextmanager
 import ctypes as ct
 import dis
 from functools import lru_cache, partial
+from typing import NamedTuple
 import warnings
 
 import numpy as np
@@ -228,21 +230,50 @@ _InletQueryResult = _struct('InletQueryResult', [('abi_version', _U), ('struct_s
     ('values', _PropertyScalar * 12)])
 
 
+class _Operation(NamedTuple):
+    call: Callable[..., int]
+    result_type: type
+    version: int
+
+
 class _Bindings:
-    def __init__(self, path):
+    def __init__(self, path, *, volume=False):
         self.owner = _native_preparation._load_library(path)
         self.operations = {}
         self.releases = {}
+        self.grid_arguments = [] if volume else [ct.POINTER(_GridKinds)]
+        if volume:
+            self._bind_volume()
+        else:
+            self._bind_plane()
+
+    def _add(self, key, symbol, source, result, version):
+        call = self.owner.bind(symbol, [ct.POINTER(source), *self.grid_arguments,
+            ct.POINTER(_Options), ct.POINTER(_Callbacks), ct.POINTER(result),
+            ct.POINTER(_Failure), ct.POINTER(ct.c_char), _S])
+        self.operations[key] = _Operation(call, result, version)
+
+    def _bind_volume(self):
+        from . import _native_preparation_3d as layout
+        version = self.owner.bind('tpmshx_preparation_host_3d_abi_version_v5', [], _U)()
+        if version != 5:
+            raise ValueError(f'unsupported native 3D preparation host ABI {version}; expected 5')
+        for version, source, flow, full, prefix in layout.FAMILIES:
+            for name in ('prepare_inlet_mass_capacities', 'resolve_inlet_flow', 'prepare_flow_case'):
+                result = full if name == 'prepare_flow_case' else flow
+                self._add((version, name), f'tpmshx_{name}_3d_v{version}', source, result, version)
+            for result, suffix in ((flow, 'flow'), (full, 'case')):
+                self.releases[result] = self.owner.bind(
+                    f'tpmshx_preparation_{prefix}_{suffix}_3d_release_v{version}', [ct.POINTER(result)], None)
+
+    def _bind_plane(self):
         for version, source, flow, full, prefix in (
                 (3, _FlowInput, _Flow, _FlowCase, 'flow'),
                 (4, _ContinuousInput, _ContinuousFlow, _ContinuousCase, 'continuous')):
             for name in ('prepare_inlet_mass_capacities', 'resolve_inlet_flow', 'prepare_flow_case'):
                 result = full if name == 'prepare_flow_case' else flow
                 entry = name if version == 3 else name.replace('_', '_continuous_', 1)
-                self.operations[version, name] = self.owner.bind(
-                    f'tpmshx_{entry}_2d_v7',
-                    [ct.POINTER(source), ct.POINTER(_GridKinds), ct.POINTER(_Options), ct.POINTER(_Callbacks),
-                     ct.POINTER(result), ct.POINTER(_Failure), ct.POINTER(ct.c_char), _S])
+                self._add((version, name), f'tpmshx_{entry}_2d_v7', source, result, version)
             for result, suffix in ((flow, 'flow' if version == 4 else ''), (full, 'case')):
                 middle = '_'.join(value for value in (prefix, suffix) if value)
                 self.releases[result] = self.owner.bind(
@@ -255,10 +286,7 @@ class _Bindings:
             for name in ('prepare_inlet_mass_capacities', 'resolve_inlet_flow', 'prepare_flow_case'):
                 result = full if name == 'prepare_flow_case' else flow
                 entry = name.replace('_', '_' + prefix + '_', 1)
-                self.operations[source, name] = self.owner.bind(
-                    f'tpmshx_{entry}_2d_v9',
-                    [ct.POINTER(source), ct.POINTER(_GridKinds), ct.POINTER(_Options), ct.POINTER(_Callbacks),
-                     ct.POINTER(result), ct.POINTER(_Failure), ct.POINTER(ct.c_char), _S])
+                self._add((source, name), f'tpmshx_{entry}_2d_v9', source, result, 9)
             for result, suffix in ((flow, 'flow'), (full, 'flow_case')):
                 self.releases[result] = self.owner.bind(
                     f'tpmshx_preparation_{prefix}_{suffix}_2d_release_v9', [ct.POINTER(result)], None)
@@ -277,10 +305,7 @@ class _Bindings:
                 result = full if name == 'prepare_flow_case' else (
                     _ZonedHostFlow if source is _ZonedHostInput else _SigmoidHostFlow)
                 entry = name.replace('_', '_' + prefix, 1) if prefix else name
-                self.operations[10, source, name] = self.owner.bind(
-                    f'tpmshx_{entry}_2d_v10',
-                    [ct.POINTER(source), ct.POINTER(_GridKinds), ct.POINTER(_Options), ct.POINTER(_Callbacks),
-                     ct.POINTER(result), ct.POINTER(_Failure), ct.POINTER(ct.c_char), _S])
+                self._add((10, source, name), f'tpmshx_{entry}_2d_v10', source, result, 10 if name == 'prepare_flow_case' else 9)
             self.releases[full] = self.owner.bind(
                 f'tpmshx_preparation_{prefix}flow_case_2d_release_v10', [ct.POINTER(full)], None)
 
@@ -292,10 +317,7 @@ class _Bindings:
             for source, result, prefix in (
                     (_ContinuousInput, _ContinuousGeometryCase, 'continuous'),
                     (_ZonedHostInput, _StripeGeometryCase, 'stripe')):
-                self.operations[11, source, 'prepare_flow_case'] = self.owner.bind(
-                    f'tpmshx_prepare_{prefix}_flow_case_2d_v11',
-                    [ct.POINTER(source), ct.POINTER(_GridKinds), ct.POINTER(_Options), ct.POINTER(_Callbacks),
-                     ct.POINTER(result), ct.POINTER(_Failure), ct.POINTER(ct.c_char), _S])
+                self._add((11, source, 'prepare_flow_case'), f'tpmshx_prepare_{prefix}_flow_case_2d_v11', source, result, 11)
                 self.releases[result] = self.owner.bind(
                     f'tpmshx_preparation_{prefix}_flow_case_2d_release_v11', [ct.POINTER(result)], None)
 
@@ -536,42 +558,46 @@ def _callback_bridge(validate_host_input, geometry_cache=None, inlet_cache=None,
     return callbacks, descriptor, callback_errors
 
 
-@contextmanager
 def operation(name, source, options, validate_host_input, geometry_cache=None, inlet_cache=None,
               observe_range=None, observe_notice=None, nominal_grid_warning=None, *,
               geometry_cache_at=None, inlet_cache_at=None, sigmoid_lut_cache=None, offset_scope=False):
-    """Keep the complete owner alive until the caller copies all required data."""
     version = source.abi_version
-    result_type = ((_ContinuousCase if name == 'prepare_flow_case' else _ContinuousFlow)
-                   if version == 4 else (_FlowCase if name == 'prepare_flow_case' else _Flow))
-    if version == 9:
-        result_type = ((_SigmoidHostCase if name == 'prepare_flow_case' else _SigmoidHostFlow)
-                       if isinstance(source, _SigmoidHostInput) else
-                       (_ZonedHostCase if name == 'prepare_flow_case' else _ZonedHostFlow))
-    operation_key = (type(source) if version == 9 else version, name)
+    key = (type(source) if version == 9 else version, name)
     if offset_scope and version != 4 and (version == 9 or name == 'prepare_flow_case'):
-        operation_key = (10, type(source), name)
-        if name == 'prepare_flow_case':
-            result_type = (_OffsetSigmoidCase if isinstance(source, _SigmoidHostInput) else
-                           _OffsetZonedCase if isinstance(source, _ZonedHostInput) else _OffsetFlowCase)
-            version = 10
+        key = (10, type(source), name)
     bindings = _bindings(_native_preparation._library().path)
     geometry_key = (11, type(source), name)
-    if geometry_key in bindings.operations:
-        if result_type is _ContinuousCase:
-            operation_key, result_type, version = geometry_key, _ContinuousGeometryCase, 11
-        elif result_type is _OffsetZonedCase and source.values.values.kind == 0:
-            operation_key, result_type, version = geometry_key, _StripeGeometryCase, 11
-    result = result_type(version, ct.sizeof(result_type))
-    failure, error = _Failure(2, ct.sizeof(_Failure)), ct.create_string_buffer(4096)
-    callbacks, descriptor, callback_errors = _callback_bridge(
-        validate_host_input, geometry_cache, inlet_cache, observe_range, observe_notice,
+    if geometry_key in bindings.operations and (
+            version == 4 or key[0] == 10 and source.values.values.kind == 0):
+        key = geometry_key
+    bridge = _callback_bridge(validate_host_input, geometry_cache, inlet_cache, observe_range, observe_notice,
         nominal_grid_warning, geometry_cache_at=geometry_cache_at, inlet_cache_at=inlet_cache_at,
         sigmoid_lut_cache=sigmoid_lut_cache)
+    return _owned_result(bindings, key, (source, source._grid_kinds), options, bridge)
+
+
+@lru_cache(maxsize=1)
+def _volume_bindings(path):
+    return _Bindings(path, volume=True)
+
+
+def volume_operation(name, source, options, validate_host_input, cache):
+    bindings = _volume_bindings(_native_preparation._library().path)
+    bridge = _callback_bridge(validate_host_input, observe_range=cache.observe_range, observe_notice=cache.observe_notice,
+                              geometry_cache_at=cache.geometry_at, inlet_cache_at=cache.inlet_at)
+    return _owned_result(bindings, (source.abi_version, name), (source,), options, bridge)
+
+
+@contextmanager
+def _owned_result(bindings, key, inputs, options, bridge):
+    """Keep the callbacks and borrowed arrays alive until the consumer finishes."""
+    call, result_type, version = bindings.operations[key]
+    result = result_type(version, ct.sizeof(result_type))
+    failure, error = _Failure(2, ct.sizeof(_Failure)), ct.create_string_buffer(4096)
+    callbacks, descriptor, callback_errors = bridge
     try:
-        status = bindings.operations[operation_key](
-            ct.byref(source), ct.byref(source._grid_kinds), ct.byref(options), ct.byref(descriptor), ct.byref(result),
-            ct.byref(failure), error, len(error))
+        status = call(*map(ct.byref, inputs), ct.byref(options), ct.byref(descriptor),
+                      ct.byref(result), ct.byref(failure), error, len(error))
         if callback_errors:
             raise callback_errors[0]
         _check_status(status, error, failure)

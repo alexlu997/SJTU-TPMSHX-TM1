@@ -304,7 +304,7 @@ def _execute(config, action, *, targets=None, case_id=None, start_observations=N
         else:
             raise RuntimeError(f'unknown 3D preparation host stage {stage}')
 
-    with three.operation(action, source, options, host_input, cache) as result:
+    with native.volume_operation(action, source, options, host_input, cache) as result:
         flow = result.flow
         if action == 'prepare_inlet_mass_capacities':
             return {side: restore_buffer_scalar(flow.capacities[index]) for index, side in enumerate('AB')}
