@@ -26,6 +26,7 @@ static tpmshx_quick_pressure_v2 pressure(void) {
 }
 struct context {
     size_t widths,properties,pressures;uint32_t stop;void* alias;
+    double typed_conductivity,typed_wall;
     uint32_t populated;tpmshx_preparation_geometry_cache_v3 geometry;
     uint32_t use_eos,eos_have[4];double eos_values[4][5];size_t eos_sizes[4];
     size_t eos_lookups,eos_hits,eos_stores,eos_bad_size;void* eos_alias;
@@ -42,6 +43,18 @@ static int TPMSHX_PREPARATION_CALL cached_geometry(void* raw,uint32_t action,
 static int TPMSHX_PREPARATION_CALL observe(void* raw,tpmshx_quick_host_request_v2* request) {
     struct context* state=(struct context*)raw;
     if(request->operation==TPMSHX_QUICK_WIDTH_PACK)++state->widths;
+    if(request->operation==TPMSHX_QUICK_GEOMETRY_PACK && state->typed_wall) {
+        request->text=text("Gyroid");
+        request->scalars[1].value=state->typed_wall;
+        request->scalars[1].precision=16;request->scalars[1].strong=1;
+        request->scalars[0].strong=1;
+    }
+    if(request->operation==TPMSHX_QUICK_MATERIAL_PACK && state->typed_conductivity) {
+        request->text=text("Gyroid");
+        request->scalars[0].value=state->typed_conductivity;
+        request->scalars[0].precision=16;request->scalars[0].strong=1;
+        request->scalars[2].precision=64;request->scalars[2].strong=1;
+    }
     if(request->operation==TPMSHX_QUICK_PROPERTY_RESULT)++state->properties;
     if(request->operation==TPMSHX_QUICK_PRESSURE_RESULT)++state->pressures;
     if(request->operation==TPMSHX_QUICK_PROPERTY_PACK && request->flags[0]==0) {
@@ -113,12 +126,19 @@ int main(void) {
     {
         double conductivity,fraction;
         raw.topology=text("Gyroid");callbacks.geometry_cache=cached_geometry;full=prepared();
+        state.typed_conductivity=16.3;state.typed_wall=.5119;
         CHECK(tpmshx_prepare_quick_design_v2(&raw,&callbacks,&full,error,sizeof(error))==0);
         CHECK(state.populated);conductivity=full.solid_conductivity.data[0];fraction=full.fractions[0].value;
         tpmshx_quick_prepared_release_v2(&full);full=prepared();
+        state.typed_conductivity=16.296875; /* 16.3 rounded to binary16. */
+        CHECK(tpmshx_prepare_quick_design_v2(&raw,&callbacks,&full,error,sizeof(error))==0);
+        CHECK(full.solid_conductivity.data[0]==conductivity && full.fractions[0].value==fraction);
+        tpmshx_quick_prepared_release_v2(&full);full=prepared();
+        state.populated=0;state.typed_wall=.51171875; /* .5119 rounded to binary16. */
         CHECK(tpmshx_prepare_quick_design_v2(&raw,&callbacks,&full,error,sizeof(error))==0);
         CHECK(full.solid_conductivity.data[0]==conductivity && full.fractions[0].value==fraction);
         tpmshx_quick_prepared_release_v2(&full);callbacks.geometry_cache=0;raw=input();
+        state.typed_conductivity=0.;state.typed_wall=0.;
     }
 
     full=prepared();raw.arrangement=text("counter");raw.values[TPMSHX_QUICK_SPAN].precision=32;

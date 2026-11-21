@@ -5,12 +5,12 @@ physical-axis mapping, thermal coupling and final physical acceptance.
 Importing this module changes no production dispatch or fallback policy.
 """
 import ctypes as ct
-import operator
 from pathlib import Path
 
 import numpy as np
 
 from sjtu_tpmshx.run_control.cancellation import CancelledError
+from .._native_values import bounded_index
 from ._simple_abi import _Callbacks, _F2, _Mass, _Momentum, make_callbacks
 
 
@@ -41,10 +41,7 @@ _STOPS = ('ongoing', 'tol', 'stall', 'max_iter', 'nonfinite', 'cancelled', 'pres
 
 
 def _integer(value, maximum):
-    number = operator.index(value)
-    if number < 0 or number > maximum:
-        raise ValueError('native SIMPLE integer is outside its ABI range')
-    return number
+    return bounded_index(value, maximum, 'native SIMPLE integer is outside its ABI range')
 
 
 def _error(status, error):

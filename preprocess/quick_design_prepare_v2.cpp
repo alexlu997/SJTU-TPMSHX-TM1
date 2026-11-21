@@ -3,6 +3,7 @@
 #include "tpmshx/grid.hpp"
 #include "tpmshx/model_coefficients.hpp"
 #include "tpmshx/preparation_df.hpp"
+#include "tpmshx/preparation_df_data.hpp"
 #include "tpmshx/preparation_flow.hpp"
 #include "preparation_c_boundary.hpp"
 #include "preparation_properties.hpp"
@@ -13,6 +14,7 @@
 #include <cmath>
 #include <cstring>
 #include <memory>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -84,6 +86,8 @@ struct Engine {
     std::array<std::array<Scalar,2>,2> flow{};
     std::array<uint32_t,2> fluids{};
     uint32_t tp=0;
+    struct MaterialInput { double conductivity; uint32_t precision; };
+    std::optional<MaterialInput> material_input;
 
     Engine(const tpmshx_quick_input_v2& source,const tpmshx_quick_callbacks_v2* hooks,
            const void* output,size_t output_size,char* message,size_t capacity)
@@ -168,7 +172,18 @@ struct Engine {
             pack.scalars[0]=input.values[TPMSHX_QUICK_CELL];pack.scalars[1]=input.values[TPMSHX_QUICK_WALL];
             pack.flags[0]=tp;
             pack.flags[1]=pack.scalars[0].strong==1?pack.scalars[0].precision:64;
-            pack.flags[2]=g::result_precision(scalar(pack.scalars[1]),scalar(pack.scalars[0]));call(pack);
+            pack.flags[2]=g::result_precision(scalar(pack.scalars[1]),scalar(pack.scalars[0]));
+            pack.flags[3]=1;
+            call(pack);
+            if(pack.text.size) {
+                safe(pack.text.data,pack.text.size);
+                pack.flags[0]=topology(text(pack.text));
+                const auto cell=scalar(pack.scalars[0]),wall=scalar(pack.scalars[1]);
+                pack.scalars[0]=packed(cell);
+                pack.scalars[1]=packed(wall);
+                pack.flags[1]=g::result_precision(cell,g::weak(0.));
+                pack.flags[2]=g::result_precision(wall,cell);
+            }
             tp=pack.flags[0];if(tp>1)throw std::invalid_argument("invalid Quick geometry topology");
             const auto model=geo::calibration(static_cast<tpmshx::Topology>(tp));
             result.geometry=packed_geometry(geo::standard_geometry(index(tp),model,pack.scalars[0].value,
@@ -183,7 +198,22 @@ struct Engine {
         pack.geometry=&result.geometry;pack.flags[0]=tp;pack.flags[1]=final?1:input.have_chi;
         pack.scalars[0]=full?input.values[TPMSHX_QUICK_CONDUCTIVITY]:weak(data::quick_design_k_s);
         pack.scalars[1]=weak(final?1.:input.chi);pack.flags[2]=pack.scalars[0].strong==1?pack.scalars[0].precision:64;
-        call(pack);tp=pack.flags[0];if(tp>1)throw std::invalid_argument("invalid Quick material topology");
+        if(final && material_input) {
+            pack.scalars[0]=weak(material_input->conductivity);
+            pack.flags[2]=material_input->precision;
+        } else {
+            pack.flags[3]=1;
+            call(pack);
+            if(pack.text.size) {
+                safe(pack.text.data,pack.text.size);
+                pack.flags[0]=topology(text(pack.text));
+                const auto conductivity=scalar(pack.scalars[0]);
+                pack.scalars[0]=packed(conductivity);
+                pack.flags[2]=g::result_precision(scalar(pack.scalars[2]),conductivity);
+                material_input=MaterialInput{pack.scalars[0].value,pack.flags[2]};
+            }
+        }
+        tp=pack.flags[0];if(tp>1)throw std::invalid_argument("invalid Quick material topology");
         flag(pack.flags[1]);
         const auto model=geo::calibration(static_cast<tpmshx::Topology>(tp));
         const auto value=geo::solid_conductivity(model.solid_tortuosity,result.geometry.epsilon,pack.scalars[0].value,
@@ -209,13 +239,18 @@ struct Engine {
         observation.floating_events=output.events.data();observation.floating_event_count=output.events.size();call(observation);
     }
     void prepare_properties(uint32_t side) {
-        auto entry=request(TPMSHX_QUICK_PROPERTY_ENTRY,side);entry.text=input.fluids[side];call(entry);
+        auto entry=request(TPMSHX_QUICK_PROPERTY_ENTRY,side);
+        entry.text=input.fluids[side];
+        entry.flags[0]=1;
+        call(entry);
         fluids[side]=fluid(text(entry.text));
-        auto temperature=input.values[TPMSHX_QUICK_TEMPERATURE_A+side];
-        auto pressure=input.values[TPMSHX_QUICK_PRESSURE_A+side];
+        const bool scalar_inlet=fluids[side]<2 && entry.flags[1]==1;
+        auto temperature=scalar_inlet?entry.scalars[0]:input.values[TPMSHX_QUICK_TEMPERATURE_A+side];
+        auto pressure=scalar_inlet?entry.scalars[1]:input.values[TPMSHX_QUICK_PRESSURE_A+side];
         if(fluids[side]==1) {
             auto check=request(TPMSHX_QUICK_STATE_PACK,side,0);check.flags[0]=fluids[side];
-            check.property_inputs[0]=scalar_property(temperature);check.property_inputs[1]=scalar_property(pressure);call(check);
+            check.property_inputs[0]=scalar_property(temperature);check.property_inputs[1]=scalar_property(pressure);
+            if(!scalar_inlet)call(check);
             const auto first=property(check.property_inputs[0]),second=property(check.property_inputs[1]);
             property_call([&]{p::validate_water_pt(first.values,second.values);return 0;},side,0,0);
         }
@@ -275,8 +310,12 @@ struct Engine {
         for(uint32_t n=0;n<3;++n) {
             auto& value=properties[side][order[n]];
             pack.property_inputs[n]={value.values.data(),value.values.size(),packed(value.kind),value.kind.strong?1u:0u};
+            if(scalar_inlet && value.category) {
+                pack.categories[n]=value.category;
+                pack.imaginary_inputs[n]=value.imaginary.at(0);
+            }
         }
-        call(pack);
+        if(!scalar_inlet)call(pack);
         const auto mu=property(pack.property_inputs[0],pack.imaginary_inputs[0],pack.categories[0]);
         const auto cp=property(pack.property_inputs[1],pack.imaginary_inputs[1],pack.categories[1]);
         const auto k=property(pack.property_inputs[2],pack.imaginary_inputs[2],pack.categories[2]);
@@ -332,7 +371,12 @@ struct Engine {
     void run(bool full) {
         if(full)validate_full();
         prepare_geometry(full);
-        if(full){grid();notify(TPMSHX_QUICK_OPERATING_SNAPSHOT);}
+        if(full) {
+            grid();
+            auto operating=request(TPMSHX_QUICK_OPERATING_SNAPSHOT);
+            operating.text={p::df_data::method,sizeof(p::df_data::method)-1};
+            call(operating);
+        }
         pressure_fractions();
         if(!full)return;
         notify(TPMSHX_QUICK_CONFIG_SNAPSHOT);

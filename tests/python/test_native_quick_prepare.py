@@ -253,6 +253,25 @@ def test_property_floating_events_precede_the_later_unknown_fluid(pressure, poli
              pressure=pressure, policy=policy)
 
 
+def test_pressure_query_preserves_signaling_nan_cast_order():
+    pressure = np.uint32(0x7f800001).view(np.float32)
+    _compare(lambda: _args(case=_case(T_in_h=350., P_in_h=pressure, cold_fluid='unknown')),
+             pressure=True, policy='raise')
+
+
+def test_pressure_query_does_not_compare_custom_scalar_types():
+    class TemperatureType(type):
+        __hash__ = type.__hash__
+
+        def __eq__(cls, other):
+            raise TypeError('temperature types cannot be compared')
+
+    class Temperature(float, metaclass=TemperatureType):
+        pass
+
+    _value(_compare(lambda: _args(case=_case(T_in_h=Temperature(350.))), pressure=True))
+
+
 @pytest.mark.parametrize('side', ['hot', 'cold'])
 @pytest.mark.parametrize('pressure', [False, True])
 def test_water_state_failure_retains_both_side_order_and_records(side, pressure):

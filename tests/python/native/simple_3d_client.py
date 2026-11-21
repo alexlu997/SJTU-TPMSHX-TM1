@@ -10,8 +10,9 @@ from pathlib import Path
 import numpy as np
 
 from sjtu_tpmshx.run_control.cancellation import CancelledError
+from sjtu_tpmshx.cpp_interface._native_values import iteration_count
 from sjtu_tpmshx.cpp_interface.solver_library._simple_abi import (
-    _Callbacks, _F2, _Mass, make_callbacks, simple_count,
+    _Callbacks, _F2, _Mass, make_callbacks,
 )
 from sjtu_tpmshx.cpp_interface.solver_library.simple_3d import (
     _Config, _Pressure, _Result, _STOPS,
@@ -64,7 +65,7 @@ class NativeSimple3D:
         widths = [np.require(value, dtype=np.float64, requirements=['C', 'A']) for value in (dx, dy, dz)]
         if any(value.ndim != 1 or not value.size for value in widths):
             raise ValueError('SIMPLE grid widths must be nonempty one-dimensional arrays')
-        self.shape = tuple(simple_count(value.size) for value in widths)
+        self.shape = tuple(iteration_count(value.size) for value in widths)
         opening = np.asarray(outlet_open)
         if opening.dtype not in (np.dtype(bool), np.dtype('uint8')) or opening.shape != (self.shape[0], self.shape[2]):
             raise ValueError('SIMPLE outlet_open requires bool/uint8 shape (nx,nz)')
@@ -150,11 +151,11 @@ class NativeSimple3D:
             raise ValueError('SIMPLE flags must be bool or 0/1')
         if ordering not in ('natural', 'red_black'):
             raise ValueError('SIMPLE ordering must be natural or red_black')
-        config = _Config(simple_count(max_iter), simple_count(n_inner), simple_count(pressure_rebuild_every),
+        config = _Config(iteration_count(max_iter), iteration_count(n_inner), iteration_count(pressure_rebuild_every),
             alpha_u, alpha_p, alpha_rho, P_ref_abs, R_gas, pressure_diagonal_drift,
             *(int(value) for value in flags), int(ordering == 'red_black'),
             _F2(mom_tol, mass_local_tol, mass_global_tol, backflow_max, velocity_check_tol,
-                stall_ratio, simple_count(confirmations), simple_count(momentum_interval), simple_count(stall_window, zero=True)))
+                stall_ratio, iteration_count(confirmations), iteration_count(momentum_interval), iteration_count(stall_window, zero=True)))
         callbacks, callback_errors = make_callbacks(cancel_check, progress)
         pointers = (_DOUBLE*len(arrays))(*(value.ctypes.data_as(_DOUBLE) for value in arrays))
         sizes = (ct.c_size_t*len(arrays))(*(value.size for value in arrays))

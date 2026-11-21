@@ -780,6 +780,8 @@ Pass the input, prepared v2 fields and run control to `run_case(input, prepared,
 
 ### Fixed host operations
 
+For air and water, `PROPERTY_ENTRY` can offer scalar transport with `flags[0]=1`. The host sets `flags[1]=1` and supplies temperature and absolute pressure in `scalars[0..1]`. C++ uses the pair for the inlet checks, properties and Prandtl number. The host still observes each range and floating-point event.
+
 `tpmshx_quick_callbacks_v2` is optional for native typed input.
 Set `raw_objects=0` for native inputs and observations. Set it to 1 for the Python raw-object protocol, which requires a host callback.
 C++ selects every operation and numerical branch. A host operation can pack raw operands or perform its named object operation.
@@ -798,10 +800,10 @@ Fields described as observations are read-only. Other listed fields carry raw pa
 | `WARM_CHECK`, `LABEL_CHECK` | Do checks of the original warm objects and labels; no numerical output. |
 | `POSITIVE_SNAPSHOT`, `POSITIVE_CHECK` | Read inputs once in original order; `index` selects one of the 13 inputs, `flags[0]` returns its finite-positive result. |
 | `SHAPE_CHECK` | Do a check of warm-field shape; `flags[0]` returns the crossflow selection. Native constants supply the grid counts. |
-| `GEOMETRY_PACK` | Pack cell/wall in `scalars[0:2]`; `flags[0:3]` carry topology, cell precision and ratio precision. |
-| `MATERIAL_PACK` | Observe `geometry`; pack conductivity and chi in `scalars[0:2]`, topology/chi-present/precision in `flags[0:3]`. `index=1` selects final conductivity with chi=1. |
+| `GEOMETRY_PACK` | Pack cell length and wall thickness in `scalars[0:2]`. With `flags[3]=1`, the host can return the topology name in `text` and typed scalars. The stage then resolves both precisions. With empty text, `flags[0:3]` give topology, cell precision and ratio precision. |
+| `MATERIAL_PACK` | Pack conductivity and chi in `scalars[0:2]` and the chi presence flag in `flags[1]`. With `flags[3]=1`, the host can return the topology name in `text`, typed conductivity and the porosity type in `scalars[2]`. The stage reuses these values for the final material with chi=1. With empty text, the host supplies topology and precision in `flags[0]` and `flags[2]`, including at the final call (`index=1`). |
 | `WIDTH_PACK` | `index` selects x/y/z; pack raw length in `scalars[0]` and array precision in `flags[0]`. |
-| `OPERATING_SNAPSHOT` | Capture original operating values and resolved DF options; no numerical output. |
+| `OPERATING_SNAPSHOT` | Capture the operating values. `text` identifies the compiled D–F table. Check the requested method against this ID and save it with the case. Earlier libraries supply empty text and use host method selection. |
 | `PROPERTY_ENTRY` | Open the side's range scope; return the normalized fluid label in `text`. |
 | `STATE_PACK`, `PROPERTY_PACK` | Pack broadcast operands in `property_inputs`. `flags[0]` identifies the fluid; state `flags[1]` selects scalar EOS return shape. Property `index` selects the getter. |
 | Empirical `PROPERTY_PACK` range | When `flags[2]` is set, read the native label in `text` and temperature bounds in `scalars[0:2]`. Empty text means the property has no fitted range. A clear flag selects the earlier label mapping. The host obtains the sample through `tpmshx_preparation_collect_range_v1` in the selected preparation library. It keeps the original warning scope and operand conversion order. Earlier libraries use the existing result sampler if the preparation sampler is absent. |

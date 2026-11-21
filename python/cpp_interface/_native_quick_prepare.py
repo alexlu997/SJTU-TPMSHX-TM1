@@ -4,6 +4,7 @@ import ctypes as ct
 from dataclasses import asdict
 from functools import lru_cache
 import inspect
+import os
 import warnings
 
 import numpy as np
@@ -49,7 +50,12 @@ _NAMES = ('l', 't', 's', 'Lx', 'height', 'k_s', 'tol', 'mdot_h', 'mdot_c',
 _GEOMETRY = ('epsilon', 'epsilon_A', 'epsilon_B', 'A_0', 'D_h')
 _GEOMETRY_FIELDS = tuple(name for name, _ in _GeometryCache._fields_)
 _FLUIDS = ('air', 'water', 'sco2', 'co2')
+_FLOAT_SCALARS = (float, np.float16, np.float32, np.float64)
 _EMPIRICAL = ((2, 0, 1, 3), (4, 5, 6, 7))
+
+
+def _plain_float(value):
+    return any(type(value) is kind for kind in _FLOAT_SCALARS)
 
 
 class _Bindings:
@@ -217,6 +223,10 @@ class _HostState:
                     raise ValueError(f't_mm must be positive, got {self.t}')
                 if 2 * self.t >= self.l:
                     raise ValueError(f'Wall thickness t={self.t}mm >= L={self.l}mm, no pore space')
+            if request.flags[3] and type(self.topo) is str and _plain_float(self.l) and _plain_float(self.t):
+                request.text = borrow_text(self.topo, self.buffers)
+                request.scalars[0], request.scalars[1] = map(_native_grid._scalar, (self.l, self.t))
+                return
             request.flags[0] = _native_geometry._topology(self.topo)
             request.flags[1] = _native_geometry._floating_dtype(self.l, 0.).itemsize * 8
             request.flags[2] = _native_geometry._floating_dtype(self.t, self.l).itemsize * 8
@@ -224,8 +234,18 @@ class _HostState:
             request.scalars[1] = _Scalar(float(self.t), 64, 0)
         elif operation == 7:
             chi = 1. if at else _resolve_chi_s()
-            request.flags[0] = _native_geometry._topology(self.topo)
             conductivity = self.conductivity if self.full else _Parameters['k_s']
+            epsilon = self.geometry['epsilon']
+            if (request.flags[3] and type(self.topo) is str and self.topo in ('Diamond', 'Gyroid')
+                    and _plain_float(conductivity) and _plain_float(epsilon)):
+                request.text = borrow_text(self.topo, self.buffers)
+                request.flags[1] = chi is not None
+                request.scalars[0] = _native_grid._scalar(conductivity)
+                request.scalars[1] = _Scalar(0. if chi is None else chi, 64, 0)
+                request.scalars[2] = (_Scalar(0., 64, 0) if type(epsilon) is float
+                                      else _Scalar(0., epsilon.dtype.itemsize * 8, 1))
+                return
+            request.flags[0] = _native_geometry._topology(self.topo)
             request.flags[2] = _native_geometry._floating_dtype(self.geometry['epsilon'], conductivity).itemsize * 8
             request.scalars[0] = _Scalar(float(conductivity), 64, 0)
             have, value = _native_geometry._override(chi)
@@ -240,7 +260,14 @@ class _HostState:
         elif operation == 9:
             self.operating = {name: getattr(self.case, name) for name in
                 ('hot_fluid', 'cold_fluid', 'T_in_h', 'T_in_c', 'P_in_h', 'P_in_c', 'mdot_h', 'mdot_c')}
-            self.df_options = dict(method=resolve_method())
+            if request.text.size:
+                method = read_text(request.text)
+                selected = os.environ.get('TPMSHX_DF_METHOD', method).strip().lower()
+                if selected != method:
+                    raise ValueError(f'unknown DF method {selected!r}; valid: {(method,)}')
+            else:
+                method = resolve_method()
+            self.df_options = dict(method=method)
         elif operation == 10:
             self.enter(side)
             names = ('hot_fluid', 'T_in_h', 'P_in_h') if side == 0 else ('cold_fluid', 'T_in_c', 'P_in_c')
@@ -250,6 +277,14 @@ class _HostState:
             if name not in _FLUIDS:
                 name = registry.get(fluid).name
             request.text = borrow_text(name, self.buffers)
+            temperature, pressure = self.inlet[1:]
+            self.scalar_inlet = (request.flags[0] == 1 and name in ('air', 'water')
+                                 and all(_plain_float(value) and np.isfinite(value)
+                                         for value in (temperature, pressure)))
+            if self.scalar_inlet:
+                request.flags[1] = 1
+                request.scalars[0], request.scalars[1] = map(_native_flow._scalar, (temperature, pressure))
+                self.property_shape = ()
         elif operation == 11:
             self.state_pack(request)
         elif operation == 12:
@@ -362,6 +397,8 @@ class _HostState:
         _raw_fluid, temperature, pressure = self.inlet
         if fluid < 2:
             _record_property_range(request, fluid, at, temperature, self.collect_range)
+            if self.scalar_inlet:
+                return
             getter = _EMPIRICAL[fluid][at]
             self.property_shape, self.buffers, inputs = _native_properties._empirical_inputs(getter, temperature, pressure)
             for n, value in enumerate(inputs):
@@ -385,7 +422,8 @@ class _HostState:
 
     def property_result(self, request):
         events = [request.floating_events[n] for n in range(request.floating_event_count)]
-        _native_properties._floating_events(events)
+        if any(events):
+            _native_properties._floating_events(events)
         bits, strong = request.property_kind.precision, request.property_kind.strong
         values = copy_array(request.property_values, precision=bits, shape=self.property_shape)
         if request.property_category:
@@ -421,7 +459,8 @@ class _HostState:
 
     def pressure_result(self, request):
         air, output = request.flags[0], request.pressure.contents
-        _native_properties._floating_events(output.floating_events)
+        if any(output.floating_events):
+            _native_properties._floating_events(output.floating_events)
         self.pressures[request.side] = (self.pressure_inlet[3] if air and output.no_positive_outlet and not self.strict
             else _native_grid._restore(_Scalar(output.dP, output.precision, output.strong)))
         if air and output.no_positive_outlet:
@@ -433,7 +472,10 @@ class _HostState:
         _native_properties._floating_events(failure.fp.events[:failure.fp.event_count])
         phase = request.flags[1]
         if phase == 0 and request.status == 10:
-            values, pressures = self.state_temperatures, self.state_pressures
+            if self.scalar_inlet:
+                values, pressures = (np.asarray(value, dtype=float) for value in self.inlet[1:])
+            else:
+                values, pressures = self.state_temperatures, self.state_pressures
             if not values.size:
                 raise registry.WaterStateError('quick-design properties: water requires finite positive K and Pa(abs)') from None
             index = tuple(map(int, np.unravel_index(failure.index, values.shape)))
