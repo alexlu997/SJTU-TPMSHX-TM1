@@ -24,7 +24,7 @@ from sjtu_tpmshx.physical_models.df_surrogate import CFD_CAMPAIGN, CFD_SCOPE
 from sjtu_tpmshx.cpp_interface._native_result_stage import (Evidence, Input as Evaluation,
     detach_stage_fields, nu_observation, record, stage_closures, stage_ledger)
 from sjtu_tpmshx.cpp_interface._native_preparation_case import _Array as PreparedArray, _Evidence, _Text, _Kind, _Model, _Nu
-from .preparation_host import checked_mesh_shape, pack_saved_resources
+from .preparation_host import borrow_solver_mesh, pack_saved_resources
 from .solver_library._full_3d_abi import (_Array, _BootstrapTrace, _Callbacks, _Cancel, _Control, _EnergyEvidence,
     _FLAGS, _FLOW_ARRAYS, _Input, _OuterProgress, _PAIRS, _Progress, _Result)
 from .solver_library._stage_capture_abi import (
@@ -167,7 +167,7 @@ def run_case(case, control, *, retained_run, resume_state=None, checkpoint=None,
         validate_saved_axes(case)
         raise
     _, library, abi, table_directory = runtime
-    checked = checked_mesh_shape(case, library, 3)
+    checked = borrow_solver_mesh(case, library, 3)
     if checked is None:
         validate_saved_axes(case)
     saved_v2 = hasattr(library, 'tpmshx_stage_run_3d_create_saved_v2')
@@ -175,7 +175,7 @@ def run_case(case, control, *, retained_run, resume_state=None, checkpoint=None,
     if saved and saved_v2:
         query = execution_view_query(library, 3, _StageResult, _ExecutionView)
         if query is not None:
-            return run_saved(case, control, library, abi, table_directory, query, checked_shape=checked,
+            return run_saved(case, control, library, abi, table_directory, query, mesh=checked,
                 resume_state=resume_state, checkpoint=checkpoint, checkpoint_due=checkpoint_due)
     return retained_run(case, control, runtime, saved, saved_v2,
         resume_state=resume_state, checkpoint=checkpoint, checkpoint_due=checkpoint_due)
@@ -230,7 +230,7 @@ def validate_saved_case(case, checked_shape=None):
     return shape, cell_mm, wall_mm, nu
 
 
-def pack_input(cfg, prepared, grid, design, shape, cell_mm, nu, keepalive, *, saved_v2=False):
+def pack_input(cfg, prepared, grid, design, shape, cell_mm, nu, keepalive, *, saved_v2=False, mesh=None):
     """Borrow contiguous arrays. Convert only when the full solver layout requires it."""
     def view(value, expected=None):
         value = np.asarray(value, dtype=np.float64)
@@ -241,14 +241,19 @@ def pack_input(cfg, prepared, grid, design, shape, cell_mm, nu, keepalive, *, sa
         return _Array(value.ctypes.data_as(ct.POINTER(ct.c_double)), value.size)
     data = _Input()
     data.shape[:] = shape
-    data.widths[:] = [view(grid['d'+axis]) for axis in 'xyz']
+    data.widths[:] = ([view(grid['d'+axis]) for axis in 'xyz'] if mesh is None else
+                      [_Array(width.data, width.size) for width in mesh.solver_widths])
     for key, source in zip(('epsilon', 'epsilon_a', 'epsilon_b', 'permeability', 'forchheimer', 'solid_conductivity', 'cell_length'),
                            ('eps_arr', 'eps_A', 'eps_B', 'K_m2', 'cF_per_m', 'K_ss', 'L_field_m')):
         setattr(data, key, view(design[source], shape))
     thermal = cfg['thermal_geometry']
     spatial = bool(cfg.get('zone_grid_cells') or cfg.get('continuous_field'))
     geometry = thermal['fields' if spatial else 'uniform']
-    data.area_density, data.hydraulic_diameter = view(geometry['A_0'], shape), view(geometry['D_h'], shape)
+    if mesh is None or spatial != (thermal['fields'] is not None):
+        data.area_density, data.hydraulic_diameter = view(geometry['A_0'], shape), view(geometry['D_h'], shape)
+    else:
+        data.area_density = _Array(mesh.solver_area.data, mesh.solver_area.size)
+        data.hydraulic_diameter = _Array(mesh.solver_diameter.data, mesh.solver_diameter.size)
     data.reference_cell_length, data.reference_hydraulic_diameter = cell_mm*1e-3, prepared['geometry']['D_h']
     data.topology = TOPOLOGIES.index(cfg['tpms_type'])
     data.spatial, data.asymmetric, data.solve_b = spatial, cfg.get('delta_levelset', 0.) != 0., cfg.get('fluid_B_cfg') is not None
@@ -759,11 +764,11 @@ def _detach(r, shape, settings, energy_settings, entry_version, *, emit_audit=Fa
     return result
 
 
-def run_saved(case, control, library, abi, table_directory, execution_query, *, checked_shape=None,
+def run_saved(case, control, library, abi, table_directory, execution_query, *, mesh=None,
               resume_state=None, checkpoint=None, checkpoint_due=None):
     """Run the current saved case with the matched stage and execution view."""
     query_bootstrap = bootstrap_query(library)
-    shape, cell_mm, wall_mm, nu = validate_saved_case(case, checked_shape)
+    shape, cell_mm, wall_mm, nu = validate_saved_case(case, None if mesh is None else mesh.shape)
     cfg, prepared = case.parameters, case.parameters['prepared']
     control.check_cancelled()
     complete = getattr(library, 'tpmshx_run_saved_case_3d_v2', None)
@@ -778,7 +783,7 @@ def run_saved(case, control, library, abi, table_directory, execution_query, *, 
     validate_flow_options(cfg)
     keepalive = []
     data = pack_input(cfg, prepared, case.grid, case.design_fields, shape, cell_mm, nu,
-                      keepalive, saved_v2=True)
+                      keepalive, saved_v2=True, mesh=mesh)
     pack_run_controls(request, cfg, prepared, shape)
     callbacks, errors = make_callbacks(control)
     cpu_threads = control.native_cpu_threads()

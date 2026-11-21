@@ -24,6 +24,7 @@ typedef struct {
 typedef struct {
     size_t shape[3];
     tpmshx_full3d_array_v1 widths[3],epsilon,epsilon_a,epsilon_b,permeability,forchheimer;
+    /* Run handles also accept one area density and one hydraulic diameter for uniform geometry. */
     tpmshx_full3d_array_v1 solid_conductivity,cell_length,area_density,hydraulic_diameter;
     double reference_cell_length,reference_hydraulic_diameter;
     uint32_t topology,spatial,asymmetric,solve_b;

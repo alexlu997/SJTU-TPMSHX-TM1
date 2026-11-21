@@ -424,12 +424,17 @@ class _PreparedMesh(ct.Structure):
     _fields_ = [('dimension', ct.c_size_t), ('widths', StridedArray * 3), ('edges', StridedArray * 3)]
     _fields_ += [(name, ct.c_double) for name in ('area_density', 'hydraulic_diameter', 'porosity', 'split_a')]
     _fields_ += [('fields', StridedArray * 3), ('side_geometry', StridedArray * 2),
-                 ('axes', ct.POINTER(ct.c_int32) * 2)]
+                 ('axis_present', ct.c_uint32 * 2), ('axes', (ct.c_int32 * 6) * 2),
+                 ('solver_widths', abi._Array * 3), ('solver_area', abi._Array), ('solver_diameter', abi._Array)]
+
+    @property
+    def shape(self):
+        return tuple(width.size for width in self.solver_widths[:self.dimension])
 
 
-def checked_mesh_shape(case, library, dimension):
+def borrow_solver_mesh(case, library, dimension):
     """Borrow the prepared mesh. Other numeric layouts use the portable schema checks."""
-    check = getattr(library, 'tpmshx_stage_mesh_valid_v1', None)
+    check = getattr(library, 'tpmshx_stage_borrow_mesh_v1', None)
     if check is None:
         return None
     keepalive = []
@@ -446,7 +451,6 @@ def checked_mesh_shape(case, library, dimension):
                 or grid['length_unit'] != 'm' or tuple(grid['axis_order']) != axes):
             return None
         mesh = _PreparedMesh(dimension)
-        shape = tuple(len(grid['d' + axis]) for axis in axes)
         for i, axis in enumerate(axes):
             mesh.widths[i] = view(grid['d' + axis])
             mesh.edges[i] = view(grid[axis + '_edges'])
@@ -479,13 +483,15 @@ def checked_mesh_shape(case, library, dimension):
                            *mapping['solver_to_real_perm'])
                 if len(indices) != 6 or any(type(x) is not int or x not in (0, 1, 2) for x in indices):
                     return None
-                order = (ct.c_int32 * 6)(*indices)
-                keepalive.append(order)
-                mesh.axes[i] = order
+                mesh.axes[i][:] = indices
+                mesh.axis_present[i] = 1
     except (KeyError, IndexError, TypeError, ValueError, OverflowError, AttributeError):
         return None
     check.argtypes, check.restype = [ct.POINTER(_PreparedMesh)], ct.c_int
-    return shape if check(ct.byref(mesh)) else None
+    if check(ct.byref(mesh)):
+        mesh.storage = keepalive
+        return mesh
+    return None
 
 
 def pack_saved_resources(case, models, nu, saved, settings, keepalive):

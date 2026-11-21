@@ -298,17 +298,20 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_create_saved_v3(
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_restore_saved_v3(
     const tpmshx_stage_saved_case_2d_v3*,const tpmshx_stage_run_request_2d_v3*,
     const tpmshx_stage_run_control_v1*,const tpmshx_run_state_field_v1*,size_t,void**,char*,size_t);
-/* Borrow typed numeric arrays for a prepared physical mesh. Empty field
- * views select uniform geometry. Axis maps list cross, stream and cross axes
- * followed by their inverse. Only active 3D sides supply an axis map. */
+/* Produce borrowed solver views for an aligned double mesh. Keep this record
+ * and its inputs alive through the solve. On success, uniform thermal views
+ * have one value. Spatial views have one value per cell. A zero return leaves
+ * the outputs unused. Axis maps contain the physical axes and their inverse. */
 typedef struct {
     size_t dimension;
     tpmshx_result_array_v1 widths[3], edges[3];
     double area_density, hydraulic_diameter, porosity, split_a;
     tpmshx_result_array_v1 fields[3], side_geometry[2];
-    const int32_t* axes[2];
+    uint32_t axis_present[2];
+    int32_t axes[2][6];
+    tpmshx_preparation_array_v1 solver_widths[3], solver_area, solver_diameter;
 } tpmshx_stage_mesh_v1;
-TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_mesh_valid_v1(const tpmshx_stage_mesh_v1* mesh);
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_borrow_mesh_v1(tpmshx_stage_mesh_v1* mesh);
 /* Return one if both normalized windows fit the physical cross axis. */
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_port_windows_fit_2d_v1(
     double cross_length_m,double inlet_center_m,double inlet_width_m,double outlet_center_m,double outlet_width_m);

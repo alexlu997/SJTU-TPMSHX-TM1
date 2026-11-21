@@ -41,7 +41,7 @@ from sjtu_tpmshx.data_types.validator import compute_volumetric_htc
 from sjtu_tpmshx.run_control.run_warnings import current_warnings, merge_warnings, warning_messages, warning_scope
 from . import _native_flow
 from ._native_preparation_case import _ResultV1
-from .preparation_host import checked_mesh_shape, pack_saved_resources, borrow_ranges
+from .preparation_host import borrow_solver_mesh, pack_saved_resources, borrow_ranges
 from ._native_values import TOPOLOGIES, borrow_array, borrow_text
 from ._native_grid import _Scalar as GridScalar
 from .run_state import NativeRun
@@ -188,9 +188,13 @@ def prepare_stage(case, cfg, prepared, *, saved_flow_grid=None):
     values.input.geometry_mode = (0 if cfg['za'] is None else 1 if cfg['z_axis'] == 'continuous' else 2)
     values.input.delta_levelset = settings['geometry'].delta_levelset
     values.input.df_mode = ('cfd_smooth', 'experimental').index(settings['df_mode'])
-    values.nx, values.ny = len(prepared['energy_dx']), len(prepared['energy_dy'])
-    values.dx = borrow_array(prepared['energy_dx'], keepalive)
-    values.dy = borrow_array(prepared['energy_dy'], keepalive)
+    mesh = prepared.get('solver_mesh')
+    if mesh is None:
+        values.dx = borrow_array(prepared['energy_dx'], keepalive)
+        values.dy = borrow_array(prepared['energy_dy'], keepalive)
+    else:
+        values.dx, values.dy = mesh.solver_widths[:2]
+    values.nx, values.ny = values.dx.size, values.dy.size
     reference = _native_flow._scalar(case.parameters['L_cell_m'])
     values.cell_length_m = reference.value
     reference_kind = _Kind(reference.precision, reference.strong, int(bool(reference.strong)))
@@ -208,8 +212,11 @@ def prepare_stage(case, cfg, prepared, *, saved_flow_grid=None):
     diameter_kind = _Kind(diameter_values.precision, diameter_values.strong,
         2 if isinstance(selected_geometry['D_h'], np.ndarray) else int(bool(diameter_values.strong)))
     if geometry['fields'] is not None:
-        area = borrow_array(geometry['fields']['A_0'], keepalive)
-        diameter = borrow_array(diameter_storage, keepalive)
+        if mesh is None:
+            area = borrow_array(geometry['fields']['A_0'], keepalive)
+            diameter = borrow_array(diameter_storage, keepalive)
+        else:
+            area, diameter = mesh.solver_area, mesh.solver_diameter
     conductivity = (_Array(), _Array())
     cell_field_kind = _Kind(64, 1, 2)
     if values.input.geometry_mode:
@@ -1261,8 +1268,8 @@ def run_case(case, control=RunControl(), *, direct_run, resume_state=None, check
     except Exception:
         execution_grid(case)
         raise
-    checked = checked_mesh_shape(case, driver.library, 2)
-    shape = execution_grid(case, checked)
+    checked = borrow_solver_mesh(case, driver.library, 2)
+    shape = execution_grid(case, None if checked is None else checked.shape)
     check_experiment = getattr(driver.library, 'tpmshx_stage_run_2d_check_experiment_v4', None)
     v4 = [check_experiment is not None,
           *(hasattr(driver.library, f'tpmshx_stage_run_2d_{name}_saved_v4') for name in ('create', 'restore'))]
@@ -1275,6 +1282,7 @@ def run_case(case, control=RunControl(), *, direct_run, resume_state=None, check
             port_windows_fit.argtypes, port_windows_fit.restype = [ct.c_double] * 5, ct.c_int
         cfg, prepared, experiment = saved_inputs(case, shape, checked_geometry=checked is not None, check_experiment=check_experiment,
                                                 port_windows_fit=port_windows_fit)
+        prepared['solver_mesh'] = checked
     else:
         from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
         cfg, prepared = build_execution_inputs(case, copy_design=False)
