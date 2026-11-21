@@ -12,6 +12,6 @@ Start with the [2D air example](../examples/cpp/air_2d.cpp#L15-L17). It supplies
 
 **Where other runs branch**
 
-- **3D** uses the same three stages. Follow the [3D example](../examples/cpp/run_3d.cpp) into [Full3DRun::advance](full_3d.cpp#L1500).
+- **3D** uses the same three stages. Follow the [3D example](../examples/cpp/run_3d.cpp) into [Full3DRun::advance_step](full_3d.cpp#L1505).
 - **Quick Design** uses the [single-candidate example](../examples/cpp/quick_design.cpp) and the [Quick Design solver](quick_design_run.cpp), then evaluates the candidate result.
-- **Pause and resume** use [Full2DRun::snapshot](full_2d.cpp#L1320) to read the iteration state. The [resume example](../examples/cpp/resume_2d.cpp) shows native state recovery. The desktop application resumes a saved run through [resume_run](../python/applications/execution/recovery.py#L67).
+- **Pause and resume** use [Full2DRun::snapshot](full_2d.cpp#L1320) to read the iteration state. The [resume example](../examples/cpp/resume_2d.cpp) shows native state recovery. The desktop application resumes a saved run through [resume_loaded_run](../python/applications/execution/recovery.py#L78).

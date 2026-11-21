@@ -12,6 +12,6 @@
 
 **从哪里转入其他流程**
 
-- **三维**沿用三阶段调用。对照[三维算例](../examples/cpp/run_3d.cpp)与 [Full3DRun::advance](full_3d.cpp#L1500) 阅读三维推进过程。
+- **三维**沿用三阶段调用。对照[三维算例](../examples/cpp/run_3d.cpp)与 [Full3DRun::advance_step](full_3d.cpp#L1505) 阅读三维推进过程。
 - **快速设计**从[单候选算例](../examples/cpp/quick_design.cpp)进入独立的[快速设计求解](quick_design_run.cpp)，随后评估该候选的结果。
-- **暂停和续算**从 [Full2DRun::snapshot](full_2d.cpp#L1320) 读取迭代状态。[恢复算例](../examples/cpp/resume_2d.cpp)演示原生状态恢复。桌面应用从磁盘继续计算的入口是 [resume_run](../python/applications/execution/recovery.py#L67)。
+- **暂停和续算**从 [Full2DRun::snapshot](full_2d.cpp#L1320) 读取迭代状态。[恢复算例](../examples/cpp/resume_2d.cpp)演示原生状态恢复。桌面应用从磁盘继续计算的入口是 [resume_loaded_run](../python/applications/execution/recovery.py#L78)。
