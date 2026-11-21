@@ -780,6 +780,8 @@ Pass the input, prepared v2 fields and run control to `run_case(input, prepared,
 
 ### Fixed host operations
 
+For air and water, `PROPERTY_ENTRY` can offer scalar transport with `flags[0]=1`. The host sets `flags[1]=1` and supplies temperature and absolute pressure in `scalars[0..1]`. C++ uses the pair for the inlet checks, properties and Prandtl number. The host still observes each range and floating-point event.
+
 `tpmshx_quick_callbacks_v2` is optional for native typed input.
 Set `raw_objects=0` for native inputs and observations. Set it to 1 for the Python raw-object protocol, which requires a host callback.
 C++ selects every operation and numerical branch. A host operation can pack raw operands or perform its named object operation.

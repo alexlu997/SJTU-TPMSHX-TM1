@@ -209,13 +209,18 @@ struct Engine {
         observation.floating_events=output.events.data();observation.floating_event_count=output.events.size();call(observation);
     }
     void prepare_properties(uint32_t side) {
-        auto entry=request(TPMSHX_QUICK_PROPERTY_ENTRY,side);entry.text=input.fluids[side];call(entry);
+        auto entry=request(TPMSHX_QUICK_PROPERTY_ENTRY,side);
+        entry.text=input.fluids[side];
+        entry.flags[0]=1;
+        call(entry);
         fluids[side]=fluid(text(entry.text));
-        auto temperature=input.values[TPMSHX_QUICK_TEMPERATURE_A+side];
-        auto pressure=input.values[TPMSHX_QUICK_PRESSURE_A+side];
+        const bool scalar_inlet=fluids[side]<2 && entry.flags[1]==1;
+        auto temperature=scalar_inlet?entry.scalars[0]:input.values[TPMSHX_QUICK_TEMPERATURE_A+side];
+        auto pressure=scalar_inlet?entry.scalars[1]:input.values[TPMSHX_QUICK_PRESSURE_A+side];
         if(fluids[side]==1) {
             auto check=request(TPMSHX_QUICK_STATE_PACK,side,0);check.flags[0]=fluids[side];
-            check.property_inputs[0]=scalar_property(temperature);check.property_inputs[1]=scalar_property(pressure);call(check);
+            check.property_inputs[0]=scalar_property(temperature);check.property_inputs[1]=scalar_property(pressure);
+            if(!scalar_inlet)call(check);
             const auto first=property(check.property_inputs[0]),second=property(check.property_inputs[1]);
             property_call([&]{p::validate_water_pt(first.values,second.values);return 0;},side,0,0);
         }
@@ -275,8 +280,12 @@ struct Engine {
         for(uint32_t n=0;n<3;++n) {
             auto& value=properties[side][order[n]];
             pack.property_inputs[n]={value.values.data(),value.values.size(),packed(value.kind),value.kind.strong?1u:0u};
+            if(scalar_inlet && value.category) {
+                pack.categories[n]=value.category;
+                pack.imaginary_inputs[n]=value.imaginary.at(0);
+            }
         }
-        call(pack);
+        if(!scalar_inlet)call(pack);
         const auto mu=property(pack.property_inputs[0],pack.imaginary_inputs[0],pack.categories[0]);
         const auto cp=property(pack.property_inputs[1],pack.imaginary_inputs[1],pack.categories[1]);
         const auto k=property(pack.property_inputs[2],pack.imaginary_inputs[2],pack.categories[2]);
