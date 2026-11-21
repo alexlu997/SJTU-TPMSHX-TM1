@@ -947,7 +947,7 @@ def _query(result, query, metric_spec=None, metrics=None):
 
     try:
         packed.pack(result, query)
-        library = core._library()
+        library = core.result_library.get()
         owner = weakref.proxy(packed)
 
         @Events

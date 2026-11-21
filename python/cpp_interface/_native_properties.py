@@ -9,7 +9,7 @@ import warnings
 import numpy as np
 
 from ._native_grid import _Scalar, _scalar
-from ._native_preparation import _library
+from .stage_libraries import preparation_library
 
 
 _Size = ct.c_size_t
@@ -84,7 +84,7 @@ def _function(owner, name):
 
 
 def _call(name, *arguments):
-    owner = _library()
+    owner = preparation_library.get()
     failure, error = _Failure(), ct.create_string_buffer(4096)
     status = _function(owner, name)(*arguments, ct.byref(failure), error, len(error))
     if not status:

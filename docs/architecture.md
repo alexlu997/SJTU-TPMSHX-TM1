@@ -56,7 +56,7 @@ See [C++ scope and delivery records](cpp-migration.md#cpp-core-scope).
 
 The preparation target is `preprocess/`. It reuses the geometry/grid core and the shared `fluid_properties.cpp` numerical owner.
 It links the locked CoolProp static library, without full solvers, run_state, SuperLU or AMG.
-`python/cpp_interface/_native_preparation.py` loads the prebuilt library on demand. Concrete property, DF and flow adapters pack named inputs.
+`python/cpp_interface/stage_libraries.py` selects the preparation and result images independently. It loads each image on demand and checks its ABI. Concrete property, DF and flow adapters pack named inputs.
 Geometry ABI 1 and field ABI 2 retain their separate status contracts.
 Preparation ABI 1 uses status 1 for invalid inputs, 2 for allocation and 3 for runtime errors.
 Its state statuses are 10 for water, 11 for CO2 and 12 for sCO2.

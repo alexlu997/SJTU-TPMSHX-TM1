@@ -10,7 +10,8 @@ import warnings
 import numpy as np
 
 from ._native_values import TOPOLOGIES, DoubleArray as _Array, Text as _Text, borrow_text, read_text as _text
-from . import _native_flow, _native_preparation, _native_properties
+from . import _native_flow, _native_properties
+from .stage_libraries import preparation_library
 from ._native_df import _Pressure as _DFPressure
 from ._native_properties import _Failure as _PropertyFailure
 from sjtu_tpmshx.run_control.logutil import get_logger
@@ -238,7 +239,7 @@ class _Operation(NamedTuple):
 
 class _Bindings:
     def __init__(self, path, *, volume=False):
-        self.owner = _native_preparation._load_library(path)
+        self.owner = preparation_library.load(path)
         self.operations = {}
         self.releases = {}
         self.grid_arguments = [] if volume else [ct.POINTER(_GridKinds)]
@@ -565,7 +566,7 @@ def operation(name, source, options, validate_host_input, geometry_cache=None, i
     key = (type(source) if version == 9 else version, name)
     if offset_scope and version != 4 and (version == 9 or name == 'prepare_flow_case'):
         key = (10, type(source), name)
-    bindings = _bindings(_native_preparation._library().path)
+    bindings = _bindings(preparation_library.path())
     geometry_key = (11, type(source), name)
     if geometry_key in bindings.operations and (
             version == 4 or key[0] == 10 and source.values.values.kind == 0):
@@ -582,7 +583,7 @@ def _volume_bindings(path):
 
 
 def volume_operation(name, source, options, validate_host_input, cache):
-    bindings = _volume_bindings(_native_preparation._library().path)
+    bindings = _volume_bindings(preparation_library.path())
     bridge = _callback_bridge(validate_host_input, observe_range=cache.observe_range, observe_notice=cache.observe_notice,
                               geometry_cache_at=cache.geometry_at, inlet_cache_at=cache.inlet_at)
     return _owned_result(bindings, (source.abi_version, name), (source,), options, bridge)
@@ -608,7 +609,7 @@ def _owned_result(bindings, key, inputs, options, bridge):
 
 @lru_cache(maxsize=1)
 def _inlet_query_function(path):
-    owner = _native_preparation._load_library(path)
+    owner = preparation_library.load(path)
     return owner.bind('tpmshx_query_inlet_properties_v1', [
         ct.POINTER(_InletQueryInput), ct.POINTER(_CacheCallbacks),
         ct.POINTER(_InletQueryResult), ct.POINTER(_Failure), ct.POINTER(ct.c_char), _S])
@@ -725,7 +726,7 @@ def inlet_query(topology, cell, wall, velocity, temperature, pressure, fluid,
         validate, observe_range=observe, observe_notice=notice, query=True)
     result = _InletQueryResult(1, ct.sizeof(_InletQueryResult))
     failure, error = _Failure(2, ct.sizeof(_Failure)), ct.create_string_buffer(4096)
-    status = _inlet_query_function(_native_preparation._library().path)(
+    status = _inlet_query_function(preparation_library.path())(
         ct.byref(source), ct.byref(callbacks), ct.byref(result), ct.byref(failure), error, len(error))
     if callback_errors:
         raise callback_errors[0]

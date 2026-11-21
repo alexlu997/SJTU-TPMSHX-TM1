@@ -9,7 +9,9 @@ import pytest
 
 from tests.python.preparation_api_reference import prepare_case
 from sjtu_tpmshx.data_types.compute_config import ComputeConfig
-from sjtu_tpmshx.cpp_interface._native_preparation import _library_path
+from sjtu_tpmshx.cpp_interface.stage_libraries import preparation_library
+
+_library_path = preparation_library.path
 
 
 _U = ct.c_uint32

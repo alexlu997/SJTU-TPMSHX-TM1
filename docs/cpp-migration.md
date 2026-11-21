@@ -144,7 +144,7 @@ They reuse geometry/grid and the shared model implementation, including the lock
 This project builds no full solver or run_state and needs no SuperLU or AMG.
 The full build script builds the pilot and preparation projects separately. They share one property and DF numerical implementation.
 
-`python/cpp_interface/_native_preparation.py` loads preparation ABI 1 through ctypes when needed.
+`python/cpp_interface/stage_libraries.py` loads preparation ABI 1 and result ABI 2 independently through ctypes on demand.
 Named property, DF and flow adapters preserve the existing public Python interfaces.
 2D preparation uses the v7 domain/port scalar-kind descriptor with the applicable versioned payload.
 The shared grid and port cores retain mixed integer and narrow-float arithmetic.

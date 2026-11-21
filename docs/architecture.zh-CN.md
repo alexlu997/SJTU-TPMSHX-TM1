@@ -50,7 +50,7 @@ Python 选择 dtype 元数据并适配输出类型，不提供数值回退。
 
 准备目标位于 `preprocess/`，复用几何／网格核心及 `fluid_properties.cpp` 的共享数值所有者。
 它链接锁定的 CoolProp 静态库，不包含完整求解器、run_state、SuperLU 或 AMG。
-`python/cpp_interface/_native_preparation.py` 按需加载预构建库，由具名物性、DF 和流量适配器打包具体输入。
+`python/cpp_interface/stage_libraries.py` 分别选择准备库和结果库，首次调用时加载对应库并检查 ABI。物性、DF 和流量适配器分别打包各自的输入。
 几何 ABI 1 与 field ABI 2 保留各自错误协议。
 Preparation ABI 1 的状态 1 表示无效输入，2 表示分配失败，3 表示运行时错误；
 状态 10、11、12 分别表示水、CO2、sCO2 状态错误。

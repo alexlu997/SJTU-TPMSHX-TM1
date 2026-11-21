@@ -9,7 +9,7 @@ from tests.python import df_reference as old
 from sjtu_tpmshx.physical_models.df_surrogate import experimental_correction as correction
 from sjtu_tpmshx.physical_models.df_surrogate import predict
 from sjtu_tpmshx.cpp_interface import _native_df as native
-from sjtu_tpmshx.cpp_interface import _native_preparation
+from sjtu_tpmshx.cpp_interface.stage_libraries import preparation_library
 
 
 @pytest.mark.parametrize('topology', ['Diamond', 'Gyroid'])
@@ -190,7 +190,7 @@ def test_row_means_preserve_input_layout(layout):
 @pytest.mark.parametrize('api', ['project_rows', 'row_means'])
 @pytest.mark.parametrize('operand', [0, 1])
 def test_raw_reduction_layout_flags_are_checked_before_output(api, operand):
-    owner = ct.CDLL(_native_preparation._library().path)
+    owner = ct.CDLL(preparation_library.get().path)
     function = getattr(owner, f'tpmshx_preparation_df_{api}_v1')
     function.argtypes = [*native._SIGNATURES[api], *native._ERROR]
     function.restype = ct.c_int
@@ -214,7 +214,7 @@ def test_raw_reduction_layout_flags_are_checked_before_output(api, operand):
 
 
 def _raw_fixed():
-    library = ct.CDLL(_native_preparation._library().path)
+    library = ct.CDLL(preparation_library.get().path)
     function = library.tpmshx_preparation_df_fixed_v1
     function.argtypes = [*native._SIGNATURES['fixed'], *native._ERROR]
     function.restype = ct.c_int
@@ -288,7 +288,7 @@ def test_co2_drag_uses_one_fixed_factor(shape):
 
 
 def test_raw_pressure_error_keeps_numeric_result_atomic():
-    owner = ct.CDLL(_native_preparation._library().path)
+    owner = ct.CDLL(preparation_library.get().path)
     function = owner.tpmshx_preparation_df_incompressible_v1
     function.argtypes = [*native._SIGNATURES['incompressible'],*native._ERROR]
     function.restype = ct.c_int
@@ -305,7 +305,7 @@ def test_raw_pressure_error_keeps_numeric_result_atomic():
 
 
 def test_raw_pressure_error_storage_cannot_overlap_result():
-    owner = ct.CDLL(_native_preparation._library().path)
+    owner = ct.CDLL(preparation_library.get().path)
     function = owner.tpmshx_preparation_df_incompressible_v1
     function.argtypes = [*native._SIGNATURES['incompressible'],*native._ERROR]
     function.restype = ct.c_int
@@ -321,7 +321,7 @@ def test_raw_pressure_error_storage_cannot_overlap_result():
 
 
 def test_raw_pressure_failure_retains_prior_cast_events():
-    owner = ct.CDLL(_native_preparation._library().path)
+    owner = ct.CDLL(preparation_library.get().path)
     function = owner.tpmshx_preparation_df_incompressible_v1
     function.argtypes = [*native._SIGNATURES['incompressible'],*native._ERROR]
     function.restype = ct.c_int
@@ -339,7 +339,7 @@ def test_raw_pressure_failure_retains_prior_cast_events():
 
 @pytest.mark.parametrize('malformed',['null','misaligned','range','result-overlap','error-overlap'])
 def test_raw_pressure_failure_pod_preflight(malformed):
-    owner = ct.CDLL(_native_preparation._library().path)
+    owner = ct.CDLL(preparation_library.get().path)
     function = owner.tpmshx_preparation_df_incompressible_v1
     function.argtypes = [*native._SIGNATURES['incompressible'],*native._ERROR]
     function.restype = ct.c_int

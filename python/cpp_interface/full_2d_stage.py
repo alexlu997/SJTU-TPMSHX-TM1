@@ -591,7 +591,7 @@ def run_stage(driver, case, cfg, prepared, control, *, saved_version=1,
                 zone_summary = result_stage.zone_result
             elif hasattr(library, 'tpmshx_stage_run_2d_zone_temperatures_v1'):
                 zone_summary = partial(result_stage.zone_result, solver_library=library)
-            elif hasattr(result_stage.core._library().library, 'tpmshx_result_zone_temperatures_2d_v1'):
+            elif hasattr(result_stage.core.result_library.get().library, 'tpmshx_result_zone_temperatures_2d_v1'):
                 zone_summary = result_stage.zone_result
         field = capture_result(case, cfg, prepared, native, application_hv=application_hv,
                                zone_summary=zone_summary, stage_fields=stage_fields)

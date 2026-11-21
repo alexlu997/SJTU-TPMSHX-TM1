@@ -125,7 +125,7 @@ Python wheel 包含代码和模型资源，不包含原生库。
 不构建完整求解器或 run_state，也不需要 SuperLU 或 AMG。
 完整构建脚本分别构建 pilot 和 preparation 工程，共用一套物性和 DF 数值实现。
 
-`python/cpp_interface/_native_preparation.py` 在需要时通过 ctypes 加载 preparation ABI 1。
+`python/cpp_interface/stage_libraries.py` 通过 ctypes 分别按需加载准备库（ABI 1）和结果库（ABI 2）。
 具名物性、DF 和流量适配器保留现有 Python 公共接口。
 二维准备将 v7 域长／端口标量类型描述符与适用的版本载荷配合使用。
 共享网格和端口核心保留整数与窄浮点混合运算。
