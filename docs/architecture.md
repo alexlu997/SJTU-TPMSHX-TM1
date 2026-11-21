@@ -141,8 +141,9 @@ Preparation v10 adds the existing nonzero-delta uniform air/water and air/air sp
 It adds nominal thermal-side tuples and retains the existing asymmetric N128 geometry calculation and split fraction.
 Design fields and cell thermal geometry remain separate. Continuous fields, CO2/sCO2, experimental models and total mass flow keep their existing limits.
 Python uniform preparation uses v10; its capacity and flow-resolution queries retain v7 with v3 results.
-Canonical continuous XY entries retain v7 with v4 results. Air/air stripes, rectangles and sigmoid fields use v10 for all three operations.
-Earlier preparation layouts and scopes remain unchanged.
+Preparation v11 returns the design pore porosity for continuous XY fields and the A-side hydraulic radius for each stripe.
+The Python adapter copies these fields from the preparation library. Older preparation libraries use the geometry library for these fields.
+Continuous XY capacity and flow resolution use v7 with v4 results. Stripe queries, rectangles and sigmoid fields use v10.
 Public ZoneConfig and sigmoid combination queries retain standalone consumers until their separate migration passes.
 These public interfaces keep supplied properties and custom sigmoid controls.
 

@@ -202,6 +202,10 @@ _OffsetZonedCase = _struct('OffsetZonedCase', [('abi_version', _U), ('struct_siz
     ('values', _ZonedHostCase), ('thermal', _ThermalSides), ('owner', ct.c_void_p)])
 _OffsetSigmoidCase = _struct('OffsetSigmoidCase', [('abi_version', _U), ('struct_size', _S),
     ('values', _SigmoidHostCase), ('thermal', _ThermalSides), ('owner', ct.c_void_p)])
+_ContinuousGeometryCase = _struct('ContinuousGeometryCase', [('abi_version', _U), ('struct_size', _S),
+    ('values', _ContinuousCase), ('design_pore_porosity', _Array), ('owner', ct.c_void_p)])
+_StripeGeometryCase = _struct('StripeGeometryCase', [('abi_version', _U), ('struct_size', _S),
+    ('values', _OffsetZonedCase), ('region_hydraulic_radii_m', _Array), ('owner', ct.c_void_p)])
 _GeometryKey = _struct('GeometryKey', [('topology', _U), *_doubles('cell_length_mm wall_thickness_mm'),
     ('cell_kind', _Kind), ('wall_kind', _Kind)])
 _InletKey = _struct('InletKey', [('geometry', _GeometryKey), ('fluid', _U),
@@ -280,6 +284,21 @@ class _Bindings:
                      ct.POINTER(result), ct.POINTER(_Failure), ct.POINTER(ct.c_char), _S])
             self.releases[full] = self.owner.bind(
                 f'tpmshx_preparation_{prefix}flow_case_2d_release_v10', [ct.POINTER(full)], None)
+
+        entry = 'tpmshx_preparation_case_abi_version_v11'
+        if hasattr(self.owner.library, entry):
+            query = self.owner.bind(entry, [], _U)
+            if query() != 11:
+                raise RuntimeError('native preparation v11 ABI version is invalid')
+            for source, result, prefix in (
+                    (_ContinuousInput, _ContinuousGeometryCase, 'continuous'),
+                    (_ZonedHostInput, _StripeGeometryCase, 'stripe')):
+                self.operations[11, source, 'prepare_flow_case'] = self.owner.bind(
+                    f'tpmshx_prepare_{prefix}_flow_case_2d_v11',
+                    [ct.POINTER(source), ct.POINTER(_GridKinds), ct.POINTER(_Options), ct.POINTER(_Callbacks),
+                     ct.POINTER(result), ct.POINTER(_Failure), ct.POINTER(ct.c_char), _S])
+                self.releases[result] = self.owner.bind(
+                    f'tpmshx_preparation_{prefix}_flow_case_2d_release_v11', [ct.POINTER(result)], None)
 
 
 @lru_cache(maxsize=1)
@@ -547,9 +566,15 @@ def operation(name, source, options, validate_host_input, geometry_cache=None, i
             result_type = (_OffsetSigmoidCase if isinstance(source, _SigmoidHostInput) else
                            _OffsetZonedCase if isinstance(source, _ZonedHostInput) else _OffsetFlowCase)
             version = 10
+    bindings = _bindings(_native_preparation._library().path)
+    geometry_key = (11, type(source), name)
+    if geometry_key in bindings.operations:
+        if result_type is _ContinuousCase:
+            operation_key, result_type, version = geometry_key, _ContinuousGeometryCase, 11
+        elif result_type is _OffsetZonedCase and source.values.values.kind == 0:
+            operation_key, result_type, version = geometry_key, _StripeGeometryCase, 11
     result = result_type(version, ct.sizeof(result_type))
     failure, error = _Failure(2, ct.sizeof(_Failure)), ct.create_string_buffer(4096)
-    bindings = _bindings(_native_preparation._library().path)
     callbacks, descriptor, callback_errors = _callback_bridge(
         validate_host_input, geometry_cache, inlet_cache, observe_range, observe_notice,
         nominal_grid_warning, geometry_cache_at=geometry_cache_at, inlet_cache_at=inlet_cache_at,

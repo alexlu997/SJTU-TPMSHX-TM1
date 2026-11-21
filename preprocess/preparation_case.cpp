@@ -1107,7 +1107,8 @@ PreparedCase2D prepare_case(const CaseInput2D& input,const PreparationOptions& o
     if (input.continuous) {
         if (inlet_geometry) control_axes(input,records);
         local=inlet_geometry?inlet_geometry->local:std::optional<LocalGeometry2D>{local_geometry(input,output.grid,options,records)};
-        std::vector<double> epsilon_half(local->epsilon.size());
+        auto& epsilon_half=output.design_pore_porosity;
+        epsilon_half.resize(local->epsilon.size());
         for (std::size_t i=0;i<epsilon_half.size();++i) epsilon_half[i]=local->epsilon[i]*.5;
         for (std::size_t i=0;i<2;++i) {
             const auto conductivity=property(2,inlets[i],input.kinds.sides[i],"unbound","unbound",records);

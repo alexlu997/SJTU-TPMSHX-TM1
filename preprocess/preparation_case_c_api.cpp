@@ -286,6 +286,12 @@ struct FlowOutputStorage {
     void owned(const tpmshx_preparation_flow_case_2d_v10& value) const {owned(value.values);}
     void owned(const tpmshx_preparation_zoned_flow_case_2d_v10& value) const {owned(value.values);}
     void owned(const tpmshx_preparation_sigmoid_flow_case_2d_v10& value) const {owned(value.values);}
+    void owned(const tpmshx_preparation_continuous_case_2d_v11& value) const {
+        owned(value.values);borrowed(value.design_pore_porosity);
+    }
+    void owned(const tpmshx_preparation_stripe_flow_case_2d_v11& value) const {
+        owned(value.values);borrowed(value.region_hydraulic_radii_m);
+    }
     void owned(const tpmshx_preparation_case_input_3d_v1& value) const {
         for (const auto item:{value.sco2_nu.parameter_version,value.sco2_nu.source,value.sco2_nu.applicability}) borrowed(item);
     }
@@ -842,6 +848,7 @@ struct ZonedFlowOwner {
 struct ZonedFlowCaseOwner {
     ZonedOwner prepared;
     ZonedFlowOwner flow;
+    std::vector<double> region_hydraulic_radii_m;
     explicit ZonedFlowCaseOwner(p::PreparedZonedFlowCase2D result)
         :prepared(std::move(result.prepared)),flow(std::move(result.flow)) {}
 };
@@ -879,6 +886,14 @@ tpmshx_preparation_zoned_flow_case_2d_v9 zoned_flow_view(ZonedFlowCaseOwner& own
     output.design_pore_porosity=array(owner.prepared.value.design_pore_porosity);
     output.model=spatial_model(*owner.flow.input.spatial_model);output.owner=&owner;return output;
 }
+tpmshx_preparation_zoned_flow_case_2d_v10 offset_zoned_flow_view(
+    ZonedFlowCaseOwner& owner,const tpmshx_preparation_zoned_flow_input_2d_v9& source) {
+    tpmshx_preparation_zoned_flow_case_2d_v10 output{};
+    output.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V10;output.struct_size=sizeof(output);
+    output.values=zoned_flow_view(owner,source);output.values.owner=nullptr;
+    output.thermal=thermal_sides(owner.prepared.prepared.value);
+    return output;
+}
 tpmshx_preparation_sigmoid_flow_2d_v9 sigmoid_flow_view(ZonedFlowOwner& owner,const tpmshx_preparation_sigmoid_flow_input_2d_v9& source) {
     tpmshx_preparation_sigmoid_flow_2d_v9 output{};
     output.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V9;output.struct_size=sizeof(output);
@@ -900,6 +915,24 @@ tpmshx_preparation_continuous_controls_2d_v4 controls_view(const p::CaseInput2D&
     return {controls.nx,controls.ny,controls.order,controls.symmetric_y?1u:0u,
         {controls.cell_bounds_mm[0],controls.cell_bounds_mm[1]},
         {controls.wall_bounds_mm[0],controls.wall_bounds_mm[1]},array(controls.decision_mm)};
+}
+tpmshx_preparation_continuous_case_2d_v4 continuous_flow_case_view(
+    FlowCaseOwner& owner,const tpmshx_preparation_continuous_input_2d_v4& source) {
+    tpmshx_preparation_continuous_case_2d_v4 output{};
+    output.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V4;output.struct_size=sizeof(output);
+    const auto& prepared=owner.prepared.value;
+    output.prepared=view(owner.prepared,resolved_input(prepared.input,source.values.values));
+    output.prepared.values.owner=nullptr;output.flow=view(owner.flow,source.values.values);output.flow.owner=nullptr;
+    output.controls=controls_view(prepared.input);output.area_density_per_m=array(prepared.area_density);
+    output.hydraulic_diameter_m=array(prepared.hydraulic_diameter);
+    for (std::size_t i=0;i<2;++i) {
+        output.fluid_conductivity[i]=array(prepared.fluid_conductivity[i]);
+        const auto& evidence=prepared.sides[i].drag_evidence;auto& drag=output.drag[i];
+        drag.transfer_policy=text(evidence.transfer_policy);drag.geometry_application=text(evidence.geometry_application);
+        drag.have_reference_geometry=evidence.reference_geometry_mm?1u:0u;
+        if (evidence.reference_geometry_mm) std::copy_n(evidence.reference_geometry_mm->begin(),2,drag.reference_geometry_mm);
+    }
+    return output;
 }
 tpmshx_preparation_grid_kinds_2d_v7 weak_grid() {
     tpmshx_preparation_grid_kinds_2d_v7 output{};
@@ -926,6 +959,8 @@ template<class Source,class Result,class Function> int flow_boundary(
     constexpr bool offset_result=std::is_same_v<Result,tpmshx_preparation_flow_case_2d_v10>
         || std::is_same_v<Result,tpmshx_preparation_zoned_flow_case_2d_v10>
         || std::is_same_v<Result,tpmshx_preparation_sigmoid_flow_case_2d_v10>;
+    constexpr bool geometry_result=std::is_same_v<Result,tpmshx_preparation_continuous_case_2d_v11>
+        || std::is_same_v<Result,tpmshx_preparation_stripe_flow_case_2d_v11>;
     if (!tpmshx::fields::c_api::error_buffer_valid(error,capacity)) return TPMSHX_PREPARATION_INVALID;
     // Keep diagnostics separate from input and retained output storage.
     const auto* callback_data=reinterpret_cast<const unsigned char*>(callbacks);
@@ -1003,10 +1038,16 @@ template<class Source,class Result,class Function> int flow_boundary(
     try {
         if (grid->abi_version!=TPMSHX_PREPARATION_CASE_ABI_VERSION_V7 || grid->struct_size!=sizeof(*grid))
             throw std::invalid_argument("preparation grid v7 ABI version or struct size is invalid");
-        if constexpr (offset_result) version10(result);
+        if constexpr (geometry_result) {
+            require_buffer(result,1);
+            if (result->abi_version!=TPMSHX_PREPARATION_CASE_ABI_VERSION_V11 || result->struct_size!=sizeof(Result))
+                throw std::invalid_argument("preparation case v11 ABI version or struct size is invalid");
+        } else if constexpr (offset_result) version10(result);
         if constexpr (std::is_same_v<Source,tpmshx_preparation_zoned_flow_input_2d_v9>
             || std::is_same_v<Source,tpmshx_preparation_sigmoid_flow_input_2d_v9>) {
-            version9(source);if constexpr (!offset_result) version9(result);version8(&source->values);version5(&zone_source(*source));
+            version9(source);
+            if constexpr (!offset_result && !geometry_result) version9(result);
+            version8(&source->values);version5(&zone_source(*source));
             if constexpr (std::is_same_v<Source,tpmshx_preparation_sigmoid_flow_input_2d_v9>) version6(&source->values.values);
             if (callbacks) {
                 if (callbacks->abi_version==9) {
@@ -1035,8 +1076,10 @@ template<class Source,class Result,class Function> int flow_boundary(
             if constexpr (std::is_same_v<Source,tpmshx_preparation_continuous_input_2d_v4>) version4(source);
             else version3(source);
             const auto& flow=flow_source(*source);version3(&flow);version2(&flow.values);version(&flow.values.values);
-            if constexpr (std::is_same_v<Source,tpmshx_preparation_continuous_input_2d_v4>) version4(result);
-            else if constexpr (!offset_result) version3(result);
+            if constexpr (!geometry_result) {
+                if constexpr (std::is_same_v<Source,tpmshx_preparation_continuous_input_2d_v4>) version4(result);
+                else if constexpr (!offset_result) version3(result);
+            }
         }
         version2(failure);
         if(selected)version(selected);
@@ -1379,20 +1422,7 @@ extern "C" int TPMSHX_PREPARATION_CALL tpmshx_prepare_continuous_flow_case_2d_v7
     tpmshx_preparation_case_failure_v2* failure,char* error,size_t capacity) {
     return flow_boundary(source,grid,selected,callbacks,result,failure,error,capacity,[&](const auto& request,const auto& options,const auto& sink) {
         auto owner=std::make_unique<FlowCaseOwner>(p::prepare_flow_case_2d(request,options,sink));
-        tpmshx_preparation_continuous_case_2d_v4 output{};
-        output.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V4;output.struct_size=sizeof(output);
-        const auto& prepared=owner->prepared.value;
-        output.prepared=view(owner->prepared,resolved_input(prepared.input,source->values.values));
-        output.prepared.values.owner=nullptr;output.flow=view(owner->flow,source->values.values);output.flow.owner=nullptr;
-        output.controls=controls_view(prepared.input);output.area_density_per_m=array(prepared.area_density);
-        output.hydraulic_diameter_m=array(prepared.hydraulic_diameter);
-        for (std::size_t i=0;i<2;++i) {
-            output.fluid_conductivity[i]=array(prepared.fluid_conductivity[i]);
-            const auto& evidence=prepared.sides[i].drag_evidence;auto& drag=output.drag[i];
-            drag.transfer_policy=text(evidence.transfer_policy);drag.geometry_application=text(evidence.geometry_application);
-            drag.have_reference_geometry=evidence.reference_geometry_mm?1u:0u;
-            if (evidence.reference_geometry_mm) std::copy_n(evidence.reference_geometry_mm->begin(),2,drag.reference_geometry_mm);
-        }
+        auto output=continuous_flow_case_view(*owner,*source);
         output.owner=owner.get();*result=output;owner.release();
     });
 }
@@ -2209,10 +2239,8 @@ extern "C" int TPMSHX_PREPARATION_CALL tpmshx_prepare_zoned_flow_case_2d_v10(
     tpmshx_preparation_case_failure_v2* failure,char* error,size_t capacity) {
     return flow_boundary(source,grid,selected,callbacks,result,failure,error,capacity,[&](const auto& request,const auto& options,const auto& sink) {
         auto owner=std::make_unique<ZonedFlowCaseOwner>(p::prepare_zoned_flow_case_2d(request,options,sink));
-        tpmshx_preparation_zoned_flow_case_2d_v10 output{};
-        output.abi_version=10;output.struct_size=sizeof(output);
-        output.values=zoned_flow_view(*owner,*source);output.values.owner=nullptr;
-        output.thermal=thermal_sides(owner->prepared.prepared.value);output.owner=owner.get();
+        auto output=offset_zoned_flow_view(*owner,*source);
+        output.owner=owner.get();
         *result=output;owner.release();
     },true);
 }
@@ -2282,6 +2310,51 @@ extern "C" void TPMSHX_PREPARATION_CALL tpmshx_preparation_zoned_flow_case_2d_re
 }
 extern "C" void TPMSHX_PREPARATION_CALL tpmshx_preparation_sigmoid_flow_case_2d_release_v10(
     tpmshx_preparation_sigmoid_flow_case_2d_v10* result) {
+    if (!result) return;
+    delete static_cast<ZonedFlowCaseOwner*>(result->owner);*result={};
+}
+
+extern "C" uint32_t TPMSHX_PREPARATION_CALL tpmshx_preparation_case_abi_version_v11(void) {
+    return TPMSHX_PREPARATION_CASE_ABI_VERSION_V11;
+}
+extern "C" int TPMSHX_PREPARATION_CALL tpmshx_prepare_continuous_flow_case_2d_v11(
+    const tpmshx_preparation_continuous_input_2d_v4* source,const tpmshx_preparation_grid_kinds_2d_v7* grid,
+    const tpmshx_preparation_case_options_v1* selected,
+    const tpmshx_preparation_case_callbacks_v1* callbacks,tpmshx_preparation_continuous_case_2d_v11* result,
+    tpmshx_preparation_case_failure_v2* failure,char* error,size_t capacity) {
+    return flow_boundary(source,grid,selected,callbacks,result,failure,error,capacity,[&](const auto& request,const auto& options,const auto& sink) {
+        auto owner=std::make_unique<FlowCaseOwner>(p::prepare_flow_case_2d(request,options,sink));
+        const tpmshx_preparation_continuous_case_2d_v11 output{
+            TPMSHX_PREPARATION_CASE_ABI_VERSION_V11,sizeof(*result),continuous_flow_case_view(*owner,*source),
+            array(owner->prepared.value.design_pore_porosity),owner.get()};
+        *result=output;owner.release();
+    });
+}
+extern "C" int TPMSHX_PREPARATION_CALL tpmshx_prepare_stripe_flow_case_2d_v11(
+    const tpmshx_preparation_zoned_flow_input_2d_v9* source,const tpmshx_preparation_grid_kinds_2d_v7* grid,
+    const tpmshx_preparation_case_options_v1* selected,
+    const tpmshx_preparation_case_callbacks_v1* callbacks,tpmshx_preparation_stripe_flow_case_2d_v11* result,
+    tpmshx_preparation_case_failure_v2* failure,char* error,size_t capacity) {
+    return flow_boundary(source,grid,selected,callbacks,result,failure,error,capacity,[&](const auto& request,const auto& options,const auto& sink) {
+        if (request.input.kind!=0) throw std::invalid_argument("preparation requires stripe regions");
+        auto owner=std::make_unique<ZonedFlowCaseOwner>(p::prepare_zoned_flow_case_2d(request,options,sink));
+        const auto& regions=owner->prepared.value.regions;
+        auto& radii=owner->region_hydraulic_radii_m;
+        radii.reserve(regions.size());
+        for (const auto& zone:regions) radii.push_back(tpmshx::geometry::hydraulic_radius(zone.property_geometry[0].hydraulic_diameter));
+        const tpmshx_preparation_stripe_flow_case_2d_v11 output{
+            TPMSHX_PREPARATION_CASE_ABI_VERSION_V11,sizeof(*result),offset_zoned_flow_view(*owner,*source),
+            array(radii),owner.get()};
+        *result=output;owner.release();
+    },true);
+}
+extern "C" void TPMSHX_PREPARATION_CALL tpmshx_preparation_continuous_flow_case_2d_release_v11(
+    tpmshx_preparation_continuous_case_2d_v11* result) {
+    if (!result) return;
+    delete static_cast<FlowCaseOwner*>(result->owner);*result={};
+}
+extern "C" void TPMSHX_PREPARATION_CALL tpmshx_preparation_stripe_flow_case_2d_release_v11(
+    tpmshx_preparation_stripe_flow_case_2d_v11* result) {
     if (!result) return;
     delete static_cast<ZonedFlowCaseOwner*>(result->owner);*result={};
 }

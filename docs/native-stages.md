@@ -565,11 +565,19 @@ Earlier preparation layouts and scopes remain unchanged.
 The [offset example](../examples/cpp/offset_2d.cpp) prepares, runs and evaluates uniform, stripe, rectangle and sigmoid cases through v10 and saved v2.
 Its small sigmoid LUT checks the interface, not physical accuracy.
 
+## Version 11 geometry fields
+
+`tpmshx_prepare_continuous_flow_case_2d_v11` returns the double-precision pore porosity used during preparation.
+`tpmshx_prepare_stripe_flow_case_2d_v11` returns one double-precision hydraulic radius in metres for each stripe in the result.
+The radius uses the A-side property diameter. The nested results keep their v4 and v10 layouts.
+Release only the outer result with its matching v11 release function.
+
 ## Python preparation adapter
 
 Public uniform 2D preparation uses v10; its capacity and flow-resolution queries retain v7 with v3 payloads.
-Canonical continuous XY entries retain v7 with v4 payloads.
-Air/air stripes, rectangles and sigmoid fields use v10 for preparation, capacity and flow resolution.
+Complete continuous XY and stripe preparation use v11 when available.
+The adapter uses the geometry library for these fields with v7 continuous and v10 stripe preparation libraries.
+Continuous XY capacity and flow resolution use v7 with v4 payloads. Stripe queries, rectangles and sigmoid fields use v10.
 Capacity-only queries keep configuration validation and do not calculate drag. Complete spatial preparation still requires CFD drag.
 `python/cpp_interface/native_preparation.py` transports shared cache values and evidence without numerical cache calls.
 The adapter copies arrays, scalar types and evidence before it releases the native owner.

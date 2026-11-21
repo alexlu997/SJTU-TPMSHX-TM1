@@ -468,7 +468,8 @@ def drag_application_metadata(value, extra, inlet_speed, extension):
     return metadata
 
 
-def _case(result, config, case_id, side_geometry=None, pore_porosity=None, extrap_reasons=(), thermal_sides=None):
+def _case(result, config, case_id, side_geometry=None, pore_porosity=None, extrap_reasons=(), thermal_sides=None,
+          *, region_radii=None):
     from sjtu_tpmshx.physical_models.zone_units import _zone_data_si
     value = result.prepared.values
     continuous = isinstance(result, native._ContinuousCase)
@@ -484,7 +485,9 @@ def _case(result, config, case_id, side_geometry=None, pore_porosity=None, extra
                   ('cell_length', 'L_field_m'), ('wall_thickness', 't_field_m'), ('total_porosity', 'eps_arr'),
                   ('solid_conductivity', 'K_ss_arr'), ('hydraulic_radius', 'r_h_arr')))}
     if continuous:
-        design.update(axis='continuous', eps_f_arr=_native_geometry.split_fields(design['eps_arr'], .5)['epsilon_A'])
+        eps_f = (native._array(pore_porosity, shape) if pore_porosity is not None else
+                 _native_geometry.split_fields(design['eps_arr'], .5)['epsilon_A'])
+        design.update(axis='continuous', eps_f_arr=eps_f)
         for index, side in enumerate('AB'):
             design['K_ff' + side + '_arr'] = native._array(result.fluid_conductivity[index], shape)
     if spatial:
@@ -497,7 +500,9 @@ def _case(result, config, case_id, side_geometry=None, pore_porosity=None, extra
             design['h_v' + side + '_arr'] = native._array(result.volumetric_transfer[index], shape)
         if result.kind == 0:
             zone_rows, zone_params = [], []
-            for region in result.regions[:result.region_count]:
+            if region_radii is not None:
+                region_radii = native._array(region_radii, (result.region_count,))
+            for zone_index, region in enumerate(result.regions[:result.region_count]):
                 descriptor = region.region
                 row = dict(name=native._text(descriptor.name),
                     y_frac_start=_native_grid._restore(descriptor.bounds[0]),
@@ -515,7 +520,8 @@ def _case(result, config, case_id, side_geometry=None, pore_porosity=None, extra
                 properties = row['props_A']
                 zone_params.append({**{key: row[key] for key in ('name', 'y_frac_start', 'y_frac_end', 'L_mm', 't_mm')},
                     **{key: properties[key] for key in ('epsilon', 'D_h', 'A_0', 'mu', 'rho')},
-                    'r_h': _native_geometry.hydraulic_radius(properties['D_h'])[()]})
+                    'r_h': (region_radii[zone_index] if region_radii is not None else
+                            _native_geometry.hydraulic_radius(properties['D_h'])[()])})
             design['zone_params'] = _zone_data_si(zone_params)
         elif result.kind == 1:
             cells = config.zones.grid['cells']
@@ -672,7 +678,11 @@ def _execute(config, operation, *, targets=None, case_id=None, start_observation
                      observe_range=bridge.observe_range, observe_notice=bridge.observe_notice)
     with native.operation(operation, source, options, host_input,
                           nominal_grid_warning=_nominal_grid_warning, offset_scope=True, **hooks) as result:
-        thermal_sides = None
+        pore_porosity = region_radii = thermal_sides = None
+        if isinstance(result, native._ContinuousGeometryCase):
+            pore_porosity, result = result.design_pore_porosity, result.values
+        elif isinstance(result, native._StripeGeometryCase):
+            region_radii, result = result.region_hydraulic_radii_m, result.values
         if result.abi_version == 10:
             thermal_sides, result = result.thermal, result.values
         if spatial:
@@ -696,9 +706,10 @@ def _execute(config, operation, *, targets=None, case_id=None, start_observation
             prepared = result.values.prepared
             if isinstance(result, native._SigmoidHostCase):
                 prepared = prepared.values
-            case = _case(prepared, resolved, case_id, side_geometry, result.design_pore_porosity, bridge.extrap_reasons, thermal_sides)
+            case = _case(prepared, resolved, case_id, side_geometry, result.design_pore_porosity,
+                         bridge.extrap_reasons, thermal_sides, region_radii=region_radii)
         else:
-            case = _case(result, resolved, case_id, side_geometry, extrap_reasons=bridge.extrap_reasons, thermal_sides=thermal_sides)
+            case = _case(result, resolved, case_id, side_geometry, pore_porosity, bridge.extrap_reasons, thermal_sides)
         return case
 
 
