@@ -24,7 +24,7 @@ from sjtu_tpmshx.physical_models.df_surrogate import CFD_CAMPAIGN, CFD_SCOPE
 from sjtu_tpmshx.cpp_interface._native_result_stage import (Evidence, Input as Evaluation,
     detach_stage_fields, nu_observation, record, stage_closures, stage_ledger)
 from sjtu_tpmshx.cpp_interface._native_preparation_case import _Array as PreparedArray, _Evidence, _Text, _Kind, _Model, _Nu
-from .preparation_host import pack_saved_resources
+from .preparation_host import checked_mesh_shape, pack_saved_resources
 from .solver_library._full_3d_abi import (_Array, _BootstrapTrace, _Callbacks, _Cancel, _Control, _EnergyEvidence,
     _FLAGS, _FLOW_ARRAYS, _Input, _OuterProgress, _PAIRS, _Progress, _Result)
 from .solver_library._stage_capture_abi import (
@@ -161,24 +161,34 @@ def run_case(case, control, *, retained_run, resume_state=None, checkpoint=None,
     if not control.native_library:
         raise ValueError('cpp requires RunControl.native_library for this host')
     control.check_cancelled()
-    grid_axes(case.grid)
-    for side, axes in case.parameters['prepared']['axes'].items():
-        if axes is not None:
-            validate_axis_permutation(axes, side)
-    runtime = open_library(control.native_library, getattr(control, 'native_table_directory', None))
+    try:
+        runtime = open_library(control.native_library, getattr(control, 'native_table_directory', None))
+    except Exception:
+        validate_saved_axes(case)
+        raise
     _, library, abi, table_directory = runtime
+    checked = checked_mesh_shape(case, library, 3)
+    if checked is None:
+        validate_saved_axes(case)
     saved_v2 = hasattr(library, 'tpmshx_stage_run_3d_create_saved_v2')
     saved = has_saved_stage(library)
     if saved and saved_v2:
         query = execution_view_query(library, 3, _StageResult, _ExecutionView)
         if query is not None:
-            return run_saved(case, control, library, abi, table_directory, query,
+            return run_saved(case, control, library, abi, table_directory, query, checked_shape=checked,
                 resume_state=resume_state, checkpoint=checkpoint, checkpoint_due=checkpoint_due)
     return retained_run(case, control, runtime, saved, saved_v2,
         resume_state=resume_state, checkpoint=checkpoint, checkpoint_due=checkpoint_due)
 
 
-def validate_saved_case(case):
+def validate_saved_axes(case):
+    grid_axes(case.grid)
+    for side, axes in case.parameters['prepared']['axes'].items():
+        if axes is not None:
+            validate_axis_permutation(axes, side)
+
+
+def validate_saved_case(case, checked_shape=None):
     if case.grid.get('dimension') != 3:
         raise ValueError('3D execution requires a prepared 3D grid')
     cfg = case.parameters
@@ -186,8 +196,10 @@ def validate_saved_case(case):
     missing = {'thermal_geometry', 'roughness_resolved', 'df_application'} - cfg.keys()
     if missing:
         raise ValueError(f'incomplete prepared 3D execution data: {sorted(missing)}')
-    shape = validate_grid(case.grid)
-    validate_thermal_geometry(cfg['thermal_geometry'], shape)
+    shape = checked_shape
+    if shape is None:
+        shape = validate_grid(case.grid)
+        validate_thermal_geometry(cfg['thermal_geometry'], shape)
     prepared = cfg['prepared']
     active = case.metadata.get('active_fluids')
     if active is not None and (tuple(prepared['axes']) != tuple(active)
@@ -747,11 +759,11 @@ def _detach(r, shape, settings, energy_settings, entry_version, *, emit_audit=Fa
     return result
 
 
-def run_saved(case, control, library, abi, table_directory, execution_query, *,
+def run_saved(case, control, library, abi, table_directory, execution_query, *, checked_shape=None,
               resume_state=None, checkpoint=None, checkpoint_due=None):
     """Run the current saved case with the matched stage and execution view."""
     query_bootstrap = bootstrap_query(library)
-    shape, cell_mm, wall_mm, nu = validate_saved_case(case)
+    shape, cell_mm, wall_mm, nu = validate_saved_case(case, checked_shape)
     cfg, prepared = case.parameters, case.parameters['prepared']
     control.check_cancelled()
     complete = getattr(library, 'tpmshx_run_saved_case_3d_v2', None)

@@ -287,7 +287,7 @@ def test_wire_fp_events_precede_the_terminal_numeric_cause(monkeypatch, mode):
             def fail(*arguments):
                 diagnostics = ct.cast(arguments[-3], ct.POINTER(native._Diagnostics)).contents
                 diagnostics.event_count = 1
-                diagnostics.events[0] = native._Event(10, 3, 0, 0)
+                diagnostics.events[0].flags, diagnostics.events[0].operation = 10, 3
                 diagnostics.python_cause = 3
                 arguments[-2].value = b'later numerical cause'
                 return 4

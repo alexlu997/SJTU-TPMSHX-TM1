@@ -347,7 +347,7 @@ class _Packed:
         if value.object:
             return self.quick_objects[value.object]
         raw = value.numeric.contents
-        dtype = core._DTYPES[raw.dtype]
+        dtype = core.NATIVE_DTYPES[raw.dtype]
         if raw.byte_order:
             dtype = dtype.newbyteorder('<' if raw.byte_order == 1 else '>')
         shape = tuple(raw.shape[:raw.rank])
