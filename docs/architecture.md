@@ -603,6 +603,9 @@ The [applications](../python/applications/) contain GUI and CLI startup, Quick D
 
 The import audit maps source paths to their dependency owners. Low-level native buffer and range checks support both runtime controls and the stages. The audit checks tests as external consumers and retains the three documented DF closure edges. Numerical code is independent of Qt. Build tools and locks are in `engineering/`. File contracts are in `docs/contracts/`.
 
+The public 3D solve enters `full_3d_stage.py`. It selects the saved input and execution view from the chosen library before the solve. The older driver loads only when the library needs that entry.
+The 2D and 3D preparation adapters use one host update for the inlet speeds that the native stage returns.
+
 ```text
 applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
                                                           -> postprocess.api -> PerformanceResult

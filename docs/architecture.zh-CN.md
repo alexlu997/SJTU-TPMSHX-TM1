@@ -509,6 +509,9 @@ Python 源码集中在 [python/](../python/)，公开包名为 `sjtu_tpmshx`。�
 
 依赖审计按源码职责核对引用关系。底层原生缓冲区和范围检查供运行控制与计算阶段使用。审计将自动测试作为外部调用方，并检查已有的三条 D-F 依赖规则。数值层独立于 Qt。构建工具和依赖锁位于 `engineering/`，文件契约位于 `docs/contracts/`。
 
+公开三维求解进入 `full_3d_stage.py`，在求解前按所选运行库确定保存输入和执行视图。只有所选库需要旧入口时才加载旧驱动。
+二维和三维准备适配器共用一处宿主配置更新，写回原生阶段返回的入口速度。
+
 ```text
 applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
                                                           -> postprocess.api -> PerformanceResult

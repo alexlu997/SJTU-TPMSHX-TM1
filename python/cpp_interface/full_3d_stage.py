@@ -8,7 +8,9 @@ from uuid import uuid4
 import numpy as np
 
 from sjtu_tpmshx.data_types.compute_config import Sco2NuConfig, reject_retired_research_options, validate_simple_velocity_relaxation
-from sjtu_tpmshx.data_types.persistence_validation import validate_grid, validate_thermal_geometry
+from sjtu_tpmshx.data_types.persistence_validation import (
+    grid_axes, validate_axis_permutation, validate_grid, validate_thermal_geometry,
+)
 from sjtu_tpmshx.physical_models.field_coordinates_3d import _port_rectangles
 from sjtu_tpmshx.run_control.cancellation import CancelledError
 from sjtu_tpmshx.run_control.run_environment import require_f2_mode, run_environment
@@ -24,7 +26,7 @@ from ._native_grid import _Port
 from .solver_library._full_3d_abi import (_Array, _BootstrapTrace, _Callbacks, _Cancel, _Control, _EnergyEvidence,
     _FLAGS, _FLOW_ARRAYS, _Input, _OuterProgress, _PAIRS, _Progress, _Result)
 from .solver_library._stage_capture_abi import (StageExecution, executed_inputs, executed_view,
-    execution_sides, replay_sco2_notices, sampling_records, thermal_execution)
+    execution_sides, execution_view_query, replay_sco2_notices, sampling_records, thermal_execution)
 from .solver_library._simple_abi import simple_count
 from .solver_library.closure_evidence import copy_nu_observation, copy_range_observations
 from .solver_library.enthalpy import (_EnergyOptions, _FullEnergyEffectiveSettings, _decode_update_scale,
@@ -129,6 +131,30 @@ def has_saved_stage(library):
     if abi != 1:
         raise ValueError(f'unsupported saved 3D capture ABI {abi}; expected 1')
     return True
+
+
+def run_case(case, control, *, retained_run, resume_state=None, checkpoint=None, checkpoint_due=None):
+    """Select the saved 3D protocol before execution."""
+    if control.backend != 'cpp':
+        raise ValueError('full native 3D requires backend=cpp')
+    if not control.native_library:
+        raise ValueError('cpp requires RunControl.native_library for this host')
+    control.check_cancelled()
+    grid_axes(case.grid)
+    for side, axes in case.parameters['prepared']['axes'].items():
+        if axes is not None:
+            validate_axis_permutation(axes, side)
+    runtime = open_library(control.native_library, getattr(control, 'native_table_directory', None))
+    _, library, abi, table_directory = runtime
+    saved_v2 = hasattr(library, 'tpmshx_stage_run_3d_create_saved_v2')
+    saved = has_saved_stage(library)
+    if saved and saved_v2:
+        query = execution_view_query(library, 3, _StageResult, _ExecutionView)
+        if query is not None:
+            return run_saved(case, control, library, abi, table_directory, query,
+                resume_state=resume_state, checkpoint=checkpoint, checkpoint_due=checkpoint_due)
+    return retained_run(case, control, runtime, saved, saved_v2,
+        resume_state=resume_state, checkpoint=checkpoint, checkpoint_due=checkpoint_due)
 
 
 def validate_saved_case(case):

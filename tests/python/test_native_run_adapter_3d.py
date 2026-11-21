@@ -234,10 +234,12 @@ with np.load(sys.argv[2],allow_pickle=False) as archive:
  state={key: (str(value) if value.dtype.kind=='U' else value) for key,value in archive.items()}
 result=run_case(load_case(sys.argv[1]),RunControl(cpu_threads=2,native_library=sys.argv[4],
  native_table_directory=os.environ.get('TPMSHX_STAGE_TABLE_DIRECTORY')),resume_state=state)
+if sys.argv[5]=='current':
+ assert 'sjtu_tpmshx.cpp_interface.solver_library.full_3d' not in sys.modules
 save_result(result,sys.argv[3])
 """
     subprocess.run([sys.executable, '-c', script, str(moved / 'case.h5'), str(moved / 'state.npz'),
-                    str(moved / 'result.h5'), str(library)], check=True)
+                    str(moved / 'result.h5'), str(library), library_kind], check=True)
     actual = load_result(moved / 'result.h5')
     actual = replace(actual, metadata={key: value for key, value in actual.metadata.items() if key != 'continuation'})
     _same(_normalized(actual), _normalized(expected), 'fresh process')
@@ -606,7 +608,7 @@ def test_saved_stage_without_result_records_can_resume(monkeypatch):
     config, _ = reference._configuration(('air', 'water'), 'uniform')
     case = prepare_case(config, case_id='saved-stage-without-records')
     monkeypatch.setattr(full_3d, 'stage_records', lambda library, result: None)
-    monkeypatch.setattr(full_3d, 'execution_view_query', lambda *args: None)
+    monkeypatch.setattr(full_3d_stage, 'execution_view_query', lambda *args: None)
     states = []
     expected = run_case(case, _control(), checkpoint=states.append)
     resumed = run_case(case, _control(), resume_state=states[0])

@@ -1,6 +1,7 @@
 """Public prepared-case execution entry point."""
 from collections.abc import Callable
 from dataclasses import replace
+from functools import partial
 from sjtu_tpmshx.data_types.case_data import CaseData
 from sjtu_tpmshx.data_types.field_result import FieldResult
 from sjtu_tpmshx.run_control.module_ports import RunControl
@@ -58,7 +59,8 @@ def run_case(case: CaseData, control: RunControl = RunControl(), *,
     elif dimension == 2:
         from sjtu_tpmshx.cpp_interface.solver_library.full_2d import run_case as run
     elif dimension == 3:
-        from sjtu_tpmshx.cpp_interface.solver_library.full_3d import run_case as run
+        from sjtu_tpmshx.cpp_interface.full_3d_stage import run_case as run_3d
+        run = partial(run_3d, retained_run=_run_retained_3d)
     else:
         raise ValueError(f'unsupported physical dimension: {dimension}')
     provenance = dict(preparation=case.metadata.get('provenance', {'status':'not_recorded'}),
@@ -87,3 +89,8 @@ def run_case(case: CaseData, control: RunControl = RunControl(), *,
             metadata['applicability_evidence'] = capture_applicability(case, result, records)
         metadata.pop('_last_closure_ranges', None)
     return replace(result, metadata=metadata)
+
+
+def _run_retained_3d(*args, **kwargs):
+    from sjtu_tpmshx.cpp_interface.solver_library.full_3d import _run_retained_case
+    return _run_retained_case(*args, **kwargs)
