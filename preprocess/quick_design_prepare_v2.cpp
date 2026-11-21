@@ -207,9 +207,9 @@ struct Engine {
             if(pack.text.size) {
                 safe(pack.text.data,pack.text.size);
                 pack.flags[0]=topology(text(pack.text));
-                const auto conductivity=scalar(pack.scalars[0]);
-                pack.scalars[0]=packed(conductivity);
-                pack.flags[2]=g::result_precision(scalar(pack.scalars[2]),conductivity);
+                const auto material_scalar=scalar(pack.scalars[0]);
+                pack.scalars[0]=packed(material_scalar);
+                pack.flags[2]=g::result_precision(scalar(pack.scalars[2]),material_scalar);
                 material_input=MaterialInput{pack.scalars[0].value,pack.flags[2]};
             }
         }
