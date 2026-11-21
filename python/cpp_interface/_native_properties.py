@@ -1,7 +1,6 @@
 """Adapt property data and error policy for the native preparation library."""
 import ctypes as ct
 import errno
-from functools import lru_cache
 import sys
 import os
 import warnings
@@ -77,7 +76,6 @@ _SIGNATURES = {
 }
 
 
-@lru_cache(maxsize=None)
 def _function(owner, name):
     return owner.bind(f'tpmshx_preparation_{name}_v1',
                       _SIGNATURES[name] + [ct.POINTER(_Failure), ct.POINTER(ct.c_char), _Size])
