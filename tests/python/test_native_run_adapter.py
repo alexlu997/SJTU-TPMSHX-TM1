@@ -74,9 +74,8 @@ def _checked_applicability(actual, expected, case):
     execution = full_execution_record(case, expected)
     if '_native_execution_sides' in metadata:
         _same(metadata.pop('_native_execution_sides'), execution['sides'], 'executed side records')
-    if '_native_thermal_execution' in metadata:
-        thermal = metadata.pop('_native_thermal_execution')
-        _same(thermal, {key: execution['numerics'][key] for key in thermal}, 'executed thermal record')
+    if 'execution_record' in metadata:
+        _same(metadata.pop('execution_record'), freeze_value(execution), 'executed native record')
     _same(metadata.pop('_native_applicability'), freeze_value(wanted), 'native applicability transfer')
     return replace(actual, metadata=metadata)
 
