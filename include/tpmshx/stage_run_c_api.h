@@ -179,9 +179,9 @@ typedef struct {
     size_t additional_count;
 } tpmshx_stage_saved_case_2d_v3;
 
-/* Experimental scope comes from the original saved settings.
- * The model selection and domain can differ from the prepared grid.
- * A configured total flow selects the existing deferred side check. */
+/* Use the original saved domain for the experiment check. Create and
+ * restore also check the prepared model, nominal geometry and resolved
+ * velocities. The host query defers a side with a configured total flow. */
 typedef struct {
     uint32_t topology,geometry_mode,domain_count;
     uint32_t fluids[2],configured_flow[2];

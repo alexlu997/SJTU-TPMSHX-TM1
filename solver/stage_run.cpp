@@ -436,22 +436,35 @@ struct StageRun2D {
     }
     ~StageRun2D() {tpmshx_full_2d_run_release_v1(&run);}
 };
-void validate_saved_experiment(const tpmshx_stage_experiment_2d_v4& settings) {
+void validate_saved_experiment(const tpmshx_stage_experiment_2d_v4& settings,
+    const tpmshx_preparation_case_2d_v1* prepared=nullptr) {
     namespace preparation=tpmshx::preparation;
+    const auto positive=[](double value) {return std::isfinite(value) && value>0.;};
     if (settings.topology>1 || settings.geometry_mode>2 || settings.domain_count<2 || settings.domain_count>3
-            || settings.fluids[0]>3 || settings.fluids[1]>3)
+            || settings.fluids[0]>3 || settings.fluids[1]>3
+            || !positive(settings.cell_length_mm) || !positive(settings.wall_thickness_mm)
+            || !std::isfinite(settings.delta_levelset)
+            || !std::all_of(settings.domain_m,settings.domain_m+settings.domain_count,positive))
         throw std::invalid_argument("invalid saved experimental settings");
+    if (prepared && (settings.topology!=prepared->input.topology
+            || settings.fluids[0]!=prepared->sides[0].inlet.fluid
+            || settings.fluids[1]!=prepared->sides[1].inlet.fluid))
+        throw std::invalid_argument("saved experimental topology or fluids disagree with the prepared case");
+    const auto geometry_mode=prepared?prepared->input.geometry_mode:settings.geometry_mode;
     const auto scope=preparation::df_experiment_scope(settings.topology,settings.fluids[0],settings.fluids[1],
-        settings.geometry_mode,settings.delta_levelset==0.,settings.cell_length_mm,settings.wall_thickness_mm,
+        geometry_mode,settings.delta_levelset==0.,settings.cell_length_mm,settings.wall_thickness_mm,
         {settings.domain_m,settings.domain_count});
     if (!(scope&TPMSHX_DF_EXPERIMENT_LAYOUT))
         throw std::invalid_argument(preparation::experimental_layout_error);
     for (std::size_t side=0;side<2;++side) {
         flag(settings.configured_flow[side]);
-        if (settings.fluids[side]==3 || settings.configured_flow[side]) continue;
+        if (settings.configured_flow[side] && !prepared) continue;
+        const double speed=prepared?prepared->sides[side].inlet.velocity_m_s:settings.velocity_m_s[side];
+        if (!positive(speed)) throw std::invalid_argument("invalid saved experimental inlet velocity");
+        if (settings.fluids[side]==3) continue;
         try {
             const auto selected=preparation::df_experiment_side(settings.topology,settings.fluids[side],
-                settings.cell_length_mm,settings.wall_thickness_mm,settings.velocity_m_s[side],
+                settings.cell_length_mm,settings.wall_thickness_mm,speed,
                 (scope&TPMSHX_DF_HX_TRANSFER)!=0).first;
             if (selected.scope && !(scope&TPMSHX_DF_HX_DOMAIN))
                 throw std::invalid_argument(preparation::experimental_domain_error(side));
@@ -460,6 +473,14 @@ void validate_saved_experiment(const tpmshx_stage_experiment_2d_v4& settings) {
                 std::string(side?"B":"A")+": "+problem.what(),problem.velocity_window);
         }
     }
+}
+
+bool same_experimental_reference(double mm,double m,tpmshx_preparation_scalar_kind_v2 kind) {
+    namespace g=tpmshx::grid;
+    const auto expected=g::multiply({mm,kind.precision,kind.strong},g::weak(1e-3)).value;
+    // The archive's SI round trip can change a double by a few ULPs.
+    return std::isfinite(m) && std::isfinite(expected)
+        && std::abs(expected-m)<=8.*std::numeric_limits<double>::epsilon()*std::abs(expected);
 }
 
 struct StartRun {
@@ -567,8 +588,17 @@ int run(const tpmshx_preparation_case_2d_v1* prepared,
                 throw std::invalid_argument("stage run request ABI version or struct size is invalid");
         }
         const auto& selected=request?*request:defaults;
-        if(start && start->saved_v4 && prepared->input.df_mode==1)
-            validate_saved_experiment(start->saved_v4->experiment);
+        if(start && start->saved_v4 && prepared->input.df_mode==1) {
+            const auto& settings=start->saved_v4->experiment;
+            const auto& saved=start->saved_v4->values;
+            validate_saved_experiment(settings,prepared);
+            if (settings.delta_levelset!=prepared->input.delta_levelset
+                    || !same_experimental_reference(settings.cell_length_mm,prepared->cell_length_m,
+                                                    saved.values.values.reference_cell_kind)
+                    || !same_experimental_reference(settings.wall_thickness_mm,prepared->wall_thickness_m,
+                                                    saved.wall_reference_kind))
+                throw std::invalid_argument("saved experimental nominal geometry disagrees with the prepared case");
+        }
         Packed2D packed(*prepared,selected,*control,uniform,request_v2?request_v2->envelope_mode:nullptr,continuous,
             start?start->request:nullptr,start?start->saved:nullptr,start?start->saved_v2:nullptr,start?start->saved_v3:nullptr);
         const auto& h=selected.model_h;

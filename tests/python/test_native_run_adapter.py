@@ -341,17 +341,26 @@ def test_selected_retained_runtime_has_no_new_stage_dependency(monkeypatch):
     _same(replace(resumed, result_id=wanted.result_id), wanted)
 
 
-@pytest.mark.parametrize('missing', ['create', 'restore'])
-@pytest.mark.parametrize('version', [1, 2, 3, 4])
-def test_incomplete_stage_protocol_is_not_retried(monkeypatch, missing, version):
+@pytest.mark.parametrize('version,missing', [
+    *((version, (op,)) for version in range(1, 5) for op in ('create', 'restore')),
+    (4, ('check_experiment',)), (4, ('create', 'restore')),
+])
+def test_incomplete_stage_protocol_is_not_retried(monkeypatch, version, missing):
     original = full_2d.NativeFull2DDriver
     _, case = _case()
+    hidden = {f'tpmshx_stage_run_2d_{op}_saved_v{v}' for v in range(version + 1, 5)
+              for op in ('create', 'restore')}
+    hidden.update(f'tpmshx_stage_run_2d_{op}_saved_v{version}'
+                  for op in ('create', 'restore') if op in missing)
+    if version < 4 or 'check_experiment' in missing:
+        hidden.add('tpmshx_stage_run_2d_check_experiment_v4')
+
     class Library:
         def __init__(self, actual):
             self.actual = actual
+
         def __getattr__(self, name):
-            if (name == f'tpmshx_stage_run_2d_{missing}_saved_v{version}'
-                    or any(name.endswith(f'_saved_v{v}') for v in range(version+1, 5))):
+            if name in hidden:
                 raise AttributeError(name)
             return getattr(self.actual, name)
     class Driver(original):

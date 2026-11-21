@@ -1234,9 +1234,10 @@ def run_case(case, control=RunControl(), *, direct_run, resume_state=None, check
     control.check_cancelled()
     shape = execution_grid(case)
     driver = StageDriver(control.native_library, table_directory=control.native_table_directory)
-    v4 = [hasattr(driver.library, f'tpmshx_stage_run_2d_{name}_saved_v4') for name in ('create', 'restore')]
-    check_experiment = getattr(driver.library, 'tpmshx_stage_run_2d_check_experiment_v4', None) if any(v4) else None
-    if any(v4) and (not all(v4) or check_experiment is None):
+    check_experiment = getattr(driver.library, 'tpmshx_stage_run_2d_check_experiment_v4', None)
+    v4 = [check_experiment is not None,
+          *(hasattr(driver.library, f'tpmshx_stage_run_2d_{name}_saved_v4') for name in ('create', 'restore'))]
+    if any(v4) and not all(v4):
         raise ValueError('native library has an incomplete saved 2D stage protocol')
     experiment = None
     if check_experiment is not None or hasattr(driver.library, 'tpmshx_stage_run_2d_create_saved_v3'):
