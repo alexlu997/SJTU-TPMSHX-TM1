@@ -803,7 +803,7 @@ Fields described as observations are read-only. Other listed fields carry raw pa
 | `GEOMETRY_PACK` | Pack cell/wall in `scalars[0:2]`; `flags[0:3]` carry topology, cell precision and ratio precision. |
 | `MATERIAL_PACK` | Observe `geometry`; pack conductivity and chi in `scalars[0:2]`, topology/chi-present/precision in `flags[0:3]`. `index=1` selects final conductivity with chi=1. |
 | `WIDTH_PACK` | `index` selects x/y/z; pack raw length in `scalars[0]` and array precision in `flags[0]`. |
-| `OPERATING_SNAPSHOT` | Capture original operating values and resolved DF options; no numerical output. |
+| `OPERATING_SNAPSHOT` | Capture the operating values. `text` identifies the compiled D–F table. Check the requested method against this ID and save it with the case. Earlier libraries supply empty text and use host method selection. |
 | `PROPERTY_ENTRY` | Open the side's range scope; return the normalized fluid label in `text`. |
 | `STATE_PACK`, `PROPERTY_PACK` | Pack broadcast operands in `property_inputs`. `flags[0]` identifies the fluid; state `flags[1]` selects scalar EOS return shape. Property `index` selects the getter. |
 | Empirical `PROPERTY_PACK` range | When `flags[2]` is set, read the native label in `text` and temperature bounds in `scalars[0:2]`. Empty text means the property has no fitted range. A clear flag selects the earlier label mapping. The host obtains the sample through `tpmshx_preparation_collect_range_v1` in the selected preparation library. It keeps the original warning scope and operand conversion order. Earlier libraries use the existing result sampler if the preparation sampler is absent. |

@@ -4,6 +4,7 @@ import ctypes as ct
 from dataclasses import asdict
 from functools import lru_cache
 import inspect
+import os
 import warnings
 
 import numpy as np
@@ -241,7 +242,14 @@ class _HostState:
         elif operation == 9:
             self.operating = {name: getattr(self.case, name) for name in
                 ('hot_fluid', 'cold_fluid', 'T_in_h', 'T_in_c', 'P_in_h', 'P_in_c', 'mdot_h', 'mdot_c')}
-            self.df_options = dict(method=resolve_method())
+            if request.text.size:
+                method = read_text(request.text)
+                selected = os.environ.get('TPMSHX_DF_METHOD', method).strip().lower()
+                if selected != method:
+                    raise ValueError(f'unknown DF method {selected!r}; valid: {(method,)}')
+            else:
+                method = resolve_method()
+            self.df_options = dict(method=method)
         elif operation == 10:
             self.enter(side)
             names = ('hot_fluid', 'T_in_h', 'P_in_h') if side == 0 else ('cold_fluid', 'T_in_c', 'P_in_c')

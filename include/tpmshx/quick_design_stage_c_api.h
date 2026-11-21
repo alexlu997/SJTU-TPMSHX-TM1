@@ -122,6 +122,8 @@ enum tpmshx_quick_host_operation_v2 {
  * property_inputs carry already-broadcast buffers with original scalar tags.
  * property_values supplies a stored EOS result only for cache lookup. Other
  * property_values and geometry fields are observations, not model callbacks.
+ * OPERATING_SNAPSHOT supplies the method ID from the compiled D-F table in
+ * text. Earlier libraries leave text empty.
  * At PROPERTY_ENTRY, flags[0]=1 offers scalar air and water inputs. The host
  * can set flags[1]=1 and supply temperature and pressure in scalars[0..1].
  * This omits STATE_PACK and PRANDTL_PACK for that side.

@@ -3,6 +3,7 @@
 #include "tpmshx/grid.hpp"
 #include "tpmshx/model_coefficients.hpp"
 #include "tpmshx/preparation_df.hpp"
+#include "tpmshx/preparation_df_data.hpp"
 #include "tpmshx/preparation_flow.hpp"
 #include "preparation_c_boundary.hpp"
 #include "preparation_properties.hpp"
@@ -341,7 +342,12 @@ struct Engine {
     void run(bool full) {
         if(full)validate_full();
         prepare_geometry(full);
-        if(full){grid();notify(TPMSHX_QUICK_OPERATING_SNAPSHOT);}
+        if(full) {
+            grid();
+            auto operating=request(TPMSHX_QUICK_OPERATING_SNAPSHOT);
+            operating.text={p::df_data::method,sizeof(p::df_data::method)-1};
+            call(operating);
+        }
         pressure_fractions();
         if(!full)return;
         notify(TPMSHX_QUICK_CONFIG_SNAPSHOT);

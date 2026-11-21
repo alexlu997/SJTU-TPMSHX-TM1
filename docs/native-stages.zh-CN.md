@@ -716,7 +716,7 @@ C++ 选择每项操作及数值分支；宿主操作可打包原始操作数或�
 | `GEOMETRY_PACK` | `scalars[0:2]` 打包胞元长度／壁厚；`flags[0:3]` 传递拓扑、胞元精度和比例精度。 |
 | `MATERIAL_PACK` | 观测 `geometry`；`scalars[0:2]` 打包导热率和 chi，`flags[0:3]` 传递拓扑／chi 存在标志／精度。`index=1` 选择 chi=1 的最终导热率。 |
 | `WIDTH_PACK` | `index` 选择 x/y/z；`scalars[0]` 打包原始长度，`flags[0]` 传递数组精度。 |
-| `OPERATING_SNAPSHOT` | 捕获原工况值及已解析 DF 选项，不输出数值。 |
+| `OPERATING_SNAPSHOT` | 捕获原工况值。`text` 给出编译进准备库的 D–F 表标识。核对用户选择的方法，并在工况中保存该标识。较早的库传回空文本，沿用宿主的方法选择。 |
 | `PROPERTY_ENTRY` | 打开该侧范围作用域，在 `text` 返回规范化流体标签。 |
 | `STATE_PACK`、`PROPERTY_PACK` | 在 `property_inputs` 打包广播后的操作数。`flags[0]` 标识流体，状态 `flags[1]` 选择标量 EOS 返回 shape；物性 `index` 选择 getter。 |
 | 经验物性 `PROPERTY_PACK` 范围 | `flags[2]` 设置时从 `text` 读取原生标签，在 `scalars[0:2]` 读取温度上下限。空文本表示该物性没有拟合范围。标志未设置时，宿主使用原有标签映射。宿主通过选定准备库的 `tpmshx_preparation_collect_range_v1` 取得样本，保留原告警作用域及操作数转换顺序。较早准备库缺少采样入口时，宿主使用原有结果库采样入口。 |
