@@ -298,5 +298,4 @@ Report report(const Evaluation&);
 Report report(const Applicability&);
 Report report(const PhysicalBalance&);
 Report report(const Qualification&);
-std::string json(const Report&);
 }  // namespace tpmshx::result::stage

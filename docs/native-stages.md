@@ -82,6 +82,11 @@ Direct and archived-runtime paths retain `capture_applicability`. A capture erro
 `tpmshx_stage_run_2d_execution_view_v1` and `tpmshx_stage_run_3d_execution_view_v1` publish the completed run's numerical evidence.
 They give the applied thermal controls, energy records, update scale and selected model-h call.
 Each view uses the same storage as the completed stage result. Copy it before result release.
+The full solver can also publish a scalar execution report. Use `tpmshx_stage_run_2d_report_v1` or `tpmshx_stage_run_3d_report_v1` before result release.
+The report contains the resolved grid and fluids, executed states, property samples, and model-h balances.
+The 2D balance list contains the main and fine grids. The 3D list starts with the final balance, followed by each outer iteration.
+An absent balance has the value `null`. Cell and face arrays remain in the typed result views.
+The host adds the case's model references and detaches the arrays that its caller needs.
 The original standalone queries and the v1 stage records remain available.
 The result stage decides qualification.
 

@@ -85,34 +85,34 @@ Report coefficients(const double (&values)[5]) {
 Report plane_balance(const tpmshx_model_h_result_v1& result, size_t cells, double area) {
     const auto& audit = result.plane;
     Object out{
-            {"units", "W/m; kg/(s m)"},
-            {"state", "raw final thermal return"},
-            {"boundary_order", List{"-x", "+x", "-y", "+y"}},
-            {"sou_A", true},
-            {"sou_B", true},
-            {"cell_count", cells},
-            {"area_m2", area},
-            {"solid_boundary_W_per_m", 0.0},
-            {"solid_source_W_per_m", 0.0},
-            {"solid_residual_sum_W_per_m", audit.solid_sum},
-            {"solid_residual_max_abs_W_per_m", audit.solid_max},
-            {"solid_residual_cellmax_rel", audit.solid_cell_ratio},
-            {"equation_tolerance", 0.01},
-            {"residual_sum_W_per_m", audit.residual_sum},
-            {"telescoping_error_W_per_m", audit.telescoping_error},
-            {"net_boundary_in_W_per_m", audit.net_boundary_in},
-            {"D2_W_per_m", audit.denominator},
-            {"energy_imbalance_rel", audit.energy_imbalance},
-            {"solid_imbalance_rel", audit.solid_imbalance},
-            {"physical_boundary_complete", bool(audit.boundary_complete)},
-            {"finite", bool(audit.finite)},
-            {"energy_ok", bool(audit.energy_ok)},
-            {"solid_ok", bool(audit.solid_ok)},
-            {"equations_ok", bool(audit.equations_ok)},
-            {"passed", bool(audit.passed)},
-            {"thermal_converged", result.stop == 0},
-            {"thermal_iterations", result.iterations},
-            {"thermal_residual_K", result.residual}};
+        {"units", "W/m; kg/(s m)"},
+        {"state", "raw final thermal return"},
+        {"boundary_order", List{"-x", "+x", "-y", "+y"}},
+        {"sou_A", true},
+        {"sou_B", true},
+        {"cell_count", cells},
+        {"area_m2", area},
+        {"solid_boundary_W_per_m", 0.0},
+        {"solid_source_W_per_m", 0.0},
+        {"solid_residual_sum_W_per_m", audit.solid_sum},
+        {"solid_residual_max_abs_W_per_m", audit.solid_max},
+        {"solid_residual_cellmax_rel", audit.solid_cell_ratio},
+        {"equation_tolerance", 0.01},
+        {"residual_sum_W_per_m", audit.residual_sum},
+        {"telescoping_error_W_per_m", audit.telescoping_error},
+        {"net_boundary_in_W_per_m", audit.net_boundary_in},
+        {"D2_W_per_m", audit.denominator},
+        {"energy_imbalance_rel", audit.energy_imbalance},
+        {"solid_imbalance_rel", audit.solid_imbalance},
+        {"physical_boundary_complete", bool(audit.boundary_complete)},
+        {"finite", bool(audit.finite)},
+        {"energy_ok", bool(audit.energy_ok)},
+        {"solid_ok", bool(audit.solid_ok)},
+        {"equations_ok", bool(audit.equations_ok)},
+        {"passed", bool(audit.passed)},
+        {"thermal_converged", result.stop == 0},
+        {"thermal_iterations", result.iterations},
+        {"thermal_residual_K", result.residual}};
     for (size_t i = 0; i < 2; ++i) {
         const auto& side = audit.sides[i];
         out.emplace(sides[i], Object{
@@ -149,11 +149,11 @@ Report volume_balance(const tpmshx_model_h_result_v1& result, size_t cells) {
         for (size_t j = 0; j < 6; ++j) {
             const auto& face = side.boundaries[j];
             faces.emplace(names[j], Object{
-            {"outward_mass_kg_s", face.mass_out},
-            {"outward_model_h_W", face.enthalpy_out},
-            {"non_inlet_inward_mass_kg_s", face.unknown_mass_in},
-            {"unknown_inflow_count", face.unknown_inflow_count},
-            {"inlet_reverse_outward_mass_kg_s", face.inlet_reverse_mass_out}});
+                {"outward_mass_kg_s", face.mass_out},
+                {"outward_model_h_W", face.enthalpy_out},
+                {"non_inlet_inward_mass_kg_s", face.unknown_mass_in},
+                {"unknown_inflow_count", face.unknown_inflow_count},
+                {"inlet_reverse_outward_mass_kg_s", face.inlet_reverse_mass_out}});
         }
         side_rows.emplace(label, Object{
             {"faces", std::move(faces)},

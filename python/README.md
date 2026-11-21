@@ -81,7 +81,8 @@ Python 优先选择 v2，其次为对称均匀或连续输入选择 v1；不具�
 公共 API 发布这些分组，不重复分类。
 Python 将完整 case notices 与运行期 `nu-evidence` 警告记录合并为 `scope_notes`；独立 C++ 阶段保留原生通知。
 直接及归档运行库路径保留 `capture_applicability`；捕获失败不选择该路径。
-求解结束时，`python/cpp_interface/solver_library/_stage_capture_abi.py` 从 C++ 读取实际执行方法和状态。
+求解结束时，[execution_report.cpp](../solver/execution_report.cpp) 从 C++ 求解记录生成物性采样、热学方法和守恒收支。
+Python 将标量报告和单独传递的场数组写入结果。只有缺少报告接口的运行库还需要逐项解码原始执行视图。
 `python/data_types/field_result.py` 将这些记录与物性采样、算例资源索引写入场结果。
 缺少执行视图的旧库由 `python/solvers/execution_record.py` 从返回字段重建记录。
 原生结果阶段判断资格。
