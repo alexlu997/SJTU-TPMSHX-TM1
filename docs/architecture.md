@@ -162,7 +162,8 @@ It assigns physical XY centres, smooths L/t separately, then extends fields alon
 The existing asymmetric owner supplies nominal split and thermal side/reference geometry.
 Local total porosity remains symmetric; each side capacity uses its own split field.
 The v1/v2/v3/v4 layouts remain unchanged. Python 3D preparation uses host v5 and its typed cache callbacks.
-`python/cpp_interface/_native_preparation_3d.py` keeps config conversion, environment parsing and immutable DTO assembly.
+`python/preprocess/three_d/preparation.py` converts the configuration, reads the environment and builds the immutable case.
+`python/cpp_interface/_native_preparation_3d.py` declares the volume layouts. The 2D and 3D calls share the result owner in `python/cpp_interface/_native_preparation_case.py`.
 `python/cpp_interface/native_preparation.py` shares cache and warning transport with 2D.
 The C++ owner builds the physical grid once and keeps static evidence before resolved-speed checks.
 Air-field scalar observations use at most eight selected values per side, with the original notices, extrema and last sample.

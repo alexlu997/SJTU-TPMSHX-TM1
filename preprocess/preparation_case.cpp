@@ -154,7 +154,7 @@ PortInput2D checked_port(PortInput2D port,const GridInput2D& grid,const std::str
         std::string error;
         if (!std::isfinite(center) || !std::isfinite(width))
             error="[error] pipe_"+name+"_invalid: "+name+" centre and width must be finite numbers";
-        else if (center-width/2.<0. || g::less(cross,g::weak(center+width/2.)))
+        else if (!g::port_window_within(cross,center,width))
             error="[error] pipe_"+name+"_out_of_domain: "+name+"_ctr ± "+name+"_w/2 = ["+
                   significant(center-width/2.,3)+", "+significant(center+width/2.,3)+
                   "] m leaves the cross-axis range [0, "+significant(cross.value,3)+"].";

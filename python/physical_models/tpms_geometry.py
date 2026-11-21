@@ -10,9 +10,9 @@ import numpy as np
 
 from sjtu_tpmshx.model_configs.model_parameters import load_model_parameters
 from sjtu_tpmshx.cpp_interface import _native_geometry
+from sjtu_tpmshx.cpp_interface._native_values import TOPOLOGIES
 
 
-_TOPOLOGIES = ('Diamond', 'Gyroid')
 _GEOMETRY_KEYS = ('epsilon', 'epsilon_A', 'epsilon_B', 'A_0', 'D_h')
 _AREA_CORRECTION = load_model_parameters()['geometry']['area_correction']
 
@@ -42,7 +42,7 @@ def minimum_solid_geometry(tpms_type, L_bounds, t_bounds):
 def _compute_geometry_cached(tpms_type: str, L_mm: float, t_mm: float,
                              N: int = 128) -> dict:
     """Cache scalar geometry without material or environment state."""
-    if tpms_type not in _TOPOLOGIES:
+    if tpms_type not in TOPOLOGIES:
         raise ValueError(f"tpms_type must be 'Diamond' or 'Gyroid', got '{tpms_type}'")
     if L_mm <= 0:
         raise ValueError(f"L_mm must be positive, got {L_mm}")
@@ -73,7 +73,7 @@ def compute_geometry(tpms_type: str, L_mm: float, t_mm: float,
 def compute_geometry_fields(tpms_type: str, L_field_mm, t_field_mm,
                             N: int = 128) -> dict:
     """Return independent writable C-order float64 geometry arrays."""
-    if tpms_type not in _TOPOLOGIES:
+    if tpms_type not in TOPOLOGIES:
         raise ValueError(f"tpms_type must be 'Diamond' or 'Gyroid', got '{tpms_type}'")
     length = np.asarray(L_field_mm, dtype=np.float64)
     wall = np.asarray(t_field_mm, dtype=np.float64)

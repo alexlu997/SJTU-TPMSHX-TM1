@@ -702,7 +702,7 @@ class ComputeConfig:
                    sco2_nu=Sco2NuConfig(**data.get('sco2_nu', {}))).validate()
 
 
-def _validate_static_settings(values, is_3d, *, _native_preparation=False):
+def _validate_static_settings(values, is_3d, *, _native_preparation=False, port_windows_fit=None):
     import math
 
     solver = values['solver']
@@ -846,6 +846,11 @@ def _validate_static_settings(values, is_3d, *, _native_preparation=False):
         if (_native_preparation and type(bc.dir) is int and 0 <= bc.dir < (6 if is_3d() else 4)
                 and all(type(value) in (int, float, bool) for value in pipe.values())):
             continue
+        if port_windows_fit is not None and type(bc.dir) is int and 0 <= bc.dir < 4 and not is_3d():
+            cross = ge.H_dom_m if bc.dir < 2 else ge.L_dom_m
+            window = (cross, pipe['in_ctr'], pipe['in_w'], pipe['out_ctr'], pipe['out_w'])
+            if all(type(value) is float for value in window) and port_windows_fit(*window):
+                continue
         from sjtu_tpmshx.data_types.validator import validate_pipe_config
         problems = validate_pipe_config(
             pipe, ge.L_dom_m, ge.H_dom_m,
@@ -1002,11 +1007,11 @@ def _decode_canonical_settings(cls, data, *, prepared_grid):
     )
 
 
-def _checked_saved_2d_settings(data):
+def _checked_saved_2d_settings(data, *, port_windows_fit=None):
     """Validate canonical saved host settings before the native scope check."""
     reject_retired_research_options(data)
     values = _decode_canonical_settings(ComputeConfig, data, prepared_grid=True)
-    _validate_static_settings(values, lambda: int(values['solver'].Nz) >= 2)
+    _validate_static_settings(values, lambda: int(values['solver'].Nz) >= 2, port_windows_fit=port_windows_fit)
     _validate_inlet_speeds(values['fluid_A'], values['fluid_B'], resolved_inlet_speeds=False)
     return values
 

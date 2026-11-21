@@ -7,6 +7,18 @@ import warnings
 import numpy as np
 
 
+# The order matches tpmshx::Topology in the C++ interface.
+TOPOLOGIES = ('Diamond', 'Gyroid')
+TOPOLOGY_CODES = {name: index for index, name in enumerate(TOPOLOGIES)}
+
+
+def geometry_topology(name):
+    try:
+        return TOPOLOGY_CODES[name]
+    except (KeyError, TypeError) as error:
+        raise ValueError(f'TPMS geometry supports Diamond and Gyroid only: {name!r}') from error
+
+
 def bounded_index(value, maximum, error, *, minimum=0):
     value = operator.index(value)
     if not minimum <= value <= maximum:
@@ -17,6 +29,10 @@ def bounded_index(value, maximum, error, *, minimum=0):
 def iteration_count(value, *, zero=False):
     return bounded_index(value, ct.c_size_t(-1).value, 'SIMPLE count is outside native size_t bounds',
                          minimum=0 if zero else 1)
+
+
+def grid_count(value):
+    return bounded_index(value, ct.c_size_t(-1).value, 'grid count must be within size_t')
 
 
 def floating_events(events, *, stacklevel):
@@ -102,6 +118,29 @@ def grid_scalar(value):
     if isinstance(value, (float, int)):
         return GridScalar(float(value), 64, 0)
     raise TypeError('grid scalars require Python float/int or NumPy floating/integer values')
+
+
+class GridPort(ct.Structure):
+    _fields_ = [('direction', ct.c_int32), ('active', ct.c_uint32),
+                ('values', (GridScalar * 4) * 2), ('present', (ct.c_uint32 * 4) * 2)]
+
+    def set_windows(self, get, scalar=grid_scalar, *, full_width=False):
+        for row, end in enumerate(('in', 'out')):
+            for column, name in enumerate(('ctr', 'w', 'z_ctr', 'z_w')):
+                value = get(end + '_' + name)
+                if full_width and column < 2:
+                    value = 0.
+                if value is not None:
+                    self.present[row][column] = 1
+                    self.values[row][column] = scalar(value)
+
+    @classmethod
+    def from_mapping(cls, config):
+        if config is None:
+            return cls()
+        port = cls(operator.index(config.get('dir', 0)), 1)
+        port.set_windows(config.get)
+        return port
 
 
 def restore_grid_scalar(value):

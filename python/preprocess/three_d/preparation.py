@@ -11,8 +11,9 @@ from sjtu_tpmshx.data_types.case_data import CaseData
 from sjtu_tpmshx.data_types.compute_config import ComputeConfig, bc_to_dict
 from sjtu_tpmshx.data_types.model_refs import ModelRef
 from sjtu_tpmshx.run_control.run_environment import capture_environment
-from sjtu_tpmshx.cpp_interface import _native_grid as grid
-from sjtu_tpmshx.cpp_interface._native_values import borrow_text, read_text, restore_buffer_scalar
+from sjtu_tpmshx.cpp_interface._native_values import (
+    TOPOLOGIES, TOPOLOGY_CODES, GridPort, GridScalar, borrow_text, grid_count, grid_scalar, read_text, restore_buffer_scalar,
+)
 from sjtu_tpmshx.cpp_interface import _native_preparation_case as native
 from sjtu_tpmshx.cpp_interface import _native_preparation_3d as three
 
@@ -27,17 +28,17 @@ def _input(config, targets, operation):
 
     def scalar(item):
         try:
-            return grid._scalar(item)
+            return grid_scalar(item)
         except TypeError as problem:
             errors.setdefault('grid', problem)
-            return grid._Scalar(float(transport(item)), 64, 0)
+            return GridScalar(float(transport(item)), 64, 0)
 
     value.lengths_m[:] = [scalar(geometry.L_dom_m), scalar(geometry.H_dom_m),
-                          grid._Scalar(float(geometry.Lz_m), 64, 0)]
+                          GridScalar(float(geometry.Lz_m), 64, 0)]
     counts = []
     for axis, count in enumerate((config.solver.Nx, config.solver.Ny, config.solver.Nz)):
         try:
-            counts.append(grid._count(count))
+            counts.append(grid_count(count))
         except (TypeError, ValueError, OverflowError) as problem:
             errors['count' + str(axis)] = problem
             counts.append(2)
@@ -49,7 +50,7 @@ def _input(config, targets, operation):
         errors['cap'], cap = problem, 0
     value.max_cells = min(max(cap, 0), native._S(-1).value)
     value.port_wall_refine = config.flags.port_wall_refine
-    value.topology = {'Diamond': 0, 'Gyroid': 1}.get(geometry.tpms, 0)
+    value.topology = TOPOLOGY_CODES.get(geometry.tpms, 0)
     value.cell_length_mm, value.wall_thickness_mm = map(transport, (geometry.L_cell_mm, geometry.t_wall_mm))
     value.solid_conductivity_W_mK, value.delta_levelset = map(transport, (geometry.k_s_W_mK, geometry.delta_levelset))
     continuous = config.zones.enabled and config.zones.axis == 'continuous'
@@ -59,17 +60,9 @@ def _input(config, targets, operation):
         (geometry.L_cell_mm, geometry.t_wall_mm, geometry.k_s_W_mK)))
     for index, side in enumerate('AB'):
         fluid, port = getattr(config, 'fluid_' + side), getattr(config, 'bc_' + side)
-        raw_port = grid._Port()
-        raw_port.active, raw_port.direction = 1, port.dir
-        full = port.in_w <= 0. and port.out_w <= 0.
-        for end_index, end in enumerate(('in', 'out')):
-            for column, name in enumerate(('ctr', 'w', 'z_ctr', 'z_w')):
-                item = getattr(port, end + '_' + name)
-                if full and column < 2:
-                    item = 0.
-                if item is not None:
-                    raw_port.present[end_index][column] = 1
-                    raw_port.values[end_index][column] = scalar(item)
+        raw_port = GridPort(port.dir, 1)
+        raw_port.set_windows(lambda key: getattr(port, key), scalar,
+                             full_width=port.in_w <= 0. and port.out_w <= 0.)
         speed = 0. if operation == 'prepare_inlet_mass_capacities' or (
             targets is not None or fluid.mass_flow_kg_s is not None) else fluid.u_mps
         value.sides[index] = three._Inlet(native._FLUIDS.index(fluid.type) if fluid.type in native._FLUIDS else 0,
@@ -264,7 +257,7 @@ def _execute(config, action, *, targets=None, case_id=None, start_observations=N
                 hash((config.geometry.tpms, config.geometry.L_cell_mm, config.geometry.t_wall_mm, 128))
             elif chi_error is not None:
                 raise chi_error
-            if config.geometry.tpms not in ('Diamond', 'Gyroid'):
+            if config.geometry.tpms not in TOPOLOGIES:
                 from sjtu_tpmshx.physical_models import tpms_props, co2_correlations
                 geometry_check = (co2_correlations.geometry if 'co2' in
                     (config.fluid_A.type, config.fluid_B.type) else tpms_props.geometry)
@@ -304,7 +297,7 @@ def _execute(config, action, *, targets=None, case_id=None, start_observations=N
         else:
             raise RuntimeError(f'unknown 3D preparation host stage {stage}')
 
-    with three.operation(action, source, options, host_input, cache) as result:
+    with native.volume_operation(action, source, options, host_input, cache) as result:
         flow = result.flow
         if action == 'prepare_inlet_mass_capacities':
             return {side: restore_buffer_scalar(flow.capacities[index]) for index, side in enumerate('AB')}

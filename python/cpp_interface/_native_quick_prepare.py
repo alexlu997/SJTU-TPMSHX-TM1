@@ -17,7 +17,7 @@ from sjtu_tpmshx.physical_models.df_surrogate.backend import resolve_method
 from . import _native_df, _native_flow, _native_geometry, _native_grid, _native_preparation, _native_properties
 from sjtu_tpmshx.physical_models import fluid_props as registry
 from sjtu_tpmshx.physical_models import co2_props, sco2_props, tpms_geometry
-from ._native_values import DoubleArray as _Array, Text as _Text, borrow_text, copy_array, read_text
+from ._native_values import TOPOLOGIES, TOPOLOGY_CODES, geometry_topology, DoubleArray as _Array, Text as _Text, borrow_text, copy_array, read_text
 from ._native_preparation_case import _GeometryCache, _Sample
 from ._native_preparation_case import _QuickInputV2 as _Input, _QuickPreparedV2 as _Prepared
 
@@ -214,7 +214,7 @@ class _HostState:
             if self.init is not None and (len(self.init) != 3 or any(np.shape(a) != shape for a in self.init)):
                 raise ValueError('quick-design warm start must match the prepared grid')
         elif operation == 6:
-            if self.topo not in ('Diamond', 'Gyroid'):
+            if self.topo not in TOPOLOGIES:
                 raise ValueError(f"tpms_type must be 'Diamond' or 'Gyroid', got '{self.topo}'")
             if type(self.l) is not float or type(self.t) is not float:
                 if self.l <= 0:
@@ -227,7 +227,7 @@ class _HostState:
                 request.text = borrow_text(self.topo, self.buffers)
                 request.scalars[0], request.scalars[1] = map(_native_grid._scalar, (self.l, self.t))
                 return
-            request.flags[0] = _native_geometry._topology(self.topo)
+            request.flags[0] = geometry_topology(self.topo)
             request.flags[1] = _native_geometry._floating_dtype(self.l, 0.).itemsize * 8
             request.flags[2] = _native_geometry._floating_dtype(self.t, self.l).itemsize * 8
             request.scalars[0] = _Scalar(float(self.l), 64, 0)
@@ -236,7 +236,7 @@ class _HostState:
             chi = 1. if at else _resolve_chi_s()
             conductivity = self.conductivity if self.full else _Parameters['k_s']
             epsilon = self.geometry['epsilon']
-            if (request.flags[3] and type(self.topo) is str and self.topo in ('Diamond', 'Gyroid')
+            if (request.flags[3] and type(self.topo) is str and self.topo in TOPOLOGIES
                     and _plain_float(conductivity) and _plain_float(epsilon)):
                 request.text = borrow_text(self.topo, self.buffers)
                 request.flags[1] = chi is not None
@@ -245,7 +245,7 @@ class _HostState:
                 request.scalars[2] = (_Scalar(0., 64, 0) if type(epsilon) is float
                                       else _Scalar(0., epsilon.dtype.itemsize * 8, 1))
                 return
-            request.flags[0] = _native_geometry._topology(self.topo)
+            request.flags[0] = geometry_topology(self.topo)
             request.flags[2] = _native_geometry._floating_dtype(self.geometry['epsilon'], conductivity).itemsize * 8
             request.scalars[0] = _Scalar(float(conductivity), 64, 0)
             have, value = _native_geometry._override(chi)
@@ -452,7 +452,7 @@ class _HostState:
             request.scalars[n] = _native_flow._scalar(value)
         if type(self.topo) is not str:
             # Custom labels keep their original mapping lookup.
-            request.flags[1] = _native_df._topology(self.topo)
+            request.flags[1] = TOPOLOGY_CODES[self.topo]
         if air:
             request.flags[2] = int(bool(self.strict))
         request.scalars[5], request.property_kind = _Scalar(length, 64, 0), _Scalar(wall, 64, 0)

@@ -15,7 +15,7 @@ from sjtu_tpmshx.physical_models.fluid_props import Props, WaterStateError, Quic
 from sjtu_tpmshx.cpp_interface._native_df import _Pressure as _PreparedPressure
 from sjtu_tpmshx.data_types.field_result import FieldResult
 from .solver_library._stage_capture_abi import RangeRecordView
-from ._native_values import DoubleArray as _Array, borrow_array, borrow_text
+from ._native_values import TOPOLOGY_CODES, DoubleArray as _Array, borrow_array, borrow_text
 from ._native_preparation_case import _QuickInputV2 as _InputV2, _QuickPreparedV2 as _PreparedV2
 
 
@@ -131,7 +131,7 @@ def _legacy_prepared(shape, p, op, views):
     for value in (controls['maxit'], chunk):
         if value > ct.c_size_t(-1).value:
             raise ValueError('quick-design iteration budget exceeds native size_t')
-    config = _Config({'Diamond': 0, 'Gyroid': 1}[p['topology']],
+    config = _Config(TOPOLOGY_CODES[p['topology']],
         {'cross': 0, 'counter': 1}[p['arrangement']], {'const': 0, 'mean': 1}[p['prop_model']],
         int(seed is not None), *(p[key] for key in ('Lx', 's', 'height', 'L_cell_m', 'A_0', 'D_h')),
         sides, controls['maxit'], chunk, qtol, controls['alpha'])

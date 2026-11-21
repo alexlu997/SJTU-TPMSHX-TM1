@@ -148,6 +148,9 @@ void check_saved(const tpmshx_preparation_case_2d_v1& prepared,tpmshx::stages::R
         experiment.experiment.velocity_m_s[0]=0.;
         require(tpmshx_stage_run_2d_check_experiment_v4(&experiment.experiment,error,sizeof(error))==1
             && std::strstr(error,"invalid saved experimental inlet velocity"),"experiment query accepted zero velocity");
+        require(tpmshx_stage_port_windows_fit_2d_v1(.125,.0625,.125,.0625,.125)==1
+            && tpmshx_stage_port_windows_fit_2d_v1(.125,.0625,.125,.125,.125)==0,
+            "saved port windows must fit the physical cross axis");
         auto invalid=current;
         invalid.resource_topology={error,2};
         std::strcpy(error,"preserve-saved-error");

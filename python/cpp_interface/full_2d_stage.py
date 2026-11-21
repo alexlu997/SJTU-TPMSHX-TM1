@@ -42,7 +42,7 @@ from sjtu_tpmshx.data_types.validator import compute_volumetric_htc
 from sjtu_tpmshx.run_control.run_warnings import current_warnings, merge_warnings, warning_messages, warning_scope
 from . import _native_flow
 from ._native_preparation_case import _ResultV1, pack_saved_resources, borrow_ranges
-from ._native_values import borrow_array, borrow_text
+from ._native_values import TOPOLOGIES, borrow_array, borrow_text
 from ._native_grid import _Scalar as GridScalar
 from .run_state import NativeRun
 from .solver_library._stage_capture_abi import (
@@ -184,7 +184,7 @@ def prepare_stage(case, cfg, prepared, *, saved_flow_grid=None):
     keepalive = [uniform]
     values = uniform.values
     values.input.abi_version, values.input.struct_size = 1, ct.sizeof(values.input)
-    values.input.topology = ('Diamond', 'Gyroid').index(cfg['tpms_type'])
+    values.input.topology = TOPOLOGIES.index(cfg['tpms_type'])
     values.input.geometry_mode = (0 if cfg['za'] is None else 1 if cfg['z_axis'] == 'continuous' else 2)
     values.input.delta_levelset = settings['geometry'].delta_levelset
     values.input.df_mode = ('cfd_smooth', 'experimental').index(settings['df_mode'])
@@ -306,7 +306,7 @@ def _can_pack_settings(settings):
     geometry, fa, fb = (settings.get(key) for key in ('geometry', 'fluid_A', 'fluid_B'))
     if not all(type(part) is dict for part in (geometry, fa, fb)):
         return False
-    if type(geometry.get('tpms')) is not str or geometry['tpms'] not in ('Diamond', 'Gyroid'):
+    if type(geometry.get('tpms')) is not str or geometry['tpms'] not in TOPOLOGIES:
         return False
     if not all(type(geometry.get(name)) in (int, float) for name in
                ('L_dom_m', 'H_dom_m', 'L_cell_mm', 't_wall_mm', 'delta_levelset')):
@@ -323,7 +323,7 @@ def _experiment_request(settings):
     depth = geometry.Lz_m if settings['solver'].Nz >= 2 else None
     fluids = settings['fluid_A'], settings['fluid_B']
     packed = _Experiment()
-    packed.topology = ('Diamond', 'Gyroid').index(geometry.tpms)
+    packed.topology = TOPOLOGIES.index(geometry.tpms)
     packed.geometry_mode = (1 if zones.axis == 'continuous' else 2) if zones.enabled else 0
     packed.domain_count = 2 if depth is None else 3
     packed.domain_m[:] = geometry.L_dom_m, geometry.H_dom_m, depth or 0.
@@ -362,7 +362,7 @@ def _plain_zone(zone):
                for row in zone['zones'])
 
 
-def saved_inputs(case, shape, *, check_experiment=None):
+def saved_inputs(case, shape, *, check_experiment=None, port_windows_fit=None):
     from sjtu_tpmshx.data_types.compute_config import ComputeConfig, _checked_saved_2d_settings
     from sjtu_tpmshx.data_types.persistence_validation import validate_thermal_geometry
     from sjtu_tpmshx.data_types.portable_data import mutable_data
@@ -377,7 +377,7 @@ def saved_inputs(case, shape, *, check_experiment=None):
         settings['zones'] = dict(enabled=True, axis='continuous', config=mutable_data(cfg['continuous_field']))
     experiment = None
     if check_experiment is not None and _can_pack_settings(settings):
-        values = cfg['compute_cfg'] = _checked_saved_2d_settings(settings)
+        values = cfg['compute_cfg'] = _checked_saved_2d_settings(settings, port_windows_fit=port_windows_fit)
         experiment = _Experiment()
         if values['df_mode'] == 'experimental':
             experiment = _experiment_request(values)
@@ -1260,7 +1260,11 @@ def run_case(case, control=RunControl(), *, direct_run, resume_state=None, check
         raise ValueError('native library has an incomplete saved 2D stage protocol')
     experiment = None
     if check_experiment is not None or hasattr(driver.library, 'tpmshx_stage_run_2d_create_saved_v3'):
-        cfg, prepared, experiment = saved_inputs(case, shape, check_experiment=check_experiment)
+        port_windows_fit = getattr(driver.library, 'tpmshx_stage_port_windows_fit_2d_v1', None)
+        if port_windows_fit is not None:
+            port_windows_fit.argtypes, port_windows_fit.restype = [ct.c_double] * 5, ct.c_int
+        cfg, prepared, experiment = saved_inputs(case, shape, check_experiment=check_experiment,
+                                                port_windows_fit=port_windows_fit)
     else:
         from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
         cfg, prepared = build_execution_inputs(case, copy_design=False)

@@ -207,14 +207,14 @@ def test_missing_preparation_library_stops_3d_dispatch(monkeypatch):
 
 def test_host_exception_keeps_identity_and_releases_owner(monkeypatch):
     from sjtu_tpmshx.preprocess.three_d import preparation
-    from sjtu_tpmshx.cpp_interface import _native_preparation_3d as binding
+    from sjtu_tpmshx.cpp_interface import _native_preparation_case as binding
     from sjtu_tpmshx.run_control.run_warnings import warning_scope, current_warnings
     original = binding._Bindings
     released = []
     failure = ValueError('host port object failed')
 
     def bindings(path):
-        value = original(path)
+        value = original(path, volume=True)
         for key, release in value.releases.items():
             def checked(pointer, release=release):
                 released.append(True)
@@ -225,7 +225,7 @@ def test_host_exception_keeps_identity_and_releases_owner(monkeypatch):
     def fail(*args, **kwargs):
         raise failure
 
-    monkeypatch.setattr(binding, '_bindings', bindings)
+    monkeypatch.setattr(binding, '_volume_bindings', bindings)
     monkeypatch.setattr(preparation, 'bc_to_dict', fail)
     parent = {('parent',): 'parent'}
     with warning_scope(parent):
@@ -250,8 +250,8 @@ def test_owned_3d_views_cannot_be_diagnostic_outputs(mode, alias):
     result = kind(source.abi_version, ct.sizeof(kind))
     options = native._Options(1, ct.sizeof(native._Options), 0, 1, 0.)
     failure, error = native._Failure(2, ct.sizeof(native._Failure)), ct.create_string_buffer(4096)
-    bindings = binding._bindings(_native_preparation._library().path)
-    call = bindings.operations[source.abi_version, 'prepare_flow_case']
+    bindings = native._volume_bindings(_native_preparation._library().path)
+    call = bindings.operations[source.abi_version, 'prepare_flow_case'].call
     assert call(ct.byref(source), ct.byref(options), None, ct.byref(result),
                 ct.byref(failure), error, len(error)) == 0
     try:
@@ -292,8 +292,8 @@ def test_cached_3d_evidence_cannot_alias_diagnostics(alias):
     callbacks, descriptor, errors = native._callback_bridge(lambda *args: None,
         geometry_cache_at=lambda *args: False, inlet_cache_at=inlet)
     before = bytes(result), bytes(failure), bytes(error)
-    bindings = binding._bindings(_native_preparation._library().path)
-    status = bindings.operations[4, 'prepare_flow_case'](ct.byref(source), ct.byref(options),
+    bindings = native._volume_bindings(_native_preparation._library().path)
+    status = bindings.operations[4, 'prepare_flow_case'].call(ct.byref(source), ct.byref(options),
         ct.byref(descriptor), ct.byref(result), ct.byref(failure), error, len(error))
     assert status == 1 and calls == [0] and not errors
     assert (bytes(result), bytes(failure), bytes(error)) == before

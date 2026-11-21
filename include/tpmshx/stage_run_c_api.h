@@ -297,6 +297,9 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_create_saved_v3(
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_restore_saved_v3(
     const tpmshx_stage_saved_case_2d_v3*,const tpmshx_stage_run_request_2d_v3*,
     const tpmshx_stage_run_control_v1*,const tpmshx_run_state_field_v1*,size_t,void**,char*,size_t);
+/* Return one if both normalized windows fit the physical cross axis. */
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_port_windows_fit_2d_v1(
+    double cross_length_m,double inlet_center_m,double inlet_width_m,double outlet_center_m,double outlet_width_m);
 /* Experiment checks return 7 for an unavailable calibration or 8 for a
  * velocity outside its application window. Layout and domain failures return 1. */
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_check_experiment_v4(

@@ -10,13 +10,13 @@ from sjtu_tpmshx.data_types.case_data import CaseData
 from sjtu_tpmshx.data_types.compute_config import ComputeConfig, Sco2NuConfig, bc_to_dict
 from sjtu_tpmshx.data_types.model_refs import ModelRef
 from sjtu_tpmshx.run_control.run_environment import capture_environment
-from ._native_values import borrow_text, copy_array
+from ._native_values import TOPOLOGIES, geometry_topology, borrow_text, copy_array
 from . import _native_geometry, _native_grid
 from sjtu_tpmshx.run_control.run_warnings import (
     RangeRecord, current_warnings, warning_messages, record_warning,
 )
 from sjtu_tpmshx.cpp_interface import _native_flow, _native_preparation_case as native
-from sjtu_tpmshx.physical_models.tpms_geometry import _TOPOLOGIES, _compute_geometry_cached
+from sjtu_tpmshx.physical_models.tpms_geometry import _compute_geometry_cached
 from sjtu_tpmshx.physical_models.tpms_calc import _compute_cached
 from sjtu_tpmshx.physical_models.preparation_cache import _InletCacheValue
 
@@ -123,7 +123,7 @@ def _cache_record_view(records):
 
 
 def _geometry_key(value):
-    return (_TOPOLOGIES[value.topology], native._restore(value.cell_length_mm, value.cell_kind),
+    return (TOPOLOGIES[value.topology], native._restore(value.cell_length_mm, value.cell_kind),
             native._restore(value.wall_thickness_mm, value.wall_kind), 128)
 
 
@@ -236,7 +236,7 @@ def model_metadata(value, settings, config):
                    for name in ('parameter_version', 'source', 'applicability')})
     else:
         nu['coefficients'] = {name: dict(zip(('c', 'a', 'd'), value.sco2_nu_coefficients[index]))
-                              for index, name in enumerate(('Diamond', 'Gyroid'))}
+                              for index, name in enumerate(TOPOLOGIES)}
     metadata = {'sco2_nu': nu}
     co2 = value.co2
     if co2.active:
@@ -254,7 +254,7 @@ def _input(config, targets, operation):
     geometry = config.geometry
     value = native._InputV1(1, ct.sizeof(native._InputV1), geometry.L_dom_m, geometry.H_dom_m,
         config.solver.Nx, config.solver.Ny, config.flags.port_wall_refine,
-        _native_geometry._topology(geometry.tpms), geometry.L_cell_mm, geometry.t_wall_mm,
+        geometry_topology(geometry.tpms), geometry.L_cell_mm, geometry.t_wall_mm,
         geometry.k_s_W_mK, geometry.delta_levelset)
     kinds = native._Kinds(_kind(geometry.L_cell_mm), _kind(geometry.t_wall_mm), _kind(geometry.k_s_W_mK))
     for index, side in enumerate('AB'):
@@ -382,7 +382,7 @@ def _lut_cache():
     buffers, pending = [], {}
 
     def cache(action, topology, resolution, value):
-        name = ('Diamond', 'Gyroid')[topology]
+        name = TOPOLOGIES[topology]
         key = (name,)
         if action:
             lut = pending.pop(key)

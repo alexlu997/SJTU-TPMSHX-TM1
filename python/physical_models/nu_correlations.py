@@ -39,6 +39,7 @@ from sjtu_tpmshx.model_configs.model_parameters import load_model_parameters
 from sjtu_tpmshx.run_control.run_warnings import record_range, record_warning
 import numpy as np
 from sjtu_tpmshx.cpp_interface import _native_properties
+from sjtu_tpmshx.cpp_interface._native_values import TOPOLOGY_CODES
 
 # ── Constants ────────────────────────────────────────────────────────────
 
@@ -123,7 +124,7 @@ def nu_from_Re(tpms_type, Re, eps_f, L_mm, D_h_mm, *, Pr=Pr_AIR):
         _warn_extrap(tpms_type, float(Re_arr), float(Re_arr), Re_arr)
     elif Re_arr.size:
         _warn_extrap(tpms_type, float(extrema[0]), float(extrema[1]), Re)
-    topology = {'Diamond': 0, 'Gyroid': 1}[tpms_type]
+    topology = TOPOLOGY_CODES[tpms_type]
     return _native_properties.nusselt(0, topology, prepared, Pr, L_mm, D_h_mm)
 
 
@@ -134,7 +135,7 @@ def nu_vec(tpms_type, Re, L_mm, D_h_mm, *, Re_floor=10.0, Pr=Pr_AIR):
     prepared, extrema = _native_properties.nu_inputs(1, Re, re_floor=Re_floor)
     if np.asarray(prepared).size:
         _warn_extrap(tpms_type, float(extrema[0]), float(extrema[1]), Re)
-    topology = {'Diamond': 0, 'Gyroid': 1}[tpms_type]
+    topology = TOPOLOGY_CODES[tpms_type]
     return _native_properties.nusselt(1, topology, prepared, Pr, L_mm, D_h_mm)
 
 
@@ -191,7 +192,7 @@ def nu_water_topo(tpms_type, Re, Pr_water):
     prepared, extrema = _native_properties.nu_inputs(2, Re)
     if np.asarray(prepared).size:
         _warn_water_nu(float(extrema[0]), float(extrema[1]), tpms_type, Re)
-    topology = {'Diamond': 0, 'Gyroid': 1}[tpms_type]
+    topology = TOPOLOGY_CODES[tpms_type]
     return _native_properties.nusselt(2, topology, prepared, Pr_water)
 
 

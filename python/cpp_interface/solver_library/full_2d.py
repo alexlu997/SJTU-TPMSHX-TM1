@@ -19,6 +19,7 @@ from ._thermal_abi import (
     _full_enthalpy_defaults,
     _iteration_options,
 )
+from .._native_values import TOPOLOGIES
 from ..full_2d_stage import StageDriver, _callbacks, convergence_controls, run_case as _run_case
 
 
@@ -176,7 +177,7 @@ def _pack(cfg, prepared, table_directory, library):
         cell(cfg['eps'] if zones is None else zones['eps_arr']), cell(geometry['A_0']), cell(geometry['D_h']),
         cell(cfg['Lcell']*1e-3 if zones is None else zones['L_field']*1e-3)]
     config = _Config()
-    config.topology = ('Diamond', 'Gyroid').index(cfg['tpms_type'])
+    config.topology = TOPOLOGIES.index(cfg['tpms_type'])
     config.asymmetric = cfg['compute_cfg'].geometry.delta_levelset != 0
     fluids = (cfg['fluid_A'], cfg['fluid_B'])
     config.thermal_mode = (2 if any(f in ('sco2', 'co2') for f in fluids)

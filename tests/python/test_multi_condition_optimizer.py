@@ -434,7 +434,7 @@ def test_search_reuses_baseline_case_configs_and_releases_fields(tmp_path, monke
     from unittest.mock import patch
     from sjtu_tpmshx.data_types.portable_data import mutable_data
     from sjtu_tpmshx.file_io.case_io import load_case
-    from sjtu_tpmshx.cpp_interface import _native_preparation_3d as preparation
+    from sjtu_tpmshx.cpp_interface import _native_preparation_case as preparation
     from tests.python.test_multi_condition_batch import _conditions, _native, _patch_solve
 
     references = []
@@ -447,7 +447,7 @@ def test_search_reuses_baseline_case_configs_and_releases_fields(tmp_path, monke
 
     _patch_solve(monkeypatch, solve)
     output = tmp_path / 'study'
-    with patch.object(preparation, 'operation', wraps=preparation.operation) as geometry:
+    with patch.object(preparation, 'volume_operation', wraps=preparation.volume_operation) as geometry:
         result = search.run_multi_condition_optimization(_conditions(2), output_dir=output,
                                                          method='sobol', n_init=2, n_iter=0, workers=1, control=native_control)
     assert result['status'] == 'completed' and result['n_usable'] == 2

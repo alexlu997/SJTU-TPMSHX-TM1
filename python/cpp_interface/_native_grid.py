@@ -7,7 +7,8 @@ import numpy as np
 
 from sjtu_tpmshx.cpp_interface import _native_geometry as _geometry
 
-from ._native_values import GridScalar as _Scalar, bounded_index, grid_scalar as _scalar, grid_widths as _widths, restore_grid_scalar as _restore
+from ._native_values import (GridPort as _Port, GridScalar as _Scalar, grid_count as _count,
+                             grid_scalar as _scalar, grid_widths as _widths, restore_grid_scalar as _restore)
 
 _DoubleP = ct.POINTER(ct.c_double)
 _Size = ct.c_size_t
@@ -17,9 +18,7 @@ _IntP = ct.POINTER(ct.c_int32)
 _ByteP = ct.POINTER(ct.c_uint8)
 
 
-class _Port(ct.Structure):
-    _fields_ = [('direction', ct.c_int32), ('active', _Uint),
-                ('values', (_Scalar * 4) * 2), ('present', (_Uint * 4) * 2)]
+_port = _Port.from_mapping
 
 
 class _WallSpec(ct.Structure):
@@ -55,24 +54,6 @@ _SIGNATURES = {
 def _scalars(values):
     values = tuple(values)
     return (_Scalar * len(values))(*(_scalar(value) for value in values))
-
-
-def _count(value):
-    return bounded_index(value, _Size(-1).value, 'grid count must be within size_t')
-
-
-def _port(config):
-    result = _Port()
-    if config is None:
-        return result
-    result.active, result.direction = 1, operator.index(config.get('dir', 0))
-    for row, end in enumerate(('in', 'out')):
-        for column, key in enumerate((f'{end}_ctr', f'{end}_w', f'{end}_z_ctr', f'{end}_z_w')):
-            value = config.get(key)
-            if value is not None:
-                result.present[row][column] = 1
-                result.values[row][column] = _scalar(value)
-    return result
 
 
 def _ports(configs):
