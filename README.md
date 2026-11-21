@@ -8,6 +8,7 @@ TM1 将 TPMS 换热器的前处理、求解和后处理拆为独立维护的模�
 原 SJTU-TPMSHX/V2 是来源参考，本分支不合回原仓库。
 
 **C++ 计算流程**　[前处理](preprocess/) → [求解](solver/) → [后处理](postprocess/)。从[完整二维算例](examples/cpp/air_2d.cpp)可以读到三次调用。几何算法在 [geometry/](geometry/)，共用物性与数值函数在 [numerics/](numerics/)。外部程序使用 [stages.hpp](include/tpmshx/stages.hpp)。
+沿着[二维工况的计算过程](solver/README.md)可以直接找到孔隙率、流动与温度迭代、换热量计算的实现。
 
 Python 应用通过以下四个公开入口调用计算核心。
 
