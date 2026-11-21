@@ -214,8 +214,7 @@ def test_fixed_flow_uses_only_resolved_velocities(monkeypatch, dimension, design
     from unittest.mock import patch
     from sjtu_tpmshx.cpp_interface import native_preparation as prep2d
     from sjtu_tpmshx.cpp_interface import _native_preparation_case as native
-    from sjtu_tpmshx.cpp_interface import _native_preparation_3d as native3d
-    with patch.object(native3d, 'operation', wraps=native3d.operation) as geometry, \
+    with patch.object(native, 'volume_operation', wraps=native.volume_operation) as geometry, \
          patch.object(prep2d, 'prepare_case', side_effect=AssertionError('fixed flow prepared twice')) as full, \
          patch.object(native, 'operation', wraps=native.operation) as stage:
         actual = prepare_fixed_mass_flow_case(old, **targets, case_id='fixed')

@@ -304,7 +304,7 @@ v9 回调描述符提供带类型的几何与入口缓存键；v1 事件回调�
 宿主阶段 10 至 16 保留域、端口、流体、网格、单元上限、粗糙度与分区单元转换的校验顺序。
 阶段 17 至 19 在构造各物理轴前校验该轴格数。
 库持有物理网格构建、局部几何、总流量解析和最终准备。
-`python/cpp_interface/_native_preparation_3d.py` 在释放 owner 前将原生视图复制为不可变 CaseData。
+`python/preprocess/three_d/preparation.py` 从原生视图构建不可变工况，随后 `python/cpp_interface/_native_preparation_case.py` 释放原生结果。
 原生失败保留原始宿主异常，不选择其他准备路线。
 旧三维数值宿主路径及其专属 `shared/models/grid_3d.py` 和 `asym_split.py` 助手已退役。
 `tests/python/preparation_3d_reference.py` 保留独立比较和合成保存网格夹具。
