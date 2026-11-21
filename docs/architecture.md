@@ -208,8 +208,9 @@ Saved stages use the native convergence tolerances when the caller leaves them u
 `full_2d_stage.py` borrows saved CaseData and binds runs, snapshots, and result capture. The native stage validates flow grids, openings, design fields, and model references.
 It does not prepare saved cases again. Missing ranges, uncaptured samples, uniform local drag and optional thermal geometry stay distinct.
 Saved descriptor v2 adds nominal side geometry and accepts discrete and sigmoid fields without changing the v1 layout.
+Saved descriptor v3 adds the saved flow grid, design fields and model references.
 The descriptor and its nested storage remain borrowed through result transfer or run release.
-Python selects complete saved v2 first, then v1 for symmetric uniform or continuous inputs.
+Python selects complete saved v3 first, then v2, then v1 for symmetric uniform or continuous inputs.
 Archived libraries without the applicable saved protocol retain their existing interfaces.
 Missing new-protocol symbols and execution failures are errors. They do not start another run through the old route.
 `full_2d_stage.py` assembles the 2D `FieldResult` and preserves warning and application-property check order.
