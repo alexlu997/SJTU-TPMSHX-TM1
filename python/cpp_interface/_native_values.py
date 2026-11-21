@@ -184,3 +184,114 @@ def grid_widths(values):
     if precision not in (16, 32, 64):
         raise TypeError('grid widths support NumPy float16, float32 and float64')
     return np.ascontiguousarray(original, dtype=np.float64), precision
+
+
+class _Scalar(ct.Structure):
+    _fields_ = [('dtype', ct.c_uint32), ('origin', ct.c_uint32), ('byte_order', ct.c_uint32), ('reserved', ct.c_uint32),
+                ('data', ct.c_ubyte * 32)]
+
+
+class _Array(ct.Structure):
+    _fields_ = [('data', ct.c_void_p), ('bytes', ct.c_size_t), ('offset', ct.c_size_t),
+                ('dtype', ct.c_uint32), ('origin', ct.c_uint32), ('byte_order', ct.c_uint32), ('reserved', ct.c_uint32),
+                ('rank', ct.c_size_t), ('shape', ct.POINTER(ct.c_size_t)), ('strides', ct.POINTER(ct.c_ssize_t))]
+
+
+class _Event(ct.Structure):
+    _fields_ = [('flags', ct.c_uint32), ('operation', ct.c_uint32), ('scalar', ct.c_uint32), ('reserved', ct.c_uint32)]
+
+
+class _Diagnostics(ct.Structure):
+    _fields_ = [('python_cause', ct.c_uint32), ('event_count', ct.c_uint32), ('error_number', ct.c_int32),
+                ('reserved', ct.c_uint32), ('events', _Event * 64)]
+
+
+_KINDS = {('b', 1): 1, ('i', 1): 2, ('u', 1): 3, ('i', 2): 4, ('u', 2): 5,
+          ('i', 4): 6, ('u', 4): 7, ('i', 8): 8, ('u', 8): 9,
+          ('f', 2): 10, ('f', 4): 11, ('f', 8): 12, ('c', 8): 14, ('c', 16): 15}
+NATIVE_DTYPES = {value: np.dtype(kind + str(size)) for (kind, size), value in _KINDS.items()}
+NATIVE_DTYPES[13], NATIVE_DTYPES[16] = np.dtype(np.longdouble), np.dtype(np.clongdouble)
+_OPERATIONS = {1: 'add', 2: 'subtract', 3: 'multiply', 4: 'divide', 5: 'power', 6: 'log',
+               7: 'exp', 8: 'cast', 9: 'log10', 10: 'sqrt', 11: 'reduce', 12: 'absolute',
+               13: 'maximum', 14: 'minimum', 15: 'square'}
+
+
+def _dtype_tag(dtype, check_extended):
+    dtype = np.dtype(dtype)
+    key = dtype.kind, dtype.itemsize
+    if key in _KINDS:
+        return _KINDS[key]
+    if dtype.kind == 'f' and dtype.itemsize == np.dtype(np.longdouble).itemsize:
+        if check_extended is not None:
+            check_extended()
+        return 13
+    if dtype.kind == 'c' and dtype.itemsize == np.dtype(np.clongdouble).itemsize:
+        if check_extended is not None:
+            check_extended()
+        return 16
+    raise TypeError(f'native result buffers require numeric data, got {dtype}')
+
+
+def _origin(value):
+    if isinstance(value, np.ndarray):
+        return 2
+    if isinstance(value, np.generic):
+        return 1
+    if type(value) is float:
+        return 0
+    if type(value) is int:
+        return 3
+    if type(value) is bool:
+        return 4
+    if type(value) is complex:
+        return 5
+    return 2
+
+
+def _order(dtype):
+    return {'<': 1, '>': 2}.get(dtype.byteorder, 0)
+
+
+class PackedArray:
+    def __init__(self, value, *, check_extended=None):
+        self.owner = np.asarray(value)
+        tag, origin = _dtype_tag(self.owner.dtype, check_extended), _origin(value)
+        shape, strides = self.owner.shape, self.owner.strides
+        self.shape = (ct.c_size_t * len(shape))(*shape)
+        self.strides = (ct.c_ssize_t * len(strides))(*strides)
+        if self.owner.size:
+            lower = sum(min(0, stride * (size - 1)) for size, stride in zip(shape, strides))
+            upper = sum(max(0, stride * (size - 1)) for size, stride in zip(shape, strides))
+            pointer, count, offset = self.owner.ctypes.data + lower, upper - lower + self.owner.itemsize, -lower
+        else:
+            pointer, count, offset = None, 0, 0
+        self.raw = _Array(pointer, count, offset, tag, origin, _order(self.owner.dtype), 0,
+                          self.owner.ndim, self.shape, self.strides)
+
+
+def packed_scalar(value, *, check_extended=None):
+    owner = np.asarray(value)
+    if owner.ndim:
+        raise TypeError('native result scalar requires a scalar or a zero-dimensional array')
+    tag = _dtype_tag(owner.dtype, check_extended)
+    raw = _Scalar(tag, _origin(value), _order(owner.dtype), 0)
+    data = owner.tobytes()
+    if len(data) > len(raw.data):
+        raise RuntimeError('native result scalar payload is too small')
+    ct.memmove(raw.data, data, len(data))
+    return raw
+
+
+def notify_diagnostics(diagnostics, *, stacklevel):
+    """Apply host error policy at one completed native primitive boundary."""
+    if diagnostics.reserved or diagnostics.event_count > 64:
+        raise RuntimeError('native result returned invalid diagnostics')
+    events = []
+    for event in diagnostics.events[:diagnostics.event_count]:
+        if event.reserved or event.flags > 15 or event.scalar > 1 or event.operation not in _OPERATIONS:
+            raise RuntimeError('native result returned an invalid floating-point event')
+        operation = _OPERATIONS[event.operation]
+        if event.scalar and event.operation in (1, 2, 3, 4, 5, 8):
+            operation = 'scalar ' + operation
+        events.append((event.flags, operation))
+    floating_events(events, stacklevel=stacklevel)

@@ -313,7 +313,6 @@ void validate_saved_3d(const tpmshx_stage_saved_case_3d_v2& saved,tpmshx_full3d_
 struct Packed3D {
     tpmshx_full3d_input_v1 input{};
     tpmshx_stage_saved_case_3d_v1 saved{};
-    std::array<std::vector<double>,2> thermal;
     bool refined=false;
     Packed3D(const Prepared& source,const tpmshx_preparation_case_3d_v1* prepared) {
         if(source.saved) {
@@ -345,9 +344,8 @@ struct Packed3D {
             const auto diameter=continuous?source.continuous->hydraulic_diameter_m:source.spatial->hydraulic_diameter_m;
             extent(area,cells);extent(diameter,cells);input.area_density=view(area);input.hydraulic_diameter=view(diameter);
         } else {
-            thermal[0].assign(cells,p.geometry.area_density_per_m);
-            thermal[1].assign(cells,p.geometry.hydraulic_diameter_m);
-            input.area_density={thermal[0].data(),cells};input.hydraulic_diameter={thermal[1].data(),cells};
+            input.area_density={&p.geometry.area_density_per_m,1};
+            input.hydraulic_diameter={&p.geometry.hydraulic_diameter_m,1};
         }
         const auto cell=restored_mm(p.input.cell_length_mm,p.input.kinds.cell_length);
         const auto wall=restored_mm(p.input.wall_thickness_mm,p.input.kinds.wall_thickness);

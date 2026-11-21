@@ -286,15 +286,20 @@ struct RunOwner {
         if(!cpu_threads)throw std::invalid_argument("CPU thread count must be positive");
         control.enthalpy.cpu_threads=cpu_threads;
         storage.reserve(19);
-        auto copy=[&](ArrayView<const double>& field) {
+        auto copy=[&](ArrayView<const double>& field, size_t uniform_cells=0) {
             if(field.size && !field.data)throw std::invalid_argument("null full 3D input array");
-            if(field.size)storage.emplace_back(field.data,field.data+field.size);else storage.emplace_back();
+            if(uniform_cells && field.size==1)storage.emplace_back(uniform_cells,field[0]);
+            else if(field.size)storage.emplace_back(field.data,field.data+field.size);
+            else storage.emplace_back();
             field={storage.back().data(),storage.back().size()};
         };
         auto& g=data.geometry;
         for(auto* field:{&g.grid.dx,&g.grid.dy,&g.grid.dz,&g.epsilon,&g.epsilon_a,&g.epsilon_b,&g.permeability,
-            &g.forchheimer,&g.solid_conductivity,&g.cell_length,&g.area_density,&g.hydraulic_diameter,
+            &g.forchheimer,&g.solid_conductivity,&g.cell_length,
             &data.a.inlet_opening,&data.a.outlet_opening,&data.b.inlet_opening,&data.b.outlet_opening})copy(*field);
+        const size_t uniform_cells=g.spatial?0:g.cell_length.size;
+        copy(g.area_density,uniform_cells);
+        copy(g.hydraulic_diameter,uniform_cells);
         for(auto& source:data.sources)copy(source);
     }
 };

@@ -41,7 +41,7 @@ from sjtu_tpmshx.data_types.validator import compute_volumetric_htc
 from sjtu_tpmshx.run_control.run_warnings import current_warnings, merge_warnings, warning_messages, warning_scope
 from . import _native_flow
 from ._native_preparation_case import _ResultV1
-from .preparation_host import pack_saved_resources, borrow_ranges
+from .preparation_host import borrow_solver_mesh, pack_saved_resources, borrow_ranges
 from ._native_values import TOPOLOGIES, borrow_array, borrow_text
 from ._native_grid import _Scalar as GridScalar
 from .run_state import NativeRun
@@ -188,9 +188,13 @@ def prepare_stage(case, cfg, prepared, *, saved_flow_grid=None):
     values.input.geometry_mode = (0 if cfg['za'] is None else 1 if cfg['z_axis'] == 'continuous' else 2)
     values.input.delta_levelset = settings['geometry'].delta_levelset
     values.input.df_mode = ('cfd_smooth', 'experimental').index(settings['df_mode'])
-    values.nx, values.ny = len(prepared['energy_dx']), len(prepared['energy_dy'])
-    values.dx = borrow_array(prepared['energy_dx'], keepalive)
-    values.dy = borrow_array(prepared['energy_dy'], keepalive)
+    mesh = prepared.get('solver_mesh')
+    if mesh is None:
+        values.dx = borrow_array(prepared['energy_dx'], keepalive)
+        values.dy = borrow_array(prepared['energy_dy'], keepalive)
+    else:
+        values.dx, values.dy = mesh.solver_widths[:2]
+    values.nx, values.ny = values.dx.size, values.dy.size
     reference = _native_flow._scalar(case.parameters['L_cell_m'])
     values.cell_length_m = reference.value
     reference_kind = _Kind(reference.precision, reference.strong, int(bool(reference.strong)))
@@ -208,8 +212,11 @@ def prepare_stage(case, cfg, prepared, *, saved_flow_grid=None):
     diameter_kind = _Kind(diameter_values.precision, diameter_values.strong,
         2 if isinstance(selected_geometry['D_h'], np.ndarray) else int(bool(diameter_values.strong)))
     if geometry['fields'] is not None:
-        area = borrow_array(geometry['fields']['A_0'], keepalive)
-        diameter = borrow_array(diameter_storage, keepalive)
+        if mesh is None:
+            area = borrow_array(geometry['fields']['A_0'], keepalive)
+            diameter = borrow_array(diameter_storage, keepalive)
+        else:
+            area, diameter = mesh.solver_area, mesh.solver_diameter
     conductivity = (_Array(), _Array())
     cell_field_kind = _Kind(64, 1, 2)
     if values.input.geometry_mode:
@@ -287,14 +294,14 @@ def prepare_stage(case, cfg, prepared, *, saved_flow_grid=None):
     return uniform, area, diameter, conductivity, 'applicability_inputs' in case.metadata, captured, kinds, keepalive
 
 
-def execution_grid(case):
+def execution_grid(case, checked_shape=None):
     from sjtu_tpmshx.data_types.persistence_validation import validate_grid
     if case.grid.get('dimension') != 2:
         raise ValueError('2D execution requires a prepared 2D grid')
     missing = {'thermal_geometry', 'flow_inputs'} - case.parameters.keys()
     if missing:
         raise ValueError(f'incomplete prepared 2D execution data: {sorted(missing)}')
-    return validate_grid(case.grid)
+    return checked_shape if checked_shape is not None else validate_grid(case.grid)
 
 
 def _can_pack_settings(settings):
@@ -362,14 +369,15 @@ def _plain_zone(zone):
                for row in zone['zones'])
 
 
-def saved_inputs(case, shape, *, check_experiment=None, port_windows_fit=None):
+def saved_inputs(case, shape, *, checked_geometry=False, check_experiment=None, port_windows_fit=None):
     from sjtu_tpmshx.data_types.compute_config import ComputeConfig, _checked_saved_2d_settings
     from sjtu_tpmshx.data_types.persistence_validation import validate_thermal_geometry
     from sjtu_tpmshx.data_types.portable_data import mutable_data
     from sjtu_tpmshx.physical_models.zone_units import _legacy_zone_units
 
     cfg = dict(case.parameters)
-    validate_thermal_geometry(cfg['thermal_geometry'], shape)
+    if not checked_geometry:
+        validate_thermal_geometry(cfg['thermal_geometry'], shape)
     if set(cfg['flow_inputs']) != {'A', 'B'}:
         raise ValueError('prepared flow inputs require both physical sides')
     settings = _legacy_zone_units(mutable_data(cfg['run_settings']))
@@ -1256,8 +1264,13 @@ def run_case(case, control=RunControl(), *, direct_run, resume_state=None, check
     if control.backend != 'cpp' or control.native_library is None:
         raise ValueError('full native 2D requires backend=cpp and an explicit native_library')
     control.check_cancelled()
-    shape = execution_grid(case)
-    driver = StageDriver(control.native_library, table_directory=control.native_table_directory)
+    try:
+        driver = StageDriver(control.native_library, table_directory=control.native_table_directory)
+    except Exception:
+        execution_grid(case)
+        raise
+    checked = borrow_solver_mesh(case, driver.library, 2)
+    shape = execution_grid(case, None if checked is None else checked.shape)
     check_experiment = getattr(driver.library, 'tpmshx_stage_run_2d_check_experiment_v4', None)
     v4 = [check_experiment is not None,
           *(hasattr(driver.library, f'tpmshx_stage_run_2d_{name}_saved_v4') for name in ('create', 'restore'))]
@@ -1268,8 +1281,9 @@ def run_case(case, control=RunControl(), *, direct_run, resume_state=None, check
         port_windows_fit = getattr(driver.library, 'tpmshx_stage_port_windows_fit_2d_v1', None)
         if port_windows_fit is not None:
             port_windows_fit.argtypes, port_windows_fit.restype = [ct.c_double] * 5, ct.c_int
-        cfg, prepared, experiment = saved_inputs(case, shape, check_experiment=check_experiment,
+        cfg, prepared, experiment = saved_inputs(case, shape, checked_geometry=checked is not None, check_experiment=check_experiment,
                                                 port_windows_fit=port_windows_fit)
+        prepared['solver_mesh'] = checked
     else:
         from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
         cfg, prepared = build_execution_inputs(case, copy_design=False)

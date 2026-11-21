@@ -1,5 +1,5 @@
 """Own the shared preparation callbacks, native result lifetime and case records."""
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from contextlib import contextmanager
 import ctypes as ct
 from dataclasses import replace
@@ -17,7 +17,7 @@ from sjtu_tpmshx.run_control.run_warnings import (
     RangeRecord, current_warnings, merge_warnings, record_warning, warning_messages, _range_context,
 )
 from . import _native_flow, _native_preparation_case as abi, _native_properties
-from ._native_values import TOPOLOGIES, borrow_text, read_text
+from ._native_values import TOPOLOGIES, PackedArray, _Array as StridedArray, borrow_text, read_text
 from .stage_libraries import preparation_library
 
 
@@ -418,6 +418,80 @@ def pack_nu(target, settings, keepalive):
         target.alpha[index] = value or 0.
     for name in ('parameter_version', 'source', 'applicability'):
         setattr(target, name, borrow_text(getattr(settings, name), keepalive))
+
+
+class _PreparedMesh(ct.Structure):
+    _fields_ = [('dimension', ct.c_size_t), ('widths', StridedArray * 3), ('edges', StridedArray * 3)]
+    _fields_ += [(name, ct.c_double) for name in ('area_density', 'hydraulic_diameter', 'porosity', 'split_a')]
+    _fields_ += [('fields', StridedArray * 3), ('side_geometry', StridedArray * 2),
+                 ('axis_present', ct.c_uint32 * 2), ('axes', (ct.c_int32 * 6) * 2),
+                 ('solver_widths', abi._Array * 3), ('solver_area', abi._Array), ('solver_diameter', abi._Array)]
+
+    @property
+    def shape(self):
+        return tuple(width.size for width in self.solver_widths[:self.dimension])
+
+
+def borrow_solver_mesh(case, library, dimension):
+    """Borrow the prepared mesh. Other numeric layouts use the portable schema checks."""
+    check = getattr(library, 'tpmshx_stage_borrow_mesh_v1', None)
+    if check is None:
+        return None
+    keepalive = []
+
+    def view(array):
+        packed = PackedArray(array)
+        keepalive.append(packed)
+        return packed.raw
+
+    grid = case.grid
+    axes = tuple('xyz'[:dimension])
+    try:
+        if (type(grid['dimension']) is not int or grid['dimension'] != dimension
+                or grid['length_unit'] != 'm' or tuple(grid['axis_order']) != axes):
+            return None
+        mesh = _PreparedMesh(dimension)
+        for i, axis in enumerate(axes):
+            mesh.widths[i] = view(grid['d' + axis])
+            mesh.edges[i] = view(grid[axis + '_edges'])
+        thermal = case.parameters['thermal_geometry']
+        if 'air_bulk_hv' in thermal and not (isinstance(thermal['air_bulk_hv'], Mapping) and not thermal['air_bulk_hv']):
+            return None
+        keys = ('A_0', 'D_h', 'epsilon')
+        values = tuple(thermal['uniform'][key] for key in keys) + (thermal['split_A'],)
+        if any(type(x) not in (float, np.float16, np.float32, np.float64) for x in values):
+            return None
+        mesh.area_density, mesh.hydraulic_diameter, mesh.porosity, mesh.split_a = values
+        if thermal['fields'] is not None:
+            for i, key in enumerate(keys):
+                mesh.fields[i] = view(thermal['fields'][key])
+        sides = thermal['side_geometry']
+        if sides is not None:
+            if set(sides) != {'A', 'B'}:
+                return None
+            for i, side in enumerate('AB'):
+                mesh.side_geometry[i] = view(sides[side])
+        if dimension == 3:
+            mappings = case.parameters['prepared']['axes']
+            if not set(mappings).issubset('AB'):
+                return None
+            for i, side in enumerate('AB'):
+                mapping = mappings.get(side)
+                if mapping is None:
+                    continue
+                indices = (mapping['cross1_real_axis'], mapping['stream_real_axis'], mapping['cross2_real_axis'],
+                           *mapping['solver_to_real_perm'])
+                if len(indices) != 6 or any(type(x) is not int or x not in (0, 1, 2) for x in indices):
+                    return None
+                mesh.axes[i][:] = indices
+                mesh.axis_present[i] = 1
+    except (KeyError, IndexError, TypeError, ValueError, OverflowError, AttributeError):
+        return None
+    check.argtypes, check.restype = [ct.POINTER(_PreparedMesh)], ct.c_int
+    if check(ct.byref(mesh)):
+        mesh.storage = keepalive
+        return mesh
+    return None
 
 
 def pack_saved_resources(case, models, nu, saved, settings, keepalive):

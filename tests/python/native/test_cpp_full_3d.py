@@ -384,6 +384,9 @@ def test_native_call_borrows_case_arrays_and_recovers(native_path, monkeypatch, 
                            'K_ss_arr': data.solid_conductivity.data, 'eps_arr': data.total_porosity.data})
         else:
             data = args[0]._obj.values.input.contents
+            assert data.area_density.size == data.hydraulic_diameter.size == 1
+            for axis, width in zip('xyz', data.widths):
+                assert ct.cast(width.data, ct.c_void_p).value == prepared.grid['d'+axis].ctypes.data
             check_buffers({key: getattr(data, field).data for key, field in (
                 ('eps_arr', 'epsilon'), ('eps_A', 'epsilon_a'), ('eps_B', 'epsilon_b'),
                 ('K_m2', 'permeability'), ('cF_per_m', 'forchheimer'),
