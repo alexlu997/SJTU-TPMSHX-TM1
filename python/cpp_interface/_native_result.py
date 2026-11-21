@@ -8,7 +8,8 @@ import numpy as np
 from .stage_libraries import result_library
 
 from ._native_values import (
-    _Array, _Diagnostics, _Scalar, NATIVE_DTYPES, PackedArray, notify_diagnostics as notify, packed_scalar,
+    _Array as _Array, _Diagnostics, _Scalar as _Scalar, NATIVE_DTYPES, PackedArray,
+    notify_diagnostics as notify, packed_scalar,
 )
 
 
