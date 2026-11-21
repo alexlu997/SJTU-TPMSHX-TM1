@@ -5,6 +5,8 @@ from itertools import product
 import numpy as np
 import pytest
 
+from sjtu_tpmshx.cpp_interface._native_values import copy_array
+
 from tests.python import preparation_api_reference as reference
 from tests.python import test_native_preparation_3d as uniform
 from tests.python import test_native_preparation_continuous_3d as continuous
@@ -253,7 +255,7 @@ def test_owned_3d_views_cannot_be_diagnostic_outputs(mode, alias):
     assert call(ct.byref(source), ct.byref(options), None, ct.byref(result),
                 ct.byref(failure), error, len(error)) == 0
     try:
-        field = native._array(result.prepared.cell_length)
+        field = copy_array(result.prepared.cell_length)
         before = bytes(result), bytes(failure), bytes(error), field.copy()
         output_error = ct.cast(result.prepared.cell_length.data, ct.POINTER(ct.c_char)) if alias == 'error' else error
         output_failure = (ct.cast(result.prepared.cell_length.data, ct.POINTER(native._Failure))
@@ -261,7 +263,7 @@ def test_owned_3d_views_cannot_be_diagnostic_outputs(mode, alias):
         assert call(ct.byref(source), ct.byref(options), None, ct.byref(result),
                     output_failure, output_error, 8 if alias == 'error' else len(error)) == 1
         assert (bytes(result), bytes(failure), bytes(error)) == before[:3]
-        np.testing.assert_array_equal(native._array(result.prepared.cell_length), before[3])
+        np.testing.assert_array_equal(copy_array(result.prepared.cell_length), before[3])
     finally:
         bindings.releases[kind](ct.byref(result))
 
