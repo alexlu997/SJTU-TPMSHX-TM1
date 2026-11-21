@@ -395,6 +395,20 @@ def pack_run_controls(request, cfg, prepared, shape):
             setattr(request, target, _Double(1, cfg[source]))
 
 
+def pack_saved_case(case, data, cell_mm, wall_mm, nu, keepalive, version):
+    ranges, captured = _ranges(case.metadata.get('applicability_inputs', ()), keepalive)
+    notices = (_Text * len(case.metadata['notices']))(*(
+        _text(notice, keepalive) for notice in case.metadata['notices']))
+    evidence = _Evidence(ranges=ranges, range_count=len(ranges))
+    saved = _Saved(1, ct.sizeof(_Saved), ct.pointer(data), cell_mm, wall_mm, case.parameters['eps'],
+        _array(case.design_fields['t_field_m'], keepalive), evidence, notices, len(notices),
+        'applicability_inputs' in case.metadata, captured)
+    if version == 2:
+        saved = pack_saved_v2(saved, case, cell_mm, wall_mm, nu, keepalive)
+    keepalive.append(notices)
+    return saved
+
+
 class SavedRun(NativeRun):
     api_prefix = 'tpmshx_stage_run_3d'
     advance_name = 'advance_step'
@@ -402,20 +416,9 @@ class SavedRun(NativeRun):
     result_type = _StageResult
     result_release_name = 'tpmshx_stage_run_3d_release_v1'
 
-    def __init__(self, library, case, data, cell_mm, wall_mm, nu, request, host, errors,
-                 keepalive, state, *, version):
-        self.errors, self.keepalive = errors, keepalive
-        ranges, captured = _ranges(case.metadata.get('applicability_inputs', ()), keepalive)
-        notices = (_Text * len(case.metadata['notices']))(*(
-            _text(notice, keepalive) for notice in case.metadata['notices']))
-        evidence = _Evidence(ranges=ranges, range_count=len(ranges))
-        saved = _Saved(1, ct.sizeof(_Saved), ct.pointer(data), cell_mm, wall_mm, case.parameters['eps'],
-            _array(case.design_fields['t_field_m'], keepalive), evidence, notices, len(notices),
-            'applicability_inputs' in case.metadata, captured)
-        self.creation_version = version
-        if version == 2:
-            saved = pack_saved_v2(saved, case, cell_mm, wall_mm, nu, keepalive)
-        keepalive.extend((saved, request, host, notices))
+    def __init__(self, library, saved, request, host, errors, state):
+        self.errors = errors
+        self.creation_version = saved.abi_version
         super().__init__(library, [ct.POINTER(type(saved)), ct.POINTER(_Request), ct.POINTER(_Host)],
             [ct.byref(saved), ct.byref(request), ct.byref(host)], host.callbacks, state)
 
@@ -766,10 +769,23 @@ def run_saved(case, control, library, abi, table_directory, execution_query, *,
     host = _Host(case.case_id.encode(), table_directory, cpu_threads, callbacks)
     result = None
     try:
-        with SavedRun(library, case, data, cell_mm, wall_mm, nu, request, host, errors,
-                      keepalive, resume_state, version=2) as run:
-            run.finish(checkpoint, checkpoint_due, (1, 2, 6, 7, 8, 9, 10))
-            result = run.take_result()
+        saved = pack_saved_case(case, data, cell_mm, wall_mm, nu, keepalive, 2)
+        complete = getattr(library, 'tpmshx_run_saved_case_3d_v2', None)
+        if complete is not None and checkpoint is None and resume_state is None:
+            complete.argtypes = [ct.POINTER(_SavedV2), ct.POINTER(_Request), ct.POINTER(_Host),
+                                 ct.POINTER(_StageResult), ct.POINTER(ct.c_char), ct.c_size_t]
+            complete.restype = ct.c_int
+            result = _StageResult()
+            error = ct.create_string_buffer(2048)
+            code = complete(ct.byref(saved), ct.byref(request), ct.byref(host), ct.byref(result), error, len(error))
+            if errors:
+                raise errors[0]
+            if code:
+                raise SavedRun.error_types.get(code, RuntimeError)(error.value.decode())
+        else:
+            with SavedRun(library, saved, request, host, errors, resume_state) as run:
+                run.finish(checkpoint, checkpoint_due, (1, 2, 6, 7, 8, 9, 10))
+                result = run.take_result()
         bootstrap = bootstrap_traces(query_bootstrap, result.raw)
         require_completed(result.raw, bootstrap)
         summary = copy_summary(library, result, emit_audit=bool(cfg.get('_emit_audit', False)), copy_array=_copy)

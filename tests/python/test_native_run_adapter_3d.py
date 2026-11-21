@@ -170,16 +170,10 @@ def test_partial_stage_protocol_is_rejected_before_execution(missing, monkeypatc
 
 
 @pytest.mark.parametrize('callback', ['progress', 'iteration', 'outer_iteration', 'cancel_check', 'checkpoint'])
-def test_callback_baseexception_keeps_identity(callback, monkeypatch):
+def test_callback_baseexception_keeps_identity(callback):
     config, _ = reference._configuration()
     case = prepare_case(config, case_id='callback-identity')
     sentinel = KeyboardInterrupt('3D callback sentinel')
-    released = []
-    original = full_3d_stage.SavedRun.close
-    def close(self):
-        original(self)
-        released.append(not self.handle.value)
-    monkeypatch.setattr(full_3d_stage.SavedRun, 'close', close)
     def fail(*args):
         raise sentinel
     kwargs = {'checkpoint': fail} if callback == 'checkpoint' else {}
@@ -187,8 +181,6 @@ def test_callback_baseexception_keeps_identity(callback, monkeypatch):
     with pytest.raises(KeyboardInterrupt) as caught:
         run_case(case, _control(**callbacks), **kwargs)
     assert caught.value is sentinel
-    if callback != 'cancel_check':
-        assert released and all(released)
 
 
 @pytest.mark.parametrize('library_kind', ['current', 'archived', 'archived-stage'])
@@ -491,18 +483,24 @@ def test_applicability_transfer_error_releases_without_fallback(dimension, monke
         case = prepare_case(config, case_id='failed-transfer')
     sentinel = LookupError('evidence transfer failed')
     from sjtu_tpmshx.cpp_interface import full_2d_stage
-    run_type = full_2d_stage._Run if dimension == 2 else full_3d_stage.SavedRun
-    original = run_type.take_result
     owners = []
-    def take(run):
-        result = original(run)
-        owners.append(result)
-        return result
+    if dimension == 3:
+        release = full_3d_stage.release_result
+        def observe_release(library, result):
+            owners.append(result)
+            release(library, result)
+        monkeypatch.setattr(full_3d_stage, 'release_result', observe_release)
+    else:
+        original = full_2d_stage._Run.take_result
+        def take(run):
+            result = original(run)
+            owners.append(result)
+            return result
+        monkeypatch.setattr(full_2d_stage._Run, 'take_result', take)
     def broken(pointer, saved):
         raise sentinel
     def forbidden(*args, **kwargs):
         pytest.fail('a stage transfer error must not use direct capture')
-    monkeypatch.setattr(run_type, 'take_result', take)
     from sjtu_tpmshx.cpp_interface import _native_result_stage
     monkeypatch.setattr(_native_result_stage, 'copy_applicability', broken)
     monkeypatch.setattr(applicability_evidence, 'capture_applicability', forbidden)

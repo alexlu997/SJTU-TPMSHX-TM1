@@ -176,8 +176,9 @@ class NativeFull3DDriver:
         try:
             if stage_case is not None:
                 host = stage._Host(stage_case.case_id.encode(), self.table_directory, cpu_thread_limit, callbacks)
-                with stage.SavedRun(self.library, stage_case, data, cfg['Lcell'], cfg['t_wall'], cfg['sco2_nu'],
-                                    request, host, callback_errors, keepalive, resume_state, version=2 if saved_v2 else 1) as run:
+                saved = stage.pack_saved_case(stage_case, data, cfg['Lcell'], cfg['t_wall'], cfg['sco2_nu'],
+                                              keepalive, 2 if saved_v2 else 1)
+                with stage.SavedRun(self.library, saved, request, host, callback_errors, resume_state) as run:
                     run.finish(checkpoint, checkpoint_due, (1, 2, 6, 7, 8, 9, 10))
                     stage_result = run.take_result()
                 result = stage_result.raw

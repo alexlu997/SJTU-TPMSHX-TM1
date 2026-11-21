@@ -406,6 +406,7 @@ Status zero means a result was transferred; it does not establish convergence.
 A cancelled result retains raw diagnostics with `raw.stop=2` and no completed evaluation evidence.
 A successful result can be transferred only once. Output and error buffers must not overlap inputs or each other.
 Current 3D runs and checkpoint restores use the saved v2 descriptor.
+For a fresh run, Python calls `tpmshx_run_saved_case_3d_v2` when the library provides it. C++ owns the run through result transfer. Checkpoints and older libraries use the step interface.
 C++ checks the physical domain, axis maps, port masks, model resources and cell design fields before the first step.
 The Python adapter checks the portable array shapes and keeps borrowed storage alive.
 Direct clients and archived libraries can still use saved v1.

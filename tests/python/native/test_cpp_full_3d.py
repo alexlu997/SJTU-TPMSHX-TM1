@@ -336,7 +336,7 @@ def test_owned_fields_survive_subsequent_and_parallel_calls(native_path):
 def test_native_call_borrows_case_arrays_and_recovers(native_path, monkeypatch, dimension, failure, solid_dtype):
     import ctypes as ct
     from sjtu_tpmshx.cpp_interface.full_2d_stage import _Run
-    from sjtu_tpmshx.cpp_interface.full_3d_stage import SavedRun
+    from sjtu_tpmshx.cpp_interface import full_3d_stage
     from tests.python.native.test_full_2d import configuration
 
     config = configuration(outer=2) if dimension == 2 else _config(3, True)
@@ -355,35 +355,38 @@ def test_native_call_borrows_case_arrays_and_recovers(native_path, monkeypatch, 
               if isinstance(value, np.ndarray)}
     copied = replace(prepared, design_fields={**prepared.design_fields, **before})
     reference = cpp_run(copied, control(native_path))
-    run_type = _Run if dimension == 2 else SavedRun
-    original_call, entered = run_type._call, []
+    entered = []
 
-    def observe(run, function, *args):
-        if function is run._create:
-            if dimension == 2:
+    def check_buffers(pointers):
+        for key, pointer in pointers.items():
+            source = prepared.design_fields[key]
+            same_buffer = ct.cast(pointer, ct.c_void_p).value == source.ctypes.data
+            assert same_buffer == (source.dtype == np.float64)
+            np.testing.assert_array_equal(np.ctypeslib.as_array(pointer, shape=(source.size,)), source.ravel())
+        entered.append(True)
+
+    if dimension == 2:
+        original_call = _Run._call
+        def observe(run, function, *args):
+            if function is run._create:
                 saved = args[0]._obj.values.values.values
                 data = saved.prepared.contents.values
-                pointers = {
-                    'K_ffA_arr': saved.fluid_conductivity[0].data,
-                    'K_ffB_arr': saved.fluid_conductivity[1].data,
-                    'K_ss_arr': data.solid_conductivity.data,
-                    'eps_arr': data.total_porosity.data,
-                }
-            else:
-                data = args[0]._obj.values.input.contents
-                pointers = {key: getattr(data, field).data for key, field in (
-                    ('eps_arr', 'epsilon'), ('eps_A', 'epsilon_a'), ('eps_B', 'epsilon_b'),
-                    ('K_m2', 'permeability'), ('cF_per_m', 'forchheimer'),
-                    ('K_ss', 'solid_conductivity'), ('L_field_m', 'cell_length'))}
-            for key, pointer in pointers.items():
-                source = prepared.design_fields[key]
-                same_buffer = ct.cast(pointer, ct.c_void_p).value == source.ctypes.data
-                assert same_buffer == (source.dtype == np.float64)
-                np.testing.assert_array_equal(np.ctypeslib.as_array(pointer, shape=(source.size,)), source.ravel())
-            entered.append(True)
-        return original_call(run, function, *args)
-
-    monkeypatch.setattr(run_type, '_call', observe)
+                check_buffers({'K_ffA_arr': saved.fluid_conductivity[0].data,
+                               'K_ffB_arr': saved.fluid_conductivity[1].data,
+                               'K_ss_arr': data.solid_conductivity.data, 'eps_arr': data.total_porosity.data})
+            return original_call(run, function, *args)
+        monkeypatch.setattr(_Run, '_call', observe)
+    else:
+        pack = full_3d_stage.pack_saved_case
+        def observe_saved(*args):
+            saved = pack(*args)
+            data = saved.values.input.contents
+            check_buffers({key: getattr(data, field).data for key, field in (
+                ('eps_arr', 'epsilon'), ('eps_A', 'epsilon_a'), ('eps_B', 'epsilon_b'),
+                ('K_m2', 'permeability'), ('cF_per_m', 'forchheimer'),
+                ('K_ss', 'solid_conductivity'), ('L_field_m', 'cell_length'))})
+            return saved
+        monkeypatch.setattr(full_3d_stage, 'pack_saved_case', observe_saved)
 
     def fail(*_):
         raise RuntimeError('borrow callback sentinel')
