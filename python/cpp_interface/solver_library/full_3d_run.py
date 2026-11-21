@@ -1,8 +1,8 @@
 """Owned native 3D runs with the shared typed state binding."""
 import ctypes as ct
 
-from sjtu_tpmshx.cpp_interface.solver_library.enthalpy import _EnergyOptionsV2
-from sjtu_tpmshx.cpp_interface.solver_library.model_h import _IterationOptions
+from sjtu_tpmshx.cpp_interface.solver_library._thermal_abi import _EnergyOptionsV2
+from sjtu_tpmshx.cpp_interface.solver_library._thermal_abi import _IterationOptions
 from sjtu_tpmshx.cpp_interface.solver_library._full_3d_abi import _Callbacks, _Control, _Input, _Result
 from sjtu_tpmshx.cpp_interface.run_state import NativeRun
 

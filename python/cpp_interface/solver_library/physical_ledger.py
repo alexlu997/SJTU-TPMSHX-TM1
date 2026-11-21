@@ -3,7 +3,7 @@ import ctypes as ct
 
 import numpy as np
 
-from .model_h import _Array
+from ._thermal_abi import _ThermalArray as _Array
 
 
 class HeatLedger(ct.Structure):

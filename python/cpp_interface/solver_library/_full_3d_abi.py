@@ -2,8 +2,8 @@
 import ctypes as ct
 
 from .simple_3d import _Config as _SimpleConfig, _Result as _SimpleResult
-from .model_h import _Result as _ModelResult
-from .enthalpy import _Result as _EnthalpyResult, _EnergyResult
+from ._thermal_abi import _ModelHResult as _ModelResult
+from ._thermal_abi import _EnthalpyResult, _EnergyResult
 from .closure_evidence import NuObservation, RangeObservation
 
 

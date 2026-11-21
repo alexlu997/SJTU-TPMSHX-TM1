@@ -2,8 +2,8 @@
 import ctypes as ct
 
 from sjtu_tpmshx.physical_models.envelope import ChokedFlowError
-from sjtu_tpmshx.cpp_interface.solver_library.enthalpy import _EnergyOptions
-from sjtu_tpmshx.cpp_interface.solver_library.model_h import _IterationOptions
+from sjtu_tpmshx.cpp_interface.solver_library._thermal_abi import _EnergyOptions
+from sjtu_tpmshx.cpp_interface.solver_library._thermal_abi import _IterationOptions
 from sjtu_tpmshx.cpp_interface.solver_library._full_2d_abi import _Callbacks, _Config, _EnergyControl, _Result
 from sjtu_tpmshx.cpp_interface.run_state import NativeRun
 

@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.cpp_interface.solver_library.model_h import _Array
+from sjtu_tpmshx.cpp_interface.solver_library._thermal_abi import _ThermalArray as _Array
 from sjtu_tpmshx.cpp_interface.solver_library.temperature_evidence import (
     TemperatureEvidence, TemperatureEvidence2D, copy_temperature_evidence,
 )

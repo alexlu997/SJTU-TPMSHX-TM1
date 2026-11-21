@@ -2,6 +2,7 @@
 import ctypes as ct
 from copy import deepcopy
 from dataclasses import replace
+from pathlib import Path
 from uuid import uuid4
 
 import numpy as np
@@ -12,30 +13,66 @@ from sjtu_tpmshx.data_types.compute_config import validate_simple_velocity_relax
 from sjtu_tpmshx.run_control.run_environment import run_environment
 from sjtu_tpmshx.cpp_interface._native_preparation_case import _Array, _Kind, _Nu, _ResultV2, _Text
 from sjtu_tpmshx.physical_models.envelope import ChokedFlowError
-from sjtu_tpmshx.cpp_interface.solver_library._full_2d_abi import _Callbacks, _Config, _EnergyControl, _EnergyEvidence, _Result
-from sjtu_tpmshx.cpp_interface.solver_library.enthalpy import _EnergyOptions, _energy_algorithm_query, _energy_options
+from .solver_library._full_2d_abi import (
+    _Callbacks,
+    _Cancel,
+    _Config,
+    _EnergyControl,
+    _EnergyEvidence,
+    _FINE_FLAGS,
+    _FLAGS,
+    _FLOW_ARRAYS,
+    _FlowMethod,
+    _Pressure,
+    _Progress,
+    _Residual,
+    _Result,
+)
+from .solver_library._thermal_abi import (
+    _EnergyOptions,
+    _FullEnergyEffectiveSettings,
+    _IterationOptions,
+    _energy_algorithm_query,
+    _energy_options,
+    _iteration_options,
+)
 from sjtu_tpmshx.data_types.field_result import FieldResult
 from sjtu_tpmshx.data_types.validator import compute_volumetric_htc
 from sjtu_tpmshx.run_control.run_warnings import current_warnings, merge_warnings, warning_messages, warning_scope
-from sjtu_tpmshx.cpp_interface.solver_library.model_h import _IterationOptions, _iteration_options
 from . import _native_flow
 from ._native_preparation_case import _ResultV1, pack_saved_resources, borrow_array, borrow_ranges, borrow_text
 from ._native_grid import _Scalar as GridScalar
 from .run_state import NativeRun
-from .solver_library._full_2d_abi import _Cancel, _FINE_FLAGS, _FLAGS, _FLOW_ARRAYS, _FlowMethod, _Pressure, _Progress, _Residual
-from .solver_library._stage_capture_abi import (StageExecution, copy_sampling, executed_inputs, executed_view,
-    execution_sides, execution_view_query, replay_sco2_notices, sampling_query, sampling_records,
-    stage_records, thermal_execution)
-from .solver_library.enthalpy import _update_scale_query, _copy_update_scale, _decode_update_scale
-from pathlib import Path
+from .solver_library._stage_capture_abi import (
+    StageExecution,
+    _copy_iteration_records,
+    _copy_update_scale,
+    _decode_iteration_records,
+    _decode_update_scale,
+    _energy_native_state,
+    _energy_result_info,
+    _executed_energy_settings,
+    _full_enthalpy_info,
+    _iteration_query,
+    _model_h_algorithm,
+    _plane_info,
+    _update_scale_query,
+    copy_sampling,
+    executed_inputs,
+    executed_view,
+    execution_sides,
+    execution_view_query,
+    replay_sco2_notices,
+    sampling_query,
+    sampling_records,
+    stage_records,
+    thermal_execution,
+)
 from sjtu_tpmshx.run_control.module_ports import RunControl
 from sjtu_tpmshx.run_control.run_environment import require_f2_mode
 from .solver_library.physical_ledger import HeatLedger2D, heat_ledger_query, copy_heat_ledger
 from .solver_library.simple_2d import _result_dict
-from .solver_library.model_h import _plane_info, _model_h_algorithm
 from .solver_library.temperature_evidence import TemperatureEvidence2D, copy_temperature_evidence
-from .solver_library.model_h import _iteration_query, _copy_iteration_records, _decode_iteration_records
-from .solver_library.enthalpy import _energy_result_info, _energy_native_state, _FullEnergyEffectiveSettings, _full_enthalpy_info, _executed_energy_settings
 from .solver_library.closure_evidence import copy_nu_observation, copy_range_observations, last_range_query, copy_last_ranges
 
 _U, _S, _D = ct.c_uint32, ct.c_size_t, ct.c_double
@@ -398,7 +435,7 @@ def run_stage(driver, case, cfg, prepared, control, *, saved_version=1,
     request, energy = _request(cfg)
     callbacks, errors = _callbacks(control)
     stage_control = _Control(case.case_id.encode(), driver.table_directory, control.native_cpu_threads(), callbacks)
-    execution_query = execution_view_query(library, 2, _StageResult, _ExecutionView)
+    execution_query = driver.execution_query
     energy_query = version_query = None
     if execution_query is None and energy.algorithm:
         energy_query = library.tpmshx_full_2d_get_energy_evidence_v1
@@ -880,6 +917,8 @@ def _callbacks(control):
 
 
 class StageDriver:
+    require_legacy_evidence = False
+
     def __init__(self, library, *, table_directory=None):
         path = Path(library)
         if not path.is_absolute():
@@ -894,6 +933,14 @@ class StageDriver:
         self.abi = version()
         if self.abi != 2:
             raise ValueError(f'unsupported full 2D ABI {self.abi}; expected 2')
+        self.execution_query = execution_view_query(self.library, 2, _StageResult, _ExecutionView)
+        if self.require_legacy_evidence or self.execution_query is None:
+            self._bind_legacy_evidence()
+        self.query_flow_methods = self.library.tpmshx_full_2d_get_flow_methods_v1
+        self.query_flow_methods.argtypes = [ct.POINTER(_Result), ct.POINTER(_FlowMethod)]
+        self.query_flow_methods.restype = ct.c_int
+
+    def _bind_legacy_evidence(self):
         try:
             self.query_settings = self.library.tpmshx_full_2d_get_energy_effective_settings_v1
         except AttributeError as exc:
@@ -902,9 +949,6 @@ class StageDriver:
         self.query_settings.restype = ct.c_int
         self.query_update_scale = _update_scale_query(self.library, 2, _Result)
         self.query_model_h = _iteration_query(self.library, 2, _Result)
-        self.query_flow_methods = self.library.tpmshx_full_2d_get_flow_methods_v1
-        self.query_flow_methods.argtypes = [ct.POINTER(_Result), ct.POINTER(_FlowMethod)]
-        self.query_flow_methods.restype = ct.c_int
 
     def copy_result(self, result, shape, config, *, entry_version, control=RunControl(),
                     cpu_thread_limit=None, energy_query=None, version_query=None, resume_state=None,

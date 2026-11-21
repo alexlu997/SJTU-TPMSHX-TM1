@@ -3,8 +3,8 @@ import ctypes as ct
 
 from ._simple_abi import _F2
 from .simple_2d import _Result as _SimpleResult
-from .model_h import _Array, _Result as _ModelResult
-from .enthalpy import _Result as _EnthalpyResult, _EnergyOptionsV2, _EnergyResult
+from ._thermal_abi import _ThermalArray as _Array, _ModelHResult as _ModelResult
+from ._thermal_abi import _EnthalpyResult, _EnergyOptionsV2, _EnergyResult
 from .closure_evidence import NuObservation, RangeObservation
 
 

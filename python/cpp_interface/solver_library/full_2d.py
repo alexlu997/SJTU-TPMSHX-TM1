@@ -10,12 +10,21 @@ from sjtu_tpmshx.physical_models.envelope import ChokedFlowError
 from sjtu_tpmshx.physical_models.fluid_props import WaterStateError
 from sjtu_tpmshx.solvers.backends.prepared_2d import _validated_outlet_fraction
 from ._simple_abi import _F2
-from .model_h import _IterationOptions, _iteration_options
-from .enthalpy import _EnergyOptions, _EnergyOptionsV2, _energy_options, _energy_algorithm_query, _full_enthalpy_defaults
+from ._thermal_abi import (
+    _EnergyOptions,
+    _EnergyOptionsV2,
+    _IterationOptions,
+    _energy_algorithm_query,
+    _energy_options,
+    _full_enthalpy_defaults,
+    _iteration_options,
+)
 from ..full_2d_stage import StageDriver, _callbacks, convergence_controls, run_case as _run_case
 
 
 class NativeFull2DDriver(StageDriver):
+    require_legacy_evidence = True
+
     def __init__(self, library, *, table_directory=None):
         super().__init__(library, table_directory=table_directory)
         self.call = self.library.tpmshx_solve_full_2d_v2
