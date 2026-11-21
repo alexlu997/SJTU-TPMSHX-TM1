@@ -3,6 +3,7 @@
 #include "tpmshx/preparation_case.hpp"
 #include "preparation_c_boundary.hpp"
 #include "preparation_properties.hpp"
+#include "../numerics/scalar_range_samples.hpp"
 
 #include <algorithm>
 #include <cstring>
@@ -1094,6 +1095,20 @@ template<class Source,class Result,class Function> int flow_boundary(
 
 extern "C" uint32_t TPMSHX_PREPARATION_CALL tpmshx_preparation_case_abi_version_v1(void) {
     return TPMSHX_PREPARATION_CASE_ABI_VERSION;
+}
+extern "C" int TPMSHX_PREPARATION_CALL tpmshx_preparation_collect_range_v1(
+    tpmshx_preparation_array_v1 values,double lower,double upper,tpmshx_preparation_range_sample_v1* output,
+    char* error,size_t capacity) {
+    if (!tpmshx::fields::c_api::error_buffer_valid(error,capacity)) return TPMSHX_PREPARATION_INVALID;
+    try {
+        require_disjoint(error,capacity,values.data,values.size);
+        require_disjoint(error,capacity,output,1);
+    } catch (const std::invalid_argument&) {return TPMSHX_PREPARATION_INVALID;}
+    return p::c_api::boundary(error,capacity,[&] {
+        require_disjoint(values.data,values.size,output,1);
+        *output=tpmshx::detail::collect_range<tpmshx_preparation_range_sample_v1>(values.size,
+            [&](std::size_t index) {return values.data[index];},lower,upper);
+    });
 }
 extern "C" int TPMSHX_PREPARATION_CALL tpmshx_query_inlet_properties_v1(
     const tpmshx_preparation_inlet_query_input_v1* source,

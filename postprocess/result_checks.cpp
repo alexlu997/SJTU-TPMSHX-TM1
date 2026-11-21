@@ -26,23 +26,8 @@ std::array<double, 2> margin(double lower, double upper) {
 
 tpmshx_result_range_sample_v1 collect_range(const Array& values, double lower, double upper) {
     require_double(values);
-    tpmshx_result_range_sample_v1 output{};
-    output.size = values.size();
-    for (std::size_t index=0; index<values.size(); ++index) {
-        const double value=double_at(values,index);
-        if (!std::isfinite(value)) {++output.nonfinite;continue;}
-        if (!output.have_finite) {
-            output.minimum=output.maximum=value;
-            output.minimum_index=output.maximum_index=index;
-            output.have_finite=1;
-        } else {
-            if (value<output.minimum) {output.minimum=value;output.minimum_index=index;}
-            if (value>output.maximum) {output.maximum=value;output.maximum_index=index;}
-        }
-        output.low += value<lower;
-        output.high += value>upper;
-    }
-    return output;
+    return detail::collect_range<tpmshx_result_range_sample_v1>(values.size(),
+        [&](std::size_t index) {return double_at(values,index);},lower,upper);
 }
 
 tpmshx_result_scalar_sample_indices_v1 scalar_samples(const Array& values, double lower, double upper) {

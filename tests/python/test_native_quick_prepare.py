@@ -320,6 +320,21 @@ def test_property_range_records_keep_source_side_and_stage():
     assert any(row['high'] for row in actual['records'].values())
 
 
+def test_prepare_and_pressure_observe_ranges_without_result_or_solver(monkeypatch, tmp_path):
+    for name in ('TPMSHX_RESULT_LIBRARY', 'TPMSHX_NATIVE_SOLVER_LIBRARY', 'TPMSHX_SOLVER_LIBRARY'):
+        monkeypatch.setenv(name, str(tmp_path / name))
+
+    arguments = _args(case=_case(T_in_h=1200.))
+    with warning_scope({}) as preparation_records:
+        prepared = production.prepare_quick_design(**arguments, case_id='preparation-only')
+    with warning_scope({}) as pressure_records:
+        pressure = production.pressure_fractions(**arguments)
+
+    assert pressure == tuple(prepared.parameters['inlet_pressure_fractions'][side] for side in 'AB')
+    assert any(row.high for row in preparation_records.values())
+    assert preparation_records == pressure_records
+
+
 def test_geometry_cache_clear_reaches_the_preparation_owner():
     outcomes = []
     for function in _functions(False):
