@@ -12,7 +12,7 @@ from sjtu_tpmshx.data_types.compute_config import ComputeConfig, bc_to_dict
 from sjtu_tpmshx.data_types.model_refs import ModelRef
 from sjtu_tpmshx.run_control.run_environment import capture_environment
 from sjtu_tpmshx.cpp_interface import _native_grid as grid
-from sjtu_tpmshx.cpp_interface._native_fp import restore_buffer_scalar
+from sjtu_tpmshx.cpp_interface._native_values import borrow_text, read_text, restore_buffer_scalar
 from sjtu_tpmshx.cpp_interface import _native_preparation_case as native
 from sjtu_tpmshx.cpp_interface import _native_preparation_3d as three
 
@@ -84,10 +84,7 @@ def _input(config, targets, operation):
         value.sco2_nu.have_alpha[index], value.sco2_nu.alpha[index] = selected is not None, selected or 0.
     buffers = []
     for name in ('parameter_version', 'source', 'applicability'):
-        encoded = getattr(settings, name).encode('utf-8')
-        buffer = ct.create_string_buffer(encoded)
-        buffers.append(buffer)
-        setattr(value.sco2_nu, name, native._Text(ct.cast(buffer, ct.POINTER(ct.c_char)), len(encoded)))
+        setattr(value.sco2_nu, name, borrow_text(getattr(settings, name), buffers))
     flow = three._FlowInput(2, ct.sizeof(three._FlowInput), value)
     flow.have_explicit_targets = targets is not None
     for index, side in enumerate('AB'):
@@ -233,7 +230,7 @@ def _case(result, config, case_id, context):
             max_outer=None if config.solver.max_outer_ltne is None else int(config.solver.max_outer_ltne),
             ltne_max_iter=20000, compact=False,
             geometry=uniform, axes=axes, openings=openings, properties=properties))
-    refs = tuple(ModelRef(native._text(model.name), native._text(model.version),
+    refs = tuple(ModelRef(read_text(model.name), read_text(model.version),
         {'fluid': getattr(config, 'fluid_' + 'AB'[index]).type, 'sco2_nu': asdict(config.sco2_nu)}
         if index < 2 else {'topology': config.geometry.tpms} if index == 3 else {},
         applicability='side ' + 'AB'[index] if index < 2 else '') for index, model in enumerate(value.models))
@@ -242,7 +239,7 @@ def _case(result, config, case_id, context):
     return CaseData.from_compute_config(case_id, config, grid=grid, design_fields=design, parameters=params,
         model_refs=refs, metadata=dict(preprocessor='three_d_v1', quantity_basis='total', design_mode=mode,
             model_metadata=common.model_metadata(value, value.input.sco2_nu, config),
-            notices=[native._text(item) for item in value.notices[:value.notice_count]],
+            notices=[read_text(item) for item in value.notices[:value.notice_count]],
             model_roles={'fluid_A': 0, 'fluid_B': 1, 'geometry': 2, 'darcy_forchheimer': 3}))
 
 

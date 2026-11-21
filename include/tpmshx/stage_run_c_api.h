@@ -301,6 +301,10 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_restore_saved_v3(
  * velocity outside its application window. Layout and domain failures return 1. */
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_check_experiment_v4(
     const tpmshx_stage_experiment_2d_v4*,char*,size_t);
+/* Run a saved case to completion and transfer the result to the caller. */
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_run_saved_case_2d_v4(
+    const tpmshx_stage_saved_case_2d_v4*,const tpmshx_stage_run_request_2d_v3*,
+    const tpmshx_stage_run_control_v1*,tpmshx_stage_run_result_2d_v1*,char*,size_t);
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_create_saved_v4(
     const tpmshx_stage_saved_case_2d_v4*,const tpmshx_stage_run_request_2d_v3*,
     const tpmshx_stage_run_control_v1*,void**,char*,size_t);

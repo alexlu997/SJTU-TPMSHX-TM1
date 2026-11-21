@@ -8,6 +8,8 @@ import os
 import numpy as np
 import pytest
 
+from sjtu_tpmshx.cpp_interface._native_values import copy_array
+
 from tests.python import test_native_preparation_continuous as two
 from tests.python import test_native_preparation_flow_3d as flow
 from sjtu_tpmshx.data_types.compute_config import ZoneInputConfig
@@ -123,7 +125,7 @@ def _snapshot(controls, config):
         'n_ctrl_z' in spec, spec['spline_order'], spec['symmetric_y'])
     v1._same(controls.L_bounds_mm, spec['L_bounds'], 'L bounds')
     v1._same(controls.t_bounds_mm, spec['t_bounds'], 't bounds')
-    v1._same(abi._array(controls.decision_mm), spec['x_decision'], 'owned controls')
+    v1._same(copy_array(controls.decision_mm), spec['x_decision'], 'owned controls')
 
 
 def _full(native, monkeypatch, config, targets=None, *, chi=None):
@@ -164,7 +166,7 @@ def _full(native, monkeypatch, config, targets=None, *, chi=None):
         shape = expected.design_fields['L_field_m'].shape
         for name, key in (('area_density_per_m', 'A_0'), ('hydraulic_diameter_m', 'D_h'),
                           ('thermal_porosity', 'epsilon')):
-            v1._same(abi._array(getattr(result, name), shape),
+            v1._same(copy_array(getattr(result, name), shape),
                 expected.parameters['thermal_geometry']['fields'][key], key)
         for index, side in enumerate('AB'):
             metadata = (expected.parameters['df_application'] or {}).get(side, {})
@@ -459,14 +461,14 @@ def test_continuous_3d_overlapping_storage_is_unchanged(native, operation, selec
 def test_continuous_3d_owned_result_requires_release(native, operation):
     status, result, failure, error, _, source = _call(native, operation, _configuration(), (.003, .03))
     assert status == 0, error
-    before, decisions = bytes(result), abi._array(result.controls.decision_mm)
+    before, decisions = bytes(result), copy_array(result.controls.decision_mm)
     error = ct.create_string_buffer(4096)
     try:
         assert getattr(native, 'tpmshx_' + operation + '_3d_v3')(
             ct.byref(source), None, None, ct.byref(result), ct.byref(failure), error, len(error)) != 0
         assert 'release' in error.value.decode()
         assert bytes(result) == before
-        v1._same(abi._array(result.controls.decision_mm), decisions, 'retained owner')
+        v1._same(copy_array(result.controls.decision_mm), decisions, 'retained owner')
     finally:
         _release(native, result)
 

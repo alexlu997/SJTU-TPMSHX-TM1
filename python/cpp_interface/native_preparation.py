@@ -10,6 +10,7 @@ from sjtu_tpmshx.data_types.case_data import CaseData
 from sjtu_tpmshx.data_types.compute_config import ComputeConfig, Sco2NuConfig, bc_to_dict
 from sjtu_tpmshx.data_types.model_refs import ModelRef
 from sjtu_tpmshx.run_control.run_environment import capture_environment
+from ._native_values import borrow_text, copy_array
 from . import _native_geometry, _native_grid
 from sjtu_tpmshx.run_control.run_warnings import (
     RangeRecord, current_warnings, warning_messages, record_warning,
@@ -91,10 +92,7 @@ def _cache_record_view(records):
     buffers, ranges, bounds_list, warnings = [], [], [], []
 
     def text(value):
-        encoded = value.encode('utf-8')
-        buffer = ct.create_string_buffer(encoded)
-        buffers.append(buffer)
-        return native._Text(ct.cast(buffer, ct.POINTER(ct.c_char)), len(encoded))
+        return borrow_text(value, buffers)
 
     def sample(value, shape):
         finite = value['minimum'] is not None
@@ -283,10 +281,7 @@ def _input(config, targets, operation):
         typed.sco2_nu.alpha[index] = selected or 0.
     buffers = []
     for name in ('parameter_version', 'source', 'applicability'):
-        encoded = getattr(settings, name).encode('utf-8')
-        buffer = ct.create_string_buffer(encoded)
-        buffers.append(buffer)
-        setattr(typed.sco2_nu, name, native._Text(ct.cast(buffer, ct.POINTER(ct.c_char)), len(encoded)))
+        setattr(typed.sco2_nu, name, borrow_text(getattr(settings, name), buffers))
     flow = native._FlowInput(3, ct.sizeof(native._FlowInput), typed)
     flow.physical_depth_kind = _flow_kind(geometry.Lz_m if geometry.Lz_m is not None else 0.)
     flow.have_explicit_targets = targets is not None
@@ -356,10 +351,7 @@ def _spatial_input(config, flow, buffers):
                 for row in model['zones']]
     regions = []
     for name, bounds, cell, wall in rows:
-        encoded = name.encode('utf-8')
-        text = ct.create_string_buffer(encoded)
-        buffers.append(text)
-        regions.append(native._Region(native._Text(ct.cast(text, ct.POINTER(ct.c_char)), len(encoded)),
+        regions.append(native._Region(borrow_text(name, buffers),
             (native._GridScalar * 4)(*map(_native_grid._scalar, bounds)), cell, wall, _kind(cell), _kind(wall)))
     regions = (native._Region * len(regions))(*regions)
     buffers.append(regions)
@@ -395,8 +387,8 @@ def _lut_cache():
         if action:
             lut = pending.pop(key)
             shape = len(lut.L_vals), len(lut.t_vals)
-            lut.eps_table = native._array(value.porosity, shape)
-            lut.A0_table = native._array(value.area_density_per_m, shape)
+            lut.eps_table = copy_array(value.porosity, shape)
+            lut.A0_table = copy_array(value.area_density_per_m, shape)
             lut._save()
             lut._native_lut = _native_lut.LUT(lut.L_vals, lut.t_vals, lut.eps_table, lut.A0_table)
             sigmoid_field._lut_cache[key] = lut
@@ -404,7 +396,7 @@ def _lut_cache():
         lut = sigmoid_field._lut_cache.get(key)
         if lut is None:
             lut = object.__new__(sigmoid_field.GeometryLUT)
-            lut.L_vals, lut.t_vals = native._array(value.cell_mm), native._array(value.wall_mm)
+            lut.L_vals, lut.t_vals = copy_array(value.cell_mm), copy_array(value.wall_mm)
             lut._initialize_cache(name, resolution)
             if not lut._load():
                 pending[key] = lut
@@ -475,33 +467,33 @@ def _case(result, config, case_id, side_geometry=None, pore_porosity=None, extra
     continuous = isinstance(result, native._ContinuousCase)
     spatial = isinstance(result, native._ZonedCase)
     shape = value.nx, value.ny
-    grid = {name: native._array(getattr(value, name))
+    grid = {name: copy_array(getattr(value, name))
             for name in ('dx', 'dy', 'x_edges', 'y_edges', 'x_breaks', 'y_breaks')}
     for name in ('x_breaks', 'y_breaks'):
         grid[name] = grid[name].tolist()
     grid.update(dimension=2, axis_order=('x', 'y'), length_unit='m')
-    design = {key: native._array(getattr(value, name), shape, precision=result.prepared.field_kinds[index].precision)
+    design = {key: copy_array(getattr(value, name), shape, precision=result.prepared.field_kinds[index].precision)
               for index, (name, key) in enumerate((
                   ('cell_length', 'L_field_m'), ('wall_thickness', 't_field_m'), ('total_porosity', 'eps_arr'),
                   ('solid_conductivity', 'K_ss_arr'), ('hydraulic_radius', 'r_h_arr')))}
     if continuous:
-        eps_f = (native._array(pore_porosity, shape) if pore_porosity is not None else
+        eps_f = (copy_array(pore_porosity, shape) if pore_porosity is not None else
                  _native_geometry.split_fields(design['eps_arr'], .5)['epsilon_A'])
         design.update(axis='continuous', eps_f_arr=eps_f)
         for index, side in enumerate('AB'):
-            design['K_ff' + side + '_arr'] = native._array(result.fluid_conductivity[index], shape)
+            design['K_ff' + side + '_arr'] = copy_array(result.fluid_conductivity[index], shape)
     if spatial:
         design.update(axis='continuous' if result.kind == 2 else 'grid' if result.kind else 'xy'[result.axis],
-                      eps_f_arr=native._array(pore_porosity, shape),
-                      A_0_arr=native._array(result.design_area_density_per_m, shape),
+                      eps_f_arr=copy_array(pore_porosity, shape),
+                      A_0_arr=copy_array(result.design_area_density_per_m, shape),
                       zone_id=np.ctypeslib.as_array(result.zone_id, shape=(result.cell_count,)).copy().reshape(shape))
         for index, side in enumerate('AB'):
-            design['K_ff' + side + '_arr'] = native._array(result.fluid_conductivity[index], shape)
-            design['h_v' + side + '_arr'] = native._array(result.volumetric_transfer[index], shape)
+            design['K_ff' + side + '_arr'] = copy_array(result.fluid_conductivity[index], shape)
+            design['h_v' + side + '_arr'] = copy_array(result.volumetric_transfer[index], shape)
         if result.kind == 0:
             zone_rows, zone_params = [], []
             if region_radii is not None:
-                region_radii = native._array(region_radii, (result.region_count,))
+                region_radii = copy_array(region_radii, (result.region_count,))
             for zone_index, region in enumerate(result.regions[:result.region_count]):
                 descriptor = region.region
                 row = dict(name=native._text(descriptor.name),
@@ -539,9 +531,9 @@ def _case(result, config, case_id, side_geometry=None, pore_porosity=None, extra
     if thermal_sides is not None and thermal_sides.have_side_geometry:
         thermal['side_geometry'] = {side: tuple(thermal_sides.side_geometry[index]) for index, side in enumerate('AB')}
     if continuous or spatial:
-        thermal['fields'] = dict(A_0=native._array(result.area_density_per_m, shape),
-            D_h=native._array(result.hydraulic_diameter_m, shape),
-            epsilon=native._array(result.thermal_porosity, shape) if spatial else design['eps_arr'])
+        thermal['fields'] = dict(A_0=copy_array(result.area_density_per_m, shape),
+            D_h=copy_array(result.hydraulic_diameter_m, shape),
+            epsilon=copy_array(result.thermal_porosity, shape) if spatial else design['eps_arr'])
     geometry = config.geometry
     # Native preparation has already emitted these nominal-grid events.
     with np.errstate(all='ignore'):
@@ -572,7 +564,7 @@ def _case(result, config, case_id, side_geometry=None, pore_porosity=None, extra
         port = bc_to_dict(getattr(config, 'bc_' + side), geometry.L_dom_m, geometry.H_dom_m, side='A')
         params['cfg' + side], params['dir_' + side] = port, port['dir']
         inlet = value.sides[index]
-        flow = {key: native._array(getattr(inlet, name)) for name, key in (
+        flow = {key: copy_array(getattr(inlet, name)) for name, key in (
             ('cross_widths', 'dx'), ('stream_widths', 'dy'), ('row_permeability', 'K_m2'), ('row_forchheimer', 'cF_per_m'))}
         seed_type = np.float64 if getattr(config, 'fluid_' + side).type == 'co2' else float
         flow.update(seed_K_m2=seed_type(inlet.seed_permeability_m2),
@@ -581,10 +573,10 @@ def _case(result, config, case_id, side_geometry=None, pore_porosity=None, extra
                         inlet.inlet.velocity_m_s, result.drag[index] if continuous else None))
         if continuous:
             field_shape = inlet.cross_widths.size, inlet.stream_widths.size
-            flow.update(K_field_m2=native._array(inlet.permeability, field_shape),
-                        cF_field_per_m=native._array(inlet.forchheimer, field_shape))
+            flow.update(K_field_m2=copy_array(inlet.permeability, field_shape),
+                        cF_field_per_m=copy_array(inlet.forchheimer, field_shape))
         params['flow_inputs'][side] = flow
-        params['boundary_openings'][side] = {key: native._array(getattr(inlet, name)) for name, key in (
+        params['boundary_openings'][side] = {key: copy_array(getattr(inlet, name)) for name, key in (
             ('inlet_geometry', 'in_geom_frac'), ('outlet_geometry', 'out_geom_frac'),
             ('inlet_profile', 'in_profile_frac'), ('outlet_profile', 'out_profile_frac'))}
         properties = dict(uniform) if side_geometry is None else dict(side_geometry[index])

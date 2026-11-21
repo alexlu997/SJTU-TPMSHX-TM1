@@ -499,6 +499,22 @@ void empty_result(const tpmshx_stage_run_result_3d_v1& result) {
     if(result.abi_version!=TPMSHX_STAGE_RUN_3D_ABI_VERSION || result.struct_size!=sizeof(result) || result.owner)
         throw std::invalid_argument("3D stage result must be an initialized empty owner");
 }
+int run_complete(const Prepared& source,const tpmshx_stage_run_request_3d_v1* request,
+    const tpmshx_stage_run_control_3d_v1* control,tpmshx_stage_run_result_3d_v1* result,
+    char* error,size_t capacity) {
+    return guarded(error,capacity,[&](bool& report_safe) {
+        boundary::require_buffer(result,1);
+        preflight(source,request,control,{result,sizeof(*result),error,capacity});
+        report_safe=true;empty_result(*result);
+        void* raw_run=nullptr;
+        const auto status=create(source,request,control,nullptr,0,false,&raw_run,error,capacity);
+        if(status)return status;
+        std::unique_ptr<StageRun3D> run(static_cast<StageRun3D*>(raw_run));
+        const auto advanced=tpmshx_stage_run_3d_finish_v1(run.get(),error,capacity);
+        if(advanced)return advanced;
+        return tpmshx_stage_run_3d_take_result_v1(run.get(),result,error,capacity);
+    });
+}
 }
 extern "C" {
 int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_create_v1(const tpmshx_preparation_case_3d_v1* uniform,
@@ -597,18 +613,12 @@ int TPMSHX_THERMAL_CALL tpmshx_run_case_3d_v1(const tpmshx_preparation_case_3d_v
     const tpmshx_preparation_continuous_case_3d_v3* continuous,const tpmshx_preparation_spatial_case_3d_v4* spatial,
     const tpmshx_stage_run_request_3d_v1* request,const tpmshx_stage_run_control_3d_v1* control,
     tpmshx_stage_run_result_3d_v1* result,char* error,size_t capacity) {
-    return guarded(error,capacity,[&](bool& report_safe) {
-        boundary::require_buffer(result,1);
-        preflight({uniform,continuous,spatial,nullptr},request,control,{result,sizeof(*result),error,capacity});
-        report_safe=true;empty_result(*result);
-        void* raw_run=nullptr;
-        const auto status=tpmshx_stage_run_3d_create_v1(uniform,continuous,spatial,request,control,&raw_run,error,capacity);
-        if(status)return status;
-        const auto release=[](StageRun3D* owner) {delete owner;};
-        std::unique_ptr<StageRun3D,decltype(release)> run(static_cast<StageRun3D*>(raw_run),release);
-        const auto advanced=tpmshx_stage_run_3d_finish_v1(run.get(),error,capacity);
-        if(advanced)return advanced;
-        return tpmshx_stage_run_3d_take_result_v1(run.get(),result,error,capacity);
-    });
+    return run_complete({uniform,continuous,spatial,nullptr},request,control,result,error,capacity);
+}
+int TPMSHX_THERMAL_CALL tpmshx_run_saved_case_3d_v2(const tpmshx_stage_saved_case_3d_v2* saved,
+    const tpmshx_stage_run_request_3d_v1* request,const tpmshx_stage_run_control_3d_v1* control,
+    tpmshx_stage_run_result_3d_v1* result,char* error,size_t capacity) {
+    return run_complete({nullptr,nullptr,nullptr,saved?&saved->values:nullptr,saved},
+        request,control,result,error,capacity);
 }
 }

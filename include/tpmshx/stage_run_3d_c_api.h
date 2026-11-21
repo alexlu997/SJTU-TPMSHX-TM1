@@ -171,11 +171,14 @@ TPMSHX_THERMAL_API const tpmshx_stage_run_3d_execution_v1* TPMSHX_THERMAL_CALL t
     const tpmshx_stage_run_result_3d_v1* result);
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_get_capture_v1(
     const tpmshx_stage_run_result_3d_v1*,uint32_t include_audit,tpmshx_stage_capture_3d_v1*);
-/* One-shot execution uses create, advance_step and take_result on the same owner.
+/* Both calls run to completion with one native owner.
  * Status 0 reports transfer, not convergence. Check raw.stop and raw.converged. */
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_run_case_3d_v1(
     const tpmshx_preparation_case_3d_v1*,const tpmshx_preparation_continuous_case_3d_v3*,
     const tpmshx_preparation_spatial_case_3d_v4*,const tpmshx_stage_run_request_3d_v1*,
+    const tpmshx_stage_run_control_3d_v1*,tpmshx_stage_run_result_3d_v1*,char*,size_t);
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_run_saved_case_3d_v2(
+    const tpmshx_stage_saved_case_3d_v2*,const tpmshx_stage_run_request_3d_v1*,
     const tpmshx_stage_run_control_3d_v1*,tpmshx_stage_run_result_3d_v1*,char*,size_t);
 #ifdef __cplusplus
 }

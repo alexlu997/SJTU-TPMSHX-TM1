@@ -15,7 +15,7 @@ from sjtu_tpmshx.physical_models.fluid_props import Props, WaterStateError, Quic
 from sjtu_tpmshx.cpp_interface._native_df import _Pressure as _PreparedPressure
 from sjtu_tpmshx.data_types.field_result import FieldResult
 from .solver_library._stage_capture_abi import RangeRecordView
-from ._native_preparation_case import _Array
+from ._native_values import DoubleArray as _Array, borrow_array, borrow_text
 from ._native_preparation_case import _QuickInputV2 as _InputV2, _QuickPreparedV2 as _PreparedV2
 
 
@@ -181,8 +181,6 @@ def _saved_case(case):
 
 
 def _saved_v2(shape, p, op, widths, views, keepalive):
-    from ._native_preparation_case import borrow_text
-
     raw = _InputV2(2, ct.sizeof(_InputV2))
     raw.have_height, raw.warm_start = 1, p['initial_fields'] is not None
     for name, text in [('topology', p['topology']), ('arrangement', p['arrangement']), ('property_mode', p['prop_model'])]:
@@ -256,8 +254,9 @@ def run_case(case, control):
         raise ValueError('quick-design warm start disagrees with prepared grid')
     state = ([] if seed is None
              else [np.array(value, dtype=np.float64, order='C', copy=True) for value in seed])
-    arrays = [np.require(value, dtype=np.float64, requirements=['C', 'A'])
-              for value in (*widths, fixed['eps'], fixed['eps_A'], fixed['K_ss'])] + state
+    keepalive = []
+    views = [borrow_array(value, keepalive)
+             for value in (*widths, fixed['eps'], fixed['eps_A'], fixed['K_ss'], *state)]
     callback_errors = []
 
     @_Cancel
@@ -278,12 +277,11 @@ def run_case(case, control):
             except BaseException as error:
                 callback_errors.append(error)
 
-    views = [_Array(array.ctypes.data_as(double_p), array.size) for array in arrays]
     if current is None:
         descriptors = (_legacy_prepared(shape, p, op, views),)
         call = library.tpmshx_run_quick_design_v1
     else:
-        descriptors = _saved_v2(shape, p, op, widths, views, arrays)
+        descriptors = _saved_v2(shape, p, op, widths, views, keepalive)
         call = current
     call.argtypes = [*(ct.POINTER(type(item)) for item in descriptors), ct.POINTER(_StageControl),
                      ct.POINTER(_StageResult), ct.POINTER(ct.c_char), ct.c_size_t]

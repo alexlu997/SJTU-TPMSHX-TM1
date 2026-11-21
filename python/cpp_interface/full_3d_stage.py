@@ -41,7 +41,6 @@ from .solver_library._stage_capture_abi import (
     sampling_records,
     thermal_execution,
 )
-from .solver_library._simple_abi import simple_count
 from .solver_library.closure_evidence import copy_nu_observation, copy_range_observations
 from .solver_library._thermal_abi import (
     _EnergyOptions,
@@ -52,7 +51,8 @@ from .solver_library._thermal_abi import (
     _iteration_options,
 )
 from .solver_library.simple_3d import _STOPS
-from ._native_preparation_case import borrow_array as _array, borrow_ranges as _ranges, borrow_text as _text
+from ._native_preparation_case import borrow_ranges as _ranges
+from ._native_values import borrow_array as _array, borrow_text as _text, iteration_count
 from .run_state import NativeRun
 
 _U, _Z, _D = ct.c_uint32, ct.c_size_t, ct.c_double
@@ -258,7 +258,7 @@ def pack_input(cfg, prepared, grid, design, shape, cell_mm, nu, keepalive, *, sa
 
 def pack_saved_v2(saved, case, cell_mm, wall_mm, nu, keepalive):
     cfg = case.parameters
-    from ._native_fp import buffer_scalar
+    from ._native_values import buffer_scalar
     from ._native_grid import _count, _port
 
     value = _SavedV2(2, ct.sizeof(_SavedV2), saved)
@@ -345,11 +345,11 @@ def _request(cfg, energy, model_h):
 def pack_run_controls(request, cfg, prepared, shape):
     outer = prepared['max_outer']
     if outer is not None:
-        request.max_outer_ltne = _Size(1, simple_count(outer))
+        request.max_outer_ltne = _Size(1, iteration_count(outer))
     iterations = cfg.get('max_iter_simple')
     if iterations is not None:
-        request.max_iter_simple = _Size(1, simple_count(iterations))
-    request.thermal_iterations = _Size(1, simple_count(prepared['ltne_max_iter']))
+        request.max_iter_simple = _Size(1, iteration_count(iterations))
+    request.thermal_iterations = _Size(1, iteration_count(prepared['ltne_max_iter']))
     outer_tol = cfg.get('outer_tol_K')
     if outer_tol is not None:
         request.outer_tol_K = _Double(1, outer_tol)
@@ -366,7 +366,7 @@ def pack_run_controls(request, cfg, prepared, shape):
     request.sco2_local_pressure_a = _Uint(1, run_environment(
         cfg, 'TPMSHX_SCO2_COMPRESSIBLE', '').lower() in ('1', 'true', 'yes'))
     if 'coarse_bootstrap_max_iter' in cfg:
-        request.coarse_iterations = _Size(1, simple_count(cfg['coarse_bootstrap_max_iter']))
+        request.coarse_iterations = _Size(1, iteration_count(cfg['coarse_bootstrap_max_iter']))
     request.roughness_mode = _Uint(1, ('baseline', 'norris_1a', 'bhatti_shah_1b').index(cfg['roughness_resolved']['mode']))
     request.envelope_mode = _Uint(1, ('raise', 'warn', 'off').index(cfg.get('envelope_mode', 'raise')))
     request.roughness_height_m = _Double(1, cfg['roughness_resolved']['eps_m'])
@@ -388,10 +388,24 @@ def pack_run_controls(request, cfg, prepared, shape):
     request.convergence_mode = b'f2'
     for target, source in (('energy_iterations', 'ltne_enthalpy_outer'), ('energy_sweeps', 'ltne_enthalpy_nsweep')):
         if source in cfg:
-            setattr(request, target, _Size(1, simple_count(cfg[source], zero=target == 'energy_sweeps')))
+            setattr(request, target, _Size(1, iteration_count(cfg[source], zero=target == 'energy_sweeps')))
     for target, source in (('energy_omega', 'ltne_enthalpy_omega'), ('energy_update_tolerance', 'ltne_enthalpy_tol')):
         if source in cfg:
             setattr(request, target, _Double(1, cfg[source]))
+
+
+def pack_saved_case(case, data, cell_mm, wall_mm, nu, keepalive, version):
+    ranges, captured = _ranges(case.metadata.get('applicability_inputs', ()), keepalive)
+    notices = (_Text * len(case.metadata['notices']))(*(
+        _text(notice, keepalive) for notice in case.metadata['notices']))
+    evidence = _Evidence(ranges=ranges, range_count=len(ranges))
+    saved = _Saved(1, ct.sizeof(_Saved), ct.pointer(data), cell_mm, wall_mm, case.parameters['eps'],
+        _array(case.design_fields['t_field_m'], keepalive), evidence, notices, len(notices),
+        'applicability_inputs' in case.metadata, captured)
+    if version == 2:
+        saved = pack_saved_v2(saved, case, cell_mm, wall_mm, nu, keepalive)
+    keepalive.append(notices)
+    return saved
 
 
 class SavedRun(NativeRun):
@@ -401,20 +415,9 @@ class SavedRun(NativeRun):
     result_type = _StageResult
     result_release_name = 'tpmshx_stage_run_3d_release_v1'
 
-    def __init__(self, library, case, data, cell_mm, wall_mm, nu, request, host, errors,
-                 keepalive, state, *, version):
-        self.errors, self.keepalive = errors, keepalive
-        ranges, captured = _ranges(case.metadata.get('applicability_inputs', ()), keepalive)
-        notices = (_Text * len(case.metadata['notices']))(*(
-            _text(notice, keepalive) for notice in case.metadata['notices']))
-        evidence = _Evidence(ranges=ranges, range_count=len(ranges))
-        saved = _Saved(1, ct.sizeof(_Saved), ct.pointer(data), cell_mm, wall_mm, case.parameters['eps'],
-            _array(case.design_fields['t_field_m'], keepalive), evidence, notices, len(notices),
-            'applicability_inputs' in case.metadata, captured)
-        self.creation_version = version
-        if version == 2:
-            saved = pack_saved_v2(saved, case, cell_mm, wall_mm, nu, keepalive)
-        keepalive.extend((saved, request, host, notices))
+    def __init__(self, library, saved, request, host, errors, state):
+        self.errors = errors
+        self.creation_version = saved.abi_version
         super().__init__(library, [ct.POINTER(type(saved)), ct.POINTER(_Request), ct.POINTER(_Host)],
             [ct.byref(saved), ct.byref(request), ct.byref(host)], host.callbacks, state)
 
@@ -765,10 +768,23 @@ def run_saved(case, control, library, abi, table_directory, execution_query, *,
     host = _Host(case.case_id.encode(), table_directory, cpu_threads, callbacks)
     result = None
     try:
-        with SavedRun(library, case, data, cell_mm, wall_mm, nu, request, host, errors,
-                      keepalive, resume_state, version=2) as run:
-            run.finish(checkpoint, checkpoint_due, (1, 2, 6, 7, 8, 9, 10))
-            result = run.take_result()
+        saved = pack_saved_case(case, data, cell_mm, wall_mm, nu, keepalive, 2)
+        complete = getattr(library, 'tpmshx_run_saved_case_3d_v2', None)
+        if complete is not None and checkpoint is None and resume_state is None:
+            complete.argtypes = [ct.POINTER(_SavedV2), ct.POINTER(_Request), ct.POINTER(_Host),
+                                 ct.POINTER(_StageResult), ct.POINTER(ct.c_char), ct.c_size_t]
+            complete.restype = ct.c_int
+            result = _StageResult()
+            error = ct.create_string_buffer(2048)
+            code = complete(ct.byref(saved), ct.byref(request), ct.byref(host), ct.byref(result), error, len(error))
+            if errors:
+                raise errors[0]
+            if code:
+                raise SavedRun.error_types.get(code, RuntimeError)(error.value.decode())
+        else:
+            with SavedRun(library, saved, request, host, errors, resume_state) as run:
+                run.finish(checkpoint, checkpoint_due, (1, 2, 6, 7, 8, 9, 10))
+                result = run.take_result()
         bootstrap = bootstrap_traces(query_bootstrap, result.raw)
         require_completed(result.raw, bootstrap)
         summary = copy_summary(library, result, emit_audit=bool(cfg.get('_emit_audit', False)), copy_array=_copy)

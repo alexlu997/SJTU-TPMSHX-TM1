@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 
 from sjtu_tpmshx.cpp_interface import _native_result as native
-from sjtu_tpmshx.cpp_interface._native_fp import floating_events
+from sjtu_tpmshx.cpp_interface._native_values import floating_events
 
 
 ROOT = Path(__file__).resolve().parents[2]

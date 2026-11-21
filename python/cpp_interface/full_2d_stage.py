@@ -41,7 +41,8 @@ from sjtu_tpmshx.data_types.field_result import FieldResult
 from sjtu_tpmshx.data_types.validator import compute_volumetric_htc
 from sjtu_tpmshx.run_control.run_warnings import current_warnings, merge_warnings, warning_messages, warning_scope
 from . import _native_flow
-from ._native_preparation_case import _ResultV1, pack_saved_resources, borrow_array, borrow_ranges, borrow_text
+from ._native_preparation_case import _ResultV1, pack_saved_resources, borrow_ranges
+from ._native_values import borrow_array, borrow_text
 from ._native_grid import _Scalar as GridScalar
 from .run_state import NativeRun
 from .solver_library._stage_capture_abi import (
@@ -535,9 +536,22 @@ def run_stage(driver, case, cfg, prepared, control, *, saved_version=1,
         version_query = _energy_algorithm_query(library)
     result = _StageResult()
     try:
-        with _Run(library, saved, request, stage_control, errors, resume_state) as run:
-            run.finish(checkpoint, checkpoint_due, (1, 2, 6, 7, 8))
-            result = run.take_result()
+        complete = getattr(library, 'tpmshx_run_saved_case_2d_v4', None) if saved_version == 4 else None
+        if complete is not None and checkpoint is None and resume_state is None:
+            complete.argtypes = [ct.POINTER(_SavedV4), ct.POINTER(_Request), ct.POINTER(_Control),
+                                 ct.POINTER(_StageResult), ct.POINTER(ct.c_char), _S]
+            complete.restype = ct.c_int
+            error = ct.create_string_buffer(2048)
+            code = complete(ct.byref(saved), ct.byref(request), ct.byref(stage_control),
+                            ct.byref(result), error, len(error))
+            if errors:
+                raise errors[0]
+            if code:
+                _raise_stage_error(code, error, _Run.error_types)
+        else:
+            with _Run(library, saved, request, stage_control, errors, resume_state) as run:
+                run.finish(checkpoint, checkpoint_due, (1, 2, 6, 7, 8))
+                result = run.take_result()
         if saved_version >= 3:
             cfg['_input_resolution'] = executed_inputs(case, result.evidence)
         summary = _Summary()

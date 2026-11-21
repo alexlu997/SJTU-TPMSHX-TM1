@@ -506,10 +506,11 @@ int run(const tpmshx_preparation_case_2d_v1* prepared,
     tpmshx_full_2d_result_v2 raw{};
     bool report_safe=false;
     try {
-        if(start)boundary::require_buffer(start->output,1);
+        const bool return_handle=start && start->output;
+        if(return_handle)boundary::require_buffer(start->output,1);
         else boundary::require_buffer(result,1);
-        const void* output=start?static_cast<void*>(start->output):result;
-        const size_t output_size=start?sizeof(*start->output):sizeof(*result);
+        const void* output=return_handle?static_cast<void*>(start->output):result;
+        const size_t output_size=return_handle?sizeof(*start->output):sizeof(*result);
         if(overlaps(output,output_size,error,capacity)) {
             report_safe=false;throw std::invalid_argument("stage run error storage overlaps output");
         }
@@ -575,8 +576,8 @@ int run(const tpmshx_preparation_case_2d_v1* prepared,
         if(request_v2)text_storage(request_v2->envelope_mode);
         report_safe=true;
 
-        if(start && *start->output)throw std::invalid_argument("stage run output handle must be null");
-        if(!start && (result->abi_version!=TPMSHX_STAGE_RUN_ABI_VERSION || result->struct_size!=sizeof(*result) || result->owner))
+        if(return_handle && *start->output)throw std::invalid_argument("stage run output handle must be null");
+        if(!return_handle && (result->abi_version!=TPMSHX_STAGE_RUN_ABI_VERSION || result->struct_size!=sizeof(*result) || result->owner))
             throw std::invalid_argument("stage run output must be an initialized empty owner");
         if(!control->cpu_threads || !control->result_id)
             throw std::invalid_argument("stage run requires a positive CPU limit and result label");
@@ -625,7 +626,12 @@ int run(const tpmshx_preparation_case_2d_v1* prepared,
                 packed.shape.data(),packed.arrays.data(),packed.sizes.data(),&packed.config,energy,
                 packed.explicit_energy,model_h,control->cpu_threads,&control->callbacks,&owner->run,error,capacity);
             if(status)return status;
-            *start->output=owner.release();return 0;
+            if(return_handle) {
+                *start->output=owner.release();return 0;
+            }
+            const int finish=tpmshx_stage_run_2d_finish_v1(owner.get(),error,capacity);
+            if(finish)return finish;
+            return tpmshx_stage_run_2d_take_result_v1(owner.get(),result,error,capacity);
         }
         const auto status=tpmshx_solve_full_2d_v6(packed.shape.data(),packed.arrays.data(),packed.sizes.data(),
             &packed.config,energy,packed.explicit_energy,model_h,
@@ -741,20 +747,30 @@ extern "C" int tpmshx_stage_run_2d_check_experiment_v4(const tpmshx_stage_experi
         boundary::message(error,capacity,"unknown native experiment check failure");return 5;
     }
 }
+namespace {
+StartRun saved_start(const tpmshx_stage_saved_case_2d_v4* saved,const tpmshx_stage_run_request_2d_v3* request,
+    void** handle,const tpmshx_run_state_field_v1* fields=nullptr,size_t count=0,bool restore=false) {
+    const auto* previous=saved?&saved->values:nullptr;
+    return {request,handle,fields,count,restore,previous?&previous->values.values:nullptr,
+        previous?&previous->values:nullptr,previous,saved};
+}
+}
+extern "C" int tpmshx_run_saved_case_2d_v4(const tpmshx_stage_saved_case_2d_v4* saved,
+    const tpmshx_stage_run_request_2d_v3* request,const tpmshx_stage_run_control_v1* control,
+    tpmshx_stage_run_result_2d_v1* result,char* error,size_t capacity) {
+    const auto start=saved_start(saved,request,nullptr);
+    return run(nullptr,nullptr,control,result,error,capacity,nullptr,nullptr,true,nullptr,&start);
+}
 extern "C" int tpmshx_stage_run_2d_create_saved_v4(const tpmshx_stage_saved_case_2d_v4* saved,
     const tpmshx_stage_run_request_2d_v3* request,const tpmshx_stage_run_control_v1* control,
     void** output,char* error,size_t capacity) {
-    const auto* previous=saved?&saved->values:nullptr;
-    const StartRun start{request,output,nullptr,0,false,previous?&previous->values.values:nullptr,
-        previous?&previous->values:nullptr,previous,saved};
+    const auto start=saved_start(saved,request,output);
     return run(nullptr,nullptr,control,nullptr,error,capacity,nullptr,nullptr,true,nullptr,&start);
 }
 extern "C" int tpmshx_stage_run_2d_restore_saved_v4(const tpmshx_stage_saved_case_2d_v4* saved,
     const tpmshx_stage_run_request_2d_v3* request,const tpmshx_stage_run_control_v1* control,
     const tpmshx_run_state_field_v1* fields,size_t count,void** output,char* error,size_t capacity) {
-    const auto* previous=saved?&saved->values:nullptr;
-    const StartRun start{request,output,fields,count,true,previous?&previous->values.values:nullptr,
-        previous?&previous->values:nullptr,previous,saved};
+    const auto start=saved_start(saved,request,output,fields,count,true);
     return run(nullptr,nullptr,control,nullptr,error,capacity,nullptr,nullptr,true,nullptr,&start);
 }
 extern "C" int tpmshx_stage_run_2d_advance_step_v1(void* run,uint32_t* phase,char* error,size_t capacity) {

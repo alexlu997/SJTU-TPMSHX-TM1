@@ -7,6 +7,7 @@ import warnings
 
 import numpy as np
 
+from ._native_values import DoubleArray as _Array, Text as _Text, borrow_text, read_text as _text
 from . import _native_flow, _native_preparation, _native_properties
 from ._native_df import _Pressure as _DFPressure
 from ._native_properties import _Failure as _PropertyFailure
@@ -41,8 +42,6 @@ _InputV1 = _structure('Input', [('abi_version', _U), ('struct_size', _S),
     ('physical_depth_m', _D)])
 _Options = _structure('Options', [('abi_version', _U), ('struct_size', _S),
                                 ('have_chi', _U), ('allow_extrapolation', _U), ('chi', _D)])
-_Array = _structure('Array', [('data', ct.POINTER(_D)), ('size', _S)])
-_Text = _structure('Text', [('data', ct.POINTER(ct.c_char)), ('size', _S)])
 _Event = _structure('Event', [('kind', _U), ('logger', _Text), ('message', _Text), ('floating_event', _U)])
 _EventFunction = ct.CFUNCTYPE(ct.c_int, ct.c_void_p, ct.POINTER(_Event))
 _Callbacks = _structure('Callbacks', [('abi_version', _U), ('struct_size', _S),
@@ -306,10 +305,6 @@ def _bindings(path):
     return _Bindings(path)
 
 
-def _text(value):
-    return ct.string_at(value.data, value.size).decode('utf-8')
-
-
 def _sample(value, shape):
     def extreme(name):
         if not value.have_finite:
@@ -365,12 +360,6 @@ def observe_range(value, bounds_list, cached, scalar, selection=None, *, records
             origin = fluid_props._nu_co2
         for notice in notices:
             _source_warning(origin, notice)
-
-
-def _array(value, shape=None, *, precision=64):
-    result = (np.ctypeslib.as_array(value.data, shape=(value.size,)).astype(f'float{precision}', copy=True)
-              if value.size else np.empty(0, dtype=f'float{precision}'))
-    return result if shape is None else result.reshape(shape)
 
 
 def _restore(value, kind):
@@ -652,10 +641,7 @@ def inlet_query(topology, cell, wall, velocity, temperature, pressure, fluid,
             settings.have_alpha[index] = value is not None
             settings.alpha[index] = float(value) if value is not None else 0.
         for name in ('parameter_version', 'source', 'applicability'):
-            encoded = getattr(selection, name).encode('utf-8')
-            buffer = ct.create_string_buffer(encoded)
-            buffers.append(buffer)
-            setattr(settings, name, _Text(ct.cast(buffer, ct.POINTER(ct.c_char)), len(encoded)))
+            setattr(settings, name, borrow_text(getattr(selection, name), buffers))
     key = _InletKey(_GeometryKey(_TOPOLOGIES.index(topology), length, thickness,
         length_kind, thickness_kind), _FLUIDS.index(fluid_name), speed, temp, press,
         _InletKinds(speed_kind, temp_kind, press_kind),
@@ -748,19 +734,6 @@ def inlet_query(topology, cell, wall, velocity, temperature, pressure, fluid,
             value = _restore(item.real, item.kind)
         values.append(value)
     return values
-
-
-def borrow_array(value, keepalive):
-    storage = np.require(value, dtype=np.float64, requirements=['C', 'A'])
-    keepalive.append(storage)
-    return _Array(storage.ctypes.data_as(ct.POINTER(ct.c_double)), storage.size)
-
-
-def borrow_text(value, keepalive):
-    encoded = value.encode('utf-8')
-    storage = ct.create_string_buffer(encoded)
-    keepalive.append(storage)
-    return _Text(ct.cast(storage, ct.POINTER(ct.c_char)), len(encoded))
 
 
 def borrow_ranges(rows, keepalive):
