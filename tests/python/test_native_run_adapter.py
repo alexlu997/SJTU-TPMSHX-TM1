@@ -117,7 +117,7 @@ def test_complete_saved_stage_result(spatial, pair, tmp_path, monkeypatch):
     _compare(case, tmp_path, monkeypatch)
 
 
-def test_spatial_sco2_notice_keeps_saved_scalar_precision():
+def test_spatial_sco2_notice_keeps_saved_scalar_precision(tmp_path, monkeypatch):
     from sjtu_tpmshx.file_io.case_io import validate_case
     from sjtu_tpmshx.solvers.api import run_case
 
@@ -127,6 +127,7 @@ def test_spatial_sco2_notice_keeps_saved_scalar_precision():
         parameters[name] = np.asarray(parameters[name], dtype=np.float16)
     case = replace(case, parameters=parameters)
     validate_case(case)
+    monkeypatch.setenv('TPMSHX_RESULT_LIBRARY', str(tmp_path / 'missing-result'))
     result = run_case(case, _control([]))
     notice = next(text for text in result.metadata['applicability_evidence']['scope_notes']
                   if text.startswith('[sCO2 Nu evidence] 2D main-hv'))
@@ -262,6 +263,31 @@ def test_saved_stage_states_and_resume(spatial, pair, tmp_path):
     (tmp_path / 'phases.json').write_text(json.dumps(sorted(stage_states)))
 
 
+def test_experimental_saved_scope_is_checked_for_new_run_and_restore(tmp_path, monkeypatch):
+    from sjtu_tpmshx.applications.execution.recovery import compute_run, read_run_checkpoint
+    from sjtu_tpmshx.solvers.api import run_case
+    from tests.python.test_native_preparation_fluids import _configuration
+
+    config = _configuration('Gyroid', ('air', 'water'), mode='experimental')
+    config.geometry.L_cell_mm, config.geometry.t_wall_mm = 7., .6
+    config.geometry.L_dom_m, config.geometry.H_dom_m = .182, .042
+    control = _control([])
+    directory = tmp_path / 'experimental'
+    _, original, _ = compute_run(config, directory, checkpoint_interval_s=30., control=control)
+    saved, case, _ = read_run_checkpoint(directory / 'checkpoint.h5')
+    monkeypatch.setenv('TPMSHX_PREPARATION_LIBRARY', str(tmp_path / 'missing-preparation'))
+    resumed = run_case(case, control, resume_state=saved.native_state)
+    _same(resumed.fields, original.fields)
+    assert resumed.run_status == original.run_status
+
+    parameters = mutable_data(case.parameters)
+    parameters['run_settings']['geometry']['L_dom_m'] = .180
+    changed = replace(case, parameters=parameters)
+    for resume_state in (None, saved.native_state):
+        with pytest.raises(ValueError, match='experimental calibration side A is HX-effective'):
+            run_case(changed, control, resume_state=resume_state)
+
+
 @pytest.mark.parametrize('callback', ['progress', 'iteration', 'outer_iteration', 'residual'])
 def test_saved_stage_callback_exception_identity(callback):
     _, case = _case()
@@ -316,7 +342,7 @@ def test_selected_retained_runtime_has_no_new_stage_dependency(monkeypatch):
 
 
 @pytest.mark.parametrize('missing', ['create', 'restore'])
-@pytest.mark.parametrize('version', [1, 2, 3])
+@pytest.mark.parametrize('version', [1, 2, 3, 4])
 def test_incomplete_stage_protocol_is_not_retried(monkeypatch, missing, version):
     original = full_2d.NativeFull2DDriver
     _, case = _case()
@@ -325,7 +351,7 @@ def test_incomplete_stage_protocol_is_not_retried(monkeypatch, missing, version)
             self.actual = actual
         def __getattr__(self, name):
             if (name == f'tpmshx_stage_run_2d_{missing}_saved_v{version}'
-                    or any(name.endswith(f'_saved_v{v}') for v in range(version+1, 4))):
+                    or any(name.endswith(f'_saved_v{v}') for v in range(version+1, 5))):
                 raise AttributeError(name)
             return getattr(self.actual, name)
     class Driver(original):

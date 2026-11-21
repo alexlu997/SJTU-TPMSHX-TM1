@@ -1191,9 +1191,15 @@ def zone_result(cfg, prepared, temperature):
         zones = [(f'g{i}', cell['L'], cell['t']) for i, cell in enumerate(design.get('grid_cells', ()))]
         fractions = design.get('x_bounds', ()), design.get('y_bounds', ())
     else:
-        definitions = cfg['zone_config'].zones
-        zones = [(zone.name, zone.L_mm, zone.t_mm) for zone in definitions]
-        ends = [zone.y_frac_end for zone in definitions[:-1]]
+        config = cfg['zone_config']
+        if isinstance(config, Mapping):
+            definitions = config['zones']
+            zones = [(row['name'], row['L_mm'], row['t_mm']) for row in definitions]
+            ends = [row['y_frac_end'] for row in definitions[:-1]]
+        else:
+            definitions = config.zones
+            zones = [(zone.name, zone.L_mm, zone.t_mm) for zone in definitions]
+            ends = [zone.y_frac_end for zone in definitions[:-1]]
         fractions = ((), ends) if axis == 'y' else (ends, ())
     stats, x, y = _zone_temperatures((prepared['energy_dx'], prepared['energy_dy']), temperature,
                                      design['zone_id'], zones, (cfg['L'], cfg['H']), fractions)

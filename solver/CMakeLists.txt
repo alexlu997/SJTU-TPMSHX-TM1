@@ -252,6 +252,7 @@ endif()
 foreach(target IN ITEMS tpmshx_solver tpmshx_solver_shared)
     target_link_libraries(${target} PRIVATE tpmshx_capture_math)
     target_sources(${target} PRIVATE "${TPMSHX_ROOT}/solver/stage_run.cpp"
+        "${TPMSHX_ROOT}/preprocess/preparation_df_corrections.cpp"
         "${TPMSHX_ROOT}/preprocess/preparation_flow.cpp"
         "${TPMSHX_ROOT}/numerics/df_summary.cpp"
         "${TPMSHX_ROOT}/solver/stage_capture_2d.cpp"

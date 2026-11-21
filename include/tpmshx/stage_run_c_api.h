@@ -9,6 +9,7 @@
 #define TPMSHX_STAGE_RUN_ABI_VERSION 1u
 #define TPMSHX_STAGE_RUN_ABI_VERSION_V2 2u
 #define TPMSHX_STAGE_RUN_ABI_VERSION_V3 3u
+#define TPMSHX_STAGE_RUN_ABI_VERSION_V4 4u
 
 typedef struct {
     const char *relation,*provider,*state_update,*eos_fluid;
@@ -178,6 +179,23 @@ typedef struct {
     size_t additional_count;
 } tpmshx_stage_saved_case_2d_v3;
 
+/* Experimental scope comes from the original saved settings.
+ * The model selection and domain can differ from the prepared grid.
+ * A configured total flow selects the existing deferred side check. */
+typedef struct {
+    uint32_t topology,geometry_mode,domain_count;
+    uint32_t fluids[2],configured_flow[2];
+    double domain_m[3],cell_length_mm,wall_thickness_mm,delta_levelset,velocity_m_s[2];
+} tpmshx_stage_experiment_2d_v4;
+/* Initialize the nested descriptor as v3. The experimental record is
+ * required when the prepared input selects experimental D-F. */
+typedef struct {
+    uint32_t abi_version;
+    size_t struct_size;
+    tpmshx_stage_saved_case_2d_v3 values;
+    tpmshx_stage_experiment_2d_v4 experiment;
+} tpmshx_stage_saved_case_2d_v4;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -268,6 +286,16 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_create_saved_v3(
     const tpmshx_stage_run_control_v1*,void**,char*,size_t);
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_restore_saved_v3(
     const tpmshx_stage_saved_case_2d_v3*,const tpmshx_stage_run_request_2d_v3*,
+    const tpmshx_stage_run_control_v1*,const tpmshx_run_state_field_v1*,size_t,void**,char*,size_t);
+/* Experiment checks return 7 for an unavailable calibration or 8 for a
+ * velocity outside its application window. Layout and domain failures return 1. */
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_check_experiment_v4(
+    const tpmshx_stage_experiment_2d_v4*,char*,size_t);
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_create_saved_v4(
+    const tpmshx_stage_saved_case_2d_v4*,const tpmshx_stage_run_request_2d_v3*,
+    const tpmshx_stage_run_control_v1*,void**,char*,size_t);
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_restore_saved_v4(
+    const tpmshx_stage_saved_case_2d_v4*,const tpmshx_stage_run_request_2d_v3*,
     const tpmshx_stage_run_control_v1*,const tpmshx_run_state_field_v1*,size_t,void**,char*,size_t);
 /* Phases and safe snapshot boundaries match full_2d_run_c_api.h.
  * Snapshots own independent storage; use tpmshx_run_state_release_v1. */

@@ -213,7 +213,11 @@ It does not prepare saved cases again. Missing ranges, uncaptured samples, unifo
 Saved descriptor v2 adds nominal side geometry and accepts discrete and sigmoid fields without changing the v1 layout.
 Saved descriptor v3 adds the saved flow grid, design fields and model references.
 The descriptor and its nested storage remain borrowed through result transfer or run release.
-Python selects complete saved v3 first, then v2, then v1 for symmetric uniform or continuous inputs.
+Current canonical saved inputs use v4. Its create and restore calls check the original experimental settings.
+Preparation and the saved stage use the same native D-F rules.
+The Python adapter reads the saved settings and zone data without rebuilding the application configuration.
+Continuous inputs keep their zone summary without a result-library call.
+Earlier libraries and saved settings with legacy conversion rules still use their applicable interfaces.
 Archived libraries without the applicable saved protocol retain their existing interfaces.
 Missing new-protocol symbols and execution failures are errors. They do not start another run through the old route.
 `full_2d_stage.py` assembles the 2D `FieldResult` and preserves warning and application-property check order.

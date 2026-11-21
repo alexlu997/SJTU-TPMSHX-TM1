@@ -16,7 +16,6 @@
 #include "../numerics/scalar_range_samples.hpp"
 
 #include <algorithm>
-#include <charconv>
 #include <cfenv>
 #include <cmath>
 #include <iomanip>
@@ -47,35 +46,9 @@ private:
     std::fenv_t saved_;
 };
 
-std::string decimal(double value) {
-    if (std::isnan(value)) return "nan";
-    if (std::isinf(value)) return value<0.?"-inf":"inf";
-    char buffer[64];
-    const auto converted=std::to_chars(buffer,buffer+sizeof(buffer),value,std::chars_format::scientific);
-    if (converted.ec!=std::errc{}) throw std::runtime_error("cannot format preparation value");
-    std::string text(buffer,converted.ptr);
-    const auto e=text.find('e');
-    const int exponent=std::stoi(text.substr(e+1));
-    if (exponent < -4 || exponent>=16) return text;
-    const bool negative=text.front()=='-';
-    std::string digits=text.substr(negative?1:0,e-(negative?1:0));
-    const auto point=digits.find('.');
-    if (point!=std::string::npos) digits.erase(point,1);
-    const int position=exponent+1;
-    if (position<=0) digits="0."+std::string(static_cast<std::size_t>(-position),'0')+digits;
-    else if (static_cast<std::size_t>(position)>=digits.size())
-        digits+=std::string(static_cast<std::size_t>(position)-digits.size(),'0')+".0";
-    else digits.insert(static_cast<std::size_t>(position),1,'.');
-    return (negative?"-":"")+digits;
-}
 std::string fixed(double value,int precision) {
     std::ostringstream stream;stream.imbue(std::locale::classic());
     stream<<std::fixed<<std::setprecision(precision)<<value;
-    return stream.str();
-}
-std::string significant(double value,int precision) {
-    std::ostringstream stream;stream.imbue(std::locale::classic());
-    stream<<std::setprecision(precision)<<value;
     return stream.str();
 }
 const char* topology_name(Topology topology) {
@@ -120,29 +93,14 @@ std::pair<DfSelection,DfPair> experiment_selection(const Input& input,const Inle
     const auto fluid=static_cast<std::uint32_t>(inlet.fluid);
     const auto cell=input.geometry.cell_length_mm,wall=input.geometry.wall_thickness_mm,speed=inlet.velocity_m_s;
     try {
-        const auto selected=df_select(topology,fluid,continuous,{&cell,1},{&wall,1},{&speed,1},true);
-        if (selected.branch) return {selected,{selected.scale_K,selected.scale_F}};
-        return {selected,df_scales(topology,selected,{&cell,1},{&wall,1}).front()};
-    } catch (const std::invalid_argument& error) {
-        std::string text=error.what();
-        std::vector<PreparationFailureCause> causes;
-        if (text=="HX velocity outside application window") {
-            causes.push_back({1,text});
-            const auto& window=df_data::application_u[fluid][topology];
-            text=std::string(fluid_name(inlet.fluid))+" HX experiment calibration requires "+
-                significant(window[0],6)+"<=u<="+significant(window[1],6)+" m/s for "+
-                topology_name(input.geometry.topology)+"; got "+decimal(speed);
-        }
-        causes.insert(causes.begin(),{1,text});
+        return df_experiment_side(topology,fluid,cell,wall,speed,continuous);
+    } catch (const DfExperimentError& error) {
+        std::vector<PreparationFailureCause> causes{{1,error.what()}};
+        if (error.velocity_window) causes.push_back({1,"HX velocity outside application window"});
         throw PreparationError(1,"experimental calibration unavailable for active side "+
-            std::string(side?"B":"A")+": "+text,1,static_cast<std::uint32_t>(side),std::move(causes));
+            std::string(side?"B":"A")+": "+error.what(),1,static_cast<std::uint32_t>(side),std::move(causes));
     }
 }
-constexpr auto experimental_layout_error =
-    "experimental calibration currently requires uniform L/t; "
-    "continuous Shanghai Gyroid air/water fields may use "
-    "the 7/0.6 calibration as an exploratory extrapolation";
-
 template<class Input,class Inlet>
 void validate_experiment_scope(const Input& input,const std::array<Inlet,2>& sides,
     std::uint32_t geometry_mode, ArrayView<const double> domain) {
@@ -155,9 +113,7 @@ void validate_experiment_scope(const Input& input,const std::array<Inlet,2>& sid
     for (std::size_t side=0;side<2;++side) if (sides[side].fluid!=Fluid::co2) {
         const auto selected=experiment_selection(input,sides[side],side,scope & TPMSHX_DF_HX_TRANSFER).first;
         if (selected.scope && !(scope & TPMSHX_DF_HX_DOMAIN))
-            throw PreparationError(1,"experimental calibration side "+std::string(side?"B":"A")+
-                " is HX-effective and requires delta=0 with the matching 0.182 x 0.042 x 0.042 m campaign domain",1,
-                static_cast<std::uint32_t>(side));
+            throw PreparationError(1,experimental_domain_error(side),1,static_cast<std::uint32_t>(side));
     }
 }
 std::size_t count(std::size_t nx,std::size_t ny) {

@@ -2,7 +2,12 @@
 #include "tpmshx/preparation_df_data.hpp"
 
 #include <algorithm>
+#include <charconv>
 #include <cmath>
+#include <iomanip>
+#include <locale>
+#include <sstream>
+#include <string_view>
 #include <limits>
 #include <stdexcept>
 #include <string>
@@ -53,6 +58,37 @@ std::uint32_t df_experiment_scope(std::uint32_t topology, std::uint32_t fluid_a,
     if (layout) scope |= TPMSHX_DF_EXPERIMENT_LAYOUT;
     if (campaign) scope |= TPMSHX_DF_HX_DOMAIN;
     return scope;
+}
+
+std::string decimal(double value) {
+    if (std::isnan(value)) return "nan";
+    if (std::isinf(value)) return value<0.?"-inf":"inf";
+    char buffer[64];
+    const auto converted=std::to_chars(buffer,buffer+sizeof(buffer),value,std::chars_format::scientific);
+    if (converted.ec!=std::errc{}) throw std::runtime_error("cannot format preparation value");
+    std::string text(buffer,converted.ptr);
+    const auto e=text.find('e');
+    const int exponent=std::stoi(text.substr(e+1));
+    if (exponent < -4 || exponent>=16) return text;
+    const bool negative=text.front()=='-';
+    std::string digits=text.substr(negative?1:0,e-(negative?1:0));
+    const auto point=digits.find('.');
+    if (point!=std::string::npos) digits.erase(point,1);
+    const int position=exponent+1;
+    if (position<=0) digits="0."+std::string(static_cast<std::size_t>(-position),'0')+digits;
+    else if (static_cast<std::size_t>(position)>=digits.size())
+        digits+=std::string(static_cast<std::size_t>(position)-digits.size(),'0')+".0";
+    else digits.insert(static_cast<std::size_t>(position),1,'.');
+    return (negative?"-":"")+digits;
+}
+std::string significant(double value,int precision) {
+    std::ostringstream stream;stream.imbue(std::locale::classic());
+    stream<<std::setprecision(precision)<<value;
+    return stream.str();
+}
+std::string experimental_domain_error(std::size_t side) {
+    return "experimental calibration side "+std::string(side?"B":"A")+
+        " is HX-effective and requires delta=0 with the matching 0.182 x 0.042 x 0.042 m campaign domain";
 }
 
 DfSelection df_select(std::uint32_t topology, std::uint32_t fluid, bool transfer,
@@ -122,6 +158,22 @@ std::vector<DfPair> df_scales(std::uint32_t topology, const DfSelection& selecte
                            / (data::air_L_nodes.back() - data::air_L_nodes.front())};
     }
     return result;
+}
+
+std::pair<DfSelection,DfPair> df_experiment_side(std::uint32_t topology,std::uint32_t fluid,
+    double cell,double wall,double speed,bool transfer) {
+    try {
+        const auto selected=df_select(topology,fluid,transfer,{&cell,1},{&wall,1},{&speed,1},true);
+        if (selected.branch) return {selected,{selected.scale_K,selected.scale_F}};
+        return {selected,df_scales(topology,selected,{&cell,1},{&wall,1}).front()};
+    } catch (const std::invalid_argument& error) {
+        if (std::string_view(error.what())!="HX velocity outside application window")
+            throw DfExperimentError(error.what(),false);
+        const auto& window=data::application_u[fluid][topology];
+        throw DfExperimentError(std::string(fluid_names[fluid])+" HX experiment calibration requires "+
+            significant(window[0],6)+"<=u<="+significant(window[1],6)+" m/s for "+
+            (topology?"Gyroid":"Diamond")+"; got "+decimal(speed),true);
+    }
 }
 
 std::vector<double> df_apply_scale(ArrayView<const double> base,

@@ -101,6 +101,22 @@ void check_saved(const tpmshx_preparation_case_2d_v1& prepared,tpmshx::stages::R
         Run2D run(current,control);
         Run2D resumed(current,control,{},&state);
         require(resumed.phase()==TPMSHX_FULL2D_FLOW,"saved v3 lost the restored phase");
+        tpmshx_stage_saved_case_2d_v4 experiment{};
+        experiment.abi_version=TPMSHX_STAGE_RUN_ABI_VERSION_V4;experiment.struct_size=sizeof(experiment);
+        experiment.values=current;
+        experiment.experiment.topology=1;
+        experiment.experiment.domain_count=2;
+        experiment.experiment.domain_m[0]=.180;experiment.experiment.domain_m[1]=.042;
+        experiment.experiment.cell_length_mm=7.;experiment.experiment.wall_thickness_mm=.6;
+        experiment.experiment.velocity_m_s[0]=experiment.experiment.velocity_m_s[1]=20.;
+        auto experimental_view=raw;
+        experimental_view.values.input.df_mode=1;
+        experiment.values.values.values.prepared=&experimental_view;
+        require(tpmshx_stage_run_2d_create_saved_v4(&experiment,nullptr,&control,&handle,error,sizeof(error))==1
+            && !handle && std::strstr(error,"side A is HX-effective"),"saved create admitted a mismatched campaign");
+        require(tpmshx_stage_run_2d_restore_saved_v4(&experiment,nullptr,&control,state.view().fields,
+            state.view().count,&handle,error,sizeof(error))==1 && !handle && std::strstr(error,"side A is HX-effective"),
+            "saved restore admitted a mismatched campaign");
         auto invalid=current;
         invalid.resource_topology={error,2};
         std::strcpy(error,"preserve-saved-error");
