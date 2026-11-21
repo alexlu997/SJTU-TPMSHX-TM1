@@ -25,7 +25,8 @@ Root [engineering](engineering/) holds build scripts, packaging configuration an
 
 The C++ stages and geometry library calculate geometry, properties, closures, solutions and results.
 Python keeps public entries, configuration, data objects, file I/O, caches, the GUI and design/optimization workflows.
-Preparation uses matching geometry, preparation and result libraries. The result library collects range observations. Full computation also uses the solver library.
+With v11, complete continuous and stripe 2D preparation loads only the preparation library.
+The solver library runs cases. The result library evaluates saved fields.
 The [source map](python/README.en.md) lists C++ files, functions and rebuild steps.
 See [C++ scope and delivery records](docs/cpp-migration.md#cpp-core-scope) for implementation boundaries and delivery records.
 

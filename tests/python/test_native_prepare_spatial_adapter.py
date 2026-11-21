@@ -30,6 +30,34 @@ def configuration(monkeypatch, tmp_path, mode, topology='Gyroid'):
     return config
 
 
+@pytest.mark.parametrize('mode', ['continuous', 'x', 'y'])
+def test_prepared_geometry_fields_use_only_preparation_library(monkeypatch, tmp_path, mode):
+    from sjtu_tpmshx.file_io.case_io import load_case, save_case
+    from tests.python.test_native_preparation_continuous import _configuration as continuous_config
+
+    config = continuous_config(pair=('air', 'air')) if mode == 'continuous' else raw._configuration(mode)
+    if mode == 'y':
+        config.geometry.delta_levelset = .15
+    for stage in ('GEOMETRY', 'NATIVE_SOLVER', 'SOLVER', 'RESULT'):
+        monkeypatch.setenv(f'TPMSHX_{stage}_LIBRARY', str(tmp_path / f'missing-{stage}'))
+    case = api.prepare_case(config, case_id=mode)
+    restored = load_case(save_case(case, tmp_path / 'case.yaml'))
+
+    if mode == 'continuous':
+        actual = case.design_fields['eps_f_arr']
+        assert actual.dtype == np.dtype('float64')
+        np.testing.assert_array_equal(actual, .5 * case.design_fields['eps_arr'])
+        _same(restored.design_fields['eps_f_arr'], actual)
+    else:
+        actual = case.design_fields['zone_params']
+        saved = restored.design_fields['zone_params']
+        assert len(actual) == len(saved) == len(config.zones.config.zones)
+        for row, saved_row in zip(actual, saved):
+            assert isinstance(row['r_h'], np.float64)
+            assert saved_row['name'] == row['name']
+            assert saved_row['r_h'] == row['r_h'] == .5 * row['D_h']
+
+
 @pytest.mark.parametrize('mode', ['x', 'y', 'grid', 'sigmoid'])
 @pytest.mark.parametrize('topology', ['Diamond', 'Gyroid'])
 @pytest.mark.parametrize('operation,targets', [('full', None), ('capacity', None), ('resolve', None),

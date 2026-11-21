@@ -161,7 +161,9 @@ Spatial calculations use the accepted spatial value; nominal calculations keep t
 Preparation v10 adds the existing nonzero-delta uniform air/water and air/air spatial modes at prescribed speed.
 Complete results carry nominal asymmetric thermal-side tuples separately from design and cell thermal fields.
 The existing split calculation, scalar conversion order and N128 geometry index remain unchanged.
-Python uniform and spatial preparation use v10. Uniform capacity and resolution retain v7/v3; continuous entries retain v7/v4.
+Complete continuous XY and stripe preparation use v11 when available.
+The preparation library returns the pore porosity or the A-side hydraulic radius for each stripe. The adapter uses the geometry library with supported older preparation binaries.
+Complete uniform, rectangle and sigmoid cases use v10. Uniform and continuous XY capacity and resolution use v7 with v3 and v4 results, respectively.
 Spatial capacity and resolution use v10 with the existing v9 result views and release functions.
 Capacity and prescribed total-flow preparation still reject nonzero delta in the original validation order.
 Continuous fields, CO2/sCO2 and experimental models retain their existing restrictions. Earlier C layouts and scopes remain available.
@@ -175,7 +177,7 @@ See [spatial stage interfaces](native-stages.md#spatial-total-mass-flow) for raw
 See [spatial host interfaces](native-stages.md#spatial-host-cache-interface) for callbacks and ownership.
 See [offset geometry](native-stages.md#existing-offset-geometry) for the v10 scope and [run continuation](native-stages.md#run-continuation) for borrowed inputs.
 Saved prepared cases keep their recorded grids; the adapter does not reconstruct historical grids.
-The Python preparation entry calls the independent result library to collect range observations. The preparation library does not link it.
+The preparation stage collects its range observations. The Python adapter restores the records through the active warning scope.
 
 The separate `preparation_case_3d_c_api.h` exposes uniform symmetric 3D preparation at prescribed inlet speeds.
 It supports both topologies and all 16 ordered fluid pairs with the existing state and experimental limits.

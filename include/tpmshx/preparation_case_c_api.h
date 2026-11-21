@@ -15,6 +15,7 @@
 #define TPMSHX_PREPARATION_CASE_ABI_VERSION_V8 8u
 #define TPMSHX_PREPARATION_CASE_ABI_VERSION_V9 9u
 #define TPMSHX_PREPARATION_CASE_ABI_VERSION_V10 10u
+#define TPMSHX_PREPARATION_CASE_ABI_VERSION_V11 11u
 
 typedef struct {
     int32_t direction;
@@ -518,6 +519,23 @@ typedef struct {
     void* owner;
 } tpmshx_preparation_sigmoid_flow_case_2d_v10;
 
+/* V11 fields have the same order as the nested grid cells or stripe regions.
+ * The outer owner keeps all array storage alive. */
+typedef struct {
+    uint32_t abi_version;
+    size_t struct_size;
+    tpmshx_preparation_continuous_case_2d_v4 values;
+    tpmshx_preparation_array_v1 design_pore_porosity;
+    void* owner;
+} tpmshx_preparation_continuous_case_2d_v11;
+typedef struct {
+    uint32_t abi_version;
+    size_t struct_size;
+    tpmshx_preparation_zoned_flow_case_2d_v10 values;
+    tpmshx_preparation_array_v1 region_hydraulic_radii_m;
+    void* owner;
+} tpmshx_preparation_stripe_flow_case_2d_v11;
+
 typedef struct {
     double real,imaginary;
     tpmshx_preparation_scalar_kind_v2 kind;
@@ -918,6 +936,22 @@ TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_zoned_flo
     tpmshx_preparation_zoned_flow_case_2d_v10*);
 TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_sigmoid_flow_case_2d_release_v10(
     tpmshx_preparation_sigmoid_flow_case_2d_v10*);
+
+/* V11 adds fields to complete continuous and stripe results. Initialize the
+ * outer ABI version, struct size and NULL owner. Release only the outer result. */
+TPMSHX_PREPARATION_API uint32_t TPMSHX_PREPARATION_CALL tpmshx_preparation_case_abi_version_v11(void);
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_continuous_flow_case_2d_v11(
+    const tpmshx_preparation_continuous_input_2d_v4*,const tpmshx_preparation_grid_kinds_2d_v7*,
+    const tpmshx_preparation_case_options_v1*,const tpmshx_preparation_case_callbacks_v1*,
+    tpmshx_preparation_continuous_case_2d_v11*,tpmshx_preparation_case_failure_v2*,char*,size_t);
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_stripe_flow_case_2d_v11(
+    const tpmshx_preparation_zoned_flow_input_2d_v9*,const tpmshx_preparation_grid_kinds_2d_v7*,
+    const tpmshx_preparation_case_options_v1*,const tpmshx_preparation_case_callbacks_v1*,
+    tpmshx_preparation_stripe_flow_case_2d_v11*,tpmshx_preparation_case_failure_v2*,char*,size_t);
+TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_continuous_flow_case_2d_release_v11(
+    tpmshx_preparation_continuous_case_2d_v11*);
+TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_stripe_flow_case_2d_release_v11(
+    tpmshx_preparation_stripe_flow_case_2d_v11*);
 
 #ifdef __cplusplus
 }

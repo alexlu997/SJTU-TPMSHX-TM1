@@ -247,7 +247,7 @@ struct PreparedCase2D {
     std::optional<std::array<geometry::asym::ThermalSide,2>> thermal_sides;
     std::vector<double> cell_length,wall_thickness,total_porosity,solid_conductivity,hydraulic_radius;
     std::array<PreparedSide2D,2> sides;
-    std::vector<double> area_density,hydraulic_diameter;
+    std::vector<double> area_density,hydraulic_diameter,design_pore_porosity;
     std::array<std::vector<double>,2> fluid_conductivity;
     PreparationEvidence evidence;
     std::array<ScalarKind,5> field_kinds;
