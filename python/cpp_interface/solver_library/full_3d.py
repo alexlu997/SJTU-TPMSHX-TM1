@@ -17,7 +17,7 @@ from .. import full_3d_stage as stage
 from ..full_3d_stage import _copy, _detach
 from ._full_3d_abi import _Callbacks, _Control, _EnergyEvidence, _Input, _Result
 from ._simple_abi import _F2
-from ._stage_capture_abi import copy_sampling, executed_inputs, execution_view_query, sampling_query, sampling_records, stage_records
+from ._stage_capture_abi import copy_sampling, executed_inputs, sampling_query, sampling_records, stage_records
 from .closure_evidence import copy_range_observations, replay_range_observations, last_range_query, copy_last_ranges
 from .enthalpy import (_EnergyOptions, _EnergyOptionsV2, _energy_algorithm_query,
                        _FullEnergyEffectiveSettings, _full_enthalpy_defaults, _update_scale_query, _copy_update_scale)
@@ -305,26 +305,7 @@ class NativeFull3DDriver:
                 self.release(ct.byref(result))
 
 
-def run_case(case, control=RunControl(), *, resume_state=None, checkpoint=None, checkpoint_due=None):
-    if control.backend != 'cpp':
-        raise ValueError('full native 3D requires backend=cpp')
-    if not control.native_library:
-        raise ValueError('cpp requires RunControl.native_library for this host')
-    control.check_cancelled()
-    from sjtu_tpmshx.data_types.persistence_validation import grid_axes, validate_axis_permutation
-    grid_axes(case.grid)
-    for side, axes in case.parameters['prepared']['axes'].items():
-        if axes is not None:
-            validate_axis_permutation(axes, side)
-    runtime = stage.open_library(control.native_library, getattr(control, 'native_table_directory', None))
-    _, library, abi, table_directory = runtime
-    saved_v2 = hasattr(library, 'tpmshx_stage_run_3d_create_saved_v2')
-    saved = stage.has_saved_stage(library)
-    if saved and saved_v2:
-        query = execution_view_query(library, 3, stage._StageResult, stage._ExecutionView)
-        if query is not None:
-            return stage.run_saved(case, control, library, abi, table_directory, query,
-                resume_state=resume_state, checkpoint=checkpoint, checkpoint_due=checkpoint_due)
+def _run_retained_case(case, control, runtime, saved, saved_v2, *, resume_state, checkpoint, checkpoint_due):
     driver = NativeFull3DDriver.__new__(NativeFull3DDriver)
     driver._bind(runtime)
     if saved and saved_v2:
@@ -347,4 +328,9 @@ def run_case(case, control=RunControl(), *, resume_state=None, checkpoint=None, 
         from sjtu_tpmshx.data_types.case_data import resolved_input_record
         cfg['_input_resolution'] = resolved_input_record(case, {side: cfg['fluid_type_' + side] for side in 'AB'},
             tuple(p['N' + axis] for axis in 'xyz'), {side: cfg['fluid_' + side + '_cfg']['dir'] for side in p['axes']})
-    return capture_result(case, cfg, p, r, abi)
+    return capture_result(case, cfg, p, r, driver.abi)
+
+
+def run_case(case, control=RunControl(), *, resume_state=None, checkpoint=None, checkpoint_due=None):
+    return stage.run_case(case, control, retained_run=_run_retained_case,
+        resume_state=resume_state, checkpoint=checkpoint, checkpoint_due=checkpoint_due)

@@ -426,7 +426,8 @@ def _lut_cache():
     return cache
 
 
-def _resolved(config, flow, targets):
+def resolved_flow_config(config, flow, targets):
+    """Return a config with the native inlet speeds."""
     fluids = {}
     for index, side in enumerate('AB'):
         fluid = getattr(config, 'fluid_' + side)
@@ -683,7 +684,7 @@ def _execute(config, operation, *, targets=None, case_id=None, start_observation
             flow = result.flow if hasattr(result, 'flow') else result
         if operation == 'prepare_inlet_mass_capacities':
             return {side: _native_flow._restore(flow.capacities[index]) for index, side in enumerate('AB')}
-        resolved = _resolved(config, flow, targets)
+        resolved = resolved_flow_config(config, flow, targets)
         if operation == 'resolve_inlet_flow':
             return resolved
         resolved = ComputeConfig.from_dict(asdict(resolved), _native_preparation=True)

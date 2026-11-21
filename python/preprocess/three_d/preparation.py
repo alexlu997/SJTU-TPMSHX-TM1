@@ -1,7 +1,7 @@
 """Build immutable 3D CaseData from the owned native preparation stage."""
 from copy import deepcopy
 import ctypes as ct
-from dataclasses import asdict, replace
+from dataclasses import asdict
 import os
 
 import numpy as np
@@ -277,16 +277,6 @@ def _case(result, config, case_id, context):
             model_roles={'fluid_A': 0, 'fluid_B': 1, 'geometry': 2, 'darcy_forchheimer': 3}))
 
 
-def _resolved(config, flow, targets):
-    fluids = {}
-    for index, side in enumerate('AB'):
-        fluid = getattr(config, 'fluid_' + side)
-        if targets is not None or fluid.mass_flow_kg_s is not None:
-            fluids['fluid_' + side] = replace(fluid, u_mps=restore_buffer_scalar(flow.speeds[index]),
-                mass_flow_kg_s=None if targets is not None else fluid.mass_flow_kg_s)
-    return replace(config, **fluids).validate(resolved_inlet_speeds=True) if fluids else config
-
-
 def _execute(config, action, *, targets=None, case_id=None, start_observations=None):
     from sjtu_tpmshx.run_control.run_environment import _resolve_chi_s
     source = _input(config, targets, action)
@@ -352,7 +342,7 @@ def _execute(config, action, *, targets=None, case_id=None, start_observations=N
         flow = result.flow
         if action == 'prepare_inlet_mass_capacities':
             return {side: restore_buffer_scalar(flow.capacities[index]) for index, side in enumerate('AB')}
-        resolved = _resolved(config, flow, targets)
+        resolved = common.resolved_flow_config(config, flow, targets)
         if action == 'resolve_inlet_flow':
             return resolved
         return _case(result, resolved, case_id, context)
