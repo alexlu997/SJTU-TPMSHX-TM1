@@ -87,7 +87,9 @@ Current public saved 2D/3D runs copy applicability groups and required records b
 The public API publishes these groups without repeating classification.
 Python combines complete case notices and run `nu-evidence` warning records into `scope_notes`; independent C++ stages keep their native notes.
 Direct and archived-runtime paths retain `capture_applicability`. Capture failures do not select that path.
-`python/solvers/execution_record.py` publishes the completed native method and sampling records.
+After the solve, `python/cpp_interface/solver_library/_stage_capture_abi.py` reads the executed method and states from C++.
+`python/data_types/field_result.py` publishes them with property samples and case resource indices.
+For older libraries without an execution view, `python/solvers/execution_record.py` recovers these facts from the returned fields.
 The native result stage decides qualification.
 
 Standalone `shared/models/tpms_calc.compute` uses the same native inlet-property combination as complete preparation.

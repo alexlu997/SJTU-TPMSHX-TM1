@@ -1,4 +1,5 @@
-"""Describe the physical resources and methods of a completed full solve."""
+"""Recover execution facts from full results without a native execution view."""
+from sjtu_tpmshx.data_types.field_result import execution_record
 
 
 def full_execution_record(case, result, *, sides=None, thermal=None):
@@ -24,33 +25,13 @@ def full_execution_record(case, result, *, sides=None, thermal=None):
             models = metadata.get('model_metadata', {})
             table = models.get('enthalpy_eos', models.get('sco2_enthalpy_eos', {}))
             sides = _execution_sides(case, result, mode, eos, integral, table, temperature)
-    settings = thermal['effective_settings']
-    native = metadata.get('native', {})
-    algorithm = settings.get('energy_algorithm', native.get('algorithm'))
-    roles = case.metadata['model_roles']
-    return dict(version='full_execution_v1', backend=result.backend_id,
-                backend_version=result.backend_version, dimension=case.grid['dimension'],
-                **({'input_resolution': metadata['input_resolution']} if 'input_resolution' in metadata else {}),
-                **({'property_sampling': dict(version='full_sampling_v1', records=metadata['property_sampling'])}
-                   if 'property_sampling' in metadata else {}),
-                sides=sides, closure_model_refs={key: roles[key] for key in ('geometry', 'darcy_forchheimer')},
-                numerics=dict(thermal_mode=thermal['thermal_mode'], unknown=thermal['unknown'],
-                              algorithm=algorithm, algorithm_version=settings.get('energy_algorithm_version'),
-                              face_reconstruction=settings.get('enthalpy_face_reconstruction'),
-                              temperature_transport=thermal['temperature_transport'],
-                              effective_settings=settings, native=native,
-                              **({'enthalpy_update_normalization': metadata['enthalpy_update_normalization']}
-                                 if metadata.get('enthalpy_update_normalization') else {}),
-                              **({'simple_velocity_relaxation': metadata['simple_velocity_relaxation']}
-                                 if 'simple_velocity_relaxation' in metadata else {}),
-                              **({'simple_flow': metadata['simple_flow']} if 'simple_flow' in metadata else {}),
-                              **({'model_h_iterations': model_h_iterations} if model_h_iterations else {})),
-                evidence=dict(thermal_state=result.field_metadata['Ta']['state'],
-                              mass_state=result.boundary_fluxes['state'],
-                              pressure_report_states={label: None if value is None else
-                                                      result.field_metadata['P_report_' + label]['state']
-                                                      for label, value in result.pressure_evidence.items()},
-                              outer_index=result.run_status['outer_index']))
+    states = dict(thermal_state=result.field_metadata['Ta']['state'], mass_state=result.boundary_fluxes['state'],
+                  pressure_report_states={label: None if value is None else result.field_metadata['P_report_' + label]['state']
+                                          for label, value in result.pressure_evidence.items()},
+                  outer_index=result.run_status['outer_index'])
+    return execution_record(result.backend_id, result.backend_version, metadata, version='full_execution_v1',
+                            dimension=case.grid['dimension'], roles=case.metadata['model_roles'],
+                            sides=sides, thermal=thermal, evidence=states)
 
 
 def _execution_sides(case, result, mode, eos, integral, table, temperature):

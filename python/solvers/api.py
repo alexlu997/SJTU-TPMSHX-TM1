@@ -53,9 +53,10 @@ def run_case(case: CaseData, control: RunControl = RunControl(), *,
         *warning_messages(records))))
     metadata = dict(result.metadata, diagnostics=diagnostics, provenance=provenance)
     if mode == 'full' and result.run_status['execution'] == 'completed':
-        from .execution_record import full_execution_record
-        metadata['execution_record'] = full_execution_record(case, result,
-            sides=metadata.pop('_native_execution_sides', None), thermal=metadata.pop('_native_thermal_execution', None))
+        if 'execution_record' not in metadata:
+            from .execution_record import full_execution_record
+            metadata['execution_record'] = full_execution_record(case, result,
+                sides=metadata.pop('_native_execution_sides', None))
         if '_native_applicability' in metadata:
             from sjtu_tpmshx.run_control.run_warnings import captured_scope_notes
             metadata['applicability_evidence'] = dict(metadata.pop('_native_applicability'),

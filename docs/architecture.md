@@ -340,7 +340,8 @@ Integral h(T), capacity temperature transport and prescribed temperatures remain
 The record copies returned algorithm identifiers, effective settings and state labels.
 The completed native stage identifies the actual energy relation for each side.
 It provides the executed method, update scale and last main model-h call.
-Python publishes this evidence with the case resource indices.
+The completed stage result also identifies the thermal and mass states, available pressure reports and outer iteration.
+Python publishes this evidence with the case resource indices when it constructs the field result.
 For an archived runtime without this view, Python reads the earlier result fields.
 The independent result stage decides qualification.
 A missing algorithm identifier stays null; requested settings do not establish execution.
