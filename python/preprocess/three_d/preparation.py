@@ -12,7 +12,7 @@ from sjtu_tpmshx.data_types.compute_config import ComputeConfig, bc_to_dict
 from sjtu_tpmshx.data_types.model_refs import ModelRef
 from sjtu_tpmshx.run_control.run_environment import capture_environment
 from sjtu_tpmshx.cpp_interface._native_values import (
-    TOPOLOGY_CODES, GridPort, GridScalar, borrow_text, grid_count, grid_scalar, read_text, restore_buffer_scalar,
+    TOPOLOGIES, TOPOLOGY_CODES, GridPort, GridScalar, borrow_text, grid_count, grid_scalar, read_text, restore_buffer_scalar,
 )
 from sjtu_tpmshx.cpp_interface import _native_preparation_case as native
 from sjtu_tpmshx.cpp_interface import _native_preparation_3d as three
@@ -257,7 +257,7 @@ def _execute(config, action, *, targets=None, case_id=None, start_observations=N
                 hash((config.geometry.tpms, config.geometry.L_cell_mm, config.geometry.t_wall_mm, 128))
             elif chi_error is not None:
                 raise chi_error
-            if config.geometry.tpms not in ('Diamond', 'Gyroid'):
+            if config.geometry.tpms not in TOPOLOGIES:
                 from sjtu_tpmshx.physical_models import tpms_props, co2_correlations
                 geometry_check = (co2_correlations.geometry if 'co2' in
                     (config.fluid_A.type, config.fluid_B.type) else tpms_props.geometry)
