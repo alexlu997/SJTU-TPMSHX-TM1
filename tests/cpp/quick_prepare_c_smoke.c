@@ -1,4 +1,5 @@
 #include "tpmshx/quick_design_stage_c_api.h"
+#include <fenv.h>
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -78,6 +79,21 @@ int main(void) {
     tpmshx_quick_input_v2 raw=input();tpmshx_quick_prepared_v2 full=prepared();
     tpmshx_quick_pressure_v2 dp=pressure();char error[4096]={0};size_t n;
     struct context state={0};
+    {
+        double values[]={1.,0.,4.,1.};
+        const uint64_t signaling_nan=UINT64_C(0x7ff0000000000001);
+        const tpmshx_preparation_array_v1 input_values={values,4};
+        tpmshx_preparation_range_sample_v1 sample={0};
+        const tpmshx_preparation_array_v1 alias={&sample.minimum,1};
+        memcpy(&values[1],&signaling_nan,sizeof(signaling_nan));
+        CHECK(feclearexcept(FE_ALL_EXCEPT)==0);
+        CHECK(tpmshx_preparation_collect_range_v1(input_values,2.,3.,&sample,error,sizeof(error))==0);
+        CHECK(!fetestexcept(FE_INVALID) && sample.have_finite && sample.nonfinite==1);
+        CHECK(sample.minimum==1. && sample.minimum_index==0 && sample.maximum==4. && sample.maximum_index==2);
+        CHECK(sample.low==2 && sample.high==1 && sample.size==4);
+        CHECK(tpmshx_preparation_collect_range_v1(alias,2.,3.,&sample,error,sizeof(error))==TPMSHX_PREPARATION_INVALID);
+        CHECK(sample.minimum==1. && sample.size==4);
+    }
     tpmshx_quick_callbacks_v2 callbacks={0};callbacks.abi_version=2;callbacks.struct_size=sizeof(callbacks);
     callbacks.context=&state;callbacks.host=observe;
     CHECK(tpmshx_quick_pressure_fractions_v2(&raw,&callbacks,&dp,error,sizeof(error))==0);

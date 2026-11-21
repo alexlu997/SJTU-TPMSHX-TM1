@@ -321,18 +321,21 @@ def test_property_range_records_keep_source_side_and_stage():
 
 
 def test_prepare_and_pressure_observe_ranges_without_result_or_solver(monkeypatch, tmp_path):
-    for name in ('TPMSHX_RESULT_LIBRARY', 'TPMSHX_NATIVE_SOLVER_LIBRARY', 'TPMSHX_SOLVER_LIBRARY'):
+    from sjtu_tpmshx.preprocess.api import prepare_quick_design
+    from sjtu_tpmshx.run_control.run_warnings import range_observations
+
+    for name in ('TPMSHX_RESULT_LIBRARY', 'TPMSHX_GEOMETRY_LIBRARY',
+                 'TPMSHX_NATIVE_SOLVER_LIBRARY', 'TPMSHX_SOLVER_LIBRARY'):
         monkeypatch.setenv(name, str(tmp_path / name))
 
     arguments = _args(case=_case(T_in_h=1200.))
-    with warning_scope({}) as preparation_records:
-        prepared = production.prepare_quick_design(**arguments, case_id='preparation-only')
+    prepared = prepare_quick_design(**arguments, case_id='preparation-only')
     with warning_scope({}) as pressure_records:
         pressure = production.pressure_fractions(**arguments)
 
     assert pressure == tuple(prepared.parameters['inlet_pressure_fractions'][side] for side in 'AB')
-    assert any(row.high for row in preparation_records.values())
-    assert preparation_records == pressure_records
+    assert any(row['high'] for row in prepared.metadata['applicability_inputs'])
+    assert_value(_plain(prepared.metadata['applicability_inputs']), tuple(range_observations(pressure_records)))
 
 
 def test_geometry_cache_clear_reaches_the_preparation_owner():

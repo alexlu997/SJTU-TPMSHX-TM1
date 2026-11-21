@@ -69,7 +69,9 @@ class _Bindings:
         storage = np.require(values, dtype=np.float64, requirements=['C', 'A'])
         view = _Array(storage.ctypes.data_as(ct.POINTER(_D)), storage.size)
         result, error = _Sample(), ct.create_string_buffer(2048)
-        _native_flow._check_status(self.range_query(view, lower, upper, ct.byref(result), error, len(error)), error)
+        status = self.range_query(view, lower, upper, ct.byref(result), error, len(error))
+        if status:
+            _native_flow._check_status(status, error)
         return result
 
 

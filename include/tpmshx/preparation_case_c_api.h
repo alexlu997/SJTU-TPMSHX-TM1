@@ -544,6 +544,7 @@ extern "C" {
 TPMSHX_PREPARATION_API uint32_t TPMSHX_PREPARATION_CALL tpmshx_preparation_case_abi_version_v1(void);
 /* Observe a contiguous double buffer in source order. Indices are zero-based.
  * Ignore nonfinite values when finding extrema and counting bound violations.
+ * Keep the caller's floating-point environment.
  * Output, input values and error storage must be disjoint.
  * A failed call preserves output. */
 TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_preparation_collect_range_v1(
