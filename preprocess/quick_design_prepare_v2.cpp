@@ -223,13 +223,21 @@ struct Engine {
         constexpr const char* eos_keys[]{"D","V","L","C"};
         for(uint32_t at=0;at<4;++at) {
             auto pack=request(TPMSHX_QUICK_PROPERTY_PACK,side,at);pack.flags[0]=fluids[side];
+            const auto getter=static_cast<p::Empirical>(fluids[side]?4+at:air_getters[at]);
             pack.property_inputs[0]=scalar_property(temperature);pack.property_inputs[1]=scalar_property(pressure);
             if(fluids[side]==1) {pack.property_inputs[0].kind={temperature.value,64,1};pack.property_inputs[0].layout=2;}
+            if(fluids[side]<2 && callbacks && callbacks->host) {
+                pack.flags[2]=1;
+                if(const auto range=p::empirical_range(getter);range.label) {
+                    pack.text={range.label,std::strlen(range.label)};
+                    pack.scalars[0]=weak(range.bounds[0]);pack.scalars[1]=weak(range.bounds[1]);
+                }
+            }
             call(pack);
             const auto first=property(pack.property_inputs[0]),second=property(pack.property_inputs[1]);
             auto& output=properties[side][at];
             if(fluids[side]<2) {
-                output=property_call([&]{return p::empirical(static_cast<p::Empirical>(fluids[side]?4+at:air_getters[at]),first,second);},side,1,at);
+                output=property_call([&]{return p::empirical(getter,first,second);},side,1,at);
             } else {
                 if(fluids[side]==3)
                     property_call([&]{p::validate_co2_pt(first.values,second.values);return 0;},side,2,at);

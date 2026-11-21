@@ -694,6 +694,7 @@ C++ 选择每项操作及数值分支；宿主操作可打包原始操作数或�
 | `OPERATING_SNAPSHOT` | 捕获原工况值及已解析 DF 选项，不输出数值。 |
 | `PROPERTY_ENTRY` | 打开该侧范围作用域，在 `text` 返回规范化流体标签。 |
 | `STATE_PACK`、`PROPERTY_PACK` | 在 `property_inputs` 打包广播后的操作数。`flags[0]` 标识流体，状态 `flags[1]` 选择标量 EOS 返回 shape；物性 `index` 选择 getter。 |
+| 经验物性 `PROPERTY_PACK` 范围 | `flags[2]` 设置时从 `text` 读取原生标签，在 `scalars[0:2]` 读取温度上下限。空文本表示该物性没有拟合范围。较早版本保留 `flags[2]` 未设置。宿主保留原告警作用域及操作数转换顺序。 |
 | `EOS_CACHE_LOOKUP` | `flags[0]` 标识 sCO2 或 CO2；`flags[1]` 返回命中状态，`property_values` 提供已完成的标量值或五值组合。阶段检查并复制该视图。 |
 | `EOS_CACHE_STORE` | 在 `property_values` 观测已完成的标量结果，通过既有缓存 owner 发布；不得执行计算。 |
 | `PROPERTY_RESULT` | 观测物性数组、kind、category 和浮点事件，恢复宿主标量／数组并送达 NumPy 事件。 |

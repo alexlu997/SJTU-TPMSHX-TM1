@@ -123,6 +123,16 @@ def _nu_co2(tpms_type, Re, eps_f, L_mm, D_h_mm, Pr):
     return co2_correlations.nusselt(tpms_type, Re, Pr, L_mm, D_h_mm)
 
 
+@dataclass
+class Props:
+    """Fluid properties for a single operating state."""
+    rho: float
+    mu: float
+    k: float
+    cp: float
+    Pr: float
+
+
 @dataclass(frozen=True)
 class FluidModel:
     name: str

@@ -132,9 +132,9 @@ def test_forward_labels_without_extra_property_or_thermal_calls(
 
     nu_contexts = set()
 
-    def evidence(library, output, index, side, fluid):
+    def evidence(library, output, index, side):
         before = len(calls)
-        record_native(library, output, index, side, fluid)
+        record_native(library, output, index, side)
         nu_contexts.update(key[-1][:2] for key in execution.current_warnings() if key[0] == 'nu')
         assert len(calls) == before
 

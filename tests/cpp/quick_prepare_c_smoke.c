@@ -43,6 +43,15 @@ static int TPMSHX_PREPARATION_CALL observe(void* raw,tpmshx_quick_host_request_v
     if(request->operation==TPMSHX_QUICK_WIDTH_PACK)++state->widths;
     if(request->operation==TPMSHX_QUICK_PROPERTY_RESULT)++state->properties;
     if(request->operation==TPMSHX_QUICK_PRESSURE_RESULT)++state->pressures;
+    if(request->operation==TPMSHX_QUICK_PROPERTY_PACK && request->flags[0]==0) {
+        if(request->flags[2]!=1 || (request->index==0 && request->text.size))return 1;
+        if(request->index==1) {
+            const char label[]="air_viscosity";
+            if(request->text.size!=sizeof(label)-1 || !request->text.data ||
+               memcmp(request->text.data,label,sizeof(label)-1) ||
+               request->scalars[0].value!=200. || request->scalars[1].value!=1100.)return 1;
+        }
+    }
     if(state->alias && request->operation==TPMSHX_QUICK_PROPERTY_PACK) {
         request->property_inputs[0].values=(const double*)state->alias;
         request->property_inputs[0].count=1;

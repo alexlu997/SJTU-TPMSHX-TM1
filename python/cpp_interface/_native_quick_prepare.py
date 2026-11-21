@@ -10,12 +10,12 @@ import numpy as np
 
 from sjtu_tpmshx.model_configs.model_parameters import MODEL_VERSIONS, load_quick_design_parameters
 from sjtu_tpmshx.data_types.model_refs import ModelRef
-from sjtu_tpmshx.run_control.run_environment import capture_environment
+from sjtu_tpmshx.run_control.run_environment import _resolve_chi_s, capture_environment
 from sjtu_tpmshx.run_control.run_warnings import range_context, record_range
-from sjtu_tpmshx.physical_models.df_surrogate import predict as df
+from sjtu_tpmshx.physical_models.df_surrogate.backend import resolve_method
 from . import _native_df, _native_flow, _native_geometry, _native_grid, _native_preparation, _native_properties
 from sjtu_tpmshx.physical_models import fluid_props as registry
-from sjtu_tpmshx.physical_models import co2_props, sco2_props, tpms_geometry, tpms_props
+from sjtu_tpmshx.physical_models import co2_props, sco2_props, tpms_geometry
 from ._native_preparation_case import _Array, _GeometryCache, _Text
 from ._native_preparation_case import _QuickInputV2 as _Input, _QuickPreparedV2 as _Prepared
 
@@ -78,6 +78,8 @@ def _text(value):
 
 
 def _bind_pressure_options(compressible, options):
+    from sjtu_tpmshx.physical_models.df_surrogate import predict as df
+
     function = df.predict_dP_compressible if compressible else df.predict_dP
     try:
         bound = inspect.signature(function).bind(*([None] * (9 if compressible else 8)), **options)
@@ -90,18 +92,27 @@ def _bind_pressure_options(compressible, options):
     return bound.arguments['method'], bound.arguments.get('strict', False)
 
 
-def _record_property_range(fluid, at, temperature):
-    names = (('air_density', 'air_viscosity', 'air_conductivity', 'air_cp'),
-             ('water_density', 'water_viscosity', 'water_conductivity', 'water_cp'))
-    if fluid == 0 and at == 0:
-        return
-    name = names[fluid][at]
-    bounds = (tpms_props._WATER_T_RANGE if fluid else
-              tpms_props._AIR_CP_RANGE if at == 3 else tpms_props._AIR_T_RANGE)
+def _record_property_range(request, fluid, at, temperature):
+    if request.flags[2]:
+        if not request.text.size:
+            return
+        name = _text(request.text)
+        bounds = request.scalars[0].value, request.scalars[1].value
+    else:
+        if fluid == 0 and at == 0:
+            return
+        from sjtu_tpmshx.physical_models import tpms_props
+
+        quantity = ('density', 'viscosity', 'conductivity', 'cp')[at]
+        name = f'{_FLUIDS[fluid]}_{quantity}'
+        bounds = (tpms_props._WATER_T_RANGE if fluid else
+                  tpms_props._AIR_CP_RANGE if at == 3 else tpms_props._AIR_T_RANGE)
     values = np.asarray(temperature, dtype=float)
     if not values.size or record_range(('property', name), values, bounds, label=name, quantity='T', unit='K'):
         return
-    message = tpms_props._range_notice(name, float(values.min()), float(values.max()), *bounds)
+    from sjtu_tpmshx.physical_models.tpms_props import _range_notice
+
+    message = _range_notice(name, float(values.min()), float(values.max()), *bounds)
     if message is not None:
         provider = registry.FLUIDS[_FLUIDS[fluid]]
         caller = getattr(provider, ('rho', 'mu', 'k', 'cp')[at])
@@ -213,7 +224,7 @@ class _HostState:
             request.scalars[0] = _Scalar(float(self.l), 64, 0)
             request.scalars[1] = _Scalar(float(self.t), 64, 0)
         elif operation == 7:
-            chi = 1. if at else tpms_props._resolve_chi_s()
+            chi = 1. if at else _resolve_chi_s()
             request.flags[0] = _native_geometry._topology(self.topo)
             conductivity = self.conductivity if self.full else _Parameters['k_s']
             request.flags[2] = _native_geometry._floating_dtype(self.geometry['epsilon'], conductivity).itemsize * 8
@@ -230,7 +241,7 @@ class _HostState:
         elif operation == 9:
             self.operating = {name: getattr(self.case, name) for name in
                 ('hot_fluid', 'cold_fluid', 'T_in_h', 'T_in_c', 'P_in_h', 'P_in_c', 'mdot_h', 'mdot_c')}
-            self.df_options = dict(method=df._resolve_method())
+            self.df_options = dict(method=resolve_method())
         elif operation == 10:
             self.enter(side)
             names = ('hot_fluid', 'T_in_h', 'P_in_h') if side == 0 else ('cold_fluid', 'T_in_c', 'P_in_c')
@@ -351,7 +362,7 @@ class _HostState:
         fluid, at = request.flags[0], request.index
         _raw_fluid, temperature, pressure = self.inlet
         if fluid < 2:
-            _record_property_range(fluid, at, temperature)
+            _record_property_range(request, fluid, at, temperature)
             getter = _EMPIRICAL[fluid][at]
             self.property_shape, self.buffers, inputs = _native_properties._empirical_inputs(getter, temperature, pressure)
             for n, value in enumerate(inputs):
@@ -391,7 +402,7 @@ class _HostState:
         self.strict = False
         if not self.full:
             method, self.strict = _bind_pressure_options(air, self.options)
-            df._resolve_method(method)
+            resolve_method(method)
         try:
             length, wall = float(self.l), float(self.t)
         except ValueError as problem:
@@ -402,7 +413,9 @@ class _HostState:
                   if air else (self.velocity, self.props[side][0], self.props[side][1], self.sections[side * 2 + 1]))
         for n, value in enumerate(values):
             request.scalars[n] = _native_flow._scalar(value)
-        request.flags[1] = _native_df._topology(self.topo)
+        if type(self.topo) is not str:
+            # Custom labels keep their original mapping lookup.
+            request.flags[1] = _native_df._topology(self.topo)
         if air:
             request.flags[2] = int(bool(self.strict))
         request.scalars[5], request.property_kind = _Scalar(length, 64, 0), _Scalar(wall, 64, 0)
@@ -413,7 +426,8 @@ class _HostState:
         self.pressures[request.side] = (self.pressure_inlet[3] if air and output.no_positive_outlet and not self.strict
             else _native_grid._restore(_Scalar(output.dP, output.precision, output.strong)))
         if air and output.no_positive_outlet:
-            df._record_pressure_limit(self.topo, self.l, self.t, output.outlet_squared, self.strict)
+            from sjtu_tpmshx.physical_models.df_surrogate.predict import _record_pressure_limit
+            _record_pressure_limit(self.topo, self.l, self.t, output.outlet_squared, self.strict)
 
     def failure(self, request):
         failure, message = request.failure.contents, _text(request.text)

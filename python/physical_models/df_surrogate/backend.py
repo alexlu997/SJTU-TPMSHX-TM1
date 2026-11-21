@@ -6,12 +6,21 @@ applicability checks; the retired D76 pressure entry is not a current gate.
 Training-domain error alone does not establish end-to-end applicability.
 """
 from functools import lru_cache
+import os
 
 METHOD = 'cfd_full_core_3cell_fixed_v2'
 
 
 def available_methods() -> tuple[str, ...]:
     return (METHOD,)
+
+
+def resolve_method(method: str | None = None) -> str:
+    """Resolve and validate the per-call or environment method."""
+    selected = (method if method is not None else os.environ.get('TPMSHX_DF_METHOD', METHOD)).strip().lower()
+    if selected not in available_methods():
+        raise ValueError(f'unknown DF method {selected!r}; valid: {available_methods()}')
+    return selected
 
 
 @lru_cache(maxsize=None)

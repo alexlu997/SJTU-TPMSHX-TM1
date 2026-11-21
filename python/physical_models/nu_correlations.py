@@ -42,7 +42,12 @@ from sjtu_tpmshx.cpp_interface import _native_properties
 
 # ── Constants ────────────────────────────────────────────────────────────
 
-_NU_PARAMETERS = load_model_parameters()['nu']
+_MODEL_PARAMETERS = load_model_parameters()
+_NU_PARAMETERS = _MODEL_PARAMETERS['nu']
+DESIGN_NU_REFERENCE_STATES = {
+    fluid: tuple(state)
+    for fluid, state in _MODEL_PARAMETERS['design_nu_reference_states'].items()
+}
 Pr_AIR = _NU_PARAMETERS['pr_air']
 NU_ROUGHNESS_FACTOR = _NU_PARAMETERS['roughness_factor']
 NU_RE_FIT_RANGE = tuple(_NU_PARAMETERS['air_re_range'])
@@ -255,6 +260,14 @@ def record_raw_nu_range(fluid, tpms_type, Re):
               'sco2': SCO2_NU_RE_RANGE, 'co2': RE_RANGE}[fluid]
     record_range(('nu_raw', fluid, tpms_type), Re, bounds,
                  label=f'[{fluid} Nu raw] {tpms_type}', quantity='Re', unit='-')
+
+
+def record_quick_sco2_pr_notice():
+    temperature, pressure = DESIGN_NU_REFERENCE_STATES['sco2']
+    record_warning(('design-sco2-representative-pr',),
+                   f'sCO2 Nu uses representative Pr queried at {temperature:g} K / {pressure / 1e6:g} MPa, '
+                   'not at this case inlet or mean state. The smooth-wall CFD '
+                   'correlation joint qualification for this case is not established.')
 
 
 def _warn_sco2_nu(Re_min, Re_max, tpms_type, raw):

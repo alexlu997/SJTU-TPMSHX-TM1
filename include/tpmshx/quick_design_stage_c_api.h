@@ -122,6 +122,9 @@ enum tpmshx_quick_host_operation_v2 {
  * property_inputs carry already-broadcast buffers with original scalar tags.
  * property_values supplies a stored EOS result only for cache lookup. Other
  * property_values and geometry fields are observations, not model callbacks.
+ * For empirical PROPERTY_PACK, flags[2] marks a native range descriptor.
+ * Nonempty text gives its label, with bounds in scalars[0:2]. Empty text
+ * means the property has no fitted range. Older libraries leave flags[2] zero.
  * Host scalars/flags/text contain only raw packing or fixed operator results.
  */
 typedef struct {

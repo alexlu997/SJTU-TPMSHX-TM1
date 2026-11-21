@@ -593,14 +593,10 @@ double property(std::uint32_t quantity,const Inlet& inlet,const InletScalarKinds
     const bool water=inlet.fluid==Fluid::water;
     constexpr std::array<Empirical,4> air{{Empirical::air_density,Empirical::air_viscosity,
                                          Empirical::air_conductivity,Empirical::air_cp}};
-    constexpr const char* names[]{"density","viscosity","conductivity","cp"};
-    if (water || quantity) {
-        const auto name=std::string(water?"water_":"air_")+names[quantity];
-        const auto& bounds=water?data::water_temperature_range:
-            (quantity==3?data::air_cp_temperature_range:data::air_temperature_range);
-        records.range({"property",name},side,stage,side=="unbound"?"source":layout,name,"T","K",bounds,temperature);
-    }
     const auto getter=water?static_cast<Empirical>(4+quantity):air[quantity];
+    if (const auto range=empirical_range(getter);range.label)
+        records.range({"property",range.label},side,stage,side=="unbound"?"source":layout,
+            range.label,"T","K",range.bounds,temperature);
     const auto result=raw_query?
         empirical(getter,query_operand(temperature,kinds.temperature),
             !water && quantity==0?query_operand(pressure,kinds.pressure):PropertyInput{}):
@@ -1413,11 +1409,9 @@ CaseInput2D region_input(const CaseInput2D& input,const ZoneRegion2D& region,con
 }
 PropertyResult sigmoid_air_property(Empirical getter,const InletInput2D& inlet,
     const InletScalarKinds& kinds,Records& records) {
-    if (getter!=Empirical::air_density) {
-        const std::string name=getter==Empirical::air_conductivity?"air_conductivity":"air_viscosity";
-        records.range({"property",name},"unbound","unbound","source",name,"T","K",
-            data::air_temperature_range,inlet.temperature_K);
-    }
+    if (const auto range=empirical_range(getter);range.label)
+        records.range({"property",range.label},"unbound","unbound","source",range.label,"T","K",
+            range.bounds,inlet.temperature_K);
     auto result=empirical(getter,operand(inlet.temperature_K,kinds.temperature),operand(inlet.pressure_Pa,kinds.pressure));
     records.floating(result.events);return result;
 }

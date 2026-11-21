@@ -295,16 +295,16 @@ def test_warnings_use_native_pass_evidence_without_python_numerics(native_contro
     monkeypatch.setattr(fluid_props, 'check_water_state', forbidden)
     samples = []
     original = quick_design._record_pass
-    def observe(library, output, index, side, fluid):
+    def observe(library, output, index, side):
         row = output.raw.passes[index].sides[side]
-        samples.append((fluid, p['topology'], row.evaluation_temperature, row.reynolds))
-        return original(library, output, index, side, fluid)
+        samples.append((index, side, row.evaluation_temperature, row.reynolds))
+        return original(library, output, index, side)
     monkeypatch.setattr(quick_design, '_record_pass', observe)
     actual = run_case(case, native_control)
     assert len(samples) == 4
-    for index,(fluid,topology,temperature,reynolds) in enumerate(samples):
-        offset = (index//2)*20+(index%2)*10
-        assert fluid == ('water' if index%2 == 0 else 'air') and topology == p['topology']
+    for ordinal, (index, side, temperature, reynolds) in enumerate(samples):
+        assert (index, side) == divmod(ordinal, 2)
+        offset = index*20 + side*10
         np.testing.assert_allclose([temperature,reynolds],raw['metrics'][[offset,offset+6]],rtol=2e-10)
     warnings = actual.metadata['diagnostics']['warnings_list']
     assert any('water_cp' in message for message in warnings)
