@@ -54,6 +54,10 @@ _FLOAT_SCALARS = (float, np.float16, np.float32, np.float64)
 _EMPIRICAL = ((2, 0, 1, 3), (4, 5, 6, 7))
 
 
+def _plain_float(value):
+    return any(type(value) is kind for kind in _FLOAT_SCALARS)
+
+
 class _Bindings:
     def __init__(self, path):
         self.owner = _native_preparation._load_library(path)
@@ -219,6 +223,10 @@ class _HostState:
                     raise ValueError(f't_mm must be positive, got {self.t}')
                 if 2 * self.t >= self.l:
                     raise ValueError(f'Wall thickness t={self.t}mm >= L={self.l}mm, no pore space')
+            if request.flags[3] and type(self.topo) is str and _plain_float(self.l) and _plain_float(self.t):
+                request.text = borrow_text(self.topo, self.buffers)
+                request.scalars[0], request.scalars[1] = map(_native_grid._scalar, (self.l, self.t))
+                return
             request.flags[0] = _native_geometry._topology(self.topo)
             request.flags[1] = _native_geometry._floating_dtype(self.l, 0.).itemsize * 8
             request.flags[2] = _native_geometry._floating_dtype(self.t, self.l).itemsize * 8
@@ -226,8 +234,18 @@ class _HostState:
             request.scalars[1] = _Scalar(float(self.t), 64, 0)
         elif operation == 7:
             chi = 1. if at else _resolve_chi_s()
-            request.flags[0] = _native_geometry._topology(self.topo)
             conductivity = self.conductivity if self.full else _Parameters['k_s']
+            epsilon = self.geometry['epsilon']
+            if (request.flags[3] and type(self.topo) is str and self.topo in ('Diamond', 'Gyroid')
+                    and _plain_float(conductivity) and _plain_float(epsilon)):
+                request.text = borrow_text(self.topo, self.buffers)
+                request.flags[1] = chi is not None
+                request.scalars[0] = _native_grid._scalar(conductivity)
+                request.scalars[1] = _Scalar(0. if chi is None else chi, 64, 0)
+                request.scalars[2] = (_Scalar(0., 64, 0) if type(epsilon) is float
+                                      else _Scalar(0., epsilon.dtype.itemsize * 8, 1))
+                return
+            request.flags[0] = _native_geometry._topology(self.topo)
             request.flags[2] = _native_geometry._floating_dtype(self.geometry['epsilon'], conductivity).itemsize * 8
             request.scalars[0] = _Scalar(float(conductivity), 64, 0)
             have, value = _native_geometry._override(chi)
@@ -261,8 +279,8 @@ class _HostState:
             request.text = borrow_text(name, self.buffers)
             temperature, pressure = self.inlet[1:]
             self.scalar_inlet = (request.flags[0] == 1 and name in ('air', 'water')
-                                 and all(any(type(value) is kind for kind in _FLOAT_SCALARS)
-                                         and np.isfinite(value) for value in (temperature, pressure)))
+                                 and all(_plain_float(value) and np.isfinite(value)
+                                         for value in (temperature, pressure)))
             if self.scalar_inlet:
                 request.flags[1] = 1
                 request.scalars[0], request.scalars[1] = map(_native_flow._scalar, (temperature, pressure))

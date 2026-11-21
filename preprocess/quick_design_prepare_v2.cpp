@@ -14,6 +14,7 @@
 #include <cmath>
 #include <cstring>
 #include <memory>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -85,6 +86,8 @@ struct Engine {
     std::array<std::array<Scalar,2>,2> flow{};
     std::array<uint32_t,2> fluids{};
     uint32_t tp=0;
+    struct MaterialInput { double conductivity; uint32_t precision; };
+    std::optional<MaterialInput> material_input;
 
     Engine(const tpmshx_quick_input_v2& source,const tpmshx_quick_callbacks_v2* hooks,
            const void* output,size_t output_size,char* message,size_t capacity)
@@ -169,7 +172,16 @@ struct Engine {
             pack.scalars[0]=input.values[TPMSHX_QUICK_CELL];pack.scalars[1]=input.values[TPMSHX_QUICK_WALL];
             pack.flags[0]=tp;
             pack.flags[1]=pack.scalars[0].strong==1?pack.scalars[0].precision:64;
-            pack.flags[2]=g::result_precision(scalar(pack.scalars[1]),scalar(pack.scalars[0]));call(pack);
+            pack.flags[2]=g::result_precision(scalar(pack.scalars[1]),scalar(pack.scalars[0]));
+            pack.flags[3]=1;
+            call(pack);
+            if(pack.text.size) {
+                safe(pack.text.data,pack.text.size);
+                pack.flags[0]=topology(text(pack.text));
+                const auto cell=scalar(pack.scalars[0]),wall=scalar(pack.scalars[1]);
+                pack.flags[1]=g::result_precision(cell,g::weak(0.));
+                pack.flags[2]=g::result_precision(wall,cell);
+            }
             tp=pack.flags[0];if(tp>1)throw std::invalid_argument("invalid Quick geometry topology");
             const auto model=geo::calibration(static_cast<tpmshx::Topology>(tp));
             result.geometry=packed_geometry(geo::standard_geometry(index(tp),model,pack.scalars[0].value,
@@ -184,7 +196,20 @@ struct Engine {
         pack.geometry=&result.geometry;pack.flags[0]=tp;pack.flags[1]=final?1:input.have_chi;
         pack.scalars[0]=full?input.values[TPMSHX_QUICK_CONDUCTIVITY]:weak(data::quick_design_k_s);
         pack.scalars[1]=weak(final?1.:input.chi);pack.flags[2]=pack.scalars[0].strong==1?pack.scalars[0].precision:64;
-        call(pack);tp=pack.flags[0];if(tp>1)throw std::invalid_argument("invalid Quick material topology");
+        if(final && material_input) {
+            pack.scalars[0]=weak(material_input->conductivity);
+            pack.flags[2]=material_input->precision;
+        } else {
+            pack.flags[3]=1;
+            call(pack);
+            if(pack.text.size) {
+                safe(pack.text.data,pack.text.size);
+                pack.flags[0]=topology(text(pack.text));
+                pack.flags[2]=g::result_precision(scalar(pack.scalars[2]),scalar(pack.scalars[0]));
+                material_input=MaterialInput{pack.scalars[0].value,pack.flags[2]};
+            }
+        }
+        tp=pack.flags[0];if(tp>1)throw std::invalid_argument("invalid Quick material topology");
         flag(pack.flags[1]);
         const auto model=geo::calibration(static_cast<tpmshx::Topology>(tp));
         const auto value=geo::solid_conductivity(model.solid_tortuosity,result.geometry.epsilon,pack.scalars[0].value,

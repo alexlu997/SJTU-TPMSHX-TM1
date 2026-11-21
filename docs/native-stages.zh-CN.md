@@ -713,8 +713,8 @@ C++ 选择每项操作及数值分支；宿主操作可打包原始操作数或�
 | `WARM_CHECK`、`LABEL_CHECK` | 检查原热启动对象与标签，不输出数值。 |
 | `POSITIVE_SNAPSHOT`、`POSITIVE_CHECK` | 按原顺序读取一次输入；`index` 选择 13 项中的一项，`flags[0]` 返回有限正值检查结果。 |
 | `SHAPE_CHECK` | 检查热启动场 shape；`flags[0]` 返回叉流选择，网格数由原生常量提供。 |
-| `GEOMETRY_PACK` | `scalars[0:2]` 打包胞元长度／壁厚；`flags[0:3]` 传递拓扑、胞元精度和比例精度。 |
-| `MATERIAL_PACK` | 观测 `geometry`；`scalars[0:2]` 打包导热率和 chi，`flags[0:3]` 传递拓扑／chi 存在标志／精度。`index=1` 选择 chi=1 的最终导热率。 |
+| `GEOMETRY_PACK` | `scalars[0:2]` 传递胞元长度和壁厚。`flags[3]=1` 时，宿主可在 `text` 中返回拓扑名称，并传递带类型的标量，由准备库确定精度。文本为空时，`flags[0:3]` 给出拓扑、胞元精度和比例精度。 |
+| `MATERIAL_PACK` | `scalars[0:2]` 传递导热率和 chi，`flags[1]` 标记 chi 是否存在。`flags[3]=1` 时，宿主可返回拓扑名称、带类型的导热率及孔隙率类型（`scalars[2]`）。准备库复用这些输入计算 chi=1 的最终导热率。文本为空时，宿主在 `flags[0]` 和 `flags[2]` 给出拓扑和精度，最终回调的 `index=1`。 |
 | `WIDTH_PACK` | `index` 选择 x/y/z；`scalars[0]` 打包原始长度，`flags[0]` 传递数组精度。 |
 | `OPERATING_SNAPSHOT` | 捕获原工况值。`text` 给出编译进准备库的 D–F 表标识。核对用户选择的方法，并在工况中保存该标识。较早的库传回空文本，沿用宿主的方法选择。 |
 | `PROPERTY_ENTRY` | 打开该侧范围作用域，在 `text` 返回规范化流体标签。 |
