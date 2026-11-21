@@ -361,7 +361,7 @@ def test_native_call_borrows_case_arrays_and_recovers(native_path, monkeypatch, 
     def observe(run, function, *args):
         if function is run._create:
             if dimension == 2:
-                saved = args[0]._obj.values.values
+                saved = args[0]._obj.values.values.values
                 data = saved.prepared.contents.values
                 pointers = {
                     'K_ffA_arr': saved.fluid_conductivity[0].data,

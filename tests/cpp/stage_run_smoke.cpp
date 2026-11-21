@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -101,6 +102,52 @@ void check_saved(const tpmshx_preparation_case_2d_v1& prepared,tpmshx::stages::R
         Run2D run(current,control);
         Run2D resumed(current,control,{},&state);
         require(resumed.phase()==TPMSHX_FULL2D_FLOW,"saved v3 lost the restored phase");
+        tpmshx_stage_saved_case_2d_v4 experiment{};
+        experiment.abi_version=TPMSHX_STAGE_RUN_ABI_VERSION_V4;experiment.struct_size=sizeof(experiment);
+        experiment.values=current;
+        experiment.experiment.topology=1;
+        experiment.experiment.domain_count=2;
+        experiment.experiment.domain_m[0]=.182;experiment.experiment.domain_m[1]=.042;
+        experiment.experiment.cell_length_mm=7.;experiment.experiment.wall_thickness_mm=.6;
+        experiment.experiment.velocity_m_s[0]=experiment.experiment.velocity_m_s[1]=10.;
+        require(!tpmshx_stage_run_2d_create_saved_v4(&experiment,nullptr,&control,&handle,error,sizeof(error))
+            && handle,"saved v4 rejected the original campaign");
+        tpmshx_stage_run_2d_release_run_v1(&handle);
+        require(!tpmshx_stage_run_2d_restore_saved_v4(&experiment,nullptr,&control,state.view().fields,
+            state.view().count,&handle,error,sizeof(error)) && handle,"saved v4 rejected the matched checkpoint");
+        tpmshx_stage_run_2d_release_run_v1(&handle);
+        const auto rejected=[&](const char* reason,int status=1) {
+            require(tpmshx_stage_run_2d_create_saved_v4(&experiment,nullptr,&control,&handle,error,sizeof(error))==status
+                && !handle && std::strstr(error,reason),"saved create admitted a mismatched campaign");
+            require(tpmshx_stage_run_2d_restore_saved_v4(&experiment,nullptr,&control,state.view().fields,
+                state.view().count,&handle,error,sizeof(error))==status && !handle && std::strstr(error,reason),
+                "saved restore admitted a mismatched campaign");
+        };
+        experiment.experiment.velocity_m_s[0]=100.;
+        rejected("HX experiment calibration requires",8);
+        experiment.experiment.velocity_m_s[0]=std::numeric_limits<double>::quiet_NaN();
+        rejected("invalid saved experimental inlet velocity");
+        experiment.experiment.velocity_m_s[0]=10.;
+        experiment.experiment.geometry_mode=2;
+        rejected("experimental calibration currently requires uniform");
+        experiment.experiment.geometry_mode=0;
+        experiment.experiment.domain_m[0]=.180;
+        rejected("side A is HX-effective");
+        experiment.experiment.fluids[0]=experiment.experiment.fluids[1]=3;
+        rejected("fluids disagree");
+        experiment.experiment.fluids[0]=experiment.experiment.fluids[1]=0;
+        experiment.experiment.configured_flow[0]=experiment.experiment.configured_flow[1]=1;
+        rejected("side A is HX-effective");
+        experiment.experiment.configured_flow[0]=experiment.experiment.configured_flow[1]=0;
+        experiment.experiment.wall_thickness_mm=.4;
+        rejected("nominal geometry disagrees");
+        experiment.experiment.domain_m[0]=std::numeric_limits<double>::quiet_NaN();
+        require(tpmshx_stage_run_2d_check_experiment_v4(&experiment.experiment,error,sizeof(error))==1
+            && std::strstr(error,"invalid saved experimental settings"),"experiment query accepted a nonfinite domain");
+        experiment.experiment.domain_m[0]=.182;
+        experiment.experiment.velocity_m_s[0]=0.;
+        require(tpmshx_stage_run_2d_check_experiment_v4(&experiment.experiment,error,sizeof(error))==1
+            && std::strstr(error,"invalid saved experimental inlet velocity"),"experiment query accepted zero velocity");
         auto invalid=current;
         invalid.resource_topology={error,2};
         std::strcpy(error,"preserve-saved-error");
@@ -169,7 +216,11 @@ int main(int argc,char** argv) {
             require(std::memcmp(&failure,&before,sizeof(failure))==0,"option conflict changed output");
         }
         control.callbacks.cancel=nullptr;
-        check_saved(prepared.view(),control);
+        CaseInput2Dv2 experimental;
+        experimental.values=input();
+        experimental.values.df_mode=1;experimental.values.wall_thickness_mm=.6;
+        auto calibrated=prepare_case(experimental);
+        check_saved(calibrated.view().values,control);
         auto run=[&] {auto local=prepare_case(input());return run_case(local,control);}();
         // The prepared owner has gone. All saved evidence must remain valid.
         const auto* records=tpmshx_stage_run_2d_records_v1(&run.view());

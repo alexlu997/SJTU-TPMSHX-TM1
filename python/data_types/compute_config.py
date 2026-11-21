@@ -563,218 +563,8 @@ class ComputeConfig:
         and numerical settings. It does not qualify an executable case:
         ``validate()`` must still check the resolved speeds and calibration.
         """
-        import math
-
-        validate_enthalpy_algorithm(self.solver.enthalpy_algorithm,
-                                   self.solver.enthalpy_temperature_tol_K)
-
-        validate_simple_velocity_relaxation(self.solver.simple_velocity_relaxation)
-        for name in ('ltne_enthalpy_outer', 'ltne_enthalpy_nsweep', 'model_h_max_iterations'):
-            value = getattr(self.solver, name)
-            if value is None:
-                continue
-            minimum = 0 if name == 'ltne_enthalpy_nsweep' else 1
-            if type(value) is not int or value < minimum:
-                raise ValueError(f'ComputeConfig.solver.{name} must be an integer >= {minimum}')
-        for name in ('ltne_enthalpy_omega', 'ltne_enthalpy_tol',
-                     'ltne_enthalpy_coupled_energy_tol', 'ltne_enthalpy_equation_energy_tol',
-                     'model_h_temperature_tol_K', 'model_h_q_relative_tol'):
-            value = getattr(self.solver, name)
-            if value is None:
-                continue
-            if (isinstance(value, bool) or not isinstance(value, (int, float))
-                    or not isfinite(value) or value <= 0.
-                    or name == 'ltne_enthalpy_omega' and value > 1.):
-                raise ValueError(f'ComputeConfig.solver.{name} is invalid')
-        require_h = self.solver.require_enthalpy_update_on_temperature
-        if type(require_h) is not bool:
-            raise ValueError('ComputeConfig.solver.require_enthalpy_update_on_temperature must be boolean')
-
-        for name, value in (
-                ('zones.enabled', self.zones.enabled),
-                ('extrap.allow', self.extrap.allow),
-                ('flags.port_wall_refine', self.flags.port_wall_refine),
-                ('flags.variable_rho_cp', self.flags.variable_rho_cp)):
-            if type(value) is not bool:
-                raise ValueError(f'ComputeConfig.{name} must be boolean')
-        for name in ('Nx', 'Ny', 'Nz', 'max_iter_simple', 'max_outer_ltne'):
-            value = getattr(self.solver, name)
-            if value is None and name in ('max_iter_simple', 'max_outer_ltne'):
-                continue
-            if type(value) is not int:
-                raise ValueError(f'ComputeConfig.solver.{name}={value!r} must be an integer')
-
-        self.zones.validate()
-        if self.zones.enabled and self.zones.axis in ('x', 'y', 'grid'):
-            zone_source = self.zones.grid if self.zones.axis == 'grid' else self.zones.config
-            for key, expected in (('tpms_type', self.geometry.tpms),
-                                  ('k_s', self.geometry.k_s_W_mK)):
-                actual = (zone_source.get(key, expected) if isinstance(zone_source, dict)
-                          else getattr(zone_source, key, expected))
-                if actual != expected:
-                    raise ValueError(f'ComputeConfig.zones.{key}={actual!r} conflicts '
-                                     f'with main geometry value {expected!r}')
-        self.sco2_nu.validate()
-        if self.zones.enabled and self.zones.axis == 'continuous':
-            assert self.zones.config is not None  # Required by zones.validate().
-            if self.geometry.delta_levelset != 0.0:
-                raise ValueError('Continuous spatial fields require delta_levelset=0')
-            if not self.is_3d and 'n_ctrl_z' in self.zones.config:
-                raise ValueError('2D continuous fields cannot supply n_ctrl_z')
-        if self.df_mode not in ('cfd_smooth', 'experimental'):
-            raise ValueError(
-                f"ComputeConfig.df_mode={self.df_mode!r} — must be "
-                "'cfd_smooth' or 'experimental'")
-
-        def _bad(name, v):
-            raise ValueError(
-                f"ComputeConfig.{name}={v!r} — must be finite and > 0")
-
-        ge = self.geometry
-        checks = [
-            ('geometry.L_dom_m', ge.L_dom_m),
-            ('geometry.H_dom_m', ge.H_dom_m),
-            ('geometry.L_cell_mm', ge.L_cell_mm),
-            ('geometry.t_wall_mm', ge.t_wall_mm),
-            ('geometry.k_s_W_mK', ge.k_s_W_mK),
-        ]
-        if ge.Lz_m is not None:
-            checks.append(('geometry.Lz_m', ge.Lz_m))
-        for side, fl in (('A', self.fluid_A), ('B', self.fluid_B)):
-            if fl.mass_flow_kg_s is not None:
-                if (type(fl.mass_flow_kg_s) not in (int, float)
-                        or not math.isfinite(fl.mass_flow_kg_s) or fl.mass_flow_kg_s <= 0):
-                    _bad(f'fluid_{side}.mass_flow_kg_s', fl.mass_flow_kg_s)
-                if ge.Lz_m is None:
-                    raise ValueError('Total mass flow requires an explicit positive geometry.Lz_m')
-            checks += [
-                (f'fluid_{side}.T_in_K', fl.T_in_K),
-                (f'fluid_{side}.P_in_Pa', fl.P_in_Pa),
-            ]
-        for name, v in checks:
-            try:
-                fv = float(v)
-            except (TypeError, ValueError):
-                _bad(name, v)
-            if not math.isfinite(fv) or fv <= 0.0:
-                _bad(name, v)
-        for name, n in (('solver.Nx', self.solver.Nx),
-                        ('solver.Ny', self.solver.Ny),
-                        ('solver.Nz', self.solver.Nz)):
-            if n < 1:
-                raise ValueError(
-                    f"ComputeConfig.{name}={n} — must be >= 1")
-
-        # ── Lz contract (2026-07-12) ─────────────────────────────────────────
-        # This class's own GeometryConfig docstring says the 3D path *requires*
-        # Lz_m, but stages_3d silently substituted 0.042 m (the Shanghai depth)
-        # when it was None — a 3D result computed against a magic constant the
-        # user never chose, with every extensive scalar (Q, mass, dP_B) scaled
-        # by it. Nz >= 2 is exactly `is_3d`, so this is a config error.
-        if self.is_3d and self.geometry.Lz_m is None:
-            raise ValueError(
-                f"ComputeConfig.geometry.Lz_m is None but solver.Nz="
-                f"{self.solver.Nz} >= 2 selects the 3D path, which requires an "
-                "explicit domain depth (it used to silently fall back to "
-                "0.042 m). Set geometry.Lz_m, or set Nz=1 for a 2D run.")
-
-        # ── Numerical solver settings (2026-07-12) ───────────────────────────
-        # Normalise the typed-config full-face sentinel before applying the
-        # shared port validator. ComputeConfig always has two fluids, so side
-        # B uses the same full-face rule as A; its legacy None means
-        # single-fluid only below this boundary.
-        for side, bc in (('A', self.bc_A), ('B', self.bc_B)):
-            if not isinstance(bc.uniform_inlet_2d, bool):
-                raise ValueError(f'ComputeConfig.bc_{side}.uniform_inlet_2d must be boolean')
-            if (bc.in_w <= 0.0) != (bc.out_w <= 0.0):
-                raise ValueError(
-                    f"ComputeConfig.bc_{side}.in_w and out_w must both be "
-                    "positive, or both be <= 0 for a full-face port")
-            pipe = bc_to_dict(
-                bc, ge.L_dom_m, ge.H_dom_m, side='A', with_z=self.is_3d)
-            if (_native_preparation and type(bc.dir) is int and 0 <= bc.dir < (6 if self.is_3d else 4)
-                    and all(type(value) in (int, float, bool) for value in pipe.values())):
-                continue
-            from sjtu_tpmshx.data_types.validator import validate_pipe_config
-            problems = validate_pipe_config(
-                pipe, ge.L_dom_m, ge.H_dom_m,
-                Lz_dom=ge.Lz_m, is_3d=self.is_3d)
-            errors = [str(problem) for problem in problems
-                      if problem.severity == 'error']
-            if errors:
-                raise ValueError(
-                    f"ComputeConfig.bc_{side} is invalid: " + "; ".join(errors))
-
-        # None selects the dimension-specific default; explicit gates must
-        # be finite and positive.
-        _gate_checks: Tuple[Tuple[str, Optional[float]], ...] = (
-            ('solver.outer_tol_K', self.solver.outer_tol_K),
-            # F2 gates (ledger C7). Same rule: positive and finite.
-            # A zero or negative gate is strictly unreachable (all
-            # three residuals are >= 0), so the solve could only ever
-            # burn max_iter and report converged=False.
-            ('solver.mom_tol', self.solver.mom_tol),
-            ('solver.mass_local_tol', self.solver.mass_local_tol),
-            ('solver.mass_global_tol', self.solver.mass_global_tol))
-        # Loop names deliberately distinct from the earlier all-float checks
-        # (mypy unifies a reused loop variable's type across the function).
-        for _gname, _gval in _gate_checks:
-            if _gval is None:
-                continue
-            try:
-                fv = float(_gval)
-            except (TypeError, ValueError):
-                _bad(_gname, _gval)
-            if not math.isfinite(fv) or fv <= 0.0:
-                _bad(_gname, _gval)
-        from sjtu_tpmshx.run_control.run_environment import require_f2_mode
-        require_f2_mode(self.solver.convergence_mode)
-
-        if self.solver.max_iter_simple is not None:
-            mi = self.solver.max_iter_simple
-            if mi < 1:
-                raise ValueError(
-                    f"ComputeConfig.solver.max_iter_simple={mi} — must be >= 1")
-        if self.solver.max_outer_ltne is not None:
-            mo = self.solver.max_outer_ltne
-            # Outer convergence requires two temperature states.
-            if mo < 2:
-                raise ValueError(
-                    f"ComputeConfig.solver.max_outer_ltne={mo} — must be >= 2. "
-                    "A single outer pass can never satisfy the coupling "
-                    "criterion (it needs a previous iterate to compare "
-                    "against), so the run could only ever report "
-                    "converged=False.")
-
-        # V2 production D-F closure is a water+sCO2 CFD table with bilinear
-        # interpolation in geometry only. Extrapolation is not supported.
-        if not 4.0 <= self.geometry.L_cell_mm <= 8.0 \
-                or not 0.3 <= self.geometry.t_wall_mm <= 0.6:
-            raise ValueError(
-                "V2 geometry must lie inside the CFD grid: "
-                "4 <= L <= 8 mm, 0.3 <= t <= 0.6 mm")
-
-        sco2_A = self.fluid_A.type == 'sco2'
-        sco2_B = self.fluid_B.type == 'sco2'
-        if sco2_A or sco2_B:
-            for side, fl in (('A', self.fluid_A), ('B', self.fluid_B)):
-                if fl.type != 'sco2':
-                    continue
-                if not 280.0 <= fl.T_in_K <= 700.0:
-                    raise ValueError(
-                        f"sCO2 fluid {side} temperature must be 280..700 K")
-                if not SCO2_P_RANGE_PA[0] <= fl.P_in_Pa <= SCO2_P_RANGE_PA[1]:
-                    raise ValueError(
-                        f"sCO2 fluid {side} pressure must be 7.9..16 MPa")
-            if self.zones.enabled and self.zones.axis != 'continuous':
-                raise ValueError("sCO2 V2 does not support discrete zones")
-            if self.geometry.delta_levelset != 0.0:
-                raise ValueError("sCO2 V2 requires delta_levelset=0")
-        if 'co2' in (self.fluid_A.type, self.fluid_B.type):
-            if self.zones.enabled and self.zones.axis != 'continuous':
-                raise ValueError('CO2 does not support discrete zones')
-            if self.geometry.delta_levelset != 0.:
-                raise ValueError('CO2 requires symmetric delta_levelset=0 geometry')
+        _validate_static_settings(vars(self), lambda: self.is_3d,
+                                  _native_preparation=_native_preparation)
         return self
 
     def validate(self, *, resolved_inlet_speeds: bool = False, _native_preparation: bool = False) -> 'ComputeConfig':
@@ -794,16 +584,7 @@ class ComputeConfig:
         import math
 
         self.validate_static_inputs(_native_preparation=native_preparation)
-        for side, fluid in (('A', self.fluid_A), ('B', self.fluid_B)):
-            if fluid.mass_flow_kg_s is not None and not resolved_inlet_speeds:
-                continue
-            try:
-                speed = float(fluid.u_mps)
-            except (TypeError, ValueError):
-                speed = math.nan
-            if not math.isfinite(speed) or speed <= 0:
-                raise ValueError(
-                    f'ComputeConfig.fluid_{side}.u_mps={fluid.u_mps!r} — must be finite and > 0')
+        _validate_inlet_speeds(self.fluid_A, self.fluid_B, resolved_inlet_speeds)
         ge = self.geometry
         if self.df_mode == 'experimental' and not native_preparation:
             from sjtu_tpmshx.cpp_interface import _native_df
@@ -888,62 +669,8 @@ class ComputeConfig:
         # The legacy layout is identified by its domain section. Optional
         # canonical sections must never decide how the remaining fields parse.
         if 'domain' not in data:
-            unknown = set(data) - set(cls.__dataclass_fields__)
-            if unknown:
-                raise ValueError(f'unknown ComputeConfig fields: {sorted(unknown)}')
-            fA_d = data.get('fluid_A', {}) or {}
-            fB_d = data.get('fluid_B', {}) or {}
-            ge_d = data.get('geometry', {}) or {}
-            so_d = dict(data.get('solver', {}) or {})
-            reject_retired_research_options(so_d)
-            # Old case files may contain retired controls. Report their
-            # removal once at this import boundary, never in runtime APIs.
-            _dropped = [k for k in ('alpha_T', 'rough_mode', 'tol_simple') if k in so_d]
-            for key in _dropped:
-                del so_d[key]
-            if _dropped:
-                warnings.warn(
-                    f"solver config keys {_dropped} are retired and were ignored; "
-                    "F2 uses mom_tol, mass_local_tol and mass_global_tol. "
-                    "Full-compute and multi-condition solve budgets use 'solver'; "
-                    "'optimizer' is archive-only.", stacklevel=2)
-            op_d = dict(data.get('optimizer', {}) or {})
-            if 'tol_simple' in op_d:
-                del op_d['tol_simple']
-                warnings.warn(
-                    "optimizer.tol_simple is retired and was ignored; "
-                    "it did not control F2 convergence.", stacklevel=2)
-            # audit C4 additions — all optional, default-constructed
-            # when absent so old JSON files keep round-tripping.
-            bcA_d = data.get('bc_A', {}) or {}
-            bcB_d = data.get('bc_B', {}) or {}
-            zn_d = data.get('zones', {}) or {}
-            fl_d = dict(data.get('flags', {}) or {})
-            reject_retired_research_options(fl_d)
-            if 'wall_refine_3d' in fl_d:
-                retired = fl_d.pop('wall_refine_3d')
-                if type(retired) is not bool:
-                    raise ValueError('flags.wall_refine_3d must be boolean')
-                if retired and not prepared_grid:
-                    raise ValueError('wall_refine_3d is retired. Select port_wall_refine '
-                                     'with total grid counts, or use the archived source version.')
-            ex_d = data.get('extrap', {}) or {}
-            return cls(
-                fluid_A=FluidConfig(**fA_d) if fA_d else FluidConfig(),
-                fluid_B=FluidConfig(**fB_d) if fB_d else FluidConfig(),
-                geometry=GeometryConfig(**ge_d) if ge_d else GeometryConfig(),
-                solver=SolverConfig(**so_d) if so_d else SolverConfig(),
-                optimizer=(OptimizerConfig(**op_d)
-                           if data.get('optimizer') is not None else None),
-                bc_A=PartialBCConfig(**bcA_d) if bcA_d else PartialBCConfig(),
-                bc_B=PartialBCConfig(**bcB_d) if bcB_d else PartialBCConfig(),
-                zones=ZoneInputConfig(**zn_d) if zn_d else ZoneInputConfig(),
-                flags=FeatureFlags(**fl_d) if fl_d else FeatureFlags(),
-                extrap=ExtrapPolicy(**ex_d) if ex_d else ExtrapPolicy(),
-                envelope_mode=data.get('envelope_mode', 'raise'),
-                df_mode=data.get('df_mode', 'cfd_smooth'),
-                sco2_nu=Sco2NuConfig(**data.get('sco2_nu', {})),
-            ).validate(_native_preparation=_native_preparation)
+            values = _decode_canonical_settings(cls, data, prepared_grid=prepared_grid)
+            return cls(**values).validate(_native_preparation=_native_preparation)
 
         # ── legacy shanghai_baseline.json layout ────────────────
         # Keys: _meta / geometry / domain / _excluded
@@ -973,6 +700,315 @@ class ComputeConfig:
         )
         return cls(geometry=geom,
                    sco2_nu=Sco2NuConfig(**data.get('sco2_nu', {}))).validate()
+
+
+def _validate_static_settings(values, is_3d, *, _native_preparation=False):
+    import math
+
+    solver = values['solver']
+    zones = values['zones']
+    extrap = values['extrap']
+    flags = values['flags']
+    nu = values['sco2_nu']
+    df_mode = values['df_mode']
+    ge = values['geometry']
+    fluid_a = values['fluid_A']
+    fluid_b = values['fluid_B']
+    bc_a = values['bc_A']
+    bc_b = values['bc_B']
+
+    validate_enthalpy_algorithm(solver.enthalpy_algorithm,
+                               solver.enthalpy_temperature_tol_K)
+
+    validate_simple_velocity_relaxation(solver.simple_velocity_relaxation)
+    for name in ('ltne_enthalpy_outer', 'ltne_enthalpy_nsweep', 'model_h_max_iterations'):
+        value = getattr(solver, name)
+        if value is None:
+            continue
+        minimum = 0 if name == 'ltne_enthalpy_nsweep' else 1
+        if type(value) is not int or value < minimum:
+            raise ValueError(f'ComputeConfig.solver.{name} must be an integer >= {minimum}')
+    for name in ('ltne_enthalpy_omega', 'ltne_enthalpy_tol',
+                 'ltne_enthalpy_coupled_energy_tol', 'ltne_enthalpy_equation_energy_tol',
+                 'model_h_temperature_tol_K', 'model_h_q_relative_tol'):
+        value = getattr(solver, name)
+        if value is None:
+            continue
+        if (isinstance(value, bool) or not isinstance(value, (int, float))
+                or not isfinite(value) or value <= 0.
+                or name == 'ltne_enthalpy_omega' and value > 1.):
+            raise ValueError(f'ComputeConfig.solver.{name} is invalid')
+    require_h = solver.require_enthalpy_update_on_temperature
+    if type(require_h) is not bool:
+        raise ValueError('ComputeConfig.solver.require_enthalpy_update_on_temperature must be boolean')
+
+    for name, value in (
+            ('zones.enabled', zones.enabled),
+            ('extrap.allow', extrap.allow),
+            ('flags.port_wall_refine', flags.port_wall_refine),
+            ('flags.variable_rho_cp', flags.variable_rho_cp)):
+        if type(value) is not bool:
+            raise ValueError(f'ComputeConfig.{name} must be boolean')
+    for name in ('Nx', 'Ny', 'Nz', 'max_iter_simple', 'max_outer_ltne'):
+        value = getattr(solver, name)
+        if value is None and name in ('max_iter_simple', 'max_outer_ltne'):
+            continue
+        if type(value) is not int:
+            raise ValueError(f'ComputeConfig.solver.{name}={value!r} must be an integer')
+
+    zones.validate()
+    if zones.enabled and zones.axis in ('x', 'y', 'grid'):
+        zone_source = zones.grid if zones.axis == 'grid' else zones.config
+        for key, expected in (('tpms_type', ge.tpms),
+                              ('k_s', ge.k_s_W_mK)):
+            actual = (zone_source.get(key, expected) if isinstance(zone_source, dict)
+                      else getattr(zone_source, key, expected))
+            if actual != expected:
+                raise ValueError(f'ComputeConfig.zones.{key}={actual!r} conflicts '
+                                 f'with main geometry value {expected!r}')
+    nu.validate()
+    if zones.enabled and zones.axis == 'continuous':
+        assert zones.config is not None  # Required by zones.validate().
+        if ge.delta_levelset != 0.0:
+            raise ValueError('Continuous spatial fields require delta_levelset=0')
+        if not is_3d() and 'n_ctrl_z' in zones.config:
+            raise ValueError('2D continuous fields cannot supply n_ctrl_z')
+    if df_mode not in ('cfd_smooth', 'experimental'):
+        raise ValueError(
+            f"ComputeConfig.df_mode={df_mode!r} — must be "
+            "'cfd_smooth' or 'experimental'")
+
+    def _bad(name, v):
+        raise ValueError(
+            f"ComputeConfig.{name}={v!r} — must be finite and > 0")
+
+    checks = [
+        ('geometry.L_dom_m', ge.L_dom_m),
+        ('geometry.H_dom_m', ge.H_dom_m),
+        ('geometry.L_cell_mm', ge.L_cell_mm),
+        ('geometry.t_wall_mm', ge.t_wall_mm),
+        ('geometry.k_s_W_mK', ge.k_s_W_mK),
+    ]
+    if ge.Lz_m is not None:
+        checks.append(('geometry.Lz_m', ge.Lz_m))
+    for side, fl in (('A', fluid_a), ('B', fluid_b)):
+        if fl.mass_flow_kg_s is not None:
+            if (type(fl.mass_flow_kg_s) not in (int, float)
+                    or not math.isfinite(fl.mass_flow_kg_s) or fl.mass_flow_kg_s <= 0):
+                _bad(f'fluid_{side}.mass_flow_kg_s', fl.mass_flow_kg_s)
+            if ge.Lz_m is None:
+                raise ValueError('Total mass flow requires an explicit positive geometry.Lz_m')
+        checks += [
+            (f'fluid_{side}.T_in_K', fl.T_in_K),
+            (f'fluid_{side}.P_in_Pa', fl.P_in_Pa),
+        ]
+    for name, v in checks:
+        try:
+            fv = float(v)
+        except (TypeError, ValueError):
+            _bad(name, v)
+        if not math.isfinite(fv) or fv <= 0.0:
+            _bad(name, v)
+    for name, n in (('solver.Nx', solver.Nx),
+                    ('solver.Ny', solver.Ny),
+                    ('solver.Nz', solver.Nz)):
+        if n < 1:
+            raise ValueError(
+                f"ComputeConfig.{name}={n} — must be >= 1")
+
+    # ── Lz contract (2026-07-12) ─────────────────────────────────────────
+    # This class's own GeometryConfig docstring says the 3D path *requires*
+    # Lz_m, but stages_3d silently substituted 0.042 m (the Shanghai depth)
+    # when it was None — a 3D result computed against a magic constant the
+    # user never chose, with every extensive scalar (Q, mass, dP_B) scaled
+    # by it. Nz >= 2 is exactly `is_3d`, so this is a config error.
+    if is_3d() and ge.Lz_m is None:
+        raise ValueError(
+            f"ComputeConfig.geometry.Lz_m is None but solver.Nz="
+            f"{solver.Nz} >= 2 selects the 3D path, which requires an "
+            "explicit domain depth (it used to silently fall back to "
+            "0.042 m). Set geometry.Lz_m, or set Nz=1 for a 2D run.")
+
+    # ── Numerical solver settings (2026-07-12) ───────────────────────────
+    # Normalise the typed-config full-face sentinel before applying the
+    # shared port validator. ComputeConfig always has two fluids, so side
+    # B uses the same full-face rule as A; its legacy None means
+    # single-fluid only below this boundary.
+    for side, bc in (('A', bc_a), ('B', bc_b)):
+        if not isinstance(bc.uniform_inlet_2d, bool):
+            raise ValueError(f'ComputeConfig.bc_{side}.uniform_inlet_2d must be boolean')
+        if (bc.in_w <= 0.0) != (bc.out_w <= 0.0):
+            raise ValueError(
+                f"ComputeConfig.bc_{side}.in_w and out_w must both be "
+                "positive, or both be <= 0 for a full-face port")
+        pipe = bc_to_dict(
+            bc, ge.L_dom_m, ge.H_dom_m, side='A', with_z=is_3d())
+        if (_native_preparation and type(bc.dir) is int and 0 <= bc.dir < (6 if is_3d() else 4)
+                and all(type(value) in (int, float, bool) for value in pipe.values())):
+            continue
+        from sjtu_tpmshx.data_types.validator import validate_pipe_config
+        problems = validate_pipe_config(
+            pipe, ge.L_dom_m, ge.H_dom_m,
+            Lz_dom=ge.Lz_m, is_3d=is_3d())
+        errors = [str(problem) for problem in problems
+                  if problem.severity == 'error']
+        if errors:
+            raise ValueError(
+                f"ComputeConfig.bc_{side} is invalid: " + "; ".join(errors))
+
+    # None selects the dimension-specific default; explicit gates must
+    # be finite and positive.
+    _gate_checks: Tuple[Tuple[str, Optional[float]], ...] = (
+        ('solver.outer_tol_K', solver.outer_tol_K),
+        # F2 gates (ledger C7). Same rule: positive and finite.
+        # A zero or negative gate is strictly unreachable (all
+        # three residuals are >= 0), so the solve could only ever
+        # burn max_iter and report converged=False.
+        ('solver.mom_tol', solver.mom_tol),
+        ('solver.mass_local_tol', solver.mass_local_tol),
+        ('solver.mass_global_tol', solver.mass_global_tol))
+    # Loop names deliberately distinct from the earlier all-float checks
+    # (mypy unifies a reused loop variable's type across the function).
+    for _gname, _gval in _gate_checks:
+        if _gval is None:
+            continue
+        try:
+            fv = float(_gval)
+        except (TypeError, ValueError):
+            _bad(_gname, _gval)
+        if not math.isfinite(fv) or fv <= 0.0:
+            _bad(_gname, _gval)
+    from sjtu_tpmshx.run_control.run_environment import require_f2_mode
+    require_f2_mode(solver.convergence_mode)
+
+    if solver.max_iter_simple is not None:
+        mi = solver.max_iter_simple
+        if mi < 1:
+            raise ValueError(
+                f"ComputeConfig.solver.max_iter_simple={mi} — must be >= 1")
+    if solver.max_outer_ltne is not None:
+        mo = solver.max_outer_ltne
+        # Outer convergence requires two temperature states.
+        if mo < 2:
+            raise ValueError(
+                f"ComputeConfig.solver.max_outer_ltne={mo} — must be >= 2. "
+                "A single outer pass can never satisfy the coupling "
+                "criterion (it needs a previous iterate to compare "
+                "against), so the run could only ever report "
+                "converged=False.")
+
+    # V2 production D-F closure is a water+sCO2 CFD table with bilinear
+    # interpolation in geometry only. Extrapolation is not supported.
+    if not 4.0 <= ge.L_cell_mm <= 8.0 \
+            or not 0.3 <= ge.t_wall_mm <= 0.6:
+        raise ValueError(
+            "V2 geometry must lie inside the CFD grid: "
+            "4 <= L <= 8 mm, 0.3 <= t <= 0.6 mm")
+
+    sco2_A = fluid_a.type == 'sco2'
+    sco2_B = fluid_b.type == 'sco2'
+    if sco2_A or sco2_B:
+        for side, fl in (('A', fluid_a), ('B', fluid_b)):
+            if fl.type != 'sco2':
+                continue
+            if not 280.0 <= fl.T_in_K <= 700.0:
+                raise ValueError(
+                    f"sCO2 fluid {side} temperature must be 280..700 K")
+            if not SCO2_P_RANGE_PA[0] <= fl.P_in_Pa <= SCO2_P_RANGE_PA[1]:
+                raise ValueError(
+                    f"sCO2 fluid {side} pressure must be 7.9..16 MPa")
+        if zones.enabled and zones.axis != 'continuous':
+            raise ValueError("sCO2 V2 does not support discrete zones")
+        if ge.delta_levelset != 0.0:
+            raise ValueError("sCO2 V2 requires delta_levelset=0")
+    if 'co2' in (fluid_a.type, fluid_b.type):
+        if zones.enabled and zones.axis != 'continuous':
+            raise ValueError('CO2 does not support discrete zones')
+        if ge.delta_levelset != 0.:
+            raise ValueError('CO2 requires symmetric delta_levelset=0 geometry')
+
+
+def _validate_inlet_speeds(fluid_a, fluid_b, resolved_inlet_speeds):
+    import math
+
+    for side, fluid in (('A', fluid_a), ('B', fluid_b)):
+        if fluid.mass_flow_kg_s is not None and not resolved_inlet_speeds:
+            continue
+        try:
+            speed = float(fluid.u_mps)
+        except (TypeError, ValueError):
+            speed = math.nan
+        if not math.isfinite(speed) or speed <= 0:
+            raise ValueError(
+                f'ComputeConfig.fluid_{side}.u_mps={fluid.u_mps!r} — must be finite and > 0')
+
+
+def _decode_canonical_settings(cls, data, *, prepared_grid):
+    unknown = set(data) - set(cls.__dataclass_fields__)
+    if unknown:
+        raise ValueError(f'unknown ComputeConfig fields: {sorted(unknown)}')
+    fA_d = data.get('fluid_A', {}) or {}
+    fB_d = data.get('fluid_B', {}) or {}
+    ge_d = data.get('geometry', {}) or {}
+    so_d = dict(data.get('solver', {}) or {})
+    reject_retired_research_options(so_d)
+    # Old case files may contain retired controls. Report their
+    # removal once at this import boundary, never in runtime APIs.
+    _dropped = [k for k in ('alpha_T', 'rough_mode', 'tol_simple') if k in so_d]
+    for key in _dropped:
+        del so_d[key]
+    if _dropped:
+        warnings.warn(
+            f"solver config keys {_dropped} are retired and were ignored; "
+            "F2 uses mom_tol, mass_local_tol and mass_global_tol. "
+            "Full-compute and multi-condition solve budgets use 'solver'; "
+            "'optimizer' is archive-only.", stacklevel=3)
+    op_d = dict(data.get('optimizer', {}) or {})
+    if 'tol_simple' in op_d:
+        del op_d['tol_simple']
+        warnings.warn(
+            "optimizer.tol_simple is retired and was ignored; "
+            "it did not control F2 convergence.", stacklevel=3)
+    # audit C4 additions — all optional, default-constructed
+    # when absent so old JSON files keep round-tripping.
+    bcA_d = data.get('bc_A', {}) or {}
+    bcB_d = data.get('bc_B', {}) or {}
+    zn_d = data.get('zones', {}) or {}
+    fl_d = dict(data.get('flags', {}) or {})
+    reject_retired_research_options(fl_d)
+    if 'wall_refine_3d' in fl_d:
+        retired = fl_d.pop('wall_refine_3d')
+        if type(retired) is not bool:
+            raise ValueError('flags.wall_refine_3d must be boolean')
+        if retired and not prepared_grid:
+            raise ValueError('wall_refine_3d is retired. Select port_wall_refine '
+                             'with total grid counts, or use the archived source version.')
+    ex_d = data.get('extrap', {}) or {}
+    return dict(
+        fluid_A=FluidConfig(**fA_d) if fA_d else FluidConfig(),
+        fluid_B=FluidConfig(**fB_d) if fB_d else FluidConfig(),
+        geometry=GeometryConfig(**ge_d) if ge_d else GeometryConfig(),
+        solver=SolverConfig(**so_d) if so_d else SolverConfig(),
+        optimizer=(OptimizerConfig(**op_d)
+                   if data.get('optimizer') is not None else None),
+        bc_A=PartialBCConfig(**bcA_d) if bcA_d else PartialBCConfig(),
+        bc_B=PartialBCConfig(**bcB_d) if bcB_d else PartialBCConfig(),
+        zones=ZoneInputConfig(**zn_d) if zn_d else ZoneInputConfig(),
+        flags=FeatureFlags(**fl_d) if fl_d else FeatureFlags(),
+        extrap=ExtrapPolicy(**ex_d) if ex_d else ExtrapPolicy(),
+        envelope_mode=data.get('envelope_mode', 'raise'),
+        df_mode=data.get('df_mode', 'cfd_smooth'),
+        sco2_nu=Sco2NuConfig(**data.get('sco2_nu', {})),
+    )
+
+
+def _checked_saved_2d_settings(data):
+    """Validate canonical saved host settings before the native scope check."""
+    reject_retired_research_options(data)
+    values = _decode_canonical_settings(ComputeConfig, data, prepared_grid=True)
+    _validate_static_settings(values, lambda: int(values['solver'].Nz) >= 2)
+    _validate_inlet_speeds(values['fluid_A'], values['fluid_B'], resolved_inlet_speeds=False)
+    return values
 
 
 __all__ = [

@@ -110,6 +110,12 @@ _SavedV3 = record('SavedCaseV3', [('abi_version', _U), ('struct_size', _S),
     ('resource_fluids', _Text * 2), ('resource_topology', _Text), ('resource_nu', _Nu * 2),
     ('wall_reference_kind', _Kind), ('porosity_reference_kind', _Kind), ('radius_reference_kind', _Kind), ('additional_fields', ct.POINTER(_DesignField)), ('additional_count', _S)])
 
+_Experiment = record('SavedExperiment2D', [('topology', _U), ('geometry_mode', _U), ('domain_count', _U),
+    ('fluids', _U * 2), ('configured_flow', _U * 2), ('domain_m', _D * 3),
+    ('cell_length_mm', _D), ('wall_thickness_mm', _D), ('delta_levelset', _D), ('velocity_m_s', _D * 2)])
+_SavedV4 = record('SavedCaseV4', [('abi_version', _U), ('struct_size', _S),
+    ('values', _SavedV3), ('experiment', _Experiment)])
+
 
 class _StageResult(ct.Structure):
     _fields_ = [('abi_version', _U), ('struct_size', _S), ('owner', ct.c_void_p),
@@ -163,8 +169,14 @@ def pack_saved_design(case, uniform, saved, keepalive):
     values.epsilon = case.parameters['eps']
 
 
+def _run_settings(cfg):
+    settings = cfg['compute_cfg']
+    return settings if isinstance(settings, dict) else vars(settings)
+
+
 def prepare_stage(case, cfg, prepared, *, saved_flow_grid=None):
     """Keep the borrowed case fields alive until the native result is captured."""
+    settings = _run_settings(cfg)
     uniform = _ResultV2(2, ct.sizeof(_ResultV2))
     uniform.values = _ResultV1(1, ct.sizeof(_ResultV1))
     keepalive = [uniform]
@@ -172,8 +184,8 @@ def prepare_stage(case, cfg, prepared, *, saved_flow_grid=None):
     values.input.abi_version, values.input.struct_size = 1, ct.sizeof(values.input)
     values.input.topology = ('Diamond', 'Gyroid').index(cfg['tpms_type'])
     values.input.geometry_mode = (0 if cfg['za'] is None else 1 if cfg['z_axis'] == 'continuous' else 2)
-    values.input.delta_levelset = cfg['compute_cfg'].geometry.delta_levelset
-    values.input.df_mode = ('cfd_smooth', 'experimental').index(cfg['compute_cfg'].df_mode)
+    values.input.delta_levelset = settings['geometry'].delta_levelset
+    values.input.df_mode = ('cfd_smooth', 'experimental').index(settings['df_mode'])
     values.nx, values.ny = len(prepared['energy_dx']), len(prepared['energy_dy'])
     values.dx = borrow_array(prepared['energy_dx'], keepalive)
     values.dy = borrow_array(prepared['energy_dy'], keepalive)
@@ -203,7 +215,7 @@ def prepare_stage(case, cfg, prepared, *, saved_flow_grid=None):
         values.cell_length = borrow_array(cell_storage, keepalive)
         cell_field_kind = _Kind(cell_values.precision, cell_values.strong, 2)
         conductivity = tuple(borrow_array(cfg['za']['K_ff' + side + '_arr'], keepalive) for side in 'AB')
-    nu = cfg['compute_cfg'].sco2_nu
+    nu = settings['sco2_nu']
     uniform.sco2_nu.mode = nu.mode != 'cfd_smooth'
     if uniform.sco2_nu.mode:
         uniform.sco2_nu.alpha[:] = (nu.alpha_D, nu.alpha_G)
@@ -212,7 +224,7 @@ def prepare_stage(case, cfg, prepared, *, saved_flow_grid=None):
         target = values.sides[index]
         target.inlet.fluid = ('air', 'water', 'sco2', 'co2').index(cfg['fluid_' + side])
         target.inlet.temperature_K = cfg['T_in' + side]
-        target.inlet.pressure_Pa = getattr(cfg['compute_cfg'], 'fluid_' + side).P_in_Pa
+        target.inlet.pressure_Pa = settings['fluid_' + side].P_in_Pa
         target.inlet.velocity_m_s = cfg['u_' + side]
         target.inlet.port.direction = cfg['dir_' + side]
         target.inlet.port.uniform_inlet = int(port.get('uniform_inlet_2d', False))
@@ -283,11 +295,75 @@ def execution_grid(case):
     return validate_grid(case.grid)
 
 
-def saved_inputs(case, shape):
-    from sjtu_tpmshx.data_types.compute_config import ComputeConfig
+def _can_pack_settings(settings):
+    if not isinstance(settings, dict) or 'domain' in settings:
+        return False
+    mode = settings.get('df_mode', 'cfd_smooth')
+    if type(mode) is not str or mode != 'experimental':
+        return type(mode) is str
+    geometry, fa, fb = (settings.get(key) for key in ('geometry', 'fluid_A', 'fluid_B'))
+    if not all(type(part) is dict for part in (geometry, fa, fb)):
+        return False
+    if type(geometry.get('tpms')) is not str or geometry['tpms'] not in ('Diamond', 'Gyroid'):
+        return False
+    if not all(type(geometry.get(name)) in (int, float) for name in
+               ('L_dom_m', 'H_dom_m', 'L_cell_mm', 't_wall_mm', 'delta_levelset')):
+        return False
+    if geometry.get('Lz_m') is not None and type(geometry['Lz_m']) not in (int, float):
+        return False
+    return all(type(fluid.get('type')) is str and fluid['type'] in ('air', 'water', 'sco2', 'co2')
+               and (fluid.get('mass_flow_kg_s') is not None or type(fluid.get('u_mps')) in (int, float))
+               for fluid in (fa, fb))
+
+
+def _experiment_request(settings):
+    geometry, zones = settings['geometry'], settings['zones']
+    depth = geometry.Lz_m if settings['solver'].Nz >= 2 else None
+    fluids = settings['fluid_A'], settings['fluid_B']
+    packed = _Experiment()
+    packed.topology = ('Diamond', 'Gyroid').index(geometry.tpms)
+    packed.geometry_mode = (1 if zones.axis == 'continuous' else 2) if zones.enabled else 0
+    packed.domain_count = 2 if depth is None else 3
+    packed.domain_m[:] = geometry.L_dom_m, geometry.H_dom_m, depth or 0.
+    packed.cell_length_mm, packed.wall_thickness_mm = geometry.L_cell_mm, geometry.t_wall_mm
+    packed.delta_levelset = geometry.delta_levelset
+    for index, fluid in enumerate(fluids):
+        packed.fluids[index] = ('air', 'water', 'sco2', 'co2').index(fluid.type)
+        packed.configured_flow[index] = fluid.mass_flow_kg_s is not None
+        if not packed.configured_flow[index]:
+            packed.velocity_m_s[index] = fluid.u_mps
+    return packed
+
+
+def _raise_stage_error(code, error, error_types):
+    message = error.value.decode()
+    if code in (7, 8):
+        reason = ValueError(message.partition(': ')[2])
+        if code == 8:
+            reason.__cause__ = ValueError('HX velocity outside application window')
+        raise ValueError(message) from reason
+    raise error_types.get(code, RuntimeError)(message)
+
+
+def _zone_objects(zone):
+    from sjtu_tpmshx.physical_models.zone_config import Zone, ZoneConfig
+
+    return ZoneConfig(**{**zone, 'zones': [Zone(**item) for item in zone['zones']]})
+
+
+def _plain_zone(zone):
+    if set(zone) != {'zones', 'tpms_type', 'k_s'} or not isinstance(zone['zones'], list):
+        return False
+    required = {'name', 'y_frac_start', 'y_frac_end', 'L_mm', 't_mm'}
+    optional = {'props_A', 'props_B'}
+    return all(isinstance(row, dict) and required <= row.keys() <= required | optional
+               for row in zone['zones'])
+
+
+def saved_inputs(case, shape, *, check_experiment=None):
+    from sjtu_tpmshx.data_types.compute_config import ComputeConfig, _checked_saved_2d_settings
     from sjtu_tpmshx.data_types.persistence_validation import validate_thermal_geometry
     from sjtu_tpmshx.data_types.portable_data import mutable_data
-    from sjtu_tpmshx.physical_models.zone_config import Zone, ZoneConfig
     from sjtu_tpmshx.physical_models.zone_units import _legacy_zone_units
 
     cfg = dict(case.parameters)
@@ -297,7 +373,20 @@ def saved_inputs(case, shape):
     settings = _legacy_zone_units(mutable_data(cfg['run_settings']))
     if cfg['z_axis'] == 'continuous':
         settings['zones'] = dict(enabled=True, axis='continuous', config=mutable_data(cfg['continuous_field']))
-    cfg['compute_cfg'] = ComputeConfig.from_dict(settings, prepared_grid=True)
+    experiment = None
+    if check_experiment is not None and _can_pack_settings(settings):
+        values = cfg['compute_cfg'] = _checked_saved_2d_settings(settings)
+        experiment = _Experiment()
+        if values['df_mode'] == 'experimental':
+            experiment = _experiment_request(values)
+            error = ct.create_string_buffer(2048)
+            check_experiment.argtypes = [ct.POINTER(_Experiment), ct.POINTER(ct.c_char), _S]
+            check_experiment.restype = ct.c_int
+            status = check_experiment(ct.byref(experiment), error, len(error))
+            if status:
+                _raise_stage_error(status, error, _Run.error_types)
+    else:
+        cfg['compute_cfg'] = ComputeConfig.from_dict(settings, prepared_grid=True)
     cfg['Lcell'], cfg['t_wall'] = cfg['L_cell_m'] * 1e3, cfg['t_wall_m'] * 1e3
     design = case.design_fields
     if case.metadata['design_mode'] == 'uniform':
@@ -319,15 +408,14 @@ def saved_inputs(case, shape):
         if 'grid_cells' in design:
             cfg['za'].update(_legacy_zone_units({'grid_cells': mutable_data(design['grid_cells'])}))
     zone = _legacy_zone_units(mutable_data(cfg['zone_config']))
-    if isinstance(zone, dict):
-        zone['zones'] = [Zone(**item) for item in zone['zones']]
-        zone = ZoneConfig(**zone)
+    if isinstance(zone, dict) and (experiment is None or not _plain_zone(zone)):
+        zone = _zone_objects(zone)
     cfg['zone_config'] = zone
-    return cfg, dict(energy_dx=case.grid['dx'], energy_dy=case.grid['dy'])
+    return cfg, dict(energy_dx=case.grid['dx'], energy_dy=case.grid['dy']), experiment
 
 
 def _request(cfg):
-    solver = cfg['compute_cfg'].solver
+    solver = _run_settings(cfg)['solver']
     request = _Request(3, ct.sizeof(_Request),
         _RequestV2(2, ct.sizeof(_RequestV2), _RequestV1(1, ct.sizeof(_RequestV1))))
     values = request.values.values
@@ -388,7 +476,7 @@ class _Run(NativeRun):
         if self.errors:
             raise self.errors[0]
         if code:
-            raise self.error_types.get(code, RuntimeError)(error.value.decode())
+            _raise_stage_error(code, error, self.error_types)
 
 
 def _scalars(summary):
@@ -405,7 +493,7 @@ def _scalars(summary):
 
 
 def run_stage(driver, case, cfg, prepared, control, *, saved_version=1,
-              resume_state=None, checkpoint=None, checkpoint_due=None):
+              resume_state=None, checkpoint=None, checkpoint_due=None, experiment=None):
     """Keep preparation and result storage alive through late application capture."""
     library = driver.library
     try:
@@ -417,7 +505,7 @@ def run_stage(driver, case, cfg, prepared, control, *, saved_version=1,
     except AttributeError as error:
         raise ValueError('native library has an incomplete saved 2D stage protocol') from error
     control.check_cancelled()
-    flow_grid = (_FlowGrid * 2)() if saved_version == 3 else None
+    flow_grid = (_FlowGrid * 2)() if saved_version >= 3 else None
     uniform, area, diameter, conductivity, recorded, captured, kinds, keepalive = prepare_stage(
         case, cfg, prepared, saved_flow_grid=flow_grid)
     saved = _Saved(1, ct.sizeof(_Saved), ct.pointer(uniform), area, diameter,
@@ -431,7 +519,9 @@ def run_stage(driver, case, cfg, prepared, control, *, saved_version=1,
     if flow_grid is not None:
         saved = _SavedV3(3, ct.sizeof(_SavedV3), saved, (_D * 2)(cfg['L'], cfg['H']), flow_grid)
         pack_saved_design(case, uniform, saved, keepalive)
-        pack_saved_resources(case, uniform.values.models, uniform.sco2_nu, saved, cfg['compute_cfg'].sco2_nu, keepalive)
+        pack_saved_resources(case, uniform.values.models, uniform.sco2_nu, saved, _run_settings(cfg)['sco2_nu'], keepalive)
+    if saved_version == 4:
+        saved = _SavedV4(4, ct.sizeof(_SavedV4), saved, experiment)
     request, energy = _request(cfg)
     callbacks, errors = _callbacks(control)
     stage_control = _Control(case.case_id.encode(), driver.table_directory, control.native_cpu_threads(), callbacks)
@@ -447,7 +537,7 @@ def run_stage(driver, case, cfg, prepared, control, *, saved_version=1,
         with _Run(library, saved, request, stage_control, errors, resume_state) as run:
             run.finish(checkpoint, checkpoint_due, (1, 2, 6, 7, 8))
             result = run.take_result()
-        if saved_version == 3:
+        if saved_version >= 3:
             cfg['_input_resolution'] = executed_inputs(case, result.evidence)
         summary = _Summary()
         if query(ct.byref(result), ct.byref(_Application()), ct.byref(summary)):
@@ -465,7 +555,7 @@ def run_stage(driver, case, cfg, prepared, control, *, saved_version=1,
             entry_version=6, control=control, cpu_thread_limit=stage_control.cpu_threads, energy_query=energy_query,
             version_query=version_query, resume_state=resume_state, capture_scalars=_scalars(summary), fields=stage_fields[0],
             records=records, evidence=result.evidence, execution=execution)
-        if execution is not None and saved_version == 3:
+        if execution is not None and saved_version >= 3:
             native['sco2_notices'] = tuple(execution.execution.sco2_notices)
         control.check_cancelled()
 
@@ -481,7 +571,8 @@ def run_stage(driver, case, cfg, prepared, control, *, saved_version=1,
         zone_summary = None
         if cfg['zone_config'] is not None and cfg['za'] is not None:
             from sjtu_tpmshx.cpp_interface import _native_result_stage as result_stage
-            if hasattr(result_stage.core._library().library, 'tpmshx_result_zone_temperatures_2d_v1'):
+            continuous = saved_version == 4 and cfg['z_axis'] == 'continuous'
+            if continuous or hasattr(result_stage.core._library().library, 'tpmshx_result_zone_temperatures_2d_v1'):
                 zone_summary = result_stage.zone_result
         field = capture_result(case, cfg, prepared, native, application_hv=application_hv,
                                zone_summary=zone_summary, stage_fields=stage_fields)
@@ -543,6 +634,7 @@ def capture_result(case, cfg, prepared, native, *, application_hv=None, zone_sum
     """Capture a completed native return without re-entering Python solvers."""
     if native['cancelled']:
         raise CancelledError('compute cancelled by user')
+    settings = _run_settings(cfg)
     main, fine = native['main'], native['fine']
     capture_scalars = native.get('capture_scalars')
     mode = main['mode']
@@ -565,8 +657,8 @@ def capture_result(case, cfg, prepared, native, *, application_hv=None, zone_sum
             iterations=main['iterations'], residual=main['residual'],
             pressure_source=('air: P_ref_abs + SIMPLE gauge; frozen fluids: '
                              'P_in + SIMPLE gauge - open-area physical inlet-face gauge'),
-            P_in_A_Pa=cfg['compute_cfg'].fluid_A.P_in_Pa,
-            P_in_B_Pa=cfg['compute_cfg'].fluid_B.P_in_Pa,
+            P_in_A_Pa=settings['fluid_A'].P_in_Pa,
+            P_in_B_Pa=settings['fluid_B'].P_in_Pa,
             outer_converged=bool(native['outer_converged']),
             post_after_last_thermal=bool(native['post_after_last_thermal']),
             state='last true-h solve, before any final post update')
@@ -678,7 +770,7 @@ def capture_result(case, cfg, prepared, native, *, application_hv=None, zone_sum
         envelope_reasons=[f'[{label}] {reason}' for label, flow in zip('AB', native['flow']) for reason in flow['envelope_reasons']],
         p_clip_hits=(sum(flow['result']['pressure_clip_hits'] for flow in native['flow'])
                      if capture_scalars is None else capture_scalars['pressure_clip_hits']),
-        df_metadata=dict(mode=cfg['compute_cfg'].df_mode,
+        df_metadata=dict(mode=settings['df_mode'],
                          **{label: cfg['flow_inputs'][label]['metadata'] for label in 'AB'}),
         native_full_2d=dict(numerical_driver='cpp',
                             range_observations=native['range_observations']))
@@ -704,7 +796,10 @@ def capture_result(case, cfg, prepared, native, *, application_hv=None, zone_sum
         application['zones'] = zone_summary(cfg, prepared, main['temperature'])
     elif cfg['zone_config'] is not None and cfg['za'] is not None:
         from sjtu_tpmshx.postprocess.result_display import zone_statistics_2d
-        application['zones'] = zone_statistics_2d(cfg['z_axis'], cfg['zone_config'], cfg['za'], cfg['L'], cfg['H'],
+        zone = cfg['zone_config']
+        if isinstance(zone, dict):
+            zone = _zone_objects(zone)
+        application['zones'] = zone_statistics_2d(cfg['z_axis'], zone, cfg['za'], cfg['L'], cfg['H'],
             prepared['energy_dx'], prepared['energy_dy'], *main['temperature'])
     evidence.update(input_resolution=cfg['_input_resolution'], property_sampling=native['property_sampling'])
     if stage_fields is None:
@@ -1139,17 +1234,23 @@ def run_case(case, control=RunControl(), *, direct_run, resume_state=None, check
     control.check_cancelled()
     shape = execution_grid(case)
     driver = StageDriver(control.native_library, table_directory=control.native_table_directory)
-    have_native_grid = hasattr(driver.library, 'tpmshx_stage_run_2d_create_saved_v3')
-    if have_native_grid:
-        cfg, prepared = saved_inputs(case, shape)
+    check_experiment = getattr(driver.library, 'tpmshx_stage_run_2d_check_experiment_v4', None)
+    v4 = [check_experiment is not None,
+          *(hasattr(driver.library, f'tpmshx_stage_run_2d_{name}_saved_v4') for name in ('create', 'restore'))]
+    if any(v4) and not all(v4):
+        raise ValueError('native library has an incomplete saved 2D stage protocol')
+    experiment = None
+    if check_experiment is not None or hasattr(driver.library, 'tpmshx_stage_run_2d_create_saved_v3'):
+        cfg, prepared, experiment = saved_inputs(case, shape, check_experiment=check_experiment)
     else:
         from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
         cfg, prepared = build_execution_inputs(case, copy_design=False)
+    settings = _run_settings(cfg)
     stage_layout = (case.metadata['design_mode'] in ('uniform', 'continuous')
-        and cfg['compute_cfg'].geometry.delta_levelset == 0
+        and settings['geometry'].delta_levelset == 0
         and (cfg['zone_config'] is None or cfg['z_axis'] == 'continuous'))
-    saved_version = 0
-    for version in (3, 2, 1):
+    saved_version = 4 if experiment is not None else 0
+    for version in (() if saved_version else (3, 2, 1)):
         if version == 1 and not stage_layout:
             continue
         saved_entries = [hasattr(driver.library, f'tpmshx_stage_run_2d_{name}_saved_v{version}')
@@ -1161,7 +1262,7 @@ def run_case(case, control=RunControl(), *, direct_run, resume_state=None, check
             break
     if saved_version:
         result = run_stage(driver, case, cfg, prepared, control, resume_state=resume_state,
-            checkpoint=checkpoint, checkpoint_due=checkpoint_due, saved_version=saved_version)
+            checkpoint=checkpoint, checkpoint_due=checkpoint_due, saved_version=saved_version, experiment=experiment)
     else:
         result = direct_run(case, cfg, prepared, control, resume_state, checkpoint, checkpoint_due)
     control.report_progress(100)

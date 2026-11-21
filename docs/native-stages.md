@@ -206,11 +206,19 @@ The new create/restore entries use the existing lifecycle, snapshot and result o
 The saved descriptor version does not change result release.
 Use `tpmshx_stage_run_2d_release_v1` for the transferred 2D result.
 
-Python first selects the complete saved v3 protocol. The v3 stage checks physical lengths, flow axes, openings, design fields, and model references.
+The v3 stage checks physical lengths, flow axes, openings, design fields, and model references.
 It computes the staggered outlet from the original width precision and port bounds.
 The descriptor borrows the cell fields and four model references from the prepared view.
 Keep the additional field buffers and model strings alive through result transfer or run release.
-Earlier libraries use saved v2, or saved v1 for symmetric uniform or continuous inputs.
+Current Python runs use the complete saved v4 protocol for canonical settings.
+Saved v4 adds the original experimental model settings to the v3 fields.
+Create and restore use the same native applicability rules as preparation.
+They validate the original record first. They then check its campaign domain against the prepared model, nominal cell geometry and resolved inlet speeds.
+The experiment query lets the host check these settings before it packs the remaining saved fields.
+A prescribed total flow defers its velocity check to create or restore.
+The older saved protocols still accept the previous layouts and conversion rules.
+Earlier libraries use saved v3, saved v2, or saved v1.
+The saved v1 route accepts symmetric uniform or continuous inputs.
 Archived libraries without the applicable saved protocol use their existing interface.
 An incomplete new protocol or a failed run is an error. All queries, state releases and result releases use that same selected library.
 Saved formats, same-build restoration, CPU-change rules and public Python interfaces stay unchanged.

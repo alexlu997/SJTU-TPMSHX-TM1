@@ -6,6 +6,9 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
+#include <stdexcept>
+#include <utility>
 #include <vector>
 
 namespace tpmshx::preparation {
@@ -35,6 +38,20 @@ DfPressure df_compressible_typed(std::uint32_t topology, double length_mm, doubl
 std::uint32_t df_experiment_scope(std::uint32_t topology, std::uint32_t fluid_a,
     std::uint32_t fluid_b, std::uint32_t geometry_mode, bool symmetric,
     double cell_length_mm, double wall_thickness_mm, ArrayView<const double> domain);
+inline constexpr auto experimental_layout_error =
+    "experimental calibration currently requires uniform L/t; "
+    "continuous Shanghai Gyroid air/water fields may use "
+    "the 7/0.6 calibration as an exploratory extrapolation";
+std::string experimental_domain_error(std::size_t side);
+std::string decimal(double value);
+std::string significant(double value,int precision);
+struct DfExperimentError : std::invalid_argument {
+    DfExperimentError(const std::string& message,bool outside_window)
+        :std::invalid_argument(message),velocity_window(outside_window) {}
+    bool velocity_window;
+};
+std::pair<DfSelection,DfPair> df_experiment_side(std::uint32_t topology,std::uint32_t fluid,
+    double cell,double wall,double speed,bool transfer);
 DfSelection df_select(std::uint32_t topology, std::uint32_t fluid, bool transfer,
     ArrayView<const double> lengths, ArrayView<const double> walls,
     ArrayView<const double> velocity, bool has_velocity);
