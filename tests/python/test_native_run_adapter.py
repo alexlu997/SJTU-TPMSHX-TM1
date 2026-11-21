@@ -258,6 +258,12 @@ def test_saved_stage_states_and_resume(spatial, pair, tmp_path):
         _same(replace(resumed, result_id=expected.result_id), expected)
         np.savez(tmp_path / f'phase-{phase}.npz', **snapshot)
         save_result(resumed, tmp_path / f'resumed-{phase}.h5')
+    if not spatial and pair == ('air', 'water'):
+        saved = dict(stage_states[2])
+        budget = 'state.result.outer_history.0.model_h_iterations.value.max_iterations'
+        saved[budget] = np.zeros_like(saved[budget])
+        with pytest.raises(RuntimeError, match='invalid native model-h iteration record'):
+            full_2d.run_case(case, runtime, resume_state=saved)
     (tmp_path / 'phases.json').write_text(json.dumps(sorted(stage_states)))
 
 

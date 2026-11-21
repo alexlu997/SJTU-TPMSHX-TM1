@@ -1,3 +1,4 @@
+#include "execution_report.hpp"
 #include "stage_records.hpp"
 #include "tpmshx/simple_convergence.hpp"
 #include "stage_capture_2d.hpp"
@@ -60,6 +61,7 @@ bool final_stage(const std::string& value) {
 
 class Capture2D {
 public:
+    ExecutionReport report;
     tpmshx_full_2d_result_v2 raw{};
     tpmshx_full_2d_config_v2 resolved{};
     tpmshx_result_evidence_v1 evidence{};
@@ -527,4 +529,26 @@ extern "C" const tpmshx_stage_run_2d_execution_v1* TPMSHX_THERMAL_CALL tpmshx_st
     const tpmshx_stage_run_result_2d_v1* result) {
     if(!tpmshx_stage_run_2d_records_v1(result))return nullptr;
     return &static_cast<const tpmshx::stages::Capture2D*>(result->owner)->execution_view;
+}
+
+extern "C" const char* TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_report_v1(
+    const tpmshx_stage_run_result_2d_v1* result, char* error, size_t capacity) {
+    const auto* view = tpmshx_stage_run_2d_execution_view_v1(result);
+    if (!view) {
+        if (error && capacity) std::snprintf(error, capacity, "native stage returned no execution record");
+        return nullptr;
+    }
+    auto& owner = *static_cast<tpmshx::stages::Capture2D*>(result->owner);
+    return owner.report.read([&] {
+        using namespace tpmshx::stages;
+        auto report = execution_report(view->execution, owner.evidence);
+        Report::List levels;
+        for (size_t i = 0; i < 2; ++i) {
+            const auto& level = i == 0 ? owner.raw.main : owner.raw.fine;
+            levels.push_back(owner.summary.model_h_available[i] ? plane_balance(level.model_h,
+                owner.summary.model_h_cell_count[i], owner.summary.model_h_area_m2[i]) : Report());
+        }
+        report.emplace("model_h", std::move(levels));
+        return report;
+    }, error, capacity);
 }

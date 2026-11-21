@@ -27,6 +27,9 @@ from sjtu_tpmshx.cpp_interface._native_preparation_case import _Array as Prepare
 from .preparation_host import borrow_solver_mesh, pack_saved_resources
 from .solver_library._full_3d_abi import (_Array, _BootstrapTrace, _Callbacks, _Cancel, _Control, _EnergyEvidence,
     _FLAGS, _FLOW_ARRAYS, _Input, _OuterProgress, _PAIRS, _Progress, _Result)
+from ._native_result_stage import completed_report, execution_view_query, executed_view, link_execution
+from sjtu_tpmshx.run_control.run_warnings import replay_sco2_notices
+from sjtu_tpmshx.data_types.case_data import resolved_input_record
 from .solver_library._stage_capture_abi import (
     StageExecution,
     _decode_iteration_records,
@@ -36,10 +39,7 @@ from .solver_library._stage_capture_abi import (
     _full_enthalpy_info,
     _volume_info,
     executed_inputs,
-    executed_view,
     execution_sides,
-    execution_view_query,
-    replay_sco2_notices,
     sampling_records,
     execution_facts,
 )
@@ -511,9 +511,18 @@ def _pressure(p):
                 passed=bool(p.passed), definition=p.definition.decode())
 
 
-def _model_info(r, shape, *, include_faces, capture_scalars=None):
-    info = _volume_info(r, shape, include_faces=include_faces,
-        cell_count=None if capture_scalars is None else capture_scalars['model_h_cell_count'])
+def _model_info(r, shape, *, include_faces, capture_scalars=None, info=None):
+    if info is None:
+        info = _volume_info(r, shape, include_faces=include_faces,
+            cell_count=None if capture_scalars is None else capture_scalars['model_h_cell_count'])
+    else:
+        faces = {'A': {}, 'B': {}}
+        if include_faces:
+            for label, side in zip('AB', r.volume.sides):
+                for index, name in enumerate(('x-', 'x+', 'y-', 'y+', 'z-', 'z+')):
+                    extent = shape[:index // 2] + shape[index // 2 + 1:]
+                    faces[label][name] = _copy(side.boundaries[index].enthalpy_faces, extent)
+        info['_native_model_h'] = faces
     names = [f'{side} strict {metric} < 1 %' for side in ('A', 'B') for metric in ('global', 'cellmax')]
     names += ['full-volume LTNE source balance < 1 %', 'physical boundary data complete']
     info['energy_finishing_checks'] = [dict(iterations=r.finishing_checks[i].iterations,
@@ -613,14 +622,16 @@ def add_run_evidence(detached, resolved, entry_version, control, cpu_thread_limi
 
 
 
-def add_saved_evidence(detached, case, evidence, records, fields, shape, *, executed=None):
+def add_saved_evidence(detached, case, evidence, records, fields, shape, *, executed=None, report=None):
     from ._native_result_stage import copy_applicability
 
     warnings = None
     if records is not None:
         _, warnings, detached['last_closure_ranges'] = stage_closures(records)
         detached['stage_diagnostics'] = diagnostics(records, evidence, case.parameters, case.design_fields)
-    if executed is not None:
+    if report is not None:
+        detached['execution_facts'] = link_execution(report, case, detached['true_h'])
+    elif executed is not None:
         detached['execution_facts'] = execution_facts(executed, evidence, case, fields[1],
             detached['model_h_iterations'], detached['true_h'])
     elif records is not None:
@@ -632,7 +643,7 @@ def add_saved_evidence(detached, case, evidence, records, fields, shape, *, exec
     return warnings
 
 
-def _detach(r, shape, settings, energy_settings, entry_version, *, emit_audit=False, application_only=False, capture_scalars=None, stage_fields=None, records=None):
+def _detach(r, shape, settings, energy_settings, entry_version, *, emit_audit=False, application_only=False, capture_scalars=None, stage_fields=None, records=None, report=None):
     result = {name: getattr(r, name) if name == 'stop' else bool(getattr(r, name)) for name in _FLAGS}
     result.update({name: list(getattr(r, name)) for name in _PAIRS})
     result.update({name: getattr(r, name) for name in ('energy_imbalance', 'interior_duty', 'interior_imbalance', 'enthalpy_imbalance')})
@@ -710,7 +721,8 @@ def _detach(r, shape, settings, energy_settings, entry_version, *, emit_audit=Fa
         flow['bootstrap']=None if not b.available else dict(applied=bool(b.applied),coarse_converged=bool(b.converged),
             coarse_iters=b.iterations,coarse_shape=tuple(b.shape),coarse_residual=b.residual,reason=b.reason.decode())
         result['flow'].append(flow)
-    result['model_h'] = _model_info(r.model_h,shape,include_faces=True,capture_scalars=capture_scalars) if r.has_model_h else None
+    result['model_h'] = _model_info(r.model_h,shape,include_faces=True,capture_scalars=capture_scalars,
+        info=report['model_h'][0] if report is not None else None) if r.has_model_h else None
     result['true_h'] = _full_enthalpy_info(r.true_h,energy_settings.last,entry_version) if r.has_true_h else None
     if r.has_true_h:
         true_h=result['true_h']
@@ -740,7 +752,8 @@ def _detach(r, shape, settings, energy_settings, entry_version, *, emit_audit=Fa
                 reason=h.rejected_startup_reasons[k].decode()) for k in range(h.rejected_startup_count)],
                 total_iterations=h.startup_total_iterations,iteration_budget=settings.thermal_iterations)
         if h.has_model_h:
-            info=_model_info(h.model_h,shape,include_faces=False,capture_scalars=capture_scalars)
+            info=_model_info(h.model_h,shape,include_faces=False,capture_scalars=capture_scalars,
+                             info=report['model_h'][i+1] if report is not None else None)
             row['energy_finishing_checks']=info['energy_finishing_checks']
             row['model_h_balance']=dict(info['model_h_balance'],outer_index=h.outer_index,converged=bool(h.thermal_converged),iterations=h.thermal_iterations)
         if h.has_true_h:
@@ -810,6 +823,7 @@ def run_saved(case, control, library, abi, table_directory, execution_query, *, 
         require_completed(result.raw, bootstrap)
         summary = copy_summary(library, result, emit_audit=bool(cfg.get('_emit_audit', False)), copy_array=_copy)
         execution = executed_view(execution_query, result)
+        report = completed_report(library, result)
         settings, executed, evidence = execution.settings, execution.execution, result.evidence
         if settings.outer_count != result.raw.outer_count:
             raise RuntimeError('native full 3D effective settings do not match the thermal history')
@@ -819,21 +833,26 @@ def run_saved(case, control, library, abi, table_directory, execution_query, *, 
         entry_version = 5
         detached = _detach(result.raw, shape, result.resolved, settings, entry_version,
                            emit_audit=bool(cfg.get('_emit_audit', False)), application_only=True,
-                           capture_scalars=summary, stage_fields=fields, records=records)
+                           capture_scalars=summary, stage_fields=fields, records=records, report=report)
         if settings.last.available:
             version = evidence.thermal.true_h.contents.energy_algorithm_version[0]
             add_energy_evidence(detached, execution.energy, settings, entry_version, shape, version=version)
-        detached['property_sampling'] = sampling_records(records.sampling)
-        detached['enthalpy_update_normalization'] = _decode_update_scale(executed.update_scale)
-        detached['model_h_iterations'] = _decode_iteration_records(executed.model_h, executed.acceleration)
+        if report is not None:
+            detached.update({name: report[name] for name in
+                             ('property_sampling', 'enthalpy_update_normalization', 'model_h_iterations')})
+        else:
+            detached['property_sampling'] = sampling_records(records.sampling)
+            detached['enthalpy_update_normalization'] = _decode_update_scale(executed.update_scale)
+            detached['model_h_iterations'] = _decode_iteration_records(executed.model_h, executed.acceleration)
         add_run_evidence(detached, result.resolved, entry_version, control, cpu_threads, resume_state)
         if detached['mode'] in ('model_h', 'temperature'):
             if evidence.thermal.temperature:
                 detached['temperature_evidence'] = stage_ledger(evidence.thermal, records.temperature[0], shape)
             detached['native_metadata'] = dict(abi=abi, algorithm=executed.algorithm.decode(),
                                                red_black=bool(executed.red_black))
-        detached['_input_resolution'] = executed_inputs(case, evidence)
-        warnings = add_saved_evidence(detached, case, evidence, records, fields, shape, executed=executed)
+        detached['_input_resolution'] = (resolved_input_record(case, **report['input']) if report is not None
+                                         else executed_inputs(case, evidence))
+        warnings = add_saved_evidence(detached, case, evidence, records, fields, shape, executed=executed, report=report)
         detached.update(capture_scalars=summary, bootstrap_trace=bootstrap)
         merge_warnings(current_warnings(), [warnings])
         replay_sco2_notices(executed.sco2_notices, '3D h_v property refresh')

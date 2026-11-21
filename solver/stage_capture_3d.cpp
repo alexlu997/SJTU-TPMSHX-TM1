@@ -1,3 +1,4 @@
+#include "execution_report.hpp"
 #include "stage_records.hpp"
 #include "tpmshx/simple_convergence.hpp"
 #include "tpmshx/preparation_df.hpp"
@@ -57,6 +58,7 @@ bool final_stage(const std::string& value) {
 
 class Capture3D {
 public:
+    ExecutionReport report;
     tpmshx_full3d_result_v1 raw{};
     tpmshx_stage_capture_3d_v1 summary{};
     std::array<uint32_t,2> fluid{};
@@ -588,4 +590,27 @@ extern "C" const tpmshx_stage_run_3d_execution_v1* TPMSHX_THERMAL_CALL tpmshx_st
     const tpmshx_stage_run_result_3d_v1* result) {
     if(!tpmshx_stage_run_3d_records_v1(result))return nullptr;
     return &static_cast<const tpmshx::stages::Capture3D*>(result->owner)->execution_view;
+}
+
+extern "C" const char* TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_report_v1(
+    const tpmshx_stage_run_result_3d_v1* result, char* error, size_t capacity) {
+    const auto* view = tpmshx_stage_run_3d_execution_view_v1(result);
+    if (!view) {
+        if (error && capacity) std::snprintf(error, capacity, "native stage returned no execution record");
+        return nullptr;
+    }
+    auto& owner = *static_cast<tpmshx::stages::Capture3D*>(result->owner);
+    return owner.report.read([&] {
+        using namespace tpmshx::stages;
+        auto report = execution_report(view->execution, owner.evidence);
+        Report::List levels;
+        const size_t cells = owner.summary.model_h_cell_count;
+        levels.push_back(owner.raw.has_model_h ? volume_balance(owner.raw.model_h, cells) : Report());
+        for (size_t i = 0; i < owner.raw.outer_count; ++i) {
+            const auto& level = owner.raw.outer[i];
+            levels.push_back(level.has_model_h ? volume_balance(level.model_h, cells) : Report());
+        }
+        report.emplace("model_h", std::move(levels));
+        return report;
+    }, error, capacity);
 }
