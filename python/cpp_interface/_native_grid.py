@@ -7,7 +7,7 @@ import numpy as np
 
 from sjtu_tpmshx.cpp_interface import _native_geometry as _geometry
 
-from ._native_fp import GridScalar as _Scalar, grid_scalar as _scalar, grid_widths as _widths, restore_grid_scalar as _restore
+from ._native_values import GridScalar as _Scalar, grid_scalar as _scalar, grid_widths as _widths, restore_grid_scalar as _restore
 
 _DoubleP = ct.POINTER(ct.c_double)
 _Size = ct.c_size_t

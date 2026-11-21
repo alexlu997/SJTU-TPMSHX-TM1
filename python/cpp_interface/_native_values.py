@@ -1,4 +1,4 @@
-"""Transport typed numerical inputs and apply the NumPy error policy."""
+"""Transport native scalar, array, and text values and apply the NumPy error policy."""
 import ctypes as ct
 import sys
 import warnings
@@ -31,6 +31,40 @@ def floating_events(events, *, stacklevel):
                 if handler is None:
                     raise NameError(f'log specified for {label} (in {operation}) but no object with write method found.')
                 handler.write('Warning: ' + text + '\n')
+
+
+class DoubleArray(ct.Structure):
+    _fields_ = [('data', ct.POINTER(ct.c_double)), ('size', ct.c_size_t)]
+
+
+class Text(ct.Structure):
+    _fields_ = [('data', ct.POINTER(ct.c_char)), ('size', ct.c_size_t)]
+
+
+def borrow_array(value, keepalive):
+    storage = np.require(value, dtype=np.float64, requirements=['C', 'A'])
+    keepalive.append(storage)
+    return DoubleArray(storage.ctypes.data_as(ct.POINTER(ct.c_double)), storage.size)
+
+
+def copy_array(value, shape=None, *, precision=64):
+    dtype = np.dtype(f'float{precision}')
+    if value.size:
+        result = np.ctypeslib.as_array(value.data, shape=(value.size,)).astype(dtype, copy=True)
+    else:
+        result = np.empty(0, dtype=dtype)
+    return result if shape is None else result.reshape(shape)
+
+
+def borrow_text(value, keepalive):
+    encoded = value.encode('utf-8')
+    storage = ct.create_string_buffer(encoded)
+    keepalive.append(storage)
+    return Text(ct.cast(storage, ct.POINTER(ct.c_char)), len(encoded))
+
+
+def read_text(value):
+    return ct.string_at(value.data, value.size).decode('utf-8')
 
 
 class GridScalar(ct.Structure):

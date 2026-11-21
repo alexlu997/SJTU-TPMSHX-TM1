@@ -5,7 +5,7 @@ from functools import lru_cache
 import numpy as np
 
 from . import _native_grid, _native_preparation
-from ._native_fp import (
+from ._native_values import (
     GridScalar as _Scalar, NumericBuffer as _Values, buffer_scalar as _scalar,
     numeric_buffer as _values, restore_buffer_scalar as _restore,
 )

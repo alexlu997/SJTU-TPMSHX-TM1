@@ -52,7 +52,8 @@ from .solver_library._thermal_abi import (
     _iteration_options,
 )
 from .solver_library.simple_3d import _STOPS
-from ._native_preparation_case import borrow_array as _array, borrow_ranges as _ranges, borrow_text as _text
+from ._native_preparation_case import borrow_ranges as _ranges
+from ._native_values import borrow_array as _array, borrow_text as _text
 from .run_state import NativeRun
 
 _U, _Z, _D = ct.c_uint32, ct.c_size_t, ct.c_double
@@ -258,7 +259,7 @@ def pack_input(cfg, prepared, grid, design, shape, cell_mm, nu, keepalive, *, sa
 
 def pack_saved_v2(saved, case, cell_mm, wall_mm, nu, keepalive):
     cfg = case.parameters
-    from ._native_fp import buffer_scalar
+    from ._native_values import buffer_scalar
     from ._native_grid import _count, _port
 
     value = _SavedV2(2, ct.sizeof(_SavedV2), saved)

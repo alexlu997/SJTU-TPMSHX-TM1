@@ -16,7 +16,8 @@ from sjtu_tpmshx.physical_models.df_surrogate.backend import resolve_method
 from . import _native_df, _native_flow, _native_geometry, _native_grid, _native_preparation, _native_properties
 from sjtu_tpmshx.physical_models import fluid_props as registry
 from sjtu_tpmshx.physical_models import co2_props, sco2_props, tpms_geometry
-from ._native_preparation_case import _Array, _GeometryCache, _Sample, _Text
+from ._native_values import DoubleArray as _Array, Text as _Text, borrow_text, copy_array, read_text
+from ._native_preparation_case import _GeometryCache, _Sample
 from ._native_preparation_case import _QuickInputV2 as _Input, _QuickPreparedV2 as _Prepared
 
 
@@ -80,16 +81,6 @@ def _bindings(path):
     return _Bindings(path)
 
 
-def _copy(value, *, precision=64, shape=None):
-    result = (np.ctypeslib.as_array(value.data, shape=(value.size,)).astype(f'float{precision}', copy=True)
-              if value.size else np.empty(0, dtype=f'float{precision}'))
-    return result if shape is None else result.reshape(shape)
-
-
-def _text(value):
-    return ct.string_at(value.data, value.size).decode('utf-8')
-
-
 def _bind_pressure_options(compressible, options):
     from sjtu_tpmshx.physical_models.df_surrogate import predict as df
 
@@ -109,7 +100,7 @@ def _record_property_range(request, fluid, at, temperature, collect):
     if request.flags[2]:
         if not request.text.size:
             return
-        name = _text(request.text)
+        name = read_text(request.text)
         bounds = request.scalars[0].value, request.scalars[1].value
     else:
         if fluid == 0 and at == 0:
@@ -158,12 +149,6 @@ class _HostState:
         if self.scope is not None:
             scope, self.scope = self.scope, None
             scope.__exit__(None, None, None)
-
-    def string(self, value):
-        encoded = value.encode('utf-8')
-        storage = ct.create_string_buffer(encoded)
-        self.buffers.append(storage)
-        return _Text(ct.cast(storage, ct.POINTER(ct.c_char)), len(encoded))
 
     def pack_properties(self, request, values, *, coerce=False):
         self.property_shape, self.buffers, inputs = _native_properties._inputs(values, coerce=coerce)
@@ -264,7 +249,7 @@ class _HostState:
             name = fluid.strip().lower() if type(fluid) is str else None
             if name not in _FLUIDS:
                 name = registry.get(fluid).name
-            request.text = self.string(name)
+            request.text = borrow_text(name, self.buffers)
         elif operation == 11:
             self.state_pack(request)
         elif operation == 12:
@@ -348,7 +333,7 @@ class _HostState:
         state = (float(self.eos_temperature), float(self.eos_pressure))
         key = (('D', 'V', 'L', 'C')[request.index], *state) if sco2 else state
         if publish:
-            values = tuple(float(value) for value in _copy(request.property_values))
+            values = tuple(float(value) for value in copy_array(request.property_values))
             owner.store(key, None, values[0] if sco2 else values)
             return
         found, value = owner.lookup(key)
@@ -402,9 +387,9 @@ class _HostState:
         events = [request.floating_events[n] for n in range(request.floating_event_count)]
         _native_properties._floating_events(events)
         bits, strong = request.property_kind.precision, request.property_kind.strong
-        values = _copy(request.property_values, precision=bits, shape=self.property_shape)
+        values = copy_array(request.property_values, precision=bits, shape=self.property_shape)
         if request.property_category:
-            imaginary = _copy(request.property_imaginary, precision=bits, shape=self.property_shape)
+            imaginary = copy_array(request.property_imaginary, precision=bits, shape=self.property_shape)
             combined = np.empty(self.property_shape, dtype=f'complex{bits * 2}')
             combined.real[...], combined.imag[...] = values, imaginary
             values = combined
@@ -444,7 +429,7 @@ class _HostState:
             _record_pressure_limit(self.topo, self.l, self.t, output.outlet_squared, self.strict)
 
     def failure(self, request):
-        failure, message = request.failure.contents, _text(request.text)
+        failure, message = request.failure.contents, read_text(request.text)
         _native_properties._floating_events(failure.fp.events[:failure.fp.event_count])
         phase = request.flags[1]
         if phase == 0 and request.status == 10:
@@ -513,10 +498,10 @@ def prepare_values(case, topo, l, t, s, Lx, arrangement='cross', *, init=None,
         shape = tuple(output.shape)
         grid = dict(dimension=3, length_unit='m', axis_order=('x', 'y', 'z'))
         for n, axis in enumerate('xyz'):
-            grid['d' + axis] = _copy(output.widths[n], precision=output.width_precision[n])
-            grid[axis + '_edges'] = _copy(output.edges[n], precision=output.width_precision[n])
-        fields = dict(eps=_copy(output.epsilon, shape=shape), eps_A=_copy(output.epsilon_a, shape=shape),
-            K_ss=_copy(output.solid_conductivity, precision=output.solid_precision, shape=shape))
+            grid['d' + axis] = copy_array(output.widths[n], precision=output.width_precision[n])
+            grid[axis + '_edges'] = copy_array(output.edges[n], precision=output.width_precision[n])
+        fields = dict(eps=copy_array(output.epsilon, shape=shape), eps_A=copy_array(output.epsilon_a, shape=shape),
+            K_ss=copy_array(output.solid_conductivity, precision=output.solid_precision, shape=shape))
         c = output.controls
         controls = dict(dirB=c.dir_b, alpha=c.alpha, maxit=c.max_iterations,
             qtol=c.q_relative_tolerance if c.have_q_relative_tolerance else None,

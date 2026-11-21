@@ -10,6 +10,7 @@ from sjtu_tpmshx.data_types.case_data import CaseData
 from sjtu_tpmshx.data_types.compute_config import ComputeConfig, Sco2NuConfig, bc_to_dict
 from sjtu_tpmshx.data_types.model_refs import ModelRef
 from sjtu_tpmshx.run_control.run_environment import capture_environment
+from ._native_values import borrow_text
 from . import _native_geometry, _native_grid
 from sjtu_tpmshx.run_control.run_warnings import (
     RangeRecord, current_warnings, warning_messages, record_warning,
@@ -91,10 +92,7 @@ def _cache_record_view(records):
     buffers, ranges, bounds_list, warnings = [], [], [], []
 
     def text(value):
-        encoded = value.encode('utf-8')
-        buffer = ct.create_string_buffer(encoded)
-        buffers.append(buffer)
-        return native._Text(ct.cast(buffer, ct.POINTER(ct.c_char)), len(encoded))
+        return borrow_text(value, buffers)
 
     def sample(value, shape):
         finite = value['minimum'] is not None
@@ -283,10 +281,7 @@ def _input(config, targets, operation):
         typed.sco2_nu.alpha[index] = selected or 0.
     buffers = []
     for name in ('parameter_version', 'source', 'applicability'):
-        encoded = getattr(settings, name).encode('utf-8')
-        buffer = ct.create_string_buffer(encoded)
-        buffers.append(buffer)
-        setattr(typed.sco2_nu, name, native._Text(ct.cast(buffer, ct.POINTER(ct.c_char)), len(encoded)))
+        setattr(typed.sco2_nu, name, borrow_text(getattr(settings, name), buffers))
     flow = native._FlowInput(3, ct.sizeof(native._FlowInput), typed)
     flow.physical_depth_kind = _flow_kind(geometry.Lz_m if geometry.Lz_m is not None else 0.)
     flow.have_explicit_targets = targets is not None
@@ -356,10 +351,7 @@ def _spatial_input(config, flow, buffers):
                 for row in model['zones']]
     regions = []
     for name, bounds, cell, wall in rows:
-        encoded = name.encode('utf-8')
-        text = ct.create_string_buffer(encoded)
-        buffers.append(text)
-        regions.append(native._Region(native._Text(ct.cast(text, ct.POINTER(ct.c_char)), len(encoded)),
+        regions.append(native._Region(borrow_text(name, buffers),
             (native._GridScalar * 4)(*map(_native_grid._scalar, bounds)), cell, wall, _kind(cell), _kind(wall)))
     regions = (native._Region * len(regions))(*regions)
     buffers.append(regions)
