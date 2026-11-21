@@ -1155,7 +1155,7 @@ _ZoneTemperatures = record('ZoneTemperatures', [('cells', Z), ('mean', D * 3),
     ('deviation', D * 3), ('minimum', D * 2), ('maximum', D * 2)])
 
 
-def _zone_temperatures(widths, temperatures, zone_id, zones, lengths, fractions):
+def _zone_temperatures(widths, temperatures, zone_id, zones, lengths, fractions, *, solver_library=None):
     """Read the native area-weighted summary for each saved zone."""
     widths = [core.array(value) for value in widths]
     fields = [core.array(value) for value in temperatures]
@@ -1163,10 +1163,13 @@ def _zone_temperatures(widths, temperatures, zone_id, zones, lengths, fractions)
     output = (_ZoneTemperatures * len(zones))()
     boundaries = [(D * len(axis))(*axis) for axis in fractions]
     positions = [(D * len(axis))() for axis in fractions]
-    core.call('tpmshx_result_zone_temperatures_2d_v1', [AP, AP, AP, Z, P(_ZoneTemperatures), D, D, P(D), Z, P(D), P(D), Z, P(D)],
+    name = ('tpmshx_stage_run_2d_zone_temperatures_v1' if solver_library is not None
+            else 'tpmshx_result_zone_temperatures_2d_v1')
+    core.call(name, [AP, AP, AP, Z, P(_ZoneTemperatures), D, D, P(D), Z, P(D), P(D), Z, P(D)],
               (core._Array * 2)(*(value.raw for value in widths)), ct.byref(labels.raw),
               (core._Array * 3)(*(value.raw for value in fields)), len(zones), output, *lengths,
-              boundaries[0], len(boundaries[0]), positions[0], boundaries[1], len(boundaries[1]), positions[1])
+              boundaries[0], len(boundaries[0]), positions[0], boundaries[1], len(boundaries[1]), positions[1],
+              library=solver_library)
     stats = []
     for (name, length, wall), row in zip(zones, output):
         item = dict(name=name, n_cells=row.cells)
@@ -1181,7 +1184,7 @@ def _zone_temperatures(widths, temperatures, zone_id, zones, lengths, fractions)
         stats.append(item)
     return stats, list(positions[0]), list(positions[1])
 
-def zone_result(cfg, prepared, temperature):
+def zone_result(cfg, prepared, temperature, *, solver_library=None):
     axis, design = cfg['z_axis'], cfg['za']
     if cfg['zone_config'] is None or design is None:
         return None
@@ -1202,7 +1205,8 @@ def zone_result(cfg, prepared, temperature):
             ends = [zone.y_frac_end for zone in definitions[:-1]]
         fractions = ((), ends) if axis == 'y' else (ends, ())
     stats, x, y = _zone_temperatures((prepared['energy_dx'], prepared['energy_dy']), temperature,
-                                     design['zone_id'], zones, (cfg['L'], cfg['H']), fractions)
+                                     design['zone_id'], zones, (cfg['L'], cfg['H']), fractions,
+                                     solver_library=solver_library)
     from sjtu_tpmshx.run_control.logutil import log_zone_report
     log_zone_report(stats)
     if axis == 'grid':

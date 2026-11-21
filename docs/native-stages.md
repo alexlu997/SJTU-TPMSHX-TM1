@@ -239,6 +239,11 @@ The copied summary owns no pointers and remains valid after result release.
 Use existing raw evidence queries for fields, histories and numerical ledgers.
 The scalar mapper and historical-runtime capture calculations keep their existing behavior.
 
+`tpmshx_stage_run_2d_zone_temperatures_v1` summarizes the completed main-grid temperatures for saved zones.
+It uses the same area weights, zone order and physical boundary positions as the independent result query.
+The Python host uses this entry for stripes, grid zones and sigmoid fields when the selected solver exports it.
+Earlier solver libraries use the existing result-library path. Saved `FieldResult` records include the same zone data.
+
 ## Uniform total mass flow
 
 `FlowInput2D` selects stored per-side targets or an explicit pair of total targets.

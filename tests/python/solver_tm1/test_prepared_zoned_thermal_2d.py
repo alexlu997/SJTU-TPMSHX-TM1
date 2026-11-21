@@ -16,6 +16,7 @@ from sjtu_tpmshx.physical_models.zone_config import Zone, ZoneConfig
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
 from tests.python import sigmoid_reference
+from tests.python.native.shared_library import library_path
 
 
 def _config(mode='y'):
@@ -197,6 +198,25 @@ def test_required_surrogate_import_failure_is_not_an_empty_warning_list(monkeypa
         surrogate_extrap_reasons(_config(), allow_extrap=True)
 
 
+@pytest.mark.parametrize('mode', ['x', 'y', 'grid'])
+def test_discrete_zone_capture_uses_only_the_solver(monkeypatch, tmp_path, mode):
+    from sjtu_tpmshx.cpp_interface._native_result_stage import zone_result
+    from sjtu_tpmshx.data_types.portable_data import mutable_data
+    from sjtu_tpmshx.run_control.module_ports import RunControl
+    from sjtu_tpmshx.solvers.api import run_case
+
+    case = prepare_case(_config(mode), case_id='solver-zone-capture')
+    with monkeypatch.context() as isolated:
+        isolated.setenv('TPMSHX_RESULT_LIBRARY', str(tmp_path / 'missing-result-library'))
+        result = run_case(case, RunControl(native_library=str(library_path()), cpu_threads=1))
+
+    assert result.run_status['execution'] == 'completed'
+    cfg, prepared = build_execution_inputs(case)
+    expected = zone_result(cfg, prepared, [result.fields[key] for key in ('Ta', 'Tb', 'Ts')])
+    assert len(expected['stats']) == 2
+    assert mutable_data(result.metadata['application']['zones']) == expected
+
+
 def test_sigmoid_saved_execution_keeps_row_drag(monkeypatch, tmp_path):
     from sjtu_tpmshx.applications.result_adapter import to_compute_result
     from sjtu_tpmshx.postprocess.api import evaluate
@@ -228,6 +248,7 @@ def test_sigmoid_saved_execution_keeps_row_drag(monkeypatch, tmp_path):
     monkeypatch.setattr(_native_preparation_case, 'operation', forbidden)
     monkeypatch.setattr(tpms_props, 'geometry', forbidden)
     monkeypatch.setattr(sigmoid_field, 'get_geometry_lut', forbidden)
+    library = str(library_path())
     results, reports = [], []
     for prepared in (case, loaded):
         assert not prepared.config_snapshot
@@ -244,10 +265,14 @@ def test_sigmoid_saved_execution_keeps_row_drag(monkeypatch, tmp_path):
                 np.testing.assert_array_equal(flow[key], case.parameters['flow_inputs'][side][key])
         for key, values in case.parameters['thermal_geometry']['fields'].items():
             np.testing.assert_array_equal(cfg['thermal_geometry']['fields'][key], values)
-        result = run_case(prepared, RunControl(cpu_threads=1))
+        with monkeypatch.context() as isolated:
+            isolated.setenv('TPMSHX_RESULT_LIBRARY', str(tmp_path / 'missing-result-library'))
+            result = run_case(prepared, RunControl(native_library=library, cpu_threads=1))
         assert result.run_status['execution'] == 'completed'
         assert result.metadata['design_mode'] == 'continuous'
         assert result.metadata['parameters']['z_axis'] == 'grid'
+        assert mutable_data(result.metadata['application']['zones']) == dict(
+            axis_dir='grid', boundaries=[], boundaries_x=[], boundaries_y=[], stats=[])
         for key, values in case.design_fields.items():
             np.testing.assert_array_equal(result.metadata['design_fields'][key], values)
         performance = evaluate(result)
@@ -274,7 +299,7 @@ def test_sigmoid_saved_execution_keeps_row_drag(monkeypatch, tmp_path):
 
     completed = subprocess.run([sys.executable, '-m', 'sjtu_tpmshx.applications.cli.stages',
         'solve', str(tmp_path / 'case.yaml'), str(tmp_path / 'cli-result.h5'),
-        '--cpu-threads', '1'], capture_output=True, text=True, check=False)
+        '--native-library', library, '--cpu-threads', '1'], capture_output=True, text=True, check=False)
     (tmp_path / 'cli.log').write_text(completed.stdout + completed.stderr)
     assert completed.returncode == (0 if results[1].run_status['converged'] else 2), completed.stderr
     cli = load_result(tmp_path / 'cli-result.h5')

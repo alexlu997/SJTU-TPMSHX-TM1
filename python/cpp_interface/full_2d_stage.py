@@ -2,6 +2,7 @@
 import ctypes as ct
 from copy import deepcopy
 from dataclasses import replace
+from functools import partial
 from pathlib import Path
 from uuid import uuid4
 
@@ -572,7 +573,11 @@ def run_stage(driver, case, cfg, prepared, control, *, saved_version=1,
         if cfg['zone_config'] is not None and cfg['za'] is not None:
             from sjtu_tpmshx.cpp_interface import _native_result_stage as result_stage
             continuous = saved_version == 4 and cfg['z_axis'] == 'continuous'
-            if continuous or hasattr(result_stage.core._library().library, 'tpmshx_result_zone_temperatures_2d_v1'):
+            if continuous:
+                zone_summary = result_stage.zone_result
+            elif hasattr(library, 'tpmshx_stage_run_2d_zone_temperatures_v1'):
+                zone_summary = partial(result_stage.zone_result, solver_library=library)
+            elif hasattr(result_stage.core._library().library, 'tpmshx_result_zone_temperatures_2d_v1'):
                 zone_summary = result_stage.zone_result
         field = capture_result(case, cfg, prepared, native, application_hv=application_hv,
                                zone_summary=zone_summary, stage_fields=stage_fields)

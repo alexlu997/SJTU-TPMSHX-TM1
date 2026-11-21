@@ -22,6 +22,8 @@ The full application retains its macOS arm64 and Windows x64 platforms.
 
 `scalar_range_samples.hpp` is a private source dependency.
 Preparation and result compile it separately; preparation does not link the result library.
+`result_zone_capture.hpp` supplies the same checked zone query to the solver and result libraries.
+The solver links the zone arithmetic statically.
 
 Python retains DTOs, type and shape adaptation, original object identity, NumPy event handling and file I/O.
 The result stage owns full 2D/3D evidence selection, status and reason text.

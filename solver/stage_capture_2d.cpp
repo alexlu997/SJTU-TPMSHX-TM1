@@ -2,6 +2,7 @@
 #include "tpmshx/simple_convergence.hpp"
 #include "stage_capture_2d.hpp"
 #include "../geometry/field_c_boundary.hpp"
+#include "../postprocess/result_zone_capture.hpp"
 #include "tpmshx/fluid_properties.hpp"
 #include "tpmshx/result_metrics.hpp"
 
@@ -502,6 +503,17 @@ extern "C" int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_get_capture_v1(
         *output=value;return 0;
     } catch(const std::invalid_argument&) {return 1;}
     catch(...) {return 5;}
+}
+
+extern "C" int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_zone_temperatures_v1(
+    const tpmshx_result_array_v1* widths,const tpmshx_result_array_v1* labels,
+    const tpmshx_result_array_v1* temperatures,size_t zone_count,
+    tpmshx_result_zone_temperatures_v1* output,double length_m,double height_m,
+    const double* x_fractions,size_t nx,double* x_positions,
+    const double* y_fractions,size_t ny,double* y_positions,
+    tpmshx_result_diagnostics_v1* diagnostics,char* error,size_t capacity) {
+    return tpmshx::result::c_api::capture_zone_temperatures_2d(widths,labels,temperatures,zone_count,output,
+        length_m,height_m,x_fractions,nx,x_positions,y_fractions,ny,y_positions,diagnostics,error,capacity);
 }
 
 extern "C" const tpmshx_stage_run_records_v1* TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_records_v1(

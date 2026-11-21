@@ -4,6 +4,7 @@
 #include "tpmshx/grid_c_api.h"
 #include "tpmshx/full_2d_c_api.h"
 #include "tpmshx/full_2d_run_c_api.h"
+#include "tpmshx/result_balance_c_api.h"
 #include "tpmshx/result_stage_c_api.h"
 
 #define TPMSHX_STAGE_RUN_ABI_VERSION 1u
@@ -246,6 +247,15 @@ TPMSHX_THERMAL_API const tpmshx_stage_run_2d_execution_v1* TPMSHX_THERMAL_CALL t
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_get_capture_v1(
     const tpmshx_stage_run_result_2d_v1*,const tpmshx_stage_application_2d_v1*,
     tpmshx_stage_capture_2d_v1*);
+/* Summarize completed main-grid temperatures by saved zone. Borrow the
+ * arrays through this call. Use the result zone query's data and status rules. */
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_zone_temperatures_v1(
+    const tpmshx_result_array_v1 widths[2],const tpmshx_result_array_v1* labels,
+    const tpmshx_result_array_v1 temperatures[3],size_t zone_count,
+    tpmshx_result_zone_temperatures_v1* output,double length_m,double height_m,
+    const double* x_fractions,size_t nx,double* x_positions,
+    const double* y_fractions,size_t ny,double* y_positions,
+    tpmshx_result_diagnostics_v1* diagnostics,char* error,size_t error_capacity);
 TPMSHX_THERMAL_API void TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_release_v1(
     tpmshx_stage_run_result_2d_v1*);
 /* Supply exactly one preparation view: uniform v2 or continuous v4.
