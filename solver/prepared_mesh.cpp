@@ -12,7 +12,7 @@ using View = tpmshx_preparation_array_v1;
 
 View borrow(const tpmshx_result_array_v1& raw, size_t rank, const Shape* shape = nullptr) {
     const unsigned short one = 1;
-    const auto native_order = *reinterpret_cast<const unsigned char*>(&one)
+    const std::uint32_t native_order = *reinterpret_cast<const unsigned char*>(&one)
         ? TPMSHX_RESULT_LITTLE_ENDIAN : TPMSHX_RESULT_BIG_ENDIAN;
     if (raw.rank != rank || raw.dtype != TPMSHX_RESULT_F64
         || (raw.byte_order != TPMSHX_RESULT_NATIVE_ENDIAN && raw.byte_order != native_order)) return {};
