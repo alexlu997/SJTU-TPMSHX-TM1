@@ -211,6 +211,7 @@ It computes the staggered outlet from the original width precision and port boun
 The descriptor borrows the cell fields and four model references from the prepared view.
 Keep the additional field buffers and model strings alive through result transfer or run release.
 Current Python runs use the complete saved v4 protocol for canonical settings.
+The solver and preparation libraries use the same physical limit for 2D port windows. For saved double-precision settings, `tpmshx_stage_port_windows_fit_2d_v1` checks both windows on the cross axis. The host supplies detailed errors and checks other input types and earlier libraries.
 For a fresh run, Python calls `tpmshx_run_saved_case_2d_v4` when the library provides it. C++ owns the run through result transfer. Checkpoints and older libraries use the step interface.
 Saved v4 adds the original experimental model settings to the v3 fields.
 Create and restore use the same native applicability rules as preparation.

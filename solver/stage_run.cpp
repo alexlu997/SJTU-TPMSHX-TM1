@@ -729,6 +729,16 @@ extern "C" int tpmshx_stage_run_2d_restore_saved_v3(const tpmshx_stage_saved_cas
     const StartRun start{request,output,fields,count,true,saved?&saved->values.values:nullptr,saved?&saved->values:nullptr,saved};
     return run(nullptr,nullptr,control,nullptr,error,capacity,nullptr,nullptr,true,nullptr,&start);
 }
+extern "C" int tpmshx_stage_port_windows_fit_2d_v1(double cross_length,double inlet_center,
+    double inlet_width,double outlet_center,double outlet_width) {
+    const auto cross=tpmshx::grid::weak(cross_length);
+    const auto fits=[&](double center,double width) {
+        return std::isfinite(center) && std::isfinite(width) && width>0.
+            && tpmshx::grid::port_window_within(cross,center,width);
+    };
+    return std::isfinite(cross_length) && cross_length>0.
+        && fits(inlet_center,inlet_width) && fits(outlet_center,outlet_width);
+}
 extern "C" int tpmshx_stage_run_2d_check_experiment_v4(const tpmshx_stage_experiment_2d_v4* settings,
     char* error,size_t capacity) {
     if(!boundary::error_buffer_valid(error,capacity))return 1;

@@ -362,7 +362,7 @@ def _plain_zone(zone):
                for row in zone['zones'])
 
 
-def saved_inputs(case, shape, *, check_experiment=None):
+def saved_inputs(case, shape, *, check_experiment=None, port_windows_fit=None):
     from sjtu_tpmshx.data_types.compute_config import ComputeConfig, _checked_saved_2d_settings
     from sjtu_tpmshx.data_types.persistence_validation import validate_thermal_geometry
     from sjtu_tpmshx.data_types.portable_data import mutable_data
@@ -377,7 +377,7 @@ def saved_inputs(case, shape, *, check_experiment=None):
         settings['zones'] = dict(enabled=True, axis='continuous', config=mutable_data(cfg['continuous_field']))
     experiment = None
     if check_experiment is not None and _can_pack_settings(settings):
-        values = cfg['compute_cfg'] = _checked_saved_2d_settings(settings)
+        values = cfg['compute_cfg'] = _checked_saved_2d_settings(settings, port_windows_fit=port_windows_fit)
         experiment = _Experiment()
         if values['df_mode'] == 'experimental':
             experiment = _experiment_request(values)
@@ -1260,7 +1260,11 @@ def run_case(case, control=RunControl(), *, direct_run, resume_state=None, check
         raise ValueError('native library has an incomplete saved 2D stage protocol')
     experiment = None
     if check_experiment is not None or hasattr(driver.library, 'tpmshx_stage_run_2d_create_saved_v3'):
-        cfg, prepared, experiment = saved_inputs(case, shape, check_experiment=check_experiment)
+        port_windows_fit = getattr(driver.library, 'tpmshx_stage_port_windows_fit_2d_v1', None)
+        if port_windows_fit is not None:
+            port_windows_fit.argtypes, port_windows_fit.restype = [ct.c_double] * 5, ct.c_int
+        cfg, prepared, experiment = saved_inputs(case, shape, check_experiment=check_experiment,
+                                                port_windows_fit=port_windows_fit)
     else:
         from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
         cfg, prepared = build_execution_inputs(case, copy_design=False)

@@ -117,6 +117,10 @@ bool less(Scalar a,Scalar b) {
     return precision::round_scalar(a.value,bits)<precision::round_scalar(b.value,bits);
 }
 
+bool port_window_within(Scalar cross_length,double center,double width) {
+    return !(center-width/2.<0. || less(cross_length,weak(center+width/2.)));
+}
+
 Scalars segment_lengths(const Scalars& bounds) {
     Scalars values;
     for (std::size_t i=0;i+1<bounds.size();++i) values.push_back(subtract(bounds[i+1],bounds[i]));

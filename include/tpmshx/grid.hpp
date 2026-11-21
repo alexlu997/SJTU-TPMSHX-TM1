@@ -25,6 +25,7 @@ Scalar divide(Scalar a,Scalar b);
 Scalar power(Scalar base,std::size_t exponent);
 std::uint32_t result_precision(Scalar a,Scalar b);
 bool less(Scalar a,Scalar b);
+bool port_window_within(Scalar cross_length,double center,double width);
 Scalars segment_lengths(const Scalars& ordered_bounds);
 Scalar python_sum(const Scalars& values);
 std::vector<std::uint8_t> aligned_filter(Scalar length,const Scalars& points);
