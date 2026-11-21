@@ -39,7 +39,7 @@ run v2 支持均匀四流体准备态，包括已解析的总质量流量。准�
 它保留物理网格和几何，在换热计算前解析速度，并拥有复制后的区域、控制点与 LUT。
 域长／端口类型输入与独立的前段证据仍明确保留。
 准备 v9 通过带类型的宿主缓存钩子连接对称空间几何的 Python 准备、容量查询与解析。
-`python/cpp_interface/native_preparation.py` 共享缓存与证据传输，未命中时由原生阶段计算。
+`python/cpp_interface/preparation_host.py` 共享缓存与证据传输，未命中时由原生阶段计算。
 Python 保留 LUT 存储，缺表时原生代码在原几何检查点构建。
 
 准备 v10 增加规定速度下既有非零 delta 的均匀 air/water 和 air/air 空间模式。
@@ -86,7 +86,7 @@ Python 将完整 case notices 与运行期 `nu-evidence` 警告记录合并为 `
 
 独立的 `shared/models/tpms_calc.compute` 与完整准备使用同一原生入口物性组合。
 Python 保留几何选择、共享缓存、可变结果副本、逐次 K_ss 查询、对象转换和警告策略。
-`python/cpp_interface/_native_preparation_case.py` 传输十二个带类型的查询值，并与准备适配器共享范围观测。
+`python/cpp_interface/inlet_properties.py` 传输十二个带类型的查询值，并与准备适配器共享范围观测。
 [入口物性查询](../docs/native-stages.zh-CN.md#入口物性查询) 向 C 和 C++ 调用者提供同一计算，不需要网格或求解器。
 
 Quick Design 准备 v2 接受带类型的原始输入，并提供不创建热网格或设计场数组的独立压降查询。

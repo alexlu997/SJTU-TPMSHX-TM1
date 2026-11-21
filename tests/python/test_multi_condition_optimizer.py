@@ -434,7 +434,7 @@ def test_search_reuses_baseline_case_configs_and_releases_fields(tmp_path, monke
     from unittest.mock import patch
     from sjtu_tpmshx.data_types.portable_data import mutable_data
     from sjtu_tpmshx.file_io.case_io import load_case
-    from sjtu_tpmshx.cpp_interface import _native_preparation_case as preparation
+    from sjtu_tpmshx.cpp_interface import preparation_host as preparation
     from tests.python.test_multi_condition_batch import _conditions, _native, _patch_solve
 
     references = []

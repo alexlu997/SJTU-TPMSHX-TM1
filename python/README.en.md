@@ -44,7 +44,7 @@ Preparation v8 adds capacity, flow resolution and complete fixed-flow preparatio
 It retains the physical grid and geometry, resolves speeds before transfer calculations, and owns copied regions, controls and LUTs.
 Typed domain/port inputs and separate preliminary evidence remain explicit.
 Preparation v9 connects symmetric spatial Python preparation, capacity and resolution through typed host-cache hooks.
-`python/cpp_interface/native_preparation.py` shares cache and evidence transport; misses calculate in the native stage.
+`python/cpp_interface/preparation_host.py` shares cache and evidence transport; misses calculate in the native stage.
 Python retains LUT storage. Native code builds missing tables at the original geometry checkpoint.
 
 Preparation v10 adds the existing nonzero-delta uniform air/water and air/air spatial modes at prescribed speed.
@@ -92,7 +92,7 @@ The native result stage decides qualification.
 
 Standalone `shared/models/tpms_calc.compute` uses the same native inlet-property combination as complete preparation.
 Python keeps geometry selection, shared caches, mutable result copies, the per-call K_ss query, object conversion and warning policy.
-`python/cpp_interface/_native_preparation_case.py` transports the twelve typed query values and shares range observations with the preparation adapters.
+`python/cpp_interface/inlet_properties.py` transports the twelve typed query values and shares range observations with the preparation adapters.
 The [inlet-property query](../docs/native-stages.md#inlet-property-query) exposes the same calculation to C and C++ callers without a grid or solver.
 
 Quick Design preparation v2 accepts typed raw inputs and provides a separate pressure query without thermal grid or design-field arrays.

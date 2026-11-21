@@ -34,7 +34,7 @@ Cache misses use the existing C++ numerical functions; current material conducti
 The query returns twelve typed scalars without a grid, CaseData or solver.
 Python retains cache keys and access order, mutable public result copies, and the private cp/Pr cache fields.
 It also retains object conversion, warning filters and source locations, and NumPy event policy.
-`python/cpp_interface/_native_preparation_case.py` shares range-record transport with the preparation adapters.
+`python/cpp_interface/preparation_host.py` shares range-record transport with the preparation adapters.
 Raw complex Nu and surface-transfer values retain their existing behavior; complete-case physical guards stay unchanged.
 The combined query calls native EOS directly and does not populate the standalone EOS wrapper caches.
 Quick Design preparation shares those wrapper caches through its host operations.
@@ -132,7 +132,7 @@ Discrete smoothing, sigmoid LUT geometry, separate thermal geometry and row D-F 
 Its flow results own copied spatial controls and LUTs; preliminary and final evidence remain separate.
 The v8 raw boundary retains event-only callbacks.
 Preparation v9 carries typed geometry and inlet cache keys, including actual L/t and optional Nu selection.
-`python/cpp_interface/native_preparation.py` transports cache values and evidence through the existing shared cache owners.
+`python/cpp_interface/preparation_host.py` transports cache values and evidence through the existing shared cache owners.
 Native misses calculate the values; Python keeps lookup, LRU order, publication and warning filters.
 The sigmoid LUT hook loads or publishes host storage at the original geometry checkpoint; missing tables use native construction.
 Public configuration keeps its original topology and conductivity comparisons, including narrow-scalar equality.
@@ -163,8 +163,7 @@ The existing asymmetric owner supplies nominal split and thermal side/reference 
 Local total porosity remains symmetric; each side capacity uses its own split field.
 The v1/v2/v3/v4 layouts remain unchanged. Python 3D preparation uses host v5 and its typed cache callbacks.
 `python/preprocess/three_d/preparation.py` converts the configuration, reads the environment and builds the immutable case.
-`python/cpp_interface/_native_preparation_3d.py` declares the volume layouts. The 2D and 3D calls share the result owner in `python/cpp_interface/_native_preparation_case.py`.
-`python/cpp_interface/native_preparation.py` shares cache and warning transport with 2D.
+`python/cpp_interface/_native_preparation_3d.py` declares the volume layouts. The 2D and 3D calls share the result owner in `python/cpp_interface/preparation_host.py`.
 The C++ owner builds the physical grid once and keeps static evidence before resolved-speed checks.
 Air-field scalar observations use at most eight selected values per side, with the original notices, extrema and last sample.
 Full raw-array range records keep all physical cells.

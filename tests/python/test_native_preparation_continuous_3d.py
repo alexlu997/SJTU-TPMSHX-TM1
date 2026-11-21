@@ -8,7 +8,8 @@ import os
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.cpp_interface._native_values import copy_array
+from sjtu_tpmshx.cpp_interface._native_values import copy_array, read_text
+
 
 from tests.python import test_native_preparation_continuous as two
 from tests.python import test_native_preparation_flow_3d as flow
@@ -94,7 +95,7 @@ def _call(native, operation, config, targets=None, *, source=None, chi=None, rej
 
     def event(_context, pointer):
         item = pointer.contents
-        events.append((item.kind, abi._text(item.logger), abi._text(item.message), item.floating_event))
+        events.append((item.kind, read_text(item.logger), read_text(item.message), item.floating_event))
         return int(reject_event)
 
     callback = abi._EventFunction(event)
@@ -172,7 +173,7 @@ def _full(native, monkeypatch, config, targets=None, *, chi=None):
             metadata = (expected.parameters['df_application'] or {}).get(side, {})
             drag = result.drag[index]
             for name in ('transfer_policy', 'geometry_application'):
-                assert abi._text(getattr(drag, name)) == metadata.get(name, ''), side + name
+                assert read_text(getattr(drag, name)) == metadata.get(name, ''), side + name
             assert bool(drag.have_reference_geometry) == ('reference_geometry_mm' in metadata)
             if drag.have_reference_geometry:
                 v1._same(drag.reference_geometry_mm,
@@ -367,7 +368,7 @@ def test_continuous_3d_no_target_resolution_keeps_unvalidated_owned_input(native
         for buffer in source._values._source._buffers:
             if len(buffer) > 1:
                 buffer[0] = b'X'
-        assert abi._text(result.flow.input.sco2_nu.source) == config.sco2_nu.source
+        assert read_text(result.flow.input.sco2_nu.source) == config.sco2_nu.source
     finally:
         _release(native, result)
 

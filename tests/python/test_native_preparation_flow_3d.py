@@ -9,6 +9,8 @@ import warnings
 import numpy as np
 import pytest
 
+from sjtu_tpmshx.cpp_interface._native_values import read_text
+
 from tests.python import test_native_preparation_3d as three
 from tests.python import test_native_preparation_mass_flow as flow
 from tests.python import preparation_api_reference as api
@@ -79,7 +81,7 @@ def _call(native, operation, config, targets=None, *, reject_event=False):
 
     def event(_context, pointer):
         item = pointer.contents
-        events.append((item.kind, abi._text(item.logger), abi._text(item.message), item.floating_event))
+        events.append((item.kind, read_text(item.logger), read_text(item.message), item.floating_event))
         return int(reject_event)
 
     callback = abi._EventFunction(event)
@@ -161,7 +163,7 @@ def _evidence(actual, records):
                 row['bounds'] = list(row['bounds'])
             rows.append(row)
         assert rows == range_observations(records, last=last)
-    assert [abi._text(item) for item in actual.warnings[:actual.warning_count]] == list(warning_messages(records))
+    assert [read_text(item) for item in actual.warnings[:actual.warning_count]] == list(warning_messages(records))
 
 
 def _resolved(actual, expected):
@@ -301,7 +303,7 @@ def test_native_3d_capacity_ignores_old_speed_and_explicit_targets(native, monke
     try:
         for index, side in enumerate('AB'):
             flow._scalar(result.capacities[index], expected[side])
-        assert all(abi._text(result.evidence.ranges[index].source[0]) != 'nu'
+        assert all(read_text(result.evidence.ranges[index].source[0]) != 'nu'
                    for index in range(result.evidence.range_count))
         assert three._host_events(live) == state['events']
     finally:
@@ -327,7 +329,7 @@ def test_native_3d_resolve_without_targets_keeps_unvalidated_owned_input(native,
             if len(buffer) > 1:
                 buffer[0] = b'X'
         for name in ('parameter_version', 'source', 'applicability'):
-            assert abi._text(getattr(result.input.sco2_nu, name)) == getattr(config.sco2_nu, name)
+            assert read_text(getattr(result.input.sco2_nu, name)) == getattr(config.sco2_nu, name)
         assert result.evidence.range_count == result.evidence.warning_count == result.evidence.event_count == 0
     finally:
         _release(native, result)

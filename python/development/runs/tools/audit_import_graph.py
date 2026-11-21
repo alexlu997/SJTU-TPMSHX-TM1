@@ -52,6 +52,8 @@ OWNERS = {
     "model_configs": "configs",
     "applications.cli.cli_options": "io",
     "cpp_interface.native_preparation": "preprocess",
+    "cpp_interface.preparation_host": "models",
+    "cpp_interface.inlet_properties": "models",
     **{f"cpp_interface.{name}": "solvers" for name in (
         "full_2d_stage", "full_3d_stage", "quick_design", "run_state", "solver_library")},
     # Case and spatial adapters own model policy. The ABI bindings use native_values.

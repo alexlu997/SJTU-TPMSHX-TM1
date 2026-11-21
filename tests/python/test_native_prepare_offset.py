@@ -14,7 +14,7 @@ from tests.python.test_native_prepare_adapter import (
 from tests.python.test_native_prepare_spatial_adapter import configuration
 from sjtu_tpmshx.preprocess import api
 from sjtu_tpmshx.cpp_interface import native_preparation as host
-from sjtu_tpmshx.cpp_interface import _native_preparation_case as native
+from sjtu_tpmshx.cpp_interface import _native_preparation_case as native, preparation_host
 from sjtu_tpmshx.physical_models.tpms_calc import compute
 from sjtu_tpmshx.physical_models.tpms_geometry import compute_geometry
 
@@ -139,7 +139,7 @@ def test_offset_owned_buffers_survive_diagnostic_aliases(monkeypatch, tmp_path, 
     result_type = (native._OffsetFlowCase if mode == 'uniform' else
                    native._OffsetSigmoidCase if mode == 'sigmoid' else native._OffsetZonedCase)
     result = result_type(10, ct.sizeof(result_type))
-    bindings = native._bindings(native.preparation_library.get().path)
+    bindings = preparation_host._bindings(preparation_host.preparation_library.path())
     call = bindings.operations[10, type(source), 'prepare_flow_case'].call
     options = native._Options(1, ct.sizeof(native._Options), 0, 1, 0.)
     failure, error = native._Failure(2, ct.sizeof(native._Failure)), ct.create_string_buffer(4096)
@@ -181,7 +181,7 @@ def test_offset_nested_headers_preserve_result(monkeypatch, tmp_path, mode, fiel
     result_type = (native._OffsetFlowCase if mode == 'uniform' else
                    native._OffsetSigmoidCase if mode == 'sigmoid' else native._OffsetZonedCase)
     result = result_type(10, ct.sizeof(result_type))
-    bindings = native._bindings(native.preparation_library.get().path)
+    bindings = preparation_host._bindings(preparation_host.preparation_library.path())
     call = bindings.operations[10, type(source), 'prepare_flow_case'].call
     options = native._Options(1, ct.sizeof(native._Options), 0, 1, 0.)
     failure, error = native._Failure(2, ct.sizeof(native._Failure)), ct.create_string_buffer(4096)

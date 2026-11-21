@@ -4,7 +4,8 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.cpp_interface import native_preparation as bridge_module
+from sjtu_tpmshx.cpp_interface._native_values import read_text
+from sjtu_tpmshx.cpp_interface import preparation_host as bridge_module
 from sjtu_tpmshx.data_types.compute_config import Sco2NuConfig
 from sjtu_tpmshx.run_control.run_warnings import RangeRecord, range_context, warning_scope
 from sjtu_tpmshx.cpp_interface import _native_preparation_case as native
@@ -18,8 +19,8 @@ def caches(monkeypatch):
 
     geometry = scalar_cache(maxsize=4)(numerical)
     inlet = scalar_cache(maxsize=4)(numerical)
-    monkeypatch.setattr(bridge_module, '_compute_geometry_cached', geometry)
-    monkeypatch.setattr(bridge_module, '_compute_cached', inlet)
+    monkeypatch.setattr(bridge_module, 'geometry_cache', geometry)
+    monkeypatch.setattr(bridge_module, 'inlet_cache', inlet)
     return geometry, inlet
 
 
@@ -87,7 +88,7 @@ def test_inlet_publication_retains_first_types_and_current_result_geometry(cache
     assert inlet.cache_info() == (1, 1, 4, 1)
     del buffers
     assert restored.evidence.range_count == 1 and restored.evidence.ranges[0].rank == 3
-    assert native._text(restored.evidence.ranges[0].label) == 'air_viscosity'
+    assert read_text(restored.evidence.ranges[0].label) == 'air_viscosity'
     assert bridge_module._records(restored.evidence, restored.evidence.range_bounds_list)
     value.geometry.epsilon = .5
     value.properties.nu = 99.
@@ -129,7 +130,7 @@ def test_geometry_publication_precedes_later_chi_error(caches):
 def test_notice_and_unbound_range_use_current_warning_scope(monkeypatch, caches):
     bridge = _bridge()
     messages = []
-    monkeypatch.setattr(native, '_source_warning',
+    monkeypatch.setattr(bridge_module, '_source_warning',
                         lambda function, message, **kwargs: messages.append((message, kwargs)))
     candidate = 'Gyroid: synthetic notice from the native inlet'
     bridge.observe_notice(0, 0, 99., candidate)

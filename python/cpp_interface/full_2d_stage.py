@@ -41,7 +41,8 @@ from sjtu_tpmshx.data_types.field_result import FieldResult
 from sjtu_tpmshx.data_types.validator import compute_volumetric_htc
 from sjtu_tpmshx.run_control.run_warnings import current_warnings, merge_warnings, warning_messages, warning_scope
 from . import _native_flow
-from ._native_preparation_case import _ResultV1, pack_saved_resources, borrow_ranges
+from ._native_preparation_case import _ResultV1
+from .preparation_host import pack_saved_resources, borrow_ranges
 from ._native_values import TOPOLOGIES, borrow_array, borrow_text
 from ._native_grid import _Scalar as GridScalar
 from .run_state import NativeRun

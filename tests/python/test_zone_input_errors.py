@@ -224,7 +224,7 @@ def test_missing_zones_never_solve_or_finalize(dimension, axis, grid, monkeypatc
 @pytest.mark.parametrize('callback', ['geometry_at', 'inlet_at', 'observe_range'])
 @pytest.mark.parametrize('axis', ['x', 'y', 'grid'])
 def test_native_zone_callback_error_propagates(callback, axis, monkeypatch):
-    from sjtu_tpmshx.cpp_interface.native_preparation import PreparationCacheBridge
+    from sjtu_tpmshx.cpp_interface.preparation_host import PreparationCacheBridge
     zones = ZoneInputConfig(enabled=True, axis=axis,
         config=ZoneConfig.single_zone(6, .3, 'Diamond', 16),
         grid=dict(cells=[dict(x0=0, x1=1, y0=0, y1=1, L=6, t=.3)],
@@ -265,7 +265,7 @@ def test_invalid_grid_rectangle_never_solves(dimension, axis, start, end, monkey
 
 @pytest.mark.parametrize('axis', ['x', 'y', 'grid'])
 def test_native_zone_stage_error_never_solves_or_finalizes(monkeypatch, axis):
-    from sjtu_tpmshx.cpp_interface import _native_preparation_case as native
+    from sjtu_tpmshx.cpp_interface import preparation_host as native
     zones = ZoneInputConfig(enabled=True, axis=axis,
         config=ZoneConfig.single_zone(6, .3, 'Diamond', 16),
         grid=dict(cells=[dict(x0=0., x1=1., y0=0., y1=1., L=6., t=.3)],

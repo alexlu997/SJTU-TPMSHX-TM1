@@ -43,7 +43,7 @@ from sjtu_tpmshx.run_control.run_warnings import (
     cache_warning_records, current_warnings, merge_warnings,
 )
 from .tpms_geometry import compute_geometry as _tpms_geom
-from sjtu_tpmshx.cpp_interface import _native_preparation_case
+from sjtu_tpmshx.cpp_interface import inlet_properties
 
 # Geometry and property primitives live in tpms_props. Current consumers may
 # also import the explicitly re-exported names from models.tpms_calc.
@@ -60,7 +60,7 @@ from sjtu_tpmshx.run_control.logutil import get_logger
 
 _log = get_logger(__name__)
 
-from sjtu_tpmshx.cpp_interface._native_preparation_case import validate_fluid_type as validate_fluid_type
+from sjtu_tpmshx.cpp_interface.preparation_host import validate_fluid_type as validate_fluid_type
 from .preparation_cache import _InletCacheValue
 
 
@@ -129,7 +129,7 @@ def _reynolds_notice(tpms_type, Re, fluid_type):
     return None
 
 
-@preparation_cache.scalar_cache(maxsize=4096)
+@preparation_cache.inlet_cache.wrap
 def _compute_cached(tpms_type: str,
                     L_cell_mm: float,
                     t_mm: float,
@@ -201,7 +201,7 @@ def _compute_cached(tpms_type: str,
                     registry=caller.f_globals.setdefault('__warningregistry__', {}))
 
         rho, mu, k_f, cp_f, Pr_f, Re, Nu, K_df, cF_df, dP_per_L, H_sf, K_ff = (
-            _native_preparation_case.inlet_query(tpms_type, L_cell_mm, t_mm, u, T_in_K,
+            inlet_properties.inlet_query(tpms_type, L_cell_mm, t_mm, u, T_in_K,
                 P_in_Pa, fluid_type, sco2_nu, g, records, notice))
 
         return _InletCacheValue({

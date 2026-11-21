@@ -239,7 +239,7 @@ def test_nonzero_delta_uses_native_thermal_geometry(monkeypatch):
 
 def test_callback_exception_restores_scope_and_releases_owner(monkeypatch):
     from sjtu_tpmshx.run_control.run_warnings import current_warnings
-    from sjtu_tpmshx.cpp_interface import _native_preparation_case as binding
+    from sjtu_tpmshx.cpp_interface import preparation_host as binding
     config = uniform._configuration()
     actual = binding._Bindings
     released = []
