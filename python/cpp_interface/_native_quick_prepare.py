@@ -253,7 +253,8 @@ class _HostState:
             request.text = borrow_text(name, self.buffers)
             temperature, pressure = self.inlet[1:]
             self.scalar_inlet = (request.flags[0] == 1 and name in ('air', 'water')
-                                 and type(temperature) in _FLOAT_SCALARS and type(pressure) in _FLOAT_SCALARS)
+                                 and all(any(type(value) is kind for kind in _FLOAT_SCALARS)
+                                         and np.isfinite(value) for value in (temperature, pressure)))
             if self.scalar_inlet:
                 request.flags[1] = 1
                 request.scalars[0], request.scalars[1] = map(_native_flow._scalar, (temperature, pressure))
