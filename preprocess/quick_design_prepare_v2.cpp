@@ -179,6 +179,8 @@ struct Engine {
                 safe(pack.text.data,pack.text.size);
                 pack.flags[0]=topology(text(pack.text));
                 const auto cell=scalar(pack.scalars[0]),wall=scalar(pack.scalars[1]);
+                pack.scalars[0]=packed(cell);
+                pack.scalars[1]=packed(wall);
                 pack.flags[1]=g::result_precision(cell,g::weak(0.));
                 pack.flags[2]=g::result_precision(wall,cell);
             }
@@ -205,7 +207,9 @@ struct Engine {
             if(pack.text.size) {
                 safe(pack.text.data,pack.text.size);
                 pack.flags[0]=topology(text(pack.text));
-                pack.flags[2]=g::result_precision(scalar(pack.scalars[2]),scalar(pack.scalars[0]));
+                const auto conductivity=scalar(pack.scalars[0]);
+                pack.scalars[0]=packed(conductivity);
+                pack.flags[2]=g::result_precision(scalar(pack.scalars[2]),conductivity);
                 material_input=MaterialInput{pack.scalars[0].value,pack.flags[2]};
             }
         }
