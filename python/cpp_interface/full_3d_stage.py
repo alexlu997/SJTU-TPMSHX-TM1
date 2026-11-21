@@ -325,14 +325,17 @@ def _request(cfg, energy, model_h):
 
 def pack_run_controls(request, cfg, prepared, shape):
     outer = prepared['max_outer']
-    request.max_outer_ltne = _Size(1, simple_count(12 if outer is None else outer))
+    if outer is not None:
+        request.max_outer_ltne = _Size(1, simple_count(outer))
     iterations = cfg.get('max_iter_simple')
     if iterations is not None:
         request.max_iter_simple = _Size(1, simple_count(iterations))
     request.thermal_iterations = _Size(1, simple_count(prepared['ltne_max_iter']))
     outer_tol = cfg.get('outer_tol_K')
-    request.outer_tol_K = _Double(1, .5 if outer_tol is None else outer_tol)
-    request.thermal_relaxation = _Double(1, cfg.get('ltne_alpha_T', .7))
+    if outer_tol is not None:
+        request.outer_tol_K = _Double(1, outer_tol)
+    if 'ltne_alpha_T' in cfg:
+        request.thermal_relaxation = _Double(1, cfg['ltne_alpha_T'])
     request.pressure_shooting = _Uint(1, run_environment(cfg, 'TPMSHX_P_IN_SHOOT', '1') != '0')
     vrho = run_environment(cfg, 'TPMSHX_VAR_RHOCP')
     request.variable_rho_cp = _Uint(1, vrho == '1' if vrho in ('0', '1') else bool(cfg.get('variable_rho_cp', True)))
@@ -343,7 +346,8 @@ def pack_run_controls(request, cfg, prepared, shape):
         setattr(request, target, _Uint(1, bool(cfg.get(source, default))))
     request.sco2_local_pressure_a = _Uint(1, run_environment(
         cfg, 'TPMSHX_SCO2_COMPRESSIBLE', '').lower() in ('1', 'true', 'yes'))
-    request.coarse_iterations = _Size(1, simple_count(cfg.get('coarse_bootstrap_max_iter', 200)))
+    if 'coarse_bootstrap_max_iter' in cfg:
+        request.coarse_iterations = _Size(1, simple_count(cfg['coarse_bootstrap_max_iter']))
     request.roughness_mode = _Uint(1, ('baseline', 'norris_1a', 'bhatti_shah_1b').index(cfg['roughness_resolved']['mode']))
     request.envelope_mode = _Uint(1, ('raise', 'warn', 'off').index(cfg.get('envelope_mode', 'raise')))
     request.roughness_height_m = _Double(1, cfg['roughness_resolved']['eps_m'])
@@ -352,14 +356,16 @@ def pack_run_controls(request, cfg, prepared, shape):
         request.solid_seed_K = _Double(1, solid or 0.)
     relaxation = cfg.get('simple_velocity_relaxation')
     validate_simple_velocity_relaxation(relaxation)
-    request.simple_velocity_relaxation = _Double(1, .5 if relaxation is None else relaxation)
+    if relaxation is not None:
+        request.simple_velocity_relaxation = _Double(1, relaxation)
     request.adaptive_pressure_tolerance = _Uint(1, bool(cfg.get('use_adaptive_amg_tol', True)))
     request.track_momentum = _Uint(1, bool(cfg.get('track_momentum_residual', False)))
     threshold = int(os.environ.get('TPMSHX_PARALLEL_THRESHOLD', '200000'))
     request.parallel_threshold = _Size(1, 1 if prod(shape) >= threshold else ct.c_size_t(-1).value)
-    request.mom_tol = _Double(1, cfg.get('mom_tol') or 1e-4)
-    request.mass_local_tol = _Double(1, cfg.get('mass_local_tol') or 1e-6)
-    request.mass_global_tol = _Double(1, cfg.get('mass_global_tol') or 1e-6)
+    for name in ('mom_tol', 'mass_local_tol', 'mass_global_tol'):
+        tolerance = cfg.get(name)
+        if tolerance:
+            setattr(request, name, _Double(1, tolerance))
     request.convergence_mode = b'f2'
     for target, source in (('energy_iterations', 'ltne_enthalpy_outer'), ('energy_sweeps', 'ltne_enthalpy_nsweep')):
         if source in cfg:
@@ -552,6 +558,8 @@ def add_run_evidence(detached, resolved, entry_version, control, cpu_thread_limi
             completed_outer_steps=int(resume_state['state.result.outer.size'][0]),
             saved_phase=int(resume_state['state.phase'][0]))
     detached['simple_velocity_relaxation'] = resolved.simple.alpha_velocity
+    detached['max_outer'] = resolved.max_outer
+    detached['thermal_iterations'] = resolved.thermal_iterations
     budgets = {row['outer_index']: row['settings']['total_iteration_budget']
                for row in detached['model_h_iterations']['records']}
     for row in detached['outer']:
@@ -803,7 +811,7 @@ def capture_result(case, cfg, p, r, abi, *, legacy_fields=None, legacy_drag=None
     else:
         df_metadata, strict = captured['df_metadata'], captured['strict_ratios']
     model_h_calls=r['model_h_iterations']['records']
-    thermal_budget=(model_h_calls[-1]['settings']['total_iteration_budget'] if model_h_calls else p['ltne_max_iter'])
+    thermal_budget=(model_h_calls[-1]['settings']['total_iteration_budget'] if model_h_calls else r['thermal_iterations'])
     ltne=[]
     for h in r['outer']:
         row={key:h[key] for key in ('outer','iters','converged','residual')}
@@ -833,7 +841,7 @@ def capture_result(case, cfg, p, r, abi, *, legacy_fields=None, legacy_drag=None
         energy_imbalance_rel=r['energy_imbalance'],mass_imbalance_rel_A=r['mass_imbalance'][0],mass_imbalance_rel_B=r['mass_imbalance'][1],
         Q_AB_imbalance_rel=r['enthalpy_imbalance'],Q_sA_interior=r['interior_exchange'][0],Q_sB_interior=r['interior_exchange'][1],
         Q_interior=r['interior_duty'],AB_interior=r['interior_imbalance'],**strict,_ltne_info=ltne,
-        _max_outer=p['max_outer'] if p['max_outer'] is not None else 12,_ltne_max_iter=thermal_budget,
+        _max_outer=r['max_outer'],_ltne_max_iter=thermal_budget,
         _needs_full_validate=bool(p.get('compact',False) and not (captured['history_converged'] if captured is not None else all(h['converged'] for h in ltne))),
         sco2_nu_observations=r['nu_observations'],df_metadata=df_metadata,
         solver_converged=r['converged'],envelope_valid=r['envelope_ok'],envelope_reasons=r['envelope_reasons'],

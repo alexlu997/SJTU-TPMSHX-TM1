@@ -2,7 +2,6 @@
 import ctypes as ct
 from ._full_2d_abi import _Callbacks, _Config, _EnergyControl, _EnergyEvidence, _Result, _Side
 from functools import partial
-from types import SimpleNamespace
 import numpy as np
 from sjtu_tpmshx.data_types.compute_config import validate_simple_velocity_relaxation
 from sjtu_tpmshx.run_control.module_ports import RunControl
@@ -13,7 +12,7 @@ from sjtu_tpmshx.solvers.backends.prepared_2d import _validated_outlet_fraction
 from ._simple_abi import _F2
 from .model_h import _IterationOptions, _iteration_options
 from .enthalpy import _EnergyOptions, _EnergyOptionsV2, _energy_options, _energy_algorithm_query, _full_enthalpy_defaults
-from ..full_2d_stage import StageDriver, _callbacks, configure_convergence, run_case as _run_case
+from ..full_2d_stage import StageDriver, _callbacks, convergence_controls, run_case as _run_case
 
 
 class NativeFull2DDriver(StageDriver):
@@ -206,10 +205,9 @@ def _pack(cfg, prepared, table_directory, library):
     from sjtu_tpmshx.cpp_interface._native_flow import closure_geometry_ratio
     arrays.append(cell(closure_geometry_ratio(geometry['D_h'], cfg['Lcell'] if zones is None else zones['L_field'])))
     solver = cfg['compute_cfg'].solver
-    settings = SimpleNamespace()
-    configure_convergence(settings, cfg, solver)
-    config.f2 = _F2(settings.mom_tol, settings.mass_local_tol, settings.mass_global_tol,
-                     .01, 1e-4, 1e-3, 2, 5, 60)
+    _, tolerances = convergence_controls(cfg, solver)
+    config.f2 = _F2(tolerances.get('mom_tol', 1e-4), tolerances.get('mass_local_tol', 1e-6),
+                    tolerances.get('mass_global_tol', 1e-6), .01, 1e-4, 1e-3, 2, 5, 60)
     config.simple_iterations, config.simple_sweeps = solver.max_iter_simple or 10000, 2
     config.outer_iterations = solver.max_outer_ltne or 10
     config.outer_temperature_tolerance = solver.outer_tol_K or 1.

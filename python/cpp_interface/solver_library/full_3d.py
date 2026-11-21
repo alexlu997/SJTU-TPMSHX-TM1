@@ -121,33 +121,37 @@ class NativeFull3DDriver:
                                 keepalive, saved_v2=saved_v2)
         request = stage._request(cfg, energy, model_h_options)
         stage.pack_run_controls(request, cfg, p, shape)
+
+        def value_or(option, default):
+            return option.value if option.present else default
+
         c = _Control()
-        c.max_outer = request.max_outer_ltne.value
-        c.initial_simple_iterations = request.max_iter_simple.value if request.max_iter_simple.present else 2000
-        c.warm_simple_iterations = request.max_iter_simple.value if request.max_iter_simple.present else 600
+        c.max_outer = value_or(request.max_outer_ltne, 12)
+        c.initial_simple_iterations = value_or(request.max_iter_simple, 2000)
+        c.warm_simple_iterations = value_or(request.max_iter_simple, 600)
         c.thermal_iterations = request.thermal_iterations.value
-        c.outer_temperature_tolerance = request.outer_tol_K.value
-        c.thermal_relaxation = request.thermal_relaxation.value
+        c.outer_temperature_tolerance = value_or(request.outer_tol_K, .5)
+        c.thermal_relaxation = value_or(request.thermal_relaxation, .7)
         for name in ('pressure_shooting', 'variable_rho_cp', 'conservative', 'strict_mass_balance',
                      'force_cell_centered', 'refined_port_energy', 'sco2_local_pressure_a',
-                     'coarse_bootstrap', 'coarse_iterations', 'roughness_mode', 'envelope_mode'):
+                     'coarse_bootstrap', 'roughness_mode', 'envelope_mode'):
             setattr(c, name, getattr(request, name).value)
+        c.coarse_iterations = value_or(request.coarse_iterations, 200)
         c.red_black_energy = int(prod(shape)>30000 and not (energy.algorithm and data.solve_b
             and any(side.fluid in (2, 3) for side in data.sides)))
         c.has_initial_solid_temperature = request.solid_seed_K.present
         c.roughness_height, c.initial_solid_temperature = request.roughness_height_m.value, request.solid_seed_K.value
-        c.simple = _SimpleConfig(2000, 1, 100, request.simple_velocity_relaxation.value, .2, .3, 0., 287.05, .05, 1, 1, 0,
+        c.simple = _SimpleConfig(2000, 1, 100, value_or(request.simple_velocity_relaxation, .5), .2, .3, 0., 287.05, .05, 1, 1, 0,
             request.adaptive_pressure_tolerance.value, request.track_momentum.value,
             int(request.parallel_threshold.value == 1),
-            _F2(request.mom_tol.value, request.mass_local_tol.value, request.mass_global_tol.value,
+            _F2(value_or(request.mom_tol, 1e-4), value_or(request.mass_local_tol, 1e-6), value_or(request.mass_global_tol, 1e-6),
                 .01, 1e-4, 1e-3, 2, 5, 60))
         for target, source, default in (
                 ('enthalpy_iterations', 'energy_iterations', defaults.max_iterations),
                 ('enthalpy_sweeps', 'energy_sweeps', defaults.sweeps),
                 ('enthalpy_omega', 'energy_omega', defaults.omega),
                 ('enthalpy_update_tolerance', 'energy_update_tolerance', defaults.update_tolerance)):
-            option = getattr(request, source)
-            setattr(c, target, option.value if option.present else default)
+            setattr(c, target, value_or(getattr(request, source), default))
         c.table_directory = self.table_directory
         callbacks, callback_errors = stage.make_callbacks(control)
         result, error = _Result(), ct.create_string_buffer(2048)

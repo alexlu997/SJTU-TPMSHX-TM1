@@ -437,9 +437,8 @@ def resolved_flow_config(config, flow, targets):
     return replace(config, **fluids).validate(resolved_inlet_speeds=True) if fluids else config
 
 
-def _drag(result, index, continuous):
-    side, extra = result.prepared.values.sides[index], result.prepared.drag[index]
-    value = side.drag_evidence
+def drag_application_metadata(value, extra, inlet_speed, extension):
+    """Read the native D-F application record for a saved case."""
     metadata = {key: _summary(getattr(value, name)) for name, key in (
         ('base_permeability', 'base_K'), ('base_forchheimer', 'base_cF'),
         ('applied_permeability', 'applied_K'), ('applied_forchheimer', 'applied_cF'))}
@@ -453,14 +452,13 @@ def _drag(result, index, continuous):
         metadata['calibration'] = {native._text(item.key): native._text(item.value)
                                    for item in extra.calibration[:extra.calibration_count]}
     if extra.have_selection and extra.selection.scope:
-        metadata.update(inlet_u_mps=side.inlet.velocity_m_s, extrapolated=bool(extra.selection.flags & 2))
+        metadata.update(inlet_u_mps=inlet_speed, extrapolated=bool(extra.selection.flags & 2))
         for name, key in (('application_u', 'velocity_window_mps'),
                           ('calibration_u', 'calibration_velocity_window_mps'),
                           ('runtime_u', 'calibration_runtime_velocity_window_mps')):
             values = getattr(extra.selection, name)
             metadata[key] = {'min': values[0], 'max': values[1]}
-    if continuous:
-        extension = result.drag[index]
+    if extension is not None:
         for name in ('transfer_policy', 'geometry_application'):
             text = native._text(getattr(extension, name))
             if text:
@@ -573,7 +571,8 @@ def _case(result, config, case_id, side_geometry=None, pore_porosity=None, extra
         seed_type = np.float64 if getattr(config, 'fluid_' + side).type == 'co2' else float
         flow.update(seed_K_m2=seed_type(inlet.seed_permeability_m2),
                     seed_cF_per_m=seed_type(inlet.seed_forchheimer_per_m),
-                    metadata=_drag(result, index, continuous))
+                    metadata=drag_application_metadata(inlet.drag_evidence, result.prepared.drag[index],
+                        inlet.inlet.velocity_m_s, result.drag[index] if continuous else None))
         if continuous:
             field_shape = inlet.cross_widths.size, inlet.stream_widths.size
             flow.update(K_field_m2=native._array(inlet.permeability, field_shape),
