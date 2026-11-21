@@ -26,6 +26,45 @@ def record(name, fields):
 
 Named = record('Named', [('name', S), ('value', core._Array)])
 
+def execution_view_query(library, dimension, result_type, view_type):
+    query = getattr(library, f'tpmshx_stage_run_{dimension}d_execution_view_v1', None)
+    if query is not None:
+        query.argtypes, query.restype = [ct.POINTER(result_type)], ct.POINTER(view_type)
+    return query
+
+
+def executed_view(query, result):
+    view = query(ct.byref(result))
+    if not view:
+        raise RuntimeError('native stage returned no execution record')
+    return view.contents
+
+
+def completed_report(library, result):
+    query = getattr(library, f'tpmshx_stage_run_{result.evidence.dimension}d_report_v1', None)
+    if query is None:
+        return None
+    query.argtypes, query.restype = [ct.POINTER(type(result))], ct.c_char_p
+    data = query(ct.byref(result))
+    if data is None:
+        raise RuntimeError('native stage returned no execution report')
+    return json.loads(data)
+
+
+def link_execution(report, case, energy):
+    """Attach portable model references to the completed solver report."""
+    facts = report['facts']
+    for side, record in facts['sides'].items():
+        model = case.metadata['model_roles']['fluid_' + side]
+        record['flow_and_exchange_model_ref'] = model
+        record['energy']['model_ref'] = model if record['solved'] and 'fluid' not in record['energy'] else None
+    index = report['last_main_model_h']
+    rows = report['model_h_iterations']['records']
+    facts['thermal']['effective_settings'] = (rows[index]['settings'] if index < len(rows) else
+                                              energy['effective_settings'] if energy is not None else {})
+    return facts
+
+
 def _stage_array(value, shape):
     strides = tuple(8 * prod(shape[i + 1:]) for i in range(len(shape)))
     if (value.dtype != 12 or value.byte_order or value.offset or value.rank != len(shape)

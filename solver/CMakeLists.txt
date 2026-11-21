@@ -231,6 +231,8 @@ target_compile_definitions(tpmshx_solver_shared PRIVATE TPMSHX_THERMAL_BUILD_SHA
 target_link_libraries(tpmshx_solver_shared PUBLIC tpmshx_quick_design tpmshx_full_2d tpmshx_full_3d)
 # Reuse the result arithmetic without a shared result-library dependency.
 add_library(tpmshx_capture_math STATIC
+    "${TPMSHX_ROOT}/numerics/recorded_report.cpp"
+    "${TPMSHX_ROOT}/solver/execution_report.cpp"
     "${TPMSHX_ROOT}/postprocess/result_core.cpp"
     "${TPMSHX_ROOT}/postprocess/result_arithmetic.cpp"
     "${TPMSHX_ROOT}/postprocess/result_metrics.cpp"

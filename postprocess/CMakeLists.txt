@@ -10,6 +10,7 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}")
 
 add_library(tpmshx_result STATIC
+    "${TPMSHX_ROOT}/numerics/recorded_report.cpp"
     "${TPMSHX_ROOT}/postprocess/result_core.cpp"
     "${TPMSHX_ROOT}/postprocess/result_arithmetic.cpp"
     "${TPMSHX_ROOT}/postprocess/result_metrics.cpp"

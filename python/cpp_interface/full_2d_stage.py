@@ -45,6 +45,9 @@ from .preparation_host import borrow_solver_mesh, pack_saved_resources, borrow_r
 from ._native_values import TOPOLOGIES, borrow_array, borrow_text
 from ._native_grid import _Scalar as GridScalar
 from .run_state import NativeRun
+from ._native_result_stage import completed_report, execution_view_query, executed_view, link_execution
+from sjtu_tpmshx.run_control.run_warnings import replay_sco2_notices
+from sjtu_tpmshx.data_types.case_data import resolved_input_record
 from .solver_library._stage_capture_abi import (
     StageExecution,
     _copy_iteration_records,
@@ -61,10 +64,7 @@ from .solver_library._stage_capture_abi import (
     _update_scale_query,
     copy_sampling,
     executed_inputs,
-    executed_view,
     execution_sides,
-    execution_view_query,
-    replay_sco2_notices,
     sampling_query,
     sampling_records,
     stage_records,
@@ -562,8 +562,10 @@ def run_stage(driver, case, cfg, prepared, control, *, saved_version=1,
             with _Run(library, saved, request, stage_control, errors, resume_state) as run:
                 run.finish(checkpoint, checkpoint_due, (1, 2, 6, 7, 8))
                 result = run.take_result()
+        report = completed_report(library, result)
         if saved_version >= 3:
-            cfg['_input_resolution'] = executed_inputs(case, result.evidence)
+            cfg['_input_resolution'] = (resolved_input_record(case, **report['input']) if report is not None
+                                        else executed_inputs(case, result.evidence))
         summary = _Summary()
         if query(ct.byref(result), ct.byref(_Application()), ct.byref(summary)):
             raise RuntimeError('native full 2D capture query failed')
@@ -579,7 +581,7 @@ def run_stage(driver, case, cfg, prepared, control, *, saved_version=1,
         native = driver.copy_result(result.raw, shape, result.resolved,
             entry_version=6, control=control, cpu_thread_limit=stage_control.cpu_threads, energy_query=energy_query,
             version_query=version_query, resume_state=resume_state, capture_scalars=_scalars(summary), fields=stage_fields[0],
-            records=records, evidence=result.evidence, execution=execution)
+            records=records, evidence=result.evidence, execution=execution, report=report)
         if execution is not None and saved_version >= 3:
             native['sco2_notices'] = tuple(execution.execution.sco2_notices)
         control.check_cancelled()
@@ -606,7 +608,9 @@ def run_stage(driver, case, cfg, prepared, control, *, saved_version=1,
         from sjtu_tpmshx.cpp_interface._native_result_stage import copy_applicability
         native['_native_applicability'] = copy_applicability(result.evidence.applicability,
             case.metadata.get('applicability_inputs', ()))
-        if execution is not None:
+        if report is not None:
+            native['execution_facts'] = link_execution(report, case, native['main']['true_h'])
+        elif execution is not None:
             native['execution_facts'] = execution_facts(execution.execution, result.evidence, case, declarations,
                 native['model_h_iterations'], native['main']['true_h'])
         elif records is not None:
@@ -947,7 +951,7 @@ def _flow(f, physical_shape, fields, label, stop):
     return out
 
 
-def _thermal(t, actual, abi, *, capture_scalars=None, level=0, fields=None):
+def _thermal(t, actual, abi, *, capture_scalars=None, level=0, fields=None, balance=None):
     shape = (t.nx, t.ny)
     out = dict(shape=shape, mode=('temperature', 'model_h', 'true_h')[t.mode], stop=t.stop,
                iterations=t.iterations, residual=t.residual, q_b=t.q_b)
@@ -975,8 +979,18 @@ def _thermal(t, actual, abi, *, capture_scalars=None, level=0, fields=None):
         scalar = None if capture_scalars is None else capture_scalars['model_h'][level]
         if capture_scalars is not None and scalar is None:
             raise RuntimeError('native full 2D model-h capture is unavailable')
-        out['model_h'] = _plane_info(t.model_h, shape, (out['dx'], out['dy']), masses,
-                                   capture_scalars=scalar)
+        if balance is None:
+            balance = _plane_info(t.model_h, shape, (out['dx'], out['dy']), masses, capture_scalars=scalar)
+        else:
+            balance.update(dx_m=out['dx'].tolist(), dy_m=out['dy'].tolist())
+            for label, side, mass in zip('AB', t.model_h.plane.sides, masses):
+                balance[label].update(
+                    boundary_mass_out_kg_s_per_m=[_copy(x).tolist() for x in side.boundary_mass_out],
+                    boundary_h_out_W_per_m=[_copy(x).tolist() for x in side.boundary_h_out],
+                    mass_faces_kg_s_per_m=[x.tolist() for x in mass],
+                    h_faces_W_per_m=[_copy(x, m.shape).tolist() for x, m in zip(side.h_faces, mass)],
+                    inlet_conduction_faces_W_per_m=_copy(side.inlet_conduction_faces).tolist())
+        out['model_h'] = balance
         out['model_h']['energy_finishing_checks'] = [dict(iterations=t.model_h.finishing_checks[i].iterations,
             passed=bool(t.model_h.finishing_checks[i].gates[0]), equations_ok=bool(t.model_h.finishing_checks[i].gates[1]))
             for i in range(t.model_h.finishing_count)]
@@ -1079,7 +1093,7 @@ class StageDriver:
 
     def copy_result(self, result, shape, config, *, entry_version, control=RunControl(),
                     cpu_thread_limit=None, energy_query=None, version_query=None, resume_state=None,
-                    capture_scalars=None, fields=None, records=None, evidence=None, execution=None):
+                    capture_scalars=None, fields=None, records=None, evidence=None, execution=None, report=None):
         """Copy borrowed result views through queries from their selected library."""
         if result.cancelled:
             raise CancelledError('compute cancelled by user')
@@ -1094,15 +1108,21 @@ class StageDriver:
         out = {name: bool(getattr(result, name)) for name in (*_FLAGS, *_FINE_FLAGS)}
         out.update(iterations=result.iterations, flow=[_flow(f, shape, fields, label, records.simple_stop[i] if records is not None else None)
             for i, (f, label) in enumerate(zip(result.flow, 'AB'))],
-                   main=_thermal(result.main, actual.last, entry_version, capture_scalars=capture_scalars, fields=fields),
-                   fine=_thermal(result.fine, actual.last, entry_version, capture_scalars=capture_scalars, level=1)
+                   main=_thermal(result.main, actual.last, entry_version, capture_scalars=capture_scalars, fields=fields,
+                                 balance=report['model_h'][0] if report is not None else None),
+                   fine=_thermal(result.fine, actual.last, entry_version, capture_scalars=capture_scalars, level=1,
+                                 balance=report['model_h'][1] if report is not None else None)
                    if result.have_fine else None)
-        if records is None:
+        if report is not None:
+            out['property_sampling'] = report['property_sampling']
+        elif records is None:
             out['property_sampling'] = copy_sampling(sampling_query(self.library, 2, _Result), result)
         else:
             out['property_sampling'] = sampling_records(records.sampling)
         out['simple_velocity_relaxation'] = config.alpha_velocity
-        if execution is not None:
+        if report is not None:
+            out.update({name: report[name] for name in ('model_h_iterations', 'enthalpy_update_normalization')})
+        elif execution is not None:
             executed = execution.execution
             out['enthalpy_update_normalization'] = _decode_update_scale(executed.update_scale)
             out['model_h_iterations'] = _decode_iteration_records(executed.model_h)

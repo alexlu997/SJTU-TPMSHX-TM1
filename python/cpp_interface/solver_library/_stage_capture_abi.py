@@ -1,7 +1,6 @@
 """Borrowed records from a completed native 2D or 3D stage."""
 
 import ctypes as ct
-import warnings
 
 import numpy as np
 
@@ -51,20 +50,6 @@ class StageExecution(ct.Structure):
                 ('red_black', ct.c_uint32)]
 
 
-def execution_view_query(library, dimension, result_type, view_type):
-    query = getattr(library, f'tpmshx_stage_run_{dimension}d_execution_view_v1', None)
-    if query is not None:
-        query.argtypes, query.restype = [ct.POINTER(result_type)], ct.POINTER(view_type)
-    return query
-
-
-def executed_view(query, result):
-    view = query(ct.byref(result))
-    if not view:
-        raise RuntimeError('native stage returned no execution record')
-    return view.contents
-
-
 def execution_facts(executed, evidence, case, declarations, iterations, energy):
     """Detach the executed states before the solver releases its result."""
     if executed.last_main_model_h < executed.model_h.count:
@@ -81,15 +66,6 @@ def execution_facts(executed, evidence, case, declarations, iterations, energy):
     return dict(version=evidence.execution_version.decode(), dimension=evidence.dimension,
                 sides=execution_sides(executed.records.contents, evidence, case, declarations),
                 thermal=thermal, evidence=states)
-
-
-def replay_sco2_notices(notices, stage):
-    from sjtu_tpmshx.run_control.run_warnings import record_warning
-    for side, raw in zip('AB', notices):
-        if raw is not None:
-            message = raw.decode()
-            if not record_warning(('nu-evidence', 'sco2', side, stage), message):
-                warnings.warn(message, stacklevel=2)
 
 
 def stage_records(library, result):

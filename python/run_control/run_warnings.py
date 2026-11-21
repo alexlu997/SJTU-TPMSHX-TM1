@@ -3,6 +3,8 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
 
+import warnings
+
 import numpy as np
 
 
@@ -188,3 +190,11 @@ def captured_scope_notes(case, records):
     """Keep complete host notices and callback records in their original order."""
     return tuple(dict.fromkeys((*case.metadata.get('notices', ()),
         *(value for key, value in records.items() if key[0] == 'nu-evidence'))))
+
+
+def replay_sco2_notices(notices, stage):
+    for side, raw in zip('AB', notices):
+        if raw is not None:
+            message = raw.decode()
+            if not record_warning(('nu-evidence', 'sco2', side, stage), message):
+                warnings.warn(message, stacklevel=2)
