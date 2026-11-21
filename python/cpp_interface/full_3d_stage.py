@@ -22,7 +22,6 @@ from sjtu_tpmshx.physical_models.df_surrogate import CFD_CAMPAIGN, CFD_SCOPE
 from sjtu_tpmshx.cpp_interface._native_result_stage import (Evidence, Input as Evaluation,
     detach_stage_fields, nu_observation, record, stage_closures, stage_ledger)
 from sjtu_tpmshx.cpp_interface._native_preparation_case import _Array as PreparedArray, _Evidence, _Text, _Kind, _Model, _Nu, pack_saved_resources
-from ._native_grid import _Port
 from .solver_library._full_3d_abi import (_Array, _BootstrapTrace, _Callbacks, _Cancel, _Control, _EnergyEvidence,
     _FLAGS, _FLOW_ARRAYS, _Input, _OuterProgress, _PAIRS, _Progress, _Result)
 from .solver_library._stage_capture_abi import (
@@ -52,7 +51,7 @@ from .solver_library._thermal_abi import (
 )
 from .solver_library.simple_3d import _STOPS
 from ._native_preparation_case import borrow_ranges as _ranges
-from ._native_values import borrow_array as _array, borrow_text as _text, iteration_count
+from ._native_values import GridPort, grid_count, borrow_array as _array, borrow_text as _text, iteration_count
 from .run_state import NativeRun
 
 _U, _Z, _D = ct.c_uint32, ct.c_size_t, ct.c_double
@@ -81,7 +80,7 @@ _Saved = record('StageSaved3D', [('abi_version', _U), ('struct_size', _Z), ('inp
     ('range_captured', ct.POINTER(_U))])
 _Axes = record('SavedAxes3D', [('solver_to_real', ct.c_int32 * 3), ('reverse', ct.c_int32),
     ('counts', _Z * 3), ('solver_counts', _Z * 3), ('lengths', _D * 3), ('solver_lengths', _D * 3),
-    ('widths', PreparedArray * 3), ('port', _Port)])
+    ('widths', PreparedArray * 3), ('port', GridPort)])
 _SavedV2 = record('StageSaved3Dv2', [('abi_version', _U), ('struct_size', _Z), ('values', _Saved),
     ('lengths_m', _D * 3), ('design_mode', _U), ('have_z_controls', _U),
     ('reference_kinds', _Kind * 3), ('field_kinds', _Kind * 3), ('axes', _Axes * 2),
@@ -259,7 +258,6 @@ def pack_input(cfg, prepared, grid, design, shape, cell_mm, nu, keepalive, *, sa
 def pack_saved_v2(saved, case, cell_mm, wall_mm, nu, keepalive):
     cfg = case.parameters
     from ._native_values import buffer_scalar
-    from ._native_grid import _count, _port
 
     value = _SavedV2(2, ct.sizeof(_SavedV2), saved)
     pack_saved_resources(case, value.models, value.sco2_nu, value, nu, keepalive)
@@ -278,7 +276,7 @@ def pack_saved_v2(saved, case, cell_mm, wall_mm, nu, keepalive):
         boundary = cfg['fluid_' + side + '_cfg']
         if boundary is not None and boundary['dir'] not in range(6):
             raise ValueError(f'prepared fluid {side} direction is invalid')
-        record.port = _port(boundary)
+        record.port = GridPort.from_mapping(boundary)
         if not record.port.active:
             continue
         axis = cfg['prepared']['axes'][side]
@@ -294,8 +292,8 @@ def pack_saved_v2(saved, case, cell_mm, wall_mm, nu, keepalive):
             if width.ndim != 1:
                 raise ValueError(f'prepared fluid {side} axis widths disagree with grid')
             record.widths[i] = _array(width, keepalive)
-            record.counts[i], record.lengths[i] = _count(axis['N_' + name]), axis['L_' + name]
-            record.solver_counts[i] = _count(axis['solver_init']['N' + 'xyz'[i]])
+            record.counts[i], record.lengths[i] = grid_count(axis['N_' + name]), axis['L_' + name]
+            record.solver_counts[i] = grid_count(axis['solver_init']['N' + 'xyz'[i]])
             record.solver_lengths[i] = axis['solver_init']['L' + 'xyz'[i]]
     return value
 

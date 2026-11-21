@@ -1,16 +1,16 @@
 """Declare the C layouts for volume preparation inputs and outputs."""
 import ctypes as ct
 
-from . import _native_grid as grid
+from ._native_values import GridPort, GridScalar
 from . import _native_preparation_case as native
 
 
 _U, _S, _D = native._U, native._S, native._D
 _struct, _doubles = native._structure, native._doubles
 _Inlet = _struct('Inlet3D', [('fluid', _U), *_doubles('velocity_m_s temperature_K pressure_Pa'),
-    ('port', grid._Port), ('have_mass_flow', _U), ('mass_flow_kg_s', _D)])
+    ('port', GridPort), ('have_mass_flow', _U), ('mass_flow_kg_s', _D)])
 _Input = _struct('Input3D', [('abi_version', _U), ('struct_size', _S),
-    ('lengths_m', grid._Scalar * 3), ('counts', _S * 3), ('max_cells', _S),
+    ('lengths_m', GridScalar * 3), ('counts', _S * 3), ('max_cells', _S),
     ('port_wall_refine', _U), ('topology', _U),
     *_doubles('cell_length_mm wall_thickness_mm solid_conductivity_W_mK delta_levelset'),
     ('sides', _Inlet * 2), ('geometry_mode', _U), ('df_mode', _U),
@@ -35,7 +35,7 @@ _FlowInput = _struct('FlowInput3D', [('abi_version', _U), ('struct_size', _S),
     ('have_explicit_targets', _U), ('explicit_targets_kg_s', _D * 2)])
 _Flow = _struct('Flow3D', [('abi_version', _U), ('struct_size', _S),
     ('input', _Input), ('have_capacities', _U),
-    ('capacities', grid._Scalar * 2), ('speeds', grid._Scalar * 2),
+    ('capacities', GridScalar * 2), ('speeds', GridScalar * 2),
     ('evidence', native._Evidence), ('owner', ct.c_void_p)])
 _Controls = _struct('ContinuousControls3D', [('n_ctrl_x', _S), ('n_ctrl_y', _S), ('n_ctrl_z', _S),
     ('have_ctrl_z', _U), ('spline_order', _U), ('symmetric_y', _U),
@@ -48,7 +48,7 @@ _ContinuousCase = _struct('ContinuousCase3D', [('abi_version', _U), ('struct_siz
     ('prepared', _Result), ('flow', _Flow), ('controls', _Controls),
     ('area_density_per_m', native._Array), ('hydraulic_diameter_m', native._Array),
     ('thermal_porosity', native._Array), ('drag', native._ContinuousDrag * 2), ('owner', ct.c_void_p)])
-_Cell = _struct('GridCell3D', [('bounds', grid._Scalar * 4),
+_Cell = _struct('GridCell3D', [('bounds', GridScalar * 4),
     ('cell_length_mm', _D), ('wall_thickness_mm', _D)])
 _SpatialInput = _struct('SpatialInput3D', [('abi_version', _U), ('struct_size', _S),
     ('values', _FlowInput), ('cells', ct.POINTER(_Cell)), ('cell_count', _S)])

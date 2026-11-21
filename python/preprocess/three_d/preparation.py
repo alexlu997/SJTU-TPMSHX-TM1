@@ -11,8 +11,9 @@ from sjtu_tpmshx.data_types.case_data import CaseData
 from sjtu_tpmshx.data_types.compute_config import ComputeConfig, bc_to_dict
 from sjtu_tpmshx.data_types.model_refs import ModelRef
 from sjtu_tpmshx.run_control.run_environment import capture_environment
-from sjtu_tpmshx.cpp_interface import _native_grid as grid
-from sjtu_tpmshx.cpp_interface._native_values import borrow_text, read_text, restore_buffer_scalar
+from sjtu_tpmshx.cpp_interface._native_values import (
+    GridPort, GridScalar, borrow_text, grid_count, grid_scalar, read_text, restore_buffer_scalar,
+)
 from sjtu_tpmshx.cpp_interface import _native_preparation_case as native
 from sjtu_tpmshx.cpp_interface import _native_preparation_3d as three
 
@@ -27,17 +28,17 @@ def _input(config, targets, operation):
 
     def scalar(item):
         try:
-            return grid._scalar(item)
+            return grid_scalar(item)
         except TypeError as problem:
             errors.setdefault('grid', problem)
-            return grid._Scalar(float(transport(item)), 64, 0)
+            return GridScalar(float(transport(item)), 64, 0)
 
     value.lengths_m[:] = [scalar(geometry.L_dom_m), scalar(geometry.H_dom_m),
-                          grid._Scalar(float(geometry.Lz_m), 64, 0)]
+                          GridScalar(float(geometry.Lz_m), 64, 0)]
     counts = []
     for axis, count in enumerate((config.solver.Nx, config.solver.Ny, config.solver.Nz)):
         try:
-            counts.append(grid._count(count))
+            counts.append(grid_count(count))
         except (TypeError, ValueError, OverflowError) as problem:
             errors['count' + str(axis)] = problem
             counts.append(2)
@@ -59,17 +60,9 @@ def _input(config, targets, operation):
         (geometry.L_cell_mm, geometry.t_wall_mm, geometry.k_s_W_mK)))
     for index, side in enumerate('AB'):
         fluid, port = getattr(config, 'fluid_' + side), getattr(config, 'bc_' + side)
-        raw_port = grid._Port()
-        raw_port.active, raw_port.direction = 1, port.dir
-        full = port.in_w <= 0. and port.out_w <= 0.
-        for end_index, end in enumerate(('in', 'out')):
-            for column, name in enumerate(('ctr', 'w', 'z_ctr', 'z_w')):
-                item = getattr(port, end + '_' + name)
-                if full and column < 2:
-                    item = 0.
-                if item is not None:
-                    raw_port.present[end_index][column] = 1
-                    raw_port.values[end_index][column] = scalar(item)
+        raw_port = GridPort(port.dir, 1)
+        raw_port.set_windows(lambda key: getattr(port, key), scalar,
+                             full_width=port.in_w <= 0. and port.out_w <= 0.)
         speed = 0. if operation == 'prepare_inlet_mass_capacities' or (
             targets is not None or fluid.mass_flow_kg_s is not None) else fluid.u_mps
         value.sides[index] = three._Inlet(native._FLUIDS.index(fluid.type) if fluid.type in native._FLUIDS else 0,
