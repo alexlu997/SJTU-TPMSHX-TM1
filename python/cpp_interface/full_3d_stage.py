@@ -7,7 +7,9 @@ from uuid import uuid4
 
 import numpy as np
 
-from sjtu_tpmshx.data_types.compute_config import Sco2NuConfig, reject_retired_research_options, validate_simple_velocity_relaxation
+from sjtu_tpmshx.data_types.compute_config import (
+    Sco2NuConfig, reject_retired_research_options, uses_default_thermal_recipe, validate_simple_velocity_relaxation,
+)
 from sjtu_tpmshx.data_types.persistence_validation import (
     grid_axes, validate_axis_permutation, validate_grid, validate_thermal_geometry,
 )
@@ -329,7 +331,8 @@ def validate_flow_options(cfg):
 
 def _request(cfg, energy, model_h):
     request = _Request(1, ct.sizeof(_Request))
-    request.energy = ct.pointer(_EnergyOptions(energy.algorithm, energy.temperature_update_tolerance))
+    if energy is not None:
+        request.energy = ct.pointer(energy)
     if model_h is not None:
         request.model_h = model_h
     for target, source in (('energy_coupled_tolerance', 'ltne_enthalpy_coupled_energy_tol'),
@@ -750,12 +753,14 @@ def run_saved(case, control, library, abi, table_directory, execution_query, *,
     shape, cell_mm, wall_mm, nu = validate_saved_case(case)
     cfg, prepared = case.parameters, case.parameters['prepared']
     control.check_cancelled()
-    energy = energy_request(cfg)
+    complete = getattr(library, 'tpmshx_run_saved_case_3d_v2', None)
+    native_defaults = complete is not None and uses_default_thermal_recipe(cfg)
+    energy = None if native_defaults else energy_request(cfg)
     has_water = 'water' in (cfg['fluid_type_A'], cfg['fluid_type_B'])
     if cfg.get('enthalpy_algorithm', 'temperature_sou') != 'temperature_sou':
         _full_enthalpy_defaults(library, 3, energy.algorithm, has_water)
     _, strict = validate_energy_controls(cfg)
-    model_h = model_h_request(cfg, strict)
+    model_h = None if native_defaults else model_h_request(cfg, strict)
     request = _request(cfg, energy, model_h)
     validate_flow_options(cfg)
     keepalive = []
@@ -768,7 +773,6 @@ def run_saved(case, control, library, abi, table_directory, execution_query, *,
     result = None
     try:
         saved = pack_saved_case(case, data, cell_mm, wall_mm, nu, keepalive, 2)
-        complete = getattr(library, 'tpmshx_run_saved_case_3d_v2', None)
         if complete is not None and checkpoint is None and resume_state is None:
             complete.argtypes = [ct.POINTER(_SavedV2), ct.POINTER(_Request), ct.POINTER(_Host),
                                  ct.POINTER(_StageResult), ct.POINTER(ct.c_char), ct.c_size_t]

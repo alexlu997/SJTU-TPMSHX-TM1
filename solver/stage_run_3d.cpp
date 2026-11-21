@@ -396,7 +396,7 @@ struct Controls3D {
     Controls3D(const tpmshx_stage_run_request_3d_v1* request,const tpmshx_stage_run_control_3d_v1& host,
         const tpmshx_full3d_input_v1& input,bool refined) {
         const tpmshx_stage_run_request_3d_v1 empty{};const auto& r=request?*request:empty;
-        const auto selected=r.energy?*r.energy:tpmshx_energy_options_v1{TPMSHX_ENERGY_TEMPERATURE_SOU,1e-8};
+        const auto selected=r.energy ? *r.energy : tpmshx::default_stage_energy_options();
         tpmshx_energy_effective_settings_v1 defaults{};
         if(tpmshx_full_enthalpy_defaults_v1(3,selected.algorithm,
                 input.sides[0].fluid==1 || input.sides[1].fluid==1,&defaults))

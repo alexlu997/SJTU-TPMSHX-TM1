@@ -28,6 +28,7 @@ typedef struct {
     tpmshx_stage_uint_option_v1 roughness_mode,envelope_mode;
     const char* convergence_mode;
     tpmshx_model_h_iteration_options_v1 model_h;
+    /* NULL selects temperature_sou with a 1e-8 K temperature update tolerance. */
     const tpmshx_energy_options_v1* energy;
     tpmshx_stage_size_option_v1 energy_iterations,energy_sweeps;
     tpmshx_stage_double_option_v1 energy_omega,energy_update_tolerance;
