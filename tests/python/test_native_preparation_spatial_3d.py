@@ -8,6 +8,8 @@ import os
 import numpy as np
 import pytest
 
+from sjtu_tpmshx.cpp_interface._native_values import copy_array
+
 from tests.python import test_native_preparation_flow_3d as flow
 from sjtu_tpmshx.data_types.compute_config import ZoneInputConfig
 
@@ -172,7 +174,7 @@ def _full(native, monkeypatch, config, targets=None, *, chi=None):
                 assert getattr(result, name).size == 0
             else:
                 shape = expected.design_fields['eps_arr'].shape
-                v1._same(abi._array(getattr(result, name), shape), thermal['fields'][key], key)
+                v1._same(copy_array(getattr(result, name), shape), thermal['fields'][key], key)
         address_a = ct.cast(result.prepared.side_porosity.data, ct.c_void_p).value
         address_b = ct.cast(result.side_b_porosity.data, ct.c_void_p).value
         assert (address_a == address_b) == (config.geometry.delta_levelset == 0.)

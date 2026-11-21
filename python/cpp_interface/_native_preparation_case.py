@@ -7,7 +7,7 @@ import warnings
 
 import numpy as np
 
-from ._native_values import DoubleArray as _Array, Text as _Text, borrow_text, copy_array as _array, read_text as _text
+from ._native_values import DoubleArray as _Array, Text as _Text, borrow_text, read_text as _text
 from . import _native_flow, _native_preparation, _native_properties
 from ._native_df import _Pressure as _DFPressure
 from ._native_properties import _Failure as _PropertyFailure

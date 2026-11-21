@@ -8,6 +8,8 @@ import warnings
 import numpy as np
 import pytest
 
+from sjtu_tpmshx.cpp_interface._native_values import copy_array
+
 from tests.python import test_native_preparation_case as v1
 from tests.python import test_native_preparation_fluids as fluids
 from tests.python.test_native_preparation_continuous import _host_events
@@ -21,7 +23,7 @@ from sjtu_tpmshx.cpp_interface import _native_preparation_case as abi
 
 
 _U, _S, _D = abi._U, abi._S, abi._D
-_struct, _text, _array, _same = abi._structure, abi._text, abi._array, v1._same
+_struct, _text, _array, _same = abi._structure, abi._text, copy_array, v1._same
 _Inlet = _struct('Inlet3D', [('fluid', _U), *abi._doubles('velocity_m_s temperature_K pressure_Pa'),
     ('port', grid._Port), ('have_mass_flow', _U), ('mass_flow_kg_s', _D)])
 _Input = _struct('Input3D', [('abi_version', _U), ('struct_size', _S),
