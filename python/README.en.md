@@ -50,7 +50,9 @@ Python retains LUT storage. Native code builds missing tables at the original ge
 Preparation v10 adds the existing nonzero-delta uniform air/water and air/air spatial modes at prescribed speed.
 It carries nominal thermal-side tuples separately from design and cell thermal geometry, with the existing split and N128 geometry calculation.
 Continuous fields, CO2/sCO2, experimental models and total mass flow keep their existing limits. Earlier C layouts and scopes remain unchanged.
-Python uniform and spatial preparation use v10; uniform capacity and resolution retain v7/v3, and continuous entries retain v7/v4.
+Complete continuous XY and stripe preparation use v11 when available.
+The preparation library returns the pore porosity or the A-side hydraulic radius for each stripe. The adapter uses the geometry library with supported older preparation binaries.
+Complete uniform, rectangle and sigmoid cases use v10. Uniform and continuous XY capacity and resolution use v7 with v3 and v4 results, respectively.
 Spatial capacity and resolution use v10 with v9 result views and releases.
 Public ZoneConfig and sigmoid combination queries retain standalone consumers until separate migration passes.
 They keep supplied properties and custom sigmoid controls.

@@ -576,7 +576,7 @@ Release only the outer result with its matching v11 release function.
 
 Public uniform 2D preparation uses v10; its capacity and flow-resolution queries retain v7 with v3 payloads.
 Complete continuous XY and stripe preparation use v11 when available.
-The adapter uses the geometry library for these fields with v7 continuous and v10 stripe preparation libraries.
+With a supported preparation binary that lacks v11, the adapter uses its v7 continuous and v10 stripe entries and obtains the fields from the geometry library.
 Continuous XY capacity and flow resolution use v7 with v4 payloads. Stripe queries, rectangles and sigmoid fields use v10.
 Capacity-only queries keep configuration validation and do not calculate drag. Complete spatial preparation still requires CFD drag.
 `python/cpp_interface/native_preparation.py` transports shared cache values and evidence without numerical cache calls.
