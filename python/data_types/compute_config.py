@@ -76,7 +76,7 @@ import warnings
 from dataclasses import asdict, dataclass, field
 from math import isfinite
 from pathlib import Path
-from typing import Any, Dict, Literal, Optional, Tuple, Union
+from typing import Any, Dict, Final, Literal, Optional, Tuple, Union
 
 from sjtu_tpmshx.model_configs.model_parameters import load_model_parameters
 
@@ -90,7 +90,7 @@ SCO2_P_RANGE_PA = tuple(load_model_parameters()['sco2']['pressure_range_Pa'])
 
 
 # A null recipe in the complete native stage has these values.
-_DEFAULT_ENTHALPY_ALGORITHM = 'temperature_sou'
+_DEFAULT_ENTHALPY_ALGORITHM: Final = 'temperature_sou'
 _DEFAULT_ENTHALPY_TOLERANCE_K = 1e-8
 
 
