@@ -1,4 +1,5 @@
 #include "execution_report.hpp"
+#include <cmath>
 
 namespace tpmshx::stages {
 namespace {
@@ -20,11 +21,17 @@ Report iterations(const tpmshx_stage_execution_v1& run) {
     List rows;
     for (size_t i = 0; i < run.model_h.count; ++i) {
         const auto& r = run.model_h.records[i];
+        if (r.refined > 1 || !r.max_iterations || !r.chunk_iterations || r.total_iteration_budget < r.max_iterations
+            || !std::isfinite(r.temperature_tolerance) || r.temperature_tolerance <= 0
+            || !std::isfinite(r.q_relative_tolerance) || r.q_relative_tolerance < 0)
+            throw std::invalid_argument("invalid native model-h iteration record");
         Object settings{{"max_iterations", r.max_iterations}, {"chunk_iterations", r.chunk_iterations},
             {"temperature_update_tolerance_K", r.temperature_tolerance}, {"q_relative_tolerance", r.q_relative_tolerance},
             {"total_iteration_budget", r.total_iteration_budget}};
         if (run.acceleration) {
             const auto& policy = run.acceleration[i];
+            if (policy.enabled > 1 || !policy.sweeps_per_block || policy.history_limit < 2)
+                throw std::invalid_argument("invalid native model-h acceleration record");
             settings.emplace("acceleration", Object{{"enabled", bool(policy.enabled)},
                 {"sweeps_per_block", policy.sweeps_per_block}, {"history_limit", policy.history_limit}});
         }
@@ -35,6 +42,11 @@ Report iterations(const tpmshx_stage_execution_v1& run) {
 }
 Report normalization(const tpmshx_energy_update_scale_v1& value) {
     if (!value.available) return {};
+    if (value.available != 1 || value.reference_independent > 1)
+        throw std::invalid_argument("native energy update scale has invalid flags");
+    for (double scale : value.scale)
+        if (!std::isfinite(scale) || scale < 1)
+            throw std::invalid_argument("native energy update scale must be finite and at least 1 J/kg");
     return Object{{"definition", value.reference_independent ? "inlet_cp_times_temperature_difference_v1" : "inlet_enthalpy_difference_v1"},
         {"unit", "J/kg"}, {"sides", Object{{"A", value.scale[0]}, {"B", value.scale[1]}}},
         {"source", "native_completed_thermal_call"}};

@@ -44,10 +44,11 @@ def completed_report(library, result):
     query = getattr(library, f'tpmshx_stage_run_{result.evidence.dimension}d_report_v1', None)
     if query is None:
         return None
-    query.argtypes, query.restype = [ct.POINTER(type(result))], ct.c_char_p
-    data = query(ct.byref(result))
+    query.argtypes, query.restype = [ct.POINTER(type(result)), ct.POINTER(ct.c_char), ct.c_size_t], ct.c_char_p
+    error = ct.create_string_buffer(1024)
+    data = query(ct.byref(result), error, len(error))
     if data is None:
-        raise RuntimeError('native stage returned no execution report')
+        raise RuntimeError(error.value.decode() or 'native stage returned no execution report')
     return json.loads(data)
 
 

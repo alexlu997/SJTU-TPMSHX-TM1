@@ -184,7 +184,7 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_run_saved_case_3d_v2(
 /* Borrow the scalar execution report until result release. Cell and face arrays
  * stay in their typed views. NULL means that no report is available. */
 TPMSHX_THERMAL_API const char* TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_report_v1(
-    const tpmshx_stage_run_result_3d_v1*);
+    const tpmshx_stage_run_result_3d_v1*, char* error, size_t capacity);
 #ifdef __cplusplus
 }
 #endif
