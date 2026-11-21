@@ -5,11 +5,11 @@
 本模块提供 design 工具的便捷接口，不重复定义物性数据。
 """
 from __future__ import annotations
-from dataclasses import dataclass
 from sjtu_tpmshx.model_configs.model_parameters import load_model_parameters
-from sjtu_tpmshx.run_control.run_warnings import range_context, record_warning
+from sjtu_tpmshx.run_control.run_warnings import range_context
 
 from sjtu_tpmshx.physical_models import fluid_props as _registry
+from sjtu_tpmshx.physical_models.fluid_props import Props as Props
 from sjtu_tpmshx.cpp_interface import _native_properties
 from sjtu_tpmshx.physical_models.tpms_calc import nu_from_Re
 from sjtu_tpmshx.physical_models.nu_correlations import (
@@ -18,7 +18,7 @@ from sjtu_tpmshx.physical_models.nu_correlations import (
     SCO2_NU_RE_RANGE,       # sCO2 CFD 拟合 Re 域 (2600,128000), Diamond+Gyroid
     nu_water_topo,
     nu_sco2_topo,
-    _warn_extrap, _warn_water_nu, _warn_sco2_nu,
+    _warn_extrap, _warn_water_nu, _warn_sco2_nu, record_quick_sco2_pr_notice,
 )
 from sjtu_tpmshx.physical_models.tpms_props import record_temperature_ranges
 
@@ -26,13 +26,6 @@ DESIGN_NU_REFERENCE_STATES = {
     fluid: tuple(state)
     for fluid, state in load_model_parameters()['design_nu_reference_states'].items()
 }
-
-
-def _warn_sco2_representative_pr():
-    record_warning(('design-sco2-representative-pr',),
-                   'sCO2 Nu uses representative Pr queried at 480 K / 9 MPa, '
-                   'not at this case inlet or mean state. The smooth-wall CFD '
-                   'correlation joint qualification for this case is not established.')
 
 
 def record_native_design_ranges(fluid, topo, temperature, reynolds):
@@ -46,7 +39,7 @@ def record_native_design_ranges(fluid, topo, temperature, reynolds):
     elif fluid == 'water':
         _warn_water_nu(max(reynolds, 1.), max(reynolds, 1.), topo, reynolds)
     elif fluid == 'sco2':
-        _warn_sco2_representative_pr()
+        record_quick_sco2_pr_notice()
         _warn_sco2_nu(max(reynolds, 1.), max(reynolds, 1.), topo, reynolds)
     else:
         raise ValueError(f'unknown fluid {fluid!r}')
@@ -65,11 +58,6 @@ def nu_re_window(fluid: str):
         from .co2_correlations import RE_RANGE
         return RE_RANGE
     return NU_RE_FIT_RANGE
-
-
-@dataclass
-class Props:
-    rho: float; mu: float; k: float; cp: float; Pr: float
 
 
 def fluid_props(fluid: str, T_K: float, P_Pa: float) -> Props:
@@ -100,6 +88,6 @@ def fluid_nu(fluid: str, topo: str, Re: float, eps_f: float,
         # representative far-from-critical sCO2 (D-7-6 mid ~480K/9MPa)
         with range_context(stage='design-nu-representative-pr', layout='scalar'):
             Pr_s = fluid_props("sco2", *DESIGN_NU_REFERENCE_STATES['sco2']).Pr
-        _warn_sco2_representative_pr()
+        record_quick_sco2_pr_notice()
         return nu_sco2_topo(topo, Re, Pr_s, L_mm, D_h_mm)
     raise ValueError(f"unknown fluid {fluid!r}")

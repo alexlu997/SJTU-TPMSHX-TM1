@@ -18,6 +18,10 @@ enum class Empirical : std::uint32_t {
     air_viscosity,air_conductivity,air_density,air_cp,
     water_density,water_viscosity,water_conductivity,water_cp
 };
+struct EmpiricalRange {
+    const char* label;
+    std::array<double,2> bounds;
+};
 enum class NuRoute : std::uint32_t {air_direct,air_vector,water,sco2,co2};
 enum class RoughnessQuantity : std::uint32_t {petukhov,haaland,height_ratio,friction_gain,extra_nu,identity};
 // Layout: Python scalar, NumPy scalar, zero-dimensional array, other array.
@@ -95,6 +99,7 @@ std::vector<std::vector<double>> property_eos_query(const std::vector<std::strin
     const char* input,const std::vector<double>& first,const std::vector<double>& pressure,
     bool scalar);
 PropertyResult empirical(Empirical getter,PropertyInput temperature,PropertyInput pressure);
+EmpiricalRange empirical_range(Empirical getter);
 PropertyResult nu_inputs(NuRoute route,PropertyInput re,PropertyInput pr,PropertyInput cell,
     PropertyInput diameter,PropertyInput floor,std::array<double,4>& extrema);
 PropertyResult nusselt(NuRoute route,Topology topology,PropertyInput re,PropertyInput pr,

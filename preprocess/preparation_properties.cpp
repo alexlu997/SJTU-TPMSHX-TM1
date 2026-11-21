@@ -69,6 +69,20 @@ template<class Function> PropertyResult unary_binary(PropertyInput first,Propert
 }
 }  // namespace
 
+EmpiricalRange empirical_range(Empirical getter) {
+    constexpr std::array<EmpiricalRange,8> ranges{{
+        {"air_viscosity",data::air_temperature_range},
+        {"air_conductivity",data::air_temperature_range},
+        {},
+        {"air_cp",data::air_cp_temperature_range},
+        {"water_density",data::water_temperature_range},
+        {"water_viscosity",data::water_temperature_range},
+        {"water_conductivity",data::water_temperature_range},
+        {"water_cp",data::water_temperature_range},
+    }};
+    return ranges.at(static_cast<std::size_t>(getter));
+}
+
 PropertyResult empirical(Empirical getter,PropertyInput temperature,PropertyInput pressure) {
     FloatingEnvironment environment;
     const auto count=temperature.values.size;check_input(temperature,count);

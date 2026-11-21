@@ -257,6 +257,14 @@ def record_raw_nu_range(fluid, tpms_type, Re):
                  label=f'[{fluid} Nu raw] {tpms_type}', quantity='Re', unit='-')
 
 
+def record_quick_sco2_pr_notice():
+    temperature, pressure = load_model_parameters()['design_nu_reference_states']['sco2']
+    record_warning(('design-sco2-representative-pr',),
+                   f'sCO2 Nu uses representative Pr queried at {temperature:g} K / {pressure / 1e6:g} MPa, '
+                   'not at this case inlet or mean state. The smooth-wall CFD '
+                   'correlation joint qualification for this case is not established.')
+
+
 def _warn_sco2_nu(Re_min, Re_max, tpms_type, raw):
     if record_range(('nu', 'sco2', tpms_type), raw, SCO2_NU_RE_RANGE,
                     label=f'[sCO2 Nu extrap] {tpms_type}', quantity='Re', unit='-'):

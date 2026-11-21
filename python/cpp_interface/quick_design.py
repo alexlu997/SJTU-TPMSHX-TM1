@@ -11,8 +11,7 @@ import numpy as np
 from sjtu_tpmshx.cpp_interface._native_result_stage import Evidence, closure_records
 from sjtu_tpmshx.run_control.cancellation import CancelledError
 from sjtu_tpmshx.run_control.run_warnings import current_warnings, range_context, record_sample
-from sjtu_tpmshx.physical_models.design_fluids import Props, record_native_design_ranges
-from sjtu_tpmshx.physical_models.fluid_props import WaterStateError, QuickDesignWaterFieldError
+from sjtu_tpmshx.physical_models.fluid_props import Props, WaterStateError, QuickDesignWaterFieldError
 from sjtu_tpmshx.cpp_interface._native_df import _Pressure as _PreparedPressure
 from sjtu_tpmshx.data_types.field_result import FieldResult
 from .solver_library._stage_capture_abi import RangeRecordView
@@ -102,7 +101,7 @@ class _Ranges(ct.Structure):
     _fields_ = [('data', ct.POINTER(RangeRecordView)), ('count', ct.c_size_t)]
 
 
-def _record_pass(library, output, index, side, fluid):
+def _record_pass(library, output, index, side):
     query = library.tpmshx_quick_run_ranges_v2
     query.argtypes = [ct.POINTER(_StageResult), ct.c_size_t, ct.c_size_t]
     query.restype = _Ranges
@@ -111,9 +110,9 @@ def _record_pass(library, output, index, side, fluid):
         raise RuntimeError('native Quick Design returned no pass ranges')
     _, records = closure_records(view.data, view.count)
     for key, sample in records.items():
-        if key[0] == 'nu' and fluid == 'sco2':
-            from sjtu_tpmshx.physical_models.design_fluids import _warn_sco2_representative_pr
-            _warn_sco2_representative_pr()
+        if key[:2] == ('nu', 'sco2'):
+            from sjtu_tpmshx.physical_models.nu_correlations import record_quick_sco2_pr_notice
+            record_quick_sco2_pr_notice()
         record_sample(key, sample)
 
 
@@ -313,8 +312,8 @@ def run_case(case, control):
         use_records = current is not None and current_warnings() is not None
         if use_records:
             for index in range(result.completed_passes):
-                for side, fluid in enumerate((op.hot_fluid, op.cold_fluid)):
-                    _record_pass(library, output, index, side, fluid)
+                for side in range(2):
+                    _record_pass(library, output, index, side)
         fields = {}
         for item in output.evidence.fields[:output.evidence.field_count]:
             key = item.name.decode()
@@ -328,6 +327,8 @@ def run_case(case, control):
                           output.evidence.field_metadata[:output.evidence.field_metadata_count]}
     finally:
         release(ct.byref(output))
+    if not use_records:
+        from sjtu_tpmshx.physical_models.design_fluids import record_native_design_ranges
     pass_info = []
     for index in range(result.completed_passes):
         native_pass = result.passes[index]

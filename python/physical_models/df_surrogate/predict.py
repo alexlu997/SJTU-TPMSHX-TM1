@@ -6,7 +6,6 @@ Production pipelines pin the fixed model regardless of environment state.
 """
 from __future__ import annotations
 
-import os
 import warnings
 
 import numpy as np
@@ -14,6 +13,9 @@ import numpy as np
 from sjtu_tpmshx.model_configs.model_parameters import load_model_parameters
 from sjtu_tpmshx.run_control.run_warnings import record_warning
 from sjtu_tpmshx.cpp_interface import _native_df
+from .backend import METHOD as SCO2_DF_METHOD  # noqa: F401 - public model identifier
+from .backend import available_methods as available_methods
+from .backend import get_backend, resolve_method as _resolve_method
 
 R_AIR = load_model_parameters()['envelope']['r_air_default']
 
@@ -25,21 +27,6 @@ _CHOKE_WARNED: set = set()
 def reset_choke_warn_registry() -> None:
     """Re-arm standalone pressure-limit warnings; runs own their records."""
     _CHOKE_WARNED.clear()
-
-
-from .backend import METHOD as SCO2_DF_METHOD, available_methods, get_backend  # noqa: E402
-
-_DF_DEFAULT = SCO2_DF_METHOD
-
-
-def _resolve_method(method: str | None = None) -> str:
-    """Per-call ``method`` wins; else env TPMSHX_DF_METHOD; else default."""
-    m = (method if method is not None
-         else os.environ.get("TPMSHX_DF_METHOD", _DF_DEFAULT)).strip().lower()
-    if m not in available_methods():
-        raise ValueError(f"unknown DF method {m!r}; "
-                         f"valid: {available_methods()}")
-    return m
 
 
 def _get_model(tpms_type: str, method: str | None = None):
