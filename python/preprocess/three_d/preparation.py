@@ -12,7 +12,7 @@ from sjtu_tpmshx.data_types.compute_config import ComputeConfig, bc_to_dict
 from sjtu_tpmshx.data_types.model_refs import ModelRef
 from sjtu_tpmshx.run_control.run_environment import capture_environment
 from sjtu_tpmshx.cpp_interface._native_values import (
-    GridPort, GridScalar, borrow_text, grid_count, grid_scalar, read_text, restore_buffer_scalar,
+    TOPOLOGY_CODES, GridPort, GridScalar, borrow_text, grid_count, grid_scalar, read_text, restore_buffer_scalar,
 )
 from sjtu_tpmshx.cpp_interface import _native_preparation_case as native
 from sjtu_tpmshx.cpp_interface import _native_preparation_3d as three
@@ -50,7 +50,7 @@ def _input(config, targets, operation):
         errors['cap'], cap = problem, 0
     value.max_cells = min(max(cap, 0), native._S(-1).value)
     value.port_wall_refine = config.flags.port_wall_refine
-    value.topology = {'Diamond': 0, 'Gyroid': 1}.get(geometry.tpms, 0)
+    value.topology = TOPOLOGY_CODES.get(geometry.tpms, 0)
     value.cell_length_mm, value.wall_thickness_mm = map(transport, (geometry.L_cell_mm, geometry.t_wall_mm))
     value.solid_conductivity_W_mK, value.delta_levelset = map(transport, (geometry.k_s_W_mK, geometry.delta_levelset))
     continuous = config.zones.enabled and config.zones.axis == 'continuous'

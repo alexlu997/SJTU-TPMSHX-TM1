@@ -7,6 +7,18 @@ import warnings
 import numpy as np
 
 
+# The order matches tpmshx::Topology in the C++ interface.
+TOPOLOGIES = ('Diamond', 'Gyroid')
+TOPOLOGY_CODES = {name: index for index, name in enumerate(TOPOLOGIES)}
+
+
+def geometry_topology(name):
+    try:
+        return TOPOLOGY_CODES[name]
+    except (KeyError, TypeError) as error:
+        raise ValueError(f'TPMS geometry supports Diamond and Gyroid only: {name!r}') from error
+
+
 def bounded_index(value, maximum, error, *, minimum=0):
     value = operator.index(value)
     if not minimum <= value <= maximum:

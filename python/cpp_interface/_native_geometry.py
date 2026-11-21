@@ -9,6 +9,7 @@ import weakref
 
 import numpy as np
 
+from ._native_values import geometry_topology
 from sjtu_tpmshx.run_control.provenance import PUBLISHED_LIBRARY_DIR
 
 
@@ -142,13 +143,6 @@ def _call(function, *arguments):
         raise exception(message)
 
 
-def _topology(name):
-    try:
-        return {'Diamond': 0, 'Gyroid': 1}[name]
-    except (KeyError, TypeError) as error:
-        raise ValueError(f'TPMS geometry supports Diamond and Gyroid only: {name!r}') from error
-
-
 def _resolution(value):
     if (isinstance(value, (bool, np.bool_)) or not isinstance(value, (int, np.integer))
             or value < 1 or value > ct.c_size_t(-1).value):
@@ -180,7 +174,7 @@ def _cached_index(path, topology, resolution):
 
 
 def _index(topology, resolution):
-    code, n = _topology(topology), _resolution(resolution)
+    code, n = geometry_topology(topology), _resolution(resolution)
     return _cached_index(_library_path(), code, n), code
 
 
@@ -252,12 +246,12 @@ def _cached_phi(path, topology, resolution):
 
 
 def phi_grid(topology, N=128):
-    code, n = _topology(topology), _resolution(N)
+    code, n = geometry_topology(topology), _resolution(N)
     return _cached_phi(_library_path(), code, n)
 
 
 def threshold(topology, wall_over_cell):
-    code, values = _topology(topology), _array(wall_over_cell)
+    code, values = geometry_topology(topology), _array(wall_over_cell)
     result = np.empty(values.shape, dtype=np.float64, order='C')
     precision = _floating_dtype(wall_over_cell, 0.).itemsize * 8
     _call(_library().threshold_batch, code, _pointer(values), values.size, precision,
@@ -311,7 +305,7 @@ def raw_fields(topology, cells_mm, walls_mm, *, N=128):
 
 
 def chi_fields(topology, epsilon, *, chi_s=None):
-    code, values = _topology(topology), _array(epsilon)
+    code, values = geometry_topology(topology), _array(epsilon)
     result = np.empty(values.shape, dtype=np.float64, order='C')
     _call(_library().chi_batch, code, _pointer(values), values.size, *_override(chi_s),
           _pointer(result), result.size)
@@ -319,7 +313,7 @@ def chi_fields(topology, epsilon, *, chi_s=None):
 
 
 def material_fields(topology, epsilon, conductivity, *, chi_s=None):
-    code, values = _topology(topology), _array(epsilon)
+    code, values = geometry_topology(topology), _array(epsilon)
     result = _rows(values.shape, 2)
     product_dtype = _floating_dtype(epsilon, conductivity)
     _call(_library().material_batch, code, _pointer(values), values.size, float(conductivity),
@@ -330,7 +324,7 @@ def material_fields(topology, epsilon, conductivity, *, chi_s=None):
 
 
 def lut_fields(topology, epsilon, area, conductivity, *, chi_s=None):
-    code = _topology(topology)
+    code = geometry_topology(topology)
     values, areas = _pair(epsilon, area)
     result = _rows(values.shape, 7)
     _call(_library().lut_batch, code, _pointer(values), _pointer(areas), values.size,
@@ -348,7 +342,7 @@ def standard_minimum(topology, cell_bounds_mm, wall_bounds_mm):
 
 
 def co2_fields(topology, cells_mm, walls_mm, conductivity, *, chi_s=None):
-    code = _topology(topology)
+    code = geometry_topology(topology)
     cells, walls = _pair(cells_mm, walls_mm)
     result = _rows(cells.shape, 6)
     _call(_library().co2_batch, code, _pointer(cells), _pointer(walls), cells.size, float(conductivity),
@@ -357,7 +351,7 @@ def co2_fields(topology, cells_mm, walls_mm, conductivity, *, chi_s=None):
 
 
 def co2_minimum(topology, cell_bounds_mm, wall_bounds_mm, *, chi_s=None):
-    code = _topology(topology)
+    code = geometry_topology(topology)
     cells, walls = _bounds(cell_bounds_mm), _bounds(wall_bounds_mm)
     result = np.empty(3, dtype=np.float64)
     _call(_library().co2_minimum, code, _pointer(cells), _pointer(walls), *_override(chi_s),

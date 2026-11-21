@@ -51,7 +51,7 @@ from .solver_library._thermal_abi import (
 )
 from .solver_library.simple_3d import _STOPS
 from ._native_preparation_case import borrow_ranges as _ranges
-from ._native_values import GridPort, grid_count, borrow_array as _array, borrow_text as _text, iteration_count
+from ._native_values import TOPOLOGIES, GridPort, grid_count, borrow_array as _array, borrow_text as _text, iteration_count
 from .run_state import NativeRun
 
 _U, _Z, _D = ct.c_uint32, ct.c_size_t, ct.c_double
@@ -235,7 +235,7 @@ def pack_input(cfg, prepared, grid, design, shape, cell_mm, nu, keepalive, *, sa
     geometry = thermal['fields' if spatial else 'uniform']
     data.area_density, data.hydraulic_diameter = view(geometry['A_0'], shape), view(geometry['D_h'], shape)
     data.reference_cell_length, data.reference_hydraulic_diameter = cell_mm*1e-3, prepared['geometry']['D_h']
-    data.topology = ('Diamond', 'Gyroid').index(cfg['tpms_type'])
+    data.topology = TOPOLOGIES.index(cfg['tpms_type'])
     data.spatial, data.asymmetric, data.solve_b = spatial, cfg.get('delta_levelset', 0.) != 0., cfg.get('fluid_B_cfg') is not None
     for s, label in enumerate('AB'):
         a = data.sides[s];axis = prepared['axes'][label];bc = cfg['fluid_'+label+'_cfg']

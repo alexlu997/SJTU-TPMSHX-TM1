@@ -8,6 +8,7 @@ from functools import lru_cache
 
 import numpy as np
 
+from ._native_values import TOPOLOGY_CODES
 from ._df_abi import DragSummary as _Summary
 from . import _native_grid, _native_preparation
 from . import _native_properties as _properties
@@ -95,10 +96,6 @@ def _ptr(value):
     return value.ctypes.data_as(_DP)
 
 
-def _topology(value):
-    return {'Diamond': 0, 'Gyroid': 1}[value]
-
-
 def fixed(topology, lengths, walls):
     lengths, walls = np.asarray(lengths, dtype=np.float64), np.asarray(walls, dtype=np.float64)
     if lengths.shape != walls.shape:
@@ -106,7 +103,7 @@ def fixed(topology, lengths, walls):
     shape = lengths.shape
     lengths, walls = _array(lengths), _array(walls)
     k, f = np.empty(shape, dtype=np.float64), np.empty(shape, dtype=np.float64)
-    _call('fixed', _topology(topology), _ptr(lengths), _ptr(walls), lengths.size,
+    _call('fixed', TOPOLOGY_CODES[topology], _ptr(lengths), _ptr(walls), lengths.size,
           _ptr(k), k.size, _ptr(f), f.size)
     return k, f
 
@@ -121,7 +118,7 @@ def pressure(topology, length, wall, *values, compressible=False, strict=False):
               for value in values]
     output, failure, error = _Pressure(), _FPFailure(), ct.create_string_buffer(2048)
     name = 'compressible' if compressible else 'incompressible'
-    arguments = [_topology(topology), length, wall, *packed]
+    arguments = [TOPOLOGY_CODES[topology], length, wall, *packed]
     if compressible:
         arguments.append(int(bool(strict)))
     function = _bindings(_native_preparation._library().path)[name]
@@ -184,7 +181,7 @@ def selection(topology, fluid, lengths, walls, velocity=None, *, transfer=False)
         raise ValueError(f'no approved experiment calibration for fluid {fluid!r}')
     l, t = _array(lengths), _array(walls)
     output = _Selection()
-    arguments = [_topology(topology), ('air', 'water', 'sco2').index(fluid), int(bool(transfer)),
+    arguments = [TOPOLOGY_CODES[topology], ('air', 'water', 'sco2').index(fluid), int(bool(transfer)),
                  _ptr(l), l.size, _ptr(t), t.size]
     # Native selection first checks geometry and can ignore a specimen's u.
     try:
@@ -213,7 +210,7 @@ def scales(topology, selected, lengths, walls, velocity=None):
         shape = np.broadcast(np.asarray(lengths, dtype=float), np.asarray(walls, dtype=float)).shape
     l, t = (_array(np.broadcast_to(value, shape)) for value in (lengths, walls))
     k, f = np.empty(shape), np.empty(shape)
-    _call('correction_scales', _topology(topology), ct.byref(selected), _ptr(l), _ptr(t), l.size,
+    _call('correction_scales', TOPOLOGY_CODES[topology], ct.byref(selected), _ptr(l), _ptr(t), l.size,
           _ptr(k), k.size, _ptr(f), f.size)
     return k, f[()] if not selected.branch and shape == () else f
 

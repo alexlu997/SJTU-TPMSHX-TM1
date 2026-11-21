@@ -9,7 +9,7 @@ import warnings
 
 import numpy as np
 
-from ._native_values import DoubleArray as _Array, Text as _Text, borrow_text, read_text as _text
+from ._native_values import TOPOLOGIES, DoubleArray as _Array, Text as _Text, borrow_text, read_text as _text
 from . import _native_flow, _native_preparation, _native_properties
 from ._native_df import _Pressure as _DFPressure
 from ._native_properties import _Failure as _PropertyFailure
@@ -618,7 +618,6 @@ def inlet_query(topology, cell, wall, velocity, temperature, pressure, fluid,
                 selection, geometry, records, notice):
     """Transport one scalar query without a mesh or a prepared case."""
     from sjtu_tpmshx.physical_models import fluid_props
-    from sjtu_tpmshx.physical_models.tpms_geometry import _TOPOLOGIES
 
     errors, buffers, range_errors = {}, [], {}
     model = None
@@ -668,7 +667,7 @@ def inlet_query(topology, cell, wall, velocity, temperature, pressure, fluid,
             settings.alpha[index] = float(value) if value is not None else 0.
         for name in ('parameter_version', 'source', 'applicability'):
             setattr(settings, name, borrow_text(getattr(selection, name), buffers))
-    key = _InletKey(_GeometryKey(_TOPOLOGIES.index(topology), length, thickness,
+    key = _InletKey(_GeometryKey(TOPOLOGIES.index(topology), length, thickness,
         length_kind, thickness_kind), _FLUIDS.index(fluid_name), speed, temp, press,
         _InletKinds(speed_kind, temp_kind, press_kind),
         model is not None and model.name == 'sco2' and selection is not None, settings, False)
