@@ -65,14 +65,22 @@ def executed_view(query, result):
     return view.contents
 
 
-def thermal_execution(executed, evidence, iterations, energy):
+def execution_facts(executed, evidence, case, declarations, iterations, energy):
+    """Detach the executed states before the solver releases its result."""
     if executed.last_main_model_h < executed.model_h.count:
         settings = iterations['records'][executed.last_main_model_h]['settings']
     else:
         settings = {} if energy is None else energy['effective_settings']
-    return dict(thermal_mode=evidence.thermal_mode.decode(), unknown=executed.unknown.decode(),
-                temperature_transport=evidence.temperature_transport.decode() if evidence.temperature_transport else None,
-                effective_settings=settings)
+    thermal = dict(thermal_mode=evidence.thermal_mode.decode(), unknown=executed.unknown.decode(),
+                   temperature_transport=evidence.temperature_transport.decode() if evidence.temperature_transport else None,
+                   effective_settings=settings)
+    states = dict(thermal_state=declarations['Ta']['state'], mass_state=evidence.thermal_state.decode(),
+                  pressure_report_states={side: declarations['P_report_' + side]['state']
+                                          for side, pressure in zip('AB', evidence.pressure) if pressure},
+                  outer_index=evidence.outer_index[0])
+    return dict(version=evidence.execution_version.decode(), dimension=evidence.dimension,
+                sides=execution_sides(executed.records.contents, evidence, case, declarations),
+                thermal=thermal, evidence=states)
 
 
 def replay_sco2_notices(notices, stage):

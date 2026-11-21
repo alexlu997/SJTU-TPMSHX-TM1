@@ -8,71 +8,71 @@ from threading import RLock
 _CacheInfo = namedtuple('CacheInfo', 'hits misses maxsize currsize')
 
 
-def scalar_cache(*, maxsize: int):
-    """Cache scalar calls and expose lookup/store for native calculations.
+class _ScalarCache:
+    """Own one bounded cache shared by a scalar function and native callbacks."""
 
-    The cache size must be positive. The private functools key builder keeps
-    the existing untyped call keys, including keyword order and scalar types.
-    """
-    if not isinstance(maxsize, int) or maxsize <= 0:
-        raise ValueError('maxsize must be a positive integer')
+    def __init__(self, maxsize):
+        self._missing = object()
+        self.maxsize = maxsize
+        self.values = OrderedDict()
+        self.lock = RLock()
+        self.hits = self.misses = 0
 
-    def decorate(function):
-        cache = OrderedDict()
-        lock = RLock()
-        missing = object()
-        hits = misses = 0
+    def lookup(self, args, kwargs=None):
+        key = _make_key(args, {} if kwargs is None else kwargs, typed=False)
+        with self.lock:
+            value = self.values.get(key, self._missing)
+            if value is self._missing:
+                self.misses += 1
+                return False, None
+            self.values.move_to_end(key)
+            self.hits += 1
+            return True, value
 
-        def lookup(args: tuple, kwargs: dict | None = None):
-            """Return (found, value) and update statistics and access order."""
-            nonlocal hits, misses
-            key = _make_key(args, {} if kwargs is None else kwargs, typed=False)
-            with lock:
-                result = cache.get(key, missing)
-                if result is missing:
-                    misses += 1
-                    return False, None
-                cache.move_to_end(key)
-                hits += 1
-                return True, result
+    def store(self, args, kwargs, value):
+        key = _make_key(args, {} if kwargs is None else kwargs, typed=False)
+        with self.lock:
+            # A concurrent caller can publish this key first.
+            if key not in self.values:
+                self.values[key] = value
+                if len(self.values) > self.maxsize:
+                    self.values.popitem(last=False)
 
-        def store(args: tuple, kwargs: dict | None, value):
-            """Store a successful result without changing lookup statistics."""
-            key = _make_key(args, {} if kwargs is None else kwargs, typed=False)
-            with lock:
-                # A concurrent calculation can have stored this key first.
-                if key not in cache:
-                    cache[key] = value
-                    if len(cache) > maxsize:
-                        cache.popitem(last=False)
+    def clear(self):
+        with self.lock:
+            self.values.clear()
+            self.hits = self.misses = 0
 
+    def info(self):
+        with self.lock:
+            return _CacheInfo(self.hits, self.misses, self.maxsize, len(self.values))
+
+    def wrap(self, function):
         @wraps(function)
         def wrapped(*args, **kwargs):
-            found, result = lookup(args, kwargs)
-            if found:
-                return result
-            result = function(*args, **kwargs)
-            store(args, kwargs, result)
-            return result
+            found, value = self.lookup(args, kwargs)
+            if not found:
+                value = function(*args, **kwargs)
+                self.store(args, kwargs, value)
+            return value
 
-        def cache_clear():
-            nonlocal hits, misses
-            with lock:
-                cache.clear()
-                hits = misses = 0
-
-        def cache_info():
-            with lock:
-                return _CacheInfo(hits, misses, maxsize, len(cache))
-
-        wrapped.lookup = lookup
-        wrapped.store = store
-        wrapped.cache_clear = cache_clear
-        wrapped.cache_info = cache_info
-        wrapped.cache_parameters = lambda: {'maxsize': maxsize, 'typed': False}
+        wrapped.lookup = self.lookup
+        wrapped.store = self.store
+        wrapped.cache_clear = self.clear
+        wrapped.cache_info = self.info
+        wrapped.cache_parameters = lambda: {'maxsize': self.maxsize, 'typed': False}
         return wrapped
 
-    return decorate
+
+def scalar_cache(*, maxsize: int):
+    """Give each decorated function an independent scalar cache."""
+    if not isinstance(maxsize, int) or maxsize <= 0:
+        raise ValueError('maxsize must be a positive integer')
+    return lambda function: _ScalarCache(maxsize).wrap(function)
+
+
+geometry_cache = _ScalarCache(32768)
+inlet_cache = _ScalarCache(4096)
 
 
 class _InletCacheValue(tuple):

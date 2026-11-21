@@ -1,5 +1,6 @@
 #include "tpmshx/stage_run_c_api.h"
 #include "stage_capture_2d.hpp"
+#include "enthalpy_c_views.hpp"
 #include "tpmshx/preparation_flow.hpp"
 #include "tpmshx/preparation_df.hpp"
 #include "tpmshx/grid.hpp"
@@ -231,7 +232,7 @@ struct Packed2D {
     std::array<size_t,29> sizes;
     double depth=1.;
     tpmshx_full_2d_config_v2 config{};
-    tpmshx_energy_options_v1 energy{TPMSHX_ENERGY_TEMPERATURE_SOU,1e-8};
+    tpmshx_energy_options_v1 energy = tpmshx::default_stage_energy_options();
     tpmshx_full_2d_energy_control_v4 partial_energy{};
     const tpmshx_full_2d_energy_control_v4* explicit_energy=nullptr;
     Packed2D(const tpmshx_preparation_case_2d_v1& p,const tpmshx_stage_run_request_2d_v1& request,

@@ -213,7 +213,7 @@ def test_fixed_flow_uses_only_resolved_velocities(monkeypatch, dimension, design
     snapshot = asdict(old)
     from unittest.mock import patch
     from sjtu_tpmshx.cpp_interface import native_preparation as prep2d
-    from sjtu_tpmshx.cpp_interface import _native_preparation_case as native
+    from sjtu_tpmshx.cpp_interface import preparation_host as native
     with patch.object(native, 'volume_operation', wraps=native.volume_operation) as geometry, \
          patch.object(prep2d, 'prepare_case', side_effect=AssertionError('fixed flow prepared twice')) as full, \
          patch.object(native, 'operation', wraps=native.operation) as stage:
@@ -280,7 +280,7 @@ def test_fixed_flow_preserves_spatial_2d_geometry_and_input(monkeypatch, tmp_pat
     from sjtu_tpmshx.cpp_interface import native_preparation as prep2d
     from tests.python.native.test_cpp_full_3d import compare
     from unittest.mock import patch
-    from sjtu_tpmshx.cpp_interface import _native_preparation_case as native
+    from sjtu_tpmshx.cpp_interface import preparation_host as native
     with patch.object(prep2d, 'prepare_case', side_effect=AssertionError('fixed flow prepared twice')) as full, \
          patch.object(native, 'operation', wraps=native.operation) as stage:
         actual = prepare_fixed_mass_flow_case(old, **targets, case_id='legacy-fixed')
@@ -326,7 +326,7 @@ def test_capacity_preparation_validates_static_inputs_before_building_fields(mon
 @pytest.mark.parametrize('entry', ['public', 'direct-2d'])
 def test_fixed_flow_releases_native_owner_after_copy(monkeypatch, continuous, entry):
     from contextlib import contextmanager
-    from sjtu_tpmshx.cpp_interface import _native_preparation_case as native
+    from sjtu_tpmshx.cpp_interface import preparation_host as native
     from sjtu_tpmshx.preprocess.two_d.preparation import prepare_mass_flow_case
     from sjtu_tpmshx.run_control.run_warnings import current_warnings, warning_scope
 

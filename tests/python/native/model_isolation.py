@@ -211,13 +211,14 @@ def child(plan_file):
         if python_oracle is not None:
             assert {key: python_oracle[key] for key in ('version', 'revision')} == plan['coolprop']
         import numpy as np
-        from sjtu_tpmshx.cpp_interface import _native_preparation, _native_properties
+        from sjtu_tpmshx.cpp_interface import _native_properties
+        from sjtu_tpmshx.cpp_interface.stage_libraries import preparation_library
         roles = (['prep-0'] if plan['mode'] == 'prep-reference' else ['solver-0']
                  if plan['mode'] == 'solver-reference' else ['prep-0', 'solver-0']
                  if plan['mode'] == 'pair' else ['prep-0', 'prep-1']
                  if plan['mode'] == 'prep-pair' else ['solver-0', 'solver-1'])
         trace = NativeTrace(roles, plan['coolprop']['version'])
-        original_load, original_function = _native_preparation._load_library, _native_properties._function
+        original_load, original_function = preparation_library.load, _native_properties._function
 
         def monitored_load(path):
             assert plan['mode'] != 'solver-reference', 'solver-only execution loaded the preparation image'
@@ -230,7 +231,7 @@ def child(plan_file):
                 return function
             return lambda *args: trace.call(function, 'tpmshx_preparation_' + name + '_v1', 'prep', args)
 
-        _native_preparation._load_library = monitored_load
+        preparation_library.load = monitored_load
         _native_properties._function = traced_property
         from sjtu_tpmshx.physical_models import fluid_props, co2_props, sco2_props
         from sjtu_tpmshx.file_io.case_io import load_case

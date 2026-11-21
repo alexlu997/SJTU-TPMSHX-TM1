@@ -1,7 +1,6 @@
 """Run saved 2D inputs through one native lifecycle and capture owner."""
 import ctypes as ct
 from copy import deepcopy
-from dataclasses import replace
 from functools import partial
 from pathlib import Path
 from uuid import uuid4
@@ -10,7 +9,7 @@ import numpy as np
 
 from sjtu_tpmshx.cpp_interface._native_result_stage import Evidence, detach_stage_fields, record
 from sjtu_tpmshx.run_control.cancellation import CancelledError
-from sjtu_tpmshx.data_types.compute_config import validate_simple_velocity_relaxation
+from sjtu_tpmshx.data_types.compute_config import uses_default_thermal_recipe, validate_simple_velocity_relaxation
 from sjtu_tpmshx.run_control.run_environment import run_environment
 from sjtu_tpmshx.cpp_interface._native_preparation_case import _Array, _Kind, _Nu, _ResultV2, _Text
 from sjtu_tpmshx.physical_models.envelope import ChokedFlowError
@@ -37,11 +36,12 @@ from .solver_library._thermal_abi import (
     _energy_options,
     _iteration_options,
 )
-from sjtu_tpmshx.data_types.field_result import FieldResult
+from sjtu_tpmshx.data_types.field_result import FieldResult, execution_record
 from sjtu_tpmshx.data_types.validator import compute_volumetric_htc
 from sjtu_tpmshx.run_control.run_warnings import current_warnings, merge_warnings, warning_messages, warning_scope
 from . import _native_flow
-from ._native_preparation_case import _ResultV1, pack_saved_resources, borrow_ranges
+from ._native_preparation_case import _ResultV1
+from .preparation_host import pack_saved_resources, borrow_ranges
 from ._native_values import TOPOLOGIES, borrow_array, borrow_text
 from ._native_grid import _Scalar as GridScalar
 from .run_state import NativeRun
@@ -68,7 +68,7 @@ from .solver_library._stage_capture_abi import (
     sampling_query,
     sampling_records,
     stage_records,
-    thermal_execution,
+    execution_facts,
 )
 from sjtu_tpmshx.run_control.module_ports import RunControl
 from sjtu_tpmshx.run_control.run_environment import require_f2_mode
@@ -416,7 +416,7 @@ def saved_inputs(case, shape, *, check_experiment=None, port_windows_fit=None):
     return cfg, dict(energy_dx=case.grid['dx'], energy_dy=case.grid['dy']), experiment
 
 
-def _request(cfg):
+def _request(cfg, *, native_defaults=False):
     solver = _run_settings(cfg)['solver']
     request = _Request(3, ct.sizeof(_Request),
         _RequestV2(2, ct.sizeof(_RequestV2), _RequestV1(1, ct.sizeof(_RequestV1))))
@@ -438,11 +438,13 @@ def _request(cfg):
     values.have_pressure_shooting = 1
     values.pressure_shooting = cfg.get('p_in_shooting', run_environment(cfg, 'TPMSHX_P_IN_SHOOT', '1') == '1')
     request.values.envelope_mode = cfg.get('envelope_mode', 'raise').encode()
-    energy = _energy_options(solver.enthalpy_algorithm, solver.enthalpy_temperature_tol_K)
-    model_h = _iteration_options(vars(solver))
-    if model_h is not None:
-        values.model_h = model_h
-    values.energy = ct.pointer(energy)
+    energy = None
+    if not native_defaults or not uses_default_thermal_recipe(vars(solver)):
+        energy = _energy_options(solver.enthalpy_algorithm, solver.enthalpy_temperature_tol_K)
+        model_h = _iteration_options(vars(solver))
+        if model_h is not None:
+            values.model_h = model_h
+        values.energy = ct.pointer(energy)
     for name, target, kind in (
             ('ltne_enthalpy_outer', 'energy_iterations', _Size),
             ('ltne_enthalpy_nsweep', 'energy_sweeps', _Size),
@@ -524,7 +526,8 @@ def run_stage(driver, case, cfg, prepared, control, *, saved_version=1,
         pack_saved_resources(case, uniform.values.models, uniform.sco2_nu, saved, _run_settings(cfg)['sco2_nu'], keepalive)
     if saved_version == 4:
         saved = _SavedV4(4, ct.sizeof(_SavedV4), saved, experiment)
-    request, energy = _request(cfg)
+    complete = getattr(library, 'tpmshx_run_saved_case_2d_v4', None) if saved_version == 4 else None
+    request, energy = _request(cfg, native_defaults=complete is not None and driver.execution_query is not None)
     callbacks, errors = _callbacks(control)
     stage_control = _Control(case.case_id.encode(), driver.table_directory, control.native_cpu_threads(), callbacks)
     execution_query = driver.execution_query
@@ -536,7 +539,6 @@ def run_stage(driver, case, cfg, prepared, control, *, saved_version=1,
         version_query = _energy_algorithm_query(library)
     result = _StageResult()
     try:
-        complete = getattr(library, 'tpmshx_run_saved_case_2d_v4', None) if saved_version == 4 else None
         if complete is not None and checkpoint is None and resume_state is None:
             complete.argtypes = [ct.POINTER(_SavedV4), ct.POINTER(_Request), ct.POINTER(_Control),
                                  ct.POINTER(_StageResult), ct.POINTER(ct.c_char), _S]
@@ -591,20 +593,18 @@ def run_stage(driver, case, cfg, prepared, control, *, saved_version=1,
                 zone_summary = result_stage.zone_result
             elif hasattr(library, 'tpmshx_stage_run_2d_zone_temperatures_v1'):
                 zone_summary = partial(result_stage.zone_result, solver_library=library)
-            elif hasattr(result_stage.core._library().library, 'tpmshx_result_zone_temperatures_2d_v1'):
+            elif hasattr(result_stage.core.result_library.get().library, 'tpmshx_result_zone_temperatures_2d_v1'):
                 zone_summary = result_stage.zone_result
-        field = capture_result(case, cfg, prepared, native, application_hv=application_hv,
-                               zone_summary=zone_summary, stage_fields=stage_fields)
         from sjtu_tpmshx.cpp_interface._native_result_stage import copy_applicability
-        applicability = copy_applicability(result.evidence.applicability, case.metadata.get(
-            'applicability_inputs', ()))
-        metadata = dict(field.metadata, _native_applicability=applicability)
-        if records is not None:
-            metadata['_native_execution_sides'] = execution_sides(records, result.evidence, case, declarations)
+        native['_native_applicability'] = copy_applicability(result.evidence.applicability,
+            case.metadata.get('applicability_inputs', ()))
         if execution is not None:
-            metadata['_native_thermal_execution'] = thermal_execution(execution.execution, result.evidence,
-                                                                       native['model_h_iterations'], native['main']['true_h'])
-        return replace(field, metadata=metadata)
+            native['execution_facts'] = execution_facts(execution.execution, result.evidence, case, declarations,
+                native['model_h_iterations'], native['main']['true_h'])
+        elif records is not None:
+            native['_native_execution_sides'] = execution_sides(records, result.evidence, case, declarations)
+        return capture_result(case, cfg, prepared, native, application_hv=application_hv,
+                              zone_summary=zone_summary, stage_fields=stage_fields)
     finally:
         if result.owner:
             release(ct.byref(result))
@@ -823,19 +823,20 @@ def capture_result(case, cfg, prepared, native, *, application_hv=None, zone_sum
     evidence.update(input_resolution=cfg['_input_resolution'], property_sampling=native['property_sampling'])
     if stage_fields is None:
         stage_fields = legacy_fields(evidence, main, native)
-    result = _capture_result(case, stage_fields, evidence, application, diagnostics, backend_id='cpp',
-                             backend_version=f"full_2d_v{native.get('entry_version', 2)}")
-    extras = {key: native[key] for key in ('continuation', 'runtime_resources') if key in native}
+    audit = {key: native[key] for key in ('continuation', 'runtime_resources', '_native_applicability',
+                                         '_native_execution_sides') if key in native}
     if 'native_metadata' in native:
-        extras['native'] = native['native_metadata']
-    return replace(result, metadata=dict(result.metadata, **extras, _last_closure_ranges=native['last_closure_ranges'],
-        enthalpy_update_normalization=native['enthalpy_update_normalization'],
-        simple_velocity_relaxation=native['simple_velocity_relaxation'], simple_flow=native['simple_flow'],
-        model_h_iterations=native['model_h_iterations']))
+        audit['native'] = native['native_metadata']
+    audit.update(_last_closure_ranges=native['last_closure_ranges'],
+                 enthalpy_update_normalization=native['enthalpy_update_normalization'],
+                 simple_velocity_relaxation=native['simple_velocity_relaxation'], simple_flow=native['simple_flow'],
+                 model_h_iterations=native['model_h_iterations'])
+    return _capture_result(case, stage_fields, evidence, application, diagnostics,
+                           audit=audit, facts=native.get('execution_facts'),
+                           backend_version=f"full_2d_v{native.get('entry_version', 2)}")
 
 
-def _capture_result(case, stage_fields, native, application, diagnostics, *,
-                   backend_id='cpp', backend_version='full_2d_v1'):
+def _capture_result(case, stage_fields, native, application, diagnostics, *, audit, facts, backend_version):
     fields, field_metadata = stage_fields
     ledger = native.get('physical_ledger')
     if ledger is not None and ledger['physical_boundary_complete'] is None:
@@ -849,9 +850,25 @@ def _capture_result(case, stage_fields, native, application, diagnostics, *,
     for key in ('enthalpy_eos', 'sco2_enthalpy_eos'):
         if native['true_h'] and key in native['true_h']:
             model_metadata[key] = native['true_h'][key]
+    metadata = dict(**audit, dimension=2, quantity_basis='per_unit_depth',
+        thermal_mode=native['mode'], split_A=native['split_A'],
+        **({'temperature_transport': native['temperature']['definition']}
+           if 'temperature' in native else {}),
+        rho_cp_A=native['rho_cp_A'], rho_cp_B=native['rho_cp_B'],
+        parameters=case.parameters, design_fields=case.design_fields,
+        design_mode=case.metadata['design_mode'], application=application,
+        model_metadata=model_metadata, notices=case.metadata['notices'],
+        diagnostics=diagnostics, df_metadata=diagnostics['df_metadata'],
+        model_roles=case.metadata['model_roles'],
+        **{key: native[key] for key in ('input_resolution', 'property_sampling') if key in native},
+        reporting_reference={key: diagnostics[key] for key in (
+            'Q_total', 'dP_A', 'dP_B', 'T_out_A_K', 'T_out_B_K')})
+    if facts is not None:
+        metadata['execution_record'] = execution_record('cpp', backend_version, metadata,
+            roles=case.metadata['model_roles'], **facts)
     return FieldResult(
         result_id=str(uuid4()), case_id=case.case_id,
-        backend_id=backend_id, backend_version=backend_version, grid=case.grid,
+        backend_id='cpp', backend_version=backend_version, grid=case.grid,
         fields=fields, field_metadata=field_metadata, model_refs=case.model_refs,
         boundary_fluxes=dict(
             energy=ledger,
@@ -866,19 +883,7 @@ def _capture_result(case, stage_fields, native, application, diagnostics, *,
                         envelope_valid=bool(diagnostics['envelope_valid']),
                         final_flow_after_last_thermal=native['final_after_thermal'],
                         outer_index=native['outer_index']),
-        metadata=dict(dimension=2, quantity_basis='per_unit_depth',
-                      thermal_mode=native['mode'], split_A=native['split_A'],
-                      **({'temperature_transport': native['temperature']['definition']}
-                         if 'temperature' in native else {}),
-                      rho_cp_A=native['rho_cp_A'], rho_cp_B=native['rho_cp_B'],
-                      parameters=case.parameters, design_fields=case.design_fields,
-                      design_mode=case.metadata['design_mode'], application=application,
-                      model_metadata=model_metadata, notices=case.metadata['notices'],
-                      diagnostics=diagnostics, df_metadata=diagnostics['df_metadata'],
-                      model_roles=case.metadata['model_roles'],
-                      **{key: native[key] for key in ('input_resolution', 'property_sampling') if key in native},
-                      reporting_reference={key: diagnostics[key] for key in (
-                          'Q_total', 'dP_A', 'dP_B', 'T_out_A_K', 'T_out_B_K')}))
+        metadata=metadata)
 
 
 def _copy(view, shape=None):

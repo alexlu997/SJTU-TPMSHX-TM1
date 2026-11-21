@@ -227,7 +227,7 @@ def test_sigmoid_saved_execution_keeps_row_drag(monkeypatch, tmp_path):
     from sjtu_tpmshx.file_io.result_io import save_result, load_result
     from sjtu_tpmshx.file_io.metrics_io import save_metrics
     from sjtu_tpmshx.physical_models import sigmoid_field, tpms_props
-    from sjtu_tpmshx.cpp_interface import _native_preparation_case
+    from sjtu_tpmshx.cpp_interface import preparation_host
     from sjtu_tpmshx.solvers.api import run_case
 
     # This small real LUT checks saved execution, not LUT accuracy.
@@ -245,7 +245,7 @@ def test_sigmoid_saved_execution_keeps_row_drag(monkeypatch, tmp_path):
         raise AssertionError('saved execution must not prepare geometry again')
 
     monkeypatch.setattr(preparation_api, 'prepare_case', forbidden)
-    monkeypatch.setattr(_native_preparation_case, 'operation', forbidden)
+    monkeypatch.setattr(preparation_host, 'operation', forbidden)
     monkeypatch.setattr(tpms_props, 'geometry', forbidden)
     monkeypatch.setattr(sigmoid_field, 'get_geometry_lut', forbidden)
     library = str(library_path())

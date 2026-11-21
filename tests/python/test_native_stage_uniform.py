@@ -77,7 +77,7 @@ def _parity_request(config):
 
 
 def _evaluate(evidence):
-    library = _native_result._library().library
+    library = _native_result.result_library.get().library
     function = library.tpmshx_result_stage_evaluate_v1
     function.argtypes = [ct.POINTER(report.Evidence), ct.POINTER(report.Spec),
         ct.POINTER(report.Output), ct.POINTER(ct.c_char), _Z]

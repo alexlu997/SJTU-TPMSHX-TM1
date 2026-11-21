@@ -181,6 +181,7 @@ v3 阶段核对物理长度、流向网格、端口开度、设计场及模型�
 现行 Python 流程对规范化设置使用完整的 saved v4 协议。
 求解库与准备库共用二维端口的物理边界判定。对保存的双精度参数，`tpmshx_stage_port_windows_fit_2d_v1` 检查进、出口是否落在横向尺寸内。宿主给出详细错误，并负责其他输入类型及早期库的校验。
 普通新算在运行库提供 `tpmshx_run_saved_case_2d_v4` 时直接调用它，由 C++ 持有运行状态并交付结果。保存检查点、续算和旧库调用使用步进接口。
+二维和三维的能量选项为空时，求解器采用 T-SOU，温度更新容差为 1e-8 K。用户指定的其他选项随运行请求传入。
 saved v4 在 v3 字段外携带原始实验模型设置。
 新算及续算与准备共用原生适用域规则。
 两者首先校验原始记录，然后结合准备态的模型、名义单元几何和已解析入口速度核对原始实验域。
@@ -304,7 +305,7 @@ v9 回调描述符提供带类型的几何与入口缓存键；v1 事件回调�
 宿主阶段 10 至 16 保留域、端口、流体、网格、单元上限、粗糙度与分区单元转换的校验顺序。
 阶段 17 至 19 在构造各物理轴前校验该轴格数。
 库持有物理网格构建、局部几何、总流量解析和最终准备。
-`python/preprocess/three_d/preparation.py` 从原生视图构建不可变工况，随后 `python/cpp_interface/_native_preparation_case.py` 释放原生结果。
+`python/preprocess/three_d/preparation.py` 从原生视图构建不可变工况，随后 `python/cpp_interface/preparation_host.py` 释放原生结果。
 原生失败保留原始宿主异常，不选择其他准备路线。
 旧三维数值宿主路径及其专属 `shared/models/grid_3d.py` 和 `asym_split.py` 助手已退役。
 `tests/python/preparation_3d_reference.py` 保留独立比较和合成保存网格夹具。
@@ -518,7 +519,7 @@ Python 负责内存、磁盘查询与发布；未命中时按既有 41x31 节点
 使用受支持但未提供 v11 的准备库时，适配器使用该库的连续场 v7 或条带 v10 入口，并从几何库取得相应字段。
 连续 XY 容量查询和流量解析使用 v7 及 v4 载荷。条带查询、矩形和 sigmoid 场使用 v10。
 仅容量查询保留配置校验，不计算阻力；完整空间准备仍要求 CFD 阻力。
-`python/cpp_interface/native_preparation.py` 传输共享缓存值与证据，不调用缓存函数的数值主体。
+`python/cpp_interface/preparation_host.py` 传输共享缓存值与证据，不调用缓存函数的数值主体。
 适配器先复制数组、标量类型与证据，再释放原生 owner；保存的工况保留原 schema、SI 场、控制量和模型引用。
 前段质量流量记录仍位于最终准备的警告作用域之外。
 

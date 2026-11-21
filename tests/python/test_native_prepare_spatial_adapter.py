@@ -392,7 +392,7 @@ def test_spatial_conductivity_keeps_value_after_weak_comparison(monkeypatch, tmp
 
 @pytest.mark.parametrize('operation,targets', [('full', None), ('capacity', None), ('full', (.001, .001))])
 def test_geometry_cache_queries_receive_initialized_storage(monkeypatch, tmp_path, operation, targets):
-    from sjtu_tpmshx.cpp_interface.native_preparation import PreparationCacheBridge
+    from sjtu_tpmshx.cpp_interface.preparation_host import PreparationCacheBridge
     original = PreparationCacheBridge.geometry_at
     lookups = []
     def observed(self, action, key, value):

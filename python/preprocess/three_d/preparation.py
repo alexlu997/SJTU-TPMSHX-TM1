@@ -6,13 +6,13 @@ import os
 
 import numpy as np
 
-from sjtu_tpmshx.cpp_interface import native_preparation as common
+from sjtu_tpmshx.cpp_interface import preparation_host as host
 from sjtu_tpmshx.data_types.case_data import CaseData
 from sjtu_tpmshx.data_types.compute_config import ComputeConfig, bc_to_dict
 from sjtu_tpmshx.data_types.model_refs import ModelRef
 from sjtu_tpmshx.run_control.run_environment import capture_environment
 from sjtu_tpmshx.cpp_interface._native_values import (
-    TOPOLOGIES, TOPOLOGY_CODES, GridPort, GridScalar, borrow_text, grid_count, grid_scalar, read_text, restore_buffer_scalar,
+    TOPOLOGIES, TOPOLOGY_CODES, GridPort, GridScalar, grid_count, grid_scalar, read_text, restore_buffer_scalar,
 )
 from sjtu_tpmshx.cpp_interface import _native_preparation_case as native
 from sjtu_tpmshx.cpp_interface import _native_preparation_3d as three
@@ -56,7 +56,7 @@ def _input(config, targets, operation):
     continuous = config.zones.enabled and config.zones.axis == 'continuous'
     value.geometry_mode = 1 if continuous else 2 if config.zones.enabled and config.zones.axis == 'grid' else 0
     value.df_mode = int(config.df_mode == 'experimental')
-    value.kinds = native._Kinds(*map(common._kind,
+    value.kinds = native._Kinds(*map(host._kind,
         (geometry.L_cell_mm, geometry.t_wall_mm, geometry.k_s_W_mK)))
     for index, side in enumerate('AB'):
         fluid, port = getattr(config, 'fluid_' + side), getattr(config, 'bc_' + side)
@@ -68,21 +68,15 @@ def _input(config, targets, operation):
         value.sides[index] = three._Inlet(native._FLUIDS.index(fluid.type) if fluid.type in native._FLUIDS else 0,
             transport(speed), transport(fluid.T_in_K), transport(fluid.P_in_Pa), raw_port,
             fluid.mass_flow_kg_s is not None, fluid.mass_flow_kg_s or 0.)
-        value.kinds.sides[index] = native._InletKinds(*map(common._kind,
+        value.kinds.sides[index] = native._InletKinds(*map(host._kind,
             (speed, fluid.T_in_K, fluid.P_in_Pa)))
-    settings = config.sco2_nu
-    value.sco2_nu.mode = int(settings.mode == 'experimental')
-    for index, name in enumerate(('alpha_D', 'alpha_G')):
-        selected = getattr(settings, name)
-        value.sco2_nu.have_alpha[index], value.sco2_nu.alpha[index] = selected is not None, selected or 0.
     buffers = []
-    for name in ('parameter_version', 'source', 'applicability'):
-        setattr(value.sco2_nu, name, borrow_text(getattr(settings, name), buffers))
+    host.pack_nu(value.sco2_nu, config.sco2_nu, buffers)
     flow = three._FlowInput(2, ct.sizeof(three._FlowInput), value)
     flow.have_explicit_targets = targets is not None
     for index, side in enumerate('AB'):
         target = targets[index] if targets is not None else getattr(config, 'fluid_' + side).mass_flow_kg_s
-        flow.target_kinds[index] = common._flow_kind(0. if target is None else target)
+        flow.target_kinds[index] = host._flow_kind(0. if target is None else target)
         if targets is not None:
             flow.explicit_targets_kg_s[index] = target
     if continuous:
@@ -192,11 +186,11 @@ def _case(result, config, case_id, context):
                   ('permeability', 'K_m2'), ('forchheimer', 'cF_per_m'), ('solid_conductivity', 'K_ss')))}
     continuous = isinstance(result, three._ContinuousCase)
     design['eps_B'] = design['eps_A'] if continuous else _array(result.side_b_porosity, shape)
-    uniform = common._geometry_values(value.geometry, bool(value.co2.active))
+    uniform = host._geometry_values(value.geometry, bool(value.co2.active))
     solid_kind = (native._Kind(64, 1, 1) if value.co2.active else
-                  common._kind(config.geometry.k_s_W_mK) if isinstance(config.geometry.k_s_W_mK, np.generic)
+                  host._kind(config.geometry.k_s_W_mK) if isinstance(config.geometry.k_s_W_mK, np.generic)
                   else native._Kind(64, 0, 0))
-    uniform['K_ss'] = native._restore(value.uniform_solid_conductivity, solid_kind)
+    uniform['K_ss'] = host._restore(value.uniform_solid_conductivity, solid_kind)
     params = _parameters(config, uniform, context)
     thermal = dict(uniform=uniform, fields=None,
                    split_A=.5 if continuous else result.split_a, side_geometry=None)
@@ -216,7 +210,7 @@ def _case(result, config, case_id, context):
         properties[side] = {key: getattr(current, name) for name, key in
                             (('rho', 'rho'), ('mu', 'mu'), ('cp', 'cp'), ('k_f', 'k'))}
         if current.have_drag_application:
-            drag[side] = common.drag_application_metadata(current.drag_evidence, current.drag_selection,
+            drag[side] = host.drag_application_metadata(current.drag_evidence, current.drag_selection,
                 params['u_' + side], result.drag[index] if continuous else None)
     params.update(thermal_geometry=thermal, df_application=drag or None,
         prepared=dict(Nx=shape[0], Ny=shape[1], Nz=shape[2],
@@ -231,7 +225,7 @@ def _case(result, config, case_id, context):
         'xy_extruded' if config.zones.enabled else 'uniform')
     return CaseData.from_compute_config(case_id, config, grid=grid, design_fields=design, parameters=params,
         model_refs=refs, metadata=dict(preprocessor='three_d_v1', quantity_basis='total', design_mode=mode,
-            model_metadata=common.model_metadata(value, value.input.sco2_nu, config),
+            model_metadata=host.model_metadata(value, value.input.sco2_nu, config),
             notices=[read_text(item) for item in value.notices[:value.notice_count]],
             model_roles={'fluid_A': 0, 'fluid_B': 1, 'geometry': 2, 'darcy_forchheimer': 3}))
 
@@ -246,7 +240,7 @@ def _execute(config, action, *, targets=None, case_id=None, start_observations=N
         chi, chi_error = None, problem
     allow = config.extrap.allow or os.environ.get('TPMSHX_ALLOW_EXTRAP', '').lower() in ('1', 'true', 'yes')
     options = native._Options(1, ct.sizeof(native._Options), chi is not None, allow, chi or 0.)
-    cache = common.PreparationCacheBridge(config, chi_error)
+    cache = host.PreparationCacheBridge(config, chi_error)
     context = {'extrap_reasons': cache.extrap_reasons}
     if start_observations is not None:
         start_observations()
@@ -267,9 +261,8 @@ def _execute(config, action, *, targets=None, case_id=None, start_observations=N
             context['ports'] = {name: bc_to_dict(getattr(config, 'bc_' + name),
                 config.geometry.L_dom_m, config.geometry.H_dom_m, side='A', with_z=True) for name in 'AB'}
         elif stage == 12:
-            from sjtu_tpmshx.cpp_interface._native_preparation_case import validate_fluid_type
             for name in 'AB':
-                validate_fluid_type(getattr(config, 'fluid_' + name).type, name)
+                host.validate_fluid_type(getattr(config, 'fluid_' + name).type, name)
             if config.zones.enabled and config.zones.axis not in ('continuous', 'grid'):
                 raise NotImplementedError('3D zones support grid or continuous mode only')
         elif stage == 13:
@@ -297,11 +290,11 @@ def _execute(config, action, *, targets=None, case_id=None, start_observations=N
         else:
             raise RuntimeError(f'unknown 3D preparation host stage {stage}')
 
-    with native.volume_operation(action, source, options, host_input, cache) as result:
+    with host.volume_operation(action, source, options, host_input, cache) as result:
         flow = result.flow
         if action == 'prepare_inlet_mass_capacities':
             return {side: restore_buffer_scalar(flow.capacities[index]) for index, side in enumerate('AB')}
-        resolved = common.resolved_flow_config(config, flow, targets)
+        resolved = host.resolved_flow_config(config, flow, targets)
         if action == 'resolve_inlet_flow':
             return resolved
         return _case(result, resolved, case_id, context)

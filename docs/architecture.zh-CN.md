@@ -28,7 +28,7 @@ Python 保留公共类型、缓存接口和逐次调用的 chi 显式值／环�
 查询返回十二个带类型的标量，不需要网格、CaseData 或求解器。
 Python 保留缓存键与访问顺序、可变的公共结果副本，以及私有缓存中的 cp/Pr 字段。
 对象转换、警告过滤器与来源位置、NumPy 事件策略也由 Python 保留。
-`python/cpp_interface/_native_preparation_case.py` 与准备适配器共享范围记录传输。
+`python/cpp_interface/preparation_host.py` 与准备适配器共享范围记录传输。
 原始查询中的复数 Nu 和表面换热系数保留既有行为；完整算例的物理校验不变。
 组合查询直接调用原生 EOS，不填充独立 EOS 包装器的缓存。
 Quick Design 准备通过其宿主操作共享这些包装器缓存。
@@ -50,7 +50,7 @@ Python 选择 dtype 元数据并适配输出类型，不提供数值回退。
 
 准备目标位于 `preprocess/`，复用几何／网格核心及 `fluid_properties.cpp` 的共享数值所有者。
 它链接锁定的 CoolProp 静态库，不包含完整求解器、run_state、SuperLU 或 AMG。
-`python/cpp_interface/_native_preparation.py` 按需加载预构建库，由具名物性、DF 和流量适配器打包具体输入。
+`python/cpp_interface/stage_libraries.py` 分别选择准备库和结果库，首次调用时加载对应库并检查 ABI。物性、DF 和流量适配器分别打包各自的输入。
 几何 ABI 1 与 field ABI 2 保留各自错误协议。
 Preparation ABI 1 的状态 1 表示无效输入，2 表示分配失败，3 表示运行时错误；
 状态 10、11、12 分别表示水、CO2、sCO2 状态错误。
@@ -118,7 +118,7 @@ run v3 通过现有完整二维驱动消费连续准备态，保留局部阻力�
 流量结果拥有复制后的空间控制点和 LUT，前段与最终证据保持分开。
 v8 原始边界仍只接收事件回调。
 准备 v9 携带带类型的几何及入口缓存键，包括实际 L/t 和可选 Nu 选择。
-`python/cpp_interface/native_preparation.py` 通过既有共享缓存所有者传输缓存值和证据。
+`python/cpp_interface/preparation_host.py` 通过既有共享缓存所有者传输缓存值和证据。
 未命中时由原生计算数值，Python 保留查询、LRU 顺序、发布与警告过滤器。
 sigmoid LUT 钩子在原几何检查点加载或发布宿主存储，缺表时由原生构建。
 公共配置保留原拓扑和导热系数比较规则，包括窄标量的相等比较。
@@ -147,8 +147,7 @@ Python 适配器从准备库复制这些字段。使用旧版准备库时，这�
 局部总孔隙率仍为对称值，各侧容量使用自己的拆分字段，v1/v2/v3 布局保持不变。
 v4 布局也保持不变；Python 三维准备使用 host v5 及其带类型缓存回调。
 `python/preprocess/three_d/preparation.py` 转换配置、读取环境设置并组装不可变工况。
-`python/cpp_interface/_native_preparation_3d.py` 声明三维数据布局。二维和三维在 `python/cpp_interface/_native_preparation_case.py` 中共用原生结果的取得和释放逻辑。
-`python/cpp_interface/native_preparation.py` 与二维共享缓存及警告传递。
+`python/cpp_interface/_native_preparation_3d.py` 声明三维数据布局。二维和三维在 `python/cpp_interface/preparation_host.py` 中共用原生结果的取得和释放逻辑。
 C++ owner 只构建一次物理网格，并保留静态证据在解析速度检查之前的顺序。
 空气场每侧最多选择八个标量观测值，保留原通知、极值和最后样本。
 完整原始数组范围记录仍包含全部物理单元。
@@ -298,7 +297,8 @@ EOS 能量关系记录 HEOS 流体名称和实际热状态压力场。
 积分 h(T)、热容温度输运与规定温度保持区分。
 记录直接复制返回的算法标识、有效设置和状态标签。
 完成的原生求解阶段提供各侧实际使用的能量关系、执行方法、更新尺度和最后一次主网格 model-h 调用。
-Python 将这些证据与算例资源索引一同发布。
+已完成的求解阶段还返回温度场和质量通量的状态、可用的压力报告及外迭代编号。
+Python 构造场结果时，将这些证据与算例资源索引一同写入执行记录。
 归档运行库缺少此视图时，Python 从早期结果字段读取执行信息。
 独立结果阶段判断资格。
 缺失的算法标识保持空值，输入中请求的设置不能证明实际执行。

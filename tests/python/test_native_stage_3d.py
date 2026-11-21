@@ -65,7 +65,7 @@ _Result = record('StageResult3D', [('abi_version', _U), ('struct_size', _Z), ('o
 
 
 def _evaluate(result):
-    library = query.core._library().library
+    library = query.core.result_library.get().library
     function = library.tpmshx_result_stage_query_v2
     function.argtypes = [ct.POINTER(query.Input), _U, ct.POINTER(query.Spec), ct.POINTER(query.Metric), _Z,
         ct.POINTER(query.Output), ct.POINTER(query.core._Diagnostics), ct.POINTER(ct.c_uint64),

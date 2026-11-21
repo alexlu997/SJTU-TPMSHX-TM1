@@ -5,7 +5,7 @@ from itertools import product
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.cpp_interface._native_values import copy_array
+from sjtu_tpmshx.cpp_interface._native_values import copy_array, read_text
 
 from tests.python import preparation_api_reference as reference
 from tests.python import test_native_preparation_3d as uniform
@@ -207,7 +207,7 @@ def test_missing_preparation_library_stops_3d_dispatch(monkeypatch):
 
 def test_host_exception_keeps_identity_and_releases_owner(monkeypatch):
     from sjtu_tpmshx.preprocess.three_d import preparation
-    from sjtu_tpmshx.cpp_interface import _native_preparation_case as binding
+    from sjtu_tpmshx.cpp_interface import preparation_host as binding
     from sjtu_tpmshx.run_control.run_warnings import warning_scope, current_warnings
     original = binding._Bindings
     released = []
@@ -243,14 +243,15 @@ def test_owned_3d_views_cannot_be_diagnostic_outputs(mode, alias):
     from sjtu_tpmshx.preprocess.three_d import preparation
     from sjtu_tpmshx.cpp_interface import _native_preparation_3d as binding
     from sjtu_tpmshx.cpp_interface import _native_preparation_case as native
-    from sjtu_tpmshx.cpp_interface import _native_preparation
+    from sjtu_tpmshx.cpp_interface import preparation_host
+    from sjtu_tpmshx.cpp_interface.stage_libraries import preparation_library
     config = _configuration(mode).validate()
     source = preparation._input(config, None, 'prepare_flow_case')
     kind = binding._ContinuousCase if source.abi_version == 3 else binding._SpatialCase
     result = kind(source.abi_version, ct.sizeof(kind))
     options = native._Options(1, ct.sizeof(native._Options), 0, 1, 0.)
     failure, error = native._Failure(2, ct.sizeof(native._Failure)), ct.create_string_buffer(4096)
-    bindings = native._volume_bindings(_native_preparation._library().path)
+    bindings = preparation_host._volume_bindings(preparation_library.get().path)
     call = bindings.operations[source.abi_version, 'prepare_flow_case'].call
     assert call(ct.byref(source), ct.byref(options), None, ct.byref(result),
                 ct.byref(failure), error, len(error)) == 0
@@ -274,7 +275,8 @@ def test_cached_3d_evidence_cannot_alias_diagnostics(alias):
     from sjtu_tpmshx.preprocess.three_d import preparation
     from sjtu_tpmshx.cpp_interface import _native_preparation_3d as binding
     from sjtu_tpmshx.cpp_interface import _native_preparation_case as native
-    from sjtu_tpmshx.cpp_interface import _native_preparation
+    from sjtu_tpmshx.cpp_interface import preparation_host
+    from sjtu_tpmshx.cpp_interface.stage_libraries import preparation_library
     config = _configuration('uniform', pair=('air', 'air')).validate()
     source = preparation._input(config, None, 'prepare_flow_case')
     result = binding._SpatialCase(4, ct.sizeof(binding._SpatialCase))
@@ -289,10 +291,10 @@ def test_cached_3d_evidence_cannot_alias_diagnostics(alias):
         value.evidence.warning_count = 1
         return False
 
-    callbacks, descriptor, errors = native._callback_bridge(lambda *args: None,
+    callbacks, descriptor, errors = preparation_host._callback_bridge(lambda *args: None,
         geometry_cache_at=lambda *args: False, inlet_cache_at=inlet)
     before = bytes(result), bytes(failure), bytes(error)
-    bindings = native._volume_bindings(_native_preparation._library().path)
+    bindings = preparation_host._volume_bindings(preparation_library.get().path)
     status = bindings.operations[4, 'prepare_flow_case'].call(ct.byref(source), ct.byref(options),
         ct.byref(descriptor), ct.byref(result), ct.byref(failure), error, len(error))
     assert status == 1 and calls == [0] and not errors
@@ -363,10 +365,9 @@ def test_weak_scalar_bounds_keep_later_df_validation(monkeypatch, mode, dtype):
 @pytest.mark.parametrize('mode', ['xy', 'xyz', 'grid'])
 @pytest.mark.parametrize('targets', [None, (.001, .001)])
 def test_air_field_observations_keep_original_bounded_sequence(monkeypatch, mode, targets):
-    from sjtu_tpmshx.cpp_interface.native_preparation import PreparationCacheBridge
+    from sjtu_tpmshx.cpp_interface.preparation_host import PreparationCacheBridge
     from sjtu_tpmshx.run_control.run_warnings import _range_context
     from sjtu_tpmshx.physical_models import nu_correlations as nu
-    from sjtu_tpmshx.cpp_interface import _native_preparation_case as native
 
     config = _configuration(mode, pair=('air', 'air'))
     config.solver.Nx, config.solver.Ny, config.solver.Nz = 30, 20, 10
@@ -380,9 +381,9 @@ def test_air_field_observations_keep_original_bounded_sequence(monkeypatch, mode
         return original_notice(topology, minimum, maximum, value)
 
     def observe(self, value, bounds_list, cached, scalar):
-        if (native._text(value.layout) == 'scalar-zoned-call'
-                and [native._text(item) for item in value.source[:value.source_count]][:2] == ['nu', 'air']):
-            actual_calls.append((native._text(value.side), scalar))
+        if (read_text(value.layout) == 'scalar-zoned-call'
+                and [read_text(item) for item in value.source[:value.source_count]][:2] == ['nu', 'air']):
+            actual_calls.append((read_text(value.side), scalar))
         return original_observe(self, value, bounds_list, cached, scalar)
 
     monkeypatch.setattr(nu, '_warn_extrap', notice)

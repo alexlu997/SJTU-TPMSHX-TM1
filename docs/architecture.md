@@ -34,7 +34,7 @@ Cache misses use the existing C++ numerical functions; current material conducti
 The query returns twelve typed scalars without a grid, CaseData or solver.
 Python retains cache keys and access order, mutable public result copies, and the private cp/Pr cache fields.
 It also retains object conversion, warning filters and source locations, and NumPy event policy.
-`python/cpp_interface/_native_preparation_case.py` shares range-record transport with the preparation adapters.
+`python/cpp_interface/preparation_host.py` shares range-record transport with the preparation adapters.
 Raw complex Nu and surface-transfer values retain their existing behavior; complete-case physical guards stay unchanged.
 The combined query calls native EOS directly and does not populate the standalone EOS wrapper caches.
 Quick Design preparation shares those wrapper caches through its host operations.
@@ -56,7 +56,7 @@ See [C++ scope and delivery records](cpp-migration.md#cpp-core-scope).
 
 The preparation target is `preprocess/`. It reuses the geometry/grid core and the shared `fluid_properties.cpp` numerical owner.
 It links the locked CoolProp static library, without full solvers, run_state, SuperLU or AMG.
-`python/cpp_interface/_native_preparation.py` loads the prebuilt library on demand. Concrete property, DF and flow adapters pack named inputs.
+`python/cpp_interface/stage_libraries.py` selects the preparation and result images independently. It loads each image on demand and checks its ABI. Concrete property, DF and flow adapters pack named inputs.
 Geometry ABI 1 and field ABI 2 retain their separate status contracts.
 Preparation ABI 1 uses status 1 for invalid inputs, 2 for allocation and 3 for runtime errors.
 Its state statuses are 10 for water, 11 for CO2 and 12 for sCO2.
@@ -132,7 +132,7 @@ Discrete smoothing, sigmoid LUT geometry, separate thermal geometry and row D-F 
 Its flow results own copied spatial controls and LUTs; preliminary and final evidence remain separate.
 The v8 raw boundary retains event-only callbacks.
 Preparation v9 carries typed geometry and inlet cache keys, including actual L/t and optional Nu selection.
-`python/cpp_interface/native_preparation.py` transports cache values and evidence through the existing shared cache owners.
+`python/cpp_interface/preparation_host.py` transports cache values and evidence through the existing shared cache owners.
 Native misses calculate the values; Python keeps lookup, LRU order, publication and warning filters.
 The sigmoid LUT hook loads or publishes host storage at the original geometry checkpoint; missing tables use native construction.
 Public configuration keeps its original topology and conductivity comparisons, including narrow-scalar equality.
@@ -163,8 +163,7 @@ The existing asymmetric owner supplies nominal split and thermal side/reference 
 Local total porosity remains symmetric; each side capacity uses its own split field.
 The v1/v2/v3/v4 layouts remain unchanged. Python 3D preparation uses host v5 and its typed cache callbacks.
 `python/preprocess/three_d/preparation.py` converts the configuration, reads the environment and builds the immutable case.
-`python/cpp_interface/_native_preparation_3d.py` declares the volume layouts. The 2D and 3D calls share the result owner in `python/cpp_interface/_native_preparation_case.py`.
-`python/cpp_interface/native_preparation.py` shares cache and warning transport with 2D.
+`python/cpp_interface/_native_preparation_3d.py` declares the volume layouts. The 2D and 3D calls share the result owner in `python/cpp_interface/preparation_host.py`.
 The C++ owner builds the physical grid once and keeps static evidence before resolved-speed checks.
 Air-field scalar observations use at most eight selected values per side, with the original notices, extrema and last sample.
 Full raw-array range records keep all physical cells.
@@ -341,7 +340,8 @@ Integral h(T), capacity temperature transport and prescribed temperatures remain
 The record copies returned algorithm identifiers, effective settings and state labels.
 The completed native stage identifies the actual energy relation for each side.
 It provides the executed method, update scale and last main model-h call.
-Python publishes this evidence with the case resource indices.
+The completed stage result also identifies the thermal and mass states, available pressure reports and outer iteration.
+Python publishes this evidence with the case resource indices when it constructs the field result.
 For an archived runtime without this view, Python reads the earlier result fields.
 The independent result stage decides qualification.
 A missing algorithm identifier stays null; requested settings do not establish execution.

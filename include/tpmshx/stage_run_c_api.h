@@ -64,6 +64,7 @@ typedef struct {
     uint32_t have_pressure_shooting,pressure_shooting;
     const char* convergence_mode;
     tpmshx_model_h_iteration_options_v1 model_h;
+    /* NULL selects temperature_sou with a 1e-8 K temperature update tolerance. */
     const tpmshx_energy_options_v1* energy;
     const tpmshx_full_2d_energy_control_v4* explicit_energy;
 } tpmshx_stage_run_request_2d_v1;

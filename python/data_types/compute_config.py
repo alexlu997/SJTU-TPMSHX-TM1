@@ -76,7 +76,7 @@ import warnings
 from dataclasses import asdict, dataclass, field
 from math import isfinite
 from pathlib import Path
-from typing import Any, Dict, Literal, Optional, Tuple, Union
+from typing import Any, Dict, Final, Literal, Optional, Tuple, Union
 
 from sjtu_tpmshx.model_configs.model_parameters import load_model_parameters
 
@@ -89,6 +89,11 @@ ZoneAxis = Literal['x', 'y', 'grid', 'continuous']
 SCO2_P_RANGE_PA = tuple(load_model_parameters()['sco2']['pressure_range_Pa'])
 
 
+# A null recipe in the complete native stage has these values.
+_DEFAULT_ENTHALPY_ALGORITHM: Final = 'temperature_sou'
+_DEFAULT_ENTHALPY_TOLERANCE_K = 1e-8
+
+
 def validate_enthalpy_algorithm(algorithm, temperature_tolerance):
     """Validate the persisted conservative energy recipe and its K update gate."""
     if algorithm not in ('legacy_h_fou', 'temperature_fou', 'temperature_sou'):
@@ -97,6 +102,16 @@ def validate_enthalpy_algorithm(algorithm, temperature_tolerance):
             or not isinstance(temperature_tolerance, (int, float))
             or not isfinite(temperature_tolerance) or temperature_tolerance <= 0.):
         raise ValueError('enthalpy_temperature_tol_K must be finite and positive')
+
+
+def uses_default_thermal_recipe(settings):
+    """Check for the standard T-SOU recipe with no model-h iteration overrides."""
+    algorithm = settings.get('enthalpy_algorithm', _DEFAULT_ENTHALPY_ALGORITHM)
+    tolerance = settings.get('enthalpy_temperature_tol_K', _DEFAULT_ENTHALPY_TOLERANCE_K)
+    return (type(algorithm) is str and algorithm == _DEFAULT_ENTHALPY_ALGORITHM
+            and type(tolerance) is float and tolerance == _DEFAULT_ENTHALPY_TOLERANCE_K
+            and all(settings.get(name) is None for name in (
+                'model_h_max_iterations', 'model_h_temperature_tol_K', 'model_h_q_relative_tol')))
 
 
 def validate_simple_velocity_relaxation(value):
@@ -207,8 +222,8 @@ class SolverConfig:
     mass_local_tol: Optional[float] = None
     mass_global_tol: Optional[float] = None
     # Historical IDs remain readable; the selected native library validates execution.
-    enthalpy_algorithm: Literal['legacy_h_fou', 'temperature_fou', 'temperature_sou'] = 'temperature_sou'
-    enthalpy_temperature_tol_K: float = 1e-8
+    enthalpy_algorithm: Literal['legacy_h_fou', 'temperature_fou', 'temperature_sou'] = _DEFAULT_ENTHALPY_ALGORITHM
+    enthalpy_temperature_tol_K: float = _DEFAULT_ENTHALPY_TOLERANCE_K
     # Optional integral h(T) controls; None keeps the actual route defaults.
     model_h_max_iterations: Optional[int] = None
     model_h_temperature_tol_K: Optional[float] = None

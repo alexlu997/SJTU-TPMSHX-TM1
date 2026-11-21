@@ -14,7 +14,8 @@ from sjtu_tpmshx.data_types.model_refs import ModelRef
 from sjtu_tpmshx.run_control.run_environment import _resolve_chi_s, capture_environment
 from sjtu_tpmshx.run_control.run_warnings import range_context, record_range
 from sjtu_tpmshx.physical_models.df_surrogate.backend import resolve_method
-from . import _native_df, _native_flow, _native_geometry, _native_grid, _native_preparation, _native_properties
+from . import _native_df, _native_flow, _native_geometry, _native_grid, _native_properties
+from .stage_libraries import preparation_library
 from sjtu_tpmshx.physical_models import fluid_props as registry
 from sjtu_tpmshx.physical_models import co2_props, sco2_props, tpms_geometry
 from ._native_values import TOPOLOGIES, TOPOLOGY_CODES, geometry_topology, DoubleArray as _Array, Text as _Text, borrow_text, copy_array, read_text
@@ -60,7 +61,7 @@ def _plain_float(value):
 
 class _Bindings:
     def __init__(self, path):
-        self.owner = _native_preparation._load_library(path)
+        self.owner = preparation_library.load(path)
         arguments = [ct.POINTER(_Input), ct.POINTER(_Callbacks)]
         self.prepare = self.owner.bind('tpmshx_prepare_quick_design_v2',
             [*arguments, ct.POINTER(_Prepared), ct.POINTER(ct.c_char), _S])
@@ -499,7 +500,7 @@ class _HostState:
 
 @contextmanager
 def _operation(state):
-    bindings = _bindings(_native_preparation._library().path)
+    bindings = _bindings(preparation_library.path())
     state.collect_range = bindings.collect_range if bindings.range_query is not None else None
     source = _Input(2, ct.sizeof(_Input))
     for n in range(13):

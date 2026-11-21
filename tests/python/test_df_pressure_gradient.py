@@ -106,7 +106,7 @@ def _raw_gradient(values):
     output.real.fill(-12345.); output.imaginary.fill(-67890.); output.events.fill(0x5a5a5a5a)
     ct.memset(ct.byref(output.kind),0x6b,ct.sizeof(output.kind)); output.category.value = 0x7c7c7c7c
     before = (output.real.copy(),output.imaginary.copy(),output.events.copy(),bytes(output.kind),output.category.value)
-    owner = ct.CDLL(native._native_preparation._library().path)
+    owner = ct.CDLL(native.preparation_library.get().path)
     function = owner.tpmshx_preparation_df_pressure_gradient_v1
     function.argtypes = [*native._SIGNATURES['pressure_gradient'],*native._ERROR]
     function.restype = ct.c_int

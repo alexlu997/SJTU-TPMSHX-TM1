@@ -125,7 +125,7 @@ Python wheel 包含代码和模型资源，不包含原生库。
 不构建完整求解器或 run_state，也不需要 SuperLU 或 AMG。
 完整构建脚本分别构建 pilot 和 preparation 工程，共用一套物性和 DF 数值实现。
 
-`python/cpp_interface/_native_preparation.py` 在需要时通过 ctypes 加载 preparation ABI 1。
+`python/cpp_interface/stage_libraries.py` 通过 ctypes 分别按需加载准备库（ABI 1）和结果库（ABI 2）。
 具名物性、DF 和流量适配器保留现有 Python 公共接口。
 二维准备将 v7 域长／端口标量类型描述符与适用的版本载荷配合使用。
 共享网格和端口核心保留整数与窄浮点混合运算。
@@ -164,7 +164,7 @@ v10 范围见[偏移几何](native-stages.zh-CN.md#既有偏移几何)，输入�
 owner 保留物理网格场、六个端口流向、标量类型标记和模型证据。
 两侧孔隙率已拆分；K/cF 场未缩放，逐侧证据记录应用因子。
 宿主提供已解析的单元数上限；[阶段契约](native-stages.zh-CN.md#均匀三维准备)定义所有权与端口规则。
-Python 三维准备通过 `python/cpp_interface/_native_preparation_case.py` 调用此原生阶段。`python/cpp_interface/_native_preparation_3d.py` 定义三维数据布局。
+Python 三维准备通过 `python/cpp_interface/preparation_host.py` 调用此原生阶段。`python/cpp_interface/_native_preparation_3d.py` 定义三维数据布局。
 独立的三维流量 v2 为配置或显式总质量流量增加容量、解析及完整准备，复用同一物理几何，
 保留静态观测到速度观测的原证据顺序。三维 continuous v3 为这些流量操作增加 XY 挤出和 XYZ 控制点，
 复用现有样条及几何所有者，分别保留原始设计场与热几何的 SI 往返换算。

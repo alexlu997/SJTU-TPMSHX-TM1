@@ -4,7 +4,8 @@ from functools import lru_cache
 
 import numpy as np
 
-from . import _native_grid, _native_preparation
+from . import _native_grid
+from .stage_libraries import preparation_library
 from ._native_values import (
     GridScalar as _Scalar, NumericBuffer as _Values, buffer_scalar as _scalar,
     numeric_buffer as _values, restore_buffer_scalar as _restore,
@@ -34,7 +35,7 @@ _SIGNATURES = {
 
 class _Bindings:
     def __init__(self, path):
-        self.owner = _native_preparation._load_library(path)
+        self.owner = preparation_library.load(path)
         for name, arguments in _SIGNATURES.items():
             setattr(self, name, self.owner.bind(
                 f'tpmshx_preparation_{name}_v1', [*arguments, _SP, _Size, *_Error]))
@@ -48,7 +49,7 @@ def _bindings(path):
 
 
 def _current():
-    return _bindings(_native_preparation._library().path)
+    return _bindings(preparation_library.path())
 
 
 def _check_status(status, error):

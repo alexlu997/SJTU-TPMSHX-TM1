@@ -7,7 +7,9 @@ from uuid import uuid4
 
 import numpy as np
 
-from sjtu_tpmshx.data_types.compute_config import Sco2NuConfig, reject_retired_research_options, validate_simple_velocity_relaxation
+from sjtu_tpmshx.data_types.compute_config import (
+    Sco2NuConfig, reject_retired_research_options, uses_default_thermal_recipe, validate_simple_velocity_relaxation,
+)
 from sjtu_tpmshx.data_types.persistence_validation import (
     grid_axes, validate_axis_permutation, validate_grid, validate_thermal_geometry,
 )
@@ -15,13 +17,14 @@ from sjtu_tpmshx.physical_models.field_coordinates_3d import _port_rectangles
 from sjtu_tpmshx.run_control.cancellation import CancelledError
 from sjtu_tpmshx.run_control.run_environment import require_f2_mode, run_environment
 from sjtu_tpmshx.run_control.run_warnings import current_warnings, merge_warnings
-from sjtu_tpmshx.data_types.field_result import FieldResult
+from sjtu_tpmshx.data_types.field_result import FieldResult, execution_record
 from sjtu_tpmshx.data_types.model_refs import freeze_value
 from sjtu_tpmshx.physical_models.df_surrogate import CFD_CAMPAIGN, CFD_SCOPE
 
 from sjtu_tpmshx.cpp_interface._native_result_stage import (Evidence, Input as Evaluation,
     detach_stage_fields, nu_observation, record, stage_closures, stage_ledger)
-from sjtu_tpmshx.cpp_interface._native_preparation_case import _Array as PreparedArray, _Evidence, _Text, _Kind, _Model, _Nu, pack_saved_resources
+from sjtu_tpmshx.cpp_interface._native_preparation_case import _Array as PreparedArray, _Evidence, _Text, _Kind, _Model, _Nu
+from .preparation_host import pack_saved_resources
 from .solver_library._full_3d_abi import (_Array, _BootstrapTrace, _Callbacks, _Cancel, _Control, _EnergyEvidence,
     _FLAGS, _FLOW_ARRAYS, _Input, _OuterProgress, _PAIRS, _Progress, _Result)
 from .solver_library._stage_capture_abi import (
@@ -38,7 +41,7 @@ from .solver_library._stage_capture_abi import (
     execution_view_query,
     replay_sco2_notices,
     sampling_records,
-    thermal_execution,
+    execution_facts,
 )
 from .solver_library.closure_evidence import copy_nu_observation, copy_range_observations
 from .solver_library._thermal_abi import (
@@ -50,7 +53,7 @@ from .solver_library._thermal_abi import (
     _iteration_options,
 )
 from .solver_library.simple_3d import _STOPS
-from ._native_preparation_case import borrow_ranges as _ranges
+from .preparation_host import borrow_ranges as _ranges
 from ._native_values import TOPOLOGIES, GridPort, grid_count, borrow_array as _array, borrow_text as _text, iteration_count
 from .run_state import NativeRun
 
@@ -328,7 +331,8 @@ def validate_flow_options(cfg):
 
 def _request(cfg, energy, model_h):
     request = _Request(1, ct.sizeof(_Request))
-    request.energy = ct.pointer(_EnergyOptions(energy.algorithm, energy.temperature_update_tolerance))
+    if energy is not None:
+        request.energy = ct.pointer(_EnergyOptions(energy.algorithm, energy.temperature_update_tolerance))
     if model_h is not None:
         request.model_h = model_h
     for target, source in (('energy_coupled_tolerance', 'ltne_enthalpy_coupled_energy_tol'),
@@ -599,10 +603,11 @@ def add_saved_evidence(detached, case, evidence, records, fields, shape, *, exec
     if records is not None:
         _, warnings, detached['last_closure_ranges'] = stage_closures(records)
         detached['stage_diagnostics'] = diagnostics(records, evidence, case.parameters, case.design_fields)
-        detached['_native_execution_sides'] = execution_sides(records, evidence, case, fields[1])
     if executed is not None:
-        detached['_native_thermal_execution'] = thermal_execution(executed, evidence,
+        detached['execution_facts'] = execution_facts(executed, evidence, case, fields[1],
             detached['model_h_iterations'], detached['true_h'])
+    elif records is not None:
+        detached['_native_execution_sides'] = execution_sides(records, evidence, case, fields[1])
     detached['_native_applicability'] = copy_applicability(evidence.applicability,
         case.metadata.get('applicability_inputs', ()))
     if records is not None and 'temperature_evidence' not in detached:
@@ -749,12 +754,14 @@ def run_saved(case, control, library, abi, table_directory, execution_query, *,
     shape, cell_mm, wall_mm, nu = validate_saved_case(case)
     cfg, prepared = case.parameters, case.parameters['prepared']
     control.check_cancelled()
-    energy = energy_request(cfg)
+    complete = getattr(library, 'tpmshx_run_saved_case_3d_v2', None)
+    native_defaults = complete is not None and uses_default_thermal_recipe(cfg)
+    energy = None if native_defaults else energy_request(cfg)
     has_water = 'water' in (cfg['fluid_type_A'], cfg['fluid_type_B'])
     if cfg.get('enthalpy_algorithm', 'temperature_sou') != 'temperature_sou':
         _full_enthalpy_defaults(library, 3, energy.algorithm, has_water)
     _, strict = validate_energy_controls(cfg)
-    model_h = model_h_request(cfg, strict)
+    model_h = None if native_defaults else model_h_request(cfg, strict)
     request = _request(cfg, energy, model_h)
     validate_flow_options(cfg)
     keepalive = []
@@ -767,7 +774,6 @@ def run_saved(case, control, library, abi, table_directory, execution_query, *,
     result = None
     try:
         saved = pack_saved_case(case, data, cell_mm, wall_mm, nu, keepalive, 2)
-        complete = getattr(library, 'tpmshx_run_saved_case_3d_v2', None)
         if complete is not None and checkpoint is None and resume_state is None:
             complete.argtypes = [ct.POINTER(_SavedV2), ct.POINTER(_Request), ct.POINTER(_Host),
                                  ct.POINTER(_StageResult), ct.POINTER(ct.c_char), ct.c_size_t]
@@ -949,7 +955,27 @@ def capture_result(case, cfg, p, r, abi, *, legacy_fields=None, legacy_drag=None
         diagnostics['_audit_eps']=float(cfg['eps'])
         diagnostics['_audit_m_dot_B_phys_in']=r['physical_mass_in'][1] if r['flow'][1] else None
         diagnostics['_audit_m_dot_B_phys_out']=r['physical_mass_out'][1] if r['flow'][1] else None
-    return FieldResult(result_id=str(uuid4()),case_id=case.case_id,backend_id='cpp',backend_version=f"full_3d_v{r['entry_version']}",grid=case.grid,
+    backend_version = f"full_3d_v{r['entry_version']}"
+    metadata = dict(**({'continuation':r['continuation']} if 'continuation' in r else {}),
+        **({'runtime_resources':r['runtime_resources']} if 'runtime_resources' in r else {}),
+        _last_closure_ranges=r['last_closure_ranges'],dimension=3,quantity_basis='total',thermal_mode=r['mode'],parameters=case.parameters,design_fields=case.design_fields,
+        **({'temperature_transport':r['temperature_evidence']['definition']} if 'temperature_evidence' in r else {}),
+        input_resolution=r['_input_resolution'] if '_input_resolution' in r else cfg['_input_resolution'], property_sampling=r['property_sampling'],
+        enthalpy_update_normalization=r['enthalpy_update_normalization'],
+        simple_velocity_relaxation=r['simple_velocity_relaxation'],
+        model_h_iterations=r['model_h_iterations'],
+        design_mode=case.metadata['design_mode'],model_metadata=model_metadata,notices=case.metadata['notices'],
+        application=dict(coeffs=dict(K_ffA=r['final_conductivity'][0],K_ffB=r['final_conductivity'][1],
+            K_ss=fields['K_ss'] if emit_audit else None),
+            props=dict(rho_cp_A=r['final_rho_cp'][0],rho_cp_B=r['final_rho_cp'][1],u_A_in_mps=cfg['u_A'],T_in_A_K=cfg['T_inA'])),
+        **({'native':r['native_metadata']} if 'native_metadata' in r else {}),
+        **{key: r[key] for key in ('_native_applicability', '_native_execution_sides') if key in r},
+        diagnostics=diagnostics,df_metadata=df_metadata,model_roles=case.metadata['model_roles'],
+        reporting_reference={key:diagnostics[key] for key in ('Q','dP_A','dP_B','T_out_A','T_out_B')})
+    if 'execution_facts' in r:
+        metadata['execution_record'] = execution_record('cpp', backend_version, metadata,
+            roles=case.metadata['model_roles'], **r['execution_facts'])
+    return FieldResult(result_id=str(uuid4()),case_id=case.case_id,backend_id='cpp',backend_version=backend_version,grid=case.grid,
         fields=fields,field_metadata=field_metadata,model_refs=case.model_refs,
         boundary_fluxes=dict(mass_A=None if mass[0][0] is None else mass[0],mass_B=None if mass[1][0] is None else mass[1],
             mass_unit='kg/s',mass_axes=('x-face','y-face','z-face'),mass_sign='positive along physical coordinate axis',state='last thermal input',
@@ -958,19 +984,4 @@ def capture_result(case, cfg, p, r, abi, *, legacy_fields=None, legacy_drag=None
             face_velocity_A=r['face_velocity'][0],face_velocity_B=r['face_velocity'][1] if r['flow'][1] else None,
             **({'temperature':r['temperature_evidence']} if 'temperature_evidence' in r else {})),
         pressure_evidence=pressure,run_status=dict(execution='completed',converged=r['converged'],outer_index=r['outer_index']),
-        metadata=dict(**({'continuation':r['continuation']} if 'continuation' in r else {}),
-            **({'runtime_resources':r['runtime_resources']} if 'runtime_resources' in r else {}),
-            _last_closure_ranges=r['last_closure_ranges'],dimension=3,quantity_basis='total',thermal_mode=r['mode'],parameters=case.parameters,design_fields=case.design_fields,
-            **({'temperature_transport':r['temperature_evidence']['definition']} if 'temperature_evidence' in r else {}),
-            input_resolution=r['_input_resolution'] if '_input_resolution' in r else cfg['_input_resolution'], property_sampling=r['property_sampling'],
-            enthalpy_update_normalization=r['enthalpy_update_normalization'],
-            simple_velocity_relaxation=r['simple_velocity_relaxation'],
-            model_h_iterations=r['model_h_iterations'],
-            design_mode=case.metadata['design_mode'],model_metadata=model_metadata,notices=case.metadata['notices'],
-            application=dict(coeffs=dict(K_ffA=r['final_conductivity'][0],K_ffB=r['final_conductivity'][1],
-                K_ss=fields['K_ss'] if emit_audit else None),
-                props=dict(rho_cp_A=r['final_rho_cp'][0],rho_cp_B=r['final_rho_cp'][1],u_A_in_mps=cfg['u_A'],T_in_A_K=cfg['T_inA'])),
-            **({'native':r['native_metadata']} if 'native_metadata' in r else {}),
-            **{key: r[key] for key in ('_native_applicability', '_native_execution_sides', '_native_thermal_execution') if key in r},
-            diagnostics=diagnostics,df_metadata=df_metadata,model_roles=case.metadata['model_roles'],
-            reporting_reference={key:diagnostics[key] for key in ('Q','dP_A','dP_B','T_out_A','T_out_B')}))
+        metadata=metadata)

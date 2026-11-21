@@ -10,14 +10,14 @@ import pytest
 from tests.python.native import model_isolation as isolation
 from tests.python.native.shared_library import library_path
 from tests.python.native.test_native_execution import _config
-from sjtu_tpmshx.cpp_interface import _native_preparation
+from sjtu_tpmshx.cpp_interface.stage_libraries import preparation_library
 
 
 @pytest.fixture(scope='module')
 def model_libraries():
     solver = library_path().resolve()
     try:
-        preparation = Path(_native_preparation._library_path())
+        preparation = Path(preparation_library.path())
     except (FileNotFoundError, RuntimeError) as error:
         if os.environ.get('TPMSHX_REQUIRE_NATIVE_DEPS_TESTS') == '1' or 'TPMSHX_PREPARATION_LIBRARY' in os.environ:
             pytest.fail(str(error))

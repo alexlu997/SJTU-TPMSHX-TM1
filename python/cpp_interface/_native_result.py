@@ -2,13 +2,10 @@
 import ctypes as ct
 from functools import lru_cache
 import os
-from pathlib import Path
-import platform
-import sys
 
 import numpy as np
 
-from sjtu_tpmshx.run_control.provenance import PUBLISHED_LIBRARY_DIR
+from .stage_libraries import result_library
 
 from ._native_values import floating_events
 
@@ -51,69 +48,9 @@ _OPERATIONS = {1: 'add', 2: 'subtract', 3: 'multiply', 4: 'divide', 5: 'power', 
                13: 'maximum', 14: 'minimum', 15: 'square'}
 
 
-def _library_path():
-    selected = os.environ.get('TPMSHX_RESULT_LIBRARY')
-    if selected is not None:
-        if not selected.strip():
-            raise RuntimeError('TPMSHX_RESULT_LIBRARY must name a prebuilt result library')
-        path = Path(selected).expanduser()
-    else:
-        machine = platform.machine().lower()
-        if sys.platform == 'darwin' and machine in ('arm64', 'aarch64'):
-            host, name = 'macos-arm64', 'libtpmshx_result_shared.dylib'
-        elif sys.platform == 'win32' and machine in ('amd64', 'x86_64'):
-            host, name = 'windows-x64', 'tpmshx_result_shared.dll'
-        elif sys.platform == 'linux' and machine in ('amd64', 'x86_64'):
-            host, name = 'linux-x86_64', 'libtpmshx_result_shared.so'
-        else:
-            raise RuntimeError(f'no default result library for {sys.platform}/{machine}; '
-                               'set TPMSHX_RESULT_LIBRARY to a prebuilt library')
-        if getattr(sys, 'frozen', False):
-            path = Path(sys._MEIPASS) / 'native' / name
-        else:
-            path = PUBLISHED_LIBRARY_DIR / host / name
-    path = path.resolve()
-    if not path.is_file():
-        raise FileNotFoundError(f'prebuilt native result library is missing: {path}')
-    return str(path)
-
-
-class _Library:
-    def __init__(self, path):
-        self.path, self.functions = path, {}
-        try:
-            self.library = ct.CDLL(path)
-        except OSError as error:
-            raise OSError(f'cannot load prebuilt native result library {path}: {error}') from error
-        version = self.bind('tpmshx_result_abi_version_v1', [], _UInt)()
-        if version != 2:
-            raise RuntimeError(f'unsupported native result ABI {version} in {path}; expected 2')
-
-    def bind(self, name, types, result=ct.c_int):
-        key = (name, tuple(types), result)
-        if key not in self.functions:
-            try:
-                # CDLL attributes share mutable signatures; indexing creates an independent function.
-                function = self.library[name]
-            except AttributeError as error:
-                raise RuntimeError(f'prebuilt native result library {self.path} lacks {name}') from error
-            function.argtypes, function.restype = types, result
-            self.functions[key] = function
-        return self.functions[key]
-
-
-@lru_cache(maxsize=1)
-def _load_library(path):
-    return _Library(path)
-
-
-def _library():
-    return _load_library(_library_path())
-
-
 @lru_cache(maxsize=1)
 def _extended_format(path):
-    owner = _load_library(path)
+    owner = result_library.load(path)
     output, error = _Platform(), ct.create_string_buffer(4096)
     query = owner.bind('tpmshx_result_platform_info_v1',
                        [ct.POINTER(_Platform), ct.POINTER(ct.c_char), _Size])
@@ -132,10 +69,10 @@ def _dtype_tag(dtype):
     if key in _KINDS:
         return _KINDS[key]
     if dtype.kind == 'f' and dtype.itemsize == np.dtype(np.longdouble).itemsize:
-        _extended_format(_library_path())
+        _extended_format(result_library.path())
         return 13
     if dtype.kind == 'c' and dtype.itemsize == np.dtype(np.clongdouble).itemsize:
-        _extended_format(_library_path())
+        _extended_format(result_library.path())
         return 16
     raise TypeError(f'native result buffers require numeric data, got {dtype}')
 
@@ -199,7 +136,7 @@ def restore_scalar(value):
         raise RuntimeError('native result returned an invalid scalar description')
     dtype = _DTYPES[value.dtype]
     if value.dtype in (13, 16):
-        _extended_format(_library_path())
+        _extended_format(result_library.path())
     if value.byte_order:
         dtype = dtype.newbyteorder('<' if value.byte_order == 1 else '>')
     values = np.frombuffer(bytes(value.data[:dtype.itemsize]), dtype=dtype, count=1)
@@ -235,7 +172,7 @@ def integer_product_requires_python(values):
 def call(name, argtypes, *arguments, stacklevel=4, library=None):
     types = [*argtypes, ct.POINTER(_Diagnostics), ct.POINTER(ct.c_char), _Size]
     if library is None:
-        function = _library().bind(name, types)
+        function = result_library.get().bind(name, types)
     else:
         function = library[name]
         function.argtypes, function.restype = types, ct.c_int

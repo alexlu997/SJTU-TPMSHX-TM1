@@ -2,7 +2,7 @@
 
 [中文](README.md)
 
-Start with the [2D air example](../examples/cpp/air_2d.cpp#L15-L17). It supplies the two inlet speeds, temperatures, pressures and core geometry. It prepares the case, solves it and reports engineering metrics.
+Start with the [2D air example](../examples/cpp/air_2d.cpp#L32-L34). It supplies the two inlet speeds, temperatures, pressures and core geometry. It prepares the case, solves it and reports engineering metrics.
 
 | Step | Source | What to look for |
 | --- | --- | --- |

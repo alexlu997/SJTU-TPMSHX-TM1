@@ -74,22 +74,21 @@ def _checked_applicability(actual, expected, case):
     execution = full_execution_record(case, expected)
     if '_native_execution_sides' in metadata:
         _same(metadata.pop('_native_execution_sides'), execution['sides'], 'executed side records')
-    if '_native_thermal_execution' in metadata:
-        thermal = metadata.pop('_native_thermal_execution')
-        _same(thermal, {key: execution['numerics'][key] for key in thermal}, 'executed thermal record')
+    if 'execution_record' in metadata:
+        _same(metadata.pop('execution_record'), freeze_value(execution), 'executed native record')
     _same(metadata.pop('_native_applicability'), freeze_value(wanted), 'native applicability transfer')
     return replace(actual, metadata=metadata)
 
 
 def _compare(case, tmp_path, monkeypatch):
-    from sjtu_tpmshx.cpp_interface import _native_preparation_case
+    from sjtu_tpmshx.cpp_interface import preparation_host
     expected_events, actual_events = [], []
     expected = _old(case, _control(expected_events))
     def forbidden(*args, **kwargs):
         raise AssertionError('saved stage must not prepare or use the old numerical packer')
     with monkeypatch.context() as patch:
         patch.setattr(full_2d, '_pack', forbidden)
-        patch.setattr(_native_preparation_case, 'operation', forbidden)
+        patch.setattr(preparation_host, 'operation', forbidden)
         actual = full_2d.run_case(case, _control(actual_events))
     actual = _checked_applicability(actual, expected, case)
     _same(replace(actual, result_id=expected.result_id), expected, 'result')

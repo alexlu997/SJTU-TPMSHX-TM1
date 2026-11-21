@@ -9,7 +9,7 @@ from tests.python import df_reference, nu_reference, property_reference
 from tests.python.test_property_fp_diagnostics import assert_sentinel, sentinel_result
 from sjtu_tpmshx.cpp_interface import _native_properties as native
 from sjtu_tpmshx.physical_models import design_fluids, nu_correlations, tpms_calc
-from sjtu_tpmshx.cpp_interface._native_preparation import _library
+from sjtu_tpmshx.cpp_interface.stage_libraries import preparation_library
 
 
 def observe(function):
@@ -149,7 +149,7 @@ def test_operand_boundary_rejects_bad_metadata_without_partial_output(quantity, 
     else:
         inputs[1].real.count = 0
     result, failure, error = sentinel_result(1), native._Failure(), ct.create_string_buffer(2048)
-    status = native._function(_library(), quantity)(*inputs, result.output, ct.byref(failure), error, len(error))
+    status = native._function(preparation_library.get(), quantity)(*inputs, result.output, ct.byref(failure), error, len(error))
     assert buffers
     assert status == 1
     assert_sentinel(result)
@@ -168,7 +168,7 @@ def test_operand_boundary_preserves_aliased_input(quantity, overlap):
     else:
         error = ct.cast(source.ctypes.data, ct.POINTER(ct.c_char))
     capacity = source.nbytes if overlap == 'error' else len(error)
-    status = native._function(_library(), quantity)(*inputs, result.output, ct.byref(failure), error, capacity)
+    status = native._function(preparation_library.get(), quantity)(*inputs, result.output, ct.byref(failure), error, capacity)
     assert buffers
     assert status == 1
     assert source.tobytes() == before

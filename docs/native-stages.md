@@ -213,6 +213,7 @@ Keep the additional field buffers and model strings alive through result transfe
 Current Python runs use the complete saved v4 protocol for canonical settings.
 The solver and preparation libraries use the same physical limit for 2D port windows. For saved double-precision settings, `tpmshx_stage_port_windows_fit_2d_v1` checks both windows on the cross axis. The host supplies detailed errors and checks other input types and earlier libraries.
 For a fresh run, Python calls `tpmshx_run_saved_case_2d_v4` when the library provides it. C++ owns the run through result transfer. Checkpoints and older libraries use the step interface.
+For both dimensions, a null energy recipe selects T-SOU with a temperature update tolerance of 1e-8 K. The host sends explicit overrides to the solver.
 Saved v4 adds the original experimental model settings to the v3 fields.
 Create and restore use the same native applicability rules as preparation.
 They validate the original record first. They then check its campaign domain against the prepared model, nominal cell geometry and resolved inlet speeds.
@@ -361,7 +362,7 @@ The host keeps cache policy, scalar object types, warning filters and source loc
 Host stages 10 through 16 preserve domain, port, fluid, grid, cell-cap, roughness and grid-cell conversion validation order.
 Stages 17 through 19 validate each count before its physical axis is built.
 The library owns physical grid construction, local geometry, total-flow resolution and final preparation.
-`python/preprocess/three_d/preparation.py` builds the immutable case from native views. Then `python/cpp_interface/_native_preparation_case.py` releases the native result.
+`python/preprocess/three_d/preparation.py` builds the immutable case from native views. Then `python/cpp_interface/preparation_host.py` releases the native result.
 Native failure preserves the original host exception and does not select another preparation route.
 The old 3D numerical host route and its exclusive `shared/models/grid_3d.py` and `asym_split.py` helpers are retired.
 `tests/python/preparation_3d_reference.py` keeps their independent comparison and synthetic saved-grid fixtures.
@@ -582,7 +583,7 @@ Complete continuous XY and stripe preparation use v11 when available.
 With a supported preparation binary that lacks v11, the adapter uses its v7 continuous and v10 stripe entries and obtains the fields from the geometry library.
 Continuous XY capacity and flow resolution use v7 with v4 payloads. Stripe queries, rectangles and sigmoid fields use v10.
 Capacity-only queries keep configuration validation and do not calculate drag. Complete spatial preparation still requires CFD drag.
-`python/cpp_interface/native_preparation.py` transports shared cache values and evidence without numerical cache calls.
+`python/cpp_interface/preparation_host.py` transports shared cache values and evidence without numerical cache calls.
 The adapter copies arrays, scalar types and evidence before it releases the native owner.
 Stored cases keep their schema, SI fields, controls and model references.
 Preliminary mass-flow records remain outside the final preparation warning scope.

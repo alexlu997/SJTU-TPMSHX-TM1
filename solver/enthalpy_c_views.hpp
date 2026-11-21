@@ -7,6 +7,11 @@
 #include <stdexcept>
 
 namespace tpmshx {
+inline tpmshx_energy_options_v1 default_stage_energy_options() {
+    const EnthalpyControl control{};
+    return {static_cast<uint32_t>(control.algorithm), control.temperature_update_tolerance};
+}
+
 inline tpmshx_energy_effective_settings_v1 energy_settings_c_view(const EnthalpyControl& c, bool completed) {
     return {completed ? 1u : 0u, static_cast<uint32_t>(c.algorithm),
         c.require_enthalpy_update_on_temperature ? 1u : 0u, c.max_iterations, c.sweeps,

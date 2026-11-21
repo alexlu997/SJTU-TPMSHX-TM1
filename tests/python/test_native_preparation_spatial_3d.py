@@ -8,7 +8,8 @@ import os
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.cpp_interface._native_values import copy_array
+from sjtu_tpmshx.cpp_interface._native_values import copy_array, read_text
+
 
 from tests.python import test_native_preparation_flow_3d as flow
 from sjtu_tpmshx.data_types.compute_config import ZoneInputConfig
@@ -91,7 +92,7 @@ def _call(native, operation, config, targets=None, *, source=None, chi=None, rej
 
     def event(_context, pointer):
         item = pointer.contents
-        events.append((item.kind, abi._text(item.logger), abi._text(item.message), item.floating_event))
+        events.append((item.kind, read_text(item.logger), read_text(item.message), item.floating_event))
         return int(reject_event)
 
     callback = abi._EventFunction(event)
@@ -459,7 +460,7 @@ def test_spatial_3d_no_target_resolution_keeps_unvalidated_owned_input(native, m
         for buffer in source._values._source._buffers:
             if len(buffer) > 1:
                 buffer[0] = b'X'
-        assert abi._text(result.flow.input.sco2_nu.source) == config.sco2_nu.source
+        assert read_text(result.flow.input.sco2_nu.source) == config.sco2_nu.source
     finally:
         _release(native, result)
 

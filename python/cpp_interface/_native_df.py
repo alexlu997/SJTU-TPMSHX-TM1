@@ -10,7 +10,8 @@ import numpy as np
 
 from ._native_values import TOPOLOGY_CODES
 from ._df_abi import DragSummary as _Summary
-from . import _native_grid, _native_preparation
+from . import _native_grid
+from .stage_libraries import preparation_library
 from . import _native_properties as _properties
 from ._native_properties import _EVENTS as _FP_EVENT_COUNT, _FPFailure
 
@@ -53,7 +54,7 @@ _SIGNATURES = {
 
 @lru_cache(maxsize=1)
 def _bindings(path):
-    owner = _native_preparation._load_library(path)
+    owner = preparation_library.load(path)
     return {name: owner.bind(f'tpmshx_preparation_df_{name}_v1', [*args, *_ERROR])
             for name, args in _SIGNATURES.items()}
 
@@ -76,7 +77,7 @@ def _raise_status(status, error, cause=0):
 
 def _call(name, *arguments):
     error = ct.create_string_buffer(2048)
-    status = _bindings(_native_preparation._library().path)[name](*arguments, error, len(error))
+    status = _bindings(preparation_library.path())[name](*arguments, error, len(error))
     _raise_status(status,error)
 
 
@@ -121,7 +122,7 @@ def pressure(topology, length, wall, *values, compressible=False, strict=False):
     arguments = [TOPOLOGY_CODES[topology], length, wall, *packed]
     if compressible:
         arguments.append(int(bool(strict)))
-    function = _bindings(_native_preparation._library().path)[name]
+    function = _bindings(preparation_library.path())[name]
     status = function(*arguments,ct.byref(output),ct.byref(failure),error,len(error))
     # This decoder applies NumPy error policy; it evaluates no property formula.
     from ._native_properties import _floating_events
@@ -138,7 +139,7 @@ def pressure_gradient(rho,mu,u,permeability,inertial):
     """Evaluate the original ordered gradient with supplied K/cF data."""
     shape, buffers, inputs = _properties._inputs((rho,mu,u,permeability,inertial))
     result, failure, error = _properties._Result(buffers[0].size), _FPFailure(), ct.create_string_buffer(2048)
-    function = _bindings(_native_preparation._library().path)['pressure_gradient']
+    function = _bindings(preparation_library.path())['pressure_gradient']
     status = function(*inputs,result.output,ct.byref(failure),error,len(error))
     _pressure_failure(status,failure,error)
     return result.restore(shape)
@@ -146,7 +147,7 @@ def pressure_gradient(rho,mu,u,permeability,inertial):
 
 @lru_cache(maxsize=1)
 def _experiment_scope(path):
-    library = _native_preparation._load_library(path).library
+    library = preparation_library.load(path).library
     scope = getattr(library, 'tpmshx_preparation_df_experiment_scope_v1', None)
     if scope is not None:
         scope.argtypes, scope.restype = [_U, _U, _U, _U, _U, _D, _D, _D, _D, _D, _S], _U
@@ -155,7 +156,7 @@ def _experiment_scope(path):
 
 def experiment_scope(topology, fluids, geometry_mode, cell, wall, symmetric, domain):
     try:
-        path = _native_preparation._library().path
+        path = preparation_library.get().path
     except (OSError, RuntimeError, ValueError):
         # Static checks can run before a preparation library is available.
         return None

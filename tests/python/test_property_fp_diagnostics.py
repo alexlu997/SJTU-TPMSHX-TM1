@@ -7,7 +7,7 @@ import pytest
 
 from tests.python import nu_reference, property_reference
 from sjtu_tpmshx.cpp_interface import _native_properties as native
-from sjtu_tpmshx.cpp_interface._native_preparation import _library
+from sjtu_tpmshx.cpp_interface.stage_libraries import preparation_library
 
 
 def observation(function, mode):
@@ -60,7 +60,7 @@ def assert_sentinel(result):
 def test_terminal_failure_publishes_only_error_diagnostics():
     _, buffers, inputs = native._inputs((np.float16(1.), 1e200, 0., 1.))
     result, failure, error = sentinel_result(1), native._Failure(), ct.create_string_buffer(2048)
-    status = native._function(_library(), 'nu')(
+    status = native._function(preparation_library.get(), 'nu')(
         3, 1, *inputs, native._scalar(1.), result.output, ct.byref(failure), error, len(error))
     assert buffers
     assert status == 3
@@ -77,7 +77,7 @@ def test_error_storage_cannot_write_into_an_input():
     argument = native._Input(native._pointer(source), 1, native._Scalar(0., 64, 0), 0)
     result, failure = sentinel_result(1), native._Failure()
     error = ct.cast(source.ctypes.data, ct.POINTER(ct.c_char))
-    status = native._function(_library(), 'empirical')(
+    status = native._function(preparation_library.get(), 'empirical')(
         0, argument, native._Input(), result.output, ct.byref(failure), error, source.nbytes)
     assert status == 1
     assert source.tobytes() == before

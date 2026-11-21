@@ -44,7 +44,7 @@ Preparation v8 adds capacity, flow resolution and complete fixed-flow preparatio
 It retains the physical grid and geometry, resolves speeds before transfer calculations, and owns copied regions, controls and LUTs.
 Typed domain/port inputs and separate preliminary evidence remain explicit.
 Preparation v9 connects symmetric spatial Python preparation, capacity and resolution through typed host-cache hooks.
-`python/cpp_interface/native_preparation.py` shares cache and evidence transport; misses calculate in the native stage.
+`python/cpp_interface/preparation_host.py` shares cache and evidence transport; misses calculate in the native stage.
 Python retains LUT storage. Native code builds missing tables at the original geometry checkpoint.
 
 Preparation v10 adds the existing nonzero-delta uniform air/water and air/air spatial modes at prescribed speed.
@@ -87,12 +87,14 @@ Current public saved 2D/3D runs copy applicability groups and required records b
 The public API publishes these groups without repeating classification.
 Python combines complete case notices and run `nu-evidence` warning records into `scope_notes`; independent C++ stages keep their native notes.
 Direct and archived-runtime paths retain `capture_applicability`. Capture failures do not select that path.
-`python/solvers/execution_record.py` publishes the completed native method and sampling records.
+After the solve, `python/cpp_interface/solver_library/_stage_capture_abi.py` reads the executed method and states from C++.
+`python/data_types/field_result.py` publishes them with property samples and case resource indices.
+For older libraries without an execution view, `python/solvers/execution_record.py` recovers these facts from the returned fields.
 The native result stage decides qualification.
 
 Standalone `shared/models/tpms_calc.compute` uses the same native inlet-property combination as complete preparation.
 Python keeps geometry selection, shared caches, mutable result copies, the per-call K_ss query, object conversion and warning policy.
-`python/cpp_interface/_native_preparation_case.py` transports the twelve typed query values and shares range observations with the preparation adapters.
+`python/cpp_interface/inlet_properties.py` transports the twelve typed query values and shares range observations with the preparation adapters.
 The [inlet-property query](../docs/native-stages.md#inlet-property-query) exposes the same calculation to C and C++ callers without a grid or solver.
 
 Quick Design preparation v2 accepts typed raw inputs and provides a separate pressure query without thermal grid or design-field arrays.

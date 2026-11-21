@@ -258,8 +258,8 @@ def test_missing_stage_symbol_is_a_deployment_error(monkeypatch, query):
     from sjtu_tpmshx.cpp_interface import _native_result as core
     handle = LibraryStub(tpmshx_result_abi_version_v1=lambda: 2)
     monkeypatch.setattr(core.ct, 'CDLL', lambda _: handle)
-    library = core._Library('historical-result-image')
-    monkeypatch.setattr(core, '_library', lambda: library)
+    library = core.result_library.open('historical-result-image')
+    monkeypatch.setattr(core.result_library, 'get', lambda: library)
     function = getattr(native, 'evaluate' if query == 'evaluate' else 'evaluate_' + query)
     arguments = (sample_result(2), {}) if query == 'qualification' else (sample_result(2),)
     version = 3 if query in ('evaluate', 'qualification') else 2
@@ -435,7 +435,7 @@ def test_host_calls_keep_their_signature_after_an_independent_c_wire_call():
     result = result_fixture(3)
     expected = performance(reference.evaluate(result))
     assert_values(performance(native.evaluate(result)), expected)
-    native_report(result, native.core._library().library)
+    native_report(result, native.core.result_library.get().library)
     assert_values(performance(native.evaluate(result)), expected)
 
 
@@ -484,7 +484,7 @@ def test_query_releases_borrowed_fields_without_collection(without_cyclic_collec
 @pytest.mark.parametrize('missing', ['library', 'query', 'release'])
 def test_binding_failure_releases_borrowed_fields(without_cyclic_collection, monkeypatch, kind, missing):
     from sjtu_tpmshx.cpp_interface import _native_result as core
-    library = core._library()
+    library = core.result_library.get()
 
     class MissingSymbol:
         def bind(self, name, *arguments):
@@ -497,7 +497,7 @@ def test_binding_failure_releases_borrowed_fields(without_cyclic_collection, mon
             raise RuntimeError('missing library')
         return MissingSymbol()
 
-    monkeypatch.setattr(core, '_library', load)
+    monkeypatch.setattr(core.result_library, 'get', load)
 
     def exercise():
         field = _lifetime_result(kind)

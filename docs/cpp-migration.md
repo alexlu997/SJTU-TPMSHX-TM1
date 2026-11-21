@@ -144,7 +144,7 @@ They reuse geometry/grid and the shared model implementation, including the lock
 This project builds no full solver or run_state and needs no SuperLU or AMG.
 The full build script builds the pilot and preparation projects separately. They share one property and DF numerical implementation.
 
-`python/cpp_interface/_native_preparation.py` loads preparation ABI 1 through ctypes when needed.
+`python/cpp_interface/stage_libraries.py` loads preparation ABI 1 and result ABI 2 independently through ctypes on demand.
 Named property, DF and flow adapters preserve the existing public Python interfaces.
 2D preparation uses the v7 domain/port scalar-kind descriptor with the applicable versioned payload.
 The shared grid and port cores retain mixed integer and narrow-float arithmetic.
@@ -184,7 +184,7 @@ It supports both topologies and all 16 ordered fluid pairs with the existing sta
 The owner keeps physical grid fields, six port directions, scalar tags and model evidence.
 Side porosity is already split. K/cF fields remain unscaled; side evidence records the application factors.
 The host supplies the resolved cell cap. The [stage contract](native-stages.md#uniform-3d-preparation) defines ownership and port rules.
-Python 3D preparation calls this stage through `python/cpp_interface/_native_preparation_case.py`. The volume layouts are in `python/cpp_interface/_native_preparation_3d.py`.
+Python 3D preparation calls this stage through `python/cpp_interface/preparation_host.py`. The volume layouts are in `python/cpp_interface/_native_preparation_3d.py`.
 The separate 3D flow v2 adds capacity, resolution and complete preparation for configured or explicit total mass flow.
 It reuses one physical geometry and retains the original static-to-speed evidence order.
 The 3D continuous v3 adds XY extrusion and XYZ controls to those flow operations.

@@ -20,7 +20,7 @@ from tests.python.test_temperature_face_results import temperature_fixture
 @pytest.fixture(scope='module')
 def stage_library():
     selected = os.environ.get('TPMSHX_RESULT_STAGE_LIBRARY')
-    library = ct.CDLL(selected) if selected else core._library().library
+    library = ct.CDLL(selected) if selected else core.result_library.get().library
     assert hasattr(library, 'tpmshx_result_stage_evaluate_v1'), 'build the current independent result library'
     return library
 

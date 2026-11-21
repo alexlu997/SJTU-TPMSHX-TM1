@@ -315,7 +315,7 @@ test_zone_mean_std_and_extrema_keep_original_types(dtype, np.float16)
 @pytest.mark.parametrize('mode', ['normal', 'disabled-v3'])
 def test_complex_square_matches_fresh_numpy_cpu_dispatch(dtype, mode):
     environment = os.environ.copy()
-    environment['TPMSHX_RESULT_LIBRARY'] = core._library().path
+    environment['TPMSHX_RESULT_LIBRARY'] = core.result_library.get().path
     if mode == 'disabled-v3':
         environment['NPY_DISABLE_CPU_FEATURES'] = 'X86_V3'
     else:

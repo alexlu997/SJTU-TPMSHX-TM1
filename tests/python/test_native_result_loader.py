@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 
 from sjtu_tpmshx.cpp_interface import _native_result as native
+from sjtu_tpmshx.cpp_interface import stage_libraries
 from sjtu_tpmshx.cpp_interface._native_values import floating_events
 
 
@@ -54,7 +55,7 @@ result = load_result(sys.argv[1])
 assert result.result_id == 'archived-result'
 assert result.fields['Ta'][0, 0] == 310.
 assert result.run_status['converged'] is False
-assert native._load_library.cache_info().currsize == 0
+assert native.result_library.load.cache_info().currsize == 0
 assert native._extended_format.cache_info().currsize == 0
 for prefix in ('sjtu_tpmshx.solvers', 'sjtu_tpmshx.preprocess',
                'CoolProp', 'PySide6', 'PyQt5', 'PyQt6'):
@@ -70,29 +71,29 @@ for prefix in ('sjtu_tpmshx.solvers', 'sjtu_tpmshx.preprocess',
 ])
 def test_default_and_frozen_paths_use_only_the_result_image(tmp_path, monkeypatch, system, machine, host, name):
     monkeypatch.delenv('TPMSHX_RESULT_LIBRARY', raising=False)
-    monkeypatch.setattr(native.sys, 'platform', system)
-    monkeypatch.setattr(native.platform, 'machine', lambda: machine)
-    monkeypatch.setattr(native, 'PUBLISHED_LIBRARY_DIR', tmp_path / 'solvers/native/lib')
-    monkeypatch.setattr(native.sys, 'frozen', False, raising=False)
+    monkeypatch.setattr(stage_libraries.sys, 'platform', system)
+    monkeypatch.setattr(stage_libraries.platform, 'machine', lambda: machine)
+    monkeypatch.setattr(stage_libraries, 'PUBLISHED_LIBRARY_DIR', tmp_path / 'solvers/native/lib')
+    monkeypatch.setattr(stage_libraries.sys, 'frozen', False, raising=False)
     selected = tmp_path / 'solvers/native/lib' / host / name
     selected.parent.mkdir(parents=True)
     selected.write_bytes(b'path-selection fixture')
-    assert native._library_path() == str(selected.resolve())
+    assert native.result_library.path() == str(selected.resolve())
     frozen = tmp_path / 'bundle/native' / name
     frozen.parent.mkdir(parents=True)
     frozen.write_bytes(b'path-selection fixture')
-    monkeypatch.setattr(native.sys, 'frozen', True, raising=False)
-    monkeypatch.setattr(native.sys, '_MEIPASS', str(frozen.parent.parent), raising=False)
-    assert native._library_path() == str(frozen.resolve())
+    monkeypatch.setattr(stage_libraries.sys, 'frozen', True, raising=False)
+    monkeypatch.setattr(stage_libraries.sys, '_MEIPASS', str(frozen.parent.parent), raising=False)
+    assert native.result_library.path() == str(frozen.resolve())
 
 
 def test_missing_or_empty_override_is_a_deployment_error(tmp_path, monkeypatch):
     monkeypatch.setenv('TPMSHX_RESULT_LIBRARY', str(tmp_path / 'absent'))
     with pytest.raises(OSError, match='prebuilt native result library is missing'):
-        native._library()
+        native.result_library.get()
     monkeypatch.setenv('TPMSHX_RESULT_LIBRARY', ' ')
     with pytest.raises(RuntimeError, match='must name a prebuilt result library'):
-        native._library()
+        native.result_library.get()
 
 
 @pytest.mark.parametrize('version', [0, 1, 3])
@@ -100,16 +101,16 @@ def test_abi_mismatch_is_a_runtime_error(monkeypatch, version):
     handle = LibraryStub(tpmshx_result_abi_version_v1=lambda: version)
     monkeypatch.setattr(native.ct, 'CDLL', lambda path: handle)
     with pytest.raises(RuntimeError, match='unsupported native result ABI'):
-        native._Library('/prebuilt-result')
+        native.result_library.open('/prebuilt-result')
 
 
 def test_missing_symbol_and_load_failure_are_deployment_errors(monkeypatch):
     monkeypatch.setattr(native.ct, 'CDLL', lambda path: LibraryStub())
     with pytest.raises(RuntimeError, match='lacks tpmshx_result_abi_version_v1'):
-        native._Library('/prebuilt-result')
+        native.result_library.open('/prebuilt-result')
     handle = LibraryStub(tpmshx_result_abi_version_v1=lambda: 2)
     monkeypatch.setattr(native.ct, 'CDLL', lambda path: handle)
-    owner = native._Library('/prebuilt-result')
+    owner = native.result_library.open('/prebuilt-result')
     with pytest.raises(RuntimeError, match='lacks a_required_result_symbol'):
         owner.bind('a_required_result_symbol', [])
 
@@ -118,7 +119,7 @@ def test_missing_symbol_and_load_failure_are_deployment_errors(monkeypatch):
 
     monkeypatch.setattr(native.ct, 'CDLL', fail)
     with pytest.raises(OSError, match='cannot load prebuilt native result library /prebuilt-result: wrong architecture'):
-        native._Library('/prebuilt-result')
+        native.result_library.open('/prebuilt-result')
 
 
 @pytest.mark.parametrize('value,origin', [
@@ -293,7 +294,7 @@ def test_wire_fp_events_precede_the_terminal_numeric_cause(monkeypatch, mode):
 
             return fail
 
-    monkeypatch.setattr(native, '_library', lambda: Owner())
+    monkeypatch.setattr(native.result_library, 'get', lambda: Owner())
     expected = FloatingPointError if mode == 'raise' else ValueError
     message = 'overflow encountered in multiply' if mode == 'raise' else 'later numerical cause'
     with warnings.catch_warnings(record=True) as emitted, np.errstate(all=mode):
@@ -305,7 +306,7 @@ def test_wire_fp_events_precede_the_terminal_numeric_cause(monkeypatch, mode):
 
 
 def test_extended_precision_matches_the_actual_host():
-    path = native._library_path()
+    path = native.result_library.path()
     native._extended_format(path)
     expected = np.finfo(np.longdouble)
     value = np.longdouble('1.0000000000000000001')

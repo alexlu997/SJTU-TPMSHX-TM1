@@ -203,7 +203,7 @@ def test_frozen_query_does_not_call_production_combination(monkeypatch):
 def test_frozen_3d_air_reference_does_not_call_production_combination(monkeypatch):
     from tests.python import preparation_3d_reference as preparation
     from tests.python.test_native_preparation_3d import _configuration
-    from sjtu_tpmshx.cpp_interface import _native_preparation_case as native
+    from sjtu_tpmshx.cpp_interface import inlet_properties as native
 
     def forbidden(*args, **kwargs):
         pytest.fail('The 3D reference called the production property combination')
