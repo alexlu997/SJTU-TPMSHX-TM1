@@ -42,7 +42,12 @@ from sjtu_tpmshx.cpp_interface import _native_properties
 
 # ── Constants ────────────────────────────────────────────────────────────
 
-_NU_PARAMETERS = load_model_parameters()['nu']
+_MODEL_PARAMETERS = load_model_parameters()
+_NU_PARAMETERS = _MODEL_PARAMETERS['nu']
+DESIGN_NU_REFERENCE_STATES = {
+    fluid: tuple(state)
+    for fluid, state in _MODEL_PARAMETERS['design_nu_reference_states'].items()
+}
 Pr_AIR = _NU_PARAMETERS['pr_air']
 NU_ROUGHNESS_FACTOR = _NU_PARAMETERS['roughness_factor']
 NU_RE_FIT_RANGE = tuple(_NU_PARAMETERS['air_re_range'])
@@ -258,7 +263,7 @@ def record_raw_nu_range(fluid, tpms_type, Re):
 
 
 def record_quick_sco2_pr_notice():
-    temperature, pressure = load_model_parameters()['design_nu_reference_states']['sco2']
+    temperature, pressure = DESIGN_NU_REFERENCE_STATES['sco2']
     record_warning(('design-sco2-representative-pr',),
                    f'sCO2 Nu uses representative Pr queried at {temperature:g} K / {pressure / 1e6:g} MPa, '
                    'not at this case inlet or mean state. The smooth-wall CFD '

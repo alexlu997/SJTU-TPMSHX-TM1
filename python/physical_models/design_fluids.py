@@ -5,7 +5,6 @@
 本模块提供 design 工具的便捷接口，不重复定义物性数据。
 """
 from __future__ import annotations
-from sjtu_tpmshx.model_configs.model_parameters import load_model_parameters
 from sjtu_tpmshx.run_control.run_warnings import range_context
 
 from sjtu_tpmshx.physical_models import fluid_props as _registry
@@ -13,6 +12,7 @@ from sjtu_tpmshx.physical_models.fluid_props import Props as Props
 from sjtu_tpmshx.cpp_interface import _native_properties
 from sjtu_tpmshx.physical_models.tpms_calc import nu_from_Re
 from sjtu_tpmshx.physical_models.nu_correlations import (
+    DESIGN_NU_REFERENCE_STATES as DESIGN_NU_REFERENCE_STATES,
     NU_RE_FIT_RANGE,        # air 幂律拟合 Re 窗 (400,16000)
     WATER_NU_RE_RANGE,      # 拓扑专属水侧 Nu 关联式验证 Re 域 (新式)
     SCO2_NU_RE_RANGE,       # sCO2 CFD 拟合 Re 域 (2600,128000), Diamond+Gyroid
@@ -21,12 +21,6 @@ from sjtu_tpmshx.physical_models.nu_correlations import (
     _warn_extrap, _warn_water_nu, _warn_sco2_nu, record_quick_sco2_pr_notice,
 )
 from sjtu_tpmshx.physical_models.tpms_props import record_temperature_ranges
-
-DESIGN_NU_REFERENCE_STATES = {
-    fluid: tuple(state)
-    for fluid, state in load_model_parameters()['design_nu_reference_states'].items()
-}
-
 
 def record_native_design_ranges(fluid, topo, temperature, reynolds):
     """Map returned native pass evidence through existing warning owners, without EOS calls."""
