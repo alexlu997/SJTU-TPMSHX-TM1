@@ -491,12 +491,11 @@ def test_applicability_transfer_error_releases_without_fallback(dimension, monke
             release(library, result)
         monkeypatch.setattr(full_3d_stage, 'release_result', observe_release)
     else:
-        original = full_2d_stage._Run.take_result
-        def take(run):
-            result = original(run)
+        query_view = full_2d_stage.executed_view
+        def observe_view(query, result):
             owners.append(result)
-            return result
-        monkeypatch.setattr(full_2d_stage._Run, 'take_result', take)
+            return query_view(query, result)
+        monkeypatch.setattr(full_2d_stage, 'executed_view', observe_view)
     def broken(pointer, saved):
         raise sentinel
     def forbidden(*args, **kwargs):

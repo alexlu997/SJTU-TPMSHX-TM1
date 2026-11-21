@@ -62,17 +62,16 @@ def test_complete_offset_and_discrete_result(monkeypatch, tmp_path, mode, pair, 
         save_case(case, tmp_path / 'case.h5')
         case = load_case(tmp_path / 'case.h5')
     reports = []
-    original = stage._Run.take_result
-    def capture(run):
-        result = original(run)
+    query_view = stage.executed_view
+    def capture(query, result):
         evidence = ct.cast(ct.pointer(result.evidence), ct.POINTER(adapter.state.uniform.report.Evidence)).contents
         reports.append(adapter.state.uniform._evaluate(evidence))
         assert result.evidence.thermal_mode == b'temperature'
         assert result.evidence.temperature_transport == b'model_enthalpy_temperature_v1'
         assert not result.evidence.thermal.model_h
         assert result.evidence.model_certificate_count == 0
-        return result
-    monkeypatch.setattr(stage._Run, 'take_result', capture)
+        return query_view(query, result)
+    monkeypatch.setattr(stage, 'executed_view', capture)
     actual = adapter._compare(case, tmp_path, monkeypatch)
     expected = _report(case, actual)
     _same(reports[0], expected, 'native evaluation')

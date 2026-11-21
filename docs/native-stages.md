@@ -211,6 +211,7 @@ It computes the staggered outlet from the original width precision and port boun
 The descriptor borrows the cell fields and four model references from the prepared view.
 Keep the additional field buffers and model strings alive through result transfer or run release.
 Current Python runs use the complete saved v4 protocol for canonical settings.
+For a fresh run, Python calls `tpmshx_run_saved_case_2d_v4` when the library provides it. C++ owns the run through result transfer. Checkpoints and older libraries use the step interface.
 Saved v4 adds the original experimental model settings to the v3 fields.
 Create and restore use the same native applicability rules as preparation.
 They validate the original record first. They then check its campaign domain against the prepared model, nominal cell geometry and resolved inlet speeds.

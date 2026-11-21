@@ -335,8 +335,7 @@ def test_owned_fields_survive_subsequent_and_parallel_calls(native_path):
 @pytest.mark.parametrize('solid_dtype', [np.float64, np.float32])
 def test_native_call_borrows_case_arrays_and_recovers(native_path, monkeypatch, dimension, failure, solid_dtype):
     import ctypes as ct
-    from sjtu_tpmshx.cpp_interface.full_2d_stage import _Run
-    from sjtu_tpmshx.cpp_interface import full_3d_stage
+    from sjtu_tpmshx.cpp_interface import full_2d_stage, full_3d_stage
     from tests.python.native.test_full_2d import configuration
 
     config = configuration(outer=2) if dimension == 2 else _config(3, True)
@@ -365,31 +364,34 @@ def test_native_call_borrows_case_arrays_and_recovers(native_path, monkeypatch, 
             np.testing.assert_array_equal(np.ctypeslib.as_array(pointer, shape=(source.size,)), source.ravel())
         entered.append(True)
 
+    table = control(native_path).native_table_directory
     if dimension == 2:
-        original_call = _Run._call
-        def observe(run, function, *args):
-            if function is run._create:
-                saved = args[0]._obj.values.values.values
-                data = saved.prepared.contents.values
-                check_buffers({'K_ffA_arr': saved.fluid_conductivity[0].data,
-                               'K_ffB_arr': saved.fluid_conductivity[1].data,
-                               'K_ss_arr': data.solid_conductivity.data, 'eps_arr': data.total_porosity.data})
-            return original_call(run, function, *args)
-        monkeypatch.setattr(_Run, '_call', observe)
+        driver = full_2d_stage.StageDriver(native_path, table_directory=table)
+        monkeypatch.setattr(full_2d_stage, 'StageDriver', lambda *args, **kwargs: driver)
+        library, symbol = driver.library, 'tpmshx_run_saved_case_2d_v4'
     else:
-        runtime = full_3d_stage.open_library(native_path, control(native_path).native_table_directory)
-        library = runtime[1]
-        complete = library.tpmshx_run_saved_case_3d_v2
-        def observe_saved(*args):
+        runtime = full_3d_stage.open_library(native_path, table)
+        monkeypatch.setattr(full_3d_stage, 'open_library', lambda *_: runtime)
+        library, symbol = runtime[1], 'tpmshx_run_saved_case_3d_v2'
+    complete = getattr(library, symbol)
+
+    def observe_saved(*args):
+        if dimension == 2:
+            saved = args[0]._obj.values.values.values
+            data = saved.prepared.contents.values
+            check_buffers({'K_ffA_arr': saved.fluid_conductivity[0].data,
+                           'K_ffB_arr': saved.fluid_conductivity[1].data,
+                           'K_ss_arr': data.solid_conductivity.data, 'eps_arr': data.total_porosity.data})
+        else:
             data = args[0]._obj.values.input.contents
             check_buffers({key: getattr(data, field).data for key, field in (
                 ('eps_arr', 'epsilon'), ('eps_A', 'epsilon_a'), ('eps_B', 'epsilon_b'),
                 ('K_m2', 'permeability'), ('cF_per_m', 'forchheimer'),
                 ('K_ss', 'solid_conductivity'), ('L_field_m', 'cell_length'))})
-            complete.argtypes = observe_saved.argtypes
-            return complete(*args)
-        monkeypatch.setattr(library, 'tpmshx_run_saved_case_3d_v2', observe_saved)
-        monkeypatch.setattr(full_3d_stage, 'open_library', lambda *_: runtime)
+        complete.argtypes = observe_saved.argtypes
+        return complete(*args)
+
+    monkeypatch.setattr(library, symbol, observe_saved)
 
     def fail(*_):
         raise RuntimeError('borrow callback sentinel')

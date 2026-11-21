@@ -166,16 +166,15 @@ def test_modified_saved_inputs(change, tmp_path, monkeypatch):
             row.pop(name, None)
     from sjtu_tpmshx.cpp_interface import full_2d_stage
     native_ranges, native_reports = [], []
-    take_result = full_2d_stage._Run.take_result
-    def inspect_result(run):
-        result = take_result(run)
+    query_view = full_2d_stage.executed_view
+    def inspect_result(query, result):
         view = ct.cast(ct.pointer(result.evidence), ct.POINTER(state.uniform.report.Evidence)).contents
         native_reports.append(state.uniform._evaluate(view))
         applicability = result.evidence.applicability.contents
         native_ranges.append((bool(applicability.inlet_recorded),
             [bool(applicability.inlet[i].captured) for i in range(len(metadata.get('applicability_inputs', ())))]))
-        return result
-    monkeypatch.setattr(full_2d_stage._Run, 'take_result', inspect_result)
+        return query_view(query, result)
+    monkeypatch.setattr(full_2d_stage, 'executed_view', inspect_result)
     modified = replace(case, parameters=parameters, metadata=metadata)
     actual = _compare(modified, tmp_path, monkeypatch)
     from sjtu_tpmshx.solvers.applicability_evidence import capture_applicability
