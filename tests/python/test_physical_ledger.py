@@ -7,7 +7,7 @@ import pytest
 
 from sjtu_tpmshx.solvers.physical_ledger import ports_complete
 from sjtu_tpmshx.cpp_interface.solver_library.physical_ledger import HeatLedger, copy_heat_ledger, heat_ledger_query
-from sjtu_tpmshx.cpp_interface.solver_library.model_h import _Array
+from sjtu_tpmshx.cpp_interface.solver_library._thermal_abi import _ThermalArray as _Array
 
 
 @pytest.mark.parametrize('dimension,direction', [(d, direction) for d in (2, 3) for direction in range(2*d)])

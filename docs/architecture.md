@@ -193,6 +193,9 @@ Unset outer, SIMPLE, bootstrap and convergence values stay unset in this request
 The 2D and 3D preparation adapters use the same decoder for native D-F application evidence.
 The raw and retained bindings share array packing and result decoding.
 The retained bindings use their own execution and result queries.
+The full and independent drivers share the thermal request layouts and option packing.
+Full saved runs read the thermal records from the stage execution view.
+The independent enthalpy and model-h drivers keep their own execution calls.
 Native capture supplies heat-source sums, pressure clip counts, Nu statistics, cell counts and optional audit outlet weights.
 Complete protocol selection occurs before execution. Archived libraries retain their direct execution and restore interfaces.
 Partial protocols and native failures do not select another route. Direct low-level DTO callers keep their complete outputs.

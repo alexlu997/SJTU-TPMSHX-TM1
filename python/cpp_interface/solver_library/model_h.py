@@ -10,107 +10,21 @@ from pathlib import Path
 import numpy as np
 
 from sjtu_tpmshx.run_control.cancellation import CancelledError
-from sjtu_tpmshx.cpp_interface._native_result_metrics import capture_area
 from ._thermal_abi import _Callbacks, _Cancel as _Cancel, _Progress as _Progress, make_callbacks
-
-
-class _IterationOptions(ct.Structure):
-    _fields_ = [('max_iterations', ct.c_size_t), ('temperature_tolerance', ct.c_double),
-                ('q_relative_tolerance', ct.c_double)]
-
-
-class _IterationRecord(ct.Structure):
-    _fields_ = [('outer_index', ct.c_size_t), ('attempt', ct.c_size_t), ('refined', ct.c_uint32),
-                ('max_iterations', ct.c_size_t), ('chunk_iterations', ct.c_size_t),
-                ('temperature_tolerance', ct.c_double), ('q_relative_tolerance', ct.c_double),
-                ('total_iteration_budget', ct.c_size_t)]
-
-
-class _IterationRecords(ct.Structure):
-    _fields_ = [('records', ct.POINTER(_IterationRecord)), ('count', ct.c_size_t)]
-
-
-def _iteration_options(settings):
-    names = ('model_h_max_iterations', 'model_h_temperature_tol_K', 'model_h_q_relative_tol')
-    values = [settings.get(name) for name in names]
-    if all(value is None for value in values):
-        return None
-    for index, (name, value) in enumerate(zip(names, values)):
-        if value is None:
-            values[index] = 0
-        elif index == 0:
-            if type(value) is not int or not 0 < value <= ct.c_size_t(-1).value:
-                raise ValueError(f'{name} must be a positive size_t integer')
-        elif (isinstance(value, bool) or not isinstance(value, (int, float))
-              or not np.isfinite(value) or value <= 0.):
-            raise ValueError(f'{name} must be finite and positive')
-    return _IterationOptions(*values)
-
-
-def _iteration_query(library, dimension, result_type):
-    try:
-        query = getattr(library, f'tpmshx_full_{dimension}d_get_model_h_iterations_v1')
-    except AttributeError as exc:
-        raise ValueError('native library lacks model-h iteration records; rebuild the library') from exc
-    query.argtypes = [ct.POINTER(result_type), ct.POINTER(_IterationRecords)]
-    query.restype = ct.c_int
-    return query
-
-
-class _Acceleration(ct.Structure):
-    _fields_ = [('enabled', ct.c_uint32), ('sweeps_per_block', ct.c_size_t), ('history_limit', ct.c_size_t)]
-
-
-def _acceleration_query(library, result_type):
-    try:
-        query = library.tpmshx_full_3d_get_model_h_acceleration_v1
-    except AttributeError as exc:
-        raise ValueError('native library lacks model-h acceleration records; rebuild the library') from exc
-    query.argtypes = [ct.POINTER(result_type), ct.c_size_t, ct.POINTER(_Acceleration)]
-    query.restype = ct.c_int
-    return query
-
-
-def _copy_iteration_records(query, result, acceleration_query=None):
-    view = _IterationRecords()
-    if query(ct.byref(result), ct.byref(view)):
-        raise RuntimeError('native model-h iteration query failed')
-    return _decode_iteration_records(view, acceleration_query=acceleration_query, result=result)
-
-
-def _decode_iteration_records(view, acceleration=None, *, acceleration_query=None, result=None):
-    if view.count and not view.records:
-        raise RuntimeError('native model-h iteration records are missing')
-    records = []
-    for index in range(view.count):
-        row = view.records[index]
-        if (row.refined not in (0, 1) or not row.max_iterations or not row.chunk_iterations
-                or row.total_iteration_budget < row.max_iterations
-                or not np.isfinite(row.temperature_tolerance) or row.temperature_tolerance <= 0.
-                or not np.isfinite(row.q_relative_tolerance) or row.q_relative_tolerance < 0.):
-            raise RuntimeError('invalid native model-h iteration record')
-        records.append(dict(outer_index=row.outer_index, attempt=row.attempt,
-            stage='refined_thermal' if row.refined else 'outer_thermal',
-            settings=dict(max_iterations=row.max_iterations, chunk_iterations=row.chunk_iterations,
-                          temperature_update_tolerance_K=row.temperature_tolerance,
-                          q_relative_tolerance=row.q_relative_tolerance,
-                          total_iteration_budget=row.total_iteration_budget)))
-        if acceleration is not None or acceleration_query is not None:
-            if acceleration is not None:
-                policy = acceleration[index]
-            else:
-                policy = _Acceleration()
-                if acceleration_query(ct.byref(result), index, ct.byref(policy)):
-                    raise RuntimeError('native model-h acceleration query failed')
-            if policy.enabled not in (0, 1) or not policy.sweeps_per_block or policy.history_limit < 2:
-                raise RuntimeError('invalid native model-h acceleration record')
-            records[-1]['settings']['acceleration'] = dict(enabled=bool(policy.enabled),
-                sweeps_per_block=policy.sweeps_per_block, history_limit=policy.history_limit)
-    return dict(version='model_h_iterations_v1', records=records)
-
-
-class _Array(ct.Structure):
-    _fields_ = [('data', ct.POINTER(ct.c_double)), ('size', ct.c_size_t)]
+from ._thermal_abi import (
+    _IterationOptions as _IterationOptions,
+    _IterationRecord as _IterationRecord,
+    _IterationRecords as _IterationRecords,
+    _Acceleration as _Acceleration,
+    _iteration_options as _iteration_options,
+    _ModelHResult as _Result,
+)
+from ._stage_capture_abi import (
+    _copy_iteration_records as _copy_iteration_records,
+    _plane_info,
+    _volume_info,
+    _model_h_algorithm,
+)
 
 
 class _Config(ct.Structure):
@@ -120,157 +34,6 @@ class _Config(ct.Structure):
     _fields_ += [(n, ct.c_size_t) for n in ('max_iterations', 'chunk_iterations')]
     _fields_ += [(n, ct.c_double) for n in
                  ('inlet_a', 'inlet_b', 'q_relative_tolerance', 'alpha_a', 'alpha_solid', 'alpha_b')]
-
-
-class _Side2D(ct.Structure):
-    _fields_ = [(n, ct.c_double) for n in
-                ('q_advective', 'inlet_conduction', 'exchange', 'residual_sum', 'residual_max',
-                 'linearized_sum', 'linearized_max', 'defect_sum', 'defect_max', 'mass_net',
-                 'mass_local_max', 'mass_in', 'mass_out', 'normalization', 'cell_ratio')]
-    _fields_ += [('unknown_inflow_faces', ct.c_size_t), ('cp_coefficients', ct.c_double * 5),
-                 ('boundary_mass_out', _Array * 4), ('boundary_h_out', _Array * 4),
-                 ('h_faces', _Array * 2), ('inlet_conduction_faces', _Array),
-                 ('residual', _Array), ('linearization_defect', _Array)]
-
-
-class _Audit2D(ct.Structure):
-    _fields_ = [('sides', _Side2D * 2)]
-    _fields_ += [(n, ct.c_double) for n in
-                 ('solid_sum', 'solid_max', 'solid_cell_ratio', 'residual_sum', 'telescoping_error',
-                  'net_boundary_in', 'denominator', 'energy_imbalance', 'solid_imbalance')]
-    _fields_ += [(n, ct.c_uint32) for n in
-                 ('boundary_complete', 'finite', 'energy_ok', 'solid_ok', 'equations_ok', 'passed')]
-    _fields_ += [('solid_residual', _Array)]
-
-
-class _Boundary3D(ct.Structure):
-    _fields_ = [(n, ct.c_double) for n in
-                ('mass_out', 'enthalpy_out', 'unknown_mass_in', 'inlet_reverse_mass_out')]
-    _fields_ += [('unknown_inflow_count', ct.c_size_t), ('enthalpy_faces', _Array)]
-
-
-class _Side3D(ct.Structure):
-    _fields_ = [('boundaries', _Boundary3D * 6), ('cp_coefficients', ct.c_double * 5)]
-    _fields_ += [(n, ct.c_double) for n in
-                 ('temperature_min', 'temperature_max', 'mass_net', 'advective_in', 'diffusion_in',
-                  'numerical_external_in', 'exchange', 'source', 'residual_sum', 'residual_max',
-                  'normalization', 'global_ratio', 'cell_ratio')]
-    _fields_ += [('boundary_complete', ct.c_uint32), ('residual', _Array), ('inlet_diffusion', _Array)]
-
-
-class _Audit3D(ct.Structure):
-    _fields_ = [('sides', _Side3D * 2)]
-    _fields_ += [(n, ct.c_double) for n in
-                 ('volume', 'numerical_external_in', 'explicit_source', 'solid_sum', 'solid_max',
-                  'full_residual_sum', 'telescoping_error', 'ltne_source_ratio')]
-    _fields_ += [('boundary_complete', ct.c_uint32), ('gates', ct.c_uint32 * 6),
-                 ('passed', ct.c_uint32), ('solid_residual', _Array)]
-
-
-class _Check(ct.Structure):
-    _fields_ = [('iterations', ct.c_size_t), ('gates', ct.c_uint32 * 6)]
-
-
-class _Result(ct.Structure):
-    _fields_ = [(n, ct.c_uint32) for n in ('dimension', 'stop', 'audit_available', 'has_sources')]
-    _fields_ += [('iterations', ct.c_size_t), ('residual', ct.c_double), ('q_b', ct.c_double),
-                 ('plane', _Audit2D), ('volume', _Audit3D), ('finishing_checks', ct.POINTER(_Check)),
-                 ('finishing_count', ct.c_size_t), ('owner', ct.c_void_p)]
-
-
-def _copy(view, shape=None):
-    result = np.ctypeslib.as_array(view.data, shape=(view.size,)).copy()
-    return result if shape is None else result.reshape(shape)
-
-
-def _plane_info(result, shape, widths, masses, *, capture_scalars=None):
-    audit = result.plane
-    sides = {}
-    for label, side, mass in zip(('A', 'B'), audit.sides, masses):
-        sides[label] = dict(
-            Q_advective_W_per_m=side.q_advective, inlet_conduction_W_per_m=side.inlet_conduction,
-            exchange_W_per_m=side.exchange, source_W_per_m=0., residual_sum_W_per_m=side.residual_sum,
-            residual_max_abs_W_per_m=side.residual_max,
-            linearized_residual_sum_W_per_m=side.linearized_sum,
-            linearized_residual_max_abs_W_per_m=side.linearized_max,
-            linearization_defect_sum_W_per_m=side.defect_sum,
-            linearization_defect_max_abs_W_per_m=side.defect_max,
-            mass_net_out_kg_s_per_m=side.mass_net, mass_local_max_abs_kg_s_per_m=side.mass_local_max,
-            mass_in_kg_s_per_m=side.mass_in, mass_out_kg_s_per_m=side.mass_out,
-            boundary_mass_out_kg_s_per_m=[_copy(x).tolist() for x in side.boundary_mass_out],
-            boundary_h_out_W_per_m=[_copy(x).tolist() for x in side.boundary_h_out],
-            mass_faces_kg_s_per_m=[x.tolist() for x in mass],
-            h_faces_W_per_m=[_copy(x, m.shape).tolist() for x, m in zip(side.h_faces, mass)],
-            inlet_conduction_faces_W_per_m=_copy(side.inlet_conduction_faces).tolist(),
-            cp_coefficients=list(side.cp_coefficients), unknown_inflow_faces=side.unknown_inflow_faces,
-            physical_boundary_complete=side.unknown_inflow_faces == 0,
-            strict_normalization_W_per_m=side.normalization, residual_cellmax_rel=side.cell_ratio)
-    return dict(
-        units='W/m; kg/(s m)', state='raw final thermal return', boundary_order=['-x', '+x', '-y', '+y'],
-        **sides, sou_A=True, sou_B=True,
-        cell_count=int(np.prod(shape)) if capture_scalars is None else capture_scalars['cell_count'],
-        dx_m=widths[0].tolist(), dy_m=widths[1].tolist(),
-        area_m2=capture_area(widths[0], widths[1]) if capture_scalars is None else capture_scalars['area_m2'],
-        solid_boundary_W_per_m=0., solid_source_W_per_m=0.,
-        solid_residual_sum_W_per_m=audit.solid_sum, solid_residual_max_abs_W_per_m=audit.solid_max,
-        solid_residual_cellmax_rel=audit.solid_cell_ratio, equation_tolerance=.01,
-        residual_sum_W_per_m=audit.residual_sum, telescoping_error_W_per_m=audit.telescoping_error,
-        net_boundary_in_W_per_m=audit.net_boundary_in, D2_W_per_m=audit.denominator,
-        energy_imbalance_rel=audit.energy_imbalance, solid_imbalance_rel=audit.solid_imbalance,
-        physical_boundary_complete=bool(audit.boundary_complete), finite=bool(audit.finite),
-        energy_ok=bool(audit.energy_ok), solid_ok=bool(audit.solid_ok),
-        equations_ok=bool(audit.equations_ok), passed=bool(audit.passed),
-        thermal_converged=result.stop == 0, thermal_iterations=result.iterations,
-        thermal_residual_K=result.residual)
-
-
-def _volume_info(result, shape, *, include_faces=True, cell_count=None):
-    audit = result.volume
-    sides, native_faces, strict = {}, {}, {}
-    for label, side in zip(('A', 'B'), audit.sides):
-        faces, owned_faces = {}, {}
-        for index, (name, face) in enumerate(zip(('x-', 'x+', 'y-', 'y+', 'z-', 'z+'), side.boundaries)):
-            faces[name] = dict(outward_mass_kg_s=face.mass_out, outward_model_h_W=face.enthalpy_out,
-                non_inlet_inward_mass_kg_s=face.unknown_mass_in, unknown_inflow_count=face.unknown_inflow_count,
-                inlet_reverse_outward_mass_kg_s=face.inlet_reverse_mass_out)
-            face_shape = tuple(n for axis, n in enumerate(shape) if axis != index // 2)
-            if include_faces:
-                owned_faces[name] = _copy(face.enthalpy_faces, face_shape)
-        native_faces[label] = owned_faces
-        sides[label] = dict(faces=faces, physical_boundary_complete=bool(side.boundary_complete),
-            model_cp_coefficients=list(side.cp_coefficients),
-            temperature_range_K=[side.temperature_min, side.temperature_max], net_outward_mass_kg_s=side.mass_net,
-            convective_inward_W=side.advective_in, inlet_diffusion_inward_W=side.diffusion_in,
-            numerical_external_inward_W=side.numerical_external_in,
-            physical_external_inward_W=side.numerical_external_in if side.boundary_complete else None,
-            fluid_solid_exchange_to_fluid_W=side.exchange, explicit_source_W=side.source,
-            residual_sum_W=side.residual_sum, residual_max_abs_W=side.residual_max,
-            strict_normalization_W=side.normalization)
-        strict.update({f'eps_{label}_strict': side.global_ratio, f'eps_{label}_strict_cellmax': side.cell_ratio,
-                       f'Q_s{label}': side.exchange})
-    balance = dict(reference_K=audit.sides[0].cp_coefficients[4], cell_count=int(np.prod(shape)) if cell_count is None else cell_count,
-        full_volume_m3=audit.volume, mass_source='completed SIMPLE raw faces before capacity balance/MAC',
-        thermal_state='last returned temperatures; nonlinear model h and temperature SOU', sides=sides,
-        physical_boundary_complete=bool(audit.boundary_complete), numerical_external_inward_W=audit.numerical_external_in,
-        physical_external_inward_W=audit.numerical_external_in if audit.boundary_complete else None,
-        explicit_source_W=audit.explicit_source, solid_external_diffusion_W=0.,
-        solid_residual_sum_W=audit.solid_sum, solid_residual_max_abs_W=audit.solid_max,
-        full_residual_sum_W=audit.full_residual_sum, telescoping_error_W=audit.telescoping_error,
-        qualification='No physical acceptance inferred. Non-inlet inflow uses numerical self-extrapolation; its external h is unspecified.')
-    return dict(model_h_balance=balance, _native_model_h=native_faces, **strict, delegated_to_2d=False)
-
-
-def _model_h_algorithm(library, dimension):
-    """Copy the recipe identity from the same native library used to solve."""
-    try:
-        query = library.tpmshx_model_h_algorithm_v1
-    except AttributeError as error:
-        raise ValueError('native library lacks tpmshx_model_h_algorithm_v1') from error
-    query.argtypes, query.restype = [ct.c_uint32], ct.c_char_p
-    identity = query(dimension)
-    if not identity:
-        raise ValueError(f'native library has no model-h algorithm for dimension {dimension}')
-    return identity.decode('ascii')
 
 
 class NativeModelHDriver:

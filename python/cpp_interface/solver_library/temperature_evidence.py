@@ -8,7 +8,7 @@ import ctypes as ct
 
 import numpy as np
 
-from .model_h import _Array
+from ._thermal_abi import _ThermalArray as _Array
 from .physical_ledger import copy_heat_ledger
 
 

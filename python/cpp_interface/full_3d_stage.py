@@ -25,13 +25,32 @@ from sjtu_tpmshx.cpp_interface._native_preparation_case import _Array as Prepare
 from ._native_grid import _Port
 from .solver_library._full_3d_abi import (_Array, _BootstrapTrace, _Callbacks, _Cancel, _Control, _EnergyEvidence,
     _FLAGS, _FLOW_ARRAYS, _Input, _OuterProgress, _PAIRS, _Progress, _Result)
-from .solver_library._stage_capture_abi import (StageExecution, executed_inputs, executed_view,
-    execution_sides, execution_view_query, replay_sco2_notices, sampling_records, thermal_execution)
+from .solver_library._stage_capture_abi import (
+    StageExecution,
+    _decode_iteration_records,
+    _decode_update_scale,
+    _energy_native_state,
+    _energy_result_info,
+    _full_enthalpy_info,
+    _volume_info,
+    executed_inputs,
+    executed_view,
+    execution_sides,
+    execution_view_query,
+    replay_sco2_notices,
+    sampling_records,
+    thermal_execution,
+)
 from .solver_library._simple_abi import simple_count
 from .solver_library.closure_evidence import copy_nu_observation, copy_range_observations
-from .solver_library.enthalpy import (_EnergyOptions, _FullEnergyEffectiveSettings, _decode_update_scale,
-    _energy_native_state, _energy_options, _energy_result_info, _full_enthalpy_defaults, _full_enthalpy_info)
-from .solver_library.model_h import _IterationOptions, _decode_iteration_records, _iteration_options, _volume_info
+from .solver_library._thermal_abi import (
+    _EnergyOptions,
+    _FullEnergyEffectiveSettings,
+    _IterationOptions,
+    _energy_options,
+    _full_enthalpy_defaults,
+    _iteration_options,
+)
 from .solver_library.simple_3d import _STOPS
 from ._native_preparation_case import borrow_array as _array, borrow_ranges as _ranges, borrow_text as _text
 from .run_state import NativeRun

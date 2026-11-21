@@ -12,6 +12,15 @@ import numpy as np
 
 from sjtu_tpmshx.run_control.cancellation import CancelledError
 from sjtu_tpmshx.physical_models.fluid_props import WaterStateError
+from ._thermal_abi import (
+    _EnthalpyResult as _Result,
+    _EnergyOptions as _EnergyOptions,
+    _EnergyOptionsV2 as _EnergyOptionsV2,
+    _EnergyResult,
+    _energy_options as _energy_options,
+    _energy_algorithm_query,
+)
+from ._stage_capture_abi import _result_info, _energy_result_info
 
 
 class _Side(ct.Structure):
@@ -28,212 +37,11 @@ class _Config(ct.Structure):
                 ('table_directory', ct.c_char_p)]
 
 
-class _Audit(ct.Structure):
-    _fields_ = [*[(name, ct.c_double) for name in
-                 ('q_a', 'q_b', 'net', 'solid_abs_sum', 'denominator', 'coupled_ratio')],
-                ('fluid_abs_sum', ct.c_double * 2), ('fluid_cell_max', ct.c_double * 2),
-                ('equation_ratio', ct.c_double), ('fluid_equations_computed', ct.c_uint32)]
-
-
-class _Result(ct.Structure):
-    _fields_ = [('stop', ct.c_uint32), ('iterations', ct.c_size_t),
-                *[(name, ct.c_double) for name in ('residual', 'q_a', 'q_b', 'energy_imbalance')],
-                ('inlet_enthalpy', ct.c_double * 2), ('last_clips', ct.c_uint64 * 2),
-                ('total_clips', ct.c_uint64 * 2), ('used_bicubic', ct.c_uint32 * 2),
-                ('heos_polish', ct.c_uint32), ('audit_available', ct.c_uint32),
-                ('audit', _Audit), ('coolprop_version', ct.c_char * 32)]
-
-
-_ENERGY_NAMES = ('legacy_h_fou', 'temperature_fou', 'temperature_sou')
-
-
-class _EnergyOptions(ct.Structure):
-    _fields_ = [('algorithm', ct.c_uint32), ('temperature_update_tolerance', ct.c_double)]
-
-
-class _EnergyOptionsV2(ct.Structure):
-    _fields_ = [('algorithm', ct.c_uint32), ('temperature_update_tolerance', ct.c_double),
-                ('coupled_energy_tolerance', ct.c_double), ('equation_energy_tolerance', ct.c_double),
-                ('require_enthalpy_update_on_temperature', ct.c_uint32)]
-
-
-class _EnergyResult(ct.Structure):
-    _fields_ = [('algorithm', ct.c_uint32), ('has_temperature_update', ct.c_uint32),
-                ('temperature_update', ct.c_double), ('picard_relaxation', ct.c_double)]
-
-
-class _EnergyUpdateScale(ct.Structure):
-    _fields_ = [('available', ct.c_uint32), ('reference_independent', ct.c_uint32),
-                ('scale', ct.c_double * 2)]
-
-
-def _update_scale_query(library, dimension, result_type):
-    try:
-        query = getattr(library, f'tpmshx_full_{dimension}d_get_energy_update_scale_v1')
-    except AttributeError as error:
-        raise ValueError('native library lacks energy update scales; rebuild the library') from error
-    query.argtypes = [ct.POINTER(result_type), ct.POINTER(_EnergyUpdateScale)]
-    query.restype = ct.c_int
-    return query
-
-
-def _copy_update_scale(query, result):
-    scale = _EnergyUpdateScale()
-    if query(ct.byref(result), ct.byref(scale)):
-        raise RuntimeError('native energy update scale query failed')
-    return _decode_update_scale(scale)
-
-
-def _decode_update_scale(scale):
-    if scale.available == 0:
-        return None
-    if scale.available != 1 or scale.reference_independent not in (0, 1):
-        raise RuntimeError('native energy update scale has invalid flags')
-    if any(not np.isfinite(value) or value < 1 for value in scale.scale):
-        raise RuntimeError('native energy update scale must be finite and at least 1 J/kg')
-    return dict(definition=('inlet_cp_times_temperature_difference_v1'
-                            if scale.reference_independent else 'inlet_enthalpy_difference_v1'),
-                unit='J/kg', sides=dict(zip('AB', scale.scale)),
-                source='native_completed_thermal_call')
-
-
-class _EnergyEffectiveSettings(ct.Structure):
-    _fields_ = [(name, ct.c_uint32) for name in (
-        'available', 'algorithm', 'require_enthalpy_update_on_temperature')]
-    _fields_ += [(name, ct.c_size_t) for name in ('max_iterations', 'sweeps')]
-    _fields_ += [(name, ct.c_double) for name in ('omega', 'update_tolerance',
-        'temperature_update_tolerance', 'coupled_energy_tolerance', 'equation_energy_tolerance')]
-
-
-class _FullEnergyEffectiveSettings(ct.Structure):
-    _fields_ = [('resolved', _EnergyEffectiveSettings), ('last', _EnergyEffectiveSettings),
-                ('outer', ct.POINTER(_EnergyEffectiveSettings)), ('outer_count', ct.c_size_t)]
-
-
-def _full_enthalpy_defaults(library, dimension, algorithm, has_water):
-    try:
-        query = library.tpmshx_full_enthalpy_defaults_v1
-    except AttributeError as error:
-        raise ValueError('native library lacks full enthalpy defaults; rebuild the library') from error
-    query.argtypes = [ct.c_uint32, ct.c_uint32, ct.c_uint32, ct.POINTER(_EnergyEffectiveSettings)]
-    query.restype = ct.c_int
-    defaults = _EnergyEffectiveSettings()
-    if query(dimension, algorithm, has_water, ct.byref(defaults)):
-        raise ValueError('invalid native full enthalpy defaults request')
-    return defaults
-
-
-def _executed_energy_settings(info, actual, abi):
-    if actual.available != 1 or actual.algorithm not in range(len(_ENERGY_NAMES)):
-        raise RuntimeError('native full driver omitted executed thermal settings')
-    info['effective_settings'].update(
-        update_tol=actual.update_tolerance,
-        coupled_energy_tol=actual.coupled_energy_tolerance,
-        equation_energy_tol=actual.equation_energy_tolerance,
-        max_iterations=actual.max_iterations, sweeps=actual.sweeps, omega=actual.omega,
-        energy_algorithm=_ENERGY_NAMES[actual.algorithm],
-        require_enthalpy_update_on_temperature=bool(actual.require_enthalpy_update_on_temperature),
-        effective_settings_source='native_completed_thermal_call', driver_abi=abi)
-    if actual.algorithm:
-        info['effective_settings']['temperature_update_tol_K'] = actual.temperature_update_tolerance
-
-
-def _full_enthalpy_info(result, actual, abi):
-    info = _result_info(result, update_tol=actual.update_tolerance,
-        coupled_energy_tol=actual.coupled_energy_tolerance, equation_energy_tol=actual.equation_energy_tolerance,
-        max_iterations=actual.max_iterations, sweeps=actual.sweeps, omega=actual.omega, abi=abi)
-    _executed_energy_settings(info, actual, abi)
-    return info
-
-
-def _energy_options(algorithm, tolerance):
-    from sjtu_tpmshx.data_types.compute_config import validate_enthalpy_algorithm
-    validate_enthalpy_algorithm(algorithm, tolerance)
-    return _EnergyOptions(_ENERGY_NAMES.index(algorithm), tolerance)
-
-
-def _energy_algorithm_query(library):
-    """Bind the recipe query from the same library before starting a solve."""
-    try:
-        query = library.tpmshx_energy_algorithm_version_v1
-    except AttributeError as error:
-        raise ValueError('native library lacks conservative energy algorithm version query') from error
-    query.argtypes, query.restype = [ct.c_uint32], ct.c_uint32
-    return query
-
-
-def _energy_result_info(info, result, *, temperature_tol, abi, version_query=None, version=None,
-                        state_update='HEOS_PT'):
-    """Decode executed native identity, independently of the requested option."""
-    if result.algorithm not in range(len(_ENERGY_NAMES)):
-        raise RuntimeError('native energy returned an unknown algorithm')
-    name = _ENERGY_NAMES[result.algorithm]
-    if name == 'legacy_h_fou' or result.has_temperature_update != 1:
-        raise RuntimeError('native candidate energy omitted its executed state')
-    if not np.isfinite(result.temperature_update) or result.temperature_update < 0:
-        raise RuntimeError('native energy returned an invalid temperature update')
-    if not np.isfinite(result.picard_relaxation) or not 0 < result.picard_relaxation <= 1:
-        raise RuntimeError('native energy returned an invalid Picard relaxation')
-    if version is None:
-        version = version_query(result.algorithm)
-    if type(version) is not int or version not in ((1,) if result.algorithm == 1 else (1, 2)):
-        raise RuntimeError('native energy returned an unsupported algorithm version')
-    info.update(energy_algorithm=name, energy_algorithm_version=version,
-                temperature_update_K=result.temperature_update)
-    info['effective_settings'].update(energy_algorithm=name, energy_algorithm_version=version,
-        temperature_update_tol_K=float(temperature_tol), driver_abi=abi,
-        picard_relaxation=result.picard_relaxation,
-        nonlinear_state_update=state_update,
-        enthalpy_face_reconstruction='FOU' if result.algorithm == 1 else 'h_minmod_outlet_v1',
-        solid_omega=info['effective_settings']['omega'] if result.algorithm == 1 else 1.)
-    return info
-
-
-def _energy_native_state(info, evidence, shape, units):
-    """Copy native face powers; never reconstruct SOU in the Python binding."""
-    if evidence.available != 1:
-        raise RuntimeError('native energy omitted final boundary evidence')
-    def copy(value, expected):
-        return np.ctypeslib.as_array(value.data, (value.size,)).copy().reshape(expected)
-    planes = ('x-', 'x+', 'y-', 'y+', 'z-', 'z+')
-    boundary = {}
-    state = info['_native_state']
-    for side, label in enumerate('AB'):
-        boundary[label] = {name: copy(evidence.boundary_power[side][index],
-            tuple(n for axis, n in enumerate(shape) if axis != index // 2))
-            for index, name in enumerate(planes)}
-        state['actual_conductivity_' + label] = copy(evidence.actual_conductivity[side], shape)
-    state.update(energy_algorithm=info['energy_algorithm'], energy_algorithm_version=info['energy_algorithm_version'],
-                 boundary_power=boundary, boundary_power_units=units, physical_boundary_complete=True)
-
-
 _Cancel = ct.CFUNCTYPE(ct.c_int, ct.c_void_p)
 
 
 class _Callbacks(ct.Structure):
     _fields_ = [('cancel', _Cancel), ('context', ct.c_void_p)]
-
-
-def _result_info(result, *, update_tol, coupled_energy_tol, equation_energy_tol,
-                 max_iterations, sweeps, omega, abi=1):
-    """Detach the common scalar audit returned by each complete true-h driver."""
-    info = dict(iterations=result.iterations, converged=result.stop == 0,
-        residual=result.residual, enthalpy_mode=True, Q_A=result.q_a, Q_B=result.q_b,
-        energy_imbalance_rel=result.energy_imbalance,
-        exit_reason=('converged', 'enthalpy_limited', 'iteration_limit', 'cancelled')[result.stop],
-        enthalpy_clip_counts=dict(total=list(result.total_clips), last=list(result.last_clips)),
-        effective_settings=dict(update_tol=float(update_tol), coupled_energy_tol=coupled_energy_tol,
-            equation_energy_tol=equation_energy_tol, max_iterations=max_iterations, sweeps=sweeps,
-            omega=float(omega), sweep_kernel='cpp', energy_audit='cpp', thermal_driver='cpp', driver_abi=abi))
-    if result.audit_available:
-        a = result.audit
-        info['coupled_energy_balance'] = dict(net=a.net, solid_abs_sum=a.solid_abs_sum,
-                                             denominator=a.denominator, ratio=a.coupled_ratio)
-        if a.fluid_equations_computed:
-            info['equation_energy_balance'] = dict(fluid_abs_sum=list(a.fluid_abs_sum),
-                fluid_cell_max=list(a.fluid_cell_max), solid_abs_sum=a.solid_abs_sum,
-                denominator=a.denominator, ratio=a.equation_ratio)
-    return info
 
 
 class NativeEnthalpyDriver:
