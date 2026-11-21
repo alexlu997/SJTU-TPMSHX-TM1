@@ -1,5 +1,6 @@
 #include "tpmshx/result_balance.hpp"
 #include "result_c_boundary.hpp"
+#include "result_zone_capture.hpp"
 
 #include <algorithm>
 #include <stdexcept>
@@ -89,17 +90,8 @@ extern "C" int TPMSHX_RESULT_CALL tpmshx_result_zone_temperatures_2d_v1(
     const double* x_fractions,size_t nx,double* x_positions,
     const double* y_fractions,size_t ny,double* y_positions,r::Diagnostics* diagnostics,
     char* error,size_t capacity) {
-    return boundary(diagnostics,error,capacity,[&](Buffers& buffers) {
-        buffers.arrays(widths,2); buffers.arrays(labels,1); buffers.arrays(temperatures,3);
-        buffers.output(output,zone_count);
-        buffers.input(x_fractions,nx);buffers.output(x_positions,nx);
-        buffers.input(y_fractions,ny);buffers.output(y_positions,ny);
-    },[&](r::Diagnostics& state) {
-        const auto rows=b::zone_temperatures_2d(widths,*labels,temperatures,zone_count,state);
-        std::copy(rows.begin(),rows.end(),output);
-        for(size_t i=0;i<nx;++i)x_positions[i]=x_fractions[i]*length_m;
-        for(size_t i=0;i<ny;++i)y_positions[i]=y_fractions[i]*height_m;
-    });
+    return r::c_api::capture_zone_temperatures_2d(widths,labels,temperatures,zone_count,output,length_m,height_m,
+        x_fractions,nx,x_positions,y_fractions,ny,y_positions,diagnostics,error,capacity);
 }
 extern "C" int TPMSHX_RESULT_CALL tpmshx_result_zone_mean_v1(
     const r::RawArray* values, const r::RawArray* weights, std::uint32_t weighted,

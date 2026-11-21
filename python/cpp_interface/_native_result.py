@@ -232,10 +232,14 @@ def integer_product_requires_python(values):
     return False
 
 
-def call(name, argtypes, *arguments, stacklevel=4):
-    owner = _library()
+def call(name, argtypes, *arguments, stacklevel=4, library=None):
+    types = [*argtypes, ct.POINTER(_Diagnostics), ct.POINTER(ct.c_char), _Size]
+    if library is None:
+        function = _library().bind(name, types)
+    else:
+        function = library[name]
+        function.argtypes, function.restype = types, ct.c_int
     diagnostics, error = _Diagnostics(), ct.create_string_buffer(4096)
-    function = owner.bind(name, [*argtypes, ct.POINTER(_Diagnostics), ct.POINTER(ct.c_char), _Size])
     status = function(*arguments, ct.byref(diagnostics), error, len(error))
     notify(diagnostics, stacklevel=stacklevel)
     if not status:

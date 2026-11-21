@@ -233,7 +233,8 @@ target_link_libraries(tpmshx_solver_shared PUBLIC tpmshx_quick_design tpmshx_ful
 add_library(tpmshx_capture_math STATIC
     "${TPMSHX_ROOT}/postprocess/result_core.cpp"
     "${TPMSHX_ROOT}/postprocess/result_arithmetic.cpp"
-    "${TPMSHX_ROOT}/postprocess/result_metrics.cpp")
+    "${TPMSHX_ROOT}/postprocess/result_metrics.cpp"
+    "${TPMSHX_ROOT}/postprocess/result_balance.cpp")
 target_include_directories(tpmshx_capture_math PUBLIC "${TPMSHX_ROOT}/include")
 set_target_properties(tpmshx_capture_math PROPERTIES CXX_VISIBILITY_PRESET hidden
     C_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES)

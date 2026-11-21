@@ -216,7 +216,8 @@ The descriptor and its nested storage remain borrowed through result transfer or
 Current canonical saved inputs use v4. Its create and restore calls check the original experimental settings.
 Preparation and the saved stage use the same native D-F rules.
 The Python adapter reads the saved settings and zone data without rebuilding the application configuration.
-Continuous inputs keep their zone summary without a result-library call.
+Current 2D runs capture stripe, grid and sigmoid zone statistics in the solver library.
+Continuous inputs keep their empty zone summary. These paths run without the shared result library.
 Earlier libraries and saved settings with legacy conversion rules still use their applicable interfaces.
 Archived libraries without the applicable saved protocol retain their existing interfaces.
 Missing new-protocol symbols and execution failures are errors. They do not start another run through the old route.
