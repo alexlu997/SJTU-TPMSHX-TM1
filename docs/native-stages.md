@@ -213,7 +213,7 @@ Keep the additional field buffers and model strings alive through result transfe
 Current Python runs use the complete saved v4 protocol for canonical settings.
 Saved v4 adds the original experimental model settings to the v3 fields.
 Create and restore use the same native applicability rules as preparation.
-They check the original campaign domain against the prepared model, nominal cell geometry and resolved inlet speeds.
+They validate the original record first. They then check its campaign domain against the prepared model, nominal cell geometry and resolved inlet speeds.
 The experiment query lets the host check these settings before it packs the remaining saved fields.
 A prescribed total flow defers its velocity check to create or restore.
 The older saved protocols still accept the previous layouts and conversion rules.

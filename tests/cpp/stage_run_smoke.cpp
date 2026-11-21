@@ -116,13 +116,21 @@ void check_saved(const tpmshx_preparation_case_2d_v1& prepared,tpmshx::stages::R
         require(!tpmshx_stage_run_2d_restore_saved_v4(&experiment,nullptr,&control,state.view().fields,
             state.view().count,&handle,error,sizeof(error)) && handle,"saved v4 rejected the matched checkpoint");
         tpmshx_stage_run_2d_release_run_v1(&handle);
-        const auto rejected=[&](const char* reason) {
-            require(tpmshx_stage_run_2d_create_saved_v4(&experiment,nullptr,&control,&handle,error,sizeof(error))==1
+        const auto rejected=[&](const char* reason,int status=1) {
+            require(tpmshx_stage_run_2d_create_saved_v4(&experiment,nullptr,&control,&handle,error,sizeof(error))==status
                 && !handle && std::strstr(error,reason),"saved create admitted a mismatched campaign");
             require(tpmshx_stage_run_2d_restore_saved_v4(&experiment,nullptr,&control,state.view().fields,
-                state.view().count,&handle,error,sizeof(error))==1 && !handle && std::strstr(error,reason),
+                state.view().count,&handle,error,sizeof(error))==status && !handle && std::strstr(error,reason),
                 "saved restore admitted a mismatched campaign");
         };
+        experiment.experiment.velocity_m_s[0]=100.;
+        rejected("HX experiment calibration requires",8);
+        experiment.experiment.velocity_m_s[0]=std::numeric_limits<double>::quiet_NaN();
+        rejected("invalid saved experimental inlet velocity");
+        experiment.experiment.velocity_m_s[0]=10.;
+        experiment.experiment.geometry_mode=2;
+        rejected("experimental calibration currently requires uniform");
+        experiment.experiment.geometry_mode=0;
         experiment.experiment.domain_m[0]=.180;
         rejected("side A is HX-effective");
         experiment.experiment.fluids[0]=experiment.experiment.fluids[1]=3;

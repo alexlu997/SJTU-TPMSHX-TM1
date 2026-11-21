@@ -591,6 +591,7 @@ int run(const tpmshx_preparation_case_2d_v1* prepared,
         if(start && start->saved_v4 && prepared->input.df_mode==1) {
             const auto& settings=start->saved_v4->experiment;
             const auto& saved=start->saved_v4->values;
+            validate_saved_experiment(settings);
             validate_saved_experiment(settings,prepared);
             if (settings.delta_levelset!=prepared->input.delta_levelset
                     || !same_experimental_reference(settings.cell_length_mm,prepared->cell_length_m,
