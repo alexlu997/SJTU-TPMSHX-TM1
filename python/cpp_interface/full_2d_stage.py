@@ -839,11 +839,12 @@ def capture_result(case, cfg, prepared, native, *, application_hv=None, zone_sum
                  enthalpy_update_normalization=native['enthalpy_update_normalization'],
                  simple_velocity_relaxation=native['simple_velocity_relaxation'], simple_flow=native['simple_flow'],
                  model_h_iterations=native['model_h_iterations'])
-    return _capture_result(case, stage_fields, evidence, application, diagnostics, audit, native.get('execution_facts'),
+    return _capture_result(case, stage_fields, evidence, application, diagnostics,
+                           audit=audit, facts=native.get('execution_facts'),
                            backend_version=f"full_2d_v{native.get('entry_version', 2)}")
 
 
-def _capture_result(case, stage_fields, native, application, diagnostics, audit, facts, *, backend_version):
+def _capture_result(case, stage_fields, native, application, diagnostics, *, audit, facts, backend_version):
     fields, field_metadata = stage_fields
     ledger = native.get('physical_ledger')
     if ledger is not None and ledger['physical_boundary_complete'] is None:
