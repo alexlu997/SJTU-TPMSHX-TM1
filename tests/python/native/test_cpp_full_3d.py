@@ -377,16 +377,19 @@ def test_native_call_borrows_case_arrays_and_recovers(native_path, monkeypatch, 
             return original_call(run, function, *args)
         monkeypatch.setattr(_Run, '_call', observe)
     else:
-        pack = full_3d_stage.pack_saved_case
+        runtime = full_3d_stage.open_library(native_path, control(native_path).native_table_directory)
+        library = runtime[1]
+        complete = library.tpmshx_run_saved_case_3d_v2
         def observe_saved(*args):
-            saved = pack(*args)
-            data = saved.values.input.contents
+            data = args[0]._obj.values.input.contents
             check_buffers({key: getattr(data, field).data for key, field in (
                 ('eps_arr', 'epsilon'), ('eps_A', 'epsilon_a'), ('eps_B', 'epsilon_b'),
                 ('K_m2', 'permeability'), ('cF_per_m', 'forchheimer'),
                 ('K_ss', 'solid_conductivity'), ('L_field_m', 'cell_length'))})
-            return saved
-        monkeypatch.setattr(full_3d_stage, 'pack_saved_case', observe_saved)
+            complete.argtypes = observe_saved.argtypes
+            return complete(*args)
+        monkeypatch.setattr(library, 'tpmshx_run_saved_case_3d_v2', observe_saved)
+        monkeypatch.setattr(full_3d_stage, 'open_library', lambda *_: runtime)
 
     def fail(*_):
         raise RuntimeError('borrow callback sentinel')
