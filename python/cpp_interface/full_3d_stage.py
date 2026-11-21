@@ -332,7 +332,7 @@ def validate_flow_options(cfg):
 def _request(cfg, energy, model_h):
     request = _Request(1, ct.sizeof(_Request))
     if energy is not None:
-        request.energy = ct.pointer(energy)
+        request.energy = ct.pointer(_EnergyOptions(energy.algorithm, energy.temperature_update_tolerance))
     if model_h is not None:
         request.model_h = model_h
     for target, source in (('energy_coupled_tolerance', 'ltne_enthalpy_coupled_energy_tol'),
