@@ -361,7 +361,7 @@ The host keeps cache policy, scalar object types, warning filters and source loc
 Host stages 10 through 16 preserve domain, port, fluid, grid, cell-cap, roughness and grid-cell conversion validation order.
 Stages 17 through 19 validate each count before its physical axis is built.
 The library owns physical grid construction, local geometry, total-flow resolution and final preparation.
-`python/preprocess/three_d/preparation.py` builds the immutable case from native views. Then `python/cpp_interface/_native_preparation_case.py` releases the native result.
+`python/preprocess/three_d/preparation.py` builds the immutable case from native views. Then `python/cpp_interface/preparation_host.py` releases the native result.
 Native failure preserves the original host exception and does not select another preparation route.
 The old 3D numerical host route and its exclusive `shared/models/grid_3d.py` and `asym_split.py` helpers are retired.
 `tests/python/preparation_3d_reference.py` keeps their independent comparison and synthetic saved-grid fixtures.
@@ -582,7 +582,7 @@ Complete continuous XY and stripe preparation use v11 when available.
 With a supported preparation binary that lacks v11, the adapter uses its v7 continuous and v10 stripe entries and obtains the fields from the geometry library.
 Continuous XY capacity and flow resolution use v7 with v4 payloads. Stripe queries, rectangles and sigmoid fields use v10.
 Capacity-only queries keep configuration validation and do not calculate drag. Complete spatial preparation still requires CFD drag.
-`python/cpp_interface/native_preparation.py` transports shared cache values and evidence without numerical cache calls.
+`python/cpp_interface/preparation_host.py` transports shared cache values and evidence without numerical cache calls.
 The adapter copies arrays, scalar types and evidence before it releases the native owner.
 Stored cases keep their schema, SI fields, controls and model references.
 Preliminary mass-flow records remain outside the final preparation warning scope.

@@ -29,7 +29,7 @@ Complete preparation keeps its existing physical guards.
 `preprocess/preparation_case_c_api.cpp` exposes `tpmshx_query_inlet_properties_v1` with twelve typed inline values and no owner.
 Optional v3 callbacks retain synchronous observations and host-object checks; both cache hooks must be NULL.
 `python/physical_models/tpms_calc.py` keeps public calls, shared caches, geometry selection and the per-call material query.
-`python/cpp_interface/_native_preparation_case.py` owns query transport and the range policy shared with preparation adapters.
+`python/cpp_interface/inlet_properties.py` packs the inlet query. It uses `python/cpp_interface/preparation_host.py` for range observations and callbacks.
 The frozen combination in `tests/python/property_reference.py` supplies independent numerical expectations.
 The [external fluid caller](../examples/cpp/prepare_fluids_2d.cpp) uses `stages.hpp` to query all four fluids with only the preparation library.
 No physical model, coefficient source or external numerical dependency is added.
@@ -51,7 +51,7 @@ Its spatial model carries the actual conductivity value and scalar kind.
 The original configuration comparison can accept different nominal and spatial values through narrow-scalar equality.
 Spatial material uses the accepted spatial value; nominal calculations keep their original value.
 The probes carry actual L/t, scalar kinds, fluid state and optional Nu selection.
-`python/cpp_interface/native_preparation.py` uses the existing shared cache owners for
+`python/cpp_interface/preparation_host.py` uses the existing shared cache owners for
 lookup, publication and evidence transport. It does not call numerical cache functions.
 `ZonedCache` uses those hooks when supplied; native code calculates each miss.
 The original per-call cache remains available for independent native callers.
