@@ -255,7 +255,8 @@ Resolve relative paths in `.agents/rules/tm1-local-data.md` from that checkout.
 If the machine has a cache limit, measure the combined allocation before writing to or cleaning TM1 caches.
 Include `.cache/` in the primary checkout and its linked worktrees. Include other TM1 caches covered by the limit.
 Count each hard-linked file once across those locations. Measure symbolic links without following them.
-Measure the same locations again after cleanup.
+At the end of the task or cleanup, list all cache locations that the limit now covers.
+Measure their combined allocation even if the task removed no files.
 
 1. Keep raw data, active paper and GCI evidence, selected designs, and key failure samples.
    Keep their inputs, methods, final fields, metrics, and validity limits.
