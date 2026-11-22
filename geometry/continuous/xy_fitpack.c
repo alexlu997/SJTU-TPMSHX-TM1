@@ -2,7 +2,7 @@
  * XY interpolation for the continuous field owner.
  * Numerical routines are derived from SciPy v1.18.1 dfitpack.c.
  * Copyright (c) 2001-2002 Enthought, Inc. 2003, SciPy Developers.
- * All rights reserved. See ../../licenses/scipy-LICENSE.txt for the license.
+ * All rights reserved. See ../../engineering/native_build/licenses/scipy-LICENSE.txt for the license.
  * Changes: degree 1..3, s=0, first fit, default bounds, owned C interface.
  * Source details are in ../../geometry/fields-sources.md.
  */

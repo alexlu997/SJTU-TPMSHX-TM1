@@ -4,8 +4,25 @@
 
 TM1 separates TPMS heat-exchanger preprocessing, solving, and postprocessing into independently maintained modules. The GUI, optimization, and Quick Design call their public interfaces. The target repository is [alexlu997/SJTU-TPMSHX-TM1](https://github.com/alexlu997/SJTU-TPMSHX-TM1). Original SJTU-TPMSHX/V2 is a source reference. This branch does not merge back into that repository.
 
-**C++ computation** follows [preparation](preprocess/), [solving](solver/), and [evaluation](postprocess/). The [2D air example](examples/cpp/air_2d.cpp) calls all three stages. See [geometry](geometry/) for grids and geometry, and [numerics](numerics/) for common properties and numerical functions. External programs use [stages.hpp](include/tpmshx/stages.hpp).
-The [solver reading guide](solver/README.en.md) gives the 2D, 3D and Quick Design entries. Use its file tree to change a model, trace an interface, inspect results or resume a run.
+## Where to find the computation code
+
+```mermaid
+flowchart LR
+    prep["Prepare · preprocess/"]
+    subgraph sol["Solve · solver/"]
+        d2["Full 2D · full_2d.cpp"]
+        d3["Full 3D · full_3d.cpp"]
+        q["Quick Design · quick_design_driver.cpp"]
+    end
+    result["Evaluate · postprocess/"]
+    prep --> d2 --> result
+    prep --> d3 --> result
+    prep --> q --> result
+```
+
+The [2D example](examples/cpp/air_2d.cpp#L32-L34) calls [preparation](preprocess/), [solving](solver/) and [evaluation](postprocess/). To read a solver, open the [full 2D](solver/full_2d.cpp#L1095), [full 3D](solver/full_3d.cpp#L1505) or [Quick Design](solver/quick_design_driver.cpp#L116) entry.
+
+For geometry, see [geometry/](geometry/). For shared fluid properties and numerical methods, see [numerics/](numerics/). External C++ callers use [stages.hpp](include/tpmshx/stages.hpp). For field results, checkpoints and resume, see the [solver reading guide](solver/README.en.md).
 
 Python applications use four public computation entries.
 

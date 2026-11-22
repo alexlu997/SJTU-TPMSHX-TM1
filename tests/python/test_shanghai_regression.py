@@ -64,7 +64,7 @@ def test_shanghai_3d_historical_evidence():
     # Extrapolating P to the faces recovers the true model dP, which is closer
     # to experiment: Nz=3 RMSRE_dP 9.82% → 5.05% (Q unchanged — Q is a duty
     # integral, independent of the dP reduction). Verified 2nd-order in the
-    # streamwise direction (tests/test_dp_face_extrap_order.py).
+    # streamwise direction (tests/python/test_dp_face_extrap_order.py).
     # 2026-06-30 (#2) — gamma_df K re-baselined: SmoothDF Dh² trend → CFD-refit
     # surface (per-geometry water-CFD K, 2-stage extraction). c_F unchanged; the
     # cleaner/smaller K lifts the Darcy term, so Nz=3 RMSRE_dP 5.05% → 5.28%

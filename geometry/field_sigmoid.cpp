@@ -33,7 +33,7 @@ Scalar sigmoid_kind(Scalar x, Scalar center, Scalar width) {
 }
 /* NumPy 2.5.4 simd_exp_FLOAT and npy_simd_data.h, in scalar form.
  * Copyright (c) 2005-2025, NumPy Developers. All rights reserved.
- * BSD-3-Clause terms: ../licenses/numpy-LICENSE.txt.
+ * BSD-3-Clause terms: ../engineering/native_build/licenses/numpy-LICENSE.txt.
  * Source: numpy/_core/src/umath/loops_exponent_log.dispatch.c.src.
  */
 float numpy_exp32(float x) {

@@ -25,10 +25,9 @@ GAMMA_AIR = _MODEL_PARAMETERS['envelope']['gamma_air']
 
 ENVELOPE_MODES = ('raise', 'warn', 'off')
 
-# Mirrors the lower clip bound in SIMPLESolver{,3D}._update_density. The
-# post-solve gate treats a converged field whose minimum absolute pressure sits
-# at this floor as off-envelope: the clip only engages when the compressible
-# solve could not hold a positive pressure on its own.
+# The native pressure check in numerics/pressure_reference.cpp uses the same
+# model parameter. A minimum absolute pressure at or below the floor, including
+# its relative tolerance, is outside the compressible envelope.
 PRESSURE_FLOOR_PA = _MODEL_PARAMETERS['envelope']['pressure_floor_pa']
 
 
