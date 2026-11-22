@@ -51,7 +51,7 @@ Python 连续 XY 和条带的完整准备优先使用 v11，由准备库返回�
 公共 ZoneConfig 与 sigmoid 组合查询在单独迁移通过前仍保留独立调用消费者。
 它们保留调用方提供的物性及自定义 sigmoid 控制。
 `python/cpp_interface/native_preparation.py` 为原生适配器，被替代的 Python 准备流程及行 D-F 投影已退役。
-独立准备参考保留在 `development/tests`；`python/physical_models/zone_units.py` 负责保存分区数据的单位转换。
+独立准备参考保留在 `tests/python`；`python/physical_models/zone_units.py` 负责保存分区数据的单位转换。
 CaseData 与保存文件契约不变，原生失败直接传播，不选择其他准备路线。
 
 独立的三维准备 v1 接收规定速度的原始对称均匀输入，覆盖全部 16 个有序流体配对，
@@ -87,7 +87,7 @@ Python 将标量报告和单独传递的场数组写入结果。只有缺少报�
 缺少执行视图的旧库由 `python/solvers/execution_record.py` 从返回字段重建记录。
 原生结果阶段判断资格。
 
-独立的 `shared/models/tpms_calc.compute` 与完整准备使用同一原生入口物性组合。
+独立的 `physical_models.tpms_calc.compute` 与完整准备使用同一原生入口物性组合。
 Python 保留几何选择、共享缓存、可变结果副本、逐次 K_ss 查询、对象转换和警告策略。
 `python/cpp_interface/inlet_properties.py` 传输十二个带类型的查询值，并与准备适配器共享范围观测。
 [入口物性查询](../docs/native-stages.zh-CN.md#入口物性查询) 向 C 和 C++ 调用者提供同一计算，不需要网格或求解器。

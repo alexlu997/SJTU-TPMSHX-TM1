@@ -331,7 +331,7 @@ Python 执行通过保存的准备场调用 run 阶段。
 薄 Python 适配器复用共享准备态输入校验和 `FieldResult` 映射。原生阶段证据提供场、物性和原警告记录，不调用 Python 数值核或物性函数。主机库位置属于执行控制，不在 `CaseData` 中：
 
 ```python
-from sjtu_tpmshx.shared.domain.module_ports import RunControl
+from sjtu_tpmshx.run_control.module_ports import RunControl
 from sjtu_tpmshx.solvers.api import run_case
 
 result = run_case(prepared_case, RunControl(

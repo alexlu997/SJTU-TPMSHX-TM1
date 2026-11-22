@@ -13,7 +13,7 @@ Python 数值迭代器、Numba／PyAMG 依赖和 Python 专用研究入口已退
 
 固定系数、范围和参考态来自
 [model_parameters_v1.json](../python/model_configs/model_parameters_v1.json)。
-`shared.configs.model_parameters` 读取器仅使用 Python 标准库。
+`model_configs.model_parameters` 读取器仅使用 Python 标准库。
 Python 模型模块与原生头文件生成器使用同一资源数据。
 几何计算由独立 C++ 核心负责。
 几何核心负责标准、CO2 和非对称几何、chi/Kss，以及 sigmoid LUT 节点和派生几何。
@@ -160,7 +160,7 @@ v3 钩子交换已完成的缓存项与同步观测。
 回调 v4 保留 v3 布局，在物理网格构建前增加宿主对象检查点。
 Python 保留警告过滤器、来源位置，以及后续失败前已完成的观测。
 原生失败不会选择其他准备路线。
-被替代的 Python 二维准备流程及行 D-F 投影已退役，独立冻结参考继续保留在 `development/tests`。
+被替代的 Python 二维准备流程及行 D-F 投影已退役，独立冻结参考继续保留在 `tests/python`。
 `python/cpp_interface/native_preparation.py` 保留原生适配器；`python/physical_models/zone_units.py` 负责保存分区数据的单位转换。
 名义 x/y 网格警告在保留的准备适配器中具有独立的宿主发出位置。
 `preparation_case.cpp` 负责二维准备流程及均匀、连续或网格／偏置三维流程；`stage_run.cpp` 将二维准备态适配到现有完整二维驱动。
@@ -631,7 +631,7 @@ GUI 入口为 `python -m sjtu_tpmshx.main`，源码无界面工作为 `python -m
 
 原生完整三维按侧保存 `diagnostics.coarse_bootstrap_trace`。它记录有效策略、阈值、首层／递归上限、尝试形状、深度、逐层实际停止、计费迭代和种子应用。`solve_started` 表示该层至少进入一次迭代；`actual_levels` 统计这些层，`started_cap_sum` 只求和这些层上限。`total_charged_iterations` 统计已进入迭代，包括失败的一次。跳过层或子层运行时已取消的父层，可以保留配置上限但计费为零。记录不控制或延长求解。旧初始化摘要仍描述第一粗层。旧结果可读；重跑显式 legacy 配置必须选择 F2，并接受独立测量的新结果。
 
-前处理与模型参考使用 `shared/models/fluid_props.FluidModel`。注册表直接从 `tpms_props` 导入空气／水基础函数，从 `nu_correlations` 导入 Nu。`tpms_calc` 保留公共重导出，注册表不反向依赖它。关联式、物性来源和适用校验留在所属模型。原生完整控制器负责外迭代和温差跟踪；完整两维均跟踪 Ta、Tb、Ts，二维另保留密度门。维度专属求解顺序和原生通量捕获保持显式。
+前处理与模型参考使用 `physical_models.fluid_props.FluidModel`。注册表直接从 `tpms_props` 导入空气／水基础函数，从 `nu_correlations` 导入 Nu。`tpms_calc` 保留公共重导出，注册表不反向依赖它。关联式、物性来源和适用校验留在所属模型。原生完整控制器负责外迭代和温差跟踪；完整两维均跟踪 Ta、Tb、Ts，二维另保留密度门。维度专属求解顺序和原生通量捕获保持显式。
 
 二维 SIMPLE 构造器消费准备态分区阻力数组，旧 `zone_config` 行预测已退役。`P_ref` 后参数仅能按关键字传入，避免旧位置分区参数被静默重解释。残差回调异常通过完整计算原样传播，不是可以忽略的 UI 通知。
 
@@ -745,7 +745,7 @@ Shanghai Gyroid air-A/water-B 的 `df_mode="experimental"` 也支持连续场，
 
 公开批量 API 返回全部内存中的 FieldResult。优化器使用同一批量实现，但只保留经过校验的指标、身份、路径和配置快照。每个候选逐工况读取一个已归档基准结果，完成相同的身份、输入和能量检查，在求解前释放它。各已完成或失败成员保存检查点后退出活动作用域，完整场仍保存在原有归档中。基准文件缺失或无效时，在比较阶段失败。已完成场的内存保留量因此限于一个活动工况，代价是每个候选工况读取一次基准文件。公开批量和优化器使用相同的目标计算与权重。
 
-只有完整数值合格批次可以发布两个目标。原生三维 model-h 收尾、结果资格评估和公开守恒审计遵循相同完整控制体规则：各流体全局／cellmax 残差和 LTNE 源不平衡均低于 1%，且物理边界账本完整。源项比值采用 `max(abs(Q_sA), abs(Q_sB), 1 W)`，复用严格能量残差已有的零负荷尺度；因此近零负荷的源项绝对残差必须小于 0.01 W。`model_h_3d.cpp` 从局部数值证据构造收尾门槛；`result_stage.cpp` 用已记录的结果证据调用原生 `checks::strict_certificate`。公开 `postprocess.conservation.compute_phase2a` 入口只接受 `FieldResult`，提取记录证据后调用 `shared.result_math.compute_phase2a` 组装完整公开证书。该函数用原生检查完成数值归约，并保留公开标签和缺失证据规则。二维 model-h 要求原生主／细平衡、完整物理边界及 Richardson 接受。true-h 及其显式守恒能量候选采用自身原生证据：热求解收敛、无焓裁剪、有限的耦合与方程能量比均不超过记录的求解容差；不套用 model-h 或 Richardson。焓算法及温度更新设置必须与基准相同。
+只有完整数值合格批次可以发布两个目标。原生三维 model-h 收尾、结果资格评估和公开守恒审计遵循相同完整控制体规则：各流体全局／cellmax 残差和 LTNE 源不平衡均低于 1%，且物理边界账本完整。源项比值采用 `max(abs(Q_sA), abs(Q_sB), 1 W)`，复用严格能量残差已有的零负荷尺度；因此近零负荷的源项绝对残差必须小于 0.01 W。`model_h_3d.cpp` 从局部数值证据构造收尾门槛；`result_stage.cpp` 用已记录的结果证据调用原生 `checks::strict_certificate`。公开 `postprocess.conservation.compute_phase2a` 入口只接受 `FieldResult`，提取记录证据后调用 `postprocess.result_math.compute_phase2a` 组装完整公开证书。该函数用原生检查完成数值归约，并保留公开标签和缺失证据规则。二维 model-h 要求原生主／细平衡、完整物理边界及 Richardson 接受。true-h 及其显式守恒能量候选采用自身原生证据：热求解收敛、无焓裁剪、有限的耦合与方程能量比均不超过记录的求解容差；不套用 model-h 或 Richardson。焓算法及温度更新设置必须与基准相同。
 
 这与实验精度、正式对流 `energy_imbalance_rel` 和梯度适用性不同；物理预测仍需后者证据，但不禁止明确标注、使用冻结参考修正的探索搜索。
 
@@ -822,7 +822,7 @@ CaseData 包含实际准备网格、设计场、边界输入、固定热／流�
 
 FieldResult 包含原生场位置／单位、原通量和压力证据、执行／收敛状态与诊断。显示压力／温度不替代原状态。诊断数组 NaN 和完成但未收敛运行保持可见；严格 JSON 指标以原因记录不可用值。取消／失败不返回虚构完成存档。
 
-`shared.result_display` 负责二维显示别名和分区统计，并为两个维度提供场的单位、坐标轴及状态描述。该数据模块不依赖 Qt。温度和压力别名保留原始单元值。高斯显示滤波、速度显示副本及其空诊断项已退役。历史数组仍可读取，无需改写文件。应用映射读取原始温度、速度分量和 `P_report_A/B`，即使归档显示数组包含滤波值也如此。三维显示别名继续共享不可变缓冲区。
+`postprocess.result_display` 负责二维显示别名和分区统计，并为两个维度提供场的单位、坐标轴及状态描述。该数据模块不依赖 Qt。温度和压力别名保留原始单元值。高斯显示滤波、速度显示副本及其空诊断项已退役。历史数组仍可读取，无需改写文件。应用映射读取原始温度、速度分量和 `P_report_A/B`，即使归档显示数组包含滤波值也如此。三维显示别名继续共享不可变缓冲区。
 
 三维面板在真实单元中心和域边界设置显示点；边界点保留最近中心值。所有网格大小均由 VTK 在这些点之间插值，每个已选择场缓存一份显示网格。探针按真实边界定位原始单元。场景与弹窗切片使用同一最近中心层，标签和导出记录实际坐标。共享色阶的温度图使用完整场范围、显式等值级别和相同刻度。这些显示规则不改变原生结果。
 
@@ -840,11 +840,11 @@ FieldResult 包含原生场位置／单位、原通量和压力证据、执行�
 
 不可压路线在每次 SIMPLE 内冻结密度。三维水和默认 sCO₂ 保留入口压力密度／黏度约定；二维既有外刷新使用局部绝对场。两维不可压绝压参考均将物理入口面开口面积加权算术均压锚定到指定入口压力。热 EOS 和相态检查使用本轮绝对场。即使失败的最终 post 产生不同最终流动压力，最后热压力仍独立保留。后处理不在新状态重建热焓。压降保留最终 SIMPLE 定义和独立记录状态。
 
-指标定义随 JSON 和 GUI 导出元数据保存。旧指标文件保留原定义；映射当前 GUI 前应重新评估其原生结果。冻结后端报告参考是历史软件数值参考，不是现行指标契约。`shared.domain.metric_spec` 负责显式指标族、单位和完整计算定义版本。PerformanceResult 要求映射键匹配侧别 spec 名或指标族，JSON 同样检查。GUI 在给 Pa/K/热量字段赋值前检查所有消费定义及维度热单位。多工况聚合要求当前有符号热与压力定义，不能仅因两记录同样误标而接受。不兼容含义直接拒绝，不换算单位或修改历史文件。
+指标定义随 JSON 和 GUI 导出元数据保存。旧指标文件保留原定义；映射当前 GUI 前应重新评估其原生结果。冻结后端报告参考是历史软件数值参考，不是现行指标契约。`data_types.metric_spec` 负责显式指标族、单位和完整计算定义版本。PerformanceResult 要求映射键匹配侧别 spec 名或指标族，JSON 同样检查。GUI 在给 Pa/K/热量字段赋值前检查所有消费定义及维度热单位。多工况聚合要求当前有符号热与压力定义，不能仅因两记录同样误标而接受。不兼容含义直接拒绝，不换算单位或修改历史文件。
 
 `PartialBCConfig.uniform_inlet_2d` 选择几何重叠而不使用原四单元入口渐变。前处理记录轮廓，二维执行消费并校验同一轮廓。桌面两侧固定为 true，不提供轮廓开关；加载旧设置时报告转换。低层 API 保留 flag=false 的脚本历史轮廓。选择不改变总质量流量、端口几何或三维流动。
 
-旧空气／空气筛选优化器、前处理、冻结 B 后端和指标归约已退役，[历史索引](history/retired-tools.md)保留源码与数值参考。当前多工况搜索使用完整前处理和执行。`shared.models.continuous_field` 为该路径、预览和 nTop 保留公共 DTO 与原生 XY/XYZ 适配。保存决策必须按原边界、控制网格、对称性和样条阶数解码。几何窗为 L=4..8 mm、t=0.3..0.6 mm，不扩大 Nu 证据或证明梯度曲面连通。
+旧空气／空气筛选优化器、前处理、冻结 B 后端和指标归约已退役，[历史索引](history/retired-tools.md)保留源码与数值参考。当前多工况搜索使用完整前处理和执行。`physical_models.continuous_field` 为该路径、预览和 nTop 保留公共 DTO 与原生 XY/XYZ 适配。保存决策必须按原边界、控制网格、对称性和样条阶数解码。几何窗为 L=4..8 mm、t=0.3..0.6 mm，不扩大 Nu 证据或证明梯度曲面连通。
 
 历史筛选结果按原单位和状态可读，但现执行和指标评估拒绝旧模式。新配置不含 `optimizer`；`ComputeConfig.to_dict()`／`to_json()` 只在该段被显式提供或由旧存档加载时保留。工况快照和优化记录使用同一序列化。旧值仅供存档；当前优化求解预算来自 `ComputeConfig.solver`。候选数由独立 `n_init`、`n_iter`、`q_batch` 决定。历史 Pareto 几何导出仍要求原配置并保留失败状态。
 
@@ -902,7 +902,7 @@ full 2D v6 和 full 3D v5 在不改变结果布局的情况下接收线程预算
 
 本阶段覆盖原生二维与三维的内部和外迭代边界，包括二维热细化状态。CLI 保存间隔须显式指定。新发起的 GUI C++ 完整计算每 60 秒请求保存，在 GUI 线程捕获输入来源，并使用既有用户数据目录下的新运行目录。GUI 续算使用原记录间隔；启动被拒绝时清除待启动的目录与来源。最长完整计算步或粗网格初始化限制实际保存时机；保存频率与完整耗时、内存、桌面验收仍是独立检查。
 
-`shared.io.file_snapshot` 先将可变构建输出复制成独立且经过内容核对的运行库快照。
+`file_io.file_snapshot` 先将可变构建输出复制成独立且经过内容核对的运行库快照。
 后续运行及工况工作进程通过硬链接共享该固定快照。
 已归档基准场、批量或搜索恢复所复制的二进制文件使用相同共享操作；可编辑状态和日志保持独立。
 跨卷、文件系统不支持硬链接或达到链接数量限制时使用普通复制。
@@ -914,7 +914,7 @@ full 2D v6 和 full 3D v5 在不改变结果布局的情况下接收线程预算
 
 完整原生入口在准备执行输入或加载原生库前检查取消，主机选择校验仍适用。有效的预取消请求抛出 `CancelledError`，即使所选绝对库路径不存在。未取消且缺库的请求保留原错误。
 
-工作流、求解器和 GUI 编排共享 `shared.domain.cancellation.CancelledError`，它继承 InterruptedError，也可通过 `ComputeOrchestrator.CancelledError` 使用。只有显式取消检查点抛出它；即使取消已请求，无关异常仍是错误。传播前等待两个 SIMPLE worker，真实失败优先于取消。编排器直接将此异常作为取消终态；GUI 适配器绑定工作流控制参数，保留原异常。
+工作流、求解器和 GUI 编排共享 `run_control.cancellation.CancelledError`，它继承 InterruptedError，也可通过 `ComputeOrchestrator.CancelledError` 使用。只有显式取消检查点抛出它；即使取消已请求，无关异常仍是错误。传播前等待两个 SIMPLE worker，真实失败优先于取消。编排器直接将此异常作为取消终态；GUI 适配器绑定工作流控制参数，保留原异常。
 
 二维每次 SIMPLE 迭代和既有 LTNE chunk 边界检查，包括 Richardson 细化。三维每次 SIMPLE 迭代以及动量 sweep、压力求解和修正之间检查；这些调用期间收到取消请求时，在当前调用返回后停止，不再启动下一个核函数。三维 LTNE chunk 边界保持不变。共享 true-h 每次物性／sweep 迭代检查。原生线性求解、LTNE chunk 或焓物性／sweep 必须完成后才到下一检查点；chunk 大小取决于所选路线和控制量。没有强制线程终止或固定墙钟取消时限。取消不发布结果。
 
@@ -962,8 +962,8 @@ full 2D v6 和 full 3D v5 在不改变结果布局的情况下接收线程预算
 1. **可压缩空气。** 空气采用理想气体密度路径，不能替换成常密度或等温捷径。
 2. **孔隙率只分配一次。** 对称 LTNE 调用方传完整孔隙率，由能量求解器生成两个半孔隙率流体。偏移等值面由上游 `preprocess/preparation_case.cpp` 计算 eps_A/eps_B，两者和为总孔隙率，核不再减半。各侧有效导热率为 `K_ff_i = eps_i * k_i`。对称准备系数因此为 `eps_total/2 * k_i`；偏移因子 `2*split_i` 只应用一次。已有准备态文件保留冻结系数；重新准备原配置才能得到修正值，不改历史输入／结果。
 3. **质量通量入口。** 可压缩空气在两维均用质量通量入口。求解器速度为孔隙速度，不是表观速度。三维质量不平衡诊断按局部孔隙率积分有符号入口、出口通量，与 SIMPLE 连续方程一致；非均匀孔隙率场不能用未乘孔隙率的积分判断质量守恒。
-4. **Darcy–Forchheimer 归属。** `shared.df_surrogate.predict_K_cF()` 是纯几何基底，全部流体和两侧共用一张水＋sCO2 CFD 表。K0/cF0 只依赖拓扑、L、t，在 4–8 mm × 0.3–0.6 mm 内双线性插值，与 Re 和流体无关。UI 只有两个生产模式：光滑壁 CFD 是通用 ComputeConfig 默认并兼容 V2；内置上海预设默认实验标定，保存输入保留选择，旧文件缺少选择项时保持 CFD。实验标定在流水线组装后、压力初始化／SIMPLE 前，各侧应用一次经审查的固定有效修正；求解期间 K/cF 固定。选择的数据集必须匹配试验批次、边界、压降定义和几何。它不能证明流体固有 D-F 物理差异。修正可能吸收测压点、缩扩口、集流／分配区、整机损失、流动面积／通道数定义、仪表零点和数据减缩；这些贡献未单独建模。没有同装置比较时不能归因于流体。旧 `gamma_df` 和 `rbf` 研究模式已退役，显式选择会报错。代码、表和结果见[历史索引](history/legacy-models.md)。
-5. **Nusselt 归属。** 空气、水、sCO2 基础式位于 `python/physical_models/nu_correlations.py`。唯一现行 sCO2 有效参数资源为 `python/model_configs/sco2_effective_nu.json`，由 `sco2_effective_nu_config()` 返回校验后的 Sco2NuConfig。保留字段 alpha_D/alpha_G 表示总 Ceff，在最终 Nu 下限前只乘当前基础式一次；没有额外 beta 或输出 Q 缩放。通用 cfd_smooth 默认和本次保存参数不变。显式选择才加载当前资源；旧 Case 重放记录值。退役实验 gamma 助手和环境开关不是第二条路线。证据见[模型资源](model-resources.md#sco2-有效-nu-系数)。完整两维通过 `shared/models/local_heat_transfer.local_speed` 重算各侧局部标量 Re/Nu，速度为当前单元孔隙速度模 `sqrt(uc² + vc² [+ wc²])`。不得只取固定入口轴分量或再乘孔隙率。有符号法向分量仍负责质量／焓面通量。真正低速保留现有 Re/Nu 下限。入口范围观测保留，首次局部刷新前不再存冗余 bulk h_v。给定速度近似模式保留原定义。在转弯流中局部应用整体拟合标量 Nu 仍是模型假设，与速度一致性要求不同。见[实现与配对验证](history/README.md#2026-09-18-历史材料整理)。
+4. **Darcy–Forchheimer 归属。** `physical_models.df_surrogate.predict.predict_K_cF()` 是纯几何基底，全部流体和两侧共用一张水＋sCO2 CFD 表。K0/cF0 只依赖拓扑、L、t，在 4–8 mm × 0.3–0.6 mm 内双线性插值，与 Re 和流体无关。UI 只有两个生产模式：光滑壁 CFD 是通用 ComputeConfig 默认并兼容 V2；内置上海预设默认实验标定，保存输入保留选择，旧文件缺少选择项时保持 CFD。实验标定在流水线组装后、压力初始化／SIMPLE 前，各侧应用一次经审查的固定有效修正；求解期间 K/cF 固定。选择的数据集必须匹配试验批次、边界、压降定义和几何。它不能证明流体固有 D-F 物理差异。修正可能吸收测压点、缩扩口、集流／分配区、整机损失、流动面积／通道数定义、仪表零点和数据减缩；这些贡献未单独建模。没有同装置比较时不能归因于流体。旧 `gamma_df` 和 `rbf` 研究模式已退役，显式选择会报错。代码、表和结果见[历史索引](history/legacy-models.md)。
+5. **Nusselt 归属。** 完整求解在 [fluid_nusselt_ratio](../numerics/fluid_properties.cpp#L182) 中计算空气、水和 sCO2 的 Nu。关联式见 [nu_point](../numerics/fluid_properties.cpp#L551)。[Python 关联式接口](../python/physical_models/nu_correlations.py) 调用原生函数并报告适用范围。唯一现行 sCO2 有效参数资源为 `python/model_configs/sco2_effective_nu.json`，由 `sco2_effective_nu_config()` 返回校验后的 Sco2NuConfig。保留字段 alpha_D/alpha_G 表示总 Ceff，在最终 Nu 下限前只乘当前基础式一次；没有额外 beta 或输出 Q 缩放。通用 cfd_smooth 默认和本次保存参数不变。显式选择才加载当前资源；旧 Case 重放记录值。退役实验 gamma 助手和环境开关不是第二条路线。证据见[模型资源](model-resources.md#sco2-有效-nu-系数)。[二维](../solver/full_2d.cpp#L539)和[三维](../solver/full_3d.cpp#L877)求解器重算各侧局部标量 Re/Nu，速度为当前单元孔隙速度模 `sqrt(uc² + vc² [+ wc²])`。不得只取固定入口轴分量或再乘孔隙率。有符号法向分量仍负责质量／焓面通量。真正低速保留现有 Re/Nu 下限。入口范围观测保留，首次局部刷新前不再存冗余 bulk h_v。给定速度近似模式保留原定义。在转弯流中局部应用整体拟合标量 Nu 仍是模型假设，与速度一致性要求不同。见[实现与配对验证](history/README.md#2026-09-18-历史材料整理)。
 6. **可压缩包络。** `python/physical_models/envelope.py` 检查真实最终压力和局部 Mach。非有限状态、压力≤既有 1000 Pa 下限及 Mach≥1 仍无效。正压／亚声速场还须满足指定物理入口压力才可收敛。等温一维初值不可用只是启动数值问题，不证明耦合非等温问题无解。不得扩大裁剪或强制给答案来绕过最终场／入口门。
 7. **压力参考。** 理想气体侧 P_ref_abs 锚定出口单元，局部绝压为 `P_ref_abs + P`。真实出口面外推表压可非零；`P_ref_abs + dP` 不是实际入口压力。入口校正及收敛诊断使用实际端口面几何面积均值。
 8. **单位。** 准备态契约使用 K、Pa、m。接受 mm 单胞／壁厚的旧闭合调用须显式边界换算；内部单位不改变持久化 SI 场。

@@ -19,7 +19,7 @@ and qualified flow acceleration keep their existing rules.
 
 Fixed coefficients, bounds and reference states come from
 [model_parameters_v1.json](../python/model_configs/model_parameters_v1.json).
-The `shared.configs.model_parameters` reader uses only the Python standard library.
+The `model_configs.model_parameters` reader uses only the Python standard library.
 Python model modules and the native header generator use the same resource data.
 An independent C++ core calculates geometry.
 The geometry core owns standard, CO2 and asymmetric geometry, chi/Kss, and sigmoid LUT nodes and derived geometry.
@@ -176,7 +176,7 @@ It supplies no numerical values. The v3 hooks exchange completed cache entries a
 Callback v4 keeps that layout and adds a host-object check immediately before physical grid construction.
 Python retains warning filters, source locations and completed observations after a later failure.
 A native failure never selects another preparation route.
-The replaced Python 2D preparation sequence and row D-F projection are retired; independent frozen references remain under `development/tests`.
+The replaced Python 2D preparation sequence and row D-F projection are retired; independent frozen references remain under `tests/python`.
 `python/cpp_interface/native_preparation.py` retains the native adapter. `python/physical_models/zone_units.py` owns saved zone-unit conversion.
 Nominal x/y grid warnings have separate host emission sites in the retained preparation adapter.
 `preparation_case.cpp` owns 2D preparation and uniform, continuous or grid/offset 3D preparation.
@@ -1025,7 +1025,7 @@ configured cap with zero charge.
 These records never control or extend a solve. The historical bootstrap summary still describes the first coarse level. Previous result files stay readable. Rerunning an explicit legacy configuration
 requires selecting F2 and accepting the independently measured result.
 
-Preparation and model references use `shared/models/fluid_props.FluidModel`. The registry imports
+Preparation and model references use `physical_models.fluid_props.FluidModel`. The registry imports
 air/water primitives from `tpms_props` and Nu functions from `nu_correlations`
 directly. `tpms_calc` keeps its public re-exports without a return dependency
 from the registry. Correlations, property sources and validity checks stay in
@@ -1301,7 +1301,7 @@ The physical boundary ledger must be complete. `model_h_3d.cpp` forms finishing
 gates from local numerical evidence. `result_stage.cpp` calls the native
 `checks::strict_certificate` with recorded result evidence. The public
 `postprocess.conservation.compute_phase2a` entry accepts `FieldResult` only.
-It extracts the recorded evidence and calls `shared.result_math.compute_phase2a`
+It extracts the recorded evidence and calls `postprocess.result_math.compute_phase2a`
 to assemble the full public certificate. That function uses native checks for
 numerical reductions and keeps the public labels and missing-evidence rules.
 
@@ -1543,7 +1543,7 @@ diagnostic arrays and unconverged completed runs stay visible. Strict JSON
 metrics report unavailable values with reasons. Cancelled/failed execution
 does not return a fabricated completed archive.
 
-`shared.result_display` owns 2D display aliases and zone statistics. It also supplies
+`postprocess.result_display` owns 2D display aliases and zone statistics. It also supplies
 field units, axes and state descriptions for both dimensions. This data module
 has no Qt dependency. Temperature and pressure aliases retain original cell
 values. Gaussian display filters, velocity display copies, and their null
@@ -1620,7 +1620,7 @@ recorded state. Metric definitions survive JSON and GUI export metadata.
 
 Previous metrics files keep their definitions. Re-evaluate their native result
 before mapping it to the current GUI contract. Frozen backend reporting
-references are historical numerical oracles, not the current metric contract. `shared.domain.metric_spec` owns explicit metric families, units and full-compute
+references are historical numerical oracles, not the current metric contract. `data_types.metric_spec` owns explicit metric families, units and full-compute
 definition versions. `PerformanceResult` requires each key to match its spec's
 side-specific name or family.
 
@@ -1644,7 +1644,7 @@ and the flag does not change 3D flow.
 The previous air/air screening optimizer, preparation, frozen-B backend and metric
 reducers are retired. The [history index](history/retired-tools.md) identifies
 their original code and numerical references. Current multi-condition search
-uses full preparation and execution. `shared.models.continuous_field` keeps the public DTO and native XY/XYZ adapter
+uses full preparation and execution. `physical_models.continuous_field` keeps the public DTO and native XY/XYZ adapter
 for this path, preview and nTop export. Saved decisions must be
 decoded with their original bounds, control grid, symmetry and spline order.
 
@@ -1813,7 +1813,7 @@ This contract does not claim recovery from power loss.
 Each run owns a new directory with prepared input, a retained native library, checkpoint, and status.
 Each run retains its own library path. The process reuses a previously retained file only when its bytes match the selected library.
 This avoids repeated native initialization and retained property tables. A changed or moved runtime uses the new retained file.
-`shared.io.file_snapshot` first copies mutable build output into an independent, checked runtime snapshot.
+`file_io.file_snapshot` first copies mutable build output into an independent, checked runtime snapshot.
 Later runs and condition workers share that fixed snapshot through hard links.
 Archived baseline fields and binary files copied during batch or search recovery use the same sharing operation.
 Editable status and log files remain independent. Cross-volume or unsupported links and link-count limits use ordinary copies.
@@ -1847,7 +1847,7 @@ A valid pre-cancelled request raises `CancelledError`, including when the select
 absolute library path does not exist. An uncancelled missing-library request
 keeps its original error.
 
-Workflows, solvers and the GUI orchestrator share `shared.domain.cancellation.CancelledError`.
+Workflows, solvers and the GUI orchestrator share `run_control.cancellation.CancelledError`.
 It is an `InterruptedError` subclass, also available through `ComputeOrchestrator.CancelledError`.
 Only explicit cancellation checkpoints raise it. Unrelated exceptions stay
 errors even when a cancellation request is pending. Both SIMPLE workers are
@@ -1991,7 +1991,7 @@ explicit numerical-model change with directly relevant validation.
    historical inputs or results.
 3. **Mass-flux inlet.** Compressible air uses the mass-flux inlet in both 2D
    and 3D. Solver velocities are interstitial, not superficial.
-4. **Darcy-Forchheimer ownership.** `shared.df_surrogate.predict_K_cF()` stays the
+4. **Darcy-Forchheimer ownership.** `physical_models.df_surrogate.predict.predict_K_cF()` stays the
    pure geometry baseline: one water+sCO2 CFD table for both sides and each
    fluid. Base K0 and cF0 depend only on topology, L, and t. They are bilinearly
    interpolated inside 4–8 mm by 0.3–0.6 mm. They never depend on Re or fluid.
@@ -2016,8 +2016,7 @@ It is not evidence of fluid-intrinsic D-F physics. Differences can absorb pressu
 
 Selecting them explicitly now raises an error. Their code,
    tables and results stay available through the [history index](history/legacy-models.md).
-5. **Nusselt ownership.** Air, water, and sCO2 base correlations belong to
-   `python/physical_models/nu_correlations.py`. The sole current sCO2 effective-parameter
+5. **Nusselt ownership.** Full runs evaluate air, water and sCO2 Nu in [fluid_nusselt_ratio](../numerics/fluid_properties.cpp#L182). The correlation formulas are in [nu_point](../numerics/fluid_properties.cpp#L551). The [Python correlation API](../python/physical_models/nu_correlations.py) calls native functions and reports range observations. The sole current sCO2 effective-parameter
    resource is `python/model_configs/sco2_effective_nu.json`, loaded by
    `sco2_effective_nu_config()` as a validated `Sco2NuConfig`. The kept
    `alpha_D/alpha_G` fields are total Ceff, applied one time to the current base
@@ -2027,9 +2026,7 @@ Selecting them explicitly now raises an error. Their code,
    The generic `cfd_smooth` default and run-owned saved
    parameters are unchanged: explicit selection loads the current resource,
    while previous Cases continue to replay their recorded parameters. The retired
-   experimental-gamma helper and environment switch are not a second route. Calibration evidence and physical scope are in [model resources](model-resources.en.md#sco2-有效-nu-系数). Full 2D/3D solves rebuild each side's local
-   scalar Re/Nu from `shared/models/local_heat_transfer.local_speed`: the current
-   cell-centered pore-velocity magnitude, sqrt(uc² + vc² [+ wc²]). Do not
+   experimental-gamma helper and environment switch are not a second route. Calibration evidence and physical scope are in [model resources](model-resources.en.md#sco2-有效-nu-系数). The [2D](../solver/full_2d.cpp#L539) and [3D](../solver/full_3d.cpp#L877) solvers calculate local Re and Nu from the magnitude of the cell-centered pore velocity, sqrt(uc² + vc² [+ wc²]). Do not
    select a fixed inlet-axis component or apply porosity a second time.
 
    Signed normal components still own face mass/enthalpy fluxes. The existing

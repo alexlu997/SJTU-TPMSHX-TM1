@@ -264,8 +264,8 @@ Python 专用 `prepare_research_case`、指定孔隙率／单 A 侧研究和旧 
 from pathlib import Path
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.api import run_case
-from sjtu_tpmshx.shared.io.case_io import save_case, load_case
-from sjtu_tpmshx.shared.io.result_io import save_result
+from sjtu_tpmshx.file_io.case_io import save_case, load_case
+from sjtu_tpmshx.file_io.result_io import save_result
 from sjtu_tpmshx.development.validation.cases.audit_3d_conservation import make_T2
 
 output = Path('.cache/research-t2')

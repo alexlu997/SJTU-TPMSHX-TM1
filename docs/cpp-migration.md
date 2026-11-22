@@ -367,7 +367,7 @@ original warning records without calling Python numerical kernels or property
 functions. Host library location is an execution control, outside `CaseData`:
 
 ```python
-from sjtu_tpmshx.shared.domain.module_ports import RunControl
+from sjtu_tpmshx.run_control.module_ports import RunControl
 from sjtu_tpmshx.solvers.api import run_case
 
 result = run_case(prepared_case, RunControl(

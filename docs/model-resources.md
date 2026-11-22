@@ -99,7 +99,7 @@ Python wheel 包含代码、JSON 和 CSV 资源，不包含本机原生库。
 现行实验模式参数的唯一发布资源是
 [sco2_effective_nu.json](../python/model_configs/sco2_effective_nu.json)，版本
 `sco2-effective-nu-20260920-v1`。模型工厂
-`shared.models.nu_correlations.sco2_effective_nu_config()` 读取该资源并返回经过校验的
+`physical_models.nu_correlations.sco2_effective_nu_config()` 读取该资源并返回经过校验的
 `Sco2NuConfig`；调用方不另存一套现行默认系数。
 
 | 字段 | 现行值 | 含义 |
@@ -118,8 +118,8 @@ GUI 的“使用现行有效系数”按钮显式载入这一版本；“导入�
 
 ```python
 from dataclasses import asdict
-from sjtu_tpmshx.shared.domain.compute_config import ComputeConfig
-from sjtu_tpmshx.shared.models.nu_correlations import sco2_effective_nu_config
+from sjtu_tpmshx.data_types.compute_config import ComputeConfig
+from sjtu_tpmshx.physical_models.nu_correlations import sco2_effective_nu_config
 
 config_dict["sco2_nu"] = asdict(sco2_effective_nu_config())
 config = ComputeConfig.from_dict(config_dict)

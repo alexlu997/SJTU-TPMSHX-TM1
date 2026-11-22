@@ -5,7 +5,7 @@
 TM1 separates TPMS heat-exchanger preprocessing, solving, and postprocessing into independently maintained modules. The GUI, optimization, and Quick Design call their public interfaces. The target repository is [alexlu997/SJTU-TPMSHX-TM1](https://github.com/alexlu997/SJTU-TPMSHX-TM1). Original SJTU-TPMSHX/V2 is a source reference. This branch does not merge back into that repository.
 
 **C++ computation** follows [preparation](preprocess/), [solving](solver/), and [evaluation](postprocess/). The [2D air example](examples/cpp/air_2d.cpp) calls all three stages. See [geometry](geometry/) for grids and geometry, and [numerics](numerics/) for common properties and numerical functions. External programs use [stages.hpp](include/tpmshx/stages.hpp).
-Follow the [2D solver reading guide](solver/README.en.md) to find the porosity calculation, flow and thermal iterations, and heat duty calculation.
+The [solver reading guide](solver/README.en.md) gives the 2D, 3D and Quick Design entries. Use its file tree to change a model, trace an interface, inspect results or resume a run.
 
 Python applications use four public computation entries.
 

@@ -89,7 +89,7 @@ If the one-dimensional isothermal D-F approximation produces nonpositive outlet 
 
 ## sCO2 effective Nu coefficients
 
-The sole current experimental-mode publication resource is [sco2_effective_nu.json](../python/model_configs/sco2_effective_nu.json), version `sco2-effective-nu-20260920-v1`. The factory `shared.models.nu_correlations.sco2_effective_nu_config()` reads it and returns a validated `Sco2NuConfig`. Callers do not keep another set of current default coefficients.
+The sole current experimental-mode publication resource is [sco2_effective_nu.json](../python/model_configs/sco2_effective_nu.json), version `sco2-effective-nu-20260920-v1`. The factory `physical_models.nu_correlations.sco2_effective_nu_config()` reads it and returns a validated `Sco2NuConfig`. Callers do not keep another set of current default coefficients.
 
 | Field | Current value | Meaning |
 | --- | ---: | --- |
@@ -104,8 +104,8 @@ The GUI's Use Current Effective Coefficients action explicitly loads this versio
 
 ```python
 from dataclasses import asdict
-from sjtu_tpmshx.shared.domain.compute_config import ComputeConfig
-from sjtu_tpmshx.shared.models.nu_correlations import sco2_effective_nu_config
+from sjtu_tpmshx.data_types.compute_config import ComputeConfig
+from sjtu_tpmshx.physical_models.nu_correlations import sco2_effective_nu_config
 
 config_dict["sco2_nu"] = asdict(sco2_effective_nu_config())
 config = ComputeConfig.from_dict(config_dict)

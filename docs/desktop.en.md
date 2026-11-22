@@ -19,7 +19,7 @@ Work from the repository root. Make sure that `.venv-path` starts with an existi
 
 Keep these items in the project folder:
 
-- Complete `sjtu_tpmshx/` source, including `python/model_configs/*.json`, `shared/df_surrogate/_prebuilt/*.csv`, and interface resources.
+- The complete repository source, including `python/model_configs/*.json`, `python/physical_models/df_surrogate/_prebuilt/*.csv`, and interface resources.
 - This host's `.venv-path`, the corresponding `engineering/requirements/*.txt`, usage examples, and operation instructions.
 - Solver, geometry, preparation and result libraries that match the source revision, platform, and their respective ABIs.
   Include `include/`, `engineering/native_build/dependencies-lock.toml`, `engineering/native_build/licenses/THIRD_PARTY_NOTICES.md`, and `engineering/native_build/licenses/`.
