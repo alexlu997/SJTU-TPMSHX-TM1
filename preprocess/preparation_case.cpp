@@ -196,6 +196,28 @@ template<class Controls> void validate_controls(const Controls& controls,std::si
 CaseScope flow_scope(const CaseInput2D& input) {
     return input.continuous?CaseScope::continuous_v4:input.offset_scope?CaseScope::offset_v10:CaseScope::uniform_mass_v3;
 }
+template<class Input> void check_cfd_geometry(const Input& input) {
+    const auto cell=scalar(input.geometry.cell_length_mm,input.kinds.cell_length);
+    const auto wall=scalar(input.geometry.wall_thickness_mm,input.kinds.wall_thickness);
+    if (g::less(cell,g::weak(df_data::df_L_nodes.front())) || g::less(g::weak(df_data::df_L_nodes.back()),cell)
+        || g::less(wall,g::weak(df_data::df_t_nodes.front())) || g::less(g::weak(df_data::df_t_nodes.back()),wall))
+        throw std::invalid_argument(std::string("V2 geometry must lie inside the CFD grid: ")+df_data::case_geometry_limits);
+}
+template<class Inlet> void check_sco2_inlet(const Inlet& inlet,std::size_t side) {
+    const std::string prefix=std::string("sCO2 fluid ")+(side?"B":"A");
+    if (!(data::sco2_temperature_range[0]<=inlet.temperature_K && inlet.temperature_K<=data::sco2_temperature_range[1]))
+        throw PreparationError(1,prefix+" temperature must be "+data::sco2_temperature_limits,1,static_cast<std::uint32_t>(side));
+    if (!(data::sco2_pressure_range[0]<=inlet.pressure_Pa && inlet.pressure_Pa<=data::sco2_pressure_range[1]))
+        throw PreparationError(1,prefix+" pressure must be "+data::sco2_pressure_limits,1,static_cast<std::uint32_t>(side));
+}
+void check_sco2_geometry(bool discrete,double offset) {
+    if (discrete && data::sco2_reject_discrete_zones) throw std::invalid_argument("sCO2 V2 does not support discrete zones");
+    if (offset!=0. && data::sco2_reject_levelset_offset) throw std::invalid_argument("sCO2 V2 requires delta_levelset=0");
+}
+void check_co2_geometry(bool discrete,double offset) {
+    if (discrete && data::co2_reject_discrete_zones) throw std::invalid_argument("CO2 does not support discrete zones");
+    if (offset!=0. && data::co2_reject_levelset_offset) throw std::invalid_argument("CO2 requires symmetric delta_levelset=0 geometry");
+}
 std::array<InletInput2D,2> validate(const CaseInput2D& input,CaseScope scope,bool static_only=false) {
     const bool continuous=scope==CaseScope::continuous_v4;
     const bool mass=continuous || scope==CaseScope::uniform_mass_v3 || scope==CaseScope::offset_v10;
@@ -242,23 +264,14 @@ std::array<InletInput2D,2> validate(const CaseInput2D& input,CaseScope scope,boo
     }
     for (std::size_t side=0;side<2;++side)
         sides[side].port=checked_port(sides[side].port,input.grid,side?"B":"A");
-    const auto cell=scalar(geometry.cell_length_mm,input.kinds.cell_length);
-    const auto wall=scalar(geometry.wall_thickness_mm,input.kinds.wall_thickness);
-    if (g::less(cell,g::weak(df_data::df_L_nodes.front())) || g::less(g::weak(df_data::df_L_nodes.back()),cell)
-        || g::less(wall,g::weak(df_data::df_t_nodes.front())) || g::less(g::weak(df_data::df_t_nodes.back()),wall))
-        throw std::invalid_argument("V2 geometry must lie inside the CFD grid: 4 <= L <= 8 mm, 0.3 <= t <= 0.6 mm");
-    for (std::size_t side=0;side<2;++side) if (scope!=CaseScope::air_cfd_v1 && sides[side].fluid==Fluid::sco2) {
-        const auto& inlet=sides[side];
-        if (!(data::sco2_temperature_range[0]<=inlet.temperature_K && inlet.temperature_K<=data::sco2_temperature_range[1]))
-            throw PreparationError(1,std::string("sCO2 fluid ")+(side?"B":"A")+" temperature must be 280..700 K",1,
-                                   static_cast<std::uint32_t>(side));
-        if (!(data::sco2_pressure_range[0]<=inlet.pressure_Pa && inlet.pressure_Pa<=data::sco2_pressure_range[1]))
-            throw PreparationError(1,std::string("sCO2 fluid ")+(side?"B":"A")+" pressure must be 7.9..16 MPa",1,
-                                   static_cast<std::uint32_t>(side));
-        if (geometry.delta_levelset!=0.) throw std::invalid_argument("sCO2 V2 requires delta_levelset=0");
+    check_cfd_geometry(input);
+    if (scope!=CaseScope::air_cfd_v1) {
+        for (std::size_t side=0;side<2;++side) if (sides[side].fluid==Fluid::sco2) {
+            check_sco2_inlet(sides[side],side);
+            check_sco2_geometry(false,geometry.delta_levelset);
+        }
+        if (co2_geometry(input)) check_co2_geometry(false,geometry.delta_levelset);
     }
-    if (scope!=CaseScope::air_cfd_v1 && co2_geometry(input) && geometry.delta_levelset!=0.)
-        throw std::invalid_argument("CO2 requires symmetric delta_levelset=0 geometry");
     if (!static_only) for (std::size_t side=0;side<2;++side)
         positive(sides[side].velocity_m_s,std::string("fluid_")+(side?"B":"A")+".u_mps");
     if (scope==CaseScope::air_cfd_v1) for (const auto& side:sides) if (side.fluid!=Fluid::air)
@@ -634,10 +647,10 @@ void preflight(const Input& input,const PreparationOptions& options,const geomet
         const auto nu_count=reasons.size();
         if (input.geometry.cell_length_mm<df_data::df_L_nodes.front()
             || input.geometry.cell_length_mm>df_data::df_L_nodes.back())
-            reasons.push_back("V2 L_cell must be inside the 4..8 mm CFD grid.");
+            reasons.push_back("V2 L_cell must be inside the "+significant(df_data::df_L_nodes.front(),6)+".."+significant(df_data::df_L_nodes.back(),6)+" mm CFD grid.");
         if (input.geometry.wall_thickness_mm<df_data::df_t_nodes.front()
             || input.geometry.wall_thickness_mm>df_data::df_t_nodes.back())
-            reasons.push_back("V2 wall thickness must be inside the 0.3..0.6 mm CFD grid.");
+            reasons.push_back("V2 wall thickness must be inside the "+significant(df_data::df_t_nodes.front(),6)+".."+significant(df_data::df_t_nodes.back(),6)+" mm CFD grid.");
         if (!reasons.empty() && !options.allow_extrapolation) {
             std::string text;for (const auto& reason:reasons) {if(!text.empty())text+=" | ";text+=reason;}
             throw PreparationError(1,std::move(text),1,static_cast<std::uint32_t>(i));
@@ -2056,27 +2069,15 @@ CaseInput3D validate_3d(CaseInput3D input,CaseScope3D scope,bool allow_mass=fals
         throw std::invalid_argument(std::string("ComputeConfig.solver.N")+static_cast<char>('x'+axis)+"=0 — must be >= 1");
     if (input.grid.counts[2]<2) throw std::invalid_argument("3D preparation requires solver.Nz >= 2");
     for (std::size_t i=0;i<2;++i) input.sides[i].port=checked_port_3d(input.sides[i].port,input.grid,i?"B":"A");
-    const auto cell=scalar(model.cell_length_mm,input.kinds.cell_length);
-    const auto wall=scalar(model.wall_thickness_mm,input.kinds.wall_thickness);
-    if (g::less(cell,g::weak(df_data::df_L_nodes.front())) || g::less(g::weak(df_data::df_L_nodes.back()),cell)
-        || g::less(wall,g::weak(df_data::df_t_nodes.front())) || g::less(g::weak(df_data::df_t_nodes.back()),wall))
-        throw std::invalid_argument("V2 geometry must lie inside the CFD grid: 4 <= L <= 8 mm, 0.3 <= t <= 0.6 mm");
+    check_cfd_geometry(input);
     for (std::size_t i=0;i<2;++i) {
         const auto& inlet=input.sides[i];fluid_name(inlet.fluid);
-        if (inlet.fluid==Fluid::sco2) {
-            if (!(data::sco2_temperature_range[0]<=inlet.temperature_K && inlet.temperature_K<=data::sco2_temperature_range[1]))
-                throw PreparationError(1,std::string("sCO2 fluid ")+(i?"B":"A")+" temperature must be 280..700 K",1,static_cast<std::uint32_t>(i));
-            if (!(data::sco2_pressure_range[0]<=inlet.pressure_Pa && inlet.pressure_Pa<=data::sco2_pressure_range[1]))
-                throw PreparationError(1,std::string("sCO2 fluid ")+(i?"B":"A")+" pressure must be 7.9..16 MPa",1,static_cast<std::uint32_t>(i));
-        }
+        if (inlet.fluid==Fluid::sco2) check_sco2_inlet(inlet,i);
     }
     if (scope==CaseScope3D::spatial_v4) {
         const bool sco2=std::any_of(input.sides.begin(),input.sides.end(),[](const auto& side) {return side.fluid==Fluid::sco2;});
-        if (sco2 && input.geometry_mode==2) throw std::invalid_argument("sCO2 V2 does not support discrete zones");
-        if (sco2 && model.delta_levelset!=0.) throw std::invalid_argument("sCO2 V2 requires delta_levelset=0");
-        if (co2_geometry(input) && input.geometry_mode==2) throw std::invalid_argument("CO2 does not support discrete zones");
-        if (co2_geometry(input) && model.delta_levelset!=0.)
-            throw std::invalid_argument("CO2 requires symmetric delta_levelset=0 geometry");
+        if (sco2) check_sco2_geometry(input.geometry_mode==2,model.delta_levelset);
+        if (co2_geometry(input)) check_co2_geometry(input.geometry_mode==2,model.delta_levelset);
     }
     if (velocities) for (std::size_t i=0;i<2;++i) positive(input.sides[i].velocity_m_s,std::string("fluid_")+(i?"B":"A")+".u_mps");
     if (velocities && input.df_mode) {

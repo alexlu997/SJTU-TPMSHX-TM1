@@ -9,6 +9,8 @@ import warnings
 
 import numpy as np
 
+from sjtu_tpmshx.physical_models.df_surrogate._domain import FIXED_GEOMETRY_ERROR
+
 from sjtu_tpmshx.model_configs.model_parameters import MODEL_VERSIONS, load_quick_design_parameters
 from sjtu_tpmshx.data_types.model_refs import ModelRef
 from sjtu_tpmshx.run_control.run_environment import _resolve_chi_s, capture_environment
@@ -444,8 +446,7 @@ class _HostState:
         try:
             length, wall = float(self.l), float(self.t)
         except ValueError as problem:
-            raise ValueError('geometry is outside the fixed sCO2 CFD grid: '
-                             '4 <= L <= 8 mm and 0.3 <= t <= 0.6 mm') from problem
+            raise ValueError(FIXED_GEOMETRY_ERROR) from problem
         _fluid, _mass, temperature, pressure = self.pressure_inlet
         values = ((self.mass_flux, temperature, pressure, self.props[side][1], self.sections[side * 2 + 1])
                   if air else (self.velocity, self.props[side][0], self.props[side][1], self.sections[side * 2 + 1]))

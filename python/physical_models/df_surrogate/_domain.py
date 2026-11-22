@@ -4,10 +4,12 @@ These geometry bounds do not extend any fluid's Nu applicability window.
 """
 from __future__ import annotations
 
-from sjtu_tpmshx.model_configs.model_parameters import load_preparation_df_parameters
+from sjtu_tpmshx.model_configs.model_parameters import df_geometry_limits, load_preparation_df_parameters
 
 _DATA = load_preparation_df_parameters()['domain']
 TRAIN_L_NODES = tuple(_DATA['L_nodes_mm'])
 TRAIN_T_NODES = tuple(_DATA['t_nodes_mm'])
 TRAIN_L = (TRAIN_L_NODES[0], TRAIN_L_NODES[-1])
 TRAIN_T = (TRAIN_T_NODES[0], TRAIN_T_NODES[-1])
+CASE_GEOMETRY_LIMITS = df_geometry_limits(_DATA, ', ')
+FIXED_GEOMETRY_ERROR = 'geometry is outside the fixed sCO2 CFD grid: ' + df_geometry_limits(_DATA, ' and ')

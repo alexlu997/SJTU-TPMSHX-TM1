@@ -98,9 +98,9 @@ def check_surrogate_domain_at_point(tpms_type: str,
             nu_at_point.append(f'Fluid {side}: Pr={pr:g} outside CO2 Nu window [{lo:g}, {hi:g}].')
     geometry_reasons: list[str] = []
     if not _SURROGATE_L_MM[0] <= float(L_mm) <= _SURROGATE_L_MM[-1]:
-        geometry_reasons.append("V2 L_cell must be inside the 4..8 mm CFD grid.")
+        geometry_reasons.append(f"V2 L_cell must be inside the {_SURROGATE_L_MM[0]:g}..{_SURROGATE_L_MM[-1]:g} mm CFD grid.")
     if not _SURROGATE_T_MM[0] <= float(t_mm) <= _SURROGATE_T_MM[-1]:
-        geometry_reasons.append("V2 wall thickness must be inside the 0.3..0.6 mm CFD grid.")
+        geometry_reasons.append(f"V2 wall thickness must be inside the {_SURROGATE_T_MM[0]:g}..{_SURROGATE_T_MM[-1]:g} mm CFD grid.")
 
     reasons = nu_at_point + geometry_reasons
     if reasons:

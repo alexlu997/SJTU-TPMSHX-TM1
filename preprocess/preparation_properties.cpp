@@ -302,11 +302,11 @@ void validate_sco2(ArrayView<const double> temperature,ArrayView<const double> p
     else {
         for (std::size_t i=0;i<temperature.size;++i)
             if (temperature[i]<data::sco2_temperature_range[0] || temperature[i]>data::sco2_temperature_range[1]) {
-                failure.reason=3;failure.first_t_index=i;message="sCO2 temperature must be within 280..700 K";break;
+                failure.reason=3;failure.first_t_index=i;message=std::string("sCO2 temperature must be within ")+data::sco2_temperature_limits;break;
             }
         if (message.empty()) for (std::size_t i=0;i<pressure.size;++i)
             if (pressure[i]<data::sco2_pressure_range[0] || pressure[i]>data::sco2_pressure_range[1]) {
-                failure.reason=4;failure.first_p_index=i;message="sCO2 pressure must be within 7.9..16 MPa";break;
+                failure.reason=4;failure.first_p_index=i;message=std::string("sCO2 pressure must be within ")+data::sco2_pressure_limits;break;
             }
     }
     if (message.empty()) return;
@@ -381,7 +381,7 @@ std::vector<double> sco2_hp(ArrayView<const double> enthalpy,ArrayView<const dou
         const bool bad=scalar?!(data::sco2_pressure_range[0]<=pressure[i] && pressure[i]<=data::sco2_pressure_range[1]):
             pressure[i]<data::sco2_pressure_range[0] || pressure[i]>data::sco2_pressure_range[1];
         if (bad) {PropertyFailure failure;failure.reason=4;failure.index=i;failure.pressure=pressure[i];
-            throw PropertyError(12,"sCO2 pressure must be within 7.9..16 MPa",failure);}
+            throw PropertyError(12,std::string("sCO2 pressure must be within ")+data::sco2_pressure_limits,failure);}
     }
     if (!enthalpy.size) return {};
     std::vector<double> output;

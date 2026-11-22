@@ -14,7 +14,7 @@ import json
 from pathlib import Path
 
 from sjtu_tpmshx.model_configs.model_parameters import (
-    MODEL_VERSIONS, load_co2_coefficients, load_model_parameters, load_preparation_df_parameters)
+    MODEL_VERSIONS, df_geometry_limits, load_co2_coefficients, load_model_parameters, load_preparation_df_parameters)
 
 
 def array(name, values):
@@ -63,6 +63,16 @@ def header():
                         ("roughness_nu_baseline", nu['roughness_factor']),
                         ("model_h_relaxation", controls['model_h_relaxation'])):
         lines.append(f"inline constexpr double {name} = {float(value)!r};")
+    for key, fluids in parameters['geometry_restrictions'].items():
+        for fluid in ('sco2', 'co2'):
+            restricted = 'true' if fluid in fluids else 'false'
+            lines.append(f'inline constexpr bool {fluid}_reject_{key} = {restricted};')
+    t_min, t_max = sco2['temperature_range_K']
+    p_min, p_max = sco2['pressure_range_Pa']
+    lines.extend([
+        f'inline constexpr char sco2_temperature_limits[] = "{t_min:g}..{t_max:g} K";',
+        f'inline constexpr char sco2_pressure_limits[] = "{p_min/1e6:g}..{p_max/1e6:g} MPa";',
+    ])
     for name in ('k_s', 'tol'):
         lines.append(f"inline constexpr double quick_design_{name} = {quick[name]!r};")
     for name in ('nx', 'geometry_resolution'):
@@ -169,7 +179,9 @@ def df_header(csv_path=None):
              '#include <array>', '', 'namespace tpmshx::preparation::df_data {',
              f'inline constexpr char method[] = "{data["method"]}";',
              array('df_L_nodes', lengths), array('df_t_nodes', walls),
-             nested_array('df_values', fixed, (2, 5, 4, 2)),
+             'inline constexpr char case_geometry_limits[] = ' + json.dumps(df_geometry_limits(data['domain'], ', ')) + ';',
+             'inline constexpr char fixed_geometry_limits[] = ' + json.dumps(df_geometry_limits(data['domain'], ' and ')) + ';',
+             nested_array('df_values', fixed, (2, len(lengths), len(walls), 2)),
              array('air_L_nodes', specimen['L_nodes_mm']), array('air_t_nodes', specimen['t_nodes_mm']),
              nested_array('air_sf', [specimen['sf'][topology] for topology in topologies], (2, 2, 3)),
              array('hx_geometry_mm', hx['geometry_mm']),

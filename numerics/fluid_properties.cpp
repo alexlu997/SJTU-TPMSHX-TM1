@@ -152,9 +152,9 @@ FluidProperties PropertyEvaluator::transport(Fluid fluid, double temperature, do
         case Fluid::sco2: {
             if (fluid == Fluid::sco2) {
             if (temperature < data::sco2_temperature_range[0] || temperature > data::sco2_temperature_range[1])
-                throw std::invalid_argument("sCO2 temperature must be within 280..700 K");
+                throw std::invalid_argument(std::string("sCO2 temperature must be within ")+data::sco2_temperature_limits);
             if (pressure < data::sco2_pressure_range[0] || pressure > data::sco2_pressure_range[1])
-                throw std::invalid_argument("sCO2 pressure must be within 7.9..16 MPa");
+                throw std::invalid_argument(std::string("sCO2 pressure must be within ")+data::sco2_pressure_limits);
             if (!co2_) co2_ = make_eos_state("HEOS", "CO2");
             co2_->update(CoolProp::PT_INPUTS, pressure, temperature);
             } else check_co2(temperature,pressure);

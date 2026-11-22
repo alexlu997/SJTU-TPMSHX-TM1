@@ -328,7 +328,9 @@ def sco2_scalar_pressure(pressure):
     try:
         sco2_validate(np.empty(0, dtype=np.float64), pressure)
     except StateError:
-        raise ValueError('sCO2 pressure must be within 7.9..16 MPa') from None
+        from sjtu_tpmshx.data_types.compute_config import SCO2_P_RANGE_PA
+        lo, hi = SCO2_P_RANGE_PA
+        raise ValueError(f'sCO2 pressure must be within {lo/1e6:g}..{hi/1e6:g} MPa') from None
 
 
 def sco2_pt(key, temperature, pressure, *, scalar=False):

@@ -37,7 +37,7 @@ def test_preparation_data_match_frozen_corrections_and_domain():
 
 @pytest.mark.parametrize('path,value', [
     (('method',), 'unknown'), (('domain', 'L_nodes_mm'), [4., 5., 6., 8., 7.]),
-    (('domain', 't_nodes_mm'), [.3, .4]), (('bracket_relative_tolerance',), True),
+    (('domain', 't_nodes_mm'), [.3]), (('bracket_relative_tolerance',), True),
     (('hx', 'sf', 'air', 'Gyroid'), 0.),
     (('hx', 'domain_m'), [.182, .042]), (('hx', 'domain_m'), [.182, -.042, .042]),
     (('hx', 'runtime_u_mps', 'air', 'Gyroid'), [float('nan'), 23.]),

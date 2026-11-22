@@ -167,6 +167,10 @@
       ]
     }
   },
+  "geometry_restrictions": {
+    "discrete_zones": ["sco2", "co2"],
+    "levelset_offset": ["sco2", "co2"]
+  },
   "co2_application": {
     "version": "co2-fixed-factors-20261009-v1",
     "pressure_multiplier": 2.5,
