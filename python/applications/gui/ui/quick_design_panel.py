@@ -461,13 +461,13 @@ def build_quick_design_dialog(parent=None):
     le_topo.setToolTip("拓扑列表，逗号分隔")
     auto_form.addRow("拓扑 (topo):", le_topo)
 
-    l_nodes = [f"{value:g}" for value in TRAIN_L_NODES]
+    l_nodes = [str(value).removesuffix(".0") for value in TRAIN_L_NODES]
     le_l = QLineEdit(",".join(l_nodes))
     le_l.setToolTip(f"胞元尺寸 l (mm) 列表，逗号分隔。当前 K/cF 的 CFD 节点为 {'/'.join(l_nodes)}；"
                     "各流体 Nu 与实验修正的适用范围另行检查。")
     auto_form.addRow("l 列表 (mm):", le_l)
 
-    t_nodes = [f"{value:g}" for value in TRAIN_T_NODES]
+    t_nodes = [str(value).removesuffix(".0") for value in TRAIN_T_NODES]
     le_t = QLineEdit(",".join(t_nodes))
     le_t.setToolTip(f"壁厚 t (mm) 列表，逗号分隔。当前 K/cF 的 CFD 节点为 {'/'.join(t_nodes)}；"
                     "各流体 Nu 与实验修正的适用范围另行检查。")
