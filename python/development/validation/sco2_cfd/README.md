@@ -18,7 +18,7 @@
 [架构](../../../../docs/architecture.zh-CN.md)；旧模型完整入口见
 [历史索引](../../../../docs/history/legacy-models.md)。现行 sCO2 实验模式从
 `python/model_configs/sco2_effective_nu.json` 读取总有效 Nu 系数，通过
-`shared.models.nu_correlations.sco2_effective_nu_config()` 显式选择；使用、标定来源及
+`physical_models.nu_correlations.sco2_effective_nu_config()` 显式选择；使用、标定来源及
 有限验证范围见[模型资源](../../../../docs/model-resources.md#sco2-有效-nu-系数)。
 旧 `fit_nu_correction` 和 `nu_bytemp_report` 随原实验锚定 γ 路线退役，固定源码
 见[历史入口](../../../../docs/history/legacy-models.md#sco2-nu-旧锚定路线2026-09-20)，

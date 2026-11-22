@@ -163,7 +163,7 @@ Both current tools finished with exit code 0 in a new process with previous gamm
 
 The April 7 exchanged-channel workbook stays a transfer check and previous-coefficient source comparison. Load it explicitly with `load_air_cases("Gyroid", source=(relative_workbook_path, "Sheet1"))`. Diamond air, water, and sCO2 source files and calibration choices stay unchanged.
 
-This change affects only the separate 7/0.6 mm HX correction. The air specimen isolation guard in `shared.df_surrogate.load_data` stays active. Shanghai whole-exchanger data does not enter that training table. See [calibration provenance and applicability](model-resources.en.md) for coefficients and limits.
+This change affects only the separate 7/0.6 mm HX correction. The air specimen isolation guard in `physical_models.df_surrogate.load_data` stays active. Shanghai whole-exchanger data does not enter that training table. See [calibration provenance and applicability](model-resources.en.md) for coefficients and limits.
 
 <a id="读取行为与版本边界"></a>
 

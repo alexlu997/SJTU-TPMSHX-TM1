@@ -45,7 +45,7 @@ Use the [first run instructions](../README.en.md#first-run) to run the applicati
 | [.github/workflows](../.github/workflows/) | Configuration for macOS/Windows CI and minimal postprocessing checks. |
 
 Package-level [development](../python/development/) keeps three groups: tests, validation and runs.
-Public data contracts are implemented in [shared/domain](../python/data_types/) and [shared/io](../python/file_io/).
+Public data contracts are implemented in [data_types/](../python/data_types/) and [file_io/](../python/file_io/).
 
 `pyproject.toml` defines builds, dependency declarations, pytest, mypy, and lint settings.
 Root `MANIFEST.in` selects source-distribution files. The wheel uses the explicit resource list in `pyproject.toml`.

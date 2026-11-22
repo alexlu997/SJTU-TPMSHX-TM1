@@ -57,7 +57,7 @@ Spatial capacity and resolution use v10 with v9 result views and releases.
 Public ZoneConfig and sigmoid combination queries retain standalone consumers until separate migration passes.
 They keep supplied properties and custom sigmoid controls.
 `python/cpp_interface/native_preparation.py` is the native adapter. Its replaced Python preparation sequence and row D-F projection are retired.
-Independent preparation references remain under `development/tests`; `python/physical_models/zone_units.py` owns saved zone-unit conversion.
+Independent preparation references remain under `tests/python`; `python/physical_models/zone_units.py` owns saved zone-unit conversion.
 CaseData and saved-file contracts stay unchanged. Native failures propagate without another preparation route.
 
 Separate 3D preparation v1 accepts raw symmetric uniform inputs at prescribed speeds for all 16 ordered fluid pairs.
@@ -93,7 +93,7 @@ Python reads the scalar report and the separate field arrays. Older libraries re
 For older libraries without an execution view, `python/solvers/execution_record.py` recovers these facts from the returned fields.
 The native result stage decides qualification.
 
-Standalone `shared/models/tpms_calc.compute` uses the same native inlet-property combination as complete preparation.
+Standalone `physical_models.tpms_calc.compute` uses the same native inlet-property combination as complete preparation.
 Python keeps geometry selection, shared caches, mutable result copies, the per-call K_ss query, object conversion and warning policy.
 `python/cpp_interface/inlet_properties.py` transports the twelve typed query values and shares range observations with the preparation adapters.
 The [inlet-property query](../docs/native-stages.md#inlet-property-query) exposes the same calculation to C and C++ callers without a grid or solver.

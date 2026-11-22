@@ -549,7 +549,7 @@ Python 适配器通过该检查点，在此前几何和物性检查之后保留�
 被替代的 Python 二维准备流程与行 D-F 投影已退役。
 `python/cpp_interface/native_preparation.py` 是保留的原生适配器；`python/physical_models/zone_units.py` 负责保存分区数据的单位转换。
 名义 x/y 网格警告在该准备适配器中使用独立的宿主发出位置。
-`development/tests/preparation_*_reference.py` 下的冻结参考保留原流程与完整行 D-F 投影。
+`tests/python/preparation_*_reference.py` 下的冻结参考保留原流程与完整行 D-F 投影。
 这些参考不作为生产路线；独立准备比较仍需要它们时继续保留。
 公共 ZoneConfig 与 sigmoid 场查询仍服务独立调用方。
 其剩余组合计算须单独迁移并验收后才能退役。

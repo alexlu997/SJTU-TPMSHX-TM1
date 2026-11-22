@@ -621,7 +621,7 @@ Equal keys retain the first successful value's scalar types. Material conductivi
 The replaced Python 2D preparation sequence and row D-F projection are retired.
 `python/cpp_interface/native_preparation.py` is the retained native adapter; `python/physical_models/zone_units.py` owns the saved zone-unit conversion.
 Nominal x/y grid warnings use separate host emission sites in that preparation adapter.
-Frozen references under `development/tests/preparation_*_reference.py` retain the original sequence and complete row D-F projection.
+Frozen references under `tests/python/preparation_*_reference.py` retain the original sequence and complete row D-F projection.
 They are not production routes. Retain them while independent preparation comparison requires those references.
 Public ZoneConfig and sigmoid field queries still serve standalone callers.
 Their remaining combination calculations require separate migration and acceptance before retirement.
