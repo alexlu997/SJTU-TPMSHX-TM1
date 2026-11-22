@@ -5,6 +5,8 @@ from pathlib import Path
 
 import numpy as np
 
+from sjtu_tpmshx.model_configs.model_parameters import fixed_geometry_error
+
 from sjtu_tpmshx.cpp_interface import _native_df
 
 METHOD = "cfd_full_core_3cell_fixed_v2"
@@ -24,8 +26,7 @@ class FullCore3CellFixedDFV2:
         try:
             length, wall = float(L_mm), float(t_mm)
         except ValueError as failure:
-            raise ValueError('geometry is outside the fixed sCO2 CFD grid: '
-                             '4 <= L <= 8 mm and 0.3 <= t <= 0.6 mm') from failure
+            raise ValueError(fixed_geometry_error()) from failure
         k, f = _native_df.fixed(self.tpms, length, wall)
         return float(k), float(f)
 

@@ -10,6 +10,8 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QMessageBox, QWidget,
 )
 
+from sjtu_tpmshx.data_types.compute_config import SCO2_P_RANGE_PA
+from sjtu_tpmshx.physical_models.df_surrogate._domain import TRAIN_L, TRAIN_T
 from sjtu_tpmshx.physical_models.tpms_calc import geometry as tpms_geometry, adaptive_grid
 from sjtu_tpmshx.applications.gui.ui.fmt import duration as _fmt_dur
 from sjtu_tpmshx.applications.gui.ui.mixins import (RunHistoryMixin, DialogsMixin, ZonePanelMixin,
@@ -957,7 +959,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
 
     _CO2_PRESSURE_HELP = (
         "<br/>For sCO₂, the entire actual local pressure field must remain within "
-        "7.9–16 MPa; an inlet value in range alone is insufficient. "
+        f"{SCO2_P_RANGE_PA[0]/1e6:g}–{SCO2_P_RANGE_PA[1]/1e6:g} MPa. Check the whole field. "
         "Allow for the computed pressure variation.")
     _FIELD_HELP = {
         'le_L': (
@@ -972,11 +974,11 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
             "Out-of-plane extent. 2D runs treat Lz as unit depth."),
         'le_Lcell': (
             "<b>TPMS unit-cell edge <i>L<sub>cell</sub></i></b> [mm]<br/>"
-            "Fixed-CFD grid: 4–8 mm; values between nodes are interpolated. "
+            f"Fixed CFD grid from {TRAIN_L[0]:g} to {TRAIN_L[1]:g} mm. Intermediate values use interpolation. "
             "Drives D<sub>h</sub>, porosity and permeability."),
         'le_t': (
             "<b>TPMS wall thickness <i>t</i></b> [mm]<br/>"
-            "Fixed-CFD grid: 0.3–0.6 mm; values between nodes are interpolated."),
+            f"Fixed CFD grid from {TRAIN_T[0]:g} to {TRAIN_T[1]:g} mm. Intermediate values use interpolation."),
         'le_ks': (
             "<b>Solid thermal conductivity <i>k<sub>s</sub></i></b> "
             "[W/(m·K)]<br/>"

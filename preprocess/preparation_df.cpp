@@ -15,8 +15,6 @@ namespace {
 namespace data = df_data;
 static_assert(property_event_count == TPMSHX_PREPARATION_FP_EVENT_COUNT,
               "DF pressure and property arithmetic need the same event extent");
-constexpr const char* outside =
-    "geometry is outside the fixed sCO2 CFD grid: 4 <= L <= 8 mm and 0.3 <= t <= 0.6 mm";
 struct Bracket { std::int64_t lower, upper; double weight; };
 
 void topology_check(std::uint32_t topology) {
@@ -26,7 +24,7 @@ void topology_check(std::uint32_t topology) {
 template<class Nodes> Bracket bracket(double value, const Nodes& nodes) {
     const double tolerance = data::df_bracket_relative_tolerance * std::max(1., std::abs(value));
     if (value < nodes.front() - tolerance || value > nodes.back() + tolerance)
-        throw std::invalid_argument(outside);
+        throw std::invalid_argument(std::string("geometry is outside the fixed sCO2 CFD grid: ")+data::fixed_geometry_limits);
     value = std::min(std::max(value, nodes.front()), nodes.back());
     const auto upper = static_cast<std::int64_t>(std::lower_bound(nodes.begin(), nodes.end(), value) - nodes.begin());
     if (upper < static_cast<std::int64_t>(nodes.size())

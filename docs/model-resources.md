@@ -37,6 +37,8 @@ water = load_water('Diamond', source=water_workbook)
 
 ## 当前资源与研究输出
 
+完整工况的 sCO₂ 入口范围与分区、偏置限制取自 `model_parameters_v1.json`。调整固定阻力模型的几何覆盖范围时，同步更新 `preparation_df_v1.json` 的节点和对应 CFD 系数表。Quick 的默认枚举也读取这些节点。修改后重新生成原生头文件并构建受影响的库。
+
 固定系数、范围和参考态的权威来源是
 [model_parameters_v1.json](../python/model_configs/model_parameters_v1.json)。
 仅依赖 Python 标准库的

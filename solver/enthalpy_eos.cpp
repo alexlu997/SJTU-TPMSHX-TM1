@@ -66,9 +66,9 @@ void EnthalpyEOS::validate(Fluid fluid, double temperature, double pressure,
         const auto& tr = model_coefficients::sco2_temperature_range;
         const auto& pr = model_coefficients::sco2_pressure_range;
         if (temperature < tr[0] || temperature > tr[1])
-            throw std::invalid_argument(where+": sCO2 temperature must be within 280..700 K");
+            throw std::invalid_argument(where+": sCO2 temperature must be within "+model_coefficients::sco2_temperature_limits);
         if (pressure < pr[0] || pressure > pr[1])
-            throw std::invalid_argument(where+": sCO2 pressure must be within 7.9..16 MPa");
+            throw std::invalid_argument(where+": sCO2 pressure must be within "+model_coefficients::sco2_pressure_limits);
     }
 }
 

@@ -58,6 +58,10 @@ def load_model_parameters():
     data = json.loads((files('sjtu_tpmshx.model_configs') / 'model_parameters_v1.json').read_text(encoding='utf-8'))
     if not isinstance(data, dict) or data.get('schema_version') != 'tm1_model_parameters_v1':
         raise ValueError('unsupported model parameter resource schema')
+    for name in ('discrete_zones', 'levelset_offset'):
+        fluids = data['geometry_restrictions'][name]
+        if not isinstance(fluids, list) or any(fluid not in ('sco2', 'co2') for fluid in fluids):
+            raise ValueError(f'invalid geometry restriction: {name}')
     for section in set(_SCALARS) | set(_VECTORS):
         if not isinstance(data.get(section), dict):
             raise ValueError(f'missing model parameter section: {section}')
@@ -153,15 +157,30 @@ def load_co2_coefficients(path=None):
     return data
 
 
+def df_geometry_limits(domain, separator):
+    length, wall = domain['L_nodes_mm'], domain['t_nodes_mm']
+    return (f'{length[0]:g} <= L <= {length[-1]:g} mm' + separator
+            + f'{wall[0]:g} <= t <= {wall[-1]:g} mm')
+
+
+def fixed_geometry_error():
+    domain = load_preparation_df_parameters()['domain']
+    return 'geometry is outside the fixed sCO2 CFD grid: ' + df_geometry_limits(domain, ' and ')
+
+
 def load_preparation_df_parameters():
     """Read fixed preparation data without loading a numerical implementation."""
     data = json.loads((files('sjtu_tpmshx.model_configs') / 'preparation_df_v1.json').read_text(encoding='utf-8'))
     if (not isinstance(data, dict) or data.get('schema_version') != 'tm1_preparation_df_v1'
             or data.get('method') != 'cfd_full_core_3cell_fixed_v2'):
         raise ValueError('unsupported preparation D-F resource schema or method')
-    for section, key, count in (('domain', 'L_nodes_mm', 5), ('domain', 't_nodes_mm', 4),
+    for section, key, count in (('domain', 'L_nodes_mm', None), ('domain', 't_nodes_mm', None),
                                 ('air_specimen', 'L_nodes_mm', 2), ('air_specimen', 't_nodes_mm', 3)):
         nodes = data[section][key]
+        if count is None:
+            if not isinstance(nodes, list) or len(nodes) < 2:
+                raise ValueError(f'{section}.{key} requires at least two nodes')
+            count = len(nodes)
         _vector(nodes, count, f'{section}.{key}')
         if nodes[0] <= 0. or any(a >= b for a, b in zip(nodes, nodes[1:])):
             raise ValueError(f'{section}.{key} requires increasing positive nodes')

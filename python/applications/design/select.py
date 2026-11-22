@@ -1,5 +1,6 @@
 """枚举选型: 遍历 {拓扑×l×t}, 各跑 size_fixed_cell, Pareto-tag。"""
 from __future__ import annotations
+from sjtu_tpmshx.physical_models.df_surrogate._domain import TRAIN_L_NODES, TRAIN_T_NODES
 from .sizing import size_fixed_cell, RHO_S
 from sjtu_tpmshx.model_configs.model_parameters import load_quick_design_parameters
 
@@ -16,11 +17,9 @@ class SelectionCancelled(CancelledError):
         super().__init__('Design selection cancelled; completed candidates retained')
         self.results = list(results)
 
-# 默认枚举网格 = 2 拓扑 × 5 l × 4 t = 40 构型。
-# 几何范围为 l=4–8 mm、t=0.3–0.6 mm；各流体 Nu、阻力模型的适用范围
-# 由现行模型独立检查，不能按已退役 RBF 的旧训练节点判断置信度。
+# The default candidates use the calibrated D-F nodes.
 NODES = {"topo": ["Diamond", "Gyroid"],
-         "l": [4.0, 5.0, 6.0, 7.0, 8.0], "t": [0.3, 0.4, 0.5, 0.6]}
+         "l": list(TRAIN_L_NODES), "t": list(TRAIN_T_NODES)}
 
 def enumerate_select(cases, arrangement="cross", nodes=None, rho_s=RHO_S,
                      n_jobs=1, k_s=K_STEEL, prop_model="const", height=None,

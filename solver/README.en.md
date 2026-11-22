@@ -6,7 +6,7 @@ Start with the [2D air example](../examples/cpp/air_2d.cpp#L32-L34). It supplies
 
 | Step | Source | What to look for |
 | --- | --- | --- |
-| 1. Prepare the case | [2D prepare_case](../preprocess/preparation_case.cpp#L1083) | [Geometry](../geometry/geometry.cpp#L172) supplies porosity and hydraulic diameter. Preparation sets the ports and drag for both sides on the physical grid. For continuous 2D fields, it also calculates fluid pore porosity. |
+| 1. Prepare the case | [2D prepare_case](../preprocess/preparation_case.cpp#L1096) | [Geometry](../geometry/geometry.cpp#L172) supplies porosity and hydraulic diameter. Preparation sets the ports and drag for both sides on the physical grid. For continuous 2D fields, it also calculates fluid pore porosity. |
 | 2. Advance the solution | [Full2DRun::advance_impl](full_2d.cpp#L1095) | Follow outer_boundary, flow_boundary and thermal_boundary. The solver updates flow, advances temperature and checks convergence or the outer iteration limit. See the [2D SIMPLE implementation](simple_2d.cpp) for the velocity and pressure iterations. |
 | 3. Evaluate the fields | [evaluate](../postprocess/result_stage.cpp#L1254) | The fields and their recorded data determine which metrics apply. The [metric functions](../postprocess/result_metrics.cpp) calculate heat duty and other quantities. The [balance functions](../postprocess/result_balance.cpp) check mass and energy conservation. |
 

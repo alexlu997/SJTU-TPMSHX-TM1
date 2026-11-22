@@ -7,9 +7,10 @@ from sjtu_tpmshx.applications.gui.ui.quick_design_panel import build_quick_desig
 @pytest.mark.parametrize('mode,arrangement,properties', [
     ('auto', 'counter', 'mean'), ('fixed', 'cross', 'const'),
 ])
-def test_display_labels_do_not_change_backend_values(mode, arrangement, properties):
+def test_display_labels_do_not_change_backend_values(mode, arrangement, properties, monkeypatch):
     from sjtu_tpmshx.applications.gui.ui.quick_design_panel import _gather_inputs
 
+    monkeypatch.setattr('sjtu_tpmshx.applications.gui.ui.quick_design_panel.TRAIN_T_NODES', (.3000004, .6))
     dlg = build_quick_design_dialog()
     dlg.combo_qd_mode.setCurrentIndex(dlg.combo_qd_mode.findData(mode))
     dlg.combo_qd_arr.setCurrentIndex(dlg.combo_qd_arr.findData(arrangement))
@@ -19,6 +20,8 @@ def test_display_labels_do_not_change_backend_values(mode, arrangement, properti
     params = _gather_inputs(dlg)
     assert (params['mode'], params['arrangement'], params['prop_model']) == (
         mode, arrangement, properties)
+    if mode == 'auto':
+        assert params['nodes']['t'] == [.3000004, .6]
     assert dlg.le_qd_l.isVisibleTo(dlg) == (mode == 'auto')
     assert dlg.le_qd_cell_l.isVisibleTo(dlg) == (mode == 'fixed')
     dlg.deleteLater()

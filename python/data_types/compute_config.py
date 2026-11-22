@@ -86,7 +86,10 @@ DFMode = Literal['cfd_smooth', 'experimental']
 TPMSType = Literal['Diamond', 'Gyroid']
 ZoneAxis = Literal['x', 'y', 'grid', 'continuous']
 
-SCO2_P_RANGE_PA = tuple(load_model_parameters()['sco2']['pressure_range_Pa'])
+_MODEL = load_model_parameters()
+SCO2_P_RANGE_PA = tuple(_MODEL['sco2']['pressure_range_Pa'])
+SCO2_T_RANGE_K = tuple(_MODEL['sco2']['temperature_range_K'])
+_GEOMETRY_RESTRICTIONS = _MODEL['geometry_restrictions']
 
 
 # A null recipe in the complete native stage has these values.
@@ -919,33 +922,26 @@ def _validate_static_settings(values, is_3d, *, _native_preparation=False, port_
 
     # V2 production D-F closure is a water+sCO2 CFD table with bilinear
     # interpolation in geometry only. Extrapolation is not supported.
-    if not 4.0 <= ge.L_cell_mm <= 8.0 \
-            or not 0.3 <= ge.t_wall_mm <= 0.6:
-        raise ValueError(
-            "V2 geometry must lie inside the CFD grid: "
-            "4 <= L <= 8 mm, 0.3 <= t <= 0.6 mm")
+    from sjtu_tpmshx.physical_models.df_surrogate._domain import CASE_GEOMETRY_LIMITS, TRAIN_L, TRAIN_T
+    if not TRAIN_L[0] <= ge.L_cell_mm <= TRAIN_L[1] or not TRAIN_T[0] <= ge.t_wall_mm <= TRAIN_T[1]:
+        raise ValueError(f'V2 geometry must lie inside the CFD grid: {CASE_GEOMETRY_LIMITS}')
 
-    sco2_A = fluid_a.type == 'sco2'
-    sco2_B = fluid_b.type == 'sco2'
-    if sco2_A or sco2_B:
-        for side, fl in (('A', fluid_a), ('B', fluid_b)):
-            if fl.type != 'sco2':
-                continue
-            if not 280.0 <= fl.T_in_K <= 700.0:
-                raise ValueError(
-                    f"sCO2 fluid {side} temperature must be 280..700 K")
-            if not SCO2_P_RANGE_PA[0] <= fl.P_in_Pa <= SCO2_P_RANGE_PA[1]:
-                raise ValueError(
-                    f"sCO2 fluid {side} pressure must be 7.9..16 MPa")
-        if zones.enabled and zones.axis != 'continuous':
-            raise ValueError("sCO2 V2 does not support discrete zones")
-        if ge.delta_levelset != 0.0:
-            raise ValueError("sCO2 V2 requires delta_levelset=0")
-    if 'co2' in (fluid_a.type, fluid_b.type):
-        if zones.enabled and zones.axis != 'continuous':
-            raise ValueError('CO2 does not support discrete zones')
-        if ge.delta_levelset != 0.:
-            raise ValueError('CO2 requires symmetric delta_levelset=0 geometry')
+    fluids = (fluid_a.type, fluid_b.type)
+    for side, fl in (('A', fluid_a), ('B', fluid_b)):
+        if fl.type != 'sco2':
+            continue
+        if not SCO2_T_RANGE_K[0] <= fl.T_in_K <= SCO2_T_RANGE_K[1]:
+            raise ValueError(f'sCO2 fluid {side} temperature must be {SCO2_T_RANGE_K[0]:g}..{SCO2_T_RANGE_K[1]:g} K')
+        if not SCO2_P_RANGE_PA[0] <= fl.P_in_Pa <= SCO2_P_RANGE_PA[1]:
+            raise ValueError(f'sCO2 fluid {side} pressure must be {SCO2_P_RANGE_PA[0]/1e6:g}..{SCO2_P_RANGE_PA[1]/1e6:g} MPa')
+    for fluid, label in (('sco2', 'sCO2 V2'), ('co2', 'CO2')):
+        if fluid not in fluids:
+            continue
+        if zones.enabled and zones.axis != 'continuous' and fluid in _GEOMETRY_RESTRICTIONS['discrete_zones']:
+            raise ValueError(f'{label} does not support discrete zones')
+        if ge.delta_levelset != 0. and fluid in _GEOMETRY_RESTRICTIONS['levelset_offset']:
+            message = 'CO2 requires symmetric delta_levelset=0 geometry' if fluid == 'co2' else 'sCO2 V2 requires delta_levelset=0'
+            raise ValueError(message)
 
 
 def _validate_inlet_speeds(fluid_a, fluid_b, resolved_inlet_speeds):
