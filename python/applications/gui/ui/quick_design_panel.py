@@ -5,6 +5,7 @@ from math import isfinite
 from pathlib import Path
 import sys
 
+from sjtu_tpmshx.physical_models.df_surrogate._domain import TRAIN_L_NODES, TRAIN_T_NODES
 from sjtu_tpmshx.run_control.module_ports import RunControl
 
 _ENERGY_COLUMNS = ['构型', '工况', '热侧 Q [W]', '冷侧 Q [W]', '能量不平衡 [%]',
@@ -460,13 +461,15 @@ def build_quick_design_dialog(parent=None):
     le_topo.setToolTip("拓扑列表，逗号分隔")
     auto_form.addRow("拓扑 (topo):", le_topo)
 
-    le_l = QLineEdit("4,5,6,7,8")
-    le_l.setToolTip("胞元尺寸 l (mm) 列表，逗号分隔。当前 K/cF 的 CFD 节点为 4/5/6/7/8；"
+    l_nodes = [f"{value:g}" for value in TRAIN_L_NODES]
+    le_l = QLineEdit(",".join(l_nodes))
+    le_l.setToolTip(f"胞元尺寸 l (mm) 列表，逗号分隔。当前 K/cF 的 CFD 节点为 {'/'.join(l_nodes)}；"
                     "各流体 Nu 与实验修正的适用范围另行检查。")
     auto_form.addRow("l 列表 (mm):", le_l)
 
-    le_t = QLineEdit("0.3,0.4,0.5,0.6")
-    le_t.setToolTip("壁厚 t (mm) 列表，逗号分隔。当前 K/cF 的 CFD 节点为 0.3/0.4/0.5/0.6；"
+    t_nodes = [f"{value:g}" for value in TRAIN_T_NODES]
+    le_t = QLineEdit(",".join(t_nodes))
+    le_t.setToolTip(f"壁厚 t (mm) 列表，逗号分隔。当前 K/cF 的 CFD 节点为 {'/'.join(t_nodes)}；"
                     "各流体 Nu 与实验修正的适用范围另行检查。")
     auto_form.addRow("t 列表 (mm):", le_t)
 
