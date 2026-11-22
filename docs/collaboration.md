@@ -16,7 +16,7 @@ including retirement and required validation, without approval at each step.
 
 ## Start a task
 
-1. For a change task, name one owner, the write scope, a reviewer, and a coordinator.
+1. For a change task, name one owner, the write scope, a coordinator, and a reviewer if the task needs review.
    If the user names no other coordinator, the owner is the coordinator.
    Use one worktree and branch per independent change task.
    Reuse them for continued work on that task.
@@ -73,8 +73,9 @@ A task without its own branch uses a short name that no other status file uses.
    The coordinator can remove that file. Tell the user about the removal.
    If a file seems out of date for another reason, keep it and tell the user.
 
-The status file holds the current State and Next action. The private local record does not repeat them.
-Creating, updating, or removing a status file does not require the storage measurement.
+The `State:` line gives the short state of the task. The `Next action:` line is the Next action field
+of the [handoff record](#handoff-record). Keep both lines current until task closeout.
+You do not need the storage measurement when you create, update, or remove a status file.
 Do not remove the status file of another task during a cache cleanup.
 If another machine must continue a task before its PR exists, use a designated issue for the shared handoff.
 
@@ -113,7 +114,8 @@ Validate its replacement environment before switching. Routine launchers still i
 
 ## Complete code retirement
 
-For a replacement task, record the new behavior and the old code to retire before implementation.
+For a replacement or removal task, record the old code to retire before implementation.
+For a replacement, also record the new behavior.
 Before the PR exists, write this record in the [private local record](#handoff-record).
 Then put it in the PR description. Keep detailed local evidence in ignored `.cache/`.
 For other implementation tasks, trace the consumers that the change can reach before implementation.
@@ -275,15 +277,17 @@ Use all of the fields in the table when one of these conditions applies:
 - The retirement is incomplete.
 
 Put the fields in the PR description.
-Before a PR exists, the task status file holds State and Next action.
-Put the other fields in the private local record before a PR exists.
+Before a PR exists, put them in the private local record.
+The `Next action:` line of the task status file is the Next action field there.
+Record completed work, failures, and pending approvals in the State field.
+Update the status file together with the record or the PR description until task closeout.
 Use a designated issue only when another machine must continue the task.
 Update the fields when ownership, scope, the reviewed commit, or the next action changes.
 
 | Field | Required information |
 | --- | --- |
 | Task | Goal, write scope, and authorization scope |
-| People or tools | Owner, reviewer, and integration coordinator |
+| People or tools | Owner, reviewer, and coordinator |
 | Code | Base commit, branch, current commit, reviewed commit, and PR |
 | Related changes | Affected contracts and consumers; updates and covering checks; reasons for unchanged consumers that are not obvious or not checked; retirement scope and reasons for retained items |
 | Review | Reviewer and context method, commit coverage, findings and dispositions, rounds, time, and conclusion |
