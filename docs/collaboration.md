@@ -26,7 +26,8 @@ including retirement and required validation, without approval at each step.
    Fast-forward a clean `main` to `origin/main`. Record the base commit.
    Keep local changes or diverged history for inspection before you select an integration action.
 3. Start the task branch from that commit. Use `codex/` for Codex branches
-   unless the user requests another name. Record the worktree and branch.
+   unless the user requests another name. Record the worktree and branch
+   in the [task status](#task-status) file.
 4. Select the interpreter through the task's ignored `.venv-path`. Shared
    environments contain dependencies only and live outside task worktrees.
    Share an environment only when its applicable lock files match. Run the
@@ -36,6 +37,30 @@ including retirement and required validation, without approval at each step.
    and native table caches in that worktree's ignored `.cache/`.
    Record the actual native library and its source/build identity separately.
    Do a check for references to a worktree scheduled for removal.
+
+## Task status
+
+A task status file shows active work to other tasks, tools, and later sessions on this machine.
+It is a local file. Do not commit it. Do not copy its local paths into a PR.
+
+1. Before you start a change task or a heavy numerical job, read each file in
+   `.cache/active-tasks/` of the primary checkout.
+   The first entry in `git worktree list --porcelain` identifies the primary checkout.
+   Do not write files in the write scope of another active task.
+   Do not start a heavy numerical job while another task has one running.
+2. When a change task starts, create `.cache/active-tasks/<branch>.md` in the primary checkout.
+   Replace each `/` in the branch name with `-`. Only the task owner writes this file.
+3. Write these lines: worktree, branch, owner, write scope, heavy job (yes or no),
+   State, and Next action. Write State as `active` or `blocked: <reason>`.
+   Update the file when a heavy job starts or stops, when the task stops or continues,
+   and when the owner or tool changes.
+4. Remove the file at task closeout, after the handoff record is current.
+5. If a file names a worktree that does not exist, or a branch whose PR is merged,
+   that task is closed. The coordinator removes the file and tells the user.
+
+A status file is not cache output. Its creation, update, or removal does not require the storage measurement.
+A cache cleanup does not remove the status file of another task.
+If another machine must continue a task before its PR exists, use a designated issue for the shared handoff.
 
 ## Environment recovery
 
@@ -74,16 +99,23 @@ Validate its replacement environment before switching. Routine launchers still i
 
 For a replacement task, record the new behavior and the old code to retire before implementation.
 Use the task's existing handoff record; keep detailed local evidence in ignored `.cache/`.
-For other implementation tasks, record the affected consumers and related changes in the same handoff.
-Use the existing Related changes field for affected code and text.
-Include only relevant configuration, saved files, tests, fixtures, exports, packaging, examples, documentation, comments, and docstrings.
-Record each item's action and status: updated, checked with no change, or unresolved.
-Give a short reason when no change is needed. Resolve required updates before delivery.
-The reviewer must compare this record with the actual change and its consumers.
+For other implementation tasks, trace the consumers that the change can reach before implementation.
+Include only relevant configuration, saved files, tests, fixtures, exports, packaging, examples,
+GUI and CLI labels, documentation, comments, and docstrings.
+Record related changes in the PR description.
+If the change alters no behavior, interface, default, unit, limit, command, or file format,
+write one sentence that says so. Do not list unchanged items.
+For a contract change, record the affected contracts, updates, checks, and open items.
+Name the check that covers a consumer. A check covers a consumer only when it compares
+that consumer with the changed contract. A test that only fixes a literal label does not cover a unit change.
+Give a reason for an unchanged consumer only when the reason is not obvious or no check covers it.
+Use one sentence for consumers that share a reason. Resolve required updates before delivery.
+The reviewer traces consumers from the requirement and diff, then compares them with this record.
 
 1. Trace public and internal callers, dynamic names, CLI/GUI entries, and external consumers.
    Include configuration and saved-file readers, exports, packaging, tests, fixtures, and documentation.
-   Check actual use. A filename or a search with no hits is not sufficient evidence.
+   Check actual use. A name such as `legacy` or `old`, a filename, or a search with no hits
+   is not sufficient evidence.
 2. Verify the replacement against the behavior that current consumers need.
    Keep physical, data, platform, and compatibility requirements.
    C++ numerical execution and Python application interfaces remain current product capabilities.
@@ -121,7 +153,8 @@ Present evidence, options, and a recommendation before the user selects a produc
    Record who did the review. Do not describe an agent's own review as independent human approval.
 3. Push the task branch. Open or update the PR.
    Put a concise handoff record in the PR description.
-   Use a designated issue when the task needs a handoff before a PR exists.
+   Before a PR exists, the [task status](#task-status) file shows the task state.
+   Use a designated issue only when another machine must continue the task before its PR exists.
    Keep local absolute paths and detailed evidence in a private ignored record.
 4. If `main` advances, merge the current `origin/main` into the task branch.
    Resolve conflicts. Repeat the affected checks and required CI.
@@ -204,7 +237,11 @@ Do not create changes to fill the sample. Three tasks show initial use, not a de
 
 ## Handoff record
 
-Use the following fields in the shared PR or issue. Update them when ownership,
+For a single-PR task, the PR description states the change, the checks and tested commit,
+the review result and reviewed commit, PR and `main` CI, and open acceptance conditions.
+Use all of the following fields when the task spans more than one PR or session,
+stops on a blocker, changes owner or tool, or leaves retirement incomplete.
+Put them in the shared PR or issue. Update them when ownership,
 scope, the reviewed commit, or the next action changes.
 
 | Field | Required information |
@@ -212,7 +249,7 @@ scope, the reviewed commit, or the next action changes.
 | Task | Goal, permitted modules/files, and authorization scope |
 | People or tools | Owner, reviewer, and integration coordinator |
 | Code | Base commit, branch, current commit, reviewed commit, and PR |
-| Related changes | Affected consumers, code and text; actions and status; no-change reasons; retirement scope and reasons for retained items |
+| Related changes | Affected contracts and consumers; updates and covering checks; reasons for unchanged consumers that are not obvious or not checked; retirement scope and reasons for retained items |
 | Review | Reviewer and context method, commit coverage, findings and dispositions, rounds, time, and conclusion |
 | Runtime | Applicable lock, environment purpose, native build, and data revision |
 | Evidence | Check, tested commit, result, and local evidence record name |
@@ -220,7 +257,9 @@ scope, the reviewed commit, or the next action changes.
 | Next action | Concrete next step and its owner |
 
 The private local record adds the worktree, interpreter, native library,
-data-link targets, and evidence paths. Keep original failure and not-started
+data-link targets, and evidence paths. Create it when the task has local evidence
+or uses all handoff fields. Keep it at `.cache/<task>/HANDOFF.md` in the task worktree.
+Start it with the State and Next action lines. Keep original failure and not-started
 states. At handoff, the next owner reads the shared record and checks the local
 paths before running commands. Send messages to another chat only when the
 user authorizes that communication.
@@ -248,7 +287,8 @@ optimization chain. Current multi-condition BO remains a separate capability.
 
 ## Storage retention
 
-Use these rules at task closeout and during an authorized storage cleanup.
+Use these rules before a task writes to or cleans TM1 caches, at task closeout,
+and during an authorized storage cleanup.
 The `.cache/` name does not make research evidence disposable.
 The first entry in `git worktree list --porcelain` identifies the primary checkout.
 Resolve relative paths in `.agents/rules/tm1-local-data.md` from that checkout.
