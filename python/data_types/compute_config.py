@@ -822,10 +822,8 @@ def _validate_static_settings(values, is_3d, *, _native_preparation=False, port_
             "0.042 m). Set geometry.Lz_m, or set Nz=1 for a 2D run.")
 
     # ── Numerical solver settings (2026-07-12) ───────────────────────────
-    # Normalise the typed-config full-face sentinel before applying the
-    # shared port validator. ComputeConfig always has two fluids, so side
-    # B uses the same full-face rule as A; its legacy None means
-    # single-fluid only below this boundary.
+    # Both widths must select the same mode: positive for partial ports,
+    # nonpositive for full faces.
     for side, bc in (('A', bc_a), ('B', bc_b)):
         if not isinstance(bc.uniform_inlet_2d, bool):
             raise ValueError(f'ComputeConfig.bc_{side}.uniform_inlet_2d must be boolean')
@@ -844,6 +842,7 @@ def _validate_static_settings(values, is_3d, *, _native_preparation=False, port_
             if (all(type(v) in (int, float, bool) for v in fields)
                     and isfinite(bc.in_w) and isfinite(bc.out_w)):
                 continue
+        # For preview and other Python validation, bc_to_dict expands full faces.
         pipe = bc_to_dict(bc, ge.L_dom_m, ge.H_dom_m, side='A', with_z=is_3d())
         if port_windows_fit is not None and type(bc.dir) is int and 0 <= bc.dir < 4 and not is_3d():
             cross = ge.H_dom_m if bc.dir < 2 else ge.L_dom_m

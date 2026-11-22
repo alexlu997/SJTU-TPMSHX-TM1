@@ -1,7 +1,7 @@
-"""Nu correlations — single source of truth for scalar + vector paths.
+"""Python interface to the native Nusselt correlations.
 
-Scalar and vector consumers read fixed model data from a shared resource.
-The native build reads the same resource.
+Scalar and array calls use nu_point in numerics/fluid_properties.cpp.
+This module also reports correlation ranges and reads model coefficients.
 
 API
 ---
@@ -9,7 +9,7 @@ API
 ``nu_vec(tpms, Re_arr, L_mm, D_h_mm, *, Re_floor=10)`` — vector path, air
 ``nu_water_topo(tpms, Re, Pr_water)`` — PRODUCTION water (per-topology direct
                                        water-CFD fit, WATER_NU_COEFFS)
-Historical Pr-substitution and Yan comparisons live in tests/water_nu_reference.py.
+Historical Pr-substitution and Yan comparisons live in tests/python/water_nu_reference.py.
 
 Roughness factor
 ----------------
@@ -185,10 +185,9 @@ def _water_nu_notices(Re_min, Re_max, tpms_type):
 
 
 def nu_water_topo(tpms_type, Re, Pr_water):
-    """Topology-specific direct water Nu = c·Re^a·Pr^(1/3) (table above).
-    ``np.maximum(Re, 1.0)`` floor (array-safe; identical to the design-tool
-    fit's ``max(Re, 1.0)`` for scalar Re, but also works on per-cell arrays
-    when the solver routes its vectorised water path through here)."""
+    """Return native water Nu for the specified topology and Prandtl number.
+
+    The water fit uses max(Re, 1) for each scalar or array element."""
     prepared, extrema = _native_properties.nu_inputs(2, Re)
     if np.asarray(prepared).size:
         _warn_water_nu(float(extrema[0]), float(extrema[1]), tpms_type, Re)

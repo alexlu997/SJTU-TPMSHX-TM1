@@ -2,7 +2,7 @@
 
 P3.1 (2026-07-20). The manifest (`tests/python/_fast_tier_manifest.txt`)
 lists test node-ids whose measured `call` duration is >= the threshold;
-`tests/conftest.py` marks them `heavy` at collection time and
+`tests/python/conftest.py` marks them `heavy` at collection time and
 `engineering/scripts/run_tests_fast.ps1` excludes them (`-m "not heavy"`). CI fast tests
 exclude both slow and heavy and run public-module integration separately.
 

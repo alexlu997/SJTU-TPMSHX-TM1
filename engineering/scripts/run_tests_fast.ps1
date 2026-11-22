@@ -3,7 +3,7 @@
 # P3.1 (2026-07-20): the duration census (retained in Git history) found
 # 21 `heavy` tests (call >= 30s): 1.7% of tests carrying
 # 89% of call-compute; manifest: tests/python/_fast_tier_manifest.txt,
-# applied by tests/conftest.py at collection). Environment checks are shared
+# applied by tests/python/conftest.py at collection). Environment checks are shared
 # with run_tests_server.ps1. Measured wall ~1 min vs ~19 min full.
 #
 # The full suite (run_tests_server.ps1) retains all collected tests; heavy

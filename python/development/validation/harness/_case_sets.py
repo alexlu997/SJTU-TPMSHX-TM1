@@ -9,7 +9,7 @@ from pathlib import Path
 
 from sjtu_tpmshx.development.validation.harness._harness import SpecimenSpec
 
-_PKG_ROOT = Path(__file__).resolve().parents[3]     # sjtu_tpmshx/
+_PKG_ROOT = Path(__file__).resolve().parents[3]     # Python package root
 _DATA = _PKG_ROOT.parent / 'data' / 'raw_data'
 
 SHANGHAI_XLSX = _DATA / 'experiments/water_air/water-air_G7-t0p6_shanghai_experiment_20260401.xlsx'

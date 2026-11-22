@@ -184,13 +184,8 @@ def _finalize_3d_cfg(raw: dict[str, Any],
     ``ComputeResult.diagnostics``. The headline scalars (``Q_total``,
     ``dP_A`` / ``dP_B``, ``T_out_A`` / ``T_out_B``) lift directly.
 
-    B3 C5 (2026-06-13): the ComputeResult is now the SINGLE result carrier.
-    ``Main_Menu.write_result`` publishes it directly as
-    ``window._result_3d`` and ``ui/plot_3d_results`` reads ``res.fields`` /
-    the dataclass attributes — the old raw-dict ``diagnostics['raw_3d']``
-    carrier is gone. The render/export contract (every key the renderer +
-    CSV/NPZ export consume) is locked by
-    ``tests/test_finalize_3d_result_sync.py``.
+    The 3D case in tests/python/integration_tm1/test_public_api.py uses this
+    function as its reference for application result mapping and offline readback.
     """
     compute_cfg = fields.get('compute_cfg')
 

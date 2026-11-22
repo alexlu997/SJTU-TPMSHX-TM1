@@ -7,8 +7,25 @@ TM1 将 TPMS 换热器的前处理、求解和后处理拆为独立维护的模�
 [alexlu997/SJTU-TPMSHX-TM1](https://github.com/alexlu997/SJTU-TPMSHX-TM1)。
 原 SJTU-TPMSHX/V2 是来源参考，本分支不合回原仓库。
 
-**C++ 计算流程**　[前处理](preprocess/) → [求解](solver/) → [后处理](postprocess/)。从[完整二维算例](examples/cpp/air_2d.cpp)可以读到三次调用。几何算法在 [geometry/](geometry/)，共用物性与数值函数在 [numerics/](numerics/)。外部程序使用 [stages.hpp](include/tpmshx/stages.hpp)。
-[求解器阅读指南](solver/README.md)列出二维、三维和快速设计的入口，并按改模型、查接口、查结果和续算整理源码。
+## 计算主代码在哪里
+
+```mermaid
+flowchart LR
+    prep["前处理 · preprocess/"]
+    subgraph sol["求解 · solver/"]
+        d2["完整二维 · full_2d.cpp"]
+        d3["完整三维 · full_3d.cpp"]
+        q["快速设计 · quick_design_driver.cpp"]
+    end
+    result["后处理 · postprocess/"]
+    prep --> d2 --> result
+    prep --> d3 --> result
+    prep --> q --> result
+```
+
+[二维算例](examples/cpp/air_2d.cpp#L32-L34)展示[前处理](preprocess/)、[求解](solver/)和[后处理](postprocess/)的三次调用。直接读求解主函数可以从[完整二维](solver/full_2d.cpp#L1095)、[完整三维](solver/full_3d.cpp#L1505)或[快速设计](solver/quick_design_driver.cpp#L116)进入。
+
+改几何看 [geometry/](geometry/)，改共用物性和数值方法看 [numerics/](numerics/)。外部 C++ 程序从 [stages.hpp](include/tpmshx/stages.hpp) 调用；查场结果、检查点或续算看[求解器阅读指南](solver/README.md)。
 
 Python 应用通过以下四个公开入口调用计算核心。
 
