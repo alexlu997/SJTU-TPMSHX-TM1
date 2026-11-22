@@ -86,12 +86,10 @@ def assess_solution_validity(P_abs_min: float, vmax: float, T_ref: float, *,
                              ma_max: float | None = None) -> tuple[bool, list[str]]:
     """Post-solve physical-validity check on the converged fields.
 
-    Returns ``(valid, reasons)``. ``valid`` is False when the minimum absolute
-    pressure is at/below the clip floor (the compressible solve could not hold a
-    positive pressure → off-envelope) or the peak Mach is sonic/supersonic.
-    ``ma_max`` — if given (the rigorous per-cell value from
-    :func:`mach_field_max`) — is used directly; otherwise a single ``vmax`` /
-    ``T_ref`` Mach is computed (back-compat / scalar callers).
+    Return ``(valid, reasons)``. A nonfinite minimum pressure or peak Mach
+    number is invalid. The minimum absolute pressure must exceed the floor
+    plus its relative tolerance. The peak Mach number must be below mach_limit.
+    Use ma_max when supplied. Otherwise compute Mach from vmax and T_ref.
     """
     reasons = []
     # A diverged solve can leave NaN/inf in the pressure/velocity field. Every
