@@ -15,7 +15,7 @@ See [C++ scope and delivery records](cpp-migration.md#cpp-core-scope) for librar
 
 ## Run from a project folder
 
-Work from the repository root. Make sure that `.venv-path` starts with an existing absolute interpreter path on this host. Then run the [README environment checks](../README.en.md#环境与检查). Solver, geometry, preparation and result libraries must match current adapters and headers. The source repository does not include local compiled outputs. See [C++ instructions](cpp-migration.md) for native dependency builds.
+Work from the repository root. Make sure that `.venv-path` starts with an existing absolute interpreter path on this host. Then run the [environment checks](verification.en.md). Solver, geometry, preparation and result libraries must match current adapters and headers. The source repository does not include local compiled outputs. See [C++ instructions](cpp-migration.md) for native dependency builds.
 
 Keep these items in the project folder:
 

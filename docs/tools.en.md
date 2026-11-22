@@ -4,7 +4,7 @@
 
 [中文](tools.md) | [English](tools.en.md)
 
-Run all commands from the repository root. Use the absolute interpreter on the first line of `.venv-path`. First follow [README checks](../README.en.md#first-run) for the applicable lock and `pip check`. Keep caches in this worktree's ignored `.cache/`. In the table, `python` means that interpreter, not system Python.
+Run all commands from the repository root. Use the absolute interpreter on the first line of `.venv-path`. First follow [environment checks](verification.en.md) for the applicable lock and `pip check`. Keep caches in this worktree's ignored `.cache/`. In the table, `python` means that interpreter, not system Python.
 
 The README defines public compute entry points and formal Case/Result handoff. These tools do not replace mainline acceptance.
 

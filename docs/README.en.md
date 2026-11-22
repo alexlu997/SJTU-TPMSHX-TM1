@@ -6,7 +6,7 @@
 
 The root directories contain the C++ stages. The Python applications are in [python](../python/).
 Start with the [module map](../python/README.en.md) to read the code.
-Use the [first run instructions](../README.en.md#first-run) to run the application.
+Use the [first run instructions](first-run.en.md) to run the application.
 
 <a id="当前文档"></a>
 
@@ -14,6 +14,8 @@ Use the [first run instructions](../README.en.md#first-run) to run the applicati
 
 | Subject | Entry |
 | --- | --- |
+| GUI, Quick Design and optimization | [GUI guide](gui-guide.en.md) |
+| Local checks, CI and acceptance records | [Verification guide](verification.en.md) |
 | Module responsibilities, data flow and physical constraints | [Architecture](architecture.md) |
 | C++ numerical backend, native ABI and builds | [C++ integration](cpp-migration.md) |
 | Independent C++ stage SDK and installed examples | [C++ stages](native-stages.md) |
@@ -50,7 +52,7 @@ Public data contracts are implemented in [data_types/](../python/data_types/) an
 `pyproject.toml` defines builds, dependency declarations, pytest, mypy, and lint settings.
 Root `MANIFEST.in` selects source-distribution files. The wheel uses the explicit resource list in `pyproject.toml`.
 `engineering/requirements/` holds exact locks for each environment purpose. Root `requirements.txt` installs an isolated development environment.
-`[tool.mypy].files` selects public interfaces and data contracts for type checks. See [environment and checks](../README.en.md#环境与检查). `AGENTS.md` defines collaboration rules. `LICENSE` states the license.
+`[tool.mypy].files` selects public interfaces and data contracts for type checks. See [environment and checks](verification.en.md). `AGENTS.md` defines collaboration rules. `LICENSE` states the license.
 
 `data-revision.txt` declares the associated data version. Raw experiment and CFD data stay in local `data/raw_data/`. Research scripts and results stay in ignored `.cache/`. Neither location is committed. The previous `reports/` output directory is also ignored.
 

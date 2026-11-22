@@ -93,7 +93,7 @@ Root `pyproject.toml` MUST use `[tool.pytest.ini_options]` to set `testpaths = t
 The `[tool.mypy].files` setting in `pyproject.toml` MUST explicitly list public interfaces and data contracts. The list includes the current envelope implementation, three-module APIs, data objects, and compatibility entries with active consumers. `pyproject.toml` MUST enable checking of unannotated bodies for envelope, preprocessing API, solver API, postprocessing API, and postprocessing metrics. `test_type_gate.py` MUST check the listed project code in fast tests. CI MUST NOT add a duplicate mypy step.
 
 ### Requirement: Parallel local gate
-The complete local gate MUST support `pytest tests/python/ -q -n auto --dist loadscope`. Before Python starts, set `PYTHONHASHSEED=0` and single-threaded BLAS/OMP. Local documentation defaults to `--dist loadscope`. Worker count can be fixed to suit resources. Existing 128-core server scripts keep worksteal. The [root README](../../../README.en.md#环境与检查) defines the interpreter, environment checks, and full command. The common dependency lock includes pytest-xdist.
+The complete local gate MUST support `pytest tests/python/ -q -n auto --dist loadscope`. Before Python starts, set `PYTHONHASHSEED=0` and single-threaded BLAS/OMP. Local documentation defaults to `--dist loadscope`. Worker count can be fixed to suit resources. Existing 128-core server scripts keep worksteal. The [verification guide](../../../docs/verification.en.md) defines the interpreter, environment checks, and full command. The common dependency lock includes pytest-xdist.
 
 #### Scenario: Parallel full suite green
 - **WHEN** `pytest tests/python/ -q -n auto --dist loadscope` runs with `PYTHONHASHSEED=0`

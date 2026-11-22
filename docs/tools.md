@@ -3,7 +3,7 @@
 [中文](tools.md) | [English](tools.en.md)
 
 全部命令从仓库根目录执行，Python 使用 `.venv-path` 第一行的绝对解释器。
-先按 [README](../README.md#first-run) 检查对应锁和 `pip check`；缓存使用本工作树
+先按 [环境检查](verification.md) 检查对应锁和 `pip check`；缓存使用本工作树
 忽略的 `.cache/`。下表中的 `python` 表示该解释器，不是系统 Python。
 公开计算入口与正式 Case/Result 文件交接仍见 README；这些工具不替代主线验收。
 

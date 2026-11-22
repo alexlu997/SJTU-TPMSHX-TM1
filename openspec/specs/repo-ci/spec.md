@@ -91,7 +91,7 @@ SHALL 对 envelope、前处理 API、求解 API、后处理 API 和后处理 met
 `test_type_gate.py` SHALL 在快测中检查清单中的实际代码。CI 不另加重复 mypy 步骤。
 
 ### Requirement: Parallel local gate
-本地全量门 SHALL 支持 pytest-xdist 并行：`pytest tests/python/ -q -n auto --dist loadscope`，且在启动 Python 前设置 `PYTHONHASHSEED=0` 和 BLAS/OMP 单线程。`--dist loadscope` 为本机文档默认，worker 数可按资源改为固定值；128 核服务器保留脚本中的 worksteal 策略。解释器、环境检查和完整命令集中在[根 README](../../../README.md#环境与检查)。pytest-xdist 位于共同依赖锁中。
+本地全量门 SHALL 支持 pytest-xdist 并行：`pytest tests/python/ -q -n auto --dist loadscope`，且在启动 Python 前设置 `PYTHONHASHSEED=0` 和 BLAS/OMP 单线程。`--dist loadscope` 为本机文档默认，worker 数可按资源改为固定值；128 核服务器保留脚本中的 worksteal 策略。解释器、环境检查和完整命令集中在[验证指南](../../../docs/verification.md)。pytest-xdist 位于共同依赖锁中。
 
 #### Scenario: Parallel full suite green
 - **WHEN** 在 `PYTHONHASHSEED=0` 下运行 `pytest tests/python/ -q -n auto --dist loadscope`
