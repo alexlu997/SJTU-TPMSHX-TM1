@@ -6,7 +6,7 @@
 
 Run all commands from the repository root. Use the absolute interpreter on the first line of `.venv-path`. First follow [environment checks](verification.en.md) for the applicable lock and `pip check`. Keep caches in this worktree's ignored `.cache/`. In the table, `python` means that interpreter, not system Python.
 
-The README defines public compute entry points and formal Case/Result handoff. These tools do not replace mainline acceptance.
+See the [stage calls](first-run.en.md#stage-api) for the public computation entries and Case/Result file exchange. These tools do not replace mainline acceptance.
 
 `demo_3d_air_air`, `demo_3d_cube_air_air`, `demo_3d_cube_volume`, and
 `development.runs.tools.render_3d_styles` use `prepare_case → run_case → evaluate` with the C++ backend.
@@ -70,7 +70,7 @@ This repository has no Fluent batch execution entry.
 
 | Tool | Input → output | Command and scope |
 | --- | --- | --- |
-| [examples/](../examples/) | Public JSON/YAML configuration → Case/Result/metrics | Real 2D/3D CLI examples in README. First-run entry within current support. |
+| [examples/](../examples/) | Public JSON/YAML configuration → Case/Result/metrics | [2D and 3D CLI examples](first-run.en.md#examples). First-run entry within current support. |
 | [development/runs/smokes/](../python/development/runs/smokes/) | Built-in examples → console and declared diagnostics | `python -m sjtu_tpmshx.development.runs.smokes.<module>`. Headless GUI requires `QT_QPA_PLATFORM=offscreen`. |
 | [development/runs/demos/](../python/development/runs/demos/) | Built-in 3D cases → console/visualization | `python -m sjtu_tpmshx.development.runs.demos.<module>`. Interactive graphics require a desktop. Examples do not extend applicability. |
 | [CFD worklist](../python/development/runs/tools/asym_build_cfd_worklist_xlsx.py) → [nTop expressions](../python/development/runs/cfd_asym/asym_ntop_expressions_html.py) | Built-in geometry/fluid and optional private `water_DG_cfd_results_legacy.xlsx` → XLSX → HTML | Run the two commands below in order with one output directory. Missing local water data leaves a skip explanation in `r1_water_ref`, without invented anchors. |
@@ -145,7 +145,7 @@ export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
 "$PYTHON" -m examples.three_module.design_field_call .cache/examples/field
 ```
 
-In PowerShell, read `.venv-path` and use `& $tm1Python` with the same arguments. Root README defines environment variables.
+In PowerShell, read `.venv-path` and use `& $tm1Python` with the same arguments. See the [setup guide](first-run.en.md#examples) for the environment variables.
 
 - [external_design](../examples/three_module/external_design.py) accepts [DesignCase JSON](../examples/three_module/design_case.json). Units are K, absolute Pa, kg/s, and W. `dPlim_h/c` are ΔP/P_in fractions. It runs forward evaluation for fixed Diamond 7/0.5 mm geometry, without automatic sizing to input Q. Output Q is total W.
 

@@ -129,7 +129,7 @@ $env:XDG_CACHE_HOME = Join-Path $PWD '.cache/xdg'
 贝叶斯优化的 Windows CPU 环境另见 `engineering/requirements/bo-windows.txt`；macOS arm64 /
 Python 3.13 使用 `engineering/requirements/bo-macos.txt`。已授权的 BO 任务使用独立环境，
 随后用对应锁运行环境检查及 `pip check`；勿将可选依赖加到正在使用的共享基础环境。
-上述小算例无需 BO。原始实验回归与重新拟合则需要匹配版本的本地数据，见文末。
+上述小算例无需 BO。原始实验回归与重新拟合则需要[匹配版本的本地数据](verification.md#数据与历史证据)。
 
 BoTorch 首次构造多目标 Log 采集函数时会尝试编译其可选 C++ 内核。
 将 `TORCH_EXTENSIONS_DIR` 设为当前工作树的 `.cache/torch-extensions`，并在该次运行的

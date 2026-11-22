@@ -29,7 +29,7 @@ On Windows/Python 3.12, integration also runs the rendering and resume cases in 
 Windows integration runs in separate jobs. macOS integration uses the `fast-0` runner.
 Fast tests and integration MUST produce separate reports after the platform build.
 Routine Qt tests use offscreen mode with the 3D panel disabled.
-Actual rendering uses a separate native Qt process; its platform requirements and evidence limits are documented in the root README.
+Actual rendering uses a separate native Qt process; the [verification guide](../../../docs/verification.en.md#qt-rendering) gives the platform requirements and evidence limits.
 CI MUST NOT depend on ignored local data assets.
 
 Fast jobs MUST use two workers and one BLAS/OMP/MKL/NumExpr thread. Each job MUST report its 30 slowest tests and skip reasons. JUnit XML MUST record individual statuses and durations. Test report artifacts stay available for 7 days.

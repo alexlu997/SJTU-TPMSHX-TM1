@@ -25,7 +25,7 @@ main 仅推送声明的文档路径时使用 docs 层级。未知或空变更使
 Windows/Python 3.12 集成再运行 `tests/python/_ci_windows_312.txt` 的渲染和续算用例。
 Windows 集成使用独立作业，macOS 集成复用 `fast-0` runner。
 快测和集成 SHALL 在平台构建后分别保留报告。
-常规 Qt 测试使用 offscreen 并禁用 3D 面板；实际渲染使用独立的原生 Qt 进程，其平台要求和证据边界见根 README。
+常规 Qt 测试使用 offscreen 并禁用 3D 面板；实际渲染使用独立的原生 Qt 进程，其平台要求和证据边界见[验证指南](../../../docs/verification.md#qt-rendering)。
 CI SHALL NOT 依赖忽略的本地数据资产。
 
 快测 SHALL 固定两个 worker，BLAS/OMP/MKL/NumExpr 单线程。各作业 SHALL 输出最慢 30 项与 skip 原因，并保存

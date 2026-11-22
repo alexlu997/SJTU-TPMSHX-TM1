@@ -32,6 +32,8 @@ macOS 和 Windows 的 Python 3.13 快测按完整模块分到两个独立 runner
 每个 worker 的 BLAS/OMP 单线程。Windows 集成测试在本平台构建后与快测并行。
 macOS 在 `fast-0` 中单独运行集成进程，共用 runner。两平台的集成报告独立保存。
 Windows/Python 3.12 跑完整集成和 [兼容性用例](../tests/python/_ci_windows_312.txt)，包括实际渲染和二维、三维续算。
+<a id="qt-rendering"></a>
+
 CI 在独立 Qt 进程中渲染真实 3D 体场，检查字段切换、PNG 解码、缩放图像、应用导出及关闭。
 macOS 使用 Cocoa；Windows 使用固定版本的 Mesa OpenGL 软件渲染。
 macOS arm64 托管机若检测到 `Apple Software Renderer`，该像素检查明确跳过。

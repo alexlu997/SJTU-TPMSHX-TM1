@@ -31,6 +31,8 @@ PowerShell uses the same pytest arguments. Set the listed environment variables 
 
 On macOS and Windows with Python 3.13, CI splits fast test modules between two runners. Each runner uses two workers. `fast-0` uses `load --maxschedchunk=1` to limit work queued behind long sizing tests. `fast-1` uses `worksteal`. Each worker uses one BLAS and OMP thread. Windows integration runs in parallel with fast tests after the platform build. macOS runs integration in a separate process on the `fast-0` runner. Both platforms keep separate integration reports. Windows/Python 3.12 runs all integration tests and [compatibility cases](../tests/python/_ci_windows_312.txt) for actual rendering and 2D/3D resume.
 
+<a id="qt-rendering"></a>
+
 CI renders a real 3D volume in a separate Qt process. It checks field changes, PNG decoding, scaled images, application export, and closure. macOS uses Cocoa. Windows uses a fixed Mesa OpenGL software renderer. The pixel check explicitly skips macOS arm64 hosts with `Apple Software Renderer`. [PyVistaQt documents this rendering limit](https://github.com/pyvista/pyvistaqt/blob/v0.13.1/pyvistaqt/rwi.py). Full pixel checks on a physical Mac remain required locally for graphics dependency changes. The test artifacts include OpenGL details, process logs, and any generated PNG files and render reports. Physical Windows display acceptance remains separate.
 
 Existing test helpers stay. `run_tests_fast.ps1` is development feedback only. Its `not heavy` subset differs from fast CI. The two PowerShell scripts validate the base lock by default. With an existing Windows BO environment, use `./engineering/scripts/run_tests_server.ps1 -LockFile engineering/requirements/bo-windows.txt`.

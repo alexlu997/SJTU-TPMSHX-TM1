@@ -106,7 +106,7 @@ The default lock includes GUI, file handoff, and test dependencies. It excludes 
 
 BoTorch tries to compile its optional C++ kernel when it first constructs a multi-objective Log acquisition function. Set `TORCH_EXTENSIONS_DIR` to `.cache/torch-extensions` in the current worktree. Prepend the BO environment's `bin` directory (`Scripts` on Windows) to `PATH` for that run so the locked Ninja is available. Compilation also requires a local C++ toolchain. If compilation fails, BoTorch reports the failure and uses its Python implementation. Record performance separately for the two paths, and keep first compilation outside warm measurements.
 
-Then do a check of the matching lock. Run `pip check`. Do not add optional dependencies to an active shared base environment. Small examples need no BO. Raw experimental regression and refitting need matching local data, described below.
+Then do a check of the matching lock. Run `pip check`. Do not add optional dependencies to an active shared base environment. Small examples need no BO. Raw experimental regression and refitting need [local data from the matching revision](verification.en.md#data-and-historical-evidence).
 
 <a id="macos-项目文件夹中的-c-候选库"></a>
 
