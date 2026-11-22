@@ -8,7 +8,7 @@ from functools import lru_cache
 
 import numpy as np
 
-from sjtu_tpmshx.physical_models.df_surrogate._domain import FIXED_GEOMETRY_ERROR
+from sjtu_tpmshx.model_configs.model_parameters import fixed_geometry_error
 
 from ._native_values import TOPOLOGY_CODES
 from ._df_abi import DragSummary as _Summary
@@ -115,7 +115,7 @@ def pressure(topology, length, wall, *values, compressible=False, strict=False):
     try:
         length, wall = float(length), float(wall)
     except ValueError as failure:
-        raise ValueError(FIXED_GEOMETRY_ERROR) from failure
+        raise ValueError(fixed_geometry_error()) from failure
     packed = [_native_grid._scalar(value[()] if isinstance(value, np.ndarray) and value.ndim == 0 else value)
               for value in values]
     output, failure, error = _Pressure(), _FPFailure(), ct.create_string_buffer(2048)

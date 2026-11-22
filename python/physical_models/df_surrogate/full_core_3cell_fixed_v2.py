@@ -5,7 +5,7 @@ from pathlib import Path
 
 import numpy as np
 
-from sjtu_tpmshx.physical_models.df_surrogate._domain import FIXED_GEOMETRY_ERROR
+from sjtu_tpmshx.model_configs.model_parameters import fixed_geometry_error
 
 from sjtu_tpmshx.cpp_interface import _native_df
 
@@ -26,7 +26,7 @@ class FullCore3CellFixedDFV2:
         try:
             length, wall = float(L_mm), float(t_mm)
         except ValueError as failure:
-            raise ValueError(FIXED_GEOMETRY_ERROR) from failure
+            raise ValueError(fixed_geometry_error()) from failure
         k, f = _native_df.fixed(self.tpms, length, wall)
         return float(k), float(f)
 

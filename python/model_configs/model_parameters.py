@@ -163,6 +163,11 @@ def df_geometry_limits(domain, separator):
             + f'{wall[0]:g} <= t <= {wall[-1]:g} mm')
 
 
+def fixed_geometry_error():
+    domain = load_preparation_df_parameters()['domain']
+    return 'geometry is outside the fixed sCO2 CFD grid: ' + df_geometry_limits(domain, ' and ')
+
+
 def load_preparation_df_parameters():
     """Read fixed preparation data without loading a numerical implementation."""
     data = json.loads((files('sjtu_tpmshx.model_configs') / 'preparation_df_v1.json').read_text(encoding='utf-8'))
