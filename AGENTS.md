@@ -43,11 +43,13 @@ and rework through complete changes, clear decisions, and verified results.
 - Keep exploratory scripts and result reports in ignored `.cache/`.
   Do not commit or upload them. Keep production code, regression tests, and
   necessary usage and architecture documents under version control.
-- Apply the [retention rules](docs/collaboration.md#storage-retention) at task closeout.
+- Before a task writes to or cleans TM1 caches, check the primary checkout for
+  `.agents/rules/tm1-local-data.md`. If it exists, protect the files it lists. Its combined cache limit applies across worktrees.
+  Apply the [retention rules](docs/collaboration.md#storage-retention) at task closeout.
   Keep raw data, paper and GCI evidence, selected designs, and key failure samples.
   Keep complete inputs, scalar observations, seeds, constraints, methods, and verdicts for retained studies.
   Retain intermediate fields and completed checkpoints only for a recorded analysis or continuation need.
-  Remove task-owned temporary scripts, test outputs, and rebuildable caches after their checks pass.
+  After checks pass, remove this task's temporary files and rebuildable outputs before handoff.
   Archive only task-owned evidence. Never recursively copy the whole `.cache/` or unrelated archives.
   Give retained material a consumer and a condition for removal or another assessment.
   Record removals and lost recovery capabilities without changing original scientific verdicts.
