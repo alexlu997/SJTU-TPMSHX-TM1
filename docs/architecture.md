@@ -2016,7 +2016,7 @@ It is not evidence of fluid-intrinsic D-F physics. Differences can absorb pressu
 
 Selecting them explicitly now raises an error. Their code,
    tables and results stay available through the [history index](history/legacy-models.md).
-5. **Nusselt ownership.** Full runs evaluate air, water and sCO2 Nu in [fluid_nusselt](../numerics/fluid_properties.cpp#L176). The correlation formulas are in [nu_point](../numerics/fluid_properties.cpp#L551). The [Python correlation API](../python/physical_models/nu_correlations.py) calls native functions and reports range observations. The sole current sCO2 effective-parameter
+5. **Nusselt ownership.** Full runs evaluate air, water and sCO2 Nu in [fluid_nusselt_ratio](../numerics/fluid_properties.cpp#L182). The correlation formulas are in [nu_point](../numerics/fluid_properties.cpp#L551). The [Python correlation API](../python/physical_models/nu_correlations.py) calls native functions and reports range observations. The sole current sCO2 effective-parameter
    resource is `python/model_configs/sco2_effective_nu.json`, loaded by
    `sco2_effective_nu_config()` as a validated `Sco2NuConfig`. The kept
    `alpha_D/alpha_G` fields are total Ceff, applied one time to the current base
