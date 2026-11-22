@@ -7,7 +7,7 @@ import ctypes as ct
 import numpy as np
 
 from sjtu_tpmshx.data_types.case_data import CaseData
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig, bc_to_dict
+from sjtu_tpmshx.data_types.compute_config import ComputeConfig
 from sjtu_tpmshx.data_types.model_refs import ModelRef
 from sjtu_tpmshx.run_control.run_environment import capture_environment
 from . import _native_flow, _native_geometry, _native_grid, _native_preparation_case as native, preparation_host as host
@@ -276,9 +276,15 @@ def _case(result, config, case_id, side_geometry=None, pore_porosity=None, extra
     params['run_settings'] = _zone_data_si(config.to_dict())
     params['run_settings'].pop('zones')
     for index, side in enumerate('AB'):
-        port = bc_to_dict(getattr(config, 'bc_' + side), geometry.L_dom_m, geometry.H_dom_m, side='A')
-        params['cfg' + side], params['dir_' + side] = port, port['dir']
         inlet = value.sides[index]
+        native_port = inlet.inlet.port
+        cross = geometry.H_dom_m if native_port.direction < 2 else geometry.L_dom_m
+        port = host.prepared_port(getattr(config, 'bc_' + side), cross, native_port.direction,
+            (native_port.inlet_center_m, native_port.outlet_center_m),
+            (native_port.inlet_width_m, native_port.outlet_width_m))
+        if native_port.uniform_inlet:
+            port['uniform_inlet_2d'] = True
+        params['cfg' + side], params['dir_' + side] = port, port['dir']
         flow = {key: copy_array(getattr(inlet, name)) for name, key in (
             ('cross_widths', 'dx'), ('stream_widths', 'dy'), ('row_permeability', 'K_m2'), ('row_forchheimer', 'cF_per_m'))}
         seed_type = np.float64 if getattr(config, 'fluid_' + side).type == 'co2' else float

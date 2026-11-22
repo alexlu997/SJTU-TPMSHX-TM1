@@ -126,19 +126,30 @@ void positive(double value,const std::string& field) {
         throw std::invalid_argument("ComputeConfig."+field+"="+decimal(value)+" — must be finite and > 0");
 }
 
+std::size_t first_cross_axis(int direction) {
+    return direction == 0 || direction == 1 ? 1u : 0u;
+}
+
+struct FullFace { g::Scalar center, width; };
+
+std::optional<FullFace> full_face(double inlet_width, double outlet_width, g::Scalar cross,
+                                  const std::string& prefix) {
+    if ((inlet_width <= 0.) != (outlet_width <= 0.))
+        throw std::invalid_argument(prefix+".in_w and out_w must both be positive, or both be <= 0 for a full-face port");
+    if (!std::isfinite(inlet_width) || !std::isfinite(outlet_width))
+        throw std::invalid_argument("port width must be finite before full-face normalization");
+    if (inlet_width > 0.) return std::nullopt;
+    return FullFace{g::divide(cross, g::weak(2.)), cross};
+}
+
 PortInput2D checked_port(PortInput2D port,const GridInput2D& grid,const std::string& side) {
     const auto prefix="ComputeConfig.bc_"+side;
-    if ((port.inlet_width_m<=0.)!=(port.outlet_width_m<=0.))
-        throw std::invalid_argument(prefix+".in_w and out_w must both be positive, or both be <= 0 for a full-face port");
-    if (!std::isfinite(port.inlet_width_m) || !std::isfinite(port.outlet_width_m))
-        throw std::invalid_argument("port width must be finite before full-face normalization");
-    const auto axis=port.direction==0 || port.direction==1?1u:0u;
+    const auto axis=first_cross_axis(port.direction);
     const auto cross=grid_scalar(axis?grid.height_m:grid.length_m,grid.kinds[axis]);
-    if (port.inlet_width_m<=0. && port.outlet_width_m<=0.) {
-        const auto center=g::divide(cross,g::weak(2.));
-        port.inlet_center_m=port.outlet_center_m=center.value;
-        port.inlet_width_m=port.outlet_width_m=cross.value;
-        port.kinds={grid_kind(center),grid_kind(cross),grid_kind(center),grid_kind(cross)};
+    if (const auto face=full_face(port.inlet_width_m,port.outlet_width_m,cross,prefix)) {
+        port.inlet_center_m=port.outlet_center_m=face->center.value;
+        port.inlet_width_m=port.outlet_width_m=face->width.value;
+        port.kinds={grid_kind(face->center),grid_kind(face->width),grid_kind(face->center),grid_kind(face->width)};
     }
     if (port.direction<0 || port.direction>5)
         throw std::invalid_argument(prefix+" is invalid: [error] pipe_bad_dir: pipe direction "+
@@ -1969,15 +1980,12 @@ namespace {
 g::Port checked_port_3d(g::Port port,const GridInput3D& input,const std::string& side) {
     const auto prefix="ComputeConfig.bc_"+side;
     if (!port.active) throw std::invalid_argument("native typed 3D preparation requires both fluid ports");
-    const auto cross=port.direction<2?input.lengths[1]:input.lengths[0];
-    auto width0=port.ends[0].width.value_or(g::weak(0.));
-    auto width1=port.ends[1].width.value_or(g::weak(0.));
-    if ((width0.value<=0.)!=(width1.value<=0.))
-        throw std::invalid_argument(prefix+".in_w and out_w must both be positive, or both be <= 0 for a full-face port");
-    if (!std::isfinite(width0.value) || !std::isfinite(width1.value))
-        throw std::invalid_argument("port width must be finite before full-face normalization");
-    if (width0.value<=0. && width1.value<=0.) for (auto& end:port.ends) {
-        end.center=g::divide(cross,g::weak(2.));end.width=cross;
+    const auto cross=input.lengths[first_cross_axis(port.direction)];
+    const auto face=full_face(port.ends[0].width.value_or(g::weak(0.)).value,
+                              port.ends[1].width.value_or(g::weak(0.)).value,cross,prefix);
+    if (face) for (auto& end:port.ends) {
+        end.center=face->center;
+        end.width=face->width;
     }
     if (port.direction<0 || port.direction>5)
         throw std::invalid_argument(prefix+" is invalid: [error] pipe_bad_dir: pipe direction "+

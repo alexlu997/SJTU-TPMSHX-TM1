@@ -535,6 +535,22 @@ def pack_saved_resources(case, models, nu, saved, settings, keepalive):
     pack_nu(nu, settings, keepalive)
 
 
+def prepared_port(bc, cross_length, direction, centers, widths):
+    """Keep the scalar types of the recorded input when copying native port values."""
+    result = {'dir': type(bc.dir)(direction)}
+    for end, center, width in zip(('in', 'out'), centers, widths):
+        if bc.in_w > 0:
+            center_type = type(getattr(bc, end + '_ctr'))
+            width_type = type(getattr(bc, end + '_w'))
+        else:
+            width_type = type(cross_length)
+            center_type = (np.float64 if isinstance(cross_length, np.integer) else
+                           width_type if isinstance(cross_length, np.floating) else float)
+        result[end + '_ctr'] = center_type(center)
+        result[end + '_w'] = width_type(width)
+    return result
+
+
 def _kind(value):
     if isinstance(value, np.ndarray):
         return abi._Kind(value.dtype.itemsize * 8 if value.dtype.kind == 'f' else 64, 1, 2)

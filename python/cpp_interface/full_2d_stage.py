@@ -9,7 +9,7 @@ import numpy as np
 
 from sjtu_tpmshx.cpp_interface._native_result_stage import Evidence, detach_stage_fields, record
 from sjtu_tpmshx.run_control.cancellation import CancelledError
-from sjtu_tpmshx.data_types.compute_config import uses_default_thermal_recipe, validate_simple_velocity_relaxation
+from sjtu_tpmshx.data_types.compute_config import validate_simple_velocity_relaxation
 from sjtu_tpmshx.run_control.run_environment import run_environment
 from sjtu_tpmshx.cpp_interface._native_preparation_case import _Array, _Kind, _Nu, _ResultV2, _Text
 from sjtu_tpmshx.physical_models.envelope import ChokedFlowError
@@ -424,7 +424,7 @@ def saved_inputs(case, shape, *, checked_geometry=False, check_experiment=None, 
     return cfg, dict(energy_dx=case.grid['dx'], energy_dy=case.grid['dy']), experiment
 
 
-def _request(cfg, *, native_defaults=False):
+def _request(cfg):
     solver = _run_settings(cfg)['solver']
     request = _Request(3, ct.sizeof(_Request),
         _RequestV2(2, ct.sizeof(_RequestV2), _RequestV1(1, ct.sizeof(_RequestV1))))
@@ -446,13 +446,11 @@ def _request(cfg, *, native_defaults=False):
     values.have_pressure_shooting = 1
     values.pressure_shooting = cfg.get('p_in_shooting', run_environment(cfg, 'TPMSHX_P_IN_SHOOT', '1') == '1')
     request.values.envelope_mode = cfg.get('envelope_mode', 'raise').encode()
-    energy = None
-    if not native_defaults or not uses_default_thermal_recipe(vars(solver)):
-        energy = _energy_options(solver.enthalpy_algorithm, solver.enthalpy_temperature_tol_K)
-        model_h = _iteration_options(vars(solver))
-        if model_h is not None:
-            values.model_h = model_h
-        values.energy = ct.pointer(energy)
+    energy = _energy_options(solver.enthalpy_algorithm, solver.enthalpy_temperature_tol_K)
+    values.energy = ct.pointer(energy)
+    model_h = _iteration_options(vars(solver))
+    if model_h is not None:
+        values.model_h = model_h
     for name, target, kind in (
             ('ltne_enthalpy_outer', 'energy_iterations', _Size),
             ('ltne_enthalpy_nsweep', 'energy_sweeps', _Size),
@@ -535,7 +533,7 @@ def run_stage(driver, case, cfg, prepared, control, *, saved_version=1,
     if saved_version == 4:
         saved = _SavedV4(4, ct.sizeof(_SavedV4), saved, experiment)
     complete = getattr(library, 'tpmshx_run_saved_case_2d_v4', None) if saved_version == 4 else None
-    request, energy = _request(cfg, native_defaults=complete is not None and driver.execution_query is not None)
+    request, energy = _request(cfg)
     callbacks, errors = _callbacks(control)
     stage_control = _Control(case.case_id.encode(), driver.table_directory, control.native_cpu_threads(), callbacks)
     execution_query = driver.execution_query

@@ -61,8 +61,11 @@ def header():
                         ("envelope_gamma_air", envelope['gamma_air']),
                         ("roughness_nu_power", roughness['nu_gain_power']),
                         ("roughness_nu_baseline", nu['roughness_factor']),
+                        ("enthalpy_temperature_tol_K", controls['enthalpy_temperature_tol_K']),
                         ("model_h_relaxation", controls['model_h_relaxation'])):
         lines.append(f"inline constexpr double {name} = {float(value)!r};")
+    lines.append('template<class Algorithm> inline constexpr Algorithm full_enthalpy_algorithm = '
+                 f"Algorithm::{controls['enthalpy_algorithm']};")
     for key, fluids in parameters['geometry_restrictions'].items():
         for fluid in ('sco2', 'co2'):
             restricted = 'true' if fluid in fluids else 'false'

@@ -199,7 +199,7 @@ void prepare(const size_t* shape,const double* const* arrays,const size_t* sizes
     control.pressure_shooting=c.pressure_shooting;
     if(model_h)control.model_h_iterations=model_h_c_views::iteration_options(*model_h);
     control.thermal_red_black=c.red_black; control.envelope_mode=c.envelope_mode?c.envelope_mode:"raise";
-    control.enthalpy=full_enthalpy_control(2,energy ? energy_algorithm(*energy) : EnthalpyAlgorithm::temperature_sou,
+    control.enthalpy=full_enthalpy_control(2,energy ? energy_algorithm(*energy) : default_enthalpy_algorithm,
         p.sides[0].fluid==Fluid::water || p.sides[1].fluid==Fluid::water);
     control.enthalpy.max_iterations=c.thermal_iterations;
     control.enthalpy.update_tolerance=c.enthalpy_update_tolerance;

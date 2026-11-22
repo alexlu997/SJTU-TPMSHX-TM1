@@ -4,6 +4,7 @@
 #include "tpmshx/enthalpy_eos.hpp"
 #include "tpmshx/enthalpy_sweeps.hpp"
 #include "tpmshx/conservative_energy.hpp"
+#include "tpmshx/model_coefficients.hpp"
 
 #include <array>
 #include <memory>
@@ -12,6 +13,7 @@
 namespace tpmshx {
 
 enum class EnthalpyAlgorithm { temperature_sou = 2 };
+inline constexpr auto default_enthalpy_algorithm = model_coefficients::full_enthalpy_algorithm<EnthalpyAlgorithm>;
 
 struct EnthalpySideView {
     Fluid fluid;
@@ -39,11 +41,11 @@ struct EnthalpyControl {
     std::optional<double> coupled_energy_tolerance, equation_energy_tolerance;
     bool (*cancel)(void*) = nullptr;
     void* context = nullptr;
-    EnthalpyAlgorithm algorithm = EnthalpyAlgorithm::temperature_sou;
+    EnthalpyAlgorithm algorithm = default_enthalpy_algorithm;
     // K, maximum actual A/B/solid update. Full T runs require both energy
     // tolerances; direct components can omit either stop gate.
     // update_tolerance keeps its normalized enthalpy-update meaning.
-    double temperature_update_tolerance = 1e-8;
+    double temperature_update_tolerance = model_coefficients::enthalpy_temperature_tol_K;
     // Opt-in additional dimensionless h-update gate on T algorithms. This
     // does not replace the K update gate.
     bool require_enthalpy_update_on_temperature = false;
@@ -55,7 +57,7 @@ struct EnthalpyControl {
 };
 
 inline EnthalpyControl full_enthalpy_control(std::size_t dimension,
-    EnthalpyAlgorithm algorithm = EnthalpyAlgorithm::temperature_sou, bool has_water = false) {
+    EnthalpyAlgorithm algorithm = default_enthalpy_algorithm, bool has_water = false) {
     EnthalpyControl control{dimension == 2 ? (has_water ? 12000u : 5000u) : 1500u,
         5u, .2, 1e-3, .001, .001};
     control.algorithm = algorithm;

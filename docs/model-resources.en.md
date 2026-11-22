@@ -31,6 +31,8 @@ Ordinary full preparation uses the fixed CFD resource. Tests prohibit workbook r
 
 ## Current resources and research outputs
 
+The full solver reads its default energy algorithm and temperature update tolerance from `native_controls` in `model_parameters_v1.json`. Rebuild the solver after a change. Saved cases use their recorded settings.
+
 Full cases use the sCO₂ inlet limits and the fluid geometry restrictions in `model_parameters_v1.json`. To change the fixed drag model domain, update the nodes in `preparation_df_v1.json` and the corresponding CFD coefficients. Quick uses the same nodes for its default candidates. Generate the native headers again and rebuild the affected libraries.
 
 The authoritative source for fixed coefficients, bounds and reference states is
