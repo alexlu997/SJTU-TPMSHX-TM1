@@ -2,7 +2,7 @@
 
 [中文](README.md) | [English](README.en.md)
 
-这个目录对应公开的 `sjtu_tpmshx` 包，已有脚本沿用原导入名。首次配置、公开算例和启动步骤见[项目 README](../README.md#first-run)。
+这个目录对应公开的 `sjtu_tpmshx` 包，已有脚本沿用原导入名。首次配置、公开算例和启动步骤见[首次运行指南](../docs/first-run.md)。
 命令均从仓库根目录执行。完整模块边界和物理约束见[架构说明](../docs/architecture.zh-CN.md)。
 
 ## 四个计算入口
@@ -127,10 +127,10 @@ Python 保留配置、DTO、I/O、缓存、NumPy 事件处理、GUI／搜索和�
 
 ### 修改后重新构建
 
-修改 C++ 函数或编入库的模型数据后，先通过[当前环境检查](../README.md#first-run)。
+修改 C++ 函数或编入库的模型数据后，先通过[当前环境检查](../docs/verification.md)。
 从仓库根目录重新构建并发布四库，最后重启进程。
 下列命令使用基础锁；若 `.venv-path` 指向 BO 环境，换成 `engineering/requirements/` 中对应的 `bo-macos.txt` 或 `bo-windows.txt`。
-首次使用构建缓存时，先执行[首次运行](../README.md#first-run)中的 `fetch` 命令，再用同一缓存执行下列命令。
+首次使用构建缓存时，先执行[首次运行](../docs/first-run.md#examples)中的 `fetch` 命令，再用同一缓存执行下列命令。
 
 macOS:
 

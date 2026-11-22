@@ -3,9 +3,9 @@
 [中文](tools.md) | [English](tools.en.md)
 
 全部命令从仓库根目录执行，Python 使用 `.venv-path` 第一行的绝对解释器。
-先按 [README](../README.md#first-run) 检查对应锁和 `pip check`；缓存使用本工作树
+先按 [环境检查](verification.md) 检查对应锁和 `pip check`；缓存使用本工作树
 忽略的 `.cache/`。下表中的 `python` 表示该解释器，不是系统 Python。
-公开计算入口与正式 Case/Result 文件交接仍见 README；这些工具不替代主线验收。
+公开计算入口与 Case/Result 文件交接见[三阶段调用](first-run.md#stage-api)；这些工具不替代主线验收。
 
 `demo_3d_air_air`、`demo_3d_cube_air_air`、`demo_3d_cube_volume` 和
 `development.runs.tools.render_3d_styles` 使用 `prepare_case → run_case → evaluate`，使用 C++ 后端。
@@ -73,7 +73,7 @@ CFD 工况表和 nTop 表达式继续保留。Fluent 算例须在仓库外配置
 
 | 工具 | 输入 → 输出 | 运行方式与状态 |
 | --- | --- | --- |
-| [examples/](../examples/) | 公开 JSON/YAML 配置 → Case/Result/metrics | README 真实 2D/3D CLI 示例；当前支持范围内的首次运行入口 |
+| [examples/](../examples/) | 公开 JSON/YAML 配置 → Case/Result/metrics | [二维与三维命令行算例](first-run.md#examples)；当前支持范围内的首次运行入口 |
 | [development/runs/smokes/](../python/development/runs/smokes/) | 内置样例 → 控制台及脚本声明的诊断文件 | `python -m sjtu_tpmshx.development.runs.smokes.<模块名>`；GUI 无显示运行须用 `QT_QPA_PLATFORM=offscreen` |
 | [development/runs/demos/](../python/development/runs/demos/) | 内置 3D 工况 → 控制台/可视化 | `python -m sjtu_tpmshx.development.runs.demos.<模块名>`；交互图形依赖桌面，示例不扩大支持域 |
 | [CFD 工况清单](../python/development/runs/tools/asym_build_cfd_worklist_xlsx.py) → [nTop 表达式](../python/development/runs/cfd_asym/asym_ntop_expressions_html.py) | 内置几何/流体 + 可选私有 `water_DG_cfd_results_legacy.xlsx` → XLSX → HTML | 顺序运行下方两条命令；两个工具共用输出目录。旧工作簿由本地数据目录提供；缺文件时 `r1_water_ref` 页保留跳过说明，不补造锚点 |
@@ -170,7 +170,7 @@ export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
 "$PYTHON" -m examples.three_module.design_field_call .cache/examples/field
 ```
 
-PowerShell 读取 `.venv-path` 后使用 `& $tm1Python` 和相同参数，环境设置见根 README。
+PowerShell 读取 `.venv-path` 后使用 `& $tm1Python` 和相同参数，环境设置见[首次运行指南](first-run.md#examples)。
 
 - [external_design](../examples/three_module/external_design.py) 接收
   [DesignCase JSON](../examples/three_module/design_case.json)：温度 K、绝压 Pa、

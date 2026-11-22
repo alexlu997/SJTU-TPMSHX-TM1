@@ -25,7 +25,7 @@ main 仅推送声明的文档路径时使用 docs 层级。未知或空变更使
 Windows/Python 3.12 集成再运行 `tests/python/_ci_windows_312.txt` 的渲染和续算用例。
 Windows 集成使用独立作业，macOS 集成复用 `fast-0` runner。
 快测和集成 SHALL 在平台构建后分别保留报告。
-常规 Qt 测试使用 offscreen 并禁用 3D 面板；实际渲染使用独立的原生 Qt 进程，其平台要求和证据边界见根 README。
+常规 Qt 测试使用 offscreen 并禁用 3D 面板；实际渲染使用独立的原生 Qt 进程，其平台要求和证据边界见[验证指南](../../../docs/verification.md#qt-rendering)。
 CI SHALL NOT 依赖忽略的本地数据资产。
 
 快测 SHALL 固定两个 worker，BLAS/OMP/MKL/NumExpr 单线程。各作业 SHALL 输出最慢 30 项与 skip 原因，并保存
@@ -91,7 +91,7 @@ SHALL 对 envelope、前处理 API、求解 API、后处理 API 和后处理 met
 `test_type_gate.py` SHALL 在快测中检查清单中的实际代码。CI 不另加重复 mypy 步骤。
 
 ### Requirement: Parallel local gate
-本地全量门 SHALL 支持 pytest-xdist 并行：`pytest tests/python/ -q -n auto --dist loadscope`，且在启动 Python 前设置 `PYTHONHASHSEED=0` 和 BLAS/OMP 单线程。`--dist loadscope` 为本机文档默认，worker 数可按资源改为固定值；128 核服务器保留脚本中的 worksteal 策略。解释器、环境检查和完整命令集中在[根 README](../../../README.md#环境与检查)。pytest-xdist 位于共同依赖锁中。
+本地全量门 SHALL 支持 pytest-xdist 并行：`pytest tests/python/ -q -n auto --dist loadscope`，且在启动 Python 前设置 `PYTHONHASHSEED=0` 和 BLAS/OMP 单线程。`--dist loadscope` 为本机文档默认，worker 数可按资源改为固定值；128 核服务器保留脚本中的 worksteal 策略。解释器、环境检查和完整命令集中在[验证指南](../../../docs/verification.md)。pytest-xdist 位于共同依赖锁中。
 
 #### Scenario: Parallel full suite green
 - **WHEN** 在 `PYTHONHASHSEED=0` 下运行 `pytest tests/python/ -q -n auto --dist loadscope`

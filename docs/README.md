@@ -4,12 +4,14 @@
 
 C++ 数值实现按计算阶段放在根目录，Python 应用集中在 [python/](../python/)。
 读代码从[模块地图](../python/README.md)开始，运行程序从
-[首次运行说明](../README.md#first-run)开始。
+[首次运行说明](first-run.md)开始。
 
 ## 当前文档
 
 | 内容 | 入口 |
 | --- | --- |
+| 运行桌面界面、快速设计与优化 | [界面操作指南](gui-guide.md) |
+| 本地检查、CI 与验收记录 | [验证指南](verification.md) |
 | 模块职责、调用关系和物理约束 | [architecture.zh-CN.md](architecture.zh-CN.md) |
 | C++ 数值后端、原生 ABI 与构建 | [C++ 接入说明](cpp-migration.zh-CN.md) |
 | 独立 C++ 阶段 SDK 与安装后示例 | [C++ 阶段接口](native-stages.zh-CN.md) |
@@ -45,7 +47,7 @@ C++ 数值实现按计算阶段放在根目录，Python 应用集中在 [python/
 根目录 `MANIFEST.in` 选择源码发行包文件；wheel 使用 `pyproject.toml` 中显式声明的资源清单。
 `engineering/requirements/` 保存各用途的精确依赖锁；根目录 `requirements.txt` 用于独立开发环境安装。
 `[tool.mypy].files` 声明公共接口与数据契约的显式类型检查范围，执行方式见
-[环境与检查](../README.md#环境与检查)。
+[环境与检查](verification.md)。
 `AGENTS.md` 记录项目协作规则，`LICENSE` 记录许可，`data-revision.txt` 声明配套数据版本。
 原始实验/CFD 数据位于本地 `data/raw_data/`，研究脚本与结果放在忽略的 `.cache/`，
 均不随公共代码仓库提交。旧 `reports/` 输出目录也被忽略，避免旧命令重新提交结果表。

@@ -4,7 +4,7 @@
 
 [中文](README.md) | [English](README.en.md)
 
-This directory contains the public `sjtu_tpmshx` package. Existing scripts use the same import names. See the [project README](../README.en.md#first-run) for setup, public examples and startup steps.
+This directory contains the public `sjtu_tpmshx` package. Existing scripts use the same import names. See the [setup guide](../docs/first-run.en.md) for setup, public examples and startup steps.
 Run commands from the repository root. The [architecture](../docs/architecture.md) defines module boundaries and physical constraints.
 
 ## Four computation entries
@@ -133,10 +133,10 @@ See [retained Python responsibilities](../docs/architecture.md#retained-python-r
 
 ### Rebuild after a change
 
-After changing C++ functions or compiled model data, pass the [current environment checks](../README.en.md#first-run).
+After changing C++ functions or compiled model data, pass the [current environment checks](../docs/verification.en.md).
 Rebuild and publish the four libraries from the repository root. Then restart the process.
 The commands below use the base lock. If `.venv-path` selects a BO environment, use `bo-macos.txt` or `bo-windows.txt` from `engineering/requirements/`.
-For a new build cache, run `fetch` as shown in [First run](../README.en.md#first-run).
+For a new build cache, run `fetch` as shown in [First run](../docs/first-run.en.md#examples).
 Use the same cache for the commands below.
 
 macOS:
