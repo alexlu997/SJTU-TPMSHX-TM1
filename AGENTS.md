@@ -58,10 +58,10 @@ and rework through complete changes, clear decisions, and verified results.
   independent change task. Reuse them for continued work on that task.
   Read-only work does not need a new worktree. Keep one writer per file and
   one heavy numerical job per machine.
-- Before you start a change task or a heavy numerical job, read the task status
-  files in `.cache/active-tasks/` of the primary checkout. Keep one status file
-  for your task there while the task is active or blocked. Remove it at task closeout.
-  Follow the [task status rules](docs/collaboration.md#task-status).
+- Before you start a change task or a heavy numerical job, read the task status files.
+  They are in `.cache/active-tasks/` of the primary checkout.
+  Keep one status file for your task there until task closeout.
+  A status file is not a cache write. Follow the [task status rules](docs/collaboration.md#task-status).
   Do not record task status in committed files such as `STATUS.md`.
 - For project execution, use the absolute interpreter on the first line of
   `.venv-path` for Python, pip, smoke, and pytest commands.
@@ -124,16 +124,17 @@ and rework through complete changes, clear decisions, and verified results.
   Complete necessary updates to these items in the same change.
 - A change to behavior, interfaces, defaults, units, limits, commands, or file formats is a contract change.
   It requires a check of related current text, including Markdown, TXT, and other relevant text files.
-- Record related changes in the PR description. Update the record when new effects are found.
+- Record related changes in the PR description. Update the record when you find new effects.
   If the change alters no contract, write one sentence that says so. Do not list unchanged items.
   For a contract change, record the affected contracts, updates, checks, and open items.
-  Name the check that covers a consumer. Give a reason for an unchanged consumer only when
+  Name the check that covers a consumer. A check covers a consumer only when it compares
+  that consumer with the changed contract. Give a reason for an unchanged consumer only when
   the reason is not obvious or no check covers that consumer.
   Use one sentence for consumers that share a reason.
 - Resolve conflicts between code and text against confirmed requirements, public contracts, and validation evidence.
   Do not change documentation merely to accept an implementation defect.
   Ask the user when a physical or acceptance decision remains unresolved.
-- For a replacement, define its retirement scope before implementation.
+- For a replacement or a removal of code, define its retirement scope before implementation.
   Remove the replaced implementation and its exclusive files in the same PR.
   Follow the [retirement workflow](docs/collaboration.md#complete-code-retirement).
 - Run existing tests relevant to the changed files. Add tests for meaningful
@@ -150,7 +151,10 @@ and rework through complete changes, clear decisions, and verified results.
   without the author's chat history. Use at most three review rounds for the task.
   After three rounds, report unresolved substantive findings to the user with
   evidence and options.
-- Do not deliver if the review or required evidence is incomplete, or if a
+- A PR that only corrects spelling, links, or formatting in documents needs no
+  independent review. It must not change the meaning of a rule, command, or contract.
+  `engineering/scripts/check_docs.py` must pass. State this reason in the PR.
+- Do not deliver if the required review or required evidence is incomplete, or if a
   blocking finding is unresolved.
 - Follow the [review and delivery workflow](docs/collaboration.md#synchronize-and-review)
   for review coverage, synchronization with `origin/main`, CI, merge, and the
