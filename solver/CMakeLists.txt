@@ -165,7 +165,7 @@ add_custom_target(tpmshx_state_build_identity
     VERBATIM)
 add_library(tpmshx_run_state STATIC "${TPMSHX_ROOT}/solver/full_run_state.cpp")
 add_dependencies(tpmshx_run_state tpmshx_state_build_identity)
-target_include_directories(tpmshx_run_state PUBLIC "${TPMSHX_ROOT}/include"
+target_include_directories(tpmshx_run_state PUBLIC "${TPMSHX_ROOT}/include" "${TPMSHX_MODEL_INCLUDE_DIR}"
     PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 add_library(tpmshx_full_3d STATIC "${TPMSHX_ROOT}/solver/full_3d.cpp"
     "${TPMSHX_ROOT}/solver/true_h_preparation.cpp")

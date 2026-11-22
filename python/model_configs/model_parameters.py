@@ -28,7 +28,7 @@ _SCALARS = {
     'geometry': ('area_correction',),
     'quick_design': ('k_s', 'tol'),
     'co2_application': ('pressure_multiplier', 'nu_multiplier'),
-    'native_controls': ('inlet_pressure_relative_tolerance', 'model_h_relaxation'),
+    'native_controls': ('inlet_pressure_relative_tolerance', 'model_h_relaxation', 'enthalpy_temperature_tol_K'),
 }
 _VECTORS = {
     'air': {'cp_coefficients': 3, 'sutherland': 3, 'conductivity': 3,
@@ -71,6 +71,8 @@ def load_model_parameters():
             _number(value, f'{section}.{name}')
             if value <= 0.:
                 raise ValueError(f'{section}.{name} must be positive')
+    if data['native_controls'].get('enthalpy_algorithm') != 'temperature_sou':
+        raise ValueError('the full solver requires a supported default energy algorithm')
     for section, entries in _VECTORS.items():
         for name, size in entries.items():
             value = data[section].get(name)

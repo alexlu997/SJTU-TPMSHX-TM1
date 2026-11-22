@@ -76,7 +76,7 @@ import warnings
 from dataclasses import asdict, dataclass, field
 from math import isfinite
 from pathlib import Path
-from typing import Any, Dict, Final, Literal, Optional, Tuple, Union
+from typing import Any, Dict, Literal, Optional, Tuple, Union
 
 from sjtu_tpmshx.model_configs.model_parameters import load_model_parameters
 
@@ -92,11 +92,6 @@ SCO2_T_RANGE_K = tuple(_MODEL['sco2']['temperature_range_K'])
 _GEOMETRY_RESTRICTIONS = _MODEL['geometry_restrictions']
 
 
-# A null recipe in the complete native stage has these values.
-_DEFAULT_ENTHALPY_ALGORITHM: Final = 'temperature_sou'
-_DEFAULT_ENTHALPY_TOLERANCE_K = 1e-8
-
-
 def validate_enthalpy_algorithm(algorithm, temperature_tolerance):
     """Validate the persisted conservative energy recipe and its K update gate."""
     if algorithm not in ('legacy_h_fou', 'temperature_fou', 'temperature_sou'):
@@ -105,16 +100,6 @@ def validate_enthalpy_algorithm(algorithm, temperature_tolerance):
             or not isinstance(temperature_tolerance, (int, float))
             or not isfinite(temperature_tolerance) or temperature_tolerance <= 0.):
         raise ValueError('enthalpy_temperature_tol_K must be finite and positive')
-
-
-def uses_default_thermal_recipe(settings):
-    """Check for the standard T-SOU recipe with no model-h iteration overrides."""
-    algorithm = settings.get('enthalpy_algorithm', _DEFAULT_ENTHALPY_ALGORITHM)
-    tolerance = settings.get('enthalpy_temperature_tol_K', _DEFAULT_ENTHALPY_TOLERANCE_K)
-    return (type(algorithm) is str and algorithm == _DEFAULT_ENTHALPY_ALGORITHM
-            and type(tolerance) is float and tolerance == _DEFAULT_ENTHALPY_TOLERANCE_K
-            and all(settings.get(name) is None for name in (
-                'model_h_max_iterations', 'model_h_temperature_tol_K', 'model_h_q_relative_tol')))
 
 
 def validate_simple_velocity_relaxation(value):
@@ -225,8 +210,8 @@ class SolverConfig:
     mass_local_tol: Optional[float] = None
     mass_global_tol: Optional[float] = None
     # Historical IDs remain readable; the selected native library validates execution.
-    enthalpy_algorithm: Literal['legacy_h_fou', 'temperature_fou', 'temperature_sou'] = _DEFAULT_ENTHALPY_ALGORITHM
-    enthalpy_temperature_tol_K: float = _DEFAULT_ENTHALPY_TOLERANCE_K
+    enthalpy_algorithm: Literal['legacy_h_fou', 'temperature_fou', 'temperature_sou'] = _MODEL['native_controls']['enthalpy_algorithm']
+    enthalpy_temperature_tol_K: float = _MODEL['native_controls']['enthalpy_temperature_tol_K']
     # Optional integral h(T) controls; None keeps the actual route defaults.
     model_h_max_iterations: Optional[int] = None
     model_h_temperature_tol_K: Optional[float] = None
@@ -287,25 +272,14 @@ def bc_to_dict(bc: 'PartialBCConfig', L_dom: float, H_dom: float,
                *, side: str = 'A', with_z: bool = False):
     """Convert a :class:`PartialBCConfig` into the legacy solver BC dict.
 
-    Single source for the 2D + 3D conversions (was three near-duplicate
-    ``_bc_cfg_to_dict_*`` functions). The side-B asymmetry is INTENTIONAL —
-    it reproduces the legacy ValueError fallback in ``_parse_inputs``:
+    Offline validation and GUI preflight use this preview. Prepared cases
+    store the ports returned by the native preparation library.
 
-    * ``side='A'`` — a degenerate BC (``in_w<=0`` or ``out_w<=0``) falls back
-      to a full-face inlet/outlet spanning the cross-stream axis. Used by the
-      2D path (both sides) and 3D side A.
-    * ``side='B'`` — a *fully* degenerate BC (``in_w<=0`` AND ``out_w<=0``)
-      returns ``None``, which the 3D backend reads as "no B fluid —
-      single-fluid A-alone run" (it skips the B SIMPLE build). A
-      partially-degenerate BC returns the raw partial dict (no full-face
-      fallback). 3D side B only.
-
-      NOTE: the ComputeConfig→3D boundary (``preprocess.three_d.preparation.prepare_case``)
-      rebuilds a full-face B from a None here, because via ComputeConfig
-      fluid_B is always a configured 2nd fluid (a None there is just the
-      ``PartialBCConfig`` default widths, meaning full-face cross-flow).
-      Internal native validation uses ``fluid_B_cfg=None`` to check inactive B
-      with air or water on A. Single-A sCO2 execution is retired.
+    * ``side='A'`` expands a nonpositive width to a full face.
+      This applies to both active fluids in a typed configuration.
+    * ``side='B'`` preserves the historical single-fluid sentinel. Two
+      nonpositive widths return ``None``. Mixed widths remain available
+      to the GUI for validation.
     * ``with_z=True`` — append the ``in_z_*``/``out_z_*`` overlay when the cfg
       captured 3D z-partial fields (``None`` = full face along z).
     """
@@ -859,11 +833,18 @@ def _validate_static_settings(values, is_3d, *, _native_preparation=False, port_
             raise ValueError(
                 f"ComputeConfig.bc_{side}.in_w and out_w must both be "
                 "positive, or both be <= 0 for a full-face port")
-        pipe = bc_to_dict(
-            bc, ge.L_dom_m, ge.H_dom_m, side='A', with_z=is_3d())
-        if (_native_preparation and type(bc.dir) is int and 0 <= bc.dir < (6 if is_3d() else 4)
-                and all(type(value) in (int, float, bool) for value in pipe.values())):
-            continue
+        if _native_preparation and type(bc.dir) is int and 0 <= bc.dir < (6 if is_3d() else 4):
+            # The native stage validates plain numbers and resolves full faces.
+            fields: tuple = (bc.in_ctr, bc.in_w, bc.out_ctr, bc.out_w) if bc.in_w > 0 else (
+                ge.H_dom_m if bc.dir < 2 else ge.L_dom_m,)
+            if is_3d():
+                for pair in ((bc.in_z_ctr, bc.in_z_w), (bc.out_z_ctr, bc.out_z_w)):
+                    if any(v is not None for v in pair):
+                        fields += pair
+            if (all(type(v) in (int, float, bool) for v in fields)
+                    and isfinite(bc.in_w) and isfinite(bc.out_w)):
+                continue
+        pipe = bc_to_dict(bc, ge.L_dom_m, ge.H_dom_m, side='A', with_z=is_3d())
         if port_windows_fit is not None and type(bc.dir) is int and 0 <= bc.dir < 4 and not is_3d():
             cross = ge.H_dom_m if bc.dir < 2 else ge.L_dom_m
             window = (cross, pipe['in_ctr'], pipe['in_w'], pipe['out_ctr'], pipe['out_w'])
@@ -967,6 +948,10 @@ def _decode_canonical_settings(cls, data, *, prepared_grid):
     fB_d = data.get('fluid_B', {}) or {}
     ge_d = data.get('geometry', {}) or {}
     so_d = dict(data.get('solver', {}) or {})
+    if prepared_grid:
+        # Saved grids that predate these fields keep their original recipe.
+        so_d.setdefault('enthalpy_algorithm', 'temperature_sou')
+        so_d.setdefault('enthalpy_temperature_tol_K', 1e-8)
     reject_retired_research_options(so_d)
     # Old case files may contain retired controls. Report their
     # removal once at this import boundary, never in runtime APIs.

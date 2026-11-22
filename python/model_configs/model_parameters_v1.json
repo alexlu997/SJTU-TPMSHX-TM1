@@ -204,6 +204,8 @@
   },
   "native_controls": {
     "inlet_pressure_relative_tolerance": 0.0001,
-    "model_h_relaxation": 0.2
+    "model_h_relaxation": 0.2,
+    "enthalpy_algorithm": "temperature_sou",
+    "enthalpy_temperature_tol_K": 1e-8
   }
 }

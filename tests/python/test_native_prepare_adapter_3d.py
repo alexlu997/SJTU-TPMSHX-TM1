@@ -211,7 +211,7 @@ def test_host_exception_keeps_identity_and_releases_owner(monkeypatch):
     from sjtu_tpmshx.run_control.run_warnings import warning_scope, current_warnings
     original = binding._Bindings
     released = []
-    failure = ValueError('host port object failed')
+    failure = ValueError('host environment capture failed')
 
     def bindings(path):
         value = original(path, volume=True)
@@ -226,7 +226,7 @@ def test_host_exception_keeps_identity_and_releases_owner(monkeypatch):
         raise failure
 
     monkeypatch.setattr(binding, '_volume_bindings', bindings)
-    monkeypatch.setattr(preparation, 'bc_to_dict', fail)
+    monkeypatch.setattr(preparation, 'capture_environment', fail)
     parent = {('parent',): 'parent'}
     with warning_scope(parent):
         with pytest.raises(ValueError) as caught:

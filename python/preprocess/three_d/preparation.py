@@ -8,7 +8,7 @@ import numpy as np
 
 from sjtu_tpmshx.cpp_interface import preparation_host as host
 from sjtu_tpmshx.data_types.case_data import CaseData
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig, bc_to_dict
+from sjtu_tpmshx.data_types.compute_config import ComputeConfig
 from sjtu_tpmshx.data_types.model_refs import ModelRef
 from sjtu_tpmshx.run_control.run_environment import capture_environment
 from sjtu_tpmshx.cpp_interface._native_values import (
@@ -141,7 +141,6 @@ def _parameters(config, uniform, context):
         L_cell_m=geometry.L_cell_mm * 1e-3, t_wall_m=geometry.t_wall_mm * 1e-3,
         k_s=geometry.k_s_W_mK, tpms_type=geometry.tpms, eps=uniform['epsilon'], D_h=uniform['D_h'],
         delta_levelset=float(geometry.delta_levelset),
-        fluid_A_cfg=context['ports']['A'], fluid_B_cfg=context['ports']['B'],
         port_wall_refine=config.flags.port_wall_refine, variable_rho_cp=bool(config.flags.variable_rho_cp),
         max_iter_simple=solver.max_iter_simple, simple_velocity_relaxation=solver.simple_velocity_relaxation,
         max_outer_ltne=solver.max_outer_ltne, outer_tol_K=solver.outer_tol_K,
@@ -203,6 +202,16 @@ def _case(result, config, case_id, context):
     lengths = params['L'], params['H'], params['Lz']
     for index, side in enumerate('AB'):
         current = value.sides[index]
+        native_port = value.input.sides[index].port
+        bc = getattr(config, 'bc_' + side)
+        port = host.prepared_port(bc, lengths[current.axes[0]], native_port.direction,
+            (row[0].value for row in native_port.values), (row[1].value for row in native_port.values))
+        for row, end in enumerate(('in', 'out')):
+            for column, suffix in ((2, '_z_ctr'), (3, '_z_w')):
+                if native_port.present[row][column]:
+                    key = end + suffix
+                    port[key] = type(getattr(bc, key))(native_port.values[row][column].value)
+        params['fluid_' + side + '_cfg'] = port
         axes[side] = _axis_data(current.axes, widths, lengths)
         cross_shape = axes[side]['N_cross1'], axes[side]['N_cross2']
         openings[side] = {end: _array(getattr(current, end + '_opening'), cross_shape)
@@ -258,8 +267,7 @@ def _execute(config, action, *, targets=None, case_id=None, start_observations=N
                 geometry_check(config.geometry.tpms, config.geometry.L_cell_mm,
                                config.geometry.t_wall_mm, config.geometry.k_s_W_mK)
         elif stage == 11:
-            context['ports'] = {name: bc_to_dict(getattr(config, 'bc_' + name),
-                config.geometry.L_dom_m, config.geometry.H_dom_m, side='A', with_z=True) for name in 'AB'}
+            return  # Older preparation libraries also issue this port notification.
         elif stage == 12:
             for name in 'AB':
                 host.validate_fluid_type(getattr(config, 'fluid_' + name).type, name)

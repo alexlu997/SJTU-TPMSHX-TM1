@@ -220,7 +220,7 @@ The full solver uses `tpmshx_stage_borrow_mesh_v1` to obtain checked cell widths
 
 The solver and preparation libraries use the same physical limit for 2D port windows. For saved double-precision settings, `tpmshx_stage_port_windows_fit_2d_v1` checks both windows on the cross axis. The host supplies detailed errors and checks other input types and earlier libraries.
 For a fresh run, Python calls `tpmshx_run_saved_case_2d_v4` when the library provides it. C++ owns the run through result transfer. Checkpoints and older libraries use the step interface.
-For both dimensions, a null energy recipe selects T-SOU with a temperature update tolerance of 1e-8 K. The host sends explicit overrides to the solver.
+For both dimensions, a null energy recipe uses the defaults from `native_controls` in `model_parameters_v1.json`. The current defaults are T-SOU and 1e-8 K. Python sends the algorithm and tolerance recorded in each prepared case, including values equal to these defaults.
 Saved v4 adds the original experimental model settings to the v3 fields.
 Create and restore use the same native applicability rules as preparation.
 They validate the original record first. They then check its campaign domain against the prepared model, nominal cell geometry and resolved inlet speeds.
@@ -314,6 +314,7 @@ The host resolves configuration and environment limits before the call; the libr
 
 Both sides require active ports. The interface supports all six flow directions,
 full faces, partial ports and optional second transverse windows.
+For both dimensions, Python saves the resolved ports from native preparation with the opening masks. The configuration snapshot retains the inputs for editing.
 Port values retain their scalar tags. Uniform and `port_wall_refine` grids use the existing physical grid rules.
 Fields have physical `(x,y,z)` shape and C order. Opening masks use physical `(cross1,cross2)` order.
 Each side records its axis permutation and reverse flag without reversing the physical widths.

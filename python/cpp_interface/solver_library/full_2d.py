@@ -3,7 +3,7 @@ import ctypes as ct
 from ._full_2d_abi import _Callbacks, _Config, _EnergyControl, _EnergyEvidence, _Result, _Side
 from functools import partial
 import numpy as np
-from sjtu_tpmshx.data_types.compute_config import validate_simple_velocity_relaxation
+from sjtu_tpmshx.data_types.compute_config import SolverConfig, validate_simple_velocity_relaxation
 from sjtu_tpmshx.run_control.module_ports import RunControl
 from sjtu_tpmshx.run_control.run_environment import run_environment
 from sjtu_tpmshx.physical_models.envelope import ChokedFlowError
@@ -61,7 +61,8 @@ class NativeFull2DDriver(StageDriver):
                           resume_state=resume_state, checkpoint=checkpoint, checkpoint_due=checkpoint_due)
 
     def solve(self, shape, arrays, config, control=RunControl(), *,
-              energy_algorithm='temperature_sou', temperature_update_tolerance=1e-8, energy_control=None,
+              energy_algorithm=SolverConfig.enthalpy_algorithm,
+              temperature_update_tolerance=SolverConfig.enthalpy_temperature_tol_K, energy_control=None,
               model_h_options=None, resume_state=None, checkpoint=None, checkpoint_due=None):
         """Synchronous C call; detach all views before releasing their sole owner."""
         if len(shape) != 2 or len(arrays) != 29:
