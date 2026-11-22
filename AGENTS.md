@@ -45,15 +45,9 @@ and rework through complete changes, clear decisions, and verified results.
   necessary usage and architecture documents under version control.
 - Before a task writes to or cleans TM1 caches, check the primary checkout for
   `.agents/rules/tm1-local-data.md`. If it exists, protect the files it lists. Its combined cache limit applies across worktrees.
-  Apply the [retention rules](docs/collaboration.md#storage-retention) at task closeout.
   Keep raw data, paper and GCI evidence, selected designs, and key failure samples.
-  Keep complete inputs, scalar observations, seeds, constraints, methods, and verdicts for retained studies.
-  Retain intermediate fields and completed checkpoints only for a recorded analysis or continuation need.
-  After checks pass, remove this task's temporary files and rebuildable outputs before handoff.
-  Archive only task-owned evidence. Never recursively copy the whole `.cache/` or unrelated archives.
-  Give retained material a consumer and a condition for removal or another assessment.
-  Record removals and lost recovery capabilities without changing original scientific verdicts.
-  Report added, removed, and retained storage; distinguish directory allocation from volume free space.
+  Follow the [storage retention rules](docs/collaboration.md#storage-retention)
+  before the write or cleanup and at task closeout.
 
 ## 3. Work setup and environment
 
@@ -64,6 +58,11 @@ and rework through complete changes, clear decisions, and verified results.
   independent change task. Reuse them for continued work on that task.
   Read-only work does not need a new worktree. Keep one writer per file and
   one heavy numerical job per machine.
+- Before you start a change task or a heavy numerical job, read the task status files.
+  They are in `.cache/active-tasks/` of the primary checkout.
+  Keep one status file for your task there until task closeout.
+  A status file is not a cache write. Follow the [task status rules](docs/collaboration.md#task-status).
+  Do not record task status in committed files such as `STATUS.md`.
 - For project execution, use the absolute interpreter on the first line of
   `.venv-path` for Python, pip, smoke, and pytest commands.
   If this file, interpreter, or a required dependency is missing, stop dependent work.
@@ -80,9 +79,7 @@ and rework through complete changes, clear decisions, and verified results.
   from `engineering/requirements/base.txt`, not `requirements.txt`, in a shared base environment.
   Use the applicable separate lock for other environment purposes.
   Do not install this project into a shared environment in editable mode.
-- Keep one accepted environment per active role: base, BO, and minimal postprocessing.
-  A packaging or historical environment needs a recorded consumer and removal condition.
-  After a verified replacement and zero remaining consumers, retire its predecessor through the archive and removal checks.
+  Keep one accepted environment per active role: base, BO, and minimal postprocessing.
 - Before the first environment-dependent work in a task, run
   `python -m sjtu_tpmshx.development.runs.tools.check_locked_environment` with the applicable lock.
   Then run `python -m pip check`. The lock checker ignores the pip version.
@@ -95,11 +92,8 @@ and rework through complete changes, clear decisions, and verified results.
   relevant recovery checks pass.
   Other pause conditions stay in force.
 - The user authorizes automatic recovery of environments needed for an agreed task.
-  Explain the impact and recovery method before changes. Do not request approval again.
-  Use the existing applicable lock. Keep the original environment and pointer when available.
-  Create replacements at their final locations outside task worktrees.
-  A dependency version change requires a scoped change to `pyproject.toml` and
-  the applicable lock. Validate and prewarm its replacement environment before use.
+  Do not request approval again. Follow the
+  [recovery workflow](docs/collaboration.md#environment-recovery) for each recovery.
 - Do not rebuild a shared environment while another project Python process uses it.
   A change to a shared environment affects every worktree that uses it.
 - Server launch scripts can synchronize code and data.
@@ -124,24 +118,25 @@ and rework through complete changes, clear decisions, and verified results.
 - Reuse an existing rule when its meaning and required behavior match.
   Keep small duplication when sharing would combine different contracts.
   Preserve independent test references and physical checks.
-- Before implementation, record affected consumers and related changes in the existing task handoff.
-  Include relevant tests, fixtures, configuration, saved files, exports, packaging, examples, documentation, comments, and docstrings.
+- Before implementation, trace the consumers that the change can reach along the actual call chain.
+  Include callers, tests, fixtures, configuration, saved files, exports, packaging, examples,
+  GUI and CLI labels, documentation, comments, and docstrings.
   Complete necessary updates to these items in the same change.
-  Update this record when new effects are found.
-- Changes to behavior, interfaces, defaults, units, limits, commands, or file formats require a check of related current text.
-  Include Markdown, TXT, and other relevant text files.
-  Record checked items that need no update, with a short reason.
+- A change to behavior, interfaces, defaults, units, limits, commands, or file formats is a contract change.
+  It requires a check of related current text, including Markdown, TXT, and other relevant text files.
+- Record related changes in the PR description. Update the record when you find new effects.
+  If the change alters no contract, write one sentence that says so. Do not list unchanged items.
+  For a contract change, record the affected contracts, updates, checks, and open items.
+  Name the check that covers a consumer. A check covers a consumer only when it compares
+  that consumer with the changed contract. Give a reason for an unchanged consumer only when
+  the reason is not obvious or no check covers that consumer.
+  Use one sentence for consumers that share a reason.
 - Resolve conflicts between code and text against confirmed requirements, public contracts, and validation evidence.
   Do not change documentation merely to accept an implementation defect.
   Ask the user when a physical or acceptance decision remains unresolved.
-- For a replacement, define its retirement scope before implementation.
+- For a replacement or a removal of code, define its retirement scope before implementation.
+  Remove the replaced implementation and its exclusive files in the same PR.
   Follow the [retirement workflow](docs/collaboration.md#complete-code-retirement).
-  Migrate callers and regression coverage. Remove the replaced implementation
-  and its exclusive files in the same PR. Use Git history for previous code.
-- Check actual consumers, entry points, packaging, and replacement evidence before removal.
-  Names such as `legacy` or `old` do not prove that code is unused.
-  For each retained item, record its consumer, reason, and removal condition.
-  Keep the retirement state incomplete until its required removals and checks pass.
 - Run existing tests relevant to the changed files. Add tests for meaningful
   behavior changes or demonstrated failures. Run broader numerical validation only when
   solver, closure, or pipeline behavior changes.
@@ -151,28 +146,24 @@ and rework through complete changes, clear decisions, and verified results.
 
 ## 5. PR, merge, and handoff
 
-- Follow the [review and delivery workflow](docs/collaboration.md#synchronize-and-review).
-  Complete the relevant checks. Commit the task changes.
-  For each implementation task, start one independent reviewer without a user reminder.
-  Use the same model in a new context without the author's chat history.
-  The reviewer checks connected consumers, maintainability, correctness, and complete retirement.
-  The reviewer reads only; the owner makes changes.
-  Review the latest task commit. Use at most three review rounds for the task.
-  Report unresolved substantive disputes to the user with evidence and options.
-  Do not deliver with unavailable review, missing required evidence, or unresolved blocking findings.
-  Keep the review result current after each revision.
-- Push the task branch. Open or update the PR with
-  its scope, evidence, and unresolved acceptance conditions.
-- Wait for required CI on the latest PR commit. Fix related failures within
-  the task authority. Keep the branch current with `origin/main` as the workflow
-  requires. Do not force-push or bypass repository protection.
-- When the required review, checks, and protection conditions pass, merge the PR.
-  Confirm the remote merge commit. Wait for required CI on the resulting `main` commit.
-- After required CI passes, fast-forward the clean primary checkout to that commit.
-  Update the handoff record. Keep PR CI, merged-main CI, desktop acceptance,
-  and experimental validation as separate results.
+- Before delivery of an implementation task, start one independent review of the
+  latest task commit without a user reminder. Use the same model in a new context
+  without the author's chat history. Use at most three review rounds for the task.
+  After three rounds, report unresolved substantive findings to the user with
+  evidence and options.
+- A PR that only corrects spelling, links, or formatting in documents needs no
+  independent review. It must not change the meaning of a rule, command, or contract.
+  `engineering/scripts/check_docs.py` must pass. State this reason in the PR.
+- Do not deliver if the required review or required evidence is incomplete, or if a
+  blocking finding is unresolved.
+- Follow the [review and delivery workflow](docs/collaboration.md#synchronize-and-review)
+  for review coverage, synchronization with `origin/main`, CI, merge, and the
+  primary checkout update. That workflow names who does each step.
+  Wait for required CI on the latest PR commit and on the resulting `main` commit.
+- Keep PR CI, merged-main CI, desktop acceptance, and experimental validation
+  as separate results.
 - Before worktree or runtime removal, keep ignored evidence outside the removal set.
-  Confirm its recovery. Follow the workflow's archive and removal checks.
+  Follow the [archive and removal checks](docs/collaboration.md#archive-and-remove).
 - Report important changes, failures, and decisions that need the user.
   Keep the final report short: result, key checks, and unfinished work.
   Link detailed evidence. Explain it further when the user asks.
