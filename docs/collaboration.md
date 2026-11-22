@@ -250,6 +250,12 @@ optimization chain. Current multi-condition BO remains a separate capability.
 
 Use these rules at task closeout and during an authorized storage cleanup.
 The `.cache/` name does not make research evidence disposable.
+The first entry in `git worktree list --porcelain` identifies the primary checkout.
+Resolve relative paths in `.agents/rules/tm1-local-data.md` from that checkout.
+If the machine has a cache limit, measure the combined allocation before writing to or cleaning TM1 caches.
+Include `.cache/` in the primary checkout and its linked worktrees. Include other TM1 caches covered by the limit.
+Count each hard-linked file once across those locations. Measure symbolic links without following them.
+Measure the same locations again after cleanup.
 
 1. Keep raw data, active paper and GCI evidence, selected designs, and key failure samples.
    Keep their inputs, methods, final fields, metrics, and validity limits.
@@ -259,7 +265,9 @@ The `.cache/` name does not make research evidence disposable.
    Completed software tests and performance studies do not require indefinite continuation storage.
    Record which fields or checkpoints are removed and which recovery operations are no longer available.
    Preserve unfinished work until its owner decides its status.
-3. Remove task-owned temporary scripts, test outputs, build products, and rebuildable caches after verification.
+3. Use the task's worktree for temporary output when you can select its location.
+   After verification, remove this task's temporary scripts, test outputs, build products, and rebuildable caches before handoff.
+   Keep files that another task, the application, or retained research still needs.
    Keep research scripts needed to interpret or reproduce retained evidence.
    Archive only the necessary files from that task. Never archive the whole `.cache/` or another task's archive recursively.
    Use Git for committed source history. Compress large records without changing their contents.
@@ -274,6 +282,7 @@ The `.cache/` name does not make research evidence disposable.
    Check retained results and representative recovery paths before removing source material.
 6. Record retained material, its consumer, and its removal or review condition in the task handoff.
    Report added, removed, and remaining directory allocation and the measured change in volume free space.
+   If the total still exceeds the machine limit, record the excess and the next action in the same handoff.
    Automatic deletion is limited to named rebuildable caches and task-owned temporary files.
    Research deletion requires an approved selection; age or directory name alone is not a selection rule.
 
