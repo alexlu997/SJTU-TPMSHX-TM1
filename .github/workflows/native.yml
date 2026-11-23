@@ -92,7 +92,7 @@ jobs:
         shell: bash
         run: |
           echo "image=$ImageVersion" >> "$GITHUB_OUTPUT"
-          inputs=$("$CI_PYTHON" engineering/scripts/build_coolprop.py cache-key --host ${{ runner.os == 'Windows' && 'windows-x64' || 'macos-arm64' }})
+          inputs=$("$CI_PYTHON" engineering/scripts/build_coolprop.py cache-key --host ${{ runner.os == 'Windows' && 'windows-x64' || 'macos-arm64' }} | tr -d '\r')
           echo "coolprop_inputs=$inputs" >> "$GITHUB_OUTPUT"
       - name: Cache locked CoolProp static library
         id: coolprop
@@ -446,6 +446,7 @@ jobs:
               shutil.copy2(Path('.cache/native-deps/build') / (folder + '-' + host) / name, target / name)
           PY
       - name: Require explicit native libraries for thermal evidence tests
+        id: native-env
         shell: bash
         run: |
           "$CI_PYTHON" - <<'PY'
@@ -476,6 +477,7 @@ jobs:
           install-mesa3d-offscreen: 'false'
           pyvista: 'false'
       - name: Run fast test subset
+        id: fast
         if: matrix.part != 'integration'
         shell: bash
         run: >-
@@ -489,7 +491,7 @@ jobs:
           --timeout=600 --timeout-method=thread
           --durations=30 --junitxml=.cache/ci/fast/fast.xml
       - name: Save fast test outcomes and timings
-        if: always() && matrix.part != 'integration'
+        if: always() && matrix.part != 'integration' && steps.fast.outcome != 'skipped'
         uses: actions/upload-artifact@v7
         with:
           name: test-reports-${{ inputs.os }}-py${{ matrix.python }}-${{ matrix.part }}
@@ -499,7 +501,7 @@ jobs:
           retention-days: 7
       - name: Run real public module integration
         id: integration
-        if: ${{ (success() && matrix.part == 'integration') || (!cancelled() && runner.os == 'macOS' && matrix.part == 'fast-0') }}
+        if: ${{ (success() && matrix.part == 'integration') || (!cancelled() && runner.os == 'macOS' && matrix.part == 'fast-0' && steps.native-env.outcome == 'success') }}
         shell: bash
         run: >-
           "$CI_PYTHON" -m pytest tests/python/integration_tm1 -q -ra
@@ -522,7 +524,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
       - name: Save integration outcomes and timings
-        if: always() && (matrix.part == 'integration' || (runner.os == 'macOS' && matrix.part == 'fast-0'))
+        if: always() && steps.integration.outcome != 'skipped'
         uses: actions/upload-artifact@v7
         with:
           name: test-reports-${{ inputs.os }}-py${{ matrix.python }}-integration
