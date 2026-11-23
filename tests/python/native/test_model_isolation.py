@@ -44,8 +44,7 @@ def test_cold_model_images_keep_serial_results_and_physical_gates(tmp_path, mode
     from sjtu_tpmshx.preprocess.api import prepare_case
     from sjtu_tpmshx.file_io.case_io import save_case
     from sjtu_tpmshx.file_io.hdf5_data import read_record
-    from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
-    from sjtu_tpmshx.cpp_interface.solver_library.full_3d_capture import capture_result
+    from sjtu_tpmshx.cpp_interface.full_3d_stage import capture_result
     from tests.python.native.full_result_audit import physical_gates
 
     python = isolation.configured_python()
@@ -71,7 +70,7 @@ def test_cold_model_images_keep_serial_results_and_physical_gates(tmp_path, mode
         reports.append(_run_child(python, tmp_path / f'{index}-{mode}', plan, environment))
 
     references = {value['kind']: value for report in reports[:2] for value in report['results'].values()}
-    cfg, prepared = build_execution_inputs(case)
+    cfg, prepared = case.parameters, case.parameters['prepared']
     expected_raw = read_record(references['solver']['raw'], isolation.RawRecord, isolation.RAW_KIND).data
     for report in reports:
         for value in report['results'].values():

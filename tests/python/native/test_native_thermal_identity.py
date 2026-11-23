@@ -47,30 +47,31 @@ def test_model_h_zero_budget_reports_loaded_identity(dimension, red_black):
         _model_h_algorithm(driver.library, 0)
 
 
+def stage_control():
+    from sjtu_tpmshx.run_control.module_ports import RunControl
+    from tests.python.native.stage_interception import TABLES
+    return RunControl(backend='cpp', native_library=str(library_path('TPMSHX_NATIVE_SOLVER_LIBRARY')),
+                      native_table_directory=str(TABLES))
+
+
 @pytest.mark.parametrize('mode', ['model_h', 'temperature'])
 def test_full_2d_identity_roundtrip(mode, tmp_path):
     from sjtu_tpmshx.preprocess.api import prepare_case
-    from sjtu_tpmshx.cpp_interface.solver_library.full_2d import NativeFull2DDriver, _pack
-    from sjtu_tpmshx.cpp_interface.solver_library.full_2d_capture import capture_result
-    from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
+    from sjtu_tpmshx.cpp_interface.full_2d_stage import StageDriver
+    from tests.python.native.stage_interception import run_stage
     from tests.python.native.test_full_2d import configuration
     from sjtu_tpmshx.file_io.result_io import save_result, load_result
-    from dataclasses import replace
     config = configuration(mode=mode, outer=2, partial=False, simple_max=3000)
     config = replace(config, fluid_A=replace(config.fluid_A, T_in_K=330.),
                      fluid_B=replace(config.fluid_B, T_in_K=330.))
     case = prepare_case(config, case_id='identity-2d')
-    cfg, prepared = build_execution_inputs(case)
-    driver = NativeFull2DDriver(library_path('TPMSHX_NATIVE_SOLVER_LIBRARY'))
-    shape, arrays, settings = _pack(cfg, prepared, driver.table_directory, driver.library)
-    settings.thermal_iterations = settings.outer_iterations = 1
-    settings.pressure_shooting = 0
-    raw = driver.solve(shape, arrays, settings)
+    control = stage_control()
+    stage = run_stage(case, control)
+    raw, result = stage.native, stage.result
     assert raw['main']['mode'] == mode
-    expected = (_model_h_algorithm(driver.library, 2) if mode == 'model_h'
+    expected = (_model_h_algorithm(StageDriver(control.native_library).library, 2) if mode == 'model_h'
                 else 'model_h_tface_sou_fou_strict_v3')
     assert raw['native_metadata'] == dict(abi=2, algorithm=expected, red_black=False)
-    result = capture_result(case, cfg, prepared, raw)
     assert dict(result.metadata['native']) == raw['native_metadata']
     path = tmp_path/'identity.h5'
     save_result(result, path)
@@ -84,15 +85,17 @@ def test_full_2d_identity_roundtrip(mode, tmp_path):
     ('staggered', (4, 4, 4), {'variable_rho_cp': False, 'conservative_ltne': True}),
 ])
 def test_full_3d_identity_uses_executed_route(route, counts, options):
-    from sjtu_tpmshx.cpp_interface.solver_library.full_3d import NativeFull3DDriver
-    from tests.python.native.test_full_3d import prepared
-    cfg, p = prepared('air-air', directions=(0, 3), counts=counts, max_iter_simple=1, **options)
-    cfg['_environment'] = dict(cfg.get('_environment', {}), TPMSHX_P_IN_SHOOT='0', TPMSHX_VAR_RHOCP=None)
-    p['max_outer'] = p['ltne_max_iter'] = 1
-    driver = NativeFull3DDriver(library_path('TPMSHX_NATIVE_SOLVER_LIBRARY'))
-    raw = driver.run_prepared(cfg, p)
+    from sjtu_tpmshx.cpp_interface import full_3d_stage
+    from tests.python.native.stage_interception import run_stage
+    from tests.python.native.test_cpp_full_3d import saved_case
+    prepared = saved_case('air-air', directions=(0, 3), counts=counts, max_iter_simple=1,
+                          environment=dict(TPMSHX_P_IN_SHOOT='0', TPMSHX_VAR_RHOCP=None),
+                          prepared_values=dict(max_outer=1, ltne_max_iter=1), **options)
+    control = stage_control()
+    raw = run_stage(prepared, control).native
     assert raw['mode'] == ('model_h' if route == 'model_h' else 'temperature')
-    expected = (_model_h_algorithm(driver.library, 3) if route == 'model_h' else
+    _, library, _, _ = full_3d_stage.open_library(control.native_library, None)
+    expected = (_model_h_algorithm(library, 3) if route == 'model_h' else
                 {'cc2d': 'model_h_tface_sou_fou_strict_v3',
                  'cc3d': 'model_h_tface_sou_sou_strict_v3',
                  'staggered': 'shared_fv_staggered_tminmod_picard_v1'}[route])

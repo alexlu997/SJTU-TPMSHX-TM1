@@ -17,9 +17,6 @@ from sjtu_tpmshx.data_types.model_refs import freeze_value
 from sjtu_tpmshx.file_io.case_io import load_case, save_case
 from sjtu_tpmshx.file_io.result_io import load_result, save_result
 from sjtu_tpmshx.cpp_interface import full_2d_stage
-from sjtu_tpmshx.cpp_interface.solver_library import full_2d
-from sjtu_tpmshx.cpp_interface.solver_library.full_2d_capture import capture_result
-from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
 from tests.python import native_stage_support
 from tests.python import result_stage_fixture
 
@@ -38,22 +35,20 @@ def _control(events):
         residual=lambda *args: events.append(('residual', *args)))
 
 
-def _old(case, control, **options):
-    cfg, prepared = build_execution_inputs(case, copy_design=False)
-    driver = full_2d.NativeFull2DDriver(control.native_library)
-    native = driver.run_prepared(cfg, prepared, control, **options)
-    control.check_cancelled()
-    result = capture_result(case, cfg, prepared, native)
-    control.report_progress(100)
-    return result
-
-
-def _events_equal(actual, expected):
-    for kind in ('progress', 'iteration', 'outer'):
-        assert [row for row in actual if row[0] == kind] == [row for row in expected if row[0] == kind]
+def _events_complete(events):
+    """Require native outer work and the final run_case progress report."""
+    assert any(row[0] == 'outer' for row in events)
+    assert [row for row in events if row[0] == 'progress'][-1] == ('progress', 100)
     for side in 'AB':
-        assert [row for row in actual if row[:2] == ('residual', side)] == [
-            row for row in expected if row[:2] == ('residual', side)]
+        assert any(row[:2] == ('residual', side) for row in events)
+
+
+def _same_resumed(resumed, complete, case):
+    """Compare a resumed saved run with the complete run of the same controls."""
+    assert resumed.metadata['continuation']['format'] == 'full_2d_continuation_v1'
+    resumed = replace(resumed, result_id=complete.result_id, metadata={
+        key: value for key, value in resumed.metadata.items() if key != 'continuation'})
+    _same(resumed, complete, 'resumed result')
 
 
 def _hdf_scalars(value):
@@ -81,32 +76,32 @@ def _checked_applicability(actual, expected, case):
 
 
 def _compare(case, tmp_path, monkeypatch):
+    """Run the saved stage once and check its independent records and saved readback."""
     from sjtu_tpmshx.cpp_interface import preparation_host
-    expected_events, actual_events = [], []
-    expected = _old(case, _control(expected_events))
+    events = []
     def forbidden(*args, **kwargs):
-        raise AssertionError('saved stage must not prepare or use the old numerical packer')
+        raise AssertionError('saved stage must not prepare its inputs again')
     with monkeypatch.context() as patch:
-        patch.setattr(full_2d, '_pack', forbidden)
         patch.setattr(preparation_host, 'operation', forbidden)
-        actual = full_2d_stage.run_case(case, _control(actual_events))
-    actual = _checked_applicability(actual, expected, case)
-    _same(replace(actual, result_id=expected.result_id), expected, 'result')
-    assert list(actual.fields) == list(expected.fields)
+        result = full_2d_stage.run_case(case, _control(events))
+    actual = _checked_applicability(result, result, case)
     for key in ('Ta', 'Tb', 'Ts'):
         assert np.shares_memory(actual.fields[key], actual.fields[key + '_display'])
-    _events_equal(actual_events, expected_events)
+    _events_complete(events)
     save_case(case, tmp_path / 'case.h5')
-    save_result(expected, tmp_path / 'reference.h5')
-    save_result(actual, tmp_path / 'stage.h5')
+    save_result(result, tmp_path / 'stage.h5')
     stored_case = load_case(tmp_path / 'case.h5')
     _same(stored_case.grid, case.grid, 'case.grid')
     _same(stored_case.design_fields, _hdf_scalars(case.design_fields), 'case.design_fields')
-    _same(replace(load_result(tmp_path / 'stage.h5'), result_id=expected.result_id), load_result(tmp_path / 'reference.h5'))
-    (tmp_path / 'events.json').write_text(json.dumps(dict(actual=actual_events, expected=expected_events)))
-    (tmp_path / 'verdict.json').write_text(json.dumps(dict(complete_result_exact=True, events_exact=True,
-        old_packer_forbidden=True, preparation_forbidden=True, public_saved_readback=True)))
-    return actual
+    stored = load_result(tmp_path / 'stage.h5')
+    save_result(stored, tmp_path / 'stage-again.h5')
+    _same(load_result(tmp_path / 'stage-again.h5'), stored, 'saved stage readback')
+    for name in ('fields', 'boundary_fluxes', 'pressure_evidence', 'run_status'):
+        _same(_hdf_scalars(getattr(stored, name)), _hdf_scalars(getattr(result, name)), name)
+    (tmp_path / 'events.json').write_text(json.dumps(events))
+    (tmp_path / 'verdict.json').write_text(json.dumps(dict(native_records_checked=True, events_complete=True,
+        preparation_forbidden=True, public_saved_readback=True)))
+    return result
 
 
 @pytest.mark.parametrize('spatial,pair', list(product((False, True), product(('air', 'water', 'sco2', 'co2'), repeat=2))))
@@ -215,16 +210,12 @@ def test_saved_stage_selected_controls(selection, tmp_path, monkeypatch):
     (tmp_path / 'input.json').write_text(json.dumps(config.to_dict()))
     case = prepare_case(config, case_id='run-adapter-controls')
     if selection in ('temperature_fou', 'legacy_h_fou'):
-        errors, events = [], []
-        for run in (_old, full_2d_stage.run_case):
-            observed = []
-            with pytest.raises(ValueError) as caught:
-                run(case, _control(observed))
-            errors.append(str(caught.value))
-            events.append(observed)
-        assert errors == ['invalid native full enthalpy defaults request'] * 2
-        _events_equal(*events)
-        (tmp_path / 'verdict.json').write_text(json.dumps(dict(rejection=errors[0], events_exact=True)))
+        events = []
+        with pytest.raises(ValueError) as caught:
+            full_2d_stage.run_case(case, _control(events))
+        assert str(caught.value) == 'invalid native full enthalpy defaults request'
+        assert events == []
+        (tmp_path / 'verdict.json').write_text(json.dumps(dict(rejection=str(caught.value), events=events)))
     else:
         _compare(case, tmp_path, monkeypatch)
 
@@ -233,29 +224,22 @@ def test_saved_stage_selected_controls(selection, tmp_path, monkeypatch):
     (False, ('water', 'sco2')), (True, ('co2', 'air'))])
 def test_saved_stage_states_and_resume(spatial, pair, tmp_path):
     _, case = _case(spatial, pair)
-    old_states, stage_states = {}, {}
+    stage_states = {}
     def collect(target, value):
         target.setdefault(int(value['state.phase'][0]), value)
-    reference = _old(case, _control([]), checkpoint=lambda value: collect(old_states, value))
     actual = full_2d_stage.run_case(case, _control([]), checkpoint=lambda value: collect(stage_states, value))
-    actual = _checked_applicability(actual, reference, case)
-    _same(replace(actual, result_id=reference.result_id), reference)
-    assert set(stage_states) == set(old_states)
+    _checked_applicability(actual, actual, case)
     assert {1, 2}.issubset(stage_states)
+    runtime = replace(_control([]), cpu_threads=1)
+    complete = full_2d_stage.run_case(case, runtime)
+    _same(replace(complete, result_id=actual.result_id, metadata={
+        key: value for key, value in complete.metadata.items() if key != 'runtime_resources'}),
+        replace(actual, metadata={key: value for key, value in actual.metadata.items()
+                                  if key != 'runtime_resources'}), 'checkpointed run')
     for phase, snapshot in stage_states.items():
-        assert snapshot.keys() == old_states[phase].keys()
-        for key, value in snapshot.items():
-            if key.endswith(('.linear.build_seconds', '.linear.solve_seconds')):
-                assert value.dtype == old_states[phase][key].dtype
-                assert value.shape == old_states[phase][key].shape
-                assert np.all(value >= 0) and np.all(old_states[phase][key] >= 0)
-            else:
-                _same(value, old_states[phase][key], f'state[{phase}].{key}')
-        runtime = replace(_control([]), cpu_threads=1)
-        expected = _old(case, runtime, resume_state=snapshot)
         resumed = full_2d_stage.run_case(case, runtime, resume_state=snapshot)
-        resumed = _checked_applicability(resumed, expected, case)
-        _same(replace(resumed, result_id=expected.result_id), expected)
+        assert resumed.metadata['continuation']['saved_phase'] == phase
+        _same_resumed(resumed, complete, case)
         np.savez(tmp_path / f'phase-{phase}.npz', **snapshot)
         save_result(resumed, tmp_path / f'resumed-{phase}.h5')
     if not spatial and pair == ('air', 'water'):
@@ -299,28 +283,26 @@ def test_saved_stage_callback_exception_identity(callback):
     def broken(*args):
         raise failure
     control = replace(_control([]), **{callback: broken})
-    for run in (_old, full_2d_stage.run_case):
-        with pytest.raises(LookupError) as caught:
-            run(case, control)
-        assert caught.value is failure
+    with pytest.raises(LookupError) as caught:
+        full_2d_stage.run_case(case, control)
+    assert caught.value is failure
     full_2d_stage.run_case(case, _control([]))
 
 
 def test_saved_stage_cancellation_and_checkpoint_error():
     from sjtu_tpmshx.run_control.cancellation import CancelledError
     _, case = _case()
-    for run in (_old, full_2d_stage.run_case):
-        cancel = []
-        control = replace(_control([]), cancel_check=lambda: bool(cancel),
-            outer_iteration=lambda *args: cancel.append(True))
-        with pytest.raises(CancelledError):
-            run(case, control)
-        failure = RuntimeError('checkpoint storage failed')
-        def broken(value):
-            raise failure
-        with pytest.raises(RuntimeError) as caught:
-            run(case, _control([]), checkpoint=broken)
-        assert caught.value is failure
+    cancel = []
+    control = replace(_control([]), cancel_check=lambda: bool(cancel),
+        outer_iteration=lambda *args: cancel.append(True))
+    with pytest.raises(CancelledError):
+        full_2d_stage.run_case(case, control)
+    failure = RuntimeError('checkpoint storage failed')
+    def broken(value):
+        raise failure
+    with pytest.raises(RuntimeError) as caught:
+        full_2d_stage.run_case(case, _control([]), checkpoint=broken)
+    assert caught.value is failure
     full_2d_stage.run_case(case, _control([]))
 
 
@@ -389,16 +371,11 @@ def test_application_input_error_stays_after_native_execution(property_name):
     parameters = mutable_data(case.parameters)
     parameters['static_properties']['A'][property_name] = -1.
     case = replace(case, parameters=parameters)
-    messages, records = [], []
-    for run in (_old, full_2d_stage.run_case):
-        events = []
-        with pytest.raises(ValueError) as caught:
-            run(case, _control(events))
-        messages.append(str(caught.value))
-        records.append(events)
-    assert messages[0] == messages[1]
-    assert any(row[0] == 'outer' for row in records[0])
-    _events_equal(*records)
+    events = []
+    with pytest.raises(ValueError, match='A_0=.*, H_sf=.* must both be >= 0'):
+        full_2d_stage.run_case(case, _control(events))
+    # The application input check runs after the complete native execution.
+    assert any(row[0] == 'outer' for row in events)
 
 
 @pytest.mark.parametrize('spatial,algorithm', list(product((False, True), ('temperature_fou', 'legacy_h_fou'))))
@@ -406,11 +383,10 @@ def test_model_h_controls_keep_retired_algorithm_rejection(spatial, algorithm):
     config, _ = _case(spatial)
     config.solver.enthalpy_algorithm = algorithm
     case = prepare_case(config, case_id='model-h-rejection')
-    for run in (_old, full_2d_stage.run_case):
-        events = []
-        with pytest.raises(ValueError, match='^invalid native full enthalpy defaults request$'):
-            run(case, _control(events))
-        assert events == []
+    events = []
+    with pytest.raises(ValueError, match='^invalid native full enthalpy defaults request$'):
+        full_2d_stage.run_case(case, _control(events))
+    assert events == []
 
 
 @pytest.mark.parametrize('selection', ['cell32', 'cell16', 'diameter32', 'both32', 'both16',
@@ -437,25 +413,34 @@ def test_saved_geometry_precision_and_resume(selection, tmp_path, monkeypatch):
     if spatial:
         save_case(case, tmp_path / 'typed-case.h5')
         case = load_case(tmp_path / 'typed-case.h5')
+    # The reference holds the same values widened to float64 before the native call.
+    widened = mutable_data(case.parameters)
+    geometry = widened['thermal_geometry']
+    for group in ('uniform', 'fields'):
+        if geometry[group] is not None:
+            geometry[group] = {name: np.asarray(value, dtype=np.float64) if isinstance(value, np.ndarray)
+                               else float(value) for name, value in geometry[group].items()}
+    widened['L_cell_m'] = float(widened['L_cell_m'])
+    reference = replace(case, parameters=widened, design_fields={
+        name: value.astype(np.float64) if isinstance(value, np.ndarray) and value.dtype.kind == 'f' else value
+        for name, value in case.design_fields.items()})
     snapshots = []
     class Paused(Exception):
         pass
     def pause(snapshot):
         snapshots.append(snapshot)
         raise Paused
-    for run in (_old, full_2d_stage.run_case):
+    for saved in (reference, case):
         with pytest.raises(Paused):
-            run(case, _control([]), checkpoint=pause)
+            full_2d_stage.run_case(saved, _control([]), checkpoint=pause)
     native_stage_support.plane_state_equal(snapshots[1], snapshots[0])
     for key in ('input.cell_length', 'input.nu_geometry_ratio', 'input.reference_cell_length'):
         assert key in snapshots[1]
     np.savez(tmp_path / 'phase-1.npz', **snapshots[1])
-    _compare(case, tmp_path, monkeypatch)
+    complete = _compare(case, tmp_path, monkeypatch)
     if selection == 'cell32':
-        expected = _old(case, _control([]), resume_state=snapshots[0])
         actual = full_2d_stage.run_case(case, _control([]), resume_state=snapshots[1])
-        actual = _checked_applicability(actual, expected, case)
-        _same(replace(actual, result_id=expected.result_id), expected)
+        _same_resumed(actual, complete, case)
         save_result(actual, tmp_path / 'resumed-1.h5')
 
 
@@ -539,9 +524,8 @@ def test_saved_uniform_checks_preserve_scalar_precision(name, field):
     fields[field] = fields[field].astype(np.float32)
     scalar = np.nextafter(np.float64(fields[field][0, 0]), np.inf)
     changed = replace(case, design_fields=fields, parameters={**case.parameters, name: scalar})
-    for run in (_old, full_2d_stage.run_case):
-        with pytest.raises(ValueError, match='uniform design field'):
-            run(changed, _control([]))
+    with pytest.raises(ValueError, match='uniform design field'):
+        full_2d_stage.run_case(changed, _control([]))
 
 
 def test_saved_grid_direction_matches_actual_solver_direction():

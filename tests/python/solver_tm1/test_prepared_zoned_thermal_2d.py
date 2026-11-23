@@ -14,7 +14,7 @@ from sjtu_tpmshx.data_types.compute_config import (
 )
 from sjtu_tpmshx.physical_models.zone_config import Zone, ZoneConfig
 from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
+from tests.python.native.stage_interception import saved_2d_inputs
 from tests.python import sigmoid_reference
 from tests.python.native.shared_library import library_path
 
@@ -54,7 +54,7 @@ def test_new_zoned_preparation_uses_current_chi_s(monkeypatch, mode):
         # Later settings must not reinterpret either immutable prepared Case.
         monkeypatch.setenv('TPMSHX_CHI_S', '.25')
         for case in (first, second):
-            inputs, _ = build_execution_inputs(case)
+            inputs, _, _ = saved_2d_inputs(case)
             np.testing.assert_array_equal(inputs['za']['K_ss_arr'],
                                           case.design_fields['K_ss_arr'])
     finally:
@@ -151,12 +151,12 @@ def test_zoned_si_handoff_feeds_local_thermal_kernel(monkeypatch, tmp_path):
     case = prepare_case(_config(), case_id='zoned-handoff')
     save_case(case, tmp_path / 'case.yaml')
     loaded = replace(load_case(tmp_path / 'case.yaml'), config_snapshot={})
-    cfg, grid = build_execution_inputs(loaded)
-    np.testing.assert_allclose(cfg['za']['L_field'], case.design_fields['L_field_m'] * 1e3)
+    cfg, _, _ = saved_2d_inputs(loaded)
+    np.testing.assert_array_equal(cfg['za']['L_field_m'], case.design_fields['L_field_m'])
     def forbidden(*args, **kwargs):
         raise AssertionError('execution recomputed fixed geometry')
     monkeypatch.setattr(tpms_props, 'geometry', forbidden)
-    _, _, state = native_prepared_state(loaded)
+    state = native_prepared_state(loaded)
     shape = case.design_fields['eps_arr'].shape
     model = fluid_props.get('air')
     geometry = case.parameters['thermal_geometry']['fields']
@@ -166,7 +166,7 @@ def test_zoned_si_handoff_feeds_local_thermal_kernel(monkeypatch, tmp_path):
                            for axis in ('uc', 'vc')))
         Re = float(model.rho(temp, pressure)) * (speed + 1e-12) * geometry['D_h'] / float(model.mu(temp, pressure))
         Nu = np.maximum(model.nu('Gyroid', np.maximum(Re, 1.), geometry['epsilon'] / 2.,
-                                  cfg['za']['L_field'], geometry['D_h'] * 1e3, None), NU_LAM_FLOOR)
+                                  cfg['za']['L_field_m'] * 1e3, geometry['D_h'] * 1e3, None), NU_LAM_FLOOR)
         expected = geometry['A_0'] * Nu * float(model.k(temp, pressure)) / geometry['D_h']
         np.testing.assert_allclose(state[f'state.result.thermal.hv.{index}'].reshape(shape),
                                    expected, rtol=1e-12)
@@ -182,8 +182,12 @@ def test_incomplete_prepared_zones_require_repreparation(missing):
         design = dict(case.design_fields)
         design.pop(missing)
         case = replace(case, design_fields=design)
+    from sjtu_tpmshx.solvers.api import run_case
+    from tests.python.native.stage_interception import stage_control
+    progress = []
     with pytest.raises(ValueError, match='prepare the original configuration again'):
-        build_execution_inputs(case)
+        run_case(case, stage_control(progress=progress.append))
+    assert not progress
 
 
 def test_required_surrogate_import_failure_is_not_an_empty_warning_list(monkeypatch):
@@ -211,7 +215,7 @@ def test_discrete_zone_capture_uses_only_the_solver(monkeypatch, tmp_path, mode)
         result = run_case(case, RunControl(native_library=str(library_path()), cpu_threads=1))
 
     assert result.run_status['execution'] == 'completed'
-    cfg, prepared = build_execution_inputs(case)
+    cfg, prepared, _ = saved_2d_inputs(case)
     expected = zone_result(cfg, prepared, [result.fields[key] for key in ('Ta', 'Tb', 'Ts')])
     assert len(expected['stats']) == 2
     assert mutable_data(result.metadata['application']['zones']) == expected
@@ -255,8 +259,8 @@ def test_sigmoid_saved_execution_keeps_row_drag(monkeypatch, tmp_path):
         assert prepared.metadata['design_mode'] == 'continuous'
         assert prepared.parameters['z_axis'] == 'grid'
         assert prepared.parameters['continuous_field'] is None
-        cfg, _ = build_execution_inputs(prepared)
-        assert not cfg['compute_cfg'].zones.enabled
+        cfg, _, settings = saved_2d_inputs(prepared)
+        assert not settings['zones'].enabled
         assert cfg['z_axis'] == 'grid'
         for side in 'AB':
             flow = cfg['flow_inputs'][side]

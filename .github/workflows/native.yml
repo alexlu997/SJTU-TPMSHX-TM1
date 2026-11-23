@@ -87,10 +87,13 @@ jobs:
       - name: Fetch fixed native sources and build tool
         shell: bash
         run: '"$CI_PYTHON" engineering/scripts/build_native_dependencies.py fetch'
-      - name: Record hosted toolchain image
+      - name: Record hosted toolchain image and CoolProp inputs
         id: toolchain
         shell: bash
-        run: echo "image=$ImageVersion" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "image=$ImageVersion" >> "$GITHUB_OUTPUT"
+          inputs=$("$CI_PYTHON" engineering/scripts/build_coolprop.py cache-key --host ${{ runner.os == 'Windows' && 'windows-x64' || 'macos-arm64' }} | tr -d '\r')
+          echo "coolprop_inputs=$inputs" >> "$GITHUB_OUTPUT"
       - name: Cache locked CoolProp static library
         id: coolprop
         uses: actions/cache@v6
@@ -102,7 +105,7 @@ jobs:
             .cache/native-deps/build/coolprop-preparation-macos-arm64/coolprop-build.json
             .cache/native-deps/build/coolprop-windows-x64/Release/CoolProp.lib
             .cache/native-deps/build/coolprop-windows-x64/coolprop-build.json
-          key: coolprop-${{ runner.os }}-${{ runner.arch }}-py3.13-${{ steps.toolchain.outputs.image }}-${{ hashFiles('engineering/native_build/dependencies-lock.toml', 'engineering/scripts/build_native_dependencies.py') }}
+          key: coolprop-${{ runner.os }}-${{ runner.arch }}-py3.13-${{ steps.toolchain.outputs.image }}-${{ steps.toolchain.outputs.coolprop_inputs }}-${{ hashFiles('engineering/scripts/build_coolprop.py') }}
       - name: Build locked CoolProp on cache miss
         if: steps.coolprop.outputs.cache-hit != 'true'
         shell: bash
@@ -344,7 +347,63 @@ jobs:
           cache: pip
           cache-dependency-path: |
             engineering/requirements/base.txt
+            engineering/requirements/bo-macos.txt
             pyproject.toml
+      - uses: actions/download-artifact@v8
+        with:
+          name: native-build-${{ inputs.os }}
+          path: .cache/ci-native-build
+      # The full macOS tier runs BO here, before the solver library exists in this checkout.
+      # The package discovers a published solver library without environment variables.
+      - name: Restore geometry, preparation and result libraries for BO
+        if: runner.os == 'macOS' && inputs.tier == 'full' && matrix.part == 'fast-0'
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import shutil
+          import tarfile
+          target = Path('sjtu_tpmshx/solvers/native/lib/macos-arm64')
+          with tarfile.open('.cache/ci-native-build/native-binaries.tar') as archive:
+              for component in ('geometry', 'preparation', 'result'):
+                  name = 'libtpmshx_' + component + '_shared.dylib'
+                  folder = component if component in ('preparation', 'result') else 'pilot'
+                  member = folder + '-macos-arm64/' + name
+                  archive.extract(archive.getmember(member), '.cache/native-deps/build', filter='data')
+                  target.mkdir(parents=True, exist_ok=True)
+                  shutil.copy2(Path('.cache/native-deps/build') / member, target / name)
+          solver = target / 'libtpmshx_solver_shared.dylib'
+          assert not solver.exists(), f'BO tests must run without the solver library: {solver}'
+          PY
+      - name: Run optimizer and real acquisition tests in an isolated BO environment
+        if: runner.os == 'macOS' && inputs.tier == 'full' && matrix.part == 'fast-0'
+        shell: bash
+        run: |
+          # The standalone BO job does not require native solver callers.
+          unset TPMSHX_REQUIRE_NATIVE_DEPS_TESTS
+          python -m venv "$RUNNER_TEMP/sjtu-bo-ci-venv"
+          bo_python="$RUNNER_TEMP/sjtu-bo-ci-venv/bin/python"
+          "$bo_python" -m pip install -r engineering/requirements/bo-macos.txt
+          "$bo_python" -m sjtu_tpmshx.development.runs.tools.check_locked_environment engineering/requirements/bo-macos.txt
+          "$bo_python" -m pip check
+          "$bo_python" -c 'import torch, botorch, gpytorch; print(f"torch={torch.__version__} botorch={botorch.__version__} gpytorch={gpytorch.__version__}")'
+          library=sjtu_tpmshx/solvers/native/lib/macos-arm64
+          TPMSHX_GEOMETRY_LIBRARY="$PWD/$library/libtpmshx_geometry_shared.dylib" \
+          TPMSHX_PREPARATION_LIBRARY="$PWD/$library/libtpmshx_preparation_shared.dylib" \
+          TPMSHX_RESULT_LIBRARY="$PWD/$library/libtpmshx_result_shared.dylib" \
+          "$bo_python" -m pytest tests/python/test_multi_condition_optimizer.py \
+            tests/python/test_mass_design.py -q -ra \
+            -p tests.python.ci_shard --ci-manifest=.cache/ci/bo/bo-manifest \
+            --timeout=600 --timeout-method=thread \
+            --durations=10 --junitxml=.cache/ci/bo/bo.xml
+      - name: Save BO test outcomes and timings
+        if: always() && runner.os == 'macOS' && inputs.tier == 'full' && matrix.part == 'fast-0'
+        uses: actions/upload-artifact@v7
+        with:
+          name: bo-test-reports-${{ inputs.os }}-py${{ matrix.python }}
+          path: .cache/ci/bo/
+          include-hidden-files: true
+          retention-days: 7
       - name: Create isolated CI environment
         shell: bash
         run: |
@@ -367,10 +426,6 @@ jobs:
       - name: Check dependency compatibility
         shell: bash
         run: '"$CI_PYTHON" -m pip check'
-      - uses: actions/download-artifact@v8
-        with:
-          name: native-build-${{ inputs.os }}
-          path: .cache/ci-native-build
       - name: Restore native runtime files
         shell: bash
         run: |
@@ -391,6 +446,7 @@ jobs:
               shutil.copy2(Path('.cache/native-deps/build') / (folder + '-' + host) / name, target / name)
           PY
       - name: Require explicit native libraries for thermal evidence tests
+        id: native-env
         shell: bash
         run: |
           "$CI_PYTHON" - <<'PY'
@@ -421,6 +477,7 @@ jobs:
           install-mesa3d-offscreen: 'false'
           pyvista: 'false'
       - name: Run fast test subset
+        id: fast
         if: matrix.part != 'integration'
         shell: bash
         run: >-
@@ -434,7 +491,7 @@ jobs:
           --timeout=600 --timeout-method=thread
           --durations=30 --junitxml=.cache/ci/fast/fast.xml
       - name: Save fast test outcomes and timings
-        if: always() && matrix.part != 'integration'
+        if: always() && matrix.part != 'integration' && steps.fast.outcome != 'skipped'
         uses: actions/upload-artifact@v7
         with:
           name: test-reports-${{ inputs.os }}-py${{ matrix.python }}-${{ matrix.part }}
@@ -444,7 +501,7 @@ jobs:
           retention-days: 7
       - name: Run real public module integration
         id: integration
-        if: ${{ (success() && matrix.part == 'integration') || (!cancelled() && runner.os == 'macOS' && matrix.part == 'fast-0') }}
+        if: ${{ (success() && matrix.part == 'integration') || (!cancelled() && runner.os == 'macOS' && matrix.part == 'fast-0' && steps.native-env.outcome == 'success') }}
         shell: bash
         run: >-
           "$CI_PYTHON" -m pytest tests/python/integration_tm1 -q -ra
@@ -467,7 +524,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
       - name: Save integration outcomes and timings
-        if: always() && (matrix.part == 'integration' || (runner.os == 'macOS' && matrix.part == 'fast-0'))
+        if: always() && steps.integration.outcome != 'skipped'
         uses: actions/upload-artifact@v7
         with:
           name: test-reports-${{ inputs.os }}-py${{ matrix.python }}-integration
@@ -478,6 +535,8 @@ jobs:
 
   bo-tests:
     needs: native-build
+    # The full macOS tier runs these tests in test-parts fast-0.
+    if: inputs.os != 'macos-15' || inputs.tier != 'full'
     strategy:
       fail-fast: false
       matrix:

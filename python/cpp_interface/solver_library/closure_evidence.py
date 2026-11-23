@@ -1,10 +1,5 @@
-"""Detach native closure evidence and replay the existing warning formatter."""
+"""Native closure evidence records shared by the full 2D and 3D result views."""
 import ctypes as ct
-
-import numpy as np
-
-from sjtu_tpmshx.run_control.run_warnings import RangeRecord, current_warnings, merge_warnings, warning_messages, range_observations
-from sjtu_tpmshx.physical_models.nu_correlations import NU_LAM_FLOOR
 
 
 class NuObservation(ct.Structure):
@@ -19,79 +14,3 @@ class RangeObservation(ct.Structure):
     _fields_ += [('shape', ct.c_size_t * 3)]
     _fields_ += [(name, ct.c_size_t) for name in ('minimum_index', 'maximum_index', 'low', 'high', 'size', 'nonfinite')]
     _fields_ += [(name, ct.c_double) for name in ('lower', 'upper', 'minimum', 'maximum')]
-
-
-def copy_nu_observation(value, shape, *, capture_scalars=None):
-    if not value.available:
-        return {}
-    from .._native_result_stage import nu_observation
-    summary = capture_scalars if capture_scalars is not None else dict(
-        floor=NU_LAM_FLOOR, floor_fraction=value.floor_cells / value.cells)
-    return nu_observation(value, shape, summary)
-
-
-def copy_range_observations(values, count):
-    """Return owned ordinary values; no native string/pointer outlives release."""
-    rows = []
-    for i in range(count):
-        value = values[i]
-        row = {name: getattr(value, name).decode() for name in ('view', 'model', 'topology', 'stage', 'layout')}
-        row.update(side=('A', 'B')[value.side], shape=tuple(value.shape[:value.ndim]),
-            bounds=(value.lower, value.upper), low=value.low, high=value.high, size=value.size, nonfinite=value.nonfinite,
-            minimum=None, maximum=None)
-        if value.have_finite:
-            for key in ('minimum', 'maximum'):
-                index = tuple(int(i) for i in np.unravel_index(getattr(value, key + '_index'), row['shape']))
-                row[key] = (getattr(value, key), index)
-        rows.append(row)
-    return rows
-
-
-def range_records(rows):
-    """Reconstruct RangeRecord values from captured inputs without properties."""
-    records = {}
-    for row in rows:
-        nu = row['view'] in ('nu', 'nu_raw', 'nu_pr')
-        source = (row['view'], row['model'], row['topology']) if nu else (row['view'], row['model'])
-        if row['view'] == 'nu_raw':
-            label = f"[{row['model']} Nu raw] {row['topology']}"
-        elif row['view'] in ('nu', 'nu_pr'):
-            prefix = {'air': 'Nu extrap', 'water': 'water Nu extrap', 'sco2': 'sCO2 Nu extrap', 'co2': 'CO2 Nu extrap'}[row['model']]
-            label = f"[{prefix}] {row['topology']}"
-        else:
-            label = row['model']
-        key = (*source, tuple(row['shape']), (row['side'], row['stage'], row['layout']))
-        record = RangeRecord(label, 'Pr' if row['view'] == 'nu_pr' else 'Re' if nu else 'T', '-' if nu else 'K', tuple(row['bounds']),
-            row['minimum'], row['maximum'], row['low'], row['high'], row['size'], row['nonfinite'])
-        previous = records.get(key)
-        records[key] = record if previous is None else previous.merged(record)
-    return records
-
-
-def replay_range_observations(rows):
-    records = range_records(rows)
-    merge_warnings(current_warnings(), [records])
-    return list(warning_messages(records))
-
-
-class RangeObservationsView(ct.Structure):
-    _fields_ = [('data', ct.POINTER(RangeObservation)), ('size', ct.c_size_t)]
-
-
-def last_range_query(library, dimension, result_type):
-    try:
-        query = getattr(library, f'tpmshx_full_{dimension}d_get_last_closure_ranges_v1')
-    except AttributeError as exc:
-        raise ValueError('native library lacks last closure ranges; rebuild the library') from exc
-    query.argtypes = [ct.POINTER(result_type), ct.POINTER(RangeObservationsView)]
-    query.restype = ct.c_int
-    return query
-
-
-def copy_last_ranges(query, result):
-    view = RangeObservationsView()
-    if query(ct.byref(result), ct.byref(view)):
-        raise RuntimeError('native last closure range query failed')
-    if view.size and not view.data:
-        raise RuntimeError('native last closure ranges have no storage')
-    return range_observations(range_records(copy_range_observations(view.data, view.size)))

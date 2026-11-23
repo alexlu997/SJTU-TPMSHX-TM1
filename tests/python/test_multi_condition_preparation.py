@@ -14,8 +14,6 @@ from sjtu_tpmshx.preprocess.api import prepare_case, prepare_inlet_mass_capaciti
 from sjtu_tpmshx.preprocess.inlet_flow import total_inlet_mass_capacity
 from sjtu_tpmshx.run_control.module_ports import RunControl
 from sjtu_tpmshx.run_control.module_ports import resolve_control
-from sjtu_tpmshx.cpp_interface.solver_library.full_3d import NativeFull3DDriver
-from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
 
 
 @pytest.mark.parametrize('direction', range(6))
@@ -75,20 +73,22 @@ def test_fixed_flow_matches_native_faces_after_density_update(direction, design_
             boundary = 'bc_' + side
             assert dict(current.config_snapshot[boundary]) == source[boundary]
 
-    params, prepared = build_execution_inputs(case)
-    configured_params, configured_prepared = build_execution_inputs(configured_case)
     _same(configured_case.model_refs, case.model_refs)
     _same(configured_case.metadata['model_roles'], case.metadata['model_roles'])
-    # The native call uses prepared values, not host records or provider instances.
-    host_values = {'inlet_inputs', '_input_resolution', '_models'}
-    _same({name: value for name, value in configured_params.items() if name not in host_values},
-          {name: value for name, value in params.items() if name not in host_values})
-    _same(configured_prepared, prepared)
+    # The native call uses saved values, not host records.
+    host_values = {'inlet_inputs'}
+    _same({name: value for name, value in configured_case.parameters.items() if name not in host_values},
+          {name: value for name, value in case.parameters.items() if name not in host_values})
+    _same(configured_case.grid, case.grid)
+    _same(configured_case.design_fields, case.design_fields)
+    prepared = case.parameters['prepared']
     # Test each flow direction and both signs for every layout across six solves.
     if direction not in {'uniform': (0, 3), 'grid': (1, 4), 'continuous': (2, 5)}[design_mode]:
         return
+    from tests.python.native.stage_interception import run_stage
     control = resolve_control(RunControl(cpu_threads=2))
-    raw = NativeFull3DDriver(control.native_library).run_prepared(params, prepared, control)
+    # The audit option detaches the returned solver-axis flow fields.
+    raw = run_stage(replace(case, parameters=dict(case.parameters, _emit_audit=True)), control).native
     for index, side in enumerate('AB'):
         flow, axes = raw['flow'][index], prepared['axes'][side]
         fractions = prepared['openings'][side]['inlet']
@@ -143,7 +143,7 @@ def test_fixed_flow_2d_preserves_prescribed_inlet_after_density_update(direction
         config, mass_flow_A_kg_s=targets['A'], mass_flow_B_kg_s=targets['B'],
         case_id='fixed-mass-2d')
     assert np.ptp(case.grid['dx']) > 0. or np.ptp(case.grid['dy']) > 0.
-    cfg, grid, state = native_prepared_state(case)
+    cfg, state = case.parameters, native_prepared_state(case)
     for index, side in enumerate('AB'):
         prefix = f'state.result.flow.{index}.'
         shape = (len(state[prefix+'dx']), len(state[prefix+'dy']))

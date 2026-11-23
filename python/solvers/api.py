@@ -53,13 +53,10 @@ def run_case(case: CaseData, control: RunControl = RunControl(), *,
         if 'execution_record' not in metadata:
             from .execution_record import full_execution_record
             metadata['execution_record'] = full_execution_record(case, result)
-        if '_native_applicability' in metadata:
-            from sjtu_tpmshx.run_control.run_warnings import captured_scope_notes
-            metadata['applicability_evidence'] = dict(metadata.pop('_native_applicability'),
-                scope_notes=captured_scope_notes(case, records))
-        else:
-            from .applicability_evidence import capture_applicability
-            metadata['applicability_evidence'] = capture_applicability(case, result, records)
+        # Both saved native stages select the applicability evidence before release.
+        from sjtu_tpmshx.run_control.run_warnings import captured_scope_notes
+        metadata['applicability_evidence'] = dict(metadata.pop('_native_applicability'),
+            scope_notes=captured_scope_notes(case, records))
         metadata.pop('_last_closure_ranges', None)
     return replace(result, metadata=metadata)
 

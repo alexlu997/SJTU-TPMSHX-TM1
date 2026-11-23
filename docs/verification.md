@@ -54,8 +54,10 @@ macOS arm64 托管机若检测到 `Apple Software Renderer`，该像素检查明
 GitHub workflow 使用 checkout v7、setup-python v7、upload-artifact v7，
 分片门使用 download-artifact v8。这些 Action 的运行时不改变求解器的 Python 环境；
 `ci` 内的 `minimal-postprocess` 验证完整环境到最小后处理环境的真实文件交接。
-`ci` 的基础和独立 BO 作业均覆盖 macOS / Python 3.13，以及 Windows / Python
-3.12、3.13；BO 作业分别安装对应平台的 BO 锁，严格检查环境后
+`ci` 的基础和独立 BO 运行均覆盖 macOS / Python 3.13，以及 Windows / Python
+3.12、3.13。`bo-tests` 作业在 Windows 的全部运行层级和 macOS 的 `application` 层级运行。
+macOS `full` 层级由 `fast-0` 测试片先在独立环境中运行 BO；该步骤在恢复求解库之前执行，BO 环境变量只在该步骤内设置。
+因此 macOS `full` 层级在构建后启动五个作业：三个原生分片和两个测试片。BO 运行分别安装对应平台的 BO 锁，严格检查环境后
 显式导入 Torch / BoTorch / GPyTorch，并运行多工况优化器测试（含两种真实 Log
 采集函数）。基础作业仍使用不含 BO 的锁，覆盖可选依赖缺失时的行为。
 BO 作业上传 JUnit 与完整收集 manifest，保留 7 天，不上传求解数据或虚拟环境。
@@ -125,11 +127,12 @@ application 和 full tier 均构建完整 pilot。归档包含求解库、几何
 结果库通过独立 `build --component result` 构建，再与其余库一起执行完整验证。
 完整 SDK 检查编译全部 C++ 示例，执行有代表性的前处理、求解、续算和后处理路径。
 Linux 最小后处理在 macOS 的结果和 wheel 及 Linux 结果库就绪后启动，与 Windows 资格检查并行。
-BO 恢复本轮同平台归档中的几何库、准备库和结果库，与该平台的其他回归并行。
+BO 恢复本轮同平台归档中的几何库、准备库和结果库，不恢复求解库，与该平台的其他回归并行。
 原生库不链接 Python 运行时。Windows 两个 Python 版本测试同一构建。
 分片在本平台构建完成后启动，不等待其他平台。原生、快测和集成测试共同使用本轮工作流及源码产生的
 `native-build-<平台>` artifact。归档保留可执行权限，包含运行库、调用程序和许可声明。
-CoolProp 精确缓存键绑定平台、架构、Python 3.13、托管工具链镜像版本、原生依赖锁和构建脚本。
+CoolProp 精确缓存键绑定平台、架构、Python 3.13、托管工具链镜像版本、原生依赖锁中的 CoolProp 输入和 `engineering/scripts/build_coolprop.py`。
+`build_coolprop.py cache-key --host <主机>` 输出 CMake 版本与生成器、CoolProp 锁定版本与主机选项、CPM 依赖锁定版本及其补丁文件的 SHA-256；SuperLU 和 AMGCL 变更不使缓存失效。
 项目 C++ 和模型系数每轮重新构建；缓存命中仍须完成独立调用验证。
 构建日志单独保存在 `native-build-logs-<平台>`。
 每片上传 `native-dependencies-<平台>-py<版本>-shard-<编号>`，macOS 编号为 0–2，Windows 为 0–5，

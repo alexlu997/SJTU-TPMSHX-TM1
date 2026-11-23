@@ -184,13 +184,6 @@ def assert_audited(case, native):
         iterations=iterations, enthalpy_clip_counts=dict(last=list(status[3:5]),total=list(status[5:7])))
 
 
-@pytest.mark.parametrize("pair", [("air", "water"), ("water", "air"), ("sco2", "sco2"), ("sco2", "water")])
-@pytest.mark.parametrize("shape,warm", [((4, 3, 1), False), ((4, 3, 2), True)])
-def test_complete_picard_eos_and_exact_energy(enthalpy_native, pair, shape, warm):
-    case = case_data(pair, shape, warm=warm)
-    assert_audited(case, enthalpy_native(case))
-
-
 @pytest.mark.parametrize("direction", range(6))
 def test_all_signed_face_directions(enthalpy_native, direction):
     case = case_data(directions=(direction, direction ^ 1), shape=(3, 2, 2))

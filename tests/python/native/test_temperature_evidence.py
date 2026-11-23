@@ -123,10 +123,10 @@ def test_query_rejects_null_and_unowned_results_without_writing_output(dimension
         pytest.skip('explicit native library required')
     assert Path(path).is_absolute() and Path(path).is_file()
     if dimension == 2:
-        from sjtu_tpmshx.cpp_interface.solver_library.full_2d import _Result
+        from sjtu_tpmshx.cpp_interface.solver_library._full_2d_abi import _Result
         output_type = TemperatureEvidence2D
     else:
-        from sjtu_tpmshx.cpp_interface.solver_library.full_3d import _Result
+        from sjtu_tpmshx.cpp_interface.solver_library._full_3d_abi import _Result
         output_type = TemperatureEvidence
     library = ct.CDLL(path)
     query = getattr(library, f'tpmshx_full_{dimension}d_get_model_enthalpy_evidence_v1')

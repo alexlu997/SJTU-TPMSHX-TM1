@@ -29,6 +29,7 @@ The consolidation removed these entries:
 Release functions, ABI version queries, records and other queries that the active entries use stay available.
 Each active preparation and saved-run descriptor is flat, with one top-level `(abi_version, struct_size)` header and no nested `values` chain.
 A library without a required active entry is a deployment error. Python does not select an archived runtime or another entry.
+Python binds only the saved stage runs. The direct full-solve entries serve C callers.
 Later sections describe earlier versions to record their history. Call only the entries in the table.
 
 ## Scope
@@ -107,7 +108,7 @@ It preserves complete strings and callback records, including embedded NUL chara
 It retains their order and removes duplicate messages.
 The completed stage supplies the sCO2 runtime notice once per active side.
 Python publishes it through the warning scope in the original order.
-The direct full-solve path retains `capture_applicability`. A capture error does not select that path.
+Tests use `capture_applicability` as an independent Python reference. A capture error stops the run.
 `tpmshx_stage_run_2d_execution_view_v1` and `tpmshx_stage_run_3d_execution_view_v1` publish the completed run's numerical evidence.
 They give the applied thermal controls, energy records, update scale and selected model-h call.
 Each view uses the same storage as the completed stage result. Copy it before result release.
@@ -450,8 +451,7 @@ The binding checks the complete protocol before execution and reports partial pr
 The optional audit outlet arrays retain the historical display taper. They do not replace physical openings.
 Python copies these values before it releases the stage result.
 `full_3d_stage.py` publishes the current FieldResult.
-The direct v5 driver keeps its existing capture calculations for the native solver verification tests.
-Those calculations stay until those tests have an accepted replacement.
+The native solver verification tests run the saved stage and the typed test bridges.
 Public schemas, model choices, warning order and immutable result buffers retain their existing contracts.
 Real 3D BO and visible desktop acceptance remain separate gates.
 

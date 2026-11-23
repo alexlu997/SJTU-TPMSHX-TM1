@@ -300,7 +300,7 @@ def test_current_condition_flow_uses_prepared_fractional_pore_area(window, dimen
     case = prepare_case(cfg, case_id='independent-inlet-check')
     if not dimension:
         from tests.python.native.prepared_snapshot import native_prepared_state
-        parameters, _, state = native_prepared_state(case, phase=6)
+        state = native_prepared_state(case, phase=6)
     for side, flow in zip('AB', rows[0][2:]):
         if dimension:
             prepared = case.parameters['prepared']

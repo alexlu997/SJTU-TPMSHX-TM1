@@ -1,7 +1,9 @@
 """Stable model-h C ABI: public metadata, callbacks and owned state.
 
-Compare the public ABI with the same native component, then independently
-audit its returned equations and boundary faces with the existing Python checks.
+One case per dimension compares the public ABI with the same native component.
+Other 3D cases audit the public returned state with the independent Python
+equations. The public 2D ABI does not return the accepted snapshots that the 2D
+audit needs, so each 2D case keeps its component comparison.
 The historical Python iterator follows a different short-budget trajectory.
 """
 from concurrent.futures import ThreadPoolExecutor
@@ -54,6 +56,31 @@ def arguments(c):
         alpha=c.get('alpha'), accelerate=c['accelerate'], red_black=c['rb'])
 
 
+def audit_public_volume(c, actual):
+    """Audit a public 3D result with the independent Python equations on its returned state."""
+    reference = copy.deepcopy(c)
+    reference['state'] = [np.asarray(field, dtype=np.float64) for field in actual[:3]]
+    info, expected = actual[3], volume.returned_model_info(reference)
+    assert 0 <= info['iterations'] <= c['maxit'] and np.isfinite(info['residual'])
+    assert all(np.all(np.isfinite(field)) for field in reference['state'])
+    for side in ('A', 'B'):
+        for face in volume.FACES:
+            np.testing.assert_allclose(info['_native_model_h'][side][face], expected['_native_model_h'][side][face],
+                                       rtol=2e-9, atol=2e-9)
+        for key in (f'eps_{side}_strict', f'eps_{side}_strict_cellmax', f'Q_s{side}'):
+            assert info[key] == pytest.approx(expected[key], rel=2e-9, abs=2e-9), key
+        for key in volume.SIDE_KEYS:
+            assert info['model_h_balance']['sides'][side][key] == pytest.approx(
+                expected['model_h_balance']['sides'][side][key], rel=2e-9, abs=2e-9), (side, key)
+    for key in volume.TOTAL_KEYS:
+        assert info['model_h_balance'][key] == pytest.approx(expected['model_h_balance'][key], rel=2e-9, abs=2e-9), key
+    gates = volume.compute_phase2a(dict(expected, _audit_fB=True))['gates']
+    if info['converged']:
+        assert all(passed for _, passed in gates), gates
+        checks = info['energy_finishing_checks']
+        assert checks and [passed for _, passed in checks[-1]['gates']] == [passed for _, passed in gates]
+
+
 def compare(actual, expected, *, rtol, atol):
     if isinstance(expected, dict):
         assert actual.keys() == expected.keys()
@@ -87,11 +114,14 @@ def test_full_public_metadata(driver, native_plane, native_volume, dimension, ki
     if kind == 'unknown':
         c['a'][2][-1] = -.0001 if dimension == 2 else -.000001
     original = copy.deepcopy(c)
-    reference = copy.deepcopy(c)
-    component = (native_plane if dimension == 2 else native_volume)(reference)
-    oracle.assert_actual_state(reference, component)
     actual = driver(**arguments(c))
-    oracle.assert_equivalent(reference, component, actual)
+    if dimension == 2 or kind == 'partial':
+        reference = copy.deepcopy(original)
+        component = (native_plane if dimension == 2 else native_volume)(reference)
+        oracle.assert_actual_state(reference, component)
+        oracle.assert_equivalent(reference, component, actual)
+    else:
+        audit_public_volume(original, actual)
     algorithm = ('shared_fv_model_h_2d_defect_v1' if dimension == 2
                  else 'shared_fv_model_h_3d_compensated_v1')
     assert _model_h_algorithm(driver.library, dimension) == algorithm

@@ -7,7 +7,6 @@ import threading
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.run_control.module_ports import RunControl
 from sjtu_tpmshx.run_control.cancellation import CancelledError
 from sjtu_tpmshx.data_types.solver_checkpoint import SolverCheckpoint
 from sjtu_tpmshx.file_io.case_io import save_case
@@ -18,14 +17,13 @@ from sjtu_tpmshx.postprocess.api import evaluate
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.cpp_interface.full_2d_stage import run_case
 from sjtu_tpmshx.solvers.api import run_case as run_public_case
-from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
 from tests.python.native import test_cpp_full_2d as public
 from tests.python.native import test_cpp_full_3d as spatial
 from tests.python.native.test_cpp_full_3d import _exact_resume_values
 from tests.python.native.test_full_2d import configuration
 from tests.python.native.shared_library import library_path
+from tests.python.native.stage_interception import TABLES, run_stage, stage_control
 
-driver = public.driver
 native_path = spatial.native_path
 ROOT = public.ROOT
 COUNT = 'state.result.outer_history.size'
@@ -44,10 +42,9 @@ def case(route):
     return prepare_case(config, case_id='full2d-checkpoint-'+route)
 
 
-def control(driver):
-    # The public saved stage needs the solver library; the standalone full 2D library has only the direct entry.
-    return RunControl(backend='cpp', native_library=str(library_path()),
-                      native_table_directory=driver.table_directory.decode())
+def raw(saved_case, control=None, **options):
+    """Return the raw native capture of one saved-stage run."""
+    return run_stage(saved_case, control, **options).native
 
 
 def compare_result(actual, expected):
@@ -57,7 +54,7 @@ def compare_result(actual, expected):
 
 
 @pytest.mark.parametrize('route', ['temperature', 'model_h', 'true_h', 'temperature_sou'])
-def test_full_2d_checkpoint_hdf5_round_trip(driver, tmp_path, route):
+def test_full_2d_checkpoint_hdf5_round_trip(tmp_path, route):
     prepared = case(route)
     case_path = save_case(prepared, tmp_path/'case.h5')
     paths = {cut: tmp_path/f'checkpoint-{cut}.h5' for cut in (0, 1, 'final')}
@@ -73,11 +70,11 @@ def test_full_2d_checkpoint_hdf5_round_trip(driver, tmp_path, route):
         assert saved.native_state['state.result.thermal.temperature.0'][0] > 0.
         captured.add(cut)
 
-    expected = run_case(prepared, control(driver), checkpoint=save_at_boundary)
+    expected = run_case(prepared, stage_control(), checkpoint=save_at_boundary)
     assert captured == paths.keys()
     for path in paths.values():
         saved = load_solver_checkpoint(path)
-        actual = run_case(load_checkpoint_case(saved), control(driver), resume_state=saved.native_state)
+        actual = run_case(load_checkpoint_case(saved), stage_control(), resume_state=saved.native_state)
         compare_result(actual, expected)
         assert actual.metadata['continuation']['completed_outer_steps'] == saved.native_state[COUNT][0]
         assert actual.metadata['continuation']['format'] == FORMAT
@@ -86,15 +83,15 @@ def test_full_2d_checkpoint_hdf5_round_trip(driver, tmp_path, route):
 @pytest.mark.parametrize('damage', ['build', 'input', 'control', 'type', 'size', 'unknown', 'missing',
                                     'thermal', 'geometry', 'phase', 'nonfinite', 'premature_finish',
                                     'different_exit', 'thermal_mode', 'previous'])
-def test_full_2d_checkpoint_rejects_damaged_fields(driver, damage):
-    cfg, prepared = build_execution_inputs(case('model_h'))
+def test_full_2d_checkpoint_rejects_damaged_fields(damage):
+    prepared = case('model_h')
     saved = {}
     def pause(state):
         if int(state[COUNT][0]) == (0 if damage == 'premature_finish' else 1):
             saved.update(state)
             raise PauseCheckpoint
     with pytest.raises(PauseCheckpoint):
-        driver.run_prepared(cfg, prepared, checkpoint=pause)
+        raw(prepared, checkpoint=pause)
     if damage == 'build':
         saved['build'] = 'another-build'
     elif damage == 'input':
@@ -127,7 +124,7 @@ def test_full_2d_checkpoint_rejects_damaged_fields(driver, damage):
     else:
         del saved['state.previous.0']
     with pytest.raises((ValueError, TypeError), match='state|continuation'):
-        driver.run_prepared(cfg, prepared, resume_state=saved)
+        raw(prepared, resume_state=saved)
 
 
 CHILD = r"""
@@ -153,7 +150,7 @@ if mode == 'interrupt':
     raise RuntimeError('checkpoint boundary was not reached')
 saved = load_solver_checkpoint(saved_path)
 result = run_case(load_checkpoint_case(saved), control, resume_state=saved.native_state)
-assert 'sjtu_tpmshx.cpp_interface.solver_library.full_2d' not in sys.modules
+assert not any(name.startswith('sjtu_tpmshx.cpp_interface.solver_library.full_2d') for name in sys.modules)
 save_result(result, result_path)
 """
 
@@ -195,10 +192,8 @@ def test_full_2d_checkpoint_continues_after_process_exit(native_path, tmp_path, 
 
 
 def test_checkpoint_rejects_other_dimension_in_the_same_library(native_path):
-    from sjtu_tpmshx.cpp_interface.solver_library.full_2d import NativeFull2DDriver
     from sjtu_tpmshx.cpp_interface.full_3d_stage import run_case as run_spatial
-    planar_driver = NativeFull2DDriver(native_path, table_directory=ROOT/'.cache/native-deps/tables')
-    cfg, prepared = build_execution_inputs(case('model_h'))
+    prepared = case('model_h')
     planar_state, spatial_state = {}, {}
     def pause_planar(state):
         planar_state.update(state)
@@ -208,12 +203,12 @@ def test_checkpoint_rejects_other_dimension_in_the_same_library(native_path):
         raise PauseCheckpoint
     spatial_case = spatial.case(cap=3)
     with pytest.raises(PauseCheckpoint):
-        planar_driver.run_prepared(cfg, prepared, checkpoint=pause_planar)
+        run_case(prepared, spatial.control(native_path), checkpoint=pause_planar)
     with pytest.raises(PauseCheckpoint):
         run_spatial(spatial_case, spatial.control(native_path), checkpoint=pause_spatial)
     assert planar_state['build'] == spatial_state['build']
     with pytest.raises(ValueError, match='state|continuation'):
-        planar_driver.run_prepared(cfg, prepared, resume_state=spatial_state)
+        run_case(prepared, spatial.control(native_path), resume_state=spatial_state)
     with pytest.raises(ValueError, match='state|continuation'):
         run_spatial(spatial_case, spatial.control(native_path), resume_state=planar_state)
 
@@ -245,43 +240,43 @@ def compare_native(actual, expected):
 
 @pytest.mark.parametrize('route', ['temperature', 'model_h', 'true_h', 'temperature_sou'])
 @pytest.mark.parametrize('after_update', [False, True])
-def test_inner_thermal_checkpoint_keeps_complete_result(driver, route, after_update):
-    cfg, prepared = build_execution_inputs(inner_case(route))
-    expected = driver.run_prepared(cfg, prepared)
+def test_inner_thermal_checkpoint_keeps_complete_result(route, after_update):
+    prepared = inner_case(route)
+    expected = raw(prepared)
     saved = {}
     def pause(state):
         if state['state.phase'][0] == 7 and bool(inner_position(state)) == after_update:
             saved.update(state)
             raise PauseCheckpoint
     with pytest.raises(PauseCheckpoint):
-        driver.run_prepared(cfg, prepared, checkpoint=pause)
+        raw(prepared, checkpoint=pause)
     assert saved['format'][0] == 2
-    compare_native(driver.run_prepared(cfg, prepared, resume_state=saved), expected)
+    compare_native(raw(prepared, resume_state=saved), expected)
 
 
 @pytest.mark.parametrize('route', ['temperature', 'model_h'])
 @pytest.mark.parametrize('position', [0, 25, 50])
-def test_inner_refinement_checkpoint_keeps_complete_result(driver, route, position):
-    cfg, prepared = build_execution_inputs(inner_case(route))
-    expected = driver.run_prepared(cfg, prepared)
+def test_inner_refinement_checkpoint_keeps_complete_result(route, position):
+    prepared = inner_case(route)
+    expected = raw(prepared)
     saved = {}
     def pause(state):
         if state['state.phase'][0] == 8 and inner_position(state) >= position:
             saved.update(state)
             raise PauseCheckpoint
     with pytest.raises(PauseCheckpoint):
-        driver.run_prepared(cfg, prepared, checkpoint=pause)
+        raw(prepared, checkpoint=pause)
     fine = 'state.result.refined.value.'
     assert saved[fine+'thermal.mass_x.0'].size > saved['state.result.thermal.mass_x.0'].size
     assert saved[fine+'thermal.temperature.0'].size == 4*saved['state.result.thermal.temperature.0'].size
-    compare_native(driver.run_prepared(cfg, prepared, resume_state=saved), expected)
+    compare_native(raw(prepared, resume_state=saved), expected)
 
 
 @pytest.mark.parametrize('outer', [0, 1])
 @pytest.mark.parametrize('iteration', [0, 1, 7])
-def test_inner_flow_checkpoint_keeps_complete_result(driver, outer, iteration):
-    cfg, prepared = build_execution_inputs(inner_case('model_h'))
-    expected = driver.run_prepared(cfg, prepared)
+def test_inner_flow_checkpoint_keeps_complete_result(outer, iteration):
+    prepared = inner_case('model_h')
+    expected = raw(prepared)
     saved = {}
     def pause(state):
         if (state['state.phase'][0] == 6 and state[COUNT][0] == outer
@@ -289,14 +284,14 @@ def test_inner_flow_checkpoint_keeps_complete_result(driver, outer, iteration):
             saved.update(state)
             raise PauseCheckpoint
     with pytest.raises(PauseCheckpoint):
-        driver.run_prepared(cfg, prepared, checkpoint=pause)
+        raw(prepared, checkpoint=pause)
     if outer:
         assert saved['state.flow.value.0.flow.pressure_iterations.size'][0] > 0
-    compare_native(driver.run_prepared(cfg, prepared, resume_state=saved), expected)
+    compare_native(raw(prepared, resume_state=saved), expected)
 
 
-def test_inner_flow_keeps_two_workers_and_original_callback_positions(driver):
-    cfg, prepared = build_execution_inputs(inner_case('model_h'))
+def test_inner_flow_keeps_two_workers_and_original_callback_positions():
+    prepared = inner_case('model_h')
     barrier = threading.Barrier(2, timeout=5)
     identifiers = {(outer, side): set() for outer in range(2) for side in 'AB'}
     positions = {key: [] for key in identifiers}
@@ -309,15 +304,15 @@ def test_inner_flow_keeps_two_workers_and_original_callback_positions(driver):
         positions[outer, side].append(iteration)
         if iteration == 1:
             barrier.wait()
-    actual = driver.run_prepared(cfg, prepared, replace(control(driver), residual=residual, outer_iteration=outer_iteration),
+    actual = raw(prepared, replace(stage_control(), residual=residual, outer_iteration=outer_iteration),
                                  checkpoint=lambda state: None)
     assert all(len(ids) == 1 for ids in identifiers.values())
     assert all(identifiers[i, 'A'].isdisjoint(identifiers[i, 'B']) for i in range(2))
     expected_positions = {key: [] for key in identifiers}
     def reference_residual(side, iteration, value):
         expected_positions[outer, side].append(iteration)
-    expected = driver.run_prepared(cfg, prepared,
-        replace(control(driver), residual=reference_residual, outer_iteration=outer_iteration))
+    expected = raw(prepared,
+        replace(stage_control(), residual=reference_residual, outer_iteration=outer_iteration))
     assert positions == expected_positions
     assert all(value[0] == 1 for value in positions.values())
     _exact_resume_values(actual, expected)
@@ -327,8 +322,8 @@ def test_inner_flow_keeps_two_workers_and_original_callback_positions(driver):
     'flow_shared_field', 'flow_geometry', 'flow_owner', 'flow_acceleration',
     'flow_acceleration_extent', 'flow_acceleration_budget', 'thermal_owner', 'thermal_field',
     'thermal_shared_field', 'thermal_budget', 'thermal_settings', 'thermal_input', 'fine_grid', 'fine_port'])
-def test_inner_checkpoint_rejects_damaged_iteration(driver, damage):
-    cfg, prepared = build_execution_inputs(inner_case('model_h'))
+def test_inner_checkpoint_rejects_damaged_iteration(damage):
+    prepared = inner_case('model_h')
     saved = {}
     def pause(state):
         phase = 6 if damage.startswith('flow') else 8 if damage.startswith('fine') else 7
@@ -339,7 +334,7 @@ def test_inner_checkpoint_rejects_damaged_iteration(driver, damage):
             saved.update(state)
             raise PauseCheckpoint
     with pytest.raises(PauseCheckpoint):
-        driver.run_prepared(cfg, prepared, checkpoint=pause)
+        raw(prepared, checkpoint=pause)
     flow = 'state.flow.value.0.'
     thermal = 'state.thermal.value.model_h.value.'
     if damage == 'flow_acceleration':
@@ -379,12 +374,12 @@ def test_inner_checkpoint_rejects_damaged_iteration(driver, damage):
     else:
         saved['state.result.refined.value.inlet_profile.0'][0] += .1
     with pytest.raises(ValueError, match='state|continuation|SIMPLE|model-h|chunk|monitor'):
-        driver.run_prepared(cfg, prepared, resume_state=saved)
+        raw(prepared, resume_state=saved)
 
 
 @pytest.mark.parametrize('phase', [6, 7, 8])
-def test_inner_cancel_keeps_last_complete_boundary(driver, phase):
-    cfg, prepared = build_execution_inputs(inner_case('model_h'))
+def test_inner_cancel_keeps_last_complete_boundary(phase):
+    prepared = inner_case('model_h')
     saved = {}
     cancel = False
     def checkpoint(state):
@@ -396,9 +391,9 @@ def test_inner_cancel_keeps_last_complete_boundary(driver, phase):
             position = state['state.flow.value.0.iteration.value.result.iterations'][0] if phase == 6 else inner_position(state)
             cancel = position > 0
     with pytest.raises(CancelledError):
-        driver.run_prepared(cfg, prepared, replace(control(driver), cancel_check=lambda: cancel), checkpoint=checkpoint)
+        raw(prepared, replace(stage_control(), cancel_check=lambda: cancel), checkpoint=checkpoint)
     assert saved['state.phase'][0] == phase
-    compare_native(driver.run_prepared(cfg, prepared, resume_state=saved), driver.run_prepared(cfg, prepared))
+    compare_native(raw(prepared, resume_state=saved), raw(prepared))
 
 
 INNER_CHILD = r"""
@@ -432,11 +427,11 @@ save_result(run_case(load_checkpoint_case(saved), control, resume_state=saved.na
 
 @pytest.mark.parametrize('phase,route', [(6, 'model_h'), (6, 'true_h'), (7, 'temperature'), (7, 'model_h'),
     (7, 'true_h'), (7, 'temperature_sou'), (8, 'temperature'), (8, 'model_h')])
-def test_inner_checkpoint_continues_after_process_exit(driver, tmp_path, phase, route):
+def test_inner_checkpoint_continues_after_process_exit(tmp_path, phase, route):
     prepared = inner_case(route)
     case_path = save_case(prepared, tmp_path/'case.h5')
     saved_path, result_path = tmp_path/'checkpoint.h5', tmp_path/'result.h5'
-    arguments = [str(phase), str(case_path), str(saved_path), str(result_path), str(library_path()), driver.table_directory.decode()]
+    arguments = [str(phase), str(case_path), str(saved_path), str(result_path), str(library_path()), str(TABLES)]
     stopped = subprocess.run([sys.executable, '-c', INNER_CHILD, 'interrupt', *arguments],
                              cwd=ROOT, capture_output=True, text=True, timeout=120)
     assert stopped.returncode == 23, stopped.stderr
@@ -451,7 +446,7 @@ def test_inner_checkpoint_continues_after_process_exit(driver, tmp_path, phase, 
     finished = subprocess.run([sys.executable, '-c', INNER_CHILD, 'resume', *arguments],
                               cwd=ROOT, capture_output=True, text=True, timeout=120)
     assert finished.returncode == 0, finished.stderr
-    actual, expected = load_result(result_path), run_case(prepared, control(driver))
+    actual, expected = load_result(result_path), run_case(prepared, stage_control())
     compare_result(actual, expected)
     actual_metrics, expected_metrics = evaluate(actual), evaluate(expected)
     for name, metric in expected_metrics.metrics.items():
@@ -461,9 +456,9 @@ def test_inner_checkpoint_continues_after_process_exit(driver, tmp_path, phase, 
 
 
 @pytest.mark.parametrize('cut', ['completed_side', 'confirmation'])
-def test_inner_flow_keeps_each_side_position(driver, cut):
-    cfg, prepared = build_execution_inputs(inner_case('model_h', simple=400))
-    expected = driver.run_prepared(cfg, prepared)
+def test_inner_flow_keeps_each_side_position(cut):
+    prepared = inner_case('model_h', simple=400)
+    expected = raw(prepared)
     saved = {}
     def pause(state):
         if state['state.phase'][0] != 6:
@@ -476,5 +471,5 @@ def test_inner_flow_keeps_each_side_position(driver, cut):
             saved.update(state)
             raise PauseCheckpoint
     with pytest.raises(PauseCheckpoint):
-        driver.run_prepared(cfg, prepared, checkpoint=pause)
-    compare_native(driver.run_prepared(cfg, prepared, resume_state=saved), expected)
+        raw(prepared, checkpoint=pause)
+    compare_native(raw(prepared, resume_state=saved), expected)

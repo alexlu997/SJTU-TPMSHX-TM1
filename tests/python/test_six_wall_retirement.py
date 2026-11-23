@@ -80,11 +80,9 @@ def test_prepared_archive_keeps_its_actual_grid_and_snapshot(tmp_path, dimension
     restored = load_case(path)
     controls = ComputeConfig.from_dict(mutable_data(restored.config_snapshot), prepared_grid=True)
     assert controls == config
-    if dimension == 2:
-        from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
-    else:
-        from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
-    build_execution_inputs(restored)
+    from tests.python.native.stage_interception import first_state
+    # The saved stage accepts the archived flag and reaches its first native boundary.
+    first_state(restored)
     for axis in 'xyz'[:dimension]:
         np.testing.assert_array_equal(restored.grid['d' + axis], current.grid['d' + axis])
     assert restored.config_snapshot['flags']['wall_refine_3d'] is enabled

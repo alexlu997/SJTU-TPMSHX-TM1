@@ -19,7 +19,6 @@ import os
 from pathlib import Path
 import platform
 import re
-import shlex
 import shutil
 import subprocess
 import sys
@@ -30,6 +29,11 @@ import tomllib
 import urllib.request
 import xml.etree.ElementTree as ET
 import zipfile
+
+if __package__:
+    from . import build_coolprop
+else:  # Script execution puts this directory first on sys.path.
+    import build_coolprop
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -283,107 +287,23 @@ def check_environment(cache: Path, python: Path, lock: Path) -> None:
 
 
 def coolprop_build_dir(cache: Path, host: str, role: str) -> Path:
-    name = "coolprop-preparation" if role == "preparation" and host == "macos-arm64" else "coolprop"
-    return cache / "build" / f"{name}-{host}"
+    return build_coolprop.coolprop_build_dir(cache, host, role)
 
 
 def coolprop_library(cache: Path, host: str, role: str) -> Path:
-    return coolprop_build_dir(cache, host, role) / (
-        "Release/CoolProp.lib" if host == "windows-x64" else "libCoolProp.a")
+    return build_coolprop.coolprop_library(cache, host, role)
 
 
 def _request_build_metadata(build_dir: Path) -> None:
-    query = build_dir / ".cmake/api/v1/query"
-    query.mkdir(parents=True, exist_ok=True)
-    for name in ("codemodel-v2", "toolchains-v1"):
-        (query / name).write_text("", encoding="utf-8")
+    build_coolprop.request_build_metadata(build_dir)
 
 
 def _record_coolprop_build(cache: Path, host: str, role: str) -> None:
-    build_dir = coolprop_build_dir(cache, host, role)
-    library = coolprop_library(cache, host, role)
-    if not library.is_file():
-        raise RuntimeError(f"CoolProp build did not produce {library}")
-    reply = build_dir / ".cmake/api/v1/reply"
-    indices = list(reply.glob("index-*.json"))
-    if not indices:
-        raise RuntimeError(f"Missing actual CoolProp CMake metadata: {reply}")
-    index_path = max(indices, key=lambda path: path.stat().st_mtime_ns)
-    index = json.loads(index_path.read_text(encoding="utf-8"))
-    objects = {}
-    for kind in ("codemodel", "toolchains"):
-        descriptor, = (item for item in index["objects"] if item["kind"] == kind)
-        objects[kind] = json.loads((reply / descriptor["jsonFile"]).read_text(encoding="utf-8"))
-    configuration, = (item for item in objects["codemodel"]["configurations"] if item["name"] == "Release")
-    target_ref, = (item for item in configuration["targets"] if item["name"] == "CoolProp")
-    target_path = reply / target_ref["jsonFile"]
-    target = json.loads(target_path.read_text(encoding="utf-8"))
-    if not any((build_dir / item["path"]).resolve() == library.resolve() for item in target["artifacts"]):
-        raise RuntimeError("CoolProp CMake artifact differs from the built archive")
-    groups = target["compileGroups"]
-    if {item["language"] for item in groups} != {"C", "CXX"} or any(
-            not item.get("compileCommandFragments") for item in groups):
-        raise RuntimeError("CoolProp metadata omitted actual C/C++ compilation options")
-    cache_values = {}
-    for line in (build_dir / "CMakeCache.txt").read_text(encoding="utf-8").splitlines():
-        match = re.fullmatch(r"(CMAKE_[A-Z0-9_]+):[^=]+=(.*)", line)
-        if match and (match[1].startswith(("CMAKE_C_FLAGS", "CMAKE_CXX_FLAGS", "CMAKE_OSX_", "CMAKE_VS_"))
-                      or match[1] in ("CMAKE_SYSTEM_VERSION", "CMAKE_MSVC_RUNTIME_LIBRARY", "CMAKE_GENERATOR")):
-            cache_values[match[1]] = match[2]
-    sdk = {"cmake_cache": cache_values}
-    if host == "macos-arm64":
-        settings = []
-        for toolchain in objects["toolchains"]["toolchains"]:
-            includes = toolchain.get("compiler", {}).get("implicit", {}).get("includeDirectories", [])
-            for directory in includes:
-                match = re.search(r"^(.+\.sdk)(?:/|$)", directory)
-                if match:
-                    path = Path(match[1]).resolve() / "SDKSettings.json"
-                    if path.is_file() and str(path) not in {item["path"] for item in settings}:
-                        data = json.loads(path.read_text(encoding="utf-8"))
-                        settings.append({"path": str(path), "version": data.get("Version"),
-                                         "canonical_name": data.get("CanonicalName")})
-        sdk["sdk_settings"] = settings
-    else:
-        project = build_dir / "CoolProp.vcxproj"
-        tree = ET.parse(project)
-        sdk["visual_studio_project"] = str(project)
-        sdk["windows_target_platform_versions"] = [item.text for item in tree.iter()
-            if item.tag.rsplit("}", 1)[-1] == "WindowsTargetPlatformVersion"]
-    spec = LOCK["sources"]["coolprop"]
-    record = dict(role=role, platform=host, archive=str(library.resolve()), version=spec["version"],
-                  revision=spec["commit"], configuration="Release", recorded_at=datetime.now(timezone.utc).isoformat(),
-                  compile_groups=groups, toolchains=objects["toolchains"]["toolchains"], sdk=sdk,
-                  evidence=dict(index=str(index_path), target=str(target_path),
-                                cache=str(build_dir / "CMakeCache.txt")))
-    (build_dir / "coolprop-build.json").write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+    build_coolprop.record_coolprop_build(cache, host, role, LOCK)
 
 
 def coolprop_build_record(cache: Path, host: str, role: str) -> dict:
-    archive_role = "preparation" if role == "preparation" and host == "macos-arm64" else "solver"
-    library = coolprop_library(cache, host, role)
-    record_path = coolprop_build_dir(cache, host, role) / "coolprop-build.json"
-    if not library.is_file() or not record_path.is_file():
-        raise RuntimeError(f"Build locked CoolProp archives and metadata first; missing {library} or {record_path}")
-    record = json.loads(record_path.read_text(encoding="utf-8"))
-    spec = LOCK["sources"]["coolprop"]
-    if (record["role"], record["platform"], record["version"], record["revision"]) != (
-            archive_role, host, spec["version"], spec["commit"]):
-        raise RuntimeError(f"CoolProp build record differs from the required role/source: {record_path}")
-    groups = record["compile_groups"]
-    if {item["language"] for item in groups} != {"C", "CXX"} or not record["toolchains"] or not record["sdk"]:
-        raise RuntimeError(f"CoolProp build record omitted actual toolchain evidence: {record_path}")
-    for group in groups:
-        fragments = group.get("compileCommandFragments", [])
-        if not fragments:
-            raise RuntimeError(f"CoolProp build record omitted compilation options: {record_path}")
-        if host == "macos-arm64":
-            flags = shlex.split(" ".join(item["fragment"] for item in fragments))
-            optimization = [value for value in flags if re.fullmatch(r"-O(?:[0-3sgz]|fast)", value)]
-            expected = "-Os" if archive_role == "preparation" else "-O3"
-            if not optimization or optimization[-1] != expected:
-                raise RuntimeError(f"CoolProp effective optimization differs from {archive_role}: {record_path}")
-    return dict(record, consumer_role=role, consumed_archive=str(library), record_source=str(record_path))
+    return build_coolprop.coolprop_build_record(cache, host, role, LOCK)
 
 
 def build(cache: Path, host: str, python: Path, lock: Path, component: str) -> None:
@@ -417,32 +337,12 @@ def build(cache: Path, host: str, python: Path, lock: Path, component: str) -> N
     if component != "preparation":
         apply_lu_patch(cache)
     cmake = cmake_path(cache, host)
-    spec = LOCK["sources"]["coolprop"]
     generator = ["-G", LOCK["cmake"][host]["generator"]]
     if host == "windows-x64":
         generator += ["-A", "x64"]
     if component in {"all", "coolprop"}:
-        options = [f"-D{value}" for value in spec["cmake-options"]]
-        options += [f"-DPython_EXECUTABLE={python}"]
-        options += ["-DFETCHCONTENT_FULLY_DISCONNECTED=ON"]
-        options += [f"-DCPM_{dependency['cpm-name']}_SOURCE={(cache / 'src' / dependency['directory']).as_posix()}"
-                    for dependency in LOCK["sources"].values() if "cpm-name" in dependency]
-        if host == "windows-x64":
-            options += [f"-D{value}" for value in spec["windows-options"]]
-        else:
-            options += ["-DCMAKE_OSX_ARCHITECTURES=arm64"]
-        roles = ("solver", "preparation") if host == "macos-arm64" else ("solver",)
-        for role in roles:
-            cp_build = coolprop_build_dir(cache, host, role)
-            selected_options = list(options)
-            if role == "preparation":
-                selected_options += [f"-D{value}" for value in spec["preparation-macos-options"]]
-            _request_build_metadata(cp_build)
-            run([cmake, "-S", cache / "src" / spec["directory"], "-B", cp_build,
-                 *generator, *selected_options], cache / "logs" / f"configure-{cp_build.name}.log")
-            run([cmake, "--build", cp_build, "--config", "Release", "--parallel", "2"],
-                cache / "logs" / f"build-{cp_build.name}.log")
-            _record_coolprop_build(cache, host, role)
+        build_coolprop.build_archives(cache, host, python, cmake, LOCK, run,
+                                      request_metadata=_request_build_metadata, record=_record_coolprop_build)
     if component in {"all", "pilot", "preparation"}:
         generated = cache / "generated"
         run([python, "-m", "engineering.scripts.generate_native_model_coefficients", "--output",

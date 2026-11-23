@@ -186,12 +186,8 @@ def check_prepared(case, native, temperature):
     return actual
 
 
-@pytest.mark.parametrize("arrangement", ["cross", "counter"])
-@pytest.mark.parametrize("mode", ["const", "mean"])
-@pytest.mark.parametrize("pair,topology", [("air_water", "Diamond"), ("water_air", "Gyroid"),
-                                           ("sco2_sco2", "Diamond")])
-def test_actual_prepared_geometry_full_property_passes(quick_design_native, temperature_driver, arrangement, mode, pair, topology):
-    check_prepared(prepared(arrangement, mode, pair, topology), quick_design_native, temperature_driver)
+# test_cpp_quick_design.test_public_fields_metrics_and_pass_contract applies check_prepared
+# to each prepared geometry and property pass with the same bridge result.
 
 
 @pytest.mark.parametrize("arrangement", ["cross", "counter"])

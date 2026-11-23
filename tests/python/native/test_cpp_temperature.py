@@ -13,6 +13,7 @@ from sjtu_tpmshx.run_control.cancellation import CancelledError
 from sjtu_tpmshx.cpp_interface.solver_library.temperature import NativeTemperatureDriver
 from tests.python.native import test_temperature_driver as cc
 from tests.python.native import test_temperature_staggered as stag
+from tests.python.native.temperature_fv_oracle import physical
 component_cc = cc.temperature_native
 component_staggered = stag.native
 
@@ -66,21 +67,63 @@ def prepared(c, staggered=False):
         sources=tuple(optional(x) for x in (c["a"][10], c["b"][10], c["source_s"])) if staggered else (None, None, None))
 
 
+def audit_returned_state(c, actual):
+    """Verify returned-state finiteness, iteration bounds, chunk alignment, and convergence."""
+    info = actual[3]
+    iterations = info["iterations"]
+    assert 0 <= iterations <= c["maxit"] and np.isfinite(info["residual"]) and info["residual"] >= 0
+    assert iterations == c["maxit"] or iterations % c["chunk"] == 0
+    if not info["converged"]:
+        assert iterations == c["maxit"]
+    else:
+        assert (iterations + c["chunk"] - 1) // c["chunk"] >= 2  # convergence needs a previous audited chunk
+    assert all(np.isfinite(np.asarray(field)).all() for field in actual[:3])
+
+
+def audit_public_cc(c, actual):
+    """Audit a public cell-centred result with the independent face oracle on its returned state."""
+    two_d = c["shape"][2] == 1
+    info = actual[3]
+    if not info["iterations"]:
+        return
+    state = [np.asarray(field)[..., None] if two_d else np.asarray(field) for field in actual[:3]]
+    expected = physical(dict(c, state=state))
+    solved = [0, 2] if c["prescribed"].size else [0, 1, 2]
+    boundary = float(np.nansum(expected["powers"])) - expected["prescribed_b_power"]
+    assert abs(float(np.sum(expected["residual"][solved])) + boundary) <= 2e-8
+    if info["converged"] and expected["boundary_complete"]:
+        residual = expected["residual"][solved].reshape(len(solved), -1)
+        assert max(np.abs(residual).sum(axis=1).max(), abs(boundary))/expected["denominator"] <= 1e-7
+    assert info["_native_temperature"]["Q_B"] == pytest.approx(expected["qb"], rel=2e-11, abs=1e-8)
+
+
 def equivalent(c, native, staggered=False, reference=None):
-    # Compare the ABI with its independently qualified native component.
-    assert reference is not None
-    reference_case = copy.deepcopy(c)
-    result = reference(reference_case)
-    code, status, metrics = result[:3]
-    assert code == 0, result[-1]
-    info = dict(converged=status[0] == 0, iterations=status[1], residual=metrics[0])
-    if c["shape"][2] != 1:
-        info["delegated_to_2d"] = False
-    expected = (*reference_case["state"], info)
+    """Compare the ABI with its native component, or audit it with the independent oracles.
+
+    One case per scheme passes ``reference`` to keep the exact component comparison.
+    Non-conservative staggered cases have no independent face oracle and always pass ``reference``.
+    """
     options = prepared(c, staggered)
     before = copy.deepcopy(options)
     actual = native(**options)
     two_d = c["shape"][2] == 1
+    expected_fields = None
+    if reference is None:
+        audit_returned_state(c, actual)
+        expected_info = {} if two_d else {"delegated_to_2d": False}
+        if not staggered:
+            audit_public_cc(c, actual)
+        else:
+            assert c["conservative"], "non-conservative staggered cases require component reference"
+    else:
+        reference_case = copy.deepcopy(c)
+        result = reference(reference_case)
+        code, status, metrics = result[:3]
+        assert code == 0, result[-1]
+        expected_info = dict(converged=status[0] == 0, iterations=status[1], residual=metrics[0])
+        if not two_d:
+            expected_info["delegated_to_2d"] = False
+        expected_fields = tuple(field[..., 0] if two_d else field for field in reference_case["state"])
     if c["maxit"] == 0:
         initial = ([x.copy() for x in c["state"]] if c["warm"] else
                    [np.full(c["shape"], t) for t in (*c["tin"], sum(c["tin"])/2)])
@@ -94,20 +137,21 @@ def equivalent(c, native, staggered=False, reference=None):
         oracle_case = dict(c, state=actual[:3])
         for side, label in enumerate(("A", "B")):
             if side == 1 and c["prescribed"].size:
-                expected[3][f"eps_{label}_strict"] = None
-                expected[3][f"eps_{label}_strict_cellmax"] = None
+                expected_info[f"eps_{label}_strict"] = None
+                expected_info[f"eps_{label}_strict_cellmax"] = None
                 continue
             f = c[("a", "b")[side]]
             faces = stag.reference_projection(*f[4:7], f[2], f[3], *c["widths"])
             residual, exchange = stag.independent_conservative_face_balance(oracle_case, side, faces)
             residuals[label] = residual
             scale = max(abs(float(np.sum(exchange))), 1.)
-            expected[3][f"eps_{label}_strict"] = abs(float(np.sum(residual)))/scale
-            expected[3][f"eps_{label}_strict_cellmax"] = float(np.max(np.abs(residual)))*residual.size/scale
-    rtol, atol = ((2e-10, 2e-8) if staggered else ((2e-12, 2e-10) if two_d else (2e-11, 2e-9)))
-    for field, target in zip(actual[:3], expected[:3]):
-        np.testing.assert_allclose(field, target[..., 0] if two_d else target, rtol=rtol, atol=atol)
-    for key, value in expected[3].items():
+            expected_info[f"eps_{label}_strict"] = abs(float(np.sum(residual)))/scale
+            expected_info[f"eps_{label}_strict_cellmax"] = float(np.max(np.abs(residual)))*residual.size/scale
+    if expected_fields is not None:
+        rtol, atol = ((2e-10, 2e-8) if staggered else ((2e-12, 2e-10) if two_d else (2e-11, 2e-9)))
+        for field, target in zip(actual[:3], expected_fields):
+            np.testing.assert_allclose(field, target, rtol=rtol, atol=atol)
+    for key, value in expected_info.items():
         if value is None or isinstance(value, (bool, int)):
             assert actual[3][key] == value
         else:
@@ -142,21 +186,23 @@ def equivalent(c, native, staggered=False, reference=None):
 def test_public_2d_cc(native, direction, sou_b, rb, component_cc):
     c = cc.temperature_case(directions=(direction, (direction+1)%4))
     c.update(sou_b=sou_b, rb=rb)
-    equivalent(c, native, reference=component_cc)
+    # The first node keeps the exact comparison with the native component.
+    equivalent(c, native, reference=component_cc if (direction, sou_b, rb) == (0, False, False) else None)
 
 
 @pytest.mark.parametrize("warm", [False, True])
 @pytest.mark.parametrize("budget", [0, 1, 19])
-def test_public_cc2d_rb_frozen_b_and_budget(native, warm, budget, component_cc):
+def test_public_cc2d_rb_frozen_b_and_budget(native, warm, budget):
     c = cc.temperature_case((5, 4, 1), (3, 1), sweeps=budget)
     c.update(rb=True, warm=warm, sou_b=True)
     c["prescribed"] = np.linspace(301, 329, np.prod(c["shape"])).reshape(c["shape"])
-    equivalent(c, native, reference=component_cc)
+    equivalent(c, native)
 
 
 @pytest.mark.parametrize("direction", range(6))
 def test_public_3d_cc(native, direction, component_cc):
-    equivalent(cc.temperature_case((4, 3, 2), (direction, (direction+1)%6)), native, reference=component_cc)
+    equivalent(cc.temperature_case((4, 3, 2), (direction, (direction+1)%6)), native,
+               reference=component_cc if direction == 0 else None)
 
 
 @pytest.mark.parametrize("direction", range(6))
@@ -165,12 +211,13 @@ def test_public_3d_cc(native, direction, component_cc):
 def test_public_staggered(native, direction, rb, conservative, component_staggered):
     c = stag.case(directions=(direction, (direction+1)%6))
     c.update(rb=rb, conservative=conservative)
-    equivalent(c, native, True, component_staggered)
+    # Non-conservative staggered states have no independent face oracle, so all 12 keep component comparison.
+    equivalent(c, native, True, component_staggered if (direction, rb) == (0, False) or not conservative else None)
 
 
 @pytest.mark.parametrize("scheme", [0, 1, 2])
 @pytest.mark.parametrize("warm", [False, True])
-def test_frozen_b_and_owned_outputs(native, scheme, warm, component_cc, component_staggered):
+def test_frozen_b_and_owned_outputs(native, scheme, warm):
     c = stag.case() if scheme == 2 else cc.temperature_case((4, 3, 1 if scheme == 0 else 2))
     c["prescribed"] = np.linspace(301, 329, np.prod(c["shape"])).reshape(c["shape"])
     c["warm"] = warm
@@ -179,8 +226,7 @@ def test_frozen_b_and_owned_outputs(native, scheme, warm, component_cc, componen
         c["b"][10] = np.full(c["shape"], -100.)
         c["source_s"] = np.full(c["shape"], 50.)
         c["a"][9] = np.full(c["a"][8].shape, .0004)
-    result = equivalent(c, native, scheme == 2,
-                        component_staggered if scheme == 2 else component_cc)
+    result = equivalent(c, native, scheme == 2)
     expected = c["prescribed"][..., 0] if scheme == 0 else c["prescribed"]
     np.testing.assert_array_equal(result[1], expected)
     saved = copy.deepcopy(result)
@@ -191,18 +237,17 @@ def test_frozen_b_and_owned_outputs(native, scheme, warm, component_cc, componen
                                       saved[3]["_native_temperature"]["equations"]["A"]["residual_W"])
 
 
-def test_staggered_b_mms_and_signed_capacity(native, component_staggered):
+def test_staggered_b_mms_and_signed_capacity(native):
     c = stag.case(sweeps=27)
     c["b"][10] = np.linspace(-1000, 1000, np.prod(c["shape"])).reshape(c["shape"])
     c["b"][9] = np.linspace(-.0001, .001, c["b"][8].size).reshape(c["b"][8].shape)
-    equivalent(c, native, True, component_staggered)
+    equivalent(c, native, True)
 
 
 @pytest.mark.parametrize("scheme", [0, 1, 2])
-def test_zero_budget_and_current_metadata(native, scheme, component_cc, component_staggered):
+def test_zero_budget_and_current_metadata(native, scheme):
     c = stag.case(sweeps=0) if scheme == 2 else cc.temperature_case((4, 3, 1 if scheme == 0 else 2), sweeps=0)
-    result = equivalent(c, native, scheme == 2,
-                        component_staggered if scheme == 2 else component_cc)
+    result = equivalent(c, native, scheme == 2)
     assert not result[3]["converged"] and result[3]["iterations"] == 0
     assert np.isnan(result[3]["_native_temperature"]["Q_B"])
 

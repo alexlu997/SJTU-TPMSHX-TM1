@@ -1,4 +1,4 @@
-"""Prepared resources keep their identity and dimension-specific check order."""
+"""Saved resources keep their identity and the saved-stage check order."""
 from dataclasses import replace
 
 import pytest
@@ -6,7 +6,8 @@ import pytest
 from sjtu_tpmshx.data_types.compute_config import ComputeConfig
 from sjtu_tpmshx.data_types.portable_data import mutable_data
 from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.solvers.backends import prepared_2d, prepared_3d
+from sjtu_tpmshx.solvers.api import run_case
+from tests.python.native.stage_interception import stage_control
 
 
 @pytest.fixture(params=[2, 3])
@@ -16,8 +17,16 @@ def prepared(request):
     config.geometry.Lz_m = .03 if dimension == 3 else None
     config.solver.Nx, config.solver.Ny, config.solver.Nz = 6, 5, 4 if dimension == 3 else 1
     case = prepare_case(config, case_id='model-resources')
-    builder = prepared_2d if dimension == 2 else prepared_3d
-    return case, builder.build_execution_inputs
+    return case, _rejected
+
+
+def _rejected(case):
+    """Run the saved stage, which packs resources with pack_saved_resources and checks them natively."""
+    progress = []
+    try:
+        run_case(case, stage_control(progress=progress.append))
+    finally:
+        assert not progress, 'an invalid saved resource reached native progress'
 
 
 @pytest.mark.parametrize('fault', ['missing', 'duplicate', 'unassigned'])
@@ -51,7 +60,8 @@ def test_fluid_identity_and_nu_checks_keep_their_order(prepared, side, fault):
         nu = {**ref.parameters['sco2_nu'], 'alpha_G': 1.1}
         refs[index] = replace(ref, parameters={**ref.parameters, 'sco2_nu': nu})
     invalid = replace(case, parameters=parameters, model_refs=refs)
-    nu_first = fault == 'nu' or (fault == 'both' and dimension == 2)
+    # pack_saved_resources checks the Nu selection before the native fluid identity check.
+    nu_first = fault in ('nu', 'both')
     message = (f'prepared Nu settings and fluid {side} resource disagree' if nu_first else
                f"prepared fluid {side} and {'its ' if dimension == 2 else ''}model resource disagree")
     with pytest.raises(ValueError) as caught:
@@ -68,12 +78,12 @@ def test_topology_must_match_recorded_resource(prepared):
 
 
 @pytest.mark.parametrize('prepared', [3], indirect=True)
-def test_3d_axis_checks_stay_between_each_sides_resource_checks(prepared):
+def test_3d_axis_check_precedes_the_other_side_resource_check(prepared):
     case, build = prepared
     parameters = mutable_data(case.parameters)
     parameters['prepared']['axes']['A']['stream_real_axis'] = -1
     parameters['fluid_type_B'] = 'water'
-    with pytest.raises(ValueError, match='prepared fluid A direction and axis map disagree'):
+    with pytest.raises(ValueError, match='prepared fluid A axis permutation disagrees with physical axes'):
         build(replace(case, parameters=parameters))
 
 
@@ -82,8 +92,8 @@ def test_resource_order_follows_roles_not_tuple_positions(prepared):
     refs = tuple(reversed(case.model_refs))
     roles = {role: len(refs) - 1 - index for role, index in case.metadata['model_roles'].items()}
     reordered = replace(case, model_refs=refs, metadata={**case.metadata, 'model_roles': roles})
-    actual = build(reordered)[0]['_input_resolution']
-    expected = build(case)[0]['_input_resolution']
+    actual = mutable_data(run_case(reordered, stage_control()).metadata['input_resolution'])
+    expected = mutable_data(run_case(case, stage_control()).metadata['input_resolution'])
     resources = actual.pop('resources')
     expected.pop('resources')
     assert actual == expected

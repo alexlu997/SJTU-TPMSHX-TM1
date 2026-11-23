@@ -22,18 +22,12 @@ from sjtu_tpmshx.file_io.result_io import save_result, load_result
 from sjtu_tpmshx.postprocess.api import evaluate, evaluate_physical_balance
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.api import run_case
-from sjtu_tpmshx.cpp_interface.solver_library.full_2d import NativeFull2DDriver
-from sjtu_tpmshx.cpp_interface.solver_library.full_2d_capture import capture_result
-from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
+from sjtu_tpmshx.cpp_interface import full_2d_stage
 from tests.python.native.shared_library import library_path
+from tests.python.native.stage_interception import TABLES, run_stage, stage_control
 
 ROOT = Path(__file__).resolve().parents[3]
 VERSIONS = {'temperature_fou': 1, 'temperature_sou': 2}
-
-
-@pytest.fixture(scope='module')
-def driver():
-    return NativeFull2DDriver(library_path(), table_directory=ROOT / '.cache/native-deps/tables')
 
 
 def configuration(algorithm, *, outer=2, partial=True, directions=(0, 3)):
@@ -59,13 +53,16 @@ def configuration(algorithm, *, outer=2, partial=True, directions=(0, 3)):
     for algorithm in ('temperature_sou',)
     for directions in ((0, 3), (1, 2)) for partial in (False, True)],
     ids=lambda value: f'{value[0]}-directions{value[1][0]}{value[1][1]}-partial{value[2]}')
-def capped(driver, request):
+def capped(request):
     algorithm, directions, partial = request.param
     case = prepare_case(configuration(algorithm, directions=directions, partial=partial),
                         case_id=f'energy2d-{algorithm}-{directions}-{partial}')
-    cfg, prepared = build_execution_inputs(case)
-    raw = driver.run_prepared(cfg, prepared)
-    return case, cfg, prepared, raw, capture_result(case, cfg, prepared, raw)
+    stage = run_stage(case)
+    return case, stage.cfg, stage.prepared, stage.native, stage.result
+
+
+def algorithm_of(case):
+    return case.parameters['run_settings']['solver']['enthalpy_algorithm']
 
 
 def test_actual_thermal_state_and_signed_ledger(capped):
@@ -77,8 +74,7 @@ def test_actual_thermal_state_and_signed_ledger(capped):
     assert result.backend_version == 'full_2d_v6'
     assert not raw['converged'] and raw['post_after_last_thermal']
     assert result.metadata['thermal_mode'] == 'conservative_energy'
-    assert info['energy_algorithm'] == info['effective_settings']['energy_algorithm'] == \
-        cfg['compute_cfg'].solver.enthalpy_algorithm
+    assert info['energy_algorithm'] == info['effective_settings']['energy_algorithm'] == algorithm_of(case)
     assert type(info['energy_algorithm_version']) is int
     assert info['energy_algorithm_version'] == info['effective_settings']['energy_algorithm_version'] == \
         VERSIONS[info['energy_algorithm']]
@@ -144,9 +140,9 @@ def test_actual_thermal_state_and_signed_ledger(capped):
 
 @pytest.mark.parametrize('algorithm', ['temperature_sou'])
 @pytest.mark.parametrize('partial', [False, True])
-def test_complete_original_native_acceptance(driver, algorithm, partial):
+def test_complete_original_native_acceptance(algorithm, partial):
     case = prepare_case(configuration(algorithm, outer=32, partial=partial), case_id='energy2d-complete')
-    raw = driver.run_prepared(*build_execution_inputs(case))
+    raw = run_stage(case).native
     assert raw['converged'], {key: raw[key] for key in ('iterations', 'outer_converged', 'simple_ok',
         'thermal_ok', 'envelope_ok', 'pair_balance_ok', 'model_balance_ok')}
     assert not raw['post_after_last_thermal']
@@ -155,7 +151,7 @@ def test_complete_original_native_acceptance(driver, algorithm, partial):
                for row in raw['outer_history'])
 
 
-def test_saved_case_result_new_process_replay(driver, capped, tmp_path):
+def test_saved_case_result_new_process_replay(capped, tmp_path):
     case, cfg, _, raw, result = capped
     case_path, result_path = tmp_path / 'case.h5', tmp_path / 'result.h5'
     save_case(case, case_path)
@@ -164,8 +160,7 @@ def test_saved_case_result_new_process_replay(driver, capped, tmp_path):
     assert audit['status'] == 'available' and audit['units'] == 'W/m'
     assert abs(audit['telescoping_error']) < 2e-7
     assert evaluate_physical_balance(load_result(result_path))['energy'] == audit
-    assert load_case(case_path).parameters['run_settings']['solver']['enthalpy_algorithm'] == \
-        cfg['compute_cfg'].solver.enthalpy_algorithm
+    assert algorithm_of(load_case(case_path)) == algorithm_of(case)
     assert evaluate(load_result(result_path)).metrics == evaluate(result).metrics
     code = '''
 import sys
@@ -189,19 +184,19 @@ assert not any(name.startswith(('numba','sjtu_tpmshx.solvers.ltne_',
 '''
     # The same SOU solve took 134 s in-process on Windows qualification runners.
     completed = subprocess.run([sys.executable, '-c', code, str(case_path), str(result_path),
-        str(tmp_path / 'replayed.h5'), str(driver.path), str(ROOT / '.cache/native-deps/tables')],
+        str(tmp_path / 'replayed.h5'), str(library_path()), str(TABLES)],
         cwd=ROOT, capture_output=True, text=True, timeout=300)
     assert completed.returncode == 0, completed.stdout + completed.stderr
 
 
 
 @pytest.mark.parametrize('algorithm', ['temperature_sou'])
-def test_zero_sweep_budget_retains_initial_fields(driver, algorithm):
+def test_zero_sweep_budget_retains_initial_fields(algorithm):
     config = configuration(algorithm)
     config = replace(config, solver=replace(config.solver, ltne_enthalpy_nsweep=0, ltne_enthalpy_outer=1))
     case = prepare_case(config, case_id='energy2d-zero-sweep')
-    cfg, prepared = build_execution_inputs(case)
-    actual = driver.run_prepared(cfg, prepared)
+    stage = run_stage(case)
+    cfg, actual = stage.cfg, stage.native
     info = actual['main']['true_h']
     assert not actual['converged'] and not actual['thermal_ok']
     assert info['energy_algorithm'] == algorithm and info['exit_reason'] == 'iteration_limit'
@@ -213,108 +208,55 @@ def test_zero_sweep_budget_retains_initial_fields(driver, algorithm):
         np.testing.assert_array_equal(field, np.full(field.shape, value))
 
 
-@pytest.mark.parametrize('algorithm', ['temperature_sou'])
-@pytest.mark.parametrize('partial', [False, True])
-def test_true_h_red_black_control_preserves_actual_state(driver, monkeypatch, algorithm, partial):
-    from sjtu_tpmshx.cpp_interface.solver_library import full_2d
-    case = prepare_case(configuration(algorithm, partial=partial), case_id='energy2d-red-black')
-    cfg, prepared = build_execution_inputs(case)
-    expected = driver.run_prepared(cfg, prepared)
-    pack = full_2d._pack
-
-    def with_red_black(*args):
-        shape, arrays, control = pack(*args)
-        control.red_black = 1
-        return shape, arrays, control
-
-    monkeypatch.setattr(full_2d, '_pack', with_red_black)
-    actual = driver.run_prepared(cfg, prepared)
-    for key in ('converged', 'iterations', 'outer_history', 'duty', 'pressure_drop',
-                'outlet_temperature', 'inlet_mass'):
-        assert actual[key] == expected[key]
-    np.testing.assert_equal(actual['main'], expected['main'])
-    result = capture_result(case, cfg, prepared, actual)
-    test_actual_thermal_state_and_signed_ledger((case, cfg, prepared, actual, result))
-
-
-def test_candidate_requires_supported_route_and_backend(driver):
+def test_candidate_requires_supported_route_and_backend():
     config = configuration('temperature_sou')
     case = prepare_case(config, case_id='energy2d-backend')
     with pytest.raises(ValueError, match='Python numerical backend has been retired'):
         run_case(case, RunControl(backend='python'))
     other = replace(config, fluid_B=replace(config.fluid_B, type='water'))
-    raw = driver.run_prepared(*build_execution_inputs(prepare_case(other, case_id='energy2d-route')))
+    raw = run_stage(prepare_case(other, case_id='energy2d-route')).native
     assert raw['main']['mode'] == 'model_h'
     assert raw['main']['true_h'] is None
 
 
-def test_library_without_v6_entry_is_rejected(driver, monkeypatch):
-    from sjtu_tpmshx.cpp_interface.solver_library import full_2d
-    original = driver.library
+def test_unsupported_saved_stage_abi_is_rejected_before_flow(monkeypatch):
+    original = full_2d_stage.ct.CDLL
+
+    class OtherStageLibrary:
+        def __init__(self, path):
+            self.library = original(path)
+
+        def __getattr__(self, name):
+            if name == 'tpmshx_stage_run_2d_abi_version':
+                return lambda: 4
+            return getattr(self.library, name)
+
+    case = prepare_case(configuration('temperature_sou'), case_id='energy2d-stage-abi')
+    monkeypatch.setattr(full_2d_stage.ct, 'CDLL', OtherStageLibrary)
+    progress = []
+    with pytest.raises(ValueError, match='unsupported saved 2D stage ABI 4; expected 5'):
+        run_stage(case, stage_control(progress=progress.append))
+    assert not progress
+
+
+def test_missing_execution_view_fails_before_flow(monkeypatch):
+    original = full_2d_stage.ct.CDLL
 
     class PartialLibrary:
+        def __init__(self, path):
+            self.library = original(path)
+
         def __getattr__(self, name):
-            if name == 'tpmshx_solve_full_2d_v6':
+            if name == 'tpmshx_stage_run_2d_execution_view_v1':
                 raise AttributeError(name)
-            return getattr(original, name)
-    monkeypatch.setattr(full_2d.ct, 'CDLL', lambda _: PartialLibrary())
-    with pytest.raises(ValueError, match='lacks tpmshx_solve_full_2d_v6'):
-        NativeFull2DDriver(driver.path)
+            return getattr(self.library, name)
 
-
-def test_missing_energy_evidence_query_fails_before_flow(driver, monkeypatch):
-    original = driver.library
-
-    class PartialLibrary:
-        def __getattr__(self, name):
-            if name == 'tpmshx_full_2d_get_energy_evidence_v1':
-                raise AttributeError(name)
-            return getattr(original, name)
     case = prepare_case(configuration('temperature_sou'), case_id='energy2d-partial-library')
-    monkeypatch.setattr(driver, 'library', PartialLibrary())
-    monkeypatch.setattr(driver, 'call', lambda *_: pytest.fail('native solve ran before its capability check'))
-    with pytest.raises(ValueError, match='lacks conservative energy v6'):
-        driver.run_prepared(*build_execution_inputs(case))
-
-
-@pytest.mark.parametrize('algorithm', ['legacy_h_fou', *VERSIONS])
-def test_missing_version_query_blocks_candidate_before_solve_but_allows_legacy(driver, monkeypatch, algorithm):
-    from sjtu_tpmshx.cpp_interface.solver_library import full_2d
-    original, entered = driver.library, []
-
-    class SolveEntered(Exception):
-        pass
-
-    def solve(*args):
-        entered.append(True)
-        raise SolveEntered
-
-    def historical_defaults(dimension, selected, water, output):
-        status = original.tpmshx_full_enthalpy_defaults_v1(dimension, 2, water, output)
-        output._obj.algorithm = selected
-        return status
-
-    class PartialLibrary:
-        def __getattr__(self, name):
-            if name == "tpmshx_full_enthalpy_defaults_v1":
-                return historical_defaults
-            if name == 'tpmshx_energy_algorithm_version_v1':
-                raise AttributeError(name)
-            if name == 'tpmshx_solve_full_2d_v6':
-                return solve
-            return getattr(original, name)
-
-    case = prepare_case(configuration(algorithm), case_id='energy2d-missing-version')
-    monkeypatch.setattr(full_2d.ct, 'CDLL', lambda _: PartialLibrary())
-    partial = NativeFull2DDriver(driver.path)
-    if algorithm == 'legacy_h_fou':
-        with pytest.raises(SolveEntered):
-            partial.run_prepared(*build_execution_inputs(case))
-        assert entered == [True]
-    else:
-        with pytest.raises(ValueError, match='lacks conservative energy algorithm version query'):
-            partial.run_prepared(*build_execution_inputs(case))
-        assert not entered
+    monkeypatch.setattr(full_2d_stage.ct, 'CDLL', PartialLibrary)
+    progress = []
+    with pytest.raises(ValueError, match='lacks tpmshx_stage_run_2d_execution_view_v1'):
+        run_stage(case, stage_control(progress=progress.append))
+    assert not progress
 
 
 @pytest.mark.parametrize('executed,version', [(1, 1), (2, 1), (2, 2)])
@@ -353,14 +295,9 @@ def test_energy_decoder_rejects_unsupported_native_version(executed, version):
 
 
 @pytest.mark.parametrize('kind', ['cancel', 'callback', 'decode'])
-def test_candidate_exception_releases_and_recovers(driver, monkeypatch, kind):
-    from sjtu_tpmshx.cpp_interface import full_2d_stage as binding
-    cfg, prepared = build_execution_inputs(prepare_case(configuration('temperature_sou'), case_id='energy2d-owner'))
-    original, released = driver.release, []
-    def release(pointer):
-        assert pointer._obj.owner
-        original(pointer)
-        released.append(pointer._obj.owner)
+def test_candidate_exception_releases_and_recovers(monkeypatch, kind):
+    from tests.python.native.test_cpp_full_2d import tracked_entries
+    case = prepare_case(configuration('temperature_sou'), case_id='energy2d-owner')
     calls = []
     def cancel():
         calls.append(1)
@@ -368,18 +305,19 @@ def test_candidate_exception_releases_and_recovers(driver, monkeypatch, kind):
     def broken(*args, **kwargs):
         raise RuntimeError('candidate-owner-marker')
     with monkeypatch.context() as patcher:
-        patcher.setattr(driver, 'release', release)
-        control = RunControl()
+        released = tracked_entries(patcher)
+        control = stage_control()
         if kind == 'decode':
-            patcher.setattr(binding, '_energy_native_state', broken)
+            patcher.setattr(full_2d_stage, '_energy_native_state', broken)
         elif kind == 'callback':
-            control = RunControl(outer_iteration=broken)
+            control = stage_control(outer_iteration=broken)
         else:
-            control = RunControl(cancel_check=cancel)
+            control = stage_control(cancel_check=cancel)
         with pytest.raises(CancelledError if kind == 'cancel' else RuntimeError):
-            driver.run_prepared(cfg, prepared, control)
-    assert released == [None]
-    assert driver.run_prepared(cfg, prepared)['main']['true_h']['converged']
+            run_stage(case, control)
+    # A failure inside the native call returns no result owner; a decode failure releases the returned owner.
+    assert released == ([None] if kind == 'decode' else [])
+    assert run_stage(case).native['main']['true_h']['converged']
 
 
 @pytest.mark.parametrize('algorithm,tolerance', [('unknown', 1e-8), ('temperature_fou', 0.),
@@ -392,7 +330,7 @@ def test_invalid_persisted_options_rejected(algorithm, tolerance):
 
 
 @pytest.mark.parametrize('algorithm', ['temperature_sou'])
-def test_explicit_controls_reach_complete_thermal_calls_and_saved_replay(driver, tmp_path, algorithm):
+def test_explicit_controls_reach_complete_thermal_calls_and_saved_replay(tmp_path, algorithm):
     config = configuration(algorithm)
     config.solver = replace(config.solver, ltne_enthalpy_outer=12000,
         ltne_enthalpy_nsweep=5, ltne_enthalpy_omega=.2 if algorithm == 'temperature_sou' else .6,
@@ -401,8 +339,7 @@ def test_explicit_controls_reach_complete_thermal_calls_and_saved_replay(driver,
     case = prepare_case(config, case_id='explicit-energy2d-' + algorithm)
     save_case(case, tmp_path / 'case.h5')
     restored = load_case(tmp_path / 'case.h5')
-    result = run_case(restored, RunControl(backend='cpp', native_library=str(driver.path),
-                                         native_table_directory=str(ROOT / '.cache/native-deps/tables')))
+    result = run_case(restored, stage_control())
     assert result.backend_version == 'full_2d_v6'
     detail = result.metadata['diagnostics']['convergence_detail']
     assert detail['ltne_ok'] and not detail['outer_converged']
@@ -426,11 +363,11 @@ def test_explicit_controls_reach_complete_thermal_calls_and_saved_replay(driver,
 
 
 @pytest.mark.parametrize('algorithm', ['temperature_sou'])
-def test_one_explicit_control_preserves_other_route_defaults(driver, algorithm):
+def test_one_explicit_control_preserves_other_route_defaults(algorithm):
     config = configuration(algorithm)
     config.solver = replace(config.solver, ltne_enthalpy_coupled_energy_tol=1e-7)
     case = prepare_case(config, case_id='one-explicit-control-' + algorithm)
-    raw = driver.run_prepared(*build_execution_inputs(case))
+    raw = run_stage(case).native
     expected = dict(max_iterations=12000, sweeps=5,
         omega=.2, update_tol=.001,
         coupled_energy_tol=1e-7, equation_energy_tol=.001,
@@ -440,20 +377,22 @@ def test_one_explicit_control_preserves_other_route_defaults(driver, algorithm):
     assert actual['energy_algorithm'] == algorithm
 
 
-def test_explicit_thermal_controls_reject_unavailable_routes_before_flow(driver):
+def test_explicit_thermal_controls_reject_unavailable_routes_before_flow():
     config = configuration('temperature_sou')
     config.solver = replace(config.solver, ltne_enthalpy_nsweep=4)
     case = prepare_case(config, case_id='explicit-energy2d-backend')
     with pytest.raises(ValueError, match='Python numerical backend has been retired'):
         run_case(case, RunControl(backend='python'))
     other = replace(config, fluid_B=replace(config.fluid_B, type='water'))
+    progress = []
     with pytest.raises(ValueError, match='existing true-h route'):
-        driver.run_prepared(*build_execution_inputs(prepare_case(other, case_id='explicit-energy2d-model-h')))
+        run_stage(prepare_case(other, case_id='explicit-energy2d-model-h'), stage_control(progress=progress.append))
+    assert not progress
 
 
 @pytest.mark.parametrize('algorithm', ['legacy_h_fou', 'temperature_fou'])
 @pytest.mark.parametrize('model_h_controls', [False, True])
-def test_retired_algorithm_is_rejected_before_flow(driver, algorithm, model_h_controls):
+def test_retired_algorithm_is_rejected_before_flow(algorithm, model_h_controls):
     config = configuration(algorithm)
     if model_h_controls:
         config = replace(config, fluid_A=replace(config.fluid_A, type='air', P_in_Pa=2e5),
@@ -462,5 +401,5 @@ def test_retired_algorithm_is_rejected_before_flow(driver, algorithm, model_h_co
     case = prepare_case(config, case_id='retired-energy2d')
     progress = []
     with pytest.raises(ValueError, match='energy|enthalpy'):
-        run_case(case, RunControl(backend='cpp', native_library=str(driver.path), progress=progress.append))
+        run_case(case, stage_control(progress=progress.append))
     assert not progress

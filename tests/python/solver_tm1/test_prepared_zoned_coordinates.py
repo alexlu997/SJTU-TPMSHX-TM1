@@ -58,7 +58,7 @@ def _physical_fields(case, mode):
 @pytest.mark.parametrize('nonuniform', [False, True])
 def test_prepared_drag_uses_the_same_physical_design_in_all_directions(
         mode, direction, nonuniform, tmp_path, monkeypatch):
-    from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
+    from tests.python.native.stage_interception import first_state
     cfg = _config(mode, direction, nonuniform)
     # Production preparation chooses its fixed model even if a retired
     # standalone-method override is present in the launching environment.
@@ -84,14 +84,14 @@ def test_prepared_drag_uses_the_same_physical_design_in_all_directions(
     # The receiver consumes the prepared data, even without the original config.
     save_case(case, tmp_path / 'case.yaml')
     loaded = replace(load_case(tmp_path / 'case.yaml'), config_snapshot={})
-    run_cfg, _ = build_execution_inputs(loaded)
-    for side in ('A', 'B'):
-        np.testing.assert_array_equal(run_cfg['flow_inputs'][side]['K_m2'],
+    state = first_state(loaded)
+    for index, side in enumerate(('A', 'B')):
+        np.testing.assert_array_equal(state[f'input.sides.{index}.row_permeability'],
                                       case.parameters['flow_inputs'][side]['K_m2'])
 
 
 def test_3d_graded_zone_uses_physical_centres_without_changing_smoothing(tmp_path):
-    from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
+    from tests.python.native.stage_interception import first_state
     cfg = ComputeConfig(
         geometry=GeometryConfig(L_dom_m=.06, H_dom_m=.03, Lz_m=.03,
                                 L_cell_mm=6., t_wall_mm=.3),
@@ -119,8 +119,8 @@ def test_3d_graded_zone_uses_physical_centres_without_changing_smoothing(tmp_pat
         assert case.design_fields['K_m2'][i, 0, 0] == pytest.approx(expected_K, rel=1e-12)
     save_case(case, tmp_path / 'case.yaml')
     loaded = replace(load_case(tmp_path / 'case.yaml'), config_snapshot={})
-    _, prepared = build_execution_inputs(loaded)
-    np.testing.assert_array_equal(prepared['design']['L_field_m'], case.design_fields['L_field_m'])
+    state = first_state(loaded)
+    np.testing.assert_array_equal(state['input.geometry.cell_length'], case.design_fields['L_field_m'].ravel())
 
 
 def test_3d_zone_default_overlap_and_index_smoothing_are_preserved():

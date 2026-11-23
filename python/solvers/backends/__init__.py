@@ -1,1 +1,1 @@
-"""Prepared input validation and native numerical bindings."""
+"""Published import names for the native numerical bindings."""

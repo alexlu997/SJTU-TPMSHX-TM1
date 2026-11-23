@@ -228,3 +228,84 @@ def test_model_source_verification_excludes_pressure_solver_inputs(tmp_path, mon
     monkeypatch.setattr(native, 'run', run)
     native.verify_sources(tmp_path, models_only=True)
     assert set(checked) == {'CP', 'Eigen'}
+
+
+def coolprop_cache_lock():
+    return {'cmake': {'version': '4.4.4', 'macos-arm64': {'generator': 'Unix Makefiles'},
+                      'windows-x64': {'generator': 'Visual Studio 17 2022'}},
+            'sources': {
+                'coolprop': {'version': '8.0.0', 'commit': 'locked-eos', 'cmake-options': ['A=ON', 'B=ON'],
+                             'preparation-macos-options': ['OPT=-Os'], 'windows-options': ['MSVC=ON']},
+                'superlu': {'version': '7.0.1', 'commit': 'locked-lu', 'scipy-patch-files': ['SRC/a.c']},
+                'amgcl': {'version': '1.5.0', 'commit': 'locked-amg'},
+                'eigen': {'commit': 'locked-eigen', 'cpm-name': 'Eigen'},
+                'fmt': {'commit': 'locked-fmt', 'cpm-name': 'fmt'}}}
+
+
+@pytest.mark.parametrize('host', ['macos-arm64', 'windows-x64'])
+def test_coolprop_cache_key_excludes_pressure_solver_inputs(tmp_path, host):
+    from engineering.scripts import build_coolprop
+
+    baseline = build_coolprop.coolprop_cache_digest(tmp_path, coolprop_cache_lock(), host)
+    assert len(baseline) == 64 and int(baseline, 16) >= 0
+    assert native.build_coolprop is build_coolprop
+
+    def digest(change):
+        lock = coolprop_cache_lock()
+        change(lock)
+        return build_coolprop.coolprop_cache_digest(tmp_path, lock, host)
+
+    unchanged = (
+        lambda lock: lock['sources']['superlu'].update(commit='other-lu', version='7.0.2'),
+        lambda lock: lock['sources']['amgcl'].update(commit='other-amg'),
+        lambda lock: lock.update(sources=dict(reversed(list(lock['sources'].items())))),
+        lambda lock: lock['sources']['coolprop'].update(
+            {'windows-options' if host == 'macos-arm64' else 'preparation-macos-options': ['OTHER=ON']}),
+    )
+    for change in unchanged:
+        assert digest(change) == baseline
+    changed = (
+        lambda lock: lock['sources']['coolprop'].update(commit='other-eos'),
+        lambda lock: lock['sources']['coolprop'].update(version='8.0.1'),
+        lambda lock: lock['sources']['coolprop'].update({'cmake-options': ['B=ON', 'A=ON']}),
+        lambda lock: lock['sources']['coolprop'].update(
+            {'preparation-macos-options' if host == 'macos-arm64' else 'windows-options': ['OTHER=ON']}),
+        lambda lock: lock['sources']['eigen'].update(commit='other-eigen'),
+        lambda lock: lock['sources']['fmt'].update({'cpm-name': 'fmt-other'}),
+        lambda lock: lock['sources'].update(json={'commit': 'locked-json', 'cpm-name': 'nlohmann_json'}),
+        lambda lock: lock['cmake'].update(version='4.4.5'),
+        lambda lock: lock['cmake'][host].update(generator='Ninja'),
+    )
+    digests = {digest(change) for change in changed}
+    assert baseline not in digests and len(digests) == len(changed)
+
+
+def test_coolprop_cache_key_includes_referenced_patch_bytes(tmp_path):
+    from engineering.scripts import build_coolprop
+
+    patch = tmp_path / 'engineering/native_build/patches/fmt.patch'
+    patch.parent.mkdir(parents=True)
+    patch.write_bytes(b'first patch\n')
+    lock = coolprop_cache_lock()
+    lock['sources']['fmt']['patch'] = 'engineering/native_build/patches/fmt.patch'
+    first = build_coolprop.coolprop_cache_digest(tmp_path, lock, 'macos-arm64')
+    assert first != build_coolprop.coolprop_cache_digest(tmp_path, coolprop_cache_lock(), 'macos-arm64')
+    patch.write_bytes(b'second patch\n')
+    assert build_coolprop.coolprop_cache_digest(tmp_path, lock, 'macos-arm64') != first
+    with pytest.raises(ValueError, match='not built for linux-x86_64'):
+        build_coolprop.coolprop_cache_digest(tmp_path, lock, 'linux-x86_64')
+
+
+def test_coolprop_cache_key_command_reads_the_repository_lock():
+    import subprocess
+    import sys
+    import tomllib
+
+    from engineering.scripts import build_coolprop
+
+    root = Path(build_coolprop.__file__).resolve().parents[2]
+    lock = tomllib.loads((root / 'engineering/native_build/dependencies-lock.toml').read_text(encoding='utf-8'))
+    for host in ('macos-arm64', 'windows-x64'):
+        output = subprocess.run([sys.executable, root / 'engineering/scripts/build_coolprop.py', 'cache-key',
+                                 '--host', host], check=True, capture_output=True, text=True).stdout
+        assert output.strip() == build_coolprop.coolprop_cache_digest(root, lock, host)

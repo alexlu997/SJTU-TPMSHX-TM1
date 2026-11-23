@@ -31,11 +31,14 @@ def result():
 def test_demo_preparation_keeps_original_workload(cube):
     from sjtu_tpmshx.preprocess.api import prepare_case
     from sjtu_tpmshx.development.runs.demos.demo_3d_cube_air_air import build_cube_cfg
-    from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
+    from sjtu_tpmshx.cpp_interface.full_3d_stage import validate_saved_case
 
     config = build_cube_cfg() if cube else air.build_cfg()
     case = prepare_case(config, case_id='demo-inputs')
-    actual_cfg, actual = build_execution_inputs(case)
+    validate_saved_case(case)
+    actual_cfg = case.parameters
+    actual = dict(actual_cfg['prepared'], design=case.design_fields,
+                  **{'d' + axis: case.grid['d' + axis] for axis in 'xyz'})
     geometry, solver = config.geometry, config.solver
     # The grid covers the physical domain with the requested cell counts.
     for axis, count, length in zip('xyz', (solver.Nx, solver.Ny, solver.Nz),

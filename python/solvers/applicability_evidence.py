@@ -1,4 +1,8 @@
-"""Copy native applicability evidence and retain direct-runtime capture."""
+"""Select applicability evidence in Python from a completed result.
+
+The saved native stages make this selection. Tests use this function as an
+independent reference for the native record.
+"""
 
 from sjtu_tpmshx.run_control.run_warnings import captured_scope_notes
 

@@ -1,29 +1,18 @@
 """Portable native 2D fields, diagnostics and metric evidence remain usable."""
 from collections.abc import Mapping
 from dataclasses import replace
-import os
 
 import numpy as np
 import pytest
 
 from sjtu_tpmshx.run_control.cancellation import CancelledError
 from sjtu_tpmshx.data_types.compute_config import ComputeConfig, PartialBCConfig, ZoneInputConfig
-from sjtu_tpmshx.run_control.module_ports import RunControl
 from sjtu_tpmshx.run_control.run_warnings import RangeRecord, warning_scope
 from sjtu_tpmshx.postprocess.api import evaluate, evaluate_physical_balance
 from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.cpp_interface.solver_library.full_2d import NativeFull2DDriver
-from sjtu_tpmshx.cpp_interface.solver_library.full_2d_capture import capture_result
-from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
-from tests.python.native.shared_library import library_path
+from sjtu_tpmshx.cpp_interface.full_2d_stage import capture_result
+from tests.python.native.stage_interception import run_stage, stage_control
 from tests.python.native.test_full_2d import ROOT, configuration
-
-
-
-@pytest.fixture(scope='module')
-def driver():
-    # Full 2D and full 3D load the same library, which fixes one EOS directory.
-    return NativeFull2DDriver(library_path(), table_directory=ROOT / '.cache/native-deps/tables')
 
 
 def compare(actual, expected, path=''):
@@ -67,10 +56,9 @@ def test_power_comparison_uses_units_at_root_and_nested_paths():
         compare(np.array([100001]), np.array([100000]), 'counts')
 
 
-def captured(driver, case):
-    cfg, prepared = build_execution_inputs(case)
-    raw = driver.run_prepared(cfg, prepared, RunControl())
-    return capture_result(case, cfg, prepared, raw), raw
+def captured(case):
+    stage = run_stage(case)
+    return stage.result, stage.native
 
 
 def check_portable(actual, raw, case):
@@ -103,10 +91,12 @@ def check_portable(actual, raw, case):
     from tests.python.native.result_reference.shared_math import pressure_face_values
     pressure_drop = []
     for side, flow in zip('AB', raw['flow']):
-        inlet, outlet = pressure_face_values(flow['pressure'],flow['dy'])
+        # Each saved flow grid has cross widths in dx and stream widths in dy.
+        grid = case.parameters['flow_inputs'][side]
+        inlet, outlet = pressure_face_values(flow['pressure'],grid['dy'])
         opening = case.parameters['boundary_openings'][side]
-        pressure_drop.append(np.average(inlet,weights=flow['dx']*opening['in_geom_frac'])
-            - np.average(outlet,weights=flow['dx']*opening['out_geom_frac']))
+        pressure_drop.append(np.average(inlet,weights=grid['dx']*opening['in_geom_frac'])
+            - np.average(outlet,weights=grid['dx']*opening['out_geom_frac']))
     metrics = evaluate(actual).metrics
     expected = dict(Q=abs(raw['duty'][0]), Q_A=raw['duty'][0], Q_B=raw['duty'][1],
         dP_A=pressure_drop[0], dP_B=pressure_drop[1],
@@ -167,11 +157,11 @@ def check_range_records(records, rows):
 
 
 @pytest.mark.parametrize('mode', ['model_h', 'true_h'])
-def test_capped_partial_fields_last_inputs_and_recomputed_metrics(driver, mode):
+def test_capped_partial_fields_last_inputs_and_recomputed_metrics(mode):
     case = prepare_case(configuration(directions=(1, 2), outer=2, partial=True, mode=mode),
                         case_id='capture-partial-' + mode)
     with warning_scope({}) as actual_records:
-        actual, raw = captured(driver, case)
+        actual, raw = captured(case)
     check_range_records(actual_records, raw['range_observations'])
     check_portable(actual, raw, case)
     for result in (actual,):
@@ -200,13 +190,13 @@ def test_capped_partial_fields_last_inputs_and_recomputed_metrics(driver, mode):
         assert scale['unit'] == 'J/kg' and all(value >= 1 for value in scale['sides'].values())
 
 
-def test_capped_temperature_capture_uses_current_full_cc_enthalpy(driver):
+def test_capped_temperature_capture_uses_current_full_cc_enthalpy():
     """Check exported fullCC powers from the signed boundary ledger."""
 
     case = prepare_case(configuration(directions=(1, 2), outer=2, mode='temperature'),
                         case_id='capture-partial-temperature')
     with warning_scope({}) as actual_records:
-        actual, raw = captured(driver, case)
+        actual, raw = captured(case)
     check_range_records(actual_records, raw['range_observations'])
     check_portable(actual, raw, case)
     assert actual.run_status['final_flow_after_last_thermal'] and not actual.run_status['converged']
@@ -249,12 +239,12 @@ def test_capped_temperature_capture_uses_current_full_cc_enthalpy(driver):
 
 
 @pytest.mark.parametrize('outer,warm', [(2, False), (2, True)])
-def test_range_ledger_keeps_scalar_warm_sources_and_worst_snapshot_counts(driver, outer, warm):
+def test_range_ledger_keeps_scalar_warm_sources_and_worst_snapshot_counts(outer, warm):
     config = configuration(directions=(2, 1), outer=outer, warm=warm, mode='model_h')
     config = replace(config, fluid_A=replace(config.fluid_A, T_in_K=1150.))
     case = prepare_case(config, case_id=f'range-hot-air-{outer}-{warm}')
     with warning_scope({}) as actual_records:
-        actual, raw = captured(driver, case)
+        actual, raw = captured(case)
     check_range_records(actual_records, raw['range_observations'])
     assert any(isinstance(value, RangeRecord) and value.high for value in actual_records.values())
     assert any('worst single snapshot:' in message for message in actual.metadata['diagnostics']['warnings_list'])
@@ -263,7 +253,7 @@ def test_range_ledger_keeps_scalar_warm_sources_and_worst_snapshot_counts(driver
 @pytest.mark.parametrize('fluids,topology,experimental', [
     (('air', 'sco2'), 'Gyroid', False), (('sco2', 'air'), 'Diamond', True),
 ])
-def test_true_h_air_property_sources_and_selected_sco2_nu_are_recorded(driver, fluids, topology, experimental):
+def test_true_h_air_property_sources_and_selected_sco2_nu_are_recorded(fluids, topology, experimental):
     config = configuration(directions=(3, 0), outer=2, mode='true_h')
     sides = [replace(side, type=fluid, u_mps=3. if fluid == 'air' else .015)
              for side, fluid in zip((config.fluid_A, config.fluid_B), fluids)]
@@ -273,13 +263,13 @@ def test_true_h_air_property_sources_and_selected_sco2_nu_are_recorded(driver, f
         config = replace(config, sco2_nu=sco2_effective_nu_config())
     case = prepare_case(config, case_id='range-true-h-' + topology)
     with warning_scope({}) as actual_records:
-        actual, raw = captured(driver, case)
+        actual, raw = captured(case)
     check_range_records(actual_records, raw['range_observations'])
     compare(actual.metadata['diagnostics']['sco2_nu_observations'],
             raw['sco2_nu_observations'], 'sco2_nu_observations')
 
 
-def test_continuous_geometry_range_sources_keep_actual_cell_shapes(driver):
+def test_continuous_geometry_range_sources_keep_actual_cell_shapes():
     config = configuration(directions=(1, 2), outer=2, mode='model_h')
     config = replace(config, zones=ZoneInputConfig(enabled=True, axis='continuous', config={
         'x_decision': [6.7, 7.2, 7., 7.5, .45, .5, .55, .58],
@@ -287,7 +277,7 @@ def test_continuous_geometry_range_sources_keep_actual_cell_shapes(driver):
         'L_bounds': [4., 8.], 't_bounds': [.3, .6]}))
     case = prepare_case(config, case_id='range-continuous')
     with warning_scope({}) as actual_records:
-        actual, raw = captured(driver, case)
+        actual, raw = captured(case)
     check_range_records(actual_records, raw['range_observations'])
     assert np.ptp(actual.metadata['design_fields']['eps_arr']) > 0
     assert any(tuple(row['shape']) == actual.fields['Ta'].shape for row in raw['range_observations'])
@@ -300,7 +290,7 @@ def test_continuous_geometry_range_sources_keep_actual_cell_shapes(driver):
     ('capped', 5.2872852724903385, .15147894181163646, 2),
 ])
 def test_partial_optimization_cases_preserve_fine_water_balance(
-        driver, design, air_velocity, water_velocity, outer):
+        design, air_velocity, water_velocity, outer):
     """Real search failures amplify lost inlet/Nu input bits in fine B balances."""
     config = configuration(mode='model_h')
     config = replace(config,
@@ -319,18 +309,17 @@ def test_partial_optimization_cases_preserve_fine_water_balance(
             'symmetric_y': False, 'spline_order': 1,
             'L_bounds': [4., 8.], 't_bounds': [.3, .6]}))
     case = prepare_case(config, case_id=f'partial-optimization-{design}-{air_velocity}')
-    actual, raw = captured(driver, case)
+    actual, raw = captured(case)
     check_portable(actual, raw, case)
     assert actual.run_status['converged'] == (design != 'capped')
     assert actual.metadata['diagnostics']['model_h_balance']['fine']['B']['physical_boundary_complete']
 
 
-def test_golden_air_prepared_case_retains_accepted_refinement(driver):
+def test_golden_air_prepared_case_retains_accepted_refinement():
     from sjtu_tpmshx.solvers.api import run_case
     case = prepare_case(ComputeConfig.from_json(str(ROOT / 'examples/three_module/air_2d.json')),
                         case_id='capture-golden-air2d')
-    actual = run_case(case, RunControl(native_library=str(driver.path),
-                                      native_table_directory=os.fsdecode(driver.table_directory)))
+    actual = run_case(case, stage_control())
     balance = evaluate_physical_balance(actual)
     for name in ('energy', 'fine_energy'):
         assert balance[name]['status'] == 'available'
@@ -341,4 +330,4 @@ def test_golden_air_prepared_case_retains_accepted_refinement(driver):
 
 def test_cancelled_native_return_cannot_be_captured():
     with pytest.raises(CancelledError):
-        capture_result(None, None, None, dict(cancelled=True))
+        capture_result(None, None, None, dict(cancelled=True), application_hv=None, zone_summary=None, stage_fields=None)

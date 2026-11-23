@@ -24,12 +24,15 @@ def test_canonical_1d_json_restores_the_same_zone_fields(tmp_path, capsys, axis)
     cfg.to_json(path)
     loaded = ComputeConfig.from_json(path)
     assert isinstance(loaded.zones.config, dict)
-    from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
+    from sjtu_tpmshx.cpp_interface.full_2d_stage import _zone_objects
+    from tests.python.native.stage_interception import saved_2d_inputs
     expected = prepare_case(cfg, case_id='original').design_fields
     case = prepare_case(loaded, case_id='loaded')
-    parsed, _ = build_execution_inputs(case)
-    assert isinstance(parsed['zone_config'], ZoneConfig)
-    assert all(isinstance(zone, Zone) for zone in parsed['zone_config'].zones)
+    parsed, _, _ = saved_2d_inputs(case)
+    # The saved stage keeps a plain zone record or builds zone objects from it.
+    zone = parsed['zone_config']
+    zone = zone if isinstance(zone, ZoneConfig) else _zone_objects(zone)
+    assert all(isinstance(item, Zone) for item in zone.zones)
     restored = case.design_fields
     assert restored['axis'] == axis
     for key in ('zone_id', 'eps_arr', 'K_ffA_arr', 'K_ffB_arr', 'h_vA_arr', 'h_vB_arr'):
@@ -63,12 +66,13 @@ def test_canonical_1d_stage_does_not_mutate_or_share_source_dict():
     original = deepcopy(source)
     loaded = ComputeConfig.from_dict(source)
     assert source == original
-    from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
+    from tests.python.native.stage_interception import saved_2d_inputs
     case = prepare_case(loaded, case_id='detached')
-    restored = build_execution_inputs(case)[0]['zone_config']
+    restored = saved_2d_inputs(case)[0]['zone_config']
     assert source == original
-    assert restored.zones[0].name == 'inlet'
-    restored.zones[0].props_A['saved'] = [99]
+    first = restored.zones[0] if isinstance(restored, ZoneConfig) else Zone(**restored['zones'][0])
+    assert first.name == 'inlet'
+    first.props_A['saved'] = [99]
     assert source == original
 
 
