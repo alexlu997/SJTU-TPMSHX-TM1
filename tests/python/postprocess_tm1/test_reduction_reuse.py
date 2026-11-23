@@ -1,6 +1,8 @@
 """Lazy reductions retain side/fine isolation and expire after one evaluate."""
 from dataclasses import replace
 
+import warnings
+
 import numpy as np
 import pytest
 
@@ -51,8 +53,7 @@ def test_side_and_fine_reductions_are_isolated_across_evaluations(dimension):
 
 
 @pytest.mark.parametrize('dimension', [2, 3])
-@pytest.mark.parametrize('callback_fails', [False, True])
-def test_reduction_event_counts_match_success_and_failure_cache(dimension, callback_fails):
+def test_reduction_event_counts_match_success_and_failure_cache(dimension):
     result = native_result(dimension)
     flux = mutable_data(result.boundary_fluxes)
     for level in (flux, flux['fine']) if dimension == 2 else (flux,):
@@ -65,22 +66,13 @@ def test_reduction_event_counts_match_success_and_failure_cache(dimension, callb
     result = replace(result, boundary_fluxes=flux)
 
     def count(evaluate):
-        events = []
-        def callback(message, flag):
-            events.append((message, flag))
-            if callback_fails:
-                raise ValueError('test reduction callback')
-        previous = np.geterrcall()
-        np.seterrcall(callback)
-        try:
-            with np.errstate(over='call', invalid='ignore'):
-                evaluate(result)
-                first = len(events)
-                evaluate(result)
-            assert first and len(events) == 2 * first
-            return events
-        finally:
-            np.seterrcall(previous)
+        with warnings.catch_warnings(record=True) as emitted:
+            warnings.simplefilter('always')
+            evaluate(result)
+            first = len(emitted)
+            evaluate(result)
+        assert first and len(emitted) == 2 * first
+        return [(item.category, str(item.message)) for item in emitted]
 
     assert count(api.evaluate) == count(reference.evaluate)
 

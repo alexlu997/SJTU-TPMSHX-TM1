@@ -33,22 +33,12 @@ double capture_area(const Array& dx,const Array& dy,Diagnostics&);
 double duty_magnitude(double duty);
 double mass_imbalance(double inlet,double outlet);
 double full_energy_imbalance(double a,double b);
-Number quick_energy_imbalance(const Number& a,const Number& b,Diagnostics&);
 double richardson_duty(double fine,double coarse);
 Number pressure_difference(const Number& inlet,const Number& outlet,Diagnostics&);
 Number absolute_outlet_pressure(const Number& outlet,const Number& reference,Diagnostics&);
-Number quick_temperature_difference(const Number& inlet,double outlet,Diagnostics&);
-Number quick_capacity_product(const Number& mass,const Number& cp,Diagnostics&);
-Number quick_duty_from_capacity(const Number& capacity,const Number& delta,bool cold,Diagnostics&);
-Number quick_reynolds_flow(const Number& rho,const Number& velocity,Diagnostics&);
-Number quick_reynolds_length(const Number& flow,const Number& diameter,Diagnostics&);
-Number quick_reynolds_quotient(const Number& numerator,const Number& mu,Diagnostics&);
 Tensor pressure_difference_field(const Array& inlet,const Array& outlet,Diagnostics&);
-Tensor quick_temperature_difference_field(const Array& inlet,double outlet,Diagnostics&);
-Tensor quick_capacity_product_field(const Array& mass,const Array& cp,Diagnostics&);
-Tensor quick_duty_from_capacity_field(const Array& capacity,const Array& delta,bool cold,Diagnostics&);
-Tensor quick_reynolds_flow_field(const Array& rho,const Array& velocity,Diagnostics&);
-Tensor quick_reynolds_length_field(const Array& flow,const Array& diameter,Diagnostics&);
-Tensor quick_reynolds_quotient_field(const Array& numerator,const Array& mu,Diagnostics&);
-Tensor quick_energy_imbalance_field(const Array& first,const Array& second,Diagnostics&);
+// Quick Design operands are Python floats. Their expressions keep Python order.
+double quick_duty(double inlet,double outlet,double mass,double cp,bool cold,Diagnostics&);
+double quick_reynolds(double rho,double velocity,double diameter,double mu,Diagnostics&);
+double quick_energy_imbalance(double first,double second,Diagnostics&);
 }  // namespace tpmshx::result::metrics

@@ -66,60 +66,31 @@ public:
         if (const auto* failure = error(value)) return Recorded<T>(*failure);
         return *value;
     }
-    Recorded<Number> number(const RawScalar* value) {
+    Recorded<Tensor> scalar_array(const double* value) {
         if (!value) return {};
         sequence(value, 1);
-        if (const auto* failure = error(value)) return Recorded<Number>(*failure);
-        return read_scalar(*value);
-    }
-    Recorded<Tensor> scalar_array(const RawScalar* value) {
-        if (value) sequence(value, 1);
         if (const auto* failure = error(value)) return Recorded<Tensor>(*failure);
-        const auto scalar = number(value);
-        return scalar ? Recorded<Tensor>(Tensor(*scalar)) : Recorded<Tensor>{};
+        return Tensor(arithmetic::python_float(*value));
     }
     Tensor array(const RawArray& value) {
-        add(value.data, value.bytes, 1, 1);
+        sequence(value.shape, value.rank);
         if (const auto* failure = error(&value)) {
-            sequence(value.shape, value.rank); sequence(value.strides, value.rank);
-            Tensor deferred({}, TPMSHX_RESULT_F64);
+            Tensor deferred;
             if (value.rank) deferred.shape.assign(value.shape, value.shape + value.rank);
-            deferred.dtype = 0;
             deferred.input_error = *failure;
             return deferred;
         }
-        sequence(value.shape, value.rank); sequence(value.strides, value.rank);
+        const auto count = element_count(value.rank, value.shape);
+        add(value.data, count, sizeof(double), alignof(double));
         return arithmetic::copy(Array(value));
     }
     Recorded<Tensor> array(const RawArray* value) {
         if (!value) return {};
         sequence(value, 1); return array(*value);
     }
-    Recorded<QuickValue> quick_value(const tpmshx_stage_quick_value_v3* value) {
-        if (!value) return {};
-        sequence(value, 1);
-        auto numeric = array(value->numeric);
-        if (const auto* failure = error(value)) return Recorded<QuickValue>(*failure);
-        if (numeric.has_value() == (value->object != 0))
-            throw std::invalid_argument("Quick value requires one numeric view or object token");
-        return numeric ? QuickValue(*numeric) : QuickValue(value->object);
-    }
-    Recorded<StageLabel> label(const tpmshx_stage_label_v3* value) {
-        if (!value) return {};
-        sequence(value, 1);
-        const auto text = string(value->text);
-        const auto object = quick_value(value->value);
-        if (const auto* failure = error(value)) return Recorded<StageLabel>(*failure);
-        if (text.has_value() == object.has_value())
-            throw std::invalid_argument("stage label requires text or one host value");
-        StageLabel result;
-        if (text) result.text = *text;
-        else result.value = *object;
-        return result;
-    }
     std::vector<Tensor> arrays(const RawArray* values, std::size_t count) {
         if (const auto* failure = count ? nullptr : error(values)) {
-            Tensor deferred({}, TPMSHX_RESULT_F64);
+            Tensor deferred;
             deferred.input_error = *failure;
             return {std::move(deferred)};
         }
@@ -158,23 +129,24 @@ TruthEvidence declared_truth(int value) {
 TruthEvidence gate_evidence(Inputs& input, const tpmshx_stage_gate_v1& gate) {
     auto out = declared_truth(gate.value);
     if (const auto* failure = input.error(&gate.value)) out.equals_false = Recorded<bool>(*failure);
-    if (input.host_input && !gate.recorded_number && !gate.recorded_text) return out;
-    const auto number = input.number(gate.recorded_number);
+    if (input.host_input && !gate.recorded_number && !gate.recorded_integer && !gate.recorded_text) return out;
+    const auto number = input.optional(gate.recorded_number);
+    const auto integer = input.optional(gate.recorded_integer);
     const auto text = input.string(gate.recorded_text);
+    const int supplied = static_cast<int>(number.has_value()) + static_cast<int>(integer.has_value()) + static_cast<int>(text.has_value());
     if (out.is_bool || !out.value) {
-        if (number || text) throw std::invalid_argument("boolean or unknown gate has a redundant recorded value");
+        if (supplied) throw std::invalid_argument("boolean or unknown gate has a redundant recorded value");
         return out;
     }
-    if (number.has_value() == text.has_value())
+    if (supplied != 1)
         throw std::invalid_argument("non-boolean gate requires its recorded numeric scalar or text");
     int expected;
-    if (number) {
-        if (complex_type(number->dtype) || number->dtype == TPMSHX_RESULT_BOOL)
-            throw std::invalid_argument("non-boolean gate requires an original real numeric scalar");
-        expected = zero(*number) ? -3 : -2;
-        if (integer_type(number->dtype))
-            out.recorded = signed_type(number->dtype) ? Report(number->signed_value) : Report(number->unsigned_value);
-        else out.recorded = Report(arithmetic::to_float(*number));
+    if (integer) {
+        expected = *integer == 0 ? -3 : -2;
+        out.recorded = Report(*integer);
+    } else if (number) {
+        expected = *number == 0.0 ? -3 : -2;
+        out.recorded = Report(*number);
     } else {
         expected = text->empty() ? -5 : -2;
         out.recorded = Report(*text);
@@ -200,8 +172,8 @@ Recorded<PressureEvidence> pressure(Inputs& input, const tpmshx_stage_pressure_v
     out.pressure = input.array(value->pressure); out.grid = grid(input, value->grid);
     out.inlet_fraction = input.array(value->inlet_fraction); out.outlet_fraction = input.array(value->outlet_fraction);
     out.outlet_geom_fraction = input.array(value->outlet_geom_fraction);
-    out.reference = input.number(value->reference); out.inlet_absolute = input.number(value->inlet_absolute);
-    out.outlet_absolute = input.number(value->outlet_absolute); out.unit = input.string(value->unit);
+    out.reference = input.optional(value->reference); out.inlet_absolute = input.optional(value->inlet_absolute);
+    out.outlet_absolute = input.optional(value->outlet_absolute); out.unit = input.string(value->unit);
     return out;
 }
 Recorded<EnergyEvidence> energy(Inputs& input, const tpmshx_stage_energy_v1* value) {
@@ -273,7 +245,7 @@ ThermalEvidence thermal(Inputs& input, const tpmshx_stage_thermal_v1& value) {
         record.physical_boundary_complete_is_bool = raw.physical_boundary_complete >= -1;
         record.energy_algorithm_version_is_int = !raw.invalid_version_type;
         for (std::size_t i = 0; i < 2; ++i) {
-            record.enthalpy[i] = input.array(raw.enthalpy[i]); record.inlet_enthalpy[i] = input.number(raw.inlet_enthalpy[i]);
+            record.enthalpy[i] = input.array(raw.enthalpy[i]); record.inlet_enthalpy[i] = input.optional(raw.inlet_enthalpy[i]);
             record.mass[i] = input.arrays(raw.mass[i], raw.mass_count[i]);
             record.boundary_power[i] = input.named(raw.boundary_power[i], raw.boundary_count[i]);
         }
@@ -384,8 +356,8 @@ ResultEvidence evidence(Inputs& input, const tpmshx_result_evidence_v1* value) {
             cert.converged.identity_access = Recorded<int>(*failure);
         cert.clip_counts = input.array(value->true_h_certificate->clip_counts);
         for (std::size_t i = 0; i < 2; ++i) {
-            cert.ratios[i] = input.number(value->true_h_certificate->ratios[i]);
-            cert.tolerances[i] = input.number(value->true_h_certificate->tolerances[i]);
+            cert.ratios[i] = input.optional(value->true_h_certificate->ratios[i]);
+            cert.tolerances[i] = input.optional(value->true_h_certificate->tolerances[i]);
         }
         out.true_h_certificate = std::move(cert);
     }
@@ -423,14 +395,14 @@ ResultEvidence evidence(Inputs& input, const tpmshx_result_evidence_v1* value) {
         out.inlet_geom_fraction[i] = input.array(value->inlet_geom_fraction[i]);
         out.outlet_geom_fraction[i] = input.array(value->outlet_geom_fraction[i]); out.rho_cp[i] = input.array(value->rho_cp[i]);
         const auto& raw = value->quick[i]; auto& side = out.quick[i];
-        side.inlet_temperature = input.number(raw.inlet_temperature); side.mass_flow = input.number(raw.mass_flow);
-        side.cp = input.number(raw.cp); side.rho = input.number(raw.rho); side.velocity = input.number(raw.velocity);
-        side.viscosity = input.number(raw.viscosity);
+        side.inlet_temperature = input.optional(raw.inlet_temperature); side.mass_flow = input.optional(raw.mass_flow);
+        side.cp = input.optional(raw.cp); side.rho = input.optional(raw.rho); side.velocity = input.optional(raw.velocity);
+        side.viscosity = input.optional(raw.viscosity);
     }
     out.parameter_epsilon = input.array(value->parameter_epsilon); out.design_epsilon = input.array(value->design_epsilon);
     out.split_a = input.scalar_array(value->split_a); out.solid_density = input.scalar_array(value->solid_density);
     out.quick_model = input.string(value->quick_model); out.arrangement = input.string(value->arrangement);
-    out.hydraulic_diameter = input.number(value->hydraulic_diameter);
+    out.hydraulic_diameter = input.optional(value->hydraulic_diameter);
     out.absent_records = input.strings(value->absent_records, value->absent_record_count);
     out.model_certificate_error = input.string(value->model_certificate_error);
     out.model_certificates_recorded = input.host_input && std::find(out.absent_records.begin(), out.absent_records.end(),
@@ -441,35 +413,6 @@ MetricSpec spec(Inputs& input, const tpmshx_stage_metric_spec_v1& value) {
     return {input.text(value.name, "a metric name"), input.text(value.unit, "a metric unit"),
         input.text(value.definition_version, "a metric definition version"), input.string(value.description).value_or("")};
 }
-void copy_quick(Inputs& input, const tpmshx_stage_input_v3& value, ResultEvidence& evidence) {
-    evidence.execution_label = input.label(value.execution_version);
-    if (!value.model) return;
-    QuickTypedEvidence quick;
-    quick.model = input.label(value.model);
-    quick.arrangement = input.label(value.arrangement);
-    quick.hydraulic_diameter = input.quick_value(value.hydraulic_diameter);
-    for (std::size_t i = 0; i < 2; ++i) {
-        const auto& from = value.sides[i]; auto& to = quick.sides[i];
-        to.boundary_access = input.optional(from.boundary_access);
-        to.properties_access = input.optional(from.properties_access);
-        to.pressure_access = input.optional(from.pressure_access);
-        to.inlet_temperature = input.quick_value(from.inlet_temperature);
-        to.mass_flow = input.quick_value(from.mass_flow); to.cp = input.quick_value(from.cp);
-        to.rho = input.quick_value(from.rho); to.velocity = input.quick_value(from.velocity);
-        to.viscosity = input.quick_value(from.viscosity);
-        to.inlet_pressure = input.quick_value(from.inlet_pressure);
-        to.outlet_pressure = input.quick_value(from.outlet_pressure);
-    }
-    evidence.quick_typed = std::move(quick);
-}
-struct QuickView {
-    RawArray numeric{};
-    tpmshx_stage_quick_value_v3 value{};
-    explicit QuickView(const QuickValue& source) {
-        if (source.object) value.object = source.object;
-        else {numeric = source.numeric.raw(); value.numeric = &numeric;}
-    }
-};
 void callback_error(int status, const tpmshx_stage_host_error_v2& failure) {
     if (!status) return;
     if (!failure.cause || failure.cause > host_exception || !failure.message)
@@ -477,66 +420,6 @@ void callback_error(int status, const tpmshx_stage_host_error_v2& failure) {
     HostError error(failure.cause, failure.message, failure.token);
     error.error_number = failure.error_number;
     throw error;
-}
-QuickValue callback_value(Inputs& input, const tpmshx_stage_quick_value_v3& value) {
-    const bool complete = input.copied_inputs;
-    input.copied_inputs = false;
-    auto copied = *input.quick_value(&value);
-    input.copied_inputs = complete;
-    return copied;
-}
-void quick_callback_error(Inputs& input, int status, const tpmshx_stage_host_error_v2& failure) {
-    if (status && failure.message) (void)input.string(failure.message);
-    callback_error(status, failure);
-}
-QuickHost quick_host(Inputs& input, const tpmshx_stage_quick_protocol_v3& protocol) {
-    QuickHost host;
-    const auto context = protocol.context;
-    if (protocol.text_equal) host.text_equal = [&, context, call=protocol.text_equal](const QuickValue& value, const std::string& expected) {
-        const QuickView argument(value); int output{}; tpmshx_stage_host_error_v2 failure{};
-        quick_callback_error(input, call(context, &argument.value, expected.c_str(), &output, &failure), failure);
-        return boolean(output);
-    };
-    if (protocol.text_not_equal) host.text_not_equal = [&, context, call=protocol.text_not_equal](const QuickValue& value, const std::string& expected) {
-        const QuickView argument(value); int output{}; tpmshx_stage_host_error_v2 failure{};
-        quick_callback_error(input, call(context, &argument.value, expected.c_str(), &output, &failure), failure);
-        return boolean(output);
-    };
-    if (protocol.temperature_difference) host.temperature_difference = [&, context, call=protocol.temperature_difference](const QuickValue& inlet, double outlet) {
-        const QuickView first(inlet); tpmshx_stage_quick_value_v3 value{}; tpmshx_stage_host_error_v2 failure{};
-        quick_callback_error(input, call(context, &first.value, outlet, &value, &failure), failure);
-        return callback_value(input, value);
-    };
-    const auto pair = [&, context](auto call) -> std::function<QuickValue(const QuickValue&, const QuickValue&)> {
-        if (!call) return {};
-        return [&, context, call](const QuickValue& left, const QuickValue& right) {
-            const QuickView first(left), second(right);
-            tpmshx_stage_quick_value_v3 value{}; tpmshx_stage_host_error_v2 failure{};
-            quick_callback_error(input, call(context, &first.value, &second.value, &value, &failure), failure);
-            return callback_value(input, value);
-        };
-    };
-    host.capacity_product = pair(protocol.capacity_product);
-    host.pressure_difference = pair(protocol.pressure_difference);
-    host.reynolds_flow = pair(protocol.reynolds_flow);
-    host.reynolds_length = pair(protocol.reynolds_length);
-    host.reynolds_quotient = pair(protocol.reynolds_quotient);
-    if (protocol.duty_product) host.duty_product = [&, context, call=protocol.duty_product](const QuickValue& capacity, const QuickValue& delta, bool cold) {
-        const QuickView first(capacity), second(delta);
-        tpmshx_stage_quick_value_v3 value{}; tpmshx_stage_host_error_v2 failure{};
-        quick_callback_error(input, call(context, &first.value, &second.value, cold ? 1 : 0, &value, &failure), failure);
-        return callback_value(input, value);
-    };
-    if (protocol.metric_float) host.metric_float = [&, context, call=protocol.metric_float](const QuickValue& source) {
-        const QuickView argument(source); double value{}; tpmshx_stage_host_error_v2 failure{};
-        quick_callback_error(input, call(context, &argument.value, &value, &failure), failure);
-        return value;
-    };
-    if (protocol.empty_mean) host.empty_mean = [&, context, call=protocol.empty_mean]() {
-        tpmshx_stage_host_error_v2 failure{};
-        quick_callback_error(input, call(context, &failure), failure);
-    };
-    return host;
 }
 
 struct Output {
@@ -560,9 +443,8 @@ struct Output {
 
 template<class Run> int boundary(const tpmshx_result_evidence_v1* value, tpmshx_stage_output_v1* output,
                                  char* error, std::size_t capacity, Run run,
-                                 const tpmshx_stage_input_v2* extension = nullptr,
-                                 Diagnostics* diagnostics = nullptr, std::uint64_t* error_token = nullptr,
-                                 const tpmshx_stage_input_v3* quick_extension = nullptr) noexcept {
+                                 const tpmshx_stage_input_v3* extension = nullptr,
+                                 Diagnostics* diagnostics = nullptr, std::uint64_t* error_token = nullptr) noexcept {
     FloatingEnvironment environment;
     Inputs input;
     int status = TPMSHX_RESULT_OK;
@@ -582,13 +464,6 @@ template<class Run> int boundary(const tpmshx_result_evidence_v1* value, tpmshx_
         if (reinterpret_cast<std::uintptr_t>(output) <= reinterpret_cast<std::uintptr_t>(error) + capacity - 1 &&
             reinterpret_cast<std::uintptr_t>(error) <= reinterpret_cast<std::uintptr_t>(output) + sizeof(*output) - 1)
             throw std::invalid_argument("result writable storage overlaps another buffer");
-        if (quick_extension) {
-            input.sequence(quick_extension, 1);
-            if (quick_extension->abi_version != 3 || quick_extension->struct_size != sizeof(*quick_extension))
-                throw std::invalid_argument("unsupported Quick result host ABI");
-            extension = quick_extension->host;
-            if (!extension) throw std::invalid_argument("Quick result host requires its v2 input");
-        }
         if (extension) {
             input.host_input = true;
             writable.sequence(diagnostics, 1); writable.sequence(error_token, 1);
@@ -596,7 +471,7 @@ template<class Run> int boundary(const tpmshx_result_evidence_v1* value, tpmshx_
                 if (&a != &b && a.first <= b.last && b.first <= a.last)
                     throw std::invalid_argument("result writable storage overlaps another buffer");
             input.sequence(extension, 1);
-            if (extension->abi_version != 2 || extension->struct_size != sizeof(*extension))
+            if (extension->abi_version != 3 || extension->struct_size != sizeof(*extension))
                 throw std::invalid_argument("unsupported result host ABI");
             input.sequence(extension->errors, extension->error_count);
             for (std::size_t i = 0; i < extension->error_count; ++i) {
@@ -627,18 +502,25 @@ template<class Run> int boundary(const tpmshx_result_evidence_v1* value, tpmshx_
             copied.physical_dimension_index = input.optional(extension->physical_dimension_index);
             copied.physical_dimension_slice = input.optional(extension->physical_dimension_slice);
             copied.qualification_error = input.optional(extension->qualification_error);
-            copied.solid_density = input.array(extension->solid_density);
-            copied.split_a = input.array(extension->split_a);
+            if (extension->solid_density) copied.solid_density = input.array(extension->solid_density);
+            if (extension->split_a) copied.split_a = input.array(extension->split_a);
             for (std::size_t i = 0; i < 2; ++i) {
-                copied.inlet_temperature[i] = input.array(extension->inlet_temperature[i]);
+                if (extension->inlet_temperature[i]) copied.inlet_temperature[i] = input.array(extension->inlet_temperature[i]);
                 copied.inlet_temperature_none[i] = input.none_values.count(extension->inlet_temperature[i]) != 0;
             }
+            if (boolean(extension->quick_access_recorded)) {
+                for (std::size_t i = 0; i < 2; ++i) {
+                    const auto& from = extension->quick_access[i];
+                    copied.quick[i].access_recorded = true;
+                    copied.quick[i].boundary_access = input.optional(from.boundary_access);
+                    copied.quick[i].properties_access = input.optional(from.properties_access);
+                    copied.quick[i].pressure_access = input.optional(from.pressure_access);
+                }
+            }
         }
-        if (quick_extension) copy_quick(input, *quick_extension, copied);
         input.copied_inputs = true;
         auto owned = std::make_unique<Output>();
         run(input, copied, *owned);
-        if (!input.copied_inputs) throw std::invalid_argument("incomplete Quick callback storage");
         if (!input.disjoint(output, sizeof(*output)) || !input.disjoint(error, capacity))
             throw std::invalid_argument("result writable storage overlaps another buffer");
         if (extension && (!input.disjoint(diagnostics, sizeof(*diagnostics)) ||
@@ -672,20 +554,18 @@ template<class Run> int boundary(const tpmshx_result_evidence_v1* value, tpmshx_
     }
     return status;
 }
-int query_stage(const tpmshx_stage_input_v2* input, const tpmshx_stage_input_v3* quick,
+int query_stage(const tpmshx_stage_input_v3* input,
     uint32_t query, const tpmshx_stage_metric_spec_v1* requested,
     const tpmshx_stage_metric_value_v1* metrics, size_t count,
     tpmshx_stage_output_v1* output, Diagnostics* diagnostics, uint64_t* error_token,
     char* error, size_t capacity) {
     return boundary(nullptr, output, error, capacity, [&](Inputs& packed, const ResultEvidence& copied, Output& owned) {
-        const auto* base = quick ? quick->host : input;
         HostControl host;
-        host.events = [base](const Diagnostics& events) {
-            if (!base->events) return;
+        host.events = [input](const Diagnostics& events) {
+            if (!input->events) return;
             tpmshx_stage_host_error_v2 failure{};
-            callback_error(base->events(base->context, &events, &failure), failure);
+            callback_error(input->events(input->context, &events, &failure), failure);
         };
-        if (quick) host.quick = quick_host(packed, quick->protocol);
         if (query == 0) {
             std::optional<MetricSpec> selection;
             if (requested) {packed.sequence(requested, 1); selection = spec(packed, *requested);}
@@ -707,7 +587,7 @@ int query_stage(const tpmshx_stage_input_v2* input, const tpmshx_stage_input_v3*
             }
             owned.json_text = json(report(evaluate_qualification(copied, values, &host)));
         } else throw std::invalid_argument("unsupported result stage query");
-    }, input, diagnostics, error_token, quick);
+    }, input, diagnostics, error_token);
 }
 }  // namespace
 
@@ -753,7 +633,7 @@ int TPMSHX_RESULT_CALL tpmshx_result_stage_query_v3(const tpmshx_stage_input_v3*
     const tpmshx_stage_metric_value_v1* metrics, size_t count,
     tpmshx_stage_output_v1* output, Diagnostics* diagnostics, uint64_t* error_token,
     char* error, size_t capacity) {
-    return query_stage(nullptr, input, query, requested, metrics, count, output, diagnostics, error_token, error, capacity);
+    return query_stage(input, query, requested, metrics, count, output, diagnostics, error_token, error, capacity);
 }
 void TPMSHX_RESULT_CALL tpmshx_result_stage_release_v1(tpmshx_stage_output_v1* value) {
     if (!value || value->struct_size != sizeof(*value)) return;

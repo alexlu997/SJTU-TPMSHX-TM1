@@ -11,13 +11,6 @@ namespace tpmshx::result::checks {
 namespace {
 namespace a = arithmetic;
 
-void require_double(const Array& values) {
-    if (values.raw().dtype != TPMSHX_RESULT_F64)
-        throw std::invalid_argument("range and Mach field buffers require float64");
-}
-double double_at(const Array& values, std::size_t index) {
-    return static_cast<double>(real_value(values.at(index)));
-}
 std::array<double, 2> margin(double lower, double upper) {
     constexpr double allowance=.1;
     return {(1.-allowance)*lower,(1.+allowance)*upper};
@@ -25,16 +18,14 @@ std::array<double, 2> margin(double lower, double upper) {
 }  // namespace
 
 tpmshx_result_range_sample_v1 collect_range(const Array& values, double lower, double upper) {
-    require_double(values);
     return detail::collect_range<tpmshx_result_range_sample_v1>(values.size(),
-        [&](std::size_t index) {return double_at(values,index);},lower,upper);
+        [&](std::size_t index) {return values.at(index);},lower,upper);
 }
 
 tpmshx_result_scalar_sample_indices_v1 scalar_samples(const Array& values, double lower, double upper) {
-    require_double(values);
     tpmshx_result_scalar_sample_indices_v1 output{};
     const auto selected=detail::scalar_range_samples(values.size(),
-        [&](std::size_t index) {return double_at(values,index);},lower,upper);
+        [&](std::size_t index) {return values.at(index);},lower,upper);
     output.count=selected.size();
     std::copy(selected.begin(),selected.end(),output.indices);
     return output;
@@ -80,8 +71,8 @@ tpmshx_result_array_check_values_v1 array_checks(const Array& values) {
     tpmshx_result_array_check_values_v1 output{1,1};
     for (std::size_t index=0; index<values.size(); ++index) {
         const auto value=values.at(index);
-        output.all_finite=output.all_finite && finite(value);
-        output.all_zero=output.all_zero && zero(value);
+        output.all_finite=output.all_finite && std::isfinite(value);
+        output.all_zero=output.all_zero && value==0.;
     }
     return output;
 }
@@ -102,16 +93,10 @@ tpmshx_result_strict_values_v1 strict_certificate(bool active_b,const std::array
     return output;
 }
 
-bool energy_ratio(const Number& ratio,const Number& tolerance,Diagnostics& diagnostics) {
-    const auto as_double=[](const Number& value) {
-        if (complex_type(value.dtype) && value.origin==TPMSHX_RESULT_PYTHON_COMPLEX)
-            throw NumericError(TPMSHX_RESULT_TYPE_ERROR,"must be real number, not complex");
-        return static_cast<double>(complex_type(value.dtype)?value.real:real_value(value));
-    };
-    return std::isfinite(as_double(ratio)) && std::isfinite(as_double(tolerance))
-        && a::less_equal(a::python_float(0.),ratio,diagnostics)
-        && a::less_equal(ratio,tolerance,diagnostics)
-        && a::less(a::python_float(0.),tolerance,diagnostics);
+// Python float comparisons: NaN fails each ordered test without a notice.
+bool energy_ratio(double ratio,double tolerance) {
+    return std::isfinite(ratio) && std::isfinite(tolerance)
+        && 0.<=ratio && ratio<=tolerance && 0.<tolerance;
 }
 
 double pressure_square(double inlet) {
@@ -134,69 +119,46 @@ double mach_from_sound(double speed,double sound) {
 }
 
 a::Tensor field_temperature_floor(const Array& temperature,Diagnostics& diagnostics) {
-    require_double(temperature);
     const auto floor=a::scalar(a::python_float(1.));
     return a::maximum(temperature,floor.array(),diagnostics);
 }
 a::Tensor field_sound_speed(const Array& temperature,double gamma,double gas_constant,Diagnostics& diagnostics) {
-    require_double(temperature);
     const auto factor=a::scalar(a::python_float(gamma*gas_constant));
     const auto square=a::multiply(factor.array(),temperature,diagnostics);
     return a::square_root(square.array(),diagnostics);
 }
 double field_mach_max(const Array& speed,const Array& sound,Diagnostics& diagnostics) {
-    require_double(speed);require_double(sound);
     const auto ratio=a::divide(speed,sound,diagnostics);
-    return a::to_float(a::maximum(ratio.array(),diagnostics));
+    return a::maximum(ratio.array()).value;
 }
-std::uint32_t pressure_flags(const Number& pressure,double floor,double allowance,Diagnostics& diagnostics) {
-    if (!finite(pressure)) return 1;
-    if (pressure.origin==TPMSHX_RESULT_PYTHON_COMPLEX)
-        throw NumericError(TPMSHX_RESULT_TYPE_ERROR,"'<=' not supported between instances of 'complex' and 'float'");
-    return a::less_equal(pressure,a::python_float(floor*(1.+allowance)),diagnostics)?2u:0u;
+std::uint32_t pressure_flags(double pressure,double floor,double allowance) {
+    if (!std::isfinite(pressure)) return 1;
+    return pressure<=floor*(1.+allowance)?2u:0u;
 }
-std::uint32_t mach_limit_flags(const Number& mach,const Number& limit,Diagnostics& diagnostics) {
-    if (!finite(mach)) return 1;
-    if (limit.origin==TPMSHX_RESULT_PYTHON_COMPLEX && mach.origin==TPMSHX_RESULT_PYTHON_FLOAT)
-        throw NumericError(TPMSHX_RESULT_TYPE_ERROR,"'>=' not supported between instances of 'float' and 'complex'");
-    return a::less_equal(limit,mach,diagnostics)?2u:0u;
+std::uint32_t mach_limit_flags(double mach,double limit) {
+    if (!std::isfinite(mach)) return 1;
+    return limit<=mach?2u:0u;
 }
-std::uint32_t mach_limit_array_flags(const Number& mach,const Array& limit,Diagnostics& diagnostics) {
-    if (!finite(mach)) return 1;
-    Number point{};
-    point.dtype=limit.raw().dtype;point.origin=limit.raw().origin;
-    if (limit.size()) point=limit.at(0);
-    // The weak cast precedes array truth, including empty arrays. Its flags
-    // depend on the dtype and Mach, not on unused comparison elements.
-    const bool comparison=a::less_equal(point,mach,diagnostics);
-    return limit.size()==1 && comparison?2u:0u;
+std::uint32_t mach_limit_array_flags(double mach,const Array& limit) {
+    if (!std::isfinite(mach)) return 1;
+    return limit.size()==1 && limit.at(0)<=mach?2u:0u;
 }
-Number box_density_length(const Number& density,const Number& length,Diagnostics& diagnostics) {
-    return a::scalar_result(a::multiply(density,length,diagnostics));
-}
-Number box_bulk_mass(const Number& density_length,const Number& height,const Number& depth,Diagnostics& diagnostics) {
-    const auto first=a::scalar_result(a::multiply(density_length,height,diagnostics));
-    return a::scalar_result(a::multiply(first,depth,diagnostics));
-}
-Number box_solid_mass(const Number& bulk_mass,const Number& epsilon,Diagnostics& diagnostics) {
-    const auto fraction=a::scalar_result(a::subtract(a::python_float(1.),epsilon,diagnostics));
-    return a::scalar_result(a::multiply(bulk_mass,fraction,diagnostics));
-}
+double box_density_length(double density,double length) {return density*length;}
+double box_bulk_mass(double density_length,double height,double depth) {return density_length*height*depth;}
+double box_solid_mass(double bulk_mass,double epsilon) {return bulk_mass*(1.-epsilon);}
 arithmetic::Tensor box_density_length_array(const Array& density,const Array& length,Diagnostics& diagnostics) {
     return a::multiply(density,length,diagnostics);
 }
 arithmetic::Tensor box_bulk_mass_array(const Array& density_length,const Array& height,
     const Array& depth,Diagnostics& diagnostics) {
     auto first=a::multiply(density_length,height,diagnostics);
-    if (first.shape.empty() && first.origin==TPMSHX_RESULT_NUMPY_ARRAY)
-        first.origin=TPMSHX_RESULT_NUMPY_SCALAR;
+    if (first.shape.empty()) first.kind=Kind::numpy_scalar;
     return a::multiply(first.array(),depth,diagnostics);
 }
 arithmetic::Tensor box_solid_mass_array(const Array& bulk_mass,const Array& epsilon,Diagnostics& diagnostics) {
     const auto one=a::scalar(a::python_float(1.));
     auto fraction=a::subtract(one.array(),epsilon,diagnostics);
-    if (fraction.shape.empty() && fraction.origin==TPMSHX_RESULT_NUMPY_ARRAY)
-        fraction.origin=TPMSHX_RESULT_NUMPY_SCALAR;
+    if (fraction.shape.empty()) fraction.kind=Kind::numpy_scalar;
     return a::multiply(bulk_mass,fraction.array(),diagnostics);
 }
 

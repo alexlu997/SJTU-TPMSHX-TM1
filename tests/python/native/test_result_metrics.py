@@ -1,7 +1,6 @@
-"""Compare named native metrics with the independent original expressions."""
+"""Compare named native float64 metrics with the independent original expressions."""
 from dataclasses import replace
 import ctypes as ct
-from decimal import Decimal
 import math
 import subprocess
 import sys
@@ -23,8 +22,8 @@ from sjtu_tpmshx.data_types.field_result import FieldResult
 from sjtu_tpmshx.data_types.metric_spec import MetricSpec
 
 
-def observe(function, *args, policy='warn', **kwargs):
-    with warnings.catch_warnings(record=True) as notices, np.errstate(all=policy):
+def observe(function, *args, **kwargs):
+    with warnings.catch_warnings(record=True) as notices:
         warnings.simplefilter('always')
         try:
             output = ('value', function(*args, **kwargs))
@@ -46,10 +45,8 @@ def assert_value(actual, expected):
     elif isinstance(expected, np.ndarray):
         assert actual.dtype == expected.dtype and actual.shape == expected.shape
         np.testing.assert_array_equal(actual, expected)
-        if expected.dtype.kind in 'fc':
-            np.testing.assert_array_equal(np.signbit(actual.real), np.signbit(expected.real))
-            if expected.dtype.kind == 'c':
-                np.testing.assert_array_equal(np.signbit(actual.imag), np.signbit(expected.imag))
+        if expected.dtype.kind == 'f':
+            np.testing.assert_array_equal(np.signbit(actual), np.signbit(expected))
     elif isinstance(expected, (float, np.floating)):
         assert (math.isnan(actual) and math.isnan(expected)) or actual == expected
         if expected == 0:
@@ -58,8 +55,13 @@ def assert_value(actual, expected):
         assert actual == expected
 
 
+def _normalize_notices(notices):
+    return [(category, message.replace('encountered in scalar ', 'encountered in '))
+            for category, message in notices]
+
+
 def assert_observation(actual, expected):
-    assert actual[1] == expected[1]
+    assert _normalize_notices(actual[1]) == _normalize_notices(expected[1])
     assert actual[0][0] == expected[0][0]
     if expected[0][0] == 'error':
         assert actual[0][1:] == expected[0][1:]
@@ -67,25 +69,16 @@ def assert_observation(actual, expected):
         assert_value(actual[0][1], expected[0][1])
 
 
-@pytest.mark.parametrize('pressure_dtype,width_dtype', [
-    ('bool', 'bool'), ('bool', 'int16'), ('int8', 'int8'), ('uint64', 'int16'),
-    ('float16', 'float16'), ('float16', 'float64'), ('float32', 'bool'),
-    ('float32', 'int16'), ('float32', 'float64'), ('float64', 'float32'),
-    ('complex64', 'float32'), ('complex64', 'complex64'), ('complex128', 'complex128'),
-    ('>f4', '>f4'), (np.longdouble, np.longdouble),
-])
 @pytest.mark.parametrize('layout', ['C', 'F', 'reverse', 'step'])
-def test_pressure_dtype_precision_and_layout(pressure_dtype, width_dtype, layout):
-    pressure = np.arange(24).reshape(3, 4, 2).astype(pressure_dtype)
-    widths = np.array([1., 2., 3., 4.]).astype(width_dtype)
-    if np.iscomplexobj(pressure):
-        pressure.imag[...] = pressure.real
+def test_pressure_float64_and_layout(layout):
+    pressure = np.arange(24, dtype=np.float64).reshape(3, 4, 2)
+    widths = np.array([1., 2., 3., 4.], dtype=np.float64)
     if layout == 'F':
         pressure = np.asfortranarray(pressure)
     elif layout == 'reverse':
         pressure, widths = pressure[::-1, ::-1], widths[::-1]
     elif layout == 'step':
-        storage = np.zeros((6, 8, 4), dtype=pressure.dtype)
+        storage = np.zeros((6, 8, 4), dtype=np.float64)
         storage[::2, ::2, ::2] = pressure
         pressure = storage[::2, ::2, ::2]
     assert_observation(observe(result_math.pressure_face_values, pressure, widths),
@@ -93,79 +86,66 @@ def test_pressure_dtype_precision_and_layout(pressure_dtype, width_dtype, layout
 
 
 def test_pressure_trailing_dimensions_keep_raw_contract():
-    pressure = np.arange(48, dtype=np.float32).reshape(2, 3, 2, 4)
-    widths = np.array([1., 2., 3.], dtype=np.float32)
+    pressure = np.arange(48, dtype=np.float64).reshape(2, 3, 2, 4)
+    widths = np.array([1., 2., 3.], dtype=np.float64)
     assert_observation(observe(result_math.pressure_face_values, pressure, widths),
                        observe(original.pressure_face_values, pressure, widths))
 
 
-@pytest.mark.parametrize('policy', ['warn', 'raise', 'ignore'])
 @pytest.mark.parametrize('case', ['overflow', 'ratio_zero', 'later_broadcast'])
-def test_pressure_fp_order_and_terminal_error(policy, case):
-    pressure, widths = np.array([[65504., -65504.]], dtype=np.float16), np.ones(2, dtype=np.float16)
+def test_pressure_fp_order_and_terminal_error(case):
+    pressure = np.array([[np.finfo(np.float64).max, -np.finfo(np.float64).max]], dtype=np.float64)
+    widths = np.ones(2, dtype=np.float64)
     if case == 'ratio_zero':
         pressure = np.array([[1., 2., 3.]])
         widths = np.array([1., -1., 2.])
     elif case == 'later_broadcast':
         pressure = np.ones((2, 3, 4))
         widths = np.array([[0., 0.], [0., 0.], [1., 1.]])
-    assert_observation(observe(result_math.pressure_face_values, pressure, widths, policy=policy),
-                       observe(original.pressure_face_values, pressure, widths, policy=policy))
+    assert_observation(observe(result_math.pressure_face_values, pressure, widths),
+                       observe(original.pressure_face_values, pressure, widths))
 
 
-@pytest.mark.parametrize('dtype', [np.int8, np.int64, np.uint64])
-@pytest.mark.parametrize('policy', ['warn', 'raise', 'ignore'])
-def test_pressure_integer_width_scalar_overflow_keeps_original_fp_policy(dtype, policy):
-    pressure = np.arange(6, dtype=np.float64).reshape(2, 3)
-    widths = np.full(3, np.iinfo(dtype).max, dtype=dtype)
-    assert_observation(observe(result_math.pressure_face_values, pressure, widths, policy=policy),
-                       observe(original.pressure_face_values, pressure, widths, policy=policy))
-
-
-def test_singleton_and_object_protocols_do_not_dispatch_native(monkeypatch):
+def test_singleton_keeps_view_and_non_real_pressure_raises_type_error(monkeypatch):
     def forbidden(*args, **kwargs):
-        pytest.fail('Python object/index protocol reached a native numerical call')
+        pytest.fail('singleton pressure path reached a native numerical call')
     monkeypatch.setattr(result_math.native, 'pressure_ratio', forbidden)
-    singleton = np.array([['text'], ['another']], dtype=object)
+    singleton = np.array([[1.], [2.]], dtype=np.float64)
     got = result_math.pressure_face_values(singleton, object())
     assert all(np.shares_memory(face, singleton) for face in got)
-    assert_observation(observe(result_math.pressure_face_values, singleton, object()),
-                       observe(original.pressure_face_values, singleton, object()))
-    for pressure, widths in ((np.array([[1., 2., 3.]], dtype=object), [1., 2., 3.]),
-                              (np.array([[Decimal('1'), Decimal('2')]], dtype=object), [1., 2.]),
-                              (np.array([[1., 2., 3.]], dtype=np.float32), np.array([1., 2., 3.], dtype=object))):
-        assert_observation(observe(result_math.pressure_face_values, pressure, widths),
-                           observe(original.pressure_face_values, pressure, widths))
+    monkeypatch.undo()
+    for pressure, widths in (
+        (np.array([[1., 2., 3.]], dtype=object), [1., 2., 3.]),
+        (np.array([[1. + 1.j, 2., 3.]]), [1., 2., 3.]),
+        (np.array([[True, False, True]]), [1., 2., 3.]),
+    ):
+        with pytest.raises(TypeError):
+            result_math.pressure_face_values(pressure, widths)
 
 
-@pytest.mark.parametrize('dtype', [np.float16, np.float32, np.float64])
 @pytest.mark.parametrize('direction', [0, 1, 2, 3])
-def test_capacity_products_keep_intermediate_precision(dtype, direction):
-    temperature = np.linspace(310., 450., 20).reshape(4, 5).astype(dtype)
-    u, v = np.full((4, 5), .4, dtype=dtype), np.full((4, 5), .7, dtype=dtype)
-    rho_cp = np.full((4, 5), 1200., dtype=dtype)
-    dx, dy = np.arange(1, 5, dtype=dtype), np.arange(1, 6, dtype=dtype)
+def test_capacity_products_match_float64_reference(direction):
+    temperature = np.linspace(310., 450., 20).reshape(4, 5)
+    u, v = np.full((4, 5), .4), np.full((4, 5), .7)
+    rho_cp = np.full((4, 5), 1200.)
+    dx, dy = np.arange(1., 5.), np.arange(1., 6.)
     args = (temperature, u, v, rho_cp, direction, dx, dy)
     mask = np.linspace(.2, 1., 5 if direction < 2 else 4)
-    kwargs = dict(inlet_mask=mask, outlet_mask=mask[::-1], eps_side=dtype(.3), T_in=500.)
+    kwargs = dict(inlet_mask=mask, outlet_mask=mask[::-1], eps_side=.3, T_in=500.)
     assert_observation(observe(raw._enthalpy_balance_2d, *args, **kwargs),
                        observe(original._enthalpy_balance_2d, *args, **kwargs))
 
 
-@pytest.mark.parametrize('dtype', [np.float16, np.float32, np.float64])
-def test_true_h_duty_keeps_per_face_dtype_and_plain_addition(dtype):
-    h = np.linspace(300., 400., 8).reshape(2, 2, 2).astype(dtype)
-    faces = tuple(np.full(tuple(2 + (axis == i) for axis in range(3)), .2, dtype=dtype)
-                  for i in range(3))
+def test_true_h_duty_matches_float64_reference():
+    h = np.linspace(300., 400., 8).reshape(2, 2, 2)
+    faces = tuple(np.full(tuple(2 + (axis == i) for axis in range(3)), .2) for i in range(3))
     assert_observation(observe(raw._boundary_enthalpy_duty, h, 350., faces),
                        observe(original._boundary_enthalpy_duty, h, 350., faces))
 
 
-@pytest.mark.parametrize('dtype', [np.bool_, np.int8, np.int64, np.uint16, np.uint64,
-                                   np.float16, np.float32, np.float64])
-def test_two_d_mass_metric_keeps_sign_and_literal_rules(dtype):
+def test_two_d_mass_metric_matches_float64_reference():
     result = native_result(2)
-    faces = tuple(np.asarray(face, dtype=dtype) for face in result.boundary_fluxes['mass_A'])
+    faces = tuple(np.asarray(face, dtype=np.float64) for face in result.boundary_fluxes['mass_A'])
     result = replace(result, boundary_fluxes={**result.boundary_fluxes, 'mass_A': faces})
     planes = (faces[0][0], faces[0][-1], faces[1][:, 0], faces[1][:, -1])
     assert_observation(observe(raw.boundary_mass, planes, 2),
@@ -185,12 +165,10 @@ def quick_result(**changes):
             properties={'A': dict(rho=values['rho'], mu=values['mu'])}))
 
 
-@pytest.mark.parametrize('dtype', [np.bool_, np.int8, np.uint64, np.float16,
-                                   np.float32, np.float64, '>f4', np.longdouble])
 @pytest.mark.parametrize('layout', ['C', 'reverse', 'step', 'empty'])
-def test_capture_area_matrix_and_sum_keep_original_typed_outer_product(dtype, layout):
-    dx = np.linspace(1., 4., 7).astype(dtype)
-    dy = np.linspace(.1, .9, 11).astype(dtype)
+def test_capture_area_matrix_and_sum_match_float64_outer_product(layout):
+    dx = np.linspace(1., 4., 7)
+    dy = np.linspace(.1, .9, 11)
     if layout == 'reverse':
         dx, dy = dx[::-1], dy[::-1]
     elif layout == 'step':
@@ -222,31 +200,29 @@ def test_pressure_array_abi_rejects_input_output_alias_without_mutation():
 def test_port_weights_abi_does_not_publish_first_output_before_second_shape_check():
     inputs = [wire.array(value) for value in (np.array([1., 2.]), np.array([1., 2., 3.]),
                                              np.ones((2, 3)), np.ones((2, 3)))]
-    first = np.full((2, 3), 17.)
-    second = np.full((2, 3), 19., dtype=np.float32)
+    first = np.full((2, 3), 17., dtype=np.float64)
+    second = np.full((2, 4), 19., dtype=np.float64)
     outputs = [wire.array(value) for value in (first, second)]
     pointer = ct.POINTER(wire._Array)
-    with pytest.raises(ValueError, match='output dtype or shape'):
+    with pytest.raises(ValueError, match='output shape'):
         wire.call('tpmshx_result_port_weights_v1', [pointer] * 6,
                   *(ct.byref(item.raw) for item in inputs + outputs))
     np.testing.assert_array_equal(first, np.full((2, 3), 17.))
-    np.testing.assert_array_equal(second, np.full((2, 3), 19., dtype=np.float32))
+    np.testing.assert_array_equal(second, np.full((2, 4), 19.))
 
 
-def solid_mass_result(layout, dtype=np.float64, *, density=1., epsilon=.5):
+def solid_mass_result(layout, *, density=1., epsilon=.5):
     shapes = {'zero_dimensional': (), 'row': (1, 3), 'column': (2, 1),
               'full': (2, 3), 'mismatch': (3, 3)}
-    values = epsilon if layout == 'scalar' else np.full(shapes[layout], epsilon, dtype=dtype)
+    values = epsilon if layout == 'scalar' else np.full(shapes[layout], epsilon, dtype=np.float64)
     return FieldResult(result_id='mass-broadcast', case_id='test', backend_id='fixture',
-        grid=dict(dimension=2, dx=np.array([1., 2.], dtype=dtype),
-                  dy=np.array([1., 2., 3.], dtype=dtype)),
+        grid=dict(dimension=2, dx=np.array([1., 2.]), dy=np.array([1., 2., 3.])),
         metadata=dict(dimension=2, solid_density_kg_m3=density, design_fields=dict(eps_arr=values)))
 
 
 @pytest.mark.parametrize('layout', ['scalar', 'zero_dimensional', 'row', 'column', 'full', 'mismatch'])
-@pytest.mark.parametrize('dtype', [np.float16, np.float32, np.float64])
-def test_two_d_solid_mass_keeps_original_sequential_width_broadcast(layout, dtype):
-    result = solid_mass_result(layout, dtype, density=1.3)
+def test_two_d_solid_mass_keeps_original_sequential_width_broadcast(layout):
+    result = solid_mass_result(layout, density=1.3)
     arguments = dict(dimension=2, duty=None, mass_flow=None)
     assert_observation(observe(raw.solid_mass, np.asarray(result.metadata['design_fields']['eps_arr']),
                                result.metadata['solid_density_kg_m3'],
@@ -255,14 +231,13 @@ def test_two_d_solid_mass_keeps_original_sequential_width_broadcast(layout, dtyp
 
 
 @pytest.mark.parametrize('layout', ['zero_dimensional', 'mismatch'])
-@pytest.mark.parametrize('policy', ['warn', 'raise'])
-def test_two_d_solid_mass_fp_precedes_later_width_broadcast(layout, policy):
-    result = solid_mass_result(layout, np.float16, density=65504., epsilon=-1.)
+def test_two_d_solid_mass_fp_precedes_later_width_broadcast(layout):
+    result = solid_mass_result(layout, density=np.finfo(np.float64).max, epsilon=-1.)
     arguments = dict(dimension=2, duty=None, mass_flow=None)
     assert_observation(observe(raw.solid_mass, np.asarray(result.metadata['design_fields']['eps_arr']),
                                result.metadata['solid_density_kg_m3'],
-                               (np.asarray(result.grid['dx']), np.asarray(result.grid['dy'])), policy=policy),
-                       observe(original_metrics._evaluate_metric, result, 'mass', policy=policy, **arguments))
+                               (np.asarray(result.grid['dx']), np.asarray(result.grid['dy']))),
+                       observe(original_metrics._evaluate_metric, result, 'mass', **arguments))
 
 
 @pytest.mark.parametrize('layout', ['scalar', 'zero_dimensional', 'row', 'column', 'full', 'mismatch'])

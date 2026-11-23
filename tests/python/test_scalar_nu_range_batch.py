@@ -10,15 +10,12 @@ from sjtu_tpmshx.run_control.run_warnings import (
     warning_messages, warning_scope,
 )
 from sjtu_tpmshx.physical_models import nu_correlations as nu
-from tests.python.result_warning_reference import record_range
 
 
 def _scalar_loop(tpms_type, values):
-    with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(nu, 'record_range', record_range)
-        for raw in np.asarray(values, dtype=np.float64).flat:
-            value = float(raw)
-            nu._warn_extrap(tpms_type, value, value, value)
+    for raw in np.asarray(values, dtype=np.float64).flat:
+        value = float(raw)
+        nu._warn_extrap(tpms_type, value, value, value)
 
 
 def _capture(monkeypatch, evaluate, values, *, run, cache, surrounding=False,

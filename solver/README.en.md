@@ -5,10 +5,10 @@
 | Calculation | Start with the caller | Follow the C++ solution |
 | --- | --- | --- |
 | Full 2D | [2D air case](../examples/cpp/air_2d.cpp#L32-L34) | [Full2DRun::advance_impl](full_2d.cpp#L1095) advances through the outer, flow and thermal iteration boundaries. Start in [simple_2d.cpp](simple_2d.cpp) for changes to the velocity or pressure iterations. |
-| Full 3D | [3D case](../examples/cpp/run_3d.cpp#L19) | [Full3DRun::advance_step](full_3d.cpp#L1505) solves the initial flow on both sides, then updates temperature and flow. See [simple_3d.cpp](simple_3d.cpp) for 3D SIMPLE. |
+| Full 3D | [3D case](../examples/cpp/run_3d.cpp#L20) | [Full3DRun::advance_step](full_3d.cpp#L1505) solves the initial flow on both sides, then updates temperature and flow. See [simple_3d.cpp](simple_3d.cpp) for 3D SIMPLE. |
 | Quick Design | [Single candidate](../examples/cpp/quick_design.cpp#L13) | [solve_quick_design](quick_design_driver.cpp#L116) updates fluid properties on both sides and [calls the common temperature solver](quick_design_driver.cpp#L206). |
 
-**Follow a complete 2D case.** Start in [preparation](../preprocess/preparation_case.cpp#L1107) for ports and drag on the grid. See [geometry](../geometry/geometry.cpp#L172) for porosity and hydraulic diameter. Follow the 2D solver above. Then open [evaluation](../postprocess/result_stage.cpp#L1254) for [heat duty and other metrics](../postprocess/result_metrics.cpp) and [mass and energy balances](../postprocess/result_balance.cpp).
+**Follow a complete 2D case.** Start in [preparation](../preprocess/preparation_case.cpp#L1107) for ports and drag on the grid. See [geometry](../geometry/geometry.cpp#L172) for porosity and hydraulic diameter. Follow the 2D solver above. Then open [evaluation](../postprocess/result_stage.cpp#L1164) for [heat duty and other metrics](../postprocess/result_metrics.cpp) and [mass and energy balances](../postprocess/result_balance.cpp).
 
 ## File tree by maintenance task
 

@@ -17,34 +17,34 @@ void flag(std::uint32_t value) {
 
 template<class Function> int zone_weighted(
     const r::RawArray* values, const r::RawArray* weights, std::uint32_t weighted,
-    r::RawScalar* output, r::Diagnostics* diagnostics, char* error, std::size_t capacity,
+    double* output, r::Diagnostics* diagnostics, char* error, std::size_t capacity,
     Function function) {
     return boundary(diagnostics,error,capacity,[&](Buffers& buffers) {
         buffers.arrays(values,1); buffers.arrays(weights,weighted?1:0); buffers.output(output,1);
     },[&](r::Diagnostics& state) {
         flag(weighted);
-        const auto value=r::pack_scalar(function(*values,weighted?weights:nullptr,state));
-        *output=value;
+        const r::Array field(*values);
+        if (weighted) {
+            const r::Array weight(*weights);
+            const auto value=function(field,&weight,state).value; *output=value;
+        } else {
+            const auto value=function(field,nullptr,state).value; *output=value;
+        }
     });
 }
 
-template<class Function> int zone_reduction(const r::RawArray* values, r::RawScalar* output,
+template<class Function> int zone_reduction(const r::RawArray* values, double* output,
     r::Diagnostics* diagnostics, char* error, std::size_t capacity, Function function) {
     return boundary(diagnostics,error,capacity,[&](Buffers& buffers) {
         buffers.arrays(values,1); buffers.output(output,1);
     },[&](r::Diagnostics& state) {
-        const auto value=r::pack_scalar(function(*values,state)); *output=value;
+        const auto value=function(r::Array(*values),state).value; *output=value;
     });
 }
 
-void publish_tensor(const r::arithmetic::Tensor& value, unsigned char* output,
-    std::size_t capacity, r::RawScalar* output_type) {
-    if (value.bytes.size()!=capacity)
-        throw std::invalid_argument("zone output byte capacity is incorrect");
-    r::RawScalar kind{};
-    kind.dtype=value.dtype; kind.origin=TPMSHX_RESULT_NUMPY_SCALAR;
-    kind.byte_order=TPMSHX_RESULT_NATIVE_ENDIAN;
-    std::copy(value.bytes.begin(),value.bytes.end(),output); *output_type=kind;
+void publish_tensor(const r::arithmetic::Tensor& value, double* output, std::size_t count) {
+    if (value.size()!=count) throw std::invalid_argument("zone output extent is incorrect");
+    std::copy(value.values.begin(),value.values.end(),output);
 }
 }  // namespace
 
@@ -85,7 +85,7 @@ extern "C" int TPMSHX_RESULT_CALL tpmshx_result_balance_energy_v1(
     });
 }
 extern "C" int TPMSHX_RESULT_CALL tpmshx_result_zone_temperatures_2d_v1(
-    const r::RawArray* widths,const r::RawArray* labels,const r::RawArray* temperatures,
+    const r::RawArray* widths,const r::RawLabels* labels,const r::RawArray* temperatures,
     size_t zone_count,tpmshx_result_zone_temperatures_v1* output,double length_m,double height_m,
     const double* x_fractions,size_t nx,double* x_positions,
     const double* y_fractions,size_t ny,double* y_positions,r::Diagnostics* diagnostics,
@@ -95,55 +95,47 @@ extern "C" int TPMSHX_RESULT_CALL tpmshx_result_zone_temperatures_2d_v1(
 }
 extern "C" int TPMSHX_RESULT_CALL tpmshx_result_zone_mean_v1(
     const r::RawArray* values, const r::RawArray* weights, std::uint32_t weighted,
-    r::RawScalar* output, r::Diagnostics* diagnostics, char* error, std::size_t capacity) {
+    double* output, r::Diagnostics* diagnostics, char* error, std::size_t capacity) {
     return zone_weighted(values,weights,weighted,output,diagnostics,error,capacity,b::zone_mean);
 }
 extern "C" int TPMSHX_RESULT_CALL tpmshx_result_zone_std_v1(
     const r::RawArray* values, const r::RawArray* weights, std::uint32_t weighted,
-    std::uint32_t square_fused, r::RawScalar* output, r::Diagnostics* diagnostics, char* error, std::size_t capacity) {
-    return zone_weighted(values,weights,weighted,output,diagnostics,error,capacity,
-        [&](const r::RawArray& field,const r::RawArray* weight,r::Diagnostics& state) {
-            return b::zone_std(field,weight,square_fused,state);
-        });
+    double* output, r::Diagnostics* diagnostics, char* error, std::size_t capacity) {
+    return zone_weighted(values,weights,weighted,output,diagnostics,error,capacity,b::zone_std);
 }
 extern "C" int TPMSHX_RESULT_CALL tpmshx_result_zone_minimum_v1(
-    const r::RawArray* values, r::RawScalar* output, r::Diagnostics* diagnostics,
+    const r::RawArray* values, double* output, r::Diagnostics* diagnostics,
     char* error, std::size_t capacity) {
-    return zone_reduction(values,output,diagnostics,error,capacity,b::zone_minimum);
+    return zone_reduction(values,output,diagnostics,error,capacity,
+        [](const r::Array& field,r::Diagnostics&) {return b::zone_minimum(field);});
 }
 extern "C" int TPMSHX_RESULT_CALL tpmshx_result_zone_maximum_v1(
-    const r::RawArray* values, r::RawScalar* output, r::Diagnostics* diagnostics,
+    const r::RawArray* values, double* output, r::Diagnostics* diagnostics,
     char* error, std::size_t capacity) {
-    return zone_reduction(values,output,diagnostics,error,capacity,b::zone_maximum);
+    return zone_reduction(values,output,diagnostics,error,capacity,
+        [](const r::Array& field,r::Diagnostics&) {return b::zone_maximum(field);});
 }
 extern "C" int TPMSHX_RESULT_CALL tpmshx_result_zone_spread_v1(
-    const r::RawArray* values, r::RawScalar* output, r::Diagnostics* diagnostics,
+    const r::RawArray* values, double* output, r::Diagnostics* diagnostics,
     char* error, std::size_t capacity) {
     return zone_reduction(values,output,diagnostics,error,capacity,b::zone_spread);
 }
 extern "C" int TPMSHX_RESULT_CALL tpmshx_result_zone_power_two_v1(
-    const r::RawArray* values, std::uint32_t square_fused, unsigned char* output, std::size_t output_capacity,
-    r::RawScalar* output_type, r::Diagnostics* diagnostics, char* error, std::size_t capacity) {
+    const r::RawArray* values, double* output, std::size_t count,
+    r::Diagnostics* diagnostics, char* error, std::size_t capacity) {
     return boundary(diagnostics,error,capacity,[&](Buffers& buffers) {
-        buffers.arrays(values,1); buffers.output_bytes(output,output_capacity); buffers.output(output_type,1);
+        buffers.arrays(values,1); buffers.output(output,count);
     },[&](r::Diagnostics& state) {
-        if (r::Array(*values).size() && !output_capacity)
-            throw std::invalid_argument("zone output byte capacity is incorrect");
-        const auto value=b::zone_power_two(*values,square_fused,state);
-        publish_tensor(value,output,output_capacity,output_type);
+        publish_tensor(b::zone_power_two(r::Array(*values),state),output,count);
     });
 }
 extern "C" int TPMSHX_RESULT_CALL tpmshx_result_zone_speed_from_squared_v1(
-    const r::RawArray* u, const r::RawArray* v, unsigned char* output, std::size_t output_capacity,
-    r::RawScalar* output_type, r::Diagnostics* diagnostics, char* error, std::size_t capacity) {
+    const r::RawArray* u, const r::RawArray* v, double* output, std::size_t count,
+    r::Diagnostics* diagnostics, char* error, std::size_t capacity) {
     return boundary(diagnostics,error,capacity,[&](Buffers& buffers) {
-        buffers.arrays(u,1); buffers.arrays(v,1);
-        buffers.output_bytes(output,output_capacity); buffers.output(output_type,1);
+        buffers.arrays(u,1); buffers.arrays(v,1); buffers.output(output,count);
     },[&](r::Diagnostics& state) {
-        if (r::Array(*u).size() && !output_capacity)
-            throw std::invalid_argument("zone speed byte capacity is incorrect");
-        const auto value=b::zone_speed_from_squared(*u,*v,state);
-        publish_tensor(value,output,output_capacity,output_type);
+        publish_tensor(b::zone_speed_from_squared(r::Array(*u),r::Array(*v),state),output,count);
     });
 }
 extern "C" int TPMSHX_RESULT_CALL tpmshx_result_zone_cv_v1(

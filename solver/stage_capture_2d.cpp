@@ -23,14 +23,13 @@
 
 namespace tpmshx::stages {
 namespace {
-using Array=tpmshx_result_array_v1;
+using Array=tpmshx_result_array_v2;
 using Named=tpmshx_stage_named_array_v1;
 constexpr const char* labels[]{"A","B","solid"};
 constexpr const char* fluids[]{"air","water","sco2","co2"};
 constexpr const char* faces[]{"x-","x+","y-","y+","z-","z+"};
 struct ArrayStorage {
     std::array<size_t,3> shape{};
-    std::array<ptrdiff_t,3> strides{};
     Array value{};
 };
 struct EnergyStorage {
@@ -74,7 +73,7 @@ public:
     int dimension=2,outer_index=0;
     std::array<int,2> direction{};
     std::deque<ArrayStorage> arrays;
-    std::deque<tpmshx_result_scalar_v1> scalars;
+    std::deque<double> scalars;
     std::deque<std::vector<double>> copies;
     std::vector<Named> main_fields,fine_fields;
     std::vector<tpmshx_stage_field_declaration_v1> declarations;
@@ -101,8 +100,7 @@ public:
     tpmshx_stage_applicability_v1 applicability{};
 
     ~Capture2D() {tpmshx_full_2d_release_v2(&raw);}
-    template<class Value> const Array* array(const Value* data,size_t size,std::initializer_list<size_t> shape) {
-        static_assert(std::is_same_v<Value,double> || std::is_same_v<Value,uint64_t>);
+    const Array* array(const double* data,size_t size,std::initializer_list<size_t> shape) {
         if(shape.size()>3)throw std::invalid_argument("stage capture rank exceeds three");
         size_t count=1;
         for(auto n:shape)count=fields::c_api::product(count,n);
@@ -110,16 +108,15 @@ public:
         fields::c_api::require_buffer(data,size);
         arrays.emplace_back();auto& stored=arrays.back();
         std::copy(shape.begin(),shape.end(),stored.shape.begin());
-        size_t stride=sizeof(Value);
-        for(size_t axis=shape.size();axis>0;--axis) {
-            stored.strides[axis-1]=static_cast<ptrdiff_t>(stride);
-            stride=fields::c_api::product(stride,stored.shape[axis-1]);
-        }
-        stored.value={data,fields::c_api::product(size,sizeof(Value)),0,
-            std::is_same_v<Value,double>?TPMSHX_RESULT_F64:TPMSHX_RESULT_U64,
-            static_cast<uint32_t>(shape.size()?TPMSHX_RESULT_NUMPY_ARRAY:TPMSHX_RESULT_PYTHON_FLOAT),
-            TPMSHX_RESULT_NATIVE_ENDIAN,0,shape.size(),stored.shape.data(),stored.strides.data()};
+        stored.value={data,shape.size(),shape.size()?stored.shape.data():nullptr};
         return &stored.value;
+    }
+    const Array* array(const uint64_t* data,size_t size,std::initializer_list<size_t> shape) {
+        fields::c_api::require_buffer(data,size);
+        copies.emplace_back();auto& converted=copies.back();
+        converted.reserve(size);
+        for(size_t i=0;i<size;++i)converted.push_back(static_cast<double>(data[i]));
+        return array(converted.data(),converted.size(),shape);
     }
     template<class View> const Array* array(View value,std::initializer_list<size_t> shape) {
         return array(value.data,value.size,shape);
@@ -132,10 +129,9 @@ public:
     const Array* constant(double value) {
         copies.emplace_back(1,value);return array(copies.back().data(),1,{});
     }
-    const tpmshx_result_scalar_v1* scalar(double value) {
-        scalars.emplace_back();auto& s=scalars.back();
-        s.dtype=TPMSHX_RESULT_F64;s.origin=TPMSHX_RESULT_PYTHON_FLOAT;s.byte_order=TPMSHX_RESULT_NATIVE_ENDIAN;
-        std::memcpy(s.data,&value,sizeof(value));return &s;
+    const double* scalar(double value) {
+        scalars.push_back(value);
+        return &scalars.back();
     }
     void field(const char* name,tpmshx_model_h_array_v1 value,const char* unit,const char* state) {
         main_fields.push_back({name,*array(value,{raw.main.nx,raw.main.ny})});
@@ -337,8 +333,8 @@ public:
             }
             if(summary.pressure_available) {
                 const tpmshx::result::Array pressure(*array(raw.main.pressure[side],{raw.main.nx,raw.main.ny}));
-                summary.pressure_min_Pa[side]=a::to_float(a::minimum(pressure,diagnostics));
-                summary.pressure_max_Pa[side]=a::to_float(a::maximum(pressure,diagnostics));
+                summary.pressure_min_Pa[side]=a::minimum(pressure).value;
+                summary.pressure_max_Pa[side]=a::maximum(pressure).value;
             }
             summary.absolute_duty[side]=metrics::duty_magnitude(raw.duty[side]);
             if(std::isfinite(raw.duty[side]))summary.have_finite_duty=1;
@@ -441,10 +437,10 @@ public:
             // Preserve the recorded empty fine ledger when Richardson did not run.
             fine.empty_record=1;e.fine=&fine;
         }
-        gates={{{"simple_ok",static_cast<int>(raw.simple_ok),nullptr,nullptr},{"ltne_ok",static_cast<int>(raw.thermal_ok),nullptr,nullptr},
-            {"outer_converged",static_cast<int>(raw.outer_converged),nullptr,nullptr},
-            {"richardson_ok",raw.have_fine?(raw.fine.stop==0 && raw.fine_extrapolated?1:0):-1,nullptr,nullptr},
-            {"envelope_ok",static_cast<int>(raw.envelope_ok),nullptr,nullptr}}};
+        gates={{{"simple_ok",static_cast<int>(raw.simple_ok),nullptr,nullptr,nullptr},{"ltne_ok",static_cast<int>(raw.thermal_ok),nullptr,nullptr,nullptr},
+            {"outer_converged",static_cast<int>(raw.outer_converged),nullptr,nullptr,nullptr},
+            {"richardson_ok",raw.have_fine?(raw.fine.stop==0 && raw.fine_extrapolated?1:0):-1,nullptr,nullptr,nullptr},
+            {"envelope_ok",static_cast<int>(raw.envelope_ok),nullptr,nullptr,nullptr}}};
         e.convergence_gates=gates.data();e.convergence_gate_count=gates.size();
         e.execution_version="full_execution_v1";e.executed_sides=execution.data();e.executed_side_count=2;
         for(size_t side=0;side<2;++side)
@@ -508,8 +504,8 @@ extern "C" int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_get_capture_v1(
 }
 
 extern "C" int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_zone_temperatures_v1(
-    const tpmshx_result_array_v1* widths,const tpmshx_result_array_v1* labels,
-    const tpmshx_result_array_v1* temperatures,size_t zone_count,
+    const tpmshx_result_array_v2* widths,const tpmshx_result_labels_v1* labels,
+    const tpmshx_result_array_v2* temperatures,size_t zone_count,
     tpmshx_result_zone_temperatures_v1* output,double length_m,double height_m,
     const double* x_fractions,size_t nx,double* x_positions,
     const double* y_fractions,size_t ny,double* y_positions,

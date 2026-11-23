@@ -1,4 +1,4 @@
-"""Compare native signed balances with the frozen NumPy evidence reductions."""
+"""Compare native float64 signed balances with the frozen NumPy evidence reductions."""
 import ctypes as ct
 from dataclasses import replace
 import math
@@ -16,8 +16,8 @@ from tests.python import result_primitive_wire as native
 from sjtu_tpmshx.data_types.portable_data import mutable_data
 
 
-def observe(function, policy='warn'):
-    with warnings.catch_warnings(record=True) as caught, np.errstate(all=policy):
+def observe(function):
+    with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter('always')
         try:
             result = ('value', function())
@@ -59,17 +59,9 @@ def assert_observation(actual, expected):
         assert_values(actual[0][1], expected[0][1])
 
 
-@pytest.mark.parametrize('dtype', [np.float16, np.float32, np.float64, np.longdouble,
-                                   np.int8, np.uint8, np.int16, np.uint16,
-                                   np.int32, np.uint32, np.int64, np.uint64])
 @pytest.mark.parametrize('layout', ['C', 'F', 'transpose', 'negative', 'step'])
-def test_norms_keep_typed_reductions_and_layout(dtype, layout):
-    if np.dtype(dtype).kind == 'f':
-        values = np.random.default_rng(61024).uniform(-.3, .7, (137, 11)).astype(dtype)
-    else:
-        values = (np.arange(1507).reshape(137, 11) % 37).astype(dtype)
-    if np.dtype(dtype).kind == 'i':
-        values[::2] = -values[::2]
+def test_norms_keep_float64_reductions_and_layout(layout):
+    values = np.random.default_rng(61024).uniform(-.3, .7, (137, 11)).astype(np.float64)
     if layout == 'F':
         values = np.asfortranarray(values)
     elif layout == 'transpose':
@@ -82,55 +74,33 @@ def test_norms_keep_typed_reductions_and_layout(dtype, layout):
                        observe(lambda: reference._norms(values)))
 
 
-@pytest.mark.parametrize('dtype', ['>i2', '>u8', '>f2', '>f4', '>f8', '<i2', '<u8', '<f4'])
-def test_norms_keep_explicit_byte_order(dtype):
+@pytest.mark.parametrize('dtype', ['>f8', '<f8', '>f4', np.int32])
+def test_norms_normalize_real_inputs_to_float64(dtype):
     values = (np.arange(1507).reshape(137, 11) % 37).astype(dtype)
     assert_observation(observe(lambda: native.norms(values)),
-                       observe(lambda: reference._norms(values)))
+                       observe(lambda: reference._norms(values.astype(np.float64))))
 
 
-@pytest.mark.parametrize('dtype', [np.int8, np.int16, np.int32, np.int64, np.uint64])
-def test_norms_keep_integer_wrap_before_float(dtype):
-    info = np.iinfo(dtype)
-    values = np.array([info.min, info.max, info.max, 1, 1, 1, 1, 1], dtype=dtype)
+def test_norms_emit_fixed_overflow_warning():
+    values = np.full(137, np.finfo(np.float64).max, dtype=np.float64)
     assert_observation(observe(lambda: native.norms(values)),
                        observe(lambda: reference._norms(values)))
 
 
-@pytest.mark.parametrize('dtype', [np.int8, np.int16, np.int32, np.int64])
-def test_norms_keep_minimum_integer_absolute_value(dtype):
-    values = np.array([np.iinfo(dtype).min], dtype=dtype)
-    assert_observation(observe(lambda: native.norms(values)),
-                       observe(lambda: reference._norms(values)))
-
-
-@pytest.mark.parametrize('dtype', [np.float16, np.float32, np.float64])
-@pytest.mark.parametrize('policy', ['warn', 'raise', 'ignore'])
-def test_norms_keep_finite_input_overflow_policy(dtype, policy):
-    values = np.full(137, np.finfo(dtype).max, dtype=dtype)
-    assert_observation(observe(lambda: native.norms(values), policy),
-                       observe(lambda: reference._norms(values), policy))
-
-
-def _mass_inputs(dimension, dtype):
+def _mass_inputs(dimension):
     shape = (7, 5, 3)[:dimension]
     faces = []
     for axis in range(dimension):
         extent = tuple(size + (i == axis) for i, size in enumerate(shape))
-        if np.dtype(dtype).kind == 'f':
-            values = np.random.default_rng(61024 + axis).uniform(.01, .13, extent).astype(dtype)
-        else:
-            values = (np.arange(math.prod(extent)).reshape(extent) % 13).astype(dtype)
+        values = np.random.default_rng(61024 + axis).uniform(.01, .13, extent).astype(np.float64)
         faces.append(values)
     grid = {'d' + axis: np.ones(size) for axis, size in zip('xyz', shape)}
     return faces, grid
 
 
 @pytest.mark.parametrize('dimension', [2, 3])
-@pytest.mark.parametrize('dtype', [np.float16, np.float32, np.float64, np.longdouble,
-                                   np.int8, np.int32, np.int64, np.uint32, np.uint64])
-def test_mass_summary_keeps_signed_faces_and_axis_order(dimension, dtype):
-    faces, grid = _mass_inputs(dimension, dtype)
+def test_mass_summary_keeps_signed_faces_and_axis_order(dimension):
+    faces, grid = _mass_inputs(dimension)
     original = [value.copy() for value in faces]
     args = (faces, grid, dimension, 'kg/(s m)' if dimension == 2 else 'kg/s', 'boundary_fluxes.mass_A')
     assert_observation(observe(lambda: physical_balance.evaluate_physical_balance(FieldResult('mass', 'case', 'fixture',
@@ -141,56 +111,24 @@ def test_mass_summary_keeps_signed_faces_and_axis_order(dimension, dtype):
         np.testing.assert_array_equal(value, old)
 
 
-@pytest.mark.parametrize('dtypes', [(np.int16, np.float32), (np.float16, np.float32),
-                                    (np.int64, np.float32), (np.int8, np.int32, np.float64)])
-def test_mass_summary_keeps_mixed_axis_promotion(dtypes):
-    faces, grid = _mass_inputs(len(dtypes), np.float64)
-    faces = [value.astype(dtype) for value, dtype in zip(faces, dtypes)]
-    args = (faces, grid, len(dtypes), 'kg/(s m)' if len(dtypes) == 2 else 'kg/s', 'boundary_fluxes.mass_A')
-    assert_observation(observe(lambda: physical_balance.evaluate_physical_balance(FieldResult('mass', 'case', 'fixture',
-        grid=dict(grid, dimension=args[2]), metadata={'dimension': args[2]},
-        boundary_fluxes={'mass_A': faces}))['mass']['A']),
-                       observe(lambda: reference._mass_summary(*args)))
-
-
-@pytest.mark.parametrize('dtype', [np.float16, np.float32, np.float64, np.longdouble,
-                                   np.int16, np.int64, np.uint64])
 @pytest.mark.parametrize('dimension', [2, 3])
-def test_complete_energy_summary_keeps_typed_source_evidence(dtype, dimension):
+def test_complete_energy_summary_keeps_float64_source_evidence(dimension):
     result = sample_result(dimension)
     flux = mutable_data(result.boundary_fluxes)
     flux['mass_A'] = flux['mass_B'] = None
     energy = flux['energy']
     for phase in ('A', 'B', 'solid'):
         for key in ('advective_out', 'diffusive_out'):
-            energy[key][phase] = {name: value.astype(dtype) for name, value in energy[key][phase].items()}
-        values = energy['residual'][phase]
-        if np.dtype(dtype).kind == 'u':
-            values = np.zeros(values.shape, dtype=dtype)
-            values.flat[:2] = [np.iinfo(dtype).max, np.iinfo(dtype).max]
-        else:
-            values = values.astype(dtype)
-        energy['residual'][phase] = values
-        energy['source_integral'][phase] = np.asarray(1 if phase == 'A' else 0, dtype=dtype)
-    current = replace(result, boundary_fluxes=flux)
-    assert_observation(observe(lambda: physical_balance.evaluate_physical_balance(current)),
-                       observe(lambda: reference.evaluate_physical_balance(current)))
-
-
-def test_wider_long_double_remains_finite_before_report_conversion():
-    if np.finfo(np.longdouble).maxexp <= np.finfo(np.float64).maxexp:
-        pytest.skip('the platform long double has no wider exponent range')
-    result = sample_result(2)
-    flux = mutable_data(result.boundary_fluxes)
-    flux['mass_A'] = flux['mass_B'] = None
-    flux['energy']['residual']['A'] = np.full((2, 2), np.longdouble('1e400'), dtype=np.longdouble)
+            energy[key][phase] = {name: value.astype(np.float64) for name, value in energy[key][phase].items()}
+        energy['residual'][phase] = energy['residual'][phase].astype(np.float64)
+        energy['source_integral'][phase] = np.asarray(1. if phase == 'A' else 0., dtype=np.float64)
     current = replace(result, boundary_fluxes=flux)
     assert_observation(observe(lambda: physical_balance.evaluate_physical_balance(current)),
                        observe(lambda: reference.evaluate_physical_balance(current)))
 
 
 @pytest.mark.parametrize('solved', [(), ('A',), ('A', 'solid'), ('A', 'B', 'solid')])
-def test_energy_phase_selection_and_empty_integer_zero(solved):
+def test_energy_phase_selection_and_empty_zero(solved):
     result = sample_result(2)
     flux = mutable_data(result.boundary_fluxes)
     for phase in ('A', 'B', 'solid'):
@@ -229,21 +167,27 @@ def test_missing_evidence_needs_no_result_call(monkeypatch):
                   reference.evaluate_physical_balance(current))
 
 
-@pytest.mark.parametrize('damage', ['null', 'dtype', 'reserved', 'output-alias'])
+@pytest.mark.parametrize('bad', [np.array([True, False]), np.array([1. + 2.j]), np.array([1.], dtype=object)])
+def test_norms_reject_non_real_arrays(bad):
+    with pytest.raises(TypeError):
+        native.norms(bad)
+
+
+@pytest.mark.parametrize('damage', ['null', 'null-data', 'null-shape', 'output-alias'])
 def test_norm_c_boundary_rejects_without_output_writes(damage):
-    values = np.array([1., 2., 3., 4.])
+    values = np.array([1., 2., 3., 4.], dtype=np.float64)
     packed = core.array(values)
     output = native._Norms(-123., -456., -789., 912)
     pointer = ct.byref(packed.raw)
     result = ct.byref(output)
     if damage == 'null':
         pointer = None
-    elif damage == 'dtype':
-        packed.raw.dtype = 999
-    elif damage == 'reserved':
-        packed.raw.reserved = 1
+    elif damage == 'null-data':
+        packed.raw.data = None
+    elif damage == 'null-shape':
+        packed.raw.shape = None
     else:
-        result = ct.cast(packed.raw.data + packed.raw.offset, ct.POINTER(native._Norms))
+        result = ct.cast(packed.raw.data, ct.POINTER(native._Norms))
     original = values.copy()
     with pytest.raises(ValueError):
         core.call('tpmshx_result_balance_norms_v1',
@@ -254,10 +198,9 @@ def test_norm_c_boundary_rejects_without_output_writes(damage):
 
 def test_zero_weights_keep_raw_scalar_output_unchanged():
     values, weights = core.array(np.array([1., 2.])), core.array(np.array([0., 0.]))
-    output = core.scalar(9876.5)
-    original = bytes(output)
+    output = ct.c_double(9876.5)
     with pytest.raises(ZeroDivisionError, match='Weights sum to zero'):
         core.call('tpmshx_result_zone_mean_v1',
-                  [ct.POINTER(core._Array), ct.POINTER(core._Array), core._UInt, ct.POINTER(core._Scalar)],
+                  [ct.POINTER(core._Array), ct.POINTER(core._Array), core._UInt, ct.POINTER(ct.c_double)],
                   ct.byref(values.raw), ct.byref(weights.raw), 1, ct.byref(output))
-    assert bytes(output) == original
+    assert output.value == 9876.5

@@ -20,7 +20,7 @@ compute -> preprocess.api.prepare_case -> CaseData -> solvers.api.run_case -> Fi
 ```
 
 `compute` 同时处理阶段进度、取消、耗时与警告。`python/postprocess/api.py` 将完整 2D/3D、Quick Design 评估及独立查询交给原生结果阶段。
-`python/cpp_interface/_native_result_stage.py` 适配证据、NumPy 事件与返回对象；`python/postprocess/export.py` 负责导出。
+`python/cpp_interface/_native_result_stage.py` 适配 `float64`/`int32` 证据、固定 `RuntimeWarning` 诊断与返回对象；`python/postprocess/export.py` 负责导出。
 当前正式计算支持矩形二维与长方体三维。公开输入和文件交接见[示例](../examples/three_module/)与[数据契约](../docs/contracts/three_module_v1/README.zh-CN.md)。
 近似模式和扩展状态见[能力范围](../docs/capabilities.md)。
 
@@ -97,7 +97,7 @@ Python 通过 `_native_quick_prepare.py` 执行固定宿主协议，将原生输
 被替代的 `shared/models/quick_design.py` 已删除；默认值统一来自 `python/model_configs/model_parameters_v1.json` 及生成的 C++ 常量。
 native-double v1 契约与既有 LTNE 模型继续可用。
 Python 执行通过保存的准备态调用原生 run 阶段；原生结果阶段负责 Quick Design 指标。
-准备与结果的宿主操作保留既有 Python 类型、缓存、警告和事件协议。
+准备宿主操作保留既有 Python 类型、缓存、警告和事件协议；结果评估将 Quick Design 操作数规范化为 `float64`，并发出固定 `RuntimeWarning` 诊断。
 上述 Python 入口保留全部现有模式。
 
 ## 修改数值函数
@@ -119,9 +119,9 @@ Python 执行通过保存的准备态调用原生 run 阶段；原生结果阶�
 | Quick Design 阶段准备与执行 | [quick_design_prepare_v2.cpp](../preprocess/quick_design_prepare_v2.cpp): `tpmshx_prepare_quick_design_v2`, `tpmshx_quick_pressure_fractions_v2`; [quick_design_run.cpp](../solver/quick_design_run.cpp): `tpmshx_run_quick_design_v2` |
 | 阶段评估与资格判断 | [result_stage.cpp](../postprocess/result_stage.cpp): `evaluate`, `evaluate_applicability`, `evaluate_physical_balance`, `evaluate_qualification` |
 
-几何库使用 geometry ABI 1／field ABI 2；准备库保留 ABI 1 加载入口，并增加带版本的 Quick 准备 v2 契约；结果库使用 result ABI 2。
+几何库使用 geometry ABI 1／field ABI 2；准备库保留 ABI 1 加载入口，并增加带版本的 Quick 准备 v2 契约；结果库使用 result ABI 3。
 求解器的算法细节从上表 driver 进入对应 SIMPLE、压力和能量实现；[C++ 说明](../docs/cpp-migration.zh-CN.md)给出接口边界。
-Python 保留配置、DTO、I/O、缓存、NumPy 事件处理、GUI／搜索和离线研究。
+Python 保留配置、DTO、I/O、缓存、固定 `RuntimeWarning` 诊断、GUI／搜索和离线研究。
 原生结果阶段负责完整评估与资格；Python 保留来源数据和宿主通知，并解释执行记录。
 具体保留边界见[架构](../docs/architecture.zh-CN.md#retained-python-responsibilities)。
 

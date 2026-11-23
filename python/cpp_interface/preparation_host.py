@@ -16,8 +16,8 @@ from sjtu_tpmshx.run_control.logutil import get_logger
 from sjtu_tpmshx.run_control.run_warnings import (
     RangeRecord, current_warnings, merge_warnings, record_warning, warning_messages, _range_context,
 )
-from . import _native_flow, _native_preparation_case as abi, _native_properties
-from ._native_values import TOPOLOGIES, PackedArray, _Array as StridedArray, borrow_text, read_text
+from . import _native_flow, _native_preparation_case as abi, _native_properties, _native_result
+from ._native_values import TOPOLOGIES, borrow_text, read_text
 from .stage_libraries import preparation_library
 
 
@@ -404,9 +404,9 @@ def pack_nu(target, settings, keepalive):
 
 
 class _PreparedMesh(ct.Structure):
-    _fields_ = [('dimension', ct.c_size_t), ('widths', StridedArray * 3), ('edges', StridedArray * 3)]
+    _fields_ = [('dimension', ct.c_size_t), ('widths', _native_result._Array * 3), ('edges', _native_result._Array * 3)]
     _fields_ += [(name, ct.c_double) for name in ('area_density', 'hydraulic_diameter', 'porosity', 'split_a')]
-    _fields_ += [('fields', StridedArray * 3), ('side_geometry', StridedArray * 2),
+    _fields_ += [('fields', _native_result._Array * 3), ('side_geometry', _native_result._Array * 2),
                  ('axis_present', ct.c_uint32 * 2), ('axes', (ct.c_int32 * 6) * 2),
                  ('solver_widths', abi._Array * 3), ('solver_area', abi._Array), ('solver_diameter', abi._Array)]
 
@@ -424,7 +424,10 @@ def borrow_solver_mesh(case, library, dimension):
     keepalive = []
 
     def view(array):
-        packed = PackedArray(array)
+        if not (isinstance(array, np.ndarray) and array.dtype == np.float64 and array.dtype.isnative
+                and array.flags['C_CONTIGUOUS'] and array.flags['ALIGNED']):
+            raise TypeError('borrowed solver mesh requires contiguous native float64 arrays')
+        packed = _native_result.array(array)
         keepalive.append(packed)
         return packed.raw
 

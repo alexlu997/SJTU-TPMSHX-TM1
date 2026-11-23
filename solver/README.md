@@ -5,10 +5,10 @@
 | 要读的计算 | 先看算例里的调用 | 再看 C++ 如何推进 |
 | --- | --- | --- |
 | 完整二维 | [二维空气工况](../examples/cpp/air_2d.cpp#L32-L34) | [Full2DRun::advance_impl](full_2d.cpp#L1095) 按外迭代、流动、热学三个边界推进。改速度或压力迭代，从 [simple_2d.cpp](simple_2d.cpp) 读起。 |
-| 完整三维 | [三维工况](../examples/cpp/run_3d.cpp#L19) | [Full3DRun::advance_step](full_3d.cpp#L1505) 先求两侧初始流场，再推进热学和流场更新。三维 SIMPLE 在 [simple_3d.cpp](simple_3d.cpp)。 |
+| 完整三维 | [三维工况](../examples/cpp/run_3d.cpp#L20) | [Full3DRun::advance_step](full_3d.cpp#L1505) 先求两侧初始流场，再推进热学和流场更新。三维 SIMPLE 在 [simple_3d.cpp](simple_3d.cpp)。 |
 | 快速设计（Quick） | [单候选工况](../examples/cpp/quick_design.cpp#L13) | [solve_quick_design](quick_design_driver.cpp#L116) 按候选工况更新两侧物性，并[调用共用温度求解器](quick_design_driver.cpp#L206)。 |
 
-**把二维工况读完整。** 从[前处理](../preprocess/preparation_case.cpp#L1107)看两侧端口和阻力如何落到网格上，从[几何计算](../geometry/geometry.cpp#L172)看孔隙率和水力直径。接着读表中的二维求解。最后进入[后处理](../postprocess/result_stage.cpp#L1254)，查看[换热量等指标](../postprocess/result_metrics.cpp)及[质量与能量收支](../postprocess/result_balance.cpp)。
+**把二维工况读完整。** 从[前处理](../preprocess/preparation_case.cpp#L1107)看两侧端口和阻力如何落到网格上，从[几何计算](../geometry/geometry.cpp#L172)看孔隙率和水力直径。接着读表中的二维求解。最后进入[后处理](../postprocess/result_stage.cpp#L1164)，查看[换热量等指标](../postprocess/result_metrics.cpp)及[质量与能量收支](../postprocess/result_balance.cpp)。
 
 ## 按维护任务展开目录树
 

@@ -187,16 +187,10 @@ def result_metadata(request, tmp_path):
     if host == 'macos-arm64':
         compiler['implicit'] = dict(includeDirectories=[(sdk/'usr/include').as_posix()])
     toolchains = [dict(language='CXX', compiler=compiler)]
-    if host == 'macos-arm64':
-        toolchains.append(dict(language='C', compiler=dict(path='/actual/c', id='ActualCCompiler', version='21.0',
-            implicit=dict(includeDirectories=[(sdk/'usr/include').as_posix()]))))
     (reply/'toolchains.json').write_text(json.dumps(dict(toolchains=toolchains)))
     for name in names:
         sources = [dict(path='src/actual.cpp')]
         groups = [dict(language='CXX', compileCommandFragments=[dict(fragment='actual optimized strict CXX options')])]
-        if host == 'macos-arm64' and name == 'tpmshx_result':
-            groups.append(dict(language='C', compileCommandFragments=[dict(fragment='actual strict C11 options')]))
-            sources.append(dict(path='src/result_complex_sqrt.c'))
         (reply/(name+'.json')).write_text(json.dumps(dict(artifacts=[dict(path=image.name)],
             sources=sources, compileGroups=groups, link=dict(language='CXX'))))
     (build/'CMakeCache.txt').write_text('CMAKE_CXX_FLAGS_RELEASE:STRING=actual release options\n'
@@ -213,17 +207,10 @@ def test_result_metadata_records_actual_targets_and_toolchain(result_metadata):
     record = native.result_build_record(cache, host)
     assert record['toolchains'][0]['compiler'] == compiler
     assert set(record['targets']) == {'tpmshx_result', 'tpmshx_result_c', 'tpmshx_result_shared'}
-    expected_sources = [dict(path='src/actual.cpp')]
+    assert record['targets']['tpmshx_result']['sources'] == [dict(path='src/actual.cpp')]
+    for target in record['targets'].values():
+        assert {group['language'] for group in target['compile_groups']} == {'CXX'}
     if host == 'macos-arm64':
-        expected_sources.append(dict(path='src/result_complex_sqrt.c'))
-    assert record['targets']['tpmshx_result']['sources'] == expected_sources
-    for name, target in record['targets'].items():
-        languages = {'C', 'CXX'} if host == 'macos-arm64' and name == 'tpmshx_result' else {'CXX'}
-        assert {group['language'] for group in target['compile_groups']} == languages
-    if host == 'macos-arm64':
-        assert record['toolchains'][1]['compiler']['path'] == '/actual/c'
-        assert record['targets']['tpmshx_result']['compile_groups'][1]['compileCommandFragments'] == [
-            dict(fragment='actual strict C11 options')]
         assert record['sdk']['sdk_settings'] == [dict(path=str(sdk.resolve()/'SDKSettings.json'),
             version='27.0', canonical_name='macosx27.0')]
     assert record['sdk']['cmake_cache']['CMAKE_SYSTEM_VERSION'] == 'actual-system-version'
@@ -235,8 +222,7 @@ def test_result_metadata_records_actual_targets_and_toolchain(result_metadata):
 @pytest.mark.parametrize('fault', ['missing-language', 'unexpected-c', 'extra-language', 'missing-options'])
 def test_result_metadata_rejects_unexpected_target_languages_or_missing_options(result_metadata, fault):
     cache, host, build, reply, _, _ = result_metadata
-    name = 'tpmshx_result_c' if fault == 'unexpected-c' and host == 'macos-arm64' else 'tpmshx_result'
-    path = reply/(name+'.json')
+    path = reply/'tpmshx_result.json'
     target = json.loads(path.read_text())
     groups = target['compileGroups']
     if fault == 'missing-language':

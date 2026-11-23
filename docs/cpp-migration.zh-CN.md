@@ -125,7 +125,7 @@ Python wheel 包含代码和模型资源，不包含原生库。
 不构建完整求解器或 run_state，也不需要 SuperLU 或 AMG。
 完整构建脚本分别构建 pilot 和 preparation 工程，共用一套物性和 DF 数值实现。
 
-`python/cpp_interface/stage_libraries.py` 通过 ctypes 分别按需加载准备库（ABI 1）和结果库（ABI 2）。
+`python/cpp_interface/stage_libraries.py` 通过 ctypes 分别按需加载准备库（ABI 1）和结果库（ABI 3）。
 具名物性、DF 和流量适配器保留现有 Python 公共接口。
 二维准备将 v7 域长／端口标量类型描述符与适用的版本载荷配合使用。
 共享网格和端口核心保留整数与窄浮点混合运算。
@@ -272,11 +272,10 @@ Linux x86_64 支持独立结果评估。完整求解器与桌面支持仍限 mac
 
 ## 原生结果核心
 
-独立 result ABI 2 负责指标、有符号物理平衡、分区统计及数值资格检查。
-结果阶段选择已记录证据，负责完整 2D/3D 指标定义、状态和资格。
-Python 保留公开 DTO 和文件接口、原对象身份及 NumPy 事件处理。
-三个独立结果查询使用同一原生阶段；Quick Design 指标运算也由同一阶段负责，固定具名宿主操作保留既有 Python 对象、任意精度整数和转换协议。
-带版本的宿主查询保留延迟输入错误和回调异常，不改变已发布的 v1 C 布局。
+独立 result ABI 3 以 `float64` 和 `int32` 分区标签负责指标、有符号物理平衡、分区统计及数值资格检查。
+结果阶段选择已记录证据，负责完整 2D/3D 与 Quick Design 指标定义、状态和资格。
+Python 保留公开 DTO 和文件接口、`float64`/`int32` 输入规范化以及固定 `RuntimeWarning` 诊断。
+三个独立结果查询使用同一原生阶段。扁平化的 `tpmshx_stage_input_v3` 查询保留延迟输入错误和事件回调异常，不再使用逐操作 Quick 回调。
 独立 `postprocess/` 项目只使用 C++17 和系统库，
 不加载求解器、准备库、几何库、CoolProp 或模型资源。
 
@@ -322,7 +321,7 @@ v2 阶段负责原数值及校验顺序，固定具名宿主操作保留 Python 
 薄准备入口组装 CaseData，保留逆流保存态的 `qtol=None` 和 `chunk=None`。
 Python 执行通过保存的准备场调用 run 阶段。
 阶段提供场数组及声明，Python 在释放前复制这些数据，保留原固定场 dtype，并映射过程警告和错误。
-原生结果阶段负责 Quick Design 指标，保留既有类型及事件协议。
+原生结果阶段根据 `float64` 操作数计算 Quick Design 指标，并发出固定 `RuntimeWarning` 诊断。
 
 `quick_design_driver.hpp` 负责完整准备态 const/mean 物性阶段计算。它包含原有经验空气／水或 HEOS sCO2 物性、既有 Nu、一次或两次温度计算、全场热启动、逐阶段液态水检查、迭代预算、进度和取消。准备好的入口状态解析压降比例保持固定。这是既有给定流量尺寸设计近似，`physical_validation=not_established`。
 

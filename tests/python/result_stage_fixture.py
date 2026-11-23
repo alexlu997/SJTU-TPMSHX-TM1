@@ -7,7 +7,7 @@ from sjtu_tpmshx.cpp_interface import _native_result as core
 
 P = ct.POINTER
 S, I, Z, D = ct.c_char_p, ct.c_int, ct.c_size_t, ct.c_double
-AP, SP = P(core._Array), P(core._Scalar)
+AP, DP = P(core._Array), P(D)
 
 
 def record(name, fields):
@@ -15,12 +15,12 @@ def record(name, fields):
 
 
 Named = record('Named', [('name', S), ('value', core._Array)])
-Gate = record('Gate', [('name', S), ('value', I), ('recorded_number', SP), ('recorded_text', S)])
+Gate = record('Gate', [('name', S), ('value', I), ('recorded_number', DP), ('recorded_integer', P(ct.c_int64)), ('recorded_text', S)])
 Grid = record('Grid', [('widths', AP * 3)])
 Declaration = record('Declaration', [('name', S), ('unit', S), ('state', S)])
 Pressure = record('Pressure', [('pressure', AP), ('grid', Grid), ('inlet_fraction', AP),
-    ('outlet_fraction', AP), ('outlet_geom_fraction', AP), ('reference', SP),
-    ('inlet_absolute', SP), ('outlet_absolute', SP), ('unit', S)])
+    ('outlet_fraction', AP), ('outlet_geom_fraction', AP), ('reference', DP),
+    ('inlet_absolute', DP), ('outlet_absolute', DP), ('unit', S)])
 Phase = record('Phase', [('name', S), ('solved', I), ('residual', AP),
     ('advective_out', P(Named)), ('diffusive_out', P(Named)),
     ('advective_count', Z), ('diffusive_count', Z), ('source_integral', AP)])
@@ -31,14 +31,14 @@ ModelSide = record('ModelSide', [('physical_boundary_complete', I), ('staggered_
 Model = record('Model', [('passed', I), ('physical_boundary_complete', I), ('sides', ModelSide * 2)])
 TrueH = record('TrueH', [('energy_algorithm', S), ('boundary_power_units', S),
     ('energy_algorithm_version', P(I)), ('physical_boundary_complete', I),
-    ('enthalpy', AP * 2), ('inlet_enthalpy', SP * 2), ('mass', AP * 2), ('mass_count', Z * 2),
+    ('enthalpy', AP * 2), ('inlet_enthalpy', DP * 2), ('mass', AP * 2), ('mass_count', Z * 2),
     ('boundary_power', P(Named) * 2), ('boundary_count', Z * 2), ('invalid_version_type', I)])
 Thermal = record('Thermal', [('mass', AP * 2), ('mass_count', Z * 2), ('energy', P(Energy)),
     ('temperature', P(Energy)), ('true_h', P(TrueH)), ('model_h', P(Model)), ('report_direction', P(I) * 2)])
 Fine = record('Fine', [('grid', Grid), ('fields', P(Named)), ('field_count', Z), ('thermal', Thermal),
     ('rho_cp', AP * 2), ('inlet_fraction', AP * 2), ('outlet_fraction', AP * 2), ('epsilon', AP), ('empty_record', I)])
 TrueCertificate = record('TrueCertificate', [('converged', I), ('clip_counts', AP),
-    ('ratios', SP * 2), ('tolerances', SP * 2)])
+    ('ratios', DP * 2), ('tolerances', DP * 2)])
 ModelLevel = record('ModelLevel', [('level', S), ('value', Model)])
 ExecutionSide = record('ExecutionSide', [('side', S), ('fluid', S), ('solved', I)])
 Range = record('Range', [('captured', I), ('side', S), ('quantity', S), ('constraint', S),
@@ -49,7 +49,7 @@ Required = record('Required', [('group', S), ('side', S), ('source', P(S)), ('so
 Applicability = record('Applicability', [('version', S), ('inlet', P(Range)), ('final_state', P(Range)),
     ('inlet_count', Z), ('final_count', Z), ('required', P(Required)), ('required_count', Z),
     ('inlet_recorded', I), ('scope_notes', P(S)), ('scope_note_count', Z)])
-Quick = record('Quick', [(name, SP) for name in ('inlet_temperature', 'mass_flow', 'cp', 'rho', 'velocity', 'viscosity')])
+Quick = record('Quick', [(name, DP) for name in ('inlet_temperature', 'mass_flow', 'cp', 'rho', 'velocity', 'viscosity')])
 Evidence = record('Evidence', [('abi_version', ct.c_uint32), ('struct_size', Z), ('result_id', S), ('dimension', I),
     ('metadata_dimension', P(I)), ('quantity_basis', S), ('mass_unit', S), ('mode', S), ('thermal_mode', S),
     ('temperature_transport', S), ('grid', Grid), ('fields', P(Named)), ('field_count', Z),
@@ -60,9 +60,9 @@ Evidence = record('Evidence', [('abi_version', ct.c_uint32), ('struct_size', Z),
     ('strict_ratios', P(D) * 4), ('source_power', P(D) * 2), ('model_active_b', I), ('richardson_extrapolated', I),
     ('execution_version', S), ('executed_sides', P(ExecutionSide)), ('executed_side_count', Z),
     ('applicability', P(Applicability)), ('active_fluids', I * 2), ('direction', P(I) * 2),
-    ('inlet_temperature', SP * 2), ('inlet_geom_fraction', AP * 2), ('outlet_geom_fraction', AP * 2),
-    ('rho_cp', AP * 2), ('parameter_epsilon', AP), ('design_epsilon', AP), ('split_a', SP), ('solid_density', SP),
-    ('quick_model', S), ('arrangement', S), ('quick', Quick * 2), ('hydraulic_diameter', SP),
+    ('inlet_temperature', DP * 2), ('inlet_geom_fraction', AP * 2), ('outlet_geom_fraction', AP * 2),
+    ('rho_cp', AP * 2), ('parameter_epsilon', AP), ('design_epsilon', AP), ('split_a', DP), ('solid_density', DP),
+    ('quick_model', S), ('arrangement', S), ('quick', Quick * 2), ('hydraulic_diameter', DP),
     ('absent_records', P(S)), ('absent_record_count', Z), ('model_certificate_error', S)])
 Spec = record('Spec', [('name', S), ('unit', S), ('definition_version', S), ('description', S)])
 Metric = record('Metric', [('name', S), ('spec', Spec), ('has_value', I), ('value', D), ('status', S), ('reason', S)])
@@ -125,8 +125,12 @@ class PackedEvidence:
             value = detail[k]
             gate = Gate(text(k), truth(value))
             if value is not None and type(value) is not bool:
-                if isinstance(value, str): gate.recorded_text = text(value)
-                else: gate.recorded_number = self.scalar(value)
+                if isinstance(value, str):
+                    gate.recorded_text = text(value)
+                elif isinstance(value, int):
+                    gate.recorded_integer = self.number(ct.c_int64, value)
+                else:
+                    gate.recorded_number = self.scalar(value)
             gates.append(gate)
         e.convergence_gates, e.convergence_gate_count = self.sequence(Gate, gates), len(gates)
         true_certificate = diagnostics.get('true_h_balance')
@@ -211,7 +215,7 @@ class PackedEvidence:
         return None if value is None else self.pointer(kind(value))
 
     def scalar(self, value):
-        return None if value is None else self.pointer(core.scalar(value))
+        return None if value is None else self.pointer(D(core.scalar(value)))
 
     def array(self, value):
         if value is None:

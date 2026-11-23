@@ -11,12 +11,6 @@ def pressure_face_values(pressure, stream_widths):
     if p.shape[1] < 2:
         return p[:, 0], p[:, -1]
     dy = np.asarray(stream_widths)
-    if p.dtype.kind == 'O' or dy.dtype.kind == 'O':
-        # This raw API retains Python object protocols before native dispatch.
-        ri = dy[0] / (dy[0] + dy[1])
-        ro = dy[-1] / (dy[-2] + dy[-1])
-        return ((1.0 + ri) * p[:, 0] - ri * p[:, 1],
-                (1.0 + ro) * p[:, -1] - ro * p[:, -2])
     ri = native.pressure_ratio(dy[0], dy[1])
     ro = native.pressure_ratio(dy[-1], dy[-2])
     return (native.pressure_face(p[:, 0], p[:, 1], ri),

@@ -1,85 +1,119 @@
-"""Call independent result primitives and check the native long-double format."""
+"""Call independent result primitives with contiguous float64 arrays and int32 labels."""
 import ctypes as ct
-from functools import lru_cache, partial
 import os
+import warnings
 
 import numpy as np
 
 from .stage_libraries import result_library
-
-from ._native_values import (
-    _Array as _Array, _Diagnostics, _Scalar as _Scalar, NATIVE_DTYPES, PackedArray,
-    notify_diagnostics as notify, packed_scalar,
-)
+from ._native_values import _Diagnostics, _OPERATIONS
 
 
 _Size, _UInt = ct.c_size_t, ct.c_uint32
+_SizeP = ct.POINTER(_Size)
+_FLOAT64 = np.dtype(np.float64)
+_INT32 = np.dtype(np.int32)
+_INT32_INFO = np.iinfo(np.int32)
 
 
-class _Platform(ct.Structure):
-    _fields_ = [('long_double_size', _UInt), ('long_double_digits', _UInt),
-                ('long_double_max_exponent', _UInt), ('reserved', _UInt)]
+class _Array(ct.Structure):
+    _fields_ = [('data', ct.c_void_p), ('rank', _Size), ('shape', _SizeP)]
 
 
-@lru_cache(maxsize=1)
-def _extended_format(path):
-    owner = result_library.load(path)
-    output, error = _Platform(), ct.create_string_buffer(4096)
-    query = owner.bind('tpmshx_result_platform_info_v1',
-                       [ct.POINTER(_Platform), ct.POINTER(ct.c_char), _Size])
-    status = query(ct.byref(output), error, len(error))
-    if status:
-        raise RuntimeError(error.value.decode('utf-8', errors='replace') or 'cannot query result numeric format')
-    expected = np.finfo(np.longdouble)
-    if (output.long_double_size, output.long_double_digits, output.long_double_max_exponent) != (
-            np.dtype(np.longdouble).itemsize, expected.nmant + 1, expected.maxexp):
-        raise RuntimeError('native result long double format does not match NumPy')
+class _Labels(ct.Structure):
+    _fields_ = [('data', ct.c_void_p), ('rank', _Size), ('shape', _SizeP)]
 
 
-def _check_extended():
-    _extended_format(result_library.path())
+def _normalize_float64(value):
+    if isinstance(value, (bool, np.bool_)):
+        raise TypeError('native result buffers require real numeric data, got bool')
+    if isinstance(value, (int, float)):
+        return np.array(float(value), dtype=_FLOAT64)
+    arr = np.asarray(value)
+    if arr.dtype.kind not in ('i', 'u', 'f'):
+        raise TypeError(f'native result buffers require real numeric data, got {arr.dtype}')
+    if (type(arr) is np.ndarray and arr.dtype == _FLOAT64 and arr.dtype.isnative
+            and arr.flags['C_CONTIGUOUS'] and arr.flags['ALIGNED']):
+        return arr
+    return np.array(arr, dtype=_FLOAT64, order='C', copy=True, subok=False)
 
 
-array = partial(PackedArray, check_extended=_check_extended)
-scalar = partial(packed_scalar, check_extended=_check_extended)
+def _normalize_int32(value):
+    if isinstance(value, (bool, np.bool_)):
+        raise TypeError('native result labels require integer data, got bool')
+    if isinstance(value, int):
+        if not _INT32_INFO.min <= value <= _INT32_INFO.max:
+            raise ValueError('native result labels must fit in int32')
+        return np.array(value, dtype=_INT32)
+    arr = np.asarray(value)
+    if arr.dtype.kind not in ('i', 'u'):
+        raise TypeError(f'native result labels require integer data, got {arr.dtype}')
+    if arr.size:
+        if arr.dtype.kind == 'u':
+            if int(arr.max()) > _INT32_INFO.max:
+                raise ValueError('native result labels must fit in int32')
+        elif int(arr.min()) < _INT32_INFO.min or int(arr.max()) > _INT32_INFO.max:
+            raise ValueError('native result labels must fit in int32')
+    if (type(arr) is np.ndarray and arr.dtype == _INT32 and arr.dtype.isnative
+            and arr.flags['C_CONTIGUOUS'] and arr.flags['ALIGNED']):
+        return arr
+    return np.array(arr, dtype=_INT32, order='C', copy=True, subok=False)
 
 
-def restore_scalar(value):
-    if value.reserved or value.dtype not in NATIVE_DTYPES or value.origin > 5 or value.byte_order > 2:
-        raise RuntimeError('native result returned an invalid scalar description')
-    dtype = NATIVE_DTYPES[value.dtype]
-    if value.dtype in (13, 16):
-        _extended_format(result_library.path())
-    if value.byte_order:
-        dtype = dtype.newbyteorder('<' if value.byte_order == 1 else '>')
-    values = np.frombuffer(bytes(value.data[:dtype.itemsize]), dtype=dtype, count=1)
-    if value.origin == 2:
-        return values.copy().reshape(())
-    result = values[0]
-    if value.origin == 0:
-        return float(result)
-    if value.origin == 3:
-        return int(result)
-    if value.origin == 4:
-        return bool(result)
-    if value.origin == 5:
-        return complex(result)
-    return result
+class PackedArray:
+    def __init__(self, value):
+        self.owner = _normalize_float64(value)
+        shape = self.owner.shape
+        self.shape = (_Size * len(shape))(*shape)
+        pointer = self.owner.ctypes.data if self.owner.size else None
+        self.raw = _Array(pointer, len(shape), self.shape if shape else None)
 
 
-def integer_product_requires_python(values):
-    """Select existing Python integer protocols before a bounded native call."""
-    values = tuple(values)
-    if any(type(value) is int and not -(1 << 63) <= value < (1 << 63) for value in values):
-        return True
-    bits = 0
-    for value in values:
-        if type(value) not in (int, bool):
-            break
-        bits += abs(value).bit_length()
-        if bits > 63:
-            return True
-    return False
+class PackedLabels:
+    def __init__(self, value):
+        self.owner = _normalize_int32(value)
+        shape = self.owner.shape
+        self.shape = (_Size * len(shape))(*shape)
+        pointer = self.owner.ctypes.data if self.owner.size else None
+        self.raw = _Labels(pointer, len(shape), self.shape if shape else None)
+
+
+def array(value):
+    return PackedArray(value)
+
+
+def labels(value):
+    return PackedLabels(value)
+
+
+def scalar(value):
+    if isinstance(value, (bool, np.bool_)):
+        raise TypeError(f'native result scalar requires a real number, got {type(value).__name__}')
+    if isinstance(value, (int, float, np.integer, np.floating)):
+        return float(value)
+    if isinstance(value, np.ndarray):
+        if value.ndim:
+            raise TypeError('native result scalar requires a scalar or a zero-dimensional array')
+        if value.dtype.kind not in ('i', 'u', 'f'):
+            raise TypeError(f'native result scalar requires a real number, got {value.dtype}')
+        return float(value[()])
+    raise TypeError(f'native result scalar requires a real number, got {type(value).__name__}')
+
+
+def notify(diagnostics, *, stacklevel=4):
+    """Emit RuntimeWarning for divide, overflow, and invalid events; ignore underflow."""
+    if diagnostics.reserved or diagnostics.event_count > 64:
+        raise RuntimeError('native result returned invalid diagnostics')
+    categories = ((1, 'divide by zero'), (2, 'overflow'), (8, 'invalid value'))
+    for event in diagnostics.events[:diagnostics.event_count]:
+        if event.reserved or event.flags > 15 or event.scalar > 1 or event.operation not in _OPERATIONS:
+            raise RuntimeError('native result returned an invalid floating-point event')
+        operation = _OPERATIONS[event.operation]
+        if event.scalar and event.operation in (1, 2, 3, 4, 5, 8):
+            operation = 'scalar ' + operation
+        for flag, label in categories:
+            if event.flags & flag:
+                warnings.warn(f'{label} encountered in {operation}', RuntimeWarning, stacklevel=stacklevel)
 
 
 def call(name, argtypes, *arguments, stacklevel=4, library=None):

@@ -23,7 +23,7 @@ compute -> preprocess.api.prepare_case -> CaseData -> solvers.api.run_case -> Fi
 
 `compute` also manages stage progress, cancellation, elapsed times and warnings.
 `python/postprocess/api.py` sends full 2D/3D and Quick Design evaluation and independent queries to the native result stage.
-`python/cpp_interface/_native_result_stage.py` adapts evidence, NumPy events and returned objects. `python/postprocess/export.py` exports results.
+`python/cpp_interface/_native_result_stage.py` adapts `float64`/`int32` evidence, fixed `RuntimeWarning` diagnostics and returned objects. `python/postprocess/export.py` exports results.
 Current full computations support rectangular 2D and cuboid 3D domains.
 See the [examples](../examples/three_module/) and [data contract](../docs/contracts/three_module_v1/README.md) for public inputs and file transport.
 The [capabilities](../docs/capabilities.en.md) list approximation modes and extension status.
@@ -103,7 +103,7 @@ Python uses `_native_quick_prepare.py` for fixed host protocols and copies nativ
 The replaced `shared/models/quick_design.py` is removed. Defaults come from `python/model_configs/model_parameters_v1.json` and generated C++ constants.
 The native-double v1 contract and the existing LTNE model remain available.
 Python execution calls the native run stage with saved prepared data. The native result stage owns Quick Design metrics.
-Preparation and result host operations keep the existing Python type, cache, warning and event protocols.
+Preparation host operations keep the existing Python type, cache, warning and event protocols. Result evaluation normalizes Quick Design operands to `float64` and emits fixed `RuntimeWarning` diagnostics.
 The Python entries above retain all current modes.
 
 ## Edit numerical functions
@@ -125,9 +125,9 @@ Use this table to find the C++ owner of a numerical rule.
 | Quick Design stage preparation and execution | [quick_design_prepare_v2.cpp](../preprocess/quick_design_prepare_v2.cpp): `tpmshx_prepare_quick_design_v2`, `tpmshx_quick_pressure_fractions_v2`; [quick_design_run.cpp](../solver/quick_design_run.cpp): `tpmshx_run_quick_design_v2` |
 | Stage evaluation and qualification | [result_stage.cpp](../postprocess/result_stage.cpp): `evaluate`, `evaluate_applicability`, `evaluate_physical_balance`, `evaluate_qualification` |
 
-Geometry uses geometry ABI 1 and field ABI 2. The preparation library keeps its ABI 1 loader and adds the versioned Quick preparation v2 contract. Results use result ABI 2.
+Geometry uses geometry ABI 1 and field ABI 2. The preparation library keeps its ABI 1 loader and adds the versioned Quick preparation v2 contract. Results use result ABI 3.
 Start at the drivers above for SIMPLE, pressure and energy implementations. See [C++ interfaces](../docs/cpp-migration.md) for their boundaries.
-Python keeps configuration, DTOs, I/O, caches, NumPy event handling, the GUI, searches and offline research.
+Python keeps configuration, DTOs, I/O, caches, fixed `RuntimeWarning` diagnostics, the GUI, searches and offline research.
 The native result stage owns full evaluation and qualification. Python preserves source data and host notices, and interprets execution records.
 See [retained Python responsibilities](../docs/architecture.md#retained-python-responsibilities) for their exact scope.
 

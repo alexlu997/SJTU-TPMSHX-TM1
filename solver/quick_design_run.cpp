@@ -18,17 +18,12 @@
 namespace {
 namespace boundary=tpmshx::fields::c_api;
 using tpmshx::preparation::c_api::require_disjoint;
-using Array=tpmshx_result_array_v1;
-using Scalar=tpmshx_result_scalar_v1;
+using Array=tpmshx_result_array_v2;
 
 template<class T> void version(const T* value,uint32_t expected=TPMSHX_QUICK_DESIGN_STAGE_ABI_VERSION) {
     boundary::require_buffer(value,1);
     if(value->abi_version!=expected || value->struct_size!=sizeof(T))
         throw std::invalid_argument("quick-design stage ABI version or struct size is invalid");
-}
-Scalar scalar(double value) {
-    Scalar result{};result.dtype=TPMSHX_RESULT_F64;result.origin=TPMSHX_RESULT_PYTHON_FLOAT;
-    result.byte_order=TPMSHX_RESULT_NATIVE_ENDIAN;std::memcpy(result.data,&value,sizeof(value));return result;
 }
 constexpr const char* names[]{"Ta","Tb","Ts","ucA","vcA","wcA","ucB","vcB","wcB",
     "K_ffA","K_ffB","K_ss","h_vA","h_vB","eps"};
@@ -66,17 +61,15 @@ struct PassRanges {
 struct Owner {
     std::string result_id;
     std::array<size_t,3> shape;
-    std::array<ptrdiff_t,3> strides;
-    ptrdiff_t width_stride=sizeof(double);
     std::array<std::vector<double>,3> widths;
     std::array<std::vector<double>,15> fields;
     std::vector<double> epsilon_a;
     std::array<Array,3> width_views{};
     std::array<tpmshx_stage_named_array_v1,15> field_views{};
     std::array<tpmshx_stage_field_declaration_v1,15> declarations{};
-    std::array<std::array<Scalar,8>,2> side_scalars{};
+    std::array<std::array<double,8>,2> side_scalars{};
     PassRanges ranges[2][2];
-    Scalar diameter{};
+    double diameter{};
     std::array<tpmshx_stage_pressure_v1,2> pressures{};
     tpmshx_quick_run_result_v1 value{};
 
@@ -84,11 +77,6 @@ struct Owner {
         shape{prepared.shape[0],prepared.shape[1],prepared.shape[2]} {
         const size_t cells=boundary::product(boundary::product(shape[0],shape[1]),shape[2]);
         if(!cells)throw std::invalid_argument("quick-design state disagrees with prepared grid");
-        size_t stride=sizeof(double);
-        for(size_t axis=3;axis>0;--axis) {
-            if(stride>static_cast<size_t>(PTRDIFF_MAX))throw std::invalid_argument("quick-design field stride overflows ptrdiff_t");
-            strides[axis-1]=static_cast<ptrdiff_t>(stride);stride=boundary::product(stride,shape[axis-1]);
-        }
         const auto copy=[](std::vector<double>& target,tpmshx_preparation_array_v1 source,size_t expected) {
             boundary::require_buffer(source.data,source.size);
             if(source.size!=expected)throw std::invalid_argument("quick-design prepared array has the wrong extent");
@@ -103,9 +91,8 @@ struct Owner {
         copy(fields[11],prepared.solid_conductivity,cells);
         value.abi_version=TPMSHX_QUICK_DESIGN_STAGE_ABI_VERSION;value.struct_size=sizeof(value);value.owner=this;
     }
-    Array array(const std::vector<double>& data,size_t rank,const size_t* dimensions,const ptrdiff_t* steps) {
-        return {data.data(),boundary::product(data.size(),sizeof(double)),0,TPMSHX_RESULT_F64,
-            TPMSHX_RESULT_NUMPY_ARRAY,TPMSHX_RESULT_NATIVE_ENDIAN,0,rank,dimensions,steps};
+    Array array(const std::vector<double>& data,size_t rank,const size_t* dimensions) {
+        return {data.data(),rank,dimensions};
     }
     void capture(const tpmshx_qd_config_v1& config) {
         const auto& raw=value.raw;
@@ -122,21 +109,21 @@ struct Owner {
         e.execution="completed";e.converged=raw.stop==TPMSHX_CONVERGED?1:0;
         e.quick_model="plug_ltne_analytic_dp_v1";e.arrangement=cross?"cross":"counter";
         for(size_t axis=0;axis<3;++axis) {
-            width_views[axis]=array(widths[axis],1,&shape[axis],&width_stride);
+            width_views[axis]=array(widths[axis],1,&shape[axis]);
             e.grid.widths[axis]=&width_views[axis];
         }
         for(size_t i=0;i<fields.size();++i) {
-            field_views[i]={names[i],array(fields[i],3,shape.data(),strides.data())};
+            field_views[i]={names[i],array(fields[i],3,shape.data())};
             declarations[i]={names[i],units[i],"last quick-design thermal pass"};
         }
         e.fields=field_views.data();e.field_count=field_views.size();
         e.field_metadata=declarations.data();e.field_metadata_count=declarations.size();
         e.design_epsilon=&field_views[14].value;
-        diameter=scalar(config.hydraulic_diameter);e.hydraulic_diameter=&diameter;
+        diameter=config.hydraulic_diameter;e.hydraulic_diameter=&diameter;
         for(size_t side=0;side<2;++side) {
             const auto& inlet=config.sides[side];const auto& s=pass.sides[side];
-            side_scalars[side]={scalar(inlet.inlet_temperature),scalar(inlet.mass_flow),scalar(s.cp),
-                scalar(s.rho),scalar(s.speed),scalar(s.mu),scalar(raw.pressure[side].inlet),scalar(raw.pressure[side].outlet)};
+            side_scalars[side]={inlet.inlet_temperature,inlet.mass_flow,s.cp,
+                s.rho,s.speed,s.mu,raw.pressure[side].inlet,raw.pressure[side].outlet};
             auto& v=side_scalars[side];
             e.quick[side]={&v[0],&v[1],&v[2],&v[3],&v[4],&v[5]};
             pressures[side].inlet_absolute=&v[6];pressures[side].outlet_absolute=&v[7];pressures[side].unit="Pa";

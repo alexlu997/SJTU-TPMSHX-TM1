@@ -76,8 +76,8 @@ void result_files(const std::filesystem::path& directory,const tpmshx_quick_run_
     const auto& e=value.evidence;
     for(size_t i=0;i<e.field_count;++i) {
         const auto& f=e.fields[i];const auto& a=f.value;
-        require(a.dtype==TPMSHX_RESULT_F64 && a.rank==3,"unexpected Quick Design field format");
-        binary(directory,"field_"+std::string(f.name),a.data,a.bytes);
+        require(a.data && a.rank==3,"unexpected Quick Design field format");
+        binary(directory,"field_"+std::string(f.name),a.data,a.shape[0]*a.shape[1]*a.shape[2]*sizeof(double));
         index<<f.name<<'\t'<<a.shape[0]<<'\t'<<a.shape[1]<<'\t'<<a.shape[2]<<'\n';
         metadata<<e.field_metadata[i].name<<'\t'<<e.field_metadata[i].unit<<'\t'<<e.field_metadata[i].state<<'\n';
     }

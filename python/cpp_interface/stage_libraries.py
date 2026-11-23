@@ -74,4 +74,4 @@ class BoundLibrary:
 
 
 preparation_library = StageLibrary('preparation', 1, ValueError)
-result_library = StageLibrary('result', 2, RuntimeError)
+result_library = StageLibrary('result', 3, RuntimeError)

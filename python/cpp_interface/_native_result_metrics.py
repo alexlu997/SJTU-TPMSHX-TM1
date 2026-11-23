@@ -19,15 +19,11 @@ def _packed(values):
     return owners, (native._Array * len(owners))(*(item.raw for item in owners))
 
 
-def _output(shape, dtype, template):
-    return np.empty_like(np.asarray(template), dtype=dtype, shape=shape, order='K', subok=False)
-
-
-def _shape(*values):
+def _shape(*owners):
     shape = ()
-    for value in values:
+    for owner in owners:
         result = []
-        for left, right in zip_longest(reversed(shape), reversed(np.shape(value)), fillvalue=1):
+        for left, right in zip_longest(reversed(shape), reversed(owner.owner.shape), fillvalue=1):
             if left != right and left != 1 and right != 1:
                 # The named native operation owns its original shape error.
                 return ()
@@ -36,25 +32,21 @@ def _shape(*values):
     return shape
 
 
-def _array_call(name, values, shape, dtype):
-    inputs = [native.array(value) for value in values]
-    template = max(values, key=lambda value: np.ndim(value))
-    output = _output(shape, dtype, template)
+def _array_call(name, inputs, shape):
+    output = np.empty(shape, dtype=np.float64)
     target = native.array(output)
     _call(name, [_AP] * (len(inputs) + 1), *(ct.byref(item.raw) for item in inputs), ct.byref(target.raw))
     return output[()] if not shape else output
 
 
 def pressure_ratio(first, second):
-    dtype = np.result_type(first, second)
-    if dtype.kind in 'biu':
-        dtype = np.dtype('float64')
-    return _array_call('pressure_ratio', (first, second), _shape(first, second), dtype)
+    inputs = [native.array(first), native.array(second)]
+    return _array_call('pressure_ratio', inputs, _shape(*inputs))
 
 
 def pressure_face(first, second, ratio):
-    shape = _shape(ratio, first, second)
-    return _array_call('pressure_face', (first, second, ratio), shape, np.result_type(first, second, ratio))
+    inputs = [native.array(first), native.array(second), native.array(ratio)]
+    return _array_call('pressure_face', inputs, _shape(inputs[2], inputs[0], inputs[1]))
 
 
 def _double_arrays(name, values):
@@ -76,5 +68,5 @@ def capture_area(dx, dy):
 
 
 def capture_area_weights(dx, dy):
-    return _array_call('capture_area_weights', (dx, dy),
-                       (np.size(dx), np.size(dy)), np.result_type(dx, dy))
+    inputs = [native.array(dx), native.array(dy)]
+    return _array_call('capture_area_weights', inputs, (inputs[0].owner.size, inputs[1].owner.size))

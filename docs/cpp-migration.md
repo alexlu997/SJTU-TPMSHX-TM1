@@ -144,7 +144,7 @@ They reuse geometry/grid and the shared model implementation, including the lock
 This project builds no full solver or run_state and needs no SuperLU or AMG.
 The full build script builds the pilot and preparation projects separately. They share one property and DF numerical implementation.
 
-`python/cpp_interface/stage_libraries.py` loads preparation ABI 1 and result ABI 2 independently through ctypes on demand.
+`python/cpp_interface/stage_libraries.py` loads preparation ABI 1 and result ABI 3 independently through ctypes on demand.
 Named property, DF and flow adapters preserve the existing public Python interfaces.
 2D preparation uses the v7 domain/port scalar-kind descriptor with the applicable versioned payload.
 The shared grid and port cores retain mixed integer and narrow-float arithmetic.
@@ -295,11 +295,10 @@ See [scope and delivery records](#cpp-core-scope).
 
 ## Native result core
 
-Independent result ABI 2 calculates metrics, signed physical balances, zone statistics and numerical qualification checks.
-The result stage selects recorded evidence and owns full 2D/3D metric definitions, statuses and qualification.
-Python keeps public DTO and file interfaces, original object identity and NumPy event handling.
-The three independent result queries use the same native stage. The same stage owns Quick Design metric arithmetic. Fixed named host operations preserve its existing Python object, exact integer and conversion protocols.
-The versioned host query preserves deferred input errors and callback exceptions without changing the published v1 C layouts.
+Independent result ABI 3 calculates metrics, signed physical balances, zone statistics and numerical qualification checks in `float64` with `int32` zone labels.
+The result stage selects recorded evidence and owns full 2D/3D and Quick Design metric definitions, statuses and qualification.
+Python keeps public DTO and file interfaces, `float64`/`int32` input normalization and fixed `RuntimeWarning` diagnostics.
+The three independent result queries use the same native stage. The flattened `tpmshx_stage_input_v3` query preserves deferred input errors and event callback exceptions without per-operation Quick callbacks.
 The standalone `postprocess/` project uses only C++17 and system libraries.
 It does not load the solver, preparation, geometry, CoolProp or model resources.
 
@@ -344,7 +343,7 @@ Its independent frozen reference remains under `tests/python/` for regression ch
 The thin preparation entry assembles CaseData and keeps stored counterflow `qtol=None` and `chunk=None`.
 Python execution calls the run stage with saved prepared fields.
 The stage supplies field arrays and declarations. Python copies them before release, keeps original fixed-field dtypes and maps pass warnings and errors.
-The native result stage owns Quick Design metrics and keeps the existing type and event protocols.
+The native result stage computes Quick Design metrics from `float64` operands and emits fixed `RuntimeWarning` diagnostics.
 
 `quick_design_driver.hpp` owns the complete prepared const/mean property-pass
 calculation. This includes original empirical air/water or HEOS sCO2 properties,

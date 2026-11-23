@@ -46,12 +46,10 @@ public:
     ~HostScope() {active_host = previous_;}
 };
 void deliver(Diagnostics& diagnostics) {
-    if (!active_host || !diagnostics.event_count) return;
+    if (!active_host || !active_host->events || !diagnostics.event_count) return;
     const auto saved = diagnostics;
     diagnostics.event_count = 0;
-    const auto* host = active_host;
-    HostScope suspended(nullptr);
-    host->events(saved);
+    active_host->events(saved);
 }
 template<class Operation> auto host_call(Diagnostics& diagnostics, Operation operation) {
     try {
@@ -138,54 +136,70 @@ void declarations(const ResultEvidence& result) {
     }
 }
 
+// Plane, reverse, transpose and broadcast copies keep contiguous C order.
+std::array<std::size_t, 2> around(const std::vector<std::size_t>& shape, std::size_t axis) {
+    std::size_t outer = 1, inner = 1;
+    for (std::size_t i = 0; i < axis; ++i) outer *= shape[i];
+    for (std::size_t i = axis + 1; i < shape.size(); ++i) inner *= shape[i];
+    return {outer, inner};
+}
 Tensor plane(const Tensor& values, std::size_t axis, std::size_t index) {
     if (axis >= values.shape.size() || index >= values.shape[axis])
         throw std::invalid_argument("boundary plane index is outside the recorded field");
-    auto raw = values.raw();
+    (void)values.raw();
     auto shape = values.shape;
-    auto strides = values.strides;
-    raw.offset = static_cast<std::size_t>(static_cast<std::ptrdiff_t>(raw.offset) + static_cast<std::ptrdiff_t>(index) * strides[axis]);
     shape.erase(shape.begin() + static_cast<std::ptrdiff_t>(axis));
-    strides.erase(strides.begin() + static_cast<std::ptrdiff_t>(axis));
-    raw.rank = shape.size(); raw.shape = shape.data(); raw.strides = strides.data();
-    return arithmetic::copy(Array(raw));
+    Tensor out(shape, values.kind);
+    const auto [outer, inner] = around(values.shape, axis);
+    const auto count = values.shape[axis];
+    for (std::size_t o = 0; o < outer; ++o) for (std::size_t i = 0; i < inner; ++i)
+        out.values[o * inner + i] = values.values[(o * count + index) * inner + i];
+    return out;
 }
 Tensor reverse(const Tensor& values, std::size_t axis) {
-    auto raw = values.raw();
-    auto strides = values.strides;
+    (void)values.raw();
     if (axis >= values.shape.size()) throw std::invalid_argument("array axis is outside the recorded field");
-    if (values.shape[axis]) raw.offset = static_cast<std::size_t>(static_cast<std::ptrdiff_t>(raw.offset) +
-        static_cast<std::ptrdiff_t>(values.shape[axis] - 1) * strides[axis]);
-    strides[axis] = -strides[axis]; raw.strides = strides.data();
-    return arithmetic::copy(Array(raw));
+    Tensor out(values.shape, values.kind);
+    const auto [outer, inner] = around(values.shape, axis);
+    const auto count = values.shape[axis];
+    for (std::size_t o = 0; o < outer; ++o) for (std::size_t k = 0; k < count; ++k) for (std::size_t i = 0; i < inner; ++i)
+        out.values[(o * count + k) * inner + i] = values.values[(o * count + count - 1 - k) * inner + i];
+    return out;
 }
 Tensor transpose_2d(const Tensor& values) {
+    (void)values.raw();
     if (values.shape.size() != 2) throw std::invalid_argument("pressure evidence requires nonempty three-dimensional cells");
-    auto raw = values.raw();
-    auto shape = values.shape; auto strides = values.strides;
-    std::swap(shape[0], shape[1]); std::swap(strides[0], strides[1]);
-    raw.shape = shape.data(); raw.strides = strides.data();
-    return arithmetic::copy(Array(raw));
+    Tensor out({values.shape[1], values.shape[0]}, values.kind);
+    for (std::size_t i = 0; i < values.shape[0]; ++i) for (std::size_t j = 0; j < values.shape[1]; ++j)
+        out.values[j * values.shape[0] + i] = values.values[i * values.shape[1] + j];
+    return out;
 }
 Tensor singleton(const Tensor& values) {
-    auto raw = values.raw();
-    auto shape = values.shape; auto strides = values.strides;
-    shape.push_back(1); strides.push_back(static_cast<std::ptrdiff_t>(item_size(values.dtype)));
-    raw.rank = shape.size(); raw.shape = shape.data(); raw.strides = strides.data();
-    return arithmetic::copy(Array(raw));
+    (void)values.raw();
+    Tensor out = values;
+    out.shape.push_back(1);
+    return out;
 }
 Tensor broadcast(const Tensor& values, const std::vector<std::size_t>& shape) {
-    auto raw = values.raw();
+    (void)values.raw();
     if (values.shape.size() > shape.size()) throw std::invalid_argument("input operand has more dimensions than allowed by the axis remapping");
-    std::vector<std::ptrdiff_t> strides(shape.size());
     const auto shift = shape.size() - values.shape.size();
-    for (std::size_t i = 0; i < values.shape.size(); ++i) {
+    for (std::size_t i = 0; i < values.shape.size(); ++i)
         if (values.shape[i] != 1 && values.shape[i] != shape[i + shift])
             throw std::invalid_argument("operands could not be broadcast together");
-        strides[i + shift] = values.shape[i] == 1 ? 0 : values.strides[i];
+    Tensor out(shape, values.kind);
+    for (std::size_t index = 0; index < out.size(); ++index) {
+        std::size_t remainder = index, source = 0, multiplier = 1;
+        for (std::size_t k = shape.size(); k-- > 0;) {
+            const auto coordinate = remainder % shape[k]; remainder /= shape[k];
+            if (k >= shift) {
+                const auto n = values.shape[k - shift];
+                source += (n == 1 ? 0 : coordinate) * multiplier; multiplier *= n;
+            }
+        }
+        out.values[index] = values.values[source];
     }
-    raw.rank = shape.size(); raw.shape = shape.data(); raw.strides = strides.data();
-    return arithmetic::copy(Array(raw));
+    return out;
 }
 Tensor scalar(double value) {return arithmetic::scalar(arithmetic::python_float(value));}
 Tensor full(const std::vector<std::size_t>& shape, double value) {return broadcast(scalar(value), shape);}
@@ -246,7 +260,7 @@ std::vector<Tensor> six_planes(const Arrays& values, const char* message) {
     return out;
 }
 bool real_finite(const Tensor& values) {
-    return values.dtype != 0 && values.dtype != TPMSHX_RESULT_BOOL && !complex_type(values.dtype) && checks::array_checks(values.array()).all_finite;
+    return !values.input_error && checks::array_checks(values.array()).all_finite;
 }
 void finite_values(const Tensor& values, const std::string& name) {
     if (!real_finite(values)) throw std::invalid_argument("physical balance requires finite " + name);
@@ -309,7 +323,7 @@ double enthalpy_duty(const TrueHEvidence& ledger, std::size_t side, int dimensio
     }
     const auto m = arrays(mass_planes), e = arrays(h_planes);
     return host_call(diag, [&] {return metrics::boundary_enthalpy_duty({e[0], e[1], e[2], e[3], e[4], e[5]},
-        {m[0], m[1], m[2], m[3], m[4], m[5]}, need(ledger.inlet_enthalpy[side], "h_in_" + side_name(side)), diag);});
+        {m[0], m[1], m[2], m[3], m[4], m[5]}, arithmetic::python_float(need(ledger.inlet_enthalpy[side], "h_in_" + side_name(side))), diag);});
 }
 
 double legacy_temperature_duty(const ResultEvidence& result, std::size_t side, bool fine, Diagnostics& diag) {
@@ -322,7 +336,7 @@ double legacy_temperature_duty(const ResultEvidence& result, std::size_t side, b
     const auto& eps = need(fine ? result.fine->epsilon : result.parameter_epsilon, "eps");
     const auto& raw_split = need(result.split_a, "split_A");
     const Tensor split_tensor = !side ? raw_split : host_call(diag, [&] {
-        return raw_split.shape.empty() ? Tensor(metrics::capacity_split(raw_split.array().at(0), true, diag))
+        return raw_split.shape.empty() ? Tensor(metrics::capacity_split(raw_split.array().number(0), true, diag))
                                       : Tensor(metrics::capacity_split_field(raw_split.array(), diag));
     });
     const auto& pressure = need(result.pressure[side], side_name(side));
@@ -341,15 +355,15 @@ double legacy_temperature_duty(const ResultEvidence& result, std::size_t side, b
     const auto i_out = reverse_flow ? 0 : temperature.shape[axis] - 1;
     const auto& velocity = axis ? v : u;
     const auto& area = axis ? dx : dy;
-    const auto inlet_mask = mi ? host_call(diag, [&] {return arithmetic::cast(mi->array(), TPMSHX_RESULT_F64, diag);}) : full({temperature.shape[1 - axis]}, 1.0);
-    const auto outlet_mask = mo ? host_call(diag, [&] {return arithmetic::cast(mo->array(), TPMSHX_RESULT_F64, diag);}) : full({temperature.shape[1 - axis]}, 1.0);
+    const auto inlet_mask = mi ? Tensor(arithmetic::copy(mi->array())) : full({temperature.shape[1 - axis]}, 1.0);
+    const auto outlet_mask = mo ? Tensor(arithmetic::copy(mo->array())) : full({temperature.shape[1 - axis]}, 1.0);
     const auto u_in = plane(velocity, axis, i_in), u_out = plane(velocity, axis, i_out);
     const auto rho_in = plane(rho_cp, axis, i_in), rho_out = plane(rho_cp, axis, i_out);
     const auto default_inlet = plane(temperature, axis, i_in), t_out = plane(temperature, axis, i_out);
-    const auto eps_in = epsilon.shape.empty() ? scalar(arithmetic::to_float(epsilon.array().at(0))) : plane(epsilon, axis, i_in);
+    const auto eps_in = epsilon.shape.empty() ? scalar(epsilon.array().at(0)) : plane(epsilon, axis, i_in);
     const auto eps_out = epsilon.shape.empty() ? eps_in : plane(epsilon, axis, i_out);
     const auto t_in = result.inlet_temperature_none[side] ? default_inlet
-        : Tensor(host_call(diag, [&] {return arithmetic::cast(inlet.array(), TPMSHX_RESULT_F64, diag);}));
+        : Tensor(arithmetic::copy(inlet.array()));
     return host_call(diag, [&] {return metrics::capacity_duty({eps_in.array(), rho_in.array(), u_in.array(), area.array(), inlet_mask.array()},
         {eps_out.array(), rho_out.array(), u_out.array(), area.array(), outlet_mask.array()}, t_in.array(), t_out.array(), diag);});
 }
@@ -484,173 +498,71 @@ double outlet_temperature(const ResultEvidence& result, std::size_t side, Diagno
     return host_call(diag, [&] {return metrics::outlet_temperature_2d(t.array(), flux.array(), opening.array(), *direction != 0 && *direction != 2, diag);});
 }
 
-const QuickHost& quick_host() {
-    if (!active_host) throw std::runtime_error("Quick input requires its Python protocol host");
-    return active_host->quick;
-}
-template<class Function, class... Arguments> auto quick_protocol(const Function& function, Arguments&&... arguments) {
-    if (!function) throw std::runtime_error("Quick input requires its named Python protocol callback");
-    HostScope suspended(nullptr);
-    return function(std::forward<Arguments>(arguments)...);
-}
-Number quick_number(const QuickValue& value) {
-    if (value.object) throw NumericError(TPMSHX_RESULT_TYPE_ERROR, "Quick numeric input requires a typed value");
-    return value.numeric.array().at(0);
-}
-bool quick_integer(const QuickValue& value) {
-    if (value.object || !value.numeric.shape.empty()) return false;
-    const auto number = quick_number(value);
-    return number.origin == TPMSHX_RESULT_PYTHON_INT || number.origin == TPMSHX_RESULT_PYTHON_BOOL;
-}
-unsigned quick_bits(const QuickValue& value) {
-    const auto number = quick_number(value);
-    auto magnitude = signed_type(number.dtype) ? static_cast<std::uint64_t>(number.signed_value) : number.unsigned_value;
-    if (signed_type(number.dtype) && number.signed_value < 0) magnitude = std::uint64_t{} - magnitude;
-    unsigned bits = 0;
-    for (; magnitude; magnitude >>= 1) ++bits;
-    return bits;
-}
-bool quick_python_product(std::initializer_list<const QuickValue*> values) {
-    for (const auto* value : values) if (value->object) return true;
-    unsigned bits = 0;
-    for (const auto* value : values) {
-        if (!quick_integer(*value)) break;
-        bits += quick_bits(*value);
-        if (bits > 63) return true;
-    }
-    return false;
-}
-template<class Scalar, class Field> QuickValue quick_numeric_pair(const QuickValue& first, const QuickValue& second,
-    Diagnostics& diagnostics, Scalar scalar, Field field) {
-    if (first.object || second.object)
-        throw NumericError(TPMSHX_RESULT_TYPE_ERROR, "Quick numeric input requires a typed value");
-    if (!first.numeric.shape.empty() || !second.numeric.shape.empty())
-        return Tensor(host_call(diagnostics, [&] {return field(first.numeric.array(), second.numeric.array(), diagnostics);}));
-    return host_call(diagnostics, [&] {return scalar(quick_number(first), quick_number(second), diagnostics);});
-}
-double quick_float(const QuickValue& value) {
-    if (value.object || !value.numeric.shape.empty())
-        return quick_protocol(quick_host().metric_float, value);
-    return arithmetic::to_float(quick_number(value));
-}
-QuickValue quick_input(const ResultEvidence& result, std::size_t side,
-    Recorded<QuickValue> QuickTypedSide::*typed, Recorded<Number> QuickSideEvidence::*scalar, const char* name) {
-    if (result.quick_typed) return need(result.quick_typed->sides[side].*typed, name);
-    return need(result.quick[side].*scalar, name);
-}
-void quick_access(const ResultEvidence& result, std::size_t side, Recorded<int> QuickTypedSide::*access,
+void quick_access(const ResultEvidence& result, std::size_t side, Recorded<int> QuickSideEvidence::*access,
                   const std::string& path) {
-    if (result.quick_typed) (void)need(result.quick_typed->sides[side].*access, path.substr(path.rfind('.') + 1));
-    else record(result, path);
+    const auto& quick = result.quick[side];
+    if (quick.access_recorded) {
+        const auto name = path.substr(path.rfind('.') + 1);
+        if (!need(quick.*access, name)) throw Missing(name);
+    } else {
+        record(result, path);
+    }
 }
-bool label_equal(const StageLabel& value, const std::string& expected) {
-    return value.text ? *value.text == expected
-        : quick_protocol(quick_host().text_equal, value.value, expected);
-}
-bool label_not_equal(const StageLabel& value, const std::string& expected) {
-    return value.text ? *value.text != expected
-        : quick_protocol(quick_host().text_not_equal, value.value, expected);
-}
-QuickValue quick_metric_value(const ResultEvidence& result, const std::string& name, Diagnostics& diag) {
-    const bool supported = result.quick_typed ? !label_not_equal(need(result.quick_typed->model, "model"), "plug_ltne_analytic_dp_v1")
-        : need(result.quick_model, "model") == "plug_ltne_analytic_dp_v1";
-    if (!supported) throw Unsupported("unsupported quick-design metric definition");
+double quick_metric(const ResultEvidence& result, const std::string& name, Diagnostics& diag) {
+    if (need(result.quick_model, "model") != "plug_ltne_analytic_dp_v1")
+        throw Unsupported("unsupported quick-design metric definition");
     const std::size_t side = ends_with(name, "_B") || name == "Q_cold" ? 1 : 0;
+    const auto& quick = result.quick[side];
     if (name == "T_out_A" || name == "T_out_B") {
         const auto& t = entry(result.fields, side ? "Tb" : "Ta");
         bool cross = false;
-        if (side) {
-            if (result.quick_typed) cross = label_equal(need(result.quick_typed->arrangement, "arrangement"), "cross");
-            else {record(result, "metadata.parameters"); cross = need(result.arrangement, "arrangement") == "cross";}
-        }
+        if (side) {record(result, "metadata.parameters"); cross = need(result.arrangement, "arrangement") == "cross";}
         (void)t.array();
-        if (result.quick_typed && t.shape.size() < 3) throw NumericError(TPMSHX_RESULT_INDEX_ERROR,
+        if (t.shape.size() < 3) throw NumericError(TPMSHX_RESULT_INDEX_ERROR,
             "too many indices for array: array is " + std::to_string(t.shape.size()) + "-dimensional, but 3 were indexed");
         const auto axis = side && cross ? 1u : 0u;
         const bool last = !side || cross;
-        if (result.quick_typed && !t.shape[axis]) throw NumericError(TPMSHX_RESULT_INDEX_ERROR,
+        if (!t.shape[axis]) throw NumericError(TPMSHX_RESULT_INDEX_ERROR,
             "index " + std::string(last ? "-1" : "0") + " is out of bounds for axis " + std::to_string(axis) + " with size 0");
-        const auto selected = plane(t, axis, last ? t.shape.at(axis) - 1 : 0);
-        if (!selected.size() && result.quick_typed) quick_protocol(quick_host().empty_mean);
-        return arithmetic::python_float(host_call(diag, [&] {return metrics::outlet_mean(selected.array(), diag);}));
+        const auto selected = plane(t, axis, last ? t.shape[axis] - 1 : 0);
+        return host_call(diag, [&] {return metrics::outlet_mean(selected.array(), diag);});
     }
     if (name == "Q" || name == "Q_cold") {
-        quick_access(result, side, &QuickTypedSide::boundary_access, "boundary_fluxes." + side_name(side));
-        const auto inlet = quick_input(result, side, &QuickTypedSide::inlet_temperature, &QuickSideEvidence::inlet_temperature, "inlet_temperature_K");
-        const auto outlet = quick_float(quick_metric_value(result, side ? "T_out_B" : "T_out_A", diag));
-        QuickValue delta;
-        if (result.quick_typed && quick_python_product({&inlet})) delta = quick_protocol(quick_host().temperature_difference, inlet, outlet);
-        else if (!inlet.numeric.shape.empty()) delta = Tensor(host_call(diag, [&] {return metrics::quick_temperature_difference_field(inlet.numeric.array(), outlet, diag);}));
-        else delta = host_call(diag, [&] {return metrics::quick_temperature_difference(quick_number(inlet), outlet, diag);});
-        const auto mass = quick_input(result, side, &QuickTypedSide::mass_flow, &QuickSideEvidence::mass_flow, "mass_flow_kg_s");
-        const auto cp = quick_input(result, side, &QuickTypedSide::cp, &QuickSideEvidence::cp, "cp_J_kgK");
-        const bool protocol = result.quick_typed && quick_python_product({&mass, &cp});
-        const auto capacity = protocol ? quick_protocol(quick_host().capacity_product, mass, cp)
-            : quick_numeric_pair(mass, cp, diag, metrics::quick_capacity_product, metrics::quick_capacity_product_field);
-        if (protocol) return quick_protocol(quick_host().duty_product, capacity, delta, side != 0);
-        if (capacity.object || delta.object) throw NumericError(TPMSHX_RESULT_TYPE_ERROR, "Quick numeric input requires a typed value");
-        if (!capacity.numeric.shape.empty() || !delta.numeric.shape.empty())
-            return Tensor(host_call(diag, [&] {return metrics::quick_duty_from_capacity_field(capacity.numeric.array(), delta.numeric.array(), side != 0, diag);}));
-        return host_call(diag, [&] {return metrics::quick_duty_from_capacity(quick_number(capacity), quick_number(delta), side != 0, diag);});
+        quick_access(result, side, &QuickSideEvidence::boundary_access, "boundary_fluxes." + side_name(side));
+        const auto inlet = need(quick.inlet_temperature, "inlet_temperature_K");
+        const auto outlet = quick_metric(result, side ? "T_out_B" : "T_out_A", diag);
+        const auto mass = need(quick.mass_flow, "mass_flow_kg_s");
+        const auto cp = need(quick.cp, "cp_J_kgK");
+        return host_call(diag, [&] {return metrics::quick_duty(inlet, outlet, mass, cp, side != 0, diag);});
     }
     if (name == "dP_A" || name == "dP_B") {
-        QuickValue inlet, outlet;
-        if (result.quick_typed) {
-            const auto& pressure = result.quick_typed->sides[side];
-            quick_access(result, side, &QuickTypedSide::pressure_access, "pressure_evidence." + side_name(side));
-            inlet = need(pressure.inlet_pressure, "inlet_absolute_Pa");
-            outlet = need(pressure.outlet_pressure, "outlet_absolute_Pa");
-        } else {
-            const auto& pressure = need(result.pressure[side], side_name(side));
-            inlet = need(pressure.inlet_absolute, "inlet_absolute_Pa");
-            outlet = need(pressure.outlet_absolute, "outlet_absolute_Pa");
-        }
-        const bool wide = quick_integer(inlet) && quick_integer(outlet) && std::max(quick_bits(inlet), quick_bits(outlet)) > 62;
-        if (result.quick_typed && (inlet.object || outlet.object || wide))
-            return quick_protocol(quick_host().pressure_difference, inlet, outlet);
-        return quick_numeric_pair(inlet, outlet, diag, metrics::pressure_difference, metrics::pressure_difference_field);
+        quick_access(result, side, &QuickSideEvidence::pressure_access, "pressure_evidence." + side_name(side));
+        const auto& pressure = need(result.pressure[side], side_name(side));
+        const auto inlet = need(pressure.inlet_absolute, "inlet_absolute_Pa");
+        const auto outlet = need(pressure.outlet_absolute, "outlet_absolute_Pa");
+        return host_call(diag, [&] {return metrics::pressure_difference(
+            arithmetic::python_float(inlet), arithmetic::python_float(outlet), diag).value;});
     }
     if (name == "Re_A" || name == "Re_B") {
-        if (!result.quick_typed) record(result, "metadata.properties");
-        quick_access(result, side, &QuickTypedSide::properties_access, "metadata.properties." + side_name(side));
-        quick_access(result, side, &QuickTypedSide::boundary_access, "boundary_fluxes." + side_name(side));
-        const auto velocity = quick_input(result, side, &QuickTypedSide::velocity, &QuickSideEvidence::velocity, "velocity_m_s");
-        const auto rho = quick_input(result, side, &QuickTypedSide::rho, &QuickSideEvidence::rho, "rho");
-        bool protocol = result.quick_typed && quick_python_product({&rho, &velocity});
-        if (result.quick_typed && quick_integer(velocity)) {
-            const auto value = quick_number(velocity);
-            protocol = protocol || (value.origin == TPMSHX_RESULT_PYTHON_INT && signed_type(value.dtype) &&
-                                     value.signed_value == std::numeric_limits<std::int64_t>::min());
-        }
-        const auto flow = protocol ? quick_protocol(quick_host().reynolds_flow, rho, velocity)
-            : quick_numeric_pair(rho, velocity, diag, metrics::quick_reynolds_flow, metrics::quick_reynolds_flow_field);
-        QuickValue diameter;
-        if (result.quick_typed) diameter = need(result.quick_typed->hydraulic_diameter, "D_h");
-        else {record(result, "metadata.parameters"); diameter = need(result.hydraulic_diameter, "D_h");}
-        protocol = protocol || (result.quick_typed && quick_python_product({&flow, &diameter}));
-        const auto numerator = protocol ? quick_protocol(quick_host().reynolds_length, flow, diameter)
-            : quick_numeric_pair(flow, diameter, diag, metrics::quick_reynolds_length, metrics::quick_reynolds_length_field);
-        const auto mu = quick_input(result, side, &QuickTypedSide::viscosity, &QuickSideEvidence::viscosity, "mu");
-        const bool wide = quick_integer(numerator) && quick_integer(mu) && std::max(quick_bits(numerator), quick_bits(mu)) > 53;
-        if (result.quick_typed && (protocol || quick_python_product({&mu}) || wide))
-            return quick_protocol(quick_host().reynolds_quotient, numerator, mu);
-        return quick_numeric_pair(numerator, mu, diag, metrics::quick_reynolds_quotient, metrics::quick_reynolds_quotient_field);
+        record(result, "metadata.properties");
+        quick_access(result, side, &QuickSideEvidence::properties_access, "metadata.properties." + side_name(side));
+        quick_access(result, side, &QuickSideEvidence::boundary_access, "boundary_fluxes." + side_name(side));
+        const auto velocity = need(quick.velocity, "velocity_m_s");
+        const auto rho = need(quick.rho, "rho");
+        record(result, "metadata.parameters");
+        const auto diameter = need(result.hydraulic_diameter, "D_h");
+        const auto mu = need(quick.viscosity, "mu");
+        return host_call(diag, [&] {return metrics::quick_reynolds(rho, velocity, diameter, mu, diag);});
     }
     if (name == "mass_flow_A" || name == "mass_flow_B") {
-        quick_access(result, side, &QuickTypedSide::boundary_access, "boundary_fluxes." + side_name(side));
-        return quick_input(result, side, &QuickTypedSide::mass_flow, &QuickSideEvidence::mass_flow, "mass_flow_kg_s");
+        quick_access(result, side, &QuickSideEvidence::boundary_access, "boundary_fluxes." + side_name(side));
+        return need(quick.mass_flow, "mass_flow_kg_s");
     }
     if (name == "energy_imbalance_rel") {
-        auto first = quick_metric_value(result, "Q", diag);
-        if (!result.quick_typed) first = arithmetic::python_float(quick_float(first));
-        auto second = quick_metric_value(result, "Q_cold", diag);
-        if (!result.quick_typed) second = arithmetic::python_float(quick_float(second));
-        return quick_numeric_pair(first, second, diag, metrics::quick_energy_imbalance, metrics::quick_energy_imbalance_field);
+        const auto first = quick_metric(result, "Q", diag), second = quick_metric(result, "Q_cold", diag);
+        return host_call(diag, [&] {return metrics::quick_energy_imbalance(first, second, diag);});
     }
     throw Unsupported("quick-design does not supply " + name);
-}
-double quick_metric(const ResultEvidence& result, const std::string& name, Diagnostics& diag) {
-    return quick_float(quick_metric_value(result, name, diag));
 }
 
 class MetricEvaluation {
@@ -676,8 +588,9 @@ public:
         }
         if (starts_with(name, "dP_") || starts_with(name, "P_out_")) {
             const auto p = pressures(result, side, diag);
-            if (starts_with(name, "dP_")) return arithmetic::to_float(host_call(diag, [&] {return metrics::pressure_difference(arithmetic::python_float(p[0]), arithmetic::python_float(p[1]), diag);}));
-            return result.dimension == 2 ? p[1] : arithmetic::to_float(host_call(diag, [&] {return metrics::absolute_outlet_pressure(arithmetic::python_float(p[1]), need(need(result.pressure[side], side_name(side)).reference, "P_ref_abs"), diag);}));
+            if (starts_with(name, "dP_")) return host_call(diag, [&] {return metrics::pressure_difference(arithmetic::python_float(p[0]), arithmetic::python_float(p[1]), diag);}).value;
+            return result.dimension == 2 ? p[1] : host_call(diag, [&] {return metrics::absolute_outlet_pressure(arithmetic::python_float(p[1]),
+                arithmetic::python_float(need(need(result.pressure[side], side_name(side)).reference, "P_ref_abs")), diag);}).value;
         }
         if (starts_with(name, "T_out_")) return outlet_temperature(result, side, diag);
         if (starts_with(name, "mass_flow_")) return mass(side)[0];
@@ -785,7 +698,7 @@ Object energy_summary(const ResultEvidence& result, const Recorded<EnergyEvidenc
         const auto& source_power = need(input.source_integral, phase);
         finite_values(source_power, "source integral");
         if (!source_power.shape.empty()) throw std::invalid_argument("heat ledger requires scalar source integrals");
-        value.source_integral = arithmetic::to_float(source_power.array().at(0));
+        value.source_integral = source_power.array().at(0);
         row.emplace("source_integral", value.source_integral);
         for (int kind = 0; kind < 2; ++kind) {
             const std::string key = kind ? "diffusive_out" : "advective_out";
@@ -810,7 +723,7 @@ Object energy_summary(const ResultEvidence& result, const Recorded<EnergyEvidenc
     const auto& reservoir = need(evidence.prescribed_b_power, "prescribed_b_power");
     finite_values(reservoir, "prescribed B power");
     if (!reservoir.shape.empty()) throw std::invalid_argument("heat ledger requires scalar prescribed B power");
-    const auto total = balance::energy(solved.data(), solved.size(), arithmetic::to_float(reservoir.array().at(0)));
+    const auto total = balance::energy(solved.data(), solved.size(), reservoir.array().at(0));
     for (std::size_t i = 0; i < solved_names.size(); ++i) {
         auto& norms = std::get<Object>(std::get<Object>(phases.at(solved_names[i]).value).at("residual").value);
         norms.emplace("l1_relative", total.l1_relative[i]);
@@ -899,11 +812,10 @@ Gates energy_gates(const ResultEvidence& result) {
         const auto& clips = need(certificate.clip_counts, "total");
         Gates gates{{"true-h thermal solve converged", certificate.converged.is_true()},
             {"true-h enthalpy remains unclipped", clips.shape == std::vector<std::size_t>{2} && checks::array_checks(clips.array()).all_zero}};
-        Diagnostics diag{};
         for (std::size_t i = 0; i < 2; ++i) {
             const std::string name = i ? "equation" : "coupled";
             gates.emplace_back("true-h " + name + " energy balance",
-                host_call(diag, [&] {return checks::energy_ratio(need(certificate.ratios[i], "ratio"), need(certificate.tolerances[i], name + "_energy_tol"), diag);}));
+                checks::energy_ratio(need(certificate.ratios[i], "ratio"), need(certificate.tolerances[i], name + "_energy_tol")));
         }
         return gates;
     }
@@ -1126,9 +1038,7 @@ Qualification evaluate_qualification(const ResultEvidence& result, const std::ma
         {{"gates", gates}, {"raw_fields", raw_fields}, {"thermal_state", nullable(result.thermal_state)}, {"pressure_states", pressure_states}});
     const bool full_compute = result.mode == "full";
     const std::map<std::string, ExecutionSide> empty_sides;
-    const bool full_execution = result.execution_label
-        ? label_equal(*result.execution_label, "full_execution_v1")
-        : result.execution_version == "full_execution_v1";
+    const bool full_execution = result.execution_version == "full_execution_v1";
     const auto& sides = full_execution ? result.executed_sides : empty_sides;
     out.physical = verdict({}, "boundary_fluxes and metadata.diagnostics", {{"checks", List{}}});
     if (full_compute) {
