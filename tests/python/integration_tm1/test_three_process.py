@@ -12,7 +12,7 @@ import pytest
 @pytest.mark.slow
 @pytest.mark.parametrize('dimension', [2, 3])
 def test_real_three_process_handoff(tmp_path, dimension):
-    from tests.python.integration_tm1.test_2d_real import AIR_PUBLIC_METRICS
+    from tests.python.integration_tm1.integration_support import AIR_PUBLIC_METRICS
     from sjtu_tpmshx.file_io.case_io import load_case
     from sjtu_tpmshx.file_io.result_io import load_result
     from sjtu_tpmshx.file_io.metrics_io import load_metrics

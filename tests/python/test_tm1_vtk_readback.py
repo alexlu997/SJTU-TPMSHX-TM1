@@ -7,7 +7,7 @@ import pytest
 
 from sjtu_tpmshx.data_types.field_result import FieldResult
 from sjtu_tpmshx.postprocess.export import export_vtk
-from tests.python.io_tm1.test_case_io import sample_case
+from tests.python.io_tm1.io_support import sample_case
 
 
 def test_vtk_native_cell_readback(tmp_path):

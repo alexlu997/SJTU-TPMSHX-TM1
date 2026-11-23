@@ -7,7 +7,7 @@ from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
 from sjtu_tpmshx.run_control.module_ports import resolve_control
 from sjtu_tpmshx.cpp_interface.solver_library.full_2d import NativeFull2DDriver, _pack
-from tests.python.integration_tm1.test_2d_real import baseline_config
+from tests.python.integration_tm1.integration_support import baseline_config
 
 
 def test_full_prepared_flow_consumes_drag_without_prediction(monkeypatch):

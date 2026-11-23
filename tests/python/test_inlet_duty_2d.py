@@ -30,3 +30,21 @@ def test_physical_inlet_preserves_existing_partial_port_weights(direction):
     assert got == pytest.approx(expected, rel=1e-13)
     old = duty(*args, **{k: value for k, value in kw.items() if k != 'T_in'})
     assert not np.isclose(old, got, rtol=1e-3)
+
+
+def test_d1_temperature_duty_retains_capacity_weighting():
+    """Temperature-formulation duty retains its independent capacity weighting."""
+    rng = np.random.default_rng(0)
+    Ta = 300.0 + rng.random((5, 4)) * 50.0
+    uc = rng.random((5, 4)) + 0.1
+    vc = np.zeros((5, 4))
+    rho_cp = np.full((5, 4), 1.2 * 1005.0)
+    dx = np.ones(5)
+    dy = np.ones(4)
+    Q = _enthalpy_balance_2d(Ta, uc, vc, rho_cp, 0, dx, dy)
+    # hand-rolled legacy form
+    w_in = rho_cp[0, :] * np.abs(uc[0, :]) * dy
+    w_out = rho_cp[-1, :] * np.abs(uc[-1, :]) * dy
+    Ti = float(np.sum(w_in * Ta[0, :]) / np.sum(w_in))
+    To = float(np.sum(w_out * Ta[-1, :]) / np.sum(w_out))
+    assert Q == pytest.approx(float(np.sum(w_in)) * (Ti - To), rel=1e-12)

@@ -35,7 +35,6 @@ tests/python/test_3d_reverse_mirror.py
 tests/python/test_3d_thermal_face_ownership.py
 tests/python/test_asym_geometry.py
 tests/python/test_asym_porosity_2d.py
-tests/python/test_audit_round2_fixes.py
 tests/python/test_bc_to_dict.py
 tests/python/test_benchmark_main_compute.py
 tests/python/test_cache_and_source_guards.py
@@ -54,7 +53,6 @@ tests/python/test_domain_validator.py
 tests/python/test_envelope.py
 tests/python/test_envelope_hardening.py
 tests/python/test_field_unit_helpers.py
-tests/python/test_fluid_registry_migration.py
 tests/python/test_fluid_type_validation.py
 tests/python/test_gui_restore_contract.py
 tests/python/test_headline_q_air_side.py
@@ -82,7 +80,6 @@ tests/python/test_re_convention.py
 tests/python/test_render_tool_failures.py
 tests/python/test_retained_tool_imports.py
 tests/python/test_retired_boundary_experiments.py
-tests/python/test_review_fixes.py
 tests/python/test_run_provenance.py
 tests/python/test_sco2_checkpoints.py
 tests/python/test_sco2_exp_loader.py
@@ -91,7 +88,6 @@ tests/python/test_sco2_temperature_field.py
 tests/python/test_shanghai_regression.py
 tests/python/test_shared_input_contracts.py
 tests/python/test_smoke_boot.py
-tests/python/test_solver_knobs_r3.py
 tests/python/test_stylesheet_braces.py
 tests/python/test_surrogate_domain.py
 tests/python/test_theme_manager.py

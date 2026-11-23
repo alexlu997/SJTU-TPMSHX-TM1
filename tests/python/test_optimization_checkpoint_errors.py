@@ -1,7 +1,6 @@
 """Checkpoint failures preserve active errors without claiming stale data is saved."""
 from dataclasses import replace
 import json
-from pathlib import Path
 
 import pytest
 
@@ -11,28 +10,7 @@ from sjtu_tpmshx.applications.optimization import multi_condition as batch
 from sjtu_tpmshx.applications.optimization import multi_condition_optimizer as search
 from tests.python.test_multi_condition_batch import _conditions, _native, _patch_solve
 from tests.python.test_multi_condition_batch import native_control as native_control
-from tests.python.test_multi_condition_optimizer import _conditions as search_conditions
-
-
-def _checkpoint_fault(monkeypatch, module, filename, when, *, persistent=False):
-    original = text_file.write_text
-    error = OSError('checkpoint write failed')
-    attempts = []
-
-    def write(path, text):
-        if Path(path).name != filename:
-            return original(path, text)
-        record = json.loads(text)
-        fail = when(record, len(attempts))
-        if attempts and any(failed for _, failed in attempts):
-            fail = persistent
-        attempts.append((record, fail))
-        if fail:
-            raise error
-        return original(path, text)
-
-    monkeypatch.setattr(module, 'write_text', write)
-    return error, attempts
+from tests.python.optimization_support import _checkpoint_fault, _conditions as search_conditions
 
 
 def _search_batches(monkeypatch, primary=None, stage=None):

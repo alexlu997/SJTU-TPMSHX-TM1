@@ -96,7 +96,7 @@ def test_workflow_control_reaches_execution_and_cancellation_keeps_output(
         stage, backend, tmp_path, monkeypatch):
     from sjtu_tpmshx.data_types.compute_config import ComputeConfig
     from sjtu_tpmshx.file_io.case_io import save_case
-    from tests.python.io_tm1.test_case_io import sample_case
+    from tests.python.io_tm1.io_support import sample_case
     from sjtu_tpmshx.solvers import api
     import importlib
 

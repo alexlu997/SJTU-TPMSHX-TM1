@@ -11,7 +11,7 @@ from sjtu_tpmshx.run_control.module_ports import RunControl
 from sjtu_tpmshx.data_types.metric_spec import MetricSpec
 from sjtu_tpmshx.data_types.performance_result import MetricValue, PerformanceResult
 from sjtu_tpmshx.development.runs.tools import benchmark_main_compute as benchmark
-from tests.python.io_tm1.test_case_io import sample_case
+from tests.python.io_tm1.io_support import sample_case
 
 
 @pytest.mark.parametrize('failure', [None, 'save_result', 'load_result'])

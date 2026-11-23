@@ -13,15 +13,15 @@ from sjtu_tpmshx.run_control.run_warnings import record_warning
 from sjtu_tpmshx.postprocess.api import evaluate
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.api import run_case
-from tests.python.integration_tm1.test_2d_real import baseline_config
+from tests.python.integration_tm1.integration_support import baseline_config
 from tests.python.integration_tm1.test_public_api import assert_slots
-from tests.python.test_pipeline_3d_e2e import _small_air_cfg
+from tests.python.cases_3d import small_air_config
 
 
 @pytest.mark.slow
 def test_real_parallel_cases_and_cancelled_peer():
     cases = [prepare_case(config, case_id=f'isolation-{dimension}')
-             for dimension, config in ((2, baseline_config()), (3, _small_air_cfg()))]
+             for dimension, config in ((2, baseline_config()), (3, small_air_config()))]
     snapshots = [{field.name: mutable_data(getattr(case, field.name))
                   for field in fields(case)} for case in cases]
     reference = [run_case(case) for case in cases]

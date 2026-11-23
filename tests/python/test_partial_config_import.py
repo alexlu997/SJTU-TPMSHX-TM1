@@ -45,7 +45,7 @@ def test_partial_import_preserves_unsupplied_physical_inputs(win, tmp_path, monk
 @pytest.mark.parametrize('method', ['sobol', 'qlognei'])
 def test_partial_import_keeps_full_continuous_field_and_conditions(win, tmp_path, monkeypatch, dimension, method):
     from PySide6.QtWidgets import QMessageBox
-    from tests.python.test_optimize_panel_wiring import condition, report
+    from tests.python.optimization_support import condition, report
 
     for dialog_method in ('warning', 'information', 'critical'):
         monkeypatch.setattr(QMessageBox, dialog_method, lambda *a: None)
@@ -76,7 +76,7 @@ def test_partial_import_rejects_conflicting_context_without_mutation(
         win, tmp_path, monkeypatch, kind):
     from PySide6.QtWidgets import QMessageBox
     from sjtu_tpmshx.data_types.compute_result import ComputeResult
-    from tests.python.test_optimize_panel_wiring import report
+    from tests.python.optimization_support import report
 
     errors = []
     monkeypatch.setattr(QMessageBox, 'critical', lambda *a: errors.append(a[-1]))
@@ -108,7 +108,7 @@ def test_partial_field_update_uses_current_dimension_and_axis(
         win, tmp_path, monkeypatch, kind):
     from copy import deepcopy
     from PySide6.QtWidgets import QMessageBox
-    from tests.python.test_optimize_panel_wiring import report
+    from tests.python.optimization_support import report
 
     errors = []
     monkeypatch.setattr(QMessageBox, 'critical', lambda *a: errors.append(a[-1]))

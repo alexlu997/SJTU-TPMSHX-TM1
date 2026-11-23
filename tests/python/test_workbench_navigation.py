@@ -293,7 +293,7 @@ def test_optimization_figure_menu_keeps_copy_and_export_reachable(win, monkeypat
     from PySide6.QtGui import QGuiApplication
     from PySide6.QtWidgets import QInputDialog
     from sjtu_tpmshx.applications.gui.ui.optimize_panel import show_pareto
-    from tests.python.test_optimize_panel_wiring import report
+    from tests.python.optimization_support import report
     win._switch_tab('pareto')
     show_pareto(win, report(win))
     QApplication.processEvents()
@@ -332,7 +332,7 @@ def test_long_condition_text_keeps_narrow_launch_controls_reachable(win):
 def test_optimization_results_fit_without_inheriting_the_configuration_page(win, size):
     from PySide6.QtCore import QPoint
     from sjtu_tpmshx.applications.gui.ui.optimize_panel import show_pareto
-    from tests.python.test_optimize_panel_wiring import report
+    from tests.python.optimization_support import report
     win.resize(*size)
     win._switch_tab('pareto')
     win._opt_stack.setCurrentIndex(0)

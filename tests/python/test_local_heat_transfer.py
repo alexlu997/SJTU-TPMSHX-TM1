@@ -1,4 +1,4 @@
-"""Speed and Nu invariants of the shared local heat-transfer closure."""
+"""Speed, Nu and local-property invariants of the shared local heat-transfer closure."""
 from types import SimpleNamespace
 
 import numpy as np
@@ -50,3 +50,33 @@ def test_local_nusselt_matches_real_scalar_model_calls(fluid, Pr):
     actual = [max(float(model.nu('Gyroid', max(Re, 1.), .4, 7., 2., Pr)), NU_LAM_FLOOR)
               for Re in reynolds.flat]
     np.testing.assert_array_equal(np.asarray(actual).reshape(reynolds.shape), expected)
+
+
+def test_d3_sco2_hv_uses_local_temperature_props():
+    # No effective parameter selection: both paths use the smooth CFD base.
+    from tests.python.local_heat_transfer_reference import real_fluid_hv_local_field
+    from tests.python.nu_reference import nu_sco2_topo
+    from tests.python import eos_reference
+
+    pressure = 8.0e6  # Pa — CO2 pseudocritical T ≈ 307.7 K at this pressure
+    A_0, D_h_m = 500.0, 1.0e-3
+    u_abs = np.full((2, 2, 2), 1.5)
+    T_in = 320.0
+    T_field = np.full((2, 2, 2), T_in)
+    T_field[1, 1, 1] = 450.0               # a cell far from the inlet state
+
+    hv = real_fluid_hv_local_field(T_field, pressure, u_abs, A_0, D_h_m, 'Diamond', 7.0)
+
+    # frozen-at-inlet h_v (what the buggy scalar path applies to EVERY cell)
+    rho_i = eos_reference.sco2_prop('D', T_in, pressure)
+    mu_i = eos_reference.sco2_prop('V', T_in, pressure)
+    k_i = eos_reference.sco2_prop('L', T_in, pressure)
+    Pr_i = eos_reference.sco2_prop('C', T_in, pressure) * mu_i / k_i
+    Re_i = rho_i * 1.5 * D_h_m / mu_i
+    Nu_i = nu_sco2_topo('Diamond', max(Re_i, 1.0), Pr_i, 7.0, D_h_m * 1000.0)
+    hv_frozen = A_0 * Nu_i * k_i / D_h_m
+
+    # cells at the inlet state match the frozen value (no spurious change)
+    assert hv[0, 0, 0] == pytest.approx(hv_frozen, rel=1e-9)
+    # the departed cell differs by a large factor (the frozen-prop bias)
+    assert abs(hv[1, 1, 1] - hv_frozen) / hv_frozen > 0.20

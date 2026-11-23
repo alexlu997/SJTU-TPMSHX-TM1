@@ -91,9 +91,9 @@ def test_side_b_mixed_returns_raw_partial():
 def test_independent_cross2_window_reaches_prepared_physical_area(monkeypatch, direction, side, partial_port):
     import numpy as np
     from sjtu_tpmshx.preprocess.api import prepare_case
-    from tests.python.test_pipeline_3d_e2e import _small_air_cfg
+    from tests.python.cases_3d import small_air_config
 
-    cfg = _small_air_cfg()
+    cfg = small_air_config()
     cross1 = cfg.geometry.H_dom_m if direction < 2 else cfg.geometry.L_dom_m
     cross2 = cfg.geometry.H_dom_m if direction >= 4 else cfg.geometry.Lz_m
     width = .6 * cross1
@@ -119,9 +119,9 @@ def test_independent_cross2_window_reaches_prepared_physical_area(monkeypatch, d
     (.015, -.006, 'must be > 0'), (.3, .006, 'leaves Z-range'),
 ])
 def test_independent_cross2_invalid_pair_is_rejected(side, partial_port, center, width, message):
-    from tests.python.test_pipeline_3d_e2e import _small_air_cfg
+    from tests.python.cases_3d import small_air_config
 
-    cfg = _small_air_cfg()
+    cfg = small_air_config()
     port = PartialBCConfig(dir=0)
     setattr(port, partial_port + '_z_ctr', center)
     setattr(port, partial_port + '_z_w', width)
@@ -133,9 +133,9 @@ def test_independent_cross2_invalid_pair_is_rejected(side, partial_port, center,
 def test_outlet_only_cross2_window_reaches_port_refined_grid():
     import numpy as np
     from sjtu_tpmshx.preprocess.api import prepare_case
-    from tests.python.test_pipeline_3d_e2e import _small_air_cfg
+    from tests.python.cases_3d import small_air_config
 
-    cfg = _small_air_cfg()
+    cfg = small_air_config()
     cfg.solver.Nx, cfg.solver.Ny, cfg.solver.Nz = 12, 12, 32
     cfg.flags.port_wall_refine = True
     cfg.bc_A = PartialBCConfig(dir=0, out_z_ctr=.015, out_z_w=.006)

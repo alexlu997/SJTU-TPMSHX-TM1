@@ -7,12 +7,12 @@ from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
 from sjtu_tpmshx.run_control.module_ports import RunControl
 from sjtu_tpmshx.run_control.module_ports import resolve_control
 from sjtu_tpmshx.cpp_interface.solver_library.full_3d import NativeFull3DDriver
-from tests.python.test_pipeline_3d_e2e import _small_air_cfg
+from tests.python.cases_3d import small_air_config
 
 
 @pytest.mark.parametrize('mode', ['asymmetric', 'experimental'])
 def test_prepared_geometry_and_roughness_are_consumed(monkeypatch, mode):
-    cfg = _small_air_cfg()
+    cfg = small_air_config()
     cfg.solver = replace(cfg.solver, max_outer_ltne=2, max_iter_simple=500)
     cfg = replace(cfg, geometry=replace(cfg.geometry, delta_levelset=.05 if mode == 'asymmetric' else 0.),
                   df_mode='experimental' if mode == 'experimental' else 'cfd_smooth')
@@ -64,7 +64,7 @@ def test_prepared_geometry_and_roughness_are_consumed(monkeypatch, mode):
 def test_archived_bulk_hv_loads_but_does_not_set_local_heat_transfer(tmp_path, monkeypatch):
     from sjtu_tpmshx.file_io.case_io import save_case, load_case
 
-    case = prepare_case(_small_air_cfg(), case_id='archived-bulk-hv')
+    case = prepare_case(small_air_config(), case_id='archived-bulk-hv')
     assert 'air_bulk_hv' not in case.parameters['thermal_geometry']
     shape = tuple(len(case.grid['d' + axis]) for axis in 'xyz')
     geometry = {**case.parameters['thermal_geometry'],
@@ -93,7 +93,7 @@ def test_prepared_openings_match_actual_solver_geometry_before_solving(side, end
     from sjtu_tpmshx.file_io.case_io import save_case, load_case
     from sjtu_tpmshx.solvers.api import run_case
 
-    config = _small_air_cfg()
+    config = small_air_config()
     config.solver = replace(config.solver, Nx=4, Ny=4, Nz=4, max_outer_ltne=2, max_iter_simple=500)
     full = prepare_case(config, case_id='full-opening')
     port = getattr(config, 'bc_' + side)

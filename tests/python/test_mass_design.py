@@ -9,7 +9,7 @@ from sjtu_tpmshx.data_types.portable_data import mutable_data
 from sjtu_tpmshx.applications.optimization import mass_design as mass
 from sjtu_tpmshx.applications.optimization import multi_condition_optimizer as search
 from tests.python.test_module_result_mapping import _synthetic_results
-from tests.python.test_multi_condition_optimizer import _conditions, _fake_batches
+from tests.python.optimization_support import _conditions, _fake_batches
 
 
 def requirements(ids=('flow-0', 'flow-1')):

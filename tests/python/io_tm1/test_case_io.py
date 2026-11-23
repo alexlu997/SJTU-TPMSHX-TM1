@@ -7,20 +7,8 @@ import h5py
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.data_types.case_data import CaseData
-from sjtu_tpmshx.data_types.model_refs import ModelRef
 from sjtu_tpmshx.file_io.case_io import load_case, save_case
-
-
-def sample_case():
-    grid = dict(dimension=2, length_unit='m', axis_order=('x', 'y'))
-    for axis in 'xy':
-        grid['d' + axis] = np.array([.1, .2])
-        grid[axis + '_edges'] = np.r_[0., np.cumsum(grid['d' + axis])]
-    return CaseData('synthetic', grid=grid, design_fields={'eps_arr': np.full((2, 2), .7)},
-                    model_refs=(ModelRef('geometry', 'v2-5f1cafb'),),
-                    metadata={'warning': '人工样例', 'diagnostic': float('nan'), 'bytes': b'abc',
-                              'collision': {'array': 'ordinary user mapping'}})
+from tests.python.io_tm1.io_support import sample_case
 
 
 def test_case_hdf5_yaml_and_new_process(tmp_path):

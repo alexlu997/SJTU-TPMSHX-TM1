@@ -9,13 +9,18 @@ CONFIG_FIELDS is the single source for scalar field wiring (dataclass slot
   2. validation membership/order == the retired _REQUIRED_* lists;
   3. round-trips: cfg → json → cfg equality (non-default values), and
      stub-window → cfg → json → cfg equality;
-  4. 2D vs 3D required-set parity (Lz/Nz only demanded in 3D).
+  4. 2D vs 3D required-set parity (Lz/Nz only demanded in 3D);
+  5. retired settings: solver budgets default to automatic, and archived
+     optimizer sections load and round-trip without reinterpretation.
 """
+import json
+from dataclasses import asdict
+import warnings as _warnings
 
 import pytest
 
 from sjtu_tpmshx.data_types.compute_config import (ComputeConfig, FluidConfig,
-                                    GeometryConfig, SolverConfig)
+                                    GeometryConfig, OptimizerConfig, SolverConfig)
 from sjtu_tpmshx.applications.gui.ui.window_config import (CONFIG_FIELDS, config_from_window,
                               _validate_required_widgets)
 from tests.python.window_stubs import _StubWindow
@@ -150,3 +155,70 @@ def test_pipe_widget_zero_and_blank_stay_legal():
     window.le_pipeA_in_w = _StubLineEdit('0.0')
     window.le_pipeA_out_w = _StubLineEdit('')
     _validate_required_widgets(window, is_3d=False)   # must not raise
+
+
+def test_solver_knobs_default_to_auto():
+    s = SolverConfig()
+    assert s.max_iter_simple is None
+    assert s.max_outer_ltne is None
+    assert s.outer_tol_K is None
+    assert not hasattr(s, 'alpha_T')
+    assert not hasattr(s, 'rough_mode')
+
+
+def test_archived_optimizer_budget_keeps_its_original_defaults():
+    """Loading old files must not reinterpret their retired settings."""
+    o = ComputeConfig.from_dict({'optimizer': {}}).optimizer
+    assert o is not None
+    assert o.max_outer_ltne == 4
+    assert o.outer_tol_K == 0.5
+    assert o.max_iter_simple == 800
+    assert o.alpha_T == 0.7
+
+
+def test_legacy_json_with_retired_keys_loads(tmp_path):
+    """Archived configs carry solver.alpha_T / rough_mode — must load."""
+    blob = {
+        'fluid_A': {'type': 'air', 'u_mps': 5.0},
+        'solver': {'Nx': 12, 'Ny': 10, 'alpha_T': 0.7,
+                   'rough_mode': 'norris_1a', 'tol_simple': 1e-5},
+        'optimizer': {'tol_simple': 1e-2, 'max_iter_simple': 512},
+    }
+    p = tmp_path / 'legacy.json'
+    p.write_text(json.dumps(blob), encoding='utf-8')
+    with _warnings.catch_warnings(record=True) as caught:
+        _warnings.simplefilter('always')
+        cfg = ComputeConfig.from_json(p)
+    assert cfg.solver.Nx == 12
+    assert any('retired' in str(w.message) for w in caught)
+    assert any("budgets use 'solver'" in str(w.message) for w in caught)
+    assert any("'optimizer' is archive-only" in str(w.message) for w in caught)
+    assert any('optimizer.tol_simple' in str(w.message) for w in caught)
+    assert cfg.optimizer.max_iter_simple == 512
+    assert 'tol_simple' not in asdict(cfg)['solver']
+    assert 'tol_simple' not in asdict(cfg)['optimizer']
+
+
+def test_roundtrip_carries_optimizer_section(tmp_path):
+    cfg = ComputeConfig(optimizer=OptimizerConfig(
+        max_iter_simple=512, max_outer_ltne=7, outer_tol_K=0.25, alpha_T=0.6))
+    cfg.solver.mom_tol = 3e-6
+    p = tmp_path / 'cfg.json'
+    cfg.to_json(p)
+    back = ComputeConfig.from_json(p)
+    assert back.optimizer.max_iter_simple == 512
+    assert back.solver.mom_tol == 3e-6
+    assert back == cfg
+
+
+@pytest.mark.parametrize('data', [{}, {'optimizer': None}])
+def test_new_config_roundtrip_omits_retired_optimizer(tmp_path, data):
+    assert ComputeConfig().optimizer is None
+    cfg = ComputeConfig.from_dict(data)
+    p = tmp_path / 'cfg.json'
+    for _ in range(2):
+        cfg.to_json(p)
+        saved = json.loads(p.read_text(encoding='utf-8'))
+        assert 'optimizer' not in saved
+        cfg = ComputeConfig.from_json(p)
+        assert cfg.optimizer is None

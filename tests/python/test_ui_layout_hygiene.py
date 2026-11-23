@@ -826,14 +826,28 @@ def test_toggle_result_view_gated(win):
     win._update_tab_visibility()
 
 
-def test_no_shanghai_string_in_visible_ui_sources():
-    """De-branding lock: no user-visible 'Shanghai' literal in the UI
-    surfaces that render text (field_menu context actions / status)."""
-    import pathlib
-    ui_dir = pathlib.Path(__file__).resolve().parents[2] / 'python' / 'applications' / 'gui' / 'ui'
-    src = (ui_dir / 'field_menu.py').read_text(encoding='utf-8')
-    assert 'Revert to Shanghai' not in src
-    assert 'reverted to Shanghai' not in src
+def test_field_menu_revert_is_debranded(win):
+    """The field context menu and its status message show no brand name."""
+    from PySide6.QtCore import QPoint, QTimer
+    from PySide6.QtGui import QContextMenuEvent
+
+    texts = []
+
+    def choose():
+        menu = QApplication.activePopupWidget()
+        try:
+            texts.extend(action.text() for action in menu.actions())
+            next(a for a in menu.actions() if a.text() == '恢复算例工况默认值').trigger()
+        finally:
+            menu.close()
+
+    win.le_L.setText('0.1')
+    QTimer.singleShot(0, choose)
+    win.le_L.contextMenuEvent(QContextMenuEvent(QContextMenuEvent.Reason.Mouse, QPoint(), QPoint()))
+    message = win.statusBar().currentMessage()
+    assert '恢复算例工况默认值' in texts
+    assert '已恢复算例工况默认值' in message
+    assert not any('Shanghai' in text for text in [*texts, message])
 
 
 def test_session_ui_state_round_trip(win):

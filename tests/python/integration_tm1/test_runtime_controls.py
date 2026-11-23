@@ -6,7 +6,7 @@ from sjtu_tpmshx.run_control.cancellation import CancelledError
 from sjtu_tpmshx.run_control.module_ports import RunControl
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.api import run_case
-from tests.python.test_pipeline_3d_e2e import _small_air_cfg
+from tests.python.cases_3d import small_air_config
 
 
 @pytest.mark.slow
@@ -18,7 +18,7 @@ def test_public_three_d_iteration_and_cancellation(monkeypatch, tmp_path):
         assert not {'_capture_native', '_native_evidence', '_cancel_check',
                     '_progress_cb', '_iter_cb'}.intersection(cfg)
         return capture(case, cfg, prepared, raw, abi)
-    config = _small_air_cfg()
+    config = small_air_config()
     case = prepare_case(config, case_id='B30-controls')
     with pytest.raises(CancelledError):
         run_case(case, RunControl(cancel_check=lambda: True))
@@ -58,7 +58,7 @@ def test_three_d_callback_failure_stops_before_result_capture(monkeypatch, callb
     monkeypatch.setattr(full_3d_stage, 'capture_result',
                         lambda *a, **k: pytest.fail('result capture after callback failure'))
     with pytest.raises(RuntimeError) as caught:
-        run_case(prepare_case(_small_air_cfg(), case_id='callback-failure'),
+        run_case(prepare_case(small_air_config(), case_id='callback-failure'),
                  RunControl(**{callback: fail}))
     assert caught.value is failure
 

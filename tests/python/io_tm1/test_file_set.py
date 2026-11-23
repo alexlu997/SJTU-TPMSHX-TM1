@@ -82,7 +82,7 @@ def test_file_export_never_replaces_a_directory(tmp_path):
 def test_workflow_last_write_failure_keeps_previous_run_identities(tmp_path, monkeypatch):
     from dataclasses import replace
     from importlib import import_module
-    from tests.python.io_tm1.test_case_io import sample_case
+    from tests.python.io_tm1.io_support import sample_case
     from sjtu_tpmshx.data_types.field_result import FieldResult
     from sjtu_tpmshx.data_types.metric_spec import MetricSpec
     from sjtu_tpmshx.run_control.module_ports import RunControl
