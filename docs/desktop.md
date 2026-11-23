@@ -85,7 +85,7 @@ Windows 名称为 `tpmshx_geometry_shared.dll`。运行时用 `TPMSHX_GEOMETRY_L
 历史结果回读和独立后处理不加载几何库。修改 C++ 函数或编译时模型数据后，
 必须重新构建并重启进程。旧检查点仍须保留精确匹配的求解运行库。
 
-准备库在同一平台目录按需加载，使用 preparation ABI 2；几何库使用几何 ABI 2／field ABI 3。
+准备库在同一平台目录按需加载，使用 preparation ABI 3；几何库使用几何 ABI 2／field ABI 3。
 macOS 名称为 `libtpmshx_preparation_shared.dylib`，Windows 为 `tpmshx_preparation_shared.dll`。
 `TPMSHX_PREPARATION_LIBRARY` 覆盖其运行路径；`--native-library` 仍只选择求解库。
 历史结果回读和独立后处理不加载准备库。独立准备库发布及四库事务见[原生准备核心](cpp-migration.zh-CN.md#native-preparation-core)。

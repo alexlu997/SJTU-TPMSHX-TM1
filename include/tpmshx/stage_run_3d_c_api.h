@@ -6,6 +6,7 @@
 
 #define TPMSHX_STAGE_RUN_3D_ABI_VERSION 1u
 #define TPMSHX_STAGE_CAPTURE_3D_ABI_VERSION 2u
+#define TPMSHX_STAGE_RUN_3D_SAVED_ABI_VERSION 3u
 
 typedef struct { uint32_t present,value; } tpmshx_stage_uint_option_v1;
 /* Absent values select the current application defaults, not the low-level
@@ -41,7 +42,17 @@ typedef struct {
     size_t cpu_threads;
     tpmshx_full3d_callbacks_v1 callbacks;
 } tpmshx_stage_run_control_3d_v1;
-/* Validated saved inputs in the existing physical XYZ/SI convention.
+
+/* Arrays use physical XYZ order. Axis records use cross1, stream, cross2 order.
+ * design_mode selects uniform (0), XY extrusion (1), or XYZ controls (2). */
+typedef struct {
+    int32_t solver_to_real[3], reverse;
+    size_t counts[3], solver_counts[3];
+    double lengths[3], solver_lengths[3];
+    tpmshx_preparation_array_v1 widths[3];
+    tpmshx_grid_port_v1 port;
+} tpmshx_stage_saved_axes_3d_v2;
+/* Flat validated saved 3D descriptor (abi_version=3, struct_size=sizeof(*)).
  * No raw preparation or geometry calculation is performed. The nominal values
  * and wall field supply recorded scope evidence; they do not replace input
  * geometry. inlet_recorded distinguishes absent evidence from a recorded empty
@@ -58,28 +69,13 @@ typedef struct {
     size_t notice_count;
     uint32_t inlet_recorded;
     const uint32_t* range_captured;
-} tpmshx_stage_saved_case_3d_v1;
-
-/* Arrays use physical XYZ order. Axis records use cross1, stream, cross2 order.
- * design_mode selects uniform (0), XY extrusion (1), or XYZ controls (2). */
-typedef struct {
-    int32_t solver_to_real[3], reverse;
-    size_t counts[3], solver_counts[3];
-    double lengths[3], solver_lengths[3];
-    tpmshx_preparation_array_v1 widths[3];
-    tpmshx_grid_port_v1 port;
-} tpmshx_stage_saved_axes_3d_v2;
-typedef struct {
-    uint32_t abi_version;
-    size_t struct_size;
-    tpmshx_stage_saved_case_3d_v1 values;
     double lengths_m[3];
     uint32_t design_mode,have_z_controls;
     tpmshx_stage_saved_axes_3d_v2 axes[2];
     tpmshx_preparation_model_ref_v1 models[4];
     tpmshx_preparation_text_v1 resource_fluids[2],resource_topology;
     tpmshx_preparation_sco2_nu_v2 sco2_nu,resource_nu[2];
-} tpmshx_stage_saved_case_3d_v2;
+} tpmshx_stage_saved_case_3d_v3;
 typedef struct {
     uint32_t abi_version;
     size_t struct_size;
@@ -109,6 +105,9 @@ typedef struct {
 #ifdef __cplusplus
 extern "C" {
 #endif
+/* Returns TPMSHX_STAGE_RUN_3D_SAVED_ABI_VERSION (3). Check at load time before
+ * any typed 3D stage run call. */
+TPMSHX_THERMAL_API uint32_t TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_abi_version(void);
 /* The saved descriptor supplies validated solver input and saved evidence.
  * Saved storage is borrowed until transfer or release; numerical run inputs and
  * controls are copied. Callback functions/context stay valid until release.
@@ -118,11 +117,11 @@ extern "C" {
  * Immutable input arrays can share storage.
  * Storage checks precede error writes. Failure preserves caller output.
  * Status 1/2/3/4 means invalid input/water state/arithmetic/native failure. */
-TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_create_saved_v2(
-    const tpmshx_stage_saved_case_3d_v2*,const tpmshx_stage_run_request_3d_v1*,
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_create_saved_v3(
+    const tpmshx_stage_saved_case_3d_v3*,const tpmshx_stage_run_request_3d_v1*,
     const tpmshx_stage_run_control_3d_v1*,void**,char*,size_t);
-TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_restore_saved_v2(
-    const tpmshx_stage_saved_case_3d_v2*,const tpmshx_stage_run_request_3d_v1*,
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_restore_saved_v3(
+    const tpmshx_stage_saved_case_3d_v3*,const tpmshx_stage_run_request_3d_v1*,
     const tpmshx_stage_run_control_3d_v1*,const tpmshx_run_state_field_v1*,size_t,void**,char*,size_t);
 /* Phases, safe boundaries and archive identity match full_3d_run_c_api.h.
  * Restore can change the positive CPU limit. Snapshots own independent storage;
@@ -133,7 +132,7 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_finish_v1(void*,c
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_phase_v1(const void*,uint32_t*);
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_snapshot_v1(
     const void*,tpmshx_run_state_v1*,char*,size_t);
-/* Transfer a completed or cancelled result once. Initialize abi_version,
+/* Transfer a completed or cancelled result once. Initialize abi_version=1,
  * struct_size and owner=NULL. raw.stop=2 retains cancellation diagnostics but
  * evidence.abi_version=0: no completed evaluation evidence is published.
  * Use evaluation with result_stage_query_v3 for complete status and reasons.
@@ -158,8 +157,8 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_get_capture_v1(
     const tpmshx_stage_run_result_3d_v1*,uint32_t include_audit,tpmshx_stage_capture_3d_v1*);
 /* Run to completion with one native owner.
  * Status 0 reports transfer, not convergence. Check raw.stop and raw.converged. */
-TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_run_saved_case_3d_v2(
-    const tpmshx_stage_saved_case_3d_v2*,const tpmshx_stage_run_request_3d_v1*,
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_run_saved_case_3d_v3(
+    const tpmshx_stage_saved_case_3d_v3*,const tpmshx_stage_run_request_3d_v1*,
     const tpmshx_stage_run_control_3d_v1*,tpmshx_stage_run_result_3d_v1*,char*,size_t);
 /* Borrow the scalar execution report until result release. Cell and face arrays
  * stay in their typed views. NULL means that no report is available. */

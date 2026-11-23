@@ -11,7 +11,7 @@ from sjtu_tpmshx.cpp_interface._native_result_stage import Evidence, detach_stag
 from sjtu_tpmshx.run_control.cancellation import CancelledError
 from sjtu_tpmshx.data_types.compute_config import validate_simple_velocity_relaxation
 from sjtu_tpmshx.run_control.run_environment import run_environment
-from sjtu_tpmshx.cpp_interface._native_preparation_case import _Array, _Nu, _ResultV2, _Text
+from sjtu_tpmshx.cpp_interface._native_preparation_case import _Array, _Nu, _Result as _PreparedCase2D, _Text
 from sjtu_tpmshx.physical_models.envelope import ChokedFlowError
 from .solver_library._full_2d_abi import (
     _Callbacks,
@@ -33,12 +33,12 @@ from .solver_library._thermal_abi import (
     _FullEnergyEffectiveSettings,
     _IterationOptions,
     _energy_options,
+    _full_enthalpy_defaults,
     _iteration_options,
 )
 from sjtu_tpmshx.data_types.field_result import FieldResult, execution_record
 from sjtu_tpmshx.data_types.validator import compute_volumetric_htc
 from sjtu_tpmshx.run_control.run_warnings import current_warnings, merge_warnings, warning_messages, warning_scope
-from ._native_preparation_case import _ResultV1
 from .preparation_host import borrow_solver_mesh, pack_saved_resources, borrow_ranges
 from ._native_values import TOPOLOGIES, borrow_array, borrow_text, real_scalar
 from .run_state import NativeRun
@@ -73,42 +73,35 @@ from .solver_library.closure_evidence import copy_nu_observation, copy_range_obs
 _U, _S, _D = ct.c_uint32, ct.c_size_t, ct.c_double
 _Size = record('SizeOption', [('present', _U), ('value', _S)])
 _Double = record('DoubleOption', [('present', _U), ('value', _D)])
-_RequestV1 = record('RunRequestV1', [('abi_version', _U), ('struct_size', _S),
+_Request = record('RunRequestV4', [('abi_version', _U), ('struct_size', _S),
     ('max_iter_simple', _Size), ('max_outer_ltne', _Size),
     *((key, _Double) for key in ('outer_tol_K', 'simple_velocity_relaxation',
         'mom_tol', 'mass_local_tol', 'mass_global_tol', 'solid_seed_K')),
-    ('have_pressure_shooting', _U), ('pressure_shooting', _U), ('convergence_mode', ct.c_char_p),
+    ('have_pressure_shooting', _U), ('pressure_shooting', _U),
+    ('convergence_mode', ct.c_char_p), ('envelope_mode', ct.c_char_p),
     ('model_h', _IterationOptions), ('energy', ct.POINTER(_EnergyOptions)),
-    ('explicit_energy', ct.POINTER(_EnergyControl))])
-_RequestV2 = record('RunRequestV2', [('abi_version', _U), ('struct_size', _S),
-    ('values', _RequestV1), ('envelope_mode', ct.c_char_p)])
-_Request = record('RunRequestV3', [('abi_version', _U), ('struct_size', _S),
-    ('values', _RequestV2), ('energy_iterations', _Size), ('energy_sweeps', _Size),
+    ('explicit_energy', ct.POINTER(_EnergyControl)),
+    ('energy_iterations', _Size), ('energy_sweeps', _Size),
     *((key, _Double) for key in ('energy_omega', 'energy_update_tolerance',
         'energy_coupled_tolerance', 'energy_equation_tolerance')),
     ('require_enthalpy_update_on_temperature', _U)])
 _Control = record('StageControl', [('result_id', ct.c_char_p), ('table_directory', ct.c_char_p),
     ('cpu_threads', _S), ('callbacks', _Callbacks)])
-_Saved = record('SavedCase', [('abi_version', _U), ('struct_size', _S),
-    ('prepared', ct.POINTER(_ResultV2)), ('area_density_per_m', _Array),
-    ('hydraulic_diameter_m', _Array), ('fluid_conductivity', _Array * 2),
-    ('inlet_recorded', _U), ('range_captured', ct.POINTER(_U))])
-_SavedV2 = record('SavedCaseV2', [('abi_version', _U), ('struct_size', _S),
-    ('values', _Saved), ('have_side_geometry', _U), ('side_geometry', (_D * 4) * 2)])
-
 _FlowGrid = record('SavedFlowGrid2D', [('cross', _Array), ('stream', _Array),
     ('direction', _U), ('bounds', _D * 4)])
 _DesignField = record('SavedDesignField2D', [('name', _Text), ('values', _Array)])
-_SavedV3 = record('SavedCaseV3', [('abi_version', _U), ('struct_size', _S),
-    ('values', _SavedV2), ('lengths_m', _D * 2), ('flow_grid', _FlowGrid * 2),
-    ('resource_fluids', _Text * 2), ('resource_topology', _Text), ('resource_nu', _Nu * 2),
-    ('additional_fields', ct.POINTER(_DesignField)), ('additional_count', _S)])
-
 _Experiment = record('SavedExperiment2D', [('topology', _U), ('geometry_mode', _U), ('domain_count', _U),
     ('fluids', _U * 2), ('configured_flow', _U * 2), ('domain_m', _D * 3),
     ('cell_length_mm', _D), ('wall_thickness_mm', _D), ('delta_levelset', _D), ('velocity_m_s', _D * 2)])
-_SavedV4 = record('SavedCaseV4', [('abi_version', _U), ('struct_size', _S),
-    ('values', _SavedV3), ('experiment', _Experiment)])
+_Saved = record('SavedCaseV5', [('abi_version', _U), ('struct_size', _S),
+    ('prepared', ct.POINTER(_PreparedCase2D)), ('area_density_per_m', _Array),
+    ('hydraulic_diameter_m', _Array), ('fluid_conductivity', _Array * 2),
+    ('inlet_recorded', _U), ('range_captured', ct.POINTER(_U)),
+    ('have_side_geometry', _U), ('side_geometry', (_D * 4) * 2),
+    ('lengths_m', _D * 2), ('flow_grid', _FlowGrid * 2),
+    ('resource_fluids', _Text * 2), ('resource_topology', _Text), ('resource_nu', _Nu * 2),
+    ('additional_fields', ct.POINTER(_DesignField)), ('additional_count', _S),
+    ('experiment', _Experiment)])
 
 
 class _StageResult(ct.Structure):
@@ -134,8 +127,7 @@ _Summary = record('CaptureSummary', [
 
 
 def pack_saved_design(case, uniform, saved, keepalive):
-    values = uniform.values
-    shape = values.nx, values.ny
+    shape = uniform.nx, uniform.ny
     canonical = ('L_field_m', 't_field_m', 'eps_arr', 'K_ss_arr', 'r_h_arr')
     native_names = ('cell_length', 'wall_thickness', 'total_porosity', 'solid_conductivity', 'hydraulic_radius')
     extra = []
@@ -146,15 +138,15 @@ def pack_saved_design(case, uniform, saved, keepalive):
             raise ValueError(f'prepared design field {name} does not match the physical grid')
         if name in canonical:
             index = canonical.index(name)
-            if not getattr(values, native_names[index]).size:
-                setattr(values, native_names[index], borrow_array(field, keepalive))
+            if not getattr(uniform, native_names[index]).size:
+                setattr(uniform, native_names[index], borrow_array(field, keepalive))
         else:
             extra.append(_DesignField(borrow_text(name, keepalive), borrow_array(field, keepalive)))
     saved.additional_fields = storage = (_DesignField * len(extra))(*extra)
     keepalive.append(storage)
     saved.additional_count = len(extra)
-    values.hydraulic_radius_m = case.parameters['r_h']
-    values.epsilon = case.parameters['eps']
+    uniform.hydraulic_radius_m = case.parameters['r_h']
+    uniform.epsilon = case.parameters['eps']
 
 
 def _run_settings(cfg):
@@ -165,31 +157,29 @@ def _run_settings(cfg):
 def prepare_stage(case, cfg, prepared, saved_flow_grid):
     """Keep the borrowed case fields alive until the native result is captured."""
     settings = _run_settings(cfg)
-    uniform = _ResultV2(2, ct.sizeof(_ResultV2))
-    uniform.values = _ResultV1(1, ct.sizeof(_ResultV1))
+    uniform = _PreparedCase2D(1, ct.sizeof(_PreparedCase2D))
     keepalive = [uniform]
-    values = uniform.values
-    values.input.abi_version, values.input.struct_size = 1, ct.sizeof(values.input)
-    values.input.topology = TOPOLOGIES.index(cfg['tpms_type'])
-    values.input.geometry_mode = (0 if cfg['za'] is None else 1 if cfg['z_axis'] == 'continuous' else 2)
-    values.input.delta_levelset = settings['geometry'].delta_levelset
-    values.input.df_mode = ('cfd_smooth', 'experimental').index(settings['df_mode'])
+    uniform.input.abi_version, uniform.input.struct_size = 1, ct.sizeof(uniform.input)
+    uniform.input.topology = TOPOLOGIES.index(cfg['tpms_type'])
+    uniform.input.geometry_mode = (0 if cfg['za'] is None else 1 if cfg['z_axis'] == 'continuous' else 2)
+    uniform.input.delta_levelset = settings['geometry'].delta_levelset
+    uniform.input.df_mode = ('cfd_smooth', 'experimental').index(settings['df_mode'])
     mesh = prepared.get('solver_mesh')
     if mesh is None:
-        values.dx = borrow_array(prepared['energy_dx'], keepalive)
-        values.dy = borrow_array(prepared['energy_dy'], keepalive)
+        uniform.dx = borrow_array(prepared['energy_dx'], keepalive)
+        uniform.dy = borrow_array(prepared['energy_dy'], keepalive)
     else:
-        values.dx, values.dy = mesh.solver_widths[:2]
-    values.nx, values.ny = values.dx.size, values.dy.size
-    values.cell_length_m = real_scalar(case.parameters['L_cell_m'], name='L_cell_m')
-    values.wall_thickness_m = real_scalar(case.parameters['t_wall_m'], name='t_wall_m')
-    values.epsilon = cfg['eps']
-    values.total_porosity = borrow_array(case.design_fields['eps_arr'], keepalive)
-    values.solid_conductivity = borrow_array(case.design_fields['K_ss_arr'], keepalive)
+        uniform.dx, uniform.dy = mesh.solver_widths[:2]
+    uniform.nx, uniform.ny = uniform.dx.size, uniform.dy.size
+    uniform.cell_length_m = real_scalar(case.parameters['L_cell_m'], name='L_cell_m')
+    uniform.wall_thickness_m = real_scalar(case.parameters['t_wall_m'], name='t_wall_m')
+    uniform.epsilon = cfg['eps']
+    uniform.total_porosity = borrow_array(case.design_fields['eps_arr'], keepalive)
+    uniform.solid_conductivity = borrow_array(case.design_fields['K_ss_arr'], keepalive)
     geometry = cfg['thermal_geometry']
-    values.split_a = geometry['split_A']
-    values.area_density_per_m = geometry['uniform']['A_0']
-    values.hydraulic_diameter_m = geometry['uniform']['D_h']
+    uniform.split_a = geometry['split_A']
+    uniform.area_density_per_m = geometry['uniform']['A_0']
+    uniform.hydraulic_diameter_m = geometry['uniform']['D_h']
     area, diameter = _Array(), _Array()
     selected_geometry = geometry['uniform'] if geometry['fields'] is None else geometry['fields']
     if geometry['fields'] is not None:
@@ -199,8 +189,8 @@ def prepare_stage(case, cfg, prepared, saved_flow_grid):
         else:
             area, diameter = mesh.solver_area, mesh.solver_diameter
     conductivity = (_Array(), _Array())
-    if values.input.geometry_mode:
-        values.cell_length = borrow_array(case.design_fields['L_field_m'], keepalive)
+    if uniform.input.geometry_mode:
+        uniform.cell_length = borrow_array(case.design_fields['L_field_m'], keepalive)
         conductivity = tuple(borrow_array(cfg['za']['K_ff' + side + '_arr'], keepalive) for side in 'AB')
     nu = settings['sco2_nu']
     uniform.sco2_nu.mode = nu.mode != 'cfd_smooth'
@@ -208,7 +198,7 @@ def prepare_stage(case, cfg, prepared, saved_flow_grid):
         uniform.sco2_nu.alpha[:] = (nu.alpha_D, nu.alpha_G)
     for index, side in enumerate('AB'):
         flow, opening, port = cfg['flow_inputs'][side], cfg['boundary_openings'][side], cfg['cfg' + side]
-        target = values.sides[index]
+        target = uniform.sides[index]
         target.inlet.fluid = ('air', 'water', 'sco2', 'co2').index(cfg['fluid_' + side])
         target.inlet.temperature_K = cfg['T_in' + side]
         target.inlet.pressure_Pa = settings['fluid_' + side].P_in_Pa
@@ -219,9 +209,9 @@ def prepare_stage(case, cfg, prepared, saved_flow_grid):
         target.outlet_bounds[:] = (port['out_ctr'] - port['out_w'] / 2, port['out_ctr'] + port['out_w'] / 2)
         properties = cfg['static_properties'][side]
         target.properties.mu = properties['mu']
-        if not values.input.geometry_mode:
+        if not uniform.input.geometry_mode:
             target.properties.fluid_conductivity_W_mK = properties['K_ff']
-        cross, stream = (values.ny, values.nx) if port['dir'] in (0, 1) else (values.nx, values.ny)
+        cross, stream = (uniform.ny, uniform.nx) if port['dir'] in (0, 1) else (uniform.nx, uniform.ny)
         for key in ('K_m2', 'cF_per_m'):
             if np.shape(flow[key]) != (stream,):
                 raise ValueError(f'invalid prepared flow {side} {key}')
@@ -257,7 +247,7 @@ def prepare_stage(case, cfg, prepared, saved_flow_grid):
             if np.ndim(opening[name]) != 1:
                 raise ValueError(f'prepared Fluid {side} {name} disagrees with its grid and port geometry')
     ranges, captured = borrow_ranges(case.metadata.get('applicability_inputs', ()), keepalive)
-    values.ranges, values.range_count = ranges, len(ranges)
+    uniform.ranges, uniform.range_count = ranges, len(ranges)
     notices = (_Text * len(case.metadata['notices']))(*(
         borrow_text(notice, keepalive) for notice in case.metadata['notices']))
     keepalive.append(notices)
@@ -397,33 +387,35 @@ def saved_inputs(case, shape, *, check_experiment, port_windows_fit, checked_geo
     return cfg, dict(energy_dx=case.grid['dx'], energy_dy=case.grid['dy']), experiment
 
 
-def _request(cfg):
+def _request(cfg, library):
     solver = _run_settings(cfg)['solver']
-    request = _Request(3, ct.sizeof(_Request),
-        _RequestV2(2, ct.sizeof(_RequestV2), _RequestV1(1, ct.sizeof(_RequestV1))))
-    values = request.values.values
+    request = _Request(4, ct.sizeof(_Request))
     for name in ('max_iter_simple', 'max_outer_ltne'):
         value = getattr(solver, name)
-        setattr(values, name, _Size(bool(value), value or 0))
+        setattr(request, name, _Size(bool(value), value or 0))
     value = solver.outer_tol_K
-    values.outer_tol_K = _Double(bool(value), value or 0.)
+    request.outer_tol_K = _Double(bool(value), value or 0.)
     mode, tolerances = convergence_controls(cfg, solver)
-    values.convergence_mode = mode.encode()
+    request.convergence_mode = mode.encode()
     for name, tolerance in tolerances.items():
-        setattr(values, name, _Double(1, tolerance))
+        setattr(request, name, _Double(1, tolerance))
     validate_simple_velocity_relaxation(solver.simple_velocity_relaxation)
     if solver.simple_velocity_relaxation is not None:
-        values.simple_velocity_relaxation = _Double(1, solver.simple_velocity_relaxation)
+        request.simple_velocity_relaxation = _Double(1, solver.simple_velocity_relaxation)
     if cfg.get('T_s_init') is not None:
-        values.solid_seed_K = _Double(1, cfg['T_s_init'])
-    values.have_pressure_shooting = 1
-    values.pressure_shooting = cfg.get('p_in_shooting', run_environment(cfg, 'TPMSHX_P_IN_SHOOT', '1') == '1')
-    request.values.envelope_mode = cfg.get('envelope_mode', 'raise').encode()
+        request.solid_seed_K = _Double(1, cfg['T_s_init'])
+    request.have_pressure_shooting = 1
+    request.pressure_shooting = cfg.get('p_in_shooting', run_environment(cfg, 'TPMSHX_P_IN_SHOOT', '1') == '1')
+    request.envelope_mode = cfg.get('envelope_mode', 'raise').encode()
     energy = _energy_options(solver.enthalpy_algorithm, solver.enthalpy_temperature_tol_K)
-    values.energy = ct.pointer(energy)
+    has_water = 'water' in (cfg['fluid_A'], cfg['fluid_B'])
+    if solver.enthalpy_algorithm != 'temperature_sou':
+        _full_enthalpy_defaults(library, 2, energy.algorithm, has_water)
     model_h = _iteration_options(vars(solver))
     if model_h is not None:
-        values.model_h = model_h
+        request.model_h = model_h
+    else:
+        request.energy = ct.pointer(energy)
     for name, target, kind in (
             ('ltne_enthalpy_outer', 'energy_iterations', _Size),
             ('ltne_enthalpy_nsweep', 'energy_sweeps', _Size),
@@ -442,7 +434,7 @@ class _Run(NativeRun):
     api_prefix = 'tpmshx_stage_run_2d'
     advance_name = 'advance_step'
     entry_names = {'create': 'create_saved', 'restore': 'restore_saved', 'release': 'release_run'}
-    creation_version = 1
+    creation_version = 5
     result_type = _StageResult
     result_release_name = 'tpmshx_stage_run_2d_release_v1'
     error_types = {**NativeRun.error_types, 4: ChokedFlowError, 6: CancelledError}
@@ -476,18 +468,23 @@ def _scalars(summary):
 
 
 def _stage_entries(library):
-    """Bind the saved v4 lifecycle. A library without it is a deployment error."""
+    """Bind the saved v5 lifecycle. A library without it is a deployment error."""
     try:
+        version = library.tpmshx_stage_run_2d_abi_version
         entries = dict(release=library.tpmshx_stage_run_2d_release_v1, query=library.tpmshx_stage_run_2d_get_capture_v1,
-                       complete=library.tpmshx_run_saved_case_2d_v4,
+                       complete=library.tpmshx_run_saved_case_2d_v5,
                        check_experiment=library.tpmshx_stage_run_2d_check_experiment_v4,
                        port_windows_fit=library.tpmshx_stage_port_windows_fit_2d_v1)
     except AttributeError as error:
         raise ValueError('native library has an incomplete saved 2D stage protocol') from error
+    version.argtypes, version.restype = [], _U
+    abi = version()
+    if abi != 5:
+        raise ValueError(f'unsupported saved 2D stage ABI {abi}; expected 5')
     entries['release'].argtypes, entries['release'].restype = [ct.POINTER(_StageResult)], None
     entries['query'].argtypes = [ct.POINTER(_StageResult), ct.POINTER(_Application), ct.POINTER(_Summary)]
     entries['query'].restype = ct.c_int
-    entries['complete'].argtypes = [ct.POINTER(_SavedV4), ct.POINTER(_Request), ct.POINTER(_Control),
+    entries['complete'].argtypes = [ct.POINTER(_Saved), ct.POINTER(_Request), ct.POINTER(_Control),
                                     ct.POINTER(_StageResult), ct.POINTER(ct.c_char), _S]
     entries['complete'].restype = ct.c_int
     entries['check_experiment'].argtypes = [ct.POINTER(_Experiment), ct.POINTER(ct.c_char), _S]
@@ -497,21 +494,22 @@ def _stage_entries(library):
 
 
 def pack_saved(case, cfg, prepared, experiment):
-    """Pack the saved v4 case. The caller keeps the returned owners alive during the run."""
+    """Pack the saved v5 case. The caller keeps the returned owners alive during the run."""
     flow_grid = (_FlowGrid * 2)()
     uniform, area, diameter, conductivity, recorded, captured, keepalive = prepare_stage(
         case, cfg, prepared, flow_grid)
-    saved = _Saved(1, ct.sizeof(_Saved), ct.pointer(uniform), area, diameter,
-                   (_Array * 2)(*conductivity), recorded, captured)
     sides = cfg['thermal_geometry']['side_geometry']
-    saved = _SavedV2(2, ct.sizeof(_SavedV2), saved, sides is not None)
+    saved = _Saved(5, ct.sizeof(_Saved), ct.pointer(uniform), area, diameter,
+                   (_Array * 2)(*conductivity), recorded, captured, sides is not None)
     if sides is not None:
         for index, side in enumerate('AB'):
             saved.side_geometry[index][:] = sides[side]
-    saved = _SavedV3(3, ct.sizeof(_SavedV3), saved, (_D * 2)(cfg['L'], cfg['H']), flow_grid)
+    saved.lengths_m[:] = (cfg['L'], cfg['H'])
+    saved.flow_grid = flow_grid
     pack_saved_design(case, uniform, saved, keepalive)
-    pack_saved_resources(case, uniform.values.models, uniform.sco2_nu, saved, _run_settings(cfg)['sco2_nu'], keepalive)
-    return _SavedV4(4, ct.sizeof(_SavedV4), saved, experiment), uniform, keepalive
+    pack_saved_resources(case, uniform.models, uniform.sco2_nu, saved, _run_settings(cfg)['sco2_nu'], keepalive)
+    saved.experiment = experiment
+    return saved, uniform, keepalive
 
 
 def run_stage(driver, case, cfg, prepared, control, entries, experiment, *,
@@ -521,7 +519,7 @@ def run_stage(driver, case, cfg, prepared, control, entries, experiment, *,
     release, query = entries['release'], entries['query']
     control.check_cancelled()
     saved, uniform, keepalive = pack_saved(case, cfg, prepared, experiment)
-    request, _ = _request(cfg)
+    request, _ = _request(cfg, library)
     callbacks, errors = _callbacks(control)
     stage_control = _Control(case.case_id.encode(), driver.table_directory, control.native_cpu_threads(), callbacks)
     result = _StageResult()
@@ -543,7 +541,7 @@ def run_stage(driver, case, cfg, prepared, control, entries, experiment, *,
         summary = _Summary()
         if query(ct.byref(result), ct.byref(_Application()), ct.byref(summary)):
             raise RuntimeError('native full 2D capture query failed')
-        shape = (uniform.values.nx, uniform.values.ny)
+        shape = (uniform.nx, uniform.ny)
         fields, declarations = detach_stage_fields(result.evidence, shape)
         # The Python result preserves its published field order.
         names = ('Ta', 'Tb', 'Ts', 'P_thermal_A', 'P_thermal_B', 'P_report_A', 'P_report_B',

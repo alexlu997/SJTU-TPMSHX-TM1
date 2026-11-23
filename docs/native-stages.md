@@ -4,30 +4,30 @@
 
 ## Active C ABI
 
-On 2026-11-23, each native library kept only the latest entry of each operation that the product uses.
-The table lists these active entries. The libraries export no other version of these operations.
+On 2026-11-24, preparation ABI 3 and the 2D/3D saved stage run interfaces flattened all nested `values` struct chains, unified preparation callbacks into `tpmshx_preparation_callbacks_v1`, and gave each preparation operation family clean `v1` entry names.
+The table lists the active entries. The libraries export no other version of these operations.
 
 | Stage | Active entries |
 | --- | --- |
-| 2D preparation | `tpmshx_prepare_inlet_mass_capacities_2d_v7`, `tpmshx_resolve_inlet_flow_2d_v7` and their continuous v7 forms; zoned and sigmoid capacity and flow resolution v10; `tpmshx_prepare_flow_case_2d_v10`, `tpmshx_prepare_zoned_flow_case_2d_v10`, `tpmshx_prepare_sigmoid_flow_case_2d_v10`, `tpmshx_prepare_continuous_flow_case_2d_v11` and `tpmshx_prepare_stripe_flow_case_2d_v11` |
-| 3D preparation | Continuous v3 and spatial v4 capacity, flow resolution and complete preparation |
+| 2D preparation (ABI 3) | `tpmshx_preparation_2d_{uniform,continuous,zoned,sigmoid}_{capacities,resolve_flow,prepare_case}_v1`, `tpmshx_preparation_2d_stripe_prepare_case_v1`, `tpmshx_query_inlet_properties_v2`, and `tpmshx_preparation_sigmoid_lut_create_v7` |
+| 3D preparation (ABI 3) | `tpmshx_preparation_3d_{continuous,spatial}_{capacities,resolve_flow,prepare_case}_v1` |
 | Quick Design preparation | `tpmshx_prepare_quick_design_v2` and `tpmshx_quick_pressure_fractions_v2` |
-| 2D stage run | `tpmshx_run_saved_case_2d_v4`; `tpmshx_stage_run_2d_create_saved_v4` and `tpmshx_stage_run_2d_restore_saved_v4` for checkpoints |
-| 3D stage run | `tpmshx_run_saved_case_3d_v2`; `tpmshx_stage_run_3d_create_saved_v2` and `tpmshx_stage_run_3d_restore_saved_v2` for checkpoints |
+| 2D stage run (saved ABI 5) | `tpmshx_stage_run_2d_abi_version`, `tpmshx_run_saved_case_2d_v5`; `tpmshx_stage_run_2d_create_saved_v5` and `tpmshx_stage_run_2d_restore_saved_v5` for checkpoints |
+| 3D stage run (saved ABI 3) | `tpmshx_stage_run_3d_abi_version`, `tpmshx_run_saved_case_3d_v3`; `tpmshx_stage_run_3d_create_saved_v3` and `tpmshx_stage_run_3d_restore_saved_v3` for checkpoints |
 | Direct full solve | `tpmshx_solve_full_2d_v6` and `tpmshx_solve_full_3d_v5`; `tpmshx_full_2d_run_create_v2`, `tpmshx_full_2d_run_restore_v2`, `tpmshx_full_3d_run_create_v3` and `tpmshx_full_3d_run_restore_v3` for checkpoints |
 | Quick Design run | `tpmshx_run_quick_design_v2` and `tpmshx_solve_quick_design_v1` |
 | Result stage | `tpmshx_result_stage_query_v3` (result ABI 3) |
 
 The consolidation removed these entries:
 
-- 2D complete preparation v1 to v9, 3D preparation v1 and 3D flow preparation v2.
+- Earlier 2D and 3D preparation entries (v1 to v11), `tpmshx_query_inlet_properties_v1`, `tpmshx_preparation_sigmoid_lut_{create,release}_v6`, per-family ABI version queries, and nested `values` struct wrappers.
 - Quick Design preparation and run v1.
-- 2D one-shot runs v1 to v3, 3D one-shot run v1, prepared-view run creation v1 and saved descriptors before the versions in the table.
+- 2D one-shot runs v1 to v4, 3D one-shot runs v1 to v2, prepared-view run creation v1, and earlier saved descriptors before 2D v5 and 3D v3.
 - Direct full solves before 2D v6 and 3D v5, and their earlier continuation entries.
 - Result stage query v2, `tpmshx_result_platform_info_v1`, 14 unused `quick_*` C entries and the `QuickProtocols` host callbacks.
 
 Release functions, ABI version queries, records and other queries that the active entries use stay available.
-An earlier layout can stay as a nested member of an active descriptor.
+Each active preparation and saved-run descriptor is flat, with one top-level `(abi_version, struct_size)` header and no nested `values` chain.
 A library without a required active entry is a deployment error. Python does not select an archived runtime or another entry.
 Later sections describe earlier versions to record their history. Call only the entries in the table.
 
@@ -122,7 +122,7 @@ The result stage decides qualification.
 ## Inlet-property query
 
 `InletPropertyQuery` and `query_inlet_properties` in `stages.hpp` expose the existing scalar inlet combination.
-The C entry is `tpmshx_query_inlet_properties_v1` in `preparation_case_c_api.h`.
+The C entry is `tpmshx_query_inlet_properties_v2` in `preparation_case_c_api.h`.
 Supply topology, L/t in mm, inlet velocity, temperature, pressure and optional sCO2 Nu selection.
 Also supply hydraulic diameter in m and single-stream porosity from the selected geometry owner.
 The query calculates no geometry, grid, ports or solver fields.
@@ -244,7 +244,7 @@ Current Python runs use the complete saved v4 protocol for canonical settings.
 The full solver uses `tpmshx_stage_borrow_mesh_v1` to obtain checked cell widths and thermal geometry from a prepared case. The stage compares each edge with the sum of the widths and checks the axis maps. It borrows aligned native double arrays with the same buffer description as result queries. For uniform 3D geometry, the host passes one area density and one hydraulic diameter. The native run expands each value into its own storage. For other layouts, older libraries or invalid meshes, the portable reader supplies its usual checks and errors.
 
 The solver and preparation libraries use the same physical limit for 2D port windows. For saved double-precision settings, `tpmshx_stage_port_windows_fit_2d_v1` checks both windows on the cross axis. The host supplies detailed errors and checks other input types and earlier libraries.
-For a fresh run, Python calls `tpmshx_run_saved_case_2d_v4`. C++ owns the run through result transfer. Checkpoints use the step interface.
+For a fresh run, Python calls `tpmshx_run_saved_case_2d_v5` after checking `tpmshx_stage_run_2d_abi_version() == 5`. C++ owns the run through result transfer. Checkpoints use the step interface.
 For both dimensions, a null energy recipe uses the defaults from `native_controls` in `model_parameters_v1.json`. The current defaults are T-SOU and 1e-8 K. Python sends the algorithm and tolerance recorded in each prepared case, including values equal to these defaults.
 Saved v4 adds the original experimental model settings to the v3 fields.
 Create and restore use the same native applicability rules as preparation.
@@ -328,7 +328,7 @@ This interface does not certify gradient accuracy.
 
 ## Uniform 3D preparation
 
-`prepare_case(CaseInput3D)` puts the input in a spatial v4 input and calls `tpmshx_prepare_flow_case_3d_v4` from
+`prepare_case(CaseInput3D)` puts the input in a flat 3D spatial input and calls `tpmshx_preparation_3d_spatial_prepare_case_v1` from
 `preparation_case_3d_c_api.h`. It returns an owned `PreparedSpatialCase3D`.
 Provide three positive physical lengths, three grid counts and an explicit cell cap.
 Depth is required and `Nz` must be at least 2. The C++ input defaults the cap to 2,000,000 cells.
@@ -439,7 +439,7 @@ Status zero means a result was transferred; it does not establish convergence.
 A cancelled result retains raw diagnostics with `raw.stop=2` and no completed evaluation evidence.
 A successful result can be transferred only once. Output and error buffers must not overlap inputs or each other.
 Current 3D runs and checkpoint restores use the saved v2 descriptor.
-For a fresh run, Python calls `tpmshx_run_saved_case_3d_v2`. C++ owns the run through result transfer. Checkpoints use the step interface.
+For a fresh run, Python calls `tpmshx_run_saved_case_3d_v3` after checking `tpmshx_stage_run_3d_abi_version() == 3`. C++ owns the run through result transfer. Checkpoints use the step interface.
 C++ checks the physical domain, axis maps, port masks, model resources and cell design fields before the first step.
 The Python adapter checks the portable array shapes and keeps borrowed storage alive.
 `full_3d_stage.py` passes the saved grid, design fields, ports and axis maps from CaseData.

@@ -144,7 +144,7 @@ They reuse geometry/grid and the shared model implementation, including the lock
 This project builds no full solver or run_state and needs no SuperLU or AMG.
 The full build script builds the pilot and preparation projects separately. They share one property and DF numerical implementation.
 
-`python/cpp_interface/stage_libraries.py` loads preparation ABI 2 and result ABI 3 independently through ctypes on demand.
+`python/cpp_interface/stage_libraries.py` loads preparation ABI 3 and result ABI 3 independently through ctypes on demand.
 Named property, DF and flow adapters preserve the existing public Python interfaces.
 2D preparation uses the v7 domain/port scalar-kind descriptor with the applicable versioned payload.
 The shared grid and port cores retain mixed integer and narrow-float arithmetic.
@@ -223,7 +223,7 @@ Contexts must be released by the library that created them, after their last cal
 Missing libraries, ABI mismatches and missing symbols fail explicitly. No runtime build or numerical fallback is available.
 
 The public scalar inlet combination also uses `preparation_case.cpp::query_inlet_properties`.
-It shares one property sequence with complete preparation and returns twelve typed inline values through `tpmshx_query_inlet_properties_v1`.
+It shares one property sequence with complete preparation and returns twelve float64 inline values through `tpmshx_query_inlet_properties_v2`.
 The `stages.hpp` wrapper needs only the preparation library and supplied geometry scalars; no CaseData or solver is required.
 Python keeps geometry/cache selection, the per-call K_ss query, mutable result copies, type conversion and ordered warning policy.
 The replaced `tpms_calc._compute_cached` numerical combination is retired; its public cache and callable interfaces remain.

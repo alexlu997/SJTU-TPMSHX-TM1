@@ -73,5 +73,5 @@ class BoundLibrary:
         return self.functions[key]
 
 
-preparation_library = StageLibrary('preparation', 2, ValueError)
+preparation_library = StageLibrary('preparation', 3, ValueError)
 result_library = StageLibrary('result', 3, RuntimeError)

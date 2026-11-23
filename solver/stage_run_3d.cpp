@@ -85,10 +85,10 @@ void input_storage(const Storage& storage,const tpmshx_full3d_input_v1* input) {
         for(const auto value:{side.inlet_opening,side.outlet_opening})storage(value.data,value.size);
     for(const auto value:input->sources)storage(value.data,value.size);
 }
-void saved_storage(const Storage& storage,const tpmshx_stage_saved_case_3d_v1* saved) {
+void saved_storage(const Storage& storage,const tpmshx_stage_saved_case_3d_v3* saved) {
     storage(saved,1);
-    if(saved->abi_version!=TPMSHX_STAGE_RUN_3D_ABI_VERSION || saved->struct_size!=sizeof(*saved))
-        throw std::invalid_argument("saved 3D stage ABI version or struct size is invalid");
+    if(saved->abi_version!=TPMSHX_STAGE_RUN_3D_SAVED_ABI_VERSION || saved->struct_size!=sizeof(*saved))
+        throw std::invalid_argument("saved 3D stage v3 ABI version or struct size is invalid");
     input_storage(storage,saved->input);storage(saved->wall_thickness_m.data,saved->wall_thickness_m.size);
     evidence_storage(storage,saved->preparation);notices_storage(storage,saved->notices,saved->notice_count);
     flag(saved->inlet_recorded);
@@ -96,25 +96,14 @@ void saved_storage(const Storage& storage,const tpmshx_stage_saved_case_3d_v1* s
         storage(saved->range_captured,saved->preparation.range_count);
         for(size_t i=0;i<saved->preparation.range_count;++i)flag(saved->range_captured[i]);
     }
-}
-struct Prepared {
-    const tpmshx_stage_saved_case_3d_v1* saved=nullptr;
-    const tpmshx_stage_saved_case_3d_v2* saved_v2=nullptr;
-};
-void prepared_storage(const Storage& storage,const Prepared& source) {
-    storage(source.saved_v2,1);
-    if(source.saved_v2->abi_version!=2 || source.saved_v2->struct_size!=sizeof(*source.saved_v2))
-        throw std::invalid_argument("invalid saved 3D v2 descriptor");
-    const auto& saved=*source.saved_v2;
-    for(const auto& ref:saved.models){storage.text(ref.name);storage.text(ref.version);}
-    for(const auto fluid:saved.resource_fluids)storage.text(fluid);
-    storage.text(saved.resource_topology);
-    for(const auto* nu:{&saved.sco2_nu,&saved.resource_nu[0],&saved.resource_nu[1]}) {
+    for(const auto& ref:saved->models){storage.text(ref.name);storage.text(ref.version);}
+    for(const auto fluid:saved->resource_fluids)storage.text(fluid);
+    storage.text(saved->resource_topology);
+    for(const auto* nu:{&saved->sco2_nu,&saved->resource_nu[0],&saved->resource_nu[1]}) {
         storage.text(nu->parameter_version);storage.text(nu->source);storage.text(nu->applicability);
     }
-    for(const auto& side:saved.axes)
+    for(const auto& side:saved->axes)
         for(const auto width:side.widths)storage(width.data,width.size);
-    saved_storage(storage,source.saved);
 }
 void state_storage(const Storage& storage,const tpmshx_run_state_field_v1* fields,size_t count) {
     storage(fields,count);
@@ -125,12 +114,12 @@ void state_storage(const Storage& storage,const tpmshx_run_state_field_v1* field
             boundary::product(field.count,field.type<=TPMSHX_RUN_STATE_I64?8:1));
     }
 }
-void preflight(const Prepared& source,
+void preflight(const tpmshx_stage_saved_case_3d_v3* saved,
     const tpmshx_stage_run_request_3d_v1* request,const tpmshx_stage_run_control_3d_v1* control,
     const Storage& storage,const tpmshx_run_state_field_v1* fields=nullptr,size_t count=0) {
     if(overlaps(storage.output,storage.output_size,storage.error,storage.capacity))
         throw std::invalid_argument("3D stage error storage overlaps output");
-    prepared_storage(storage,source);
+    saved_storage(storage,saved);
     storage(control,1);storage.text(control->result_id);storage.text(control->table_directory);
     if(request) {
         storage(request,1);
@@ -154,8 +143,7 @@ grid::Port port(const tpmshx_grid_port_v1& source) {
     }
     return result;
 }
-void validate_saved_3d(const tpmshx_stage_saved_case_3d_v2& saved,tpmshx_full3d_input_v1& input) {
-    const auto& values=saved.values;
+void validate_saved_3d(const tpmshx_stage_saved_case_3d_v3& saved,tpmshx_full3d_input_v1& input) {
     const auto cells=boundary::product(boundary::product(input.shape[0],input.shape[1]),input.shape[2]);
     if(!cells)throw std::invalid_argument("saved 3D grid requires positive counts");
     for(size_t axis=0;axis<3;++axis) {
@@ -213,10 +201,10 @@ void validate_saved_3d(const tpmshx_stage_saved_case_3d_v2& saved,tpmshx_full3d_
     if(saved.design_mode>2)throw std::invalid_argument("unsupported prepared 3D design mode");
     if(saved.design_mode==2 && !saved.have_z_controls)
         throw std::invalid_argument("continuous_xyz requires recorded 3D control inputs");
-    const tpmshx_full3d_array_v1 fields[]{input.cell_length,view(values.wall_thickness_m),input.epsilon,
+    const tpmshx_full3d_array_v1 fields[]{input.cell_length,view(saved.wall_thickness_m),input.epsilon,
         input.permeability,input.forchheimer,input.epsilon_a,input.epsilon_b,input.solid_conductivity};
     const char* names[]{"L_field_m","t_field_m","eps_arr","K_m2","cF_per_m","eps_A","eps_B","K_ss"};
-    const double references[]{values.nominal_cell_length_mm,values.nominal_wall_thickness_mm,values.nominal_porosity};
+    const double references[]{saved.nominal_cell_length_mm,saved.nominal_wall_thickness_mm,saved.nominal_porosity};
     for(size_t index=0;index<8;++index) {
         const auto field=fields[index];const std::string name=names[index];
         if(field.size!=cells && !(index==1 && field.size==1))throw std::invalid_argument("prepared design field "+name+" does not match the grid");
@@ -240,10 +228,10 @@ void validate_saved_3d(const tpmshx_stage_saved_case_3d_v2& saved,tpmshx_full3d_
 
 struct Packed3D {
     tpmshx_full3d_input_v1 input{};
-    tpmshx_stage_saved_case_3d_v1 saved{};
-    explicit Packed3D(const Prepared& source) {
-        saved=*source.saved;input=*saved.input;saved.input=&input;
-        validate_saved_3d(*source.saved_v2,input);
+    tpmshx_stage_saved_case_3d_v3 saved{};
+    explicit Packed3D(const tpmshx_stage_saved_case_3d_v3& source) {
+        saved=source;input=*saved.input;saved.input=&input;
+        validate_saved_3d(source,input);
     }
 };
 struct Controls3D {
@@ -305,12 +293,12 @@ struct Controls3D {
     }
 };
 struct StageRun3D {
-    Prepared source;
+    const tpmshx_stage_saved_case_3d_v3* source=nullptr;
     std::unique_ptr<Packed3D> packed;
     tpmshx_full3d_control_v1 resolved;
     std::string result_id,table_directory;
     void* run=nullptr;
-    StageRun3D(const Prepared& original,std::unique_ptr<Packed3D> p,const tpmshx_full3d_control_v1& controls,const char* id)
+    StageRun3D(const tpmshx_stage_saved_case_3d_v3* original,std::unique_ptr<Packed3D> p,const tpmshx_full3d_control_v1& controls,const char* id)
         :source(original),packed(std::move(p)),resolved(controls),result_id(id),table_directory(controls.table_directory?controls.table_directory:"") {
         resolved.table_directory=controls.table_directory?table_directory.c_str():nullptr;
     }
@@ -322,7 +310,7 @@ void lifecycle_storage(const StageRun3D* owner,const Storage& storage) {
         throw std::invalid_argument("3D stage error storage overlaps output");
     storage(owner,1);storage.text(owner->result_id.c_str());storage.text(owner->resolved.table_directory);
     if(owner->packed) {
-        prepared_storage(storage,owner->source);
+        saved_storage(storage,owner->source);
         saved_storage(storage,&owner->packed->saved);
     }
 }
@@ -335,7 +323,7 @@ template<class Function> int guarded(char* error,size_t capacity,Function functi
     catch(const std::exception& failure) {if(report_safe)boundary::message(error,capacity,failure.what());return 4;}
     catch(...) {if(report_safe)boundary::message(error,capacity,"unknown native 3D stage failure");return 4;}
 }
-int create(const Prepared& source,const tpmshx_stage_run_request_3d_v1* request,
+int create(const tpmshx_stage_saved_case_3d_v3* source,const tpmshx_stage_run_request_3d_v1* request,
     const tpmshx_stage_run_control_3d_v1* control,const tpmshx_run_state_field_v1* fields,size_t count,
     bool restore,void** output,char* error,size_t capacity) {
     return guarded(error,capacity,[&](bool& report_safe) {
@@ -343,7 +331,7 @@ int create(const Prepared& source,const tpmshx_stage_run_request_3d_v1* request,
         preflight(source,request,control,{output,sizeof(*output),error,capacity},fields,count);
         report_safe=true;
         if(*output)throw std::invalid_argument("3D stage run output handle must be null");
-        auto packed=std::make_unique<Packed3D>(source);
+        auto packed=std::make_unique<Packed3D>(*source);
         Controls3D controls(request,*control,packed->input);
         auto owner=std::make_unique<StageRun3D>(source,std::move(packed),controls.values,control->result_id);
         const auto status=restore?tpmshx_full_3d_run_restore_v3(&owner->packed->input,&owner->resolved,
@@ -358,7 +346,7 @@ void empty_result(const tpmshx_stage_run_result_3d_v1& result) {
     if(result.abi_version!=TPMSHX_STAGE_RUN_3D_ABI_VERSION || result.struct_size!=sizeof(result) || result.owner)
         throw std::invalid_argument("3D stage result must be an initialized empty owner");
 }
-int run_complete(const Prepared& source,const tpmshx_stage_run_request_3d_v1* request,
+int run_complete(const tpmshx_stage_saved_case_3d_v3* source,const tpmshx_stage_run_request_3d_v1* request,
     const tpmshx_stage_run_control_3d_v1* control,tpmshx_stage_run_result_3d_v1* result,
     char* error,size_t capacity) {
     return guarded(error,capacity,[&](bool& report_safe) {
@@ -374,17 +362,21 @@ int run_complete(const Prepared& source,const tpmshx_stage_run_request_3d_v1* re
         return tpmshx_stage_run_3d_take_result_v1(run.get(),result,error,capacity);
     });
 }
-}
+}  // namespace
+
 extern "C" {
-int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_create_saved_v2(const tpmshx_stage_saved_case_3d_v2* saved,
+uint32_t TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_abi_version(void) {
+    return TPMSHX_STAGE_RUN_3D_SAVED_ABI_VERSION;
+}
+int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_create_saved_v3(const tpmshx_stage_saved_case_3d_v3* saved,
     const tpmshx_stage_run_request_3d_v1* request,const tpmshx_stage_run_control_3d_v1* control,
     void** output,char* error,size_t capacity) {
-    return create({saved?&saved->values:nullptr,saved},request,control,nullptr,0,false,output,error,capacity);
+    return create(saved,request,control,nullptr,0,false,output,error,capacity);
 }
-int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_restore_saved_v2(const tpmshx_stage_saved_case_3d_v2* saved,
+int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_restore_saved_v3(const tpmshx_stage_saved_case_3d_v3* saved,
     const tpmshx_stage_run_request_3d_v1* request,const tpmshx_stage_run_control_3d_v1* control,
     const tpmshx_run_state_field_v1* fields,size_t count,void** output,char* error,size_t capacity) {
-    return create({saved?&saved->values:nullptr,saved},request,control,fields,count,true,output,error,capacity);
+    return create(saved,request,control,fields,count,true,output,error,capacity);
 }
 int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_advance_step_v1(void* run,uint32_t* phase,char* error,size_t capacity) {
     return guarded(error,capacity,[&](bool& report_safe) {
@@ -434,7 +426,7 @@ int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_take_result_v1(void* run,tpmshx_stag
             std::unique_ptr<tpmshx::stages::Capture3D,decltype(&tpmshx::stages::release_capture_3d)> captured(
                 tpmshx::stages::capture_3d(owner.packed->saved,raw,owner.resolved,owner.result_id.c_str()),
                 &tpmshx::stages::release_capture_3d);
-            *result=tpmshx::stages::stage_view(*captured.release());owner.packed.reset();owner.source={};return 0;
+            *result=tpmshx::stages::stage_view(*captured.release());owner.packed.reset();owner.source=nullptr;return 0;
         } catch(...) {tpmshx_full_3d_release_v1(&raw);throw;}
     });
 }
@@ -445,10 +437,9 @@ void TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_release_v1(tpmshx_stage_run_result_
     if(!result)return;
     tpmshx::stages::release_capture_3d(static_cast<tpmshx::stages::Capture3D*>(result->owner));*result={};
 }
-int TPMSHX_THERMAL_CALL tpmshx_run_saved_case_3d_v2(const tpmshx_stage_saved_case_3d_v2* saved,
+int TPMSHX_THERMAL_CALL tpmshx_run_saved_case_3d_v3(const tpmshx_stage_saved_case_3d_v3* saved,
     const tpmshx_stage_run_request_3d_v1* request,const tpmshx_stage_run_control_3d_v1* control,
     tpmshx_stage_run_result_3d_v1* result,char* error,size_t capacity) {
-    return run_complete({saved?&saved->values:nullptr,saved},
-        request,control,result,error,capacity);
+    return run_complete(saved,request,control,result,error,capacity);
 }
 }

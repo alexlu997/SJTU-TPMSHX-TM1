@@ -125,7 +125,7 @@ Python wheel 包含代码和模型资源，不包含原生库。
 不构建完整求解器或 run_state，也不需要 SuperLU 或 AMG。
 完整构建脚本分别构建 pilot 和 preparation 工程，共用一套物性和 DF 数值实现。
 
-`python/cpp_interface/stage_libraries.py` 通过 ctypes 分别按需加载准备库（ABI 2）和结果库（ABI 3）。
+`python/cpp_interface/stage_libraries.py` 通过 ctypes 分别按需加载准备库（ABI 3）和结果库（ABI 3）。
 具名物性、DF 和流量适配器保留现有 Python 公共接口。
 二维准备将 v7 域长／端口标量类型描述符与适用的版本载荷配合使用。
 共享网格和端口核心保留整数与窄浮点混合运算。
@@ -198,7 +198,7 @@ Preparation 状态 0 表示成功，1 表示无效输入，2 表示分配失败�
 缺库、ABI 不符或符号缺失时明确失败，不提供运行时构建或数值 fallback。
 
 公共标量入口组合也使用 `preparation_case.cpp::query_inlet_properties`。
-它与完整准备共享同一物性流程，通过 `tpmshx_query_inlet_properties_v1` 返回十二个内嵌的带类型数值。
+它与完整准备共享同一物性流程，通过 `tpmshx_query_inlet_properties_v2` 返回十二个内嵌的 float64 数值。
 `stages.hpp` 包装器只需要准备库和提供的几何标量，不需要 CaseData 或求解器。
 Python 保留几何／缓存选择、逐次 K_ss 查询、可变结果副本、类型转换和有序警告策略。
 被替代的 `tpms_calc._compute_cached` 数值组合已退役；公开缓存与调用接口继续保留。

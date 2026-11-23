@@ -10,8 +10,8 @@ from .stage_libraries import preparation_library
 @lru_cache(maxsize=1)
 def _inlet_query_function(path):
     owner = preparation_library.load(path)
-    return owner.bind('tpmshx_query_inlet_properties_v1', [
-        ct.POINTER(abi._InletQueryInput), ct.POINTER(abi._CacheCallbacks),
+    return owner.bind('tpmshx_query_inlet_properties_v2', [
+        ct.POINTER(abi._InletQueryInput), ct.POINTER(abi._Callbacks),
         ct.POINTER(abi._InletQueryResult), ct.POINTER(abi._Failure), ct.POINTER(ct.c_char), abi._S])
 
 
@@ -57,8 +57,8 @@ def inlet_query(topology, cell, wall, velocity, temperature, pressure, fluid,
     def observe(value, bounds_list, cached, scalar):
         host.observe_range(value, bounds_list, cached, scalar, selection, records=records)
 
-    callbacks, _descriptor, callback_errors = host._callback_bridge(
-        validate, observe_range=observe, observe_notice=notice, query=True)
+    callbacks, callback_errors = host._callback_bridge(
+        validate, observe_range=observe, observe_notice=notice)
     result = abi._InletQueryResult(1, ct.sizeof(abi._InletQueryResult))
     failure, error = abi._Failure(2, ct.sizeof(abi._Failure)), ct.create_string_buffer(4096)
     status = _inlet_query_function(preparation_library.path())(

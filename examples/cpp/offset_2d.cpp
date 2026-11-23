@@ -37,31 +37,32 @@ template<class Input> void execute(const Input& input,const char* name) {
 int main() {
     using namespace tpmshx::stages;
     try {
-        FlowInput2D uniform;configure(uniform.values.values);
+        FlowInput2D uniform;configure(uniform.input);
         execute(uniform,"native-offset-uniform");
 
-        ZonedFlowInput2Dv9 zoned;configure(zoned.values.values.values.values);
+        ZonedFlowInput2D zoned;configure(zoned.input);
         std::array<tpmshx_preparation_zone_region_v5,2> stripes{{
             region(0.,.4,0.,1.,7.,.4),region(.4,1.,0.,1.,6.,.5)}};
-        zoned.values.values.regions=stripes.data();zoned.values.values.region_count=stripes.size();
+        zoned.regions=stripes.data();zoned.region_count=stripes.size();
         execute(zoned,"native-offset-stripes");
 
         std::array<tpmshx_preparation_zone_region_v5,4> cells{{
             region(0.,.4,0.,.5,7.,.4),region(.4,1.,0.,.5,6.,.5),
             region(0.,.4,.5,1.,6.5,.45),region(.4,1.,.5,1.,7.5,.35)}};
-        zoned.values.values.kind=1;
-        zoned.values.values.regions=cells.data();zoned.values.values.region_count=cells.size();
+        zoned.kind=1;
+        zoned.regions=cells.data();zoned.region_count=cells.size();
         execute(zoned,"native-offset-grid");
 
-        SigmoidFlowInput2Dv9 sigmoid;configure(sigmoid.values.values.values.values.values);
+        SigmoidFlowInput2D sigmoid;configure(sigmoid.input);
         auto bounds=region(0.,1.,0.,1.,7.,.4);
-        sigmoid.values.values.values.regions=&bounds;sigmoid.values.values.values.region_count=1;
+        sigmoid.regions=&bounds;sigmoid.region_count=1;
         std::array<double,36> decisions{};
         for (std::size_t i=0;i<18;++i) {decisions[2*i]=6.+double(i%3)*.5;decisions[2*i+1]=.35+double(i%4)*.05;}
-        sigmoid.values.values.controls.decision_mm={decisions.data(),decisions.size()};
+        sigmoid.controls.decision_mm={decisions.data(),decisions.size()};
         // A small native LUT keeps this SDK smoke test short.
         auto lut=build_sigmoid_lut(1,2,2,16);
-        sigmoid.values.values.lut=lut.view().values;
+        sigmoid.lut={lut.view().cell_mm,lut.view().wall_mm,lut.view().porosity,
+            lut.view().area_density_per_m,lut.view().porosity_fast,lut.view().area_fast};
         execute(sigmoid,"native-offset-sigmoid");
         return 0;
     } catch (const std::exception& error) {

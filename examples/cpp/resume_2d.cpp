@@ -4,22 +4,21 @@
 int main() {
     using namespace tpmshx::stages;
     try {
-        CaseInput2Dv2 input;
-        auto& values=input.values;
-        values.length_m=.182;values.height_m=.042;values.requested_nx=6;values.requested_ny=8;
-        values.topology=1;values.cell_length_mm=7.;values.wall_thickness_mm=.6;
-        values.solid_conductivity_W_mK=16.;
-        values.sides[0].velocity_m_s=6.;values.sides[0].temperature_K=350.;values.sides[0].pressure_Pa=200000.;
-        values.sides[1].fluid=1;values.sides[1].velocity_m_s=.02;
-        values.sides[1].temperature_K=320.;values.sides[1].pressure_Pa=200000.;
-        values.sides[1].port.direction=3;
+        CaseInput2D input;
+        input.length_m=.182;input.height_m=.042;input.requested_nx=6;input.requested_ny=8;
+        input.topology=1;input.cell_length_mm=7.;input.wall_thickness_mm=.6;
+        input.solid_conductivity_W_mK=16.;
+        input.sides[0].velocity_m_s=6.;input.sides[0].temperature_K=350.;input.sides[0].pressure_Pa=200000.;
+        input.sides[1].fluid=1;input.sides[1].velocity_m_s=.02;
+        input.sides[1].temperature_K=320.;input.sides[1].pressure_Pa=200000.;
+        input.sides[1].port.direction=3;
         PreparationOptions options;options.allow_extrapolation=1;
         RunControl control;control.result_id="native-resumed-2d";control.cpu_threads=2;
         tpmshx_stage_application_2d_v1 application{};
         auto result=[&] {
             auto prepared=prepare_case(input,options);
             const auto saved=saved_case(prepared);
-            const auto& initial=prepared.view().values.prepared.values;
+            const auto& initial=prepared.view().prepared;
             for(size_t side=0;side<2;++side) {
                 application.area_density_per_m[side]=initial.area_density_per_m;
                 application.surface_htc_W_m2K[side]=initial.sides[side].properties.surface_transfer_W_m2K;

@@ -70,15 +70,14 @@ _Request = record('StageRequest3D', [('abi_version', _U), ('struct_size', _Z),
     ('require_enthalpy_update_on_temperature', _U)])
 _Host = record('StageControl3D', [('result_id', ct.c_char_p), ('table_directory', ct.c_char_p),
     ('cpu_threads', _Z), ('callbacks', _Callbacks)])
-_Saved = record('StageSaved3D', [('abi_version', _U), ('struct_size', _Z), ('input', ct.POINTER(_Input)),
-    *((name, _D) for name in ('nominal_cell_length_mm', 'nominal_wall_thickness_mm', 'nominal_porosity')),
-    ('wall_thickness_m', PreparedArray), ('preparation', _Evidence),
-    ('notices', ct.POINTER(_Text)), ('notice_count', _Z), ('inlet_recorded', _U),
-    ('range_captured', ct.POINTER(_U))])
 _Axes = record('SavedAxes3D', [('solver_to_real', ct.c_int32 * 3), ('reverse', ct.c_int32),
     ('counts', _Z * 3), ('solver_counts', _Z * 3), ('lengths', _D * 3), ('solver_lengths', _D * 3),
     ('widths', PreparedArray * 3), ('port', GridPort)])
-_SavedV2 = record('StageSaved3Dv2', [('abi_version', _U), ('struct_size', _Z), ('values', _Saved),
+_Saved = record('StageSaved3Dv3', [('abi_version', _U), ('struct_size', _Z), ('input', ct.POINTER(_Input)),
+    *((name, _D) for name in ('nominal_cell_length_mm', 'nominal_wall_thickness_mm', 'nominal_porosity')),
+    ('wall_thickness_m', PreparedArray), ('preparation', _Evidence),
+    ('notices', ct.POINTER(_Text)), ('notice_count', _Z), ('inlet_recorded', _U),
+    ('range_captured', ct.POINTER(_U)),
     ('lengths_m', _D * 3), ('design_mode', _U), ('have_z_controls', _U),
     ('axes', _Axes * 2),
     ('models', _Model * 4), ('resource_fluids', _Text * 2), ('resource_topology', _Text),
@@ -127,16 +126,21 @@ def bootstrap_query(library):
 
 
 def require_saved_stage(library):
-    """Bind the saved v2 protocol. A library without it is a deployment error."""
-    names = ('create_saved_v2', 'restore_saved_v2', 'advance_step_v1', 'phase_v1', 'snapshot_v1',
+    """Bind the saved v3 protocol. A library without it is a deployment error."""
+    names = ('create_saved_v3', 'restore_saved_v3', 'advance_step_v1', 'phase_v1', 'snapshot_v1',
              'take_result_v1', 'release_run_v1', 'release_v1', 'get_capture_v1')
     try:
+        stage_version = library.tpmshx_stage_run_3d_abi_version
         version = library.tpmshx_stage_capture_3d_abi_version
         for name in names:
             getattr(library, 'tpmshx_stage_run_3d_' + name)
-        library.tpmshx_run_saved_case_3d_v2
+        library.tpmshx_run_saved_case_3d_v3
     except AttributeError as error:
         raise ValueError('native library has an incomplete saved 3D stage protocol') from error
+    stage_version.argtypes, stage_version.restype = [], _U
+    stage_abi = stage_version()
+    if stage_abi != 3:
+        raise ValueError(f'unsupported saved 3D stage ABI {stage_abi}; expected 3')
     version.argtypes, version.restype = [], _U
     abi = version()
     if abi != 2:
@@ -214,7 +218,7 @@ def validate_saved_case(case, checked_shape=None):
     return shape, cell_mm, wall_mm, nu
 
 
-def pack_input(cfg, prepared, grid, design, shape, cell_mm, nu, keepalive, *, saved_v2=False, mesh=None):
+def pack_input(cfg, prepared, grid, design, shape, cell_mm, nu, keepalive, *, saved_v3=False, mesh=None):
     """Borrow contiguous arrays. Convert only when the full solver layout requires it."""
     def view(value, expected=None):
         value = np.asarray(value, dtype=np.float64)
@@ -246,7 +250,7 @@ def pack_input(cfg, prepared, grid, design, shape, cell_mm, nu, keepalive, *, sa
         a.fluid = ('air', 'water', 'sco2', 'co2').index(cfg['fluid_type_'+label]);a.direction = 3 if bc is None else bc['dir']
         a.solver_axes[:] = [axis[key+'_real_axis'] for key in ('cross1', 'stream', 'cross2')]
         a.inlet_temperature, a.inlet_pressure, a.inlet_velocity = cfg['T_in'+label], cfg['P_in'+label], cfg['u_'+label]
-        if not saved_v2 or bc is None:
+        if not saved_v3 or bc is None:
             rectangles = _port_rectangles(bc, float(sum(axis['dcross2']))) if bc is not None else dict(inlet_rect=(0.,1.,0.,1.),outlet_rect=(0.,1.,0.,1.))
             a.inlet_rectangle[:], a.outlet_rectangle[:] = rectangles['inlet_rect'], rectangles['outlet_rect']
         a.inlet_opening, a.outlet_opening = (view(prepared['openings'][label][end]) for end in ('inlet', 'outlet'))
@@ -257,41 +261,6 @@ def pack_input(cfg, prepared, grid, design, shape, cell_mm, nu, keepalive, *, sa
         a.heat_transfer_geometry[:] = thermal['side_geometry'][label] if data.asymmetric else (1.,1.,1.,1.)
     data.sources[:] = [view(cfg.get('mms_S_'+s+'_field', np.empty(0))) for s in ('A', 'B', 's')]
     return data
-
-
-def pack_saved_v2(saved, case, cell_mm, wall_mm, nu, keepalive):
-    cfg = case.parameters
-    value = _SavedV2(2, ct.sizeof(_SavedV2), saved)
-    pack_saved_resources(case, value.models, value.sco2_nu, value, nu, keepalive)
-    value.lengths_m[:] = [cfg[key] for key in ('L', 'H', 'Lz')]
-    value.design_mode = {'uniform': 0, 'xy_extruded': 1, 'continuous_xy_extruded': 1,
-                         'continuous_xyz': 2}.get(case.metadata['design_mode'], 3)
-    value.have_z_controls = 'n_ctrl_z' in (cfg.get('continuous_field') or {})
-    for index, side in enumerate('AB'):
-        record = value.axes[index]
-        boundary = cfg['fluid_' + side + '_cfg']
-        if boundary is not None and boundary['dir'] not in range(6):
-            raise ValueError(f'prepared fluid {side} direction is invalid')
-        record.port = GridPort.from_mapping(boundary)
-        if not record.port.active:
-            continue
-        axis = cfg['prepared']['axes'][side]
-        if axis['is_reverse'] not in (0, 1):
-            raise ValueError(f'prepared fluid {side} reverse direction is invalid')
-        if (any(value not in range(3) for value in axis['solver_to_real_perm'])
-                or any(axis[name + '_real_axis'] not in range(3) for name in ('cross1', 'stream', 'cross2'))):
-            raise ValueError(f'prepared fluid {side} axis permutation is invalid')
-        record.reverse = axis['is_reverse']
-        record.solver_to_real[:] = axis['solver_to_real_perm']
-        for i, name in enumerate(('cross1', 'stream', 'cross2')):
-            width = np.asarray(axis['d' + name])
-            if width.ndim != 1:
-                raise ValueError(f'prepared fluid {side} axis widths disagree with grid')
-            record.widths[i] = _array(width, keepalive)
-            record.counts[i], record.lengths[i] = grid_count(axis['N_' + name]), axis['L_' + name]
-            record.solver_counts[i] = grid_count(axis['solver_init']['N' + 'xyz'[i]])
-            record.solver_lengths[i] = axis['solver_init']['L' + 'xyz'[i]]
-    return value
 
 
 def energy_request(cfg):
@@ -389,16 +358,45 @@ def pack_run_controls(request, cfg, prepared, shape):
 
 
 def pack_saved_case(case, data, cell_mm, wall_mm, nu, keepalive):
+    cfg = case.parameters
     ranges, captured = _ranges(case.metadata.get('applicability_inputs', ()), keepalive)
     notices = (_Text * len(case.metadata['notices']))(*(
         _text(notice, keepalive) for notice in case.metadata['notices']))
     evidence = _Evidence(ranges=ranges, range_count=len(ranges))
-    saved = _Saved(1, ct.sizeof(_Saved), ct.pointer(data), cell_mm, wall_mm, case.parameters['eps'],
+    value = _Saved(3, ct.sizeof(_Saved), ct.pointer(data), cell_mm, wall_mm, cfg['eps'],
         _array(case.design_fields['t_field_m'], keepalive), evidence, notices, len(notices),
         'applicability_inputs' in case.metadata, captured)
-    saved = pack_saved_v2(saved, case, cell_mm, wall_mm, nu, keepalive)
+    pack_saved_resources(case, value.models, value.sco2_nu, value, nu, keepalive)
+    value.lengths_m[:] = [cfg[key] for key in ('L', 'H', 'Lz')]
+    value.design_mode = {'uniform': 0, 'xy_extruded': 1, 'continuous_xy_extruded': 1,
+                         'continuous_xyz': 2}.get(case.metadata['design_mode'], 3)
+    value.have_z_controls = 'n_ctrl_z' in (cfg.get('continuous_field') or {})
+    for index, side in enumerate('AB'):
+        axis_record = value.axes[index]
+        boundary = cfg['fluid_' + side + '_cfg']
+        if boundary is not None and boundary['dir'] not in range(6):
+            raise ValueError(f'prepared fluid {side} direction is invalid')
+        axis_record.port = GridPort.from_mapping(boundary)
+        if not axis_record.port.active:
+            continue
+        axis = cfg['prepared']['axes'][side]
+        if axis['is_reverse'] not in (0, 1):
+            raise ValueError(f'prepared fluid {side} reverse direction is invalid')
+        if (any(item not in range(3) for item in axis['solver_to_real_perm'])
+                or any(axis[name + '_real_axis'] not in range(3) for name in ('cross1', 'stream', 'cross2'))):
+            raise ValueError(f'prepared fluid {side} axis permutation is invalid')
+        axis_record.reverse = axis['is_reverse']
+        axis_record.solver_to_real[:] = axis['solver_to_real_perm']
+        for i, name in enumerate(('cross1', 'stream', 'cross2')):
+            width = np.asarray(axis['d' + name])
+            if width.ndim != 1:
+                raise ValueError(f'prepared fluid {side} axis widths disagree with grid')
+            axis_record.widths[i] = _array(width, keepalive)
+            axis_record.counts[i], axis_record.lengths[i] = grid_count(axis['N_' + name]), axis['L_' + name]
+            axis_record.solver_counts[i] = grid_count(axis['solver_init']['N' + 'xyz'[i]])
+            axis_record.solver_lengths[i] = axis['solver_init']['L' + 'xyz'[i]]
     keepalive.append(notices)
-    return saved
+    return value
 
 
 class SavedRun(NativeRun):
@@ -750,7 +748,7 @@ def run_saved(case, control, library, abi, table_directory, execution_query, *, 
     shape, cell_mm, wall_mm, nu = validate_saved_case(case, None if mesh is None else mesh.shape)
     cfg, prepared = case.parameters, case.parameters['prepared']
     control.check_cancelled()
-    complete = library.tpmshx_run_saved_case_3d_v2
+    complete = library.tpmshx_run_saved_case_3d_v3
     energy = energy_request(cfg)
     has_water = 'water' in (cfg['fluid_type_A'], cfg['fluid_type_B'])
     if cfg.get('enthalpy_algorithm', 'temperature_sou') != 'temperature_sou':
@@ -761,7 +759,7 @@ def run_saved(case, control, library, abi, table_directory, execution_query, *, 
     validate_flow_options(cfg)
     keepalive = []
     data = pack_input(cfg, prepared, case.grid, case.design_fields, shape, cell_mm, nu,
-                      keepalive, saved_v2=True, mesh=mesh)
+                      keepalive, saved_v3=True, mesh=mesh)
     pack_run_controls(request, cfg, prepared, shape)
     callbacks, errors = make_callbacks(control)
     cpu_threads = control.native_cpu_threads()
@@ -770,7 +768,7 @@ def run_saved(case, control, library, abi, table_directory, execution_query, *, 
     try:
         saved = pack_saved_case(case, data, cell_mm, wall_mm, nu, keepalive)
         if checkpoint is None and resume_state is None:
-            complete.argtypes = [ct.POINTER(_SavedV2), ct.POINTER(_Request), ct.POINTER(_Host),
+            complete.argtypes = [ct.POINTER(_Saved), ct.POINTER(_Request), ct.POINTER(_Host),
                                  ct.POINTER(_StageResult), ct.POINTER(ct.c_char), ct.c_size_t]
             complete.restype = ct.c_int
             result = _StageResult()

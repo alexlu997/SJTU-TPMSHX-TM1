@@ -64,11 +64,11 @@ def _input(config, targets, operation):
             raw_port, mass is not None, 0. if mass is None else real(mass, prefix + 'mass_flow_kg_s'))
     buffers = []
     host.pack_nu(value.sco2_nu, config.sco2_nu, buffers)
-    flow = three._FlowInput(2, ct.sizeof(three._FlowInput), value)
-    flow.have_explicit_targets = targets is not None
-    if targets is not None:
+    have_targets = targets is not None
+    explicit = (native._D * 2)()
+    if have_targets:
         for index, side in enumerate('AB'):
-            flow.explicit_targets_kg_s[index] = real(targets[index], f'mass_flow_{side}_kg_s')
+            explicit[index] = real(targets[index], f'mass_flow_{side}_kg_s')
     if continuous:
         spec = config.zones.config
         decision = real_array(spec['x_decision'], name='x_decision', allow_nonfinite=True)
@@ -77,7 +77,7 @@ def _input(config, targets, operation):
             (native._D * 2)(*(real(item, 'L_bounds') for item in spec['L_bounds'])),
             (native._D * 2)(*(real(item, 't_bounds') for item in spec['t_bounds'])),
             native._Array(decision.ctypes.data_as(ct.POINTER(native._D)), decision.size))
-        source = three._ContinuousInput(3, ct.sizeof(three._ContinuousInput), flow, controls)
+        source = three._ContinuousInput(1, ct.sizeof(three._ContinuousInput), value, have_targets, explicit, controls)
         buffers.append(decision)
     else:
         rows = config.zones.grid['cells'] if config.zones.enabled and config.zones.axis == 'grid' else []
@@ -90,7 +90,7 @@ def _input(config, targets, operation):
                     setattr(cells[index], field, float(row[key]))
                 except (KeyError, TypeError, ValueError, OverflowError) as problem:
                     errors.setdefault('cells', problem)
-        source = three._SpatialInput(4, ct.sizeof(three._SpatialInput), flow, cells, len(cells))
+        source = three._SpatialInput(1, ct.sizeof(three._SpatialInput), value, have_targets, explicit, cells, len(cells))
         buffers.append(cells)
     source._buffers, source._errors, source._cell_cap = buffers, errors, cap
     return source

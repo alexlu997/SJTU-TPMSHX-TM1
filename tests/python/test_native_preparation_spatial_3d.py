@@ -22,23 +22,28 @@ _Input = three._SpatialInput
 _Flow = three._SpatialFlow
 _Result = three._SpatialCase
 _OPERATIONS = ('prepare_inlet_mass_capacities', 'resolve_inlet_flow', 'prepare_flow_case')
+_SYMBOLS = {
+    'prepare_inlet_mass_capacities': 'tpmshx_preparation_3d_spatial_capacities_v1',
+    'resolve_inlet_flow': 'tpmshx_preparation_3d_spatial_resolve_flow_v1',
+    'prepare_flow_case': 'tpmshx_preparation_3d_spatial_prepare_case_v1',
+}
 
 
 @pytest.fixture(scope='module')
 def native():
     library = ct.CDLL(os.environ.get('TPMSHX_PREPARATION_CASE_LIBRARY', native_preparation_abi._library_path()))
-    version = library.tpmshx_preparation_spatial_3d_abi_version_v4
+    version = library.tpmshx_preparation_abi_version_v1
     version.argtypes, version.restype = [], _U
-    assert version() == 4
-    for operation in _OPERATIONS:
+    assert version() == 3
+    for operation, symbol in _SYMBOLS.items():
         result = _Result if operation == 'prepare_flow_case' else _Flow
-        function = getattr(library, 'tpmshx_' + operation + '_3d_v4')
+        function = getattr(library, symbol)
         function.argtypes = [ct.POINTER(_Input), ct.POINTER(abi._Options),
             ct.POINTER(abi._Callbacks), ct.POINTER(result), ct.POINTER(abi._Failure),
             ct.POINTER(ct.c_char), _S]
         function.restype = ct.c_int
     for name, result in (('flow', _Flow), ('case', _Result)):
-        release = getattr(library, 'tpmshx_preparation_spatial_' + name + '_3d_release_v4')
+        release = getattr(library, 'tpmshx_preparation_3d_spatial_' + name + '_release_v1')
         release.argtypes, release.restype = [ct.POINTER(result)], None
     return library
 
@@ -62,22 +67,24 @@ def _configuration(topology='Gyroid', pair=('air', 'water'), *, spatial=True, de
 
 
 def _input(config, targets=None):
-    values = native_preparation_abi._input_flow_3d(config, targets)
-    values.input.geometry_mode = 2 if config.zones.enabled else 0
+    base = native_preparation_abi._input_3d(config)
+    base.geometry_mode = 2 if config.zones.enabled else 0
+    have_targets = targets is not None
+    explicit = (_D * 2)(float(targets[0]), float(targets[1])) if have_targets else (_D * 2)()
     rows = config.zones.grid['cells'] if config.zones.enabled else []
     cells = (_Cell * len(rows))()
     for index, row in enumerate(rows):
         cells[index].bounds[:] = [float(row[key]) for key in ('x0', 'x1', 'y0', 'y1')]
         cells[index].cell_length_mm, cells[index].wall_thickness_mm = float(row['L']), float(row['t'])
-    source = _Input(4, ct.sizeof(_Input), values, cells, len(cells))
-    source._values, source._cells = values, cells
+    source = _Input(1, ct.sizeof(_Input), base, have_targets, explicit, cells, len(cells))
+    source._buffers, source._cells = base._buffers, cells
     return source
 
 
 def _call(native, operation, config, targets=None, *, source=None, chi=None, reject_event=False):
     source = _input(config, targets) if source is None else source
     result_type = _Result if operation == 'prepare_flow_case' else _Flow
-    result = result_type(4, ct.sizeof(result_type))
+    result = result_type(1, ct.sizeof(result_type))
     failure = abi._Failure(2, ct.sizeof(abi._Failure))
     options = abi._Options(1, ct.sizeof(abi._Options), chi is not None, config.extrap.allow, chi or 0.)
     error, events = ct.create_string_buffer(4096), []
@@ -88,10 +95,10 @@ def _call(native, operation, config, targets=None, *, source=None, chi=None, rej
         return int(reject_event)
 
     callback = abi._EventFunction(event)
-    callbacks = abi._Callbacks(1, ct.sizeof(abi._Callbacks), callback, None)
-    buffers = source._values._source._buffers
+    callbacks = abi._Callbacks(1, ct.sizeof(abi._Callbacks), None, 0, callback)
+    buffers = source._buffers
     before = bytes(source), bytes(source._cells), [bytes(buffer) for buffer in buffers]
-    status = getattr(native, 'tpmshx_' + operation + '_3d_v4')(
+    status = getattr(native, _SYMBOLS[operation])(
         ct.byref(source), ct.byref(options), ct.byref(callbacks), ct.byref(result),
         ct.byref(failure), error, len(error))
     assert (bytes(source), bytes(source._cells), [bytes(buffer) for buffer in buffers]) == before
@@ -100,7 +107,7 @@ def _call(native, operation, config, targets=None, *, source=None, chi=None, rej
 
 def _release(native, result):
     name = 'case' if isinstance(result, _Result) else 'flow'
-    release = getattr(native, 'tpmshx_preparation_spatial_' + name + '_3d_release_v4')
+    release = getattr(native, 'tpmshx_preparation_3d_spatial_' + name + '_release_v1')
     release(ct.byref(result))
     assert not result.owner
     release(ct.byref(result))
@@ -123,13 +130,13 @@ def _full(native, config, targets=None, *, chi=None):
         native, 'prepare_flow_case', config, targets, chi=chi)
     assert status == 0, error
     try:
-        assert result.owner and not result.prepared.owner and not result.flow.owner and not failure.kind
+        assert result.owner and not failure.kind
         _snapshot(result, config)
         if source.cell_count:
             source._cells[0].cell_length_mm = -1.
             source._cells[0].bounds[0] = -1.
-        source.values.input.cell_length_mm = -1.
-        for buffer in source._values._source._buffers:
+        source.input.cell_length_mm = -1.
+        for buffer in source._buffers:
             if len(buffer) > 1:
                 buffer[0] = b'X'
         _snapshot(result, config)
@@ -201,7 +208,7 @@ def _query(native, operation, config, targets=None):
     status, result, failure, error, live, source = _call(native, operation, config, targets)
     assert status == 0, error
     try:
-        assert result.owner and not result.flow.owner and not failure.kind
+        assert result.owner and not failure.kind
         _snapshot(result, config)
         if source.cell_count:
             source._cells[0].cell_length_mm = -1.
@@ -228,7 +235,7 @@ def _failure(native, operation, config, targets=None, *, source=None, expected_k
     assert status != 0 and error
     if expected_kind is not None:
         assert failure.kind == expected_kind
-    assert bytes(result) == bytes(type(result)(4, ct.sizeof(result)))
+    assert bytes(result) == bytes(type(result)(1, ct.sizeof(result)))
     _release(native, result)
     return error, failure.kind
 
@@ -437,11 +444,11 @@ def test_spatial_3d_no_target_resolution_keeps_unvalidated_owned_input(native):
         assert result.flow.evidence.range_count == result.flow.evidence.warning_count == result.flow.evidence.event_count == 0
         for name, _ in native_preparation_abi._Input_3d._fields_:
             if name != 'sco2_nu':
-                assert native_preparation_abi._struct_values(getattr(result.flow.input, name)) == native_preparation_abi._struct_values(getattr(source.values.input, name))
+                assert native_preparation_abi._struct_values(getattr(result.flow.input, name)) == native_preparation_abi._struct_values(getattr(source.input, name))
         source._cells[0].bounds[0] = -5.
         source._cells[0].cell_length_mm = -1.
         _snapshot(result, config)
-        for buffer in source._values._source._buffers:
+        for buffer in source._buffers:
             if len(buffer) > 1:
                 buffer[0] = b'X'
         assert read_text(result.flow.input.sco2_nu.source) == config.sco2_nu.source
@@ -550,7 +557,7 @@ def test_spatial_3d_callback_failure_keeps_output(native, operation):
         native, operation, config, (.003, .03), reject_event=True)
     assert status != 0 and error and failure.kind == 3
     assert len(events) == 1
-    assert bytes(result) == bytes(type(result)(4, ct.sizeof(result)))
+    assert bytes(result) == bytes(type(result)(1, ct.sizeof(result)))
 
 
 @pytest.mark.parametrize('operation', _OPERATIONS)
@@ -559,7 +566,7 @@ def test_spatial_3d_callback_failure_keeps_output(native, operation):
 def test_spatial_3d_overlapping_storage_is_unchanged(native, operation, selection):
     source = _input(_configuration(delta=0.), (.003, .03))
     result_type = _Result if operation == 'prepare_flow_case' else _Flow
-    result, failure = result_type(4, ct.sizeof(result_type)), abi._Failure(2, ct.sizeof(abi._Failure))
+    result, failure = result_type(1, ct.sizeof(result_type)), abi._Failure(2, ct.sizeof(abi._Failure))
     error = ct.create_string_buffer(b'unchanged', 4096)
     result_pointer, error_pointer, capacity = ct.pointer(result), error, len(error)
     if selection.startswith('cells-'):
@@ -571,10 +578,10 @@ def test_spatial_3d_overlapping_storage_is_unchanged(native, operation, selectio
     elif selection == 'source-output':
         result_pointer = ct.cast(ct.pointer(source), ct.POINTER(result_type))
     else:
-        source.values.input.sco2_nu.source = abi._Text(ct.cast(ct.pointer(result), ct.POINTER(ct.c_char)), 16)
+        source.input.sco2_nu.source = abi._Text(ct.cast(ct.pointer(result), ct.POINTER(ct.c_char)), 16)
     objects = (source, result, failure, error)
     before = [bytes(value) for value in objects]
-    assert getattr(native, 'tpmshx_' + operation + '_3d_v4')(
+    assert getattr(native, _SYMBOLS[operation])(
         ct.byref(source), None, None, result_pointer, ct.byref(failure), error_pointer, capacity) != 0
     assert [bytes(value) for value in objects] == before
 
@@ -587,7 +594,7 @@ def test_spatial_3d_owned_result_requires_release(native, operation):
     before = bytes(result)
     error = ct.create_string_buffer(4096)
     try:
-        assert getattr(native, 'tpmshx_' + operation + '_3d_v4')(
+        assert getattr(native, _SYMBOLS[operation])(
             ct.byref(source), None, None, ct.byref(result), ct.byref(failure), error, len(error)) != 0
         assert 'release' in error.value.decode() and bytes(result) == before
         _snapshot(result, config)
@@ -596,20 +603,20 @@ def test_spatial_3d_owned_result_requires_release(native, operation):
 
 
 @pytest.mark.parametrize('operation', _OPERATIONS)
-@pytest.mark.parametrize('record', ['input', 'values', 'case', 'result', 'options', 'callbacks', 'failure'])
+@pytest.mark.parametrize('record', ['input', 'case', 'result', 'options', 'callbacks', 'failure'])
 @pytest.mark.parametrize('field', ['abi_version', 'struct_size'])
 def test_spatial_3d_rejects_incompatible_records(native, operation, record, field):
     source = _input(_configuration(delta=0.), (.003, .03))
     result_type = _Result if operation == 'prepare_flow_case' else _Flow
-    result = result_type(4, ct.sizeof(result_type))
+    result = result_type(1, ct.sizeof(result_type))
     failure, error = abi._Failure(2, ct.sizeof(abi._Failure)), ct.create_string_buffer(4096)
     options = abi._Options(1, ct.sizeof(abi._Options), 0, 1, 0.)
     callbacks = abi._Callbacks(1, ct.sizeof(abi._Callbacks))
-    selected = {'input': source, 'values': source.values, 'case': source.values.input,
+    selected = {'input': source, 'case': source.input,
         'result': result, 'options': options, 'callbacks': callbacks, 'failure': failure}[record]
     setattr(selected, field, 99 if field == 'abi_version' else 1)
     before = bytes(result)
-    assert getattr(native, 'tpmshx_' + operation + '_3d_v4')(
+    assert getattr(native, _SYMBOLS[operation])(
         ct.byref(source), ct.byref(options), ct.byref(callbacks), ct.byref(result),
         ct.byref(failure), error, len(error)) != 0
     assert error.value and bytes(result) == before
@@ -634,7 +641,7 @@ def test_spatial_3d_grid_cap_precedes_local_geometry_and_offset(native, monkeypa
         config.geometry.delta_levelset = float('nan')
     operation, targets = _entry(config, entry)
     source = _input(config, targets)
-    source.values.input.max_cells = 119
+    source.input.max_cells = 119
     monkeypatch.setenv('TPMSHX_MAX_CELLS_3D', '119')
     error, kind = _failure(native, operation, config, targets, source=source)
     assert kind == 1 and error == '3D grid 6x5x4 exceeds the 119-cell cap'
@@ -648,9 +655,9 @@ def test_spatial_3d_rejects_invalid_raw_transport(native, operation, selection):
     if selection == 'missing-cells':
         source.cells = ct.POINTER(_Cell)()
     elif selection == 'uniform-cells':
-        source.values.input.geometry_mode = 0
+        source.input.geometry_mode = 0
     else:
-        source.values.input.geometry_mode = 1
+        source.input.geometry_mode = 1
     status, result, failure, error, events, _ = _call(native, operation, config,
         (.003, .03), source=source)
     assert status != 0 and not events
@@ -658,14 +665,14 @@ def test_spatial_3d_rejects_invalid_raw_transport(native, operation, selection):
         assert not error and not failure.kind
     else:
         assert error and failure.kind == 1
-    assert bytes(result) == bytes(type(result)(4, ct.sizeof(result)))
+    assert bytes(result) == bytes(type(result)(1, ct.sizeof(result)))
     _release(native, result)
 
 
 @pytest.mark.parametrize('operation,targets', native_preparation_abi._OWNED_FLOW_CASES)
 @pytest.mark.parametrize('destination', ['error', 'failure'])
 @pytest.mark.parametrize('spatial,invalid', [pytest.param(True, invalid, id='grid-' + invalid)
-    for invalid in ('none', 'source_abi', 'source_size', 'values_abi', 'values_size',
+    for invalid in ('none', 'source_abi', 'source_size',
                     'input_abi', 'input_size', 'result_abi', 'result_size')]
     + [pytest.param(False, 'none', id='uniform-none')])
 def test_spatial_3d_owned_views_reject_diagnostic_aliases(native, operation, targets, destination, spatial, invalid):
@@ -680,27 +687,24 @@ def test_spatial_3d_owned_views_reject_diagnostic_aliases(native, operation, tar
             config.zones.grid['cells'][0]['x1'] = -1.
     status, result, _, error, _, source = _call(native, operation, config, (.003, .03) if targets else None)
     assert status == 0, error
-    target = (source.values.input if invalid.startswith('input') else source.values
-        if invalid.startswith('values') else source if invalid.startswith('source') else result)
+    target = (source.input if invalid.startswith('input') else source if invalid.startswith('source') else result)
     if invalid != 'none':
         setattr(target, 'abi_version' if invalid.endswith('abi') else 'struct_size', 0)
-    before = bytes(source), bytes(source._cells), [bytes(buffer) for buffer in source._values._source._buffers]
+    before = bytes(source), bytes(source._cells), [bytes(buffer) for buffer in source._buffers]
     try:
         labels = _check_owned_aliases(lambda failure, error, capacity:
-            getattr(native, 'tpmshx_' + operation + '_3d_v4')(ct.byref(source), None, None,
+            getattr(native, _SYMBOLS[operation])(ct.byref(source), None, None,
                 ct.byref(result), ct.cast(failure, ct.POINTER(abi._Failure)), error, capacity), result, destination)
         assert ('result.cells' in labels) == spatial
         assert result.cell_count == (len(config.zones.grid['cells']) if spatial else 0)
         assert bool(result.cells) == spatial
         for name in ('parameter_version', 'source', 'applicability'):
             assert 'result.flow.input.sco2_nu.' + name in labels
-        assert not result.flow.owner
         if targets:
             assert any('.flow.evidence.ranges' in label for label in labels)
         else:
             assert result.flow.evidence.range_count == result.flow.evidence.warning_count == result.flow.evidence.event_count == 0
         if operation == 'prepare_flow_case':
-            assert not result.prepared.owner
             for name in ('prepared.permeability', 'side_b_porosity'):
                 assert 'result.' + name in labels
             for name in ('area_density_per_m', 'hydraulic_diameter_m', 'thermal_porosity'):
@@ -710,7 +714,7 @@ def test_spatial_3d_owned_views_reject_diagnostic_aliases(native, operation, tar
             address_a = ct.cast(result.prepared.side_porosity.data, ct.c_void_p).value
             address_b = ct.cast(result.side_b_porosity.data, ct.c_void_p).value
             assert (address_a == address_b) == (not spatial)
-        assert (bytes(source), bytes(source._cells), [bytes(buffer) for buffer in source._values._source._buffers]) == before
+        assert (bytes(source), bytes(source._cells), [bytes(buffer) for buffer in source._buffers]) == before
     finally:
         _release(native, result)
 
@@ -729,14 +733,14 @@ def test_spatial_3d_owned_output_keeps_safe_reuse_diagnostics(native, operation,
             config.zones.grid['cells'][0]['x1'] = -1.
     status, result, _, error, _, source = _call(native, operation, config, (.003, .03) if targets else None)
     assert status == 0, error
-    source_before = bytes(source), bytes(source._cells), [bytes(buffer) for buffer in source._values._source._buffers]
+    source_before = bytes(source), bytes(source._cells), [bytes(buffer) for buffer in source._buffers]
     try:
         outer = bytes(result)
         before = [(label, pointer, ct.string_at(pointer, size)) for label, pointer, size in _visible_buffers(result)]
         failure, error, events = abi._Failure(2, ct.sizeof(abi._Failure)), ct.create_string_buffer(4096), []
         event = abi._EventFunction(lambda context, pointer: events.append(1) or 0)
-        callbacks = abi._Callbacks(1, ct.sizeof(abi._Callbacks), event, None)
-        status = getattr(native, 'tpmshx_' + operation + '_3d_v4')(ct.byref(source), None,
+        callbacks = abi._Callbacks(1, ct.sizeof(abi._Callbacks), None, 0, event)
+        status = getattr(native, _SYMBOLS[operation])(ct.byref(source), None,
             ct.byref(callbacks), ct.byref(result), ct.byref(failure), error, len(error))
         assert status == 1 and failure.kind == 1
         assert error.value == b'release the previous prepared case before reusing its result'
@@ -744,7 +748,7 @@ def test_spatial_3d_owned_output_keeps_safe_reuse_diagnostics(native, operation,
         assert before
         for label, pointer, saved in before:
             assert ct.string_at(pointer, len(saved)) == saved, label
-        assert (bytes(source), bytes(source._cells), [bytes(buffer) for buffer in source._values._source._buffers]) == source_before
+        assert (bytes(source), bytes(source._cells), [bytes(buffer) for buffer in source._buffers]) == source_before
     finally:
         _release(native, result)
 
@@ -758,7 +762,7 @@ def test_spatial_3d_owned_spatial_views_reject_error_aliases(native, view):
                             source='saved source', applicability='saved range')
     status, result, _, error, _, source = _call(native, 'prepare_flow_case', config, (.003, .03))
     assert status == 0, error
-    source_before = bytes(source), bytes(source._cells), [bytes(buffer) for buffer in source._values._source._buffers]
+    source_before = bytes(source), bytes(source._cells), [bytes(buffer) for buffer in source._buffers]
     try:
         outer = bytes(result)
         before = [(label, pointer, ct.string_at(pointer, size)) for label, pointer, size in _visible_buffers(result)]
@@ -766,12 +770,12 @@ def test_spatial_3d_owned_spatial_views_reject_error_aliases(native, view):
         address += next(index for index, value in enumerate(saved) if value)
         failure = abi._Failure(2, ct.sizeof(abi._Failure))
         failure_before = bytes(failure)
-        status = native.tpmshx_prepare_flow_case_3d_v4(ct.byref(source), None, None,
+        status = native.tpmshx_preparation_3d_spatial_prepare_case_v1(ct.byref(source), None, None,
             ct.byref(result), ct.byref(failure), ct.cast(address, ct.POINTER(ct.c_char)), 1)
         assert status == 1 and bytes(result) == outer
         for label, pointer, saved in before:
             assert ct.string_at(pointer, len(saved)) == saved, label
         assert bytes(failure) == failure_before
-        assert (bytes(source), bytes(source._cells), [bytes(buffer) for buffer in source._values._source._buffers]) == source_before
+        assert (bytes(source), bytes(source._cells), [bytes(buffer) for buffer in source._buffers]) == source_before
     finally:
         _release(native, result)

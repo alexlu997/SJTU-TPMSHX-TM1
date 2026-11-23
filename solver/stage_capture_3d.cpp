@@ -331,7 +331,7 @@ public:
             executed.red_black=resolved.red_black_energy;
         } else executed.algorithm=true_h.energy_algorithm;
     }
-    void prepared_ranges(const tpmshx_stage_saved_case_3d_v1& saved) {
+    void prepared_ranges(const tpmshx_stage_saved_case_3d_v3& saved) {
         const auto& p=saved.preparation;
         fields::c_api::require_buffer(p.ranges,p.range_count);
         if(saved.range_captured)fields::c_api::require_buffer(saved.range_captured,p.range_count);
@@ -399,7 +399,7 @@ public:
         applicability.final_state=final_ranges.data();applicability.final_count=final_ranges.size();
         applicability.required=required.data();applicability.required_count=required.size();
     }
-    void scope_notes(const tpmshx_stage_saved_case_3d_v1& saved) {
+    void scope_notes(const tpmshx_stage_saved_case_3d_v3& saved) {
         fields::c_api::require_buffer(saved.notices,saved.notice_count);
         for(size_t i=0;i<saved.notice_count;++i)add_scope_notice(notices,text(saved.notices[i]));
         constexpr auto absent=std::numeric_limits<size_t>::max();
@@ -435,7 +435,7 @@ public:
             if(indices[i]!=absent)execution_view.execution.sco2_notices[i]=notice_views[indices[i]];
         applicability.scope_notes=notice_views.data();applicability.scope_note_count=notice_views.size();
     }
-    void populate(const tpmshx_stage_saved_case_3d_v1& saved) {
+    void populate(const tpmshx_stage_saved_case_3d_v3& saved) {
         fields::c_api::require_buffer(saved.input,1);const auto& input=*saved.input;
         if(raw.stop>1 || raw.thermal_mode>2)throw std::runtime_error("native full 3D returned an invalid completed state");
         if(raw.thermal_outer_index>static_cast<size_t>(std::numeric_limits<int>::max()))
@@ -540,7 +540,7 @@ public:
     }
 };
 
-Capture3D* capture_3d(const tpmshx_stage_saved_case_3d_v1& saved,tpmshx_full3d_result_v1& raw,
+Capture3D* capture_3d(const tpmshx_stage_saved_case_3d_v3& saved,tpmshx_full3d_result_v1& raw,
     const tpmshx_full3d_control_v1& resolved,const char* result_id) {
     auto owner=std::make_unique<Capture3D>();owner->raw=raw;raw={};owner->resolved=resolved;
     if(!result_id)throw std::invalid_argument("3D capture requires a result identifier");

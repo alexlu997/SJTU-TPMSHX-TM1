@@ -50,7 +50,7 @@ Formal nonzero asymmetric preparation keeps the original explicit Python-float c
 Its native arithmetic stays float64.
 
 The geometry library calculates grids, ports, axis maps and design fields.
-Independent preparation ABI 2 calculates properties, closures, DF, corrections, projection and preparation mathematics.
+Independent preparation ABI 3 calculates properties, closures, DF, corrections, projection and preparation mathematics.
 Independent result ABI 3 calculates metrics, physical balances, zone statistics and numerical checks.
 See [C++ scope and delivery records](cpp-migration.md#cpp-core-scope).
 
@@ -58,7 +58,7 @@ The preparation target is `preprocess/`. It reuses the geometry/grid core and th
 It links the locked CoolProp static library, without full solvers, run_state, SuperLU or AMG.
 `python/cpp_interface/stage_libraries.py` selects the preparation and result images independently. It loads each image on demand and checks its ABI. Concrete property, DF and flow adapters pack named inputs.
 Geometry ABI 2 and field ABI 3 keep their separate status contracts.
-Preparation ABI 2 uses status 1 for invalid inputs, 2 for allocation and 3 for runtime errors.
+Preparation ABI 3 uses status 1 for invalid inputs, 2 for allocation and 3 for runtime errors.
 Its state statuses are 10 for water, 11 for CO2 and 12 for sCO2.
 Calls borrow aligned buffers with explicit extents. Failure preserves numerical outputs. Contexts retain their creating library until release.
 

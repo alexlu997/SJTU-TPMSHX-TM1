@@ -10,19 +10,19 @@ from tests.python import native_preparation_abi as support
 
 # Each active entry, its source and result layouts, and their ABI versions.
 _ENTRIES = [
-    ('tpmshx_prepare_inlet_mass_capacities_2d_v7', abi._FlowInput, abi._Flow, 3, 3),
-    ('tpmshx_resolve_inlet_flow_2d_v7', abi._FlowInput, abi._Flow, 3, 3),
-    ('tpmshx_prepare_continuous_inlet_mass_capacities_2d_v7', abi._ContinuousInput, abi._ContinuousFlow, 4, 4),
-    ('tpmshx_resolve_continuous_inlet_flow_2d_v7', abi._ContinuousInput, abi._ContinuousFlow, 4, 4),
-    ('tpmshx_prepare_zoned_inlet_mass_capacities_2d_v10', abi._ZonedHostInput, abi._ZonedHostFlow, 9, 9),
-    ('tpmshx_resolve_zoned_inlet_flow_2d_v10', abi._ZonedHostInput, abi._ZonedHostFlow, 9, 9),
-    ('tpmshx_prepare_sigmoid_inlet_mass_capacities_2d_v10', abi._SigmoidHostInput, abi._SigmoidHostFlow, 9, 9),
-    ('tpmshx_resolve_sigmoid_inlet_flow_2d_v10', abi._SigmoidHostInput, abi._SigmoidHostFlow, 9, 9),
-    ('tpmshx_prepare_flow_case_2d_v10', abi._FlowInput, abi._OffsetFlowCase, 3, 10),
-    ('tpmshx_prepare_zoned_flow_case_2d_v10', abi._ZonedHostInput, abi._OffsetZonedCase, 9, 10),
-    ('tpmshx_prepare_sigmoid_flow_case_2d_v10', abi._SigmoidHostInput, abi._OffsetSigmoidCase, 9, 10),
-    ('tpmshx_prepare_continuous_flow_case_2d_v11', abi._ContinuousInput, abi._ContinuousGeometryCase, 4, 11),
-    ('tpmshx_prepare_stripe_flow_case_2d_v11', abi._ZonedHostInput, abi._StripeGeometryCase, 9, 11),
+    ('tpmshx_preparation_2d_uniform_capacities_v1', abi._UniformInput, abi._UniformFlow, 1, 1),
+    ('tpmshx_preparation_2d_uniform_resolve_flow_v1', abi._UniformInput, abi._UniformFlow, 1, 1),
+    ('tpmshx_preparation_2d_continuous_capacities_v1', abi._ContinuousInput, abi._ContinuousFlow, 1, 1),
+    ('tpmshx_preparation_2d_continuous_resolve_flow_v1', abi._ContinuousInput, abi._ContinuousFlow, 1, 1),
+    ('tpmshx_preparation_2d_zoned_capacities_v1', abi._ZonedInput, abi._ZonedFlow, 1, 1),
+    ('tpmshx_preparation_2d_zoned_resolve_flow_v1', abi._ZonedInput, abi._ZonedFlow, 1, 1),
+    ('tpmshx_preparation_2d_sigmoid_capacities_v1', abi._SigmoidInput, abi._SigmoidFlow, 1, 1),
+    ('tpmshx_preparation_2d_sigmoid_resolve_flow_v1', abi._SigmoidInput, abi._SigmoidFlow, 1, 1),
+    ('tpmshx_preparation_2d_uniform_prepare_case_v1', abi._UniformInput, abi._UniformCase, 1, 1),
+    ('tpmshx_preparation_2d_zoned_prepare_case_v1', abi._ZonedInput, abi._ZonedCase, 1, 1),
+    ('tpmshx_preparation_2d_sigmoid_prepare_case_v1', abi._SigmoidInput, abi._SigmoidCase, 1, 1),
+    ('tpmshx_preparation_2d_continuous_prepare_case_v1', abi._ContinuousInput, abi._ContinuousCase, 1, 1),
+    ('tpmshx_preparation_2d_stripe_prepare_case_v1', abi._ZonedInput, abi._StripeCase, 1, 1),
 ]
 
 
@@ -35,7 +35,8 @@ def _function(name):
 
 def test_entries_cover_production_bindings():
     bindings = preparation_host._bindings(preparation_library.path())
-    actual = sorted((key[1].__name__, operation.result_type.__name__) for key, operation in bindings.operations.items())
+    actual = sorted((operation.call.argtypes[0]._type_.__name__, operation.result_type.__name__)
+                    for operation in bindings.operations.values())
     assert actual == sorted((source.__name__, result.__name__) for _, source, result, _, _ in _ENTRIES)
 
 
@@ -78,18 +79,18 @@ def test_2d_top_level_aliases_preserve_all_buffers(signature, overlap):
 
 
 def _configuration(source_type):
-    if source_type is abi._FlowInput:
+    if source_type is abi._UniformInput:
         return support._configuration_mass_flow(pair=('air', 'air'))
     if source_type is abi._ContinuousInput:
         return support._configuration_continuous(pair=('air', 'air'))
-    return support._configuration_spatial('sigmoid' if source_type is abi._SigmoidHostInput else 'x')
+    return support._configuration_spatial('sigmoid' if source_type is abi._SigmoidInput else 'x')
 
 
 @pytest.mark.parametrize('signature', _ENTRIES, ids=[entry[0] for entry in _ENTRIES])
 @pytest.mark.parametrize('selection', ['version', 'size'])
 def test_2d_source_header_rejects_invalid_metadata(signature, selection):
     name, source_type, result_type, _, version = signature
-    operation = 'prepare_inlet_mass_capacities' if 'inlet_mass' in name else 'prepare_flow_case'
+    operation = 'prepare_inlet_mass_capacities' if 'capacities' in name else 'prepare_flow_case'
     source = native_preparation._input(_configuration(source_type), None, operation)
     assert type(source) is source_type
     if selection == 'version':

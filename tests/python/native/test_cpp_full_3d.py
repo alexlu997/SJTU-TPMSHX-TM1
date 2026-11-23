@@ -367,22 +367,22 @@ def test_native_call_borrows_case_arrays_and_recovers(native_path, monkeypatch, 
     if dimension == 2:
         driver = full_2d_stage.StageDriver(native_path, table_directory=table)
         monkeypatch.setattr(full_2d_stage, 'StageDriver', lambda *args, **kwargs: driver)
-        library, symbol = driver.library, 'tpmshx_run_saved_case_2d_v4'
+        library, symbol = driver.library, 'tpmshx_run_saved_case_2d_v5'
     else:
         runtime = full_3d_stage.open_library(native_path, table)
         monkeypatch.setattr(full_3d_stage, 'open_library', lambda *_: runtime)
-        library, symbol = runtime[1], 'tpmshx_run_saved_case_3d_v2'
+        library, symbol = runtime[1], 'tpmshx_run_saved_case_3d_v3'
     complete = getattr(library, symbol)
 
     def observe_saved(*args):
         if dimension == 2:
-            saved = args[0]._obj.values.values.values
-            data = saved.prepared.contents.values
+            saved = args[0]._obj
+            data = saved.prepared.contents
             check_buffers({'K_ffA_arr': saved.fluid_conductivity[0].data,
                            'K_ffB_arr': saved.fluid_conductivity[1].data,
                            'K_ss_arr': data.solid_conductivity.data, 'eps_arr': data.total_porosity.data})
         else:
-            data = args[0]._obj.values.input.contents
+            data = args[0]._obj.input.contents
             assert data.area_density.size == data.hydraulic_diameter.size == 1
             for axis, width in zip('xyz', data.widths):
                 assert ct.cast(width.data, ct.c_void_p).value == prepared.grid['d'+axis].ctypes.data

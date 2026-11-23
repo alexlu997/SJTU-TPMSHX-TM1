@@ -5,7 +5,7 @@
 int main() {
     try {
         tpmshx::stages::SpatialInput3D input;
-        auto& flow=input.values;auto& values=flow.input;
+        auto& values=input.input;
         values.lengths_m[0]=.182;values.lengths_m[1]=.042;values.lengths_m[2]=.031;
         values.counts[0]=6;values.counts[1]=5;values.counts[2]=4;
         values.topology=1;values.cell_length_mm=7.;values.wall_thickness_mm=.6;
@@ -20,14 +20,14 @@ int main() {
             {{.4,1.,.2,.8},7.5,.59}};
         input.cells=cells;input.cell_count=2;
         auto capacities=tpmshx::stages::prepare_inlet_mass_capacities(input);
-        flow.have_explicit_targets=1;
-        flow.explicit_targets_kg_s[0]=capacities.view().flow.capacities[0]*6.;
-        flow.explicit_targets_kg_s[1]=capacities.view().flow.capacities[1]*.02;
+        input.have_explicit_targets=1;
+        input.explicit_targets_kg_s[0]=capacities.view().flow.capacities[0]*6.;
+        input.explicit_targets_kg_s[1]=capacities.view().flow.capacities[1]*.02;
         auto resolved=tpmshx::stages::resolve_inlet_flow(input);
         tpmshx::stages::PreparationOptions options;options.allow_extrapolation=1;
         auto prepared=tpmshx::stages::prepare_case(input,options);
         const auto& state=prepared.view();
-        if (!state.flow.have_capacities || state.prepared.owner || state.flow.owner
+        if (!state.flow.have_capacities
             || state.cell_count!=2 || state.cells==cells || state.cells[0].cell_length_mm!=4.5
             || state.area_density_per_m.size!=120 || state.hydraulic_diameter_m.size!=120
             || state.thermal_porosity.size!=120 || state.side_b_porosity.size!=120

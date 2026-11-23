@@ -357,8 +357,9 @@ def test_unpacked_saved_settings_use_saved_v4(mode, monkeypatch):
         np.testing.assert_array_equal(actual.fields[name], values, err_msg=name)
 
 
-@pytest.mark.parametrize('missing', ['tpmshx_stage_run_2d_release_v1', 'tpmshx_stage_run_2d_get_capture_v1',
-    'tpmshx_run_saved_case_2d_v4', 'tpmshx_stage_run_2d_check_experiment_v4', 'tpmshx_stage_port_windows_fit_2d_v1'])
+@pytest.mark.parametrize('missing', ['tpmshx_stage_run_2d_abi_version', 'tpmshx_stage_run_2d_release_v1',
+    'tpmshx_stage_run_2d_get_capture_v1', 'tpmshx_run_saved_case_2d_v5',
+    'tpmshx_stage_run_2d_check_experiment_v4', 'tpmshx_stage_port_windows_fit_2d_v1'])
 def test_incomplete_stage_protocol_is_rejected(monkeypatch, missing):
     original = full_2d_stage.StageDriver
     _, case = _case()

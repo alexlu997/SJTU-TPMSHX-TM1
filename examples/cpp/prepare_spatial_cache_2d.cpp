@@ -52,79 +52,84 @@ tpmshx_preparation_zone_region_v5 region(double lower,double upper,double cell) 
     value.bounds[2]=0.;value.bounds[3]=1.;
     value.cell_length_mm=cell;value.wall_thickness_mm=.4;return value;
 }
-void prepared(const tpmshx_preparation_zoned_case_2d_v5& state,
-    const tpmshx_preparation_flow_2d_v3& flow,const tpmshx_preparation_array_v1& pore) {
-    check(!state.owner && !state.prepared.values.owner && !flow.owner);
-    check(pore.size==state.cell_count && state.cell_count==state.prepared.values.nx*state.prepared.values.ny);
+template<class CaseView> void check_prepared(const CaseView& state) {
+    check(state.owner!=nullptr);
+    check(state.design_pore_porosity.size==state.cell_count && state.cell_count==state.prepared.nx*state.prepared.ny);
     for (std::size_t i=0;i<state.cell_count;++i) {
-        check(pore.data[i]>0. && pore.data[i]<.5);
+        check(state.design_pore_porosity.data[i]>0. && state.design_pore_porosity.data[i]<.5);
         check(std::isfinite(state.volumetric_transfer[0].data[i]) && state.volumetric_transfer[0].data[i]>0.);
     }
-    check(std::abs(flow.speeds[0]-8.)<1e-12 && std::abs(flow.speeds[1]-6.)<1e-12);
+    check(std::abs(state.flow.speeds[0]-8.)<1e-12 && std::abs(state.flow.speeds[1]-6.)<1e-12);
 }
 }
 int main() {
     try {
         using namespace tpmshx::stages;
         Cache cache;
-        tpmshx_preparation_case_callbacks_v9 callbacks{};
-        callbacks.values.values.values.abi_version=9;
-        callbacks.values.values.values.struct_size=sizeof(callbacks);
-        callbacks.values.values.values.context=&cache;
+        PreparationCallbacks callbacks;
+        callbacks.context=&cache;
         callbacks.geometry_cache_at=geometry;callbacks.inlet_cache_at=inlet;callbacks.sigmoid_lut_cache=lut;
-        // The entries read the complete v9 descriptor through its versioned first member.
-        const auto* hooks=&callbacks.values.values.values;
         PreparationOptions options;options.allow_extrapolation=1;
         std::array<double,2> zone_targets{},sigmoid_targets{};
         auto zones=[&] {
-            ZonedFlowInput2Dv9 input;configure(input.values.values.values.values);
-            input.model.solid_conductivity_W_mK=input.values.values.values.values.solid_conductivity_W_mK;
+            ZonedFlowInput2D input;configure(input.input);
+            input.model.solid_conductivity_W_mK=input.input.solid_conductivity_W_mK;
             std::array<tpmshx_preparation_zone_region_v5,2> regions{{region(0.,.4,7.),region(.4,1.,6.)}};
-            input.values.values.regions=regions.data();input.values.values.region_count=regions.size();
-            auto capacity=prepare_inlet_mass_capacities(input,options,hooks);
-            check(capacity.view().owner && !capacity.view().values.owner);
-            input.values.values=capacity.view().values.input;input.values.have_explicit_targets=1;
+            input.regions=regions.data();input.region_count=regions.size();
+            auto capacity=prepare_inlet_mass_capacities(input,options,&callbacks);
+            check(capacity.view().owner!=nullptr);
+            input.input=capacity.view().flow.input;
+            input.regions=capacity.view().regions;input.region_count=capacity.view().region_count;
+            input.have_explicit_targets=1;
             for (std::size_t i=0;i<2;++i)
-                input.values.explicit_targets_kg_s[i]=zone_targets[i]=capacity.view().values.flow.capacities[i]*(i?6.:8.);
-            return resolve_inlet_flow(input,options,hooks);
+                input.explicit_targets_kg_s[i]=zone_targets[i]=capacity.view().flow.capacities[i]*(i?6.:8.);
+            return resolve_inlet_flow(input,options,&callbacks);
         }();
-        ZonedFlowInput2Dv9 zone_input;zone_input.values.values=zones.view().values.input;
-        zone_input.model=zones.view().model;zone_input.values.have_explicit_targets=1;
-        std::copy(zone_targets.begin(),zone_targets.end(),zone_input.values.explicit_targets_kg_s);
-        auto zone_result=prepare_case(zone_input,options,hooks);
-        check(zone_result.view().owner && !zone_result.view().values.owner);
-        prepared(zone_result.view().values.values.prepared,zone_result.view().values.values.flow.flow,
-            zone_result.view().values.design_pore_porosity);
+        ZonedFlowInput2D zone_input;
+        zone_input.input=zones.view().flow.input;
+        zone_input.kind=zones.view().kind;zone_input.axis=zones.view().axis;
+        zone_input.regions=zones.view().regions;zone_input.region_count=zones.view().region_count;
+        zone_input.model=zones.view().model;zone_input.have_explicit_targets=1;
+        std::copy(zone_targets.begin(),zone_targets.end(),zone_input.explicit_targets_kg_s);
+        auto zone_result=prepare_case(zone_input,options,&callbacks);
+        check_prepared(zone_result.view());
         check(cache.nominal && cache.spatial && cache.geometry_reads && cache.geometry_writes);
         check(cache.inlet_reads && cache.inlet_writes);
 
         auto sigmoid=[&] {
-            SigmoidFlowInput2Dv9 input;configure(input.values.values.values.values.values);
-            input.model.solid_conductivity_W_mK=input.values.values.values.values.values.solid_conductivity_W_mK;
+            SigmoidFlowInput2D input;configure(input.input);
+            input.model.solid_conductivity_W_mK=input.input.solid_conductivity_W_mK;
             input.model.load_default_lut=1;
             auto bounds=region(0.,1.,7.);
-            input.values.values.values.regions=&bounds;input.values.values.values.region_count=1;
+            input.regions=&bounds;input.region_count=1;
             std::array<double,36> controls{};
             for (std::size_t i=0;i<18;++i) {controls[2*i]=7.;controls[2*i+1]=.4;}
-            input.values.values.controls.decision_mm={controls.data(),controls.size()};
-            auto table=build_sigmoid_lut(1,2,2,16);cache.lut=table.view().values;
-            auto capacity=prepare_inlet_mass_capacities(input,options,hooks);
-            input.values.values=capacity.view().values.input;input.values.have_explicit_targets=1;
+            input.controls.decision_mm={controls.data(),controls.size()};
+            auto table=build_sigmoid_lut(1,2,2,16);
+            cache.lut={table.view().cell_mm,table.view().wall_mm,table.view().porosity,
+                table.view().area_density_per_m,table.view().porosity_fast,table.view().area_fast};
+            auto capacity=prepare_inlet_mass_capacities(input,options,&callbacks);
+            input.input=capacity.view().flow.input;
+            input.regions=capacity.view().regions;input.region_count=capacity.view().region_count;
+            input.controls=capacity.view().controls;input.lut=capacity.view().lut;
+            input.have_explicit_targets=1;
             for (std::size_t i=0;i<2;++i)
-                input.values.explicit_targets_kg_s[i]=sigmoid_targets[i]=capacity.view().values.flow.capacities[i]*(i?6.:8.);
-            return resolve_inlet_flow(input,options,hooks);
+                input.explicit_targets_kg_s[i]=sigmoid_targets[i]=capacity.view().flow.capacities[i]*(i?6.:8.);
+            return resolve_inlet_flow(input,options,&callbacks);
         }();
         cache.lut={};
-        check(cache.lut_reads==2 && sigmoid.view().values.input.lut.porosity.size==4);
-        SigmoidFlowInput2Dv9 sigmoid_input;sigmoid_input.values.values=sigmoid.view().values.input;
+        check(cache.lut_reads==2 && sigmoid.view().lut.porosity.size==4);
+        SigmoidFlowInput2D sigmoid_input;
+        sigmoid_input.input=sigmoid.view().flow.input;
+        sigmoid_input.kind=sigmoid.view().kind;sigmoid_input.axis=sigmoid.view().axis;
+        sigmoid_input.regions=sigmoid.view().regions;sigmoid_input.region_count=sigmoid.view().region_count;
+        sigmoid_input.controls=sigmoid.view().controls;sigmoid_input.lut=sigmoid.view().lut;
         sigmoid_input.model=sigmoid.view().model;sigmoid_input.model.load_default_lut=0;
-        sigmoid_input.values.have_explicit_targets=1;
-        std::copy(sigmoid_targets.begin(),sigmoid_targets.end(),sigmoid_input.values.explicit_targets_kg_s);
-        auto sigmoid_result=prepare_case(sigmoid_input,options,hooks);
-        check(sigmoid_result.view().owner && !sigmoid_result.view().values.owner);
-        prepared(sigmoid_result.view().values.values.prepared.values,sigmoid_result.view().values.values.flow.flow,
-            sigmoid_result.view().values.design_pore_porosity);
-        std::cout<<"Prepared v10 spatial cases with "<<cache.geometry_reads<<" geometry reads, "
+        sigmoid_input.have_explicit_targets=1;
+        std::copy(sigmoid_targets.begin(),sigmoid_targets.end(),sigmoid_input.explicit_targets_kg_s);
+        auto sigmoid_result=prepare_case(sigmoid_input,options,&callbacks);
+        check_prepared(sigmoid_result.view());
+        std::cout<<"Prepared flat spatial cases with "<<cache.geometry_reads<<" geometry reads, "
                  <<cache.inlet_reads<<" inlet reads and "<<cache.lut_reads<<" LUT reads\n";
         return 0;
     } catch (const std::exception& error) {std::cerr<<error.what()<<'\n';return 1;}
