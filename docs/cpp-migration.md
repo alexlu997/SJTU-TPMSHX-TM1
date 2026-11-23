@@ -573,18 +573,19 @@ The declared temperature update tolerance must also pass.
 The native result records actual whole-block Picard relaxation 0.6.
 It is separate from the fluid and solid row relaxation factors.
 
-`tpmshx_solve_full_2d_v3` and `tpmshx_solve_full_3d_v2` accept the shared
+`tpmshx_solve_full_2d_v6` and `tpmshx_solve_full_3d_v5` accept the shared
 `tpmshx_energy_options_v1`. They keep the previous result PODs and their release
 functions. The corresponding `get_energy_evidence_v1` query borrows the same
 owner and performs no solve. It exposes actual algorithm/temperature update,
 final epsilon-times-HEOS conductivity, six outward signed enthalpy-power
-planes and per-outer-step scalar identity. The previous entry points remain available and use the new T-SOU default.
+planes and per-outer-step scalar identity. A null energy recipe uses the T-SOU default.
+The earlier 2D v2 to v5 and 3D v1 to v4 entries were removed on 2026-11-23.
 Current libraries reject explicit retired algorithm IDs before flow. Old
 checkpoints require their matching archived runtime and original controls.
 
-Explicit controls use `tpmshx_solve_full_2d_v4` or `tpmshx_solve_full_3d_v3`.
+Explicit controls use the control arguments of `tpmshx_solve_full_2d_v6` or `tpmshx_solve_full_3d_v5`.
 They accept the same persisted EOS iteration, sweep, relaxation and convergence settings.
-The 2D v4 control block also contains `tpmshx_energy_options_v2`.
+The 2D control block also contains `tpmshx_energy_options_v2`.
 It replaces the two thermal-control values in `config_v2`; other values retain their meaning.
 The existing effective-settings query records the controls used by each thermal call.
 Integral model-h routes reject these EOS overrides before flow execution.

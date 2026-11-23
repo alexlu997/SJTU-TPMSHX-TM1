@@ -1,4 +1,4 @@
-"""Map raw 2D driver fields for standalone and archived runtimes."""
+"""Map raw 2D direct-driver fields for the native solver verification tests."""
 from functools import partial
 
 import numpy as np

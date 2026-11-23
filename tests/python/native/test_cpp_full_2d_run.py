@@ -16,13 +16,14 @@ from sjtu_tpmshx.file_io.solver_checkpoint_io import (
     save_solver_checkpoint, load_solver_checkpoint, load_checkpoint_case)
 from sjtu_tpmshx.postprocess.api import evaluate
 from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.cpp_interface.solver_library.full_2d import run_case
+from sjtu_tpmshx.cpp_interface.full_2d_stage import run_case
 from sjtu_tpmshx.solvers.api import run_case as run_public_case
 from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
 from tests.python.native import test_cpp_full_2d as public
 from tests.python.native import test_cpp_full_3d as spatial
 from tests.python.native.test_cpp_full_3d import _exact_resume_values
 from tests.python.native.test_full_2d import configuration
+from tests.python.native.shared_library import library_path
 
 driver = public.driver
 native_path = spatial.native_path
@@ -44,7 +45,8 @@ def case(route):
 
 
 def control(driver):
-    return RunControl(backend='cpp', native_library=str(driver.path),
+    # The public saved stage needs the solver library; the standalone full 2D library has only the direct entry.
+    return RunControl(backend='cpp', native_library=str(library_path()),
                       native_table_directory=driver.table_directory.decode())
 
 
@@ -194,7 +196,7 @@ def test_full_2d_checkpoint_continues_after_process_exit(native_path, tmp_path, 
 
 def test_checkpoint_rejects_other_dimension_in_the_same_library(native_path):
     from sjtu_tpmshx.cpp_interface.solver_library.full_2d import NativeFull2DDriver
-    from sjtu_tpmshx.cpp_interface.solver_library.full_3d import run_case as run_spatial
+    from sjtu_tpmshx.cpp_interface.full_3d_stage import run_case as run_spatial
     planar_driver = NativeFull2DDriver(native_path, table_directory=ROOT/'.cache/native-deps/tables')
     cfg, prepared = build_execution_inputs(case('model_h'))
     planar_state, spatial_state = {}, {}
@@ -407,7 +409,7 @@ from sjtu_tpmshx.data_types.solver_checkpoint import SolverCheckpoint
 from sjtu_tpmshx.file_io.case_io import load_case
 from sjtu_tpmshx.file_io.result_io import save_result
 from sjtu_tpmshx.file_io.solver_checkpoint_io import load_solver_checkpoint, save_solver_checkpoint, load_checkpoint_case
-from sjtu_tpmshx.cpp_interface.solver_library.full_2d import run_case
+from sjtu_tpmshx.cpp_interface.full_2d_stage import run_case
 from tests.python.native.test_cpp_full_2d_run import inner_position
 mode, target, case_path, saved_path, result_path, library, tables = sys.argv[1:]
 control = RunControl(backend='cpp', native_library=library, native_table_directory=tables)
@@ -434,7 +436,7 @@ def test_inner_checkpoint_continues_after_process_exit(driver, tmp_path, phase, 
     prepared = inner_case(route)
     case_path = save_case(prepared, tmp_path/'case.h5')
     saved_path, result_path = tmp_path/'checkpoint.h5', tmp_path/'result.h5'
-    arguments = [str(phase), str(case_path), str(saved_path), str(result_path), str(driver.path), driver.table_directory.decode()]
+    arguments = [str(phase), str(case_path), str(saved_path), str(result_path), str(library_path()), driver.table_directory.decode()]
     stopped = subprocess.run([sys.executable, '-c', INNER_CHILD, 'interrupt', *arguments],
                              cwd=ROOT, capture_output=True, text=True, timeout=120)
     assert stopped.returncode == 23, stopped.stderr

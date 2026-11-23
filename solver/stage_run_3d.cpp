@@ -98,79 +98,23 @@ void saved_storage(const Storage& storage,const tpmshx_stage_saved_case_3d_v1* s
     }
 }
 struct Prepared {
-    const tpmshx_preparation_case_3d_v1* uniform=nullptr;
-    const tpmshx_preparation_continuous_case_3d_v3* continuous=nullptr;
-    const tpmshx_preparation_spatial_case_3d_v4* spatial=nullptr;
     const tpmshx_stage_saved_case_3d_v1* saved=nullptr;
     const tpmshx_stage_saved_case_3d_v2* saved_v2=nullptr;
 };
-const tpmshx_preparation_case_3d_v1* prepared_storage(const Storage& storage,const Prepared& source) {
-    if(bool(source.uniform)+bool(source.continuous)+bool(source.spatial)+bool(source.saved)!=1)
-        throw std::invalid_argument("3D stage requires exactly one prepared view");
-    if(source.saved_v2) {
-        storage(source.saved_v2,1);
-        if(source.saved_v2->abi_version!=2 || source.saved_v2->struct_size!=sizeof(*source.saved_v2))
-            throw std::invalid_argument("invalid saved 3D v2 descriptor");
-        const auto& saved=*source.saved_v2;
-        for(const auto& ref:saved.models){storage.text(ref.name);storage.text(ref.version);}
-        for(const auto fluid:saved.resource_fluids)storage.text(fluid);
-        storage.text(saved.resource_topology);
-        for(const auto* nu:{&saved.sco2_nu,&saved.resource_nu[0],&saved.resource_nu[1]}) {
-            storage.text(nu->parameter_version);storage.text(nu->source);storage.text(nu->applicability);
-        }
-        for(const auto& side:saved.axes)
-            for(const auto width:side.widths)storage(width.data,width.size);
+void prepared_storage(const Storage& storage,const Prepared& source) {
+    storage(source.saved_v2,1);
+    if(source.saved_v2->abi_version!=2 || source.saved_v2->struct_size!=sizeof(*source.saved_v2))
+        throw std::invalid_argument("invalid saved 3D v2 descriptor");
+    const auto& saved=*source.saved_v2;
+    for(const auto& ref:saved.models){storage.text(ref.name);storage.text(ref.version);}
+    for(const auto fluid:saved.resource_fluids)storage.text(fluid);
+    storage.text(saved.resource_topology);
+    for(const auto* nu:{&saved.sco2_nu,&saved.resource_nu[0],&saved.resource_nu[1]}) {
+        storage.text(nu->parameter_version);storage.text(nu->source);storage.text(nu->applicability);
     }
-    if(source.saved) {saved_storage(storage,source.saved);return nullptr;}
-    const auto* prepared=source.uniform;
-    if(source.continuous) {
-        storage(source.continuous,1);
-        const auto& p=*source.continuous;
-        if(p.abi_version!=TPMSHX_PREPARATION_CONTINUOUS_3D_ABI_VERSION || p.struct_size!=sizeof(p))
-            throw std::invalid_argument("continuous 3D stage ABI version or struct size is invalid");
-        prepared=&p.prepared;
-        storage(p.controls.decision_mm.data,p.controls.decision_mm.size);
-        for(const auto value:{p.area_density_per_m,p.hydraulic_diameter_m,p.thermal_porosity})storage(value.data,value.size);
-        evidence_storage(storage,p.flow.evidence);
-    }
-    if(source.spatial) {
-        storage(source.spatial,1);
-        const auto& p=*source.spatial;
-        if(p.abi_version!=TPMSHX_PREPARATION_SPATIAL_3D_ABI_VERSION || p.struct_size!=sizeof(p))
-            throw std::invalid_argument("spatial 3D stage ABI version or struct size is invalid");
-        prepared=&p.prepared;storage(p.cells,p.cell_count);
-        for(const auto value:{p.side_b_porosity,p.area_density_per_m,p.hydraulic_diameter_m,p.thermal_porosity})
-            storage(value.data,value.size);
-        evidence_storage(storage,p.flow.evidence);
-    }
-    storage(prepared,1);
-    if(prepared->abi_version!=TPMSHX_PREPARATION_CASE_3D_ABI_VERSION || prepared->struct_size!=sizeof(*prepared))
-        throw std::invalid_argument("prepared 3D stage ABI version or struct size is invalid");
-    for(const auto value:prepared->widths)storage(value.data,value.size);
-    for(const auto value:prepared->edges)storage(value.data,value.size);
-    for(const auto value:{prepared->cell_length,prepared->wall_thickness,prepared->total_porosity,
-            prepared->side_porosity,prepared->permeability,prepared->forchheimer,prepared->solid_conductivity})
-        storage(value.data,value.size);
-    for(const auto& side:prepared->sides) {
-        for(const auto value:{side.inlet_opening,side.outlet_opening})storage(value.data,value.size);
-        storage.text(side.drag_evidence.campaign);storage.text(side.drag_evidence.scope);
-        storage.text(side.drag_selection.application_scope);storage.text(side.drag_selection.fluid);
-        storage(side.drag_selection.calibration,side.drag_selection.calibration_count);
-        for(size_t i=0;i<side.drag_selection.calibration_count;++i) {
-            storage.text(side.drag_selection.calibration[i].key);storage.text(side.drag_selection.calibration[i].value);
-        }
-    }
-    for(const auto& model:prepared->models) {
-        storage.text(model.name);storage.text(model.version);storage.text(model.side);
-    }
-    const auto& nu=prepared->input.sco2_nu;
-    for(const auto text:{nu.parameter_version,nu.source,nu.applicability,
-            prepared->sco2_nu_model_version,prepared->sco2_nu_interpretation})storage.text(text);
-    const auto& co2=prepared->co2;
-    for(const auto text:{co2.version,co2.application_version,co2.pressure_model,
-            co2.correction_source,co2.property_model,co2.common_geometry})storage.text(text);
-    evidence_storage(storage,prepared->evidence);notices_storage(storage,prepared->notices,prepared->notice_count);
-    return prepared;
+    for(const auto& side:saved.axes)
+        for(const auto width:side.widths)storage(width.data,width.size);
+    saved_storage(storage,source.saved);
 }
 void state_storage(const Storage& storage,const tpmshx_run_state_field_v1* fields,size_t count) {
     storage(fields,count);
@@ -181,12 +125,12 @@ void state_storage(const Storage& storage,const tpmshx_run_state_field_v1* field
             boundary::product(field.count,field.type<=TPMSHX_RUN_STATE_I64?8:1));
     }
 }
-const tpmshx_preparation_case_3d_v1* preflight(const Prepared& source,
+void preflight(const Prepared& source,
     const tpmshx_stage_run_request_3d_v1* request,const tpmshx_stage_run_control_3d_v1* control,
     const Storage& storage,const tpmshx_run_state_field_v1* fields=nullptr,size_t count=0) {
     if(overlaps(storage.output,storage.output_size,storage.error,storage.capacity))
         throw std::invalid_argument("3D stage error storage overlaps output");
-    const auto* prepared=prepared_storage(storage,source);
+    prepared_storage(storage,source);
     storage(control,1);storage.text(control->result_id);storage.text(control->table_directory);
     if(request) {
         storage(request,1);
@@ -195,12 +139,9 @@ const tpmshx_preparation_case_3d_v1* preflight(const Prepared& source,
         storage.text(request->convergence_mode);
         if(request->energy)storage(request->energy,1);
     }
-    state_storage(storage,fields,count);return prepared;
+    state_storage(storage,fields,count);
 }
 tpmshx_full3d_array_v1 view(tpmshx_preparation_array_v1 array) {return {array.data,array.size};}
-void extent(tpmshx_preparation_array_v1 array,size_t count) {
-    if(array.size!=count)throw std::invalid_argument("prepared 3D stage array has the wrong extent");
-}
 grid::Port port(const tpmshx_grid_port_v1& source) {
     flag(source.active);grid::Port result{source.direction,source.active!=0,{}};
     for(size_t end=0;end<2;++end) {
@@ -214,11 +155,6 @@ grid::Port port(const tpmshx_grid_port_v1& source) {
         }
     }
     return result;
-}
-grid::Scalar restored_mm(double value,const tpmshx_preparation_scalar_kind_v2& kind) {
-    if(kind.layout>2)throw std::invalid_argument("prepared 3D scalar layout is invalid");
-    const auto stored=grid::multiply({value,kind.precision,kind.strong},grid::weak(1e-3));
-    return grid::multiply(stored,grid::weak(1e3));
 }
 void validate_saved_3d(const tpmshx_stage_saved_case_3d_v2& saved,tpmshx_full3d_input_v1& input) {
     const auto& values=saved.values;
@@ -313,76 +249,9 @@ void validate_saved_3d(const tpmshx_stage_saved_case_3d_v2& saved,tpmshx_full3d_
 struct Packed3D {
     tpmshx_full3d_input_v1 input{};
     tpmshx_stage_saved_case_3d_v1 saved{};
-    bool refined=false;
-    Packed3D(const Prepared& source,const tpmshx_preparation_case_3d_v1* prepared) {
-        if(source.saved) {
-            saved=*source.saved;input=*saved.input;saved.input=&input;
-            if(source.saved_v2)validate_saved_3d(*source.saved_v2,input);
-            return;
-        }
-        const auto& p=*prepared;
-        if(p.input.topology>1)throw std::invalid_argument("invalid prepared 3D topology");
-        const bool continuous=source.continuous!=nullptr,spatial=p.input.geometry_mode!=0;
-        if((continuous && p.input.geometry_mode!=1)
-            || (source.spatial && p.input.geometry_mode!=0 && p.input.geometry_mode!=2)
-            || (!continuous && !source.spatial && (spatial || p.input.delta_levelset!=0.)))
-            throw std::invalid_argument("3D stage preparation kind disagrees with its geometry");
-        size_t cells=1;
-        for(size_t axis=0;axis<3;++axis) {
-            input.shape[axis]=p.widths[axis].size;input.widths[axis]=view(p.widths[axis]);
-            cells=boundary::product(cells,input.shape[axis]);
-        }
-        if(!cells)throw std::invalid_argument("3D stage requires nonempty physical axes");
-        for(const auto value:{p.total_porosity,p.side_porosity,p.permeability,p.forchheimer,
-                p.solid_conductivity,p.cell_length,p.wall_thickness})extent(value,cells);
-        input.epsilon=view(p.total_porosity);input.epsilon_a=view(p.side_porosity);
-        input.epsilon_b=view(source.spatial?source.spatial->side_b_porosity:p.side_porosity);
-        input.permeability=view(p.permeability);input.forchheimer=view(p.forchheimer);
-        input.solid_conductivity=view(p.solid_conductivity);input.cell_length=view(p.cell_length);
-        if(spatial) {
-            const auto area=continuous?source.continuous->area_density_per_m:source.spatial->area_density_per_m;
-            const auto diameter=continuous?source.continuous->hydraulic_diameter_m:source.spatial->hydraulic_diameter_m;
-            extent(area,cells);extent(diameter,cells);input.area_density=view(area);input.hydraulic_diameter=view(diameter);
-        } else {
-            input.area_density={&p.geometry.area_density_per_m,1};
-            input.hydraulic_diameter={&p.geometry.hydraulic_diameter_m,1};
-        }
-        const auto cell=restored_mm(p.input.cell_length_mm,p.input.kinds.cell_length);
-        const auto wall=restored_mm(p.input.wall_thickness_mm,p.input.kinds.wall_thickness);
-        input.reference_cell_length=grid::multiply(cell,grid::weak(1e-3)).value;
-        input.reference_hydraulic_diameter=p.geometry.hydraulic_diameter_m;
-        input.topology=p.input.topology;input.spatial=spatial?1:0;input.asymmetric=p.input.delta_levelset!=0.;input.solve_b=1;
-        flag(p.input.port_wall_refine);refined=p.input.port_wall_refine!=0;
-        if(source.spatial)flag(source.spatial->have_side_geometry);
-        if(input.asymmetric && (!source.spatial || !source.spatial->have_side_geometry))
-            throw std::invalid_argument("asymmetric 3D stage requires prepared side thermal geometry");
-        for(size_t side=0;side<2;++side) {
-            const auto& s=p.sides[side];const auto& inlet=p.input.sides[side];auto& target=input.sides[side];
-            target.fluid=inlet.fluid;target.direction=static_cast<uint32_t>(inlet.port.direction);
-            if(inlet.port.direction<0 || inlet.port.direction>5)
-                throw std::invalid_argument("invalid prepared 3D direction");
-            for(size_t axis=0;axis<3;++axis) {
-                if(s.axes[axis]<0 || s.axes[axis]>2)throw std::invalid_argument("invalid prepared 3D axis");
-                target.solver_axes[axis]=static_cast<uint32_t>(s.axes[axis]);
-            }
-            target.inlet_temperature=inlet.temperature_K;target.inlet_pressure=inlet.pressure_Pa;
-            target.inlet_velocity=inlet.velocity_m_s;
-            double depth=0.;const auto widths=p.widths[static_cast<size_t>(s.axes[2])];
-            for(size_t i=0;i<widths.size;++i)depth+=widths.data[i];
-            const auto rectangles=grid::rectangles(port(inlet.port),grid::weak(depth));
-            for(size_t i=0;i<4;++i) {
-                target.inlet_rectangle[i]=rectangles[i].value;target.outlet_rectangle[i]=rectangles[i+4].value;
-                target.heat_transfer_geometry[i]=input.asymmetric?source.spatial->side_geometry[side][i]:1.;
-            }
-            target.inlet_opening=view(s.inlet_opening);target.outlet_opening=view(s.outlet_opening);
-            flag(s.have_drag_application);
-            target.permeability_scale=s.have_drag_application?s.drag_evidence.scale_permeability:1.;
-            target.forchheimer_scale=s.have_drag_application?s.drag_evidence.scale_forchheimer:1.;
-            if(p.input.sco2_nu.mode>1)throw std::invalid_argument("invalid prepared 3D Nu mode");
-            target.sco2_nusselt_multiplier=p.input.sco2_nu.mode?p.input.sco2_nu.alpha[input.topology]:1.;
-        }
-        saved={TPMSHX_STAGE_RUN_3D_ABI_VERSION,sizeof(saved),&input,cell.value,wall.value,p.geometry.epsilon,
-            p.wall_thickness,p.evidence,p.notices,p.notice_count,1,nullptr};
+    explicit Packed3D(const Prepared& source) {
+        saved=*source.saved;input=*saved.input;saved.input=&input;
+        validate_saved_3d(*source.saved_v2,input);
     }
 };
 struct Controls3D {
@@ -392,7 +261,7 @@ struct Controls3D {
     tpmshx_model_h_iteration_options_v1 model_h{};
     const tpmshx_model_h_iteration_options_v1* model_h_pointer=nullptr;
     Controls3D(const tpmshx_stage_run_request_3d_v1* request,const tpmshx_stage_run_control_3d_v1& host,
-        const tpmshx_full3d_input_v1& input,bool refined) {
+        const tpmshx_full3d_input_v1& input) {
         const tpmshx_stage_run_request_3d_v1 empty{};const auto& r=request?*request:empty;
         const auto selected=r.energy ? *r.energy : tpmshx::default_stage_energy_options();
         tpmshx_energy_effective_settings_v1 defaults{};
@@ -418,7 +287,7 @@ struct Controls3D {
         c.outer_temperature_tolerance=number(r.outer_tol_K,.5);c.thermal_relaxation=number(r.thermal_relaxation,.7);
         c.pressure_shooting=choice(r.pressure_shooting,1);c.variable_rho_cp=choice(r.variable_rho_cp,1);
         c.conservative=choice(r.conservative,1);c.strict_mass_balance=choice(r.strict_mass_balance,1);
-        c.force_cell_centered=choice(r.force_cell_centered,1);c.refined_port_energy=choice(r.refined_port_energy,refined?1:0);
+        c.force_cell_centered=choice(r.force_cell_centered,1);c.refined_port_energy=choice(r.refined_port_energy,0);
         const auto cells=boundary::product(boundary::product(input.shape[0],input.shape[1]),input.shape[2]);
         const bool true_h=input.solve_b && (input.sides[0].fluid>=2 || input.sides[1].fluid>=2);
         c.red_black_energy=cells>30000 && !(selected.algorithm && true_h);
@@ -479,11 +348,11 @@ int create(const Prepared& source,const tpmshx_stage_run_request_3d_v1* request,
     bool restore,void** output,char* error,size_t capacity) {
     return guarded(error,capacity,[&](bool& report_safe) {
         boundary::require_buffer(output,1);
-        const auto* prepared=preflight(source,request,control,{output,sizeof(*output),error,capacity},fields,count);
+        preflight(source,request,control,{output,sizeof(*output),error,capacity},fields,count);
         report_safe=true;
         if(*output)throw std::invalid_argument("3D stage run output handle must be null");
-        auto packed=std::make_unique<Packed3D>(source,prepared);
-        Controls3D controls(request,*control,packed->input,packed->refined);
+        auto packed=std::make_unique<Packed3D>(source);
+        Controls3D controls(request,*control,packed->input);
         auto owner=std::make_unique<StageRun3D>(source,std::move(packed),controls.values,control->result_id);
         const auto status=restore?tpmshx_full_3d_run_restore_v3(&owner->packed->input,&owner->resolved,
             controls.energy_pointer,controls.model_h_pointer,control->cpu_threads,&control->callbacks,fields,count,
@@ -515,37 +384,15 @@ int run_complete(const Prepared& source,const tpmshx_stage_run_request_3d_v1* re
 }
 }
 extern "C" {
-int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_create_v1(const tpmshx_preparation_case_3d_v1* uniform,
-    const tpmshx_preparation_continuous_case_3d_v3* continuous,const tpmshx_preparation_spatial_case_3d_v4* spatial,
-    const tpmshx_stage_run_request_3d_v1* request,const tpmshx_stage_run_control_3d_v1* control,
-    void** output,char* error,size_t capacity) {
-    return create({uniform,continuous,spatial,nullptr},request,control,nullptr,0,false,output,error,capacity);
-}
-int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_restore_v1(const tpmshx_preparation_case_3d_v1* uniform,
-    const tpmshx_preparation_continuous_case_3d_v3* continuous,const tpmshx_preparation_spatial_case_3d_v4* spatial,
-    const tpmshx_stage_run_request_3d_v1* request,const tpmshx_stage_run_control_3d_v1* control,
-    const tpmshx_run_state_field_v1* fields,size_t count,void** output,char* error,size_t capacity) {
-    return create({uniform,continuous,spatial,nullptr},request,control,fields,count,true,output,error,capacity);
-}
-int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_create_saved_v1(const tpmshx_stage_saved_case_3d_v1* saved,
-    const tpmshx_stage_run_request_3d_v1* request,const tpmshx_stage_run_control_3d_v1* control,
-    void** output,char* error,size_t capacity) {
-    return create({nullptr,nullptr,nullptr,saved},request,control,nullptr,0,false,output,error,capacity);
-}
-int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_restore_saved_v1(const tpmshx_stage_saved_case_3d_v1* saved,
-    const tpmshx_stage_run_request_3d_v1* request,const tpmshx_stage_run_control_3d_v1* control,
-    const tpmshx_run_state_field_v1* fields,size_t count,void** output,char* error,size_t capacity) {
-    return create({nullptr,nullptr,nullptr,saved},request,control,fields,count,true,output,error,capacity);
-}
 int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_create_saved_v2(const tpmshx_stage_saved_case_3d_v2* saved,
     const tpmshx_stage_run_request_3d_v1* request,const tpmshx_stage_run_control_3d_v1* control,
     void** output,char* error,size_t capacity) {
-    return create({nullptr,nullptr,nullptr,saved?&saved->values:nullptr,saved},request,control,nullptr,0,false,output,error,capacity);
+    return create({saved?&saved->values:nullptr,saved},request,control,nullptr,0,false,output,error,capacity);
 }
 int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_restore_saved_v2(const tpmshx_stage_saved_case_3d_v2* saved,
     const tpmshx_stage_run_request_3d_v1* request,const tpmshx_stage_run_control_3d_v1* control,
     const tpmshx_run_state_field_v1* fields,size_t count,void** output,char* error,size_t capacity) {
-    return create({nullptr,nullptr,nullptr,saved?&saved->values:nullptr,saved},request,control,fields,count,true,output,error,capacity);
+    return create({saved?&saved->values:nullptr,saved},request,control,fields,count,true,output,error,capacity);
 }
 int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_advance_step_v1(void* run,uint32_t* phase,char* error,size_t capacity) {
     return guarded(error,capacity,[&](bool& report_safe) {
@@ -594,7 +441,7 @@ int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_take_result_v1(void* run,tpmshx_stag
         try {
             std::unique_ptr<tpmshx::stages::Capture3D,decltype(&tpmshx::stages::release_capture_3d)> captured(
                 tpmshx::stages::capture_3d(owner.packed->saved,raw,owner.resolved,owner.result_id.c_str(),
-                    owner.source.saved_v2?owner.source.saved_v2->field_kinds:nullptr),
+                    owner.source.saved_v2->field_kinds),
                 &tpmshx::stages::release_capture_3d);
             *result=tpmshx::stages::stage_view(*captured.release());owner.packed.reset();owner.source={};return 0;
         } catch(...) {tpmshx_full_3d_release_v1(&raw);throw;}
@@ -607,16 +454,10 @@ void TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_release_v1(tpmshx_stage_run_result_
     if(!result)return;
     tpmshx::stages::release_capture_3d(static_cast<tpmshx::stages::Capture3D*>(result->owner));*result={};
 }
-int TPMSHX_THERMAL_CALL tpmshx_run_case_3d_v1(const tpmshx_preparation_case_3d_v1* uniform,
-    const tpmshx_preparation_continuous_case_3d_v3* continuous,const tpmshx_preparation_spatial_case_3d_v4* spatial,
-    const tpmshx_stage_run_request_3d_v1* request,const tpmshx_stage_run_control_3d_v1* control,
-    tpmshx_stage_run_result_3d_v1* result,char* error,size_t capacity) {
-    return run_complete({uniform,continuous,spatial,nullptr},request,control,result,error,capacity);
-}
 int TPMSHX_THERMAL_CALL tpmshx_run_saved_case_3d_v2(const tpmshx_stage_saved_case_3d_v2* saved,
     const tpmshx_stage_run_request_3d_v1* request,const tpmshx_stage_run_control_3d_v1* control,
     tpmshx_stage_run_result_3d_v1* result,char* error,size_t capacity) {
-    return run_complete({nullptr,nullptr,nullptr,saved?&saved->values:nullptr,saved},
+    return run_complete({saved?&saved->values:nullptr,saved},
         request,control,result,error,capacity);
 }
 }

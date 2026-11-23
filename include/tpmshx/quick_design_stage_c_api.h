@@ -160,23 +160,6 @@ typedef struct {
 #ifdef __cplusplus
 extern "C" {
 #endif
-/* Native double operating points use the existing Quick Design model.
- * Enum values match solver_c_api.h. Cross uses (60,40,1); counter (60,1,2).
- * Omitted height uses span. Omitted conductivity uses 16 W/(m K).
- * Omitted tolerance uses 1e-5. Flags must be 0 or 1. Warm fields are C order.
- * No environment variables are read. D-F uses the fixed CFD table.
- * Input arrays are copied. All result views belong to the returned owner.
- * Initialize result ABI, struct size and owner=NULL. Failure preserves result.
- * Release with the same preparation library. Input, result and error storage
- * must be disjoint. Error storage must be writable and nonempty.
- * Status codes follow preparation_c_api.h; water rejection uses status 10.
- * Python object, arbitrary-integer and NumPy scalar protocols are not encoded
- * by this native-double input. Their production adapters remain separate.
- */
-TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_quick_design_v1(
-    const tpmshx_quick_input_v1*,tpmshx_quick_prepared_v1*,char*,size_t);
-TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_quick_prepared_release_v1(
-    tpmshx_quick_prepared_v1*);
 /* Run the supplied prepared fields without preparing them again. The existing
  * Quick Design driver owns const/mean passes, budgets and stopping rules.
  * The returned owner copies all grid, field and scalar evidence. The prepared
@@ -187,13 +170,10 @@ TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_quick_prepared_releas
  * Input, result and error storage must be disjoint. If storage checks stop
  * early, error bytes stay unchanged. Semantic errors with safe storage write
  * a diagnostic. Initialize result ABI, struct size and owner=NULL; failure
- * preserves the result.
+ * preserves the result. Run the stored V2 controls and fields with the
+ * matching input labels. The input and prepared views stay valid until this
+ * call returns.
  */
-TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_run_quick_design_v1(
-    const tpmshx_quick_prepared_v1*,const tpmshx_quick_run_control_v1*,
-    tpmshx_quick_run_result_v1*,char*,size_t);
-/* Run the stored V2 controls and fields with the matching input labels.
- * The input and prepared views stay valid until this call returns. */
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_run_quick_design_v2(
     const tpmshx_quick_input_v2*,const tpmshx_quick_prepared_v2*,
     const tpmshx_quick_run_control_v1*,tpmshx_quick_run_result_v1*,char*,size_t);

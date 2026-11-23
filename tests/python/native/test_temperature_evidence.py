@@ -146,7 +146,7 @@ def test_full_3d_cc_captured_powers_survive_owner_release_and_portable_replay(mo
     from sjtu_tpmshx.file_io.result_io import save_result, load_result
     from sjtu_tpmshx.postprocess.api import evaluate
     from sjtu_tpmshx.cpp_interface import full_3d_stage
-    from sjtu_tpmshx.cpp_interface.solver_library.full_3d import run_case
+    from sjtu_tpmshx.cpp_interface.full_3d_stage import run_case
     from dataclasses import replace
     from tests.python.native.test_cpp_full_3d import case, control
 

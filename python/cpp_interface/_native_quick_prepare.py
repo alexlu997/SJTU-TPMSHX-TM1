@@ -68,10 +68,8 @@ class _Bindings:
         self.pressure = self.owner.bind('tpmshx_quick_pressure_fractions_v2',
             [*arguments, ct.POINTER(_Pressure), ct.POINTER(ct.c_char), _S])
         self.release = self.owner.bind('tpmshx_quick_prepared_release_v2', [ct.POINTER(_Prepared)], None)
-        self.range_query = getattr(self.owner.library, 'tpmshx_preparation_collect_range_v1', None)
-        if self.range_query is not None:
-            self.range_query.argtypes = [_Array, _D, _D, ct.POINTER(_Sample), ct.POINTER(ct.c_char), _S]
-            self.range_query.restype = ct.c_int
+        self.range_query = self.owner.bind('tpmshx_preparation_collect_range_v1',
+            [_Array, _D, _D, ct.POINTER(_Sample), ct.POINTER(ct.c_char), _S])
 
     def collect_range(self, values, lower, upper):
         storage = np.require(values, dtype=np.float64, requirements=['C', 'A'])
@@ -500,7 +498,7 @@ class _HostState:
 @contextmanager
 def _operation(state):
     bindings = _bindings(preparation_library.path())
-    state.collect_range = bindings.collect_range if bindings.range_query is not None else None
+    state.collect_range = bindings.collect_range
     source = _Input(2, ct.sizeof(_Input))
     for n in range(13):
         source.values[n] = _Scalar(0., 64, 0)

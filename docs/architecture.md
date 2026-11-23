@@ -10,8 +10,8 @@ It then calls the same `run_case` and `evaluate` APIs.
 Python numerical iterators, Numba/PyAMG dependencies and Python-only research
 entries are retired. Saved research cases cannot execute; saved results remain readable.
 T-SOU (`temperature_sou`) is the default conservative EOS energy algorithm.
-H-FOU and T-FOU execution is retired. Historical IDs remain for saved evidence
-and explicitly selected archived runtimes. Current libraries reject retired
+H-FOU and T-FOU execution is retired. Historical IDs remain for saved evidence.
+Current libraries reject retired
 algorithm IDs before flow execution. Old checkpoints require their matching
 runtime; changing the requested algorithm starts a new computation.
 Outer property Anderson is retired. Fixed property relaxation, thermal Anderson
@@ -147,7 +147,7 @@ Continuous XY capacity and flow resolution use v7 with v4 results. Stripe querie
 Public ZoneConfig and sigmoid combination queries retain standalone consumers until their separate migration passes.
 These public interfaces keep supplied properties and custom sigmoid controls.
 
-The separate `tpmshx_prepare_case_3d_v1` prepares raw symmetric uniform 3D inputs at prescribed inlet speeds.
+The C++ `prepare_case(CaseInput3D)` prepares raw symmetric uniform 3D inputs at prescribed inlet speeds through spatial v4.
 It supports both topologies and all 16 fluid pairs with existing CFD or experimental DF limits.
 The owned state retains physical `(x,y,z)` fields, typed ports, axis maps for six directions and model evidence.
 Side porosity is already split. Base K/cF fields remain unscaled; side evidence retains the application factors.
@@ -234,7 +234,7 @@ These operations cannot call numerical models. C++ selects their order and all n
 The replaced `shared/models/quick_design.py` is removed; its frozen reference remains in `tests/python/quick_prepare_reference.py` for regression checks.
 Quick defaults have one source in `python/model_configs/model_parameters_v1.json`.
 Python reads that resource; C++ uses its generated constants. Stored counterflow `qtol` and `chunk` remain `None`.
-The native-double v1 preparation in `quick_design_prepare.cpp` and its published layouts remain available.
+The native-double v1 preparation and run entries were removed on 2026-11-23.
 `quick_design_run.cpp` uses the existing driver and copies its result evidence.
 Its const/mean, cross/counter and warm-start rules stay unchanged.
 Python execution uses this run stage with saved prepared fields, without new preparation.
@@ -254,7 +254,7 @@ The following boundaries keep their original arithmetic and consumers:
 - Configuration control nodes, unit conversion, serialized grid edges and archive consistency checks. Initial-temperature and configuration checks keep their error order.
 - Range summaries for standalone getter, geometry and sCO2 messages, GUI previews and nTop export statistics. C++ still owns formal range collection and qualification checks.
 - The `ports_complete` injected-ledger check and default input adaptation for independent low-level drivers. Current native ledgers return an explicit completeness flag.
-- Direct low-level and archived-runtime 3D capture calculations, independent development references and research fits. Current saved-stage capture owns the audit display taper. Formal ports and metrics use actual native face evidence.
+- Direct low-level 3D capture calculations, independent development references and research fits. Current saved-stage capture owns the audit display taper. Formal ports and metrics use actual native face evidence.
 
 `python/postprocess/result_math.py` keeps the raw pressure query and the public conservation certificate.
 The independent duty and outlet checks call the result C ABI from the test tree.
@@ -342,7 +342,7 @@ The completed native stage identifies the actual energy relation for each side.
 It provides the executed method, update scale and last main model-h call.
 The completed stage result also identifies the thermal and mass states, available pressure reports and outer iteration.
 Python publishes this evidence with the case resource indices when it constructs the field result.
-For an archived runtime without this view, Python reads the earlier result fields.
+A library without this view is a deployment error.
 The independent result stage decides qualification.
 A missing algorithm identifier stays null; requested settings do not establish execution.
 For CO2 and sCO2, the initial inverse backend applies only to its listed sides.
@@ -552,7 +552,7 @@ Missing records, empty sets, uncaptured rows and samples with no finite values r
 The host combines case notices and run `nu-evidence` warning records into `scope_notes`.
 This preserves empty strings, embedded NUL characters, callback records, order and duplicate removal.
 Independent C++ stages keep their native scope notes.
-Direct and archived-runtime paths retain `capture_applicability`.
+The direct full-solve path retains `capture_applicability`.
 A capture failure in the current stage raises an error; it does not select that path.
 
 `postprocess.api.evaluate_applicability(result)` reads this evidence without
@@ -633,7 +633,7 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
   coefficients, model/resource selection and portable execution inputs.
 - `python/cpp_interface/solver_library/` exposes the independent prepared Quick Design and
   full 2D/3D drivers through `RunControl`, which defaults to C++. The host library path is not serialized in CaseData. The Quick Design v2 adapter maps results in `python/cpp_interface/quick_design.py`.
-  The v1 adapter retains its saved-input checks in `python/solvers/backends/quick_design.py`. Numerical property
+  That adapter also checks the saved inputs. Numerical property
   passes, liquid-state guards and thermal iteration belong to the C++ driver.
   The Quick Design run stage expands its scalar evidence into fields and declarations.
   Python copies the owned output and uses the pass evidence for warning records.

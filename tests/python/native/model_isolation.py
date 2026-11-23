@@ -248,8 +248,7 @@ def child(plan_file):
                 if role.startswith('solver'):
                     inputs[role] = build_execution_inputs(case)
                     driver = NativeFull3DDriver(plan['solver'])
-                    function = driver.library.tpmshx_solve_full_3d_v5
-                    driver.library.tpmshx_solve_full_3d_v5 = SolverCall(function, trace)
+                    driver.call = SolverCall(driver.call, trace)
                     release = driver.release
                     driver.release = lambda *args, function=release: trace.release(function, args)
                     drivers[role] = driver

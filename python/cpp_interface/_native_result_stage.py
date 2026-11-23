@@ -26,10 +26,17 @@ def record(name, fields):
 
 Named = record('Named', [('name', S), ('value', core._Array)])
 
+def solver_entry(library, name):
+    """Return a required solver symbol. A missing symbol is a deployment error."""
+    try:
+        return getattr(library, name)
+    except AttributeError as error:
+        raise ValueError(f'native solver library lacks {name}; rebuild the library') from error
+
+
 def execution_view_query(library, dimension, result_type, view_type):
-    query = getattr(library, f'tpmshx_stage_run_{dimension}d_execution_view_v1', None)
-    if query is not None:
-        query.argtypes, query.restype = [ct.POINTER(result_type)], ct.POINTER(view_type)
+    query = solver_entry(library, f'tpmshx_stage_run_{dimension}d_execution_view_v1')
+    query.argtypes, query.restype = [ct.POINTER(result_type)], ct.POINTER(view_type)
     return query
 
 
@@ -41,9 +48,7 @@ def executed_view(query, result):
 
 
 def completed_report(library, result):
-    query = getattr(library, f'tpmshx_stage_run_{result.evidence.dimension}d_report_v1', None)
-    if query is None:
-        return None
+    query = solver_entry(library, f'tpmshx_stage_run_{result.evidence.dimension}d_report_v1')
     query.argtypes, query.restype = [ct.POINTER(type(result)), ct.POINTER(ct.c_char), ct.c_size_t], ct.c_char_p
     error = ct.create_string_buffer(1024)
     data = query(ct.byref(result), error, len(error))
@@ -1010,13 +1015,15 @@ def _query(result, query, metric_spec=None, metrics=None):
         rows = [Metric(_text(name), Spec(b'', b'', b'', b''), 0, 0., _text(value.status), None)
                 for name, value in (metrics or {}).items()]
         supplied = packed.sequence(Metric, rows)
-        argument = borrowed
         if query in (0, 3):
             argument = packed.quick if packed.quick is not None else QuickInput(3, ct.sizeof(QuickInput),
                 protocol=packed.quick_protocols())
-            argument.host = ct.pointer(borrowed)
             argument.execution_version = packed.execution_label
-        call = library.bind('tpmshx_result_stage_query_v3' if isinstance(argument, QuickInput) else 'tpmshx_result_stage_query_v2',
+        else:
+            # Applicability and physical-balance queries use no Quick operands, so the model stays NULL.
+            argument = QuickInput(3, ct.sizeof(QuickInput))
+        argument.host = ct.pointer(borrowed)
+        call = library.bind('tpmshx_result_stage_query_v3',
             [P(type(argument)), ct.c_uint32, P(Spec), P(Metric), Z,
              P(Output), P(core._Diagnostics), P(ct.c_uint64), P(ct.c_char), Z])
         release = library.bind('tpmshx_result_stage_release_v1', [P(Output)], None)

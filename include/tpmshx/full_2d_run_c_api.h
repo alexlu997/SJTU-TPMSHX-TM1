@@ -12,23 +12,6 @@ enum {
     TPMSHX_FULL2D_FLOW=6,TPMSHX_FULL2D_THERMAL=7,TPMSHX_FULL2D_REFINEMENT=8
 };
 
-/* Creation copies the 29 prepared arrays, controls and callback table.
- * Callbacks and their context must remain valid until run release.
- * Calls on one run must not overlap. Error codes match the one-shot API.
- * Optional energy arguments retain their v3/v4 contracts; model-h uses v5.
- * Output handles must be null. Errors do not replace output handles.
- * Restore copies typed state and requires the same build, input and controls.
- * Host paths can differ. Restore does not reset consumed work. */
-TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_2d_run_create_v1(
-    const size_t* shape,const double* const* arrays,const size_t* sizes,
-    const tpmshx_full_2d_config_v2*,const tpmshx_energy_options_v1*,
-    const tpmshx_full_2d_energy_control_v4*,const tpmshx_model_h_iteration_options_v1*,
-    const tpmshx_full_2d_callbacks_v2*,void** run,char* error,size_t capacity);
-TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_2d_run_restore_v1(
-    const size_t* shape,const double* const* arrays,const size_t* sizes,
-    const tpmshx_full_2d_config_v2*,const tpmshx_energy_options_v1*,
-    const tpmshx_full_2d_energy_control_v4*,const tpmshx_model_h_iteration_options_v1*,
-    const tpmshx_full_2d_callbacks_v2*,const tpmshx_run_state_field_v1*,size_t count,void** run,char* error,size_t capacity);
 /* Advance completes initialization, one outer step, or refinement and capture.
  * Failed and cancelled runs cannot produce a new checkpoint. */
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_2d_run_advance_v1(
@@ -47,7 +30,14 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_2d_run_snapshot_v1(
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_2d_run_take_result_v1(
     void* run,tpmshx_full_2d_result_v2*,char* error,size_t capacity);
 TPMSHX_THERMAL_API void TPMSHX_THERMAL_CALL tpmshx_full_2d_run_release_v1(void** run);
-/* Thread limits are host controls. Restore can use a different positive limit. */
+/* Creation copies the 29 prepared arrays, controls and callback table.
+ * Callbacks and their context must remain valid until run release.
+ * Calls on one run must not overlap. Error codes match solve_full_2d_v6.
+ * Optional energy, explicit_energy and model_h arguments match solve_full_2d_v6.
+ * Output handles must be null. Errors do not replace output handles.
+ * Restore copies typed state and requires the same build, input and controls.
+ * Host paths can differ. Restore does not reset consumed work.
+ * Thread limits are host controls. Restore can use a different positive limit. */
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_2d_run_create_v2(const size_t* shape,const double* const* arrays,const size_t* sizes,
     const tpmshx_full_2d_config_v2* config,const tpmshx_energy_options_v1* energy,
     const tpmshx_full_2d_energy_control_v4* explicit_energy,

@@ -31,7 +31,6 @@ Optional v3 callbacks retain synchronous observations and host-object checks; bo
 `python/physical_models/tpms_calc.py` keeps public calls, shared caches, geometry selection and the per-call material query.
 `python/cpp_interface/inlet_properties.py` packs the inlet query. It uses `python/cpp_interface/preparation_host.py` for range observations and callbacks.
 The frozen combination in `tests/python/property_reference.py` supplies independent numerical expectations.
-The [external fluid caller](../examples/cpp/prepare_fluids_2d.cpp) uses `stages.hpp` to query all four fluids with only the preparation library.
 No physical model, coefficient source or external numerical dependency is added.
 
 ## Spatial flow stages
@@ -41,8 +40,8 @@ No physical model, coefficient source or external numerical dependency is added.
 `prepare_capacities` and `resolve_speeds` reuse `preprocess/preparation_flow.cpp` for capacity and target arithmetic.
 Final preparation keeps the physical grid, spatial geometry and per-call cache, with the original requested-grid observations.
 Discrete design smoothing, sigmoid LUT geometry, thermal geometry and row D-F keep their separate owners and operation order.
-`preprocess/preparation_case_c_api.cpp` exposes v8 inputs and owned views without changing earlier C layouts.
-The [external spatial flow caller](../examples/cpp/prepare_spatial_flow_2d.cpp) uses installed headers and only the preparation library.
+`preprocess/preparation_case_c_api.cpp` exposes the v10 inputs and owned views. The v8 and v9 input layouts stay nested in them.
+The [external spatial cache caller](../examples/cpp/prepare_spatial_cache_2d.cpp) uses installed headers and only the preparation library.
 
 ## Spatial host cache transport
 

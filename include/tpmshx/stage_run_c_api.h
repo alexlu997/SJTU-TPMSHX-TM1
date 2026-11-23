@@ -201,39 +201,6 @@ typedef struct {
 #ifdef __cplusplus
 extern "C" {
 #endif
-/* The first stage accepts prepared uniform symmetric 2D air/air cases.
- * A null request selects current 2D defaults. Control is required; cpu_threads
- * must be positive and result_id must point to a caller-selected label.
- * The call copies all result storage. The prepared owner can then be released.
- * Initialize result.abi_version, struct_size and owner=NULL. Failure preserves
- * result. Cancellation returns status 4 and does not publish a result.
- * The raw result is borrowed. Use its existing evidence queries, but do not
- * release it separately. Release the stage owner through this same library.
- * Inputs, strings, result and error storage must be disjoint.
- * Error text is written only after all input storage checks complete.
- * Callback lifetime and exception rules match the existing full 2D API.
- */
-TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_run_case_2d_v1(
-    const tpmshx_preparation_case_2d_v1*,const tpmshx_stage_run_request_2d_v1*,
-    const tpmshx_stage_run_control_v1*,tpmshx_stage_run_result_2d_v1*,char*,size_t);
-/* V2 consumes uniform symmetric four-fluid preparation. It uses the current
- * model-h or true-h route and its existing defaults. The optional request
- * retains v1 values and selects envelope_mode; NULL means "raise".
- * Output keeps the v1 layout and release function. Status 6 means cancelled.
- * Status 1/2/3/4/5 means invalid input/water state/arithmetic/envelope/native
- * failure. All input, string, result and error storage must be disjoint.
- * Error text is written only after all input storage checks complete.
- * Failure preserves result. The same lifetime rules apply as for v1. */
-TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_run_case_2d_v2(
-    const tpmshx_preparation_case_2d_v2*,const tpmshx_stage_run_request_2d_v2*,
-    const tpmshx_stage_run_control_v1*,tpmshx_stage_run_result_2d_v1*,char*,size_t);
-/* V3 consumes continuous preparation v4, including resolved fixed flow.
- * It uses physical cell geometry and local drag without another preparation.
- * The request, status, output, storage and lifetime rules are the same as v2.
- * Preparation controls and flow-resolution evidence are not used by run. */
-TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_run_case_2d_v3(
-    const tpmshx_preparation_continuous_case_2d_v4*,const tpmshx_stage_run_request_2d_v2*,
-    const tpmshx_stage_run_control_v1*,tpmshx_stage_run_result_2d_v1*,char*,size_t);
 /* Copy derived scalars from a live result created by this library.
  * Application inputs retain the existing nonnegative check and IEEE arithmetic.
  * Result, application and output storage must be disjoint. Failure preserves
@@ -259,45 +226,6 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_zone_temperatures
     tpmshx_result_diagnostics_v1* diagnostics,char* error,size_t error_capacity);
 TPMSHX_THERMAL_API void TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_release_v1(
     tpmshx_stage_run_result_2d_v1*);
-/* Supply exactly one preparation view: uniform v2 or continuous v4.
- * The run borrows this view and its storage until take_result or release.
- * Keep that storage unchanged. Controls and numerical inputs are copied.
- * Callback context must remain valid until release. Calls must not overlap.
- * Initialize *run=NULL. Failure preserves it. Create/restore retain the v2
- * status and storage rules. Restore uses the existing typed full 2D state,
- * build identity and validation. A positive CPU limit can change on restore. */
-TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_create_v1(
-    const tpmshx_preparation_case_2d_v2*,const tpmshx_preparation_continuous_case_2d_v4*,
-    const tpmshx_stage_run_request_2d_v3*,const tpmshx_stage_run_control_v1*,void**,char*,size_t);
-TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_restore_v1(
-    const tpmshx_preparation_case_2d_v2*,const tpmshx_preparation_continuous_case_2d_v4*,
-    const tpmshx_stage_run_request_2d_v3*,const tpmshx_stage_run_control_v1*,
-    const tpmshx_run_state_field_v1*,size_t,void**,char*,size_t);
-/* Saved views use the same lifecycle, status, storage and restore rules.
- * Keep this descriptor and all referenced storage unchanged until transfer
- * or release. Set abi_version=1 and struct_size=sizeof this descriptor.
- * With model_h controls, request.energy records the requested algorithm for
- * validation only. It is not passed as a second set of iteration controls. */
-TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_create_saved_v1(
-    const tpmshx_stage_saved_case_2d_v1*,const tpmshx_stage_run_request_2d_v3*,
-    const tpmshx_stage_run_control_v1*,void**,char*,size_t);
-TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_restore_saved_v1(
-    const tpmshx_stage_saved_case_2d_v1*,const tpmshx_stage_run_request_2d_v3*,
-    const tpmshx_stage_run_control_v1*,const tpmshx_run_state_field_v1*,size_t,void**,char*,size_t);
-/* V2 saved calls retain the same lifecycle and result owner. The descriptor
- * and all nested storage stay borrowed until transfer or release. */
-TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_create_saved_v2(
-    const tpmshx_stage_saved_case_2d_v2*,const tpmshx_stage_run_request_2d_v3*,
-    const tpmshx_stage_run_control_v1*,void**,char*,size_t);
-TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_restore_saved_v2(
-    const tpmshx_stage_saved_case_2d_v2*,const tpmshx_stage_run_request_2d_v3*,
-    const tpmshx_stage_run_control_v1*,const tpmshx_run_state_field_v1*,size_t,void**,char*,size_t);
-TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_create_saved_v3(
-    const tpmshx_stage_saved_case_2d_v3*,const tpmshx_stage_run_request_2d_v3*,
-    const tpmshx_stage_run_control_v1*,void**,char*,size_t);
-TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_restore_saved_v3(
-    const tpmshx_stage_saved_case_2d_v3*,const tpmshx_stage_run_request_2d_v3*,
-    const tpmshx_stage_run_control_v1*,const tpmshx_run_state_field_v1*,size_t,void**,char*,size_t);
 /* Produce borrowed solver views for an aligned double mesh. Keep this record
  * and its inputs alive through the solve. On success, uniform thermal views
  * have one value. Spatial views have one value per cell. A zero return leaves
@@ -319,7 +247,26 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_port_windows_fit_2d_v1(
  * velocity outside its application window. Layout and domain failures return 1. */
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_check_experiment_v4(
     const tpmshx_stage_experiment_2d_v4*,char*,size_t);
-/* Run a saved case to completion and transfer the result to the caller. */
+/* Run a saved case. A null request selects current 2D defaults.
+ * Control is required. cpu_threads must be positive and result_id must point
+ * to a caller-selected label. Keep the descriptor and all nested storage
+ * unchanged until transfer or release. Set abi_version and struct_size on each
+ * nested descriptor. The prepared, flow and design views are borrowed.
+ * With model_h controls, request.energy records the requested algorithm for
+ * validation only. It is not passed as a second set of iteration controls.
+ * Status 6 means cancelled. Status 1/2/3/4/5 means invalid input/water state/
+ * arithmetic/envelope/native failure. Status 7/8 matches the experiment check.
+ * All input, string, result and error storage must be disjoint.
+ * Error text is written only after all input storage checks complete.
+ * Callback lifetime and exception rules match the existing full 2D API.
+ * run_saved_case_2d_v4 runs to completion and transfers the result. Initialize
+ * result.abi_version, struct_size and owner=NULL. Failure preserves result.
+ * The raw result is borrowed. Use its existing evidence queries, but do not
+ * release it separately. Release the stage owner through this same library.
+ * Create and restore return a run handle. Initialize *run=NULL. Failure
+ * preserves it. Callback context must remain valid until release. Calls must
+ * not overlap. Restore uses the existing typed full 2D state, build identity
+ * and validation. A positive CPU limit can change on restore. */
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_run_saved_case_2d_v4(
     const tpmshx_stage_saved_case_2d_v4*,const tpmshx_stage_run_request_2d_v3*,
     const tpmshx_stage_run_control_v1*,tpmshx_stage_run_result_2d_v1*,char*,size_t);
@@ -338,7 +285,7 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_phase_v1(const vo
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_snapshot_v1(
     const void*,tpmshx_run_state_v1*,char*,size_t);
 /* Transfer one completed result. A cancelled run returns 6 without output.
- * Initialize the output as for run_case. Release it with stage_run_2d_release.
+ * Initialize the output as for run_saved_case. Release it with stage_run_2d_release.
  * All raw queries and releases must use this same library. */
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_take_result_v1(
     void*,tpmshx_stage_run_result_2d_v1*,char*,size_t);

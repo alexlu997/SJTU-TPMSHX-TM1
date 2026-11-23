@@ -4,7 +4,6 @@ from dataclasses import fields, is_dataclass, replace
 import ctypes as ct
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
 import warnings
@@ -12,7 +11,6 @@ import warnings
 import numpy as np
 import pytest
 
-from tests.python import test_native_stage_3d as reference
 from tests.python.test_native_prepare_adapter import _same
 from tests.python.native.shared_library import library_path
 from sjtu_tpmshx.preprocess.api import prepare_case
@@ -26,6 +24,7 @@ from sjtu_tpmshx.cpp_interface.solver_library import full_3d
 from sjtu_tpmshx.cpp_interface import full_3d_stage
 from sjtu_tpmshx.cpp_interface.solver_library.full_3d_capture import capture_result
 from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
+from tests.python import native_stage_support
 
 
 def _control(events=None, library=None, **kwargs):
@@ -49,17 +48,67 @@ def _normalized(value):
     return value
 
 
-def _run(case, *, stage, library=None):
+def _run(case, *, stage, library=None, application_only=False):
+    """Run the saved stage or the direct v5 driver and keep the raw record before capture."""
     cfg, prepared = build_execution_inputs(case, copy_design=False)
-    events, shown = [], []
+    events, shown, captured = [], [], []
     control = _control(events, library)
-    driver = full_3d.NativeFull3DDriver(control.native_library, table_directory=control.native_table_directory)
-    with warning_scope({}) as records, warnings.catch_warnings(record=True) as caught:
+    with warning_scope({}) as records, warnings.catch_warnings(record=True) as caught, \
+            pytest.MonkeyPatch.context() as patch:
         warnings.simplefilter('always')
-        raw = driver._run_prepared(cfg, prepared, control, stage_case=case if stage else None)
+        if stage:
+            capture = full_3d_stage.capture_result
+            def keep(case, cfg, prepared, raw, abi, **options):
+                captured.append(raw)
+                return capture(case, cfg, prepared, raw, abi, **options)
+            patch.setattr(full_3d_stage, 'capture_result', keep)
+            result = full_3d_stage.run_case(case, control)
+            raw, = captured
+        else:
+            driver = full_3d.NativeFull3DDriver(control.native_library, table_directory=control.native_table_directory)
+            raw = driver._run_prepared(cfg, prepared, control, application_only=application_only)
     shown.extend((str(item.message), item.category.__name__) for item in caught)
-    result = capture_result(case, cfg, prepared, raw, driver.abi)
+    if not stage:
+        result = capture_result(case, cfg, prepared, raw, driver.abi)
     return raw, result, events, shown, range_observations(records), range_observations(records, last=True)
+
+
+# Only the saved route records these items before its result capture.
+_SAVED_ONLY = {'_input_resolution', '_native_applicability', 'capture_scalars', 'execution_facts',
+               'stage_diagnostics', 'stage_fields'}
+# Only the saved route adds these public metadata records.
+_SAVED_METADATA = ('_native_applicability', 'execution_record')
+
+
+def _compare_routes(actual, expected, label):
+    """Compare the saved and direct routes by value where both publish a record."""
+    def values(item):
+        if isinstance(item, Mapping):
+            return {key: values(value) for key, value in item.items()}
+        if isinstance(item, (list, tuple)):
+            return type(item)(values(value) for value in item)
+        # The routes give the same values through views with different write flags.
+        return np.array(item) if isinstance(item, np.ndarray) else item
+    raw, wanted = actual[0], expected[0]
+    assert set(raw) - set(wanted) <= _SAVED_ONLY, label
+    shared = {key: raw[key] for key in raw if key not in _SAVED_ONLY}
+    reference = {key: wanted[key] for key in shared}
+    reference['flow'] = [None if flow is None else {key: flow[key] for key in raw['flow'][side]}
+                         for side, flow in enumerate(wanted['flow'])]
+    _same(_normalized(values(shared)), _normalized(values(reference)), label + ' raw records')
+    result = replace(actual[1], metadata={key: value for key, value in actual[1].metadata.items()
+                                          if key not in _SAVED_METADATA})
+    _same(_normalized(result), _normalized(expected[1]), label + ' result')
+    _same(_normalized(actual[2:]), _normalized(expected[2:]), label + ' events, warnings and ranges')
+
+
+def _direct(case, control, **options):
+    """Run the direct v5 driver as the independent reference for the public result."""
+    cfg, prepared = build_execution_inputs(case, copy_design=False)
+    driver = full_3d.NativeFull3DDriver(control.native_library, table_directory=control.native_table_directory)
+    raw = driver._run_prepared(cfg, prepared, control, application_only=True, **options)
+    control.check_cancelled()
+    return capture_result(case, cfg, prepared, raw, driver.abi)
 
 
 @pytest.mark.parametrize('layout,pair', [
@@ -68,15 +117,15 @@ def _run(case, *, stage, library=None):
     ('uniform', ('co2', 'water')), ('xy', ('water', 'co2')), ('xyz', ('sco2', 'air'))])
 @pytest.mark.parametrize('audit', [False, True])
 def test_complete_dto_saved_stage_matches_direct(layout, pair, audit, tmp_path):
-    config, _ = reference._configuration(pair, layout)
+    config = native_stage_support.volume_configuration(pair, layout)
     case = prepare_case(config, case_id='saved-stage-dto')
     case = replace(case, parameters=dict(case.parameters, _emit_audit=audit))
     save_case(case, tmp_path / 'case.h5')
     case = load_case(tmp_path / 'case.h5')
-    expected = _run(case, stage=False)
+    expected = _run(case, stage=False, application_only=True)
     actual = _run(case, stage=True)
-    scalars = actual[0].pop('capture_scalars')
-    _same(_normalized(actual), _normalized(expected), 'complete 3D DTO, fields and events')
+    scalars = actual[0]['capture_scalars']
+    _compare_routes(actual, expected, 'complete 3D DTO')
     assert scalars['q_net'].hex() == sum(expected[0]['solid_exchange']).hex()
     assert scalars['pressure_clip_hits'] == sum(flow['last']['pressure_clip_hits']
         for flow in expected[0]['flow'] if flow is not None)
@@ -88,7 +137,7 @@ def test_complete_dto_saved_stage_matches_direct(layout, pair, audit, tmp_path):
 @pytest.mark.parametrize('change', ['conductivity32', 'length32', 'thermal32', 'drag',
                                     'missing', 'empty', 'uncaptured', 'no-finite'])
 def test_saved_inputs_are_used_without_repreparation(change, monkeypatch, tmp_path):
-    config, _ = reference._configuration(('air', 'water'), 'xyz')
+    config = native_stage_support.volume_configuration(('air', 'water'), 'xyz')
     case = prepare_case(config, case_id='saved-input-change')
     design, parameters, metadata = map(mutable_data, (case.design_fields, case.parameters, case.metadata))
     if change == 'conductivity32':
@@ -113,14 +162,13 @@ def test_saved_inputs_are_used_without_repreparation(change, monkeypatch, tmp_pa
     case = replace(case, design_fields=design, parameters=parameters, metadata=metadata)
     save_case(case, tmp_path / 'case.h5')
     case = load_case(tmp_path / 'case.h5')
-    expected = _run(case, stage=False)
+    expected = _run(case, stage=False, application_only=True)
     from sjtu_tpmshx.preprocess import api
     def forbidden(*args, **kwargs):
         pytest.fail('saved execution must not prepare raw inputs')
     monkeypatch.setattr(api, 'prepare_case', forbidden)
     actual = _run(case, stage=True)
-    actual[0].pop('capture_scalars')
-    _same(_normalized(actual), _normalized(expected), change)
+    _compare_routes(actual, expected, change)
     before = {name: value.copy() for name, value in case.design_fields.items()}
     result = run_case(case, _control())
     _same(result.fields, expected[1].fields, 'public saved fields')
@@ -133,7 +181,7 @@ def test_saved_inputs_are_used_without_repreparation(change, monkeypatch, tmp_pa
 
 
 def test_public_drag_capture_preserves_scalar_design_summary():
-    config, _ = reference._configuration(('air', 'water'), 'xyz')
+    config = native_stage_support.volume_configuration(('air', 'water'), 'xyz')
     case = prepare_case(config, case_id='scalar-drag')
     design = dict(case.design_fields)
     design['K_m2'] = np.asarray(design['K_m2'].flat[0])
@@ -146,17 +194,19 @@ def test_public_drag_capture_preserves_scalar_design_summary():
 
 
 @pytest.mark.parametrize('missing', ['create_saved', 'restore_saved', 'advance_step', 'phase', 'snapshot',
-                                     'take_result', 'release_run', 'release', 'get_capture', 'capture_version'])
+                                     'take_result', 'release_run', 'release', 'get_capture', 'capture_version',
+                                     'run_saved'])
 def test_partial_stage_protocol_is_rejected_before_execution(missing, monkeypatch):
-    config, _ = reference._configuration()
+    config = native_stage_support.volume_configuration()
     case = prepare_case(config, case_id='partial-protocol')
     open_library = full_3d_stage.open_library
     def initialize(*args, **kwargs):
         path, library, abi, table = open_library(*args, **kwargs)
         class Partial:
             def __getattr__(self, name):
-                symbol = ('tpmshx_stage_capture_3d_abi_version' if missing == 'capture_version'
-                          else 'tpmshx_stage_run_3d_' + missing + '_v1')
+                symbol = ('tpmshx_stage_capture_3d_abi_version' if missing == 'capture_version' else
+                          'tpmshx_run_saved_case_3d_v2' if missing == 'run_saved' else
+                          'tpmshx_stage_run_3d_' + missing + ('_v2' if missing.endswith('_saved') else '_v1'))
                 if name == symbol:
                     raise AttributeError(name)
                 return getattr(library, name)
@@ -171,7 +221,7 @@ def test_partial_stage_protocol_is_rejected_before_execution(missing, monkeypatc
 
 @pytest.mark.parametrize('callback', ['progress', 'iteration', 'outer_iteration', 'cancel_check', 'checkpoint'])
 def test_callback_baseexception_keeps_identity(callback):
-    config, _ = reference._configuration()
+    config = native_stage_support.volume_configuration()
     case = prepare_case(config, case_id='callback-identity')
     sentinel = KeyboardInterrupt('3D callback sentinel')
     def fail(*args):
@@ -183,20 +233,12 @@ def test_callback_baseexception_keeps_identity(callback):
     assert caught.value is sentinel
 
 
-@pytest.mark.parametrize('library_kind', ['current', 'archived', 'archived-stage'])
 @pytest.mark.parametrize('pair', [('air', 'water'), ('co2', 'water')])
-def test_public_resume_and_fresh_process_archive(library_kind, pair, tmp_path):
-    archive = os.environ.get('TPMSHX_RETAINED_STAGE_SOLVER_LIBRARY' if library_kind == 'archived-stage'
-                             else 'TPMSHX_RETAINED_SOLVER_LIBRARY')
-    if library_kind != 'current' and not archive:
-        pytest.skip('a retained solver is required for the archived-runtime check')
-    library = Path(archive) if library_kind != 'current' else library_path()
+def test_public_resume_and_fresh_process_archive(pair, tmp_path):
+    library = library_path()
     driver = full_3d.NativeFull3DDriver(library)
-    assert full_3d_stage.has_saved_stage(driver.library) == (library_kind == 'current')
-    if library_kind == 'archived-stage':
-        assert hasattr(driver.library, 'tpmshx_stage_run_3d_create_saved_v1')
-        assert not hasattr(driver.library, 'tpmshx_stage_run_3d_get_capture_v1')
-    config, _ = reference._configuration(pair, 'xyz')
+    full_3d_stage.require_saved_stage(driver.library)
+    config = native_stage_support.volume_configuration(pair, 'xyz')
     case = prepare_case(config, case_id='relocated-saved-resume')
     save_case(case, tmp_path / 'case.h5')
     case = load_case(tmp_path / 'case.h5')
@@ -208,7 +250,7 @@ def test_public_resume_and_fresh_process_archive(library_kind, pair, tmp_path):
         checkpoint=lambda state: saved.setdefault(int(state['state.phase'][0]), state))
     assert saved.keys() == direct.keys() and {1, 2, 6, 7}.issubset(saved)
     for phase, state in saved.items():
-        reference._state_equal(state, direct[phase])
+        native_stage_support.volume_state_equal(state, direct[phase])
         np.savez(tmp_path / f'phase-{phase}.npz', **state)
         actual = run_case(case, _control(library=library), resume_state=state)
         actual = replace(actual, metadata={key: value for key, value in actual.metadata.items() if key != 'continuation'})
@@ -226,12 +268,11 @@ with np.load(sys.argv[2],allow_pickle=False) as archive:
  state={key: (str(value) if value.dtype.kind=='U' else value) for key,value in archive.items()}
 result=run_case(load_case(sys.argv[1]),RunControl(cpu_threads=2,native_library=sys.argv[4],
  native_table_directory=os.environ.get('TPMSHX_STAGE_TABLE_DIRECTORY')),resume_state=state)
-if sys.argv[5]=='current':
- assert 'sjtu_tpmshx.cpp_interface.solver_library.full_3d' not in sys.modules
+assert 'sjtu_tpmshx.cpp_interface.solver_library.full_3d' not in sys.modules
 save_result(result,sys.argv[3])
 """
     subprocess.run([sys.executable, '-c', script, str(moved / 'case.h5'), str(moved / 'state.npz'),
-                    str(moved / 'result.h5'), str(library), library_kind], check=True)
+                    str(moved / 'result.h5'), str(library)], check=True)
     actual = load_result(moved / 'result.h5')
     actual = replace(actual, metadata={key: value for key, value in actual.metadata.items() if key != 'continuation'})
     _same(_normalized(actual), _normalized(expected), 'fresh process')
@@ -241,7 +282,7 @@ save_result(result,sys.argv[3])
 
 
 def test_capture_query_preserves_output_on_invalid_request(monkeypatch):
-    config, _ = reference._configuration()
+    config = native_stage_support.volume_configuration()
     case = prepare_case(config, case_id='capture-query-boundary')
     original, checked = full_3d_stage.copy_summary, []
     def inspect(library, result, *, emit_audit, copy_array):
@@ -272,7 +313,7 @@ def test_capture_query_preserves_output_on_invalid_request(monkeypatch):
 
 @pytest.mark.parametrize('failure', ['summary', 'decode', 'warning'])
 def test_capture_failure_releases_same_stage_owner(monkeypatch, failure):
-    config, _ = reference._configuration(('sco2', 'air'))
+    config = native_stage_support.volume_configuration(('sco2', 'air'))
     case = prepare_case(config, case_id='capture-failure')
     sentinel = RuntimeError('capture sentinel')
     original, released = full_3d_stage.release_result, []
@@ -301,7 +342,7 @@ def test_capture_failure_releases_same_stage_owner(monkeypatch, failure):
 def test_selected_controls_models_and_ports(selection, monkeypatch, tmp_path):
     pair = ('co2', 'air') if selection == 'eos-controls' else (
         ('sco2', 'water') if selection == 'experimental-nu' else ('air', 'water'))
-    config, _ = reference._configuration(pair)
+    config = native_stage_support.volume_configuration(pair)
     if selection == 'Diamond':
         config.geometry.tpms = selection
     elif selection == 'experimental-drag':
@@ -350,7 +391,7 @@ def test_selected_controls_models_and_ports(selection, monkeypatch, tmp_path):
     _, expected, expected_events, _, _, _ = _run(case, stage=False)
     events = []
     with warning_scope({}):
-        actual = full_3d.run_case(case, _control(events))
+        actual = full_3d_stage.run_case(case, _control(events))
     assert events == expected_events
     for name in ('fields', 'field_metadata', 'boundary_fluxes', 'pressure_evidence', 'run_status'):
         _same(_normalized(getattr(actual, name)), _normalized(getattr(expected, name)), selection + '.' + name)
@@ -361,7 +402,7 @@ def test_selected_controls_models_and_ports(selection, monkeypatch, tmp_path):
 
 
 def test_unknown_capture_abi_is_rejected_before_execution(monkeypatch):
-    config, _ = reference._configuration()
+    config = native_stage_support.volume_configuration()
     case = prepare_case(config, case_id='unknown-capture-abi')
     open_library = full_3d_stage.open_library
     def initialize(*args, **kwargs):
@@ -388,13 +429,13 @@ def test_public_applicability_uses_native_selection(dimension, layout, pair, mon
     if dimension == 2:
         _, case = two._case(layout, pair)
     else:
-        config, _ = reference._configuration(pair, layout)
+        config = native_stage_support.volume_configuration(pair, layout)
         case = prepare_case(config, case_id='native-applicability')
     _compare_public_applicability(case, monkeypatch, tmp_path)
 
 
 def test_spatial_sco2_notice_keeps_saved_field_precision(monkeypatch, tmp_path):
-    config, _ = reference._configuration(('sco2', 'air'), 'xyz')
+    config = native_stage_support.volume_configuration(('sco2', 'air'), 'xyz')
     case = prepare_case(config, case_id='sco2-notice-f32')
     design = dict(case.design_fields)
     for field in ('L_field_m', 't_field_m'):
@@ -409,10 +450,10 @@ def _compare_public_applicability(case, monkeypatch, tmp_path, *, control=None):
     control = _control() if control is None else control
     with monkeypatch.context() as direct:
         if case.grid['dimension'] == 2:
-            from sjtu_tpmshx.cpp_interface.solver_library import full_2d
-            direct.setattr(full_2d, 'run_case', two._old)
+            from sjtu_tpmshx.cpp_interface import full_2d_stage
+            direct.setattr(full_2d_stage, 'run_case', two._old)
         else:
-            direct.setattr(full_3d_stage, 'has_saved_stage', lambda library: False)
+            direct.setattr(full_3d_stage, 'run_case', _direct)
         expected = run_case(case, control)
     def forbidden(*args, **kwargs):
         pytest.fail('current stages must use native applicability selection')
@@ -441,7 +482,7 @@ def test_public_applicability_keeps_saved_and_host_evidence(dimension, change, m
     if dimension == 2:
         _, case = two._case()
     else:
-        config, _ = reference._configuration(('air', 'water'), 'xyz')
+        config = native_stage_support.volume_configuration(('air', 'water'), 'xyz')
         case = prepare_case(config, case_id='saved-applicability')
     metadata = mutable_data(case.metadata)
     control = _control()
@@ -479,7 +520,7 @@ def test_applicability_transfer_error_releases_without_fallback(dimension, monke
     if dimension == 2:
         _, case = two._case()
     else:
-        config, _ = reference._configuration()
+        config = native_stage_support.volume_configuration()
         case = prepare_case(config, case_id='failed-transfer')
     sentinel = LookupError('evidence transfer failed')
     from sjtu_tpmshx.cpp_interface import full_2d_stage
@@ -524,7 +565,7 @@ def test_applicability_transfer_error_releases_without_fallback(dimension, monke
 ])
 def test_saved_v2_rejects_inconsistent_inputs(fault, message):
     layout = 'xy' if fault == 'extrusion' else 'uniform'
-    config, _ = reference._configuration(('air', 'water'), layout)
+    config = native_stage_support.volume_configuration(('air', 'water'), layout)
     case = prepare_case(config, case_id='saved-input-check')
     params = mutable_data(case.parameters)
     design = mutable_data(case.design_fields)
@@ -567,7 +608,7 @@ def test_saved_v2_rejects_inconsistent_inputs(fault, message):
 
 
 def test_saved_opening_preserves_solver_roundoff_tolerance():
-    config, _ = reference._configuration(('air', 'water'), 'uniform')
+    config = native_stage_support.volume_configuration(('air', 'water'), 'uniform')
     case = prepare_case(config, case_id='rounded-opening')
     params = mutable_data(case.parameters)
     mask = params['prepared']['openings']['A']['inlet']
@@ -584,7 +625,7 @@ def test_saved_opening_preserves_solver_roundoff_tolerance():
 
 
 def test_restore_rejects_matching_case_and_checkpoint_with_wrong_opening():
-    config, _ = reference._configuration(('air', 'water'), 'uniform')
+    config = native_stage_support.volume_configuration(('air', 'water'), 'uniform')
     case = prepare_case(config, case_id='restore-opening')
     states = []
     run_case(case, _control(), checkpoint=states.append)
@@ -601,21 +642,8 @@ def test_restore_rejects_matching_case_and_checkpoint_with_wrong_opening():
         run_case(replace(case, parameters=params), _control(), resume_state=state)
 
 
-def test_saved_stage_without_result_records_can_resume(monkeypatch):
-    config, _ = reference._configuration(('air', 'water'), 'uniform')
-    case = prepare_case(config, case_id='saved-stage-without-records')
-    monkeypatch.setattr(full_3d, 'stage_records', lambda library, result: None)
-    monkeypatch.setattr(full_3d_stage, 'execution_view_query', lambda *args: None)
-    states = []
-    expected = run_case(case, _control(), checkpoint=states.append)
-    resumed = run_case(case, _control(), resume_state=states[0])
-    assert expected.fields.keys() == resumed.fields.keys()
-    for name, values in expected.fields.items():
-        np.testing.assert_array_equal(values, resumed.fields[name])
-    assert expected.run_status == resumed.run_status
-
 def test_scalar_wall_and_stored_resolution_use_actual_grid():
-    config, _ = reference._configuration(('air', 'water'), 'uniform')
+    config = native_stage_support.volume_configuration(('air', 'water'), 'uniform')
     case = prepare_case(config, case_id='scalar-wall')
     design = dict(case.design_fields)
     design['t_field_m'] = np.asarray(design['t_field_m'].flat[0])

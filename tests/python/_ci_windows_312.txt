@@ -1,3 +1,3 @@
 tests/python/test_real_3d_render.py::test_actual_volume_scaled_screenshot_and_application_export
 tests/python/test_native_run_adapter.py::test_saved_stage_states_and_resume[False-pair0]
-tests/python/test_native_run_adapter_3d.py::test_public_resume_and_fresh_process_archive[pair0-current]
+tests/python/test_native_run_adapter_3d.py::test_public_resume_and_fresh_process_archive[pair0]

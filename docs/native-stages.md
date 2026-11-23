@@ -2,6 +2,35 @@
 
 [中文](native-stages.zh-CN.md) | [English](native-stages.md)
 
+## Active C ABI
+
+On 2026-11-23, each native library kept only the latest entry of each operation that the product uses.
+The table lists these active entries. The libraries export no other version of these operations.
+
+| Stage | Active entries |
+| --- | --- |
+| 2D preparation | `tpmshx_prepare_inlet_mass_capacities_2d_v7`, `tpmshx_resolve_inlet_flow_2d_v7` and their continuous v7 forms; zoned and sigmoid capacity and flow resolution v10; `tpmshx_prepare_flow_case_2d_v10`, `tpmshx_prepare_zoned_flow_case_2d_v10`, `tpmshx_prepare_sigmoid_flow_case_2d_v10`, `tpmshx_prepare_continuous_flow_case_2d_v11` and `tpmshx_prepare_stripe_flow_case_2d_v11` |
+| 3D preparation | Continuous v3 and spatial v4 capacity, flow resolution and complete preparation |
+| Quick Design preparation | `tpmshx_prepare_quick_design_v2` and `tpmshx_quick_pressure_fractions_v2` |
+| 2D stage run | `tpmshx_run_saved_case_2d_v4`; `tpmshx_stage_run_2d_create_saved_v4` and `tpmshx_stage_run_2d_restore_saved_v4` for checkpoints |
+| 3D stage run | `tpmshx_run_saved_case_3d_v2`; `tpmshx_stage_run_3d_create_saved_v2` and `tpmshx_stage_run_3d_restore_saved_v2` for checkpoints |
+| Direct full solve | `tpmshx_solve_full_2d_v6` and `tpmshx_solve_full_3d_v5`; `tpmshx_full_2d_run_create_v2`, `tpmshx_full_2d_run_restore_v2`, `tpmshx_full_3d_run_create_v3` and `tpmshx_full_3d_run_restore_v3` for checkpoints |
+| Quick Design run | `tpmshx_run_quick_design_v2` |
+| Result stage | `tpmshx_result_stage_query_v3` |
+
+The consolidation removed these entries:
+
+- 2D complete preparation v1 to v9, 3D preparation v1 and 3D flow preparation v2.
+- Quick Design preparation and run v1.
+- 2D one-shot runs v1 to v3, 3D one-shot run v1, prepared-view run creation v1 and saved descriptors before the versions in the table.
+- Direct full solves before 2D v6 and 3D v5, and their earlier continuation entries.
+- Result stage query v2.
+
+Release functions, ABI version queries, records and other queries that the active entries use stay available.
+An earlier layout can stay as a nested member of an active descriptor.
+A library without a required active entry is a deployment error. Python does not select an archived runtime or another entry.
+Later sections describe earlier versions to record their history. Call only the entries in the table.
+
 ## Scope
 
 The native stage work adds independent preparation, execution and evaluation
@@ -15,10 +44,10 @@ Preparation v2 supports all 16 ordered pairs of air, water, sCO2 and CO2 in that
 geometry and inlet mode. It keeps existing experimental DF and sCO2 Nu choices,
 state checks and application limits. Each side retains its selected model evidence.
 Run v2 consumes preparation v2 through the existing model-h or true-h driver.
-Run v1 retains its air/air CFD scope and published layout.
+The run v1 and v2 entries were removed on 2026-11-23. Their request layouts stay in the active request.
 Nonzero delta, zones, continuous fields and prescribed mass flow remain outside
 this preparation v2 scope. These limits do not remove existing Python modes.
-Quick Design keeps its native-double v1 preparation and run interfaces for air, water and sCO2.
+Quick Design supports air, water and sCO2. Its native-double v1 preparation and run entries were removed on 2026-11-23.
 Preparation v2 adds typed raw inputs and an independent pressure-fraction query.
 Python uses v2 preparation with fixed named host operations for its existing value protocols.
 The preparation/query fluid registry includes CO2; this does not expand the existing air/water/sCO2 LTNE run scope.
@@ -78,7 +107,7 @@ It preserves complete strings and callback records, including embedded NUL chara
 It retains their order and removes duplicate messages.
 The completed stage supplies the sCO2 runtime notice once per active side.
 Python publishes it through the warning scope in the original order.
-Direct and archived-runtime paths retain `capture_applicability`. A capture error does not select that path.
+The direct full-solve path retains `capture_applicability`. A capture error does not select that path.
 `tpmshx_stage_run_2d_execution_view_v1` and `tpmshx_stage_run_3d_execution_view_v1` publish the completed run's numerical evidence.
 They give the applied thermal controls, energy records, update scale and selected model-h call.
 Each view uses the same storage as the completed stage result. Copy it before result release.
@@ -132,7 +161,6 @@ They must not overlap input, callbacks or borrowed input text.
 Python `tpms_calc.compute` keeps its public fields, cache methods and fresh result copies.
 It selects geometry before the query and calculates current K_ss with the existing material owner after the cache lookup.
 Its binding shares range and warning transport with complete preparation.
-The [fluid preparation example](../examples/cpp/prepare_fluids_2d.cpp) also queries all four fluids through installed headers.
 
 ## Ownership and units
 
@@ -164,8 +192,7 @@ The [fluid preparation example](../examples/cpp/prepare_fluids_2d.cpp) also quer
   and Nu factors apply only to CO2 sides. sCO2 remains a separate model.
   In 2D, experimental DF changes flow seeds and rows. Static inlet DF values keep
   their existing CFD values, including the CO2 factors where applicable.
-- Existing low-level ABI versions remain available. A retained run library
-  must not need a new preparation symbol to restore its saved run state.
+- The [active C ABI](#active-c-abi) lists the exported entries. A run restores its saved state only with the same build.
 - Run v2 records actual thermal mass, boundary power, energy settings and
   certificates for result evaluation. It copies preparation notices and keeps
   the current sCO2 scope limit. It does not certify an unverified model.
@@ -175,7 +202,7 @@ The [fluid preparation example](../examples/cpp/prepare_fluids_2d.cpp) also quer
 
 ## Run continuation
 
-`Run2D` accepts the uniform v2 or continuous v4 preparation view, or a saved v1, v2, or v3 descriptor.
+`Run2D` accepts a saved v4 descriptor. `saved_case` makes this descriptor from a v10 or v11 preparation owner.
 It supports creation, step advancement, phase queries, snapshots, restoration
 and result transfer. It uses the existing full 2D state machine and typed state.
 It does not reset consumed work. Restoration requires the same build, prepared
@@ -207,7 +234,7 @@ It keeps nominal side geometry separate from cell thermal geometry and design fi
 `saved_case` converts a v10 preparation owner to this borrowed descriptor.
 Keep the descriptor and its preparation owner alive and unchanged until result transfer or run release.
 The v10 `run_case` overloads keep the descriptor alive for the complete synchronous call.
-The new create/restore entries use the existing lifecycle, snapshot and result owners; saved v1 layouts remain unchanged.
+The create/restore entries use the existing lifecycle, snapshot and result owners.
 The saved descriptor version does not change result release.
 Use `tpmshx_stage_run_2d_release_v1` for the transferred 2D result.
 
@@ -219,18 +246,15 @@ Current Python runs use the complete saved v4 protocol for canonical settings.
 The full solver uses `tpmshx_stage_borrow_mesh_v1` to obtain checked cell widths and thermal geometry from a prepared case. The stage compares each edge with the sum of the widths and checks the axis maps. It borrows aligned native double arrays with the same buffer description as result queries. For uniform 3D geometry, the host passes one area density and one hydraulic diameter. The native run expands each value into its own storage. For other layouts, older libraries or invalid meshes, the portable reader supplies its usual checks and errors.
 
 The solver and preparation libraries use the same physical limit for 2D port windows. For saved double-precision settings, `tpmshx_stage_port_windows_fit_2d_v1` checks both windows on the cross axis. The host supplies detailed errors and checks other input types and earlier libraries.
-For a fresh run, Python calls `tpmshx_run_saved_case_2d_v4` when the library provides it. C++ owns the run through result transfer. Checkpoints and older libraries use the step interface.
+For a fresh run, Python calls `tpmshx_run_saved_case_2d_v4`. C++ owns the run through result transfer. Checkpoints use the step interface.
 For both dimensions, a null energy recipe uses the defaults from `native_controls` in `model_parameters_v1.json`. The current defaults are T-SOU and 1e-8 K. Python sends the algorithm and tolerance recorded in each prepared case, including values equal to these defaults.
 Saved v4 adds the original experimental model settings to the v3 fields.
 Create and restore use the same native applicability rules as preparation.
 They validate the original record first. They then check its campaign domain against the prepared model, nominal cell geometry and resolved inlet speeds.
 The experiment query lets the host check these settings before it packs the remaining saved fields.
 A prescribed total flow defers its velocity check to create or restore.
-The older saved protocols still accept the previous layouts and conversion rules.
-Earlier libraries use saved v3, saved v2, or saved v1.
-The saved v1 route accepts symmetric uniform or continuous inputs.
-Archived libraries without the applicable saved protocol use their existing interface.
-An incomplete new protocol or a failed run is an error. All queries, state releases and result releases use that same selected library.
+Saved settings that the experiment record cannot hold use an empty experiment record. If those settings select experimental D-F, the host rejects the case and asks for a new preparation.
+A library without the complete saved v4 protocol, or a failed run, is an error. All queries, state releases and result releases use that same selected library.
 Saved formats, same-build restoration, CPU-change rules and public Python interfaces stay unchanged.
 
 ## Capture scalars
@@ -247,7 +271,7 @@ The query multiplies each pair after the existing nonnegative check.
 NaN, infinity and signed zero retain their existing arithmetic behavior.
 The copied summary owns no pointers and remains valid after result release.
 Use existing raw evidence queries for fields, histories and numerical ledgers.
-The scalar mapper and historical-runtime capture calculations keep their existing behavior.
+The scalar mapper keeps its existing behavior.
 
 `tpmshx_stage_run_2d_zone_temperatures_v1` summarizes the completed main-grid temperatures for saved zones.
 It uses the same area weights, zone order and physical boundary positions as the independent result query.
@@ -306,8 +330,8 @@ This interface does not certify gradient accuracy.
 
 ## Uniform 3D preparation
 
-`prepare_case(CaseInput3D)` calls `tpmshx_prepare_case_3d_v1` from
-`preparation_case_3d_c_api.h`. It returns an owned `PreparedCase3D`.
+`prepare_case(CaseInput3D)` puts the input in a spatial v4 input and calls `tpmshx_prepare_flow_case_3d_v4` from
+`preparation_case_3d_c_api.h`. It returns an owned `PreparedSpatialCase3D`.
 Provide three positive physical lengths, three grid counts and an explicit cell cap.
 Depth is required and `Nz` must be at least 2. The C++ input defaults the cap to 2,000,000 cells.
 The host resolves configuration and environment limits before the call; the library does not read them.
@@ -383,7 +407,7 @@ Saved CaseData still uses its existing validators and must not be prepared again
 
 ## Native 3D execution
 
-`stage_run_3d_c_api.h` connects prepared v1/v2/v3/v4 views to the existing `Full3DRun`.
+`stage_run_3d_c_api.h` connects the saved v2 descriptor to the existing `Full3DRun`. `saved_case` makes it from a continuous v3 or spatial v4 owner.
 `run_case` overloads accept uniform, fixed-flow, continuous or spatial C++ preparation owners.
 `Run3D` gives create, step, phase, snapshot, restore and result transfer through the same lifecycle.
 It keeps the existing thermal-first order and safe phases 1, 2, 6, 7, 8, 9 and 10.
@@ -403,7 +427,7 @@ Missing inlet evidence, an empty recorded set and uncaptured range samples remai
 The Python adapter retains public saved-schema validation before it creates this view.
 
 The result owns the complete raw 3D DTO, generic v1 evidence and a v2 evaluation input.
-Use its `evaluation` member with `tpmshx_result_stage_query_v2`. The C++ `evaluate` overload does this.
+Use its `evaluation` member with `tpmshx_result_stage_query_v3`. The C++ `evaluate` overload does this.
 The v2 input preserves explicit None mass-face records; v1 alone cannot express that state.
 It remains valid after preparation and run release. All raw queries must use its creating solver library.
 The raw view is borrowed from the stage result and must not be released separately.
@@ -417,23 +441,19 @@ Status zero means a result was transferred; it does not establish convergence.
 A cancelled result retains raw diagnostics with `raw.stop=2` and no completed evaluation evidence.
 A successful result can be transferred only once. Output and error buffers must not overlap inputs or each other.
 Current 3D runs and checkpoint restores use the saved v2 descriptor.
-For a fresh run, Python calls `tpmshx_run_saved_case_3d_v2` when the library provides it. C++ owns the run through result transfer. Checkpoints and older libraries use the step interface.
+For a fresh run, Python calls `tpmshx_run_saved_case_3d_v2`. C++ owns the run through result transfer. Checkpoints use the step interface.
 C++ checks the physical domain, axis maps, port masks, model resources and cell design fields before the first step.
 The Python adapter checks the portable array shapes and keeps borrowed storage alive.
-Direct clients and archived libraries can still use saved v1.
 `full_3d_stage.py` passes the saved grid, design fields, ports and axis maps from CaseData.
-It uses the current native stage when the library provides saved v2 and the execution view.
-Earlier captured libraries use their saved lifecycle and result queries.
-Earlier direct libraries use their direct run and restore interfaces.
-These routes share array packing, callbacks and raw result decoding.
-The binding selects a complete protocol before execution and reports partial protocols or native failures directly.
+It requires saved v2 and the execution view.
+The binding checks the complete protocol before execution and reports partial protocols or native failures directly.
 
 `capture_summary(result, include_audit)` returns cell count, heat-source sum, pressure clip count and Nu statistics.
 The optional audit outlet arrays retain the historical display taper. They do not replace physical openings.
 Python copies these values before it releases the stage result.
 `full_3d_stage.py` publishes the current FieldResult.
-Direct low-level DTO callers and archived runtimes retain their existing capture calculations.
-Those calculations stay until these supported consumers have an accepted replacement.
+The direct v5 driver keeps its existing capture calculations for the native solver verification tests.
+Those calculations stay until those tests have an accepted replacement.
 Public schemas, model choices, warning order and immutable result buffers retain their existing contracts.
 Real 3D BO and visible desktop acceptance remain separate gates.
 
@@ -495,9 +515,7 @@ The event-only v1 callback and earlier ABI layouts remain unchanged.
 Preparation v7 adds `GridKinds2D` for the existing domain lengths and four port values on each side.
 It retains NumPy integer and float16/32/64 arithmetic in grids, openings, capacity and spatial sampling.
 Pass this descriptor as the second C++ argument and preparation options as the third argument.
-The [typed grid example](../examples/cpp/prepare_typed_grid_2d.cpp) checks mixed integer and float16 ports with fixed mass flow.
 The C entries use the same descriptor with the existing v3-v6 input and output layouts.
-The [zoned](../examples/cpp/prepare_zoned_2d.cpp) and [sigmoid](../examples/cpp/prepare_sigmoid_2d.cpp) examples also check mixed integer and float16 ports.
 Keep it with a resolved input when preparing that input again. Release results with their original functions.
 Earlier C and C++ entries keep weak double domain and port values.
 This interface changes no physical scope or saved-file format.
@@ -523,8 +541,6 @@ These raw operations accept only the event callback. They do not use Python cach
 Capacity and resolution results own copied region names, controls and LUT arrays in their `input` views.
 Keep the matching grid descriptor and scalar kinds when using a resolved input again.
 Nested owner fields are null. Release only the outer result with its matching v8 release function.
-The [spatial flow example](../examples/cpp/prepare_spatial_flow_2d.cpp) uses all six operations and releases original inputs before complete preparation.
-It uses a small LUT for checks of ownership and typed ports. This smoke test does not qualify the LUT's physical accuracy.
 
 ## Spatial host cache interface
 
@@ -574,7 +590,7 @@ Nominal side values stay separate from design porosity, solid conductivity and c
 The stage does not calculate a new offset model for each zone.
 Release only the outer complete result, through its matching v10 release function.
 Earlier preparation layouts and scopes remain unchanged.
-The [offset example](../examples/cpp/offset_2d.cpp) prepares, runs and evaluates uniform, stripe, rectangle and sigmoid cases through v10 and saved v2.
+The [offset example](../examples/cpp/offset_2d.cpp) prepares, runs and evaluates uniform, stripe, rectangle and sigmoid cases through v10 and saved v4.
 Its small sigmoid LUT checks the interface, not physical accuracy.
 
 ## Version 11 geometry fields
@@ -676,28 +692,14 @@ The [external result client](../examples/cpp/result_client.cpp) checks arrays an
 The [complete 2D example](../examples/cpp/air_2d.cpp) starts with raw dimensions, conditions and boundaries.
 It prepares, solves and evaluates the case without numerical fields from Python.
 It does not start or link Python.
-The [fluid preparation example](../examples/cpp/prepare_fluids_2d.cpp) prepares a CO2/water case through v2.
-It links only the preparation library and does not execute a solve.
 The [3D run example](../examples/cpp/run_3d.cpp) prepares, pauses, restores, runs and evaluates a bounded case.
 The installed plain-C smoke checks the same lifecycle and cancellation ownership.
-The [3D preparation example](../examples/cpp/prepare_3d.cpp) prepares raw CO2/water inputs with different physical lengths and grid counts on each axis.
-It checks the reverse z-direction port and field evidence, with only the preparation library.
-The [3D mass-flow example](../examples/cpp/prepare_mass_3d.cpp) resolves total flow on reverse inlet faces before complete preparation.
 The [continuous 3D example](../examples/cpp/prepare_continuous_3d.cpp) prepares both XY extrusion and XYZ controls with resolved total flows.
 The [spatial 3D example](../examples/cpp/prepare_spatial_3d.cpp) prepares overlapping XY rectangles with a nonzero global offset.
 It checks capacities, resolved flows, copied inputs and side geometry through the preparation library.
-The [mass-flow preparation example](../examples/cpp/prepare_mass_2d.cpp) queries capacities, resolves an explicit pair and prepares the case.
-It also links only preparation and does not execute a solve.
-The [continuous preparation example](../examples/cpp/prepare_continuous_2d.cpp) starts with XY decisions and total flow.
-It exposes physical fields and local drag through v4, with only the preparation library.
-The [zoned preparation example](../examples/cpp/prepare_zoned_2d.cpp) starts with raw stripe bounds and per-region L/t.
-It returns prepared fields and row drag through v5, with only the preparation library.
-The [sigmoid preparation example](../examples/cpp/prepare_sigmoid_2d.cpp) creates the production-resolution LUT and prepares two cases from raw controls.
-It reuses the LUT and links only preparation.
+The [spatial cache example](../examples/cpp/prepare_spatial_cache_2d.cpp) queries, resolves and prepares zones and sigmoid fields with typed cache and LUT callbacks.
+It links only preparation and keeps row drag and separate thermal geometry.
 Diagnostic storage must stay separate from all owned prepared views and copied controls.
-The [spatial flow example](../examples/cpp/prepare_spatial_flow_2d.cpp) queries, resolves and prepares zones and sigmoid fields through v8.
-The [spatial cache example](../examples/cpp/prepare_spatial_cache_2d.cpp) adds v9 typed cache and LUT callbacks.
-Both examples link only preparation and keep row drag and separate thermal geometry.
 The [continuous run example](../examples/cpp/continuous_2d.cpp) starts with XY decisions and fixed mass flow.
 It prepares and runs the case, releases the prepared owner, then evaluates the result.
 The [continuation example](../examples/cpp/resume_2d.cpp) creates a run from raw inputs,
@@ -707,7 +709,7 @@ The [uniform-fluid example](../examples/cpp/uniform_2d.cpp) executes all three
 stages for CO2/water. Evaluation remains valid after the prepared owner is released.
 The [Quick Design example](../examples/cpp/quick_design.cpp) starts with raw
 operating points and dimensions. It calls `prepare_quick_design`, `run_case`
-and `evaluate` through the existing v1 contract.
+and `evaluate` through the v2 preparation and run contracts.
 The [typed Quick preparation example](../examples/cpp/prepare_quick_design.cpp) uses `QuickDesignInputV2`.
 It calls `pressure_fractions` and `prepare_quick_design`, with only the preparation library.
 It does a check of owned fields and absent counterflow qtol/chunk controls without starting a solve.
@@ -743,9 +745,8 @@ Python integration, checkpoint recovery and platform delivery need their own rec
 
 ## Quick Design stage
 
-`quick_design_stage_c_api.h` keeps the native-double v1 preparation and run contracts.
-Its separate preparation v2 contract adds `tpmshx_prepare_quick_design_v2` and `tpmshx_quick_pressure_fractions_v2`.
-No published v1 layout changes. `quick_design_prepare_v2.cpp` owns both new numerical sequences.
+`quick_design_stage_c_api.h` gives the preparation v2 contract: `tpmshx_prepare_quick_design_v2` and `tpmshx_quick_pressure_fractions_v2`.
+The native-double v1 preparation and run entries were removed on 2026-11-23. `quick_design_prepare_v2.cpp` owns both numerical sequences.
 The preparation library reuses geometry, grid, property and analytical D-F implementations.
 The solver library uses the existing Quick Design driver. The result library evaluates its recorded fields and final-pass scalars.
 
@@ -766,7 +767,6 @@ Python reads this resource; native preparation uses generated constants.
 The Python defaults remain 16 W/(m K), `1e-5` and geometry resolution 128.
 V2 keeps absent counterflow qtol/chunk through `have_q_relative_tolerance=0` and `have_chunk_iterations=0`.
 CaseData stores both as `None`. Execution resolves them with the existing kernel defaults.
-V1 continues to return its resolved driver configuration, including `max(tol*10, 1e-4)` and chunk 250 for counterflow.
 
 Full preparation keeps this sequence: warm-start checks, labels, positive inputs, shape, geometry/material, grids and operating snapshot.
 It then evaluates A/B inlet properties, sections, A/B pressure states and pressure fractions.
@@ -845,13 +845,12 @@ The replaced `shared/models/quick_design.py` is removed. Its frozen reference in
 
 ### Prepared execution and evidence
 
-The existing v1 run stage copies supplied prepared fields without new preparation or mutation.
+The v2 run stage copies supplied prepared fields without new preparation or mutation.
 Constant properties use one thermal pass; mean properties use two. The second pass uses the first pass's returned temperatures.
 Analytical inlet pressure fractions remain fixed through both passes.
 The result owns all 15 fields, physical grid widths, pressure evidence, final-pass scalars and complete driver pass records.
 `tpmshx_quick_run_temperature_algorithm_v1` reports the temperature recipe used for the completed grid.
-Python copies this identity while the result owner is live. Earlier libraries use the standalone
-temperature recipe query.
+Python copies this identity while the result owner is live.
 Cancellation returns status 6 and publishes no result. The driver has no per-call CPU setting; existing process thread controls apply.
 
 Python passes a borrowed view of saved CaseData and copies returned fields and declarations before releasing the native result.

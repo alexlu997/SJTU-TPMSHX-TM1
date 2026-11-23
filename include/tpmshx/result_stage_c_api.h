@@ -289,10 +289,6 @@ TPMSHX_RESULT_API int TPMSHX_RESULT_CALL tpmshx_result_stage_qualification_v1(
  * Gate truth declarations and deferred comparisons still control native policy.
  * Diagnostic/cause storage is independent of the success-only output.
  */
-TPMSHX_RESULT_API int TPMSHX_RESULT_CALL tpmshx_result_stage_query_v2(
-    const tpmshx_stage_input_v2*, uint32_t,
-    const tpmshx_stage_metric_spec_v1*, const tpmshx_stage_metric_value_v1*, size_t,
-    tpmshx_stage_output_v1*, tpmshx_result_diagnostics_v1*, uint64_t*, char*, size_t);
 /* V3 uses the same queries, output ownership and deferred-error rules as v2.
  * A null model omits typed Quick operands. The execution label remains usable
  * by full-result queries.

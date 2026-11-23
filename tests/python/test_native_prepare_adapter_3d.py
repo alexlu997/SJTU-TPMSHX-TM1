@@ -8,13 +8,14 @@ import pytest
 from sjtu_tpmshx.cpp_interface._native_values import copy_array, read_text
 
 from tests.python import preparation_api_reference as reference
-from tests.python import test_native_preparation_3d as uniform
+
 from tests.python import test_native_preparation_continuous_3d as continuous
 from tests.python import test_native_preparation_spatial_3d as spatial
 from tests.python.test_native_prepare_adapter import (
     _capture, _same, _failure, _property_compute,
 )
 from sjtu_tpmshx.preprocess import api
+from tests.python import native_preparation_abi
 
 
 @pytest.fixture(autouse=True)
@@ -34,7 +35,7 @@ def _configuration(mode, topology='Gyroid', pair=('air', 'water')):
         return continuous._configuration(topology, pair, nz=3 if mode == 'xyz' else None)
     if mode in ('grid', 'offset'):
         return spatial._configuration(topology, pair, spatial=mode == 'grid', delta=.12)
-    return uniform._configuration(topology, pair)
+    return native_preparation_abi._configuration_3d(topology, pair)
 
 
 @pytest.mark.parametrize('mode', ['uniform', 'xy', 'xyz'])

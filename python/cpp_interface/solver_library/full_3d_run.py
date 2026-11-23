@@ -14,13 +14,9 @@ class NativeFull3DRun(NativeRun):
     result_type = _Result
     result_release_name = 'tpmshx_full_3d_release_v1'
 
-    def __init__(self, library, data, controls, energy, callbacks, *, model_h=None, state=None, cpu_threads=None):
+    def __init__(self, library, data, controls, energy, callbacks, *, cpu_threads, model_h=None, state=None):
         common = [ct.POINTER(_Input), ct.POINTER(_Control), ct.POINTER(_EnergyOptionsV2),
-                  ct.POINTER(_IterationOptions), ct.POINTER(_Callbacks)]
+                  ct.POINTER(_IterationOptions), ct.c_size_t, ct.POINTER(_Callbacks)]
         args = [ct.byref(data), ct.byref(controls), ct.byref(energy) if energy is not None else None,
-                ct.byref(model_h) if model_h is not None else None, ct.byref(callbacks)]
-        self.creation_version = 2 if cpu_threads is None else 3
-        if cpu_threads is not None:
-            common.insert(-1, ct.c_size_t)
-            args.insert(-1, cpu_threads)
+                ct.byref(model_h) if model_h is not None else None, cpu_threads, ct.byref(callbacks)]
         super().__init__(library, common, args, callbacks, state)

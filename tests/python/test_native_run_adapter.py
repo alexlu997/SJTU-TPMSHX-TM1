@@ -8,7 +8,6 @@ from itertools import product
 import numpy as np
 import pytest
 
-from tests.python import test_native_stage_state as state
 from tests.python.test_native_prepare_adapter import _same
 from tests.python.native.shared_library import library_path
 from sjtu_tpmshx.preprocess.api import prepare_case
@@ -17,14 +16,17 @@ from sjtu_tpmshx.data_types.portable_data import mutable_data
 from sjtu_tpmshx.data_types.model_refs import freeze_value
 from sjtu_tpmshx.file_io.case_io import load_case, save_case
 from sjtu_tpmshx.file_io.result_io import load_result, save_result
+from sjtu_tpmshx.cpp_interface import full_2d_stage
 from sjtu_tpmshx.cpp_interface.solver_library import full_2d
 from sjtu_tpmshx.cpp_interface.solver_library.full_2d_capture import capture_result
 from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
+from tests.python import native_stage_support
+from tests.python import result_stage_fixture
 
 
 def _case(spatial=False, pair=('air', 'water')):
-    config = (state.continuous._configuration(pair) if spatial else state.uniform._configuration(pair))
-    state._request(config)
+    config = (native_stage_support.continuous_plane_configuration(pair) if spatial else native_stage_support.plane_configuration(pair))
+    native_stage_support.bound_plane_controls(config)
     return config, prepare_case(config, case_id='run-adapter')
 
 
@@ -72,8 +74,6 @@ def _checked_applicability(actual, expected, case):
     wanted.pop('scope_notes')
     metadata = dict(actual.metadata)
     execution = full_execution_record(case, expected)
-    if '_native_execution_sides' in metadata:
-        _same(metadata.pop('_native_execution_sides'), execution['sides'], 'executed side records')
     if 'execution_record' in metadata:
         _same(metadata.pop('execution_record'), freeze_value(execution), 'executed native record')
     _same(metadata.pop('_native_applicability'), freeze_value(wanted), 'native applicability transfer')
@@ -89,7 +89,7 @@ def _compare(case, tmp_path, monkeypatch):
     with monkeypatch.context() as patch:
         patch.setattr(full_2d, '_pack', forbidden)
         patch.setattr(preparation_host, 'operation', forbidden)
-        actual = full_2d.run_case(case, _control(actual_events))
+        actual = full_2d_stage.run_case(case, _control(actual_events))
     actual = _checked_applicability(actual, expected, case)
     _same(replace(actual, result_id=expected.result_id), expected, 'result')
     assert list(actual.fields) == list(expected.fields)
@@ -167,8 +167,8 @@ def test_modified_saved_inputs(change, tmp_path, monkeypatch):
     native_ranges, native_reports = [], []
     query_view = full_2d_stage.executed_view
     def inspect_result(query, result):
-        view = ct.cast(ct.pointer(result.evidence), ct.POINTER(state.uniform.report.Evidence)).contents
-        native_reports.append(state.uniform._evaluate(view))
+        view = ct.cast(ct.pointer(result.evidence), ct.POINTER(result_stage_fixture.Evidence)).contents
+        native_reports.append(native_stage_support.evaluate_evidence(view))
         applicability = result.evidence.applicability.contents
         native_ranges.append((bool(applicability.inlet_recorded),
             [bool(applicability.inlet[i].captured) for i in range(len(metadata.get('applicability_inputs', ())))]))
@@ -181,7 +181,7 @@ def test_modified_saved_inputs(change, tmp_path, monkeypatch):
     public = replace(actual, metadata=dict(actual.metadata,
         execution_record=full_execution_record(modified, actual),
         applicability_evidence=capture_applicability(modified, actual, {})))
-    expected_report = state.uniform.report.python_report(public)
+    expected_report = result_stage_fixture.python_report(public)
     expected_report['source_result_id'] = case.case_id
     expected_report['qualification']['source_result_id'] = case.case_id
     (tmp_path / 'native-report.json').write_text(json.dumps(native_reports[0]))
@@ -196,8 +196,8 @@ def test_modified_saved_inputs(change, tmp_path, monkeypatch):
 def test_saved_stage_selected_controls(selection, tmp_path, monkeypatch):
     spatial = selection == 'continuous-partial'
     pair = ('air', 'water') if selection.endswith('partial') else ('sco2', 'water')
-    config = (state.continuous._configuration(pair) if spatial else state.uniform._configuration(pair))
-    state._request(config)
+    config = (native_stage_support.continuous_plane_configuration(pair) if spatial else native_stage_support.plane_configuration(pair))
+    native_stage_support.bound_plane_controls(config)
     if selection.endswith('partial'):
         config.solver.Nx = config.solver.Ny = 20
         config.flags.port_wall_refine = False
@@ -216,7 +216,7 @@ def test_saved_stage_selected_controls(selection, tmp_path, monkeypatch):
     case = prepare_case(config, case_id='run-adapter-controls')
     if selection in ('temperature_fou', 'legacy_h_fou'):
         errors, events = [], []
-        for run in (_old, full_2d.run_case):
+        for run in (_old, full_2d_stage.run_case):
             observed = []
             with pytest.raises(ValueError) as caught:
                 run(case, _control(observed))
@@ -237,7 +237,7 @@ def test_saved_stage_states_and_resume(spatial, pair, tmp_path):
     def collect(target, value):
         target.setdefault(int(value['state.phase'][0]), value)
     reference = _old(case, _control([]), checkpoint=lambda value: collect(old_states, value))
-    actual = full_2d.run_case(case, _control([]), checkpoint=lambda value: collect(stage_states, value))
+    actual = full_2d_stage.run_case(case, _control([]), checkpoint=lambda value: collect(stage_states, value))
     actual = _checked_applicability(actual, reference, case)
     _same(replace(actual, result_id=reference.result_id), reference)
     assert set(stage_states) == set(old_states)
@@ -253,7 +253,7 @@ def test_saved_stage_states_and_resume(spatial, pair, tmp_path):
                 _same(value, old_states[phase][key], f'state[{phase}].{key}')
         runtime = replace(_control([]), cpu_threads=1)
         expected = _old(case, runtime, resume_state=snapshot)
-        resumed = full_2d.run_case(case, runtime, resume_state=snapshot)
+        resumed = full_2d_stage.run_case(case, runtime, resume_state=snapshot)
         resumed = _checked_applicability(resumed, expected, case)
         _same(replace(resumed, result_id=expected.result_id), expected)
         np.savez(tmp_path / f'phase-{phase}.npz', **snapshot)
@@ -263,14 +263,14 @@ def test_saved_stage_states_and_resume(spatial, pair, tmp_path):
         budget = 'state.result.outer_history.0.model_h_iterations.value.max_iterations'
         saved[budget] = np.zeros_like(saved[budget])
         with pytest.raises(RuntimeError, match='invalid native model-h iteration record'):
-            full_2d.run_case(case, runtime, resume_state=saved)
+            full_2d_stage.run_case(case, runtime, resume_state=saved)
     (tmp_path / 'phases.json').write_text(json.dumps(sorted(stage_states)))
 
 
 def test_experimental_saved_scope_is_checked_for_new_run_and_restore(tmp_path, monkeypatch):
     from sjtu_tpmshx.applications.execution.recovery import compute_run, read_run_checkpoint
     from sjtu_tpmshx.solvers.api import run_case
-    from tests.python.test_native_preparation_fluids import _configuration
+    from tests.python.native_preparation_abi import _configuration_fluids as _configuration
 
     config = _configuration('Gyroid', ('air', 'water'), mode='experimental')
     config.geometry.L_cell_mm, config.geometry.t_wall_mm = 7., .6
@@ -299,17 +299,17 @@ def test_saved_stage_callback_exception_identity(callback):
     def broken(*args):
         raise failure
     control = replace(_control([]), **{callback: broken})
-    for run in (_old, full_2d.run_case):
+    for run in (_old, full_2d_stage.run_case):
         with pytest.raises(LookupError) as caught:
             run(case, control)
         assert caught.value is failure
-    full_2d.run_case(case, _control([]))
+    full_2d_stage.run_case(case, _control([]))
 
 
 def test_saved_stage_cancellation_and_checkpoint_error():
     from sjtu_tpmshx.run_control.cancellation import CancelledError
     _, case = _case()
-    for run in (_old, full_2d.run_case):
+    for run in (_old, full_2d_stage.run_case):
         cancel = []
         control = replace(_control([]), cancel_check=lambda: bool(cancel),
             outer_iteration=lambda *args: cancel.append(True))
@@ -321,62 +321,65 @@ def test_saved_stage_cancellation_and_checkpoint_error():
         with pytest.raises(RuntimeError) as caught:
             run(case, _control([]), checkpoint=broken)
         assert caught.value is failure
-    full_2d.run_case(case, _control([]))
+    full_2d_stage.run_case(case, _control([]))
 
 
-def test_selected_retained_runtime_has_no_new_stage_dependency(monkeypatch):
-    import os
-    retained = os.environ.get('TPMSHX_RETAINED_STAGE_LIBRARY')
-    if not retained:
-        pytest.skip('a retained stage runtime is checked by the external recovery acceptance')
-    from sjtu_tpmshx.cpp_interface import full_2d_stage
+@pytest.mark.parametrize('mode', ['cfd_smooth', 'experimental'])
+def test_unpacked_saved_settings_use_saved_v4(mode, monkeypatch):
+    """Saved settings that the native experiment record cannot hold keep a defined route."""
     _, case = _case()
-    control = replace(_control([]), native_library=retained)
-    def forbidden(*args, **kwargs):
-        raise AssertionError('retained runtime must not enter the new saved stage')
-    monkeypatch.setattr(full_2d_stage, 'run_stage', forbidden)
-    states = []
-    expected = _old(case, control)
-    actual = full_2d.run_case(case, control, checkpoint=states.append)
-    _same(replace(actual, result_id=expected.result_id), expected)
-    assert states
-    resumed = full_2d.run_case(case, control, resume_state=states[0])
-    wanted = _old(case, control, resume_state=states[0])
-    _same(replace(resumed, result_id=wanted.result_id), wanted)
+    parameters = mutable_data(case.parameters)
+    settings = parameters['run_settings']
+    if mode == 'experimental':
+        settings['df_mode'] = mode
+        geometry = settings['geometry']
+        name, = (key for key in geometry if key.startswith('L_cell'))
+        geometry[name] = np.float64(geometry[name])
+    else:
+        settings['df_mode'] = np.str_(mode)
+    changed = replace(case, parameters=parameters)
+    original, experiments = full_2d_stage.run_stage, []
+    def observe(driver, case, cfg, prepared, control, entries, experiment, **options):
+        experiments.append(bytes(experiment))
+        return original(driver, case, cfg, prepared, control, entries, experiment, **options)
+    monkeypatch.setattr(full_2d_stage, 'run_stage', observe)
+    if mode == 'experimental':
+        with pytest.raises(ValueError, match='saved experimental 2D settings lack the fields'):
+            full_2d_stage.run_case(changed, _control([]))
+        assert experiments == []
+        return
+    actual = full_2d_stage.run_case(changed, _control([]))
+    # The native run reads the experiment record only for experimental D-F.
+    assert experiments == [bytes(full_2d_stage._Experiment())]
+    expected = full_2d_stage.run_case(case, _control([]))
+    assert list(actual.fields) == list(expected.fields)
+    for name, values in expected.fields.items():
+        np.testing.assert_array_equal(actual.fields[name], values, err_msg=name)
 
 
-@pytest.mark.parametrize('version,missing', [
-    *((version, (op,)) for version in range(1, 5) for op in ('create', 'restore')),
-    (4, ('check_experiment',)), (4, ('create', 'restore')),
-])
-def test_incomplete_stage_protocol_is_not_retried(monkeypatch, version, missing):
-    original = full_2d.NativeFull2DDriver
+@pytest.mark.parametrize('missing', ['tpmshx_stage_run_2d_release_v1', 'tpmshx_stage_run_2d_get_capture_v1',
+    'tpmshx_run_saved_case_2d_v4', 'tpmshx_stage_run_2d_check_experiment_v4', 'tpmshx_stage_port_windows_fit_2d_v1'])
+def test_incomplete_stage_protocol_is_rejected(monkeypatch, missing):
+    original = full_2d_stage.StageDriver
     _, case = _case()
-    hidden = {f'tpmshx_stage_run_2d_{op}_saved_v{v}' for v in range(version + 1, 5)
-              for op in ('create', 'restore')}
-    hidden.update(f'tpmshx_stage_run_2d_{op}_saved_v{version}'
-                  for op in ('create', 'restore') if op in missing)
-    if version < 4 or 'check_experiment' in missing:
-        hidden.add('tpmshx_stage_run_2d_check_experiment_v4')
 
     class Library:
         def __init__(self, actual):
             self.actual = actual
 
         def __getattr__(self, name):
-            if name in hidden:
+            if name == missing:
                 raise AttributeError(name)
             return getattr(self.actual, name)
+
     class Driver(original):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
             self.library = Library(self.library)
-        def run_prepared(self, *args, **kwargs):
-            raise AssertionError('incomplete native protocol must not select the old driver')
-    from sjtu_tpmshx.cpp_interface import full_2d_stage
+
     monkeypatch.setattr(full_2d_stage, 'StageDriver', Driver)
     with pytest.raises(ValueError, match='incomplete saved 2D stage protocol'):
-        full_2d.run_case(case, _control([]))
+        full_2d_stage.run_case(case, _control([]))
 
 
 @pytest.mark.parametrize('property_name', ['A_0', 'H_sf'])
@@ -386,7 +389,7 @@ def test_application_input_error_stays_after_native_execution(property_name):
     parameters['static_properties']['A'][property_name] = -1.
     case = replace(case, parameters=parameters)
     messages, records = [], []
-    for run in (_old, full_2d.run_case):
+    for run in (_old, full_2d_stage.run_case):
         events = []
         with pytest.raises(ValueError) as caught:
             run(case, _control(events))
@@ -402,7 +405,7 @@ def test_model_h_controls_keep_retired_algorithm_rejection(spatial, algorithm):
     config, _ = _case(spatial)
     config.solver.enthalpy_algorithm = algorithm
     case = prepare_case(config, case_id='model-h-rejection')
-    for run in (_old, full_2d.run_case):
+    for run in (_old, full_2d_stage.run_case):
         events = []
         with pytest.raises(ValueError, match='^invalid native full enthalpy defaults request$'):
             run(case, _control(events))
@@ -439,17 +442,17 @@ def test_saved_geometry_precision_and_resume(selection, tmp_path, monkeypatch):
     def pause(snapshot):
         snapshots.append(snapshot)
         raise Paused
-    for run in (_old, full_2d.run_case):
+    for run in (_old, full_2d_stage.run_case):
         with pytest.raises(Paused):
             run(case, _control([]), checkpoint=pause)
-    state._state_equal(snapshots[1], snapshots[0])
+    native_stage_support.plane_state_equal(snapshots[1], snapshots[0])
     for key in ('input.cell_length', 'input.nu_geometry_ratio', 'input.reference_cell_length'):
         assert key in snapshots[1]
     np.savez(tmp_path / 'phase-1.npz', **snapshots[1])
     _compare(case, tmp_path, monkeypatch)
     if selection == 'cell32':
         expected = _old(case, _control([]), resume_state=snapshots[0])
-        actual = full_2d.run_case(case, _control([]), resume_state=snapshots[1])
+        actual = full_2d_stage.run_case(case, _control([]), resume_state=snapshots[1])
         actual = _checked_applicability(actual, expected, case)
         _same(replace(actual, result_id=expected.result_id), expected)
         save_result(actual, tmp_path / 'resumed-1.h5')
@@ -470,7 +473,7 @@ def test_saved_stage_rejects_inconsistent_grid(fault, message):
     else:
         parameters['boundary_openings']['A']['out_profile_frac'][0] += .25
     with pytest.raises(ValueError, match=message):
-        full_2d.run_case(replace(case, parameters=parameters), _control([]))
+        full_2d_stage.run_case(replace(case, parameters=parameters), _control([]))
 
 
 @pytest.mark.parametrize('fault, message', [
@@ -501,7 +504,7 @@ def test_saved_stage_checks_resource_identity(fault, message):
         refs[index] = replace(ref, parameters=params)
     changed = replace(case, metadata={**case.metadata, 'model_roles': roles}, model_refs=refs)
     with pytest.raises(ValueError, match=message):
-        full_2d.run_case(changed, _control([]))
+        full_2d_stage.run_case(changed, _control([]))
 
 
 @pytest.mark.parametrize('fault, message', [
@@ -525,7 +528,7 @@ def test_saved_stage_checks_design_and_drag(fault, message):
         parameters['flow_inputs']['A'][fault] = -1.
     invalid = replace(case, design_fields=fields, parameters=parameters)
     with pytest.raises(ValueError, match=message):
-        full_2d.run_case(invalid, _control([]))
+        full_2d_stage.run_case(invalid, _control([]))
 
 
 @pytest.mark.parametrize('name, field', [('eps', 'eps_arr'), ('r_h', 'r_h_arr')])
@@ -535,7 +538,7 @@ def test_saved_uniform_checks_preserve_scalar_precision(name, field):
     fields[field] = fields[field].astype(np.float32)
     scalar = np.nextafter(np.float64(fields[field][0, 0]), np.inf)
     changed = replace(case, design_fields=fields, parameters={**case.parameters, name: scalar})
-    for run in (_old, full_2d.run_case):
+    for run in (_old, full_2d_stage.run_case):
         with pytest.raises(ValueError, match='uniform design field'):
             run(changed, _control([]))
 
@@ -544,4 +547,4 @@ def test_saved_grid_direction_matches_actual_solver_direction():
     _, case = _case()
     changed = replace(case, parameters={**case.parameters, 'dir_A': case.parameters['dir_A'] ^ 1})
     with pytest.raises(ValueError, match='direction disagrees with the solver direction'):
-        full_2d.run_case(changed, _control([]))
+        full_2d_stage.run_case(changed, _control([]))

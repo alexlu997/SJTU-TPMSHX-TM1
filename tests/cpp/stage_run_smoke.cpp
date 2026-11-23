@@ -1,4 +1,5 @@
 #include <tpmshx/stages.hpp>
+#include <algorithm>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -32,84 +33,45 @@ void write(const std::filesystem::path& directory,const tpmshx_stage_run_result_
     }
     require(index.good(),"could not write stage field index");
 }
-void check_saved(const tpmshx_preparation_case_2d_v1& prepared,tpmshx::stages::RunControl control) {
+void check_saved(const tpmshx::stages::PreparedFlowCase2Dv10& calibrated,tpmshx::stages::RunControl control) {
     using namespace tpmshx::stages;
-    tpmshx_preparation_case_2d_v2 view{};
-    view.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION_V2;view.struct_size=sizeof(view);view.values=prepared;
+    const SavedCase2Dv4 saved(calibrated);
+    const auto& prepared=calibrated.view().values.prepared.values;
     const auto cells=prepared.nx*prepared.ny;
     std::vector<double> area(cells,prepared.area_density_per_m),diameter(cells,prepared.hydraulic_diameter_m);
-    std::vector<double> permeability[2],forchheimer[2];
-    for(size_t side=0;side<2;++side) {
-        permeability[side].assign(cells,prepared.sides[side].row_permeability.data[0]);
-        forchheimer[side].assign(cells,prepared.sides[side].row_forchheimer.data[0]);
-        view.values.sides[side].permeability={permeability[side].data(),cells};
-        view.values.sides[side].forchheimer={forchheimer[side].data(),cells};
-    }
     std::vector<uint32_t> captured(prepared.range_count,1);
-    SavedCase2D saved;saved.prepared=&view;saved.area_density_per_m={area.data(),cells};
-    saved.hydraulic_diameter_m={diameter.data(),cells};saved.range_captured=captured.data();
+    tpmshx_stage_saved_case_2d_v4 copy=saved;
+    auto& values=copy.values.values.values;
+    values.area_density_per_m={area.data(),cells};values.hydraulic_diameter_m={diameter.data(),cells};
+    values.range_captured=captured.data();
     void* handle=nullptr;char error[4096]="preserve-saved-error";
-    auto malformed=saved;malformed.range_captured=reinterpret_cast<const uint32_t*>(&handle);
+    const auto create=[&](const tpmshx_stage_saved_case_2d_v4& value) {
+        return tpmshx_stage_run_2d_create_saved_v4(&value,nullptr,&control,&handle,error,sizeof(error));
+    };
     require(prepared.range_count>0,"saved smoke requires prepared ranges");
-    require(tpmshx_stage_run_2d_create_saved_v1(&malformed,nullptr,&control,&handle,error,sizeof(error))==1,
-        "saved capture flags alias output");
+    auto malformed=copy;malformed.values.values.values.range_captured=reinterpret_cast<const uint32_t*>(&handle);
+    require(create(malformed)==1,"saved capture flags alias output");
     require(!handle && std::strcmp(error,"preserve-saved-error")==0,"saved flag alias changed output or error");
-    malformed=saved;malformed.area_density_per_m.data=reinterpret_cast<const double*>(error);
-    require(tpmshx_stage_run_2d_create_saved_v1(&malformed,nullptr,&control,&handle,error,sizeof(error))==1,
-        "saved geometry aliases error storage");
+    malformed=copy;malformed.values.values.values.area_density_per_m.data=reinterpret_cast<const double*>(error);
+    require(create(malformed)==1,"saved geometry aliases error storage");
     require(!handle && std::strcmp(error,"preserve-saved-error")==0,"saved geometry alias changed output or error");
-    malformed=saved;--malformed.hydraulic_diameter_m.size;
-    require(tpmshx_stage_run_2d_create_saved_v1(&malformed,nullptr,&control,&handle,error,sizeof(error))==1 && !handle,
-        "saved geometry extent mismatch accepted");
-    malformed=saved;malformed.cell_field_kind.precision=24;
-    require(tpmshx_stage_run_2d_create_saved_v1(&malformed,nullptr,&control,&handle,error,sizeof(error))==1 && !handle,
-        "saved geometry accepted an invalid precision");
+    malformed=copy;--malformed.values.values.values.hydraulic_diameter_m.size;
+    require(create(malformed)==1 && !handle,"saved geometry extent mismatch accepted");
+    malformed=copy;malformed.values.values.values.cell_field_kind.precision=24;
+    require(create(malformed)==1 && !handle,"saved geometry accepted an invalid precision");
     captured[0]=2;
-    require(tpmshx_stage_run_2d_create_saved_v1(&saved,nullptr,&control,&handle,error,sizeof(error))==1 && !handle,
-        "saved range capture flag accepted invalid value");
-    captured[0]=0;saved.inlet_recorded=0;
+    require(create(copy)==1 && !handle,"saved range capture flag accepted invalid value");
+    captured[0]=0;copy.values.values.values.inlet_recorded=0;
     auto state=[&] {
-        Run2D run(saved,control);
+        Run2D run(copy,control);
         require(run.advance_step()==TPMSHX_FULL2D_OUTER_BOUNDARY,"saved stage initial boundary changed");
         require(run.advance_step()==TPMSHX_FULL2D_FLOW,"saved stage flow boundary changed");
         return run.snapshot();
     }();
     {
-        auto raw=view;
-        SavedCase2Dv3 current;
-        current.values.values=saved;
-        current.values.values.prepared=&raw;
-        current.lengths_m[0]=prepared.input.length_m;
-        current.lengths_m[1]=prepared.input.height_m;
-        current.resource_topology={"Gyroid",6};
-        std::vector<double> stream[2];
-        for (auto& kind:raw.field_kinds) kind={64,1,2};
-        for (size_t i=0;i<2;++i) {
-            auto& side=raw.values.sides[i];
-            auto& grid=current.flow_grid[i];
-            grid.direction=side.inlet.port.direction;
-            grid.cross=grid.direction<2?prepared.dy:prepared.dx;
-            const auto axis=grid.direction<2?prepared.dx:prepared.dy;
-            stream[i].assign(axis.data,axis.data+axis.size);
-            if (grid.direction==1 || grid.direction==3) std::reverse(stream[i].begin(),stream[i].end());
-            grid.stream={stream[i].data(),stream[i].size()};
-            grid.cross_precision=64;
-            for (size_t j=0;j<4;++j)
-                grid.bounds[j]={j<2?side.inlet_bounds[j]:side.outlet_bounds[j-2],64,0};
-            current.resource_fluids[i]={"air",3};
-            side.outlet_u_fraction={};
-        }
-        Run2D run(current,control);
-        Run2D resumed(current,control,{},&state);
-        require(resumed.phase()==TPMSHX_FULL2D_FLOW,"saved v3 lost the restored phase");
-        tpmshx_stage_saved_case_2d_v4 experiment{};
-        experiment.abi_version=TPMSHX_STAGE_RUN_ABI_VERSION_V4;experiment.struct_size=sizeof(experiment);
-        experiment.values=current;
-        experiment.experiment.topology=1;
-        experiment.experiment.domain_count=2;
-        experiment.experiment.domain_m[0]=.182;experiment.experiment.domain_m[1]=.042;
-        experiment.experiment.cell_length_mm=7.;experiment.experiment.wall_thickness_mm=.6;
-        experiment.experiment.velocity_m_s[0]=experiment.experiment.velocity_m_s[1]=10.;
+        Run2D resumed(saved,control,{},&state);
+        require(resumed.phase()==TPMSHX_FULL2D_FLOW,"saved v4 lost the restored phase");
+        auto experiment=static_cast<tpmshx_stage_saved_case_2d_v4>(saved);
         require(!tpmshx_stage_run_2d_create_saved_v4(&experiment,nullptr,&control,&handle,error,sizeof(error))
             && handle,"saved v4 rejected the original campaign");
         tpmshx_stage_run_2d_release_run_v1(&handle);
@@ -151,14 +113,14 @@ void check_saved(const tpmshx_preparation_case_2d_v1& prepared,tpmshx::stages::R
         require(tpmshx_stage_port_windows_fit_2d_v1(.125,.0625,.125,.0625,.125)==1
             && tpmshx_stage_port_windows_fit_2d_v1(.125,.0625,.125,.125,.125)==0,
             "saved port windows must fit the physical cross axis");
-        auto invalid=current;
-        invalid.resource_topology={error,2};
+        auto invalid=static_cast<tpmshx_stage_saved_case_2d_v4>(saved);
+        invalid.values.resource_topology={error,2};
         std::strcpy(error,"preserve-saved-error");
-        require(tpmshx_stage_run_2d_create_saved_v3(&invalid,nullptr,&control,&handle,error,sizeof(error))==1
-            && !handle && std::strcmp(error,"preserve-saved-error")==0,"saved v3 overwrote a borrowed string");
+        require(create(invalid)==1 && !handle && std::strcmp(error,"preserve-saved-error")==0,
+            "saved v4 overwrote a borrowed string");
     }
     control.cpu_threads=1;control.callbacks.cancel=cancel;
-    Run2D restored(saved,control,{},&state);
+    Run2D restored(copy,control,{},&state);
     require(restored.phase()==TPMSHX_FULL2D_FLOW,"saved restore lost its phase");
     restored.finish();
     require(restored.phase()==TPMSHX_FULL2D_CANCELLED,"saved restore ignored cancellation");
@@ -170,51 +132,56 @@ int main(int argc,char** argv) {
     using namespace tpmshx::stages;
     try {
         auto prepared=prepare_case(input());
+        const SavedCase2Dv4 saved(prepared);
         tpmshx_stage_run_result_2d_v1 failure{};
         failure.abi_version=TPMSHX_STAGE_RUN_ABI_VERSION;failure.struct_size=sizeof(failure);failure.raw.q_total=-123.;
         const auto before=failure;
-        auto malformed=prepared.view();--malformed.total_porosity.size;
+        auto view=*saved.values.values.values.prepared;--view.values.total_porosity.size;
+        tpmshx_stage_saved_case_2d_v4 malformed=saved;malformed.values.values.values.prepared=&view;
         RunControl control;control.result_id="stage-smoke";control.cpu_threads=2;
         char error[4096]{};
-        require(tpmshx_run_case_2d_v1(&malformed,nullptr,&control,&failure,error,sizeof(error))==1,"malformed field accepted");
+        const auto run_saved=[&](const tpmshx_stage_saved_case_2d_v4& value,const tpmshx_stage_run_request_2d_v3* request,
+                                 const tpmshx_stage_run_control_v1* selected,char* message,size_t capacity) {
+            return tpmshx_run_saved_case_2d_v4(&value,request,selected,&failure,message,capacity);
+        };
+        require(run_saved(malformed,nullptr,&control,error,sizeof(error))==1,"malformed field accepted");
         require(std::memcmp(&failure,&before,sizeof(failure))==0,"failed stage changed output");
         const std::string storage_error=error;
-        require(tpmshx_run_case_2d_v1(&prepared.view(),nullptr,
-            reinterpret_cast<const tpmshx_stage_run_control_v1*>(&failure),&failure,error,sizeof(error))==1,
-            "control aliases the complete output");
+        require(run_saved(saved,nullptr,reinterpret_cast<const tpmshx_stage_run_control_v1*>(&failure),
+            error,sizeof(error))==1,"control aliases the complete output");
         require(storage_error==error && std::memcmp(&failure,&before,sizeof(failure))==0,
                 "control alias changed output or escaped boundary validation");
-        malformed=prepared.view();malformed.dx.data=reinterpret_cast<const double*>(&failure);
-        require(tpmshx_run_case_2d_v1(&malformed,nullptr,&control,&failure,error,sizeof(error))==1,
+        view=*saved.values.values.values.prepared;view.values.dx.data=reinterpret_cast<const double*>(&failure);
+        require(run_saved(malformed,nullptr,&control,error,sizeof(error))==1,
                 "prepared array aliases the complete output");
         require(storage_error==error && std::memcmp(&failure,&before,sizeof(failure))==0,
                 "array alias changed output or escaped boundary validation");
         control.result_id=reinterpret_cast<const char*>(&failure);
-        require(tpmshx_run_case_2d_v1(&prepared.view(),nullptr,&control,&failure,error,sizeof(error))==1,
-                "result label aliases output");
+        require(run_saved(saved,nullptr,&control,error,sizeof(error))==1,"result label aliases output");
         require(storage_error==error && std::memcmp(&failure,&before,sizeof(failure))==0,
                 "label alias changed output or escaped boundary validation");
         char label[128]="preserve-label";
         char original_label[sizeof(label)];std::memcpy(original_label,label,sizeof(label));
-        malformed=prepared.view();malformed.dx.data=nullptr;
+        view=*saved.values.values.values.prepared;view.values.dx.data=nullptr;
         control.result_id=label;
-        require(tpmshx_run_case_2d_v1(&malformed,nullptr,&control,&failure,label,sizeof(label))==1,
+        require(run_saved(malformed,nullptr,&control,label,sizeof(label))==1,
                 "interrupted storage check accepted invalid input");
         require(std::memcmp(label,original_label,sizeof(label))==0 && std::memcmp(&failure,&before,sizeof(failure))==0,
                 "interrupted storage check changed an unvisited label");
         control.result_id="stage-smoke";
         control.callbacks.cancel=cancel;
-        require(tpmshx_run_case_2d_v1(&prepared.view(),nullptr,&control,&failure,error,sizeof(error))==4,"cancellation status changed");
+        require(run_saved(saved,nullptr,&control,error,sizeof(error))==6,"cancellation status changed");
         require(std::memcmp(&failure,&before,sizeof(failure))==0,"cancelled stage published a result");
         for(const auto option:{tpmshx_model_h_iteration_options_v1{5000,0.,0.},
                               tpmshx_model_h_iteration_options_v1{0,.001,0.},
                               tpmshx_model_h_iteration_options_v1{0,0.,.001}}) {
-            RunRequest2D request;request.model_h=option;
-            require(tpmshx_run_case_2d_v1(&prepared.view(),&request,&control,&failure,error,sizeof(error))==4,
+            RunRequest2Dv3 request;request.values.values.model_h=option;
+            require(run_saved(saved,&request,&control,error,sizeof(error))==6,
                     "model-h controls conflict with implicit energy defaults");
             require(std::memcmp(&failure,&before,sizeof(failure))==0,"model-h cancellation changed output");
-            const tpmshx_energy_options_v1 energy{TPMSHX_ENERGY_TEMPERATURE_SOU,1e-8};request.energy=&energy;
-            require(tpmshx_run_case_2d_v1(&prepared.view(),&request,&control,&failure,error,sizeof(error))==1,
+            const tpmshx_energy_options_v1 energy{TPMSHX_ENERGY_TEMPERATURE_SOU,1e-8};request.values.values.energy=&energy;
+            request.values.values.explicit_energy=nullptr;request.energy_iterations={1,3};
+            require(run_saved(saved,&request,&control,error,sizeof(error))==1,
                     "explicit conflicting energy options accepted");
             require(std::memcmp(&failure,&before,sizeof(failure))==0,"option conflict changed output");
         }
@@ -223,7 +190,7 @@ int main(int argc,char** argv) {
         experimental.values=input();
         experimental.values.df_mode=1;experimental.values.wall_thickness_mm=.6;
         auto calibrated=prepare_case(experimental);
-        check_saved(calibrated.view().values,control);
+        check_saved(calibrated,control);
         auto run=[&] {auto local=prepare_case(input());return run_case(local,control);}();
         // The prepared owner has gone. All saved evidence must remain valid.
         const auto* records=tpmshx_stage_run_2d_records_v1(&run.view());

@@ -2,6 +2,35 @@
 
 [中文](native-stages.zh-CN.md) | [English](native-stages.md)
 
+## 现行 C ABI
+
+2026-11-23 起，每个原生库对产品使用的每项操作只保留最新入口。
+下表列出现行入口。这些操作的其他版本不再导出。
+
+| 阶段 | 现行入口 |
+| --- | --- |
+| 二维准备 | `tpmshx_prepare_inlet_mass_capacities_2d_v7`、`tpmshx_resolve_inlet_flow_2d_v7` 及其连续场 v7 形式；分区和 sigmoid 的容量查询与流量解析 v10；`tpmshx_prepare_flow_case_2d_v10`、`tpmshx_prepare_zoned_flow_case_2d_v10`、`tpmshx_prepare_sigmoid_flow_case_2d_v10`、`tpmshx_prepare_continuous_flow_case_2d_v11` 和 `tpmshx_prepare_stripe_flow_case_2d_v11` |
+| 三维准备 | continuous v3 和 spatial v4 的容量查询、流量解析与完整准备 |
+| Quick Design 准备 | `tpmshx_prepare_quick_design_v2` 和 `tpmshx_quick_pressure_fractions_v2` |
+| 二维阶段运行 | `tpmshx_run_saved_case_2d_v4`；检查点使用 `tpmshx_stage_run_2d_create_saved_v4` 和 `tpmshx_stage_run_2d_restore_saved_v4` |
+| 三维阶段运行 | `tpmshx_run_saved_case_3d_v2`；检查点使用 `tpmshx_stage_run_3d_create_saved_v2` 和 `tpmshx_stage_run_3d_restore_saved_v2` |
+| 直接完整求解 | `tpmshx_solve_full_2d_v6` 和 `tpmshx_solve_full_3d_v5`；检查点使用 `tpmshx_full_2d_run_create_v2`、`tpmshx_full_2d_run_restore_v2`、`tpmshx_full_3d_run_create_v3` 和 `tpmshx_full_3d_run_restore_v3` |
+| Quick Design 运行 | `tpmshx_run_quick_design_v2` |
+| 结果阶段 | `tpmshx_result_stage_query_v3` |
+
+此次整合删除以下入口：
+
+- 二维完整准备 v1 至 v9、三维准备 v1 和三维流量准备 v2。
+- Quick Design 准备及运行 v1。
+- 二维一次性运行 v1 至 v3、三维一次性运行 v1、准备视图运行创建 v1，以及早于上表版本的保存描述符。
+- 二维 v6、三维 v5 之前的直接完整求解，以及对应的早期续算入口。
+- 结果阶段查询 v2。
+
+现行入口使用的释放函数、ABI 版本查询、记录及其他查询继续可用。
+早期布局可作为现行描述符的嵌套成员保留。
+库缺少所需现行入口时属于部署错误。Python 不选择归档运行库或其他入口。
+后续章节对早期版本的描述只记录其历史。调用时只使用上表入口。
+
 ## 范围
 
 原生阶段工作增加可独立调用的准备、执行和评估接口。Python 保留公共入口与原有数据契约。
@@ -12,10 +41,10 @@
 准备 v2 在相同几何和入口模式下支持 air、water、sCO2、CO2 的全部 16 个有序配对，
 保留现有实验 DF 和 sCO2 Nu 选择、状态检查及适用限制，并分别保存两侧模型证据。
 run v2 通过现有 model-h 或 true-h 驱动消费准备 v2。
-run v1 保留 air/air CFD 范围及已公开布局。
+run v1 和 v2 入口已于 2026-11-23 删除，其请求布局保留在现行请求中。
 非零 delta、分区、连续场和规定质量流量仍不在这一准备 v2 范围内。
 这些限制不删除现有 Python 工作流支持的任何模式。
-Quick Design 保留面向 air、water、sCO2 的 native-double v1 准备及运行接口。
+Quick Design 支持 air、water 和 sCO2。其 native-double v1 准备及运行入口已于 2026-11-23 删除。
 准备 v2 增加带类型的原始输入及独立压降分数查询。
 Python 使用 v2 准备，通过固定具名宿主操作保留既有值协议。
 准备／查询的流体注册表包括 CO2；这不扩大既有 air/water/sCO2 LTNE 运行范围。
@@ -65,7 +94,7 @@ Python 将 case notices 与运行期 `nu-evidence` 警告记录合并为 `scope_
 它保留这些记录的顺序并移除重复消息。
 完成的求解阶段对每个活跃 sCO2 侧生成一次运行告警。
 Python 在原有告警作用域中按原顺序发布。
-直接及归档运行库路径保留 `capture_applicability`；捕获错误不选择该路径。
+直接完整求解路径保留 `capture_applicability`；捕获错误不选择该路径。
 `tpmshx_stage_run_2d_execution_view_v1` 与 `tpmshx_stage_run_3d_execution_view_v1` 发布已完成求解的数值证据。
 这些视图提供实际热控制、能量记录、更新尺度和选定的 model-h 调用。
 视图与求解结果共用存储，须在释放结果前复制。
@@ -116,7 +145,6 @@ C 入口是 `preparation_case_c_api.h` 中的 `tpmshx_query_inlet_properties_v1`
 Python `tpms_calc.compute` 保留公开字段、缓存方法，以及每次返回独立可变副本的行为。
 它先选择几何再调用查询，在缓存查询后通过既有材料实现计算当前 K_ss。
 绑定与完整准备共享范围和警告传输。
-[流体准备示例](../examples/cpp/prepare_fluids_2d.cpp) 也通过安装后的头文件查询全部四种流体。
 
 ## 所有权和单位
 
@@ -139,7 +167,7 @@ Python `tpms_calc.compute` 保留公开字段、缓存方法，以及每次返�
   失败结果为宿主保留状态细节和异常 cause；Python 特有的类型及对象检查仍由宿主负责。
 - 任一 CO2 侧会为两侧选择共同的 CO2 几何。固定阻力和 Nu 因子只应用于 CO2 侧，sCO2 仍是独立模型。
   二维实验 DF 修正流动种子和行数组；入口静态 DF 保留原 CFD 值，并在适用时包含 CO2 固定因子。
-- 现有低层 ABI 版本继续保留。归档运行库恢复保存的运行态时，不得依赖新增准备符号。
+- [现行 C ABI](#现行-c-abi) 列出导出的入口。运行只能用同一构建恢复其保存态。
 - run v2 记录实际热质量流、边界功率、能量设置和证书，供结果评估使用。
   它复制准备阶段 notice，保留当前 sCO2 适用范围限制，不为未经验证的模型授予合格结论。
 - run v2 使用 v1 结果 owner 和释放函数。取消状态为 6，状态 4 保留完整驱动的包络失败含义。
@@ -147,7 +175,7 @@ Python `tpms_calc.compute` 保留公开字段、缓存方法，以及每次返�
 
 ## 运行续算
 
-`Run2D` 接收均匀 v2 或连续 v4 准备视图，或保存输入的 v1、v2 或 v3 描述符，支持创建、步进、阶段查询、快照、恢复及结果转移。
+`Run2D` 接收 saved v4 描述符，`saved_case` 由 v10 或 v11 准备 owner 生成该描述符。它支持创建、步进、阶段查询、快照、恢复及结果转移。
 它复用现有完整二维状态机和带类型的状态，不重置已消耗的计算工作。
 恢复必须使用相同构建、准备输入和数值控制；正的 CPU 线程数可以改变。
 
@@ -175,7 +203,7 @@ Python `tpms_calc.compute` 保留公开字段、缓存方法，以及每次返�
 `saved_case` 将 v10 准备 owner 转为借用描述符。
 描述符及准备 owner 必须保持存活且不可修改，直到结果转移或运行释放。
 v10 的 `run_case` 重载在整个同步调用期间保留该描述符。
-新增 create/restore 入口沿用既有生命周期、快照与结果 owner；保存输入 v1 的布局不变。
+create/restore 入口沿用既有生命周期、快照与结果 owner。
 保存描述符的版本不改变结果释放接口；转移后的二维结果使用 `tpmshx_stage_run_2d_release_v1` 释放。
 
 v3 阶段核对物理长度、流向网格、端口开度、设计场及模型引用。
@@ -186,18 +214,15 @@ v3 阶段核对物理长度、流向网格、端口开度、设计场及模型�
 完整求解通过 `tpmshx_stage_borrow_mesh_v1` 取得已核对的单元宽度和热学几何。该阶段逐项对照宽度累加值与边界坐标，并检查轴映射。它与结果查询共用数值缓冲区描述，直接借用已对齐的本机双精度数组。对于均匀三维几何，宿主各传一个面积密度和水力直径，C++ 在求解器自己的存储区展开。其他数值布局、旧库及无效网格沿用可移植数据的检查和报错。
 
 求解库与准备库共用二维端口的物理边界判定。对保存的双精度参数，`tpmshx_stage_port_windows_fit_2d_v1` 检查进、出口是否落在横向尺寸内。宿主给出详细错误，并负责其他输入类型及早期库的校验。
-普通新算在运行库提供 `tpmshx_run_saved_case_2d_v4` 时直接调用它，由 C++ 持有运行状态并交付结果。保存检查点、续算和旧库调用使用步进接口。
+普通新算直接调用 `tpmshx_run_saved_case_2d_v4`，由 C++ 持有运行状态并交付结果。保存检查点和续算使用步进接口。
 二维和三维原生调用的能量选项为空时，求解器读取由 `model_parameters_v1.json` 的 `native_controls` 生成的默认值，当前为 T-SOU 和 1e-8 K。Python 将准备工况记录的算法和容差传给求解器，包括与默认值相同的值。
 saved v4 在 v3 字段外携带原始实验模型设置。
 新算及续算与准备共用原生适用域规则。
 两者首先校验原始记录，然后结合准备态的模型、名义单元几何和已解析入口速度核对原始实验域。
 实验设置查询让宿主在打包其他保存字段之前核对这份设置。
 指定总质量流量的一侧在新算或续算时校验已解析速度。
-旧保存协议继续接受原布局和转换规则。
-较早的运行库使用 saved v3、saved v2 或 saved v1。
-saved v1 接收对称均匀或连续输入。
-不具备适用保存协议的归档库继续使用原接口。
-新协议不完整或运行失败时直接报错。所有查询、状态释放和结果释放使用所选的同一库。
+实验记录无法容纳的保存设置使用空实验记录。若这些设置选择实验 D-F，宿主拒绝该工况并要求重新准备。
+库缺少完整 saved v4 协议或运行失败时直接报错。所有查询、状态释放和结果释放使用所选的同一库。
 现有保存格式、同构建恢复要求、CPU 变更规则与公共 Python 接口保持不变。
 
 ## 捕获标量
@@ -212,7 +237,7 @@ saved v1 接收对称均匀或连续输入。
 NaN、无穷大和有符号零保留现有算术行为。
 复制的摘要不持有指针，结果释放后仍然有效。
 场、历史和数值账本继续通过现有原始证据查询取得。
-标量映射和历史运行库的捕获计算保留原有行为。
+标量映射保留原有行为。
 
 `tpmshx_stage_run_2d_zone_temperatures_v1` 按保存的分区汇总主网格求解完成时的温度。
 它与独立结果查询使用相同的面积权重、分区顺序和物理边界位置。
@@ -258,8 +283,8 @@ run v3 通过现有 model-h 或 true-h 驱动消费准备 v4，按原顺序使�
 
 ## 均匀三维准备
 
-`prepare_case(CaseInput3D)` 调用 `preparation_case_3d_c_api.h` 中的
-`tpmshx_prepare_case_3d_v1`，返回拥有独立存储的 `PreparedCase3D`。
+`prepare_case(CaseInput3D)` 将输入放入 spatial v4 输入，调用 `preparation_case_3d_c_api.h` 中的
+`tpmshx_prepare_flow_case_3d_v4`，返回拥有独立存储的 `PreparedSpatialCase3D`。
 输入必须给出三个正的物理长度、三个网格数和显式单元数上限。
 深度不可省略，`Nz` 至少为 2；C++ 输入的默认上限为 2,000,000 个单元。
 宿主在调用前解析配置及环境中的上限，库本身不读取这些设置。
@@ -344,7 +369,7 @@ model-h 与 EOS 控制冲突保留原拒绝规则。
 Python 适配器在创建该视图前保留公共保存 schema 校验。
 
 结果拥有完整原生三维 DTO、通用 v1 证据和 v2 评估输入，在准备态及运行释放后继续有效。
-用 `evaluation` 成员调用 `tpmshx_result_stage_query_v2`；C++ `evaluate` 重载已采用这一入口。
+用 `evaluation` 成员调用 `tpmshx_result_stage_query_v3`；C++ `evaluate` 重载已采用这一入口。
 v2 输入保留显式为 None 的质量面记录；仅 v1 视图无法表达该状态。
 所有原始查询须使用创建它的求解库；raw 视图借用于阶段结果，不得单独释放。
 捕获用最终 SIMPLE 场记录压力和显示；质量、热压力及能量证据采用最后完成的热态输入。
@@ -355,22 +380,18 @@ C 状态 1、2、3、4 分别表示无效输入、水状态、算术或原生失
 状态零表示结果已转移，不代表收敛；取消结果保留 `raw.stop=2` 的原始诊断，不发布已完成评估证据。
 成功结果只可转移一次；输出与错误缓冲区不得与输入或彼此重叠。
 当前三维计算和检查点恢复使用保存态 v2 描述符。
-普通新算在运行库提供 `tpmshx_run_saved_case_3d_v2` 时直接调用它，由 C++ 持有运行状态并交付结果。保存检查点、续算和旧库调用使用步进接口。
+普通新算直接调用 `tpmshx_run_saved_case_3d_v2`，由 C++ 持有运行状态并交付结果。保存检查点和续算使用步进接口。
 C++ 在首次推进前核对物理尺寸、轴映射、端口开度、模型资源及单元设计场。
 Python 适配器检查可移植数组的形状，并保持借用缓冲区有效。
-独立调用者和归档运行库仍可使用保存态 v1。
 `full_3d_stage.py` 从 CaseData 传入已保存的网格、设计场、端口和轴映射。
-运行库提供保存态 v2 和执行视图时，适配器使用现行原生阶段。
-早期捕获库使用各自的保存态生命周期和结果查询。
-早期直接运行库使用各自的直接运行和恢复接口。
-这些路径共用数组传递、回调和原始结果解码。
-绑定在执行前选择完整协议，直接报告协议缺项和原生错误。
+适配器要求保存态 v2 和执行视图。
+绑定在执行前核对完整协议，直接报告协议缺项和原生错误。
 
 `capture_summary(result, include_audit)` 返回单元数、热源合计、压力截断次数和 Nu 统计。
 可选审计出口数组保留历史显示 taper，不替代物理开口。
 Python 在释放阶段结果之前复制这些值。
 `full_3d_stage.py` 发布现行 FieldResult。
-直接低层 DTO 调用者和归档运行库保留原捕获计算，直到这些受支持消费者有通过验收的替代实现。
+直接 v5 驱动为原生求解器验证测试保留原捕获计算，直到这些测试有通过验收的替代实现。
 公共 schema、模型选择、警告顺序和不可变结果缓冲区保持原契约。
 真实三维 BO 和可见桌面验收仍有独立关口。
 
@@ -431,9 +452,7 @@ LUT 和准备结果须分别用对应的 v6 函数释放。
 准备 v7 增加 `GridKinds2D`，描述既有域长及每侧四个端口值的标量类型。
 网格、开口、入口容量和空间采样保留 NumPy 整数及 float16/32/64 的运算规则。
 C++ 调用将描述符作为第二个参数，将准备选项作为第三个参数。
-[类型网格示例](../examples/cpp/prepare_typed_grid_2d.cpp)检查固定质量流量下的整数与 float16 混合端口。
 C 入口将相同描述符与既有 v3-v6 输入及输出布局配对使用。
-[分区](../examples/cpp/prepare_zoned_2d.cpp)和 [sigmoid](../examples/cpp/prepare_sigmoid_2d.cpp) 示例也检查整数与 float16 混合端口。
 若再次准备已解析输入，须同时保留描述符；结果仍用原对应函数释放。
 此前的 C 和 C++ 入口继续将域长及端口值作为弱类型 double。
 该接口不改变物理范围或保存文件格式。
@@ -459,8 +478,6 @@ C 入口将相同描述符与既有 v3-v6 输入及输出布局配对使用。
 容量和解析结果的 `input` 视图拥有复制后的区域名称、控制点与 LUT 数组。
 再次使用解析输入时，须保留匹配的网格描述符与标量类型。
 嵌套 owner 为空，只用对应的 v8 释放函数释放外层结果。
-[空间流量示例](../examples/cpp/prepare_spatial_flow_2d.cpp)使用全部六个操作，并在完整准备前释放原始输入。
-它用小型 LUT 检查所有权与保留类型的端口，不构成 LUT 物理精度验收。
 
 ## 空间几何宿主缓存接口
 
@@ -509,7 +526,7 @@ Python 负责内存、磁盘查询与发布；未命中时按既有 41x31 节点
 名义侧值与设计孔隙率、固体导热率和逐单元热几何保持分开，不逐区计算新的偏移模型。
 只用匹配的 v10 释放函数释放完整结果的外层 owner。
 此前准备布局与范围均保持不变。
-[偏移示例](../examples/cpp/offset_2d.cpp)通过 v10 和 saved v2 对均匀、条带、矩形及 sigmoid 工况执行准备、求解与评估。
+[偏移示例](../examples/cpp/offset_2d.cpp)通过 v10 和 saved v4 对均匀、条带、矩形及 sigmoid 工况执行准备、求解与评估。
 其中的小型 sigmoid LUT 只检查接口，不验证物理精度。
 
 ## v11 几何字段
@@ -597,33 +614,21 @@ target_link_libraries(my_program PRIVATE tpmshx::result)
 [外部结果客户端](../examples/cpp/result_client.cpp)通过公开头文件检查数组并评估历史证据。
 [完整二维示例](../examples/cpp/air_2d.cpp)从原始尺寸、工况和边界输入开始，依次准备、求解并评估。
 它不读取 Python 预生成的数值场，也不启动或链接 Python。
-[多流体准备示例](../examples/cpp/prepare_fluids_2d.cpp)通过 v2 准备 CO2/water，
-只链接准备库，不执行求解。
 [三维运行示例](../examples/cpp/run_3d.cpp) 准备、暂停、恢复、运行并评估一个限预算工况。
 安装后的纯 C 检查覆盖相同生命周期及取消所有权。
-[三维准备示例](../examples/cpp/prepare_3d.cpp)从原始 CO2/water 输入生成各轴长度及网格数不同的物理网格，
-检查反向 z 端口和字段证据，只链接准备库。
-[三维质量流量示例](../examples/cpp/prepare_mass_3d.cpp)在反向入口面解析总流量后完成准备。
 [连续三维示例](../examples/cpp/prepare_continuous_3d.cpp)在解析总流量后，分别准备 XY 挤出和 XYZ 控制点。
 [空间三维示例](../examples/cpp/prepare_spatial_3d.cpp)准备带非零全局偏置的重叠 XY 矩形，
 通过准备库检查容量、解析流量、输入副本和侧几何。
-[质量流量准备示例](../examples/cpp/prepare_mass_2d.cpp)查询容量、解析显式双侧目标，再准备工况；
-它同样只链接准备库，不执行求解。
-[连续场准备示例](../examples/cpp/prepare_continuous_2d.cpp)从 XY 决策和总流量开始，通过 v4 提供物理场与局部阻力，且只链接准备库。
-[分区准备示例](../examples/cpp/prepare_zoned_2d.cpp)从原始条带边界和逐区 L/t 开始，通过 v5 提供准备场和行阻力，且只链接准备库。
-[Sigmoid 准备示例](../examples/cpp/prepare_sigmoid_2d.cpp)创建生产分辨率 LUT，并从原始控制量准备两个工况。
-它复用 LUT，且只链接准备库。
+[空间缓存示例](../examples/cpp/prepare_spatial_cache_2d.cpp)通过带类型的缓存及 LUT 回调查询、解析并准备分区和 sigmoid 场。
+它只链接准备库，并保留行阻力与独立热几何。
 诊断存储必须与全部具有所有权的准备视图及复制的控制量分开。
-[空间流量示例](../examples/cpp/prepare_spatial_flow_2d.cpp)通过 v8 查询、解析并准备分区和 sigmoid 场。
-[空间缓存示例](../examples/cpp/prepare_spatial_cache_2d.cpp)增加 v9 带类型的缓存及 LUT 回调。
-两个示例都只链接准备库，并保留行阻力与独立热几何。
 [连续场运行示例](../examples/cpp/continuous_2d.cpp)从 XY 决策和固定质量流量开始，完成准备与运行，释放准备态后再评估结果。
 [续算示例](../examples/cpp/resume_2d.cpp)从原始输入创建运行，保留流动快照、释放运行，并更换 CPU 线程数后恢复。
 
 [均匀流体示例](../examples/cpp/uniform_2d.cpp)对 CO2/water 执行完整三个阶段。
 释放准备态后，结果评估仍有效。
 [Quick Design 示例](../examples/cpp/quick_design.cpp)从原始工况和尺寸开始，调用
-`prepare_quick_design`、`run_case`、`evaluate`，使用保留的 v1 契约。
+`prepare_quick_design`、`run_case`、`evaluate`，使用 v2 准备及运行契约。
 [类型化 Quick 准备示例](../examples/cpp/prepare_quick_design.cpp)使用 `QuickDesignInputV2`，
 只链接准备库，调用 `pressure_fractions` 和 `prepare_quick_design`。
 它检查具有所有权的场及逆流缺省 qtol/chunk 控制量，不执行求解。
@@ -656,9 +661,8 @@ Python 接入、检查点恢复和平台交付仍须各自记录验收。
 
 ## Quick Design 阶段
 
-`quick_design_stage_c_api.h` 保留 native-double v1 准备与运行契约。
-独立的准备 v2 契约增加 `tpmshx_prepare_quick_design_v2` 和 `tpmshx_quick_pressure_fractions_v2`。
-已公开的 v1 布局不变；`quick_design_prepare_v2.cpp` 负责两条新增数值顺序。
+`quick_design_stage_c_api.h` 提供准备 v2 契约：`tpmshx_prepare_quick_design_v2` 和 `tpmshx_quick_pressure_fractions_v2`。
+native-double v1 准备及运行入口已于 2026-11-23 删除；`quick_design_prepare_v2.cpp` 负责两条数值顺序。
 准备库复用几何、网格、物性和解析 D-F 实现。
 求解库使用既有 Quick Design 驱动；结果库评价记录的场与最终阶段标量。
 
@@ -678,7 +682,6 @@ Python 读取该资源，原生准备使用生成的常量。
 Python 默认值仍为 16 W/(m K)、`1e-5` 和几何分辨率 128。
 v2 通过 `have_q_relative_tolerance=0` 和 `have_chunk_iterations=0` 保留逆流 qtol/chunk 的缺省状态。
 CaseData 将两者存为 `None`；执行时使用既有核默认值解析。
-v1 继续返回已解析的驱动配置，逆流包含 `max(tol*10, 1e-4)` 和 chunk 250。
 
 完整准备保留以下顺序：热启动检查、标签、正值输入、shape、几何／材料、网格和工况快照。
 随后计算 A/B 入口物性、截面、A/B 压力状态和压降分数。
@@ -757,12 +760,12 @@ sCO2 在状态校验前查找标量缓存，CO2 先校验；数组均绕过标�
 
 ### 准备态执行与证据
 
-保留的 v1 run 阶段复制传入准备场，不重复准备或修改原准备态。
+v2 run 阶段复制传入准备场，不重复准备或修改原准备态。
 const 物性执行一次热过程，mean 执行两次，第二次使用第一次返回的温度。
 入口解析压降分数在两次过程中保持不变。
 结果拥有全部 15 个场、物理网格宽度、压力证据、最终阶段标量和完整驱动过程记录。
 `tpmshx_quick_run_temperature_algorithm_v1` 报告已完成网格实际采用的温度算法。
-Python 在结果 owner 释放前复制标识。较早的库使用独立温度算法查询。
+Python 在结果 owner 释放前复制标识。
 取消返回状态 6 且不发布结果。驱动没有每次调用的 CPU 参数，继续应用既有进程线程控制。
 
 Python 传递保存 CaseData 的借用视图，在释放原生结果前复制返回场和声明。

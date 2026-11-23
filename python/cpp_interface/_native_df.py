@@ -148,11 +148,8 @@ def pressure_gradient(rho,mu,u,permeability,inertial):
 
 @lru_cache(maxsize=1)
 def _experiment_scope(path):
-    library = preparation_library.load(path).library
-    scope = getattr(library, 'tpmshx_preparation_df_experiment_scope_v1', None)
-    if scope is not None:
-        scope.argtypes, scope.restype = [_U, _U, _U, _U, _U, _D, _D, _D, _D, _D, _S], _U
-    return scope
+    return preparation_library.load(path).bind('tpmshx_preparation_df_experiment_scope_v1',
+        [_U, _U, _U, _U, _U, _D, _D, _D, _D, _D, _S], _U)
 
 
 def experiment_scope(topology, fluids, geometry_mode, cell, wall, symmetric, domain):
@@ -162,8 +159,6 @@ def experiment_scope(topology, fluids, geometry_mode, cell, wall, symmetric, dom
         # Static checks can run before a preparation library is available.
         return None
     query = _experiment_scope(path)
-    if query is None:
-        return None
     # Unknown names enter the selector in its existing order.
     codes = [next((i for i, name in enumerate(('air', 'water', 'sco2', 'co2')) if name == fluid), 4)
              for fluid in fluids]

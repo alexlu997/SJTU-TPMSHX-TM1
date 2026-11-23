@@ -7,9 +7,9 @@ import numpy as np
 import pytest
 
 from tests.python import preparation_api_reference as reference
-from tests.python import test_native_preparation_spatial_flow as raw
+
 from tests.python.test_native_prepare_adapter import (
-    _capture, _same, _cache_info, _observe_prepare, uniform,
+    _capture, _same, _cache_info, _observe_prepare,
 )
 from tests.python.test_native_prepare_spatial_adapter import configuration
 from sjtu_tpmshx.preprocess import api
@@ -17,6 +17,7 @@ from sjtu_tpmshx.cpp_interface import native_preparation as host
 from sjtu_tpmshx.cpp_interface import _native_preparation_case as native, preparation_host
 from sjtu_tpmshx.physical_models.tpms_calc import compute
 from sjtu_tpmshx.physical_models.tpms_geometry import compute_geometry
+from tests.python import native_preparation_abi
 
 
 @pytest.fixture(autouse=True)
@@ -33,7 +34,7 @@ def clear_caches():
 @pytest.mark.parametrize('delta', [-.2, .2])
 @pytest.mark.parametrize('direction', [0, 1, 2, 3])
 def test_uniform_offset_exact_contract(monkeypatch, topology, pair, delta, direction):
-    config = uniform._configuration(topology, pair)
+    config = native_preparation_abi._configuration_mass_flow(topology, pair)
     config.geometry.delta_levelset = delta
     config.bc_A = replace(config.bc_A, dir=direction, in_w=0., out_w=0.)
     config.bc_B = replace(config.bc_B, dir=(direction + 2) % 4, in_w=0., out_w=0.)
@@ -65,7 +66,7 @@ def test_spatial_offset_exact_contract(monkeypatch, tmp_path, mode, topology, de
 @pytest.mark.parametrize('mode', ['uniform', 'x', 'grid', 'sigmoid'])
 @pytest.mark.parametrize('dtype', [np.float16, np.float32, np.float64])
 def test_offset_keeps_explicit_float_geometry_on_refined_grid(monkeypatch, tmp_path, mode, dtype):
-    config = (uniform._configuration('Gyroid', ('air', 'water')) if mode == 'uniform'
+    config = (native_preparation_abi._configuration_mass_flow('Gyroid', ('air', 'water')) if mode == 'uniform'
               else configuration(monkeypatch, tmp_path, mode))
     config.geometry.delta_levelset = dtype(.15)
     config.geometry.L_cell_mm = dtype(6.8)
@@ -84,7 +85,7 @@ def test_offset_keeps_explicit_float_geometry_on_refined_grid(monkeypatch, tmp_p
     ('full', (.001, .002)), ('configured', None)])
 @pytest.mark.parametrize('problem', ['offset', 'water', 'chi', 'depth', 'nonair'])
 def test_rejected_offset_preserves_first_error_and_observations(monkeypatch, tmp_path, mode, operation, targets, problem):
-    config = (uniform._configuration('Gyroid', ('air', 'water')) if mode == 'uniform'
+    config = (native_preparation_abi._configuration_mass_flow('Gyroid', ('air', 'water')) if mode == 'uniform'
               else configuration(monkeypatch, tmp_path, mode))
     config.geometry.delta_levelset = .2
     config.fluid_A.u_mps = float('nan')
@@ -128,7 +129,7 @@ def test_nonair_spatial_guard_keeps_earlier_work(monkeypatch, tmp_path, mode, fa
 @pytest.mark.parametrize('destination', ['error', 'failure'])
 @pytest.mark.parametrize('invalid', [None, 'source', 'result'])
 def test_offset_owned_buffers_survive_diagnostic_aliases(monkeypatch, tmp_path, mode, destination, invalid):
-    config = (uniform._configuration('Gyroid', ('air', 'water')) if mode == 'uniform'
+    config = (native_preparation_abi._configuration_mass_flow('Gyroid', ('air', 'water')) if mode == 'uniform'
               else configuration(monkeypatch, tmp_path, mode))
     config.geometry.delta_levelset = .2
     source = host._input(config, None, 'prepare_flow_case')
@@ -151,7 +152,7 @@ def test_offset_owned_buffers_survive_diagnostic_aliases(monkeypatch, tmp_path, 
         def rejected(failure, error, capacity):
             return call(ct.byref(source), ct.byref(source._grid_kinds), ct.byref(options), None,
                         ct.byref(result), ct.cast(failure, ct.POINTER(native._Failure)), error, capacity)
-        assert raw._check_owned_aliases(rejected, result, destination)
+        assert native_preparation_abi._check_owned_aliases_spatial(rejected, result, destination)
     finally:
         bindings.releases[result_type](ct.byref(result))
         assert not result.owner
@@ -159,7 +160,7 @@ def test_offset_owned_buffers_survive_diagnostic_aliases(monkeypatch, tmp_path, 
 
 @pytest.mark.parametrize('dtype', [np.float16, np.float32])
 def test_offset_narrow_endpoint_keeps_original_df_rejection(monkeypatch, dtype):
-    config = uniform._configuration('Gyroid', ('air', 'water'))
+    config = native_preparation_abi._configuration_mass_flow('Gyroid', ('air', 'water'))
     config.geometry.delta_levelset = dtype(.15)
     config.geometry.t_wall_mm = dtype(.6)
     expected = _observe_prepare(monkeypatch, reference, 'full', config, scoped=True)
@@ -171,7 +172,7 @@ def test_offset_narrow_endpoint_keeps_original_df_rejection(monkeypatch, dtype):
 @pytest.mark.parametrize('mode', ['uniform', 'x', 'sigmoid'])
 @pytest.mark.parametrize('field', ['abi_version', 'struct_size'])
 def test_offset_nested_headers_preserve_result(monkeypatch, tmp_path, mode, field):
-    config = (uniform._configuration('Gyroid', ('air', 'water')) if mode == 'uniform'
+    config = (native_preparation_abi._configuration_mass_flow('Gyroid', ('air', 'water')) if mode == 'uniform'
               else configuration(monkeypatch, tmp_path, mode))
     config.geometry.delta_levelset = .2
     source = host._input(config, None, 'prepare_flow_case')

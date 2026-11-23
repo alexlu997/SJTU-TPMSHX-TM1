@@ -69,59 +69,41 @@ class _Bindings:
                     f'tpmshx_preparation_{prefix}_{suffix}_3d_release_v{version}', [ct.POINTER(result)], None)
 
     def _bind_plane(self):
-        for version, source, flow, full, prefix in (
-                (3, abi._FlowInput, abi._Flow, abi._FlowCase, 'flow'),
-                (4, abi._ContinuousInput, abi._ContinuousFlow, abi._ContinuousCase, 'continuous')):
-            for name in ('prepare_inlet_mass_capacities', 'resolve_inlet_flow', 'prepare_flow_case'):
-                result = full if name == 'prepare_flow_case' else flow
+        # Uniform and continuous inlet stages use the v7 entries with the v3 and v4 flow layouts.
+        for version, source, flow, prefix in (
+                (3, abi._FlowInput, abi._Flow, 'flow'),
+                (4, abi._ContinuousInput, abi._ContinuousFlow, 'continuous_flow')):
+            for name in ('prepare_inlet_mass_capacities', 'resolve_inlet_flow'):
                 entry = name if version == 3 else name.replace('_', '_continuous_', 1)
-                self._add((version, name), f'tpmshx_{entry}_2d_v7', source, result, version)
-            for result, suffix in ((flow, 'flow' if version == 4 else ''), (full, 'case')):
-                middle = '_'.join(value for value in (prefix, suffix) if value)
-                self.releases[result] = self.owner.bind(
-                    f'tpmshx_preparation_{middle}_2d_release_v{version}', [ct.POINTER(result)], None)
+                self._add((7, source, name), f'tpmshx_{entry}_2d_v7', source, flow, version)
+            self.releases[flow] = self.owner.bind(
+                f'tpmshx_preparation_{prefix}_2d_release_v{version}', [ct.POINTER(flow)], None)
 
-
-        for source, flow, full, prefix in (
-                (abi._ZonedHostInput, abi._ZonedHostFlow, abi._ZonedHostCase, 'zoned'),
-                (abi._SigmoidHostInput, abi._SigmoidHostFlow, abi._SigmoidHostCase, 'sigmoid')):
-            for name in ('prepare_inlet_mass_capacities', 'resolve_inlet_flow', 'prepare_flow_case'):
-                result = full if name == 'prepare_flow_case' else flow
-                entry = name.replace('_', '_' + prefix + '_', 1)
-                self._add((source, name), f'tpmshx_{entry}_2d_v9', source, result, 9)
-            for result, suffix in ((flow, 'flow'), (full, 'flow_case')):
-                self.releases[result] = self.owner.bind(
-                    f'tpmshx_preparation_{prefix}_{suffix}_2d_release_v9', [ct.POINTER(result)], None)
-
-
-        query = self.owner.bind('tpmshx_preparation_case_abi_version_v10', [], abi._U)
-        if query() != 10:
-            raise RuntimeError('native preparation v10 ABI version is invalid')
+        for version in (10, 11):
+            query = self.owner.bind(f'tpmshx_preparation_case_abi_version_v{version}', [], abi._U)
+            if query() != version:
+                raise RuntimeError(f'native preparation v{version} ABI version is invalid')
+        # Zoned and sigmoid inlet stages use the v10 entries with the v9 flow layouts.
+        for source, flow, prefix in ((abi._ZonedHostInput, abi._ZonedHostFlow, 'zoned'),
+                                     (abi._SigmoidHostInput, abi._SigmoidHostFlow, 'sigmoid')):
+            for name in ('prepare_inlet_mass_capacities', 'resolve_inlet_flow'):
+                entry = name.replace('_', f'_{prefix}_', 1)
+                self._add((10, source, name), f'tpmshx_{entry}_2d_v10', source, flow, 9)
+            self.releases[flow] = self.owner.bind(
+                f'tpmshx_preparation_{prefix}_flow_2d_release_v9', [ct.POINTER(flow)], None)
         for source, full, prefix in (
                 (abi._FlowInput, abi._OffsetFlowCase, ''),
                 (abi._ZonedHostInput, abi._OffsetZonedCase, 'zoned_'),
                 (abi._SigmoidHostInput, abi._OffsetSigmoidCase, 'sigmoid_')):
-            for name in ('prepare_inlet_mass_capacities', 'resolve_inlet_flow', 'prepare_flow_case'):
-                if not prefix and name != 'prepare_flow_case':
-                    continue
-                result = full if name == 'prepare_flow_case' else (
-                    abi._ZonedHostFlow if source is abi._ZonedHostInput else abi._SigmoidHostFlow)
-                entry = name.replace('_', '_' + prefix, 1) if prefix else name
-                self._add((10, source, name), f'tpmshx_{entry}_2d_v10', source, result, 10 if name == 'prepare_flow_case' else 9)
+            self._add((10, source, 'prepare_flow_case'), f'tpmshx_prepare_{prefix}flow_case_2d_v10', source, full, 10)
             self.releases[full] = self.owner.bind(
                 f'tpmshx_preparation_{prefix}flow_case_2d_release_v10', [ct.POINTER(full)], None)
-
-        entry = 'tpmshx_preparation_case_abi_version_v11'
-        if hasattr(self.owner.library, entry):
-            query = self.owner.bind(entry, [], abi._U)
-            if query() != 11:
-                raise RuntimeError('native preparation v11 ABI version is invalid')
-            for source, result, prefix in (
-                    (abi._ContinuousInput, abi._ContinuousGeometryCase, 'continuous'),
-                    (abi._ZonedHostInput, abi._StripeGeometryCase, 'stripe')):
-                self._add((11, source, 'prepare_flow_case'), f'tpmshx_prepare_{prefix}_flow_case_2d_v11', source, result, 11)
-                self.releases[result] = self.owner.bind(
-                    f'tpmshx_preparation_{prefix}_flow_case_2d_release_v11', [ct.POINTER(result)], None)
+        for source, result, prefix in (
+                (abi._ContinuousInput, abi._ContinuousGeometryCase, 'continuous'),
+                (abi._ZonedHostInput, abi._StripeGeometryCase, 'stripe')):
+            self._add((11, source, 'prepare_flow_case'), f'tpmshx_prepare_{prefix}_flow_case_2d_v11', source, result, 11)
+            self.releases[result] = self.owner.bind(
+                f'tpmshx_preparation_{prefix}_flow_case_2d_release_v11', [ct.POINTER(result)], None)
 
 
 @lru_cache(maxsize=1)
@@ -334,16 +316,17 @@ def _callback_bridge(validate_host_input, geometry_cache=None, inlet_cache=None,
 
 def operation(name, source, options, validate_host_input, geometry_cache=None, inlet_cache=None,
               observe_range=None, observe_notice=None, nominal_grid_warning=None, *,
-              geometry_cache_at=None, inlet_cache_at=None, sigmoid_lut_cache=None, offset_scope=False):
-    version = source.abi_version
-    key = (type(source) if version == 9 else version, name)
-    if offset_scope and version != 4 and (version == 9 or name == 'prepare_flow_case'):
-        key = (10, type(source), name)
+              geometry_cache_at=None, inlet_cache_at=None, sigmoid_lut_cache=None):
+    kind = type(source)
+    if name != 'prepare_flow_case':
+        version = 10 if source.abi_version == 9 else 7
+    elif kind is abi._ContinuousInput or kind is abi._ZonedHostInput and source.values.values.kind == 0:
+        # Continuous fields and scalar stripe zones return the geometry-owning v11 case.
+        version = 11
+    else:
+        version = 10
     bindings = _bindings(preparation_library.path())
-    geometry_key = (11, type(source), name)
-    if geometry_key in bindings.operations and (
-            version == 4 or key[0] == 10 and source.values.values.kind == 0):
-        key = geometry_key
+    key = (version, kind, name)
     bridge = _callback_bridge(validate_host_input, geometry_cache, inlet_cache, observe_range, observe_notice,
         nominal_grid_warning, geometry_cache_at=geometry_cache_at, inlet_cache_at=inlet_cache_at,
         sigmoid_lut_cache=sigmoid_lut_cache)
@@ -434,9 +417,10 @@ class _PreparedMesh(ct.Structure):
 
 def borrow_solver_mesh(case, library, dimension):
     """Borrow the prepared mesh. Other numeric layouts use the portable schema checks."""
-    check = getattr(library, 'tpmshx_stage_borrow_mesh_v1', None)
-    if check is None:
-        return None
+    try:
+        check = library.tpmshx_stage_borrow_mesh_v1
+    except AttributeError as error:
+        raise ValueError('native solver library lacks tpmshx_stage_borrow_mesh_v1; rebuild the library') from error
     keepalive = []
 
     def view(array):

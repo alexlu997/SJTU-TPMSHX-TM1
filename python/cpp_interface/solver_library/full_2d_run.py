@@ -17,15 +17,11 @@ class NativeFull2DRun(NativeRun):
     error_types = {**NativeRun.error_types, 4: ChokedFlowError}
 
     def __init__(self, library, shape, arrays, sizes, config, callbacks, *,
-                 energy=None, energy_control=None, model_h=None, state=None, cpu_threads=None):
+                 cpu_threads, energy=None, energy_control=None, model_h=None, state=None):
         common = [ct.POINTER(ct.c_size_t), ct.POINTER(ct.POINTER(ct.c_double)),
                   ct.POINTER(ct.c_size_t), ct.POINTER(_Config), ct.POINTER(_EnergyOptions),
-                  ct.POINTER(_EnergyControl), ct.POINTER(_IterationOptions), ct.POINTER(_Callbacks)]
+                  ct.POINTER(_EnergyControl), ct.POINTER(_IterationOptions), ct.c_size_t, ct.POINTER(_Callbacks)]
         args = [shape, arrays, sizes, ct.byref(config), ct.byref(energy) if energy is not None else None,
                 ct.byref(energy_control) if energy_control is not None else None,
-                ct.byref(model_h) if model_h is not None else None, ct.byref(callbacks)]
-        self.creation_version = 1 if cpu_threads is None else 2
-        if cpu_threads is not None:
-            common.insert(-1, ct.c_size_t)
-            args.insert(-1, cpu_threads)
+                ct.byref(model_h) if model_h is not None else None, cpu_threads, ct.byref(callbacks)]
         super().__init__(library, common, args, callbacks, state)

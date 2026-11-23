@@ -1,7 +1,6 @@
-"""Run a direct 2D solve or restore a library without the saved stage protocol."""
+"""Run a direct 2D solve through the v6 entry for the native solver verification tests."""
 import ctypes as ct
 from ._full_2d_abi import _Callbacks, _Config, _EnergyControl, _EnergyEvidence, _Result, _Side
-from functools import partial
 import numpy as np
 from sjtu_tpmshx.data_types.compute_config import SolverConfig, validate_simple_velocity_relaxation
 from sjtu_tpmshx.run_control.module_ports import RunControl
@@ -20,7 +19,7 @@ from ._thermal_abi import (
     _iteration_options,
 )
 from .._native_values import TOPOLOGIES
-from ..full_2d_stage import StageDriver, _callbacks, convergence_controls, run_case as _run_case
+from ..full_2d_stage import StageDriver, _callbacks, convergence_controls
 
 
 class NativeFull2DDriver(StageDriver):
@@ -28,10 +27,14 @@ class NativeFull2DDriver(StageDriver):
 
     def __init__(self, library, *, table_directory=None):
         super().__init__(library, table_directory=table_directory)
-        self.call = self.library.tpmshx_solve_full_2d_v2
+        try:
+            self.call = self.library.tpmshx_solve_full_2d_v6
+        except AttributeError as exc:
+            raise ValueError('native full 2D library lacks tpmshx_solve_full_2d_v6; rebuild the library') from exc
         dp, sp = ct.POINTER(ct.c_double), ct.POINTER(ct.c_size_t)
-        self.call.argtypes = [sp, ct.POINTER(dp), sp, ct.POINTER(_Config), ct.POINTER(_Callbacks),
-                             ct.POINTER(_Result), ct.POINTER(ct.c_char), ct.c_size_t]
+        self.call.argtypes = [sp, ct.POINTER(dp), sp, ct.POINTER(_Config), ct.POINTER(_EnergyOptions),
+                              ct.POINTER(_EnergyControl), ct.POINTER(_IterationOptions), ct.c_size_t,
+                              ct.POINTER(_Callbacks), ct.POINTER(_Result), ct.POINTER(ct.c_char), ct.c_size_t]
         self.call.restype = ct.c_int
         self.release = self.library.tpmshx_full_2d_release_v2
         self.release.argtypes, self.release.restype = [ct.POINTER(_Result)], None
@@ -70,47 +73,13 @@ class NativeFull2DDriver(StageDriver):
         energy = _energy_options(energy_algorithm, temperature_update_tolerance)
         if energy_control is not None:
             energy = energy_control.energy
-        thread_call = getattr(self.library, 'tpmshx_solve_full_2d_v6', None)
-        if thread_call is None and control.cpu_threads is not None:
-            raise ValueError('this retained native library has no CPU thread limit; leave cpu_threads unset')
-        energy_call = energy_query = version_query = None
-        entry_version = 2
+        energy_query = version_query = None
+        entry_version = 6
         if model_h_options is not None:
             if energy_control is not None or config.thermal_mode == 2:
                 raise ValueError('model-h iteration controls require an integral h(T) route')
             _full_enthalpy_defaults(self.library, 2, energy.algorithm,
                                    any(side.fluid == 1 for side in config.sides))
-            if thread_call is None:
-                try:
-                    energy_call = self.library.tpmshx_solve_full_2d_v5
-                except AttributeError as exc:
-                    raise ValueError('native full 2D library lacks model-h controls v5; rebuild the library') from exc
-                energy_call.argtypes = [*self.call.argtypes[:4], ct.POINTER(_IterationOptions), *self.call.argtypes[4:]]
-                energy_call.restype = ct.c_int
-            entry_version = 5
-        elif energy_control is not None:
-            if thread_call is None:
-                try:
-                    energy_call = self.library.tpmshx_solve_full_2d_v4
-                except AttributeError as exc:
-                    raise ValueError('native full 2D library lacks explicit energy controls v4') from exc
-                energy_call.argtypes = [*self.call.argtypes[:4], ct.POINTER(_EnergyControl), *self.call.argtypes[4:]]
-                energy_call.restype = ct.c_int
-            entry_version = 4
-        elif energy.algorithm:
-            if thread_call is None:
-                try:
-                    energy_call = self.library.tpmshx_solve_full_2d_v3
-                except AttributeError as exc:
-                    raise ValueError('native full 2D library lacks conservative energy v3') from exc
-                energy_call.argtypes = [*self.call.argtypes[:4], ct.POINTER(_EnergyOptions), *self.call.argtypes[4:]]
-                energy_call.restype = ct.c_int
-            entry_version = 3
-        if thread_call is not None:
-            entry_version = 6
-            thread_call.argtypes = [*self.call.argtypes[:4], ct.POINTER(_EnergyOptions),
-                ct.POINTER(_EnergyControl), ct.POINTER(_IterationOptions), ct.c_size_t, *self.call.argtypes[4:]]
-            thread_call.restype = ct.c_int
         if energy.algorithm:
             try:
                 energy_query = self.library.tpmshx_full_2d_get_energy_evidence_v1
@@ -125,16 +94,16 @@ class NativeFull2DDriver(StageDriver):
         pointers = (dp*len(arrays))(*(x.ctypes.data_as(dp) for x in arrays))
         sizes = (ct.c_size_t*len(arrays))(*(x.size for x in arrays))
         result, error = _Result(), ct.create_string_buffer(2048)
-        cpu_thread_limit = control.native_cpu_threads() if thread_call else None
+        cpu_thread_limit = control.native_cpu_threads()
         try:
             args = ((ct.c_size_t*2)(*shape), pointers, sizes, ct.byref(config))
             tail = (ct.byref(callbacks), ct.byref(result), error, len(error))
             basic_energy = energy if energy_control is None and model_h_options is None else None
             if resume_state is not None or checkpoint is not None:
                 from sjtu_tpmshx.cpp_interface.solver_library.full_2d_run import NativeFull2DRun
-                with NativeFull2DRun(self.library, *args[:3], config, callbacks,
+                with NativeFull2DRun(self.library, *args[:3], config, callbacks, cpu_threads=cpu_thread_limit,
                         energy=basic_energy, energy_control=energy_control, model_h=model_h_options,
-                        state=resume_state, cpu_threads=cpu_thread_limit) as run:
+                        state=resume_state) as run:
                     while run.phase not in (3, 4):
                         phase = run.advance()
                         if errors:
@@ -144,14 +113,11 @@ class NativeFull2DDriver(StageDriver):
                             checkpoint(run.snapshot())
                     result = run.take_result()
                 status = 0
-            elif thread_call:
-                status = thread_call(*args, ct.byref(basic_energy) if basic_energy is not None else None,
+            else:
+                status = self.call(*args, ct.byref(basic_energy) if basic_energy is not None else None,
                     ct.byref(energy_control) if energy_control is not None else None,
                     ct.byref(model_h_options) if model_h_options is not None else None,
                     cpu_thread_limit, *tail)
-            else:
-                options = model_h_options if model_h_options is not None else energy_control if energy_control is not None else energy
-                status = energy_call(*args, ct.byref(options), *tail) if energy_call else self.call(*args, *tail)
             if errors:
                 raise errors[0]
             if status:
@@ -243,14 +209,3 @@ def _pack(cfg, prepared, table_directory, library):
     config.massflux_inlet, config.close_outlet_on_exit = 1, 1
     config.envelope_mode, config.table_directory = cfg.get('envelope_mode', 'raise').encode(), table_directory
     return shape, arrays, config
-
-def _run_direct(case, cfg, prepared, control, resume_state, checkpoint, checkpoint_due):
-    from .full_2d_capture import capture_result
-    driver = NativeFull2DDriver(control.native_library, table_directory=control.native_table_directory)
-    native = driver.run_prepared(cfg, prepared, control, resume_state=resume_state,
-        checkpoint=checkpoint, checkpoint_due=checkpoint_due)
-    control.check_cancelled()
-    return capture_result(case, cfg, prepared, native)
-
-
-run_case = partial(_run_case, direct_run=_run_direct)

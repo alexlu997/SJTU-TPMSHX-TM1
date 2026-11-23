@@ -8,7 +8,7 @@
 公共 `ComputeConfig` 流程支持完整二维／三维。
 Quick Design 通过 `prepare_quick_design` 接收独立的设计工况输入，再调用相同的 `run_case` 和 `evaluate` 公共 API。
 Python 数值迭代器、Numba／PyAMG 依赖和 Python 专用研究入口已退役。
-旧研究 Case 不再执行；保存的结果仍可读取。既有守恒 EOS 能量路线默认使用 T-SOU（`temperature_sou`），H-FOU 和 T-FOU 执行已退役。历史标识保留给旧结果与显式选择的归档运行库；当前库在流动执行前拒绝旧算法标识。旧检查点须使用匹配运行库；更换算法属于新的计算。
+旧研究 Case 不再执行；保存的结果仍可读取。既有守恒 EOS 能量路线默认使用 T-SOU（`temperature_sou`），H-FOU 和 T-FOU 执行已退役。历史标识保留给旧结果；当前库在流动执行前拒绝旧算法标识。旧检查点须使用匹配运行库；更换算法属于新的计算。
 外层物性 Anderson 已退役；固定物性松弛、热方程 Anderson 和已合格流动加速保留原规则。
 
 固定系数、范围和参考态来自
@@ -133,7 +133,7 @@ Python 适配器从准备库复制这些字段。使用旧版准备库时，这�
 公共 ZoneConfig 和 sigmoid 组合查询在独立迁移通过前，仍保留独立调用消费者。
 这些公开接口保留调用方提供的物性及自定义 sigmoid 控制。
 
-独立的 `tpmshx_prepare_case_3d_v1` 从原始输入准备规定入口速度的对称均匀三维算例。
+C++ `prepare_case(CaseInput3D)` 通过 spatial v4 从原始输入准备规定入口速度的对称均匀三维算例。
 它支持两种拓扑和全部 16 个流体配对，保留现有 CFD 或实验 DF 限制。
 其独立存储保留物理 `(x,y,z)` 场、带类型的端口、六方向轴映射和模型证据。
 两侧孔隙率已拆分；K/cF 基础场未缩放，逐侧证据保留应用因子。
@@ -214,7 +214,7 @@ Quick Design 准备 v2 接受带类型的原始工况。
 被替代的 `shared/models/quick_design.py` 已删除；冻结参考保留在 `tests/python/quick_prepare_reference.py`，供回归检查使用。
 Quick 默认值统一来自 `python/model_configs/model_parameters_v1.json`。
 Python 读取该资源，C++ 使用生成的常量；逆流保存态的 `qtol` 和 `chunk` 仍为 `None`。
-`quick_design_prepare.cpp` 中的 native-double v1 准备及其公开布局继续可用。
+native-double v1 准备及运行入口已于 2026-11-23 删除。
 `quick_design_run.cpp` 调用既有驱动并复制结果证据。
 const/mean、叉流/逆流和热启动规则保持不变。
 Python 执行用保存的准备场调用这一 run 阶段，不重复准备。
@@ -234,7 +234,7 @@ GUI 显示、输入校验、应用搜索／BO、离线数据处理与拟合继�
 - 配置控制节点、单位换算、序列化 grid edges 和存档自洽校验；温度初值及配置校验保留原错误顺序。
 - 独立 getter／几何／sCO2 文案的范围摘要、GUI 预览和 nTop 导出描述统计；正式范围采集与资格检查仍由 C++ 负责。
 - `ports_complete` 的注入 ledger 检查，以及独立低层 driver 的默认输入适配。当前原生 ledger 已返回明确完整性标志。
-- 直接低层及归档运行库的三维捕获计算、开发独立参考及研究拟合；当前保存态阶段拥有审计显示 taper，正式端口与指标使用实际原生面证据。
+- 直接低层三维捕获计算、开发独立参考及研究拟合；当前保存态阶段拥有审计显示 taper，正式端口与指标使用实际原生面证据。
 
 `python/postprocess/result_math.py` 保留原始压力查询和公开守恒证书。
 独立热量和出口检查从测试目录调用结果 C ABI。
@@ -299,7 +299,7 @@ EOS 能量关系记录 HEOS 流体名称和实际热状态压力场。
 完成的原生求解阶段提供各侧实际使用的能量关系、执行方法、更新尺度和最后一次主网格 model-h 调用。
 已完成的求解阶段还返回温度场和质量通量的状态、可用的压力报告及外迭代编号。
 Python 构造场结果时，将这些证据与算例资源索引一同写入执行记录。
-归档运行库缺少此视图时，Python 从早期结果字段读取执行信息。
+库缺少此视图时属于部署错误。
 独立结果阶段判断资格。
 缺失的算法标识保持空值，输入中请求的设置不能证明实际执行。
 CO2 和 sCO2 的初始逆物性后端只应用于证据中列出的侧别，HEOS 收尾状态单独记录。
@@ -468,7 +468,7 @@ true-h 仅在既有最终审计计算了全部相方程时保留台账。
 宿主将 case notices 与运行期 `nu-evidence` 警告记录合并为 `scope_notes`。
 这保留空字符串、嵌入 NUL 字符、回调记录、顺序和去重规则。
 独立 C++ 阶段继续使用自己的原生 scope notes。
-直接及归档运行库路径保留 `capture_applicability`。
+直接完整求解路径保留 `capture_applicability`。
 当前阶段的捕获失败直接报错，不选择该路径。
 
 `postprocess.api.evaluate_applicability(result)` 无需 EOS 或求解器即可读取证据。
@@ -536,7 +536,7 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
 
 - `python/data_types/` 保存不可变的 CaseData、FieldResult 和指标定义，`python/run_control/` 保存运行控制。
 - `preprocess/` 负责物理网格／边界准备、固定几何和系数、模型／资源选择，以及可移植执行输入。
-- `python/cpp_interface/solver_library/` 通过默认使用 C++ 的 `RunControl` 提供独立准备态 Quick Design 和 full 2D/3D。主机库路径不存入 CaseData。Quick Design v2 的结果映射位于 `python/cpp_interface/quick_design.py`，v1 保存输入校验保留在 `python/solvers/backends/quick_design.py`；物性阶段、液态水约束和热迭代由 C++ 驱动负责。Quick Design run 阶段将标量证据扩展为场及声明；Python 复制具有所有权的输出，并用过程证据生成警告记录。full 2D/3D 在 C++ 中负责 SIMPLE、压力参考、外物性／热耦合和最终证据；二维还负责 Richardson 细化。完整计算绑定在同步原生调用中借用准备态只读设计数组，持有强引用直至调用和结果捕获完成；既有 dtype、对齐和单位转换仍按需分配。公共 Python 输入构造器继续返回独立可写设计数组。绑定将原生证据映射到同一 FieldResult，不调用 Python 数值核。full 3D ABI 2 删除外层物性 Anderson 控制项和状态，保留固定物性松弛与热方程 Anderson。full 2D ABI 2 保留原准备态 Nu 几何比，不在单位转换后重建。C++ 是唯一数值后端。必需原生 CI 已在 macOS arm64/Python 3.13 和 Windows x64/Python 3.12、3.13 通过。可见桌面与完整性能资格保持独立。
+- `python/cpp_interface/solver_library/` 通过默认使用 C++ 的 `RunControl` 提供独立准备态 Quick Design 和 full 2D/3D。主机库路径不存入 CaseData。Quick Design v2 的结果映射及保存输入校验位于 `python/cpp_interface/quick_design.py`；物性阶段、液态水约束和热迭代由 C++ 驱动负责。Quick Design run 阶段将标量证据扩展为场及声明；Python 复制具有所有权的输出，并用过程证据生成警告记录。full 2D/3D 在 C++ 中负责 SIMPLE、压力参考、外物性／热耦合和最终证据；二维还负责 Richardson 细化。完整计算绑定在同步原生调用中借用准备态只读设计数组，持有强引用直至调用和结果捕获完成；既有 dtype、对齐和单位转换仍按需分配。公共 Python 输入构造器继续返回独立可写设计数组。绑定将原生证据映射到同一 FieldResult，不调用 Python 数值核。full 3D ABI 2 删除外层物性 Anderson 控制项和状态，保留固定物性松弛与热方程 Anderson。full 2D ABI 2 保留原准备态 Nu 几何比，不在单位转换后重建。C++ 是唯一数值后端。必需原生 CI 已在 macOS arm64/Python 3.13 和 Windows x64/Python 3.12、3.13 通过。可见桌面与完整性能资格保持独立。
 - `Simple2DSolver` 和 `Simple3DSolver` 保留每个活动流动调用。`start` 开始调用；`advance` 完成普通步骤及已启用的二维候选，再执行 F2 检查。现有一次性入口使用这些操作。活动快照独立持有各场、F2 连续确认及停滞状态、结果、历史、入口流量目标、裁剪累计和压力层级构建状态。恢复保留原迭代预算、动量观测位置和压力重建节奏，在写入调用方场前校验保存状态。初始修正数组保留原有未使用值规则。热启动调用之间的快照与活动调用快照分开。回调不能保存或重入未完成步骤。每次普通或候选步骤前检查取消。物理方程和最终边界证据保持不变。两个完整控制器均归档活动流动态，供应用恢复。
 - `EnthalpyRun` 持有 T-SOU 的 Picard 迭代状态。每次推进完成一个原始迭代，包括其中的 SOU 候选。初始化复用现有物性工作分区，并保留相同物理检查。完成的运行向完整控制器转移最终有效导热系数，避免在相同热状态上重复计算 EOS。活动快照独立保存五个解场、输运值、结果证据和 Anderson 历史；H 算法独占的焓界限、表界限和反算数组已退役。恢复要求相同输入与控制参数，并在写入调用方数组前校验保存状态。EOS 求值器与临时数组重新构建。失败或取消的运行不能导出活动快照；回调不能保存或重入未完成步骤。现有 `solve_enthalpy` 入口使用此所有者，原来两个仅依赖栈状态的迭代循环已退役。物理检查、最终审计、迭代预算和取消位置保持不变。该组件接口尚不提供文件或应用层恢复。
   直接调用 `EnthalpyRun` 时，每侧可设置 `inlet_direction=-1`，将该侧标量入口状态用于所有外部入流。

@@ -389,7 +389,7 @@ def _execute(config, operation, *, targets=None, case_id=None, start_observation
                      geometry_cache=geometry_cache, inlet_cache=inlet_cache,
                      observe_range=bridge.observe_range, observe_notice=bridge.observe_notice)
     with host.operation(operation, source, options, host_input,
-                          nominal_grid_warning=_nominal_grid_warning, offset_scope=True, **hooks) as result:
+                          nominal_grid_warning=_nominal_grid_warning, **hooks) as result:
         pore_porosity = region_radii = thermal_sides = None
         if isinstance(result, native._ContinuousGeometryCase):
             pore_porosity, result = result.design_pore_porosity, result.values

@@ -4,7 +4,7 @@ import ctypes as ct
 import pytest
 
 from tests.python import test_native_run_adapter as plane
-from tests.python import test_native_stage_3d as volume
+
 from tests.python.native.shared_library import library_path
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.run_control.module_ports import RunControl
@@ -16,6 +16,7 @@ from sjtu_tpmshx.cpp_interface.solver_library import full_3d
 from sjtu_tpmshx.cpp_interface.solver_library import full_3d_run
 from sjtu_tpmshx.cpp_interface import full_3d_stage
 from sjtu_tpmshx.solvers.backends import prepared_2d, prepared_3d
+from tests.python import native_stage_support
 
 
 @pytest.mark.parametrize('dimension', [2, 3])
@@ -31,7 +32,7 @@ def test_interrupt_after_native_transfer_releases_owner(dimension, saved, bounda
         run_type = full_2d_stage._Run if saved else full_2d_run.NativeFull2DRun
         inputs = prepared_2d.build_execution_inputs(case, copy_design=False)
     else:
-        config, _ = volume._configuration()
+        config = native_stage_support.volume_configuration()
         case = prepare_case(config, case_id='ownership-transfer')
         module, driver_type = full_3d, full_3d.NativeFull3DDriver
         run_type = full_3d_stage.SavedRun if saved else full_3d_run.NativeFull3DRun
