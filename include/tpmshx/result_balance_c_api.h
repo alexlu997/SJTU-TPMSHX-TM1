@@ -36,14 +36,14 @@ extern "C" {
 #endif
 
 TPMSHX_RESULT_API int TPMSHX_RESULT_CALL tpmshx_result_balance_norms_v1(
-    const tpmshx_result_array_v1* residual, tpmshx_result_norm_values_v1* output,
+    const tpmshx_result_array_v2* residual, tpmshx_result_norm_values_v1* output,
     tpmshx_result_diagnostics_v1* diagnostics, char* error, size_t error_capacity);
 TPMSHX_RESULT_API int TPMSHX_RESULT_CALL tpmshx_result_balance_mass_v1(
-    const tpmshx_result_array_v1* faces, size_t dimension,
+    const tpmshx_result_array_v2* faces, size_t dimension,
     tpmshx_result_mass_values_v1* output, tpmshx_result_diagnostics_v1* diagnostics,
     char* error, size_t error_capacity);
 TPMSHX_RESULT_API int TPMSHX_RESULT_CALL tpmshx_result_balance_planes_v1(
-    const tpmshx_result_array_v1* planes, size_t plane_count,
+    const tpmshx_result_array_v2* planes, size_t plane_count,
     tpmshx_result_plane_values_v1* output, tpmshx_result_diagnostics_v1* diagnostics,
     char* error, size_t error_capacity);
 TPMSHX_RESULT_API int TPMSHX_RESULT_CALL tpmshx_result_balance_energy_v1(
@@ -52,20 +52,19 @@ TPMSHX_RESULT_API int TPMSHX_RESULT_CALL tpmshx_result_balance_energy_v1(
     char* error, size_t error_capacity);
 
 /* Zone calls retain each original Python float-conversion boundary. Weights
- * are read only when weighted is one. All scalar outputs retain their dtype.
- * square_fused selects separate (0) or fused (1) complex array products.
+ * are read only when weighted is one. Scalar outputs are binary64 values.
  */
 typedef struct {
     size_t cells;
     double mean[3], deviation[3], minimum[2], maximum[2];
 } tpmshx_result_zone_temperatures_v1;
 
-/* Temperatures and widths use float64. Integer labels select zones in
+/* Temperatures and widths use float64. int32 labels select zones in
  * physical cell order. Empty zones have zero cells. Other labels are ignored.
  * Boundary fractions use the same physical axes as length and height. */
 TPMSHX_RESULT_API int TPMSHX_RESULT_CALL tpmshx_result_zone_temperatures_2d_v1(
-    const tpmshx_result_array_v1 widths[2], const tpmshx_result_array_v1* labels,
-    const tpmshx_result_array_v1 temperatures[3], size_t zone_count,
+    const tpmshx_result_array_v2 widths[2], const tpmshx_result_labels_v1* labels,
+    const tpmshx_result_array_v2 temperatures[3], size_t zone_count,
     tpmshx_result_zone_temperatures_v1* output, double length_m, double height_m,
     const double* x_fractions, size_t nx, double* x_positions,
     const double* y_fractions, size_t ny, double* y_positions,
@@ -73,33 +72,31 @@ TPMSHX_RESULT_API int TPMSHX_RESULT_CALL tpmshx_result_zone_temperatures_2d_v1(
     char* error, size_t error_capacity);
 
 TPMSHX_RESULT_API int TPMSHX_RESULT_CALL tpmshx_result_zone_mean_v1(
-    const tpmshx_result_array_v1* values, const tpmshx_result_array_v1* weights, uint32_t weighted,
-    tpmshx_result_scalar_v1* output, tpmshx_result_diagnostics_v1* diagnostics,
+    const tpmshx_result_array_v2* values, const tpmshx_result_array_v2* weights, uint32_t weighted,
+    double* output, tpmshx_result_diagnostics_v1* diagnostics,
     char* error, size_t error_capacity);
 TPMSHX_RESULT_API int TPMSHX_RESULT_CALL tpmshx_result_zone_std_v1(
-    const tpmshx_result_array_v1* values, const tpmshx_result_array_v1* weights, uint32_t weighted,
-    uint32_t square_fused, tpmshx_result_scalar_v1* output, tpmshx_result_diagnostics_v1* diagnostics,
+    const tpmshx_result_array_v2* values, const tpmshx_result_array_v2* weights, uint32_t weighted,
+    double* output, tpmshx_result_diagnostics_v1* diagnostics,
     char* error, size_t error_capacity);
 TPMSHX_RESULT_API int TPMSHX_RESULT_CALL tpmshx_result_zone_minimum_v1(
-    const tpmshx_result_array_v1* values, tpmshx_result_scalar_v1* output,
+    const tpmshx_result_array_v2* values, double* output,
     tpmshx_result_diagnostics_v1* diagnostics, char* error, size_t error_capacity);
 TPMSHX_RESULT_API int TPMSHX_RESULT_CALL tpmshx_result_zone_maximum_v1(
-    const tpmshx_result_array_v1* values, tpmshx_result_scalar_v1* output,
+    const tpmshx_result_array_v2* values, double* output,
     tpmshx_result_diagnostics_v1* diagnostics, char* error, size_t error_capacity);
 TPMSHX_RESULT_API int TPMSHX_RESULT_CALL tpmshx_result_zone_spread_v1(
-    const tpmshx_result_array_v1* values, tpmshx_result_scalar_v1* output,
+    const tpmshx_result_array_v2* values, double* output,
     tpmshx_result_diagnostics_v1* diagnostics, char* error, size_t error_capacity);
 
-/* Speed has the selected one-dimensional extent. The byte buffer has the
- * exact result dtype size; output_type identifies that native dtype.
+/* Outputs have the selected one-dimensional extent. output_count must equal it.
  */
 TPMSHX_RESULT_API int TPMSHX_RESULT_CALL tpmshx_result_zone_power_two_v1(
-    const tpmshx_result_array_v1* values, uint32_t square_fused, unsigned char* output, size_t output_capacity,
-    tpmshx_result_scalar_v1* output_type, tpmshx_result_diagnostics_v1* diagnostics,
-    char* error, size_t error_capacity);
+    const tpmshx_result_array_v2* values, double* output, size_t output_count,
+    tpmshx_result_diagnostics_v1* diagnostics, char* error, size_t error_capacity);
 TPMSHX_RESULT_API int TPMSHX_RESULT_CALL tpmshx_result_zone_speed_from_squared_v1(
-    const tpmshx_result_array_v1* u_squared, const tpmshx_result_array_v1* v_squared,
-    unsigned char* output, size_t output_capacity, tpmshx_result_scalar_v1* output_type,
+    const tpmshx_result_array_v2* u_squared, const tpmshx_result_array_v2* v_squared,
+    double* output, size_t output_count,
     tpmshx_result_diagnostics_v1* diagnostics, char* error, size_t error_capacity);
 TPMSHX_RESULT_API int TPMSHX_RESULT_CALL tpmshx_result_zone_cv_v1(
     double deviation, double mean, double* output, tpmshx_result_diagnostics_v1* diagnostics,

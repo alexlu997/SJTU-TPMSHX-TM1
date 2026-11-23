@@ -284,34 +284,21 @@ def compute_zone_statistics(Ta, Tb, Ts, zone_id, zones,
     Ts_flat = np.ravel(Ts)
     zid_flat = np.ravel(zone_id)
     w_flat = np.ravel(cell_area) if cell_area is not None else None
-    # Object arrays keep their Python arithmetic protocol before native calls.
-    object_protocol = any(value is not None and value.dtype.kind == 'O'
-                          for value in (Ta_flat, Tb_flat, Ts_flat, w_flat))
-
-    def _object(arr, w=None):
-        return object_protocol or arr.dtype.kind == 'O' or (w is not None and w.dtype.kind == 'O')
 
     def _wmean(arr, w):
-        if _object(arr, w):
-            return float(np.average(arr, weights=w) if w is not None else arr.mean())
         return float(native.zone_mean(arr, w))
 
     def _wstd(arr, w):
-        if _object(arr, w):
-            if w is not None:
-                m = np.average(arr, weights=w)
-                return float(np.sqrt(np.average((arr - m)**2, weights=w)))
-            return float(arr.std())
         return float(native.zone_std(arr, w))
 
     def _minimum(arr):
-        return float(arr.min() if _object(arr) else native.zone_minimum(arr))
+        return float(native.zone_minimum(arr))
 
     def _maximum(arr):
-        return float(arr.max() if _object(arr) else native.zone_maximum(arr))
+        return float(native.zone_maximum(arr))
 
     def _spread(arr):
-        return float(arr.max() - arr.min() if _object(arr) else native.zone_spread(arr))
+        return float(native.zone_spread(arr))
 
     stats = []
     for zi, z in enumerate(zones):
@@ -342,19 +329,14 @@ def compute_zone_statistics(Ta, Tb, Ts, zone_id, zones,
         if u is not None and v is not None:
             u_flat = np.ravel(u)
             v_flat = np.ravel(v)
-            object_velocity = _object(u_flat, w) or _object(v_flat, w)
-            if object_velocity:
-                umag = np.sqrt(u_flat[mask]**2 + v_flat[mask]**2)
-            else:
-                u_squared = native.zone_power_two(u_flat[mask])
-                v_squared = native.zone_power_two(v_flat[mask])
-                umag = native.zone_speed_from_squared(u_squared, v_squared)
+            u_squared = native.zone_power_two(u_flat[mask])
+            v_squared = native.zone_power_two(v_flat[mask])
+            umag = native.zone_speed_from_squared(u_squared, v_squared)
             s['u_mean']    = _wmean(u_flat[mask], w)
             s['v_mean']    = _wmean(v_flat[mask], w)
             s['umag_mean'] = _wmean(umag, w)
             deviation, mean = _wstd(umag, w), _wmean(umag, w)
-            s['umag_cv'] = (float(deviation / max(mean, 1e-10)) if object_velocity
-                            else native.zone_cv(deviation, mean))
+            s['umag_cv'] = native.zone_cv(deviation, mean)
 
         if P is not None:
             P_flat = np.ravel(P)

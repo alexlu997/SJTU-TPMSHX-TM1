@@ -39,7 +39,6 @@
     tpmshx_result_outlet_temperature_3d_v1;
     tpmshx_result_parameter_bounds_v1;
     tpmshx_result_plane_duty_v1;
-    tpmshx_result_platform_info_v1;
     tpmshx_result_port_opening_valid_v1;
     tpmshx_result_port_weights_v1;
     tpmshx_result_port_width_valid_v1;
@@ -49,20 +48,6 @@
     tpmshx_result_pressure_flags_v1;
     tpmshx_result_pressure_ratio_v1;
     tpmshx_result_pressure_square_v1;
-    tpmshx_result_quick_capacity_product_v1;
-    tpmshx_result_quick_capacity_product_field_v1;
-    tpmshx_result_quick_duty_from_capacity_v1;
-    tpmshx_result_quick_duty_from_capacity_field_v1;
-    tpmshx_result_quick_energy_imbalance_v1;
-    tpmshx_result_quick_energy_imbalance_field_v1;
-    tpmshx_result_quick_reynolds_flow_v1;
-    tpmshx_result_quick_reynolds_flow_field_v1;
-    tpmshx_result_quick_reynolds_length_v1;
-    tpmshx_result_quick_reynolds_length_field_v1;
-    tpmshx_result_quick_reynolds_quotient_v1;
-    tpmshx_result_quick_reynolds_quotient_field_v1;
-    tpmshx_result_quick_temperature_difference_v1;
-    tpmshx_result_quick_temperature_difference_field_v1;
     tpmshx_result_range_values_v1;
     tpmshx_result_richardson_duty_v1;
     tpmshx_result_scalar_samples_v1;

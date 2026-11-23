@@ -45,7 +45,7 @@ Python 选择 dtype 元数据并适配输出类型，不提供数值回退。
 
 几何库负责网格、端口、轴映射和设计场。
 独立 preparation ABI 1 负责物性、闭合、DF、修正、投影和准备数值。
-独立 result ABI 2 负责指标、物理平衡、分区统计及数值检查。
+独立 result ABI 3 负责指标、物理平衡、分区统计及数值检查。
 实现范围与交付记录见[C++ 范围](cpp-migration.zh-CN.md#cpp-core-scope)。
 
 准备目标位于 `preprocess/`，复用几何／网格核心及 `fluid_properties.cpp` 的共享数值所有者。
@@ -80,11 +80,11 @@ Windows 准备库使用原锁定的 Windows 归档。
 结果目标位于 `postprocess/`，只使用 C++17 与系统库，不依赖求解状态或模型资源。
 具名指标、平衡与检查核心保留独立场归约及原始运算顺序。
 `python/cpp_interface/_native_result.py` 按需加载预构建库；导入与纯 HDF/JSON 读取不加载该库。
-Python 保留 DTO、类型／shape 适配、NumPy 事件和应用显示。
-原生结果阶段评估完整 2D/3D 证据，并负责其状态、原因和资格。
-带类型的字节视图保留整数存储、扩展精度、字节序与有符号步长。
-失败不提交数值输出；有序浮点事件继续使用调用方的 NumPy 错误策略。
-只有已证实的 Python 专用转换点保留显式对象及任意精度整数协议。
+Python 保留 DTO、`float64`/`int32` 输入规范化、固定 `RuntimeWarning` 诊断和应用显示。
+原生结果阶段评估完整 2D/3D 与 Quick Design 证据，并负责其状态、原因和资格。
+连续 `float64` 数组视图与 `int32` 标签视图允许 `NaN` 和 `Inf`，以保持历史 `.h5` 兼容。
+失败不提交数值输出；有序浮点事件对除零、上溢和无效值发出 `RuntimeWarning`，忽略下溢。
+Python 适配器在进入原生执行前拒绝非实数数组和布尔值。
 缺库、缺符号及 ABI 不符仍为部署错误，不使用数值回退。
 [结果来源说明](../postprocess/sources.md)定义接口及数值来源。
 结果单独发布不构建求解器、run_state、CoolProp 或生成系数。

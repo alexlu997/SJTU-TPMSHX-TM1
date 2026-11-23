@@ -6,21 +6,22 @@ def full_execution_record(case, result, *, sides=None, thermal=None):
     """Use returned evidence; requested settings do not prove execution."""
     metadata = result.metadata
     model_h_iterations = metadata.get('model_h_iterations')
-    if thermal is None:
+    if thermal is None or sides is None:
         mode = metadata['thermal_mode']
         if mode not in ('true_h', 'conservative_energy', 'model_h', 'temperature', 'legacy_temperature'):
             raise ValueError(f'unsupported executed thermal mode: {mode}')
         eos = mode in ('true_h', 'conservative_energy')
         temperature = result.boundary_fluxes.get('temperature') or {}
         integral = mode == 'model_h' or temperature.get('definition') == 'model_enthalpy_temperature_v1'
-        balance = metadata['diagnostics'].get('true_h_balance') or {}
-        settings = balance.get('effective_settings', {})
-        if integral and model_h_iterations:
-            main_calls = [row for row in model_h_iterations['records'] if row['stage'] == 'outer_thermal']
-            if main_calls:
-                settings = main_calls[-1]['settings']
-        thermal = dict(thermal_mode=mode, unknown='h' if mode == 'true_h' else 'T',
-                       temperature_transport=metadata.get('temperature_transport'), effective_settings=settings)
+        if thermal is None:
+            balance = metadata['diagnostics'].get('true_h_balance') or {}
+            settings = balance.get('effective_settings', {})
+            if integral and model_h_iterations:
+                main_calls = [row for row in model_h_iterations['records'] if row['stage'] == 'outer_thermal']
+                if main_calls:
+                    settings = main_calls[-1]['settings']
+            thermal = dict(thermal_mode=mode, unknown='h' if mode == 'true_h' else 'T',
+                           temperature_transport=metadata.get('temperature_transport'), effective_settings=settings)
         if sides is None:
             models = metadata.get('model_metadata', {})
             table = models.get('enthalpy_eos', models.get('sco2_enthalpy_eos', {}))

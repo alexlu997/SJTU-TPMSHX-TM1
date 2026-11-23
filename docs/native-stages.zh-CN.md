@@ -15,8 +15,8 @@
 | 二维阶段运行 | `tpmshx_run_saved_case_2d_v4`；检查点使用 `tpmshx_stage_run_2d_create_saved_v4` 和 `tpmshx_stage_run_2d_restore_saved_v4` |
 | 三维阶段运行 | `tpmshx_run_saved_case_3d_v2`；检查点使用 `tpmshx_stage_run_3d_create_saved_v2` 和 `tpmshx_stage_run_3d_restore_saved_v2` |
 | 直接完整求解 | `tpmshx_solve_full_2d_v6` 和 `tpmshx_solve_full_3d_v5`；检查点使用 `tpmshx_full_2d_run_create_v2`、`tpmshx_full_2d_run_restore_v2`、`tpmshx_full_3d_run_create_v3` 和 `tpmshx_full_3d_run_restore_v3` |
-| Quick Design 运行 | `tpmshx_run_quick_design_v2` |
-| 结果阶段 | `tpmshx_result_stage_query_v3` |
+| Quick Design 运行 | `tpmshx_run_quick_design_v2` 和 `tpmshx_solve_quick_design_v1` |
+| 结果阶段 | `tpmshx_result_stage_query_v3`（result ABI 3） |
 
 此次整合删除以下入口：
 
@@ -24,7 +24,7 @@
 - Quick Design 准备及运行 v1。
 - 二维一次性运行 v1 至 v3、三维一次性运行 v1、准备视图运行创建 v1，以及早于上表版本的保存描述符。
 - 二维 v6、三维 v5 之前的直接完整求解，以及对应的早期续算入口。
-- 结果阶段查询 v2。
+- 结果阶段查询 v2、`tpmshx_result_platform_info_v1`、14 个未使用的 `quick_*` C 入口，以及 `QuickProtocols` 宿主回调。
 
 现行入口使用的释放函数、ABI 版本查询、记录及其他查询继续可用。
 早期布局可作为现行描述符的嵌套成员保留。
@@ -71,11 +71,11 @@ Continuous v3 增加 XY/XYZ 控制点；spatial v4 增加 XY 网格矩形和现�
 较早的准备库使用 Python 静态预检，读取同一模型资源。
 
 完整 2D/3D 的 Python 评估现已调用原生结果阶段；独立适用性、物理平衡和资格查询也使用该阶段。
-原生结果阶段负责 Quick Design 指标并保留类型化中间值。V3 通过固定具名宿主操作保留既有 Python 对象、任意精度整数和最终转换协议。公开 Python 入口和保存格式继续可用。
-宿主查询借用类型化证据，保留延迟输入错误，并在每个原语返回前送达 NumPy 事件。
+原生结果阶段以 `float64` 负责 Quick Design 指标。Result ABI 3 使用扁平化的 `tpmshx_stage_input_v3` 描述符、连续 `float64` 数组和 `int32` 标签，不再使用逐操作 Quick 回调。公开 Python 入口和保存格式继续可用。
+宿主查询借用 `float64` 证据，保留延迟输入错误，并在每个原语返回前送达浮点事件；Python 适配器对除零、上溢和无效值事件发出 `RuntimeWarning`。
 回调错误在原指标或资格边界处理；未捕获的宿主错误保留原 Python 对象。
 回调不拥有查询状态。延迟错误保留异常对象、cause/context 链接和异常组成员，但不保留这些对象原有的 traceback。查询退出时清空延迟错误引用，覆盖输入打包失败；借用的场不等待循环垃圾回收。
-已发布的 v1 C 布局和查询继续保留；每个具有所有权的输出须通过创建它的库释放。
+每个具有所有权的输出须通过创建它的库释放。
 结果调用会拒绝错误的输出尺寸或尚未释放的 owner；这类拒绝保留借用输入、旧输出和诊断存储。
 
 已支持的二维和三维 C++ 调用顺序是 `prepare_case`、`run_case`、`evaluate`。调用者提供尺寸、设计值、
@@ -158,9 +158,7 @@ Python `tpms_calc.compute` 保留公开字段、缓存方法，以及每次返�
 - 诊断缓冲区必须与所有保留的准备结果视图分离，包括拥有的 LUT 数组。
   重叠调用返回无效输入状态，保留结果及全部诊断存储。
 - 回调在调用线程接收借用的事件视图，不承担数值准备。保留事件顺序、logger 名和消息。
-- 结果 v3 传输原始标签和带类型的 Quick 操作数；C++ 拥有标签比较和指标规则。
-  固定具名宿主回调只在选定运算处保留 Python 值协议。
-  对象相等与不等比较使用独立回调；字符串子类保留原运算符。
+- Result ABI 3 在 `tpmshx_stage_input_v3` 中传递原始 C 字符串标签和 `float64` Quick 操作数；C++ 拥有标签比较和指标规则，不使用逐操作 Quick 回调。
 - 宿主负责 case ID、时间戳、文件路径和 Python 对象转换。原生阶段负责物理规则、数值默认值和证据。
 - 准备库、求解库使用各自锁定的 CoolProp 构建。结果库不链接准备库、求解库、CoolProp 或 Qt。
 - 准备 v2 增加显式标量精度、强弱类型和布局标记。缓冲区采用 double 传输，结果标记保留原字段精度。
@@ -368,9 +366,9 @@ model-h 与 EOS 控制冲突保留原拒绝规则。
 缺少入口证据、已记录的空集合和未捕获的范围样本分别保留。
 Python 适配器在创建该视图前保留公共保存 schema 校验。
 
-结果拥有完整原生三维 DTO、通用 v1 证据和 v2 评估输入，在准备态及运行释放后继续有效。
+结果拥有完整原生三维 DTO、通用 v1 证据和 v3 评估输入，在准备态及运行释放后继续有效。
 用 `evaluation` 成员调用 `tpmshx_result_stage_query_v3`；C++ `evaluate` 重载已采用这一入口。
-v2 输入保留显式为 None 的质量面记录；仅 v1 视图无法表达该状态。
+v3 输入保留显式为 None 的质量面记录；仅 v1 视图无法表达该状态。
 所有原始查询须使用创建它的求解库；raw 视图借用于阶段结果，不得单独释放。
 捕获用最终 SIMPLE 场记录压力和显示；质量、热压力及能量证据采用最后完成的热态输入。
 热量使用 W，质量使用 kg/s；显示和 true-h 质量别名使用独立数组 header，并共享不可变数据缓冲区。

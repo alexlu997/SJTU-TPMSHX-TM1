@@ -84,7 +84,7 @@ Its name is `libtpmshx_preparation_shared.dylib` on macOS and `tpmshx_preparatio
 Historical result reading and independent postprocessing do not load preparation.
 See the [native preparation core](cpp-migration.md#native-preparation-core) for separate preparation publication and the four-library transaction.
 
-The result library loads on demand from the same platform directory and uses result ABI 2.
+The result library loads on demand from the same platform directory and uses result ABI 3.
 Its name is `libtpmshx_result_shared.dylib` on macOS and `tpmshx_result_shared.dll` on Windows.
 `TPMSHX_RESULT_LIBRARY` overrides its runtime path. Pure HDF/JSON reading does not load it. Actual metric arithmetic needs it.
 See the [native result core](cpp-migration.md#native-result-core) for separate publication and the Linux minimal-postprocessing CI scope.

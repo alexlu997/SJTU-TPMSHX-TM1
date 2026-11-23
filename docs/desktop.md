@@ -90,7 +90,7 @@ macOS 名称为 `libtpmshx_preparation_shared.dylib`，Windows 为 `tpmshx_prepa
 `TPMSHX_PREPARATION_LIBRARY` 覆盖其运行路径；`--native-library` 仍只选择求解库。
 历史结果回读和独立后处理不加载准备库。独立准备库发布及四库事务见[原生准备核心](cpp-migration.zh-CN.md#native-preparation-core)。
 
-结果库在同一平台目录按需加载，使用 result ABI 2。
+结果库在同一平台目录按需加载，使用 result ABI 3。
 macOS 名称为 `libtpmshx_result_shared.dylib`，Windows 为 `tpmshx_result_shared.dll`。
 `TPMSHX_RESULT_LIBRARY` 覆盖其运行路径。纯 HDF/JSON 读取不加载它，实际指标运算需要它。
 独立发布与 Linux 最小后处理 CI 的范围见[原生结果核心](cpp-migration.zh-CN.md#native-result-core)。

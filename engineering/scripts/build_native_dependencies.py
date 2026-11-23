@@ -510,7 +510,7 @@ def record_result_build(cache: Path, host: str) -> None:
         reference, = (item for item in configuration["targets"] if item["name"] == name)
         target = json.loads((reply / reference["jsonFile"]).read_text(encoding="utf-8"))
         groups = target["compileGroups"]
-        languages = {"C", "CXX"} if host == "macos-arm64" and name == "tpmshx_result" else {"CXX"}
+        languages = {"CXX"}
         if {item["language"] for item in groups} != languages or any(
                 not item.get("compileCommandFragments") for item in groups):
             raise RuntimeError(f"Result metadata omitted required compilation options or languages for {name}: {sorted(languages)}")

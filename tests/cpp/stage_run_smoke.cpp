@@ -25,9 +25,10 @@ void write(const std::filesystem::path& directory,const tpmshx_stage_run_result_
     for(size_t i=0;i<result.evidence.field_count;++i) {
         const auto& field=result.evidence.fields[i];
         const auto& array=field.value;
-        require(array.dtype==TPMSHX_RESULT_F64 && array.rank==2,"unexpected stage field format");
+        require(array.data && array.rank==2,"unexpected stage field format");
         std::ofstream output(directory/(std::string(field.name)+".bin"),std::ios::binary);
-        output.write(static_cast<const char*>(array.data),static_cast<std::streamsize>(array.bytes));
+        output.write(reinterpret_cast<const char*>(array.data),
+            static_cast<std::streamsize>(array.shape[0]*array.shape[1]*sizeof(double)));
         require(output.good(),"could not write stage field");
         index<<field.name<<'\t'<<array.shape[0]<<'\t'<<array.shape[1]<<'\n';
     }

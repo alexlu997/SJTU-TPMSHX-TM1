@@ -26,37 +26,28 @@ public:
         register_span(pointer,count,sizeof(T),alignof(T),true);
     }
     void output_bytes(void* pointer,std::size_t count) noexcept {register_span(pointer,count,1,1,true);}
-    void array(const RawArray& value) noexcept {
-        array_storage(value,false);
-    }
+    void array(const RawArray& value) noexcept {array_storage(value,false);}
     void output_array(const RawArray* value) noexcept {
         const auto index=register_span(value,1,sizeof(RawArray),alignof(RawArray),false);
         if (readable(index)) array_storage(*value,true);
         else unknown_=true;
     }
-    void array_storage(const RawArray& value,bool writable) noexcept {
-        register_span(value.data,value.bytes,1,1,writable);
-        input(value.shape,value.rank);
-        input(value.strides,value.rank);
-        if (array_count_==arrays_.size()) {unknown_=true;fail("too many result array arguments");return;}
-        array_writable_[array_count_]=writable;
-        arrays_[array_count_++]=value;
-    }
     void arrays(const RawArray* values,std::size_t count) noexcept {
         const auto index=register_span(values,count,sizeof(RawArray),alignof(RawArray),false);
-        if (count>arrays_.size()-array_count_) {unknown_=true;fail("too many result array arguments");return;}
         if (!readable(index)) {unknown_=true;return;}
         for (std::size_t i=0;i<count;++i) array(values[i]);
+    }
+    void labels(const RawLabels* value) noexcept {
+        const auto index=register_span(value,1,sizeof(RawLabels),alignof(RawLabels),false);
+        if (!readable(index)) {unknown_=true;return;}
+        if (!register_shape(value->rank,value->shape)) return;
+        register_span(value->data,known_count(value->rank,value->shape),sizeof(std::int32_t),alignof(std::int32_t),false);
     }
     void validate() const {
         if (failure_) throw std::invalid_argument(failure_);
         for (std::size_t i=0;i<span_count_;++i) for (std::size_t j=0;j<i;++j)
             if ((spans_[i].writable || spans_[j].writable) && overlap(spans_[i],spans_[j]))
                 throw std::invalid_argument("result writable storage overlaps another buffer");
-        for (std::size_t i=0;i<array_count_;++i) {
-            const Array checked(arrays_[i]);
-            if (array_writable_[i] && checked.size()) validate_output_elements(arrays_[i]);
-        }
     }
     bool error_safe() const noexcept {return report_safe(error_index_);}
     bool diagnostics_safe() const noexcept {return report_safe(diagnostic_index_);}
@@ -67,25 +58,23 @@ private:
     };
     static constexpr auto absent=std::numeric_limits<std::size_t>::max();
     std::array<Span,128> spans_{};
-    std::array<RawArray,32> arrays_{};
-    std::array<bool,32> array_writable_{};
-    std::size_t span_count_{},array_count_{},error_index_{absent},diagnostic_index_{absent};
+    std::size_t span_count_{},error_index_{absent},diagnostic_index_{absent};
     const char* failure_{};
     bool unknown_{};
     void fail(const char* text) noexcept {if (!failure_) failure_=text;}
-    static void validate_output_elements(const RawArray& value) {
-        std::vector<std::pair<std::size_t,std::size_t>> axes;
-        for (std::size_t i=0;i<value.rank;++i) if (value.shape[i]>1) {
-            const auto stride=value.strides[i];
-            const auto distance=stride<0?static_cast<std::size_t>(-(stride+1))+1:static_cast<std::size_t>(stride);
-            axes.emplace_back(distance,value.shape[i]);
-        }
-        std::sort(axes.begin(),axes.end());
-        auto covered=item_size(value.dtype);
-        for (const auto& axis:axes) {
-            if (axis.first<covered) throw std::invalid_argument("result output elements must have separate storage");
-            covered+=axis.first*(axis.second-1);
-        }
+    void array_storage(const RawArray& value,bool writable) noexcept {
+        if (!register_shape(value.rank,value.shape)) return;
+        register_span(value.data,known_count(value.rank,value.shape),sizeof(double),alignof(double),writable);
+    }
+    // Shape storage is read before the data extent is known.
+    bool register_shape(std::size_t rank,const std::size_t* shape) noexcept {
+        const auto index=register_span(shape,rank,sizeof(std::size_t),alignof(std::size_t),false);
+        if (rank && !readable(index)) {unknown_=true;return false;}
+        return true;
+    }
+    std::size_t known_count(std::size_t rank,const std::size_t* shape) noexcept {
+        try {return element_count(rank,shape);}
+        catch (...) {unknown_=true;fail("result array extent overflows size_t");return 0;}
     }
     std::size_t register_span(const void* pointer,std::size_t count,std::size_t width,
                              std::size_t alignment,bool writable) noexcept {

@@ -15,8 +15,8 @@ The table lists these active entries. The libraries export no other version of t
 | 2D stage run | `tpmshx_run_saved_case_2d_v4`; `tpmshx_stage_run_2d_create_saved_v4` and `tpmshx_stage_run_2d_restore_saved_v4` for checkpoints |
 | 3D stage run | `tpmshx_run_saved_case_3d_v2`; `tpmshx_stage_run_3d_create_saved_v2` and `tpmshx_stage_run_3d_restore_saved_v2` for checkpoints |
 | Direct full solve | `tpmshx_solve_full_2d_v6` and `tpmshx_solve_full_3d_v5`; `tpmshx_full_2d_run_create_v2`, `tpmshx_full_2d_run_restore_v2`, `tpmshx_full_3d_run_create_v3` and `tpmshx_full_3d_run_restore_v3` for checkpoints |
-| Quick Design run | `tpmshx_run_quick_design_v2` |
-| Result stage | `tpmshx_result_stage_query_v3` |
+| Quick Design run | `tpmshx_run_quick_design_v2` and `tpmshx_solve_quick_design_v1` |
+| Result stage | `tpmshx_result_stage_query_v3` (result ABI 3) |
 
 The consolidation removed these entries:
 
@@ -24,7 +24,7 @@ The consolidation removed these entries:
 - Quick Design preparation and run v1.
 - 2D one-shot runs v1 to v3, 3D one-shot run v1, prepared-view run creation v1 and saved descriptors before the versions in the table.
 - Direct full solves before 2D v6 and 3D v5, and their earlier continuation entries.
-- Result stage query v2.
+- Result stage query v2, `tpmshx_result_platform_info_v1`, 14 unused `quick_*` C entries and the `QuickProtocols` host callbacks.
 
 Release functions, ABI version queries, records and other queries that the active entries use stay available.
 An earlier layout can stay as a nested member of an active descriptor.
@@ -78,11 +78,11 @@ checks the applicable velocity window. Python uses the same scope check when the
 library supplies it. Static preflight for earlier libraries uses the same model resource in Python.
 
 Full 2D/3D Python evaluation now calls the native result stage. Independent applicability, physical-balance and qualification queries use that stage.
-The native result stage owns Quick Design metrics and retains typed intermediate values. V3 uses fixed named host operations for existing Python object, exact integer and final conversion protocols. The public Python entry points and saved formats stay available.
-The host query uses borrowed typed evidence and preserves deferred input errors. It delivers NumPy events before each primitive returns.
+The native result stage owns Quick Design metrics in `float64`. Result ABI 3 uses a flattened `tpmshx_stage_input_v3` descriptor with contiguous `float64` arrays and `int32` labels, without per-operation Quick callbacks. The public Python entry points and saved formats stay available.
+The host query uses borrowed `float64` evidence and preserves deferred input errors. It delivers floating-point events before each primitive returns, and the Python adapter emits `RuntimeWarning` for divide-by-zero, overflow and invalid-value events.
 A callback error is handled at the original metric or qualification boundary. An uncaught host error retains its original Python object.
 Callbacks do not own query state. Deferred errors keep their exception objects, cause/context links and group members. Earlier tracebacks on those objects are discarded. Query exit clears deferred error references, including input-packing failures; borrowed fields do not wait for cyclic garbage collection.
-Published v1 C layouts and queries remain available. Release each owned output through the library that created it.
+Release each owned output through the library that created it.
 Result calls reject a wrong output size or an owner that was not released.
 Those rejected calls preserve borrowed inputs, the old output and diagnostic storage.
 
@@ -177,9 +177,7 @@ Its binding shares range and warning transport with complete preparation.
   An overlapping call returns invalid status without changing the result or diagnostic storage.
 - Callbacks receive borrowed event views on the caller thread. They do not
   perform numerical preparation. Keep event order, logger names and messages.
-- Result v3 carries raw labels and typed Quick operands. C++ owns label comparisons and metric policy.
-  Fixed named host callbacks retain Python value protocols at the selected operation.
-  Object equality and inequality use separate callbacks; string subclasses keep their original operators.
+- Result ABI 3 passes raw C-string labels and `float64` Quick operands in `tpmshx_stage_input_v3`. C++ owns label comparisons and metric policy without per-operation Quick callbacks.
 - The host owns case IDs, timestamps, file paths and Python object conversion.
   The native stages own physical rules, numerical defaults and evidence.
 - Preparation and solver libraries use their separate locked CoolProp builds.
@@ -426,9 +424,9 @@ It does not call raw preparation or replace saved grids, ports, models, K/cF, th
 Missing inlet evidence, an empty recorded set and uncaptured range samples remain distinct.
 The Python adapter retains public saved-schema validation before it creates this view.
 
-The result owns the complete raw 3D DTO, generic v1 evidence and a v2 evaluation input.
+The result owns the complete raw 3D DTO, generic v1 evidence and a v3 evaluation input.
 Use its `evaluation` member with `tpmshx_result_stage_query_v3`. The C++ `evaluate` overload does this.
-The v2 input preserves explicit None mass-face records; v1 alone cannot express that state.
+The v3 input preserves explicit None mass-face records; v1 alone cannot express that state.
 It remains valid after preparation and run release. All raw queries must use its creating solver library.
 The raw view is borrowed from the stage result and must not be released separately.
 Capture uses final SIMPLE fields for pressure and display.

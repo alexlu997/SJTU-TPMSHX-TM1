@@ -8,9 +8,7 @@ int main() {
     if (tpmshx_result_abi_version_v1() != TPMSHX_RESULT_ABI_VERSION) return 1;
     const double values[] = {1., 2.};
     const std::size_t shape[] = {2};
-    const std::ptrdiff_t strides[] = {sizeof(double)};
-    const tpmshx_result_array_v1 input{values, sizeof(values), 0, TPMSHX_RESULT_F64,
-        TPMSHX_RESULT_NUMPY_ARRAY, TPMSHX_RESULT_NATIVE_ENDIAN, 0, 1, shape, strides};
+    const tpmshx_result_array_v2 input{values, 1, shape};
     tpmshx_result_array_check_values_v1 checks{};
     tpmshx_result_diagnostics_v1 diagnostics{};
     char error[256]{};

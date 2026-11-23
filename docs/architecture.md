@@ -51,7 +51,7 @@ Its native arithmetic stays float64.
 
 The geometry library calculates grids, ports, axis maps and design fields.
 Independent preparation ABI 1 calculates properties, closures, DF, corrections, projection and preparation mathematics.
-Independent result ABI 2 calculates metrics, physical balances, zone statistics and numerical checks.
+Independent result ABI 3 calculates metrics, physical balances, zone statistics and numerical checks.
 See [C++ scope and delivery records](cpp-migration.md#cpp-core-scope).
 
 The preparation target is `preprocess/`. It reuses the geometry/grid core and the shared `fluid_properties.cpp` numerical owner.
@@ -89,11 +89,11 @@ See [preparation builds and runtime paths](cpp-migration.md#native-preparation-c
 The result target is `postprocess/`. It uses C++17 and system libraries without solver state or model resources.
 Named metric, balance and check kernels preserve independent field reductions and their original operation order.
 `python/cpp_interface/_native_result.py` loads the prebuilt image on demand. Imports and pure HDF/JSON reads do not load it.
-Python keeps DTOs, type and shape adaptation, NumPy events and application display.
-The native result stage evaluates full 2D/3D evidence and owns its status, reasons and qualification.
-Typed byte views preserve integer storage, extended precision, byte order and signed strides.
-Failure does not commit numerical outputs. Ordered floating-point events retain the caller's NumPy error policy.
-Explicit object and arbitrary integer protocols remain only at demonstrated Python-only conversion points.
+Python keeps DTOs, `float64`/`int32` input normalization, fixed `RuntimeWarning` diagnostics and application display.
+The native result stage evaluates full 2D/3D and Quick Design evidence and owns its status, reasons and qualification.
+Contiguous `float64` array views and `int32` label views allow `NaN` and `Inf` for historical `.h5` compatibility.
+Failure does not commit numerical outputs. Ordered floating-point events emit `RuntimeWarning` for divide-by-zero, overflow and invalid values, and ignore underflow.
+The Python adapter rejects non-real arrays and booleans before native execution.
 Missing libraries, symbols and incompatible ABIs remain deployment errors, with no numerical fallback.
 The [result source record](../postprocess/sources.md) defines the interface and numerical sources.
 Separate result publication builds no solver, run_state, CoolProp or generated coefficients.

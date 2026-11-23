@@ -750,13 +750,11 @@ inline RunResult3D run_case(const PreparedSpatialCase3D& prepared,const RunContr
 inline RunResult3D run_case(const PreparedContinuousCase3D& prepared,const RunControl3D& control,const RunRequest3D& request={}) {
     return run_case(saved_case(prepared),control,request);
 }
-// Full-result queries use v3 with a null model, so no typed Quick operands are present.
+// Full-result queries pass the captured v3 host input directly.
 inline Evaluation evaluate(const RunResult3D& result,const tpmshx_stage_metric_spec_v1* metric=nullptr) {
     tpmshx_stage_output_v1 output{};output.struct_size=sizeof(output);char error[4096]{};
     tpmshx_result_diagnostics_v1 diagnostics{};uint64_t token=0;
-    tpmshx_stage_input_v3 input{};input.abi_version=3;input.struct_size=sizeof(input);
-    input.host=&result.view().evaluation;
-    detail::check(tpmshx_result_stage_query_v3(&input,0,metric,nullptr,0,
+    detail::check(tpmshx_result_stage_query_v3(&result.view().evaluation,0,metric,nullptr,0,
         &output,&diagnostics,&token,error,sizeof(error)),error);
     return Evaluation(output);
 }

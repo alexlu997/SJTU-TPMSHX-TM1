@@ -18,19 +18,12 @@ void flag(std::uint32_t value) {
     if (value>1) throw std::invalid_argument("result flag must be zero or one");
 }
 void copy_double(const r::arithmetic::Tensor& values,double* output) {
-    const auto view=values.array();
-    for (std::size_t index=0; index<view.size(); ++index)
-        output[index]=static_cast<double>(r::real_value(view.at(index)));
+    std::copy(values.values.begin(),values.values.end(),output);
 }
 void publish(const r::arithmetic::Tensor& value,const r::RawArray* output) {
-    r::Array target(*output);
-    if (output->dtype!=value.dtype || target.size()!=value.size() || output->rank!=value.shape.size()
-        || !std::equal(value.shape.begin(),value.shape.end(),output->shape))
-        throw std::invalid_argument("native box output dtype or shape disagrees with calculation");
-    const auto source=value.array();
-    for (std::size_t index=0; index<value.size(); ++index)
-        r::copy_number(source.address(index),source.raw().byte_order,
-            const_cast<unsigned char*>(target.address(index)),target.raw().byte_order,value.dtype);
+    if (output->rank!=value.shape.size() || !std::equal(value.shape.begin(),value.shape.end(),output->shape))
+        throw std::invalid_argument("native box output shape disagrees with calculation");
+    std::copy(value.values.begin(),value.values.end(),const_cast<double*>(output->data));
 }
 }  // namespace
 
@@ -74,11 +67,10 @@ int TPMSHX_RESULT_CALL tpmshx_result_strict_certificate_v1(std::uint32_t active_
             const auto result=checks::strict_certificate(active_b!=0,{ratios[0],ratios[1],ratios[2],ratios[3]},source_a,source_b);
             *output=result;});
 }
-int TPMSHX_RESULT_CALL tpmshx_result_energy_ratio_v1(r::RawScalar ratio,r::RawScalar tolerance,
+int TPMSHX_RESULT_CALL tpmshx_result_energy_ratio_v1(double ratio,double tolerance,
     std::uint32_t* output,Diagnostics* diagnostics,char* error,std::size_t capacity) {
     return c::boundary(diagnostics,error,capacity,[&](Buffers& b){b.output(output,1);},
-        [&](Diagnostics& d){const auto result=checks::energy_ratio(r::read_scalar(ratio),r::read_scalar(tolerance),d);
-            *output=result?1u:0u;});
+        [&](Diagnostics&){const auto result=checks::energy_ratio(ratio,tolerance);*output=result?1u:0u;});
 }
 int TPMSHX_RESULT_CALL tpmshx_result_pressure_square_v1(double inlet,double* output,
     Diagnostics* diagnostics,char* error,std::size_t capacity) {
@@ -117,40 +109,35 @@ int TPMSHX_RESULT_CALL tpmshx_result_field_mach_max_v1(r::RawArray speed,r::RawA
     return c::boundary(diagnostics,error,capacity,[&](Buffers& b){b.array(speed);b.array(sound);b.output(output,1);},
         [&](Diagnostics& d){const auto result=checks::field_mach_max(r::Array(speed),r::Array(sound),d);*output=result;});
 }
-int TPMSHX_RESULT_CALL tpmshx_result_pressure_flags_v1(r::RawScalar pressure,double floor,double allowance,
+int TPMSHX_RESULT_CALL tpmshx_result_pressure_flags_v1(double pressure,double floor,double allowance,
     std::uint32_t* output,Diagnostics* diagnostics,char* error,std::size_t capacity) {
     return c::boundary(diagnostics,error,capacity,[&](Buffers& b){b.output(output,1);},
-        [&](Diagnostics& d){const auto result=checks::pressure_flags(r::read_scalar(pressure),floor,allowance,d);*output=result;});
+        [&](Diagnostics&){const auto result=checks::pressure_flags(pressure,floor,allowance);*output=result;});
 }
-int TPMSHX_RESULT_CALL tpmshx_result_mach_limit_flags_v1(r::RawScalar mach,r::RawScalar limit,
+int TPMSHX_RESULT_CALL tpmshx_result_mach_limit_flags_v1(double mach,double limit,
     std::uint32_t* output,Diagnostics* diagnostics,char* error,std::size_t capacity) {
     return c::boundary(diagnostics,error,capacity,[&](Buffers& b){b.output(output,1);},
-        [&](Diagnostics& d){const auto result=checks::mach_limit_flags(r::read_scalar(mach),r::read_scalar(limit),d);*output=result;});
+        [&](Diagnostics&){const auto result=checks::mach_limit_flags(mach,limit);*output=result;});
 }
-int TPMSHX_RESULT_CALL tpmshx_result_mach_limit_array_flags_v1(r::RawScalar mach,r::RawArray limit,
+int TPMSHX_RESULT_CALL tpmshx_result_mach_limit_array_flags_v1(double mach,r::RawArray limit,
     std::uint32_t* output,Diagnostics* diagnostics,char* error,std::size_t capacity) {
     return c::boundary(diagnostics,error,capacity,[&](Buffers& b){b.array(limit);b.output(output,1);},
-        [&](Diagnostics& d){const auto result=checks::mach_limit_array_flags(r::read_scalar(mach),r::Array(limit),d);
-            *output=result;});
+        [&](Diagnostics&){const auto result=checks::mach_limit_array_flags(mach,r::Array(limit));*output=result;});
 }
-int TPMSHX_RESULT_CALL tpmshx_result_box_density_length_v1(r::RawScalar density,r::RawScalar length,
-    r::RawScalar* output,Diagnostics* diagnostics,char* error,std::size_t capacity) {
+int TPMSHX_RESULT_CALL tpmshx_result_box_density_length_v1(double density,double length,
+    double* output,Diagnostics* diagnostics,char* error,std::size_t capacity) {
     return c::boundary(diagnostics,error,capacity,[&](Buffers& b){b.output(output,1);},
-        [&](Diagnostics& d){const auto result=checks::box_density_length(r::read_scalar(density),r::read_scalar(length),d);
-            *output=r::pack_scalar(result);});
+        [&](Diagnostics&){const auto result=checks::box_density_length(density,length);*output=result;});
 }
-int TPMSHX_RESULT_CALL tpmshx_result_box_bulk_mass_v1(r::RawScalar density_length,r::RawScalar height,r::RawScalar depth,
-    r::RawScalar* output,Diagnostics* diagnostics,char* error,std::size_t capacity) {
+int TPMSHX_RESULT_CALL tpmshx_result_box_bulk_mass_v1(double density_length,double height,double depth,
+    double* output,Diagnostics* diagnostics,char* error,std::size_t capacity) {
     return c::boundary(diagnostics,error,capacity,[&](Buffers& b){b.output(output,1);},
-        [&](Diagnostics& d){const auto result=checks::box_bulk_mass(r::read_scalar(density_length),
-            r::read_scalar(height),r::read_scalar(depth),d);
-            *output=r::pack_scalar(result);});
+        [&](Diagnostics&){const auto result=checks::box_bulk_mass(density_length,height,depth);*output=result;});
 }
-int TPMSHX_RESULT_CALL tpmshx_result_box_solid_mass_v1(r::RawScalar bulk_mass,r::RawScalar epsilon,
-    r::RawScalar* output,Diagnostics* diagnostics,char* error,std::size_t capacity) {
+int TPMSHX_RESULT_CALL tpmshx_result_box_solid_mass_v1(double bulk_mass,double epsilon,
+    double* output,Diagnostics* diagnostics,char* error,std::size_t capacity) {
     return c::boundary(diagnostics,error,capacity,[&](Buffers& b){b.output(output,1);},
-        [&](Diagnostics& d){const auto result=checks::box_solid_mass(r::read_scalar(bulk_mass),r::read_scalar(epsilon),d);
-            *output=r::pack_scalar(result);});
+        [&](Diagnostics&){const auto result=checks::box_solid_mass(bulk_mass,epsilon);*output=result;});
 }
 int TPMSHX_RESULT_CALL tpmshx_result_box_density_length_array_v1(r::RawArray density,r::RawArray length,
     const r::RawArray* output,Diagnostics* diagnostics,char* error,std::size_t capacity) {

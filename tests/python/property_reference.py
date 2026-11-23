@@ -32,7 +32,7 @@ _query_warning_origin = ContextVar("query_reference_warning_origin", default=Non
 
 
 def _warn_range_once(name, temperature, lo, hi):
-    from tests.python.result_warning_reference import record_range
+    from sjtu_tpmshx.run_control.run_warnings import record_range
 
     values = np.asarray(temperature, dtype=float)
     if values.size == 0:
@@ -218,7 +218,7 @@ def _query_property(function, origin, temperature, pressure):
 
 
 def _query_nu_notice(fluid, topology, value, origin, *, quantity='Re'):
-    from .result_warning_reference import record_range
+    from sjtu_tpmshx.run_control.run_warnings import record_range
 
     bounds = _QUERY_CO2_PR_RANGE if quantity == 'Pr' else _QUERY_RE_RANGES[fluid]
     prefix = {'air': 'Nu', 'water': 'water Nu', 'sco2': 'sCO2 Nu', 'co2': 'CO2 Nu'}[fluid]

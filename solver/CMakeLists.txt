@@ -240,12 +240,6 @@ add_library(tpmshx_capture_math STATIC
 target_include_directories(tpmshx_capture_math PUBLIC "${TPMSHX_ROOT}/include")
 set_target_properties(tpmshx_capture_math PROPERTIES CXX_VISIBILITY_PRESET hidden
     C_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES)
-if(APPLE)
-    target_sources(tpmshx_capture_math PRIVATE "${TPMSHX_ROOT}/postprocess/result_complex_sqrt.c")
-    target_compile_features(tpmshx_capture_math PRIVATE c_std_11)
-    set_source_files_properties("${TPMSHX_ROOT}/postprocess/result_complex_sqrt.c" PROPERTIES
-        COMPILE_OPTIONS "-fno-builtin-csqrt;-fno-builtin-csqrtf;-fno-builtin-csqrtl")
-endif()
 if(MSVC)
     target_compile_options(tpmshx_capture_math PRIVATE /W4 /WX /EHsc /fp:strict /utf-8)
 else()

@@ -218,8 +218,8 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_get_capture_v1(
 /* Summarize completed main-grid temperatures by saved zone. Borrow the
  * arrays through this call. Use the result zone query's data and status rules. */
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_zone_temperatures_v1(
-    const tpmshx_result_array_v1 widths[2],const tpmshx_result_array_v1* labels,
-    const tpmshx_result_array_v1 temperatures[3],size_t zone_count,
+    const tpmshx_result_array_v2 widths[2],const tpmshx_result_labels_v1* labels,
+    const tpmshx_result_array_v2 temperatures[3],size_t zone_count,
     tpmshx_result_zone_temperatures_v1* output,double length_m,double height_m,
     const double* x_fractions,size_t nx,double* x_positions,
     const double* y_fractions,size_t ny,double* y_positions,
@@ -232,9 +232,9 @@ TPMSHX_THERMAL_API void TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_release_v1(
  * the outputs unused. Axis maps contain the physical axes and their inverse. */
 typedef struct {
     size_t dimension;
-    tpmshx_result_array_v1 widths[3], edges[3];
+    tpmshx_result_array_v2 widths[3], edges[3];
     double area_density, hydraulic_diameter, porosity, split_a;
-    tpmshx_result_array_v1 fields[3], side_geometry[2];
+    tpmshx_result_array_v2 fields[3], side_geometry[2];
     uint32_t axis_present[2];
     int32_t axes[2][6];
     tpmshx_preparation_array_v1 solver_widths[3], solver_area, solver_diameter;

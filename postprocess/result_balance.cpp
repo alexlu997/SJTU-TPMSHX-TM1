@@ -11,17 +11,13 @@ namespace tpmshx::result::balance {
 namespace {
 namespace a = arithmetic;
 
-void require_square_mode(std::uint32_t square_fused) {
-    if (square_fused>1) throw std::invalid_argument("zone square flag must be zero or one");
-}
-
 void require_mass_faces(const RawArray* faces, std::size_t dimension) {
     if (dimension != 2 && dimension != 3)
         throw std::invalid_argument("mass balance requires two or three physical axes");
     std::vector<std::size_t> shape;
     for (std::size_t axis=0; axis<dimension; ++axis) {
         const Array face(faces[axis]);
-        if (face.raw().rank != dimension)
+        if (face.rank() != dimension)
             throw std::invalid_argument("mass faces disagree with physical dimension");
         if (!axis) {
             shape.assign(face.raw().shape,face.raw().shape+dimension);
@@ -33,18 +29,16 @@ void require_mass_faces(const RawArray* faces, std::size_t dimension) {
         for (std::size_t i=0; i<dimension; ++i)
             if (face.raw().shape[i] != shape[i]+(i==axis?1u:0u))
                 throw std::invalid_argument("mass faces do not share a consistent cell shape");
-        if (face.raw().dtype==TPMSHX_RESULT_BOOL || complex_type(face.raw().dtype))
-            throw std::invalid_argument("physical balance requires finite mass faces");
-        for (std::size_t i=0; i<face.size(); ++i) if (!finite(face.at(i)))
+        for (std::size_t i=0; i<face.size(); ++i) if (!std::isfinite(face.at(i)))
             throw std::invalid_argument("physical balance requires finite mass faces");
     }
 }
 
 a::Tensor plane(const Array& field, std::size_t axis, bool high) {
     const auto& raw=field.raw();
-    std::vector<std::size_t> shape(raw.shape,raw.shape+raw.rank);
+    auto shape=field.shape();
     shape.erase(shape.begin()+static_cast<std::ptrdiff_t>(axis));
-    a::Tensor output(shape,raw.dtype);
+    a::Tensor output(shape);
     std::vector<std::size_t> coordinates(shape.size());
     for (std::size_t i=0; i<output.size(); ++i) {
         auto remainder=i;
@@ -54,23 +48,18 @@ a::Tensor plane(const Array& field, std::size_t axis, bool high) {
         std::size_t index=0, selected=0;
         for (std::size_t j=0; j<raw.rank; ++j)
             index=index*raw.shape[j]+(j==axis?(high?raw.shape[j]-1:0):coordinates[selected++]);
-        output.put(i,field.at(index));
+        output.values[i]=field.at(index);
     }
     return output;
 }
 
 Number weighted_mean(const Array& values, const Array& weights, Diagnostics& diagnostics) {
-    if (values.raw().rank!=1 || weights.raw().rank!=1 || values.size()!=weights.size())
+    if (values.rank()!=1 || weights.rank()!=1 || values.size()!=weights.size())
         throw std::invalid_argument("zone weights must match the selected values");
-    const auto source=(integer_type(values.raw().dtype) || values.raw().dtype==TPMSHX_RESULT_BOOL)
-        ?static_cast<std::uint32_t>(TPMSHX_RESULT_F64):values.raw().dtype;
-    const auto dtype=a::promote_dtype(source,weights.raw().dtype);
-    auto typed_weights=a::cast(weights,dtype,diagnostics);
-    const auto denominator=a::sum(typed_weights.array(),diagnostics);
-    if (zero(denominator))
+    const auto denominator=a::sum(weights,diagnostics);
+    if (denominator.value==0.)
         throw NumericError(TPMSHX_RESULT_ZERO_DIVISION,"Weights sum to zero, can't be normalized");
-    auto typed_values=a::cast(values,dtype,diagnostics);
-    auto product=a::multiply(typed_values.array(),typed_weights.array(),diagnostics);
+    auto product=a::multiply(values,weights,diagnostics);
     return a::divide(a::sum(product.array(),diagnostics),denominator,diagnostics);
 }
 }  // namespace
@@ -79,11 +68,9 @@ NormValues norms(const RawArray& residual, Diagnostics& diagnostics) {
     const Array values(residual);
     NormValues output{};
     output.signed_sum=a::sum_as_float(values,diagnostics);
-    auto magnitude=a::absolute(values,diagnostics);
+    const auto magnitude=a::absolute(values);
     output.l1=a::sum_as_float(magnitude.array(),diagnostics);
-    // The original maximum is a separate operation after the L1 reduction.
-    magnitude=a::absolute(values,diagnostics);
-    output.cell_max=a::to_float(a::maximum(magnitude.array(),diagnostics));
+    output.cell_max=a::maximum(magnitude.array()).value;
     output.cell_count=values.size();
     return output;
 }
@@ -96,7 +83,7 @@ MassValues mass(const RawArray* faces, std::size_t dimension, Diagnostics& diagn
         const Array face(faces[axis]);
         for (bool high:{false,true}) {
             auto selected=plane(face,axis,high);
-            const auto sign=a::scalar(a::python_int(high?1:-1));
+            const auto sign=a::scalar(a::python_float(high?1.:-1.));
             outward.push_back(a::multiply(sign.array(),selected.array(),diagnostics));
         }
     }
@@ -105,7 +92,7 @@ MassValues mass(const RawArray* faces, std::size_t dimension, Diagnostics& diagn
     totals.reserve(outward.size());
     for (int sign_value:{-1,1}) {
         totals.clear();
-        const auto sign=a::scalar(a::python_int(sign_value));
+        const auto sign=a::scalar(a::python_float(sign_value));
         const auto zero_value=a::scalar(a::python_float(0.));
         for (const auto& face:outward) {
             auto signed_face=a::multiply(sign.array(),face.array(),diagnostics);
@@ -115,7 +102,7 @@ MassValues mass(const RawArray* faces, std::size_t dimension, Diagnostics& diagn
         if (sign_value<0) output.inflow=a::python_float_sum(totals);
         else output.outflow=a::python_float_sum(totals);
     }
-    auto residual=a::scalar(a::python_int(0));
+    auto residual=a::scalar(a::python_float(0.));
     for (std::size_t axis=0; axis<dimension; ++axis) {
         auto difference=a::difference(Array(faces[axis]),axis,diagnostics);
         residual=a::add(residual.array(),difference.array(),diagnostics);
@@ -175,18 +162,17 @@ EnergyValues energy(const EnergyPhase* phases, std::size_t count, double reservo
 }
 
 std::vector<tpmshx_result_zone_temperatures_v1> zone_temperatures_2d(
-    const RawArray* widths, const RawArray& labels, const RawArray* temperatures,
+    const RawArray* widths, const RawLabels& labels, const RawArray* temperatures,
     std::size_t zone_count, Diagnostics& diagnostics) {
-    const Array dx(widths[0]), dy(widths[1]), ids(labels);
-    if (widths[0].rank!=1 || widths[1].rank!=1 || widths[0].dtype!=TPMSHX_RESULT_F64 ||
-        widths[1].dtype!=TPMSHX_RESULT_F64 || labels.rank!=2 || !integer_type(labels.dtype) ||
+    const Array dx(widths[0]), dy(widths[1]);
+    const Labels ids(labels);
+    if (widths[0].rank!=1 || widths[1].rank!=1 || labels.rank!=2 ||
         labels.shape[0]!=dx.size() || labels.shape[1]!=dy.size())
         throw std::invalid_argument("zone labels and widths must match the physical grid");
     const std::array<Array,3> phases{Array(temperatures[0]),Array(temperatures[1]),Array(temperatures[2])};
     for (const auto& phase:phases) {
         const auto& field=phase.raw();
-        if (field.dtype!=TPMSHX_RESULT_F64 || field.rank!=2 ||
-            field.shape[0]!=dx.size() || field.shape[1]!=dy.size())
+        if (field.rank!=2 || field.shape[0]!=dx.size() || field.shape[1]!=dy.size())
             throw std::invalid_argument("zone temperatures must match the physical grid");
     }
     const auto areas=metrics::capture_area_weights(dx,dy,diagnostics);
@@ -194,9 +180,8 @@ std::vector<tpmshx_result_zone_temperatures_v1> zone_temperatures_2d(
     std::vector<std::vector<std::size_t>> members(zone_count);
     for (std::size_t cell=0;cell<ids.size();++cell) {
         const auto label = ids.at(cell);
-        const auto zone = signed_type(label.dtype) ? static_cast<std::uint64_t>(label.signed_value) : label.unsigned_value;
-        if (zone < zone_count)
-            members[static_cast<std::size_t>(zone)].push_back(cell);
+        if (label >= 0 && static_cast<std::size_t>(label) < zone_count)
+            members[static_cast<std::size_t>(label)].push_back(cell);
     }
     std::vector<tpmshx_result_zone_temperatures_v1> rows(zone_count);
     for (std::size_t zone=0;zone<zone_count;++zone) {
@@ -204,61 +189,50 @@ std::vector<tpmshx_result_zone_temperatures_v1> zone_temperatures_2d(
         auto& row=rows[zone];
         row.cells=cells.size();
         if (cells.empty()) continue;
-        a::Tensor selected_weights({cells.size()},TPMSHX_RESULT_F64);
-        for (std::size_t i=0;i<cells.size();++i) selected_weights.put(i,weights.at(cells[i]));
-        const auto raw_weights=selected_weights.raw();
-        a::Tensor selected({cells.size()},TPMSHX_RESULT_F64);
+        a::Tensor selected_weights({cells.size()});
+        for (std::size_t i=0;i<cells.size();++i) selected_weights.values[i]=weights.at(cells[i]);
+        const auto weight_view=selected_weights.array();
+        a::Tensor selected({cells.size()});
         for (std::size_t phase=0;phase<phases.size();++phase) {
-            for (std::size_t i=0;i<cells.size();++i) selected.put(i,phases[phase].at(cells[i]));
-            const auto raw=selected.raw();
-            row.mean[phase]=a::to_float(zone_mean(raw,&raw_weights,diagnostics));
-            row.deviation[phase]=a::to_float(zone_std(raw,&raw_weights,0,diagnostics));
+            for (std::size_t i=0;i<cells.size();++i) selected.values[i]=phases[phase].at(cells[i]);
+            const auto view=selected.array();
+            row.mean[phase]=zone_mean(view,&weight_view,diagnostics).value;
+            row.deviation[phase]=zone_std(view,&weight_view,diagnostics).value;
             if (phase<2) {
-                row.minimum[phase]=a::to_float(zone_minimum(raw,diagnostics));
-                row.maximum[phase]=a::to_float(zone_maximum(raw,diagnostics));
+                row.minimum[phase]=zone_minimum(view).value;
+                row.maximum[phase]=zone_maximum(view).value;
             }
         }
     }
     return rows;
 }
 
-Number zone_mean(const RawArray& values, const RawArray* weights, Diagnostics& diagnostics) {
-    const Array field(values);
-    return weights?weighted_mean(field,Array(*weights),diagnostics):a::mean(field,diagnostics);
+Number zone_mean(const Array& values, const Array* weights, Diagnostics& diagnostics) {
+    return weights?weighted_mean(values,*weights,diagnostics):a::mean(values,diagnostics);
 }
 
-Number zone_std(const RawArray& values, const RawArray* weights, std::uint32_t square_fused, Diagnostics& diagnostics) {
-    require_square_mode(square_fused);
-    const Array field(values);
-    if (!weights) return a::standard_deviation(field,diagnostics);
-    const Array weight(*weights);
-    const auto mean=a::scalar(weighted_mean(field,weight,diagnostics));
-    auto centered=a::subtract(field,mean.array(),diagnostics);
-    auto squared=a::power_two(centered.array(),diagnostics,square_fused!=0);
-    return a::square_root(weighted_mean(squared.array(),weight,diagnostics),diagnostics);
+Number zone_std(const Array& values, const Array* weights, Diagnostics& diagnostics) {
+    if (!weights) return a::standard_deviation(values,diagnostics);
+    const auto mean=a::scalar(weighted_mean(values,*weights,diagnostics));
+    auto centered=a::subtract(values,mean.array(),diagnostics);
+    auto squared=a::power_two(centered.array(),diagnostics);
+    return a::square_root(weighted_mean(squared.array(),*weights,diagnostics),diagnostics);
 }
 
-Number zone_minimum(const RawArray& values, Diagnostics& diagnostics) {
-    return a::minimum(Array(values),diagnostics);
-}
-Number zone_maximum(const RawArray& values, Diagnostics& diagnostics) {
-    return a::maximum(Array(values),diagnostics);
-}
-Number zone_spread(const RawArray& values, Diagnostics& diagnostics) {
-    const Array field(values);
-    const auto high=a::maximum(field,diagnostics),low=a::minimum(field,diagnostics);
+Number zone_minimum(const Array& values) {return a::minimum(values);}
+Number zone_maximum(const Array& values) {return a::maximum(values);}
+Number zone_spread(const Array& values, Diagnostics& diagnostics) {
+    const auto high=a::maximum(values),low=a::minimum(values);
     return a::subtract(high,low,diagnostics);
 }
-arithmetic::Tensor zone_power_two(const RawArray& values, std::uint32_t square_fused, Diagnostics& diagnostics) {
-    require_square_mode(square_fused);
-    if (values.rank!=1) throw std::invalid_argument("zone values require a selected one-dimensional extent");
-    return a::power_two(Array(values),diagnostics,square_fused!=0);
+arithmetic::Tensor zone_power_two(const Array& values, Diagnostics& diagnostics) {
+    if (values.rank()!=1) throw std::invalid_argument("zone values require a selected one-dimensional extent");
+    return a::power_two(values,diagnostics);
 }
-arithmetic::Tensor zone_speed_from_squared(const RawArray& u, const RawArray& v, Diagnostics& diagnostics) {
-    const Array first_input(u),second_input(v);
-    if (u.rank!=1 || v.rank!=1 || first_input.size()!=second_input.size())
+arithmetic::Tensor zone_speed_from_squared(const Array& u, const Array& v, Diagnostics& diagnostics) {
+    if (u.rank()!=1 || v.rank()!=1 || u.size()!=v.size())
         throw std::invalid_argument("zone velocities must share the selected one-dimensional extent");
-    auto total=a::add(first_input,second_input,diagnostics);
+    auto total=a::add(u,v,diagnostics);
     return a::square_root(total.array(),diagnostics);
 }
 double zone_cv(double deviation, double mean) {

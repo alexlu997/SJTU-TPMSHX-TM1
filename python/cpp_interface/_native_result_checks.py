@@ -6,7 +6,7 @@ import numpy as np
 
 from . import _native_result as native
 
-_Array, _Scalar = native._Array, native._Scalar
+_Array = native._Array
 _Size, _UInt = native._Size, native._UInt
 _Double = ct.c_double
 _DoubleP = ct.POINTER(_Double)
@@ -51,7 +51,7 @@ def _output(name, signature, arguments, kind):
 
 
 def _pointer(array):
-    return array.ctypes.data_as(_DoubleP)
+    return array.ctypes.data_as(_DoubleP) if array.size else None
 
 
 def collect_range(values, lower, upper):
@@ -88,22 +88,19 @@ def array_checks(values):
 
 
 def all_finite(values):
-    array = np.asarray(values)
-    if array.dtype.kind not in 'biufc':
-        # Non-numeric Python protocols remain outside the typed result ABI.
-        return bool(np.all(np.isfinite(array)))
-    if not array.size:
+    packed = native.array(values)
+    if not packed.owner.size:
         return True
-    return array_checks(array)[0]
+    result = _output('array_checks', [_Array], (packed.raw,), _ArrayChecks)
+    return bool(result.all_finite)
 
 
 def all_zero(values):
-    array = np.asarray(values)
-    if array.dtype.kind not in 'biufc':
-        return bool(np.all(array == 0))
-    if not array.size:
+    packed = native.array(values)
+    if not packed.owner.size:
         return True
-    return array_checks(array)[1]
+    result = _output('array_checks', [_Array], (packed.raw,), _ArrayChecks)
+    return bool(result.all_zero)
 
 
 def strict_certificate(active_b, ratios, source_a, source_b):
@@ -115,47 +112,12 @@ def strict_certificate(active_b, ratios, source_a, source_b):
                 epsilon_ltne=result.epsilon_ltne)
 
 
-def _python_protocol(values):
-    for value in values:
-        if type(value) is int:
-            if not -(1 << 63) <= value < (1 << 64):
-                return True
-        elif type(value) in (float, bool, complex):
-            continue
-        elif isinstance(value, (np.generic, np.ndarray)):
-            if np.asarray(value).dtype.kind not in 'biufc':
-                return True
-        else:
-            return True
-    return False
-
-
-def _scalar_operand(value):
-    if isinstance(value, np.ndarray) and value.ndim:
-        if value.size != 1:
-            bool(value)
-        return value.reshape(())[()]
-    return value
-
-
-def _math_float(value):
-    if isinstance(value, float):
-        return float.__float__(value)
-    if not (hasattr(type(value), '__float__') or hasattr(type(value), '__index__')):
-        raise TypeError(f'must be real number, not {type(value).__name__}')
-    return float(value)
-
-
 def energy_ratio(ratio, tolerance):
-    if _python_protocol((ratio, tolerance)):
-        return bool(math.isfinite(ratio) and math.isfinite(tolerance)
-                    and 0. <= ratio <= tolerance and tolerance > 0.)
-    if not all_finite(_math_float(ratio)):
+    ratio_value = native.scalar(ratio)
+    tolerance_value = native.scalar(tolerance)
+    if not math.isfinite(ratio_value) or not math.isfinite(tolerance_value):
         return False
-    if not all_finite(_math_float(tolerance)):
-        return False
-    result = _output('energy_ratio', [_Scalar, _Scalar],
-        (native.scalar(_scalar_operand(ratio)), native.scalar(_scalar_operand(tolerance))), _UInt)
+    result = _output('energy_ratio', [_Double, _Double], (ratio_value, tolerance_value), _UInt)
     return bool(result.value)
 
 
@@ -177,14 +139,11 @@ def mach_from_sound(speed, sound):
 
 
 def _field_output(name, values, scalars=()):
-    array = np.asarray(values, dtype=np.float64)
-    packed = native.array(array)
-    buffer = np.empty(array.size, dtype=np.float64)
+    packed = native.array(values)
+    buffer = np.empty(packed.owner.size, dtype=np.float64)
     _call(name, [_Array, *([_Double] * len(scalars)), _DoubleP, _Size],
           packed.raw, *scalars, _pointer(buffer), buffer.size)
-    output = np.empty_like(array, order='K')
-    output[...] = buffer.reshape(array.shape)
-    return output
+    return buffer.reshape(packed.owner.shape)
 
 
 def field_temperature_floor(temperature):
@@ -201,84 +160,71 @@ def field_mach_max(speed, sound):
 
 
 def pressure_flags(pressure, floor, allowance):
-    if _python_protocol((pressure,)):
-        return 1 if not np.isfinite(pressure) else 2 if pressure <= floor * (1. + allowance) else 0
-    result = _output('pressure_flags', [_Scalar, _Double, _Double],
-                     (native.scalar(_scalar_operand(pressure)), floor, allowance), _UInt)
+    result = _output('pressure_flags', [_Double, _Double, _Double],
+                     (native.scalar(pressure), native.scalar(floor), native.scalar(allowance)), _UInt)
     return int(result.value)
 
 
 def mach_limit_flags(mach, limit):
-    if not all_finite(mach):
+    mach_value = native.scalar(mach)
+    if not math.isfinite(mach_value):
         return 1
-    if _python_protocol((mach, limit)):
-        return 2 if mach >= limit else 0
     if isinstance(limit, np.ndarray) and limit.ndim:
         packed = native.array(limit)
-        result = _output('mach_limit_array_flags', [_Scalar, _Array],
-                         (native.scalar(_scalar_operand(mach)), packed.raw), _UInt)
-        if limit.size != 1:
-            bool(np.empty(limit.shape, dtype=bool))
+        result = _output('mach_limit_array_flags', [_Double, _Array],
+                         (mach_value, packed.raw), _UInt)
+        if packed.owner.size != 1:
+            bool(np.empty(packed.owner.shape, dtype=bool))
         return int(result.value)
-    result = _output('mach_limit_flags', [_Scalar, _Scalar],
-                     (native.scalar(_scalar_operand(mach)), native.scalar(_scalar_operand(limit))), _UInt)
+    result = _output('mach_limit_flags', [_Double, _Double],
+                     (mach_value, native.scalar(limit)), _UInt)
     return int(result.value)
 
 
-def _product_template(first, second):
-    dtype = np.result_type(first, second)
-    if isinstance(first, (np.generic, np.ndarray)) or isinstance(second, (np.generic, np.ndarray)):
-        return np.empty((), dtype=dtype)
-    return 0j if dtype.kind == 'c' else 0. if dtype.kind == 'f' else 0
-
-
-def _box_shape(values):
+def _box_shape(owners):
     try:
-        return np.broadcast_shapes(*(np.shape(value) for value in values))
+        return np.broadcast_shapes(*(owner.owner.shape for owner in owners))
     except ValueError:
         # The native stage reports shape errors after its earlier arithmetic.
         return (0,)
 
 
-def _box_array_call(name, values, dtype):
+def _box_array_call(name, values):
     owners = [native.array(value) for value in values]
-    shape = _box_shape(values)
-    template = max(values, key=np.ndim)
-    output = np.empty_like(np.asarray(template), shape=shape, dtype=dtype, order='K', subok=False)
+    shape = _box_shape(owners)
+    output = np.empty(shape, dtype=np.float64)
     target = native.array(output)
     _call(name, [_Array] * len(owners) + [ct.POINTER(_Array)],
           *(owner.raw for owner in owners), ct.byref(target.raw))
     return output
 
 
+def _has_array_operand(values):
+    return any(isinstance(value, (np.ndarray, list, tuple)) and np.ndim(value) > 0 for value in values)
+
+
 def box_density_length(density, length):
     values = (density, length)
-    if _python_protocol(values) or native.integer_product_requires_python(values):
-        # Python object and wide integer products have a separate data contract.
-        return density * length
-    if any(np.ndim(value) for value in values):
-        return _box_array_call('box_density_length_array', values, np.result_type(*values))
-    result = _output('box_density_length', [_Scalar] * 2, tuple(native.scalar(value) for value in values), _Scalar)
-    return native.restore_scalar(result)
+    if _has_array_operand(values):
+        return _box_array_call('box_density_length_array', values)
+    result = _output('box_density_length', [_Double] * 2,
+                     (native.scalar(density), native.scalar(length)), _Double)
+    return result.value
 
 
 def box_bulk_mass(density_length, height, depth):
     values = (density_length, height, depth)
-    if _python_protocol(values) or native.integer_product_requires_python(values):
-        return density_length * height * depth
-    if any(np.ndim(value) for value in values):
-        prefix = _product_template(density_length, height)
-        return _box_array_call('box_bulk_mass_array', values, np.result_type(prefix, depth))
-    result = _output('box_bulk_mass', [_Scalar] * 3, tuple(native.scalar(value) for value in values), _Scalar)
-    return native.restore_scalar(result)
+    if _has_array_operand(values):
+        return _box_array_call('box_bulk_mass_array', values)
+    result = _output('box_bulk_mass', [_Double] * 3,
+                     (native.scalar(density_length), native.scalar(height), native.scalar(depth)), _Double)
+    return result.value
 
 
 def box_solid_mass(bulk_mass, epsilon):
     values = (bulk_mass, epsilon)
-    if _python_protocol(values):
-        return bulk_mass * (1. - epsilon)
-    if any(np.ndim(value) for value in values):
-        fraction = _product_template(1., epsilon)
-        return _box_array_call('box_solid_mass_array', values, np.result_type(bulk_mass, fraction))
-    result = _output('box_solid_mass', [_Scalar] * 2, tuple(native.scalar(value) for value in values), _Scalar)
-    return native.restore_scalar(result)
+    if _has_array_operand(values):
+        return _box_array_call('box_solid_mass_array', values)
+    result = _output('box_solid_mass', [_Double] * 2,
+                     (native.scalar(bulk_mass), native.scalar(epsilon)), _Double)
+    return result.value

@@ -8,25 +8,19 @@
 namespace {
 namespace r=tpmshx::result;
 namespace m=tpmshx::result::metrics;
-using r::RawArray;using r::RawScalar;using r::Diagnostics;
+using r::RawArray;using r::Diagnostics;
 template<std::size_t N,std::size_t... I> std::array<r::Array,N> array_group(const RawArray* values,std::index_sequence<I...>) {return {r::Array(values[I])...};}
 template<std::size_t N> std::array<r::Array,N> array_group(const RawArray* values) {return array_group<N>(values,std::make_index_sequence<N>{});}
 void output_array(r::c_api::Buffers& buffers,const RawArray* out) {
     buffers.output_array(out);
 }
 void verify_output(const m::Tensor& value,const RawArray* output) {
-    r::Array target(*output);
-    if (output->dtype!=value.dtype || target.size()!=value.size() || output->rank!=value.shape.size()
-        || !std::equal(value.shape.begin(),value.shape.end(),output->shape))
-        throw std::invalid_argument("native metric output dtype or shape disagrees with calculation");
+    if (output->rank!=value.shape.size() || !std::equal(value.shape.begin(),value.shape.end(),output->shape))
+        throw std::invalid_argument("native metric output shape disagrees with calculation");
 }
 void publish(const m::Tensor& value,const RawArray* output) {
     verify_output(value,output);
-    r::Array target(*output);
-    auto source=value.array();
-    for (std::size_t i=0;i<value.size();++i)
-        r::copy_number(source.address(i),source.raw().byte_order,
-                       const_cast<unsigned char*>(target.address(i)),target.raw().byte_order,value.dtype);
+    std::copy(value.values.begin(),value.values.end(),const_cast<double*>(output->data));
 }
 void publish(const std::array<double,2>& value,double* output) {std::copy(value.begin(),value.end(),output);}
 }
@@ -50,9 +44,9 @@ ENTRY(capacity_split_field)(const RawArray* split,const RawArray* out,DIAG) {
     BOUNDARY({buffers.arrays(split,1);output_array(buffers,out);},
              {auto value=m::capacity_split_field(r::Array(*split),d);publish(value,out);});
 }
-ENTRY(capacity_split)(const RawScalar* split,std::uint32_t cold,RawScalar* out,DIAG) {
-    BOUNDARY({buffers.input(split,1);buffers.output(out,1);},
-             {if (cold>1) throw std::invalid_argument("invalid capacity side");const auto value=r::pack_scalar(m::capacity_split(r::read_scalar(*split),cold!=0,d));*out=value;});
+ENTRY(capacity_split)(double split,std::uint32_t cold,double* out,DIAG) {
+    BOUNDARY({buffers.output(out,1);},
+             {if (cold>1) throw std::invalid_argument("invalid capacity side");const auto value=m::capacity_split(r::arithmetic::python_float(split),cold!=0,d).value;*out=value;});
 }
 #define VALID_ENTRY(name) ENTRY(name)(const RawArray* input,std::uint32_t* out,DIAG) {BOUNDARY({buffers.arrays(input,1);buffers.output(out,1);},{(void)d;const auto value=m::name(r::Array(*input));*out=value?1u:0u;});}
 VALID_ENTRY(port_width_valid)
@@ -80,9 +74,9 @@ ENTRY(outlet_temperature_3d)(const RawArray* temperature,const RawArray* mass,st
     BOUNDARY({buffers.arrays(temperature,1);buffers.arrays(mass,1);buffers.output(out,1);},
              {if (reverse>1) throw std::invalid_argument("invalid outlet orientation");const auto value=m::outlet_temperature_3d(r::Array(*temperature),r::Array(*mass),reverse!=0,d);*out=value;});
 }
-ENTRY(boundary_enthalpy_duty)(const RawArray* adjacent,const RawArray* mass,const RawScalar* inlet_h,double* out,DIAG) {
-    BOUNDARY({buffers.arrays(adjacent,6);buffers.arrays(mass,6);buffers.input(inlet_h,1);buffers.output(out,1);},
-             {const auto value=m::boundary_enthalpy_duty(array_group<6>(adjacent),array_group<6>(mass),r::read_scalar(*inlet_h),d);*out=value;});
+ENTRY(boundary_enthalpy_duty)(const RawArray* adjacent,const RawArray* mass,double inlet_h,double* out,DIAG) {
+    BOUNDARY({buffers.arrays(adjacent,6);buffers.arrays(mass,6);buffers.output(out,1);},
+             {const auto value=m::boundary_enthalpy_duty(array_group<6>(adjacent),array_group<6>(mass),r::arithmetic::python_float(inlet_h),d);*out=value;});
 }
 ENTRY(plane_duty)(const RawArray* faces,std::size_t count,double* out,DIAG) {
     BOUNDARY({buffers.arrays(faces,count);buffers.output(out,1);},
@@ -124,37 +118,13 @@ DOUBLE_ENTRY(mass_imbalance)
 DOUBLE_ENTRY(full_energy_imbalance)
 DOUBLE_ENTRY(richardson_duty)
 #undef DOUBLE_ENTRY
-#define SCALAR_ENTRY(name) ENTRY(name)(const RawScalar* a,const RawScalar* b,RawScalar* out,DIAG) {BOUNDARY({buffers.input(a,1);buffers.input(b,1);buffers.output(out,1);},{const auto value=r::pack_scalar(m::name(r::read_scalar(*a),r::read_scalar(*b),d));*out=value;});}
+#define SCALAR_ENTRY(name) ENTRY(name)(double a,double b,double* out,DIAG) {BOUNDARY({buffers.output(out,1);},{namespace a_=r::arithmetic;const auto value=m::name(a_::python_float(a),a_::python_float(b),d).value;*out=value;});}
 SCALAR_ENTRY(pressure_difference)
 SCALAR_ENTRY(absolute_outlet_pressure)
-SCALAR_ENTRY(quick_energy_imbalance)
-SCALAR_ENTRY(quick_capacity_product)
-SCALAR_ENTRY(quick_reynolds_flow)
-SCALAR_ENTRY(quick_reynolds_length)
-SCALAR_ENTRY(quick_reynolds_quotient)
 #undef SCALAR_ENTRY
-ENTRY(quick_temperature_difference)(const RawScalar* inlet,double outlet,RawScalar* out,DIAG) {
-    BOUNDARY({buffers.input(inlet,1);buffers.output(out,1);},{const auto value=r::pack_scalar(m::quick_temperature_difference(r::read_scalar(*inlet),outlet,d));*out=value;});
-}
-ENTRY(quick_duty_from_capacity)(const RawScalar* cap,const RawScalar* delta,std::uint32_t cold,RawScalar* out,DIAG) {
-    BOUNDARY({buffers.input(cap,1);buffers.input(delta,1);buffers.output(out,1);},
-             {if (cold>1) throw std::invalid_argument("invalid quick-design duty side");const auto value=r::pack_scalar(m::quick_duty_from_capacity(r::read_scalar(*cap),r::read_scalar(*delta),cold!=0,d));*out=value;});
-}
-#define FIELD_ENTRY(name) ENTRY(name)(const RawArray* first,const RawArray* second,const RawArray* out,DIAG) {BOUNDARY({buffers.arrays(first,1);buffers.arrays(second,1);output_array(buffers,out);},{auto value=m::name(r::Array(*first),r::Array(*second),d);publish(value,out);});}
-FIELD_ENTRY(pressure_difference_field)
-FIELD_ENTRY(quick_capacity_product_field)
-FIELD_ENTRY(quick_reynolds_flow_field)
-FIELD_ENTRY(quick_reynolds_length_field)
-FIELD_ENTRY(quick_reynolds_quotient_field)
-FIELD_ENTRY(quick_energy_imbalance_field)
-#undef FIELD_ENTRY
-ENTRY(quick_temperature_difference_field)(const RawArray* inlet,double outlet,const RawArray* out,DIAG) {
-    BOUNDARY({buffers.arrays(inlet,1);output_array(buffers,out);},
-             {auto value=m::quick_temperature_difference_field(r::Array(*inlet),outlet,d);publish(value,out);});
-}
-ENTRY(quick_duty_from_capacity_field)(const RawArray* capacity_value,const RawArray* delta,std::uint32_t cold,const RawArray* out,DIAG) {
-    BOUNDARY({buffers.arrays(capacity_value,1);buffers.arrays(delta,1);output_array(buffers,out);},
-             {if (cold>1) throw std::invalid_argument("invalid quick-design duty side");auto value=m::quick_duty_from_capacity_field(r::Array(*capacity_value),r::Array(*delta),cold!=0,d);publish(value,out);});
+ENTRY(pressure_difference_field)(const RawArray* first,const RawArray* second,const RawArray* out,DIAG) {
+    BOUNDARY({buffers.arrays(first,1);buffers.arrays(second,1);output_array(buffers,out);},
+             {auto value=m::pressure_difference_field(r::Array(*first),r::Array(*second),d);publish(value,out);});
 }
 #undef ENTRY
 #undef BOUNDARY

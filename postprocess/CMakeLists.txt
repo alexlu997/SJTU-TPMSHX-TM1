@@ -18,12 +18,6 @@ add_library(tpmshx_result STATIC
     "${TPMSHX_ROOT}/postprocess/result_checks.cpp"
     "${TPMSHX_ROOT}/postprocess/result_stage.cpp")
 target_include_directories(tpmshx_result PUBLIC "${TPMSHX_ROOT}/include")
-if(APPLE)
-    target_sources(tpmshx_result PRIVATE "${TPMSHX_ROOT}/postprocess/result_complex_sqrt.c")
-    target_compile_features(tpmshx_result PRIVATE c_std_11)
-    set_source_files_properties("${TPMSHX_ROOT}/postprocess/result_complex_sqrt.c" PROPERTIES
-        COMPILE_OPTIONS "-fno-builtin-csqrt;-fno-builtin-csqrtf;-fno-builtin-csqrtl")
-endif()
 set(TPMSHX_RESULT_C_SOURCES
     "${TPMSHX_ROOT}/postprocess/result_c_api.cpp"
     "${TPMSHX_ROOT}/postprocess/result_metrics_c_api.cpp"

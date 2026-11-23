@@ -88,7 +88,7 @@ typedef struct {
     tpmshx_full3d_result_v1 raw;
     tpmshx_result_evidence_v1 evidence;
     tpmshx_full3d_control_v1 resolved;
-    tpmshx_stage_input_v2 evaluation;
+    tpmshx_stage_input_v3 evaluation;
 } tpmshx_stage_run_result_3d_v1;
 typedef struct {
     tpmshx_stage_execution_v1 execution;

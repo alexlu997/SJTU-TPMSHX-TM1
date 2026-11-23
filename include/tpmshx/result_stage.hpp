@@ -56,7 +56,7 @@ struct Tensor : arithmetic::Tensor {
         if (input_error) throw HostError(input_error->cause, input_error->message, input_error->token);
         return arithmetic::Tensor::raw();
     }
-    Array array() const {return Array(raw());}
+    Array array() const {return Array(raw(), kind);}
 };
 struct Arrays : std::map<std::string, Tensor> {
     using std::map<std::string, Tensor>::map;
@@ -91,7 +91,7 @@ struct PressureEvidence {
     Recorded<Tensor> pressure;
     GridEvidence grid;
     Recorded<Tensor> inlet_fraction, outlet_fraction, outlet_geom_fraction;
-    Recorded<Number> reference, inlet_absolute, outlet_absolute;
+    Recorded<double> reference, inlet_absolute, outlet_absolute;
     Recorded<std::string> unit;
 };
 struct EnergyPhaseEvidence {
@@ -126,7 +126,7 @@ struct TrueHEvidence {
     Truth physical_boundary_complete;
     bool physical_boundary_complete_is_bool{true}, physical_boundary_complete_recorded{true}, energy_algorithm_version_is_int{true};
     std::array<Recorded<Tensor>, 2> enthalpy;
-    std::array<Recorded<Number>, 2> inlet_enthalpy;
+    std::array<Recorded<double>, 2> inlet_enthalpy;
     std::array<std::vector<Tensor>, 2> mass;
     std::array<Arrays, 2> boundary_power;
 };
@@ -149,7 +149,7 @@ struct FineEvidence {
 struct TrueHCertificate {
     TruthEvidence converged;
     Recorded<Tensor> clip_counts;
-    std::array<Recorded<Number>, 2> ratios, tolerances;
+    std::array<Recorded<double>, 2> ratios, tolerances;
 };
 struct ExecutionSide {Recorded<std::string> fluid; TruthEvidence solved;};
 struct RangeSample {
@@ -170,43 +170,12 @@ struct ApplicabilityEvidence {
     bool inlet_recorded{};
     Report::List scope_notes;
 };
-// Quick values keep typed intermediate arrays or a host-only protocol value.
-struct QuickValue {
-    Tensor numeric{{}, TPMSHX_RESULT_F64};
-    std::uint64_t object{};
-    QuickValue() = default;
-    QuickValue(Number value):numeric(value) {}
-    QuickValue(Tensor value):numeric(std::move(value)) {}
-    explicit QuickValue(std::uint64_t token):object(token) {}
-};
-struct StageLabel {
-    std::optional<std::string> text;
-    QuickValue value;
-};
-struct QuickTypedSide {
-    Recorded<int> boundary_access, properties_access, pressure_access;
-    Recorded<QuickValue> inlet_temperature, mass_flow, cp, rho, velocity, viscosity;
-    Recorded<QuickValue> inlet_pressure, outlet_pressure;
-};
-struct QuickTypedEvidence {
-    Recorded<StageLabel> model, arrangement;
-    std::array<QuickTypedSide, 2> sides;
-    Recorded<QuickValue> hydraulic_diameter;
-};
-struct QuickHost {
-    std::function<bool(const QuickValue&, const std::string&)> text_equal, text_not_equal;
-    std::function<QuickValue(const QuickValue&, double)> temperature_difference;
-    std::function<QuickValue(const QuickValue&, const QuickValue&)> capacity_product;
-    std::function<QuickValue(const QuickValue&, const QuickValue&, bool)> duty_product;
-    std::function<QuickValue(const QuickValue&, const QuickValue&)> pressure_difference;
-    std::function<QuickValue(const QuickValue&, const QuickValue&)> reynolds_flow;
-    std::function<QuickValue(const QuickValue&, const QuickValue&)> reynolds_length;
-    std::function<QuickValue(const QuickValue&, const QuickValue&)> reynolds_quotient;
-    std::function<double(const QuickValue&)> metric_float;
-    std::function<void()> empty_mean;
-};
+// Quick Design operands are Python floats. A host can record the access of
+// each source mapping; other callers use the absent-record list.
 struct QuickSideEvidence {
-    Recorded<Number> inlet_temperature, mass_flow, cp, rho, velocity, viscosity;
+    Recorded<double> inlet_temperature, mass_flow, cp, rho, velocity, viscosity;
+    Recorded<int> boundary_access, properties_access, pressure_access;
+    bool access_recorded{};
 };
 // Optional values denote recorded evidence, never an inferred success.
 struct ResultEvidence {
@@ -237,7 +206,6 @@ struct ResultEvidence {
     Recorded<bool> model_active_b;
     Truth richardson_extrapolated;
     Recorded<std::string> execution_version;
-    Recorded<StageLabel> execution_label;
     Recorded<int> execution_sides_error, execution_sides_access_error;
     std::map<std::string, ExecutionSide> executed_sides;
     Recorded<ApplicabilityEvidence> applicability;
@@ -250,8 +218,7 @@ struct ResultEvidence {
     Recorded<Tensor> split_a, solid_density;
     Recorded<std::string> quick_model, arrangement;
     std::array<QuickSideEvidence, 2> quick;
-    Recorded<Number> hydraulic_diameter;
-    std::optional<QuickTypedEvidence> quick_typed;
+    Recorded<double> hydraulic_diameter;
     std::vector<std::string> absent_records;
     Recorded<std::string> model_certificate_error;
 };
@@ -286,9 +253,9 @@ struct Evaluation {
     Qualification qualification;
     Diagnostics diagnostics{};
 };
+// The host receives floating-point events at each completed operation.
 struct HostControl {
     std::function<void(const Diagnostics&)> events;
-    QuickHost quick;
 };
 Evaluation evaluate(const ResultEvidence&, const std::optional<MetricSpec>& = std::nullopt, const HostControl* = nullptr);
 Applicability evaluate_applicability(const ResultEvidence&, const HostControl* = nullptr);

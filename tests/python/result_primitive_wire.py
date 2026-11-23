@@ -166,7 +166,7 @@ def _boundary_enthalpy_duty(h, h_in, mass_flux):
     Fx, Fy, Fz = mass_flux
     h_owners, enthalpy = _packed((h[0], h[-1], h[:, 0], h[:, -1], h[:, :, 0], h[:, :, -1]))
     flow_owners, flow = _packed((Fx[0], Fx[-1], Fy[:, 0], Fy[:, -1], Fz[:, :, 0], Fz[:, :, -1]))
-    inlet, output = core.scalar(h_in), _D()
-    _call('boundary_enthalpy_duty', [_AP, _AP, ct.POINTER(core._Scalar), _DP],
-          enthalpy, flow, ct.byref(inlet), ct.byref(output))
+    output = _D()
+    _call('boundary_enthalpy_duty', [_AP, _AP, _D, _DP],
+          enthalpy, flow, core.scalar(h_in), ct.byref(output))
     return output.value

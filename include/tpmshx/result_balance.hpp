@@ -19,15 +19,15 @@ MassValues mass(const RawArray* faces, std::size_t dimension, Diagnostics&);
 PlaneValues plane_sums(const RawArray* planes, std::size_t plane_count, Diagnostics&);
 EnergyValues energy(const EnergyPhase* phases, std::size_t phase_count, double reservoir);
 std::vector<tpmshx_result_zone_temperatures_v1> zone_temperatures_2d(
-    const RawArray* widths, const RawArray& labels, const RawArray* temperatures,
+    const RawArray* widths, const RawLabels& labels, const RawArray* temperatures,
     std::size_t zone_count, Diagnostics& diagnostics);
-Number zone_mean(const RawArray& values, const RawArray* weights, Diagnostics&);
-Number zone_std(const RawArray& values, const RawArray* weights, std::uint32_t square_fused, Diagnostics&);
-Number zone_minimum(const RawArray& values, Diagnostics&);
-Number zone_maximum(const RawArray& values, Diagnostics&);
-Number zone_spread(const RawArray& values, Diagnostics&);
-arithmetic::Tensor zone_power_two(const RawArray& values, std::uint32_t square_fused, Diagnostics&);
-arithmetic::Tensor zone_speed_from_squared(const RawArray& u, const RawArray& v, Diagnostics&);
+Number zone_mean(const Array& values, const Array* weights, Diagnostics&);
+Number zone_std(const Array& values, const Array* weights, Diagnostics&);
+Number zone_minimum(const Array& values);
+Number zone_maximum(const Array& values);
+Number zone_spread(const Array& values, Diagnostics&);
+arithmetic::Tensor zone_power_two(const Array& values, Diagnostics&);
+arithmetic::Tensor zone_speed_from_squared(const Array& u, const Array& v, Diagnostics&);
 double zone_cv(double deviation, double mean);
 
 }  // namespace tpmshx::result::balance

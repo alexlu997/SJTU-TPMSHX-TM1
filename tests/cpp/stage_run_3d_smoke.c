@@ -61,12 +61,10 @@ static void pack_saved(const tpmshx_preparation_case_3d_v1* p,tpmshx_stage_saved
         }
     }
 }
-/* Full-result hosts call v3 with a null model. */
-static int query(const tpmshx_stage_input_v2* host,tpmshx_stage_output_v1* report,
+/* Full-result hosts call v3 directly with the captured input. */
+static int query(const tpmshx_stage_input_v3* input,tpmshx_stage_output_v1* report,
         tpmshx_result_diagnostics_v1* diagnostics,uint64_t* token,char* error,size_t capacity) {
-    tpmshx_stage_input_v3 input={0};
-    input.abi_version=3;input.struct_size=sizeof(input);input.host=host;
-    return tpmshx_result_stage_query_v3(&input,0,NULL,NULL,0,report,diagnostics,token,error,capacity);
+    return tpmshx_result_stage_query_v3(input,0,NULL,NULL,0,report,diagnostics,token,error,capacity);
 }
 static int prepare(const tpmshx_preparation_case_input_3d_v1* input,const tpmshx_preparation_case_options_v1* options,
         tpmshx_preparation_spatial_case_3d_v4* prepared,char* error,size_t capacity) {
