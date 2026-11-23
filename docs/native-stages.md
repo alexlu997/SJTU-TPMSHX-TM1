@@ -70,9 +70,9 @@ It evaluates four-fluid properties, Nu, and fixed CFD drag in their production o
 | 10 | `H_sf` | W/(m²·K) |
 | 11 | `K_ff` | W/(m·K) |
 
-Each output slot carries real and imaginary components and a complex flag; raw Nu and `H_sf` keep complex intermediates when produced.
+`tpmshx_preparation_inlet_query_result_v1` (`abi_version = 1`, `struct_size = sizeof(tpmshx_preparation_inlet_query_result_v1)`) returns 12 `float64` values (`double values[12]`).
 This query allocates no owner and requires no release call.
-Pass optional `tpmshx_preparation_callbacks_v1` with null cache hooks and `validate_grid_stage = 0` to observe range, notice, and floating-point events synchronously.
+Pass optional `tpmshx_preparation_callbacks_v1` with null cache hooks and `validate_grid_stage = 0` to record range, notice, and floating-point events synchronously.
 Standalone Python `tpms_calc.compute` calls this entry through `python/cpp_interface/inlet_properties.py`, keeping geometry selection, shared caches, per-call `K_ss` lookup, and warning policy.
 
 ## Spatial total mass flow
@@ -89,7 +89,7 @@ Total mass-flow targets use kg/s and require a positive physical depth in m; 2D 
 `capacities` integrates inlet design porosity, opening profile, physical widths, inlet density, and physical depth without evaluating obsolete speeds or Nu.
 `resolve_flow` divides selected targets by capacities and validates resolved speeds; without targets, it copies the input without physical preparation.
 `prepare_case` builds the physical grid and geometry once, resolves speeds before transfer calculations, and separates preliminary flow records (`flow.evidence`) from final preparation records (`prepared`).
-`tpmshx_preparation_df_experiment_scope_v1` checks experimental D-F layout eligibility and HX campaign domain matching for both 2D and 3D preparation.
+`tpmshx_preparation_df_experiment_scope_v1` validates experimental D-F layout eligibility and HX campaign domain matching for both 2D and 3D preparation.
 
 ## Spatial host cache interface
 
@@ -97,8 +97,9 @@ All 2D and 3D preparation entries accept one unified flat callback struct: `tpms
 Initialize `abi_version = TPMSHX_PREPARATION_CASE_ABI_VERSION` (1) and `struct_size = sizeof(tpmshx_preparation_callbacks_v1)`.
 
 - **Event and observation hooks**: `event`, `observe_range`, and `observe_notice` report diagnostics, range records, and notices (including geometry extrapolation reasons) synchronously on the caller thread.
-- **Host validation hooks**: `validate_host_input` and `validate_grid_stage` keep Python object-check ordering without supplying numerical values.
-- **Cache hooks (`action = 0` lookup, `action = 1` publish)**: `geometry_cache`, `inlet_cache`, `geometry_cache_at`, `inlet_cache_at`, and `lut_cache` exchange completed values with host caches. On a lookup hit (`hit = 1`), the host returns borrowed read-only views valid until the stage call returns. On a miss (`hit = 0`), C++ computes the values and publishes read-only views that the host copies before callback return.
+- **Host validation hooks**: `validate_host_input` and `validate_grid_stage` (`0` or `1`) keep Python object-check order without numerical values. `validate_grid_stage = 1` requires non-null `validate_host_input`.
+- **Cache hooks (`action = 0` lookup, `action = 1` publish)**: `geometry_cache`, `inlet_cache`, `geometry_cache_at`, `inlet_cache_at`, and `sigmoid_lut_cache` exchange completed values with host caches. On a hit (`hit = 1`), the host returns borrowed read-only views that stay valid until the stage call returns. On a miss (`hit = 0`), C++ computes values and publishes read-only views that the host copies before callback return.
+- **Family hook rules**: untyped (`geometry_cache`, `inlet_cache`) and keyed (`geometry_cache_at`, `inlet_cache_at`, `sigmoid_lut_cache`) hooks cannot be combined. Uniform and continuous 2D accept untyped hooks only; zoned, sigmoid, and stripe 2D accept keyed hooks only. 3D accepts `geometry_cache_at` and `inlet_cache_at` only and rejects `sigmoid_lut_cache` and `validate_grid_stage != 0`.
 - **Isolation rules**: callbacks do no numerical preparation. Returned views must not overlap output, failure, or error storage. A nonzero callback return stops the stage immediately so Python can re-raise its saved exception.
 
 `python/cpp_interface/preparation_host.py` and `native_preparation.py` connect these hooks to the shared 32,768-entry geometry cache and 4,096-entry inlet-property cache in `python/physical_models/preparation_cache.py`.
@@ -123,7 +124,7 @@ The [offset example](../examples/cpp/offset_2d.cpp) prepares, runs, and evaluate
 - **Continuous 3D (`ContinuousInput3D`, `tpmshx_preparation_3d_continuous_{capacities,resolve_flow,prepare_case}_v1`)**: `have_ctrl_z = 0` prepares XY extrusion controls. `have_ctrl_z = 1` prepares true XYZ controls (`L` values then `t` values, z fastest), sampled at physical cell centres with optional y symmetry.
 
 `CaseInput3D` requires three positive lengths, three grid counts (`Nz >= 2`), active ports on both sides, and an explicit cell cap.
-The C++ default cap is 2,000,000 cells.
+The C++ default cap is 2,000,000 cells; memory checks near that cap and real 3D BO stay separate acceptance gates.
 The host resolves configuration and environment limits before calling C++.
 All six flow directions (`±x`, `±y`, `±z`), full faces, partial ports, optional second transverse windows, uniform grids, and `port_wall_refine` grids are supported.
 Physical fields have `(nx, ny, nz)` C-order shape; opening masks use `(cross1, cross2)` order; each side records its axis permutation and reverse flag without reversing physical widths.
@@ -138,13 +139,13 @@ Air-field scalar range observations keep at most eight selected samples per side
 ## Run continuation
 
 `stage_run_c_api.h` connects flat `SavedCase2D` (`tpmshx_stage_saved_case_2d_v5`, ABI 5) and `RunRequest2D` (`tpmshx_stage_run_request_2d_v4`) to `Full2DRun`.
-Check `tpmshx_stage_run_2d_abi_version() == 5` before calling any 2D saved-stage entry.
+Confirm `tpmshx_stage_run_2d_abi_version() == 5` before calling any 2D saved-stage entry.
 `SavedCase2D` borrows a validated prepared view, flow grids, design fields, model references, nominal thermal-side tuples, and experimental settings without preparing the case again.
 Keep the preparation owner, descriptor, and callback context alive and unchanged until result transfer or run release.
 
 - **One-shot run**: `tpmshx_run_saved_case_2d_v5` runs to completion in C++ and transfers an owned `tpmshx_stage_run_result_2d_v1` (release with `tpmshx_stage_run_2d_release_v1`).
 - **Step and checkpoint lifecycle**: `tpmshx_stage_run_2d_create_saved_v5`, `restore_saved_v5`, `advance_step_v1`, `finish_v1`, `phase_v1`, `snapshot_v1`, `take_result_v1`, and `release_run_v1`. Snapshots (`tpmshx_run_state_v1`, release with `tpmshx_run_state_release_v1`) own independent storage. Restoration requires the exact same build, prepared inputs, and numerical controls; only positive `cpu_threads` can change.
-- **Validation and capture helpers**: `tpmshx_stage_borrow_mesh_v1` validates and borrows aligned `float64` widths and thermal geometry. `tpmshx_stage_port_windows_fit_2d_v1` checks cross-axis port windows, and `tpmshx_stage_run_2d_check_experiment_v4` checks experimental D-F applicability. `tpmshx_stage_run_2d_get_capture_v1` (`capture_summary`) returns copied thermal, Nu, duty, and pressure-clip scalars. `tpmshx_stage_run_2d_zone_temperatures_v1` summarizes main-grid zone temperatures without loading the result library.
+- **Validation and capture helpers**: `tpmshx_stage_borrow_mesh_v1` validates and borrows aligned `float64` widths and thermal geometry. `tpmshx_stage_port_windows_fit_2d_v1` validates cross-axis port windows, and `tpmshx_stage_run_2d_check_experiment_v4` validates experimental D-F applicability. `tpmshx_stage_run_2d_get_capture_v1` (`capture_summary`) returns copied thermal, Nu, duty, and pressure-clip scalars. `tpmshx_stage_run_2d_zone_temperatures_v1` summarizes main-grid zone temperatures without loading the result library.
 
 A null `energy` pointer in `RunRequest2D` selects the default T-SOU recipe (`temperature_sou`, `1e-8 K` from `model_parameters_v1.json`).
 Optional energy controls cannot be combined with `explicit_energy` or active `model_h` controls.
@@ -153,7 +154,7 @@ Cancellation returns status 6 and cannot publish a successful stage result; stat
 ## Native 3D execution
 
 `stage_run_3d_c_api.h` connects flat `SavedCase3D` (`tpmshx_stage_saved_case_3d_v3`, ABI 3) and `RunRequest3D` (`tpmshx_stage_run_request_3d_v1`) to `Full3DRun`.
-Check `tpmshx_stage_run_3d_abi_version() == 3` and `tpmshx_stage_capture_3d_abi_version() == 2` before calling any 3D saved-stage entry.
+Confirm `tpmshx_stage_run_3d_abi_version() == 3` and `tpmshx_stage_capture_3d_abi_version() == 2` before calling any 3D saved-stage entry.
 `SavedCase3D` validates physical domain lengths, axis maps, port masks, model resources, and cell design fields before the first step without calling raw preparation.
 
 - **One-shot run**: `tpmshx_run_saved_case_3d_v3` advances to completion in C++ and transfers an owned `tpmshx_stage_run_result_3d_v1` (release with `tpmshx_stage_run_3d_release_v1`).
@@ -176,7 +177,7 @@ Quick Design is a prescribed-flow LTNE sizing approximation (`physical_validatio
 `tpmshx_prepare_quick_design_v2` and `tpmshx_quick_pressure_fractions_v2` accept `tpmshx_quick_input_v2` (`abi_version = 2`, exact `struct_size`) with 13 `float64` scalar slots (`TPMSHX_QUICK_VALUE_COUNT`).
 These slots hold cell length (mm), wall thickness (mm), span (m), length (m), height (m), solid conductivity (W/(m·K)), and tolerance.
 The remaining slots hold two mass flows (kg/s), two temperatures (K), and two pressures (Pa(abs)).
-Setting `have_height = 0` substitutes span for height.
+Setting `have_height = 0` uses span as height.
 Text fields (`topology`, `arrangement`, `property_mode`, `fluids[2]`) use explicit byte lengths.
 Default grid counts (`(60, 40, 1)` crossflow, `(60, 1, 2)` counterflow), conductivity (`16 W/(m·K)`), tolerance (`1e-5`), and geometry resolution (`128`) come from `model_parameters_v1.json` and generated C++ constants.
 Absent counterflow `q_relative_tolerance` and `chunk_iterations` stay marked absent (`0` in C, `None` in `CaseData`).
@@ -242,4 +243,4 @@ To run the automated out-of-tree SDK check after a dependency build:
 ```
 
 Add `--python-lock` for BO environments, or `--component result --python-lock engineering/requirements/postprocess.txt` on Linux.
-The SDK check verifies installed C/C++ interfaces; Python integration, checkpoint recovery, and desktop acceptance remain separate gates.
+The SDK check validates installed C/C++ interfaces; Python integration, checkpoint recovery, cell-cap memory checks, real 3D BO, and desktop acceptance remain separate gates.

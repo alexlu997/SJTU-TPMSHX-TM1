@@ -68,7 +68,7 @@ Python 按原顺序去重合并算例通知与运行期 `nu-evidence` 警告，�
 | 10 | `H_sf` | W/(m²·K) |
 | 11 | `K_ff` | W/(m·K) |
 
-每个输出槽位携带实部、虚部及复数标志；原始 Nu 与 `H_sf` 在产生复数中间值时予以保留。
+`tpmshx_preparation_inlet_query_result_v1`（`abi_version = 1`、`struct_size = sizeof(tpmshx_preparation_inlet_query_result_v1)`）返回 12 个纯 `float64` 标量（`double values[12]`）。
 该查询不创建所有者，无需释放调用。
 可传入将缓存钩子置空且 `validate_grid_stage = 0` 的 `tpmshx_preparation_callbacks_v1`，以同步接收范围、通知和浮点事件。
 独立 Python `tpms_calc.compute` 通过 `python/cpp_interface/inlet_properties.py` 调用此入口，并保留几何选择、共享缓存、逐次 `K_ss` 查询与警告策略。
@@ -94,8 +94,9 @@ Preparation ABI 3 为全部四个二维几何族（`uniform`、`continuous`、`z
 初始化时须设置 `abi_version = TPMSHX_PREPARATION_CASE_ABI_VERSION`（1）与 `struct_size = sizeof(tpmshx_preparation_callbacks_v1)`。
 
 - **事件与观测钩子**：`event`、`observe_range` 与 `observe_notice` 在调用线程上同步报告诊断、范围记录及通知（含几何外推原因）。
-- **宿主校验钩子**：`validate_host_input` 与 `validate_grid_stage` 保留 Python 对象检查顺序，不提供数值输出。
-- **缓存钩子（`action = 0` 查询，`action = 1` 发布）**：`geometry_cache`、`inlet_cache`、`geometry_cache_at`、`inlet_cache_at` 与 `lut_cache` 在宿主缓存间交换已完成值。命中（`hit = 1`）时宿主返回在阶段返回前保持有效的只读视图；未命中（`hit = 0`）时由 C++ 计算并在回调中发布只读视图，宿主须在回调返回前完成复制。
+- **宿主校验钩子**：`validate_host_input` 与 `validate_grid_stage`（`0` 或 `1`）保留 Python 对象检查顺序，不提供数值输出。`validate_grid_stage = 1` 要求 `validate_host_input` 非空。
+- **缓存钩子（`action = 0` 查询，`action = 1` 发布）**：`geometry_cache`、`inlet_cache`、`geometry_cache_at`、`inlet_cache_at` 与 `sigmoid_lut_cache` 在宿主缓存间交换已完成值。命中（`hit = 1`）时宿主返回在阶段返回前保持有效的只读视图；未命中（`hit = 0`）时由 C++ 计算并在回调中发布只读视图，宿主须在回调返回前完成复制。
+- **按准备族划分的钩子规则**：无键钩子（`geometry_cache`、`inlet_cache`）与带键钩子（`geometry_cache_at`、`inlet_cache_at`、`sigmoid_lut_cache`）不得混用。二维均匀与连续操作仅接受无键钩子；二维分区、sigmoid 与条带操作仅接受带键钩子。三维操作仅接受 `geometry_cache_at` 与 `inlet_cache_at`，并拒绝 `sigmoid_lut_cache` 与 `validate_grid_stage != 0`。
 - **隔离规则**：回调不得执行数值准备，返回视图不得与输出、失败或错误缓冲区重叠。回调返回非零值立即中止阶段，便于 Python 重新抛出原异常。
 
 `python/cpp_interface/preparation_host.py` 与 `native_preparation.py` 将这些钩子连接到 `python/physical_models/preparation_cache.py` 中 32,768 项几何缓存和 4,096 项入口物性缓存。
@@ -118,7 +119,7 @@ Python 保留 LUT 的内存与磁盘存储；缺表时 C++ 在体素分辨率 25
 - **空间与均匀三维（`SpatialInput3D`、`tpmshx_preparation_3d_spatial_{capacities,resolve_flow,prepare_case}_v1`）**：`geometry_mode = 0` 准备均匀三维算例（两种拓扑、全部 16 组流体配对、CFD 或符合条件的实验 D-F）；`geometry_mode = 2` 准备带可选全局非零 `delta_levelset` 的 XY 网格矩形（空气／水 CFD 范围）。矩形使用域比例坐标，后项覆盖前项，未覆盖单元采用名义 `L`/`t`，在网格索引单位下对 `L`/`t` 施加高斯滤波后沿 z 延伸。
 - **连续三维（`ContinuousInput3D`、`tpmshx_preparation_3d_continuous_{capacities,resolve_flow,prepare_case}_v1`）**：`have_ctrl_z = 0` 准备 XY 挤出控制；`have_ctrl_z = 1` 准备真 XYZ 控制（先全部 `L` 后全部 `t`，z 轴最快），在最终物理单元中心采样并支持可选 y 对称。
 
-`CaseInput3D` 要求三个正物理长度、三个网格数（`Nz >= 2`）、两侧均含有效端口以及显式单元上限（C++ 默认 2,000,000 单元）。
+`CaseInput3D` 要求三个正物理长度、三个网格数（`Nz >= 2`）、两侧均含有效端口以及显式单元上限（C++ 默认 2,000,000 单元；接近该上限的内存检查与真实三维 BO 仍为独立验收门槛）。
 宿主在调用 C++ 前解析配置与环境上限。
 接口支持全部六个流向（`±x`、`±y`、`±z`）、全开口、局部端口、可选第二横向窗口、均匀网格与 `port_wall_refine` 网格。
 物理场形状为 `(nx, ny, nz)` C 序，开口掩码为 `(cross1, cross2)` 序，每侧记录轴排列与反向标志而不翻转物理单元宽度。
@@ -234,4 +235,4 @@ target_link_libraries(my_program PRIVATE tpmshx::result)
 ```
 
 BO 环境需附带对应的 `--python-lock`；Linux 需加上 `--component result --python-lock engineering/requirements/postprocess.txt`。
-SDK 检查仅验证安装后的 C/C++ 接口；Python 集成、检查点恢复和桌面验收仍为独立门槛。
+SDK 检查仅校验安装后的 C/C++ 接口；Python 集成、检查点恢复、单元上限附近内存检查、真实三维 BO 和桌面验收仍为独立门槛。

@@ -30,14 +30,14 @@ Four independent C++ shared libraries own all production numerical calculations:
 | --- | --- | --- |
 | Geometry | [geometry](../geometry/) | Geometry ABI 2 and field ABI 3: cell geometry, chi/Kss, grids, ports, splines, sigmoid, LUTs, zones. |
 | Preparation | [preprocess](../preprocess/) | Preparation ABI 3 and Quick Design preparation v2: properties, Nu closures, fixed D-F, 2D/3D and Quick preparation. |
-| Solver | [solver](../solver/) | Saved 2D ABI 5, saved 3D ABI 3, capture ABI 2, Quick Design run v2, and C SDK direct full solves (2D v6, 3D v5). |
+| Solver | [solver](../solver/) | Saved 2D ABI 5, saved 3D ABI 3, capture ABI 2, Quick Design run v2, and C SDK direct solves (2D v6, 3D v5). |
 | Result | [postprocess](../postprocess/) | Result ABI 3 (`float64` + `int32` labels): metrics, physical balances, applicability, zone statistics, and qualification. |
 
 All active C++ stage interfaces normalize numeric buffers to `float64` and zone labels to `int32`.
 The [source map](../python/README.en.md) lists C++ edit locations by responsibility.
 See [kept Python responsibilities](architecture.md#retained-python-responsibilities) for the exact Python boundary, including `python/shared.py`.
 Pure-formula test oracles remain under `tests/python/` as independent regression references.
-PR CI, merged-main CI, desktop delivery, performance, and experimental validation stay separate gates.
+PR CI, merged-main CI, desktop delivery, cell-cap memory checks, real 3D BO, performance, and experimental validation stay separate gates.
 
 <a id="native-geometry-core"></a>
 
@@ -84,7 +84,7 @@ Select `bo-macos.txt` or `bo-windows.txt` when `.venv-path` points to a BO envir
 Use `build --component geometry` and `verify --component geometry` to run steps separately with the same `--cache`.
 Standalone builds write to `.cache/native-deps/build/geometry-<host>` by default.
 Geometry-only publication updates `geometry-build.json` and keeps previous differing libraries under `previous/`.
-Default full publication builds and verifies all four libraries before one transaction publishes them together.
+Default full publication builds and validates all four libraries before one transaction publishes them together.
 Each library writes its own build record (`build.json`, `geometry-build.json`, `preparation-build.json`, `result-build.json`) with `source_commit` and `source_changes`.
 Failed replacement rolls back staged files and reports recovery paths.
 Old solver checkpoints still require their exact kept solver runtime, prepared inputs, and controls.
@@ -140,7 +140,7 @@ Windows links one locked `Release/CoolProp.lib` archive for both roles.
 Each archive keeps a `coolprop-build.json` record that publication copies into library metadata.
 The runtime file is `libtpmshx_preparation_shared.dylib` on macOS arm64 or `tpmshx_preparation_shared.dll` on Windows x64.
 Set `TPMSHX_PREPARATION_LIBRARY` to select another prebuilt path, or `TPMSHX_NATIVE_PREPARATION_LIBRARY` for desktop packaging.
-Use `engineering/scripts/check_distributions.py --output-dir .cache/<dir>` to build and verify source and wheel distributions.
+Use `engineering/scripts/check_distributions.py --output-dir .cache/<dir>` to build and validate source and wheel distributions.
 
 <a id="native-result-core"></a>
 
@@ -204,7 +204,8 @@ Source CLI execution uses:
 ### T-SOU conservative energy and actual-state audit
 
 `solve_enthalpy` in `enthalpy_driver.hpp` runs `EnthalpyAlgorithm::temperature_sou` (T-SOU) for two-fluid true-h routes.
-Both direct C entries (`tpmshx_solve_enthalpy_v1` and `v2`) run T-SOU; `v2` accepts an explicit positive Kelvin update limit (default `1e-8 K`).
+Separate `tpmshx_enthalpy_c` and `tpmshx_enthalpy_shared` targets (not `tpmshx_solver_shared`) export direct `tpmshx_solve_enthalpy_v1` and `tpmshx_solve_enthalpy_v2`.
+`v1` uses a fixed `1e-8 K` update limit, and `v2` requires an explicit positive finite Kelvin tolerance with no default.
 Each nonlinear step freezes actual `h`, `T`, and `cp` arrays, then runs alternating A, B, and solid sweeps with minmod enthalpy face reconstruction.
 The driver damps each completed block increment by `0.6`.
 Guarded HEOS PT updates refresh actual enthalpy before residual and boundary-duty checks, with no BICUBIC table, H-to-T inversion, or enthalpy clipping.
@@ -227,7 +228,7 @@ CMake applies a source-local no-contraction floating-point setting to every sour
 
 | Consumer | Driver and kept contract |
 | --- | --- |
-| Quick Design const/mean and standalone CC | `solve_temperature` in `temperature_driver.cpp`: fixed coefficients per pass, capacity transport, guarded-line iteration (up to 4 point sweeps + damped line-Newton trial with `0.6` block damping), and `<= 1e-7` complete-boundary ratio. |
+| Quick Design const/mean and standalone CC | `solve_temperature` in `temperature_driver.cpp` uses fixed pass coefficients, capacity transport, and `<= 1e-7` complete-boundary ratio. Guarded-line steps run up to 4 point sweeps plus a `0.6`-damped line-Newton trial. |
 | Air/water full 2D temperature and full 3D CC (`Nz = 1`) | Strict `solve_model_h_2d`: integral `h(T)`, A-SOU/B-FOU (`model_h_tface_sou_fou_strict_v3`), prepared mass/K/`h_v`, physical depth scaling for 3D `Nz = 1`, and `<= 1e-7` complete-boundary ledger. |
 | Air/water full 3D CC (`Nz > 1`) | Strict `solve_model_h_3d`: integral `h(T)`, SOU on both sides (`model_h_tface_sou_sou_strict_v3`), prescribed B reservoir support, asymmetric geometry, strict water/water, and `<= 1e-7` complete-boundary ledger. |
 | Product model-h | Non-strict `solve_model_h_2d` / `solve_model_h_3d` with original eligibility and stopping rules. |
@@ -235,7 +236,7 @@ CMake applies a source-local no-contraction floating-point setting to every sour
 | Staggered/MAC research | Existing projection, cache, and capacity-face preparation without fullCC integral-h qualification. |
 | True-h | T-SOU default in `enthalpy_driver.cpp` with independent EOS relations and physical gates. |
 
-FullCC captures `model_enthalpy_temperature_v1` through `get_model_enthalpy_evidence_v1` before later flow updates.
+FullCC captures `model_enthalpy_temperature_v1` through `tpmshx_full_{2d,3d}_get_model_enthalpy_evidence_v1` before later flow updates.
 Each solved fluid stores `[c0, c1, c2, Tbase, Tref]` for quadratic `cp(T)`, solved-phase flags, residuals, source/reservoir powers, and outward `m*h(T_face)` and Fourier planes.
 Nonzero fullCC manufactured volume sources stay unsupported, and prescribed B has reservoir power without a solved B residual certificate.
 See [C++ migration history](history/cpp-migration-history.md) for historical N3, N5, and pre-N3 qualification records.
@@ -243,7 +244,8 @@ See [C++ migration history](history/cpp-migration-history.md) for historical N3,
 ## Build and run native qualification checks
 
 Locked native dependencies are defined in [dependencies-lock.toml](../engineering/native_build/dependencies-lock.toml).
-They include CoolProp 8.0.0 with nine pinned CPM headers, SuperLU 7.0.1 with three SciPy 1.18.1 double-LU corrections, AMGCL 1.5.0, Eigen 5.0.1, and CMake 4.4.4.
+They include CoolProp 8.0.0 (nine pinned CPM headers) and SuperLU 7.0.1 (three SciPy 1.18.1 double-LU corrections).
+They also include AMGCL 1.5.0, Eigen 5.0.1, and CMake 4.4.4.
 Third-party notices are recorded in [THIRD_PARTY_NOTICES.md](../engineering/native_build/licenses/THIRD_PARTY_NOTICES.md).
 `engineering/scripts/generate_native_model_coefficients.py` generates `tpmshx/model_coefficients.hpp` and `tpmshx/preparation_df_data.hpp` under `.cache/native-deps/generated/` using only the Python standard library.
 

@@ -70,7 +70,7 @@ Python 在 [python](../python/) 下负责公共 API、配置、不可变 DTO、�
 | 连续样条、sigmoid 与 LUT（ABI 3） | 输入无效 | 分配失败（`MemoryError`） | 数值或运行时错误 |
 
 - **水平集计数索引**：`geometry.cpp` 与 `asym_geometry.cpp` 构建精确的有序 `|phi|` 体素与暴露面计数索引（缓存两组拓扑／分辨率；`N = 128` 时占 32 MiB 索引加 16 MiB `phi` 网格）。标准对称场对 `L`/`t` 数组批量应用与标量相同的公式。固体导热率每次调用按显式 `chi`、`TPMSHX_CHI_S`、原生拟合的顺序解析。
-- **连续场（`zones.axis = "continuous"`）**：接受 `x_decision`（先 `L` 控制点后 `t` 控制点，单位 mm）、`n_ctrl_x`、`n_ctrl_y`、可选 `n_ctrl_z`（仅三维；三维仅给 XY 时沿 z 挤出）、`symmetric_y`、`spline_order`（1–3）及位于 `L = 4..8 mm`、`t = 0.3..0.6 mm` 内的边界。样条在最终物理单元中心采样，不做高斯滤波。连续场要求对称通道（`delta = 0`）。双侧流体在 SIMPLE 坐标系下消费完整局部 K/cF 数组。
+- **连续场（`zones.axis = "continuous"`）**：接受 `x_decision`（先 `L` 控制点后 `t` 控制点，单位 mm）、`n_ctrl_x`、`n_ctrl_y`、可选 `n_ctrl_z`（仅三维；三维仅给 XY 时沿 z 挤出）、`symmetric_y`、`spline_order`（1–3）及位于 `L = 4..8 mm`、`t = 0.3..0.6 mm` 内的 `L_bounds` 与 `t_bounds`。样条在最终物理单元中心采样，不做高斯滤波。连续场要求对称通道（`delta = 0`）。双侧流体在 SIMPLE 坐标系下消费完整局部 K/cF 数组。
 - **离散分区（`x`、`y`、`grid`）**：条带区间须为有限数并无间隙无重叠覆盖 `[0, 1]`（容差 `1e-9`）。二维条带与矩形先按横向宽度投影原始 `L`/`t` 再预测行 D-F，并对设计场做高斯滤波而保留原始热学几何。三维 XY 网格矩形分别平滑 `L` 与 `t` 后沿 z 延伸。
 - **CO2 模型**：任一侧为 CO2 时由 `co2_segment2_v1.json` 为两侧提供公共对称几何。仅 CO2 侧施加固定因子 `K = K0 / 2.5`、`cF = 2.5 * cF0` 及 Nu 因子 `1.28`（含 Nu 下限），且不依赖 `df_mode`。
 - **规定总质量流量**：`preprocess.api.prepare_fixed_mass_flow_case` 与 `prepare_inlet_mass_capacities` 在物理开口上积分局部单侧孔隙率与归一化入口速度分布，乘以入口密度后用规定 `mass_flow_kg_s` 除以容量求入口速度。二维总流量输入需提供显式物理深度（m），求解场保持单位深度基准。
@@ -99,7 +99,7 @@ Python 仅绑定保存态阶段生命周期：`full_2d_stage.py`（二维保存�
 | --- | --- |
 | 真焓（T-SOU） | 任一侧含 CO2 或 sCO2 的均匀／连续几何默认采用 `temperature_sou`。使用受保护 HEOS PT 更新、`0.6` 整块 Picard 阻尼与 SOU 配方 2 六样本 Anderson 提议。默认值：二维 `12000`（含水）／`5000`（其他）步，三维 `1500` 步，`5` 次扫描，`omega = 0.2`，`1e-8 K` 温度更新门，`0.001` 耦合与方程门。空气／水侧用积分 `h(T)`，CO2/sCO2 侧用 HEOS `h(T,P)`。完整三维每次 EOS 求解前执行零次温度扫描。 |
 | 模型焓（model-h） | 空气／水积分 `h(T)` 输运，双侧采用有符号质量面、minmod SOU 与 `MODEL_H_RELAXATION = 0.2`。二维含无分区对称水／水；三维（`Nz > 1`）支持全部空气／水有序配对（水／水与非对称几何走严格边界契约）。两维共享加速块所有者（严格三维：5 扫描／块、16 Anderson 样本；其他调用：25 扫描／块、6 样本）。可选 `SolverConfig` 覆盖项（`model_h_max_iterations`、`model_h_temperature_tol_K`、`model_h_q_relative_tol`）同时作用于主／细网格调用。 |
-| 严格 fullCC 温度 | 空气／水完整二维（`model_h_tface_sou_fou_strict_v3`）与完整三维 `Nz = 1` / `Nz > 1`（`model_h_tface_sou_sou_strict_v3`）复用严格 model-h 驱动，要求完整边界账本比例 `<= 1e-7`。见[共享有限体积使用方](cpp-migration.zh-CN.md#shared-finite-volume-temperature-consumers)。 |
+| 严格 fullCC 温度 | 空气／水完整二维与完整三维 `Nz = 1`（`model_h_tface_sou_fou_strict_v3`）及完整三维 `Nz > 1`（`model_h_tface_sou_sou_strict_v3`）复用严格 model-h 驱动（完整边界账本比例 `<= 1e-7`）。见[共享有限体积使用方](cpp-migration.zh-CN.md#shared-finite-volume-temperature-consumers)。 |
 | Quick Design | 规定流量 LTNE 尺寸近似（`quick_design_prepare_v2.cpp`、`quick_design_run.cpp`），保留固定解析入口压降分数、定物性单次或均物性两次扫描及每次扫描后的液态水检查。长度搜索（`solve_Lx`）仅接受冷启动收敛的可行候选。 |
 
 - **结果评估（`postprocess/result_stage.cpp`）**：`python/postprocess/api.py` 将完整二维／三维与 Quick Design 的评估、适用性、物理平衡和资格查询全部路由至 `tpmshx_result_stage_query_v3`。后处理仅读取已记录证据，永不重跑求解器。

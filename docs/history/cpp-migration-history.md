@@ -9,7 +9,8 @@ Original historical counts, tolerances, and failure verdicts stay unchanged here
 ## Solver migration stages (version 0.1 to 0.2)
 
 Version 0.1 kept both Python and C++ numerical backends.
-Its comparison criteria in [version 0.1 architecture](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/v0.1.0/docs/architecture.md) checked 0.1% duty, pressure, and mass differences, 0.01 K temperature differences, and `1e-6 m/s + 1e-5 * u_inlet` velocity differences.
+Its comparison criteria in [version 0.1 architecture](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/v0.1.0/docs/architecture.md) required 0.1% duty, pressure, and mass limits, plus a 0.01 K temperature limit.
+Velocity differences had to stay within `1e-6 m/s + 1e-5 * u_inlet`.
 Former Python/C++ comparisons in [version 0.1 migration notes](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/v0.1.0/docs/cpp-migration.md) stay historical evidence for those builds.
 Version 0.2 retired the Python numerical backend, Numba/PyAMG dependencies, and Python-only research entries (`prepare_research_case` and `research_three_d_v1`).
 
@@ -60,17 +61,17 @@ During the 2026-11 migration, 2D and 3D stage entries grew incrementally before 
 | 2D preparation v7–v11 | v7 `GridKinds2D` narrow-scalar tags; v8 spatial total flow; v9 typed cache callbacks; v10 nonzero `delta_levelset` side geometry; v11 pore porosity and stripe hydraulic radius. |
 | 3D preparation v1–v5 | v1 uniform 3D; v2 3D total flow; v3 continuous XY/XYZ 3D; v4 XY grid rectangles and global offset; host v5 shared cache callbacks. |
 | 2D and 3D stage runs | 2D one-shot runs v1–v4, saved descriptors v1–v4, and 3D one-shot runs v1–v2 (replaced by flat saved 2D v5 and 3D v3). |
-| Quick Design v1 and host ops | Native-double v1 preparation/run, 14 unused `quick_*` C entries, `QuickProtocols` callbacks, and a 25-operation raw-object host callback table. |
+| Quick Design v1 and host ops | Native-double v1 preparation/run, 14 unused `quick_*` C entries, `QuickProtocols` callbacks, and a 30-operation raw-object host callback table. |
 
 ## 2026-11-23 and 2026-11-24 ABI consolidation and cleanup (D1 to D4)
 
 | Phase | Date | PR or commit | Summary of retired interfaces and changes |
 | --- | --- | --- | --- |
 | Phase 1 | 2026-11-23 | [PR #357](https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/357) | Cleaned test layout and retired unused development scripts. |
-| Phase 2 | 2026-11-23 | [PR #358](https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/358) | Consolidated C ABI to active production entries; removed 2D/3D preparation v1–v11 precursors, Quick Design v1, 2D runs v1–v4, 3D runs v1–v2, earlier direct full solves before 2D v6 / 3D v5, result query v2, `tpmshx_result_platform_info_v1`, and 14 unused `quick_*` C entries. |
+| Phase 2 | 2026-11-23 | [PR #358](https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/358) | Consolidated the C ABI to active entries, removing 2D/3D preparation v1–v11 precursors, Quick Design v1, 2D runs v1–v4, and 3D runs v1–v2. Also removed direct solves before 2D v6 / 3D v5, result query v2, `tpmshx_result_platform_info_v1`, and 14 unused `quick_*` C entries. |
 | Phase 3A | 2026-11-23 | [PR #359](https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/359) | Normalized result core to `float64` and `int32` labels under Result ABI 3 (`tpmshx_stage_input_v3`); retired `QuickProtocols` callbacks. |
-| Phase 3B | 2026-11-24 | `1714510c` / `856d4cf8` | Normalized preparation, geometry, field, and Quick Design APIs to `float64`; retired weak-scalar/`binary16` emulation, Quick raw-object host operation callbacks, and full-pipeline test references while keeping pure-formula test oracles. |
-| Phase 3C | 2026-11-24 | `0092789c` / `bf51530e` | Flattened all preparation and saved stage-run C structs (removed nested `values` chains), unified callbacks into `tpmshx_preparation_callbacks_v1`, moved 2D/3D preparation families to clean `v1` names, and standardized 2D saved ABI 5 and 3D saved ABI 3. |
+| Phase 3B | 2026-11-24 | [PR #360](https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/360) | Normalized preparation, geometry, field, and Quick Design APIs to `float64` and retired weak-scalar/`binary16` emulation. Also retired Quick raw-object host callbacks and full-pipeline test references while keeping pure-formula test oracles. |
+| Phase 3C | 2026-11-24 | [PR #362](https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/362) | Flattened preparation and saved stage-run C structs (no nested `values` chains) and unified callbacks into `tpmshx_preparation_callbacks_v1`. Moved 2D/3D preparation families to clean `v1` names and standardized 2D saved ABI 5 and 3D saved ABI 3. |
 | Phase 4 | 2026-11-24 | `c774b2c1` / `dbd34a53` | Retired Python direct full drivers (`NativeFull2DDriver`, `NativeFull3DDriver`, `prepared_*`), removed retired manifest nodes, and shortened the native CI path. |
 | Phase 5 | 2026-11-24 | D4 docs | Rewrote current architecture, native-stages, C++ integration, and `python/README` docs to describe only active post-D4 interfaces; archived historical logs here. |
 

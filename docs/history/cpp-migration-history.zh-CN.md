@@ -60,7 +60,7 @@
 | 二维准备 v7–v11 | v7 `GridKinds2D` 窄标量标记；v8 空间总流量；v9 带类型缓存回调；v10 非零 `delta_levelset` 侧几何；v11 孔隙率与条带水力半径。 |
 | 三维准备 v1–v5 | v1 均匀三维；v2 三维总流量；v3 连续 XY/XYZ 三维；v4 XY 网格矩形与全局偏移；host v5 共享缓存回调。 |
 | 二维与三维阶段运行 | 二维一次性运行 v1–v4、保存描述符 v1–v4 与三维一次性运行 v1–v2（已由扁平保存态二维 v5 与三维 v3 替代）。 |
-| Quick Design v1 与宿主操作 | 原生双精度 v1 准备／运行、14 个未使用的 `quick_*` C 入口、`QuickProtocols` 回调及 25 项原始对象宿主回调表。 |
+| Quick Design v1 与宿主操作 | 原生双精度 v1 准备／运行、14 个未使用的 `quick_*` C 入口、`QuickProtocols` 回调及 30 项原始对象宿主回调表。 |
 
 ## 2026-11-23 与 2026-11-24 ABI 收敛与清理（D1 至 D4）
 
@@ -69,8 +69,8 @@
 | Phase 1 | 2026-11-23 | [PR #357](https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/357) | 清理测试布局并退役未使用的开发脚本。 |
 | Phase 2 | 2026-11-23 | [PR #358](https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/358) | 将 C ABI 收敛为现行生产入口；移除二维/三维准备 v1–v11 前序入口、Quick Design v1、二维运行 v1–v4、三维运行 v1–v2、二维 v6/三维 v5 之前的直接求解入口、结果查询 v2、`tpmshx_result_platform_info_v1` 及 14 个未使用的 `quick_*` C 入口。 |
 | Phase 3A | 2026-11-23 | [PR #359](https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/359) | 在 Result ABI 3（`tpmshx_stage_input_v3`）下将结果核心规范化为 `float64` 与 `int32` 标签；退役 `QuickProtocols` 回调。 |
-| Phase 3B | 2026-11-24 | `1714510c` / `856d4cf8` | 将准备、几何、场与 Quick Design 接口规范化为 `float64`；退役窄标量/`binary16` 模拟、Quick 原始对象宿主操作回调及全流程测试参考，保留纯公式测试参考实现。 |
-| Phase 3C | 2026-11-24 | `0092789c` / `bf51530e` | 扁平化全部准备与保存阶段运行 C 结构体（移除嵌套 `values` 链），统一回调为 `tpmshx_preparation_callbacks_v1`，二维/三维准备族改用简洁 `v1` 符号，并统一二维保存态 ABI 5 与三维保存态 ABI 3。 |
+| Phase 3B | 2026-11-24 | [PR #360](https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/360) | 将准备、几何、场与 Quick Design 接口规范化为 `float64`；退役窄标量/`binary16` 模拟、Quick 原始对象宿主操作回调及全流程测试参考，保留纯公式测试参考实现。 |
+| Phase 3C | 2026-11-24 | [PR #362](https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/362) | 扁平化全部准备与保存阶段运行 C 结构体（移除嵌套 `values` 链），统一回调为 `tpmshx_preparation_callbacks_v1`，二维/三维准备族改用简洁 `v1` 符号，并统一二维保存态 ABI 5 与三维保存态 ABI 3。 |
 | Phase 4 | 2026-11-24 | `c774b2c1` / `dbd34a53` | 退役 Python 直接完整驱动（`NativeFull2DDriver`、`NativeFull3DDriver`、`prepared_*`），移除已退役的清单节点并缩短原生 CI 路径。 |
 | Phase 5 | 2026-11-24 | D4 文档 | 重写架构、原生阶段、C++ 接入和 `python/README` 双语文档，使其仅描述 D4 之后的现行接口，并将历史记录归档至此。 |
 

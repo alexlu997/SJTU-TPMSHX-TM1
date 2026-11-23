@@ -37,7 +37,7 @@ Linux x86_64 仅支持独立结果评估。
 按职责查找 C++ 修改入口见[源码地图](../python/README.md)。
 Python 保留边界（包括 `python/shared.py`）见[架构说明中的保留职责](architecture.zh-CN.md#retained-python-responsibilities)。
 纯公式测试参考实现保留在 `tests/python/` 中，作为独立回归校验基准。
-PR CI、合并主分支 CI、桌面交付、性能验收和实验验证保持为独立门槛。
+PR CI、合并主分支 CI、桌面交付、单元上限附近内存检查、真实三维 BO、性能验收和实验验证保持为独立门槛。
 
 <a id="native-geometry-core"></a>
 
@@ -204,7 +204,7 @@ result = run_case(prepared_case, RunControl(
 ### T-SOU 保守能量与真实态审计
 
 `enthalpy_driver.hpp` 中的 `solve_enthalpy` 在双流体 true-h 路线上执行 `EnthalpyAlgorithm::temperature_sou`（T-SOU）。
-两个直接 C 入口（`tpmshx_solve_enthalpy_v1` 与 `v2`）均执行 T-SOU；`v2` 接受显式正 Kelvin 更新阈值（默认 `1e-8 K`）。
+独立的 `tpmshx_enthalpy_c` 与 `tpmshx_enthalpy_shared` 目标（而非 `tpmshx_solver_shared`）导出直接入口 `tpmshx_solve_enthalpy_v1` 与 `tpmshx_solve_enthalpy_v2`：`v1` 固定使用 `1e-8 K` 更新阈值，`v2` 要求传入无默认值的显式正有限 Kelvin 容差。
 每步非线性迭代冻结真实 `h`、`T` 和 `cp` 数组，以 minmod 焓面重构执行交替的 A、B 与固体扫描，并对整块增量施加 `0.6` 阻尼。
 随后通过受保护的 HEOS PT 更新刷新真实焓值再检查残差与边界热负荷，不使用 BICUBIC 表、H-to-T 反演或焓截断。
 SOU 配方 2 采用六样本 Anderson 提议，仅当提议严格降低归一化耦合与方程残差最大值时才接受。
@@ -234,7 +234,7 @@ CMake 对实例化该共享行的每个源文件施加文件级禁止浮点收�
 | 交错／MAC 研究 | 保留既有投影、缓存与热容面准备，不继承 fullCC 积分焓资格。 |
 | True-h | `enthalpy_driver.cpp` 默认 T-SOU，保持独立 EOS 关系与物理门槛。 |
 
-FullCC 在后续流场更新前通过 `get_model_enthalpy_evidence_v1` 捕获 `model_enthalpy_temperature_v1`。
+FullCC 在后续流场更新前通过 `tpmshx_full_{2d,3d}_get_model_enthalpy_evidence_v1` 捕获 `model_enthalpy_temperature_v1`。
 每个求解流体记录二次 `cp(T)` 的 `[c0, c1, c2, Tbase, Tref]`、求解相标志、残差、源／热库功率以及外法向 `m*h(T_face)` 和傅里叶平面。
 非零 fullCC 制造体积源仍不受支持；给定 B 侧保留热库功率，不伪造已解 B 残差证书。
 历史 N3、N5 与 N3 之前资格记录见[C++ 迁移与 ABI 演进历史](history/cpp-migration-history.zh-CN.md)。
