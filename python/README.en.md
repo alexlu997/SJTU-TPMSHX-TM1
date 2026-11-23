@@ -23,7 +23,7 @@ compute -> preprocess.api.prepare_case -> CaseData -> solvers.api.run_case -> Fi
 
 `compute` also manages stage progress, cancellation, elapsed times and warnings.
 `python/postprocess/api.py` sends full 2D/3D and Quick Design evaluation and independent queries to the native result stage.
-`python/cpp_interface/_native_result_stage.py` adapts evidence, NumPy events and returned objects. `python/postprocess/export.py` exports results.
+`python/cpp_interface/_native_result_stage.py` adapts `float64`/`int32` evidence, fixed `RuntimeWarning` diagnostics and returned objects. `python/postprocess/export.py` exports results.
 Current full computations support rectangular 2D and cuboid 3D domains.
 See the [examples](../examples/three_module/) and [data contract](../docs/contracts/three_module_v1/README.md) for public inputs and file transport.
 The [capabilities](../docs/capabilities.en.md) list approximation modes and extension status.
@@ -103,7 +103,7 @@ Python uses `_native_quick_prepare.py` for fixed host protocols and copies nativ
 The replaced `shared/models/quick_design.py` is removed. Defaults come from `python/model_configs/model_parameters_v1.json` and generated C++ constants.
 The native-double v1 contract and the existing LTNE model remain available.
 Python execution calls the native run stage with saved prepared data. The native result stage owns Quick Design metrics.
-Preparation and result host operations keep the existing Python type, cache, warning and event protocols.
+Preparation host operations keep the existing Python type, cache, warning and event protocols. Result evaluation normalizes Quick Design operands to `float64` and emits fixed `RuntimeWarning` diagnostics.
 The Python entries above retain all current modes.
 
 ## Edit numerical functions

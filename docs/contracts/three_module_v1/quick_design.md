@@ -75,7 +75,7 @@ Execution passes saved CaseData to `tpmshx_run_quick_design_v2` without new prep
 The stage returns owned fields and their unit/state declarations. The host
 copies them before release. It keeps the original grid, `K_ss` and `eps` dtypes,
 mass rates and inlet-temperature scalars in FieldResult.
-Preparation and metrics use native stages. Their fixed named host operations keep the existing type and event protocols.
+Preparation and metrics use native stages. Preparation uses fixed named host operations; metric evaluation uses `float64` operands and fixed `RuntimeWarning` diagnostics.
 
 Temperature, prescribed velocity, fluid/solid conductivity, volumetric coupling
 and porosity fields have explicit units, x/y/z cell placement and final-pass

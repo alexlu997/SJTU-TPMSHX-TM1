@@ -1,5 +1,6 @@
 #include "tpmshx/result_arithmetic.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <limits>

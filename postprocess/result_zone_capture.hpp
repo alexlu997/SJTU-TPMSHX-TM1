@@ -3,6 +3,8 @@
 #include "tpmshx/result_balance.hpp"
 #include "result_c_boundary.hpp"
 
+#include <algorithm>
+
 namespace tpmshx::result::c_api {
 
 inline int capture_zone_temperatures_2d(

@@ -239,18 +239,18 @@ The native-double v1 preparation and run entries were removed on 2026-11-23.
 Its const/mean, cross/counter and warm-start rules stay unchanged.
 Python execution uses this run stage with saved prepared fields, without new preparation.
 It copies native fields and declarations before release and keeps the original grid, fixed-field dtypes and operating-point scalars.
-The native result stage owns Quick Design metrics. Fixed host operations keep the existing type and event protocols.
+The native result stage owns Quick Design metrics from `float64` operands and emits fixed `RuntimeWarning` diagnostics.
 Current Python entry points keep their supported modes. This migration does not establish physical validation.
 
 <a id="retained-python-responsibilities"></a>
 
 Python keeps public APIs, configuration, data objects, type/byte-order/shape adaptation, file I/O, caches and application warning text.
 The native stages classify applicability ranges and select required records for current saved runs.
-The native result stage owns evaluation and qualification. Python keeps original source fields, host notices and NumPy event policy.
+The native result stage owns evaluation and qualification. Python keeps original source fields, host notices and fixed `RuntimeWarning` diagnostics.
 Python modules also own GUI display, input validation, application searches, BO, offline data processing and fitting.
 The following boundaries keep their original arithmetic and consumers:
 
-- Explicit Python object and arbitrary-precision integer protocols at their declared boundaries. Quick preparation and result stages select fixed named host operations. Native errors still propagate.
+- Explicit Python object and arbitrary-precision integer protocols at their declared preparation boundaries. Quick preparation selects fixed named host operations, while the result stage normalizes numeric inputs to `float64` and `int32`. Native errors still propagate.
 - Configuration control nodes, unit conversion, serialized grid edges and archive consistency checks. Initial-temperature and configuration checks keep their error order.
 - Range summaries for standalone getter, geometry and sCO2 messages, GUI previews and nTop export statistics. C++ still owns formal range collection and qualification checks.
 - The `ports_complete` injected-ledger check and default input adaptation for independent low-level drivers. Current native ledgers return an explicit completeness flag.
@@ -812,8 +812,8 @@ Temperature is not scaled. FullCC nonzero sources stay
   for iteration, incomplete-boundary and build requirements.
 - `python/postprocess/api.py` keeps the public evaluation interface. The native result stage owns full 2D/3D metric selection, definitions and status.
   It also owns independent applicability, physical-balance and qualification queries.
-  `python/cpp_interface/_native_result_stage.py` converts evidence and returned objects. It delivers NumPy events at each primitive boundary.
-  Quick Design uses the same native stage, with typed intermediate values and fixed named host operations for its existing Python protocols.
+  `python/cpp_interface/_native_result_stage.py` converts `float64` and `int32` evidence, emits fixed `RuntimeWarning` diagnostics and builds returned objects.
+  Quick Design uses the same native stage with direct `float64` operands and C string labels.
   `python/postprocess/conservation.py` retains the complete public conservation certificate. Raw result helpers retain their existing consumers and Python protocols.
   Postprocessing reduces recorded fields, fluxes and pressure states. It never reruns a solver or reads private runtime objects for missing evidence.
   Full-compute evaluation reuses successful heat and mass reductions only within
