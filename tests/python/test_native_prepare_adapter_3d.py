@@ -14,7 +14,7 @@ from sjtu_tpmshx.file_io.case_io import load_case, save_case
 from sjtu_tpmshx.physical_models.tpms_calc import compute
 from sjtu_tpmshx.physical_models.tpms_geometry import compute_geometry
 from sjtu_tpmshx.preprocess import api
-from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
+from sjtu_tpmshx.cpp_interface.full_3d_stage import validate_saved_case
 from tests.python import native_preparation_abi, property_reference as prop_ref
 from tests.python import test_native_preparation_continuous_3d as continuous
 from tests.python import test_native_preparation_spatial_3d as spatial
@@ -151,9 +151,9 @@ def test_saved_case_is_independent_of_native_owner(monkeypatch, tmp_path, mode):
     _same(loaded.grid, actual.grid)
     _same(loaded.design_fields, actual.design_fields)
     without_snapshot = replace(loaded, config_snapshot={})
-    params, prepared = build_execution_inputs(without_snapshot)
-    assert params['Nx'] == len(actual.grid['dx'])
-    assert prepared['design']['eps_arr'].shape == actual.design_fields['eps_arr'].shape
+    shape, _, _, _ = validate_saved_case(without_snapshot)
+    assert shape[0] == without_snapshot.parameters['prepared']['Nx'] == len(actual.grid['dx'])
+    assert shape == without_snapshot.design_fields['eps_arr'].shape == actual.design_fields['eps_arr'].shape
     for value in actual.design_fields.values():
         assert not value.flags.writeable
         with pytest.raises(ValueError):

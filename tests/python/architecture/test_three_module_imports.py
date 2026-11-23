@@ -48,7 +48,7 @@ def test_implementation_import_boundaries():
 
 
 @pytest.mark.parametrize('module', [
-    'solvers.api', 'cpp_interface.full_2d_stage', 'cpp_interface.solver_library.full_2d',
+    'solvers.api', 'cpp_interface.full_2d_stage', 'cpp_interface.full_3d_stage',
     'cpp_interface.native_preparation',
 ])
 def test_checker_detects_imports_across_stage_boundaries(module):
@@ -67,7 +67,7 @@ def test_checker_resolves_relative_imports_and_allows_shared_models():
     ('cpp_interface.native_preparation', 'preprocess.api'),
     ('preprocess.three_d.preparation', 'preprocess.api'),
     ('cpp_interface.full_2d_stage', 'solvers.execution_record'),
-    ('cpp_interface.solver_library.full_3d', 'solvers.execution_record'),
+    ('cpp_interface.full_3d_stage', 'solvers.execution_record'),
 ])
 def test_stage_adapters_do_not_import_publishers(adapter, api):
     path = ROOT.joinpath(*adapter.split('.')).with_suffix('.py')

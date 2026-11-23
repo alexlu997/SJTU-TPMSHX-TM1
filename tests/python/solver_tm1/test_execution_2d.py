@@ -9,8 +9,8 @@ from sjtu_tpmshx.data_types.model_refs import ModelRef
 from sjtu_tpmshx.run_control.module_ports import RunControl
 from sjtu_tpmshx.run_control.cancellation import CancelledError
 from sjtu_tpmshx.preprocess.two_d.preparation import prepare_case
-from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
 from sjtu_tpmshx.solvers.api import run_case
+from tests.python.native.stage_interception import stage_control
 
 
 def test_effective_grid_and_design_are_consumed_without_preparation(monkeypatch):
@@ -20,18 +20,21 @@ def test_effective_grid_and_design_are_consumed_without_preparation(monkeypatch)
         raise AssertionError('solver called preprocessing')
     monkeypatch.setattr(preparation, 'prepare_case', forbidden)
     monkeypatch.setattr(preparation, '_execute', forbidden)
-    cfg, grid = build_execution_inputs(replace(case, config_snapshot={}))
-    np.testing.assert_array_equal(grid['energy_dx'], case.grid['dx'])
-    assert cfg['N_x'] == len(case.grid['dx'])
-    grid['energy_dx'][0] = 0.0
+    states = []
+    run_case(replace(case, config_snapshot={}), stage_control(), checkpoint=states.append)
+    np.testing.assert_array_equal(states[-1]['input.grid.dx'], case.grid['dx'])
+    assert len(states[-1]['input.grid.dx']) == len(case.grid['dx'])
+    states[-1]['input.grid.dx'][0] = 0.0
     assert case.grid['dx'][0] > 0.0
     refs = list(case.model_refs)
-    refs[0] = ModelRef('fluid', 'unknown', {'fluid': 'air'})
+    refs[0] = ModelRef(refs[0].name, 'unknown', refs[0].parameters)
+    progress = []
     with pytest.raises(ValueError, match='unknown model'):
-        build_execution_inputs(replace(case, model_refs=refs))
+        run_case(replace(case, model_refs=refs), stage_control(progress=progress.append))
     design = dict(case.design_fields)
     design['eps_arr'] = np.zeros_like(design['eps_arr'])
     with pytest.raises(ValueError, match='uniform design'):
-        build_execution_inputs(replace(case, design_fields=design))
+        run_case(replace(case, design_fields=design), stage_control(progress=progress.append))
+    assert not progress
     with pytest.raises(CancelledError):
         run_case(case, RunControl(cancel_check=lambda: True))

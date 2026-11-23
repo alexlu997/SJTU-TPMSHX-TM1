@@ -19,9 +19,8 @@ assert validate_geometry is importlib.import_module('sjtu_tpmshx.data_types.vali
 assert load_shanghai_baseline is importlib.import_module('sjtu_tpmshx.model_configs').load_shanghai_baseline
 assert files('sjtu_tpmshx.shared.configs').joinpath('shanghai_baseline.json').is_file()
 for dimension in (2, 3):
-    leaf = f'full_{dimension}d'
-    driver = f'NativeFull{dimension}DDriver'
+    leaf = f'full_{dimension}d_stage'
     before = importlib.import_module('sjtu_tpmshx.solvers.backends.cpp.' + leaf)
-    current = importlib.import_module('sjtu_tpmshx.cpp_interface.solver_library.' + leaf)
-    assert before is current and getattr(before, driver) is getattr(current, driver)
+    current = importlib.import_module('sjtu_tpmshx.cpp_interface.' + leaf)
+    assert before is current and before.run_case is current.run_case
 """

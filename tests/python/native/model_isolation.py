@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[3]
 EOS_CALLS = {'water_pt', 'co2_scalar_bundle', 'co2_pt', 'sco2_pt', 'sco2_hp_scalar', 'sco2_hp'}
 EXCLUDED_RAW_PATHS = {'flow.0.last.pressure.solve_seconds', 'flow.1.last.pressure.solve_seconds'}
 RAW_KIND = 'NativeIsolationRawV1'
+SOLVE_SYMBOL = 'tpmshx_run_saved_case_3d_v3'
 
 
 @dataclass
@@ -105,18 +106,18 @@ class NativeTrace:
             code = function(*args)
             event['end_ns'], event['status'] = time.perf_counter_ns(), int(code)
             if source == 'solver':
-                from sjtu_tpmshx.cpp_interface.solver_library._full_3d_abi import _Result
-                pointer = ct.cast(args[-3], ct.POINTER(_Result))
-                event['result_slot'] = ct.cast(pointer, ct.c_void_p).value
-                owner = pointer.contents.owner
+                # The saved 3D stage writes its owned result through the third last argument.
+                result = args[-3]._obj
+                event['result_slot'] = ct.addressof(result)
+                owner = result.owner
                 event['result_owner'] = owner
                 if not code:
                     assert owner, 'successful native solve has no result owner'
                     with self.lock:
                         assert owner not in self.live_owners, 'two live runs share a result owner'
                         self.live_owners.add(owner)
-                    assert pointer.contents.has_true_h, 'the mixed case did not execute its EOS route'
-                    event['compiled_coolprop_version'] = bytes(pointer.contents.true_h.coolprop_version).decode()
+                    assert result.raw.has_true_h, 'the mixed case did not execute its EOS route'
+                    event['compiled_coolprop_version'] = bytes(result.raw.true_h.coolprop_version).decode()
                     assert event['compiled_coolprop_version'] == self.version
             return code
         finally:
@@ -127,12 +128,11 @@ class NativeTrace:
                     self.first[role] = event
 
     def release(self, function, args):
-        from sjtu_tpmshx.cpp_interface.solver_library._full_3d_abi import _Result
-        pointer = ct.cast(args[0], ct.POINTER(_Result))
-        owner = pointer.contents.owner
+        _, result = args
+        owner = result.owner
         with self.lock:
             function(*args)
-            assert not pointer.contents.owner, 'the creating library did not clear its released result'
+            assert not result.owner, 'the creating library did not clear its released result'
             if owner:
                 assert owner in self.live_owners
                 self.live_owners.remove(owner)
@@ -166,7 +166,7 @@ class SolverCall:
         setattr(self.function, name, value)
 
     def __call__(self, *args):
-        return self.trace.call(self.function, 'tpmshx_solve_full_3d_v5', 'solver', args)
+        return self.trace.call(self.function, SOLVE_SYMBOL, 'solver', args)
 
 
 def oracle():
@@ -240,18 +240,28 @@ def child(plan_file):
         case = load_case(plan['case'])
         assert case.grid['dimension'] == 3
         assert {case.parameters['fluid_type_' + side] for side in 'AB'} == {'water', 'sco2'}
-        drivers, inputs = {}, {}
-        if any(role.startswith('solver') for role in roles):
-            from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
-            from sjtu_tpmshx.cpp_interface.solver_library.full_3d import NativeFull3DDriver
-            for role in roles:
-                if role.startswith('solver'):
-                    inputs[role] = build_execution_inputs(case)
-                    driver = NativeFull3DDriver(plan['solver'])
-                    driver.call = SolverCall(driver.call, trace)
-                    release = driver.release
-                    driver.release = lambda *args, function=release: trace.release(function, args)
-                    drivers[role] = driver
+        from dataclasses import replace
+        from sjtu_tpmshx.cpp_interface import full_3d_stage
+        # Trace the saved-stage solve and release, and keep each worker's raw capture.
+        open_library, release_result = full_3d_stage.open_library, full_3d_stage.release_result
+        capture_result, captured = full_3d_stage.capture_result, {}
+
+        def traced_library(library, table_directory):
+            path, native, abi, tables = open_library(library, table_directory)
+
+            class TracedLibrary:
+                def __getattr__(self, name):
+                    value = getattr(native, name)
+                    return SolverCall(value, trace) if name == SOLVE_SYMBOL else value
+            return path, TracedLibrary(), abi, tables
+
+        def capture(case, cfg, prepared, native, *args, **kwargs):
+            captured.setdefault(trace.local.role, []).append(native)
+            return capture_result(case, cfg, prepared, native, *args, **kwargs)
+
+        full_3d_stage.open_library = traced_library
+        full_3d_stage.release_result = lambda *args: trace.release(release_result, args)
+        full_3d_stage.capture_result = capture
         assert not trace.events, 'EOS or solve execution occurred during input assembly'
         if plan['oracle_position'] != 'before':
             assert not any(name == 'CoolProp' or name.startswith('CoolProp.') for name in sys.modules)
@@ -278,17 +288,20 @@ def child(plan_file):
             return {'kind': 'preparation', 'valid': first, 'rejected': errors}
 
         def solver_job(role):
-            driver, (cfg, prepared) = drivers[role], inputs[role]
             control = RunControl(backend='cpp', native_library=plan['solver'], cpu_threads=1)
-            first = driver.run_prepared(cfg, prepared, control)
-            same(driver.run_prepared(cfg, prepared, control), first)
+            for _ in range(2):
+                full_3d_stage.run_case(case, control)
+            first, second = captured[role]
+            same(second, first)
             path = directory / (role + '-raw.h5')
             write_record(path, RawRecord(first), RAW_KIND)
+            cfg = case.parameters
             water_side = next(side for side in 'AB' if cfg['fluid_type_' + side] == 'water')
-            invalid = dict(cfg, **{'T_in' + water_side: 500., 'P_in' + water_side: 10000.})
-            error = rejection(lambda: driver.run_prepared(invalid, prepared, control),
+            invalid = replace(case, parameters=dict(cfg, **{'T_in' + water_side: 500., 'P_in' + water_side: 10000.}))
+            error = rejection(lambda: full_3d_stage.run_case(invalid, control),
                               fluid_props.WaterStateError, 'water')
-            return {'kind': 'solver', 'raw': str(path), 'rejected_water': error, 'abi': driver.abi}
+            abi = open_library(plan['solver'], None)[2]
+            return {'kind': 'solver', 'raw': str(path), 'rejected_water': error, 'abi': abi}
 
         def worker(role):
             trace.local.role = role

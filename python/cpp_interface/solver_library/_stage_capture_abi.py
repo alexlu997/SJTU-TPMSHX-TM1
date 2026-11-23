@@ -49,64 +49,6 @@ class StageExecution(ct.Structure):
                 ('red_black', ct.c_uint32)]
 
 
-def sampling_query(library, dimension, result_type):
-    try:
-        query = getattr(library, f'tpmshx_full_{dimension}d_get_property_sampling_v1')
-    except AttributeError as exc:
-        raise ValueError('native library lacks property sampling records; rebuild the library') from exc
-    query.argtypes = [ct.POINTER(result_type), ct.POINTER(_Sampling)]
-    query.restype = ct.c_int
-    return query
-
-
-def copy_sampling(query, result):
-    view = _Sampling()
-    if query(ct.byref(result), ct.byref(view)):
-        raise RuntimeError('native property sampling query failed')
-    return sampling_records(view)
-
-
-def sampling_records(view):
-    records = []
-    for sample in view.records[:view.count] if view.count else ():
-        row = dict(side='AB'[sample.side], outer_index=sample.outer_index)
-        for name, _ in sample._fields_[2:]:
-            value = getattr(sample, name)
-            row[name] = value.decode('ascii') if value is not None else None
-        records.append(row)
-    return records
-
-
-def _update_scale_query(library, dimension, result_type):
-    try:
-        query = getattr(library, f'tpmshx_full_{dimension}d_get_energy_update_scale_v1')
-    except AttributeError as error:
-        raise ValueError('native library lacks energy update scales; rebuild the library') from error
-    query.argtypes = [ct.POINTER(result_type), ct.POINTER(_EnergyUpdateScale)]
-    query.restype = ct.c_int
-    return query
-
-
-def _copy_update_scale(query, result):
-    scale = _EnergyUpdateScale()
-    if query(ct.byref(result), ct.byref(scale)):
-        raise RuntimeError('native energy update scale query failed')
-    return _decode_update_scale(scale)
-
-
-def _decode_update_scale(scale):
-    if scale.available == 0:
-        return None
-    if scale.available != 1 or scale.reference_independent not in (0, 1):
-        raise RuntimeError('native energy update scale has invalid flags')
-    if any(not np.isfinite(value) or value < 1 for value in scale.scale):
-        raise RuntimeError('native energy update scale must be finite and at least 1 J/kg')
-    return dict(definition=('inlet_cp_times_temperature_difference_v1'
-                            if scale.reference_independent else 'inlet_enthalpy_difference_v1'),
-                unit='J/kg', sides=dict(zip('AB', scale.scale)),
-                source='native_completed_thermal_call')
-
-
 def _result_info(result, *, update_tol, coupled_energy_tol, equation_energy_tol,
                  max_iterations, sweeps, omega, abi=1):
     """Detach the common scalar audit returned by each complete true-h driver."""
@@ -195,26 +137,6 @@ def _energy_native_state(info, evidence, shape, units):
         state['actual_conductivity_' + label] = copy(evidence.actual_conductivity[side], shape)
     state.update(energy_algorithm=info['energy_algorithm'], energy_algorithm_version=info['energy_algorithm_version'],
                  boundary_power=boundary, boundary_power_units=units, physical_boundary_complete=True)
-
-
-def _iteration_query(library, dimension, result_type):
-    try:
-        query = getattr(library, f'tpmshx_full_{dimension}d_get_model_h_iterations_v1')
-    except AttributeError as exc:
-        raise ValueError('native library lacks model-h iteration records; rebuild the library') from exc
-    query.argtypes = [ct.POINTER(result_type), ct.POINTER(_IterationRecords)]
-    query.restype = ct.c_int
-    return query
-
-
-def _acceleration_query(library, result_type):
-    try:
-        query = library.tpmshx_full_3d_get_model_h_acceleration_v1
-    except AttributeError as exc:
-        raise ValueError('native library lacks model-h acceleration records; rebuild the library') from exc
-    query.argtypes = [ct.POINTER(result_type), ct.c_size_t, ct.POINTER(_Acceleration)]
-    query.restype = ct.c_int
-    return query
 
 
 def _copy_iteration_records(query, result, acceleration_query=None):

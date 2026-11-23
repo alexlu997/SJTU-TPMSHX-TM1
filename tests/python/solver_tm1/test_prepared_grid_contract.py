@@ -1,6 +1,5 @@
 """Full execution and file handoff enforce the same physical grid axes."""
 from dataclasses import replace
-from importlib import import_module
 
 import numpy as np
 import pytest
@@ -9,6 +8,8 @@ from sjtu_tpmshx.data_types.compute_config import ComputeConfig
 from sjtu_tpmshx.file_io.case_io import load_case, save_case
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.api import run_case
+from sjtu_tpmshx.cpp_interface import full_2d_stage, full_3d_stage
+from tests.python.native.stage_interception import first_state, stage_control
 
 
 @pytest.fixture(params=[2, 3], ids=['2d', '3d'])
@@ -20,12 +21,16 @@ def prepared_case(request):
     return prepare_case(config, case_id=f'grid-{request.param}d')
 
 
-def _execution(case):
-    return import_module(f"sjtu_tpmshx.solvers.backends.prepared_{case.grid['dimension']}d")
+def _validate(case):
+    """Apply the saved-stage grid validation of the case dimension."""
+    if case.grid['dimension'] == 2:
+        full_2d_stage.execution_grid(case)
+    else:
+        full_3d_stage.validate_saved_case(case)
 
 
 @pytest.mark.parametrize('axes', ['reversed', 'missing'])
-@pytest.mark.parametrize('entry', ['builder', 'public'])
+@pytest.mark.parametrize('entry', ['validator', 'public'])
 def test_invalid_axes_rejected_before_runtime_and_file_handoff(
         prepared_case, axes, entry, monkeypatch, tmp_path):
     grid = dict(prepared_case.grid)
@@ -37,27 +42,26 @@ def test_invalid_axes_rejected_before_runtime_and_file_handoff(
     with pytest.raises(ValueError, match='axis order'):
         save_case(case, tmp_path / 'invalid.h5')
 
-    execution = _execution(case)
     def unexpected_runtime(*args, **kwargs):
         pytest.fail('invalid grid axes reached numerical runtime construction')
-    dimension = case.grid['dimension']
-    runtime = import_module(f'sjtu_tpmshx.cpp_interface.solver_library.full_{dimension}d')
-    driver = getattr(runtime, f'NativeFull{dimension}DDriver')
-    monkeypatch.setattr(driver, '__init__', unexpected_runtime)
+    monkeypatch.setattr(full_2d_stage, 'run_stage', unexpected_runtime)
+    monkeypatch.setattr(full_3d_stage, 'run_saved', unexpected_runtime)
     with pytest.raises(ValueError, match='axis order'):
-        (run_case if entry == 'public' else execution.build_execution_inputs)(case)
+        if entry == 'public':
+            run_case(case, stage_control())
+        else:
+            _validate(case)
 
 
 def test_valid_grid_handoff_preserves_widths_and_private_execution_copy(prepared_case, tmp_path):
     save_case(prepared_case, tmp_path / 'case.h5')
     restored = load_case(tmp_path / 'case.h5')
-    cfg, grid = _execution(restored).build_execution_inputs(restored)
+    state = first_state(restored)
     for axis in restored.grid['axis_order']:
-        key = ('energy_d' if restored.grid['dimension'] == 2 else 'd') + axis
-        np.testing.assert_array_equal(grid[key], prepared_case.grid['d' + axis])
-        assert len(grid[key]) == (cfg['N_' + axis] if restored.grid['dimension'] == 2
-                                 else grid['N' + axis])
-        grid[key][0] = 0.
+        key = ('input.grid.d' if restored.grid['dimension'] == 2 else 'input.geometry.grid.d') + axis
+        np.testing.assert_array_equal(state[key], prepared_case.grid['d' + axis])
+        assert len(state[key]) == state[key[:-2] + 'n' + axis][0]
+        state[key][0] = 0.
         assert restored.grid['d' + axis][0] > 0.
 
 
@@ -71,5 +75,7 @@ def test_execution_extent_uses_runtime_width_precision(prepared_case, tmp_path):
     # The archive is internally consistent at float32 precision. Execution
     # consumes float64 widths, whose extent must still cover the given domain.
     save_case(case, tmp_path / 'float32.h5')
+    progress = []
     with pytest.raises(ValueError, match='grid does not cover'):
-        _execution(case).build_execution_inputs(load_case(tmp_path / 'float32.h5'))
+        run_case(load_case(tmp_path / 'float32.h5'), stage_control(progress=progress.append))
+    assert not progress

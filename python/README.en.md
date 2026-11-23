@@ -69,7 +69,7 @@ Spatial v4 adds XY grid rectangles and existing global offset rules with separat
 Native 3D run/capture connects those prepared families and saved views to the same `Full3DRun` lifecycle.
 The result owns complete raw fields and evaluation evidence after preparation and run release.
 Python full 3D execution uses this saved-input lifecycle through `full_3d_stage.py`.
-`full_3d_stage.py` publishes the current result. `full_3d_capture.py` decodes earlier results.
+`full_3d_stage.py` publishes the result.
 Native capture supplies application reductions and optional audit outlet weights.
 Python 3D preparation uses host v5 with shared typed cache callbacks.
 Air-field scalar observations select at most eight values per side; full raw-array records keep all cells.
@@ -86,7 +86,7 @@ Current public saved 2D/3D runs copy applicability groups and required records b
 `python/solvers/applicability_evidence.py` keeps saved inlet fields and scalar types in native order, with constraints from C when present.
 The public API publishes these groups without repeating classification.
 Python combines complete case notices and run `nu-evidence` warning records into `scope_notes`; independent C++ stages keep their native notes.
-The direct full-solve path retains `capture_applicability`. Capture failures do not select that path.
+Tests use `capture_applicability` as an independent Python reference. A capture failure stops the run.
 After the solve, [execution_report.cpp](../solver/execution_report.cpp) publishes property samples, thermal methods, and balances from the solver records.
 Python reads the scalar report and the separate field arrays. Older libraries require the host to decode the raw execution view.
 `python/data_types/field_result.py` publishes them with property samples and case resource indices.
@@ -163,7 +163,7 @@ See [C++ builds](../docs/cpp-migration.md#native-geometry-core) for separate com
 | Directory | Responsibility and boundary |
 | --- | --- |
 | [preprocess](preprocess/) | Preprocessing and explicit offline model preparation. |
-| [solvers](solvers/) | Solver API, prepared-data adapters and Python C++ bindings. The [solver directory](../solver/) contains the C++ implementation. |
+| [solvers](solvers/) | Solver API, execution records and the published names of the Python C++ bindings. The [solver directory](../solver/) contains the C++ implementation. |
 | [postprocess](postprocess/) | Metrics, physical audits, qualification and exports from recorded results. |
 | [data_types](data_types/) | Configuration, prepared cases, fields, and performance results. |
 | [file_io](file_io/) | Read and write case, result, metric and checkpoint files. |

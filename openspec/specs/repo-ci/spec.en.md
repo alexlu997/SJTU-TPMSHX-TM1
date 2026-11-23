@@ -26,7 +26,7 @@ With `PYTHONHASHSEED=0`, Python 3.13 fast tests use `-m "not slow and not heavy"
 The existing `ci_shard` plugin splits them into two independent jobs.
 Each integration process runs all `tests/python/integration_tm1/` tests without marker filtering.
 On Windows/Python 3.12, integration also runs the rendering and resume cases in `tests/python/_ci_windows_312.txt`.
-Windows integration runs in separate jobs. macOS integration uses the `fast-0` runner.
+Windows integration runs in separate jobs. macOS integration uses the `fast-0` runner. On the `full` tier, the macOS `fast-0` runner also runs BO in its own environment before it restores the solver library.
 Fast tests and integration MUST produce separate reports after the platform build.
 Routine Qt tests use offscreen mode with the 3D panel disabled.
 Actual rendering uses a separate native Qt process; the [verification guide](../../../docs/verification.en.md#qt-rendering) gives the platform requirements and evidence limits.

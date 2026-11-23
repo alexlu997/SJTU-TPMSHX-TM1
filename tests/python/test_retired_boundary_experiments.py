@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 from sjtu_tpmshx.data_types.compute_config import ComputeConfig
-from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
+from sjtu_tpmshx.cpp_interface.full_3d_stage import validate_saved_case
 
 
 @pytest.mark.parametrize('key,value', [
@@ -24,7 +24,7 @@ from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
     ('outer_anderson_trust', 5.),
     ('outer_anderson_patience', 3),
 ])
-@pytest.mark.parametrize('entry', ['canonical', 'prepared', 'native'])
+@pytest.mark.parametrize('entry', ['canonical', 'prepared'])
 def test_retired_control_rejected_before_numerical_work(monkeypatch, key, value, entry):
     # Incomplete physical inputs deliberately prove the retired-key check
     # happens before preparation or a solver can consume any other setting.
@@ -34,13 +34,10 @@ def test_retired_control_rejected_before_numerical_work(monkeypatch, key, value,
     with pytest.raises(ValueError, match=rf'{message}:.*{key}'):
         if entry == 'canonical':
             ComputeConfig.from_dict(data)
-        elif entry == 'prepared':
-            build_execution_inputs(SimpleNamespace(
-                grid={'dimension': 3, 'length_unit': 'm'}, parameters=data))
         else:
-            from sjtu_tpmshx.cpp_interface.solver_library.full_3d import NativeFull3DDriver
-            driver = NativeFull3DDriver.__new__(NativeFull3DDriver)
-            driver.run_prepared(data, {})
+            # The saved 3D stage validates every case with this check before native work.
+            validate_saved_case(SimpleNamespace(
+                grid={'dimension': 3, 'length_unit': 'm'}, parameters=data))
 
 
 @pytest.mark.parametrize('section', ['solver', 'flags'])

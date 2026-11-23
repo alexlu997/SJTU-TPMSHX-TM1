@@ -490,7 +490,7 @@ def test_application_coefficients_precede_real_seed_and_solver_setup(dim, fluid_
     cfg.validate()
     with warning_scope({}) as warnings:
         case = prepare_case(cfg, case_id='df-before-native-seed')
-        parsed, prepared, state = native_prepared_state(case, phase=6)
+        parsed, state = case.parameters, native_prepared_state(case, phase=6)
 
     for index, (side, fc) in enumerate(zip('AB', (cfg.fluid_A, cfg.fluid_B))):
         meta = (parsed['flow_inputs'][side]['metadata'] if dim == 2
@@ -517,7 +517,7 @@ def test_application_coefficients_precede_real_seed_and_solver_setup(dim, fluid_
             drag = model.mu(fc.T_in_K, fc.P_in_Pa)*mass/base_K + base_cF*float(scale)*mass**2
             expected = np.sqrt(fc.P_in_Pa**2 - 2.*287.05*fc.T_in_K*drag*.042)
             assert pressure == pytest.approx(expected, rel=1e-13)
-    assert parsed['extrap_reasons'] == []
+    assert list(parsed['extrap_reasons']) == []
     messages = [*case.metadata['warnings'], *warning_messages(warnings)]
     for side in ('A', 'B'):
         assert any('[D-F extrap]' in msg and f'side={side}' in msg for msg in messages)

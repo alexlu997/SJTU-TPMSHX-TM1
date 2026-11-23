@@ -87,10 +87,11 @@ def test_nonuniform_3d_preparation_samples_exact_polynomial_and_replays_case(tmp
         np.testing.assert_array_equal(loaded.design_fields[name], values)
     for name in ('epsilon', 'A_0', 'D_h'):
         np.testing.assert_array_equal(loaded.parameters['thermal_geometry']['fields'][name], thermal[name])
-    from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
-    _, replay = build_execution_inputs(replace(loaded, config_snapshot={}))
+    from sjtu_tpmshx.cpp_interface.full_3d_stage import validate_saved_case
+    replay = replace(loaded, config_snapshot={})
+    validate_saved_case(replay)
     for name, values in case.design_fields.items():
-        np.testing.assert_array_equal(replay['design'][name], values)
+        np.testing.assert_array_equal(replay.design_fields[name], values)
 
 
 @pytest.mark.parametrize('volume', [False, True])
@@ -143,7 +144,7 @@ def test_uniform_controls_match_uniform_prepared_geometry(tpms, monkeypatch, vol
                                    uniform.parameters['thermal_geometry']['uniform'][name], rtol=2e-14)
     coefficients = []
     for case in (uniform, continuous):
-        _, _, state = native_prepared_state(case)
+        state = native_prepared_state(case)
         coefficients.append([state[f'state.hv.{side}'] for side in (0, 1)])
     for uniform_h, continuous_h in zip(*coefficients):
         np.testing.assert_array_equal(uniform_h, continuous_h)
@@ -160,7 +161,7 @@ def test_nonuniform_local_hv_matches_independent_cell_formula(tpms, monkeypatch,
     cfg = _config(volume)
     cfg.geometry.tpms = tpms
     case = prepare_case(cfg, case_id='nonuniform-local-hv')
-    _, _, state = native_prepared_state(case)
+    state = native_prepared_state(case)
     shape = case.design_fields['eps_arr'].shape
     dx, dy, dz = (case.grid['d' + axis] for axis in 'xyz')
     x = (np.cumsum(dx) - dx/2) / cfg.geometry.L_dom_m
@@ -305,7 +306,7 @@ def test_continuous_experimental_factors_reach_both_local_solver_fields(
     if volume and not constant:
         for values in case.design_fields.values():
             assert np.any(values[:, :, 0] != values[:, :, -1])
-    parameters, _, state = native_prepared_state(case)
+    parameters, state = case.parameters, native_prepared_state(case)
     for index, (side, direction, factor) in enumerate((
             ('A', cfg.bc_A.dir, 2.649010286988306),
             ('B', cfg.bc_B.dir, 4.198913430360186))):
@@ -334,10 +335,13 @@ def test_2d_explicitly_rejects_three_dimensional_continuous_controls():
 
 @pytest.mark.parametrize('volume', [False, True])
 def test_execution_preserves_declared_continuous_dimension(volume):
-    from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
+    from sjtu_tpmshx.solvers.api import run_case
+    from tests.python.native.stage_interception import stage_control
     case = prepare_case(_config(volume), case_id='declared-continuous-dimension')
     metadata = mutable_data(case.metadata)
     metadata['design_mode'] = 'continuous_xy_extruded' if volume else 'continuous_xyz'
     message = 'must be an xy extrusion' if volume else 'requires recorded 3D control inputs'
+    progress = []
     with pytest.raises(ValueError, match=message):
-        build_execution_inputs(replace(case, metadata=metadata))
+        run_case(replace(case, metadata=metadata), stage_control(progress=progress.append))
+    assert not progress

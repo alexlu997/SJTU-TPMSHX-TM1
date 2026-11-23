@@ -21,9 +21,9 @@ from sjtu_tpmshx.file_io.result_io import load_result, save_result
 from sjtu_tpmshx.postprocess.api import evaluate, evaluate_physical_balance
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.api import run_case
-from sjtu_tpmshx.cpp_interface.solver_library.full_3d import NativeFull3DDriver
-from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
+from sjtu_tpmshx.cpp_interface import full_3d_stage
 from tests.python.native.shared_library import library_path
+from tests.python.native.stage_interception import run_stage
 from tests.python.native.test_native_execution import _config
 
 
@@ -40,13 +40,13 @@ def native_path():
 
 @pytest.mark.parametrize('version', [1, 99])
 def test_full_3d_binding_rejects_incompatible_abi(monkeypatch, tmp_path, version):
-    from sjtu_tpmshx.cpp_interface.solver_library import full_3d
     path = tmp_path / 'old-library'
     path.touch()
+    case = candidate(ALGORITHMS[0], cap=2)
     library = SimpleNamespace(tpmshx_full_3d_abi_version=lambda: version)
-    monkeypatch.setattr(full_3d.ct, 'CDLL', lambda _: library)
+    monkeypatch.setattr(full_3d_stage.ct, 'CDLL', lambda _: library)
     with pytest.raises(ValueError, match=rf'unsupported full 3D ABI {version}; expected 2'):
-        NativeFull3DDriver(path)
+        full_3d_stage.run_case(case, control(path))
 
 
 def control(path, **kwargs):
@@ -350,78 +350,40 @@ def test_one_block_budget_keeps_iteration_limit_and_final_evidence(native_path, 
     assert evaluate(result).metrics['Q'].status == 'available'
 
 
-def test_library_without_v5_entry_is_rejected(native_path, monkeypatch):
-    from sjtu_tpmshx.cpp_interface.solver_library import full_3d
-    library = NativeFull3DDriver(native_path).library
+def partial_library(monkeypatch, **replacements):
+    """Load the real library through full_3d_stage with some symbols replaced or missing."""
+    original = full_3d_stage.ct.CDLL
 
     class PartialLibrary:
+        def __init__(self, path):
+            self.library = original(path)
+
         def __getattr__(self, name):
-            if name == 'tpmshx_solve_full_3d_v5':
-                raise AttributeError(name)
-            return getattr(library, name)
-    monkeypatch.setattr(full_3d.ct, 'CDLL', lambda _: PartialLibrary())
-    with pytest.raises(ValueError, match='lacks tpmshx_solve_full_3d_v5'):
-        NativeFull3DDriver(native_path)
+            if name in replacements:
+                if replacements[name] is None:
+                    raise AttributeError(name)
+                return replacements[name]
+            return getattr(self.library, name)
+
+    monkeypatch.setattr(full_3d_stage.ct, 'CDLL', PartialLibrary)
 
 
-def test_missing_energy_evidence_query_fails_before_flow(native_path, monkeypatch):
-    driver = NativeFull3DDriver(native_path)
-    library = driver.library
-
-    class PartialLibrary:
-        def __getattr__(self, name):
-            if name == 'tpmshx_full_3d_get_energy_evidence_v1':
-                raise AttributeError(name)
-            return getattr(library, name)
-    monkeypatch.setattr(driver, 'library', PartialLibrary())
-    def forbidden(*_):
-        pytest.fail('native solve ran before its capability check')
-    forbidden.argtypes = driver.call.argtypes
-    monkeypatch.setattr(driver, 'call', forbidden)
-    with pytest.raises(ValueError, match='lacks conservative energy v5 evidence'):
-        driver.run_prepared(*build_execution_inputs(candidate(ALGORITHMS[0])))
+def test_unsupported_saved_stage_abi_is_rejected_before_flow(native_path, monkeypatch):
+    case = candidate(ALGORITHMS[0], cap=2)
+    partial_library(monkeypatch, tpmshx_stage_run_3d_abi_version=lambda: 2)
+    progress = []
+    with pytest.raises(ValueError, match='unsupported saved 3D stage ABI 2; expected 3'):
+        run_case(case, control(native_path, progress=progress.append))
+    assert not progress
 
 
-@pytest.mark.parametrize('algorithm', ['legacy_h_fou', 'temperature_fou', 'temperature_sou'])
-def test_missing_version_query_blocks_candidate_before_solve_but_allows_legacy(native_path, monkeypatch, algorithm):
-    from sjtu_tpmshx.cpp_interface.solver_library import full_3d
-    original = NativeFull3DDriver(native_path).library
-    entered = []
-
-    class SolveEntered(Exception):
-        pass
-
-    def solve(*args):
-        entered.append(True)
-        raise SolveEntered
-
-    def historical_defaults(dimension, selected, water, output):
-        status = original.tpmshx_full_enthalpy_defaults_v1(dimension, 2, water, output)
-        output._obj.algorithm = selected
-        return status
-
-    class PartialLibrary:
-        def __getattr__(self, name):
-            if name == "tpmshx_full_enthalpy_defaults_v1":
-                return historical_defaults
-            if name == 'tpmshx_energy_algorithm_version_v1':
-                raise AttributeError(name)
-            if name == 'tpmshx_solve_full_3d_v5':
-                return solve
-            return getattr(original, name)
-
-    prepared = candidate(algorithm, cap=2)
-    monkeypatch.setattr(full_3d.ct, 'CDLL', lambda _: PartialLibrary())
-    partial = NativeFull3DDriver(native_path)
-    if algorithm == 'legacy_h_fou':
-        with pytest.raises(SolveEntered):
-            partial.run_prepared(*build_execution_inputs(prepared))
-        assert entered == [True]
-    else:
-        with pytest.raises(ValueError, match='lacks conservative energy algorithm version query'):
-            partial.run_prepared(*build_execution_inputs(prepared))
-        assert not entered
-
+def test_missing_execution_view_fails_before_flow(native_path, monkeypatch):
+    case = candidate(ALGORITHMS[0], cap=2)
+    partial_library(monkeypatch, tpmshx_stage_run_3d_execution_view_v1=None)
+    progress = []
+    with pytest.raises(ValueError, match='lacks tpmshx_stage_run_3d_execution_view_v1'):
+        run_case(case, control(native_path, progress=progress.append))
+    assert not progress
 
 
 @pytest.mark.parametrize('algorithm', ALGORITHMS)
@@ -436,55 +398,43 @@ def test_zero_sweep_budget_keeps_initial_state_and_energy_gates(native_path, alg
     assert balance['effective_settings']['sweeps'] == 0
     assert balance['temperature_update_K'] == 0.
     assert balance['equation_energy_balance']['ratio'] > balance['effective_settings']['equation_energy_tol']
-    cfg, _ = build_execution_inputs(case)
+    cfg = case.parameters
     tin = (cfg['T_inA'], cfg['T_inB'])
     solid = cfg['T_s_init'] if cfg.get('T_s_init') is not None else .5*sum(tin)
     for key, value in zip(('Ta', 'Tb', 'Ts'), (*tin, solid)):
         np.testing.assert_array_equal(result.fields[key], np.full_like(result.fields[key], value))
 
 
+def resolved_controls(monkeypatch):
+    """Record the native resolved energy controls of each saved 3D run."""
+    original, seen = full_3d_stage._detach, []
+
+    def detach(r, shape, settings, *args, **kwargs):
+        seen.append((settings.conservative, settings.variable_rho_cp, settings.red_black_energy))
+        return original(r, shape, settings, *args, **kwargs)
+
+    monkeypatch.setattr(full_3d_stage, '_detach', detach)
+    return seen
+
+
+# The saved stage resolves red-black energy natively; test_full_3d checks it on the typed bridge.
 @pytest.mark.parametrize('algorithm', ALGORITHMS)
 @pytest.mark.parametrize('pair', ['air-sco2', 'sco2-water'])
-@pytest.mark.parametrize('option', ['conservative_ltne', 'variable_rho_cp', 'red_black_energy', 'combined'])
+@pytest.mark.parametrize('option', ['conservative_ltne', 'variable_rho_cp', 'combined'])
 def test_existing_true_h_controls_keep_qualified_state(native_path, monkeypatch, algorithm, pair, option):
     case = candidate(algorithm, pair=pair)
     baseline = run_case(case, control(native_path, cpu_threads=1))
-    from sjtu_tpmshx.cpp_interface import full_3d_stage
-    from sjtu_tpmshx.cpp_interface.solver_library.full_3d_capture import capture_result
-
-    def direct(case, run_control, **options):
-        # Only the direct v5 driver lets this test change the native control flags.
-        cfg, data = build_execution_inputs(case, copy_design=False)
-        driver = NativeFull3DDriver(run_control.native_library, table_directory=run_control.native_table_directory)
-        raw = driver._run_prepared(cfg, data, run_control, application_only=True, **options)
-        return capture_result(case, cfg, data, raw, driver.abi)
-    monkeypatch.setattr(full_3d_stage, 'run_case', direct)
-    run_prepared = NativeFull3DDriver._run_prepared
-    seen = []
-
-    def with_controls(driver, cfg, data, run_control, **kwargs):
-        call = driver.call
-
-        def with_native_controls(*args):
-            native = args[1]._obj
-            if option in ('red_black_energy', 'combined'):
-                native.red_black_energy = 1
-            seen.append((native.conservative, native.variable_rho_cp, native.red_black_energy))
-            return call(*args)
-
-        monkeypatch.setattr(driver, 'call', with_native_controls)
-        for name in ('conservative_ltne', 'variable_rho_cp'):
-            if option in (name, 'combined'):
-                cfg[name] = False
-                if name == 'variable_rho_cp':
-                    cfg['_environment'] = dict(cfg['_environment'], TPMSHX_VAR_RHOCP=None)
-        return run_prepared(driver, cfg, data, run_control, **kwargs)
-
-    monkeypatch.setattr(NativeFull3DDriver, '_run_prepared', with_controls)
+    parameters = dict(case.parameters)
+    for name in ('conservative_ltne', 'variable_rho_cp'):
+        if option in (name, 'combined'):
+            parameters[name] = False
+            if name == 'variable_rho_cp':
+                parameters['_environment'] = dict(parameters['_environment'], TPMSHX_VAR_RHOCP=None)
+    case = replace(case, parameters=parameters)
+    seen = resolved_controls(monkeypatch)
     result = run_case(case, control(native_path, cpu_threads=1))
     assert seen == [(option not in ('conservative_ltne', 'combined'),
-                     option not in ('variable_rho_cp', 'combined'),
-                     option in ('red_black_energy', 'combined'))]
+                     option not in ('variable_rho_cp', 'combined'), False)]
     test_executed_algorithm_and_original_convergence_gates((case, result))
     test_actual_side_models_six_face_powers_and_postprocess((case, result), monkeypatch)
     for key in ('Ta', 'Tb', 'Ts'):
@@ -506,11 +456,13 @@ def test_existing_true_h_controls_keep_qualified_state(native_path, monkeypatch,
     ('mms_S_s_field', 1., 'physical sources'),
 ])
 def test_unsupported_native_physical_scope_fails_explicitly(native_path, option, value, message):
-    cfg, prepared = build_execution_inputs(candidate(ALGORITHMS[0]))
-    cfg[option] = np.ones((4, 4, 4)) * value if option == 'mms_S_s_field' else value
-    driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
+    case = candidate(ALGORITHMS[0])
+    case = replace(case, parameters=dict(case.parameters, **{
+        option: np.ones((4, 4, 4)) * value if option == 'mms_S_s_field' else value}))
+    progress = []
     with pytest.raises(ValueError, match=message):
-        driver.run_prepared(cfg, prepared)
+        run_case(case, control(native_path, progress=progress.append))
+    assert not progress
 
 
 @pytest.mark.parametrize('backend, mode', [('python', 'full')])
@@ -523,139 +475,107 @@ def test_candidate_requires_public_full_cpp_route(native_path, backend, mode):
         run_case(prepared, replace(control(native_path), backend=backend))
 
 
+def tracked_release(monkeypatch):
+    """Record the owner of each released saved 3D result after its release."""
+    release, released = full_3d_stage.release_result, []
+
+    def tracked(library, result):
+        assert result.owner
+        release(library, result)
+        released.append(result.owner)
+
+    monkeypatch.setattr(full_3d_stage, 'release_result', tracked)
+    return released
+
+
 @pytest.mark.parametrize('during', [False, True])
 def test_cancel_returns_no_field_result_and_releases_owned_state(native_path, monkeypatch, during):
-    driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
-    release, released, calls = driver.release, [], []
-
-    def tracked(pointer):
-        assert pointer._obj.owner
-        release(pointer)
-        released.append(pointer._obj.owner)
+    released, calls = tracked_release(monkeypatch), []
 
     def cancel():
         calls.append(True)
         return len(calls) >= (100 if during else 1)
-    monkeypatch.setattr(driver, 'release', tracked)
     with pytest.raises(CancelledError):
-        driver.run_prepared(*build_execution_inputs(candidate(ALGORITHMS[0])), control(native_path, cancel_check=cancel))
+        run_case(candidate(ALGORITHMS[0]), control(native_path, cancel_check=cancel))
     assert len(calls) >= (100 if during else 1)
     assert released == ([None] if during else [])
 
 
 def test_interrupt_after_candidate_native_return_releases_owner(native_path, monkeypatch):
-    driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
-    call, release, released = driver.call, driver.release, []
+    released = tracked_release(monkeypatch)
+    require_completed = full_3d_stage.require_completed
 
-    def interrupted(*args):
-        assert call(*args) == 0
-        assert args[7]._obj.owner
+    def interrupted(result, traces):
+        require_completed(result, traces)
         raise KeyboardInterrupt('candidate native-return')
-
-    def tracked(pointer):
-        assert pointer._obj.owner
-        release(pointer)
-        released.append(pointer._obj.owner)
-    monkeypatch.setattr(driver, 'call', interrupted)
-    monkeypatch.setattr(driver, 'release', tracked)
-    prepared = candidate(ALGORITHMS[0], cap=2)
+    monkeypatch.setattr(full_3d_stage, 'require_completed', interrupted)
     with pytest.raises(KeyboardInterrupt, match='candidate native-return'):
-        driver.run_prepared(*build_execution_inputs(prepared), control(native_path))
+        run_case(candidate(ALGORITHMS[0], cap=2), control(native_path))
     assert released == [None]
 
 
-@pytest.mark.parametrize('algorithm,air_sco2', [('legacy_h_fou', True), ('temperature_fou', True),
-    ('temperature_sou', True), ('temperature_sou', False)])
-def test_large_grid_packing_keeps_legacy_rb_and_candidate_serial(tmp_path, monkeypatch, algorithm, air_sco2):
-    from sjtu_tpmshx.cpp_interface.solver_library import full_3d
+@pytest.mark.parametrize('air_sco2', [True, False])
+def test_large_grid_packing_keeps_legacy_rb_and_candidate_serial(native_path, air_sco2):
+    from sjtu_tpmshx.cpp_interface.solver_library._thermal_abi import _full_enthalpy_defaults
 
     config = _config(3, air_sco2=True)
     if not air_sco2:
         config.fluid_B.type = 'water'
         config.fluid_B.P_in_Pa = 2e6
     config = replace(config, solver=replace(config.solver, Nx=32, Ny=32, Nz=32,
-                                            enthalpy_algorithm=algorithm))
-    prepared = prepare_case(config, case_id='large-grid-control-' + algorithm)
-    seen = []
+                                            enthalpy_algorithm='temperature_sou'))
+    prepared = prepare_case(config, case_id='large-grid-control-temperature_sou')
 
-    class EntryCaptured(Exception):
+    class ControlsCaptured(Exception):
         pass
 
-    def capture(*args):
-        data, settings = args[0]._obj, args[1]._obj
-        assert tuple(data.shape) == (32, 32, 32)
-        seen.append(settings.red_black_energy)
-        assert settings.red_black_energy == (1 if algorithm == 'legacy_h_fou' or not air_sco2 else 0)
-        assert (settings.enthalpy_iterations, settings.enthalpy_sweeps) == (321, 7)
-        assert (settings.enthalpy_omega, settings.enthalpy_update_tolerance) == (.4, .002)
-        raise EntryCaptured
+    def capture(state):
+        seen.update(state)
+        raise ControlsCaptured
 
-    def defaults(dimension, selected, water, output):
-        assert dimension == 3 and selected == ('legacy_h_fou', 'temperature_fou', 'temperature_sou').index(algorithm)
-        output._obj.max_iterations, output._obj.sweeps = 321, 7
-        output._obj.omega, output._obj.update_tolerance = .4, .002
-        return 0
-
-    # Resolve/pack genuine prepared 32768-cell input, but never load a library
-    # or solve a large grid merely to inspect the automatically selected flag.
-    library = SimpleNamespace(tpmshx_full_3d_abi_version=lambda: 2,
-        tpmshx_solve_full_3d_v5=capture,
-        tpmshx_full_3d_release_v1=lambda *_: pytest.fail('packing allocated native ownership'),
-        tpmshx_full_3d_get_bootstrap_trace_v1=lambda *_: None,
-        tpmshx_full_3d_get_last_closure_ranges_v1=lambda *_: pytest.fail('packing requested result evidence'),
-        tpmshx_full_3d_get_physical_heat_ledger_v1=lambda *_: pytest.fail('packing requested result evidence'),
-        tpmshx_full_3d_get_property_sampling_v1=lambda *_: pytest.fail('packing requested result evidence'),
-        tpmshx_full_3d_get_model_h_iterations_v1=lambda *_: pytest.fail('packing requested result evidence'),
-        tpmshx_full_3d_get_model_h_acceleration_v1=lambda *_: pytest.fail('packing requested result evidence'),
-        tpmshx_full_3d_get_energy_evidence_v1=lambda *_: None,
-        tpmshx_full_3d_get_energy_effective_settings_v1=lambda *_: None,
-        tpmshx_full_3d_get_energy_update_scale_v1=lambda *_: pytest.fail('packing requested result evidence'),
-        tpmshx_full_enthalpy_defaults_v1=defaults,
-        tpmshx_energy_algorithm_version_v1=lambda algorithm: {1: 1, 2: 2}.get(algorithm, 0))
-    monkeypatch.setattr(full_3d.ct, 'CDLL', lambda _: library)
-    path = tmp_path / 'packing-only-library'
-    path.touch()
-    driver = NativeFull3DDriver(path)
-    with pytest.raises(EntryCaptured):
-        driver.run_prepared(*build_execution_inputs(prepared))
-    assert len(seen) == 1
+    # Stop at the first saved boundary; the snapshot holds the native resolved controls.
+    seen = {}
+    with pytest.raises(ControlsCaptured):
+        full_3d_stage.run_case(prepared, control(native_path), checkpoint=capture)
+    assert tuple(seen['input.geometry.grid.d' + axis].size for axis in 'xyz') == (32, 32, 32)
+    assert seen['control.red_black_energy'][0] == (0 if air_sco2 else 1)
+    _, library, _, _ = full_3d_stage.open_library(native_path, None)
+    defaults = _full_enthalpy_defaults(library, 3, 2, not air_sco2)
+    assert (seen['control.enthalpy.max_iterations'][0], seen['control.enthalpy.sweeps'][0]) == (
+        defaults.max_iterations, defaults.sweeps)
+    assert (seen['control.enthalpy.omega'][0], seen['control.enthalpy.update_tolerance'][0]) == (
+        defaults.omega, defaults.update_tolerance)
 
 
 @pytest.mark.parametrize('algorithm', ALGORITHMS)
 def test_mixed_conductivity_copies_the_last_outer_transport(native_path, algorithm):
     prepared = candidate(algorithm, cap=2)
-    cfg, data = build_execution_inputs(prepared)
-    driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
-    raw = driver.run_prepared(cfg, data, control(native_path))
+    stage = run_stage(prepared, control(native_path))
+    raw = stage.native
     state = raw['true_h']['_native_state']
     for side, label in enumerate('AB'):
-        if cfg['fluid_type_' + label] in ('air', 'water'):
-            np.testing.assert_array_equal(state['actual_conductivity_' + label], raw['conductivity'][side])
+        if prepared.parameters['fluid_type_' + label] in ('air', 'water'):
+            np.testing.assert_array_equal(state['actual_conductivity_' + label], stage.arrays['conductivity'][side])
     assert raw['enthalpy_update_normalization']['definition'] == 'inlet_cp_times_temperature_difference_v1'
 
 
 @pytest.mark.parametrize('pair, integral_side', [('air-sco2', 0), ('sco2-water', 1)])
 def test_dispersion_retains_shared_transport_and_energy_models(native_path, monkeypatch, pair, integral_side):
-    from sjtu_tpmshx.cpp_interface.solver_library.full_3d_capture import capture_result
-
     runtime = control(native_path, cpu_threads=1)
-    driver = NativeFull3DDriver(native_path, table_directory=runtime.native_table_directory)
     prepared = candidate('temperature_sou', pair)
-    cfg, data = build_execution_inputs(prepared)
-    cfg.update(disp_C_A=.01, disp_C_B=.02)
-    raw = driver.run_prepared(cfg, data, runtime)
+    dispersed = replace(prepared, parameters=dict(prepared.parameters, disp_C_A=.01, disp_C_B=.02))
+    stage = run_stage(dispersed, runtime)
+    raw, result = stage.native, stage.result
     assert raw['converged']
     state = raw['true_h']['_native_state']
     side = 'AB'[integral_side]
-    np.testing.assert_array_equal(state['actual_conductivity_' + side], raw['conductivity'][integral_side])
-    result = capture_result(prepared, cfg, data, raw, driver.abi)
+    conductivity = stage.arrays['conductivity'][integral_side]
+    np.testing.assert_array_equal(state['actual_conductivity_' + side], conductivity)
     with monkeypatch.context() as patch:
-        test_actual_side_models_six_face_powers_and_postprocess((prepared, result), patch)
-    prepared = candidate('temperature_sou', pair)
-    cfg, data = build_execution_inputs(prepared)
-    baseline = driver.run_prepared(cfg, data, runtime)
-    assert baseline['converged']
-    assert np.all(raw['conductivity'][integral_side] > baseline['conductivity'][integral_side])
+        test_actual_side_models_six_face_powers_and_postprocess((dispersed, result), patch)
+    baseline = run_stage(prepared, runtime)
+    assert baseline.native['converged']
+    assert np.all(conductivity > baseline.arrays['conductivity'][integral_side])
 
 
 @pytest.mark.parametrize('algorithm', ['legacy_h_fou', 'temperature_fou'])

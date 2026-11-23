@@ -1,4 +1,4 @@
-"""Keep saved offset and discrete runs equal to the existing full 2D driver."""
+"""Keep saved offset and discrete runs, their native evaluation and continuation exact."""
 import ctypes as ct
 from dataclasses import replace
 import json
@@ -89,16 +89,19 @@ def test_offset_snapshot_restore_keeps_exact_inputs(monkeypatch, tmp_path, mode)
     def pause(snapshot):
         snapshots.append(snapshot)
         raise Paused
-    for run in (adapter._old, stage.run_case):
+    for _ in range(2):
         with pytest.raises(Paused):
-            run(case, adapter._control([]), checkpoint=pause)
+            stage.run_case(case, adapter._control([]), checkpoint=pause)
     native_stage_support.plane_state_equal(snapshots[1], snapshots[0])
-    for key in ('input.asymmetric', 'input.split_a', 'input.spatial_geometry', 'input.thermal_mode'):
-        assert key in snapshots[1]
-    expected = adapter._old(case, adapter._control([]), resume_state=snapshots[0])
+    # The saved offset inputs reach the native state unchanged.
+    assert snapshots[1]['input.asymmetric'][0] == 1
+    assert snapshots[1]['input.split_a'][0] == case.parameters['thermal_geometry']['split_A']
+    assert snapshots[1]['input.spatial_geometry'][0] == (mode != 'uniform')
+    assert snapshots[1]['input.thermal_mode'][0] == 0
+    complete = stage.run_case(case, adapter._control([]))
     actual = stage.run_case(case, adapter._control([]), resume_state=snapshots[1])
-    actual = adapter._checked_applicability(actual, expected, case)
-    _same(replace(actual, result_id=expected.result_id), expected)
+    adapter._checked_applicability(actual, actual, case)
+    adapter._same_resumed(actual, complete, case)
     np.savez(tmp_path / 'state.npz', **snapshots[1])
 
 

@@ -16,12 +16,12 @@ from sjtu_tpmshx.physical_models.grid import _port_overlap_1d, _port_fractions_1
 from sjtu_tpmshx.physical_models.tpms_props import model_h_coefficients
 from sjtu_tpmshx.preprocess.api import prepare_case
 from tests.python.native.result_reference.shared_math import pressure_face_values
-from sjtu_tpmshx.solvers.backends import prepared_2d as execution
 from tests.python.native.pressure_audit import inlet_pressure_state
 from tests.python.native.simple_inputs import f2_settings
 from tests.python.native.simple_audit import mass_balance, raw_faces
 from tests.python.native.test_simple_2d import audit_momentum
 from tests.python.native.model_h_audit_2d import _model_h_balance
+from tests.python.native.kernel_inputs import full_2d_record
 
 ROOT = Path(__file__).resolve().parents[3]
 D = ct.POINTER(ct.c_double)
@@ -29,9 +29,7 @@ S = ct.c_size_t
 
 
 def prepared_record(case, *, pressure_shooting=True):
-    cfg, prepared = execution.build_execution_inputs(case)
-    cfg['p_in_shooting'] = pressure_shooting
-    return dict(cfg=cfg, prepared=prepared)
+    return full_2d_record(case, pressure_shooting=pressure_shooting)
 
 
 def configuration(*, directions=(0, 3), outer=4, partial=True, warm=False,
@@ -59,7 +57,7 @@ def configuration(*, directions=(0, 3), outer=4, partial=True, warm=False,
 
 
 def inputs(record):
-    cfg, prepared = record['cfg'], record['prepared']
+    cfg, prepared, settings = record['cfg'], record['prepared'], record['settings']
     shape = (len(prepared['energy_dx']), len(prepared['energy_dy']))
 
     def cell(value):
@@ -67,20 +65,22 @@ def inputs(record):
 
     geometry = cfg['thermal_geometry']['fields'] or cfg['thermal_geometry']['uniform']
     z = cfg['za']
+    # The saved stage packs the cell length in millimetres, as the preparation closure does.
+    cell_mm = cfg['L_cell_m'] * 1e3 if z is None else z['L_field_m'] * 1e3
     properties = cfg['static_properties']
     arrays = [prepared['energy_dx'], prepared['energy_dy'], np.ones(1),
         cell(properties['A']['K_ff'] if z is None else z['K_ffA_arr']),
         cell(properties['B']['K_ff'] if z is None else z['K_ffB_arr']),
         cell(properties['geometry']['K_ss'] if z is None else z['K_ss_arr']),
         cell(cfg['eps'] if z is None else z['eps_arr']), cell(geometry['A_0']), cell(geometry['D_h']),
-        cell(cfg['Lcell'] * 1e-3 if z is None else z['L_field'] * 1e-3)]
+        cell(cell_mm * 1e-3)]
     mode = ('true_h' if 'sco2' in (cfg['fluid_A'], cfg['fluid_B']) and cfg['zone_config'] is None else
-            'model_h' if cfg['compute_cfg'].geometry.delta_levelset == 0 and
+            'model_h' if settings['geometry'].delta_levelset == 0 and
             (cfg['zone_config'] is None or cfg['z_axis'] == 'continuous') else 'temperature')
     multiplier = 1.
-    if mode == 'true_h' and cfg['compute_cfg'].sco2_nu.mode != 'cfd_smooth':
-        multiplier = getattr(cfg['compute_cfg'].sco2_nu, 'alpha_G' if cfg['tpms_type'] == 'Gyroid' else 'alpha_D')
-    scalars = [cfg['Lcell'] * 1e-3, cfg['eps'], cfg['thermal_geometry']['split_A'], multiplier,
+    if mode == 'true_h' and settings['sco2_nu'].mode != 'cfd_smooth':
+        multiplier = getattr(settings['sco2_nu'], 'alpha_G' if cfg['tpms_type'] == 'Gyroid' else 'alpha_D')
+    scalars = [cfg['L_cell_m'] * 1e3 * 1e-3, cfg['eps'], cfg['thermal_geometry']['split_A'], multiplier,
                cfg.get('T_s_init') or 0.]
     for side in ('A', 'B'):
         flow, opening, port = cfg['flow_inputs'][side], cfg['boundary_openings'][side], cfg['cfg'+side]
@@ -89,29 +89,29 @@ def inputs(record):
             opening['in_profile_frac'], opening['out_profile_frac'],
             _port_overlap_1d(flow['dx'], port['out_ctr']-port['out_w']/2,
                              port['out_ctr']+port['out_w']/2, staggered=True)])
-        physical = getattr(cfg['compute_cfg'], 'fluid_'+side)
+        physical = settings['fluid_'+side]
         side_geometry = (cfg['thermal_geometry']['side_geometry'] or {}).get(side, (0., 0., 0., 0.))
         scalars.extend([cfg['T_in'+side], physical.P_in_Pa, cfg['u_'+side], properties[side]['mu'],
             flow['seed_K_m2'], flow['seed_cF_per_m'], port['in_ctr']-port['in_w']/2, port['in_ctr']+port['in_w']/2,
             port['out_ctr']-port['out_w']/2, port['out_ctr']+port['out_w']/2, *side_geometry])
-    solver = cfg['compute_cfg'].solver
+    solver = settings['solver']
     monitor = f2_settings(SimpleNamespace(**{key: value for key, value in vars(solver).items() if value is not None}))
     has_water = 'water' in (cfg['fluid_A'], cfg['fluid_B'])
     thermal_tolerance = .1 if mode == 'true_h' else 1. if has_water else .5
     flags = [int(cfg['tpms_type'] == 'Gyroid'), ('temperature', 'model_h', 'true_h').index(mode),
         ('air', 'water', 'sco2').index(cfg['fluid_A']), ('air', 'water', 'sco2').index(cfg['fluid_B']),
-        cfg['dir_A'], cfg['dir_B'], int(cfg['compute_cfg'].geometry.delta_levelset != 0), int(cfg.get('T_s_init') is not None),
+        cfg['dir_A'], cfg['dir_B'], int(settings['geometry'].delta_levelset != 0), int(cfg.get('T_s_init') is not None),
         int(cfg['cfgA'].get('uniform_inlet_2d', False)), int(cfg['cfgB'].get('uniform_inlet_2d', False)),
         int(cfg['p_in_shooting']), 0,
-        1, 1, cfg['compute_cfg'].solver.max_iter_simple or 10000,
-        2, cfg['compute_cfg'].solver.max_outer_ltne or 10, 12000 if has_water else 5000,
+        1, 1, solver.max_iter_simple or 10000,
+        2, solver.max_outer_ltne or 10, 12000 if has_water else 5000,
         500 if mode != 'true_h' else 3,
         monitor.n_confirm, monitor.mom_every, monitor.stall_window, 0, int(z is not None)]
     scalars.extend([.7, .3, .3, 287.05, 0.,
         monitor.mom_tol, monitor.mass_local_tol, monitor.mass_global_tol, monitor.backflow_max,
-        monitor.vtol, monitor.stall_ratio, cfg['compute_cfg'].solver.outer_tol_K or 1., .01, .7,
+        monitor.vtol, monitor.stall_ratio, solver.outer_tol_K or 1., .01, .7,
         min(thermal_tolerance * 2e-3, 1e-3), max(thermal_tolerance, 1e-8) / 100.])
-    arrays.append(cell(geometry['D_h']*1000. / (cfg['Lcell'] if z is None else z['L_field'])))
+    arrays.append(cell(geometry['D_h'] * 1000. / cell_mm))
     assert len(arrays) == 29 and len(flags) == 24 and len(scalars) == 49
     arrays = [np.ascontiguousarray(x, dtype=np.float64) for x in arrays]
     return dict(shape=shape, arrays=arrays, flags=flags, scalars=scalars, mode=mode,
@@ -212,14 +212,15 @@ def audit_coarse(actual, record, *, full=False):
     assert not actual['cancelled']
     assert actual['post_after_last_thermal'] == (not actual['outer_converged'])
     history = actual['outer_history']
-    assert len(history) == actual['iterations'] <= (cfg['compute_cfg'].solver.max_outer_ltne or 10)
+    solver = record['settings']['solver']
+    assert len(history) == actual['iterations'] <= (solver.max_outer_ltne or 10)
     assert [row['iteration'] for row in history] == list(range(actual['iterations']))
     assert history[-1]['outer_converged'] == actual['outer_converged']
     assert not any(row['outer_converged'] for row in history[:-1])
     if actual['outer_converged']:
         assert history[-1]['thermal_converged']
         assert max(history[-1]['relative_density_change']) < .01
-        assert max(history[-1]['temperature_change']) < (cfg['compute_cfg'].solver.outer_tol_K or 1.)
+        assert max(history[-1]['temperature_change']) < (solver.outer_tol_K or 1.)
     for index, side in enumerate('AB'):
         flow, seed = actual['flow'][index], cfg['flow_inputs'][side]
         dx, dy = [np.asarray(flow[key]) for key in ('dx','dy')]
@@ -254,7 +255,7 @@ def audit_coarse(actual, record, *, full=False):
         assert len(flow['history']['legacy']) >= result['iterations'] - result['acceleration_attempts']
         assert np.isfinite(flow['history']['legacy']).all()
         direction = cfg['dir_'+side]
-        pin = getattr(cfg['compute_cfg'], 'fluid_'+side).P_in_Pa
+        pin = record['settings']['fluid_'+side].P_in_Pa
         pressure = physical_field(view.P, direction)
         if view.fluid_type == 'ideal_gas':
             pressure = pressure + view.P_ref_abs
@@ -356,3 +357,29 @@ def test_full_temperature_candidates_require_both_physical_gates(native, mode):
     status, error, result = native(request)
     assert status == 1 and result is None
     assert 'requires positive coupled and equation tolerances' in error
+
+
+def without_timing(value):
+    """Remove wall-clock linear solver timings from a bridge result."""
+    if isinstance(value, dict):
+        return {key: without_timing(item) for key, item in value.items()
+                if key not in ('build_seconds', 'solve_seconds')}
+    if isinstance(value, list):
+        return [without_timing(item) for item in value]
+    return value
+
+
+@pytest.mark.parametrize('partial', [False, True])
+def test_true_h_red_black_control_preserves_actual_state(native, partial):
+    """The global red-black opt-in keeps the small-grid true-h temperature_sou state."""
+    case = prepare_case(configuration(mode='true_h', outer=2, partial=partial), case_id='energy2d-red-black')
+    reference = prepared_record(case)
+    request = dict(inputs(reference), full=1)
+    status, error, expected = native(request)
+    assert status == 0, error
+    request['flags'] = [*request['flags'][:11], 1, *request['flags'][12:]]
+    status, error, actual = native(request)
+    assert status == 0, error
+    np.testing.assert_equal(without_timing(actual), without_timing(expected))
+    assert actual['thermal']['result']['mode'] == 'true_h'
+    audit_coarse(actual, reference, full=True)

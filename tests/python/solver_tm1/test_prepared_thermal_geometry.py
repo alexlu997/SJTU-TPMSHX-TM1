@@ -3,11 +3,18 @@ from dataclasses import replace
 import numpy as np
 import pytest
 from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
 from sjtu_tpmshx.run_control.module_ports import RunControl
 from sjtu_tpmshx.run_control.module_ports import resolve_control
-from sjtu_tpmshx.cpp_interface.solver_library.full_3d import NativeFull3DDriver
 from tests.python.cases_3d import small_air_config
+from tests.python.native.stage_interception import run_stage
+
+
+def _first_state(case):
+    """Run ``case`` and return its first native snapshot with the result capture."""
+    states = []
+    stage = run_stage(case, resolve_control(RunControl()),
+                      checkpoint=lambda state: states or states.append(state))
+    return states[0], stage
 
 
 @pytest.mark.parametrize('mode', ['asymmetric', 'experimental'])
@@ -23,7 +30,7 @@ def test_prepared_geometry_and_roughness_are_consumed(monkeypatch, mode):
                       fluid_B=replace(cfg.fluid_B, u_mps=4., P_in_Pa=2e5),
                       bc_A=PartialBCConfig(dir=0), bc_B=PartialBCConfig(dir=3))
     case = prepare_case(cfg, case_id=mode + '-geometry')
-    parameters, prepared = build_execution_inputs(case)
+    prepared = case.parameters['prepared']
     def forbidden(*args, **kwargs):
         raise AssertionError('execution queried fixed geometry or receiver roughness')
     from sjtu_tpmshx.physical_models import tpms_props, tpms_geometry
@@ -41,24 +48,26 @@ def test_prepared_geometry_and_roughness_are_consumed(monkeypatch, mode):
     monkeypatch.setattr(tpms_geometry, '_phi_grid', forbidden)
     from sjtu_tpmshx.physical_models.df_surrogate import experimental_correction
     monkeypatch.setattr(experimental_correction, 'correction_scale', forbidden)
-    control = resolve_control(RunControl())
-    driver = NativeFull3DDriver(control.native_library)
-    raw = driver.run_prepared(parameters, prepared)
-    assert all(np.all(np.isfinite(field)) for field in raw['hv'])
-    for side, flow in zip('AB', raw['flow']):
+    # The audit option detaches the returned solver-axis flow fields.
+    audited = replace(case, parameters={**case.parameters, '_emit_audit': True})
+    state, stage = _first_state(audited)
+    assert all(np.all(np.isfinite(field)) for field in stage.arrays['hv'])
+    for side, flow in zip('AB', stage.native['flow']):
         axes = prepared['axes'][side]
         epsilon = flow['epsilon'].transpose(axes['solver_to_real_perm'])
         if axes['is_reverse']:
             epsilon = np.flip(epsilon, axis=axes['stream_real_axis'])
         np.testing.assert_array_equal(epsilon, case.design_fields['eps_arr'])
-    changed = replace(case, design_fields={**case.design_fields, 'K_m2': case.design_fields['K_m2']*2.})
-    changed_raw = driver.run_prepared(*build_execution_inputs(changed))
-    for before, after in zip(raw['flow'], changed_raw['flow']):
-        np.testing.assert_array_equal(after['permeability'], before['permeability']*2.)
+    changed = replace(audited, design_fields={**case.design_fields, 'K_m2': case.design_fields['K_m2']*2.})
+    changed_state, _ = _first_state(changed)
+    for index in range(2):
+        key = f'state.result.flow.{index}.permeability'
+        np.testing.assert_array_equal(changed_state[key], state[key]*2.)
     bad_geometry = {**case.parameters['thermal_geometry'], 'split_A': 1.1}
     bad = replace(case, parameters={**case.parameters, 'thermal_geometry':bad_geometry})
+    from sjtu_tpmshx.cpp_interface.full_3d_stage import validate_saved_case
     with pytest.raises(ValueError, match='side split'):
-        build_execution_inputs(bad)
+        validate_saved_case(bad)
 
 
 def test_archived_bulk_hv_loads_but_does_not_set_local_heat_transfer(tmp_path, monkeypatch):
@@ -73,11 +82,10 @@ def test_archived_bulk_hv_loads_but_does_not_set_local_heat_transfer(tmp_path, m
     archived = replace(case, parameters={**case.parameters, 'thermal_geometry': geometry})
     save_case(archived, tmp_path / 'case.h5')
     loaded = load_case(tmp_path / 'case.h5')
-    driver = NativeFull3DDriver(resolve_control(RunControl()).native_library)
     fields = []
     for prepared_case in (case, loaded):
-        raw = driver.run_prepared(*build_execution_inputs(prepared_case))
-        fields.append(raw['hv'][0])
+        stage = run_stage(prepared_case, resolve_control(RunControl()))
+        fields.append(stage.arrays['hv'][0])
     np.testing.assert_array_equal(fields[0], fields[1])
     assert np.any(fields[1] != 123.)
     invalid = {**geometry, 'air_bulk_hv': {'A': np.full(shape, np.nan)}}
@@ -100,9 +108,8 @@ def test_prepared_openings_match_actual_solver_geometry_before_solving(side, end
     width = 'in_w' if end == 'inlet' else 'out_w'
     partial = prepare_case(replace(config, **{'bc_' + side: replace(
         port, **{width: getattr(port, width) / 2.})}), case_id='partial-opening')
-    driver = NativeFull3DDriver(resolve_control(RunControl()).native_library)
     for case in (full, partial):
-        raw = driver.run_prepared(*build_execution_inputs(case))
+        raw = run_stage(case, resolve_control(RunControl())).native
         for name, flow in zip('AB', raw['flow']):
             for boundary in ('inlet', 'outlet'):
                 np.testing.assert_allclose(
@@ -112,8 +119,7 @@ def test_prepared_openings_match_actual_solver_geometry_before_solving(side, end
     parameters['prepared']['openings'][side][end] = partial.parameters['prepared']['openings'][side][end]
     save_case(replace(full, parameters=parameters), tmp_path / 'case.h5')
     restored = load_case(tmp_path / 'case.h5')
-    from sjtu_tpmshx.cpp_interface.solver_library.full_3d_run import NativeFull3DRun
-    monkeypatch.setattr(NativeFull3DRun, 'advance',
-                        lambda *a, **k: pytest.fail('conflicting opening reached a PDE'))
+    entered = []
     with pytest.raises(ValueError, match='prepared full 3D openings disagree with rectangles'):
-        run_case(restored)
+        run_case(restored, RunControl(progress=entered.append, outer_iteration=lambda *args: entered.append(args)))
+    assert not entered, 'conflicting opening reached a PDE'

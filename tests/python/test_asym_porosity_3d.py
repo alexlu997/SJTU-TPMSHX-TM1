@@ -77,18 +77,15 @@ def test_delta0_explicit_matches_baseline_bit_identical():
 def test_asym_delta_runs_and_changes_result(conservative):
     from sjtu_tpmshx.run_control.module_ports import RunControl
     from sjtu_tpmshx.run_control.module_ports import resolve_control
-    from sjtu_tpmshx.cpp_interface.solver_library.full_3d import NativeFull3DDriver
-    from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
+    from tests.python.native.stage_interception import run_stage
     control = resolve_control(RunControl())
-    driver = NativeFull3DDriver(control.native_library, table_directory=control.native_table_directory)
     results = []
     for delta in (0., .6):
         config = air_air_config()
         config.geometry.delta_levelset = delta
         case = prepare_case(config, case_id='asymmetric-native')
-        cfg, prepared = build_execution_inputs(case)
-        cfg['conservative_ltne'] = conservative
-        results.append(driver.run_prepared(cfg, prepared, control))
+        case = replace(case, parameters=dict(case.parameters, conservative_ltne=conservative))
+        results.append(run_stage(case, control).native)
     base, asym = results
     assert np.isfinite(asym['duty'][0]) and asym['duty'][0] > 0.
     assert np.all(np.isfinite(asym['pressure_drop']))

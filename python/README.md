@@ -63,7 +63,7 @@ spatial v4 增加 XY 网格矩形和现有全局偏置规则，分别保留侧�
 原生三维运行／捕获将这些准备家族及保存视图接到同一 `Full3DRun` 生命周期。
 结果在准备态及运行释放后拥有完整原始场与评估证据。
 Python 完整三维执行通过 `full_3d_stage.py` 使用该保存输入生命周期。
-`full_3d_stage.py` 发布现行结果，`full_3d_capture.py` 解码早期结果。
+`full_3d_stage.py` 发布结果。
 原生捕获提供应用归约量和可选审计出口权重。
 Python 三维准备使用 host v5 和共享的带类型缓存回调。
 空气场每侧最多选择八个标量观测值，完整原始数组记录仍保留全部单元。
@@ -80,7 +80,7 @@ Python 优先选择 v2，其次为对称均匀或连续输入选择 v1；不具�
 `python/solvers/applicability_evidence.py` 按原生顺序保留保存的入口字段和标量类型，并在 C 提供 constraint 时采用该值。
 公共 API 发布这些分组，不重复分类。
 Python 将完整 case notices 与运行期 `nu-evidence` 警告记录合并为 `scope_notes`；独立 C++ 阶段保留原生通知。
-直接完整求解路径保留 `capture_applicability`；捕获失败不选择该路径。
+测试将 `capture_applicability` 用作独立 Python 参考；捕获失败使运行停止。
 求解结束时，[execution_report.cpp](../solver/execution_report.cpp) 从 C++ 求解记录生成物性采样、热学方法和守恒收支。
 Python 将标量报告和单独传递的场数组写入结果。只有缺少报告接口的运行库还需要逐项解码原始执行视图。
 `python/data_types/field_result.py` 将这些记录与物性采样、算例资源索引写入场结果。
@@ -156,7 +156,7 @@ $tm1Python = Get-Content .venv-path -TotalCount 1
 | 目录 | 职责与边界 |
 | --- | --- |
 | [preprocess/](preprocess/) | 前处理与显式离线模型准备 |
-| [solvers/](solvers/) | 求解 API、准备态适配和 Python C++ 绑定。原生求解实现见[根目录 solver/](../solver/) |
+| [solvers/](solvers/) | 求解 API、执行记录和 Python C++ 绑定的公开名称。原生求解实现见[根目录 solver/](../solver/) |
 | [postprocess/](postprocess/) | 已记录结果的指标、物理审计、资格结论和导出 |
 | [data_types/](data_types/) | 配置、准备好的工况、场与性能结果的数据定义 |
 | [file_io/](file_io/) | 工况、结果、指标和检查点的文件读写 |

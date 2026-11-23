@@ -40,7 +40,7 @@ follow the read timing stated below.
 - ``TPMSHX_DISABLE_3D_PANEL`` (0) — skip PyVista panel;
   ``ui/builders_canvas.py``.
 - ``TPMSHX_PARALLEL_THRESHOLD`` (200000) — native parallel-sweep cell gate;
-  ``solvers/backends/cpp/full_3d.py`` reads it for each native call.
+  ``cpp_interface/full_3d_stage.py`` reads it for each native call.
 - ``TPMSHX_PHASE_A/C`` (1/0) — adaptive AMG / coarse bootstrap.
   Captured by ``preprocess/three_d/preparation.py`` (cfg keys win).
   Phase B / inner SIMPLE Anderson is retired; explicit enablement raises.

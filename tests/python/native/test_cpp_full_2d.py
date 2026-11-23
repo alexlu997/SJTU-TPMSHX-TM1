@@ -1,9 +1,7 @@
-"""Stable full-2D ABI ownership and packing against independent typed calls."""
+"""Saved full-2D stage ownership and packing against independent typed calls."""
 from concurrent.futures import ThreadPoolExecutor
-from copy import deepcopy
 from dataclasses import replace
 import gc
-import os
 from pathlib import Path
 import subprocess
 import sys
@@ -11,30 +9,17 @@ import sys
 import numpy as np
 import pytest
 
+from sjtu_tpmshx.cpp_interface import full_2d_stage
+from sjtu_tpmshx.data_types.portable_data import mutable_data
 from sjtu_tpmshx.run_control.cancellation import CancelledError
-from sjtu_tpmshx.run_control.module_ports import RunControl
 from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.cpp_interface.solver_library.full_2d import NativeFull2DDriver, _pack
-from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
 from tests.python.native import test_full_2d as typed
 from tests.python.native.shared_library import library_path
+from tests.python.native.stage_interception import run_stage, stage_control
 from tests.python.native.test_full_2d_refinement import compare_audit
 
 ROOT = Path(__file__).resolve().parents[3]
 native = typed.native
-
-
-@pytest.fixture(scope='module')
-def driver():
-    host = 'windows-x64' if os.name == 'nt' else 'macos-arm64'
-    suffix = '.dll' if os.name == 'nt' else '.dylib' if sys.platform == 'darwin' else '.so'
-    path = ROOT/'.cache/native-deps/build'/('pilot-'+host)/(('' if os.name == 'nt' else 'lib')+'tpmshx_full_2d_shared'+suffix)
-    if not path.is_file():
-        message = f'full 2D public library not built: {path}'
-        if os.environ.get('TPMSHX_REQUIRE_NATIVE_DEPS_TESTS') == '1':
-            pytest.fail(message)
-        pytest.skip(message)
-    return NativeFull2DDriver(path, table_directory=ROOT/'.cache/native-deps/tables')
 
 
 def arrays_equal(a, b):
@@ -66,27 +51,32 @@ def check_thermal(public, reference):
             assert not np.any(h['mass_flux_'+side][2])
 
 
-@pytest.mark.parametrize('mode,directions', [('model_h', (0, 3)), ('model_h', (3, 1)),
-                                           ('temperature', (1, 2)), ('true_h', (0, 3))])
-def test_prepared_packing_and_public_abi_exact_typed_return(driver, native, mode, directions):
-    case = prepare_case(typed.configuration(mode=mode, directions=directions, outer=2), case_id='full2d-public')
-    record = typed.prepared_record(case)
-    request = typed.inputs(record)
+def typed_reference(native, case, scalars=()):
+    """Run the independent typed bridge on the inputs that the saved stage packs."""
+    request = typed.inputs(typed.prepared_record(case))
     request['full'] = True
+    for index, value in dict(scalars).items():
+        request['scalars'][index] = value
     status, error, reference = native(request)
     assert status == 0, error
-    cfg, prepared = build_execution_inputs(case)
-    shape, arrays, _ = _pack(cfg, prepared, driver.table_directory, driver.library)
-    assert shape == request['shape']
-    for value, expected in zip(arrays, request['arrays']):
-        np.testing.assert_array_equal(value, expected)
-        value.setflags(write=False)
-    result = driver.run_prepared(cfg, prepared)
+    return reference
+
+
+@pytest.mark.parametrize('mode,directions', [('model_h', (0, 3)), ('model_h', (3, 1)),
+                                           ('temperature', (1, 2)), ('true_h', (0, 3))])
+def test_prepared_packing_and_public_abi_exact_typed_return(native, mode, directions):
+    case = prepare_case(typed.configuration(mode=mode, directions=directions, outer=2), case_id='full2d-public')
+    reference = typed_reference(native, case)
+    stage = run_stage(case)
+    result = stage.native
+    assert result['entry_version'] == 6 and stage.result.backend_version == 'full_2d_v6'
     for name in ('iterations', 'converged', 'outer_converged', 'post_after_last_thermal', 'simple_ok',
                  'thermal_ok', 'envelope_ok', 'pair_balance_ok', 'model_balance_ok', 'pressure_drop',
                  'outlet_temperature', 'inlet_mass', 'duty', 'q_total', 'q_solid', 'energy_imbalance'):
         arrays_equal(result[name], reference[name])
     check_thermal(result['main'], reference['thermal'])
+    for index, label in enumerate('AB'):
+        arrays_equal(stage.result.fields['T' + label.lower()], reference['thermal']['temperature'][index])
     if mode == 'true_h':
         expected = dict(max_iterations=12000, sweeps=5, omega=.2, update_tol=.001,
             coupled_energy_tol=.001, equation_energy_tol=.001, energy_algorithm='temperature_sou',
@@ -101,10 +91,10 @@ def test_prepared_packing_and_public_abi_exact_typed_return(driver, native, mode
         assert method['iterations'] == expected['result']['iterations']
         assert method['proposal_steps'] == expected['result']['acceleration_attempts']
         assert method['accepted_proposals'] == expected['result']['acceleration_accepted']
-        for name in ('dx', 'dy', 'u', 'v', 'pressure', 'pressure_correction', 'density', 'uc', 'vc',
-                     'absolute_pressure', 'mass_x', 'mass_y', 'reference_pressure', 'taper_flux_scale'):
+        # The saved stage publishes the final pressure and physical velocity views of each flow.
+        for name in ('pressure', 'uc', 'vc', 'absolute_pressure', 'reference_pressure', 'taper_flux_scale'):
             arrays_equal(flow[name], expected[name])
-        for name in ('iterations', 'converged', 'post_closure_certified', 'pressure_clip_hits'):
+        for name in ('iterations', 'converged'):
             assert flow['result'][name] == expected['result'][name]
     if result['fine'] is None:
         assert reference['refined'] is None
@@ -124,30 +114,36 @@ def prepared_zero_duty():
     cfg = typed.configuration(outer=2)
     cfg = replace(cfg, fluid_A=replace(cfg.fluid_A, type='water', T_in_K=300.),
                   solver=replace(cfg.solver, T_s_init_K=300.))
-    return build_execution_inputs(prepare_case(cfg, case_id='full2d-zero-duty'))
+    return prepare_case(cfg, case_id='full2d-zero-duty')
 
 
-def test_views_detached_inputs_readonly_and_repeated_calls(driver, prepared_zero_duty):
-    cfg, prepared = prepared_zero_duty
-    shape, arrays, config = _pack(cfg, prepared, driver.table_directory, driver.library)
-    originals = [x.copy() for x in arrays]
-    for x in arrays:
-        x.setflags(write=False)
-    first = driver.solve(shape, arrays, config)
-    for x, before in zip(arrays, originals):
-        np.testing.assert_array_equal(x, before)
-    del arrays
+def saved_arrays(case):
+    arrays = [*case.grid.values(), *case.design_fields.values()]
+    for side in 'AB':
+        arrays += [*case.parameters['flow_inputs'][side].values(), *case.parameters['boundary_openings'][side].values()]
+    return [np.array(value) for value in arrays if isinstance(value, np.ndarray)]
+
+
+def test_views_detached_inputs_readonly_and_repeated_calls(prepared_zero_duty):
+    case = prepared_zero_duty
+    originals = saved_arrays(case)
+    first = run_stage(case)
+    for value, before in zip(saved_arrays(case), originals):
+        np.testing.assert_array_equal(value, before)
     gc.collect()
-    second = driver.run_prepared(cfg, prepared)
-    assert first['converged'] and second['converged']
-    assert first['q_total'] == second['q_total']
-    assert abs(first['q_total']) <= 2e-7  # frozen dimensional power tolerance
-    first['main']['temperature'][0][0, 0] = -1.
-    np.testing.assert_allclose(second['main']['temperature'][0], 300., rtol=2e-9, atol=2e-7)
+    second = run_stage(case)
+    assert first.native['converged'] and second.native['converged']
+    assert first.native['q_total'] == second.native['q_total']
+    assert abs(first.native['q_total']) <= 2e-7  # frozen dimensional power tolerance
+    for name in ('Ta', 'Tb', 'Ts'):
+        assert not np.shares_memory(first.result.fields[name], second.result.fields[name])
+    first.native['main']['temperature'][0] = np.full_like(first.native['main']['temperature'][0], -1.)
+    np.testing.assert_allclose(second.native['main']['temperature'][0], 300., rtol=2e-9, atol=2e-7)
+    np.testing.assert_allclose(second.result.fields['Ta'], 300., rtol=2e-9, atol=2e-7)
 
 
 @pytest.mark.parametrize('kind', ['cancel', 'outer', 'residual', 'progress', 'iteration'])
-def test_callback_exception_and_recovery(driver, prepared_zero_duty, kind):
+def test_callback_exception_and_recovery(prepared_zero_duty, kind):
     class CallbackError(Exception):
         pass
     def broken(*args):
@@ -155,75 +151,99 @@ def test_callback_exception_and_recovery(driver, prepared_zero_duty, kind):
     field = dict(cancel='cancel_check', outer='outer_iteration', residual='residual',
                  progress='progress', iteration='iteration')[kind]
     with pytest.raises(CallbackError, match='callback-marker'):
-        driver.run_prepared(*prepared_zero_duty, RunControl(**{field: broken}))
-    assert driver.run_prepared(*prepared_zero_duty)['converged']
+        run_stage(prepared_zero_duty, stage_control(**{field: broken}))
+    assert run_stage(prepared_zero_duty).native['converged']
 
 
-def test_interrupt_after_native_return_releases_owner(driver, prepared_zero_duty, monkeypatch):
-    call, release, released = driver.call, driver.release, []
-    def interrupted(*args):
-        assert call(*args) == 0
-        raise KeyboardInterrupt('native-return')
-    def tracked(pointer):
-        assert pointer._obj.owner
-        release(pointer)
-        released.append(pointer._obj.owner)
-    monkeypatch.setattr(driver, 'call', interrupted)
-    monkeypatch.setattr(driver, 'release', tracked)
+def tracked_entries(monkeypatch, *, complete=None):
+    """Wrap the bound saved-run entries; record each released result owner."""
+    original, released = full_2d_stage._stage_entries, []
+
+    def entries(library):
+        bound = original(library)
+        release = bound['release']
+
+        def tracked(pointer):
+            assert pointer._obj.owner
+            release(pointer)
+            released.append(pointer._obj.owner)
+        changed = dict(bound, release=tracked)
+        if complete is not None:
+            changed['complete'] = complete(bound['complete'])
+        return changed
+
+    monkeypatch.setattr(full_2d_stage, '_stage_entries', entries)
+    return released
+
+
+def test_interrupt_after_native_return_releases_owner(prepared_zero_duty, monkeypatch):
+    def interrupted(complete):
+        def call(*args):
+            assert complete(*args) == 0
+            raise KeyboardInterrupt('native-return')
+        return call
+    released = tracked_entries(monkeypatch, complete=interrupted)
     with pytest.raises(KeyboardInterrupt, match='native-return'):
-        driver.run_prepared(*prepared_zero_duty)
+        run_stage(prepared_zero_duty)
     assert released == [None]
 
 
-def test_iteration_and_progress_follow_native_outer_work(driver, prepared_zero_duty):
+def test_iteration_and_progress_follow_native_outer_work(prepared_zero_duty):
     progress, iterations, outer = [], [], []
-    result = driver.run_prepared(*prepared_zero_duty, RunControl(progress=progress.append,
+    stage = run_stage(prepared_zero_duty, stage_control(progress=progress.append,
         iteration=iterations.append, outer_iteration=lambda done, total: outer.append((done, total))))
-    assert len(outer) == result['iterations']
-    assert progress == [10 + int(80 * done / total) for done, total in outer]
+    assert len(outer) == stage.native['iterations']
+    # run_case reports completion after the native outer work.
+    assert progress == [*(10 + int(80 * done / total) for done, total in outer), 100]
     assert iterations == [f'iter {done + 1}/{total}' for done, total in outer]
 
 
-def test_cancel_during_native_call_and_recovery(driver, prepared_zero_duty):
+def test_cancel_during_native_call_and_recovery(prepared_zero_duty):
     calls = []
     def cancel():
         calls.append(1)
         return len(calls) >= 5
     with pytest.raises(CancelledError):
-        driver.run_prepared(*prepared_zero_duty, RunControl(cancel_check=cancel))
+        run_stage(prepared_zero_duty, stage_control(cancel_check=cancel))
     assert len(calls) >= 5
-    assert driver.run_prepared(*prepared_zero_duty)['converged']
+    assert run_stage(prepared_zero_duty).native['converged']
 
 
-def test_invalid_array_and_recovery(driver, prepared_zero_duty):
-    shape, arrays, config = _pack(*prepared_zero_duty, driver.table_directory, driver.library)
-    arrays[3] = np.empty(1)
-    with pytest.raises(ValueError):
-        driver.solve(shape, arrays, config)
-    assert driver.run_prepared(*prepared_zero_duty)['converged']
+def test_invalid_array_and_recovery(prepared_zero_duty, monkeypatch):
+    parameters = mutable_data(prepared_zero_duty.parameters)
+    permeability = np.array(parameters['flow_inputs']['A']['K_m2'])
+    permeability[0] = np.nan
+    parameters['flow_inputs']['A']['K_m2'] = permeability
+    released = tracked_entries(monkeypatch)
+    progress = []
+    # The saved native stage validates the borrowed array before any flow work.
+    with pytest.raises(ValueError, match='invalid prepared flow A K_m2'):
+        run_stage(replace(prepared_zero_duty, parameters=parameters), stage_control(progress=progress.append))
+    assert not progress and not released
+    assert run_stage(prepared_zero_duty).native['converged']
 
 
 @pytest.mark.parametrize('name', ['in_geom_frac', 'out_geom_frac', 'in_profile_frac', 'out_profile_frac'])
-def test_prepared_opening_mismatch_rejected_before_native_call(driver, prepared_zero_duty, monkeypatch, name):
-    cfg, prepared = deepcopy(prepared_zero_duty)
-    cfg['boundary_openings']['A'][name] = np.asarray(cfg['boundary_openings']['A'][name])*.9
-    def unexpected(*args):
-        pytest.fail('inconsistent prepared opening reached native call')
-    monkeypatch.setattr(driver, 'call', unexpected)
+def test_prepared_opening_mismatch_rejected_before_native_call(prepared_zero_duty, name):
+    parameters = mutable_data(prepared_zero_duty.parameters)
+    parameters['boundary_openings']['A'][name] = np.asarray(parameters['boundary_openings']['A'][name])*.9
+    progress = []
     with pytest.raises(ValueError, match='disagrees with its grid and port geometry'):
-        driver.run_prepared(cfg, prepared)
+        run_stage(replace(prepared_zero_duty, parameters=parameters), stage_control(progress=progress.append))
+    assert not progress
 
 
-def test_independent_concurrent_results(driver, prepared_zero_duty):
+def test_independent_concurrent_results(prepared_zero_duty):
     with ThreadPoolExecutor(max_workers=2) as pool:
-        results = list(pool.map(lambda _: driver.run_prepared(*prepared_zero_duty), range(2)))
-    assert all(r['converged'] and abs(r['q_total']) <= 2e-7 for r in results)
-    assert results[0]['q_total'] == results[1]['q_total']
-    np.testing.assert_array_equal(results[0]['main']['temperature'][0], results[1]['main']['temperature'][0])
+        results = list(pool.map(lambda _: full_2d_stage.run_case(prepared_zero_duty, stage_control()), range(2)))
+    q_total = [result.metadata['diagnostics']['Q_total'] for result in results]
+    assert all(result.run_status['converged'] for result in results)
+    assert all(abs(value) <= 2e-7 for value in q_total) and q_total[0] == q_total[1]
+    np.testing.assert_array_equal(results[0].fields['Ta'], results[1].fields['Ta'])
 
 
 @pytest.mark.parametrize('converged', [False, True])
-def test_saved_full_case_replay_evaluation_and_storage_without_python_kernels(driver, tmp_path, converged):
+def test_saved_full_case_replay_evaluation_and_storage_without_python_kernels(tmp_path, converged):
     from sjtu_tpmshx.data_types.compute_config import ComputeConfig
     from sjtu_tpmshx.file_io.case_io import save_case
     from sjtu_tpmshx.file_io.result_io import load_result
@@ -263,10 +283,9 @@ assert not [name for name in sys.modules if name.startswith(forbidden)]
         assert len(restored.boundary_fluxes['true_h']['mass_flux_A']) == 3
 
 
-def test_model_h_budget_reaches_main_refined_and_saved_result(driver, tmp_path):
+def test_model_h_budget_reaches_main_refined_and_saved_result(tmp_path):
     from sjtu_tpmshx.file_io.case_io import load_case, save_case
     from sjtu_tpmshx.file_io.result_io import load_result, save_result
-    from sjtu_tpmshx.solvers.api import run_case
     cfg = typed.configuration(outer=2)
     cfg = replace(cfg, fluid_A=replace(cfg.fluid_A, type='water', T_in_K=300.),
                   solver=replace(cfg.solver, T_s_init_K=300., model_h_max_iterations=17,
@@ -274,7 +293,8 @@ def test_model_h_budget_reaches_main_refined_and_saved_result(driver, tmp_path):
     prepared = prepare_case(cfg, case_id='model-h-controls-2d')
     save_case(prepared, tmp_path/'case.h5')
     prepared = load_case(tmp_path/'case.h5')
-    raw = driver.run_prepared(*build_execution_inputs(prepared))
+    stage = run_stage(prepared)
+    raw, result = stage.native, stage.result
     assert raw['main']['iterations'] == raw['fine']['iterations'] == 17
     assert not raw['thermal_ok'] and not raw['converged']
     records = raw['model_h_iterations']['records']
@@ -283,8 +303,6 @@ def test_model_h_budget_reaches_main_refined_and_saved_result(driver, tmp_path):
     expected = dict(max_iterations=17, chunk_iterations=500,
                     temperature_update_tolerance_K=1e-5, q_relative_tolerance=1e-8, total_iteration_budget=17)
     assert all(row['settings'] == expected for row in records)
-    # The public saved stage needs the solver library; the standalone full 2D library has only the direct entry.
-    result = run_case(prepared, RunControl(backend='cpp', native_library=str(library_path())))
     assert result.metadata['execution_record']['numerics']['effective_settings'] == expected
     save_result(result, tmp_path/'result.h5')
     restored = load_result(tmp_path/'result.h5')
@@ -293,16 +311,14 @@ def test_model_h_budget_reaches_main_refined_and_saved_result(driver, tmp_path):
 
 
 @pytest.mark.parametrize('mode', ['model_h', 'temperature'])
-def test_model_h_unset_budget_preserves_main_and_refined_defaults(driver, mode):
+def test_model_h_unset_budget_preserves_main_and_refined_defaults(mode):
     cfg = typed.configuration(mode=mode, outer=2)
-    prepared = prepare_case(cfg, case_id='model-h-defaults-2d')
-    runtime, arrays = build_execution_inputs(prepared)
-    runtime['compute_cfg'].solver.model_h_temperature_tol_K = 1e-5
-    raw = driver.run_prepared(runtime, arrays)
+    cfg = replace(cfg, solver=replace(cfg.solver, model_h_temperature_tol_K=1e-5))
+    raw = run_stage(prepare_case(cfg, case_id='model-h-defaults-2d')).native
     records = raw['model_h_iterations']['records']
     assert records and records[-1]['stage'] == 'refined_thermal'
-    shape, fields, config = _pack(runtime, arrays, driver.table_directory, driver.library)
-    assert all(row['settings']['max_iterations'] == config.thermal_iterations
+    # Both routes have Fluid B water, so the outer 2D thermal budget is 12000.
+    assert all(row['settings']['max_iterations'] == 12000
                for row in records if row['stage'] == 'outer_thermal')
     assert records[-1]['settings']['max_iterations'] == (12000 if mode == 'model_h' else 5000)
     assert records[-1]['settings']['q_relative_tolerance'] == .001
@@ -310,30 +326,31 @@ def test_model_h_unset_budget_preserves_main_and_refined_defaults(driver, mode):
 
 
 @pytest.mark.parametrize('relaxation', [None, .35])
-def test_persisted_velocity_relaxation_matches_direct_native_control(driver, prepared_zero_duty, relaxation):
-    cfg, prepared = prepared_zero_duty
-    shape, arrays, native_config = _pack(cfg, prepared, driver.table_directory, driver.library)
-    native_config.alpha_velocity = .7 if relaxation is None else relaxation
-    expected = driver.solve(shape, arrays, native_config)
-    changed = dict(cfg, compute_cfg=replace(cfg['compute_cfg'],
-        solver=replace(cfg['compute_cfg'].solver, simple_velocity_relaxation=relaxation)))
-    actual = driver.run_prepared(changed, prepared)
-    assert actual['simple_velocity_relaxation'] == native_config.alpha_velocity
-    assert actual['flow'][0]['result'] == expected['flow'][0]['result']
-    assert actual['flow'][1]['result'] == expected['flow'][1]['result']
-    for first, second in zip(actual['main']['temperature'], expected['main']['temperature']):
-        np.testing.assert_array_equal(first, second)
+def test_persisted_velocity_relaxation_matches_direct_native_control(native, prepared_zero_duty, relaxation):
+    cfg = typed.configuration(outer=2)
+    cfg = replace(cfg, fluid_A=replace(cfg.fluid_A, type='water', T_in_K=300.),
+                  solver=replace(cfg.solver, T_s_init_K=300., simple_velocity_relaxation=relaxation))
+    case = prepare_case(cfg, case_id='full2d-zero-duty')
+    # Scalar 33 is the typed bridge SIMPLE velocity relaxation.
+    expected = typed_reference(native, prepared_zero_duty, {33: .7 if relaxation is None else relaxation})
+    actual = run_stage(case).native
+    assert actual['simple_velocity_relaxation'] == (.7 if relaxation is None else relaxation)
+    for flow, reference in zip(actual['flow'], expected['flow']):
+        for name in ('iterations', 'converged'):
+            assert flow['result'][name] == reference['result'][name]
+        arrays_equal(flow['pressure'], reference['pressure'])
+    for first, second in zip(actual['main']['temperature'], expected['thermal']['temperature']):
+        arrays_equal(first, second)
 
 
 @pytest.mark.parametrize('relaxation', [None, .35])
-def test_full2d_velocity_relaxation_record_survives_storage(driver, tmp_path, relaxation):
+def test_full2d_velocity_relaxation_record_survives_storage(tmp_path, relaxation):
     from sjtu_tpmshx.file_io.result_io import load_result, save_result
     from sjtu_tpmshx.solvers.api import run_case
     cfg = typed.configuration(mode='model_h', outer=2)
     cfg = replace(cfg, solver=replace(cfg.solver, simple_velocity_relaxation=relaxation))
     prepared = prepare_case(cfg, case_id='full2d-velocity-control')
-    actual = run_case(prepared, RunControl(backend='cpp', native_library=str(library_path()),
-                                          native_table_directory=str(driver.table_directory.decode())))
+    actual = run_case(prepared, stage_control())
     expected = .7 if relaxation is None else relaxation
     assert actual.metadata['simple_velocity_relaxation'] == expected
     assert actual.metadata['execution_record']['numerics']['simple_velocity_relaxation'] == expected

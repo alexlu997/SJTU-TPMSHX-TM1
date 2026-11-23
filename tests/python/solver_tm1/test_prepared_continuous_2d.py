@@ -10,7 +10,8 @@ from sjtu_tpmshx.data_types.compute_config import (
 )
 from sjtu_tpmshx.data_types.portable_data import mutable_data
 from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
+from sjtu_tpmshx.solvers.api import run_case
+from tests.python.native.stage_interception import saved_2d_inputs, stage_control
 from tests.python.native.prepared_snapshot import native_prepared_state
 
 
@@ -52,7 +53,7 @@ def test_physical_cells_feed_full_local_drag_for_every_direction(monkeypatch, di
                      for cell, wall in zip(lrow, trow)] for lrow, trow in zip(L, t)])
     np.testing.assert_array_equal(case.design_fields['eps_arr'], eps)
     local_K, local_cF = predict_K_cF_vec('Gyroid', L, t, eps / 2.)
-    cfg, grid, state = native_prepared_state(case)
+    state = native_prepared_state(case)
     for index, (side, direction, factor) in enumerate(zip(
             ('A', 'B'), directions, (2.649010286988306, 4.198913430360186))):
         expected_K, expected_cF = ((v.T if direction < 2 else v) for v in (local_K, local_cF * factor))
@@ -108,7 +109,7 @@ def test_case_replay_and_local_water_thermal_inputs(monkeypatch, tmp_path):
     for name, values in case.design_fields.items():
         np.testing.assert_array_equal(restored.design_fields[name], values)
     monkeypatch.setattr(tpms_props, 'geometry', lambda *a, **k: pytest.fail('runtime rebuilt geometry'))
-    cfg, grid, state = native_prepared_state(replace(restored, config_snapshot={}))
+    state = native_prepared_state(replace(restored, config_snapshot={}))
     assert state['input.sides.0.fluid'][0] == 0
     assert state['input.sides.1.fluid'][0] == 1
     for side in (0, 1):
@@ -124,7 +125,7 @@ def test_case_replay_and_local_water_thermal_inputs(monkeypatch, tmp_path):
                            for axis in ('uc', 'vc')))
         Re = float(model.rho(temp, pressure)) * (speed + 1e-12) * geom['D_h'] / mu
         Nu = np.maximum(model.nu('Gyroid', np.maximum(Re, 1.), geom['epsilon']/2.,
-                        cfg['za']['L_field'], geom['D_h']*1e3,
+                        restored.design_fields['L_field_m']*1e3, geom['D_h']*1e3,
                         mu*cp/k if side == 'B' else None), NU_LAM_FLOOR)
         np.testing.assert_allclose(state[f'state.result.thermal.hv.{index}'].reshape(shape),
                                    geom['A_0']*Nu*k/geom['D_h'], rtol=1e-12)
@@ -139,8 +140,10 @@ def test_continuous_replay_requires_full_local_drag():
     case = prepare_case(_config(), case_id='missing-drag')
     parameters = mutable_data(case.parameters)
     del parameters['flow_inputs']['B']['K_field_m2']
+    progress = []
     with pytest.raises(ValueError, match='local flow B K_field_m2'):
-        build_execution_inputs(replace(case, parameters=parameters))
+        run_case(replace(case, parameters=parameters), stage_control(progress=progress.append))
+    assert not progress
 
 
 def test_replay_retains_continuous_calibration_transfer_policy(tmp_path):
@@ -149,11 +152,11 @@ def test_replay_retains_continuous_calibration_transfer_policy(tmp_path):
     config = replace(config, fluid_A=replace(config.fluid_A, u_mps=3.7))
     case = prepare_case(config, case_id='continuous-transfer-replay')
     save_case(case, tmp_path / 'case.yaml')
-    cfg, _ = build_execution_inputs(replace(load_case(tmp_path / 'case.yaml'), config_snapshot={}))
-    assert cfg['compute_cfg'].zones.enabled
-    assert cfg['compute_cfg'].zones.axis == 'continuous'
-    assert cfg['compute_cfg'].zones.config == config.zones.config
-    assert cfg['compute_cfg'].fluid_A.u_mps == 3.7
+    _, _, settings = saved_2d_inputs(replace(load_case(tmp_path / 'case.yaml'), config_snapshot={}))
+    assert settings['zones'].enabled
+    assert settings['zones'].axis == 'continuous'
+    assert settings['zones'].config == config.zones.config
+    assert settings['fluid_A'].u_mps == 3.7
     with pytest.raises(ValueError, match='experimental calibration unavailable'):
         prepare_case(replace(config, zones=ZoneInputConfig()), case_id='uniform-window-unchanged')
 
@@ -181,5 +184,7 @@ def test_continuous_replay_requires_canonical_spec(spec):
     case = prepare_case(_config(), case_id='invalid-continuous-spec')
     parameters = mutable_data(case.parameters)
     parameters['continuous_field'] = spec
+    progress = []
     with pytest.raises(ValueError, match='Continuous field config requires'):
-        build_execution_inputs(replace(case, parameters=parameters, config_snapshot={}))
+        run_case(replace(case, parameters=parameters, config_snapshot={}), stage_control(progress=progress.append))
+    assert not progress

@@ -17,12 +17,12 @@ from sjtu_tpmshx.data_types.compute_config import FluidConfig
 from sjtu_tpmshx.run_control.run_environment import run_environment
 from sjtu_tpmshx.physical_models.field_coordinates_3d import _port_rectangles
 from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
 from types import SimpleNamespace
 from tests.python.native.test_native_execution import _config
 from tests.python.native.simple_audit import mass_balance
 from tests.python.native.test_simple_3d import audit_momentum
 from tests.python.field_coordinates_reference import _solver_velocity_to_real, _solver_staggered_to_real
+from tests.python.native.kernel_inputs import full_3d_record
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -107,7 +107,7 @@ class NativeFull3D:
                     bool(cfg.get("track_momentum_residual", False)), bool(cfg.get("_native_rb_simple", np.prod(shape) >= 200000))]
         f[30:37] = [cfg.get("ltne_enthalpy_outer", 1500), cfg.get("ltne_enthalpy_nsweep", 25), 2, 5, 60,
                     cfg.get("T_s_init") is not None, cancel_at]
-        v[0:2] = [cfg["Lcell"]*1e-3, prepared["geometry"]["D_h"]]
+        v[0:2] = [cfg["L_cell_m"], prepared["geometry"]["D_h"]]
         for s, side in enumerate("AB"):
             axis = prepared["axes"][side]
             f[37+3*s:40+3*s] = [axis[k+"_real_axis"] for k in ("cross1", "stream", "cross2")]
@@ -166,7 +166,8 @@ def native():
     return NativeFull3D(path)
 
 
-def prepared(pair="air-air", *, directions=None, counts=None, mesh=None, **controls):
+def prepared_case(pair="air-air", *, directions=None, counts=None, mesh=None):
+    """Prepare the saved 3D case that the bridge and stage tests share."""
     cfg = _config(3, True)
     fluids = pair.split("-")
     def fluid(name, a):
@@ -236,9 +237,11 @@ def prepared(pair="air-air", *, directions=None, counts=None, mesh=None, **contr
         case = replace(case, grid=grid, parameters=params)
     else:
         case = prepare_case(cfg, case_id="native-full3d-"+pair)
-    c, p = build_execution_inputs(case)
-    c.update(controls)
-    return c, p
+    return case
+
+
+def prepared(pair="air-air", *, directions=None, counts=None, mesh=None, **controls):
+    return full_3d_record(prepared_case(pair, directions=directions, counts=counts, mesh=mesh), **controls)
 
 
 def flow_state(actual, side):
@@ -616,3 +619,18 @@ def test_outer_boundary_resume_rejects_invalid_state(native, corruption):
     result = native.run(cfg, p, resume_cut=1, invalid_resume=corruption)
     assert result["code"] == 1
     assert "continuation" in result["error"]
+
+
+@pytest.mark.parametrize("pair", ["air-sco2", "sco2-water"])
+def test_true_h_red_black_energy_keeps_qualified_state(native, pair):
+    """The saved stage keeps red-black energy off for true h; the kernel option keeps the state."""
+    cfg, p = prepared(pair, _native_rb_energy=False)
+    baseline = native.run(cfg, p)
+    audit_full(baseline, cfg, p)
+    cfg, p = prepared(pair, _native_rb_energy=True)
+    actual = native.run(cfg, p)
+    audit_full(actual, cfg, p)
+    assert actual[202][8] == baseline[202][8] == 2
+    np.testing.assert_array_equal(actual[202][2:6], baseline[202][2:6])
+    for field in range(3):
+        np.testing.assert_allclose(actual[field], baseline[field], rtol=0., atol=.01)

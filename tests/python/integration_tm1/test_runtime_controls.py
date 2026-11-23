@@ -26,13 +26,18 @@ def test_public_three_d_iteration_and_cancellation(monkeypatch, tmp_path):
     def report_outer(current, total):
         assert iterations[-1] == f'outer {current}/{total}'
         outer_iterations.append((current, total))
+    from tests.python.native.stage_interception import native_3d_arrays
+    detach, raw = result_capture._detach, []
+    def copied(native, shape, *args, **kwargs):
+        raw.append(native_3d_arrays(native, shape))
+        return detach(native, shape, *args, **kwargs)
     with monkeypatch.context() as capture_hook:
         capture_hook.setattr(result_capture, 'capture_result', checked_capture)
+        capture_hook.setattr(result_capture, '_detach', copied)
         result = run_case(case, RunControl(iteration=iterations.append, progress=progress.append,
                                           outer_iteration=report_outer))
-    from tests.python.test_native_run_adapter_3d import _run
-    direct = _run(case, stage=False)[0]
-    for side, flow in zip('AB', direct['flow']):
+    # The published fields equal the raw native real-axis arrays of the same run.
+    for side, flow in zip('AB', raw[0]['flow']):
         np.testing.assert_array_equal(result.fields['P_f' + side + '_display'], flow['pressure_real'])
         for axis, value in zip(('uc', 'vc', 'wc'), flow['velocity_real']):
             np.testing.assert_array_equal(result.fields[axis + side], value)
@@ -67,14 +72,12 @@ def test_three_d_callback_failure_stops_before_result_capture(monkeypatch, callb
 def test_two_d_residual_failure_preserves_original_exception(monkeypatch, error):
     """The full public solve propagates failures from the real SIMPLE callback."""
     from dataclasses import replace
-    from sjtu_tpmshx.cpp_interface.solver_library import full_2d_capture
     from sjtu_tpmshx.cpp_interface import full_2d_stage
     from tests.python.test_pipeline_2d_smoke import _shanghai_like_cfg
 
     def forbidden(*args, **kwargs):
         pytest.fail('result capture after residual callback failure')
 
-    monkeypatch.setattr(full_2d_capture, 'capture_result', forbidden)
     monkeypatch.setattr(full_2d_stage, 'capture_result', forbidden)
     config = _shanghai_like_cfg()
     config = replace(config, solver=replace(config.solver, Nx=4, Ny=4,

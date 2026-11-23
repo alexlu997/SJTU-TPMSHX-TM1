@@ -187,7 +187,6 @@ GUI 续算只读取一次检查点、案例和运行记录，将同一份输入�
 其标量捕获查询复用静态结果算术，并单独接收保存的应用层物性。
 现有原始结果继续拥有场、历史和数值账本。
 Python 二维运行通过所选库的完整保存输入接口使用同一原生生命周期。
-二维公开入口仅在所选库需要时导入直接运行驱动。
 调用者未指定收敛阈值时，保存态阶段使用原生默认值。
 `full_2d_stage.py` 借用保存的 CaseData，并绑定运行、快照及结果捕获。原生阶段校验流向网格、端口开度、设计场及模型引用。
 不重新准备保存算例；缺少范围记录、未捕获样本、均匀局部阻力和可选热几何分别保留。
@@ -203,7 +202,6 @@ Python 适配器读取保存设置和分区数据，省去对整份应用配置�
 不具备适用保存协议的归档库继续使用原接口。
 新协议缺符号或执行失败直接报错，不重新运行旧路线。
 `full_2d_stage.py` 组装二维 `FieldResult`，并保留原告警及应用物性检查顺序。
-保留的直接运行驱动通过 `solver_library/full_2d_capture.py` 提供结果场视图。
 安装的 C ABI 和`stages.hpp`供外部 C++ 程序调用。
 Quick Design 准备 v2 接受带类型的原始工况。
 `quick_design_prepare_v2.cpp` 负责完整数值顺序，包括几何、网格、入口物性和解析 D-F 压降分数。
@@ -468,8 +466,8 @@ true-h 仅在既有最终审计计算了全部相方程时保留台账。
 宿主将 case notices 与运行期 `nu-evidence` 警告记录合并为 `scope_notes`。
 这保留空字符串、嵌入 NUL 字符、回调记录、顺序和去重规则。
 独立 C++ 阶段继续使用自己的原生 scope notes。
-直接完整求解路径保留 `capture_applicability`。
-当前阶段的捕获失败直接报错，不选择该路径。
+测试将 `capture_applicability` 用作该记录的独立 Python 参考。
+当前阶段的捕获失败直接报错并停止运行。
 
 `postprocess.api.evaluate_applicability(result)` 无需 EOS 或求解器即可读取证据。
 它检查入口和最后一次局部关联式输入，包括施加下限前的 Re。
@@ -576,9 +574,7 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
 - `RunControl` 提供进度、取消及其他主机回调；准备态字典不能包含运行时回调。保存结果保留单位、坐标，以及最终流动和最后热状态的区别。
 - 旧 `pipelines.run_stack_3d` 入口和字典模板已退役。前处理与助手从所属模块导入；原 `stages_2d`、`stages_3d`、`_stage_common`、`solvers.envelope` 和 `solvers.roughness` 门面保持退役。不使用导入时别名或向后端注入函数。正式压力归约在后处理中使用记录的物理端口面。
 - `python/compute.py` 负责配置校验和统一的准备、求解、评估顺序，在阶段之间及后处理完成后检查取消。阶段耗时和警告写入返回的 `FieldResult` 元数据，结果身份及不可变数组存储不变。工作流返回 `CaseData`、`FieldResult` 和 `PerformanceResult`。总体进度由此工作流报告；`RunControl` 保留原始求解器进度、后端选择和主机回调。`applications/result_adapter.compute_result` 调用公共工作流及唯一应用结果映射器 `to_compute_result`。GUI、直接摘要 CLI 和验证工具使用该入口；文件 CLI 使用同一工作流和可移植结果。旧二维／三维映射只作为真实原生结果比较的冻结测试参考保留。
-- `python/solvers/backends/prepared_2d.py` 和 `prepared_3d.py` 为原生执行校验输入。调用方可请求可写设计副本，绑定通过相同检查借用不可变数组。`python/cpp_interface/full_2d_stage.py` 捕获原生可移植二维证据。数值驱动位于 C++。
-  `prepared_models.py` 负责共用的资源角色、流体、Nu 设置和拓扑检查。
-  各构建函数保留检查顺序及对应维度的网格、端口和设计校验。
+- 保存态原生阶段校验执行输入。Python 侧由 `full_2d_stage.saved_inputs`、`full_3d_stage.validate_saved_case` 和 `preparation_host.pack_saved_resources` 完成这些检查；`stage_run.cpp` 和 `stage_run_3d.cpp` 完成原生网格、端口、设计场、阻力和模型资源检查。绑定借用不可变的算例数组。Python 不保留其他执行输入构建函数。`python/cpp_interface/full_2d_stage.py` 捕获原生可移植二维证据。数值驱动位于 C++。
 - `applications/gui/ui/` 仅负责 PySide6 和 PyVista 展示。`ResultCache` 为已接受维度持有唯一已发布 `ComputeResult`。两维均发布独立的标量、元数据、诊断和警告容器，同时共享场数组。底栏、历史、诊断文本、场图和导出从该结果读取；发布完成后，显示耗时写入其元数据。失败或取消保留上次接受结果用于显示／导出，与当前草稿输入独立。画布工作台复用左侧几何／边界／求解控件。相位和三维 z 切片读取接受结果快照，草稿编辑不替换来源。图像导出遵循当前视图；CSV 保留摘要。三维 NPZ 保留完整物理 XYZ 显示温度（K）、两侧速度分量及模（m/s）、显示压力 `P_fA/P_fB`（Pa）、`L_mm/t_mm`（mm）和 `dx/dy/dz`（m）。旧 `vmag/P_kPa` 为 A 侧模和 kPa 压力别名。显示压力参考不变；完整原生热状态和通量属于 results.h5。`python/applications/gui/ui/typography.py` 为 Qt 使用系统无衬线字体，为 Matplotlib/VTK 保留出版字体，不捆绑字体或向低层导入 Qt。GUI 计算通过 `RunControl` 传递原生线程上限；优化保留独立进程／线程策略。桌面入口在开口内用均匀速度，开启局部密度热输运；端口／壁面细化通过网格方案选择。载入不同退役设置的预设／会话时报告转换并保存当前显式值；脚本设置另行管理。
 - `development/validation/` 和 `development/runs/` 是可执行研究与验证工具，不是替代生产实现。
 
@@ -860,7 +856,7 @@ FieldResult 包含原生场位置／单位、原通量和压力证据、执行�
 
 独立进程使用 case.yaml＋case.h5、results.h5、VTK 视图和 metrics.json。精确契约及模式限制见 `docs/contracts/three_module_v1/`。最小后处理有独立锁和真实导入／运行检查；完整环境不能证明最小安装。并行警告与控制状态属于各次调用。跨契约数组与可变输入分离并不可变。仅改元数据可复用完整连续不可变 bytes 缓冲区，但用独立数组头；新数组形状或 dtype 改变不影响原数组。会保留较大父缓冲区的切片会复制为紧凑存储。
 
-完整三维阶段绑定在释放原生结果前复制所需证据，再发布 FieldResult。流动审计数组按请求复制。历史解码器提供旧版库的结果字段。直接调用 `NativeFull3DDriver.run_prepared` 会得到完整、独立的返回。三个温度／显示字段对、两个报告／显示压力对，以及 true-h 热状态质量面别名共享不可变缓冲区，并使用独立数组头。热压力与最终流动压力仍是分开的状态；GUI 继续接收所需的可写副本。
+完整三维阶段绑定在释放原生结果前复制所需证据，再发布 FieldResult。流动审计数组按请求复制。三个温度／显示字段对、两个报告／显示压力对，以及 true-h 热状态质量面别名共享不可变缓冲区，并使用独立数组头。热压力与最终流动压力仍是分开的状态；GUI 继续接收所需的可写副本。
 
 <a id="native-3d-continuation"></a>
 

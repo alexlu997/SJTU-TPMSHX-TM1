@@ -207,7 +207,6 @@ Preparation evidence remains borrowed until result transfer or run release.
 Its scalar capture query reuses static result arithmetic and separate saved application properties.
 The existing raw result remains the owner of fields, histories and numerical ledgers.
 2D Python runs use the same native lifecycle through the selected library's complete saved-input interface.
-The public 2D entry imports the direct driver only for a library that needs it.
 Saved stages use the native convergence tolerances when the caller leaves them unset.
 `full_2d_stage.py` borrows saved CaseData and binds runs, snapshots, and result capture. The native stage validates flow grids, openings, design fields, and model references.
 It does not prepare saved cases again. Missing ranges, uncaptured samples, uniform local drag and optional thermal geometry stay distinct.
@@ -223,7 +222,6 @@ Earlier libraries and saved settings with legacy conversion rules still use thei
 Archived libraries without the applicable saved protocol retain their existing interfaces.
 Missing new-protocol symbols and execution failures are errors. They do not start another run through the old route.
 `full_2d_stage.py` assembles the 2D `FieldResult` and preserves warning and application-property check order.
-The retained direct driver supplies its field views through `solver_library/full_2d_capture.py`.
 The installed C ABI and `stages.hpp` support external C++ callers.
 Quick Design preparation v2 accepts typed raw operating points.
 `quick_design_prepare_v2.cpp` owns the complete numerical sequence, including geometry, grids, inlet properties and analytical D-F pressure fractions.
@@ -552,8 +550,8 @@ Missing records, empty sets, uncaptured rows and samples with no finite values r
 The host combines case notices and run `nu-evidence` warning records into `scope_notes`.
 This preserves empty strings, embedded NUL characters, callback records, order and duplicate removal.
 Independent C++ stages keep their native scope notes.
-The direct full-solve path retains `capture_applicability`.
-A capture failure in the current stage raises an error; it does not select that path.
+Tests use `capture_applicability` as an independent Python reference for this record.
+A capture failure in the current stage stops the run with an error.
 
 `postprocess.api.evaluate_applicability(result)` reads this evidence without
 an EOS or solver call. It checks the inlet and last local correlation inputs,
@@ -842,10 +840,10 @@ Temperature is not scaled. FullCC nonzero sources stay
   `applications/result_adapter.compute_result` calls this workflow and the sole application result mapper, `to_compute_result`.
   The GUI, direct-summary CLI and validation tools use this entry. The file CLI uses the same workflow and portable results.
   The previous 2D/3D mappings stay only as frozen test references for real native-result comparisons.
-- `python/solvers/backends/prepared_2d.py` and `prepared_3d.py` validate execution inputs for native execution.
-  `prepared_models.py` owns shared resource-role, fluid, Nu-setting and topology checks.
-  Each builder keeps its check order and dimension-specific grid, port and design validation.
-  Callers can request writable design copies; the binding borrows immutable arrays through the same checks.
+- The saved native stages validate the execution inputs. In Python, `full_2d_stage.saved_inputs`,
+  `full_3d_stage.validate_saved_case` and `preparation_host.pack_saved_resources` do these checks.
+  `stage_run.cpp` and `stage_run_3d.cpp` do the native grid, port, design, drag and model-resource checks.
+  The bindings borrow the immutable case arrays. Python has no other execution-input builder.
   `python/cpp_interface/full_2d_stage.py` captures portable native 2D evidence. Numerical drivers remain in C++.
 - `applications/gui/ui/` owns PySide6 and PyVista presentation only. `ResultCache` owns one published `ComputeResult` for the accepted dimension.
   Both dimensions publish separate scalar, metadata, diagnostic and warning containers while sharing field arrays.
@@ -1720,8 +1718,6 @@ a larger parent buffer are copied into compact storage.
 
 The full 3D stage binding copies the evidence before it releases the native
 owner and publishes FieldResult. It copies the flow audit arrays on request.
-The retained result decoder supplies fields from older libraries.
-`NativeFull3DDriver.run_prepared` returns complete detached data to direct callers.
 The three temperature/display pairs, two report/display pressure pairs and
 true-h thermal mass-face aliases share immutable buffers with separate array
 headers. Thermal pressure and final flow pressure remain separate states.

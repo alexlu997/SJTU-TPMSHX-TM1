@@ -25,6 +25,7 @@ from tests.python.native.test_quick_design_driver import prepared
 
 ROOT = Path(__file__).resolve().parents[3]
 quick_design_native = qd.quick_design_native
+temperature_driver = qd.temperature_driver
 
 
 @pytest.fixture(scope='module')
@@ -104,9 +105,11 @@ def compare_results(actual, raw, case):
 @pytest.mark.parametrize('mode', ['const', 'mean'])
 @pytest.mark.parametrize('pair,topology', [('air_water', 'Diamond'), ('water_air', 'Gyroid'),
                                          ('sco2_sco2', 'Diamond')])
-def test_public_fields_metrics_and_pass_contract(native_control, quick_design_native, arrangement, mode, pair, topology):
+def test_public_fields_metrics_and_pass_contract(native_control, quick_design_native, temperature_driver,
+                                                arrangement, mode, pair, topology):
     case = prepared(arrangement, mode, pair, topology)
-    raw = quick_design_native(case)
+    # One bridge run serves the independent pass audit and the public result comparison.
+    raw = qd.check_prepared(case, quick_design_native, temperature_driver)
     actual = run_case(case, native_control)
     compare_results(actual, raw, case)
 

@@ -1,4 +1,4 @@
-"""Public prepared-case handoff to the independent full native 3D driver."""
+"""Public prepared-case handoff to the saved full native 3D stage."""
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
@@ -20,6 +20,7 @@ from tests.python.native.test_native_execution import _config
 from tests.python.native.test_full_3d import ROOT
 from tests.python.native.full_result_audit import physical_gates
 from tests.python.native.shared_library import library_path
+from tests.python.native.stage_interception import run_stage
 
 
 @pytest.fixture(scope='module')
@@ -36,6 +37,24 @@ def case(pair='air-air', cap=30):
     cfg=replace(cfg,fluid_A=fluid(pair.split('-')[0],0),fluid_B=fluid(pair.split('-')[1],1),
                 solver=replace(cfg.solver,max_outer_ltne=cap))
     return prepare_case(cfg,case_id='full-native-'+pair)
+
+
+def saved_case(pair='air-air', *, prepared_values=(), environment=(), directions=None, counts=None, mesh=None,
+               **parameters):
+    """Return a prepared 3D case with changed saved parameters, environment and run limits."""
+    from sjtu_tpmshx.data_types.portable_data import mutable_data
+    from tests.python.native.test_full_3d import prepared_case
+    base = prepared_case(pair, directions=directions, counts=counts, mesh=mesh)
+    values = mutable_data(base.parameters)
+    values.update(parameters)
+    values['prepared'].update(prepared_values)
+    values['_environment'].update(environment)
+    return replace(base, parameters=values)
+
+
+def native_run(saved, *args, **kwargs):
+    """Return the raw native capture of one saved-stage run."""
+    return run_stage(saved, *args, **kwargs).native
 
 
 def control(path,**kwargs):
@@ -63,13 +82,9 @@ def compare(actual,expected,path=''):
 
 
 def test_bootstrap_trace_records_recursive_caps_without_changing_legacy_summary(native_path):
-    from sjtu_tpmshx.cpp_interface.solver_library.full_3d import NativeFull3DDriver
-    from tests.python.native.test_full_3d import prepared
-    cfg, p = prepared('air-air', counts=(26, 26, 26), use_coarse_bootstrap=True,
-                      coarse_bootstrap_max_iter=3, max_iter_simple=1)
-    p['max_outer'] = p['ltne_max_iter'] = 1
-    driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
-    actual = driver.run_prepared(cfg, p)
+    prepared = saved_case('air-air', counts=(26, 26, 26), use_coarse_bootstrap=True, coarse_bootstrap_max_iter=3,
+                          max_iter_simple=1, prepared_values=dict(max_outer=1, ltne_max_iter=1))
+    actual = native_run(prepared, control(native_path))
     for side, flow in zip('AB', actual['flow']):
         trace = actual['bootstrap_trace'][side]
         assert [row['depth'] for row in trace['levels']] == [1, 2]
@@ -81,23 +96,20 @@ def test_bootstrap_trace_records_recursive_caps_without_changing_legacy_summary(
 
 
 def test_native_deep_bootstrap_cancel_keeps_partial_trace_without_field_result(native_path):
-    from sjtu_tpmshx.cpp_interface.solver_library.full_3d import NativeFull3DDriver
-    from tests.python.native.test_full_3d import prepared
-    cfg, p = prepared('air-air', counts=(26, 26, 26), use_coarse_bootstrap=True,
-                      coarse_bootstrap_max_iter=7, max_iter_simple=1)
+    prepared = saved_case('air-air', counts=(26, 26, 26), use_coarse_bootstrap=True,
+                          coarse_bootstrap_max_iter=7, max_iter_simple=1)
     checkpoints = []
 
     def cancel():
         checkpoints.append(True)
-        # Host entry, native entry, deepest SIMPLE entry, first sweep,
-        # then cancel before its second sweep. No extra checkpoint is added.
-        return len(checkpoints) == 5
+        # run_case entry, saved-run entry, native entry, deepest SIMPLE entry,
+        # first sweep, then cancel before its second sweep. No extra checkpoint is added.
+        return len(checkpoints) == 6
 
-    driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
     with pytest.raises(CancelledError) as caught:
-        driver.run_prepared(cfg, p, control(native_path, cancel_check=cancel))
+        cpp_run(prepared, control(native_path, cancel_check=cancel))
     trace = caught.value.coarse_bootstrap_trace['A']
-    assert len(checkpoints) == 5
+    assert len(checkpoints) == 6
     assert trace['decision'] == 'cancelled'
     assert [row['solve_started'] for row in trace['levels']] == [False, True]
     assert [row['charged_iterations'] for row in trace['levels']] == [0, 1]
@@ -133,53 +145,53 @@ def test_public_bootstrap_trace_roundtrip_and_old_diagnostics_remain_readable(na
     compare(restored.run_status, old.run_status)
 
 
-@pytest.mark.parametrize('symbol,message', [
-    ('tpmshx_full_3d_get_bootstrap_trace_v1', 'lacks bootstrap trace v1; rebuild'),
-    ('tpmshx_full_3d_get_model_h_acceleration_v1', 'lacks model-h acceleration records; rebuild')])
-def test_full3d_library_missing_query_has_explicit_capability_error(native_path, monkeypatch, symbol, message):
-    from sjtu_tpmshx.cpp_interface.solver_library import full_3d
-    library = full_3d.ct.CDLL(str(native_path))
+@pytest.mark.parametrize('symbol', ['tpmshx_full_3d_get_bootstrap_trace_v1'])
+def test_full3d_library_missing_query_has_explicit_capability_error(native_path, monkeypatch, symbol):
+    from sjtu_tpmshx.cpp_interface import full_3d_stage
+    prepared = case(cap=2)
+    open_library = full_3d_stage.open_library
 
-    class PartialLibrary:
-        def __getattr__(self, name):
-            if name == symbol:
-                raise AttributeError(name)
-            return getattr(library, name)
+    def partial(*args):
+        path, library, abi, table = open_library(*args)
 
-    monkeypatch.setattr(full_3d.ct, 'CDLL', lambda path: PartialLibrary())
-    with pytest.raises(ValueError, match=message):
-        full_3d.NativeFull3DDriver(native_path)
+        class PartialLibrary:
+            def __getattr__(self, name):
+                if name == symbol:
+                    raise AttributeError(name)
+                return getattr(library, name)
+        return path, PartialLibrary(), abi, table
+
+    monkeypatch.setattr(full_3d_stage, 'open_library', partial)
+    progress = []
+    with pytest.raises(ValueError, match='lacks bootstrap trace v1; rebuild'):
+        cpp_run(prepared, control(native_path, progress=progress.append))
+    assert not progress
 
 
 def run_observed(prepared, native_path):
-    from sjtu_tpmshx.cpp_interface.solver_library.full_3d import NativeFull3DDriver
-    from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
-
-    controls = control(native_path)
-    actual = cpp_run(prepared, controls)
-    cfg, inputs = build_execution_inputs(prepared)
-    driver = NativeFull3DDriver(native_path, table_directory=controls.native_table_directory)
-    raw = driver.run_prepared(cfg, inputs, controls)
-    return actual, raw
+    stage = run_stage(prepared, control(native_path))
+    return stage.result, stage
 
 
-def check_portable(actual, raw, prepared):
+def check_portable(actual, stage, prepared):
+    """Compare the published result with the raw native capture of the same run."""
+    raw, arrays = stage.native, stage.arrays
     assert actual.backend_id == 'cpp' and actual.case_id == prepared.case_id
     compare(actual.grid, prepared.grid, 'grid')
     compare(actual.metadata['parameters'], prepared.parameters, 'parameters')
     compare(actual.metadata['design_fields'], prepared.design_fields, 'design')
     assert actual.run_status == dict(execution='completed', converged=raw['converged'], outer_index=raw['outer_index'])
-    for name, value in zip(('Ta', 'Tb', 'Ts'), raw['temperature']):
+    for name, value in zip(('Ta', 'Tb', 'Ts'), arrays['temperature']):
         np.testing.assert_array_equal(actual.fields[name], value)
         assert actual.field_metadata[name]['unit'] == 'K'
     from tests.python.native.result_reference.shared_math import pressure_face_values
     drops = []
     for side, name in enumerate('AB'):
-        flow = raw['flow'][side]
-        np.testing.assert_array_equal(actual.fields['P_thermal_'+name], raw['thermal_pressure'][side])
-        np.testing.assert_array_equal(actual.fields['P_report_'+name], flow['pressure_real'])
-        np.testing.assert_array_equal(actual.fields['h_v'+name], raw['hv'][side])
-        for key, value in zip(('uc', 'vc', 'wc'), flow['velocity_real']):
+        flow, real = raw['flow'][side], arrays['flow'][side]
+        np.testing.assert_array_equal(actual.fields['P_thermal_'+name], arrays['thermal_pressure'][side])
+        np.testing.assert_array_equal(actual.fields['P_report_'+name], real['pressure_real'])
+        np.testing.assert_array_equal(actual.fields['h_v'+name], arrays['hv'][side])
+        for key, value in zip(('uc', 'vc', 'wc'), real['velocity_real']):
             np.testing.assert_array_equal(actual.fields[key+name], value)
             assert actual.field_metadata[key+name]['unit'] == 'm/s'
         for kind in ('mass', 'face_velocity'):
@@ -208,7 +220,7 @@ def check_portable(actual, raw, prepared):
         direction = prepared.parameters['fluid_'+side+'_cfg']['dir']
         axis, end, sign = direction//2, (-1 if direction%2==0 else 0), (1 if direction%2==0 else -1)
         weights = np.maximum(sign*np.take(mass[axis],end,axis=axis),0.)
-        outlets.append(np.average(np.take(raw['temperature'][index],end,axis=axis),weights=weights))
+        outlets.append(np.average(np.take(arrays['temperature'][index],end,axis=axis),weights=weights))
     metrics = evaluate(actual).metrics
     expected = dict(Q=abs(duties[0]), Q_A=duties[0], Q_B=duties[1],
         dP_A=drops[0], dP_B=drops[1], T_out_A=outlets[0], T_out_B=outlets[1],
@@ -275,14 +287,16 @@ def test_capped_public_keeps_distinct_pressure_states(native_path):
     assert balance['post_after_last_thermal']
     assert np.max(np.abs(actual.fields['P_report_A']-actual.fields['P_thermal_A'])) > 1e-5
     for side, name in enumerate('AB'):
-        assert balance['P_'+name+'_offset_Pa'] == raw['outer'][-1]['pressure_reference'][side]
-        compare(balance['P_'+name+'_range_Pa'], raw['outer'][-1]['pressure_range'][side])
+        assert balance['P_'+name+'_offset_Pa'] == raw.native['outer'][-1]['pressure_reference'][side]
+        compare(balance['P_'+name+'_range_Pa'], raw.native['outer'][-1]['pressure_range'][side])
 
 
 def test_pre_cancelled_case_skips_preparation_and_library_load(tmp_path):
     prepared = case()
-    with patch('sjtu_tpmshx.solvers.backends.prepared_3d.build_execution_inputs',
-               side_effect=AssertionError('cancelled case prepared for execution')):
+    with patch('sjtu_tpmshx.cpp_interface.full_3d_stage.validate_saved_case',
+               side_effect=AssertionError('cancelled case prepared for execution')), \
+            patch('sjtu_tpmshx.cpp_interface.full_3d_stage.open_library',
+                  side_effect=AssertionError('cancelled case loaded a library')):
         with pytest.raises(CancelledError):
             cpp_run(prepared, control(tmp_path/'missing.dll', cancel_check=lambda: True))
 
@@ -296,22 +310,31 @@ def test_native_cancellation_never_returns_a_field_result(native_path,during):
     with pytest.raises(CancelledError):cpp_run(case(),control(native_path,cancel_check=cancel))
 
 
+def tracked_release(monkeypatch):
+    """Record the owner of each released saved 3D result after its release."""
+    from sjtu_tpmshx.cpp_interface import full_3d_stage
+    release, released = full_3d_stage.release_result, []
+
+    def tracked(library, result):
+        assert result.owner
+        release(library, result)
+        released.append(result.owner)
+
+    monkeypatch.setattr(full_3d_stage, 'release_result', tracked)
+    return released
+
+
 def test_interrupt_after_native_return_releases_owner(native_path, monkeypatch):
-    from sjtu_tpmshx.cpp_interface.solver_library.full_3d import NativeFull3DDriver
-    from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
-    driver = NativeFull3DDriver(native_path, table_directory=ROOT/'.cache/native-deps/tables')
-    call, release, released = driver.call, driver.release, []
-    def interrupted(*args):
-        assert call(*args) == 0
+    from sjtu_tpmshx.cpp_interface import full_3d_stage
+    released = tracked_release(monkeypatch)
+    require_completed = full_3d_stage.require_completed
+
+    def interrupted(result, traces):
+        require_completed(result, traces)
         raise KeyboardInterrupt('native-return')
-    def tracked(pointer):
-        assert pointer._obj.owner
-        release(pointer)
-        released.append(pointer._obj.owner)
-    monkeypatch.setattr(driver, 'call', interrupted)
-    monkeypatch.setattr(driver, 'release', tracked)
+    monkeypatch.setattr(full_3d_stage, 'require_completed', interrupted)
     with pytest.raises(KeyboardInterrupt, match='native-return'):
-        driver.run_prepared(*build_execution_inputs(case(cap=2)), control(native_path))
+        cpp_run(case(cap=2), control(native_path))
     assert released == [None]
 
 
@@ -415,8 +438,9 @@ def test_native_call_borrows_case_arrays_and_recovers(native_path, monkeypatch, 
 def test_opt_in_audit_exports_final_capped_state_and_nu_observations(native_path, pair):
     prepared = case(pair, 2)
     prepared = replace(prepared, parameters=dict(prepared.parameters, _emit_audit=True))
-    actual, raw = run_observed(prepared, native_path)
-    check_portable(actual, raw, prepared)
+    actual, stage = run_observed(prepared, native_path)
+    check_portable(actual, stage, prepared)
+    raw = stage.native
     diagnostics = actual.metadata['diagnostics']
     compare(diagnostics['sco2_nu_observations'], raw['nu_observations'])
     compare(diagnostics['envelope_reasons'], raw['envelope_reasons'])
@@ -574,43 +598,26 @@ def test_public_full3d_missing_library_never_falls_back(tmp_path, relative):
     ('air-air', 'temperature_cc', False), ('air-air', 'temperature_staggered', False),
 ])
 def test_application_capture_owns_shared_aliases_and_keeps_full_evidence(
-        native_path, monkeypatch, tmp_path, pair, route, audit):
+        native_path, tmp_path, pair, route, audit):
     from sjtu_tpmshx.file_io.result_io import load_result, save_result
-    from sjtu_tpmshx.cpp_interface.solver_library import full_3d
-    from sjtu_tpmshx.cpp_interface.solver_library.full_3d_capture import capture_result
-    from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
     prepared = case(pair, 2)
-    cfg, p = build_execution_inputs(prepared)
-    cfg.update(max_iter_simple=1, _emit_audit=audit, ltne_enthalpy_outer=2, ltne_enthalpy_nsweep=1)
-    cfg['_environment'] = dict(cfg.get('_environment', {}), TPMSHX_P_IN_SHOOT='0', TPMSHX_VAR_RHOCP=None)
-    p.update(max_outer=1, ltne_max_iter=1)
+    parameters = dict(prepared.parameters, max_iter_simple=1, _emit_audit=audit, ltne_enthalpy_outer=2,
+                      ltne_enthalpy_nsweep=1, prepared=dict(prepared.parameters['prepared'], max_outer=1, ltne_max_iter=1))
+    parameters['_environment'] = dict(parameters.get('_environment', {}), TPMSHX_P_IN_SHOOT='0', TPMSHX_VAR_RHOCP=None)
     if route in ('temperature_cc', 'temperature_staggered'):
-        cfg.update(variable_rho_cp=False, conservative_ltne=False,
-                   force_cc_ltne=route.endswith('_cc'))
+        parameters.update(variable_rho_cp=False, conservative_ltne=False, force_cc_ltne=route.endswith('_cc'))
     elif route in ('temperature_sou'):
-        cfg['enthalpy_algorithm'] = route
-    original = full_3d._detach
-    complete = []
-
-    def detach(*args, **kwargs):
-        complete.append(original(*args, **dict(kwargs, application_only=False)))
-        return original(*args, **kwargs)
-
-    monkeypatch.setattr(full_3d, '_detach', detach)
-    driver = full_3d.NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
-    raw = driver._run_prepared(cfg, p, application_only=True)
-    full, = complete
-    assert 'rho_cp' in full and 'rho_cp' not in raw
-    for actual, expected in zip(raw['flow'], full['flow']):
-        assert expected['d_u'].flags.writeable
-        assert 'd_u' not in actual and 'face_velocity_real' not in actual
+        parameters['enthalpy_algorithm'] = route
+    prepared = replace(prepared, parameters=parameters)
+    stage = run_stage(prepared, control(native_path))
+    raw, result = stage.native, stage.result
+    # The application capture detaches only the arrays that the result and its audit need.
+    assert 'rho_cp' not in raw and 'conductivity' not in raw and 'inlet_capacity' not in raw
+    for actual in raw['flow']:
+        assert 'd_u' not in actual and 'face_velocity_real' not in actual and 'local_mass' not in actual
         assert ('u' in actual) is audit
-    restored = dict(full, **raw)
-    restored['flow'] = [dict(f, **a) for f, a in zip(full['flow'], raw['flow'])]
-    result = capture_result(prepared, cfg, p, raw, driver.abi)
-    expected = capture_result(prepared, cfg, p, restored, driver.abi)
-    for key in ('fields', 'field_metadata', 'boundary_fluxes', 'pressure_evidence', 'run_status', 'metadata'):
-        compare(getattr(result, key), getattr(expected, key), key)
+    for name, value in zip(('Ta', 'Tb', 'Ts'), stage.arrays['temperature']):
+        np.testing.assert_array_equal(result.fields[name], value)
     aliases = [(result.fields[key], result.fields[key + '_display']) for key in ('Ta', 'Tb', 'Ts')]
     aliases += [(result.fields['P_report_' + side], result.fields['P_f' + side + '_display']) for side in 'AB']
     true_h = result.boundary_fluxes['true_h']
@@ -636,28 +643,17 @@ def test_application_capture_owns_shared_aliases_and_keeps_full_evidence(
 
 @pytest.mark.parametrize('failure', ['detach', 'query'])
 def test_application_failure_releases_native_owner(native_path, monkeypatch, failure):
-    from sjtu_tpmshx.cpp_interface.solver_library import full_3d
-    from tests.python.native.test_full_3d import prepared
-    driver = full_3d.NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
-    release, released = driver.release, []
-
-    def tracked(pointer):
-        assert pointer._obj.owner
-        release(pointer)
-        released.append(pointer._obj.owner)
+    from sjtu_tpmshx.cpp_interface import full_3d_stage
+    released = tracked_release(monkeypatch)
 
     def fail(*args, **kwargs):
         raise RuntimeError('capture failure')
 
-    monkeypatch.setattr(driver, 'release', tracked)
-    if failure == 'detach':
-        monkeypatch.setattr(full_3d, '_detach', fail)
-    else:
-        monkeypatch.setattr(driver, 'query_bootstrap', fail)
-    cfg, p = prepared('air-air', counts=(4, 4, 4), max_iter_simple=1)
-    p.update(max_outer=1, ltne_max_iter=1)
+    monkeypatch.setattr(full_3d_stage, '_detach' if failure == 'detach' else 'bootstrap_traces', fail)
+    prepared = saved_case('air-air', counts=(4, 4, 4), max_iter_simple=1,
+                          prepared_values=dict(max_outer=1, ltne_max_iter=1))
     with pytest.raises(RuntimeError, match='capture failure'):
-        driver._run_prepared(cfg, p, application_only=True)
+        cpp_run(prepared, control(native_path))
     assert released == [None]
 
 
@@ -700,14 +696,10 @@ def test_public_applicability_keeps_original_inlet_and_last_local_sources(native
 
 @pytest.mark.parametrize('seeded', [False, True])
 def test_first_thermal_sampling_distinguishes_inlet_and_seed(native_path, seeded):
-    from sjtu_tpmshx.cpp_interface.solver_library.full_3d import NativeFull3DDriver
-    from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
     prepared = case('sco2-water', 2)
-    prepared = replace(prepared, parameters=dict(prepared.parameters, T_s_init=350. if seeded else None))
-    cfg, data = build_execution_inputs(prepared)
-    data['max_outer'] = 1
-    driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
-    native = driver.run_prepared(cfg, data, control(native_path))
+    prepared = replace(prepared, parameters=dict(prepared.parameters, T_s_init=350. if seeded else None,
+                       prepared=dict(prepared.parameters['prepared'], max_outer=1)))
+    native = native_run(prepared, control(native_path))
     rows = native['property_sampling']
     sample = next(row for row in rows if row['side'] == 'A' and row['stage'] == 'thermal_hv'
                   and row['quantity'] == 'conductivity')
@@ -724,42 +716,37 @@ def test_first_thermal_sampling_distinguishes_inlet_and_seed(native_path, seeded
 @pytest.mark.parametrize('local_pressure', [False, True])
 def test_outer_transport_keeps_changed_temperature_and_pressure(native_path, directions, local_pressure):
     from sjtu_tpmshx.physical_models.fluid_props import get
-    from sjtu_tpmshx.cpp_interface.solver_library.full_3d import NativeFull3DDriver
-    from tests.python.native.test_full_3d import prepared
-
-    cfg, data = prepared('sco2-water', directions=directions, counts=(3, 4, 5), _emit_audit=True)
-    cfg['_environment']['TPMSHX_SCO2_COMPRESSIBLE'] = '1' if local_pressure else '0'
-    driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
-    data['max_outer'] = 1
-    previous = driver.run_prepared(cfg, data, control(native_path, cpu_threads=1))
-    data['max_outer'] = 2
-    current = driver.run_prepared(cfg, data, control(native_path, cpu_threads=1))
-    assert len(current['outer']) == 2 and current['post_after_last_thermal']
+    stages = []
+    for outer in (1, 2):
+        prepared = saved_case('sco2-water', directions=directions, counts=(3, 4, 5), _emit_audit=True,
+                              prepared_values=dict(max_outer=outer),
+                              environment=dict(TPMSHX_SCO2_COMPRESSIBLE='1' if local_pressure else '0'))
+        stages.append(run_stage(prepared, control(native_path, cpu_threads=1)))
+    previous, current = stages
+    cfg = prepared.parameters
+    assert len(current.native['outer']) == 2 and current.native['post_after_last_thermal']
     for side, label in enumerate('AB'):
-        temperature = current['temperature'][side]
-        assert np.max(np.abs(temperature - previous['temperature'][side])) > 1e-5
+        temperature = current.arrays['temperature'][side]
+        assert np.max(np.abs(temperature - previous.arrays['temperature'][side])) > 1e-5
         model = get(cfg['fluid_type_' + label])
         pressure = cfg['P_in' + label]
-        sampled_pressure = previous['flow'][side]['pressure_real'] if side == 0 and local_pressure else pressure
-        density = .6 * model.rho(temperature, sampled_pressure) + .4 * previous['flow'][side]['density_real']
-        np.testing.assert_allclose(current['flow'][side]['density_real'], density, rtol=2e-12, atol=1e-10)
-        conductivity = np.asarray(data['design']['eps_' + label]) * model.k(temperature, pressure)
-        np.testing.assert_allclose(current['final_conductivity'][side], conductivity, rtol=2e-12, atol=1e-12)
+        old = previous.arrays['flow'][side]
+        sampled_pressure = old['pressure_real'] if side == 0 and local_pressure else pressure
+        density = .6 * model.rho(temperature, sampled_pressure) + .4 * old['density_real']
+        np.testing.assert_allclose(current.arrays['flow'][side]['density_real'], density, rtol=2e-12, atol=1e-10)
+        conductivity = np.asarray(prepared.design_fields['eps_' + label]) * model.k(temperature, pressure)
+        np.testing.assert_allclose(current.native['final_conductivity'][side], conductivity, rtol=2e-12, atol=1e-12)
         capacity = (density if side == 0 else model.rho(temperature, pressure)) * model.cp(temperature, pressure)
-        np.testing.assert_allclose(current['final_rho_cp'][side], capacity, rtol=2e-12, atol=1e-8)
+        np.testing.assert_allclose(current.native['final_rho_cp'][side], capacity, rtol=2e-12, atol=1e-8)
 
 
 @pytest.mark.parametrize('pair', ['air-air', 'water-air'])
 def test_inactive_native_side_has_no_flow_or_exchange_sampling(native_path, pair):
-    from sjtu_tpmshx.cpp_interface.solver_library.full_3d import NativeFull3DDriver
-    from tests.python.native.test_full_3d import prepared
-    cfg, p = prepared(pair)
-    cfg['fluid_B_cfg'] = None
-    p['max_outer'] = 1
-    driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
-    result = driver.run_prepared(cfg, p)
+    prepared = saved_case(pair, fluid_B_cfg=None, prepared_values=dict(max_outer=1))
+    stage = run_stage(prepared, control(native_path))
+    result = stage.native
     assert result['flow'][1] is None
-    np.testing.assert_array_equal(result['temperature'][1], cfg['T_inB'])
+    np.testing.assert_array_equal(stage.arrays['temperature'][1], prepared.parameters['T_inB'])
     energy = next(row for row in result['property_sampling'] if row['quantity'] == 'energy_relation')
     assert energy['temperature'] == 'inlet' and energy['operation'] == 'frozen_capacity_temperature'
     assert not [row for row in result['property_sampling']
@@ -769,15 +756,11 @@ def test_inactive_native_side_has_no_flow_or_exchange_sampling(native_path, pair
 @pytest.mark.parametrize('nz,conservative,force_cc', [
     (1, False, True), (2, False, True), (2, False, False), (2, True, False)])
 def test_retired_single_sco2_rejected_before_numerical_work(native_path, nz, conservative, force_cc):
-    from sjtu_tpmshx.cpp_interface.solver_library.full_3d import NativeFull3DDriver
-    from tests.python.native.test_full_3d import prepared
-    cfg, p = prepared('sco2-water', counts=(3, 4, nz), directions=(0, 3),
-                      conservative_ltne=conservative, force_cc_ltne=force_cc)
-    cfg['fluid_B_cfg'] = None
+    prepared = saved_case('sco2-water', counts=(3, 4, nz), directions=(0, 3),
+                          conservative_ltne=conservative, force_cc_ltne=force_cc, fluid_B_cfg=None)
     entered = []
-    driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
     with pytest.raises(ValueError, match='single-A sCO2 execution is retired'):
-        driver.run_prepared(cfg, p, control(native_path, outer_iteration=lambda *args: entered.append(args)))
+        cpp_run(prepared, control(native_path, outer_iteration=lambda *args: entered.append(args)))
     assert not entered
 
 
@@ -819,13 +802,11 @@ def test_eos_route_rejects_model_h_override_before_native_work(native_path):
 
 @pytest.mark.parametrize('nz', [1, 4])
 def test_integral_temperature_delegate_receives_model_h_controls(native_path, nz):
-    from tests.python.native.test_full_3d import prepared
-    from sjtu_tpmshx.cpp_interface.solver_library.full_3d import NativeFull3DDriver
-    cfg, data = prepared('air-air', directions=(0, 3), counts=(4, 4, nz),
-                         conservative_ltne=False, force_cc_ltne=True)
-    cfg.update(model_h_max_iterations=17, model_h_temperature_tol_K=1e-5, model_h_q_relative_tol=1e-8)
-    data['max_outer'] = 2
-    raw = NativeFull3DDriver(native_path).run_prepared(cfg, data)
+    prepared = saved_case('air-air', directions=(0, 3), counts=(4, 4, nz),
+                          conservative_ltne=False, force_cc_ltne=True, model_h_max_iterations=17,
+                          model_h_temperature_tol_K=1e-5, model_h_q_relative_tol=1e-8,
+                          prepared_values=dict(max_outer=2))
+    raw = native_run(prepared, control(native_path))
     calls = raw['model_h_iterations']['records']
     assert len(calls) == 2
     assert all(row['settings']['max_iterations'] == 17
@@ -887,17 +868,15 @@ def test_native_checkpoint_hdf5_round_trip(native_path, tmp_path, pair, cut):
                                      'thermal', 'geometry', 'phase', 'nonfinite',
                                      'premature_finish', 'different_exit', 'thermal_mode'])
 def test_native_checkpoint_rejects_damaged_fields(native_path, damage):
-    from sjtu_tpmshx.cpp_interface.solver_library.full_3d import NativeFull3DDriver
-    from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
-    cfg, p = build_execution_inputs(case(cap=3))
-    driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
+    from sjtu_tpmshx.cpp_interface.full_3d_stage import run_case
+    prepared = case(cap=3)
     saved = {}
     def pause(state):
         if int(state['state.phase'][0]) in (1, 2) and int(state['state.result.outer.size'][0]) == (0 if damage == 'premature_finish' else 1):
             saved.update(state)
             raise _PauseCheckpoint
     with pytest.raises(_PauseCheckpoint):
-        driver.run_prepared(cfg, p, checkpoint=pause)
+        run_case(prepared, control(native_path), checkpoint=pause)
     if damage == 'build':
         saved['build'] = 'another-build'
     elif damage == 'format':
@@ -930,7 +909,7 @@ def test_native_checkpoint_rejects_damaged_fields(native_path, damage):
     else:
         del saved['state.temperature.0']
     with pytest.raises((ValueError, TypeError), match='state|continuation'):
-        driver.run_prepared(cfg, p, resume_state=saved)
+        run_case(prepared, control(native_path), resume_state=saved)
 
 
 _CHECKPOINT_CHILD = r'''
@@ -1069,21 +1048,19 @@ save_solver_checkpoint(previous, path)
                                   'conservative_staggered', 'nz1_cc'])
 @pytest.mark.parametrize('cut', [0, 1, 'final'])
 def test_checkpoint_covers_energy_routes(native_path, route, cut):
-    from sjtu_tpmshx.cpp_interface.solver_library.full_3d import NativeFull3DDriver
-    from tests.python.native.test_full_3d import prepared
     pair = 'sco2-water' if route.startswith('temperature') else 'air-air'
-    cfg, p = prepared(pair, counts=(4, 4, 1) if route == 'nz1_cc' else None,
-                      directions=(0, 3) if route == 'nz1_cc' else None)
-    p['max_outer'] = 3
+    options = {}
     if route.startswith('single'):
-        cfg.update(fluid_B_cfg=None, conservative_ltne=False, force_cc_ltne=route.endswith('_cc'))
+        options = dict(fluid_B_cfg=None, conservative_ltne=False, force_cc_ltne=route.endswith('_cc'))
     elif route in ('conservative_staggered', 'nz1_cc'):
-        cfg.update(variable_rho_cp=False, conservative_ltne=route == 'conservative_staggered',
-                   force_cc_ltne=route == 'nz1_cc')
+        options = dict(variable_rho_cp=False, conservative_ltne=route == 'conservative_staggered',
+                       force_cc_ltne=route == 'nz1_cc')
     else:
-        cfg['enthalpy_algorithm'] = route
-    driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
-    expected = driver.run_prepared(cfg, p)
+        options['enthalpy_algorithm'] = route
+    prepared = saved_case(pair, counts=(4, 4, 1) if route == 'nz1_cc' else None,
+                          directions=(0, 3) if route == 'nz1_cc' else None,
+                          prepared_values=dict(max_outer=3), **options)
+    expected = native_run(prepared, control(native_path))
     if cut == 'final':
         cut = len(expected['outer'])
     saved = {}
@@ -1092,8 +1069,8 @@ def test_checkpoint_covers_energy_routes(native_path, route, cut):
             saved.update(state)
             raise _PauseCheckpoint
     with pytest.raises(_PauseCheckpoint):
-        driver.run_prepared(cfg, p, checkpoint=pause)
-    actual = driver.run_prepared(cfg, p, resume_state=saved)
+        native_run(prepared, control(native_path), checkpoint=pause)
+    actual = native_run(prepared, control(native_path), resume_state=saved)
     assert actual.pop('continuation')['completed_outer_steps'] == cut
     _exact_resume_values(actual, expected)
 
@@ -1129,22 +1106,19 @@ def test_checkpoint_callback_error_keeps_original_exception(native_path):
 
 
 def test_full_checkpoint_keeps_active_pressure_hierarchies(native_path):
-    from sjtu_tpmshx.cpp_interface.solver_library.full_3d import NativeFull3DDriver
-    from tests.python.native.test_full_3d import prepared
-    cfg, p = prepared('air-air', counts=(14, 14, 14), max_iter_simple=3)
-    p.update(max_outer=2, ltne_max_iter=10)
-    driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
-    expected = driver.run_prepared(cfg, p)
+    prepared = saved_case('air-air', counts=(14, 14, 14), max_iter_simple=3,
+                          prepared_values=dict(max_outer=2, ltne_max_iter=10))
+    expected = native_run(prepared, control(native_path))
     saved = {}
     def pause(state):
         if int(state['state.phase'][0]) in (1, 2) and int(state['state.result.outer.size'][0]) == 1:
             saved.update(state)
             raise _PauseCheckpoint
     with pytest.raises(_PauseCheckpoint):
-        driver.run_prepared(cfg, p, checkpoint=pause)
+        native_run(prepared, control(native_path), checkpoint=pause)
     for side in (0, 1):
         assert saved[f'state.simple.{side}.value.pressure.construction.present'][0] == 1
-    actual = driver.run_prepared(cfg, p, resume_state=saved)
+    actual = native_run(prepared, control(native_path), resume_state=saved)
     actual.pop('continuation')
     _exact_resume_values(actual, expected)
 
@@ -1152,24 +1126,23 @@ def test_full_checkpoint_keeps_active_pressure_hierarchies(native_path):
 @pytest.mark.parametrize('name,value', [('model_h_max_iterations', 18),
     ('model_h_temperature_tol_K', 1e-4), ('model_h_q_relative_tol', 1e-7)])
 def test_checkpoint_rejects_changed_model_h_controls_before_flow(native_path, name, value):
-    from sjtu_tpmshx.cpp_interface.solver_library.full_3d import NativeFull3DDriver
-    from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
-    cfg, p = build_execution_inputs(case('water-air', cap=3))
-    cfg.update(model_h_max_iterations=17, model_h_temperature_tol_K=1e-5, model_h_q_relative_tol=1e-8)
-    driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
+    from sjtu_tpmshx.cpp_interface.full_3d_stage import run_case
+    controls = dict(model_h_max_iterations=17, model_h_temperature_tol_K=1e-5, model_h_q_relative_tol=1e-8)
+    prepared = case('water-air', cap=3)
+    prepared = replace(prepared, parameters=dict(prepared.parameters, **controls))
     saved = {}
     def pause(state):
         if int(state['state.phase'][0]) in (1, 2) and int(state['state.result.outer.size'][0]) == 1:
             saved.update(state)
             raise _PauseCheckpoint
     with pytest.raises(_PauseCheckpoint):
-        driver.run_prepared(cfg, p, checkpoint=pause)
+        run_case(prepared, control(native_path), checkpoint=pause)
     assert saved['control.model_h_iterations.max_iterations'][0] == 17
     assert saved['state.result.outer.0.model_h_iterations.0.total_iteration_budget'][0] == 17
-    cfg[name] = value
+    changed = replace(prepared, parameters=dict(prepared.parameters, **{name: value}))
     progress = []
     with pytest.raises(ValueError, match='model_h_iterations'):
-        driver.run_prepared(cfg, p, control(native_path, residual=lambda *args: progress.append(args)), resume_state=saved)
+        run_case(changed, control(native_path, residual=lambda *args: progress.append(args)), resume_state=saved)
     assert not progress
 
 
@@ -1193,51 +1166,49 @@ def test_prepared_velocity_relaxation_is_executed_and_saved(native_path, tmp_pat
 
 
 def test_checkpoint_rejects_changed_velocity_relaxation(native_path):
-    from sjtu_tpmshx.cpp_interface.solver_library.full_3d import NativeFull3DDriver
-    from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
-    cfg, p = build_execution_inputs(case(cap=3))
-    cfg['simple_velocity_relaxation'] = .35
-    driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
+    from sjtu_tpmshx.cpp_interface.full_3d_stage import run_case
+    prepared = case(cap=3)
+    prepared = replace(prepared, parameters=dict(prepared.parameters, simple_velocity_relaxation=.35))
     saved = {}
     def pause(state):
         if int(state['state.phase'][0]) in (1, 2) and int(state['state.result.outer.size'][0]) == 1:
             saved.update(state)
             raise _PauseCheckpoint
     with pytest.raises(_PauseCheckpoint):
-        driver.run_prepared(cfg, p, checkpoint=pause)
-    cfg['simple_velocity_relaxation'] = .4
+        run_case(prepared, control(native_path), checkpoint=pause)
+    changed = replace(prepared, parameters=dict(prepared.parameters, simple_velocity_relaxation=.4))
     entered = []
     with pytest.raises(ValueError, match='state|continuation'):
-        driver.run_prepared(cfg, p, control(native_path, outer_iteration=lambda *args: entered.append(args)),
-                            resume_state=saved)
+        run_case(changed, control(native_path, outer_iteration=lambda *args: entered.append(args)),
+                 resume_state=saved)
     assert not entered
 
 
 def _inner_prepared(route):
-    from tests.python.native.test_full_3d import prepared
+    """Return the saved case of one inner-checkpoint thermal route."""
     eos = route in ('true_h', 'true_h_cc', 'temperature_sou')
     pair = 'sco2-water' if eos else 'water-water' if route == 'strict_water' else 'air-air'
-    cfg, p = prepared(pair,
-                      counts=(3, 4, 1) if route == 'nz1_cc' else (3, 4, 2),
-                      directions=(0, 3) if route == 'nz1_cc' else None,
-                      max_iter_simple=40)
-    p.update(max_outer=2, ltne_max_iter=800)
+    options = dict(max_iter_simple=40)
+    counts = (3, 4, 1) if route == 'nz1_cc' else (3, 4, 2)
     if route in ('model_h_accelerated', 'strict_water'):
-        cfg['port_wall_refine'] = True
+        options['port_wall_refine'] = True
     elif route in ('temperature_cc', 'nz1_cc'):
-        cfg.update(variable_rho_cp=False, conservative_ltne=False, force_cc_ltne=True)
+        options.update(variable_rho_cp=False, conservative_ltne=False, force_cc_ltne=True)
     elif route in ('staggered', 'staggered_conservative', 'staggered_rb'):
-        cfg.update(variable_rho_cp=False, conservative_ltne=route != 'staggered',
-                   force_cc_ltne=False, _native_rb_energy=route == 'staggered_rb')
+        options.update(variable_rho_cp=False, conservative_ltne=route != 'staggered', force_cc_ltne=False)
+        if route == 'staggered_rb':
+            # The native stage selects red-black energy above 30000 cells.
+            counts = (32, 32, 30)
     elif route.startswith('single'):
-        cfg.update(fluid_B_cfg=None, conservative_ltne=False, force_cc_ltne=True)
+        options.update(fluid_B_cfg=None, conservative_ltne=False, force_cc_ltne=True)
     if eos:
-        cfg.update(ltne_enthalpy_outer=12, ltne_enthalpy_nsweep=3)
+        options.update(ltne_enthalpy_outer=12, ltne_enthalpy_nsweep=3)
     if route.startswith('temperature_') and eos:
-        cfg['enthalpy_algorithm'] = route
+        options['enthalpy_algorithm'] = route
     if route == 'true_h_cc':
-        cfg['conservative_ltne'] = False
-    return cfg, p
+        options['conservative_ltne'] = False
+    return saved_case(pair, counts=counts, directions=(0, 3) if route == 'nz1_cc' else None,
+                      prepared_values=dict(max_outer=2, ltne_max_iter=800), **options)
 
 
 def _inner_position(state):
@@ -1259,10 +1230,8 @@ def _inner_position(state):
     'true_h', 'true_h_cc', 'temperature_sou'])
 @pytest.mark.parametrize('after_update', [False, True])
 def test_inner_thermal_checkpoint_keeps_complete_result(native_path, route, after_update):
-    from sjtu_tpmshx.cpp_interface.solver_library.full_3d import NativeFull3DDriver
-    cfg, p = _inner_prepared(route)
-    driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
-    expected = driver.run_prepared(cfg, p)
+    prepared = _inner_prepared(route)
+    expected = native_run(prepared, control(native_path))
     saved = {}
     def pause(state):
         if state['state.phase'][0] != 8:
@@ -1275,28 +1244,24 @@ def test_inner_thermal_checkpoint_keeps_complete_result(native_path, route, afte
         saved.update(state)
         raise _PauseCheckpoint
     with pytest.raises(_PauseCheckpoint):
-        driver.run_prepared(cfg, p, checkpoint=pause)
+        native_run(prepared, control(native_path), checkpoint=pause)
     assert saved['format'][0] == 2
     owner, position = _inner_position(saved)
     assert bool(position) == after_update
-    actual = driver.run_prepared(cfg, p, resume_state=saved)
+    actual = native_run(prepared, control(native_path), resume_state=saved)
     actual.pop('continuation')
     _exact_resume_values(actual, expected)
 
 
-@pytest.mark.parametrize('nz,conservative,red_black', [
-    (1, False, False), (2, False, False), (2, True, False), (2, True, True)])
+# The native stage never selects red-black energy for true h; test_full_3d checks that kernel option.
+@pytest.mark.parametrize('nz,conservative', [(1, False), (2, False), (2, True)])
 @pytest.mark.parametrize('cut_outer', [0, 1])
-def test_true_h_preparation_hands_unchanged_fields_to_eos_checkpoint(
-        native_path, nz, conservative, red_black, cut_outer):
-    from sjtu_tpmshx.cpp_interface.solver_library.full_3d import NativeFull3DDriver
-    from tests.python.native.test_full_3d import prepared
-    cfg, p = prepared('sco2-water', counts=(3, 4, nz), directions=(0, 3),
-                      max_iter_simple=40, conservative_ltne=conservative, force_cc_ltne=True,
-                      _native_rb_energy=red_black, ltne_enthalpy_outer=12, ltne_enthalpy_nsweep=3)
-    p.update(max_outer=2, ltne_max_iter=800)
-    driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
-    expected = driver.run_prepared(cfg, p)
+def test_true_h_preparation_hands_unchanged_fields_to_eos_checkpoint(native_path, nz, conservative, cut_outer):
+    prepared = saved_case('sco2-water', counts=(3, 4, nz), directions=(0, 3),
+                          max_iter_simple=40, conservative_ltne=conservative, force_cc_ltne=True,
+                          ltne_enthalpy_outer=12, ltne_enthalpy_nsweep=3,
+                          prepared_values=dict(max_outer=2, ltne_max_iter=800))
+    expected = native_run(prepared, control(native_path))
     saved = {}
     def pause(state):
         if state['state.phase'][0] != 8:
@@ -1307,7 +1272,7 @@ def test_true_h_preparation_hands_unchanged_fields_to_eos_checkpoint(
             saved.update(state)
             raise _PauseCheckpoint
     with pytest.raises(_PauseCheckpoint):
-        driver.run_prepared(cfg, p, checkpoint=pause)
+        native_run(prepared, control(native_path), checkpoint=pause)
     assert saved['state.thermal.value.budget'][0] == 0
     for field in range(3):
         np.testing.assert_array_equal(saved[f'state.temperature.{field}'],
@@ -1320,29 +1285,27 @@ def test_true_h_preparation_hands_unchanged_fields_to_eos_checkpoint(
         for axis in range(3):
             mass = saved[evidence+f'mass.{side}.{axis}']
             assert mass.size and np.isfinite(mass).all()
-    actual = driver.run_prepared(cfg, p, resume_state=saved)
+    actual = native_run(prepared, control(native_path), resume_state=saved)
     actual.pop('continuation')
     _exact_resume_values(actual, expected)
     saved['state.thermal.value.budget'][0] = 2
     with pytest.raises(ValueError, match='continuation thermal budget'):
-        driver.run_prepared(cfg, p, resume_state=saved)
+        native_run(prepared, control(native_path), resume_state=saved)
 
 
 @pytest.mark.parametrize('phase', [6, 7, 9, 10])
 @pytest.mark.parametrize('iteration', [0, 1, 7])
 def test_inner_flow_checkpoint_keeps_complete_result(native_path, phase, iteration):
-    from sjtu_tpmshx.cpp_interface.solver_library.full_3d import NativeFull3DDriver
-    cfg, p = _inner_prepared('model_h_accelerated')
-    driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
-    expected = driver.run_prepared(cfg, p)
+    prepared = _inner_prepared('model_h_accelerated')
+    expected = native_run(prepared, control(native_path))
     saved = {}
     def pause(state):
         if state['state.phase'][0] == phase and state['state.flow_iteration.value.iterations'][0] == iteration:
             saved.update(state)
             raise _PauseCheckpoint
     with pytest.raises(_PauseCheckpoint):
-        driver.run_prepared(cfg, p, checkpoint=pause)
-    actual = driver.run_prepared(cfg, p, resume_state=saved)
+        native_run(prepared, control(native_path), checkpoint=pause)
+    actual = native_run(prepared, control(native_path), resume_state=saved)
     actual.pop('continuation')
     _exact_resume_values(actual, expected)
 
@@ -1352,9 +1315,7 @@ def test_inner_flow_checkpoint_keeps_complete_result(native_path, phase, iterati
                                     'shared_field', 'iteration', 'thermal_input', 'record_budget', 'initial_value',
                                     'acceleration', 'acceleration_sweeps', 'acceleration_history', 'sweep_block'])
 def test_inner_checkpoint_rejects_damaged_iteration(native_path, damage):
-    from sjtu_tpmshx.cpp_interface.solver_library.full_3d import NativeFull3DDriver
-    cfg, p = _inner_prepared('model_h_accelerated')
-    driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
+    prepared = _inner_prepared('model_h_accelerated')
     saved = {}
     def pause(state):
         if damage.startswith('flow'):
@@ -1365,7 +1326,7 @@ def test_inner_checkpoint_rejects_damaged_iteration(native_path, damage):
             saved.update(state)
             raise _PauseCheckpoint
     with pytest.raises(_PauseCheckpoint):
-        driver.run_prepared(cfg, p, checkpoint=pause)
+        native_run(prepared, control(native_path), checkpoint=pause)
     if damage == 'flow_budget':
         saved['state.flow_iteration.value.iterations'][0] = 40
     elif damage == 'flow_monitor':
@@ -1398,14 +1359,12 @@ def test_inner_checkpoint_rejects_damaged_iteration(native_path, damage):
     else:
         saved['state.thermal.value.evidence.hv.0'][0] += 1.
     with pytest.raises(ValueError, match='state|continuation|SIMPLE|model-h|chunk|monitor'):
-        driver.run_prepared(cfg, p, resume_state=saved)
+        native_run(prepared, control(native_path), resume_state=saved)
 
 
 @pytest.mark.parametrize('phase', [6, 8, 9])
 def test_inner_cancel_retains_previous_boundary(native_path, phase):
-    from sjtu_tpmshx.cpp_interface.solver_library.full_3d import NativeFull3DDriver
-    cfg, p = _inner_prepared('model_h')
-    driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
+    prepared = _inner_prepared('model_h')
     saved = []
     cancel = False
     def checkpoint(state):
@@ -1414,11 +1373,11 @@ def test_inner_cancel_retains_previous_boundary(native_path, phase):
         cancel = state['state.phase'][0] == phase and (
             _inner_position(state)[1] > 0 if phase == 8 else state['state.flow_iteration.value.iterations'][0] >= 2)
     with pytest.raises(CancelledError):
-        driver.run_prepared(cfg, p, control(native_path, cancel_check=lambda: cancel), checkpoint=checkpoint)
+        native_run(prepared, control(native_path, cancel_check=lambda: cancel), checkpoint=checkpoint)
     assert saved[-1]['state.phase'][0] == phase
-    actual = driver.run_prepared(cfg, p, resume_state=saved[-1])
+    actual = native_run(prepared, control(native_path), resume_state=saved[-1])
     actual.pop('continuation')
-    _exact_resume_values(actual, driver.run_prepared(cfg, p))
+    _exact_resume_values(actual, native_run(prepared, control(native_path)))
 
 
 _INNER_CHECKPOINT_CHILD = r'''
@@ -1496,14 +1455,10 @@ def test_inner_checkpoint_continues_after_process_exit(native_path, tmp_path, ta
 
 @pytest.mark.parametrize('rejected', [1, 3, 7])
 def test_inner_checkpoint_retains_water_startup_retry_budget(native_path, rejected):
-    from sjtu_tpmshx.cpp_interface.solver_library.full_3d import NativeFull3DDriver
-    from tests.python.native.test_full_3d import prepared
-    cfg, p = prepared('water-air', counts=(3, 4, 2), max_iter_simple=40)
-    p.update(max_outer=1, ltne_max_iter=800)
     # A physical source forces the unchanged water gate to shorten startup.
-    cfg['mms_S_A_field'] = np.full((p['Nx'], p['Ny'], p['Nz']), 1e9)
-    driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
-    expected = driver.run_prepared(cfg, p)
+    prepared = saved_case('water-air', counts=(3, 4, 2), max_iter_simple=40,
+                          mms_S_A_field=np.full((3, 4, 2), 1e9), prepared_values=dict(max_outer=1, ltne_max_iter=800))
+    expected = native_run(prepared, control(native_path))
     startup = expected['outer'][0]['coupling_startup']
     assert [row['iterations'] for row in startup['rejected_attempts']] == [250, 125, 62, 31, 15, 7, 3]
     assert startup['total_iterations'] == 494
@@ -1513,11 +1468,11 @@ def test_inner_checkpoint_retains_water_startup_retry_budget(native_path, reject
             saved.update(state)
             raise _PauseCheckpoint
     with pytest.raises(_PauseCheckpoint):
-        driver.run_prepared(cfg, p, checkpoint=pause)
+        native_run(prepared, control(native_path), checkpoint=pause)
     charged = sum(saved['state.thermal.value.record.rejected_startup_iterations'])
     assert saved['state.thermal.value.remaining'][0] == 800-charged
     assert _inner_position(saved)[1] == 0
-    actual = driver.run_prepared(cfg, p, resume_state=saved)
+    actual = native_run(prepared, control(native_path), resume_state=saved)
     actual.pop('continuation')
     _exact_resume_values(actual, expected)
 
@@ -1575,7 +1530,7 @@ def test_co2_pt_state_continues_after_process_exit(native_path, tmp_path, dimens
     ((1, 5, 1), 0, 'invalid'), ((1, 5, 16), 1, 'query failed')])
 def test_native_acceleration_records_validate_returned_values(policy, code, error):
     import ctypes as ct
-    from sjtu_tpmshx.cpp_interface.solver_library.full_3d import _Result
+    from sjtu_tpmshx.cpp_interface.solver_library._full_3d_abi import _Result
     from sjtu_tpmshx.cpp_interface.solver_library.model_h import (
         _Acceleration, _IterationRecord, _IterationRecords, _copy_iteration_records)
 

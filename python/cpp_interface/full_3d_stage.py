@@ -13,7 +13,6 @@ from sjtu_tpmshx.data_types.compute_config import (
 from sjtu_tpmshx.data_types.persistence_validation import (
     grid_axes, validate_axis_permutation, validate_grid, validate_thermal_geometry,
 )
-from sjtu_tpmshx.physical_models.field_coordinates_3d import _port_rectangles
 from sjtu_tpmshx.run_control.cancellation import CancelledError
 from sjtu_tpmshx.run_control.run_environment import require_f2_mode, run_environment
 from sjtu_tpmshx.run_control.run_warnings import current_warnings, merge_warnings
@@ -37,7 +36,6 @@ from .solver_library._stage_capture_abi import (
     _full_enthalpy_info,
     _volume_info,
 )
-from .solver_library.closure_evidence import copy_nu_observation, copy_range_observations
 from .solver_library._thermal_abi import (
     _EnergyOptions,
     _FullEnergyEffectiveSettings,
@@ -46,7 +44,6 @@ from .solver_library._thermal_abi import (
     _full_enthalpy_defaults,
     _iteration_options,
 )
-from .solver_library.simple_3d import _STOPS
 from .preparation_host import borrow_ranges as _ranges
 from ._native_values import TOPOLOGIES, GridPort, grid_count, borrow_array as _array, borrow_text as _text, iteration_count
 from .run_state import NativeRun
@@ -218,7 +215,7 @@ def validate_saved_case(case, checked_shape=None):
     return shape, cell_mm, wall_mm, nu
 
 
-def pack_input(cfg, prepared, grid, design, shape, cell_mm, nu, keepalive, *, saved_v3=False, mesh=None):
+def pack_input(cfg, prepared, grid, design, shape, cell_mm, nu, keepalive, *, mesh=None):
     """Borrow contiguous arrays. Convert only when the full solver layout requires it."""
     def view(value, expected=None):
         value = np.asarray(value, dtype=np.float64)
@@ -250,9 +247,9 @@ def pack_input(cfg, prepared, grid, design, shape, cell_mm, nu, keepalive, *, sa
         a.fluid = ('air', 'water', 'sco2', 'co2').index(cfg['fluid_type_'+label]);a.direction = 3 if bc is None else bc['dir']
         a.solver_axes[:] = [axis[key+'_real_axis'] for key in ('cross1', 'stream', 'cross2')]
         a.inlet_temperature, a.inlet_pressure, a.inlet_velocity = cfg['T_in'+label], cfg['P_in'+label], cfg['u_'+label]
-        if not saved_v3 or bc is None:
-            rectangles = _port_rectangles(bc, float(sum(axis['dcross2']))) if bc is not None else dict(inlet_rect=(0.,1.,0.,1.),outlet_rect=(0.,1.,0.,1.))
-            a.inlet_rectangle[:], a.outlet_rectangle[:] = rectangles['inlet_rect'], rectangles['outlet_rect']
+        # The saved v3 stage builds the port rectangles of an active side from its saved axis record.
+        if bc is None:
+            a.inlet_rectangle[:] = a.outlet_rectangle[:] = (0., 1., 0., 1.)
         a.inlet_opening, a.outlet_opening = (view(prepared['openings'][label][end]) for end in ('inlet', 'outlet'))
         correction = (cfg.get('df_application') or {}).get(label, {})
         a.permeability_scale, a.forchheimer_scale = correction.get('scale_K', 1.), correction.get('scale_F', 1.)
@@ -560,17 +557,17 @@ def make_callbacks(control):
     return callbacks, callback_errors
 
 
-def add_energy_evidence(detached, extra, settings, entry_version, shape, *, version_query=None, version=None):
+def add_energy_evidence(detached, extra, settings, entry_version, shape, *, version):
     if detached['true_h'] is None or extra.outer_count != len(detached['outer']):
         raise RuntimeError('native full 3D energy evidence does not match the thermal history')
     _energy_result_info(detached['true_h'], extra.energy,
         temperature_tol=settings.last.temperature_update_tolerance, abi=entry_version,
-        version_query=version_query, version=version, state_update='per_side_energy_relation')
+        version=version, state_update='per_side_energy_relation')
     _energy_native_state(detached['true_h'], extra, shape, 'W')
     for index, row in enumerate(detached['outer']):
         _energy_result_info(row['true_h_info'], extra.outer[index],
             temperature_tol=settings.outer[index].temperature_update_tolerance, abi=entry_version,
-            version_query=version_query, version=version, state_update='per_side_energy_relation')
+            version=version, state_update='per_side_energy_relation')
     detached['mode'] = 'conservative_energy'
 
 
@@ -607,23 +604,15 @@ def add_saved_evidence(detached, case, evidence, records, shape, report):
     return warnings
 
 
-def _detach(r, shape, settings, energy_settings, entry_version, *, emit_audit=False, application_only=False, capture_scalars=None, stage_fields=None, records=None, report=None):
+def _detach(r, shape, settings, energy_settings, entry_version, *, emit_audit, capture_scalars, stage_fields,
+            records, report):
+    """Copy the raw result arrays that the application capture and its audit need."""
     result = {name: getattr(r, name) if name == 'stop' else bool(getattr(r, name)) for name in _FLAGS}
     result.update({name: list(getattr(r, name)) for name in _PAIRS})
     result.update({name: getattr(r, name) for name in ('energy_imbalance', 'interior_duty', 'interior_imbalance', 'enthalpy_imbalance')})
     result['mode'], result['outer_index'] = ('temperature', 'model_h', 'true_h')[r.thermal_mode], r.thermal_outer_index
-    if stage_fields is None:
-        result['temperature'] = tuple(_copy(value, shape) for value in r.temperature)
-    else:
-        result['stage_fields'] = stage_fields
-    for key in ('thermal_pressure', 'hv', 'rho_cp', 'conductivity', 'enthalpy'):
-        if stage_fields is not None and key in ('thermal_pressure', 'hv'):
-            continue
-        if application_only and key in ('rho_cp', 'conductivity'):
-            continue
-        result[key] = tuple(_copy(value, shape) for value in getattr(r, key))
-    if not application_only:
-        result['inlet_capacity'] = tuple(_copy(value) for value in r.inlet_capacity)
+    result['stage_fields'] = stage_fields
+    result['enthalpy'] = tuple(_copy(value, shape) for value in r.enthalpy)
     face_shapes = tuple(tuple(n+int(d==axis) for d,n in enumerate(shape)) for axis in range(3))
     for key in ('mass', 'face_velocity'):
         result[key] = tuple(tuple(_copy(value, sh) for value,sh in zip(side,face_shapes)) for side in getattr(r,key))
@@ -643,26 +632,14 @@ def _detach(r, shape, settings, energy_settings, entry_version, *, emit_audit=Fa
         sizes['outlet_u_fraction'], sizes['outlet_w_fraction'] = (nx+1,nz),(nx,nz+1)
         for key in ('pressure_real','density_real','speed_real'):
             sizes[key] = shape
-        application_arrays = ('permeability', 'forchheimer', 'pressure', 'pressure_real',
-                              'speed_real', 'inlet_opening', 'outlet_opening')
-        if stage_fields is not None:
-            application_arrays = ('pressure', 'inlet_opening', 'outlet_opening')
-            if records is None:
-                application_arrays += ('permeability', 'forchheimer')
+        application_arrays = ('pressure', 'inlet_opening', 'outlet_opening')
         audit_arrays = ('u', 'v', 'w', 'density', 'epsilon') if emit_audit else ()
         flow.update({key:_copy(getattr(f,key),sizes[key]) for key in _FLOW_ARRAYS
-                     if not application_only or key in application_arrays + audit_arrays})
-        if stage_fields is None:
-            flow['velocity_real'] = tuple(_copy(value,shape) for value in f.velocity_real)
-        if not application_only:
-            flow['face_velocity_real'] = tuple(_copy(value,sh) for value,sh in zip(f.face_velocity_real,face_shapes))
-        for key in (('legacy',) if application_only else ('legacy','local_mass','global_mass','momentum')):
-            flow[key] = _copy(getattr(f,key))
-        if flow.get('momentum') is not None:
-            flow['momentum'] = flow['momentum'].reshape(-1,11)
+                     if key in application_arrays + audit_arrays})
+        flow['legacy'] = _copy(f.legacy)
         last = f.last
         pressure = {name:getattr(last.pressure,name) for name,_ in last.pressure._fields_}
-        flow['last'] = dict(exit_reason=records.simple_stop[side].decode() if records is not None else _STOPS.get(last.stop,'ongoing'), converged=bool(last.converged),
+        flow['last'] = dict(exit_reason=records.simple_stop[side].decode(), converged=bool(last.converged),
             post_closure_measured=bool(last.post_closure_measured), post_closure_certified=bool(last.post_closure_certified),
             iterations=last.iterations, pressure_clip_hits=last.pressure_clip_hits, post_closure_rejections=last.post_closure_rejections,
             final_res=last.legacy_residual, res_norm_ref=last.legacy_reference,
@@ -686,7 +663,7 @@ def _detach(r, shape, settings, energy_settings, entry_version, *, emit_audit=Fa
             coarse_iters=b.iterations,coarse_shape=tuple(b.shape),coarse_residual=b.residual,reason=b.reason.decode())
         result['flow'].append(flow)
     result['model_h'] = _model_info(r.model_h,shape,include_faces=True,capture_scalars=capture_scalars,
-        info=report['model_h'][0] if report is not None else None) if r.has_model_h else None
+        info=report['model_h'][0]) if r.has_model_h else None
     result['true_h'] = _full_enthalpy_info(r.true_h,energy_settings.last,entry_version) if r.has_true_h else None
     if r.has_true_h:
         true_h=result['true_h']
@@ -717,7 +694,7 @@ def _detach(r, shape, settings, energy_settings, entry_version, *, emit_audit=Fa
                 total_iterations=h.startup_total_iterations,iteration_budget=settings.thermal_iterations)
         if h.has_model_h:
             info=_model_info(h.model_h,shape,include_faces=False,capture_scalars=capture_scalars,
-                             info=report['model_h'][i+1] if report is not None else None)
+                             info=report['model_h'][i+1])
             row['energy_finishing_checks']=info['energy_finishing_checks']
             row['model_h_balance']=dict(info['model_h_balance'],outer_index=h.outer_index,converged=bool(h.thermal_converged),iterations=h.thermal_iterations)
         if h.has_true_h:
@@ -726,15 +703,8 @@ def _detach(r, shape, settings, energy_settings, entry_version, *, emit_audit=Fa
     result['simple_failures']=[r.simple_failures[i].decode() for i in range(r.simple_failure_count)]
     result['warnings']=[r.warnings[i].decode() for i in range(r.warning_count)]
     result['envelope_reasons']=[r.envelope_reasons[i].decode() for i in range(r.envelope_reason_count)]
-    if records is None:
-        result['nu_observations']={label:copy_nu_observation(n,shape,
-            capture_scalars=None if capture_scalars is None else capture_scalars['nu'][side])
-            for side,(label,n) in enumerate(zip('AB',r.nu_observations))}
-    else:
-        result['nu_observations'] = {label: nu_observation(value, shape, capture_scalars['nu'][side])
-            for side, (label, value) in enumerate(zip('AB', r.nu_observations))}
-    if stage_fields is None:
-        result['range_observations']=copy_range_observations(r.range_observations,r.range_observation_count)
+    result['nu_observations'] = {label: nu_observation(value, shape, capture_scalars['nu'][side])
+        for side, (label, value) in enumerate(zip('AB', r.nu_observations))}
     result['final_conductivity']=tuple(_copy(v,shape) if emit_audit else None for v in r.final_conductivity)
     result['final_rho_cp']=tuple(_copy(v,shape) if emit_audit else None for v in r.final_rho_cp)
     result['inlet_cp']=list(r.inlet_cp)
@@ -759,7 +729,7 @@ def run_saved(case, control, library, abi, table_directory, execution_query, *, 
     validate_flow_options(cfg)
     keepalive = []
     data = pack_input(cfg, prepared, case.grid, case.design_fields, shape, cell_mm, nu,
-                      keepalive, saved_v3=True, mesh=mesh)
+                      keepalive, mesh=mesh)
     pack_run_controls(request, cfg, prepared, shape)
     callbacks, errors = make_callbacks(control)
     cpu_threads = control.native_cpu_threads()
@@ -795,7 +765,7 @@ def run_saved(case, control, library, abi, table_directory, execution_query, *, 
         # Keep the complete-driver version used in published full_3d_v5 result records.
         entry_version = 5
         detached = _detach(result.raw, shape, result.resolved, settings, entry_version,
-                           emit_audit=bool(cfg.get('_emit_audit', False)), application_only=True,
+                           emit_audit=bool(cfg.get('_emit_audit', False)),
                            capture_scalars=summary, stage_fields=fields, records=records, report=report)
         if settings.last.available:
             version = evidence.thermal.true_h.contents.energy_algorithm_version[0]
@@ -820,12 +790,10 @@ def run_saved(case, control, library, abi, table_directory, execution_query, *, 
     return capture_result(case, cfg, prepared, detached, abi)
 
 
-def capture_result(case, cfg, p, r, abi, *, legacy_fields=None, legacy_drag=None, legacy_ratios=None, legacy_taper=None):
-    scalars = r.get('capture_scalars')
-    if 'stage_fields' in r:
-        fields, field_metadata = r['stage_fields']
-    else:
-        fields, field_metadata = legacy_fields(case, p, r)
+def capture_result(case, cfg, p, r, abi):
+    """Publish a detached saved-stage return as the portable FieldResult."""
+    scalars = r['capture_scalars']
+    fields, field_metadata = r['stage_fields']
     pressure,report={},{}
     for s,label in enumerate('AB'):
         f=r['flow'][s]
@@ -836,12 +804,8 @@ def capture_result(case, cfg, p, r, abi, *, legacy_fields=None, legacy_drag=None
             inlet_frac=f['inlet_opening'],outlet_frac=f['outlet_opening'],P_ref_abs=f['pressure_reference'],axis_map=axis,
             unit='Pa',axes=('solver_x','solver_y','solver_z'),stream_axis=1,state='final SIMPLE flow',method='face_extrapolation_v1')
         report[label]=dict(direction=cfg['fluid_'+label+'_cfg']['dir'])
-    captured = r.get('stage_diagnostics')
-    if captured is None:
-        df_metadata = legacy_drag(cfg, p, r)
-        strict = legacy_ratios(r)
-    else:
-        df_metadata, strict = captured['df_metadata'], captured['strict_ratios']
+    captured = r['stage_diagnostics']
+    df_metadata, strict = captured['df_metadata'], captured['strict_ratios']
     model_h_calls=r['model_h_iterations']['records']
     thermal_budget=(model_h_calls[-1]['settings']['total_iteration_budget'] if model_h_calls else r['thermal_iterations'])
     ltne=[]
@@ -869,16 +833,15 @@ def capture_result(case, cfg, p, r, abi, *, legacy_fields=None, legacy_drag=None
         u_A=cfg['u_A'],T_in=cfg['T_inA'],T_A_out=r['outlet_temperature'][0],T_B_out=r['outlet_temperature'][1] if r['flow'][1] else None,
         T_out_A=r['outlet_temperature'][0],T_out_B=r['outlet_temperature'][1] if r['flow'][1] else None,
         dir_A=cfg['fluid_A_cfg']['dir'],dir_B=cfg['fluid_B_cfg']['dir'] if r['flow'][1] else None,
-        Q_sA=r['solid_exchange'][0],Q_sB=r['solid_exchange'][1],Q_net=sum(r['solid_exchange']) if scalars is None else scalars['q_net'],
+        Q_sA=r['solid_exchange'][0],Q_sB=r['solid_exchange'][1],Q_net=scalars['q_net'],
         energy_imbalance_rel=r['energy_imbalance'],mass_imbalance_rel_A=r['mass_imbalance'][0],mass_imbalance_rel_B=r['mass_imbalance'][1],
         Q_AB_imbalance_rel=r['enthalpy_imbalance'],Q_sA_interior=r['interior_exchange'][0],Q_sB_interior=r['interior_exchange'][1],
         Q_interior=r['interior_duty'],AB_interior=r['interior_imbalance'],**strict,_ltne_info=ltne,
         _max_outer=r['max_outer'],_ltne_max_iter=thermal_budget,
-        _needs_full_validate=bool(p.get('compact',False) and not (captured['history_converged'] if captured is not None else all(h['converged'] for h in ltne))),
+        _needs_full_validate=bool(p.get('compact',False) and not captured['history_converged']),
         sco2_nu_observations=r['nu_observations'],df_metadata=df_metadata,
         solver_converged=r['converged'],envelope_valid=r['envelope_ok'],envelope_reasons=r['envelope_reasons'],
-        envelope_warnings=list(r['warnings']),p_clip_hits=(sum(f['last']['pressure_clip_hits'] for f in r['flow'] if f is not None)
-            if scalars is None else scalars['pressure_clip_hits']))
+        envelope_warnings=list(r['warnings']),p_clip_hits=scalars['pressure_clip_hits'])
     pressure_states={label:None if f is None else f['inlet_pressure'] for label,f in zip('AB',r['flow'])}
     for label in 'AB':
         state=pressure_states[label]
@@ -890,11 +853,7 @@ def capture_result(case, cfg, p, r, abi, *, legacy_fields=None, legacy_drag=None
         last=f['last']
         return dict(**{key:last[key] for key in ('exit_reason','final_res','res_norm_ref','final_res_mom',
             'final_res_mass_local','final_res_mass_global','outlet_backflow_frac')},convergence_mode='f2',iterations=len(f['legacy']))
-    if captured is not None:
-        transient, final = captured['transient'], captured['final']
-    else:
-        transient=[name for name in r['simple_failures'] if name.startswith(('A@init','B@init'))]
-        final=[name for name in r['simple_failures'] if name not in transient]
+    transient, final = captured['transient'], captured['final']
     if not r['simple_ok']:
         diagnostics['envelope_warnings'].append('SIMPLE momentum solve did not converge in the FINAL solve: '
             + ', '.join(final or r['simple_failures'])
@@ -931,12 +890,7 @@ def capture_result(case, cfg, p, r, abi, *, legacy_fields=None, legacy_drag=None
     if emit_audit:
         for s,label in enumerate('AB'):
             f=r['flow'][s];bc=cfg['fluid_'+label+'_cfg'];axes=p['axes'][label]
-            outlet_coeff=None if f is None else f['outlet_opening']
-            if scalars is not None:
-                outlet_coeff = scalars['audit_outlet'][s]
-            elif f is not None and cfg['fluid_type_'+label] not in ('sco2', 'co2'):
-                # Legacy audit-only display weight; raw opening owns every solved face.
-                outlet_coeff=outlet_coeff*legacy_taper(*outlet_coeff.shape)
+            outlet_coeff = scalars['audit_outlet'][s]
             diagnostics['_audit_s'+label+'_face']=None if f is None else dict(
                 u=f['u'],v=f['v'],w=f['w'],rho=f['density'],outlet_coeff=outlet_coeff,
                 inlet_frac=f['inlet_opening'],outlet_frac=f['outlet_opening'],eps=f['epsilon'],
@@ -953,7 +907,7 @@ def capture_result(case, cfg, p, r, abi, *, legacy_fields=None, legacy_drag=None
         **({'runtime_resources':r['runtime_resources']} if 'runtime_resources' in r else {}),
         _last_closure_ranges=r['last_closure_ranges'],dimension=3,quantity_basis='total',thermal_mode=r['mode'],parameters=case.parameters,design_fields=case.design_fields,
         **({'temperature_transport':r['temperature_evidence']['definition']} if 'temperature_evidence' in r else {}),
-        input_resolution=r['_input_resolution'] if '_input_resolution' in r else cfg['_input_resolution'], property_sampling=r['property_sampling'],
+        input_resolution=r['_input_resolution'], property_sampling=r['property_sampling'],
         enthalpy_update_normalization=r['enthalpy_update_normalization'],
         simple_velocity_relaxation=r['simple_velocity_relaxation'],
         model_h_iterations=r['model_h_iterations'],
@@ -962,12 +916,11 @@ def capture_result(case, cfg, p, r, abi, *, legacy_fields=None, legacy_drag=None
             K_ss=fields['K_ss'] if emit_audit else None),
             props=dict(rho_cp_A=r['final_rho_cp'][0],rho_cp_B=r['final_rho_cp'][1],u_A_in_mps=cfg['u_A'],T_in_A_K=cfg['T_inA'])),
         **({'native':r['native_metadata']} if 'native_metadata' in r else {}),
-        **({'_native_applicability': r['_native_applicability']} if '_native_applicability' in r else {}),
+        _native_applicability=r['_native_applicability'],
         diagnostics=diagnostics,df_metadata=df_metadata,model_roles=case.metadata['model_roles'],
         reporting_reference={key:diagnostics[key] for key in ('Q','dP_A','dP_B','T_out_A','T_out_B')})
-    if 'execution_facts' in r:
-        metadata['execution_record'] = execution_record('cpp', backend_version, metadata,
-            roles=case.metadata['model_roles'], **r['execution_facts'])
+    metadata['execution_record'] = execution_record('cpp', backend_version, metadata,
+        roles=case.metadata['model_roles'], **r['execution_facts'])
     return FieldResult(result_id=str(uuid4()),case_id=case.case_id,backend_id='cpp',backend_version=backend_version,grid=case.grid,
         fields=fields,field_metadata=field_metadata,model_refs=case.model_refs,
         boundary_fluxes=dict(mass_A=None if mass[0][0] is None else mass[0],mass_B=None if mass[1][0] is None else mass[1],
