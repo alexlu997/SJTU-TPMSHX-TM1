@@ -69,7 +69,7 @@ Python 三维准备使用 host v5 和共享的带类型缓存回调。
 空气场每侧最多选择八个标量观测值，完整原始数组记录仍保留全部单元。
 `python/preprocess/three_d/preparation.py` 从拥有独立存储的原生结果组装不可变 CaseData。
 被替代的 `shared/models/grid_3d.py` 和 `asym_split.py` 助手已退役。
-`tests/python/preparation_3d_reference.py` 保留独立数值参考。
+纯公式参考与物理不变量检查保留在 `tests/python/`。
 接近单元上限的内存使用及真实三维 BO 需要单独验收。
 
 二维执行使用所选库的完整保存输入原生生命周期，包括检查点与完整结果捕获。

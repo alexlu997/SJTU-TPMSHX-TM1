@@ -1,5 +1,4 @@
 #include "tpmshx/asym_geometry.hpp"
-#include "tpmshx/scalar_precision.hpp"
 #include "marching_cubes.hpp"
 #include <cmath>
 #include <limits>
@@ -32,13 +31,13 @@ double divide(double numerator, double denominator) {
     return numerator/denominator;
 }
 Levels double_levels(double C, double delta) {
-    return {delta-C,delta+C,delta-C,delta+C,64,64};
+    return {delta-C,delta+C};
 }
 struct Masks { std::vector<std::uint8_t> solid, a, b; };
 Masks masks(ArrayView<const double> phi, const Levels& levels) {
     Masks result;
     result.solid.resize(phi.size); result.a.resize(phi.size); result.b.resize(phi.size);
-    const double lower=levels.comparison_lower, upper=levels.comparison_upper;
+    const double lower=levels.lower, upper=levels.upper;
     for (std::size_t i=0; i<phi.size; ++i) {
         // These tests are independent, including negative and NaN thresholds.
         result.solid[i]=(phi[i]>=lower) && (phi[i]<=upper);
@@ -59,7 +58,7 @@ Porosity eps_sides(ArrayView<const double> phi, const Levels& levels) {
         return {nan,nan,nan};
     }
     std::size_t count_a=0, count_b=0;
-    const double lower=levels.comparison_lower, upper=levels.comparison_upper;
+    const double lower=levels.lower, upper=levels.upper;
     for (std::size_t i=0; i<phi.size; ++i) {
         count_a+=phi[i]<lower;
         count_b+=phi[i]>upper;
@@ -115,18 +114,16 @@ Sides a0_sides_mc(ArrayView<const double> phi, const Shape& shape, const Levels&
         if (phi[i]>maximum) maximum=phi[i];
     }
     std::vector<float> converted;
-    const auto iso_area=[&](double level, std::uint32_t precision) {
-        // Retain the level scalar's comparison precision before the mesh cast.
-        if (level<=detail::round_scalar(minimum,precision) ||
-            level>=detail::round_scalar(maximum,precision)) return 0.;
+    const auto iso_area=[&](double level) {
+        if (level<=minimum || level>=maximum) return 0.;
         if (converted.empty()) {
             converted.reserve(phi.size);
             for (std::size_t i=0; i<phi.size; ++i) converted.push_back(static_cast<float>(phi[i]));
         }
         return tpmshx::geometry::marching_cubes::area(converted.data(),shape[0],shape[1],shape[2],level,{dx,dx,dx});
     };
-    const double a=divide(iso_area(levels.lower,levels.lower_precision),volume);
-    const double b=divide(iso_area(levels.upper,levels.upper_precision),volume);
+    const double a=divide(iso_area(levels.lower),volume);
+    const double b=divide(iso_area(levels.upper),volume);
     return {a,b};
 }
 

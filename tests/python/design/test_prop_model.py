@@ -55,14 +55,7 @@ def test_forward_rejects_nonfinite_external_seed_before_properties(monkeypatch, 
     def unexpected(*args, **kwargs):
         pytest.fail('bad external seed reached geometry/properties/thermal solve')
 
-    original = preparation._HostState.dispatch
-
-    def before_models(state, request):
-        if request.operation in (6, 7, 10):
-            unexpected()
-        return original(state, request)
-
-    monkeypatch.setattr(preparation._HostState, 'dispatch', before_models)
+    monkeypatch.setattr(preparation, '_operation', unexpected)
     monkeypatch.setattr(execution, 'run_case', unexpected)
     case = _case(100.)
     case.T_in_h = 600.

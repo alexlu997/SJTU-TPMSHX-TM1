@@ -5,7 +5,7 @@
 #include "tpmshx/full_3d_run_c_api.h"
 
 #define TPMSHX_STAGE_RUN_3D_ABI_VERSION 1u
-#define TPMSHX_STAGE_CAPTURE_3D_ABI_VERSION 1u
+#define TPMSHX_STAGE_CAPTURE_3D_ABI_VERSION 2u
 
 typedef struct { uint32_t present,value; } tpmshx_stage_uint_option_v1;
 /* Absent values select the current application defaults, not the low-level
@@ -75,7 +75,6 @@ typedef struct {
     tpmshx_stage_saved_case_3d_v1 values;
     double lengths_m[3];
     uint32_t design_mode,have_z_controls;
-    tpmshx_preparation_scalar_kind_v2 reference_kinds[3],field_kinds[3];
     tpmshx_stage_saved_axes_3d_v2 axes[2];
     tpmshx_preparation_model_ref_v1 models[4];
     tpmshx_preparation_text_v1 resource_fluids[2],resource_topology;

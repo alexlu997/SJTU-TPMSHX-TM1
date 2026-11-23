@@ -2,34 +2,19 @@
 #define TPMSHX_PROPERTY_C_API_H
 
 #include "tpmshx/preparation_c_api.h"
-#include "tpmshx/grid_c_api.h"
 
 #define TPMSHX_PROPERTY_EVENT_COUNT TPMSHX_PREPARATION_FP_EVENT_COUNT
 
-/* kind.value keeps an original scalar for empty broadcast expressions.
- * Layout: 0=Python scalar, 1=NumPy scalar, 2=zero-dimensional array,
- * 3=other array. Capture tags before broadcasting.
+/* Inputs are contiguous float64 buffers after Python shape broadcasting. */
+typedef struct {const double* values;size_t count;} tpmshx_property_input_v1;
+/* values has count elements. events has at least TPMSHX_PROPERTY_EVENT_COUNT
+ * elements; event_count receives the used prefix. Event bits:
+ * 0..3=invalid/divide/overflow/underflow, 8..15=operation.
+ * Failure preserves values, events and event_count.
  */
 typedef struct {
-    const double* values;size_t count;
-    tpmshx_grid_scalar_v1 kind;uint32_t layout;
-} tpmshx_property_input_v1;
-/* A derived operand can carry a complex scalar. The real input retains its
- * original scalar layout and is broadcast to count elements. Category 1
- * supplies the same imaginary value at each point; complex arrays are not used.
- */
-typedef struct {
-    tpmshx_property_input_v1 real;double imaginary;uint32_t category;
-} tpmshx_property_operand_v1;
-/* Both value buffers have count elements. Category: 0=real, 1=complex.
- * events has exactly TPMSHX_PROPERTY_EVENT_COUNT elements. Event bits:
- * 0..3=invalid/divide/overflow/underflow, 8..15=operation, 16=scalar ufunc.
- * Failure preserves values, imaginary, kind, category and events.
- */
-typedef struct {
-    double* values;double* imaginary;size_t count;
-    tpmshx_grid_scalar_v1* kind;uint32_t* category;
-    uint32_t* events;size_t event_count;
+    double* values;size_t count;
+    uint32_t* events;size_t event_capacity;size_t* event_count;
 } tpmshx_property_output_v1;
 typedef struct {const char* data;size_t size;} tpmshx_property_key_v1;
 /* SIZE_MAX means that no logical index is available. detail holds a phase
@@ -100,7 +85,7 @@ TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_preparation_nu_inputs_
 TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_preparation_nu_v1(
     uint32_t route,uint32_t topology,tpmshx_property_input_v1 re,tpmshx_property_input_v1 pr,
     tpmshx_property_input_v1 cell,tpmshx_property_input_v1 diameter,
-    tpmshx_grid_scalar_v1 selected_alpha,tpmshx_property_output_v1 result,
+    double selected_alpha,tpmshx_property_output_v1 result,
     tpmshx_property_failure_v1* failure,char* error,size_t error_capacity);
 /* Quantity: 0=Petukhov, 1=Haaland, 2=height ratio, 3=friction gain,
  * 4=extra Nu factor, 5=unit factor. Quantity 5 reads no inputs.
@@ -114,10 +99,10 @@ TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_preparation_reynolds_v
     tpmshx_property_input_v1 diameter,tpmshx_property_input_v1 mu,tpmshx_property_output_v1 result,
     tpmshx_property_failure_v1* failure,char* error,size_t error_capacity);
 TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_preparation_prandtl_v1(
-    tpmshx_property_operand_v1 mu,tpmshx_property_operand_v1 cp,tpmshx_property_operand_v1 conductivity,
+    tpmshx_property_input_v1 mu,tpmshx_property_input_v1 cp,tpmshx_property_input_v1 conductivity,
     tpmshx_property_output_v1 result,tpmshx_property_failure_v1* failure,char* error,size_t error_capacity);
 TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_preparation_surface_transfer_v1(
-    tpmshx_property_operand_v1 nu,tpmshx_property_operand_v1 conductivity,tpmshx_property_operand_v1 diameter,
+    tpmshx_property_input_v1 nu,tpmshx_property_input_v1 conductivity,tpmshx_property_input_v1 diameter,
     tpmshx_property_output_v1 result,tpmshx_property_failure_v1* failure,char* error,size_t error_capacity);
 TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_preparation_inlet_re_pr_v1(
     tpmshx_property_input_v1 rho,tpmshx_property_input_v1 mu,tpmshx_property_input_v1 conductivity,

@@ -3,7 +3,6 @@
 #include "tpmshx/zones.hpp"
 #include "tpmshx/geometry.hpp"
 #include "tpmshx/asym_geometry.hpp"
-#include "tpmshx/scalar_precision.hpp"
 #include <algorithm>
 #include <array>
 #include <cstdio>
@@ -139,10 +138,7 @@ bool marching_cubes(uint32_t method) {
 
 a::Levels raw_levels(const tpmshx_geometry_levels_v1* levels) {
     require_buffer(levels, 1);
-    for (const auto precision : {levels->lower_precision, levels->upper_precision})
-        g::detail::require_precision(precision);
-    return {levels->lower, levels->upper, levels->comparison_lower, levels->comparison_upper,
-            levels->lower_precision, levels->upper_precision};
+    return {levels->lower, levels->upper};
 }
 
 bool zero_offset(uint32_t zero_delta) {
@@ -246,16 +242,15 @@ extern "C" int TPMSHX_GEOMETRY_CALL tpmshx_geometry_phi_grid_v1(
 }
 
 extern "C" int TPMSHX_GEOMETRY_CALL tpmshx_geometry_threshold_batch_v1(
-    uint32_t code, const double* ratios, size_t count, uint32_t ratio_precision,
+    uint32_t code, const double* ratios, size_t count,
     double* result, size_t result_count, char* error, size_t capacity) {
     return boundary(error, capacity, [&] {
         input(ratios, count);
-        g::detail::require_precision(ratio_precision);
         require_output(result, result_count, count);
         const auto calibration = g::calibration(topology(code));
         std::vector<double> local(count);
         for (std::size_t i = 0; i < count; ++i)
-            local[i] = g::level_set_threshold(calibration.level_set,ratios[i],ratio_precision);
+            local[i] = g::level_set_threshold(calibration.level_set,ratios[i]);
         publish(local, result);
     });
 }
@@ -297,16 +292,12 @@ extern "C" int TPMSHX_GEOMETRY_CALL tpmshx_geometry_standard_batch_v1(
 
 extern "C" int TPMSHX_GEOMETRY_CALL tpmshx_geometry_standard_scalar_v1(
     const tpmshx_geometry_index_v1* index, uint32_t code, double cell, double wall,
-    uint32_t cell_precision, uint32_t ratio_precision,
     double* result, size_t result_count, char* error, size_t capacity) {
     return boundary(error, capacity, [&] {
         const auto& field = owner(index);
         const auto calibration = model(field, code);
-        g::detail::require_precision(cell_precision);
-        g::detail::require_precision(ratio_precision);
         require_output(result, result_count, 5);
-        const auto value = g::standard_geometry(
-            field.value,calibration,cell,wall,cell_precision,ratio_precision);
+        const auto value = g::standard_geometry(field.value,calibration,cell,wall);
         publish(std::array<double,5>{value.epsilon,value.epsilon_a,value.epsilon_b,
                                     value.area_density,value.hydraulic_diameter},result);
     });
@@ -346,18 +337,17 @@ extern "C" int TPMSHX_GEOMETRY_CALL tpmshx_geometry_chi_batch_v1(
 }
 
 extern "C" int TPMSHX_GEOMETRY_CALL tpmshx_geometry_material_batch_v1(
-    uint32_t code, const double* epsilon, size_t count, double conductivity, uint32_t product_precision,
+    uint32_t code, const double* epsilon, size_t count, double conductivity,
     uint32_t has_override, double override_value, double* result, size_t result_count,
     char* error, size_t capacity) {
     return boundary(error, capacity, [&] {
         const auto calibration = g::calibration(topology(code));
         const auto selected = override_constant(has_override, override_value);
-        g::detail::require_precision(product_precision);
         const auto values = input(epsilon, count);
         require_output(result, result_count, product(count, 2));
         const auto chi = g::effective_chi(calibration.solid_tortuosity, values, selected);
         const auto conductivity_values = g::solid_conductivity(
-            calibration.solid_tortuosity,values,conductivity,selected,product_precision);
+            calibration.solid_tortuosity,values,conductivity,selected);
         std::vector<double> local(product(count, 2));
         for (std::size_t i = 0; i < count; ++i) {
             local[2*i] = chi[i];
@@ -592,8 +582,8 @@ extern "C" int TPMSHX_GEOMETRY_CALL tpmshx_geometry_lut_batch_v1(
 }
 
 extern "C" int TPMSHX_GEOMETRY_CALL tpmshx_geometry_zone_ids_v1(
-    uint32_t kind, size_t nx, size_t ny, int axis, tpmshx_grid_scalar_v1 domain,
-    const tpmshx_grid_scalar_v1* rows, size_t row_count,
+    uint32_t kind, size_t nx, size_t ny, int axis, double domain,
+    const double* rows, size_t row_count,
     const double* dx, size_t dx_count, const double* dy, size_t dy_count,
     int32_t* output, size_t output_count, char* error, size_t error_capacity) {
     return boundary(error, error_capacity, [&] {
@@ -606,15 +596,12 @@ extern "C" int TPMSHX_GEOMETRY_CALL tpmshx_geometry_zone_ids_v1(
         require_buffer(dx, dx_count); require_buffer(dy, dy_count);
         std::vector<tpmshx::zones::Bounds> bounds(row_count);
         for (std::size_t i = 0; i < row_count; ++i)
-            for (std::size_t j = 0; j < 4; ++j) {
-                const auto& scalar = rows[4 * i + j];
-                bounds[i][j] = tpmshx::grid::checked({scalar.value, scalar.precision, scalar.strong});
-            }
+            for (std::size_t j = 0; j < 4; ++j) bounds[i][j] = rows[4 * i + j];
         tpmshx::zones::Values widths_x, widths_y;
         if (dx) widths_x.assign(dx, dx + dx_count);
         if (dy) widths_y.assign(dy, dy + dy_count);
         const auto result = tpmshx::zones::assign(kind, nx, ny, axis,
-            {domain.value, domain.precision, domain.strong}, bounds,
+            domain, bounds,
             dx ? &widths_x : nullptr, dy ? &widths_y : nullptr);
         std::copy(result.begin(), result.end(), output);
     });

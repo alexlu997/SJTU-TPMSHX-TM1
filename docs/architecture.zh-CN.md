@@ -152,7 +152,7 @@ C++ owner 只构建一次物理网格，并保留静态证据在解析速度检�
 空气场每侧最多选择八个标量观测值，保留原通知、极值和最后样本。
 完整原始数组范围记录仍包含全部物理单元。
 被替代的三维 Python 数值体及其专属 `shared/models/grid_3d.py` 和 `asym_split.py` 已删除。
-独立冻结参考保留在 `tests/python/preparation_3d_reference.py`。
+所有实数标量输入在 Python 边界归一化为 `float64`；纯公式参考与物理不变量检查保留在 `tests/python/`。
 接近单元上限的内存使用及真实三维 BO 也需要单独验收。
 适配器保留 CaseData 字段、标量类型、事件、来源范围和保存的模型选择。
 v2 宿主钩子在原执行点保留对象错误与警告作用域，不提供数值。
@@ -211,7 +211,7 @@ Quick Design 准备 v2 接受带类型的原始工况。
 `python/cpp_interface/_native_quick_prepare.py` 通过固定具名宿主操作保留 Python 对象协议、缓存交换、警告和快照。
 这些操作不得调用数值模型；其顺序及全部数值分支由 C++ 决定。
 `python/cpp_interface/_native_quick_prepare.py` 用复制后的原生输出组装 CaseData。
-被替代的 `shared/models/quick_design.py` 已删除；冻结参考保留在 `tests/python/quick_prepare_reference.py`，供回归检查使用。
+被替代的 `shared/models/quick_design.py` 及全流程参考已删除；纯公式参考保留在 `tests/python/`，供回归检查使用。
 Quick 默认值统一来自 `python/model_configs/model_parameters_v1.json`。
 Python 读取该资源，C++ 使用生成的常量；逆流保存态的 `qtol` 和 `chunk` 仍为 `None`。
 native-double v1 准备及运行入口已于 2026-11-23 删除。
@@ -963,7 +963,7 @@ full 2D v6 和 full 3D v5 在不改变结果布局的情况下接收线程预算
 2. **孔隙率只分配一次。** 对称 LTNE 调用方传完整孔隙率，由能量求解器生成两个半孔隙率流体。偏移等值面由上游 `preprocess/preparation_case.cpp` 计算 eps_A/eps_B，两者和为总孔隙率，核不再减半。各侧有效导热率为 `K_ff_i = eps_i * k_i`。对称准备系数因此为 `eps_total/2 * k_i`；偏移因子 `2*split_i` 只应用一次。已有准备态文件保留冻结系数；重新准备原配置才能得到修正值，不改历史输入／结果。
 3. **质量通量入口。** 可压缩空气在两维均用质量通量入口。求解器速度为孔隙速度，不是表观速度。三维质量不平衡诊断按局部孔隙率积分有符号入口、出口通量，与 SIMPLE 连续方程一致；非均匀孔隙率场不能用未乘孔隙率的积分判断质量守恒。
 4. **Darcy–Forchheimer 归属。** `physical_models.df_surrogate.predict.predict_K_cF()` 是纯几何基底，全部流体和两侧共用一张水＋sCO2 CFD 表。K0/cF0 只依赖拓扑、L、t，在 4–8 mm × 0.3–0.6 mm 内双线性插值，与 Re 和流体无关。UI 只有两个生产模式：光滑壁 CFD 是通用 ComputeConfig 默认并兼容 V2；内置上海预设默认实验标定，保存输入保留选择，旧文件缺少选择项时保持 CFD。实验标定在流水线组装后、压力初始化／SIMPLE 前，各侧应用一次经审查的固定有效修正；求解期间 K/cF 固定。选择的数据集必须匹配试验批次、边界、压降定义和几何。它不能证明流体固有 D-F 物理差异。修正可能吸收测压点、缩扩口、集流／分配区、整机损失、流动面积／通道数定义、仪表零点和数据减缩；这些贡献未单独建模。没有同装置比较时不能归因于流体。旧 `gamma_df` 和 `rbf` 研究模式已退役，显式选择会报错。代码、表和结果见[历史索引](history/legacy-models.md)。
-5. **Nusselt 归属。** 完整求解在 [fluid_nusselt_ratio](../numerics/fluid_properties.cpp#L182) 中计算空气、水和 sCO2 的 Nu。关联式见 [nu_point](../numerics/fluid_properties.cpp#L551)。[Python 关联式接口](../python/physical_models/nu_correlations.py) 调用原生函数并报告适用范围。唯一现行 sCO2 有效参数资源为 `python/model_configs/sco2_effective_nu.json`，由 `sco2_effective_nu_config()` 返回校验后的 Sco2NuConfig。保留字段 alpha_D/alpha_G 表示总 Ceff，在最终 Nu 下限前只乘当前基础式一次；没有额外 beta 或输出 Q 缩放。通用 cfd_smooth 默认和本次保存参数不变。显式选择才加载当前资源；旧 Case 重放记录值。退役实验 gamma 助手和环境开关不是第二条路线。证据见[模型资源](model-resources.md#sco2-有效-nu-系数)。[二维](../solver/full_2d.cpp#L539)和[三维](../solver/full_3d.cpp#L877)求解器重算各侧局部标量 Re/Nu，速度为当前单元孔隙速度模 `sqrt(uc² + vc² [+ wc²])`。不得只取固定入口轴分量或再乘孔隙率。有符号法向分量仍负责质量／焓面通量。真正低速保留现有 Re/Nu 下限。入口范围观测保留，首次局部刷新前不再存冗余 bulk h_v。给定速度近似模式保留原定义。在转弯流中局部应用整体拟合标量 Nu 仍是模型假设，与速度一致性要求不同。见[实现与配对验证](history/README.md#2026-09-18-历史材料整理)。
+5. **Nusselt 归属。** 完整求解在 [fluid_nusselt_ratio](../numerics/fluid_properties.cpp#L174) 中计算空气、水和 sCO2 的 Nu。关联式见 [nu_point](../numerics/fluid_properties.cpp#L371)。[Python 关联式接口](../python/physical_models/nu_correlations.py) 调用原生函数并报告适用范围。唯一现行 sCO2 有效参数资源为 `python/model_configs/sco2_effective_nu.json`，由 `sco2_effective_nu_config()` 返回校验后的 Sco2NuConfig。保留字段 alpha_D/alpha_G 表示总 Ceff，在最终 Nu 下限前只乘当前基础式一次；没有额外 beta 或输出 Q 缩放。通用 cfd_smooth 默认和本次保存参数不变。显式选择才加载当前资源；旧 Case 重放记录值。退役实验 gamma 助手和环境开关不是第二条路线。证据见[模型资源](model-resources.md#sco2-有效-nu-系数)。[二维](../solver/full_2d.cpp#L539)和[三维](../solver/full_3d.cpp#L877)求解器重算各侧局部标量 Re/Nu，速度为当前单元孔隙速度模 `sqrt(uc² + vc² [+ wc²])`。不得只取固定入口轴分量或再乘孔隙率。有符号法向分量仍负责质量／焓面通量。真正低速保留现有 Re/Nu 下限。入口范围观测保留，首次局部刷新前不再存冗余 bulk h_v。给定速度近似模式保留原定义。在转弯流中局部应用整体拟合标量 Nu 仍是模型假设，与速度一致性要求不同。见[实现与配对验证](history/README.md#2026-09-18-历史材料整理)。
 6. **可压缩包络。** `python/physical_models/envelope.py` 检查真实最终压力和局部 Mach。非有限状态、压力≤既有 1000 Pa 下限及 Mach≥1 仍无效。正压／亚声速场还须满足指定物理入口压力才可收敛。等温一维初值不可用只是启动数值问题，不证明耦合非等温问题无解。不得扩大裁剪或强制给答案来绕过最终场／入口门。
 7. **压力参考。** 理想气体侧 P_ref_abs 锚定出口单元，局部绝压为 `P_ref_abs + P`。真实出口面外推表压可非零；`P_ref_abs + dP` 不是实际入口压力。入口校正及收敛诊断使用实际端口面几何面积均值。
 8. **单位。** 准备态契约使用 K、Pa、m。接受 mm 单胞／壁厚的旧闭合调用须显式边界换算；内部单位不改变持久化 SI 场。

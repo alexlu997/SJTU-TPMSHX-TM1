@@ -7,10 +7,7 @@
 
 namespace tpmshx::geometry::asym {
 using Sides = std::array<double, 2>;
-struct Levels {
-    double lower, upper, comparison_lower, comparison_upper;
-    std::uint32_t lower_precision, upper_precision;
-};
+struct Levels { double lower, upper; };
 struct Porosity { double a, b, total; };
 struct SplitFields { std::vector<double> a, b; };
 struct ThermalSide { double area, diameter, reference_area, reference_diameter; };

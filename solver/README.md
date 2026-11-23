@@ -8,7 +8,7 @@
 | 完整三维 | [三维工况](../examples/cpp/run_3d.cpp#L20) | [Full3DRun::advance_step](full_3d.cpp#L1505) 先求两侧初始流场，再推进热学和流场更新。三维 SIMPLE 在 [simple_3d.cpp](simple_3d.cpp)。 |
 | 快速设计（Quick） | [单候选工况](../examples/cpp/quick_design.cpp#L13) | [solve_quick_design](quick_design_driver.cpp#L116) 按候选工况更新两侧物性，并[调用共用温度求解器](quick_design_driver.cpp#L206)。 |
 
-**把二维工况读完整。** 从[前处理](../preprocess/preparation_case.cpp#L1107)看两侧端口和阻力如何落到网格上，从[几何计算](../geometry/geometry.cpp#L172)看孔隙率和水力直径。接着读表中的二维求解。最后进入[后处理](../postprocess/result_stage.cpp#L1164)，查看[换热量等指标](../postprocess/result_metrics.cpp)及[质量与能量收支](../postprocess/result_balance.cpp)。
+**把二维工况读完整。** 从[前处理](../preprocess/preparation_case.cpp#L1021)看两侧端口和阻力如何落到网格上，从[几何计算](../geometry/geometry.cpp#L182)看孔隙率和水力直径。接着读表中的二维求解。最后进入[后处理](../postprocess/result_stage.cpp#L1164)，查看[换热量等指标](../postprocess/result_metrics.cpp)及[质量与能量收支](../postprocess/result_balance.cpp)。
 
 ## 按维护任务展开目录树
 
@@ -17,7 +17,7 @@
 <details>
 <summary>改模型或求解流程</summary>
 
-局部 Re 和 Nu 取用的速度见[二维](full_2d.cpp#L539)和[三维](full_3d.cpp#L877)实现。改 Nu 关联式时，读共用的 [nu_point](../numerics/fluid_properties.cpp#L551)。
+局部 Re 和 Nu 取用的速度见[二维](full_2d.cpp#L539)和[三维](full_3d.cpp#L877)实现。改 Nu 关联式时，读共用的 [nu_point](../numerics/fluid_properties.cpp#L371)。
 
 - 完整求解的迭代顺序
   - [full_2d.cpp](full_2d.cpp) · [full_3d.cpp](full_3d.cpp)

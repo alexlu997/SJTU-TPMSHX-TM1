@@ -5,7 +5,7 @@ int main() {
     using namespace tpmshx::stages;
     try {
         CaseInput3D input;
-        input.lengths_m[0].value=.182;input.lengths_m[1].value=.042;input.lengths_m[2].value=.031;
+        input.lengths_m[0]=.182;input.lengths_m[1]=.042;input.lengths_m[2]=.031;
         input.counts[0]=6;input.counts[1]=5;input.counts[2]=4;
         input.topology=1;input.cell_length_mm=7.;input.wall_thickness_mm=.6;input.solid_conductivity_W_mK=16.;
         input.sides[0].velocity_m_s=6.;input.sides[0].temperature_K=350.;input.sides[0].pressure_Pa=200000.;

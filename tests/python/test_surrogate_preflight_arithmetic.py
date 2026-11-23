@@ -38,6 +38,11 @@ def _assert_observation(actual, expected):
     np.testing.assert_array_equal(np.signbit(first[2]), np.signbit(second[2]))
 
 
+def _divide(numerator, denominator):
+    """Divide in float64 array arithmetic, as the native property kernel does."""
+    return (np.array([float(numerator)]) / np.array([float(denominator)]))[0].item()
+
+
 def _inputs(monkeypatch, *, fluid='air', diameter=.012345, mu=.003125,
             cp=1010.125, conductivity=.075, fail=None):
     calls, captured, geometry_args = [], [], []
@@ -92,8 +97,8 @@ def test_preflight_reynolds_keeps_ordered_scalar_expression(
             'Gyroid', cell, wall, 16., speed, 300., allow_extrap=True)
         return captured[0][1]
 
-    # These are the original preflight operations, independent of native code.
-    expected = _observe(lambda: float(values['rho']) * speed * diameter / float(values['mu']))
+    # The float64 preflight operations are independent of native code.
+    expected = _observe(lambda: _divide(float(values['rho']) * float(speed) * float(diameter), values['mu']))
     _assert_observation(_observe(actual), expected)
     assert calls == ['rho', 'mu', 'geometry', 'range-Re']
     assert geometry_args[0][1] is cell
@@ -104,7 +109,7 @@ def test_preflight_reynolds_keeps_ordered_scalar_expression(
 
 @pytest.mark.parametrize('speed_type', [float, np.float16, np.float32, np.float64])
 @pytest.mark.parametrize('zero', [0., -0.])
-def test_preflight_reynolds_zero_divisor_keeps_scalar_policy(monkeypatch, speed_type, zero):
+def test_preflight_reynolds_zero_divisor_uses_float64_policy(monkeypatch, speed_type, zero):
     speed, diameter = speed_type(2.125), .012345
     values, _, captured, _, _ = _inputs(monkeypatch, diameter=diameter, mu=zero)
 
@@ -114,7 +119,7 @@ def test_preflight_reynolds_zero_divisor_keeps_scalar_policy(monkeypatch, speed_
         return captured[0][1]
 
     _assert_observation(_observe(actual), _observe(
-        lambda: float(values['rho']) * speed * diameter / float(values['mu'])))
+        lambda: _divide(float(values['rho']) * float(speed) * diameter, values['mu'])))
 
 
 @pytest.mark.parametrize('property_type', [float, np.float16, np.float32, np.float64])
@@ -131,7 +136,7 @@ def test_preflight_co2_prandtl_keeps_float_boundaries_and_query_order(
             fluid='co2', allow_extrap=True)
         return captured[1][1]
 
-    expected = _observe(lambda: float(values['cp']) * float(values['mu']) / float(values['k']))
+    expected = _observe(lambda: _divide(float(values['mu']) * float(values['cp']), values['k']))
     _assert_observation(_observe(actual), expected)
     assert calls[:6] == ['rho', 'mu', 'geometry', 'range-Re', 'cp', 'k']
     if expected[0][0] == 'value':

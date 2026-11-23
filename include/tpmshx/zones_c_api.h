@@ -5,15 +5,15 @@
 extern "C" {
 #endif
 
-/* Rows have four typed bounds. Stripe rows use the first two.
+/* Rows have four float64 bounds. Stripe rows use the first two.
  * Kinds: 0=stripe, 1=first rectangle, 2=last rectangle.
  * Stripe rows arrive in configuration order. Output is C-order int32.
  * Absent widths use NULL and count zero. Other lengths are exact.
  * The geometry buffer, error and unchanged-output rules apply.
  */
 TPMSHX_GEOMETRY_API int TPMSHX_GEOMETRY_CALL tpmshx_geometry_zone_ids_v1(
-    uint32_t kind, size_t nx, size_t ny, int axis, tpmshx_grid_scalar_v1 domain,
-    const tpmshx_grid_scalar_v1* rows, size_t row_count,
+    uint32_t kind, size_t nx, size_t ny, int axis, double domain,
+    const double* rows, size_t row_count,
     const double* dx, size_t dx_count, const double* dy, size_t dy_count,
     int32_t* output, size_t output_count, char* error, size_t error_capacity);
 /* Fixed sigma2/order0/radius8/reflect. Axis 0 is filtered before axis 1. */

@@ -18,8 +18,8 @@ int main() {
         input.controls={2,2,1,0,{4.,8.},{.3,.6},{decisions,8}};
         auto capacities=prepare_inlet_mass_capacities(input);
         flow.have_explicit_targets=1;
-        flow.explicit_targets_kg_s[0]=capacities.view().flow.capacities[0].value*6.;
-        flow.explicit_targets_kg_s[1]=capacities.view().flow.capacities[1].value*.02;
+        flow.explicit_targets_kg_s[0]=capacities.view().flow.capacities[0]*6.;
+        flow.explicit_targets_kg_s[1]=capacities.view().flow.capacities[1]*.02;
         PreparationOptions options;options.allow_extrapolation=1;
         RunControl control;control.result_id="native-continuous-2d";control.cpu_threads=2;
         auto result=[&] {auto prepared=prepare_case(input,options);return run_case(prepared,control);}();

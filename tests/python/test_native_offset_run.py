@@ -6,7 +6,7 @@ import json
 import numpy as np
 import pytest
 
-from tests.python import preparation_api_reference as reference
+from sjtu_tpmshx.preprocess.api import prepare_case
 from tests.python import test_native_run_adapter as adapter
 from tests.python import test_native_prepare_spatial_adapter as spatial
 from tests.python.test_native_prepare_adapter import _same
@@ -22,7 +22,7 @@ def _case(monkeypatch, tmp_path, mode='uniform', pair=('air', 'air'), delta=.1):
               spatial.configuration(monkeypatch, tmp_path, mode))
     native_stage_support.bound_plane_controls(config)
     config.geometry.delta_levelset = delta
-    return reference.prepare_case(config, case_id='offset-run')
+    return prepare_case(config, case_id='offset-run')
 
 
 def _saved(case):

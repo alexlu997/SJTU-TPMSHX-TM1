@@ -37,8 +37,7 @@ def _smooth_nu(tpms_type, Re, L_mm, D_h_mm, *, Pr=Pr_AIR):
 def nu_from_Re(tpms_type, Re, eps_f, L_mm, D_h_mm, *, Pr=Pr_AIR):
     del eps_f
     Re_arr = np.asarray(Re, dtype=np.float64)
-    Re_value = float(Re_arr) if Re_arr.ndim == 0 else Re_arr
-    return NU_ROUGHNESS_FACTOR * _smooth_nu(tpms_type, Re_value, L_mm, D_h_mm, Pr=Pr)
+    return NU_ROUGHNESS_FACTOR * _smooth_nu(tpms_type, Re_arr, L_mm, D_h_mm, Pr=Pr)
 
 
 def nu_vec(tpms_type, Re, L_mm, D_h_mm, *, Re_floor=10.0, Pr=Pr_AIR):

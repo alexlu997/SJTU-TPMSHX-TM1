@@ -1,4 +1,4 @@
-"""Pack inlet-flow and quick-design inputs for the preparation core."""
+"""Pack float64 inlet-flow and quick-design inputs for the preparation core."""
 import ctypes as ct
 from functools import lru_cache
 
@@ -6,30 +6,31 @@ import numpy as np
 
 from . import _native_grid
 from .stage_libraries import preparation_library
-from ._native_values import (
-    GridScalar as _Scalar, NumericBuffer as _Values, buffer_scalar as _scalar,
-    numeric_buffer as _values, restore_buffer_scalar as _restore,
-)
+from ._native_values import real_scalar
 
 
-_SP = ct.POINTER(_Scalar)
+_D = ct.c_double
+_DP = ct.POINTER(_D)
 _Size = ct.c_size_t
 _UInt = ct.c_uint32
-_DP = ct.POINTER(ct.c_double)
 _Error = [ct.POINTER(ct.c_char), _Size]
 
 
+class _Values(ct.Structure):
+    _fields_ = [('data', _DP), ('count', _Size)]
+
+
 _SIGNATURES = {
-    'inlet_capacity_2d': [_Values, _Values, _Values, _Values, _Scalar, _Scalar],
+    'inlet_capacity_2d': [_Values, _Values, _Values, _Values, _D, _D],
     'inlet_capacity_3d': [_Values, ct.POINTER(_Size), _Size, ct.c_int32,
-                          _Values, _Values, _Values, _Scalar],
-    'inlet_speeds': [_SP, _SP, _Size],
-    'quick_design_sections': [_Scalar, _Scalar, _Scalar, _Scalar, _UInt],
-    'quick_design_flow': [_Scalar, _Scalar, _Scalar, _UInt],
-    'relative_pressure': [_Scalar, _Scalar],
-    'design_temperature_target': [_Scalar, _UInt, _Scalar, _Scalar, _Scalar, _Scalar],
-    'design_cooling_proxy': [_Scalar, _Scalar, _Scalar, _Scalar],
-    'design_volume': [_Scalar, _Scalar, _Scalar],
+                          _Values, _Values, _Values, _D],
+    'inlet_speeds': [_DP, _DP, _Size],
+    'quick_design_sections': [_D, _D, _D, _D, _UInt],
+    'quick_design_flow': [_D, _D, _D, _UInt],
+    'relative_pressure': [_D, _D],
+    'design_temperature_target': [_D, _UInt, _D, _D, _D, _D],
+    'design_cooling_proxy': [_D, _D, _D, _D],
+    'design_volume': [_D, _D, _D],
 }
 
 
@@ -38,9 +39,9 @@ class _Bindings:
         self.owner = preparation_library.load(path)
         for name, arguments in _SIGNATURES.items():
             setattr(self, name, self.owner.bind(
-                f'tpmshx_preparation_{name}_v1', [*arguments, _SP, _Size, *_Error]))
+                f'tpmshx_preparation_{name}_v1', [*arguments, _DP, _Size, *_Error]))
         self.closure_geometry_ratio = self.owner.bind('tpmshx_preparation_closure_geometry_ratio_v1',
-            [_Values, _Values, _DP, _Size, _SP, *_Error])
+            [_Values, _Values, _DP, _Size, *_Error])
 
 
 @lru_cache(maxsize=1)
@@ -61,15 +62,27 @@ def _check_status(status, error):
         raise exception(text)
 
 
+def _scalar(value):
+    return real_scalar(value, allow_nonfinite=True)
+
+
+def _values(value, *, shape=None):
+    array = np.asarray(value)
+    if array.dtype.kind not in 'fiu':
+        raise TypeError(f'inlet buffers require real numbers, got {array.dtype}')
+    packed = np.ascontiguousarray(array if shape is None else np.broadcast_to(array, shape), dtype=np.float64).ravel()
+    return packed, _Values(packed.ctypes.data_as(_DP), packed.size)
+
+
 def _result(function, arguments, count):
-    output, error = (_Scalar * count)(), ct.create_string_buffer(2048)
+    output, error = (_D * count)(), ct.create_string_buffer(2048)
     _check_status(function(*arguments, output, count, error, len(error)), error)
-    return tuple(_restore(value) for value in output)
+    return tuple(output)
 
 
 def capacity_2d(epsilon, opening, geometric, widths, density, depth):
     shape = np.broadcast(np.asarray(epsilon), np.asarray(opening), np.asarray(geometric), np.asarray(widths)).shape
-    packed = [_values(value, shape=shape, preserve_scalar=True) for value in (epsilon, opening, geometric, widths)]
+    packed = [_values(value, shape=shape) for value in (epsilon, opening, geometric, widths)]
     return _result(_current().inlet_capacity_2d,
                    [*(value for _array, value in packed), _scalar(density), _scalar(depth)], 1)[0]
 
@@ -80,7 +93,7 @@ def capacity_3d(epsilon, direction, widths1, widths2, opening, density):
         raise ValueError('3D inlet epsilon needs three physical axes')
     face_shape = (np.size(widths1), np.size(widths2))
     packed = [_values(value) for value in (epsilon, widths1, widths2)]
-    packed.append(_values(opening, shape=face_shape, preserve_scalar=True))
+    packed.append(_values(opening, shape=face_shape))
     shape = (_Size * 3)(*epsilon.shape)
     e, w1, w2, o = (value for _array, value in packed)
     return _result(_current().inlet_capacity_3d,
@@ -92,8 +105,8 @@ def inlet_speeds(targets, capacities):
     if len(targets) != len(capacities):
         raise ValueError('inlet target and capacity counts differ')
     count = len(targets)
-    packed_targets = (_Scalar * count)(*map(_scalar, targets))
-    packed_capacities = (_Scalar * count)(*map(_scalar, capacities))
+    packed_targets = (_D * count)(*map(_scalar, targets))
+    packed_capacities = (_D * count)(*map(_scalar, capacities))
     return _result(_current().inlet_speeds, [packed_targets, packed_capacities, count], count)
 
 
@@ -132,19 +145,14 @@ def volume(width, height, length):
 
 
 def uniform_widths(count, length):
-    value = np.asarray(length)
-    dtype = value.dtype if value.dtype.kind == 'f' else np.dtype('float64')
-    scalar = value[()] if isinstance(length, np.ndarray) else length
-    return _native_grid.uniform(count, scalar).astype(dtype, copy=False)
+    return _native_grid.uniform(count, length)
 
 
 def closure_geometry_ratio(diameter_m, cell_mm):
     shape = np.broadcast(np.asarray(diameter_m), np.asarray(cell_mm)).shape
-    inputs = [_values(value, shape=shape, preserve_scalar=True) for value in (diameter_m, cell_mm)]
-    output, kind, error = np.empty(inputs[0][0].size), _Scalar(), ct.create_string_buffer(2048)
+    inputs = [_values(value, shape=shape) for value in (diameter_m, cell_mm)]
+    output, error = np.empty(inputs[0][0].size), ct.create_string_buffer(2048)
     _check_status(_current().closure_geometry_ratio(inputs[0][1], inputs[1][1], output.ctypes.data_as(_DP),
-                  output.size, ct.byref(kind), error, len(error)), error)
-    result = output.astype(f'float{kind.precision}', copy=False).reshape(shape)
-    if result.ndim:
-        return result
-    return result[()] if kind.strong else float(result)
+                  output.size, error, len(error)), error)
+    result = output.reshape(shape)
+    return result if result.ndim else float(result)

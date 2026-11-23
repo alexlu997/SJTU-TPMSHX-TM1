@@ -6,7 +6,7 @@ int main() {
     try {
         tpmshx::stages::ContinuousInput3D input;
         auto& flow=input.values;auto& values=flow.input;
-        values.lengths_m[0].value=.182;values.lengths_m[1].value=.042;values.lengths_m[2].value=.031;
+        values.lengths_m[0]=.182;values.lengths_m[1]=.042;values.lengths_m[2]=.031;
         values.counts[0]=6;values.counts[1]=5;values.counts[2]=4;
         values.topology=1;values.cell_length_mm=7.;values.wall_thickness_mm=.6;
         values.solid_conductivity_W_mK=16.;
@@ -23,8 +23,8 @@ int main() {
                 {4.,8.},{.3,.6},{dimension==3?xyz:xy,dimension==3?16u:8u}};
             auto capacities=tpmshx::stages::prepare_inlet_mass_capacities(input);
             flow.have_explicit_targets=1;
-            flow.explicit_targets_kg_s[0]=capacities.view().flow.capacities[0].value*6.;
-            flow.explicit_targets_kg_s[1]=capacities.view().flow.capacities[1].value*.02;
+            flow.explicit_targets_kg_s[0]=capacities.view().flow.capacities[0]*6.;
+            flow.explicit_targets_kg_s[1]=capacities.view().flow.capacities[1]*.02;
             auto resolved=tpmshx::stages::resolve_inlet_flow(input);
             auto prepared=tpmshx::stages::prepare_case(input,options);
             const auto& state=prepared.view();
@@ -32,7 +32,7 @@ int main() {
                 || state.area_density_per_m.size!=120 || state.hydraulic_diameter_m.size!=120
                 || state.thermal_porosity.size!=120 || state.controls.decision_mm.data==input.controls.decision_mm.data) return 1;
             for (std::size_t i=0;i<2;++i) {
-                const auto speed=resolved.view().flow.speeds[i].value;
+                const auto speed=resolved.view().flow.speeds[i];
                 if (!std::isfinite(speed) || speed<=0. || state.prepared.input.sides[i].velocity_m_s!=speed
                     || state.prepared.input.sides[i].have_mass_flow) return 1;
             }

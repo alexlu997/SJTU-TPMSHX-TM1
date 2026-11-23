@@ -10,7 +10,6 @@
 
 namespace tpmshx::zones {
 namespace {
-using grid::Scalar;
 std::size_t extent(std::size_t nx, std::size_t ny) {
     const auto limit = static_cast<std::size_t>(std::numeric_limits<std::int64_t>::max() / 2);
     if (!nx || !ny || nx > limit || ny > limit || nx > std::numeric_limits<std::size_t>::max() / ny)
@@ -22,40 +21,35 @@ double sum(const Values& values) {
     return 0. + detail::contiguous_sum({values.data(), values.size()});
 }
 
-std::vector<Scalar> fractions(std::size_t count, std::uint32_t kind,
-                              Scalar domain, const Values* widths) {
-    std::vector<Scalar> result(count);
+Values fractions(std::size_t count, std::uint32_t kind, double domain, const Values* widths) {
+    Values result(count);
     if (widths && widths->size() != count)
         throw std::invalid_argument("zone width count differs from the axis");
     if (!widths) {
         if (kind == 0) {
-            const auto spacing = grid::divide(domain, grid::weak(static_cast<double>(count)));
-            for (std::size_t i = 0; i < count; ++i) {
-                auto value = grid::divide(grid::multiply(grid::weak(static_cast<double>(i) + .5), spacing), domain);
-                value.strong = 1; // The original list becomes a NumPy array before comparison.
-                result[i] = value;
-            }
+            const double spacing = grid::divide(domain, static_cast<double>(count));
+            for (std::size_t i = 0; i < count; ++i)
+                result[i] = grid::divide((static_cast<double>(i) + .5) * spacing, domain);
         } else {
             for (std::size_t i = 0; i < count; ++i)
-                result[i] = {(static_cast<double>(i) + .5) / static_cast<double>(count), 64, kind == 1 ? 0u : 1u};
+                result[i] = (static_cast<double>(i) + .5) / static_cast<double>(count);
         }
         return result;
     }
-    const double total = kind == 0 ? domain.value : sum(*widths);
+    const double total = kind == 0 ? domain : sum(*widths);
     double cumulative = 0.;
     for (std::size_t i = 0; i < count; ++i) {
         const double previous = cumulative;
         cumulative += (*widths)[i];
         const double value = kind == 1 ? .5 * (previous + cumulative) / total
             : (cumulative - .5 * (*widths)[i]) / total;
-        result[i] = {value, 64, kind == 1 ? 0u : 1u};
+        result[i] = value;
     }
     return result;
 }
 
-bool inside(Scalar point, Scalar lower, Scalar upper) {
-    return !std::isnan(point.value) && !std::isnan(lower.value)
-        && !grid::less(point, lower) && grid::less(point, upper);
+bool inside(double point, double lower, double upper) {
+    return !std::isnan(point) && !std::isnan(lower) && !(point < lower) && point < upper;
 }
 
 std::size_t reflected(std::int64_t index, std::size_t count) {
@@ -93,14 +87,12 @@ Values correlate(const Values& input, std::size_t nx, std::size_t ny, int axis,
 }  // namespace
 
 std::vector<std::int32_t> assign(std::uint32_t kind, std::size_t nx, std::size_t ny,
-    int axis, Scalar domain, const std::vector<Bounds>& rows, const Values* dx, const Values* dy) {
+    int axis, double domain, const std::vector<Bounds>& rows, const Values* dx, const Values* dy) {
     const auto count = extent(nx, ny);
-    domain = grid::checked(domain);
     if (kind > 2 || (kind == 0 && (axis < 0 || axis > 1 || rows.empty()))
         || rows.size() > static_cast<std::size_t>(std::numeric_limits<std::int32_t>::max()))
         throw std::invalid_argument("invalid zone kind, axis or row count");
     if (kind == 2 && (!dx || !dy)) throw std::invalid_argument("3D zones need physical widths");
-    for (const auto& row : rows) for (const auto bound : row) grid::checked(bound);
     std::vector<std::int32_t> result(count, kind == 2 ? -1 : 0);
     const auto x = fractions(nx, kind == 0 && axis != 0 ? 1 : kind, domain, dx);
     const auto y = fractions(ny, kind == 0 && axis != 1 ? 1 : kind, domain, dy);

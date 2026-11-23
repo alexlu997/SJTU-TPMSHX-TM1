@@ -10,9 +10,8 @@ import numpy as np
 
 from sjtu_tpmshx.model_configs.model_parameters import fixed_geometry_error
 
-from ._native_values import TOPOLOGY_CODES
+from ._native_values import TOPOLOGY_CODES, real_scalar
 from ._df_abi import DragSummary as _Summary
-from . import _native_grid
 from .stage_libraries import preparation_library
 from . import _native_properties as _properties
 from ._native_properties import _EVENTS as _FP_EVENT_COUNT, _FPFailure
@@ -23,12 +22,11 @@ _S = ct.c_size_t
 _DP = ct.POINTER(_D)
 _IP = ct.POINTER(ct.c_int64)
 _ERROR = [ct.POINTER(ct.c_char), _S]
-_Scalar = _native_grid._Scalar
 
 
 class _Pressure(ct.Structure):
     _fields_ = [('dP', _D), ('outlet_squared', _D), ('no_positive_outlet', _U),
-                ('precision', _U), ('strong', _U), ('floating_events', _U * _FP_EVENT_COUNT)]
+                ('floating_events', _U * _FP_EVENT_COUNT)]
 
 
 class _Selection(ct.Structure):
@@ -39,16 +37,16 @@ class _Selection(ct.Structure):
 
 _SIGNATURES = {
     'fixed': [_U, _DP, _DP, _S, _DP, _S, _DP, _S],
-    'incompressible': [_U, _D, _D, *([_Scalar] * 4), ct.POINTER(_Pressure), ct.POINTER(_FPFailure)],
-    'compressible': [_U, _D, _D, *([_Scalar] * 5), _U, ct.POINTER(_Pressure), ct.POINTER(_FPFailure)],
+    'incompressible': [_U, _D, _D, *([_D] * 4), ct.POINTER(_Pressure), ct.POINTER(_FPFailure)],
+    'compressible': [_U, _D, _D, *([_D] * 5), _U, ct.POINTER(_Pressure), ct.POINTER(_FPFailure)],
     'pressure_gradient': [*([_properties._Input] * 5), _properties._Output, ct.POINTER(_FPFailure)],
     'correction_select': [_U, _U, _U, _DP, _S, _DP, _S, _DP, _S, _U, ct.POINTER(_Selection)],
     'correction_scales': [_U, ct.POINTER(_Selection), _DP, _DP, _S, _DP, _S, _DP, _S],
     'apply_scale': [_DP, _DP, _S, _U, _DP, _S],
     'summarize': [_DP, _S, _U, ct.POINTER(_Summary)],
     'co2_factors': [_DP, _S],
-    'project_rows': [_S, _S, _DP, _DP, _S, _U, _U, _U, _U, _U, _S,
-                     _DP, _S, _U, _DP, _S, _U, _DP, _S,
+    'project_rows': [_S, _S, _DP, _DP, _S, _U, _U, _U, _S,
+                     _DP, _S, _DP, _S, _DP, _S,
                      _DP, _S, _DP, _S, _IP, _S],
     'row_means': [_S, _S, _DP, _DP, _S, _U, _U, _DP, _S, _DP, _S],
 }
@@ -116,8 +114,7 @@ def pressure(topology, length, wall, *values, compressible=False, strict=False):
         length, wall = float(length), float(wall)
     except ValueError as failure:
         raise ValueError(fixed_geometry_error()) from failure
-    packed = [_native_grid._scalar(value[()] if isinstance(value, np.ndarray) and value.ndim == 0 else value)
-              for value in values]
+    packed = [real_scalar(value, allow_nonfinite=True) for value in values]
     output, failure, error = _Pressure(), _FPFailure(), ct.create_string_buffer(2048)
     name = 'compressible' if compressible else 'incompressible'
     arguments = [TOPOLOGY_CODES[topology], length, wall, *packed]
@@ -129,8 +126,7 @@ def pressure(topology, length, wall, *values, compressible=False, strict=False):
     from ._native_properties import _floating_events
     _pressure_failure(status,failure,error)
     _floating_events(output.floating_events)
-    result = values[2] if compressible and output.no_positive_outlet and not strict else (
-        _native_grid._restore(_Scalar(output.dP, output.precision, output.strong)))
+    result = packed[2] if compressible and output.no_positive_outlet and not strict else output.dP
     if compressible:
         return result, output.outlet_squared, bool(output.no_positive_outlet)
     return result
@@ -234,11 +230,6 @@ def co2_factors():
     return float(output[0]), float(output[1])
 
 
-def _precision(value):
-    dtype = np.asarray(value).dtype
-    return dtype.itemsize * 8 if dtype.kind == 'f' and dtype.itemsize in (2, 4, 8) else 64
-
-
 def _column_major(value):
     # Keep the original reduction order before packing the values in C order.
     first, second = map(abs, value.strides)
@@ -255,9 +246,9 @@ def project_rows(lengths, walls, target_count, direction, widths=None, source_gr
     target = _array([]) if widths is None else _array(widths)
     lr, tr = np.empty(target_count), np.empty(target_count)
     indices = np.empty(target_count, dtype=np.int64)
-    _call('project_rows', *l0.shape, _ptr(l), _ptr(t), l.size, _precision(l0), _precision(t0),
+    _call('project_rows', *l0.shape, _ptr(l), _ptr(t), l.size,
           _column_major(l0), _column_major(t0), direction, target_count,
-          _ptr(dx), dx.size, _precision(dx0), _ptr(dy), dy.size, _precision(dy0), _ptr(target), target.size,
+          _ptr(dx), dx.size, _ptr(dy), dy.size, _ptr(target), target.size,
           _ptr(lr), lr.size, _ptr(tr), tr.size, indices.ctypes.data_as(_IP), indices.size)
     return lr, tr, indices
 

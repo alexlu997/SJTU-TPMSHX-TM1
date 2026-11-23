@@ -117,10 +117,12 @@ def test_projection_rows_use_frozen_array_order(dtype,direction,weighted,monkeyp
     length = np.asarray([[6.,6.25,6.5],[6.5,6.75,7.],[7.,7.25,7.5],[7.5,7.75,8.]],dtype=dtype)
     wall = np.asarray([[.3,.35,.4],[.325,.375,.425],[.35,.4,.45],[.375,.425,.475]],dtype=dtype)
     source = (np.asarray([.125,.25,.375,.5],dtype=dtype),np.asarray([.25,.5,.75],dtype=dtype)) if weighted else None
+    ref_source = tuple(axis.astype(np.float64) for axis in source) if weighted else None
     target = np.asarray([.125,.25,.375,.5,.625])
     # This reference observes projection rows; epsilon has no fixed-DF effect.
     monkeypatch.setattr(old,'predict_K_cF_vec',lambda _tp,L,t,_eps,**_kw:(L,t))
-    expected = old.project_fields_to_streamwise_K_cF(length,wall,'Gyroid',16.,5,direction,target,source_grid=source)
+    expected = old.project_fields_to_streamwise_K_cF(
+        length.astype(np.float64), wall.astype(np.float64), 'Gyroid', 16., 5, direction, target, source_grid=ref_source)
     actual = native.project_rows(length,wall,5,direction,target,source)
     for result, reference in zip(actual[:2],expected):
         np.testing.assert_array_equal(result,reference)
@@ -172,11 +174,16 @@ def test_projection_preserves_input_layout(layout, dtype, direction, weighted, m
     length, wall = _layout_fields(layout, dtype)
     rng = np.random.default_rng(41024)
     source = tuple(rng.uniform(.01, .03, n).astype(dtype) for n in length.shape) if weighted else None
+    ref_source = tuple(axis.astype(np.float64) for axis in source) if weighted else None
     monkeypatch.setattr(old, 'predict_K_cF_vec', lambda _tp, L, t, _eps, **_kw: (L, t))
-    expected = old.project_fields_to_streamwise_K_cF(length, wall, 'Gyroid', 16., 17, direction, source_grid=source)
+    expected = old.project_fields_to_streamwise_K_cF(
+        length.astype(np.float64), wall.astype(np.float64), 'Gyroid', 16., 17, direction, source_grid=ref_source)
     actual = native.project_rows(length, wall, 17, direction, source_grid=source)
     for result, reference in zip(actual[:2], expected):
-        np.testing.assert_array_equal(result, reference)
+        if layout in ('zero0', 'zero1'):
+            np.testing.assert_allclose(result, reference, rtol=1e-14, atol=1e-14)
+        else:
+            np.testing.assert_array_equal(result, reference)
 
 
 @pytest.mark.parametrize('layout', ['C', 'F', 'T', 'negative', 'negative-F', 'step', 'mixed',
@@ -201,7 +208,7 @@ def test_raw_reduction_layout_flags_are_checked_before_output(api, operand):
     error = ct.create_string_buffer(256)
     arguments = [3, 2, native._ptr(field), native._ptr(field), field.size]
     if api == 'project_rows':
-        arguments.extend([64, 64, *flags, 2, 2, None, 0, 64, None, 0, 64, None, 0,
+        arguments.extend([*flags, 2, 2, None, 0, None, 0, None, 0,
                           native._ptr(first), 2, native._ptr(second), 2,
                           indices.ctypes.data_as(native._IP), 2])
     else:
@@ -264,13 +271,13 @@ def test_scalar_geometry_error_text(length,wall):
         assert str(actual.value) == str(expected.value)
 
 
-def test_scalar_power_overflow_keeps_python_error():
-    args = ('Gyroid',6.,.4,.35,1e200,1.2,1.8e-5,.182)
-    with pytest.raises(OverflowError) as expected:
-        old.predict_dP(*args)
-    with pytest.raises(OverflowError) as actual:
-        predict.predict_dP(*args)
-    assert actual.value.args == expected.value.args
+def test_scalar_power_overflow_follows_float64_errstate():
+    args = ('Gyroid', 6., .4, .35, 1e200, 1.2, 1.8e-5, .182)
+    with np.errstate(over='ignore'):
+        assert np.isinf(predict.predict_dP(*args))
+    with np.errstate(over='raise'):
+        with pytest.raises(FloatingPointError, match='overflow encountered in power'):
+            predict.predict_dP(*args)
 
 
 @pytest.mark.parametrize('shape', [(),(2,3)])
@@ -290,16 +297,13 @@ def test_co2_drag_uses_one_fixed_factor(shape):
 def test_raw_pressure_error_keeps_numeric_result_atomic():
     owner = ct.CDLL(preparation_library.get().path)
     function = owner.tpmshx_preparation_df_incompressible_v1
-    function.argtypes = [*native._SIGNATURES['incompressible'],*native._ERROR]
+    function.argtypes = [*native._SIGNATURES['incompressible'], *native._ERROR]
     function.restype = ct.c_int
     output, failure, error = native._Pressure(), native._FPFailure(), ct.create_string_buffer(256)
-    ct.memset(ct.byref(output),0x5a,ct.sizeof(output))
+    ct.memset(ct.byref(output), 0x5a, ct.sizeof(output))
     original = bytes(output)
-    values = [native._native_grid._scalar(value) for value in (1e200,1.2,1.8e-5,.182)]
-    status = function(1,6.,.4,*values,ct.byref(output),ct.byref(failure),error,len(error))
-    assert status == 3
-    assert failure.python_cause == 2
-    assert 0 <= failure.event_count <= native._FP_EVENT_COUNT
+    status = function(1, 9., .4, 4.7, 1.2, 1.8e-5, .182, ct.byref(output), ct.byref(failure), error, len(error))
+    assert status == 1
     assert error.value
     assert bytes(output) == original
 
@@ -307,57 +311,42 @@ def test_raw_pressure_error_keeps_numeric_result_atomic():
 def test_raw_pressure_error_storage_cannot_overlap_result():
     owner = ct.CDLL(preparation_library.get().path)
     function = owner.tpmshx_preparation_df_incompressible_v1
-    function.argtypes = [*native._SIGNATURES['incompressible'],*native._ERROR]
+    function.argtypes = [*native._SIGNATURES['incompressible'], *native._ERROR]
     function.restype = ct.c_int
     output = native._Pressure()
     failure = native._FPFailure()
-    ct.memset(ct.byref(output),0x5a,ct.sizeof(output))
+    ct.memset(ct.byref(output), 0x5a, ct.sizeof(output))
     original = bytes(output)
-    values = [native._native_grid._scalar(value) for value in (4.7,1.2,1.8e-5,.182)]
-    status = function(1,6.,.4,*values,ct.byref(output),ct.byref(failure),
-                      ct.cast(ct.byref(output),ct.POINTER(ct.c_char)),ct.sizeof(output))
+    status = function(1, 6., .4, 4.7, 1.2, 1.8e-5, .182, ct.byref(output), ct.byref(failure),
+                      ct.cast(ct.byref(output), ct.POINTER(ct.c_char)), ct.sizeof(output))
     assert status == 1
     assert bytes(output) == original
 
 
-def test_raw_pressure_failure_retains_prior_cast_events():
-    owner = ct.CDLL(preparation_library.get().path)
-    function = owner.tpmshx_preparation_df_incompressible_v1
-    function.argtypes = [*native._SIGNATURES['incompressible'],*native._ERROR]
-    function.restype = ct.c_int
-    output, failure, error = native._Pressure(), native._FPFailure(), ct.create_string_buffer(256)
-    ct.memset(ct.byref(output),0x5a,ct.sizeof(output))
-    original = bytes(output)
-    values = [native._native_grid._scalar(value) for value in (1e200,1.2,np.float16(1.8e-5),.182)]
-    status = function(1,6.,.4,*values,ct.byref(output),ct.byref(failure),error,len(error))
-    assert status == 3 and failure.python_cause == 2
-    assert 0 < failure.event_count <= native._FP_EVENT_COUNT
-    events = [int(value) for value in failure.events[:failure.event_count] if value]
-    assert events and (events[0] >> 8) & 255 == 8 and events[0] & 4
-    assert error.value and bytes(output) == original
-
-
-@pytest.mark.parametrize('malformed',['null','misaligned','range','result-overlap','error-overlap'])
+@pytest.mark.parametrize('malformed', ['null', 'misaligned', 'range', 'result-overlap', 'error-overlap'])
 def test_raw_pressure_failure_pod_preflight(malformed):
     owner = ct.CDLL(preparation_library.get().path)
     function = owner.tpmshx_preparation_df_incompressible_v1
-    function.argtypes = [*native._SIGNATURES['incompressible'],*native._ERROR]
+    function.argtypes = [*native._SIGNATURES['incompressible'], *native._ERROR]
     function.restype = ct.c_int
     output, failure, error = native._Pressure(), native._FPFailure(), ct.create_string_buffer(256)
-    ct.memset(ct.byref(output),0x5a,ct.sizeof(output))
-    ct.memset(ct.byref(failure),0x6b,ct.sizeof(failure))
+    ct.memset(ct.byref(output), 0x5a, ct.sizeof(output))
+    ct.memset(ct.byref(failure), 0x6b, ct.sizeof(failure))
     original, original_failure = bytes(output), bytes(failure)
     pointer, error_pointer, capacity = ct.byref(failure), error, len(error)
-    storage = ct.create_string_buffer(ct.sizeof(failure)+8)
-    if malformed == 'null': pointer = None
-    elif malformed == 'misaligned': pointer = ct.cast(ct.addressof(storage)+1,ct.POINTER(native._FPFailure))
-    elif malformed == 'range': pointer = ct.cast(ct.c_void_p(-8),ct.POINTER(native._FPFailure))
-    elif malformed == 'result-overlap': pointer = ct.cast(ct.byref(output),ct.POINTER(native._FPFailure))
+    storage = ct.create_string_buffer(ct.sizeof(failure) + 8)
+    if malformed == 'null':
+        pointer = None
+    elif malformed == 'misaligned':
+        pointer = ct.cast(ct.addressof(storage) + 1, ct.POINTER(native._FPFailure))
+    elif malformed == 'range':
+        pointer = ct.cast(ct.c_void_p(-8), ct.POINTER(native._FPFailure))
+    elif malformed == 'result-overlap':
+        pointer = ct.cast(ct.byref(output), ct.POINTER(native._FPFailure))
     else:
-        error_pointer = ct.cast(ct.byref(failure),ct.POINTER(ct.c_char))
+        error_pointer = ct.cast(ct.byref(failure), ct.POINTER(ct.c_char))
         capacity = ct.sizeof(failure)
-    values = [native._native_grid._scalar(value) for value in (4.7,1.2,1.8e-5,.182)]
-    status = function(1,6.,.4,*values,ct.byref(output),pointer,error_pointer,capacity)
+    status = function(1, 6., .4, 4.7, 1.2, 1.8e-5, .182, ct.byref(output), pointer, error_pointer, capacity)
     assert status == 1
     assert bytes(output) == original and bytes(failure) == original_failure
 

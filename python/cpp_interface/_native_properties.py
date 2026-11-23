@@ -7,7 +7,7 @@ import warnings
 
 import numpy as np
 
-from ._native_grid import _Scalar, _scalar
+from ._native_values import real_scalar
 from .stage_libraries import preparation_library
 
 
@@ -19,17 +19,12 @@ _EVENTS = 32
 
 
 class _Input(ct.Structure):
-    _fields_ = [('values', _DoubleP), ('count', _Size), ('kind', _Scalar), ('layout', _Uint)]
-
-
-class _Operand(ct.Structure):
-    _fields_ = [('real', _Input), ('imaginary', ct.c_double), ('category', _Uint)]
+    _fields_ = [('values', _DoubleP), ('count', _Size)]
 
 
 class _Output(ct.Structure):
-    _fields_ = [('values', _DoubleP), ('imaginary', _DoubleP), ('count', _Size),
-                ('kind', ct.POINTER(_Scalar)), ('category', _UintP),
-                ('events', _UintP), ('event_count', _Size)]
+    _fields_ = [('values', _DoubleP), ('count', _Size),
+                ('events', _UintP), ('event_capacity', _Size), ('event_count', ct.POINTER(_Size))]
 
 
 class _FPFailure(ct.Structure):
@@ -64,11 +59,11 @@ _SIGNATURES = {
     'sco2_hp_scalar': [ct.c_double, ct.c_double, _DoubleP, _Size],
     'sco2_hp': [_DoubleP, _DoubleP, _Size, _DoubleP, _Size],
     'nu_inputs': [_Uint, _Input, _Input, _Input, _Input, _Input, _Output, _DoubleP, _Size],
-    'nu': [_Uint, _Uint, _Input, _Input, _Input, _Input, _Scalar, _Output],
+    'nu': [_Uint, _Uint, _Input, _Input, _Input, _Input, ct.c_double, _Output],
     'roughness': [_Uint, _Input, _Input, _Output],
     'reynolds': [_Input, _Input, _Input, _Input, _Output],
-    'prandtl': [_Operand, _Operand, _Operand, _Output],
-    'surface_transfer': [_Operand, _Operand, _Operand, _Output],
+    'prandtl': [_Input, _Input, _Input, _Output],
+    'surface_transfer': [_Input, _Input, _Input, _Output],
     'inlet_re_pr': [_Input] * 6 + [_Output] * 2,
     'inlet_transfer': [_Input] * 5 + [_Output] * 3,
     'volumetric_transfer': [_Input, _Input, _Output],
@@ -106,21 +101,14 @@ def _pointer(values):
     return values.ctypes.data_as(_DoubleP)
 
 
-def _typed(value, *, coerce=False):
-    if coerce:
-        array = np.asarray(value, dtype=np.float64)
-        return array, _Scalar(float(array) if array.ndim == 0 else 0., 64, 1), 2 if array.ndim == 0 else 3
+def _operand(value):
+    """Normalize one real property operand; NaN and Inf propagate."""
+    if np.ndim(value) == 0:
+        return np.asarray(real_scalar(value, allow_nonfinite=True))
     array = np.asarray(value)
-    if isinstance(value, (float, int, np.floating, np.integer)):
-        kind = _scalar(value)
-        return array, kind, 1 if isinstance(value, np.generic) else 0
-    if array.dtype.kind not in 'fiu' or array.dtype.itemsize * 8 not in (8, 16, 32, 64):
-        raise TypeError('property arrays require supported real floating or integer values')
-    bits = array.dtype.itemsize * 8
-    if array.dtype.kind == 'f' and bits not in (16, 32, 64):
-        raise TypeError('property arrays support float16, float32 and float64')
-    return array, _Scalar(float(array) if array.ndim == 0 else 0., bits,
-                          1 if array.dtype.kind == 'f' else 2), 2 if array.ndim == 0 else 3
+    if array.dtype.kind not in 'fiu':
+        raise TypeError(f'property operands must contain real numbers, got {array.dtype}')
+    return array
 
 
 def _ufunc_shape_error(*shapes):
@@ -129,63 +117,52 @@ def _ufunc_shape_error(*shapes):
     return ValueError(f'operands could not be broadcast together with shapes {text} ')
 
 
-def _inputs(values, *, coerce=False, ufunc_shapes=False):
-    tagged = [_typed(value, coerce=coerce) for value in values]
+def _inputs(values, *, ufunc_shapes=False):
+    arrays = [_operand(value) for value in values]
     try:
-        broadcast = np.broadcast_arrays(*(item[0] for item in tagged))
+        broadcast = np.broadcast_arrays(*arrays)
     except ValueError:
         if ufunc_shapes:
-            raise _ufunc_shape_error(*(item[0].shape for item in tagged)) from None
+            raise _ufunc_shape_error(*(item.shape for item in arrays)) from None
         raise
     buffers = [np.ascontiguousarray(value.reshape(-1), dtype=np.float64) for value in broadcast]
-    inputs = [_Input(_pointer(buffer), buffer.size, kind, layout)
-              for buffer, (_, kind, layout) in zip(buffers, tagged)]
+    inputs = [_Input(_pointer(buffer), buffer.size) for buffer in buffers]
     return broadcast[0].shape, buffers, inputs
 
 
 class _Result:
     def __init__(self, count):
-        self.real = np.empty(count, dtype=np.float64)
-        self.imaginary = np.empty(count, dtype=np.float64)
-        self.kind, self.category = _Scalar(), _Uint()
+        self.values = np.empty(count, dtype=np.float64)
         self.events = np.zeros(_EVENTS, dtype=np.uint32)
-        self.output = _Output(_pointer(self.real), _pointer(self.imaginary), count,
-                              ct.pointer(self.kind), ct.pointer(self.category),
-                              self.events.ctypes.data_as(_UintP), _EVENTS)
+        self.event_count = _Size()
+        self.output = _Output(_pointer(self.values), count, self.events.ctypes.data_as(_UintP), _EVENTS,
+                              ct.pointer(self.event_count))
 
     def restore(self, shape):
-        _floating_events(self.events)
-        dtype = np.dtype(f'complex{self.kind.precision * 2}' if self.category.value
-                         else f'float{self.kind.precision}')
-        if self.category.value:
-            result = np.empty(shape, dtype=dtype)
-            result.real[...] = self.real.reshape(shape)
-            result.imag[...] = self.imaginary.reshape(shape)
-        else:
-            result = self.real.astype(dtype).reshape(shape)
-        if shape:
-            return result
-        return result[()] if self.kind.strong else result.item()
+        _floating_events(self.events[:self.event_count.value])
+        result = self.values.reshape(shape)
+        return result if shape else float(result[()])
+
+
+_OPERATIONS = {1: 'add', 2: 'subtract', 3: 'multiply', 4: 'divide',
+               5: 'power', 6: 'log', 7: 'exp', 9: 'log10'}
+_FLAGS = ((2, 'divide', 'divide by zero'), (4, 'over', 'overflow'),
+          (8, 'under', 'underflow'), (1, 'invalid', 'invalid value'))
 
 
 def _floating_events(events, *, warn=None):
+    """Replay ordered native FP events with the NumPy 'ignore', 'warn', 'raise' and 'print' modes."""
     policy = np.geterr()
-    operations = {1: 'add', 2: 'subtract', 3: 'multiply', 4: 'divide',
-                  5: 'power', 6: 'log', 7: 'exp', 8: 'cast', 9: 'log10'}
-    flags = ((2, 'divide', 'divide by zero'), (4, 'over', 'overflow'),
-             (8, 'under', 'underflow'), (1, 'invalid', 'invalid value'))
     for encoded in events:
         value = int(encoded)
         if not value:
             continue
-        operation = operations[(value >> 8) & 255]
-        if value & 0x10000 and operation not in ('log', 'exp', 'log10'):
-            operation = 'scalar ' + operation
-        for flag, category, label in flags:
-            if not value & flag or policy[category] == 'ignore':
+        operation = _OPERATIONS.get((value >> 8) & 255, 'operation')
+        for flag, category, label in _FLAGS:
+            mode = policy[category]
+            if not value & flag or mode not in ('warn', 'raise', 'print'):
                 continue
             text = f'{label} encountered in {operation}'
-            mode = policy[category]
             if mode == 'warn':
                 if warn is None:
                     warnings.warn(text, RuntimeWarning, stacklevel=4)
@@ -193,75 +170,20 @@ def _floating_events(events, *, warn=None):
                     warn(text)
             elif mode == 'raise':
                 raise FloatingPointError(text)
-            elif mode == 'print':
+            else:
                 print('Warning: ' + text, file=sys.stderr)
-            elif mode == 'call':
-                handler = np.geterrcall()
-                if handler is None:
-                    raise NameError('python callback specified for error but no function found.')
-                numpy_flags = ((1 if value & 2 else 0) | (2 if value & 4 else 0)
-                               | (4 if value & 8 else 0) | (8 if value & 1 else 0))
-                handler(label, numpy_flags)
-            elif mode == 'log':
-                handler = np.geterrcall()
-                if handler is None:
-                    raise NameError('log specified for error but no object with write method found.')
-                handler.write('Warning: ' + text + '\n')
-
-
-def _empirical_inputs(getter, temperature, pressure):
-    """Pack one fixed empirical operation without evaluating a model."""
-    water = getter >= 4
-    if not water:
-        def operand(value, operation, reverse=False):
-            if isinstance(value, (float, int, np.number, np.ndarray)):
-                return
-            if operation == '*' and isinstance(value, (str, bytes, list, tuple)):
-                raise TypeError("can't multiply sequence by non-int of type 'float'")
-            first, second = ('float', type(value).__name__) if reverse else (type(value).__name__, 'float')
-            raise TypeError(f"unsupported operand type(s) for {operation}: '{first}' and '{second}'")
-        if getter == 2:
-            operand(pressure, '*')
-            operand(temperature, '*', True)
-        else:
-            operand(temperature, '-' if getter == 3 else '/')
-    values = (temperature, pressure) if getter == 2 else (temperature,)
-    return _inputs(values, coerce=water)
 
 
 def empirical(getter, temperature, pressure=101325.0):
-    shape, buffers, inputs = _empirical_inputs(getter, temperature, pressure)
+    values = (temperature, pressure) if getter == 2 else (temperature,)
+    shape, buffers, inputs = _inputs(values)
     result = _Result(1 if getter == 7 else buffers[0].size)
     _call('empirical', getter, inputs[0], inputs[1] if getter == 2 else _Input(), result.output)
     return result.restore(()) if getter == 7 else result.restore(shape)
 
 
-def _derived_inputs(name, values):
-    """Pack derived-property operands without evaluating their expression."""
-    if name in ('prandtl', 'surface_transfer'):
-        real, imaginary, categories = [], [], []
-        for value in values:
-            if isinstance(value, (complex, np.complexfloating)):
-                if np.asarray(value).dtype.itemsize not in (8, 16):
-                    raise TypeError('property operands support complex64 and complex128 scalars')
-                real.append(value.real)
-                imaginary.append(float(value.imag))
-                categories.append(1)
-            else:
-                if np.asarray(value).dtype.kind == 'c':
-                    raise TypeError('property operands support complex scalars only')
-                real.append(value)
-                imaginary.append(0.)
-                categories.append(0)
-        shape, buffers, packed = _inputs(real)
-        inputs = [_Operand(value, imag, category) for value, imag, category in zip(packed, imaginary, categories)]
-    else:
-        shape, buffers, inputs = _inputs(values)
-    return shape, buffers, inputs
-
-
 def _derived(name, values, count):
-    shape, buffers, inputs = _derived_inputs(name, values)
+    shape, buffers, inputs = _inputs(values)
     outputs = [_Result(buffers[0].size) for _ in range(count)]
     _call(name, *inputs, *(value.output for value in outputs))
     restored = tuple(value.restore(shape) for value in outputs)
@@ -297,7 +219,7 @@ def pore_conductivity(epsilon, k):
 
 
 def paired_state(name, temperature, pressure):
-    shape, buffers, _ = _inputs((temperature, pressure), coerce=True)
+    shape, buffers, _ = _inputs((temperature, pressure))
     _call(name, _pointer(buffers[0]), _pointer(buffers[1]), buffers[0].size)
     return shape, buffers
 
@@ -309,7 +231,7 @@ def co2_scalar_bundle(temperature, pressure):
 
 
 def co2_pt(keys, temperature, pressure):
-    shape, buffers, _ = _inputs((temperature, pressure), coerce=True)
+    shape, buffers, _ = _inputs((temperature, pressure))
     indices = np.asarray(keys, dtype=np.uint32)
     output = np.empty((len(keys),) + shape, dtype=np.float64)
     _call('co2_pt', _pointer(buffers[0]), _pointer(buffers[1]), buffers[0].size,
@@ -339,7 +261,7 @@ def sco2_pt(key, temperature, pressure, *, scalar=False):
     storage = [ct.create_string_buffer(value) for value in encoded]
     key_buffer = (_Key * len(keys))(*(_Key(ct.cast(value, ct.POINTER(ct.c_char)), len(encoded[index]))
                                     for index, value in enumerate(storage)))
-    shape, buffers, _ = _inputs((temperature, pressure), coerce=True)
+    shape, buffers, _ = _inputs((temperature, pressure))
     output = np.empty((len(keys),) + shape, dtype=np.float64)
     form = 0 if scalar else 1 if isinstance(key, str) else 2
     _call('sco2_pt', form, key_buffer, len(keys), _pointer(buffers[0]), _pointer(buffers[1]), buffers[0].size,
@@ -353,7 +275,7 @@ def sco2_pt(key, temperature, pressure, *, scalar=False):
 
 
 def sco2_hp(enthalpy, pressure, *, scalar=False):
-    shape, buffers, _ = _inputs((enthalpy, pressure), coerce=True)
+    shape, buffers, _ = _inputs((enthalpy, pressure))
     output = np.empty(shape, dtype=np.float64)
     if scalar:
         _call('sco2_hp_scalar', float(buffers[0][0]), float(buffers[1][0]), _pointer(output), output.size)
@@ -363,11 +285,8 @@ def sco2_hp(enthalpy, pressure, *, scalar=False):
 
 
 def nu_inputs(route, re, *, pr=None, cell=None, diameter=None, re_floor=10.0):
-    if route in (0, 1, 4):
-        original = np.asarray(re, dtype=np.float64)
-        re = float(original) if route == 0 and original.ndim == 0 else original
     if route == 4:
-        shape, buffers, inputs = _inputs((re, pr, cell, diameter), coerce=True)
+        shape, buffers, inputs = _inputs((re, pr, cell, diameter))
         floor = _Input()
     elif route == 1:
         shape, buffers, paired = _inputs((re, re_floor), ufunc_shapes=True)
@@ -383,11 +302,11 @@ def nu_inputs(route, re, *, pr=None, cell=None, diameter=None, re_floor=10.0):
 
 def nusselt(route, topology, re, pr, cell=None, diameter=None, *, alpha=1.0):
     values = (re, pr) if route == 2 else (re, pr, cell, diameter)
-    shape, buffers, inputs = _inputs(values, coerce=route == 4)
+    shape, buffers, inputs = _inputs(values)
     if route == 2:
         inputs += [_Input(), _Input()]
     result = _Result(buffers[0].size)
-    _call('nu', route, topology, *inputs, _scalar(alpha), result.output)
+    _call('nu', route, topology, *inputs, real_scalar(alpha, name='alpha', allow_nonfinite=True), result.output)
     return result.restore(shape)
 
 
@@ -396,8 +315,6 @@ def roughness(quantity, first=None, second=None):
         result = _Result(1)
         _call('roughness', quantity, _Input(), _Input(), result.output)
         return result.restore(())
-    if quantity in (0, 1, 3):
-        first = np.asarray(first, dtype=np.float64)
     values = (first, second) if quantity in (1, 2, 3) else (first,)
     shape, buffers, inputs = _inputs(values)
     if len(inputs) == 1:

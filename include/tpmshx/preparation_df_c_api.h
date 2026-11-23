@@ -2,7 +2,6 @@
 #define TPMSHX_PREPARATION_DF_C_API_H
 
 #include "tpmshx/preparation_c_api.h"
-#include "tpmshx/grid_c_api.h"
 #include "tpmshx/property_c_api.h"
 
 #ifdef __cplusplus
@@ -12,7 +11,6 @@ extern "C" {
 typedef struct {
     double dP_Pa, outlet_squared_Pa;
     uint32_t no_positive_outlet;
-    uint32_t precision, strong;
     uint32_t floating_events[TPMSHX_PREPARATION_FP_EVENT_COUNT];
 } tpmshx_preparation_df_pressure_v1;
 
@@ -36,21 +34,20 @@ TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_preparation_df_fixed_v
     double* permeability, size_t permeability_count, double* forchheimer, size_t forchheimer_count,
     char* error, size_t error_capacity);
 
-/* Pressure operands retain weak Python or strong NumPy scalar metadata.
- * Result precision/strong describe dP. Events use the preparation property's
- * ordered scalar-operation flags. The nonpositive-outlet policy is separate.
+/* Pressure operands and dP use float64. Events use the preparation property's
+ * ordered operation flags. The nonpositive-outlet policy is separate.
  * The failure POD is mandatory disjoint error data. It can publish earlier
  * FP events and a terminal cause while the numerical result stays unchanged.
  */
 TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_preparation_df_incompressible_v1(
-    uint32_t topology, double L_mm, double t_mm, tpmshx_grid_scalar_v1 speed,
-    tpmshx_grid_scalar_v1 density, tpmshx_grid_scalar_v1 viscosity,
-    tpmshx_grid_scalar_v1 length_m, tpmshx_preparation_df_pressure_v1* result,
+    uint32_t topology, double L_mm, double t_mm, double speed,
+    double density, double viscosity,
+    double length_m, tpmshx_preparation_df_pressure_v1* result,
     tpmshx_preparation_fp_failure_v1* failure, char* error, size_t error_capacity);
 TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_preparation_df_compressible_v1(
-    uint32_t topology, double L_mm, double t_mm, tpmshx_grid_scalar_v1 mass_flux,
-    tpmshx_grid_scalar_v1 temperature, tpmshx_grid_scalar_v1 inlet_pressure,
-    tpmshx_grid_scalar_v1 viscosity, tpmshx_grid_scalar_v1 length_m, uint32_t strict,
+    uint32_t topology, double L_mm, double t_mm, double mass_flux,
+    double temperature, double inlet_pressure,
+    double viscosity, double length_m, uint32_t strict,
     tpmshx_preparation_df_pressure_v1* result, tpmshx_preparation_fp_failure_v1* failure,
     char* error, size_t error_capacity);
 
@@ -105,16 +102,14 @@ TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_preparation_df_summari
 TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_preparation_df_co2_factors_v1(
     double* result, size_t result_count, char* error, size_t error_capacity);
 
-/* Optional source widths are present together. Target widths are already
- * float64. Precision tags describe the original floating field/width data.
+/* Optional source widths are present together. All fields and widths use float64.
  * Column-major flags retain the original reduction order. All buffers use C order.
  */
 TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_preparation_df_project_rows_v1(
     size_t nx, size_t ny, const double* L_mm, const double* t_mm, size_t field_count,
-    uint32_t L_precision, uint32_t t_precision,
     uint32_t L_column_major, uint32_t t_column_major, uint32_t direction, size_t target_count,
-    const double* source_dx, size_t dx_count, uint32_t dx_precision,
-    const double* source_dy, size_t dy_count, uint32_t dy_precision,
+    const double* source_dx, size_t dx_count,
+    const double* source_dy, size_t dy_count,
     const double* target_widths, size_t target_width_count,
     double* L_rows, size_t L_row_count, double* t_rows, size_t t_row_count,
     int64_t* source_index, size_t index_count, char* error, size_t error_capacity);

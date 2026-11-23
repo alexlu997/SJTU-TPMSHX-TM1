@@ -1,4 +1,4 @@
-"""Compare native grid routes with frozen independent NumPy functions."""
+"""Compare float64 native grid routes with independent NumPy functions."""
 import warnings
 
 import numpy as np
@@ -16,12 +16,29 @@ INTEGER_KINDS = (np.int8, np.uint8, np.int16, np.uint16,
                  np.int32, np.uint32, np.int64, np.uint64)
 
 
-@pytest.mark.parametrize('kind', INTEGER_KINDS)
-def test_integer_scalar_transport_retains_original_bit_width(kind):
-    value = kind(1)
-    scalar = native._scalar(value)
-    assert scalar.value == 1. and scalar.strong == 2
-    assert scalar.precision == value.dtype.itemsize * 8
+def _f64(value):
+    """Convert reference inputs to the float64 values that the native core receives."""
+    if isinstance(value, dict):
+        return {key: item if key == 'dir' else _f64(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return type(value)(_f64(item) for item in value)
+    if isinstance(value, np.ndarray):
+        return value.astype(np.float64)
+    if isinstance(value, (int, float, np.integer, np.floating)) and not isinstance(value, bool):
+        return float(value)
+    return value
+
+
+@pytest.mark.parametrize('kind', (*INTEGER_KINDS, *KINDS))
+def test_scalar_transport_uses_python_float(kind):
+    scalar = native._scalar(kind(1))
+    assert type(scalar) is float and scalar == 1.
+
+
+@pytest.mark.parametrize('value', [True, np.bool_(False), 1j, np.complex128(1), '1', b'1', None])
+def test_scalar_transport_rejects_non_real_values(value):
+    with pytest.raises(TypeError):
+        native._scalar(value)
 
 
 @pytest.mark.parametrize('length_kind', KINDS)
@@ -84,9 +101,9 @@ def test_uniform_and_centres_keep_scalar_intermediates(kind, count):
     length = kind(.182)
     with warnings.catch_warnings():
         warnings.simplefilter('ignore', RuntimeWarning)
-        _exact(native.uniform(count, length), np.full(count, length / count, dtype=np.float64))
-        _exact(native.continuous_centres(count, length), centres.continuous_centres(count, length, None))
-        _exact(native.sigmoid_centres(count, length), centres.sigmoid_centres(count, length, None))
+        _exact(native.uniform(count, length), np.full(count, float(length) / count, dtype=np.float64))
+        _exact(native.continuous_centres(count, length), centres.continuous_centres(count, float(length), None))
+        _exact(native.sigmoid_centres(count, length), centres.sigmoid_centres(count, float(length), None))
 
 
 @pytest.mark.parametrize('domain_kind', KINDS)
@@ -96,15 +113,16 @@ def test_aligned_grid_keeps_mixed_scalar_order(domain_kind, point_kind, count):
     length = domain_kind(.182)
     points = [point_kind(.0031), point_kind(.057), point_kind(.133),
               point_kind(.0031), point_kind(.000181), point_kind(.1819)]
-    epsilon = length * .001
-    bounds = sorted(set([0.] + [value for value in points if epsilon < value < length - epsilon] + [length]))
+    length64, points64 = _f64(length), _f64(points)
+    epsilon = length64 * .001
+    bounds = sorted(set([0.] + [value for value in points64 if epsilon < value < length64 - epsilon] + [length64]))
     _same_scalars(native.aligned_bounds(length, points), bounds)
     _matching(lambda: grid._aligned_grid(count, length, points),
-              lambda: reference._aligned_grid(count, length, points))
+              lambda: reference._aligned_grid(count, length64, points64))
 
 
-def test_aligned_mixed_python_sum_prefix_and_first_max_tie():
-    # Each sequence crosses from Python-float sum into a strong scalar at a different segment.
+def test_aligned_mixed_inputs_use_python_float_sum_and_first_max_tie():
+    # Mixed input types become float64 before the compensated segment sum.
     cases = [
         (float(.182), [.012, .039, np.float16(.071), .137], 37),
         (np.float32(.182), [.012, .039, np.float32(.071), np.float16(.137)], 37),
@@ -112,15 +130,15 @@ def test_aligned_mixed_python_sum_prefix_and_first_max_tie():
         (1., [np.float16(.25), np.float32(.5), np.float64(.75)], 10),
     ]
     for length, points, count in cases:
-        _exact(grid._aligned_grid(count, length, points), reference._aligned_grid(count, length, points))
+        _exact(grid._aligned_grid(count, length, points), reference._aligned_grid(count, _f64(length), _f64(points)))
 
 
 @pytest.mark.parametrize('length_kind', KINDS)
 @pytest.mark.parametrize('count_kind', [np.int8, np.int16, np.int32, np.int64, np.uint8,
                                       np.uint16, np.uint32, np.uint64])
-def test_continuous_numpy_integer_count_keeps_quotient_promotion(length_kind, count_kind):
+def test_continuous_numpy_integer_count_uses_float64_quotient(length_kind, count_kind):
     count, length = count_kind(13), length_kind(.182)
-    _exact(native.continuous_centres(count, length), centres.continuous_centres(count, length, None))
+    _exact(native.continuous_centres(count, length), centres.continuous_centres(int(count), float(length), None))
 
 
 @pytest.mark.parametrize('length_kind', INTEGER_KINDS)
@@ -165,7 +183,7 @@ def test_public_prepare_accepts_numpy_integer_domain_lengths(nz):
 @pytest.mark.parametrize('layers', [0, 4, 8])
 def test_wall_widths_match_original_rounding_and_rejection(kind, width, layers):
     _matching(lambda: grid.build_wall_refined_1d(kind(width), 13, layers),
-              lambda: reference.build_wall_refined_1d(kind(width), 13, layers))
+              lambda: reference.build_wall_refined_1d(float(kind(width)), 13, layers))
 
 
 @pytest.mark.parametrize('first_kind,growth_kind', [(np.float16, float), (float, np.float32),
@@ -174,7 +192,8 @@ def test_wall_custom_numpy_layer_scalars(first_kind, growth_kind):
     with warnings.catch_warnings():
         warnings.simplefilter('ignore', RuntimeWarning)
         _matching(lambda: grid.build_wall_refined_1d(.182, 11, 4, first_kind(.0002), growth_kind(1.8)),
-                  lambda: reference.build_wall_refined_1d(.182, 11, 4, first_kind(.0002), growth_kind(1.8)))
+                  lambda: reference.build_wall_refined_1d(.182, 11, 4, float(first_kind(.0002)),
+                                                          float(growth_kind(1.8))))
 
 
 def _port(kind, direction=0):
@@ -193,15 +212,15 @@ def test_port_wall_edges_counts_and_widths(kind, dimensions, direction):
     lengths = tuple(kind(value) for value in (.182, .042, .035)[:dimensions])
     ports = (_port(kind, direction), None)
     actual = list(grid._port_wall_axes(lengths, ports))
-    expected = list(reference._port_wall_axes(lengths, ports))
+    expected = list(reference._port_wall_axes(_f64(lengths), _f64(ports)))
     assert len(actual) == len(expected)
     for left, right in zip(actual, expected):
         _same_scalars(left[0], right[0])
         assert left[1:] == right[1:]
-    assert grid.port_wall_min_counts(lengths, ports) == reference.port_wall_min_counts(lengths, ports)
+    assert grid.port_wall_min_counts(lengths, ports) == reference.port_wall_min_counts(_f64(lengths), _f64(ports))
     count = (96,) * dimensions
     _matching(lambda: np.stack(grid.build_port_wall_grid(lengths, count, ports)),
-              lambda: np.stack(reference.build_port_wall_grid(lengths, count, ports)))
+              lambda: np.stack(reference.build_port_wall_grid(_f64(lengths), count, _f64(ports))))
 
 
 def test_port_wall_failure_keeps_original_axis_and_edges():
@@ -220,7 +239,8 @@ def test_grid_suggestion_uses_total_counts_and_native_port_minima(kind, refined)
     ports = (_port(kind),)
     for budget in (50_000, 150_000):
         assert grid.suggest_grid_3d(*lengths, diameter, budget, port_wall_refine=refined, ports=ports) == (
-            reference.suggest_grid_3d(*lengths, diameter, budget, port_wall_refine=refined, ports=ports))
+            reference.suggest_grid_3d(*_f64(lengths), float(diameter), budget, port_wall_refine=refined,
+                                      ports=_f64(ports)))
 
 
 @pytest.mark.parametrize('kind', KINDS)
@@ -228,7 +248,8 @@ def test_grid_suggestion_uses_total_counts_and_native_port_minima(kind, refined)
 def test_grid_2d_retains_one_sided_breaks_and_error_flow(kind, refined):
     port = dict(dir=0, in_ctr=kind(.021), in_w=kind(.042),
                 out_ctr=kind(.019), out_w=kind(.013))
-    expected = reference.build_grid_2d(kind(.182), kind(.042), 84, 48, (port,), port_wall_refine=refined)
+    expected = reference.build_grid_2d(float(kind(.182)), float(kind(.042)), 84, 48, (_f64(port),),
+                                       port_wall_refine=refined)
     actual = grid.build_grid_2d(kind(.182), kind(.042), 84, 48, (port,), port_wall_refine=refined)
     _exact(actual[0], expected[0])
     _exact(actual[1], expected[1])
@@ -241,7 +262,7 @@ def test_grid_2d_retains_one_sided_breaks_and_error_flow(kind, refined):
 @pytest.mark.parametrize('lower_kind', KINDS)
 @pytest.mark.parametrize('upper_kind', KINDS)
 @pytest.mark.parametrize('staggered', [False, True])
-def test_raw_width_overlap_keeps_cumsum_and_endpoint_precision(width_kind, lower_kind, upper_kind, staggered):
+def test_raw_width_overlap_uses_float64_cumsum_and_endpoints(width_kind, lower_kind, upper_kind, staggered):
     samples = ([.007, .042, .133], [2.**-10] * 128, [.013, .007, .031, .011, .017])
     for sample in samples:
         widths = np.asarray(sample, dtype=width_kind)
@@ -253,17 +274,16 @@ def test_raw_width_overlap_keeps_cumsum_and_endpoint_precision(width_kind, lower
         for lower, upper in limits:
             with warnings.catch_warnings():
                 warnings.simplefilter('ignore', RuntimeWarning)
-                expected = reference._port_overlap_1d(widths, lower, upper, staggered=staggered)
+                expected = reference._port_overlap_1d(_f64(widths), _f64(lower), _f64(upper), staggered=staggered)
             actual = grid._port_overlap_1d(widths, lower, upper, staggered=staggered)
             _exact(actual, expected)
             for threshold in (0., .01, .5, .99):
                 np.testing.assert_array_equal(actual > threshold, expected > threshold)
 
 
-def test_roundoff_max_tie_keeps_the_first_numpy16_winner():
+def test_roundoff_tolerance_uses_the_float64_maximum():
     widths, lower, upper = np.full(128, 2.**-10), np.float16(0.), np.float16(.125)
-    expected = reference._port_overlap_1d(widths, lower, upper)
-    assert np.count_nonzero(expected) == 0
+    expected = reference._port_overlap_1d(widths, 0., .125)
     _exact(grid._port_overlap_1d(widths, lower, upper), expected)
 
 
@@ -273,7 +293,7 @@ def test_raw_fraction_profiles_preserve_discrete_taper(kind, uniform):
     widths = np.full(23, .001, dtype=kind)
     lower, upper = np.float16(.004), np.float32(.019)
     actual = grid._port_fractions_1d(widths, lower, upper, uniform=uniform)
-    expected = reference._port_fractions_1d(widths, lower, upper, uniform=uniform)
+    expected = reference._port_fractions_1d(_f64(widths), _f64(lower), _f64(upper), uniform=uniform)
     _exact(actual[0], expected[0])
     np.testing.assert_allclose(actual[1], expected[1], rtol=4e-15, atol=0.)
     for threshold in (0., .01, .5, .99):
@@ -282,26 +302,27 @@ def test_raw_fraction_profiles_preserve_discrete_taper(kind, uniform):
 
 @pytest.mark.parametrize('width_kind', [np.float16, np.float32, np.float64])
 @pytest.mark.parametrize('length_kind', KINDS)
-def test_raw_sigmoid_centres_keep_array_intermediate_dtype(width_kind, length_kind):
+def test_raw_sigmoid_centres_use_float64_arrays(width_kind, length_kind):
     for sample in ([.007, .042, .133], [2.**-10] * 128):
         widths = np.array(sample, dtype=width_kind)
         length = length_kind(np.sum(widths))
         _exact(native.sigmoid_centres(len(widths), length, widths),
-               centres.sigmoid_centres(len(widths), length, widths))
+               centres.sigmoid_centres(len(widths), float(length), _f64(widths)))
 
 
 @pytest.mark.parametrize('kind', KINDS)
 def test_rectangles_and_partial_masks_keep_physical_edges(kind):
     config = _port(kind, 5)
     _actual = native.rectangles(config, kind(.035))
-    _expected = coordinates._port_rectangles(config, kind(.035))
+    _expected = coordinates._port_rectangles(_f64(config), float(kind(.035)))
     for key in ('inlet_rect', 'outlet_rect'):
         _same_scalars(_actual[key], _expected[key])
     for width_kind in (np.float16, np.float32, np.float64):
         first = np.full(23, .002, dtype=width_kind)
         second = np.full(19, .002, dtype=width_kind)
         for left, right in zip(native.partial_masks(config, first, second, len(second)),
-                               coordinates._build_partial_masks(config, first, second, len(second))):
+                               coordinates._build_partial_masks(_f64(config), _f64(first), _f64(second),
+                                                                len(second))):
             _exact(left, right)
 
 
@@ -315,7 +336,7 @@ def test_axis_map_borrows_widths_and_keeps_direction(direction, axes, permutatio
     counts = (7, 5, 3)
     widths = tuple(native.uniform(count, length) for count, length in zip(counts, lengths))
     for actual, length, count in zip(widths[:3], lengths, counts):
-        _exact(actual, np.full(count, length / count, dtype=np.float64))
+        _exact(actual, np.full(count, float(length) / count, dtype=np.float64))
     mapping = _axis_data(native.axis_map(direction), widths, lengths)
     assert mapping['solver_to_real_perm'] == permutation
     assert mapping['is_reverse'] is reverse
@@ -336,41 +357,28 @@ def test_grid_c_boundary_failure_keeps_all_caller_outputs(operation):
     error = ct.create_string_buffer(512)
     if operation == 'overlap':
         status = native._function('overlap')(
-            native._pointer(widths), 4, 24, native._scalar(0.), native._scalar(.04), 0,
+            native._pointer(widths), 4, 0., .04, 2,
             native._pointer(first), first.size, error, len(error))
     elif operation == 'fractions':
         status = native._function('fractions')(
-            native._pointer(widths), 4, 24, native._scalar(0.), native._scalar(.04), 0,
+            native._pointer(widths), 4, 0., .04, 2,
             native._pointer(first), native._pointer(second), first.size, error, len(error))
     else:
         widths = np.full(4, .01)
         # The outlet fails after the inlet range has already been calculated.
         config = native._port(dict(in_ctr=.02, in_w=.02, out_ctr=.09, out_w=.01))
         status = native._function('partial')(
-            ct.byref(config), native._pointer(widths), 4, 64, native._pointer(np.empty(0)),
-            0, 64, 0, 1, native._pointer(first), native._pointer(second), 4, error, len(error))
+            ct.byref(config), native._pointer(widths), 4, native._pointer(np.empty(0)),
+            0, 0, 1, native._pointer(first), native._pointer(second), 4, error, len(error))
     assert status == 1
     assert error.value
     _exact(first, first_before)
     _exact(second, second_before)
 
 
-def test_grid_c_boundary_rejects_invalid_precision_before_writing():
-    import ctypes as ct
-
-    output = np.full(4, 291.5)
-    original = output.copy()
-    error = ct.create_string_buffer(512)
-    bad = native._Scalar(.182, 24, 1)
-    status = native._function('uniform')(4, bad, native._pointer(output), 4, error, len(error))
-    assert status == 1
-    assert error.value
-    _exact(output, original)
-
-
 @pytest.mark.parametrize('kind', [np.float16, np.float32, np.float64])
 @pytest.mark.parametrize('staggered', [False, True])
-def test_raw_overlap_keeps_nonfinite_and_nonpositive_numpy_values(kind, staggered):
+def test_raw_overlap_keeps_nonfinite_and_nonpositive_float64_values(kind, staggered):
     samples = ([.01, 0., .02], [.01, -.005, .02], [np.nan, .01, .02],
                [np.inf, .01, .02], [-np.inf, .01, .02], [0., -0., .01])
     for sample in samples:
@@ -378,7 +386,7 @@ def test_raw_overlap_keeps_nonfinite_and_nonpositive_numpy_values(kind, staggere
         for lower, upper in ((0., .025), (-np.inf, np.inf), (np.nan, .025), (0., np.nan)):
             with warnings.catch_warnings():
                 warnings.simplefilter('ignore', RuntimeWarning)
-                expected = reference._port_overlap_1d(widths, lower, upper, staggered=staggered)
+                expected = reference._port_overlap_1d(_f64(widths), lower, upper, staggered=staggered)
             _exact(grid._port_overlap_1d(widths, lower, upper, staggered=staggered), expected)
 
 

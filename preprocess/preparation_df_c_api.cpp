@@ -43,9 +43,6 @@ template<class Buffers, class Function> int guarded(char* error, std::size_t cap
 void flag(std::uint32_t value) {
     if (value > 1) throw std::invalid_argument("preparation flag must be zero or one");
 }
-tpmshx::grid::Scalar scalar(tpmshx_grid_scalar_v1 value) {
-    return tpmshx::grid::checked({value.value,value.precision,value.strong});
-}
 template<class Pair> void publish(const std::vector<Pair>& values, double* first, double* second) {
     for (std::size_t i = 0; i < values.size(); ++i) { first[i] = values[i].K; second[i] = values[i].cF; }
 }
@@ -68,7 +65,7 @@ template<class Function> void publish_pressure(tpmshx_preparation_df_pressure_v1
     }
 }
 p::PropertyInput field(tpmshx_property_input_v1 value) {
-    return {{value.values,value.count},{value.kind.value,value.kind.precision,value.kind.strong},value.layout};
+    return {{value.values,value.count}};
 }
 }  // namespace
 
@@ -82,26 +79,26 @@ extern "C" int TPMSHX_PREPARATION_CALL tpmshx_preparation_df_fixed_v1(
     });
 }
 extern "C" int TPMSHX_PREPARATION_CALL tpmshx_preparation_df_incompressible_v1(
-    uint32_t topology, double length, double wall, tpmshx_grid_scalar_v1 speed,
-    tpmshx_grid_scalar_v1 density, tpmshx_grid_scalar_v1 viscosity,
-    tpmshx_grid_scalar_v1 channel, tpmshx_preparation_df_pressure_v1* output,
+    uint32_t topology, double length, double wall, double speed,
+    double density, double viscosity,
+    double channel, tpmshx_preparation_df_pressure_v1* output,
     tpmshx_preparation_fp_failure_v1* failure,char* error,size_t cap) {
     return guarded(error,cap,[&] {return std::vector<Buffer>{buffer(output,1,true),buffer(failure,1,true)};},[&] {
         publish_pressure(output,failure,[&] {
-            return p::df_incompressible_typed(topology,length,wall,scalar(speed),scalar(density),scalar(viscosity),scalar(channel));
+            return p::df_incompressible(topology,length,wall,speed,density,viscosity,channel);
         });
     });
 }
 extern "C" int TPMSHX_PREPARATION_CALL tpmshx_preparation_df_compressible_v1(
-    uint32_t topology,double length,double wall,tpmshx_grid_scalar_v1 flux,
-    tpmshx_grid_scalar_v1 temperature,tpmshx_grid_scalar_v1 pressure,
-    tpmshx_grid_scalar_v1 viscosity,tpmshx_grid_scalar_v1 channel,uint32_t strict,
+    uint32_t topology,double length,double wall,double flux,
+    double temperature,double pressure,
+    double viscosity,double channel,uint32_t strict,
     tpmshx_preparation_df_pressure_v1* output,tpmshx_preparation_fp_failure_v1* failure,
     char* error,size_t cap) {
     return guarded(error,cap,[&] {return std::vector<Buffer>{buffer(output,1,true),buffer(failure,1,true)};},[&] {
         flag(strict);
         publish_pressure(output,failure,[&] {
-            return p::df_compressible_typed(topology,length,wall,scalar(flux),scalar(temperature),scalar(pressure),scalar(viscosity),scalar(channel),strict!=0);
+            return p::df_compressible(topology,length,wall,flux,temperature,pressure,viscosity,channel,strict!=0);
         });
     });
 }
@@ -112,22 +109,22 @@ extern "C" int TPMSHX_PREPARATION_CALL tpmshx_preparation_df_pressure_gradient_v
     return guarded(error,cap,[&] {return std::vector<Buffer>{
         buffer(density.values,density.count),buffer(viscosity.values,viscosity.count),buffer(speed.values,speed.count),
         buffer(permeability.values,permeability.count),buffer(inertial.values,inertial.count),
-        buffer(output.values,output.count,true),buffer(output.imaginary,output.count,true),buffer(output.kind,1,true),
-        buffer(output.category,1,true),buffer(output.events,output.event_count,true),buffer(failure,1,true)};},[&] {
+        buffer(output.values,output.count,true),buffer(output.events,output.event_capacity,true),
+        buffer(output.event_count,1,true),buffer(failure,1,true)};},[&] {
         require_output(output.values,output.count,density.count);
-        require_output(output.imaginary,output.count,density.count);
-        require_output(output.events,output.event_count,TPMSHX_PREPARATION_FP_EVENT_COUNT);
+        require_output(output.events,output.event_capacity,TPMSHX_PREPARATION_FP_EVENT_COUNT);
         *failure = {};
         p::PropertyResult result;
         try {
             result = p::df_pressure_gradient(field(density),field(viscosity),field(speed),field(permeability),field(inertial));
         } catch (const p::PropertyError& error_data) { publish_failure(error_data,failure); }
-        if (result.values.size()!=output.count || result.imaginary.size()!=output.count)
+        if (result.values.size()!=output.count)
             throw std::runtime_error("pressure-gradient result extent is incorrect");
-        for (size_t i=0;i<output.count;++i) {output.values[i]=result.values[i];output.imaginary[i]=result.imaginary[i];}
-        *output.kind = {result.kind.value,result.kind.precision,result.kind.strong};
-        *output.category = result.category;
+        std::copy(result.values.begin(),result.values.end(),output.values);
         std::copy(result.events.begin(),result.events.end(),output.events);
+        std::size_t used=result.events.size();
+        while (used && !result.events[used-1]) --used;
+        *output.event_count=used;
     });
 }
 extern "C" uint32_t TPMSHX_PREPARATION_CALL tpmshx_preparation_df_experiment_scope_v1(
@@ -182,19 +179,19 @@ extern "C" int TPMSHX_PREPARATION_CALL tpmshx_preparation_df_co2_factors_v1(
     });
 }
 extern "C" int TPMSHX_PREPARATION_CALL tpmshx_preparation_df_project_rows_v1(
-    size_t nx,size_t ny,const double* length,const double* wall,size_t field_count,uint32_t l_bits,uint32_t t_bits,
+    size_t nx,size_t ny,const double* length,const double* wall,size_t field_count,
     uint32_t l_column_major,uint32_t t_column_major,
-    uint32_t direction,size_t target_count,const double* dx,size_t dx_count,uint32_t dx_bits,
-    const double* dy,size_t dy_count,uint32_t dy_bits,const double* widths,size_t width_count,
+    uint32_t direction,size_t target_count,const double* dx,size_t dx_count,
+    const double* dy,size_t dy_count,const double* widths,size_t width_count,
     double* l_rows,size_t l_count,double* t_rows,size_t t_count,int64_t* indices,size_t index_count,char* error,size_t cap) {
     return guarded(error,cap,[&] {return std::vector<Buffer>{buffer(length,field_count),buffer(wall,field_count),buffer(dx,dx_count),buffer(dy,dy_count),buffer(widths,width_count),buffer(l_rows,l_count,true),buffer(t_rows,t_count,true),buffer(indices,index_count,true)};},[&] {
         flag(l_column_major); flag(t_column_major);
         if (field_count!=product(nx,ny) || ((dx_count || dy_count) && (dx_count!=nx || dy_count!=ny))
             || (width_count && width_count!=target_count)) throw std::invalid_argument("projection buffer extents differ from the physical axes");
         require_output(l_rows,l_count,target_count); require_output(t_rows,t_count,target_count); require_output(indices,index_count,target_count);
-        const auto result = p::df_project_rows(nx,ny,{length,field_count},{wall,field_count},l_bits,t_bits,
+        const auto result = p::df_project_rows(nx,ny,{length,field_count},{wall,field_count},
             l_column_major!=0,t_column_major!=0,direction,target_count,
-            {dx,dx_count},dx_bits,{dy,dy_count},dy_bits,{widths,width_count});
+            {dx,dx_count},{dy,dy_count},{widths,width_count});
         for (size_t i=0;i<target_count;++i) {l_rows[i]=result.lengths[i];t_rows[i]=result.walls[i];indices[i]=result.source_index[i];}
     });
 }

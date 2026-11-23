@@ -14,8 +14,11 @@ from sjtu_tpmshx.run_control.run_warnings import current_warnings, range_context
 from sjtu_tpmshx.physical_models.fluid_props import Props, WaterStateError, QuickDesignWaterFieldError
 from sjtu_tpmshx.data_types.field_result import FieldResult
 from .solver_library._stage_capture_abi import RangeRecordView
-from ._native_values import borrow_array, borrow_text
+from ._native_values import borrow_array, borrow_text, real_scalar
 from ._native_preparation_case import _QuickInputV2 as _InputV2, _QuickPreparedV2 as _PreparedV2
+
+
+_NAMES = ('l', 't', 's', 'Lx', 'height', 'k_s', 'tol', 'mdot_h', 'mdot_c', 'T_in_h', 'T_in_c', 'P_in_h', 'P_in_c')
 
 
 class _PassSide(ct.Structure):
@@ -122,18 +125,17 @@ def _saved_v2(shape, p, op, widths, views, keepalive):
         raw.fluids[index] = borrow_text(text, keepalive)
     for i, value in enumerate((p['s'], p['Lx'], p['height'], 0., p['tol'], op.mdot_h, op.mdot_c,
                                op.T_in_h, op.T_in_c, op.P_in_h, op.P_in_c), 2):
-        raw.values[i].value = value
+        raw.values[i] = real_scalar(value, name=_NAMES[i])
     prepared = _PreparedV2(2, ct.sizeof(_PreparedV2))
     prepared.shape[:], prepared.widths[:] = shape, views[:3]
     if raw.warm_start:
         raw.initial_shape[:] = shape
         prepared.initial[:] = views[6:]
-    prepared.width_precision[:] = [width.dtype.itemsize * 8 for width in widths]
     prepared.epsilon, prepared.epsilon_a, prepared.solid_conductivity = views[3:6]
-    prepared.cell_length_m.value = p['L_cell_m']
+    prepared.cell_length_m = real_scalar(p['L_cell_m'], name='L_cell_m')
     prepared.geometry.area_density_per_m, prepared.geometry.hydraulic_diameter_m = p['A_0'], p['D_h']
     for i, side in enumerate('AB'):
-        prepared.fractions[i].value = p['inlet_pressure_fractions'][side]
+        prepared.fractions[i] = real_scalar(p['inlet_pressure_fractions'][side], name='inlet_pressure_fractions')
     settings = p['controls']
     if settings['maxit'] is None:
         raise ValueError('invalid quick-design numerical controls')

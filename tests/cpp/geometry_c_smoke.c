@@ -30,23 +30,22 @@ static int all_equal(const double* values, size_t count, double expected) {
 }
 
 static tpmshx_geometry_levels_v1 levels(double C, double delta) {
-    const tpmshx_geometry_levels_v1 result = {delta-C, delta+C, delta-C, delta+C, 64u, 64u};
+    const tpmshx_geometry_levels_v1 result = {delta-C, delta+C};
     return result;
 }
 
 static int design_fields(void) {
     char error[256];
-    const tpmshx_grid_scalar_v1 zero = {0., 64u, 0u}, one = {1., 64u, 0u};
-    const tpmshx_grid_scalar_v1 span = {.03, 64u, 0u};
-    const tpmshx_grid_scalar_v1 bounds[4] = {{0.,64u,0u}, {1.,64u,0u}, {0.,64u,0u}, {1.,64u,0u}};
+    const double zero = 0., one = 1., span = .03;
+    const double bounds[4] = {0., 1., 0., 1.};
     const double axes[2] = {0., 1.}, values[4] = {2., 2., 2., 2.};
     const double table[4] = {0., 2., 1., 3.}, midpoint = .5, input = 0.;
     double widths[3], output[4], eps, area;
     int32_t ids[4];
-    uint32_t precision, overflow;
+    uint32_t overflow;
     tpmshx_field_xy_v1* fit = NULL;
     size_t i;
-    CHECK(tpmshx_field_abi_version_v1() == 2u);
+    CHECK(tpmshx_field_abi_version_v1() == 3u);
     OK(tpmshx_geometry_grid_uniform_v1(3, span, widths, 3, error, sizeof error));
     for (i = 0; i < 3; ++i) CHECK(fabs(widths[i] - .01) < 1e-16);
     OK(tpmshx_geometry_zone_ids_v1(1, 2, 2, 1, one, bounds, 1,
@@ -72,21 +71,19 @@ static int design_fields(void) {
     OK(tpmshx_field_lut_query_v1(axes, 2, axes, 2, table, table, 4, 1u, 1u,
         &midpoint, &midpoint, 1, &eps, &area, 1, error, sizeof error));
     CHECK(eps == 1.5 && area == 1.5);
-    OK(tpmshx_field_sigmoid_values_v2(&input, 1, one, zero, one,
-        output, 1, &precision, &overflow, 1, 0u, error, sizeof error));
-    CHECK(output[0] == .5 && precision == 64u && overflow == 0u);
+    OK(tpmshx_field_sigmoid_values_v2(&input, 1, zero, one,
+        output, 1, &overflow, 1, error, sizeof error));
+    CHECK(output[0] == .5 && overflow == 0u);
     {
-        const double point = 1.4999998807907104;
-        const tpmshx_grid_scalar_v1 kind32 = {0., 32u, 1u};
-        const tpmshx_grid_scalar_v1 center32 = {.5, 32u, 1u}, width32 = {-.02, 32u, 1u};
-        OK(tpmshx_field_sigmoid_values_v2(&point, 1, kind32, center32, width32,
-            output, 1, &precision, &overflow, 1, 1u, error, sizeof error));
-        /* This value is from the failed Windows NumPy comparison. */
-        CHECK(output[0] == 1.9287574664184286e-22 && precision == 32u && overflow == 0u);
-        output[0] = -77.; precision = 37u; overflow = 42u;
-        CHECK(tpmshx_field_sigmoid_values_v2(&point, 1, kind32, center32, width32,
-            output, 1, &precision, &overflow, 1, 2u, error, sizeof error) == 1);
-        CHECK(output[0] == -77. && precision == 37u && overflow == 42u);
+        const double point = 1.5;
+        OK(tpmshx_field_sigmoid_values_v2(&point, 1, .5, -.02,
+            output, 1, &overflow, 1, error, sizeof error));
+        /* The exponent is clipped to -50 before exp. */
+        CHECK(output[0] == 1. / (1. + exp(50.)) && overflow == 0u);
+        output[0] = -77.; overflow = 42u;
+        CHECK(tpmshx_field_sigmoid_values_v2(&point, 1, .5, -.02,
+            output, 1, &overflow, 2, error, sizeof error) == 1);
+        CHECK(output[0] == -77. && overflow == 42u);
     }
     return 0;
 }
@@ -113,7 +110,7 @@ int main(void) {
     tpmshx_geometry_prepared_sides_v1 prepared, raw_prepared;
     tpmshx_geometry_levels_v1 offset, reference, empty_levels = levels(1., 0.);
 
-    CHECK(tpmshx_geometry_abi_version_v1() == 1u);
+    CHECK(tpmshx_geometry_abi_version_v1() == 2u);
     OK(tpmshx_geometry_index_create_v1(TPMSHX_GEOMETRY_DIAMOND, 32, &index, error, sizeof error));
     CHECK(index != NULL && error[0] == '\0');
     OK(tpmshx_geometry_index_create_v1(TPMSHX_GEOMETRY_DIAMOND, 32, &other, error, sizeof error));
@@ -134,18 +131,18 @@ int main(void) {
     {
         double scalar_fields[5];
         OK(tpmshx_geometry_standard_scalar_v1(index, TPMSHX_GEOMETRY_DIAMOND,
-            cells[0], walls[0], 64u, 64u, scalar_fields, 5, error, sizeof error));
+            cells[0], walls[0], scalar_fields, 5, error, sizeof error));
         for (i = 0; i < 5; ++i) CHECK(scalar_fields[i] == field[i]);
         fill(scalar_fields, 5, -77.);
         status = tpmshx_geometry_standard_scalar_v1(index, TPMSHX_GEOMETRY_DIAMOND,
-            cells[0], walls[0], 99u, 64u, scalar_fields, 5, error, sizeof error);
+            cells[0], -1., scalar_fields, 5, error, sizeof error);
         CHECK(status == TPMSHX_GEOMETRY_INVALID && all_equal(scalar_fields, 5, -77.));
     }
     OK(tpmshx_geometry_raw_batch_v1(index, TPMSHX_GEOMETRY_DIAMOND,
         cells, walls, 2, raw, 4, error, sizeof error));
     CHECK(raw[0] == field[0] && raw[1] == field[3]);
     OK(tpmshx_geometry_threshold_batch_v1(TPMSHX_GEOMETRY_DIAMOND,
-        ratios, 2, 64u, thresholds, 2, error, sizeof error));
+        ratios, 2, thresholds, 2, error, sizeof error));
     CHECK(thresholds[0] > 0. && thresholds[1] > 0.);
     offset = levels(thresholds[0], .3);
     reference = levels(thresholds[0], 0.);
@@ -178,7 +175,7 @@ int main(void) {
         epsilon, 2, 1, .25, chi, 2, error, sizeof error));
     CHECK(chi[0] == .25 && chi[1] == .25);
     OK(tpmshx_geometry_material_batch_v1(TPMSHX_GEOMETRY_GYROID,
-        epsilon, 2, 16., 64u, 1, .25, material, 4, error, sizeof error));
+        epsilon, 2, 16., 1, .25, material, 4, error, sizeof error));
     for (i = 0; i < 2; ++i) {
         CHECK(material[2*i] == .25);
         CHECK(material[2*i+1] == .25 * (1. - epsilon[i]) * 16.);

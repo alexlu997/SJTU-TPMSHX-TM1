@@ -61,16 +61,17 @@ def sigmoid_field_2d(XF, YF,
     -------
     field : 2D array (Nx, Ny) — smoothly interpolated values
     """
-    # Keep scalar configuration arithmetic before native array evaluation.
-    dy_in = y_trans_in / 3.0
-    dy_out = y_trans_out / 3.0
+    y_in = _native_sigmoid._scalar(y_trans_in)
+    y_out = _native_sigmoid._scalar(y_trans_out)
+    dy_in = y_in / 3.0
+    dy_out = y_out / 3.0
     y_bounds = [
         dy_in,                          # inlet row 0 → row 1
         2 * dy_in,                      # inlet row 1 → row 2
-        y_trans_in,                     # inlet → uniform
-        1.0 - y_trans_out,              # uniform → outlet
-        1.0 - y_trans_out + dy_out,     # outlet row 0 → row 1
-        1.0 - y_trans_out + 2 * dy_out, # outlet row 1 → row 2
+        y_in,                           # inlet → uniform
+        1.0 - y_out,                    # uniform → outlet
+        1.0 - y_out + dy_out,           # outlet row 0 → row 1
+        1.0 - y_out + 2 * dy_out,       # outlet row 1 → row 2
     ]
 
     return _native_sigmoid.field(XF, YF, ctrl_inlet, ctrl_outlet, val_uniform,

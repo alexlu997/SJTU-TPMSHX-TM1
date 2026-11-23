@@ -205,7 +205,7 @@ Missing protocol symbols and native failures do not start another route.
 Host v5 keeps typed geometry and inlet caches through the shared v9 callback descriptor.
 Python keeps configuration, cache policy, warnings, environment parsing and immutable CaseData assembly.
 The replaced 3D Python bodies and exclusive `shared/models/grid_3d.py` and `asym_split.py` helpers are removed.
-Their independent frozen reference remains in `tests/python/preparation_3d_reference.py`.
+Pure formula references and physical invariant checks remain in `tests/python/`.
 The private `scalar_range_samples.hpp` keeps at most eight air-field scalar observations per side, including the original notices, extrema and last sample.
 Full raw-array records keep every cell. Preparation and result compile this selection separately, without a runtime link between them.
 Memory use near the cell cap and real 3D BO remain acceptance gates.
@@ -217,7 +217,7 @@ The stage owns geometry, grid, property and pressure arithmetic and their execut
 The pressure query creates no thermal grid or design-field arrays.
 Preparation uses statuses 0 for success, 1 for invalid input, 2 for allocation and 3 for runtime errors.
 State errors use 10 for water, 11 for CO2 and 12 for sCO2.
-Geometry ABI 1 and field ABI 2 remain unchanged, with their own status mappings.
+Geometry ABI 2 and field ABI 3 normalize real inputs to `float64`, with their own status mappings.
 Calls borrow aligned buffers with explicit element counts. Failure preserves numerical outputs.
 Contexts must be released by the library that created them, after their last call.
 Missing libraries, ABI mismatches and missing symbols fail explicitly. No runtime build or numerical fallback is available.

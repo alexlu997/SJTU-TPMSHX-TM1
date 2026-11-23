@@ -23,7 +23,7 @@ from sjtu_tpmshx.physical_models.df_surrogate import CFD_CAMPAIGN, CFD_SCOPE
 
 from sjtu_tpmshx.cpp_interface._native_result_stage import (Evidence, Input as Evaluation,
     detach_stage_fields, nu_observation, record, stage_closures, stage_ledger)
-from sjtu_tpmshx.cpp_interface._native_preparation_case import _Array as PreparedArray, _Evidence, _Text, _Kind, _Model, _Nu
+from sjtu_tpmshx.cpp_interface._native_preparation_case import _Array as PreparedArray, _Evidence, _Text, _Model, _Nu
 from .preparation_host import borrow_solver_mesh, pack_saved_resources
 from .solver_library._full_3d_abi import (_Array, _BootstrapTrace, _Callbacks, _Cancel, _Control, _EnergyEvidence,
     _FLAGS, _FLOW_ARRAYS, _Input, _OuterProgress, _PAIRS, _Progress, _Result)
@@ -80,7 +80,7 @@ _Axes = record('SavedAxes3D', [('solver_to_real', ct.c_int32 * 3), ('reverse', c
     ('widths', PreparedArray * 3), ('port', GridPort)])
 _SavedV2 = record('StageSaved3Dv2', [('abi_version', _U), ('struct_size', _Z), ('values', _Saved),
     ('lengths_m', _D * 3), ('design_mode', _U), ('have_z_controls', _U),
-    ('reference_kinds', _Kind * 3), ('field_kinds', _Kind * 3), ('axes', _Axes * 2),
+    ('axes', _Axes * 2),
     ('models', _Model * 4), ('resource_fluids', _Text * 2), ('resource_topology', _Text),
     ('sco2_nu', _Nu), ('resource_nu', _Nu * 2)])
 _Summary = record('StageCapture3D', [('nu_available', _U * 2), ('model_h_cell_count', _Z),
@@ -139,8 +139,8 @@ def require_saved_stage(library):
         raise ValueError('native library has an incomplete saved 3D stage protocol') from error
     version.argtypes, version.restype = [], _U
     abi = version()
-    if abi != 1:
-        raise ValueError(f'unsupported saved 3D capture ABI {abi}; expected 1')
+    if abi != 2:
+        raise ValueError(f'unsupported saved 3D capture ABI {abi}; expected 2')
 
 
 def run_case(case, control, *, resume_state=None, checkpoint=None, checkpoint_due=None):
@@ -193,7 +193,7 @@ def validate_saved_case(case, checked_shape=None):
     for axis, count in zip('xyz', shape):
         if prepared['N' + axis] != count:
             raise ValueError(f'prepared {axis} count and grid disagree')
-    cell_mm, wall_mm = cfg['L_cell_m'] * 1e3, cfg['t_wall_m'] * 1e3
+    cell_mm, wall_mm = cfg['L_cell_m'] / 1e-3, cfg['t_wall_m'] / 1e-3
     for side in 'AB':
         axis = prepared['axes'].get(side)
         if axis is not None:
@@ -261,20 +261,12 @@ def pack_input(cfg, prepared, grid, design, shape, cell_mm, nu, keepalive, *, sa
 
 def pack_saved_v2(saved, case, cell_mm, wall_mm, nu, keepalive):
     cfg = case.parameters
-    from ._native_values import buffer_scalar
-
     value = _SavedV2(2, ct.sizeof(_SavedV2), saved)
     pack_saved_resources(case, value.models, value.sco2_nu, value, nu, keepalive)
     value.lengths_m[:] = [cfg[key] for key in ('L', 'H', 'Lz')]
     value.design_mode = {'uniform': 0, 'xy_extruded': 1, 'continuous_xy_extruded': 1,
                          'continuous_xyz': 2}.get(case.metadata['design_mode'], 3)
     value.have_z_controls = 'n_ctrl_z' in (cfg.get('continuous_field') or {})
-    nominal = (cell_mm, wall_mm, cfg['eps'])
-    for index, (reference, name) in enumerate(zip(nominal, ('L_field_m', 't_field_m', 'eps_arr'))):
-        scalar = buffer_scalar(reference)
-        value.reference_kinds[index] = _Kind(scalar.precision, scalar.strong, int(bool(scalar.strong)))
-        dtype = np.asarray(case.design_fields[name]).dtype
-        value.field_kinds[index] = _Kind(dtype.itemsize * 8, 1 if dtype.kind == 'f' else 2, 2)
     for index, side in enumerate('AB'):
         record = value.axes[index]
         boundary = cfg['fluid_' + side + '_cfg']

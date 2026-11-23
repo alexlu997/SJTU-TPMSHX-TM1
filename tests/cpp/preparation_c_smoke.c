@@ -7,24 +7,23 @@
 static int properties(void) {
     const double temperature = 300., pressure = 101325.;
     const double liquid_pressure = 200000., co2_temperature = 330., co2_pressure = 8000000.;
-    tpmshx_property_input_v1 t = {&temperature, 1, {0., 64, 0}, 0};
-    tpmshx_property_input_v1 p = {&pressure, 1, {0., 64, 0}, 0};
-    double value = -123., imaginary = -456., bundle[5], inverse = 0.;
-    tpmshx_grid_scalar_v1 kind = {0., 32, 1};
-    uint32_t category = 99, events[TPMSHX_PROPERTY_EVENT_COUNT];
-    tpmshx_property_output_v1 result = {&value, &imaginary, 1, &kind, &category,
-                                      events, TPMSHX_PROPERTY_EVENT_COUNT};
+    tpmshx_property_input_v1 t = {&temperature, 1};
+    tpmshx_property_input_v1 p = {&pressure, 1};
+    double value = -123., bundle[5], inverse = 0.;
+    uint32_t events[TPMSHX_PROPERTY_EVENT_COUNT];
+    size_t event_count = 99;
+    tpmshx_property_output_v1 result = {&value, 1, events, TPMSHX_PROPERTY_EVENT_COUNT, &event_count};
     tpmshx_property_failure_v1 failure;
     char version[128], revision[128], error[2048];
     if (tpmshx_preparation_property_backend_v1(version, sizeof(version), revision, sizeof(revision),
             error, sizeof(error)) || !version[0] || !revision[0] || error[0]) return 10;
     if (tpmshx_preparation_empirical_v1(2, t, p, result, &failure, error, sizeof(error))) return 11;
-    if (value != pressure*.028966/(8.314*temperature) || imaginary != 0. || category || kind.precision != 64) return 12;
-    value = -123.; imaginary = -456.; kind.precision = 32; category = 99;
+    if (value != pressure*.028966/(8.314*temperature) || event_count != 0) return 12;
+    value = -123.; event_count = 99;
     memset(events, 0x55, sizeof(events));
     if (tpmshx_preparation_empirical_v1(99, t, p, result, &failure, error, sizeof(error))
             != TPMSHX_PREPARATION_INVALID) return 13;
-    if (value != -123. || imaginary != -456. || kind.precision != 32 || category != 99) return 14;
+    if (value != -123. || event_count != 99) return 14;
     {
         size_t index;
         for (index = 0; index < TPMSHX_PROPERTY_EVENT_COUNT; ++index)
@@ -47,16 +46,16 @@ static int properties(void) {
 
 int main(void) {
     const double epsilon[] = {.5}, opening[] = {1.}, widths[] = {4.};
-    tpmshx_preparation_flow_values_v1 eps = {epsilon, 1, 64, 1};
-    tpmshx_preparation_flow_values_v1 op = {opening, 1, 64, 1};
-    tpmshx_preparation_flow_values_v1 dx = {widths, 1, 64, 1};
-    tpmshx_grid_scalar_v1 density = {2., 64, 0}, depth = {.5, 64, 0};
-    tpmshx_grid_scalar_v1 result = {-123., 32, 1}, before;
+    tpmshx_preparation_flow_values_v1 eps = {epsilon, 1};
+    tpmshx_preparation_flow_values_v1 op = {opening, 1};
+    tpmshx_preparation_flow_values_v1 dx = {widths, 1};
+    const double density = 2., depth = .5;
+    double result = -123., before;
     char error[256];
     if (tpmshx_preparation_abi_version_v1() != TPMSHX_PREPARATION_ABI_VERSION) return 1;
     if (tpmshx_preparation_inlet_capacity_2d_v1(eps, op, op, dx, density, depth,
             &result, 1, error, sizeof(error)) != TPMSHX_PREPARATION_OK) return 2;
-    if (result.value != 1. || error[0]) return 3;
+    if (result != 1. || error[0]) return 3;
     before = result;
     if (tpmshx_preparation_inlet_capacity_2d_v1(eps, op, op, dx, density, depth,
             &result, 0, error, sizeof(error)) != TPMSHX_PREPARATION_INVALID) return 4;

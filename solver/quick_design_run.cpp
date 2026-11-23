@@ -251,21 +251,21 @@ extern "C" int TPMSHX_THERMAL_CALL tpmshx_run_quick_design_v2(
         c.property_mode=select(input->property_mode,{"const","mean"},"unsupported quick-design arrangement or property model");
         if(settings.dir_b!=(c.arrangement==TPMSHX_CROSS?2u:1u))
             throw std::invalid_argument("quick-design flow direction disagrees with arrangement");
-        c.length=input->values[TPMSHX_QUICK_LENGTH].value;c.span=input->values[TPMSHX_QUICK_SPAN].value;
-        c.height=input->have_height?input->values[TPMSHX_QUICK_HEIGHT].value:c.span;
-        c.cell_length=prepared->cell_length_m.value;c.area_density=prepared->geometry.area_density_per_m;
+        c.length=input->values[TPMSHX_QUICK_LENGTH];c.span=input->values[TPMSHX_QUICK_SPAN];
+        c.height=input->have_height?input->values[TPMSHX_QUICK_HEIGHT]:c.span;
+        c.cell_length=prepared->cell_length_m;c.area_density=prepared->geometry.area_density_per_m;
         c.hydraulic_diameter=prepared->geometry.hydraulic_diameter_m;
         for(size_t i=0;i<2;++i) {
             c.sides[i]={select(input->fluids[i],{"air","water","sco2"},"unsupported quick-design fluid"),
-                input->values[TPMSHX_QUICK_TEMPERATURE_A+i].value,input->values[TPMSHX_QUICK_PRESSURE_A+i].value,
-                input->values[TPMSHX_QUICK_MASS_A+i].value,prepared->fractions[i].value};
+                input->values[TPMSHX_QUICK_TEMPERATURE_A+i],input->values[TPMSHX_QUICK_PRESSURE_A+i],
+                input->values[TPMSHX_QUICK_MASS_A+i],prepared->fractions[i]};
         }
         if(settings.ny!=view.shape[1] || settings.nz!=view.shape[2])
             throw std::invalid_argument("quick-design state disagrees with prepared grid");
         if(c.warm_start)for(size_t axis=0;axis<3;++axis)
             if(input->initial_shape[axis]!=view.shape[axis])
                 throw std::invalid_argument("quick-design warm start disagrees with prepared grid");
-        const auto tol=input->values[TPMSHX_QUICK_TOLERANCE].value;
+        const auto tol=input->values[TPMSHX_QUICK_TOLERANCE];
         if(!std::isfinite(tol) || tol<=0.)throw std::invalid_argument("quick-design tol must be finite and positive");
         const bool plane=prepared->shape[2]==1;
         c.q_relative_tolerance=settings.have_q_relative_tolerance?settings.q_relative_tolerance:

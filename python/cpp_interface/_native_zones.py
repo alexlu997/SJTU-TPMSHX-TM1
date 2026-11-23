@@ -5,12 +5,11 @@ from functools import lru_cache
 import numpy as np
 
 from . import _native_geometry as geometry
-from ._native_grid import _Scalar, _scalar
+from ._native_grid import _scalar
 
 _Size = ct.c_size_t
 _DoubleP = ct.POINTER(ct.c_double)
 _IntP = ct.POINTER(ct.c_int32)
-_ScalarP = ct.POINTER(_Scalar)
 
 
 @lru_cache(maxsize=1)
@@ -18,8 +17,8 @@ def _bindings(path):
     library = geometry._load_library(path)
     return (
         library,
-        library._bind('zone_ids', [ct.c_uint32, _Size, _Size, ct.c_int, _Scalar,
-                                  _ScalarP, _Size, _DoubleP, _Size, _DoubleP, _Size,
+        library._bind('zone_ids', [ct.c_uint32, _Size, _Size, ct.c_int, ct.c_double,
+                                  _DoubleP, _Size, _DoubleP, _Size, _DoubleP, _Size,
                                   _IntP, _Size]),
         library._bind('zone_gaussian', [_Size, _Size, _DoubleP, _Size, _DoubleP, _Size]),
     )
@@ -37,7 +36,7 @@ def assign(kind, nx, ny, rows, *, axis=1, domain=1., dx=None, dy=None):
     nx, ny = geometry._resolution(nx), geometry._resolution(ny)
     if any(len(row) != 4 for row in rows):
         raise ValueError('zone bounds must have four values per row')
-    packed = (_Scalar * (4 * len(rows)))(*(_scalar(value) for row in rows for value in row))
+    packed = (ct.c_double * (4 * len(rows)))(*(_scalar(value) for row in rows for value in row))
     dx, dy = _widths(dx), _widths(dy)
     output = np.empty((nx, ny), dtype=np.int32)
     _library, function, _ = _bindings(geometry._library_path())

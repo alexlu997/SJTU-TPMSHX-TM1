@@ -52,9 +52,10 @@ typedef struct {
     tpmshx_result_evidence_v1 evidence;
 } tpmshx_quick_run_result_v1;
 
-/* V2 keeps raw scalar kinds and stored controls. V1 layouts stay unchanged. */
+/* V2 uses float64 values and stored controls. V1 layouts stay unchanged. */
 #define TPMSHX_QUICK_PREPARATION_ABI_VERSION 2u
 #define TPMSHX_QUICK_HOST_FAILURE 20
+#define TPMSHX_QUICK_RANGE_CAPACITY 8u
 
 enum tpmshx_quick_value_v2 {
     TPMSHX_QUICK_CELL=0, TPMSHX_QUICK_WALL, TPMSHX_QUICK_SPAN,
@@ -66,7 +67,7 @@ enum tpmshx_quick_value_v2 {
 };
 typedef struct {
     uint32_t abi_version; size_t struct_size;
-    tpmshx_grid_scalar_v1 values[TPMSHX_QUICK_VALUE_COUNT];
+    double values[TPMSHX_QUICK_VALUE_COUNT];
     tpmshx_preparation_text_v1 topology,arrangement,property_mode,fluids[2];
     uint32_t have_height,have_chi,strict; double chi;
     uint32_t warm_start; size_t initial_shape[3];
@@ -77,84 +78,56 @@ typedef struct {
     double alpha,q_relative_tolerance; size_t chunk_iterations;
     uint32_t have_q_relative_tolerance,have_chunk_iterations;
 } tpmshx_quick_controls_v2;
+/* One fitted empirical property range at the inlet temperature.
+ * label points to static library storage. side is 0=A or 1=B.
+ */
+typedef struct {
+    const char* label;
+    uint32_t side;
+    double bounds[2];
+    double temperature_K;
+} tpmshx_quick_range_v2;
+/* floating_events has one word for each side and stage, in the order
+ * A properties, A Prandtl, B properties, B Prandtl. Each word combines the
+ * stage's FP flag bits and keeps the operation code of its first event.
+ * inlet_pressure keeps the ordered D-F pressure events. ranges keeps the
+ * fitted property ranges in calculation order.
+ */
 typedef struct {
     uint32_t abi_version; size_t struct_size; void* owner;
     size_t shape[3];
     tpmshx_preparation_array_v1 widths[3],edges[3],initial[3];
-    uint32_t width_precision[3],solid_precision;
     tpmshx_preparation_array_v1 epsilon,epsilon_a,solid_conductivity;
     tpmshx_preparation_geometry_cache_v3 geometry;
-    tpmshx_grid_scalar_v1 cell_length_m,wall_thickness_m,fractions[2];
+    double cell_length_m,wall_thickness_m,fractions[2];
     tpmshx_quick_controls_v2 controls;
     tpmshx_preparation_df_pressure_v1 inlet_pressure[2];
+    uint32_t floating_events[4];
+    tpmshx_quick_range_v2 ranges[TPMSHX_QUICK_RANGE_CAPACITY];
+    size_t range_count;
 } tpmshx_quick_prepared_v2;
 typedef struct {
     uint32_t abi_version; size_t struct_size;
-    tpmshx_grid_scalar_v1 fractions[2];
+    double fractions[2];
     tpmshx_preparation_df_pressure_v1 inlet_pressure[2];
+    uint32_t floating_events[4];
+    tpmshx_quick_range_v2 ranges[TPMSHX_QUICK_RANGE_CAPACITY];
+    size_t range_count;
 } tpmshx_quick_pressure_v2;
 
-/* These named operations preserve host object and observation protocols.
- * They cannot call a model, property, pressure or solver implementation.
- * The stage selects every operation and numerical branch. A nonzero callback
- * result stops the call. The host then raises its saved original exception.
- */
-enum tpmshx_quick_host_operation_v2 {
-    TPMSHX_QUICK_WARM_CHECK=1, TPMSHX_QUICK_LABEL_CHECK,
-    TPMSHX_QUICK_POSITIVE_SNAPSHOT, TPMSHX_QUICK_POSITIVE_CHECK,
-    TPMSHX_QUICK_SHAPE_CHECK, TPMSHX_QUICK_GEOMETRY_PACK,
-    TPMSHX_QUICK_MATERIAL_PACK, TPMSHX_QUICK_WIDTH_PACK,
-    TPMSHX_QUICK_OPERATING_SNAPSHOT, TPMSHX_QUICK_PROPERTY_ENTRY,
-    TPMSHX_QUICK_STATE_PACK, TPMSHX_QUICK_PROPERTY_PACK,
-    TPMSHX_QUICK_PROPERTY_RESULT, TPMSHX_QUICK_PRANDTL_PACK,
-    TPMSHX_QUICK_SECTIONS_PACK, TPMSHX_QUICK_PRESSURE_ENTRY,
-    TPMSHX_QUICK_FLOW_PACK, TPMSHX_QUICK_FLOW_RESULT,
-    TPMSHX_QUICK_PRESSURE_COMPARE, TPMSHX_QUICK_PRESSURE_PACK,
-    TPMSHX_QUICK_PRESSURE_RESULT, TPMSHX_QUICK_FRACTION_PACK,
-    TPMSHX_QUICK_CONFIG_SNAPSHOT, TPMSHX_QUICK_UNIT_PACK,
-    TPMSHX_QUICK_UNIT_RESULT, TPMSHX_QUICK_FINAL_SNAPSHOT,
-    TPMSHX_QUICK_FAILURE, TPMSHX_QUICK_SECTIONS_RESULT,
-    TPMSHX_QUICK_EOS_CACHE_LOOKUP, TPMSHX_QUICK_EOS_CACHE_STORE
-};
-/* A request is borrowed only during its callback. The operation fixes which
- * fields are inputs and outputs; see native-stages.md. Index identifies an
- * axis, positive-input slot or property (rho,mu,k,cp,Pr). Side is 0=A,1=B.
- * property_inputs carry already-broadcast buffers with original scalar tags.
- * property_values supplies a stored EOS result only for cache lookup. Other
- * property_values and geometry fields are observations, not model callbacks.
- * OPERATING_SNAPSHOT supplies the method ID from the compiled D-F table in
- * text. Earlier libraries leave text empty.
- * GEOMETRY_PACK and MATERIAL_PACK offer typed inputs when flags[3]=1. Return
- * the topology name in text to use them. For material, scalars[2] supplies
- * the porosity type. The stage can reuse these inputs for final conductivity.
- * At PROPERTY_ENTRY, flags[0]=1 offers scalar air and water inputs. The host
- * can set flags[1]=1 and supply temperature and pressure in scalars[0..1].
- * This omits STATE_PACK and PRANDTL_PACK for that side.
- * For empirical PROPERTY_PACK, flags[2] marks a native range descriptor.
- * Nonempty text gives its label, with bounds in scalars[0:2]. Empty text
- * means the property has no fitted range. Older libraries leave flags[2] zero.
- * Host scalars/flags/text contain only raw packing or fixed operator results.
+/* Cache hooks transport completed values only. They never calculate them.
+ * geometry_cache: action 0 looks up and sets hit to 0 or 1; action 1 publishes.
+ * eos_cache: fluid 2 (sCO2) stores one value for property_index 0..3
+ * (rho, mu, k, cp). Fluid 3 (CO2) stores the five-value D,V,L,C,H bundle.
+ * Action 0 looks up: the host writes count values and sets hit. Action 1
+ * publishes count values. A nonzero return stops the call with status 20.
  */
 typedef struct {
-    uint32_t operation,side,index,flags[4];
-    tpmshx_grid_scalar_v1 scalars[6];
-    tpmshx_preparation_text_v1 text;
-    tpmshx_property_input_v1 property_inputs[3];
-    double imaginary_inputs[3]; uint32_t categories[3];
-    tpmshx_preparation_array_v1 property_values,property_imaginary;
-    tpmshx_grid_scalar_v1 property_kind;
-    uint32_t property_category;
-    const uint32_t* floating_events; size_t floating_event_count;
-    const tpmshx_preparation_geometry_cache_v3* geometry;
-    const tpmshx_preparation_df_pressure_v1* pressure;
-    const tpmshx_property_failure_v1* failure;
-    int status;
-} tpmshx_quick_host_request_v2;
-typedef struct {
-    uint32_t abi_version; size_t struct_size; void* context; uint32_t raw_objects;
-    int (TPMSHX_PREPARATION_CALL *host)(void*,tpmshx_quick_host_request_v2*);
+    uint32_t abi_version; size_t struct_size; void* context;
     int (TPMSHX_PREPARATION_CALL *geometry_cache)(void*,uint32_t,
         tpmshx_preparation_geometry_cache_v3*,uint32_t*);
+    int (TPMSHX_PREPARATION_CALL *eos_cache)(void*,uint32_t action,uint32_t fluid,uint32_t property_index,
+        double temperature_K,double pressure_Pa,double* values,size_t capacity,size_t* count,uint32_t* hit);
 } tpmshx_quick_callbacks_v2;
 
 #ifdef __cplusplus
@@ -190,9 +163,10 @@ TPMSHX_THERMAL_API const char* TPMSHX_THERMAL_CALL tpmshx_quick_run_temperature_
     const tpmshx_quick_run_result_v1*);
 TPMSHX_THERMAL_API void TPMSHX_THERMAL_CALL tpmshx_quick_run_release_v1(
     tpmshx_quick_run_result_v1*);
-/* Typed raw preparation retains the original validation and calculation order.
- * Text uses explicit byte lengths. No environment is read without host hooks.
+/* Float64 preparation retains the validation and calculation order.
+ * Text uses explicit byte lengths. No environment is read.
  * Native callers provide all 13 values; have_height=0 substitutes span.
+ * Status 10/11/12 reports a water/CO2/sCO2 state error.
  * The pressure-only query skips full validation and allocates no thermal grid.
  * Every non-cross arrangement uses counter sections for that query only.
  * Results require version=2, exact struct_size and owner=NULL where present.

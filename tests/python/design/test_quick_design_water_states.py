@@ -29,18 +29,15 @@ def test_scalar_water_state_uses_pressure_before_liquid_properties():
 
 @pytest.mark.parametrize('side', ['hot', 'cold'])
 def test_public_preparation_rejects_nonliquid_water_before_drag(monkeypatch, side):
-    from sjtu_tpmshx.cpp_interface._native_quick_prepare import _HostState
-    original, entered = _HostState.dispatch, []
-    def observe(host, request):
-        entered.append(request.operation)
-        return original(host, request)
-    monkeypatch.setattr(_HostState, 'dispatch', observe)
+    from sjtu_tpmshx.physical_models.df_surrogate import predict as df
+    entered = []
+    monkeypatch.setattr(df, '_record_pressure_limit', lambda *a, **kw: entered.append(a))
     suffix = 'h' if side == 'hot' else 'c'
     case = replace(_case(), **{side + '_fluid': 'water',
                               'T_in_' + suffix: 350., 'P_in_' + suffix: 10000.})
     with pytest.raises(fluid_props.WaterStateError, match='quick-design properties'):
         prepare_quick_design(case, 'Diamond', 7., .5, .084, .05, case_id='invalid-water')
-    assert 16 not in entered  # Neither pressure side starts before water validation.
+    assert entered == []
 
 
 @pytest.mark.parametrize('side', ['hot', 'cold'])

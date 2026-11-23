@@ -12,7 +12,7 @@ from sjtu_tpmshx.data_types.compute_config import ComputeConfig
 from sjtu_tpmshx.data_types.model_refs import ModelRef
 from sjtu_tpmshx.run_control.run_environment import capture_environment
 from sjtu_tpmshx.cpp_interface._native_values import (
-    TOPOLOGIES, TOPOLOGY_CODES, GridPort, GridScalar, grid_count, grid_scalar, read_text, restore_buffer_scalar,
+    TOPOLOGIES, TOPOLOGY_CODES, GridPort, grid_count, read_text, real_array, real_scalar,
 )
 from sjtu_tpmshx.cpp_interface import _native_preparation_case as native
 from sjtu_tpmshx.cpp_interface import _native_preparation_3d as three
@@ -23,18 +23,12 @@ def _input(config, targets, operation):
     value = three._Input(1, ct.sizeof(three._Input))
     errors = {}
 
-    def transport(item):
-        return item.item() if isinstance(item, np.ndarray) and item.size == 1 else item
+    def real(item, name):
+        # Native validation rejects nonfinite physical inputs with ValueError.
+        return real_scalar(item, name=name, allow_nonfinite=True)
 
-    def scalar(item):
-        try:
-            return grid_scalar(item)
-        except TypeError as problem:
-            errors.setdefault('grid', problem)
-            return GridScalar(float(transport(item)), 64, 0)
-
-    value.lengths_m[:] = [scalar(geometry.L_dom_m), scalar(geometry.H_dom_m),
-                          GridScalar(float(geometry.Lz_m), 64, 0)]
+    value.lengths_m[:] = [real(geometry.L_dom_m, 'geometry.L_dom_m'), real(geometry.H_dom_m, 'geometry.H_dom_m'),
+                          real(geometry.Lz_m, 'geometry.Lz_m')]
     counts = []
     for axis, count in enumerate((config.solver.Nx, config.solver.Ny, config.solver.Nz)):
         try:
@@ -51,40 +45,37 @@ def _input(config, targets, operation):
     value.max_cells = min(max(cap, 0), native._S(-1).value)
     value.port_wall_refine = config.flags.port_wall_refine
     value.topology = TOPOLOGY_CODES.get(geometry.tpms, 0)
-    value.cell_length_mm, value.wall_thickness_mm = map(transport, (geometry.L_cell_mm, geometry.t_wall_mm))
-    value.solid_conductivity_W_mK, value.delta_levelset = map(transport, (geometry.k_s_W_mK, geometry.delta_levelset))
+    value.cell_length_mm = real(geometry.L_cell_mm, 'geometry.L_cell_mm')
+    value.wall_thickness_mm = real(geometry.t_wall_mm, 'geometry.t_wall_mm')
+    value.solid_conductivity_W_mK = real(geometry.k_s_W_mK, 'geometry.k_s_W_mK')
+    value.delta_levelset = real(geometry.delta_levelset, 'geometry.delta_levelset')
     continuous = config.zones.enabled and config.zones.axis == 'continuous'
     value.geometry_mode = 1 if continuous else 2 if config.zones.enabled and config.zones.axis == 'grid' else 0
     value.df_mode = int(config.df_mode == 'experimental')
-    value.kinds = native._Kinds(*map(host._kind,
-        (geometry.L_cell_mm, geometry.t_wall_mm, geometry.k_s_W_mK)))
     for index, side in enumerate('AB'):
         fluid, port = getattr(config, 'fluid_' + side), getattr(config, 'bc_' + side)
         raw_port = GridPort(port.dir, 1)
-        raw_port.set_windows(lambda key: getattr(port, key), scalar,
-                             full_width=port.in_w <= 0. and port.out_w <= 0.)
+        raw_port.set_windows(lambda key: getattr(port, key), full_width=port.in_w <= 0. and port.out_w <= 0.)
         speed = 0. if operation == 'prepare_inlet_mass_capacities' or (
             targets is not None or fluid.mass_flow_kg_s is not None) else fluid.u_mps
+        prefix, mass = 'fluid_' + side + '.', fluid.mass_flow_kg_s
         value.sides[index] = three._Inlet(native._FLUIDS.index(fluid.type) if fluid.type in native._FLUIDS else 0,
-            transport(speed), transport(fluid.T_in_K), transport(fluid.P_in_Pa), raw_port,
-            fluid.mass_flow_kg_s is not None, fluid.mass_flow_kg_s or 0.)
-        value.kinds.sides[index] = native._InletKinds(*map(host._kind,
-            (speed, fluid.T_in_K, fluid.P_in_Pa)))
+            real(speed, prefix + 'u_mps'), real(fluid.T_in_K, prefix + 'T_in_K'), real(fluid.P_in_Pa, prefix + 'P_in_Pa'),
+            raw_port, mass is not None, 0. if mass is None else real(mass, prefix + 'mass_flow_kg_s'))
     buffers = []
     host.pack_nu(value.sco2_nu, config.sco2_nu, buffers)
     flow = three._FlowInput(2, ct.sizeof(three._FlowInput), value)
     flow.have_explicit_targets = targets is not None
-    for index, side in enumerate('AB'):
-        target = targets[index] if targets is not None else getattr(config, 'fluid_' + side).mass_flow_kg_s
-        flow.target_kinds[index] = host._flow_kind(0. if target is None else target)
-        if targets is not None:
-            flow.explicit_targets_kg_s[index] = target
+    if targets is not None:
+        for index, side in enumerate('AB'):
+            flow.explicit_targets_kg_s[index] = real(targets[index], f'mass_flow_{side}_kg_s')
     if continuous:
         spec = config.zones.config
-        decision = np.asarray(spec['x_decision'], dtype=np.float64)
+        decision = real_array(spec['x_decision'], name='x_decision', allow_nonfinite=True)
         controls = three._Controls(spec['n_ctrl_x'], spec['n_ctrl_y'], spec.get('n_ctrl_z', 1),
             'n_ctrl_z' in spec, spec['spline_order'], spec['symmetric_y'],
-            (native._D * 2)(*spec['L_bounds']), (native._D * 2)(*spec['t_bounds']),
+            (native._D * 2)(*(real(item, 'L_bounds') for item in spec['L_bounds'])),
+            (native._D * 2)(*(real(item, 't_bounds') for item in spec['t_bounds'])),
             native._Array(decision.ctypes.data_as(ct.POINTER(native._D)), decision.size))
         source = three._ContinuousInput(3, ct.sizeof(three._ContinuousInput), flow, controls)
         buffers.append(decision)
@@ -92,7 +83,7 @@ def _input(config, targets, operation):
         rows = config.zones.grid['cells'] if config.zones.enabled and config.zones.axis == 'grid' else []
         cells = (three._Cell * len(rows))()
         for index, row in enumerate(rows):
-            cells[index].bounds[:] = [scalar(row[key]) for key in ('x0', 'x1', 'y0', 'y1')]
+            cells[index].bounds[:] = [real(row[key], 'grid cell ' + key) for key in ('x0', 'x1', 'y0', 'y1')]
         for key, field in (('L', 'cell_length_mm'), ('t', 'wall_thickness_mm')):
             for index, row in enumerate(rows):
                 try:
@@ -105,12 +96,10 @@ def _input(config, targets, operation):
     return source
 
 
-def _array(value, shape=None, *, precision=64):
+def _array(value, shape=None):
     """Borrow native storage until CaseData makes its immutable copy."""
     values = (np.ctypeslib.as_array(value.data, shape=(value.size,))
               if value.size else np.empty(0))
-    if precision != 64:
-        values = values.astype(f'float{precision}')
     return values if shape is None else values.reshape(shape)
 
 
@@ -138,7 +127,7 @@ def _parameters(config, uniform, context):
         T_inA=config.fluid_A.T_in_K, T_inB=config.fluid_B.T_in_K,
         P_inA=config.fluid_A.P_in_Pa, P_inB=config.fluid_B.P_in_Pa,
         T_s_init=solver.T_s_init_K, envelope_mode=getattr(config, 'envelope_mode', 'raise'),
-        L_cell_m=geometry.L_cell_mm * 1e-3, t_wall_m=geometry.t_wall_mm * 1e-3,
+        L_cell_m=float(geometry.L_cell_mm) * 1e-3, t_wall_m=float(geometry.t_wall_mm) * 1e-3,
         k_s=geometry.k_s_W_mK, tpms_type=geometry.tpms, eps=uniform['epsilon'], D_h=uniform['D_h'],
         delta_levelset=float(geometry.delta_levelset),
         port_wall_refine=config.flags.port_wall_refine, variable_rho_cp=bool(config.flags.variable_rho_cp),
@@ -146,7 +135,7 @@ def _parameters(config, uniform, context):
         max_outer_ltne=solver.max_outer_ltne, outer_tol_K=solver.outer_tol_K,
         enthalpy_algorithm=solver.enthalpy_algorithm, enthalpy_temperature_tol_K=solver.enthalpy_temperature_tol_K,
         zone_grid_cells=([{('L_m' if key == 'L' else 't_m' if key == 't' else key):
-                            value * 1e-3 if key in ('L', 't') else value for key, value in cell.items()}
+                            float(value) * 1e-3 if key in ('L', 't') else value for key, value in cell.items()}
                           for cell in cells] if cells else None),
         continuous_field=deepcopy(config.zones.config) if continuous else None,
         fluid_type_A=config.fluid_A.type, fluid_type_B=config.fluid_B.type,
@@ -177,19 +166,15 @@ def _case(result, config, case_id, context):
     grid = dict(dimension=3, axis_order=('x', 'y', 'z'), length_unit='m')
     for index, axis in enumerate('xyz'):
         grid['d' + axis], grid[axis + '_edges'] = widths[index], _array(value.edges[index])
-    design = {key: _array(getattr(value, name), shape,
-                         precision=value.length_kinds[index].precision if index < 2 else 64)
-              for index, (name, key) in enumerate((
+    design = {key: _array(getattr(value, name), shape)
+              for name, key in (
                   ('cell_length', 'L_field_m'), ('wall_thickness', 't_field_m'),
                   ('total_porosity', 'eps_arr'), ('side_porosity', 'eps_A'),
-                  ('permeability', 'K_m2'), ('forchheimer', 'cF_per_m'), ('solid_conductivity', 'K_ss')))}
+                  ('permeability', 'K_m2'), ('forchheimer', 'cF_per_m'), ('solid_conductivity', 'K_ss'))}
     continuous = isinstance(result, three._ContinuousCase)
     design['eps_B'] = design['eps_A'] if continuous else _array(result.side_b_porosity, shape)
     uniform = host._geometry_values(value.geometry, bool(value.co2.active))
-    solid_kind = (native._Kind(64, 1, 1) if value.co2.active else
-                  host._kind(config.geometry.k_s_W_mK) if isinstance(config.geometry.k_s_W_mK, np.generic)
-                  else native._Kind(64, 0, 0))
-    uniform['K_ss'] = host._restore(value.uniform_solid_conductivity, solid_kind)
+    uniform['K_ss'] = value.uniform_solid_conductivity
     params = _parameters(config, uniform, context)
     thermal = dict(uniform=uniform, fields=None,
                    split_A=.5 if continuous else result.split_a, side_geometry=None)
@@ -203,14 +188,12 @@ def _case(result, config, case_id, context):
     for index, side in enumerate('AB'):
         current = value.sides[index]
         native_port = value.input.sides[index].port
-        bc = getattr(config, 'bc_' + side)
-        port = host.prepared_port(bc, lengths[current.axes[0]], native_port.direction,
-            (row[0].value for row in native_port.values), (row[1].value for row in native_port.values))
+        port = host.prepared_port(native_port.direction,
+            (row[0] for row in native_port.values), (row[1] for row in native_port.values))
         for row, end in enumerate(('in', 'out')):
             for column, suffix in ((2, '_z_ctr'), (3, '_z_w')):
                 if native_port.present[row][column]:
-                    key = end + suffix
-                    port[key] = type(getattr(bc, key))(native_port.values[row][column].value)
+                    port[end + suffix] = native_port.values[row][column]
         params['fluid_' + side + '_cfg'] = port
         axes[side] = _axis_data(current.axes, widths, lengths)
         cross_shape = axes[side]['N_cross1'], axes[side]['N_cross2']
@@ -274,8 +257,6 @@ def _execute(config, action, *, targets=None, case_id=None, start_observations=N
             if config.zones.enabled and config.zones.axis not in ('continuous', 'grid'):
                 raise NotImplementedError('3D zones support grid or continuous mode only')
         elif stage == 13:
-            if 'grid' in source._errors:
-                raise source._errors['grid']
             if action == 'prepare_flow_case':
                 context['environment'] = capture_environment()
         elif stage == 14:
@@ -301,7 +282,7 @@ def _execute(config, action, *, targets=None, case_id=None, start_observations=N
     with host.volume_operation(action, source, options, host_input, cache) as result:
         flow = result.flow
         if action == 'prepare_inlet_mass_capacities':
-            return {side: restore_buffer_scalar(flow.capacities[index]) for index, side in enumerate('AB')}
+            return {side: flow.capacities[index] for index, side in enumerate('AB')}
         resolved = host.resolved_flow_config(config, flow, targets)
         if action == 'resolve_inlet_flow':
             return resolved

@@ -9,7 +9,6 @@ from dataclasses import replace
 import os
 from pathlib import Path
 import sys
-from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -184,24 +183,59 @@ def prepared(pair="air-air", *, directions=None, counts=None, mesh=None, **contr
     if counts is not None and counts[2] == 1:
         # Explicitly exercise the 3D runtime's retained Nz=1 delegate. Public
         # automatic preparation ordinarily routes this configuration to 2D.
-        from tests.python.preparation_3d_reference import _parse_inputs_3d_cfg, _prepare_problem_data
-        c = _parse_inputs_3d_cfg(cfg)
-        p = _prepare_problem_data(c)
-        c = p.pop("cfg")
-        c.update(controls)
-        return c, p
+        from sjtu_tpmshx.data_types.portable_data import mutable_data
+        cfg_two = replace(cfg, solver=replace(cfg.solver, Nz=2))
+        case = prepare_case(cfg_two, case_id="native-full3d-"+pair)
+        lz = float(cfg.geometry.Lz_m)
+        grid = mutable_data(case.grid)
+        grid["dz"] = np.array([lz], dtype=np.float64)
+        grid["z_edges"] = np.array([0., lz], dtype=np.float64)
+        design = {k: (v[:, :, :1].copy() if isinstance(v, np.ndarray) and v.ndim == 3 else v)
+                  for k, v in case.design_fields.items()}
+        params = mutable_data(case.parameters)
+        params["Nz"] = params["prepared"]["Nz"] = 1
+        if params["thermal_geometry"]["fields"] is not None:
+            params["thermal_geometry"]["fields"] = {
+                k: v[:, :, :1].copy() for k, v in params["thermal_geometry"]["fields"].items()}
+        widths_map = {"x": grid["dx"], "y": grid["dy"], "z": grid["dz"]}
+        counts_map = (len(grid["dx"]), len(grid["dy"]), 1)
+        for side in ("A", "B"):
+            ax = params["prepared"]["axes"][side]
+            for prefix, key, init_key in (
+                    ("cross1", "cross1_real_axis", "Nx"),
+                    ("stream", "stream_real_axis", "Ny"),
+                    ("cross2", "cross2_real_axis", "Nz")):
+                real_axis = ax[key]
+                ax["d" + prefix] = widths_map["xyz"[real_axis]].copy()
+                ax["N_" + prefix] = ax["solver_init"][init_key] = counts_map[real_axis]
+            c1, c2 = ax["N_cross1"], ax["N_cross2"]
+            for end in ("inlet", "outlet"):
+                params["prepared"]["openings"][side][end] = params["prepared"]["openings"][side][end][:c1, :c2].copy()
+        case = replace(case, grid=grid, design_fields=design, parameters=params)
+    elif mesh == "graded":
+        from sjtu_tpmshx.cpp_interface import _native_grid
+        from sjtu_tpmshx.data_types.portable_data import mutable_data
+        case = prepare_case(cfg, case_id="native-full3d-"+pair)
+        lx, ly, lz = cfg.geometry.L_dom_m, cfg.geometry.H_dom_m, cfg.geometry.Lz_m
+        nx, ny, nz = cfg.solver.Nx, cfg.solver.Ny, cfg.solver.Nz
+        widths = [np.linspace(.65, 1.35, n) for n in (nx, ny, nz)]
+        for w, length in zip(widths, (lx, ly, lz)):
+            w *= length / w.sum()
+        grid = mutable_data(case.grid)
+        for axis, w in zip("xyz", widths):
+            grid["d" + axis] = w
+            grid[axis + "_edges"] = np.concatenate(([0.], np.cumsum(w)))
+        params = mutable_data(case.parameters)
+        for side in ("A", "B"):
+            ax = params["prepared"]["axes"][side]
+            for prefix, key in (("cross1", "cross1_real_axis"), ("stream", "stream_real_axis"), ("cross2", "cross2_real_axis")):
+                ax["d" + prefix] = widths[ax[key]].copy()
+            inlet, outlet = _native_grid.partial_masks(
+                params["fluid_" + side + "_cfg"], ax["dcross1"], ax["dcross2"], len(ax["dcross2"]))
+            params["prepared"]["openings"][side] = {"inlet": inlet, "outlet": outlet}
+        case = replace(case, grid=grid, parameters=params)
     else:
-        if mesh == "graded":
-            def graded(lx, ly, lz, nx, ny, nz):
-                widths = [np.linspace(.65, 1.35, n) for n in (nx, ny, nz)]
-                for w, length in zip(widths, (lx, ly, lz)):
-                    w *= length / w.sum()
-                return *widths, nx, ny, nz
-            from tests.python import preparation_api_reference
-            with patch("tests.python.preparation_3d_reference._build_grid_3d", graded):
-                case = preparation_api_reference.prepare_case(cfg, case_id="native-full3d-"+pair)
-        else:
-            case = prepare_case(cfg, case_id="native-full3d-"+pair)
+        case = prepare_case(cfg, case_id="native-full3d-"+pair)
     c, p = build_execution_inputs(case)
     c.update(controls)
     return c, p
@@ -317,11 +351,10 @@ def audit_full(actual, cfg, p):
 
 
 def outflow_case(shape, direction):
-    from tests.python.preparation_3d_reference import _resolve_axis_map
+    from sjtu_tpmshx.cpp_interface import _native_grid
     widths = [np.linspace(.7, 1.6, n) for n in shape]
-    axis_map = _resolve_axis_map(dict(dir=direction), *shape,
-                                *(w.sum() for w in widths), *widths)
-    axes = [axis_map[key + "_real_axis"] for key in ("cross1", "stream", "cross2")]
+    cross1, stream, cross2, *_ = _native_grid.axis_map(direction)
+    axes = [cross1, stream, cross2]
     solver_shape = [shape[axis] for axis in axes]
     faces = []
     for component in range(3):

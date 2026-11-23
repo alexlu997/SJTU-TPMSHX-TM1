@@ -75,7 +75,7 @@ Python 3D preparation uses host v5 with shared typed cache callbacks.
 Air-field scalar observations select at most eight values per side; full raw-array records keep all cells.
 `python/preprocess/three_d/preparation.py` assembles immutable CaseData from the owned native result.
 The replaced `shared/models/grid_3d.py` and `asym_split.py` helpers are retired.
-`tests/python/preparation_3d_reference.py` keeps the independent numerical reference.
+Pure formula references and physical invariant checks remain in `tests/python/`.
 Memory use near the cell cap and real 3D BO need separate acceptance.
 
 2D execution uses the selected library's complete saved native lifecycle, including checkpoints and complete result capture.

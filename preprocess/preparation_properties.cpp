@@ -1,6 +1,5 @@
 #include "preparation_properties.hpp"
 #include "tpmshx/model_coefficients.hpp"
-#include "tpmshx/scalar_precision.hpp"
 #include <CoolProp/AbstractState.h>
 #include <CoolProp/CoolProp.h>
 #include <algorithm>
@@ -10,7 +9,6 @@
 
 namespace tpmshx::preparation {
 namespace {
-namespace g=grid;
 namespace data=model_coefficients;
 constexpr auto absent=std::numeric_limits<std::size_t>::max();
 class FloatingEnvironment {
@@ -22,28 +20,11 @@ private:
 };
 void check_input(PropertyInput input,std::size_t count) {
     if (input.values.size!=count) throw std::invalid_argument("property input element count is incorrect");
-    g::checked({0.,input.kind.precision,input.kind.strong});
-    if (input.layout>3 || (!input.kind.strong && input.layout) || (input.kind.strong && !input.layout))
-        throw std::invalid_argument("property input layout does not match its scalar kind");
-    if (input.category>1 || (input.category && (input.layout>1 || input.kind.strong>1
-        || (input.kind.precision!=32 && input.kind.precision!=64))))
-        throw std::invalid_argument("property complex operands require a supported scalar layout");
+    if (count && !input.values.data) throw std::invalid_argument("nonempty property input is null");
 }
-PropertyNumber point(PropertyInput input,std::size_t index) {
-    return {{input.values[index],input.kind.precision,input.kind.strong},input.imaginary,input.category,input.layout};
-}
-PropertyNumber empty_point(PropertyInput input) {
-    return {{input.kind.value,input.kind.precision,input.kind.strong},input.imaginary,input.category,input.layout,input.layout==3};
-}
-Scalar floating_type(Scalar kind) {return {0.,g::result_precision(kind,g::weak(0.)),kind.strong?1u:0u};}
-PropertyResult result(std::size_t count,Scalar kind) {
-    PropertyResult output;output.values.resize(count);output.imaginary.assign(count,0.);output.kind=kind;return output;
-}
-void store(PropertyResult& output,std::size_t index,PropertyNumber number) {
-    if (!index) {output.kind={0.,number.real.precision,number.real.strong};output.category=number.category;}
-    if (number.real.precision!=output.kind.precision || number.real.strong!=output.kind.strong
-        || number.category!=output.category) throw std::runtime_error("property result type varies within one array");
-    output.values[index]=number.real.value;output.imaginary[index]=number.imaginary;
+double point(PropertyInput input,std::size_t index) {return input.values[index];}
+PropertyResult result(std::size_t count) {
+    PropertyResult output;output.values.resize(count);return output;
 }
 std::vector<double> values(ArrayView<const double> input) {
     return input.size?std::vector<double>(input.data,input.data+input.size):std::vector<double>{};
@@ -62,9 +43,8 @@ std::string number(double value) {std::ostringstream stream;stream<<value;return
 template<class Function> PropertyResult unary_binary(PropertyInput first,PropertyInput second,Function function) {
     FloatingEnvironment environment;
     check_input(first,first.values.size);check_input(second,first.values.size);
-    auto output=result(first.values.size,{0.,g::result_precision(first.kind,second.kind),
-        first.kind.strong || second.kind.strong?1u:0u});
-    for (std::size_t i=0;i<first.values.size;++i) store(output,i,function(point(first,i),point(second,i),output.events));
+    auto output=result(first.values.size);
+    for (std::size_t i=0;i<first.values.size;++i) output.values[i]=function(point(first,i),point(second,i),output.events);
     return output;
 }
 }  // namespace
@@ -86,24 +66,14 @@ EmpiricalRange empirical_range(Empirical getter) {
 PropertyResult empirical(Empirical getter,PropertyInput temperature,PropertyInput pressure) {
     FloatingEnvironment environment;
     const auto count=temperature.values.size;check_input(temperature,count);
-    Scalar kind=floating_type(temperature.kind);
-    if (getter==Empirical::air_density) {
-        check_input(pressure,count);const auto numerator=floating_type(pressure.kind);
-        kind={0.,g::result_precision(numerator,kind),numerator.strong || kind.strong?1u:0u};
-    }
-    if (getter>=Empirical::water_density) kind={0.,64,1};
-    if (getter==Empirical::water_cp) kind=g::weak(0.);
+    if (getter==Empirical::air_density) check_input(pressure,count);
+    // Water cp is one constant value, also for an empty temperature array.
     const auto required=getter==Empirical::water_cp?std::size_t{1}:count;
-    auto output=result(required,kind);
-    if (!required) {
-        const auto p=getter==Empirical::air_density?empty_point(pressure):PropertyNumber{g::weak(0.),0.,0,0};
-        const auto value=empirical_point(getter,empty_point(temperature),p,output.events);
-        output.kind={0.,value.real.precision,value.real.strong};output.category=value.category;
-    }
+    auto output=result(required);
     for (std::size_t i=0;i<required;++i) {
-        const auto t=getter==Empirical::water_cp?PropertyNumber{g::weak(0.),0.,0,0}:point(temperature,i);
-        const auto p=getter==Empirical::air_density?point(pressure,i):PropertyNumber{g::weak(0.),0.,0,0};
-        store(output,i,empirical_point(getter,t,p,output.events));
+        const double t=getter==Empirical::water_cp?0.:point(temperature,i);
+        const double p=getter==Empirical::air_density?point(pressure,i):0.;
+        output.values[i]=empirical_point(getter,t,p,output.events);
     }
     return output;
 }
@@ -115,15 +85,10 @@ PropertyResult roughness(RoughnessQuantity quantity,PropertyInput first,Property
     const bool paired=quantity==RoughnessQuantity::haaland || quantity==RoughnessQuantity::height_ratio
         || quantity==RoughnessQuantity::friction_gain;
     if (paired) check_input(second,count);
-    auto output=result(count,g::weak(0.));
-    const auto unused=PropertyNumber{g::weak(0.),0.,0,0};
-    if (!count) {
-        const auto value=roughness_point(quantity,empty_point(first),paired?empty_point(second):unused,output.events);
-        output.kind={0.,value.real.precision,value.real.strong};output.category=value.category;
-    }
+    auto output=result(count);
     for (std::size_t i=0;i<count;++i) {
-        const auto a=quantity==RoughnessQuantity::identity?unused:point(first,i);
-        store(output,i,roughness_point(quantity,a,paired?point(second,i):unused,output.events));
+        const double a=quantity==RoughnessQuantity::identity?0.:point(first,i);
+        output.values[i]=roughness_point(quantity,a,paired?point(second,i):0.,output.events);
     }
     return output;
 }
@@ -139,17 +104,11 @@ PropertyResult nu_inputs(NuRoute route,PropertyInput re,PropertyInput pr,Propert
             if (!std::isfinite(value.values[i]) || value.values[i]<=0.)
                 throw PropertyError(3,"CO2 closure inputs must be finite and positive");
     }
-    Scalar kind=re.kind;
-    if (route==NuRoute::air_direct || route==NuRoute::air_vector || route==NuRoute::co2)
-        kind={0.,64,route==NuRoute::air_direct && re.layout!=3?0u:1u};
-    if (route==NuRoute::water || route==NuRoute::sco2)
-        kind={0.,g::result_precision(re.kind,g::weak(1.)),1};
     if (route==NuRoute::air_vector) check_input(floor,count);
-    auto output=result(count,kind);
+    auto output=result(count);
     for (std::size_t i=0;i<count;++i) {
         double value=re.values[i];
         if (route==NuRoute::water || route==NuRoute::sco2) {
-            value=geometry::detail::round_scalar(value,kind.precision);
             if (!std::isnan(value)) value=std::max(value,1.);
         } else if (route==NuRoute::air_vector) {
             const auto lower=floor.values[i];
@@ -178,31 +137,15 @@ PropertyResult nu_inputs(NuRoute route,PropertyInput re,PropertyInput pr,Propert
     return output;
 }
 PropertyResult nusselt(NuRoute route,Topology topology,PropertyInput re,PropertyInput pr,
-    PropertyInput cell,PropertyInput diameter,Scalar alpha) {
+    PropertyInput cell,PropertyInput diameter,double alpha) {
     FloatingEnvironment environment;const auto count=re.values.size;
     check_input(re,count);check_input(pr,count);
     if (route!=NuRoute::water) {check_input(cell,count);check_input(diameter,count);}
-    alpha=route==NuRoute::sco2?g::checked(alpha):g::weak(1.);
-    const auto combine=[](Scalar first,Scalar second) {
-        return Scalar{0.,g::result_precision(first,second),first.strong || second.strong?1u:0u};
-    };
-    auto kind=combine(floating_type(re.kind),floating_type(pr.kind));
-    if (route!=NuRoute::water) kind=combine(kind,combine(diameter.kind,cell.kind));
-    if (route==NuRoute::sco2) kind=combine(kind,alpha);
-    if (route==NuRoute::co2) kind={0.,64,1};
-    auto output=result(count,kind);
-    if (!count) {
-        const auto unused=PropertyNumber{g::weak(1.),0.,0,0};
-        const auto c=route==NuRoute::water?unused:empty_point(cell),d=route==NuRoute::water?unused:empty_point(diameter);
-        const auto value=nu_point(route,topology,empty_point(re),empty_point(pr),c,d,
-            {alpha,0.,0,alpha.strong?1u:0u},output.events);
-        output.kind={0.,value.real.precision,value.real.strong};output.category=value.category;
-    }
+    if (route!=NuRoute::sco2) alpha=1.;
+    auto output=result(count);
     for (std::size_t i=0;i<count;++i) {
-        const auto unused=PropertyNumber{g::weak(1.),0.,0,0};
-        const auto c=route==NuRoute::water?unused:point(cell,i),d=route==NuRoute::water?unused:point(diameter,i);
-        const auto a=PropertyNumber{alpha,0.,0,alpha.strong?1u:0u};
-        store(output,i,nu_point(route,topology,point(re,i),point(pr,i),c,d,a,output.events));
+        const double c=route==NuRoute::water?1.:point(cell,i),d=route==NuRoute::water?1.:point(diameter,i);
+        output.values[i]=nu_point(route,topology,point(re,i),point(pr,i),c,d,alpha,output.events);
     }
     return output;
 }
@@ -210,38 +153,25 @@ PropertyResult nusselt(NuRoute route,Topology topology,PropertyInput re,Property
 PropertyResult reynolds(PropertyInput rho,PropertyInput speed,PropertyInput diameter,PropertyInput mu) {
     FloatingEnvironment environment;
     const auto count=rho.values.size;for (auto input:{rho,speed,diameter,mu}) check_input(input,count);
-    auto type=Scalar{0.,g::result_precision(rho.kind,speed.kind),rho.kind.strong || speed.kind.strong?1u:0u};
-    type={0.,g::result_precision(type,diameter.kind),type.strong || diameter.kind.strong?1u:0u};
-    type={0.,g::result_precision(type,mu.kind),type.strong || mu.kind.strong?1u:0u};
-    auto output=result(count,type);
+    auto output=result(count);
     for (std::size_t i=0;i<count;++i)
-        store(output,i,reynolds_point(point(rho,i),point(speed,i),point(diameter,i),point(mu,i),output.events));
+        output.values[i]=reynolds_point(point(rho,i),point(speed,i),point(diameter,i),point(mu,i),output.events);
     return output;
 }
 PropertyResult prandtl(PropertyInput mu,PropertyInput cp,PropertyInput k) {
     const auto count=mu.values.size;
     for (auto input:{mu,cp,k}) check_input(input,count);
     FloatingEnvironment environment;
-    const Scalar product{0.,g::result_precision(mu.kind,cp.kind),mu.kind.strong || cp.kind.strong?1u:0u};
-    auto pr=result(count,{0.,g::result_precision(product,k.kind),product.strong || k.kind.strong?1u:0u});
-    if (!count) {
-        const auto value=prandtl_point(empty_point(mu),empty_point(cp),empty_point(k),pr.events);
-        pr.kind={0.,value.real.precision,value.real.strong};pr.category=value.category;
-    }
-    for (std::size_t i=0;i<count;++i) store(pr,i,prandtl_point(point(mu,i),point(cp,i),point(k,i),pr.events));
+    auto pr=result(count);
+    for (std::size_t i=0;i<count;++i) pr.values[i]=prandtl_point(point(mu,i),point(cp,i),point(k,i),pr.events);
     return pr;
 }
 PropertyResult surface_transfer(PropertyInput nu,PropertyInput k,PropertyInput diameter) {
     FloatingEnvironment environment;const auto count=nu.values.size;
     for (auto input:{nu,k,diameter}) check_input(input,count);
-    const Scalar product{0.,g::result_precision(nu.kind,k.kind),nu.kind.strong || k.kind.strong?1u:0u};
-    auto output=result(count,{0.,g::result_precision(product,diameter.kind),product.strong || diameter.kind.strong?1u:0u});
-    if (!count) {
-        const auto value=surface_transfer_point(empty_point(nu),empty_point(k),empty_point(diameter),output.events);
-        output.kind={0.,value.real.precision,value.real.strong};output.category=value.category;
-    }
+    auto output=result(count);
     for (std::size_t i=0;i<count;++i)
-        store(output,i,surface_transfer_point(point(nu,i),point(k,i),point(diameter,i),output.events));
+        output.values[i]=surface_transfer_point(point(nu,i),point(k,i),point(diameter,i),output.events);
     return output;
 }
 std::array<PropertyResult,2> inlet_re_pr(PropertyInput rho,PropertyInput mu,PropertyInput k,
@@ -260,8 +190,7 @@ std::array<PropertyResult,3> inlet_transfer(PropertyInput nu,PropertyInput k,Pro
     const auto count=nu.values.size;
     for (auto input:{area,epsilon}) check_input(input,count);
     auto surface=surface_transfer(nu,k,diameter);
-    const PropertyInput hsf{{surface.values.data(),count},surface.kind,
-        nu.layout==3 || k.layout==3 || diameter.layout==3?3u:(surface.kind.strong?1u:0u)};
+    const PropertyInput hsf{{surface.values.data(),count}};
     auto volume=volumetric_transfer(hsf,area),conductivity=pore_conductivity(epsilon,k);
     return {std::move(surface),std::move(volume),std::move(conductivity)};
 }

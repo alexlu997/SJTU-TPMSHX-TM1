@@ -11,14 +11,12 @@ namespace {
 namespace p=tpmshx::preparation;
 namespace c=p::c_api;
 using Input=tpmshx_property_input_v1;
-using Operand=tpmshx_property_operand_v1;
 using Output=tpmshx_property_output_v1;
 using Failure=tpmshx_property_failure_v1;
 struct Range {const void* data;std::size_t count,width,alignment;bool output;};
 template<class T> Range read(const T* values,std::size_t count) {return {values,count,sizeof(T),alignof(T),false};}
 template<class T> Range write(T* values,std::size_t count) {return {values,count,sizeof(T),alignof(T),true};}
 Range read(Input value) {return read(value.values,value.count);}
-Range read(Operand value) {return read(value.real);}
 
 template<class Function> int invoke(std::initializer_list<Range> buffers,Failure* failure,
     char* error,std::size_t size,Function function) {
@@ -61,34 +59,29 @@ template<class Function> int invoke(std::initializer_list<Range> buffers,Failure
 
 p::PropertyInput input(Input value) {
     c::require_buffer(value.values,value.count);
-    return {{value.values,value.count},{value.kind.value,value.kind.precision,value.kind.strong},value.layout};
-}
-p::PropertyInput input(Operand value) {
-    auto result=input(value.real);result.imaginary=value.imaginary;result.category=value.category;return result;
+    return {{value.values,value.count}};
 }
 void output(Output value,std::size_t count) {
-    c::require_output(value.values,value.count,count);c::require_buffer(value.imaginary,count);
-    c::require_buffer(value.kind,1);c::require_buffer(value.category,1);
-    c::require_output(value.events,value.event_count,p::property_event_count);
+    c::require_output(value.values,value.count,count);
+    c::require_output(value.events,value.event_capacity,p::property_event_count);
+    c::require_buffer(value.event_count,1);
 }
 void ready(const p::PropertyResult& value,std::size_t count) {
-    if (value.values.size()!=count || value.imaginary.size()!=count)
-        throw std::runtime_error("native property result extent is incorrect");
+    if (value.values.size()!=count) throw std::runtime_error("native property result extent is incorrect");
 }
 void publish(const p::PropertyResult& value,Output output) {
-    if (!value.values.empty()) {
-        std::copy(value.values.begin(),value.values.end(),output.values);
-        std::copy(value.imaginary.begin(),value.imaginary.end(),output.imaginary);
-    }
-    *output.kind={0.,value.kind.precision,value.kind.strong};*output.category=value.category;
+    if (!value.values.empty()) std::copy(value.values.begin(),value.values.end(),output.values);
     std::copy(value.events.begin(),value.events.end(),output.events);
+    std::size_t used=value.events.size();
+    while (used && !value.events[used-1]) --used;
+    *output.event_count=used;
 }
 void publish(const std::vector<double>& value,double* output,std::size_t count) {
     if (value.size()!=count) throw std::runtime_error("native EOS result extent is incorrect");
     if (!value.empty()) std::copy(value.begin(),value.end(),output);
 }
-#define OUT_RANGES(value) write((value).values,(value).count),write((value).imaginary,(value).count), \
-    write((value).kind,1),write((value).category,1),write((value).events,(value).event_count)
+#define OUT_RANGES(value) write((value).values,(value).count), \
+    write((value).events,(value).event_capacity),write((value).event_count,1)
 }
 
 extern "C" int TPMSHX_PREPARATION_CALL tpmshx_preparation_property_backend_v1(
@@ -196,17 +189,17 @@ extern "C" int TPMSHX_PREPARATION_CALL tpmshx_preparation_reynolds_v1(
     });
 }
 extern "C" int TPMSHX_PREPARATION_CALL tpmshx_preparation_prandtl_v1(
-    Operand mu,Operand cp,Operand conductivity,Output result,Failure* failure,char* error,size_t error_capacity) {
+    Input mu,Input cp,Input conductivity,Output result,Failure* failure,char* error,size_t error_capacity) {
     return invoke({read(mu),read(cp),read(conductivity),OUT_RANGES(result)},failure,error,error_capacity,[&] {
-        output(result,mu.real.count);const auto value=p::prandtl(input(mu),input(cp),input(conductivity));
-        ready(value,mu.real.count);publish(value,result);
+        output(result,mu.count);const auto value=p::prandtl(input(mu),input(cp),input(conductivity));
+        ready(value,mu.count);publish(value,result);
     });
 }
 extern "C" int TPMSHX_PREPARATION_CALL tpmshx_preparation_surface_transfer_v1(
-    Operand nu,Operand conductivity,Operand diameter,Output result,Failure* failure,char* error,size_t error_capacity) {
+    Input nu,Input conductivity,Input diameter,Output result,Failure* failure,char* error,size_t error_capacity) {
     return invoke({read(nu),read(conductivity),read(diameter),OUT_RANGES(result)},failure,error,error_capacity,[&] {
-        output(result,nu.real.count);const auto value=p::surface_transfer(input(nu),input(conductivity),input(diameter));
-        ready(value,nu.real.count);publish(value,result);
+        output(result,nu.count);const auto value=p::surface_transfer(input(nu),input(conductivity),input(diameter));
+        ready(value,nu.count);publish(value,result);
     });
 }
 extern "C" int TPMSHX_PREPARATION_CALL tpmshx_preparation_inlet_re_pr_v1(
@@ -260,14 +253,14 @@ extern "C" int TPMSHX_PREPARATION_CALL tpmshx_preparation_nu_inputs_v1(
     });
 }
 extern "C" int TPMSHX_PREPARATION_CALL tpmshx_preparation_nu_v1(
-    uint32_t route,uint32_t topology,Input re,Input pr,Input cell,Input diameter,tpmshx_grid_scalar_v1 alpha,
+    uint32_t route,uint32_t topology,Input re,Input pr,Input cell,Input diameter,double alpha,
     Output result,Failure* failure,char* error,size_t error_capacity) {
     const Input used_cell=route==2?Input{}:cell,used_diameter=route==2?Input{}:diameter;
     return invoke({read(re),read(pr),read(used_cell),read(used_diameter),OUT_RANGES(result)},failure,error,error_capacity,[&] {
         if (route>4 || topology>1) throw std::invalid_argument("unsupported Nu route or topology");
         output(result,re.count);
         const auto value=p::nusselt(static_cast<p::NuRoute>(route),static_cast<tpmshx::Topology>(topology),
-            input(re),input(pr),input(used_cell),input(used_diameter),{alpha.value,alpha.precision,alpha.strong});
+            input(re),input(pr),input(used_cell),input(used_diameter),alpha);
         ready(value,re.count);publish(value,result);
     });
 }

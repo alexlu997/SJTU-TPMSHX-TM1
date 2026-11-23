@@ -7,7 +7,7 @@ int main() {
         QuickDesignInputV2 input;
         // Cell, wall, span, length, height, k_s, tolerance, mass A/B, temperature A/B, pressure A/B.
         const double values[]{7.,.5,.084,.05,.07,16.,1e-5,.2855,.5,688.23,320.,1088700.,200000.};
-        for(std::size_t n=0;n<TPMSHX_QUICK_VALUE_COUNT;++n)input.values[n].value=values[n];
+        for(std::size_t n=0;n<TPMSHX_QUICK_VALUE_COUNT;++n)input.values[n]=values[n];
         input.topology={"Diamond",7};input.arrangement={"cross",5};input.property_mode={"const",5};
         input.fluids[0]={"air",3};input.fluids[1]={"water",5};input.have_height=1;
         auto prepared=prepare_quick_design(input);

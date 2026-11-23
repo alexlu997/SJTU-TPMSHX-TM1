@@ -5,7 +5,14 @@ import numpy as np
 import pytest
 
 from tests.python.field_coordinates_reference import _solver_staggered_to_real
-from tests.python.preparation_3d_reference import _resolve_axis_map
+from sjtu_tpmshx.cpp_interface import _native_grid
+from sjtu_tpmshx.preprocess.three_d.preparation import _axis_data
+
+
+def _resolve_axis_map(port, Nx, Ny, Nz, L, H, Lz, dx, dy, dz):
+    """Pack the production axis metadata for one port direction."""
+    del Nx, Ny, Nz
+    return _axis_data(_native_grid.axis_map(port['dir']), (dx, dy, dz), (L, H, Lz))
 
 
 @pytest.mark.parametrize('direction', range(6))

@@ -399,7 +399,7 @@ public:
         applicability.final_state=final_ranges.data();applicability.final_count=final_ranges.size();
         applicability.required=required.data();applicability.required_count=required.size();
     }
-    void scope_notes(const tpmshx_stage_saved_case_3d_v1& saved,const tpmshx_preparation_scalar_kind_v2* kinds) {
+    void scope_notes(const tpmshx_stage_saved_case_3d_v1& saved) {
         fields::c_api::require_buffer(saved.notices,saved.notice_count);
         for(size_t i=0;i<saved.notice_count;++i)add_scope_notice(notices,text(saved.notices[i]));
         constexpr auto absent=std::numeric_limits<size_t>::max();
@@ -414,15 +414,15 @@ public:
             message<<"[sCO2 Nu evidence] 3D h_v property refresh, side="<<labels[side]<<", "
                 <<(input.topology?"Gyroid":"Diamond")<<", ";
             if(input.spatial) {
-                const auto extrema=[](const double* data,size_t count,const tpmshx_preparation_scalar_kind_v2* kind) {
+                const auto extrema=[](const double* data,size_t count) {
                     fields::c_api::require_buffer(data,count);
                     if(!count)throw std::invalid_argument("spatial scope evidence has an empty geometry field");
                     const auto values=std::minmax_element(data,data+count);
-                    return std::array<double,2>{scope_length_mm(*values.first,kind),scope_length_mm(*values.second,kind)};
+                    return std::array<double,2>{scope_length_mm(*values.first),scope_length_mm(*values.second)};
                 };
                 if(!have_extrema) {
-                    length=extrema(input.cell_length.data,input.cell_length.size,kinds);
-                    wall=extrema(saved.wall_thickness_m.data,saved.wall_thickness_m.size,kinds?kinds+1:nullptr);
+                    length=extrema(input.cell_length.data,input.cell_length.size);
+                    wall=extrema(saved.wall_thickness_m.data,saved.wall_thickness_m.size);
                     have_extrema=true;
                 }
                 message<<"zoned L=["<<length[0]<<","<<length[1]<<"] mm, t=["<<wall[0]<<","<<wall[1]<<"] mm";
@@ -435,7 +435,7 @@ public:
             if(indices[i]!=absent)execution_view.execution.sco2_notices[i]=notice_views[indices[i]];
         applicability.scope_notes=notice_views.data();applicability.scope_note_count=notice_views.size();
     }
-    void populate(const tpmshx_stage_saved_case_3d_v1& saved,const tpmshx_preparation_scalar_kind_v2* kinds) {
+    void populate(const tpmshx_stage_saved_case_3d_v1& saved) {
         fields::c_api::require_buffer(saved.input,1);const auto& input=*saved.input;
         if(raw.stop>1 || raw.thermal_mode>2)throw std::runtime_error("native full 3D returned an invalid completed state");
         if(raw.thermal_outer_index>static_cast<size_t>(std::numeric_limits<int>::max()))
@@ -504,7 +504,7 @@ public:
         if(tpmshx_full_3d_get_property_sampling_v1(&raw,&records.sampling))
             throw std::runtime_error("native property sampling query failed");
         if(temperature_ledger.algorithm)records.temperature[0]=&temperature_ledger;
-        prepared_ranges(saved);final_state_ranges();required_ranges(input);scope_notes(saved,kinds);
+        prepared_ranges(saved);final_state_ranges();required_ranges(input);scope_notes(saved);
         applicability.inlet_recorded=saved.inlet_recorded?1:0;e.applicability=&applicability;
         capture_energy_relations(records,e);
         auto& executed=execution_view.execution;
@@ -541,12 +541,12 @@ public:
 };
 
 Capture3D* capture_3d(const tpmshx_stage_saved_case_3d_v1& saved,tpmshx_full3d_result_v1& raw,
-    const tpmshx_full3d_control_v1& resolved,const char* result_id,const tpmshx_preparation_scalar_kind_v2* kinds) {
+    const tpmshx_full3d_control_v1& resolved,const char* result_id) {
     auto owner=std::make_unique<Capture3D>();owner->raw=raw;raw={};owner->resolved=resolved;
     if(!result_id)throw std::invalid_argument("3D capture requires a result identifier");
     owner->result_id=result_id;
     if(resolved.table_directory) {owner->table_directory=resolved.table_directory;owner->resolved.table_directory=owner->table_directory.c_str();}
-    if(owner->raw.stop!=2) {owner->populate(saved,kinds);owner->capture_scalars(*saved.input);}
+    if(owner->raw.stop!=2) {owner->populate(saved);owner->capture_scalars(*saved.input);}
     return owner.release();
 }
 tpmshx_stage_run_result_3d_v1 stage_view(Capture3D& owner) {

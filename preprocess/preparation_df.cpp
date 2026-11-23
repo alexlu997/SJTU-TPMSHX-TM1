@@ -55,8 +55,6 @@ public:
 private:
     std::fenv_t environment_;
 };
-PropertyNumber number(grid::Scalar value) { return {value,0.,0,value.strong ? 1u : 0u}; }
-PropertyNumber weak(double value) { return number(grid::weak(value)); }
 PropertyNumber gradient(PropertyNumber density,PropertyNumber viscosity,PropertyNumber speed,
     PropertyNumber permeability,PropertyNumber inertial,
     std::array<std::uint32_t,property_event_count>& events) {
@@ -68,12 +66,11 @@ PropertyNumber gradient(PropertyNumber density,PropertyNumber viscosity,Property
     const auto second_velocity = arithmetic.multiply(first_velocity,speed);
     return arithmetic.add(viscous,second_velocity);
 }
-DfPressure pressure_result(PropertyNumber value, double outlet_squared, bool no_positive,
+DfPressure pressure_result(double value, double outlet_squared, bool no_positive,
     const std::array<std::uint32_t,property_event_count>& events) {
     DfPressure result{};
-    result.dP_Pa = value.real.value; result.outlet_squared_Pa = outlet_squared;
+    result.dP_Pa = value; result.outlet_squared_Pa = outlet_squared;
     result.no_positive_outlet = no_positive ? 1u : 0u;
-    result.precision = value.real.precision; result.strong = value.real.strong;
     std::copy(events.begin(),events.end(),result.floating_events);
     return result;
 }
@@ -99,64 +96,45 @@ std::vector<DfPair> fixed_df_batch(std::uint32_t topology,
     return output;
 }
 
-double df_incompressible(std::uint32_t topology, double length_mm, double wall_mm,
+DfPressure df_incompressible(std::uint32_t topology, double length_mm, double wall_mm,
     double speed, double density, double viscosity, double channel_length) {
-    return df_incompressible_typed(topology,length_mm,wall_mm,grid::weak(speed),grid::weak(density),
-                                  grid::weak(viscosity),grid::weak(channel_length)).dP_Pa;
-}
-
-DfPressure df_incompressible_typed(std::uint32_t topology, double length_mm, double wall_mm,
-    grid::Scalar speed, grid::Scalar density, grid::Scalar viscosity, grid::Scalar channel_length) {
     const auto drag = fixed_df(topology, length_mm, wall_mm);
     FloatingEnvironment environment;
     std::array<std::uint32_t,property_event_count> events{};
     PropertyArithmetic arithmetic(events);
-    {
-        const auto viscous_product = arithmetic.multiply(number(viscosity),number(speed));
-        const auto viscous = arithmetic.divide(viscous_product,weak(drag.K));
-        const auto inertial_coefficient = arithmetic.multiply(number(density),weak(drag.cF));
-        const auto squared_speed = arithmetic.power(number(speed),weak(2.));
-        const auto inertial = arithmetic.multiply(inertial_coefficient,squared_speed);
-        const auto gradient = arithmetic.add(viscous,inertial);
-        const auto result = arithmetic.multiply(gradient,number(channel_length));
-        return pressure_result(result,0.,false,events);
-    }
+    const auto viscous_product = arithmetic.multiply(viscosity,speed);
+    const auto viscous = arithmetic.divide(viscous_product,drag.K);
+    const auto inertial_coefficient = arithmetic.multiply(density,drag.cF);
+    const auto squared_speed = arithmetic.power(speed,2.);
+    const auto inertial = arithmetic.multiply(inertial_coefficient,squared_speed);
+    const auto gradient = arithmetic.add(viscous,inertial);
+    const auto result = arithmetic.multiply(gradient,channel_length);
+    return pressure_result(result,0.,false,events);
 }
 
 DfPressure df_compressible(std::uint32_t topology, double length_mm, double wall_mm,
     double mass_flux, double temperature, double inlet_pressure, double viscosity,
     double channel_length, bool strict) {
-    return df_compressible_typed(topology,length_mm,wall_mm,grid::weak(mass_flux),grid::weak(temperature),
-        grid::weak(inlet_pressure),grid::weak(viscosity),grid::weak(channel_length),strict);
-}
-
-DfPressure df_compressible_typed(std::uint32_t topology, double length_mm, double wall_mm,
-    grid::Scalar mass_flux, grid::Scalar temperature, grid::Scalar inlet_pressure,
-    grid::Scalar viscosity, grid::Scalar channel_length, bool strict) {
     const auto drag = fixed_df(topology, length_mm, wall_mm);
     FloatingEnvironment environment;
     std::array<std::uint32_t,property_event_count> events{};
     PropertyArithmetic arithmetic(events);
-    {
-        const auto viscous_product = arithmetic.multiply(number(viscosity),number(mass_flux));
-        const auto viscous = arithmetic.divide(viscous_product,weak(drag.K));
-        const auto squared_flux = arithmetic.power(number(mass_flux),weak(2.));
-        const auto inertial = arithmetic.multiply(weak(drag.cF),squared_flux);
-        const auto force = arithmetic.add(viscous,inertial);
-        const auto squared_pressure = arithmetic.power(number(inlet_pressure),weak(2.));
-        const auto gas_factor = arithmetic.multiply(weak(2.),weak(data::r_air_default));
-        const auto thermal_factor = arithmetic.multiply(gas_factor,number(temperature));
-        const auto pressure_gradient = arithmetic.multiply(thermal_factor,force);
-        const auto pressure_loss = arithmetic.multiply(pressure_gradient,number(channel_length));
-        const auto outlet_squared = arithmetic.subtract(squared_pressure,pressure_loss);
-        if (outlet_squared.real.value <= 0.)
-            return pressure_result(strict ? weak(std::numeric_limits<double>::quiet_NaN()) : number(inlet_pressure),
-                                   outlet_squared.real.value,true,events);
-        // The original math.sqrt returns a weak Python float.
-        const auto outlet = weak(std::sqrt(outlet_squared.real.value));
-        const auto drop = arithmetic.subtract(number(inlet_pressure),outlet);
-        return pressure_result(drop,outlet_squared.real.value,false,events);
-    }
+    const auto viscous_product = arithmetic.multiply(viscosity,mass_flux);
+    const auto viscous = arithmetic.divide(viscous_product,drag.K);
+    const auto squared_flux = arithmetic.power(mass_flux,2.);
+    const auto inertial = arithmetic.multiply(drag.cF,squared_flux);
+    const auto force = arithmetic.add(viscous,inertial);
+    const auto squared_pressure = arithmetic.power(inlet_pressure,2.);
+    const auto gas_factor = arithmetic.multiply(2.,data::r_air_default);
+    const auto thermal_factor = arithmetic.multiply(gas_factor,temperature);
+    const auto pressure_gradient = arithmetic.multiply(thermal_factor,force);
+    const auto pressure_loss = arithmetic.multiply(pressure_gradient,channel_length);
+    const auto outlet_squared = arithmetic.subtract(squared_pressure,pressure_loss);
+    if (outlet_squared <= 0.)
+        return pressure_result(strict ? std::numeric_limits<double>::quiet_NaN() : inlet_pressure,
+                               outlet_squared,true,events);
+    const auto drop = arithmetic.subtract(inlet_pressure,std::sqrt(outlet_squared));
+    return pressure_result(drop,outlet_squared,false,events);
 }
 
 PropertyResult df_pressure_gradient(PropertyInput density,PropertyInput viscosity,
@@ -164,27 +142,14 @@ PropertyResult df_pressure_gradient(PropertyInput density,PropertyInput viscosit
     const auto count = density.values.size;
     for (const auto input : {density,viscosity,speed,permeability,inertial}) {
         if (input.values.size != count) throw std::invalid_argument("pressure-gradient input extents differ");
-        grid::checked({0.,input.kind.precision,input.kind.strong});
-        if (input.layout > 3 || (!input.kind.strong && input.layout) || (input.kind.strong && !input.layout))
-            throw std::invalid_argument("pressure-gradient input layout does not match its scalar kind");
+        if (count && !input.values.data) throw std::invalid_argument("nonempty pressure-gradient input is null");
     }
     FloatingEnvironment environment;
     PropertyResult output;
-    output.values.resize(count); output.imaginary.assign(count,0.);
-    const auto point = [](PropertyInput input,std::size_t index,bool empty) {
-        const double value = empty ? input.kind.value : input.values[index];
-        return PropertyNumber{{value,input.kind.precision,input.kind.strong},0.,0,input.layout,
-                              empty && input.layout == 3};
-    };
-    for (std::size_t i = 0; i < std::max(std::size_t{1},count); ++i) {
-        const auto value = gradient(point(density,i,!count),point(viscosity,i,!count),
-            point(speed,i,!count),point(permeability,i,!count),point(inertial,i,!count),output.events);
-        if (!i) { output.kind = {0.,value.real.precision,value.real.strong}; output.category = value.category; }
-        if (value.real.precision != output.kind.precision || value.real.strong != output.kind.strong
-            || value.category != output.category)
-            throw std::runtime_error("pressure-gradient result type varies within one array");
-        if (count) { output.values[i] = value.real.value; output.imaginary[i] = value.imaginary; }
-    }
+    output.values.resize(count);
+    for (std::size_t i = 0; i < count; ++i)
+        output.values[i] = gradient(density.values[i],viscosity.values[i],speed.values[i],
+            permeability.values[i],inertial.values[i],output.events);
     return output;
 }
 

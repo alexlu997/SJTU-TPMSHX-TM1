@@ -24,7 +24,7 @@ flowchart LR
 
 | 计算阶段 | C++ 实现 | Python 入口 |
 | --- | --- | --- |
-| 准备工况 | [二维工况准备](preprocess/preparation_case.cpp#L1107) · [几何计算](geometry/) | [prepare_case](python/preprocess/api.py) |
+| 准备工况 | [二维工况准备](preprocess/preparation_case.cpp#L1021) · [几何计算](geometry/) | [prepare_case](python/preprocess/api.py) |
 | 求解 | [完整二维](solver/full_2d.cpp#L1095) · [完整三维](solver/full_3d.cpp#L1505) · [快速设计](solver/quick_design_driver.cpp#L116) | [run_case](python/solvers/api.py) |
 | 评估结果 | [工程指标计算](postprocess/result_stage.cpp#L1164) | [evaluate](python/postprocess/api.py) |
 
