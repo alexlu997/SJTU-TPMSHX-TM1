@@ -194,7 +194,7 @@ $env:TPMSHX_NATIVE_RESULT_LIBRARY = 'C:\absolute\path\tpmshx_result_shared.dll'
 时，冻结程序从自己的包内 `native/` 定位上述求解库；显式路径始终优先。
 几何库也默认使用包内 `native/`，可由运行时 `TPMSHX_GEOMETRY_LIBRARY` 覆盖。
 准备库默认使用同一 `native/`，可由运行时 `TPMSHX_PREPARATION_LIBRARY` 覆盖。
-结果 ABI 2 按需使用同目录的结果库，可由 `TPMSHX_RESULT_LIBRARY` 覆盖；纯文件读取不加载它。
+结果 ABI 3 按需使用同目录的结果库，可由 `TPMSHX_RESULT_LIBRARY` 覆盖；纯文件读取不加载它。
 源码运行使用前述主机默认路径或显式路径，不会自动搜寻开发缓存、编译库或改用其他后端。
 三个后端命令行选项仅构造本次调用的 `RunControl`；几何库、准备库和结果库路径是进程级主机设置。
 两者均不进入保存的 `CaseData` 或物理配置。

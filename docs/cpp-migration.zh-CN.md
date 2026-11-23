@@ -125,7 +125,7 @@ Python wheel 包含代码和模型资源，不包含原生库。
 不构建完整求解器或 run_state，也不需要 SuperLU 或 AMG。
 完整构建脚本分别构建 pilot 和 preparation 工程，共用一套物性和 DF 数值实现。
 
-`python/cpp_interface/stage_libraries.py` 通过 ctypes 分别按需加载准备库（ABI 1）和结果库（ABI 2）。
+`python/cpp_interface/stage_libraries.py` 通过 ctypes 分别按需加载准备库（ABI 1）和结果库（ABI 3）。
 具名物性、DF 和流量适配器保留现有 Python 公共接口。
 二维准备将 v7 域长／端口标量类型描述符与适用的版本载荷配合使用。
 共享网格和端口核心保留整数与窄浮点混合运算。
@@ -321,7 +321,7 @@ v2 阶段负责原数值及校验顺序，固定具名宿主操作保留 Python 
 薄准备入口组装 CaseData，保留逆流保存态的 `qtol=None` 和 `chunk=None`。
 Python 执行通过保存的准备场调用 run 阶段。
 阶段提供场数组及声明，Python 在释放前复制这些数据，保留原固定场 dtype，并映射过程警告和错误。
-原生结果阶段负责 Quick Design 指标，保留既有类型及事件协议。
+原生结果阶段根据 `float64` 操作数计算 Quick Design 指标，并发出固定 `RuntimeWarning` 诊断。
 
 `quick_design_driver.hpp` 负责完整准备态 const/mean 物性阶段计算。它包含原有经验空气／水或 HEOS sCO2 物性、既有 Nu、一次或两次温度计算、全场热启动、逐阶段液态水检查、迭代预算、进度和取消。准备好的入口状态解析压降比例保持固定。这是既有给定流量尺寸设计近似，`physical_validation=not_established`。
 

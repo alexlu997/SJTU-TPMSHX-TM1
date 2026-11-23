@@ -343,7 +343,7 @@ Its independent frozen reference remains under `tests/python/` for regression ch
 The thin preparation entry assembles CaseData and keeps stored counterflow `qtol=None` and `chunk=None`.
 Python execution calls the run stage with saved prepared fields.
 The stage supplies field arrays and declarations. Python copies them before release, keeps original fixed-field dtypes and maps pass warnings and errors.
-The native result stage owns Quick Design metrics and keeps the existing type and event protocols.
+The native result stage computes Quick Design metrics from `float64` operands and emits fixed `RuntimeWarning` diagnostics.
 
 `quick_design_driver.hpp` owns the complete prepared const/mean property-pass
 calculation. This includes original empirical air/water or HEOS sCO2 properties,
