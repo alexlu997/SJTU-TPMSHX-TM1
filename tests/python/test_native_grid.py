@@ -407,3 +407,21 @@ def test_empty_raw_fraction_keeps_original_index_error():
     with pytest.raises(IndexError) as actual:
         grid._port_fractions_1d(widths, 0., 1.)
     assert str(actual.value) == str(expected.value)
+
+
+@pytest.mark.parametrize('bad_direction', [True, False, np.bool_(True), 1.5, 1j, '0'])
+def test_axis_map_rejects_bool_and_non_integer_directions(bad_direction):
+    with pytest.raises(TypeError):
+        native.axis_map(bad_direction)
+    assert native.axis_map(np.int32(2)) == native.axis_map(2)
+
+
+@pytest.mark.parametrize('bad_widths,exc', [
+    (np.array([True, True]), TypeError),
+    (np.array([0.5 + 1j, 0.5 + 0j]), TypeError),
+    (np.array(['0.5', '0.5']), TypeError),
+    (np.ones((1, 2)), ValueError),
+])
+def test_continuous_centres_rejects_non_real_or_multidimensional_widths(bad_widths, exc):
+    with pytest.raises(exc):
+        native.continuous_centres(2, 1.0, bad_widths)

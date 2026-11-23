@@ -17,7 +17,7 @@ Python 数值迭代器、Numba／PyAMG 依赖和 Python 专用研究入口已退
 Python 模型模块与原生头文件生成器使用同一资源数据。
 几何计算由独立 C++ 核心负责。
 几何核心负责标准、CO2 和非对称几何、chi/Kss，以及 sigmoid LUT 节点和派生几何。
-`python/cpp_interface/_native_geometry.py` 通过几何 ABI 1 提供延迟加载的 ctypes 接口，
+`python/cpp_interface/_native_geometry.py` 通过几何 ABI 2 提供延迟加载的 ctypes 接口，
 加载独立预构建几何库，不导入求解器后端。
 Python 保留公共类型、缓存接口和逐次调用的 chi 显式值／环境值／拟合选择。
 `python/physical_models/preparation_cache.py` 持有有界的几何与入口物性缓存。
@@ -44,15 +44,15 @@ Python 选择 dtype 元数据并适配输出类型，不提供数值回退。
 其原生算术仍为 float64。
 
 几何库负责网格、端口、轴映射和设计场。
-独立 preparation ABI 1 负责物性、闭合、DF、修正、投影和准备数值。
+独立 preparation ABI 2 负责物性、闭合、DF、修正、投影和准备数值。
 独立 result ABI 3 负责指标、物理平衡、分区统计及数值检查。
 实现范围与交付记录见[C++ 范围](cpp-migration.zh-CN.md#cpp-core-scope)。
 
 准备目标位于 `preprocess/`，复用几何／网格核心及 `fluid_properties.cpp` 的共享数值所有者。
 它链接锁定的 CoolProp 静态库，不包含完整求解器、run_state、SuperLU 或 AMG。
 `python/cpp_interface/stage_libraries.py` 分别选择准备库和结果库，首次调用时加载对应库并检查 ABI。物性、DF 和流量适配器分别打包各自的输入。
-几何 ABI 1 与 field ABI 2 保留各自错误协议。
-Preparation ABI 1 的状态 1 表示无效输入，2 表示分配失败，3 表示运行时错误；
+几何 ABI 2 与 field ABI 3 保留各自错误协议。
+Preparation ABI 2 的状态 1 表示无效输入，2 表示分配失败，3 表示运行时错误；
 状态 10、11、12 分别表示水、CO2、sCO2 状态错误。
 调用按显式长度借用对齐缓冲区，失败不修改数值输出；上下文保留创建库直至释放。
 
@@ -690,7 +690,7 @@ XY 和 XYZ 保留不同求解顺序；XYZ 标量带状求解不是 LAPACK／BLAS
 XY 保留显式 Givens FMA 方向及局部收缩设置；Gaussian 在 Apple arm64 上显式融合对称项累加。
 其他网格／设计场计算保留严格收缩设置；这些选择仍需独立 Windows 检查。
 
-同一库导出几何 ABI 1 与字段 ABI 2，其错误码必须使用不同映射：
+同一库导出几何 ABI 2 与字段 ABI 3，其错误码必须使用不同映射：
 
 | 协议 | 状态 1 | 状态 2 | 状态 3 |
 | --- | --- | --- | --- |

@@ -78,8 +78,8 @@ Grid construction normalizes real scalar inputs to `float64` and keeps allocatio
 GUI adaptive counts and three-dimensional count suggestions also use this native owner.
 Staggered and nonstaggered overlap calculations evaluate edges and widths in `float64`.
 The same port loop serves preparation and full-solver double entries.
-The latter retain their physical input checks. Raw inputs keep nonfinite and nonpositive arithmetic.
-Python retains configuration `set`/`sorted`, control-axis `np.linspace` and Continuous coverage validation.
+The latter keep their physical input checks. Raw inputs keep nonfinite and nonpositive arithmetic.
+Python keeps configuration `set`/`sorted`, control-axis `np.linspace` and Continuous coverage validation.
 
 Nondegenerate XY uses the SciPy 1.18.1 first-fit, `s=0` FITPACK subset.
 XYZ and singleton XY axes use sequential one-dimensional fitting and sampling.
@@ -154,7 +154,8 @@ These BSD-3-Clause notices also apply when only the geometry/design-field librar
 ## Local changes and numerical rules
 
 Standard, CO2-table, and asymmetric geometry normalize real inputs to `float64` at the Python boundary and compute in `double` in C++.
-`standard_scalar_v1` calculates `L_mm / 1000`, `L_m / N`, `t_mm / L_mm`, threshold, porosity, area density, hydraulic diameter, and `K_ss` in `double`.
+`standard_scalar_v1` calculates `L_mm / 1000`, `L_m / N`, `t_mm / L_mm`, threshold, porosity, area density, and hydraulic diameter in `double`.
+`standard_batch_v1` and `material_batch_v1` calculate `K_ss` in `double`.
 Batch L/t fields use `float64` arrays.
 Effective solid conductivity evaluates `chi * (1 - epsilon) * k_s` in `double`.
 Formal nonzero asymmetric preparation converts L/t and length to `float64` and computes in `double`.

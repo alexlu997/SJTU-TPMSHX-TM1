@@ -1,13 +1,12 @@
 """Adapt grid data for the native geometry library."""
 import ctypes as ct
 from functools import lru_cache
-import operator
 
 import numpy as np
 
 from sjtu_tpmshx.cpp_interface import _native_geometry as _geometry
 
-from ._native_values import GridPort as _Port, grid_count as _count, real_scalar
+from ._native_values import GridPort as _Port, count as _index, grid_count as _count, real_scalar
 
 _DoubleP = ct.POINTER(ct.c_double)
 _Size = ct.c_size_t
@@ -169,7 +168,7 @@ def suggest(lengths, diameter, budget, minimum):
 
 def axis_map(direction):
     result = (ct.c_int32 * 7)()
-    _geometry._call(_function('axis_map'), operator.index(direction), result, 7)
+    _geometry._call(_function('axis_map'), _index(direction, name='direction'), result, 7)
     return tuple(result)
 
 
@@ -215,7 +214,7 @@ def partial_masks(port, cross1, cross2, n_cross2):
 def continuous_centres(count, length, widths=None):
     span = _scalar(length)
     count = _count(count)
-    values = np.empty(0, dtype=np.float64) if widths is None else np.ascontiguousarray(widths, dtype=np.float64)
+    values = np.empty(0, dtype=np.float64) if widths is None else _widths(widths)
     result = np.empty(count, dtype=np.float64)
     _geometry._call(_function('continuous_centres'), count, span, _pointer(values),
                     values.size, widths is not None, _pointer(result), result.size)

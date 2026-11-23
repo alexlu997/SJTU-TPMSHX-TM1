@@ -119,7 +119,7 @@ Python 执行通过保存的准备态调用原生 run 阶段；原生结果阶�
 | Quick Design 阶段准备与执行 | [quick_design_prepare_v2.cpp](../preprocess/quick_design_prepare_v2.cpp): `tpmshx_prepare_quick_design_v2`, `tpmshx_quick_pressure_fractions_v2`; [quick_design_run.cpp](../solver/quick_design_run.cpp): `tpmshx_run_quick_design_v2` |
 | 阶段评估与资格判断 | [result_stage.cpp](../postprocess/result_stage.cpp): `evaluate`, `evaluate_applicability`, `evaluate_physical_balance`, `evaluate_qualification` |
 
-几何库使用 geometry ABI 1／field ABI 2；准备库保留 ABI 1 加载入口，并增加带版本的 Quick 准备 v2 契约；结果库使用 result ABI 3。
+几何库使用 geometry ABI 2／field ABI 3；准备库使用 preparation ABI 2 与带版本的 Quick 准备 v2 契约；结果库使用 result ABI 3。
 求解器的算法细节从上表 driver 进入对应 SIMPLE、压力和能量实现；[C++ 说明](../docs/cpp-migration.zh-CN.md)给出接口边界。
 Python 保留配置、DTO、I/O、缓存、固定 `RuntimeWarning` 诊断、GUI／搜索和离线研究。
 原生结果阶段负责完整评估与资格；Python 保留来源数据和宿主通知，并解释执行记录。

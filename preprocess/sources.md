@@ -18,15 +18,15 @@ They do not call the native formulas that they check.
 `preprocess/preparation_case.cpp::inlet_property_values` owns the scalar sequence for standalone queries and complete preparation.
 It calls the existing property, Re/Pr, Nu, surface-transfer, fixed DF, pressure-gradient and pore-conductivity implementations.
 All real scalar inputs normalize to `float64` before native evaluation.
-It preserves operation order, floating-point events and source range records.
+It keeps operation order, floating-point events and source range records.
 Complete preparation keeps its existing physical guards.
 
 `query_inlet_properties` accepts supplied geometry scalars and creates no mesh or solver state.
 `preprocess/preparation_case_c_api.cpp` exposes `tpmshx_query_inlet_properties_v1` with `float64` inline values and no owner.
-Optional v3 callbacks retain synchronous observations and host-object checks; both cache hooks must be NULL.
+Optional v3 callbacks keep synchronous observations and host-object checks; both cache hooks must be NULL.
 `python/physical_models/tpms_calc.py` keeps public calls, shared caches, geometry selection and the per-call material query.
 `python/cpp_interface/inlet_properties.py` packs the inlet query. It uses `python/cpp_interface/preparation_host.py` for range observations and callbacks.
-The pure empirical fluid property and Nusselt correlation formulas in `tests/python/property_reference.py` supply independent numerical expectations.
+The pure empirical fluid-property formulas in `tests/python/property_reference.py` and Nusselt correlation formulas in `tests/python/nu_reference.py` supply independent numerical expectations.
 No physical model, coefficient source or external numerical dependency is added.
 
 ## Spatial flow stages
@@ -99,7 +99,7 @@ The shared v9 descriptor transports typed geometry and inlet cache values and ev
 Native code owns grid, geometry, flow resolution and final preparation.
 Python keeps configuration conversion, cache policy, warnings, environment parsing and immutable CaseData assembly.
 The replaced 3D Python bodies and exclusive `shared/models/grid_3d.py` and `asym_split.py` helpers are removed.
-The retired full-pipeline 3D Python reference was removed; pure formula references and physical invariant checks remain in `tests/python/`.
+The full-pipeline 3D Python reference is retired. Pure formula references and physical invariant checks remain in `tests/python/`.
 
 3D air-field observations use `numerics/scalar_range_samples.hpp`, also used by result range queries.
 The selection keeps the original scalar notices, extrema and last sample with at most eight host observations per side.

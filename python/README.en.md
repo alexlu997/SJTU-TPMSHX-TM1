@@ -125,7 +125,7 @@ Use this table to find the C++ owner of a numerical rule.
 | Quick Design stage preparation and execution | [quick_design_prepare_v2.cpp](../preprocess/quick_design_prepare_v2.cpp): `tpmshx_prepare_quick_design_v2`, `tpmshx_quick_pressure_fractions_v2`; [quick_design_run.cpp](../solver/quick_design_run.cpp): `tpmshx_run_quick_design_v2` |
 | Stage evaluation and qualification | [result_stage.cpp](../postprocess/result_stage.cpp): `evaluate`, `evaluate_applicability`, `evaluate_physical_balance`, `evaluate_qualification` |
 
-Geometry uses geometry ABI 1 and field ABI 2. The preparation library keeps its ABI 1 loader and adds the versioned Quick preparation v2 contract. Results use result ABI 3.
+Geometry uses geometry ABI 2 and field ABI 3. Preparation uses preparation ABI 2 and the Quick preparation v2 contract. Results use result ABI 3.
 Start at the drivers above for SIMPLE, pressure and energy implementations. See [C++ interfaces](../docs/cpp-migration.md) for their boundaries.
 Python keeps configuration, DTOs, I/O, caches, fixed `RuntimeWarning` diagnostics, the GUI, searches and offline research.
 The native result stage owns full evaluation and qualification. Python preserves source data and host notices, and interprets execution records.

@@ -26,7 +26,7 @@ _log = get_logger(__name__)
 # ── Sigmoid basis ────────────────────────────────────────────
 
 def _sigmoid(x, center, width):
-    """Call the native sigmoid with the original input precision."""
+    """Call the native float64 sigmoid."""
     return _native_sigmoid.values(x, center, width)
 
 
@@ -240,7 +240,7 @@ def build_continuous_geometry(x, L0, t0, y_trans_inlet, y_trans_outlet,
             ctrl_L_out[iy, ix] = L0 if fix_L else float(x[idx_out])
             ctrl_t_out[iy, ix] = t0 if fix_t else float(x[idx_out + 1])
 
-    # The grid owner retains each width array's original precision.
+    # Normalize width arrays to float64 fractional cell centres.
     x_frac = _native_grid.sigmoid_centres(Nx, L_domain, dx_arr)
     y_frac = _native_grid.sigmoid_centres(Ny, H_domain, dy_arr)
     XF, YF = np.meshgrid(x_frac, y_frac, indexing='ij')  # (Nx, Ny)

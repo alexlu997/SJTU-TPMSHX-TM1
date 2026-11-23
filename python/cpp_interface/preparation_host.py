@@ -394,6 +394,7 @@ def borrow_solver_mesh(case, library, dimension):
             return None
         keys = ('A_0', 'D_h', 'epsilon')
         values = tuple(thermal['uniform'][key] for key in keys) + (thermal['split_A'],)
+        # Accept historical saved CaseData scalar types before borrowing float64 values.
         if any(type(x) not in (float, np.float16, np.float32, np.float64) for x in values):
             return None
         mesh.area_density, mesh.hydraulic_diameter, mesh.porosity, mesh.split_a = values

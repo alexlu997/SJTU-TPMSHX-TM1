@@ -47,12 +47,12 @@ Existing raw spline `1e-13` and physical-polynomial `3e-14` checks do not establ
 
 ### Sigmoid and LUT
 
-[geometry/field_sigmoid.cpp](field_sigmoid.cpp) retains the project sigmoid and ordered layer blending in `float64`.
+[geometry/field_sigmoid.cpp](field_sigmoid.cpp) keeps the project sigmoid and ordered layer blending in `float64`.
 It normalizes all real inputs to `float64` and uses `std::exp` on the clipped [-50, 50] domain.
 It does not replace the sequence with normalized layer weights.
 Field ABI 3 exposes the `float64` sigmoid functions without a float32 dispatch flag.
 Geometry ABI 2 uses `float64` geometry inputs and outputs.
-The Python adapter retains the supported exp warning policy and original call order.
+The Python adapter keeps the supported exp warning policy and original call order.
 It does not emulate every NumPy ufunc error mode.
 
 [geometry/field_lut.cpp](field_lut.cpp) implements the two-table linear query in the original corner order.

@@ -57,7 +57,7 @@ Sigmoid LUT nodes and derived geometry also use this core.
 The same core calculates grids, ports, six-direction axis maps, continuous XY/XYZ fields, sigmoid, linear LUTs, zones and Gaussian filtering.
 The same `tpmshx_geometry_shared` file provides these calculations. There is no extra runtime library or numerical framework.
 The numerical geometry source is in [geometry](../geometry/).
-`python/cpp_interface/_native_geometry.py` uses ctypes to load the independent geometry ABI 1 library on demand.
+`python/cpp_interface/_native_geometry.py` uses ctypes to load the independent geometry ABI 2 library on demand.
 Python keeps public types, caches and per-call explicit/environment/fit selection for chi.
 Missing libraries, incorrect ABI or missing symbols fail explicitly. There is no numerical fallback or runtime build.
 
@@ -74,8 +74,8 @@ The scalar band solver does not claim bitwise LAPACK/BLAS identity. Existing raw
 Local XY and Apple-arm64 Gaussian fusion settings do not enable global fast-math.
 Windows and complete-case qualification remain separate requirements.
 
-The geometry, grid and zone calls retain geometry ABI 1: status 2 means a domain error.
-The field calls add field ABI 2 in the same file: status 2 means allocation failure.
+The geometry, grid and zone calls use geometry ABI 2: status 2 means a domain error.
+The field calls use field ABI 3 in the same file: status 2 means allocation failure.
 Their ctypes adapters use separate error mappers. Existing geometry signatures do not change.
 Call buffers are borrowed with explicit extents. Failure leaves caller outputs unchanged.
 XY handles retain their creating library until release; LUT objects retain captured axes, tables and their creating binding.
@@ -144,7 +144,7 @@ They reuse geometry/grid and the shared model implementation, including the lock
 This project builds no full solver or run_state and needs no SuperLU or AMG.
 The full build script builds the pilot and preparation projects separately. They share one property and DF numerical implementation.
 
-`python/cpp_interface/stage_libraries.py` loads preparation ABI 1 and result ABI 3 independently through ctypes on demand.
+`python/cpp_interface/stage_libraries.py` loads preparation ABI 2 and result ABI 3 independently through ctypes on demand.
 Named property, DF and flow adapters preserve the existing public Python interfaces.
 2D preparation uses the v7 domain/port scalar-kind descriptor with the applicable versioned payload.
 The shared grid and port cores retain mixed integer and narrow-float arithmetic.

@@ -41,7 +41,7 @@ Sigmoid LUT 节点和派生几何也使用该核心。
 同一核心还负责网格、端口、六方向轴映射、连续 XY/XYZ 场、sigmoid、线性 LUT、分区和 Gaussian 平滑。
 这些计算使用同一 `tpmshx_geometry_shared` 文件，不新增运行库或数值框架。
 几何数值源码在 [geometry/](../geometry/)。
-`python/cpp_interface/_native_geometry.py` 在几何查询需要时，通过 ctypes 加载独立几何 ABI 1 库。
+`python/cpp_interface/_native_geometry.py` 在几何查询需要时，通过 ctypes 加载独立几何 ABI 2 库。
 Python 保留公共类型、缓存及逐次调用的 chi 显式值／环境值／拟合选择。
 缺库、ABI 不符或符号缺失时明确失败，不使用数值 fallback，也不在运行时构建。
 
@@ -56,8 +56,8 @@ XY 保留首次拟合的 `s=0` 双变量路线；XYZ 和含单点轴的 XY 保�
 标量带状求解不声明与 LAPACK／BLAS 逐位一致，原始数值与物理多项式门槛保持不变。
 XY 与 Apple-arm64 Gaussian 的局部融合设置不启用全局 fast-math；Windows 和完整工况资格仍须分别建立。
 
-Geometry、grid 和 zones 调用保留几何 ABI 1，状态 2 表示算术域错误。
-设计场调用在同一文件增加 field ABI 2，状态 2 表示分配失败；ctypes 适配使用不同错误映射。
+Geometry、grid 和 zones 调用使用几何 ABI 2，状态 2 表示算术域错误。
+设计场调用在同一文件使用 field ABI 3，状态 2 表示分配失败；ctypes 适配使用不同错误映射。
 既有几何签名不变。调用按显式长度借用缓冲区，失败时不修改调用方输出。
 XY 句柄持有创建库直至释放；LUT 对象保留捕获的轴、表及创建绑定。
 Python 持有返回数组、配置、DTO、I/O、缓存及 GUI／BO 编排。
@@ -125,7 +125,7 @@ Python wheel 包含代码和模型资源，不包含原生库。
 不构建完整求解器或 run_state，也不需要 SuperLU 或 AMG。
 完整构建脚本分别构建 pilot 和 preparation 工程，共用一套物性和 DF 数值实现。
 
-`python/cpp_interface/stage_libraries.py` 通过 ctypes 分别按需加载准备库（ABI 1）和结果库（ABI 3）。
+`python/cpp_interface/stage_libraries.py` 通过 ctypes 分别按需加载准备库（ABI 2）和结果库（ABI 3）。
 具名物性、DF 和流量适配器保留现有 Python 公共接口。
 二维准备将 v7 域长／端口标量类型描述符与适用的版本载荷配合使用。
 共享网格和端口核心保留整数与窄浮点混合运算。
