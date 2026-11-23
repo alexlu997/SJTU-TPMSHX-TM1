@@ -173,3 +173,49 @@ def test_executed_flow_methods_survive_result_files(tmp_path):
     restored = load_result(path)
     assert full_execution_record(case, restored)['numerics']['simple_flow'] == flow
     assert 'simple_flow' not in full_execution_record(*evidence('true_h'))['numerics']
+
+
+def test_custom_thermal_without_sides_populates_sides_from_executed_evidence():
+    case, result = evidence('model_h')
+    custom_thermal = dict(
+        thermal_mode='conservative_energy',
+        unknown='T',
+        temperature_transport='temperature_sou',
+        effective_settings={'energy_algorithm': 'temperature_sou', 'nonlinear_state_update': 'HEOS_PT'},
+    )
+    record = full_execution_record(case, result, thermal=custom_thermal)
+    assert record['numerics']['thermal_mode'] == 'conservative_energy'
+    assert record['numerics']['unknown'] == 'T'
+    assert record['numerics']['temperature_transport'] == 'temperature_sou'
+    assert record['numerics']['effective_settings'] == custom_thermal['effective_settings']
+    assert record['sides']['A']['fluid'] == 'sco2'
+    assert record['sides']['A']['solved'] is True
+    assert record['sides']['A']['flow_and_exchange_model_ref'] == 0
+    assert record['sides']['A']['energy']['relation'] == 'eos_h_TP'
+    assert record['sides']['A']['energy']['pressure_field'] == 'P_thermal_A'
+    assert record['sides']['A']['property_evaluation'] == {
+        'state_update': 'HEOS_PT',
+        'final_property_backend': 'HEOS',
+    }
+    assert record['sides']['B']['fluid'] == 'water'
+    assert record['sides']['B']['solved'] is True
+    assert record['sides']['B']['flow_and_exchange_model_ref'] == 1
+    assert record['sides']['B']['energy']['relation'] == 'eos_h_TP'
+    assert record['sides']['B']['energy']['pressure_field'] == 'P_thermal_B'
+    assert record['sides']['B']['property_evaluation'] == {
+        'state_update': 'HEOS_PT',
+        'final_property_backend': 'HEOS',
+    }
+    assert record['sides'] == full_execution_record(*evidence('conservative_energy'))['sides']
+
+
+def test_custom_thermal_without_sides_rejects_unsupported_thermal_mode():
+    case, result = evidence('true_h')
+    invalid_thermal = dict(
+        thermal_mode='unsupported_mode',
+        unknown='T',
+        temperature_transport=None,
+        effective_settings={},
+    )
+    with pytest.raises(ValueError, match='unsupported executed thermal mode: unsupported_mode'):
+        full_execution_record(case, result, thermal=invalid_thermal)
