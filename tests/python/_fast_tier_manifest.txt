@@ -13,7 +13,6 @@ tests/python/test_asym_porosity_3d.py::test_delta0_explicit_matches_baseline_bit
 tests/python/test_asym_porosity_3d.py::test_asym_delta_runs_and_changes_result[False]
 tests/python/test_conservation_3d_energy.py::test_strict_energy_conservation[T2_full_cross]
 tests/python/test_conservation_3d_energy.py::test_strict_energy_conservation[T1_full_parallel]
-tests/python/test_conservation_3d_energy.py::test_strict_energy_conservation[T5_B_isolated]
 tests/python/test_asym_porosity_3d.py::test_asym_conservation_certificate_machine_zero
 tests/python/test_asym_geometry.py::test_a0_richardson_thin_side_beats_coarse
 tests/python/design/test_enumerate_parallel.py::test_parallel_matches_serial
