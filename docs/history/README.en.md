@@ -5,6 +5,7 @@
 [中文](README.md) | [English](README.en.md)
 
 See [architecture](../architecture.md) and the [project README](../../README.en.md) for current structure and operation.
+See [C++ migration and ABI history](cpp-migration-history.md) for version 0.1–0.2 migration stages, retired `v1`–`v11` C ABIs, D1–D4 consolidation records, and archived N3/N5 numerical results.
 
 <a id="six-wall-grid-retirement"></a>
 

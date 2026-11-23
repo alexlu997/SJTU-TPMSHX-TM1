@@ -1,98 +1,68 @@
-# C++ solver migration under the V0.3 architecture
+# C++ numerical backend and integration
 
 [中文](cpp-migration.zh-CN.md) | [English](cpp-migration.md)
 
-## Status and architecture decision
+## Architecture and backend boundary
 
-The supplied **TPMS 均质化换热器求解软件总体框架说明 V0.3** (2026-09-08)
-describes a target architecture, not delivered capabilities. Its three business
-modules match the existing TM1 public flow:
+TM1 follows a three-stage computation flow:
 
 ```text
 application -> preprocess.api -> CaseData -> solvers.api -> FieldResult
-                                                           -> postprocess.api
+                                                           -> postprocess.api -> PerformanceResult
 ```
 
-Version 0.2 retains these boundaries and uses C++ as the only numerical backend.
-Python keeps application, preparation, optimization and postprocessing interfaces,
-plus model resources. Version 0.1 preserves both solver implementations.
-The Python numerical backend and its extra research entries are retired in 0.2.
-Shared temperature sweeps and energy audits remain in use. T-SOU is the default
-for the existing conservative EOS route. H-FOU, T-FOU and the frozen H-sweep
-C export are retired. Historical results and matching archived runtimes keep
-their original algorithm identity.
-Outer property Anderson is retired; fixed property relaxation and thermal
-Anderson retain their existing rules.
-
-Full 2D/3D and Quick Design use the matching library on macOS arm64 or Windows x64.
-Public `RunControl` and CLI calls default to C++. The library path is a host
-control and is not stored in `CaseData`. Missing libraries fail explicitly.
-Delivery keeps the existing Python/Qt entry and matching solver, geometry,
-preparation and result libraries in the project folder.
-Required CI, visible desktop acceptance, complete performance
-and experimental accuracy remain separate gates.
-
-Current numerical checks use independent formulas, discrete balances,
-manufactured solutions, native component replay and fixed historical references.
-Former Python/C++ comparisons remain evidence of their recorded builds in
-[version 0.1](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/v0.1.0/docs/cpp-migration.md).
-They are not rerun with a retained Python solver in 0.2.
+Version 0.2 uses C++ as the only numerical backend.
+Python keeps public application APIs, configuration, DTOs, file I/O, caches, optimization, GUI, and CLI.
+Full 2D, full 3D, and Quick Design run on macOS arm64 and Windows x64.
+Linux x86_64 supports independent result evaluation only.
+Public `RunControl` and CLI calls default to `backend="cpp"`.
+The native library path is a host control and is not stored in `CaseData`.
+Missing libraries, ABI mismatches, or missing required symbols fail explicitly with no numerical fallback.
+See [C++ migration history](history/cpp-migration-history.md) for version 0.1–0.2 migration stages, retired `v1`–`v11` ABIs, and archived qualification records.
 
 <a id="cpp-core-scope"></a>
 
-## 2026-11 C++ core scope
+## C++ core scope
 
-The six-stage scope is implemented: model data consolidation, geometry/design fields, preparation, results, and final consumer checks and code retirement.
-It preserves algorithms, features, physical gates and file interfaces.
-Change records: [data PR275](https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/275), [geometry PR276](https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/276), [grids/fields PR277](https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/277), [preparation PR278](https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/278), [results PR279](https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/279).
-Final consumer checks removed the obsolete GUI interpolation import. Explicit object protocols, configuration, I/O, GUI/search/research, injected ledgers and audit/export summaries keep their declared boundaries.
-The [source map](../python/README.en.md) lists C++ edit locations. See [retained Python responsibilities](architecture.md#retained-python-responsibilities) for the exact scope.
-These six stages differ from the historical solver stages 0–4 at the end of this document.
-PR CI, merged-main CI, visible desktop delivery, performance and experimental accuracy remain separate checks.
+Four independent C++ shared libraries own all production numerical calculations:
+
+| Library | Source directory | Active ABI and role |
+| --- | --- | --- |
+| Geometry | [geometry](../geometry/) | Geometry ABI 2 and field ABI 3: cell geometry, chi/Kss, grids, ports, splines, sigmoid, LUTs, zones. |
+| Preparation | [preprocess](../preprocess/) | Preparation ABI 3 and Quick Design preparation v2: properties, Nu closures, fixed D-F, 2D/3D and Quick preparation. |
+| Solver | [solver](../solver/) | Saved 2D ABI 5, saved 3D ABI 3, capture ABI 2, Quick Design run v2, and C SDK direct full solves (2D v6, 3D v5). |
+| Result | [postprocess](../postprocess/) | Result ABI 3 (`float64` + `int32` labels): metrics, physical balances, applicability, zone statistics, and qualification. |
+
+All active C++ stage interfaces normalize numeric buffers to `float64` and zone labels to `int32`.
+The [source map](../python/README.en.md) lists C++ edit locations by responsibility.
+See [kept Python responsibilities](architecture.md#retained-python-responsibilities) for the exact Python boundary, including `python/shared.py`.
+Pure-formula test oracles remain under `tests/python/` as independent regression references.
+PR CI, merged-main CI, desktop delivery, performance, and experimental validation stay separate gates.
+
+<a id="native-geometry-core"></a>
 
 ## Native geometry core
 
-The independent geometry core calculates standard, CO2 and asymmetric geometry, plus chi/Kss.
-Sigmoid LUT nodes and derived geometry also use this core.
-The same core calculates grids, ports, six-direction axis maps, continuous XY/XYZ fields, sigmoid, linear LUTs, zones and Gaussian filtering.
-The same `tpmshx_geometry_shared` file provides these calculations. There is no extra runtime library or numerical framework.
-The numerical geometry source is in [geometry](../geometry/).
-`python/cpp_interface/_native_geometry.py` uses ctypes to load the independent geometry ABI 2 library on demand.
-Python keeps public types, caches and per-call explicit/environment/fit selection for chi.
-Missing libraries, incorrect ABI or missing symbols fail explicitly. There is no numerical fallback or runtime build.
+The independent geometry core in [geometry](../geometry/) calculates standard, CO2, and asymmetric cell geometry, plus chi and solid conductivity.
+It also calculates grids, ports, six-direction axis maps, continuous XY/XYZ splines, sigmoid fields, linear LUTs, discrete zones, and Gaussian filtering.
+One shared file (`tpmshx_geometry_shared`) provides all of these operations.
+It uses only the C++ standard library, the marching-cubes port, and a restricted C17 FITPACK subset.
+It does not link CoolProp, SuperLU, AMGCL, Eigen, or the solver runtime.
+See [architecture](architecture.md#native-grids-and-design-fields) for grid and field ownership, and [fields-sources.md](../geometry/fields-sources.md) for provenance and BSD notices.
 
-The independent CMake project is `geometry/`.
-Its `tpmshx_geometry_shared` target uses the C++ standard library, the marching-cubes port and a restricted C17 FITPACK subset.
-It needs no CoolProp, SuperLU, AMGCL, Eigen or solver runtime.
-The full dependency pilot includes the same target.
-The independent cores below calculate preparation and results. See the [implementation and retirement scope](#cpp-core-scope).
-
-The [architecture](architecture.md#native-grids-and-design-fields) defines numerical ownership, types and buffer lifetimes.
-The [field source record](../geometry/fields-sources.md) identifies fixed sources, local changes and BSD notices.
-XY keeps the first-fit `s=0` bivariate route. XYZ and singleton XY axes keep sequential one-dimensional fits and samples.
-The scalar band solver does not claim bitwise LAPACK/BLAS identity. Existing raw and physical-polynomial gates remain unchanged.
-Local XY and Apple-arm64 Gaussian fusion settings do not enable global fast-math.
-Windows and complete-case qualification remain separate requirements.
-
-The geometry, grid and zone calls use geometry ABI 2: status 2 means a domain error.
-The field calls use field ABI 3 in the same file: status 2 means allocation failure.
-Their ctypes adapters use separate error mappers. Existing geometry signatures do not change.
-Call buffers are borrowed with explicit extents. Failure leaves caller outputs unchanged.
-XY handles retain their creating library until release; LUT objects retain captured axes, tables and their creating binding.
-Python owns returned arrays, configuration, DTOs, I/O, caches, GUI and BO orchestration.
-Replaced Python numerical bodies are retired. Independent references remain under `tests/python/`.
+`python/cpp_interface/_native_geometry.py` loads `tpmshx_geometry_shared` on demand through ctypes.
+Geometry, grid, and zone calls use geometry ABI 2, where status 2 reports a domain error.
+Continuous, sigmoid, and LUT calls use field ABI 3, where status 2 reports an allocation failure.
+Call buffers are borrowed with explicit element counts, and failure leaves caller outputs unchanged.
+XY spline handles and LUT objects keep a reference to their creating library until release.
 
 Use `libtpmshx_geometry_shared.dylib` on macOS arm64 or `tpmshx_geometry_shared.dll` on Windows x64.
-The source default is `sjtu_tpmshx/solvers/native/lib/<host>/`; frozen programs use their `native/` directory.
-Set `TPMSHX_GEOMETRY_LIBRARY` to an absolute prebuilt file to select another geometry library.
-Historical result reading and independent postprocessing do not load it.
-Changing C++ functions or compiled model parameters requires a rebuild and process restart.
-The shared JSON resources remain authoritative. Percolation, scans, Richardson and target-C research now use
-`python/development/runs/tools/asym_geometry_research.py`; shared modules keep no forwarding aliases.
+Source checkouts load from `sjtu_tpmshx/solvers/native/lib/<host>/`, and frozen desktop packages load from `native/`.
+Set `TPMSHX_GEOMETRY_LIBRARY` to an absolute prebuilt path to select another geometry library.
+Historical result reading and offline postprocessing do not load this library.
+After any C++ or compiled model-data edit, rebuild the affected libraries and restart the process.
 
-For geometry alone, `fetch-cmake` fetches only the locked build tool.
-`build`, `verify` and `publish --component geometry` still check the configured Python interpreter and selected environment lock.
-Use the base lock below only with a base environment. Select the matching BO lock for a BO interpreter.
+To fetch the locked CMake tool and publish geometry alone on macOS:
 
 ```sh
 tm1_python="$(sed -n '1p' .venv-path)"
@@ -110,139 +80,46 @@ $tm1Lock = 'engineering/requirements/base.txt'
 & $tm1Python engineering/scripts/build_native_dependencies.py publish --component geometry --python-lock $tm1Lock
 ```
 
-`publish` includes build and verification.
-For separate steps, use `build --component geometry` and `verify --component geometry`. Keep the same lock and cache.
-Standalone output uses `.cache/native-deps/build/geometry-<host>` by default.
-Verification runs the static/shared C callers and geometry kernel smoke.
-Geometry-only publication writes `geometry-build.json` without touching solver or run_state.
-It keeps an older differing geometry library and its matching record under `previous/`.
-Default full publication builds and verifies solver, geometry, preparation and result before one transaction replaces all four.
-It keeps `build.json` for the solver, `geometry-build.json` for geometry,
-`preparation-build.json` for preparation and `result-build.json` for result.
-For a Git checkout, `source_commit` records the full commit ID. `source_changes` records the tracked status lines.
-An empty `source_changes` list means there are no tracked changes. Both fields are `null` for a source archive.
-A replacement failure restores selected files and metadata. A failed rollback retains its staging files and reports the recovery path.
-Old solver checkpoints still require their exact retained runtime, prepared input and controls.
+Select `bo-macos.txt` or `bo-windows.txt` when `.venv-path` points to a BO environment.
+Use `build --component geometry` and `verify --component geometry` to run steps separately with the same `--cache`.
+Standalone builds write to `.cache/native-deps/build/geometry-<host>` by default.
+Geometry-only publication updates `geometry-build.json` and keeps previous differing libraries under `previous/`.
+Default full publication builds and verifies all four libraries before one transaction publishes them together.
+Each library writes its own build record (`build.json`, `geometry-build.json`, `preparation-build.json`, `result-build.json`) with `source_commit` and `source_changes`.
+Failed replacement rolls back staged files and reports recovery paths.
+Old solver checkpoints still require their exact kept solver runtime, prepared inputs, and controls.
 
-The application and full CI tiers build the complete native pilot.
-Their artifacts include the four native libraries and the SDK comparison samples.
-Native and BO jobs start after their platform build and use its artifact.
-In full CI, the Python 3.13 native shards run the stage suite, including its slow cases.
-Windows/Python 3.12 runs real module integration, checkpoint resume, rendering, and BO with the same native build.
-The display-only application tier runs the fast stage tests with the other application tests.
-The Linux result builds run independent result-kernel tests in both tiers.
-Full computation remains limited to macOS arm64 and Windows x64. Independent Linux result evaluation has the scope defined below.
-The Python wheel includes code and model resources, without native libraries.
-Desktop packaging requires all four prebuilt inputs; see [desktop delivery](desktop.en.md#可选冻结打包).
+Full and application CI tiers build all four libraries and publish them as artifacts for downstream native and BO jobs.
+The Python wheel includes Python modules and model resources, without native libraries.
+Desktop packaging requires all four prebuilt libraries; see [desktop builds](desktop.en.md#可选冻结打包).
+
+<a id="native-preparation-core"></a>
 
 ## Native preparation core
 
-The independent preparation core calculates properties, Nu closures, fixed DF, experiment corrections, projection and preparation mathematics.
-The independent CMake project is `preprocess/`.
-Its targets are `tpmshx_preparation`, `tpmshx_preparation_c` and `tpmshx_preparation_shared`.
-They reuse geometry/grid and the shared model implementation, including the locked CoolProp static library.
-This project builds no full solver or run_state and needs no SuperLU or AMG.
-The full build script builds the pilot and preparation projects separately. They share one property and DF numerical implementation.
+The independent preparation core in [preprocess](../preprocess/) calculates fluid properties, Nu closures, fixed D-F tables, experiment corrections, row projection, and complete 2D/3D/Quick preparation.
+Its CMake targets (`tpmshx_preparation`, `tpmshx_preparation_c`, `tpmshx_preparation_shared`) reuse geometry and shared property implementations with the locked CoolProp static library.
+This project needs no solver runtime, `run_state`, SuperLU, or AMG.
 
-`python/cpp_interface/stage_libraries.py` loads preparation ABI 3 and result ABI 3 independently through ctypes on demand.
-Named property, DF and flow adapters preserve the existing public Python interfaces.
-2D preparation uses the v7 domain/port scalar-kind descriptor with the applicable versioned payload.
-The shared grid and port cores retain mixed integer and narrow-float arithmetic.
-Raw spatial preparation v8 adds capacity, resolution and complete fixed-flow entries for air/air stripes, rectangles and sigmoid fields.
-These entries keep CFD drag and zero delta. They resolve speeds before Nu or transfer calculations and reuse the physical grid.
-The flow owner keeps copied regions, controls and LUTs. Its preliminary evidence stays separate from final preparation evidence.
-The v7 grid descriptor and v8 depth/target kinds retain scalar arithmetic.
-Preparation v9 switches symmetric spatial Python preparation, capacity and flow resolution to these native owners.
-Typed cache hooks preserve actual keys, optional Nu selection, publication order and evidence through the existing host caches.
-Python keeps LUT memory/disk I/O; native code builds missing tables at the original geometry checkpoint.
-The v9 model preserves the actual spatial conductivity, its kind and separate geometry-extrapolation/default-LUT flags.
-Public configuration retains its original topology and conductivity comparisons, including narrow-scalar equality.
-Spatial calculations use the accepted spatial value; nominal calculations keep their original value.
-Preparation v10 adds the existing nonzero-delta uniform air/water and air/air spatial modes at prescribed speed.
-Complete results carry nominal asymmetric thermal-side tuples separately from design and cell thermal fields.
-The existing split calculation, scalar conversion order and N128 geometry index remain unchanged.
-Complete continuous XY and stripe preparation use v11 when available.
-The preparation library returns the pore porosity or the A-side hydraulic radius for each stripe. The adapter uses the geometry library with supported older preparation binaries.
-Complete uniform, rectangle and sigmoid cases use v10. Uniform and continuous XY capacity and resolution use v7 with v3 and v4 results, respectively.
-Spatial capacity and resolution use v10 with the existing v9 result views and release functions.
-Capacity and prescribed total-flow preparation still reject nonzero delta in the original validation order.
-Continuous fields, CO2/sCO2 and experimental models retain their existing restrictions. Earlier C layouts and scopes remain available.
-Saved run descriptor v2 carries the nominal side tuples and accepts discrete and sigmoid fields through the existing full 2D lifecycle.
-It preserves saved v1, result ownership and same-build recovery. It does not prepare saved cases again.
-Public zone and sigmoid combination queries retain standalone consumers pending separate migration.
-They keep supplied properties and custom sigmoid controls.
-`python/cpp_interface/native_preparation.py` is the native adapter. The replaced Python 2D preparation sequence and row D-F projection are retired.
-Frozen test references retain the original sequence and projection.
-See [spatial stage interfaces](native-stages.md#spatial-total-mass-flow) for raw operations and owned results.
-See [spatial host interfaces](native-stages.md#spatial-host-cache-interface) for callbacks and ownership.
-See [offset geometry](native-stages.md#existing-offset-geometry) for the v10 scope and [run continuation](native-stages.md#run-continuation) for borrowed inputs.
-Saved prepared cases keep their recorded grids; the adapter does not reconstruct historical grids.
-The preparation stage collects its range observations. The Python adapter restores the records through the active warning scope.
+`python/cpp_interface/stage_libraries.py` loads preparation ABI 3 independently on demand.
+Preparation ABI 3 uses flat `(abi_version, struct_size)` input structs, unified `tpmshx_preparation_callbacks_v1`, and clean `v1` family entry names.
+Its status codes are 0 for success, 1 for invalid input, 2 for allocation, 3 for runtime error, and 10/11/12 for water/CO2/sCO2 state errors.
+See [native stages](native-stages.md) for every active 2D, 3D, inlet-query, and Quick Design preparation entry:
 
-The separate `preparation_case_3d_c_api.h` exposes uniform symmetric 3D preparation at prescribed inlet speeds.
-It supports both topologies and all 16 ordered fluid pairs with the existing state and experimental limits.
-The owner keeps physical grid fields, six port directions, scalar tags and model evidence.
-Side porosity is already split. K/cF fields remain unscaled; side evidence records the application factors.
-The host supplies the resolved cell cap. The [stage contract](native-stages.md#uniform-3d-preparation) defines ownership and port rules.
-Python 3D preparation calls this stage through `python/cpp_interface/preparation_host.py`. The volume layouts are in `python/cpp_interface/_native_preparation_3d.py`.
-The separate 3D flow v2 adds capacity, resolution and complete preparation for configured or explicit total mass flow.
-It reuses one physical geometry and retains the original static-to-speed evidence order.
-The 3D continuous v3 adds XY extrusion and XYZ controls to those flow operations.
-It reuses the existing spline and geometry owners. Raw design fields and thermal SI round trips stay separate.
-The 3D spatial v4 adds raw XY grid rectangles and the existing global offset rules to all three operations.
-Existing zone and asymmetric owners supply assignment, smoothing, side porosity and nominal thermal side/reference geometry.
-The original air/water scope and experimental restrictions remain. The v1/v2/v3 C layouts remain unchanged.
-The separate `stage_run_3d_c_api.h` now connects all prepared 3D families and saved views to `Full3DRun`.
-It provides one-shot execution, steps, typed snapshots, restore and complete raw result transfer.
-Its capture owner supplies the independent result stage with final-flow and last-thermal evidence.
-See [native 3D execution](native-stages.md#native-3d-execution) for ownership and control defaults.
-Python full 3D execution uses the saved-input lifecycle through `full_3d_stage.py`.
-It packs the saved inputs, binds the callbacks and decodes the complete DTO.
-Native capture supplies the application reductions and audit outlet weights.
-`full_3d_stage.py` publishes the result.
-Protocol selection precedes execution. Archived libraries retain their direct run and restore interfaces.
-Missing protocol symbols and native failures do not start another route.
-Host v5 keeps typed geometry and inlet caches through the shared v9 callback descriptor.
-Python keeps configuration, cache policy, warnings, environment parsing and immutable CaseData assembly.
-The replaced 3D Python bodies and exclusive `shared/models/grid_3d.py` and `asym_split.py` helpers are removed.
-Pure formula references and physical invariant checks remain in `tests/python/`.
-The private `scalar_range_samples.hpp` keeps at most eight air-field scalar observations per side, including the original notices, extrema and last sample.
-Full raw-array records keep every cell. Preparation and result compile this selection separately, without a runtime link between them.
-Memory use near the cell cap and real 3D BO remain acceptance gates.
-This raw interface does not replace saved CaseData validation.
+- [Inlet-property query](native-stages.md#inlet-property-query): `tpmshx_query_inlet_properties_v2` returns 12 `float64` values with no grid or solver.
+- [Spatial total mass flow](native-stages.md#spatial-total-mass-flow): capacity, flow resolution, and complete 2D preparation for uniform, continuous XY, discrete zone, and sigmoid inputs.
+- [Spatial host cache interface](native-stages.md#spatial-host-cache-interface): `preparation_host.py` and `tpmshx_preparation_callbacks_v1` cache transport without numerical host callbacks.
+- [Existing offset geometry](native-stages.md#existing-offset-geometry): nonzero `delta_levelset` nominal thermal-side geometry and split rules.
+- [Uniform 3D preparation](native-stages.md#uniform-3d-preparation): uniform, continuous XY/XYZ, and XY grid-rectangle 3D preparation with `preparation_case_3d_c_api.h`.
+- [Quick Design stage](native-stages.md#quick-design-stage): `tpmshx_prepare_quick_design_v2` and `tpmshx_quick_pressure_fractions_v2` with `tpmshx_quick_callbacks_v2`.
 
-Quick preparation v2 adds typed raw inputs and a separate pressure-fraction query.
-`python/cpp_interface/_native_quick_prepare.py` keeps host protocols through fixed named operations.
-The stage owns geometry, grid, property and pressure arithmetic and their execution order.
-The pressure query creates no thermal grid or design-field arrays.
-Preparation uses statuses 0 for success, 1 for invalid input, 2 for allocation and 3 for runtime errors.
-State errors use 10 for water, 11 for CO2 and 12 for sCO2.
-Geometry ABI 2 and field ABI 3 normalize real inputs to `float64`, with their own status mappings.
-Calls borrow aligned buffers with explicit element counts. Failure preserves numerical outputs.
-Contexts must be released by the library that created them, after their last call.
-Missing libraries, ABI mismatches and missing symbols fail explicitly. No runtime build or numerical fallback is available.
+Shared JSON and CSV authorities live in [model-resources.en.md](model-resources.en.md#当前资源与研究输出).
+2D and 3D preparation share `tpmshx_preparation_df_experiment_scope_v1` for layout and HX campaign-domain checks.
+Private `scalar_range_samples.hpp` keeps at most eight air-field scalar observations per side (original notices, extrema, and last sample) while full raw-array records keep all cells.
 
-The public scalar inlet combination also uses `preparation_case.cpp::query_inlet_properties`.
-It shares one property sequence with complete preparation and returns twelve float64 inline values through `tpmshx_query_inlet_properties_v2`.
-The `stages.hpp` wrapper needs only the preparation library and supplied geometry scalars; no CaseData or solver is required.
-Python keeps geometry/cache selection, the per-call K_ss query, mutable result copies, type conversion and ordered warning policy.
-The replaced `tpms_calc._compute_cached` numerical combination is retired; its public cache and callable interfaces remain.
-Raw complex Nu and H_sf retain their existing behavior. Fluid models, limits, saved files and earlier ABI layouts stay unchanged.
-See the [inlet-property query](native-stages.md#inlet-property-query) for value order, callbacks and lifetime.
-
-Raw empirical getters, checked EOS calls and Nu closures keep separate guards, floors and warning rules.
-DF interpolation keeps its original bracket tolerance, NaN propagation and endpoint behavior.
-Projection retains each input's reduction order before C-order packing, including weighted and single-axis fields.
-The float16 weighted reduction keeps its original intermediate rounding.
-Experiment corrections keep source, application and runtime windows as separate records.
-Python retains configuration, DTOs, shape/type adaptation, I/O, caches, warning records and GUI/BO policies.
-Offline fitting stays in Python. Frozen development references supply independent expected values.
-Migrate each caller and retire the replaced production numerical body in the same batch.
-The [model resource guide](model-resources.en.md#当前资源与研究输出) defines the JSON and fixed CSV authorities.
-
-Independent preparation publication requires locked sources, the locked CMake tool and a previously built CoolProp static library in the same cache.
-Use the configured interpreter and its exact lock. If CoolProp is absent, complete `fetch` and `build --component coolprop` first.
-With those inputs ready:
+Separate preparation publication needs locked sources, locked CMake, and a built CoolProp archive in the same cache.
+Run `fetch` and `build --component coolprop` first if CoolProp is absent.
+Then run on macOS:
 
 ```sh
 tm1_python="$(sed -n '1p' .venv-path)"
@@ -258,58 +135,32 @@ $tm1Lock = 'engineering/requirements/base.txt'
 & $tm1Python engineering/scripts/build_native_dependencies.py publish --component preparation --python-lock $tm1Lock
 ```
 
-Select the matching BO lock for a BO interpreter. Keep the same `--cache` for all steps.
-Separate `build` and `verify` commands accept `--component preparation`.
-The default build directory is `.cache/native-deps/build/preparation-<host>`.
-The full solver builds in `pilot-<host>`. The build script uses separate CMake projects for these libraries.
-On macOS, preparation links `coolprop-preparation-macos-arm64/libCoolProp.a`, built with `-Os`.
-The solver keeps the original `coolprop-macos-arm64/libCoolProp.a` build settings.
-These settings keep the previous Python property queries and C++ solver results in their respective callers.
-Windows preparation uses the original locked Windows static archive.
-Each archive has a `coolprop-build.json` record with its actual compile fragments and toolchain information.
-The cache keeps this record with the archive. Publication includes the applicable record in each library's metadata.
-Verification checks independent C static/shared callers, geometry callers and the compiled CoolProp version/commit.
-It does not replace complete-case, physical, dual-library concurrency, platform CI or desktop acceptance.
-The source distribution supplies native source, build files, locks, licenses, source records and the complete test tree.
-The wheel supplies Python interfaces, published development and validation tools, and declared resources. It excludes the test package and its subpackages.
-Native builds remain explicit steps. CI checks both wheel builds from installations outside the source tree.
-The minimal environment evaluates real 2D and 3D files with only the independent result library.
-`engineering/scripts/check_distributions.py` builds and checks the source distribution and its wheel.
-Supply a new `--output-dir` under `.cache/`.
-`publish --component preparation` publishes only preparation and `preparation-build.json`. It does not replace solver, geometry, result or run_state files.
-Different previous contents and matching metadata remain under `previous/`; replacement failures use the same transaction rollback.
-
+On macOS, preparation links `coolprop-preparation-macos-arm64/libCoolProp.a` compiled with `-Os`, while the solver links `coolprop-macos-arm64/libCoolProp.a`.
+Windows links one locked `Release/CoolProp.lib` archive for both roles.
+Each archive keeps a `coolprop-build.json` record that publication copies into library metadata.
 The runtime file is `libtpmshx_preparation_shared.dylib` on macOS arm64 or `tpmshx_preparation_shared.dll` on Windows x64.
-Source defaults use `sjtu_tpmshx/solvers/native/lib/<host>/`; frozen programs use their `native/` directory.
-`TPMSHX_PREPARATION_LIBRARY` selects another prebuilt runtime file.
-Desktop packaging takes it from `TPMSHX_NATIVE_PREPARATION_LIBRARY`, together with solver, geometry and result inputs.
-The Python wheel contains code and model resources, without native libraries.
-Historical result reading and independent postprocessing load neither preparation nor geometry.
+Set `TPMSHX_PREPARATION_LIBRARY` to select another prebuilt path, or `TPMSHX_NATIVE_PREPARATION_LIBRARY` for desktop packaging.
+Use `engineering/scripts/check_distributions.py --output-dir .cache/<dir>` to build and verify source and wheel distributions.
 
-Rebuild affected libraries and restart the process after changing C++ functions or compiled data.
-Solver, geometry, preparation and result build records are separate from versioned property-table caches.
-Relinking the solver gives it a new build identity. Old checkpoints still require their exact retained solver, prepared input and controls.
-Keep matching current/previous runtimes and run records while they have consumers.
-Linux x86_64 supports independent result evaluation. Full-solver and desktop support remain limited to macOS arm64 and Windows x64.
-See [scope and delivery records](#cpp-core-scope).
+<a id="native-result-core"></a>
 
 ## Native result core
 
-Independent result ABI 3 calculates metrics, signed physical balances, zone statistics and numerical qualification checks in `float64` with `int32` zone labels.
-The result stage selects recorded evidence and owns full 2D/3D and Quick Design metric definitions, statuses and qualification.
-Python keeps public DTO and file interfaces, `float64`/`int32` input normalization and fixed `RuntimeWarning` diagnostics.
-The three independent result queries use the same native stage. The flattened `tpmshx_stage_input_v3` query preserves deferred input errors and event callback exceptions without per-operation Quick callbacks.
+The independent result core in [postprocess](../postprocess/) implements Result ABI 3.
+It calculates engineering metrics, signed physical balances, zone statistics, applicability checks, and qualification verdicts in `float64` with `int32` zone labels.
 The standalone `postprocess/` project uses only C++17 and system libraries.
-It does not load the solver, preparation, geometry, CoolProp or model resources.
+It links no solver, preparation, geometry, CoolProp, Qt, or model-resource files.
+See [postprocess/sources.md](../postprocess/sources.md) for buffer layouts, error codes, and notices.
 
-Pure imports and HDF/JSON reads remain native-free. Actual metric arithmetic needs the prebuilt result image.
-Use `TPMSHX_RESULT_LIBRARY` for an absolute alternate file. Default paths are `solvers/native/lib/<host>/` under the package.
-The image names are `libtpmshx_result_shared.dylib`, `tpmshx_result_shared.dll` and `libtpmshx_result_shared.so`.
-Linux x86_64 support applies to independent result evaluation only.
-Linux permits `fetch-cmake`, `build`, `verify` and `publish` only with `--component result`.
-It does not fetch or verify model sources, generate model coefficients, or build the full solver.
+`python/cpp_interface/_native_result.py` and `_native_result_stage.py` load the result library on demand.
+Pure Python imports and HDF5/JSON reads stay native-free.
+`tpmshx_result_stage_query_v3` accepts flat `tpmshx_stage_input_v3` with borrowed `float64` arrays, `int32` labels, and raw C-string mode/unit labels.
+Floating-point events emit fixed `RuntimeWarning` diagnostics for divide-by-zero, overflow, and invalid values.
 
-For an existing minimal environment recorded in `.venv-path`:
+The runtime image is `libtpmshx_result_shared.dylib` (macOS), `tpmshx_result_shared.dll` (Windows), or `libtpmshx_result_shared.so` (Linux x86_64).
+Set `TPMSHX_RESULT_LIBRARY` to select an alternate absolute path.
+Linux x86_64 permits `fetch-cmake`, `build`, `verify`, and `publish` with `--component result` only.
+In a minimal postprocessing environment recorded in `.venv-path`:
 
 ```sh
 tm1_python="$(sed -n '1p' .venv-path)"
@@ -317,53 +168,23 @@ tm1_python="$(sed -n '1p' .venv-path)"
 "$tm1_python" engineering/scripts/build_native_dependencies.py publish --component result --python-lock engineering/requirements/postprocess.txt
 ```
 
-Select the exact base or BO lock when using that environment. Windows uses the same arguments in its MSVC developer terminal.
-Separate `build --component result` and `verify --component result` commands use the same lock and cache.
-The default build directory is `.cache/native-deps/build/result-<host>`.
-Verification runs the independent static C, shared C and C++ kernel callers. It checks exact C exports and system runtime dependencies.
-Separate result publication builds no solver state and writes `result-build.json` with actual compiler, options, artifact and SDK metadata.
-Its dependency record is empty and contains no CoolProp build record.
-Full macOS/Windows publication deploys four libraries in one transaction, with their matching previous files retained.
-CI keeps the full macOS/Windows builds and checks independent result builds on Ubuntu 24.04 and 26.04.
-Both result builds must pass their SDK and numerical reference tests. The `minimal-postprocess` consumer stays on Ubuntu 24.04.
-It uses `result-build-linux-x86_64-ubuntu-24.04` and the separate macOS `real-file-handoff` input.
-The Ubuntu 26.04 build artifact remains separate.
-The minimal job reads and evaluates actual saved 2D/3D files from source and installed wheels.
-The [source and interface record](../postprocess/sources.md) defines types, buffers, errors and notices.
-There is no numerical fallback, runtime compiler or universal numerical callback.
+CI builds and tests the result library on Ubuntu 24.04 and 26.04 alongside full macOS/Windows builds.
+The `minimal-postprocess` job runs on Ubuntu 24.04 with `result-build-linux-x86_64-ubuntu-24.04` and saved real 2D/3D handoff files from macOS.
 
-## Complete Quick Design capability
+## Solver cores and execution interfaces
 
-The [Quick Design stage](native-stages.md#quick-design-stage) provides typed raw preparation v2 and a pressure-only query.
-It keeps the published native-double v1 preparation and run contracts.
-The v2 stage owns the original numerical and validation sequence.
-Fixed named host operations keep Python scalar, object, cache, warning and snapshot protocols.
-They do not supply model calculations. The former `shared/models/quick_design.py` is removed.
-Its independent frozen reference remains under `tests/python/` for regression checks.
-The thin preparation entry assembles CaseData and keeps stored counterflow `qtol=None` and `chunk=None`.
-Python execution calls the run stage with saved prepared fields.
-The stage supplies field arrays and declarations. Python copies them before release, keeps original fixed-field dtypes and maps pass warnings and errors.
-The native result stage computes Quick Design metrics from `float64` operands and emits fixed `RuntimeWarning` diagnostics.
+The solver library in [solver](../solver/) implements full 2D, full 3D, Quick Design, SIMPLE flow, model-h, temperature, and T-SOU conservative energy drivers.
+Python binds only the saved stage-run lifecycle through `full_2d_stage.py`, `full_3d_stage.py`, and `quick_design.py`:
 
-`quick_design_driver.hpp` owns the complete prepared const/mean property-pass
-calculation. This includes original empirical air/water or HEOS sCO2 properties,
-existing Nu, one or two temperature passes, and full-field warm starts.
-It also includes water liquid-state checks after each pass, iteration budgets,
-progress and cancellation. Prepared
-inlet-state analytical pressure fractions stay fixed. This is the existing
-prescribed-flow sizing approximation, with `physical_validation=not_established`.
+- **Full 2D (`full_2d.hpp`, `stage_run_c_api.h`)**: saved stage ABI 5 (`tpmshx_run_saved_case_2d_v5`, `create_saved_v5`, `restore_saved_v5`). Owns SIMPLE with fixed-density Anderson, inlet pressure shooting, property/thermal coupling, Richardson refinement, and final certificates. Main heat duty uses W/m.
+- **Full 3D (`full_3d.hpp`, `stage_run_3d_c_api.h`)**: saved stage ABI 3 (`tpmshx_run_saved_case_3d_v3`, `create_saved_v3`, `restore_saved_v3`) and capture ABI 2. Owns XYZ SIMPLE, optional coarse bootstrap (`tpmshx_full_3d_get_bootstrap_trace_v1`), thermal-first outer coupling, and final certificates. Main heat duty uses W.
+- **Quick Design (`quick_design_driver.hpp`, `quick_design_stage_c_api.h`)**: `tpmshx_run_quick_design_v2` runs const or mean property passes on saved prepared fields with fixed analytical pressure fractions and `physical_validation=not_established`.
+- **Direct C SDK solves (`full_2d_c_api.h`, `full_3d_c_api.h`, `solver_c_api.h`)**: `tpmshx_solve_full_2d_v6`, `tpmshx_solve_full_3d_v5`, `tpmshx_solve_quick_design_v1`, and their run-continuation entries serve C callers and native tests.
+- **Execution reports (`execution_report.cpp`)**: `tpmshx_stage_run_2d_report_v1` and `tpmshx_stage_run_3d_report_v1` publish resolved grids, fluids, states, property samples, and model-h balances.
 
-`solver_c_api.h` gives the independent versioned C entry point and named
-configuration/result structures. It borrows nine arrays with explicit sizes.
-Errors distinguish invalid inputs, water inlet/property states, water fields,
-arithmetic failures and other native exceptions. Cancellation has its own
-result status. Unsuccessful fields cannot be published as accepted results.
-The build runs the same independent C caller against static and shared libraries.
+See [run continuation](native-stages.md#run-continuation) and [native 3D execution](native-stages.md#native-3d-execution) for exact ownership, checkpoint restoration, and control defaults.
 
-The thin Python adapter reuses the shared prepared-input validation and
-`FieldResult` mapper. Native pass evidence supplies fields, properties and the
-original warning records without calling Python numerical kernels or property
-functions. Host library location is an execution control, outside `CaseData`:
+Public Python execution passes the library path through `RunControl`:
 
 ```python
 from sjtu_tpmshx.run_control.module_ports import RunControl
@@ -373,668 +194,98 @@ result = run_case(prepared_case, RunControl(
     backend="cpp", native_library="/absolute/path/to/libtpmshx_solver_shared.dylib"))
 ```
 
-Use `tpmshx_solver_shared.dll` on Windows. The path must refer to a prebuilt
-library on that host. Missing libraries, incorrect ABI or unsupported capabilities
-fail explicitly. Public result saving, loading and offline evaluation use the
-existing interfaces. Native CI on macOS and Windows includes fresh-process
-saved-case replay without Numba/Python solver kernels, callback failures,
-cancellation, recovery and concurrent runs.
-
-These runs qualify the tested
-C ABI and command-line paths. Visible desktop delivery stays a separate gate.
-
-## Complete full 2D capability
-
-`full_2d.hpp` and `full_2d_c_api.h` give the complete rectangular two-fluid
-2D driver. It owns the existing SIMPLE flow updates, inlet pressure reference,
-gas pressure shooting, property/closure updates, and outer coupling. It also owns
-the selected temperature/model-h/true-h solve, Richardson transfer and final
-field/energy certificates. Partial ports, spatial L/t fields, actual boundary fluxes and
-distinct final-flow/thermal pressure states keep the prepared-case contract. The main heat metric stays W/m.
-
-An explicit physical depth is still required
-for total mass-flow optimization. Completed execution and convergence stay
-separate, including capped iterations, failed certificates and cancellation.
-
-Full 2D uses **ABI 2**: its 29th prepared array keeps the dimensionless
-`(D_h_m * 1000) / L_mm` ratio from the original closure input. Reconstructing
-that ratio from rounded SI lengths can change the last bits of graded-field
-heat transfer coefficients. The C symbols and structures use `v2`, and the
-adapter rejects an ABI 1 library before entering the numerical call. Distribute
-the matching library, headers and adapter together. Saved FieldResult files
-continue to use the existing portable reader without loading a native library.
-
-The public call above also accepts a full 2D `CaseData`. CLI, desktop and design
-hosts carry the same `RunControl`. Source CLI execution uses, for example:
+Source CLI execution uses:
 
 ```bash
 "$PYTHON" -m sjtu_tpmshx.cli solve case.h5 results.h5 --backend cpp \
   --native-library /absolute/path/to/libtpmshx_solver_shared.dylib
 ```
 
-The binding performs prepared-input validation, passes borrowed input views,
-copies result-owned arrays before release and maps native evidence into the
-existing `FieldResult`. Host library/table directories are not serialized in
-cases or results. Fresh-process CLI solve, save/reload and offline evaluation
-load no Numba or Python numerical driver. Current qualification checks full
-fields, statuses, budgets, pressure and energy through independent audits and
-native component replay. Historical Python comparisons keep their original
-limits and verdicts. A macOS run does not establish Windows acceptance.
+### T-SOU conservative energy and actual-state audit
 
-## Complete full 3D capability
+`solve_enthalpy` in `enthalpy_driver.hpp` runs `EnthalpyAlgorithm::temperature_sou` (T-SOU) for two-fluid true-h routes.
+Both direct C entries (`tpmshx_solve_enthalpy_v1` and `v2`) run T-SOU; `v2` accepts an explicit positive Kelvin update limit (default `1e-8 K`).
+Each nonlinear step freezes actual `h`, `T`, and `cp` arrays, then runs alternating A, B, and solid sweeps with minmod enthalpy face reconstruction.
+The driver damps each completed block increment by `0.6`.
+Guarded HEOS PT updates refresh actual enthalpy before residual and boundary-duty checks, with no BICUBIC table, H-to-T inversion, or enthalpy clipping.
+SOU recipe 2 applies six-sample Anderson proposals and accepts a proposal only when it strictly lowers the normalized coupled and equation residual maximum.
+Only a complete ordinary PT/audit block can converge.
+`tpmshx_energy_algorithm_version_v1` reports the actual executed recipe version independently of the C ABI.
 
-`full_3d.hpp` and `full_3d_c_api.h` give the rectangular two-fluid 3D outer
-driver through ABI 2. It consumes the same prepared XYZ fields and partial-port
-geometry. It performs pressure-referenced SIMPLE flow and selected
-temperature/model-h/true-h coupling. It returns the original final-state
-certificates, warning evidence and field locations. The existing optional
-coarse bootstrap keeps fine-grid pressure boundary values. No Python
-numerical kernel supplies the native result.
+`thermal_energy_audit` in `solver/enthalpy_sweeps.cpp` computes actual-state A/B/solid cell residuals and six outward signed boundary enthalpy duties.
+Its coupled and equation ratios use `max(abs(Q_A), abs(Q_B), 1)` in W/m (2D) or W (3D).
+This operator applies no acceptance threshold; drivers enforce the `0.001` coupled and equation gates and the Kelvin update gate.
+Portable candidate results set `thermal_mode=conservative_energy` and record `boundary_fluxes.true_h.boundary_power`; heat is `-sum(boundary_power)` per side with no fallback reconstruction.
 
-Full 3D ABI 2 removes the outer property Anderson controls and result fields.
-Use matching headers, libraries and bindings. The Python binding rejects ABI 1
-before a numerical call. Fixed property relaxation and thermal Anderson remain.
-Saved results remain readable; checkpoints still require the same build identity.
-
-Bootstrap diagnostics use a separate query from the full result.
-`tpmshx_full_3d_get_bootstrap_trace_v1(result, side, trace)` exposes a separate
-read-only view for side 0/1. Its strings and layer array belong to the result
-owner and stay valid only until `tpmshx_full_3d_release_v1`. A query performs
-no numerical work or allocation. C callers must use the ABI 2 result layout.
-
-The current Python binding requires the new
-query symbol and reports a capability error for an older library. It never
-fabricates a trace or substitutes a Python solve.
-
-The trace records explicit enable/disable, actual coarse shapes/depths and
-per-layer caps, entered iterations and stop reasons. It keeps the current
-recursive `count > 2000`, child cap 200, minimum-axis and stopping rules.
-`started_cap_sum` is the sum of caps for layers that entered an iteration,
-not a shared global bootstrap limit. An unstarted cancelled parent contributes
-zero iterations and no cap to that sum. The binding copies the trace before
-release into `diagnostics.coarse_bootstrap_trace`. Saved results without this optional key stay readable.
-
-The existing cooperative-cancellation result still owns its partial diagnostic
-views, so a C caller can query them before release. The Python binding raises
-`CancelledError` with the detached trace in `coarse_bootstrap_trace`, and does
-not publish a partial FieldResult. Hard C API errors still leave the caller's
-result untouched and publish no owner. A complete trace is consequently not
-available through the query after such an error. Bootstrap-local failures
-that the existing algorithm catches stay recorded without claiming an
-applied seed or replacing actual charged work with a configured cap.
-
-The shared physical-port pressure reduction keeps the reference masked
-array order and contiguous pairwise summation for both weighted pressures
-and open areas. This also fixes the inlet anchor used by pressure shooting.
-Changing its summation order can change later SIMPLE stopping iterations even
-when the initial pressure difference is only roundoff. Full-field checks must
-therefore keep the original iteration budgets and comparison tolerances.
-
-The same public `run_case` and CLI commands select it for a full 3D CaseData. Numerical qualification includes the original 24³ case and full field/pressure/
-thermal evidence, with unchanged budgets and comparison gates. The historical
-Python/native comparison of that capped case returned `converged=False`.
-Agreement did not establish convergence. Full 3D model-h heat stays W.
-
-The legacy
-temperature route keeps its existing unavailable-heat boundary when complete
-enthalpy evidence is absent. Optimization still applies its independent
-model-h physical-boundary and energy certificates.
-
-## Fixed-flow conservative temperature candidates
-
-The C++ `solve_enthalpy` interface in `enthalpy_driver.hpp` uses
-`EnthalpyAlgorithm::temperature_sou`. Both direct C entries use T-SOU.
-Version 1 has a fixed 1e-8 K update gate; version 2 takes a positive K limit.
-Both keep the strict normalized-h and boundary-imbalance gates.
-The algorithm covers two solved fluids on a tensor grid,
-including a unit-depth 2D extrusion. They require supplied signed mass faces,
-local absolute pressures, effective solid conductivity and volumetric exchange
-coefficients.
-
-Directions 0 through 5 restrict inflow to the declared face.
-Direction -1 assigns the scalar inlet state to every exterior inflow.
-Full drivers keep their declared-port checks.
-
-External conductive boundaries are
-adiabatic. This entry does not prepare mass flow, solve SIMPLE or evaluate Nu.
-
-Each nonlinear step freezes independent actual h, T and cp arrays, then performs
-alternating forward/reverse A, B and solid sweeps. Fluid convection uses the
-linearization h* + cp*(T-T*). Diffusion uses temperature. SOU freezes a minmod
-correction reconstructed directly from actual enthalpy on physical coordinates,
-including the outlet face, and uses full solid relaxation. SOU damps the completed three-phase block increment
-by 0.6 before the actual state update.
-
-This suppresses a demonstrated
-limiter-driven oscillation on a stretched full-2D grid without changing its steady equation. Guarded HEOS PT updates then replace the linearized
-enthalpy with the actual state before residuals and duties are evaluated. No
-BICUBIC table, H-to-T inversion, clipping or recovery fallback is used.
-
-SOU recipe 2 uses six-sample Anderson proposals on this damped ordinary map. It validates each proposal with actual HEOS PT properties and the original
-energy audit before selecting it. A proposal must strictly reduce the maximum
-of the equation and coupled ratios normalized by their original tolerances. Invalid or nonfinite proposals keep the ordinary update. Accepted proposals
-continue iteration.
-
-First/final blocks and small ordinary temperature updates
-use a complete ordinary PT/audit block, and only that block can converge. `picard_relaxation=0.6` describes the ordinary map, not each Anderson increment. The same loaded library's `tpmshx_energy_algorithm_version_v1` query reports
-SOU recipe 2 from the actual returned algorithm. Python records
-this identity in main/outer evidence, effective settings and boundary capture.
-A previous library without the query fails before conservative flow execution. Saved FOU recipe 1 and SOU recipe 1/2 boundary evidence stay readable, with no EOS
-replay or version inference.
-
-Recipe versions are independent of the C ABI.
-
-The full drivers require positive coupled and equation tolerances and a positive
-`temperature_update_tolerance` in K. Convergence requires all three tests on the
-same actual state. `EnthalpyResult::algorithm` identifies the executed algorithm. `temperature_update` is present only on these routes. The existing `residual`
-still records the normalized actual enthalpy update.
-
-SOU final certificates
-reconstruct its actual face corrections again and use them consistently in
-boundary duty and local residuals. An iteration-limit result keeps its actual
-certificate. Cancellation invalidates partial fields and clears that certificate.
-
-`conservative_energy_smoke` validates independent frozen balances, six-direction
-nonuniform face fluxes, reference-enthalpy invariance and invalid inputs.
-`conservative_energy_driver_smoke` validates real EOS states, cold/warm consistency,
-independently reconstructed outlet duty, cancellation, iteration limits and
-physical-domain failures. The dependency-pilot verification runs both. Their
-scope is fixed-flow numerical qualification. Full flow/closure acceptance,
-stored historical comparisons and experimental applicability remain separate.
-
-### Explicit full-flow candidate selection
-
-Use the default `solver.enthalpy_algorithm=temperature_sou`
-before `prepare_case`. Set `solver.enthalpy_temperature_tol_K` to the required
-positive K tolerance before preparation. Then run the saved case with
-`backend='cpp'` and the matching native library. The default K limit is 1e-8.
-T-SOU applies to the existing two-fluid true-h routes. Model-h, other temperature
-kernels and Quick Design keep their own physical routes. Explicit EOS controls
-on incompatible routes fail before flow execution.
-
-Full 3D candidates also support `port_wall_refine` on the prepared nonuniform
-tensor grid, for full and partial openings. They use the actual cell widths and
-port face masses. The model-h port-energy flag does not change this true-h path.
-This support does not change the saved algorithm, defaults or acceptance gates.
-
-This selection does not qualify new fluids, boiling, condensation or additional
-Nu/Darcy-Forchheimer applicability. GUI selection is not yet exposed.
-
-The complete driver keeps its original SIMPLE, pressure, property, outer
-coupling and final acceptance gates. Full3D keeps thermal and mass preparation
-without temperature predictor sweeps. The T-SOU recipe uses five sweeps per
-nonlinear step, fluid relaxation .2 and solid relaxation 1. Full3D saves resolved controls in prepared
-cases. Unset 2D controls use the recipe for the selected algorithm version.
-
-With default controls, T-SOU keeps the full-driver iteration budgets.
-Actual coupled and equation energy ratios must be no greater than .001.
-The declared temperature update tolerance must also pass.
-The native result records actual whole-block Picard relaxation 0.6.
-It is separate from the fluid and solid row relaxation factors.
-
-`tpmshx_solve_full_2d_v6` and `tpmshx_solve_full_3d_v5` accept the shared
-`tpmshx_energy_options_v1`. They keep the previous result PODs and their release
-functions. The corresponding `get_energy_evidence_v1` query borrows the same
-owner and performs no solve. It exposes actual algorithm/temperature update,
-final epsilon-times-HEOS conductivity, six outward signed enthalpy-power
-planes and per-outer-step scalar identity. A null energy recipe uses the T-SOU default.
-The earlier 2D v2 to v5 and 3D v1 to v4 entries were removed on 2026-11-23.
-Current libraries reject explicit retired algorithm IDs before flow. Old
-checkpoints require their matching archived runtime and original controls.
-
-Explicit controls use the control arguments of `tpmshx_solve_full_2d_v6` or `tpmshx_solve_full_3d_v5`.
-They accept the same persisted EOS iteration, sweep, relaxation and convergence settings.
-The 2D control block also contains `tpmshx_energy_options_v2`.
-It replaces the two thermal-control values in `config_v2`; other values retain their meaning.
-The existing effective-settings query records the controls used by each thermal call.
-Integral model-h routes reject these EOS overrides before flow execution.
-
-The Python binding copies query views before release and records the entry used in `backend_version`.
-Current libraries use `full_2d_v6` or `full_3d_v5`, which include the CPU thread limit.
-Retained libraries can use the earlier energy or iteration-control entries when the requested controls are supported. Candidate results have portable
-`thermal_mode=conservative_energy`. `boundary_fluxes.true_h` contains the
-existing actual h/inlet-h/mass arrays and the algorithm/version, six-face
-`boundary_power`, its W/m or W units and a completeness flag. Heat is
-`-sum(boundary_power)` for each side. SOU reconstructs physical enthalpy at
-outlet faces, so older FOU cell-enthalpy reducers cannot supply that heat.
-
-Missing or invalid face evidence makes the metric unavailable. No fallback
-reconstruction occurs. Final post-flow pressure and velocity stay separate
-from the accepted or capped last thermal state. 2D candidates keep the
-true-h unit-depth convention and do not produce Richardson evidence.
-
-## First implemented slice
-
-The frozen H-FOU sweep, its clipping rules and its low-level C export are retired.
-Git history keeps the previous implementation. Shared `FluidView`, audit types
-and `thermal_energy_audit` remain in `enthalpy_sweeps.hpp/.cpp` because the
-conservative temperature kernels and actual-state audits consume them.
-`conservative_energy_smoke` keeps independent frozen balances, pressure-offset
-checks, diffusion lines, six-direction face powers and invalid-input checks.
-
-## Second implemented slice: actual-state energy audit
-
-The same library exposes `thermal_energy_audit` in
-`solver/enthalpy_sweeps.cpp`. It audits actual-state energy as follows:
-
-- Actual-state A/B cell residuals: Fourier conduction + solid exchange − signed
-  upwind enthalpy divergence. The caller supplies actual EOS temperatures and
-  effective fluid conductivities, not the sweep's frozen linearization.
-- Adiabatic solid cell residuals and all six signed boundary enthalpy duties.
-  Inlet/backflow faces use prescribed inlet enthalpy, outflow uses cell enthalpy.
-- The existing coupled and equation ratios, including the unchanged denominator
-  `max(abs(Q_A), abs(Q_B), 1)`, fluid residual absolute sums/maxima and solid sum.
-  Outputs are W per cell for 3D, W/m for the existing unit-depth 2D extrusion.
-
-The operator applies **no acceptance threshold**. It does not evaluate EOS, validate state applicability, balance mass, count prior clipping or show
-convergence. Those driver-owned checks stay mandatory. Invalid inputs are
-rejected before residual output writes. Arithmetic overflow raises an error and
-invalidates all output buffers. State/coefficient arrays stay read-only.
-
-Qualification compares actual residual fields and budgets to independent
-NumPy audit arithmetic, including the final ratio. Independent checks include six signed flow
-directions, a one-cell 20 W exchange, internal-face cancellation, and isothermal
-pressure-dependent enthalpy. They also include a deliberately unbalanced local
-temperature field. Its global/coupled budget is zero, but its equation residual
-is positive.
+<a id="shared-finite-volume-temperature-consumers"></a>
 
 ## Shared finite-volume temperature consumers
 
-The integrated fullCC candidate transports the
-existing air/water integral h(T) using strict model-h drivers and actual
-thermal mass faces. It replaces the earlier variable-cp m*cp*T proposal.
-The earlier physical-contract failure is kept as history, not a description
-of the current implementation. Earlier numerical and resource qualifications
-stay tied to their recorded builds. Final-library and application acceptance
-stay separate gates. Fixed-cp Quick Design is a separate
-approximation and is not a variable-cp integral-enthalpy claim.
-
-The private `energy_fv_rows.hpp` supplies shared transport, Fourier conduction,
-LTNE exchange and physical-source rows. It does not select a fluid model,
-prepare SIMPLE/MAC faces, own an EOS or grant a consumer convergence policy. CMake applies the same no-contraction floating-point policy to each source
-that instantiates these shared rows, including the direct kernel smoke test. This prevents link order from selecting differently rounded copies of the
-same template. The policy is source-local.
-
-Kept legacy thermal kernels
-keep their existing compile options. The actual caller boundaries are:
+Private `energy_fv_rows.hpp` supplies shared finite-volume transport, Fourier conduction, LTNE exchange, and physical-source row assembly.
+Each caller owns its fluid model, face preparation, EOS updates, iteration budget, and convergence policy.
+CMake applies a source-local no-contraction floating-point setting to every source file that instantiates these shared rows.
 
 | Consumer | Driver and kept contract |
 | --- | --- |
-| Quick Design const/mean and standalone CC | `solve_temperature` in `temperature_driver.cpp`. Fixed coefficients per pass, capacity transport, cold/warm start, bounded iteration and cancellation |
-| Air/water full2D temperature main/fine and full3D CC Nz=1 | Strict `solve_model_h_2d`. Existing air/water h(T), A-SOU/B-FOU, prepared mass/K/h_v and each caller's original budget |
-| Air/water full3D CC Nz>1 | Strict `solve_model_h_3d`. SOU on both sides, prepared mass/K/h_v, prescribed B, asymmetric geometry and strict-only water/water support |
-| Existing product model-h | Default non-strict model-h drivers and original eligibility/stopping rules. Reuse by fullCC does not grant optimizer eligibility |
-| Full3D true-h preparation | `true_h_preparation` retains CC input checks. Staggered preparation retains projection. Neither updates temperatures. The EOS driver keeps its algorithm and physical gates |
-| Staggered/MAC temperature | Existing projection/cache and capacity-face preparation. Kept nonconservative advective research correction has no fullCC integral-h qualification |
-| True-h | T-SOU default. EOS relations and independent physical gates stay in the enthalpy driver |
+| Quick Design const/mean and standalone CC | `solve_temperature` in `temperature_driver.cpp`: fixed coefficients per pass, capacity transport, guarded-line iteration (up to 4 point sweeps + damped line-Newton trial with `0.6` block damping), and `<= 1e-7` complete-boundary ratio. |
+| Air/water full 2D temperature and full 3D CC (`Nz = 1`) | Strict `solve_model_h_2d`: integral `h(T)`, A-SOU/B-FOU (`model_h_tface_sou_fou_strict_v3`), prepared mass/K/`h_v`, physical depth scaling for 3D `Nz = 1`, and `<= 1e-7` complete-boundary ledger. |
+| Air/water full 3D CC (`Nz > 1`) | Strict `solve_model_h_3d`: integral `h(T)`, SOU on both sides (`model_h_tface_sou_sou_strict_v3`), prescribed B reservoir support, asymmetric geometry, strict water/water, and `<= 1e-7` complete-boundary ledger. |
+| Product model-h | Non-strict `solve_model_h_2d` / `solve_model_h_3d` with original eligibility and stopping rules. |
+| Full 3D true-h preparation | `true_h_preparation` validates CC inputs and projects staggered faces with zero temperature sweeps before the EOS solve. |
+| Staggered/MAC research | Existing projection, cache, and capacity-face preparation without fullCC integral-h qualification. |
+| True-h | T-SOU default in `enthalpy_driver.cpp` with independent EOS relations and physical gates. |
 
-Full3D true-h performs no temperature sweeps before each outer enthalpy solve.
-The first call uses inlet fluid temperatures and the configured solid seed.
-If no solid seed is set, it uses the mean inlet temperature.
-Later calls use the previous thermal fields.
-Thermal coefficients, inlet capacities, face balance/projection and input checks remain.
-The enthalpy driver validates initial PT states and supplies the final thermal verdict.
+FullCC captures `model_enthalpy_temperature_v1` through `get_model_enthalpy_evidence_v1` before later flow updates.
+Each solved fluid stores `[c0, c1, c2, Tbase, Tref]` for quadratic `cp(T)`, solved-phase flags, residuals, source/reservoir powers, and outward `m*h(T_face)` and Fourier planes.
+Nonzero fullCC manufactured volume sources stay unsupported, and prescribed B has reservoir power without a solved B residual certificate.
+See [C++ migration history](history/cpp-migration-history.md) for historical N3, N5, and pre-N3 qualification records.
 
-The private G4 iteration owner and the special staggered warm-up rows are retired.
-The CC validation function retains their input checks without changing the thermal fields.
-Staggered preparation still runs with a zero temperature budget and records its projection evidence.
-The first thermal checkpoint belongs to the EOS driver after preparation completes.
-Old checkpoints require their matching archived runtime. Historical result records remain readable.
-Full2D true-h does not consume this Full3D preparation path.
+## Build and run native qualification checks
 
-Single-A sCO2 execution is retired. The native input boundary rejects an sCO2
-A side with inactive B before numerical work. Air/water inactive-B validation
-and its pause/restore coverage remain. Archived results with
-`legacy_frozen_cp_single_a_cc_v1` keep their missing complete h(P,T) transport
-status. They cannot acquire a model-enthalpy ledger. Old single-A sCO2
-checkpoints require their matching archived runtime.
+Locked native dependencies are defined in [dependencies-lock.toml](../engineering/native_build/dependencies-lock.toml).
+They include CoolProp 8.0.0 with nine pinned CPM headers, SuperLU 7.0.1 with three SciPy 1.18.1 double-LU corrections, AMGCL 1.5.0, Eigen 5.0.1, and CMake 4.4.4.
+Third-party notices are recorded in [THIRD_PARTY_NOTICES.md](../engineering/native_build/licenses/THIRD_PARTY_NOTICES.md).
+`engineering/scripts/generate_native_model_coefficients.py` generates `tpmshx/model_coefficients.hpp` and `tpmshx/preparation_df_data.hpp` under `.cache/native-deps/generated/` using only the Python standard library.
 
-FullCC uses the accepted thermal SIMPLE mass faces without multiplying them
-by cp, reconstructing mass from cell velocity or applying porosity/opening
-two times. The model-h driver evaluates the existing h(T) model on reconstructed
-face temperatures and uses the original prepared Fourier conductivity and
-exchange. Full2D rows/powers use unit depth and W/m. Full3D Nz=1 requires zero
-active z-face mass. It divides physical mass by depth for the 2D solve.
+### Standalone EOS-free thermal archive check
 
-It then multiplies residual, source/reservoir and boundary powers by depth
-exactly one time to return W. Temperature is unchanged.
-
-Strict fullCC keeps duty/field stability and additionally requires a fresh
-complete-boundary ledger. Its numerator is the larger of the phase sums of
-absolute cell residuals and the coupled boundary/source imbalance. Its denominator
-is the interface exchange scale, with a floor of one native power unit. This ratio must be <=1e-7. Failed
-checks continue within the caller's budget. Incomplete physical inflow cannot
-converge.
-
-Strict SOU uses physical inlet distances and one-sided outflow
-reconstruction. Strict inlet Fourier conduction uses the resistance/moment
-rule in both rows and audits. The non-strict product model-h boundary stays
-unchanged. Nonzero fullCC manufactured volume sources stay unsupported. Prescribed B stays an external temperature reservoir, is excluded from
-updates/Anderson/solved equations, and has no fabricated B certificate.
-
-The following guarded-line iteration describes only the fixed-coefficient
-QD/standalone CC driver, not the strict fullCC model-h adapter. Standalone CC
-reconstructs unique signed capacity faces from supplied cell fields. Explicit
-capacity inputs, where given, already contain their porosity/area/depth
-factors and override that reconstruction. It uses one T-minmod correction on
-each internal face. With complete inflow,
-active second-order transport and no red-black ordering, a block contains up
-to four point sweeps and a guarded line-Newton trial. The trial is accepted
-only when its actual-state physical error strictly decreases.
-
-Both comparison
-states include the same 0.6 block damping. Rejection keeps the damped point
-state. Point sweeps for A and SOU B use min(caller alpha,0.2). FOU B and
-line trials use the caller alpha. Degenerate or red-black cases use point blocks. Budgets count each
-requested step, and cancellation never certifies convergence.
-
-In this fixed-coefficient driver, complete-boundary convergence requires Q/field
-stability. It also requires a fresh maximum phase residual/coupled boundary-source
-balance ratio <=1e-7. The normalization uses the larger interface power with a
-1 W or W/m floor. Direct-capacity calls cannot converge
-with unidentified exterior inflow. Standalone reconstructed-capacity calls
-keep their historical stability status for incomplete boundaries but expose
-the missing boundary certificate explicitly.
-
-No EOS lookup occurs in this
-fixed-coefficient driver. CC still rejects nonzero manufactured volume sources.
-Staggered/model-h keep their existing source capabilities. Prescribed B is
-an external temperature reservoir and has no solved B residual certificate.
-
-Read-only queries distinguish the executed fixed-coefficient guarded-line,
-staggered and model-h recipes. FullCC identifies its spatial contract as
-`model_h_tface_sou_fou_strict_v3` (2D/Nz=1) or
-`model_h_tface_sou_sou_strict_v3` (Nz>1). The additive full2D/full3D
-`get_model_enthalpy_evidence_v1` queries keep existing solve-result layouts
-and expose `tpmshx_model_enthalpy_evidence_v1`, not the former capacity-ledger
-layout. Each solved fluid records [c0,c1,c2,Tbase,Tref] for the existing
-quadratic cp(T) and its integral h(Tref)=0, alongside solved-phase flags,
-physical residuals, source/reservoir power and outward m*h(T_face)/Fourier
-planes. Views borrow the result owner. Bindings copy them before release.
-
-Main/fine 2D stages keep separate actual identities. The requested thermal
-mode stays `temperature`. Portable evidence declares
-`model_enthalpy_temperature_v1`. Offline postprocessing validates and reduces
-the captured powers without running a solver, EOS or new face reconstruction. Availability is not convergence, and these records do not create product
-model-h optimization eligibility.
-
-Missing declarations for new ledger fields
-are invalid. Historical files without new fields keep their original rules.
-
-Current qualification is bounded. Sixty strict inlet resistance/moment smoke
-configurations cover six directions and ten coefficient/boundary families.
-They validate local rows and ledgers, not a complete PDE grid-order result. The
-defined N3 layered protocol separately passes independent operator/K=0
-analytic checks. It passes 84 accepted axial-order segments from 20 unique rows
-across 42 metrics. It also passes the original absolute-error gates for six
-actual 64-cubed manufactured-solution groups.
-
-It does not show global second order for
-arbitrary three-dimensional flows. 32-to-64 rates stay reported trends. The original six-group MMS population passed zero of six groups. The original
-axial population passed four of six groups and failed two. Those historical
-results stay unchanged under the later protocol.
-
-N5's twelve deliberately capped consumer requests returned successfully and
-passed fourteen recorded-stage arithmetic audits. Zero of twelve product
-requests converged. Only two of fourteen thermal stages converged. The
-separate normal-budget population passed all three complete steady consumers
-(2D main/fine, 3D Nz=1 and 3D Nz>1) and all four thermal-stage audits. The prior
-steady candidate's two-of-three result, including its failed 2D main/fine
-gates, stays history.
-
-These fixed populations do not show experimental
-accuracy or N6 performance/memory acceptance. Previous fixed-capacity component
-timings are not a same-operator h(T) full-driver cost comparison.
-
-New native algorithms require independent matrix, analytic, grid-sequence,
-actual-state balance and lifecycle qualification. Previous-Python trajectory tests
-stay historical same-algorithm evidence and cannot show parity with a
-changed native method. A native successful exit, complete physical ledger,
-convergence and experimental accuracy are distinct facts. The native default does not expand physical applicability.
-
-## Build and run the qualification checks
-
-From the repository root, with an existing POSIX C++17 compiler and `make`:
+With an existing POSIX C++17 compiler, `make`, and locked Eigen headers under `.cache/native-deps/src/Eigen-5.0.1` (`fetch-eigen`):
 
 ```sh
 make -f engineering/native_build/Makefile CXX=c++
 make -f engineering/native_build/Makefile check
 ```
 
-This builds `.cache/native/libtpmshx_thermal.a`. Include `include`. Link that archive from a C++ caller. Building the temperature line solver
-requires the existing locked Eigen headers, compiled with `EIGEN_MPL2_ONLY`. `TPMSHX_EIGEN_INCLUDE` defaults to the locked Eigen source
-under `.cache/native-deps/src/Eigen-5.0.1`. Set it explicitly for an isolated source
-tree.
-
-A missing directory fails the build without downloading dependencies. The low-level archive links no Python, Qt, NumPy, CoolProp/EOS, OpenMP or
-binding-library runtime. The complete dependency-pilot library keeps its
-separate EOS/pressure dependencies. The `check` target builds and runs independent C++ temperature and conservative-energy callers.
-The old pure thermal shared target exported only the retired H sweep and is removed.
-The complete dependency build keeps C static/shared callers for direct T-SOU,
-full 2D/3D, model-h, temperature and flow interfaces on both target platforms.
-
-The library is not bundled with the Python
-wheel or desktop application, discovered automatically, or built during a run.
-
-From an existing x64 Visual Studio developer command prompt on Windows:
+From an x64 Visual Studio developer command prompt on Windows:
 
 ```bat
 nmake /f engineering\native_build\Makefile.msvc check
 ```
 
-This builds `tpmshx_thermal.lib` under `.cache/native` and runs the same C++ callers.
-These commands do not install a compiler. The full solver C ABI keeps explicit
-Windows exports/imports and `cdecl`; ctypes loads its DLL through `CDLL`.
+This builds `.cache/native/libtpmshx_thermal.a` (or `tpmshx_thermal.lib`) with `EIGEN_MPL2_ONLY` and runs independent C++ temperature and conservative-energy tests without Python, CoolProp, or Qt.
 
-`thermal_c_api.h` keeps shared export and calling-convention macros.
-Its frozen H-sweep export is retired. Complete C interfaces keep bounded
-errors and buffer/physical checks. Exceptions do not cross the C boundary.
-Python numerical tests load the test bridge from the full native build.
-The bridge links to the numerical targets from the same CMake build.
+### Full dependency build and native pytest suite
 
-Use the interpreter from `.venv-path`, after the normal environment checks:
+Use the interpreter from `.venv-path` after passing environment checks:
 
 ```sh
 tm1_python="$(head -n 1 .venv-path)"
 "$tm1_python" -m sjtu_tpmshx.development.runs.tools.check_locked_environment
 "$tm1_python" -m pip check
+"$tm1_python" engineering/scripts/build_native_dependencies.py fetch
+"$tm1_python" engineering/scripts/build_native_dependencies.py build
+"$tm1_python" engineering/scripts/build_native_dependencies.py verify
 MPLCONFIGDIR="$PWD/.cache/matplotlib" \
 XDG_CACHE_HOME="$PWD/.cache/xdg" \
 TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1 \
 "$tm1_python" -m pytest -q tests/python/native
 ```
 
-Every explicit `TPMSHX_TRUE_H_KERNEL` override is retired, including `numba`
-and `cpp_sweeps_v1`. Saved prepared requests fail before flow execution.
-Remove the override to use native execution. The key remains in environment
-snapshots only for this explicit rejection. New cases do not capture
-`TPMSHX_THERMAL_LIBRARY`; native library selection belongs to `RunControl`.
-Saved results remain readable without loading a solver library. Historical
-Python `sweep_kernel` and `energy_audit` records retain their original meaning.
-
-The required flag makes a missing native caller or library fail this
-qualification command. Optional local component tests can skip when a
-component is absent. That skip is not native acceptance. Native qualification runs on
-macOS and Windows with Python 3.13. A local macOS
-pass does not show Windows compilation, execution or distribution
-acceptance. No compiler or Python dependency is installed by these tests.
-
-Native enthalpy sweep tests retain fixed-seed variable fields, signed and zero
-face flows, nonuniform grids, six directions, single-cell axes, zero diagonal,
-clipping and rejection before mutation. Independent physical checks cover
-isothermal pressure-dependent enthalpy and exponential cooling, including
-first-order grid convergence and boundary/source energy balance.
-Zero-change references retain `atol=2e-8 J/kg` and `atol=2e-11 K`.
-Clipping counts stay within the charged sweep budget. Native builds do not
-enable fast-math. These checks qualify numerical operators, not experimental
-sCO2 prediction or application speed.
-
-For the energy audit, the fixed comparison tolerances are `rtol=2e-12`,
-`atol=1e-9 W` per cell, `atol=1e-8 W` for reduced budgets, and `atol=1e-12`
-for dimensionless ratios. The same source unit normalization applies in 2D. These compare arithmetic implementations. They do not change production gates. Performance qualification includes input checks and binding overhead. Separate
-EOS initialization, native builds, kernel execution and complete solve time.
-Historical Numba timings remain tied to version 0.1 and their matched routes.
-
-Public execution tests retain physical-field, signed boundary-flux, pressure,
-metric, file-handoff, cancellation and actual native-error checks. Native
-engineering cases keep the original F2, convergence and energy gates.
-
-## Isolated EOS and pressure dependency qualification
-
-Native dependencies require an explicit build, separate from production backend
-selection. `solver/` is the full-solver build project and includes geometry.
-The [independent geometry build](#native-geometry-core) needs only the locked CMake tool and generated model data.
-Its inputs are locked in
-[`engineering/native_build/dependencies-lock.toml`](../engineering/native_build/dependencies-lock.toml).
-These include CoolProp 8.0.0, its nine required CPM header dependencies at fixed
-commits, and SuperLU 7.0.1 with three selected SciPy 1.18.1 double-LU corrections.
-The SuperLU source is not identical to SciPy's bundled revision. They also
-include AMGCL 1.5.0 and portable CMake 4.4.4. Source, binaries,
-logs and tabular EOS files stay under the worktree's `.cache/native-deps`.
-[`engineering/native_build/licenses/THIRD_PARTY_NOTICES.md`](../engineering/native_build/licenses/THIRD_PARTY_NOTICES.md) records the
-linked components and their original license notices.
-
-`engineering/scripts/generate_native_model_coefficients.py` reads the shared
-`model_parameters_v1.json`, `preparation_df_v1.json`, the fixed DF CSV and the existing CO2 resource.
-Its resource reader uses only the Python standard library.
-The generator does not import numerical model implementations.
-The build writes `tpmshx/model_coefficients.hpp` and `tpmshx/preparation_df_data.hpp` under the selected cache's `generated/` directory.
-The default directory is `.cache/native-deps/generated/`.
-C++ uses the generated constants without runtime JSON parsing or Python calls.
-The `quick_design` resource supplies conductivity, grid counts, geometry resolution, tolerance and arrangement controls.
-Both preparation versions and Python consumers use it. Counterflow qtol/chunk stay null in the resource and `None` in CaseData.
-The v1 prepared driver configuration keeps its resolved defaults: `max(tol*10, 1e-4)` and 250.
-Geometry, preparation and solver code use the declared model resources. Existing model identities, units, fitted coefficients and experimental conclusions stay unchanged.
-See [implementation and retirement scope](#cpp-core-scope) and [model resources](model-resources.en.md#当前资源与研究输出).
-
-The Python wheel includes code, JSON and CSV resources. It does not include native libraries.
-Native solver libraries still require a separate explicit build.
-Unchanged coefficients do not make an old checkpoint compatible with a new solver build.
-Resume requires the exact retained runtime, saved prepared inputs and controls.
-Keep each saved run's matching library when building a replacement.
-
-After explicit native-dependency provisioning authorization, use the configured
-interpreter and the existing lock checks. `fetch` provisions the complete dependencies.
-`build` is offline and does not install Python packages or change the shared
-environment. `fetch-eigen` fetches only the fixed Eigen 5.0.1 headers for the
-EOS-free thermal library. The CoolProp build uses explicit local CPM paths with
-FetchContent disconnected; it does not fetch optional test or wrapper modules:
-
-```sh
-"$tm1_python" engineering/scripts/build_native_dependencies.py fetch
-"$tm1_python" engineering/scripts/build_native_dependencies.py build
-"$tm1_python" engineering/scripts/build_native_dependencies.py verify
-TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1 \
-MPLCONFIGDIR="$PWD/.cache/matplotlib" XDG_CACHE_HOME="$PWD/.cache/xdg" \
-"$tm1_python" -m pytest -q -ra \
-  tests/python/native/test_native_eos.py \
-  tests/python/native/test_native_pressure.py \
-  tests/python/native/test_fluid_properties.py \
-  tests/python/native/test_quick_design_driver.py \
-  tests/python/native/test_cpp_quick_design.py
-```
-
-The EOS caller evaluates CO2 and Water with the same named backend as the
-Python reference: HEOS or BICUBIC&HEOS. It validates forward properties, enthalpy
-inversion, existing CO2 applicability bounds, stable liquid-water guards and
-independent mutable states. It does **not** replace the project's empirical
-air/water transport functions with CoolProp values. Each process uses an
-explicit table directory. It does not change the parent Python EOS settings.
-Property comparison tolerances are fixed in `test_native_eos.py` and are
-separate from PDE acceptance and BICUBIC interpolation error versus HEOS.
-
-The pressure caller consumes canonical 32-bit CSR with the original zero
-Dirichlet rows and reports the original `Ax-b` residual and pin error. 2D and
-3D systems with at most 2000 cells use SuperLU/COLAMD. Larger 3D systems use
-the original PyAMG 5.3 classical strength, splitting, modified interpolation,
-Galerkin order and symmetric Gauss–Seidel cycle. They keep the original SciPy
-BiCGStab stopping and breakdown policy. The 200-iteration budget, resolved
-relative tolerance and current-matrix multiplication with reused preconditioners
-stay unchanged.
-
-Only the original breakdown path retries with L2-scaled RHS.
-Qualification reports the unscaled equation residual. The initial AMGCL pressure
-candidate failed full-case comparison and is replaced. AMGCL still supplies
-the separate staggered-temperature projection. The build excludes MC64/ILU and uses
-the three locked SciPy double-LU numerical corrections.
-
-SuperLU calls now use a pure-C error boundary and a thread-local allocation
-ledger. The fault injector belongs to the qualification executable. Native
-verification runs that executable directly.
-Allocation failures and ABORT return bounded errors after cleanup. The jump never crosses a C++ frame. macOS qualification injects failure at
-each observed allocation ordinal under release and ASan/UBSan builds. It validates same-process recovery, long ABORT messages, singular info and
-simultaneous independent threads in those builds.
-
-Windows required CI also passes the release allocation,
-ABORT and recovery checks. This does not extend the sanitizer evidence to
-Windows.
-
-Invalid input and
-unknown backend errors do not silently fall back to LU. These pressure tests
-do not by themselves show complete native SIMPLE or outer coupling qualification.
-
-Complete fixed-flow true-h, 2D/3D model-h, and 2D/3D SIMPLE drivers now have
-independent C++ implementations, versioned C interfaces, and Python bindings
-for full solves or independent native tests. Thermal bindings return the existing
-energy and raw-boundary metadata. Native model-h owns its audit arrays until
-the C caller releases the result. The Python binding copies those views
-before release. Callback exceptions and cancellation discard partial states.
-
-The SIMPLE interfaces own per-instance pressure caches and keep the original
-F2, outlet, warm-state and raw-mass evidence. These independently callable
-drivers also support the full 2D/3D outer-coupled backends described above.
-
-The macOS SuperLU build uses the system Accelerate BLAS used by the pinned SciPy reference. It keeps the original CSR/transposed LU operation order for 2D SIMPLE. Windows uses the locked portable CBLAS sources, exercised by the
-required native CI suite. A serial momentum loop does not imply a single-threaded BLAS.
-Thread policy and measured performance must be recorded separately.
-
-CI builds and runs the required callers and native tests on macOS and Windows
-with Python 3.13. A missing executable
-fails the required job. Optional local component runs can skip an unbuilt pilot.
-That skip does not show native qualification. Both platforms have actual
-required native CI passes. The evidence is bounded to those builds and cases.
-These records apply only to their recorded builds and cases.
-
-<a id="remaining-stages-and-acceptance-gates"></a>
-
-## Migration stages and remaining acceptance gates
-
-The table records the original migration stages and their acceptance requirements.
-Version 0.2 has retired Python numerical execution and uses C++ for all public solve routes.
-Historical comparisons keep their original results. Current execution and recovery are described in [architecture](architecture.md).
-Platform CI, visible desktop acceptance, performance, and experimental accuracy remain separate checks.
-
-| Stage | Implementation boundary | Required evidence before advancing |
-| --- | --- | --- |
-| 0: thermal operators | Independent native sweeps and energy-audit operators. The Python/C++ hybrid selector is retired. | Operator checks plus public field/flux/metric, handoff, cancellation and error comparisons. |
-| 1: complete thermal driver | Port Picard state, property refresh, EOS inverse, residuals, warm starts and cooperative cancellation in the same order. Keep fluid properties separate from Nu/hv closure evaluation. | Fixed inlet/pressure/grid inputs. A/B/solid equation and boundary-energy criteria unchanged. Clipped/invalid/cancelled runs keep their meaning. Compare detached native fields and fluxes. |
-| 2: flow and coupling | Port SIMPLE/Brinkman–Forchheimer operators, pressure and mass corrections, then the existing outer coupling order for a declared subset of rectangular cases. | Momentum and fresh-density local/global mass F2 gates. Physical inlet-pressure, outlet/backflow and energy checks. Directional and grid tests. Same prepared geometry/closures, no coefficient retuning. |
-| 3: actual C++ backend | Add the smallest solver-side adapter needed to consume CaseData and produce complete FieldResult. Advertise only the accepted capability subset. | Run without the Python solver kernels. Separate-process case/result handoff, state/units/field locations and model provenance. Missing or unsupported capabilities explicitly rejected. |
-| 4: application and release | Select the qualified backend through the existing public solver API, keeping GUI/design/optimization callers and offline postprocessing. | Fixed 2D/3D cases only where supported. Cross-backend Q/pressure/temperature/flux checks with predetermined tolerances. Build and packaging evidence on each supported platform. |
-
-Before stage 1, select the native property-library delivery and licensing/build
-strategy explicitly. The current Python CoolProp installation is not evidence
-of a complete portable C++ development/runtime package. Do not silently replace
-HEOS with a fit or reuse the sCO2 calibration to absorb porting error. Common
-closures must keep production versions, sources and validity rules across
-languages, without separately refitting their coefficients.
-
-The local CoolProp 7.2.0 wheel inspected on 2026-09-21 contains C++ headers and
-an MIT license. Its binary is a CPython Mach-O bundle, not a separately
-linkable `libCoolProp`. A standalone C++ link attempt fails with unsupported
-Mach-O file type. No independent archive/dylib was found in that environment. At that inspection no source was downloaded and no dependency was installed.
-
-The subsequently authorized isolated build is described above. The current full driver requires qualified HEOS PT states, actual energy
-and recovery on each target platform, including actual Windows execution.
-Historical BICUBIC records keep their original meaning.
-
-Freeze representative baseline cases and comparison tolerances **before each stage's comparison**. Keep failed cases and their original denominators.
-Run analytic/grid/conservation qualification separately from experiment
-validation. The legacy 83-case record stays a historical record. A native
-port does not inherit its experimental claims. Performance measurements must
-separate compilation, EOS, flow, thermal sweeps and overall time and use
-equally warmed runs with the same convergence gates.
-
-OpenFOAM, a complete external solver ABI, general unstructured meshes, extra physical
-models and a framework of abstract factories are not prerequisites for this
-port. Add each only for a specified, separately qualified capability.
+`fetch` provisions locked archives; `build` and `verify` run offline and install no Python packages.
+SuperLU calls run behind a pure-C error boundary with a thread-local allocation ledger so allocation failures and `ABORT` return bounded errors after cleanup.
+macOS SuperLU links system Accelerate BLAS; Windows links locked portable CBLAS sources.
+Pressure systems with at most 2,000 cells use SuperLU/COLAMD.
+Larger 3D systems use classical algebraic multigrid with BiCGStab (200-iteration budget, L2-scaled retry on breakdown).
+Every `TPMSHX_TRUE_H_KERNEL` override (`numba`, `cpp_sweeps_v1`) is retired and fails before flow execution.
+`TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1` turns any missing native library or caller into a test failure.
+A local macOS pass does not establish Windows compilation, execution, or desktop acceptance.
