@@ -235,8 +235,8 @@ def test_raw_co2_error_keeps_visible_cause_chain(temperature, pressure, message,
 @pytest.fixture(scope='module')
 def raw_query():
     library = ct.CDLL(os.environ.get('TPMSHX_PREPARATION_CASE_LIBRARY', native_preparation_abi._library_path()))
-    function = library.tpmshx_query_inlet_properties_v1
-    function.argtypes = [ct.POINTER(abi._InletQueryInput), ct.POINTER(abi._CacheCallbacks),
+    function = library.tpmshx_query_inlet_properties_v2
+    function.argtypes = [ct.POINTER(abi._InletQueryInput), ct.POINTER(abi._Callbacks),
         ct.POINTER(abi._InletQueryResult), ct.POINTER(abi._Failure), ct.POINTER(ct.c_char), abi._S]
     function.restype = ct.c_int
     return function
@@ -272,11 +272,8 @@ def test_raw_query_matches_float64_oracle(raw_query, speed):
 @pytest.mark.parametrize('invalid', ['version', 'size'])
 def test_raw_query_rejects_bad_metadata_without_output_changes(raw_query, field, invalid):
     source, result, failure, error = _raw_buffers()
-    callbacks = abi._CacheCallbacks()
-    callbacks.values.values.abi_version = 3
-    callbacks.values.values.struct_size = ct.sizeof(callbacks)
-    target = {'source': source, 'result': result, 'failure': failure,
-              'callbacks': callbacks.values.values}[field]
+    callbacks = abi._Callbacks(1, ct.sizeof(abi._Callbacks))
+    target = {'source': source, 'result': result, 'failure': failure, 'callbacks': callbacks}[field]
     if invalid == 'version':
         target.abi_version = 99
     else:
@@ -288,14 +285,19 @@ def test_raw_query_rejects_bad_metadata_without_output_changes(raw_query, field,
     assert error.value
 
 
-@pytest.mark.parametrize('slot', ['geometry_cache', 'inlet_cache'])
+@pytest.mark.parametrize('slot', ['geometry_cache', 'inlet_cache',
+                                  'geometry_cache_at', 'inlet_cache_at', 'sigmoid_lut_cache'])
 def test_raw_query_rejects_cache_hooks(raw_query, slot):
     source, result, failure, error = _raw_buffers()
-    callbacks = abi._CacheCallbacks()
-    callbacks.values.values.abi_version = 3
-    callbacks.values.values.struct_size = ct.sizeof(callbacks)
-    dummy = (abi._GeometryCacheFunction(lambda *a: 0) if slot == 'geometry_cache'
-             else abi._InletCacheFunction(lambda *a: 0))
+    callbacks = abi._Callbacks(1, ct.sizeof(abi._Callbacks))
+    factory = {
+        'geometry_cache': abi._GeometryCacheFunction,
+        'inlet_cache': abi._InletCacheFunction,
+        'geometry_cache_at': abi._GeometryAtFunction,
+        'inlet_cache_at': abi._InletAtFunction,
+        'sigmoid_lut_cache': abi._LUTCacheFunction,
+    }[slot]
+    dummy = factory(lambda *a: 0)
     setattr(callbacks, slot, dummy)
     before = bytes(result)
     assert raw_query(ct.byref(source), ct.byref(callbacks), ct.byref(result),
@@ -306,9 +308,7 @@ def test_raw_query_rejects_cache_hooks(raw_query, slot):
 @pytest.mark.parametrize('storage', ['source', 'result', 'failure', 'callbacks', 'text'])
 def test_raw_query_rejects_diagnostic_and_text_aliases(raw_query, storage):
     source, result, failure, error = _raw_buffers()
-    callbacks = abi._CacheCallbacks()
-    callbacks.values.values.abi_version = 3
-    callbacks.values.values.struct_size = ct.sizeof(callbacks)
+    callbacks = abi._Callbacks(1, ct.sizeof(abi._Callbacks))
     target = {'source': source, 'result': result, 'failure': failure, 'callbacks': callbacks}
     if storage == 'text':
         source.inlet.sco2_nu.source = abi._Text(ct.cast(ct.byref(result), ct.POINTER(ct.c_char)), 8)
@@ -323,9 +323,7 @@ def test_raw_query_rejects_diagnostic_and_text_aliases(raw_query, storage):
 @pytest.mark.parametrize('checkpoint', ['host', 'range'])
 def test_raw_query_callback_cancellation_keeps_result(raw_query, checkpoint):
     source, result, failure, error = _raw_buffers()
-    callbacks = abi._CacheCallbacks()
-    callbacks.values.values.abi_version = 3
-    callbacks.values.values.struct_size = ct.sizeof(callbacks)
+    callbacks = abi._Callbacks(1, ct.sizeof(abi._Callbacks))
     observed = []
 
     def validate(_context, stage, step):
@@ -339,7 +337,7 @@ def test_raw_query_callback_cancellation_keeps_result(raw_query, checkpoint):
     host_hook = abi._HostFunction(validate)
     range_hook = abi._RangeFunction(observe)
     if checkpoint == 'host':
-        callbacks.values.validate_host_input = host_hook
+        callbacks.validate_host_input = host_hook
     else:
         callbacks.observe_range = range_hook
     before_source, before_result = bytes(source), bytes(result)

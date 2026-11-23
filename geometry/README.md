@@ -107,7 +107,7 @@ Returned arrays do not borrow native temporary storage.
 
 See [field sources and local changes](fields-sources.md) for algorithms, fusion rules and license duties.
 The separate [preparation core](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/main/docs/cpp-migration.md#native-preparation-core) calculates properties, DF and preparation values.
-It uses preparation ABI 2 and its own error mapping.
+It uses preparation ABI 3 and its own error mapping.
 The independent [result core](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/main/docs/cpp-migration.md#native-result-core) calculates metrics, balances, zone statistics and numerical checks.
 It uses result ABI 3 and does not link geometry.
 See [scope and delivery records](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/main/docs/cpp-migration.md#cpp-core-scope).

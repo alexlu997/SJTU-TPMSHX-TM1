@@ -151,7 +151,7 @@ def _visible_buffers(value, path='result'):
             item, label = getattr(value, name), path + '.' + name
             if issubclass(field, ct._Pointer):
                 if name == 'range_bounds_list':
-                    size = getattr(value, 'values', value).range_count
+                    size = value.range_count
                 else:
                     assert name in counts, label
                     size = getattr(value, counts[name])
@@ -238,7 +238,6 @@ _Inlet = three._Inlet
 _Input_3d = three._Input
 _Side = three._Side
 _Result = three._Result
-_Input_flow_3d = three._FlowInput
 _Flow = three._Flow
 
 
@@ -270,16 +269,6 @@ def _input_3d(config):
         source._buffers.append(buffer)
         setattr(source.sco2_nu, name, abi._Text(ct.cast(buffer, ct.POINTER(ct.c_char)), len(buffer.value)))
     return source
-
-
-def _input_flow_3d(config, targets=None):
-    source = _input_3d(config)
-    result = _Input_flow_3d(2, ct.sizeof(_Input_flow_3d), source)
-    result._source = source
-    result.have_explicit_targets = targets is not None
-    if targets is not None:
-        result.explicit_targets_kg_s[:] = (float(targets[0]), float(targets[1]))
-    return result
 
 
 def _configuration_3d(topology='Gyroid', pair=('air', 'water'), mode='cfd_smooth'):

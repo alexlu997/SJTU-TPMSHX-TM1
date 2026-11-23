@@ -9,9 +9,9 @@ static tpmshx_full3d_array_v1 field(tpmshx_preparation_array_v1 source) {
     return view;
 }
 
-/* Pack the saved v2 descriptor from a uniform spatial v4 preparation.
+/* Pack the flat saved v3 descriptor from a uniform 3D spatial preparation.
    Uniform geometry uses one area density and one hydraulic diameter. */
-static void pack_saved(const tpmshx_preparation_case_3d_v1* p,tpmshx_stage_saved_case_3d_v2* saved,
+static void pack_saved(const tpmshx_preparation_case_3d_v1* p,tpmshx_stage_saved_case_3d_v3* saved,
         tpmshx_full3d_input_v1* raw) {
     size_t i,s;
     memset(saved,0,sizeof(*saved));memset(raw,0,sizeof(*raw));
@@ -23,13 +23,12 @@ static void pack_saved(const tpmshx_preparation_case_3d_v1* p,tpmshx_stage_saved
     raw->topology=p->input.topology;raw->solve_b=1;
     raw->reference_hydraulic_diameter=p->geometry.hydraulic_diameter_m;
     raw->reference_cell_length=p->input.cell_length_mm*1e-3;
-    saved->abi_version=2;saved->struct_size=sizeof(*saved);
-    saved->values.abi_version=1;saved->values.struct_size=sizeof(saved->values);
-    saved->values.input=raw;saved->values.nominal_cell_length_mm=p->input.cell_length_mm*1e-3*1e3;
-    saved->values.nominal_wall_thickness_mm=p->input.wall_thickness_mm*1e-3*1e3;
-    saved->values.nominal_porosity=p->geometry.epsilon;saved->values.wall_thickness_m=p->wall_thickness;
-    saved->values.preparation=p->evidence;saved->values.inlet_recorded=1;
-    saved->values.notices=p->notices;saved->values.notice_count=p->notice_count;
+    saved->abi_version=TPMSHX_STAGE_RUN_3D_SAVED_ABI_VERSION;saved->struct_size=sizeof(*saved);
+    saved->input=raw;saved->nominal_cell_length_mm=p->input.cell_length_mm;
+    saved->nominal_wall_thickness_mm=p->input.wall_thickness_mm;
+    saved->nominal_porosity=p->geometry.epsilon;saved->wall_thickness_m=p->wall_thickness;
+    saved->preparation=p->evidence;saved->inlet_recorded=1;
+    saved->notices=p->notices;saved->notice_count=p->notice_count;
     memcpy(saved->models,p->models,sizeof(saved->models));
     saved->resource_fluids[0].data="air";saved->resource_fluids[0].size=3;
     saved->resource_fluids[1].data="water";saved->resource_fluids[1].size=5;
@@ -65,23 +64,22 @@ static int query(const tpmshx_stage_input_v3* input,tpmshx_stage_output_v1* repo
     return tpmshx_result_stage_query_v3(input,0,NULL,NULL,0,report,diagnostics,token,error,capacity);
 }
 static int prepare(const tpmshx_preparation_case_input_3d_v1* input,const tpmshx_preparation_case_options_v1* options,
-        tpmshx_preparation_spatial_case_3d_v4* prepared,char* error,size_t capacity) {
-    tpmshx_preparation_spatial_input_3d_v4 spatial={0};
+        tpmshx_preparation_3d_spatial_case_v1* prepared,char* error,size_t capacity) {
+    tpmshx_preparation_3d_spatial_input_v1 spatial={0};
     tpmshx_preparation_case_failure_v2 failure={0};
-    spatial.abi_version=4;spatial.struct_size=sizeof(spatial);
-    spatial.values.abi_version=2;spatial.values.struct_size=sizeof(spatial.values);
-    spatial.values.input=*input;
-    memset(prepared,0,sizeof(*prepared));prepared->abi_version=4;prepared->struct_size=sizeof(*prepared);
+    spatial.abi_version=1;spatial.struct_size=sizeof(spatial);
+    spatial.input=*input;
+    memset(prepared,0,sizeof(*prepared));prepared->abi_version=1;prepared->struct_size=sizeof(*prepared);
     failure.abi_version=2;failure.struct_size=sizeof(failure);
-    return tpmshx_prepare_flow_case_3d_v4(&spatial,options,NULL,prepared,&failure,error,capacity);
+    return tpmshx_preparation_3d_spatial_prepare_case_v1(&spatial,options,NULL,prepared,&failure,error,capacity);
 }
 
 int main(void) {
     char error[4096]="unchanged";
     tpmshx_preparation_case_input_3d_v1 input={0};
     tpmshx_preparation_case_options_v1 options={0};
-    tpmshx_preparation_spatial_case_3d_v4 prepared={0};
-    tpmshx_stage_saved_case_3d_v2 saved;tpmshx_full3d_input_v1 raw;
+    tpmshx_preparation_3d_spatial_case_v1 prepared={0};
+    tpmshx_stage_saved_case_3d_v3 saved;tpmshx_full3d_input_v1 raw;
     tpmshx_stage_run_request_3d_v1 request={0};
     tpmshx_stage_run_control_3d_v1 control={0};
     tpmshx_stage_run_result_3d_v1 result={0},before;
@@ -90,6 +88,7 @@ int main(void) {
     tpmshx_stage_output_v1 report={0};
     tpmshx_result_diagnostics_v1 diagnostics={0};uint64_t token=0;
     void* run=NULL;void* restored=NULL;uint32_t phase=0,restored_phase=0;size_t i;
+    REQUIRE(tpmshx_stage_run_3d_abi_version()==TPMSHX_STAGE_RUN_3D_SAVED_ABI_VERSION);
     REQUIRE(tpmshx_stage_capture_3d_abi_version()==2);
     input.abi_version=1;input.struct_size=sizeof(input);input.max_cells=2000000;
     input.lengths_m[0]=.182;input.lengths_m[1]=.042;input.lengths_m[2]=.031;
@@ -109,19 +108,19 @@ int main(void) {
     request.max_iter_simple.value=12;request.max_outer_ltne.value=2;
     request.model_h.max_iterations=9;request.model_h.temperature_tolerance=.5;request.model_h.q_relative_tolerance=1e-3;
     control.result_id="plain-C-3d";control.cpu_threads=2;
-    REQUIRE(tpmshx_stage_run_3d_create_saved_v2(&saved,&request,&control,&run,(char*)&saved,sizeof(saved))==1);
-    REQUIRE(!run && saved.abi_version==2);
+    REQUIRE(tpmshx_stage_run_3d_create_saved_v3(&saved,&request,&control,&run,(char*)&saved,sizeof(saved))==1);
+    REQUIRE(!run && saved.abi_version==3);
     result.abi_version=1;result.struct_size=sizeof(result);before=result;
-    REQUIRE(tpmshx_run_saved_case_3d_v2(&saved,&request,&control,&result,(char*)&saved,sizeof(saved))==1);
+    REQUIRE(tpmshx_run_saved_case_3d_v3(&saved,&request,&control,&result,(char*)&saved,sizeof(saved))==1);
     REQUIRE(memcmp(&result,&before,sizeof(result))==0);
-    REQUIRE(tpmshx_stage_run_3d_create_saved_v2(&saved,&request,&control,&run,error,sizeof(error))==0);
+    REQUIRE(tpmshx_stage_run_3d_create_saved_v3(&saved,&request,&control,&run,error,sizeof(error))==0);
     REQUIRE(tpmshx_stage_run_3d_take_result_v1(run,&result,error,sizeof(error))!=0);
     REQUIRE(memcmp(&result,&before,sizeof(result))==0);
     REQUIRE(tpmshx_stage_run_3d_advance_step_v1(run,&phase,error,sizeof(error))==0);
     REQUIRE(tpmshx_stage_run_3d_snapshot_v1(run,&snapshot,error,sizeof(error))==0);
     tpmshx_stage_run_3d_release_run_v1(&run);REQUIRE(run==NULL);
     control.cpu_threads=1;
-    REQUIRE(tpmshx_stage_run_3d_restore_saved_v2(&saved,&request,&control,
+    REQUIRE(tpmshx_stage_run_3d_restore_saved_v3(&saved,&request,&control,
         snapshot.fields,snapshot.count,&restored,error,sizeof(error))==0);
     REQUIRE(tpmshx_stage_run_3d_phase_v1(restored,&restored_phase)==0 && restored_phase==phase);
     tpmshx_run_state_release_v1(&snapshot);
@@ -129,7 +128,7 @@ int main(void) {
     REQUIRE(tpmshx_stage_run_3d_phase_v1(restored,&phase)==0 && phase==TPMSHX_FULL3D_COMPLETED);
     REQUIRE(tpmshx_stage_run_3d_take_result_v1(restored,&result,error,sizeof(error))==0);
     tpmshx_stage_run_3d_release_run_v1(&restored);
-    tpmshx_preparation_spatial_case_3d_release_v4(&prepared);
+    tpmshx_preparation_3d_spatial_case_release_v1(&prepared);
     REQUIRE(result.raw.stop<=1 && result.evidence.dimension==3 && result.evidence.field_count==25);
     REQUIRE(tpmshx_stage_run_3d_get_capture_v1(&result,1,&capture)==0);
     const tpmshx_stage_run_records_v1* records=tpmshx_stage_run_3d_records_v1(&result);
@@ -154,7 +153,7 @@ int main(void) {
     request.variable_rho_cp.present=request.thermal_iterations.present=1;
     request.variable_rho_cp.value=0;request.thermal_iterations.value=9;
     result.abi_version=1;result.struct_size=sizeof(result);
-    REQUIRE(tpmshx_run_saved_case_3d_v2(&saved,&request,&control,&result,error,sizeof(error))==0);
+    REQUIRE(tpmshx_run_saved_case_3d_v3(&saved,&request,&control,&result,error,sizeof(error))==0);
     REQUIRE(result.evaluation.none_count==2);
     report.struct_size=sizeof(report);
     REQUIRE(query(&result.evaluation,&report,&diagnostics,&token,error,sizeof(error))==0);
@@ -162,12 +161,12 @@ int main(void) {
     REQUIRE(i<report.metric_count && !strcmp(report.metrics[i].reason,"missing or incomplete evidence: 'native boundary faces'"));
     tpmshx_result_stage_release_v1(&report);tpmshx_stage_run_3d_release_v1(&result);
     result.abi_version=1;result.struct_size=sizeof(result);control.callbacks.cancel=cancel;
-    REQUIRE(tpmshx_run_saved_case_3d_v2(&saved,&request,&control,&result,error,sizeof(error))==0);
+    REQUIRE(tpmshx_run_saved_case_3d_v3(&saved,&request,&control,&result,error,sizeof(error))==0);
     REQUIRE(result.raw.stop==2 && result.evidence.abi_version==0);
     REQUIRE(tpmshx_stage_run_3d_records_v1(&result)==NULL);
     REQUIRE(tpmshx_stage_run_3d_execution_view_v1(&result)==NULL);
     capture.q_net=123.;
     REQUIRE(tpmshx_stage_run_3d_get_capture_v1(&result,0,&capture)==1 && capture.q_net==123.);
-    tpmshx_preparation_spatial_case_3d_release_v4(&prepared);tpmshx_stage_run_3d_release_v1(&result);
+    tpmshx_preparation_3d_spatial_case_release_v1(&prepared);tpmshx_stage_run_3d_release_v1(&result);
     puts("Plain C 3D prepare/run/restore/evaluate passed");return 0;
 }

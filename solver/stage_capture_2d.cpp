@@ -284,7 +284,7 @@ public:
         applicability.final_state=final_ranges.data();applicability.final_count=final_ranges.size();
         applicability.required=required.data();applicability.required_count=required.size();
     }
-    void scope_notes(const tpmshx_preparation_case_2d_v2& prepared) {
+    void scope_notes(const tpmshx_preparation_case_2d_v1& prepared) {
         for(size_t i=0;i<prepared.notice_count;++i)add_scope_notice(notices,text(prepared.notices[i]));
         constexpr auto absent=std::numeric_limits<size_t>::max();
         size_t indices[]{absent,absent};
@@ -293,9 +293,9 @@ public:
             if(resolved.sides[side].fluid!=2 || !observation.available)continue;
             std::ostringstream message;message.imbue(std::locale::classic());message<<std::setprecision(6);
             message<<"[sCO2 Nu evidence] 2D main-hv, side="<<labels[side]<<", "
-                <<(prepared.values.input.topology?"Gyroid":"Diamond")<<", L="
-                <<scope_length_mm(prepared.values.cell_length_m)<<" mm, t="
-                <<scope_length_mm(prepared.values.wall_thickness_m)
+                <<(prepared.input.topology?"Gyroid":"Diamond")<<", L="
+                <<scope_length_mm(prepared.cell_length_m)<<" mm, t="
+                <<scope_length_mm(prepared.wall_thickness_m)
                 <<" mm";
             write_sco2_scope(message,observation.pressure);
             indices[side]=add_scope_notice(notices,message.str());
@@ -457,7 +457,7 @@ public:
 
 Capture2D* capture_2d(const tpmshx_preparation_case_2d_v1& prepared,
     tpmshx_full_2d_result_v2& raw,const tpmshx_full_2d_config_v2& resolved,const char* result_id,
-    const tpmshx_preparation_case_2d_v2* uniform,bool inlet_recorded,const uint32_t* range_captured) {
+    bool inlet_recorded,const uint32_t* range_captured) {
     auto owner=std::make_unique<Capture2D>();owner->raw=raw;raw={};owner->resolved=resolved;
     owner->result_id=result_id;
     if(resolved.table_directory) {owner->table_directory=resolved.table_directory;owner->resolved.table_directory=owner->table_directory.c_str();}
@@ -465,7 +465,7 @@ Capture2D* capture_2d(const tpmshx_preparation_case_2d_v1& prepared,
     owner->populate(prepared,range_captured);owner->capture_scalars();
     owner->execution_view.execution.red_black=owner->summary.red_black[0];
     owner->applicability.inlet_recorded=inlet_recorded?1:0;
-    if(uniform)owner->scope_notes(*uniform);
+    owner->scope_notes(prepared);
     return owner.release();
 }
 tpmshx_stage_run_result_2d_v1 stage_view(Capture2D& owner) {

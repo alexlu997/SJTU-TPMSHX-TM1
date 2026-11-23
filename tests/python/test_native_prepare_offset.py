@@ -155,13 +155,14 @@ def test_offset_owned_buffers_survive_diagnostic_aliases(monkeypatch, tmp_path, 
     source = host._input(config, None, 'prepare_flow_case')
     if mode == 'sigmoid':
         lut_cache = host._lut_cache()
-        lut_cache(0, 1, 16, source.values.values.lut)
+        lut_cache(0, 1, 16, source.lut)
         source.model.load_default_lut = 0
-    result_type = (native._OffsetFlowCase if mode == 'uniform' else
-                   native._OffsetSigmoidCase if mode == 'sigmoid' else native._OffsetZonedCase)
-    result = result_type(10, ct.sizeof(result_type))
+    family = 'uniform' if mode == 'uniform' else 'sigmoid' if mode == 'sigmoid' else 'zoned'
+    result_type = (native._UniformCase if mode == 'uniform' else
+                   native._SigmoidCase if mode == 'sigmoid' else native._ZonedCase)
+    result = result_type(1, ct.sizeof(result_type))
     bindings = preparation_host._bindings(preparation_host.preparation_library.path())
-    call = bindings.operations[10, type(source), 'prepare_flow_case'].call
+    call = bindings.operations[family, 'prepare_flow_case'].call
     options = native._Options(1, ct.sizeof(native._Options), 0, 1, 0.)
     failure, error = native._Failure(2, ct.sizeof(native._Failure)), ct.create_string_buffer(4096)
     assert call(ct.byref(source), ct.byref(options), None,
@@ -195,18 +196,17 @@ def test_offset_nested_headers_preserve_result(monkeypatch, tmp_path, mode, fiel
     config.geometry.delta_levelset = .2
     source = host._input(config, None, 'prepare_flow_case')
     if mode == 'sigmoid':
-        host._lut_cache()(0, 1, 16, source.values.values.lut)
+        host._lut_cache()(0, 1, 16, source.lut)
         source.model.load_default_lut = 0
-    result_type = (native._OffsetFlowCase if mode == 'uniform' else
-                   native._OffsetSigmoidCase if mode == 'sigmoid' else native._OffsetZonedCase)
-    result = result_type(10, ct.sizeof(result_type))
+    family = 'uniform' if mode == 'uniform' else 'sigmoid' if mode == 'sigmoid' else 'zoned'
+    result_type = (native._UniformCase if mode == 'uniform' else
+                   native._SigmoidCase if mode == 'sigmoid' else native._ZonedCase)
+    result = result_type(1, ct.sizeof(result_type))
     bindings = preparation_host._bindings(preparation_host.preparation_library.path())
-    call = bindings.operations[10, type(source), 'prepare_flow_case'].call
+    call = bindings.operations[family, 'prepare_flow_case'].call
     options = native._Options(1, ct.sizeof(native._Options), 0, 1, 0.)
     failure, error = native._Failure(2, ct.sizeof(native._Failure)), ct.create_string_buffer(4096)
-    targets = [source]
-    while hasattr(targets[-1], 'values'):
-        targets.append(targets[-1].values)
+    targets = [source, source.input]
     for target in [*targets, result]:
         previous = getattr(target, field)
         setattr(target, field, 0)

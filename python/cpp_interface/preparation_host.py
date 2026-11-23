@@ -55,53 +55,34 @@ class _Bindings:
 
     def _bind_volume(self):
         from . import _native_preparation_3d as layout
-        version = self.owner.bind('tpmshx_preparation_host_3d_abi_version_v5', [], abi._U)()
-        if version != 5:
-            raise ValueError(f'unsupported native 3D preparation host ABI {version}; expected 5')
-        for version, source, flow, full, prefix in layout.FAMILIES:
-            for name in ('prepare_inlet_mass_capacities', 'resolve_inlet_flow', 'prepare_flow_case'):
-                result = full if name == 'prepare_flow_case' else flow
-                self._add((version, name), f'tpmshx_{name}_3d_v{version}', source, result, version)
+        for family, source, flow, full in layout.FAMILIES:
+            for name, suffix, result in (
+                    ('prepare_inlet_mass_capacities', 'capacities', flow),
+                    ('resolve_inlet_flow', 'resolve_flow', flow),
+                    ('prepare_flow_case', 'prepare_case', full)):
+                self._add((source, name), f'tpmshx_preparation_3d_{family}_{suffix}_v1', source, result, 1)
             for result, suffix in ((flow, 'flow'), (full, 'case')):
                 self.releases[result] = self.owner.bind(
-                    f'tpmshx_preparation_{prefix}_{suffix}_3d_release_v{version}', [ct.POINTER(result)], None)
+                    f'tpmshx_preparation_3d_{family}_{suffix}_release_v1', [ct.POINTER(result)], None)
 
     def _bind_plane(self):
-        # Uniform and continuous inlet stages use the v7 entries with the v3 and v4 flow layouts.
-        for version, source, flow, prefix in (
-                (3, abi._FlowInput, abi._Flow, 'flow'),
-                (4, abi._ContinuousInput, abi._ContinuousFlow, 'continuous_flow')):
-            for name in ('prepare_inlet_mass_capacities', 'resolve_inlet_flow'):
-                entry = name if version == 3 else name.replace('_', '_continuous_', 1)
-                self._add((7, source, name), f'tpmshx_{entry}_2d_v7', source, flow, version)
-            self.releases[flow] = self.owner.bind(
-                f'tpmshx_preparation_{prefix}_2d_release_v{version}', [ct.POINTER(flow)], None)
-
-        for version in (10, 11):
-            query = self.owner.bind(f'tpmshx_preparation_case_abi_version_v{version}', [], abi._U)
-            if query() != version:
-                raise RuntimeError(f'native preparation v{version} ABI version is invalid')
-        # Zoned and sigmoid inlet stages use the v10 entries with the v9 flow layouts.
-        for source, flow, prefix in ((abi._ZonedHostInput, abi._ZonedHostFlow, 'zoned'),
-                                     (abi._SigmoidHostInput, abi._SigmoidHostFlow, 'sigmoid')):
-            for name in ('prepare_inlet_mass_capacities', 'resolve_inlet_flow'):
-                entry = name.replace('_', f'_{prefix}_', 1)
-                self._add((10, source, name), f'tpmshx_{entry}_2d_v10', source, flow, 9)
-            self.releases[flow] = self.owner.bind(
-                f'tpmshx_preparation_{prefix}_flow_2d_release_v9', [ct.POINTER(flow)], None)
-        for source, full, prefix in (
-                (abi._FlowInput, abi._OffsetFlowCase, ''),
-                (abi._ZonedHostInput, abi._OffsetZonedCase, 'zoned_'),
-                (abi._SigmoidHostInput, abi._OffsetSigmoidCase, 'sigmoid_')):
-            self._add((10, source, 'prepare_flow_case'), f'tpmshx_prepare_{prefix}flow_case_2d_v10', source, full, 10)
-            self.releases[full] = self.owner.bind(
-                f'tpmshx_preparation_{prefix}flow_case_2d_release_v10', [ct.POINTER(full)], None)
-        for source, result, prefix in (
-                (abi._ContinuousInput, abi._ContinuousGeometryCase, 'continuous'),
-                (abi._ZonedHostInput, abi._StripeGeometryCase, 'stripe')):
-            self._add((11, source, 'prepare_flow_case'), f'tpmshx_prepare_{prefix}_flow_case_2d_v11', source, result, 11)
-            self.releases[result] = self.owner.bind(
-                f'tpmshx_preparation_{prefix}_flow_case_2d_release_v11', [ct.POINTER(result)], None)
+        for family, source, flow, full in (
+                ('uniform', abi._UniformInput, abi._UniformFlow, abi._UniformCase),
+                ('continuous', abi._ContinuousInput, abi._ContinuousFlow, abi._ContinuousCase),
+                ('zoned', abi._ZonedInput, abi._ZonedFlow, abi._ZonedCase),
+                ('sigmoid', abi._SigmoidInput, abi._SigmoidFlow, abi._SigmoidCase)):
+            for name, suffix, result in (
+                    ('prepare_inlet_mass_capacities', 'capacities', flow),
+                    ('resolve_inlet_flow', 'resolve_flow', flow),
+                    ('prepare_flow_case', 'prepare_case', full)):
+                self._add((family, name), f'tpmshx_preparation_2d_{family}_{suffix}_v1', source, result, 1)
+            for result, suffix in ((flow, 'flow'), (full, 'case')):
+                self.releases[result] = self.owner.bind(
+                    f'tpmshx_preparation_2d_{family}_{suffix}_release_v1', [ct.POINTER(result)], None)
+        self._add(('stripe', 'prepare_flow_case'), 'tpmshx_preparation_2d_stripe_prepare_case_v1',
+                  abi._ZonedInput, abi._StripeCase, 1)
+        self.releases[abi._StripeCase] = self.owner.bind(
+            'tpmshx_preparation_2d_stripe_case_release_v1', [ct.POINTER(abi._StripeCase)], None)
 
 
 @lru_cache(maxsize=1)
@@ -177,7 +158,8 @@ def _check_status(status, error, failure):
 
 def _callback_bridge(validate_host_input, geometry_cache=None, inlet_cache=None,
                      observe_range=None, observe_notice=None, nominal_grid_warning=None, *,
-                     geometry_cache_at=None, inlet_cache_at=None, sigmoid_lut_cache=None, query=False):
+                     geometry_cache_at=None, inlet_cache_at=None, sigmoid_lut_cache=None,
+                     validate_grid_stage=False):
     """Own callbacks and preserve their first exception across the C boundary."""
     callback_errors = []
 
@@ -236,48 +218,40 @@ def _callback_bridge(validate_host_input, geometry_cache=None, inlet_cache=None,
     def lut_cache(action, topology, resolution, value, hit):
         hit[0] = sigmoid_lut_cache(action, topology, resolution, value.contents)
 
-    keyed = any(value is not None for value in (geometry_cache_at, inlet_cache_at, sigmoid_lut_cache))
-    cached = any(value is not None for value in (geometry_cache, inlet_cache, observe_range, observe_notice))
-    if keyed:
-        version, layout = 9, abi._KeyedCallbacks
-    elif cached:
-        version, layout = 3 if query else 4, abi._CacheCallbacks
-    else:
-        version, layout = 2, abi._HostCallbacks
-
-    descriptor = abi._Callbacks(version, ct.sizeof(layout), abi._EventFunction(event), None)
-    callbacks = abi._HostCallbacks(descriptor, callback(abi._HostFunction, validate_host_input))
-    if keyed or cached:
-        callbacks = abi._CacheCallbacks(callbacks,
-            callback(abi._GeometryCacheFunction, geometry) if geometry_cache and not keyed else abi._GeometryCacheFunction(),
-            callback(abi._InletCacheFunction, inlet) if inlet_cache and not keyed else abi._InletCacheFunction(),
-            callback(abi._RangeFunction, observe), callback(abi._NoticeFunction, notice))
-    if keyed:
-        callbacks = abi._KeyedCallbacks(callbacks,
-            callback(abi._GeometryAtFunction, geometry_at) if geometry_cache_at else abi._GeometryAtFunction(),
-            callback(abi._InletAtFunction, inlet_at) if inlet_cache_at else abi._InletAtFunction(),
-            callback(abi._LUTCacheFunction, lut_cache) if sigmoid_lut_cache else abi._LUTCacheFunction())
-    # The C entry reads the full versioned layout from its first member.
-    descriptor = abi._Callbacks.from_buffer(callbacks)
-    return callbacks, descriptor, callback_errors
+    callbacks = abi._Callbacks(
+        1, ct.sizeof(abi._Callbacks), None, int(bool(validate_grid_stage)),
+        abi._EventFunction(event),
+        callback(abi._HostFunction, validate_host_input) if validate_host_input is not None else abi._HostFunction(),
+        callback(abi._GeometryCacheFunction, geometry) if geometry_cache is not None else abi._GeometryCacheFunction(),
+        callback(abi._InletCacheFunction, inlet) if inlet_cache is not None else abi._InletCacheFunction(),
+        callback(abi._RangeFunction, observe) if observe_range is not None else abi._RangeFunction(),
+        callback(abi._NoticeFunction, notice) if observe_notice is not None else abi._NoticeFunction(),
+        callback(abi._GeometryAtFunction, geometry_at) if geometry_cache_at is not None else abi._GeometryAtFunction(),
+        callback(abi._InletAtFunction, inlet_at) if inlet_cache_at is not None else abi._InletAtFunction(),
+        callback(abi._LUTCacheFunction, lut_cache) if sigmoid_lut_cache is not None else abi._LUTCacheFunction(),
+    )
+    return callbacks, callback_errors
 
 
 def operation(name, source, options, validate_host_input, geometry_cache=None, inlet_cache=None,
               observe_range=None, observe_notice=None, nominal_grid_warning=None, *,
               geometry_cache_at=None, inlet_cache_at=None, sigmoid_lut_cache=None):
     kind = type(source)
-    if name != 'prepare_flow_case':
-        version = 10 if source.abi_version == 9 else 7
-    elif kind is abi._ContinuousInput or kind is abi._ZonedHostInput and source.values.values.kind == 0:
-        # Continuous fields and scalar stripe zones return the geometry-owning v11 case.
-        version = 11
+    if kind is abi._UniformInput:
+        family = 'uniform'
+    elif kind is abi._ContinuousInput:
+        family = 'continuous'
+    elif kind is abi._SigmoidInput:
+        family = 'sigmoid'
+    elif kind is abi._ZonedInput:
+        family = 'stripe' if name == 'prepare_flow_case' and source.kind == 0 else 'zoned'
     else:
-        version = 10
+        raise TypeError(f'unsupported 2D preparation input type {kind.__name__}')
     bindings = _bindings(preparation_library.path())
-    key = (version, kind, name)
+    key = (family, name)
     bridge = _callback_bridge(validate_host_input, geometry_cache, inlet_cache, observe_range, observe_notice,
         nominal_grid_warning, geometry_cache_at=geometry_cache_at, inlet_cache_at=inlet_cache_at,
-        sigmoid_lut_cache=sigmoid_lut_cache)
+        sigmoid_lut_cache=sigmoid_lut_cache, validate_grid_stage=validate_host_input is not None)
     return _owned_result(bindings, key, (source,), options, bridge)
 
 
@@ -290,7 +264,7 @@ def volume_operation(name, source, options, validate_host_input, cache):
     bindings = _volume_bindings(preparation_library.path())
     bridge = _callback_bridge(validate_host_input, observe_range=cache.observe_range, observe_notice=cache.observe_notice,
                               geometry_cache_at=cache.geometry_at, inlet_cache_at=cache.inlet_at)
-    return _owned_result(bindings, (source.abi_version, name), (source,), options, bridge)
+    return _owned_result(bindings, (type(source), name), (source,), options, bridge)
 
 
 @contextmanager
@@ -299,9 +273,9 @@ def _owned_result(bindings, key, inputs, options, bridge):
     call, result_type, version = bindings.operations[key]
     result = result_type(version, ct.sizeof(result_type))
     failure, error = abi._Failure(2, ct.sizeof(abi._Failure)), ct.create_string_buffer(4096)
-    callbacks, descriptor, callback_errors = bridge
+    callbacks, callback_errors = bridge
     try:
-        status = call(*map(ct.byref, inputs), ct.byref(options), ct.byref(descriptor),
+        status = call(*map(ct.byref, inputs), ct.byref(options), ct.byref(callbacks),
                       ct.byref(result), ct.byref(failure), error, len(error))
         if callback_errors:
             raise callback_errors[0]

@@ -42,7 +42,7 @@ def _control():
 
 
 def _live_result(monkeypatch, case, inspect):
-    """Run the saved v4 stage and inspect its native result before the release."""
+    """Run the saved v5 stage and inspect its native result before the release."""
     original, results = full_2d_stage.executed_view, []
     def observe(query, result):
         results.append(result)

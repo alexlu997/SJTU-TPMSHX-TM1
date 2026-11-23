@@ -44,7 +44,7 @@ Python 选择 dtype 元数据并适配输出类型，不提供数值回退。
 其原生算术仍为 float64。
 
 几何库负责网格、端口、轴映射和设计场。
-独立 preparation ABI 2 负责物性、闭合、DF、修正、投影和准备数值。
+独立 preparation ABI 3 负责物性、闭合、DF、修正、投影和准备数值。
 独立 result ABI 3 负责指标、物理平衡、分区统计及数值检查。
 实现范围与交付记录见[C++ 范围](cpp-migration.zh-CN.md#cpp-core-scope)。
 
@@ -52,7 +52,7 @@ Python 选择 dtype 元数据并适配输出类型，不提供数值回退。
 它链接锁定的 CoolProp 静态库，不包含完整求解器、run_state、SuperLU 或 AMG。
 `python/cpp_interface/stage_libraries.py` 分别选择准备库和结果库，首次调用时加载对应库并检查 ABI。物性、DF 和流量适配器分别打包各自的输入。
 几何 ABI 2 与 field ABI 3 保留各自错误协议。
-Preparation ABI 2 的状态 1 表示无效输入，2 表示分配失败，3 表示运行时错误；
+Preparation ABI 3 的状态 1 表示无效输入，2 表示分配失败，3 表示运行时错误；
 状态 10、11、12 分别表示水、CO2、sCO2 状态错误。
 调用按显式长度借用对齐缓冲区，失败不修改数值输出；上下文保留创建库直至释放。
 

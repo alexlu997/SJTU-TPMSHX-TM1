@@ -26,7 +26,7 @@ def _case(monkeypatch, tmp_path, mode='uniform', pair=('air', 'air'), delta=.1):
 
 
 def _saved(case):
-    """Pack the saved v4 case as the production run does."""
+    """Pack the saved v5 case as the production run does."""
     driver = stage.StageDriver(adapter.library_path())
     checked = preparation_host.borrow_solver_mesh(case, driver.library, 2)
     shape = stage.execution_grid(case, None if checked is None else checked.shape)
@@ -35,7 +35,7 @@ def _saved(case):
         check_experiment=entries['check_experiment'], port_windows_fit=entries['port_windows_fit'])
     prepared['solver_mesh'] = checked
     saved, _, keepalive = stage.pack_saved(case, cfg, prepared, experiment)
-    request, energy = stage._request(cfg)
+    request, energy = stage._request(cfg, driver.library)
     control = stage._Control(b'offset-run', None, 2)
     return saved, request, control, (keepalive, energy)
 
@@ -103,24 +103,23 @@ def test_offset_snapshot_restore_keeps_exact_inputs(monkeypatch, tmp_path, mode)
 
 
 @pytest.mark.parametrize('failure', ['abi', 'size', 'flag', 'mode', 'missing-sides', 'bad-side', 'cell-extent'])
-def test_saved_v4_rejects_invalid_descriptor(monkeypatch, tmp_path, failure):
+def test_saved_v5_rejects_invalid_descriptor(monkeypatch, tmp_path, failure):
     case = _case(monkeypatch, tmp_path, 'grid')
     saved, request, control, keepalive = _saved(case)
-    sides = saved.values.values
     if failure == 'abi':
-        sides.abi_version = 1
+        saved.abi_version = 1
     elif failure == 'size':
-        sides.struct_size -= 1
+        saved.struct_size -= 1
     elif failure == 'flag':
-        sides.have_side_geometry = 2
+        saved.have_side_geometry = 2
     elif failure == 'mode':
-        sides.values.prepared.contents.values.input.geometry_mode = 3
+        saved.prepared.contents.input.geometry_mode = 3
     elif failure == 'missing-sides':
-        sides.have_side_geometry = 0
+        saved.have_side_geometry = 0
     elif failure == 'bad-side':
-        sides.side_geometry[1][2] = float('nan')
+        saved.side_geometry[1][2] = float('nan')
     else:
-        sides.values.prepared.contents.values.cell_length.size -= 1
+        saved.prepared.contents.cell_length.size -= 1
     library = ct.CDLL(str(adapter.library_path()))
     with pytest.raises(ValueError):
         stage._Run(library, saved, request, control, [], None)
@@ -130,14 +129,13 @@ def test_saved_v4_rejects_invalid_descriptor(monkeypatch, tmp_path, failure):
 @pytest.mark.parametrize('operation', ['create', 'restore'])
 @pytest.mark.parametrize('target', ['descriptor', 'side-geometry', 'field'])
 @pytest.mark.parametrize('output_alias', [False, True])
-def test_saved_v4_diagnostic_and_output_aliases(monkeypatch, tmp_path, operation, target, output_alias):
+def test_saved_v5_diagnostic_and_output_aliases(monkeypatch, tmp_path, operation, target, output_alias):
     case = _case(monkeypatch, tmp_path, 'grid')
     saved, request, control, keepalive = _saved(case)
-    sides = saved.values.values
     library = ct.CDLL(str(adapter.library_path()))
-    function = getattr(library, 'tpmshx_stage_run_2d_' + operation + '_saved_v4')
+    function = getattr(library, 'tpmshx_stage_run_2d_' + operation + '_saved_v5')
     from sjtu_tpmshx.cpp_interface.run_state import _Field
-    common = [ct.POINTER(stage._SavedV4), ct.POINTER(stage._Request), ct.POINTER(stage._Control)]
+    common = [ct.POINTER(stage._Saved), ct.POINTER(stage._Request), ct.POINTER(stage._Control)]
     if operation == 'restore':
         common += [ct.POINTER(_Field), ct.c_size_t]
     function.argtypes = [*common, ct.POINTER(ct.c_void_p), ct.POINTER(ct.c_char), ct.c_size_t]
@@ -145,9 +143,9 @@ def test_saved_v4_diagnostic_and_output_aliases(monkeypatch, tmp_path, operation
     if target == 'descriptor':
         address, size = ct.addressof(saved), ct.sizeof(saved)
     elif target == 'side-geometry':
-        address, size = ct.addressof(sides.side_geometry), ct.sizeof(sides.side_geometry)
+        address, size = ct.addressof(saved.side_geometry), ct.sizeof(saved.side_geometry)
     else:
-        field = sides.values.prepared.contents.values.cell_length
+        field = saved.prepared.contents.cell_length
         address, size = ct.cast(field.data, ct.c_void_p).value, field.size * 8
     before = ct.string_at(address, size)
     handle, error = ct.c_void_p(), ct.create_string_buffer(b'preserved', 256)
@@ -162,16 +160,15 @@ def test_saved_v4_diagnostic_and_output_aliases(monkeypatch, tmp_path, operation
     del keepalive
 
 
-def test_saved_v4_transfer_protects_side_geometry(monkeypatch, tmp_path):
+def test_saved_v5_transfer_protects_side_geometry(monkeypatch, tmp_path):
     case = _case(monkeypatch, tmp_path)
     saved, request, control, keepalive = _saved(case)
     library = ct.CDLL(str(adapter.library_path()))
     with stage._Run(library, saved, request, control, [], None) as run:
         result = stage._StageResult()
         before, empty = bytes(saved), bytes(result)
-        sides = saved.values.values
-        error = ct.cast(sides.side_geometry, ct.POINTER(ct.c_char))
-        assert run._take_result(run.handle, ct.byref(result), error, ct.sizeof(sides.side_geometry)) == 1
+        error = ct.cast(saved.side_geometry, ct.POINTER(ct.c_char))
+        assert run._take_result(run.handle, ct.byref(result), error, ct.sizeof(saved.side_geometry)) == 1
         assert bytes(saved) == before and bytes(result) == empty
         assert run.phase not in (3, 4, 5)
     del keepalive

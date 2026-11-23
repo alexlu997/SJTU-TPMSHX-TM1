@@ -21,7 +21,7 @@ def _real(value, name):
 
 def _input(config, targets, operation):
     geometry = config.geometry
-    value = native._InputV1(1, ct.sizeof(native._InputV1), _real(geometry.L_dom_m, 'geometry.L_dom_m'),
+    value = native._Input(1, ct.sizeof(native._Input), _real(geometry.L_dom_m, 'geometry.L_dom_m'),
         _real(geometry.H_dom_m, 'geometry.H_dom_m'), count(config.solver.Nx, name='solver.Nx'),
         count(config.solver.Ny, name='solver.Ny'), config.flags.port_wall_refine,
         geometry_topology(geometry.tpms), _real(geometry.L_cell_mm, 'geometry.L_cell_mm'),
@@ -43,14 +43,13 @@ def _input(config, targets, operation):
     value.physical_depth_m = 0. if geometry.Lz_m is None else _real(geometry.Lz_m, 'geometry.Lz_m')
     value.geometry_mode = int(config.zones.enabled)
     value.df_mode = int(config.df_mode == 'experimental')
-    typed = native._InputV2(2, ct.sizeof(native._InputV2), value)
     buffers = []
-    host.pack_nu(typed.sco2_nu, config.sco2_nu, buffers)
-    flow = native._FlowInput(3, ct.sizeof(native._FlowInput), typed)
-    flow.have_explicit_targets = targets is not None
-    if targets is not None:
+    host.pack_nu(value.sco2_nu, config.sco2_nu, buffers)
+    have_targets = targets is not None
+    explicit = (native._D * 2)()
+    if have_targets:
         for index, side in enumerate('AB'):
-            flow.explicit_targets_kg_s[index] = _real(targets[index], f'mass_flow_{side}_kg_s')
+            explicit[index] = _real(targets[index], f'mass_flow_{side}_kg_s')
     if config.zones.enabled and config.zones.axis == 'continuous':
         spec = config.zones.config
         decision = real_array(spec['x_decision'], name='x_decision', allow_nonfinite=True)
@@ -58,17 +57,17 @@ def _input(config, targets, operation):
             (native._D * 2)(*(_real(item, 'L_bounds') for item in spec['L_bounds'])),
             (native._D * 2)(*(_real(item, 't_bounds') for item in spec['t_bounds'])),
             native._Array(decision.ctypes.data_as(ct.POINTER(native._D)), decision.size))
-        source = native._ContinuousInput(4, ct.sizeof(native._ContinuousInput), flow, controls)
+        source = native._ContinuousInput(1, ct.sizeof(native._ContinuousInput), value, have_targets, explicit, controls)
         buffers.append(decision)
     elif config.zones.enabled:
-        source = _spatial_input(config, flow, buffers)
+        source = _spatial_input(config, value, have_targets, explicit, buffers)
     else:
-        source = flow
+        source = native._UniformInput(1, ct.sizeof(native._UniformInput), value, have_targets, explicit)
     source._buffers = buffers
     return source
 
 
-def _spatial_input(config, flow, buffers):
+def _spatial_input(config, value, have_targets, explicit, buffers):
     zones = config.zones
     zone_error = None
     sigmoid = zones.axis == 'grid' and zones.pareto_x_decision is not None
@@ -100,23 +99,21 @@ def _spatial_input(config, flow, buffers):
             _real(cell, 'zone L_mm'), _real(wall, 'zone t_mm')))
     regions = (native._Region * len(regions))(*regions)
     buffers.append(regions)
-    values = flow.values
-    values.values.geometry_mode = 2
-    zoned = native._ZonedInput(5, ct.sizeof(native._ZonedInput), values,
-        int(zones.axis == 'grid'), int(zones.axis == 'y'), regions, len(regions))
+    value.geometry_mode = 2
+    kind = int(zones.axis == 'grid')
+    axis = int(zones.axis == 'y')
+    spatial_model = native._SpatialModel(_real(model['k_s'], 'k_s'), bool(config.extrap.allow), sigmoid)
     if sigmoid:
         decision = real_array(zones.pareto_x_decision, name='pareto_x_decision', allow_nonfinite=True)
         buffers.append(decision)
         controls = native._SigmoidControls(native._Array(decision.ctypes.data_as(ct.POINTER(native._D)), decision.size),
             _real(zones.pareto_y_trans_inlet, 'pareto_y_trans_inlet'),
             _real(zones.pareto_y_trans_outlet, 'pareto_y_trans_outlet'))
-        zoned = native._SigmoidInput(6, ct.sizeof(native._SigmoidInput), zoned, controls, native._LUTView())
-        flow_type, host_type = native._SigmoidFlowInput, native._SigmoidHostInput
+        source = native._SigmoidInput(1, ct.sizeof(native._SigmoidInput), value, have_targets, explicit,
+            kind, axis, regions, len(regions), controls, native._LUTView(), spatial_model)
     else:
-        flow_type, host_type = native._ZonedFlowInput, native._ZonedHostInput
-    spatial_flow = flow_type(8, ct.sizeof(flow_type), zoned, flow.have_explicit_targets, flow.explicit_targets_kg_s)
-    source = host_type(9, ct.sizeof(host_type), spatial_flow,
-        native._SpatialModel(_real(model['k_s'], 'k_s'), bool(config.extrap.allow), sigmoid))
+        source = native._ZonedInput(1, ct.sizeof(native._ZonedInput), value, have_targets, explicit,
+            kind, axis, regions, len(regions), spatial_model)
     source._zone_error = zone_error
     return source
 
@@ -163,12 +160,14 @@ def _lut_cache():
     return cache
 
 
-def _case(result, config, case_id, side_geometry=None, pore_porosity=None, extrap_reasons=(), thermal_sides=None,
-          *, region_radii=None):
+def _case(result, config, case_id, side_geometry=None, extrap_reasons=()):
     from sjtu_tpmshx.physical_models.zone_units import _zone_data_si
-    value = result.prepared.values
+    value = result.prepared
     continuous = isinstance(result, native._ContinuousCase)
-    spatial = isinstance(result, native._ZonedCase)
+    spatial = isinstance(result, (native._ZonedCase, native._SigmoidCase, native._StripeCase))
+    pore_porosity = result.design_pore_porosity if (continuous or spatial) else None
+    region_radii = result.region_hydraulic_radii_m if isinstance(result, native._StripeCase) else None
+    thermal_sides = result.thermal if hasattr(result, 'thermal') else None
     shape = value.nx, value.ny
     grid = {name: copy_array(getattr(value, name))
             for name in ('dx', 'dy', 'x_edges', 'y_edges', 'x_breaks', 'y_breaks')}
@@ -361,7 +360,7 @@ def _execute(config, operation, *, targets=None, case_id=None, start_observation
         else:
             raise RuntimeError(f'unknown preparation host stage {stage}')
 
-    spatial = source.abi_version == 9
+    spatial = isinstance(source, (native._ZonedInput, native._SigmoidInput))
     hooks = dict(geometry_cache_at=bridge.geometry_at, inlet_cache_at=bridge.inlet_at,
                  sigmoid_lut_cache=_lut_cache(), observe_range=bridge.observe_range,
                  observe_notice=bridge.observe_notice) if spatial else dict(
@@ -369,19 +368,7 @@ def _execute(config, operation, *, targets=None, case_id=None, start_observation
                      observe_range=bridge.observe_range, observe_notice=bridge.observe_notice)
     with host.operation(operation, source, options, host_input,
                           nominal_grid_warning=_nominal_grid_warning, **hooks) as result:
-        pore_porosity = region_radii = thermal_sides = None
-        if isinstance(result, native._ContinuousGeometryCase):
-            pore_porosity, result = result.design_pore_porosity, result.values
-        elif isinstance(result, native._StripeGeometryCase):
-            region_radii, result = result.region_hydraulic_radii_m, result.values
-        if result.abi_version == 10:
-            thermal_sides, result = result.thermal, result.values
-        if spatial:
-            flow = result.values.flow
-            if operation == 'prepare_flow_case':
-                flow = flow.flow
-        else:
-            flow = result.flow if hasattr(result, 'flow') else result
+        flow = result.flow
         if operation == 'prepare_inlet_mass_capacities':
             return {side: flow.capacities[index] for index, side in enumerate('AB')}
         resolved = host.resolved_flow_config(config, flow, targets)
@@ -394,14 +381,7 @@ def _execute(config, operation, *, targets=None, case_id=None, start_observation
                 key = (resolved.geometry.tpms, resolved.geometry.L_cell_mm, resolved.geometry.t_wall_mm,
                        fluid.u_mps, fluid.T_in_K, fluid.P_in_Pa, fluid.type, resolved.sco2_nu, False)
                 side_geometry[index] = bridge.inlet_geometry[key]
-            prepared = result.values.prepared
-            if isinstance(result, native._SigmoidHostCase):
-                prepared = prepared.values
-            case = _case(prepared, resolved, case_id, side_geometry, result.design_pore_porosity,
-                         bridge.extrap_reasons, thermal_sides, region_radii=region_radii)
-        else:
-            case = _case(result, resolved, case_id, side_geometry, pore_porosity, bridge.extrap_reasons, thermal_sides)
-        return case
+        return _case(result, resolved, case_id, side_geometry, bridge.extrap_reasons)
 
 
 def prepare_case(config, *, case_id):

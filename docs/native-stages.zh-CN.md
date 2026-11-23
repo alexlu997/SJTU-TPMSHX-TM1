@@ -4,30 +4,30 @@
 
 ## 现行 C ABI
 
-2026-11-23 起，每个原生库对产品使用的每项操作只保留最新入口。
+2026-11-24 起，preparation ABI 3 及二维／三维保存态运行接口扁平化了所有嵌套 `values` 结构体链，将准备回调统一为 `tpmshx_preparation_callbacks_v1`，并为各准备操作族采用统一的 `v1` 入口名。
 下表列出现行入口。这些操作的其他版本不再导出。
 
 | 阶段 | 现行入口 |
 | --- | --- |
-| 二维准备 | `tpmshx_prepare_inlet_mass_capacities_2d_v7`、`tpmshx_resolve_inlet_flow_2d_v7` 及其连续场 v7 形式；分区和 sigmoid 的容量查询与流量解析 v10；`tpmshx_prepare_flow_case_2d_v10`、`tpmshx_prepare_zoned_flow_case_2d_v10`、`tpmshx_prepare_sigmoid_flow_case_2d_v10`、`tpmshx_prepare_continuous_flow_case_2d_v11` 和 `tpmshx_prepare_stripe_flow_case_2d_v11` |
-| 三维准备 | continuous v3 和 spatial v4 的容量查询、流量解析与完整准备 |
+| 二维准备（ABI 3） | `tpmshx_preparation_2d_{uniform,continuous,zoned,sigmoid}_{capacities,resolve_flow,prepare_case}_v1`、`tpmshx_preparation_2d_stripe_prepare_case_v1`、`tpmshx_query_inlet_properties_v2` 和 `tpmshx_preparation_sigmoid_lut_create_v7` |
+| 三维准备（ABI 3） | `tpmshx_preparation_3d_{continuous,spatial}_{capacities,resolve_flow,prepare_case}_v1` |
 | Quick Design 准备 | `tpmshx_prepare_quick_design_v2` 和 `tpmshx_quick_pressure_fractions_v2` |
-| 二维阶段运行 | `tpmshx_run_saved_case_2d_v4`；检查点使用 `tpmshx_stage_run_2d_create_saved_v4` 和 `tpmshx_stage_run_2d_restore_saved_v4` |
-| 三维阶段运行 | `tpmshx_run_saved_case_3d_v2`；检查点使用 `tpmshx_stage_run_3d_create_saved_v2` 和 `tpmshx_stage_run_3d_restore_saved_v2` |
+| 二维阶段运行（saved ABI 5） | `tpmshx_stage_run_2d_abi_version`、`tpmshx_run_saved_case_2d_v5`；检查点使用 `tpmshx_stage_run_2d_create_saved_v5` 和 `tpmshx_stage_run_2d_restore_saved_v5` |
+| 三维阶段运行（saved ABI 3） | `tpmshx_stage_run_3d_abi_version`、`tpmshx_run_saved_case_3d_v3`；检查点使用 `tpmshx_stage_run_3d_create_saved_v3` 和 `tpmshx_stage_run_3d_restore_saved_v3` |
 | 直接完整求解 | `tpmshx_solve_full_2d_v6` 和 `tpmshx_solve_full_3d_v5`；检查点使用 `tpmshx_full_2d_run_create_v2`、`tpmshx_full_2d_run_restore_v2`、`tpmshx_full_3d_run_create_v3` 和 `tpmshx_full_3d_run_restore_v3` |
 | Quick Design 运行 | `tpmshx_run_quick_design_v2` 和 `tpmshx_solve_quick_design_v1` |
 | 结果阶段 | `tpmshx_result_stage_query_v3`（result ABI 3） |
 
 此次整合删除以下入口：
 
-- 二维完整准备 v1 至 v9、三维准备 v1 和三维流量准备 v2。
+- 早期二维和三维准备入口（v1 至 v11）、`tpmshx_query_inlet_properties_v1`、`tpmshx_preparation_sigmoid_lut_{create,release}_v6`、分族 ABI 版本查询以及嵌套的 `values` 包装结构。
 - Quick Design 准备及运行 v1。
-- 二维一次性运行 v1 至 v3、三维一次性运行 v1、准备视图运行创建 v1，以及早于上表版本的保存描述符。
+- 二维一次性运行 v1 至 v4、三维一次性运行 v1 至 v2、准备视图运行创建 v1，以及早于二维 v5 和三维 v3 的保存描述符。
 - 二维 v6、三维 v5 之前的直接完整求解，以及对应的早期续算入口。
 - 结果阶段查询 v2、`tpmshx_result_platform_info_v1`、14 个未使用的 `quick_*` C 入口，以及 `QuickProtocols` 宿主回调。
 
 现行入口使用的释放函数、ABI 版本查询、记录及其他查询继续可用。
-早期布局可作为现行描述符的嵌套成员保留。
+每个现行准备和保存态运行描述符都是扁平结构，只保留一个顶层 `(abi_version, struct_size)` 头部，不包含嵌套 `values` 链。
 库缺少所需现行入口时属于部署错误。Python 不选择归档运行库或其他入口。
 后续章节对早期版本的描述只记录其历史。调用时只使用上表入口。
 
@@ -108,7 +108,7 @@ Python 在原有告警作用域中按原顺序发布。
 ## 入口物性查询
 
 `stages.hpp` 中的 `InletPropertyQuery` 与 `query_inlet_properties` 提供既有标量入口组合查询。
-C 入口是 `preparation_case_c_api.h` 中的 `tpmshx_query_inlet_properties_v1`。
+C 入口是 `preparation_case_c_api.h` 中的 `tpmshx_query_inlet_properties_v2`。
 输入拓扑、以 mm 为单位的 L/t、入口速度、温度、压力及可选 sCO2 Nu 选择，
 同时提供所选几何实现返回的水力直径（m）和单通道孔隙率。
 查询不计算几何、网格、端口或求解场，按原顺序使用既有四流体物性、Nu 和固定 CFD 阻力规则。
@@ -136,7 +136,7 @@ C 入口是 `preparation_case_c_api.h` 中的 `tpmshx_query_inlet_properties_v1`
 它不创建 owner；结果可直接复制，不需要释放调用。
 失败时保留结果，并通过 C 失败结构返回既有物性诊断及 Python 异常原因码。
 
-可选回调使用 v3 布局，两个缓存钩子必须为 NULL。
+可选回调使用 `tpmshx_preparation_callbacks_v1` 布局，所有缓存钩子必须为 NULL 且 `validate_grid_stage=0`。
 范围、通知和浮点回调按计算顺序同步执行。
 宿主阶段 4 将对象检查延迟至原运算位置，不提供数值。
 回调返回非零值时停止查询。结果、失败和错误缓冲区之间不得重叠，
@@ -212,7 +212,7 @@ v3 阶段核对物理长度、流向网格、端口开度、设计场及模型�
 完整求解通过 `tpmshx_stage_borrow_mesh_v1` 取得已核对的单元宽度和热学几何。该阶段逐项对照宽度累加值与边界坐标，并检查轴映射。它与结果查询共用数值缓冲区描述，直接借用已对齐的本机双精度数组。对于均匀三维几何，宿主各传一个面积密度和水力直径，C++ 在求解器自己的存储区展开。其他数值布局、旧库及无效网格沿用可移植数据的检查和报错。
 
 求解库与准备库共用二维端口的物理边界判定。对保存的双精度参数，`tpmshx_stage_port_windows_fit_2d_v1` 检查进、出口是否落在横向尺寸内。宿主给出详细错误，并负责其他输入类型及早期库的校验。
-普通新算直接调用 `tpmshx_run_saved_case_2d_v4`，由 C++ 持有运行状态并交付结果。保存检查点和续算使用步进接口。
+普通新算先核对 `tpmshx_stage_run_2d_abi_version() == 5`，再直接调用 `tpmshx_run_saved_case_2d_v5`，由 C++ 持有运行状态并交付结果。保存检查点和续算使用步进接口。
 二维和三维原生调用的能量选项为空时，求解器读取由 `model_parameters_v1.json` 的 `native_controls` 生成的默认值，当前为 T-SOU 和 1e-8 K。Python 将准备工况记录的算法和容差传给求解器，包括与默认值相同的值。
 saved v4 在 v3 字段外携带原始实验模型设置。
 新算及续算与准备共用原生适用域规则。
@@ -281,8 +281,8 @@ run v3 通过现有 model-h 或 true-h 驱动消费准备 v4，按原顺序使�
 
 ## 均匀三维准备
 
-`prepare_case(CaseInput3D)` 将输入放入 spatial v4 输入，调用 `preparation_case_3d_c_api.h` 中的
-`tpmshx_prepare_flow_case_3d_v4`，返回拥有独立存储的 `PreparedSpatialCase3D`。
+`prepare_case(CaseInput3D)` 将输入放入扁平三维空间输入，调用 `preparation_case_3d_c_api.h` 中的
+`tpmshx_preparation_3d_spatial_prepare_case_v1`，返回拥有独立存储的 `PreparedSpatialCase3D`。
 输入必须给出三个正的物理长度、三个网格数和显式单元数上限。
 深度不可省略，`Nz` 至少为 2；C++ 输入的默认上限为 2,000,000 个单元。
 宿主在调用前解析配置及环境中的上限，库本身不读取这些设置。
@@ -378,7 +378,7 @@ C 状态 1、2、3、4 分别表示无效输入、水状态、算术或原生失
 状态零表示结果已转移，不代表收敛；取消结果保留 `raw.stop=2` 的原始诊断，不发布已完成评估证据。
 成功结果只可转移一次；输出与错误缓冲区不得与输入或彼此重叠。
 当前三维计算和检查点恢复使用保存态 v2 描述符。
-普通新算直接调用 `tpmshx_run_saved_case_3d_v2`，由 C++ 持有运行状态并交付结果。保存检查点和续算使用步进接口。
+普通新算先核对 `tpmshx_stage_run_3d_abi_version() == 3`，再直接调用 `tpmshx_run_saved_case_3d_v3`，由 C++ 持有运行状态并交付结果。保存检查点和续算使用步进接口。
 C++ 在首次推进前核对物理尺寸、轴映射、端口开度、模型资源及单元设计场。
 Python 适配器检查可移植数组的形状，并保持借用缓冲区有效。
 `full_3d_stage.py` 从 CaseData 传入已保存的网格、设计场、端口和轴映射。

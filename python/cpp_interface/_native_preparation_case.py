@@ -19,22 +19,25 @@ def _doubles(names):
     return [(name, _D) for name in names.split()]
 
 
+_struct = _structure
+_FLUIDS = ('air', 'water', 'sco2', 'co2')
+
 _Port = _structure('Port', [('direction', ct.c_int32), *_doubles(
     'inlet_center_m inlet_width_m outlet_center_m outlet_width_m'), ('uniform_inlet', _U)])
 _Inlet = _structure('Inlet', [('fluid', _U), *_doubles('velocity_m_s temperature_K pressure_Pa'),
-                            ('port', _Port), ('have_mass_flow', _U), ('mass_flow_kg_s', _D)])
-_InputV1 = _structure('Input', [('abi_version', _U), ('struct_size', _S),
+                              ('port', _Port), ('have_mass_flow', _U), ('mass_flow_kg_s', _D)])
+_TextField = _struct('TextField', [('key', _Text), ('value', _Text)])
+_Nu = _struct('Nu', [('mode', _U), ('have_alpha', _U * 2), ('alpha', _D * 2)] + [
+    (name, _Text) for name in ('parameter_version', 'source', 'applicability')])
+_Input = _structure('Input', [('abi_version', _U), ('struct_size', _S),
     *_doubles('length_m height_m'), ('requested_nx', _S), ('requested_ny', _S),
     ('port_wall_refine', _U), ('topology', _U),
     *_doubles('cell_length_mm wall_thickness_mm solid_conductivity_W_mK delta_levelset'),
     ('sides', _Inlet * 2), ('have_physical_depth', _U), ('geometry_mode', _U), ('df_mode', _U),
-    ('physical_depth_m', _D)])
+    ('physical_depth_m', _D), ('sco2_nu', _Nu)])
 _Options = _structure('Options', [('abi_version', _U), ('struct_size', _S),
-                                ('have_chi', _U), ('allow_extrapolation', _U), ('chi', _D)])
+                                  ('have_chi', _U), ('allow_extrapolation', _U), ('chi', _D)])
 _Event = _structure('Event', [('kind', _U), ('logger', _Text), ('message', _Text), ('floating_event', _U)])
-_EventFunction = ct.CFUNCTYPE(ct.c_int, ct.c_void_p, ct.POINTER(_Event))
-_Callbacks = _structure('Callbacks', [('abi_version', _U), ('struct_size', _S),
-                                    ('event', _EventFunction), ('context', ct.c_void_p)])
 _Properties = _structure('Properties', _doubles(
     'rho mu k_f cp pr re nu permeability_m2 forchheimer_per_m pressure_gradient_Pa_m '
     'surface_transfer_W_m2K fluid_conductivity_W_mK solid_conductivity_W_mK'))
@@ -53,147 +56,155 @@ _Range = _structure('Range', [('source', ct.POINTER(_Text)), ('source_count', _S
     *((name, _Text) for name in 'side stage layout label quantity unit'.split()),
     ('bounds', _D * 2), ('shape', ct.POINTER(_S)), ('rank', _S), ('sample', _Sample), ('last', _Sample)])
 _Model = _structure('Model', [(name, _Text) for name in 'name version side'.split()])
-_ResultV1 = _structure('Result', [('abi_version', _U), ('struct_size', _S), ('input', _InputV1),
+_Selection = _struct('Selection', [(name, _U) for name in ('branch', 'campaign', 'scope', 'flags')] +
+    _doubles('scale_K scale_F') + [(name, _D * 2) for name in ('application_u', 'calibration_u', 'runtime_u')])
+_Drag = _struct('Drag', [('have_selection', _U), ('selection', _Selection), ('application_scope', _Text),
+    ('fluid', _Text), ('calibration', ct.POINTER(_TextField)), ('calibration_count', _S)])
+_Co2 = _struct('Co2', [('active', _U), ('sides', _U * 2)] +
+    [(name, _Text) for name in ('version', 'application_version', 'pressure_model')] +
+    _doubles('pressure_multiplier scale_K scale_F nu_multiplier nu_floor_multiplier') +
+    [(name, _Text) for name in ('correction_source', 'property_model', 'common_geometry')] +
+    [('re_range', _D * 2), ('pr_range', _D * 2)])
+_Result = _structure('Result', [('abi_version', _U), ('struct_size', _S), ('input', _Input),
     ('options', _Options), ('nx', _S), ('ny', _S),
     *((name, _Array) for name in 'dx dy x_edges y_edges x_breaks y_breaks'.split()),
     *_doubles('epsilon epsilon_a epsilon_b area_density_per_m hydraulic_diameter_m '
               'uniform_solid_conductivity hydraulic_radius_m cell_length_m wall_thickness_m split_a'),
     *((name, _Array) for name in 'cell_length wall_thickness total_porosity solid_conductivity hydraulic_radius'.split()),
     ('sides', _Side * 2), ('models', _Model * 4), ('ranges', ct.POINTER(_Range)), ('range_count', _S),
-    ('warnings', ct.POINTER(_Text)), ('warning_count', _S), ('events', ct.POINTER(_Event)),
-    ('event_count', _S), ('owner', ct.c_void_p)])
+    ('range_bounds_list', ct.POINTER(_U)), ('warnings', ct.POINTER(_Text)), ('warning_count', _S),
+    ('events', ct.POINTER(_Event)), ('event_count', _S), ('sco2_nu', _Nu),
+    ('sco2_nu_model_version', _Text), ('sco2_nu_interpretation', _Text),
+    ('sco2_nu_coefficients', (_D * 3) * 2), ('drag', _Drag * 2), ('co2', _Co2),
+    ('notices', ct.POINTER(_Text)), ('notice_count', _S)])
 
-
-_struct = _structure
-_Nu = _struct('Nu', [('mode', _U), ('have_alpha', _U * 2), ('alpha', _D * 2)] + [(name, _Text) for name in ('parameter_version', 'source', 'applicability')])
-_InputV2 = _struct('InputV2', [('abi_version', _U), ('struct_size', _S), ('values', _InputV1), ('sco2_nu', _Nu)])
-_Selection = _struct('Selection', [(name, _U) for name in ('branch', 'campaign', 'scope', 'flags')] + _doubles('scale_K scale_F') + [(name, _D * 2) for name in ('application_u', 'calibration_u', 'runtime_u')])
-_TextField = _struct('TextField', [('key', _Text), ('value', _Text)])
-_Drag = _struct('Drag', [('have_selection', _U), ('selection', _Selection), ('application_scope', _Text), ('fluid', _Text), ('calibration', ct.POINTER(_TextField)), ('calibration_count', _S)])
-_Co2 = _struct('Co2', [('active', _U), ('sides', _U * 2)] + [(name, _Text) for name in ('version', 'application_version', 'pressure_model')] + _doubles('pressure_multiplier scale_K scale_F nu_multiplier nu_floor_multiplier') + [(name, _Text) for name in ('correction_source', 'property_model', 'common_geometry')] + [('re_range', _D * 2), ('pr_range', _D * 2)])
-_ResultV2 = _struct('ResultV2', [('abi_version', _U), ('struct_size', _S), ('values', _ResultV1), ('sco2_nu', _Nu), ('sco2_nu_model_version', _Text), ('sco2_nu_interpretation', _Text), ('sco2_nu_coefficients', (_D * 3) * 2), ('drag', _Drag * 2), ('co2', _Co2), ('notices', ct.POINTER(_Text)), ('notice_count', _S), ('range_bounds_list', ct.POINTER(_U))])
 _Cause = _struct('Cause', [('kind', _U), ('message', ct.c_char * 4096)])
-_Failure = _struct('Failure', [('abi_version', _U), ('struct_size', _S)] + [(name, _U) for name in ('kind', 'side', 'have_property', 'cause_count')] + [('property', _PropertyFailure), ('causes', _Cause * 2)])
-_FLUIDS = ('air', 'water', 'sco2', 'co2')
+_Failure = _struct('Failure', [('abi_version', _U), ('struct_size', _S)] +
+    [(name, _U) for name in ('kind', 'side', 'have_property', 'cause_count')] +
+    [('property', _PropertyFailure), ('causes', _Cause * 2)])
 
-
-_FlowInput = _struct('FlowInput', [('abi_version', _U), ('struct_size', _S),
-    ('values', _InputV2), ('have_explicit_targets', _U), ('explicit_targets_kg_s', _D * 2)])
 _Evidence = _struct('FlowEvidence', [('ranges', ct.POINTER(_Range)), ('range_count', _S),
     ('range_bounds_list', ct.POINTER(_U)), ('warnings', ct.POINTER(_Text)), ('warning_count', _S),
     ('events', ct.POINTER(_Event)), ('event_count', _S)])
-_Flow = _struct('FlowResult', [('abi_version', _U), ('struct_size', _S), ('input', _InputV2),
-    ('have_capacities', _U), ('capacities', _D * 2), ('speeds', _D * 2),
-    ('evidence', _Evidence), ('owner', ct.c_void_p)])
-_FlowCase = _struct('FlowCase', [('abi_version', _U), ('struct_size', _S),
-    ('prepared', _ResultV2), ('flow', _Flow), ('owner', ct.c_void_p)])
-
-_Controls = _struct('ContinuousControls', [('n_ctrl_x', _S), ('n_ctrl_y', _S),
-    ('spline_order', _U), ('symmetric_y', _U), ('L_bounds_mm', _D * 2),
-    ('t_bounds_mm', _D * 2), ('decision_mm', _Array)])
-_ContinuousInput = _struct('ContinuousInput', [('abi_version', _U), ('struct_size', _S),
-    ('values', _FlowInput), ('controls', _Controls)])
-_ContinuousDrag = _struct('ContinuousDrag', [('transfer_policy', _Text),
-    ('geometry_application', _Text), ('have_reference_geometry', _U), ('reference_geometry_mm', _D * 2)])
-_ContinuousFlow = _struct('ContinuousFlow', [('abi_version', _U), ('struct_size', _S),
-    ('flow', _Flow), ('controls', _Controls), ('owner', ct.c_void_p)])
-_ContinuousCase = _struct('ContinuousCase', [('abi_version', _U), ('struct_size', _S),
-    ('prepared', _ResultV2), ('flow', _Flow), ('controls', _Controls),
-    ('area_density_per_m', _Array), ('hydraulic_diameter_m', _Array),
-    ('fluid_conductivity', _Array * 2), ('drag', _ContinuousDrag * 2), ('owner', ct.c_void_p)])
-
-_HostFunction = ct.CFUNCTYPE(ct.c_int, ct.c_void_p, _U, _U)
-_HostCallbacks = _struct('HostCallbacks', [('values', _Callbacks), ('validate_host_input', _HostFunction)])
 _GeometryCache = _struct('GeometryCache', _doubles('epsilon epsilon_a epsilon_b area_density_per_m hydraulic_diameter_m'))
 _InletCache = _struct('InletCache', [('geometry', _GeometryCache), ('properties', _Properties),
-                                  ('evidence', _Evidence)])
-_GeometryCacheFunction = ct.CFUNCTYPE(ct.c_int, ct.c_void_p, _U, ct.POINTER(_GeometryCache), ct.POINTER(_U))
-_InletCacheFunction = ct.CFUNCTYPE(ct.c_int, ct.c_void_p, _U, _U, ct.POINTER(_Inlet),
-                                 ct.POINTER(_InletCache), ct.POINTER(_U))
-_RangeFunction = ct.CFUNCTYPE(ct.c_int, ct.c_void_p, _U, ct.POINTER(_Range), _U, _U, _D)
-_NoticeFunction = ct.CFUNCTYPE(ct.c_int, ct.c_void_p, _U, _U, _D, _Text)
-_CacheCallbacks = _struct('CacheCallbacks', [('values', _HostCallbacks),
-    ('geometry_cache', _GeometryCacheFunction), ('inlet_cache', _InletCacheFunction),
-    ('observe_range', _RangeFunction), ('observe_notice', _NoticeFunction)])
-
-
-_Region = _struct('ZoneRegion', [('name', _Text), ('bounds', _D * 4),
-    ('cell_length_mm', _D), ('wall_thickness_mm', _D)])
-_ZonedInput = _struct('ZonedInput', [('abi_version', _U), ('struct_size', _S), ('values', _InputV2),
-    ('kind', _U), ('axis', _U), ('regions', ct.POINTER(_Region)), ('region_count', _S)])
-_RegionValues = _struct('ZoneValues', [('region', _Region), ('geometry', _GeometryCache),
-    ('property_geometry', _GeometryCache * 2), ('solid_conductivity', _D),
-    ('properties', _Properties * 2)])
-_ZonedCase = _struct('ZonedCase', [('abi_version', _U), ('struct_size', _S), ('prepared', _ResultV2),
-    ('kind', _U), ('axis', _U), ('regions', ct.POINTER(_RegionValues)), ('region_count', _S),
-    ('zone_id', ct.POINTER(ct.c_int32)), ('cell_count', _S),
-    *[(name, _Array) for name in ('thermal_porosity', 'area_density_per_m', 'hydraulic_diameter_m',
-                                'design_area_density_per_m')],
-    ('fluid_conductivity', _Array * 2), ('volumetric_transfer', _Array * 2), ('owner', ct.c_void_p)])
-_LUTView = _struct('SigmoidLUTView', [(name, _Array) for name in
-    ('cell_mm', 'wall_mm', 'porosity', 'area_density_per_m')] + [('porosity_fast', _U), ('area_fast', _U)])
-_SigmoidControls = _struct('SigmoidControls', [('decision_mm', _Array),
-    ('inlet_transition', _D), ('outlet_transition', _D)])
-_SigmoidInput = _struct('SigmoidInput', [('abi_version', _U), ('struct_size', _S),
-    ('values', _ZonedInput), ('controls', _SigmoidControls), ('lut', _LUTView)])
-_SigmoidCase = _struct('SigmoidCase', [('abi_version', _U), ('struct_size', _S),
-    ('values', _ZonedCase), ('controls', _SigmoidControls), ('owner', ct.c_void_p)])
-_FlowOptions = [('have_explicit_targets', _U), ('explicit_targets_kg_s', _D * 2)]
-_ZonedFlowInput = _struct('ZonedFlowInput', [('abi_version', _U), ('struct_size', _S),
-    ('values', _ZonedInput), *_FlowOptions])
-_SigmoidFlowInput = _struct('SigmoidFlowInput', [('abi_version', _U), ('struct_size', _S),
-    ('values', _SigmoidInput), *_FlowOptions])
-_ZonedFlow = _struct('ZonedFlow', [('abi_version', _U), ('struct_size', _S),
-    ('flow', _Flow), ('input', _ZonedInput), ('owner', ct.c_void_p)])
-_SigmoidFlow = _struct('SigmoidFlow', [('abi_version', _U), ('struct_size', _S),
-    ('flow', _Flow), ('input', _SigmoidInput), ('owner', ct.c_void_p)])
-_ZonedFlowCase = _struct('ZonedFlowCase', [('abi_version', _U), ('struct_size', _S),
-    ('prepared', _ZonedCase), ('flow', _ZonedFlow), ('owner', ct.c_void_p)])
-_SigmoidFlowCase = _struct('SigmoidFlowCase', [('abi_version', _U), ('struct_size', _S),
-    ('prepared', _SigmoidCase), ('flow', _SigmoidFlow), ('owner', ct.c_void_p)])
-_SpatialModel = _struct('SpatialModel', [('solid_conductivity_W_mK', _D), ('allow_geometry_extrapolation', _U), ('load_default_lut', _U)])
-_ZonedHostInput = _struct('ZonedHostInput', [('abi_version', _U), ('struct_size', _S),
-    ('values', _ZonedFlowInput), ('model', _SpatialModel)])
-_SigmoidHostInput = _struct('SigmoidHostInput', [('abi_version', _U), ('struct_size', _S),
-    ('values', _SigmoidFlowInput), ('model', _SpatialModel)])
-_ZonedHostFlow = _struct('ZonedHostFlow', [('abi_version', _U), ('struct_size', _S),
-    ('values', _ZonedFlow), ('model', _SpatialModel), ('owner', ct.c_void_p)])
-_SigmoidHostFlow = _struct('SigmoidHostFlow', [('abi_version', _U), ('struct_size', _S),
-    ('values', _SigmoidFlow), ('model', _SpatialModel), ('owner', ct.c_void_p)])
-_ZonedHostCase = _struct('ZonedHostCase', [('abi_version', _U), ('struct_size', _S),
-    ('values', _ZonedFlowCase), ('model', _SpatialModel), ('design_pore_porosity', _Array), ('owner', ct.c_void_p)])
-_SigmoidHostCase = _struct('SigmoidHostCase', [('abi_version', _U), ('struct_size', _S),
-    ('values', _SigmoidFlowCase), ('model', _SpatialModel), ('design_pore_porosity', _Array), ('owner', ct.c_void_p)])
-_ThermalSides = _struct('ThermalSides', [('have_side_geometry', _U), ('side_geometry', (_D * 4) * 2)])
-_OffsetFlowCase = _struct('OffsetFlowCase', [('abi_version', _U), ('struct_size', _S),
-    ('values', _FlowCase), ('thermal', _ThermalSides), ('owner', ct.c_void_p)])
-_OffsetZonedCase = _struct('OffsetZonedCase', [('abi_version', _U), ('struct_size', _S),
-    ('values', _ZonedHostCase), ('thermal', _ThermalSides), ('owner', ct.c_void_p)])
-_OffsetSigmoidCase = _struct('OffsetSigmoidCase', [('abi_version', _U), ('struct_size', _S),
-    ('values', _SigmoidHostCase), ('thermal', _ThermalSides), ('owner', ct.c_void_p)])
-_ContinuousGeometryCase = _struct('ContinuousGeometryCase', [('abi_version', _U), ('struct_size', _S),
-    ('values', _ContinuousCase), ('design_pore_porosity', _Array), ('owner', ct.c_void_p)])
-_StripeGeometryCase = _struct('StripeGeometryCase', [('abi_version', _U), ('struct_size', _S),
-    ('values', _OffsetZonedCase), ('region_hydraulic_radii_m', _Array), ('owner', ct.c_void_p)])
+                                     ('evidence', _Evidence)])
 _GeometryKey = _struct('GeometryKey', [('topology', _U), *_doubles('cell_length_mm wall_thickness_mm')])
 _InletKey = _struct('InletKey', [('geometry', _GeometryKey), ('fluid', _U),
     *_doubles('velocity_m_s temperature_K pressure_Pa'),
     ('have_sco2_nu', _U), ('sco2_nu', _Nu), ('co2_geometry', _U)])
+_LUTView = _struct('SigmoidLUTView', [(name, _Array) for name in
+    ('cell_mm', 'wall_mm', 'porosity', 'area_density_per_m')] + [('porosity_fast', _U), ('area_fast', _U)])
+
+_EventFunction = ct.CFUNCTYPE(ct.c_int, ct.c_void_p, ct.POINTER(_Event))
+_HostFunction = ct.CFUNCTYPE(ct.c_int, ct.c_void_p, _U, _U)
+_GeometryCacheFunction = ct.CFUNCTYPE(ct.c_int, ct.c_void_p, _U, ct.POINTER(_GeometryCache), ct.POINTER(_U))
+_InletCacheFunction = ct.CFUNCTYPE(ct.c_int, ct.c_void_p, _U, _U, ct.POINTER(_Inlet),
+                                   ct.POINTER(_InletCache), ct.POINTER(_U))
+_RangeFunction = ct.CFUNCTYPE(ct.c_int, ct.c_void_p, _U, ct.POINTER(_Range), _U, _U, _D)
+_NoticeFunction = ct.CFUNCTYPE(ct.c_int, ct.c_void_p, _U, _U, _D, _Text)
 _GeometryAtFunction = ct.CFUNCTYPE(ct.c_int, ct.c_void_p, _U, ct.POINTER(_GeometryKey),
-                                 ct.POINTER(_GeometryCache), ct.POINTER(_U))
+                                   ct.POINTER(_GeometryCache), ct.POINTER(_U))
 _InletAtFunction = ct.CFUNCTYPE(ct.c_int, ct.c_void_p, _U, ct.POINTER(_InletKey),
-                              ct.POINTER(_InletCache), ct.POINTER(_U))
+                                ct.POINTER(_InletCache), ct.POINTER(_U))
 _LUTCacheFunction = ct.CFUNCTYPE(ct.c_int, ct.c_void_p, _U, _U, _S, ct.POINTER(_LUTView), ct.POINTER(_U))
-_KeyedCallbacks = _struct('KeyedCallbacks', [('values', _CacheCallbacks),
+_Callbacks = _structure('Callbacks', [('abi_version', _U), ('struct_size', _S),
+    ('context', ct.c_void_p), ('validate_grid_stage', _U),
+    ('event', _EventFunction), ('validate_host_input', _HostFunction),
+    ('geometry_cache', _GeometryCacheFunction), ('inlet_cache', _InletCacheFunction),
+    ('observe_range', _RangeFunction), ('observe_notice', _NoticeFunction),
     ('geometry_cache_at', _GeometryAtFunction), ('inlet_cache_at', _InletAtFunction),
     ('sigmoid_lut_cache', _LUTCacheFunction)])
 
+_Flow = _struct('FlowResult', [('input', _Input), ('have_capacities', _U),
+    ('capacities', _D * 2), ('speeds', _D * 2), ('evidence', _Evidence)])
+_ThermalSides = _struct('ThermalSides', [('have_side_geometry', _U), ('side_geometry', (_D * 4) * 2)])
+_Controls = _struct('ContinuousControls', [('n_ctrl_x', _S), ('n_ctrl_y', _S),
+    ('spline_order', _U), ('symmetric_y', _U), ('L_bounds_mm', _D * 2),
+    ('t_bounds_mm', _D * 2), ('decision_mm', _Array)])
+_ContinuousDrag = _struct('ContinuousDrag', [('transfer_policy', _Text),
+    ('geometry_application', _Text), ('have_reference_geometry', _U), ('reference_geometry_mm', _D * 2)])
+_Region = _struct('ZoneRegion', [('name', _Text), ('bounds', _D * 4),
+    ('cell_length_mm', _D), ('wall_thickness_mm', _D)])
+_RegionValues = _struct('ZoneValues', [('region', _Region), ('geometry', _GeometryCache),
+    ('property_geometry', _GeometryCache * 2), ('solid_conductivity', _D),
+    ('properties', _Properties * 2)])
+_SigmoidControls = _struct('SigmoidControls', [('decision_mm', _Array),
+    ('inlet_transition', _D), ('outlet_transition', _D)])
+_SpatialModel = _struct('SpatialModel', [('solid_conductivity_W_mK', _D),
+    ('allow_geometry_extrapolation', _U), ('load_default_lut', _U)])
+_SigmoidLUT = _struct('SigmoidLUT', [('abi_version', _U), ('struct_size', _S),
+    *((name, _Array) for name in ('cell_mm', 'wall_mm', 'porosity', 'area_density_per_m')),
+    ('porosity_fast', _U), ('area_fast', _U), ('owner', ct.c_void_p)])
+
+_FlowOptions = [('have_explicit_targets', _U), ('explicit_targets_kg_s', _D * 2)]
+
+_UniformInput = _struct('UniformInput', [('abi_version', _U), ('struct_size', _S),
+    ('input', _Input), *_FlowOptions])
+_UniformFlow = _struct('UniformFlow', [('abi_version', _U), ('struct_size', _S),
+    ('flow', _Flow), ('owner', ct.c_void_p)])
+_UniformCase = _struct('UniformCase', [('abi_version', _U), ('struct_size', _S),
+    ('prepared', _Result), ('flow', _Flow), ('thermal', _ThermalSides), ('owner', ct.c_void_p)])
+
+_ContinuousInput = _struct('ContinuousInput', [('abi_version', _U), ('struct_size', _S),
+    ('input', _Input), *_FlowOptions, ('controls', _Controls)])
+_ContinuousFlow = _struct('ContinuousFlow', [('abi_version', _U), ('struct_size', _S),
+    ('flow', _Flow), ('controls', _Controls), ('owner', ct.c_void_p)])
+_ContinuousCase = _struct('ContinuousCase', [('abi_version', _U), ('struct_size', _S),
+    ('prepared', _Result), ('flow', _Flow), ('controls', _Controls),
+    ('area_density_per_m', _Array), ('hydraulic_diameter_m', _Array),
+    ('fluid_conductivity', _Array * 2), ('design_pore_porosity', _Array),
+    ('drag', _ContinuousDrag * 2), ('owner', ct.c_void_p)])
+
+_ZonedInput = _struct('ZonedInput', [('abi_version', _U), ('struct_size', _S),
+    ('input', _Input), *_FlowOptions, ('kind', _U), ('axis', _U),
+    ('regions', ct.POINTER(_Region)), ('region_count', _S), ('model', _SpatialModel)])
+_ZonedFlow = _struct('ZonedFlow', [('abi_version', _U), ('struct_size', _S),
+    ('flow', _Flow), ('kind', _U), ('axis', _U),
+    ('regions', ct.POINTER(_Region)), ('region_count', _S), ('model', _SpatialModel),
+    ('owner', ct.c_void_p)])
+_ZonedCase = _struct('ZonedCase', [('abi_version', _U), ('struct_size', _S),
+    ('prepared', _Result), ('flow', _Flow), ('kind', _U), ('axis', _U),
+    ('regions', ct.POINTER(_RegionValues)), ('region_count', _S),
+    ('zone_id', ct.POINTER(ct.c_int32)), ('cell_count', _S),
+    *((name, _Array) for name in ('thermal_porosity', 'area_density_per_m', 'hydraulic_diameter_m',
+                                  'design_area_density_per_m', 'design_pore_porosity')),
+    ('fluid_conductivity', _Array * 2), ('volumetric_transfer', _Array * 2),
+    ('model', _SpatialModel), ('thermal', _ThermalSides), ('owner', ct.c_void_p)])
+
+_SigmoidInput = _struct('SigmoidInput', [('abi_version', _U), ('struct_size', _S),
+    ('input', _Input), *_FlowOptions, ('kind', _U), ('axis', _U),
+    ('regions', ct.POINTER(_Region)), ('region_count', _S),
+    ('controls', _SigmoidControls), ('lut', _LUTView), ('model', _SpatialModel)])
+_SigmoidFlow = _struct('SigmoidFlow', [('abi_version', _U), ('struct_size', _S),
+    ('flow', _Flow), ('kind', _U), ('axis', _U),
+    ('regions', ct.POINTER(_Region)), ('region_count', _S),
+    ('controls', _SigmoidControls), ('lut', _LUTView), ('model', _SpatialModel),
+    ('owner', ct.c_void_p)])
+_SigmoidCase = _struct('SigmoidCase', [('abi_version', _U), ('struct_size', _S),
+    ('prepared', _Result), ('flow', _Flow), ('kind', _U), ('axis', _U),
+    ('regions', ct.POINTER(_RegionValues)), ('region_count', _S),
+    ('zone_id', ct.POINTER(ct.c_int32)), ('cell_count', _S),
+    *((name, _Array) for name in ('thermal_porosity', 'area_density_per_m', 'hydraulic_diameter_m',
+                                  'design_area_density_per_m', 'design_pore_porosity')),
+    ('fluid_conductivity', _Array * 2), ('volumetric_transfer', _Array * 2),
+    ('controls', _SigmoidControls), ('lut', _LUTView),
+    ('model', _SpatialModel), ('thermal', _ThermalSides), ('owner', ct.c_void_p)])
+
+_StripeCase = _struct('StripeCase', [('abi_version', _U), ('struct_size', _S),
+    ('prepared', _Result), ('flow', _Flow), ('kind', _U), ('axis', _U),
+    ('regions', ct.POINTER(_RegionValues)), ('region_count', _S),
+    ('zone_id', ct.POINTER(ct.c_int32)), ('cell_count', _S),
+    *((name, _Array) for name in ('thermal_porosity', 'area_density_per_m', 'hydraulic_diameter_m',
+                                  'design_area_density_per_m', 'design_pore_porosity')),
+    ('fluid_conductivity', _Array * 2), ('volumetric_transfer', _Array * 2),
+    ('region_hydraulic_radii_m', _Array),
+    ('model', _SpatialModel), ('thermal', _ThermalSides), ('owner', ct.c_void_p)])
 
 _InletQueryInput = _struct('InletQueryInput', [('abi_version', _U), ('struct_size', _S),
     ('inlet', _InletKey), *_doubles('hydraulic_diameter_m epsilon_a'), ('exact_co2_drag', _U)])
 _InletQueryResult = _struct('InletQueryResult', [('abi_version', _U), ('struct_size', _S),
     ('values', _D * 12)])
-
 
 _QuickInputV2 = _struct('QuickInput', [('abi_version', _U), ('struct_size', _S), ('values', _D * 13),
     *((name, _Text) for name in ('topology', 'arrangement', 'property_mode')), ('fluids', _Text * 2),

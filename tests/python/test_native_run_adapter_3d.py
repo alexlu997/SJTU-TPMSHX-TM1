@@ -194,8 +194,8 @@ def test_public_drag_capture_preserves_scalar_design_summary():
 
 
 @pytest.mark.parametrize('missing', ['create_saved', 'restore_saved', 'advance_step', 'phase', 'snapshot',
-                                     'take_result', 'release_run', 'release', 'get_capture', 'capture_version',
-                                     'run_saved'])
+                                     'take_result', 'release_run', 'release', 'get_capture', 'stage_version',
+                                     'capture_version', 'run_saved'])
 def test_partial_stage_protocol_is_rejected_before_execution(missing, monkeypatch):
     config = native_stage_support.volume_configuration()
     case = prepare_case(config, case_id='partial-protocol')
@@ -204,9 +204,10 @@ def test_partial_stage_protocol_is_rejected_before_execution(missing, monkeypatc
         path, library, abi, table = open_library(*args, **kwargs)
         class Partial:
             def __getattr__(self, name):
-                symbol = ('tpmshx_stage_capture_3d_abi_version' if missing == 'capture_version' else
-                          'tpmshx_run_saved_case_3d_v2' if missing == 'run_saved' else
-                          'tpmshx_stage_run_3d_' + missing + ('_v2' if missing.endswith('_saved') else '_v1'))
+                symbol = ('tpmshx_stage_run_3d_abi_version' if missing == 'stage_version' else
+                          'tpmshx_stage_capture_3d_abi_version' if missing == 'capture_version' else
+                          'tpmshx_run_saved_case_3d_v3' if missing == 'run_saved' else
+                          'tpmshx_stage_run_3d_' + missing + ('_v3' if missing.endswith('_saved') else '_v1'))
                 if name == symbol:
                     raise AttributeError(name)
                 return getattr(library, name)

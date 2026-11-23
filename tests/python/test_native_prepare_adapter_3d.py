@@ -207,12 +207,12 @@ def test_owned_3d_views_cannot_be_diagnostic_outputs(mode, alias):
     from sjtu_tpmshx.cpp_interface.stage_libraries import preparation_library
     config = _configuration(mode).validate()
     source = preparation._input(config, None, 'prepare_flow_case')
-    kind = binding._ContinuousCase if source.abi_version == 3 else binding._SpatialCase
-    result = kind(source.abi_version, ct.sizeof(kind))
+    kind = binding._ContinuousCase if isinstance(source, binding._ContinuousInput) else binding._SpatialCase
+    result = kind(1, ct.sizeof(kind))
     options = native._Options(1, ct.sizeof(native._Options), 0, 1, 0.)
     failure, error = native._Failure(2, ct.sizeof(native._Failure)), ct.create_string_buffer(4096)
     bindings = preparation_host._volume_bindings(preparation_library.get().path)
-    call = bindings.operations[source.abi_version, 'prepare_flow_case'].call
+    call = bindings.operations[type(source), 'prepare_flow_case'].call
     assert call(ct.byref(source), ct.byref(options), None, ct.byref(result),
                 ct.byref(failure), error, len(error)) == 0
     try:
@@ -238,7 +238,7 @@ def test_cached_3d_evidence_cannot_alias_diagnostics(alias):
     from sjtu_tpmshx.cpp_interface.stage_libraries import preparation_library
     config = _configuration('uniform', pair=('air', 'air')).validate()
     source = preparation._input(config, None, 'prepare_flow_case')
-    result = binding._SpatialCase(4, ct.sizeof(binding._SpatialCase))
+    result = binding._SpatialCase(1, ct.sizeof(binding._SpatialCase))
     options = native._Options(1, ct.sizeof(native._Options), 0, 1, 0.)
     failure, error = native._Failure(2, ct.sizeof(native._Failure)), ct.create_string_buffer(b'unchanged', 4096)
     calls = []
@@ -250,12 +250,12 @@ def test_cached_3d_evidence_cannot_alias_diagnostics(alias):
         value.evidence.warning_count = 1
         return False
 
-    callbacks, descriptor, errors = preparation_host._callback_bridge(lambda *args: None,
+    callbacks, errors = preparation_host._callback_bridge(lambda *args: None,
         geometry_cache_at=lambda *args: False, inlet_cache_at=inlet)
     before = bytes(result), bytes(failure), bytes(error)
     bindings = preparation_host._volume_bindings(preparation_library.get().path)
-    status = bindings.operations[4, 'prepare_flow_case'].call(ct.byref(source), ct.byref(options),
-        ct.byref(descriptor), ct.byref(result), ct.byref(failure), error, len(error))
+    status = bindings.operations[binding._SpatialInput, 'prepare_flow_case'].call(ct.byref(source), ct.byref(options),
+        ct.byref(callbacks), ct.byref(result), ct.byref(failure), error, len(error))
     assert status == 1 and calls == [0] and not errors
     assert (bytes(result), bytes(failure), bytes(error)) == before
 

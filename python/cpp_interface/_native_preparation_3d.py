@@ -28,19 +28,15 @@ _Result = _struct('Result3D', [('abi_version', _U), ('struct_size', _S),
     ('sides', _Side * 2), ('models', native._Model * 4),
     ('evidence', native._Evidence), ('sco2_nu_model_version', native._Text),
     ('sco2_nu_interpretation', native._Text), ('sco2_nu_coefficients', (_D * 3) * 2),
-    ('co2', native._Co2), ('notices', ct.POINTER(native._Text)), ('notice_count', _S),
-    ('owner', ct.c_void_p)])
-_FlowInput = _struct('FlowInput3D', [('abi_version', _U), ('struct_size', _S),
-    ('input', _Input), ('have_explicit_targets', _U), ('explicit_targets_kg_s', _D * 2)])
-_Flow = _struct('Flow3D', [('abi_version', _U), ('struct_size', _S),
-    ('input', _Input), ('have_capacities', _U),
-    ('capacities', _D * 2), ('speeds', _D * 2),
-    ('evidence', native._Evidence), ('owner', ct.c_void_p)])
+    ('co2', native._Co2), ('notices', ct.POINTER(native._Text)), ('notice_count', _S)])
+_Flow = _struct('Flow3D', [('input', _Input), ('have_capacities', _U),
+    ('capacities', _D * 2), ('speeds', _D * 2), ('evidence', native._Evidence)])
 _Controls = _struct('ContinuousControls3D', [('n_ctrl_x', _S), ('n_ctrl_y', _S), ('n_ctrl_z', _S),
     ('have_ctrl_z', _U), ('spline_order', _U), ('symmetric_y', _U),
     ('L_bounds_mm', _D * 2), ('t_bounds_mm', _D * 2), ('decision_mm', native._Array)])
 _ContinuousInput = _struct('ContinuousInput3D', [('abi_version', _U), ('struct_size', _S),
-    ('values', _FlowInput), ('controls', _Controls)])
+    ('input', _Input), ('have_explicit_targets', _U), ('explicit_targets_kg_s', _D * 2),
+    ('controls', _Controls)])
 _ContinuousFlow = _struct('ContinuousFlow3D', [('abi_version', _U), ('struct_size', _S),
     ('flow', _Flow), ('controls', _Controls), ('owner', ct.c_void_p)])
 _ContinuousCase = _struct('ContinuousCase3D', [('abi_version', _U), ('struct_size', _S),
@@ -50,7 +46,8 @@ _ContinuousCase = _struct('ContinuousCase3D', [('abi_version', _U), ('struct_siz
 _Cell = _struct('GridCell3D', [('bounds', _D * 4),
     ('cell_length_mm', _D), ('wall_thickness_mm', _D)])
 _SpatialInput = _struct('SpatialInput3D', [('abi_version', _U), ('struct_size', _S),
-    ('values', _FlowInput), ('cells', ct.POINTER(_Cell)), ('cell_count', _S)])
+    ('input', _Input), ('have_explicit_targets', _U), ('explicit_targets_kg_s', _D * 2),
+    ('cells', ct.POINTER(_Cell)), ('cell_count', _S)])
 _SpatialFlow = _struct('SpatialFlow3D', [('abi_version', _U), ('struct_size', _S),
     ('flow', _Flow), ('cells', ct.POINTER(_Cell)), ('cell_count', _S), ('owner', ct.c_void_p)])
 _SpatialCase = _struct('SpatialCase3D', [('abi_version', _U), ('struct_size', _S),
@@ -62,6 +59,6 @@ _SpatialCase = _struct('SpatialCase3D', [('abi_version', _U), ('struct_size', _S
 
 
 FAMILIES = (
-    (3, _ContinuousInput, _ContinuousFlow, _ContinuousCase, 'continuous'),
-    (4, _SpatialInput, _SpatialFlow, _SpatialCase, 'spatial'),
+    ('continuous', _ContinuousInput, _ContinuousFlow, _ContinuousCase),
+    ('spatial', _SpatialInput, _SpatialFlow, _SpatialCase),
 )

@@ -16,7 +16,7 @@ int main() {
         request.model_h={9,.5,1e-3};
         RunControl3D control;control.cpu_threads=2;control.result_id="native-3d-example";
         auto result=[&] {
-            // Uniform 3D preparation uses the spatial v4 entry without grid cells.
+            // Uniform 3D preparation uses the 3D spatial entry without grid cells.
             auto prepared=prepare_case(input,options);
             const auto saved=saved_case(prepared);
             Run3D run(saved,control,request);

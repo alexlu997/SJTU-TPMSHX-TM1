@@ -8,9 +8,8 @@
 #include "tpmshx/result_stage_c_api.h"
 
 #define TPMSHX_STAGE_RUN_ABI_VERSION 1u
-#define TPMSHX_STAGE_RUN_ABI_VERSION_V2 2u
-#define TPMSHX_STAGE_RUN_ABI_VERSION_V3 3u
 #define TPMSHX_STAGE_RUN_ABI_VERSION_V4 4u
+#define TPMSHX_STAGE_RUN_ABI_VERSION_V5 5u
 
 typedef struct {
     const char *relation,*provider,*state_update,*eos_fluid;
@@ -53,8 +52,15 @@ typedef struct {
 
 typedef struct { uint32_t present; size_t value; } tpmshx_stage_size_option_v1;
 typedef struct { uint32_t present; double value; } tpmshx_stage_double_option_v1;
-/* For prepared views, active model_h controls and an energy pointer are exclusive.
- * A null energy pointer keeps the defaults for the selected thermal route. */
+/* Flat 2D stage run request (abi_version=4, struct_size=sizeof(*)).
+ * Active model_h controls (any nonzero field) cannot be combined with a
+ * non-null energy pointer, a non-null explicit_energy pointer, or any partial
+ * energy override (any energy_* field with present=1, or
+ * require_enthalpy_update_on_temperature=1).
+ * A non-null explicit_energy pointer cannot be combined with any partial
+ * energy override.
+ * A null energy pointer selects temperature_sou with a 1e-8 K temperature
+ * update tolerance. */
 typedef struct {
     uint32_t abi_version;
     size_t struct_size;
@@ -63,28 +69,16 @@ typedef struct {
     tpmshx_stage_double_option_v1 mom_tol,mass_local_tol,mass_global_tol,solid_seed_K;
     uint32_t have_pressure_shooting,pressure_shooting;
     const char* convergence_mode;
+    const char* envelope_mode;
     tpmshx_model_h_iteration_options_v1 model_h;
     /* NULL selects temperature_sou with a 1e-8 K temperature update tolerance. */
     const tpmshx_energy_options_v1* energy;
     const tpmshx_full_2d_energy_control_v4* explicit_energy;
-} tpmshx_stage_run_request_2d_v1;
-typedef struct {
-    uint32_t abi_version;
-    size_t struct_size;
-    tpmshx_stage_run_request_2d_v1 values;
-    const char* envelope_mode;
-} tpmshx_stage_run_request_2d_v2;
-/* Partial controls use defaults from this library. They cannot be combined
- * with values.values.explicit_energy or active model_h controls. */
-typedef struct {
-    uint32_t abi_version;
-    size_t struct_size;
-    tpmshx_stage_run_request_2d_v2 values;
     tpmshx_stage_size_option_v1 energy_iterations,energy_sweeps;
     tpmshx_stage_double_option_v1 energy_omega,energy_update_tolerance;
     tpmshx_stage_double_option_v1 energy_coupled_tolerance,energy_equation_tolerance;
     uint32_t require_enthalpy_update_on_temperature;
-} tpmshx_stage_run_request_2d_v3;
+} tpmshx_stage_run_request_2d_v4;
 typedef struct {
     const char* result_id;
     const char* table_directory;
@@ -118,41 +112,8 @@ typedef struct {
 typedef struct {
     double area_density_per_m[2],surface_htc_W_m2K[2];
 } tpmshx_stage_application_2d_v1;
-/* Validated saved inputs. No preparation operation is performed.
- * prepared->values.input.geometry_mode selects uniform (0) or continuous (1).
- * Continuous cases supply cell_length and all four arrays with nx*ny values.
- * Uniform cases can supply both thermal geometry arrays, with nx*ny values,
- * or leave both empty to use the prepared scalars. Their conductivity arrays
- * must be empty; the saved inlet properties supply the uniform values.
- * Saved local drag uses the existing full 2D validation. inlet_recorded is 0
- * for absent inlet range evidence and 1 for a recorded set, including empty.
- * range_captured has prepared->values.range_count flags (0 or 1). NULL means
- * all ranges were captured. Uncaptured ranges do not supply sample values.
- * Saved SI scalars and arrays use float64 through unit conversion and
- * closure-ratio arithmetic. */
-typedef struct {
-    uint32_t abi_version;
-    size_t struct_size;
-    const tpmshx_preparation_case_2d_v2* prepared;
-    tpmshx_preparation_array_v1 area_density_per_m,hydraulic_diameter_m,fluid_conductivity[2];
-    uint32_t inlet_recorded;
-    const uint32_t* range_captured;
-} tpmshx_stage_saved_case_2d_v1;
-/* V2 also accepts discrete spatial geometry (geometry_mode=2) and the
- * existing offset model. All spatial modes supply the same cell arrays.
- * Side geometry is optional. When present, each row is area, diameter,
- * reference area, reference diameter. The existing solver checks offset sides.
- * The nested descriptor keeps version 1. Initialize this descriptor as version 2. */
-typedef struct {
-    uint32_t abi_version;
-    size_t struct_size;
-    tpmshx_stage_saved_case_2d_v1 values;
-    uint32_t have_side_geometry;
-    double side_geometry[2][4];
-} tpmshx_stage_saved_case_2d_v2;
 
-/* V3 checks the saved flow axes and opening fractions against the physical grid.
- * Each side supplies cross and stream widths. Bounds are inlet lower/upper,
+/* Each side supplies cross and stream widths. Bounds are inlet lower/upper,
  * then outlet lower/upper in float64.
  * The stage computes the staggered outlet opening. Leave outlet_u_fraction empty. */
 typedef struct {
@@ -164,19 +125,6 @@ typedef struct {
     tpmshx_preparation_text_v1 name;
     tpmshx_preparation_array_v1 values;
 } tpmshx_stage_design_field_2d_v3;
-typedef struct {
-    uint32_t abi_version;
-    size_t struct_size;
-    tpmshx_stage_saved_case_2d_v2 values;
-    double lengths_m[2];
-    tpmshx_stage_saved_flow_grid_2d_v3 flow_grid[2];
-    /* Models in the prepared view are in role order: fluid A, fluid B, geometry, drag. */
-    tpmshx_preparation_text_v1 resource_fluids[2],resource_topology;
-    tpmshx_preparation_sco2_nu_v2 resource_nu[2];
-    const tpmshx_stage_design_field_2d_v3* additional_fields;
-    size_t additional_count;
-} tpmshx_stage_saved_case_2d_v3;
-
 /* Use the original saved domain for the experiment check. Create and
  * restore also check the prepared model, nominal geometry and resolved
  * velocities. The host query defers a side with a configured total flow. */
@@ -185,24 +133,44 @@ typedef struct {
     uint32_t fluids[2],configured_flow[2];
     double domain_m[3],cell_length_mm,wall_thickness_mm,delta_levelset,velocity_m_s[2];
 } tpmshx_stage_experiment_2d_v4;
-/* Initialize the nested descriptor as v3. The experimental record is
- * required when the prepared input selects experimental D-F. */
+
+/* Flat validated saved 2D descriptor (abi_version=5, struct_size=sizeof(*)).
+ * No preparation operation is performed. prepared->input.geometry_mode selects
+ * uniform (0), continuous (1), or discrete spatial (2).
+ * Spatial cases supply cell_length and all four cell arrays with nx*ny values.
+ * Uniform cases can supply both thermal geometry arrays, with nx*ny values,
+ * or leave both empty to use the prepared scalars. Their conductivity arrays
+ * must be empty; the saved inlet properties supply the uniform values.
+ * inlet_recorded is 0 for absent inlet range evidence and 1 for a recorded set.
+ * range_captured has prepared->range_count flags (0 or 1); NULL means all
+ * ranges were captured. When have_side_geometry is 1, each row is area,
+ * diameter, reference area, reference diameter.
+ * experiment is required when prepared->input.df_mode selects experimental D-F. */
 typedef struct {
     uint32_t abi_version;
     size_t struct_size;
-    tpmshx_stage_saved_case_2d_v3 values;
+    const tpmshx_preparation_case_2d_v1* prepared;
+    tpmshx_preparation_array_v1 area_density_per_m,hydraulic_diameter_m,fluid_conductivity[2];
+    uint32_t inlet_recorded;
+    const uint32_t* range_captured;
+    uint32_t have_side_geometry;
+    double side_geometry[2][4];
+    double lengths_m[2];
+    tpmshx_stage_saved_flow_grid_2d_v3 flow_grid[2];
+    /* Models in the prepared view are in role order: fluid A, fluid B, geometry, drag. */
+    tpmshx_preparation_text_v1 resource_fluids[2],resource_topology;
+    tpmshx_preparation_sco2_nu_v2 resource_nu[2];
+    const tpmshx_stage_design_field_2d_v3* additional_fields;
+    size_t additional_count;
     tpmshx_stage_experiment_2d_v4 experiment;
-} tpmshx_stage_saved_case_2d_v4;
+} tpmshx_stage_saved_case_2d_v5;
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-/* Copy derived scalars from a live result created by this library.
- * Application inputs retain the existing nonnegative check and IEEE arithmetic.
- * Result, application and output storage must be disjoint. Failure preserves
- * output. Status 1 means invalid input; status 5 means capture failure.
- * No arrays or strings are owned by the copied summary. Existing raw evidence
- * queries still supply the complete fields, histories and numerical ledgers. */
+/* Returns TPMSHX_STAGE_RUN_ABI_VERSION_V5 (5). Check at load time before any
+ * typed 2D stage run call. */
+TPMSHX_THERMAL_API uint32_t TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_abi_version(void);
 /* A null return indicates an invalid or incomplete result. */
 TPMSHX_THERMAL_API const tpmshx_stage_run_records_v1* TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_records_v1(
     const tpmshx_stage_run_result_2d_v1* result);
@@ -245,32 +213,27 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_check_experiment_
     const tpmshx_stage_experiment_2d_v4*,char*,size_t);
 /* Run a saved case. A null request selects current 2D defaults.
  * Control is required. cpu_threads must be positive and result_id must point
- * to a caller-selected label. Keep the descriptor and all nested storage
- * unchanged until transfer or release. Set abi_version and struct_size on each
- * nested descriptor. The prepared, flow and design views are borrowed.
- * With model_h controls, request.energy records the requested algorithm for
- * validation only. It is not passed as a second set of iteration controls.
+ * to a caller-selected label. Keep the descriptor and all borrowed storage
+ * unchanged until transfer or release.
  * Status 6 means cancelled. Status 1/2/3/4/5 means invalid input/water state/
  * arithmetic/envelope/native failure. Status 7/8 matches the experiment check.
  * All input, string, result and error storage must be disjoint.
  * Error text is written only after all input storage checks complete.
  * Callback lifetime and exception rules match the existing full 2D API.
- * run_saved_case_2d_v4 runs to completion and transfers the result. Initialize
- * result.abi_version, struct_size and owner=NULL. Failure preserves result.
+ * run_saved_case_2d_v5 runs to completion and transfers the result. Initialize
+ * result.abi_version=1, struct_size and owner=NULL. Failure preserves result.
  * The raw result is borrowed. Use its existing evidence queries, but do not
  * release it separately. Release the stage owner through this same library.
  * Create and restore return a run handle. Initialize *run=NULL. Failure
- * preserves it. Callback context must remain valid until release. Calls must
- * not overlap. Restore uses the existing typed full 2D state, build identity
- * and validation. A positive CPU limit can change on restore. */
-TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_run_saved_case_2d_v4(
-    const tpmshx_stage_saved_case_2d_v4*,const tpmshx_stage_run_request_2d_v3*,
+ * preserves it. Callback context must remain valid until release. */
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_run_saved_case_2d_v5(
+    const tpmshx_stage_saved_case_2d_v5*,const tpmshx_stage_run_request_2d_v4*,
     const tpmshx_stage_run_control_v1*,tpmshx_stage_run_result_2d_v1*,char*,size_t);
-TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_create_saved_v4(
-    const tpmshx_stage_saved_case_2d_v4*,const tpmshx_stage_run_request_2d_v3*,
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_create_saved_v5(
+    const tpmshx_stage_saved_case_2d_v5*,const tpmshx_stage_run_request_2d_v4*,
     const tpmshx_stage_run_control_v1*,void**,char*,size_t);
-TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_restore_saved_v4(
-    const tpmshx_stage_saved_case_2d_v4*,const tpmshx_stage_run_request_2d_v3*,
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_restore_saved_v5(
+    const tpmshx_stage_saved_case_2d_v5*,const tpmshx_stage_run_request_2d_v4*,
     const tpmshx_stage_run_control_v1*,const tpmshx_run_state_field_v1*,size_t,void**,char*,size_t);
 /* Phases and safe snapshot boundaries match full_2d_run_c_api.h.
  * Snapshots own independent storage; use tpmshx_run_state_release_v1. */
