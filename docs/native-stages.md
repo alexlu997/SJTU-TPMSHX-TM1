@@ -4,7 +4,7 @@
 
 ## Active C ABI
 
-On 2026-11-24, preparation ABI 3 and the 2D/3D saved stage run interfaces flattened all nested `values` struct chains, unified preparation callbacks into `tpmshx_preparation_callbacks_v1`, and gave each preparation operation family clean `v1` entry names.
+On 2026-11-24, preparation ABI 3 and the 2D and 3D saved stage-run interfaces flattened all nested `values` struct chains. They also unified preparation callbacks into `tpmshx_preparation_callbacks_v1` and gave each preparation family clean `v1` entry names.
 The table lists the active entries. The libraries export no other version of these operations.
 
 | Stage | Active entries |
@@ -152,7 +152,7 @@ This query does not change complete-case validation or add a physical mode.
 It creates no owner. Copy the result freely; no release call is needed.
 Failure preserves the result and returns the existing property diagnostics and Python cause code through the C failure structure.
 
-Optional callbacks use the v3 layout, with both cache hooks set to NULL.
+Optional callbacks use `tpmshx_preparation_callbacks_v1`, with all cache hooks set to NULL and `validate_grid_stage=0`.
 Range, notice and floating-point callbacks run synchronously in calculation order.
 Host stage 4 defers object checks to the original operation; it supplies no numerical values.
 A nonzero callback result stops the query. Result, failure and error storage must be mutually disjoint.

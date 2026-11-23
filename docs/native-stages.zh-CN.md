@@ -136,7 +136,7 @@ C 入口是 `preparation_case_c_api.h` 中的 `tpmshx_query_inlet_properties_v2`
 它不创建 owner；结果可直接复制，不需要释放调用。
 失败时保留结果，并通过 C 失败结构返回既有物性诊断及 Python 异常原因码。
 
-可选回调使用 v3 布局，两个缓存钩子必须为 NULL。
+可选回调使用 `tpmshx_preparation_callbacks_v1` 布局，所有缓存钩子必须为 NULL 且 `validate_grid_stage=0`。
 范围、通知和浮点回调按计算顺序同步执行。
 宿主阶段 4 将对象检查延迟至原运算位置，不提供数值。
 回调返回非零值时停止查询。结果、失败和错误缓冲区之间不得重叠，

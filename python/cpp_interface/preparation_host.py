@@ -251,7 +251,7 @@ def operation(name, source, options, validate_host_input, geometry_cache=None, i
     key = (family, name)
     bridge = _callback_bridge(validate_host_input, geometry_cache, inlet_cache, observe_range, observe_notice,
         nominal_grid_warning, geometry_cache_at=geometry_cache_at, inlet_cache_at=inlet_cache_at,
-        sigmoid_lut_cache=sigmoid_lut_cache, validate_grid_stage=True)
+        sigmoid_lut_cache=sigmoid_lut_cache, validate_grid_stage=validate_host_input is not None)
     return _owned_result(bindings, key, (source,), options, bridge)
 
 
