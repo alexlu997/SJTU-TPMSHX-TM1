@@ -12,25 +12,10 @@ from sjtu_tpmshx.cpp_interface._native_result_stage import Evidence, closure_rec
 from sjtu_tpmshx.run_control.cancellation import CancelledError
 from sjtu_tpmshx.run_control.run_warnings import current_warnings, range_context, record_sample
 from sjtu_tpmshx.physical_models.fluid_props import Props, WaterStateError, QuickDesignWaterFieldError
-from sjtu_tpmshx.cpp_interface._native_df import _Pressure as _PreparedPressure
 from sjtu_tpmshx.data_types.field_result import FieldResult
 from .solver_library._stage_capture_abi import RangeRecordView
-from ._native_values import TOPOLOGY_CODES, DoubleArray as _Array, borrow_array, borrow_text
+from ._native_values import borrow_array, borrow_text
 from ._native_preparation_case import _QuickInputV2 as _InputV2, _QuickPreparedV2 as _PreparedV2
-
-
-class _Side(ct.Structure):
-    _fields_ = [('fluid', ct.c_uint32), *[(name, ct.c_double) for name in
-                ('inlet_temperature', 'inlet_pressure', 'mass_flow', 'inlet_pressure_fraction')]]
-
-
-class _Config(ct.Structure):
-    _fields_ = [*[(name, ct.c_uint32) for name in
-                 ('topology', 'arrangement', 'property_mode', 'warm_start')],
-                *[(name, ct.c_double) for name in
-                  ('length', 'span', 'height', 'cell_length', 'area_density', 'hydraulic_diameter')],
-                ('sides', _Side * 2), ('max_iterations', ct.c_size_t), ('chunk_iterations', ct.c_size_t),
-                ('q_relative_tolerance', ct.c_double), ('alpha', ct.c_double)]
 
 
 class _PassSide(ct.Structure):
@@ -61,33 +46,6 @@ class _Callbacks(ct.Structure):
     _fields_ = [('cancel', _Cancel), ('progress', _Progress), ('context', ct.c_void_p)]
 
 
-class _Inlet(ct.Structure):
-    _fields_ = [('fluid', ct.c_uint32), *[(name, ct.c_double) for name in
-                ('temperature_K', 'pressure_Pa', 'mass_flow_kg_s')]]
-
-
-class _Input(ct.Structure):
-    _fields_ = [('abi_version', ct.c_uint32), ('struct_size', ct.c_size_t),
-                *[(name, ct.c_uint32) for name in ('topology', 'arrangement', 'property_mode')],
-                *[(name, ct.c_double) for name in
-                  ('cell_length_mm', 'wall_thickness_mm', 'span_m', 'length_m')],
-                ('sides', _Inlet * 2), *[(name, ct.c_uint32) for name in
-                  ('have_height', 'have_solid_conductivity', 'have_tolerance')],
-                *[(name, ct.c_double) for name in
-                  ('height_m', 'solid_conductivity_W_mK', 'tolerance')],
-                ('warm_start', ct.c_uint32), ('initial_shape', ct.c_size_t * 3), ('initial', _Array * 3)]
-
-
-class _Prepared(ct.Structure):
-    _fields_ = [('abi_version', ct.c_uint32), ('struct_size', ct.c_size_t), ('owner', ct.c_void_p),
-                ('input', _Input), ('shape', ct.c_size_t * 3), ('widths', _Array * 3), ('edges', _Array * 3),
-                *[(name, _Array) for name in ('epsilon', 'epsilon_a', 'solid_conductivity')],
-                ('initial', _Array * 3), *[(name, ct.c_double) for name in
-                  ('wall_thickness_m', 'solid_conductivity_W_mK', 'tolerance')],
-                ('geometry_resolution', ct.c_size_t), ('resolved', _Config),
-                ('inlet_pressure', _PreparedPressure * 2)]
-
-
 class _StageControl(ct.Structure):
     _fields_ = [('result_id', ct.c_char_p), ('callbacks', _Callbacks)]
 
@@ -114,31 +72,6 @@ def _record_pass(library, output, index, side):
             from sjtu_tpmshx.physical_models.nu_correlations import record_quick_sco2_pr_notice
             record_quick_sco2_pr_notice()
         record_sample(key, sample)
-
-
-def _legacy_prepared(shape, p, op, views):
-    seed, controls = p['initial_fields'], p['controls']
-    plane = shape[2] == 1
-    fluid_codes = {'air': 0, 'water': 1, 'sco2': 2}
-    sides = (_Side * 2)(*(_Side(fluid_codes[fluid], tin, pin, mass, p['inlet_pressure_fractions'][side])
-        for fluid, tin, pin, mass, side in (
-            (op.hot_fluid, op.T_in_h, op.P_in_h, op.mdot_h, 'A'),
-            (op.cold_fluid, op.T_in_c, op.P_in_c, op.mdot_c, 'B'))))
-    chunk = controls['chunk'] if controls['chunk'] is not None else (500 if plane else 250)
-    qtol = controls['qtol']
-    if qtol is None:
-        qtol = min(p['tol'] * 2e-3, 1e-3) if plane else max(p['tol'] * 10, 1e-4)
-    for value in (controls['maxit'], chunk):
-        if value > ct.c_size_t(-1).value:
-            raise ValueError('quick-design iteration budget exceeds native size_t')
-    config = _Config(TOPOLOGY_CODES[p['topology']],
-        {'cross': 0, 'counter': 1}[p['arrangement']], {'const': 0, 'mean': 1}[p['prop_model']],
-        int(seed is not None), *(p[key] for key in ('Lx', 's', 'height', 'L_cell_m', 'A_0', 'D_h')),
-        sides, controls['maxit'], chunk, qtol, controls['alpha'])
-    return _Prepared(abi_version=1, struct_size=ct.sizeof(_Prepared),
-                         shape=(ct.c_size_t * 3)(*shape), widths=(_Array * 3)(*views[:3]),
-                         epsilon=views[3], epsilon_a=views[4], solid_conductivity=views[5],
-                         initial=(_Array * 3)(*views[6:]), resolved=config)
 
 
 def _saved_case(case):
@@ -233,19 +166,14 @@ def run_case(case, control):
     abi = version()
     if abi != 1:
         raise ValueError(f'unsupported solver library ABI: {abi}; expected 1')
-    current = getattr(library, 'tpmshx_run_quick_design_v2', None)
-    if current is None:
-        from sjtu_tpmshx.solvers.backends.quick_design import prepared_input
-        shape, p, op, widths, fixed = prepared_input(case)
-    else:
-        shape, p, op, widths, fixed = _saved_case(case)
+    try:
+        call = library.tpmshx_run_quick_design_v2
+        recipe = library.tpmshx_quick_run_temperature_algorithm_v1
+    except AttributeError as error:
+        raise ValueError('native solver library lacks the Quick Design v2 stage; rebuild the library') from error
+    shape, p, op, widths, fixed = _saved_case(case)
     plane = shape[2] == 1
-    recipe = getattr(library, 'tpmshx_quick_run_temperature_algorithm_v1', None)
-    if recipe is None:
-        from .solver_library.temperature import _temperature_algorithm
-        algorithm = _temperature_algorithm(library, 0 if plane else 1)
-    else:
-        recipe.argtypes, recipe.restype = [ct.POINTER(_StageResult)], ct.c_char_p
+    recipe.argtypes, recipe.restype = [ct.POINTER(_StageResult)], ct.c_char_p
     double_p = ct.POINTER(ct.c_double)
     release = library.tpmshx_quick_run_release_v1
     release.argtypes, release.restype = [ct.POINTER(_StageResult)], None
@@ -277,12 +205,7 @@ def run_case(case, control):
             except BaseException as error:
                 callback_errors.append(error)
 
-    if current is None:
-        descriptors = (_legacy_prepared(shape, p, op, views),)
-        call = library.tpmshx_run_quick_design_v1
-    else:
-        descriptors = _saved_v2(shape, p, op, widths, views, keepalive)
-        call = current
+    descriptors = _saved_v2(shape, p, op, widths, views, keepalive)
     call.argtypes = [*(ct.POINTER(type(item)) for item in descriptors), ct.POINTER(_StageControl),
                      ct.POINTER(_StageResult), ct.POINTER(ct.c_char), ct.c_size_t]
     call.restype = ct.c_int
@@ -298,16 +221,15 @@ def run_case(case, control):
             exception = {1: ValueError, 2: WaterStateError, 3: QuickDesignWaterFieldError,
                          4: FloatingPointError, 6: CancelledError}.get(status, RuntimeError)
             raise exception(error.value.decode('utf-8', errors='replace'))
-        if recipe is not None:
-            name = recipe(ct.byref(output))
-            if not name:
-                raise RuntimeError('native Quick Design returned no temperature algorithm')
-            algorithm = name.decode('ascii')
+        name = recipe(ct.byref(output))
+        if not name:
+            raise RuntimeError('native Quick Design returned no temperature algorithm')
+        algorithm = name.decode('ascii')
         result = _Result.from_buffer_copy(output.raw)
         expected_passes = 2 if p['prop_model'] == 'mean' else 1
         if result.stop not in (0, 1) or result.completed_passes != expected_passes:
             raise RuntimeError('native Quick Design returned an invalid pass/status contract')
-        use_records = current is not None and current_warnings() is not None
+        use_records = current_warnings() is not None
         if use_records:
             for index in range(result.completed_passes):
                 for side in range(2):

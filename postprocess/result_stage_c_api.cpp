@@ -748,13 +748,6 @@ int TPMSHX_RESULT_CALL tpmshx_result_stage_qualification_v1(const tpmshx_result_
         owned.json_text = json(report(evaluate_qualification(copied, values)));
     });
 }
-int TPMSHX_RESULT_CALL tpmshx_result_stage_query_v2(const tpmshx_stage_input_v2* input,
-    uint32_t query, const tpmshx_stage_metric_spec_v1* requested,
-    const tpmshx_stage_metric_value_v1* metrics, size_t count,
-    tpmshx_stage_output_v1* output, Diagnostics* diagnostics, uint64_t* error_token,
-    char* error, size_t capacity) {
-    return query_stage(input, nullptr, query, requested, metrics, count, output, diagnostics, error_token, error, capacity);
-}
 int TPMSHX_RESULT_CALL tpmshx_result_stage_query_v3(const tpmshx_stage_input_v3* input,
     uint32_t query, const tpmshx_stage_metric_spec_v1* requested,
     const tpmshx_stage_metric_value_v1* metrics, size_t count,

@@ -226,7 +226,7 @@ int solve(const tpmshx_full3d_input_v1* in,const tpmshx_full3d_control_v1* c,
     const tpmshx_energy_options_v1* energy,
     const tpmshx_energy_options_v2* strict_energy,
     const tpmshx_model_h_iteration_options_v1* model_h,
-    const tpmshx_full3d_callbacks_v1* callbacks,tpmshx_full3d_result_v1* result,char* error,size_t capacity,size_t cpu_threads=1) {
+    const tpmshx_full3d_callbacks_v1* callbacks,tpmshx_full3d_result_v1* result,char* error,size_t capacity,size_t cpu_threads) {
     if(!error || !capacity)return 1;
     try {
         if(!in || !c || !result)throw std::invalid_argument("null full 3D API argument");
@@ -270,7 +270,7 @@ struct RunOwner {
     std::unique_ptr<Full3DRun> run;
     RunOwner(const tpmshx_full3d_input_v1* in,const tpmshx_full3d_control_v1* c,
              const tpmshx_energy_options_v2* energy,const tpmshx_model_h_iteration_options_v1* model_h,
-             const tpmshx_full3d_callbacks_v1* cb,size_t cpu_threads=1)
+             const tpmshx_full3d_callbacks_v1* cb,size_t cpu_threads)
         :data(prepared_input(in)) {
         if(!c)throw std::invalid_argument("null full 3D run controls");
         if(cb)callbacks=*cb;
@@ -307,22 +307,6 @@ struct RunOwner {
 } // namespace
 extern "C" {
 uint32_t TPMSHX_THERMAL_CALL tpmshx_full_3d_abi_version(void) {return TPMSHX_FULL_3D_ABI_VERSION;}
-int TPMSHX_THERMAL_CALL tpmshx_solve_full_3d_v1(const tpmshx_full3d_input_v1* in,const tpmshx_full3d_control_v1* c,
-    const tpmshx_full3d_callbacks_v1* callbacks,tpmshx_full3d_result_v1* result,char* error,size_t capacity) {
-    return solve(in,c,nullptr,nullptr,nullptr,callbacks,result,error,capacity);
-}
-int TPMSHX_THERMAL_CALL tpmshx_solve_full_3d_v2(const tpmshx_full3d_input_v1* in,const tpmshx_full3d_control_v1* c,
-    const tpmshx_energy_options_v1* energy,const tpmshx_full3d_callbacks_v1* callbacks,
-    tpmshx_full3d_result_v1* result,char* error,size_t capacity) {
-    if(!energy) {if(error&&capacity)std::snprintf(error,capacity,"missing conservative energy options");return 1;}
-    return solve(in,c,energy,nullptr,nullptr,callbacks,result,error,capacity);
-}
-int TPMSHX_THERMAL_CALL tpmshx_solve_full_3d_v3(const tpmshx_full3d_input_v1* in,const tpmshx_full3d_control_v1* c,
-    const tpmshx_energy_options_v2* energy,const tpmshx_full3d_callbacks_v1* callbacks,
-    tpmshx_full3d_result_v1* result,char* error,size_t capacity) {
-    if(!energy) {if(error&&capacity)std::snprintf(error,capacity,"missing strict conservative energy options");return 1;}
-    return solve(in,c,nullptr,energy,nullptr,callbacks,result,error,capacity);
-}
 void TPMSHX_THERMAL_CALL tpmshx_full_3d_release_v1(tpmshx_full3d_result_v1* result) {
     if(result) {delete static_cast<Owner*>(result->owner);*result={};}
 }
@@ -408,13 +392,6 @@ extern "C" int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_property_sampling_v1(
     return 0;
 }
 
-extern "C" int TPMSHX_THERMAL_CALL tpmshx_solve_full_3d_v4(
-    const tpmshx_full3d_input_v1* in,const tpmshx_full3d_control_v1* control,
-    const tpmshx_model_h_iteration_options_v1* options,const tpmshx_full3d_callbacks_v1* callbacks,
-    tpmshx_full3d_result_v1* result,char* error,size_t capacity) {
-    if(!options) {if(error&&capacity)std::snprintf(error,capacity,"missing model-h iteration options");return 1;}
-    return solve(in,control,nullptr,nullptr,options,callbacks,result,error,capacity);
-}
 extern "C" int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_model_h_iterations_v1(
     const tpmshx_full3d_result_v1* result,tpmshx_model_h_iteration_records_v1* records) {
     if(!result || !result->owner || !records)return 1;
@@ -433,22 +410,6 @@ extern "C" int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_model_h_acceleration_v1(
 }
 
 extern "C" {
-int TPMSHX_THERMAL_CALL tpmshx_full_3d_run_create_v1(
-    const tpmshx_full3d_input_v1* in,const tpmshx_full3d_control_v1* c,const tpmshx_energy_options_v2* energy,
-    const tpmshx_full3d_callbacks_v1* callbacks,void** run,char* error,size_t capacity) {
-    return tpmshx_full_3d_run_create_v2(in,c,energy,nullptr,callbacks,run,error,capacity);
-}
-int TPMSHX_THERMAL_CALL tpmshx_full_3d_run_restore_v1(
-    const tpmshx_full3d_input_v1* in,const tpmshx_full3d_control_v1* c,const tpmshx_energy_options_v2* energy,
-    const tpmshx_full3d_callbacks_v1* callbacks,const tpmshx_run_state_field_v1* fields,size_t count,
-    void** run,char* error,size_t capacity) {
-    return tpmshx_full_3d_run_restore_v2(in,c,energy,nullptr,callbacks,fields,count,run,error,capacity);
-}
-int TPMSHX_THERMAL_CALL tpmshx_full_3d_run_create_v2(
-    const tpmshx_full3d_input_v1* in,const tpmshx_full3d_control_v1* c,const tpmshx_energy_options_v2* energy,
-    const tpmshx_model_h_iteration_options_v1* model_h,const tpmshx_full3d_callbacks_v1* callbacks,void** run,char* error,size_t capacity) {
-    return tpmshx_full_3d_run_create_v3(in,c,energy,model_h,1,callbacks,run,error,capacity);
-}
 int TPMSHX_THERMAL_CALL tpmshx_full_3d_run_create_v3(
     const tpmshx_full3d_input_v1* in,const tpmshx_full3d_control_v1* c,const tpmshx_energy_options_v2* energy,
     const tpmshx_model_h_iteration_options_v1* model_h,size_t cpu_threads,const tpmshx_full3d_callbacks_v1* callbacks,void** run,char* error,size_t capacity) {
@@ -457,12 +418,6 @@ int TPMSHX_THERMAL_CALL tpmshx_full_3d_run_create_v3(
         auto owner=std::make_unique<RunOwner>(in,c,energy,model_h,callbacks,cpu_threads);
         owner->run=std::make_unique<Full3DRun>(owner->data,owner->control);*run=owner.release();
     },error,capacity);
-}
-int TPMSHX_THERMAL_CALL tpmshx_full_3d_run_restore_v2(
-    const tpmshx_full3d_input_v1* in,const tpmshx_full3d_control_v1* c,const tpmshx_energy_options_v2* energy,
-    const tpmshx_model_h_iteration_options_v1* model_h,const tpmshx_full3d_callbacks_v1* callbacks,const tpmshx_run_state_field_v1* fields,size_t count,
-    void** run,char* error,size_t capacity) {
-    return tpmshx_full_3d_run_restore_v3(in,c,energy,model_h,1,callbacks,fields,count,run,error,capacity);
 }
 int TPMSHX_THERMAL_CALL tpmshx_full_3d_run_restore_v3(
     const tpmshx_full3d_input_v1* in,const tpmshx_full3d_control_v1* c,const tpmshx_energy_options_v2* energy,

@@ -270,14 +270,14 @@ def test_stage_symbol_is_required(native_control, monkeypatch):
 
     class MissingStage:
         def __getattr__(self, name):
-            if name in ('tpmshx_run_quick_design_v1', 'tpmshx_run_quick_design_v2'):
+            if name == 'tpmshx_run_quick_design_v2':
                 raise AttributeError(name)
             if name == 'tpmshx_solve_quick_design_v1':
                 pytest.fail('missing stage silently selected the low-level driver')
             return getattr(library, name)
 
     monkeypatch.setattr(quick_design.ct, 'CDLL', lambda _: MissingStage())
-    with pytest.raises(AttributeError, match='tpmshx_run_quick_design_v1'):
+    with pytest.raises(ValueError, match='lacks the Quick Design v2 stage'):
         run_case(case, native_control)
 
 

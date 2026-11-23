@@ -262,8 +262,7 @@ def test_missing_stage_symbol_is_a_deployment_error(monkeypatch, query):
     monkeypatch.setattr(core.result_library, 'get', lambda: library)
     function = getattr(native, 'evaluate' if query == 'evaluate' else 'evaluate_' + query)
     arguments = (sample_result(2), {}) if query == 'qualification' else (sample_result(2),)
-    version = 3 if query in ('evaluate', 'qualification') else 2
-    with pytest.raises(RuntimeError, match=f'lacks tpmshx_result_stage_query_v{version}'):
+    with pytest.raises(RuntimeError, match='lacks tpmshx_result_stage_query_v3'):
         function(*arguments)
 
 

@@ -18,18 +18,19 @@ int main() {
         tpmshx_stage_application_2d_v1 application{};
         auto result=[&] {
             auto prepared=prepare_case(input,options);
-            const auto& initial=prepared.view().values;
+            const auto saved=saved_case(prepared);
+            const auto& initial=prepared.view().values.prepared.values;
             for(size_t side=0;side<2;++side) {
                 application.area_density_per_m[side]=initial.area_density_per_m;
                 application.surface_htc_W_m2K[side]=initial.sides[side].properties.surface_transfer_W_m2K;
             }
             auto state=[&] {
-                Run2D run(prepared,control);
+                Run2D run(saved,control);
                 while(run.phase()!=TPMSHX_FULL2D_FLOW)run.advance_step();
                 return run.snapshot();
             }();
             control.cpu_threads=1;
-            Run2D restored(prepared,control,{},&state);
+            Run2D restored(saved,control,{},&state);
             while(restored.phase()!=TPMSHX_FULL2D_COMPLETED)restored.advance_step();
             return restored.take_result();
         }();

@@ -10,21 +10,23 @@ import pytest
 
 from sjtu_tpmshx.cpp_interface._native_values import copy_array, read_text
 
-
-from tests.python import test_native_preparation_flow_3d as flow
 from sjtu_tpmshx.data_types.compute_config import ZoneInputConfig
+from sjtu_tpmshx.cpp_interface import _native_grid
+from sjtu_tpmshx.cpp_interface import _native_preparation_case as abi
+from tests.python import native_preparation_abi
+from tests.python import preparation_3d_reference
 
-three, abi, v1, mass = flow.three, flow.abi, flow.v1, flow.flow
+
 _U, _S, _D, _struct = abi._U, abi._S, abi._D, abi._structure
-_Cell = _struct('GridCell3D', [('bounds', three.grid._Scalar * 4),
+_Cell = _struct('GridCell3D', [('bounds', _native_grid._Scalar * 4),
     ('cell_length_mm', _D), ('wall_thickness_mm', _D)])
 _Input = _struct('SpatialInput3D', [('abi_version', _U), ('struct_size', _S),
-    ('values', flow._Input), ('cells', ct.POINTER(_Cell)), ('cell_count', _S)])
+    ('values', native_preparation_abi._Input_flow_3d), ('cells', ct.POINTER(_Cell)), ('cell_count', _S)])
 _Flow = _struct('SpatialFlow3D', [('abi_version', _U), ('struct_size', _S),
-    ('flow', flow._Flow), ('cells', ct.POINTER(_Cell)), ('cell_count', _S),
+    ('flow', native_preparation_abi._Flow), ('cells', ct.POINTER(_Cell)), ('cell_count', _S),
     ('owner', ct.c_void_p)])
 _Result = _struct('SpatialCase3D', [('abi_version', _U), ('struct_size', _S),
-    ('prepared', three._Result), ('flow', flow._Flow),
+    ('prepared', native_preparation_abi._Result), ('flow', native_preparation_abi._Flow),
     ('cells', ct.POINTER(_Cell)), ('cell_count', _S), ('side_b_porosity', abi._Array),
     ('area_density_per_m', abi._Array), ('hydraulic_diameter_m', abi._Array),
     ('thermal_porosity', abi._Array), ('split_a', _D), ('have_side_geometry', _U),
@@ -34,7 +36,7 @@ _OPERATIONS = ('prepare_inlet_mass_capacities', 'resolve_inlet_flow', 'prepare_f
 
 @pytest.fixture(scope='module')
 def native():
-    library = ct.CDLL(os.environ.get('TPMSHX_PREPARATION_CASE_LIBRARY', v1._library_path()))
+    library = ct.CDLL(os.environ.get('TPMSHX_PREPARATION_CASE_LIBRARY', native_preparation_abi._library_path()))
     version = library.tpmshx_preparation_spatial_3d_abi_version_v4
     version.argtypes, version.restype = [], _U
     assert version() == 4
@@ -59,7 +61,7 @@ def isolated_environment(monkeypatch):
 
 def _configuration(topology='Gyroid', pair=('air', 'water'), *, spatial=True, delta=.12,
                    mode='cfd_smooth'):
-    config = three._configuration(topology, pair, mode)
+    config = native_preparation_abi._configuration_3d(topology, pair, mode)
     config.geometry.delta_levelset = delta
     if spatial:
         config.zones = ZoneInputConfig(enabled=True, axis='grid', grid={'cells': [
@@ -70,12 +72,12 @@ def _configuration(topology='Gyroid', pair=('air', 'water'), *, spatial=True, de
 
 
 def _input(config, targets=None):
-    values = flow._input(config, targets)
+    values = native_preparation_abi._input_flow_3d(config, targets)
     values.input.geometry_mode = 2 if config.zones.enabled else 0
     rows = config.zones.grid['cells'] if config.zones.enabled else []
     cells = (_Cell * len(rows))()
     for index, row in enumerate(rows):
-        cells[index].bounds[:] = [three.grid._scalar(row[key]) for key in ('x0', 'x1', 'y0', 'y1')]
+        cells[index].bounds[:] = [_native_grid._scalar(row[key]) for key in ('x0', 'x1', 'y0', 'y1')]
         cells[index].cell_length_mm, cells[index].wall_thickness_mm = float(row['L']), float(row['t'])
     source = _Input(4, ct.sizeof(_Input), values, cells, len(cells))
     source._values, source._cells = values, cells
@@ -120,8 +122,8 @@ def _snapshot(result, config):
     for index, row in enumerate(rows):
         actual = result.cells[index]
         for bound, key in zip(actual.bounds, ('x0', 'x1', 'y0', 'y1')):
-            assert v1._struct_values(bound) == v1._struct_values(three.grid._scalar(row[key]))
-        v1._same([actual.cell_length_mm, actual.wall_thickness_mm],
+            assert native_preparation_abi._struct_values(bound) == native_preparation_abi._struct_values(_native_grid._scalar(row[key]))
+        native_preparation_abi._same([actual.cell_length_mm, actual.wall_thickness_mm],
             [float(row['L']), float(row['t'])], 'owned rectangle ' + str(index))
 
 
@@ -130,7 +132,7 @@ def _full(native, monkeypatch, config, targets=None, *, chi=None):
     with monkeypatch.context() as patch:
         if chi is not None:
             patch.setenv('TPMSHX_CHI_S', str(chi))
-        expected, state = flow._reference(monkeypatch, 'prepare_flow_case', config, targets)
+        expected, state = native_preparation_abi._reference(monkeypatch, 'prepare_flow_case', config, targets)
     status, result, failure, error, live, source = _call(
         native, 'prepare_flow_case', config, targets, chi=chi)
     assert status == 0, error
@@ -148,34 +150,34 @@ def _full(native, monkeypatch, config, targets=None, *, chi=None):
         _snapshot(result, config)
         assert result.prepared.input.cell_length_mm == config.geometry.L_cell_mm
         for name in ('cell_length', 'wall_thickness', 'solid_conductivity'):
-            assert v1._struct_values(getattr(result.prepared.input.kinds, name)) == v1._struct_values(
+            assert native_preparation_abi._struct_values(getattr(result.prepared.input.kinds, name)) == native_preparation_abi._struct_values(
                 getattr(source.values.input.kinds, name))
-        three._check_values(result.prepared, expected, state['resolved'],
+        native_preparation_abi._check_values(result.prepared, expected, state['resolved'],
             side_b_porosity=result.side_b_porosity)
-        three._check_evidence(result.prepared, expected, state['records'],
+        native_preparation_abi._check_evidence(result.prepared, expected, state['records'],
             state['events'], live, state['resolved'])
         have_targets = targets is not None or any(
             getattr(config, 'fluid_' + side).mass_flow_kg_s is not None for side in 'AB')
         assert bool(result.flow.have_capacities) == have_targets
         if have_targets:
-            flow._resolved(result.flow, state['resolved'])
-            flow._evidence(result.flow.evidence, state['capacity_records'])
-            assert three._host_events(mass._events(result.flow.evidence)) == state['capacity_events']
+            native_preparation_abi._resolved(result.flow, state['resolved'])
+            native_preparation_abi._evidence(result.flow.evidence, state['capacity_records'])
+            assert native_preparation_abi._host_events(native_preparation_abi._events(result.flow.evidence)) == state['capacity_events']
         else:
             assert result.flow.evidence.range_count == result.flow.evidence.event_count == 0
         thermal = expected.parameters['thermal_geometry']
-        v1._same(result.split_a, thermal['split_A'], 'global thermal split')
+        native_preparation_abi._same(result.split_a, thermal['split_A'], 'global thermal split')
         assert bool(result.have_side_geometry) == (thermal['side_geometry'] is not None)
         if result.have_side_geometry:
             for index, side in enumerate('AB'):
-                v1._same(result.side_geometry[index], thermal['side_geometry'][side], side + ' thermal surfaces')
+                native_preparation_abi._same(result.side_geometry[index], thermal['side_geometry'][side], side + ' thermal surfaces')
         for name, key in (('area_density_per_m', 'A_0'), ('hydraulic_diameter_m', 'D_h'),
                           ('thermal_porosity', 'epsilon')):
             if thermal['fields'] is None:
                 assert getattr(result, name).size == 0
             else:
                 shape = expected.design_fields['eps_arr'].shape
-                v1._same(copy_array(getattr(result, name), shape), thermal['fields'][key], key)
+                native_preparation_abi._same(copy_array(getattr(result, name), shape), thermal['fields'][key], key)
         address_a = ct.cast(result.prepared.side_porosity.data, ct.c_void_p).value
         address_b = ct.cast(result.side_b_porosity.data, ct.c_void_p).value
         assert (address_a == address_b) == (config.geometry.delta_levelset == 0.)
@@ -188,7 +190,7 @@ def _full(native, monkeypatch, config, targets=None, *, chi=None):
 
 def _query(native, monkeypatch, operation, config, targets=None):
     before = deepcopy(asdict(config))
-    expected, state = flow._reference(monkeypatch, operation, config, targets, scoped=True)
+    expected, state = native_preparation_abi._reference(monkeypatch, operation, config, targets, scoped=True)
     status, result, failure, error, live, source = _call(native, operation, config, targets)
     assert status == 0, error
     try:
@@ -197,15 +199,15 @@ def _query(native, monkeypatch, operation, config, targets=None):
         if source.cell_count:
             source._cells[0].cell_length_mm = -1.
         _snapshot(result, config)
-        flow._evidence(result.flow.evidence, state['records'])
-        assert three._host_events(live) == state['events']
-        assert mass._events(result.flow.evidence) == live
+        native_preparation_abi._evidence(result.flow.evidence, state['records'])
+        assert native_preparation_abi._host_events(live) == state['events']
+        assert native_preparation_abi._events(result.flow.evidence) == live
         if operation == 'prepare_inlet_mass_capacities':
             assert result.flow.have_capacities and state['geometry_calls'] == 1
             for index, side in enumerate('AB'):
-                mass._scalar(result.flow.capacities[index], expected[side])
+                native_preparation_abi._scalar(result.flow.capacities[index], expected[side])
         else:
-            flow._resolved(result.flow, expected)
+            native_preparation_abi._resolved(result.flow, expected)
     finally:
         _release(native, result)
     assert asdict(config) == before
@@ -215,15 +217,15 @@ def _query(native, monkeypatch, operation, config, targets=None):
 def _failure(native, monkeypatch, operation, config, targets=None, *, source=None):
     state = {}
     with pytest.raises((ValueError, ZeroDivisionError)) as reference:
-        flow._reference(monkeypatch, operation, config, targets, scoped=True, state=state)
+        native_preparation_abi._reference(monkeypatch, operation, config, targets, scoped=True, state=state)
     status, result, failure, error, live, _ = _call(native, operation, config, targets, source=source)
     assert status != 0 and error == str(reference.value)
-    assert failure.kind == three.fluids._error_kind(reference.value)
+    assert failure.kind == native_preparation_abi._error_kind(reference.value)
     assert bytes(result) == bytes(type(result)(4, ct.sizeof(result)))
-    assert three._host_events(live) == state['events']
+    assert native_preparation_abi._host_events(live) == state['events']
     causes, cause = [], reference.value.__cause__
     while cause is not None:
-        causes.append((three.fluids._error_kind(cause), str(cause)))
+        causes.append((native_preparation_abi._error_kind(cause), str(cause)))
         cause = cause.__cause__
     assert [(item.kind, item.message.decode()) for item in failure.causes[:failure.cause_count]] == causes
     _release(native, result)
@@ -268,7 +270,7 @@ def test_spatial_3d_explicit_capacity_resolve_and_full(native, monkeypatch, topo
 def test_spatial_3d_configured_and_mixed_flow_ports(native, monkeypatch, direction, sides):
     config = _configuration(delta=.12 if direction % 2 else -.12)
     config.geometry.L_dom_m, config.geometry.H_dom_m, config.geometry.Lz_m = .081, .063, .047
-    three._partial_ports(config, direction)
+    native_preparation_abi._partial_ports(config, direction)
     capacities, _ = _query(native, monkeypatch, 'prepare_inlet_mass_capacities', config)
     for side in sides:
         fluid = getattr(config, 'fluid_' + side)
@@ -285,11 +287,11 @@ def test_spatial_3d_configured_and_mixed_flow_ports(native, monkeypatch, directi
 def test_spatial_3d_uses_actual_refined_xy_centres(native, monkeypatch, direction, delta):
     config = _configuration(delta=delta)
     config.geometry.L_dom_m, config.geometry.H_dom_m, config.geometry.Lz_m = .081, .063, .047
-    three._partial_ports(config, direction)
+    native_preparation_abi._partial_ports(config, direction)
     lengths = (config.geometry.L_dom_m, config.geometry.H_dom_m, config.geometry.Lz_m)
     for side in 'AB':
         port = getattr(config, 'bc_' + side)
-        depth = lengths[three.grid.axis_map(port.dir)[2]]
+        depth = lengths[_native_grid.axis_map(port.dir)[2]]
         port.in_z_ctr, port.in_z_w = .43 * depth, .57 * depth
         port.out_z_ctr, port.out_z_w = .59 * depth, .49 * depth
     config.flags.port_wall_refine = True
@@ -298,7 +300,7 @@ def test_spatial_3d_uses_actual_refined_xy_centres(native, monkeypatch, directio
     assert any(np.ptp(expected.grid['d' + axis]) > 0 for axis in 'xyz')
     for key in ('L_field_m', 't_field_m', 'eps_arr', 'eps_A', 'eps_B', 'K_m2', 'cF_per_m'):
         values = expected.design_fields[key]
-        v1._same(values, np.repeat(values[:, :, :1], values.shape[2], axis=2), key + ' extrusion')
+        native_preparation_abi._same(values, np.repeat(values[:, :, :1], values.shape[2], axis=2), key + ' extrusion')
 
 
 @pytest.mark.parametrize('selection', ['gaps', 'reverse-overlap', 'no-hit', 'overwritten-nan', 'overwritten-domain'])
@@ -350,7 +352,7 @@ def test_spatial_3d_nominal_and_grid_scalar_precision(native, monkeypatch, dtype
         config.fluid_B.u_mps, config.fluid_B.T_in_K = dtype(.03125), dtype(321.13)
     else:
         config.geometry.L_dom_m, config.geometry.H_dom_m, config.geometry.Lz_m = map(dtype, (.081, .063, .047))
-        three._partial_ports(config, 5)
+        native_preparation_abi._partial_ports(config, 5)
         for side in 'AB':
             port = getattr(config, 'bc_' + side)
             for name in ('in_ctr', 'in_w', 'out_ctr', 'out_w', 'in_z_ctr', 'in_z_w', 'out_z_ctr', 'out_z_w'):
@@ -389,7 +391,7 @@ def test_spatial_3d_hx_capacity_precedes_delta_application_rejection(native, mon
 
 @pytest.mark.parametrize('delta', [-0., 0.])
 def test_spatial_3d_zero_offset_keeps_original_alias_and_no_side_geometry(native, monkeypatch, delta):
-    original = three.preparation._prepare_geometry_data
+    original = preparation_3d_reference._prepare_geometry_data
     aliases = []
 
     def geometry(*args, **kwargs):
@@ -397,7 +399,7 @@ def test_spatial_3d_zero_offset_keeps_original_alias_and_no_side_geometry(native
         aliases.append(prepared['design']['eps_A'] is prepared['design']['eps_B'])
         return prepared
 
-    monkeypatch.setattr(three.preparation, '_prepare_geometry_data', geometry)
+    monkeypatch.setattr(preparation_3d_reference, '_prepare_geometry_data', geometry)
     expected, _ = _full(native, monkeypatch, _configuration(delta=delta))
     assert aliases == [True]
     assert expected.parameters['thermal_geometry']['side_geometry'] is None
@@ -422,7 +424,7 @@ def test_spatial_3d_raw_and_thermal_fields_keep_the_si_round_trip(native, monkey
     nz = expected.design_fields['eps_arr'].shape[2]
     for index, name in enumerate(('L', 't')):
         original_volume = np.repeat(raw[index][:, :, None], nz, axis=2)
-        v1._same(thermal[index], original_volume * 1e-3 * 1e3, name + ' thermal input')
+        native_preparation_abi._same(thermal[index], original_volume * 1e-3 * 1e3, name + ' thermal input')
     assert any(np.any(np.repeat(raw[index][:, :, None], nz, axis=2) != thermal[index]) for index in (0, 1))
 
 
@@ -433,7 +435,7 @@ def test_spatial_3d_query_scope_keeps_range_and_notice_order(native, monkeypatch
     config.fluid_A.T_in_K = min(tpms_props._AIR_T_RANGE[0], tpms_props._AIR_CP_RANGE[0]) - 10.
     monkeypatch.setattr(tpms_props, '_range_warnings_emitted', set())
     targets = (.003, .03) if operation == 'resolve_inlet_flow' else None
-    _, standalone = flow._reference(monkeypatch, operation, config, targets)
+    _, standalone = native_preparation_abi._reference(monkeypatch, operation, config, targets)
     _, scoped = _query(native, monkeypatch, operation, config, targets)
     assert any('outside fitted range' in event[2] for event in standalone['events'])
     assert standalone['events'] != scoped['events']
@@ -444,16 +446,16 @@ def test_spatial_3d_no_target_resolution_keeps_unvalidated_owned_input(native, m
     config.fluid_A.T_in_K = -1.
     config.zones.grid['cells'][0]['x1'] = -1.
     config.sco2_nu = replace(config.sco2_nu, source='retained spatial source')
-    expected, state = flow._reference(monkeypatch, 'resolve_inlet_flow', config)
+    expected, state = native_preparation_abi._reference(monkeypatch, 'resolve_inlet_flow', config)
     assert expected is config and state['geometry_calls'] == 0
     status, result, failure, error, live, source = _call(native, 'resolve_inlet_flow', config)
     assert status == 0, error
     try:
         assert not failure.kind and not result.flow.have_capacities and not live
         assert result.flow.evidence.range_count == result.flow.evidence.warning_count == result.flow.evidence.event_count == 0
-        for name, _ in three._Input._fields_:
+        for name, _ in native_preparation_abi._Input_3d._fields_:
             if name != 'sco2_nu':
-                assert v1._struct_values(getattr(result.flow.input, name)) == v1._struct_values(getattr(source.values.input, name))
+                assert native_preparation_abi._struct_values(getattr(result.flow.input, name)) == native_preparation_abi._struct_values(getattr(source.values.input, name))
         source._cells[0].bounds[0].value = -5.
         source._cells[0].cell_length_mm = -1.
         _snapshot(result, config)
@@ -681,14 +683,14 @@ def test_spatial_3d_rejects_invalid_raw_transport(native, operation, selection):
     _release(native, result)
 
 
-@pytest.mark.parametrize('operation,targets', flow._OWNED_FLOW_CASES)
+@pytest.mark.parametrize('operation,targets', native_preparation_abi._OWNED_FLOW_CASES)
 @pytest.mark.parametrize('destination', ['error', 'failure'])
 @pytest.mark.parametrize('spatial,invalid', [pytest.param(True, invalid, id='grid-' + invalid)
     for invalid in ('none', 'source_abi', 'source_size', 'values_abi', 'values_size',
                     'input_abi', 'input_size', 'result_abi', 'result_size')]
     + [pytest.param(False, 'none', id='uniform-none')])
 def test_spatial_3d_owned_views_reject_diagnostic_aliases(native, operation, targets, destination, spatial, invalid):
-    from tests.python.test_native_preparation_continuous import _check_owned_aliases
+    from tests.python.native_preparation_abi import _check_owned_aliases
 
     config = _configuration(spatial=spatial, delta=.12 if spatial else 0.)
     config.sco2_nu = replace(config.sco2_nu, parameter_version='saved version',
@@ -734,10 +736,10 @@ def test_spatial_3d_owned_views_reject_diagnostic_aliases(native, operation, tar
         _release(native, result)
 
 
-@pytest.mark.parametrize('operation,targets', flow._OWNED_FLOW_CASES)
+@pytest.mark.parametrize('operation,targets', native_preparation_abi._OWNED_FLOW_CASES)
 @pytest.mark.parametrize('spatial', [True, False], ids=['grid-offset', 'uniform-zero'])
 def test_spatial_3d_owned_output_keeps_safe_reuse_diagnostics(native, operation, targets, spatial):
-    from tests.python.test_native_preparation_continuous import _visible_buffers
+    from tests.python.native_preparation_abi import _visible_buffers
 
     config = _configuration(spatial=spatial, delta=.12 if spatial else 0.)
     config.sco2_nu = replace(config.sco2_nu, parameter_version='saved version',
@@ -770,7 +772,7 @@ def test_spatial_3d_owned_output_keeps_safe_reuse_diagnostics(native, operation,
 
 @pytest.mark.parametrize('view', ['cells', 'side_b_porosity', 'area_density_per_m'])
 def test_spatial_3d_owned_spatial_views_reject_error_aliases(native, view):
-    from tests.python.test_native_preparation_continuous import _visible_buffers
+    from tests.python.native_preparation_abi import _visible_buffers
 
     config = _configuration()
     config.sco2_nu = replace(config.sco2_nu, parameter_version='saved version',

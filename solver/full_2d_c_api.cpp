@@ -246,7 +246,7 @@ int solve(const size_t* shape,const double* const* arrays,const size_t* sizes,
     const tpmshx_full_2d_energy_control_v4* explicit_energy,
     const tpmshx_model_h_iteration_options_v1* model_h,
     const tpmshx_full_2d_callbacks_v2* callbacks,
-    tpmshx_full_2d_result_v2* result,char* error,size_t error_capacity,size_t cpu_threads=2) {
+    tpmshx_full_2d_result_v2* result,char* error,size_t error_capacity,size_t cpu_threads) {
     return guarded_run([&] {
         if(!result)throw std::invalid_argument("null full2D argument");
         Full2DProblem p{};Full2DControl control{};
@@ -268,7 +268,7 @@ struct RunOwner {
     const tpmshx_full_2d_config_v2* config,const tpmshx_energy_options_v1* energy,
     const tpmshx_full_2d_energy_control_v4* explicit_energy,
     const tpmshx_model_h_iteration_options_v1* model_h,
-    const tpmshx_full_2d_callbacks_v2* callbacks,size_t cpu_threads=2) {
+    const tpmshx_full_2d_callbacks_v2* callbacks,size_t cpu_threads) {
         if((energy!=nullptr)+(explicit_energy!=nullptr)+(model_h!=nullptr)>1)
             throw std::invalid_argument("conflicting full energy options");
         if(callbacks)this->callbacks=*callbacks;
@@ -308,26 +308,6 @@ tpmshx_full_2d_energy_state_v1 energy_state(const Full2DThermalState& state) {
 }
 } // namespace
 extern "C" uint32_t TPMSHX_THERMAL_CALL tpmshx_full_2d_abi_version(void) { return TPMSHX_FULL_2D_ABI_VERSION; }
-extern "C" int TPMSHX_THERMAL_CALL tpmshx_solve_full_2d_v2(
-    const size_t* shape,const double* const* arrays,const size_t* sizes,
-    const tpmshx_full_2d_config_v2* config,const tpmshx_full_2d_callbacks_v2* callbacks,
-    tpmshx_full_2d_result_v2* result,char* error,size_t capacity) {
-    return solve(shape,arrays,sizes,config,nullptr,nullptr,nullptr,callbacks,result,error,capacity);
-}
-extern "C" int TPMSHX_THERMAL_CALL tpmshx_solve_full_2d_v3(
-    const size_t* shape,const double* const* arrays,const size_t* sizes,
-    const tpmshx_full_2d_config_v2* config,const tpmshx_energy_options_v1* energy,
-    const tpmshx_full_2d_callbacks_v2* callbacks,tpmshx_full_2d_result_v2* result,char* error,size_t capacity) {
-    if(!energy) {if(error&&capacity)std::snprintf(error,capacity,"missing conservative energy options");return 1;}
-    return solve(shape,arrays,sizes,config,energy,nullptr,nullptr,callbacks,result,error,capacity);
-}
-extern "C" int TPMSHX_THERMAL_CALL tpmshx_solve_full_2d_v4(
-    const size_t* shape,const double* const* arrays,const size_t* sizes,
-    const tpmshx_full_2d_config_v2* config,const tpmshx_full_2d_energy_control_v4* energy,
-    const tpmshx_full_2d_callbacks_v2* callbacks,tpmshx_full_2d_result_v2* result,char* error,size_t capacity) {
-    if(!energy) {if(error&&capacity)std::snprintf(error,capacity,"missing explicit full 2D energy controls");return 1;}
-    return solve(shape,arrays,sizes,config,nullptr,energy,nullptr,callbacks,result,error,capacity);
-}
 extern "C" void TPMSHX_THERMAL_CALL tpmshx_full_2d_release_v2(tpmshx_full_2d_result_v2* result) {
     if (!result) return;
     delete static_cast<Owner*>(result->owner); *result={};
@@ -409,13 +389,6 @@ extern "C" int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_property_sampling_v1(
     return 0;
 }
 
-extern "C" int TPMSHX_THERMAL_CALL tpmshx_solve_full_2d_v5(
-    const size_t* shape,const double* const* arrays,const size_t* sizes,
-    const tpmshx_full_2d_config_v2* config,const tpmshx_model_h_iteration_options_v1* options,
-    const tpmshx_full_2d_callbacks_v2* callbacks,tpmshx_full_2d_result_v2* result,char* error,size_t capacity) {
-    if(!options) {if(error&&capacity)std::snprintf(error,capacity,"missing model-h iteration options");return 1;}
-    return solve(shape,arrays,sizes,config,nullptr,nullptr,options,callbacks,result,error,capacity);
-}
 extern "C" int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_model_h_iterations_v1(
     const tpmshx_full_2d_result_v2* result,tpmshx_model_h_iteration_records_v1* records) {
     if(!result || !result->owner || !records)return 1;
@@ -424,13 +397,6 @@ extern "C" int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_model_h_iterations_v1(
 }
 
 extern "C" {
-int TPMSHX_THERMAL_CALL tpmshx_full_2d_run_create_v1(const size_t* shape,const double* const* arrays,const size_t* sizes,
-    const tpmshx_full_2d_config_v2* config,const tpmshx_energy_options_v1* energy,
-    const tpmshx_full_2d_energy_control_v4* explicit_energy,
-    const tpmshx_model_h_iteration_options_v1* model_h,
-    const tpmshx_full_2d_callbacks_v2* callbacks,void** run,char* error,size_t capacity) {
-    return tpmshx_full_2d_run_create_v2(shape,arrays,sizes,config,energy,explicit_energy,model_h,2,callbacks,run,error,capacity);
-}
 int TPMSHX_THERMAL_CALL tpmshx_full_2d_run_create_v2(const size_t* shape,const double* const* arrays,const size_t* sizes,
     const tpmshx_full_2d_config_v2* config,const tpmshx_energy_options_v1* energy,
     const tpmshx_full_2d_energy_control_v4* explicit_energy,
@@ -442,14 +408,6 @@ int TPMSHX_THERMAL_CALL tpmshx_full_2d_run_create_v2(const size_t* shape,const d
         owner->run=std::make_unique<Full2DRun>(owner->data,owner->control);
         *run=owner.release();
     },error,capacity);
-}
-int TPMSHX_THERMAL_CALL tpmshx_full_2d_run_restore_v1(const size_t* shape,const double* const* arrays,const size_t* sizes,
-    const tpmshx_full_2d_config_v2* config,const tpmshx_energy_options_v1* energy,
-    const tpmshx_full_2d_energy_control_v4* explicit_energy,
-    const tpmshx_model_h_iteration_options_v1* model_h,
-    const tpmshx_full_2d_callbacks_v2* callbacks,
-    const tpmshx_run_state_field_v1* fields,size_t count,void** run,char* error,size_t capacity) {
-    return tpmshx_full_2d_run_restore_v2(shape,arrays,sizes,config,energy,explicit_energy,model_h,2,callbacks,fields,count,run,error,capacity);
 }
 int TPMSHX_THERMAL_CALL tpmshx_full_2d_run_restore_v2(const size_t* shape,const double* const* arrays,const size_t* sizes,
     const tpmshx_full_2d_config_v2* config,const tpmshx_energy_options_v1* energy,

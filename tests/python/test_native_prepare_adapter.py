@@ -10,10 +10,10 @@ import pytest
 
 from tests.python import preparation_api_reference as reference
 from tests.python import preparation_case_reference as preparation_reference
-from tests.python import test_native_preparation_continuous as continuous
-from tests.python import test_native_preparation_mass_flow as uniform
+
 from sjtu_tpmshx.preprocess import api
 from sjtu_tpmshx.run_control.run_warnings import range_observations, warning_scope
+from tests.python import native_preparation_abi
 
 
 @pytest.fixture(autouse=True)
@@ -95,7 +95,7 @@ def _capture(monkeypatch, module, operation, config, targets=None, *, clear_cach
 @pytest.mark.parametrize('topology', ['Diamond', 'Gyroid'])
 @pytest.mark.parametrize('pair', list(product(('air', 'water', 'sco2', 'co2'), repeat=2)))
 def test_complete_case_matches_reference(monkeypatch, spatial, topology, pair):
-    config = (continuous._configuration if spatial else uniform._configuration)(topology, pair)
+    config = (native_preparation_abi._configuration_continuous if spatial else native_preparation_abi._configuration_mass_flow)(topology, pair)
     before = asdict(config)
     expected = _capture(monkeypatch, reference, 'full', config)
     actual = _capture(monkeypatch, api, 'full', config)
@@ -128,7 +128,7 @@ def test_native_zoned_routes_keep_original_smoothing(monkeypatch, tmp_path, mode
 @pytest.mark.parametrize('operation', ['capacity', 'resolve', 'full'])
 @pytest.mark.parametrize('explicit', [False, True])
 def test_mass_routes_and_stale_speed(monkeypatch, spatial, operation, explicit):
-    config = (continuous._configuration if spatial else uniform._configuration)()
+    config = (native_preparation_abi._configuration_continuous if spatial else native_preparation_abi._configuration_mass_flow)()
     targets = (.003, .03) if explicit else None
     config.fluid_A.u_mps, config.fluid_B.u_mps = -99., -88.
     if not explicit:
@@ -142,7 +142,7 @@ def test_mass_routes_and_stale_speed(monkeypatch, spatial, operation, explicit):
 @pytest.mark.parametrize('dtype', [float, np.float16, np.float32, np.float64, np.int16])
 @pytest.mark.parametrize('array', [False, True])
 def test_typed_capacity_and_resolved_values(monkeypatch, spatial, dtype, array):
-    config = (continuous._configuration if spatial else uniform._configuration)()
+    config = (native_preparation_abi._configuration_continuous if spatial else native_preparation_abi._configuration_mass_flow)()
     depth = dtype(1) if dtype is np.int16 else dtype(.042)
     config.geometry.Lz_m = np.asarray(depth) if array else depth
     targets = tuple(np.asarray(dtype(value)) if array else dtype(value)
@@ -157,7 +157,7 @@ def test_typed_capacity_and_resolved_values(monkeypatch, spatial, dtype, array):
     for pair in product(('air', 'water', 'sco2', 'co2'), repeat=2)
 ] + [(True, 'Gyroid', ('air', 'water')), (True, 'Diamond', ('co2', 'co2')), (True, 'Gyroid', ('co2', 'co2'))])
 def test_existing_experimental_selection(monkeypatch, spatial, topology, pair):
-    config = (continuous._configuration if spatial else uniform._configuration)(topology, pair, 'experimental')
+    config = (native_preparation_abi._configuration_continuous if spatial else native_preparation_abi._configuration_mass_flow)(topology, pair, 'experimental')
     _same(_capture(monkeypatch, api, 'full', config), _capture(monkeypatch, reference, 'full', config))
 
 
@@ -191,7 +191,7 @@ def _failure(monkeypatch, module, config, targets=None):
 @pytest.mark.parametrize('spatial', [False, True])
 @pytest.mark.parametrize('kind', ['speed', 'temperature', 'pressure', 'earlier-water', 'target-replaces-speed'])
 def test_host_object_error_order(monkeypatch, side, spatial, kind):
-    config = (continuous._configuration if spatial else uniform._configuration)('Diamond', ('air', 'water'))
+    config = (native_preparation_abi._configuration_continuous if spatial else native_preparation_abi._configuration_mass_flow)('Diamond', ('air', 'water'))
     fluid = getattr(config, 'fluid_' + side)
     name = {'temperature': 'T_in_K', 'pressure': 'P_in_Pa'}.get(kind, 'u_mps')
     setattr(fluid, name, np.asarray(getattr(fluid, name), dtype=np.float64))
@@ -206,14 +206,14 @@ def test_host_object_error_order(monkeypatch, side, spatial, kind):
 
 
 def test_no_target_resolution_keeps_identity_without_library(monkeypatch):
-    config = uniform._configuration()
+    config = native_preparation_abi._configuration_mass_flow()
     config.fluid_A.u_mps = -99.
     monkeypatch.setenv('TPMSHX_PREPARATION_LIBRARY', '/missing/preparation/library')
     assert api.resolve_inlet_flow_config(config) is config
 
 
 def test_missing_library_is_reported(monkeypatch):
-    config = uniform._configuration()
+    config = native_preparation_abi._configuration_mass_flow()
     monkeypatch.setenv('TPMSHX_PREPARATION_LIBRARY', '/missing/preparation/library')
     with pytest.raises(FileNotFoundError, match='prebuilt native preparation library is missing'):
         api.prepare_case(config, case_id='missing')
@@ -221,7 +221,7 @@ def test_missing_library_is_reported(monkeypatch):
 
 def test_direct_2d_preparation_keeps_dimension_guard():
     from sjtu_tpmshx.preprocess.two_d import preparation
-    config = uniform._configuration()
+    config = native_preparation_abi._configuration_mass_flow()
     config.solver.Nz = 2
     with pytest.raises(ValueError, match='2D preparation requires solver.Nz == 1'):
         preparation.prepare_case(config, case_id='wrong-dimension')
@@ -229,7 +229,7 @@ def test_direct_2d_preparation_keeps_dimension_guard():
 
 def test_nonzero_delta_uses_native_thermal_geometry(monkeypatch):
     from sjtu_tpmshx.cpp_interface import _native_geometry
-    config = uniform._configuration()
+    config = native_preparation_abi._configuration_mass_flow()
     config.geometry.delta_levelset = .1
     expected = _capture(monkeypatch, reference, 'full', config)
     monkeypatch.setattr(_native_geometry, 'prepare_sides',
@@ -240,7 +240,7 @@ def test_nonzero_delta_uses_native_thermal_geometry(monkeypatch):
 def test_callback_exception_restores_scope_and_releases_owner(monkeypatch):
     from sjtu_tpmshx.run_control.run_warnings import current_warnings
     from sjtu_tpmshx.cpp_interface import preparation_host as binding
-    config = uniform._configuration()
+    config = native_preparation_abi._configuration_mass_flow()
     actual = binding._Bindings
     released = []
 
@@ -268,7 +268,7 @@ def test_callback_exception_restores_scope_and_releases_owner(monkeypatch):
 @pytest.mark.parametrize('dtype', [np.float16, np.float32, np.float64, np.int16])
 @pytest.mark.parametrize('array', [False, True])
 def test_material_scalar_and_array_types(monkeypatch, spatial, dtype, array):
-    config = (continuous._configuration if spatial else uniform._configuration)()
+    config = (native_preparation_abi._configuration_continuous if spatial else native_preparation_abi._configuration_mass_flow)()
     value = dtype(14.37)
     config.geometry.k_s_W_mK = np.asarray(value) if array else value
     _same(_capture(monkeypatch, api, 'full', config), _capture(monkeypatch, reference, 'full', config))
@@ -277,7 +277,7 @@ def test_material_scalar_and_array_types(monkeypatch, spatial, dtype, array):
 @pytest.mark.parametrize('spatial', [False, True])
 @pytest.mark.parametrize('side', ['A', 'B'])
 def test_single_target_keeps_other_speed_and_snapshot(monkeypatch, spatial, side):
-    config = (continuous._configuration if spatial else uniform._configuration)()
+    config = (native_preparation_abi._configuration_continuous if spatial else native_preparation_abi._configuration_mass_flow)()
     selected = getattr(config, 'fluid_' + side)
     selected.mass_flow_kg_s = .003 if side == 'A' else .03
     selected.u_mps = np.array(-99.)
@@ -289,7 +289,7 @@ def test_single_target_keeps_other_speed_and_snapshot(monkeypatch, spatial, side
 @pytest.mark.parametrize('spatial', [False, True])
 @pytest.mark.parametrize('field', ['L_cell_mm', 't_wall_mm'])
 def test_geometry_object_error_precedes_later_properties(monkeypatch, spatial, field):
-    config = (continuous._configuration if spatial else uniform._configuration)()
+    config = (native_preparation_abi._configuration_continuous if spatial else native_preparation_abi._configuration_mass_flow)()
     setattr(config.geometry, field, np.asarray(getattr(config.geometry, field)))
     config.fluid_B.u_mps = np.asarray(config.fluid_B.u_mps)
     assert _failure(monkeypatch, api, config) == _failure(monkeypatch, reference, config)
@@ -298,7 +298,7 @@ def test_geometry_object_error_precedes_later_properties(monkeypatch, spatial, f
 @pytest.mark.parametrize('refine', [False, True])
 @pytest.mark.parametrize('side', ['A', 'B'])
 def test_host_error_does_not_depend_on_grid_log(monkeypatch, refine, side):
-    config = uniform._configuration()
+    config = native_preparation_abi._configuration_mass_flow()
     config.flags.port_wall_refine = refine
     if refine:
         config.solver.Nx, config.solver.Ny = 22, 24
@@ -308,7 +308,7 @@ def test_host_error_does_not_depend_on_grid_log(monkeypatch, refine, side):
 
 @pytest.mark.parametrize('host_failure', [False, True])
 def test_floating_failure_keeps_host_precedence(monkeypatch, host_failure):
-    config = uniform._configuration('Diamond', ('air', 'sco2'))
+    config = native_preparation_abi._configuration_mass_flow('Diamond', ('air', 'sco2'))
     config.sco2_nu = replace(config.sco2_nu, mode='experimental', alpha_D=1.e308, alpha_G=1.e308,
                             parameter_version='overflow-boundary', source='regression', applicability='test only')
     if host_failure:
@@ -319,7 +319,7 @@ def test_floating_failure_keeps_host_precedence(monkeypatch, host_failure):
 
 @pytest.mark.parametrize('field', ['parameter_version', 'source', 'applicability'])
 def test_saved_text_keeps_complete_utf8_bytes(monkeypatch, field):
-    config = uniform._configuration('Diamond', ('sco2', 'water'))
+    config = native_preparation_abi._configuration_mass_flow('Diamond', ('sco2', 'water'))
     config.sco2_nu = replace(config.sco2_nu, mode='experimental', alpha_D=1.13, alpha_G=2.27,
                             parameter_version='saved-version', source='retained source', applicability='retained scope')
     config.sco2_nu = replace(config.sco2_nu, **{field: '前段\x00后段'})
@@ -329,8 +329,8 @@ def test_saved_text_keeps_complete_utf8_bytes(monkeypatch, field):
 @pytest.mark.parametrize('field', ['u_mps', 'L_cell_mm'])
 @pytest.mark.parametrize('first_strong', [False, True])
 def test_equal_values_keep_existing_cache_order(monkeypatch, field, first_strong):
-    first = uniform._configuration()
-    second = uniform._configuration()
+    first = native_preparation_abi._configuration_mass_flow()
+    second = native_preparation_abi._configuration_mass_flow()
     owner_first = first.geometry if field == 'L_cell_mm' else first.fluid_A
     owner_second = second.geometry if field == 'L_cell_mm' else second.fluid_A
     value = 7. if field == 'L_cell_mm' else 6.
@@ -352,7 +352,7 @@ def _cache_info(module=api):
 @pytest.mark.parametrize('operation', ['capacity', 'resolve', 'full'])
 @pytest.mark.parametrize('targets', [None, (.003, .03)])
 def test_native_entry_keeps_shared_cache_counts(monkeypatch, spatial, operation, targets):
-    config = (continuous._configuration if spatial else uniform._configuration)()
+    config = (native_preparation_abi._configuration_continuous if spatial else native_preparation_abi._configuration_mass_flow)()
     expected = _capture(monkeypatch, reference, operation, config, targets)
     counts = _cache_info(reference)
     actual = _capture(monkeypatch, api, operation, config, targets)
@@ -364,7 +364,7 @@ def test_native_entry_keeps_shared_cache_counts(monkeypatch, spatial, operation,
 @pytest.mark.parametrize('direction', ['public-first', 'prepare-first'])
 def test_public_cache_and_native_preparation_share_values(monkeypatch, entry, direction):
     from sjtu_tpmshx.physical_models.tpms_geometry import compute_geometry
-    config = uniform._configuration()
+    config = native_preparation_abi._configuration_mass_flow()
     config.geometry.L_cell_mm = np.float32(7.)
     config.fluid_A.u_mps = np.float32(6.)
 
@@ -394,7 +394,7 @@ def test_public_cache_and_native_preparation_share_values(monkeypatch, entry, di
 
 @pytest.mark.parametrize('failure', ['second-side', 'chi', 'preflight'])
 def test_failed_preparation_keeps_only_completed_cache_entries(monkeypatch, failure):
-    config = uniform._configuration()
+    config = native_preparation_abi._configuration_mass_flow()
     if failure == 'second-side':
         config.fluid_B.u_mps = np.asarray(config.fluid_B.u_mps)
     elif failure == 'chi':
@@ -412,7 +412,7 @@ def test_failed_preparation_keeps_only_completed_cache_entries(monkeypatch, fail
 @pytest.mark.parametrize('cleared', ['geometry', 'properties'])
 def test_independent_cache_clear_preserves_other_cache_values(monkeypatch, cleared):
     from sjtu_tpmshx.physical_models.tpms_geometry import compute_geometry
-    first, second = uniform._configuration(), uniform._configuration()
+    first, second = native_preparation_abi._configuration_mass_flow(), native_preparation_abi._configuration_mass_flow()
     first.geometry.L_cell_mm = np.float32(7.)
     second.geometry.L_cell_mm = 7.
 
@@ -425,7 +425,7 @@ def test_independent_cache_clear_preserves_other_cache_values(monkeypatch, clear
 
 
 def test_warm_property_values_do_not_repeat_floating_operations(monkeypatch):
-    config = uniform._configuration('Diamond', ('air', 'sco2'))
+    config = native_preparation_abi._configuration_mass_flow('Diamond', ('air', 'sco2'))
     config.sco2_nu = replace(config.sco2_nu, mode='experimental', alpha_D=1.e308, alpha_G=1.e308,
                             parameter_version='overflow-warm', source='regression', applicability='test only')
 
@@ -525,7 +525,7 @@ def _observe_prepare(monkeypatch, module, operation, config, targets=None, *, sc
 @pytest.mark.parametrize('operation', ['capacity', 'resolve', 'full'])
 @pytest.mark.parametrize('warning_action', ['always', 'error'])
 def test_unscoped_preliminary_notices_and_warning_errors(monkeypatch, spatial, operation, warning_action):
-    config = (continuous._configuration if spatial else uniform._configuration)('Diamond', ('air', 'water'))
+    config = (native_preparation_abi._configuration_continuous if spatial else native_preparation_abi._configuration_mass_flow)('Diamond', ('air', 'water'))
     config.fluid_B.T_in_K, config.fluid_B.P_in_Pa = 370., 101325.
     args = (operation, config, (.003, .03))
     kwargs = dict(warning_action=warning_action, repeat=2)
@@ -538,7 +538,7 @@ def test_unscoped_preliminary_notices_and_warning_errors(monkeypatch, spatial, o
 @pytest.mark.parametrize('spatial', [False, True])
 @pytest.mark.parametrize('direct', [False, True])
 def test_failure_keeps_completed_range_observations(monkeypatch, spatial, direct):
-    config = (continuous._configuration if spatial else uniform._configuration)('Diamond', ('air', 'water'))
+    config = (native_preparation_abi._configuration_continuous if spatial else native_preparation_abi._configuration_mass_flow)('Diamond', ('air', 'water'))
     config.fluid_B.T_in_K, config.fluid_B.P_in_Pa = 370., 101325.
     old, new, targets = reference, api, (1.e-12, .03)
     if direct:
@@ -562,7 +562,7 @@ def test_failure_keeps_completed_range_observations(monkeypatch, spatial, direct
 def test_direct_preparation_preserves_standalone_notice_order(monkeypatch, spatial, fluid, experimental, warning_error):
     from tests.python import preparation_case_reference as old
     from sjtu_tpmshx.preprocess.two_d import preparation as new
-    config = (continuous._configuration if spatial else uniform._configuration)('Diamond', (fluid, fluid))
+    config = (native_preparation_abi._configuration_continuous if spatial else native_preparation_abi._configuration_mass_flow)('Diamond', (fluid, fluid))
     config.fluid_A.u_mps = config.fluid_B.u_mps = 1.e-6
     if experimental:
         config.sco2_nu = replace(config.sco2_nu, mode='experimental', alpha_D=1.13, alpha_G=2.27,

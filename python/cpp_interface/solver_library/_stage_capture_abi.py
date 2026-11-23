@@ -4,7 +4,6 @@ import ctypes as ct
 
 import numpy as np
 
-from sjtu_tpmshx.data_types.case_data import resolved_input_record
 from .._df_abi import DragSummary
 from .closure_evidence import RangeObservation
 from ._thermal_abi import _Acceleration, _ENERGY_NAMES, _EnergyUpdateScale, _IterationRecords
@@ -50,35 +49,6 @@ class StageExecution(ct.Structure):
                 ('red_black', ct.c_uint32)]
 
 
-def execution_facts(executed, evidence, case, declarations, iterations, energy):
-    """Detach the executed states before the solver releases its result."""
-    if executed.last_main_model_h < executed.model_h.count:
-        settings = iterations['records'][executed.last_main_model_h]['settings']
-    else:
-        settings = {} if energy is None else energy['effective_settings']
-    thermal = dict(thermal_mode=evidence.thermal_mode.decode(), unknown=executed.unknown.decode(),
-                   temperature_transport=evidence.temperature_transport.decode() if evidence.temperature_transport else None,
-                   effective_settings=settings)
-    states = dict(thermal_state=declarations['Ta']['state'], mass_state=evidence.thermal_state.decode(),
-                  pressure_report_states={side: declarations['P_report_' + side]['state']
-                                          for side, pressure in zip('AB', evidence.pressure) if pressure},
-                  outer_index=evidence.outer_index[0])
-    return dict(version=evidence.execution_version.decode(), dimension=evidence.dimension,
-                sides=execution_sides(executed.records.contents, evidence, case, declarations),
-                thermal=thermal, evidence=states)
-
-
-def stage_records(library, result):
-    query = getattr(library, f'tpmshx_stage_run_{result.evidence.dimension}d_records_v1', None)
-    if query is None:
-        return None
-    query.argtypes, query.restype = [ct.POINTER(type(result))], ct.POINTER(StageRecords)
-    records = query(ct.byref(result))
-    if not records:
-        raise RuntimeError('native stage returned no result records')
-    return records.contents
-
-
 def sampling_query(library, dimension, result_type):
     try:
         query = getattr(library, f'tpmshx_full_{dimension}d_get_property_sampling_v1')
@@ -105,33 +75,6 @@ def sampling_records(view):
             row[name] = value.decode('ascii') if value is not None else None
         records.append(row)
     return records
-
-
-def executed_inputs(case, evidence):
-    shape = tuple(width.contents.shape[0] for width in evidence.grid.widths[:evidence.dimension])
-    directions = evidence.direction if evidence.dimension == 2 else evidence.thermal.report_direction
-    fluids = {side.side.decode(): side.fluid.decode()
-              for side in evidence.executed_sides[:evidence.executed_side_count]}
-    return resolved_input_record(case, fluids, shape,
-        {side: direction[0] for side, direction, active in zip('AB', directions, evidence.active_fluids) if active})
-
-
-def execution_sides(records, evidence, case, declarations):
-    roles = case.metadata['model_roles']
-    sides = {}
-    for index, row in enumerate(records.energy):
-        side = evidence.executed_sides[index].side.decode()
-        model = roles['fluid_' + side]
-        energy = dict(relation=row.relation.decode(), property_provider=row.provider.decode() if row.provider else None,
-                      model_ref=model if row.solved and not row.eos_fluid else None, temperature_field=('Ta', 'Tb')[index])
-        evaluation = dict(state_update=row.state_update.decode() if row.state_update else None)
-        if row.eos_fluid:
-            field = 'P_thermal_' + side
-            energy.update(fluid=row.eos_fluid.decode(), pressure_field=field, pressure_state=declarations[field]['state'])
-            evaluation['final_property_backend'] = 'HEOS'
-        sides[side] = dict(fluid=evidence.executed_sides[index].fluid.decode(), solved=bool(row.solved),
-                           flow_and_exchange_model_ref=model, energy=energy, property_evaluation=evaluation)
-    return sides
 
 
 def _update_scale_query(library, dimension, result_type):

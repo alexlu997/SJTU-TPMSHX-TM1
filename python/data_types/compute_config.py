@@ -591,7 +591,7 @@ class ComputeConfig:
                 ge.tpms, fluids, geometry_mode, ge.L_cell_mm, ge.t_wall_mm,
                 native_domain and ge.delta_levelset == 0., domain if native_domain else ())
             if scope is None:
-                # Saved experimental cases can still use a retained preparation library.
+                # Without a preparation library, the resource data gives the same scope.
                 hx = load_preparation_df_parameters()['hx']
                 cell, wall = hx['geometry_mm']
                 tolerance = hx['geometry_absolute_tolerance_mm']

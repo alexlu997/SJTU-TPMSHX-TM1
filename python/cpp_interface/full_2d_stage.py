@@ -32,14 +32,13 @@ from .solver_library._thermal_abi import (
     _EnergyOptions,
     _FullEnergyEffectiveSettings,
     _IterationOptions,
-    _energy_algorithm_query,
     _energy_options,
     _iteration_options,
 )
 from sjtu_tpmshx.data_types.field_result import FieldResult, execution_record
 from sjtu_tpmshx.data_types.validator import compute_volumetric_htc
 from sjtu_tpmshx.run_control.run_warnings import current_warnings, merge_warnings, warning_messages, warning_scope
-from . import _native_flow
+from . import _native_flow, _native_grid
 from ._native_preparation_case import _ResultV1
 from .preparation_host import borrow_solver_mesh, pack_saved_resources, borrow_ranges
 from ._native_values import TOPOLOGIES, borrow_array, borrow_text
@@ -63,12 +62,8 @@ from .solver_library._stage_capture_abi import (
     _plane_info,
     _update_scale_query,
     copy_sampling,
-    executed_inputs,
-    execution_sides,
     sampling_query,
     sampling_records,
-    stage_records,
-    execution_facts,
 )
 from sjtu_tpmshx.run_control.module_ports import RunControl
 from sjtu_tpmshx.run_control.run_environment import require_f2_mode
@@ -176,7 +171,7 @@ def _run_settings(cfg):
     return settings if isinstance(settings, dict) else vars(settings)
 
 
-def prepare_stage(case, cfg, prepared, *, saved_flow_grid=None):
+def prepare_stage(case, cfg, prepared, saved_flow_grid):
     """Keep the borrowed case fields alive until the native result is captured."""
     settings = _run_settings(cfg)
     uniform = _ResultV2(2, ct.sizeof(_ResultV2))
@@ -243,18 +238,17 @@ def prepare_stage(case, cfg, prepared, *, saved_flow_grid=None):
         target.properties.mu = properties['mu']
         if not values.input.geometry_mode:
             target.properties.fluid_conductivity_W_mK = properties['K_ff']
-        if saved_flow_grid is not None:
-            cross, stream = (values.ny, values.nx) if port['dir'] in (0, 1) else (values.nx, values.ny)
-            for key in ('K_m2', 'cF_per_m'):
-                if np.shape(flow[key]) != (stream,):
-                    raise ValueError(f'invalid prepared flow {side} {key}')
-            for key in ('seed_K_m2', 'seed_cF_per_m'):
-                if not np.isscalar(flow[key]):
-                    raise ValueError(f'invalid prepared flow {side} {key}')
-            if cfg['z_axis'] == 'continuous':
-                for key in ('K_field_m2', 'cF_field_per_m'):
-                    if np.shape(flow.get(key)) != (cross, stream):
-                        raise ValueError(f'invalid prepared local flow {side} {key}')
+        cross, stream = (values.ny, values.nx) if port['dir'] in (0, 1) else (values.nx, values.ny)
+        for key in ('K_m2', 'cF_per_m'):
+            if np.shape(flow[key]) != (stream,):
+                raise ValueError(f'invalid prepared flow {side} {key}')
+        for key in ('seed_K_m2', 'seed_cF_per_m'):
+            if not np.isscalar(flow[key]):
+                raise ValueError(f'invalid prepared flow {side} {key}')
+        if cfg['z_axis'] == 'continuous':
+            for key in ('K_field_m2', 'cF_field_per_m'):
+                if np.shape(flow.get(key)) != (cross, stream):
+                    raise ValueError(f'invalid prepared local flow {side} {key}')
         target.seed_permeability_m2, target.seed_forchheimer_per_m = flow['seed_K_m2'], flow['seed_cF_per_m']
         target.row_permeability = borrow_array(flow['K_m2'], keepalive)
         target.row_forchheimer = borrow_array(flow['cF_per_m'], keepalive)
@@ -264,26 +258,22 @@ def prepare_stage(case, cfg, prepared, *, saved_flow_grid=None):
         for name, key in (('inlet_geometry', 'in_geom_frac'), ('outlet_geometry', 'out_geom_frac'),
                           ('inlet_profile', 'in_profile_frac'), ('outlet_profile', 'out_profile_frac')):
             setattr(target, name, borrow_array(opening[key], keepalive))
-        if saved_flow_grid is None:
-            from sjtu_tpmshx.solvers.backends.prepared_2d import _validated_outlet_fraction
-            target.outlet_u_fraction = borrow_array(_validated_outlet_fraction(flow, opening, port, side), keepalive)
-        else:
-            grid = saved_flow_grid[index]
-            from sjtu_tpmshx.cpp_interface import _native_grid
-            grid.direction = port['dir']
-            cross, stream = (np.asarray(flow[name]) for name in ('dx', 'dy'))
-            if any(axis.ndim != 1 or axis.dtype.kind not in 'fiu' for axis in (cross, stream)):
-                raise ValueError(f'prepared flow {side} grid disagrees with the thermal grid')
-            widths, grid.cross_precision = _native_grid._widths(cross)
-            grid.cross = borrow_array(widths, keepalive)
-            grid.stream = borrow_array(stream, keepalive)
-            for end, prefix in enumerate(('in', 'out')):
-                center, half = port[prefix + '_ctr'], port[prefix + '_w'] / 2
-                grid.bounds[2*end] = _native_grid._scalar(center - half)
-                grid.bounds[2*end+1] = _native_grid._scalar(center + half)
-            for name in ('in_geom_frac', 'out_geom_frac', 'in_profile_frac', 'out_profile_frac'):
-                if np.ndim(opening[name]) != 1:
-                    raise ValueError(f'prepared Fluid {side} {name} disagrees with its grid and port geometry')
+        # The native saved run computes the staggered outlet fraction from this grid.
+        grid = saved_flow_grid[index]
+        grid.direction = port['dir']
+        cross, stream = (np.asarray(flow[name]) for name in ('dx', 'dy'))
+        if any(axis.ndim != 1 or axis.dtype.kind not in 'fiu' for axis in (cross, stream)):
+            raise ValueError(f'prepared flow {side} grid disagrees with the thermal grid')
+        widths, grid.cross_precision = _native_grid._widths(cross)
+        grid.cross = borrow_array(widths, keepalive)
+        grid.stream = borrow_array(stream, keepalive)
+        for end, prefix in enumerate(('in', 'out')):
+            center, half = port[prefix + '_ctr'], port[prefix + '_w'] / 2
+            grid.bounds[2*end] = _native_grid._scalar(center - half)
+            grid.bounds[2*end+1] = _native_grid._scalar(center + half)
+        for name in ('in_geom_frac', 'out_geom_frac', 'in_profile_frac', 'out_profile_frac'):
+            if np.ndim(opening[name]) != 1:
+                raise ValueError(f'prepared Fluid {side} {name} disagrees with its grid and port geometry')
     ranges, captured = borrow_ranges(case.metadata.get('applicability_inputs', ()), keepalive)
     values.ranges, values.range_count = ranges, len(ranges)
     notices = (_Text * len(case.metadata['notices']))(*(
@@ -369,7 +359,7 @@ def _plain_zone(zone):
                for row in zone['zones'])
 
 
-def saved_inputs(case, shape, *, checked_geometry=False, check_experiment=None, port_windows_fit=None):
+def saved_inputs(case, shape, *, check_experiment, port_windows_fit, checked_geometry=False):
     from sjtu_tpmshx.data_types.compute_config import ComputeConfig, _checked_saved_2d_settings
     from sjtu_tpmshx.data_types.persistence_validation import validate_thermal_geometry
     from sjtu_tpmshx.data_types.portable_data import mutable_data
@@ -383,20 +373,22 @@ def saved_inputs(case, shape, *, checked_geometry=False, check_experiment=None, 
     settings = _legacy_zone_units(mutable_data(cfg['run_settings']))
     if cfg['z_axis'] == 'continuous':
         settings['zones'] = dict(enabled=True, axis='continuous', config=mutable_data(cfg['continuous_field']))
-    experiment = None
-    if check_experiment is not None and _can_pack_settings(settings):
+    packed = _can_pack_settings(settings)
+    # The native run reads the experiment record only for experimental D-F.
+    experiment = _Experiment()
+    if packed:
         values = cfg['compute_cfg'] = _checked_saved_2d_settings(settings, port_windows_fit=port_windows_fit)
-        experiment = _Experiment()
         if values['df_mode'] == 'experimental':
             experiment = _experiment_request(values)
             error = ct.create_string_buffer(2048)
-            check_experiment.argtypes = [ct.POINTER(_Experiment), ct.POINTER(ct.c_char), _S]
-            check_experiment.restype = ct.c_int
             status = check_experiment(ct.byref(experiment), error, len(error))
             if status:
                 _raise_stage_error(status, error, _Run.error_types)
     else:
         cfg['compute_cfg'] = ComputeConfig.from_dict(settings, prepared_grid=True)
+        if cfg['compute_cfg'].df_mode == 'experimental':
+            raise ValueError('saved experimental 2D settings lack the fields that the experiment check requires; '
+                             'prepare the original configuration again')
     cfg['Lcell'], cfg['t_wall'] = cfg['L_cell_m'] * 1e3, cfg['t_wall_m'] * 1e3
     design = case.design_fields
     if case.metadata['design_mode'] == 'uniform':
@@ -418,7 +410,7 @@ def saved_inputs(case, shape, *, checked_geometry=False, check_experiment=None, 
         if 'grid_cells' in design:
             cfg['za'].update(_legacy_zone_units({'grid_cells': mutable_data(design['grid_cells'])}))
     zone = _legacy_zone_units(mutable_data(cfg['zone_config']))
-    if isinstance(zone, dict) and (experiment is None or not _plain_zone(zone)):
+    if isinstance(zone, dict) and (not packed or not _plain_zone(zone)):
         zone = _zone_objects(zone)
     cfg['zone_config'] = zone
     return cfg, dict(energy_dx=case.grid['dx'], energy_dy=case.grid['dy']), experiment
@@ -502,56 +494,61 @@ def _scalars(summary):
         red_black=[bool(value) for value in summary.red_black])
 
 
-def run_stage(driver, case, cfg, prepared, control, *, saved_version=1,
-              resume_state=None, checkpoint=None, checkpoint_due=None, experiment=None):
-    """Keep preparation and result storage alive through late application capture."""
-    library = driver.library
+def _stage_entries(library):
+    """Bind the saved v4 lifecycle. A library without it is a deployment error."""
     try:
-        release = library.tpmshx_stage_run_2d_release_v1
-        query = library.tpmshx_stage_run_2d_get_capture_v1
-        release.argtypes, release.restype = [ct.POINTER(_StageResult)], None
-        query.argtypes = [ct.POINTER(_StageResult), ct.POINTER(_Application), ct.POINTER(_Summary)]
-        query.restype = ct.c_int
+        entries = dict(release=library.tpmshx_stage_run_2d_release_v1, query=library.tpmshx_stage_run_2d_get_capture_v1,
+                       complete=library.tpmshx_run_saved_case_2d_v4,
+                       check_experiment=library.tpmshx_stage_run_2d_check_experiment_v4,
+                       port_windows_fit=library.tpmshx_stage_port_windows_fit_2d_v1)
     except AttributeError as error:
         raise ValueError('native library has an incomplete saved 2D stage protocol') from error
-    control.check_cancelled()
-    flow_grid = (_FlowGrid * 2)() if saved_version >= 3 else None
+    entries['release'].argtypes, entries['release'].restype = [ct.POINTER(_StageResult)], None
+    entries['query'].argtypes = [ct.POINTER(_StageResult), ct.POINTER(_Application), ct.POINTER(_Summary)]
+    entries['query'].restype = ct.c_int
+    entries['complete'].argtypes = [ct.POINTER(_SavedV4), ct.POINTER(_Request), ct.POINTER(_Control),
+                                    ct.POINTER(_StageResult), ct.POINTER(ct.c_char), _S]
+    entries['complete'].restype = ct.c_int
+    entries['check_experiment'].argtypes = [ct.POINTER(_Experiment), ct.POINTER(ct.c_char), _S]
+    entries['check_experiment'].restype = ct.c_int
+    entries['port_windows_fit'].argtypes, entries['port_windows_fit'].restype = [ct.c_double] * 5, ct.c_int
+    return entries
+
+
+def pack_saved(case, cfg, prepared, experiment):
+    """Pack the saved v4 case. The caller keeps the returned owners alive during the run."""
+    flow_grid = (_FlowGrid * 2)()
     uniform, area, diameter, conductivity, recorded, captured, kinds, keepalive = prepare_stage(
-        case, cfg, prepared, saved_flow_grid=flow_grid)
+        case, cfg, prepared, flow_grid)
     saved = _Saved(1, ct.sizeof(_Saved), ct.pointer(uniform), area, diameter,
                    (_Array * 2)(*conductivity), recorded, captured, *kinds)
-    if saved_version >= 2:
-        sides = cfg['thermal_geometry']['side_geometry']
-        saved = _SavedV2(2, ct.sizeof(_SavedV2), saved, sides is not None)
-        if sides is not None:
-            for index, side in enumerate('AB'):
-                saved.side_geometry[index][:] = sides[side]
-    if flow_grid is not None:
-        saved = _SavedV3(3, ct.sizeof(_SavedV3), saved, (_D * 2)(cfg['L'], cfg['H']), flow_grid)
-        pack_saved_design(case, uniform, saved, keepalive)
-        pack_saved_resources(case, uniform.values.models, uniform.sco2_nu, saved, _run_settings(cfg)['sco2_nu'], keepalive)
-    if saved_version == 4:
-        saved = _SavedV4(4, ct.sizeof(_SavedV4), saved, experiment)
-    complete = getattr(library, 'tpmshx_run_saved_case_2d_v4', None) if saved_version == 4 else None
-    request, energy = _request(cfg)
+    sides = cfg['thermal_geometry']['side_geometry']
+    saved = _SavedV2(2, ct.sizeof(_SavedV2), saved, sides is not None)
+    if sides is not None:
+        for index, side in enumerate('AB'):
+            saved.side_geometry[index][:] = sides[side]
+    saved = _SavedV3(3, ct.sizeof(_SavedV3), saved, (_D * 2)(cfg['L'], cfg['H']), flow_grid)
+    pack_saved_design(case, uniform, saved, keepalive)
+    pack_saved_resources(case, uniform.values.models, uniform.sco2_nu, saved, _run_settings(cfg)['sco2_nu'], keepalive)
+    return _SavedV4(4, ct.sizeof(_SavedV4), saved, experiment), uniform, keepalive
+
+
+def run_stage(driver, case, cfg, prepared, control, entries, experiment, *,
+              resume_state=None, checkpoint=None, checkpoint_due=None):
+    """Keep preparation and result storage alive through late application capture."""
+    library = driver.library
+    release, query = entries['release'], entries['query']
+    control.check_cancelled()
+    saved, uniform, keepalive = pack_saved(case, cfg, prepared, experiment)
+    request, _ = _request(cfg)
     callbacks, errors = _callbacks(control)
     stage_control = _Control(case.case_id.encode(), driver.table_directory, control.native_cpu_threads(), callbacks)
-    execution_query = driver.execution_query
-    energy_query = version_query = None
-    if execution_query is None and energy.algorithm:
-        energy_query = library.tpmshx_full_2d_get_energy_evidence_v1
-        energy_query.argtypes = [ct.POINTER(_Result), ct.POINTER(_EnergyEvidence)]
-        energy_query.restype = ct.c_int
-        version_query = _energy_algorithm_query(library)
     result = _StageResult()
     try:
-        if complete is not None and checkpoint is None and resume_state is None:
-            complete.argtypes = [ct.POINTER(_SavedV4), ct.POINTER(_Request), ct.POINTER(_Control),
-                                 ct.POINTER(_StageResult), ct.POINTER(ct.c_char), _S]
-            complete.restype = ct.c_int
+        if checkpoint is None and resume_state is None:
             error = ct.create_string_buffer(2048)
-            code = complete(ct.byref(saved), ct.byref(request), ct.byref(stage_control),
-                            ct.byref(result), error, len(error))
+            code = entries['complete'](ct.byref(saved), ct.byref(request), ct.byref(stage_control),
+                                       ct.byref(result), error, len(error))
             if errors:
                 raise errors[0]
             if code:
@@ -561,9 +558,7 @@ def run_stage(driver, case, cfg, prepared, control, *, saved_version=1,
                 run.finish(checkpoint, checkpoint_due, (1, 2, 6, 7, 8))
                 result = run.take_result()
         report = completed_report(library, result)
-        if saved_version >= 3:
-            cfg['_input_resolution'] = (resolved_input_record(case, **report['input']) if report is not None
-                                        else executed_inputs(case, result.evidence))
+        cfg['_input_resolution'] = resolved_input_record(case, **report['input'])
         summary = _Summary()
         if query(ct.byref(result), ct.byref(_Application()), ct.byref(summary)):
             raise RuntimeError('native full 2D capture query failed')
@@ -574,14 +569,13 @@ def run_stage(driver, case, cfg, prepared, control, *, saved_version=1,
                  'h_vA', 'h_vB', 'K_ss', 'Ta_display', 'Tb_display', 'Ts_display',
                  'P_fA_display', 'ucA', 'vcA', 'P_fB_display', 'ucB', 'vcB')
         stage_fields = {key: fields[key] for key in names}, {key: declarations[key] for key in names}
-        execution = executed_view(execution_query, result) if execution_query is not None else None
-        records = stage_records(library, result) if execution is None else execution.execution.records.contents
+        execution = executed_view(driver.execution_query, result)
+        records = execution.execution.records.contents
         native = driver.copy_result(result.raw, shape, result.resolved,
-            entry_version=6, control=control, cpu_thread_limit=stage_control.cpu_threads, energy_query=energy_query,
-            version_query=version_query, resume_state=resume_state, capture_scalars=_scalars(summary), fields=stage_fields[0],
+            entry_version=6, control=control, cpu_thread_limit=stage_control.cpu_threads,
+            resume_state=resume_state, capture_scalars=_scalars(summary), fields=stage_fields[0],
             records=records, evidence=result.evidence, execution=execution, report=report)
-        if execution is not None and saved_version >= 3:
-            native['sco2_notices'] = tuple(execution.execution.sco2_notices)
+        native['sco2_notices'] = tuple(execution.execution.sco2_notices)
         control.check_cancelled()
 
         def application_hv(area_density, surface_htc):
@@ -596,23 +590,13 @@ def run_stage(driver, case, cfg, prepared, control, *, saved_version=1,
         zone_summary = None
         if cfg['zone_config'] is not None and cfg['za'] is not None:
             from sjtu_tpmshx.cpp_interface import _native_result_stage as result_stage
-            continuous = saved_version == 4 and cfg['z_axis'] == 'continuous'
-            if continuous:
-                zone_summary = result_stage.zone_result
-            elif hasattr(library, 'tpmshx_stage_run_2d_zone_temperatures_v1'):
-                zone_summary = partial(result_stage.zone_result, solver_library=library)
-            elif hasattr(result_stage.core.result_library.get().library, 'tpmshx_result_zone_temperatures_2d_v1'):
-                zone_summary = result_stage.zone_result
+            # Continuous fields use the result library. Saved regions use the solver zone query.
+            zone_summary = (result_stage.zone_result if cfg['z_axis'] == 'continuous'
+                            else partial(result_stage.zone_result, solver_library=library))
         from sjtu_tpmshx.cpp_interface._native_result_stage import copy_applicability
         native['_native_applicability'] = copy_applicability(result.evidence.applicability,
             case.metadata.get('applicability_inputs', ()))
-        if report is not None:
-            native['execution_facts'] = link_execution(report, case, native['main']['true_h'])
-        elif execution is not None:
-            native['execution_facts'] = execution_facts(execution.execution, result.evidence, case, declarations,
-                native['model_h_iterations'], native['main']['true_h'])
-        elif records is not None:
-            native['_native_execution_sides'] = execution_sides(records, result.evidence, case, declarations)
+        native['execution_facts'] = link_execution(report, case, native['main']['true_h'])
         return capture_result(case, cfg, prepared, native, application_hv=application_hv,
                               zone_summary=zone_summary, stage_fields=stage_fields)
     finally:
@@ -833,8 +817,8 @@ def capture_result(case, cfg, prepared, native, *, application_hv=None, zone_sum
     evidence.update(input_resolution=cfg['_input_resolution'], property_sampling=native['property_sampling'])
     if stage_fields is None:
         stage_fields = legacy_fields(evidence, main, native)
-    audit = {key: native[key] for key in ('continuation', 'runtime_resources', '_native_applicability',
-                                         '_native_execution_sides') if key in native}
+    audit = {key: native[key] for key in ('continuation', 'runtime_resources', '_native_applicability')
+             if key in native}
     if 'native_metadata' in native:
         audit['native'] = native['native_metadata']
     audit.update(_last_closure_ranges=native['last_closure_ranges'],
@@ -1072,9 +1056,12 @@ class StageDriver:
         self.abi = version()
         if self.abi != 2:
             raise ValueError(f'unsupported full 2D ABI {self.abi}; expected 2')
-        self.execution_query = execution_view_query(self.library, 2, _StageResult, _ExecutionView)
-        if self.require_legacy_evidence or self.execution_query is None:
+        # The direct v6 driver also loads the standalone full 2D library, which has no stage view.
+        if self.require_legacy_evidence:
+            self.execution_query = None
             self._bind_legacy_evidence()
+        else:
+            self.execution_query = execution_view_query(self.library, 2, _StageResult, _ExecutionView)
         self.query_flow_methods = self.library.tpmshx_full_2d_get_flow_methods_v1
         self.query_flow_methods.argtypes = [ct.POINTER(_Result), ct.POINTER(_FlowMethod)]
         self.query_flow_methods.restype = ct.c_int
@@ -1278,7 +1265,7 @@ def convergence_controls(cfg, solver_config):
     return mode, tolerances
 
 
-def run_case(case, control=RunControl(), *, direct_run, resume_state=None, checkpoint=None, checkpoint_due=None):
+def run_case(case, control=RunControl(), *, resume_state=None, checkpoint=None, checkpoint_due=None):
     if control.backend != 'cpp' or control.native_library is None:
         raise ValueError('full native 2D requires backend=cpp and an explicit native_library')
     control.check_cancelled()
@@ -1289,41 +1276,11 @@ def run_case(case, control=RunControl(), *, direct_run, resume_state=None, check
         raise
     checked = borrow_solver_mesh(case, driver.library, 2)
     shape = execution_grid(case, None if checked is None else checked.shape)
-    check_experiment = getattr(driver.library, 'tpmshx_stage_run_2d_check_experiment_v4', None)
-    v4 = [check_experiment is not None,
-          *(hasattr(driver.library, f'tpmshx_stage_run_2d_{name}_saved_v4') for name in ('create', 'restore'))]
-    if any(v4) and not all(v4):
-        raise ValueError('native library has an incomplete saved 2D stage protocol')
-    experiment = None
-    if check_experiment is not None or hasattr(driver.library, 'tpmshx_stage_run_2d_create_saved_v3'):
-        port_windows_fit = getattr(driver.library, 'tpmshx_stage_port_windows_fit_2d_v1', None)
-        if port_windows_fit is not None:
-            port_windows_fit.argtypes, port_windows_fit.restype = [ct.c_double] * 5, ct.c_int
-        cfg, prepared, experiment = saved_inputs(case, shape, checked_geometry=checked is not None, check_experiment=check_experiment,
-                                                port_windows_fit=port_windows_fit)
-        prepared['solver_mesh'] = checked
-    else:
-        from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
-        cfg, prepared = build_execution_inputs(case, copy_design=False)
-    settings = _run_settings(cfg)
-    stage_layout = (case.metadata['design_mode'] in ('uniform', 'continuous')
-        and settings['geometry'].delta_levelset == 0
-        and (cfg['zone_config'] is None or cfg['z_axis'] == 'continuous'))
-    saved_version = 4 if experiment is not None else 0
-    for version in (() if saved_version else (3, 2, 1)):
-        if version == 1 and not stage_layout:
-            continue
-        saved_entries = [hasattr(driver.library, f'tpmshx_stage_run_2d_{name}_saved_v{version}')
-                         for name in ('create', 'restore')]
-        if any(saved_entries) and not all(saved_entries):
-            raise ValueError('native library has an incomplete saved 2D stage protocol')
-        if all(saved_entries):
-            saved_version = version
-            break
-    if saved_version:
-        result = run_stage(driver, case, cfg, prepared, control, resume_state=resume_state,
-            checkpoint=checkpoint, checkpoint_due=checkpoint_due, saved_version=saved_version, experiment=experiment)
-    else:
-        result = direct_run(case, cfg, prepared, control, resume_state, checkpoint, checkpoint_due)
+    entries = _stage_entries(driver.library)
+    cfg, prepared, experiment = saved_inputs(case, shape, checked_geometry=checked is not None,
+        check_experiment=entries['check_experiment'], port_windows_fit=entries['port_windows_fit'])
+    prepared['solver_mesh'] = checked
+    result = run_stage(driver, case, cfg, prepared, control, entries, experiment, resume_state=resume_state,
+                       checkpoint=checkpoint, checkpoint_due=checkpoint_due)
     control.report_progress(100)
     return result

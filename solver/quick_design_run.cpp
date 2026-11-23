@@ -148,7 +148,7 @@ struct Owner {
 
 static int run_quick_design(
     const tpmshx_quick_prepared_v1* prepared,const tpmshx_quick_run_control_v1* control,
-    tpmshx_quick_run_result_v1* result,char* error,size_t capacity,bool capture_ranges) {
+    tpmshx_quick_run_result_v1* result,char* error,size_t capacity) {
     if(!boundary::error_buffer_valid(error,capacity))return TPMSHX_INVALID_ARGUMENT;
     bool report_safe=false;
     try {
@@ -186,10 +186,9 @@ static int run_quick_design(
         const size_t expected=prepared->resolved.property_mode==TPMSHX_MEAN?2:1;
         if(raw.stop>TPMSHX_BUDGET_EXHAUSTED || raw.completed_passes!=expected)
             throw std::runtime_error("native Quick Design returned an invalid pass/status contract");
-        if(capture_ranges)
-            for(size_t pass=0;pass<raw.completed_passes;++pass)
-                for(size_t side=0;side<2;++side)
-                    o.ranges[pass][side].capture(prepared->resolved,raw.passes[pass],pass,side);
+        for(size_t pass=0;pass<raw.completed_passes;++pass)
+            for(size_t side=0;side<2;++side)
+                o.ranges[pass][side].capture(prepared->resolved,raw.passes[pass],pass,side);
         o.capture(prepared->resolved);*result=o.value;owner.release();boundary::message(error,capacity,"");return TPMSHX_OK;
     } catch(const std::invalid_argument& failure) {
         if(report_safe)boundary::message(error,capacity,failure.what());return TPMSHX_INVALID_ARGUMENT;
@@ -198,11 +197,6 @@ static int run_quick_design(
     } catch(...) {
         if(report_safe)boundary::message(error,capacity,"unknown quick-design stage failure");return TPMSHX_NATIVE_ERROR;
     }
-}
-extern "C" int TPMSHX_THERMAL_CALL tpmshx_run_quick_design_v1(
-    const tpmshx_quick_prepared_v1* prepared,const tpmshx_quick_run_control_v1* control,
-    tpmshx_quick_run_result_v1* result,char* error,size_t capacity) {
-    return run_quick_design(prepared,control,result,error,capacity,false);
 }
 extern "C" tpmshx_quick_ranges_v2 TPMSHX_THERMAL_CALL tpmshx_quick_run_ranges_v2(
     const tpmshx_quick_run_result_v1* result,size_t pass,size_t side) {
@@ -291,7 +285,7 @@ extern "C" int TPMSHX_THERMAL_CALL tpmshx_run_quick_design_v2(
             (plane?std::min(tol*2e-3,1e-3):std::max(tol*10.,1e-4));
         c.chunk_iterations=settings.have_chunk_iterations?settings.chunk_iterations:(plane?500u:250u);
         c.max_iterations=settings.max_iterations;c.alpha=settings.alpha;
-        return run_quick_design(&view,control,result,error,capacity,true);
+        return run_quick_design(&view,control,result,error,capacity);
     } catch(const std::invalid_argument& failure) {
         if(report_safe)boundary::message(error,capacity,failure.what());return TPMSHX_INVALID_ARGUMENT;
     } catch(const std::exception& failure) {

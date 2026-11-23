@@ -100,7 +100,6 @@ def test_independent_quick_design_stage(sample):
 
     p = case.parameters
     expected = {key: p[key] for key in ('Lx', 's', 'height', 'L_cell_m', 't_wall_m', 'A_0', 'D_h', 'k_s', 'tol')}
-    expected['geometry_resolution'] = case.metadata['geometry_resolution']
     expected.update({key: p['controls'][key] for key in ('maxit', 'chunk', 'qtol', 'alpha')})
     if arrangement == 'counter':
         expected['chunk'], expected['qtol'] = 250, max(p['tol'] * 10, 1e-4)

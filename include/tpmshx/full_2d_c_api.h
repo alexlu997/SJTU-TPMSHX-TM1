@@ -141,17 +141,7 @@ TPMSHX_THERMAL_API uint32_t TPMSHX_THERMAL_CALL tpmshx_full_2d_abi_version(void)
  * Release clears the struct and accepts NULL/already-cleared results.
  * No C++ exception crosses either entry point.
  */
-TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_solve_full_2d_v2(
-    const size_t* shape,const double* const* arrays,const size_t* sizes,
-    const tpmshx_full_2d_config_v2* config,const tpmshx_full_2d_callbacks_v2* callbacks,
-    tpmshx_full_2d_result_v2* result,char* error,size_t error_capacity);
 TPMSHX_THERMAL_API void TPMSHX_THERMAL_CALL tpmshx_full_2d_release_v2(tpmshx_full_2d_result_v2* result);
-/* Explicit conservative energy selection with unchanged ABI 2 buffers and
- * result ownership. options is required; release with full_2d_release_v2. */
-TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_solve_full_2d_v3(
-    const size_t*,const double* const*,const size_t*,const tpmshx_full_2d_config_v2*,
-    const tpmshx_energy_options_v1*,const tpmshx_full_2d_callbacks_v2*,
-    tpmshx_full_2d_result_v2*,char*,size_t);
 typedef struct {
     uint32_t available;
     tpmshx_energy_result_v1 energy;
@@ -159,22 +149,13 @@ typedef struct {
     /* Outward signed W/m, x-,x+,y-,y+,z-,z+; singleton-z boundary planes. */
     tpmshx_model_h_array_v1 boundary_power[2][6];
 } tpmshx_full_2d_energy_state_v1;
-/* Explicit EOS controls for v4. These replace the thermal iteration and
+/* Explicit EOS controls for solve_full_2d_v6. These replace the thermal iteration and
  * enthalpy-update fields in config_v2. Other config fields keep their meaning. */
 typedef struct {
     size_t max_iterations,sweeps;
     double omega,update_tolerance;
     tpmshx_energy_options_v2 energy;
 } tpmshx_full_2d_energy_control_v4;
-/* Requires the two-sided true-h route. v2 selects T-SOU for this route.
- * v2/v3 use .001 coupled/equation gates and disable the extra h gate.
- * H-FOU defaults apply only to archived libraries.
- * Buffers, status and result ownership follow v2. Release with release_v2. */
-TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_solve_full_2d_v4(
-    const size_t* shape,const double* const* arrays,const size_t* sizes,
-    const tpmshx_full_2d_config_v2* config,const tpmshx_full_2d_energy_control_v4* energy,
-    const tpmshx_full_2d_callbacks_v2* callbacks,
-    tpmshx_full_2d_result_v2* result,char* error,size_t error_capacity);
 typedef struct {
     tpmshx_full_2d_energy_state_v1 main,fine;
     const tpmshx_energy_result_v1* outer;
@@ -223,13 +204,6 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_physical_heat_ledg
  * and preserve output. Copy the strings before the result owner is released. */
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_property_sampling_v1(
     const tpmshx_full_2d_result_v2*,tpmshx_property_sampling_v1*);
-/* Integral h(T) controls for all actual model-h consumers, including full CC.
- * options is required. Other thermal routes reject active overrides before flow.
- * Existing input/result layouts, status codes and release operations apply. */
-TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_solve_full_2d_v5(
-    const size_t*,const double* const*,const size_t*,const tpmshx_full_2d_config_v2*,
-    const tpmshx_model_h_iteration_options_v1*,const tpmshx_full_2d_callbacks_v2*,
-    tpmshx_full_2d_result_v2*,char*,size_t);
 /* Actual completed calls, including capped and rejected startup trials.
  * Views borrow the result owner. Cancellation returns no records.
  * Invalid or released owners return 1 and preserve the output. */
@@ -245,7 +219,12 @@ typedef struct {
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_flow_methods_v1(
     const tpmshx_full_2d_result_v2*,tpmshx_full_2d_flow_method_v1[2]);
 
-/* Execute with a positive CPU thread limit. Numerical controls are unchanged. */
+/* Execute one complete solve with a positive CPU thread limit.
+ * energy, explicit_energy and model_h are optional. A null value keeps the route default.
+ * explicit_energy requires the two-sided true-h route.
+ * model_h applies to all actual model-h consumers, including full CC.
+ * Other thermal routes reject active model-h overrides before flow.
+ * Buffers, status and result ownership follow the contract above. Release with release_v2. */
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_solve_full_2d_v6(
     const size_t* shape,const double* const* arrays,const size_t* sizes,
     const tpmshx_full_2d_config_v2* config,const tpmshx_energy_options_v1* energy,

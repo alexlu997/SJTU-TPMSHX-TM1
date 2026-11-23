@@ -151,7 +151,7 @@ typedef struct {
 #ifdef __cplusplus
 extern "C" {
 #endif
-/* Supports symmetric uniform cases at prescribed inlet velocity. Both sides
+/* These rules apply to the v3 and v4 entries. Both sides
  * require active ports. Missing first-axis values mean zero-width full faces.
  * Depth is explicit. max_cells is the resolved host limit, not an environment read.
  * Input buffers and v1 event callbacks are borrowed until return. The result
@@ -161,6 +161,11 @@ extern "C" {
  * side drag evidence records the corrections for the later run stage.
  * Failure preserves the result. Invalid overlapping output storage preserves
  * the result, failure and error buffers. No run or property table is created.
+ * Capacity queries ignore old speeds and do not evaluate Nu or velocity windows.
+ * Explicit targets replace both configured mass inputs. Resolution without a
+ * target copies the input without physical preparation. Complete preparation
+ * reuses the same geometry and records static evidence before speed checks.
+ * Nested views in the combined result are borrowed and have NULL owners.
  */
 /* Host v5 uses typed v9 cache callbacks with the existing 3D input layouts.
  * Validation stages: 10=domain, 11=ports, 12=fluids, 13=grid input,
@@ -168,40 +173,11 @@ extern "C" {
  * Side is 2 (shared).
  */
 TPMSHX_PREPARATION_API uint32_t TPMSHX_PREPARATION_CALL tpmshx_preparation_host_3d_abi_version_v5(void);
-TPMSHX_PREPARATION_API uint32_t TPMSHX_PREPARATION_CALL tpmshx_preparation_case_3d_abi_version_v1(void);
-TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_case_3d_v1(
-    const tpmshx_preparation_case_input_3d_v1*,const tpmshx_preparation_case_options_v1*,
-    const tpmshx_preparation_case_callbacks_v1*,tpmshx_preparation_case_3d_v1*,
-    tpmshx_preparation_case_failure_v2*,char*,size_t);
-TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_case_3d_release_v1(
-    tpmshx_preparation_case_3d_v1*);
-/* Capacity queries ignore old speeds and do not evaluate Nu or velocity windows.
- * Explicit targets replace both configured mass inputs. Resolution without a
- * target copies the input without physical preparation. Complete preparation
- * reuses the same geometry and records static evidence before speed checks.
- * Nested views in the combined result are borrowed and have NULL owners.
- * All calls retain the v1 storage, callback and same-library release rules.
- */
-TPMSHX_PREPARATION_API uint32_t TPMSHX_PREPARATION_CALL tpmshx_preparation_flow_3d_abi_version_v2(void);
-TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_inlet_mass_capacities_3d_v2(
-    const tpmshx_preparation_flow_input_3d_v2*,const tpmshx_preparation_case_options_v1*,
-    const tpmshx_preparation_case_callbacks_v1*,tpmshx_preparation_flow_3d_v2*,
-    tpmshx_preparation_case_failure_v2*,char*,size_t);
-TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_resolve_inlet_flow_3d_v2(
-    const tpmshx_preparation_flow_input_3d_v2*,const tpmshx_preparation_case_options_v1*,
-    const tpmshx_preparation_case_callbacks_v1*,tpmshx_preparation_flow_3d_v2*,
-    tpmshx_preparation_case_failure_v2*,char*,size_t);
-TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_flow_case_3d_v2(
-    const tpmshx_preparation_flow_input_3d_v2*,const tpmshx_preparation_case_options_v1*,
-    const tpmshx_preparation_case_callbacks_v1*,tpmshx_preparation_flow_case_3d_v2*,
-    tpmshx_preparation_case_failure_v2*,char*,size_t);
-TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_flow_3d_release_v2(tpmshx_preparation_flow_3d_v2*);
-TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_flow_case_3d_release_v2(tpmshx_preparation_flow_case_3d_v2*);
 /* V3 accepts canonical XY extrusion or XYZ controls with geometry_mode=1.
  * have_ctrl_z selects XYZ even when n_ctrl_z is one. Decisions store all L,
  * then all t, with z fastest. Thermal fields retain the SI round trip.
  * Nested views are borrowed from the outer owner. Release that owner once.
- * Existing v1/v2 storage and callback rules remain in force.
+ * The common storage and callback rules above apply.
  */
 TPMSHX_PREPARATION_API uint32_t TPMSHX_PREPARATION_CALL tpmshx_preparation_continuous_3d_abi_version_v3(void);
 TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_inlet_mass_capacities_3d_v3(
@@ -225,7 +201,7 @@ TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_continuou
  * cells. L/t are smoothed separately before geometry, then extruded along z.
  * Side B aliases the symmetric side view when delta is zero. Thermal fields
  * are empty for uniform inputs. Nested views are borrowed from the outer owner.
- * Existing v1/v2/v3 storage and callback rules remain in force.
+ * The common storage and callback rules above apply.
  */
 TPMSHX_PREPARATION_API uint32_t TPMSHX_PREPARATION_CALL tpmshx_preparation_spatial_3d_abi_version_v4(void);
 TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_inlet_mass_capacities_3d_v4(

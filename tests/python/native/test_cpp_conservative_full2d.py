@@ -248,17 +248,32 @@ def test_candidate_requires_supported_route_and_backend(driver):
     assert raw['main']['true_h'] is None
 
 
-@pytest.mark.parametrize('missing', ['tpmshx_solve_full_2d_v3', 'tpmshx_full_2d_get_energy_evidence_v1'])
-def test_old_library_candidate_capability_fails_before_flow(driver, monkeypatch, missing):
+def test_library_without_v6_entry_is_rejected(driver, monkeypatch):
+    from sjtu_tpmshx.cpp_interface.solver_library import full_2d
     original = driver.library
-    class OldAPI:
+
+    class PartialLibrary:
         def __getattr__(self, name):
-            if name in (missing, 'tpmshx_solve_full_2d_v6'):
+            if name == 'tpmshx_solve_full_2d_v6':
                 raise AttributeError(name)
             return getattr(original, name)
-    case = prepare_case(configuration('temperature_sou'), case_id='energy2d-old-library')
-    monkeypatch.setattr(driver, 'library', OldAPI())
-    with pytest.raises(ValueError, match='lacks conservative energy v3'):
+    monkeypatch.setattr(full_2d.ct, 'CDLL', lambda _: PartialLibrary())
+    with pytest.raises(ValueError, match='lacks tpmshx_solve_full_2d_v6'):
+        NativeFull2DDriver(driver.path)
+
+
+def test_missing_energy_evidence_query_fails_before_flow(driver, monkeypatch):
+    original = driver.library
+
+    class PartialLibrary:
+        def __getattr__(self, name):
+            if name == 'tpmshx_full_2d_get_energy_evidence_v1':
+                raise AttributeError(name)
+            return getattr(original, name)
+    case = prepare_case(configuration('temperature_sou'), case_id='energy2d-partial-library')
+    monkeypatch.setattr(driver, 'library', PartialLibrary())
+    monkeypatch.setattr(driver, 'call', lambda *_: pytest.fail('native solve ran before its capability check'))
+    with pytest.raises(ValueError, match='lacks conservative energy v6'):
         driver.run_prepared(*build_execution_inputs(case))
 
 
@@ -267,43 +282,38 @@ def test_missing_version_query_blocks_candidate_before_solve_but_allows_legacy(d
     from sjtu_tpmshx.cpp_interface.solver_library import full_2d
     original, entered = driver.library, []
 
-    class LegacyEntered(Exception):
+    class SolveEntered(Exception):
         pass
 
-    def legacy(*args):
-        entered.append('legacy')
-        raise LegacyEntered
-
-    def forbidden_candidate(*args):
-        pytest.fail('native candidate solve ran before its version capability check')
+    def solve(*args):
+        entered.append(True)
+        raise SolveEntered
 
     def historical_defaults(dimension, selected, water, output):
         status = original.tpmshx_full_enthalpy_defaults_v1(dimension, 2, water, output)
         output._obj.algorithm = selected
         return status
 
-    class OldLibrary:
+    class PartialLibrary:
         def __getattr__(self, name):
             if name == "tpmshx_full_enthalpy_defaults_v1":
                 return historical_defaults
-            if name in ('tpmshx_solve_full_2d_v6', 'tpmshx_energy_algorithm_version_v1'):
+            if name == 'tpmshx_energy_algorithm_version_v1':
                 raise AttributeError(name)
-            if name == 'tpmshx_solve_full_2d_v2':
-                return legacy
-            if name == 'tpmshx_solve_full_2d_v3':
-                return forbidden_candidate
+            if name == 'tpmshx_solve_full_2d_v6':
+                return solve
             return getattr(original, name)
 
     case = prepare_case(configuration(algorithm), case_id='energy2d-missing-version')
-    monkeypatch.setattr(full_2d.ct, 'CDLL', lambda _: OldLibrary())
-    old = NativeFull2DDriver(driver.path)
+    monkeypatch.setattr(full_2d.ct, 'CDLL', lambda _: PartialLibrary())
+    partial = NativeFull2DDriver(driver.path)
     if algorithm == 'legacy_h_fou':
-        with pytest.raises(LegacyEntered):
-            old.run_prepared(*build_execution_inputs(case))
-        assert entered == ['legacy']
+        with pytest.raises(SolveEntered):
+            partial.run_prepared(*build_execution_inputs(case))
+        assert entered == [True]
     else:
         with pytest.raises(ValueError, match='lacks conservative energy algorithm version query'):
-            old.run_prepared(*build_execution_inputs(case))
+            partial.run_prepared(*build_execution_inputs(case))
         assert not entered
 
 
@@ -430,7 +440,7 @@ def test_one_explicit_control_preserves_other_route_defaults(driver, algorithm):
     assert actual['energy_algorithm'] == algorithm
 
 
-def test_explicit_thermal_controls_reject_unavailable_routes_before_flow(driver, monkeypatch):
+def test_explicit_thermal_controls_reject_unavailable_routes_before_flow(driver):
     config = configuration('temperature_sou')
     config.solver = replace(config.solver, ltne_enthalpy_nsweep=4)
     case = prepare_case(config, case_id='explicit-energy2d-backend')
@@ -439,15 +449,6 @@ def test_explicit_thermal_controls_reject_unavailable_routes_before_flow(driver,
     other = replace(config, fluid_B=replace(config.fluid_B, type='water'))
     with pytest.raises(ValueError, match='existing true-h route'):
         driver.run_prepared(*build_execution_inputs(prepare_case(other, case_id='explicit-energy2d-model-h')))
-    original = driver.library
-    class OldLibrary:
-        def __getattr__(self, name):
-            if name in ('tpmshx_solve_full_2d_v4', 'tpmshx_solve_full_2d_v6'):
-                raise AttributeError(name)
-            return getattr(original, name)
-    monkeypatch.setattr(driver, 'library', OldLibrary())
-    with pytest.raises(ValueError, match='lacks explicit energy controls v4'):
-        driver.run_prepared(*build_execution_inputs(case))
 
 
 @pytest.mark.parametrize('algorithm', ['legacy_h_fou', 'temperature_fou'])

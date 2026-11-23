@@ -1,7 +1,6 @@
 """Public prepared-case execution entry point."""
 from collections.abc import Callable
 from dataclasses import replace
-from functools import partial
 from sjtu_tpmshx.data_types.case_data import CaseData
 from sjtu_tpmshx.data_types.field_result import FieldResult
 from sjtu_tpmshx.run_control.module_ports import RunControl
@@ -35,11 +34,9 @@ def run_case(case: CaseData, control: RunControl = RunControl(), *,
     elif mode != 'full':
         raise ValueError(f'unsupported solver mode: {mode}')
     elif dimension == 2:
-        from sjtu_tpmshx.cpp_interface.full_2d_stage import run_case as run_2d
-        run = partial(run_2d, direct_run=_run_retained_2d)
+        from sjtu_tpmshx.cpp_interface.full_2d_stage import run_case as run
     elif dimension == 3:
-        from sjtu_tpmshx.cpp_interface.full_3d_stage import run_case as run_3d
-        run = partial(run_3d, retained_run=_run_retained_3d)
+        from sjtu_tpmshx.cpp_interface.full_3d_stage import run_case as run
     else:
         raise ValueError(f'unsupported physical dimension: {dimension}')
     provenance = dict(preparation=case.metadata.get('provenance', {'status':'not_recorded'}),
@@ -55,8 +52,7 @@ def run_case(case: CaseData, control: RunControl = RunControl(), *,
     if mode == 'full' and result.run_status['execution'] == 'completed':
         if 'execution_record' not in metadata:
             from .execution_record import full_execution_record
-            metadata['execution_record'] = full_execution_record(case, result,
-                sides=metadata.pop('_native_execution_sides', None))
+            metadata['execution_record'] = full_execution_record(case, result)
         if '_native_applicability' in metadata:
             from sjtu_tpmshx.run_control.run_warnings import captured_scope_notes
             metadata['applicability_evidence'] = dict(metadata.pop('_native_applicability'),
@@ -94,12 +90,3 @@ def _validate_solver_controls(settings, dimension, mode):
             'model_h_max_iterations', 'model_h_temperature_tol_K', 'model_h_q_relative_tol')):
         raise ValueError('explicit model-h controls require full compute with backend=cpp')
 
-
-def _run_retained_2d(*args):
-    from sjtu_tpmshx.cpp_interface.solver_library.full_2d import _run_direct
-    return _run_direct(*args)
-
-
-def _run_retained_3d(*args, **kwargs):
-    from sjtu_tpmshx.cpp_interface.solver_library.full_3d import _run_retained_case
-    return _run_retained_case(*args, **kwargs)

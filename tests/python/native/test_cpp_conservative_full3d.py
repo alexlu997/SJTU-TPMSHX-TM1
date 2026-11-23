@@ -350,22 +350,35 @@ def test_one_block_budget_keeps_iteration_limit_and_final_evidence(native_path, 
     assert evaluate(result).metrics['Q'].status == 'available'
 
 
-@pytest.mark.parametrize('symbol', ['tpmshx_solve_full_3d_v2', 'tpmshx_full_3d_get_energy_evidence_v1'])
-def test_missing_candidate_native_capability_never_falls_back(native_path, monkeypatch, symbol):
+def test_library_without_v5_entry_is_rejected(native_path, monkeypatch):
+    from sjtu_tpmshx.cpp_interface.solver_library import full_3d
+    library = NativeFull3DDriver(native_path).library
+
+    class PartialLibrary:
+        def __getattr__(self, name):
+            if name == 'tpmshx_solve_full_3d_v5':
+                raise AttributeError(name)
+            return getattr(library, name)
+    monkeypatch.setattr(full_3d.ct, 'CDLL', lambda _: PartialLibrary())
+    with pytest.raises(ValueError, match='lacks tpmshx_solve_full_3d_v5'):
+        NativeFull3DDriver(native_path)
+
+
+def test_missing_energy_evidence_query_fails_before_flow(native_path, monkeypatch):
     driver = NativeFull3DDriver(native_path)
     library = driver.library
 
-    class OldLibrary:
+    class PartialLibrary:
         def __getattr__(self, name):
-            if name in (symbol, 'tpmshx_solve_full_3d_v5'):
+            if name == 'tpmshx_full_3d_get_energy_evidence_v1':
                 raise AttributeError(name)
             return getattr(library, name)
-    monkeypatch.setattr(driver, 'library', OldLibrary())
-    def forbidden_fallback(*_):
-        pytest.fail('candidate fell back to old entry')
-    forbidden_fallback.argtypes = driver.call.argtypes
-    monkeypatch.setattr(driver, 'call', forbidden_fallback)
-    with pytest.raises(ValueError, match='lacks conservative energy v2'):
+    monkeypatch.setattr(driver, 'library', PartialLibrary())
+    def forbidden(*_):
+        pytest.fail('native solve ran before its capability check')
+    forbidden.argtypes = driver.call.argtypes
+    monkeypatch.setattr(driver, 'call', forbidden)
+    with pytest.raises(ValueError, match='lacks conservative energy v5 evidence'):
         driver.run_prepared(*build_execution_inputs(candidate(ALGORITHMS[0])))
 
 
@@ -375,43 +388,38 @@ def test_missing_version_query_blocks_candidate_before_solve_but_allows_legacy(n
     original = NativeFull3DDriver(native_path).library
     entered = []
 
-    class LegacyEntered(Exception):
+    class SolveEntered(Exception):
         pass
 
-    def legacy(*args):
-        entered.append('legacy')
-        raise LegacyEntered
-
-    def forbidden_candidate(*args):
-        pytest.fail('native candidate solve ran before its version capability check')
+    def solve(*args):
+        entered.append(True)
+        raise SolveEntered
 
     def historical_defaults(dimension, selected, water, output):
         status = original.tpmshx_full_enthalpy_defaults_v1(dimension, 2, water, output)
         output._obj.algorithm = selected
         return status
 
-    class OldLibrary:
+    class PartialLibrary:
         def __getattr__(self, name):
             if name == "tpmshx_full_enthalpy_defaults_v1":
                 return historical_defaults
-            if name in ('tpmshx_solve_full_3d_v5', 'tpmshx_energy_algorithm_version_v1'):
+            if name == 'tpmshx_energy_algorithm_version_v1':
                 raise AttributeError(name)
-            if name == 'tpmshx_solve_full_3d_v1':
-                return legacy
-            if name in ('tpmshx_solve_full_3d_v2', 'tpmshx_solve_full_3d_v3'):
-                return forbidden_candidate
+            if name == 'tpmshx_solve_full_3d_v5':
+                return solve
             return getattr(original, name)
 
     prepared = candidate(algorithm, cap=2)
-    monkeypatch.setattr(full_3d.ct, 'CDLL', lambda _: OldLibrary())
-    old = NativeFull3DDriver(native_path)
+    monkeypatch.setattr(full_3d.ct, 'CDLL', lambda _: PartialLibrary())
+    partial = NativeFull3DDriver(native_path)
     if algorithm == 'legacy_h_fou':
-        with pytest.raises(LegacyEntered):
-            old.run_prepared(*build_execution_inputs(prepared))
-        assert entered == ['legacy']
+        with pytest.raises(SolveEntered):
+            partial.run_prepared(*build_execution_inputs(prepared))
+        assert entered == [True]
     else:
         with pytest.raises(ValueError, match='lacks conservative energy algorithm version query'):
-            old.run_prepared(*build_execution_inputs(prepared))
+            partial.run_prepared(*build_execution_inputs(prepared))
         assert not entered
 
 
@@ -442,12 +450,20 @@ def test_existing_true_h_controls_keep_qualified_state(native_path, monkeypatch,
     case = candidate(algorithm, pair=pair)
     baseline = run_case(case, control(native_path, cpu_threads=1))
     from sjtu_tpmshx.cpp_interface import full_3d_stage
-    monkeypatch.setattr(full_3d_stage, 'has_saved_stage', lambda library: False)
+    from sjtu_tpmshx.cpp_interface.solver_library.full_3d_capture import capture_result
+
+    def direct(case, run_control, **options):
+        # Only the direct v5 driver lets this test change the native control flags.
+        cfg, data = build_execution_inputs(case, copy_design=False)
+        driver = NativeFull3DDriver(run_control.native_library, table_directory=run_control.native_table_directory)
+        raw = driver._run_prepared(cfg, data, run_control, application_only=True, **options)
+        return capture_result(case, cfg, data, raw, driver.abi)
+    monkeypatch.setattr(full_3d_stage, 'run_case', direct)
     run_prepared = NativeFull3DDriver._run_prepared
     seen = []
 
     def with_controls(driver, cfg, data, run_control, **kwargs):
-        call = driver.library.tpmshx_solve_full_3d_v5
+        call = driver.call
 
         def with_native_controls(*args):
             native = args[1]._obj
@@ -456,7 +472,7 @@ def test_existing_true_h_controls_keep_qualified_state(native_path, monkeypatch,
             seen.append((native.conservative, native.variable_rho_cp, native.red_black_energy))
             return call(*args)
 
-        monkeypatch.setattr(driver.library, 'tpmshx_solve_full_3d_v5', with_native_controls)
+        monkeypatch.setattr(driver, 'call', with_native_controls)
         for name in ('conservative_ltne', 'variable_rho_cp'):
             if option in (name, 'combined'):
                 cfg[name] = False
@@ -529,24 +545,18 @@ def test_cancel_returns_no_field_result_and_releases_owned_state(native_path, mo
 
 def test_interrupt_after_candidate_native_return_releases_owner(native_path, monkeypatch):
     driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
-    library, release, released = driver.library, driver.release, []
-    call = library.tpmshx_solve_full_3d_v5
+    call, release, released = driver.call, driver.release, []
 
     def interrupted(*args):
-        call.argtypes = interrupted.argtypes
         assert call(*args) == 0
         assert args[7]._obj.owner
         raise KeyboardInterrupt('candidate native-return')
-
-    class InterruptedLibrary:
-        def __getattr__(self, name):
-            return interrupted if name == 'tpmshx_solve_full_3d_v5' else getattr(library, name)
 
     def tracked(pointer):
         assert pointer._obj.owner
         release(pointer)
         released.append(pointer._obj.owner)
-    monkeypatch.setattr(driver, 'library', InterruptedLibrary())
+    monkeypatch.setattr(driver, 'call', interrupted)
     monkeypatch.setattr(driver, 'release', tracked)
     prepared = candidate(ALGORITHMS[0], cap=2)
     with pytest.raises(KeyboardInterrupt, match='candidate native-return'):
@@ -589,7 +599,7 @@ def test_large_grid_packing_keeps_legacy_rb_and_candidate_serial(tmp_path, monke
     # Resolve/pack genuine prepared 32768-cell input, but never load a library
     # or solve a large grid merely to inspect the automatically selected flag.
     library = SimpleNamespace(tpmshx_full_3d_abi_version=lambda: 2,
-        tpmshx_solve_full_3d_v1=capture, tpmshx_solve_full_3d_v2=capture, tpmshx_solve_full_3d_v5=capture,
+        tpmshx_solve_full_3d_v5=capture,
         tpmshx_full_3d_release_v1=lambda *_: pytest.fail('packing allocated native ownership'),
         tpmshx_full_3d_get_bootstrap_trace_v1=lambda *_: None,
         tpmshx_full_3d_get_last_closure_ranges_v1=lambda *_: pytest.fail('packing requested result evidence'),

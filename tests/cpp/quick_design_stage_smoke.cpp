@@ -1,5 +1,6 @@
 #include <tpmshx/stages.hpp>
 #include <tpmshx/temperature_driver_c_api.h>
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstring>
@@ -18,19 +19,27 @@ int cancel(void*) {return 1;}
 int count_cancel(void* context) {++*static_cast<size_t*>(context);return 1;}
 void count_progress(void* context,unsigned) {++*static_cast<size_t*>(context);}
 void progress(void* context,unsigned percent) {static_cast<std::vector<unsigned>*>(context)->push_back(percent);}
-QuickDesignInput input(uint32_t arrangement=TPMSHX_CROSS,uint32_t mode=TPMSHX_CONSTANT) {
-    QuickDesignInput value;
-    value.topology=TPMSHX_DIAMOND;value.arrangement=arrangement;value.property_mode=mode;
-    value.cell_length_mm=7.;value.wall_thickness_mm=.5;value.span_m=.084;value.length_m=.05;
-    value.have_height=arrangement==TPMSHX_CROSS?1:0;value.height_m=.07;
-    value.sides[0]={TPMSHX_AIR,688.23,1088700.,.2855};value.sides[1]={TPMSHX_WATER,320.,200000.,.5};
-    return value;
+// One raw operating point. Labels are borrowed static text.
+struct Point {
+    QuickDesignInputV2 value;
+    std::array<std::vector<double>,3> seeds;
+};
+tpmshx_preparation_text_v1 text(const char* value) {return {value,std::strlen(value)};}
+void input(Point& point,bool counter=false,bool mean=false) {
+    auto& value=point.value;
+    value=QuickDesignInputV2{};
+    const double scalars[]{7.,.5,.084,.05,.07,16.,1e-5,.2855,.5,688.23,320.,1088700.,200000.};
+    for(size_t i=0;i<TPMSHX_QUICK_VALUE_COUNT;++i)value.values[i].value=scalars[i];
+    value.topology=text("Diamond");value.arrangement=text(counter?"counter":"cross");
+    value.property_mode=text(mean?"mean":"const");
+    value.fluids[0]=text("air");value.fluids[1]=text("water");value.have_height=counter?0:1;
 }
 void binary(const std::filesystem::path& directory,const std::string& name,const void* data,size_t bytes) {
     std::ofstream file(directory/(name+".bin"),std::ios::binary);
     file.write(static_cast<const char*>(data),static_cast<std::streamsize>(bytes));require(file.good(),"could not write Quick Design field");
 }
-void prepared_files(const std::filesystem::path& directory,const tpmshx_quick_prepared_v1& value) {
+void prepared_files(const std::filesystem::path& directory,const QuickDesignInputV2& input,
+                    const tpmshx_quick_prepared_v2& value) {
     std::filesystem::create_directories(directory);
     std::ofstream index(directory/"prepared.tsv");
     const auto store=[&](const std::string& name,tpmshx_preparation_array_v1 values) {
@@ -39,19 +48,26 @@ void prepared_files(const std::filesystem::path& directory,const tpmshx_quick_pr
     for(size_t axis=0;axis<3;++axis) {
         store(std::string("d")+"xyz"[axis],value.widths[axis]);
         store(std::string(1,"xyz"[axis])+"_edges",value.edges[axis]);
-        if(value.resolved.warm_start)store("initial_"+std::to_string(axis),value.initial[axis]);
+        if(input.warm_start)store("initial_"+std::to_string(axis),value.initial[axis]);
     }
     store("eps",value.epsilon);store("eps_A",value.epsilon_a);store("K_ss",value.solid_conductivity);
     require(index.good(),"could not write Quick Design prepared index");
     std::ofstream scalars(directory/"prepared-scalars.tsv");scalars<<std::setprecision(17);
-    const auto& c=value.resolved;
-    scalars<<"Lx\t"<<c.length<<"\ns\t"<<c.span<<"\nheight\t"<<c.height
-        <<"\nL_cell_m\t"<<c.cell_length<<"\nA_0\t"<<c.area_density<<"\nD_h\t"<<c.hydraulic_diameter
-        <<"\nt_wall_m\t"<<value.wall_thickness_m<<"\nk_s\t"<<value.solid_conductivity_W_mK
-        <<"\ntol\t"<<value.tolerance<<"\ngeometry_resolution\t"<<value.geometry_resolution
-        <<"\nmaxit\t"<<c.max_iterations<<"\nchunk\t"<<c.chunk_iterations
-        <<"\nqtol\t"<<c.q_relative_tolerance<<"\nalpha\t"<<c.alpha<<'\n';
-    for(size_t side=0;side<2;++side)scalars<<"pressure_fraction_"<<"AB"[side]<<'\t'<<c.sides[side].inlet_pressure_fraction<<'\n';
+    const auto& v=input.values;const auto& c=value.controls;
+    const auto span=v[TPMSHX_QUICK_SPAN].value,tolerance=v[TPMSHX_QUICK_TOLERANCE].value;
+    // Independent reference: the run selects these defaults when the prepared controls omit them.
+    const bool plane=value.shape[2]==1;
+    const auto qtol=c.have_q_relative_tolerance?c.q_relative_tolerance:
+        (plane?std::min(tolerance*2e-3,1e-3):std::max(tolerance*10.,1e-4));
+    const auto chunk=c.have_chunk_iterations?c.chunk_iterations:(plane?500u:250u);
+    scalars<<"Lx\t"<<v[TPMSHX_QUICK_LENGTH].value<<"\ns\t"<<span
+        <<"\nheight\t"<<(input.have_height?v[TPMSHX_QUICK_HEIGHT].value:span)
+        <<"\nL_cell_m\t"<<value.cell_length_m.value<<"\nA_0\t"<<value.geometry.area_density_per_m
+        <<"\nD_h\t"<<value.geometry.hydraulic_diameter_m
+        <<"\nt_wall_m\t"<<value.wall_thickness_m.value<<"\nk_s\t"<<v[TPMSHX_QUICK_CONDUCTIVITY].value
+        <<"\ntol\t"<<tolerance<<"\nmaxit\t"<<c.max_iterations<<"\nchunk\t"<<chunk
+        <<"\nqtol\t"<<qtol<<"\nalpha\t"<<c.alpha<<'\n';
+    for(size_t side=0;side<2;++side)scalars<<"pressure_fraction_"<<"AB"[side]<<'\t'<<value.fractions[side].value<<'\n';
     require(scalars.good(),"could not write Quick Design prepared scalars");
 }
 void result_files(const std::filesystem::path& directory,const tpmshx_quick_run_result_v1& value,
@@ -88,45 +104,42 @@ void result_files(const std::filesystem::path& directory,const tpmshx_quick_run_
         "could not write Quick Design evidence");
 }
 void failures() {
-    auto source=input();
-    tpmshx_quick_prepared_v1 failure{};failure.abi_version=1;failure.struct_size=sizeof(failure);failure.resolved.length=-123.;
+    Point point;input(point);auto& source=point.value;
+    tpmshx_quick_prepared_v2 failure{};failure.abi_version=2;failure.struct_size=sizeof(failure);
+    failure.cell_length_m.value=-123.;
     const auto original=failure;char error[4096]{};
-    source.have_height=1;source.height_m=0.;
-    require(tpmshx_prepare_quick_design_v1(&source,&failure,error,sizeof(error))==1,"invalid explicit height accepted");
-    require(std::string(error)=="quick-design height must be finite and positive","height error changed");
-    require(std::memcmp(&failure,&original,sizeof(failure))==0,"failed prepare changed output");
-    source=input();source.warm_start=1;
-    std::vector<double> seed(120,320.);
-    for(size_t axis=0;axis<3;++axis) {source.initial_shape[axis]=axis?1:120;source.initial[axis]={seed.data(),seed.size()};}
-    require(tpmshx_prepare_quick_design_v1(&source,&failure,error,sizeof(error))==1,"invalid warm shape accepted");
-    require(std::string(error)=="quick-design warm start must match the prepared grid","warm shape error changed");
-    require(std::memcmp(&failure,&original,sizeof(failure))==0,"warm shape failure changed output");
-    source=input();source.topology=8;
-    require(tpmshx_prepare_quick_design_v1(&source,&failure,error,sizeof(error))==1,"invalid topology accepted");
-    source=input();source.have_tolerance=1;source.tolerance=std::numeric_limits<double>::quiet_NaN();
-    require(tpmshx_prepare_quick_design_v1(&source,&failure,error,sizeof(error))==1,"invalid tolerance accepted");
-    source=input();source.arrangement=5;
-    require(tpmshx_prepare_quick_design_v1(&source,&failure,error,sizeof(error))==1,"invalid arrangement accepted");
-    source=input();source.sides[1].temperature_K=500.;
-    require(tpmshx_prepare_quick_design_v1(&source,&failure,error,sizeof(error))==TPMSHX_PREPARATION_WATER_STATE,
+    const auto rejected=[&](const char* message) {
+        require(tpmshx_prepare_quick_design_v2(&source,nullptr,&failure,error,sizeof(error))!=0,message);
+        require(std::memcmp(&failure,&original,sizeof(failure))==0,"failed prepare changed output");
+        input(point);
+    };
+    source.values[TPMSHX_QUICK_HEIGHT].value=0.;rejected("invalid explicit height accepted");
+    source.topology=text("Octahedron");rejected("invalid topology accepted");
+    source.values[TPMSHX_QUICK_TOLERANCE].value=std::numeric_limits<double>::quiet_NaN();rejected("invalid tolerance accepted");
+    source.arrangement=text("parallel");rejected("invalid arrangement accepted");
+    source.values[TPMSHX_QUICK_TEMPERATURE_B].value=500.;
+    require(tpmshx_prepare_quick_design_v2(&source,nullptr,&failure,error,sizeof(error))==TPMSHX_PREPARATION_WATER_STATE,
         "water state rejection changed");
-    source=input();
-    require(tpmshx_prepare_quick_design_v1(&source,&failure,reinterpret_cast<char*>(&source),sizeof(source))==1,
+    input(point);
+    require(tpmshx_prepare_quick_design_v2(&source,nullptr,&failure,reinterpret_cast<char*>(&source),sizeof(source))==1,
         "aliased preparation error storage accepted");
-    auto prepared=prepare_quick_design(input());
+    auto prepared=prepare_quick_design(source);
     tpmshx_quick_run_result_v1 run{};run.abi_version=1;run.struct_size=sizeof(run);run.raw.completed_passes=91;
     const auto before=run;tpmshx_quick_run_control_v1 control{};control.result_id="quick-boundary";
     size_t callback_calls=0;control.callbacks={count_cancel,count_progress,&callback_calls};
-    const auto reject_alias=[&](const tpmshx_quick_prepared_v1* prepared_input,
+    const auto run_v2=[&](const tpmshx_quick_prepared_v2* prepared_input,const tpmshx_quick_run_control_v1* control_input,
+                          char* message,size_t capacity) {
+        return tpmshx_run_quick_design_v2(&source,prepared_input,control_input,&run,message,capacity);
+    };
+    const auto reject_alias=[&](const tpmshx_quick_prepared_v2* prepared_input,
             const tpmshx_quick_run_control_v1* control_input) {
-        require(tpmshx_run_quick_design_v1(prepared_input,control_input,&run,error,sizeof(error))==TPMSHX_INVALID_ARGUMENT,
-            "aliased run input accepted");
+        require(run_v2(prepared_input,control_input,error,sizeof(error))==TPMSHX_INVALID_ARGUMENT,"aliased run input accepted");
         require(std::memcmp(&run,&before,sizeof(run))==0,"aliased input changed output");
         require(callback_calls==0,"aliased input called a callback");
     };
     reject_alias(&prepared.view(),reinterpret_cast<const tpmshx_quick_run_control_v1*>(&run));
     reject_alias(&prepared.view(),reinterpret_cast<const tpmshx_quick_run_control_v1*>(&run.raw));
-    reject_alias(reinterpret_cast<const tpmshx_quick_prepared_v1*>(&run),&control);
+    reject_alias(reinterpret_cast<const tpmshx_quick_prepared_v2*>(&run),&control);
     control.result_id=reinterpret_cast<const char*>(&run);
     reject_alias(&prepared.view(),&control);control.result_id="quick-boundary";
     auto aliased=prepared.view();
@@ -134,7 +147,6 @@ void failures() {
         const auto saved=*values;values->data=reinterpret_cast<const double*>(&run);
         reject_alias(&aliased,&control);*values=saved;
     }
-    aliased.resolved.warm_start=1;
     aliased.initial[0]={reinterpret_cast<const double*>(&run),1};
     reject_alias(&aliased,&control);
     for(unsigned failure=0;failure<3;++failure) {
@@ -152,8 +164,7 @@ void failures() {
             else run.owner=reinterpret_cast<void*>(1);
         }
         const auto original_run=run;
-        require(tpmshx_run_quick_design_v1(&invalid,&control,&run,
-            reinterpret_cast<char*>(borrowed.data()),sizeof(borrowed))==TPMSHX_INVALID_ARGUMENT,
+        require(run_v2(&invalid,&control,reinterpret_cast<char*>(borrowed.data()),sizeof(borrowed))==TPMSHX_INVALID_ARGUMENT,
             "early failure accepted aliased error storage");
         require(std::memcmp(borrowed.data(),original_borrowed.data(),sizeof(borrowed))==0,
             "early failure changed borrowed input bytes");
@@ -162,27 +173,28 @@ void failures() {
         run=before;control.result_id="quick-boundary";
     }
     control.result_id=nullptr;
-    require(tpmshx_run_quick_design_v1(&prepared.view(),&control,&run,error,sizeof(error))==TPMSHX_INVALID_ARGUMENT,
-        "missing result label accepted");
+    require(run_v2(&prepared.view(),&control,error,sizeof(error))==TPMSHX_INVALID_ARGUMENT,"missing result label accepted");
     require(std::string(error)=="quick-design run requires a result label","missing label diagnostic changed");
     require(std::memcmp(&run,&before,sizeof(run))==0,"missing label changed output");
     control.result_id="quick-boundary";run.owner=reinterpret_cast<void*>(1);
     const auto occupied=run;
-    require(tpmshx_run_quick_design_v1(&prepared.view(),&control,&run,error,sizeof(error))==TPMSHX_INVALID_ARGUMENT,
-        "nonempty run owner accepted");
+    require(run_v2(&prepared.view(),&control,error,sizeof(error))==TPMSHX_INVALID_ARGUMENT,"nonempty run owner accepted");
     require(std::string(error)=="release the previous quick-design run owner before reuse","owner diagnostic changed");
     require(std::memcmp(&run,&occupied,sizeof(run))==0,"owner rejection changed output");
     require(callback_calls==0,"semantic failure called a callback");
     run=before;
     control.callbacks={};
     auto malformed=prepared.view();--malformed.epsilon.size;
-    require(tpmshx_run_quick_design_v1(&malformed,&control,&run,error,sizeof(error))==1,"malformed prepared field accepted");
+    require(run_v2(&malformed,&control,error,sizeof(error))==1,"malformed prepared field accepted");
     require(std::memcmp(&run,&before,sizeof(run))==0,"failed run changed output");
     require(std::string(error)=="quick-design prepared array has the wrong extent","prepared extent diagnostic changed");
+    malformed=prepared.view();++malformed.controls.dir_b;
+    require(run_v2(&malformed,&control,error,sizeof(error))==1,"prepared controls disagree with the arrangement");
+    require(std::memcmp(&run,&before,sizeof(run))==0,"rejected controls changed output");
     control.callbacks.cancel=cancel;
-    require(tpmshx_run_quick_design_v1(&prepared.view(),&control,&run,error,sizeof(error))==TPMSHX_QUICK_STAGE_CANCELLED,"cancelled run status changed");
+    require(run_v2(&prepared.view(),&control,error,sizeof(error))==TPMSHX_QUICK_STAGE_CANCELLED,"cancelled run status changed");
     require(std::memcmp(&run,&before,sizeof(run))==0,"cancelled run published evidence");
-    require(tpmshx_run_quick_design_v1(&prepared.view(),&control,&run,reinterpret_cast<char*>(&run),sizeof(run))==1,
+    require(run_v2(&prepared.view(),&control,reinterpret_cast<char*>(&run),sizeof(run))==1,
         "aliased run error storage accepted");
     require(std::memcmp(&run,&before,sizeof(run))==0,"aliased run modified its output");
 }
@@ -213,22 +225,28 @@ int main(int argc,char** argv) {
         }
         const char* names[]{"cross-const","cross-mean","counter-const","cross-warm","counter-mean","water-air","sco2-sco2"};
         for(size_t sample=0;sample<7;++sample) {
-            auto source=input(sample==2 || sample==4?TPMSHX_COUNTER:TPMSHX_CROSS,
-                sample==1 || sample==4?TPMSHX_MEAN:TPMSHX_CONSTANT);
+            Point point;input(point,sample==2 || sample==4,sample==1 || sample==4);
+            auto& source=point.value;auto& v=source.values;
             if(sample==5) {
-                source.topology=TPMSHX_GYROID;source.length_m=.025;source.height_m=.06;
-                source.sides[0]={TPMSHX_WATER,355.,2e5,.2};source.sides[1]={TPMSHX_AIR,300.,2e5,.04};
+                source.topology=text("Gyroid");v[TPMSHX_QUICK_LENGTH].value=.025;v[TPMSHX_QUICK_HEIGHT].value=.06;
+                source.fluids[0]=text("water");source.fluids[1]=text("air");
+                v[TPMSHX_QUICK_TEMPERATURE_A].value=355.;v[TPMSHX_QUICK_PRESSURE_A].value=2e5;v[TPMSHX_QUICK_MASS_A].value=.2;
+                v[TPMSHX_QUICK_TEMPERATURE_B].value=300.;v[TPMSHX_QUICK_PRESSURE_B].value=2e5;v[TPMSHX_QUICK_MASS_B].value=.04;
             }
             if(sample==6) {
-                source.length_m=.025;source.height_m=.06;
-                source.sides[0]={TPMSHX_SCO2,500.,9e6,.2};source.sides[1]={TPMSHX_SCO2,350.,8e6,.2};
+                v[TPMSHX_QUICK_LENGTH].value=.025;v[TPMSHX_QUICK_HEIGHT].value=.06;
+                source.fluids[0]=text("sco2");source.fluids[1]=text("sco2");
+                v[TPMSHX_QUICK_TEMPERATURE_A].value=500.;v[TPMSHX_QUICK_PRESSURE_A].value=9e6;v[TPMSHX_QUICK_MASS_A].value=.2;
+                v[TPMSHX_QUICK_TEMPERATURE_B].value=350.;v[TPMSHX_QUICK_PRESSURE_B].value=8e6;v[TPMSHX_QUICK_MASS_B].value=.2;
             }
-            std::array<std::vector<double>,3> seeds;
+            const double hot=v[TPMSHX_QUICK_TEMPERATURE_A].value,cold=v[TPMSHX_QUICK_TEMPERATURE_B].value;
             if(sample==3) {
                 source.warm_start=1;source.initial_shape[0]=60;source.initial_shape[1]=40;source.initial_shape[2]=1;
-                const double temperatures[]{source.sides[0].temperature_K,source.sides[1].temperature_K,
-                    (source.sides[0].temperature_K+source.sides[1].temperature_K)/2.};
-                for(size_t side=0;side<3;++side) {seeds[side].assign(2400,temperatures[side]);source.initial[side]={seeds[side].data(),seeds[side].size()};}
+                const double temperatures[]{hot,cold,(hot+cold)/2.};
+                for(size_t side=0;side<3;++side) {
+                    point.seeds[side].assign(2400,temperatures[side]);
+                    source.initial[side]={point.seeds[side].data(),point.seeds[side].size()};
+                }
             }
             std::vector<unsigned> events;tpmshx_quick_run_control_v1 control{};
             control.result_id=names[sample];control.callbacks={nullptr,progress,&events};
@@ -236,18 +254,18 @@ int main(int argc,char** argv) {
             auto run=[&] {
                 auto prepared=prepare_quick_design(source);
                 if(sample==3) {
-                    seeds[0][0]=-999.;require(prepared.view().initial[0].data[0]==source.sides[0].temperature_K,
+                    point.seeds[0][0]=-999.;require(prepared.view().initial[0].data[0]==hot,
                         "prepared warm start borrowed the caller buffer");
                 }
-                if(argc>1)prepared_files(directory,prepared.view());
-                auto result=run_case(prepared,control);
-                require(prepared.view().initial[0].size==0 || prepared.view().initial[0].data[0]==source.sides[0].temperature_K,
+                if(argc>1)prepared_files(directory,source,prepared.view());
+                auto result=run_case(source,prepared,control);
+                require(prepared.view().initial[0].size==0 || prepared.view().initial[0].data[0]==hot,
                     "run modified the prepared warm start");
                 return result;
             }();
             // The prepared owner is gone before any evaluation reads the fields.
             const auto* algorithm=tpmshx_quick_run_temperature_algorithm_v1(&run.view());
-            const auto scheme=source.arrangement==TPMSHX_CROSS?TPMSHX_TEMPERATURE_CC_2D:TPMSHX_TEMPERATURE_CC_3D;
+            const auto scheme=sample==2 || sample==4?TPMSHX_TEMPERATURE_CC_3D:TPMSHX_TEMPERATURE_CC_2D;
             require(algorithm && std::strcmp(algorithm,tpmshx_temperature_algorithm_v1(scheme))==0,
                 "Quick Design result has the wrong temperature recipe");
             auto performance=evaluate(run);

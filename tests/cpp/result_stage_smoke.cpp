@@ -2,6 +2,7 @@
 #include "tpmshx/result_stage_c_api.h"
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <cstring>
 #include <iostream>
 #include <limits>
@@ -11,6 +12,14 @@ using namespace tpmshx::result;
 using namespace tpmshx::result::stage;
 namespace {
 void require(bool condition, const char* message) {if (!condition) throw std::runtime_error(message);}
+// Full-result hosts call v3 with a null model, so no typed Quick operands are present.
+int query_host(const tpmshx_stage_input_v2* host, std::uint32_t query, const tpmshx_stage_metric_spec_v1* requested,
+    const tpmshx_stage_metric_value_v1* values, std::size_t count, tpmshx_stage_output_v1* output,
+    tpmshx_result_diagnostics_v1* diagnostics, std::uint64_t* token, char* error, std::size_t capacity) {
+    tpmshx_stage_input_v3 input{};
+    input.abi_version = 3; input.struct_size = sizeof(input); input.host = host;
+    return tpmshx_result_stage_query_v3(&input, query, requested, values, count, output, diagnostics, token, error, capacity);
+}
 Tensor tensor(std::vector<std::size_t> shape, std::initializer_list<double> values) {
     Tensor out(std::move(shape), TPMSHX_RESULT_F64);
     require(out.size() == values.size(), "fixture shape");
@@ -142,7 +151,7 @@ void c_contract() {
     require(arithmetic::to_float(good.array().at(0)) == 42., "C early failure preserves unvisited borrowed storage");
 }
 void rejected_output_storage_contract() {
-    for (unsigned version = 1; version <= 3; ++version) for (unsigned query = 0; query < 4; ++query)
+    for (unsigned version = 1; version <= 3; version += 2) for (unsigned query = 0; query < 4; ++query)
         for (bool wrong_size : {false, true}) {
             char borrowed[128] = "retained-output";
             char before_input[sizeof(borrowed)]; std::memcpy(before_input, borrowed, sizeof(borrowed));
@@ -174,9 +183,6 @@ void rejected_output_storage_contract() {
                 case 2: status = tpmshx_result_stage_physical_balance_v1(&evidence, &output, borrowed, sizeof(borrowed)); break;
                 case 3: status = tpmshx_result_stage_qualification_v1(&evidence, nullptr, 0, &output, borrowed, sizeof(borrowed)); break;
                 }
-            } else if (version == 2) {
-                status = tpmshx_result_stage_query_v2(&input, query, nullptr, nullptr, 0,
-                    &output, &diagnostics, &token, borrowed, sizeof(borrowed));
             } else {
                 status = tpmshx_result_stage_query_v3(&quick, query, nullptr, nullptr, 0,
                     &output, &diagnostics, &token, borrowed, sizeof(borrowed));
@@ -223,7 +229,7 @@ void host_contract() {
     tpmshx_result_diagnostics_v1 diagnostics{}; std::uint64_t token{};
     tpmshx_stage_metric_spec_v1 requested{"mass", "kg/m", "three_module_v1", ""};
     char error[1024]{};
-    require(tpmshx_result_stage_query_v2(&input, 0, &requested, nullptr, 0,
+    require(query_host(&input, 0, &requested, nullptr, 0,
         &output, &diagnostics, &token, error, sizeof(error)) == 0, "metric consumes a host ValueError");
     require(probe.calls == 1 && output.metric_count == 1, "one original primitive boundary");
     require(std::strcmp(output.metrics[0].status, "invalid") == 0 && token == 0,
@@ -231,7 +237,7 @@ void host_contract() {
     tpmshx_result_stage_release_v1(&output);
     probe.cause = 8; probe.calls = 0;
     const auto before = output;
-    require(tpmshx_result_stage_query_v2(&input, 0, &requested, nullptr, 0,
+    require(query_host(&input, 0, &requested, nullptr, 0,
         &output, &diagnostics, &token, error, sizeof(error)) == TPMSHX_RESULT_NUMERIC,
         "unhandled host error stops the stage");
     require(probe.calls == 1 && token == 77 && diagnostics.python_cause == 8,
@@ -271,11 +277,11 @@ void deferred_alias_contract() {
         auto* identity = channel == 2 ? reinterpret_cast<std::uint64_t*>(borrowed) : &token;
         auto* message = channel == 3 ? reinterpret_cast<char*>(borrowed) : error;
         unsigned char before[sizeof(borrowed)]; std::memcpy(before, borrowed, sizeof(borrowed));
-        const auto status = tpmshx_result_stage_query_v2(&input, 1, nullptr, nullptr, 0,
+        const auto status = query_host(&input, 1, nullptr, nullptr, 0,
             output, diagnostics, identity, message, sizeof(error));
-        require(status != 0, "v2 writable storage cannot alias a deferred input");
+        require(status != 0, "host writable storage cannot alias a deferred input");
         require(std::memcmp(before, borrowed, sizeof(borrowed)) == 0,
-                "v2 deferred input storage remains unchanged after rejection");
+                "host deferred input storage remains unchanged after rejection");
     }
 }
 
@@ -335,9 +341,9 @@ void quick_host_contract() {
     require(tpmshx_result_stage_evaluate_v1(&evidence, &requested, &output, error, sizeof(error)) == 0 &&
         output.metrics[0].value == 1., "v1 wide scalar cancellation needs no new host");
     tpmshx_result_stage_release_v1(&output);
-    require(tpmshx_result_stage_query_v2(&host, 0, &requested, nullptr, 0,
+    require(query_host(&host, 0, &requested, nullptr, 0,
         &output, &diagnostics, &token, error, sizeof(error)) == 0 && output.metrics[0].value == 1.,
-        "v2 wide scalar cancellation needs no new host");
+        "null-model v3 wide scalar cancellation needs no new host");
     tpmshx_result_stage_release_v1(&output);
     const tpmshx_stage_quick_value_v3 host_label_value{nullptr, 19};
     const tpmshx_stage_label_v3 host_label{nullptr, &host_label_value};

@@ -12,31 +12,6 @@ enum {
     TPMSHX_FULL3D_INITIAL_A=6,TPMSHX_FULL3D_INITIAL_B=7,TPMSHX_FULL3D_THERMAL=8,
     TPMSHX_FULL3D_POST_A=9,TPMSHX_FULL3D_POST_B=10
 };
-/* Creation copies all prepared arrays, controls and the callback table.
- * Callback functions and their context must stay valid until run release.
- * Calls on one run must not overlap. Status codes match the one-shot API.
- * An optional energy argument has the full_3d_v3 strict-control contract.
- * Output handles must be null. Errors do not replace output handles.
- * Restore copies the typed fields and requires exact build, input and controls.
- * It does not reset counters or rerun initialization. Host paths can differ. */
-TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_3d_run_create_v1(
-    const tpmshx_full3d_input_v1*,const tpmshx_full3d_control_v1*,const tpmshx_energy_options_v2*,
-    const tpmshx_full3d_callbacks_v1*,void** run,char* error,size_t capacity);
-TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_3d_run_restore_v1(
-    const tpmshx_full3d_input_v1*,const tpmshx_full3d_control_v1*,const tpmshx_energy_options_v2*,
-    const tpmshx_full3d_callbacks_v1*,const tpmshx_run_state_field_v1*,size_t count,
-    void** run,char* error,size_t capacity);
-/* Add integral h(T) controls to the same run owner. Null keeps route defaults.
- * Active model-h options cannot be combined with EOS energy options.
- * Restore requires the same overrides and retains actual call records. */
-TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_3d_run_create_v2(
-    const tpmshx_full3d_input_v1*,const tpmshx_full3d_control_v1*,const tpmshx_energy_options_v2*,
-    const tpmshx_model_h_iteration_options_v1*,const tpmshx_full3d_callbacks_v1*,
-    void** run,char* error,size_t capacity);
-TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_3d_run_restore_v2(
-    const tpmshx_full3d_input_v1*,const tpmshx_full3d_control_v1*,const tpmshx_energy_options_v2*,
-    const tpmshx_model_h_iteration_options_v1*,const tpmshx_full3d_callbacks_v1*,
-    const tpmshx_run_state_field_v1*,size_t count,void** run,char* error,size_t capacity);
 /* Advance completes initialization, one outer step, or final result capture.
  * A cancelled or failed run cannot produce a new checkpoint.
  * A failed advance leaves its phase readable as FAILED. */
@@ -58,7 +33,17 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_3d_run_snapshot_v1(
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_3d_run_take_result_v1(
     void* run,tpmshx_full3d_result_v1* result,char* error,size_t capacity);
 TPMSHX_THERMAL_API void TPMSHX_THERMAL_CALL tpmshx_full_3d_run_release_v1(void** run);
-/* Thread limits are host controls. Restore can use a different positive limit. */
+/* Creation copies all prepared arrays, controls and the callback table.
+ * Callback functions and their context must stay valid until run release.
+ * Calls on one run must not overlap. Status codes match solve_full_3d_v5.
+ * An optional energy argument has the strict-control contract of solve_full_3d_v5.
+ * Optional model_h adds integral h(T) controls. Null keeps route defaults.
+ * Active model-h options cannot be combined with EOS energy options.
+ * Output handles must be null. Errors do not replace output handles.
+ * Restore copies the typed fields and requires exact build, input and controls.
+ * Restore requires the same overrides and retains actual call records.
+ * It does not reset counters or rerun initialization. Host paths can differ.
+ * Thread limits are host controls. Restore can use a different positive limit. */
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_3d_run_create_v3(
     const tpmshx_full3d_input_v1* in,const tpmshx_full3d_control_v1* c,const tpmshx_energy_options_v2* energy,
     const tpmshx_model_h_iteration_options_v1* model_h,size_t cpu_threads,const tpmshx_full3d_callbacks_v1* callbacks,void** run,char* error,size_t capacity);

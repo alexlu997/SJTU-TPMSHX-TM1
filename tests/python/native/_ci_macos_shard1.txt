@@ -12,7 +12,7 @@ tests/python/native/test_cpp_conservative_full3d.py::test_actual_side_models_six
 tests/python/native/test_cpp_conservative_full3d.py::test_executed_algorithm_and_original_convergence_gates[temperature_sou-sco2-water-full]
 tests/python/native/test_cpp_conservative_full3d.py::test_interrupt_after_candidate_native_return_releases_owner
 tests/python/native/test_cpp_conservative_full3d.py::test_large_grid_packing_keeps_legacy_rb_and_candidate_serial[temperature_fou-True]
-tests/python/native/test_cpp_conservative_full3d.py::test_missing_candidate_native_capability_never_falls_back[tpmshx_full_3d_get_energy_evidence_v1]
+tests/python/native/test_cpp_conservative_full3d.py::test_missing_energy_evidence_query_fails_before_flow
 tests/python/native/test_cpp_conservative_full3d.py::test_missing_version_query_blocks_candidate_before_solve_but_allows_legacy[legacy_h_fou]
 tests/python/native/test_cpp_conservative_full3d.py::test_one_block_budget_keeps_iteration_limit_and_final_evidence[temperature_sou]
 tests/python/native/test_cpp_conservative_full3d.py::test_prepared_recipe_and_detached_evidence_save_replay[temperature_sou-sco2-water-full]
@@ -41,7 +41,6 @@ tests/python/native/test_native_engineering_acceptance.py::test_public_native_ca
 tests/python/native/test_native_engineering_acceptance.py::test_refined_true_h_partial_ports_keep_physical_gates
 tests/python/native/test_temperature_driver.py
 # Stage modules collected on Python 3.13.
-tests/python/test_native_stage_uniform.py
 tests/python/test_native_prepare_offset.py
 tests/python/test_native_run_adapter_3d.py
 tests/python/test_native_prepare_spatial_adapter.py

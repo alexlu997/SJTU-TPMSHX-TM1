@@ -405,11 +405,11 @@ SOU recipe 2 在该阻尼普通映射上使用六样本 Anderson 候选。选择
 
 完整驱动保留原 SIMPLE、压力、物性、外耦合和最终验收门。full 3D 保留热学和质量准备，不执行温度预测扫描。T-SOU recipe 每个非线性步使用五次 sweep，流体松弛为 .2，固体松弛为 1。full 3D 在准备态 Case 中保存已解析控制量；二维未设置控制量时采用对应算法版本的 recipe。默认设置下，T-SOU 保留完整驱动原迭代预算，并要求真实耦合／方程能量比不大于 .001，同时满足声明的温度更新容差。原生结果记录实际整块 Picard 松弛 0.6；它与流体及固体行松弛分开。
 
-`tpmshx_solve_full_2d_v3` 和 `tpmshx_solve_full_3d_v2` 接受共享 `tpmshx_energy_options_v1`，保留旧结果 POD 和释放函数。对应 `get_energy_evidence_v1` 查询借用同一所有者，不执行求解。它提供实际算法／温度更新、最终 epsilon×HEOS 导热率、六个向外有符号焓功率面，以及逐外步标量身份。旧入口仍可用，默认执行 T-SOU。当前库在流动前拒绝显式旧算法标识；旧检查点须使用匹配的归档运行库和原控制参数。
+`tpmshx_solve_full_2d_v6` 和 `tpmshx_solve_full_3d_v5` 接受共享 `tpmshx_energy_options_v1`，保留旧结果 POD 和释放函数。对应 `get_energy_evidence_v1` 查询借用同一所有者，不执行求解。它提供实际算法／温度更新、最终 epsilon×HEOS 导热率、六个向外有符号焓功率面，以及逐外步标量身份。能量方案为空时默认执行 T-SOU。二维 v2 至 v5 和三维 v1 至 v4 的早期入口已于 2026-11-23 删除。当前库在流动前拒绝显式旧算法标识；旧检查点须使用匹配的归档运行库和原控制参数。
 
-显式控制使用 `tpmshx_solve_full_2d_v4` 或 `tpmshx_solve_full_3d_v3`。
+显式控制使用 `tpmshx_solve_full_2d_v6` 或 `tpmshx_solve_full_3d_v5` 的控制参数。
 两者接受同一组已持久化的 EOS 迭代、扫掠、松弛与收敛设置。
-二维 v4 控制块还包含 `tpmshx_energy_options_v2`。
+二维控制块还包含 `tpmshx_energy_options_v2`。
 它覆盖 `config_v2` 中的两个热控制值，其他值保持原含义。
 现有实际执行设置查询记录每次热调用使用的控制参数。
 积分 model-h 路线在流场执行前拒绝这些 EOS 专用设置。

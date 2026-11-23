@@ -166,28 +166,7 @@ TPMSHX_THERMAL_API uint32_t TPMSHX_THERMAL_CALL tpmshx_full_3d_abi_version(void)
  * Detached thermal evidence precedes any final capped post; flow is the final
  * SIMPLE state. Histories/momentum rows are iteration,max,num3,den3,component3.
  */
-TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_solve_full_3d_v1(
-    const tpmshx_full3d_input_v1*,const tpmshx_full3d_control_v1*,
-    const tpmshx_full3d_callbacks_v1*,tpmshx_full3d_result_v1*,char*,size_t);
 TPMSHX_THERMAL_API void TPMSHX_THERMAL_CALL tpmshx_full_3d_release_v1(tpmshx_full3d_result_v1*);
-/* Explicit conservative energy selection. Reuses the ABI 2 input/control and
- * result ownership; release with full_3d_release_v1. options is required.
- * The original entry selects T-SOU for the conservative EOS route.
- * Its H-FOU default applies only to archived libraries. */
-TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_solve_full_3d_v2(
-    const tpmshx_full3d_input_v1*,const tpmshx_full3d_control_v1*,
-    const tpmshx_energy_options_v1*,const tpmshx_full3d_callbacks_v1*,
-    tpmshx_full3d_result_v1*,char*,size_t);
-/* Explicit strict thermal controls; options_v2 is required. All thresholds
- * must be finite and positive, and the new flag must be 0 or 1. Uses the
- * original input/control/result PODs, error statuses and owner release.
- * Requires the existing two-sided true-h route (solve_b and at least one
- * sCO2 side); unused thermal controls are rejected before flow execution.
- * v1/v2 retain their .001 coupled/equation gates and disabled extra h gate. */
-TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_solve_full_3d_v3(
-    const tpmshx_full3d_input_v1*,const tpmshx_full3d_control_v1*,
-    const tpmshx_energy_options_v2*,const tpmshx_full3d_callbacks_v1*,
-    tpmshx_full3d_result_v1*,char*,size_t);
 
 typedef struct {
     tpmshx_energy_effective_settings_v1 resolved,last;
@@ -259,13 +238,6 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_physical_heat_ledg
  * and preserve output. Copy the strings before the result owner is released. */
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_property_sampling_v1(
     const tpmshx_full3d_result_v1*,tpmshx_property_sampling_v1*);
-/* Integral h(T) controls for all actual model-h consumers, including full CC.
- * options is required. Other thermal routes reject active overrides before flow.
- * Existing input/result layouts, status codes and release operations apply. */
-TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_solve_full_3d_v4(
-    const tpmshx_full3d_input_v1*,const tpmshx_full3d_control_v1*,
-    const tpmshx_model_h_iteration_options_v1*,const tpmshx_full3d_callbacks_v1*,
-    tpmshx_full3d_result_v1*,char*,size_t);
 /* Actual completed calls, including capped and rejected startup trials.
  * Views borrow the result owner. Cancellation returns no records.
  * Invalid or released owners return 1 and preserve the output. */
@@ -275,7 +247,14 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_model_h_iterations
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_model_h_acceleration_v1(
     const tpmshx_full3d_result_v1*,size_t,tpmshx_model_h_acceleration_v1*);
 
-/* Execute with a positive CPU thread limit. Numerical controls are unchanged. */
+/* Execute one complete solve with a positive CPU thread limit.
+ * energy, strict_energy and model_h are optional. Supply a maximum of one of them.
+ * strict_energy thresholds must be finite and positive, and its flag must be 0 or 1.
+ * strict_energy requires the two-sided true-h route (solve_b and at least one sCO2 side).
+ * Unused thermal controls are rejected before flow execution.
+ * model_h applies to all actual model-h consumers, including full CC.
+ * Other thermal routes reject active model-h overrides before flow.
+ * Buffers, status and result ownership follow the contract above. Release with release_v1. */
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_solve_full_3d_v5(
     const tpmshx_full3d_input_v1* in,const tpmshx_full3d_control_v1* control,
     const tpmshx_energy_options_v1* energy,const tpmshx_energy_options_v2* strict_energy,

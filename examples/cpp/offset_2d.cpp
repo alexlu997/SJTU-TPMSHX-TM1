@@ -25,7 +25,7 @@ template<class Input> void execute(const Input& input,const char* name) {
     using namespace tpmshx::stages;
     PreparationOptions options;options.allow_extrapolation=1;
     RunControl control;control.result_id=name;control.cpu_threads=2;
-    auto prepared=prepare_offset_case(input,{},options);
+    auto prepared=prepare_case(input,GridKinds2D{},options);
     if (!prepared.view().thermal.have_side_geometry)
         throw std::runtime_error("offset thermal sides are missing");
     auto result=run_case(prepared,control);

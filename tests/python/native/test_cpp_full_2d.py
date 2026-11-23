@@ -17,6 +17,7 @@ from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.cpp_interface.solver_library.full_2d import NativeFull2DDriver, _pack
 from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
 from tests.python.native import test_full_2d as typed
+from tests.python.native.shared_library import library_path
 from tests.python.native.test_full_2d_refinement import compare_audit
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -159,16 +160,15 @@ def test_callback_exception_and_recovery(driver, prepared_zero_duty, kind):
 
 
 def test_interrupt_after_native_return_releases_owner(driver, prepared_zero_duty, monkeypatch):
-    call, release, released = driver.library.tpmshx_solve_full_2d_v6, driver.release, []
+    call, release, released = driver.call, driver.release, []
     def interrupted(*args):
-        call.argtypes = interrupted.argtypes
         assert call(*args) == 0
         raise KeyboardInterrupt('native-return')
     def tracked(pointer):
         assert pointer._obj.owner
         release(pointer)
         released.append(pointer._obj.owner)
-    monkeypatch.setattr(driver.library, 'tpmshx_solve_full_2d_v6', interrupted)
+    monkeypatch.setattr(driver, 'call', interrupted)
     monkeypatch.setattr(driver, 'release', tracked)
     with pytest.raises(KeyboardInterrupt, match='native-return'):
         driver.run_prepared(*prepared_zero_duty)
@@ -209,7 +209,7 @@ def test_prepared_opening_mismatch_rejected_before_native_call(driver, prepared_
     cfg['boundary_openings']['A'][name] = np.asarray(cfg['boundary_openings']['A'][name])*.9
     def unexpected(*args):
         pytest.fail('inconsistent prepared opening reached native call')
-    monkeypatch.setattr(driver.library, 'tpmshx_solve_full_2d_v6', unexpected)
+    monkeypatch.setattr(driver, 'call', unexpected)
     with pytest.raises(ValueError, match='disagrees with its grid and port geometry'):
         driver.run_prepared(cfg, prepared)
 
@@ -254,7 +254,7 @@ forbidden = ('numba', 'sjtu_tpmshx.solvers.ltne_', 'sjtu_tpmshx.solvers.simple_'
 assert not [name for name in sys.modules if name.startswith(forbidden)]
 '''
     process = subprocess.run([sys.executable, '-c', code, str(case_path), str(result_path),
-        str(driver.path), str(ROOT/'.cache/native-deps/tables/full2d-replay'), str(converged)], cwd=ROOT,
+        str(library_path()), str(ROOT/'.cache/native-deps/tables/full2d-replay'), str(converged)], cwd=ROOT,
         capture_output=True, text=True, timeout=60)
     assert process.returncode == 0, process.stdout+process.stderr
     restored = load_result(result_path)
@@ -283,7 +283,8 @@ def test_model_h_budget_reaches_main_refined_and_saved_result(driver, tmp_path):
     expected = dict(max_iterations=17, chunk_iterations=500,
                     temperature_update_tolerance_K=1e-5, q_relative_tolerance=1e-8, total_iteration_budget=17)
     assert all(row['settings'] == expected for row in records)
-    result = run_case(prepared, RunControl(backend='cpp', native_library=str(driver.path)))
+    # The public saved stage needs the solver library; the standalone full 2D library has only the direct entry.
+    result = run_case(prepared, RunControl(backend='cpp', native_library=str(library_path())))
     assert result.metadata['execution_record']['numerics']['effective_settings'] == expected
     save_result(result, tmp_path/'result.h5')
     restored = load_result(tmp_path/'result.h5')
@@ -331,7 +332,7 @@ def test_full2d_velocity_relaxation_record_survives_storage(driver, tmp_path, re
     cfg = typed.configuration(mode='model_h', outer=2)
     cfg = replace(cfg, solver=replace(cfg.solver, simple_velocity_relaxation=relaxation))
     prepared = prepare_case(cfg, case_id='full2d-velocity-control')
-    actual = run_case(prepared, RunControl(backend='cpp', native_library=driver.library._name,
+    actual = run_case(prepared, RunControl(backend='cpp', native_library=str(library_path()),
                                           native_table_directory=str(driver.table_directory.decode())))
     expected = .7 if relaxation is None else relaxation
     assert actual.metadata['simple_velocity_relaxation'] == expected

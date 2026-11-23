@@ -10,12 +10,14 @@ import numpy as np
 import pytest
 
 from tests.python import property_reference as reference
-from tests.python import test_native_preparation_fluids as abi
+
 from sjtu_tpmshx.data_types.compute_config import Sco2NuConfig
 from sjtu_tpmshx.run_control.run_warnings import range_context, warning_scope
 from sjtu_tpmshx.cpp_interface import _native_properties
 from sjtu_tpmshx.physical_models import co2_props, fluid_props, nu_correlations, sco2_props, tpms_calc, tpms_props
 from sjtu_tpmshx.physical_models.tpms_geometry import compute_geometry
+from sjtu_tpmshx.cpp_interface import _native_preparation_case
+from tests.python import native_preparation_abi
 
 
 def _same(actual, expected):
@@ -202,7 +204,7 @@ def test_frozen_query_does_not_call_production_combination(monkeypatch):
 
 def test_frozen_3d_air_reference_does_not_call_production_combination(monkeypatch):
     from tests.python import preparation_3d_reference as preparation
-    from tests.python.test_native_preparation_3d import _configuration
+    from tests.python.native_preparation_abi import _configuration_3d as _configuration
     from sjtu_tpmshx.cpp_interface import inlet_properties as native
 
     def forbidden(*args, **kwargs):
@@ -232,34 +234,34 @@ def test_selected_model_keeps_floating_events_and_failure_cache(policy):
 
 
 # These layouts test the raw entry independently of the production host adapter.
-_GeometryKey = abi._struct('QueryGeometryKey', [('topology', abi._U),
-    *abi.v1._doubles('cell_length_mm wall_thickness_mm'),
-    ('cell_kind', abi._Kind), ('wall_kind', abi._Kind)])
-_InletKey = abi._struct('QueryInletKey', [('geometry', _GeometryKey), ('fluid', abi._U),
-    *abi.v1._doubles('velocity_m_s temperature_K pressure_Pa'), ('kinds', abi._InletKinds),
-    ('have_sco2_nu', abi._U), ('sco2_nu', abi._Nu), ('co2_geometry', abi._U)])
-_QueryInput = abi._struct('QueryInput', [('abi_version', abi._U), ('struct_size', abi._S),
-    ('inlet', _InletKey), *abi.v1._doubles('hydraulic_diameter_m epsilon_a'),
-    ('diameter_kind', abi._Kind), ('epsilon_kind', abi._Kind), ('exact_co2_drag', abi._U)])
-_PropertyScalar = abi._struct('QueryScalar', [*abi.v1._doubles('real imaginary'),
-    ('kind', abi._Kind), ('category', abi._U)])
-_QueryResult = abi._struct('QueryResult', [('abi_version', abi._U), ('struct_size', abi._S),
+_GeometryKey = native_preparation_abi._structure('QueryGeometryKey', [('topology', native_preparation_abi._U),
+    *_native_preparation_case._doubles('cell_length_mm wall_thickness_mm'),
+    ('cell_kind', native_preparation_abi._Kind), ('wall_kind', native_preparation_abi._Kind)])
+_InletKey = native_preparation_abi._structure('QueryInletKey', [('geometry', _GeometryKey), ('fluid', native_preparation_abi._U),
+    *_native_preparation_case._doubles('velocity_m_s temperature_K pressure_Pa'), ('kinds', native_preparation_abi._InletKinds),
+    ('have_sco2_nu', native_preparation_abi._U), ('sco2_nu', native_preparation_abi._Nu), ('co2_geometry', native_preparation_abi._U)])
+_QueryInput = native_preparation_abi._structure('QueryInput', [('abi_version', native_preparation_abi._U), ('struct_size', native_preparation_abi._S),
+    ('inlet', _InletKey), *_native_preparation_case._doubles('hydraulic_diameter_m epsilon_a'),
+    ('diameter_kind', native_preparation_abi._Kind), ('epsilon_kind', native_preparation_abi._Kind), ('exact_co2_drag', native_preparation_abi._U)])
+_PropertyScalar = native_preparation_abi._structure('QueryScalar', [*_native_preparation_case._doubles('real imaginary'),
+    ('kind', native_preparation_abi._Kind), ('category', native_preparation_abi._U)])
+_QueryResult = native_preparation_abi._structure('QueryResult', [('abi_version', native_preparation_abi._U), ('struct_size', native_preparation_abi._S),
     ('values', _PropertyScalar * 12)])
-_HostFunction = ct.CFUNCTYPE(ct.c_int, ct.c_void_p, abi._U, abi._U)
-_HostCallbacks = abi._struct('QueryHostCallbacks', [('values', abi.v1._Callbacks),
+_HostFunction = ct.CFUNCTYPE(ct.c_int, ct.c_void_p, native_preparation_abi._U, native_preparation_abi._U)
+_HostCallbacks = native_preparation_abi._structure('QueryHostCallbacks', [('values', _native_preparation_case._Callbacks),
     ('validate_host_input', _HostFunction)])
-_RangeFunction = ct.CFUNCTYPE(ct.c_int, ct.c_void_p, abi._U, ct.POINTER(abi.v1._Range),
-    abi._U, abi._U, abi._D)
-_QueryCallbacks = abi._struct('QueryCallbacks', [('values', _HostCallbacks),
+_RangeFunction = ct.CFUNCTYPE(ct.c_int, ct.c_void_p, native_preparation_abi._U, ct.POINTER(_native_preparation_case._Range),
+    native_preparation_abi._U, native_preparation_abi._U, native_preparation_abi._D)
+_QueryCallbacks = native_preparation_abi._structure('QueryCallbacks', [('values', _HostCallbacks),
     *[(name, ct.c_void_p) for name in ('geometry_cache', 'inlet_cache', 'observe_range', 'observe_notice')]])
 
 
 @pytest.fixture(scope='module')
 def raw_query():
-    library = ct.CDLL(os.environ.get('TPMSHX_PREPARATION_CASE_LIBRARY', abi.v1._library_path()))
+    library = ct.CDLL(os.environ.get('TPMSHX_PREPARATION_CASE_LIBRARY', native_preparation_abi._library_path()))
     function = library.tpmshx_query_inlet_properties_v1
     function.argtypes = [ct.POINTER(_QueryInput), ct.POINTER(_QueryCallbacks),
-        ct.POINTER(_QueryResult), ct.POINTER(abi._Failure), ct.POINTER(ct.c_char), abi._S]
+        ct.POINTER(_QueryResult), ct.POINTER(native_preparation_abi._Failure), ct.POINTER(ct.c_char), native_preparation_abi._S]
     function.restype = ct.c_int
     return function
 
@@ -267,21 +269,21 @@ def raw_query():
 def _raw_kind(value):
     if isinstance(value, np.generic):
         precision = value.dtype.itemsize * (4 if np.iscomplexobj(value) else 8)
-        return abi._Kind(precision, 2 if np.issubdtype(value.dtype, np.integer) else 1, 1)
-    return abi._Kind(64, 0, 0)
+        return native_preparation_abi._Kind(precision, 2 if np.issubdtype(value.dtype, np.integer) else 1, 1)
+    return native_preparation_abi._Kind(64, 0, 0)
 
 
 def _raw_buffers(speed=6.):
     geometry = compute_geometry('Gyroid', 7., .5)
-    weak = abi._Kind(64, 0, 0)
+    weak = native_preparation_abi._Kind(64, 0, 0)
     key = _InletKey(_GeometryKey(1, 7., .5, weak, weak), 0, speed, 380., 160000.,
-        abi._InletKinds(_raw_kind(speed), weak, weak))
+        native_preparation_abi._InletKinds(_raw_kind(speed), weak, weak))
     source = _QueryInput(1, ct.sizeof(_QueryInput), key, geometry['D_h'], geometry['epsilon_A'],
         _raw_kind(geometry['D_h']), _raw_kind(geometry['epsilon_A']), 0)
     result = _QueryResult(1, ct.sizeof(_QueryResult))
     for item in result.values:
         item.real = 123.
-    return source, result, abi._Failure(2, ct.sizeof(abi._Failure)), ct.create_string_buffer(4096)
+    return source, result, native_preparation_abi._Failure(2, ct.sizeof(native_preparation_abi._Failure)), ct.create_string_buffer(4096)
 
 
 @pytest.mark.parametrize('speed', [6., np.float32(6.), np.int32(6.), -.2])
@@ -357,7 +359,7 @@ def test_raw_query_rejects_diagnostic_and_text_aliases(raw_query, storage):
     callbacks.values.values.struct_size = ct.sizeof(callbacks)
     target = {'source': source, 'result': result, 'failure': failure, 'callbacks': callbacks}
     if storage == 'text':
-        source.inlet.sco2_nu.source = abi.v1._Text(ct.cast(ct.byref(result), ct.POINTER(ct.c_char)), 8)
+        source.inlet.sco2_nu.source = native_preparation_abi._Text(ct.cast(ct.byref(result), ct.POINTER(ct.c_char)), 8)
     else:
         error = ct.cast(ct.byref(target[storage]), ct.POINTER(ct.c_char))
     snapshots = [bytes(value) for value in (source, result, failure, callbacks)]
@@ -377,7 +379,7 @@ def test_raw_query_callback_cancellation_keeps_result(raw_query, checkpoint):
         observed.append((stage, step))
         return int(step == 2)
     def observe(_context, _side, record, _bounds, _cached, _scalar):
-        observed.append(abi.v1._text(record.contents.label))
+        observed.append(native_preparation_abi._text(record.contents.label))
         return 1
     hook = _HostFunction(validate) if checkpoint == 'host' else _RangeFunction(observe)
     if checkpoint == 'host':

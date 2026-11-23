@@ -136,17 +136,17 @@ def test_public_bootstrap_trace_roundtrip_and_old_diagnostics_remain_readable(na
 @pytest.mark.parametrize('symbol,message', [
     ('tpmshx_full_3d_get_bootstrap_trace_v1', 'lacks bootstrap trace v1; rebuild'),
     ('tpmshx_full_3d_get_model_h_acceleration_v1', 'lacks model-h acceleration records; rebuild')])
-def test_old_full3d_library_missing_query_has_explicit_capability_error(native_path, monkeypatch, symbol, message):
+def test_full3d_library_missing_query_has_explicit_capability_error(native_path, monkeypatch, symbol, message):
     from sjtu_tpmshx.cpp_interface.solver_library import full_3d
     library = full_3d.ct.CDLL(str(native_path))
 
-    class OldAPI:
+    class PartialLibrary:
         def __getattr__(self, name):
             if name == symbol:
                 raise AttributeError(name)
             return getattr(library, name)
 
-    monkeypatch.setattr(full_3d.ct, 'CDLL', lambda path: OldAPI())
+    monkeypatch.setattr(full_3d.ct, 'CDLL', lambda path: PartialLibrary())
     with pytest.raises(ValueError, match=message):
         full_3d.NativeFull3DDriver(native_path)
 
@@ -300,16 +300,15 @@ def test_interrupt_after_native_return_releases_owner(native_path, monkeypatch):
     from sjtu_tpmshx.cpp_interface.solver_library.full_3d import NativeFull3DDriver
     from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
     driver = NativeFull3DDriver(native_path, table_directory=ROOT/'.cache/native-deps/tables')
-    call, release, released = driver.library.tpmshx_solve_full_3d_v5, driver.release, []
+    call, release, released = driver.call, driver.release, []
     def interrupted(*args):
-        call.argtypes = interrupted.argtypes
         assert call(*args) == 0
         raise KeyboardInterrupt('native-return')
     def tracked(pointer):
         assert pointer._obj.owner
         release(pointer)
         released.append(pointer._obj.owner)
-    monkeypatch.setattr(driver.library, 'tpmshx_solve_full_3d_v5', interrupted)
+    monkeypatch.setattr(driver, 'call', interrupted)
     monkeypatch.setattr(driver, 'release', tracked)
     with pytest.raises(KeyboardInterrupt, match='native-return'):
         driver.run_prepared(*build_execution_inputs(case(cap=2)), control(native_path))
@@ -496,7 +495,7 @@ def test_two_sided_integral_defaults_keep_physics_and_saved_evidence(native_path
 @pytest.mark.parametrize('pair',['air-air','air-water','water-air','air-sco2','sco2-water'])
 def test_runtime_range_evidence_preserves_original_sources_and_denominators(native_path, pair):
     from sjtu_tpmshx.cpp_interface import full_3d_stage
-    from sjtu_tpmshx.cpp_interface.solver_library.full_3d import run_case as adapter_run
+    from sjtu_tpmshx.cpp_interface.full_3d_stage import run_case as adapter_run
     from tests.python.native.test_cpp_full_2d_capture import check_range_records
     records, captured = {}, []
     original = full_3d_stage.stage_closures
@@ -862,7 +861,7 @@ def test_native_checkpoint_hdf5_round_trip(native_path, tmp_path, pair, cut):
     from sjtu_tpmshx.file_io.case_io import save_case
     from sjtu_tpmshx.file_io.solver_checkpoint_io import (
         save_solver_checkpoint, load_solver_checkpoint, load_checkpoint_case)
-    from sjtu_tpmshx.cpp_interface.solver_library.full_3d import run_case
+    from sjtu_tpmshx.cpp_interface.full_3d_stage import run_case
     prepared_case = case(pair, cap=3)
     case_path = save_case(prepared_case, tmp_path/'case.h5')
     saved_path = tmp_path/'checkpoint.h5'
@@ -944,7 +943,7 @@ from sjtu_tpmshx.file_io.case_io import load_case
 from sjtu_tpmshx.file_io.result_io import save_result
 from sjtu_tpmshx.file_io.solver_checkpoint_io import (
     load_solver_checkpoint, save_solver_checkpoint, load_checkpoint_case)
-from sjtu_tpmshx.cpp_interface.solver_library.full_3d import run_case
+from sjtu_tpmshx.cpp_interface.full_3d_stage import run_case
 mode, case_path, saved_path, result_path, library, tables = sys.argv[1:]
 control = RunControl(backend='cpp', native_library=library, native_table_directory=tables)
 if mode == 'interrupt':
@@ -967,7 +966,7 @@ def test_native_checkpoint_continues_after_process_exit(native_path, tmp_path, p
     from sjtu_tpmshx.file_io.case_io import save_case
     from sjtu_tpmshx.file_io.result_io import load_result
     from sjtu_tpmshx.file_io.solver_checkpoint_io import load_solver_checkpoint
-    from sjtu_tpmshx.cpp_interface.solver_library.full_3d import run_case
+    from sjtu_tpmshx.cpp_interface.full_3d_stage import run_case
     prepared_case = case(pair, cap=3)
     prepared_case = replace(prepared_case, parameters={**prepared_case.parameters, **overrides})
     case_path = save_case(prepared_case, tmp_path/'case.h5')
@@ -998,7 +997,7 @@ def test_checkpoint_write_failure_keeps_previous_file(native_path, tmp_path, mon
     from sjtu_tpmshx.data_types.solver_checkpoint import SolverCheckpoint
     from sjtu_tpmshx.file_io import hdf5_data
     from sjtu_tpmshx.file_io.solver_checkpoint_io import save_solver_checkpoint, load_solver_checkpoint
-    from sjtu_tpmshx.cpp_interface.solver_library.full_3d import run_case
+    from sjtu_tpmshx.cpp_interface.full_3d_stage import run_case
     prepared_case = case(cap=3)
     saved_path = tmp_path/'checkpoint.h5'
     states = []
@@ -1100,7 +1099,7 @@ def test_checkpoint_covers_energy_routes(native_path, route, cut):
 
 
 def test_checkpoint_cancel_keeps_last_complete_boundary(native_path):
-    from sjtu_tpmshx.cpp_interface.solver_library.full_3d import run_case
+    from sjtu_tpmshx.cpp_interface.full_3d_stage import run_case
     prepared_case = case(cap=3)
     saved = []
     cancel = False
@@ -1120,7 +1119,7 @@ def test_checkpoint_cancel_keeps_last_complete_boundary(native_path):
 
 
 def test_checkpoint_callback_error_keeps_original_exception(native_path):
-    from sjtu_tpmshx.cpp_interface.solver_library.full_3d import run_case
+    from sjtu_tpmshx.cpp_interface.full_3d_stage import run_case
     original = OSError('checkpoint storage is unavailable')
     def failed_write(_):
         raise original
@@ -1431,7 +1430,7 @@ from sjtu_tpmshx.data_types.solver_checkpoint import SolverCheckpoint
 from sjtu_tpmshx.file_io.case_io import load_case
 from sjtu_tpmshx.file_io.result_io import save_result
 from sjtu_tpmshx.file_io.solver_checkpoint_io import load_solver_checkpoint, save_solver_checkpoint, load_checkpoint_case
-from sjtu_tpmshx.cpp_interface.solver_library.full_3d import run_case
+from sjtu_tpmshx.cpp_interface.full_3d_stage import run_case
 from tests.python.native.test_cpp_full_3d import _inner_position
 mode, case_path, saved_path, result_path, library, tables, target = sys.argv[1:]
 control = RunControl(backend='cpp', native_library=library, native_table_directory=tables)
@@ -1463,7 +1462,7 @@ def test_inner_checkpoint_continues_after_process_exit(native_path, tmp_path, ta
     from sjtu_tpmshx.file_io.case_io import save_case
     from sjtu_tpmshx.file_io.result_io import load_result
     from sjtu_tpmshx.file_io.solver_checkpoint_io import load_solver_checkpoint
-    from sjtu_tpmshx.cpp_interface.solver_library.full_3d import run_case
+    from sjtu_tpmshx.cpp_interface.full_3d_stage import run_case
     pair = 'sco2-water' if target == 'enthalpy' else 'water-water' if target == 'strict_water' else 'air-air'
     prepared_case = case(pair, cap=2)
     parameters = dict(prepared_case.parameters, max_iter_simple=40, ltne_max_iter=800,
@@ -1531,7 +1530,7 @@ def test_co2_pt_state_continues_after_process_exit(native_path, tmp_path, dimens
     from sjtu_tpmshx.file_io.case_io import save_case
     from sjtu_tpmshx.file_io.result_io import load_result
     from sjtu_tpmshx.file_io.solver_checkpoint_io import load_solver_checkpoint
-    from sjtu_tpmshx.cpp_interface.solver_library import full_2d, full_3d
+    from sjtu_tpmshx.cpp_interface import full_2d_stage, full_3d_stage
     from tests.python.native import test_cpp_full_2d_run as planar
     from tests.python.test_co2_model import co2_config
 
@@ -1546,10 +1545,10 @@ def test_co2_pt_state_continues_after_process_exit(native_path, tmp_path, dimens
                  control(native_path).native_table_directory]
     if dimension == 2:
         script, arguments = planar.INNER_CHILD, ['7', *arguments]
-        run = full_2d.run_case
+        run = full_2d_stage.run_case
     else:
         script, arguments = _INNER_CHECKPOINT_CHILD, [*arguments, 'enthalpy']
-        run = full_3d.run_case
+        run = full_3d_stage.run_case
     stopped = subprocess.run([sys.executable, '-c', script, 'interrupt', *arguments],
                              cwd=ROOT, capture_output=True, text=True, timeout=120)
     assert stopped.returncode == 23, stopped.stderr

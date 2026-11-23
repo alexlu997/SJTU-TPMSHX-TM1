@@ -6,10 +6,11 @@ import numpy as np
 import pytest
 
 from tests.python import preparation_api_reference as reference
-from tests.python import test_native_preparation_spatial_flow as raw
+
 from tests.python.test_native_prepare_adapter import _capture, _same, _cache_info, _failure, _observe_prepare
 from sjtu_tpmshx.preprocess import api
 from sjtu_tpmshx.physical_models import sigmoid_field, tpms_calc, tpms_geometry
+from tests.python import native_preparation_abi
 
 
 @pytest.fixture(autouse=True)
@@ -22,7 +23,7 @@ def caches():
 
 
 def configuration(monkeypatch, tmp_path, mode, topology='Gyroid'):
-    config = raw._configuration(mode, topology)
+    config = native_preparation_abi._configuration_spatial(mode, topology)
     if mode == 'sigmoid':
         table = sigmoid_field.GeometryLUT(topology, n_L=2, n_t=2, N=16, cache_dir=tmp_path)
         monkeypatch.setattr(sigmoid_field, 'get_geometry_lut', lambda *args, **kwargs: table)
@@ -33,9 +34,9 @@ def configuration(monkeypatch, tmp_path, mode, topology='Gyroid'):
 @pytest.mark.parametrize('mode', ['continuous', 'x', 'y'])
 def test_prepared_geometry_fields_use_only_preparation_library(monkeypatch, tmp_path, mode):
     from sjtu_tpmshx.file_io.case_io import load_case, save_case
-    from tests.python.test_native_preparation_continuous import _configuration as continuous_config
+    from tests.python.native_preparation_abi import _configuration_continuous as continuous_config
 
-    config = continuous_config(pair=('air', 'air')) if mode == 'continuous' else raw._configuration(mode)
+    config = continuous_config(pair=('air', 'air')) if mode == 'continuous' else native_preparation_abi._configuration_spatial(mode)
     if mode == 'y':
         config.geometry.delta_levelset = .15
     for stage in ('GEOMETRY', 'NATIVE_SOLVER', 'SOLVER', 'RESULT'):
@@ -185,7 +186,7 @@ def test_standalone_spatial_warning_origins(monkeypatch, tmp_path, mode):
 
 @pytest.mark.parametrize('topology', ['Diamond', 'Gyroid'])
 def test_default_lut_cold_memory_and_disk_paths(monkeypatch, tmp_path, topology):
-    config = raw._configuration('sigmoid', topology)
+    config = native_preparation_abi._configuration_spatial('sigmoid', topology)
     monkeypatch.setenv('XDG_CACHE_HOME', str(tmp_path / 'reference'))
     monkeypatch.delitem(sigmoid_field._lut_cache, (topology,), raising=False)
     expected = _capture(monkeypatch, reference, 'full', config)
@@ -313,8 +314,8 @@ def test_missing_stripe_config_keeps_error_order(monkeypatch, tmp_path, mode, op
 @pytest.mark.parametrize('allow', [False, True])
 def test_typed_geometry_limits_keep_validation_and_cache_order(monkeypatch, tmp_path, mode, dtype, wall, operation, allow):
     if mode in ('uniform', 'continuous'):
-        from tests.python.test_native_prepare_adapter import uniform, continuous
-        config = (uniform if mode == 'uniform' else continuous)._configuration(pair=('air', 'air'))
+        config = (native_preparation_abi._configuration_mass_flow if mode == 'uniform'
+                  else native_preparation_abi._configuration_continuous)(pair=('air', 'air'))
     else:
         config = configuration(monkeypatch, tmp_path, mode)
     config.geometry.t_wall_mm = dtype(wall)

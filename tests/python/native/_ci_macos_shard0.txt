@@ -7,8 +7,8 @@ tests/python/native/test_cpp_conservative_full2d.py::test_explicit_thermal_contr
 tests/python/native/test_cpp_conservative_full2d.py::test_invalid_persisted_options_rejected[temperature_sou-True]
 tests/python/native/test_cpp_conservative_full2d.py::test_invalid_persisted_options_rejected[temperature_sou-nan]
 tests/python/native/test_cpp_conservative_full2d.py::test_invalid_persisted_options_rejected[unknown-1e-08]
-tests/python/native/test_cpp_conservative_full2d.py::test_old_library_candidate_capability_fails_before_flow[tpmshx_full_2d_get_energy_evidence_v1]
-tests/python/native/test_cpp_conservative_full2d.py::test_old_library_candidate_capability_fails_before_flow[tpmshx_solve_full_2d_v3]
+tests/python/native/test_cpp_conservative_full2d.py::test_missing_energy_evidence_query_fails_before_flow
+tests/python/native/test_cpp_conservative_full2d.py::test_library_without_v6_entry_is_rejected
 tests/python/native/test_cpp_conservative_full3d.py::test_actual_side_models_six_face_powers_and_postprocess[temperature_sou-air-sco2-None]
 tests/python/native/test_cpp_conservative_full3d.py::test_actual_side_models_six_face_powers_and_postprocess[temperature_sou-sco2-water-None]
 tests/python/native/test_cpp_conservative_full3d.py::test_executed_algorithm_and_original_convergence_gates[temperature_sou-air-sco2-None]
@@ -46,5 +46,4 @@ tests/python/native/test_temperature_mms.py
 tests/python/native/test_temperature_staggered.py
 # Stage modules collected on Python 3.13.
 tests/python/test_native_run_adapter.py
-tests/python/test_native_stage_continuous.py
-tests/python/test_native_preparation_sigmoid.py::test_sigmoid_production_cold_nodes_and_repeated_warm_preparation[Diamond]
+tests/python/test_native_preparation_sigmoid.py::test_sigmoid_production_cold_nodes[Diamond]

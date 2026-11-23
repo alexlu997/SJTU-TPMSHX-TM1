@@ -110,9 +110,8 @@ typedef struct {
 #ifdef __cplusplus
 extern "C" {
 #endif
-/* Supply exactly one prepared view. Uniform includes the nested prepared view
- * from fixed-flow v2. Continuous v3 and spatial v4 keep their extra geometry.
- * Preparation is borrowed until transfer or release; numerical run inputs and
+/* The saved descriptor supplies validated solver input and saved evidence.
+ * Saved storage is borrowed until transfer or release; numerical run inputs and
  * controls are copied. Callback functions/context stay valid until release.
  * Calls on one run must not overlap. Control requires a positive CPU limit and
  * result label. A null request selects defaults. Initialize *run=NULL.
@@ -120,20 +119,6 @@ extern "C" {
  * Immutable input arrays can share storage.
  * Storage checks precede error writes. Failure preserves caller output.
  * Status 1/2/3/4 means invalid input/water state/arithmetic/native failure. */
-TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_create_v1(
-    const tpmshx_preparation_case_3d_v1*,const tpmshx_preparation_continuous_case_3d_v3*,
-    const tpmshx_preparation_spatial_case_3d_v4*,const tpmshx_stage_run_request_3d_v1*,
-    const tpmshx_stage_run_control_3d_v1*,void**,char*,size_t);
-TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_restore_v1(
-    const tpmshx_preparation_case_3d_v1*,const tpmshx_preparation_continuous_case_3d_v3*,
-    const tpmshx_preparation_spatial_case_3d_v4*,const tpmshx_stage_run_request_3d_v1*,
-    const tpmshx_stage_run_control_3d_v1*,const tpmshx_run_state_field_v1*,size_t,void**,char*,size_t);
-TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_create_saved_v1(
-    const tpmshx_stage_saved_case_3d_v1*,const tpmshx_stage_run_request_3d_v1*,
-    const tpmshx_stage_run_control_3d_v1*,void**,char*,size_t);
-TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_restore_saved_v1(
-    const tpmshx_stage_saved_case_3d_v1*,const tpmshx_stage_run_request_3d_v1*,
-    const tpmshx_stage_run_control_3d_v1*,const tpmshx_run_state_field_v1*,size_t,void**,char*,size_t);
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_create_saved_v2(
     const tpmshx_stage_saved_case_3d_v2*,const tpmshx_stage_run_request_3d_v1*,
     const tpmshx_stage_run_control_3d_v1*,void**,char*,size_t);
@@ -152,7 +137,7 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_snapshot_v1(
 /* Transfer a completed or cancelled result once. Initialize abi_version,
  * struct_size and owner=NULL. raw.stop=2 retains cancellation diagnostics but
  * evidence.abi_version=0: no completed evaluation evidence is published.
- * Use evaluation with result_stage_query_v2 for complete status and reasons.
+ * Use evaluation with result_stage_query_v3 for complete status and reasons.
  * The v1 evidence view cannot represent an explicitly absent mass-face record.
  * evaluation and all its views share this result owner.
  * All raw evidence queries use this library. raw is borrowed; never release it
@@ -172,12 +157,8 @@ TPMSHX_THERMAL_API const tpmshx_stage_run_3d_execution_v1* TPMSHX_THERMAL_CALL t
     const tpmshx_stage_run_result_3d_v1* result);
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_get_capture_v1(
     const tpmshx_stage_run_result_3d_v1*,uint32_t include_audit,tpmshx_stage_capture_3d_v1*);
-/* Both calls run to completion with one native owner.
+/* Run to completion with one native owner.
  * Status 0 reports transfer, not convergence. Check raw.stop and raw.converged. */
-TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_run_case_3d_v1(
-    const tpmshx_preparation_case_3d_v1*,const tpmshx_preparation_continuous_case_3d_v3*,
-    const tpmshx_preparation_spatial_case_3d_v4*,const tpmshx_stage_run_request_3d_v1*,
-    const tpmshx_stage_run_control_3d_v1*,tpmshx_stage_run_result_3d_v1*,char*,size_t);
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_run_saved_case_3d_v2(
     const tpmshx_stage_saved_case_3d_v2*,const tpmshx_stage_run_request_3d_v1*,
     const tpmshx_stage_run_control_3d_v1*,tpmshx_stage_run_result_3d_v1*,char*,size_t);

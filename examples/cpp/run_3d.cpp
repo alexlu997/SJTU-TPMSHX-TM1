@@ -16,12 +16,14 @@ int main() {
         request.model_h={9,.5,1e-3};
         RunControl3D control;control.cpu_threads=2;control.result_id="native-3d-example";
         auto result=[&] {
+            // Uniform 3D preparation uses the spatial v4 entry without grid cells.
             auto prepared=prepare_case(input,options);
-            Run3D run(prepared,control,request);
+            const auto saved=saved_case(prepared);
+            Run3D run(saved,control,request);
             run.advance_step();
             auto state=run.snapshot();
             control.cpu_threads=1;
-            Run3D resumed(prepared,control,request,&state);
+            Run3D resumed(saved,control,request,&state);
             while(resumed.phase()!=TPMSHX_FULL3D_COMPLETED)resumed.advance_step();
             return resumed.take_result();
         }();

@@ -34,7 +34,7 @@ static void expect_invalid_port(const size_t* shape,const double* const* arrays,
     tpmshx_full_2d_result_v2 result={0}; result.iterations=123;
     tpmshx_full_2d_callbacks_v2 callbacks={cancelled,NULL,NULL,NULL};
     char error[256]={0};
-    const int status=tpmshx_solve_full_2d_v2(shape,arrays,sizes,config,&callbacks,&result,error,sizeof(error));
+    const int status=tpmshx_solve_full_2d_v6(shape,arrays,sizes,config,NULL,NULL,NULL,2,&callbacks,&result,error,sizeof(error));
     if(status==0) tpmshx_full_2d_release_v2(&result);
     assert(status==1 && result.iterations==123 && result.owner==NULL && error[0]);
 }
@@ -43,10 +43,10 @@ static void check_run_state(const size_t* shape,const double* const* arrays,cons
                             const tpmshx_full_2d_result_v2* expected) {
     void* run=NULL;char error[1024];uint32_t phase=99;
     tpmshx_run_state_v1 saved={0};tpmshx_full_2d_result_v2 actual={0};
-    assert(tpmshx_full_2d_run_create_v1(shape,arrays,sizes,config,NULL,NULL,NULL,NULL,
+    assert(tpmshx_full_2d_run_create_v2(shape,arrays,sizes,config,NULL,NULL,NULL,2,NULL,
                                      &run,error,sizeof error)==0 && run);
     void* original=run;
-    assert(tpmshx_full_2d_run_create_v1(shape,arrays,sizes,config,NULL,NULL,NULL,NULL,
+    assert(tpmshx_full_2d_run_create_v2(shape,arrays,sizes,config,NULL,NULL,NULL,2,NULL,
                                      &run,error,sizeof error)==1 && run==original);
     assert(tpmshx_full_2d_run_snapshot_v1(run,&saved,error,sizeof error)==5 && !saved.owner);
     assert(tpmshx_full_2d_run_take_result_v1(run,&actual,error,sizeof error)==5 && !actual.owner);
@@ -57,10 +57,10 @@ static void check_run_state(const size_t* shape,const double* const* arrays,cons
     tpmshx_full_2d_run_release_v1(&run);tpmshx_full_2d_run_release_v1(&run);
     assert(!run && tpmshx_full_2d_run_phase_v1(run,&phase)==1);
     const double relaxation=config->outer_relaxation;config->outer_relaxation*=.5;
-    assert(tpmshx_full_2d_run_restore_v1(shape,arrays,sizes,config,NULL,NULL,NULL,NULL,
+    assert(tpmshx_full_2d_run_restore_v2(shape,arrays,sizes,config,NULL,NULL,NULL,2,NULL,
                                       saved.fields,saved.count,&run,error,sizeof error)==1 && !run);
     config->outer_relaxation=relaxation;
-    assert(tpmshx_full_2d_run_restore_v1(shape,arrays,sizes,config,NULL,NULL,NULL,NULL,
+    assert(tpmshx_full_2d_run_restore_v2(shape,arrays,sizes,config,NULL,NULL,NULL,2,NULL,
                                       saved.fields,saved.count,&run,error,sizeof error)==0 && run);
     tpmshx_run_state_release_v1(&saved);tpmshx_run_state_release_v1(&saved);
     assert(!saved.owner && !saved.fields && !saved.count);
@@ -75,7 +75,7 @@ static void check_run_state(const size_t* shape,const double* const* arrays,cons
     tpmshx_full_2d_release_v2(&actual);
     inner_context inner={NULL,{0,0}};
     tpmshx_full_2d_callbacks_v2 observed={NULL,NULL,inner_residual,&inner};
-    assert(tpmshx_full_2d_run_create_v1(shape,arrays,sizes,config,NULL,NULL,NULL,&observed,
+    assert(tpmshx_full_2d_run_create_v2(shape,arrays,sizes,config,NULL,NULL,NULL,2,&observed,
                                      &run,error,sizeof error)==0);
     inner.run=run;unsigned int restored=0;
     do {
@@ -83,7 +83,7 @@ static void check_run_state(const size_t* shape,const double* const* arrays,cons
         if(phase>=6 && !(restored&(1u<<phase))) {
             assert(tpmshx_full_2d_run_snapshot_v1(run,&saved,error,sizeof error)==0);
             tpmshx_full_2d_run_release_v1(&run);
-            assert(tpmshx_full_2d_run_restore_v1(shape,arrays,sizes,config,NULL,NULL,NULL,&observed,
+            assert(tpmshx_full_2d_run_restore_v2(shape,arrays,sizes,config,NULL,NULL,NULL,2,&observed,
                 saved.fields,saved.count,&run,error,sizeof error)==0);
             inner.run=run;tpmshx_run_state_release_v1(&saved);restored|=1u<<phase;
         }
@@ -92,7 +92,7 @@ static void check_run_state(const size_t* shape,const double* const* arrays,cons
     assert(tpmshx_full_2d_run_take_result_v1(run,&actual,error,sizeof error)==0);
     tpmshx_full_2d_run_release_v1(&run);same_run_result(&actual,expected);tpmshx_full_2d_release_v2(&actual);
     tpmshx_full_2d_callbacks_v2 callbacks={cancelled,NULL,NULL,NULL};
-    assert(tpmshx_full_2d_run_create_v1(shape,arrays,sizes,config,NULL,NULL,NULL,&callbacks,
+    assert(tpmshx_full_2d_run_create_v2(shape,arrays,sizes,config,NULL,NULL,NULL,2,&callbacks,
                                      &run,error,sizeof error)==0);
     callbacks.cancel=NULL;
     assert(tpmshx_full_2d_run_advance_v1(run,&phase,error,sizeof error)==0 && phase==1);
@@ -101,7 +101,7 @@ static void check_run_state(const size_t* shape,const double* const* arrays,cons
     assert(tpmshx_full_2d_run_take_result_v1(run,&actual,error,sizeof error)==0 && actual.cancelled);
     tpmshx_full_2d_run_release_v1(&run);tpmshx_full_2d_release_v2(&actual);
     const double temperature=config->sides[0].inlet_temperature;config->sides[0].inlet_temperature=3000.;
-    assert(tpmshx_full_2d_run_create_v1(shape,arrays,sizes,config,NULL,NULL,NULL,NULL,
+    assert(tpmshx_full_2d_run_create_v2(shape,arrays,sizes,config,NULL,NULL,NULL,2,NULL,
                                      &run,error,sizeof error)==0);
     assert(tpmshx_full_2d_run_advance_v1(run,&phase,error,sizeof error)==2);
     assert(tpmshx_full_2d_run_phase_v1(run,&phase)==0 && phase==5);
@@ -192,7 +192,7 @@ int main(void) {
     config.sides[0].uniform_inlet=0;
     expect_invalid_port(shape,arrays,sizes,&config);
     arrays[14]=arrays[16]=opening; config.sides[0].inlet_lo=0.; config.sides[0].uniform_inlet=1;
-    int status=tpmshx_solve_full_2d_v2(shape,arrays,sizes,&config,NULL,&result,error,sizeof(error));
+    int status=tpmshx_solve_full_2d_v6(shape,arrays,sizes,&config,NULL,NULL,NULL,2,NULL,&result,error,sizeof(error));
     if(status) {fprintf(stderr,"%s\n",error);return 1;}
     tpmshx_full_2d_flow_method_v1 methods[2]={{0},{0}};
     methods[0].iterations=123;
@@ -255,7 +255,7 @@ int main(void) {
     tpmshx_full_2d_release_v2(&result);
     tpmshx_model_h_iteration_options_v1 model_options={17,1e-5,1e-8};
     tpmshx_model_h_iteration_records_v1 model_records={0};
-    assert(tpmshx_solve_full_2d_v5(shape,arrays,sizes,&config,&model_options,NULL,&result,error,sizeof(error))==0);
+    assert(tpmshx_solve_full_2d_v6(shape,arrays,sizes,&config,NULL,NULL,&model_options,2,NULL,&result,error,sizeof(error))==0);
     assert(!result.converged && result.have_fine && result.main.iterations==17 && result.fine.iterations==17);
     assert(tpmshx_full_2d_get_model_h_iterations_v1(&result,&model_records)==0);
     assert(model_records.count==result.outer_history_count+1);
@@ -271,22 +271,22 @@ int main(void) {
     assert(tpmshx_full_2d_get_model_h_iterations_v1(&result,&model_records)==1 && model_records.count==123);
     tpmshx_full_2d_callbacks_v2 model_cancel={cancelled,NULL,NULL,NULL};
     model_options.temperature_tolerance=NAN;result.iterations=123;
-    assert(tpmshx_solve_full_2d_v5(shape,arrays,sizes,&config,&model_options,&model_cancel,&result,error,sizeof(error))==1);
+    assert(tpmshx_solve_full_2d_v6(shape,arrays,sizes,&config,NULL,NULL,&model_options,2,&model_cancel,&result,error,sizeof(error))==1);
     assert(result.iterations==123 && !result.owner);
     model_options.temperature_tolerance=1e-5;
     const uint32_t model_fluid=config.sides[0].fluid;
     config.sides[0].fluid=3;config.thermal_mode=0;
-    assert(tpmshx_solve_full_2d_v5(shape,arrays,sizes,&config,&model_options,&model_cancel,&result,error,sizeof(error))==1);
+    assert(tpmshx_solve_full_2d_v6(shape,arrays,sizes,&config,NULL,NULL,&model_options,2,&model_cancel,&result,error,sizeof(error))==1);
     assert(result.iterations==123 && !result.owner);
     assert(strstr(error,"model-h iteration controls")!=NULL);
     config.sides[0].fluid=model_fluid;config.thermal_mode=1;
-    assert(tpmshx_solve_full_2d_v5(shape,arrays,sizes,&config,&model_options,&model_cancel,&result,error,sizeof(error))==0);
+    assert(tpmshx_solve_full_2d_v6(shape,arrays,sizes,&config,NULL,NULL,&model_options,2,&model_cancel,&result,error,sizeof(error))==0);
     assert(tpmshx_full_2d_get_model_h_iterations_v1(&result,&model_records)==0 && !model_records.count);
     tpmshx_full_2d_release_v2(&result);
     /* A complete nonzero heat-exchange solve must also finish independently
        of Python, including the refined final certificate. */
     config.sides[0].inlet_temperature=350.; config.outer_iterations=12;
-    status=tpmshx_solve_full_2d_v3(shape,arrays,sizes,&config,&energy,NULL,&result,error,sizeof(error));
+    status=tpmshx_solve_full_2d_v6(shape,arrays,sizes,&config,&energy,NULL,NULL,2,NULL,&result,error,sizeof(error));
     if(status) {fprintf(stderr,"%s\n",error);return 1;}
     assert(result.converged && result.have_fine && result.fine_extrapolated);
     assert(tpmshx_full_2d_get_physical_heat_ledger_v1(&result,&heat)==0);
@@ -317,7 +317,7 @@ int main(void) {
 
     }
     /* Integral model-h has no conservative EOS energy arrays.
-       The query borrows the same owner released by the ABI 2 call. */
+       The query borrows the same owner as the solve result. */
     assert(result.owner && tpmshx_full_2d_get_energy_evidence_v1(&result,&evidence)==0);
     assert(!evidence.main.available && !evidence.fine.available);
     assert(!evidence.main.energy.has_temperature_update);
@@ -333,14 +333,17 @@ int main(void) {
     tpmshx_full_2d_callbacks_v2 cb={cancelled,NULL,NULL,NULL};
     const tpmshx_energy_options_v1 invalid_energy[]={{0,1e-8},{1,1e-8},{3,1e-8},{2,0.},{2,NAN}};
     result.iterations=123;
-    for(size_t i=0;i<=sizeof invalid_energy/sizeof invalid_energy[0];++i) {
+    for(size_t i=0;i<sizeof invalid_energy/sizeof invalid_energy[0];++i) {
         error[0]='\0';
-        const tpmshx_energy_options_v1* options=i<sizeof invalid_energy/sizeof invalid_energy[0]?&invalid_energy[i]:NULL;
-        assert(tpmshx_solve_full_2d_v3(shape,arrays,sizes,&config,options,&cb,&result,error,sizeof(error))==1);
+        assert(tpmshx_solve_full_2d_v6(shape,arrays,sizes,&config,&invalid_energy[i],NULL,NULL,2,&cb,&result,error,sizeof(error))==1);
         assert(result.iterations==123 && result.owner==NULL && error[0]);
         assert(tpmshx_full_2d_get_energy_evidence_v1(&result,&evidence)==1 && evidence.main.available==123);
     }
-    assert(tpmshx_solve_full_2d_v2(shape,arrays,sizes,&config,&cb,&result,error,sizeof(error))==0);
+    assert(tpmshx_solve_full_2d_v6(shape,arrays,sizes,&config,&energy,NULL,&model_options,2,&cb,&result,error,sizeof(error))==1);
+    assert(result.iterations==123 && !result.owner && strstr(error,"conflicting full energy options"));
+    assert(tpmshx_solve_full_2d_v6(shape,arrays,sizes,&config,NULL,NULL,NULL,0,&cb,&result,error,sizeof(error))==1);
+    assert(result.iterations==123 && !result.owner && strstr(error,"CPU thread count"));
+    assert(tpmshx_solve_full_2d_v6(shape,arrays,sizes,&config,NULL,NULL,NULL,2,&cb,&result,error,sizeof(error))==0);
     assert(result.cancelled && !result.converged);
     assert(tpmshx_full_2d_get_last_closure_ranges_v1(&result,&ranges)==0 && !ranges.size && !ranges.data);
     assert(tpmshx_full_2d_get_physical_heat_ledger_v1(&result,&heat)==0);
@@ -354,7 +357,7 @@ int main(void) {
     config.sides[0].inlet_temperature=300.;
     for(uint32_t algorithm=2;algorithm<=2;++algorithm) {
         const tpmshx_energy_options_v1 options={algorithm,2e-8};
-        status=tpmshx_solve_full_2d_v3(shape,arrays,sizes,&config,&options,NULL,&result,error,sizeof(error));
+        status=tpmshx_solve_full_2d_v6(shape,arrays,sizes,&config,&options,NULL,NULL,2,NULL,&result,error,sizeof(error));
         if(status) {fprintf(stderr,"%s\n",error);return 1;}
         assert(tpmshx_full_2d_get_energy_effective_settings_v1(&result,&settings)==0);
         assert(settings.resolved.available && settings.last.available && settings.outer_count==result.outer_history_count);
@@ -376,7 +379,7 @@ int main(void) {
     tpmshx_full_2d_energy_control_v4 explicit_energy={17,4,.55,2e-8,{0,3e-8,4e-7,5e-7,1}};
     for(uint32_t algorithm=2;algorithm<=2;++algorithm) {
         explicit_energy.energy.algorithm=algorithm;
-        status=tpmshx_solve_full_2d_v4(shape,arrays,sizes,&config,&explicit_energy,NULL,&result,error,sizeof(error));
+        status=tpmshx_solve_full_2d_v6(shape,arrays,sizes,&config,NULL,&explicit_energy,NULL,2,NULL,&result,error,sizeof(error));
         if(status) {fprintf(stderr,"%s\n",error);return 1;}
         assert(tpmshx_full_2d_get_energy_effective_settings_v1(&result,&settings)==0);
         assert(settings.last.available && settings.last.algorithm==algorithm);
@@ -394,7 +397,7 @@ int main(void) {
         }
         tpmshx_full_2d_release_v2(&result);
     }
-    for(size_t bad=0;bad<7;++bad) {
+    for(size_t bad=0;bad<6;++bad) {
         tpmshx_full_2d_energy_control_v4 invalid=explicit_energy;
         if(bad==0)invalid.max_iterations=0;
         if(bad==1)invalid.omega=1.01;
@@ -403,12 +406,12 @@ int main(void) {
         if(bad==4)invalid.energy.require_enthalpy_update_on_temperature=2;
         if(bad==5)config.thermal_mode=1;
         result.iterations=123;
-        assert(tpmshx_solve_full_2d_v4(shape,arrays,sizes,&config,bad==6?NULL:&invalid,&cb,
+        assert(tpmshx_solve_full_2d_v6(shape,arrays,sizes,&config,NULL,&invalid,NULL,2,&cb,
                                       &result,error,sizeof(error))==1);
         assert(result.iterations==123 && !result.owner && error[0]);
         config.thermal_mode=2;
     }
-    assert(tpmshx_solve_full_2d_v4(shape,arrays,sizes,&config,&explicit_energy,&cb,&result,error,sizeof(error))==0);
+    assert(tpmshx_solve_full_2d_v6(shape,arrays,sizes,&config,NULL,&explicit_energy,NULL,2,&cb,&result,error,sizeof(error))==0);
     assert(result.cancelled && !result.converged);
     assert(tpmshx_full_2d_get_energy_effective_settings_v1(&result,&settings)==0);
     assert(!settings.last.available && settings.last.max_iterations==17 && !settings.outer_count);
@@ -416,7 +419,7 @@ int main(void) {
     settings.resolved.available=123;
     assert(tpmshx_full_2d_get_energy_effective_settings_v1(&result,&settings)==1 && settings.resolved.available==123);
     config.split_a=0.; result.iterations=123; char short_error[1]={'x'};
-    assert(tpmshx_solve_full_2d_v2(shape,arrays,sizes,&config,NULL,&result,short_error,1)==1);
+    assert(tpmshx_solve_full_2d_v6(shape,arrays,sizes,&config,NULL,NULL,NULL,2,NULL,&result,short_error,1)==1);
     assert(result.iterations==123 && short_error[0]=='\0');
     puts("full2D C ABI: port consistency, zero/nonzero duty with refinement, owned views, energy entry/query, cancellation and bounded errors passed");
     return 0;

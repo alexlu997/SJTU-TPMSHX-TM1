@@ -10,31 +10,32 @@ import pytest
 
 from sjtu_tpmshx.cpp_interface._native_values import copy_array, read_text
 
-
-from tests.python import test_native_preparation_continuous as two
-from tests.python import test_native_preparation_flow_3d as flow
 from sjtu_tpmshx.data_types.compute_config import ZoneInputConfig
+from sjtu_tpmshx.cpp_interface import _native_grid
+from sjtu_tpmshx.cpp_interface import _native_preparation_case as abi
+from tests.python import native_preparation_abi
+from tests.python import preparation_3d_reference
 
-three, abi, v1, mass = flow.three, flow.abi, flow.v1, flow.flow
+
 _U, _S, _D, _struct = abi._U, abi._S, abi._D, abi._structure
 _Controls = _struct('ContinuousControls3D', [
     ('n_ctrl_x', _S), ('n_ctrl_y', _S), ('n_ctrl_z', _S),
     ('have_ctrl_z', _U), ('spline_order', _U), ('symmetric_y', _U),
     ('L_bounds_mm', _D * 2), ('t_bounds_mm', _D * 2), ('decision_mm', abi._Array)])
 _Input = _struct('ContinuousInput3D', [('abi_version', _U), ('struct_size', _S),
-    ('values', flow._Input), ('controls', _Controls)])
+    ('values', native_preparation_abi._Input_flow_3d), ('controls', _Controls)])
 _Flow = _struct('ContinuousFlow3D', [('abi_version', _U), ('struct_size', _S),
-    ('flow', flow._Flow), ('controls', _Controls), ('owner', ct.c_void_p)])
+    ('flow', native_preparation_abi._Flow), ('controls', _Controls), ('owner', ct.c_void_p)])
 _Result = _struct('ContinuousCase3D', [('abi_version', _U), ('struct_size', _S),
-    ('prepared', three._Result), ('flow', flow._Flow), ('controls', _Controls),
+    ('prepared', native_preparation_abi._Result), ('flow', native_preparation_abi._Flow), ('controls', _Controls),
     ('area_density_per_m', abi._Array), ('hydraulic_diameter_m', abi._Array),
-    ('thermal_porosity', abi._Array), ('drag', two._Drag * 2), ('owner', ct.c_void_p)])
+    ('thermal_porosity', abi._Array), ('drag', native_preparation_abi._Drag * 2), ('owner', ct.c_void_p)])
 _OPERATIONS = ('prepare_inlet_mass_capacities', 'resolve_inlet_flow', 'prepare_flow_case')
 
 
 @pytest.fixture(scope='module')
 def native():
-    library = ct.CDLL(os.environ.get('TPMSHX_PREPARATION_CASE_LIBRARY', v1._library_path()))
+    library = ct.CDLL(os.environ.get('TPMSHX_PREPARATION_CASE_LIBRARY', native_preparation_abi._library_path()))
     version = library.tpmshx_preparation_continuous_3d_abi_version_v3
     version.argtypes, version.restype = [], _U
     assert version() == 3
@@ -59,7 +60,7 @@ def isolated_environment(monkeypatch):
 
 def _configuration(topology='Gyroid', pair=('air', 'water'), mode='cfd_smooth', *,
                    nx=4, ny=5, nz=None, mirror=True, order=3):
-    config = three._configuration(topology, pair, mode)
+    config = native_preparation_abi._configuration_3d(topology, pair, mode)
     count = nx * ((ny + 1) // 2 if mirror else ny) * (1 if nz is None else nz)
     spec = dict(n_ctrl_x=nx, n_ctrl_y=ny, symmetric_y=mirror, spline_order=order,
         L_bounds=[4., 8.], t_bounds=[.3, .6],
@@ -72,7 +73,7 @@ def _configuration(topology='Gyroid', pair=('air', 'water'), mode='cfd_smooth', 
 
 
 def _input(config, targets=None):
-    values = flow._input(config, targets)
+    values = native_preparation_abi._input_flow_3d(config, targets)
     values.input.geometry_mode = 1
     spec = config.zones.config
     decision = np.asarray(spec['x_decision'], dtype=np.float64)
@@ -106,7 +107,7 @@ def _call(native, operation, config, targets=None, *, source=None, chi=None, rej
         ct.byref(source), ct.byref(options), ct.byref(callbacks), ct.byref(result),
         ct.byref(failure), error, len(error))
     assert (bytes(source), [bytes(buffer) for buffer in buffers]) == before
-    v1._same(source._decision, decisions, 'unchanged control input')
+    native_preparation_abi._same(source._decision, decisions, 'unchanged control input')
     return status, result, failure, error.value.decode(), events, source
 
 
@@ -124,9 +125,9 @@ def _snapshot(controls, config):
             bool(controls.have_ctrl_z), controls.spline_order, bool(controls.symmetric_y)) == (
         spec['n_ctrl_x'], spec['n_ctrl_y'], spec.get('n_ctrl_z', 1),
         'n_ctrl_z' in spec, spec['spline_order'], spec['symmetric_y'])
-    v1._same(controls.L_bounds_mm, spec['L_bounds'], 'L bounds')
-    v1._same(controls.t_bounds_mm, spec['t_bounds'], 't bounds')
-    v1._same(copy_array(controls.decision_mm), spec['x_decision'], 'owned controls')
+    native_preparation_abi._same(controls.L_bounds_mm, spec['L_bounds'], 'L bounds')
+    native_preparation_abi._same(controls.t_bounds_mm, spec['t_bounds'], 't bounds')
+    native_preparation_abi._same(copy_array(controls.decision_mm), spec['x_decision'], 'owned controls')
 
 
 def _full(native, monkeypatch, config, targets=None, *, chi=None):
@@ -134,7 +135,7 @@ def _full(native, monkeypatch, config, targets=None, *, chi=None):
     with monkeypatch.context() as patch:
         if chi is not None:
             patch.setenv('TPMSHX_CHI_S', str(chi))
-        expected, state = flow._reference(monkeypatch, 'prepare_flow_case', config, targets)
+        expected, state = native_preparation_abi._reference(monkeypatch, 'prepare_flow_case', config, targets)
     status, result, failure, error, live, source = _call(
         native, 'prepare_flow_case', config, targets, chi=chi)
     assert status == 0, error
@@ -150,24 +151,24 @@ def _full(native, monkeypatch, config, targets=None, *, chi=None):
         _snapshot(result.controls, config)
         assert result.prepared.input.cell_length_mm == config.geometry.L_cell_mm
         for name in ('cell_length', 'wall_thickness', 'solid_conductivity'):
-            assert v1._struct_values(getattr(result.prepared.input.kinds, name)) == v1._struct_values(
+            assert native_preparation_abi._struct_values(getattr(result.prepared.input.kinds, name)) == native_preparation_abi._struct_values(
                 getattr(source.values.input.kinds, name))
-        three._check_values(result.prepared, expected, state['resolved'])
-        three._check_evidence(result.prepared, expected, state['records'],
+        native_preparation_abi._check_values(result.prepared, expected, state['resolved'])
+        native_preparation_abi._check_evidence(result.prepared, expected, state['records'],
             state['events'], live, state['resolved'])
         have_targets = targets is not None or any(
             getattr(config, 'fluid_' + side).mass_flow_kg_s is not None for side in 'AB')
         assert bool(result.flow.have_capacities) == have_targets
         if have_targets:
-            flow._resolved(result.flow, state['resolved'])
-            flow._evidence(result.flow.evidence, state['capacity_records'])
-            assert two._host_events(mass._events(result.flow.evidence)) == state['capacity_events']
+            native_preparation_abi._resolved(result.flow, state['resolved'])
+            native_preparation_abi._evidence(result.flow.evidence, state['capacity_records'])
+            assert native_preparation_abi._host_events(native_preparation_abi._events(result.flow.evidence)) == state['capacity_events']
         else:
             assert result.flow.evidence.range_count == result.flow.evidence.event_count == 0
         shape = expected.design_fields['L_field_m'].shape
         for name, key in (('area_density_per_m', 'A_0'), ('hydraulic_diameter_m', 'D_h'),
                           ('thermal_porosity', 'epsilon')):
-            v1._same(copy_array(getattr(result, name), shape),
+            native_preparation_abi._same(copy_array(getattr(result, name), shape),
                 expected.parameters['thermal_geometry']['fields'][key], key)
         for index, side in enumerate('AB'):
             metadata = (expected.parameters['df_application'] or {}).get(side, {})
@@ -176,7 +177,7 @@ def _full(native, monkeypatch, config, targets=None, *, chi=None):
                 assert read_text(getattr(drag, name)) == metadata.get(name, ''), side + name
             assert bool(drag.have_reference_geometry) == ('reference_geometry_mm' in metadata)
             if drag.have_reference_geometry:
-                v1._same(drag.reference_geometry_mm,
+                native_preparation_abi._same(drag.reference_geometry_mm,
                     [metadata['reference_geometry_mm'][key] for key in ('L', 't')], side + ' reference')
     finally:
         _release(native, result)
@@ -185,7 +186,7 @@ def _full(native, monkeypatch, config, targets=None, *, chi=None):
 
 
 def _query(native, monkeypatch, operation, config, targets=None):
-    expected, state = flow._reference(monkeypatch, operation, config, targets, scoped=True)
+    expected, state = native_preparation_abi._reference(monkeypatch, operation, config, targets, scoped=True)
     status, result, failure, error, live, source = _call(native, operation, config, targets)
     assert status == 0, error
     try:
@@ -193,15 +194,15 @@ def _query(native, monkeypatch, operation, config, targets=None):
         _snapshot(result.controls, config)
         source._decision[:] = -1.
         _snapshot(result.controls, config)
-        flow._evidence(result.flow.evidence, state['records'])
-        assert two._host_events(live) == state['events']
-        assert mass._events(result.flow.evidence) == live
+        native_preparation_abi._evidence(result.flow.evidence, state['records'])
+        assert native_preparation_abi._host_events(live) == state['events']
+        assert native_preparation_abi._events(result.flow.evidence) == live
         if operation == 'prepare_inlet_mass_capacities':
             assert result.flow.have_capacities and state['geometry_calls'] == 1
             for index, side in enumerate('AB'):
-                mass._scalar(result.flow.capacities[index], expected[side])
+                native_preparation_abi._scalar(result.flow.capacities[index], expected[side])
         else:
-            flow._resolved(result.flow, expected)
+            native_preparation_abi._resolved(result.flow, expected)
     finally:
         _release(native, result)
     return expected, state
@@ -234,7 +235,7 @@ def test_continuous_3d_control_layouts_and_orders(native, monkeypatch, layout):
     expected, _ = _full(native, monkeypatch, config)
     if nz is None:
         values = expected.design_fields['L_field_m']
-        v1._same(values, np.repeat(values[:, :, :1], values.shape[2], axis=2), 'XY extrusion')
+        native_preparation_abi._same(values, np.repeat(values[:, :, :1], values.shape[2], axis=2), 'XY extrusion')
 
 
 @pytest.mark.parametrize('direction', range(6))
@@ -242,7 +243,7 @@ def test_continuous_3d_control_layouts_and_orders(native, monkeypatch, layout):
 def test_continuous_3d_configured_and_mixed_flow_ports(native, monkeypatch, direction, sides):
     config = _configuration(nz=None if direction % 2 else 3)
     config.geometry.L_dom_m, config.geometry.H_dom_m, config.geometry.Lz_m = .081, .063, .047
-    three._partial_ports(config, direction)
+    native_preparation_abi._partial_ports(config, direction)
     capacities, _ = _query(native, monkeypatch, 'prepare_inlet_mass_capacities', config)
     for side in sides:
         fluid = getattr(config, 'fluid_' + side)
@@ -259,11 +260,11 @@ def test_continuous_3d_configured_and_mixed_flow_ports(native, monkeypatch, dire
 def test_continuous_3d_samples_refined_physical_centres(native, monkeypatch, nz, direction):
     config = _configuration(nz=nz)
     config.geometry.L_dom_m, config.geometry.H_dom_m, config.geometry.Lz_m = .081, .063, .047
-    three._partial_ports(config, direction)
+    native_preparation_abi._partial_ports(config, direction)
     lengths = (config.geometry.L_dom_m, config.geometry.H_dom_m, config.geometry.Lz_m)
     for side in 'AB':
         port = getattr(config, 'bc_' + side)
-        depth = lengths[three.grid.axis_map(port.dir)[2]]
+        depth = lengths[_native_grid.axis_map(port.dir)[2]]
         port.in_z_ctr, port.in_z_w = .43 * depth, .57 * depth
         port.out_z_ctr, port.out_z_w = .59 * depth, .49 * depth
     config.flags.port_wall_refine = True
@@ -296,14 +297,14 @@ def test_continuous_3d_scalar_precision(native, monkeypatch, dtype, selection):
         config.fluid_B.u_mps, config.fluid_B.T_in_K = dtype(.03125), dtype(321.13)
     else:
         config.geometry.L_dom_m, config.geometry.H_dom_m, config.geometry.Lz_m = map(dtype, (.081, .063, .047))
-        three._partial_ports(config, 5)
+        native_preparation_abi._partial_ports(config, 5)
         for side in 'AB':
             port = getattr(config, 'bc_' + side)
             for name in ('in_ctr', 'in_w', 'out_ctr', 'out_w', 'in_z_ctr', 'in_z_w', 'out_z_ctr', 'out_z_w'):
                 setattr(port, name, dtype(getattr(port, name)))
     if selection == 'grid-port' and dtype in (np.float16, np.float32):
         with pytest.raises(ValueError) as reference:
-            flow._reference(monkeypatch, 'prepare_flow_case', config)
+            native_preparation_abi._reference(monkeypatch, 'prepare_flow_case', config)
         status, result, failure, error, _, _ = _call(native, 'prepare_flow_case', config)
         assert status == 1 and failure.kind == 1 and error == str(reference.value)
         assert bytes(result) == bytes(_Result(3, ct.sizeof(_Result)))
@@ -336,7 +337,7 @@ def test_continuous_3d_query_ranges_and_warning_scope(native, monkeypatch, opera
     config.fluid_A.T_in_K = min(tpms_props._AIR_T_RANGE[0], tpms_props._AIR_CP_RANGE[0]) - 10.
     monkeypatch.setattr(tpms_props, '_range_warnings_emitted', set())
     targets = (.003, .03) if operation == 'resolve_inlet_flow' else None
-    _, standalone = flow._reference(monkeypatch, operation, config, targets)
+    _, standalone = native_preparation_abi._reference(monkeypatch, operation, config, targets)
     _, scoped = _query(native, monkeypatch, operation, config, targets)
     assert any('outside fitted range' in event[2] for event in standalone['events'])
     assert standalone['events'] != scoped['events']
@@ -353,16 +354,16 @@ def test_continuous_3d_no_target_resolution_keeps_unvalidated_owned_input(native
     config.fluid_A.T_in_K = -1.
     config.zones.config['spline_order'] = 0
     config.sco2_nu = replace(config.sco2_nu, source='retained source')
-    expected, state = flow._reference(monkeypatch, 'resolve_inlet_flow', config)
+    expected, state = native_preparation_abi._reference(monkeypatch, 'resolve_inlet_flow', config)
     assert expected is config and state['geometry_calls'] == 0
     status, result, failure, error, live, source = _call(native, 'resolve_inlet_flow', config)
     assert status == 0, error
     try:
         assert not failure.kind and not result.flow.have_capacities and not live
         assert result.flow.evidence.range_count == result.flow.evidence.warning_count == result.flow.evidence.event_count == 0
-        for name, _ in three._Input._fields_:
+        for name, _ in native_preparation_abi._Input_3d._fields_:
             if name != 'sco2_nu':
-                assert v1._struct_values(getattr(result.flow.input, name)) == v1._struct_values(getattr(source.values.input, name))
+                assert native_preparation_abi._struct_values(getattr(result.flow.input, name)) == native_preparation_abi._struct_values(getattr(source.values.input, name))
         source._decision[:] = -1.
         _snapshot(result.controls, config)
         for buffer in source._values._source._buffers:
@@ -407,15 +408,15 @@ def test_continuous_3d_first_error_and_failure_atomicity(native, monkeypatch, op
         config.fluid_A.T_in_K, config.fluid_A.P_in_Pa = 304.1282, 7377298.373
     state = {}
     with pytest.raises(ValueError) as reference:
-        flow._reference(monkeypatch, operation, config, targets, scoped=True, state=state)
+        native_preparation_abi._reference(monkeypatch, operation, config, targets, scoped=True, state=state)
     status, result, failure, error, live, _ = _call(native, operation, config, targets)
     assert status != 0 and error == str(reference.value)
-    assert failure.kind == three.fluids._error_kind(reference.value)
+    assert failure.kind == native_preparation_abi._error_kind(reference.value)
     assert bytes(result) == bytes(type(result)(3, ct.sizeof(result)))
-    assert two._host_events(live) == state['events']
+    assert native_preparation_abi._host_events(live) == state['events']
     causes, cause = [], reference.value.__cause__
     while cause is not None:
-        causes.append((three.fluids._error_kind(cause), str(cause)))
+        causes.append((native_preparation_abi._error_kind(cause), str(cause)))
         cause = cause.__cause__
     assert [(item.kind, item.message.decode()) for item in failure.causes[:failure.cause_count]] == causes
     _release(native, result)
@@ -469,7 +470,7 @@ def test_continuous_3d_owned_result_requires_release(native, operation):
             ct.byref(source), None, None, ct.byref(result), ct.byref(failure), error, len(error)) != 0
         assert 'release' in error.value.decode()
         assert bytes(result) == before
-        v1._same(copy_array(result.controls.decision_mm), decisions, 'retained owner')
+        native_preparation_abi._same(copy_array(result.controls.decision_mm), decisions, 'retained owner')
     finally:
         _release(native, result)
 
@@ -478,14 +479,14 @@ def test_continuous_3d_owned_result_requires_release(native, operation):
 def test_continuous_3d_raw_and_thermal_geometry_keep_unit_order(native, monkeypatch, pair):
     config = _configuration(pair=pair, nx=3, ny=4, nz=3, mirror=False)
     calls = []
-    original = three.preparation.geometry_fields
+    original = preparation_3d_reference.geometry_fields
 
     def geometry(*args, **kwargs):
         result = original(*args, **kwargs)
         calls.append((np.array(args[1], copy=True), np.array(args[2], copy=True), result))
         return result
 
-    monkeypatch.setattr(three.preparation, 'geometry_fields', geometry)
+    monkeypatch.setattr(preparation_3d_reference, 'geometry_fields', geometry)
     expected, _ = _full(native, monkeypatch, config)
     thermal = expected.parameters['thermal_geometry']['fields']
     if pair[0] == 'co2':
@@ -545,7 +546,7 @@ def test_continuous_3d_rejects_rounded_control_axes_before_sampling(
         config.zones.config['x_decision'] = [7.] * count + [.6] * count
     state, targets = {}, (.003, .03)
     with pytest.raises(ValueError) as reference:
-        flow._reference(monkeypatch, operation, config, targets, scoped=True, state=state)
+        native_preparation_abi._reference(monkeypatch, operation, config, targets, scoped=True, state=state)
     assert str(reference.value) == (
         'control axes must increase across the domain, or use its midpoint for one control')
     status, result, failure, error, live, _ = _call(native, operation, config, targets)
@@ -553,12 +554,12 @@ def test_continuous_3d_rejects_rounded_control_axes_before_sampling(
         assert status != 0 and error == str(reference.value)
         assert failure.kind == 1 and failure.cause_count == 0
         assert bytes(result) == bytes(type(result)(3, ct.sizeof(result)))
-        assert two._host_events(live) == state['events']
+        assert native_preparation_abi._host_events(live) == state['events']
     finally:
         _release(native, result)
 
 
-@pytest.mark.parametrize('operation,targets', flow._OWNED_FLOW_CASES)
+@pytest.mark.parametrize('operation,targets', native_preparation_abi._OWNED_FLOW_CASES)
 @pytest.mark.parametrize('destination', ['error', 'failure'])
 @pytest.mark.parametrize('invalid', ['none', 'source_abi', 'source_size', 'values_abi',
     'values_size', 'input_abi', 'input_size', 'result_abi', 'result_size'])
@@ -577,7 +578,7 @@ def test_continuous_3d_owned_views_reject_diagnostic_aliases(native, operation, 
         setattr(target, 'abi_version' if invalid.endswith('abi') else 'struct_size', 0)
     before = bytes(source), [bytes(buffer) for buffer in source._values._source._buffers], source._decision.tobytes()
     try:
-        labels = two._check_owned_aliases(lambda failure, error, capacity:
+        labels = native_preparation_abi._check_owned_aliases(lambda failure, error, capacity:
             getattr(native, 'tpmshx_' + operation + '_3d_v3')(ct.byref(source), None, None,
                 ct.byref(result), ct.cast(failure, ct.POINTER(abi._Failure)), error, capacity), result, destination)
         assert any('.controls.decision_mm' in label for label in labels)
@@ -596,7 +597,7 @@ def test_continuous_3d_owned_views_reject_diagnostic_aliases(native, operation, 
         _release(native, result)
 
 
-@pytest.mark.parametrize('operation,targets', flow._OWNED_FLOW_CASES)
+@pytest.mark.parametrize('operation,targets', native_preparation_abi._OWNED_FLOW_CASES)
 def test_continuous_3d_owned_output_keeps_safe_reuse_diagnostics(native, operation, targets):
     config = _configuration(nz=1)
     config.sco2_nu = replace(config.sco2_nu, source='saved source')
@@ -607,7 +608,7 @@ def test_continuous_3d_owned_output_keeps_safe_reuse_diagnostics(native, operati
     assert status == 0, error
     try:
         outer = bytes(result)
-        before = [(label, pointer, ct.string_at(pointer, size)) for label, pointer, size in two._visible_buffers(result)]
+        before = [(label, pointer, ct.string_at(pointer, size)) for label, pointer, size in native_preparation_abi._visible_buffers(result)]
         failure, error, events = abi._Failure(2, ct.sizeof(abi._Failure)), ct.create_string_buffer(4096), []
         event = abi._EventFunction(lambda context, pointer: events.append(1) or 0)
         callbacks = abi._Callbacks(1, ct.sizeof(abi._Callbacks), event, None)
@@ -629,7 +630,7 @@ def test_continuous_3d_owned_drag_text_rejects_diagnostic_aliases(native, destin
     status, result, _, error, _, source = _call(native, 'prepare_flow_case', config)
     assert status == 0, error
     try:
-        labels = two._check_owned_aliases(lambda failure, error, capacity:
+        labels = native_preparation_abi._check_owned_aliases(lambda failure, error, capacity:
             native.tpmshx_prepare_flow_case_3d_v3(ct.byref(source), None, None,
                 ct.byref(result), ct.cast(failure, ct.POINTER(abi._Failure)), error, capacity), result, destination)
         for side in range(2):

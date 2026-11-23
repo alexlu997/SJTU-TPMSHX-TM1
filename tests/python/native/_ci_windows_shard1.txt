@@ -5,8 +5,8 @@ tests/python/native/test_cpp_conservative_full2d.py::test_actual_thermal_state_a
 tests/python/native/test_cpp_conservative_full2d.py::test_actual_thermal_state_and_signed_ledger[temperature_sou-directions03-partialTrue]
 tests/python/native/test_cpp_conservative_full2d.py::test_invalid_persisted_options_rejected[temperature_fou-0.0]
 tests/python/native/test_cpp_conservative_full2d.py::test_missing_version_query_blocks_candidate_before_solve_but_allows_legacy[temperature_sou]
-tests/python/native/test_cpp_conservative_full2d.py::test_old_library_candidate_capability_fails_before_flow[tpmshx_full_2d_get_energy_evidence_v1]
-tests/python/native/test_cpp_conservative_full2d.py::test_old_library_candidate_capability_fails_before_flow[tpmshx_solve_full_2d_v3]
+tests/python/native/test_cpp_conservative_full2d.py::test_missing_energy_evidence_query_fails_before_flow
+tests/python/native/test_cpp_conservative_full2d.py::test_library_without_v6_entry_is_rejected
 tests/python/native/test_cpp_conservative_full2d.py::test_saved_case_result_new_process_replay[temperature_sou-directions03-partialFalse]
 tests/python/native/test_cpp_conservative_full2d.py::test_saved_case_result_new_process_replay[temperature_sou-directions03-partialTrue]
 tests/python/native/test_cpp_conservative_full3d.py::test_actual_side_models_six_face_powers_and_postprocess[temperature_sou-sco2-water-full]
@@ -38,5 +38,4 @@ tests/python/native/test_quick_design_driver.py
 tests/python/native/test_simple_2d_c_api.py
 tests/python/native/test_temperature_staggered.py
 # Stage modules collected on Python 3.13.
-tests/python/test_native_stage_continuous.py
 tests/python/test_native_prepare_spatial_adapter.py

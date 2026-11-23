@@ -32,16 +32,10 @@ from sjtu_tpmshx.run_control.run_warnings import replay_sco2_notices
 from sjtu_tpmshx.data_types.case_data import resolved_input_record
 from .solver_library._stage_capture_abi import (
     StageExecution,
-    _decode_iteration_records,
-    _decode_update_scale,
     _energy_native_state,
     _energy_result_info,
     _full_enthalpy_info,
     _volume_info,
-    executed_inputs,
-    execution_sides,
-    sampling_records,
-    execution_facts,
 )
 from .solver_library.closure_evidence import copy_nu_observation, copy_range_observations
 from .solver_library._thermal_abi import (
@@ -132,30 +126,25 @@ def bootstrap_query(library):
     return query
 
 
-def has_saved_stage(library):
-    """Select the protocol before execution; partial protocols are errors."""
-    version = getattr(library, 'tpmshx_stage_capture_3d_abi_version', None)
-    capture = getattr(library, 'tpmshx_stage_run_3d_get_capture_v1', None)
-    create = getattr(library, 'tpmshx_stage_run_3d_create_saved_v2', None)
-    restore = getattr(library, 'tpmshx_stage_run_3d_restore_saved_v2', None)
-    if (create is None) != (restore is None) or (create is not None and capture is None):
-        raise ValueError('native library has an incomplete saved 3D stage protocol')
-    if version is None and capture is None:
-        return False
-    names = ('create_saved', 'restore_saved', 'advance_step', 'phase', 'snapshot',
-             'take_result', 'release_run', 'release')
-    if version is None or capture is None or not all(
-            hasattr(library, 'tpmshx_stage_run_3d_' + name + '_v1') for name in names):
-        raise ValueError('native library has an incomplete saved 3D stage protocol')
+def require_saved_stage(library):
+    """Bind the saved v2 protocol. A library without it is a deployment error."""
+    names = ('create_saved_v2', 'restore_saved_v2', 'advance_step_v1', 'phase_v1', 'snapshot_v1',
+             'take_result_v1', 'release_run_v1', 'release_v1', 'get_capture_v1')
+    try:
+        version = library.tpmshx_stage_capture_3d_abi_version
+        for name in names:
+            getattr(library, 'tpmshx_stage_run_3d_' + name)
+        library.tpmshx_run_saved_case_3d_v2
+    except AttributeError as error:
+        raise ValueError('native library has an incomplete saved 3D stage protocol') from error
     version.argtypes, version.restype = [], _U
     abi = version()
     if abi != 1:
         raise ValueError(f'unsupported saved 3D capture ABI {abi}; expected 1')
-    return True
 
 
-def run_case(case, control, *, retained_run, resume_state=None, checkpoint=None, checkpoint_due=None):
-    """Select the saved 3D protocol before execution."""
+def run_case(case, control, *, resume_state=None, checkpoint=None, checkpoint_due=None):
+    """Run the saved 3D protocol."""
     if control.backend != 'cpp':
         raise ValueError('full native 3D requires backend=cpp')
     if not control.native_library:
@@ -170,14 +159,9 @@ def run_case(case, control, *, retained_run, resume_state=None, checkpoint=None,
     checked = borrow_solver_mesh(case, library, 3)
     if checked is None:
         validate_saved_axes(case)
-    saved_v2 = hasattr(library, 'tpmshx_stage_run_3d_create_saved_v2')
-    saved = has_saved_stage(library)
-    if saved and saved_v2:
-        query = execution_view_query(library, 3, _StageResult, _ExecutionView)
-        if query is not None:
-            return run_saved(case, control, library, abi, table_directory, query, mesh=checked,
-                resume_state=resume_state, checkpoint=checkpoint, checkpoint_due=checkpoint_due)
-    return retained_run(case, control, runtime, saved, saved_v2,
+    require_saved_stage(library)
+    query = execution_view_query(library, 3, _StageResult, _ExecutionView)
+    return run_saved(case, control, library, abi, table_directory, query, mesh=checked,
         resume_state=resume_state, checkpoint=checkpoint, checkpoint_due=checkpoint_due)
 
 
@@ -412,7 +396,7 @@ def pack_run_controls(request, cfg, prepared, shape):
             setattr(request, target, _Double(1, cfg[source]))
 
 
-def pack_saved_case(case, data, cell_mm, wall_mm, nu, keepalive, version):
+def pack_saved_case(case, data, cell_mm, wall_mm, nu, keepalive):
     ranges, captured = _ranges(case.metadata.get('applicability_inputs', ()), keepalive)
     notices = (_Text * len(case.metadata['notices']))(*(
         _text(notice, keepalive) for notice in case.metadata['notices']))
@@ -420,8 +404,7 @@ def pack_saved_case(case, data, cell_mm, wall_mm, nu, keepalive, version):
     saved = _Saved(1, ct.sizeof(_Saved), ct.pointer(data), cell_mm, wall_mm, case.parameters['eps'],
         _array(case.design_fields['t_field_m'], keepalive), evidence, notices, len(notices),
         'applicability_inputs' in case.metadata, captured)
-    if version == 2:
-        saved = pack_saved_v2(saved, case, cell_mm, wall_mm, nu, keepalive)
+    saved = pack_saved_v2(saved, case, cell_mm, wall_mm, nu, keepalive)
     keepalive.append(notices)
     return saved
 
@@ -621,23 +604,15 @@ def add_run_evidence(detached, resolved, entry_version, control, cpu_thread_limi
 
 
 
-def add_saved_evidence(detached, case, evidence, records, fields, shape, *, executed=None, report=None):
+def add_saved_evidence(detached, case, evidence, records, shape, report):
     from ._native_result_stage import copy_applicability
 
-    warnings = None
-    if records is not None:
-        _, warnings, detached['last_closure_ranges'] = stage_closures(records)
-        detached['stage_diagnostics'] = diagnostics(records, evidence, case.parameters, case.design_fields)
-    if report is not None:
-        detached['execution_facts'] = link_execution(report, case, detached['true_h'])
-    elif executed is not None:
-        detached['execution_facts'] = execution_facts(executed, evidence, case, fields[1],
-            detached['model_h_iterations'], detached['true_h'])
-    elif records is not None:
-        detached['_native_execution_sides'] = execution_sides(records, evidence, case, fields[1])
+    _, warnings, detached['last_closure_ranges'] = stage_closures(records)
+    detached['stage_diagnostics'] = diagnostics(records, evidence, case.parameters, case.design_fields)
+    detached['execution_facts'] = link_execution(report, case, detached['true_h'])
     detached['_native_applicability'] = copy_applicability(evidence.applicability,
         case.metadata.get('applicability_inputs', ()))
-    if records is not None and 'temperature_evidence' not in detached:
+    if 'temperature_evidence' not in detached:
         detached['physical_ledger'] = stage_ledger(evidence.thermal, None, shape)
     return warnings
 
@@ -783,7 +758,7 @@ def run_saved(case, control, library, abi, table_directory, execution_query, *, 
     shape, cell_mm, wall_mm, nu = validate_saved_case(case, None if mesh is None else mesh.shape)
     cfg, prepared = case.parameters, case.parameters['prepared']
     control.check_cancelled()
-    complete = getattr(library, 'tpmshx_run_saved_case_3d_v2', None)
+    complete = library.tpmshx_run_saved_case_3d_v2
     energy = energy_request(cfg)
     has_water = 'water' in (cfg['fluid_type_A'], cfg['fluid_type_B'])
     if cfg.get('enthalpy_algorithm', 'temperature_sou') != 'temperature_sou':
@@ -801,8 +776,8 @@ def run_saved(case, control, library, abi, table_directory, execution_query, *, 
     host = _Host(case.case_id.encode(), table_directory, cpu_threads, callbacks)
     result = None
     try:
-        saved = pack_saved_case(case, data, cell_mm, wall_mm, nu, keepalive, 2)
-        if complete is not None and checkpoint is None and resume_state is None:
+        saved = pack_saved_case(case, data, cell_mm, wall_mm, nu, keepalive)
+        if checkpoint is None and resume_state is None:
             complete.argtypes = [ct.POINTER(_SavedV2), ct.POINTER(_Request), ct.POINTER(_Host),
                                  ct.POINTER(_StageResult), ct.POINTER(ct.c_char), ct.c_size_t]
             complete.restype = ct.c_int
@@ -835,22 +810,16 @@ def run_saved(case, control, library, abi, table_directory, execution_query, *, 
         if settings.last.available:
             version = evidence.thermal.true_h.contents.energy_algorithm_version[0]
             add_energy_evidence(detached, execution.energy, settings, entry_version, shape, version=version)
-        if report is not None:
-            detached.update({name: report[name] for name in
-                             ('property_sampling', 'enthalpy_update_normalization', 'model_h_iterations')})
-        else:
-            detached['property_sampling'] = sampling_records(records.sampling)
-            detached['enthalpy_update_normalization'] = _decode_update_scale(executed.update_scale)
-            detached['model_h_iterations'] = _decode_iteration_records(executed.model_h, executed.acceleration)
+        detached.update({name: report[name] for name in
+                         ('property_sampling', 'enthalpy_update_normalization', 'model_h_iterations')})
         add_run_evidence(detached, result.resolved, entry_version, control, cpu_threads, resume_state)
         if detached['mode'] in ('model_h', 'temperature'):
             if evidence.thermal.temperature:
                 detached['temperature_evidence'] = stage_ledger(evidence.thermal, records.temperature[0], shape)
             detached['native_metadata'] = dict(abi=abi, algorithm=executed.algorithm.decode(),
                                                red_black=bool(executed.red_black))
-        detached['_input_resolution'] = (resolved_input_record(case, **report['input']) if report is not None
-                                         else executed_inputs(case, evidence))
-        warnings = add_saved_evidence(detached, case, evidence, records, fields, shape, executed=executed, report=report)
+        detached['_input_resolution'] = resolved_input_record(case, **report['input'])
+        warnings = add_saved_evidence(detached, case, evidence, records, shape, report)
         detached.update(capture_scalars=summary, bootstrap_trace=bootstrap)
         merge_warnings(current_warnings(), [warnings])
         replay_sco2_notices(executed.sco2_notices, '3D h_v property refresh')
@@ -1003,7 +972,7 @@ def capture_result(case, cfg, p, r, abi, *, legacy_fields=None, legacy_drag=None
             K_ss=fields['K_ss'] if emit_audit else None),
             props=dict(rho_cp_A=r['final_rho_cp'][0],rho_cp_B=r['final_rho_cp'][1],u_A_in_mps=cfg['u_A'],T_in_A_K=cfg['T_inA'])),
         **({'native':r['native_metadata']} if 'native_metadata' in r else {}),
-        **{key: r[key] for key in ('_native_applicability', '_native_execution_sides') if key in r},
+        **({'_native_applicability': r['_native_applicability']} if '_native_applicability' in r else {}),
         diagnostics=diagnostics,df_metadata=df_metadata,model_roles=case.metadata['model_roles'],
         reporting_reference={key:diagnostics[key] for key in ('Q','dP_A','dP_B','T_out_A','T_out_B')})
     if 'execution_facts' in r:

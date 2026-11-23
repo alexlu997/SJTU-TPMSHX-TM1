@@ -35,7 +35,6 @@ set(TPMSHX_PREPARATION_C_SOURCES "${TPMSHX_ROOT}/preprocess/preparation_c_api.cp
     "${TPMSHX_ROOT}/preprocess/property_c_api.cpp"
     "${TPMSHX_ROOT}/preprocess/preparation_df_c_api.cpp"
     "${TPMSHX_ROOT}/preprocess/preparation_case_c_api.cpp"
-    "${TPMSHX_ROOT}/preprocess/quick_design_prepare.cpp"
     "${TPMSHX_ROOT}/preprocess/quick_design_prepare_v2.cpp")
 add_library(tpmshx_preparation_c STATIC ${TPMSHX_PREPARATION_C_SOURCES})
 add_library(tpmshx_preparation_shared SHARED ${TPMSHX_PREPARATION_C_SOURCES})
