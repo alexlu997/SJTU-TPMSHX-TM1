@@ -25,7 +25,7 @@ from sjtu_tpmshx.solvers import api as execution
 
 def test_batch_recovery_parses_prescribed_flow_before_old_speed(tmp_path):
     from sjtu_tpmshx.run_control.paused_run import PausedRun
-    from tests.python.test_multi_condition_optimizer import _conditions as search_conditions
+    from tests.python.optimization_support import _conditions as search_conditions
     name, config, a, b = search_conditions(3)[0]
     config.df_mode = 'experimental'
     config.fluid_A.u_mps = .001

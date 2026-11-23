@@ -5,7 +5,7 @@ from sjtu_tpmshx.file_io.result_io import load_result, save_result
 from sjtu_tpmshx.preprocess import api as preparation
 from sjtu_tpmshx.solvers import api as execution
 from sjtu_tpmshx.run_control.provenance import repository_revision, source_context
-from tests.python.integration_tm1.test_2d_real import baseline_config
+from tests.python.integration_tm1.integration_support import baseline_config
 
 
 @pytest.mark.slow

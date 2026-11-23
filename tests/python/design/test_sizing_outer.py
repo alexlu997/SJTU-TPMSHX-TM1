@@ -1,6 +1,14 @@
+import os
+from pathlib import Path
+import subprocess
+import sys
+
 from sjtu_tpmshx.applications.design.cases import DesignCase
 from sjtu_tpmshx.applications.design.sizing import size_fixed_cell
 import pytest
+
+
+ROOT = Path(__file__).resolve().parents[3]
 
 
 @pytest.mark.parametrize('arrangement', ['cross', 'counter'])
@@ -126,3 +134,29 @@ def test_size_two_cases_governing():
     else:
         assert d.reason in ("dP>lim@s_max", "dP>lim@final",
                             "cooling-unreachable", "Lx>envelope")
+
+
+# Sizing build-envelope caps come from the environment at import, so
+# loky-spawned sizing workers use a relaxed cap that the parent set first.
+def _caps_in_subprocess(env_extra):
+    env = dict(os.environ, PYTHONPATH=str(ROOT), **env_extra)
+    out = subprocess.check_output(
+        [sys.executable, '-c',
+         'import sjtu_tpmshx.applications.design.sizing as S; print(S.S_MAX, S.LX_MAX)'],
+        env=env, text=True, stderr=subprocess.STDOUT)
+    return out.strip().split()
+
+
+def test_sizing_caps_default_without_env():
+    env = {k: v for k, v in os.environ.items()
+           if k not in ('TPMSHX_BUILD_S_MAX', 'TPMSHX_BUILD_LX_MAX')}
+    out = subprocess.check_output(
+        [sys.executable, '-c', 'import sjtu_tpmshx.applications.design.sizing as S; print(S.S_MAX, S.LX_MAX)'],
+        env=dict(env, PYTHONPATH=str(ROOT)), text=True)
+    assert out.strip().split() == ['0.45', '0.45']
+
+
+def test_sizing_caps_relaxed_via_env():
+    out = _caps_in_subprocess({'TPMSHX_BUILD_S_MAX': '2.0',
+                               'TPMSHX_BUILD_LX_MAX': '2.0'})
+    assert out == ['2.0', '2.0']

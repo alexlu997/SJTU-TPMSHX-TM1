@@ -10,7 +10,7 @@ from sjtu_tpmshx.run_control.module_ports import RunControl
 from sjtu_tpmshx.data_types.compute_config import ZoneInputConfig
 from sjtu_tpmshx.run_control.paused_run import PausedRun
 from sjtu_tpmshx.applications.optimization import multi_condition_optimizer as search
-from tests.python.test_multi_condition_optimizer import _conditions, _fake_batches, _manifest
+from tests.python.optimization_support import _conditions, _fake_batches, _manifest
 
 
 @pytest.mark.parametrize('changed', [False, True])
@@ -185,7 +185,7 @@ def test_resume_rejects_changed_search_contract_before_creating_output(tmp_path,
 
 
 def test_pause_save_failure_keeps_primary_error_and_does_not_claim_saved_pause(tmp_path, monkeypatch):
-    from tests.python.test_optimization_checkpoint_errors import _checkpoint_fault
+    from tests.python.optimization_support import _checkpoint_fault
     _fake_batches(monkeypatch)
     _checkpoint_fault(monkeypatch, search, 'optimization.json',
         lambda record, _: record['status'] == 'paused', persistent=True)

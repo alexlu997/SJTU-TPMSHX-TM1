@@ -11,8 +11,8 @@ from PySide6.QtCore import QTimer
 
 from tests.python.gui_io_support import win as win
 from tests.python.gui_worker_support import _wait_for
-from tests.python.integration_tm1.test_2d_real import baseline_config, AIR_PUBLIC_METRICS
-from tests.python.test_pipeline_3d_e2e import _small_air_cfg
+from tests.python.integration_tm1.integration_support import baseline_config, AIR_PUBLIC_METRICS
+from tests.python.cases_3d import small_air_config
 from sjtu_tpmshx.applications.gui.ui.window_config import CONFIG_FIELDS
 from sjtu_tpmshx.data_types.compute_config import bc_to_dict
 
@@ -89,7 +89,7 @@ def test_shanghai_recommended_grid_and_manual_preset_roundtrip(win):
 def test_saved_polygon_cannot_replace_the_current_compute_case(win, monkeypatch, shape, dimension):
     from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window, DOMAIN_SHAPE_NOTICE
 
-    apply_config(win, baseline_config() if dimension == 2 else _small_air_cfg())
+    apply_config(win, baseline_config() if dimension == 2 else small_air_config())
     assert not hasattr(win, 'combo_shape')
     assert win.lbl_domain_shape.text() == ('矩形' if dimension == 2 else '长方体')
     before = asdict(config_from_window(win))
@@ -122,7 +122,7 @@ def test_real_gui_compute_drafts_units_and_export(win, monkeypatch, tmp_path, di
     monkeypatch.setattr(QMessageBox, 'critical', lambda *args: errors.append(args[1:]))
     monkeypatch.setattr(QMessageBox, 'warning', lambda *args: errors.append(args[1:]))
     monkeypatch.setattr(QMessageBox, 'question', lambda *args: pytest.fail(f'unexpected preflight prompt: {args[1:3]}'))
-    config = baseline_config() if dimension == 2 else _small_air_cfg()
+    config = baseline_config() if dimension == 2 else small_air_config()
     apply_config(win, config)
     finished, started = [], []
     win.compute.finished.connect(finished.append)

@@ -12,7 +12,7 @@ import zipfile
 import pytest
 
 from engineering.scripts import check_distributions as distributions
-from tests.python.test_import_identity_shim import PUBLIC_NAME_CHECK
+from tests.python.packaging_support import PUBLIC_NAME_CHECK
 
 
 @pytest.fixture

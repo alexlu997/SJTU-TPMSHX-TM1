@@ -8,13 +8,16 @@ Covers:
 - ``config_from_window`` adapter with a minimal mock window
 - Optional-widget tolerance (le_Lz / combo_fluidB missing)
 - K/°C toggle honoured via ``window._temp_to_K``
+- Solver budget controls that change real 2D and 3D solves (slow)
 """
 from __future__ import annotations
 
+from dataclasses import replace
 import json
 import tempfile
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from sjtu_tpmshx.data_types.compute_config import (
@@ -485,3 +488,55 @@ def test_c4_legacy_json_without_new_fields_keeps_defaults():
     assert cfg.zones.enabled is False
     assert cfg.flags.temp_unit == 'K'
     assert cfg.extrap.allow is False
+
+
+# ── effectiveness: the knobs must actually turn ─────────────────────
+
+
+def _small_2d_cfg(**solver_kw):
+    return ComputeConfig(
+        fluid_A=FluidConfig(type='air', u_mps=5.0, T_in_K=400.0),
+        fluid_B=FluidConfig(type='air', u_mps=10.0, T_in_K=310.0),
+        geometry=GeometryConfig(tpms='Gyroid', L_cell_mm=7.0, t_wall_mm=0.6,
+                                k_s_W_mK=16.0, L_dom_m=0.06, H_dom_m=0.03),
+        solver=SolverConfig(Nx=8, Ny=8, **solver_kw),
+        extrap=ExtrapPolicy(allow=True),
+        flags=FeatureFlags(),
+    )
+
+
+@pytest.mark.slow
+def test_2d_max_outer_knob_turns():
+    """Capping the SIMPLE↔LTNE coupling at 2 rounds must change the
+    converged temperature field (this case needs 3+ rounds to settle),
+    while identical settings reproduce bit-identically (determinism
+    control — the difference is the KNOB, not noise). The cap is 2, not
+    1: `Pipeline.run()` now enforces `ComputeConfig.validate()` (codex
+    review 2026-07-13), whose deliberate rule is max_outer_ltne >= 2 (a
+    single pass cannot even measure a dT change — the truth-table tests
+    pin that rule)."""
+    from sjtu_tpmshx.applications.result_adapter import compute_result
+
+    Ta_def = compute_result(_small_2d_cfg()).fields['Ta']
+    Ta_capped = compute_result(_small_2d_cfg(max_outer_ltne=2)).fields['Ta']
+    Ta_capped2 = compute_result(_small_2d_cfg(max_outer_ltne=2)).fields['Ta']
+    assert np.array_equal(Ta_capped, Ta_capped2), \
+        "determinism control failed — cannot attribute differences to the knob"
+    assert not np.array_equal(Ta_def, Ta_capped), (
+        "max_outer_ltne=2 produced a bit-identical field to the default "
+        "run — the knob is decorative again")
+
+
+@pytest.mark.slow
+def test_3d_knobs_turn():
+    """max_outer_ltne must cap the 3D outer loop."""
+    from tests.python.cases_3d import air_air_config
+    from sjtu_tpmshx.preprocess.api import prepare_case
+    from sjtu_tpmshx.solvers.api import run_case
+    base = air_air_config()
+    base.solver = replace(base.solver, Nx=8, Ny=6, Nz=6)
+    r_def = run_case(prepare_case(base, case_id='outer-default')).metadata['diagnostics']
+    base.solver.max_outer_ltne = 2
+    r_knob = run_case(prepare_case(base, case_id='outer-cap')).metadata['diagnostics']
+    assert len(r_knob['convergence_detail']['outer_dT']) == 2
+    assert len(r_def['convergence_detail']['outer_dT']) > 2

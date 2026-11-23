@@ -1,7 +1,6 @@
 """Search orchestration uses complete native batches; physics is not mocked as valid evidence."""
 from dataclasses import asdict, replace
 import json
-from pathlib import Path
 import subprocess
 import sys
 
@@ -9,22 +8,11 @@ import numpy as np
 import pytest
 
 from sjtu_tpmshx.run_control.cancellation import CancelledError
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig, FluidConfig, GeometryConfig, SolverConfig
+from sjtu_tpmshx.data_types.compute_config import ComputeConfig, SolverConfig
 from sjtu_tpmshx.run_control.module_ports import RunControl
 from sjtu_tpmshx.applications.optimization import multi_condition_optimizer as search
+from tests.python.optimization_support import _conditions, _fake_batches, _manifest
 from tests.python.test_multi_condition_batch import native_control as native_control
-
-
-def _conditions(dimension=2):
-    return [(f'flow-{i}', ComputeConfig(
-        geometry=GeometryConfig(Lz_m=.042), solver=SolverConfig(Nz=3 if dimension == 3 else 1),
-        fluid_A=FluidConfig(type='air', u_mps=10., T_in_K=380.+i),
-        fluid_B=FluidConfig(type='water', u_mps=.1, T_in_K=300.)), .01+i*.005, .03+i*.01)
-        for i in range(2)]
-
-
-def _manifest(path):
-    return json.loads((path / 'optimization.json').read_text())
 
 
 def test_unsupported_control_count_is_rejected_before_allocating_bounds(tmp_path, monkeypatch):
@@ -48,63 +36,6 @@ def test_search_and_archive_preserve_low_and_mixed_control_counts(tmp_path, monk
     assert all(result['field_spec'][key] == value for key, value in spec.items())
     assert _manifest(tmp_path / 'study')['field_spec'] == result['field_spec']
     assert len(calls) == 3
-
-
-def _fake_batches(monkeypatch, *, fail_indices=(), baseline_failure=False, cancel_index=None,
-                  backend='cpp', workers=1):
-    calls, baseline_token = [], {}
-    expected_workers = workers
-
-    def evaluate(conditions, *, output_dir, baseline=None, control=RunControl(), workers=1,
-                 on_update=None, pause_check=None, resume_from=None, keep_failed=False,
-                 allow_nu_re_extrapolation=False):
-        assert control.backend == backend and workers == expected_workers
-        directory = Path(output_dir)
-        directory.mkdir(exist_ok=resume_from is not None)
-        index = -1 if baseline is None else int(directory.name.removeprefix('design_'))
-        previous = resume_from[1] if resume_from is not None else None
-        reused = previous is not None and previous['status'] == 'completed'
-        if not reused:
-            calls.append((conditions, baseline, directory))
-        (directory / 'native-evidence.txt').write_text('test evaluator evidence; no physical solve')
-        control.report_progress(0)
-        # A new numerical phase can restart its local percentage.
-        control.report_progress(60)
-        control.report_progress(20)
-        if on_update is not None:
-            on_update([dict(condition_id=name, status='running', stage='reuse' if reused else 'solve', reason=None)
-                       for name, *_ in conditions])
-        if pause_check is not None and pause_check():
-            from sjtu_tpmshx.run_control.paused_run import PausedRun
-            (directory / 'batch.json').write_text(json.dumps(dict(status='paused')))
-            raise PausedRun(directory / 'batch.json')
-        if baseline is None:
-            assert all(not cfg.zones.enabled for _, cfg, _, _ in conditions)
-            if not baseline_failure:
-                from sjtu_tpmshx.preprocess.api import resolve_fixed_mass_flow_config
-                baseline_token.update({name: dict(config_snapshot=resolve_fixed_mass_flow_config(
-                    cfg, mass_flow_A_kg_s=a, mass_flow_B_kg_s=b).to_dict())
-                    for name, cfg, a, b in conditions})
-            result = dict(status='failed' if baseline_failure else 'completed',
-                          reason='bad reference' if baseline_failure else None,
-                          objectives=None, summaries=baseline_token)
-        else:
-            assert baseline is baseline_token
-            if index == cancel_index:
-                (directory / 'batch.json').write_text(json.dumps(dict(status='cancelled')))
-                raise CancelledError('injected batch cancellation')
-            failed = index in fail_indices
-            # Deliberately retain negative gain and sub-unity pressure cost.
-            result = dict(status='failed' if failed else 'completed',
-                          reason='one condition failed' if failed else None,
-                          objectives={'heat_gain_percent': -20.+index, 'pressure_ratio': .7+.02*index},
-                          summaries={})
-        (directory / 'batch.json').write_text(json.dumps({k: v for k, v in result.items() if k != 'summaries'}))
-        control.report_progress(100)
-        return result
-
-    monkeypatch.setattr(search, '_evaluate_condition_batch', evaluate)
-    return calls
 
 
 @pytest.mark.parametrize('dimension', [2, 3])

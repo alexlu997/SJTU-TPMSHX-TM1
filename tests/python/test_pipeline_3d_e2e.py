@@ -11,29 +11,7 @@ import pytest
 from sjtu_tpmshx.data_types.compute_config import (ComputeConfig, ExtrapPolicy, FeatureFlags,
                                    FluidConfig, GeometryConfig,
                                    PartialBCConfig, SolverConfig)
-
-
-def _small_air_cfg():
-    return ComputeConfig(
-        fluid_A=FluidConfig(type='air', u_mps=10.0, T_in_K=422.0,
-                            P_in_Pa=192362.0),
-        fluid_B=FluidConfig(type='air', u_mps=20.0, T_in_K=322.0,
-                            P_in_Pa=101325.0),
-        geometry=GeometryConfig(tpms='Gyroid', L_cell_mm=7.0, t_wall_mm=0.6,
-                                k_s_W_mK=16.0, L_dom_m=0.06, H_dom_m=0.03,
-                                Lz_m=0.03),
-        solver=SolverConfig(Nx=8, Ny=6, Nz=4),
-        bc_A=PartialBCConfig(dir=0, in_ctr=0.015, in_w=0.03,
-                             out_ctr=0.015, out_w=0.03,
-                             in_z_ctr=0.015, in_z_w=0.03,
-                             out_z_ctr=0.015, out_z_w=0.03),
-        bc_B=PartialBCConfig(dir=3, in_ctr=0.03, in_w=0.06,
-                             out_ctr=0.03, out_w=0.06,
-                             in_z_ctr=0.015, in_z_w=0.03,
-                             out_z_ctr=0.015, out_z_w=0.03),
-        extrap=ExtrapPolicy(allow=True),
-        flags=FeatureFlags(),
-    )
+from tests.python.cases_3d import small_air_config
 
 
 @pytest.mark.slow
@@ -41,7 +19,7 @@ def test_pipeline3d_run_end_to_end():
 
     from sjtu_tpmshx.data_types.compute_result import ComputeResult
 
-    cfg = _small_air_cfg()
+    cfg = small_air_config()
     assert cfg.is_3d
 
     res = compute_result(cfg)

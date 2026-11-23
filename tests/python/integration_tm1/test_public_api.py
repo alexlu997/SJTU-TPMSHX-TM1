@@ -14,8 +14,8 @@ from sjtu_tpmshx.file_io.case_io import load_case, save_case
 from sjtu_tpmshx.postprocess.api import evaluate
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.api import run_case
-from tests.python.integration_tm1.test_2d_real import baseline_config
-from tests.python.test_pipeline_3d_e2e import _small_air_cfg
+from tests.python.integration_tm1.integration_support import baseline_config
+from tests.python.cases_3d import small_air_config
 
 
 def assert_slots(actual, expected):
@@ -65,7 +65,7 @@ def native_3d_mapping_input(case, cfg, prepared, raw, diagnostics):
 @pytest.mark.slow
 @pytest.mark.parametrize('dimension', [2, 3])
 def test_real_application_mapping_and_offline_readback(monkeypatch, tmp_path, dimension):
-    config = baseline_config() if dimension == 2 else _small_air_cfg()
+    config = baseline_config() if dimension == 2 else small_air_config()
     expected = []
     if dimension == 2:
         from sjtu_tpmshx.cpp_interface import full_2d_stage as result_capture

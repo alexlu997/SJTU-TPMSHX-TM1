@@ -51,7 +51,7 @@ def test_legacy_full_restore_never_inherits_previous_zones(win, monkeypatch, rou
 
 @pytest.mark.parametrize('route', ['reset', 'builtin', 'workspace'])
 def test_default_restore_clears_optimization_conditions(win, route):
-    from tests.python.test_optimize_panel_wiring import condition
+    from tests.python.optimization_support import condition
     preset = win._capture_current_preset('A')
     preset['optimization_conditions'] = [condition()]
     from tests.python.test_mass_design import requirements
@@ -360,7 +360,7 @@ def test_malformed_library_members_do_not_block_window_initialization(monkeypatc
 
 
 def test_mass_requirements_survive_session_and_reject_mismatched_conditions(win):
-    from tests.python.test_optimize_panel_wiring import condition
+    from tests.python.optimization_support import condition
     from tests.python.test_mass_design import requirements
     preset = win._capture_current_preset('mass design')
     preset.update(optimization_conditions=[condition()],

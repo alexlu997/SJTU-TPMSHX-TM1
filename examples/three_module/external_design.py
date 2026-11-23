@@ -11,9 +11,9 @@ from sjtu_tpmshx.applications.design.cases import DesignCase
 from sjtu_tpmshx.preprocess.api import prepare_quick_design
 from sjtu_tpmshx.solvers.api import run_case
 from sjtu_tpmshx.postprocess.api import evaluate
-from sjtu_tpmshx.shared.io.case_io import save_case, load_case
-from sjtu_tpmshx.shared.io.result_io import save_result
-from sjtu_tpmshx.shared.io.metrics_io import save_metrics
+from sjtu_tpmshx.file_io.case_io import save_case, load_case
+from sjtu_tpmshx.file_io.result_io import save_result
+from sjtu_tpmshx.file_io.metrics_io import save_metrics
 
 
 def main(argv=None):

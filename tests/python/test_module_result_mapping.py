@@ -18,7 +18,7 @@ from sjtu_tpmshx.data_types.portable_data import mutable_data
 from sjtu_tpmshx.postprocess.api import evaluate
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.api import run_case
-from tests.python.integration_tm1.test_2d_real import baseline_config
+from tests.python.integration_tm1.integration_support import baseline_config
 from tests.python.integration_tm1.test_public_api import assert_slots, legacy_2d_result, native_3d_mapping_input
 
 

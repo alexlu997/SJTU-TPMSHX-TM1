@@ -10,6 +10,7 @@ import pytest
 from sjtu_tpmshx.applications.gui.ui import optimize_panel as panel
 from sjtu_tpmshx.applications.gui.ui.theme import FIELD_CMAP
 from tests.python.gui_io_support import win as win
+from tests.python.optimization_support import condition, report
 
 
 @pytest.fixture
@@ -27,16 +28,11 @@ def window(win):
     return win
 
 
-def condition(name='one'):
-    return dict(condition_id=name, T_in_A_K=400., P_in_A_Pa=130000., mass_flow_A_kg_s=.003,
-                T_in_B_K=295., P_in_B_Pa=120000., mass_flow_B_kg_s=.015)
-
-
 @pytest.mark.parametrize('save_failure', [False, True])
 def test_worker_pause_requires_saved_terminal_status(window, tmp_path, monkeypatch, save_failure):
     from sjtu_tpmshx.applications.optimization import multi_condition_optimizer as search
-    from tests.python.test_multi_condition_optimizer import _fake_batches
-    from tests.python.test_optimization_checkpoint_errors import _checkpoint_fault
+    from tests.python.optimization_support import _fake_batches
+    from tests.python.optimization_support import _checkpoint_fault
     _fake_batches(monkeypatch)
     if save_failure:
         _checkpoint_fault(monkeypatch, search, 'optimization.json',
@@ -62,7 +58,7 @@ def test_resume_button_uses_saved_input_and_restores_idle_controls(window, tmp_p
     from PySide6.QtWidgets import QFileDialog
     from sjtu_tpmshx.applications.optimization import multi_condition_optimizer as search
     from tests.python.gui_worker_support import _wait_for
-    from tests.python.test_multi_condition_optimizer import _conditions, _fake_batches
+    from tests.python.optimization_support import _conditions, _fake_batches
     calls = _fake_batches(monkeypatch)
     source = tmp_path / 'source'
     conditions = _conditions()[:1]
@@ -89,26 +85,6 @@ def test_resume_button_uses_saved_input_and_restores_idle_controls(window, tmp_p
     assert window._opt_resume_btn.isEnabled() and not window._opt_pause_btn.isEnabled()
     assert not window._opt_cancel_btn.isEnabled() and window._cpu_card.isEnabled()
     assert window._last_opt_output_dir != str(source)
-
-
-def report(window, *, status='completed'):
-    from sjtu_tpmshx.physical_models.continuous_field import decision_dim
-    cfg = panel._gather_cfg(window)
-    # Optimizer reports keep the targets used for each condition.
-    cfg = replace(cfg, fluid_A=replace(cfg.fluid_A, mass_flow_kg_s=.003),
-                  fluid_B=replace(cfg.fluid_B, mass_flow_kg_s=.015))
-    spec = panel._field_spec(window)
-    count = decision_dim(spec['n_ctrl_x'], spec['n_ctrl_y'], spec['symmetric_y'],
-                         n_ctrl_z=spec.get('n_ctrl_z')) // 2
-    # Different z controls ensure flattening or mean backfill cannot pass.
-    x = np.r_[np.linspace(5., 7., count), np.linspace(.35, .55, count)].tolist()
-    return dict(status=status, reason=None, dimension=3 if cfg.is_3d else 2,
-        method='qlognehvi', field_spec=spec,
-        conditions=[dict(condition_id='one', config=asdict(cfg), mass_flow_A_kg_s=.003,
-                         mass_flow_B_kg_s=.015)],
-        history=[dict(index=0, x_decision=x, directory='design_0000', status='completed',
-                      objectives=dict(heat_gain_percent=-2., pressure_ratio=.25))],
-        pareto_indices=[0], n_evaluated=1, n_usable=1, design_budget=4)
 
 
 def archive_candidate(window, study, output_dir):
@@ -451,8 +427,8 @@ def test_presearch_stop_preserves_previous_report_and_archive(window, tmp_path, 
 def test_proposal_error_restores_pareto_only_after_saved_terminal(window, tmp_path, monkeypatch, save_failure):
     from sjtu_tpmshx.applications.optimization import multi_condition_optimizer as search
     from tests.python.gui_worker_support import _wait_for
-    from tests.python.test_multi_condition_optimizer import _fake_batches
-    from tests.python.test_optimization_checkpoint_errors import _checkpoint_fault
+    from tests.python.optimization_support import _fake_batches
+    from tests.python.optimization_support import _checkpoint_fault
     _fake_batches(monkeypatch)
     monkeypatch.setattr(search, '_bo_versions', lambda: {})
     def fail(*args, **kwargs):

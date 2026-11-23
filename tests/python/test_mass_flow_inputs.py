@@ -135,7 +135,7 @@ def test_gui_mass_mode_autofill_save_and_single_condition_keep_target(mass_windo
 
 def test_imported_optimization_flows_override_window_mass_input(mass_window):
     from sjtu_tpmshx.applications.gui.ui.optimize_panel import _condition_inputs
-    from tests.python.test_optimize_panel_wiring import condition
+    from tests.python.optimization_support import condition
     cfg = _config()
     cfg.fluid_A = replace(cfg.fluid_A, mass_flow_kg_s=.02)
     row = _condition_inputs(cfg, [condition()])[0]

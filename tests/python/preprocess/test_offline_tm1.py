@@ -41,14 +41,14 @@ def test_explicit_cleaning_and_source_guard(tmp_path):
 
 def test_ordinary_full_preparation_never_reads_training(monkeypatch):
     from sjtu_tpmshx.preprocess.api import prepare_case
-    from tests.python.integration_tm1.test_2d_real import baseline_config
-    from tests.python.test_pipeline_3d_e2e import _small_air_cfg
+    from tests.python.integration_tm1.integration_support import baseline_config
+    from tests.python.cases_3d import small_air_config
 
     def forbidden(*args, **kwargs):
         raise AssertionError('ordinary Case preparation attempted offline training')
 
     monkeypatch.setattr(pd, 'read_excel', forbidden)
-    for dimension, config in ((2, baseline_config()), (3, _small_air_cfg())):
+    for dimension, config in ((2, baseline_config()), (3, small_air_config())):
         case = prepare_case(config, case_id=f'offline-independent-{dimension}')
         assert case.grid['dimension'] == dimension
 

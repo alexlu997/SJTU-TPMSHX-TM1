@@ -9,14 +9,14 @@ import importlib
 from sjtu_tpmshx.applications.result_adapter import compute_result
 from sjtu_tpmshx.physical_models.tpms_calc import compute
 from tests.python.test_pipeline_2d_smoke import _shanghai_like_cfg
-from tests.python.test_pipeline_3d_e2e import _small_air_cfg
+from tests.python.cases_3d import small_air_config
 from tests.python.gui_worker_support import win as win
 
 
 @pytest.mark.slow
 @pytest.mark.parametrize('dimension', ['2d', '3d'])
 def test_real_pipeline_warning_ownership_and_numerical_transparency(monkeypatch, dimension, win):
-    cfg = _shanghai_like_cfg() if dimension == '2d' else _small_air_cfg()
+    cfg = _shanghai_like_cfg() if dimension == '2d' else small_air_config()
     if dimension == '3d':
         # Fixed positive control: inlet Re=230 < 400, with original tolerances.
         cfg = replace(cfg, fluid_A=replace(cfg.fluid_A, u_mps=1.0))

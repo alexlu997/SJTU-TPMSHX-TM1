@@ -126,6 +126,22 @@ def test_validate_geometry_rejects_nonpositive_inputs():
                           L_cell_mm=8.0, t_mm=0.4)
 
 
+def test_domain_firewall_blocks_meter_typed_as_mm():
+    """Reject a domain above 10 m at the public preparation boundary."""
+    from sjtu_tpmshx.data_types.compute_config import ComputeConfig, GeometryConfig, SolverConfig
+    from sjtu_tpmshx.preprocess.api import prepare_case
+
+    cc = ComputeConfig(
+        geometry=GeometryConfig(L_dom_m=182.0,    # unit slip: meant 0.182
+                                H_dom_m=0.042, Lz_m=0.042),
+        solver=SolverConfig(Nx=30, Ny=20, Nz=5),
+    )
+    with pytest.raises(ValueError) as excinfo:
+        prepare_case(cc, case_id='invalid-domain')
+    assert "exceeds" in str(excinfo.value) or "unit" in str(excinfo.value).lower(), (
+        f"Expected unit firewall message, got: {excinfo.value}")
+
+
 def test_geometry_extrapolation_warning_in_grid_returns_none():
     assert geometry_extrapolation_warning(L_cell_mm=8.0, t_mm=0.4) is None
 

@@ -17,7 +17,7 @@ from sjtu_tpmshx.file_io.case_io import load_case
 from sjtu_tpmshx.file_io.metrics_io import load_metrics
 from sjtu_tpmshx.file_io.result_io import load_result
 from sjtu_tpmshx.file_io.solver_checkpoint_io import load_solver_checkpoint
-from tests.python.io_tm1.test_case_io import sample_case
+from tests.python.io_tm1.io_support import sample_case
 from sjtu_tpmshx.applications.execution import recovery
 
 
