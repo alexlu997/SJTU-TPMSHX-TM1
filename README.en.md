@@ -24,7 +24,7 @@ Start with the [2D air example](examples/cpp/air_2d.cpp#L32-L34) to see the thre
 
 | Stage | C++ source | Python entry |
 | --- | --- | --- |
-| Prepare the case | [2D case preparation](preprocess/preparation_case.cpp#L1107) · [Geometry](geometry/) | [prepare_case](python/preprocess/api.py) |
+| Prepare the case | [2D case preparation](preprocess/preparation_case.cpp#L1021) · [Geometry](geometry/) | [prepare_case](python/preprocess/api.py) |
 | Solve | [Full 2D](solver/full_2d.cpp#L1095) · [Full 3D](solver/full_3d.cpp#L1505) · [Quick Design](solver/quick_design_driver.cpp#L116) | [run_case](python/solvers/api.py) |
 | Evaluate the results | [Metric evaluation](postprocess/result_stage.cpp#L1164) | [evaluate](python/postprocess/api.py) |
 

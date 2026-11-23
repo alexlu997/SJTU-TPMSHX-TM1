@@ -58,8 +58,6 @@ void check_saved(const tpmshx::stages::PreparedFlowCase2Dv10& calibrated,tpmshx:
     require(!handle && std::strcmp(error,"preserve-saved-error")==0,"saved geometry alias changed output or error");
     malformed=copy;--malformed.values.values.values.hydraulic_diameter_m.size;
     require(create(malformed)==1 && !handle,"saved geometry extent mismatch accepted");
-    malformed=copy;malformed.values.values.values.cell_field_kind.precision=24;
-    require(create(malformed)==1 && !handle,"saved geometry accepted an invalid precision");
     captured[0]=2;
     require(create(copy)==1 && !handle,"saved range capture flag accepted invalid value");
     captured[0]=0;copy.values.values.values.inlet_recorded=0;

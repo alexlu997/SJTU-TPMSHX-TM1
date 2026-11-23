@@ -1,57 +1,28 @@
-"""Check complete public scalar queries against the frozen pre-N13 sequence."""
+"""Check public float64 scalar inlet-property queries and raw C ABI contracts."""
 import ctypes as ct
 from contextlib import nullcontext
-from dataclasses import asdict, is_dataclass, replace
+from dataclasses import replace
 import os
-import re
 import warnings
 
 import numpy as np
 import pytest
 
-from tests.python import property_reference as reference
-
+from tests.python import df_reference, float64_oracle as oracle, property_reference as reference
 from sjtu_tpmshx.data_types.compute_config import Sco2NuConfig
 from sjtu_tpmshx.run_control.run_warnings import range_context, warning_scope
-from sjtu_tpmshx.cpp_interface import _native_properties
-from sjtu_tpmshx.physical_models import co2_props, fluid_props, nu_correlations, sco2_props, tpms_calc, tpms_props
+from sjtu_tpmshx.physical_models import (
+    co2_correlations, fluid_props, nu_correlations, tpms_calc, tpms_props,
+)
 from sjtu_tpmshx.physical_models.tpms_geometry import compute_geometry
-from sjtu_tpmshx.cpp_interface import _native_preparation_case
+from sjtu_tpmshx.cpp_interface import _native_preparation_case as abi
 from tests.python import native_preparation_abi
 
 
-def _same(actual, expected):
-    if is_dataclass(expected):
-        assert type(actual) is type(expected)
-        _same(asdict(actual), asdict(expected))
-    elif isinstance(expected, dict):
-        assert list(actual) == list(expected)
-        for name in expected:
-            _same(actual[name], expected[name])
-    elif isinstance(expected, (list, tuple)):
-        assert type(actual) is type(expected) and len(actual) == len(expected)
-        for first, second in zip(actual, expected):
-            _same(first, second)
-    elif isinstance(expected, np.generic):
-        assert type(actual) is type(expected)
-        assert actual.dtype == expected.dtype and actual.tobytes() == expected.tobytes()
-    elif isinstance(expected, np.ndarray):
-        assert type(actual) is type(expected) and actual.dtype == expected.dtype
-        assert actual.shape == expected.shape and actual.tobytes() == expected.tobytes()
-    elif isinstance(expected, float):
-        assert type(actual) is type(expected) and actual.hex() == expected.hex()
-    elif isinstance(expected, complex):
-        assert type(actual) is type(expected)
-        assert (actual.real.hex(), actual.imag.hex()) == (expected.real.hex(), expected.imag.hex())
-    else:
-        assert type(actual) is type(expected) and actual == expected
-
-
-def _clear(module):
-    module.compute.cache_clear()
+def _clear():
+    tpms_calc.compute.cache_clear()
     compute_geometry.cache_clear()
     reference._range_warnings_emitted.clear()
-    reference._query_nu_warned.clear()
     tpms_props._range_warnings_emitted.clear()
     for name in ('_EXTRAP_WARNED', '_WATER_NU_WARNED', '_SCO2_NU_WARNED'):
         getattr(nu_correlations, name).clear()
@@ -59,370 +30,185 @@ def _clear(module):
 
 @pytest.fixture(autouse=True)
 def isolated_cache_and_warning_state():
-    _clear(reference)
-    _clear(tpms_calc)
+    _clear()
     yield
-    _clear(reference)
-    _clear(tpms_calc)
+    _clear()
 
 
-def _observe(module, args, *, scoped=True, raw=False, fp_policy='warn', **kwargs):
-    with warnings.catch_warnings(record=True) as caught, np.errstate(all=fp_policy):
-        warnings.simplefilter('always')
-        with warning_scope({}) if scoped else nullcontext(None) as records:
-            try:
-                result = getattr(module, '_compute_cached' if raw else 'compute')(*args, **kwargs)
-            except Exception as error:
-                observed = ('error', type(error), error.args)
-            else:
-                if raw:
-                    result = (result[0], result[1], result.cp, result.pr)
-                observed = ('value', result)
-    return observed, records, [(item.category, str(item.message)) for item in caught]
-
-
-def _compare(args, **kwargs):
-    _clear(reference)
-    expected = _observe(reference, args, **kwargs)
-    _clear(tpms_calc)
-    actual = _observe(tpms_calc, args, **kwargs)
-    _same(actual, expected)
-    return actual
+def _oracle_inlet(topology, cell_mm, wall_mm, speed, temperature, pressure, conductivity,
+                  fluid='air', *, sco2_nu=None, co2_geometry=False):
+    """Independent float64 combination built from pure formula oracles."""
+    cell_f, wall_f = float(cell_mm), float(wall_mm)
+    speed_f, temp_f, press_f = float(speed), float(temperature), float(pressure)
+    if co2_geometry or fluid == 'co2':
+        geom = co2_correlations.geometry(topology, cell_f, wall_f)
+    else:
+        geom = compute_geometry(topology, cell_f, wall_f)
+    eps, eps_a, area, dh = float(geom['epsilon']), float(geom['epsilon_A']), float(geom['A_0']), float(geom['D_h'])
+    dh_mm = dh * 1000.0
+    selected = sco2_nu if fluid == 'sco2' and sco2_nu is not None and sco2_nu.mode == 'experimental' else None
+    model = reference.fluid_model(fluid, sco2_nu=selected)
+    rho = float(model.rho(temp_f, press_f))
+    mu = float(model.mu(temp_f, press_f))
+    k_f = float(model.k(temp_f, press_f))
+    cp = float(model.cp(temp_f, press_f))
+    pr = mu * cp / k_f
+    re = rho * speed_f * dh / mu
+    nu = float(oracle.call(model.nu, topology, re, eps_a, cell_f, dh_mm, pr))
+    h_sf = nu * k_f / dh
+    k_df, cf_df = df_reference.predict_K_cF(topology, cell_f, wall_f, eps_a)
+    if fluid == 'co2':
+        k_df, cf_df, _ = df_reference.apply_prepared_correction(
+            k_df, cf_df, {'scale_K': 1. / 2.5, 'scale_F': 2.5})
+    dp_per_l = float(df_reference.pressure_gradient(rho, mu, speed_f, k_df, cf_df))
+    k_ff = eps_a * k_f
+    return dict(
+        epsilon=eps, epsilon_A=eps_a, epsilon_B=eps_a, A_0=area, D_h=dh,
+        Re=re, Nu=nu, K_df=float(k_df), cF_df=float(cf_df), dP_per_L=dp_per_l,
+        H_sf=h_sf, K_ff=k_ff, rho=rho, mu=mu, k_f=k_f, cp=cp, pr=pr,
+    )
 
 
 @pytest.mark.parametrize('topology', ['Diamond', 'Gyroid'])
 @pytest.mark.parametrize('fluid', ['air', 'water', 'sco2', 'co2'])
 @pytest.mark.parametrize('kind', [float, np.float32, np.float64])
 @pytest.mark.parametrize('scoped', [False, True])
-def test_complete_property_query_matches_frozen_sequence(topology, fluid, kind, scoped):
+def test_complete_property_query_matches_float64_formulas(topology, fluid, kind, scoped):
     temperature, pressure = {'air': (380., 160000.), 'water': (320., 200000.),
                              'sco2': (480., 9000000.), 'co2': (300., 4500000.)}[fluid]
     args = (topology, kind(7.), kind(.5), kind(6.), kind(temperature), kind(pressure), kind(16.), fluid)
-    actual = _compare(args, scoped=scoped)
-    assert actual[0][0] == 'value'
+    with warnings.catch_warnings(), warning_scope({}) if scoped else nullcontext(None):
+        warnings.simplefilter('ignore')
+        actual = tpms_calc.compute(*args)
+        expected = _oracle_inlet(*args)
+    for key in ('epsilon', 'epsilon_A', 'epsilon_B', 'A_0', 'D_h', 'Re', 'Nu',
+                'K_df', 'cF_df', 'dP_per_L', 'H_sf', 'K_ff', 'rho', 'mu', 'k_f'):
+        assert actual[key] == pytest.approx(expected[key], rel=1e-13, abs=1e-15), key
+    assert actual['K_ss'] > 0.
 
 
 @pytest.mark.parametrize('fluid', ['air', 'water', 'sco2', 'co2'])
-def test_cached_internal_cp_pr_and_source_records_match_frozen_sequence(fluid):
+def test_cached_internal_cp_pr_and_source_records_match_formulas(fluid):
     temperature, pressure = (320., 200000.) if fluid == 'water' else (480., 9000000.)
-    actual = _compare(('Diamond', 7., .5, np.float32(6.), temperature, pressure, fluid), raw=True)
-    assert actual[0][0] == 'value'
+    with warnings.catch_warnings(), warning_scope({}):
+        warnings.simplefilter('ignore')
+        cached = tpms_calc._compute_cached('Diamond', 7., .5, np.float32(6.), temperature, pressure, fluid)
+        expected = _oracle_inlet('Diamond', 7., .5, 6., temperature, pressure, 16., fluid)
+    values, records = cached
+    assert isinstance(records, dict)
+    assert cached.cp == pytest.approx(expected['cp'], rel=1e-13)
+    assert cached.pr == pytest.approx(expected['pr'], rel=1e-13)
+    assert values['Nu'] == pytest.approx(expected['Nu'], rel=1e-13)
 
 
 @pytest.mark.parametrize('kind', [float, np.float32])
 def test_cache_hits_keep_current_material_and_unpoisoned_copies(monkeypatch, kind):
-    def sequence(module):
-        _clear(module)
-        args = ('Gyroid', 7., .5, kind(6.), 380., 160000., kind(16.))
-        with warning_scope({}):
-            monkeypatch.delenv('TPMSHX_CHI_S', raising=False)
-            first = module.compute(*args)
-            first['rho'] = -1.
-            monkeypatch.setenv('TPMSHX_CHI_S', '.5')
-            second = module.compute(*args)
-            monkeypatch.setenv('TPMSHX_CHI_S', '.7')
-            third = module.compute(*args)
-        return second, third, tuple(module.compute.cache_info()), module.compute.cache_parameters()
-    _same(sequence(tpms_calc), sequence(reference))
+    args = ('Gyroid', 7., .5, kind(6.), 380., 160000., kind(16.))
+    with warning_scope({}):
+        monkeypatch.delenv('TPMSHX_CHI_S', raising=False)
+        first = tpms_calc.compute(*args)
+        first_rho = first['rho']
+        first['rho'] = -1.
+        monkeypatch.setenv('TPMSHX_CHI_S', '.5')
+        second = tpms_calc.compute(*args)
+        monkeypatch.setenv('TPMSHX_CHI_S', '.7')
+        third = tpms_calc.compute(*args)
+    assert second['rho'] == first_rho
+    assert third['K_ss'] > second['K_ss'] > 0.
+    info = tpms_calc.compute.cache_info()
+    assert (info.hits, info.misses, info.currsize) == (2, 1, 1)
 
 
-@pytest.mark.parametrize('first_strong', [False, True])
-def test_equal_scalar_keys_keep_first_typed_value(first_strong):
-    def sequence(module):
-        _clear(module)
-        kinds = (np.float32, float) if first_strong else (float, np.float32)
-        with warning_scope({}):
-            values = [module.compute('Diamond', 7., .5, kind(6.), 380., 160000., 16.) for kind in kinds]
-        return values, tuple(module.compute.cache_info())
-    _same(sequence(tpms_calc), sequence(reference))
+def test_equal_scalar_keys_share_float64_cache_entry():
+    with warning_scope({}):
+        first = tpms_calc.compute('Diamond', 7., .5, np.float32(6.), 380., 160000., 16.)
+        second = tpms_calc.compute('Diamond', 7., .5, 6., 380., 160000., 16.)
+    assert first == second
+    info = tpms_calc.compute.cache_info()
+    assert (info.hits, info.misses, info.currsize) == (1, 1, 1)
 
 
 def test_cache_warning_replay_binds_new_run_context():
     args = ('Diamond', 7., .5, .001, 1200., 160000., 16.)
-    def sequence(module):
-        _clear(module)
-        standalone = _observe(module, args, scoped=False)
-        scoped = []
-        for side in 'AB':
-            with range_context(side=side, stage='inlet', layout='scalar'):
-                scoped.append(_observe(module, args))
-        return standalone, scoped, tuple(module.compute.cache_info())
-    _same(sequence(tpms_calc), sequence(reference))
+    with warnings.catch_warnings(record=True) as standalone:
+        warnings.simplefilter('always')
+        tpms_calc.compute(*args)
+    assert standalone
+    scoped = {}
+    for side in 'AB':
+        with warning_scope({}) as records, range_context(side=side, stage='inlet', layout='scalar'):
+            tpms_calc.compute(*args)
+        scoped[side] = records
+    assert any(key[-1][0] == 'A' for key in scoped['A'])
+    assert any(key[-1][0] == 'B' for key in scoped['B'])
+    assert tpms_calc.compute.cache_info().hits == 2
 
 
-@pytest.mark.parametrize('args', [
-    ('Gyroid', 7., .5, .2, -300., 101325., 16., 'air'),
-    ('Gyroid', 7., .5, .2, 0., 101325., 16., 'air'),
-    ('Gyroid', 7., .5, .2, 400., 101325., 16., 'water'),
-    ('Gyroid', 7., .5, .2, 270., 9000000., 16., 'sco2'),
-    ('Gyroid', 7., .5, .2, 180., 4500000., 16., 'co2'),
-    ('Gyroid', 3., .5, .2, 380., 101325., 16., 'air'),
-    ('Gyroid', 7., .5, .2, 380., 101325., 16., 'other'),
+@pytest.mark.parametrize('args,error_type', [
+    (('Gyroid', 7., .5, .2, 400., 101325., 16., 'water'), fluid_props.WaterStateError),
+    (('Gyroid', 7., .5, .2, 270., 9000000., 16., 'sco2'), ValueError),
+    (('Gyroid', 7., .5, .2, 180., 4500000., 16., 'co2'), ValueError),
+    (('Gyroid', 3., .5, .2, 380., 101325., 16., 'air'), ValueError),
+    (('Gyroid', 7., .5, .2, 380., 101325., 16., 'other'), ValueError),
 ])
-def test_first_error_and_preceding_events_match_frozen_sequence(args):
-    actual = _compare(args, scoped=False)
-    assert actual[0][0] == 'error'
-    assert tpms_calc.compute.cache_info().currsize == reference.compute.cache_info().currsize == 0
+def test_invalid_inputs_raise_without_caching(args, error_type):
+    with pytest.raises(error_type):
+        tpms_calc.compute(*args)
+    assert tpms_calc.compute.cache_info().currsize == 0
 
 
-def test_negative_speed_retains_raw_complex_intermediates():
-    actual = _compare(('Gyroid', 7., .5, -.2, 300., 101325., 'air'), raw=True, scoped=False)
-    assert actual[0][0] == 'value'
-    assert np.iscomplexobj(actual[0][1][0]['Nu'])
-    assert np.iscomplexobj(actual[0][1][0]['H_sf'])
+def test_negative_speed_produces_real_float64_nan_without_complex():
+    with warnings.catch_warnings(), np.errstate(all='ignore'):
+        warnings.simplefilter('ignore')
+        values, _ = tpms_calc._compute_cached('Gyroid', 7., .5, -.2, 300., 101325., 'air')
+    assert type(values['Nu']) is float and np.isnan(values['Nu'])
+    assert type(values['H_sf']) is float and np.isnan(values['H_sf'])
 
 
 @pytest.mark.parametrize('topology', ['Diamond', 'Gyroid'])
 def test_selected_sco2_model_and_co2_geometry_remain_independent(topology):
     settings = replace(Sco2NuConfig(), mode='experimental', alpha_D=1.13, alpha_G=2.27,
                        parameter_version='query-reference', source='regression', applicability='test only')
-    actual = _compare((topology, 7., .5, 6., 480., 9000000., 16., 'sco2'),
-                      sco2_nu=settings, co2_geometry=True)
-    assert actual[0][0] == 'value'
+    with warning_scope({}):
+        actual = tpms_calc.compute(topology, 7., .5, 6., 480., 9000000., 16., 'sco2',
+                                   sco2_nu=settings, co2_geometry=True)
+        expected = _oracle_inlet(topology, 7., .5, 6., 480., 9000000., 16., 'sco2',
+                                 sco2_nu=settings, co2_geometry=True)
+    assert actual['Nu'] == pytest.approx(expected['Nu'], rel=1e-13)
 
 
 @pytest.mark.parametrize('fluid', ['water', 'sco2'])
 def test_nu_notice_uses_floored_re_but_records_raw_re(fluid):
     temperature, pressure = (320., 200000.) if fluid == 'water' else (480., 9000000.)
     args = ('Gyroid', 7., .5, 1.e-6, temperature, pressure, 16., fluid)
-    standalone = _compare(args, scoped=False)
-    assert any('Re=[1,1]' in message for _, message in standalone[2])
-    scoped = _compare(args)
-    records = [value for key, value in scoped[1].items() if key[:2] == ('nu', fluid)]
-    assert records and records[0].maximum[0] < 1.
+    with warnings.catch_warnings(record=True) as standalone:
+        warnings.simplefilter('always')
+        tpms_calc.compute(*args)
+    assert any('Re=[1,1]' in str(item.message) for item in standalone)
+    _clear()
+    with warning_scope({}) as records:
+        tpms_calc.compute(*args)
+    nu_records = [value for key, value in records.items() if key[:2] == ('nu', fluid)]
+    assert nu_records and nu_records[0].maximum[0] < 1.
 
 
-def test_frozen_query_does_not_call_production_combination(monkeypatch):
-    def forbidden(*args, **kwargs):
-        pytest.fail('The expected scalar query called the production combination')
-    monkeypatch.setattr(tpms_calc, 'compute', forbidden)
-    monkeypatch.setattr(tpms_calc, '_compute_cached', forbidden)
-    with warning_scope({}):
-        result = reference.compute('Gyroid', 7., .5, 6., 380., 160000., 16.)
-    assert result['rho'] > 0 and result['K_df'] > 0
-
-
-def test_frozen_3d_air_reference_does_not_call_production_combination(monkeypatch):
-    from tests.python import preparation_3d_reference as preparation
-    from tests.python.native_preparation_abi import _configuration_3d as _configuration
-    from sjtu_tpmshx.cpp_interface import inlet_properties as native
-
-    def forbidden(*args, **kwargs):
-        pytest.fail('The 3D reference called the production property combination')
-
-    config = _configuration(pair=('air', 'air'))
-    with monkeypatch.context() as patch, warning_scope({}) as records:
-        for name in ('TPMSHX_CHI_S', 'TPMSHX_ALLOW_EXTRAP', 'TPMSHX_MAX_CELLS_3D'):
-            patch.delenv(name, raising=False)
-        patch.setattr(tpms_calc, 'compute', forbidden)
-        patch.setattr(tpms_calc, '_compute_cached', forbidden)
-        patch.setattr(native, 'inlet_query', forbidden)
-        case = preparation.prepare_case(config, case_id='independent-3d-air')
-    assert case.grid['dimension'] == 3
-    contexts = {key[-1] for key in records if key[:3] == ('nu', 'air', 'Gyroid')}
-    assert contexts == {(side, stage, layout) for side in 'AB'
-                        for stage, layout in (('inlet-preflight', 'scalar'), ('inlet', 'scalar-hv-bulk'))}
-
-
-@pytest.mark.parametrize('policy', ['warn', 'raise'])
-def test_selected_model_keeps_floating_events_and_failure_cache(policy):
-    settings = replace(Sco2NuConfig(), mode='experimental', alpha_D=1.e308, alpha_G=1.e308,
-                       parameter_version='query-fp', source='regression', applicability='test only')
-    _compare(('Diamond', 7., .5, 6., 480., 9000000., 16., 'sco2'),
-             sco2_nu=settings, fp_policy=policy)
-    assert tuple(tpms_calc.compute.cache_info()) == tuple(reference.compute.cache_info())
-
-
-# These layouts test the raw entry independently of the production host adapter.
-_GeometryKey = native_preparation_abi._structure('QueryGeometryKey', [('topology', native_preparation_abi._U),
-    *_native_preparation_case._doubles('cell_length_mm wall_thickness_mm'),
-    ('cell_kind', native_preparation_abi._Kind), ('wall_kind', native_preparation_abi._Kind)])
-_InletKey = native_preparation_abi._structure('QueryInletKey', [('geometry', _GeometryKey), ('fluid', native_preparation_abi._U),
-    *_native_preparation_case._doubles('velocity_m_s temperature_K pressure_Pa'), ('kinds', native_preparation_abi._InletKinds),
-    ('have_sco2_nu', native_preparation_abi._U), ('sco2_nu', native_preparation_abi._Nu), ('co2_geometry', native_preparation_abi._U)])
-_QueryInput = native_preparation_abi._structure('QueryInput', [('abi_version', native_preparation_abi._U), ('struct_size', native_preparation_abi._S),
-    ('inlet', _InletKey), *_native_preparation_case._doubles('hydraulic_diameter_m epsilon_a'),
-    ('diameter_kind', native_preparation_abi._Kind), ('epsilon_kind', native_preparation_abi._Kind), ('exact_co2_drag', native_preparation_abi._U)])
-_PropertyScalar = native_preparation_abi._structure('QueryScalar', [*_native_preparation_case._doubles('real imaginary'),
-    ('kind', native_preparation_abi._Kind), ('category', native_preparation_abi._U)])
-_QueryResult = native_preparation_abi._structure('QueryResult', [('abi_version', native_preparation_abi._U), ('struct_size', native_preparation_abi._S),
-    ('values', _PropertyScalar * 12)])
-_HostFunction = ct.CFUNCTYPE(ct.c_int, ct.c_void_p, native_preparation_abi._U, native_preparation_abi._U)
-_HostCallbacks = native_preparation_abi._structure('QueryHostCallbacks', [('values', _native_preparation_case._Callbacks),
-    ('validate_host_input', _HostFunction)])
-_RangeFunction = ct.CFUNCTYPE(ct.c_int, ct.c_void_p, native_preparation_abi._U, ct.POINTER(_native_preparation_case._Range),
-    native_preparation_abi._U, native_preparation_abi._U, native_preparation_abi._D)
-_QueryCallbacks = native_preparation_abi._structure('QueryCallbacks', [('values', _HostCallbacks),
-    *[(name, ct.c_void_p) for name in ('geometry_cache', 'inlet_cache', 'observe_range', 'observe_notice')]])
-
-
-@pytest.fixture(scope='module')
-def raw_query():
-    library = ct.CDLL(os.environ.get('TPMSHX_PREPARATION_CASE_LIBRARY', native_preparation_abi._library_path()))
-    function = library.tpmshx_query_inlet_properties_v1
-    function.argtypes = [ct.POINTER(_QueryInput), ct.POINTER(_QueryCallbacks),
-        ct.POINTER(_QueryResult), ct.POINTER(native_preparation_abi._Failure), ct.POINTER(ct.c_char), native_preparation_abi._S]
-    function.restype = ct.c_int
-    return function
-
-
-def _raw_kind(value):
-    if isinstance(value, np.generic):
-        precision = value.dtype.itemsize * (4 if np.iscomplexobj(value) else 8)
-        return native_preparation_abi._Kind(precision, 2 if np.issubdtype(value.dtype, np.integer) else 1, 1)
-    return native_preparation_abi._Kind(64, 0, 0)
-
-
-def _raw_buffers(speed=6.):
-    geometry = compute_geometry('Gyroid', 7., .5)
-    weak = native_preparation_abi._Kind(64, 0, 0)
-    key = _InletKey(_GeometryKey(1, 7., .5, weak, weak), 0, speed, 380., 160000.,
-        native_preparation_abi._InletKinds(_raw_kind(speed), weak, weak))
-    source = _QueryInput(1, ct.sizeof(_QueryInput), key, geometry['D_h'], geometry['epsilon_A'],
-        _raw_kind(geometry['D_h']), _raw_kind(geometry['epsilon_A']), 0)
-    result = _QueryResult(1, ct.sizeof(_QueryResult))
-    for item in result.values:
-        item.real = 123.
-    return source, result, native_preparation_abi._Failure(2, ct.sizeof(native_preparation_abi._Failure)), ct.create_string_buffer(4096)
-
-
-@pytest.mark.parametrize('speed', [6., np.float32(6.), np.int32(6.), -.2])
-def test_raw_query_preserves_inputs_and_scalar_categories(raw_query, speed):
-    source, result, failure, error = _raw_buffers(speed)
-    before = bytes(source)
-    failure.kind, failure.cause_count = 3, 1
-    with warning_scope({}):
-        expected = reference._compute_cached('Gyroid', 7., .5, speed, 380., 160000., 'air')
-    properties = expected[0]
-    values = [properties[name] for name in ('rho', 'mu', 'k_f')] + [expected.cp, expected.pr]
-    values += [properties[name] for name in ('Re', 'Nu', 'K_df', 'cF_df', 'dP_per_L', 'H_sf', 'K_ff')]
-    assert raw_query(ct.byref(source), None, ct.byref(result), ct.byref(failure), error, len(error)) == 0
-    assert bytes(source) == before and not error.value
-    assert not failure.kind and not failure.cause_count and not failure.have_property
-    for actual, wanted in zip(result.values, values):
-        assert actual.category == int(np.iscomplexobj(wanted))
-        assert actual.real.hex() == float(np.real(wanted)).hex()
-        assert actual.imaginary.hex() == float(np.imag(wanted)).hex()
-        assert bytes(actual.kind) == bytes(_raw_kind(wanted))
-    if speed < 0:
-        assert result.values[6].category == result.values[10].category == 1
-
-
-def test_raw_query_keeps_result_on_property_failure(raw_query):
-    source, result, failure, error = _raw_buffers()
-    source.inlet.temperature_K = -300.
-    before_source, before_result = bytes(source), bytes(result)
-    assert raw_query(ct.byref(source), None, ct.byref(result), ct.byref(failure), error, len(error)) == 3
-    assert bytes(source) == before_source and bytes(result) == before_result
-    assert failure.have_property and failure.property.fp.python_cause == 4
-    assert error.value == b"float() argument must be a string or a real number, not 'complex'"
-
-
-@pytest.mark.parametrize('field', ['source', 'result', 'failure', 'callbacks'])
-@pytest.mark.parametrize('invalid', ['version', 'size'])
-def test_raw_query_rejects_bad_metadata_without_output_changes(raw_query, field, invalid):
-    source, result, failure, error = _raw_buffers()
-    callbacks = _QueryCallbacks()
-    callbacks.values.values.abi_version = 3
-    callbacks.values.values.struct_size = ct.sizeof(callbacks)
-    target = {'source': source, 'result': result, 'failure': failure,
-              'callbacks': callbacks.values.values}[field]
-    if invalid == 'version':
-        target.abi_version = 99
-    else:
-        target.struct_size -= 1
-    snapshots = [bytes(value) for value in (source, result, failure, callbacks)]
-    assert raw_query(ct.byref(source), ct.byref(callbacks), ct.byref(result),
-                     ct.byref(failure), error, len(error)) == 1
-    assert [bytes(value) for value in (source, result, failure, callbacks)] == snapshots
-    assert error.value
-
-
-@pytest.mark.parametrize('slot', ['geometry_cache', 'inlet_cache'])
-def test_raw_query_rejects_cache_hooks(raw_query, slot):
-    source, result, failure, error = _raw_buffers()
-    callbacks = _QueryCallbacks()
-    callbacks.values.values.abi_version = 3
-    callbacks.values.values.struct_size = ct.sizeof(callbacks)
-    setattr(callbacks, slot, 1)
-    before = bytes(result)
-    assert raw_query(ct.byref(source), ct.byref(callbacks), ct.byref(result),
-                     ct.byref(failure), error, len(error)) == 1
-    assert bytes(result) == before and b'cache hooks' in error.value
-
-
-@pytest.mark.parametrize('storage', ['source', 'result', 'failure', 'callbacks', 'text'])
-def test_raw_query_rejects_diagnostic_and_text_aliases(raw_query, storage):
-    source, result, failure, error = _raw_buffers()
-    callbacks = _QueryCallbacks()
-    callbacks.values.values.abi_version = 3
-    callbacks.values.values.struct_size = ct.sizeof(callbacks)
-    target = {'source': source, 'result': result, 'failure': failure, 'callbacks': callbacks}
-    if storage == 'text':
-        source.inlet.sco2_nu.source = native_preparation_abi._Text(ct.cast(ct.byref(result), ct.POINTER(ct.c_char)), 8)
-    else:
-        error = ct.cast(ct.byref(target[storage]), ct.POINTER(ct.c_char))
-    snapshots = [bytes(value) for value in (source, result, failure, callbacks)]
-    assert raw_query(ct.byref(source), ct.byref(callbacks), ct.byref(result), ct.byref(failure),
-                     error, 8) == 1
-    assert [bytes(value) for value in (source, result, failure, callbacks)] == snapshots
-
-
-@pytest.mark.parametrize('checkpoint', ['host', 'range'])
-def test_raw_query_callback_cancellation_keeps_result(raw_query, checkpoint):
-    source, result, failure, error = _raw_buffers()
-    callbacks = _QueryCallbacks()
-    callbacks.values.values.abi_version = 3
-    callbacks.values.values.struct_size = ct.sizeof(callbacks)
-    observed = []
-    def validate(_context, stage, step):
-        observed.append((stage, step))
-        return int(step == 2)
-    def observe(_context, _side, record, _bounds, _cached, _scalar):
-        observed.append(native_preparation_abi._text(record.contents.label))
-        return 1
-    hook = _HostFunction(validate) if checkpoint == 'host' else _RangeFunction(observe)
-    if checkpoint == 'host':
-        callbacks.values.validate_host_input = hook
-    else:
-        callbacks.observe_range = ct.cast(hook, ct.c_void_p)
-    before_source, before_result = bytes(source), bytes(result)
-    assert raw_query(ct.byref(source), ct.byref(callbacks), ct.byref(result),
-                     ct.byref(failure), error, len(error)) == 3
-    assert bytes(source) == before_source and bytes(result) == before_result
-    assert failure.kind == 3 and error.value
-    assert observed == ([(4, 0), (4, 1), (4, 2)] if checkpoint == 'host' else ['air_viscosity'])
-
-
-@pytest.mark.parametrize('column,value,error_type,message,complex_warning', [
-    (4, None, TypeError, "unsupported operand type(s) for /: 'NoneType' and 'float'", False),
-    (4, '300', TypeError, "unsupported operand type(s) for /: 'str' and 'float'", False),
-    (4, 'bad', ValueError, "could not convert string to float: 'bad'", False),
-    (4, 1+2j, TypeError, "float() argument must be a string or a real number, not 'complex'", False),
-    (4, np.complex128(300), TypeError, 'property arrays require supported real floating or integer values', True),
-    (5, None, TypeError, "unsupported operand type(s) for *: 'NoneType' and 'float'", False),
-    (5, '300', TypeError, "can't multiply sequence by non-int of type 'float'", False),
-    (5, 1+2j, TypeError, "unsupported operand type(s) for *: 'complex' and 'float'", False),
-    *[(3, value, TypeError, 'property arrays require supported real floating or integer values', False)
-      for value in (None, '300', 1+2j, np.complex128(300))],
+@pytest.mark.parametrize('column,value', [
+    (3, None), (3, '300'), (3, 1 + 2j), (3, np.complex128(300)),
+    (4, None), (4, '300'), (4, 1 + 2j), (4, np.complex128(300)),
+    (5, None), (5, '300'), (5, 1 + 2j), (5, np.complex128(300)),
 ])
-def test_host_object_errors_keep_pre_query_behavior(column, value, error_type, message, complex_warning):
-    # The pre-query native primitives rejected these objects before arithmetic.
+def test_non_real_host_inputs_are_rejected_without_caching(column, value):
     args = ['Gyroid', 7., .5, 6., 380., 160000., 16., 'air']
     args[column] = value
-    observed, _, notices = _observe(tpms_calc, args, scoped=False)
-    assert observed == ('error', error_type, (message,))
-    assert notices == ([(np.exceptions.ComplexWarning,
-                         'Casting complex values to real discards the imaginary part')] if complex_warning else [])
+    with pytest.raises((TypeError, ValueError)):
+        tpms_calc.compute(*args)
     assert tpms_calc.compute.cache_info().currsize == 0
 
 
 def test_raw_sco2_missing_pressure_keeps_existing_message():
-    observed, _, notices = _observe(tpms_calc, ('Gyroid', 7., .5, 6., 480., None, 'sco2'),
-                                   raw=True, scoped=False)
-    assert observed == ('error', ValueError, ('sCO2 properties require pressure P [Pa]; caller passed P=None. '
-        'Fix the call site to forward the inlet/local pressure.',))
-    assert notices == [] and tpms_calc.compute.cache_info().currsize == 0
+    with pytest.raises(ValueError, match='sCO2 properties require pressure P'):
+        tpms_calc._compute_cached('Gyroid', 7., .5, 6., 480., None, 'sco2')
+    assert tpms_calc.compute.cache_info().currsize == 0
 
 
 @pytest.mark.parametrize('temperature,pressure,message,cause', [
@@ -446,100 +232,119 @@ def test_raw_co2_error_keeps_visible_cause_chain(temperature, pressure, message,
     assert tpms_calc.compute.cache_info().currsize == 0
 
 
-_CONVERSION_OWNERS = (fluid_props, tpms_props, _native_properties, co2_props, sco2_props)
+@pytest.fixture(scope='module')
+def raw_query():
+    library = ct.CDLL(os.environ.get('TPMSHX_PREPARATION_CASE_LIBRARY', native_preparation_abi._library_path()))
+    function = library.tpmshx_query_inlet_properties_v1
+    function.argtypes = [ct.POINTER(abi._InletQueryInput), ct.POINTER(abi._CacheCallbacks),
+        ct.POINTER(abi._InletQueryResult), ct.POINTER(abi._Failure), ct.POINTER(ct.c_char), abi._S]
+    function.restype = ct.c_int
+    return function
 
 
-def _conversion_error(error):
-    cause = error.__cause__
-    return (type(error), error.args, error.__suppress_context__,
-            None if cause is None else _conversion_error(cause))
+def _raw_buffers(speed=6.):
+    geometry = compute_geometry('Gyroid', 7., .5)
+    key = abi._InletKey(abi._GeometryKey(1, 7., .5), 0, float(speed), 380., 160000.)
+    source = abi._InletQueryInput(1, ct.sizeof(abi._InletQueryInput), key,
+                                  float(geometry['D_h']), float(geometry['epsilon_A']), 0)
+    result = abi._InletQueryResult(1, ct.sizeof(abi._InletQueryResult))
+    for i in range(12):
+        result.values[i] = 123.
+    return source, result, abi._Failure(2, ct.sizeof(abi._Failure)), ct.create_string_buffer(4096)
 
 
-def _conversion_registries():
-    return {owner.__name__: {key: value for key, value in
-            owner.__dict__.get('__warningregistry__', {}).items() if key != 'version'}
-            for owner in _CONVERSION_OWNERS}
+@pytest.mark.parametrize('speed', [6., np.float32(6.), np.int32(6)])
+def test_raw_query_matches_float64_oracle(raw_query, speed):
+    source, result, failure, error = _raw_buffers(speed)
+    before = bytes(source)
+    failure.kind, failure.cause_count = 3, 1
+    expected = _oracle_inlet('Gyroid', 7., .5, float(speed), 380., 160000., 16., 'air')
+    wanted = [expected[name] for name in (
+        'rho', 'mu', 'k_f', 'cp', 'pr', 'Re', 'Nu', 'K_df', 'cF_df', 'dP_per_L', 'H_sf', 'K_ff')]
+    assert raw_query(ct.byref(source), None, ct.byref(result), ct.byref(failure), error, len(error)) == 0
+    assert bytes(source) == before and not error.value
+    assert not failure.kind and not failure.cause_count and not failure.have_property
+    for actual, target in zip(result.values, wanted):
+        assert actual == pytest.approx(target, rel=1e-13, abs=1e-15)
 
 
-def _observe_conversions(call, policy, warning_owner):
-    with warnings.catch_warnings(record=True) as caught, warning_scope({}):
-        warnings.simplefilter('always')
-        if policy.endswith('error') and policy != 'error':
-            warnings.filterwarnings('error', category=np.exceptions.ComplexWarning,
-                                    module=re.escape(warning_owner.__name__) + '$')
-        else:
-            warnings.simplefilter(policy, np.exceptions.ComplexWarning)
-        try:
-            result = ('value', call())
-        except Exception as error:
-            result = ('error', _conversion_error(error))
-        notices = [(item.category, str(item.message), item.filename, item.lineno)
-                   for item in caught]
-        registries = _conversion_registries()
-    return result, notices, registries
+@pytest.mark.parametrize('field', ['source', 'result', 'failure', 'callbacks'])
+@pytest.mark.parametrize('invalid', ['version', 'size'])
+def test_raw_query_rejects_bad_metadata_without_output_changes(raw_query, field, invalid):
+    source, result, failure, error = _raw_buffers()
+    callbacks = abi._CacheCallbacks()
+    callbacks.values.values.abi_version = 3
+    callbacks.values.values.struct_size = ct.sizeof(callbacks)
+    target = {'source': source, 'result': result, 'failure': failure,
+              'callbacks': callbacks.values.values}[field]
+    if invalid == 'version':
+        target.abi_version = 99
+    else:
+        target.struct_size -= 1
+    snapshots = [bytes(value) for value in (source, result, failure, callbacks)]
+    assert raw_query(ct.byref(source), ct.byref(callbacks), ct.byref(result),
+                     ct.byref(failure), error, len(error)) == 1
+    assert [bytes(value) for value in (source, result, failure, callbacks)] == snapshots
+    assert error.value
 
 
-@pytest.mark.parametrize('fluid,policy', [
-    (fluid, policy) for fluid in ('air', 'water', 'co2', 'sco2')
-    for policy in ('always', 'default', 'error', 'source-error')
-] + [('water', 'water-state-error'), ('water', 'water-native-error')])
-@pytest.mark.parametrize('case', [
-    'numpy-T', 'numpy-P', 'bad-T-complex-P', 'complex-T-complex-P',
-    'bad-T-no-P', 'complex-T-no-P',
-])
-def test_compound_inputs_keep_conversion_warnings_and_first_error(monkeypatch, fluid, policy, case):
-    temperature, pressure = {'air': (300., 101325.), 'water': (320., 200000.),
-                             'co2': (300., 4500000.), 'sco2': (480., 9000000.)}[fluid]
-    temperature, pressure = {
-        'numpy-T': (np.complex128(temperature), pressure),
-        'numpy-P': (temperature, np.complex128(pressure)),
-        'bad-T-complex-P': ('bad', np.complex128(pressure)),
-        'complex-T-complex-P': (1+2j, np.complex128(pressure)),
-        'bad-T-no-P': ('bad', None),
-        'complex-T-no-P': (1+2j, None),
-    }[case]
-    warning_owner = {'air': tpms_props, 'water': tpms_props,
-                     'co2': co2_props, 'sco2': sco2_props}[fluid]
-    if policy == 'water-state-error':
-        warning_owner = fluid_props
-    elif policy == 'water-native-error':
-        warning_owner = _native_properties
-    entered_cache = []
+@pytest.mark.parametrize('slot', ['geometry_cache', 'inlet_cache'])
+def test_raw_query_rejects_cache_hooks(raw_query, slot):
+    source, result, failure, error = _raw_buffers()
+    callbacks = abi._CacheCallbacks()
+    callbacks.values.values.abi_version = 3
+    callbacks.values.values.struct_size = ct.sizeof(callbacks)
+    dummy = (abi._GeometryCacheFunction(lambda *a: 0) if slot == 'geometry_cache'
+             else abi._InletCacheFunction(lambda *a: 0))
+    setattr(callbacks, slot, dummy)
+    before = bytes(result)
+    assert raw_query(ct.byref(source), ct.byref(callbacks), ct.byref(result),
+                     ct.byref(failure), error, len(error)) == 1
+    assert bytes(result) == before and b'cache hooks' in error.value
 
-    def expected_call():
-        fluid_props.check_water_state(fluid, temperature, pressure, where='compute inlet')
-        entered_cache.append(True)
-        model = fluid_props.get(fluid)
-        mu, conductivity, density, _cp = (float(function(temperature, pressure))
-            for function in (model.mu, model.k, model.rho, model.cp))
-        return mu, conductivity, density
 
-    def actual_call():
-        result = tpms_calc.compute('Gyroid', 7., .5, 6., temperature, pressure, 16., fluid)
-        return tuple(result[name] for name in ('mu', 'k_f', 'rho'))
+@pytest.mark.parametrize('storage', ['source', 'result', 'failure', 'callbacks', 'text'])
+def test_raw_query_rejects_diagnostic_and_text_aliases(raw_query, storage):
+    source, result, failure, error = _raw_buffers()
+    callbacks = abi._CacheCallbacks()
+    callbacks.values.values.abi_version = 3
+    callbacks.values.values.struct_size = ct.sizeof(callbacks)
+    target = {'source': source, 'result': result, 'failure': failure, 'callbacks': callbacks}
+    if storage == 'text':
+        source.inlet.sco2_nu.source = abi._Text(ct.cast(ct.byref(result), ct.POINTER(ct.c_char)), 8)
+    else:
+        error = ct.cast(ct.byref(target[storage]), ct.POINTER(ct.c_char))
+    snapshots = [bytes(value) for value in (source, result, failure, callbacks)]
+    assert raw_query(ct.byref(source), ct.byref(callbacks), ct.byref(result), ct.byref(failure),
+                     error, 8) == 1
+    assert [bytes(value) for value in (source, result, failure, callbacks)] == snapshots
 
-    def reset():
-        _clear(tpms_calc)
-        co2_props._scalar.cache_clear()
-        sco2_props._prop.cache_clear()
-        for owner in _CONVERSION_OWNERS:
-            monkeypatch.setattr(owner, '__warningregistry__', {}, raising=False)
 
-    reset()
-    expected = _observe_conversions(expected_call, policy, warning_owner)
-    reset()
-    actual = _observe_conversions(actual_call, policy, warning_owner)
-    _same(actual[:2], expected[:2])
-    assert actual[2] == expected[2]
-    success = actual[0][0] == 'value'
-    info = tpms_calc.compute.cache_info()
-    assert (info.hits, info.misses, info.currsize) == (0, len(entered_cache), int(success))
+@pytest.mark.parametrize('checkpoint', ['host', 'range'])
+def test_raw_query_callback_cancellation_keeps_result(raw_query, checkpoint):
+    source, result, failure, error = _raw_buffers()
+    callbacks = abi._CacheCallbacks()
+    callbacks.values.values.abi_version = 3
+    callbacks.values.values.struct_size = ct.sizeof(callbacks)
+    observed = []
 
-    if success and fluid in ('co2', 'sco2'):
-        with warnings.catch_warnings(record=True) as caught, warning_scope({}):
-            warnings.simplefilter('always')
-            _same(actual_call(), actual[0][1])
-        assert not caught
-        assert _conversion_registries() == actual[2]
-        info = tpms_calc.compute.cache_info()
-        assert (info.hits, info.misses, info.currsize) == (1, 1, 1)
+    def validate(_context, stage, step):
+        observed.append((stage, step))
+        return int(step == 2)
+
+    def observe(_context, _cached, record, _bounds, _have, _scalar):
+        observed.append(native_preparation_abi._text(record.contents.label))
+        return 1
+
+    host_hook = abi._HostFunction(validate)
+    range_hook = abi._RangeFunction(observe)
+    if checkpoint == 'host':
+        callbacks.values.validate_host_input = host_hook
+    else:
+        callbacks.observe_range = range_hook
+    before_source, before_result = bytes(source), bytes(result)
+    assert raw_query(ct.byref(source), ct.byref(callbacks), ct.byref(result),
+                     ct.byref(failure), error, len(error)) == 3
+    assert bytes(source) == before_source and bytes(result) == before_result
+    assert failure.kind == 3 and error.value
+    assert observed == ([(4, 0), (4, 1), (4, 2)] if checkpoint == 'host' else ['air_viscosity'])

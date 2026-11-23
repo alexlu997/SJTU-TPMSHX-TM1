@@ -338,7 +338,7 @@ v9 回调描述符提供带类型的几何与入口缓存键；v1 事件回调�
 `python/preprocess/three_d/preparation.py` 从原生视图构建不可变工况，随后 `python/cpp_interface/preparation_host.py` 释放原生结果。
 原生失败保留原始宿主异常，不选择其他准备路线。
 旧三维数值宿主路径及其专属 `shared/models/grid_3d.py` 和 `asym_split.py` 助手已退役。
-`tests/python/preparation_3d_reference.py` 保留独立比较和合成保存网格夹具。
+纯公式参考与物理不变量检查保留在 `tests/python/`。
 三维空气场每侧最多选择八个标量观测值，保留原通知、极值和最后样本。
 原始数组范围记录仍包含全部物理单元。
 准备与结果分别编译同一私有选择规则。
@@ -753,7 +753,7 @@ Python 保留共享缓存键、命中／未命中行为及原存储值类型，�
 EOS 操作共享 `sco2_props._prop` 与 `co2_props._scalar`，保留原 4096 项上限及键。
 sCO2 在状态校验前查找标量缓存，CO2 先校验；数组均绕过标量缓存。
 只有成功的原生计算发布结果；外部物性调用和缓存清空使用同一 owner。
-被替代的 `shared/models/quick_design.py` 已删除；冻结参考 `tests/python/quick_prepare_reference.py` 保留用于独立回归检查。
+被替代的 `shared/models/quick_design.py` 及全流程参考已删除；纯公式参考保留在 `tests/python/` 用于独立回归检查。
 `python/cpp_interface/_native_quick_prepare.py` 只用复制的原生场和宿主快照组装 CaseData。
 
 ### 准备态执行与证据

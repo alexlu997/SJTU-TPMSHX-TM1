@@ -112,32 +112,27 @@ using tpmshx::stages::text_view;
 
 void validate_saved_design(const tpmshx_stage_saved_case_2d_v3& saved,
                            const tpmshx_preparation_case_2d_v2& uniform,size_t cells) {
-    namespace g=tpmshx::grid;
     const auto& p=uniform.values;
     const bool spatial=p.input.geometry_mode!=0;
-    const auto field=[&](const char* name,tpmshx_preparation_array_v1 data,size_t index,double reference,
-                         tpmshx_preparation_scalar_kind_v2 kind,bool length) {
+    const auto field=[&](const char* name,tpmshx_preparation_array_v1 data,size_t index,double reference,bool length) {
         if (spatial && index==4 && !data.size) return;
         array(data,cells);
-        const auto field_kind=uniform.field_kinds[index];
-        auto expected=g::checked({reference,kind.precision,kind.strong});
-        if (length) expected=g::multiply(expected,g::weak(1e3));
+        const double expected=length?reference*1e3:reference;
         for (size_t i=0;i<cells;++i) {
-            auto value=g::checked({data.data[i],field_kind.precision,field_kind.strong});
-            if (length) value=g::multiply(value,g::weak(1e3));
-            if (!std::isfinite(value.value))
+            const double value=length?data.data[i]*1e3:data.data[i];
+            if (!std::isfinite(value))
                 throw std::invalid_argument(std::string("prepared design field ")+name+" does not match the physical grid");
-            if (spatial && length && value.value<=0.)
+            if (spatial && length && value<=0.)
                 throw std::invalid_argument(std::string("prepared zoned 2D case requires a positive ")+name+
                     "; prepare the original configuration again");
-            if (!spatial && (g::less(value,expected) || g::less(expected,value) || !std::isfinite(expected.value)))
+            if (!spatial && (value!=expected || !std::isfinite(expected)))
                 throw std::invalid_argument(std::string("uniform design field ")+name+" disagrees with its scalar input");
         }
     };
-    field("L_field",p.cell_length,0,p.cell_length_m,saved.values.values.reference_cell_kind,true);
-    field("t_field",p.wall_thickness,1,p.wall_thickness_m,saved.wall_reference_kind,true);
-    field("eps_arr",p.total_porosity,2,p.epsilon,saved.porosity_reference_kind,false);
-    field("r_h_arr",p.hydraulic_radius,4,p.hydraulic_radius_m,saved.radius_reference_kind,false);
+    field("L_field",p.cell_length,0,p.cell_length_m,true);
+    field("t_field",p.wall_thickness,1,p.wall_thickness_m,true);
+    field("eps_arr",p.total_porosity,2,p.epsilon,false);
+    field("r_h_arr",p.hydraulic_radius,4,p.hydraulic_radius_m,false);
     for (size_t i=0;i<cells;++i) {
         const auto k=p.solid_conductivity.data[i];
         if (!std::isfinite(k)) throw std::invalid_argument("prepared design field K_ss_arr does not match the physical grid");
@@ -190,12 +185,12 @@ std::vector<double> saved_outlet(const tpmshx_preparation_case_2d_v1& prepared,
     const auto bound = [&](size_t i) {
         const auto& value = grid.bounds[i];
         const double expected = i < 2 ? side.inlet_bounds[i] : side.outlet_bounds[i-2];
-        if (value.value != expected) throw std::invalid_argument("saved port bounds disagree");
-        return tpmshx::grid::Scalar{value.value,value.precision,value.strong};
+        if (value != expected) throw std::invalid_argument("saved port bounds disagree");
+        return value;
     };
     const tpmshx::ArrayView<const double> widths{cross.data,cross.size};
     for (size_t end = 0; end < 2; ++end) {
-        const auto expected = tpmshx::port_fractions_1d_typed(widths,grid.cross_precision,
+        const auto expected = tpmshx::port_fractions_1d_unchecked(widths,
             bound(2*end),bound(2*end+1),end == 0 && side.inlet.port.uniform_inlet);
         const auto check = [&](tpmshx_preparation_array_v1 saved,const std::vector<double>& wanted,const char* kind) {
             if (saved.size != wanted.size() || !std::equal(wanted.begin(),wanted.end(),saved.data,
@@ -206,7 +201,7 @@ std::vector<double> saved_outlet(const tpmshx_preparation_case_2d_v1& prepared,
         check(end ? side.outlet_geometry : side.inlet_geometry,expected.first,"geom");
         check(end ? side.outlet_profile : side.inlet_profile,expected.second,"profile");
     }
-    return tpmshx::port_overlap_1d_typed(widths,grid.cross_precision,bound(2),bound(3),true);
+    return tpmshx::port_overlap_1d_unchecked(widths,bound(2),bound(3),true);
 }
 struct Packed2D {
     std::array<size_t,2> shape;
@@ -252,19 +247,8 @@ struct Packed2D {
             throw std::invalid_argument("convergence_mode must be 'f2'; the legacy mass/velocity exit has been retired");
         auto set=[&](size_t i,tpmshx_preparation_array_v1 value) {arrays[i]=value.data;sizes[i]=value.size;};
         set(0,p.dx);set(1,p.dy);arrays[2]=&depth;sizes[2]=1;
-        namespace g=tpmshx::grid;
-        const auto scalar=[](double value,const tpmshx_preparation_scalar_kind_v2& kind) {
-            return g::Scalar{value,kind.precision,kind.strong};
-        };
-        for(const auto& kind:{saved->reference_cell_kind,saved->cell_field_kind,saved->hydraulic_diameter_kind}) {
-            if(kind.layout>2)throw std::invalid_argument("saved geometry scalar layout is invalid");
-            g::checked(scalar(0.,kind));
-        }
-        // Keep the saved dtype at both unit operations and the closure ratio.
-        const auto reference=g::multiply(scalar(p.cell_length_m,saved->reference_cell_kind),g::weak(1e3));
-        auto cell_kind=reference;
-        const auto diameter_kind=scalar(0.,saved->hydraulic_diameter_kind);
-        std::vector<double> cell_mm(cells,reference.value);
+        const double reference=p.cell_length_m*1e3;
+        std::vector<double> cell_mm(cells,reference);
         const auto area=saved->area_density_per_m;
         const auto diameter=saved->hydraulic_diameter_m;
         if(spatial) {
@@ -273,15 +257,14 @@ struct Packed2D {
             for(const auto value:{p.cell_length,area,diameter,conductivity_a,conductivity_b})array(value,cells);
             fields[4].resize(cells);
             for(size_t i=0;i<cells;++i) {
-                const auto restored=g::multiply(scalar(p.cell_length.data[i],saved->cell_field_kind),g::weak(1e3));
-                cell_mm[i]=restored.value;cell_kind=restored;
-                fields[4][i]=g::multiply(restored,g::weak(1e-3)).value;
+                cell_mm[i]=p.cell_length.data[i]*1e3;
+                fields[4][i]=cell_mm[i]*1e-3;
             }
             set(3,conductivity_a);set(4,conductivity_b);set(7,area);set(8,diameter);
         } else {
             const double values[]{p.sides[0].properties.fluid_conductivity_W_mK,
                 p.sides[1].properties.fluid_conductivity_W_mK,p.area_density_per_m,
-                p.hydraulic_diameter_m,g::multiply(reference,g::weak(1e-3)).value};
+                p.hydraulic_diameter_m,reference*1e-3};
             for (size_t i=0;i<5;++i) fields[i].assign(cells,values[i]);
             set(3,{fields[0].data(),cells});set(4,{fields[1].data(),cells});
             set(7,{fields[2].data(),cells});set(8,{fields[3].data(),cells});
@@ -291,9 +274,7 @@ struct Packed2D {
                 array(area,cells);array(diameter,cells);set(7,area);set(8,diameter);
             }
         }
-        fields[5]=tpmshx::preparation::closure_geometry_ratio(
-            {{arrays[8],cells},diameter_kind.precision,diameter_kind.strong},
-            {{cell_mm.data(),cells},cell_kind.precision,cell_kind.strong}).values;
+        fields[5]=tpmshx::preparation::closure_geometry_ratio({arrays[8],cells},{cell_mm.data(),cells});
         set(5,p.solid_conductivity);set(6,p.total_porosity);
         set(9,{fields[4].data(),cells});
         set(28,{fields[5].data(),cells});
@@ -303,7 +284,7 @@ struct Packed2D {
         c.asymmetric=p.input.delta_levelset!=0.;
         c.topology=p.input.topology;c.thermal_mode=eos?2:!c.asymmetric && p.input.geometry_mode!=2?1:0;
         c.spatial_geometry=spatial?1:0;
-        c.reference_cell_length=g::multiply(reference,g::weak(1e-3)).value;
+        c.reference_cell_length=reference*1e-3;
         c.reference_porosity=!spatial?p.total_porosity.data[0]:p.epsilon;c.split_a=p.split_a;c.sco2_nu_multiplier=1.;
         if(eos && uniform->sco2_nu.mode)c.sco2_nu_multiplier=uniform->sco2_nu.alpha[p.input.topology];
         flag(request.solid_seed_K.present);c.have_solid_seed=request.solid_seed_K.present;
@@ -445,9 +426,8 @@ void validate_saved_experiment(const tpmshx_stage_experiment_2d_v4& settings,
     }
 }
 
-bool same_experimental_reference(double mm,double m,tpmshx_preparation_scalar_kind_v2 kind) {
-    namespace g=tpmshx::grid;
-    const auto expected=g::multiply({mm,kind.precision,kind.strong},g::weak(1e-3)).value;
+bool same_experimental_reference(double mm,double m) {
+    const double expected=mm*1e-3;
     // The archive's SI round trip can change a double by a few ULPs.
     return std::isfinite(m) && std::isfinite(expected)
         && std::abs(expected-m)<=8.*std::numeric_limits<double>::epsilon()*std::abs(expected);
@@ -545,19 +525,15 @@ int run(const tpmshx_stage_run_control_v1* control,tpmshx_stage_run_result_2d_v1
             throw std::invalid_argument("stage run output must be an initialized empty owner");
         if(!control->cpu_threads || !control->result_id)
             throw std::invalid_argument("stage run requires a positive CPU limit and result label");
-        tpmshx_stage_run_request_2d_v1 defaults{};
-        defaults.abi_version=TPMSHX_STAGE_RUN_ABI_VERSION;defaults.struct_size=sizeof(defaults);
+        const tpmshx_stage_run_request_2d_v1 defaults{};
         const auto& selected=request?*request:defaults;
         if(prepared->input.df_mode==1) {
             const auto& settings=start.saved_v4->experiment;
-            const auto& saved=start.saved_v4->values;
             validate_saved_experiment(settings);
             validate_saved_experiment(settings,prepared);
             if (settings.delta_levelset!=prepared->input.delta_levelset
-                    || !same_experimental_reference(settings.cell_length_mm,prepared->cell_length_m,
-                                                    saved.values.values.reference_cell_kind)
-                    || !same_experimental_reference(settings.wall_thickness_mm,prepared->wall_thickness_m,
-                                                    saved.wall_reference_kind))
+                    || !same_experimental_reference(settings.cell_length_mm,prepared->cell_length_m)
+                    || !same_experimental_reference(settings.wall_thickness_mm,prepared->wall_thickness_m))
                 throw std::invalid_argument("saved experimental nominal geometry disagrees with the prepared case");
         }
         Packed2D packed(*prepared,selected,*control,uniform,request_v2?request_v2->envelope_mode:nullptr,
@@ -612,10 +588,9 @@ extern "C" void tpmshx_stage_run_2d_release_v1(tpmshx_stage_run_result_2d_v1* re
 }
 extern "C" int tpmshx_stage_port_windows_fit_2d_v1(double cross_length,double inlet_center,
     double inlet_width,double outlet_center,double outlet_width) {
-    const auto cross=tpmshx::grid::weak(cross_length);
     const auto fits=[&](double center,double width) {
         return std::isfinite(center) && std::isfinite(width) && width>0.
-            && tpmshx::grid::port_window_within(cross,center,width);
+            && tpmshx::grid::port_window_within(cross_length,center,width);
     };
     return std::isfinite(cross_length) && cross_length>0.
         && fits(inlet_center,inlet_width) && fits(outlet_center,outlet_width);
@@ -730,7 +705,7 @@ extern "C" int tpmshx_stage_run_2d_take_result_v1(void* run,
         if(status)return status;
         std::unique_ptr<tpmshx::stages::Capture2D,decltype(&tpmshx::stages::release_capture_2d)> captured(
             tpmshx::stages::capture_2d(*owner.prepared,raw,owner.config,owner.result_id.c_str(),owner.uniform,
-                owner.saved->inlet_recorded,owner.saved->range_captured,owner.saved_v3),
+                owner.saved->inlet_recorded,owner.saved->range_captured),
             &tpmshx::stages::release_capture_2d);
         *result=tpmshx::stages::stage_view(*captured.release());
         owner.prepared=nullptr;owner.uniform=nullptr;owner.saved=nullptr;owner.saved_v2=nullptr;owner.saved_v3=nullptr;

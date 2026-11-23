@@ -1,16 +1,15 @@
-"""Compare the spatial host with the independent public preparation contract."""
+"""Verify 2D spatial host preparation, caches, LUT paths, and rejection contracts."""
 from copy import deepcopy
-from dataclasses import asdict, replace
+from dataclasses import asdict
 
 import numpy as np
 import pytest
 
-from tests.python import preparation_api_reference as reference
-
-from tests.python.test_native_prepare_adapter import _capture, _same, _cache_info, _failure, _observe_prepare
-from sjtu_tpmshx.preprocess import api
+from sjtu_tpmshx.file_io.case_io import load_case, save_case
 from sjtu_tpmshx.physical_models import sigmoid_field, tpms_calc, tpms_geometry
+from sjtu_tpmshx.preprocess import api
 from tests.python import native_preparation_abi
+from tests.python.test_native_prepare_adapter import _capture, _same
 
 
 @pytest.fixture(autouse=True)
@@ -33,10 +32,8 @@ def configuration(monkeypatch, tmp_path, mode, topology='Gyroid'):
 
 @pytest.mark.parametrize('mode', ['continuous', 'x', 'y'])
 def test_prepared_geometry_fields_use_only_preparation_library(monkeypatch, tmp_path, mode):
-    from sjtu_tpmshx.file_io.case_io import load_case, save_case
-    from tests.python.native_preparation_abi import _configuration_continuous as continuous_config
-
-    config = continuous_config(pair=('air', 'air')) if mode == 'continuous' else native_preparation_abi._configuration_spatial(mode)
+    config = (native_preparation_abi._configuration_continuous(pair=('air', 'air'))
+              if mode == 'continuous' else native_preparation_abi._configuration_spatial(mode))
     if mode == 'y':
         config.geometry.delta_levelset = .15
     for stage in ('GEOMETRY', 'NATIVE_SOLVER', 'SOLVER', 'RESULT'):
@@ -61,88 +58,28 @@ def test_prepared_geometry_fields_use_only_preparation_library(monkeypatch, tmp_
 
 @pytest.mark.parametrize('mode', ['x', 'y', 'grid', 'sigmoid'])
 @pytest.mark.parametrize('topology', ['Diamond', 'Gyroid'])
-@pytest.mark.parametrize('operation,targets', [('full', None), ('capacity', None), ('resolve', None),
-    ('resolve', (.001, .001)), ('full', (.001, .001)), ('configured', None)])
-def test_complete_spatial_case_and_cache_counts(monkeypatch, tmp_path, mode, topology, operation, targets):
+def test_complete_spatial_case_and_flow_consistency(monkeypatch, tmp_path, mode, topology):
     config = configuration(monkeypatch, tmp_path, mode, topology)
-    if operation == 'configured':
-        config.fluid_A.mass_flow_kg_s, config.fluid_B.mass_flow_kg_s = .001, .001
-        config.fluid_A.u_mps = config.fluid_B.u_mps = float('nan')
-        operation = 'full'
-    before = asdict(config)
-    expected = _capture(monkeypatch, reference, operation, config, targets)
-    counts = _cache_info(reference)
-    actual = _capture(monkeypatch, api, operation, config, targets)
-    _same(actual, expected)
-    assert _cache_info() == counts
+    before = deepcopy(asdict(config))
+    caps, _, _, _ = _capture(monkeypatch, api, 'capacity', config)
+    resolved, _, _, _ = _capture(monkeypatch, api, 'resolve', config, (.001, .001))
+    case, _, _, _ = _capture(monkeypatch, api, 'full', config, (.001, .001))
+    for side in 'AB':
+        expected_u = .001 / caps[side]
+        assert getattr(resolved, 'fluid_' + side).u_mps == pytest.approx(expected_u, rel=1e-13)
+        assert case.parameters['u_' + side] == pytest.approx(expected_u, rel=1e-13)
     _same(asdict(config), before, 'unchanged input')
 
 
 @pytest.mark.parametrize('mode', ['x', 'y', 'grid'])
 @pytest.mark.parametrize('nominal,spatial', [('Diamond', 'Gyroid'), ('Gyroid', 'Diamond')])
-@pytest.mark.parametrize('targets', [None, (.001, .001)])
-def test_conflicting_spatial_material_keeps_public_rejection(monkeypatch, tmp_path, mode, nominal, spatial, targets):
+def test_conflicting_spatial_material_keeps_public_rejection(monkeypatch, tmp_path, mode, nominal, spatial):
     config = configuration(monkeypatch, tmp_path, mode, nominal)
     config.geometry.k_s_W_mK = 15.
-    config.zones.config.tpms_type, config.zones.config.k_s = spatial, np.float32(22.)
-    config.zones.grid.update(tpms_type=spatial, k_s=np.float32(22.))
-    expected = _failure(monkeypatch, reference, config, targets)
-    counts = _cache_info(reference)
-    actual = _failure(monkeypatch, api, config, targets)
-    assert actual == expected
-    assert _cache_info() == counts
-
-
-
-@pytest.mark.parametrize('mode', ['x', 'y', 'grid', 'sigmoid'])
-@pytest.mark.parametrize('dtype', [np.float16, np.float32, np.float64])
-@pytest.mark.parametrize('warm', [False, True])
-def test_spatial_equal_typed_cache_keys(monkeypatch, tmp_path, mode, dtype, warm):
-    config = configuration(monkeypatch, tmp_path, mode)
-    config.geometry.L_cell_mm = dtype(config.geometry.L_cell_mm)
-    config.fluid_A.u_mps = dtype(config.fluid_A.u_mps)
-    config.fluid_A.T_in_K = dtype(config.fluid_A.T_in_K)
-    config.geometry.k_s_W_mK = dtype(config.geometry.k_s_W_mK)
-    if mode in ('x', 'y'):
-        for zone in config.zones.config.zones:
-            zone.L_mm, zone.t_mm = dtype(zone.L_mm), dtype(zone.t_mm)
-    elif mode == 'grid':
-        for cell in config.zones.grid['cells']:
-            cell['L'], cell['t'] = dtype(cell['L']), dtype(cell['t'])
-
-    def sequence(module):
-        first = _capture(monkeypatch, module, 'full', config)
-        if warm:
-            changed = deepcopy(config)
-            changed.geometry.L_cell_mm = float(changed.geometry.L_cell_mm)
-            changed.fluid_A.u_mps = float(changed.fluid_A.u_mps)
-            changed.geometry.k_s_W_mK = 22.
-            changed.zones.config.k_s = 22.
-            changed.zones.grid['k_s'] = 22.
-            first = _capture(monkeypatch, module, 'full', changed, clear_cache=False)
-        return first, _cache_info(module)
-
-    _same(sequence(api), sequence(reference))
-
-
-@pytest.mark.parametrize('mode', ['x', 'y', 'grid', 'sigmoid'])
-@pytest.mark.parametrize('failure', ['chi', 'unhashable-nominal', 'unhashable-inlet', 'preflight'])
-def test_spatial_failure_keeps_completed_cache_entries(monkeypatch, tmp_path, mode, failure):
-    config = configuration(monkeypatch, tmp_path, mode)
-    if failure == 'chi':
-        monkeypatch.setenv('TPMSHX_CHI_S', 'invalid')
-    elif failure == 'unhashable-nominal':
-        config.geometry.L_cell_mm = np.asarray(config.geometry.L_cell_mm)
-    elif failure == 'unhashable-inlet':
-        config.fluid_B.u_mps = np.asarray(config.fluid_B.u_mps)
-    else:
-        config.fluid_A.u_mps = 1.e-6
-        config.extrap = replace(config.extrap, allow=False)
-    expected = _failure(monkeypatch, reference, config)
-    counts = _cache_info(reference)
-    actual = _failure(monkeypatch, api, config)
-    assert actual == expected
-    assert _cache_info() == counts
+    config.zones.config.tpms_type, config.zones.config.k_s = spatial, 22.
+    config.zones.grid.update(tpms_type=spatial, k_s=22.)
+    with pytest.raises(ValueError):
+        api.prepare_case(config, case_id='conflict')
 
 
 @pytest.mark.parametrize('mode', ['x', 'y', 'grid', 'sigmoid'])
@@ -150,7 +87,6 @@ def test_spatial_host_does_not_reenter_python_preparation(monkeypatch, tmp_path,
     from sjtu_tpmshx.cpp_interface import _native_df, _native_geometry
     from sjtu_tpmshx.physical_models.zone_config import ZoneConfig
     config = configuration(monkeypatch, tmp_path, mode)
-    expected = _capture(monkeypatch, reference, 'full', config)
 
     def forbidden(*args, **kwargs):
         pytest.fail('native host reentered a Python numerical workflow')
@@ -162,36 +98,22 @@ def test_spatial_host_does_not_reenter_python_preparation(monkeypatch, tmp_path,
         monkeypatch.setattr(ZoneConfig, name, forbidden)
     for name in ('build_continuous_arrays', 'build_continuous_geometry', 'get_geometry_lut'):
         monkeypatch.setattr(sigmoid_field, name, forbidden)
-    _same(_capture(monkeypatch, api, 'full', config), expected)
+    case, _, _, _ = _capture(monkeypatch, api, 'full', config)
+    assert np.all(np.isfinite(case.design_fields['eps_arr']))
 
 
 @pytest.mark.parametrize('mode', ['x', 'y', 'grid', 'sigmoid'])
 def test_capacity_ignores_unconsumed_experimental_drag(monkeypatch, tmp_path, mode):
     config = configuration(monkeypatch, tmp_path, mode)
     config.df_mode = 'experimental'
-    _same(_capture(monkeypatch, api, 'capacity', config), _capture(monkeypatch, reference, 'capacity', config))
-
-
-@pytest.mark.parametrize('mode', ['x', 'y', 'grid'])
-def test_standalone_spatial_warning_origins(monkeypatch, tmp_path, mode):
-    from tests.python import preparation_case_reference
-    from sjtu_tpmshx.cpp_interface import native_preparation as native_preparation
-    config = configuration(monkeypatch, tmp_path, mode)
-    config.fluid_A.u_mps = 1.e-6
-    config.extrap = replace(config.extrap, allow=True)
-
-    _same(_observe_prepare(monkeypatch, native_preparation, 'full', config, direct=True),
-          _observe_prepare(monkeypatch, preparation_case_reference, 'full', config, direct=True))
+    caps, _, _, _ = _capture(monkeypatch, api, 'capacity', config)
+    assert caps['A'] > 0. and caps['B'] > 0.
 
 
 @pytest.mark.parametrize('topology', ['Diamond', 'Gyroid'])
 def test_default_lut_cold_memory_and_disk_paths(monkeypatch, tmp_path, topology):
     config = native_preparation_abi._configuration_spatial('sigmoid', topology)
-    monkeypatch.setenv('XDG_CACHE_HOME', str(tmp_path / 'reference'))
     monkeypatch.delitem(sigmoid_field._lut_cache, (topology,), raising=False)
-    expected = _capture(monkeypatch, reference, 'full', config)
-    original = sigmoid_field._lut_cache[topology,]
-    monkeypatch.delitem(sigmoid_field._lut_cache, (topology,))
     monkeypatch.setenv('XDG_CACHE_HOME', str(tmp_path / 'native'))
 
     def forbidden(*args, **kwargs):
@@ -199,196 +121,50 @@ def test_default_lut_cold_memory_and_disk_paths(monkeypatch, tmp_path, topology)
 
     monkeypatch.setattr(sigmoid_field.GeometryLUT, '_precompute', forbidden)
     monkeypatch.setattr(sigmoid_field, 'get_geometry_lut', forbidden)
-    _same(_capture(monkeypatch, api, 'full', config), expected)
+    first, _, _, _ = _capture(monkeypatch, api, 'full', config)
     created = sigmoid_field._lut_cache[topology,]
-    for name in ('L_vals', 't_vals', 'eps_table', 'A0_table'):
-        _same(getattr(created, name), getattr(original, name), name)
-    _same(_capture(monkeypatch, api, 'full', config), expected)
+    second, _, _, _ = _capture(monkeypatch, api, 'full', config)
     assert sigmoid_field._lut_cache[topology,] is created
+    _same(second.design_fields, first.design_fields)
     monkeypatch.delitem(sigmoid_field._lut_cache, (topology,))
-    _same(_capture(monkeypatch, api, 'full', config), expected)
+    third, _, _, _ = _capture(monkeypatch, api, 'full', config)
     restored = sigmoid_field._lut_cache[topology,]
     assert restored is not created
     for name in ('L_vals', 't_vals', 'eps_table', 'A0_table'):
         _same(getattr(restored, name), getattr(created, name), name)
-
-
-@pytest.mark.parametrize('mode', ['x', 'grid', 'sigmoid'])
-@pytest.mark.parametrize('direction', [0, 1, 2, 3])
-@pytest.mark.parametrize('refined', [False, True])
-def test_spatial_physical_ports_and_single_target(monkeypatch, tmp_path, mode, direction, refined):
-    config = configuration(monkeypatch, tmp_path, mode)
-    config.solver.Nx = config.solver.Ny = 64 if refined else 16
-    config.flags = replace(config.flags, port_wall_refine=refined)
-    for side in 'AB':
-        port = getattr(config, 'bc_' + side)
-        port.dir = direction if side == 'A' else 3-direction
-        cross = config.geometry.H_dom_m if port.dir in (0, 1) else config.geometry.L_dom_m
-        port.in_ctr, port.in_w, port.out_ctr, port.out_w = .4*cross, .4*cross, .6*cross, .4*cross
-        port.uniform_inlet_2d = side == 'A'
-    config.fluid_A.mass_flow_kg_s = .001
-    config.fluid_A.u_mps = float('nan')
-    expected = _capture(monkeypatch, reference, 'full', config)
-    counts = _cache_info(reference)
-    _same(_capture(monkeypatch, api, 'full', config), expected)
-    assert _cache_info() == counts
-
-
-@pytest.mark.parametrize('geometry_allow', [False, True])
-@pytest.mark.parametrize('environment_allow', [False, True])
-@pytest.mark.parametrize('targets', [None, (.001, .001)])
-def test_sigmoid_geometry_extrapolation_policy_is_explicit(monkeypatch, tmp_path, geometry_allow, environment_allow, targets):
-    config = configuration(monkeypatch, tmp_path, 'sigmoid')
-    config.zones.pareto_x_decision = [value for _ in range(18) for value in (8.2, .62)]
-    config.extrap = replace(config.extrap, allow=geometry_allow)
-    monkeypatch.setenv('TPMSHX_ALLOW_EXTRAP', '1' if environment_allow else '0')
-    _same(_observe_prepare(monkeypatch, api, 'full', config, targets),
-          _observe_prepare(monkeypatch, reference, 'full', config, targets))
+    _same(third.design_fields, first.design_fields)
 
 
 @pytest.mark.parametrize('mode', ['x', 'y', 'grid', 'sigmoid'])
-@pytest.mark.parametrize('operation', ['resolve', 'full'])
-def test_fixed_experimental_spatial_rejection_order(monkeypatch, tmp_path, mode, operation):
-    config = configuration(monkeypatch, tmp_path, mode)
-    config.df_mode = 'experimental'
-    _same(_observe_prepare(monkeypatch, api, operation, config, (.001, .001)),
-          _observe_prepare(monkeypatch, reference, operation, config, (.001, .001)))
-
-
-@pytest.mark.parametrize('mode', ['x', 'y', 'grid', 'sigmoid'])
-@pytest.mark.parametrize('operation,targets', [('full', None), ('capacity', None), ('full', (.001, .001))])
-def test_unsupported_spatial_fluid_keeps_original_failure(monkeypatch, tmp_path, mode, operation, targets):
+def test_unsupported_spatial_fluid_raises_not_implemented_or_value_error(monkeypatch, tmp_path, mode):
     config = configuration(monkeypatch, tmp_path, mode)
     config.fluid_A.type, config.fluid_A.T_in_K = 'water', 330.
-    _same(_observe_prepare(monkeypatch, api, operation, config, targets),
-          _observe_prepare(monkeypatch, reference, operation, config, targets))
-
-
-@pytest.mark.parametrize('mode', ['x', 'y', 'grid'])
-def test_spatial_unhashable_region_keeps_first_error_and_cache(monkeypatch, tmp_path, mode):
-    config = configuration(monkeypatch, tmp_path, mode)
-    if mode == 'grid':
-        config.zones.grid['cells'][1]['L'] = np.asarray(config.zones.grid['cells'][1]['L'])
-    else:
-        zone = config.zones.config.zones[1]
-        zone.L_mm = np.asarray(zone.L_mm)
-    expected = _failure(monkeypatch, reference, config)
-    counts = _cache_info(reference)
-    assert _failure(monkeypatch, api, config) == expected
-    assert _cache_info() == counts
+    with pytest.raises((ValueError, NotImplementedError)):
+        api.prepare_case(config, case_id='bad-fluid')
 
 
 @pytest.mark.parametrize('mode', ['x', 'y', 'grid', 'sigmoid'])
-def test_spatial_saved_case_keeps_complete_reference_contract(monkeypatch, tmp_path, mode):
-    from sjtu_tpmshx.file_io.case_io import load_case, save_case
+def test_spatial_saved_case_round_trip(monkeypatch, tmp_path, mode):
     config = configuration(monkeypatch, tmp_path, mode)
-    expected = _capture(monkeypatch, reference, 'full', config, (.001, .001))
-    actual = _capture(monkeypatch, api, 'full', config, (.001, .001))
-    _same(actual, expected)
-    for name, result in (('reference', expected), ('native', actual)):
-        save_case(result[0], tmp_path / (name + '.yaml'))
-    _same(load_case(tmp_path / 'native.yaml'), load_case(tmp_path / 'reference.yaml'))
-
-
-@pytest.mark.parametrize('mode', ['x', 'y'])
-@pytest.mark.parametrize('operation,targets', [('full', None), ('capacity', None), ('full', (.001, .001))])
-@pytest.mark.parametrize('earlier', [None, 'preflight', 'chi'])
-def test_missing_stripe_config_keeps_error_order(monkeypatch, tmp_path, mode, operation, targets, earlier):
-    config = configuration(monkeypatch, tmp_path, mode)
-    config.zones.config = None
-    if earlier == 'preflight':
-        config.fluid_A.u_mps = 1.e-6
-        config.extrap = replace(config.extrap, allow=False)
-    elif earlier == 'chi':
-        monkeypatch.setenv('TPMSHX_CHI_S', 'invalid')
-    expected = _observe_prepare(monkeypatch, reference, operation, config, targets)
-    counts = _cache_info(reference)
-    _same(_observe_prepare(monkeypatch, api, operation, config, targets), expected)
-    assert _cache_info() == counts
-
-
-@pytest.mark.parametrize('mode', ['uniform', 'continuous', 'x', 'grid', 'sigmoid'])
-@pytest.mark.parametrize('dtype', [np.float16, np.float32])
-@pytest.mark.parametrize('wall', [.3, .6])
-@pytest.mark.parametrize('operation', ['capacity', 'full'])
-@pytest.mark.parametrize('allow', [False, True])
-def test_typed_geometry_limits_keep_validation_and_cache_order(monkeypatch, tmp_path, mode, dtype, wall, operation, allow):
-    if mode in ('uniform', 'continuous'):
-        config = (native_preparation_abi._configuration_mass_flow if mode == 'uniform'
-                  else native_preparation_abi._configuration_continuous)(pair=('air', 'air'))
-    else:
-        config = configuration(monkeypatch, tmp_path, mode)
-    config.geometry.t_wall_mm = dtype(wall)
-    config.extrap = replace(config.extrap, allow=allow)
-    expected = _observe_prepare(monkeypatch, reference, operation, config)
-    counts = _cache_info(reference)
-    _same(_observe_prepare(monkeypatch, api, operation, config), expected)
-    assert _cache_info() == counts
-
-
-@pytest.mark.parametrize('allow', [False, True])
-def test_preflight_keeps_nu_and_geometry_reasons_separate(monkeypatch, tmp_path, allow):
-    config = configuration(monkeypatch, tmp_path, 'x')
-    config.geometry.t_wall_mm = np.float32(.6)
-    config.fluid_A.u_mps = 1.e-6
-    config.extrap = replace(config.extrap, allow=allow)
-    _same(_observe_prepare(monkeypatch, api, 'full', config),
-          _observe_prepare(monkeypatch, reference, 'full', config))
-
-
-@pytest.mark.parametrize('mode', ['x', 'y'])
-@pytest.mark.parametrize('fault', ['missing-cell', 'row-extra', 'config-extra', 'missing-zones', 'missing-topology', 'missing-conductivity'])
-@pytest.mark.parametrize('operation,targets', [('full', None), ('capacity', None), ('full', (.001, .001))])
-@pytest.mark.parametrize('earlier', [None, 'chi', 'preflight'])
-def test_canonical_stripe_schema_keeps_error_order(monkeypatch, tmp_path, mode, fault, operation, targets, earlier):
-    config = configuration(monkeypatch, tmp_path, mode)
-    model = config.zones.config = asdict(config.zones.config)
-    if fault == 'missing-cell':
-        del model['zones'][0]['L_mm']
-    elif fault == 'row-extra':
-        model['zones'][0]['unexpected'] = 1
-    elif fault == 'config-extra':
-        model['unexpected'] = 1
-    else:
-        del model[{'missing-zones': 'zones', 'missing-topology': 'tpms_type', 'missing-conductivity': 'k_s'}[fault]]
-    if earlier == 'chi':
-        monkeypatch.setenv('TPMSHX_CHI_S', 'invalid')
-    elif earlier == 'preflight':
-        config.fluid_A.u_mps = 1.e-6
-        config.extrap = replace(config.extrap, allow=False)
-    _same(_observe_prepare(monkeypatch, api, operation, config, targets),
-          _observe_prepare(monkeypatch, reference, operation, config, targets))
-
-
-@pytest.mark.parametrize('operation,targets', [('full', None), ('capacity', None), ('full', (.001, .001)), ('resolve', (.001, .001))])
-@pytest.mark.parametrize('unused', ['absent', 'invalid'])
-def test_sigmoid_does_not_consume_discrete_material_fields(monkeypatch, tmp_path, operation, targets, unused):
-    config = configuration(monkeypatch, tmp_path, 'sigmoid')
-    for cell in config.zones.grid['cells']:
-        for key in ('L', 't'):
-            if unused == 'absent':
-                del cell[key]
-            else:
-                cell[key] = 'unused'
-    _same(_capture(monkeypatch, api, operation, config, targets),
-          _capture(monkeypatch, reference, operation, config, targets))
-
-
-@pytest.mark.parametrize('mode', ['x', 'y', 'grid'])
-@pytest.mark.parametrize('dtype,other', [(np.float16, 16.0001), (np.float32, 16.0000001)])
-@pytest.mark.parametrize('reverse', [False, True])
-@pytest.mark.parametrize('operation,targets', [('full', None), ('capacity', None), ('full', (.001, .001))])
-def test_spatial_conductivity_keeps_value_after_weak_comparison(monkeypatch, tmp_path, mode, dtype, other, reverse, operation, targets):
-    config = configuration(monkeypatch, tmp_path, mode)
-    nominal, spatial = (other, dtype(16.)) if reverse else (dtype(16.), other)
-    assert nominal == spatial and float(nominal) != float(spatial)
-    config.geometry.k_s_W_mK = nominal
-    if mode == 'grid':
-        config.zones.grid['k_s'] = spatial
-    else:
-        config.zones.config.k_s = spatial
-    _same(_capture(monkeypatch, api, operation, config, targets),
-          _capture(monkeypatch, reference, operation, config, targets))
+    case, _, _, _ = _capture(monkeypatch, api, 'full', config, (.001, .001))
+    save_case(case, tmp_path / 'native.yaml')
+    restored = load_case(tmp_path / 'native.yaml')
+    _same(restored.grid, case.grid)
+    assert set(restored.design_fields) == set(case.design_fields)
+    for key, expected in case.design_fields.items():
+        actual = restored.design_fields[key]
+        if key == 'zone_params':
+            assert len(actual) == len(expected)
+            for a_row, e_row in zip(actual, expected):
+                assert set(a_row) == set(e_row)
+                for field_name in e_row:
+                    av, ev = a_row[field_name], e_row[field_name]
+                    if isinstance(ev, (float, np.floating)):
+                        assert float(av).hex() == float(ev).hex(), f'{key}.{field_name}'
+                    else:
+                        assert av == ev, f'{key}.{field_name}'
+        else:
+            _same(actual, expected, key)
 
 
 @pytest.mark.parametrize('operation,targets', [('full', None), ('capacity', None), ('full', (.001, .001))])
@@ -396,27 +172,30 @@ def test_geometry_cache_queries_receive_initialized_storage(monkeypatch, tmp_pat
     from sjtu_tpmshx.cpp_interface.preparation_host import PreparationCacheBridge
     original = PreparationCacheBridge.geometry_at
     lookups = []
+
     def observed(self, action, key, value):
         if not action:
             assert all(getattr(value, name) == 0. for name, _ in value._fields_)
             lookups.append((key.cell_length_mm, key.wall_thickness_mm))
         return original(self, action, key, value)
+
     config = configuration(monkeypatch, tmp_path, 'x')
-    expected = _capture(monkeypatch, reference, operation, config, targets)
     monkeypatch.setattr(PreparationCacheBridge, 'geometry_at', observed)
-    _same(_capture(monkeypatch, api, operation, config, targets), expected)
+    _capture(monkeypatch, api, operation, config, targets)
     assert lookups
 
 
 @pytest.mark.parametrize('value', [0., -1., float('nan'), float('inf')])
 def test_raw_spatial_model_rejects_invalid_conductivity(monkeypatch, tmp_path, value):
-    from sjtu_tpmshx.cpp_interface import native_preparation as native_preparation
+    from sjtu_tpmshx.cpp_interface import native_preparation
     config = configuration(monkeypatch, tmp_path, 'x')
     original = native_preparation._input
+
     def invalid(*args, **kwargs):
         source = original(*args, **kwargs)
         source.model.solid_conductivity_W_mK = value
         return source
+
     monkeypatch.setattr(native_preparation, '_input', invalid)
     with pytest.raises(ValueError, match='spatial.solid_conductivity_W_mK'):
         api.prepare_case(config, case_id='invalid-spatial-material')

@@ -10,48 +10,53 @@ from sjtu_tpmshx.data_types.case_data import CaseData
 from sjtu_tpmshx.data_types.compute_config import ComputeConfig
 from sjtu_tpmshx.data_types.model_refs import ModelRef
 from sjtu_tpmshx.run_control.run_environment import capture_environment
-from . import _native_flow, _native_geometry, _native_grid, _native_preparation_case as native, preparation_host as host
-from ._native_values import TOPOLOGIES, geometry_topology, borrow_text, copy_array, read_text
+from . import _native_geometry, _native_preparation_case as native, preparation_host as host
+from ._native_values import TOPOLOGIES, count, geometry_topology, borrow_text, copy_array, read_text, real_array, real_scalar
+
+
+def _real(value, name):
+    """Normalize one real input. Native validation rejects nonfinite physical inputs."""
+    return real_scalar(value, name=name, allow_nonfinite=True)
 
 
 def _input(config, targets, operation):
     geometry = config.geometry
-    value = native._InputV1(1, ct.sizeof(native._InputV1), geometry.L_dom_m, geometry.H_dom_m,
-        config.solver.Nx, config.solver.Ny, config.flags.port_wall_refine,
-        geometry_topology(geometry.tpms), geometry.L_cell_mm, geometry.t_wall_mm,
-        geometry.k_s_W_mK, geometry.delta_levelset)
-    kinds = native._Kinds(host._kind(geometry.L_cell_mm), host._kind(geometry.t_wall_mm), host._kind(geometry.k_s_W_mK))
+    value = native._InputV1(1, ct.sizeof(native._InputV1), _real(geometry.L_dom_m, 'geometry.L_dom_m'),
+        _real(geometry.H_dom_m, 'geometry.H_dom_m'), count(config.solver.Nx, name='solver.Nx'),
+        count(config.solver.Ny, name='solver.Ny'), config.flags.port_wall_refine,
+        geometry_topology(geometry.tpms), _real(geometry.L_cell_mm, 'geometry.L_cell_mm'),
+        _real(geometry.t_wall_mm, 'geometry.t_wall_mm'), _real(geometry.k_s_W_mK, 'geometry.k_s_W_mK'),
+        _real(geometry.delta_levelset, 'geometry.delta_levelset'))
     for index, side in enumerate('AB'):
         fluid, port = getattr(config, 'fluid_' + side), getattr(config, 'bc_' + side)
         # Capacity queries never consume an obsolete inlet speed.
         speed = 0. if operation == 'prepare_inlet_mass_capacities' or (
             targets is not None or fluid.mass_flow_kg_s is not None) else fluid.u_mps
-        value.sides[index] = native._Inlet(native._FLUIDS.index(fluid.type), speed,
-            fluid.T_in_K, fluid.P_in_Pa, native._Port(
-                port.dir, port.in_ctr, port.in_w, port.out_ctr, port.out_w, port.uniform_inlet_2d),
-            fluid.mass_flow_kg_s is not None, fluid.mass_flow_kg_s or 0.)
-        kinds.sides[index] = native._InletKinds(*map(host._kind, (speed, fluid.T_in_K, fluid.P_in_Pa)))
+        prefix = 'fluid_' + side + '.'
+        mass = fluid.mass_flow_kg_s
+        windows = (_real(getattr(port, name), f'bc_{side}.{name}') for name in ('in_ctr', 'in_w', 'out_ctr', 'out_w'))
+        value.sides[index] = native._Inlet(native._FLUIDS.index(fluid.type), _real(speed, prefix + 'u_mps'),
+            _real(fluid.T_in_K, prefix + 'T_in_K'), _real(fluid.P_in_Pa, prefix + 'P_in_Pa'),
+            native._Port(port.dir, *windows, port.uniform_inlet_2d),
+            mass is not None, 0. if mass is None else _real(mass, prefix + 'mass_flow_kg_s'))
     value.have_physical_depth = geometry.Lz_m is not None
-    value.physical_depth_m = geometry.Lz_m if geometry.Lz_m is not None else 0.
+    value.physical_depth_m = 0. if geometry.Lz_m is None else _real(geometry.Lz_m, 'geometry.Lz_m')
     value.geometry_mode = int(config.zones.enabled)
     value.df_mode = int(config.df_mode == 'experimental')
     typed = native._InputV2(2, ct.sizeof(native._InputV2), value)
-    typed.kinds = kinds
     buffers = []
     host.pack_nu(typed.sco2_nu, config.sco2_nu, buffers)
     flow = native._FlowInput(3, ct.sizeof(native._FlowInput), typed)
-    flow.physical_depth_kind = host._flow_kind(geometry.Lz_m if geometry.Lz_m is not None else 0.)
     flow.have_explicit_targets = targets is not None
-    for index, side in enumerate('AB'):
-        target = targets[index] if targets is not None else getattr(config, 'fluid_' + side).mass_flow_kg_s
-        flow.target_kinds[index] = host._flow_kind(target if target is not None else 0.)
-        if targets is not None:
-            flow.explicit_targets_kg_s[index] = target
+    if targets is not None:
+        for index, side in enumerate('AB'):
+            flow.explicit_targets_kg_s[index] = _real(targets[index], f'mass_flow_{side}_kg_s')
     if config.zones.enabled and config.zones.axis == 'continuous':
         spec = config.zones.config
-        decision = np.asarray(spec['x_decision'], dtype=np.float64)
+        decision = real_array(spec['x_decision'], name='x_decision', allow_nonfinite=True)
         controls = native._Controls(spec['n_ctrl_x'], spec['n_ctrl_y'], spec['spline_order'], spec['symmetric_y'],
-            (native._D * 2)(*spec['L_bounds']), (native._D * 2)(*spec['t_bounds']),
+            (native._D * 2)(*(_real(item, 'L_bounds') for item in spec['L_bounds'])),
+            (native._D * 2)(*(_real(item, 't_bounds') for item in spec['t_bounds'])),
             native._Array(decision.ctypes.data_as(ct.POINTER(native._D)), decision.size))
         source = native._ContinuousInput(4, ct.sizeof(native._ContinuousInput), flow, controls)
         buffers.append(decision)
@@ -59,24 +64,6 @@ def _input(config, targets, operation):
         source = _spatial_input(config, flow, buffers)
     else:
         source = flow
-    source._grid_error = None
-
-    def grid_kind(value):
-        try:
-            scalar = _native_grid._scalar(value)
-        except TypeError as error:
-            if source._grid_error is None:
-                source._grid_error = str(error)
-            return native._Kind(64, 0, 0)
-        return native._Kind(scalar.precision, scalar.strong, int(bool(scalar.strong)))
-
-    source._grid_kinds = native._GridKinds(7, ct.sizeof(native._GridKinds),
-        (native._Kind * 2)(*map(grid_kind, (geometry.L_dom_m, geometry.H_dom_m))))
-    for index, side in enumerate('AB'):
-        port = getattr(config, 'bc_' + side)
-        source._grid_kinds.ports[index] = (native._Kind * 4)(
-            *(grid_kind(getattr(port, name)) if port.in_w > 0. and port.out_w > 0.
-              else native._Kind(64, 0, 0) for name in ('in_ctr', 'in_w', 'out_ctr', 'out_w')))
     source._buffers = buffers
     return source
 
@@ -109,7 +96,8 @@ def _spatial_input(config, flow, buffers):
     regions = []
     for name, bounds, cell, wall in rows:
         regions.append(native._Region(borrow_text(name, buffers),
-            (native._GridScalar * 4)(*map(_native_grid._scalar, bounds)), cell, wall, host._kind(cell), host._kind(wall)))
+            (native._D * 4)(*(_real(item, 'zone bounds') for item in bounds)),
+            _real(cell, 'zone L_mm'), _real(wall, 'zone t_mm')))
     regions = (native._Region * len(regions))(*regions)
     buffers.append(regions)
     values = flow.values
@@ -117,18 +105,18 @@ def _spatial_input(config, flow, buffers):
     zoned = native._ZonedInput(5, ct.sizeof(native._ZonedInput), values,
         int(zones.axis == 'grid'), int(zones.axis == 'y'), regions, len(regions))
     if sigmoid:
-        decision = np.asarray(zones.pareto_x_decision, dtype=np.float64)
+        decision = real_array(zones.pareto_x_decision, name='pareto_x_decision', allow_nonfinite=True)
         buffers.append(decision)
         controls = native._SigmoidControls(native._Array(decision.ctypes.data_as(ct.POINTER(native._D)), decision.size),
-            _native_grid._scalar(zones.pareto_y_trans_inlet), _native_grid._scalar(zones.pareto_y_trans_outlet))
+            _real(zones.pareto_y_trans_inlet, 'pareto_y_trans_inlet'),
+            _real(zones.pareto_y_trans_outlet, 'pareto_y_trans_outlet'))
         zoned = native._SigmoidInput(6, ct.sizeof(native._SigmoidInput), zoned, controls, native._LUTView())
         flow_type, host_type = native._SigmoidFlowInput, native._SigmoidHostInput
     else:
         flow_type, host_type = native._ZonedFlowInput, native._ZonedHostInput
-    spatial_flow = flow_type(8, ct.sizeof(flow_type), zoned, flow.physical_depth_kind,
-        flow.target_kinds, flow.have_explicit_targets, flow.explicit_targets_kg_s)
+    spatial_flow = flow_type(8, ct.sizeof(flow_type), zoned, flow.have_explicit_targets, flow.explicit_targets_kg_s)
     source = host_type(9, ct.sizeof(host_type), spatial_flow,
-        native._SpatialModel(model['k_s'], host._kind(model['k_s']), bool(config.extrap.allow), sigmoid))
+        native._SpatialModel(_real(model['k_s'], 'k_s'), bool(config.extrap.allow), sigmoid))
     source._zone_error = zone_error
     return source
 
@@ -187,10 +175,10 @@ def _case(result, config, case_id, side_geometry=None, pore_porosity=None, extra
     for name in ('x_breaks', 'y_breaks'):
         grid[name] = grid[name].tolist()
     grid.update(dimension=2, axis_order=('x', 'y'), length_unit='m')
-    design = {key: copy_array(getattr(value, name), shape, precision=result.prepared.field_kinds[index].precision)
-              for index, (name, key) in enumerate((
+    design = {key: copy_array(getattr(value, name), shape)
+              for name, key in (
                   ('cell_length', 'L_field_m'), ('wall_thickness', 't_field_m'), ('total_porosity', 'eps_arr'),
-                  ('solid_conductivity', 'K_ss_arr'), ('hydraulic_radius', 'r_h_arr')))}
+                  ('solid_conductivity', 'K_ss_arr'), ('hydraulic_radius', 'r_h_arr'))}
     if continuous:
         eps_f = (copy_array(pore_porosity, shape) if pore_porosity is not None else
                  _native_geometry.split_fields(design['eps_arr'], .5)['epsilon_A'])
@@ -212,16 +200,12 @@ def _case(result, config, case_id, side_geometry=None, pore_porosity=None, extra
             for zone_index, region in enumerate(result.regions[:result.region_count]):
                 descriptor = region.region
                 row = dict(name=read_text(descriptor.name),
-                    y_frac_start=_native_grid._restore(descriptor.bounds[0]),
-                    y_frac_end=_native_grid._restore(descriptor.bounds[1]),
-                    L_mm=host._restore(descriptor.cell_length_mm, descriptor.cell_kind),
-                    t_mm=host._restore(descriptor.wall_thickness_mm, descriptor.wall_kind))
+                    y_frac_start=descriptor.bounds[0], y_frac_end=descriptor.bounds[1],
+                    L_mm=descriptor.cell_length_mm, t_mm=descriptor.wall_thickness_mm)
                 for index, side in enumerate('AB'):
                     properties = host._geometry_values(region.property_geometry[index])
                     for name, key in (*host._PROPERTY_NAMES, ('solid_conductivity_W_mK', 'K_ss')):
-                        column = [item[0] for item in native._Properties._fields_].index(name)
-                        properties[key] = host._restore(getattr(region.properties[index], name),
-                                                          region.property_kinds[index][column])
+                        properties[key] = getattr(region.properties[index], name)
                     row['props_' + side] = properties
                 zone_rows.append(row)
                 properties = row['props_A']
@@ -241,7 +225,6 @@ def _case(result, config, case_id, side_geometry=None, pore_porosity=None, extra
     co2_geometry = bool(result.prepared.co2.active)
     for name in (('epsilon', 'epsilon_A', 'epsilon_B', 'A_0', 'D_h') if co2_geometry else ('A_0', 'D_h')):
         uniform[name] = np.float64(uniform[name])
-    uniform['K_ss'] = host._restore(value.uniform_solid_conductivity, result.prepared.property_kinds[0][12])
     thermal = dict(uniform=uniform, fields=None, split_A=value.split_a, side_geometry=None)
     if thermal_sides is not None and thermal_sides.have_side_geometry:
         thermal['side_geometry'] = {side: tuple(thermal_sides.side_geometry[index]) for index, side in enumerate('AB')}
@@ -258,8 +241,7 @@ def _case(result, config, case_id, side_geometry=None, pore_porosity=None, extra
         u_A=config.fluid_A.u_mps, u_B=config.fluid_B.u_mps,
         T_inA=config.fluid_A.T_in_K, T_inB=config.fluid_B.T_in_K, T_s_init=config.solver.T_s_init_K,
         envelope_mode=getattr(config, 'envelope_mode', 'raise'), tpms_type=geometry.tpms,
-        L_cell_m=host._restore(value.cell_length_m, result.prepared.input_kinds.cell_length),
-        t_wall_m=host._restore(value.wall_thickness_m, result.prepared.input_kinds.wall_thickness),
+        L_cell_m=value.cell_length_m, t_wall_m=value.wall_thickness_m,
         k_s=geometry.k_s_W_mK, eps=uniform['epsilon'], r_h=np.float64(value.hydraulic_radius_m),
         z_axis='continuous' if continuous else 'y',
         continuous_field=dict(config.zones.config) if continuous else None,
@@ -278,8 +260,7 @@ def _case(result, config, case_id, side_geometry=None, pore_porosity=None, extra
     for index, side in enumerate('AB'):
         inlet = value.sides[index]
         native_port = inlet.inlet.port
-        cross = geometry.H_dom_m if native_port.direction < 2 else geometry.L_dom_m
-        port = host.prepared_port(getattr(config, 'bc_' + side), cross, native_port.direction,
+        port = host.prepared_port(native_port.direction,
             (native_port.inlet_center_m, native_port.outlet_center_m),
             (native_port.inlet_width_m, native_port.outlet_width_m))
         if native_port.uniform_inlet:
@@ -305,8 +286,7 @@ def _case(result, config, case_id, side_geometry=None, pore_porosity=None, extra
                           ('permeability_m2', 'K_df'), ('forchheimer_per_m', 'cF_df'),
                           ('pressure_gradient_Pa_m', 'dP_per_L'), ('surface_transfer_W_m2K', 'H_sf'),
                           ('fluid_conductivity_W_mK', 'K_ff'), ('solid_conductivity_W_mK', 'K_ss')):
-            column = [item[0] for item in native._Properties._fields_].index(name)
-            properties[key] = host._restore(getattr(inlet.properties, name), result.prepared.property_kinds[index][column])
+            properties[key] = getattr(inlet.properties, name)
         params['static_properties'][side] = properties
     params['static_properties']['geometry'] = uniform
     refs = tuple(ModelRef(read_text(model.name), read_text(model.version),
@@ -343,10 +323,10 @@ def _execute(config, operation, *, targets=None, case_id=None, start_observation
     def geometry_cache(action, value):
         return bridge.geometry(action, geometry_key, value)
 
-    def inlet_cache(action, side, inlet, speed_kind, value):
+    def inlet_cache(action, side, inlet, value):
         if not action:
             fluid = getattr(config, 'fluid_' + 'AB'[side])
-            speed = host._restore(inlet.velocity_m_s, speed_kind) if (
+            speed = inlet.velocity_m_s if (
                 targets is not None or fluid.mass_flow_kg_s is not None) else fluid.u_mps
             cache_keys[side] = (*geometry_key[:3], speed, fluid.T_in_K, fluid.P_in_Pa,
                                 fluid.type, config.sco2_nu, co2)
@@ -372,8 +352,7 @@ def _execute(config, operation, *, targets=None, case_id=None, start_observation
                   speed, fluid.T_in_K, fluid.P_in_Pa, config.sco2_nu,
                   'co2' in (config.fluid_A.type, config.fluid_B.type)))
         elif stage == 3:
-            if source._grid_error is not None:
-                raise TypeError(source._grid_error)
+            pass
         elif stage == 4:
             if config.zones.axis != 'grid' and config.zones.config is None:
                 raise ValueError('Enabled 1D zones require a ZoneConfig')
@@ -404,7 +383,7 @@ def _execute(config, operation, *, targets=None, case_id=None, start_observation
         else:
             flow = result.flow if hasattr(result, 'flow') else result
         if operation == 'prepare_inlet_mass_capacities':
-            return {side: _native_flow._restore(flow.capacities[index]) for index, side in enumerate('AB')}
+            return {side: flow.capacities[index] for index, side in enumerate('AB')}
         resolved = host.resolved_flow_config(config, flow, targets)
         if operation == 'resolve_inlet_flow':
             return resolved

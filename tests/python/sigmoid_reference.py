@@ -1,41 +1,49 @@
-"""Independent sigmoid bodies from the pre-port source at 8f850367.
+"""Independent float64 sigmoid bodies from the pre-port source at 8f850367.
 
-Keep source operation order and weak scalar types. Production math does not
-supply expected values. The locked SciPy RGI supplies the LUT reference.
+Keep source operation order in float64. Production math does not supply
+expected values. The locked SciPy RGI supplies the LUT reference.
 """
 import numpy as np
 from scipy.interpolate import RegularGridInterpolator
 
 
 def _sigmoid(x, center, width):
-    return 1.0 / (1.0 + np.exp(np.clip(-(x - center) / width, -50, 50)))
+    arr = np.asarray(x, dtype=np.float64)
+    return 1.0 / (1.0 + np.exp(np.clip(-(arr - float(center)) / float(width), -50.0, 50.0)))
 
 
 def _blend_1d(x, boundaries, values, width):
-    result = values[0].copy() if hasattr(values[0], 'copy') else np.full_like(x, values[0])
+    arr = np.asarray(x, dtype=np.float64)
+    result = (np.asarray(values[0], dtype=np.float64).copy()
+              if hasattr(values[0], 'copy') else np.full_like(arr, float(values[0])))
     for index, boundary in enumerate(boundaries):
-        alpha = _sigmoid(x, boundary, width)
-        following = values[index + 1] if hasattr(values[index + 1], 'copy') else np.full_like(x, values[index + 1])
+        alpha = _sigmoid(arr, boundary, width)
+        following = (np.asarray(values[index + 1], dtype=np.float64).copy()
+                     if hasattr(values[index + 1], 'copy') else np.full_like(arr, float(values[index + 1])))
         result = result * (1.0 - alpha) + following * alpha
     return result
 
 
 def sigmoid_field_2d(XF, YF, ctrl_inlet, ctrl_outlet, val_uniform,
                      y_trans_in, y_trans_out, width_x=.05, width_y=.02):
-    first = _sigmoid(XF, 1.0 / 3, width_x)
-    second = _sigmoid(XF, 2.0 / 3, width_x)
+    xf = np.asarray(XF, dtype=np.float64)
+    yf = np.asarray(YF, dtype=np.float64)
+    inlet = np.asarray(ctrl_inlet, dtype=np.float64)
+    outlet = np.asarray(ctrl_outlet, dtype=np.float64)
+    first = _sigmoid(xf, 1.0 / 3, width_x)
+    second = _sigmoid(xf, 2.0 / 3, width_x)
     def xblend(row):
-        value = np.full_like(XF, row[0])
-        value = value + (row[1] - value) * first
-        value = value + (row[2] - value) * second
+        value = np.full_like(xf, float(row[0]))
+        value = value + (float(row[1]) - value) * first
+        value = value + (float(row[2]) - value) * second
         return value
-    layers = [xblend(ctrl_inlet[row]) for row in range(3)]
-    layers.append(np.full_like(XF, val_uniform))
-    layers.extend(xblend(ctrl_outlet[row]) for row in range(3))
-    di, dout = y_trans_in / 3.0, y_trans_out / 3.0
-    boundaries = [di, 2 * di, y_trans_in, 1.0 - y_trans_out,
-                  1.0 - y_trans_out + dout, 1.0 - y_trans_out + 2 * dout]
-    return _blend_1d(YF, boundaries, layers, width_y)
+    layers = [xblend(inlet[row]) for row in range(3)]
+    layers.append(np.full_like(xf, float(val_uniform)))
+    layers.extend(xblend(outlet[row]) for row in range(3))
+    di, dout = float(y_trans_in) / 3.0, float(y_trans_out) / 3.0
+    boundaries = [di, 2 * di, float(y_trans_in), 1.0 - float(y_trans_out),
+                  1.0 - float(y_trans_out) + dout, 1.0 - float(y_trans_out) + 2 * dout]
+    return _blend_1d(yf, boundaries, layers, width_y)
 
 
 class GeometryLUT:

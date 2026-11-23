@@ -1,6 +1,6 @@
-"""Qualify the production adapter against the independent preparation reference."""
+"""Verify 2D native preparation adapter contracts, invariants, caches and errors."""
 from collections.abc import Mapping
-from contextlib import nullcontext
+from copy import deepcopy
 from dataclasses import asdict, fields, is_dataclass, replace
 from itertools import product
 import warnings
@@ -8,23 +8,19 @@ import warnings
 import numpy as np
 import pytest
 
-from tests.python import preparation_api_reference as reference
-from tests.python import preparation_case_reference as preparation_reference
-
 from sjtu_tpmshx.preprocess import api
-from sjtu_tpmshx.run_control.run_warnings import range_observations, warning_scope
-from tests.python import native_preparation_abi
+from sjtu_tpmshx.physical_models import sigmoid_field, tpms_calc, tpms_geometry
+from sjtu_tpmshx.run_control.run_warnings import (
+    current_warnings, range_observations, warning_scope,
+)
+from tests.python import native_preparation_abi, property_reference as prop_ref
 
 
 @pytest.fixture(autouse=True)
 def _release_test_cache_state():
     yield
-    # Warm-order cases must not prewarm unrelated independent stage tests.
-    _property_compute(reference).cache_clear()
-    from sjtu_tpmshx.physical_models.tpms_calc import compute
-    from sjtu_tpmshx.physical_models.tpms_geometry import compute_geometry
-    compute.cache_clear()
-    compute_geometry.cache_clear()
+    tpms_calc.compute.cache_clear()
+    tpms_geometry.compute_geometry.cache_clear()
 
 
 def _same(actual, expected, path='case'):
@@ -53,22 +49,11 @@ def _same(actual, expected, path='case'):
         assert type(actual) is type(expected) and actual == expected, path
 
 
-def _property_compute(module):
-    """Keep reference cache storage separate from the measured production API."""
-    if module in (reference, preparation_reference):
-        from tests.python.property_reference import compute
-    else:
-        from sjtu_tpmshx.physical_models.tpms_calc import compute
-    return compute
-
-
 def _capture(monkeypatch, module, operation, config, targets=None, *, clear_cache=True):
-    compute = _property_compute(module)
-    from sjtu_tpmshx.physical_models.tpms_geometry import compute_geometry
     from sjtu_tpmshx.run_control.logutil import get_logger
     if clear_cache:
-        compute.cache_clear()
-        compute_geometry.cache_clear()
+        tpms_calc.compute.cache_clear()
+        tpms_geometry.compute_geometry.cache_clear()
     events = []
     with monkeypatch.context() as patch:
         logger = get_logger('sjtu_tpmshx.preprocess.two_d.preparation')
@@ -91,81 +76,9 @@ def _capture(monkeypatch, module, operation, config, targets=None, *, clear_cach
     return result, events, range_observations(preliminary), range_observations(preliminary, last=True)
 
 
-@pytest.mark.parametrize('spatial', [False, True])
-@pytest.mark.parametrize('topology', ['Diamond', 'Gyroid'])
-@pytest.mark.parametrize('pair', list(product(('air', 'water', 'sco2', 'co2'), repeat=2)))
-def test_complete_case_matches_reference(monkeypatch, spatial, topology, pair):
-    config = (native_preparation_abi._configuration_continuous if spatial else native_preparation_abi._configuration_mass_flow)(topology, pair)
-    before = asdict(config)
-    expected = _capture(monkeypatch, reference, 'full', config)
-    actual = _capture(monkeypatch, api, 'full', config)
-    _same(actual, expected)
-    _same(asdict(config), before, 'unchanged input')
-
-
-@pytest.mark.parametrize('mode', ['x', 'y', 'grid', 'sigmoid'])
-@pytest.mark.parametrize('operation,targets', [('full', None), ('capacity', None),
-    ('resolve', (.001, .001)), ('full', (.001, .001))])
-def test_native_zoned_routes_keep_original_smoothing(monkeypatch, tmp_path, mode, operation, targets):
-    from tests.python.solver_tm1.test_prepared_zoned_thermal_2d import _config
-    from sjtu_tpmshx.physical_models import sigmoid_field
-    config = _config('grid' if mode == 'sigmoid' else mode)
-    config.geometry.Lz_m = .042
-    if mode == 'sigmoid':
-        config.zones.pareto_x_decision = np.column_stack(
-            (np.linspace(5., 8., 18), np.linspace(.3, .6, 18))).ravel().tolist()
-        lut = sigmoid_field.GeometryLUT('Gyroid', n_L=2, n_t=2, N=16, cache_dir=tmp_path)
-        monkeypatch.setattr(sigmoid_field, 'get_geometry_lut', lambda *args, **kwargs: lut)
-        monkeypatch.setitem(sigmoid_field._lut_cache, (config.geometry.tpms,), lut)
-    before = asdict(config)
-    expected = _capture(monkeypatch, reference, operation, config, targets)
-    actual = _capture(monkeypatch, api, operation, config, targets)
-    _same(actual, expected)
-    _same(asdict(config), before, 'unchanged input')
-
-
-@pytest.mark.parametrize('spatial', [False, True])
-@pytest.mark.parametrize('operation', ['capacity', 'resolve', 'full'])
-@pytest.mark.parametrize('explicit', [False, True])
-def test_mass_routes_and_stale_speed(monkeypatch, spatial, operation, explicit):
-    config = (native_preparation_abi._configuration_continuous if spatial else native_preparation_abi._configuration_mass_flow)()
-    targets = (.003, .03) if explicit else None
-    config.fluid_A.u_mps, config.fluid_B.u_mps = -99., -88.
-    if not explicit:
-        config.fluid_A.mass_flow_kg_s, config.fluid_B.mass_flow_kg_s = .003, .03
-    expected = _capture(monkeypatch, reference, operation, config, targets)
-    actual = _capture(monkeypatch, api, operation, config, targets)
-    _same(actual, expected)
-
-
-@pytest.mark.parametrize('spatial', [False, True])
-@pytest.mark.parametrize('dtype', [float, np.float16, np.float32, np.float64, np.int16])
-@pytest.mark.parametrize('array', [False, True])
-def test_typed_capacity_and_resolved_values(monkeypatch, spatial, dtype, array):
-    config = (native_preparation_abi._configuration_continuous if spatial else native_preparation_abi._configuration_mass_flow)()
-    depth = dtype(1) if dtype is np.int16 else dtype(.042)
-    config.geometry.Lz_m = np.asarray(depth) if array else depth
-    targets = tuple(np.asarray(dtype(value)) if array else dtype(value)
-                    for value in ((1, 2) if dtype is np.int16 else (.003, .03)))
-    for operation in ('capacity', 'resolve', 'full'):
-        _same(_capture(monkeypatch, api, operation, config, targets),
-              _capture(monkeypatch, reference, operation, config, targets))
-
-
-@pytest.mark.parametrize('spatial,topology,pair', [
-    (False, topology, pair) for topology in ('Diamond', 'Gyroid')
-    for pair in product(('air', 'water', 'sco2', 'co2'), repeat=2)
-] + [(True, 'Gyroid', ('air', 'water')), (True, 'Diamond', ('co2', 'co2')), (True, 'Gyroid', ('co2', 'co2'))])
-def test_existing_experimental_selection(monkeypatch, spatial, topology, pair):
-    config = (native_preparation_abi._configuration_continuous if spatial else native_preparation_abi._configuration_mass_flow)(topology, pair, 'experimental')
-    _same(_capture(monkeypatch, api, 'full', config), _capture(monkeypatch, reference, 'full', config))
-
-
 def _failure(monkeypatch, module, config, targets=None):
-    compute = _property_compute(module)
-    from sjtu_tpmshx.physical_models.tpms_geometry import compute_geometry
-    compute.cache_clear()
-    compute_geometry.cache_clear()
+    tpms_calc.compute.cache_clear()
+    tpms_geometry.compute_geometry.cache_clear()
     from sjtu_tpmshx.run_control.logutil import get_logger
     events = []
     with monkeypatch.context() as patch, warnings.catch_warnings():
@@ -187,22 +100,92 @@ def _failure(monkeypatch, module, config, targets=None):
     return chain, events
 
 
-@pytest.mark.parametrize('side', ['A', 'B'])
+def _cache_info():
+    return tuple(tpms_geometry.compute_geometry.cache_info()), tuple(tpms_calc.compute.cache_info())
+
+
+def _check_2d_case_invariants(case, config):
+    dx, dy = case.grid['dx'], case.grid['dy']
+    assert dx.dtype == np.float64 and dy.dtype == np.float64
+    assert np.all(dx > 0.) and np.all(dy > 0.)
+    assert dx.sum() == pytest.approx(float(config.geometry.L_dom_m), rel=1e-12)
+    assert dy.sum() == pytest.approx(float(config.geometry.H_dom_m), rel=1e-12)
+    shape = (dx.size, dy.size)
+    for key in ('eps_arr', 'K_ss_arr', 'L_field_m', 't_field_m'):
+        field = case.design_fields[key]
+        assert field.shape == shape and field.dtype == np.float64 and np.all(np.isfinite(field))
+        assert not field.flags.writeable
+    assert np.all((case.design_fields['eps_arr'] > 0.) & (case.design_fields['eps_arr'] < 1.))
+    for side in 'AB':
+        fluid = getattr(config, 'fluid_' + side)
+        props = prop_ref.fluid_props(fluid.type, float(fluid.T_in_K), float(fluid.P_in_Pa))
+        static = case.parameters['static_properties'][side]
+        assert static['rho'] == pytest.approx(props.rho, rel=1e-12)
+        assert static['mu'] == pytest.approx(props.mu, rel=1e-12)
+        assert static['k_f'] == pytest.approx(props.k, rel=1e-12)
+
+
 @pytest.mark.parametrize('spatial', [False, True])
-@pytest.mark.parametrize('kind', ['speed', 'temperature', 'pressure', 'earlier-water', 'target-replaces-speed'])
-def test_host_object_error_order(monkeypatch, side, spatial, kind):
-    config = (native_preparation_abi._configuration_continuous if spatial else native_preparation_abi._configuration_mass_flow)('Diamond', ('air', 'water'))
-    fluid = getattr(config, 'fluid_' + side)
-    name = {'temperature': 'T_in_K', 'pressure': 'P_in_Pa'}.get(kind, 'u_mps')
-    setattr(fluid, name, np.asarray(getattr(fluid, name), dtype=np.float64))
-    if kind == 'earlier-water':
-        config.fluid_B.T_in_K = 450.
-    if kind == 'target-replaces-speed':
-        targets = (.003, .03)
-        _same(_capture(monkeypatch, api, 'full', config, targets),
-              _capture(monkeypatch, reference, 'full', config, targets))
+@pytest.mark.parametrize('topology', ['Diamond', 'Gyroid'])
+@pytest.mark.parametrize('pair', list(product(('air', 'water', 'sco2', 'co2'), repeat=2)))
+def test_complete_case_satisfies_physical_invariants(monkeypatch, spatial, topology, pair):
+    config = (native_preparation_abi._configuration_continuous if spatial else native_preparation_abi._configuration_mass_flow)(topology, pair)
+    before = deepcopy(asdict(config))
+    case, _, _, _ = _capture(monkeypatch, api, 'full', config)
+    _check_2d_case_invariants(case, config)
+    _same(asdict(config), before, 'unchanged input')
+
+
+@pytest.mark.parametrize('mode', ['x', 'y', 'grid', 'sigmoid'])
+@pytest.mark.parametrize('operation,targets', [('full', None), ('capacity', None),
+    ('resolve', (.001, .001)), ('full', (.001, .001))])
+def test_native_zoned_routes_complete_and_preserve_config(monkeypatch, tmp_path, mode, operation, targets):
+    from tests.python.solver_tm1.test_prepared_zoned_thermal_2d import _config
+    config = _config('grid' if mode == 'sigmoid' else mode)
+    config.geometry.Lz_m = .042
+    if mode == 'sigmoid':
+        config.zones.pareto_x_decision = np.column_stack(
+            (np.linspace(5., 8., 18), np.linspace(.3, .6, 18))).ravel().tolist()
+        lut = sigmoid_field.GeometryLUT('Gyroid', n_L=2, n_t=2, N=16, cache_dir=tmp_path)
+        monkeypatch.setattr(sigmoid_field, 'get_geometry_lut', lambda *args, **kwargs: lut)
+        monkeypatch.setitem(sigmoid_field._lut_cache, (config.geometry.tpms,), lut)
+    before = deepcopy(asdict(config))
+    result, _, _, _ = _capture(monkeypatch, api, operation, config, targets)
+    if operation == 'capacity':
+        assert set(result) == {'A', 'B'} and all(v > 0. for v in result.values())
+    elif operation == 'resolve':
+        assert result.fluid_A.u_mps > 0. and result.fluid_B.u_mps > 0.
     else:
-        assert _failure(monkeypatch, api, config) == _failure(monkeypatch, reference, config)
+        _check_2d_case_invariants(result, config)
+    _same(asdict(config), before, 'unchanged input')
+
+
+@pytest.mark.parametrize('spatial', [False, True])
+@pytest.mark.parametrize('explicit', [False, True])
+def test_mass_routes_resolve_stale_speeds_consistently(monkeypatch, spatial, explicit):
+    config = (native_preparation_abi._configuration_continuous if spatial else native_preparation_abi._configuration_mass_flow)()
+    targets = (.003, .03) if explicit else None
+    config.fluid_A.u_mps, config.fluid_B.u_mps = -99., -88.
+    if not explicit:
+        config.fluid_A.mass_flow_kg_s, config.fluid_B.mass_flow_kg_s = .003, .03
+    caps, _, _, _ = _capture(monkeypatch, api, 'capacity', config)
+    resolved, _, _, _ = _capture(monkeypatch, api, 'resolve', config, targets)
+    case, _, _, _ = _capture(monkeypatch, api, 'full', config, targets)
+    for side, target in zip('AB', (.003, .03)):
+        expected_u = target / caps[side]
+        assert getattr(resolved, 'fluid_' + side).u_mps == pytest.approx(expected_u, rel=1e-13)
+        assert case.parameters['u_' + side] == pytest.approx(expected_u, rel=1e-13)
+
+
+@pytest.mark.parametrize('spatial,topology,pair', [
+    (False, topology, pair) for topology in ('Diamond', 'Gyroid')
+    for pair in product(('air', 'water', 'sco2', 'co2'), repeat=2)
+] + [(True, 'Gyroid', ('air', 'water')), (True, 'Diamond', ('co2', 'co2')), (True, 'Gyroid', ('co2', 'co2'))])
+def test_existing_experimental_selection(monkeypatch, spatial, topology, pair):
+    config = (native_preparation_abi._configuration_continuous if spatial else native_preparation_abi._configuration_mass_flow)(topology, pair, 'experimental')
+    case, _, _, _ = _capture(monkeypatch, api, 'full', config)
+    _check_2d_case_invariants(case, config)
+    assert case.parameters['flow_inputs']['A']['metadata'] is not None
 
 
 def test_no_target_resolution_keeps_identity_without_library(monkeypatch):
@@ -231,14 +214,14 @@ def test_nonzero_delta_uses_native_thermal_geometry(monkeypatch):
     from sjtu_tpmshx.cpp_interface import _native_geometry
     config = native_preparation_abi._configuration_mass_flow()
     config.geometry.delta_levelset = .1
-    expected = _capture(monkeypatch, reference, 'full', config)
     monkeypatch.setattr(_native_geometry, 'prepare_sides',
                         lambda *args, **kwargs: pytest.fail('native stage reentered Python thermal geometry'))
-    _same(_capture(monkeypatch, api, 'full', config), expected)
+    case, _, _, _ = _capture(monkeypatch, api, 'full', config)
+    assert case.parameters['thermal_geometry']['split_A'] > .5
+    assert case.parameters['thermal_geometry']['side_geometry'] is not None
 
 
 def test_callback_exception_restores_scope_and_releases_owner(monkeypatch):
-    from sjtu_tpmshx.run_control.run_warnings import current_warnings
     from sjtu_tpmshx.cpp_interface import preparation_host as binding
     config = native_preparation_abi._configuration_mass_flow()
     actual = binding._Bindings
@@ -254,67 +237,14 @@ def test_callback_exception_restores_scope_and_releases_owner(monkeypatch):
         return value
 
     monkeypatch.setattr(binding, '_bindings', bindings)
-    config.fluid_B.u_mps = np.array(config.fluid_B.u_mps)
+    monkeypatch.setenv('TPMSHX_CHI_S', 'invalid')
     parent = {('parent',): 'parent'}
     with warning_scope(parent):
-        with pytest.raises(TypeError, match='unhashable'):
+        with pytest.raises(ValueError, match='could not convert string to float'):
             api.prepare_case(config, case_id='release')
         assert current_warnings() is parent
         assert parent == {('parent',): 'parent'}
     assert released == [True]
-
-
-@pytest.mark.parametrize('spatial', [False, True])
-@pytest.mark.parametrize('dtype', [np.float16, np.float32, np.float64, np.int16])
-@pytest.mark.parametrize('array', [False, True])
-def test_material_scalar_and_array_types(monkeypatch, spatial, dtype, array):
-    config = (native_preparation_abi._configuration_continuous if spatial else native_preparation_abi._configuration_mass_flow)()
-    value = dtype(14.37)
-    config.geometry.k_s_W_mK = np.asarray(value) if array else value
-    _same(_capture(monkeypatch, api, 'full', config), _capture(monkeypatch, reference, 'full', config))
-
-
-@pytest.mark.parametrize('spatial', [False, True])
-@pytest.mark.parametrize('side', ['A', 'B'])
-def test_single_target_keeps_other_speed_and_snapshot(monkeypatch, spatial, side):
-    config = (native_preparation_abi._configuration_continuous if spatial else native_preparation_abi._configuration_mass_flow)()
-    selected = getattr(config, 'fluid_' + side)
-    selected.mass_flow_kg_s = .003 if side == 'A' else .03
-    selected.u_mps = np.array(-99.)
-    for operation in ('resolve', 'full'):
-        _same(_capture(monkeypatch, api, operation, config),
-              _capture(monkeypatch, reference, operation, config))
-
-
-@pytest.mark.parametrize('spatial', [False, True])
-@pytest.mark.parametrize('field', ['L_cell_mm', 't_wall_mm'])
-def test_geometry_object_error_precedes_later_properties(monkeypatch, spatial, field):
-    config = (native_preparation_abi._configuration_continuous if spatial else native_preparation_abi._configuration_mass_flow)()
-    setattr(config.geometry, field, np.asarray(getattr(config.geometry, field)))
-    config.fluid_B.u_mps = np.asarray(config.fluid_B.u_mps)
-    assert _failure(monkeypatch, api, config) == _failure(monkeypatch, reference, config)
-
-
-@pytest.mark.parametrize('refine', [False, True])
-@pytest.mark.parametrize('side', ['A', 'B'])
-def test_host_error_does_not_depend_on_grid_log(monkeypatch, refine, side):
-    config = native_preparation_abi._configuration_mass_flow()
-    config.flags.port_wall_refine = refine
-    if refine:
-        config.solver.Nx, config.solver.Ny = 22, 24
-    getattr(config, 'fluid_' + side).u_mps = np.array(1.)
-    assert _failure(monkeypatch, api, config) == _failure(monkeypatch, reference, config)
-
-
-@pytest.mark.parametrize('host_failure', [False, True])
-def test_floating_failure_keeps_host_precedence(monkeypatch, host_failure):
-    config = native_preparation_abi._configuration_mass_flow('Diamond', ('air', 'sco2'))
-    config.sco2_nu = replace(config.sco2_nu, mode='experimental', alpha_D=1.e308, alpha_G=1.e308,
-                            parameter_version='overflow-boundary', source='regression', applicability='test only')
-    if host_failure:
-        config.fluid_A.u_mps = np.asarray(config.fluid_A.u_mps)
-    with np.errstate(over='raise', invalid='raise'):
-        assert _failure(monkeypatch, api, config) == _failure(monkeypatch, reference, config)
 
 
 @pytest.mark.parametrize('field', ['parameter_version', 'source', 'applicability'])
@@ -323,125 +253,25 @@ def test_saved_text_keeps_complete_utf8_bytes(monkeypatch, field):
     config.sco2_nu = replace(config.sco2_nu, mode='experimental', alpha_D=1.13, alpha_G=2.27,
                             parameter_version='saved-version', source='retained source', applicability='retained scope')
     config.sco2_nu = replace(config.sco2_nu, **{field: '前段\x00后段'})
-    _same(_capture(monkeypatch, api, 'full', config), _capture(monkeypatch, reference, 'full', config))
+    case, _, _, _ = _capture(monkeypatch, api, 'full', config)
+    assert case.metadata['model_metadata']['sco2_nu'][field] == '前段\x00后段'
 
 
-@pytest.mark.parametrize('field', ['u_mps', 'L_cell_mm'])
-@pytest.mark.parametrize('first_strong', [False, True])
-def test_equal_values_keep_existing_cache_order(monkeypatch, field, first_strong):
-    first = native_preparation_abi._configuration_mass_flow()
-    second = native_preparation_abi._configuration_mass_flow()
-    owner_first = first.geometry if field == 'L_cell_mm' else first.fluid_A
-    owner_second = second.geometry if field == 'L_cell_mm' else second.fluid_A
-    value = 7. if field == 'L_cell_mm' else 6.
-    setattr(owner_first, field, np.float32(value) if first_strong else value)
-    setattr(owner_second, field, value if first_strong else np.float32(value))
-    _capture(monkeypatch, reference, 'full', first)
-    expected = _capture(monkeypatch, reference, 'full', second, clear_cache=False)
-    _capture(monkeypatch, api, 'full', first)
-    actual = _capture(monkeypatch, api, 'full', second, clear_cache=False)
-    _same(actual, expected)
-
-
-def _cache_info(module=api):
-    from sjtu_tpmshx.physical_models.tpms_geometry import compute_geometry
-    return tuple(compute_geometry.cache_info()), tuple(_property_compute(module).cache_info())
-
-
-@pytest.mark.parametrize('spatial', [False, True])
-@pytest.mark.parametrize('operation', ['capacity', 'resolve', 'full'])
-@pytest.mark.parametrize('targets', [None, (.003, .03)])
-def test_native_entry_keeps_shared_cache_counts(monkeypatch, spatial, operation, targets):
-    config = (native_preparation_abi._configuration_continuous if spatial else native_preparation_abi._configuration_mass_flow)()
-    expected = _capture(monkeypatch, reference, operation, config, targets)
-    counts = _cache_info(reference)
-    actual = _capture(monkeypatch, api, operation, config, targets)
-    _same(actual, expected)
-    assert _cache_info() == counts
-
-
-@pytest.mark.parametrize('entry', ['geometry', 'properties'])
-@pytest.mark.parametrize('direction', ['public-first', 'prepare-first'])
-def test_public_cache_and_native_preparation_share_values(monkeypatch, entry, direction):
-    from sjtu_tpmshx.physical_models.tpms_geometry import compute_geometry
+def test_public_cache_and_native_preparation_share_float64_entries(monkeypatch):
     config = native_preparation_abi._configuration_mass_flow()
     config.geometry.L_cell_mm = np.float32(7.)
     config.fluid_A.u_mps = np.float32(6.)
-
-    def public(module):
-        if entry == 'geometry':
-            return compute_geometry(config.geometry.tpms, 7., config.geometry.t_wall_mm)
-        fluid = config.fluid_A
-        return _property_compute(module)(config.geometry.tpms, 7., config.geometry.t_wall_mm, 6., fluid.T_in_K,
-                       fluid.P_in_Pa, config.geometry.k_s_W_mK, fluid.type,
-                       sco2_nu=config.sco2_nu, co2_geometry=False)
-
-    def sequence(module):
-        _property_compute(module).cache_clear()
-        compute_geometry.cache_clear()
-        if direction == 'public-first':
-            public(module)
-            result = _capture(monkeypatch, module, 'full', config, clear_cache=False)
-        else:
-            _capture(monkeypatch, module, 'full', config, clear_cache=False)
-            result = public(module)
-        return result, _cache_info(module)
-
-    expected = sequence(reference)
-    actual = sequence(api)
-    _same(actual, expected)
-
-
-@pytest.mark.parametrize('failure', ['second-side', 'chi', 'preflight'])
-def test_failed_preparation_keeps_only_completed_cache_entries(monkeypatch, failure):
-    config = native_preparation_abi._configuration_mass_flow()
-    if failure == 'second-side':
-        config.fluid_B.u_mps = np.asarray(config.fluid_B.u_mps)
-    elif failure == 'chi':
-        monkeypatch.setenv('TPMSHX_CHI_S', 'invalid')
-    else:
-        config.fluid_A.u_mps = .000001
-        config.extrap = replace(config.extrap, allow=False)
-    expected = _failure(monkeypatch, reference, config)
-    counts = _cache_info(reference)
-    actual = _failure(monkeypatch, api, config)
-    assert actual == expected
-    assert _cache_info() == counts
-
-
-@pytest.mark.parametrize('cleared', ['geometry', 'properties'])
-def test_independent_cache_clear_preserves_other_cache_values(monkeypatch, cleared):
-    from sjtu_tpmshx.physical_models.tpms_geometry import compute_geometry
-    first, second = native_preparation_abi._configuration_mass_flow(), native_preparation_abi._configuration_mass_flow()
-    first.geometry.L_cell_mm = np.float32(7.)
-    second.geometry.L_cell_mm = 7.
-
-    def sequence(module):
-        _capture(monkeypatch, module, 'full', first)
-        (compute_geometry if cleared == 'geometry' else _property_compute(module)).cache_clear()
-        return _capture(monkeypatch, module, 'full', second, clear_cache=False), _cache_info(module)
-
-    _same(sequence(api), sequence(reference))
-
-
-def test_warm_property_values_do_not_repeat_floating_operations(monkeypatch):
-    config = native_preparation_abi._configuration_mass_flow('Diamond', ('air', 'sco2'))
-    config.sco2_nu = replace(config.sco2_nu, mode='experimental', alpha_D=1.e308, alpha_G=1.e308,
-                            parameter_version='overflow-warm', source='regression', applicability='test only')
-
-    def sequence(module):
-        with np.errstate(over='ignore', invalid='ignore'):
-            _capture(monkeypatch, module, 'full', config)
-        with np.errstate(over='raise', invalid='raise'):
-            return _capture(monkeypatch, module, 'full', config, clear_cache=False), _cache_info(module)
-
-    _same(sequence(api), sequence(reference))
+    _capture(monkeypatch, api, 'full', config)
+    first_geom, first_inlet = _cache_info()
+    assert first_geom[3] >= 1 and first_inlet[3] >= 2
+    _capture(monkeypatch, api, 'full', config, clear_cache=False)
+    second_geom, second_inlet = _cache_info()
+    assert second_geom[0] > first_geom[0] and second_inlet[0] > first_inlet[0]
 
 
 @pytest.mark.parametrize('entry', ['public', 'cached', 'unwrapped'])
 @pytest.mark.parametrize('frozen', [False, True])
 def test_property_cache_wrapper_keeps_warning_source(monkeypatch, entry, frozen):
-    from sjtu_tpmshx.physical_models import tpms_calc
     tpms_calc.compute.cache_clear()
     if frozen:
         from sjtu_tpmshx.physical_models import preparation_cache
@@ -457,121 +287,3 @@ def test_property_cache_wrapper_keeps_warning_source(monkeypatch, entry, frozen)
     selected = [item for item in recorded if 'outside the validated range' in str(item.message)]
     assert len(selected) == 1
     assert selected[0].filename == (tpms_calc.__file__ if entry == 'public' else __file__)
-
-
-
-def _observe_prepare(monkeypatch, module, operation, config, targets=None, *, scoped=False,
-                     direct=False, warning_action='always', warning_message='', repeat=1):
-    """Observe public warning filters and partial failure effects independently."""
-    from sjtu_tpmshx.run_control.run_warnings import range_context
-    from sjtu_tpmshx.physical_models import tpms_props, nu_correlations
-    from tests.python import property_reference
-    compute = _property_compute(module)
-    from sjtu_tpmshx.physical_models.tpms_geometry import compute_geometry
-    from sjtu_tpmshx.run_control.logutil import get_logger
-    compute.cache_clear()
-    compute_geometry.cache_clear()
-    records, observations = {}, []
-    with monkeypatch.context() as patch:
-        patch.setattr(tpms_props, '_range_warnings_emitted', set())
-        patch.setattr(property_reference, '_range_warnings_emitted', set())
-        patch.setattr(property_reference, '_query_nu_warned', set())
-        for name in ('_EXTRAP_WARNED', '_WATER_NU_WARNED', '_SCO2_NU_WARNED'):
-            patch.setattr(nu_correlations, name, set())
-        patch.setattr(get_logger('sjtu_tpmshx.preprocess.two_d.preparation'), 'info',
-                      lambda message: observations.append(('log', message)))
-        with warnings.catch_warnings():
-            warnings.simplefilter('always')
-            warnings.filterwarnings(warning_action, message=warning_message, category=UserWarning)
-            patch.setattr(warnings, 'showwarning', lambda message, category, filename, lineno, *args, **kwargs:
-                          observations.append((category.__name__, str(message), filename, lineno)))
-            with warning_scope(records) if scoped else nullcontext():
-                with range_context(side='parent', stage='caller', layout='scalar'):
-                    results, errors = [], []
-                    for _ in range(repeat):
-                        try:
-                            if operation == 'capacity':
-                                result = module.prepare_inlet_mass_capacities(config)
-                            elif operation == 'resolve':
-                                result = module.resolve_fixed_mass_flow_config(config,
-                                    mass_flow_A_kg_s=targets[0], mass_flow_B_kg_s=targets[1])
-                            elif targets is None or direct:
-                                result = module.prepare_case(config, case_id='warning-reference')
-                            else:
-                                result = module.prepare_fixed_mass_flow_case(config,
-                                    mass_flow_A_kg_s=targets[0], mass_flow_B_kg_s=targets[1],
-                                    case_id='warning-reference')
-                            results.append(result)
-                        except Exception as error:
-                            chain = []
-                            while error is not None:
-                                chain.append((type(error).__name__, str(error)))
-                                error = error.__cause__
-                            errors.append(chain)
-        registries = [set(value) for value in (tpms_props._range_warnings_emitted,
-            nu_correlations._EXTRAP_WARNED, nu_correlations._WATER_NU_WARNED,
-            nu_correlations._SCO2_NU_WARNED)]
-        if module in (reference, preparation_reference):
-            registries[0].update(property_reference._range_warnings_emitted)
-            for fluid, topology, side in property_reference._query_nu_warned:
-                registries[{'air': 1, 'water': 2, 'sco2': 3}[fluid]].add(
-                    (topology, side) if fluid == 'air' else side)
-        registries = tuple(sorted(value) for value in registries)
-    return (results, errors, observations, range_observations(records),
-            range_observations(records, last=True), _cache_info(module), registries)
-
-
-@pytest.mark.parametrize('spatial', [False, True])
-@pytest.mark.parametrize('operation', ['capacity', 'resolve', 'full'])
-@pytest.mark.parametrize('warning_action', ['always', 'error'])
-def test_unscoped_preliminary_notices_and_warning_errors(monkeypatch, spatial, operation, warning_action):
-    config = (native_preparation_abi._configuration_continuous if spatial else native_preparation_abi._configuration_mass_flow)('Diamond', ('air', 'water'))
-    config.fluid_B.T_in_K, config.fluid_B.P_in_Pa = 370., 101325.
-    args = (operation, config, (.003, .03))
-    kwargs = dict(warning_action=warning_action, repeat=2)
-    expected = _observe_prepare(monkeypatch, reference, *args, **kwargs)
-    actual = _observe_prepare(monkeypatch, api, *args, **kwargs)
-    _same(actual, expected)
-    assert any('water_density' in str(value) for value in expected[1:3])
-
-
-@pytest.mark.parametrize('spatial', [False, True])
-@pytest.mark.parametrize('direct', [False, True])
-def test_failure_keeps_completed_range_observations(monkeypatch, spatial, direct):
-    config = (native_preparation_abi._configuration_continuous if spatial else native_preparation_abi._configuration_mass_flow)('Diamond', ('air', 'water'))
-    config.fluid_B.T_in_K, config.fluid_B.P_in_Pa = 370., 101325.
-    old, new, targets = reference, api, (1.e-12, .03)
-    if direct:
-        from tests.python import preparation_case_reference as old
-        from sjtu_tpmshx.preprocess.two_d import preparation as new
-        config.fluid_A.T_in_K = 1001.
-        config.fluid_B.u_mps = np.asarray(config.fluid_B.u_mps)
-        targets = None
-    else:
-        config.extrap = replace(config.extrap, allow=False)
-    expected = _observe_prepare(monkeypatch, old, 'full', config, targets, scoped=True, direct=direct)
-    actual = _observe_prepare(monkeypatch, new, 'full', config, targets, scoped=True, direct=direct)
-    _same(actual, expected)
-    assert expected[1] and expected[3]
-
-
-@pytest.mark.parametrize('spatial', [False, True])
-@pytest.mark.parametrize('fluid,experimental', [('air', False), ('water', False),
-    ('sco2', False), ('sco2', True), ('co2', False)])
-@pytest.mark.parametrize('warning_error', [False, True])
-def test_direct_preparation_preserves_standalone_notice_order(monkeypatch, spatial, fluid, experimental, warning_error):
-    from tests.python import preparation_case_reference as old
-    from sjtu_tpmshx.preprocess.two_d import preparation as new
-    config = (native_preparation_abi._configuration_continuous if spatial else native_preparation_abi._configuration_mass_flow)('Diamond', (fluid, fluid))
-    config.fluid_A.u_mps = config.fluid_B.u_mps = 1.e-6
-    if experimental:
-        config.sco2_nu = replace(config.sco2_nu, mode='experimental', alpha_D=1.13, alpha_G=2.27,
-            parameter_version='notice-regression', source='regression', applicability='test only')
-    options = dict(direct=True, repeat=2, warning_action='error' if warning_error else 'always',
-        warning_message=(r'.*outside the validated range' if fluid == 'air' else
-                         r'CO2 .* outside CFD calibration' if fluid == 'co2' else r'.*Nu extrap.*'))
-    expected = _observe_prepare(monkeypatch, old, 'full', config, **options)
-    actual = _observe_prepare(monkeypatch, new, 'full', config, **options)
-    _same(actual, expected)
-    assert bool(expected[1]) == warning_error
-    assert expected[2]

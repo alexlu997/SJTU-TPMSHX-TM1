@@ -1,7 +1,6 @@
 """C layouts for complete preparation and independent inlet-property queries."""
 import ctypes as ct
 
-from . import _native_flow
 from ._native_df import _Pressure as _DFPressure
 from ._native_properties import _Failure as _PropertyFailure
 from ._native_values import DoubleArray as _Array, Text as _Text
@@ -66,31 +65,25 @@ _ResultV1 = _structure('Result', [('abi_version', _U), ('struct_size', _S), ('in
 
 
 _struct = _structure
-_Kind = _struct('Kind', [(name, _U) for name in ('precision', 'strong', 'layout')])
-_GridKinds = _struct('GridKinds', [('abi_version', _U), ('struct_size', _S),
-    ('lengths', _Kind * 2), ('ports', (_Kind * 4) * 2)])
-_InletKinds = _struct('InletKinds', [(name, _Kind) for name in ('velocity', 'temperature', 'pressure')])
-_Kinds = _struct('Kinds', [(name, _Kind) for name in ('cell_length', 'wall_thickness', 'solid_conductivity')] + [('sides', _InletKinds * 2)])
 _Nu = _struct('Nu', [('mode', _U), ('have_alpha', _U * 2), ('alpha', _D * 2)] + [(name, _Text) for name in ('parameter_version', 'source', 'applicability')])
-_InputV2 = _struct('InputV2', [('abi_version', _U), ('struct_size', _S), ('values', _InputV1), ('sco2_nu', _Nu), ('kinds', _Kinds)])
+_InputV2 = _struct('InputV2', [('abi_version', _U), ('struct_size', _S), ('values', _InputV1), ('sco2_nu', _Nu)])
 _Selection = _struct('Selection', [(name, _U) for name in ('branch', 'campaign', 'scope', 'flags')] + _doubles('scale_K scale_F') + [(name, _D * 2) for name in ('application_u', 'calibration_u', 'runtime_u')])
 _TextField = _struct('TextField', [('key', _Text), ('value', _Text)])
 _Drag = _struct('Drag', [('have_selection', _U), ('selection', _Selection), ('application_scope', _Text), ('fluid', _Text), ('calibration', ct.POINTER(_TextField)), ('calibration_count', _S)])
 _Co2 = _struct('Co2', [('active', _U), ('sides', _U * 2)] + [(name, _Text) for name in ('version', 'application_version', 'pressure_model')] + _doubles('pressure_multiplier scale_K scale_F nu_multiplier nu_floor_multiplier') + [(name, _Text) for name in ('correction_source', 'property_model', 'common_geometry')] + [('re_range', _D * 2), ('pr_range', _D * 2)])
-_ResultV2 = _struct('ResultV2', [('abi_version', _U), ('struct_size', _S), ('values', _ResultV1), ('input_kinds', _Kinds), ('field_kinds', _Kind * 5), ('property_kinds', (_Kind * 13) * 2), ('sco2_nu', _Nu), ('sco2_nu_model_version', _Text), ('sco2_nu_interpretation', _Text), ('sco2_nu_coefficients', (_D * 3) * 2), ('drag', _Drag * 2), ('co2', _Co2), ('notices', ct.POINTER(_Text)), ('notice_count', _S), ('range_bounds_list', ct.POINTER(_U))])
+_ResultV2 = _struct('ResultV2', [('abi_version', _U), ('struct_size', _S), ('values', _ResultV1), ('sco2_nu', _Nu), ('sco2_nu_model_version', _Text), ('sco2_nu_interpretation', _Text), ('sco2_nu_coefficients', (_D * 3) * 2), ('drag', _Drag * 2), ('co2', _Co2), ('notices', ct.POINTER(_Text)), ('notice_count', _S), ('range_bounds_list', ct.POINTER(_U))])
 _Cause = _struct('Cause', [('kind', _U), ('message', ct.c_char * 4096)])
 _Failure = _struct('Failure', [('abi_version', _U), ('struct_size', _S)] + [(name, _U) for name in ('kind', 'side', 'have_property', 'cause_count')] + [('property', _PropertyFailure), ('causes', _Cause * 2)])
 _FLUIDS = ('air', 'water', 'sco2', 'co2')
 
 
 _FlowInput = _struct('FlowInput', [('abi_version', _U), ('struct_size', _S),
-    ('values', _InputV2), ('physical_depth_kind', _Kind), ('target_kinds', _Kind * 2),
-    ('have_explicit_targets', _U), ('explicit_targets_kg_s', _D * 2)])
+    ('values', _InputV2), ('have_explicit_targets', _U), ('explicit_targets_kg_s', _D * 2)])
 _Evidence = _struct('FlowEvidence', [('ranges', ct.POINTER(_Range)), ('range_count', _S),
     ('range_bounds_list', ct.POINTER(_U)), ('warnings', ct.POINTER(_Text)), ('warning_count', _S),
     ('events', ct.POINTER(_Event)), ('event_count', _S)])
 _Flow = _struct('FlowResult', [('abi_version', _U), ('struct_size', _S), ('input', _InputV2),
-    ('have_capacities', _U), ('capacities', _native_flow._Scalar * 2), ('speeds', _native_flow._Scalar * 2),
+    ('have_capacities', _U), ('capacities', _D * 2), ('speeds', _D * 2),
     ('evidence', _Evidence), ('owner', ct.c_void_p)])
 _FlowCase = _struct('FlowCase', [('abi_version', _U), ('struct_size', _S),
     ('prepared', _ResultV2), ('flow', _Flow), ('owner', ct.c_void_p)])
@@ -113,9 +106,9 @@ _HostFunction = ct.CFUNCTYPE(ct.c_int, ct.c_void_p, _U, _U)
 _HostCallbacks = _struct('HostCallbacks', [('values', _Callbacks), ('validate_host_input', _HostFunction)])
 _GeometryCache = _struct('GeometryCache', _doubles('epsilon epsilon_a epsilon_b area_density_per_m hydraulic_diameter_m'))
 _InletCache = _struct('InletCache', [('geometry', _GeometryCache), ('properties', _Properties),
-                                  ('kinds', _Kind * 13), ('evidence', _Evidence)])
+                                  ('evidence', _Evidence)])
 _GeometryCacheFunction = ct.CFUNCTYPE(ct.c_int, ct.c_void_p, _U, ct.POINTER(_GeometryCache), ct.POINTER(_U))
-_InletCacheFunction = ct.CFUNCTYPE(ct.c_int, ct.c_void_p, _U, _U, ct.POINTER(_Inlet), _Kind,
+_InletCacheFunction = ct.CFUNCTYPE(ct.c_int, ct.c_void_p, _U, _U, ct.POINTER(_Inlet),
                                  ct.POINTER(_InletCache), ct.POINTER(_U))
 _RangeFunction = ct.CFUNCTYPE(ct.c_int, ct.c_void_p, _U, ct.POINTER(_Range), _U, _U, _D)
 _NoticeFunction = ct.CFUNCTYPE(ct.c_int, ct.c_void_p, _U, _U, _D, _Text)
@@ -124,14 +117,13 @@ _CacheCallbacks = _struct('CacheCallbacks', [('values', _HostCallbacks),
     ('observe_range', _RangeFunction), ('observe_notice', _NoticeFunction)])
 
 
-_GridScalar = _native_flow._Scalar
-_Region = _struct('ZoneRegion', [('name', _Text), ('bounds', _GridScalar * 4),
-    ('cell_length_mm', _D), ('wall_thickness_mm', _D), ('cell_kind', _Kind), ('wall_kind', _Kind)])
+_Region = _struct('ZoneRegion', [('name', _Text), ('bounds', _D * 4),
+    ('cell_length_mm', _D), ('wall_thickness_mm', _D)])
 _ZonedInput = _struct('ZonedInput', [('abi_version', _U), ('struct_size', _S), ('values', _InputV2),
     ('kind', _U), ('axis', _U), ('regions', ct.POINTER(_Region)), ('region_count', _S)])
 _RegionValues = _struct('ZoneValues', [('region', _Region), ('geometry', _GeometryCache),
     ('property_geometry', _GeometryCache * 2), ('solid_conductivity', _D),
-    ('properties', _Properties * 2), ('property_kinds', (_Kind * 13) * 2)])
+    ('properties', _Properties * 2)])
 _ZonedCase = _struct('ZonedCase', [('abi_version', _U), ('struct_size', _S), ('prepared', _ResultV2),
     ('kind', _U), ('axis', _U), ('regions', ct.POINTER(_RegionValues)), ('region_count', _S),
     ('zone_id', ct.POINTER(ct.c_int32)), ('cell_count', _S),
@@ -141,13 +133,12 @@ _ZonedCase = _struct('ZonedCase', [('abi_version', _U), ('struct_size', _S), ('p
 _LUTView = _struct('SigmoidLUTView', [(name, _Array) for name in
     ('cell_mm', 'wall_mm', 'porosity', 'area_density_per_m')] + [('porosity_fast', _U), ('area_fast', _U)])
 _SigmoidControls = _struct('SigmoidControls', [('decision_mm', _Array),
-    ('inlet_transition', _GridScalar), ('outlet_transition', _GridScalar)])
+    ('inlet_transition', _D), ('outlet_transition', _D)])
 _SigmoidInput = _struct('SigmoidInput', [('abi_version', _U), ('struct_size', _S),
     ('values', _ZonedInput), ('controls', _SigmoidControls), ('lut', _LUTView)])
 _SigmoidCase = _struct('SigmoidCase', [('abi_version', _U), ('struct_size', _S),
     ('values', _ZonedCase), ('controls', _SigmoidControls), ('owner', ct.c_void_p)])
-_FlowOptions = [('physical_depth_kind', _Kind), ('target_kinds', _Kind * 2),
-                ('have_explicit_targets', _U), ('explicit_targets_kg_s', _D * 2)]
+_FlowOptions = [('have_explicit_targets', _U), ('explicit_targets_kg_s', _D * 2)]
 _ZonedFlowInput = _struct('ZonedFlowInput', [('abi_version', _U), ('struct_size', _S),
     ('values', _ZonedInput), *_FlowOptions])
 _SigmoidFlowInput = _struct('SigmoidFlowInput', [('abi_version', _U), ('struct_size', _S),
@@ -160,7 +151,7 @@ _ZonedFlowCase = _struct('ZonedFlowCase', [('abi_version', _U), ('struct_size', 
     ('prepared', _ZonedCase), ('flow', _ZonedFlow), ('owner', ct.c_void_p)])
 _SigmoidFlowCase = _struct('SigmoidFlowCase', [('abi_version', _U), ('struct_size', _S),
     ('prepared', _SigmoidCase), ('flow', _SigmoidFlow), ('owner', ct.c_void_p)])
-_SpatialModel = _struct('SpatialModel', [('solid_conductivity_W_mK', _D), ('solid_conductivity_kind', _Kind), ('allow_geometry_extrapolation', _U), ('load_default_lut', _U)])
+_SpatialModel = _struct('SpatialModel', [('solid_conductivity_W_mK', _D), ('allow_geometry_extrapolation', _U), ('load_default_lut', _U)])
 _ZonedHostInput = _struct('ZonedHostInput', [('abi_version', _U), ('struct_size', _S),
     ('values', _ZonedFlowInput), ('model', _SpatialModel)])
 _SigmoidHostInput = _struct('SigmoidHostInput', [('abi_version', _U), ('struct_size', _S),
@@ -184,10 +175,9 @@ _ContinuousGeometryCase = _struct('ContinuousGeometryCase', [('abi_version', _U)
     ('values', _ContinuousCase), ('design_pore_porosity', _Array), ('owner', ct.c_void_p)])
 _StripeGeometryCase = _struct('StripeGeometryCase', [('abi_version', _U), ('struct_size', _S),
     ('values', _OffsetZonedCase), ('region_hydraulic_radii_m', _Array), ('owner', ct.c_void_p)])
-_GeometryKey = _struct('GeometryKey', [('topology', _U), *_doubles('cell_length_mm wall_thickness_mm'),
-    ('cell_kind', _Kind), ('wall_kind', _Kind)])
+_GeometryKey = _struct('GeometryKey', [('topology', _U), *_doubles('cell_length_mm wall_thickness_mm')])
 _InletKey = _struct('InletKey', [('geometry', _GeometryKey), ('fluid', _U),
-    *_doubles('velocity_m_s temperature_K pressure_Pa'), ('kinds', _InletKinds),
+    *_doubles('velocity_m_s temperature_K pressure_Pa'),
     ('have_sco2_nu', _U), ('sco2_nu', _Nu), ('co2_geometry', _U)])
 _GeometryAtFunction = ct.CFUNCTYPE(ct.c_int, ct.c_void_p, _U, ct.POINTER(_GeometryKey),
                                  ct.POINTER(_GeometryCache), ct.POINTER(_U))
@@ -199,24 +189,26 @@ _KeyedCallbacks = _struct('KeyedCallbacks', [('values', _CacheCallbacks),
     ('sigmoid_lut_cache', _LUTCacheFunction)])
 
 
-_PropertyScalar = _struct('PropertyScalar', [*_doubles('real imaginary'), ('kind', _Kind), ('category', _U)])
 _InletQueryInput = _struct('InletQueryInput', [('abi_version', _U), ('struct_size', _S),
-    ('inlet', _InletKey), *_doubles('hydraulic_diameter_m epsilon_a'),
-    ('diameter_kind', _Kind), ('epsilon_kind', _Kind), ('exact_co2_drag', _U)])
+    ('inlet', _InletKey), *_doubles('hydraulic_diameter_m epsilon_a'), ('exact_co2_drag', _U)])
 _InletQueryResult = _struct('InletQueryResult', [('abi_version', _U), ('struct_size', _S),
-    ('values', _PropertyScalar * 12)])
+    ('values', _D * 12)])
 
 
-_QuickInputV2 = _struct('QuickInput', [('abi_version', _U), ('struct_size', _S), ('values', _GridScalar * 13),
+_QuickInputV2 = _struct('QuickInput', [('abi_version', _U), ('struct_size', _S), ('values', _D * 13),
     *((name, _Text) for name in ('topology', 'arrangement', 'property_mode')), ('fluids', _Text * 2),
     *((name, _U) for name in ('have_height', 'have_chi', 'strict')), ('chi', _D),
     ('warm_start', _U), ('initial_shape', _S * 3), ('initial', _Array * 3)])
 _QuickControls = _struct('QuickControls', [('dir_b', _U), *((name, _S) for name in ('ny', 'nz', 'max_iterations')),
     ('alpha', _D), ('q_relative_tolerance', _D), ('chunk_iterations', _S),
     ('have_q_relative_tolerance', _U), ('have_chunk_iterations', _U)])
+_QuickRange = _struct('QuickRange', [('label', ct.c_char_p), ('side', _U), ('bounds', _D * 2),
+    ('temperature_K', _D)])
+_QuickOutput = [('floating_events', _U * 4), ('ranges', _QuickRange * 8), ('range_count', _S)]
 _QuickPreparedV2 = _struct('QuickPrepared', [('abi_version', _U), ('struct_size', _S), ('owner', ct.c_void_p),
     ('shape', _S * 3), *((name, _Array * 3) for name in ('widths', 'edges', 'initial')),
-    ('width_precision', _U * 3), ('solid_precision', _U),
     *((name, _Array) for name in ('epsilon', 'epsilon_a', 'solid_conductivity')),
-    ('geometry', _GeometryCache), ('cell_length_m', _GridScalar), ('wall_thickness_m', _GridScalar),
-    ('fractions', _GridScalar * 2), ('controls', _QuickControls), ('inlet_pressure', _DFPressure * 2)])
+    ('geometry', _GeometryCache), ('cell_length_m', _D), ('wall_thickness_m', _D),
+    ('fractions', _D * 2), ('controls', _QuickControls), ('inlet_pressure', _DFPressure * 2), *_QuickOutput])
+_QuickPressureV2 = _struct('QuickPressure', [('abi_version', _U), ('struct_size', _S),
+    ('fractions', _D * 2), ('inlet_pressure', _DFPressure * 2), *_QuickOutput])

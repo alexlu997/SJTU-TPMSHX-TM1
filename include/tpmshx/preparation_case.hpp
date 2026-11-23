@@ -15,17 +15,6 @@
 
 namespace tpmshx::preparation {
 
-// These tags have the same meaning as the existing property input tags.
-struct ScalarKind {
-    std::uint32_t precision=64,strong=0,layout=0;
-};
-struct InletScalarKinds {
-    ScalarKind velocity,temperature,pressure;
-};
-struct CaseScalarKinds {
-    ScalarKind cell_length,wall_thickness,solid_conductivity;
-    std::array<InletScalarKinds,2> sides;
-};
 struct Sco2NuSelection {
     std::uint32_t mode=0;
     std::array<std::optional<double>,2> alpha;
@@ -36,7 +25,6 @@ struct PortInput2D {
     std::int32_t direction=0;
     double inlet_center_m=0.,inlet_width_m=0.,outlet_center_m=0.,outlet_width_m=0.;
     bool uniform_inlet=false;
-    std::array<ScalarKind,4> kinds{};
 };
 struct InletInput2D {
     Fluid fluid=Fluid::air;
@@ -48,7 +36,6 @@ struct GridInput2D {
     double length_m,height_m;
     std::size_t requested_nx,requested_ny;
     bool port_wall_refine=false;
-    std::array<ScalarKind,2> kinds{};
 };
 struct UniformGeometryInput {
     Topology topology;
@@ -70,13 +57,12 @@ struct CaseInput2D {
     // Geometry mode 1 requires continuous controls. DF 0/1 selects CFD/experiments.
     std::uint32_t geometry_mode=0,df_mode=0;
     Sco2NuSelection sco2_nu;
-    CaseScalarKinds kinds;
     std::optional<ContinuousControls2D> continuous;
     // Only the v10 interface enables the existing nonzero-offset scope.
     bool offset_scope=false;
 };
 struct GridInput3D {
-    std::array<grid::Scalar,3> lengths;
+    std::array<double,3> lengths;
     std::array<std::size_t,3> counts;
     std::size_t max_cells=2000000;
     bool port_wall_refine=false;
@@ -96,7 +82,7 @@ struct ContinuousControls3D {
     std::vector<double> decision_mm;
 };
 struct GridCell3D {
-    std::array<grid::Scalar,4> bounds;
+    std::array<double,4> bounds;
     double cell_length_mm,wall_thickness_mm;
 };
 struct CaseInput3D {
@@ -105,7 +91,6 @@ struct CaseInput3D {
     std::array<InletInput3D,2> sides;
     std::uint32_t geometry_mode=0,df_mode=0;
     Sco2NuSelection sco2_nu;
-    CaseScalarKinds kinds;
     std::optional<ContinuousControls3D> continuous;
     std::vector<GridCell3D> grid_cells;
 };
@@ -145,7 +130,6 @@ struct PreparedSide2D {
     std::vector<double> inlet_geometry,outlet_geometry,inlet_profile,outlet_profile,outlet_u_fraction;
     std::array<double,2> inlet_bounds{},outlet_bounds{};
     PreparationDragEvidence drag_evidence;
-    std::array<ScalarKind,13> property_kinds;
 };
 struct PreparationRangeSample {
     bool have_finite=false;
@@ -171,13 +155,11 @@ struct SigmoidLUT2D;
 struct PreparationGeometryKey {
     Topology topology;
     double cell_length_mm,wall_thickness_mm;
-    ScalarKind cell_kind,wall_kind;
 };
 struct PreparationInletKey {
     PreparationGeometryKey geometry;
     Fluid fluid;
     double velocity_m_s,temperature_K,pressure_Pa;
-    InletScalarKinds kinds;
     std::optional<Sco2NuSelection> sco2_nu;
     bool co2_geometry=false;
 };
@@ -189,7 +171,7 @@ struct PreparationCallbacks {
     void (*validate_host_input)(void*,std::uint32_t,std::uint32_t)=nullptr;
     // Cache hooks transport completed values. A miss uses the native calculation.
     bool (*geometry_cache)(void*,bool,geometry::Geometry&)=nullptr;
-    bool (*inlet_cache)(void*,bool,std::uint32_t,const InletInput2D&,ScalarKind,PreparationInletCache&)=nullptr;
+    bool (*inlet_cache)(void*,bool,std::uint32_t,const InletInput2D&,PreparationInletCache&)=nullptr;
     // Observe at the source. Cached records do not repeat standalone notices.
     void (*observe_range)(void*,const PreparationRange&,bool,std::optional<double>)=nullptr;
     // Notice 0 is inlet Re, 1 is a Nu reason, and 2 is a geometry reason.
@@ -220,22 +202,15 @@ struct PreparationEvidence {
 struct PreparationInletCache {
     geometry::Geometry geometry{};
     UniformInletProperties properties{};
-    std::array<ScalarKind,13> kinds{};
     PreparationEvidence evidence;
-};
-struct PropertyScalar {
-    double real=0.,imaginary=0.;
-    ScalarKind kind{};
-    std::uint32_t category=0;
 };
 struct InletPropertyQuery {
     PreparationInletKey inlet;
     double hydraulic_diameter_m=0.,epsilon_a=0.;
-    ScalarKind diameter_kind{64,1,1},epsilon_kind{};
     bool exact_co2_drag=false;
 };
 // Order: rho, mu, k, cp, Pr, Re, Nu, K, cF, dP, Hsf, Kff.
-using InletQueryResult=std::array<PropertyScalar,12>;
+using InletQueryResult=std::array<double,12>;
 InletQueryResult query_inlet_properties(const InletPropertyQuery&,
     const PreparationCallbacks& = {});
 struct PreparedCase2D {
@@ -250,19 +225,17 @@ struct PreparedCase2D {
     std::vector<double> area_density,hydraulic_diameter,design_pore_porosity;
     std::array<std::vector<double>,2> fluid_conductivity;
     PreparationEvidence evidence;
-    std::array<ScalarKind,5> field_kinds;
 };
 
 struct ZoneRegion2D {
     std::string name;
     // Stripes use bounds[0:2]; rectangles use x0,x1,y0,y1.
-    std::array<grid::Scalar,4> bounds{{{0.,64,0},{0.,64,0},{0.,64,0},{0.,64,0}}};
+    std::array<double,4> bounds{};
     double cell_length_mm=0.,wall_thickness_mm=0.;
-    ScalarKind cell_kind,wall_kind;
 };
 struct SigmoidControls2D {
     std::vector<double> decision_mm;
-    grid::Scalar inlet_transition{.2,64,0},outlet_transition{.2,64,0};
+    double inlet_transition=.2,outlet_transition=.2;
 };
 struct SigmoidLUT2D {
     std::vector<double> cell_mm,wall_mm,porosity,area_density;
@@ -274,7 +247,6 @@ struct SigmoidInput2D {
 };
 struct SpatialModel2D {
     double solid_conductivity_W_mK=16.;
-    ScalarKind solid_conductivity_kind;
     bool allow_geometry_extrapolation=false,load_default_lut=false;
 };
 struct ZonedInput2D {
@@ -289,7 +261,6 @@ struct PreparedZone2D {
     geometry::MaterialGeometry geometry;
     std::array<UniformInletProperties,2> properties;
     std::array<geometry::Geometry,2> property_geometry;
-    std::array<std::array<ScalarKind,13>,2> property_kinds;
 };
 struct PreparedZonedCase2D {
     PreparedCase2D prepared;
@@ -323,20 +294,17 @@ struct PreparedCase3D {
     geometry::asym::PreparedSides thermal_sides{.5,std::nullopt};
     std::array<PreparedSide3D,2> sides;
     PreparationEvidence evidence;
-    std::array<ScalarKind,2> length_kinds;
 };
 
 struct InletFlowRequest2D {
     CaseInput2D input;
-    ScalarKind physical_depth_kind;
-    std::array<ScalarKind,2> target_kinds;
     // Explicit batch targets replace both stored targets in the resolved input.
     std::optional<std::array<double,2>> explicit_targets;
 };
 struct InletFlow2D {
     CaseInput2D input;
     bool have_capacities=false;
-    std::array<grid::Scalar,2> capacities{},speeds{};
+    std::array<double,2> capacities{},speeds{};
     PreparationEvidence evidence;
 };
 struct PreparedFlowCase2D {
@@ -346,8 +314,6 @@ struct PreparedFlowCase2D {
 
 struct ZonedFlowRequest2D {
     ZonedInput2D input;
-    ScalarKind physical_depth_kind;
-    std::array<ScalarKind,2> target_kinds;
     std::optional<std::array<double,2>> explicit_targets;
 };
 struct ZonedInletFlow2D {
@@ -361,13 +327,12 @@ struct PreparedZonedFlowCase2D {
 
 struct InletFlowRequest3D {
     CaseInput3D input;
-    std::array<ScalarKind,2> target_kinds;
     std::optional<std::array<double,2>> explicit_targets;
 };
 struct InletFlow3D {
     CaseInput3D input;
     bool have_capacities=false;
-    std::array<grid::Scalar,2> capacities{},speeds{};
+    std::array<double,2> capacities{},speeds{};
     PreparationEvidence evidence;
 };
 struct PreparedFlowCase3D {
@@ -415,7 +380,7 @@ PreparedFlowCase3D prepare_flow_case_3d(const InletFlowRequest3D&,
     const PreparationOptions& = {},const PreparationCallbacks& = {},CaseScope3D = CaseScope3D::symmetric_v3);
 
 // These queries do not evaluate Nu or create a complete prepared case.
-InletFlow2D prepare_inlet_mass_capacities_2d(const CaseInput2D&,ScalarKind physical_depth_kind={},
+InletFlow2D prepare_inlet_mass_capacities_2d(const CaseInput2D&,
     const PreparationOptions& = {},const PreparationCallbacks& = {});
 InletFlow2D resolve_inlet_flow_2d(const InletFlowRequest2D&,
     const PreparationOptions& = {},const PreparationCallbacks& = {});
@@ -424,7 +389,7 @@ PreparedFlowCase2D prepare_flow_case_2d(const InletFlowRequest2D&,
     const PreparationOptions& = {},const PreparationCallbacks& = {});
 
 // These entries retain the copied spatial controls and separate flow evidence.
-ZonedInletFlow2D prepare_zoned_inlet_mass_capacities_2d(const ZonedInput2D&,ScalarKind physical_depth_kind={},
+ZonedInletFlow2D prepare_zoned_inlet_mass_capacities_2d(const ZonedInput2D&,
     const PreparationOptions& = {},const PreparationCallbacks& = {});
 ZonedInletFlow2D resolve_zoned_inlet_flow_2d(const ZonedFlowRequest2D&,
     const PreparationOptions& = {},const PreparationCallbacks& = {});

@@ -145,13 +145,11 @@ tpmshx_full3d_array_v1 view(tpmshx_preparation_array_v1 array) {return {array.da
 grid::Port port(const tpmshx_grid_port_v1& source) {
     flag(source.active);grid::Port result{source.direction,source.active!=0,{}};
     for(size_t end=0;end<2;++end) {
-        std::optional<grid::Scalar>* values[]{&result.ends[end].center,&result.ends[end].width,
+        std::optional<double>* values[]{&result.ends[end].center,&result.ends[end].width,
             &result.ends[end].center2,&result.ends[end].width2};
         for(size_t i=0;i<4;++i) {
             flag(source.present[end][i]);
-            if(source.present[end][i]) {
-                const auto value=source.values[end][i];*values[i]=grid::Scalar{value.value,value.precision,value.strong};
-            }
+            if(source.present[end][i])*values[i]=source.values[end][i];
         }
     }
     return result;
@@ -201,14 +199,14 @@ void validate_saved_3d(const tpmshx_stage_saved_case_3d_v2& saved,tpmshx_full3d_
         const auto physical_port=port(axes.port);
         const auto plane_size=boundary::product(cross1.size,cross2.size);
         double depth=0.;for(size_t i=0;i<cross2.size;++i)depth+=cross2.data[i];
-        const auto rectangles=grid::rectangles(physical_port,grid::weak(depth));
+        const auto rectangles=grid::rectangles(physical_port,depth);
         for(size_t end=0;end<2;++end) {
             const auto mask=end?side.outlet_opening:side.inlet_opening;
             if(mask.size!=plane_size || !std::all_of(mask.data,mask.data+mask.size,
                     [](double x){return x>=0. && x<=1.;}))
                 throw std::invalid_argument(std::string("invalid ")+label+" opening mask");
             auto* rect=end?side.outlet_rectangle:side.inlet_rectangle;
-            for(size_t i=0;i<4;++i)rect[i]=rectangles[end*4+i].value;
+            for(size_t i=0;i<4;++i)rect[i]=rectangles[end*4+i];
         }
     }
     flag(saved.have_z_controls);
@@ -222,20 +220,14 @@ void validate_saved_3d(const tpmshx_stage_saved_case_3d_v2& saved,tpmshx_full3d_
     for(size_t index=0;index<8;++index) {
         const auto field=fields[index];const std::string name=names[index];
         if(field.size!=cells && !(index==1 && field.size==1))throw std::invalid_argument("prepared design field "+name+" does not match the grid");
-        grid::Scalar expected=grid::weak(0.);
-        if(index<3) {
-            const auto kind=saved.reference_kinds[index];
-            expected=grid::checked({references[index],kind.precision,kind.strong});
-            if(index<2)expected=grid::multiply(expected,grid::weak(1e-3));
-        }
+        const double expected=index<2?references[index]*1e-3:index==2?references[index]:0.;
         for(size_t i=0;i<field.size;++i) {
             const auto value=field.data[i];
             if(!std::isfinite(value) || value<=0.)throw std::invalid_argument("prepared design field "+name+" must be finite and positive");
             if((index==2 || index==5 || index==6) && value>=1.)
                 throw std::invalid_argument("prepared porosity "+name+" must be below one");
             if(saved.design_mode==0 && index<3) {
-                const auto kind=saved.field_kinds[index];auto actual=grid::checked({value,kind.precision,kind.strong});
-                if(!std::isfinite(expected.value) || grid::less(expected,actual) || grid::less(actual,expected))
+                if(!std::isfinite(expected) || expected!=value)
                     throw std::invalid_argument("uniform design field "+name+" disagrees with scalar input");
             }
             if(saved.design_mode==0 && (index==3 || index==4) && value!=field.data[0])
@@ -440,8 +432,7 @@ int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_take_result_v1(void* run,tpmshx_stag
         if(status)return status;
         try {
             std::unique_ptr<tpmshx::stages::Capture3D,decltype(&tpmshx::stages::release_capture_3d)> captured(
-                tpmshx::stages::capture_3d(owner.packed->saved,raw,owner.resolved,owner.result_id.c_str(),
-                    owner.source.saved_v2->field_kinds),
+                tpmshx::stages::capture_3d(owner.packed->saved,raw,owner.resolved,owner.result_id.c_str()),
                 &tpmshx::stages::release_capture_3d);
             *result=tpmshx::stages::stage_view(*captured.release());owner.packed.reset();owner.source={};return 0;
         } catch(...) {tpmshx_full_3d_release_v1(&raw);throw;}

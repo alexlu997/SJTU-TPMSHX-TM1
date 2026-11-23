@@ -47,7 +47,7 @@ def test_unsupported_host_does_not_select_a_solver_runtime(monkeypatch):
         native.preparation_library.path()
 
 
-@pytest.mark.parametrize('version', [0, 2])
+@pytest.mark.parametrize('version', [0, 3])
 def test_wrong_abi_is_rejected_before_function_binding(monkeypatch, version):
     handle = LibraryStub(tpmshx_preparation_abi_version_v1=lambda: version)
     monkeypatch.setattr(native.ct, 'CDLL', lambda _: handle)
@@ -59,7 +59,7 @@ def test_missing_symbols_and_load_failure_are_explicit(monkeypatch):
     monkeypatch.setattr(native.ct, 'CDLL', lambda _: LibraryStub())
     with pytest.raises(ValueError, match='lacks tpmshx_preparation_abi_version_v1'):
         native.preparation_library.open('/prebuilt')
-    handle = LibraryStub(tpmshx_preparation_abi_version_v1=lambda: 1)
+    handle = LibraryStub(tpmshx_preparation_abi_version_v1=lambda: 2)
     monkeypatch.setattr(native.ct, 'CDLL', lambda _: handle)
     owner = native.preparation_library.open('/prebuilt')
     with pytest.raises(ValueError, match='lacks a_required_function'):

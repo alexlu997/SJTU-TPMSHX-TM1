@@ -395,7 +395,7 @@ The library owns physical grid construction, local geometry, total-flow resoluti
 `python/preprocess/three_d/preparation.py` builds the immutable case from native views. Then `python/cpp_interface/preparation_host.py` releases the native result.
 Native failure preserves the original host exception and does not select another preparation route.
 The old 3D numerical host route and its exclusive `shared/models/grid_3d.py` and `asym_split.py` helpers are retired.
-`tests/python/preparation_3d_reference.py` keeps their independent comparison and synthetic saved-grid fixtures.
+Pure formula references and physical invariant checks remain in `tests/python/`.
 3D air-field scalar observations use at most eight selected values per side.
 The selection keeps the original notices, extrema and last sample.
 Raw-array range records still include every physical cell.
@@ -838,7 +838,7 @@ Python keeps the shared cache key, hit/miss behavior and original stored value t
 The EOS operations share `sco2_props._prop` and `co2_props._scalar`, including their original 4096-item limit and keys.
 sCO2 looks up scalar entries before state validation; CO2 validates first. Arrays bypass both scalar caches.
 Only successful native calculations publish values. External property calls and cache clearing use these same owners.
-The replaced `shared/models/quick_design.py` is removed. Its frozen reference in `tests/python/quick_prepare_reference.py` remains for independent regression checks.
+The replaced `shared/models/quick_design.py` and its full-pipeline reference are removed. Pure formula references remain in `tests/python/` for independent regression checks.
 `python/cpp_interface/_native_quick_prepare.py` only assembles CaseData from copied native fields and host snapshots.
 
 ### Prepared execution and evidence

@@ -3,7 +3,6 @@ from collections.abc import Callable, Mapping
 from contextlib import contextmanager
 import ctypes as ct
 from dataclasses import replace
-import dis
 from functools import lru_cache, partial
 from typing import NamedTuple
 import warnings
@@ -16,7 +15,7 @@ from sjtu_tpmshx.run_control.logutil import get_logger
 from sjtu_tpmshx.run_control.run_warnings import (
     RangeRecord, current_warnings, merge_warnings, record_warning, warning_messages, _range_context,
 )
-from . import _native_flow, _native_preparation_case as abi, _native_properties, _native_result
+from . import _native_preparation_case as abi, _native_properties, _native_result
 from ._native_values import TOPOLOGIES, borrow_text, read_text
 from .stage_libraries import preparation_library
 
@@ -43,14 +42,13 @@ class _Bindings:
         self.owner = preparation_library.load(path)
         self.operations = {}
         self.releases = {}
-        self.grid_arguments = [] if volume else [ct.POINTER(abi._GridKinds)]
         if volume:
             self._bind_volume()
         else:
             self._bind_plane()
 
     def _add(self, key, symbol, source, result, version):
-        call = self.owner.bind(symbol, [ct.POINTER(source), *self.grid_arguments,
+        call = self.owner.bind(symbol, [ct.POINTER(source),
             ct.POINTER(abi._Options), ct.POINTER(abi._Callbacks), ct.POINTER(result),
             ct.POINTER(abi._Failure), ct.POINTER(ct.c_char), abi._S])
         self.operations[key] = _Operation(call, result, version)
@@ -140,39 +138,26 @@ def observe_range(value, bounds_list, cached, scalar, selection=None, *, records
     merge_warnings(records, [{key[:-1]: record}])
     if cached or current_warnings() is not None or scalar is None:
         return
-    from sjtu_tpmshx.physical_models import tpms_props, fluid_props, nu_correlations, co2_correlations
+    from sjtu_tpmshx.physical_models import tpms_props, nu_correlations, co2_correlations
     source = key[:-2]
     if source[0] == 'property':
         fluid, property_name = source[1].split('_', 1)
         notice = tpms_props._range_notice(source[1], scalar, scalar, *record.bounds)
         if notice is not None:
-            attribute = {'density': 'rho', 'viscosity': 'mu', 'conductivity': 'k', 'cp': 'cp'}[property_name]
-            _source_warning(getattr(fluid_props.get(fluid), attribute), notice)
+            warnings.warn(notice, UserWarning, stacklevel=2)
     elif source[0] in ('nu', 'nu_pr') and read_text(value.stage) in ('inlet', 'unbound'):
         fluid, topology = source[1:]
         if fluid == 'air':
             notices = nu_correlations._extrap_notices(topology, scalar, scalar)
-            origin = fluid_props._nu_air
         elif fluid == 'water':
             notices = nu_correlations._water_nu_notices(scalar, scalar, topology)
-            origin = fluid_props._nu_water
         elif fluid == 'sco2':
             notices = nu_correlations._sco2_nu_notices(scalar, scalar, topology)
-            origin = (nu_correlations.nu_sco2_selected if selection is not None and selection.mode != 'cfd_smooth'
-                      else nu_correlations.nu_sco2_topo)
         else:
             notices = ([co2_correlations._calibration_notice(record.quantity, record.bounds)]
                        if scalar < record.bounds[0] or scalar > record.bounds[1] else [])
-            origin = fluid_props._nu_co2
         for notice in notices:
-            _source_warning(origin, notice)
-
-
-def _restore(value, kind):
-    if not kind.strong:
-        return float(value)
-    dtype = np.dtype(f'float{kind.precision}')
-    return np.asarray(value, dtype=dtype) if kind.layout == 2 else dtype.type(value)
+            warnings.warn(notice, UserWarning, stacklevel=2)
 
 
 def _check_status(status, error, failure):
@@ -190,38 +175,6 @@ def _check_status(status, error, failure):
     raise problem
 
 
-def _source_warning(function, message, *, call=None, occurrence=0, binary=None, category=UserWarning):
-    """Keep the original warning module, source line and filter registry."""
-    code = function.__code__
-    if binary is not None:
-        operator, occurrence = binary
-        line = [item.positions.lineno for item in dis.get_instructions(function)
-                if item.opname == 'BINARY_OP' and item.argrepr == operator][occurrence]
-        module = function.__globals__['__name__']
-    else:
-        line = ([item.positions.lineno for item in dis.get_instructions(function)
-                     if item.opname.startswith('LOAD_')
-                     and (item.argval == call or item.opname.startswith('LOAD_FAST')
-                          and isinstance(item.argval, tuple) and call in item.argval)][occurrence] if call else
-                max(line for _start, _end, line in code.co_lines() if line is not None))
-        module = function.__module__
-    warnings.warn_explicit(message, category, code.co_filename, line,
-        module=module, registry=function.__globals__.setdefault('__warningregistry__', {}))
-
-
-def _control_axis_warning(source, message):
-    from sjtu_tpmshx.physical_models.continuous_field import ContinuousFieldConfig, control_axis
-    function, operator, occurrence = {
-        'control-axis-step': (np.linspace.__wrapped__, '/', 0),
-        'control-axis-divide': (np.linspace.__wrapped__, '/=', 0),
-        'control-axis-scale': (np.linspace.__wrapped__, '*=', 0),
-        'control-axis-multiply': (np.linspace.__wrapped__, '*=', 1),
-        'control-axis-midpoint': (control_axis, '/', 0),
-        'control-axis-check-midpoint': (ContinuousFieldConfig.__post_init__, '/', 0),
-    }[source]
-    _source_warning(function, message, binary=(operator, occurrence), category=RuntimeWarning)
-
-
 def _callback_bridge(validate_host_input, geometry_cache=None, inlet_cache=None,
                      observe_range=None, observe_notice=None, nominal_grid_warning=None, *,
                      geometry_cache_at=None, inlet_cache_at=None, sigmoid_lut_cache=None, query=False):
@@ -235,18 +188,13 @@ def _callback_bridge(validate_host_input, geometry_cache=None, inlet_cache=None,
                 get_logger(read_text(item.logger).removeprefix('tpmshx.')).info(read_text(item.message))
             elif item.kind == 1:
                 message = read_text(item.message)
-                if message.startswith('[geometry extrap]'):
-                    from sjtu_tpmshx.physical_models.sigmoid_field import build_continuous_geometry
-                    _source_warning(build_continuous_geometry, message, call='_geometry_from_fields')
-                else:
-                    from sjtu_tpmshx.physical_models.input_validation import surrogate_extrap_reasons
-                    _source_warning(surrogate_extrap_reasons, message, call='check_surrogate_domain_at_point')
+                warnings.warn(message, UserWarning, stacklevel=2)
             elif item.kind == 2:
                 source = read_text(item.message)
-                if source in ('nominal-grid-x', 'nominal-grid-y'):
-                    warn = partial(nominal_grid_warning, source[-1]) if nominal_grid_warning else None
+                if source in ('nominal-grid-x', 'nominal-grid-y') and nominal_grid_warning:
+                    warn = partial(nominal_grid_warning, source[-1])
                 else:
-                    warn = partial(_control_axis_warning, source) if source else None
+                    warn = None
                 _native_properties._floating_events([item.floating_event], warn=warn)
             else:
                 raise RuntimeError(f'unknown preparation event kind {item.kind}')
@@ -268,8 +216,8 @@ def _callback_bridge(validate_host_input, geometry_cache=None, inlet_cache=None,
     def geometry(action, value, hit):
         hit[0] = geometry_cache(action, value.contents)
 
-    def inlet(action, side, source, kind, value, hit):
-        hit[0] = inlet_cache(action, side, source.contents, kind, value.contents)
+    def inlet(action, side, source, value, hit):
+        hit[0] = inlet_cache(action, side, source.contents, value.contents)
 
     def observe(cached, value, bounds_list, have_scalar, scalar):
         if observe_range is not None:
@@ -330,7 +278,7 @@ def operation(name, source, options, validate_host_input, geometry_cache=None, i
     bridge = _callback_bridge(validate_host_input, geometry_cache, inlet_cache, observe_range, observe_notice,
         nominal_grid_warning, geometry_cache_at=geometry_cache_at, inlet_cache_at=inlet_cache_at,
         sigmoid_lut_cache=sigmoid_lut_cache)
-    return _owned_result(bindings, key, (source, source._grid_kinds), options, bridge)
+    return _owned_result(bindings, key, (source,), options, bridge)
 
 
 @lru_cache(maxsize=1)
@@ -446,6 +394,7 @@ def borrow_solver_mesh(case, library, dimension):
             return None
         keys = ('A_0', 'D_h', 'epsilon')
         values = tuple(thermal['uniform'][key] for key in keys) + (thermal['split_A'],)
+        # Accept historical saved CaseData scalar types before borrowing float64 values.
         if any(type(x) not in (float, np.float16, np.float32, np.float64) for x in values):
             return None
         mesh.area_density, mesh.hydraulic_diameter, mesh.porosity, mesh.split_a = values
@@ -522,35 +471,13 @@ def pack_saved_resources(case, models, nu, saved, settings, keepalive):
     pack_nu(nu, settings, keepalive)
 
 
-def prepared_port(bc, cross_length, direction, centers, widths):
-    """Keep the scalar types of the recorded input when copying native port values."""
-    result = {'dir': type(bc.dir)(direction)}
+def prepared_port(direction, centers, widths):
+    """Copy the native float64 port windows."""
+    result = {'dir': int(direction)}
     for end, center, width in zip(('in', 'out'), centers, widths):
-        if bc.in_w > 0:
-            center_type = type(getattr(bc, end + '_ctr'))
-            width_type = type(getattr(bc, end + '_w'))
-        else:
-            width_type = type(cross_length)
-            center_type = (np.float64 if isinstance(cross_length, np.integer) else
-                           width_type if isinstance(cross_length, np.floating) else float)
-        result[end + '_ctr'] = center_type(center)
-        result[end + '_w'] = width_type(width)
+        result[end + '_ctr'] = float(center)
+        result[end + '_w'] = float(width)
     return result
-
-
-def _kind(value):
-    if isinstance(value, np.ndarray):
-        return abi._Kind(value.dtype.itemsize * 8 if value.dtype.kind == 'f' else 64, 1, 2)
-    if isinstance(value, np.floating):
-        return abi._Kind(value.dtype.itemsize * 8, 1, 1)
-    if isinstance(value, np.integer):
-        return abi._Kind(64, 1, 1)
-    return abi._Kind(64, 0, 0)
-
-
-def _flow_kind(value):
-    scalar = _native_flow._scalar(value)
-    return abi._Kind(scalar.precision, scalar.strong, int(bool(scalar.strong)))
 
 
 def _summary(value):
@@ -630,8 +557,7 @@ def _cache_record_view(records):
 
 
 def _geometry_key(value):
-    return (TOPOLOGIES[value.topology], _restore(value.cell_length_mm, value.cell_kind),
-            _restore(value.wall_thickness_mm, value.wall_kind), 128)
+    return (TOPOLOGIES[value.topology], value.cell_length_mm, value.wall_thickness_mm, 128)
 
 
 def _inlet_key(value):
@@ -645,9 +571,7 @@ def _inlet_key(value):
             **{name: read_text(getattr(selected, name))
                for name in ('parameter_version', 'source', 'applicability')})
     return (*_geometry_key(value.geometry)[:3],
-            _restore(value.velocity_m_s, value.kinds.velocity),
-            _restore(value.temperature_K, value.kinds.temperature),
-            _restore(value.pressure_Pa, value.kinds.pressure),
+            value.velocity_m_s, value.temperature_K, value.pressure_Pa,
             abi._FLUIDS[value.fluid], selection, bool(value.co2_geometry))
 
 
@@ -700,14 +624,13 @@ class PreparationCacheBridge:
             for name, field in (*_PROPERTY_NAMES, ('cp', None), ('pr', None)):
                 scalar = properties[field] if field is not None else getattr(saved, name)
                 setattr(value.properties, name, scalar)
-                value.kinds[_PROPERTY_COLUMNS[name]] = _kind(scalar)
             value.evidence, buffers = _cache_record_view(records)
             self.buffers.extend(buffers)
             self.inlet_geometry[cache_key] = _geometry_values(value.geometry, co2)
             return True
         properties = _geometry_values(value.geometry, co2)
         for name, field in _PROPERTY_NAMES:
-            properties[field] = _restore(getattr(value.properties, name), value.kinds[_PROPERTY_COLUMNS[name]])
+            properties[field] = getattr(value.properties, name)
         bound = _records(value.evidence, value.evidence.range_bounds_list)
         records = {key[:-1] if isinstance(record, RangeRecord) else key: record for key, record in bound.items()}
         inlet_cache.store(cache_key, None,
@@ -727,8 +650,7 @@ class PreparationCacheBridge:
             self.extrap_reasons.append(message)
         elif kind == 0:
             if current_warnings() is None and message:
-                from sjtu_tpmshx.physical_models import tpms_calc
-                _source_warning(tpms_calc.compute, message, call='_compute_cached')
+                warnings.warn(message, UserWarning, stacklevel=2)
         else:
             raise RuntimeError(f'unknown preparation notice kind {kind}')
 
@@ -763,7 +685,7 @@ def resolved_flow_config(config, flow, targets):
     for index, side in enumerate('AB'):
         fluid = getattr(config, 'fluid_' + side)
         if targets is not None or fluid.mass_flow_kg_s is not None:
-            fluids['fluid_' + side] = replace(fluid, u_mps=_native_flow._restore(flow.speeds[index]),
+            fluids['fluid_' + side] = replace(fluid, u_mps=flow.speeds[index],
                 mass_flow_kg_s=None if targets is not None else fluid.mass_flow_kg_s)
     return replace(config, **fluids).validate(resolved_inlet_speeds=True) if fluids else config
 

@@ -93,7 +93,7 @@ class NativeFull3DDriver:
             try:
                 energy_query = self.library.tpmshx_full_3d_get_energy_evidence_v1
             except AttributeError as exc:
-                raise ValueError(f'native full 3D library lacks conservative energy v{entry_version} evidence') from exc
+                raise ValueError('native full 3D library lacks conservative energy v5 evidence') from exc
             energy_query.argtypes = [ct.POINTER(_Result), ct.POINTER(_EnergyEvidence)]
             energy_query.restype = ct.c_int
         stage.validate_flow_options(cfg)

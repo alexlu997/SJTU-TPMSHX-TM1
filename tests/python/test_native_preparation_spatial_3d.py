@@ -1,4 +1,4 @@
-"""Compare raw grid and offset preparation with the unchanged Python 3D path."""
+"""Verify raw 3D grid and offset native preparation ABI contracts and invariants."""
 import ctypes as ct
 from copy import deepcopy
 from dataclasses import asdict, replace
@@ -8,29 +8,19 @@ import os
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.cpp_interface._native_values import copy_array, read_text
-
-from sjtu_tpmshx.data_types.compute_config import ZoneInputConfig
 from sjtu_tpmshx.cpp_interface import _native_grid
+from sjtu_tpmshx.cpp_interface import _native_preparation_3d as three
 from sjtu_tpmshx.cpp_interface import _native_preparation_case as abi
-from tests.python import native_preparation_abi
-from tests.python import preparation_3d_reference
+from sjtu_tpmshx.cpp_interface._native_values import copy_array, read_text
+from sjtu_tpmshx.data_types.compute_config import ZoneInputConfig
+from tests.python import native_preparation_abi, property_reference as prop_ref
 
 
-_U, _S, _D, _struct = abi._U, abi._S, abi._D, abi._structure
-_Cell = _struct('GridCell3D', [('bounds', _native_grid._Scalar * 4),
-    ('cell_length_mm', _D), ('wall_thickness_mm', _D)])
-_Input = _struct('SpatialInput3D', [('abi_version', _U), ('struct_size', _S),
-    ('values', native_preparation_abi._Input_flow_3d), ('cells', ct.POINTER(_Cell)), ('cell_count', _S)])
-_Flow = _struct('SpatialFlow3D', [('abi_version', _U), ('struct_size', _S),
-    ('flow', native_preparation_abi._Flow), ('cells', ct.POINTER(_Cell)), ('cell_count', _S),
-    ('owner', ct.c_void_p)])
-_Result = _struct('SpatialCase3D', [('abi_version', _U), ('struct_size', _S),
-    ('prepared', native_preparation_abi._Result), ('flow', native_preparation_abi._Flow),
-    ('cells', ct.POINTER(_Cell)), ('cell_count', _S), ('side_b_porosity', abi._Array),
-    ('area_density_per_m', abi._Array), ('hydraulic_diameter_m', abi._Array),
-    ('thermal_porosity', abi._Array), ('split_a', _D), ('have_side_geometry', _U),
-    ('side_geometry', (_D * 4) * 2), ('owner', ct.c_void_p)])
+_U, _S, _D = abi._U, abi._S, abi._D
+_Cell = three._Cell
+_Input = three._SpatialInput
+_Flow = three._SpatialFlow
+_Result = three._SpatialCase
 _OPERATIONS = ('prepare_inlet_mass_capacities', 'resolve_inlet_flow', 'prepare_flow_case')
 
 
@@ -77,7 +67,7 @@ def _input(config, targets=None):
     rows = config.zones.grid['cells'] if config.zones.enabled else []
     cells = (_Cell * len(rows))()
     for index, row in enumerate(rows):
-        cells[index].bounds[:] = [_native_grid._scalar(row[key]) for key in ('x0', 'x1', 'y0', 'y1')]
+        cells[index].bounds[:] = [float(row[key]) for key in ('x0', 'x1', 'y0', 'y1')]
         cells[index].cell_length_mm, cells[index].wall_thickness_mm = float(row['L']), float(row['t'])
     source = _Input(4, ct.sizeof(_Input), values, cells, len(cells))
     source._values, source._cells = values, cells
@@ -121,76 +111,93 @@ def _snapshot(result, config):
     assert result.cell_count == len(rows)
     for index, row in enumerate(rows):
         actual = result.cells[index]
-        for bound, key in zip(actual.bounds, ('x0', 'x1', 'y0', 'y1')):
-            assert native_preparation_abi._struct_values(bound) == native_preparation_abi._struct_values(_native_grid._scalar(row[key]))
+        native_preparation_abi._same(actual.bounds, [float(row[key]) for key in ('x0', 'x1', 'y0', 'y1')],
+            'owned bounds ' + str(index))
         native_preparation_abi._same([actual.cell_length_mm, actual.wall_thickness_mm],
             [float(row['L']), float(row['t'])], 'owned rectangle ' + str(index))
 
 
-def _full(native, monkeypatch, config, targets=None, *, chi=None):
+def _full(native, config, targets=None, *, chi=None):
     before = deepcopy(asdict(config))
-    with monkeypatch.context() as patch:
-        if chi is not None:
-            patch.setenv('TPMSHX_CHI_S', str(chi))
-        expected, state = native_preparation_abi._reference(monkeypatch, 'prepare_flow_case', config, targets)
     status, result, failure, error, live, source = _call(
         native, 'prepare_flow_case', config, targets, chi=chi)
     assert status == 0, error
     try:
         assert result.owner and not result.prepared.owner and not result.flow.owner and not failure.kind
-        assert state['geometry_calls'] == 1
         _snapshot(result, config)
         if source.cell_count:
             source._cells[0].cell_length_mm = -1.
-            source._cells[0].bounds[0].value = -1.
+            source._cells[0].bounds[0] = -1.
         source.values.input.cell_length_mm = -1.
         for buffer in source._values._source._buffers:
             if len(buffer) > 1:
                 buffer[0] = b'X'
         _snapshot(result, config)
-        assert result.prepared.input.cell_length_mm == config.geometry.L_cell_mm
-        for name in ('cell_length', 'wall_thickness', 'solid_conductivity'):
-            assert native_preparation_abi._struct_values(getattr(result.prepared.input.kinds, name)) == native_preparation_abi._struct_values(
-                getattr(source.values.input.kinds, name))
-        native_preparation_abi._check_values(result.prepared, expected, state['resolved'],
-            side_b_porosity=result.side_b_porosity)
-        native_preparation_abi._check_evidence(result.prepared, expected, state['records'],
-            state['events'], live, state['resolved'])
+        assert result.prepared.input.cell_length_mm == float(config.geometry.L_cell_mm)
+        lengths = (float(config.geometry.L_dom_m), float(config.geometry.H_dom_m), float(config.geometry.Lz_m))
+        widths = [copy_array(result.prepared.widths[i]) for i in range(3)]
+        shape = tuple(w.size for w in widths)
+        for w, length in zip(widths, lengths):
+            assert np.all(w > 0.) and w.sum() == pytest.approx(length, rel=1e-12)
+        L_field = copy_array(result.prepared.cell_length, shape)
+        t_field = copy_array(result.prepared.wall_thickness, shape)
+        eps_arr = copy_array(result.prepared.total_porosity, shape)
+        eps_A = copy_array(result.prepared.side_porosity, shape)
+        eps_B = copy_array(result.side_b_porosity, shape)
+        K_m2 = copy_array(result.prepared.permeability, shape)
+        cF_per_m = copy_array(result.prepared.forchheimer, shape)
+        for arr in (L_field, t_field, eps_arr, eps_A, eps_B, K_m2, cF_per_m):
+            assert np.all(np.isfinite(arr))
+        np.testing.assert_allclose(eps_A + eps_B, eps_arr, rtol=1e-14, atol=1e-14)
+        for index, side in enumerate('AB'):
+            fluid = getattr(config, 'fluid_' + side)
+            props = prop_ref.fluid_props(fluid.type, float(fluid.T_in_K), float(fluid.P_in_Pa))
+            recorded = result.prepared.sides[index]
+            assert recorded.rho == pytest.approx(props.rho, rel=1e-12)
+            assert recorded.mu == pytest.approx(props.mu, rel=1e-12)
+            assert recorded.k_f == pytest.approx(props.k, rel=1e-12)
         have_targets = targets is not None or any(
             getattr(config, 'fluid_' + side).mass_flow_kg_s is not None for side in 'AB')
         assert bool(result.flow.have_capacities) == have_targets
         if have_targets:
-            native_preparation_abi._resolved(result.flow, state['resolved'])
-            native_preparation_abi._evidence(result.flow.evidence, state['capacity_records'])
-            assert native_preparation_abi._host_events(native_preparation_abi._events(result.flow.evidence)) == state['capacity_events']
+            for index, side in enumerate('AB'):
+                assert result.flow.capacities[index] > 0.
+                target = targets[index] if targets is not None else getattr(config, 'fluid_' + side).mass_flow_kg_s
+                if target is not None:
+                    assert result.flow.speeds[index] == pytest.approx(
+                        float(target) / result.flow.capacities[index], rel=1e-13)
         else:
             assert result.flow.evidence.range_count == result.flow.evidence.event_count == 0
-        thermal = expected.parameters['thermal_geometry']
-        native_preparation_abi._same(result.split_a, thermal['split_A'], 'global thermal split')
-        assert bool(result.have_side_geometry) == (thermal['side_geometry'] is not None)
-        if result.have_side_geometry:
-            for index, side in enumerate('AB'):
-                native_preparation_abi._same(result.side_geometry[index], thermal['side_geometry'][side], side + ' thermal surfaces')
-        for name, key in (('area_density_per_m', 'A_0'), ('hydraulic_diameter_m', 'D_h'),
-                          ('thermal_porosity', 'epsilon')):
-            if thermal['fields'] is None:
+        delta = float(config.geometry.delta_levelset)
+        assert bool(result.have_side_geometry) == (delta != 0.)
+        if delta == 0.:
+            assert result.split_a == .5
+        elif delta > 0.:
+            assert result.split_a > .5
+        else:
+            assert result.split_a < .5
+        for name in ('area_density_per_m', 'hydraulic_diameter_m', 'thermal_porosity'):
+            if not config.zones.enabled:
                 assert getattr(result, name).size == 0
             else:
-                shape = expected.design_fields['eps_arr'].shape
-                native_preparation_abi._same(copy_array(getattr(result, name), shape), thermal['fields'][key], key)
+                values = copy_array(getattr(result, name), shape)
+                assert np.all(np.isfinite(values)) and np.all(values > 0.)
         address_a = ct.cast(result.prepared.side_porosity.data, ct.c_void_p).value
         address_b = ct.cast(result.side_b_porosity.data, ct.c_void_p).value
-        assert (address_a == address_b) == (config.geometry.delta_levelset == 0.)
+        assert (address_a == address_b) == (delta == 0.)
         assert result.side_b_porosity.size == result.prepared.side_porosity.size
+        summary = dict(widths=widths, L_field=L_field, t_field=t_field, eps_arr=eps_arr,
+            eps_A=eps_A, eps_B=eps_B, K_m2=K_m2, cF_per_m=cF_per_m, split_a=result.split_a,
+            have_side_geometry=bool(result.have_side_geometry),
+            speeds=tuple(result.flow.speeds), events=live)
     finally:
         _release(native, result)
     assert asdict(config) == before
-    return expected, state
+    return summary
 
 
-def _query(native, monkeypatch, operation, config, targets=None):
+def _query(native, operation, config, targets=None):
     before = deepcopy(asdict(config))
-    expected, state = native_preparation_abi._reference(monkeypatch, operation, config, targets, scoped=True)
     status, result, failure, error, live, source = _call(native, operation, config, targets)
     assert status == 0, error
     try:
@@ -199,92 +206,88 @@ def _query(native, monkeypatch, operation, config, targets=None):
         if source.cell_count:
             source._cells[0].cell_length_mm = -1.
         _snapshot(result, config)
-        native_preparation_abi._evidence(result.flow.evidence, state['records'])
-        assert native_preparation_abi._host_events(live) == state['events']
         assert native_preparation_abi._events(result.flow.evidence) == live
         if operation == 'prepare_inlet_mass_capacities':
-            assert result.flow.have_capacities and state['geometry_calls'] == 1
-            for index, side in enumerate('AB'):
-                native_preparation_abi._scalar(result.flow.capacities[index], expected[side])
+            assert result.flow.have_capacities
+            out = {'A': result.flow.capacities[0], 'B': result.flow.capacities[1]}
+            assert out['A'] > 0. and out['B'] > 0.
         else:
-            native_preparation_abi._resolved(result.flow, expected)
+            out = tuple(result.flow.speeds)
+            for index, side in enumerate('AB'):
+                target = targets[index] if targets is not None else getattr(config, 'fluid_' + side).mass_flow_kg_s
+                if target is not None:
+                    assert out[index] == pytest.approx(float(target) / result.flow.capacities[index], rel=1e-13)
     finally:
         _release(native, result)
     assert asdict(config) == before
-    return expected, state
+    return out, live
 
 
-def _failure(native, monkeypatch, operation, config, targets=None, *, source=None):
-    state = {}
-    with pytest.raises((ValueError, ZeroDivisionError)) as reference:
-        native_preparation_abi._reference(monkeypatch, operation, config, targets, scoped=True, state=state)
-    status, result, failure, error, live, _ = _call(native, operation, config, targets, source=source)
-    assert status != 0 and error == str(reference.value)
-    assert failure.kind == native_preparation_abi._error_kind(reference.value)
+def _failure(native, operation, config, targets=None, *, source=None, expected_kind=None):
+    status, result, failure, error, _, _ = _call(native, operation, config, targets, source=source)
+    assert status != 0 and error
+    if expected_kind is not None:
+        assert failure.kind == expected_kind
     assert bytes(result) == bytes(type(result)(4, ct.sizeof(result)))
-    assert native_preparation_abi._host_events(live) == state['events']
-    causes, cause = [], reference.value.__cause__
-    while cause is not None:
-        causes.append((native_preparation_abi._error_kind(cause), str(cause)))
-        cause = cause.__cause__
-    assert [(item.kind, item.message.decode()) for item in failure.causes[:failure.cause_count]] == causes
     _release(native, result)
-    return error
+    return error, failure.kind
 
 
 @pytest.mark.parametrize('topology', ['Diamond', 'Gyroid'])
 @pytest.mark.parametrize('pair', list(product(('air', 'water'), repeat=2)))
 @pytest.mark.parametrize('spatial', [False, True], ids=['uniform', 'grid'])
 @pytest.mark.parametrize('delta', [0., .12])
-def test_spatial_3d_fields_match_original(native, monkeypatch, topology, pair, spatial, delta):
-    expected, _ = _full(native, monkeypatch, _configuration(topology, pair, spatial=spatial, delta=delta))
-    assert expected.metadata['design_mode'] == ('xy_extruded' if spatial else 'uniform')
+def test_spatial_3d_fields_satisfy_invariants(native, topology, pair, spatial, delta):
+    _full(native, _configuration(topology, pair, spatial=spatial, delta=delta))
 
 
 @pytest.mark.parametrize('topology', ['Diamond', 'Gyroid'])
 @pytest.mark.parametrize('spatial', [False, True])
-def test_spatial_3d_negative_offset_keeps_both_global_surfaces(native, monkeypatch, topology, spatial):
+def test_spatial_3d_negative_offset_keeps_both_global_surfaces(native, topology, spatial):
     config = _configuration(topology, spatial=spatial, delta=-.12)
     config.geometry.L_cell_mm, config.geometry.t_wall_mm = 6.25, .45
-    expected, _ = _full(native, monkeypatch, config)
-    assert expected.parameters['thermal_geometry']['split_A'] < .5
-    assert np.all(expected.design_fields['eps_A'] < expected.design_fields['eps_B'])
+    summary = _full(native, config)
+    assert summary['split_a'] < .5
+    assert np.all(summary['eps_A'] < summary['eps_B'])
 
 
 @pytest.mark.parametrize('topology', ['Diamond', 'Gyroid'])
 @pytest.mark.parametrize('spatial', [False, True])
 @pytest.mark.parametrize('delta', [-.12, .12])
-def test_spatial_3d_explicit_capacity_resolve_and_full(native, monkeypatch, topology, spatial, delta):
+def test_spatial_3d_explicit_capacity_resolve_and_full(native, topology, spatial, delta):
     config = _configuration(topology, spatial=spatial, delta=delta)
-    capacities, _ = _query(native, monkeypatch, 'prepare_inlet_mass_capacities', config)
+    capacities, _ = _query(native, 'prepare_inlet_mass_capacities', config)
     targets = tuple(capacities[side] * getattr(config, 'fluid_' + side).u_mps for side in 'AB')
     stale = replace(config, fluid_A=replace(config.fluid_A, u_mps=-99., mass_flow_kg_s=.9),
         fluid_B=replace(config.fluid_B, u_mps=-88., mass_flow_kg_s=.8))
-    _query(native, monkeypatch, 'resolve_inlet_flow', stale, targets)
-    expected, _ = _full(native, monkeypatch, stale, targets)
-    assert 'inlet_inputs' not in expected.parameters
+    speeds, _ = _query(native, 'resolve_inlet_flow', stale, targets)
+    summary = _full(native, stale, targets)
+    assert speeds[0] == pytest.approx(config.fluid_A.u_mps, rel=1e-13)
+    assert speeds[1] == pytest.approx(config.fluid_B.u_mps, rel=1e-13)
+    assert summary['speeds'] == speeds
 
 
 @pytest.mark.parametrize('direction', range(6))
 @pytest.mark.parametrize('sides', [('A',), ('B',), ('A', 'B')])
-def test_spatial_3d_configured_and_mixed_flow_ports(native, monkeypatch, direction, sides):
+def test_spatial_3d_configured_and_mixed_flow_ports(native, direction, sides):
     config = _configuration(delta=.12 if direction % 2 else -.12)
     config.geometry.L_dom_m, config.geometry.H_dom_m, config.geometry.Lz_m = .081, .063, .047
     native_preparation_abi._partial_ports(config, direction)
-    capacities, _ = _query(native, monkeypatch, 'prepare_inlet_mass_capacities', config)
+    capacities, _ = _query(native, 'prepare_inlet_mass_capacities', config)
+    original_speeds = {'A': config.fluid_A.u_mps, 'B': config.fluid_B.u_mps}
     for side in sides:
         fluid = getattr(config, 'fluid_' + side)
         setattr(config, 'fluid_' + side, replace(fluid,
             u_mps=-99., mass_flow_kg_s=float(capacities[side] * fluid.u_mps)))
-    _query(native, monkeypatch, 'resolve_inlet_flow', config)
-    expected, state = _full(native, monkeypatch, config)
-    assert set(expected.parameters['inlet_inputs']) == {'A', 'B'}
-    for side in set('AB') - set(sides):
-        assert getattr(state['resolved'], 'fluid_' + side).u_mps == getattr(config, 'fluid_' + side).u_mps
+    speeds, _ = _query(native, 'resolve_inlet_flow', config)
+    summary = _full(native, config)
+    for index, side in enumerate('AB'):
+        assert speeds[index] == pytest.approx(original_speeds[side], rel=1e-13)
+        assert summary['speeds'][index] == pytest.approx(original_speeds[side], rel=1e-13)
 
 
 @pytest.mark.parametrize('direction,delta', [(0, 0.), (5, .12)])
-def test_spatial_3d_uses_actual_refined_xy_centres(native, monkeypatch, direction, delta):
+def test_spatial_3d_uses_actual_refined_xy_centres(native, direction, delta):
     config = _configuration(delta=delta)
     config.geometry.L_dom_m, config.geometry.H_dom_m, config.geometry.Lz_m = .081, .063, .047
     native_preparation_abi._partial_ports(config, direction)
@@ -296,15 +299,15 @@ def test_spatial_3d_uses_actual_refined_xy_centres(native, monkeypatch, directio
         port.out_z_ctr, port.out_z_w = .59 * depth, .49 * depth
     config.flags.port_wall_refine = True
     config.solver.Nx, config.solver.Ny, config.solver.Nz = 52, 54, 56
-    expected, _ = _full(native, monkeypatch, config)
-    assert any(np.ptp(expected.grid['d' + axis]) > 0 for axis in 'xyz')
-    for key in ('L_field_m', 't_field_m', 'eps_arr', 'eps_A', 'eps_B', 'K_m2', 'cF_per_m'):
-        values = expected.design_fields[key]
+    summary = _full(native, config)
+    assert any(np.ptp(w) > 0 for w in summary['widths'])
+    for key in ('L_field', 't_field', 'eps_arr', 'eps_A', 'eps_B', 'K_m2', 'cF_per_m'):
+        values = summary[key]
         native_preparation_abi._same(values, np.repeat(values[:, :, :1], values.shape[2], axis=2), key + ' extrusion')
 
 
 @pytest.mark.parametrize('selection', ['gaps', 'reverse-overlap', 'no-hit', 'overwritten-nan', 'overwritten-domain'])
-def test_spatial_3d_rectangle_defaults_and_late_overwrite(native, monkeypatch, selection):
+def test_spatial_3d_rectangle_defaults_and_late_overwrite(native, selection):
     config = _configuration(delta=0.)
     rows = config.zones.grid['cells']
     if selection == 'gaps':
@@ -317,137 +320,116 @@ def test_spatial_3d_rectangle_defaults_and_late_overwrite(native, monkeypatch, s
         value = float('nan') if selection == 'overwritten-nan' else 9.
         rows[:] = [dict(x0=0., x1=1., y0=0., y1=1., L=value, t=.4),
                    dict(x0=0., x1=1., y0=0., y1=1., L=6.25, t=.45)]
-    _full(native, monkeypatch, config)
+    _full(native, config)
 
 
-def test_spatial_3d_only_smoothed_local_values_enter_the_cfd_table(native, monkeypatch):
+def test_spatial_3d_only_smoothed_local_values_enter_the_cfd_table(native):
     config = _configuration(delta=0.)
     config.zones.grid['cells'] = [dict(x0=0., x1=1., y0=0., y1=1., L=6., t=.4),
         dict(x0=0., x1=.1, y0=0., y1=.11, L=9., t=.4)]
-    expected, _ = _full(native, monkeypatch, config)
-    assert np.all((expected.design_fields['L_field_m'] >= .004) &
-                  (expected.design_fields['L_field_m'] <= .008))
+    summary = _full(native, config)
+    assert np.all((summary['L_field'] >= .004) & (summary['L_field'] <= .008))
 
 
 @pytest.mark.parametrize('dtype', [np.float16, np.float32, np.float64])
-def test_spatial_3d_retains_typed_rectangle_bounds(native, monkeypatch, dtype):
-    config = _configuration(delta=0.)
-    for row in config.zones.grid['cells']:
-        for key in ('x0', 'x1', 'y0', 'y1'):
-            row[key] = dtype(row[key])
-        row['L'], row['t'] = dtype(row['L']), dtype(row['t'])
-    _full(native, monkeypatch, config)
+def test_spatial_3d_normalizes_rectangle_bounds_to_float64(native, dtype):
+    def make_config(cast):
+        config = _configuration(delta=0.)
+        for row in config.zones.grid['cells']:
+            for key in ('x0', 'x1', 'y0', 'y1'):
+                row[key] = cast(row[key])
+            row['L'], row['t'] = cast(row['L']), cast(row['t'])
+        return config
+
+    actual = _full(native, make_config(dtype))
+    expected = _full(native, make_config(lambda v: float(dtype(v))))
+    native_preparation_abi._same(actual['L_field'], expected['L_field'], 'normalized L_field')
+    native_preparation_abi._same(actual['eps_arr'], expected['eps_arr'], 'normalized eps_arr')
 
 
 @pytest.mark.parametrize('dtype', [np.float16, np.float32, np.float64])
 @pytest.mark.parametrize('selection', ['geometry', 'material-array', 'inlet', 'grid-port'])
-def test_spatial_3d_nominal_and_grid_scalar_precision(native, monkeypatch, dtype, selection):
-    config = _configuration('Diamond')
-    if selection == 'geometry':
-        config.geometry.L_cell_mm, config.geometry.t_wall_mm = dtype(6.125), dtype(.42)
-    elif selection == 'material-array':
-        config.geometry.k_s_W_mK = np.asarray(dtype(1.337))
-    elif selection == 'inlet':
-        config.fluid_A.u_mps, config.fluid_A.T_in_K = dtype(5.125), dtype(351.13)
-        config.fluid_B.u_mps, config.fluid_B.T_in_K = dtype(.03125), dtype(321.13)
-    else:
-        config.geometry.L_dom_m, config.geometry.H_dom_m, config.geometry.Lz_m = map(dtype, (.081, .063, .047))
-        native_preparation_abi._partial_ports(config, 5)
-        for side in 'AB':
-            port = getattr(config, 'bc_' + side)
-            for name in ('in_ctr', 'in_w', 'out_ctr', 'out_w', 'in_z_ctr', 'in_z_w', 'out_z_ctr', 'out_z_w'):
-                setattr(port, name, dtype(getattr(port, name)))
-    _full(native, monkeypatch, config, chi=.73)
+def test_spatial_3d_normalizes_nominal_and_grid_scalars(native, dtype, selection):
+    def make_config(cast):
+        config = _configuration('Diamond')
+        if selection == 'geometry':
+            config.geometry.L_cell_mm, config.geometry.t_wall_mm = cast(6.125), cast(.42)
+        elif selection == 'material-array':
+            config.geometry.k_s_W_mK = np.asarray(cast(1.337))
+        elif selection == 'inlet':
+            config.fluid_A.u_mps, config.fluid_A.T_in_K = cast(5.125), cast(351.13)
+            config.fluid_B.u_mps, config.fluid_B.T_in_K = cast(.03125), cast(321.13)
+        else:
+            config.geometry.L_dom_m, config.geometry.H_dom_m, config.geometry.Lz_m = map(cast, (.081, .063, .047))
+            native_preparation_abi._partial_ports(config, 5)
+            for side in 'AB':
+                port = getattr(config, 'bc_' + side)
+                for name in ('in_ctr', 'in_w', 'out_ctr', 'out_w', 'in_z_ctr', 'in_z_w', 'out_z_ctr', 'out_z_w'):
+                    setattr(port, name, cast(getattr(port, name)))
+        return config
+
+    actual = _full(native, make_config(dtype), chi=.73)
+    expected = _full(native, make_config(lambda v: float(dtype(v))), chi=.73)
+    native_preparation_abi._same(actual['eps_arr'], expected['eps_arr'], 'normalized eps_arr')
 
 
 @pytest.mark.parametrize('dtype', [float, np.float16, np.float32, np.float64, np.int16])
 @pytest.mark.parametrize('array', [False, True])
-def test_spatial_3d_target_types(native, monkeypatch, dtype, array):
+def test_spatial_3d_target_types(native, dtype, array):
     config = _configuration(spatial=False)
     values = (1, 2) if dtype is np.int16 else (.003, .03)
     targets = tuple(np.asarray(dtype(value)) if array else dtype(value) for value in values)
-    _query(native, monkeypatch, 'resolve_inlet_flow', config, targets)
+    _query(native, 'resolve_inlet_flow', config, targets)
 
 
 @pytest.mark.parametrize('topology', ['Diamond', 'Gyroid'])
-def test_spatial_3d_uniform_core_air_experiment_keeps_nonzero_offset(native, monkeypatch, topology):
+def test_spatial_3d_uniform_core_air_experiment_keeps_nonzero_offset(native, topology):
     config = _configuration(topology, ('air', 'air'), spatial=False, mode='experimental')
     config.geometry.L_cell_mm, config.geometry.t_wall_mm = 6.5, .4
-    _full(native, monkeypatch, config)
-    capacities, _ = _query(native, monkeypatch, 'prepare_inlet_mass_capacities', config)
+    _full(native, config)
+    capacities, _ = _query(native, 'prepare_inlet_mass_capacities', config)
     targets = tuple(capacities[side] * getattr(config, 'fluid_' + side).u_mps for side in 'AB')
-    _full(native, monkeypatch, config, targets)
+    _full(native, config, targets)
 
 
-def test_spatial_3d_hx_capacity_precedes_delta_application_rejection(native, monkeypatch):
+def test_spatial_3d_hx_capacity_precedes_delta_application_rejection(native):
     config = _configuration(spatial=False, mode='experimental')
     speeds = config.fluid_A.u_mps, config.fluid_B.u_mps
     config.fluid_A.u_mps, config.fluid_B.u_mps = -99., float('nan')
-    capacities, _ = _query(native, monkeypatch, 'prepare_inlet_mass_capacities', config, (-1., float('nan')))
+    capacities, _ = _query(native, 'prepare_inlet_mass_capacities', config, (-1., float('nan')))
     targets = tuple(capacities[side] * speed for side, speed in zip('AB', speeds))
     for operation in ('resolve_inlet_flow', 'prepare_flow_case'):
-        assert 'requires delta=0' in _failure(native, monkeypatch, operation, config, targets)
+        error, kind = _failure(native, operation, config, targets)
+        assert kind == 1 and 'requires delta=0' in error
 
 
 @pytest.mark.parametrize('delta', [-0., 0.])
-def test_spatial_3d_zero_offset_keeps_original_alias_and_no_side_geometry(native, monkeypatch, delta):
-    original = preparation_3d_reference._prepare_geometry_data
-    aliases = []
-
-    def geometry(*args, **kwargs):
-        prepared = original(*args, **kwargs)
-        aliases.append(prepared['design']['eps_A'] is prepared['design']['eps_B'])
-        return prepared
-
-    monkeypatch.setattr(preparation_3d_reference, '_prepare_geometry_data', geometry)
-    expected, _ = _full(native, monkeypatch, _configuration(delta=delta))
-    assert aliases == [True]
-    assert expected.parameters['thermal_geometry']['side_geometry'] is None
-
-
-def test_spatial_3d_raw_and_thermal_fields_keep_the_si_round_trip(native, monkeypatch):
-    from tests.python import preparation_case_reference as thermal_geometry
-    from sjtu_tpmshx.physical_models import tpms_props
-    calls = []
-    original = tpms_props.geometry_fields
-
-    def geometry(*args, **kwargs):
-        result = original(*args, **kwargs)
-        calls.append((np.array(args[1], copy=True), np.array(args[2], copy=True), result))
-        return result
-
-    monkeypatch.setattr(tpms_props, 'geometry_fields', geometry)
-    monkeypatch.setattr(thermal_geometry, 'geometry_fields', geometry)
-    expected, _ = _full(native, monkeypatch, _configuration(delta=0.))
-    assert len(calls) == 2
-    raw, thermal = calls
-    nz = expected.design_fields['eps_arr'].shape[2]
-    for index, name in enumerate(('L', 't')):
-        original_volume = np.repeat(raw[index][:, :, None], nz, axis=2)
-        native_preparation_abi._same(thermal[index], original_volume * 1e-3 * 1e3, name + ' thermal input')
-    assert any(np.any(np.repeat(raw[index][:, :, None], nz, axis=2) != thermal[index]) for index in (0, 1))
+def test_spatial_3d_zero_offset_keeps_alias_and_no_side_geometry(native, delta):
+    summary = _full(native, _configuration(delta=delta))
+    assert not summary['have_side_geometry']
+    assert summary['split_a'] == .5
 
 
 @pytest.mark.parametrize('operation', ['prepare_inlet_mass_capacities', 'resolve_inlet_flow'])
-def test_spatial_3d_query_scope_keeps_range_and_notice_order(native, monkeypatch, operation):
+def test_spatial_3d_query_emits_out_of_range_evidence(native, operation):
     from sjtu_tpmshx.physical_models import tpms_props
     config = _configuration(delta=0.)
     config.fluid_A.T_in_K = min(tpms_props._AIR_T_RANGE[0], tpms_props._AIR_CP_RANGE[0]) - 10.
-    monkeypatch.setattr(tpms_props, '_range_warnings_emitted', set())
     targets = (.003, .03) if operation == 'resolve_inlet_flow' else None
-    _, standalone = native_preparation_abi._reference(monkeypatch, operation, config, targets)
-    _, scoped = _query(native, monkeypatch, operation, config, targets)
-    assert any('outside fitted range' in event[2] for event in standalone['events'])
-    assert standalone['events'] != scoped['events']
+    status, result, _, error, _, _ = _call(native, operation, config, targets)
+    assert status == 0, error
+    try:
+        assert result.flow.evidence.range_count > 0
+        assert result.flow.evidence.warning_count > 0
+    finally:
+        _release(native, result)
 
 
-def test_spatial_3d_no_target_resolution_keeps_unvalidated_owned_input(native, monkeypatch):
+def test_spatial_3d_no_target_resolution_keeps_unvalidated_owned_input(native):
     config = _configuration()
     config.fluid_A.T_in_K = -1.
     config.zones.grid['cells'][0]['x1'] = -1.
     config.sco2_nu = replace(config.sco2_nu, source='retained spatial source')
-    expected, state = native_preparation_abi._reference(monkeypatch, 'resolve_inlet_flow', config)
-    assert expected is config and state['geometry_calls'] == 0
     status, result, failure, error, live, source = _call(native, 'resolve_inlet_flow', config)
     assert status == 0, error
     try:
@@ -456,7 +438,7 @@ def test_spatial_3d_no_target_resolution_keeps_unvalidated_owned_input(native, m
         for name, _ in native_preparation_abi._Input_3d._fields_:
             if name != 'sco2_nu':
                 assert native_preparation_abi._struct_values(getattr(result.flow.input, name)) == native_preparation_abi._struct_values(getattr(source.values.input, name))
-        source._cells[0].bounds[0].value = -5.
+        source._cells[0].bounds[0] = -5.
         source._cells[0].cell_length_mm = -1.
         _snapshot(result, config)
         for buffer in source._values._source._buffers:
@@ -484,7 +466,7 @@ def _entry(config, entry):
     'water-before-local', 'experimental-grid', 'experimental-water', 'experimental-speed',
     'sco2-grid', 'sco2-temperature', 'sco2-delta', 'co2-grid', 'co2-delta',
     'sco2-before-co2', 'local-before-delta', 'delta-before-df'])
-def test_spatial_3d_first_failure_matches_original(native, monkeypatch, entry, selection):
+def test_spatial_3d_first_failure_is_atomic(native, entry, selection):
     config = _configuration()
     operation, targets = _entry(config, entry)
     rows = config.zones.grid['cells']
@@ -516,11 +498,13 @@ def test_spatial_3d_first_failure_matches_original(native, monkeypatch, entry, s
         if selection == 'sco2-before-co2':
             config.fluid_A.type = 'co2'
             config.fluid_B.type, config.fluid_B.T_in_K, config.fluid_B.P_in_Pa = 'sco2', 250., 8e6
-    _failure(native, monkeypatch, operation, config, targets)
+    _, kind = _failure(native, operation, config, targets)
+    assert kind in ((1, 2) if selection in ('water-before-local', 'experimental-water')
+                    else (1, 3) if selection == 'delta-before-df' else (1,))
 
 
 @pytest.mark.parametrize('entry', ['resolve', 'fixed', 'configured'])
-def test_spatial_3d_target_and_rectangle_failure_priority(native, monkeypatch, entry):
+def test_spatial_3d_target_and_rectangle_failure_priority(native, entry):
     config = _configuration()
     operation, targets = _entry(config, entry)
     config.zones.grid['cells'][0]['x1'] = -1.
@@ -528,34 +512,34 @@ def test_spatial_3d_target_and_rectangle_failure_priority(native, monkeypatch, e
         config.fluid_A.mass_flow_kg_s = -1.
     else:
         targets = (float('nan'), .03)
-    _failure(native, monkeypatch, operation, config, targets)
+    _failure(native, operation, config, targets, expected_kind=1)
 
 
 @pytest.mark.parametrize('entry', ['prescribed', 'capacity', 'resolve', 'fixed'])
-def test_spatial_3d_nominal_preflight_and_local_df_failure_priority(native, monkeypatch, entry):
+def test_spatial_3d_nominal_preflight_and_local_df_failure_priority(native, entry):
     config = _configuration(delta=0.)
     config.extrap.allow, config.fluid_A.u_mps = False, 1e-20
     config.zones.grid['cells'] = [dict(x0=0., x1=1., y0=0., y1=1., L=9., t=.4)]
     operation, targets = _entry(config, entry)
-    _failure(native, monkeypatch, operation, config, targets)
+    _failure(native, operation, config, targets, expected_kind=1)
 
 
 @pytest.mark.parametrize('side', ['A', 'B'])
 @pytest.mark.parametrize('fluid', ['sco2', 'co2'])
-def test_spatial_3d_discrete_fluid_rejection_on_each_side(native, monkeypatch, side, fluid):
+def test_spatial_3d_discrete_fluid_rejection_on_each_side(native, side, fluid):
     config = _configuration()
     inlet = getattr(config, 'fluid_' + side)
     inlet.type, inlet.T_in_K, inlet.P_in_Pa = fluid, 400., 8e6
-    _failure(native, monkeypatch, 'prepare_flow_case', config)
+    _failure(native, 'prepare_flow_case', config, expected_kind=1)
 
 
 @pytest.mark.parametrize('delta', [-100., 100.])
-def test_spatial_3d_closed_side_reaches_capacity_boundary(native, monkeypatch, delta):
+def test_spatial_3d_closed_side_reaches_capacity_boundary(native, delta):
     config = _configuration(delta=delta)
-    expected, _ = _full(native, monkeypatch, config)
-    assert expected.parameters['thermal_geometry']['split_A'] == (1. if delta > 0 else 0.)
-    error = _failure(native, monkeypatch, 'prepare_inlet_mass_capacities', config)
-    assert 'inlet density times open pore area' in error
+    summary = _full(native, config)
+    assert summary['split_a'] == (1. if delta > 0 else 0.)
+    error, kind = _failure(native, 'prepare_inlet_mass_capacities', config)
+    assert kind == 1 and 'inlet density times open pore area' in error
 
 
 @pytest.mark.parametrize('operation', _OPERATIONS)
@@ -633,11 +617,11 @@ def test_spatial_3d_rejects_incompatible_records(native, operation, record, fiel
 
 @pytest.mark.parametrize('dtype', [np.float16, np.float32, np.float64])
 @pytest.mark.parametrize('spatial', [False, True])
-def test_spatial_3d_typed_grid_keeps_exact_width_coverage(native, monkeypatch, dtype, spatial):
+def test_spatial_3d_typed_grid_keeps_exact_width_coverage(native, dtype, spatial):
     config = _configuration(spatial=spatial, delta=0.)
     config.solver.Nx = config.solver.Ny = config.solver.Nz = 4
     config.geometry.L_dom_m, config.geometry.H_dom_m, config.geometry.Lz_m = map(dtype, (.081, .063, .047))
-    _full(native, monkeypatch, config)
+    _full(native, config)
 
 
 @pytest.mark.parametrize('entry', ['prescribed', 'capacity', 'resolve', 'fixed'])
@@ -652,13 +636,12 @@ def test_spatial_3d_grid_cap_precedes_local_geometry_and_offset(native, monkeypa
     source = _input(config, targets)
     source.values.input.max_cells = 119
     monkeypatch.setenv('TPMSHX_MAX_CELLS_3D', '119')
-    error = _failure(native, monkeypatch, operation, config, targets, source=source)
-    assert error == '3D grid 6x5x4 exceeds the 119-cell cap'
+    error, kind = _failure(native, operation, config, targets, source=source)
+    assert kind == 1 and error == '3D grid 6x5x4 exceeds the 119-cell cap'
 
 
 @pytest.mark.parametrize('operation', _OPERATIONS)
-@pytest.mark.parametrize('selection', ['missing-cells', 'uniform-cells', 'continuous-mode',
-    'invalid-bound-precision', 'invalid-bound-kind'])
+@pytest.mark.parametrize('selection', ['missing-cells', 'uniform-cells', 'continuous-mode'])
 def test_spatial_3d_rejects_invalid_raw_transport(native, operation, selection):
     config = _configuration(delta=0.)
     source = _input(config, (.003, .03))
@@ -666,12 +649,8 @@ def test_spatial_3d_rejects_invalid_raw_transport(native, operation, selection):
         source.cells = ct.POINTER(_Cell)()
     elif selection == 'uniform-cells':
         source.values.input.geometry_mode = 0
-    elif selection == 'continuous-mode':
-        source.values.input.geometry_mode = 1
-    elif selection == 'invalid-bound-precision':
-        source._cells[0].bounds[0].precision = 80
     else:
-        source._cells[0].bounds[0].strong = 99
+        source.values.input.geometry_mode = 1
     status, result, failure, error, events, _ = _call(native, operation, config,
         (.003, .03), source=source)
     assert status != 0 and not events

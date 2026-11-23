@@ -37,9 +37,7 @@ static void pack_saved(const tpmshx_preparation_case_3d_v1* p,tpmshx_stage_saved
     saved->sco2_nu=saved->resource_nu[0]=saved->resource_nu[1]=p->input.sco2_nu;
     for(i=0;i<3;++i) {
         raw->widths[i]=field(p->widths[i]);raw->shape[i]=p->widths[i].size;
-        saved->lengths_m[i]=p->input.lengths_m[i].value;
-        saved->reference_kinds[i].precision=64;
-        saved->field_kinds[i].precision=64;saved->field_kinds[i].strong=1;saved->field_kinds[i].layout=2;
+        saved->lengths_m[i]=p->input.lengths_m[i];
     }
     for(s=0;s<2;++s) {
         tpmshx_full3d_side_v1* side=&raw->sides[s];
@@ -73,7 +71,6 @@ static int prepare(const tpmshx_preparation_case_input_3d_v1* input,const tpmshx
     spatial.abi_version=4;spatial.struct_size=sizeof(spatial);
     spatial.values.abi_version=2;spatial.values.struct_size=sizeof(spatial.values);
     spatial.values.input=*input;
-    spatial.values.target_kinds[0].precision=spatial.values.target_kinds[1].precision=64;
     memset(prepared,0,sizeof(*prepared));prepared->abi_version=4;prepared->struct_size=sizeof(*prepared);
     failure.abi_version=2;failure.struct_size=sizeof(failure);
     return tpmshx_prepare_flow_case_3d_v4(&spatial,options,NULL,prepared,&failure,error,capacity);
@@ -93,16 +90,13 @@ int main(void) {
     tpmshx_stage_output_v1 report={0};
     tpmshx_result_diagnostics_v1 diagnostics={0};uint64_t token=0;
     void* run=NULL;void* restored=NULL;uint32_t phase=0,restored_phase=0;size_t i;
-    REQUIRE(tpmshx_stage_capture_3d_abi_version()==1);
+    REQUIRE(tpmshx_stage_capture_3d_abi_version()==2);
     input.abi_version=1;input.struct_size=sizeof(input);input.max_cells=2000000;
-    input.lengths_m[0].value=.182;input.lengths_m[1].value=.042;input.lengths_m[2].value=.031;
-    for(i=0;i<3;++i)input.lengths_m[i].precision=64;
+    input.lengths_m[0]=.182;input.lengths_m[1]=.042;input.lengths_m[2]=.031;
     input.counts[0]=6;input.counts[1]=5;input.counts[2]=4;
     input.topology=1;input.cell_length_mm=7.;input.wall_thickness_mm=.6;input.solid_conductivity_W_mK=16.;
-    input.kinds.cell_length.precision=input.kinds.wall_thickness.precision=input.kinds.solid_conductivity.precision=64;
     for(i=0;i<2;++i) {
         input.sides[i].port.active=1;input.sides[i].pressure_Pa=200000.;
-        input.kinds.sides[i].velocity.precision=input.kinds.sides[i].temperature.precision=input.kinds.sides[i].pressure.precision=64;
     }
     input.sides[0].velocity_m_s=6.;input.sides[0].temperature_K=350.;
     input.sides[1].fluid=1;input.sides[1].velocity_m_s=.02;input.sides[1].temperature_K=320.;input.sides[1].port.direction=3;

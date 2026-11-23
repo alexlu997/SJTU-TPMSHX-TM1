@@ -116,7 +116,7 @@ def test_complete_saved_stage_result(spatial, pair, tmp_path, monkeypatch):
     _compare(case, tmp_path, monkeypatch)
 
 
-def test_spatial_sco2_notice_keeps_saved_scalar_precision(tmp_path, monkeypatch):
+def test_spatial_sco2_notice_normalizes_saved_scalars_to_float64(tmp_path, monkeypatch):
     from sjtu_tpmshx.file_io.case_io import validate_case
     from sjtu_tpmshx.solvers.api import run_case
 
@@ -130,7 +130,7 @@ def test_spatial_sco2_notice_keeps_saved_scalar_precision(tmp_path, monkeypatch)
     result = run_case(case, _control([]))
     notice = next(text for text in result.metadata['applicability_evidence']['scope_notes']
                   if text.startswith('[sCO2 Nu evidence] 2D main-hv'))
-    assert 'L=7 mm, t=0.600098 mm' in notice
+    assert 'L=6.99997 mm, t=0.599861 mm' in notice
     assert notice in result.metadata['diagnostics']['warnings_list']
 
 

@@ -29,7 +29,7 @@ void input(Point& point,bool counter=false,bool mean=false) {
     auto& value=point.value;
     value=QuickDesignInputV2{};
     const double scalars[]{7.,.5,.084,.05,.07,16.,1e-5,.2855,.5,688.23,320.,1088700.,200000.};
-    for(size_t i=0;i<TPMSHX_QUICK_VALUE_COUNT;++i)value.values[i].value=scalars[i];
+    for(size_t i=0;i<TPMSHX_QUICK_VALUE_COUNT;++i)value.values[i]=scalars[i];
     value.topology=text("Diamond");value.arrangement=text(counter?"counter":"cross");
     value.property_mode=text(mean?"mean":"const");
     value.fluids[0]=text("air");value.fluids[1]=text("water");value.have_height=counter?0:1;
@@ -54,20 +54,20 @@ void prepared_files(const std::filesystem::path& directory,const QuickDesignInpu
     require(index.good(),"could not write Quick Design prepared index");
     std::ofstream scalars(directory/"prepared-scalars.tsv");scalars<<std::setprecision(17);
     const auto& v=input.values;const auto& c=value.controls;
-    const auto span=v[TPMSHX_QUICK_SPAN].value,tolerance=v[TPMSHX_QUICK_TOLERANCE].value;
+    const auto span=v[TPMSHX_QUICK_SPAN],tolerance=v[TPMSHX_QUICK_TOLERANCE];
     // Independent reference: the run selects these defaults when the prepared controls omit them.
     const bool plane=value.shape[2]==1;
     const auto qtol=c.have_q_relative_tolerance?c.q_relative_tolerance:
         (plane?std::min(tolerance*2e-3,1e-3):std::max(tolerance*10.,1e-4));
     const auto chunk=c.have_chunk_iterations?c.chunk_iterations:(plane?500u:250u);
-    scalars<<"Lx\t"<<v[TPMSHX_QUICK_LENGTH].value<<"\ns\t"<<span
-        <<"\nheight\t"<<(input.have_height?v[TPMSHX_QUICK_HEIGHT].value:span)
-        <<"\nL_cell_m\t"<<value.cell_length_m.value<<"\nA_0\t"<<value.geometry.area_density_per_m
+    scalars<<"Lx\t"<<v[TPMSHX_QUICK_LENGTH]<<"\ns\t"<<span
+        <<"\nheight\t"<<(input.have_height?v[TPMSHX_QUICK_HEIGHT]:span)
+        <<"\nL_cell_m\t"<<value.cell_length_m<<"\nA_0\t"<<value.geometry.area_density_per_m
         <<"\nD_h\t"<<value.geometry.hydraulic_diameter_m
-        <<"\nt_wall_m\t"<<value.wall_thickness_m.value<<"\nk_s\t"<<v[TPMSHX_QUICK_CONDUCTIVITY].value
+        <<"\nt_wall_m\t"<<value.wall_thickness_m<<"\nk_s\t"<<v[TPMSHX_QUICK_CONDUCTIVITY]
         <<"\ntol\t"<<tolerance<<"\nmaxit\t"<<c.max_iterations<<"\nchunk\t"<<chunk
         <<"\nqtol\t"<<qtol<<"\nalpha\t"<<c.alpha<<'\n';
-    for(size_t side=0;side<2;++side)scalars<<"pressure_fraction_"<<"AB"[side]<<'\t'<<value.fractions[side].value<<'\n';
+    for(size_t side=0;side<2;++side)scalars<<"pressure_fraction_"<<"AB"[side]<<'\t'<<value.fractions[side]<<'\n';
     require(scalars.good(),"could not write Quick Design prepared scalars");
 }
 void result_files(const std::filesystem::path& directory,const tpmshx_quick_run_result_v1& value,
@@ -106,18 +106,18 @@ void result_files(const std::filesystem::path& directory,const tpmshx_quick_run_
 void failures() {
     Point point;input(point);auto& source=point.value;
     tpmshx_quick_prepared_v2 failure{};failure.abi_version=2;failure.struct_size=sizeof(failure);
-    failure.cell_length_m.value=-123.;
+    failure.cell_length_m=-123.;
     const auto original=failure;char error[4096]{};
     const auto rejected=[&](const char* message) {
         require(tpmshx_prepare_quick_design_v2(&source,nullptr,&failure,error,sizeof(error))!=0,message);
         require(std::memcmp(&failure,&original,sizeof(failure))==0,"failed prepare changed output");
         input(point);
     };
-    source.values[TPMSHX_QUICK_HEIGHT].value=0.;rejected("invalid explicit height accepted");
+    source.values[TPMSHX_QUICK_HEIGHT]=0.;rejected("invalid explicit height accepted");
     source.topology=text("Octahedron");rejected("invalid topology accepted");
-    source.values[TPMSHX_QUICK_TOLERANCE].value=std::numeric_limits<double>::quiet_NaN();rejected("invalid tolerance accepted");
+    source.values[TPMSHX_QUICK_TOLERANCE]=std::numeric_limits<double>::quiet_NaN();rejected("invalid tolerance accepted");
     source.arrangement=text("parallel");rejected("invalid arrangement accepted");
-    source.values[TPMSHX_QUICK_TEMPERATURE_B].value=500.;
+    source.values[TPMSHX_QUICK_TEMPERATURE_B]=500.;
     require(tpmshx_prepare_quick_design_v2(&source,nullptr,&failure,error,sizeof(error))==TPMSHX_PREPARATION_WATER_STATE,
         "water state rejection changed");
     input(point);
@@ -205,7 +205,7 @@ int main(int argc,char** argv) {
         {
             QuickDesignInputV2 source;
             const double scalars[]{7.,.5,.084,.025,.07,16.,1e-5,.03,.02,480.,320.,9e6,9e6};
-            for(size_t i=0;i<TPMSHX_QUICK_VALUE_COUNT;++i)source.values[i].value=scalars[i];
+            for(size_t i=0;i<TPMSHX_QUICK_VALUE_COUNT;++i)source.values[i]=scalars[i];
             source.topology={"Diamond",7};source.arrangement={"counter",7};source.property_mode={"const",5};
             source.fluids[0]={"air",3};source.fluids[1]={"air",3};source.have_height=1;
             tpmshx_quick_run_control_v1 control{};control.result_id="saved-quick-v2";
@@ -228,18 +228,18 @@ int main(int argc,char** argv) {
             Point point;input(point,sample==2 || sample==4,sample==1 || sample==4);
             auto& source=point.value;auto& v=source.values;
             if(sample==5) {
-                source.topology=text("Gyroid");v[TPMSHX_QUICK_LENGTH].value=.025;v[TPMSHX_QUICK_HEIGHT].value=.06;
+                source.topology=text("Gyroid");v[TPMSHX_QUICK_LENGTH]=.025;v[TPMSHX_QUICK_HEIGHT]=.06;
                 source.fluids[0]=text("water");source.fluids[1]=text("air");
-                v[TPMSHX_QUICK_TEMPERATURE_A].value=355.;v[TPMSHX_QUICK_PRESSURE_A].value=2e5;v[TPMSHX_QUICK_MASS_A].value=.2;
-                v[TPMSHX_QUICK_TEMPERATURE_B].value=300.;v[TPMSHX_QUICK_PRESSURE_B].value=2e5;v[TPMSHX_QUICK_MASS_B].value=.04;
+                v[TPMSHX_QUICK_TEMPERATURE_A]=355.;v[TPMSHX_QUICK_PRESSURE_A]=2e5;v[TPMSHX_QUICK_MASS_A]=.2;
+                v[TPMSHX_QUICK_TEMPERATURE_B]=300.;v[TPMSHX_QUICK_PRESSURE_B]=2e5;v[TPMSHX_QUICK_MASS_B]=.04;
             }
             if(sample==6) {
-                v[TPMSHX_QUICK_LENGTH].value=.025;v[TPMSHX_QUICK_HEIGHT].value=.06;
+                v[TPMSHX_QUICK_LENGTH]=.025;v[TPMSHX_QUICK_HEIGHT]=.06;
                 source.fluids[0]=text("sco2");source.fluids[1]=text("sco2");
-                v[TPMSHX_QUICK_TEMPERATURE_A].value=500.;v[TPMSHX_QUICK_PRESSURE_A].value=9e6;v[TPMSHX_QUICK_MASS_A].value=.2;
-                v[TPMSHX_QUICK_TEMPERATURE_B].value=350.;v[TPMSHX_QUICK_PRESSURE_B].value=8e6;v[TPMSHX_QUICK_MASS_B].value=.2;
+                v[TPMSHX_QUICK_TEMPERATURE_A]=500.;v[TPMSHX_QUICK_PRESSURE_A]=9e6;v[TPMSHX_QUICK_MASS_A]=.2;
+                v[TPMSHX_QUICK_TEMPERATURE_B]=350.;v[TPMSHX_QUICK_PRESSURE_B]=8e6;v[TPMSHX_QUICK_MASS_B]=.2;
             }
-            const double hot=v[TPMSHX_QUICK_TEMPERATURE_A].value,cold=v[TPMSHX_QUICK_TEMPERATURE_B].value;
+            const double hot=v[TPMSHX_QUICK_TEMPERATURE_A],cold=v[TPMSHX_QUICK_TEMPERATURE_B];
             if(sample==3) {
                 source.warm_start=1;source.initial_shape[0]=60;source.initial_shape[1]=40;source.initial_shape[2]=1;
                 const double temperatures[]{hot,cold,(hot+cold)/2.};

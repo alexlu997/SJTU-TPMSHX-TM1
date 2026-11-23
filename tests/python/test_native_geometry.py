@@ -320,8 +320,8 @@ def test_explicit_library_path_wins_and_missing_files_do_not_fall_back(tmp_path,
 
 
 @pytest.mark.parametrize('abi,missing,message', [
-    (2, None, 'unsupported native geometry ABI 2'),
-    (1, 'lut_batch', 'lacks tpmshx_geometry_lut_batch_v1'),
+    (3, None, 'unsupported native geometry ABI 3'),
+    (2, 'lut_batch', 'lacks tpmshx_geometry_lut_batch_v1'),
 ])
 def test_prebuilt_library_rejects_unsupported_abi_or_missing_symbols(monkeypatch, abi, missing, message):
     def version():

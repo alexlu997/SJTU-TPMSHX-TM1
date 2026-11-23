@@ -59,7 +59,7 @@ def nusselt(tpms, Re, Pr, L_mm, Dh_mm):
     _observe(tpms, 'Pr', pr, coefficients()['bounds']['Pr'])
     _topology(tpms)
     result = _native_properties.nusselt(4, 0 if tpms == 'Diamond' else 1, prepared, pr, cell, dh)
-    return float(result) if result.ndim == 0 else result
+    return float(result) if np.ndim(result) == 0 else result
 
 
 def geometry(tpms, L_mm, t_mm, k_s=1.):

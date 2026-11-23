@@ -1,6 +1,5 @@
 #include "tpmshx/grid.hpp"
 #include "tpmshx/ports.hpp"
-#include "tpmshx/scalar_precision.hpp"
 #include "tpmshx/finite_volume.hpp"
 #include "../numerics/contiguous_sum.hpp"
 #include <algorithm>
@@ -13,16 +12,6 @@
 
 namespace tpmshx::grid {
 namespace {
-namespace precision=tpmshx::geometry::detail;
-std::uint32_t integer_float_precision(std::uint32_t bits) {
-    if (bits==8) return 16;
-    if (bits==16) return 32;
-    if (bits==32 || bits==64) return 64;
-    throw std::invalid_argument("grid integer precision must be 8, 16, 32 or 64");
-}
-Scalar result(double value,Scalar a,Scalar b) {
-    return {value,result_precision(a,b),a.strong || b.strong?1u:0u};
-}
 double numpy_sum(const Values& values) {
     return 0.+tpmshx::detail::contiguous_sum({values.data(),values.size()});
 }
@@ -40,18 +29,18 @@ std::int64_t round_even(double value) {
     if (fraction>.5 || (fraction==.5 && std::fmod(integral,2.)!=0.)) ++integral;
     return static_cast<std::int64_t>(std::copysign(integral,value));
 }
-std::pair<Scalar,Scalar> window(const End& end,bool second,Scalar length,const char* label) {
+std::pair<double,double> window(const End& end,bool second,double length,const char* label) {
     const auto center=second?end.center2:end.center;
     const auto width=second?end.width2:end.width;
-    if (!center && !width) return {divide(length,weak(2.)),length};
+    if (!center && !width) return {length/2.,length};
     if (!center || !width) throw std::invalid_argument(std::string(label)+" centre and width must be set together");
     return {*center,*width};
 }
-std::pair<Scalar,Scalar> edges(Scalar center,Scalar width) {
-    const auto half=divide(width,weak(2.));
-    return {subtract(center,half),add(center,half)};
+std::pair<double,double> edges(double center,double width) {
+    const double half=width/2.;
+    return {center-half,center+half};
 }
-std::pair<Scalar,Scalar> first_edges(const End& end) {
+std::pair<double,double> first_edges(const End& end) {
     if (!end.center || !end.width) throw std::invalid_argument("first-cross-axis centre and width are required");
     return edges(*end.center,*end.width);
 }
@@ -60,96 +49,43 @@ bool any(const Values& values) {
 }
 }  // namespace
 
-std::uint32_t result_precision(Scalar a,Scalar b) {
-    if (a.strong==2 || b.strong==2) {
-        if (a.strong==1) return std::max(a.precision,integer_float_precision(b.precision));
-        if (b.strong==1) return std::max(b.precision,integer_float_precision(a.precision));
-        return 64;
-    }
-    return a.strong && b.strong?std::max(a.precision,b.precision):(a.strong?a.precision:(b.strong?b.precision:64));
+double divide(double a,double b) {
+    if (b==0.) throw std::domain_error("float division by zero");
+    return a/b;
 }
 
-Scalar checked(Scalar value) {
-    if (value.strong==2) {
-        integer_float_precision(value.precision);
-        if (!std::isfinite(value.value) || std::trunc(value.value)!=value.value)
-            throw std::invalid_argument("grid integer scalar must be finite and integral");
-        return value;
-    }
-    precision::require_precision(value.precision);
-    if (value.strong>1 || (!value.strong && value.precision!=64))
-        throw std::invalid_argument("grid scalar kind is invalid");
-    value.value=precision::round_scalar(value.value,value.precision);
-    return value;
-}
-Scalar weak(double value) {return {value,64,0};}
-Scalar add(Scalar a,Scalar b) {
-    const auto bits=result_precision(a,b);
-    const double left=precision::round_scalar(a.value,bits),right=precision::round_scalar(b.value,bits);
-    const double value=bits==64?left+right:precision::round_scalar(static_cast<float>(left)+static_cast<float>(right),bits);
-    return result(value,a,b);
-}
-Scalar subtract(Scalar a,Scalar b) {
-    const auto bits=result_precision(a,b);
-    const double left=precision::round_scalar(a.value,bits),right=precision::round_scalar(b.value,bits);
-    const double value=bits==64?left-right:precision::round_scalar(static_cast<float>(left)-static_cast<float>(right),bits);
-    return result(value,a,b);
-}
-Scalar multiply(Scalar a,Scalar b) {return result(precision::multiply(a.value,b.value,result_precision(a,b)),a,b);}
-Scalar divide(Scalar a,Scalar b) {
-    if (!a.strong && !b.strong && b.value==0.) throw std::domain_error("float division by zero");
-    return result(precision::divide(a.value,b.value,result_precision(a,b)),a,b);
-}
-Scalar power(Scalar base,std::size_t exponent) {
-    if (base.strong==2) {
-        base=checked(base);
-        // Keep non-overflowing integer powers typed for a later floating product.
-        return {std::pow(base.value,static_cast<double>(exponent)),base.precision,2};
-    }
-    if (!base.strong || base.precision==64)
-        return {std::pow(base.value,static_cast<double>(exponent)),64,base.strong};
-    const float a=static_cast<float>(base.value);
-    const float b=static_cast<float>(precision::round_scalar(static_cast<double>(exponent),base.precision));
-    return {precision::round_scalar(std::pow(a,b),base.precision),base.precision,1};
-}
-bool less(Scalar a,Scalar b) {
-    const auto bits=result_precision(a,b);
-    return precision::round_scalar(a.value,bits)<precision::round_scalar(b.value,bits);
+bool port_window_within(double cross_length,double center,double width) {
+    return !(center-width/2.<0. || cross_length<center+width/2.);
 }
 
-bool port_window_within(Scalar cross_length,double center,double width) {
-    return !(center-width/2.<0. || less(cross_length,weak(center+width/2.)));
-}
-
-Scalars segment_lengths(const Scalars& bounds) {
-    Scalars values;
-    for (std::size_t i=0;i+1<bounds.size();++i) values.push_back(subtract(bounds[i+1],bounds[i]));
+Values segment_lengths(const Values& bounds) {
+    Values values;
+    for (std::size_t i=0;i+1<bounds.size();++i) values.push_back(bounds[i+1]-bounds[i]);
     return values;
 }
-Scalar python_sum(const Scalars& values) {
-    double sum=0.,correction=0.;std::size_t i=0;
-    for (;i<values.size() && !values[i].strong;++i) {
-        const double x=values[i].value,next=sum+x;
+double python_sum(const Values& values) {
+    // Python 3.12 float sum uses this compensated summation.
+    double sum=0.,correction=0.;
+    for (const double x:values) {
+        const double next=sum+x;
         correction+=std::abs(sum)>=std::abs(x)?(sum-next)+x:(x-next)+sum;
         sum=next;
     }
     if (correction!=0. && std::isfinite(correction)) sum+=correction;
-    Scalar total=weak(sum);
-    for (;i<values.size();++i) total=add(total,values[i]);
-    return total;
+    return sum;
 }
-std::vector<std::uint8_t> aligned_filter(Scalar length,const Scalars& points) {
-    const auto epsilon=multiply(length,weak(.001)),upper=subtract(length,epsilon);
+std::vector<std::uint8_t> aligned_filter(double length,const Values& points) {
+    const double epsilon=length*.001,upper=length-epsilon;
     std::vector<std::uint8_t> result;
-    for (auto point:points) result.push_back(less(epsilon,point) && less(point,upper));
+    for (auto point:points) result.push_back(epsilon<point && point<upper);
     return result;
 }
-Values uniform(std::size_t count,Scalar length) {
-    return Values(count,divide(length,weak(static_cast<double>(count))).value);
+Values uniform(std::size_t count,double length) {
+    return Values(count,divide(length,static_cast<double>(count)));
 }
-Aligned aligned(std::size_t count,const Scalars& bounds) {
+Aligned aligned(std::size_t count,const Values& bounds) {
     if (bounds.size()<2) throw std::invalid_argument("aligned grid input needs both domain endpoints");
-    Aligned output;output.total=weak(0.);
+    Aligned output;output.total=0.;
     if (bounds.size()==2) {output.widths=uniform(count,bounds.back());return output;}
     const auto segments=bounds.size()-1;
     if (count<2*segments)
@@ -157,8 +93,8 @@ Aligned aligned(std::size_t count,const Scalars& bounds) {
     output.lengths=segment_lengths(bounds);output.total=python_sum(output.lengths);
     std::int64_t used=0;
     for (auto length:output.lengths) {
-        const auto scaled=divide(multiply(weak(static_cast<double>(count)),length),output.total);
-        output.counts.push_back(std::max<std::int64_t>(2,round_even(scaled.value)));used+=output.counts.back();
+        const double scaled=divide(static_cast<double>(count)*length,output.total);
+        output.counts.push_back(std::max<std::int64_t>(2,round_even(scaled)));used+=output.counts.back();
     }
     output.counts.back()+=static_cast<std::int64_t>(count)-used;
     if (output.counts.back()<2) {
@@ -170,33 +106,30 @@ Aligned aligned(std::size_t count,const Scalars& bounds) {
             *largest-=borrowed;deficit-=borrowed;
         }
     }
-    Scalar position=weak(0.);output.widths.reserve(count);
+    double position=0.;output.widths.reserve(count);
     for (std::size_t i=0;i<segments;++i) {
-        const auto dx=divide(subtract(bounds[i+1],bounds[i]),weak(static_cast<double>(output.counts[i])));
-        for (std::int64_t j=0;j<output.counts[i]-1;++j) {output.widths.push_back(dx.value);position=add(position,dx);}
-        const auto last=subtract(bounds[i+1],position);
-        output.widths.push_back(last.value);position=add(position,last);
+        const double dx=(bounds[i+1]-bounds[i])/static_cast<double>(output.counts[i]);
+        for (std::int64_t j=0;j<output.counts[i]-1;++j) {output.widths.push_back(dx);position+=dx;}
+        const double last=bounds[i+1]-position;
+        output.widths.push_back(last);position+=last;
     }
     return output;
 }
 
-Values wall(Scalar width,std::size_t bulk,std::size_t layers,double first,double growth) {
-    return wall(width,bulk,layers,weak(first),weak(growth));
-}
-Values wall(Scalar width,std::size_t bulk,std::size_t layers,Scalar first,Scalar growth) {
+Values wall(double width,std::size_t bulk,std::size_t layers,double first,double growth) {
     Values refined;refined.reserve(layers);
-    for (std::size_t i=0;i<layers;++i) refined.push_back(multiply(first,power(growth,i)).value);
-    const Scalar total{2.*numpy_sum(refined),64,1};
-    const auto bulk_width=subtract(width,total);
-    if (bulk_width.value<=0.) {
+    for (std::size_t i=0;i<layers;++i) refined.push_back(first*std::pow(growth,static_cast<double>(i)));
+    const double total=2.*numpy_sum(refined);
+    const double bulk_width=width-total;
+    if (bulk_width<=0.) {
         std::ostringstream message;message.setf(std::ios::fixed);message.precision(3);
-        message<<"build_wall_refined_1d: refinement "<<multiply(total,weak(1000.)).value
-               <<"mm exceeds domain width "<<multiply(width,weak(1000.)).value
+        message<<"build_wall_refined_1d: refinement "<<total*1000.
+               <<"mm exceeds domain width "<<width*1000.
                <<"mm. Reduce n_refine or first_cell.";
         throw std::invalid_argument(message.str());
     }
     Values result=refined;
-    result.insert(result.end(),bulk,divide(bulk_width,weak(static_cast<double>(bulk))).value);
+    result.insert(result.end(),bulk,bulk_width/static_cast<double>(bulk));
     result.insert(result.end(),refined.rbegin(),refined.rend());return result;
 }
 
@@ -206,19 +139,15 @@ WallSpec wall_spec(std::size_t dimensions,std::size_t knots) {
     return {layers,2*(layers+1)*(knots+1),knots?.2e-3:(dimensions==2?.02e-3:.02e-3*(1.+1.8)),
             knots || dimensions==2?1.8:std::pow(1.8,2.)};
 }
-Values cumulative_widths(ArrayView<const double> widths,std::uint32_t bits) {
-    precision::require_precision(bits);
+Values cumulative_widths(ArrayView<const double> widths) {
     Values edges(widths.size+1,0.);
-    if (!widths.size) return edges;
-    edges[1]=precision::round_scalar(widths[0],bits);
-    for (std::size_t i=1;i<widths.size;++i)
-        edges[i+1]=add({edges[i],bits,1},{widths[i],bits,1}).value;
+    for (std::size_t i=0;i<widths.size;++i) edges[i+1]=edges[i]+widths[i];
     return edges;
 }
 
-Scalars port_edges(const Scalars& lengths,const std::vector<Port>& ports,std::size_t axis) {
+Values port_edges(const Values& lengths,const std::vector<Port>& ports,std::size_t axis) {
     if (axis>=lengths.size()) throw std::invalid_argument("port axis is outside the domain");
-    Scalars output;
+    Values output;
     for (const auto& port:ports) if (port.active && static_cast<int>(axis)!=port.direction/2) {
         std::size_t cross=0;
         for (std::size_t i=0;i<axis;++i) cross+=static_cast<int>(i)!=port.direction/2;
@@ -227,14 +156,14 @@ Scalars port_edges(const Scalars& lengths,const std::vector<Port>& ports,std::si
             const auto center_width=window(port.ends[end],cross!=0,lengths[axis],label.c_str());
             const auto range=edges(center_width.first,center_width.second);
             for (auto edge:{range.first,range.second})
-                if (less(multiply(lengths[axis],weak(.001)),edge) && less(edge,multiply(lengths[axis],weak(.999))))
+                if (lengths[axis]*.001<edge && edge<lengths[axis]*.999)
                     output.push_back(edge);
         }
     }
     return output;
 }
-Values port_wall_axis(std::size_t dimensions,std::size_t count,const Scalars& bounds,
-                      const Scalars& bulk_bounds,std::size_t& minimum,std::size_t axis) {
+Values port_wall_axis(std::size_t dimensions,std::size_t count,const Values& bounds,
+                      const Values& bulk_bounds,std::size_t& minimum,std::size_t axis) {
     if (bounds.size()<2 || (dimensions!=2 && dimensions!=3)) throw std::invalid_argument("port-wall dimensions are invalid");
     const auto segments=bounds.size()-1;
     const auto spec=wall_spec(dimensions,bounds.size()-2);
@@ -242,7 +171,7 @@ Values port_wall_axis(std::size_t dimensions,std::size_t count,const Scalars& bo
     if (count<minimum) {
         const char name=static_cast<char>('x'+axis);std::ostringstream knots;
         for (std::size_t i=1;i+1<bounds.size();++i) {
-            if (i>1) knots<<", ";knots<<multiply(bounds[i],weak(1000.)).value;
+            if (i>1) knots<<", ";knots<<bounds[i]*1000.;
         }
         throw std::invalid_argument("Port/wall grid needs at least "+std::to_string(minimum)+" cells on "+name+
             " axis; got "+std::to_string(count)+". Interior port edges: "+(bounds.size()>2?knots.str():"none")+
@@ -250,32 +179,32 @@ Values port_wall_axis(std::size_t dimensions,std::size_t count,const Scalars& bo
             " or check the inlet/outlet position and width on this axis.");
     }
     const auto bulk=aligned(count-2*layers*segments,bulk_bounds).widths;
-    const auto cumulative_edges=cumulative(bulk);Scalar position=weak(0.);Values output;
+    const auto cumulative_edges=cumulative(bulk);double position=0.;Values output;
     for (std::size_t i=0;i<segments;++i) {
-        const auto lo=subtract(bounds[i],weak(1e-12)),hi=subtract(bounds[i+1],weak(1e-12));
+        const double lo=bounds[i]-1e-12,hi=bounds[i+1]-1e-12;
         std::size_t n=0;
-        for (std::size_t j=0;j<bulk.size();++j) n+=cumulative_edges[j]>=lo.value && cumulative_edges[j]<hi.value;
-        const auto local=wall(subtract(bounds[i+1],bounds[i]),n,layers,spec.first,spec.growth);
+        for (std::size_t j=0;j<bulk.size();++j) n+=cumulative_edges[j]>=lo && cumulative_edges[j]<hi;
+        const auto local=wall(bounds[i+1]-bounds[i],n,layers,spec.first,spec.growth);
         for (std::size_t j=0;j+1<local.size();++j) {
-            output.push_back(local[j]);position=add(position,{local[j],64,1});
+            output.push_back(local[j]);position+=local[j];
         }
-        const auto last=subtract(bounds[i+1],position);output.push_back(last.value);position=add(position,last);
+        const double last=bounds[i+1]-position;output.push_back(last);position+=last;
     }
     return output;
 }
 
-Scalars breaks_2d(const Scalars& lengths,const std::vector<Port>& ports,std::size_t axis) {
+Values breaks_2d(const Values& lengths,const std::vector<Port>& ports,std::size_t axis) {
     if (lengths.size()!=2 || axis>1) throw std::invalid_argument("2D grid needs two domain lengths");
-    Scalars result;
+    Values result;
     for (const auto& port:ports) if (port.active && (port.direction==0 || port.direction==1?1u:0u)==axis)
         for (const auto& end:port.ends) {
             const auto pair=first_edges(end);
-            if (less(multiply(lengths[axis],weak(.001)),pair.first)) result.push_back(pair.first);
-            if (less(pair.second,multiply(lengths[axis],weak(.999)))) result.push_back(pair.second);
+            if (lengths[axis]*.001<pair.first) result.push_back(pair.first);
+            if (pair.second<lengths[axis]*.999) result.push_back(pair.second);
         }
     return result;
 }
-std::array<std::size_t,3> suggest_grid(const Scalars& lengths,Scalar diameter,std::size_t budget,
+std::array<std::size_t,3> suggest_grid(const Values& lengths,double diameter,std::size_t budget,
                                      std::array<std::size_t,3> minimum) {
     if (lengths.size()!=3) throw std::invalid_argument("grid suggestion needs three domain lengths");
     const auto product=[](const auto& values) {
@@ -290,8 +219,8 @@ std::array<std::size_t,3> suggest_grid(const Scalars& lengths,Scalar diameter,st
     if (budget<product(minimum)) throw std::invalid_argument("grid budget is below the required minimum");
     std::array<std::size_t,3> counts{};
     for (std::size_t axis=0;axis<3;++axis) {
-        const auto spacing=multiply(weak(axis? .5:1.),diameter);
-        counts[axis]=std::max(minimum[axis],static_cast<std::size_t>(std::max<std::int64_t>(0,round_even(divide(lengths[axis],spacing).value))));
+        const double spacing=(axis? .5:1.)*diameter;
+        counts[axis]=std::max(minimum[axis],static_cast<std::size_t>(std::max<std::int64_t>(0,round_even(divide(lengths[axis],spacing)))));
     }
     while (product(counts)>budget) {
         std::size_t axis=0;
@@ -307,8 +236,8 @@ std::array<std::int32_t,7> axis_map(std::int32_t direction) {
     return {0,2,1,0,2,1,direction==5?1:0};
 }
 
-Scalars rectangles(const Port& port,Scalar cross2_length) {
-    Scalars output;
+Values rectangles(const Port& port,double cross2_length) {
+    Values output;
     for (std::size_t end=0;end<2;++end) {
         const auto first=first_edges(port.ends[end]);
         const auto second=window(port.ends[end],true,cross2_length,end?"out second-cross-axis":"in second-cross-axis");
@@ -317,18 +246,17 @@ Scalars rectangles(const Port& port,Scalar cross2_length) {
     }
     return output;
 }
-Values port_overlap(const Values& widths,Scalar lower,Scalar upper,bool staggered,std::uint32_t bits) {
-    return tpmshx::port_overlap_1d_typed({widths.data(),widths.size()},bits,lower,upper,staggered);
+Values port_overlap(const Values& widths,double lower,double upper,bool staggered) {
+    return tpmshx::port_overlap_1d_unchecked({widths.data(),widths.size()},lower,upper,staggered);
 }
-std::array<Values,2> port_fractions(const Values& widths,Scalar lower,Scalar upper,bool uniform_profile,std::uint32_t bits) {
-    auto result=tpmshx::port_fractions_1d_typed({widths.data(),widths.size()},bits,lower,upper,uniform_profile);
+std::array<Values,2> port_fractions(const Values& widths,double lower,double upper,bool uniform_profile) {
+    auto result=tpmshx::port_fractions_1d_unchecked({widths.data(),widths.size()},lower,upper,uniform_profile);
     return {std::move(result.first),std::move(result.second)};
 }
-std::array<Values,2> partial_masks(const Port& port,const Values& cross1,const Values* cross2,std::size_t n_cross2,
-                                 std::uint32_t precision1,std::uint32_t precision2) {
+std::array<Values,2> partial_masks(const Port& port,const Values& cross1,const Values* cross2,std::size_t n_cross2) {
     std::array<Values,2> first,second,output;
     for (std::size_t i=0;i<2;++i) {
-        const auto range=first_edges(port.ends[i]);first[i]=port_overlap(cross1,range.first,range.second,false,precision1);
+        const auto range=first_edges(port.ends[i]);first[i]=port_overlap(cross1,range.first,range.second);
     }
     if (!any(first[0]) || !any(first[1])) throw std::invalid_argument("Inlet / outlet range (cross1) resolves to zero cells.");
     for (std::size_t i=0;i<2;++i) {
@@ -337,7 +265,7 @@ std::array<Values,2> partial_masks(const Port& port,const Values& cross1,const V
             throw std::invalid_argument(std::string(i?"out":"in")+" second-cross-axis centre and width must be set together");
         if (!end.center2 || !cross2) second[i]=Values(n_cross2,1.);
         else {
-            const auto range=edges(*end.center2,*end.width2);second[i]=port_overlap(*cross2,range.first,range.second,false,precision2);
+            const auto range=edges(*end.center2,*end.width2);second[i]=port_overlap(*cross2,range.first,range.second);
             if (!any(second[i])) throw std::invalid_argument("Inlet / outlet range (cross2) resolves to zero cells.");
         }
         for (double a:first[i]) for (double b:second[i]) output[i].push_back(a*b);
@@ -345,12 +273,12 @@ std::array<Values,2> partial_masks(const Port& port,const Values& cross1,const V
     return output;
 }
 
-Values continuous_centres(std::size_t count,Scalar length,const Values* widths) {
+Values continuous_centres(std::size_t count,double length,const Values* widths) {
     if (!count) throw std::invalid_argument("grid counts must be positive integers");
     Values output(count);
     if (!widths) {
-        const auto step=divide(length,weak(static_cast<double>(count)));
-        for (std::size_t i=0;i<count;++i) output[i]=(static_cast<double>(i)+.5)*step.value;
+        const double step=divide(length,static_cast<double>(count));
+        for (std::size_t i=0;i<count;++i) output[i]=(static_cast<double>(i)+.5)*step;
     } else {
         if (widths->size()!=count || std::any_of(widths->begin(),widths->end(),[](double x){return !std::isfinite(x) || x<=0.;}))
             throw std::invalid_argument("cell widths must be finite, positive and cover the field domain");
@@ -360,8 +288,7 @@ Values continuous_centres(std::size_t count,Scalar length,const Values* widths) 
     }
     return output;
 }
-Values sigmoid_centres(std::size_t count,Scalar length,const Values* widths,std::uint32_t bits,std::uint32_t* output_precision) {
-    if (output_precision) *output_precision=widths?result_precision({0.,bits,1},length):64;
+Values sigmoid_centres(std::size_t count,double length,const Values* widths) {
     Values output(widths?widths->size():count);
     if (!widths) {
         if (!count) throw std::domain_error("float division by zero");
@@ -371,18 +298,19 @@ Values sigmoid_centres(std::size_t count,Scalar length,const Values* widths,std:
         for (std::size_t i=0;i<count;++i) output[i]=static_cast<double>(i)*step+start;
         output.back()=stop;
     } else {
-        const auto cumulative_edges=cumulative_widths({widths->data(),widths->size()},bits);
+        // Array arithmetic keeps IEEE results for a zero length.
+        const auto cumulative_edges=cumulative(*widths);
         for (std::size_t i=0;i<widths->size();++i)
-            output[i]=divide(subtract({cumulative_edges[i+1],bits,1},divide({(*widths)[i],bits,1},weak(2.))),length).value;
+            output[i]=(cumulative_edges[i+1]-(*widths)[i]/2.)/length;
     }
     return output;
 }
-std::array<double,2> adaptive_grid(const Scalars& lengths,Scalar diameter,Scalar alpha) {
+std::array<double,2> adaptive_grid(const Values& lengths,double diameter,double alpha) {
     if (lengths.size()!=2) throw std::invalid_argument("adaptive grid needs two domain lengths");
-    const auto spacing=multiply(alpha,diameter);
+    const double spacing=alpha*diameter;
     std::array<double,2> result;
     for (std::size_t i=0;i<2;++i) {
-        const double value=divide(lengths[i],spacing).value;
+        const double value=divide(lengths[i],spacing);
         if (!std::isfinite(value)) {result[i]=value;continue;}
         const double magnitude=std::abs(value);
         double rounded=std::floor(magnitude);

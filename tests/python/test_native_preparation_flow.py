@@ -1,4 +1,4 @@
-"""Compare native inlet and design handoffs with frozen independent formulas."""
+"""Compare native float64 inlet and design handoffs with frozen independent formulas."""
 import ctypes as ct
 from types import SimpleNamespace
 
@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from sjtu_tpmshx.cpp_interface import _native_flow as native
+from tests.python import float64_oracle as oracle
 from tests.python import preparation_flow_reference as reference
 
 
@@ -15,10 +16,18 @@ def _exact(actual, expected):
     assert np.signbit(actual) == np.signbit(expected)
 
 
+def _f64(value):
+    if isinstance(value, np.ndarray):
+        return value.astype(np.float64)
+    if isinstance(value, (int, float, np.integer, np.floating)):
+        return float(value)
+    return value
+
+
 @pytest.mark.parametrize('dtype', [np.float16, np.float32, np.float64])
 @pytest.mark.parametrize('count', [0, 1, 7, 8, 9, 127, 128, 129, 257])
 @pytest.mark.parametrize('tapered', [False, True])
-def test_2d_capacity_keeps_product_precision_and_pairwise_sum(dtype, count, tapered):
+def test_2d_capacity_uses_float64_product_and_pairwise_sum(dtype, count, tapered):
     epsilon = np.linspace(.17, .91, count, dtype=dtype)
     opening = np.linspace(.13, .88, count, dtype=dtype)
     geometric = np.ones(count, dtype=dtype) if tapered else opening.copy()
@@ -26,7 +35,7 @@ def test_2d_capacity_keeps_product_precision_and_pairwise_sum(dtype, count, tape
     originals = [value.copy() for value in (epsilon, opening, geometric, widths)]
     for rho, depth in [(1.27, .031), (np.float32(1.27), np.float16(.031))]:
         with np.errstate(all='ignore'):
-            expected = reference.capacity_2d(epsilon, opening, geometric, widths, rho, depth)
+            expected = float(reference.capacity_2d(*map(_f64, (epsilon, opening, geometric, widths, rho, depth))))
             actual = native.capacity_2d(epsilon, opening, geometric, widths, rho, depth)
         _exact(actual, expected)
     for value, original in zip((epsilon, opening, geometric, widths), originals):
@@ -35,16 +44,16 @@ def test_2d_capacity_keeps_product_precision_and_pairwise_sum(dtype, count, tape
 
 @pytest.mark.parametrize('direction', range(6))
 @pytest.mark.parametrize('dtype', [np.float16, np.float32, np.float64])
-def test_3d_capacity_uses_physical_face_and_typed_area(direction, dtype):
+def test_3d_capacity_uses_physical_face_and_float64_area(direction, dtype):
     shape = (9, 17, 19)
     epsilon = np.linspace(.12, .44, np.prod(shape), dtype=dtype).reshape(shape)
-    # The old take() result keeps the order of the other real axes.
     cross = [axis for axis in range(3) if axis != direction // 2]
     widths1 = np.linspace(.0002, .0009, shape[cross[0]], dtype=dtype)
     widths2 = np.linspace(.0001, .0006, shape[cross[1]], dtype=dtype)
     opening = np.linspace(.13, .88, widths1.size * widths2.size, dtype=dtype).reshape(widths1.size, widths2.size)
     for rho in (1.27, np.float32(1.27)):
-        expected = reference.capacity_3d(epsilon, direction, widths1, widths2, opening, rho)
+        expected = float(reference.capacity_3d(
+            _f64(epsilon), direction, _f64(widths1), _f64(widths2), _f64(opening), float(rho)))
         actual = native.capacity_3d(epsilon, direction, widths1, widths2, opening, rho)
         _exact(actual, expected)
 
@@ -54,7 +63,7 @@ def test_capacity_leaves_nonfinite_or_zero_for_original_application_guard(value)
     epsilon = np.full(9, value)
     opening = widths = np.ones(9)
     with np.errstate(all='ignore'):
-        expected = reference.capacity_2d(epsilon, opening, opening, widths, 1., .1)
+        expected = float(reference.capacity_2d(epsilon, opening, opening, widths, 1., .1))
         actual = native.capacity_2d(epsilon, opening, opening, widths, 1., .1)
     _exact(actual, expected)
 
@@ -65,62 +74,66 @@ def test_capacity_leaves_nonfinite_or_zero_for_original_application_guard(value)
 ])
 def test_shared_taper_rule_keeps_original_threshold_and_identity(profile, geometric):
     epsilon, widths = np.array([.7]), np.array([1.])
-    expected = reference.capacity_2d(epsilon, profile, np.array([geometric]), widths, 1., 1.)
+    expected = float(reference.capacity_2d(epsilon, profile, np.array([geometric]), widths, 1., 1.))
     _exact(native.capacity_2d(epsilon, profile, np.array([geometric]), widths, 1., 1.), expected)
 
 
 @pytest.mark.parametrize('dtype', [np.int16, np.int32, np.int64])
-def test_integer_profile_area_uses_original_integer_sum_before_float_cast(dtype):
+def test_integer_profile_area_promotes_to_float64(dtype):
     epsilon = np.linspace(.17, .91, 129)
     opening = np.full(129, 2, dtype=dtype)
     geometric = np.full(129, 3, dtype=dtype)
     widths = np.arange(1, 130, dtype=dtype)
-    expected = reference.capacity_2d(epsilon, opening, geometric, widths, 1.27, .031)
+    expected = float(reference.capacity_2d(*map(_f64, (epsilon, opening, geometric, widths, 1.27, .031))))
     _exact(native.capacity_2d(epsilon, opening, geometric, widths, 1.27, .031), expected)
 
 
 @pytest.mark.parametrize('dtype', [np.int16, np.int32, np.int64])
-def test_integer_face_area_keeps_mixed_float32_promotion(dtype):
+def test_integer_face_area_promotes_to_float64(dtype):
     epsilon = np.linspace(.12, .44, 9 * 17 * 19, dtype=np.float32).reshape(9, 17, 19)
     widths1, widths2 = np.arange(1, 18, dtype=dtype), np.arange(1, 20, dtype=dtype)
     opening = np.linspace(.13, .88, 17 * 19, dtype=np.float32).reshape(17, 19)
-    expected = reference.capacity_3d(epsilon, 1, widths1, widths2, opening, 1.27)
+    expected = float(reference.capacity_3d(
+        _f64(epsilon), 1, _f64(widths1), _f64(widths2), _f64(opening), 1.27))
     _exact(native.capacity_3d(epsilon, 1, widths1, widths2, opening, 1.27), expected)
 
 
 @pytest.mark.parametrize('dtype', [np.float16, np.float32, np.float64])
-def test_tapered_area_preserves_weak_python_profile_before_broadcast(dtype):
+def test_tapered_area_promotes_to_float64(dtype):
     epsilon, geometric = np.linspace(.17, .91, 129), np.ones(129, dtype=dtype)
     widths = np.linspace(.00011, .0037, 129, dtype=dtype)
-    expected = reference.capacity_2d(epsilon, .73, geometric, widths, 1.27, .031)
+    expected = float(reference.capacity_2d(epsilon, .73, _f64(geometric), _f64(widths), 1.27, .031))
     _exact(native.capacity_2d(epsilon, .73, geometric, widths, 1.27, .031), expected)
 
 
 @pytest.mark.parametrize('dtype', [np.float16, np.float32, np.float64])
-def test_physical_face_preserves_weak_scalar_opening_before_broadcast(dtype):
+def test_physical_face_promotes_to_float64(dtype):
     epsilon = np.linspace(.12, .44, 9 * 17 * 19, dtype=dtype).reshape(9, 17, 19)
     widths1, widths2 = np.linspace(.001, .002, 17, dtype=dtype), np.linspace(.001, .003, 19, dtype=dtype)
-    expected = reference.capacity_3d(epsilon, 1, widths1, widths2, .73, 1.27)
+    expected = float(reference.capacity_3d(_f64(epsilon), 1, _f64(widths1), _f64(widths2), .73, 1.27))
     _exact(native.capacity_3d(epsilon, 1, widths1, widths2, .73, 1.27), expected)
 
 
 @pytest.mark.parametrize('cross', [False, True])
 @pytest.mark.parametrize('dtype', [float, np.float16, np.float32, np.float64])
-def test_quick_design_assembly_keeps_height_and_arithmetic(cross, dtype):
+def test_quick_design_assembly_keeps_height_and_float64_arithmetic(cross, dtype):
     values = [dtype(value) for value in (.31, .084, .05, .047)]
-    expected = reference.quick_design_sections(*values, cross)
+    expected = reference.quick_design_sections(*map(float, values), cross)
     actual = native.quick_design_sections(*values, cross)
-    for result, wanted in zip(actual, expected):
-        _exact(result, wanted)
+    for index, (result, wanted) in enumerate(zip(actual, expected)):
+        if index in (1, 3):
+            assert float(result) == wanted
+        else:
+            _exact(result, float(wanted))
     mass_flow, density = dtype(.0031), dtype(1.12)
     for air in (False, True):
-        expected = reference.side_flow(mass_flow, actual[0], density, air)
+        expected = reference.side_flow(float(mass_flow), float(actual[0]), float(density), air)
         actual_flow = native.quick_design_flow(mass_flow, actual[0], density, air)
-        _exact(actual_flow[0], expected[0])
+        _exact(actual_flow[0], float(expected[0]))
         if air:
             assert actual_flow[1] is None
         else:
-            _exact(actual_flow[1], expected[1])
+            _exact(actual_flow[1], float(expected[1]))
 
 
 def test_air_side_does_not_divide_by_unused_density():
@@ -128,19 +141,21 @@ def test_air_side_does_not_divide_by_unused_density():
 
 
 @pytest.mark.parametrize('dtype', [float, np.float16, np.float32, np.float64])
-def test_targets_proxy_volume_and_speed_keep_original_math(dtype):
+def test_targets_proxy_volume_and_speed_keep_float64_math(dtype):
     hot, cold, mass_flow, cp = (dtype(value) for value in (400., 310., .31, 1080.))
     for delta in (None, dtype(31.)):
         target = native.temperature_target(hot, delta, dtype(9100.), mass_flow, cp)
-        expected = reference.temperature_target(hot, delta, dtype(9100.), mass_flow, cp)
+        expected = float(reference.temperature_target(
+            float(hot), None if delta is None else float(delta), float(dtype(9100.)),
+            float(mass_flow), float(cp)))
         _exact(target, expected)
         _exact(native.cooling_proxy(hot, cold, target, mass_flow),
-               reference.cooling_proxy(hot, cold, target, mass_flow))
+               float(reference.cooling_proxy(float(hot), float(cold), float(target), float(mass_flow))))
     sizes = tuple(dtype(value) for value in (.084, .047, .05))
-    _exact(native.volume(*sizes), reference.volume(*sizes))
+    _exact(native.volume(*sizes), float(reference.volume(*map(float, sizes))))
     targets, capacities = (dtype(.003), dtype(.035)), (dtype(.0008), dtype(.4))
     for actual, expected in zip(native.inlet_speeds(targets, capacities),
-                                [target / capacity for target, capacity in zip(targets, capacities)]):
+                                [float(target) / float(capacity) for target, capacity in zip(targets, capacities)]):
         _exact(actual, expected)
 
 
@@ -162,9 +177,9 @@ def test_delta_target_does_not_query_unused_properties(monkeypatch):
 
 
 @pytest.mark.parametrize('dtype', [float, np.float16, np.float32, np.float64])
-def test_quick_design_uniform_grid_keeps_original_fill_dtype(dtype):
+def test_quick_design_uniform_grid_promotes_to_float64(dtype):
     length = dtype(.047)
-    expected = np.full(17, length / 17)
+    expected = np.full(17, float(length) / 17, dtype=np.float64)
     np.testing.assert_array_equal(native.uniform_widths(17, length), expected, strict=True)
 
 
@@ -196,7 +211,7 @@ def test_legacy_air_builder_keeps_its_two_sides_and_floor10(monkeypatch):
 
 @pytest.mark.parametrize('dtype', [float, np.float16, np.float32, np.float64])
 @pytest.mark.parametrize('form', ['scalar', 'zero-d', 'array', 'empty', 'noncontiguous'])
-def test_closure_ratio_keeps_original_unit_order_and_dtype(dtype, form):
+def test_closure_ratio_uses_float64_unit_order(dtype, form):
     if form == 'scalar':
         diameter, cell = dtype(.00273451), dtype(7.1345)
     elif form == 'zero-d':
@@ -208,41 +223,41 @@ def test_closure_ratio_keeps_original_unit_order_and_dtype(dtype, form):
         cell = np.linspace(4.3, 7.7, 6, dtype=dtype)
         if form == 'noncontiguous':
             diameter, cell = diameter[:, ::2], cell[::2]
-    expected = reference.closure_geometry_ratio(diameter, cell)
+    expected = oracle.call(reference.closure_geometry_ratio, diameter, cell)
     actual = native.closure_geometry_ratio(diameter, cell)
     assert type(actual) is type(expected)
     np.testing.assert_array_equal(actual, expected, strict=True)
 
 
 @pytest.mark.parametrize('diameter', [.00273451, np.float16(.00273451), np.float64(.00273451)])
-def test_closure_ratio_preserves_scalar_step_before_mixed_array(diameter):
+def test_closure_ratio_promotes_scalar_and_mixed_array_to_float64(diameter):
     cell = np.array([[6.1], [7.3]], dtype=np.float32)
-    expected = reference.closure_geometry_ratio(diameter, cell)
+    expected = oracle.call(reference.closure_geometry_ratio, diameter, cell)
     np.testing.assert_array_equal(native.closure_geometry_ratio(diameter, cell), expected, strict=True)
 
 
-def test_ratio_boundary_preserves_values_and_kind_after_input_error():
+def test_ratio_boundary_preserves_values_after_input_error():
     _packed, values = native._values(np.linspace(.001, .003, 9))
-    short = native._Values(values.data, 8, 64, 1)
-    output, kind, error = np.full(9, 913.25), native._Scalar(7., 16, 1), ct.create_string_buffer(256)
-    before, before_kind = output.tobytes(), bytes(kind)
+    short = native._Values(values.data, 8)
+    output, error = np.full(9, 913.25), ct.create_string_buffer(256)
+    before = output.tobytes()
     status = native._current().closure_geometry_ratio(values, short, output.ctypes.data_as(native._DP),
-        output.size, ct.byref(kind), error, len(error))
-    assert status == 1 and output.tobytes() == before and bytes(kind) == before_kind
+        output.size, error, len(error))
+    assert status == 1 and output.tobytes() == before
 
 
 def _sentinel(count):
-    return (native._Scalar * count)(*(native._Scalar(913.25, 32, 1) for _ in range(count)))
+    return (native._D * count)(*(913.25 for _ in range(count)))
 
 
 def test_c_boundary_rejects_mismatch_and_preserves_scalar_output():
     source = np.linspace(.2, .8, 9)
     _packed, values = native._values(source)
-    short = native._Values(values.data, 8, 64, 1)
+    short = native._Values(values.data, 8)
     output, error = _sentinel(1), ct.create_string_buffer(256)
     before = bytes(output)
     status = native._current().inlet_capacity_2d(values, values, short, values,
-        native._scalar(1.), native._scalar(.1), output, 1, error, len(error))
+        1., .1, output, 1, error, len(error))
     assert status == 1 and bytes(output) == before
     assert b'extents' in error.value
 
@@ -250,10 +265,10 @@ def test_c_boundary_rejects_mismatch_and_preserves_scalar_output():
 def test_c_boundary_rejects_output_input_overlap_before_writing():
     source = np.linspace(.2, .8, 9)
     packed, values = native._values(source)
-    output = ct.cast(values.data, native._SP)
+    output = values.data
     error, before = ct.create_string_buffer(256), packed.tobytes()
     status = native._current().inlet_capacity_2d(values, values, values, values,
-        native._scalar(1.), native._scalar(.1), output, 1, error, len(error))
+        1., .1, output, 1, error, len(error))
     assert status == 1 and packed.tobytes() == before
     assert b'overlaps' in error.value
 
@@ -263,8 +278,7 @@ def test_c_boundary_rejects_error_output_overlap_without_writing_either():
     before = bytes(output)
     error = ct.cast(output, ct.POINTER(ct.c_char))
     status = native._current().quick_design_flow(
-        native._scalar(.1), native._scalar(.01), native._scalar(1.), 0,
-        output, 2, error, ct.sizeof(output))
+        .1, .01, 1., 0, output, 2, error, ct.sizeof(output))
     assert status == 1 and bytes(output) == before
 
 
@@ -274,13 +288,13 @@ def test_c_boundary_rejects_error_input_overlap_without_writing_input_or_output(
     before, before_output = packed.tobytes(), bytes(output)
     error = ct.cast(values.data, ct.POINTER(ct.c_char))
     status = native._current().inlet_capacity_2d(values, values, values, values,
-        native._scalar(1.), native._scalar(.1), output, 1, error, packed.nbytes)
+        1., .1, output, 1, error, packed.nbytes)
     assert status == 1 and packed.tobytes() == before and bytes(output) == before_output
 
 
 def test_late_scalar_division_failure_preserves_all_speeds():
-    targets = (native._Scalar * 2)(native._scalar(.1), native._scalar(.2))
-    capacities = (native._Scalar * 2)(native._scalar(.01), native._scalar(0.))
+    targets = (native._D * 2)(.1, .2)
+    capacities = (native._D * 2)(.01, 0.)
     output, error = _sentinel(2), ct.create_string_buffer(256)
     before = bytes(output)
     status = native._current().inlet_speeds(targets, capacities, 2, output, 2, error, len(error))

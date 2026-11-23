@@ -2,6 +2,7 @@
 #define TPMSHX_PREPARATION_CASE_3D_C_API_H
 
 #include "tpmshx/preparation_case_c_api.h"
+#include "tpmshx/grid_c_api.h"
 
 #define TPMSHX_PREPARATION_CASE_3D_ABI_VERSION 1u
 #define TPMSHX_PREPARATION_FLOW_3D_ABI_VERSION 2u
@@ -19,13 +20,12 @@ typedef struct {
 typedef struct {
     uint32_t abi_version;
     size_t struct_size;
-    tpmshx_grid_scalar_v1 lengths_m[3];
+    double lengths_m[3];
     size_t counts[3],max_cells;
     uint32_t port_wall_refine,topology;
     double cell_length_mm,wall_thickness_mm,solid_conductivity_W_mK,delta_levelset;
     tpmshx_preparation_inlet_3d_v1 sides[2];
     uint32_t geometry_mode,df_mode;
-    tpmshx_preparation_case_kinds_v2 kinds;
     tpmshx_preparation_sco2_nu_v2 sco2_nu;
 } tpmshx_preparation_case_input_3d_v1;
 typedef struct {
@@ -47,7 +47,6 @@ typedef struct {
     double uniform_solid_conductivity;
     tpmshx_preparation_array_v1 cell_length,wall_thickness,total_porosity,side_porosity;
     tpmshx_preparation_array_v1 permeability,forchheimer,solid_conductivity;
-    tpmshx_preparation_scalar_kind_v2 length_kinds[2];
     tpmshx_preparation_side_3d_v1 sides[2];
     tpmshx_preparation_model_ref_v1 models[4];
     tpmshx_preparation_flow_evidence_v3 evidence;
@@ -63,7 +62,6 @@ typedef struct {
     uint32_t abi_version;
     size_t struct_size;
     tpmshx_preparation_case_input_3d_v1 input;
-    tpmshx_preparation_scalar_kind_v2 target_kinds[2];
     uint32_t have_explicit_targets;
     double explicit_targets_kg_s[2];
 } tpmshx_preparation_flow_input_3d_v2;
@@ -72,7 +70,7 @@ typedef struct {
     size_t struct_size;
     tpmshx_preparation_case_input_3d_v1 input;
     uint32_t have_capacities;
-    tpmshx_grid_scalar_v1 capacities[2],speeds[2];
+    double capacities[2],speeds[2];
     tpmshx_preparation_flow_evidence_v3 evidence;
     void* owner;
 } tpmshx_preparation_flow_3d_v2;
@@ -115,7 +113,7 @@ typedef struct {
 } tpmshx_preparation_continuous_case_3d_v3;
 
 typedef struct {
-    tpmshx_grid_scalar_v1 bounds[4]; /* x0,x1,y0,y1 in domain fractions. */
+    double bounds[4]; /* x0,x1,y0,y1 in domain fractions. */
     double cell_length_mm,wall_thickness_mm;
 } tpmshx_preparation_grid_cell_3d_v4;
 typedef struct {

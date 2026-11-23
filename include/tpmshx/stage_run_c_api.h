@@ -128,10 +128,8 @@ typedef struct {
  * for absent inlet range evidence and 1 for a recorded set, including empty.
  * range_captured has prepared->values.range_count flags (0 or 1). NULL means
  * all ranges were captured. Uncaptured ranges do not supply sample values.
- * Kinds retain saved SI scalar/array precision through unit conversion and
- * closure-ratio arithmetic. Use precision 16/32/64, strong 0/1 for floating
- * values, or strong 2 with precision 8/16/32/64 for integers. Layout 0/1/2
- * denotes Python scalar, NumPy scalar, or array, as in preparation kinds. */
+ * Saved SI scalars and arrays use float64 through unit conversion and
+ * closure-ratio arithmetic. */
 typedef struct {
     uint32_t abi_version;
     size_t struct_size;
@@ -139,7 +137,6 @@ typedef struct {
     tpmshx_preparation_array_v1 area_density_per_m,hydraulic_diameter_m,fluid_conductivity[2];
     uint32_t inlet_recorded;
     const uint32_t* range_captured;
-    tpmshx_preparation_scalar_kind_v2 reference_cell_kind,cell_field_kind,hydraulic_diameter_kind;
 } tpmshx_stage_saved_case_2d_v1;
 /* V2 also accepts discrete spatial geometry (geometry_mode=2) and the
  * existing offset model. All spatial modes supply the same cell arrays.
@@ -156,12 +153,12 @@ typedef struct {
 
 /* V3 checks the saved flow axes and opening fractions against the physical grid.
  * Each side supplies cross and stream widths. Bounds are inlet lower/upper,
- * then outlet lower/upper. They keep their saved scalar precision.
+ * then outlet lower/upper in float64.
  * The stage computes the staggered outlet opening. Leave outlet_u_fraction empty. */
 typedef struct {
     tpmshx_preparation_array_v1 cross,stream;
-    uint32_t cross_precision, direction;
-    tpmshx_grid_scalar_v1 bounds[4];
+    uint32_t direction;
+    double bounds[4];
 } tpmshx_stage_saved_flow_grid_2d_v3;
 typedef struct {
     tpmshx_preparation_text_v1 name;
@@ -176,7 +173,6 @@ typedef struct {
     /* Models in the prepared view are in role order: fluid A, fluid B, geometry, drag. */
     tpmshx_preparation_text_v1 resource_fluids[2],resource_topology;
     tpmshx_preparation_sco2_nu_v2 resource_nu[2];
-    tpmshx_preparation_scalar_kind_v2 wall_reference_kind,porosity_reference_kind,radius_reference_kind;
     const tpmshx_stage_design_field_2d_v3* additional_fields;
     size_t additional_count;
 } tpmshx_stage_saved_case_2d_v3;

@@ -26,7 +26,7 @@ _log = get_logger(__name__)
 # ── Sigmoid basis ────────────────────────────────────────────
 
 def _sigmoid(x, center, width):
-    """Call the native sigmoid with the original input precision."""
+    """Call the native float64 sigmoid."""
     return _native_sigmoid.values(x, center, width)
 
 
@@ -61,16 +61,17 @@ def sigmoid_field_2d(XF, YF,
     -------
     field : 2D array (Nx, Ny) — smoothly interpolated values
     """
-    # Keep scalar configuration arithmetic before native array evaluation.
-    dy_in = y_trans_in / 3.0
-    dy_out = y_trans_out / 3.0
+    y_in = _native_sigmoid._scalar(y_trans_in)
+    y_out = _native_sigmoid._scalar(y_trans_out)
+    dy_in = y_in / 3.0
+    dy_out = y_out / 3.0
     y_bounds = [
         dy_in,                          # inlet row 0 → row 1
         2 * dy_in,                      # inlet row 1 → row 2
-        y_trans_in,                     # inlet → uniform
-        1.0 - y_trans_out,              # uniform → outlet
-        1.0 - y_trans_out + dy_out,     # outlet row 0 → row 1
-        1.0 - y_trans_out + 2 * dy_out, # outlet row 1 → row 2
+        y_in,                           # inlet → uniform
+        1.0 - y_out,                    # uniform → outlet
+        1.0 - y_out + dy_out,           # outlet row 0 → row 1
+        1.0 - y_out + 2 * dy_out,       # outlet row 1 → row 2
     ]
 
     return _native_sigmoid.field(XF, YF, ctrl_inlet, ctrl_outlet, val_uniform,
@@ -239,7 +240,7 @@ def build_continuous_geometry(x, L0, t0, y_trans_inlet, y_trans_outlet,
             ctrl_L_out[iy, ix] = L0 if fix_L else float(x[idx_out])
             ctrl_t_out[iy, ix] = t0 if fix_t else float(x[idx_out + 1])
 
-    # The grid owner retains each width array's original precision.
+    # Normalize width arrays to float64 fractional cell centres.
     x_frac = _native_grid.sigmoid_centres(Nx, L_domain, dx_arr)
     y_frac = _native_grid.sigmoid_centres(Ny, H_domain, dy_arr)
     XF, YF = np.meshgrid(x_frac, y_frac, indexing='ij')  # (Nx, Ny)

@@ -37,10 +37,10 @@ def project(tmp_path):
         "python/development/runs/tool.py": "value = 2\n",
         "python/development/validation/reference.py": "value = 3\n",
         "python/__init__.py": '"""Package."""\n',
-        "numerics/model_complex_log.c": '#include "tpmshx/model_math.h"\n',
+        "numerics/fluid_properties.cpp": '#include "tpmshx/model_math.h"\n',
         "include/tpmshx/model_math.h": "/* Local declaration. */\n",
         "preprocess/CMakeLists.txt":
-            'add_library(models "${TPMSHX_ROOT}/numerics/model_complex_log.c")\n',
+            'add_library(models "${TPMSHX_ROOT}/numerics/fluid_properties.cpp")\n',
         "engineering/scripts/build_native_dependencies.py": '"""Explicit source build."""\n',
         "docs/build.md": "Source instructions.\n",
         "examples/input.json": "{}\n",
@@ -83,7 +83,7 @@ def test_source_archive_keeps_native_helper_and_its_local_build_closure(project,
     archive = tmp_path / "source.tar.gz"
     source_archive(project, archive, extra={"sjtu_tpmshx.egg-info/PKG-INFO": b"generated metadata"})
     _, files = distributions.inspect_sdist(archive, project)
-    assert "numerics/model_complex_log.c" in files
+    assert "numerics/fluid_properties.cpp" in files
     assert "tests/python/native/reference.py" in files
     assert "tests/python/native/bridge.cpp" in files
     assert "tests/python/_ci_shard0.txt" in files
@@ -109,7 +109,7 @@ def test_source_archive_excludes_local_cfd_output(project, tmp_path):
 
 def test_source_archive_rejects_the_confirmed_native_source_omission(project, tmp_path):
     archive = tmp_path / "source.tar.gz"
-    source_archive(project, archive, omit={"numerics/model_complex_log.c"})
+    source_archive(project, archive, omit={"numerics/fluid_properties.cpp"})
     with pytest.raises(ValueError, match="omitted source/build inputs"):
         distributions.inspect_sdist(archive, project)
 
@@ -123,7 +123,7 @@ def test_source_archive_rejects_retired_numerics(project, tmp_path, name):
         distributions.inspect_sdist(archive, project)
 
 
-@pytest.mark.parametrize("name", ["numerics/model_complex_log.c",
+@pytest.mark.parametrize("name", ["numerics/fluid_properties.cpp",
     "sjtu_tpmshx/solvers/native/lib/macos-arm64/libtpmshx_preparation_shared.dylib",
     "sjtu_tpmshx/physical_models/local_heat_transfer.py",
     "sjtu_tpmshx/physical_models/quick_design.py",

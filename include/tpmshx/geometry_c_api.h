@@ -26,7 +26,7 @@
 extern "C" {
 #endif
 
-#define TPMSHX_GEOMETRY_ABI_VERSION 1u
+#define TPMSHX_GEOMETRY_ABI_VERSION 2u
 
 enum tpmshx_geometry_status_v1 {
     TPMSHX_GEOMETRY_OK = 0, TPMSHX_GEOMETRY_INVALID = 1,
@@ -41,8 +41,7 @@ enum tpmshx_geometry_area_method_v1 {
 
 typedef struct tpmshx_geometry_index_v1 tpmshx_geometry_index_v1;
 typedef struct {
-    double lower, upper, comparison_lower, comparison_upper;
-    uint32_t lower_precision, upper_precision;
+    double lower, upper;
 } tpmshx_geometry_levels_v1;
 typedef struct {
     double split_a;
@@ -68,11 +67,9 @@ TPMSHX_GEOMETRY_API void TPMSHX_GEOMETRY_CALL tpmshx_geometry_index_destroy_v1(
     tpmshx_geometry_index_v1* index);
 TPMSHX_GEOMETRY_API int TPMSHX_GEOMETRY_CALL tpmshx_geometry_phi_grid_v1(
     uint32_t topology, size_t N, double* result, size_t result_count, char* error, size_t error_capacity);
-/* ratio_precision (16, 32, 64) sets ratio and first-product precision.
- * The squared-ratio term and output use double.
- */
+/* All geometry inputs, intermediate values and outputs use float64. */
 TPMSHX_GEOMETRY_API int TPMSHX_GEOMETRY_CALL tpmshx_geometry_threshold_batch_v1(
-    uint32_t topology, const double* wall_over_cell, size_t count, uint32_t ratio_precision,
+    uint32_t topology, const double* wall_over_cell, size_t count,
     double* result, size_t result_count, char* error, size_t error_capacity);
 TPMSHX_GEOMETRY_API int TPMSHX_GEOMETRY_CALL tpmshx_geometry_hydraulic_radius_batch_v1(
     const double* diameter, size_t count,
@@ -90,14 +87,9 @@ TPMSHX_GEOMETRY_API int TPMSHX_GEOMETRY_CALL tpmshx_geometry_standard_batch_v1(
     const double* cells_mm, const double* walls_mm, size_t count,
     double conductivity, uint32_t has_override, double override_value,
     double* result, size_t result_count, char* error, size_t error_capacity);
-/* Scalar rows contain epsilon, epsilon_A, epsilon_B, A0, Dh.
- * cell_precision sets L/1000 and L_m/N precision.
- * ratio_precision sets t/L and its first coefficient product precision.
- * Both precisions are 16, 32 or 64. Powers and outputs use double.
- */
+/* Scalar rows contain epsilon, epsilon_A, epsilon_B, A0, Dh. */
 TPMSHX_GEOMETRY_API int TPMSHX_GEOMETRY_CALL tpmshx_geometry_standard_scalar_v1(
     const tpmshx_geometry_index_v1* index, uint32_t topology, double cell_mm, double wall_mm,
-    uint32_t cell_precision, uint32_t ratio_precision,
     double* result, size_t result_count, char* error, size_t error_capacity);
 /* Raw rows contain epsilon, A0. Zero area and degenerate porosity remain valid. */
 TPMSHX_GEOMETRY_API int TPMSHX_GEOMETRY_CALL tpmshx_geometry_raw_batch_v1(
@@ -108,13 +100,9 @@ TPMSHX_GEOMETRY_API int TPMSHX_GEOMETRY_CALL tpmshx_geometry_chi_batch_v1(
     uint32_t topology, const double* epsilon, size_t count,
     uint32_t has_override, double override_value, double* result, size_t result_count,
     char* error, size_t error_capacity);
-/* Material rows contain chi_s, Kss for an existing porosity field.
- * chi*(1-epsilon) first uses double.
- * product_precision (16, 32, 64) sets final multiplication precision.
- * Outputs use double storage.
- */
+/* Material rows contain chi_s, Kss for an existing porosity field. */
 TPMSHX_GEOMETRY_API int TPMSHX_GEOMETRY_CALL tpmshx_geometry_material_batch_v1(
-    uint32_t topology, const double* epsilon, size_t count, double conductivity, uint32_t product_precision,
+    uint32_t topology, const double* epsilon, size_t count, double conductivity,
     uint32_t has_override, double override_value, double* result, size_t result_count,
     char* error, size_t error_capacity);
 /* LUT rows add hydraulic radius after the six standard geometry columns.
@@ -139,8 +127,7 @@ TPMSHX_GEOMETRY_API int TPMSHX_GEOMETRY_CALL tpmshx_geometry_co2_minimum_v1(
     double* result, size_t result_count, char* error, size_t error_capacity);
 
 /* Raw asym helpers receive phi as float64, independent double N, and metre length.
- * Levels retain scalar arithmetic, array comparison bounds, and scalar precision.
- * Precision is 16, 32 or 64 bits. zero_delta is 0 or 1.
+ * Levels contain the lower and upper float64 phi thresholds. zero_delta is 0 or 1.
  * They use the explicit area correction from the shared model resource.
  * Scalar results have one element; side results have two; porosity has A,B,total.
  */

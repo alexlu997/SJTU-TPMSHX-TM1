@@ -16,16 +16,15 @@ void configure(tpmshx_preparation_case_input_2d_v1& values) {
 }
 tpmshx_preparation_zone_region_v5 region(double x0,double x1,double y0,double y1,double cell,double wall) {
     tpmshx_preparation_zone_region_v5 value{};
-    value.bounds[0]={x0,64,0};value.bounds[1]={x1,64,0};
-    value.bounds[2]={y0,64,0};value.bounds[3]={y1,64,0};
-    value.cell_length_mm=cell;value.wall_thickness_mm=wall;
-    value.cell_kind=value.wall_kind={64,0,0};return value;
+    value.bounds[0]=x0;value.bounds[1]=x1;
+    value.bounds[2]=y0;value.bounds[3]=y1;
+    value.cell_length_mm=cell;value.wall_thickness_mm=wall;return value;
 }
 template<class Input> void execute(const Input& input,const char* name) {
     using namespace tpmshx::stages;
     PreparationOptions options;options.allow_extrapolation=1;
     RunControl control;control.result_id=name;control.cpu_threads=2;
-    auto prepared=prepare_case(input,GridKinds2D{},options);
+    auto prepared=prepare_case(input,options);
     if (!prepared.view().thermal.have_side_geometry)
         throw std::runtime_error("offset thermal sides are missing");
     auto result=run_case(prepared,control);

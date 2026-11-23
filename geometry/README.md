@@ -74,12 +74,12 @@ The replaced Python interpolation, overlap, zone and filter bodies are retired.
 Independent references remain under `tests/python/`; production does not import them.
 No numerical callback into Python, new framework or runtime fallback is used.
 
-Grid construction keeps original scalar precision, mixed sum order, allocation ties and final-cell compensation.
+Grid construction normalizes real scalar inputs to `float64` and keeps allocation ties and final-cell compensation.
 GUI adaptive counts and three-dimensional count suggestions also use this native owner.
-Staggered overlap keeps the narrow `np.r_` edge/width arithmetic; nonstaggered lower edges use the original float64 concatenation.
-The same port loop serves typed preparation and full-solver double entries.
-The latter retain their original physical input checks. Raw typed inputs keep original nonfinite and nonpositive arithmetic.
-Python retains configuration `set`/`sorted`, control-axis `np.linspace` and Continuous coverage validation.
+Staggered and nonstaggered overlap calculations evaluate edges and widths in `float64`.
+The same port loop serves preparation and full-solver double entries.
+The latter keep their physical input checks. Raw inputs keep nonfinite and nonpositive arithmetic.
+Python keeps configuration `set`/`sorted`, control-axis `np.linspace` and Continuous coverage validation.
 
 Nondegenerate XY uses the SciPy 1.18.1 first-fit, `s=0` FITPACK subset.
 XYZ and singleton XY axes use sequential one-dimensional fitting and sampling.
@@ -88,7 +88,7 @@ Sigmoid retains ordered blending. The LUT keeps separate fast64/general paths, s
 Zone selection retains its original order. Its sigma=2 Gaussian uses radius=8, reflect boundaries and axis 0 before axis 1.
 The Gaussian length remains in grid-index units. Continuous splines do not use this filter.
 
-Geometry ABI 1 and field ABI 2 share this library file. They have different status contracts:
+Geometry ABI 2 and field ABI 3 share this library file. They have different status contracts:
 
 | Protocol | Status 1 | Status 2 | Status 3 |
 | --- | --- | --- | --- |
@@ -107,7 +107,7 @@ Returned arrays do not borrow native temporary storage.
 
 See [field sources and local changes](fields-sources.md) for algorithms, fusion rules and license duties.
 The separate [preparation core](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/main/docs/cpp-migration.md#native-preparation-core) calculates properties, DF and preparation values.
-It uses preparation ABI 1 and its own error mapping.
+It uses preparation ABI 2 and its own error mapping.
 The independent [result core](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/main/docs/cpp-migration.md#native-result-core) calculates metrics, balances, zone statistics and numerical checks.
 It uses result ABI 3 and does not link geometry.
 See [scope and delivery records](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/main/docs/cpp-migration.md#cpp-core-scope).
@@ -153,21 +153,12 @@ These BSD-3-Clause notices also apply when only the geometry/design-field librar
 
 ## Local changes and numerical rules
 
-The [scalar precision helper](../include/tpmshx/scalar_precision.hpp) keeps the original NumPy float16, float32 and float64 intermediate rounding in C++.
-The binding sends cell, ratio and final-product precision metadata.
-`standard_scalar_v1` rounds `L_mm/1000` and `L_m/N` at cell precision.
-It rounds `t_mm/L_mm` and the first coefficient product at ratio precision.
-The squared ratio term and the final threshold addition use double.
-Batch L/t fields keep their existing float64 conversion.
-
-Standard scalar porosity is a Python float.
-Thus NumPy float16/32 conductivity can give `K_ss` the same dtype.
-Array and CO2 porosity use float64, so their material results stay float64 for these conductivity inputs.
-The core calculates `chi*(1-epsilon)` in double.
-It casts that intermediate and conductivity to final-product precision before multiplication.
-Python restores the output dtype and shape; it supplies no numerical fallback.
-Formal nonzero asymmetric preparation keeps the original explicit Python-float conversion for L/t and length.
-Its native arithmetic stays float64.
+Standard, CO2-table, and asymmetric geometry normalize real inputs to `float64` at the Python boundary and compute in `double` in C++.
+`standard_scalar_v1` calculates `L_mm / 1000`, `L_m / N`, `t_mm / L_mm`, threshold, porosity, area density, and hydraulic diameter in `double`.
+`standard_batch_v1` and `material_batch_v1` calculate `K_ss` in `double`.
+Batch L/t fields use `float64` arrays.
+Effective solid conductivity evaluates `chi * (1 - epsilon) * k_s` in `double`.
+Formal nonzero asymmetric preparation converts L/t and length to `float64` and computes in `double`.
 
 The local implementation is in [geometry/](.).
 The cell state and ambiguity tests were translated from Cython to C++17.

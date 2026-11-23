@@ -84,7 +84,7 @@ class NativeFull2DDriver(StageDriver):
             try:
                 energy_query = self.library.tpmshx_full_2d_get_energy_evidence_v1
             except AttributeError as exc:
-                raise ValueError(f'native full 2D library lacks conservative energy v{entry_version}') from exc
+                raise ValueError('native full 2D library lacks conservative energy v6') from exc
             version_query = _energy_algorithm_query(self.library)
             energy_query.argtypes = [ct.POINTER(_Result), ct.POINTER(_EnergyEvidence)]
             energy_query.restype = ct.c_int

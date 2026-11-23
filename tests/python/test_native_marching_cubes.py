@@ -19,21 +19,23 @@ _SPACING_CASES = [pytest.param(1., 1., id='unit-dx'),
 
 
 def _reference_sides(phi, C, delta, length_m, N):
-    """Retain the original raw-array arithmetic without native expected values."""
-    dx = length_m / N
-    volume = length_m ** 3
-    minimum, maximum = float(phi.min()), float(phi.max())
+    """Evaluate float64 raw-array arithmetic without native expected values."""
+    phi64 = np.asarray(phi, dtype=np.float64)
+    c64, d64, l64, n64 = float(C), float(delta), float(length_m), float(N)
+    dx = l64 / n64
+    volume = l64 ** 3
+    minimum, maximum = float(phi64.min()), float(phi64.max())
     areas = []
-    for level in (delta - C, delta + C):
+    for level in (d64 - c64, d64 + c64):
         if level <= minimum or level >= maximum:
             area = 0.
         else:
             vertices, faces, _, _ = measure.marching_cubes(
-                phi, level=level, spacing=(dx, dx, dx), method='lewiner',
+                phi64, level=level, spacing=(dx, dx, dx), method='lewiner',
                 gradient_direction='descent', step_size=1, allow_degenerate=True)
             area = float(measure.mesh_surface_area(vertices, faces))
         areas.append(area / volume)
-    epsilon = (float(np.mean(phi < (delta - C))), float(np.mean(phi > (delta + C))))
+    epsilon = (float(np.mean(phi64 < (d64 - c64))), float(np.mean(phi64 > (d64 + c64))))
     diameter = tuple(4. * eps / area if area > 0. else 0. for eps, area in zip(epsilon, areas))
     return np.asarray(areas), np.asarray(diameter)
 
@@ -136,9 +138,11 @@ def test_tpms_phi_uses_both_distinct_side_surfaces(topology, N, delta):
 
 
 def _reference_voxel(phi, C, delta, length_m, N):
-    lower, upper = delta - C, delta + C
-    solid = (phi >= lower) & (phi <= upper)
-    a, b = phi < lower, phi > upper
+    phi64 = np.asarray(phi, dtype=np.float64)
+    c64, d64, l64, n64 = float(C), float(delta), float(length_m), float(N)
+    lower, upper = d64 - c64, d64 + c64
+    solid = (phi64 >= lower) & (phi64 <= upper)
+    a, b = phi64 < lower, phi64 > upper
     epsilon = (float(np.mean(a)), float(np.mean(b)))
     areas = []
     for phase in (a, b):
@@ -149,7 +153,7 @@ def _reference_voxel(phi, C, delta, length_m, N):
             first, second = tuple(first), tuple(second)
             faces += int(np.sum(solid[first] & phase[second]))
             faces += int(np.sum(phase[first] & solid[second]))
-        areas.append(faces * (length_m / N) ** 2 / (length_m ** 3 * tpms_geometry._AREA_CORRECTION))
+        areas.append(faces * (l64 / n64) ** 2 / (l64 ** 3 * tpms_geometry._AREA_CORRECTION))
     diameters = tuple(4. * eps / area if area > 0. else 0. for eps, area in zip(epsilon, areas))
     wall_area = .5 * (areas[0] + areas[1])
     thickness = (1. - sum(epsilon)) / wall_area if wall_area > 0. else 0.
@@ -164,10 +168,9 @@ def _compare_voxel(phi, C, delta, length_m=.007, N=13.5):
     assert asym_geometry.wall_thickness(phi, C, delta, length_m, N) == thickness
 
 
-def test_float32_negative_C_uses_the_original_weak_comparison():
+def test_float32_negative_C_promotes_to_float64_comparison():
     phi = np.array([-.75, .5, 1., 1.] * 2, dtype=np.float32).reshape(2, 2, 2)
     C = -.5 - 1e-10
-    assert _reference_voxel(phi, C, 0., .007, 13.5)[0] == (.25, .75, 1.)
     _compare_voxel(phi, C, 0.)
     _compare_sides(phi, C, 0., .007, 13.5, 'float32-negative-C')
 
@@ -196,27 +199,6 @@ def test_raw_array_and_scalar_precision_combinations(dtype, C_type, delta_type):
         np.testing.assert_array_equal(prepared['side_geometry'][side],
                                       (areas[number], diameters[number],
                                        reference_areas[number], reference_diameters[number]))
-
-
-@pytest.mark.parametrize('scalar_type,value,offset', [
-    (np.float16, -1., 1e-5), (np.float16, 1., 1e-5),
-    (np.float16, 0., 2. ** -26), (np.float16, 2. ** -24, 2. ** -26),
-    (np.float16, 2. ** -14, 2. ** -26), (np.float16, 65504., 1.),
-    (np.float32, -1., 1e-9), (np.float32, 1., 1e-9),
-    (np.float32, 2. ** -149, 2. ** -151),
-])
-def test_numpy_level_scalar_retains_its_outer_extrema_comparison(scalar_type, value, offset):
-    phi = np.array([value - offset, value + offset] * 4).reshape(2, 2, 2)
-    level = scalar_type(value)
-    expected = _compare_sides(phi, scalar_type(0.), level, .007, 13.5, 'scalar-extrema-guard')
-    assert expected is not None
-    np.testing.assert_array_equal(expected[0], [0., 0.])
-
-
-@pytest.mark.parametrize('value', [1., 1. + 2. ** -10, 1. + 2. ** -9])
-def test_half_precision_outer_guard_rounds_ties_to_even(value):
-    phi = np.array([value - 2. ** -11, value + 2. ** -11] * 4).reshape(2, 2, 2)
-    _compare_sides(phi, np.float16(0.), np.float16(value), .007, 13.5, 'half-tie-extrema')
 
 
 @pytest.mark.parametrize('scalar_type', _SCALAR_TYPES)

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "tpmshx/fluid_properties.hpp"
-#include "tpmshx/grid.hpp"
+#include "tpmshx/finite_volume.hpp"
 #include "tpmshx/preparation_c_api.h"
 #include <array>
 #include <cstdint>
@@ -12,7 +12,6 @@
 
 namespace tpmshx::preparation {
 
-using grid::Scalar;
 constexpr std::size_t property_event_count=TPMSHX_PREPARATION_FP_EVENT_COUNT;
 enum class Empirical : std::uint32_t {
     air_viscosity,air_conductivity,air_density,air_cp,
@@ -24,16 +23,11 @@ struct EmpiricalRange {
 };
 enum class NuRoute : std::uint32_t {air_direct,air_vector,water,sco2,co2};
 enum class RoughnessQuantity : std::uint32_t {petukhov,haaland,height_ratio,friction_gain,extra_nu,identity};
-// Layout: Python scalar, NumPy scalar, zero-dimensional array, other array.
-struct PropertyInput {
-    ArrayView<const double> values;Scalar kind;std::uint32_t layout;
-    double imaginary=0.;std::uint32_t category=0;
-};
-struct PropertyNumber {Scalar real;double imaginary=0.;std::uint32_t category=0,layout=0;bool empty=false;};
+// Inputs are broadcast float64 buffers. Results keep one event word for each operation.
+struct PropertyInput {ArrayView<const double> values;};
+using PropertyNumber=double;
 struct PropertyResult {
-    std::vector<double> values,imaginary;
-    Scalar kind{0.,64,0};
-    std::uint32_t category=0;
+    std::vector<double> values;
     std::array<std::uint32_t,property_event_count> events{};
 };
 struct PropertyFailure {
@@ -56,7 +50,8 @@ public:
     PropertyFailure failure;
 };
 
-// Fixed property and pressure expressions share typed arithmetic and events.
+// Fixed property and pressure expressions share float64 arithmetic and FP events.
+// Event bits 0..3 are invalid, divide, overflow and underflow; bits 8..15 name the operation.
 class PropertyArithmetic {
 public:
     explicit PropertyArithmetic(std::array<std::uint32_t,property_event_count>& events,bool observe=true);
@@ -69,8 +64,7 @@ public:
     PropertyNumber logarithm10(PropertyNumber value);
     PropertyNumber exponential(PropertyNumber value);
 private:
-    template<class Function> PropertyNumber binary(std::uint32_t operation,
-        PropertyNumber first,PropertyNumber second,Function function);
+    template<class Function> PropertyNumber apply(std::uint32_t operation,Function function);
     std::array<std::uint32_t,property_event_count>& events_;
     std::size_t node_=0;
     bool observe_;
@@ -103,7 +97,7 @@ EmpiricalRange empirical_range(Empirical getter);
 PropertyResult nu_inputs(NuRoute route,PropertyInput re,PropertyInput pr,PropertyInput cell,
     PropertyInput diameter,PropertyInput floor,std::array<double,4>& extrema);
 PropertyResult nusselt(NuRoute route,Topology topology,PropertyInput re,PropertyInput pr,
-    PropertyInput cell,PropertyInput diameter,Scalar alpha);
+    PropertyInput cell,PropertyInput diameter,double alpha);
 PropertyResult roughness(RoughnessQuantity quantity,PropertyInput first,PropertyInput second);
 PropertyResult reynolds(PropertyInput rho,PropertyInput speed,PropertyInput diameter,PropertyInput mu);
 PropertyResult prandtl(PropertyInput mu,PropertyInput cp,PropertyInput conductivity);

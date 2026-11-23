@@ -23,7 +23,7 @@ The `model_configs.model_parameters` reader uses only the Python standard librar
 Python model modules and the native header generator use the same resource data.
 An independent C++ core calculates geometry.
 The geometry core owns standard, CO2 and asymmetric geometry, chi/Kss, and sigmoid LUT nodes and derived geometry.
-`python/cpp_interface/_native_geometry.py` uses ctypes to load geometry ABI 1 on demand.
+`python/cpp_interface/_native_geometry.py` uses ctypes to load geometry ABI 2 on demand.
 It loads a separate prebuilt library without importing the solver backend.
 Python keeps public types, cache interfaces and per-call explicit/environment/fit selection for chi.
 `python/physical_models/preparation_cache.py` owns the bounded geometry and inlet-property caches.
@@ -50,15 +50,15 @@ Formal nonzero asymmetric preparation keeps the original explicit Python-float c
 Its native arithmetic stays float64.
 
 The geometry library calculates grids, ports, axis maps and design fields.
-Independent preparation ABI 1 calculates properties, closures, DF, corrections, projection and preparation mathematics.
+Independent preparation ABI 2 calculates properties, closures, DF, corrections, projection and preparation mathematics.
 Independent result ABI 3 calculates metrics, physical balances, zone statistics and numerical checks.
 See [C++ scope and delivery records](cpp-migration.md#cpp-core-scope).
 
 The preparation target is `preprocess/`. It reuses the geometry/grid core and the shared `fluid_properties.cpp` numerical owner.
 It links the locked CoolProp static library, without full solvers, run_state, SuperLU or AMG.
 `python/cpp_interface/stage_libraries.py` selects the preparation and result images independently. It loads each image on demand and checks its ABI. Concrete property, DF and flow adapters pack named inputs.
-Geometry ABI 1 and field ABI 2 retain their separate status contracts.
-Preparation ABI 1 uses status 1 for invalid inputs, 2 for allocation and 3 for runtime errors.
+Geometry ABI 2 and field ABI 3 keep their separate status contracts.
+Preparation ABI 2 uses status 1 for invalid inputs, 2 for allocation and 3 for runtime errors.
 Its state statuses are 10 for water, 11 for CO2 and 12 for sCO2.
 Calls borrow aligned buffers with explicit extents. Failure preserves numerical outputs. Contexts retain their creating library until release.
 
@@ -168,7 +168,7 @@ The C++ owner builds the physical grid once and keeps static evidence before res
 Air-field scalar observations use at most eight selected values per side, with the original notices, extrema and last sample.
 Full raw-array range records keep all physical cells.
 The replaced 3D Python bodies and exclusive `shared/models/grid_3d.py` and `asym_split.py` are removed.
-Their frozen reference remains in `tests/python/preparation_3d_reference.py`.
+Real scalar inputs normalize to `float64` at the Python boundary; pure formula references and physical invariant checks remain in `tests/python/`.
 Memory use near the cell cap and real 3D BO also need separate acceptance.
 The adapter preserves CaseData fields, scalar types, events, source ranges and saved model selections.
 The v2 host hook preserves object errors and warning scopes at their original execution points.
@@ -231,7 +231,7 @@ Its separate pressure query creates no thermal grid or design-field arrays.
 `python/cpp_interface/_native_quick_prepare.py` keeps Python object protocols, cache exchanges, warnings and snapshots through fixed named host operations.
 These operations cannot call numerical models. C++ selects their order and all numerical branches.
 `python/cpp_interface/_native_quick_prepare.py` assembles CaseData from the copied native output.
-The replaced `shared/models/quick_design.py` is removed; its frozen reference remains in `tests/python/quick_prepare_reference.py` for regression checks.
+The replaced `shared/models/quick_design.py` and its full-pipeline reference are removed; pure formula references remain in `tests/python/` for regression checks.
 Quick defaults have one source in `python/model_configs/model_parameters_v1.json`.
 Python reads that resource; C++ uses its generated constants. Stored counterflow `qtol` and `chunk` remain `None`.
 The native-double v1 preparation and run entries were removed on 2026-11-23.
@@ -1125,7 +1125,7 @@ XY uses explicit Givens FMA directions and a local contraction setting.
 Gaussian uses explicit pair accumulation fusion on Apple arm64.
 Other grid/field calculations retain strict contraction settings. These choices require separate Windows checks.
 
-The library exports geometry ABI 1 and field ABI 2. Their error codes require separate mappers:
+The library exports geometry ABI 2 and field ABI 3. Their error codes require separate mappers:
 
 | Protocol | Status 1 | Status 2 | Status 3 |
 | --- | --- | --- | --- |
@@ -2016,7 +2016,7 @@ It is not evidence of fluid-intrinsic D-F physics. Differences can absorb pressu
 
 Selecting them explicitly now raises an error. Their code,
    tables and results stay available through the [history index](history/legacy-models.md).
-5. **Nusselt ownership.** Full runs evaluate air, water and sCO2 Nu in [fluid_nusselt_ratio](../numerics/fluid_properties.cpp#L182). The correlation formulas are in [nu_point](../numerics/fluid_properties.cpp#L551). The [Python correlation API](../python/physical_models/nu_correlations.py) calls native functions and reports range observations. The sole current sCO2 effective-parameter
+5. **Nusselt ownership.** Full runs evaluate air, water and sCO2 Nu in [fluid_nusselt_ratio](../numerics/fluid_properties.cpp#L174). The correlation formulas are in [nu_point](../numerics/fluid_properties.cpp#L371). The [Python correlation API](../python/physical_models/nu_correlations.py) calls native functions and reports range observations. The sole current sCO2 effective-parameter
    resource is `python/model_configs/sco2_effective_nu.json`, loaded by
    `sco2_effective_nu_config()` as a validated `Sco2NuConfig`. The kept
    `alpha_D/alpha_G` fields are total Ceff, applied one time to the current base

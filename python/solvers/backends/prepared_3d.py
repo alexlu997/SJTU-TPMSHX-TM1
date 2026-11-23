@@ -33,8 +33,10 @@ def build_execution_inputs(case, *, copy_design=True):
     prepared['custom_grid'] = any(
         not np.all(prepared['d' + axis] == cfg[length] / count)
         for axis, length, count in zip('xyz', ('L', 'H', 'Lz'), shape))
-    cfg['Lcell'] = cfg.pop('L_cell_m') * 1e3
-    cfg['t_wall'] = cfg.pop('t_wall_m') * 1e3
+    L_cell_m = cfg.pop('L_cell_m')
+    t_wall_m = cfg.pop('t_wall_m')
+    cfg['Lcell'] = L_cell_m * 1e3
+    cfg['t_wall'] = t_wall_m * 1e3
     cfg['_models'] = resolve_models(case)
     for side in ('A', 'B'):
         validate_fluid(case, cfg['_models'], side, cfg['fluid_type_' + side])
@@ -76,8 +78,8 @@ def build_execution_inputs(case, *, copy_design=True):
         if key.startswith('eps') and not np.all(arr < 1):
             raise ValueError(f'prepared porosity {key} must be below one')
     if case.metadata['design_mode'] == 'uniform':
-        for key, scalar in (('L_field_m', cfg['Lcell'] * 1e-3),
-                            ('t_field_m', cfg['t_wall'] * 1e-3), ('eps_arr', cfg['eps'])):
+        for key, scalar in (('L_field_m', L_cell_m),
+                            ('t_field_m', t_wall_m), ('eps_arr', cfg['eps'])):
             if not np.all(np.asarray(design[key]) == scalar):
                 raise ValueError(f'uniform design field {key} disagrees with scalar input')
         for key in ('K_m2', 'cF_per_m'):

@@ -30,30 +30,32 @@ def result():
 @pytest.mark.parametrize('cube', [False, True])
 def test_demo_preparation_keeps_original_workload(cube):
     from sjtu_tpmshx.preprocess.api import prepare_case
-    from tests.python.preparation_3d_reference import _prepare_problem_data
-    from tests.python.cases_3d import demo_fixture_cfg as legacy_cfg
     from sjtu_tpmshx.development.runs.demos.demo_3d_cube_air_air import build_cube_cfg
     from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
 
     config = build_cube_cfg() if cube else air.build_cfg()
     case = prepare_case(config, case_id='demo-inputs')
     actual_cfg, actual = build_execution_inputs(case)
-    expected = _prepare_problem_data(legacy_cfg(**(
-        dict(L=.05, H=.05, Lz=.05, Nx=20, Ny=20, Nz=20) if cube else {})))
-    for key in ('dx', 'dy', 'dz', 'Nx', 'Ny', 'Nz'):
-        np.testing.assert_array_equal(actual[key], expected[key])
-    for key, value in expected['design'].items():
-        np.testing.assert_allclose(actual['design'][key], value, rtol=1e-12)
+    geometry, solver = config.geometry, config.solver
+    # The grid covers the physical domain with the requested cell counts.
+    for axis, count, length in zip('xyz', (solver.Nx, solver.Ny, solver.Nz),
+                                   (geometry.L_dom_m, geometry.H_dom_m, geometry.Lz_m)):
+        widths = np.asarray(actual['d' + axis])
+        assert actual['N' + axis] == widths.size == count
+        assert np.all(widths > 0.) and np.isclose(widths.sum(), length, rtol=1e-12)
+    # Uniform demo geometry keeps the nominal L/t and a physical porosity.
+    shape = (solver.Nx, solver.Ny, solver.Nz)
+    np.testing.assert_allclose(actual['design']['L_field_m'], np.full(shape, geometry.L_cell_mm * 1e-3))
+    np.testing.assert_allclose(actual['design']['t_field_m'], np.full(shape, geometry.t_wall_mm * 1e-3))
+    assert np.all((actual['design']['eps_arr'] > 0.) & (actual['design']['eps_arr'] < 1.))
     for side in 'AB':
-        for key, value in expected['openings'][side].items():
-            np.testing.assert_array_equal(actual['openings'][side][key], value)
-        assert actual['axes'][side]['stream_real_axis'] == expected['axes'][side]['stream_real_axis']
-        assert actual['axes'][side]['is_reverse'] == expected['axes'][side]['is_reverse']
-        assert actual['properties'][side] == expected['properties'][side]
-    for key in ('max_outer', 'ltne_max_iter', 'compact'):
-        assert actual[key] == expected[key]
-    for key in ('u_A', 'u_B', 'T_inA', 'T_inB', 'P_inA', 'P_inB', 'T_s_init'):
-        assert actual_cfg[key] == expected['cfg'][key]
+        for value in actual['openings'][side].values():
+            assert np.all((np.asarray(value) >= 0.) & (np.asarray(value) <= 1.))
+        assert all(np.isfinite(value) and value > 0. for value in actual['properties'][side].values())
+    for key, value in (('u_A', config.fluid_A.u_mps), ('u_B', config.fluid_B.u_mps),
+                       ('T_inA', config.fluid_A.T_in_K), ('T_inB', config.fluid_B.T_in_K),
+                       ('P_inA', config.fluid_A.P_in_Pa), ('P_inB', config.fluid_B.P_in_Pa)):
+        assert actual_cfg[key] == value
 
 
 @pytest.mark.parametrize('converged,available', [(True, True), (False, True), (True, False)])

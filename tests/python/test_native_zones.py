@@ -50,7 +50,11 @@ def zones():
 def _check(zones, kind, nx, ny, rows, **options):
     original_widths = {name: np.asarray(options[name]).copy()
                        for name in ('dx', 'dy') if options.get(name) is not None}
-    expected = frozen.assign(kind, nx, ny, rows, **options)
+    ref_rows = [[float(value) for value in row] for row in rows]
+    ref_options = dict(options)
+    if 'domain' in ref_options:
+        ref_options['domain'] = float(ref_options['domain'])
+    expected = frozen.assign(kind, nx, ny, ref_rows, **ref_options)
     actual = zones.assign(kind, nx, ny, rows, **options)
     np.testing.assert_array_equal(actual, expected)
     assert actual.shape == (nx, ny) and actual.dtype == np.int32
@@ -94,8 +98,7 @@ def test_rectangle_bounds_keep_each_scalar_kind(
 @pytest.mark.parametrize('bound_type', (np.float16, np.float32), ids=('half', 'single'))
 @pytest.mark.parametrize('axis', (0, 1), ids=('x', 'y'))
 @pytest.mark.parametrize('edge', ('lower', 'upper'))
-def test_2d_weak_points_and_3d_strong_points_select_different_cells(
-        zones, bound_type, axis, edge):
+def test_2d_and_3d_points_compare_in_float64(zones, bound_type, axis, edge):
     q = .25 - float(np.spacing(bound_type(.25))) / 4.
     dx, dy = _widths_at(q, axis)
     row = [0., 1., 0., 1.]
@@ -103,8 +106,7 @@ def test_2d_weak_points_and_3d_strong_points_select_different_cells(
     rows = [[.875, 1., .875, 1.], row]
     first = _check(zones, 1, len(dx), len(dy), rows, dx=dx, dy=dy)
     last = _check(zones, 2, len(dx), len(dy), rows, dx=dx, dy=dy)
-    # The fixture must reach the weak-conversion branch, not only compare equal data.
-    assert first[0, 0] == (1 if edge == 'lower' else 0)
+    assert first[0, 0] == (0 if edge == 'lower' else 1)
     assert last[0, 0] == (-1 if edge == 'lower' else 1)
     stripe_rows = [[0., bound_type(.25), 0., 0.], [bound_type(.25), 1., 0., 0.]]
     stripe = _check(zones, 0, len(dx), len(dy), stripe_rows, axis=axis,
@@ -258,10 +260,6 @@ def test_3d_assignment_smooths_L_and_t_before_z_extrusion(zones):
                                    rtol=0., atol=1e-13)
 
 
-class _Scalar(ct.Structure):
-    _fields_ = [('value', ct.c_double), ('precision', ct.c_uint32), ('strong', ct.c_uint32)]
-
-
 def _pointer(values, dtype):
     return values.ctypes.data_as(ct.POINTER(dtype))
 
@@ -271,9 +269,9 @@ def raw_api(zones):
     # Keep test argtypes separate from the cached application function objects.
     library = ct.CDLL(_native_geometry._library().path)
     size, doublep = ct.c_size_t, ct.POINTER(ct.c_double)
-    intp, scalarp, errorp = ct.POINTER(ct.c_int32), ct.POINTER(_Scalar), ct.POINTER(ct.c_char)
+    intp, errorp = ct.POINTER(ct.c_int32), ct.POINTER(ct.c_char)
     assign = library.tpmshx_geometry_zone_ids_v1
-    assign.argtypes = [ct.c_uint32, size, size, ct.c_int, _Scalar, scalarp, size,
+    assign.argtypes = [ct.c_uint32, size, size, ct.c_int, ct.c_double, doublep, size,
                        doublep, size, doublep, size, intp, size, errorp, size]
     assign.restype = ct.c_int
     gaussian = library.tpmshx_geometry_zone_gaussian_v1
@@ -285,8 +283,8 @@ def raw_api(zones):
 @pytest.mark.parametrize('failure', ('extent', 'null-rows', 'row-overflow', 'misaligned-rows'))
 def test_zone_c_boundary_rejects_bad_buffers_before_output_write(raw_api, failure):
     assign, _ = raw_api
-    rows = (_Scalar * 4)(*(_Scalar(value, 64, 0) for value in (0., 1., 0., 1.)))
-    row_pointer, row_count = ct.cast(rows, ct.POINTER(_Scalar)), 1
+    rows = (ct.c_double * 4)(0., 1., 0., 1.)
+    row_pointer, row_count = ct.cast(rows, ct.POINTER(ct.c_double)), 1
     ids = np.full((2, 2), 919, dtype=np.int32)
     output_count = ids.size
     if failure == 'extent':
@@ -297,9 +295,9 @@ def test_zone_c_boundary_rejects_bad_buffers_before_output_write(raw_api, failur
         row_count = np.iinfo(np.uintp).max // 4 + 1
     else:
         unaligned = ct.create_string_buffer(ct.sizeof(rows) + 1)
-        row_pointer = ct.cast(ct.byref(unaligned, 1), ct.POINTER(_Scalar))
+        row_pointer = ct.cast(ct.byref(unaligned, 1), ct.POINTER(ct.c_double))
     error = ct.create_string_buffer(8)
-    status = assign(1, 2, 2, 1, _Scalar(1., 64, 0), row_pointer, row_count,
+    status = assign(1, 2, 2, 1, 1., row_pointer, row_count,
                     None, 0, None, 0, _pointer(ids, ct.c_int32), output_count, error, len(error))
     assert status == 1
     assert error.value and b'\0' in error.raw

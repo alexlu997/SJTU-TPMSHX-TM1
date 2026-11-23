@@ -1,15 +1,16 @@
-"""Raw Nu arithmetic and result types against fixed independent expressions."""
+"""Raw float64 Nu arithmetic against fixed independent expressions."""
 import warnings
 
 import numpy as np
 import pytest
 
+from tests.python import float64_oracle as oracle
 from tests.python import nu_reference as reference
 from sjtu_tpmshx.data_types.compute_config import Sco2NuConfig
 from sjtu_tpmshx.physical_models import co2_correlations, nu_correlations
 
 
-def observe(function):
+def observe(function, *, reference=False):
     with warnings.catch_warnings(record=True) as caught, np.errstate(all='warn'):
         warnings.simplefilter('always')
         warnings.simplefilter('ignore', UserWarning)
@@ -19,7 +20,10 @@ def observe(function):
             result = ('error', type(error), error.args, str(error))
         else:
             result = ('value', type(value), np.asarray(value))
-    return result, [(item.category, str(item.message)) for item in caught]
+    notes = [(item.category, str(item.message)) for item in caught]
+    if reference:
+        notes = [(category, oracle.warning_text(text)) for category, text in notes]
+    return result, notes
 
 
 def equal(actual, expected):
@@ -33,6 +37,10 @@ def equal(actual, expected):
         assert first[2].dtype == second[2].dtype
         assert first[2].shape == second[2].shape
         np.testing.assert_array_equal(first[2], second[2])
+
+
+def expected(route, topology, *arguments):
+    return oracle.call(lambda *values: call(reference, route, topology, *values), *arguments)
 
 
 def call(module, route, topology, re, pr, cell, diameter):
@@ -54,14 +62,14 @@ def call(module, route, topology, re, pr, cell, diameter):
 @pytest.mark.parametrize('dtype', [float, np.float16, np.float32, np.float64,
                                   np.int16, np.uint16, np.int32, np.int64])
 @pytest.mark.parametrize('layout', ['scalar', 'zero', 'two', 'empty', 'strided'])
-def test_raw_nu_types_and_intermediate_rounding(route, topology, dtype, layout):
+def test_raw_nu_uses_float64_operands(route, topology, dtype, layout):
     base = np.array([0.5, 1., 10., 3000., 5000., 10000.], dtype=dtype)
     re = {'scalar': dtype(3000), 'zero': np.array(3000, dtype=dtype),
           'two': base.reshape(2, 3), 'empty': base[:0], 'strided': base[::-2]}[layout]
     pr_type = dtype if dtype in (float, np.float16, np.float32, np.float64) else np.float32
     pr, cell, diameter = pr_type(1.25), pr_type(7.), pr_type(3.)
     equal(observe(lambda: call(nu_correlations, route, topology, re, pr, cell, diameter)),
-          observe(lambda: call(reference, route, topology, re, pr, cell, diameter)))
+          observe(reference=True, function=lambda: expected(route, topology, re, pr, cell, diameter)))
 
 
 @pytest.mark.parametrize('route', ['air', 'vector', 'water', 'sco2'])
@@ -74,10 +82,10 @@ def test_raw_nu_types_and_intermediate_rounding(route, topology, dtype, layout):
     (3000., .72, -7., 3.),
     (3000., .72, 0., 3.),
 ])
-def test_raw_nu_keeps_nonfinite_and_scalar_error_contract(route, inputs):
+def test_raw_nu_keeps_nonfinite_float64_results(route, inputs):
     re, pr, cell, diameter = inputs
     equal(observe(lambda: call(nu_correlations, route, 'Gyroid', re, pr, cell, diameter)),
-          observe(lambda: call(reference, route, 'Gyroid', re, pr, cell, diameter)))
+          observe(reference=True, function=lambda: expected(route, 'Gyroid', re, pr, cell, diameter)))
 
 
 @pytest.mark.parametrize('topology', ['Diamond', 'Gyroid'])
@@ -85,14 +93,13 @@ def test_raw_nu_keeps_nonfinite_and_scalar_error_contract(route, inputs):
 def test_co2_nu_retains_double_normalization(topology, dtype):
     arguments = (dtype(12000.), dtype(1.4), dtype(7.), dtype(3.))
     equal(observe(lambda: co2_correlations.nusselt(topology, *arguments)),
-          observe(lambda: reference.co2_nusselt(topology, *arguments)))
+          observe(reference=True, function=lambda: oracle.call(lambda *values: reference.co2_nusselt(topology, *values), *arguments)))
 
 
 @pytest.mark.parametrize('route', ['air', 'vector', 'water', 'sco2'])
-def test_empty_nu_keeps_scalar_factor_complex_type(route):
-    arguments = (np.empty(0), -1.25, 7., 3.)
-    equal(observe(lambda: call(nu_correlations, route, 'Gyroid', *arguments)),
-          observe(lambda: call(reference, route, 'Gyroid', *arguments)))
+def test_empty_nu_returns_empty_float64(route):
+    actual = call(nu_correlations, route, 'Gyroid', np.empty(0), -1.25, 7., 3.)
+    assert isinstance(actual, np.ndarray) and actual.dtype == np.float64 and actual.shape == (0,)
 
 
 @pytest.mark.parametrize('re,floor', [
@@ -108,7 +115,8 @@ def test_empty_nu_keeps_scalar_factor_complex_type(route):
 ])
 def test_vector_nu_keeps_array_re_floor_contract(re, floor):
     equal(observe(lambda: nu_correlations.nu_vec('Gyroid', re, 7., 3., Re_floor=floor)),
-          observe(lambda: reference.nu_vec('Gyroid', re, 7., 3., Re_floor=floor)))
+          observe(reference=True, function=lambda: oracle.call(lambda *values, **named: reference.nu_vec('Gyroid', *values, **named),
+                                      re, 7., 3., Re_floor=floor)))
 
 
 @pytest.mark.parametrize('re,floor', [
@@ -119,7 +127,7 @@ def test_vector_nu_keeps_array_re_floor_contract(re, floor):
 def test_re_floor_keeps_maximum_ties_and_nonfinite_values(re, floor):
     from sjtu_tpmshx.cpp_interface import _native_properties
 
-    expected = np.maximum(np.asarray(re, dtype=np.float64), floor)
+    expected = oracle.result(np.maximum(np.asarray(re, dtype=np.float64), np.asarray(floor, dtype=np.float64)))
     actual, _ = _native_properties.nu_inputs(1, re, re_floor=floor)
     assert type(actual) is type(expected)
     assert np.asarray(actual).dtype == np.asarray(expected).dtype

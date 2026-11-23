@@ -30,8 +30,8 @@ inline size_t add_scope_notice(std::vector<std::string>& notices,std::string mes
     return notices.size()-1;
 }
 
-inline double scope_length_mm(double value,const tpmshx_preparation_scalar_kind_v2* kind) {
-    return kind?grid::multiply({value,kind->precision,kind->strong},grid::weak(1e3)).value:value*1e3;
+inline double scope_length_mm(double value) {
+    return value*1e3;
 }
 
 inline void write_sco2_scope(std::ostream& message,double pressure) {

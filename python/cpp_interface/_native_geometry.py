@@ -9,7 +9,7 @@ import weakref
 
 import numpy as np
 
-from ._native_values import geometry_topology
+from ._native_values import geometry_topology, real_scalar
 from sjtu_tpmshx.run_control.provenance import PUBLISHED_LIBRARY_DIR
 
 
@@ -29,9 +29,7 @@ class _Prepared(ct.Structure):
 
 
 class _Levels(ct.Structure):
-    _fields_ = [('lower', _Double), ('upper', _Double),
-                ('comparison_lower', _Double), ('comparison_upper', _Double),
-                ('lower_precision', _Uint), ('upper_precision', _Uint)]
+    _fields_ = [('lower', _Double), ('upper', _Double)]
 
 
 _PreparedP = ct.POINTER(_Prepared)
@@ -40,15 +38,15 @@ _SIGNATURES = {
     'index_create': [_Uint, _Size, _HandleP],
     'index_create_from_phi': [_SizeP, _DoubleP, _Size, _HandleP],
     'phi_grid': [_Uint, _Size, _DoubleP, _Size],
-    'threshold_batch': [_Uint, _DoubleP, _Size, _Uint, _DoubleP, _Size],
+    'threshold_batch': [_Uint, _DoubleP, _Size, _DoubleP, _Size],
     'hydraulic_radius_batch': [_DoubleP, _Size, _DoubleP, _Size],
     'counts': [_Handle, _DoubleP, _Size, _Int64P, _Size],
     'standard_batch': [_Handle, _Uint, _DoubleP, _DoubleP, _Size,
                        _Double, _Uint, _Double, _DoubleP, _Size],
-    'standard_scalar': [_Handle, _Uint, _Double, _Double, _Uint, _Uint, _DoubleP, _Size],
+    'standard_scalar': [_Handle, _Uint, _Double, _Double, _DoubleP, _Size],
     'raw_batch': [_Handle, _Uint, _DoubleP, _DoubleP, _Size, _DoubleP, _Size],
     'chi_batch': [_Uint, _DoubleP, _Size, _Uint, _Double, _DoubleP, _Size],
-    'material_batch': [_Uint, _DoubleP, _Size, _Double, _Uint, _Uint, _Double, _DoubleP, _Size],
+    'material_batch': [_Uint, _DoubleP, _Size, _Double, _Uint, _Double, _DoubleP, _Size],
     'lut_batch': [_Uint, _DoubleP, _DoubleP, _Size, _Double, _Uint, _Double, _DoubleP, _Size],
     'standard_minimum': [_Handle, _Uint, _DoubleP, _DoubleP, _DoubleP, _Size],
     'co2_batch': [_Uint, _DoubleP, _DoubleP, _Size, _Double, _Uint, _Double, _DoubleP, _Size],
@@ -108,8 +106,8 @@ class _NativeLibrary:
             raise OSError(f'cannot load prebuilt native geometry library {path}: {error}') from error
         version = self._bind('abi_version', [], ct.c_uint32, error=False)
         abi = version()
-        if abi != 1:
-            raise ValueError(f'unsupported native geometry ABI {abi} in {path}; expected 1')
+        if abi != 2:
+            raise ValueError(f'unsupported native geometry ABI {abi} in {path}; expected 2')
         self.index_destroy = self._bind('index_destroy', [_Handle], None, error=False)
         for name, signature in _SIGNATURES.items():
             setattr(self, name, self._bind(name, signature))
@@ -179,7 +177,14 @@ def _index(topology, resolution):
 
 
 def _array(values):
-    return np.require(values, dtype=np.float64, requirements=['C', 'A', 'E'])
+    source = np.asarray(values)
+    if source.dtype.kind not in 'fiu':
+        raise TypeError(f'geometry arrays must contain real numbers, got {source.dtype}')
+    return np.require(source, dtype=np.float64, requirements=['C', 'A', 'E'])
+
+
+def _scalar(value):
+    return real_scalar(value, allow_nonfinite=True)
 
 
 def _pair(cells, walls):
@@ -194,7 +199,7 @@ def _pointer(values):
 
 
 def _override(value):
-    return (0, 0.) if value is None else (1, float(value))
+    return (0, 0.) if value is None else (1, _scalar(value))
 
 
 def _rows(shape, columns):
@@ -220,20 +225,9 @@ def _phi3(values):
     return phi, (ct.c_size_t * 3)(*phi.shape)
 
 
-def _raw_levels(phi, C, delta):
-    source = np.asarray(phi)
-    lower, upper = delta - C, delta + C
-    # Keep NumPy weak-scalar comparisons after the borrowed buffer becomes float64.
-    return _Levels(float(lower), float(upper),
-                   float(np.result_type(source, lower).type(lower)),
-                   float(np.result_type(source, upper).type(upper)),
-                   np.result_type(lower, 0.).itemsize * 8,
-                   np.result_type(upper, 0.).itemsize * 8)
-
-
-def _floating_dtype(*values):
-    dtype = np.result_type(*values)
-    return dtype if dtype.kind == 'f' else np.dtype(np.float64)
+def _raw_levels(C, delta):
+    C, delta = _scalar(C), _scalar(delta)
+    return _Levels(delta - C, delta + C)
 
 
 @lru_cache(maxsize=4)
@@ -253,8 +247,7 @@ def phi_grid(topology, N=128):
 def threshold(topology, wall_over_cell):
     code, values = geometry_topology(topology), _array(wall_over_cell)
     result = np.empty(values.shape, dtype=np.float64, order='C')
-    precision = _floating_dtype(wall_over_cell, 0.).itemsize * 8
-    _call(_library().threshold_batch, code, _pointer(values), values.size, precision,
+    _call(_library().threshold_batch, code, _pointer(values), values.size,
           _pointer(result), result.size)
     return result
 
@@ -281,17 +274,15 @@ def standard_fields(topology, cells_mm, walls_mm, conductivity, *, chi_s=None, N
     index, code = _index(topology, N)
     result = _rows(cells.shape, 6)
     _call(index.library.standard_batch, index.handle, code, _pointer(cells), _pointer(walls), cells.size,
-          float(conductivity), *_override(chi_s), _pointer(result), result.size)
+          _scalar(conductivity), *_override(chi_s), _pointer(result), result.size)
     return _fields(result, _GEOMETRY_KEYS)
 
 
 def standard_scalar(topology, cell_mm, wall_mm, *, N=128):
     index, code = _index(topology, N)
-    cell_precision = _floating_dtype(cell_mm, 0.).itemsize * 8
-    ratio_precision = _floating_dtype(wall_mm, cell_mm).itemsize * 8
     result = np.empty(5, dtype=np.float64)
-    _call(index.library.standard_scalar, index.handle, code, float(cell_mm), float(wall_mm),
-          cell_precision, ratio_precision, _pointer(result), result.size)
+    _call(index.library.standard_scalar, index.handle, code, _scalar(cell_mm), _scalar(wall_mm),
+          _pointer(result), result.size)
     return _fields(result, _GEOMETRY_KEYS[:5])
 
 
@@ -315,12 +306,9 @@ def chi_fields(topology, epsilon, *, chi_s=None):
 def material_fields(topology, epsilon, conductivity, *, chi_s=None):
     code, values = geometry_topology(topology), _array(epsilon)
     result = _rows(values.shape, 2)
-    product_dtype = _floating_dtype(epsilon, conductivity)
-    _call(_library().material_batch, code, _pointer(values), values.size, float(conductivity),
-          product_dtype.itemsize * 8, *_override(chi_s), _pointer(result), result.size)
-    fields = _fields(result, ('chi_s', 'K_ss'))
-    fields['K_ss'] = fields['K_ss'].astype(product_dtype, copy=False)
-    return fields
+    _call(_library().material_batch, code, _pointer(values), values.size, _scalar(conductivity),
+          *_override(chi_s), _pointer(result), result.size)
+    return _fields(result, ('chi_s', 'K_ss'))
 
 
 def lut_fields(topology, epsilon, area, conductivity, *, chi_s=None):
@@ -328,7 +316,7 @@ def lut_fields(topology, epsilon, area, conductivity, *, chi_s=None):
     values, areas = _pair(epsilon, area)
     result = _rows(values.shape, 7)
     _call(_library().lut_batch, code, _pointer(values), _pointer(areas), values.size,
-          float(conductivity), *_override(chi_s), _pointer(result), result.size)
+          _scalar(conductivity), *_override(chi_s), _pointer(result), result.size)
     return _fields(result, (*_GEOMETRY_KEYS, 'r_h'))
 
 
@@ -345,7 +333,7 @@ def co2_fields(topology, cells_mm, walls_mm, conductivity, *, chi_s=None):
     code = geometry_topology(topology)
     cells, walls = _pair(cells_mm, walls_mm)
     result = _rows(cells.shape, 6)
-    _call(_library().co2_batch, code, _pointer(cells), _pointer(walls), cells.size, float(conductivity),
+    _call(_library().co2_batch, code, _pointer(cells), _pointer(walls), cells.size, _scalar(conductivity),
           *_override(chi_s), _pointer(result), result.size)
     return _fields(result, _GEOMETRY_KEYS)
 
@@ -361,7 +349,7 @@ def co2_minimum(topology, cell_bounds_mm, wall_bounds_mm, *, chi_s=None):
 
 def eps_sides(phi, C, delta=0.):
     values = _array(phi)
-    levels = _raw_levels(phi, C, delta)
+    levels = _raw_levels(C, delta)
     result = np.empty(3, dtype=np.float64)
     _call(_library().eps_sides, _pointer(values), values.size, ct.byref(levels),
           _pointer(result), result.size)
@@ -370,51 +358,51 @@ def eps_sides(phi, C, delta=0.):
 
 def area_sides(phi, C, delta, length_m, N, area_correction, *, mc=False):
     values, shape = _phi3(phi)
-    levels = _raw_levels(phi, C, delta)
+    levels = _raw_levels(C, delta)
     result = np.empty(2, dtype=np.float64)
     _call(_library().area_sides, shape, _pointer(values), values.size,
-          ct.byref(levels), float(length_m), float(N), float(area_correction), int(mc),
+          ct.byref(levels), _scalar(length_m), _scalar(N), _scalar(area_correction), int(mc),
           _pointer(result), result.size)
     return result
 
 
 def dh_sides(phi, C, delta, length_m, N, area_correction, *, mc=False):
     values, shape = _phi3(phi)
-    levels = _raw_levels(phi, C, delta)
+    levels = _raw_levels(C, delta)
     result = np.empty(2, dtype=np.float64)
     _call(_library().dh_sides, shape, _pointer(values), values.size,
-          ct.byref(levels), float(length_m), float(N), float(area_correction), int(mc),
+          ct.byref(levels), _scalar(length_m), _scalar(N), _scalar(area_correction), int(mc),
           _pointer(result), result.size)
     return result
 
 
 def dh_from_sides(epsilon_a, epsilon_b, area_a, area_b):
     result = np.empty(2, dtype=np.float64)
-    _call(_library().dh_from_sides, float(epsilon_a), float(epsilon_b), float(area_a), float(area_b),
+    _call(_library().dh_from_sides, _scalar(epsilon_a), _scalar(epsilon_b), _scalar(area_a), _scalar(area_b),
           _pointer(result), result.size)
     return result
 
 
 def wall_thickness(phi, C, delta, length_m, N, area_correction):
     values, shape = _phi3(phi)
-    levels = _raw_levels(phi, C, delta)
+    levels = _raw_levels(C, delta)
     result = np.empty(1, dtype=np.float64)
     _call(_library().wall_thickness, shape, _pointer(values), values.size,
-          ct.byref(levels), float(length_m), float(N), float(area_correction),
+          ct.byref(levels), _scalar(length_m), _scalar(N), _scalar(area_correction),
           _pointer(result), result.size)
     return result[0]
 
 
 def wall_from_sides(epsilon_total, area_a, area_b):
     result = np.empty(1, dtype=np.float64)
-    _call(_library().wall_from_sides, float(epsilon_total), float(area_a), float(area_b),
+    _call(_library().wall_from_sides, _scalar(epsilon_total), _scalar(area_a), _scalar(area_b),
           _pointer(result), result.size)
     return result[0]
 
 
 def split_a(phi, C, delta):
     values = _array(phi)
-    levels = _raw_levels(phi, C, delta)
+    levels = _raw_levels(C, delta)
     result = np.empty(1, dtype=np.float64)
     _call(_library().split_a, _pointer(values), values.size, ct.byref(levels), int(delta == 0.),
           _pointer(result), result.size)
@@ -424,7 +412,7 @@ def split_a(phi, C, delta):
 def split_fields(epsilon_total, fraction_a):
     values = _array(epsilon_total)
     result = _rows(values.shape, 2)
-    _call(_library().split_fields, _pointer(values), values.size, float(fraction_a),
+    _call(_library().split_fields, _pointer(values), values.size, _scalar(fraction_a),
           _pointer(result), result.size)
     return _fields(result, ('epsilon_A', 'epsilon_B'))
 
@@ -439,11 +427,11 @@ def _prepared_values(result):
 
 def prepare_raw_sides(phi, C, delta, length_m, N, area_correction):
     values, shape = _phi3(phi)
-    levels, reference = _raw_levels(phi, C, delta), _raw_levels(phi, C, 0.)
+    levels, reference = _raw_levels(C, delta), _raw_levels(C, 0.)
     result = _Prepared()
     _call(_library().prepare_raw_sides, shape, _pointer(values), values.size,
           ct.byref(levels), ct.byref(reference), int(delta == 0.),
-          float(length_m), float(N), float(area_correction), ct.byref(result))
+          _scalar(length_m), _scalar(N), _scalar(area_correction), ct.byref(result))
     return _prepared_values(result)
 
 
@@ -454,13 +442,13 @@ def prepare_sides(topology, cell_mm, wall_mm, delta):
     index, code = _index(topology, 128)
     result = _Prepared()
     _call(index.library.prepare_from_index, index.handle, code,
-          float(cell_mm), float(wall_mm), float(delta), ct.byref(result))
+          _scalar(cell_mm), _scalar(wall_mm), _scalar(delta), ct.byref(result))
     return _prepared_values(result)
 
 
 def split_from_index(topology, cell_mm, wall_mm, delta):
     index, code = _index(topology, 128)
     result = np.empty(1, dtype=np.float64)
-    _call(index.library.split_from_index, index.handle, code, float(cell_mm), float(wall_mm),
-          float(delta), _pointer(result), result.size)
+    _call(index.library.split_from_index, index.handle, code, _scalar(cell_mm), _scalar(wall_mm),
+          _scalar(delta), _pointer(result), result.size)
     return result[0]
