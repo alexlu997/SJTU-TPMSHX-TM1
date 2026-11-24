@@ -88,7 +88,6 @@ tests/python/test_shared_input_contracts.py
 tests/python/test_smoke_boot.py
 tests/python/test_stylesheet_braces.py
 tests/python/test_surrogate_domain.py
-tests/python/test_theme_manager.py
 tests/python/test_tpms_calc.py
 tests/python/test_tpms_geometry_n128.py
 tests/python/test_ui_smoke_tools.py

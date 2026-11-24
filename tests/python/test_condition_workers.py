@@ -4,6 +4,9 @@ from functools import partial
 import json
 import os
 from pathlib import Path
+import signal
+import subprocess
+import sys
 from time import monotonic, sleep
 
 import numpy as np
@@ -17,7 +20,7 @@ from tests.python.test_multi_condition_batch import _baseline, _conditions, _nat
 
 
 def _analytic_worker(index, case_file, directory, library, threads, checkpoint_file=None,
-                     *, crash_delay_s=0., lock_on_exit=False):
+                     *, crash_delay_s=0.):
     from sjtu_tpmshx.applications.execution import recovery
 
     def solve(case, control, *, checkpoint, checkpoint_due, resume_state):
@@ -45,11 +48,8 @@ def _analytic_worker(index, case_file, directory, library, threads, checkpoint_f
             raise error
         if label == 'crash':
             sleep(crash_delay_s)
-            if lock_on_exit:
-                # A dying worker must not retain a lock used by the parent.
-                lock = getattr(batch._batch_cancel, '_cond', None)
-                if lock is not None:
-                    lock.acquire()
+            # Manager-backed cancellation must not expose a cross-process semaphore lock.
+            assert not hasattr(batch._batch_cancel, '_cond')
             os._exit(17)
         inputs = json.loads((Path(directory).parent / 'batch-input.json').read_text())
         if inputs[0]['condition_id'] == 'pause' and index < 2 and resume_state is None:
@@ -63,9 +63,9 @@ def _analytic_worker(index, case_file, directory, library, threads, checkpoint_f
             raise TimeoutError('The parent did not pause the test worker.')
         waits_for_cancel = label == 'stop' or (label == 'mid' and inputs[0]['condition_id'] in ('stop', 'crash'))
         if waits_for_cancel and resume_state is None:
-            deadline = monotonic()+10.
-            # Keep the peer active until the crash breaks the pool.
-            while inputs[0]['condition_id'] == 'crash' or monotonic() < deadline:
+            # Keep a finite wait bound so an uncancelled peer exits instead of hanging.
+            deadline = monotonic() + 25.
+            while monotonic() < deadline:
                 control.check_cancelled()
                 sleep(.01)
             raise TimeoutError('The parent did not cancel the test worker.')
@@ -271,30 +271,77 @@ def test_completed_batch_replay_retains_objectives_without_workers(tmp_path, mon
     assert [item[1].result_id for item in result['results']] == [item[1].result_id for item in original['results']]
 
 
-@pytest.mark.timeout(60, method='thread')
-@pytest.mark.parametrize('crash_delay_s,lock_on_exit', [
-    pytest.param(0., False, id='0.0'),
-    pytest.param(10.5, False, id='10.5'),
-    pytest.param(0., True, id='cancel-lock'),
-])
-def test_worker_exit_keeps_last_complete_checkpoint(tmp_path, monkeypatch, crash_delay_s, lock_on_exit):
+def _run_worker_exit_probe(work_dir, crash_delay_s):
     from concurrent.futures.process import BrokenProcessPool
     from multiprocessing import active_children
+
+    work_path = Path(work_dir)
     previous_children = set(active_children())
-    monkeypatch.setattr(batch, '_run_native_condition', partial(_analytic_worker,
-        crash_delay_s=crash_delay_s, lock_on_exit=lock_on_exit))
-    conditions = _conditions()
-    conditions[0] = ('crash', *conditions[0][1:])
+    original = batch._run_native_condition
+    batch._run_native_condition = partial(_analytic_worker, crash_delay_s=crash_delay_s)
+    try:
+        conditions = _conditions()
+        conditions[0] = ('crash', *conditions[0][1:])
+        root = work_path / 'worker-exit'
+        try:
+            batch.evaluate_condition_batch(
+                conditions, output_dir=root, workers=2, control=_control(work_path))
+        except BrokenProcessPool:
+            pass
+        else:
+            raise AssertionError('Expected BrokenProcessPool when worker exits')
+        remaining = set(active_children()) - previous_children
+        if remaining:
+            raise AssertionError(f'Child processes stayed active: {remaining!r}')
+    finally:
+        batch._run_native_condition = original
+
+
+@pytest.mark.parametrize('crash_delay_s', [0., 10.5])
+def test_worker_exit_keeps_last_complete_checkpoint(tmp_path, crash_delay_s):
+    from sjtu_tpmshx.applications.execution.recovery import read_run_checkpoint
+
     root = tmp_path / 'worker-exit'
-    with pytest.raises(BrokenProcessPool):
-        batch.evaluate_condition_batch(conditions, output_dir=root, workers=2, control=_control(tmp_path))
+    repo_root = Path(__file__).resolve().parents[2]
+    # Run the crash pool in a child process so a timeout fails cleanly without killing an xdist worker.
+    proc = subprocess.Popen(
+        [sys.executable, '-c',
+         'import sys; '
+         'from tests.python.test_condition_workers import _run_worker_exit_probe; '
+         '_run_worker_exit_probe(sys.argv[1], float(sys.argv[2]))',
+         str(tmp_path), str(crash_delay_s)],
+        cwd=str(repo_root), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    try:
+        stdout, stderr = proc.communicate(timeout=45)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        stdout, stderr = proc.communicate()
+        pids = []
+        if root.is_dir():
+            for marker in sorted(root.glob('started-*')):
+                try:
+                    pid = int(marker.read_text().strip())
+                except (OSError, ValueError):
+                    continue
+                pids.append((marker.name, pid))
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                except OSError:
+                    pass
+        pytest.fail(
+            f'worker exit probe timed out after 45 s (crash_delay_s={crash_delay_s}, '
+            f'started_pids={pids})\nstdout:\n{stdout}\nstderr:\n{stderr}')
+    assert proc.returncode == 0, f'probe exited with {proc.returncode}\nstdout:\n{stdout}\nstderr:\n{stderr}'
     record = json.loads((root / 'batch.json').read_text())
     assert record['status'] == 'failed' and record['objectives'] is None
     assert record['conditions'][2]['status'] == 'not_run'
     assert all(row['status'] not in ('running', 'computed') for row in record['conditions'])
-    assert (root / 'condition_001/run/checkpoint.h5').is_file()
+    checkpoint = root / 'condition_001/run/checkpoint.h5'
+    assert checkpoint.is_file()
+    saved, _, _ = read_run_checkpoint(checkpoint)
+    assert int(saved.native_state['step'][0]) == 1
     assert not (root / 'condition_003').exists()
-    assert set(active_children()) <= previous_children
 
 
 def test_parent_callback_error_is_retained_after_workers_stop(tmp_path, monkeypatch):

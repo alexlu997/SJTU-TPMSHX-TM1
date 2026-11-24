@@ -54,23 +54,3 @@ def small_air_config():
         extrap=ExtrapPolicy(allow=True),
         flags=FeatureFlags(),
     )
-
-def demo_fixture_cfg(**overrides):
-    """Frozen inputs of the original demos, independent of current run engineering.scripts."""
-    from sjtu_tpmshx.physical_models.tpms_calc import geometry
-
-    cfg = dict(L=.182, H=.042, Lz=.042, Nx=30, Ny=20, Nz=5,
-        u_A=20., u_B=10., T_inA=422., T_inB=293.15,
-        P_inA=192362., P_inB=101325., T_s_init=None,
-        tpms_type='Gyroid', Lcell=7., t_wall=.5, k_s=16.,
-        fluid_type_A='air', fluid_type_B='air',
-        zone_grid_cells=None)
-    cfg.update(overrides)
-    cfg['eps'] = geometry(cfg['tpms_type'], cfg['Lcell'], cfg['t_wall'], cfg['k_s'])['epsilon']
-    if cfg.get('fluid_A_cfg') is None:
-        cfg['fluid_A_cfg'] = dict(dir=0, in_ctr=cfg['H']/2, in_w=cfg['H'],
-                                  out_ctr=cfg['H']/2, out_w=cfg['H'])
-    if cfg.get('fluid_B_cfg') is None:
-        cfg['fluid_B_cfg'] = dict(dir=3, in_ctr=cfg['L']/2, in_w=cfg['L'],
-                                  out_ctr=cfg['L']/2, out_w=cfg['L'])
-    return cfg
