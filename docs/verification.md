@@ -64,6 +64,31 @@ macOS `full` 层级由 `fast-0` 测试片先在独立环境中运行 BO；该步
 采集函数）。基础作业仍使用不含 BO 的锁，覆盖可选依赖缺失时的行为。
 BO 作业上传 JUnit 与完整收集 manifest，保留 7 天，不上传求解数据或虚拟环境。
 
+<a id="published-native-images"></a>
+
+### 已发布原生镜像检查
+
+Python 从当前 checkout 的 `sjtu_tpmshx/solvers/native/lib/<platform>/` 加载原生镜像。
+`TPMSHX_*_LIBRARY` 变量可以选择其他文件；本检查不检查这类文件。
+要把已发布镜像与导出清单比较，在仓库根运行以下任一命令：
+
+```bash
+"$PYTHON" engineering/scripts/build_native_dependencies.py verify-published
+"$PYTHON" engineering/scripts/build_native_dependencies.py verify-published --directory <已发布目录>
+```
+
+该检查不构建、不加载、也不替换镜像。macOS 使用 `nm` 和 `otool`；
+Windows 使用 `dumpbin`，须在 Visual Studio 开发者 shell 中运行。
+检查对每个镜像打印被检查的路径，以及构建记录中的 `source_commit` 和 `source_changes` 条数。
+`WARNING: dirty build` 行表示该镜像构建时源 checkout 有已跟踪的修改。
+仅源提交不同不会使检查失败。
+
+镜像缺失或其 C 导出与清单不同时，检查失败；它也执行构建验证中的导入和动态依赖检查。清单为 `solver/solver.exports`、
+`preprocess/preparation.exports` 和 `postprocess/result.exports`。
+Windows 求解器镜像不导出 6 个 macOS SuperLU 钩子，检查沿用这一例外。
+几何库没有导出清单；检查打印几何构建记录，不比较其导出。
+用 `--component geometry`、`preparation` 或 `result` 只检查一个镜像；Linux 上使用 `--component result`。
+
 ## CI 检查范围与分片
 
 PR 和 main 推送按 [明确的路径清单](../engineering/scripts/ci_scope.py) 选择检查层级：
