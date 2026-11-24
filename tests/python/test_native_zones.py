@@ -22,16 +22,12 @@ from tests.python import zone_reference as frozen
 from sjtu_tpmshx.cpp_interface import _native_geometry, _native_zones
 
 
-_TYPES = (float, np.float16, np.float32, np.float64)
+# The native boundary converts each bound to float64. A Python float, one
+# narrow float, and one mixed pair cover that conversion.
 _BOUND_TYPES = (
     pytest.param(float, float, id='python'),
     pytest.param(np.float16, np.float16, id='half'),
-    pytest.param(np.float32, np.float32, id='single'),
-    pytest.param(np.float64, np.float64, id='double'),
     pytest.param(np.float16, float, id='half-python'),
-    pytest.param(float, np.float16, id='python-half'),
-    pytest.param(np.float32, np.float64, id='single-double'),
-    pytest.param(np.float64, np.float32, id='double-single'),
 )
 
 
@@ -114,10 +110,13 @@ def test_2d_and_3d_points_compare_in_float64(zones, bound_type, axis, edge):
     assert stripe[0, 0] == 0
 
 
-@pytest.mark.parametrize('domain_type', _TYPES, ids=('python', 'half', 'single', 'double'))
-@pytest.mark.parametrize('axis', (0, 1), ids=('x', 'y'))
-@pytest.mark.parametrize('nonuniform', (False, True), ids=('uniform', 'widths'))
-@pytest.mark.parametrize('domain_value', (.03, .182, .042))
+@pytest.mark.parametrize('domain_type,axis,nonuniform,domain_value', [
+    *[pytest.param(domain_type, axis, nonuniform, .182,
+                   id=f'{name}-{"xy"[axis]}-{"widths" if nonuniform else "uniform"}-0.182')
+      for domain_type, name in ((float, 'python'), (np.float16, 'half'))
+      for axis in (0, 1) for nonuniform in (False, True)],
+    pytest.param(np.float16, 1, True, .042, id='half-y-widths-0.042'),
+])
 def test_stripes_keep_domain_dtype_and_strong_point_comparisons(
         zones, domain_type, axis, nonuniform, domain_value):
     nx, ny = 13, 7

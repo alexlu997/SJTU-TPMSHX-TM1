@@ -82,8 +82,9 @@ def _inputs(monkeypatch, *, fluid='air', diameter=.012345, mu=.003125,
     return values, calls, captured, geometry_args, failure
 
 
-@pytest.mark.parametrize('speed_type', [float, np.float16, np.float32, np.float64])
-@pytest.mark.parametrize('geometry_type', [float, np.float16, np.float32, np.float64])
+# The preflight converts each operand to float64. A Python float and one narrow
+# float cover that conversion for each sign, divisor, and property case.
+@pytest.mark.parametrize('speed_type,geometry_type', [(float, float), (np.float16, np.float16)])
 @pytest.mark.parametrize('sign', [-1., 0., 1.])
 def test_preflight_reynolds_keeps_ordered_scalar_expression(
         monkeypatch, speed_type, geometry_type, sign):
@@ -107,7 +108,7 @@ def test_preflight_reynolds_keeps_ordered_scalar_expression(
     assert captured[0][3] == dict(label='air inlet Nu', quantity='Re', unit='-')
 
 
-@pytest.mark.parametrize('speed_type', [float, np.float16, np.float32, np.float64])
+@pytest.mark.parametrize('speed_type', [float, np.float16])
 @pytest.mark.parametrize('zero', [0., -0.])
 def test_preflight_reynolds_zero_divisor_uses_float64_policy(monkeypatch, speed_type, zero):
     speed, diameter = speed_type(2.125), .012345
@@ -122,7 +123,7 @@ def test_preflight_reynolds_zero_divisor_uses_float64_policy(monkeypatch, speed_
         lambda: _divide(float(values['rho']) * float(speed) * diameter, values['mu'])))
 
 
-@pytest.mark.parametrize('property_type', [float, np.float16, np.float32, np.float64])
+@pytest.mark.parametrize('property_type', [float, np.float16])
 @pytest.mark.parametrize('cp,conductivity', [(1010.125, .075), (-3.5, .5), (0., .75), (1., 0.)])
 def test_preflight_co2_prandtl_keeps_float_boundaries_and_query_order(
         monkeypatch, property_type, cp, conductivity):

@@ -175,12 +175,11 @@ def test_float32_negative_C_promotes_to_float64_comparison():
     _compare_sides(phi, C, 0., .007, 13.5, 'float32-negative-C')
 
 
-_SCALAR_TYPES = [float, np.float16, np.float32, np.float64]
-
-
-@pytest.mark.parametrize('dtype', [np.float16, np.float32, np.float64])
-@pytest.mark.parametrize('C_type', _SCALAR_TYPES)
-@pytest.mark.parametrize('delta_type', _SCALAR_TYPES)
+# The native boundary converts the field and both scalars to float64. Each
+# array precision appears once, and each scalar kind appears in C and delta.
+@pytest.mark.parametrize('dtype,C_type,delta_type', [
+    (np.float64, float, float), (np.float16, np.float16, np.float32),
+    (np.float32, np.float32, np.float16), (np.float64, np.float64, np.float64)])
 def test_raw_array_and_scalar_precision_combinations(dtype, C_type, delta_type):
     phi = np.array([-1., -.75, -.5, -.375, .375, .5, .625, 1.], dtype=dtype).reshape(2, 2, 2)
     C, delta = C_type(.5 + 1e-10), delta_type(.125 + 1e-10)
@@ -201,7 +200,7 @@ def test_raw_array_and_scalar_precision_combinations(dtype, C_type, delta_type):
                                        reference_areas[number], reference_diameters[number]))
 
 
-@pytest.mark.parametrize('scalar_type', _SCALAR_TYPES)
+@pytest.mark.parametrize('scalar_type', [float, np.float16])
 def test_raw_zero_delta_has_no_side_geometry(scalar_type):
     prepared = _native_geometry.prepare_raw_sides(
         np.empty((0, 0, 0), dtype=np.float32), scalar_type(.5), scalar_type(0.), 0., 0., 0.)

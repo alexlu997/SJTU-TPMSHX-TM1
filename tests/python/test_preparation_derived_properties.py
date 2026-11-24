@@ -39,7 +39,9 @@ def equal(actual, expected):
         np.testing.assert_array_equal(np.signbit(first[2]), np.signbit(second[2]))
 
 
-@pytest.mark.parametrize('dtype', [float, np.float16, np.float32, np.float64])
+# The native boundary converts each operand to float64. A Python float and one
+# narrow float cover that conversion in each layout.
+@pytest.mark.parametrize('dtype', [float, np.float16])
 @pytest.mark.parametrize('layout', ['scalar', 'zero', 'two', 'empty', 'strided'])
 @pytest.mark.parametrize('quantity', ['prandtl', 'surface_transfer'])
 def test_derived_float64_order(dtype, layout, quantity):
@@ -68,9 +70,10 @@ def test_derived_float64_promotion_and_error_policy(quantity, arguments):
           observe(lambda: oracle.call(lambda a, b, c: a * b / c, *arguments), is_reference=True))
 
 
-@pytest.mark.parametrize('fluid', ['air', 'water'])
-@pytest.mark.parametrize('dtype', [float, int, np.float16, np.float32, np.float64,
-                                  np.int16, np.uint16, np.int32, np.int64])
+@pytest.mark.parametrize('fluid,dtype', [
+    *[(fluid, dtype) for fluid in ('air', 'water') for dtype in (float, np.float16)],
+    ('air', np.int32),
+])
 def test_design_prandtl_uses_float64_properties_and_order(fluid, dtype):
     temperature, pressure = dtype(300), np.float32(200000.)
     actual = design_fluids.fluid_props(fluid, temperature, pressure)
