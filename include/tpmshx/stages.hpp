@@ -39,6 +39,10 @@ private:
     State state_;
 };
 inline void check(int status,const char* error) {if(status)throw NativeError(status,error);}
+
+constexpr unsigned default_cpu_threads(unsigned reported = std::thread::hardware_concurrency()) noexcept {
+    return std::clamp(reported, 1u, 8u);
+}
 }
 using InletFlow2D=detail::Owned<tpmshx_preparation_2d_uniform_flow_v1,tpmshx_preparation_2d_uniform_flow_release_v1>;
 using ContinuousInletFlow2D=detail::Owned<tpmshx_preparation_2d_continuous_flow_v1,tpmshx_preparation_2d_continuous_flow_release_v1>;
@@ -131,7 +135,7 @@ struct RunRequest2D : tpmshx_stage_run_request_2d_v4 {
 };
 struct RunControl : tpmshx_stage_run_control_v1 {
     RunControl():tpmshx_stage_run_control_v1{} {
-        const auto logical=std::thread::hardware_concurrency();cpu_threads=std::min(8u,logical?logical:1u);
+        cpu_threads = detail::default_cpu_threads();
     }
 };
 namespace detail {
@@ -264,7 +268,8 @@ struct RunRequest3D : tpmshx_stage_run_request_3d_v1 {
 };
 struct RunControl3D : tpmshx_stage_run_control_3d_v1 {
     RunControl3D():tpmshx_stage_run_control_3d_v1{} {
-        result_id="native-3d";cpu_threads=std::max(1u,std::thread::hardware_concurrency());
+        result_id="native-3d";
+        cpu_threads = detail::default_cpu_threads();
     }
 };
 namespace detail {

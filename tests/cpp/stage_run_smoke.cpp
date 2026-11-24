@@ -7,6 +7,7 @@
 #include <iostream>
 #include <limits>
 #include <string>
+#include <thread>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -280,7 +281,14 @@ int main(int argc,char** argv) {
         const auto before=failure;
         auto view=*saved.prepared;--view.total_porosity.size;
         tpmshx_stage_saved_case_2d_v5 malformed=saved;malformed.prepared=&view;
-        RunControl control;control.result_id="stage-smoke";control.cpu_threads=2;
+        static_assert(detail::default_cpu_threads(0) == 1);
+        static_assert(detail::default_cpu_threads(4) == 4);
+        static_assert(detail::default_cpu_threads(32) == 8);
+        const auto expected_threads = detail::default_cpu_threads(std::thread::hardware_concurrency());
+        RunControl control;
+        require(control.cpu_threads == expected_threads && RunControl3D{}.cpu_threads == expected_threads,
+                "unexpected default CPU thread count");
+        control.result_id="stage-smoke";control.cpu_threads=2;
         char error[4096]{};
         const auto run_saved=[&](const tpmshx_stage_saved_case_2d_v5& value,const tpmshx_stage_run_request_2d_v4* request,
                                  const tpmshx_stage_run_control_v1* selected,char* message,size_t capacity) {

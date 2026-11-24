@@ -43,6 +43,10 @@ Preparation ABI 3、Quick Design v2、二维保存态阶段 ABI 5、三维保存
 一次性调用 `run_case` 可以直接接收临时准备所有者或临时描述符。
 例如，`run_case(prepare_case(input, options), control)` 会在临时准备所有者销毁前转移结果。
 
+`RunControl`（二维）和 `RunControl3D` 默认将 `cpu_threads` 设为主机报告的逻辑 CPU 数量，最多 8 个。
+如果主机报告 0，默认使用 1 个线程。
+启动或恢复运行时，可以将 `cpu_threads` 设为正整数，包括大于 8 的值。
+
 - **单位**：设计输入（`cell_length_mm`、`wall_thickness_mm`）使用 mm；保存的物理设计场使用 m。构建输运与闭合比例时保留既有 mm-to-m-to-mm 转换顺序。换热量在二维为 W/m、三维为 W；质量流量为 kg/s；温度为 K；压力为 Pa(abs)。
 - **数组布局**：请求网格数与实际网格数分开保存。二维物理场为 `(nx, ny)` C 序，三维物理场为 `(nx, ny, nz)` C 序，各侧流场为 `(cross, stream)` 序。
 - **单一所有者释放**：每个拥有动态存储的输出仅有一个外层 `owner` 指针，嵌套视图的 `owner` 为空。最后一次使用后须通过创建该对象的库释放。纯标量查询（`tpmshx_query_inlet_properties_v2`、`tpmshx_quick_pressure_fractions_v2`）按值返回，无需释放。
