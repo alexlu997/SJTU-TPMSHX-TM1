@@ -733,15 +733,17 @@ def verify_published(directory: Path, host: str, component: str, log: Path) -> N
         print(f"{kind}: {library}", flush=True)
         record = None
         if not metadata.is_file():
-            print(f"  build record: missing ({metadata.name})", flush=True)
+            print(f"  WARNING: build record missing ({metadata.name})", flush=True)
         else:
             try:
                 record = json.loads(metadata.read_text(encoding="utf-8"))
                 if not isinstance(record, dict):
                     raise ValueError("not a JSON object")
+                if not isinstance(record.get("source_changes"), (list, type(None))):
+                    raise ValueError("source_changes is not a list")
             except ValueError as error:
                 record = None
-                print(f"  build record: unreadable ({metadata.name}: {error})", flush=True)
+                print(f"  WARNING: build record unreadable ({metadata.name}: {error})", flush=True)
         if record is not None:
             changes = record.get("source_changes")
             count = "unknown" if changes is None else len(changes)

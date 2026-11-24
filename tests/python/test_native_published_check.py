@@ -153,10 +153,11 @@ def test_linux_command_checks_only_the_result_image(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize('content,report', [
-    (None, 'build record: missing (build.json)'),
+    (None, 'WARNING: build record missing (build.json)'),
     ('{"source_commit": "' + 'c' * 40 + '"}', f'source_commit={"c" * 40}, source_changes=unknown'),
-    ('{not json', 'build record: unreadable (build.json: '),
-    ('[]', 'build record: unreadable (build.json: not a JSON object)'),
+    ('{not json', 'WARNING: build record unreadable (build.json: '),
+    ('[]', 'WARNING: build record unreadable (build.json: not a JSON object)'),
+    ('{"source_changes": "M a.cpp"}', 'WARNING: build record unreadable (build.json: source_changes is not a list)'),
 ])
 def test_a_missing_or_incomplete_build_record_is_reported_without_failure(tmp_path, monkeypatch, capsys,
                                                                          content, report):
