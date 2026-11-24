@@ -229,9 +229,9 @@ Change these constraints only as an explicit physical-model revision with direct
 
 ## Extension points
 
-- Add a fluid in `python/physical_models/fluid_props.py`, its Nu closure in `python/physical_models/nu_correlations.py`, and its versioned resource in `python/model_configs/`.
-- Add user-facing configuration fields to `python/data_types/compute_config.py` first, then adapt once at the UI boundary.
-- Keep one production path per dimension; avoid factories or wrappers for single implementations.
+Use the [contributor extension guide](extending.md) to find rule owners, public interfaces, downstream consumers, and tests.
+It gives full routes for a new fluid, Nu closure, or GUI panel, and a short route for a third TPMS topology.
+Keep one production path for each dimension without extra wrappers for single implementations.
 
 ## Local data
 
