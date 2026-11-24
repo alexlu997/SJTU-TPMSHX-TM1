@@ -5,7 +5,7 @@ from math import isfinite
 
 from sjtu_tpmshx.data_types.case_data import CaseData
 from sjtu_tpmshx.data_types.compute_config import ComputeConfig
-from ._metadata import prepare_fixed_flow_with_metadata, prepare_with_metadata
+from . import _metadata
 
 
 def prepare_case(config: ComputeConfig, *, case_id: str) -> CaseData:
@@ -18,7 +18,7 @@ def prepare_case(config: ComputeConfig, *, case_id: str) -> CaseData:
     else:
         from .two_d.preparation import prepare_case as prepare
     try:
-        return prepare_with_metadata(prepare, config, case_id=case_id)
+        return _metadata.prepare_with_metadata(prepare, config, case_id=case_id)
     except (ValueError, TypeError, ArithmeticError):
         if isinstance(config, ComputeConfig):
             config.validate()
@@ -67,7 +67,7 @@ def prepare_fixed_mass_flow_case(
 def _prepare_mass_flow_case(config, targets, *, case_id):
     if config.is_3d:
         from .three_d.preparation import prepare_mass_flow_case as prepare_3d
-        return prepare_fixed_flow_with_metadata(prepare_3d, config, targets, case_id=case_id)
+        return _metadata.prepare_fixed_flow_with_metadata(prepare_3d, config, targets, case_id=case_id)
     from .two_d.preparation import prepare_mass_flow_case as prepare
     return prepare(config, targets, case_id=case_id)
 
@@ -117,4 +117,4 @@ def _fixed_mass_flow_inputs(config, flow_a, flow_b):
 def prepare_quick_design(*args, **kwargs) -> CaseData:
     """Explicit prescribed-velocity design mode; no SIMPLE substitution."""
     from sjtu_tpmshx.cpp_interface._native_quick_prepare import prepare_quick_design as prepare
-    return prepare_with_metadata(prepare, *args, **kwargs)
+    return _metadata.prepare_with_metadata(prepare, *args, **kwargs)

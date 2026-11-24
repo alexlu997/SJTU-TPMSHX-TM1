@@ -116,6 +116,11 @@ module = [
 # 这些边界文件中的无注解辅助函数也必须检查函数体。
 check_untyped_defs = true
 
+[[tool.mypy.overrides]]
+module = "sjtu_tpmshx.preprocess._metadata"
+follow_imports = "normal"
+check_untyped_defs = true
+
 [tool.setuptools.dynamic]
 version = { attr = "sjtu_tpmshx._version.__version__" }
 
