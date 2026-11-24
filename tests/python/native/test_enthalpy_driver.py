@@ -11,12 +11,14 @@ import CoolProp.CoolProp as CP
 import numpy as np
 import pytest
 
+from sjtu_tpmshx.model_configs.model_parameters import load_model_parameters
 from tests.python.native.enthalpy_fv_audit import energy
 
 
 ROOT = Path(__file__).resolve().parents[3]
 TABLES = ROOT / ".cache/native-deps/trueh-tables"
 FLUID = {"air": 0, "water": 1, "sco2": 2}
+DEFAULT_TEMP_TOL_K = load_model_parameters()["native_controls"]["enthalpy_temperature_tol_K"]
 
 
 def library_path():
@@ -61,7 +63,7 @@ def load_native(path):
         values = [case[key] for key in ("T_inA", "P_A", "T_inB", "P_B", "omega", "tol")]
         values += [case[key] if case[key] is not None else 0.
                    for key in ("coupled_energy_tol", "equation_energy_tol")]
-        values += [case.get("temperature_tol_K", 1e-8)]
+        values += [case.get("temperature_tol_K", DEFAULT_TEMP_TOL_K)]
         status, metrics = (ctypes.c_size_t * 12)(), (ctypes.c_double * 18)()
         error = ctypes.create_string_buffer(2048)
         code = fn((ctypes.c_size_t * 3)(*shape), pointers, sizes,
@@ -275,17 +277,21 @@ def test_unit_depth_extrusion_preserves_temperature_and_scales_duty(enthalpy_nat
         assert a["metrics"][index] == pytest.approx(thickness * b["metrics"][index], rel=2e-8, abs=2e-8)
 
 
-@pytest.mark.parametrize("key,value", [("T_inA", 279.), ("T_inA", 701.),
-                                       ("P_A", 7.8e6), ("P_A", 16.1e6),
-                                       ("pressure_A_field", np.nan)])
-def test_sco2_state_outside_its_domain_is_an_invalid_input(enthalpy_native, key, value):
+@pytest.mark.parametrize("key,value,expected_text", [
+    ("T_inA", 279., "sCO2 temperature must be within"),
+    ("T_inA", 701., "sCO2 temperature must be within"),
+    ("P_A", 7.8e6, "sCO2 pressure must be within"),
+    ("P_A", 16.1e6, "sCO2 pressure must be within"),
+    ("pressure_A_field", np.nan, "true-h EOS requires finite positive K and Pa(abs)"),
+])
+def test_sco2_state_outside_its_domain_is_an_invalid_input(enthalpy_native, key, value, expected_text):
     case = case_data(("sco2", "water"), shape=(2, 1, 1))
     if key == "pressure_A_field":
         case[key][:] = value
     else:
         case[key] = value
     result = enthalpy_native(case)
-    assert result["code"] == 1 and result["error"]
+    assert result["code"] == 1 and expected_text in result["error"], result["error"]
 
 
 def test_normalized_h_gate_keeps_strict_comparison(enthalpy_native):

@@ -123,9 +123,14 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_create_saved_v3(
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_restore_saved_v3(
     const tpmshx_stage_saved_case_3d_v3*,const tpmshx_stage_run_request_3d_v1*,
     const tpmshx_stage_run_control_3d_v1*,const tpmshx_run_state_field_v1*,size_t,void**,char*,size_t);
-/* Phases, safe boundaries and archive identity match full_3d_run_c_api.h.
- * Restore can change the positive CPU limit. Snapshots own independent storage;
- * release them with tpmshx_run_state_release_v1. */
+/* Phases use the TPMSHX_FULL3D_* values in full_3d_run_c_api.h; active phases
+ * 1, 2, 6, 7, 8, 9 and 10 can be saved. advance_step advances one complete
+ * SIMPLE step, thermal block, or controller transition; coarse bootstrap stays
+ * atomic before its fine SIMPLE boundary. Cancelled and failed runs cannot
+ * produce a new checkpoint. Restore requires the exact build, input, controls
+ * and overrides without resetting counters; host paths and a positive CPU limit
+ * can differ. Snapshots own independent storage; release them with
+ * tpmshx_run_state_release_v1. */
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_advance_step_v1(void*,uint32_t*,char*,size_t);
 /* Advance to completion or cancellation with the registered callbacks. */
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_3d_finish_v1(void*,char*,size_t);

@@ -235,7 +235,12 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_create_saved_v5(
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_restore_saved_v5(
     const tpmshx_stage_saved_case_2d_v5*,const tpmshx_stage_run_request_2d_v4*,
     const tpmshx_stage_run_control_v1*,const tpmshx_run_state_field_v1*,size_t,void**,char*,size_t);
-/* Phases and safe snapshot boundaries match full_2d_run_c_api.h.
+/* Phases use the TPMSHX_FULL2D_* values in full_2d_run_c_api.h.
+ * advance_step advances both SIMPLE sides by one complete step, one thermal
+ * block (including refined blocks), or one controller transition.
+ * Failed and cancelled runs cannot produce a new checkpoint.
+ * Restore requires the same build, input and controls without resetting
+ * consumed work; host paths and a positive CPU limit can differ.
  * Snapshots own independent storage; use tpmshx_run_state_release_v1. */
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_advance_step_v1(void*,uint32_t*,char*,size_t);
 /* Advance to completion or cancellation with the registered callbacks. */

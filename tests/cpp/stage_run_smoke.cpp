@@ -311,16 +311,59 @@ int main(int argc,char** argv) {
         const auto& raw=run.view().raw;
         tpmshx_full_2d_flow_method_v1 methods[2]{};
         tpmshx_property_sampling_v1 sampling{};
+        tpmshx_full_2d_energy_evidence_v1 energy_ev{};
+        tpmshx_energy_update_scale_v1 scale_ev{};
+        tpmshx_full_2d_energy_effective_settings_v1 settings_ev{};
+        tpmshx_full_2d_model_enthalpy_evidence_v1 model_h_ev{};
+        tpmshx_range_observations_view_v1 ranges_ev{};
+        tpmshx_full_2d_physical_heat_ledger_v1 ledger_ev{};
+        tpmshx_model_h_iteration_records_v1 calls_ev{};
         require(tpmshx_full_2d_abi_version()==2 && tpmshx_full_2d_get_flow_methods_v1(&raw,methods)==0
                 && methods[0].iterations && methods[1].iterations,"missing 2D raw flow methods");
         require(tpmshx_full_2d_get_property_sampling_v1(&raw,&sampling)==0
                 && sampling.count==records->sampling.count,"2D raw sampling differs from stage records");
-        methods[0].iterations=123;sampling.count=123;
-        require(tpmshx_full_2d_get_flow_methods_v1(nullptr,methods)==1 && methods[0].iterations==123
-                && tpmshx_full_2d_get_flow_methods_v1(&raw,nullptr)==1
-                && tpmshx_full_2d_get_property_sampling_v1(nullptr,&sampling)==1
-                && tpmshx_full_2d_get_property_sampling_v1(&failure.raw,&sampling)==1 && sampling.count==123,
-                "2D raw query accepted a missing or released owner");
+        require(tpmshx_full_2d_get_energy_evidence_v1(&raw,&energy_ev)==0
+                && tpmshx_full_2d_get_energy_update_scale_v1(&raw,&scale_ev)==0
+                && tpmshx_full_2d_get_energy_effective_settings_v1(&raw,&settings_ev)==0
+                && tpmshx_full_2d_get_model_enthalpy_evidence_v1(&raw,&model_h_ev)==0
+                && tpmshx_full_2d_get_last_closure_ranges_v1(&raw,&ranges_ev)==0
+                && tpmshx_full_2d_get_physical_heat_ledger_v1(&raw,&ledger_ev)==0 && ledger_ev.main.available
+                && tpmshx_full_2d_get_model_h_iterations_v1(&raw,&calls_ev)==0
+                && calls_ev.count==executed->execution.model_h.count,"2D raw evidence query failed on live owner");
+        tpmshx_stage_run_result_2d_v1 released{};
+        released.abi_version=TPMSHX_STAGE_RUN_ABI_VERSION;released.struct_size=sizeof(released);
+        {
+            require(tpmshx_run_saved_case_2d_v5(&saved,nullptr,&control,&released,error,sizeof(error))==0 && released.owner,
+                    error);
+            tpmshx_stage_run_2d_release_v1(&released);
+            require(!released.owner,"2D stage release kept owner");
+        }
+        const tpmshx_full_2d_result_v2* const bad_results[]{nullptr,&failure.raw,&released.raw};
+        for(const auto* bad:bad_results) {
+            methods[0].iterations=123;sampling.count=123;energy_ev.outer_count=123;scale_ev.available=99;
+            settings_ev.outer_count=123;model_h_ev.main.available=99;ranges_ev.size=123;
+            ledger_ev.main.available=99;calls_ev.count=123;
+            require(tpmshx_full_2d_get_flow_methods_v1(bad,methods)==1 && methods[0].iterations==123
+                    && tpmshx_full_2d_get_property_sampling_v1(bad,&sampling)==1 && sampling.count==123
+                    && tpmshx_full_2d_get_energy_evidence_v1(bad,&energy_ev)==1 && energy_ev.outer_count==123
+                    && tpmshx_full_2d_get_energy_update_scale_v1(bad,&scale_ev)==1 && scale_ev.available==99
+                    && tpmshx_full_2d_get_energy_effective_settings_v1(bad,&settings_ev)==1 && settings_ev.outer_count==123
+                    && tpmshx_full_2d_get_model_enthalpy_evidence_v1(bad,&model_h_ev)==1 && model_h_ev.main.available==99
+                    && tpmshx_full_2d_get_last_closure_ranges_v1(bad,&ranges_ev)==1 && ranges_ev.size==123
+                    && tpmshx_full_2d_get_physical_heat_ledger_v1(bad,&ledger_ev)==1 && ledger_ev.main.available==99
+                    && tpmshx_full_2d_get_model_h_iterations_v1(bad,&calls_ev)==1 && calls_ev.count==123,
+                    "2D raw query accepted a null, unowned or released result");
+        }
+        require(tpmshx_full_2d_get_flow_methods_v1(&raw,nullptr)==1
+                && tpmshx_full_2d_get_property_sampling_v1(&raw,nullptr)==1
+                && tpmshx_full_2d_get_energy_evidence_v1(&raw,nullptr)==1
+                && tpmshx_full_2d_get_energy_update_scale_v1(&raw,nullptr)==1
+                && tpmshx_full_2d_get_energy_effective_settings_v1(&raw,nullptr)==1
+                && tpmshx_full_2d_get_model_enthalpy_evidence_v1(&raw,nullptr)==1
+                && tpmshx_full_2d_get_last_closure_ranges_v1(&raw,nullptr)==1
+                && tpmshx_full_2d_get_physical_heat_ledger_v1(&raw,nullptr)==1
+                && tpmshx_full_2d_get_model_h_iterations_v1(&raw,nullptr)==1,
+                "2D raw query accepted a null output pointer");
         auto performance=evaluate(run);
         require(run.view().raw.converged,"baseline stage solve did not converge");
         require(performance.view().metric_count==17,"stage metric set changed");
