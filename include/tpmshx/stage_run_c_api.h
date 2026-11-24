@@ -219,10 +219,10 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_check_experiment_
  * arithmetic/envelope/native failure. Status 7/8 matches the experiment check.
  * All input, string, result and error storage must be disjoint.
  * Error text is written only after all input storage checks complete.
- * Callback lifetime and exception rules match the existing full 2D API.
+ * Callback rules follow tpmshx_full_2d_callbacks_v2 in full_2d_c_api.h.
  * run_saved_case_2d_v5 runs to completion and transfers the result. Initialize
  * result.abi_version=1, struct_size and owner=NULL. Failure preserves result.
- * The raw result is borrowed. Use its existing evidence queries, but do not
+ * The raw result is borrowed. Use the full_2d_c_api.h evidence queries, but do not
  * release it separately. Release the stage owner through this same library.
  * Create and restore return a run handle. Initialize *run=NULL. Failure
  * preserves it. Callback context must remain valid until release. */

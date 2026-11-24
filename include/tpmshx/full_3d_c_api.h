@@ -44,6 +44,8 @@ typedef struct {
     double enthalpy_omega,enthalpy_update_tolerance;
     const char* table_directory;
 } tpmshx_full3d_control_v1;
+/* Callbacks are synchronous. They must not throw or mutate inputs.
+ * NULL callbacks are allowed. */
 typedef struct {
     int (TPMSHX_THERMAL_CALL *cancel)(void*);
     void (TPMSHX_THERMAL_CALL *progress)(void*,double);
@@ -146,27 +148,17 @@ typedef struct {
     size_t level_count,actual_levels,started_cap_sum,total_charged_iterations;
 } tpmshx_full3d_bootstrap_trace_v1;
 
-TPMSHX_THERMAL_API uint32_t TPMSHX_THERMAL_CALL tpmshx_full_3d_abi_version(void);
-/* Full prepared-data 3D execution in SI. Input geometry is physical (x,y,z),
- * C order; side openings are prepared solver (cross1,cross2). Full immutable
- * fields, physical port rectangles and D-F application scales are mandatory.
- * Sources are optional empty arrays. No numerical Python callback is used.
- * Flags are 0/1; fluid 0air/1water/2sCO2/3CO2, topology 0Diamond/1Gyroid,
- * direction 0+x/1-x/2+y/3-y/4+z/5-z. SIMPLE controls preserve their v1 meaning
- * except max_iterations/reference/ideal_gas are owned by the outer driver.
- * All input storage is borrowed through return; callbacks are synchronous and
- * must not throw or mutate inputs. error is required with positive capacity.
- * Status 0 means return, not convergence. stop0 converged/1cap/2cancelled.
- * Status1 invalid input,2 water phase,3 arithmetic,4 native error leaves result
- * untouched. No exception crosses C. Cancellation never certifies partial
- * fields. Always release every successful result, including cancellation.
- * Owned read-only views survive the input buffers. They are freed together by
- * release. Do not copy owner or independently release the borrowed model_h
- * subresult. release accepts NULL/already-cleared and clears the entire POD.
- * Detached thermal evidence precedes any final capped post; flow is the final
- * SIMPLE state. Histories/momentum rows are iteration,max,num3,den3,component3.
+/* Full 3D result, borrowed as raw by a saved 3D stage result. SI units.
+ * Input geometry is physical (x,y,z), C order; side openings are prepared
+ * solver (cross1,cross2). Flags are 0/1; fluid 0air/1water/2sCO2/3CO2,
+ * topology 0Diamond/1Gyroid, direction 0+x/1-x/2+y/3-y/4+z/5-z.
+ * stop0 converged/1cap/2cancelled. Cancellation never certifies partial fields.
+ * The stage owner keeps all read-only views. Never release raw or the
+ * borrowed model_h subresult separately. Detached thermal evidence precedes
+ * any final capped post; flow is the final SIMPLE state.
+ * Histories/momentum rows are iteration,max,num3,den3,component3.
  */
-TPMSHX_THERMAL_API void TPMSHX_THERMAL_CALL tpmshx_full_3d_release_v1(tpmshx_full3d_result_v1*);
+TPMSHX_THERMAL_API uint32_t TPMSHX_THERMAL_CALL tpmshx_full_3d_abi_version(void);
 
 typedef struct {
     tpmshx_energy_effective_settings_v1 resolved,last;
@@ -183,7 +175,7 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_energy_update_scal
  * (possibly iteration-limited) true-h call, as for last/outer. All available
  * flags are false on full-driver cancellation or non-true-h routes.
  * outer indices match result.outer exactly. Values never imply convergence.
- * Views borrow the live result owner until release_v1. Status 1 for null or
+ * Views borrow the live result owner until stage result release. Status 1 for null or
  * released arguments leaves output unchanged. No owner is created on errors.
  * update_tolerance is the dimensionless h residual; temperature_update_tolerance
  * is K. T-SOU uses the h gate only when
@@ -221,7 +213,7 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_bootstrap_trace_v1
 /* Read-only actual model-enthalpy CC state, including budget-limited returns.
  * Invalid/null/released owners return 1 and leave output unchanged. Cancelled
  * and states without this ledger have available=0. No solver, EOS or allocation;
- * arrays borrow the owner until full_3d_release_v1. Nz=1 uses physical W. */
+ * arrays borrow the owner until stage result release. Nz=1 uses physical W. */
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_model_enthalpy_evidence_v1(
     const tpmshx_full3d_result_v1*,tpmshx_model_enthalpy_evidence_v1*);
 /* No solver or EOS call. Invalid owners return 1 and preserve output.
@@ -246,20 +238,6 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_model_h_iterations
 /* The index follows get_model_h_iterations_v1. Invalid queries preserve output. */
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_model_h_acceleration_v1(
     const tpmshx_full3d_result_v1*,size_t,tpmshx_model_h_acceleration_v1*);
-
-/* Execute one complete solve with a positive CPU thread limit.
- * energy, strict_energy and model_h are optional. Supply a maximum of one of them.
- * strict_energy thresholds must be finite and positive, and its flag must be 0 or 1.
- * strict_energy requires the two-sided true-h route (solve_b and at least one sCO2 side).
- * Unused thermal controls are rejected before flow execution.
- * model_h applies to all actual model-h consumers, including full CC.
- * Other thermal routes reject active model-h overrides before flow.
- * Buffers, status and result ownership follow the contract above. Release with release_v1. */
-TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_solve_full_3d_v5(
-    const tpmshx_full3d_input_v1* in,const tpmshx_full3d_control_v1* control,
-    const tpmshx_energy_options_v1* energy,const tpmshx_energy_options_v2* strict_energy,
-    const tpmshx_model_h_iteration_options_v1* model_h,size_t cpu_threads,
-    const tpmshx_full3d_callbacks_v1* callbacks,tpmshx_full3d_result_v1* result,char* error,size_t capacity);
 
 #ifdef __cplusplus
 }

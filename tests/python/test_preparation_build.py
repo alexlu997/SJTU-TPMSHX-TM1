@@ -168,7 +168,7 @@ def test_full_verify_uses_independent_preparation_programs(preparation_build, mo
     assert loads[0].parent == preparation
     assert (preparation, 'preparation') in exports
     assert all(path.parent == preparation for path in programs if path.name.startswith('preparation_c_'))
-    assert any(path.parent == cache/'build'/f'pilot-{host}' and path.stem == 'full_2d_c_static' for path in programs)
+    assert any(path.parent == cache/'build'/f'pilot-{host}' and path.stem == 'side_physics_smoke' for path in programs)
     assert sum(path.stem == 'temperature_driver_smoke' for path in programs) == 1
     result = cache/'build'/f'result-{host}'
     assert ((result, 'result') in exports) is (component == 'all')

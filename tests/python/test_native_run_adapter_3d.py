@@ -469,7 +469,6 @@ def _compare_public_applicability(case, monkeypatch, tmp_path, *, control=None):
     """Check native applicability against the independent Python selection of the same run."""
     from tests.python import test_native_run_adapter as two
     from sjtu_tpmshx.cpp_interface import full_2d_stage
-    from sjtu_tpmshx.solvers import applicability_evidence
     from sjtu_tpmshx.postprocess.api import evaluate
     control = _control() if control is None else control
     stage = full_2d_stage if case.grid['dimension'] == 2 else full_3d_stage
@@ -477,11 +476,8 @@ def _compare_public_applicability(case, monkeypatch, tmp_path, *, control=None):
     def keep(*args, **kwargs):
         kept.append(original(*args, **kwargs))
         return kept[-1]
-    def forbidden(*args, **kwargs):
-        pytest.fail('current stages must use native applicability selection')
     with monkeypatch.context() as current:
         current.setattr(stage, 'run_case', keep)
-        current.setattr(applicability_evidence, 'capture_applicability', forbidden)
         actual = run_case(case, control)
     native, = kept
     # The independent Python selection reads the last closure ranges of the same native run.
@@ -542,7 +538,6 @@ def test_public_applicability_keeps_saved_and_host_evidence(dimension, change, m
 @pytest.mark.parametrize('dimension', [2, 3])
 def test_applicability_transfer_error_releases_without_fallback(dimension, monkeypatch):
     from tests.python import test_native_run_adapter as two
-    from sjtu_tpmshx.solvers import applicability_evidence
     if dimension == 2:
         _, case = two._case()
     else:
@@ -565,11 +560,8 @@ def test_applicability_transfer_error_releases_without_fallback(dimension, monke
         monkeypatch.setattr(full_2d_stage, 'executed_view', observe_view)
     def broken(pointer, saved):
         raise sentinel
-    def forbidden(*args, **kwargs):
-        pytest.fail('a stage transfer error must not use direct capture')
     from sjtu_tpmshx.cpp_interface import _native_result_stage
     monkeypatch.setattr(_native_result_stage, 'copy_applicability', broken)
-    monkeypatch.setattr(applicability_evidence, 'capture_applicability', forbidden)
     with pytest.raises(LookupError) as caught:
         run_case(case, _control())
     assert caught.value is sentinel and len(owners) == 1

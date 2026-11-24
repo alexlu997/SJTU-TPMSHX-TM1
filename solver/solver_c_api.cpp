@@ -1,4 +1,5 @@
 #include "tpmshx/solver_c_api.h"
+#include "stage_entries.hpp"
 #include "tpmshx/quick_design_driver.hpp"
 
 #include <cstdio>

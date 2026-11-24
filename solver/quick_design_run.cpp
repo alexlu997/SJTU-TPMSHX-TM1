@@ -1,4 +1,5 @@
 #include "tpmshx/quick_design_stage_c_api.h"
+#include "stage_entries.hpp"
 #include "tpmshx/quick_design_driver.hpp"
 #include "tpmshx/temperature_driver_c_api.h"
 #include "../preprocess/preparation_c_boundary.hpp"

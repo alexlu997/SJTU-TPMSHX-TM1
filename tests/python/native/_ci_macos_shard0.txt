@@ -22,7 +22,6 @@ tests/python/native/test_cpp_full_2d_run.py::test_full_2d_checkpoint_hdf5_round_
 tests/python/native/test_cpp_full_2d_run.py::test_full_2d_checkpoint_hdf5_round_trip[temperature_sou]
 tests/python/native/test_cpp_full_2d_run.py::test_full_2d_checkpoint_hdf5_round_trip[true_h]
 tests/python/native/test_cpp_full_3d.py
-tests/python/native/test_cpp_model_h.py
 tests/python/native/test_full_3d.py
 tests/python/native/test_full_3d_refined_stages.py
 tests/python/native/test_model_h_2d.py
@@ -40,7 +39,6 @@ tests/python/native/test_native_engineering_acceptance.py::test_public_native_ca
 tests/python/native/test_native_engineering_acceptance.py::test_public_native_cases_keep_physical_gates[water-sco2-3]
 tests/python/native/test_native_pressure.py
 tests/python/native/test_quick_design_driver.py
-tests/python/native/test_simple_3d_api.py
 tests/python/native/test_temperature_mms.py
 tests/python/native/test_temperature_staggered.py
 # Stage modules collected on Python 3.13.

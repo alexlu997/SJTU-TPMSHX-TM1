@@ -17,7 +17,6 @@ tests/python/native/test_cpp_conservative_full3d.py::test_fresh_cli_case_solve_a
 tests/python/native/test_cpp_conservative_full3d.py::test_interrupt_after_candidate_native_return_releases_owner
 tests/python/native/test_cpp_conservative_full3d.py::test_prepared_recipe_and_detached_evidence_save_replay[temperature_sou-air-sco2-None]
 tests/python/native/test_cpp_conservative_full3d.py::test_prepared_recipe_and_detached_evidence_save_replay[temperature_sou-sco2-water-None]
-tests/python/native/test_cpp_enthalpy.py
 tests/python/native/test_cpp_full_2d_run.py::test_inner_checkpoint_rejects_damaged_iteration[fine_grid]
 tests/python/native/test_cpp_full_2d_run.py::test_inner_checkpoint_rejects_damaged_iteration[fine_port]
 tests/python/native/test_cpp_full_2d_run.py::test_inner_checkpoint_rejects_damaged_iteration[flow_acceleration]
@@ -37,7 +36,6 @@ tests/python/native/test_cpp_full_2d_run.py::test_inner_checkpoint_rejects_damag
 tests/python/native/test_cpp_full_2d_run.py::test_inner_checkpoint_rejects_damaged_iteration[thermal_settings]
 tests/python/native/test_cpp_full_2d_run.py::test_inner_checkpoint_rejects_damaged_iteration[thermal_shared_field]
 tests/python/native/test_cpp_full_3d.py
-tests/python/native/test_cpp_temperature.py
 tests/python/native/test_full_2d_stage_identity.py
 tests/python/native/test_full_3d.py
 tests/python/native/test_native_engineering_acceptance.py::test_continuous_real_fluid_native_cases[co2-2]

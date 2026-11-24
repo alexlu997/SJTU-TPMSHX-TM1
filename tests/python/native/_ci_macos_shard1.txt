@@ -16,7 +16,6 @@ tests/python/native/test_cpp_conservative_full3d.py::test_missing_execution_view
 tests/python/native/test_cpp_conservative_full3d.py::test_unsupported_saved_stage_abi_is_rejected_before_flow
 tests/python/native/test_cpp_conservative_full3d.py::test_one_block_budget_keeps_iteration_limit_and_final_evidence[temperature_sou]
 tests/python/native/test_cpp_conservative_full3d.py::test_prepared_recipe_and_detached_evidence_save_replay[temperature_sou-sco2-water-full]
-tests/python/native/test_cpp_enthalpy.py
 tests/python/native/test_cpp_full_2d_run.py::test_checkpoint_rejects_other_dimension_in_the_same_library
 tests/python/native/test_cpp_full_2d_run.py::test_inner_cancel_keeps_last_complete_boundary[6]
 tests/python/native/test_cpp_full_2d_run.py::test_inner_cancel_keeps_last_complete_boundary[7]

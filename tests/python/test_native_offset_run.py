@@ -41,7 +41,7 @@ def _saved(case):
 
 
 def _report(case, result):
-    from sjtu_tpmshx.solvers.applicability_evidence import capture_applicability
+    from tests.python.applicability_evidence import capture_applicability
     from sjtu_tpmshx.solvers.execution_record import full_execution_record
     enriched = replace(result, metadata=dict(result.metadata,
         execution_record=full_execution_record(case, result),

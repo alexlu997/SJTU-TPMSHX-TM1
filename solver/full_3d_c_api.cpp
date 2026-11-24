@@ -1,5 +1,5 @@
 #include "tpmshx/full_3d_c_api.h"
-#include "tpmshx/full_3d_run_c_api.h"
+#include "stage_entries.hpp"
 #include "tpmshx/full_3d_state.hpp"
 #include "run_state_c_views.hpp"
 #include "closure_evidence_c_views.hpp"
@@ -222,34 +222,6 @@ tpmshx_full3d_result_v1 publish_result(Full3DResult result,const Full3DControl& 
     auto value=output(*owner);
     value.owner=owner.release();return value;
 }
-int solve(const tpmshx_full3d_input_v1* in,const tpmshx_full3d_control_v1* c,
-    const tpmshx_energy_options_v1* energy,
-    const tpmshx_energy_options_v2* strict_energy,
-    const tpmshx_model_h_iteration_options_v1* model_h,
-    const tpmshx_full3d_callbacks_v1* callbacks,tpmshx_full3d_result_v1* result,char* error,size_t capacity,size_t cpu_threads) {
-    if(!error || !capacity)return 1;
-    try {
-        if(!in || !c || !result)throw std::invalid_argument("null full 3D API argument");
-        if((energy!=nullptr)+(strict_energy!=nullptr)+(model_h!=nullptr)>1)throw std::invalid_argument("conflicting full energy options");
-        const auto data=prepared_input(in);
-        auto control=controls(*c,callbacks);
-        if(!cpu_threads)throw std::invalid_argument("CPU thread count must be positive");
-        control.enthalpy.cpu_threads=cpu_threads;
-        if(model_h)control.model_h_iterations=model_h_c_views::iteration_options(*model_h);
-        if(energy)apply_energy_options(control.enthalpy,*energy);
-        if(strict_energy) {
-            if(!data.solve_b || (!uses_co2_eos(data.a.fluid) && !uses_co2_eos(data.b.fluid)))
-                throw std::invalid_argument("strict full 3D energy controls require the existing two-sided true-h route");
-            apply_energy_options(control.enthalpy,*strict_energy);
-        }
-        *result=publish_result(solve_full_3d(data,control),control);error[0]='\0';return 0;
-    } catch(const WaterStateError& e) {std::snprintf(error,capacity,"%s",e.what());return 2;}
-      catch(const std::invalid_argument& e) {std::snprintf(error,capacity,"%s",e.what());return 1;}
-      catch(const std::domain_error& e) {std::snprintf(error,capacity,"%s",e.what());return 3;}
-      catch(const std::exception& e) {std::snprintf(error,capacity,"%s",e.what());return 4;}
-      catch(...) {std::snprintf(error,capacity,"unknown full 3D native failure");return 4;}
-}
-
 // Keep the full-driver error classes at every new C boundary.
 template<class Function> int guarded_run(Function function,char* error,std::size_t capacity) noexcept {
     if(!error || !capacity)return 1;
@@ -430,12 +402,6 @@ int TPMSHX_THERMAL_CALL tpmshx_full_3d_run_restore_v3(
         owner->run=std::make_unique<Full3DRun>(owner->data,owner->control,state);*run=owner.release();
     },error,capacity);
 }
-int TPMSHX_THERMAL_CALL tpmshx_full_3d_run_advance_v1(void* run,uint32_t* phase,char* error,size_t capacity) {
-    return guarded_run([&] {
-        if(!run || !phase)throw std::invalid_argument("null full 3D advance argument");
-        *phase=static_cast<uint32_t>(static_cast<RunOwner*>(run)->run->advance());
-    },error,capacity);
-}
 int TPMSHX_THERMAL_CALL tpmshx_full_3d_run_phase_v1(const void* run,uint32_t* phase) {
     if(!run || !phase)return 1;
     *phase=static_cast<uint32_t>(static_cast<const RunOwner*>(run)->run->phase());return 0;
@@ -467,12 +433,4 @@ int TPMSHX_THERMAL_CALL tpmshx_full_3d_run_take_result_v1(
 void TPMSHX_THERMAL_CALL tpmshx_full_3d_run_release_v1(void** run) {
     if(run) {delete static_cast<RunOwner*>(*run);*run=nullptr;}
 }
-}
-
-extern "C" int TPMSHX_THERMAL_CALL tpmshx_solve_full_3d_v5(
-    const tpmshx_full3d_input_v1* in,const tpmshx_full3d_control_v1* control,
-    const tpmshx_energy_options_v1* energy,const tpmshx_energy_options_v2* strict_energy,
-    const tpmshx_model_h_iteration_options_v1* model_h,size_t cpu_threads,
-    const tpmshx_full3d_callbacks_v1* callbacks,tpmshx_full3d_result_v1* result,char* error,size_t capacity) {
-    return solve(in,control,energy,strict_energy,model_h,callbacks,result,error,capacity,cpu_threads);
 }

@@ -16,13 +16,16 @@ Preparation ABI 3、Quick Design v2、二维保存态阶段 ABI 5、三维保存
 | Quick Design 准备 | `tpmshx_prepare_quick_design_v2`、`tpmshx_quick_pressure_fractions_v2`、`tpmshx_quick_prepared_release_v2` |
 | 二维阶段运行（保存态 ABI 5） | `tpmshx_stage_run_2d_abi_version`、`tpmshx_run_saved_case_2d_v5`、`tpmshx_stage_run_2d_{create,restore}_saved_v5`、`tpmshx_stage_run_2d_{advance_step,finish,phase,snapshot,take_result,release_run,release}_v1`、`tpmshx_stage_run_2d_{records,execution_view,get_capture,zone_temperatures,report}_v1`、`tpmshx_stage_borrow_mesh_v1`、`tpmshx_stage_port_windows_fit_2d_v1`、`tpmshx_stage_run_2d_check_experiment_v4` |
 | 三维阶段运行（保存态 ABI 3，捕获 ABI 2） | `tpmshx_stage_run_3d_abi_version`、`tpmshx_stage_capture_3d_abi_version`、`tpmshx_run_saved_case_3d_v3`、`tpmshx_stage_run_3d_{create,restore}_saved_v3`、`tpmshx_stage_run_3d_{advance_step,finish,phase,snapshot,take_result,release_run,release}_v1`、`tpmshx_stage_run_3d_{records,execution_view,get_capture,report}_v1` |
-| C SDK 直接完整求解 | `tpmshx_solve_full_2d_v6`、`tpmshx_solve_full_3d_v5`、`tpmshx_full_2d_run_{create,restore}_v2`、`tpmshx_full_3d_run_{create,restore}_v3` |
-| Quick Design 运行 | `tpmshx_run_quick_design_v2`、`tpmshx_quick_run_ranges_v2`、`tpmshx_quick_run_temperature_algorithm_v1`、`tpmshx_quick_run_release_v1`、`tpmshx_solve_quick_design_v1` |
+| 阶段原始结果查询 | `tpmshx_full_{2,3}d_abi_version`、`tpmshx_full_2d_get_{energy_evidence,energy_update_scale,energy_effective_settings,model_enthalpy_evidence,last_closure_ranges,physical_heat_ledger,property_sampling,model_h_iterations,flow_methods}_v1`、`tpmshx_full_3d_get_{energy_evidence,energy_update_scale,energy_effective_settings,bootstrap_trace,model_enthalpy_evidence,last_closure_ranges,physical_heat_ledger,property_sampling,model_h_iterations,model_h_acceleration}_v1`、`tpmshx_run_state_release_v1` |
+| 算法标识与默认值 | `tpmshx_temperature_algorithm_v1`、`tpmshx_model_h_algorithm_v1`、`tpmshx_energy_algorithm_version_v1`、`tpmshx_full_enthalpy_defaults_v1` |
+| Quick Design 运行 | `tpmshx_solver_abi_version`、`tpmshx_run_quick_design_v2`、`tpmshx_quick_run_ranges_v2`、`tpmshx_quick_run_temperature_algorithm_v1`、`tpmshx_quick_run_release_v1` |
 | 结果阶段（ABI 3） | `tpmshx_result_stage_query_v3`、`tpmshx_result_stage_{evaluate,applicability,physical_balance,qualification,release}_v1` |
 
 每个准备族同时导出对应的 `*_flow_release_v1` 与 `*_case_release_v1` 释放函数。
 缺少必需现行入口的共享库属于部署错误；Python 不会选择归档运行库或回退路线。
-Python 仅绑定保存态阶段运行；直接完整求解入口服务于 C 调用方和原生测试。
+保存态阶段入口定义现行 C SDK，供 Python 及 C／C++ 调用方使用。
+阶段原始结果查询读取阶段结果所借用的 `raw` 结果；只释放阶段结果。
+求解库不导出直接完整求解、续算或单驱动 C 入口。
 已退役的 `v1`–`v11` ABI 记录见[C++ 迁移与 ABI 演进历史](history/cpp-migration-history.zh-CN.md)。
 
 ## 阶段主线、所有权与单位

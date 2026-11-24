@@ -1,4 +1,5 @@
 #include "execution_report.hpp"
+#include "stage_entries.hpp"
 #include "stage_records.hpp"
 #include "tpmshx/simple_convergence.hpp"
 #include "tpmshx/preparation_df.hpp"

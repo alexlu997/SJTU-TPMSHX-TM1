@@ -4,6 +4,7 @@
 
 #include <cstdio>
 #include <exception>
+#include <stdexcept>
 
 namespace {
 struct Callback { std::size_t calls = 0, cancel_at; };
@@ -32,6 +33,7 @@ extern "C" TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL test_enthalpy_driver(
         const EnthalpySideView b{static_cast<Fluid>(config[1]),values[2],values[3],
                                 v(10),v(11),v(12),v(13),v(14),v(15)};
         EnthalpyControl control{config[2],config[3],values[4],values[5],{},{},cancel,&callback};
+        control.temperature_update_tolerance = values[8];
         control.require_enthalpy_update_on_temperature = true;
         control.require_legacy_direct_gates = true;
         if (config[8]) control.coupled_energy_tolerance = values[6];
@@ -62,6 +64,9 @@ extern "C" TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL test_enthalpy_driver(
         return 0;
     } catch (const WaterStateError& exception) {
         status[2] = callback.calls; failure(error,capacity,exception); return 2;
+    } catch (const std::domain_error& exception) {
+        // Arithmetic failures keep a separate status from invalid states.
+        status[2] = callback.calls; failure(error,capacity,exception); return 3;
     } catch (const std::exception& exception) {
         status[2] = callback.calls; return failure(error,capacity,exception);
     }

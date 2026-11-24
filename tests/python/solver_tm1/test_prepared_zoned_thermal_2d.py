@@ -1,5 +1,4 @@
 """Zoned heat transfer follows physical cells through the prepared SI handoff."""
-import builtins
 import json
 import subprocess
 import sys
@@ -188,18 +187,6 @@ def test_incomplete_prepared_zones_require_repreparation(missing):
     with pytest.raises(ValueError, match='prepare the original configuration again'):
         run_case(case, stage_control(progress=progress.append))
     assert not progress
-
-
-def test_required_surrogate_import_failure_is_not_an_empty_warning_list(monkeypatch):
-    from sjtu_tpmshx.physical_models.input_validation import surrogate_extrap_reasons
-    original_import = builtins.__import__
-    def unavailable(name, *args, **kwargs):
-        if name == 'sjtu_tpmshx.physical_models.df_surrogate.surrogate_domain':
-            raise ImportError('required surrogate unavailable')
-        return original_import(name, *args, **kwargs)
-    monkeypatch.setattr(builtins, '__import__', unavailable)
-    with pytest.raises(ImportError, match='required surrogate unavailable'):
-        surrogate_extrap_reasons(_config(), allow_extrap=True)
 
 
 @pytest.mark.parametrize('mode', ['x', 'y', 'grid'])

@@ -307,6 +307,20 @@ int main(int argc,char** argv) {
         require(executed && executed->execution.records==records && !std::strcmp(executed->execution.unknown,"T")
                 && executed->execution.algorithm
                 && executed->settings.outer_count==run.view().raw.outer_history_count,"missing 2D executed thermal settings");
+        // Raw evidence queries borrow the stage result and keep their argument contract.
+        const auto& raw=run.view().raw;
+        tpmshx_full_2d_flow_method_v1 methods[2]{};
+        tpmshx_property_sampling_v1 sampling{};
+        require(tpmshx_full_2d_abi_version()==2 && tpmshx_full_2d_get_flow_methods_v1(&raw,methods)==0
+                && methods[0].iterations && methods[1].iterations,"missing 2D raw flow methods");
+        require(tpmshx_full_2d_get_property_sampling_v1(&raw,&sampling)==0
+                && sampling.count==records->sampling.count,"2D raw sampling differs from stage records");
+        methods[0].iterations=123;sampling.count=123;
+        require(tpmshx_full_2d_get_flow_methods_v1(nullptr,methods)==1 && methods[0].iterations==123
+                && tpmshx_full_2d_get_flow_methods_v1(&raw,nullptr)==1
+                && tpmshx_full_2d_get_property_sampling_v1(nullptr,&sampling)==1
+                && tpmshx_full_2d_get_property_sampling_v1(&failure.raw,&sampling)==1 && sampling.count==123,
+                "2D raw query accepted a missing or released owner");
         auto performance=evaluate(run);
         require(run.view().raw.converged,"baseline stage solve did not converge");
         require(performance.view().metric_count==17,"stage metric set changed");

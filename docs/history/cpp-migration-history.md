@@ -74,6 +74,7 @@ During the 2026-11 migration, 2D and 3D stage entries grew incrementally before 
 | Phase 3C | 2026-11-24 | [PR #362](https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/362) | Flattened preparation and saved stage-run C structs (no nested `values` chains) and unified callbacks into `tpmshx_preparation_callbacks_v1`. Moved 2D/3D preparation families to clean `v1` names and standardized 2D saved ABI 5 and 3D saved ABI 3. |
 | Phase 4 | 2026-11-24 | `c774b2c1` / `dbd34a53` | Retired Python direct full drivers (`NativeFull2DDriver`, `NativeFull3DDriver`, `prepared_*`), removed retired manifest nodes, and shortened the native CI path. |
 | Phase 5 | 2026-11-24 | D4 docs | Rewrote current architecture, native-stages, C++ integration, and `python/README` docs to describe only active post-D4 interfaces; archived historical logs here. |
+| Phase 6A | 2026-11-24 | `claude/phase6a-retire-c-abis` | Retired the unshipped temperature, enthalpy, model-h, SIMPLE 2D, and SIMPLE 3D per-driver C ABIs with their C smokes. Removed the direct solve, run-continuation, and full result release exports (`tpmshx_solve_full_2d_v6`, `tpmshx_solve_full_3d_v5`, `tpmshx_solve_quick_design_v1`, `tpmshx_full_{2,3}d_run_*`). Retired the matching Python `solver_library` bindings and decoders. Saved-stage entries remain the only C SDK. |
 
 ## Historical numerical qualification records
 

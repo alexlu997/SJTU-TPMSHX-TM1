@@ -4,14 +4,11 @@ tests/python/native/test_fluid_properties.py
 tests/python/native/test_quick_design_driver.py
 tests/python/native/test_cpp_quick_design.py
 tests/python/native/test_enthalpy_driver.py
-tests/python/native/test_cpp_enthalpy.py
 tests/python/native/test_model_h_2d.py
 tests/python/native/test_model_h_3d.py
-tests/python/native/test_cpp_model_h.py
 tests/python/native/test_temperature_driver.py
 tests/python/native/test_temperature_mms.py
 tests/python/native/test_temperature_staggered.py
-tests/python/native/test_cpp_temperature.py
 tests/python/native/test_native_thermal_identity.py
 tests/python/native/test_temperature_evidence.py
 tests/python/native/test_full_2d_stage_identity.py
@@ -19,9 +16,7 @@ tests/python/native/test_pressure_reference.py
 tests/python/native/test_anderson_candidate.py
 tests/python/native/test_simple_pressure.py
 tests/python/native/test_simple_2d.py
-tests/python/native/test_simple_2d_c_api.py
 tests/python/native/test_simple_3d.py
-tests/python/native/test_simple_3d_api.py
 tests/python/native/test_refinement_2d.py
 tests/python/native/test_full_2d.py
 tests/python/native/test_full_2d_refinement.py

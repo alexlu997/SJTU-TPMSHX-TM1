@@ -30,7 +30,7 @@ Linux x86_64 仅支持独立结果评估。
 | --- | --- | --- |
 | 几何库 | [geometry](../geometry/) | Geometry ABI 2 与 Field ABI 3：单元几何、chi/Kss、网格、端口、样条、sigmoid、LUT 与分区。 |
 | 准备库 | [preprocess](../preprocess/) | Preparation ABI 3 与 Quick Design 准备 v2：物性、Nu 闭合、固定 D-F、二维／三维及 Quick 准备。 |
-| 求解库 | [solver](../solver/) | 二维保存态 ABI 5、三维保存态 ABI 3、捕获 ABI 2、Quick Design 运行 v2 及 C SDK 直接求解（二维 v6、三维 v5）。 |
+| 求解库 | [solver](../solver/) | 二维保存态 ABI 5、三维保存态 ABI 3、捕获 ABI 2 及 Quick Design 运行 v2。 |
 | 结果库 | [postprocess](../postprocess/) | Result ABI 3（`float64` + `int32` 标签）：工程指标、物理平衡、适用性、分区统计与资格判断。 |
 
 所有现行 C++ 阶段接口均将数值缓冲区规范化为 `float64`，分区标签规范化为 `int32`。
@@ -174,12 +174,13 @@ CI 除完整 macOS/Windows 构建外，还在 Ubuntu 24.04 与 26.04 上构建�
 ## 求解核心与执行接口
 
 [solver](../solver/) 中的求解库实现完整二维、完整三维、Quick Design、SIMPLE 流动、model-h、温度及 T-SOU 保守能量驱动。
-Python 仅通过 `full_2d_stage.py`、`full_3d_stage.py` 与 `quick_design.py` 绑定保存态阶段生命周期：
+保存态阶段运行生命周期是 Python 及 C／C++ 调用方唯一的求解执行接口。
+Python 通过 `full_2d_stage.py`、`full_3d_stage.py` 与 `quick_design.py` 绑定该生命周期：
 
 - **完整二维（`full_2d.hpp`、`stage_run_c_api.h`）**：保存态 ABI 5（`tpmshx_run_saved_case_2d_v5`、`create_saved_v5`、`restore_saved_v5`）。拥有定密度 Anderson 的 SIMPLE、入口压力打靶、物性／热学耦合、Richardson 细化及最终证书，主换热量单位为 W/m。
 - **完整三维（`full_3d.hpp`、`stage_run_3d_c_api.h`）**：保存态 ABI 3（`tpmshx_run_saved_case_3d_v3`、`create_saved_v3`、`restore_saved_v3`）与捕获 ABI 2。拥有 XYZ SIMPLE、可选粗网格引导（`tpmshx_full_3d_get_bootstrap_trace_v1`）、热学优先外耦合及最终证书，主换热量单位为 W。
 - **Quick Design（`quick_design_driver.hpp`、`quick_design_stage_c_api.h`）**：`tpmshx_run_quick_design_v2` 在保存的准备场上执行定物性或平均物性扫描，保留固定解析压降分数与 `physical_validation=not_established`。
-- **直接 C SDK 求解（`full_2d_c_api.h`、`full_3d_c_api.h`、`solver_c_api.h`）**：`tpmshx_solve_full_2d_v6`、`tpmshx_solve_full_3d_v5`、`tpmshx_solve_quick_design_v1` 及续算入口服务于 C 调用方和原生测试。
+- **原始结果查询（`full_2d_c_api.h`、`full_3d_c_api.h`）**：`tpmshx_full_{2,3}d_get_*_v1` 读取阶段结果所借用的 `raw` 结果；只释放阶段结果。已退役的直接求解与单驱动 C 入口记录于 [C++ 迁移与 ABI 演进历史](history/cpp-migration-history.zh-CN.md)。
 - **执行报告（`execution_report.cpp`）**：`tpmshx_stage_run_2d_report_v1` 与 `tpmshx_stage_run_3d_report_v1` 发布解析网格、流体、状态、物性采样与 model-h 平衡。
 
 所有权、检查点恢复与默认控制见[运行续算](native-stages.zh-CN.md#运行续算)和[原生三维执行](native-stages.zh-CN.md#原生三维执行)。
@@ -204,7 +205,6 @@ result = run_case(prepared_case, RunControl(
 ### T-SOU 保守能量与真实态审计
 
 `enthalpy_driver.hpp` 中的 `solve_enthalpy` 在双流体 true-h 路线上执行 `EnthalpyAlgorithm::temperature_sou`（T-SOU）。
-独立的 `tpmshx_enthalpy_c` 与 `tpmshx_enthalpy_shared` 目标（而非 `tpmshx_solver_shared`）导出直接入口 `tpmshx_solve_enthalpy_v1` 与 `tpmshx_solve_enthalpy_v2`：`v1` 固定使用 `1e-8 K` 更新阈值，`v2` 要求传入无默认值的显式正有限 Kelvin 容差。
 每步非线性迭代冻结真实 `h`、`T` 和 `cp` 数组，以 minmod 焓面重构执行交替的 A、B 与固体扫描，并对整块增量施加 `0.6` 阻尼。
 随后通过受保护的 HEOS PT 更新刷新真实焓值再检查残差与边界热负荷，不使用 BICUBIC 表、H-to-T 反演或焓截断。
 SOU 配方 2 采用六样本 Anderson 提议，仅当提议严格降低归一化耦合与方程残差最大值时才接受。

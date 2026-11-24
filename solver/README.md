@@ -53,11 +53,11 @@
   - [stage_run.cpp](stage_run.cpp) · [stage_run_3d.cpp](stage_run_3d.cpp) · [quick_design_run.cpp](quick_design_run.cpp)
 - 准备好的网格与保存的模型参数
   - [prepared_mesh.cpp](prepared_mesh.cpp) · [stage_saved_models.hpp](stage_saved_models.hpp)
-- 完整求解的 C 接口
-  - [full_2d_c_api.cpp](full_2d_c_api.cpp) · [full_3d_c_api.cpp](full_3d_c_api.cpp)
-- 流动、热学和算法的 C 接口
-  - [simple_2d_c_api.cpp](simple_2d_c_api.cpp) · [simple_3d_c_api.cpp](simple_3d_c_api.cpp) · [model_h_c_api.cpp](model_h_c_api.cpp) · [enthalpy_driver_c_api.cpp](enthalpy_driver_c_api.cpp) · [temperature_driver_c_api.cpp](temperature_driver_c_api.cpp) · [model_h_algorithm_c_api.cpp](model_h_algorithm_c_api.cpp) · [energy_algorithm_c_api.cpp](energy_algorithm_c_api.cpp) · [temperature_algorithm_c_api.cpp](temperature_algorithm_c_api.cpp)
-- 求解库 ABI 和 Quick 底层调用
+- 阶段内部的完整求解入口与原始结果查询
+  - [full_2d_c_api.cpp](full_2d_c_api.cpp) · [full_3d_c_api.cpp](full_3d_c_api.cpp) · [stage_entries.hpp](stage_entries.hpp)
+- 算法标识与默认值查询
+  - [model_h_algorithm_c_api.cpp](model_h_algorithm_c_api.cpp) · [energy_algorithm_c_api.cpp](energy_algorithm_c_api.cpp) · [temperature_algorithm_c_api.cpp](temperature_algorithm_c_api.cpp)
+- 求解库 ABI 版本与内部 Quick Design 求解
   - [solver_c_api.cpp](solver_c_api.cpp)
 
 </details>
@@ -73,7 +73,7 @@
   - [execution_report.cpp](execution_report.cpp) · [execution_report.hpp](execution_report.hpp) · [stage_records.hpp](stage_records.hpp)
 - 闭合关系的适用范围、物性采样与物理收支
   - [closure_ranges.hpp](closure_ranges.hpp) · [closure_evidence_c_views.hpp](closure_evidence_c_views.hpp) · [property_sampling_c_views.hpp](property_sampling_c_views.hpp) · [physical_ledger_c_views.hpp](physical_ledger_c_views.hpp)
-- 通过 C 接口传递的流动和热学数据视图
+- 完整结果中的流动和热学数据视图
   - [simple_2d_c_views.hpp](simple_2d_c_views.hpp) · [simple_3d_c_views.hpp](simple_3d_c_views.hpp) · [model_h_c_views.hpp](model_h_c_views.hpp) · [enthalpy_c_views.hpp](enthalpy_c_views.hpp) · [temperature_c_views.hpp](temperature_c_views.hpp)
 
 </details>

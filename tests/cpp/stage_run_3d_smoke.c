@@ -142,11 +142,27 @@ int main(void) {
     REQUIRE(records->applied_drag[0][0].minimum==result.raw.flow[0].permeability.data[0]);
     REQUIRE(records->transient_count+records->final_count==result.raw.simple_failure_count);
     REQUIRE(capture.model_h_cell_count==120 && capture.audit_outlet[0].size==20);
+    /* Raw evidence queries borrow the stage result and keep their argument contract. */
+    tpmshx_full3d_bootstrap_trace_v1 trace;tpmshx_property_sampling_v1 sampling;
+    tpmshx_model_h_iteration_records_v1 calls;tpmshx_range_observations_view_v1 ranges;
+    REQUIRE(tpmshx_full_3d_abi_version()==2);
+    REQUIRE(tpmshx_full_3d_get_property_sampling_v1(&result.raw,&sampling)==0
+        && sampling.count==records->sampling.count);
+    REQUIRE(tpmshx_full_3d_get_model_h_iterations_v1(&result.raw,&calls)==0
+        && calls.count==executed->execution.model_h.count);
+    REQUIRE(tpmshx_full_3d_get_bootstrap_trace_v1(&result.raw,0,&trace)==0);
+    trace.selected=99;sampling.count=123;ranges.size=123;
+    REQUIRE(tpmshx_full_3d_get_bootstrap_trace_v1(&result.raw,2,&trace)==1 && trace.selected==99);
+    REQUIRE(tpmshx_full_3d_get_bootstrap_trace_v1(NULL,0,&trace)==1 && trace.selected==99);
+    REQUIRE(tpmshx_full_3d_get_property_sampling_v1(NULL,&sampling)==1 && sampling.count==123);
+    REQUIRE(tpmshx_full_3d_get_property_sampling_v1(&result.raw,NULL)==1);
+    REQUIRE(tpmshx_full_3d_get_last_closure_ranges_v1(NULL,&ranges)==1 && ranges.size==123);
     report.struct_size=sizeof(report);
     REQUIRE(query(&result.evaluation,&report,&diagnostics,&token,error,sizeof(error))==0);
     REQUIRE(report.json && report.metric_count==15);
     tpmshx_result_stage_release_v1(&report);tpmshx_stage_run_3d_release_v1(&result);
     REQUIRE(!result.owner);tpmshx_stage_run_3d_release_v1(&result);
+    REQUIRE(tpmshx_full_3d_get_property_sampling_v1(&result.raw,&sampling)==1 && sampling.count==123);
     REQUIRE(prepare(&input,&options,&prepared,error,sizeof(error))==0);
     pack_saved(&prepared.prepared,&saved,&raw);
     request.model_h.max_iterations=0;request.model_h.temperature_tolerance=0.;request.model_h.q_relative_tolerance=0.;

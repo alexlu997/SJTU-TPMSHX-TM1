@@ -53,11 +53,11 @@ External C++ programs call the [public stage interface](../include/tpmshx/stages
   - [stage_run.cpp](stage_run.cpp) · [stage_run_3d.cpp](stage_run_3d.cpp) · [quick_design_run.cpp](quick_design_run.cpp)
 - Prepared meshes and saved model parameters
   - [prepared_mesh.cpp](prepared_mesh.cpp) · [stage_saved_models.hpp](stage_saved_models.hpp)
-- C interfaces for full runs
-  - [full_2d_c_api.cpp](full_2d_c_api.cpp) · [full_3d_c_api.cpp](full_3d_c_api.cpp)
-- C interfaces for flow, thermal drivers and algorithms
-  - [simple_2d_c_api.cpp](simple_2d_c_api.cpp) · [simple_3d_c_api.cpp](simple_3d_c_api.cpp) · [model_h_c_api.cpp](model_h_c_api.cpp) · [enthalpy_driver_c_api.cpp](enthalpy_driver_c_api.cpp) · [temperature_driver_c_api.cpp](temperature_driver_c_api.cpp) · [model_h_algorithm_c_api.cpp](model_h_algorithm_c_api.cpp) · [energy_algorithm_c_api.cpp](energy_algorithm_c_api.cpp) · [temperature_algorithm_c_api.cpp](temperature_algorithm_c_api.cpp)
-- Solver ABI and low-level Quick calls
+- Full-run entries behind the stages and raw result queries
+  - [full_2d_c_api.cpp](full_2d_c_api.cpp) · [full_3d_c_api.cpp](full_3d_c_api.cpp) · [stage_entries.hpp](stage_entries.hpp)
+- Recipe identity and default queries
+  - [model_h_algorithm_c_api.cpp](model_h_algorithm_c_api.cpp) · [energy_algorithm_c_api.cpp](energy_algorithm_c_api.cpp) · [temperature_algorithm_c_api.cpp](temperature_algorithm_c_api.cpp)
+- Solver ABI version and the internal Quick Design solve
   - [solver_c_api.cpp](solver_c_api.cpp)
 
 </details>
@@ -73,7 +73,7 @@ For the definition of heat duty, see the [metric functions](../postprocess/resul
   - [execution_report.cpp](execution_report.cpp) · [execution_report.hpp](execution_report.hpp) · [stage_records.hpp](stage_records.hpp)
 - Closure ranges, property samples and physical balances
   - [closure_ranges.hpp](closure_ranges.hpp) · [closure_evidence_c_views.hpp](closure_evidence_c_views.hpp) · [property_sampling_c_views.hpp](property_sampling_c_views.hpp) · [physical_ledger_c_views.hpp](physical_ledger_c_views.hpp)
-- Flow and thermal data views for C callers
+- Flow and thermal data views in full results
   - [simple_2d_c_views.hpp](simple_2d_c_views.hpp) · [simple_3d_c_views.hpp](simple_3d_c_views.hpp) · [model_h_c_views.hpp](model_h_c_views.hpp) · [enthalpy_c_views.hpp](enthalpy_c_views.hpp) · [temperature_c_views.hpp](temperature_c_views.hpp)
 
 </details>

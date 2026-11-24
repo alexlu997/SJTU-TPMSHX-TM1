@@ -426,6 +426,14 @@ def test_manufactured_sources_keep_own_stopping_rule(native, rb):
     assert status[0] == 0 and status[6] == 1 and status[29] == 0
 
 
+def test_short_budget_partial_openings_with_sources_keep_certificate(native):
+    c = case(sweeps=31)
+    c["a"][7] = np.full(c["shape"], 31.)
+    c["b"][7] = np.full(c["shape"], -29.)
+    c["source_s"] = np.full(c["shape"], 3.)
+    assert_actual_state(c, native(c))
+
+
 def test_unknown_inflow_does_not_gain_certificate(native):
     c = straight_case(accelerate=True)
     c["a"][2][-1] = -.000001

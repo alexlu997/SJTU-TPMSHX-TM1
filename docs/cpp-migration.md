@@ -30,7 +30,7 @@ Four independent C++ shared libraries own all production numerical calculations:
 | --- | --- | --- |
 | Geometry | [geometry](../geometry/) | Geometry ABI 2 and field ABI 3: cell geometry, chi/Kss, grids, ports, splines, sigmoid, LUTs, zones. |
 | Preparation | [preprocess](../preprocess/) | Preparation ABI 3 and Quick Design preparation v2: properties, Nu closures, fixed D-F, 2D/3D and Quick preparation. |
-| Solver | [solver](../solver/) | Saved 2D ABI 5, saved 3D ABI 3, capture ABI 2, Quick Design run v2, and C SDK direct solves (2D v6, 3D v5). |
+| Solver | [solver](../solver/) | Saved 2D ABI 5, saved 3D ABI 3, capture ABI 2, and Quick Design run v2. |
 | Result | [postprocess](../postprocess/) | Result ABI 3 (`float64` + `int32` labels): metrics, physical balances, applicability, zone statistics, and qualification. |
 
 All active C++ stage interfaces normalize numeric buffers to `float64` and zone labels to `int32`.
@@ -174,12 +174,13 @@ The `minimal-postprocess` job runs on Ubuntu 24.04 with `result-build-linux-x86_
 ## Solver cores and execution interfaces
 
 The solver library in [solver](../solver/) implements full 2D, full 3D, Quick Design, SIMPLE flow, model-h, temperature, and T-SOU conservative energy drivers.
-Python binds only the saved stage-run lifecycle through `full_2d_stage.py`, `full_3d_stage.py`, and `quick_design.py`:
+The saved stage-run lifecycle is the only solver execution interface for Python and for C and C++ callers.
+Python binds it through `full_2d_stage.py`, `full_3d_stage.py`, and `quick_design.py`:
 
 - **Full 2D (`full_2d.hpp`, `stage_run_c_api.h`)**: saved stage ABI 5 (`tpmshx_run_saved_case_2d_v5`, `create_saved_v5`, `restore_saved_v5`). Owns SIMPLE with fixed-density Anderson, inlet pressure shooting, property/thermal coupling, Richardson refinement, and final certificates. Main heat duty uses W/m.
 - **Full 3D (`full_3d.hpp`, `stage_run_3d_c_api.h`)**: saved stage ABI 3 (`tpmshx_run_saved_case_3d_v3`, `create_saved_v3`, `restore_saved_v3`) and capture ABI 2. Owns XYZ SIMPLE, optional coarse bootstrap (`tpmshx_full_3d_get_bootstrap_trace_v1`), thermal-first outer coupling, and final certificates. Main heat duty uses W.
 - **Quick Design (`quick_design_driver.hpp`, `quick_design_stage_c_api.h`)**: `tpmshx_run_quick_design_v2` runs const or mean property passes on saved prepared fields with fixed analytical pressure fractions and `physical_validation=not_established`.
-- **Direct C SDK solves (`full_2d_c_api.h`, `full_3d_c_api.h`, `solver_c_api.h`)**: `tpmshx_solve_full_2d_v6`, `tpmshx_solve_full_3d_v5`, `tpmshx_solve_quick_design_v1`, and their run-continuation entries serve C callers and native tests.
+- **Raw result queries (`full_2d_c_api.h`, `full_3d_c_api.h`)**: `tpmshx_full_{2,3}d_get_*_v1` read the `raw` result that a stage result borrows. Release only the stage result. The [C++ migration history](history/cpp-migration-history.md) records the retired direct-solve and per-driver C entries.
 - **Execution reports (`execution_report.cpp`)**: `tpmshx_stage_run_2d_report_v1` and `tpmshx_stage_run_3d_report_v1` publish resolved grids, fluids, states, property samples, and model-h balances.
 
 See [run continuation](native-stages.md#run-continuation) and [native 3D execution](native-stages.md#native-3d-execution) for exact ownership, checkpoint restoration, and control defaults.
@@ -204,8 +205,6 @@ Source CLI execution uses:
 ### T-SOU conservative energy and actual-state audit
 
 `solve_enthalpy` in `enthalpy_driver.hpp` runs `EnthalpyAlgorithm::temperature_sou` (T-SOU) for two-fluid true-h routes.
-Separate `tpmshx_enthalpy_c` and `tpmshx_enthalpy_shared` targets (not `tpmshx_solver_shared`) export direct `tpmshx_solve_enthalpy_v1` and `tpmshx_solve_enthalpy_v2`.
-`v1` uses a fixed `1e-8 K` update limit, and `v2` requires an explicit positive finite Kelvin tolerance with no default.
 Each nonlinear step freezes actual `h`, `T`, and `cp` arrays, then runs alternating A, B, and solid sweeps with minmod enthalpy face reconstruction.
 The driver damps each completed block increment by `0.6`.
 Guarded HEOS PT updates refresh actual enthalpy before residual and boundary-duty checks, with no BICUBIC table, H-to-T inversion, or enthalpy clipping.
