@@ -41,7 +41,7 @@ flowchart LR
 | 第一次跑通工况<a id="首次运行macos--windows"></a><a id="跑通小算例"></a><a id="macos-项目文件夹中的-c-库"></a> | [安装环境并构建原生库](docs/first-run.md) · [二维和三维命令行算例](docs/first-run.md#examples) |
 | <a id="gui-use"></a>使用图形界面<a id="gui-常用流程"></a> | [载入工况、计算与查看结果](docs/gui-guide.md) · [快速设计](docs/gui-guide.md#quick-design) · [优化](docs/gui-guide.md#optimization) |
 | 从其他程序调用<a id="三个模块"></a> | [Python 与 CLI 的三阶段调用](docs/first-run.md#stage-api) · [C++ SDK](docs/native-stages.zh-CN.md) · [数据契约](docs/contracts/three_module_v1/README.zh-CN.md) |
-| <a id="环境与检查"></a>开发或验证改动<a id="协作与合并"></a> | [贡献者扩展指南](docs/extending.zh-CN.md) · [本地检查与 CI](docs/verification.md) · [协作流程](docs/collaboration.zh-CN.md) |
+| <a id="环境与检查"></a>开发或验证改动<a id="协作与合并"></a> | [贡献者扩展指南](docs/extending.zh-CN.md)（[流体／Nu](docs/extending.zh-CN.md#new-fluid-or-nu-closure)、[GUI 面板](docs/extending.zh-CN.md#new-gui-panel-or-dialog)、[拓扑](docs/extending.zh-CN.md#third-tpms-topology)）· [本地检查与 CI](docs/verification.md) · [协作流程](docs/collaboration.zh-CN.md) |
 | 确认模型能算什么<a id="已接线能力与边界"></a><a id="数据与历史证据"></a> | [能力与边界](docs/capabilities.md) · [模型来源](docs/model-resources.md) · [历史结果](docs/history/README.md) |
 
 [仓库目录与文档导航](docs/README.md) · [Python 源码地图](python/README.md) · [桌面部署](docs/desktop.md)
