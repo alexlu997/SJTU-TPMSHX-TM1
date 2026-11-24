@@ -94,12 +94,15 @@ void check_saved(const tpmshx::stages::PreparedUniformCase2D& calibrated,tpmshx:
     captured[0]=2;
     require(create(copy)==1 && !handle,"saved range capture flag accepted invalid value");
     captured[0]=0;copy.inlet_recorded=0;
+    // Use explicit thread counts above the default limit for both operations.
+    control.cpu_threads = 12;
     auto state=[&] {
         Run2D run(copy,control);
         require(run.advance_step()==TPMSHX_FULL2D_OUTER_BOUNDARY,"saved stage initial boundary changed");
         require(run.advance_step()==TPMSHX_FULL2D_FLOW,"saved stage flow boundary changed");
         return run.snapshot();
     }();
+    control.cpu_threads = 9;
     {
         Run2D resumed(saved,control,{},&state);
         require(resumed.phase()==TPMSHX_FULL2D_FLOW,"saved v5 lost the restored phase");
