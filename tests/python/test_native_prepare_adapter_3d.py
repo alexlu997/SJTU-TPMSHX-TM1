@@ -16,8 +16,7 @@ from sjtu_tpmshx.physical_models.tpms_geometry import compute_geometry
 from sjtu_tpmshx.preprocess import api
 from sjtu_tpmshx.cpp_interface.full_3d_stage import validate_saved_case
 from tests.python import native_preparation_abi, property_reference as prop_ref
-from tests.python import test_native_preparation_continuous_3d as continuous
-from tests.python import test_native_preparation_spatial_3d as spatial
+from tests.python.native_preparation_abi import _configuration_continuous_3d, _configuration_spatial_3d
 from tests.python.test_native_prepare_adapter import _capture, _same
 
 
@@ -32,9 +31,9 @@ def _isolate_cache(monkeypatch):
 
 def _configuration(mode, topology='Gyroid', pair=('air', 'water')):
     if mode in ('xy', 'xyz'):
-        return continuous._configuration(topology, pair, nz=3 if mode == 'xyz' else None)
+        return _configuration_continuous_3d(topology, pair, nz=3 if mode == 'xyz' else None)
     if mode in ('grid', 'offset'):
-        return spatial._configuration(topology, pair, spatial=mode == 'grid', delta=.12)
+        return _configuration_spatial_3d(topology, pair, spatial=mode == 'grid', delta=.12)
     return native_preparation_abi._configuration_3d(topology, pair)
 
 
@@ -278,3 +277,160 @@ def test_air_field_observations_stay_bounded(monkeypatch, mode, targets):
     monkeypatch.setattr(PreparationCacheBridge, 'observe_range', observe)
     _capture(monkeypatch, api, 'full', config, targets)
     assert 2 <= len(actual_calls) <= 16
+
+
+@pytest.mark.parametrize('spatial', [False, True], ids=['offset', 'grid'])
+@pytest.mark.parametrize('delta', [0., .12, -.12])
+def test_offset_split_orders_side_porosities(spatial, delta):
+    config = _configuration_spatial_3d(spatial=spatial, delta=delta)
+    if delta < 0.:
+        config.geometry.L_cell_mm, config.geometry.t_wall_mm = 6.25, .45
+    case = api.prepare_case(config, case_id='offset-split')
+    _check_3d_case_invariants(case, config)
+    eps_A, eps_B = case.design_fields['eps_A'], case.design_fields['eps_B']
+    eps_arr, thermal = case.design_fields['eps_arr'], case.parameters['thermal_geometry']
+    if delta == 0.:
+        assert thermal['split_A'] == .5 and thermal['side_geometry'] is None
+        native_preparation_abi._same(eps_A, .5 * eps_arr, 'side A porosity')
+        native_preparation_abi._same(eps_B, eps_A, 'side B porosity')
+    elif delta > 0.:
+        assert thermal['split_A'] > .5 and np.all(eps_A > eps_B)
+    else:
+        assert thermal['split_A'] < .5 and np.all(eps_A < eps_B)
+    # Only grid zones produce local thermal geometry fields. A uniform core keeps scalar values.
+    assert (thermal['fields'] is not None) == spatial
+    for name in ('A_0', 'D_h', 'epsilon') if spatial else ():
+        field = thermal['fields'][name]
+        assert field.shape == eps_arr.shape and np.all(np.isfinite(field)) and np.all(field > 0.)
+
+
+@pytest.mark.parametrize('spatial', [False, True], ids=['offset', 'grid'])
+@pytest.mark.parametrize('delta', [-100., 100.])
+def test_closed_side_offset_stops_at_the_capacity_boundary(spatial, delta):
+    config = _configuration_spatial_3d(spatial=spatial, delta=delta)
+    case = api.prepare_case(config, case_id='closed-side')
+    assert case.parameters['thermal_geometry']['split_A'] == (1. if delta > 0. else 0.)
+    closed = 'B' if delta > 0. else 'A'
+    with pytest.raises(ValueError, match=f'side {closed}: inlet density times open pore area'):
+        api.prepare_inlet_mass_capacities(config)
+
+
+@pytest.mark.parametrize('selection', ['gaps', 'reverse-overlap', 'no-hit', 'overwritten-nan', 'overwritten-domain'])
+def test_grid_rectangle_gaps_overlap_and_late_overwrite(selection):
+    config = _configuration_spatial_3d(delta=0.)
+    rows = config.zones.grid['cells']
+    if selection == 'gaps':
+        del rows[1:]
+    elif selection == 'reverse-overlap':
+        rows.reverse()
+    elif selection == 'no-hit':
+        rows.append(dict(x0=0., x1=.001, y0=0., y1=1., L=float('nan'), t=float('nan')))
+    else:
+        # The last rectangle that covers a point sets its value, so an earlier invalid value has no effect.
+        value = float('nan') if selection == 'overwritten-nan' else 9.
+        rows[:] = [dict(x0=0., x1=1., y0=0., y1=1., L=value, t=.4),
+                   dict(x0=0., x1=1., y0=0., y1=1., L=6.25, t=.45)]
+    case = api.prepare_case(config, case_id='grid-rectangles')
+    _check_3d_case_invariants(case, config)
+    if selection.startswith('overwritten-'):
+        np.testing.assert_allclose(case.design_fields['L_field_m'], 6.25e-3, rtol=1e-15, atol=0.)
+        np.testing.assert_allclose(case.design_fields['t_field_m'], .45e-3, rtol=1e-15, atol=0.)
+
+
+def test_grid_smooths_local_values_before_cfd_lookup():
+    config = _configuration_spatial_3d(delta=0.)
+    # L = 9 mm is outside the CFD table. Smoothing must move it into the table before the lookup.
+    config.zones.grid['cells'] = [dict(x0=0., x1=1., y0=0., y1=1., L=6., t=.4),
+                                  dict(x0=0., x1=.1, y0=0., y1=.11, L=9., t=.4)]
+    case = api.prepare_case(config, case_id='grid-smoothing')
+    _check_3d_case_invariants(case, config)
+    length = case.design_fields['L_field_m']
+    assert np.all((length >= .004) & (length <= .008)) and np.ptp(length) > 0.
+
+
+@pytest.mark.parametrize('side', ['A', 'B'])
+@pytest.mark.parametrize('fluid', ['sco2', 'co2'])
+@pytest.mark.parametrize('spatial', [True, False], ids=['grid', 'offset'])
+def test_supercritical_and_co2_reject_grid_zones_and_offset(side, fluid, spatial):
+    config = _configuration_spatial_3d(spatial=spatial, delta=.12)
+    inlet = getattr(config, 'fluid_' + side)
+    inlet.type, inlet.T_in_K, inlet.P_in_Pa = fluid, 400., 8e6
+    match = 'discrete zones' if spatial else 'delta_levelset=0'
+    with pytest.raises(ValueError, match=match):
+        api.prepare_case(config, case_id='fluid-geometry')
+
+
+def test_experimental_hx_capacity_precedes_offset_rejection():
+    config = _configuration_spatial_3d(spatial=False, mode='experimental')
+    capacities = api.prepare_inlet_mass_capacities(config)
+    assert capacities['A'] > 0. and capacities['B'] > 0.
+    targets = tuple(capacities[side] * getattr(config, 'fluid_' + side).u_mps for side in 'AB')
+    with pytest.raises(ValueError, match='requires delta=0'):
+        api.resolve_fixed_mass_flow_config(config, mass_flow_A_kg_s=targets[0], mass_flow_B_kg_s=targets[1])
+    with pytest.raises(ValueError, match='requires delta=0'):
+        api.prepare_case(config, case_id='experimental-offset')
+
+
+@pytest.mark.parametrize('topology', ['Diamond', 'Gyroid'])
+def test_experimental_air_core_keeps_nonzero_offset(topology):
+    config = _configuration_spatial_3d(topology, ('air', 'air'), spatial=False, mode='experimental')
+    config.geometry.L_cell_mm, config.geometry.t_wall_mm = 6.5, .4
+    case = api.prepare_case(config, case_id='experimental-core')
+    _check_3d_case_invariants(case, config)
+    assert case.parameters['thermal_geometry']['split_A'] > .5
+
+
+@pytest.mark.parametrize('layout', [
+    (1, 1, None, False, 1), (1, 5, None, True, 3), (4, 1, None, False, 2),
+    (4, 4, None, True, 2), (4, 5, None, False, 3),
+    (4, 5, 1, True, 3), (1, 4, 3, False, 3), (4, 1, 3, True, 2),
+    (1, 1, 1, True, 3), (4, 4, 2, True, 1), (4, 5, 3, False, 2),
+])
+def test_continuous_control_layouts_and_orders(layout):
+    nx, ny, nz, mirror, order = layout
+    config = _configuration_continuous_3d(nx=nx, ny=ny, nz=nz, mirror=mirror, order=order)
+    case = api.prepare_case(config, case_id='continuous-layout')
+    _check_3d_case_invariants(case, config)
+    if nz is None:
+        for name in ('L_field_m', 't_field_m', 'eps_arr'):
+            field = case.design_fields[name]
+            native_preparation_abi._same(field, np.repeat(field[:, :, :1], field.shape[2], axis=2), name + ' extrusion')
+
+
+@pytest.mark.parametrize('pair', [('air', 'water'), ('co2', 'water')])
+def test_continuous_co2_thermal_porosity_differs_from_common_porosity(pair):
+    config = _configuration_continuous_3d(pair=pair, nx=3, ny=4, nz=3, mirror=False)
+    case = api.prepare_case(config, case_id='continuous-thermal')
+    total, thermal = case.design_fields['eps_arr'], case.parameters['thermal_geometry']['fields']['epsilon']
+    if pair[0] == 'co2':
+        assert np.any(total != thermal)
+    else:
+        np.testing.assert_allclose(total, thermal, rtol=1e-12, atol=1e-12)
+
+
+@pytest.mark.parametrize('selection,match', [
+    ('order', 'spline_order'), ('counts', 'controls per axis'), ('z-count', 'controls per axis'),
+    ('L-bounds', 'L_bounds'), ('t-bounds', 't_bounds'), ('decision-length', 'x_decision'),
+    ('control-domain', 'control values'), ('delta', 'delta_levelset=0'),
+])
+def test_continuous_rejects_invalid_controls_and_offset(selection, match):
+    config = _configuration_continuous_3d(nz=3)
+    spec = config.zones.config
+    if selection == 'order':
+        spec['spline_order'] = 0
+    elif selection == 'counts':
+        spec['n_ctrl_x'] = 0
+    elif selection == 'z-count':
+        spec['n_ctrl_z'] = 0
+    elif selection == 'L-bounds':
+        spec['L_bounds'] = [3., 9.]
+    elif selection == 't-bounds':
+        spec['t_bounds'] = [.2, .7]
+    elif selection == 'decision-length':
+        spec['x_decision'].pop()
+    elif selection == 'control-domain':
+        spec['x_decision'][0] = 3.
+    else:
+        config.geometry.delta_levelset = .1
+    with pytest.raises(ValueError, match=match):
+        api.prepare_case(config, case_id='continuous-error')

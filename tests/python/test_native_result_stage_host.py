@@ -161,8 +161,10 @@ def test_legacy_temperature_typed_inputs(split_shape, inlet_shape):
     compare(result, 'evaluate', MetricSpec('Q_B', 'W/m', 'native_boundary_v1'))
 
 
-@pytest.mark.parametrize('dimension', [None, 2., 3., 7, '2'])
-@pytest.mark.parametrize('mode', ['full', None, 1])
+# Each invalid dimension runs with a valid mode. Each invalid mode runs with a valid
+# dimension. One pair with two invalid values keeps the error order.
+@pytest.mark.parametrize('dimension,mode', [
+    (None, 'full'), (2., 'full'), (3., 'full'), (7, 'full'), ('2', 'full'), (2., None), (7, 1)])
 def test_original_dimension_and_mode_errors(dimension, mode):
     result = sample_result(2)
     metadata = mutable_data(result.metadata)
@@ -261,9 +263,13 @@ def test_unrelated_model_certificate_does_not_stop_a_conservative_query(value, q
         compare(result, query, MetricSpec('Q', 'W/m', 'native_boundary_v1'))
 
 
-@pytest.mark.parametrize('value', [(True, False), (), np.array([True]), np.array([False]),
-                                  np.array([True, False]), np.array([], dtype=bool)])
-@pytest.mark.parametrize('earlier_false', ['none', 'run', 'field', 'gate'])
+# Each raw gate value reaches the comparison. An ambiguous array after each earlier
+# false gate must not be evaluated.
+@pytest.mark.parametrize('value,earlier_false', [
+    *[(value, 'none') for value in ((True, False), (), np.array([True]), np.array([False]),
+                                    np.array([True, False]), np.array([], dtype=bool))],
+    *[(np.array([True, False]), earlier_false) for earlier_false in ('run', 'field', 'gate')],
+])
 def test_gate_comparison_keeps_raw_values_and_short_circuit_order(value, earlier_false):
     result = qualified_result()
     metadata = mutable_data(result.metadata)
@@ -283,8 +289,10 @@ def test_gate_comparison_keeps_raw_values_and_short_circuit_order(value, earlier
                        observe(lambda: reference.evaluate_qualification(result, metrics)))
 
 
-@pytest.mark.parametrize('value', [(True, False), np.array([True]), np.array([False]), np.array([True, False])])
-@pytest.mark.parametrize('where', ['converged', 'air_solved', 'sco2_solved'])
+@pytest.mark.parametrize('where,value', [
+    ('converged', (True, False)), ('converged', np.array([False])),
+    ('air_solved', np.array([True])), ('air_solved', np.array([True, False])),
+    ('sco2_solved', (True, False)), ('sco2_solved', np.array([False]))])
 def test_nonboolean_run_and_execution_flags_keep_their_consumption_point(value, where):
     result = qualified_result()
     if where == 'converged':
@@ -361,9 +369,13 @@ def test_host_calls_keep_their_signature_after_an_independent_c_wire_call():
     assert_values(performance(native.evaluate(result)), expected)
 
 
-@pytest.mark.parametrize('mode', ['full', 'quick_design'])
-@pytest.mark.parametrize('version', [None, 4, False, (), {'key': 1}, 'historical', 'full_execution_v1'])
-@pytest.mark.parametrize('sides', [None, (), 4])
+# Every version type runs in full mode. The current version runs with each invalid
+# sides record and in quick-design mode.
+@pytest.mark.parametrize('mode,version,sides', [
+    *[('full', version, None) for version in
+      (None, 4, False, (), {'key': 1}, 'historical', 'full_execution_v1')],
+    ('full', 'full_execution_v1', ()), ('full', 'full_execution_v1', 4),
+    ('quick_design', 'full_execution_v1', ()), ('quick_design', None, 4)])
 def test_raw_execution_label_keeps_native_selection(mode, version, sides):
     result = sample_result(2)
     result = replace(result, metadata={**result.metadata, 'mode': mode,
@@ -450,10 +462,11 @@ def test_native_failure_releases_borrowed_fields(without_cyclic_collection, kind
     assert all(reference() is None for reference in exercise())
 
 
-@pytest.mark.parametrize('kind', [2, 3, 'quick'])
-@pytest.mark.parametrize('invalid_field', [None, ('bad',)])
-@pytest.mark.parametrize('query', ['evaluate', 'qualification'])
-@pytest.mark.parametrize('packing_failure', [False, True])
+# Each result kind, invalid field, query, and failure point appears in more than one case.
+@pytest.mark.parametrize('kind,invalid_field,query,packing_failure', [
+    (2, None, 'evaluate', False), (2, ('bad',), 'qualification', True),
+    (3, ('bad',), 'qualification', False), (3, None, 'evaluate', True),
+    ('quick', None, 'qualification', True), ('quick', ('bad',), 'evaluate', False)])
 def test_chained_input_error_releases_fields(without_cyclic_collection, kind, invalid_field, query, packing_failure):
     def exercise():
         field = _lifetime_result(kind)

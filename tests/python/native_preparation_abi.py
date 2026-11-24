@@ -4,13 +4,9 @@ import warnings
 
 import numpy as np
 
-from sjtu_tpmshx.cpp_interface import _native_grid as grid
-from sjtu_tpmshx.cpp_interface import _native_preparation_3d as three
 from sjtu_tpmshx.cpp_interface import _native_preparation_case as abi
-from sjtu_tpmshx.cpp_interface._native_values import GridPort, read_text
 from sjtu_tpmshx.cpp_interface.stage_libraries import preparation_library
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig, PartialBCConfig, ZoneInputConfig
-from sjtu_tpmshx.run_control.run_warnings import range_observations, warning_messages
+from sjtu_tpmshx.data_types.compute_config import ComputeConfig, ZoneInputConfig
 from tests.python.solver_tm1.test_prepared_zoned_thermal_2d import _config
 
 
@@ -39,32 +35,6 @@ def _same(actual, expected, name):
     expected = np.asarray(expected, dtype=np.float64)
     assert actual.shape == expected.shape, name
     np.testing.assert_array_equal(actual.view(np.uint64), expected.view(np.uint64), err_msg=name)
-
-
-def _struct_values(value):
-    if isinstance(value, ct.Structure):
-        return {name: _struct_values(getattr(value, name)) for name, _ in value._fields_}
-    if isinstance(value, ct.Array):
-        return [_struct_values(item) for item in value]
-    return value.hex() if isinstance(value, float) else value
-
-
-def _range(value, *, last=False):
-    shape = tuple(value.shape[index] for index in range(value.rank))
-    sample = value.last if last else value.sample
-
-    def extreme(name):
-        if not sample.have_finite:
-            return None
-        flat = getattr(sample, name + '_index')
-        index = tuple(int(item) for item in np.unravel_index(flat, shape)) if shape else ()
-        return getattr(sample, name), index
-
-    return {'source': tuple(_text(value.source[index]) for index in range(value.source_count)),
-        **{name: _text(getattr(value, name)) for name in ('side', 'stage', 'layout', 'quantity', 'unit')},
-        'shape': shape, 'bounds': tuple(value.bounds), 'captured': True,
-        'minimum': extreme('minimum'), 'maximum': extreme('maximum'),
-        **{name: getattr(sample, name) for name in ('low', 'high', 'size', 'nonfinite')}}
 
 
 _Nu = abi._Nu
@@ -100,11 +70,6 @@ def _error_kind(error):
     if type(error).__name__ == 'WaterStateError':
         return 2
     return 1 if isinstance(error, ValueError) else 3
-
-
-def _events(evidence):
-    return [(item.kind, _text(item.logger), _text(item.message), item.floating_event)
-            for item in evidence.events[:evidence.event_count]]
 
 
 def _configuration_mass_flow(topology='Gyroid', pair=('air', 'water'), mode='cfd_smooth'):
@@ -234,43 +199,6 @@ def _check_owned_aliases_spatial(call, result, destination):
     return [label for label, _, _ in buffers]
 
 
-_Inlet = three._Inlet
-_Input_3d = three._Input
-_Side = three._Side
-_Result = three._Result
-_Flow = three._Flow
-
-
-def _input_3d(config):
-    geometry = config.geometry
-    source = _Input_3d(1, ct.sizeof(_Input_3d))
-    source.lengths_m[:] = (float(geometry.L_dom_m), float(geometry.H_dom_m), float(geometry.Lz_m))
-    source.counts[:] = (config.solver.Nx, config.solver.Ny, config.solver.Nz)
-    source.max_cells, source.port_wall_refine = 2_000_000, config.flags.port_wall_refine
-    source.topology = ('Diamond', 'Gyroid').index(geometry.tpms)
-    source.cell_length_mm, source.wall_thickness_mm = float(geometry.L_cell_mm), float(geometry.t_wall_mm)
-    source.solid_conductivity_W_mK, source.delta_levelset = float(geometry.k_s_W_mK), float(geometry.delta_levelset)
-    source.geometry_mode, source.df_mode = int(config.zones.enabled), int(config.df_mode == 'experimental')
-    for index, side in enumerate('AB'):
-        fluid, port = getattr(config, 'fluid_' + side), getattr(config, 'bc_' + side)
-        raw_port = GridPort(port.dir, 1)
-        raw_port.set_windows(lambda key: getattr(port, key), full_width=port.in_w <= 0. and port.out_w <= 0.)
-        source.sides[index] = _Inlet(abi._FLUIDS.index(fluid.type), float(fluid.u_mps),
-            float(fluid.T_in_K), float(fluid.P_in_Pa), raw_port,
-            fluid.mass_flow_kg_s is not None, float(fluid.mass_flow_kg_s or 0.))
-    settings = config.sco2_nu
-    source.sco2_nu.mode = int(settings.mode == 'experimental')
-    for index, name in enumerate(('alpha_D', 'alpha_G')):
-        value = getattr(settings, name)
-        source.sco2_nu.have_alpha[index], source.sco2_nu.alpha[index] = value is not None, float(value or 0.)
-    source._buffers = []
-    for name in ('parameter_version', 'source', 'applicability'):
-        buffer = ct.create_string_buffer(getattr(settings, name).encode('utf-8'))
-        source._buffers.append(buffer)
-        setattr(source.sco2_nu, name, abi._Text(ct.cast(buffer, ct.POINTER(ct.c_char)), len(buffer.value)))
-    return source
-
-
 def _configuration_3d(topology='Gyroid', pair=('air', 'water'), mode='cfd_smooth'):
     config = _configuration_fluids(topology, pair, mode)
     config.geometry.Lz_m = .042
@@ -278,40 +206,29 @@ def _configuration_3d(topology='Gyroid', pair=('air', 'water'), mode='cfd_smooth
     return config
 
 
-def _partial_ports(config, direction, cross2=True):
-    lengths = (config.geometry.L_dom_m, config.geometry.H_dom_m, config.geometry.Lz_m)
-    for side, selected in (('A', direction), ('B', (direction + 3) % 6)):
-        cross1, _, second, *_ = grid.axis_map(selected)
-        span, depth = lengths[cross1], lengths[second]
-        port = PartialBCConfig(dir=selected, in_ctr=.43 * span, in_w=.57 * span,
-            out_ctr=.59 * span, out_w=.49 * span)
-        if cross2:
-            port.in_z_ctr, port.in_z_w = .44 * depth, .63 * depth
-            port.out_z_ctr, port.out_z_w = .62 * depth, .45 * depth
-        setattr(config, 'bc_' + side, port)
+def _configuration_spatial_3d(topology='Gyroid', pair=('air', 'water'), *, spatial=True, delta=.12,
+                              mode='cfd_smooth'):
+    """Return a 3D grid-zone configuration, or a uniform one when spatial is false."""
+    config = _configuration_3d(topology, pair, mode)
+    config.geometry.delta_levelset = delta
+    if spatial:
+        config.zones = ZoneInputConfig(enabled=True, axis='grid', grid={'cells': [
+            dict(x0=0., x1=.65, y0=0., y1=.55, L=4.25, t=.33),
+            dict(x0=.35, x1=.85, y0=.2, y1=.9, L=7.5, t=.54),
+            dict(x0=0., x1=1., y0=.4, y1=.6, L=5.5, t=.42)]})
+    return config
 
 
-def _evidence(actual, records):
-    for last in (False, True):
-        rows = []
-        for index in range(actual.range_count):
-            row = _range(actual.ranges[index], last=last)
-            if actual.range_bounds_list[index]:
-                row['bounds'] = list(row['bounds'])
-            rows.append(row)
-        assert rows == range_observations(records, last=last)
-    assert [read_text(item) for item in actual.warnings[:actual.warning_count]] == list(warning_messages(records))
-
-
-def _resolved(actual, expected):
-    for index, side in enumerate('AB'):
-        inlet, fluid = actual.input.sides[index], getattr(expected, 'fluid_' + side)
-        _same(inlet.velocity_m_s, fluid.u_mps, side + ' resolved speed')
-        assert bool(inlet.have_mass_flow) == (fluid.mass_flow_kg_s is not None)
-        if inlet.have_mass_flow:
-            _same(inlet.mass_flow_kg_s, fluid.mass_flow_kg_s, side + ' stored target')
-        _same(actual.speeds[index], fluid.u_mps, side + ' flow speed')
-
-
-_OWNED_FLOW_CASES = [('prepare_inlet_mass_capacities', True), ('resolve_inlet_flow', True),
-                     ('prepare_flow_case', True), ('resolve_inlet_flow', False)]
+def _configuration_continuous_3d(topology='Gyroid', pair=('air', 'water'), mode='cfd_smooth', *,
+                                 nx=4, ny=5, nz=None, mirror=True, order=3):
+    """Return a 3D continuous-field configuration. Without nz, the XY field extrudes along z."""
+    config = _configuration_3d(topology, pair, mode)
+    count = nx * ((ny + 1) // 2 if mirror else ny) * (1 if nz is None else nz)
+    spec = dict(n_ctrl_x=nx, n_ctrl_y=ny, symmetric_y=mirror, spline_order=order,
+        L_bounds=[4., 8.], t_bounds=[.3, .6],
+        x_decision=[float(value) for value in np.r_[
+            np.linspace(4.2, 7.8, count), np.linspace(.57, .32, count)]])
+    if nz is not None:
+        spec['n_ctrl_z'] = nz
+    config.zones = ZoneInputConfig(enabled=True, axis='continuous', config=spec)
+    return config

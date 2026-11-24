@@ -6,9 +6,10 @@ import numpy as np
 
 from sjtu_tpmshx.cpp_interface import _native_result
 from tests.python import result_stage_fixture as report
-from tests.python import test_native_preparation_continuous_3d as continuous_3d
-from tests.python import test_native_preparation_spatial_3d as spatial_3d
-from tests.python.native_preparation_abi import _configuration_3d, _configuration_continuous, _configuration_fluids
+from tests.python.native_preparation_abi import (
+    _configuration_3d, _configuration_continuous, _configuration_continuous_3d, _configuration_fluids,
+    _configuration_spatial_3d,
+)
 from tests.python.test_native_prepare_adapter import _same
 
 
@@ -42,9 +43,9 @@ def bound_plane_controls(config):
 def volume_configuration(pair=('air', 'water'), layout='uniform'):
     """Return a bounded 3D configuration for one prepared design layout."""
     if layout in ('xy', 'xyz'):
-        config = continuous_3d._configuration(pair=pair, nz=3 if layout == 'xyz' else None)
+        config = _configuration_continuous_3d(pair=pair, nz=3 if layout == 'xyz' else None)
     elif layout in ('grid', 'asymmetric'):
-        config = spatial_3d._configuration(pair=pair, spatial=layout == 'grid',
+        config = _configuration_spatial_3d(pair=pair, spatial=layout == 'grid',
                                            delta=.12 if layout == 'asymmetric' else 0.)
     else:
         config = _configuration_3d(pair=pair)

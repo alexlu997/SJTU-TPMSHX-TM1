@@ -1,14 +1,12 @@
 """Compare native capture scalars with the public 2D result of the same saved stage run."""
 import ctypes as ct
 from dataclasses import replace
-import json
 import math
 
 import numpy as np
 import pytest
 
 from sjtu_tpmshx.cpp_interface import full_2d_stage
-from sjtu_tpmshx.file_io.result_io import save_result
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.run_control.module_ports import RunControl
 from sjtu_tpmshx.solvers.api import run_case
@@ -74,7 +72,7 @@ def _summary_record(summary):
     (False, ('air', 'water')), (True, ('air', 'water')),
     (False, ('water', 'sco2')), (True, ('water', 'sco2')),
     (False, ('co2', 'air')), (True, ('co2', 'air'))])
-def test_capture_matches_public_result(capture_query, monkeypatch, spatial, pair, tmp_path):
+def test_capture_matches_public_result(capture_query, monkeypatch, spatial, pair):
     config = (native_stage_support.continuous_plane_configuration(pair) if spatial
               else native_stage_support.plane_configuration(pair))
     native_stage_support.bound_plane_controls(config)
@@ -89,7 +87,6 @@ def test_capture_matches_public_result(capture_query, monkeypatch, spatial, pair
         config.sco2_nu = replace(config.sco2_nu, mode='experimental', alpha_D=1.13, alpha_G=2.27,
             parameter_version='capture-comparison', source='existing experimental selection',
             applicability='existing geometry')
-    (tmp_path / 'input.json').write_text(json.dumps(config.to_dict(), indent=2))
     case = prepare_case(config, case_id='capture-stage')
     application = _application(case)
     changed = _Application.from_buffer_copy(application)
@@ -145,12 +142,6 @@ def test_capture_matches_public_result(capture_query, monkeypatch, spatial, pair
     original_record, changed_record = _summary_record(summary), _summary_record(altered)
     del original_record['application_hv'], changed_record['application_hv']
     assert original_record == changed_record
-    np.savez_compressed(tmp_path / 'native-fields.npz', **native_fields)
-    save_result(expected, tmp_path / 'reference.h5')
-    (tmp_path / 'summary.json').write_text(json.dumps(_summary_record(summary), indent=2))
-    (tmp_path / 'verdict.json').write_text(json.dumps({'scalars_exact': True,
-        'field_bits_exact': len(native_fields), 'independent_application_inputs': True}))
-    assert _summary_record(summary) == json.loads((tmp_path / 'summary.json').read_text())
 
 
 def test_capture_input_failures_and_ieee_values(capture_query, monkeypatch):
