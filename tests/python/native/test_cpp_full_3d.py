@@ -14,6 +14,7 @@ from sjtu_tpmshx.run_control.module_ports import RunControl
 from sjtu_tpmshx.run_control.cancellation import CancelledError
 from sjtu_tpmshx.run_control.run_warnings import warning_scope
 from sjtu_tpmshx.preprocess.api import prepare_case
+from sjtu_tpmshx.physical_models.envelope import R_AIR_DEFAULT
 from sjtu_tpmshx.postprocess.api import evaluate, evaluate_physical_balance
 from sjtu_tpmshx.solvers.api import run_case as cpp_run
 from tests.python.native.test_native_execution import _config
@@ -857,6 +858,7 @@ def test_native_checkpoint_hdf5_round_trip(native_path, tmp_path, pair, cut):
     with pytest.raises(_PauseCheckpoint):
         run_case(prepared_case, control(native_path), checkpoint=save_at_boundary)
     saved = load_solver_checkpoint(saved_path)
+    assert saved.native_state['control.simple.gas_constant'][0] == R_AIR_DEFAULT
     actual = run_case(load_checkpoint_case(saved), control(native_path), resume_state=saved.native_state)
     for key in ('grid', 'fields', 'boundary_fluxes', 'pressure_evidence', 'run_status', 'field_metadata'):
         _exact_resume_values(getattr(actual, key), getattr(expected, key), key)

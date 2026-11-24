@@ -2,12 +2,15 @@
 import json
 from pathlib import Path
 
+from .text_file import write_text
+
+
 def read_json(path):
     return json.loads(Path(path).read_text(encoding='utf-8'))
 
 
 def write_json(path, data):
-    Path(path).write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding='utf-8')
+    write_text(path, json.dumps(data, indent=2, ensure_ascii=False))
 
 
 def load_config(path):

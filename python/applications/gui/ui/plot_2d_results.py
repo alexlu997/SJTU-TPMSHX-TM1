@@ -8,7 +8,7 @@ temperature / pressure / velocity tabs so the preparation adapter
 Public entry points (consumed by ``ui.mixins.run_controller`` and ``main``):
     finalize_plots(window, field)   — render one 2D result canvas (main thread)
     redraw_result_fields(window) — invalidate and redraw visible cached fields
-    plot_temperature_3panel(window, r, _t) — the shared T_fA/T_fB/T_s helper
+    plot_temperature_3panel(window, r, _t, zones=None) — the shared T_fA/T_fB/T_s helper
 """
 import numpy as np
 from matplotlib.ticker import ScalarFormatter
@@ -77,14 +77,36 @@ def redraw_result_fields(window):
         ensure_result_plot(window, field)
 
 
-def plot_temperature_3panel(window, r, _t):
-    """Render the chosen T_fA / T_fB / T_s field, or all three for callers
-    without a workbench phase selector.
+def _draw_zone_overlays(ax, zones, theme):
+    """Draw strip or grid zone boundaries on one 2D field plot."""
+    if not zones:
+        return
+    style = dict(color=theme['zone_line'], ls='--', lw=0.8, alpha=0.6)
+    boundaries = zones.get('boundaries')
+    if boundaries is not None:
+        z_dir = zones.get('axis_dir') or 'y'
+        for b in boundaries:
+            if z_dir == 'y':
+                ax.axhline(y=b * 1000, **style)
+            else:
+                ax.axvline(x=b * 1000, **style)
+    boundaries_x = zones.get('boundaries_x')
+    if boundaries_x is not None:
+        for b in boundaries_x:
+            ax.axvline(x=b * 1000, **style)
+    boundaries_y = zones.get('boundaries_y')
+    if boundaries_y is not None:
+        for b in boundaries_y:
+            ax.axhline(y=b * 1000, **style)
 
-    Honours `window.chk_sync_colorbar_T` — when checked, all three panels
-    share the global vmin/vmax so a colour has the same temperature meaning
-    across fluids and solid. When off, fluids share vmin/vmax and solid
-    auto-scales independently (the pre-toggle behaviour).
+
+def plot_temperature_3panel(window, r, _t, zones=None):
+    """Draw the selected T_fA / T_fB / T_s field, or all three for direct callers.
+
+    Supply ``zones`` to draw strip or grid zone overlays on each panel.
+    When ``window.chk_sync_colorbar_T`` is selected, all three panels use one
+    shared color range. When it is cleared, Fluid A and Fluid B share one range
+    and Solid uses its own range.
     """
     unit = '°C' if getattr(window, '_temp_unit', 'K') == 'C' else 'K'
     offset = 273.15 if unit == '°C' else 0.0
@@ -131,17 +153,7 @@ def plot_temperature_3panel(window, r, _t):
                                               aspect=25, ticks=np.linspace(lo, hi, 5),
                                               format=ScalarFormatter(useOffset=False))
         _style_workbench_axes(ax, cb, _t, main_title, subtitle)
-        if hasattr(window, '_zone_boundaries') and window._zone_boundaries:
-            z_dir = getattr(window, '_zone_axis_dir', 'y')
-            for b in window._zone_boundaries:
-                if z_dir == 'y':
-                    ax.axhline(y=b*1000, color=_t['zone_line'], ls='--', lw=0.8, alpha=0.6)
-                else:
-                    ax.axvline(x=b*1000, color=_t['zone_line'], ls='--', lw=0.8, alpha=0.6)
-        for b in (getattr(window, '_zone_boundaries_x', None) or []):
-            ax.axvline(x=b*1000, color=_t['zone_line'], ls='--', lw=0.8, alpha=0.6)
-        for b in (getattr(window, '_zone_boundaries_y', None) or []):
-            ax.axhline(y=b*1000, color=_t['zone_line'], ls='--', lw=0.8, alpha=0.6)
+        _draw_zone_overlays(ax, zones, _t)
 
     if not window.canvas_temp.fig.get_constrained_layout():
         window.canvas_temp.fig.subplots_adjust(left=0.11, right=0.96,
@@ -163,7 +175,9 @@ def finalize_plots(window, field="temp"):
     from sjtu_tpmshx.applications.gui.ui.theme import get_theme
     _t = get_theme()
 
-    r = window.cache.get_result('2d').fields
+    result = window.cache.get_result('2d')
+    r = result.fields
+    zones = result.zones
     ucA, vcA, ucB, vcB = (r[key] for key in ('ucA', 'vcA', 'ucB', 'vcB'))
     P_fA, P_fB = r['P_fA'], r['P_fB']
     N_x, N_y, L, H = r['N_x'], r['N_y'], r['L'], r['H']
@@ -179,7 +193,7 @@ def finalize_plots(window, field="temp"):
     # to a module-level helper so the K/°C sync toggle can redraw without
     # re-running the full finalize pipeline.
     if field == "temp":
-        plot_temperature_3panel(window, r, _t)
+        plot_temperature_3panel(window, r, _t, zones=zones)
     # Hover data cached by helper; the rest of this function handles
     # pressure, velocity, and layout panels. Preserve original variable
     # bindings for code below.
@@ -254,17 +268,7 @@ def finalize_plots(window, field="temp"):
                                                  aspect=25, format=ScalarFormatter(useOffset=False))
             _style_workbench_axes(ax, cb, _t, main_title, subtitle + ' full range')
             ax.grid(True, alpha=0.15, linewidth=0.5, color=_t['ax_text'])
-            if hasattr(window, '_zone_boundaries') and window._zone_boundaries:
-                z_dir = getattr(window, '_zone_axis_dir', 'y')
-                for b in window._zone_boundaries:
-                    if z_dir == 'y':
-                        ax.axhline(y=b*1000, color=_t['zone_line'], ls='--', lw=0.8, alpha=0.6)
-                    else:
-                        ax.axvline(x=b*1000, color=_t['zone_line'], ls='--', lw=0.8, alpha=0.6)
-            for b in (getattr(window, '_zone_boundaries_x', None) or []):
-                ax.axvline(x=b*1000, color=_t['zone_line'], ls='--', lw=0.8, alpha=0.6)
-            for b in (getattr(window, '_zone_boundaries_y', None) or []):
-                ax.axhline(y=b*1000, color=_t['zone_line'], ls='--', lw=0.8, alpha=0.6)
+            _draw_zone_overlays(ax, zones, _t)
         if not window.canvas_vel.fig.get_constrained_layout():
             window.canvas_vel.fig.subplots_adjust(left=0.11, right=0.96,
                                                    top=0.89, bottom=0.14, hspace=0.32)
@@ -280,7 +284,7 @@ def finalize_plots(window, field="temp"):
     window._update_tout(-1)
 
     # Keep the applicability warning visible with every field plot.
-    _reasons = window.cache.get_result('2d').extrap_reasons
+    _reasons = result.extrap_reasons
     if _reasons:
         from sjtu_tpmshx.applications.gui.ui.theme import get_theme as _gt
         _tw = _gt().get('warn', '#B45309')

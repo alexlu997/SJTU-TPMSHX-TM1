@@ -48,6 +48,7 @@ OWNERS = {
     "run_control": "domain",
     "data_types": "domain",
     "file_io.config_io": "domain",
+    "file_io.text_file": "domain",
     "file_io": "io",
     "model_configs": "configs",
     "applications.cli.cli_options": "io",

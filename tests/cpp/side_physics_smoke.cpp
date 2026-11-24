@@ -1,5 +1,6 @@
 #include "tpmshx/full_2d.hpp"
 #include "tpmshx/full_3d.hpp"
+#include "tpmshx/model_coefficients.hpp"
 
 #include <cmath>
 #include <limits>
@@ -54,6 +55,7 @@ void energy_model_cases() {
 
 int main() {
     energy_model_cases();
+    require(Full3DControl{}.simple.gas_constant==model_coefficients::envelope_r_air);
     const std::array<Fluid,4> fluids{Fluid::air,Fluid::water,Fluid::sco2,Fluid::co2};
     for(auto a:fluids) for(auto b:fluids) {
         Full2DProblem planar{};planar.sides[0].fluid=a;planar.sides[1].fluid=b;
