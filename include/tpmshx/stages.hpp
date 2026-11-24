@@ -8,6 +8,7 @@
 #include <cstring>
 #include <stdexcept>
 #include <thread>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -172,6 +173,13 @@ public:
         const auto& value=prepared.view();
         fill(value.prepared,value.area_density_per_m,value.hydraulic_diameter_m,value.fluid_conductivity,nullptr);
     }
+    // A conversion can create a temporary owner or return a reference into a temporary source.
+    explicit SavedCase2D(const PreparedUniformCase2D&&)=delete;
+    explicit SavedCase2D(const PreparedZonedFlowCase2D&&)=delete;
+    explicit SavedCase2D(const PreparedSigmoidFlowCase2D&&)=delete;
+    explicit SavedCase2D(const PreparedStripeCase2D&&)=delete;
+    explicit SavedCase2D(const PreparedContinuousCase2D&&)=delete;
+    template<class Source> explicit SavedCase2D(const Source&&)=delete;
     SavedCase2D(const SavedCase2D&)=delete;
     SavedCase2D& operator=(const SavedCase2D&)=delete;
 private:
@@ -235,11 +243,19 @@ inline tpmshx_stage_capture_3d_v1 capture_summary(const RunResult3D& result,bool
     return output;
 }
 
+class SavedPreparedCase3D;
 struct SavedCase3D : tpmshx_stage_saved_case_3d_v3 {
     SavedCase3D():tpmshx_stage_saved_case_3d_v3{} {
         abi_version=TPMSHX_STAGE_RUN_3D_SAVED_ABI_VERSION;struct_size=sizeof(tpmshx_stage_saved_case_3d_v3);
         inlet_recorded=1;
     }
+    // A copy of a prepared descriptor still points into the original descriptor.
+    SavedCase3D(const SavedPreparedCase3D&&)=delete;
+    SavedCase3D& operator=(const SavedPreparedCase3D&&)=delete;
+    template<class Source, std::enable_if_t<!std::is_same_v<Source, SavedCase3D>, int> = 0>
+    SavedCase3D(const Source&&)=delete;
+    template<class Source, std::enable_if_t<!std::is_same_v<Source, SavedCase3D>, int> = 0>
+    SavedCase3D& operator=(const Source&&)=delete;
 };
 struct RunRequest3D : tpmshx_stage_run_request_3d_v1 {
     RunRequest3D():tpmshx_stage_run_request_3d_v1{} {
@@ -272,6 +288,9 @@ public:
         fill(value.prepared,value.prepared.side_porosity,value.area_density_per_m,value.hydraulic_diameter_m,
             0u,unit,value.controls.have_ctrl_z?2u:1u,value.controls.have_ctrl_z);
     }
+    explicit SavedPreparedCase3D(const PreparedSpatialCase3D&&)=delete;
+    explicit SavedPreparedCase3D(const PreparedContinuousCase3D&&)=delete;
+    template<class Source> explicit SavedPreparedCase3D(const Source&&)=delete;
     SavedPreparedCase3D(const SavedPreparedCase3D&)=delete;
     SavedPreparedCase3D& operator=(const SavedPreparedCase3D&)=delete;
 private:
@@ -346,6 +365,10 @@ public:
             tpmshx_stage_run_3d_create_saved_v3(&saved,&request,&control,&run_,error,sizeof(error));
         detail::check(status,error);
     }
+    Run3D(const tpmshx_stage_saved_case_3d_v3&&,const RunControl3D&,const RunRequest3D& = {},
+        const RunState* = nullptr)=delete;
+    template<class Source>
+    Run3D(const Source&&,const RunControl3D&,const RunRequest3D& = {},const RunState* = nullptr)=delete;
     ~Run3D() {tpmshx_stage_run_3d_release_run_v1(&run_);}
     Run3D(const Run3D&)=delete;
     Run3D& operator=(const Run3D&)=delete;
@@ -390,6 +413,10 @@ public:
             tpmshx_stage_run_2d_create_saved_v5(&saved,&request,&control,&run_,error,sizeof(error));
         detail::check(status,error);
     }
+    Run2D(const tpmshx_stage_saved_case_2d_v5&&,const RunControl&,const RunRequest2D& = {},
+        const RunState* = nullptr)=delete;
+    template<class Source>
+    Run2D(const Source&&,const RunControl&,const RunRequest2D& = {},const RunState* = nullptr)=delete;
     ~Run2D() {tpmshx_stage_run_2d_release_run_v1(&run_);}
     Run2D(const Run2D&)=delete;
     Run2D& operator=(const Run2D&)=delete;
@@ -595,6 +622,14 @@ inline SavedCase2D saved_case(const PreparedContinuousCase2D& prepared) {return 
 inline SavedCase2D saved_case(const PreparedStripeCase2D& prepared) {return SavedCase2D(prepared);}
 inline SavedPreparedCase3D saved_case(const PreparedSpatialCase3D& prepared) {return SavedPreparedCase3D(prepared);}
 inline SavedPreparedCase3D saved_case(const PreparedContinuousCase3D& prepared) {return SavedPreparedCase3D(prepared);}
+inline SavedCase2D saved_case(const PreparedUniformCase2D&&)=delete;
+inline SavedCase2D saved_case(const PreparedZonedFlowCase2D&&)=delete;
+inline SavedCase2D saved_case(const PreparedSigmoidFlowCase2D&&)=delete;
+inline SavedCase2D saved_case(const PreparedContinuousCase2D&&)=delete;
+inline SavedCase2D saved_case(const PreparedStripeCase2D&&)=delete;
+inline SavedPreparedCase3D saved_case(const PreparedSpatialCase3D&&)=delete;
+inline SavedPreparedCase3D saved_case(const PreparedContinuousCase3D&&)=delete;
+template<class Source> void saved_case(const Source&&)=delete;
 // Each result owns its copied storage. The prepared owner can be released afterwards.
 inline RunResult2D run_case(const tpmshx_stage_saved_case_2d_v5& saved,const RunControl& control,
     const RunRequest2D& request={}) {
