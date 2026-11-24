@@ -12,6 +12,7 @@ C++ 数值实现按计算阶段放在根目录，Python 应用集中在 [python/
 | --- | --- |
 | 运行桌面界面、快速设计与优化 | [界面操作指南](gui-guide.md) |
 | 本地检查、CI 与验收记录 | [验证指南](verification.md) |
+| 新增流体、Nu 闭合、GUI 面板与拓扑的扩展路线 | [贡献者扩展指南](extending.zh-CN.md) |
 | 模块职责、调用关系和物理约束 | [architecture.zh-CN.md](architecture.zh-CN.md) |
 | C++ 数值后端、原生 ABI 与构建 | [C++ 接入说明](cpp-migration.zh-CN.md) |
 | 独立 C++ 阶段 SDK 与安装后示例 | [C++ 阶段接口](native-stages.zh-CN.md) |
@@ -33,6 +34,7 @@ C++ 数值实现按计算阶段放在根目录，Python 应用集中在 [python/
 | [preprocess/](../preprocess/)、[solver/](../solver/)、[postprocess/](../postprocess/) | C++ 前处理、求解和后处理 |
 | [geometry/](../geometry/)、[numerics/](../numerics/)、[include/](../include/) | 几何、共用数值函数及头文件 |
 | [tests/cpp/](../tests/cpp/) | C/C++ 调用与内核测试 |
+| [tests/python/](../tests/python/) | Python 自动化测试、原生绑定测试、GUI 测试与独立参考实现 |
 | [python/](../python/) | 四个计算入口、应用、数据类型、文件读写、模型资源与 C++ 调用接口 |
 | [engineering/](../engineering/) | `scripts/` 构建与检查脚本、`packaging/` 打包配置、`requirements/` 精确依赖锁 |
 | [docs/](./) | 当前说明、`contracts/` 公共数据契约与历史资料入口 |
@@ -40,7 +42,7 @@ C++ 数值实现按计算阶段放在根目录，Python 应用集中在 [python/
 | [openspec/](../openspec/) | 按功能分开的现行行为规范 |
 | [.github/workflows/](../.github/workflows/) | macOS / Windows CI 与最小后处理环境检查配置 |
 
-包内 [development/](../python/development/) 保留 `tests/`、`validation/`、`runs/` 三类。
+包内 [development/](../python/development/) 保留 `validation/` 与 `runs/` 两类；自动化测试位于根目录 [tests/python/](../tests/python/)。
 公共数据契约的实现在 [data_types/](../python/data_types/) 和 [file_io/](../python/file_io/)。
 
 `pyproject.toml` 集中定义构建、依赖声明、pytest、mypy 和 lint 配置。

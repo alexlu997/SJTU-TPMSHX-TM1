@@ -35,6 +35,16 @@ The C++ call sequence in `include/tpmshx/stages.hpp` is `prepare_case`, `run_cas
 Preparation computes physical grids, ports, fields, and model evidence.
 The solver runs that prepared state, and the result library evaluates recorded evidence independently.
 
+Store the prepared owner in a variable before you pass it to `saved_case`, `SavedCase2D`, or `SavedPreparedCase3D`.
+Use `const auto saved = saved_case(prepared);` to keep the complete descriptor.
+Pass `saved` when you start or restore a `Run2D` or `Run3D`.
+A copy of the raw C record or the C++ `SavedCase3D` base still borrows storage from the complete descriptor.
+If an external adapter supplies a reference to its descriptor, keep the adapter alive while you use the copy.
+Keep the prepared owner and original descriptor alive and unchanged until successful result transfer or run release.
+Keep the callback functions and their context valid until you release the run.
+The one-shot `run_case` accepts a temporary prepared owner or saved descriptor.
+For example, `run_case(prepare_case(input, options), control)` transfers the result before the temporary owner expires.
+
 - **Units**: design inputs (`cell_length_mm`, `wall_thickness_mm`) use mm; saved physical design fields use m. Keep the mm-to-m-to-mm order when forming transport and closure ratios. Heat uses W/m in 2D and W in 3D; mass flow uses kg/s; temperature uses K; pressure uses Pa(abs).
 - **Array layout**: requested and actual grid counts stay distinct fields. Physical 2D fields use shape `(nx, ny)` in C order; 3D fields use `(nx, ny, nz)` in C order; flow fields use `(cross, stream)` order per side.
 - **Single-owner release**: every owned output has one outer `owner` pointer; nested views have null owners. Release each owned result through the library that created it after the last view use. Scalar-only queries (`tpmshx_query_inlet_properties_v2`, `tpmshx_quick_pressure_fractions_v2`) return values and need no release.
@@ -144,7 +154,6 @@ Air-field scalar range observations keep at most eight selected samples per side
 `stage_run_c_api.h` connects flat `SavedCase2D` (`tpmshx_stage_saved_case_2d_v5`, ABI 5) and `RunRequest2D` (`tpmshx_stage_run_request_2d_v4`) to `Full2DRun`.
 Confirm `tpmshx_stage_run_2d_abi_version() == 5` before calling any 2D saved-stage entry.
 `SavedCase2D` borrows a validated prepared view, flow grids, design fields, model references, nominal thermal-side tuples, and experimental settings without preparing the case again.
-Keep the preparation owner, descriptor, and callback context alive and unchanged until result transfer or run release.
 
 - **One-shot run**: `tpmshx_run_saved_case_2d_v5` runs to completion in C++ and transfers an owned `tpmshx_stage_run_result_2d_v1` (release with `tpmshx_stage_run_2d_release_v1`).
 - **Step and checkpoint lifecycle**: `tpmshx_stage_run_2d_create_saved_v5`, `restore_saved_v5`, `advance_step_v1`, `finish_v1`, `phase_v1`, `snapshot_v1`, `take_result_v1`, and `release_run_v1`. Snapshots (`tpmshx_run_state_v1`, release with `tpmshx_run_state_release_v1`) own independent storage. Restoration requires the exact same build, prepared inputs, and numerical controls; only positive `cpu_threads` can change.

@@ -5,6 +5,7 @@
 #include "../geometry/field_c_boundary.hpp"
 #include "enthalpy_c_views.hpp"
 #include "tpmshx/grid.hpp"
+#include "tpmshx/model_coefficients.hpp"
 
 #include <algorithm>
 #include <array>
@@ -277,7 +278,8 @@ struct Controls3D {
         c.envelope_mode=choice(r.envelope_mode,0,2);c.roughness_height=number(r.roughness_height_m,100.*1e-6);
         flag(r.solid_seed_K.present);c.has_initial_solid_temperature=r.solid_seed_K.present;
         c.initial_solid_temperature=number(r.solid_seed_K,0.);
-        c.simple={2000,1,100,number(r.simple_velocity_relaxation,.5),.2,.3,0.,287.05,.05,1,1,0,
+        c.simple={2000,1,100,number(r.simple_velocity_relaxation,.5),.2,.3,0.,
+            tpmshx::model_coefficients::envelope_r_air,.05,1,1,0,
             choice(r.adaptive_pressure_tolerance,1),choice(r.track_momentum,0),
             cells>=count(r.parallel_threshold,200000)?1u:0u,
             {number(r.mom_tol,1e-4),number(r.mass_local_tol,1e-6),number(r.mass_global_tol,1e-6),.01,1e-4,1e-3,2,5,60}};
