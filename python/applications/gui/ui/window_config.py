@@ -12,11 +12,11 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, get_args
 
 from sjtu_tpmshx.data_types.compute_config import (
     ComputeConfig, ExtrapPolicy, FeatureFlags, FluidConfig, FluidType,
-    GeometryConfig, PartialBCConfig, SolverConfig, ZoneAxis, ZoneInputConfig,
+    GeometryConfig, PartialBCConfig, SolverConfig, TPMSType, ZoneAxis, ZoneInputConfig,
 )
 
 DOMAIN_SHAPE_NOTICE = (
@@ -46,6 +46,13 @@ def _qt_text(widget) -> str:
         return text_fn()
     except Exception:
         return ''
+
+
+def _selected_topology(combo) -> TPMSType:
+    name = combo.currentText()
+    if name not in get_args(TPMSType):
+        raise ValueError(f'Unsupported TPMS topology {name!r}')
+    return name
 
 
 def _qt_float(widget, default: float) -> float:
@@ -452,11 +459,9 @@ def config_from_window(window, *, strict: bool = False,
     # ── table-driven scalar reads (B2 2.4: CONFIG_FIELDS single source;
     # ── special rows keep their bespoke semantics explicit below) ──
     # geometry — topology and the active 3D depth are read separately:
-    tpms = _qt_text(getattr(window, 'combo_tpms', None)) or 'Gyroid'
-    if tpms not in ('Diamond', 'Gyroid'):
-        tpms = 'Gyroid'
+    topology_combo = getattr(window, 'combo_tpms', None)
     geom = GeometryConfig(
-        tpms=tpms,
+        tpms=_selected_topology(topology_combo) if topology_combo is not None else GeometryConfig.tpms,
         Lz_m=(_qt_float(getattr(window, 'le_Lz', None), 0.042)
               if is_3d and getattr(window, 'le_Lz', None) is not None else None),
         **_read_section_fields(window, 'geometry'),
