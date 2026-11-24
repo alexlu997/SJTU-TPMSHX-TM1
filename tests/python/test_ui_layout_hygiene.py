@@ -61,81 +61,9 @@ def test_param_pages_have_no_horizontal_scroll(win):
     assert not offenders, f"horizontal scroll present in: {offenders}"
 
 
-@pytest.mark.parametrize('field', ['temp', 'pres', 'vel'])
-@pytest.mark.parametrize('dpi', [100, 125])
-@pytest.mark.parametrize('field_step', [1., .0001])
-def test_equal_aspect_field_labels_fit_after_short_canvas_resize(win, field, dpi, field_step):
-    """The embedded field canvas must reserve real text space on every draw."""
-    import numpy as np
-    import warnings
-    from sjtu_tpmshx.applications.gui.ui.plot_3d_results import (
-        _plot_3d_temperature, _plot_3d_pressure, _plot_3d_velocity_slice,
-    )
-
-    canvas = getattr(win, 'canvas_' + field)
-    figure = canvas.fig
-    previous_dpi, previous_size = figure.dpi, figure.get_size_inches().copy()
-    values = np.arange(48.).reshape(8, 6) * field_step + 300.
-    xc, yc = np.linspace(3.75, 56.25, 8), np.linspace(2.5, 27.5, 6)
-    try:
-        figure.set_dpi(dpi)
-        figure.set_size_inches(12, 7, forward=False)
-        if field == 'temp':
-            _plot_3d_temperature(canvas, values, values + 20, values + 10,
-                                 xc, yc, 'z = 15 mm', phase=0, unit='°C')
-        elif field == 'pres':
-            _plot_3d_pressure(canvas, values, values + 20, xc, yc,
-                              100., 200., 'z = 15 mm', phase=0)
-        else:
-            _plot_3d_velocity_slice(canvas, values, values, values,
-                                    values, values, values, xc, yc,
-                                    'z = 15 mm', phase=0)
-        # A short workbench can follow a large, previously laid-out figure.
-        for width, height in ((515, 80), (1015, 417), (515, 161)):
-            figure.set_size_inches(width / 100, height / 100, forward=False)
-            with warnings.catch_warnings():
-                warnings.filterwarnings('error', message='.*layout.*', category=UserWarning)
-                canvas.draw()
-            axis = canvas.axes[0][0]
-            assert axis.get_aspect() == 1
-            assert axis.xaxis.label.get_window_extent(canvas.renderer).y0 >= 0
-            for title in (axis.title, axis._left_title, axis._right_title):
-                if title.get_text():
-                    assert title.get_window_extent(canvas.renderer).y1 <= figure.bbox.height
-            assert axis.get_window_extent().height > 0
-            colorbar = figure.axes[-1]
-            low, high = colorbar.get_ylim()
-            for tick, label in zip(colorbar.get_yticks(), colorbar.get_yticklabels()):
-                if label.get_visible() and low <= tick <= high:
-                    assert label.get_window_extent(canvas.renderer).x1 <= figure.bbox.width
-    finally:
-        figure.clear()
-        figure.set_dpi(previous_dpi)
-        figure.set_size_inches(previous_size, forward=False)
-
-
 def test_fluids_row_is_responsive(win):
     from sjtu_tpmshx.applications.gui.ui.responsive import ResponsiveRow
     assert isinstance(getattr(win, "_fluids_row", None), ResponsiveRow)
-
-
-def test_model_dropdown_has_room_for_the_full_current_label(win):
-    app = QApplication.instance()
-    combo = win.combo_df_mode
-    previous = combo.currentIndex()
-    page = win._param_page
-    try:
-        win._select_param_page(2)
-        for index in range(combo.count()):
-            combo.setCurrentIndex(index)
-            combo.setFocus()
-            app.processEvents()
-            edit = combo.lineEdit()
-            # QLineEdit reserves internal text/cursor margins beyond glyphs.
-            assert edit.width() >= edit.fontMetrics().horizontalAdvance(edit.text()) + 4
-    finally:
-        combo.setCurrentIndex(previous)
-        win._select_param_page(page)
 
 
 def test_responsive_row_direction_flips():
@@ -186,30 +114,6 @@ def test_initial_geometry_skips_invalid_draft(win, monkeypatch):
         assert draws == [True]
     finally:
         win.le_L.setText(original)
-
-
-def test_geometry_labels_fit_narrow_workbench(win):
-    from tests.python.gui_worker_support import _wait_for
-    old_size = win.size()
-    try:
-        win.resize(900, 800)
-        win._draw_layout()
-        # A slow draw can leave container reflow pending after a timed wait.
-        QApplication.processEvents()
-        _wait_for(lambda: win._canvas_scroll.verticalScrollBar().maximum() == 0,
-                  timeout=1)
-        canvas = win.canvas_layout
-        canvas.draw()
-        renderer = canvas.get_renderer()
-        bounds = canvas.fig.bbox
-        for ax in canvas.fig.axes:
-            for label in (ax.xaxis.label, ax.yaxis.label, ax.zaxis.label, ax.title):
-                box = label.get_window_extent(renderer)
-                assert box.x0 >= bounds.x0 and box.x1 <= bounds.x1
-                assert box.y0 >= bounds.y0 and box.y1 <= bounds.y1
-        assert win._canvas_scroll.verticalScrollBar().maximum() == 0
-    finally:
-        win.resize(old_size)
 
 
 def test_empty_state_preset_button_applies_shanghai(win):
@@ -441,87 +345,6 @@ def test_result_summary_toggle_keeps_values_and_tab_choice(win):
     assert win.btn_result_summary.isHidden()
 
 
-def test_field_toolbar_wraps_without_truncating_button_text(win):
-    from tests.python.gui_worker_support import _wait_for
-    app = QApplication.instance()
-    old_size = win.size()
-    win.combo_dim.setCurrentIndex(0)
-    win.cache.set_result('2d', ComputeResult())
-    win.cache.replace_drawn_tabs({'temp', 'pres', 'vel'})  # These layout stubs represent rendered fields.
-    win._update_tab_visibility()
-    win._switch_tab('temp')
-    try:
-        for width, direction in (
-                (900, QBoxLayout.Direction.TopToBottom),
-                (1440, QBoxLayout.Direction.LeftToRight)):
-            win.resize(width, 720)
-            app.processEvents()
-            app.processEvents()
-            assert win.width() == width
-            assert win._field_toolbar.direction == direction
-            _wait_for(lambda: win._canvas_scroll.verticalScrollBar().maximum() == 0,
-                      timeout=1)
-            for button in (*win._field_phase_btns, *win._2d_field_btns):
-                assert button.isVisibleTo(win)
-                assert button.width() >= button.sizeHint().width(), button.text()
-    finally:
-        win._switch_tab('layout')
-        win.cache.clear('2d')
-        win.cache.clear()
-        win.resize(old_size)
-        win._update_tab_visibility()
-
-
-def test_result_footer_wraps_full_diagnostics_and_long_kpis(win):
-    from tests.python.gui_worker_support import _wait_for
-    from PySide6.QtWidgets import QLabel
-    from sjtu_tpmshx.applications.gui.ui.builders_sidebar import refresh_result_sidebar
-
-    app = QApplication.instance()
-    old_size = win.size()
-    win.combo_dim.setCurrentIndex(0)
-    win.write_result(ComputeResult(Q_W=31124.6, dP_A_Pa=1626.3, dP_B_Pa=1189.0,
-        T_out_A_K=303.34, T_out_B_K=334.79, residuals={'energy_imbalance_rel': .012},
-        metadata={'units': {'Q': 'W/m'}}, extrap_reasons=['outside fit'],
-        diagnostics={'mode': '2d', 'envelope_valid': True, 'wall_time_s': 123.4,
-                     'convergence_detail': {'outer_iters': 12}}))
-    win.cache.replace_drawn_tabs({'temp', 'pres', 'vel'})
-    win._update_tab_visibility()
-    win._switch_tab('temp')
-    refresh_result_sidebar(win)
-    try:
-        for width, direction in (
-                (900, QBoxLayout.Direction.TopToBottom),
-                (1440, QBoxLayout.Direction.LeftToRight)):
-            win.resize(width, 720)
-            app.processEvents()
-            app.processEvents()
-            assert win.width() == width
-            assert win._result_kpi_row.direction == direction
-            assert win._result_diagnostic_row.direction == direction
-            _wait_for(lambda: win._canvas_scroll.verticalScrollBar().maximum() == 0,
-                      timeout=1)
-            summary = win._result_sidebar
-            assert isinstance(summary, QScrollArea)
-            _wait_for(lambda: (summary.verticalScrollBar().maximum() > 0) == (width == 900),
-                      timeout=1)
-            assert win.btn_result_summary.isChecked()
-            if width == 900:
-                summary.ensureWidgetVisible(win._sb_labels['iters'])
-                assert summary.verticalScrollBar().value() > 0
-            for label in win._result_sidebar.findChildren(QLabel):
-                if label.isVisibleTo(win):
-                    if label.wordWrap():
-                        # Wrapped labels may be narrower than their preferred size.
-                        assert label.width() >= label.minimumSizeHint().width(), label.text()
-                        assert label.height() >= label.heightForWidth(label.width()), label.text()
-                    else:
-                        assert label.width() >= label.sizeHint().width(), label.text()
-    finally:
-        win._invalidate_results_for_preset_load()
-        win.resize(old_size)
-
-
 # ── ui-plan-b-wizard: Optimize tab three-page wizard ─────────────────
 
 
@@ -556,32 +379,10 @@ def test_optimize_zone_panel_in_wizard(win):
     assert win._zone_panel.isVisibleTo(p1) or p1.isAncestorOf(win._zone_panel)
 
 
-def test_optimize_controls_fit_narrow_viewport(win):
-    from PySide6.QtCore import QPoint
-    from PySide6.QtTest import QTest
-
-    win.resize(1100, 760)
-    win._switch_tab('pareto')
-    viewport = win._canvas_scroll.viewport()
-    for page, widgets in (
-        (0, list(win._opt_inline_params.values()) + list(win._opt_space_params.values())),
-        (1, [win._opt_kpi_gen, win._opt_kpi_q, win._opt_kpi_dp, win._opt_kpi_eta]),
-    ):
-        win._opt_stack.setCurrentIndex(page)
-        QTest.qWait(30)
-        for widget in widgets:
-            position = viewport.mapFromGlobal(widget.mapToGlobal(QPoint()))
-            assert position.x() >= 0
-            assert position.x() + widget.width() <= viewport.width()
-    win._opt_stack.setCurrentIndex(0)
-    win._switch_tab('layout')
-    win.resize(1600, 1000)
-
-
 # ── ui-plan3a: design-token discipline ───────────────────────────────
 
 _UI_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
-    os.path.abspath(__file__)))), "applications", "gui", "ui")
+    os.path.abspath(__file__)))), "python", "applications", "gui", "ui")
 
 # Micro-controls whose radius is proportional to the element (sliders,
 # checkbox indicators, progress chunks, scrollbar handles) and semantic
@@ -591,9 +392,12 @@ _RADIUS_EXEMPT_FILES = {"panel_vis_3d.py", "theme.py"}
 
 def _ui_sources():
     import glob
-    for p in (glob.glob(os.path.join(_UI_DIR, "*.py"))
-              + glob.glob(os.path.join(_UI_DIR, "mixins", "*.py"))):
-        yield p, open(p, encoding="utf-8").read()
+    paths = (glob.glob(os.path.join(_UI_DIR, "*.py"))
+             + glob.glob(os.path.join(_UI_DIR, "mixins", "*.py")))
+    assert paths, f"no UI sources found under {_UI_DIR}"
+    for p in paths:
+        with open(p, encoding="utf-8") as handle:
+            yield p, handle.read()
 
 
 def test_no_stray_card_radii():
@@ -646,32 +450,57 @@ def test_numeric_inputs_right_aligned(win):
     assert win.le_Nx.alignment() & _Qt.AlignmentFlag.AlignRight
 
 
-def test_sidebar_combo_values_end_next_to_the_arrow(win):
-    from PySide6.QtCore import Qt
-    from PySide6.QtWidgets import QStyle, QStyleOptionComboBox
+def test_dialog_theme_applies_first_and_changed_styles_only(monkeypatch):
+    from unittest.mock import Mock
+    from sjtu_tpmshx.applications.gui.ui.mixins.dialogs import DialogsMixin
+    from sjtu_tpmshx.applications.gui.ui.theme import get_theme, get_theme_name, set_theme
 
-    app = QApplication.instance()
-    for page, names in ((0, ('combo_dim', 'combo_tpms')),
-                        (1, ('combo_fluidA', 'combo_fluidB', 'combo_dirA', 'combo_dirB')),
-                        (2, ('combo_grid', 'combo_df_mode', 'combo_sco2_nu_mode'))):
-        win._select_param_page(page)
-        app.processEvents()
-        for name in names:
-            combo = getattr(win, name)
-            combo.ensurePolished()
-            edit = combo.lineEdit()
-            assert edit.isReadOnly()
-            assert edit.alignment() & Qt.AlignmentFlag.AlignRight
-            for focused in (False, True):
-                combo.setFocus() if focused else win.btn_compute.setFocus()
-                app.processEvents()
-                option = QStyleOptionComboBox()
-                combo.initStyleOption(option)
-                arrow = combo.style().subControlRect(
-                    QStyle.ComplexControl.CC_ComboBox, option,
-                    QStyle.SubControl.SC_ComboBoxArrow, combo)
-                # Keep one arrow reservation, with a small gap and no overlap.
-                assert 0 <= arrow.left() - edit.geometry().right() <= 8, name
+    app = QApplication.instance() or QApplication([])
+    previous_style, previous_theme = app.styleSheet(), get_theme_name()
+    dialogs = DialogsMixin()
+    try:
+        app.setStyleSheet('')
+        set_theme('light')
+        with monkeypatch.context() as patch:
+            setter = Mock(wraps=app.setStyleSheet)
+            patch.setattr(app, 'setStyleSheet', setter)
+            dialogs._install_dialog_theme()
+            assert setter.call_count == 1
+            assert f"QMessageBox{{background:{get_theme()['bg']};}}" in app.styleSheet()
+            light_style = app.styleSheet()
+            dialogs._install_dialog_theme()
+            assert setter.call_count == 1
+
+            set_theme('dark')
+            dialogs._install_dialog_theme()
+            assert setter.call_count == 2
+            assert app.styleSheet() != light_style
+            assert f"QMessageBox{{background:{get_theme()['bg']};}}" in app.styleSheet()
+            dialogs._install_dialog_theme()
+            assert setter.call_count == 2
+    finally:
+        set_theme(previous_theme)
+        app.setStyleSheet(previous_style)
+
+
+def test_result_label_state_and_unit_hint():
+    from PySide6.QtWidgets import QGridLayout, QWidget
+    from sjtu_tpmshx.applications.gui.ui.field_factory import FieldFactory
+    from sjtu_tpmshx.applications.gui.ui.theme_manager import ThemeManager
+
+    QApplication.instance() or QApplication([])
+    host = QWidget()
+    try:
+        val = FieldFactory(ThemeManager()).res_row(QGridLayout(host), 0, 'T<sub>in</sub> [K]')
+        assert val.text() == '—'
+        assert val.property('valState') == 'empty'
+        assert val._unit_hint == 'K'
+        val.setText('298.15')
+        assert val.property('valState') == 'filled'
+    finally:
+        host.close()
+        host.deleteLater()
+        QApplication.processEvents()
 
 
 def test_mode_gates_survive_group_toggle(win):

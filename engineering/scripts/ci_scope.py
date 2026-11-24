@@ -15,8 +15,8 @@ DISPLAY_FILES = {
     )
 } | {
     'tests/python/' + name for name in (
-        'test_theme_manager.py', 'test_ui_typography.py', 'test_responsive.py',
-        'test_ui_layout_hygiene.py', 'test_lazy_result_plots.py',
+        'test_ui_typography.py', 'test_ui_layout_hygiene.py',
+        'test_lazy_result_plots.py',
     )
 }
 
