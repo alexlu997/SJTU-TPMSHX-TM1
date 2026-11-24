@@ -38,6 +38,7 @@ The solver runs that prepared state, and the result library evaluates recorded e
 Store the prepared owner in a variable before you pass it to `saved_case`, `SavedCase2D`, or `SavedPreparedCase3D`.
 Use `const auto saved = saved_case(prepared);` to keep the complete descriptor.
 Pass `saved` when you start or restore a `Run2D` or `Run3D`.
+For a 3D base view, bind `const SavedCase3D& view = saved;`. The SDK rejects copying the prepared descriptor into a base value.
 A raw 2D or 3D C record copied from `saved` still borrows storage from the original descriptor.
 Keep the prepared owner and original descriptor alive and unchanged until successful result transfer or run release.
 Keep the callback functions and their context valid until you release the run.
