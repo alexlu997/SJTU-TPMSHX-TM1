@@ -22,10 +22,14 @@ def test_reference_packages_match_their_test_and_offline_consumers():
     project = tomllib.loads((_ROOT / 'pyproject.toml').read_text(encoding='utf-8'))['project']
     extras = project['optional-dependencies']
     reference = {'sympy', 'scikit-image', 'coolprop'}
-    for entries, expected in ((project['dependencies'], set()), (extras['offline'], {'coolprop'}),
-                              (extras['test'], reference)):
-        names = {canonicalize_name(Requirement(raw).name) for raw in entries}
-        assert reference & names == expected
+
+    def package_names(entries):
+        return {canonicalize_name(Requirement(raw).name) for raw in entries}
+
+    assert 'io' not in extras
+    assert package_names(extras['offline']) == {'coolprop'}
+    assert reference.isdisjoint(package_names(project['dependencies']))
+    assert reference <= package_names(extras['test'])
 
 
 def test_declared_environment_is_fully_locked_and_installed():
