@@ -5,6 +5,7 @@
 
 #include "tpmshx/enthalpy_driver.hpp"
 #include "tpmshx/closure_evidence.hpp"
+#include "tpmshx/model_coefficients.hpp"
 #include "tpmshx/model_h_2d.hpp"
 #include "tpmshx/model_h_3d.hpp"
 #include "tpmshx/pressure_reference.hpp"
@@ -67,7 +68,7 @@ struct Full3DControl {
     int roughness_mode = 0;  // 0 baseline, 1 retained norris_1a, 2 bhatti_shah_1b
     double roughness_height = 1e-4;
     int envelope_mode = 0;   // 0 raise, 1 warn, 2 off; all retain gate truth
-    Simple3DControl simple{2000,1,100,.5,.2,.3,0.,287.05,.05,
+    Simple3DControl simple{2000,1,100,.5,.2,.3,0.,model_coefficients::envelope_r_air,.05,
         true,true,false,true,false,Simple3DOrdering::natural,
         {1e-4,1e-6,1e-6,.01,1e-4,1e-3,2,5,60},nullptr,nullptr,nullptr};
     EnthalpyControl enthalpy = full_enthalpy_control(3);
