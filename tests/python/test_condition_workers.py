@@ -31,11 +31,13 @@ def _analytic_worker(index, case_file, directory, library, threads, checkpoint_f
                         'step': np.array([step+1], dtype=np.uint64)})
         started = Path(directory).parent / f'started-{index}'
         started.write_text(str(os.getpid()))
+        first_condition = json.loads((started.parent / 'batch-input.json').read_text())[0]['condition_id']
         if index < 2 and resume_state is None:
             deadline = monotonic()+15.
             while len(list(started.parent.glob('started-*'))) < 2:
                 control.check_cancelled()
-                if monotonic() > deadline:
+                # The crash probe bounds both workers with one process-tree timeout.
+                if first_condition != 'crash' and monotonic() > deadline:
                     raise TimeoutError('The second test worker did not start.')
                 sleep(.01)
         control.iteration(label)
@@ -51,8 +53,11 @@ def _analytic_worker(index, case_file, directory, library, threads, checkpoint_f
             # Manager-backed cancellation must not expose a cross-process semaphore lock.
             assert not hasattr(batch._batch_cancel, '_cond')
             os._exit(17)
-        inputs = json.loads((Path(directory).parent / 'batch-input.json').read_text())
-        if inputs[0]['condition_id'] == 'pause' and index < 2 and resume_state is None:
+        if first_condition == 'crash' and index == 1:
+            # Keep this slot occupied until the parent detects the broken pool.
+            batch._batch_cancel.wait()
+            control.check_cancelled()
+        if first_condition == 'pause' and index < 2 and resume_state is None:
             deadline = monotonic()+10.
             while monotonic() < deadline:
                 control.check_cancelled()
@@ -61,7 +66,7 @@ def _analytic_worker(index, case_file, directory, library, threads, checkpoint_f
                                 'step': np.array([step+2], dtype=np.uint64)})
                 sleep(.01)
             raise TimeoutError('The parent did not pause the test worker.')
-        waits_for_cancel = label == 'stop' or (label == 'mid' and inputs[0]['condition_id'] in ('stop', 'crash'))
+        waits_for_cancel = label == 'stop' or (label == 'mid' and first_condition == 'stop')
         if waits_for_cancel and resume_state is None:
             # Keep a finite wait bound so an uncancelled peer exits instead of hanging.
             deadline = monotonic() + 25.
@@ -361,8 +366,8 @@ def test_worker_exit_keeps_last_complete_checkpoint(tmp_path, crash_delay_s):
     assert proc.returncode == 0, f'probe exited with {proc.returncode}\nstdout:\n{stdout}\nstderr:\n{stderr}'
     record = json.loads((root / 'batch.json').read_text())
     assert record['status'] == 'failed' and record['objectives'] is None
-    assert record['conditions'][2]['status'] == 'not_run'
-    assert all(row['status'] not in ('running', 'computed') for row in record['conditions'])
+    statuses = [row['status'] for row in record['conditions']]
+    assert statuses == ['failed', 'failed', 'not_run'], [row['reason'] for row in record['conditions']]
     checkpoint = root / 'condition_001/run/checkpoint.h5'
     assert checkpoint.is_file()
     saved, _, _ = read_run_checkpoint(checkpoint)
