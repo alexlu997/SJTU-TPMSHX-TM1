@@ -233,4 +233,3 @@ def _volume_info(result, shape, *, include_faces=True, cell_count=None):
         full_residual_sum_W=audit.full_residual_sum, telescoping_error_W=audit.telescoping_error,
         qualification='No physical acceptance inferred. Non-inlet inflow uses numerical self-extrapolation; its external h is unspecified.')
     return dict(model_h_balance=balance, _native_model_h=native_faces, **strict, delegated_to_2d=False)
-

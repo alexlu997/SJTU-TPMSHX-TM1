@@ -25,4 +25,3 @@ def test_actual_boundary_mass_requires_open_prescribed_ports(dimension, directio
     other = (direction // 2 + 1) % dimension
     mass[other].flat[0] = 1.
     assert not ports_complete(mass, direction, opening, opening)
-
