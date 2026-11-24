@@ -1,6 +1,5 @@
-"""Shared ctypes layouts, configurations and checks for the native preparation ABI tests."""
+"""Shared ctypes helpers, configurations and checks for the native preparation tests."""
 import ctypes as ct
-import warnings
 
 import numpy as np
 
@@ -11,15 +10,8 @@ from tests.python.solver_tm1.test_prepared_zoned_thermal_2d import _config
 
 
 _library_path = preparation_library.path
-_U, _S, _D = ct.c_uint32, ct.c_size_t, ct.c_double
-
-
-def _structure(name, fields):
-    return type(name, (ct.Structure,), {'_fields_': fields})
-
-
-_Array = _structure('Array', [('data', ct.POINTER(_D)), ('size', _S)])
-_Text = _structure('Text', [('data', ct.POINTER(ct.c_char)), ('size', _S)])
+_U, _S = ct.c_uint32, ct.c_size_t
+_Failure = abi._Failure
 
 
 def _text(value):
@@ -35,12 +27,6 @@ def _same(actual, expected, name):
     expected = np.asarray(expected, dtype=np.float64)
     assert actual.shape == expected.shape, name
     np.testing.assert_array_equal(actual.view(np.uint64), expected.view(np.uint64), err_msg=name)
-
-
-_Nu = abi._Nu
-_Cause = abi._Cause
-_Failure = abi._Failure
-_Drag = abi._ContinuousDrag
 
 
 def _configuration_fluids(topology, pair, mode='cfd_smooth'):
@@ -66,12 +52,6 @@ def _configuration_fluids(topology, pair, mode='cfd_smooth'):
     return config
 
 
-def _error_kind(error):
-    if type(error).__name__ == 'WaterStateError':
-        return 2
-    return 1 if isinstance(error, ValueError) else 3
-
-
 def _configuration_mass_flow(topology='Gyroid', pair=('air', 'water'), mode='cfd_smooth'):
     config = _configuration_fluids(topology, pair, mode)
     config.geometry.Lz_m = .042
@@ -86,20 +66,6 @@ def _configuration_continuous(topology='Gyroid', pair=('air', 'water'), mode='cf
         x_decision=[float(value) for value in np.r_[np.linspace(4.2, 7.8, count), np.linspace(.57, .32, count)]])
     config.zones = ZoneInputConfig(enabled=True, axis='continuous', config=spec)
     return config
-
-
-def _host_events(events):
-    from sjtu_tpmshx.cpp_interface._native_properties import _floating_events
-    result = []
-    for event in events:
-        if event[0] != 2:
-            result.append(event)
-            continue
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter('always')
-            _floating_events([event[3]])
-        result.extend((1, '', str(item.message), 0) for item in caught)
-    return result
 
 
 def _visible_buffers(value, path='result'):
@@ -174,9 +140,6 @@ def _configuration_spatial(mode, topology='Gyroid'):
     config.zones.grid['tpms_type'] = topology
     config.geometry.Lz_m = .042
     return config
-
-
-_visible_buffers_spatial = _visible_buffers
 
 
 def _check_owned_aliases_spatial(call, result, destination):

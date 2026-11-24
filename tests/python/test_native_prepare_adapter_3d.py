@@ -434,3 +434,18 @@ def test_continuous_rejects_invalid_controls_and_offset(selection, match):
         config.geometry.delta_levelset = .1
     with pytest.raises(ValueError, match=match):
         api.prepare_case(config, case_id='continuous-error')
+
+
+@pytest.mark.parametrize('mode', ['offset', 'xyz'])
+@pytest.mark.parametrize('operation', ['capacity', 'resolve'])
+def test_flow_queries_emit_out_of_range_observations(monkeypatch, mode, operation):
+    config = _configuration(mode)
+    config.fluid_A.T_in_K = 190.
+    targets = (.001, .01) if operation == 'resolve' else None
+    _, _, ranges, _ = _capture(monkeypatch, api, operation, config, targets)
+    observed = {(row['source'], row['low']) for row in ranges if row.get('low')}
+    assert observed >= {
+        (('property', 'air_viscosity'), 1),
+        (('property', 'air_cp'), 1),
+        (('property', 'air_conductivity'), 1),
+    }

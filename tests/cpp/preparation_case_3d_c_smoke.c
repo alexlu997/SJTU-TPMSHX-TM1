@@ -31,12 +31,24 @@
     } \
 } while (0)
 
-/* A request with an invalid geometry transport must fail before it writes its result. */
-#define REJECT_REQUEST(function,result_type,request) do { \
+/* A request with an invalid geometry mode or grid rectangle must report an input failure without writing its result. */
+#define REJECT_INPUT(function,result_type,request,expected) do { \
     result_type result_={0},saved_result_; \
     result_.abi_version=1;result_.struct_size=sizeof(result_);saved_result_=result_; \
-    CHECK(function(&(request),&options,NULL,&result_,&failure,error,sizeof(error))!=0); \
+    failure.kind=0;error[0]=0; \
+    CHECK(function(&(request),&options,NULL,&result_,&failure,error,sizeof(error))==1); \
+    CHECK(failure.kind==1 && error[0] && (!(expected) || strstr(error,(expected))!=NULL)); \
     CHECK(!memcmp(&result_,&saved_result_,sizeof(result_))); \
+} while (0)
+
+/* A request with a null cell buffer and positive count fails in the pointer pre-check without touching diagnostics. */
+#define REJECT_BUFFER(function,result_type,request) do { \
+    result_type result_={0},saved_result_; \
+    result_.abi_version=1;result_.struct_size=sizeof(result_);saved_result_=result_; \
+    memset(error,17,sizeof(error));memcpy(saved_error,error,sizeof(error));saved_failure=failure; \
+    CHECK(function(&(request),&options,NULL,&result_,&failure,error,sizeof(error))==1); \
+    CHECK(!memcmp(&result_,&saved_result_,sizeof(result_)) && !memcmp(error,saved_error,sizeof(error))); \
+    CHECK(!memcmp(&failure,&saved_failure,sizeof(failure))); \
 } while (0)
 
 /* A live result owns the view at data. The view must not become a failure or a 1-byte error output. */
@@ -294,14 +306,14 @@ int main(void) {
         CHECK(!memcmp(&failure,&saved_failure,sizeof(failure)));
     }
     {
-        /* Record versions, geometry transport, and diagnostic aliases on all six 3D entry points. */
-        tpmshx_preparation_3d_spatial_input_v1 uniform={0},grid,bad_spatial;
-        tpmshx_preparation_3d_continuous_input_v1 continuous={0},experimental,bad_continuous;
-        tpmshx_preparation_3d_spatial_flow_v1 spatial_flow={0};
+        /* Record versions, geometry transport, grid rectangles, out-of-range evidence, and aliases on 3D entries. */
+        tpmshx_preparation_3d_spatial_input_v1 uniform={0},grid,bad_spatial,cold_spatial;
+        tpmshx_preparation_3d_continuous_input_v1 continuous={0},experimental,bad_continuous,cold_continuous;
+        tpmshx_preparation_3d_spatial_flow_v1 spatial_flow={0},saved_spatial_flow;
         tpmshx_preparation_3d_spatial_case_v1 spatial_case={0};
-        tpmshx_preparation_3d_continuous_flow_v1 continuous_flow={0};
+        tpmshx_preparation_3d_continuous_flow_v1 continuous_flow={0},saved_continuous_flow;
         tpmshx_preparation_3d_continuous_case_v1 continuous_case={0},drag_case={0};
-        tpmshx_preparation_grid_cell_3d_v4 cells[2]={{{0.,.7,0.,1.},4.5,.31},{{.4,1.,.2,.8},7.5,.59}};
+        tpmshx_preparation_grid_cell_3d_v4 cells[2]={{{0.,.7,0.,1.},4.5,.31},{{.4,1.,.2,.8},7.5,.59}},bad_cells[2];
         double decisions[]={4.5,6.,7.5,5.4,.31,.42,.59,.36};
         char nu_source[]="source";
         uniform.abi_version=continuous.abi_version=1;
@@ -329,33 +341,73 @@ int main(void) {
         REJECT_RECORDS(tpmshx_preparation_3d_continuous_prepare_case_v1,tpmshx_preparation_3d_continuous_input_v1,
             tpmshx_preparation_3d_continuous_case_v1,continuous);
 
-        /* Spatial input rejects continuous mode, uniform cells, and missing cells. */
-        for (i=0;i<3;++i) {
+        /* Spatial input rejects continuous mode, uniform cells, missing cells, empty grid cells, and bad bounds. */
+        for (i=0;i<2;++i) {
             bad_spatial=i==0?uniform:grid;
-            if (i==0) bad_spatial.input.geometry_mode=1;
-            else if (i==1) bad_spatial.input.geometry_mode=0;
-            else bad_spatial.cells=NULL;
-            REJECT_REQUEST(tpmshx_preparation_3d_spatial_capacities_v1,tpmshx_preparation_3d_spatial_flow_v1,bad_spatial);
-            REJECT_REQUEST(tpmshx_preparation_3d_spatial_resolve_flow_v1,tpmshx_preparation_3d_spatial_flow_v1,bad_spatial);
-            REJECT_REQUEST(tpmshx_preparation_3d_spatial_prepare_case_v1,tpmshx_preparation_3d_spatial_case_v1,bad_spatial);
+            bad_spatial.input.geometry_mode=i==0?1u:0u;
+            REJECT_INPUT(tpmshx_preparation_3d_spatial_capacities_v1,tpmshx_preparation_3d_spatial_flow_v1,bad_spatial,NULL);
+            REJECT_INPUT(tpmshx_preparation_3d_spatial_resolve_flow_v1,tpmshx_preparation_3d_spatial_flow_v1,bad_spatial,NULL);
+            REJECT_INPUT(tpmshx_preparation_3d_spatial_prepare_case_v1,tpmshx_preparation_3d_spatial_case_v1,bad_spatial,NULL);
         }
+        bad_spatial=grid;bad_spatial.cells=NULL;
+        REJECT_BUFFER(tpmshx_preparation_3d_spatial_capacities_v1,tpmshx_preparation_3d_spatial_flow_v1,bad_spatial);
+        REJECT_BUFFER(tpmshx_preparation_3d_spatial_resolve_flow_v1,tpmshx_preparation_3d_spatial_flow_v1,bad_spatial);
+        REJECT_BUFFER(tpmshx_preparation_3d_spatial_prepare_case_v1,tpmshx_preparation_3d_spatial_case_v1,bad_spatial);
+        bad_spatial=grid;bad_spatial.cells=NULL;bad_spatial.cell_count=0;
+        REJECT_INPUT(tpmshx_preparation_3d_spatial_capacities_v1,tpmshx_preparation_3d_spatial_flow_v1,bad_spatial,"non-empty grid cells");
+        REJECT_INPUT(tpmshx_preparation_3d_spatial_resolve_flow_v1,tpmshx_preparation_3d_spatial_flow_v1,bad_spatial,"non-empty grid cells");
+        REJECT_INPUT(tpmshx_preparation_3d_spatial_prepare_case_v1,tpmshx_preparation_3d_spatial_case_v1,bad_spatial,"non-empty grid cells");
+        memcpy(bad_cells,cells,sizeof(cells));bad_cells[0].bounds[1]=-1.;
+        bad_spatial=grid;bad_spatial.cells=bad_cells;
+        REJECT_INPUT(tpmshx_preparation_3d_spatial_capacities_v1,tpmshx_preparation_3d_spatial_flow_v1,bad_spatial,"Zone grid cell 1: x");
+        REJECT_INPUT(tpmshx_preparation_3d_spatial_resolve_flow_v1,tpmshx_preparation_3d_spatial_flow_v1,bad_spatial,"Zone grid cell 1: x");
+        REJECT_INPUT(tpmshx_preparation_3d_spatial_prepare_case_v1,tpmshx_preparation_3d_spatial_case_v1,bad_spatial,"Zone grid cell 1: x");
+
         /* Continuous input rejects the uniform and grid modes. */
         for (i=0;i<2;++i) {
             bad_continuous=continuous;bad_continuous.input.geometry_mode=i?2u:0u;
-            REJECT_REQUEST(tpmshx_preparation_3d_continuous_capacities_v1,tpmshx_preparation_3d_continuous_flow_v1,bad_continuous);
-            REJECT_REQUEST(tpmshx_preparation_3d_continuous_resolve_flow_v1,tpmshx_preparation_3d_continuous_flow_v1,bad_continuous);
-            REJECT_REQUEST(tpmshx_preparation_3d_continuous_prepare_case_v1,tpmshx_preparation_3d_continuous_case_v1,bad_continuous);
+            REJECT_INPUT(tpmshx_preparation_3d_continuous_capacities_v1,tpmshx_preparation_3d_continuous_flow_v1,bad_continuous,NULL);
+            REJECT_INPUT(tpmshx_preparation_3d_continuous_resolve_flow_v1,tpmshx_preparation_3d_continuous_flow_v1,bad_continuous,NULL);
+            REJECT_INPUT(tpmshx_preparation_3d_continuous_prepare_case_v1,tpmshx_preparation_3d_continuous_case_v1,bad_continuous,NULL);
         }
+
+        /* Capacity and resolve queries emit out-of-range evidence and warnings when inlet states extrapolate. */
+        cold_spatial=uniform;cold_spatial.input.sides[0].temperature_K=190.;
+        spatial_flow.abi_version=1;spatial_flow.struct_size=sizeof(spatial_flow);
+        CHECK(!tpmshx_preparation_3d_spatial_capacities_v1(&cold_spatial,&options,NULL,&spatial_flow,&failure,error,sizeof(error)));
+        CHECK(spatial_flow.flow.evidence.range_count>0 && spatial_flow.flow.evidence.warning_count>0);
+        tpmshx_preparation_3d_spatial_flow_release_v1(&spatial_flow);
+        cold_continuous=continuous;cold_continuous.input.sides[0].temperature_K=190.;
+        continuous_flow.abi_version=1;continuous_flow.struct_size=sizeof(continuous_flow);
+        CHECK(!tpmshx_preparation_3d_continuous_resolve_flow_v1(&cold_continuous,&options,NULL,&continuous_flow,&failure,error,sizeof(error)));
+        CHECK(continuous_flow.flow.evidence.range_count>0 && continuous_flow.flow.evidence.warning_count>0);
+        tpmshx_preparation_3d_continuous_flow_release_v1(&continuous_flow);
 
         spatial_flow.abi_version=spatial_case.abi_version=continuous_flow.abi_version=continuous_case.abi_version=1;
         spatial_flow.struct_size=sizeof(spatial_flow);spatial_case.struct_size=sizeof(spatial_case);
         continuous_flow.struct_size=sizeof(continuous_flow);continuous_case.struct_size=sizeof(continuous_case);
         drag_case=continuous_case;
         CHECK(!tpmshx_preparation_3d_spatial_resolve_flow_v1(&grid,&options,NULL,&spatial_flow,&failure,error,sizeof(error)));
+        CHECK(spatial_flow.flow.evidence.range_count>0);
+        saved_spatial_flow=spatial_flow;
+        CHECK(tpmshx_preparation_3d_spatial_capacities_v1(&grid,&options,NULL,&spatial_flow,&failure,error,sizeof(error))==1);
+        CHECK(strstr(error,"release") && !memcmp(&spatial_flow,&saved_spatial_flow,sizeof(spatial_flow)));
+        CHECK(tpmshx_preparation_3d_spatial_resolve_flow_v1(&grid,&options,NULL,&spatial_flow,&failure,error,sizeof(error))==1);
+        CHECK(strstr(error,"release") && !memcmp(&spatial_flow,&saved_spatial_flow,sizeof(spatial_flow)));
         REJECT_ALIAS(tpmshx_preparation_3d_spatial_resolve_flow_v1,grid,spatial_flow,
             spatial_flow.cells,spatial_flow.cell_count*sizeof(*spatial_flow.cells));
         REJECT_ALIAS(tpmshx_preparation_3d_spatial_resolve_flow_v1,grid,spatial_flow,
+            spatial_flow.flow.evidence.ranges,spatial_flow.flow.evidence.range_count*sizeof(*spatial_flow.flow.evidence.ranges));
+        REJECT_ALIAS(tpmshx_preparation_3d_spatial_resolve_flow_v1,grid,spatial_flow,
             spatial_flow.flow.input.sco2_nu.source.data,spatial_flow.flow.input.sco2_nu.source.size);
+        spatial_flow.struct_size=0;
+        REJECT_ALIAS(tpmshx_preparation_3d_spatial_resolve_flow_v1,grid,spatial_flow,
+            spatial_flow.flow.evidence.ranges,spatial_flow.flow.evidence.range_count*sizeof(*spatial_flow.flow.evidence.ranges));
+        spatial_flow.struct_size=sizeof(spatial_flow);
+        grid.input.abi_version=0;
+        REJECT_ALIAS(tpmshx_preparation_3d_spatial_resolve_flow_v1,grid,spatial_flow,
+            spatial_flow.flow.evidence.ranges,spatial_flow.flow.evidence.range_count*sizeof(*spatial_flow.flow.evidence.ranges));
+        grid.input.abi_version=1;
         tpmshx_preparation_3d_spatial_flow_release_v1(&spatial_flow);
         CHECK(!tpmshx_preparation_3d_spatial_prepare_case_v1(&grid,&options,NULL,&spatial_case,&failure,error,sizeof(error)));
         CHECK(spatial_case.have_side_geometry && spatial_case.side_b_porosity.data!=spatial_case.prepared.side_porosity.data);
@@ -372,8 +424,20 @@ int main(void) {
         tpmshx_preparation_3d_spatial_case_release_v1(&spatial_case);
 
         CHECK(!tpmshx_preparation_3d_continuous_resolve_flow_v1(&continuous,&options,NULL,&continuous_flow,&failure,error,sizeof(error)));
+        CHECK(continuous_flow.flow.evidence.range_count>0);
+        saved_continuous_flow=continuous_flow;
+        CHECK(tpmshx_preparation_3d_continuous_capacities_v1(&continuous,&options,NULL,&continuous_flow,&failure,error,sizeof(error))==1);
+        CHECK(strstr(error,"release") && !memcmp(&continuous_flow,&saved_continuous_flow,sizeof(continuous_flow)));
+        CHECK(tpmshx_preparation_3d_continuous_resolve_flow_v1(&continuous,&options,NULL,&continuous_flow,&failure,error,sizeof(error))==1);
+        CHECK(strstr(error,"release") && !memcmp(&continuous_flow,&saved_continuous_flow,sizeof(continuous_flow)));
         REJECT_ALIAS(tpmshx_preparation_3d_continuous_resolve_flow_v1,continuous,continuous_flow,
             continuous_flow.controls.decision_mm.data,continuous_flow.controls.decision_mm.size*sizeof(double));
+        REJECT_ALIAS(tpmshx_preparation_3d_continuous_resolve_flow_v1,continuous,continuous_flow,
+            continuous_flow.flow.evidence.ranges,continuous_flow.flow.evidence.range_count*sizeof(*continuous_flow.flow.evidence.ranges));
+        continuous_flow.struct_size=0;
+        REJECT_ALIAS(tpmshx_preparation_3d_continuous_resolve_flow_v1,continuous,continuous_flow,
+            continuous_flow.flow.evidence.ranges,continuous_flow.flow.evidence.range_count*sizeof(*continuous_flow.flow.evidence.ranges));
+        continuous_flow.struct_size=sizeof(continuous_flow);
         tpmshx_preparation_3d_continuous_flow_release_v1(&continuous_flow);
         CHECK(!tpmshx_preparation_3d_continuous_prepare_case_v1(&continuous,&options,NULL,&continuous_case,&failure,error,sizeof(error)));
         REJECT_ALIAS(tpmshx_preparation_3d_continuous_prepare_case_v1,continuous,continuous_case,
