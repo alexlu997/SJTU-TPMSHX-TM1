@@ -36,8 +36,8 @@ Preparation ABI 3、Quick Design v2、二维保存态阶段 ABI 5、三维保存
 调用 `saved_case`、`SavedCase2D` 或 `SavedPreparedCase3D` 前，先用变量保存准备所有者。
 用 `const auto saved = saved_case(prepared);` 保存完整的描述符。
 创建或恢复 `Run2D` 或 `Run3D` 时，传入 `saved`。
-需要三维基础视图时，用 `const SavedCase3D& view = saved;` 绑定引用。SDK 禁止将准备描述符按值复制为基类对象。
-将 `saved` 按值复制到二维或三维原始 C 结构体后，副本仍然借用原描述符的存储。
+将原始 C 结构体或 C++ 基类 `SavedCase3D` 按值复制后，副本仍然借用完整描述符的存储。
+如果外部适配器返回其内部描述符的引用，使用副本期间须保持该适配器存活。
 在成功取出结果或释放运行对象前，须保持准备所有者和原描述符存活且不变。
 回调函数及其上下文须一直有效，直到运行对象释放。
 一次性调用 `run_case` 可以直接接收临时准备所有者或临时描述符。

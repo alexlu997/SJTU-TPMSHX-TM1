@@ -8,6 +8,7 @@
 #include <cstring>
 #include <stdexcept>
 #include <thread>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -248,9 +249,13 @@ struct SavedCase3D : tpmshx_stage_saved_case_3d_v3 {
         abi_version=TPMSHX_STAGE_RUN_3D_SAVED_ABI_VERSION;struct_size=sizeof(tpmshx_stage_saved_case_3d_v3);
         inlet_recorded=1;
     }
-    // A base copy would keep a pointer into the original prepared descriptor.
-    SavedCase3D(const SavedPreparedCase3D&)=delete;
-    SavedCase3D& operator=(const SavedPreparedCase3D&)=delete;
+    // A copy of a prepared descriptor still points into the original descriptor.
+    SavedCase3D(const SavedPreparedCase3D&&)=delete;
+    SavedCase3D& operator=(const SavedPreparedCase3D&&)=delete;
+    template<class Source, std::enable_if_t<!std::is_same_v<Source, SavedCase3D>, int> = 0>
+    SavedCase3D(const Source&&)=delete;
+    template<class Source, std::enable_if_t<!std::is_same_v<Source, SavedCase3D>, int> = 0>
+    SavedCase3D& operator=(const Source&&)=delete;
 };
 struct RunRequest3D : tpmshx_stage_run_request_3d_v1 {
     RunRequest3D():tpmshx_stage_run_request_3d_v1{} {
