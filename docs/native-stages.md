@@ -36,8 +36,11 @@ Preparation computes physical grids, ports, fields, and model evidence.
 The solver runs that prepared state, and the result library evaluates recorded evidence independently.
 
 Store the prepared owner in a variable before you pass it to `saved_case`, `SavedCase2D`, or `SavedPreparedCase3D`.
-Store the saved descriptor in a variable before you start or restore a `Run2D` or `Run3D`.
-Keep both objects and the callback context alive and unchanged until you take the result or release the run.
+Use `const auto saved = saved_case(prepared);` to keep the complete descriptor.
+Pass `saved` when you start or restore a `Run2D` or `Run3D`.
+A raw 2D or 3D C record copied from `saved` still borrows storage from the original descriptor.
+Keep the prepared owner and original descriptor alive and unchanged until successful result transfer or run release.
+Keep the callback functions and their context valid until you release the run.
 The one-shot `run_case` accepts a temporary prepared owner or saved descriptor.
 For example, `run_case(prepare_case(input, options), control)` transfers the result before the temporary owner expires.
 

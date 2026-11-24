@@ -18,16 +18,29 @@ constexpr bool can_save_case = false;
 template<class Owner>
 constexpr bool can_save_case<Owner, std::void_t<decltype(tpmshx::stages::saved_case(std::declval<Owner>()))>> = true;
 
+template<class Owner> struct MemberOwner {
+    Owner member;
+    operator const Owner&() const {return member;}
+};
+
+template<class Owner> struct ValueSource {
+    operator Owner() const;
+};
+
 template<class Borrower, class Owner, class... Args>
 constexpr bool borrows_lvalues_only =
+    std::is_constructible_v<Borrower, Owner&, Args...> &&
     std::is_constructible_v<Borrower, const Owner&, Args...> &&
     !std::is_constructible_v<Borrower, Owner&&, Args...> &&
-    !std::is_constructible_v<Borrower, const Owner&&, Args...>;
+    !std::is_constructible_v<Borrower, const Owner&&, Args...> &&
+    !std::is_constructible_v<Borrower, MemberOwner<Owner>, Args...> &&
+    !std::is_constructible_v<Borrower, ValueSource<Owner>&, Args...>;
 
 template<class Saved, class Prepared>
 constexpr bool requires_prepared_lvalue =
-    borrows_lvalues_only<Saved, Prepared> && can_save_case<const Prepared&> &&
-    !can_save_case<Prepared&&> && !can_save_case<const Prepared&&>;
+    borrows_lvalues_only<Saved, Prepared> && can_save_case<Prepared&> && can_save_case<const Prepared&> &&
+    !can_save_case<Prepared&&> && !can_save_case<const Prepared&&> &&
+    !can_save_case<MemberOwner<Prepared>> && !can_save_case<ValueSource<Prepared>&>;
 
 void require(bool value,const char* message) {if(!value)throw std::runtime_error(message);}
 int cancel(void*) {return 1;}
@@ -154,6 +167,15 @@ void check_sdk_saved_families(tpmshx::stages::RunControl control) {
     static_assert(requires_prepared_lvalue<SavedCase2D, PreparedContinuousCase2D>);
     static_assert(requires_prepared_lvalue<SavedPreparedCase3D, PreparedSpatialCase3D>);
     static_assert(requires_prepared_lvalue<SavedPreparedCase3D, PreparedContinuousCase3D>);
+    static_assert(borrows_lvalues_only<SavedCase3D, SavedPreparedCase3D>);
+    static_assert(!std::is_convertible_v<SavedPreparedCase3D&&, SavedCase3D>);
+    static_assert(std::is_assignable_v<SavedCase3D&, const SavedPreparedCase3D&>);
+    static_assert(!std::is_assignable_v<SavedCase3D&, SavedPreparedCase3D&&>);
+    static_assert(!std::is_assignable_v<SavedCase3D&, const SavedPreparedCase3D&&>);
+    static_assert(!std::is_assignable_v<SavedCase3D&, MemberOwner<SavedPreparedCase3D>>);
+    static_assert(!std::is_assignable_v<SavedCase3D&, ValueSource<SavedPreparedCase3D>&>);
+    static_assert(std::is_constructible_v<SavedCase3D, const SavedCase3D&&>);
+    static_assert(std::is_assignable_v<SavedCase3D&, const SavedCase3D&&>);
     static_assert(borrows_lvalues_only<Run2D, SavedCase2D, RunControl>);
     static_assert(borrows_lvalues_only<Run2D, tpmshx_stage_saved_case_2d_v5, RunControl, RunRequest2D, const RunState*>);
     static_assert(borrows_lvalues_only<Run3D, SavedPreparedCase3D, RunControl3D>);
