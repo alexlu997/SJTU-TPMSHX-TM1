@@ -169,9 +169,9 @@ Apply these rules when you add or change regression tests:
 1. Do not repeat `dtype` or option combinations after a validated conversion boundary.
    Test conversion at that boundary.
    Keep representative end-to-end cases.
-2. Do not write temporary JSON, NPZ, or HDF5 files unless the test reads them.
+2. Write temporary JSON, NPZ, or HDF5 files only if the test reads them.
    Put C ABI layout and pointer tests in `tests/cpp/*_c_smoke.c`.
-   Do not copy public adapters into duplicate `ctypes` mirrors.
+   Do not copy public adapters into `ctypes` mirrors.
 3. Do not test offscreen pixel coordinates, fixed margin values, or internal mock call counts.
    Do not add `ModuleNotFoundError` tests for deleted symbols.
    Test state changes, physical requirements, resource cleanup, and documented contracts.

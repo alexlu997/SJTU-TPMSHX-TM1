@@ -304,19 +304,22 @@ def test_worker_exit_keeps_last_complete_checkpoint(tmp_path, crash_delay_s):
     root = tmp_path / 'worker-exit'
     repo_root = Path(__file__).resolve().parents[2]
     # Run the crash pool in a child process so a timeout fails cleanly without killing an xdist worker.
+    popen_kwargs = dict(
+        cwd=str(repo_root), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    if os.name != 'nt':
+        popen_kwargs['start_new_session'] = True
     proc = subprocess.Popen(
         [sys.executable, '-c',
          'import sys; '
          'from tests.python.test_condition_workers import _run_worker_exit_probe; '
          '_run_worker_exit_probe(sys.argv[1], float(sys.argv[2]))',
          str(tmp_path), str(crash_delay_s)],
-        cwd=str(repo_root), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        **popen_kwargs,
     )
     try:
         stdout, stderr = proc.communicate(timeout=45)
     except subprocess.TimeoutExpired:
-        proc.kill()
-        stdout, stderr = proc.communicate()
         pids = []
         if root.is_dir():
             for marker in sorted(root.glob('started-*')):
@@ -325,10 +328,33 @@ def test_worker_exit_keeps_last_complete_checkpoint(tmp_path, crash_delay_s):
                 except (OSError, ValueError):
                     continue
                 pids.append((marker.name, pid))
-                try:
-                    os.kill(pid, signal.SIGTERM)
-                except OSError:
-                    pass
+        if os.name == 'nt':
+            subprocess.run(
+                ['taskkill', '/F', '/T', '/PID', str(proc.pid)],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False,
+            )
+        else:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except OSError:
+                pass
+        for _, pid in pids:
+            try:
+                os.kill(pid, signal.SIGKILL if hasattr(signal, 'SIGKILL') else signal.SIGTERM)
+            except OSError:
+                pass
+        try:
+            proc.kill()
+        except OSError:
+            pass
+        try:
+            stdout, stderr = proc.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            for stream in (proc.stdout, proc.stderr):
+                if stream is not None:
+                    stream.close()
+            proc.wait(timeout=5)
+            stdout, stderr = '<pipe stayed open after process-tree kill>', ''
         pytest.fail(
             f'worker exit probe timed out after 45 s (crash_delay_s={crash_delay_s}, '
             f'started_pids={pids})\nstdout:\n{stdout}\nstderr:\n{stderr}')
