@@ -1,4 +1,5 @@
 #include "tpmshx/stage_run_c_api.h"
+#include "stage_entries.hpp"
 #include "stage_capture_2d.hpp"
 #include "enthalpy_c_views.hpp"
 #include "tpmshx/preparation_flow.hpp"

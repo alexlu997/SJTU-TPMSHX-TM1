@@ -219,10 +219,10 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_check_experiment_
  * arithmetic/envelope/native failure. Status 7/8 matches the experiment check.
  * All input, string, result and error storage must be disjoint.
  * Error text is written only after all input storage checks complete.
- * Callback lifetime and exception rules match the existing full 2D API.
+ * Callback rules follow tpmshx_full_2d_callbacks_v2 in full_2d_c_api.h.
  * run_saved_case_2d_v5 runs to completion and transfers the result. Initialize
  * result.abi_version=1, struct_size and owner=NULL. Failure preserves result.
- * The raw result is borrowed. Use its existing evidence queries, but do not
+ * The raw result is borrowed. Use the full_2d_c_api.h evidence queries, but do not
  * release it separately. Release the stage owner through this same library.
  * Create and restore return a run handle. Initialize *run=NULL. Failure
  * preserves it. Callback context must remain valid until release. */
@@ -235,7 +235,12 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_create_saved_v5(
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_restore_saved_v5(
     const tpmshx_stage_saved_case_2d_v5*,const tpmshx_stage_run_request_2d_v4*,
     const tpmshx_stage_run_control_v1*,const tpmshx_run_state_field_v1*,size_t,void**,char*,size_t);
-/* Phases and safe snapshot boundaries match full_2d_run_c_api.h.
+/* Phases use the TPMSHX_FULL2D_* values in full_2d_run_c_api.h.
+ * advance_step advances both SIMPLE sides by one complete step, one thermal
+ * block (including refined blocks), or one controller transition.
+ * Failed and cancelled runs cannot produce a new checkpoint.
+ * Restore requires the same build, input and controls without resetting
+ * consumed work; host paths and a positive CPU limit can differ.
  * Snapshots own independent storage; use tpmshx_run_state_release_v1. */
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_stage_run_2d_advance_step_v1(void*,uint32_t*,char*,size_t);
 /* Advance to completion or cancellation with the registered callbacks. */

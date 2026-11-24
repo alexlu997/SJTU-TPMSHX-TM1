@@ -137,9 +137,7 @@ jobs:
           result = build.with_name('result-' + host)
           prefix, suffix = ('', '.dll') if os.name == 'nt' else ('lib', '.dylib')
           libraries = (
-              'tpmshx_solver_shared', 'tpmshx_geometry_shared', 'tpmshx_model_h_shared',
-              'tpmshx_enthalpy_shared', 'tpmshx_temperature_shared', 'tpmshx_full_2d_shared',
-              'tpmshx_simple_2d_shared', 'tpmshx_simple_3d_shared', 'model_h_2d_test',
+              'tpmshx_solver_shared', 'tpmshx_geometry_shared', 'model_h_2d_test',
               'model_h_3d_test', 'model_h_2d_history_test', 'model_h_3d_history_test',
               'temperature_staggered_test', 'full_3d_test',
               'refinement_2d_test', 'full_2d_test', 'enthalpy_driver_test',
@@ -149,8 +147,6 @@ jobs:
           callers = (
               'eos_smoke', 'fluid_properties_smoke', 'pressure_smoke',
               'quick_design_driver_smoke', 'simple_2d_smoke',
-              'simple_2d_c_static', 'simple_2d_c_shared', 'simple_3d_c_static', 'simple_3d_c_shared',
-              'enthalpy_c_static', 'enthalpy_c_shared', 'temperature_c_static', 'temperature_c_shared',
           )
           executable_suffix = '.exe' if os.name == 'nt' else ''
           files = [build / (prefix + name + suffix) for name in libraries]
@@ -284,7 +280,6 @@ jobs:
               'TPMSHX_GEOMETRY_LIBRARY': build / (prefix + 'tpmshx_geometry_shared' + suffix),
               'TPMSHX_PREPARATION_LIBRARY': build.with_name('preparation-' + host) / (prefix + 'tpmshx_preparation_shared' + suffix),
               'TPMSHX_RESULT_LIBRARY': build.with_name('result-' + host) / (prefix + 'tpmshx_result_shared' + suffix),
-              'TPMSHX_MODEL_H_PUBLIC_LIBRARY': build / (prefix + 'tpmshx_model_h_shared' + suffix),
           }
           for name, path in libraries.items():
               if not path.is_file():
@@ -460,7 +455,6 @@ jobs:
               'TPMSHX_GEOMETRY_LIBRARY': build / (prefix + 'tpmshx_geometry_shared' + suffix),
               'TPMSHX_PREPARATION_LIBRARY': build.with_name('preparation-' + host) / (prefix + 'tpmshx_preparation_shared' + suffix),
               'TPMSHX_RESULT_LIBRARY': build.with_name('result-' + host) / (prefix + 'tpmshx_result_shared' + suffix),
-              'TPMSHX_MODEL_H_PUBLIC_LIBRARY': build / (prefix + 'tpmshx_model_h_shared' + suffix),
           }
           for name, path in libraries.items():
               if not path.is_file():

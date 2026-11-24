@@ -16,6 +16,9 @@ import pytest
 
 from sjtu_tpmshx.preprocess.api import prepare_quick_design
 from tests.python.design.test_forward import _case
+from tests.python.native import test_temperature_driver as temperature_bridge
+
+temperature_native = temperature_bridge.temperature_native
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -100,14 +103,13 @@ def prepared(arrangement="cross", mode="const", pair="air_water", topology="Diam
 
 
 @pytest.fixture(scope='module')
-def temperature_driver(quick_design_native):
-    from sjtu_tpmshx.cpp_interface.solver_library.temperature import NativeTemperatureDriver
-    name = 'tpmshx_temperature_shared.dll' if os.name == 'nt' else 'libtpmshx_temperature_shared.dylib'
-    driver = NativeTemperatureDriver(quick_design_native.build/name)
-    try:
-        yield driver
-    finally:
-        driver.close()
+def temperature_driver(temperature_native):
+    """Replay one property pass with the C++ fixed-coefficient driver bridge."""
+    def run(case):
+        code, status, metrics, error = temperature_native(case)
+        assert code == 0, error
+        return case['state'], dict(converged=status[0] == 0, iterations=status[1], residual=metrics[0])
+    return run
 
 
 def check_prepared(case, native, temperature):
@@ -127,7 +129,6 @@ def check_prepared(case, native, temperature):
     chunk = controls['chunk'] or (500 if plane else 250)
     rtol, atol = (2e-12, 2e-10) if plane else (2e-11, 2e-9)
     field = lambda value: np.array(np.broadcast_to(value,shape), dtype=np.float64, order='C')
-    planar = lambda value: value[...,0] if plane else value
     count = 2 if p['prop_model'] == 'mean' else 1
     assert status[1] == count and status[4] == 100
     for index in range(count):
@@ -146,17 +147,16 @@ def check_prepared(case, native, temperature):
             fluids.append([field(x) for x in (epsilon*props.k,hv,epsilon,props.rho*props.cp,*velocity)]
                           +[np.empty(0) for _ in range(3)])
             properties.append(props)
-        *state, info = temperature(scheme='cell_centered_2d' if plane else 'cell_centered_3d',
-            widths=widths[:2] if plane else widths,
-            conductivity=tuple(planar(f[0]) for f in fluids)+(planar(fixed['K_ss']),),
-            exchange=tuple(planar(f[1]) for f in fluids), epsilon=tuple(planar(f[2]) for f in fluids),
-            rho_cp=tuple(planar(f[3]) for f in fluids),
-            velocity=tuple(tuple(planar(f[i]) for i in range(4,6 if plane else 7)) for f in fluids),
-            directions=(0,2 if cross else 1),inlets=tin,
-            initial=None if seed is None else tuple(planar(x) for x in seed),
-            max_iterations=controls['maxit'],chunk_iterations=controls['chunk'],q_relative_tolerance=controls['qtol'],
-            tol=p['tol'],alpha=(.7,1.,1.) if plane else (controls['alpha'],)*3,second_order_b=not plane)
-        seed = [x[...,None] if plane else x for x in state]
+        qtol = controls['qtol'] if controls['qtol'] is not None else (
+            min(p['tol']*2e-3, 1e-3) if plane else max(p['tol']*10, 1e-4))
+        # The fixed-coefficient 2D scheme uses unit depth, as the stage does.
+        solver_widths = [np.ascontiguousarray(w, dtype=np.float64) for w in widths]
+        state, info = temperature(dict(shape=shape, widths=solver_widths[:2]+[np.ones(1)] if plane else solver_widths,
+            state=[np.empty(shape) for _ in range(3)] if seed is None else [field(x) for x in seed],
+            a=fluids[0], b=fluids[1], ks=field(fixed['K_ss']), prescribed=np.empty(0),
+            directions=(0,2 if cross else 1), tin=tuple(tin), maxit=controls['maxit'], chunk=chunk, qtol=qtol,
+            warm=seed is not None, sou_b=not plane, alpha=(.7,1.,1.) if plane else (controls['alpha'],)*3))
+        seed = [x.copy() for x in state]
         assert status[5+index*2] == (0 if info['converged'] else 1)
         assert status[6+index*2] == info['iterations']
         assert metrics[40+index*2] == pytest.approx(info['residual'],rel=rtol,abs=atol)

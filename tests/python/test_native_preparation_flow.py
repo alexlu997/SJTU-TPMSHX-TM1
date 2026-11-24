@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from sjtu_tpmshx.cpp_interface import _native_flow as native
+from sjtu_tpmshx.cpp_interface import _native_grid
 from tests.python import float64_oracle as oracle
 from tests.python import preparation_flow_reference as reference
 
@@ -180,7 +181,7 @@ def test_delta_target_does_not_query_unused_properties(monkeypatch):
 def test_quick_design_uniform_grid_promotes_to_float64(dtype):
     length = dtype(.047)
     expected = np.full(17, float(length) / 17, dtype=np.float64)
-    np.testing.assert_array_equal(native.uniform_widths(17, length), expected, strict=True)
+    np.testing.assert_array_equal(_native_grid.uniform(17, length), expected, strict=True)
 
 
 def test_legacy_air_builder_keeps_its_two_sides_and_floor10(monkeypatch):

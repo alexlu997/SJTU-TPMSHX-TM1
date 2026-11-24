@@ -27,6 +27,7 @@ from .solver_library._full_2d_abi import (
     _Progress,
     _Residual,
     _Result,
+    _result_dict,
 )
 from .solver_library._thermal_abi import (
     _EnergyOptions,
@@ -54,7 +55,6 @@ from .solver_library._stage_capture_abi import (
 )
 from sjtu_tpmshx.run_control.module_ports import RunControl
 from sjtu_tpmshx.run_control.run_environment import require_f2_mode
-from .solver_library.simple_2d import _result_dict
 
 _U, _S, _D = ct.c_uint32, ct.c_size_t, ct.c_double
 _Size = record('SizeOption', [('present', _U), ('value', _S)])

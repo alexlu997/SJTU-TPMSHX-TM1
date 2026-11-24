@@ -3,10 +3,6 @@
 
 #include "tpmshx/thermal_c_api.h"
 
-enum tpmshx_simple_error {
-    TPMSHX_SIMPLE_OK = 0, TPMSHX_SIMPLE_INVALID_ARGUMENT = 1,
-    TPMSHX_SIMPLE_ARITHMETIC_ERROR = 2, TPMSHX_SIMPLE_NATIVE_ERROR = 3
-};
 enum tpmshx_simple_stop {
     TPMSHX_SIMPLE_ONGOING = 0, TPMSHX_SIMPLE_TOL = 1, TPMSHX_SIMPLE_STALL = 2,
     TPMSHX_SIMPLE_ITERATION_LIMIT = 3, TPMSHX_SIMPLE_NONFINITE = 4,
@@ -19,12 +15,6 @@ typedef struct {
     double backflow_maximum, velocity_check_tolerance, stall_ratio;
     size_t confirmations, momentum_interval, stall_window;
 } tpmshx_simple_f2_v1;
-
-typedef struct {
-    int (TPMSHX_THERMAL_CALL *cancel)(void* context);
-    void (TPMSHX_THERMAL_CALL *progress)(void* context, size_t iteration, double residual);
-    void* context;
-} tpmshx_simple_callbacks_v1;
 
 typedef struct {
     double numerator[3], denominator[3], component[3], maximum;

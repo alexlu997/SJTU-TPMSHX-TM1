@@ -33,7 +33,7 @@ compute -> preprocess.api.prepare_case -> CaseData -> solvers.api.run_case -> Fi
 - **前处理准备（`preprocess/`，ABI 3）**：`python/cpp_interface/native_preparation.py` 与 `python/cpp_interface/preparation_host.py` 绑定扁平二维和三维 `v1` 族入口及统一的 `tpmshx_preparation_callbacks_v1`。`python/preprocess/three_d/preparation.py` 从拥有独立存储的原生结果组装不可变三维 `CaseData`。`python/physical_models/zone_units.py` 负责保存分区数据的单位转换。
 - **入口物性查询**：`python/cpp_interface/inlet_properties.py` 为独立的 `physical_models.tpms_calc.compute` 绑定 `tpmshx_query_inlet_properties_v2`。Python 保留几何选择、共享缓存、逐次 `K_ss` 查询和警告策略。见[入口物性查询](../docs/native-stages.zh-CN.md#入口物性查询)。
 - **完整二维与三维执行（`solver/`，二维保存态 ABI 5／三维保存态 ABI 3、捕获 ABI 2）**：`python/cpp_interface/full_2d_stage.py` 与 `python/cpp_interface/full_3d_stage.py` 仅绑定保存态阶段生命周期（`tpmshx_run_saved_case_2d_v5`、`tpmshx_run_saved_case_3d_v3` 及其检查点创建／恢复入口）。两者均要求库提供 `execution_view_v1`、`records_v1`、`report_v1` 和 `get_capture_v1`；缺少这些入口的库按部署错误直接失败。
-- **执行与适用性记录**：保存态二维／三维运行在原生结果释放前复制适用性分组与必需记录。`python/solvers/applicability_evidence.py` 与 `python/data_types/field_result.py` 发布 `execution_record`（`full_execution_v1`）及带 `scope_notes` 的 `applicability_evidence`。`python/solvers/execution_record.py` 仅在非阶段或测试构造的 `FieldResult` 缺少该字段时补充组装 `full_execution_v1`。
+- **执行与适用性记录**：保存态二维／三维运行在原生结果释放前复制适用性分组与必需记录。`python/cpp_interface/_native_result_stage.py` 复制原生适用性选择，`python/data_types/field_result.py` 发布 `execution_record`（`full_execution_v1`）及带 `scope_notes` 的 `applicability_evidence`。`python/solvers/execution_record.py` 仅在非阶段或测试构造的 `FieldResult` 缺少该字段时补充组装 `full_execution_v1`。
 - **Quick Design（`quick_design_prepare_v2.cpp`、`quick_design_run.cpp`）**：`python/cpp_interface/_native_quick_prepare.py` 绑定 `tpmshx_prepare_quick_design_v2`、`tpmshx_quick_pressure_fractions_v2` 与 `tpmshx_quick_callbacks_v2`。`python/cpp_interface/quick_design.py` 在保存的准备场上执行 `tpmshx_run_quick_design_v2`。默认值统一来自 `python/model_configs/model_parameters_v1.json` 及生成的 C++ 常量。
 - **结果评估（`postprocess/`，Result ABI 3）**：`python/postprocess/api.py` 将完整二维／三维、Quick Design 评估及独立查询交给 `tpmshx_result_stage_query_v3`。`python/cpp_interface/_native_result_stage.py` 将证据规范化为 `float64` 和 `int32` 标签，并发出固定的 `RuntimeWarning` 诊断。`python/postprocess/export.py` 负责导出。
 
@@ -101,7 +101,7 @@ $tm1Python = Get-Content .venv-path -TotalCount 1
 | [file_io/](file_io/) | 工况、结果、指标和检查点的文件读写。 |
 | [run_control/](run_control/) | 取消、进度、告警、环境与运行库选择。 |
 | [physical_models/](physical_models/) 和 [model_configs/](model_configs/) | 物理模型查询及带版本的模型参数。 |
-| [cpp_interface/](cpp_interface/) | 原生 ctypes 绑定。[solver_library/](cpp_interface/solver_library/) 同时支持组件调用与保存态运行。 |
+| [cpp_interface/](cpp_interface/) | 原生 ctypes 绑定。[solver_library/](cpp_interface/solver_library/) 包含保存态原生运行的 ctypes 布局与解码函数。 |
 | [applications/](applications/) | [GUI](applications/gui/)、[CLI](applications/cli/)、[快速设计](applications/design/)、[BO 优化](applications/optimization/)和[历史运行恢复](applications/execution/recovery.py)。 |
 | [development/](development/) | 数值与实验验证、诊断和开发工具。自动测试位于 [tests/python/](../tests/python/)。 |
 

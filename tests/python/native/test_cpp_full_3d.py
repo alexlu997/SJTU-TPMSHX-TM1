@@ -1522,32 +1522,3 @@ def test_co2_pt_state_continues_after_process_exit(native_path, tmp_path, dimens
     for name, metric in expected_metrics.metrics.items():
         assert actual_metrics.metrics[name].status == metric.status
         _exact_resume_values(actual_metrics.metrics[name].value, metric.value, name)
-
-
-@pytest.mark.parametrize('policy,code,error', [
-    ((1, 5, 16), 0, None), ((0, 25, 6), 0, None),
-    ((2, 5, 16), 0, 'invalid'), ((1, 0, 16), 0, 'invalid'),
-    ((1, 5, 1), 0, 'invalid'), ((1, 5, 16), 1, 'query failed')])
-def test_native_acceleration_records_validate_returned_values(policy, code, error):
-    import ctypes as ct
-    from sjtu_tpmshx.cpp_interface.solver_library._full_3d_abi import _Result
-    from sjtu_tpmshx.cpp_interface.solver_library.model_h import (
-        _Acceleration, _IterationRecord, _IterationRecords, _copy_iteration_records)
-
-    rows = (_IterationRecord*1)(_IterationRecord(2, 3, 0, 17, 250, 1e-5, 1e-8, 17))
-    def iterations(result, output):
-        ct.cast(output, ct.POINTER(_IterationRecords))[0] = _IterationRecords(rows, 1)
-        return 0
-    def acceleration(result, index, output):
-        assert index == 0
-        ct.cast(output, ct.POINTER(_Acceleration))[0] = _Acceleration(*policy)
-        return code
-    result = _Result()
-    if error:
-        with pytest.raises(RuntimeError, match=error):
-            _copy_iteration_records(iterations, result, acceleration)
-    else:
-        record = _copy_iteration_records(iterations, result, acceleration)['records'][0]
-        assert record['outer_index'] == 2 and record['attempt'] == 3
-        assert record['settings']['acceleration'] == dict(enabled=bool(policy[0]),
-            sweeps_per_block=policy[1], history_limit=policy[2])

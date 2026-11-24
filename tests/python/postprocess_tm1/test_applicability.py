@@ -126,7 +126,7 @@ def test_invalid_policy_evidence_is_rejected(field, value):
 
 def test_runtime_joint_scope_notice_is_preserved():
     from sjtu_tpmshx.data_types.case_data import CaseData
-    from sjtu_tpmshx.solvers.applicability_evidence import capture_applicability
+    from tests.python.applicability_evidence import capture_applicability
     note = 'Joint sCO2 coverage remains unverified.'
     evidence = capture_applicability(CaseData('case'), result_with_evidence(),
                                      {('nu-evidence', 'sco2', 'A', 'main'): note})

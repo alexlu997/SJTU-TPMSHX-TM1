@@ -7,7 +7,22 @@ import numpy as np
 from .._df_abi import DragSummary
 from .closure_evidence import RangeObservation
 from ._thermal_abi import _Acceleration, _ENERGY_NAMES, _EnergyUpdateScale, _IterationRecords
-from .temperature_evidence import TemperatureEvidence
+from ._thermal_abi import _ThermalArray as _Array
+
+
+class TemperatureEvidence(ct.Structure):
+    """Model-enthalpy temperature ledger of one full CC thermal state.
+
+    Each solved fluid records [c0, c1, c2, Tbase, Tref] for the existing model:
+    cp(T) = c0 + c1*(T-Tbase) + c2*(T-Tbase)**2, h(Tref) = 0.
+    The boundary powers already contain signed mass times integral h(T_face).
+    """
+    _fields_ = [('available', ct.c_uint32), ('physical_dimension', ct.c_uint32),
+                ('boundary_complete', ct.c_uint32), ('solved', ct.c_uint32 * 3),
+                ('algorithm', ct.c_char_p), ('cp_coefficients', (ct.c_double * 5) * 2),
+                ('residual', _Array * 3), ('advective_out', (_Array * 6) * 3),
+                ('diffusive_out', (_Array * 6) * 3),
+                ('source_integral', ct.c_double * 3), ('prescribed_b_power', ct.c_double)]
 
 
 class _Sample(ct.Structure):
@@ -94,8 +109,7 @@ def _full_enthalpy_info(result, actual, abi):
     return info
 
 
-def _energy_result_info(info, result, *, temperature_tol, abi, version_query=None, version=None,
-                        state_update='HEOS_PT'):
+def _energy_result_info(info, result, *, temperature_tol, abi, version, state_update='HEOS_PT'):
     """Decode executed native identity, independently of the requested option."""
     if result.algorithm not in range(len(_ENERGY_NAMES)):
         raise RuntimeError('native energy returned an unknown algorithm')
@@ -106,8 +120,6 @@ def _energy_result_info(info, result, *, temperature_tol, abi, version_query=Non
         raise RuntimeError('native energy returned an invalid temperature update')
     if not np.isfinite(result.picard_relaxation) or not 0 < result.picard_relaxation <= 1:
         raise RuntimeError('native energy returned an invalid Picard relaxation')
-    if version is None:
-        version = version_query(result.algorithm)
     if type(version) is not int or version not in ((1,) if result.algorithm == 1 else (1, 2)):
         raise RuntimeError('native energy returned an unsupported algorithm version')
     info.update(energy_algorithm=name, energy_algorithm_version=version,
@@ -137,44 +149,6 @@ def _energy_native_state(info, evidence, shape, units):
         state['actual_conductivity_' + label] = copy(evidence.actual_conductivity[side], shape)
     state.update(energy_algorithm=info['energy_algorithm'], energy_algorithm_version=info['energy_algorithm_version'],
                  boundary_power=boundary, boundary_power_units=units, physical_boundary_complete=True)
-
-
-def _copy_iteration_records(query, result, acceleration_query=None):
-    view = _IterationRecords()
-    if query(ct.byref(result), ct.byref(view)):
-        raise RuntimeError('native model-h iteration query failed')
-    return _decode_iteration_records(view, acceleration_query=acceleration_query, result=result)
-
-
-def _decode_iteration_records(view, acceleration=None, *, acceleration_query=None, result=None):
-    if view.count and not view.records:
-        raise RuntimeError('native model-h iteration records are missing')
-    records = []
-    for index in range(view.count):
-        row = view.records[index]
-        if (row.refined not in (0, 1) or not row.max_iterations or not row.chunk_iterations
-                or row.total_iteration_budget < row.max_iterations
-                or not np.isfinite(row.temperature_tolerance) or row.temperature_tolerance <= 0.
-                or not np.isfinite(row.q_relative_tolerance) or row.q_relative_tolerance < 0.):
-            raise RuntimeError('invalid native model-h iteration record')
-        records.append(dict(outer_index=row.outer_index, attempt=row.attempt,
-            stage='refined_thermal' if row.refined else 'outer_thermal',
-            settings=dict(max_iterations=row.max_iterations, chunk_iterations=row.chunk_iterations,
-                          temperature_update_tolerance_K=row.temperature_tolerance,
-                          q_relative_tolerance=row.q_relative_tolerance,
-                          total_iteration_budget=row.total_iteration_budget)))
-        if acceleration is not None or acceleration_query is not None:
-            if acceleration is not None:
-                policy = acceleration[index]
-            else:
-                policy = _Acceleration()
-                if acceleration_query(ct.byref(result), index, ct.byref(policy)):
-                    raise RuntimeError('native model-h acceleration query failed')
-            if policy.enabled not in (0, 1) or not policy.sweeps_per_block or policy.history_limit < 2:
-                raise RuntimeError('invalid native model-h acceleration record')
-            records[-1]['settings']['acceleration'] = dict(enabled=bool(policy.enabled),
-                sweeps_per_block=policy.sweeps_per_block, history_limit=policy.history_limit)
-    return dict(version='model_h_iterations_v1', records=records)
 
 
 def _copy_model_h_array(view, shape=None):
@@ -259,16 +233,3 @@ def _volume_info(result, shape, *, include_faces=True, cell_count=None):
         full_residual_sum_W=audit.full_residual_sum, telescoping_error_W=audit.telescoping_error,
         qualification='No physical acceptance inferred. Non-inlet inflow uses numerical self-extrapolation; its external h is unspecified.')
     return dict(model_h_balance=balance, _native_model_h=native_faces, **strict, delegated_to_2d=False)
-
-
-def _model_h_algorithm(library, dimension):
-    """Copy the recipe identity from the same native library used to solve."""
-    try:
-        query = library.tpmshx_model_h_algorithm_v1
-    except AttributeError as error:
-        raise ValueError('native library lacks tpmshx_model_h_algorithm_v1') from error
-    query.argtypes, query.restype = [ct.c_uint32], ct.c_char_p
-    identity = query(dimension)
-    if not identity:
-        raise ValueError(f'native library has no model-h algorithm for dimension {dimension}')
-    return identity.decode('ascii')

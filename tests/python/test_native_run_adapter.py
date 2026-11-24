@@ -63,7 +63,7 @@ def _hdf_scalars(value):
 
 
 def _checked_applicability(actual, expected, case):
-    from sjtu_tpmshx.solvers.applicability_evidence import capture_applicability
+    from tests.python.applicability_evidence import capture_applicability
     from sjtu_tpmshx.solvers.execution_record import full_execution_record
     wanted = capture_applicability(case, expected, {})
     wanted.pop('scope_notes')
@@ -171,7 +171,7 @@ def test_modified_saved_inputs(change, tmp_path, monkeypatch):
     monkeypatch.setattr(full_2d_stage, 'executed_view', inspect_result)
     modified = replace(case, parameters=parameters, metadata=metadata)
     actual = _compare(modified, tmp_path, monkeypatch)
-    from sjtu_tpmshx.solvers.applicability_evidence import capture_applicability
+    from tests.python.applicability_evidence import capture_applicability
     from sjtu_tpmshx.solvers.execution_record import full_execution_record
     public = replace(actual, metadata=dict(actual.metadata,
         execution_record=full_execution_record(modified, actual),

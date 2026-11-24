@@ -32,6 +32,9 @@ typedef struct {
     const char* envelope_mode;
     const char* table_directory;
 } tpmshx_full_2d_config_v2;
+/* Callbacks must not throw or mutate inputs. SIMPLE sides run concurrently,
+ * so cancel and residual callbacks must be thread safe. The other callbacks
+ * run on the caller thread. NULL callbacks are allowed. */
 typedef struct {
     int (TPMSHX_THERMAL_CALL *cancel)(void*);
     void (TPMSHX_THERMAL_CALL *progress)(void*,size_t,size_t);
@@ -104,44 +107,15 @@ typedef struct {
     void* owner;
 } tpmshx_full_2d_result_v2;
 
-TPMSHX_THERMAL_API uint32_t TPMSHX_THERMAL_CALL tpmshx_full_2d_abi_version(void);
-/* Complete prepared rectangular 2D numerical driver, including original
- * mandatory thermal Richardson and final gates (true-h bypasses Richardson).
- * SI; heat and face mass are W/m and kg/(s m). shape[2]=(nx,ny).
- * arrays[29]/sizes[29] are borrowed read-only C-order doubles:
- *   dx,dy,dz={1},KffA,KffB,Kss,total_epsilon,A0,Dh,cell_length,
- *   for each side A,B:
- *     row_K,row_cF,optional_full_K,optional_full_cF,inlet_geometry,
- *     outlet_geometry,inlet_profile,outlet_profile,outlet_u_fraction.
- *   followed by the per-cell dimensionless Nu geometry ratio, evaluated as
- *     (Dh_m * 1000) / original_cell_length_mm in the prepared case.
- * ABI 2 requires this original closure input: an SI length rounded during
- * preparation cannot recover the same ratio by converting back to mm.
- * Geometry/Kff inputs retain the already-prepared case's values. Full K/cF
- * use +y SIMPLE coordinates; thermal arrays use physical x/y. All required
- * buffers must have declared extents and outlive the synchronous call.
+/* Full 2D result, borrowed as raw by a saved 2D stage result.
+ * SI units; heat and face mass are W/m and kg/(s m).
  * Fluid=air0/water1/sCO2=2/CO2=3, topology=diamond0/gyroid1,
- * thermal_mode=temperature0/model_h1/true_h2. Booleans require 0/1.
- * spatial_geometry retains original scalar-versus-field provenance during
- * refinement; uniform Kff/Kss/epsilon buffers must be constant.
- * red_black is the original opt-in; main/fine independently apply cells>30000.
- * No geometry/D-F fitting, display smoothing or CaseData persistence occurs.
- *
- * Input/result/error/control storage must not overlap. No pointer can prove
- * allocation size. Callbacks must not throw or mutate inputs; SIMPLE sides
- * run concurrently so cancel/residual callbacks must be thread safe. The
- * other callbacks run on the caller thread. NULL callbacks are allowed.
- *
- * Status:0 returned,1 invalid argument,2 water state,3 arithmetic,4 envelope,
- * 5 other native exception. Error is required, bounded and NUL terminated.
- * Nonzero status leaves result untouched. Zero does not certify convergence:
- * inspect converged. Cancelled state has no accepted result and may be partial.
- * Every normal return owns all array/string views independently of inputs;
- * release it before reusing the struct. Do not copy handles or free views.
- * Release clears the struct and accepts NULL/already-cleared results.
- * No C++ exception crosses either entry point.
+ * thermal_mode=temperature0/model_h1/true_h2. Booleans are 0/1.
+ * The stage owner keeps all array and string views. Never release raw separately.
+ * converged, not the call status, tells convergence. A cancelled result has
+ * no accepted fields and can be partial.
  */
-TPMSHX_THERMAL_API void TPMSHX_THERMAL_CALL tpmshx_full_2d_release_v2(tpmshx_full_2d_result_v2* result);
+TPMSHX_THERMAL_API uint32_t TPMSHX_THERMAL_CALL tpmshx_full_2d_abi_version(void);
 typedef struct {
     uint32_t available;
     tpmshx_energy_result_v1 energy;
@@ -149,8 +123,8 @@ typedef struct {
     /* Outward signed W/m, x-,x+,y-,y+,z-,z+; singleton-z boundary planes. */
     tpmshx_model_h_array_v1 boundary_power[2][6];
 } tpmshx_full_2d_energy_state_v1;
-/* Explicit EOS controls for solve_full_2d_v6. These replace the thermal iteration and
- * enthalpy-update fields in config_v2. Other config fields keep their meaning. */
+/* Explicit EOS controls for a 2D stage request. These replace the thermal iteration
+ * and enthalpy-update fields in config_v2. Other config fields keep their meaning. */
 typedef struct {
     size_t max_iterations,sweeps;
     double omega,update_tolerance;
@@ -187,7 +161,7 @@ typedef struct {
 /* No solver, EOS or allocation. Invalid/null/released owners return 1 without
  * changing output. Cancelled and states without a model-enthalpy CC ledger
  * return available=0. Completed budget-limited states retain their actual
- * thermal evidence in W/m. Release views with the full_2d_release_v2 owner. */
+ * thermal evidence in W/m. Views remain valid until the stage result is released. */
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_model_enthalpy_evidence_v1(
     const tpmshx_full_2d_result_v2*,tpmshx_full_2d_model_enthalpy_evidence_v1*);
 /* No solver or EOS call. Invalid owners return 1 and preserve output.
@@ -218,20 +192,6 @@ typedef struct {
  * Invalid arguments preserve output. Copy strings before the owner is released. */
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_flow_methods_v1(
     const tpmshx_full_2d_result_v2*,tpmshx_full_2d_flow_method_v1[2]);
-
-/* Execute one complete solve with a positive CPU thread limit.
- * energy, explicit_energy and model_h are optional. A null value keeps the route default.
- * explicit_energy requires the two-sided true-h route.
- * model_h applies to all actual model-h consumers, including full CC.
- * Other thermal routes reject active model-h overrides before flow.
- * Buffers, status and result ownership follow the contract above. Release with release_v2. */
-TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_solve_full_2d_v6(
-    const size_t* shape,const double* const* arrays,const size_t* sizes,
-    const tpmshx_full_2d_config_v2* config,const tpmshx_energy_options_v1* energy,
-    const tpmshx_full_2d_energy_control_v4* explicit_energy,
-    const tpmshx_model_h_iteration_options_v1* model_h,size_t cpu_threads,
-    const tpmshx_full_2d_callbacks_v2* callbacks,
-    tpmshx_full_2d_result_v2* result,char* error,size_t capacity);
 
 #ifdef __cplusplus
 }

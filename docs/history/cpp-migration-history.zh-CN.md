@@ -71,8 +71,9 @@
 | Phase 3A | 2026-11-23 | [PR #359](https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/359) | 在 Result ABI 3（`tpmshx_stage_input_v3`）下将结果核心规范化为 `float64` 与 `int32` 标签；退役 `QuickProtocols` 回调。 |
 | Phase 3B | 2026-11-24 | [PR #360](https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/360) | 将准备、几何、场与 Quick Design 接口规范化为 `float64`；退役窄标量/`binary16` 模拟、Quick 原始对象宿主操作回调及全流程测试参考，保留纯公式测试参考实现。 |
 | Phase 3C | 2026-11-24 | [PR #362](https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/362) | 扁平化全部准备与保存阶段运行 C 结构体（移除嵌套 `values` 链），统一回调为 `tpmshx_preparation_callbacks_v1`，二维/三维准备族改用简洁 `v1` 符号，并统一二维保存态 ABI 5 与三维保存态 ABI 3。 |
-| Phase 4 | 2026-11-24 | `c774b2c1` / `dbd34a53` | 退役 Python 直接完整驱动（`NativeFull2DDriver`、`NativeFull3DDriver`、`prepared_*`），移除已退役的清单节点并缩短原生 CI 路径。 |
-| Phase 5 | 2026-11-24 | D4 文档 | 重写架构、原生阶段、C++ 接入和 `python/README` 双语文档，使其仅描述 D4 之后的现行接口，并将历史记录归档至此。 |
+| Phase 4 | 2026-11-24 | [PR #363](https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/363) | 退役 Python 直接完整驱动（`NativeFull2DDriver`、`NativeFull3DDriver`、`prepared_*`），移除已退役的清单节点并缩短原生 CI 路径。 |
+| Phase 5 | 2026-11-24 | [PR #364](https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/364) | 重写架构、原生阶段、C++ 接入和 `python/README` 双语文档，使其仅描述 D4 之后的现行接口，并将历史记录归档至此。 |
+| Phase 6A | 2026-11-24 | [PR #365](https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/365) | 退役未发布的温度、焓、model-h、SIMPLE 二维与 SIMPLE 三维单驱动 C ABI 及其 C 冒烟测试。移除直接求解、续算与完整结果释放导出（`tpmshx_solve_full_2d_v6`、`tpmshx_solve_full_3d_v5`、`tpmshx_solve_quick_design_v1`、`tpmshx_full_{2,3}d_run_*`）。退役对应的 Python `solver_library` 绑定与解码函数。保存态阶段入口仍是唯一的 C SDK。 |
 
 ## 历史数值资格检查记录
 

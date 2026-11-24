@@ -25,6 +25,7 @@ from tests.python.native.test_quick_design_driver import prepared
 
 ROOT = Path(__file__).resolve().parents[3]
 quick_design_native = qd.quick_design_native
+temperature_native = qd.temperature_native
 temperature_driver = qd.temperature_driver
 
 
@@ -275,8 +276,6 @@ def test_stage_symbol_is_required(native_control, monkeypatch):
         def __getattr__(self, name):
             if name == 'tpmshx_run_quick_design_v2':
                 raise AttributeError(name)
-            if name == 'tpmshx_solve_quick_design_v1':
-                pytest.fail('missing stage silently selected the low-level driver')
             return getattr(library, name)
 
     monkeypatch.setattr(quick_design.ct, 'CDLL', lambda _: MissingStage())

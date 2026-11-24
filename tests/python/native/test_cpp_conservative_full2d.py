@@ -260,24 +260,18 @@ def test_missing_execution_view_fails_before_flow(monkeypatch):
 
 
 @pytest.mark.parametrize('executed,version', [(1, 1), (2, 1), (2, 2)])
-def test_energy_decoder_queries_executed_algorithm(executed, version):
-    from sjtu_tpmshx.cpp_interface.solver_library.enthalpy import _EnergyResult, _energy_options, _energy_result_info
+def test_energy_decoder_records_executed_algorithm(executed, version):
+    from sjtu_tpmshx.cpp_interface.solver_library._stage_capture_abi import _energy_result_info
+    from sjtu_tpmshx.cpp_interface.solver_library._thermal_abi import _EnergyResult, _energy_options
 
     requested = _energy_options('temperature_sou' if executed == 1 else 'temperature_fou', 1e-8)
     assert requested.algorithm != executed
     info = dict(energy_algorithm='requested-placeholder', energy_algorithm_version=99,
                 effective_settings=dict(omega=.2, energy_algorithm='requested-placeholder', energy_algorithm_version=99))
-    queried = []
-
-    def query(algorithm):
-        queried.append(algorithm)
-        return version
-
     actual = _EnergyResult(executed, 1, 1e-9, 1. if executed == 1 else .6)
     _energy_result_info(info, actual, temperature_tol=requested.temperature_update_tolerance,
-                        abi=3, version_query=query)
+                        abi=3, version=version)
     name = 'temperature_fou' if executed == 1 else 'temperature_sou'
-    assert queried == [executed]
     assert info['energy_algorithm'] == info['effective_settings']['energy_algorithm'] == name
     assert type(info['energy_algorithm_version']) is int
     assert info['energy_algorithm_version'] == info['effective_settings']['energy_algorithm_version'] == version
@@ -285,13 +279,13 @@ def test_energy_decoder_queries_executed_algorithm(executed, version):
 
 @pytest.mark.parametrize('executed,version', [(1, 2), (2, 0), (2, 3), (2, True), (2, 1.)])
 def test_energy_decoder_rejects_unsupported_native_version(executed, version):
-    from sjtu_tpmshx.cpp_interface.solver_library.enthalpy import _EnergyResult, _energy_result_info
+    from sjtu_tpmshx.cpp_interface.solver_library._stage_capture_abi import _energy_result_info
+    from sjtu_tpmshx.cpp_interface.solver_library._thermal_abi import _EnergyResult
 
     info = dict(effective_settings=dict(omega=.2))
     actual = _EnergyResult(executed, 1, 1e-9, 1. if executed == 1 else .6)
     with pytest.raises(RuntimeError, match='version'):
-        _energy_result_info(info, actual, temperature_tol=1e-8, abi=3,
-                            version_query=lambda algorithm: version)
+        _energy_result_info(info, actual, temperature_tol=1e-8, abi=3, version=version)
 
 
 @pytest.mark.parametrize('kind', ['cancel', 'callback', 'decode'])

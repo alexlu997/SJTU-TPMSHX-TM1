@@ -4,7 +4,8 @@ import ctypes as ct
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.cpp_interface.solver_library import model_h
+from sjtu_tpmshx.cpp_interface.solver_library._stage_capture_abi import _plane_info
+from sjtu_tpmshx.cpp_interface.solver_library._thermal_abi import _ModelHResult
 
 
 @pytest.mark.parametrize('dtype', [np.float32, np.float64])
@@ -15,7 +16,7 @@ def test_model_h_capture_area_uses_float64_reduction(dtype, reverse):
     if reverse:
         widths = [values[::-1] for values in widths]
     masses = [np.zeros((4, 2)), np.zeros((3, 3))]
-    result = model_h._Result()
+    result = _ModelHResult()
     owners = []
     empty = (ct.c_double * 1)()
     result.plane.solid_residual.data = empty
@@ -27,7 +28,7 @@ def test_model_h_capture_area_uses_float64_reduction(dtype, reverse):
             owner = (ct.c_double * mass.size)()
             owners.append(owner)
             view.data, view.size = owner, mass.size
-    captured = model_h._plane_info(result, (3, 2), widths, (masses, masses))
+    captured = _plane_info(result, (3, 2), widths, (masses, masses))
     dx64, dy64 = (np.asarray(values, dtype=np.float64) for values in widths)
     assert captured['area_m2'] == float(np.sum(dx64[:, None] * dy64[None, :]))
     assert captured['cell_count'] == 6

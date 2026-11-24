@@ -1,11 +1,43 @@
-"""C layouts shared by complete 2D solves and native continuation."""
+"""C layouts of the full 2D result that a saved 2D stage borrows."""
 import ctypes as ct
 
-from ._simple_abi import _F2
-from .simple_2d import _Result as _SimpleResult
+from ._simple_abi import _F2, _Mass, _Momentum
 from ._thermal_abi import _ThermalArray as _Array, _ModelHResult as _ModelResult
 from ._thermal_abi import _EnthalpyResult, _EnergyOptionsV2, _EnergyResult
 from .closure_evidence import NuObservation, RangeObservation
+
+
+class _SimpleResult(ct.Structure):
+    _fields_ = [*[(name, ct.c_uint32) for name in
+        ('stop', 'converged', 'post_closure_measured', 'post_closure_certified')],
+        ('iterations', ct.c_size_t), ('pressure_clip_hits', ct.c_size_t),
+        ('legacy_residual', ct.c_double), ('momentum', _Momentum), ('mass', _Mass),
+        ('have_massflux_target', ct.c_uint32), ('massflux_target', ct.c_double),
+        ('pressure_success', ct.c_uint32), ('pressure_superlu_info', ct.c_int),
+        ('pressure_relative_residual', ct.c_double), ('pressure_pin_maximum', ct.c_double),
+        ('pressure_exit', ct.c_char*64), ('pressure_detail', ct.c_char*512)]
+
+
+_SIMPLE_STOPS = ('ongoing', 'tol', 'stall', 'max_iter', 'nonfinite', 'cancelled', 'pressure_failure', 'post_closure')
+
+
+def _result_dict(native, abi):
+    """Detach one final 2D SIMPLE result."""
+    if native.stop >= len(_SIMPLE_STOPS):
+        raise RuntimeError('native SIMPLE returned an invalid stop contract')
+    return dict(exit_reason=_SIMPLE_STOPS[native.stop], converged=bool(native.converged),
+        iterations=native.iterations, post_closure_measured=bool(native.post_closure_measured),
+        post_closure_certified=bool(native.post_closure_certified),
+        pressure_clip_hits=native.pressure_clip_hits, legacy_residual=native.legacy_residual,
+        massflux_target=native.massflux_target if native.have_massflux_target else None,
+        momentum=dict(maximum=native.momentum.maximum, numerator=list(native.momentum.numerator),
+            denominator=list(native.momentum.denominator), component=list(native.momentum.component)),
+        mass={name: getattr(native.mass,name) for name, _ in _Mass._fields_},
+        pressure=dict(success=bool(native.pressure_success), superlu_info=native.pressure_superlu_info,
+            relative_residual=native.pressure_relative_residual, pin_maximum=native.pressure_pin_maximum,
+            exit=native.pressure_exit.decode('utf-8', errors='replace'),
+            detail=native.pressure_detail.decode('utf-8', errors='replace')),
+        native_abi=abi)
 
 
 class _Side(ct.Structure):

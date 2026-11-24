@@ -1,4 +1,5 @@
 #include <tpmshx/stage_run_3d_c_api.h>
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -29,9 +30,12 @@ static void pack_saved(const tpmshx_preparation_case_3d_v1* p,tpmshx_stage_saved
     saved->nominal_porosity=p->geometry.epsilon;saved->wall_thickness_m=p->wall_thickness;
     saved->preparation=p->evidence;saved->inlet_recorded=1;
     saved->notices=p->notices;saved->notice_count=p->notice_count;
+    static const char* const fluid_names[]={"air","water","sco2","co2"};
     memcpy(saved->models,p->models,sizeof(saved->models));
-    saved->resource_fluids[0].data="air";saved->resource_fluids[0].size=3;
-    saved->resource_fluids[1].data="water";saved->resource_fluids[1].size=5;
+    for(s=0;s<2;++s) {
+        saved->resource_fluids[s].data=fluid_names[p->input.sides[s].fluid];
+        saved->resource_fluids[s].size=strlen(saved->resource_fluids[s].data);
+    }
     saved->resource_topology.data="Gyroid";saved->resource_topology.size=6;
     saved->sco2_nu=saved->resource_nu[0]=saved->resource_nu[1]=p->input.sco2_nu;
     for(i=0;i<3;++i) {
@@ -142,11 +146,65 @@ int main(void) {
     REQUIRE(records->applied_drag[0][0].minimum==result.raw.flow[0].permeability.data[0]);
     REQUIRE(records->transient_count+records->final_count==result.raw.simple_failure_count);
     REQUIRE(capture.model_h_cell_count==120 && capture.audit_outlet[0].size==20);
+    /* Raw evidence queries borrow the stage result and keep their argument contract. */
+    tpmshx_full3d_bootstrap_trace_v1 trace={0};tpmshx_property_sampling_v1 sampling={0};
+    tpmshx_model_h_iteration_records_v1 calls={0};tpmshx_range_observations_view_v1 ranges={0};
+    tpmshx_energy_update_scale_v1 scale_ev={0};tpmshx_full3d_energy_effective_settings_v1 settings_ev={0};
+    tpmshx_full3d_energy_evidence_v1 energy_ev={0};tpmshx_model_enthalpy_evidence_v1 model_h_ev={0};
+    tpmshx_physical_heat_ledger_v1 ledger_ev={0};tpmshx_model_h_acceleration_v1 accel_ev={0};
+    REQUIRE(tpmshx_full_3d_abi_version()==2);
+    REQUIRE(tpmshx_full_3d_get_property_sampling_v1(&result.raw,&sampling)==0
+        && sampling.count==records->sampling.count);
+    REQUIRE(tpmshx_full_3d_get_model_h_iterations_v1(&result.raw,&calls)==0
+        && calls.count==executed->execution.model_h.count && calls.count>0);
+    REQUIRE(tpmshx_full_3d_get_model_h_acceleration_v1(&result.raw,0,&accel_ev)==0);
+    REQUIRE(tpmshx_full_3d_get_bootstrap_trace_v1(&result.raw,0,&trace)==0);
+    REQUIRE(tpmshx_full_3d_get_last_closure_ranges_v1(&result.raw,&ranges)==0 && ranges.size>0);
+    REQUIRE(tpmshx_full_3d_get_energy_update_scale_v1(&result.raw,&scale_ev)==0 && !scale_ev.available);
+    REQUIRE(tpmshx_full_3d_get_energy_effective_settings_v1(&result.raw,&settings_ev)==0 && !settings_ev.resolved.available);
+    REQUIRE(tpmshx_full_3d_get_energy_evidence_v1(&result.raw,&energy_ev)==0 && !energy_ev.available);
+    REQUIRE(tpmshx_full_3d_get_model_enthalpy_evidence_v1(&result.raw,&model_h_ev)==0);
+    REQUIRE(tpmshx_full_3d_get_physical_heat_ledger_v1(&result.raw,&ledger_ev)==0 && ledger_ev.available);
+    trace.selected=99;sampling.count=123;ranges.size=123;calls.count=123;accel_ev.history_limit=123;
+    scale_ev.available=99;settings_ev.outer_count=123;energy_ev.outer_count=123;
+    model_h_ev.available=99;ledger_ev.available=99;
+    REQUIRE(tpmshx_full_3d_get_bootstrap_trace_v1(&result.raw,2,&trace)==1 && trace.selected==99);
+    REQUIRE(tpmshx_full_3d_get_model_h_acceleration_v1(&result.raw,calls.count+999,&accel_ev)==1 && accel_ev.history_limit==123);
+    REQUIRE(tpmshx_full_3d_get_bootstrap_trace_v1(NULL,0,&trace)==1 && trace.selected==99);
+    REQUIRE(tpmshx_full_3d_get_property_sampling_v1(NULL,&sampling)==1 && sampling.count==123);
+    REQUIRE(tpmshx_full_3d_get_model_h_iterations_v1(NULL,&calls)==1 && calls.count==123);
+    REQUIRE(tpmshx_full_3d_get_model_h_acceleration_v1(NULL,0,&accel_ev)==1 && accel_ev.history_limit==123);
+    REQUIRE(tpmshx_full_3d_get_last_closure_ranges_v1(NULL,&ranges)==1 && ranges.size==123);
+    REQUIRE(tpmshx_full_3d_get_energy_update_scale_v1(NULL,&scale_ev)==1 && scale_ev.available==99);
+    REQUIRE(tpmshx_full_3d_get_energy_effective_settings_v1(NULL,&settings_ev)==1 && settings_ev.outer_count==123);
+    REQUIRE(tpmshx_full_3d_get_energy_evidence_v1(NULL,&energy_ev)==1 && energy_ev.outer_count==123);
+    REQUIRE(tpmshx_full_3d_get_model_enthalpy_evidence_v1(NULL,&model_h_ev)==1 && model_h_ev.available==99);
+    REQUIRE(tpmshx_full_3d_get_physical_heat_ledger_v1(NULL,&ledger_ev)==1 && ledger_ev.available==99);
+    REQUIRE(tpmshx_full_3d_get_bootstrap_trace_v1(&result.raw,0,NULL)==1);
+    REQUIRE(tpmshx_full_3d_get_property_sampling_v1(&result.raw,NULL)==1);
+    REQUIRE(tpmshx_full_3d_get_model_h_iterations_v1(&result.raw,NULL)==1);
+    REQUIRE(tpmshx_full_3d_get_model_h_acceleration_v1(&result.raw,0,NULL)==1);
+    REQUIRE(tpmshx_full_3d_get_last_closure_ranges_v1(&result.raw,NULL)==1);
+    REQUIRE(tpmshx_full_3d_get_energy_update_scale_v1(&result.raw,NULL)==1);
+    REQUIRE(tpmshx_full_3d_get_energy_effective_settings_v1(&result.raw,NULL)==1);
+    REQUIRE(tpmshx_full_3d_get_energy_evidence_v1(&result.raw,NULL)==1);
+    REQUIRE(tpmshx_full_3d_get_model_enthalpy_evidence_v1(&result.raw,NULL)==1);
+    REQUIRE(tpmshx_full_3d_get_physical_heat_ledger_v1(&result.raw,NULL)==1);
     report.struct_size=sizeof(report);
     REQUIRE(query(&result.evaluation,&report,&diagnostics,&token,error,sizeof(error))==0);
     REQUIRE(report.json && report.metric_count==15);
     tpmshx_result_stage_release_v1(&report);tpmshx_stage_run_3d_release_v1(&result);
     REQUIRE(!result.owner);tpmshx_stage_run_3d_release_v1(&result);
+    REQUIRE(tpmshx_full_3d_get_bootstrap_trace_v1(&result.raw,0,&trace)==1 && trace.selected==99);
+    REQUIRE(tpmshx_full_3d_get_property_sampling_v1(&result.raw,&sampling)==1 && sampling.count==123);
+    REQUIRE(tpmshx_full_3d_get_model_h_iterations_v1(&result.raw,&calls)==1 && calls.count==123);
+    REQUIRE(tpmshx_full_3d_get_model_h_acceleration_v1(&result.raw,0,&accel_ev)==1 && accel_ev.history_limit==123);
+    REQUIRE(tpmshx_full_3d_get_last_closure_ranges_v1(&result.raw,&ranges)==1 && ranges.size==123);
+    REQUIRE(tpmshx_full_3d_get_energy_update_scale_v1(&result.raw,&scale_ev)==1 && scale_ev.available==99);
+    REQUIRE(tpmshx_full_3d_get_energy_effective_settings_v1(&result.raw,&settings_ev)==1 && settings_ev.outer_count==123);
+    REQUIRE(tpmshx_full_3d_get_energy_evidence_v1(&result.raw,&energy_ev)==1 && energy_ev.outer_count==123);
+    REQUIRE(tpmshx_full_3d_get_model_enthalpy_evidence_v1(&result.raw,&model_h_ev)==1 && model_h_ev.available==99);
+    REQUIRE(tpmshx_full_3d_get_physical_heat_ledger_v1(&result.raw,&ledger_ev)==1 && ledger_ev.available==99);
     REQUIRE(prepare(&input,&options,&prepared,error,sizeof(error))==0);
     pack_saved(&prepared.prepared,&saved,&raw);
     request.model_h.max_iterations=0;request.model_h.temperature_tolerance=0.;request.model_h.q_relative_tolerance=0.;
@@ -161,6 +219,11 @@ int main(void) {
     REQUIRE(i<report.metric_count && !strcmp(report.metrics[i].reason,"missing or incomplete evidence: 'native boundary faces'"));
     tpmshx_result_stage_release_v1(&report);tpmshx_stage_run_3d_release_v1(&result);
     result.abi_version=1;result.struct_size=sizeof(result);control.callbacks.cancel=cancel;
+    /* Explicit strict EOS controls must reject non-EOS routes before cancellation. */
+    request.require_enthalpy_update_on_temperature=1;before=result;
+    REQUIRE(tpmshx_run_saved_case_3d_v3(&saved,&request,&control,&result,error,sizeof(error))==1);
+    REQUIRE(memcmp(&result,&before,sizeof(result))==0 && error[0]!='\0');
+    request.require_enthalpy_update_on_temperature=0;
     REQUIRE(tpmshx_run_saved_case_3d_v3(&saved,&request,&control,&result,error,sizeof(error))==0);
     REQUIRE(result.raw.stop==2 && result.evidence.abi_version==0);
     REQUIRE(tpmshx_stage_run_3d_records_v1(&result)==NULL);
@@ -168,5 +231,57 @@ int main(void) {
     capture.q_net=123.;
     REQUIRE(tpmshx_stage_run_3d_get_capture_v1(&result,0,&capture)==1 && capture.q_net==123.);
     tpmshx_preparation_3d_spatial_case_release_v1(&prepared);tpmshx_stage_run_3d_release_v1(&result);
+    /* Validate 3D strict EOS energy options and bounds on the stage request boundary. */
+    input.counts[0]=input.counts[1]=input.counts[2]=2;
+    for(i=0;i<2;++i) {
+        input.sides[i].fluid=2;input.sides[i].pressure_Pa=8e6;
+        input.sides[i].velocity_m_s=.4;input.sides[i].temperature_K=i?310.:340.;
+    }
+    REQUIRE(prepare(&input,&options,&prepared,error,sizeof(error))==0);
+    pack_saved(&prepared.prepared,&saved,&raw);
+    memset(&request,0,sizeof(request));request.abi_version=1;request.struct_size=sizeof(request);
+    request.max_outer_ltne.present=request.envelope_mode.present=1;
+    request.max_outer_ltne.value=1;request.envelope_mode.value=1;
+    {
+        const tpmshx_energy_options_v1 invalid_energy[]={
+            {0,1e-8},{1,1e-8},{3,1e-8},{TPMSHX_ENERGY_TEMPERATURE_SOU,0.},{TPMSHX_ENERGY_TEMPERATURE_SOU,(double)NAN}};
+        tpmshx_energy_options_v1 valid_energy={TPMSHX_ENERGY_TEMPERATURE_SOU,1e-8};
+        memset(&result,0,sizeof(result));result.abi_version=1;result.struct_size=sizeof(result);before=result;
+        raw.solve_b=0;request.energy=&valid_energy;request.require_enthalpy_update_on_temperature=1;
+        REQUIRE(tpmshx_run_saved_case_3d_v3(&saved,&request,&control,&result,error,sizeof(error))==1
+            && memcmp(&result,&before,sizeof(result))==0);
+        raw.solve_b=1;
+        for(i=0;i<sizeof(invalid_energy)/sizeof(invalid_energy[0]);++i) {
+            error[0]='\0';request.energy=&invalid_energy[i];
+            REQUIRE(tpmshx_run_saved_case_3d_v3(&saved,&request,&control,&result,error,sizeof(error))==1
+                && memcmp(&result,&before,sizeof(result))==0 && error[0]!='\0');
+        }
+        request.energy=&valid_energy;
+        request.energy_coupled_tolerance.present=1;request.energy_coupled_tolerance.value=0.;error[0]='\0';
+        REQUIRE(tpmshx_run_saved_case_3d_v3(&saved,&request,&control,&result,error,sizeof(error))==1 && !result.owner && error[0]!='\0');
+        request.energy_coupled_tolerance.value=(double)NAN;error[0]='\0';
+        REQUIRE(tpmshx_run_saved_case_3d_v3(&saved,&request,&control,&result,error,sizeof(error))==1 && !result.owner && error[0]!='\0');
+        request.energy_coupled_tolerance.value=1e-5;
+        request.energy_equation_tolerance.present=1;request.energy_equation_tolerance.value=0.;error[0]='\0';
+        REQUIRE(tpmshx_run_saved_case_3d_v3(&saved,&request,&control,&result,error,sizeof(error))==1 && !result.owner && error[0]!='\0');
+        request.energy_equation_tolerance.value=(double)INFINITY;error[0]='\0';
+        REQUIRE(tpmshx_run_saved_case_3d_v3(&saved,&request,&control,&result,error,sizeof(error))==1 && !result.owner && error[0]!='\0');
+        request.energy_equation_tolerance.value=1e-5;
+        request.require_enthalpy_update_on_temperature=2;error[0]='\0';
+        REQUIRE(tpmshx_run_saved_case_3d_v3(&saved,&request,&control,&result,error,sizeof(error))==1 && !result.owner && error[0]!='\0');
+        request.require_enthalpy_update_on_temperature=1;
+        request.energy_update_tolerance.present=1;request.energy_update_tolerance.value=(double)NAN;error[0]='\0';
+        REQUIRE(tpmshx_run_saved_case_3d_v3(&saved,&request,&control,&result,error,sizeof(error))==1 && !result.owner && error[0]!='\0');
+        request.energy_update_tolerance.value=1e-6;
+        request.energy_iterations.present=1;request.energy_iterations.value=0;error[0]='\0';
+        REQUIRE(tpmshx_run_saved_case_3d_v3(&saved,&request,&control,&result,error,sizeof(error))==1 && !result.owner && error[0]!='\0');
+        request.energy_iterations.value=1000;
+        REQUIRE(tpmshx_run_saved_case_3d_v3(&saved,&request,&control,&result,error,sizeof(error))==0
+            && result.raw.stop==2 && result.owner && !result.raw.converged);
+        REQUIRE(tpmshx_full_3d_get_energy_effective_settings_v1(&result.raw,&settings_ev)==0
+            && !settings_ev.resolved.available && !settings_ev.last.available && !settings_ev.outer_count);
+        tpmshx_stage_run_3d_release_v1(&result);
+    }
+    tpmshx_preparation_3d_spatial_case_release_v1(&prepared);
     puts("Plain C 3D prepare/run/restore/evaluate passed");return 0;
 }

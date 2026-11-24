@@ -67,26 +67,11 @@ def test_unsupported_backend_is_rejected_before_dispatch(dimension, backend, mod
         run_case(case, RunControl(backend=backend))
 
 
-def test_native_iteration_records_are_owned_and_preserve_call_budgets():
+def test_native_iteration_options_preserve_call_budgets():
     import ctypes as ct
-    from sjtu_tpmshx.cpp_interface.solver_library.model_h import (
-        _IterationRecord, _IterationRecords, _copy_iteration_records, _iteration_options,
-    )
-    rows = (_IterationRecord * 2)(
-        _IterationRecord(0, 0, 0, 250, 250, 1e-5, 1e-8, 1000),
-        _IterationRecord(0, 1, 0, 125, 250, 1e-5, 1e-8, 1000))
-    def query(_, out):
-        ct.cast(out, ct.POINTER(_IterationRecords))[0] = _IterationRecords(rows, len(rows))
-        return 0
-    copied = _copy_iteration_records(query, ct.c_int())
-    rows[0].temperature_tolerance = 99.
-    assert copied['records'][0]['settings']['temperature_update_tolerance_K'] == 1e-5
-    assert [row['settings']['max_iterations'] for row in copied['records']] == [250, 125]
+    from sjtu_tpmshx.cpp_interface.solver_library._thermal_abi import _iteration_options
     options = _iteration_options(STRICT)
     assert (options.max_iterations, options.temperature_tolerance, options.q_relative_tolerance) == (24000, 1e-5, 1e-8)
     assert _iteration_options({}) is None
     with pytest.raises(ValueError, match='model_h_max_iterations'):
         _iteration_options({'model_h_max_iterations': ct.c_size_t(-1).value + 1})
-    rows[0].temperature_tolerance = float('nan')
-    with pytest.raises(RuntimeError, match='invalid native model-h iteration record'):
-        _copy_iteration_records(query, ct.c_int())

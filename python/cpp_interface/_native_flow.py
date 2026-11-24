@@ -4,7 +4,6 @@ from functools import lru_cache
 
 import numpy as np
 
-from . import _native_grid
 from .stage_libraries import preparation_library
 from ._native_values import real_scalar
 
@@ -142,10 +141,6 @@ def cooling_proxy_needs_target(hot, cold):
 
 def volume(width, height, length):
     return _result(_current().design_volume, list(map(_scalar, (width, height, length))), 1)[0]
-
-
-def uniform_widths(count, length):
-    return _native_grid.uniform(count, length)
 
 
 def closure_geometry_ratio(diameter_m, cell_mm):

@@ -6,8 +6,6 @@
 extern "C" {
 #endif
 
-#define TPMSHX_MODEL_H_ABI_VERSION 1u
-
 /* Optional full-solve overrides. Zero retains each route's current default.
  * Positive tolerances are finite. The budget includes charged startup trials.
  * Physical audit thresholds and chunk sizes remain unchanged. */
@@ -32,17 +30,6 @@ typedef struct {
 } tpmshx_model_h_acceleration_v1;
 
 typedef struct { const double* data; size_t size; } tpmshx_model_h_array_v1;
-typedef struct {
-    uint32_t dimension, fluid_a, fluid_b, direction_a, direction_b;
-    uint32_t warm_start, accelerate, red_black;
-    size_t max_iterations, chunk_iterations;
-    double inlet_a, inlet_b, q_relative_tolerance, alpha_a, alpha_solid, alpha_b;
-} tpmshx_model_h_config_v1;
-typedef struct {
-    int (TPMSHX_THERMAL_CALL *cancel)(void*);
-    void (TPMSHX_THERMAL_CALL *progress)(void*,size_t,size_t);
-    void* context;
-} tpmshx_model_h_callbacks_v1;
 
 typedef struct {
     double q_advective,inlet_conduction,exchange;
@@ -97,48 +84,11 @@ typedef struct {
     tpmshx_model_h_audit_3d_v1 volume;
     const tpmshx_model_h_check_v1* finishing_checks;
     size_t finishing_count;
-    void* owner;  /* private; release with tpmshx_model_h_release_v1 */
+    void* owner;  /* NULL; the full result owner keeps these views */
 } tpmshx_model_h_result_v1;
 
-TPMSHX_THERMAL_API uint32_t TPMSHX_THERMAL_CALL tpmshx_model_h_abi_version(void);
 /* Read-only recipe identity. Static storage; NULL for unsupported dimensions. */
 TPMSHX_THERMAL_API const char* TPMSHX_THERMAL_CALL tpmshx_model_h_algorithm_v1(uint32_t dimension);
-
-/* Complete fixed-flow thermal solve. No EOS/flow/outer coupling is performed.
- * dimension=2 requires nz=1,dz[0]=1 and air/water sides. dimension=3 requires
- * nz>1 and AA/AW/WA. Grid and all fields use C order. Arrays[24]/sizes[24]:
- *  dx,dy,dz,Kss,source_s,
- *  Ka,hva,mass_a_x,mass_a_y,mass_a_z,profile_a,opening_a,source_a,
- *  Kb,hvb,mass_b_x,mass_b_y,mass_b_z,profile_b,opening_b,source_b,
- *  Ta,Tb,Ts.
- * Optional empty profiles/openings mean scalar Tin/full inlet. Sources may
- * be empty for zero. 2D requires empty z masses and all source arrays.
- * Only Ta/Tb/Ts are mutated. Every array is borrowed until return, immutable
- * through callbacks except those three state buffers. Array/control/result/
- * error storage must not overlap mutable state or one another. A pointer
- * cannot prove allocation size. Callbacks run synchronously and must not throw.
- * Alpha values in2D must be(.2,1,.2); 3D retains explicit alpha in(0,1] and
- * caps fluid alpha at the current generated model-h relaxation.
- *
- * stop:0converged,1budget exhausted,2cancelled. Status/error return:0normal,
- * 1invalid argument,2arithmetic failure,3native exception. Nonzero return
- * leaves result untouched; state may be partial and must be discarded.
- * Cancellation returns no audit and its fields must also be discarded.
- * error is required, positive capacity, always bounded/NUL terminated.
- *
- * On normal return, result owns read-only audit arrays until release. Only
- * plane or volume matching dimension is valid and only if audit_available.
- * Duties/residuals are W/m in2D, W in3D; mass is kg/(s m) or kg/s. Inputs
- * need not remain alive to use these owned audit views. Do not copy owner
- * handles or free views. Release every normal result, including cancelled,
- * before reusing its struct. Release clears it and accepts an already-cleared
- * result. No C++ exception crosses either entry point.
- */
-TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_solve_model_h_v1(
-    const size_t* shape,double* const* arrays,const size_t* sizes,
-    const tpmshx_model_h_config_v1* config,const tpmshx_model_h_callbacks_v1* callbacks,
-    tpmshx_model_h_result_v1* result,char* error,size_t error_capacity);
-TPMSHX_THERMAL_API void TPMSHX_THERMAL_CALL tpmshx_model_h_release_v1(tpmshx_model_h_result_v1* result);
 
 #ifdef __cplusplus
 }

@@ -1,4 +1,5 @@
 """Native true-h state, EOS, independent energy equations, and stop budgets."""
+import copy
 import ctypes
 import os
 from pathlib import Path
@@ -10,12 +11,14 @@ import CoolProp.CoolProp as CP
 import numpy as np
 import pytest
 
+from sjtu_tpmshx.model_configs.model_parameters import load_model_parameters
 from tests.python.native.enthalpy_fv_audit import energy
 
 
 ROOT = Path(__file__).resolve().parents[3]
 TABLES = ROOT / ".cache/native-deps/trueh-tables"
 FLUID = {"air": 0, "water": 1, "sco2": 2}
+DEFAULT_TEMP_TOL_K = load_model_parameters()["native_controls"]["enthalpy_temperature_tol_K"]
 
 
 def library_path():
@@ -60,6 +63,7 @@ def load_native(path):
         values = [case[key] for key in ("T_inA", "P_A", "T_inB", "P_B", "omega", "tol")]
         values += [case[key] if case[key] is not None else 0.
                    for key in ("coupled_energy_tol", "equation_energy_tol")]
+        values += [case.get("temperature_tol_K", DEFAULT_TEMP_TOL_K)]
         status, metrics = (ctypes.c_size_t * 12)(), (ctypes.c_double * 18)()
         error = ctypes.create_string_buffer(2048)
         code = fn((ctypes.c_size_t * 3)(*shape), pointers, sizes,
@@ -256,6 +260,54 @@ def test_mixed_inlet_outlet_patches_and_closed_faces(enthalpy_native):
         fx[:, 2, :] *= -1.
         assert not fy.any() and not fz.any()
     assert_audited(case, enthalpy_native(case))
+
+
+def test_unit_depth_extrusion_preserves_temperature_and_scales_duty(enthalpy_native):
+    physical = case_data(("sco2", "water"), shape=(4, 3, 1))
+    per_metre = copy.deepcopy(physical)
+    thickness = float(physical["dz"][0])
+    per_metre["dz"][:] = 1.
+    for side in "AB":
+        per_metre["mass_flux_" + side] = tuple(face / thickness for face in physical["mass_flux_" + side])
+    a, b = enthalpy_native(physical), enthalpy_native(per_metre)
+    assert a["code"] == b["code"] == 0, (a["error"], b["error"])
+    for x, y in zip(a["fields"], b["fields"]):
+        np.testing.assert_allclose(x, y, rtol=2e-10, atol=2e-8)
+    for index in (1, 2):  # Q_A and Q_B
+        assert a["metrics"][index] == pytest.approx(thickness * b["metrics"][index], rel=2e-8, abs=2e-8)
+
+
+@pytest.mark.parametrize("key,value,expected_text", [
+    ("T_inA", 279., "sCO2 temperature must be within"),
+    ("T_inA", 701., "sCO2 temperature must be within"),
+    ("P_A", 7.8e6, "sCO2 pressure must be within"),
+    ("P_A", 16.1e6, "sCO2 pressure must be within"),
+    ("pressure_A_field", np.nan, "true-h EOS requires finite positive K and Pa(abs)"),
+])
+def test_sco2_state_outside_its_domain_is_an_invalid_input(enthalpy_native, key, value, expected_text):
+    case = case_data(("sco2", "water"), shape=(2, 1, 1))
+    if key == "pressure_A_field":
+        case[key][:] = value
+    else:
+        case[key] = value
+    result = enthalpy_native(case)
+    assert result["code"] == 1 and expected_text in result["error"], result["error"]
+
+
+def test_normalized_h_gate_keeps_strict_comparison(enthalpy_native):
+    case = case_data()
+    warm = enthalpy_native(case)
+    assert warm["code"] == 0, warm["error"]
+    ta, tb, ts = warm["fields"]
+    # A one-kelvin gate leaves the strict normalized-h comparison as the only stop gate.
+    case.update(Ta_init=ta + 1e-4, Tb_init=tb, Ts_init=ts + 2e-4, n_outer=1, tol=1.,
+                temperature_tol_K=1., coupled_energy_tol=None, equation_energy_tol=None)
+    measured = enthalpy_native(case)
+    assert measured["code"] == 0 and measured["status"][0] == 0 and measured["metrics"][0] > 0.
+    case["tol"] = measured["metrics"][0]
+    actual = enthalpy_native(case)
+    assert actual["code"] == 0 and actual["metrics"][0] == case["tol"]
+    assert actual["status"][0] == 2  # iteration_limit: equality does not pass the gate
 
 
 @pytest.mark.parametrize("bad_size", range(21))

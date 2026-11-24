@@ -17,13 +17,16 @@ The libraries export no earlier version of these stage operations.
 | Quick Design preparation | `tpmshx_prepare_quick_design_v2`, `tpmshx_quick_pressure_fractions_v2`, `tpmshx_quick_prepared_release_v2` |
 | 2D stage run (saved ABI 5) | `tpmshx_stage_run_2d_abi_version`, `tpmshx_run_saved_case_2d_v5`, `tpmshx_stage_run_2d_{create,restore}_saved_v5`, `tpmshx_stage_run_2d_{advance_step,finish,phase,snapshot,take_result,release_run,release}_v1`, `tpmshx_stage_run_2d_{records,execution_view,get_capture,zone_temperatures,report}_v1`, `tpmshx_stage_borrow_mesh_v1`, `tpmshx_stage_port_windows_fit_2d_v1`, `tpmshx_stage_run_2d_check_experiment_v4` |
 | 3D stage run (saved ABI 3, capture ABI 2) | `tpmshx_stage_run_3d_abi_version`, `tpmshx_stage_capture_3d_abi_version`, `tpmshx_run_saved_case_3d_v3`, `tpmshx_stage_run_3d_{create,restore}_saved_v3`, `tpmshx_stage_run_3d_{advance_step,finish,phase,snapshot,take_result,release_run,release}_v1`, `tpmshx_stage_run_3d_{records,execution_view,get_capture,report}_v1` |
-| C SDK direct full solve | `tpmshx_solve_full_2d_v6`, `tpmshx_solve_full_3d_v5`, `tpmshx_full_2d_run_{create,restore}_v2`, `tpmshx_full_3d_run_{create,restore}_v3` |
-| Quick Design run | `tpmshx_run_quick_design_v2`, `tpmshx_quick_run_ranges_v2`, `tpmshx_quick_run_temperature_algorithm_v1`, `tpmshx_quick_run_release_v1`, `tpmshx_solve_quick_design_v1` |
+| Raw stage-result queries | `tpmshx_full_{2,3}d_abi_version`, `tpmshx_full_2d_get_{energy_evidence,energy_update_scale,energy_effective_settings,model_enthalpy_evidence,last_closure_ranges,physical_heat_ledger,property_sampling,model_h_iterations,flow_methods}_v1`, `tpmshx_full_3d_get_{energy_evidence,energy_update_scale,energy_effective_settings,bootstrap_trace,model_enthalpy_evidence,last_closure_ranges,physical_heat_ledger,property_sampling,model_h_iterations,model_h_acceleration}_v1`, `tpmshx_run_state_release_v1` |
+| Recipe identity and defaults | `tpmshx_temperature_algorithm_v1`, `tpmshx_model_h_algorithm_v1`, `tpmshx_energy_algorithm_version_v1`, `tpmshx_full_enthalpy_defaults_v1` |
+| Quick Design run | `tpmshx_solver_abi_version`, `tpmshx_run_quick_design_v2`, `tpmshx_quick_run_ranges_v2`, `tpmshx_quick_run_temperature_algorithm_v1`, `tpmshx_quick_run_release_v1` |
 | Result stage (ABI 3) | `tpmshx_result_stage_query_v3`, `tpmshx_result_stage_{evaluate,applicability,physical_balance,qualification,release}_v1` |
 
 Each preparation family also exports its matching `*_flow_release_v1` and `*_case_release_v1` functions.
 A library missing a required active entry is a deployment error; Python does not select an archived runtime or fallback route.
-Python binds only the saved stage runs; direct full-solve entries serve C callers and native tests.
+Saved-stage entries define the active C SDK, for Python and for C and C++ callers.
+Raw stage-result queries read the `raw` result that a stage result borrows. Release only the stage result.
+The solver library exports no direct full-solve, run-continuation, or per-driver C entry.
 See [C++ migration history](history/cpp-migration-history.md) for retired `v1`–`v11` ABI records.
 
 ## Stage pipeline, ownership, and units

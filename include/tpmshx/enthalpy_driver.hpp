@@ -52,7 +52,7 @@ struct EnthalpyControl {
     // Full runs use a scale that does not depend on either enthalpy origin.
     bool reference_independent_update = false;
     std::size_t cpu_threads = 1;
-    // Direct C calls retain strict h and relative boundary energy gates.
+    // Direct component calls retain strict h and relative boundary energy gates.
     bool require_legacy_direct_gates = false;
 };
 
@@ -76,7 +76,6 @@ struct EnthalpyResult {
     bool reference_independent_update = false;
     ClipCounts last_clips, total_clips;
     // Completed ordinary SOU blocks retain the full unrelaxed audit.
-    // The direct C view publishes only the requested audit components.
     std::optional<EnergyAudit> final_audit;
     std::array<bool,2> used_bicubic;
     bool heos_polish;

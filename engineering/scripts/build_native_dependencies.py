@@ -591,22 +591,17 @@ def verify(cache: Path, host: str, component: str = "all") -> None:
     pressure = json.loads(run([build_dir / f"pressure_smoke{suffix}"], log))
     if pressure["status"] != "passed":
         raise RuntimeError(f"Pressure smoke failed: {pressure}")
-    for caller in ("quick_design_c_static", "quick_design_c_shared",
-                   "enthalpy_c_static", "enthalpy_c_shared", "enthalpy_driver_smoke",
-                   "conservative_energy_smoke", "conservative_energy_driver_smoke",
-                   "simple_2d_smoke", "simple_3d_smoke", "simple_run_smoke", "simple_2d_c_static", "simple_2d_c_shared",
-                   "simple_3d_c_static", "simple_3d_c_shared", "model_h_2d_smoke", "model_h_3d_smoke",
+    for caller in ("enthalpy_driver_smoke", "conservative_energy_smoke", "conservative_energy_driver_smoke",
+                   "simple_2d_smoke", "simple_3d_smoke", "simple_run_smoke", "model_h_2d_smoke", "model_h_3d_smoke",
                    "model_h_chunk_smoke", "model_h_run_smoke",
-                   "model_h_c_static", "model_h_c_shared", "temperature_c_static", "temperature_c_shared",
                    "temperature_driver_smoke", "temperature_staggered_smoke", "temperature_run_smoke",
-                   "full_2d_c_static", "full_2d_c_shared",
-                   "full_3d_c_static", "full_3d_c_shared", "side_physics_smoke"):
+                   "side_physics_smoke"):
         run([build_dir / f"{caller}{suffix}"], log)
     run([build_dir / f"conservative_energy_driver_smoke{suffix}", "8"], log)
     for storage in ("csc", "csr"):
         for case in ("allocations", "aborts", "singular", "concurrent"):
             run([build_dir / f"superlu_error_smoke{suffix}", "--case", case, "--format", storage], log)
-    print(f"PASS: {host} locked sources, EOS, pressure, Quick Design/enthalpy/temperature/SIMPLE/model-h callers and SuperLU error boundary",
+    print(f"PASS: {host} locked sources, EOS, pressure, enthalpy/temperature/SIMPLE/model-h callers and SuperLU error boundary",
           flush=True)
 
 

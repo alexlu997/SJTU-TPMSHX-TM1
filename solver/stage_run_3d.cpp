@@ -1,4 +1,5 @@
 #include "tpmshx/stage_run_3d_c_api.h"
+#include "stage_entries.hpp"
 #include "stage_capture_3d.hpp"
 #include "stage_saved_models.hpp"
 #include "../geometry/field_c_boundary.hpp"

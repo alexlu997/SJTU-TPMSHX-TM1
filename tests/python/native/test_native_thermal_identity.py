@@ -1,12 +1,10 @@
 """Recipe identity follows the loaded native library and portable result."""
+import ctypes as ct
 import os
 from pathlib import Path
 from dataclasses import replace
-from types import SimpleNamespace
 
 import pytest
-
-from sjtu_tpmshx.cpp_interface.solver_library.model_h import NativeModelHDriver, _model_h_algorithm
 
 
 def library_path(variable):
@@ -18,33 +16,11 @@ def library_path(variable):
     return path
 
 
-@pytest.mark.parametrize('dimension', [2, 3])
-def test_model_h_missing_or_null_identity_is_explicit(dimension):
-    with pytest.raises(ValueError, match='lacks tpmshx_model_h_algorithm_v1'):
-        _model_h_algorithm(SimpleNamespace(), dimension)
-    def query(value):
-        assert value == dimension
-        return None
-    with pytest.raises(ValueError, match='no model-h algorithm'):
-        _model_h_algorithm(SimpleNamespace(tpmshx_model_h_algorithm_v1=query), dimension)
-
-
-@pytest.mark.parametrize('dimension', [2, 3])
-@pytest.mark.parametrize('red_black', [False, True])
-def test_model_h_zero_budget_reports_loaded_identity(dimension, red_black):
-    from tests.python.native.test_cpp_model_h import arguments
-    from tests.python.native import test_model_h_2d, test_model_h_3d
-    driver = NativeModelHDriver(library_path('TPMSHX_MODEL_H_PUBLIC_LIBRARY'))
-    c = (test_model_h_2d if dimension == 2 else test_model_h_3d).case()
-    c.update(maxit=0, rb=red_black)
-    info = driver(**arguments(c))[3]
-    expected = ('shared_fv_model_h_2d_defect_v1' if dimension == 2
-                else 'shared_fv_model_h_3d_compensated_v1')
-    assert _model_h_algorithm(driver.library, dimension) == expected
-    assert info['native_metadata'] == dict(abi=1, algorithm=expected, red_black=red_black)
-    assert info['iterations'] == 0 and not info['converged']
-    with pytest.raises(ValueError, match='no model-h algorithm'):
-        _model_h_algorithm(driver.library, 0)
+def model_h_identity(library, dimension):
+    """Read the exported model-h recipe identity from the loaded solver library."""
+    query = library.tpmshx_model_h_algorithm_v1
+    query.argtypes, query.restype = [ct.c_uint32], ct.c_char_p
+    return query(dimension).decode('ascii')
 
 
 def stage_control():
@@ -69,7 +45,7 @@ def test_full_2d_identity_roundtrip(mode, tmp_path):
     stage = run_stage(case, control)
     raw, result = stage.native, stage.result
     assert raw['main']['mode'] == mode
-    expected = (_model_h_algorithm(StageDriver(control.native_library).library, 2) if mode == 'model_h'
+    expected = (model_h_identity(StageDriver(control.native_library).library, 2) if mode == 'model_h'
                 else 'model_h_tface_sou_fou_strict_v3')
     assert raw['native_metadata'] == dict(abi=2, algorithm=expected, red_black=False)
     assert dict(result.metadata['native']) == raw['native_metadata']
@@ -95,7 +71,7 @@ def test_full_3d_identity_uses_executed_route(route, counts, options):
     raw = run_stage(prepared, control).native
     assert raw['mode'] == ('model_h' if route == 'model_h' else 'temperature')
     _, library, _, _ = full_3d_stage.open_library(control.native_library, None)
-    expected = (_model_h_algorithm(library, 3) if route == 'model_h' else
+    expected = (model_h_identity(library, 3) if route == 'model_h' else
                 {'cc2d': 'model_h_tface_sou_fou_strict_v3',
                  'cc3d': 'model_h_tface_sou_sou_strict_v3',
                  'staggered': 'shared_fv_staggered_tminmod_picard_v1'}[route])
