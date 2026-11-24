@@ -7,9 +7,28 @@
 #include <iostream>
 #include <limits>
 #include <string>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 namespace {
+template<class Owner, class = void>
+constexpr bool can_save_case = false;
+
+template<class Owner>
+constexpr bool can_save_case<Owner, std::void_t<decltype(tpmshx::stages::saved_case(std::declval<Owner>()))>> = true;
+
+template<class Borrower, class Owner, class... Args>
+constexpr bool borrows_lvalues_only =
+    std::is_constructible_v<Borrower, const Owner&, Args...> &&
+    !std::is_constructible_v<Borrower, Owner&&, Args...> &&
+    !std::is_constructible_v<Borrower, const Owner&&, Args...>;
+
+template<class Saved, class Prepared>
+constexpr bool requires_prepared_lvalue =
+    borrows_lvalues_only<Saved, Prepared> && can_save_case<const Prepared&> &&
+    !can_save_case<Prepared&&> && !can_save_case<const Prepared&&>;
+
 void require(bool value,const char* message) {if(!value)throw std::runtime_error(message);}
 int cancel(void*) {return 1;}
 tpmshx::stages::CaseInput2D input() {
@@ -128,6 +147,19 @@ void check_saved(const tpmshx::stages::PreparedUniformCase2D& calibrated,tpmshx:
 }
 void check_sdk_saved_families(tpmshx::stages::RunControl control) {
     using namespace tpmshx::stages;
+    static_assert(requires_prepared_lvalue<SavedCase2D, PreparedUniformCase2D>);
+    static_assert(requires_prepared_lvalue<SavedCase2D, PreparedZonedFlowCase2D>);
+    static_assert(requires_prepared_lvalue<SavedCase2D, PreparedSigmoidFlowCase2D>);
+    static_assert(requires_prepared_lvalue<SavedCase2D, PreparedStripeCase2D>);
+    static_assert(requires_prepared_lvalue<SavedCase2D, PreparedContinuousCase2D>);
+    static_assert(requires_prepared_lvalue<SavedPreparedCase3D, PreparedSpatialCase3D>);
+    static_assert(requires_prepared_lvalue<SavedPreparedCase3D, PreparedContinuousCase3D>);
+    static_assert(borrows_lvalues_only<Run2D, SavedCase2D, RunControl>);
+    static_assert(borrows_lvalues_only<Run2D, tpmshx_stage_saved_case_2d_v5, RunControl, RunRequest2D, const RunState*>);
+    static_assert(borrows_lvalues_only<Run3D, SavedPreparedCase3D, RunControl3D>);
+    static_assert(borrows_lvalues_only<Run3D, SavedCase3D, RunControl3D>);
+    static_assert(borrows_lvalues_only<Run3D, tpmshx_stage_saved_case_3d_v3, RunControl3D, RunRequest3D, const RunState*>);
+
     PreparationOptions options;options.allow_extrapolation=1;
     RunRequest2D fast2d;
     fast2d.max_iter_simple={1,2};fast2d.max_outer_ltne={1,2};
@@ -161,7 +193,7 @@ void check_sdk_saved_families(tpmshx::stages::RunControl control) {
         require(result.view().evidence.dimension==2 && result.view().raw.main.nx==4 && result.view().raw.main.ny==4,
             "zoned 2D SavedCase2D run failed");
     }
-    // 2. Sigmoid 2D (PreparedSigmoidFlowCase2D -> SavedCase2D -> run_case)
+    // The one-shot 2D run transfers the result before the temporary owner expires.
     {
         SigmoidFlowInput2D sigmoid;configure_tiny(sigmoid.input);
         auto bounds=make_region(0.,1.,0.,1.,7.,.4);
@@ -172,10 +204,8 @@ void check_sdk_saved_families(tpmshx::stages::RunControl control) {
         auto lut=build_sigmoid_lut(1,2,2,16);
         sigmoid.lut={lut.view().cell_mm,lut.view().wall_mm,lut.view().porosity,
             lut.view().area_density_per_m,lut.view().porosity_fast,lut.view().area_fast};
-        PreparedSigmoidFlowCase2D prepared=prepare_case(sigmoid,options);
-        const SavedCase2D saved(prepared);
         control.result_id="smoke-sigmoid-2d";
-        auto result=run_case(saved,control,fast2d);
+        auto result=run_case(prepare_case(sigmoid,options),control,fast2d);
         require(result.view().evidence.dimension==2 && result.view().raw.main.nx==4 && result.view().raw.main.ny==4,
             "sigmoid 2D SavedCase2D run failed");
     }
@@ -192,7 +222,7 @@ void check_sdk_saved_families(tpmshx::stages::RunControl control) {
         require(result.view().evidence.dimension==2 && result.view().raw.main.nx==4 && result.view().raw.main.ny==4,
             "stripe 2D SavedCase2D run failed");
     }
-    // 4. Continuous 3D (SavedPreparedCase3D(const PreparedContinuousCase3D&) -> run_case)
+    // The one-shot 3D run also accepts a temporary owner.
     {
         ContinuousInput3D continuous;
         auto& values=continuous.input;
@@ -206,13 +236,11 @@ void check_sdk_saved_families(tpmshx::stages::RunControl control) {
         values.sides[1].port.direction=3;
         const double decisions[]{4.5,6.,7.5,5.4,.31,.42,.59,.36};
         continuous.controls={2,2,1,0,1,0,{4.,8.},{.3,.6},{decisions,8}};
-        PreparedContinuousCase3D prepared=prepare_case(continuous,options);
-        const SavedPreparedCase3D saved(prepared);
         RunRequest3D fast3d;
         fast3d.max_iter_simple={1,2};fast3d.max_outer_ltne={1,1};
         fast3d.model_h={4,.5,1e-3};
         RunControl3D control3d;control3d.cpu_threads=2;control3d.result_id="smoke-continuous-3d";
-        auto result=run_case(saved,control3d,fast3d);
+        auto result=run_case(prepare_case(continuous,options),control3d,fast3d);
         require(result.view().raw.stop<=1 && result.view().evidence.dimension==3,
             "continuous 3D SavedPreparedCase3D run failed");
     }

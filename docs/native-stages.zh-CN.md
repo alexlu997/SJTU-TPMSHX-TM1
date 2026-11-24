@@ -33,6 +33,12 @@ Preparation ABI 3、Quick Design v2、二维保存态阶段 ABI 5、三维保存
 `include/tpmshx/stages.hpp` 中的 C++ 调用顺序为 `prepare_case`、`run_case` 与 `evaluate`。
 准备库计算物理网格、端口、场与模型证据；求解库运行准备态；结果库独立评估已记录证据。
 
+调用 `saved_case`、`SavedCase2D` 或 `SavedPreparedCase3D` 前，先用变量保存准备所有者。
+创建或恢复 `Run2D` 或 `Run3D` 前，先用变量保存描述符。
+在取出结果或释放运行对象前，须保持准备所有者、描述符和回调上下文存活且不变。
+一次性调用 `run_case` 可以直接接收临时准备所有者或临时描述符。
+例如，`run_case(prepare_case(input, options), control)` 会在临时准备所有者销毁前转移结果。
+
 - **单位**：设计输入（`cell_length_mm`、`wall_thickness_mm`）使用 mm；保存的物理设计场使用 m。构建输运与闭合比例时保留既有 mm-to-m-to-mm 转换顺序。换热量在二维为 W/m、三维为 W；质量流量为 kg/s；温度为 K；压力为 Pa(abs)。
 - **数组布局**：请求网格数与实际网格数分开保存。二维物理场为 `(nx, ny)` C 序，三维物理场为 `(nx, ny, nz)` C 序，各侧流场为 `(cross, stream)` 序。
 - **单一所有者释放**：每个拥有动态存储的输出仅有一个外层 `owner` 指针，嵌套视图的 `owner` 为空。最后一次使用后须通过创建该对象的库释放。纯标量查询（`tpmshx_query_inlet_properties_v2`、`tpmshx_quick_pressure_fractions_v2`）按值返回，无需释放。
@@ -139,7 +145,6 @@ Python 保留 LUT 的内存与磁盘存储；缺表时 C++ 在体素分辨率 25
 `stage_run_c_api.h` 将扁平的 `SavedCase2D`（`tpmshx_stage_saved_case_2d_v5`，ABI 5）与 `RunRequest2D`（`tpmshx_stage_run_request_2d_v4`）接入 `Full2DRun`。
 调用任何二维保存态阶段入口前，先校验 `tpmshx_stage_run_2d_abi_version() == 5`。
 `SavedCase2D` 借用已校验的准备视图、流场网格、设计场、模型引用、名义热侧元组和实验设置，不重复执行前处理。
-在结果转移或运行释放前，须保持准备所有者、描述符与回调上下文存活且不变。
 
 - **一次性运行**：`tpmshx_run_saved_case_2d_v5` 在 C++ 内推进至结束并转移拥有的 `tpmshx_stage_run_result_2d_v1`（使用 `tpmshx_stage_run_2d_release_v1` 释放）。
 - **分步与检查点生命周期**：`tpmshx_stage_run_2d_create_saved_v5`、`restore_saved_v5`、`advance_step_v1`、`finish_v1`、`phase_v1`、`snapshot_v1`、`take_result_v1` 与 `release_run_v1`。快照（`tpmshx_run_state_v1`，使用 `tpmshx_run_state_release_v1` 释放）拥有独立存储。恢复要求完全相同的构建、准备输入与数值控制；仅正值 `cpu_threads` 允许调整。
