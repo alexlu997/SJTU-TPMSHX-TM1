@@ -44,6 +44,9 @@ PREPARATION_CALLERS = (
     "preparation_case_3d_c_static", "preparation_case_3d_c_shared",
     "quick_prepare_c_static", "quick_prepare_c_shared",
 )
+# Published images and their build records, in publication order.
+PUBLISHED_LIBRARIES = (("solver", "build.json"), ("geometry", "geometry-build.json"),
+                       ("preparation", "preparation-build.json"), ("result", "result-build.json"))
 
 
 def run(command: list[str | Path], log: Path, *, cwd: Path = ROOT,
@@ -613,9 +616,7 @@ def publish(cache: Path, host: str, python: Path, lock: Path, component: str = "
     verify(cache, host, selected_component)
     destination = ROOT / "sjtu_tpmshx/solvers/native/lib" / host
     libraries = ([(selected_component, selected_component + "-build.json")]
-                 if selected_component != "all" else
-                 [("solver", "build.json"), ("geometry", "geometry-build.json"),
-                  ("preparation", "preparation-build.json"), ("result", "result-build.json")])
+                 if selected_component != "all" else PUBLISHED_LIBRARIES)
     log = cache / "logs" / f"publish-{host}.log"
     source_commit = None
     source_changes = None
@@ -716,6 +717,59 @@ def publish(cache: Path, host: str, python: Path, lock: Path, component: str = "
     return selected[0][2]
 
 
+def verify_published(directory: Path, host: str, component: str, log: Path) -> None:
+    """Compare the selected published images with the export manifests.
+
+    This is a qualification check. It does not build, load or replace an image.
+    A different source commit, a dirty build or a missing or unreadable build
+    record is reported. It does not fail an image whose exports agree.
+    """
+    libraries = [(kind, record) for kind, record in PUBLISHED_LIBRARIES if component in {"all", kind}]
+    print(f"Published directory: {directory}", flush=True)
+    failures = []
+    for kind, metadata_name in libraries:
+        library = directory / shared_library_name(host, kind)
+        metadata = directory / metadata_name
+        print(f"{kind}: {library}", flush=True)
+        record = None
+        if not metadata.is_file():
+            print(f"  WARNING: build record missing ({metadata.name})", flush=True)
+        else:
+            try:
+                record = json.loads(metadata.read_text(encoding="utf-8"))
+                if not isinstance(record, dict):
+                    raise ValueError("not a JSON object")
+                if not isinstance(record.get("source_changes"), (list, type(None))):
+                    raise ValueError("source_changes is not a list")
+            except ValueError as error:
+                record = None
+                print(f"  WARNING: build record unreadable ({metadata.name}: {error})", flush=True)
+        if record is not None:
+            changes = record.get("source_changes")
+            count = "unknown" if changes is None else len(changes)
+            print(f"  build record: source_commit={record.get('source_commit')}, source_changes={count}",
+                  flush=True)
+            if changes:
+                print(f"  WARNING: dirty build; the source checkout had {len(changes)} tracked changes",
+                      flush=True)
+        if not library.is_file():
+            failures.append(kind)
+            print("  exports: FAIL: the published image is missing", flush=True)
+            continue
+        if kind == "geometry":
+            print("  exports: not compared (geometry has no export manifest)", flush=True)
+            continue
+        try:
+            verify_model_exports(directory, host, kind, log)
+        except RuntimeError as error:
+            failures.append(kind)
+            print(f"  exports: FAIL: {error}", flush=True)
+            continue
+        print("  exports: agree with the manifest", flush=True)
+    if failures:
+        raise RuntimeError(f"Published image check failed for: {', '.join(failures)}")
+    print(f"PASS: {host} published images agree with the export manifests", flush=True)
+
 
 def check_stages(cache: Path, host: str, python: Path, lock: Path, component: str) -> None:
     """Build the installed public SDK and run callers outside the source tree."""
@@ -780,17 +834,26 @@ def check_stages(cache: Path, host: str, python: Path, lock: Path, component: st
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("fetch", "fetch-cmake", "fetch-eigen", "build", "verify", "publish", "check-stages"))
+    parser.add_argument("action", choices=("fetch", "fetch-cmake", "fetch-eigen", "build", "verify", "publish",
+                                           "check-stages", "verify-published"))
     parser.add_argument("--cache", type=Path, default=ROOT / ".cache/native-deps")
     parser.add_argument("--python-lock", type=Path, default=ROOT / "engineering/requirements/base.txt")
     parser.add_argument("--component", choices=("all", "coolprop", "pilot", "geometry", "preparation", "result"), default="all")
+    parser.add_argument("--directory", type=Path,
+                        help="verify-published only: published image directory (default: this checkout's host directory)")
     args = parser.parse_args()
+    if args.directory is not None and args.action != "verify-published":
+        parser.error("--directory applies only to verify-published")
+    if args.action == "verify-published" and args.component in {"coolprop", "pilot"}:
+        parser.error("verify-published accepts --component all, geometry, preparation or result")
     python, host, cache = configured_python(), platform_name(), args.cache.resolve()
     if not cache.is_relative_to(ROOT / ".cache"):
         raise RuntimeError("Native dependency outputs must remain under this worktree's .cache/")
     require_component(host, args.component)
-    if host == "linux-x86_64" and args.action not in {"fetch-cmake", "build", "verify", "publish", "check-stages"}:
-        raise RuntimeError("Linux result builds allow only fetch-cmake, build, verify, publish, or check-stages")
+    if host == "linux-x86_64" and args.action not in {"fetch-cmake", "build", "verify", "publish", "check-stages",
+                                                      "verify-published"}:
+        raise RuntimeError("Linux result builds allow only fetch-cmake, build, verify, publish, check-stages, "
+                           "or verify-published")
     if args.action == "fetch":
         fetch(cache, host)
     elif args.action == "fetch-cmake":
@@ -803,6 +866,10 @@ def main() -> None:
         check_stages(cache, host, python, args.python_lock.resolve(), args.component)
     elif args.action == "publish":
         publish(cache, host, python, args.python_lock.resolve(), args.component)
+    elif args.action == "verify-published":
+        directory = args.directory or ROOT / "sjtu_tpmshx/solvers/native/lib" / host
+        verify_published(directory.resolve(), host, args.component,
+                         cache / "logs" / f"verify-published-{host}.log")
     else:
         check_environment(cache, python, args.python_lock.resolve())
         verify(cache, host, args.component)

@@ -1,6 +1,7 @@
 """Display selections preserve the solved fields and physical probe position."""
 from types import SimpleNamespace
 from sjtu_tpmshx.applications.gui.controllers.result_cache import ResultCache
+from sjtu_tpmshx.data_types.compute_result import ComputeResult
 
 import numpy as np
 import pytest
@@ -43,7 +44,7 @@ def test_narrow_field_colorbars_keep_distinct_absolute_labels(dimension, field, 
             _DIR_MAP={0: 'x+', 3: 'y-'}, canvas_temp=canvas, canvas_pres=canvas,
             canvas_vel=canvas, _update_tout=lambda _: None)
         canvas.plot_pressure = lambda *args, **kwargs: MatplotlibCanvas.plot_pressure(canvas, *args, **kwargs)
-        window.cache.set_result('2d', SimpleNamespace(fields=fields, extrap_reasons=[]))
+        window.cache.set_result('2d', ComputeResult(fields=fields))
         finalize_plots(window, field)
     else:
         x, y = np.linspace(5., 35., 4), np.linspace(5., 25., 3)
@@ -129,6 +130,43 @@ def test_selected_temperature_phase_and_celsius_keep_source_kelvin():
     np.testing.assert_allclose(window.canvas_temp._hover_data['fields'][0], raw + 20. - 273.15)
     np.testing.assert_array_equal(result['Ta'], raw)
     np.testing.assert_array_equal(result['Tb'], raw + 20.)
+
+
+@pytest.mark.parametrize('phase', [None, 1])
+@pytest.mark.parametrize('zones,expected_x,expected_y', [
+    (None, [], []),
+    ({'axis_dir': 'y', 'boundaries': [0.015, 0.035],
+      'boundaries_x': None, 'boundaries_y': None}, [], [15.0, 35.0]),
+    ({'axis_dir': 'x', 'boundaries': [0.025],
+      'boundaries_x': None, 'boundaries_y': None}, [25.0], []),
+    ({'axis_dir': 'grid', 'boundaries': [],
+      'boundaries_x': [0.02, 0.06], 'boundaries_y': [0.015]},
+     [20.0, 60.0], [15.0]),
+])
+def test_direct_temperature_plot_uses_explicit_zones(
+        phase, zones, expected_x, expected_y):
+    raw = np.array([[300., 310.], [400., 410.]])
+    fields = dict(N_x=2, N_y=2, L=.1, H=.05, dx_arr=np.array([.01, .09]),
+                  dy_arr=np.array([.02, .03]), Ta=raw, Tb=raw + 20., Ts=raw + 10.)
+    window = SimpleNamespace(
+        _field_phase=phase, _temp_unit='K', canvas_temp=_canvas(),
+        _zone_axis_dir='x', _zone_boundaries=[0.09],
+        _zone_boundaries_x=[0.08], _zone_boundaries_y=[0.04],
+    )
+    if zones is None:
+        plot_temperature_3panel(window, fields, get_theme())
+    else:
+        plot_temperature_3panel(window, fields, get_theme(), zones=zones)
+    axes = window.canvas_temp.axes[0]
+    assert len(axes) == (3 if phase is None else 1)
+    for ax in axes:
+        vertical = [float(line.get_xdata()[0]) for line in ax.lines
+                    if line.get_transform() == ax.get_xaxis_transform()]
+        horizontal = [float(line.get_ydata()[0]) for line in ax.lines
+                      if line.get_transform() == ax.get_yaxis_transform()]
+        assert len(ax.lines) == len(vertical) + len(horizontal)
+        np.testing.assert_allclose(vertical, expected_x)
+        np.testing.assert_allclose(horizontal, expected_y)
 
 
 def test_3d_slice_phase_and_probe_use_same_nonuniform_cell():
