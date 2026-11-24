@@ -153,16 +153,11 @@ def test_config_from_window_full_smoke():
 
 
 def test_config_from_window_optional_widgets_missing():
-    """No le_Lz or combo_fluidB → falls back to defaults
-    without raising."""
-    window = _StubWindow(
-        tpms='Gyroid', Nx='30', Ny='60', Nz='1',
-        fluidA='Air',  # combo_fluidB intentionally absent
-    )
-    # Remove le_Lz / combo_fluidB to simulate stripped-down UI
-    if hasattr(window, 'le_Lz'):
-        del window.le_Lz
+    """A window with missing controls uses the configuration defaults."""
+    window = _StubWindow(Nz='1', fluidA='Air')
+    del window.le_Lz, window.combo_tpms
     cfg = config_from_window(window)
+    assert cfg.geometry.tpms == 'Gyroid'
     assert cfg.geometry.Lz_m is None
     assert cfg.solver.T_s_init_K is None
     assert cfg.solver.Nz == 1

@@ -7,7 +7,7 @@ from sjtu_tpmshx.model_configs.model_parameters import MODEL_VERSIONS
 
 
 def resolve_model(ref: ModelRef):
-    """Construct a runtime provider; unknown versions never select a default."""
+    """Return the provider for a recorded model name and version."""
     if not isinstance(ref, ModelRef):
         raise TypeError('model resource must be a ModelRef')
     if ref.name not in MODEL_VERSIONS or ref.version != MODEL_VERSIONS[ref.name]:
@@ -38,7 +38,9 @@ def resolve_model(ref: ModelRef):
         if parameters:
             raise ValueError('geometry resource takes no fixed parameters')
         return geometry
-    from sjtu_tpmshx.physical_models.df_surrogate.full_core_3cell_fixed_v2 import FullCore3CellFixedDFV2
-    if set(parameters) != {'topology'}:
-        raise ValueError('Darcy-Forchheimer resource requires topology')
-    return FullCore3CellFixedDFV2(parameters['topology'])
+    if ref.name == 'darcy_forchheimer':
+        from .df_surrogate.full_core_3cell_fixed_v2 import FullCore3CellFixedDFV2
+        if set(parameters) != {'topology'}:
+            raise ValueError('Darcy-Forchheimer resource requires topology')
+        return FullCore3CellFixedDFV2(parameters['topology'])
+    raise ValueError(f'No provider for model resource {ref.name}@{ref.version}')

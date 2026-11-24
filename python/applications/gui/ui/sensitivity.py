@@ -169,7 +169,7 @@ class SensitivityDialog(QDialog):
 
     def _collect_fixed_params(self, swept_keys):
         """Read only the effective fixed inputs to this single-side estimate."""
-        from .window_config import CONFIG_FIELDS
+        from .window_config import CONFIG_FIELDS, _selected_topology
         w = self._window
         pressure_default = next(field.default for field in CONFIG_FIELDS
                                 if field.widget == 'le_PinA')
@@ -189,7 +189,7 @@ class SensitivityDialog(QDialog):
             return value
 
         fixed = {
-            'tpms': "Gyroid" if w.combo_tpms.currentIndex() == 1 else "Diamond",
+            'tpms': _selected_topology(w.combo_tpms),
             'T_in': read('le_TinA', 'Fluid A inlet temperature (absolute K)'),
             'P_in': read('le_PinA', 'Fluid A inlet pressure (Pa)', default=pressure_default),
         }
