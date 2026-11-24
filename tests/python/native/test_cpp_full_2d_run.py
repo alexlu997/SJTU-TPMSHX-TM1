@@ -14,6 +14,7 @@ from sjtu_tpmshx.file_io.result_io import load_result
 from sjtu_tpmshx.file_io.solver_checkpoint_io import (
     save_solver_checkpoint, load_solver_checkpoint, load_checkpoint_case)
 from sjtu_tpmshx.postprocess.api import evaluate
+from sjtu_tpmshx.physical_models.envelope import R_AIR_DEFAULT
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.cpp_interface.full_2d_stage import run_case
 from sjtu_tpmshx.solvers.api import run_case as run_public_case
@@ -74,6 +75,7 @@ def test_full_2d_checkpoint_hdf5_round_trip(tmp_path, route):
     assert captured == paths.keys()
     for path in paths.values():
         saved = load_solver_checkpoint(path)
+        assert saved.native_state['control.flow.gas_constant'][0] == R_AIR_DEFAULT
         actual = run_case(load_checkpoint_case(saved), stage_control(), resume_state=saved.native_state)
         compare_result(actual, expected)
         assert actual.metadata['continuation']['completed_outer_steps'] == saved.native_state[COUNT][0]
