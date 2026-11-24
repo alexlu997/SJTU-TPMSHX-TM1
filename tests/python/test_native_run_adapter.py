@@ -2,7 +2,6 @@
 import ctypes as ct
 from collections.abc import Mapping
 from dataclasses import replace
-import json
 from itertools import product
 
 import numpy as np
@@ -98,16 +97,12 @@ def _compare(case, tmp_path, monkeypatch):
     _same(load_result(tmp_path / 'stage-again.h5'), stored, 'saved stage readback')
     for name in ('fields', 'boundary_fluxes', 'pressure_evidence', 'run_status'):
         _same(_hdf_scalars(getattr(stored, name)), _hdf_scalars(getattr(result, name)), name)
-    (tmp_path / 'events.json').write_text(json.dumps(events))
-    (tmp_path / 'verdict.json').write_text(json.dumps(dict(native_records_checked=True, events_complete=True,
-        preparation_forbidden=True, public_saved_readback=True)))
     return result
 
 
 @pytest.mark.parametrize('spatial,pair', list(product((False, True), product(('air', 'water', 'sco2', 'co2'), repeat=2))))
 def test_complete_saved_stage_result(spatial, pair, tmp_path, monkeypatch):
-    config, case = _case(spatial, pair)
-    (tmp_path / 'input.json').write_text(json.dumps(config.to_dict()))
+    _, case = _case(spatial, pair)
     _compare(case, tmp_path, monkeypatch)
 
 
@@ -179,8 +174,6 @@ def test_modified_saved_inputs(change, tmp_path, monkeypatch):
     expected_report = result_stage_fixture.python_report(public)
     expected_report['source_result_id'] = case.case_id
     expected_report['qualification']['source_result_id'] = case.case_id
-    (tmp_path / 'native-report.json').write_text(json.dumps(native_reports[0]))
-    (tmp_path / 'reference-report.json').write_text(json.dumps(expected_report))
     _same(native_reports[0], expected_report, 'native evaluation')
     assert native_ranges == [('applicability_inputs' in metadata,
         [row['captured'] for row in metadata.get('applicability_inputs', ())])]
@@ -207,7 +200,6 @@ def test_saved_stage_selected_controls(selection, tmp_path, monkeypatch):
             applicability='uniform geometry')
     else:
         config.solver.enthalpy_algorithm = selection
-    (tmp_path / 'input.json').write_text(json.dumps(config.to_dict()))
     case = prepare_case(config, case_id='run-adapter-controls')
     if selection in ('temperature_fou', 'legacy_h_fou'):
         events = []
@@ -215,14 +207,13 @@ def test_saved_stage_selected_controls(selection, tmp_path, monkeypatch):
             full_2d_stage.run_case(case, _control(events))
         assert str(caught.value) == 'invalid native full enthalpy defaults request'
         assert events == []
-        (tmp_path / 'verdict.json').write_text(json.dumps(dict(rejection=str(caught.value), events=events)))
     else:
         _compare(case, tmp_path, monkeypatch)
 
 
 @pytest.mark.parametrize('spatial,pair', [(False, ('air', 'water')), (True, ('air', 'water')),
     (False, ('water', 'sco2')), (True, ('co2', 'air'))])
-def test_saved_stage_states_and_resume(spatial, pair, tmp_path):
+def test_saved_stage_states_and_resume(spatial, pair):
     _, case = _case(spatial, pair)
     stage_states = {}
     def collect(target, value):
@@ -240,15 +231,12 @@ def test_saved_stage_states_and_resume(spatial, pair, tmp_path):
         resumed = full_2d_stage.run_case(case, runtime, resume_state=snapshot)
         assert resumed.metadata['continuation']['saved_phase'] == phase
         _same_resumed(resumed, complete, case)
-        np.savez(tmp_path / f'phase-{phase}.npz', **snapshot)
-        save_result(resumed, tmp_path / f'resumed-{phase}.h5')
     if not spatial and pair == ('air', 'water'):
         saved = dict(stage_states[2])
         budget = 'state.result.outer_history.0.model_h_iterations.value.max_iterations'
         saved[budget] = np.zeros_like(saved[budget])
         with pytest.raises(RuntimeError, match='invalid native model-h iteration record'):
             full_2d_stage.run_case(case, runtime, resume_state=saved)
-    (tmp_path / 'phases.json').write_text(json.dumps(sorted(stage_states)))
 
 
 def test_experimental_saved_scope_is_checked_for_new_run_and_restore(tmp_path, monkeypatch):
@@ -436,12 +424,10 @@ def test_saved_geometry_precision_and_resume(selection, tmp_path, monkeypatch):
     native_stage_support.plane_state_equal(snapshots[1], snapshots[0])
     for key in ('input.cell_length', 'input.nu_geometry_ratio', 'input.reference_cell_length'):
         assert key in snapshots[1]
-    np.savez(tmp_path / 'phase-1.npz', **snapshots[1])
     complete = _compare(case, tmp_path, monkeypatch)
     if selection == 'cell32':
         actual = full_2d_stage.run_case(case, _control([]), resume_state=snapshots[1])
         _same_resumed(actual, complete, case)
-        save_result(actual, tmp_path / 'resumed-1.h5')
 
 
 @pytest.mark.parametrize('fault, message', [

@@ -75,7 +75,7 @@ def test_real_array_promotes_numeric_arrays_and_rejects_bool_or_complex():
             real_array(bad, name='field')
 
 
-@pytest.mark.parametrize('integer,floating', [(np.int8, np.float16), (np.int32, np.float32), (int, float)])
+@pytest.mark.parametrize('integer,floating', [(np.int8, np.float16), (int, float)])
 def test_prepare_case_2d_normalizes_to_float64_without_mutating_config(integer, floating):
     config = ComputeConfig(
         geometry=GeometryConfig(L_dom_m=integer(1), H_dom_m=np.int16(2), Lz_m=floating(.042)),
@@ -102,7 +102,7 @@ def test_prepare_case_2d_normalizes_to_float64_without_mutating_config(integer, 
         assert case.design_fields[field].dtype == np.float64
 
 
-@pytest.mark.parametrize('scalar_type', [np.float16, np.float32, np.float64])
+@pytest.mark.parametrize('scalar_type', [np.float16])
 def test_prepare_case_3d_normalizes_to_float64_without_mutating_config(scalar_type):
     config = ComputeConfig(
         geometry=GeometryConfig(

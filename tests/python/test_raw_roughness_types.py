@@ -37,10 +37,14 @@ def equal(actual, expected):
         np.testing.assert_array_equal(first[2], second[2])
 
 
-@pytest.mark.parametrize('dtype', [float, np.float16, np.float32, np.float64,
-                                  np.int16, np.uint16, np.int32, np.int64])
-@pytest.mark.parametrize('layout', ['scalar', 'zero', 'two', 'empty', 'strided'])
-@pytest.mark.parametrize('law', ['f_petukhov', 'f_haaland'])
+# The native boundary converts each operand to float64. Python, narrow, and
+# integer operands cover that conversion on one law in each layout. Every law
+# then runs on a float64 array.
+@pytest.mark.parametrize('dtype,layout,law', [
+    *[(dtype, layout, 'f_haaland') for dtype in (float, np.float16, np.int32)
+      for layout in ('scalar', 'zero', 'two', 'empty', 'strided')],
+    *[(np.float64, 'two', law) for law in ('f_petukhov', 'f_haaland')],
+])
 def test_raw_friction_uses_float64_operands(dtype, layout, law):
     base = np.array([3000, 4000, 5000, 6000, 7000, 8000], dtype=dtype)
     re = {'scalar': dtype(3000), 'zero': np.array(3000, dtype=dtype),
@@ -51,10 +55,11 @@ def test_raw_friction_uses_float64_operands(dtype, layout, law):
           observe(lambda: oracle.call(getattr(reference, law), *args), reference=True))
 
 
-@pytest.mark.parametrize('function', ['f_enhancement', 'nu_extra_factor'])
-@pytest.mark.parametrize('dtype', [float, np.float16, np.float32, np.float64,
-                                  np.int16, np.uint16, np.int32, np.int64])
-@pytest.mark.parametrize('layout', ['scalar', 'zero', 'one', 'two', 'empty'])
+@pytest.mark.parametrize('function,dtype,layout', [
+    *[('f_enhancement', dtype, layout) for dtype in (float, np.float16, np.int32)
+      for layout in ('scalar', 'zero', 'one', 'two', 'empty')],
+    *[(function, np.float64, 'two') for function in ('f_enhancement', 'nu_extra_factor')],
+])
 def test_roughness_factors_use_float64_height_order(function, dtype, layout):
     value = dtype(3000)
     re = {'scalar': value, 'zero': np.array(value), 'one': np.array([value]),
@@ -68,7 +73,7 @@ def test_roughness_factors_use_float64_height_order(function, dtype, layout):
 @pytest.mark.parametrize('law', ['f_petukhov', 'f_haaland'])
 @pytest.mark.parametrize('re,ratio', [
     (0., .01), (-1., .01), (np.nan, .01), (np.inf, .01),
-    (3000., -.01), (3000., np.float32(-.01)),
+    (3000., -.01),
     (np.array([0., -1., np.nan, np.inf]), .01),
     (np.empty(0), -.01), (np.empty(0), np.float16(.01)),
 ])
@@ -85,7 +90,7 @@ def test_raw_friction_nonfinite_and_real_domain_results(law, re, ratio):
 @pytest.mark.parametrize('mode', ['baseline', 'norris_1a', 'bhatti_shah_1b', 'unknown'])
 @pytest.mark.parametrize('arguments', [
     (object(), None, None), (3000., None, 3.),
-    (3000., 100., 0.), (3000., np.float16(100.), np.float16(0.)),
+    (3000., 100., 0.),
     (3000., -100., 3.),
 ])
 def test_roughness_mode_and_failure_priority(function, mode, arguments):

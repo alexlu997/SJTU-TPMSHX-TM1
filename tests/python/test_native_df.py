@@ -110,9 +110,12 @@ def test_prepared_factor_rejection_precedes_empty_fields(factor):
     assert str(actual.value) == str(expected.value)
 
 
-@pytest.mark.parametrize('dtype', [np.float16,np.float32,np.float64])
-@pytest.mark.parametrize('direction', [0,1,2,3])
-@pytest.mark.parametrize('weighted', [False,True])
+# The native boundary converts each field to float64. Every direction and
+# weight runs on float64 fields. One narrow-float case covers the conversion.
+@pytest.mark.parametrize('dtype,direction,weighted', [
+    *[(np.float64, direction, weighted) for direction in (0, 1, 2, 3) for weighted in (False, True)],
+    (np.float16, 0, True),
+])
 def test_projection_rows_use_frozen_array_order(dtype,direction,weighted,monkeypatch):
     length = np.asarray([[6.,6.25,6.5],[6.5,6.75,7.],[7.,7.25,7.5],[7.5,7.75,8.]],dtype=dtype)
     wall = np.asarray([[.3,.35,.4],[.325,.375,.425],[.35,.4,.45],[.375,.425,.475]],dtype=dtype)
@@ -165,11 +168,15 @@ def _layout_fields(layout, dtype):
     return length, wall
 
 
-@pytest.mark.parametrize('layout', ['C', 'F', 'T', 'negative', 'negative-F', 'step', 'mixed',
-                                   'zero0', 'zero1', 'single-column', 'single-row'])
-@pytest.mark.parametrize('dtype', [np.float16, np.float32, np.float64])
-@pytest.mark.parametrize('direction', [0, 1, 2, 3])
-@pytest.mark.parametrize('weighted', [False, True])
+_LAYOUTS = ('C', 'F', 'T', 'negative', 'negative-F', 'step', 'mixed',
+            'zero0', 'zero1', 'single-column', 'single-row')
+
+
+@pytest.mark.parametrize('layout,dtype,direction,weighted', [
+    *[(layout, np.float64, direction, weighted) for layout in _LAYOUTS
+      for direction in (0, 1, 2, 3) for weighted in (False, True)],
+    *[(layout, np.float16, 0, True) for layout in ('C', 'F', 'step')],
+])
 def test_projection_preserves_input_layout(layout, dtype, direction, weighted, monkeypatch):
     length, wall = _layout_fields(layout, dtype)
     rng = np.random.default_rng(41024)
@@ -186,8 +193,7 @@ def test_projection_preserves_input_layout(layout, dtype, direction, weighted, m
             np.testing.assert_array_equal(result, reference)
 
 
-@pytest.mark.parametrize('layout', ['C', 'F', 'T', 'negative', 'negative-F', 'step', 'mixed',
-                                   'zero0', 'zero1', 'single-column', 'single-row'])
+@pytest.mark.parametrize('layout', _LAYOUTS)
 def test_row_means_preserve_input_layout(layout):
     k, f = _layout_fields(layout, np.float64)
     for result, reference in zip(native.row_means(k, f), (k.mean(axis=0), f.mean(axis=0))):

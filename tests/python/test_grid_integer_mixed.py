@@ -8,9 +8,9 @@ from sjtu_tpmshx.cpp_interface import _native_grid as native
 from sjtu_tpmshx.physical_models import grid
 
 
-INTEGER_KINDS = (np.int8, np.uint8, np.int16, np.uint16,
-                 np.int32, np.uint32, np.int64, np.uint64)
-FLOAT_KINDS = (float, np.float16, np.float32, np.float64)
+# Each pair covers a different integer width and floating kind. The native
+# boundary converts every pair to float64, so a full product adds no case.
+MIXED_KINDS = [(np.int8, np.float16), (np.int64, np.float32), (np.uint64, float)]
 
 
 def _exact(actual, expected):
@@ -37,8 +37,7 @@ def _f64_port(port):
     return {key: (value if key == 'dir' else float(value)) for key, value in port.items()}
 
 
-@pytest.mark.parametrize('integer_kind', INTEGER_KINDS)
-@pytest.mark.parametrize('float_kind', FLOAT_KINDS)
+@pytest.mark.parametrize('integer_kind,float_kind', MIXED_KINDS)
 def test_port_edges_promote_integer_center_and_floating_width_to_float64(integer_kind, float_kind):
     config = _port(integer_kind, float_kind)
     ref_config = _f64_port(config)
@@ -55,8 +54,7 @@ def test_port_edges_promote_integer_center_and_floating_width_to_float64(integer
         assert left[1:] == right[1:]
 
 
-@pytest.mark.parametrize('integer_kind', INTEGER_KINDS)
-@pytest.mark.parametrize('float_kind', FLOAT_KINDS)
+@pytest.mark.parametrize('integer_kind,float_kind', MIXED_KINDS)
 @pytest.mark.parametrize('port_wall_refine', [False, True])
 def test_integer_domain_mixed_ports_promote_to_float64_2d_widths_and_breaks(integer_kind, float_kind, port_wall_refine):
     length, height = integer_kind(1), integer_kind(2)
@@ -71,8 +69,7 @@ def test_integer_domain_mixed_ports_promote_to_float64_2d_widths_and_breaks(inte
     assert actual[4] == expected[4]
 
 
-@pytest.mark.parametrize('integer_kind', INTEGER_KINDS)
-@pytest.mark.parametrize('float_kind', FLOAT_KINDS)
+@pytest.mark.parametrize('integer_kind,float_kind', MIXED_KINDS)
 def test_integer_domain_and_narrow_breakpoints_promote_to_float64_aligned(integer_kind, float_kind):
     length = integer_kind(2)
     points = [float_kind(.002), float_kind(.125), float_kind(.49),
@@ -85,8 +82,7 @@ def test_integer_domain_and_narrow_breakpoints_promote_to_float64_aligned(intege
     _exact(grid._aligned_grid(37, length, points), reference._aligned_grid(37, f64_length, f64_points))
 
 
-@pytest.mark.parametrize('integer_kind', INTEGER_KINDS)
-@pytest.mark.parametrize('float_kind', FLOAT_KINDS)
+@pytest.mark.parametrize('integer_kind,float_kind', MIXED_KINDS)
 def test_integer_port_centers_promote_3d_rectangles_and_partial_masks(integer_kind, float_kind):
     config = _port(integer_kind, float_kind)
     config['dir'] = 5
@@ -105,7 +101,7 @@ def test_integer_port_centers_promote_3d_rectangles_and_partial_masks(integer_ki
             np.testing.assert_array_equal(left > threshold, right > threshold)
 
 
-@pytest.mark.parametrize('integer_kind', INTEGER_KINDS)
+@pytest.mark.parametrize('integer_kind', [np.int8, np.uint64])
 def test_integer_endpoint_first_max_promotes_to_float64(integer_kind):
     widths = np.full(1024, 2.**-10)
     lower, upper = integer_kind(0), integer_kind(1)

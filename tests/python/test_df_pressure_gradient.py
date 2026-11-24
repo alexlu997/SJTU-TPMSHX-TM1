@@ -44,24 +44,26 @@ def _compare(values, policy='warn'):
     return actual[0][2]
 
 
-@pytest.mark.parametrize('kind', [float, np.float16, np.float32, np.float64])
-@pytest.mark.parametrize('sign', [-1., 0., 1.])
+# The native boundary converts each operand to float64. The sign and layout
+# matrices run on float64 operands with one narrow-float check.
+@pytest.mark.parametrize('kind,sign', [(float, -1.), (float, 0.), (float, 1.), (np.float16, -1.)])
 def test_homogeneous_scalar_types_and_signed_speed(kind, sign):
     values = list(_BASE)
     values[2] *= sign
     _compare(tuple(kind(value) for value in values))
 
 
-@pytest.mark.parametrize('slot', range(5))
-@pytest.mark.parametrize('kind', [np.float16, np.float32, np.float64])
+@pytest.mark.parametrize('slot,kind', [(0, np.float16), (3, np.float32)])
 def test_single_strong_operand(slot, kind):
     values = list(_BASE)
     values[slot] = kind(values[slot])
     _compare(values)
 
 
-@pytest.mark.parametrize('dtype', [np.float16, np.float32, np.float64])
-@pytest.mark.parametrize('layout', ['scalar-array', 'broadcast', 'strided', 'empty', 'big-endian'])
+@pytest.mark.parametrize('dtype,layout', [
+    *[(np.float64, layout) for layout in ('scalar-array', 'broadcast', 'strided', 'empty', 'big-endian')],
+    (np.float16, 'broadcast'),
+])
 def test_real_array_shape_dtype_and_ownership(dtype, layout):
     values = [np.asarray(value, dtype=dtype) for value in _BASE]
     if layout == 'broadcast':

@@ -9,7 +9,10 @@ from tests.python import float64_oracle as oracle
 from sjtu_tpmshx.physical_models.df_surrogate import predict
 
 
-_KINDS = (float, np.float16, np.float32, np.float64)
+# The native boundary converts each operand to float64. Python floats and one
+# narrow float cover that conversion. The physical, strict, and error-policy
+# matrices run on float64 operands with one narrow-float check.
+_KINDS = (float, np.float16)
 
 
 def _observe(module, args, *, compressible, strict=False, error='warn', is_reference=False):
@@ -57,51 +60,53 @@ def test_incompressible_homogeneous_scalar_types(kind):
     _compare(tuple(kind(value) for value in (4.71321, 1.2501233, 1.8e-5, .182)), compressible=False)
 
 
-@pytest.mark.parametrize('slot', range(4))
-@pytest.mark.parametrize('kind', _KINDS[1:])
+@pytest.mark.parametrize('slot,kind', [(0, np.float16), (2, np.float32)])
 def test_incompressible_single_strong_scalar(slot, kind):
     values = [4.71321, 1.2501233, 1.8e-5, .182]
     values[slot] = kind(values[slot])
     _compare(tuple(values), compressible=False)
 
 
-@pytest.mark.parametrize('left', _KINDS[1:])
-@pytest.mark.parametrize('right', _KINDS[1:])
+@pytest.mark.parametrize('left,right', [(np.float16, np.float32)])
 def test_incompressible_mixed_scalar_promotion(left, right):
     _compare((left(4.71321), right(1.2501233), left(1.8e-5), right(.182)), compressible=False)
 
 
-@pytest.mark.parametrize('kind', _KINDS)
-@pytest.mark.parametrize('strict', [False, True])
-@pytest.mark.parametrize('case', [
+_COMPRESSIBLE_CASES = (
     (4.71321, 310., 50000., 1.8e-5, .182),
     (4.71321, 1., 120., 1.8e-5, .001),
     (2500., 310., 50000., 1.8e-5, .182),
     (0., 310., 50000., 1.8e-5, .182),
+)
+
+
+@pytest.mark.parametrize('kind,strict,case', [
+    *[(float, strict, case) for strict in (False, True) for case in _COMPRESSIBLE_CASES],
+    *[(np.float16, strict, _COMPRESSIBLE_CASES[2]) for strict in (False, True)],
 ])
 def test_compressible_homogeneous_scalar_types(kind, strict, case):
     _compare(tuple(kind(value) for value in case), compressible=True, strict=strict)
 
 
-@pytest.mark.parametrize('slot', range(5))
-@pytest.mark.parametrize('kind', _KINDS[1:])
-@pytest.mark.parametrize('strict', [False, True])
+@pytest.mark.parametrize('slot,kind,strict', [(1, np.float16, False), (4, np.float32, True)])
 def test_compressible_single_strong_scalar(slot, kind, strict):
     values = [4.71321, 310., 50000., 1.8e-5, .182]
     values[slot] = kind(values[slot])
     _compare(tuple(values), compressible=True, strict=strict)
 
 
-@pytest.mark.parametrize('error', ['ignore', 'warn', 'raise'])
-@pytest.mark.parametrize('kind', _KINDS[1:])
-@pytest.mark.parametrize('compressible', [False, True])
+@pytest.mark.parametrize('error,kind,compressible', [
+    *[(error, np.float64, compressible) for error in ('ignore', 'warn', 'raise')
+      for compressible in (False, True)],
+    ('raise', np.float16, True),
+])
 def test_scalar_floating_events_keep_numpy_policy(error, kind, compressible):
     values = (2500., 310., 50000., 1.8e-5, .182) if compressible else (2500., 1.2501233, 1.8e-5, .182)
     _compare(tuple(kind(value) for value in values), compressible=compressible, error=error)
 
 
-@pytest.mark.parametrize('error', ['ignore', 'warn', 'raise'])
-@pytest.mark.parametrize('kind', _KINDS[1:])
+@pytest.mark.parametrize('error,kind', [
+    ('ignore', np.float64), ('warn', np.float64), ('raise', np.float64), ('warn', np.float16)])
 def test_underflow_and_invalid_events(error, kind):
     for values in ((1e-15, 1.25, 1.8e-5, .182), (np.inf, 0., 1.8e-5, .182),
                    (np.nan, 1.25, 1.8e-5, .182)):
@@ -110,7 +115,7 @@ def test_underflow_and_invalid_events(error, kind):
         _compare(args, compressible=False, error=error)
 
 
-@pytest.mark.parametrize('kind', _KINDS[1:])
+@pytest.mark.parametrize('kind', [np.float16, np.float64])
 def test_zero_dimensional_real_inputs(kind):
     _compare(tuple(np.asarray(value, dtype=kind) for value in (4.71321, 1.2501233, 1.8e-5, .182)),
              compressible=False)

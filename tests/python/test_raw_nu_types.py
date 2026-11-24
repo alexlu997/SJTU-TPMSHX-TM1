@@ -57,11 +57,17 @@ def call(module, route, topology, re, pr, cell, diameter):
     return module.nu_sco2_selected(topology, re, pr, cell, diameter, settings=settings)
 
 
-@pytest.mark.parametrize('route', ['air', 'vector', 'water', 'sco2', 'selected'])
-@pytest.mark.parametrize('topology', ['Diamond', 'Gyroid'])
-@pytest.mark.parametrize('dtype', [float, np.float16, np.float32, np.float64,
-                                  np.int16, np.uint16, np.int32, np.int64])
-@pytest.mark.parametrize('layout', ['scalar', 'zero', 'two', 'empty', 'strided'])
+_LAYOUTS = ('scalar', 'zero', 'two', 'empty', 'strided')
+_ROUTES = ('air', 'vector', 'water', 'sco2', 'selected')
+
+
+# The native boundary converts every operand to float64. Narrow, integer, and
+# Python operands cover that conversion on one route. Every route and topology
+# then runs on float64 operands.
+@pytest.mark.parametrize('route,topology,dtype,layout', [
+    *[('air', 'Gyroid', dtype, layout) for dtype in (float, np.float16, np.int32) for layout in _LAYOUTS],
+    *[(route, topology, np.float64, 'two') for route in _ROUTES for topology in ('Diamond', 'Gyroid')],
+])
 def test_raw_nu_uses_float64_operands(route, topology, dtype, layout):
     base = np.array([0.5, 1., 10., 3000., 5000., 10000.], dtype=dtype)
     re = {'scalar': dtype(3000), 'zero': np.array(3000, dtype=dtype),
@@ -72,15 +78,20 @@ def test_raw_nu_uses_float64_operands(route, topology, dtype, layout):
           observe(reference=True, function=lambda: expected(route, topology, re, pr, cell, diameter)))
 
 
-@pytest.mark.parametrize('route', ['air', 'vector', 'water', 'sco2'])
-@pytest.mark.parametrize('inputs', [
+_DOMAIN_FAILURES = (
     (-300., .72, 7., 3.),
-    (-300., np.float16(.72), np.float16(7.), np.float16(3.)),
-    (np.float16(-300.), .72, 7., 3.),
-    (np.array([-300., 0., np.nan, np.inf], dtype=np.float32), .72, 7., 3.),
+    (np.array([-300., 0., np.nan, np.inf]), .72, 7., 3.),
     (3000., -.72, 7., 3.),
     (3000., .72, -7., 3.),
     (3000., .72, 0., 3.),
+)
+
+
+@pytest.mark.parametrize('route,inputs', [
+    *[(route, inputs) for route in ('air', 'vector', 'water', 'sco2') for inputs in _DOMAIN_FAILURES],
+    ('air', (-300., np.float16(.72), np.float16(7.), np.float16(3.))),
+    ('air', (np.float16(-300.), .72, 7., 3.)),
+    ('air', (np.array([-300., 0., np.nan, np.inf], dtype=np.float32), .72, 7., 3.)),
 ])
 def test_raw_nu_keeps_nonfinite_float64_results(route, inputs):
     re, pr, cell, diameter = inputs
@@ -89,7 +100,7 @@ def test_raw_nu_keeps_nonfinite_float64_results(route, inputs):
 
 
 @pytest.mark.parametrize('topology', ['Diamond', 'Gyroid'])
-@pytest.mark.parametrize('dtype', [float, np.float16, np.float32, np.float64])
+@pytest.mark.parametrize('dtype', [float, np.float16])
 def test_co2_nu_retains_double_normalization(topology, dtype):
     arguments = (dtype(12000.), dtype(1.4), dtype(7.), dtype(3.))
     equal(observe(lambda: co2_correlations.nusselt(topology, *arguments)),

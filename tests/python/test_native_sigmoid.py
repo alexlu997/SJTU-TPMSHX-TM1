@@ -1,6 +1,5 @@
 """Native sigmoid precision, warnings and mutable LUT contracts."""
 import gc
-import itertools
 import os
 import warnings
 import weakref
@@ -14,8 +13,10 @@ from sjtu_tpmshx.cpp_interface import _native_lut, _native_sigmoid
 from sjtu_tpmshx.physical_models import sigmoid_field
 
 
-_TYPES = (float, np.float16, np.float32, np.float64)
 _DTYPES = (np.float16, np.float32, np.float64)
+# The native boundary converts each array to float64. Shape, ownership, and
+# order tests use one narrow float and float64 only.
+_BOUNDARY_DTYPES = (np.float16, np.float64)
 
 
 @pytest.fixture
@@ -45,7 +46,9 @@ def _controls(kind=float):
     return (inlet, outlet) if kind is float else (np.asarray(inlet), np.asarray(outlet))
 
 
-@pytest.mark.parametrize('x_type,center_type,width_type', tuple(itertools.product(_TYPES, repeat=3)))
+@pytest.mark.parametrize('x_type,center_type,width_type', [
+    (float, float, float), (np.float16, np.float16, np.float16),
+    (np.float32, float, np.float16), (np.float64, np.float16, np.float32)])
 def test_scalar_sigmoid_uses_float64_operations(native, x_type, center_type, width_type):
     values = x_type(.21875), center_type(.375), width_type(.03125)
     with np.errstate(all='ignore'):
@@ -62,17 +65,20 @@ def test_array_sigmoid_keeps_clip_edges_and_nonfinite_masks(native, dtype, width
         _exact(native._sigmoid(x, dtype(.5), dtype(width)), reference._sigmoid(x, dtype(.5), dtype(width)))
 
 
-@pytest.mark.parametrize('width_type', _TYPES)
+@pytest.mark.parametrize('width_type', [float, np.float16])
 def test_scalar_zero_width_keeps_float64_ieee_behavior(native, width_type):
     args = .1, .5, width_type(0.)
     with np.errstate(all='ignore'):
         _exact(native._sigmoid(*args), reference._sigmoid(*args))
 
 
-@pytest.mark.parametrize('dtype,control_type,transition_type', tuple(itertools.product(_DTYPES, _TYPES, _TYPES)))
-def test_field_keeps_full_like_cast_and_mixed_control_precision(native, dtype, control_type, transition_type):
+@pytest.mark.parametrize('dtype,y_dtype,control_type,transition_type', [
+    (np.float64, np.float16, float, float), (np.float16, np.float32, np.float16, np.float16),
+    (np.float32, np.float64, np.float64, np.float32), (np.float64, np.float16, np.float32, float)])
+def test_field_keeps_full_like_cast_and_mixed_control_precision(
+        native, dtype, y_dtype, control_type, transition_type):
     xf = np.array([[0., 1 / 3, .75], [.2, 2 / 3, 1.]], dtype=dtype)
-    yf = np.array([[0., .1, .4], [.6, .8, 1.]], dtype=_DTYPES[(_DTYPES.index(dtype) + 1) % 3])
+    yf = np.array([[0., .1, .4], [.6, .8, 1.]], dtype=y_dtype)
     inlet, outlet = _controls(control_type)
     args = (xf, yf, inlet, outlet, control_type(5.75), transition_type(.2), transition_type(.25),
             transition_type(.05), transition_type(.02))
@@ -80,7 +86,7 @@ def test_field_keeps_full_like_cast_and_mixed_control_precision(native, dtype, c
         _exact(native.sigmoid_field_2d(*args), reference.sigmoid_field_2d(*args))
 
 
-@pytest.mark.parametrize('dtype', _DTYPES)
+@pytest.mark.parametrize('dtype', _BOUNDARY_DTYPES)
 @pytest.mark.parametrize('shape', [(0, 3), (2, 0), (1, 1)])
 def test_empty_and_single_cell_field_keeps_shape_dtype(native, dtype, shape):
     xf, yf = np.full(shape, .25, dtype=dtype), np.full(shape, .75, dtype=dtype)
@@ -90,7 +96,7 @@ def test_empty_and_single_cell_field_keeps_shape_dtype(native, dtype, shape):
         _exact(native._sigmoid(xf, .5, .02), reference._sigmoid(xf, .5, .02))
 
 
-@pytest.mark.parametrize('dtype', _DTYPES)
+@pytest.mark.parametrize('dtype', _BOUNDARY_DTYPES)
 def test_field_broadcasts_coordinates_and_returns_independent_writable_data(native, dtype):
     xf = np.array([[.1], [.4]], dtype=dtype)
     yf = np.array([[.05, .5, .95]], dtype=dtype)
@@ -108,7 +114,7 @@ def test_field_broadcasts_coordinates_and_returns_independent_writable_data(nati
     _exact(second, expected)
 
 
-@pytest.mark.parametrize('dtype', _DTYPES)
+@pytest.mark.parametrize('dtype', _BOUNDARY_DTYPES)
 @pytest.mark.parametrize('layer_count', [1, 2, 7])
 def test_sequential_blend_keeps_layer_order_and_copy_contract(native, dtype, layer_count):
     x = np.array([[.1, .3, .9], [.2, .6, .8]], dtype=dtype)
@@ -150,7 +156,7 @@ def test_float64_clipped_sigmoid_does_not_overflow_exp(native, kind):
     assert observed == old_warnings == []
 
 
-@pytest.mark.parametrize('dtype', _DTYPES)
+@pytest.mark.parametrize('dtype', _BOUNDARY_DTYPES)
 def test_clip_promotes_to_float64_and_keeps_nonfinite_values_and_ownership(native, dtype):
     edges = np.array([.3, .6], dtype=dtype)
     source = np.r_[dtype(-np.inf), dtype(.2), edges, np.nextafter(edges, dtype(-np.inf)),

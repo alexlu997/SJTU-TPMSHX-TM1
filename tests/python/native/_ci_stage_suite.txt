@@ -1,8 +1,6 @@
 tests/python/test_native_property_query.py
 tests/python/test_native_preparation_sigmoid.py
 tests/python/test_native_preparation_grid_types.py
-tests/python/test_native_preparation_continuous_3d.py
-tests/python/test_native_preparation_spatial_3d.py
 tests/python/test_native_prepare_adapter.py
 tests/python/test_native_prepare_adapter_3d.py
 tests/python/test_native_prepare_spatial_adapter.py

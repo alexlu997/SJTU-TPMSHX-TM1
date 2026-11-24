@@ -2,7 +2,6 @@
 from collections.abc import Mapping
 from dataclasses import fields, is_dataclass, replace
 import ctypes as ct
-import json
 import os
 import subprocess
 import sys
@@ -100,7 +99,6 @@ def test_complete_dto_saved_stage_records_and_saved_result(layout, pair, audit, 
             assert ('u' in flow) is audit and 'd_u' not in flow
     save_result(result, tmp_path / 'result.h5')
     _same(load_result(tmp_path / 'result.h5'), result, 'saved result')
-    (tmp_path / 'input.json').write_text(json.dumps(config.to_dict(), indent=2))
 
 
 @pytest.mark.parametrize('change', ['conductivity32', 'length32', 'thermal32', 'drag',
@@ -149,7 +147,6 @@ def test_saved_inputs_are_used_without_repreparation(change, monkeypatch, tmp_pa
     for name, value in before.items():
         np.testing.assert_array_equal(case.design_fields[name], value)
         assert not case.design_fields[name].flags.writeable
-    save_result(result, tmp_path / 'public-result.h5')
 
 
 def test_public_drag_capture_preserves_scalar_design_summary():
@@ -231,14 +228,13 @@ def test_public_resume_and_fresh_process_archive(pair, tmp_path):
     (phase, state), = repeated.items()
     native_stage_support.volume_state_equal(state, saved[phase])
     for phase, state in saved.items():
-        np.savez(tmp_path / f'phase-{phase}.npz', **state)
         actual = run_case(case, _control(library=library), resume_state=state)
         actual = replace(actual, metadata={key: value for key, value in actual.metadata.items() if key != 'continuation'})
         _same(_normalized(actual), _normalized(expected), f'phase {phase}')
     moved = tmp_path / 'relocated'
     moved.mkdir()
     (tmp_path / 'case.h5').rename(moved / 'case.h5')
-    (tmp_path / 'phase-7.npz').rename(moved / 'state.npz')
+    np.savez(moved / 'state.npz', **saved[7])
     script = """import os,sys,numpy as np
 from sjtu_tpmshx.file_io.case_io import load_case
 from sjtu_tpmshx.file_io.result_io import save_result
@@ -256,9 +252,6 @@ save_result(result,sys.argv[3])
     actual = load_result(moved / 'result.h5')
     actual = replace(actual, metadata={key: value for key, value in actual.metadata.items() if key != 'continuation'})
     _same(_normalized(actual), _normalized(expected), 'fresh process')
-    save_result(expected, tmp_path / 'expected.h5')
-    (tmp_path / 'resume-verdict.json').write_text(json.dumps(dict(phases=sorted(saved),
-        state_exact=True, dto_exact=True, fresh_process=True, library=str(library), pair=pair)))
 
 
 def test_capture_query_preserves_output_on_invalid_request(monkeypatch):
@@ -367,7 +360,6 @@ def test_selected_controls_models_and_ports(selection, monkeypatch, tmp_path):
     elif selection == 'bootstrap':
         parameters.update(use_coarse_bootstrap=True, coarse_bootstrap_max_iter=3)
     case = replace(case, parameters=parameters)
-    save_case(case, tmp_path / 'case.h5')
     states = []
     raw, actual, events, *_ = _run(case, checkpoint=lambda state: states or states.append(state))
     assert any(row[0] == 'outer' for row in events) and events[-1] == ('progress', 100)
