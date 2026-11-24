@@ -20,7 +20,9 @@ PYTHON="$(head -n 1 .venv-path)"
 export MPLCONFIGDIR="$PWD/.cache/matplotlib" XDG_CACHE_HOME="$PWD/.cache/xdg"
 export QT_QPA_PLATFORM=offscreen PYTHONHASHSEED=0
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1
-"$PYTHON" -m engineering.scripts.check_types
+"$PYTHON" -m ruff check .
+"$PYTHON" -m engineering.scripts.check_types --platform darwin
+"$PYTHON" -m engineering.scripts.check_types --platform win32
 "$PYTHON" -m pytest tests/python -q -ra -m "not slow and not heavy" --ignore=tests/python/integration_tm1 -n 2 --dist worksteal --timeout=600 --timeout-method=thread --durations=30 --junitxml=.cache/ci/fast.xml
 "$PYTHON" -m pytest tests/python/integration_tm1 -q -ra --timeout=600 --timeout-method=thread --durations=30 --junitxml=.cache/ci/integration.xml
 # Complete local acceptance: no -m filter. Replace auto with a fixed worker count for available resources.
@@ -62,7 +64,7 @@ Physical changes still require their extended numerical studies. Normal CI does 
 
 The `[tool.mypy].files` setting in `pyproject.toml` explicitly lists 19 files. Coverage includes configuration, controllers, CLI, the common workflow, current envelope implementation, three-module contracts/APIs, and the postprocessing metric entry. Deleted forwarding modules are excluded. `pyproject.toml` validates unannotated bodies in four boundary implementation modules. This does not show strict typing across each solver.
 
-Fast `test_type_gate.py` runs the same list. Use the standalone mypy command for local checks.
+The `scope` job in `.github/workflows/ci.yml` runs `ruff check .` and `engineering.scripts.check_types` with `--platform darwin` and `--platform win32` one time for each change that is not in the `docs` tier. The pytest shards do not run ruff or mypy. Use the commands above for local checks.
 
 The first pytest command excludes slow/heavy and `integration_tm1`. The second runs that complete integration directory one time. Neither replaces the third, complete local gate. Local commands run the unsharded subsets.
 

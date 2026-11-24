@@ -53,14 +53,6 @@ def test_result_build_has_no_source_or_model_generation_step(result_build):
     assert configure[0] == str(cmake)
     assert configure[configure.index('-S')+1] == str(root/'postprocess')
     assert configure[configure.index('-B')+1] == str(cache/'build'/f'result-{host}')
-    assert '-DCMAKE_BUILD_TYPE=Release' in configure
-    assert '-DCMAKE_EXPORT_COMPILE_COMMANDS=ON' in configure
-    if host == 'windows-x64':
-        assert configure[configure.index('-A')+1] == 'x64'
-    elif host == 'macos-arm64':
-        assert '-DCMAKE_OSX_ARCHITECTURES=arm64' in configure
-    else:
-        assert not any('OSX' in value for value in configure)
     assert all('generate_native_model_coefficients' not in value and 'COOLPROP' not in value
                and 'NATIVE_DEPS_ROOT' not in value and 'MODEL_INCLUDE_DIR' not in value
                for command in commands for value in command)

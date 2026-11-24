@@ -5,8 +5,15 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+from types import SimpleNamespace
+from unittest.mock import patch
+from xml.etree import ElementTree
 
 import pytest
+
+from engineering.scripts import check_ci_shards
+from engineering.scripts.check_ci_shards import check, check_report
+from tests.python import ci_shard
 
 _ROOT = Path(__file__).resolve().parents[2]
 _CHECKER = _ROOT / 'engineering' / 'scripts' / 'check_ci_shards.py'
@@ -50,16 +57,25 @@ def run_pytest(root, *options, workers=2, distribution='loadscope'):
         text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=45)
 
 
-def run_checker(*shards, baseline=None, serial=False, covered_by=()):
-    args = [sys.executable, '-S', str(_CHECKER), *map(str, shards)]
+def checker_arguments(*shards, baseline=None, serial=False, covered_by=()):
+    args = [*map(str, shards)]
     if baseline is not None:
         args += ['--baseline', str(baseline)]
     if serial:
         args += ['--serial']
     if covered_by:
         args += ['--covered-by', *map(str, covered_by)]
-    return subprocess.run(args, text=True, stdout=subprocess.PIPE,
-                          stderr=subprocess.STDOUT, timeout=10)
+    return args
+
+
+def checker_status(*shards, **options):
+    """Return the exit status of the checker command line, run in this process."""
+    with patch.object(sys, 'argv', ['check_ci_shards', *checker_arguments(*shards, **options)]):
+        try:
+            check_ci_shards.main()
+        except SystemExit as error:
+            return error.code
+    return 0
 
 
 @pytest.fixture(scope='module')
@@ -88,43 +104,22 @@ def test_filters_module_partition_new_files_and_baseline(manifests):
             assert selected == {n for n in expected if not n.startswith('test_packed.py::')}
         else:
             assert selected == expected
-    checked = run_checker(manifests['zero'], manifests['one'], baseline=manifests['baseline'])
+    # The real command line runs without site packages because the checker uses only the standard library.
+    checked = subprocess.run([sys.executable, '-S', str(_CHECKER), *checker_arguments(
+        manifests['zero'], manifests['one'], baseline=manifests['baseline'])],
+        text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=10)
     assert checked.returncode == 0, checked.stdout
 
 
-def test_serial_shards_with_custom_modules(suite, tmp_path):
-    modules = tmp_path / 'native-modules.txt'
-    modules.write_text('test_rest.py\n', encoding='utf-8')
-    directories = {label: tmp_path / label for label in ('baseline', 'zero', 'one')}
-    for label, shard in (('baseline', None), ('zero', 0), ('one', 1)):
-        options = ['--ci-manifest', str(directories[label]), '--ci-shard-modules', str(modules)]
-        if shard is not None:
-            options += [f'--ci-shard={shard}']
-        result = run_pytest(suite, *options, workers=0)
-        assert result.returncode == 0, result.stdout
-    selected = json.loads((directories['zero'] / 'controller.json').read_text())
-    assert selected['selected_nodeids'] == ['test_rest.py::test_keep_rest']
-    checked = run_checker(directories['zero'], directories['one'], baseline=directories['baseline'], serial=True)
-    assert checked.returncode == 0, checked.stdout
-    assert run_checker(directories['zero'], directories['one']).returncode != 0
-    path = directories['one'] / 'controller.json'
-    record = json.loads(path.read_text())
-    record['exitstatus'] = 1
-    path.write_text(json.dumps(record), encoding='utf-8')
-    assert run_checker(directories['zero'], directories['one'], serial=True).returncode != 0
-    record['exitstatus'] = 0
-    record['selected_nodeids'].pop()
-    path.write_text(json.dumps(record), encoding='utf-8')
-    assert run_checker(directories['zero'], directories['one'], serial=True).returncode != 0
-
-
-def test_three_shards_split_exact_parameters_and_keep_new_tests(suite, tmp_path):
+def test_serial_shards_split_exact_parameters_and_keep_new_tests(suite, tmp_path):
     groups = [tmp_path / 'group0.txt', tmp_path / 'group1.txt']
     groups[0].write_text('test_packed.py::test_keep[1]\n', encoding='utf-8')
     groups[1].write_text('test_rest.py\ntest_packed.py::test_keep[2]\n', encoding='utf-8')
+    baseline = tmp_path / 'baseline'
     directories = [tmp_path / f'shard{i}' for i in range(3)]
-    for shard, directory in enumerate(directories):
-        result = run_pytest(suite, f'--ci-shard={shard}', '--ci-manifest', str(directory),
+    for shard, directory in [(None, baseline), *enumerate(directories)]:
+        options = [] if shard is None else [f'--ci-shard={shard}']
+        result = run_pytest(suite, *options, '--ci-manifest', str(directory),
                             *[f'--ci-shard-modules={path}' for path in groups], workers=0)
         assert result.returncode == 0, result.stdout
     expected = [{'test_packed.py::test_keep[1]'},
@@ -133,25 +128,50 @@ def test_three_shards_split_exact_parameters_and_keep_new_tests(suite, tmp_path)
     for directory, nodes in zip(directories, expected):
         record = json.loads((directory / 'controller.json').read_text())
         assert set(record['selected_nodeids']) == nodes
-    checked = run_checker(*directories, serial=True)
-    assert checked.returncode == 0, checked.stdout
-    assert run_checker(*directories[:2], serial=True).returncode != 0
-    assert run_checker(directories[0], directories[2], serial=True).returncode != 0
+    assert checker_status(*directories, baseline=baseline, serial=True) == 0
+    assert checker_status(*directories) != 0
+    assert checker_status(*directories[:2], serial=True) != 0
+    assert checker_status(directories[0], directories[2], serial=True) != 0
+    path = directories[2] / 'controller.json'
+    record = json.loads(path.read_text())
+    record['exitstatus'] = 1
+    path.write_text(json.dumps(record), encoding='utf-8')
+    assert checker_status(*directories, serial=True) != 0
+    record['exitstatus'] = 0
+    record['selected_nodeids'].pop()
+    path.write_text(json.dumps(record), encoding='utf-8')
+    assert checker_status(*directories, serial=True) != 0
 
 
-def test_overlapping_groups_are_rejected(suite, tmp_path):
-    group = tmp_path / 'overlap.txt'
-    group.write_text('test_packed.py::test_keep[1]\n', encoding='utf-8')
-    result = run_pytest(suite, '--ci-shard=0', '--ci-manifest', str(tmp_path / 'manifest'),
-                        f'--ci-shard-modules={suite / "_ci_shard0.txt"}',
-                        f'--ci-shard-modules={group}', workers=0)
-    assert result.returncode != 0 and 'belongs to multiple shards' in result.stdout
+def plugin_options(**options):
+    values = dict(ci_shard=None, ci_shard_modules=None, ci_covered_modules=None, ci_manifest=None)
+    values.update(options)
+    return values.__getitem__
 
 
-@pytest.mark.parametrize('shard', [-1, 2])
-def test_shard_outside_configured_groups_is_rejected(suite, tmp_path, shard):
-    result = run_pytest(suite, f'--ci-shard={shard}', '--ci-manifest', str(tmp_path), workers=0)
-    assert result.returncode != 0 and '--ci-shard must be between 0 and 1' in result.stdout
+@pytest.mark.parametrize('options, message', [
+    (dict(ci_shard=-1, ci_manifest='manifest'), 'between 0 and 1'),
+    (dict(ci_shard=2, ci_manifest='manifest'), 'between 0 and 1'),
+    (dict(ci_shard=3, ci_shard_modules=[Path('a'), Path('b')], ci_manifest='manifest'), 'between 0 and 2'),
+    (dict(ci_shard=0), 'require --ci-manifest'),
+    (dict(ci_covered_modules=[Path('native.txt')]), 'require --ci-manifest'),
+])
+def test_plugin_rejects_invalid_options(options, message):
+    with pytest.raises(pytest.UsageError, match=message):
+        ci_shard.pytest_configure(SimpleNamespace(getoption=plugin_options(**options)))
+
+
+def test_overlapping_groups_are_rejected(tmp_path):
+    groups = [tmp_path / 'group0.txt', tmp_path / 'group1.txt']
+    groups[0].write_text('test_packed.py\n', encoding='utf-8')
+    groups[1].write_text('test_packed.py::test_keep[1]\n', encoding='utf-8')
+    item = SimpleNamespace(path=tmp_path / 'test_packed.py', nodeid='test_packed.py::test_keep[1]')
+    config = SimpleNamespace(rootpath=tmp_path, getoption=plugin_options(
+        ci_shard=0, ci_shard_modules=groups, ci_manifest=str(tmp_path / 'manifest')))
+    hook = ci_shard.pytest_collection_modifyitems(config, [item])
+    next(hook)
+    with pytest.raises(pytest.UsageError, match='belongs to multiple shards'):
+        hook.send(None)
 
 
 @pytest.mark.parametrize('damage', ['missing', 'worker_disagreement', 'overlap', 'incomplete',
@@ -181,7 +201,7 @@ def test_gate_rejects_incomplete_or_invalid_records(manifests, tmp_path, damage)
             elif damage == 'test_failure':
                 record['exitstatus'] = 1
             path.write_text(json.dumps(record), encoding='utf-8')
-    assert run_checker(zero, one).returncode != 0
+    assert checker_status(zero, one) != 0
 
 
 @pytest.mark.parametrize('failure', ['missing_option', 'empty', 'collection_error'])
@@ -198,7 +218,7 @@ def test_real_pytest_failure_cannot_pass_manifest_gate(suite, manifests, tmp_pat
         (isolated / 'test_broken.py').write_text('raise RuntimeError("collection failed")\n', encoding='utf-8')
     result = run_pytest(isolated, *args)
     assert result.returncode != 0, result.stdout
-    assert run_checker(output, manifests['one']).returncode != 0
+    assert checker_status(output, manifests['one']) != 0
 
 
 @pytest.fixture(scope='module')
@@ -241,9 +261,8 @@ def test_native_partition_keeps_full_collection_and_unlisted_tests(partitioned_m
     assert 'test_new_native.py::test_keep_unlisted_native' in selected
     assert not any(node.startswith('test_native.py::') for node in selected)
     assert 'test_stage.py::test_keep_stage' not in selected
-    result = run_checker(*app, covered_by=native)
-    assert result.returncode == 0, result.stdout
-    assert run_checker(*app).returncode != 0
+    assert checker_status(*app, covered_by=native) == 0
+    assert checker_status(*app) != 0
 
 
 @pytest.mark.parametrize('damage', ['missing_native', 'native_failure', 'native_gap',
@@ -268,12 +287,10 @@ def test_cross_group_gate_rejects_missing_or_duplicate_coverage(partitioned_mani
                 node = 'test_native.py::test_keep_native[2]'
                 record['selected_nodeids'].append(node)
             path.write_text(json.dumps(record), encoding='utf-8')
-    assert run_checker(*app, covered_by=native).returncode != 0
+    assert checker_status(*app, covered_by=native) != 0
 
 
 def test_application_tier_allows_only_the_listed_native_modules(partitioned_manifests):
-    from engineering.scripts.check_ci_shards import check
-
     app, native = partitioned_manifests
     assert check(app, omitted_modules={'test_native.py', 'test_stage.py'}) == (8, [2, 3])
     for modules in ({'test_native.py'}, {'test_native.py::test_keep_native[1]'}, {'test_other.py'},
@@ -286,26 +303,36 @@ def test_application_tier_allows_only_the_listed_native_modules(partitioned_mani
 
 @pytest.fixture(scope='module')
 def serial_report(suite, tmp_path_factory):
+    root = tmp_path_factory.mktemp('ci-report-suite') / 'suite'
+    shutil.copytree(suite, root)
+    (root / 'test_class.py').write_text(
+        'import pytest\n'
+        'class TestOuter:\n'
+        '    class TestInner:\n'
+        '        @pytest.mark.parametrize("value", [1, 2], ids=["one::two", "a<&"])\n'
+        '        def test_keep(self, value): assert value > 0\n', encoding='utf-8')
     directory = tmp_path_factory.mktemp('ci-report')
-    result = run_pytest(suite, '--ci-manifest', str(directory / 'bo-manifest'),
+    result = run_pytest(root, '--ci-manifest', str(directory / 'bo-manifest'),
                         f'--junitxml={directory / "bo.xml"}', workers=0)
     assert result.returncode == 0, result.stdout
     return directory
 
 
-def test_report_requires_real_successful_execution(serial_report):
-    from engineering.scripts.check_ci_shards import check_report
-
-    assert check_report(serial_report, 'bo') == (4, 0)
+def test_report_matches_class_parameters_independent_of_order(serial_report, tmp_path):
+    assert check_report(serial_report, 'bo') == (6, 0)
+    report = tmp_path / 'report'
+    shutil.copytree(serial_report, report)
+    tree = ElementTree.parse(report / 'bo.xml')
+    group = next(tree.iter('testsuite'))
+    group[:] = list(reversed(group))
+    tree.write(report / 'bo.xml')
+    assert check_report(report, 'bo') == (6, 0)
 
 
 @pytest.mark.parametrize('damage', ['missing_platform', 'missing_report', 'failed_manifest',
                                    'missing_case', 'wrong_case', 'wrong_class', 'duplicate_case',
                                    'failed_case', 'skipped_case', 'all_skipped'])
 def test_report_rejects_missing_failed_or_skipped_execution(serial_report, tmp_path, damage):
-    from xml.etree import ElementTree
-    from engineering.scripts.check_ci_shards import check_report
-
     directory = tmp_path / 'report'
     if damage != 'missing_platform':
         shutil.copytree(serial_report, directory)
@@ -337,30 +364,7 @@ def test_report_rejects_missing_failed_or_skipped_execution(serial_report, tmp_p
     with pytest.raises((OSError, ValueError)):
         check_report(directory, 'bo')
     if damage == 'skipped_case':
-        assert check_report(directory, 'bo', allow_skips=True) == (4, 1)
+        assert check_report(directory, 'bo', allow_skips=True) == (6, 1)
     else:
         with pytest.raises((OSError, ValueError)):
             check_report(directory, 'bo', allow_skips=True)
-
-
-def test_report_matches_class_parameters_independent_of_order(suite, tmp_path):
-    from xml.etree import ElementTree
-    from engineering.scripts.check_ci_shards import check_report
-
-    root = tmp_path / 'suite'
-    shutil.copytree(suite, root)
-    (root / 'test_class.py').write_text(
-        'import pytest\n'
-        'class TestOuter:\n'
-        '    class TestInner:\n'
-        '        @pytest.mark.parametrize("value", [1, 2], ids=["one::two", "a<&"])\n'
-        '        def test_keep(self, value): assert value > 0\n', encoding='utf-8')
-    report = tmp_path / 'report'
-    result = run_pytest(root, '--ci-manifest', str(report / 'bo-manifest'),
-                        f'--junitxml={report / "bo.xml"}', workers=0)
-    assert result.returncode == 0, result.stdout
-    tree = ElementTree.parse(report / 'bo.xml')
-    group = next(tree.iter('testsuite'))
-    group[:] = list(reversed(group))
-    tree.write(report / 'bo.xml')
-    assert check_report(report, 'bo') == (6, 0)

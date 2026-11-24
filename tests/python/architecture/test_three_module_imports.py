@@ -1,13 +1,18 @@
-"""Check the public stage boundaries, including imports inside functions."""
+"""Check import boundaries, layer policy, and published module identity."""
 import ast
 from graphlib import CycleError, TopologicalSorter
 from pathlib import Path
+import subprocess
+import sys
 
 import pytest
 
+from sjtu_tpmshx.development.runs.tools import audit_import_graph as audit
 from sjtu_tpmshx.development.runs.tools.audit_import_graph import LAYERS, import_targets, target_unit, unit_of
+from tests.python.packaging_support import PUBLIC_NAME_CHECK
 
-ROOT = Path(__file__).resolve().parents[3] / 'python'
+REPO = Path(__file__).resolve().parents[3]
+ROOT = REPO / 'python'
 RULES = {
     'models': ('solvers', 'preprocess', 'postprocess', 'applications'),
     'df_surrogate': ('solvers', 'preprocess', 'postprocess', 'applications'),
@@ -108,3 +113,102 @@ def test_checker_detects_cycle_across_solver_directories(tmp_path):
     modules[stage].write_text(f'import {api}', encoding='utf-8')
     with pytest.raises(CycleError):
         check_cycles(modules)
+
+
+# Each probe runs in a new interpreter so that this module's imports cannot fill sys.modules.
+@pytest.mark.parametrize('probe', [
+    "import sjtu_tpmshx.physical_models.df_surrogate.predict\n"
+    "bad = {'sjtu_tpmshx.physical_models.tpms_calc', 'sjtu_tpmshx.physical_models.tpms_props'} & set(sys.modules)\n"
+    "assert not bad, f'df_surrogate pulled kernel modules: {bad}'",
+    "import sjtu_tpmshx.physical_models.tpms_props\n"
+    "allowed = {'sjtu_tpmshx.physical_models.df_surrogate', 'sjtu_tpmshx.physical_models.df_surrogate._domain'}\n"
+    "bad = [m for m in sys.modules if (m.startswith('sjtu_tpmshx.physical_models.df_surrogate') and m not in allowed)"
+    " or m.startswith('sjtu_tpmshx.solvers') or m == 'sjtu_tpmshx.physical_models.tpms_calc']\n"
+    "assert not bad, f'tpms_props is not a leaf: {bad}'",
+    "import sjtu_tpmshx.preprocess.api, sjtu_tpmshx.solvers.api\n"
+    "import sjtu_tpmshx.preprocess.two_d.preparation, sjtu_tpmshx.preprocess.three_d.preparation\n"
+    "bad = [m for m in sys.modules if m.startswith('sjtu_tpmshx.applications.gui.controllers')]\n"
+    "assert not bad, f'preparation pulled controllers: {bad}'",
+], ids=['df-surrogate-below-kernel', 'tpms-props-leaf', 'preparation-without-controllers'])
+def test_lower_modules_import_without_upper_modules(probe):
+    result = subprocess.run([sys.executable, '-c', 'import sys\n' + probe], cwd=REPO,
+                            capture_output=True, text=True, timeout=300)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_package_has_no_unsanctioned_layer_violations(monkeypatch, capsys):
+    monkeypatch.setattr(sys, 'argv', ['audit_import_graph', '--fail-on-violations'])
+    assert audit.main() == 0, capsys.readouterr().out[-2000:]
+
+
+def test_layer_discovery_ignores_cache_and_data_only_directories(tmp_path, monkeypatch):
+    for name in ('active/__init__.py', 'namespace/nested/module.py', 'flat.py',
+                 'retired/__pycache__/old.pyc', 'resources/coefficients.csv'):
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    monkeypatch.setattr(audit, 'PKG', tmp_path)
+    assert audit.discover_units() == {'active', 'namespace', 'flat'}
+
+
+@pytest.mark.parametrize('filename,source,edge,exit_code', [
+    ('domain/probe.py', 'import sjtu_tpmshx.applications.gui.ui as widgets', 'domain -> ui', 1),
+    ('domain/probe.py', 'from sjtu_tpmshx.applications.gui.ui import theme as appearance', 'domain -> ui', 1),
+    ('domain/probe.py', 'from sjtu_tpmshx import ui as widgets', 'domain -> ui', 1),
+    ('domain/probe.py', 'from ...applications.gui import ui as widgets', 'domain -> ui', 1),
+    ('domain/probe.py', 'def load():\n    from ...applications.gui import ui', 'domain -> ui', 1),
+    ('domain/probe.py', 'from sjtu_tpmshx.applications.gui.ui import *', 'domain -> ui', 1),
+    ('domain/probe.py', 'from ui.theme import get_theme', 'domain -> ui', 1),
+    ('domain/probe.py', 'from sjtu_tpmshx import tests as support', 'domain -> tests', 1),
+    ('domain/probe.py', 'import io\nfrom io import StringIO', None, 0),
+    ('domain/probe.py', 'from scipy import io', None, 0),
+    ('models/probe.py', 'from sjtu_tpmshx.data_types import case_data', 'models -> domain', 0),
+    ('models/probe.py', 'from sjtu_tpmshx import df_surrogate', 'models -> df_surrogate', 0),
+    ('models/deep/probe.py', 'from ....applications.gui import ui', 'models -> ui', 1),
+    ('models/__init__.py', 'from ...applications.gui import ui', 'models -> ui', 1),
+    ('domain/probe.py', 'from sjtu_tpmshx import io', 'domain -> io', 1),
+    ('preprocess/probe.py', 'from sjtu_tpmshx.compute import compute', 'preprocess -> compute', 1),
+    ('compute.py', 'from sjtu_tpmshx.preprocess.api import prepare_case', 'compute -> preprocess', 0),
+])
+def test_layer_audit_applies_policy_to_each_import_spelling(tmp_path, monkeypatch, capsys,
+                                                           filename, source, edge, exit_code):
+    package = tmp_path / 'sjtu_tpmshx'
+    for unit in ('shared/domain', 'shared/models', 'applications/gui/ui',
+                 'development/tests', 'shared/io', 'shared/df_surrogate', 'preprocess'):
+        (package / unit).mkdir(parents=True, exist_ok=True)
+        (package / unit / '__init__.py').touch()
+    (package / 'compute.py').touch()
+    if filename.split('/')[0] in ('domain', 'models'):
+        filename = 'shared/' + filename
+    path = package / filename
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(source, encoding='utf-8')
+    monkeypatch.setattr(audit, 'PKG', package)
+    monkeypatch.setattr(audit, 'REPO', tmp_path)
+    monkeypatch.setattr(sys, 'argv', ['audit_import_graph', '--fail-on-violations'])
+
+    assert audit.main() == exit_code
+    output = ' '.join(capsys.readouterr().out.split())
+    assert ('0 edges' if edge is None else edge) in output
+
+
+def test_logger_names_do_not_include_the_package_name():
+    from sjtu_tpmshx.run_control.logutil import get_logger
+    logger = get_logger('sjtu_tpmshx.solvers.api')
+    assert logger.name == 'tpmshx.solvers.api'
+    assert get_logger('solvers.api') is logger
+
+
+def test_checkout_keeps_published_submodule_identity():
+    subprocess.run([sys.executable, '-c',
+                    "from pathlib import Path\nimport sjtu_tpmshx\n"
+                    "assert Path(sjtu_tpmshx.__file__).resolve() == Path.cwd() / 'python/__init__.py'\n"
+                    + PUBLIC_NAME_CHECK], cwd=REPO, check=True, timeout=60)
+
+
+def test_published_workbook_module_help_uses_strict_cp1252_output(monkeypatch):
+    monkeypatch.setenv('PYTHONIOENCODING', 'cp1252:strict')
+    result = subprocess.run([sys.executable, '-m', 'sjtu_tpmshx.shared.df_surrogate.ingest_cfd_kappa', '--help'],
+                            cwd=REPO, capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    assert 'usage:' in result.stdout

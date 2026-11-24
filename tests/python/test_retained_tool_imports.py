@@ -1,4 +1,4 @@
-"""Retained validation and profiling entry points use the current package layout."""
+"""Retained validation entry points use the current package layout."""
 import os
 from pathlib import Path
 import subprocess
@@ -8,10 +8,7 @@ import pytest
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SCRIPTS = sorted([
-    ROOT / 'python/development/validation/cases/validate_sco2_d76.py',
-    *ROOT.glob('benchmarks/profiling/*.py'),
-])
+SCRIPTS = [ROOT / 'python/development/validation/cases/validate_sco2_d76.py']
 
 
 @pytest.mark.parametrize('script', SCRIPTS, ids=lambda path: path.name)

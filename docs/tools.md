@@ -7,14 +7,6 @@
 忽略的 `.cache/`。下表中的 `python` 表示该解释器，不是系统 Python。
 公开计算入口与 Case/Result 文件交接见[三阶段调用](first-run.md#stage-api)；这些工具不替代主线验收。
 
-`demo_3d_air_air`、`demo_3d_cube_air_air`、`demo_3d_cube_volume` 和
-`development.runs.tools.render_3d_styles` 使用 `prepare_case → run_case → evaluate`，使用 C++ 后端。
-它们保留原始长方体/立方体工况及显示场，输出目录仍为 `.cache/demos/` 下各自的目录。
-摘要将公共指标与旧后端诊断分别列出：`Q=|Q_A|`，`Q_A/Q_B` 是带符号的原生边界热损失，
-吸热为负；出口温度使用原生热状态的流出质量加权，压降使用最终 SIMPLE 压力的物理端口面。
-旧 `Q_enthalpy_A/B`、体积热源与内部区域诊断保留原值，不作为公共指标的别名。
-未收敛或所需指标不可用时仍可生成诊断图，但进程返回 2；渲染失败返回非零。
-
 GCI 每次默认创建独立的 `.cache/validation/<工具>-<运行ID>/`，
 保存本次 CSV、报告与元数据；可用 `--out-dir` 指定输出目录。
 
@@ -75,7 +67,6 @@ CFD 工况表和 nTop 表达式继续保留。Fluent 算例须在仓库外配置
 | --- | --- | --- |
 | [examples/](../examples/) | 公开 JSON/YAML 配置 → Case/Result/metrics | [二维与三维命令行算例](first-run.md#examples)；当前支持范围内的首次运行入口 |
 | [development/runs/smokes/](../python/development/runs/smokes/) | 内置样例 → 控制台及脚本声明的诊断文件 | `python -m sjtu_tpmshx.development.runs.smokes.<模块名>`；GUI 无显示运行须用 `QT_QPA_PLATFORM=offscreen` |
-| [development/runs/demos/](../python/development/runs/demos/) | 内置 3D 工况 → 控制台/可视化 | `python -m sjtu_tpmshx.development.runs.demos.<模块名>`；交互图形依赖桌面，示例不扩大支持域 |
 | [CFD 工况清单](../python/development/runs/tools/asym_build_cfd_worklist_xlsx.py) → [nTop 表达式](../python/development/runs/cfd_asym/asym_ntop_expressions_html.py) | 内置几何/流体 + 可选私有 `water_DG_cfd_results_legacy.xlsx` → XLSX → HTML | 顺序运行下方两条命令；两个工具共用输出目录。旧工作簿由本地数据目录提供；缺文件时 `r1_water_ref` 页保留跳过说明，不补造锚点 |
 | [asym CFD/诊断工具](../python/development/runs/cfd_asym/)、[diagnostics/](../python/development/runs/diagnostics/) | 脚本声明的几何、场/CFD 文件 → 研究结果 | `python -m sjtu_tpmshx.development.runs.<子目录>.<模块名>`；CFD 计算和私有输入文件须在外部准备，仓库保留表格生成、诊断与 CSV 后处理 |
 | [engineering/scripts/](../engineering/scripts/) | 已配置环境/测试选择 → 测试日志 | 两个 PowerShell 测试入口；仓库路径取脚本位置，解释器读取 `.venv-path`，`-LockFile` 选择依赖锁，不自动安装依赖 |

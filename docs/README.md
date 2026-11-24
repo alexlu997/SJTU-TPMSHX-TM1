@@ -52,8 +52,6 @@ C++ 数值实现按计算阶段放在根目录，Python 应用集中在 [python/
 原始实验/CFD 数据位于本地 `data/raw_data/`，研究脚本与结果放在忽略的 `.cache/`，
 均不随公共代码仓库提交。旧 `reports/` 输出目录也被忽略，避免旧命令重新提交结果表。
 
-一维焓方程参考模型由有效测试直接使用，现放在
-[tests/python/enthalpy_1d_reference.py](../tests/python/enthalpy_1d_reference.py)。
 生产 CFD 系数 CSV 和测试读取的 MMS 数据继续保留；历史 `golden_3d.json`、旧 γ 快照、
 阶段报告与任务过程文件从固定 Git 历史查阅，不再作为当前测试资源或当前精度说明。
 

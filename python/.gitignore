@@ -1,4 +1,4 @@
-# demo_output: regenerate via runs/demos/demo_3d_*.py.
+# demo_output: local output of the retired 3D demo scripts. It cannot be regenerated.
 # production_output: LEGACY optimizer sweep outputs — the generator scripts
 # were retired; contents are local-only history, not regenerable (the old
 # comment named three scripts that no longer exist).

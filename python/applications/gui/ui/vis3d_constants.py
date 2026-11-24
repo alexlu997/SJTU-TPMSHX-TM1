@@ -1,8 +1,7 @@
 """vis3d_constants.py — shared constants + helpers for 3D visualisation.
 
 Consolidates `FIELD_META` / `FIELD_ORDER` and the `vtkImplicitPlaneRepresentation`
-cosmetic toning used by both the embedded `ui/panel_vis_3d.py` and the
-standalone `runs/demos/demo_vis_3d_interactive.py` so they stay in sync.
+cosmetic toning used by the embedded `ui/panel_vis_3d.py`.
 """
 from __future__ import annotations
 

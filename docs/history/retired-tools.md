@@ -2,6 +2,19 @@
 
 各节注明各自的历史提交与现行承接。
 
+<a id="3d-demo-retirement"></a>
+
+## 非产品 3D 演示、渲染展示与一维焓参考退役（2026-11-24）
+
+经用户确认，以下非产品入口退役。它们不是安装后的公开命令，也没有产品调用方。
+退役前源码固定在
+[47b7088c](https://github.com/alexlu997/SJTU-TPMSHX-TM1/tree/47b7088caea5bc60ea611c5171365184953890e9)。
+
+| 退役项 | 现行承接 |
+|---|---|
+| `python/development/runs/demos/` 下的 `demo_3d_air_air.py`、`demo_3d_cube_air_air.py`、`demo_3d_cube_volume.py`、`demo_vis_3d_interactive.py`，`python/applications/gui/ui/demo_vis_3d.py`，`python/development/runs/tools/render_3d_styles.py` 及其专用测试 | 3D 计算使用 `prepare_case → run_case → evaluate`；3D 显示使用桌面程序，并由 `python/development/runs/smokes/smoke_ui_*` 检查 |
+| `tests/python/enthalpy_1d_reference.py` 与 `test_ltne_enthalpy_1d_optionB.py` | 原生焓驱动与全域测试检查生产焓方程实现 |
+
 <a id="pyfluent-template-retirement"></a>
 
 ## 未完成的 PyFluent 模板退役（2026-10-17）

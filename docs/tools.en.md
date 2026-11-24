@@ -8,17 +8,6 @@ Run all commands from the repository root. Use the absolute interpreter on the f
 
 See the [stage calls](first-run.en.md#stage-api) for the public computation entries and Case/Result file exchange. These tools do not replace mainline acceptance.
 
-`demo_3d_air_air`, `demo_3d_cube_air_air`, `demo_3d_cube_volume`, and
-`development.runs.tools.render_3d_styles` use `prepare_case → run_case → evaluate` with the C++ backend.
-They keep the original rectangular and cubic cases, display fields, and their directories under `.cache/demos/`.
-The summary separates public metrics from previous backend diagnostics. `Q=|Q_A|`.
-`Q_A/Q_B` are signed native boundary heat losses; heat gain is negative.
-Outlet temperature uses outward mass weighting from the native thermal state.
-Pressure drop uses physical port faces from the final SIMPLE pressure field.
-Previous `Q_enthalpy_A/B`, volume-source, and interior-region diagnostics keep their recorded values.
-They are not aliases for public metrics. An unconverged run or an unavailable required metric returns 2,
-even if diagnostic plots are written. Rendering failure returns a nonzero code.
-
 GCI creates a separate `.cache/validation/<tool>-<run-ID>/` by default. It contains CSV files, reports, and metadata. `--out-dir` selects another directory.
 
 The former Python MMS A3/A4/B4 commands are retired in 0.2. Their [original entry points](https://github.com/alexlu997/SJTU-TPMSHX-TM1/tree/v0.1.0/sjtu_tpmshx/validation/cases) and [frozen CSV records with their tests](history/README.en.md#mms-reference-retirement) stay at fixed historical entries. Current manufactured-field, refinement, and inlet checks are in [native MMS tests](../tests/python/native/test_temperature_mms.py).
@@ -72,7 +61,6 @@ This repository has no Fluent batch execution entry.
 | --- | --- | --- |
 | [examples/](../examples/) | Public JSON/YAML configuration → Case/Result/metrics | [2D and 3D CLI examples](first-run.en.md#examples). First-run entry within current support. |
 | [development/runs/smokes/](../python/development/runs/smokes/) | Built-in examples → console and declared diagnostics | `python -m sjtu_tpmshx.development.runs.smokes.<module>`. Headless GUI requires `QT_QPA_PLATFORM=offscreen`. |
-| [development/runs/demos/](../python/development/runs/demos/) | Built-in 3D cases → console/visualization | `python -m sjtu_tpmshx.development.runs.demos.<module>`. Interactive graphics require a desktop. Examples do not extend applicability. |
 | [CFD worklist](../python/development/runs/tools/asym_build_cfd_worklist_xlsx.py) → [nTop expressions](../python/development/runs/cfd_asym/asym_ntop_expressions_html.py) | Built-in geometry/fluid and optional private `water_DG_cfd_results_legacy.xlsx` → XLSX → HTML | Run the two commands below in order with one output directory. Missing local water data leaves a skip explanation in `r1_water_ref`, without invented anchors. |
 | [Asymmetric CFD tools](../python/development/runs/cfd_asym/), [diagnostics/](../python/development/runs/diagnostics/) | Declared geometry and field/CFD files → research results | `python -m sjtu_tpmshx.development.runs.<subdirectory>.<module>`. Prepare CFD runs and private input files externally. Workbook generation, diagnostics, and CSV post-processing remain. |
 | [engineering/scripts/](../engineering/scripts/) | Configured environment and test selection → logs | Two PowerShell test entries. Repository path comes from script location. Interpreter comes from `.venv-path`. `-LockFile` selects the lock. No automatic dependency installation. |

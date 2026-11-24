@@ -65,7 +65,7 @@ Minimal postprocessing waits for the macOS and Linux artifact producers and runs
 - **THEN** the affected environment-gated tests skip instead of failing
 
 ### Requirement: Dead-reference cleanup with history preserved
-Unusable historical benchmark scripts and retired polygon solver chains MUST leave the current tree. Fixed Git references in `docs/history/retired-tools.md` keep access. Kept tools MUST have real callers or verification uses. The 3D demo MUST use public `load_result` to read actual fields and the L design field from an existing `FieldResult`. It MUST NOT keep private solving or the previous `sigmoid_field_3d` generator.
+Unusable historical benchmark scripts and retired polygon solver chains MUST leave the current tree. Fixed Git references in `docs/history/retired-tools.md` keep access. Kept tools MUST have real callers or verification uses. Non-product 3D demo and render showcase scripts MUST NOT stay in the current tree.
 
 #### Scenario: No dangling runnable references
 - **WHEN** non-comment references to `validation/legacy/validate_shanghai.py` are searched
@@ -90,7 +90,7 @@ Root `pyproject.toml` MUST use `[tool.pytest.ini_options]` to set `testpaths = t
 - **THEN** pytest reports a collection error
 
 ### Requirement: Public interface type gate
-The `[tool.mypy].files` setting in `pyproject.toml` MUST explicitly list public interfaces and data contracts. The list includes the current envelope implementation, three-module APIs, data objects, and compatibility entries with active consumers. `pyproject.toml` MUST enable checking of unannotated bodies for envelope, preprocessing API, solver API, postprocessing API, and postprocessing metrics. `test_type_gate.py` MUST check the listed project code in fast tests. CI MUST NOT add a duplicate mypy step.
+The `[tool.mypy].files` setting in `pyproject.toml` MUST explicitly list public interfaces and data contracts. The list includes the current envelope implementation, three-module APIs, data objects, and compatibility entries with active consumers. `pyproject.toml` MUST enable checking of unannotated bodies for envelope, preprocessing API, solver API, postprocessing API, and postprocessing metrics. For each change that is not in the `docs` tier, the `scope` job in `.github/workflows/ci.yml` MUST run `ruff check .` and `engineering.scripts.check_types` with `--platform darwin` and `--platform win32` one time. The pytest shards MUST NOT run ruff or mypy again.
 
 ### Requirement: Parallel local gate
 The complete local gate MUST support `pytest tests/python/ -q -n auto --dist loadscope`. Before Python starts, set `PYTHONHASHSEED=0` and single-threaded BLAS/OMP. Local documentation defaults to `--dist loadscope`. Worker count can be fixed to suit resources. Existing 128-core server scripts keep worksteal. The [verification guide](../../../docs/verification.en.md) defines the interpreter, environment checks, and full command. The common dependency lock includes pytest-xdist.

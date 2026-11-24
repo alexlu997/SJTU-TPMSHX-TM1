@@ -6,6 +6,7 @@ from unittest.mock import patch
 from sjtu_tpmshx.applications.gui.ui.quick_design_panel import (
     _gather_inputs, _make_worker_class, build_quick_design_dialog, run_quick_design,
 )
+from tests.python.gui_workbench_support import win as win
 
 @pytest.fixture
 def make_window():
@@ -25,6 +26,14 @@ def make_window():
     for dialog in dialogs:
         dialog.deleteLater()
     QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+
+
+def test_dialog_uses_the_current_window_run_control(win):
+    win._open_quick_design()
+    assert win._qd_dialog.run_control is win.run_control
+    win.spin_cpu_cores.setValue(1)
+    assert win.run_control.cpu_threads == 1
+    assert win._qd_dialog.run_control is win.run_control
 
 
 @pytest.mark.parametrize('frozen', [False, True])

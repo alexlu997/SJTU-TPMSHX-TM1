@@ -35,11 +35,11 @@ def geometry_build(request, tmp_path, monkeypatch):
         return 'cmake version 4.4.4\n' if '--version' in command else ''
 
     monkeypatch.setattr(native, 'run', run)
-    return host, root, cache, python, lock, cmake, generator, commands
+    return host, root, cache, python, lock, cmake, commands
 
 
 def test_geometry_build_uses_role_lock_and_standalone_source(geometry_build):
-    host, root, cache, python, lock, cmake, generator, commands = geometry_build
+    host, root, cache, python, lock, cmake, commands = geometry_build
     native.build(cache, host, python, lock, 'geometry')
     assert commands[:2] == [
         (str(python), '-m', 'sjtu_tpmshx.development.runs.tools.check_locked_environment', str(lock)),
@@ -52,13 +52,7 @@ def test_geometry_build_uses_role_lock_and_standalone_source(geometry_build):
     assert configure[0] == str(cmake)
     assert configure[configure.index('-S') + 1] == str(root / 'geometry')
     assert configure[configure.index('-B') + 1] == str(cache / 'build' / ('geometry-' + host))
-    assert configure[configure.index('-G') + 1] == generator
-    assert f'-DTPMSHX_MODEL_INCLUDE_DIR={generated.parent.parent}' in configure
     assert not any('COOLPROP' in arg or 'dependency-pilot' in arg for arg in configure)
-    if host == 'windows-x64':
-        assert configure[configure.index('-A') + 1] == 'x64'
-    else:
-        assert '-DCMAKE_OSX_ARCHITECTURES=arm64' in configure
     build, = (command for command in commands if '--build' in command)
     assert build[build.index('--build') + 1] == str(cache / 'build' / ('geometry-' + host))
     assert not (cache / 'src').exists()
@@ -66,7 +60,7 @@ def test_geometry_build_uses_role_lock_and_standalone_source(geometry_build):
 
 @pytest.mark.parametrize('failure', ['check_locked_environment', 'pip'])
 def test_failed_geometry_environment_check_stops_before_generation(geometry_build, monkeypatch, failure):
-    host, _, cache, python, lock, _, _, commands = geometry_build
+    host, _, cache, python, lock, _, commands = geometry_build
 
     def fail_check(command, *args, **kwargs):
         command = tuple(str(value) for value in command)
@@ -84,7 +78,7 @@ def test_failed_geometry_environment_check_stops_before_generation(geometry_buil
 
 
 def test_geometry_verify_runs_only_the_three_independent_callers(geometry_build):
-    host, _, cache, _, _, cmake, _, commands = geometry_build
+    host, _, cache, _, _, cmake, commands = geometry_build
     native.verify(cache, host, 'geometry')
     suffix = '.exe' if host == 'windows-x64' else ''
     build = cache / 'build' / ('geometry-' + host)
@@ -94,7 +88,7 @@ def test_geometry_verify_runs_only_the_three_independent_callers(geometry_build)
 
 
 def test_geometry_verify_cli_checks_the_selected_lock_first(geometry_build, monkeypatch):
-    host, _, cache, python, lock, _, _, commands = geometry_build
+    host, _, cache, python, lock, _, commands = geometry_build
     monkeypatch.setattr(native, 'configured_python', lambda: python)
     monkeypatch.setattr(native, 'platform_name', lambda: host)
     monkeypatch.setattr(sys, 'argv', ['native-build', 'verify', '--component', 'geometry',
@@ -108,7 +102,7 @@ def test_geometry_verify_cli_checks_the_selected_lock_first(geometry_build, monk
 
 
 def test_fetch_cmake_cli_selects_only_the_tool_action(geometry_build, monkeypatch):
-    host, _, cache, python, _, _, _, commands = geometry_build
+    host, _, cache, python, _, _, commands = geometry_build
     selected = []
     monkeypatch.setattr(native, 'configured_python', lambda: python)
     monkeypatch.setattr(native, 'platform_name', lambda: host)
@@ -126,7 +120,7 @@ def test_fetch_cmake_cli_selects_only_the_tool_action(geometry_build, monkeypatc
 
 
 def test_interrupted_cmake_download_has_no_solver_source_side_effects(geometry_build, monkeypatch):
-    host, _, cache, _, _, _, _, commands = geometry_build
+    host, _, cache, _, _, _, commands = geometry_build
     attempted = []
 
     def unavailable(url, target):

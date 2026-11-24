@@ -56,7 +56,6 @@ Root `MANIFEST.in` selects source-distribution files. The wheel uses the explici
 
 `data-revision.txt` declares the associated data version. Raw experiment and CFD data stay in local `data/raw_data/`. Research scripts and results stay in ignored `.cache/`. Neither location is committed. The previous `reports/` output directory is also ignored.
 
-Active tests use the one-dimensional enthalpy reference in [tests/python/enthalpy_1d_reference.py](../tests/python/enthalpy_1d_reference.py).
 Production CFD coefficient CSVs and MMS data used by tests stay.
 Historical `golden_3d.json`, previous gamma snapshots, stage reports and task records are available through fixed Git history.
 They are not current test resources or evidence of current accuracy.
