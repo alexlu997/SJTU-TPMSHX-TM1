@@ -111,7 +111,7 @@ checks = runpy.run_path(sys.argv[2])
 checks['_check_archives'](sys.argv[3])
 if os.environ.get('TM1_QUICK_HANDOFF_DIR'):
     checks['_check_quick_archives'](os.environ['TM1_QUICK_HANDOFF_DIR'])
-assert not any(name.split('.')[0] in ('CoolProp', 'PySide6') for name in sys.modules)
+assert not {'CoolProp', 'sympy', 'skimage', 'PySide6'}.intersection(sys.modules)
 print('installed real 2D/3D result evaluation passed')
 """
     with TemporaryDirectory(prefix='tm1-offline-wheel-') as directory:

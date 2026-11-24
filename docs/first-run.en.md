@@ -46,6 +46,11 @@ $tm1Python = Get-Content .venv-path -TotalCount 1
 
 These commands call the environment interpreter directly. No activation script or PowerShell execution-policy change is required. This is [supported venv usage](https://docs.python.org/3.13/library/venv.html#how-venvs-work). `.venv-path` stores a local absolute path and is not shared through Git. Read it again in each new terminal.
 
+A standard wheel installation includes h5py and PyYAML for case and result files.
+The `offline` extra supplies Python CoolProp for the sCO₂ CFD readers in `preprocess.offline`.
+The `test` extra supplies SymPy, scikit-image, and Python CoolProp for reference calculations in the tests.
+The base development lock already includes these packages.
+
 For a dependency upgrade, create and prewarm a separate environment. Keep the old environment and its source revision. The 0.2 base lock removes Numba, llvmlite and PyAMG. It retains dependencies for preparation, postprocessing, optimization and the GUI. Native pressure code keeps its ported algorithms and license notices. It does not load Python PyAMG. BO and desktop packaging use their own complete locks. Do not install the new lock into a shared environment used by another worktree. After changing `.venv-path`, pass the lock check and `pip check` before computation or tests.
 
 CO₂ interpolation tables are separated by CoolProp version. Python defaults to `XDG_CACHE_HOME/coolprop/CoolProp-8.0.0`. An explicit `COOLPROP_ALTERNATIVE_TABLES_DIRECTORY` or C++ table path supplies the cache root; the solver adds `CoolProp-8.0.0`. Previous tables stay in place. First use of a new version generates its tables locally.
