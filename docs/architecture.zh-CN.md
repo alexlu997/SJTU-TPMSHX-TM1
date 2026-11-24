@@ -43,7 +43,7 @@ Python 在 [python](../python/) 下负责公共 API、配置、不可变 DTO、�
 - **后处理与账本辅助**：`python/postprocess/result_math.py` 保留原始压降查询与公共 `compute_phase2a` 守恒证书。`python/solvers/physical_ledger.py` 保留注入账本的 `ports_complete` 检查。
 - **应用与研究工具**：`python/applications/` 拥有 GUI、CLI、Quick Design 尺寸搜索、多工况 BO 及运行恢复。`python/preprocess/offline/` 与 `python/development/` 拥有显式离线拟合、验证与诊断工具。
 - **兼容别名解析器（`python/shared.py`）**：作为零重复的导入钩子保留，使本地 `.cache/` 论文与研究脚本中的历史导入路径（`sjtu_tpmshx.shared.*` 与 `sjtu_tpmshx.solvers.backends.cpp.*`）直接解析至其规范模块所有者。
-- **独立测试参考实现**：纯公式参考实现（如 `tests/python/enthalpy_1d_reference.py`、`water_nu_reference.py`、`geometry_reference.py`、`preparation_flow_reference.py`）保留在 [tests/python](../tests/python/) 下，不包含在运行 wheel 中。
+- **独立测试参考实现**：纯公式参考实现（如 `tests/python/water_nu_reference.py`、`geometry_reference.py`、`preparation_flow_reference.py`）保留在 [tests/python](../tests/python/) 下，不包含在运行 wheel 中。
 
 缺少原生库、ABI 不匹配或缺少现行符号时显式报错，不提供数值回退。
 

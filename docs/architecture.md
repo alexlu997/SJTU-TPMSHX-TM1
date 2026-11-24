@@ -41,7 +41,7 @@ The import-layering check maps source modules to their dependency owners and enf
 - **Postprocessing and ledger helpers**: `python/postprocess/result_math.py` keeps the raw pressure query and public `compute_phase2a` conservation certificate. `python/solvers/physical_ledger.py` keeps the `ports_complete` check for injected ledgers.
 - **Applications and research**: `python/applications/` owns GUI, CLI, Quick Design sizing, multi-condition BO, and run recovery. `python/preprocess/offline/` and `python/development/` own explicit offline fitting, validation, and diagnostic tools.
 - **Compatibility alias resolver (`python/shared.py`)**: kept as a zero-duplication import hook for local `.cache/` paper and research scripts. It resolves historical `sjtu_tpmshx.shared.*` and `sjtu_tpmshx.solvers.backends.cpp.*` paths to their canonical module owners.
-- **Independent test oracles**: pure-formula references (such as `tests/python/enthalpy_1d_reference.py`, `water_nu_reference.py`, `geometry_reference.py`, and `preparation_flow_reference.py`) stay under [tests/python](../tests/python/) and are excluded from runtime wheels.
+- **Independent test oracles**: pure-formula references (such as `tests/python/water_nu_reference.py`, `geometry_reference.py`, and `preparation_flow_reference.py`) stay under [tests/python](../tests/python/) and are excluded from runtime wheels.
 
 Missing native libraries, ABI mismatches, or missing active symbols fail explicitly with no numerical fallback.
 

@@ -57,7 +57,6 @@ tests/python/test_fluid_type_validation.py
 tests/python/test_gui_restore_contract.py
 tests/python/test_headline_q_air_side.py
 tests/python/test_icons.py
-tests/python/test_import_layering.py
 tests/python/test_inlet_duty_2d.py
 tests/python/test_inlet_stretched_grid.py
 tests/python/test_interface_configuration.py

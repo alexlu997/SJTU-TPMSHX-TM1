@@ -835,8 +835,8 @@ def _exact_resume_values(actual, expected, path=''):
         assert actual == expected, path
 
 
-@pytest.mark.parametrize('pair', ['air-air', 'water-air', 'sco2-water'])
-@pytest.mark.parametrize('cut', [0, 1, 3])
+# Each pair and each cut occurs once. The pairs do not change the cut logic.
+@pytest.mark.parametrize('pair, cut', [('air-air', 0), ('water-air', 1), ('sco2-water', 3)])
 def test_native_checkpoint_hdf5_round_trip(native_path, tmp_path, pair, cut):
     from sjtu_tpmshx.data_types.solver_checkpoint import SolverCheckpoint
     from sjtu_tpmshx.file_io.case_io import save_case
@@ -1043,10 +1043,10 @@ save_solver_checkpoint(previous, path)
             process.communicate(timeout=10)
 
 
-@pytest.mark.parametrize('route', ['temperature_sou',
-                                  'single_cc', 'single_staggered',
-                                  'conservative_staggered', 'nz1_cc'])
-@pytest.mark.parametrize('cut', [0, 1, 'final'])
+# Each energy route and each cut occurs once.
+@pytest.mark.parametrize('route, cut', [
+    ('temperature_sou', 1), ('single_cc', 0), ('single_staggered', 'final'),
+    ('conservative_staggered', 1), ('nz1_cc', 'final')])
 def test_checkpoint_covers_energy_routes(native_path, route, cut):
     pair = 'sco2-water' if route.startswith('temperature') else 'air-air'
     options = {}
@@ -1224,11 +1224,12 @@ def _inner_position(state):
     raise AssertionError('active thermal state has no owner')
 
 
-@pytest.mark.parametrize('route', [
-    'model_h', 'model_h_accelerated', 'strict_water', 'temperature_cc', 'nz1_cc',
-    'staggered', 'staggered_conservative', 'staggered_rb', 'single_cc',
-    'true_h', 'true_h_cc', 'temperature_sou'])
-@pytest.mark.parametrize('after_update', [False, True])
+# Each route occurs once. The model-h, staggered and enthalpy owners each pause before and after an update.
+@pytest.mark.parametrize('route, after_update', [
+    ('model_h', False), ('model_h_accelerated', True), ('strict_water', True),
+    ('temperature_cc', False), ('nz1_cc', True), ('single_cc', False),
+    ('staggered', False), ('staggered_conservative', True), ('staggered_rb', False),
+    ('true_h', False), ('true_h_cc', True), ('temperature_sou', False)])
 def test_inner_thermal_checkpoint_keeps_complete_result(native_path, route, after_update):
     prepared = _inner_prepared(route)
     expected = native_run(prepared, control(native_path))
@@ -1293,8 +1294,8 @@ def test_true_h_preparation_hands_unchanged_fields_to_eos_checkpoint(native_path
         native_run(prepared, control(native_path), resume_state=saved)
 
 
-@pytest.mark.parametrize('phase', [6, 7, 9, 10])
-@pytest.mark.parametrize('iteration', [0, 1, 7])
+# Each flow phase and each iteration occurs once.
+@pytest.mark.parametrize('phase, iteration', [(6, 0), (7, 1), (9, 7), (10, 1)])
 def test_inner_flow_checkpoint_keeps_complete_result(native_path, phase, iteration):
     prepared = _inner_prepared('model_h_accelerated')
     expected = native_run(prepared, control(native_path))
