@@ -3,6 +3,7 @@
 [中文](README.md) | [English](README.en.md)
 
 当前架构与运行方式见[架构说明](../architecture.zh-CN.md)和[项目 README](../../README.md)。
+0.1 至 0.2 求解器迁移阶段、已退役 `v1`–`v11` C ABI、D1–D4 收敛记录及归档 N3/N5 数值结果见[C++ 迁移与 ABI 演进历史](cpp-migration-history.zh-CN.md)。
 
 <a id="six-wall-grid-retirement"></a>
 
