@@ -19,6 +19,7 @@ from sjtu_tpmshx.data_types.compute_config import (  # noqa: E402
     FluidConfig,
     GeometryConfig,
     PartialBCConfig,
+    SolverConfig,
 )
 from sjtu_tpmshx.data_types.compute_result import ComputeResult  # noqa: E402
 
@@ -67,7 +68,6 @@ def test_solver_integers_are_not_coerced(name, value):
 
 
 def test_fractional_nz_is_rejected_before_geometry_preparation(monkeypatch):
-    from sjtu_tpmshx.data_types.compute_config import SolverConfig
     from sjtu_tpmshx.preprocess.api import prepare_case
     from sjtu_tpmshx.cpp_interface import native_preparation as preparation
     monkeypatch.setattr(preparation, '_execute',
@@ -224,10 +224,9 @@ def test_compute_result_has_converged_default_true():
 
 @pytest.mark.parametrize('cap', [10, 1000])
 def test_public_preparation_cell_cap(monkeypatch, cap):
-    from sjtu_tpmshx.development.runs.demos.demo_3d_air_air import build_cfg
     from sjtu_tpmshx.preprocess.api import prepare_case
     monkeypatch.setenv('TPMSHX_MAX_CELLS_3D', str(cap))
-    config = build_cfg(Nx=20, Ny=20, Nz=5)
+    config = ComputeConfig(geometry=GeometryConfig(Lz_m=0.042), solver=SolverConfig(Nx=20, Ny=20, Nz=5))
     with pytest.raises(ValueError, match=f'{cap}-cell cap'):
         prepare_case(config, case_id='cell-cap')
 

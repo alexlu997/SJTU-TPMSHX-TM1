@@ -18,7 +18,9 @@ PYTHON="$(head -n 1 .venv-path)"
 export MPLCONFIGDIR="$PWD/.cache/matplotlib" XDG_CACHE_HOME="$PWD/.cache/xdg"
 export QT_QPA_PLATFORM=offscreen PYTHONHASHSEED=0
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1
-"$PYTHON" -m engineering.scripts.check_types
+"$PYTHON" -m ruff check .
+"$PYTHON" -m engineering.scripts.check_types --platform darwin
+"$PYTHON" -m engineering.scripts.check_types --platform win32
 "$PYTHON" -m pytest tests/python -q -ra -m "not slow and not heavy" --ignore=tests/python/integration_tm1 -n 2 --dist worksteal --timeout=600 --timeout-method=thread --durations=30 --junitxml=.cache/ci/fast.xml
 "$PYTHON" -m pytest tests/python/integration_tm1 -q -ra --timeout=600 --timeout-method=thread --durations=30 --junitxml=.cache/ci/integration.xml
 # 完整本地验收：没有 -m 过滤；按本机 CPU/内存可将 auto 换为固定 worker 数。
@@ -77,7 +79,9 @@ main 推送中仅纯文档变更使用 `docs`，手动触发始终使用 `full`�
 `pyproject.toml` 的 `[tool.mypy].files` 显式列出 19 个类型检查文件：覆盖配置、控制器、CLI、统一工作流、当前
 envelope 实现、三模块数据契约与公共 API、后处理指标入口；已删除的转发模块不再列入。
 `pyproject.toml` 还对四个边界实现模块启用无注解函数体检查；这不等于全求解器严格类型覆盖。
-`test_type_gate.py` 在 pytest 快测中执行同一清单。上面的 mypy 命令用于本地单独检查。
+`.github/workflows/ci.yml` 的 `scope` 作业对每个非 `docs` 层级的变更执行一次 `ruff check .`，
+并以 `--platform darwin` 和 `--platform win32` 执行 `engineering.scripts.check_types`。
+pytest 分片不执行 ruff 或 mypy。本地检查使用上面的命令。
 
 第一条 pytest 排除了 slow/heavy 和 `integration_tm1`，第二条单独完整执行该集成目录，
 避免重复执行其中的快测成员；两者不能代替第三条完整本地验收。

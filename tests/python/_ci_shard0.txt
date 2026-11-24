@@ -62,7 +62,6 @@ tests/python/test_inlet_stretched_grid.py
 tests/python/test_interface_configuration.py
 tests/python/test_io_actions.py
 tests/python/test_lazy_result_plots.py
-tests/python/test_lint_gate.py
 tests/python/test_load_data_no_shanghai.py
 tests/python/test_logutil.py
 tests/python/test_module_result_mapping.py
@@ -92,7 +91,6 @@ tests/python/test_surrogate_domain.py
 tests/python/test_theme_manager.py
 tests/python/test_tpms_calc.py
 tests/python/test_tpms_geometry_n128.py
-tests/python/test_type_gate.py
 tests/python/test_ui_smoke_tools.py
 tests/python/test_ui_typography.py
 tests/python/test_user_storage.py

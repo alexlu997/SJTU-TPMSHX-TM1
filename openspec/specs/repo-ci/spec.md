@@ -60,7 +60,7 @@ Python 3.13 汇总门 SHALL 验证原生分片完整且互斥，再验证应用�
 - **THEN** 相关测试被 skip 而非 fail
 
 ### Requirement: Dead-reference cleanup with history preserved
-不可运行的历史基准脚本与退役 polygon 求解链 SHALL 从当前树移除，通过 `docs/history/retired-tools.md` 的固定 Git 索引追溯；现行保留的工具 SHALL 有实际调用或验证用途。3D 演示 SHALL 通过公开 `load_result` 读取已有 `FieldResult` 的真实场与 L 设计场，不再保留私有求解流程或旧 `sigmoid_field_3d` 生成器。
+不可运行的历史基准脚本与退役 polygon 求解链 SHALL 从当前树移除，通过 `docs/history/retired-tools.md` 的固定 Git 索引追溯；现行保留的工具 SHALL 有实际调用或验证用途。非产品 3D 演示与渲染展示脚本 SHALL NOT 保留在当前树中。
 
 #### Scenario: No dangling runnable references
 - **WHEN** 搜索仓库内对 `validation/legacy/validate_shanghai.py` 的非注释引用
@@ -88,7 +88,8 @@ Python 3.13 汇总门 SHALL 验证原生分片完整且互斥，再验证应用�
 `pyproject.toml` 的 `[tool.mypy].files` SHALL 显式列出公共接口与数据契约检查范围，包含当前 envelope
 实现、三模块 API 和数据对象，同时保留仍有消费者的兼容入口。`pyproject.toml`
 SHALL 对 envelope、前处理 API、求解 API、后处理 API 和后处理 metrics 启用无注解函数体检查。
-`test_type_gate.py` SHALL 在快测中检查清单中的实际代码。CI 不另加重复 mypy 步骤。
+对每个非 `docs` 层级的变更，`.github/workflows/ci.yml` 的 `scope` 作业 SHALL 执行一次 `ruff check .`，
+并以 `--platform darwin` 和 `--platform win32` 执行 `engineering.scripts.check_types`。pytest 分片 SHALL NOT 重复执行 ruff 或 mypy。
 
 ### Requirement: Parallel local gate
 本地全量门 SHALL 支持 pytest-xdist 并行：`pytest tests/python/ -q -n auto --dist loadscope`，且在启动 Python 前设置 `PYTHONHASHSEED=0` 和 BLAS/OMP 单线程。`--dist loadscope` 为本机文档默认，worker 数可按资源改为固定值；128 核服务器保留脚本中的 worksteal 策略。解释器、环境检查和完整命令集中在[验证指南](../../../docs/verification.md)。pytest-xdist 位于共同依赖锁中。
