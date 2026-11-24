@@ -1,14 +1,17 @@
 """Verify 2D native preparation adapter contracts, invariants, caches and errors."""
 from collections.abc import Mapping
+from contextlib import nullcontext
 from copy import deepcopy
 from dataclasses import asdict, fields, is_dataclass, replace
 from itertools import product
+from pathlib import Path
 import warnings
 
 import numpy as np
 import pytest
 
 from sjtu_tpmshx.preprocess import api
+from sjtu_tpmshx.preprocess.two_d import preparation
 from sjtu_tpmshx.physical_models import sigmoid_field, tpms_calc, tpms_geometry
 from sjtu_tpmshx.run_control.run_warnings import (
     current_warnings, range_observations, warning_scope,
@@ -203,11 +206,33 @@ def test_missing_library_is_reported(monkeypatch):
 
 
 def test_direct_2d_preparation_keeps_dimension_guard():
-    from sjtu_tpmshx.preprocess.two_d import preparation
     config = native_preparation_abi._configuration_mass_flow()
     config.solver.Nz = 2
     with pytest.raises(ValueError, match='2D preparation requires solver.Nz == 1'):
         preparation.prepare_case(config, case_id='wrong-dimension')
+
+
+@pytest.mark.parametrize('prepare, flow', [
+    (api.prepare_case, {}),
+    (preparation.prepare_case, {}),
+    (api.prepare_fixed_mass_flow_case, {'mass_flow_A_kg_s': .01, 'mass_flow_B_kg_s': .02}),
+    (preparation.prepare_mass_flow_case, {'targets': {'A': .01, 'B': .02}}),
+], ids=['public', 'direct', 'public-fixed-flow', 'direct-fixed-flow'])
+def test_nominal_grid_warns_once_per_axis(prepare, flow):
+    from sjtu_tpmshx.data_types.compute_config import ComputeConfig
+
+    config = ComputeConfig()
+    config.geometry.L_dom_m = config.geometry.H_dom_m = float(np.finfo(float).smallest_subnormal)
+    config.geometry.Lz_m = .042
+    config.solver.Nx = config.solver.Ny = 4
+    outcome = pytest.raises(ValueError, match='side A: inlet density times open pore area') if flow else nullcontext()
+    with warnings.catch_warnings(record=True) as notices, np.errstate(under='warn'):
+        warnings.simplefilter('default')
+        with outcome:
+            prepare(config, case_id='nominal-grid', **flow)
+    assert [(str(item.message), item.category, Path(item.filename)) for item in notices] == [
+        ('underflow encountered in divide', RuntimeWarning, Path(preparation.__file__))] * 2
+    assert notices[0].lineno != notices[1].lineno
 
 
 def test_nonzero_delta_uses_native_thermal_geometry(monkeypatch):
