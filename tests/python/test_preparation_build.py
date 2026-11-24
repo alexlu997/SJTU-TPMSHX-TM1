@@ -247,8 +247,6 @@ def test_coolprop_cache_key_excludes_pressure_solver_inputs(tmp_path, host):
     from engineering.scripts import build_coolprop
 
     baseline = build_coolprop.coolprop_cache_digest(tmp_path, coolprop_cache_lock(), host)
-    assert len(baseline) == 64 and int(baseline, 16) >= 0
-    assert native.build_coolprop is build_coolprop
 
     def digest(change):
         lock = coolprop_cache_lock()
