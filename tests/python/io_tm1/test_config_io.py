@@ -10,9 +10,11 @@ DATA = {'name': '噜噜', 'values': [1, 2.5, None], 'nested': {'flag': True}}
 
 
 def test_write_json_keeps_text_format(tmp_path):
-    path = tmp_path / 'config.json'
+    path, reference = tmp_path / 'config.json', tmp_path / 'reference.json'
     config_io.write_json(path, DATA)
-    assert path.read_bytes() == json.dumps(DATA, indent=2, ensure_ascii=False).encode('utf-8')
+    # The previous in-place writer gives the reference bytes, with the platform newline.
+    reference.write_text(json.dumps(DATA, indent=2, ensure_ascii=False), encoding='utf-8')
+    assert path.read_bytes() == reference.read_bytes()
     assert config_io.read_json(path) == DATA
 
 
