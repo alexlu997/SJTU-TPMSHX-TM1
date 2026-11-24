@@ -51,7 +51,7 @@ class RunResultsMixin:
         # Isolate published containers while sharing the field arrays.
         self.cache.set_result(mode, replace(
             result, fields=dict(result.fields), coeffs=dict(result.coeffs),
-            residuals=dict(result.residuals),
+            residuals=dict(result.residuals), zones=deepcopy(result.zones),
             metadata=deepcopy(result.metadata), warnings=list(result.warnings),
             extrap_reasons=list(result.extrap_reasons),
             diagnostics={**result.diagnostics,
@@ -59,20 +59,6 @@ class RunResultsMixin:
                 'convergence_detail': dict(
                 result.diagnostics.get('convergence_detail') or {})},
         ))
-        if mode == '3d':
-            return
-
-        # Boundaries used by the zone overlays.
-        if result.zones is not None:
-            self._zone_axis_dir = result.zones.get('axis_dir')
-            self._zone_boundaries = result.zones.get('boundaries')
-            self._zone_boundaries_x = result.zones.get('boundaries_x')
-            self._zone_boundaries_y = result.zones.get('boundaries_y')
-        else:
-            self._zone_axis_dir = None
-            self._zone_boundaries = None
-            self._zone_boundaries_x = None
-            self._zone_boundaries_y = None
 
     def _result_summary(self):
         """Read diagnostics and scalar values from the published result."""
