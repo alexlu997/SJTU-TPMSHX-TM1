@@ -721,20 +721,28 @@ def verify_published(directory: Path, host: str, component: str, log: Path) -> N
     """Compare the selected published images with the export manifests.
 
     This is a qualification check. It does not build, load or replace an image.
-    A different source commit does not fail an image whose exports agree.
+    A different source commit, a dirty build or a missing or unreadable build
+    record is reported. It does not fail an image whose exports agree.
     """
-    selected = component if component in {"geometry", "preparation", "result"} else "all"
-    libraries = [(kind, record) for kind, record in PUBLISHED_LIBRARIES if selected in {"all", kind}]
+    libraries = [(kind, record) for kind, record in PUBLISHED_LIBRARIES if component in {"all", kind}]
     print(f"Published directory: {directory}", flush=True)
     failures = []
     for kind, metadata_name in libraries:
         library = directory / shared_library_name(host, kind)
         metadata = directory / metadata_name
         print(f"{kind}: {library}", flush=True)
+        record = None
         if not metadata.is_file():
             print(f"  build record: missing ({metadata.name})", flush=True)
         else:
-            record = json.loads(metadata.read_text(encoding="utf-8"))
+            try:
+                record = json.loads(metadata.read_text(encoding="utf-8"))
+                if not isinstance(record, dict):
+                    raise ValueError("not a JSON object")
+            except ValueError as error:
+                record = None
+                print(f"  build record: unreadable ({metadata.name}: {error})", flush=True)
+        if record is not None:
             changes = record.get("source_changes")
             count = "unknown" if changes is None else len(changes)
             print(f"  build record: source_commit={record.get('source_commit')}, source_changes={count}",
@@ -834,6 +842,8 @@ def main() -> None:
     args = parser.parse_args()
     if args.directory is not None and args.action != "verify-published":
         parser.error("--directory applies only to verify-published")
+    if args.action == "verify-published" and args.component in {"coolprop", "pilot"}:
+        parser.error("verify-published accepts --component all, geometry, preparation or result")
     python, host, cache = configured_python(), platform_name(), args.cache.resolve()
     if not cache.is_relative_to(ROOT / ".cache"):
         raise RuntimeError("Native dependency outputs must remain under this worktree's .cache/")

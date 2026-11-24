@@ -150,3 +150,33 @@ def test_linux_command_checks_only_the_result_image(tmp_path, monkeypatch):
     monkeypatch.setattr(sys, 'argv', ['build_native_dependencies.py', 'verify-published'])
     with pytest.raises(RuntimeError, match='Linux x86_64 supports only --component result'):
         native.main()
+
+
+@pytest.mark.parametrize('content,report', [
+    (None, 'build record: missing (build.json)'),
+    ('{"source_commit": "' + 'c' * 40 + '"}', f'source_commit={"c" * 40}, source_changes=unknown'),
+    ('{not json', 'build record: unreadable (build.json: '),
+    ('[]', 'build record: unreadable (build.json: not a JSON object)'),
+])
+def test_a_missing_or_incomplete_build_record_is_reported_without_failure(tmp_path, monkeypatch, capsys,
+                                                                         content, report):
+    directory, _ = publish_fixture(tmp_path, monkeypatch, 'macos-arm64')
+    record = directory / 'build.json'
+    if content is None:
+        record.unlink()
+    else:
+        record.write_text(content)
+    native.verify_published(directory, 'macos-arm64', 'all', tmp_path / 'check.log')
+    output = capsys.readouterr().out
+    assert report in output
+    assert output.count('exports: agree with the manifest') == 3
+    assert 'PASS:' in output
+
+
+@pytest.mark.parametrize('component', ['coolprop', 'pilot'])
+def test_command_rejects_a_component_without_a_published_image(tmp_path, monkeypatch, component):
+    monkeypatch.setattr(native, 'ROOT', tmp_path)
+    monkeypatch.setattr(native, 'verify_published', lambda *args: pytest.fail('check started'))
+    monkeypatch.setattr(sys, 'argv', ['build_native_dependencies.py', 'verify-published', '--component', component])
+    with pytest.raises(SystemExit):
+        native.main()

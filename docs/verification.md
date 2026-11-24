@@ -69,7 +69,8 @@ BO 作业上传 JUnit 与完整收集 manifest，保留 7 天，不上传求解�
 ### 已发布原生镜像检查
 
 Python 从当前 checkout 的 `sjtu_tpmshx/solvers/native/lib/<platform>/` 加载原生镜像。
-`TPMSHX_*_LIBRARY` 变量可以选择其他文件；本检查不检查这类文件。
+`TPMSHX_*_LIBRARY` 变量可以选择其他几何、准备或结果库文件；
+`RunControl(native_library=...)` 或 CLI `--native-library` 可以选择其他求解器库文件。本检查不检查这类文件。
 要把已发布镜像与导出清单比较，在仓库根运行以下任一命令：
 
 ```bash
@@ -77,11 +78,12 @@ Python 从当前 checkout 的 `sjtu_tpmshx/solvers/native/lib/<platform>/` 加�
 "$PYTHON" engineering/scripts/build_native_dependencies.py verify-published --directory <已发布目录>
 ```
 
-该检查不构建、不加载、也不替换镜像。macOS 使用 `nm` 和 `otool`；
+该检查不构建、不加载、也不替换镜像。macOS 使用 `nm` 和 `otool`，Linux 使用 `nm` 和 `readelf`；
 Windows 使用 `dumpbin`，须在 Visual Studio 开发者 shell 中运行。
+使用 `--directory` 时，检查把镜像与运行该脚本的 checkout 中的清单比较。
 检查对每个镜像打印被检查的路径，以及构建记录中的 `source_commit` 和 `source_changes` 条数。
 `WARNING: dirty build` 行表示该镜像构建时源 checkout 有已跟踪的修改。
-仅源提交不同不会使检查失败。
+源提交不同、脏构建、构建记录缺失或无法读取，都不会使检查失败。
 
 镜像缺失或其 C 导出与清单不同时，检查失败；它也执行构建验证中的导入和动态依赖检查。清单为 `solver/solver.exports`、
 `preprocess/preparation.exports` 和 `postprocess/result.exports`。

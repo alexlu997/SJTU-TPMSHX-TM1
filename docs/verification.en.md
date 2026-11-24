@@ -54,7 +54,9 @@ They run multi-condition optimizer tests, including both real Log acquisition fu
 ### Published native image check
 
 Python loads the native images from `sjtu_tpmshx/solvers/native/lib/<platform>/` in the current checkout.
-A `TPMSHX_*_LIBRARY` variable can select another file. This check does not examine such a file.
+A `TPMSHX_*_LIBRARY` variable can select another geometry, preparation, or result file.
+`RunControl(native_library=...)` or CLI `--native-library` can select another solver file.
+This check does not examine such a file.
 To compare the published images with the export manifests, run one of these commands from the repository root:
 
 ```bash
@@ -62,11 +64,12 @@ To compare the published images with the export manifests, run one of these comm
 "$PYTHON" engineering/scripts/build_native_dependencies.py verify-published --directory <published directory>
 ```
 
-The check does not build, load, or replace an image. It uses `nm` and `otool` on macOS.
+The check does not build, load, or replace an image. It uses `nm` and `otool` on macOS, and `nm` and `readelf` on Linux.
 On Windows, it uses `dumpbin`. Run it from a Visual Studio developer shell.
+With `--directory`, the check compares the images with the manifests of the checkout that runs the script.
 For each image, the check prints the inspected path, `source_commit`, and the number of `source_changes` from the build record.
 A `WARNING: dirty build` line identifies an image that was built from a checkout with tracked changes.
-A different source commit alone does not cause a failure.
+A different source commit, a dirty build, or a missing or unreadable build record does not cause a failure.
 
 The check fails when an image is missing or when its C exports differ from the manifest.
 It also applies the import and dynamic dependency checks of the build verifier.
