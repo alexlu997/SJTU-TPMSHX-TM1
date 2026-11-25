@@ -62,6 +62,21 @@ int main() {
     } catch (const std::invalid_argument& error) {
         require(std::string(error.what()).find("topology 2")!=std::string::npos);
     }
+    auto rejects_fluid=[](auto query) {
+        try {
+            query(static_cast<Fluid>(4));
+        } catch (const std::invalid_argument& error) {
+            return std::string(error.what()).find("fluid 4")!=std::string::npos;
+        }
+        return false;
+    };
+    require(rejects_fluid([](Fluid fluid) { closure_ranges::fluid_name(fluid); }));
+    require(rejects_fluid([](Fluid fluid) {
+        closure_ranges::property(fluid,"cp",0,"property","inlet","scalar",{});
+    }));
+    require(rejects_fluid([](Fluid fluid) {
+        closure_ranges::nu(fluid,Topology::diamond,0,"nu","inlet","scalar",{});
+    }));
     require(Full3DControl{}.simple.gas_constant==model_coefficients::envelope_r_air);
     const std::array<Fluid,4> fluids{Fluid::air,Fluid::water,Fluid::sco2,Fluid::co2};
     for(auto a:fluids) for(auto b:fluids) {
