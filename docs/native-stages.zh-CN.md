@@ -88,7 +88,7 @@ Python 按原顺序去重合并算例通知与运行期 `nu-evidence` 警告，�
 `tpmshx_preparation_inlet_query_result_v1`（`abi_version = 1`、`struct_size = sizeof(tpmshx_preparation_inlet_query_result_v1)`）返回 12 个纯 `float64` 标量（`double values[12]`）。
 该查询不创建所有者，无需释放调用。
 可传入将缓存钩子置空且 `validate_grid_stage = 0` 的 `tpmshx_preparation_callbacks_v1`，以同步接收范围、通知和浮点事件。
-独立 Python `tpms_calc.compute` 通过 `python/cpp_interface/inlet_properties.py` 调用此入口，并保留几何选择、共享缓存、逐次 `K_ss` 查询与警告策略。
+独立的 `tpms_calc.compute` 选择注册流体、几何、共享缓存、逐次 `K_ss` 查询及警告策略。其 `inlet_query` 通过 `python/cpp_interface/inlet_properties.py` 调用此入口。
 
 ## 空间几何总质量流量
 
@@ -118,7 +118,7 @@ Preparation ABI 3 为全部四个二维几何族（`uniform`、`continuous`、`z
 - **按准备族划分的钩子规则**：无键钩子（`geometry_cache`、`inlet_cache`）与带键钩子（`geometry_cache_at`、`inlet_cache_at`、`sigmoid_lut_cache`）不得混用。二维均匀与连续操作仅接受无键钩子；二维分区、sigmoid 与条带操作仅接受带键钩子。三维操作仅接受 `geometry_cache_at` 与 `inlet_cache_at`，并拒绝 `sigmoid_lut_cache` 与 `validate_grid_stage != 0`。
 - **隔离规则**：回调不得执行数值准备，返回视图不得与输出、失败或错误缓冲区重叠。回调返回非零值立即中止阶段，便于 Python 重新抛出原异常。
 
-`python/cpp_interface/preparation_host.py` 与 `native_preparation.py` 将这些钩子连接到 `python/physical_models/preparation_cache.py` 中 32,768 项几何缓存和 4,096 项入口物性缓存。
+`python/preprocess/preparation.py` 为二维和三维准备提供缓存与警告回调。`python/physical_models/preparation_cache.py` 管理 32,768 项几何缓存及 4,096 项入口物性缓存。`python/cpp_interface/preparation_host.py` 复制缓存值，并确保回调缓冲区在原生调用期间有效。
 Python 保留 LUT 的内存与磁盘存储；缺表时 C++ 在体素分辨率 256 下构建 41×31 原生表。
 [空间缓存示例](../examples/cpp/prepare_spatial_cache_2d.cpp)在 Python 之外测试了这组带类型回调。
 

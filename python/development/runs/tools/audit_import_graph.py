@@ -51,15 +51,12 @@ OWNERS = {
     "file_io": "io",
     "model_configs": "configs",
     "applications.cli.cli_options": "io",
-    "cpp_interface.native_preparation": "preprocess",
-    "cpp_interface.preparation_host": "models",
-    "cpp_interface.inlet_properties": "models",
     # Solver stage modules still share the solver capture wire layout.
     **{f"cpp_interface.{name}": "solvers" for name in (
         "full_2d_stage", "full_3d_stage", "quick_design", "run_state", "solver_library")},
-    # Case and spatial adapters own model policy. The ABI bindings use native_values.
+    # These spatial adapters own model policy. The ABI bindings use native_values.
     **{f"cpp_interface._native_{name}": "models" for name in (
-        "continuous", "lut", "preparation_3d", "sigmoid", "zones")},
+        "continuous", "lut", "sigmoid", "zones")},
     "cpp_interface": "native_values",
     **{f"shared.{name}": name for name in (
         "domain", "models", "df_surrogate", "io", "configs",
@@ -119,8 +116,28 @@ def import_targets(node: ast.AST, package: str) -> list[str]:
     return []
 
 
+_NATIVE_ALIAS_PACKAGES = {"sjtu_tpmshx.shared", "sjtu_tpmshx.shared.models", "sjtu_tpmshx.physical_models"}
+
+
+def _resolved_native_target(name):
+    for package in _NATIVE_ALIAS_PACKAGES:
+        if name.startswith(package + "._native_"):
+            module, dot, member = name[len(package) + 1:].partition(".")
+            owner = "preprocess.quick_design" if module == "_native_quick_prepare" else "cpp_interface." + module
+            return "sjtu_tpmshx." + owner + dot + member
+    return name
+
+
+def _policy_targets(node, package):
+    targets = import_targets(node, package)
+    if isinstance(node, ast.ImportFrom) and targets[0] in _NATIVE_ALIAS_PACKAGES and len(targets) > 1:
+        # A from-import of a published child uses that child's owner.
+        return targets[1:]
+    return targets
+
+
 def target_unit(name: str, units: set[str]) -> str | None:
-    parts = name.split(".")
+    parts = _resolved_native_target(name).split(".")
     if parts[0] == "sjtu_tpmshx":
         parts = parts[1:]
     elif parts[0] in sys.stdlib_module_names:
@@ -148,6 +165,11 @@ _FULL_3D_FORBIDDEN_SIBLINGS = {"full_2d_stage", "quick_design", "native_preparat
 _QUICK_PREPARATION_IMPORTS = {f"sjtu_tpmshx.{module}" for module in (
     "cpp_interface.quick_preparation", "cpp_interface._native_quick_prepare", "shared._native_quick_prepare",
     "shared.models._native_quick_prepare", "physical_models._native_quick_prepare")}
+# The shared mesh packer uses the array layout from _native_result.
+_FULL_PREPARATION_WIRE_MODULES = {
+    "native_preparation", "preparation_host", "inlet_properties", "stage_libraries",
+    "_native_preparation_case", "_native_preparation_3d", "_native_values", "_native_properties", "_native_result",
+}
 _TYPE_GUARDS = {"typing.TYPE_CHECKING", "typing_extensions.TYPE_CHECKING"}
 _BINDING_NAMESPACES = {"sjtu_tpmshx", "sjtu_tpmshx.cpp_interface", "sjtu_tpmshx.shared", "shared", *_DTO_PACKAGES,
                        "typing", "typing_extensions", *_TYPE_GUARDS}
@@ -156,6 +178,8 @@ _BINDING_NAMESPACES = {"sjtu_tpmshx", "sjtu_tpmshx.cpp_interface", "sjtu_tpmshx.
 def _invalid_stage_target(host, target, binding, operations):
     if not target.startswith("sjtu_tpmshx."):
         return False
+    if binding == "native_preparation":
+        target = _resolved_native_target(target)
     area, _, member = target.removeprefix("sjtu_tpmshx.").partition(".")
     module, _, name = member.partition(".")
     # The shared resolver exposes the physical range policy through both domain packages.
@@ -170,6 +194,16 @@ def _invalid_stage_target(host, target, binding, operations):
         area = "cpp_interface"
     if binding == "full_3d_api":
         return area == "cpp_interface" and module in {"full_3d_stage", "*"}
+    if binding == "native_preparation":
+        if host and not operations and area == "cpp_interface":
+            # The public API reaches these native operations through the stage host.
+            return module in _FULL_PREPARATION_WIRE_MODULES
+        if host and operations and area == "preprocess" and module == "quick_design":
+            return True
+        if not host and area == "cpp_interface" and module:
+            return module not in _FULL_PREPARATION_WIRE_MODULES
+        if host and area == "solvers" and member.startswith("backends.cpp."):
+            return True
     if binding in {"quick_design", "quick_preparation"}:
         if area == "solvers" and member.startswith("backends.cpp."):
             module, _, name = member.removeprefix("backends.cpp.").partition(".")
@@ -266,6 +300,9 @@ class _StageImportAudit(ast.NodeVisitor):
 
     def visit_Import(self, node):
         targets = import_targets(node, self.package)
+        if (self.binding == "native_preparation" and isinstance(node, ast.ImportFrom)
+                and node.names[0].name == "*" and targets[0].split(".", 1)[0] == "sjtu_tpmshx"):
+            self.violations.append((node.lineno, targets[0] + ".*"))
         if not self.host:
             # Report the imported member when the statement names one.
             forbidden = next((name for name in reversed(targets) if _dto_import(name, self.dto_modules, self.dto_types)), None)
@@ -293,11 +330,17 @@ class _StageImportAudit(ast.NodeVisitor):
             self.bind(name, self.module_names.get(name, set()))
 
     def visit_Attribute(self, node):
-        for target in sorted(_qualified_names(node, self.aliases)):
+        targets = _qualified_names(node, self.aliases)
+        for target in sorted(targets):
             # A loaded DTO module is also available through its parent package.
             if (_invalid_stage_target(self.host, target, self.binding, self.operations)
                     or (not self.host and target in self.dto_modules and isinstance(node.ctx, ast.Load))):
                 self.violations.append((node.lineno, target))
+        targets.discard("")  # A path without an import has no parent package.
+        if (self.binding == "native_preparation" and targets
+                and all(_resolved_native_target(target) != target for target in targets)):
+            # The published prefix is a namespace on this path to the native module.
+            return
         self.visit(node.value)
 
     def type_guard(self, test):
@@ -439,16 +482,26 @@ class _StageImportAudit(ast.NodeVisitor):
 
 
 def _stage_boundary_violations(path, tree, package):
-    if path == PKG / "solvers/api.py":
-        label, binding, operations = "full 3D solve", "full_3d_api", set()
-        modules, types = set(), set()
-    elif path in (PKG / "preprocess/api.py", PKG / "applications/design/sizing.py"):
+    preparation_api = path == PKG / "preprocess/api.py"
+    if preparation_api or path == PKG / "applications/design/sizing.py":
         for node in ast.walk(tree):
             for target in import_targets(node, package):
                 if target in _QUICK_PREPARATION_IMPORTS:
                     yield f"{path.relative_to(REPO)}:{node.lineno}: Quick preparation boundary -> {target}"
                     break
-        return
+        if not preparation_api:
+            return
+    if path == PKG / "solvers/api.py":
+        label, binding, operations = "full 3D solve", "full_3d_api", set()
+        modules, types = set(), set()
+    elif (preparation_api or path == PKG / "preprocess/two_d/preparation.py" or path.parent == PKG / "cpp_interface"
+            and path.stem in {"native_preparation", "preparation_host", "inlet_properties"}):
+        label, binding = "full preparation", "native_preparation"
+        operations = set() if preparation_api else {"", "pack_input", "run_preparation"}
+        modules, types = _CASE_DTO_MODULES, {"CaseData", "ModelRef"}
+        if path.stem == "preparation_host":
+            # The shared solver input packer checks the type of a saved ModelRef.
+            modules, types = {name for name in modules if name.endswith(".case_data")}, {"CaseData"}
     elif path in (PKG / "preprocess/quick_design.py", PKG / "cpp_interface/quick_preparation.py"):
         label, binding, operations = "Quick preparation", "quick_preparation", {"", "run_preparation"}
         modules, types = _CASE_DTO_MODULES, {"CaseData", "ModelRef"}
@@ -469,7 +522,7 @@ def _stage_boundary_violations(path, tree, package):
         return
     host = path.parent != PKG / "cpp_interface"
     for node in ast.walk(tree):
-        targets = import_targets(node, package)
+        targets = _policy_targets(node, package)
         if ((binding in {"full_3d_stage", "full_3d_api"} or (host and binding in {"quick_design", "quick_preparation"}))
                 and isinstance(node, ast.ImportFrom) and node.names[0].name == "*"):
             targets.append(targets[0] + ".*")
@@ -513,7 +566,7 @@ def main() -> int:
                    else '.'.join(('sjtu_tpmshx', *py.relative_to(PKG).parts[:-1])))
         violations.extend(_stage_boundary_violations(py, tree, package))
         for node in ast.walk(tree):
-            names = import_targets(node, package)
+            names = _policy_targets(node, package)
             targets = {target_unit(name, units) for name in names}
             for dst in targets:
                 if dst and dst != src_unit and dst in units:

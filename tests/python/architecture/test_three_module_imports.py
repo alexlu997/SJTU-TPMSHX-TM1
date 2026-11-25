@@ -54,7 +54,7 @@ def test_implementation_import_boundaries():
 
 @pytest.mark.parametrize('module', [
     'solvers.api', 'cpp_interface.full_2d_stage', 'cpp_interface.full_3d_stage',
-    'cpp_interface.native_preparation',
+    'preprocess.two_d.preparation',
 ])
 def test_checker_detects_imports_across_stage_boundaries(module):
     name = 'sjtu_tpmshx.' + module
@@ -303,6 +303,70 @@ def test_layer_discovery_ignores_cache_and_data_only_directories(tmp_path, monke
      'from ._native_preparation_case import _QuickInputV2, _QuickPreparedV2', 'VIOLATIONS (0)', 0),
     ('cpp_interface/quick_preparation.py', 'from ..physical_models import co2_props as eos',
      'Quick preparation boundary -> sjtu_tpmshx.physical_models', 1),
+    ('cpp_interface/native_preparation.py', 'def cache():\n    from ..physical_models import sigmoid_field',
+     'full preparation boundary -> sjtu_tpmshx.physical_models', 1),
+    ('cpp_interface/preparation_host.py', 'from ..shared.domain.range_policy import assess_range',
+     'full preparation boundary -> sjtu_tpmshx.shared.domain.range_policy', 1),
+    ('cpp_interface/inlet_properties.py', 'from ..preprocess import preparation',
+     'full preparation boundary -> sjtu_tpmshx.preprocess', 1),
+    ('cpp_interface/preparation_host.py', 'from ..shared._native_quick_prepare import prepare_values',
+     'full preparation boundary -> sjtu_tpmshx.shared._native_quick_prepare', 1),
+    *(('cpp_interface/inlet_properties.py',
+        f'from sjtu_tpmshx.{package}._native_preparation_case import _InletQueryInput\n'
+        f'from sjtu_tpmshx.{package} import _native_preparation_case as wire\n'
+        f'import sjtu_tpmshx\nrecord = sjtu_tpmshx.{package}._native_preparation_case._InletQueryInput',
+        'VIOLATIONS (0)', 0) for package in ('shared', 'shared.models', 'physical_models')),
+    *(('cpp_interface/inlet_properties.py', 'def request_type(enabled):\n'
+       '    if enabled:\n'
+       f'        import sjtu_tpmshx.{package}._native_preparation_case\n'
+       '    else:\n'
+       '        return None\n'
+       f'    return sjtu_tpmshx.{package}._native_preparation_case._InletQueryInput',
+       'VIOLATIONS (0)', 0) for package in ('shared.models', 'physical_models')),
+    *(('cpp_interface/inlet_properties.py', f'from sjtu_tpmshx.{package} import _native_quick_prepare as quick',
+        f'full preparation boundary -> sjtu_tpmshx.{package}._native_quick_prepare', 1)
+      for package in ('shared', 'shared.models', 'physical_models')),
+    ('cpp_interface/inlet_properties.py', 'from ..physical_models import _native_preparation_case, tpms_calc',
+     'full preparation boundary -> sjtu_tpmshx.physical_models.tpms_calc', 1),
+    ('cpp_interface/preparation_host.py', 'from ..shared import result_display',
+     'full preparation boundary -> sjtu_tpmshx.shared.result_display', 1),
+    ('cpp_interface/inlet_properties.py', 'import sjtu_tpmshx.shared as published\nratio = published.result_math.pressure_ratio',
+     'full preparation boundary -> sjtu_tpmshx.shared.result_math', 1),
+    ('cpp_interface/native_preparation.py', 'from ..shared import _native_lut',
+     'full preparation boundary -> sjtu_tpmshx.shared._native_lut', 1),
+    ('cpp_interface/native_preparation.py', 'from . import result_evaluation',
+     'full preparation boundary -> sjtu_tpmshx.cpp_interface.result_evaluation', 1),
+    ('cpp_interface/preparation_host.py', 'from .. import cpp_interface as wire\nquery = wire.result_evaluation.query_result',
+     'full preparation boundary -> sjtu_tpmshx.cpp_interface.result_evaluation', 1),
+    ('cpp_interface/preparation_host.py', 'from . import *',
+     'full preparation boundary -> sjtu_tpmshx.cpp_interface.*', 1),
+    ('cpp_interface/inlet_properties.py', 'from ._native_preparation_case import *',
+     'full preparation boundary -> sjtu_tpmshx.cpp_interface._native_preparation_case.*', 1),
+    ('cpp_interface/inlet_properties.py', 'from ._native_preparation_case import _InletQueryInput\n'
+     'from ..shared.domain import run_warnings', 'VIOLATIONS (0)', 0),
+    ('cpp_interface/inlet_properties.py', 'from typing import TYPE_CHECKING\n'
+     'if TYPE_CHECKING:\n    from ..data_types.case_data import CaseData', 'VIOLATIONS (0)', 0),
+    ('cpp_interface/native_preparation.py', 'from ..shared.domain import case_data as dto',
+     'full preparation boundary -> sjtu_tpmshx.shared.domain.case_data', 1),
+    ('cpp_interface/preparation_host.py', 'from ..data_types.model_refs import ModelRef', 'VIOLATIONS (0)', 0),
+    ('preprocess/two_d/preparation.py', 'from ...cpp_interface import native_preparation as native\nf = native._copy_case',
+     'full preparation boundary -> sjtu_tpmshx.cpp_interface.native_preparation._copy_case', 1),
+    ('preprocess/two_d/preparation.py', 'from ...physical_models import _native_preparation_3d as native',
+     'full preparation boundary -> sjtu_tpmshx.physical_models._native_preparation_3d', 1),
+    ('preprocess/two_d/preparation.py', 'from ... import physical_models as models\n'
+     'query = models._native_result_stage.evaluate',
+     'full preparation boundary -> sjtu_tpmshx.physical_models._native_result_stage', 1),
+    ('preprocess/two_d/preparation.py', 'from ...solvers.backends.cpp.full_2d_stage import run_case',
+     'full preparation boundary -> sjtu_tpmshx.solvers.backends.cpp.full_2d_stage', 1),
+    ('preprocess/two_d/preparation.py', 'from ...cpp_interface.native_preparation import *',
+     'full preparation boundary -> sjtu_tpmshx.cpp_interface.native_preparation.*', 1),
+    ('preprocess/two_d/preparation.py', 'from ...cpp_interface.native_preparation import run_preparation',
+     'VIOLATIONS (0)', 0),
+    ('preprocess/api.py', 'from .. import cpp_interface as wire\nprepare = wire.native_preparation.run_preparation',
+     'full preparation boundary -> sjtu_tpmshx.cpp_interface.native_preparation', 1),
+    ('preprocess/api.py', 'from ..cpp_interface import *',
+     'full preparation boundary -> sjtu_tpmshx.cpp_interface.*', 1),
+    ('preprocess/api.py', 'from .two_d.preparation import prepare_case', 'VIOLATIONS (0)', 0),
     ('cpp_interface/quick_preparation.py', 'from ..physical_models.range_policy import assess_range',
      'Quick preparation boundary -> sjtu_tpmshx.physical_models.range_policy', 1),
     ('cpp_interface/quick_preparation.py', 'from sjtu_tpmshx.shared.domain.range_policy import assess_range',

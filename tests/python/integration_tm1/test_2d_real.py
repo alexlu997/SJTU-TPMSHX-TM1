@@ -18,7 +18,7 @@ from tests.python.integration_tm1.integration_support import (
 
 @pytest.mark.slow
 def test_prepared_only_b20_air_baseline(monkeypatch):
-    from sjtu_tpmshx.cpp_interface import native_preparation as preparation
+    from sjtu_tpmshx.preprocess.two_d import preparation as preparation
     case = prepare_case(baseline_config(), case_id='B20-air')
     def forbidden(*args, **kwargs):
         raise AssertionError('execution called preprocessing')

@@ -14,7 +14,7 @@ from tests.python.native.stage_interception import stage_control
 
 
 def test_effective_grid_and_design_are_consumed_without_preparation(monkeypatch):
-    from sjtu_tpmshx.cpp_interface import native_preparation as preparation
+    from sjtu_tpmshx.preprocess.two_d import preparation as preparation
     case = prepare_case(ComputeConfig(), case_id='prepared')
     def forbidden(*args, **kwargs):
         raise AssertionError('solver called preprocessing')

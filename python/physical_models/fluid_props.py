@@ -32,6 +32,17 @@ class QuickDesignWaterFieldError(WaterStateError):
     """A quick-design field cannot satisfy the existing liquid-water contract."""
 
 
+def validate_fluid_type(fluid_type: str, side: str) -> None:
+    """Reject fluid names outside the supported air, water, sCO2 and CO2 set."""
+    if fluid_type not in ('air', 'water', 'sco2', 'co2'):
+        label = {'water': 'Water', 'sco2': 'sCO₂'}.get(fluid_type, fluid_type)
+        raise NotImplementedError(
+            f"Fluid {side} = {label} is not supported yet — no fitted "
+            f"correlations (Nu / f-Re / D-F surrogate) for this fluid. "
+            f"Supported fluids: air, water, sco2, co2."
+        )
+
+
 def check_water_state(fluid, T, P, *, where="water state") -> None:
     """Check paired actual K/Pa(abs) states, never a temperature-only primitive.
 

@@ -45,8 +45,8 @@ V9 adds `float64` geometry and inlet probes without changing v1-v8 layouts.
 Its spatial model carries the conductivity value in `float64`.
 Spatial material uses the accepted spatial value; nominal calculations keep their own value.
 The probes carry L/t, fluid state and optional Nu selection in `float64`.
-`python/cpp_interface/preparation_host.py` uses the existing shared cache owners for
-lookup, publication and evidence transport. It does not call numerical cache functions.
+`python/preprocess/preparation.py` selects and updates entries in the shared model caches.
+`python/cpp_interface/preparation_host.py` copies the cache values and range evidence.
 `ZonedCache` uses those hooks when supplied; native code calculates each miss.
 The original per-call cache remains available for independent native callers.
 The LUT hook exchanges tables at each path's original geometry checkpoint.

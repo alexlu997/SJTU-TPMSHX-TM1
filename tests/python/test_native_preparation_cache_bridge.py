@@ -1,5 +1,4 @@
 """Check shared cache transport without entering a numerical preparation stage."""
-from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -10,6 +9,7 @@ from sjtu_tpmshx.data_types.compute_config import Sco2NuConfig
 from sjtu_tpmshx.run_control.run_warnings import RangeRecord, range_context, warning_scope
 from sjtu_tpmshx.cpp_interface import _native_preparation_case as native
 from sjtu_tpmshx.physical_models.preparation_cache import scalar_cache
+from sjtu_tpmshx.preprocess import preparation
 
 
 @pytest.fixture
@@ -19,13 +19,13 @@ def caches(monkeypatch):
 
     geometry = scalar_cache(maxsize=4)(numerical)
     inlet = scalar_cache(maxsize=4)(numerical)
-    monkeypatch.setattr(bridge_module, 'geometry_cache', geometry)
-    monkeypatch.setattr(bridge_module, 'inlet_cache', inlet)
+    monkeypatch.setattr(preparation, 'geometry_cache', geometry)
+    monkeypatch.setattr(preparation, 'inlet_cache', inlet)
     return geometry, inlet
 
 
-def _bridge():
-    return bridge_module.PreparationCacheBridge(SimpleNamespace(sco2_nu=Sco2NuConfig()))
+def _bridge(error=None):
+    return bridge_module.PreparationCacheBridge(preparation.PreparationCache(error))
 
 
 def _geometry_key():
@@ -76,7 +76,6 @@ def test_inlet_publication_retains_float64_values_and_current_result_geometry(ca
     del buffers
     assert restored.evidence.range_count == 1 and restored.evidence.ranges[0].rank == 3
     assert read_text(restored.evidence.ranges[0].label) == 'air_viscosity'
-    assert bridge_module._records(restored.evidence, restored.evidence.range_bounds_list)
     value.geometry.epsilon = .5
     value.properties.nu = 99.
     value.evidence = restored.evidence
@@ -85,7 +84,7 @@ def test_inlet_publication_retains_float64_values_and_current_result_geometry(ca
     hit, saved = inlet.lookup(key)
     assert hit and saved[0]['epsilon'] == .75
     assert saved[0]['Nu'] == 7. and isinstance(saved[0]['Nu'], float)
-    assert bridge.inlet_geometry[key]['epsilon'] == .5
+    assert bridge.policy.inlet_geometry[key]['epsilon'] == .5
 
 
 def test_absent_nu_and_default_nu_keep_separate_inlet_entries(caches):
@@ -107,7 +106,7 @@ def test_absent_nu_and_default_nu_keep_separate_inlet_entries(caches):
 def test_geometry_publication_precedes_later_chi_error(caches):
     geometry, _ = caches
     error = ValueError('synthetic chi error')
-    bridge = bridge_module.PreparationCacheBridge(SimpleNamespace(), error)
+    bridge = _bridge(error)
     with pytest.raises(ValueError) as caught:
         bridge.geometry_at(1, _geometry_key(), native._GeometryCache(.75, .375, .375, 1200., .002))
     assert caught.value is error
@@ -120,21 +119,21 @@ def test_notice_and_unbound_range_use_current_warning_scope(caches):
     candidate = 'Gyroid: synthetic notice from the native inlet'
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter('always')
-        bridge.observe_notice(0, 0, 99., candidate)
+        bridge.policy.observe_notice(0, 0, 99., candidate)
     assert [(item.category, str(item.message)) for item in caught] == [(UserWarning, candidate)]
     value, buffers = _inlet_value()
     collected = {}
     with warnings.catch_warnings(record=True) as scoped_caught:
         warnings.simplefilter('always')
         with warning_scope(collected), range_context(side='B', stage='inlet', layout='scalar'):
-            bridge.observe_notice(0, 0, 99., candidate)
-            bridge.observe_notice(1, 1, 0., 'preflight')
-            bridge.observe_notice(2, 0, 0., 'geometry')
-            bridge.observe_notice(2, 1, 0., 'geometry')
-            bridge.observe_range(value.evidence.ranges[0], True, True, None)
+            bridge.policy.observe_notice(0, 0, 99., candidate)
+            bridge.policy.observe_notice(1, 1, 0., 'preflight')
+            bridge.policy.observe_notice(2, 0, 0., 'geometry')
+            bridge.policy.observe_notice(2, 1, 0., 'geometry')
+            bridge.policy.observe_range(*bridge_module._range_record(value.evidence.ranges[0], True), True, None)
     assert not scoped_caught
     assert collected[('nu_preflight', 'B')] == 'preflight'
-    assert bridge.extrap_reasons == ['geometry', 'geometry']
+    assert bridge.policy.extrap_reasons == ['geometry', 'geometry']
     assert len(collected) == 2
     assert ('property', 'air_viscosity', (1, 1, 1), ('B', 'inlet', 'scalar')) in collected
     assert buffers

@@ -1,7 +1,8 @@
 """Verify 2D native preparation adapter contracts, invariants, caches and errors."""
 from collections.abc import Mapping
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from copy import deepcopy
+import ctypes as ct
 from dataclasses import asdict, fields, is_dataclass, replace
 from itertools import product
 from pathlib import Path
@@ -10,9 +11,10 @@ import warnings
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.preprocess import api
+from sjtu_tpmshx.cpp_interface import native_preparation, preparation_host
+from sjtu_tpmshx.preprocess import api, preparation as shared
 from sjtu_tpmshx.preprocess.two_d import preparation
-from sjtu_tpmshx.physical_models import sigmoid_field, tpms_calc, tpms_geometry
+from sjtu_tpmshx.physical_models import nu_correlations, sigmoid_field, tpms_calc, tpms_geometry, tpms_props
 from sjtu_tpmshx.run_control.run_warnings import (
     current_warnings, range_observations, warning_scope,
 )
@@ -232,7 +234,7 @@ def test_nominal_grid_warns_once_per_axis(prepare, flow):
             prepare(config, case_id='nominal-grid', **flow)
     assert [(str(item.message), item.category, Path(item.filename)) for item in notices] == [
         ('underflow encountered in divide', RuntimeWarning, Path(preparation.__file__))] * 2
-    assert notices[0].lineno != notices[1].lineno
+    assert [item.lineno for item in notices] == [14, 16]
 
 
 def test_nonzero_delta_uses_native_thermal_geometry(monkeypatch):
@@ -294,6 +296,23 @@ def test_public_cache_and_native_preparation_share_float64_entries(monkeypatch):
     assert second_geom[0] > first_geom[0] and second_inlet[0] > first_inlet[0]
 
 
+@pytest.mark.parametrize('cache_name,missing', [('geometry', 'A_0'), ('inlet', 'rho')])
+def test_warm_cache_converts_each_field_before_reading_the_next(cache_name, missing):
+    config = native_preparation_abi._configuration_mass_flow()
+    shared.geometry_cache.clear()
+    shared.inlet_cache.clear()
+    with warning_scope({}):
+        api.prepare_case(config, case_id='warm')
+        cache = shared.geometry_cache if cache_name == 'geometry' else shared.inlet_cache
+        entry = next(iter(cache.values.values()))
+        properties = entry if cache_name == 'geometry' else entry[0]
+        properties['epsilon'] = 'bad-real'
+        del properties[missing]
+        with pytest.raises(TypeError, match='^must be real number, not str$') as caught:
+            api.prepare_case(config, case_id='warm')
+    assert caught.value.__cause__ is None
+
+
 @pytest.mark.parametrize('entry', ['public', 'cached', 'unwrapped'])
 @pytest.mark.parametrize('frozen', [False, True])
 def test_property_cache_wrapper_keeps_warning_source(monkeypatch, entry, frozen):
@@ -312,3 +331,161 @@ def test_property_cache_wrapper_keeps_warning_source(monkeypatch, entry, frozen)
     selected = [item for item in recorded if 'outside the validated range' in str(item.message)]
     assert len(selected) == 1
     assert selected[0].filename == (tpms_calc.__file__ if entry == 'public' else __file__)
+
+
+def test_case_and_binding_values_survive_release_and_second_call(monkeypatch):
+    config = native_preparation_abi._configuration_continuous()
+    original, assemble = preparation_host.operation, preparation._case
+    releases, evidence, model_names = [], [], []
+    buffers = []
+
+    @contextmanager
+    def replace_buffers(*args, **kwargs):
+        with original(*args, **kwargs) as result:
+            source = result.prepared
+            model_names.append(ct.string_at(source.models[0].name.data, source.models[0].name.size).decode())
+            views = (source.dx, source.cell_length, source.sides[0].inlet_profile, source.models[0].name)
+            replacements = []
+            for view in views:
+                saved = type(view).from_buffer_copy(view)
+                size = view.size * ct.sizeof(view.data._type_)
+                storage = ct.create_string_buffer(ct.string_at(view.data, size))
+                # Keep these buffers live for the checks after release.
+                buffers.append(storage)
+                view.data = ct.cast(storage, type(view.data))
+                replacements.append((view, saved, storage))
+            try:
+                yield result
+            finally:
+                for view, saved, storage in replacements:
+                    ct.memset(storage, 0, ct.sizeof(storage))
+                    ct.memmove(ct.byref(view), ct.byref(saved), ct.sizeof(view))
+        releases.append(result.owner)
+
+    def keep_copy(values, *args):
+        evidence.append(values)
+        return assemble(values, *args)
+
+    monkeypatch.setattr(preparation_host, 'operation', replace_buffers)
+    monkeypatch.setattr(preparation, '_case', keep_copy)
+    with warning_scope({}):
+        first = preparation.prepare_case(config, case_id='first')
+        config.solver.Nx += 1
+        preparation.prepare_case(config, case_id='second')
+    assert releases == [None, None]
+    assert first.case_id == 'first' and len(first.grid['dx']) != evidence[1].prepared.nx
+    first_values = evidence[0].prepared
+    for values, saved in ((first_values.dx, first.grid['dx']),
+                          (first_values.cell_length, first.design_fields['L_field_m']),
+                          (first_values.sides[0].inlet_profile, first.parameters['boundary_openings']['A']['in_profile_frac'])):
+        assert np.any(values != 0.) and not saved.flags.writeable
+        np.testing.assert_array_equal(values.view(np.uint64), saved.view(np.uint64))
+    assert model_names[0] == first.model_refs[0].name and first.model_refs[0].name
+
+
+def test_invalid_first_model_precedes_second_model_decode(monkeypatch):
+    operation = preparation_host.operation
+
+    @contextmanager
+    def damaged_models(*args, **kwargs):
+        with operation(*args, **kwargs) as result:
+            first, second = result.prepared.models[0].name, result.prepared.models[1].name
+            first_size, saved_second = first.size, type(second).from_buffer_copy(second)
+            bad_name = ct.create_string_buffer(b'\xff')
+            first.size = 0
+            second.data, second.size = ct.cast(bad_name, type(second.data)), 1
+            try:
+                yield result
+            finally:
+                first.size = first_size
+                ct.memmove(ct.byref(second), ct.byref(saved_second), ct.sizeof(second))
+
+    monkeypatch.setattr(preparation_host, 'operation', damaged_models)
+    with warning_scope({}), pytest.raises(ValueError, match='^ModelRef requires a name and a version$') as caught:
+        api.prepare_case(native_preparation_abi._configuration_mass_flow(), case_id='invalid-models')
+    assert caught.value.__cause__ is None
+
+
+@pytest.mark.parametrize('fault', ['cache', 'copy', 'model'])
+def test_fault_keeps_exception_and_releases_once(monkeypatch, fault):
+    marker = StopIteration(fault)
+    releases = []
+    original = preparation_host._Bindings
+
+    def bindings(path):
+        owner = original(path)
+        for kind, release in owner.releases.items():
+            def checked(pointer, kind=kind, release=release):
+                view = ct.cast(pointer, ct.POINTER(kind)).contents
+                previous = bool(view.owner)
+                release(pointer)
+                releases.append((previous, bool(view.owner)))
+            owner.releases[kind] = checked
+        return owner
+
+    def fail(*args):
+        raise marker
+
+    monkeypatch.setattr(preparation_host, '_bindings', bindings)
+    if fault == 'copy':
+        monkeypatch.setattr(native_preparation, 'copy_array', fail)
+    elif fault == 'cache':
+        monkeypatch.setattr(shared.PreparationCache, 'geometry', fail)
+    else:
+        read = native_preparation.read_text
+
+        def read_model(value):
+            text = read(value)
+            if text == 'fluid':
+                raise marker
+            return text
+
+        monkeypatch.setattr(native_preparation, 'read_text', read_model)
+    with warning_scope({}):
+        with pytest.raises(StopIteration if fault == 'copy' else RuntimeError) as caught:
+            preparation.prepare_case(native_preparation_abi._configuration_mass_flow(), case_id=fault)
+    if fault == 'copy':
+        assert caught.value is marker and caught.value.__cause__ is None
+    else:
+        assert str(caught.value) == 'generator raised StopIteration' and caught.value.__cause__ is marker
+    assert releases == [(fault != 'cache', False)]
+
+
+def test_direct_preparation_replays_model_notices_at_the_stage(monkeypatch):
+    monkeypatch.setattr(tpms_props, '_range_warnings_emitted', set())
+    monkeypatch.setattr(nu_correlations, '_EXTRAP_WARNED', set())
+    config = native_preparation_abi._configuration_mass_flow('Gyroid', ('air', 'air'))
+    for fluid in (config.fluid_A, config.fluid_B):
+        fluid.T_in_K, fluid.u_mps = 1100., .0001
+    with warnings.catch_warnings(record=True) as recorded:
+        warnings.simplefilter('default')
+        for _ in range(2):
+            tpms_calc.compute.cache_clear()
+            tpms_geometry.compute_geometry.cache_clear()
+            preparation.prepare_case(config, case_id='warning-site')
+    assert [entry.category for entry in recorded] == [UserWarning] * 5
+    assert [str(entry.message).split(':', 1)[0] for entry in recorded] == [
+        '[surrogate extrap] Fluid A', '[surrogate extrap] Fluid B', 'air_cp', 'Gyroid', '[Nu extrap] Gyroid']
+    assert {Path(entry.filename) for entry in recorded} == {Path(shared.__file__)}
+    assert recorded[0].lineno == recorded[1].lineno
+    assert recorded[2].lineno == recorded[4].lineno
+    assert len({recorded[i].lineno for i in (0, 2, 3)}) == 3
+
+
+@pytest.mark.parametrize('field', ['port', 'zone'])
+def test_input_conversion_keeps_the_original_cause(field):
+    marker = StopIteration(field)
+
+    class BadFloat(float):
+        def __float__(self):
+            raise marker
+
+    config = native_preparation_abi._configuration_mass_flow()
+    if field == 'port':
+        config.bc_A.in_ctr = BadFloat(.5)
+    else:
+        config.zones.enabled, config.zones.axis = True, 'grid'
+        config.zones.grid = dict(k_s=16., cells=[dict(x0=BadFloat(0.), x1=1., y0=0., y1=1., L=7., t=.6)])
+    with pytest.raises(RuntimeError, match='^generator raised StopIteration$') as caught:
+        preparation.prepare_case(config, case_id=field)
+    assert caught.value.__cause__ is marker

@@ -5,6 +5,7 @@ import pytest
 
 from sjtu_tpmshx.cpp_interface import _native_preparation_case as abi
 from sjtu_tpmshx.cpp_interface import native_preparation, preparation_host
+from sjtu_tpmshx.preprocess.two_d import preparation
 from sjtu_tpmshx.cpp_interface.stage_libraries import preparation_library
 from tests.python import native_preparation_abi as support
 
@@ -91,7 +92,9 @@ def _configuration(source_type):
 def test_2d_source_header_rejects_invalid_metadata(signature, selection):
     name, source_type, result_type, _, version = signature
     operation = 'prepare_inlet_mass_capacities' if 'capacities' in name else 'prepare_flow_case'
-    source = native_preparation._input(_configuration(source_type), None, operation)
+    source, error = native_preparation.pack_input(_configuration(source_type), None,
+        lambda fluid: preparation._inlet_speed(operation, None, fluid), preparation._spatial_rows)
+    assert error is None
     assert type(source) is source_type
     if selection == 'version':
         source.abi_version = 0

@@ -8,7 +8,7 @@ from itertools import product
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.cpp_interface._native_values import copy_array, read_text
+from sjtu_tpmshx.cpp_interface._native_values import copy_array
 from sjtu_tpmshx.data_types.compute_config import PartialBCConfig
 from sjtu_tpmshx.file_io.case_io import load_case, save_case
 from sjtu_tpmshx.physical_models.tpms_calc import compute
@@ -262,19 +262,18 @@ def test_cached_3d_evidence_cannot_alias_diagnostics(alias):
 @pytest.mark.parametrize('mode', ['xy', 'xyz', 'grid'])
 @pytest.mark.parametrize('targets', [None, (.001, .001)])
 def test_air_field_observations_stay_bounded(monkeypatch, mode, targets):
-    from sjtu_tpmshx.cpp_interface.preparation_host import PreparationCacheBridge
+    from sjtu_tpmshx.preprocess.preparation import PreparationCache
     config = _configuration(mode, pair=('air', 'air'))
     config.solver.Nx, config.solver.Ny, config.solver.Nz = 30, 20, 10
     actual_calls = []
-    original_observe = PreparationCacheBridge.observe_range
+    original_observe = PreparationCache.observe_range
 
-    def observe(self, value, bounds_list, cached, scalar):
-        if (read_text(value.layout) == 'scalar-zoned-call'
-                and [read_text(item) for item in value.source[:value.source_count]][:2] == ['nu', 'air']):
-            actual_calls.append((read_text(value.side), scalar))
-        return original_observe(self, value, bounds_list, cached, scalar)
+    def observe(self, key, record, cached, scalar):
+        if key[-1][2] == 'scalar-zoned-call' and key[:2] == ('nu', 'air'):
+            actual_calls.append((key[-1][0], scalar))
+        return original_observe(self, key, record, cached, scalar)
 
-    monkeypatch.setattr(PreparationCacheBridge, 'observe_range', observe)
+    monkeypatch.setattr(PreparationCache, 'observe_range', observe)
     _capture(monkeypatch, api, 'full', config, targets)
     assert 2 <= len(actual_calls) <= 16
 
