@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 from sjtu_tpmshx.data_types.compute_config import ComputeConfig
-from sjtu_tpmshx.cpp_interface.full_3d_stage import validate_saved_case
+from sjtu_tpmshx.solvers.full_3d import validate_saved_case
 
 
 @pytest.mark.parametrize('key,value', [

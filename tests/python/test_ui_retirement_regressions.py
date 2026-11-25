@@ -67,6 +67,47 @@ def test_normal_compute_ignores_2d_drafts_and_checks_them_in_3d(win, monkeypatch
         config_from_window(win)
 
 
+@pytest.mark.parametrize('side,unit,zero', [('A', 'K', '0'), ('B', 'C', '-273.15')])
+def test_compute_shortcut_commits_focused_inlet(win, monkeypatch, side, unit, zero):
+    from PySide6.QtGui import QKeySequence
+    from PySide6.QtTest import QTest
+    from sjtu_tpmshx.applications.gui.ui.ui_builders import reveal_parameter
+
+    at_grid = []
+    def record_grid(config):
+        at_grid.append(getattr(config, 'fluid_' + side).T_in_K)
+        return False
+
+    monkeypatch.setattr(win, '_preflight_grid', record_grid)
+    monkeypatch.setattr(QMessageBox, 'exec', lambda box: QMessageBox.StandardButton.Ok)
+    monkeypatch.setattr(QMessageBox, 'warning', lambda *args: QMessageBox.StandardButton.Ok)
+    if unit == 'C':
+        win._toggle_temp_unit()
+    field = getattr(win, 'le_Tin' + side)
+    win.show()
+    win.activateWindow()
+    reveal_parameter(win, field)
+    QApplication.processEvents()
+    field.setFocus()
+    field.selectAll()
+    QTest.keyClicks(field, zero)
+    assert QApplication.focusWidget() is field
+    compute = QKeySequence('Ctrl+R')
+    QTest.keySequence(field, compute)
+    assert at_grid == []
+    assert field.property('inpError') == 'true'
+    assert 'Must be above 0 K' in field.toolTip()
+
+    for enter in (False, True):
+        field.selectAll()
+        QTest.keyClicks(field, '0.05 K')
+        if enter:
+            QTest.keyClick(field, Qt.Key.Key_Return)
+        QTest.keySequence(field, compute)
+    assert len(at_grid) == 2
+    assert at_grid[0] == at_grid[1] > 0
+
+
 @pytest.mark.parametrize('side', ['A', 'B'])
 @pytest.mark.parametrize('fluid,index,u,T,P', [
     ('air', 0, 20., 422., 192362.),

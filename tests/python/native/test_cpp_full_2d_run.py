@@ -194,7 +194,7 @@ def test_full_2d_checkpoint_continues_after_process_exit(native_path, tmp_path, 
 
 
 def test_checkpoint_rejects_other_dimension_in_the_same_library(native_path):
-    from sjtu_tpmshx.cpp_interface.full_3d_stage import run_case as run_spatial
+    from sjtu_tpmshx.solvers.full_3d import run_case as run_spatial
     prepared = case('model_h')
     planar_state, spatial_state = {}, {}
     def pause_planar(state):

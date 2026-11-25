@@ -3,7 +3,8 @@
 The functions only select inputs. The production stage validators and the
 bridge tests keep all checks.
 """
-from sjtu_tpmshx.cpp_interface import full_2d_stage, full_3d_stage
+from sjtu_tpmshx.cpp_interface import full_2d_stage
+from sjtu_tpmshx.solvers import full_3d
 from sjtu_tpmshx.data_types.portable_data import mutable_data
 
 
@@ -22,7 +23,7 @@ def full_2d_record(case, *, pressure_shooting=True):
 
 def full_3d_record(case, **controls):
     """Return mutable 3D parameters and the saved axis, opening and design data."""
-    _, _, _, nu = full_3d_stage.validate_saved_case(case)
+    _, _, _, nu = full_3d.validate_saved_case(case)
     cfg = mutable_data(case.parameters)
     prepared = cfg.pop('prepared')
     prepared.update({'d' + axis: case.grid['d' + axis] for axis in 'xyz'}, design=case.design_fields)

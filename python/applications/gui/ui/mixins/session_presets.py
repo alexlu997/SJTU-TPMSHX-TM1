@@ -338,7 +338,8 @@ class SessionPresetsMixin:
         from sjtu_tpmshx.data_types.compute_config import Sco2NuConfig
         from dataclasses import replace
         parameters = Sco2NuConfig(**preset.get('sco2_nu_parameters', {})).validate()
-        if preset.get('temp_unit', 'K') not in ('K', 'C'):
+        temp_unit = preset.get('temp_unit', 'K')
+        if temp_unit not in ('K', 'C'):
             raise ValueError('Unsupported temperature unit.')
         combos = preset.get('combos', {})
         if not isinstance(combos, dict):
@@ -418,6 +419,10 @@ class SessionPresetsMixin:
                             int(str(value))
                     except (TypeError, ValueError):
                         raise ValueError(f'Invalid numeric field: {name}') from None
+                    if name in ('le_TinA', 'le_TinB'):
+                        kelvin = number + CELSIUS_ZERO_K if temp_unit == 'C' else number
+                        if kelvin <= 0:
+                            raise ValueError(f'{name}: Must be above 0 K')
                 if section == 'combos':
                     widget = getattr(self, name, None)
                     count = widget.count() if widget else 0

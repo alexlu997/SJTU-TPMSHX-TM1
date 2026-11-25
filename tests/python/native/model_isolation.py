@@ -242,9 +242,10 @@ def child(plan_file):
         assert {case.parameters['fluid_type_' + side] for side in 'AB'} == {'water', 'sco2'}
         from dataclasses import replace
         from sjtu_tpmshx.cpp_interface import full_3d_stage
+        from sjtu_tpmshx.solvers import full_3d
         # Trace the saved-stage solve and release, and keep each worker's raw capture.
         open_library, release_result = full_3d_stage.open_library, full_3d_stage.release_result
-        capture_result, captured = full_3d_stage.capture_result, {}
+        capture_result, captured = full_3d.capture_result, {}
 
         def traced_library(library, table_directory):
             path, native, abi, tables = open_library(library, table_directory)
@@ -261,7 +262,7 @@ def child(plan_file):
 
         full_3d_stage.open_library = traced_library
         full_3d_stage.release_result = lambda *args: trace.release(release_result, args)
-        full_3d_stage.capture_result = capture
+        full_3d.capture_result = capture
         assert not trace.events, 'EOS or solve execution occurred during input assembly'
         if plan['oracle_position'] != 'before':
             assert not any(name == 'CoolProp' or name.startswith('CoolProp.') for name in sys.modules)
@@ -290,7 +291,7 @@ def child(plan_file):
         def solver_job(role):
             control = RunControl(backend='cpp', native_library=plan['solver'], cpu_threads=1)
             for _ in range(2):
-                full_3d_stage.run_case(case, control)
+                full_3d.run_case(case, control)
             first, second = captured[role]
             same(second, first)
             path = directory / (role + '-raw.h5')
@@ -298,7 +299,7 @@ def child(plan_file):
             cfg = case.parameters
             water_side = next(side for side in 'AB' if cfg['fluid_type_' + side] == 'water')
             invalid = replace(case, parameters=dict(cfg, **{'T_in' + water_side: 500., 'P_in' + water_side: 10000.}))
-            error = rejection(lambda: full_3d_stage.run_case(invalid, control),
+            error = rejection(lambda: full_3d.run_case(invalid, control),
                               fluid_props.WaterStateError, 'water')
             abi = open_library(plan['solver'], None)[2]
             return {'kind': 'solver', 'raw': str(path), 'rejected_water': error, 'abi': abi}

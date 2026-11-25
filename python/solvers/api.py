@@ -36,7 +36,7 @@ def run_case(case: CaseData, control: RunControl = RunControl(), *,
     elif dimension == 2:
         from sjtu_tpmshx.cpp_interface.full_2d_stage import run_case as run
     elif dimension == 3:
-        from sjtu_tpmshx.cpp_interface.full_3d_stage import run_case as run
+        from .full_3d import run_case as run
     else:
         raise ValueError(f'unsupported physical dimension: {dimension}')
     provenance = dict(preparation=case.metadata.get('provenance', {'status':'not_recorded'}),
