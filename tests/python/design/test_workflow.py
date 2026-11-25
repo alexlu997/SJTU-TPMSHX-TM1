@@ -1,4 +1,4 @@
-"""Check the shared Quick Design workflow and its retention contracts."""
+"""Test the shared Quick Design workflow and its candidate-keeping rules."""
 from __future__ import annotations
 
 import pytest
@@ -193,7 +193,7 @@ def test_run_design_retains_completed_candidates_on_cancellation(monkeypatch, st
     assert caught.value.results == expected
 
 
-def test_run_design_validates_mode_cell_completed_and_precancel(monkeypatch):
+def test_run_design_validates_mode_cell_completed_height_and_precancel(monkeypatch):
     monkeypatch.setattr(sizing, 'size_fixed_cell',
                         lambda *a, **kw: pytest.fail('sizing reached on invalid input'))
     monkeypatch.setattr(select, 'enumerate_select',
@@ -202,6 +202,9 @@ def test_run_design_validates_mode_cell_completed_and_precancel(monkeypatch):
         run_design(['case1'], mode='unknown')
     with pytest.raises(ValueError, match='cell'):
         run_design(['case1'], mode='fixed', cell=None)
+    for bad_height in (0., -0.5, float('nan'), float('inf'), -float('inf'), True, '0.5'):
+        with pytest.raises(ValueError, match='height'):
+            run_design(['case1'], mode='fixed', cell=('Diamond', 7., .5), height=bad_height)
     existing = sizing.Design(True, topo='Diamond', l=5., t=.4, V=.002)
     retained = [existing]
     with pytest.raises(ValueError, match='empty'):
@@ -216,22 +219,87 @@ def test_run_design_validates_mode_cell_completed_and_precancel(monkeypatch):
     assert caught.value.results == []
 
 
-def test_cli_defaults_use_design_density_and_keep_const_prop_model(monkeypatch, tmp_path):
-    seen = {}
-    design = sizing.Design(True, topo='Diamond', l=7., t=.5, V=.002)
+def test_workflow_and_cli_defaults_use_mean_cross_square_and_support_overrides(
+        monkeypatch, tmp_path, capsys):
+    import openpyxl
+
+    seen = []
+
+    def fixed(cases, topo, l, t, arrangement, **kwargs):
+        seen.append(dict(arrangement=arrangement, **kwargs))
+        return sizing.Design(
+            True, topo=topo, l=l, t=t, s=.12, Lx=.08, arrangement=arrangement,
+            V=.002, weight=1.0, height=(kwargs['height'] or 0.0),
+        )
+
     monkeypatch.setattr(sizing, 'RHO_S', 2700.)
     monkeypatch.setattr(sizing, 'K_STEEL', 150.)
     monkeypatch.setattr(cli, 'load_cases', lambda path: ['case1'])
-
-    def fixed(cases, topo, l, t, arrangement, **kwargs):
-        seen.update(arrangement=arrangement, **kwargs)
-        return design
-
     monkeypatch.setattr(sizing, 'size_fixed_cell', fixed)
+
+    # Shared workflow direct defaults.
+    run_design(['case1'], mode='fixed', cell=('Diamond', 7., .5))
+    assert seen[-1]['arrangement'] == 'cross'
+    assert seen[-1]['prop_model'] == 'mean'
+    assert seen[-1]['height'] is None
+
+    # CLI defaults: cross, mean, square face, sizing.RHO_S, sizing.K_STEEL.
+    out_default = tmp_path / 'default.xlsx'
     assert cli.run(['--xlsx', str(tmp_path / 'in.xlsx'), '--mode', 'fixed',
-                    '--cell', 'Diamond,7,0.5', '--out', str(tmp_path / 'out.xlsx')]) == 0
-    assert seen['rho_s'] == 2700.
-    assert seen['k_s'] == 150.
-    assert seen['prop_model'] == 'const'
-    assert seen['height'] is None
-    assert seen['arrangement'] == 'cross'
+                    '--cell', 'Diamond,7,0.5', '--out', str(out_default)]) == 0
+    assert seen[-1]['rho_s'] == 2700.
+    assert seen[-1]['k_s'] == 150.
+    assert seen[-1]['prop_model'] == 'mean'
+    assert seen[-1]['arrangement'] == 'cross'
+    assert seen[-1]['height'] is None
+    assert '120.0×120.0×80.0mm' in capsys.readouterr().out
+
+    # CLI overrides restore earlier const/counter behavior and set rectangular height in mm.
+    out_override = tmp_path / 'override.xlsx'
+    assert cli.run(['--xlsx', str(tmp_path / 'in.xlsx'), '--mode', 'fixed',
+                    '--cell', 'Diamond,7,0.5', '--prop-model', 'const',
+                    '--arrangement', 'counter', '--height', '750',
+                    '--out', str(out_override)]) == 0
+    assert seen[-1]['prop_model'] == 'const'
+    assert seen[-1]['arrangement'] == 'counter'
+    assert seen[-1]['height'] == pytest.approx(.75)
+    assert '120.0×750.0×80.0mm' in capsys.readouterr().out
+    wb = openpyxl.load_workbook(out_override, read_only=True, data_only=True)
+    try:
+        rows = list(wb['构型汇总'].values)
+        assert rows[1][rows[0].index('H_mm')] == 750.0
+    finally:
+        wb.close()
+
+
+@pytest.mark.parametrize('bad_height', ['0', '-10', 'nan', 'inf', '-inf', 'abc', '1e-322'])
+def test_cli_rejects_invalid_height_before_loading_or_writing(
+        monkeypatch, tmp_path, capsys, bad_height):
+    source = tmp_path / 'in.xlsx'
+    output = tmp_path / 'existing.xlsx'
+    output.write_bytes(b'previous report')
+    monkeypatch.setattr(cli, 'load_cases',
+                        lambda *a, **kw: pytest.fail('input loaded before height check'))
+    with pytest.raises(SystemExit) as caught:
+        cli.run(['--xlsx', str(source), '--mode', 'fixed', '--cell', 'Diamond,7,0.5',
+                 '--height', bad_height, '--out', str(output)])
+    assert caught.value.code == 2
+    assert '--height' in capsys.readouterr().err
+    assert output.read_bytes() == b'previous report'
+
+
+def test_cli_fixed_without_cell_raises_value_error(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, 'load_cases', lambda path: ['case1'])
+    with pytest.raises(ValueError, match='cell is required'):
+        cli.run(['--xlsx', str(tmp_path / 'in.xlsx'), '--mode', 'fixed',
+                 '--out', str(tmp_path / 'out.xlsx')])
+
+
+def test_cli_help_documents_unified_defaults_and_height(capsys):
+    with pytest.raises(SystemExit) as caught:
+        cli.run(['--help'])
+    assert caught.value.code == 0
+    help_text = capsys.readouterr().out
+    assert '--height' in help_text and '[mm]' in help_text
+    assert 'cross=交叉流(默认)' in help_text
+    assert 'mean=再按入口/出口均温更新物性求解一次(默认)' in help_text

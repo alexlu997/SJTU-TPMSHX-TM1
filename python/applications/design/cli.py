@@ -1,12 +1,12 @@
 """快速设计 CLI: auto (枚举选胞元) / fixed (指定胞元只定外形)。"""
 from __future__ import annotations
-import argparse, sys
+import argparse, math, sys
 from collections import Counter
 from pathlib import Path
 
 from . import sizing
 from .cases import load_cases
-from .workflow import run_design
+from .workflow import DEFAULT_ARRANGEMENT, DEFAULT_PROP_MODEL, run_design
 from sjtu_tpmshx.run_control.cancellation import CancelledError
 from sjtu_tpmshx.applications.cli.cli_options import add_run_control_arguments, run_control_from_args
 
@@ -28,16 +28,19 @@ def run(argv=None) -> int:
                     help="fixed=baseline(固定 l,t); auto=优化(放开 l,t 枚举)")
     ap.add_argument("--cell", help="fixed 模式: topo,l,t")
     ap.add_argument("--nodes", help="auto 模式: topo:l:t 列表")
-    ap.add_argument("--arrangement", choices=["cross","counter"], default="cross")
+    ap.add_argument("--arrangement", choices=["cross", "counter"], default=DEFAULT_ARRANGEMENT,
+                    help="流动布置: cross=交叉流(默认); counter=逆流")
     ap.add_argument("--refine", action="store_true",
                     help="auto 后对最优件做 warm-start 联合精修 (连续 l,t)")
     ap.add_argument("--rho-s", type=float, default=sizing.RHO_S,
                     help=f"固体材料密度 kg/m³ (默认 {default_rho} = 304 不锈钢)")
     ap.add_argument("--k-s", type=float, default=sizing.K_STEEL,
                     help=f"固体热导率 W/(m·K) (默认 {default_ks} = 304SS; 铝~150 铜~300)")
-    ap.add_argument("--prop-model", choices=["const", "mean"], default="const",
-                    help="const=入口物性求解一次(默认)；mean=再按入口/出口均温更新物性求解一次。"
+    ap.add_argument("--prop-model", choices=["const", "mean"], default=DEFAULT_PROP_MODEL,
+                    help="mean=再按入口/出口均温更新物性求解一次(默认)；const=入口物性求解一次。"
                          "压降均用入口物性；水侧 Nu 的 Pr 均固定取 320 K / 0.2 MPa")
+    ap.add_argument("--height", type=float, default=None,
+                    help="矩形迎风固定高 H [mm] (默认不启用 = 方形迎风 s×s；须为有限正数)")
     ap.add_argument("--jobs", type=int, default=-1,
                     help="auto 枚举并行核数 (-1=全核, 1=串行; joblib loky)")
     ap.add_argument("--out", required=True)
@@ -45,6 +48,12 @@ def run(argv=None) -> int:
     a = ap.parse_args(argv)
     if Path(a.xlsx).resolve() == Path(a.out).resolve():
         ap.error(f'output overlaps input: {a.out}')
+    height_m = None
+    if a.height is not None:
+        height_m = a.height / 1e3
+        if (not math.isfinite(a.height) or a.height <= 0
+                or not math.isfinite(height_m) or height_m <= 0):
+            ap.error(f'--height must be a finite positive number in mm: {a.height}')
     control = run_control_from_args(a)
     cases = load_cases(a.xlsx)
 
@@ -62,6 +71,7 @@ def run(argv=None) -> int:
             rho_s=a.rho_s,
             k_s=a.k_s,
             prop_model=a.prop_model,
+            height=height_m,
             n_jobs=a.jobs,
             control=control,
             completed=results,
@@ -83,8 +93,9 @@ def run(argv=None) -> int:
     print(f"[written] {a.out}  构型 {n_total} (可行 {n_feas}) × 工况 {len(cases)} "
           f"→ 工况明细 {n_det} 行 (sheet: 构型汇总 / 工况明细)")
     if best is not None:
+        best_h = getattr(best, "height", 0.0) or best.s
         print(f"best (min-V): {cid(best)}  "
-              f"{best.s*1e3:.1f}×{best.s*1e3:.1f}×{best.Lx*1e3:.1f}mm  "
+              f"{best.s*1e3:.1f}×{best_h*1e3:.1f}×{best.Lx*1e3:.1f}mm  "
               f"V={best.V*1e3:.3f}L  wt={best.weight:.3f}kg")
         notices = warning_text(best)
         if notices:

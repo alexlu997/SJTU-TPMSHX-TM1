@@ -121,7 +121,9 @@ Experimental corrections have geometry, operating, and calibration limits. They 
 
 ## Quick Design
 
-Quick Design screens dimensions against fluid conditions, heat duty, and pressure-drop constraints using a prescribed-velocity approximation. Automatic Search / Fixed Cell map to `auto/fixed`. Counterflow / Crossflow map to `counter/cross`. Case tables use K, absolute kPa, kg/s, and kW. Pressure limits are fractions: enter `0.05` for 5%.
+Quick Design screens dimensions against fluid conditions, heat duty, and pressure-drop constraints using a prescribed-velocity approximation. Automatic Search / Fixed Cell map to `auto/fixed`. Crossflow / Counterflow map to `cross/counter`. Case tables use K, absolute kPa, kg/s, and kW. Pressure limits are fractions: enter `0.05` for 5%.
+
+Both the GUI and the CLI (`python -m sjtu_tpmshx.applications.design.cli`) use `cross` flow, `mean` properties, and a square face by default. To get earlier behavior, pass `--prop-model const` or `--arrangement counter` to the CLI, or select them in the GUI. For a fixed rectangular face, pass positive finite `--height` in mm to the CLI, or select the GUI fixed-height option.
 
 Result tables place volume near the front for comparison. Selection/refinement errors stop immediately and keep completed candidates. Parallel execution keeps only complete preceding batches. GUI and Excel distinguish failure from cancellation. Best labels apply only to the completed set.
 
