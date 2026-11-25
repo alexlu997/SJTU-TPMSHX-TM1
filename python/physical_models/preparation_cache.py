@@ -1,11 +1,25 @@
 """Share scalar preparation caches with native stage checkpoints."""
 
 from collections import OrderedDict, namedtuple
-from functools import _make_key, wraps
+from functools import wraps
 from threading import RLock
 
 
 _CacheInfo = namedtuple('CacheInfo', 'hits misses maxsize currsize')
+_KEYWORDS = object()
+
+
+def _call_key(args, kwargs):
+    """Return an untyped key, so equal argument values share one entry.
+
+    The native bridge looks up Python calls with positional tuples, so both paths use this key.
+    Keyword names and values follow a marker in call order. Thus a positional call, a keyword
+    call, and a different keyword order are different entries, as in lru_cache(typed=False).
+    One int or str argument uses the same rule; lru_cache keeps it apart from other types.
+    """
+    if not kwargs:
+        return tuple(args)
+    return (*args, _KEYWORDS, *(item for pair in kwargs.items() for item in pair))
 
 
 class _ScalarCache:
@@ -19,7 +33,7 @@ class _ScalarCache:
         self.hits = self.misses = 0
 
     def lookup(self, args, kwargs=None):
-        key = _make_key(args, {} if kwargs is None else kwargs, typed=False)
+        key = _call_key(args, kwargs)
         with self.lock:
             value = self.values.get(key, self._missing)
             if value is self._missing:
@@ -30,7 +44,7 @@ class _ScalarCache:
             return True, value
 
     def store(self, args, kwargs, value):
-        key = _make_key(args, {} if kwargs is None else kwargs, typed=False)
+        key = _call_key(args, kwargs)
         with self.lock:
             # A concurrent caller can publish this key first.
             if key not in self.values:

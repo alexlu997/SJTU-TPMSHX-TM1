@@ -16,6 +16,7 @@ Use the [first run instructions](first-run.en.md) to run the application.
 | --- | --- |
 | GUI, Quick Design and optimization | [GUI guide](gui-guide.en.md) |
 | Local checks, CI and acceptance records | [Verification guide](verification.en.md) |
+| Worked routes to add fluids, Nu closures, GUI panels, or topologies | [Contributor extension guide](extending.md) |
 | Module responsibilities, data flow and physical constraints | [Architecture](architecture.md) |
 | C++ numerical backend, native ABI and builds | [C++ integration](cpp-migration.md) |
 | Independent C++ stage SDK and installed examples | [C++ stages](native-stages.md) |
@@ -39,6 +40,7 @@ Use the [first run instructions](first-run.en.md) to run the application.
 | [preprocess](../preprocess/), [solver](../solver/), [postprocess](../postprocess/) | C++ preparation, solving, and evaluation. |
 | [geometry](../geometry/), [numerics](../numerics/), [include](../include/) | Geometry, common numerical functions, and headers. |
 | [tests/cpp](../tests/cpp/) | C and C++ tests for callers and numerical functions. |
+| [tests/python](../tests/python/) | Automated Python, native-binding, and GUI tests, plus independent test references. |
 | [python](../python/) | Four computation entries, Python applications, data types, file I/O, model resources and native interfaces. |
 | [engineering](../engineering/) | scripts for builds and checks, packaging configuration and exact requirements locks. |
 | [docs](./) | Current documents, public data contracts under contracts, and historical references. |
@@ -46,7 +48,7 @@ Use the [first run instructions](first-run.en.md) to run the application.
 | [openspec](../openspec/) | Current requirements grouped by function. |
 | [.github/workflows](../.github/workflows/) | Configuration for macOS/Windows CI and minimal postprocessing checks. |
 
-Package-level [development](../python/development/) keeps three groups: tests, validation and runs.
+Package-level [development](../python/development/) keeps two groups: validation and runs. Automated Python tests live in [tests/python/](../tests/python/).
 Public data contracts are implemented in [data_types/](../python/data_types/) and [file_io/](../python/file_io/).
 
 `pyproject.toml` defines builds, dependency declarations, pytest, mypy, and lint settings.

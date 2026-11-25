@@ -5,6 +5,7 @@
 #include "tpmshx/preparation_flow.hpp"
 #include "tpmshx/preparation_df.hpp"
 #include "tpmshx/grid.hpp"
+#include "tpmshx/model_coefficients.hpp"
 #include "stage_saved_models.hpp"
 #include "../geometry/field_c_boundary.hpp"
 
@@ -320,7 +321,8 @@ struct Packed2D {
         }
         c.alpha_velocity=number(request.simple_velocity_relaxation,.7,"simple_velocity_relaxation");
         if(c.alpha_velocity>1.)throw std::invalid_argument("simple_velocity_relaxation must be in (0, 1]");
-        c.alpha_pressure=.3;c.alpha_density=.3;c.gas_constant=287.05;c.cf_anisotropy=0.;
+        c.alpha_pressure=.3;c.alpha_density=.3;
+        c.gas_constant=tpmshx::model_coefficients::envelope_r_air;c.cf_anisotropy=0.;
         c.massflux_inlet=1;c.close_outlet_on_exit=1;
         c.envelope_mode=request.envelope_mode?request.envelope_mode:"raise";
         c.table_directory=control.table_directory;

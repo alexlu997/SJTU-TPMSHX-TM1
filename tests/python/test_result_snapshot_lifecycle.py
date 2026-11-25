@@ -228,3 +228,103 @@ def test_field_figure_metadata_uses_accepted_source_after_draft_changes(
         lambda path, **kwargs: exported.update(kwargs))
     win._export_figure()
     assert exported['metadata']['Subject'] == 'Preset: accepted-111'
+
+
+_LEGACY_ZONE_ATTRS = (
+    '_zone_axis_dir',
+    '_zone_boundaries',
+    '_zone_boundaries_x',
+    '_zone_boundaries_y',
+)
+
+
+def _overlay_positions_mm(canvas):
+    """Return vertical and horizontal zone-overlay positions in mm for each plot."""
+    axes = [axis for row in canvas.axes for axis in row]
+    assert axes
+    result = []
+    for ax in axes:
+        vertical = [float(line.get_xdata()[0]) for line in ax.lines
+                    if line.get_transform() == ax.get_xaxis_transform()]
+        horizontal = [float(line.get_ydata()[0]) for line in ax.lines
+                      if line.get_transform() == ax.get_yaxis_transform()]
+        assert len(ax.lines) == len(vertical) + len(horizontal)
+        result.append((vertical, horizontal))
+    return result
+
+
+@pytest.mark.parametrize('zones,expected_x,expected_y', [
+    ({'axis_dir': 'y', 'boundaries': [0.01, 0.02],
+      'boundaries_x': None, 'boundaries_y': None,
+      'stats': [{'name': 'z0', 'n_cells': 6}]}, [], [10.0, 20.0]),
+    ({'axis_dir': 'x', 'boundaries': [0.015],
+      'boundaries_x': None, 'boundaries_y': None,
+      'stats': [{'name': 'z0', 'n_cells': 6}]}, [15.0], []),
+    ({'axis_dir': 'grid', 'boundaries': [],
+      'boundaries_x': [0.01, 0.03], 'boundaries_y': [0.015],
+      'stats': [{'name': 'g0', 'n_cells': 3}]}, [10.0, 30.0], [15.0]),
+    ({'axis_dir': 'continuous', 'boundaries': [],
+      'boundaries_x': [], 'boundaries_y': [], 'stats': []}, [], []),
+])
+def test_zone_overlays_read_isolated_cache_and_clear_on_unzoned_run(
+        snapshot_window, zones, expected_x, expected_y):
+    from sjtu_tpmshx.applications.gui.ui.plot_2d_results import ensure_result_plot
+
+    win = snapshot_window
+    zoned = _result('2d')
+    zoned.zones = deepcopy(zones)
+    source_ta = zoned.fields['Ta']
+    source_uc = zoned.fields['ucA']
+    boundaries_ref = zoned.zones['boundaries']
+    boundaries_x_ref = zoned.zones['boundaries_x']
+    boundaries_y_ref = zoned.zones['boundaries_y']
+
+    win.write_result(zoned)
+    for attr in _LEGACY_ZONE_ATTRS:
+        assert not hasattr(win, attr)
+
+    cached = win.cache.get_result('2d')
+    assert cached.fields['Ta'] is source_ta
+    assert cached.fields['ucA'] is source_uc
+
+    win._finalize_plots()
+    assert ensure_result_plot(win, 'vel')
+    for canvas in (win.canvas_temp, win.canvas_vel):
+        for vertical, horizontal in _overlay_positions_mm(canvas):
+            np.testing.assert_allclose(vertical, expected_x)
+            np.testing.assert_allclose(horizontal, expected_y)
+
+    # Change the source zones in place and by replacement after publication.
+    if boundaries_ref is not None:
+        boundaries_ref.append(0.035)
+    if boundaries_x_ref is not None:
+        boundaries_x_ref.append(0.036)
+    if boundaries_y_ref is not None:
+        boundaries_y_ref.append(0.025)
+    zoned.zones['axis_dir'] = 'x' if zones['axis_dir'] == 'y' else 'y'
+    zoned.zones['boundaries'] = [0.039]
+    zoned.zones['boundaries_x'] = [0.037]
+    zoned.zones['boundaries_y'] = [0.028]
+    zoned.zones = None
+
+    assert win.cache.get_result('2d').zones == zones
+    win.cache.replace_drawn_tabs(set())
+    assert ensure_result_plot(win, 'temp')
+    assert ensure_result_plot(win, 'vel')
+    for canvas in (win.canvas_temp, win.canvas_vel):
+        for vertical, horizontal in _overlay_positions_mm(canvas):
+            np.testing.assert_allclose(vertical, expected_x)
+            np.testing.assert_allclose(horizontal, expected_y)
+
+    # A later unzoned run clears overlays on both plots.
+    unzoned = _result('2d')
+    assert unzoned.zones is None
+    win.write_result(unzoned)
+    for attr in _LEGACY_ZONE_ATTRS:
+        assert not hasattr(win, attr)
+    win._finalize_plots()
+    assert ensure_result_plot(win, 'vel')
+    for canvas in (win.canvas_temp, win.canvas_vel):
+        for vertical, horizontal in _overlay_positions_mm(canvas):
+            assert vertical == []
+            assert horizontal == []

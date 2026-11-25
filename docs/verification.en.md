@@ -49,6 +49,35 @@ GitHub workflows use checkout v7, setup-python v7, upload-artifact v7, and downl
 
 They run multi-condition optimizer tests, including both real Log acquisition functions. Base jobs keep the lock without BO and test missing-optional-dependency behavior. BO uploads JUnit reports and full collection manifests for 7 days, without solve data or environments.
 
+<a id="published-native-images"></a>
+
+### Published native image check
+
+Python loads the native images from `sjtu_tpmshx/solvers/native/lib/<platform>/` in the current checkout.
+A `TPMSHX_*_LIBRARY` variable can select another geometry, preparation, or result file.
+`RunControl(native_library=...)` or CLI `--native-library` can select another solver file.
+This check does not examine such a file.
+To compare the published images with the export manifests, run one of these commands from the repository root:
+
+```bash
+"$PYTHON" engineering/scripts/build_native_dependencies.py verify-published
+"$PYTHON" engineering/scripts/build_native_dependencies.py verify-published --directory <published directory>
+```
+
+The check does not build, load, or replace an image. It uses `nm` and `otool` on macOS, and `nm` and `readelf` on Linux.
+On Windows, it uses `dumpbin`. Run it from a Visual Studio developer shell.
+With `--directory`, the check compares the images with the manifests of the checkout that runs the script.
+For each image, the check prints the inspected path, `source_commit`, and the number of `source_changes` from the build record.
+A `WARNING: dirty build` line identifies an image that was built from a checkout with tracked changes.
+A different source commit, a dirty build, or a missing or unreadable build record does not cause a failure.
+
+The check fails when an image is missing or when its C exports differ from the manifest.
+It also applies the import and dynamic dependency checks of the build verifier.
+The manifests are `solver/solver.exports`, `preprocess/preparation.exports`, and `postprocess/result.exports`.
+The Windows solver image does not export the six macOS SuperLU hooks. The check applies this exception.
+Geometry has no export manifest. The check prints the geometry build record and does not compare its exports.
+Use `--component geometry`, `preparation`, or `result` to check one image. On Linux, use `--component result`.
+
 ## CI scope and test shards
 
 PRs and main pushes select checks through an [explicit path list](../engineering/scripts/ci_scope.py).

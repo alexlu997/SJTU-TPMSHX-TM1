@@ -235,9 +235,9 @@ nTop CSV 导出写出 XY 或 XYZ 坐标及完整控制点来源。
 
 ## 扩展位置
 
-- 在 `python/physical_models/fluid_props.py` 新增流体，在 `python/physical_models/nu_correlations.py` 新增 Nu 闭合，并在 `python/model_configs/` 记录带版本资源。
-- 新增用户配置项时先修改 `python/data_types/compute_config.py`，再在 UI 边界做一次适配。
-- 每个维度保持一条生产路径，不为单一实现引入工厂或包装层。
+请查阅[贡献者扩展指南](extending.zh-CN.md)，按顺序定位规则所有者、公开接口、下游使用方与现有测试。
+该指南提供流体、Nu 闭合及 GUI 面板或对话框的完整路线，以及简明的拓扑路线。
+每个维度保持一条生产路径，不为单一实现引入多余包装层。
 
 <a id="local-data"></a>
 
