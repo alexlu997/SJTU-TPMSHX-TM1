@@ -426,6 +426,11 @@ def test_direct_warning_sites_and_repeat_counts(monkeypatch, kind, pressure_firs
         assert sites == [_host_site(production._observe, '_record_inlet(')]
 
 
+_PRESSURE_LIMIT = ('[D-F approximation] 1D isothermal air pressure model has no positive outlet pressure solution '
+                   '(P_out^2=-inf <= 0); returning P_in as a fallback dP (strict=False). This is not a physical '
+                   'choking diagnosis. Check mass flux, channel length and inlet pressure.')
+
+
 @pytest.mark.parametrize('mode', ['ignore', 'warn', 'raise', 'print'])
 def test_floating_point_events_keep_modes_order_and_metadata(monkeypatch, capsys, mode):
     from sjtu_tpmshx.applications.design.sizing import dP_fracs
@@ -433,9 +438,6 @@ def test_floating_point_events_keep_modes_order_and_metadata(monkeypatch, capsys
 
     args = _args(case=_case(mdot_h=1e180, mdot_c=1e-185))
     overflow, underflow = 'overflow encountered in power', 'underflow encountered in power'
-    limit = ('[D-F approximation] 1D isothermal air pressure model has no positive outlet pressure solution '
-             '(P_out^2=-inf <= 0); returning P_in as a fallback dP (strict=False). This is not a physical '
-             'choking diagnosis. Check mass flux, channel length and inlet pressure.')
     monkeypatch.setattr(predict, '_CHOKE_WARNED', set())
     for route, run in (('public', lambda: prepare_quick_design(**args, case_id='floating')),
                        ('pressure', lambda: dP_fracs(**args))):
@@ -448,14 +450,14 @@ def test_floating_point_events_keep_modes_order_and_metadata(monkeypatch, capsys
                 continue
             result = run()
         if route == 'public':
-            assert result.metadata['warnings'] == (limit,)
+            assert result.metadata['warnings'] == (_PRESSURE_LIMIT,)
             assert [(r['source'], r['side'], r['stage']) for r in result.metadata['applicability_inputs']] == [
                 (('property', name), side, 'design-dp-inlet')
                 for side in 'AB' for name in ('air_viscosity', 'air_conductivity', 'air_cp')]
             assert tuple(result.parameters['inlet_pressure_fractions'].values()) == (1., 0.)
         else:
             assert result == (1., 0.)
-        expected = [(UserWarning, limit)] if route == 'pressure' else []
+        expected = [(UserWarning, _PRESSURE_LIMIT)] if route == 'pressure' else []
         if mode == 'warn':
             expected = [(RuntimeWarning, overflow), *expected, (RuntimeWarning, underflow)]
             function = production.prepare_values if route == 'public' else production.pressure_fractions
@@ -466,19 +468,35 @@ def test_floating_point_events_keep_modes_order_and_metadata(monkeypatch, capsys
         assert capsys.readouterr().err.splitlines() == printed
 
 
-def test_public_and_pressure_floating_warnings_keep_their_repeat_counts(monkeypatch):
+@pytest.mark.parametrize('rearm, expected_counts', [
+    (False, [1, 2, 2, 2]), (True, [1, 2, 3, 4]),
+], ids=['stable-registry', 'rearmed-registry'])
+def test_public_and_pressure_floating_warnings_keep_their_repeat_counts(monkeypatch, rearm, expected_counts):
     from sjtu_tpmshx.applications.design.sizing import dP_fracs
     from sjtu_tpmshx.physical_models.df_surrogate import predict
+    from sjtu_tpmshx.preprocess import _metadata
 
+    # A Git subprocess can reset Python's warning filters during provenance collection.
+    monkeypatch.setattr(_metadata, 'source_context', lambda: {})
     monkeypatch.setattr(predict, '_CHOKE_WARNED', set())
+    registry = {}
+    monkeypatch.setattr(production, '__warningregistry__', registry, raising=False)
     args = _args(case=_case(mdot_h=1e180))
+    routes = (lambda: prepare_quick_design(**args, case_id='mixed'), lambda: dP_fracs(**args))
     counts = []
     with np.errstate(over='warn'), warnings.catch_warnings(record=True) as notices:
         warnings.simplefilter('default')
-        for run in (lambda: prepare_quick_design(**args, case_id='mixed'), lambda: dP_fracs(**args)) * 2:
+        for step, run in enumerate(routes * 2):
+            if rearm and step == 2:
+                registry.clear()
             run()
             counts.append(sum(item.category is RuntimeWarning for item in notices))
-    assert counts == [1, 2, 3, 4]
+    assert counts == expected_counts
+    overflow = (RuntimeWarning, 'overflow encountered in power')
+    expected = [overflow, overflow, (UserWarning, _PRESSURE_LIMIT)]
+    if rearm:
+        expected.extend([overflow, overflow])
+    assert [(item.category, str(item.message)) for item in notices] == expected
 
 
 def test_prepare_and_pressure_observe_ranges_without_result_or_solver(monkeypatch, tmp_path):
