@@ -68,10 +68,9 @@ _FAST_TIER_MANIFEST = Path(__file__).with_name('_fast_tier_manifest.txt')
 def _heavy_norm(nodeid: str) -> str:
     """Invocation-dir-independent node-id key: file BASENAME + test part.
 
-    Node-ids differ by prefix depending on the pytest invocation cwd
-    (``tests/python/test_x.py::t`` from repo root vs ``tests/...``
-    from the package dir); test file basenames are unique across the
-    suite (flat dir + design/), so the basename suffix is a stable key.
+    If you change the pytest root directory, the path prefix of a node ID can change.
+    Test file basenames are unique across the
+    ``tests/python`` directory and its subdirectories. This keeps the key stable.
     """
     file_part, sep, rest = nodeid.replace('\\', '/').partition('::')
     return file_part.rsplit('/', 1)[-1] + sep + rest
