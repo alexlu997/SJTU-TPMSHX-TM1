@@ -18,6 +18,9 @@ assert module_ports is importlib.import_module('sjtu_tpmshx.run_control.module_p
 assert validate_geometry is importlib.import_module('sjtu_tpmshx.data_types.validator').validate_geometry
 assert load_shanghai_baseline is importlib.import_module('sjtu_tpmshx.model_configs').load_shanghai_baseline
 assert files('sjtu_tpmshx.shared.configs').joinpath('shanghai_baseline.json').is_file()
+quick = importlib.import_module('sjtu_tpmshx.solvers.backends.cpp.quick_design')
+assert quick is importlib.import_module('sjtu_tpmshx.solvers.quick_design')
+assert callable(quick.run_case) and callable(quick.field_result)
 for dimension in (2, 3):
     leaf = f'full_{dimension}d_stage'
     before = importlib.import_module('sjtu_tpmshx.solvers.backends.cpp.' + leaf)

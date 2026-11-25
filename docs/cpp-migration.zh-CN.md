@@ -175,7 +175,8 @@ CI 除完整 macOS/Windows 构建外，还在 Ubuntu 24.04 与 26.04 上构建�
 
 [solver](../solver/) 中的求解库实现完整二维、完整三维、Quick Design、SIMPLE 流动、model-h、温度及 T-SOU 保守能量驱动。
 保存态阶段运行生命周期是 Python 及 C／C++ 调用方唯一的求解执行接口。
-Python 通过 `full_2d_stage.py`、`full_3d_stage.py` 与 `quick_design.py` 绑定该生命周期：
+原生绑定位于 `python/cpp_interface/` 下的 `full_2d_stage.py`、`full_3d_stage.py` 和 `quick_design.py`。
+Quick Design 求解宿主 `python/solvers/quick_design.py` 组装公共 `FieldResult`。
 
 - **完整二维（`full_2d.hpp`、`stage_run_c_api.h`）**：保存态 ABI 5（`tpmshx_run_saved_case_2d_v5`、`create_saved_v5`、`restore_saved_v5`）。拥有定密度 Anderson 的 SIMPLE、入口压力打靶、物性／热学耦合、Richardson 细化及最终证书，主换热量单位为 W/m。
 - **完整三维（`full_3d.hpp`、`stage_run_3d_c_api.h`）**：保存态 ABI 3（`tpmshx_run_saved_case_3d_v3`、`create_saved_v3`、`restore_saved_v3`）与捕获 ABI 2。拥有 XYZ SIMPLE、可选粗网格引导（`tpmshx_full_3d_get_bootstrap_trace_v1`）、热学优先外耦合及最终证书，主换热量单位为 W。

@@ -92,7 +92,7 @@ def test_forward_labels_without_extra_property_or_thermal_calls(
         monkeypatch, model, passes, diagnostic_state):
     import importlib
     f = importlib.import_module('sjtu_tpmshx.applications.design.forward')
-    execution = importlib.import_module('sjtu_tpmshx.cpp_interface.quick_design')
+    execution = importlib.import_module('sjtu_tpmshx.solvers.quick_design')
     postprocess = importlib.import_module('sjtu_tpmshx.postprocess.api')
     from sjtu_tpmshx.cpp_interface import _native_quick_prepare as quick_prepare
     from sjtu_tpmshx.physical_models import design_fluids as fluids
@@ -132,9 +132,9 @@ def test_forward_labels_without_extra_property_or_thermal_calls(
 
     nu_contexts = set()
 
-    def evidence(library, output, index, side):
+    def evidence(records):
         before = len(calls)
-        record_native(library, output, index, side)
+        record_native(records)
         nu_contexts.update(key[-1][:2] for key in execution.current_warnings() if key[0] == 'nu')
         assert len(calls) == before
 

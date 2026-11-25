@@ -205,7 +205,7 @@ Quick Design 属于规定流量 LTNE 尺寸近似模式（`physical_validation=n
 返回的 `tpmshx_quick_run_result_v1`（使用 `tpmshx_quick_run_release_v1` 释放）拥有全部 15 个场、物理网格宽度、压降证据、末次扫描标量及扫描范围记录（`tpmshx_quick_run_ranges_v2`）。
 `tpmshx_quick_run_temperature_algorithm_v1` 返回实际执行的温度配方名。
 取消返回状态 6 且不发布结果。
-Python 在 `python/cpp_interface/_native_quick_prepare.py` 绑定准备，在 `python/cpp_interface/quick_design.py` 绑定运行，并通过 Result ABI 3（`tpmshx_result_stage_query_v3`）计算 Quick Design 指标。
+Python 在 `python/cpp_interface/_native_quick_prepare.py` 绑定准备。Quick Design 求解宿主 `python/solvers/quick_design.py` 读取已保存的准备算例并组装 `FieldResult`。绑定 `python/cpp_interface/quick_design.py` 在释放原生求解结果前复制输出。Quick Design 指标通过 Result ABI 3（`tpmshx_result_stage_query_v3`）计算。
 
 ## 安装的公共头文件
 

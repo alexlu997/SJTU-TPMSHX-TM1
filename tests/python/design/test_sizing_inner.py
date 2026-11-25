@@ -129,8 +129,8 @@ def test_pressure_search_finds_real_df_narrow_interval(height):
 def _controlled_forward(monkeypatch, mode):
     """Keep preparation, forward and brentq; control the backend response."""
     from sjtu_tpmshx.physical_models.design_fluids import Props
-    from sjtu_tpmshx.cpp_interface.quick_design import field_result
-    execution = importlib.import_module('sjtu_tpmshx.cpp_interface.quick_design')
+    from sjtu_tpmshx.solvers.quick_design import field_result
+    execution = importlib.import_module('sjtu_tpmshx.solvers.quick_design')
     events = []
     property_error = ValueError('injected actual forward property failure')
 

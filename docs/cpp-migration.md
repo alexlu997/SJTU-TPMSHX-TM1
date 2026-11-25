@@ -175,7 +175,8 @@ The `minimal-postprocess` job runs on Ubuntu 24.04 with `result-build-linux-x86_
 
 The solver library in [solver](../solver/) implements full 2D, full 3D, Quick Design, SIMPLE flow, model-h, temperature, and T-SOU conservative energy drivers.
 The saved stage-run lifecycle is the only solver execution interface for Python and for C and C++ callers.
-Python binds it through `full_2d_stage.py`, `full_3d_stage.py`, and `quick_design.py`:
+The native bindings in `python/cpp_interface/` are `full_2d_stage.py`, `full_3d_stage.py`, and `quick_design.py`.
+The Quick Design solver host in `python/solvers/quick_design.py` builds the public `FieldResult`.
 
 - **Full 2D (`full_2d.hpp`, `stage_run_c_api.h`)**: saved stage ABI 5 (`tpmshx_run_saved_case_2d_v5`, `create_saved_v5`, `restore_saved_v5`). Owns SIMPLE with fixed-density Anderson, inlet pressure shooting, property/thermal coupling, Richardson refinement, and final certificates. Main heat duty uses W/m.
 - **Full 3D (`full_3d.hpp`, `stage_run_3d_c_api.h`)**: saved stage ABI 3 (`tpmshx_run_saved_case_3d_v3`, `create_saved_v3`, `restore_saved_v3`) and capture ABI 2. Owns XYZ SIMPLE, optional coarse bootstrap (`tpmshx_full_3d_get_bootstrap_trace_v1`), thermal-first outer coupling, and final certificates. Main heat duty uses W.

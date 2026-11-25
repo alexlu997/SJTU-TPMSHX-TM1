@@ -270,6 +270,19 @@ def test_layer_discovery_ignores_cache_and_data_only_directories(tmp_path, monke
     ('postprocess/evaluation.py', 'from ..cpp_interface.result_evaluation import query_result as run\nrun()', None, 0),
     ('postprocess/evaluation.py', 'import sjtu_tpmshx.cpp_interface.result_evaluation as wire\nwire.query_result()', None, 0),
     ('postprocess/result_math.py', 'from ..cpp_interface import _native_result_checks', None, 0),
+    ('cpp_interface/quick_design.py', 'from ..physical_models import design_fluids',
+     'Quick solve boundary -> sjtu_tpmshx.physical_models', 1),
+    ('cpp_interface/quick_design.py', 'def replay():\n    from ..solvers import quick_design',
+     'Quick solve boundary -> sjtu_tpmshx.solvers', 1),
+    ('cpp_interface/quick_design.py', 'from ..data_types.field_result import FieldResult as Result\nResult()',
+     'Quick solve boundary -> sjtu_tpmshx.data_types.field_result.FieldResult', 1),
+    ('cpp_interface/quick_design.py', 'from ..shared import domain\ndomain.field_result.FieldResult()',
+     'Quick solve boundary -> sjtu_tpmshx.shared.domain.field_result', 1),
+    ('cpp_interface/quick_design.py', 'from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n'
+     '    from ..data_types.field_result import FieldResult', 'solvers -> domain', 0),
+    ('solvers/quick_design.py', 'from ..cpp_interface import quick_design as wire\nwire._saved_v2()',
+     'Quick solve boundary -> sjtu_tpmshx.cpp_interface.quick_design._saved_v2', 1),
+    ('solvers/quick_design.py', 'from ..cpp_interface.quick_design import QuickSolver', None, 0),
 ])
 def test_layer_audit_applies_policy_to_each_import_spelling(tmp_path, monkeypatch, capsys,
                                                            filename, source, edge, exit_code):

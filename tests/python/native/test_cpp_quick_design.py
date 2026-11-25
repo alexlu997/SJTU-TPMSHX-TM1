@@ -2,12 +2,15 @@
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 import json
+import linecache
 import os
 from pathlib import Path
 import platform
 import subprocess
 import sys
 from types import SimpleNamespace
+from uuid import UUID
+import warnings
 
 import numpy as np
 import pytest
@@ -189,6 +192,8 @@ def test_stage_preserves_saved_grid_types_and_owned_output(native_control, monke
     library = load(native_control.native_library)
     call, release = library.tpmshx_run_quick_design_v2, library.tpmshx_quick_run_release_v1
     observed = []
+    released_fields = []
+    released_declarations = []
 
     def run(*args):
         call.argtypes, call.restype = run.argtypes, run.restype
@@ -204,6 +209,23 @@ def test_stage_preserves_saved_grid_types_and_owned_output(native_control, monke
 
     def free(pointer):
         release.argtypes, release.restype = free.argtypes, free.restype
+        output = quick_design.ct.cast(pointer, quick_design.ct.POINTER(quick_design._StageResult)).contents
+        snapshot = {}
+        for item in output.evidence.fields[:output.evidence.field_count]:
+            key = item.name.decode()
+            if key in ('K_ss', 'eps'):
+                continue
+            array = np.ctypeslib.as_array(
+                quick_design.ct.cast(item.value.data, quick_design.ct.POINTER(quick_design.ct.c_double)),
+                shape=(case.design_fields['eps'].size,))
+            snapshot[key] = array.tobytes()
+            array.fill(np.nan)
+        released_fields.append(snapshot)
+        declarations = {}
+        for item in output.evidence.field_metadata[:output.evidence.field_metadata_count]:
+            declarations[item.name.decode()] = (item.unit.decode(), item.state.decode())
+            item.unit, item.state = b'released-unit', b'released-state'
+        released_declarations.append(declarations)
         release(pointer)
         assert quick_design.ct.cast(pointer, quick_design.ct.POINTER(quick_design._StageResult)).contents.owner is None
         observed.append('released')
@@ -220,6 +242,7 @@ def test_stage_preserves_saved_grid_types_and_owned_output(native_control, monke
     assert observed == [actual.result_id, 'released']
     for key in ('K_ss', 'eps'):
         assert actual.fields[key].dtype == np.float32
+        assert np.shares_memory(actual.fields[key], case.design_fields[key])
         np.testing.assert_array_equal(actual.fields[key], case.design_fields[key])
     for key in case.grid:
         np.testing.assert_array_equal(actual.grid[key], case.grid[key])
@@ -228,6 +251,44 @@ def test_stage_preserves_saved_grid_types_and_owned_output(native_control, monke
         assert type(actual.boundary_fluxes['A'][key]) is type(original)
         assert actual.boundary_fluxes['A'][key] == original
     assert np.isfinite(actual.fields['Ta']).all()
+    cooler = replace(case, parameters={**case.parameters, 'operating_point': {**op, 'T_in_h': 375.}})
+    second = run_case(cooler, native_control)
+    assert actual.result_id != second.result_id
+    assert UUID(actual.result_id).version == UUID(second.result_id).version == 4
+    assert actual.fields['Ta'].tobytes() != second.fields['Ta'].tobytes()
+    assert observed == [actual.result_id, 'released', second.result_id, 'released']
+    for result, snapshot, declarations in zip((actual, second), released_fields, released_declarations, strict=True):
+        assert set(snapshot) == set(result.fields) - {'K_ss', 'eps'}
+        assert {key: (item['unit'], item['state']) for key, item in result.field_metadata.items()} == declarations
+        for key, data in snapshot.items():
+            assert result.fields[key].tobytes() == data
+            assert result.field_metadata[key]['axes'] == ('x', 'y', 'z')
+            assert not np.shares_memory(actual.fields[key], second.fields[key])
+
+
+def test_unscoped_air_notice_uses_solver_call_site_once(native_control, monkeypatch):
+    from sjtu_tpmshx.physical_models import nu_correlations
+    from sjtu_tpmshx.solvers import quick_design
+
+    case = prepared('counter', 'const', 'water_air')
+    op = {**case.parameters['operating_point'], 'T_in_h': 380., 'P_in_h': 3e6, 'mdot_c': .001}
+    case = replace(case, parameters={**case.parameters, 'operating_point': op})
+    monkeypatch.setattr(nu_correlations, '_EXTRAP_WARNED', set())
+    monkeypatch.setattr(quick_design, '__warningregistry__', {}, raising=False)
+    with warnings.catch_warnings(record=True) as emitted:
+        warnings.simplefilter('default')
+        quick_design.run_case(case, native_control)
+        quick_design.run_case(case, native_control)
+        # Exercise the Python filter after the model permits the notice again.
+        nu_correlations.reset_extrap_warn_registry()
+        quick_design.run_case(case, native_control)
+    assert len(emitted) == 1
+    notice = emitted[0]
+    assert notice.category is UserWarning
+    assert str(notice.message) == ('[Nu extrap] Diamond: Re=[82,82] outside fit window [400,16000]. '
+                                   'Suppressing further warnings for this (tpms, side).')
+    assert Path(notice.filename).resolve() == Path(quick_design.__file__).resolve()
+    assert linecache.getline(notice.filename, notice.lineno).lstrip().startswith('record_native_design_ranges(')
 
 
 @pytest.mark.parametrize('termination', ['cancel', 'callback', 'native_error'])
@@ -283,6 +344,31 @@ def test_stage_symbol_is_required(native_control, monkeypatch):
         run_case(case, native_control)
 
 
+def test_failed_range_query_keeps_completed_side(native_control, monkeypatch):
+    from sjtu_tpmshx.cpp_interface import quick_design as wire
+    from sjtu_tpmshx.run_control.run_warnings import warning_scope
+    from sjtu_tpmshx.solvers import quick_design
+
+    case = prepared('counter', 'mean', 'water_air')
+    library = wire.ct.CDLL(native_control.native_library)
+    query = library.tpmshx_quick_run_ranges_v2
+    seen = []
+
+    def missing_second_side(output, index, side):
+        seen.append((index, side))
+        if side == 1:
+            return wire._Ranges()
+        query.argtypes, query.restype = missing_second_side.argtypes, missing_second_side.restype
+        return query(output, index, side)
+
+    monkeypatch.setattr(library, 'tpmshx_quick_run_ranges_v2', missing_second_side)
+    monkeypatch.setattr(wire.ct, 'CDLL', lambda _: library)
+    with warning_scope({}) as records, pytest.raises(RuntimeError, match='no pass ranges'):
+        quick_design.run_case(case, native_control)
+    assert seen == [(0, 0), (0, 1)]
+    assert {key[-1] for key in records if key[0] == 'nu'} == {('A', 'design-inlet-pass', 'scalar')}
+
+
 def test_warnings_use_native_pass_evidence_without_python_numerics(native_control, quick_design_native, monkeypatch):
     from sjtu_tpmshx.physical_models import design_fluids, fluid_props
     from sjtu_tpmshx.cpp_interface import quick_design
@@ -296,12 +382,12 @@ def test_warnings_use_native_pass_evidence_without_python_numerics(native_contro
     monkeypatch.setattr(design_fluids, 'fluid_props', forbidden)
     monkeypatch.setattr(fluid_props, 'check_water_state', forbidden)
     samples = []
-    original = quick_design._record_pass
+    original = quick_design._pass_records
     def observe(library, output, index, side):
         row = output.raw.passes[index].sides[side]
         samples.append((index, side, row.evaluation_temperature, row.reynolds))
         return original(library, output, index, side)
-    monkeypatch.setattr(quick_design, '_record_pass', observe)
+    monkeypatch.setattr(quick_design, '_pass_records', observe)
     actual = run_case(case, native_control)
     assert len(samples) == 4
     for ordinal, (index, side, temperature, reynolds) in enumerate(samples):
@@ -406,13 +492,25 @@ def test_fresh_process_replays_saved_case_without_python_kernels(native_control,
     case_path, result_path = tmp_path / 'case.h5', tmp_path / 'result.h5'
     save_case(prepared('counter', 'mean', 'sco2_sco2'), case_path)
     code = '''
+from pathlib import Path
+import os
 import sys
-from sjtu_tpmshx.file_io.case_io import load_case
+from unittest.mock import patch
+images = []
+def capture(event, args):
+    if event == 'ctypes.dlopen' and args[0] and 'tpmshx_' in Path(args[0]).name.lower():
+        images.append(Path(args[0]).resolve())
+sys.addaudithook(capture)
+missing = str(Path(sys.argv[1]).parent / 'absent-library')
+with patch.dict(os.environ, {f'TPMSHX_{stage}_LIBRARY': missing for stage in ('RESULT', 'PREPARATION', 'GEOMETRY')}):
+    from sjtu_tpmshx.file_io.case_io import load_case
+    from sjtu_tpmshx.run_control.module_ports import RunControl
+    from sjtu_tpmshx.solvers.api import run_case
+    result = run_case(load_case(sys.argv[1]), RunControl(backend='cpp', native_library=sys.argv[3]))
+if images != [Path(sys.argv[3]).resolve()]:
+    raise AssertionError(images)
 from sjtu_tpmshx.file_io.result_io import save_result
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.solvers.api import run_case
 from sjtu_tpmshx.postprocess.api import evaluate
-result = run_case(load_case(sys.argv[1]), RunControl(backend='cpp', native_library=sys.argv[3]))
 assert result.run_status['converged'] and evaluate(result).metrics['Q'].status == 'available'
 save_result(result, sys.argv[2])
 forbidden = ('numba', 'sjtu_tpmshx.solvers.ltne_', 'sjtu_tpmshx.solvers.simple_',
