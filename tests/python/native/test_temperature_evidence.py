@@ -42,22 +42,22 @@ def test_query_rejects_null_and_unowned_results_without_writing_output(dimension
 def test_full_3d_cc_captured_powers_survive_owner_release_and_portable_replay(monkeypatch, tmp_path):
     from sjtu_tpmshx.file_io.result_io import save_result, load_result
     from sjtu_tpmshx.postprocess.api import evaluate
-    from sjtu_tpmshx.cpp_interface import full_3d_stage
-    from sjtu_tpmshx.cpp_interface.full_3d_stage import run_case
+    from sjtu_tpmshx.solvers import full_3d
+    from sjtu_tpmshx.solvers.full_3d import run_case
     from dataclasses import replace
     from tests.python.native.test_cpp_full_3d import case, control
 
     path = os.environ.get('TPMSHX_NATIVE_SOLVER_LIBRARY')
     if path is None:
         pytest.skip('explicit native library required')
-    capture = full_3d_stage.capture_result
+    capture = full_3d.capture_result
     returned = []
 
     def observe(case, cfg, prepared, raw, abi):
         returned.append(raw)
         return capture(case, cfg, prepared, raw, abi)
 
-    monkeypatch.setattr(full_3d_stage, 'capture_result', observe)
+    monkeypatch.setattr(full_3d, 'capture_result', observe)
     prepared = case('air-air', cap=2)
     params = prepared.parameters
     prepared = replace(prepared, parameters=dict(params, max_iter_simple=1, variable_rho_cp=False,

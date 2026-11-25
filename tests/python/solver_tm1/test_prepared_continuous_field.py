@@ -87,7 +87,7 @@ def test_nonuniform_3d_preparation_samples_exact_polynomial_and_replays_case(tmp
         np.testing.assert_array_equal(loaded.design_fields[name], values)
     for name in ('epsilon', 'A_0', 'D_h'):
         np.testing.assert_array_equal(loaded.parameters['thermal_geometry']['fields'][name], thermal[name])
-    from sjtu_tpmshx.cpp_interface.full_3d_stage import validate_saved_case
+    from sjtu_tpmshx.solvers.full_3d import validate_saved_case
     replay = replace(loaded, config_snapshot={})
     validate_saved_case(replay)
     for name, values in case.design_fields.items():

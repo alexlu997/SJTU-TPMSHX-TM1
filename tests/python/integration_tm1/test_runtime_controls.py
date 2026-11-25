@@ -11,7 +11,8 @@ from tests.python.cases_3d import small_air_config
 
 @pytest.mark.slow
 def test_public_three_d_iteration_and_cancellation(monkeypatch, tmp_path):
-    from sjtu_tpmshx.cpp_interface import full_3d_stage as result_capture
+    from sjtu_tpmshx.cpp_interface import full_3d_stage
+    from sjtu_tpmshx.solvers import full_3d as result_capture
     from sjtu_tpmshx.file_io.result_io import load_result, save_result
     capture = result_capture.capture_result
     def checked_capture(case, cfg, prepared, raw, abi):
@@ -27,13 +28,13 @@ def test_public_three_d_iteration_and_cancellation(monkeypatch, tmp_path):
         assert iterations[-1] == f'outer {current}/{total}'
         outer_iterations.append((current, total))
     from tests.python.native.stage_interception import native_3d_arrays
-    detach, raw = result_capture._detach, []
+    detach, raw = full_3d_stage._detach, []
     def copied(native, shape, *args, **kwargs):
         raw.append(native_3d_arrays(native, shape))
         return detach(native, shape, *args, **kwargs)
     with monkeypatch.context() as capture_hook:
         capture_hook.setattr(result_capture, 'capture_result', checked_capture)
-        capture_hook.setattr(result_capture, '_detach', copied)
+        capture_hook.setattr(full_3d_stage, '_detach', copied)
         result = run_case(case, RunControl(iteration=iterations.append, progress=progress.append,
                                           outer_iteration=report_outer))
     # The published fields equal the raw native real-axis arrays of the same run.
@@ -56,11 +57,11 @@ def test_public_three_d_iteration_and_cancellation(monkeypatch, tmp_path):
 
 @pytest.mark.parametrize('callback', ['iteration', 'outer_iteration', 'progress'])
 def test_three_d_callback_failure_stops_before_result_capture(monkeypatch, callback):
-    from sjtu_tpmshx.cpp_interface import full_3d_stage
+    from sjtu_tpmshx.solvers import full_3d
     failure = RuntimeError('callback failure')
     def fail(*args):
         raise failure
-    monkeypatch.setattr(full_3d_stage, 'capture_result',
+    monkeypatch.setattr(full_3d, 'capture_result',
                         lambda *a, **k: pytest.fail('result capture after callback failure'))
     with pytest.raises(RuntimeError) as caught:
         run_case(prepare_case(small_air_config(), case_id='callback-failure'),

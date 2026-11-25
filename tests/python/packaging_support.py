@@ -27,11 +27,12 @@ for name in ('shared._native_quick_prepare', 'shared.models._native_quick_prepar
     published = importlib.import_module('sjtu_tpmshx.' + name)
     if published is not quick_prepare or not all(callable(getattr(published, op)) for op in quick_operations):
         raise SystemExit(f'Quick preparation owner differs for {name}')
-for dimension in (2, 3):
-    leaf = f'full_{dimension}d_stage'
-    before = importlib.import_module('sjtu_tpmshx.solvers.backends.cpp.' + leaf)
-    current = importlib.import_module('sjtu_tpmshx.cpp_interface.' + leaf)
-    assert before is current and before.run_case is current.run_case
+full_3d = importlib.import_module('sjtu_tpmshx.solvers.backends.cpp.full_3d_stage')
+assert full_3d is importlib.import_module('sjtu_tpmshx.solvers.full_3d')
+assert callable(full_3d.run_case) and callable(full_3d.capture_result)
+before = importlib.import_module('sjtu_tpmshx.solvers.backends.cpp.full_2d_stage')
+current = importlib.import_module('sjtu_tpmshx.cpp_interface.full_2d_stage')
+assert before is current and before.run_case is current.run_case
 """
 
 

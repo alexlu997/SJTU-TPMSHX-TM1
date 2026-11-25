@@ -8,6 +8,7 @@ from sjtu_tpmshx.data_types.compute_config import ComputeConfig
 from sjtu_tpmshx.data_types.model_refs import ModelRef
 from sjtu_tpmshx.preprocess.three_d.preparation import prepare_case
 from sjtu_tpmshx.cpp_interface import full_3d_stage
+from sjtu_tpmshx.solvers import full_3d
 from sjtu_tpmshx.solvers.api import run_case
 from tests.python.native.stage_interception import first_state, stage_control
 
@@ -50,7 +51,7 @@ def test_prepared_axis_permutation_must_match_declared_physical_axes(side, entry
     config.geometry = replace(config.geometry, L_dom_m=.06, H_dom_m=.06, Lz_m=.06)
     config.solver = replace(config.solver, Nx=4, Ny=4, Nz=4)
     case = prepare_case(config, case_id='permutation-conflict')
-    full_3d_stage.validate_saved_axes(case)
+    full_3d.validate_saved_axes(case)
     parameters = mutable_data(case.parameters)
     axes = parameters['prepared']['axes']
     # Both maps are valid on their own, but equal cell counts cannot justify
@@ -64,4 +65,4 @@ def test_prepared_axis_permutation_must_match_declared_physical_axes(side, entry
         if entry == 'public':
             run_case(restored, stage_control())
         else:
-            full_3d_stage.validate_saved_axes(restored)
+            full_3d.validate_saved_axes(restored)

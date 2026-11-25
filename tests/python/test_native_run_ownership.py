@@ -9,6 +9,7 @@ from tests.python.native.shared_library import library_path
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.run_control.module_ports import RunControl
 from sjtu_tpmshx.solvers.api import run_case
+from sjtu_tpmshx.solvers import full_3d
 from sjtu_tpmshx.cpp_interface import full_2d_stage
 from sjtu_tpmshx.cpp_interface import full_3d_stage
 from tests.python import native_stage_support
@@ -78,7 +79,7 @@ def test_interrupt_after_native_transfer_releases_owner(dimension, boundary, exc
     monkeypatch.setattr(run_type, '_call', interrupted)
     def forbidden(*args, **kwargs):
         pytest.fail('an interrupted transfer must not publish a FieldResult')
-    monkeypatch.setattr(full_2d_stage if dimension == 2 else full_3d_stage, 'capture_result', forbidden)
+    monkeypatch.setattr(full_2d_stage if dimension == 2 else full_3d, 'capture_result', forbidden)
     options = dict(checkpoint=lambda state: None, checkpoint_due=lambda: boundary == 'snapshot')
     if states:
         options['resume_state'] = states[0]

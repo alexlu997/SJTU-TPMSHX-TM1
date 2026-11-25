@@ -14,7 +14,7 @@ from sjtu_tpmshx.file_io.case_io import load_case, save_case
 from sjtu_tpmshx.physical_models.tpms_calc import compute
 from sjtu_tpmshx.physical_models.tpms_geometry import compute_geometry
 from sjtu_tpmshx.preprocess import api
-from sjtu_tpmshx.cpp_interface.full_3d_stage import validate_saved_case
+from sjtu_tpmshx.solvers.full_3d import validate_saved_case
 from tests.python import native_preparation_abi, property_reference as prop_ref
 from tests.python.native_preparation_abi import _configuration_continuous_3d, _configuration_spatial_3d
 from tests.python.test_native_prepare_adapter import _capture, _same
