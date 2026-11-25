@@ -21,6 +21,12 @@ assert files('sjtu_tpmshx.shared.configs').joinpath('shanghai_baseline.json').is
 quick = importlib.import_module('sjtu_tpmshx.solvers.backends.cpp.quick_design')
 assert quick is importlib.import_module('sjtu_tpmshx.solvers.quick_design')
 assert callable(quick.run_case) and callable(quick.field_result)
+quick_prepare = importlib.import_module('sjtu_tpmshx.preprocess.quick_design')
+quick_operations = ('prepare_quick_design', 'prepare_values', 'pressure_fractions')
+for name in ('shared._native_quick_prepare', 'shared.models._native_quick_prepare'):
+    published = importlib.import_module('sjtu_tpmshx.' + name)
+    if published is not quick_prepare or not all(callable(getattr(published, op)) for op in quick_operations):
+        raise SystemExit(f'Quick preparation owner differs for {name}')
 for dimension in (2, 3):
     leaf = f'full_{dimension}d_stage'
     before = importlib.import_module('sjtu_tpmshx.solvers.backends.cpp.' + leaf)

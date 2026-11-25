@@ -116,5 +116,5 @@ def _fixed_mass_flow_inputs(config, flow_a, flow_b):
 
 def prepare_quick_design(*args, **kwargs) -> CaseData:
     """Explicit prescribed-velocity design mode; no SIMPLE substitution."""
-    from sjtu_tpmshx.cpp_interface._native_quick_prepare import prepare_quick_design as prepare
+    from .quick_design import prepare_quick_design as prepare
     return _metadata.prepare_with_metadata(prepare, *args, **kwargs)

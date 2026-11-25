@@ -94,7 +94,7 @@ def test_forward_labels_without_extra_property_or_thermal_calls(
     f = importlib.import_module('sjtu_tpmshx.applications.design.forward')
     execution = importlib.import_module('sjtu_tpmshx.solvers.quick_design')
     postprocess = importlib.import_module('sjtu_tpmshx.postprocess.api')
-    from sjtu_tpmshx.cpp_interface import _native_quick_prepare as quick_prepare
+    from sjtu_tpmshx.preprocess import quick_design as quick_prepare
     from sjtu_tpmshx.physical_models import design_fluids as fluids
     from sjtu_tpmshx.physical_models import tpms_props
     from sjtu_tpmshx.cpp_interface._native_result_checks import record_range
