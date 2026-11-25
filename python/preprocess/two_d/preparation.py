@@ -77,7 +77,7 @@ def _lut_cache():
     return cache
 
 
-def _case(result, config, case_id, side_geometry=None, extrap_reasons=()):
+def _case(result, copy_metadata, config, case_id, side_geometry=None, extrap_reasons=()):
     from sjtu_tpmshx.data_types.case_data import CaseData
     from sjtu_tpmshx.data_types.model_refs import ModelRef
     from sjtu_tpmshx.physical_models.zone_units import _zone_data_si
@@ -186,14 +186,17 @@ def _case(result, config, case_id, side_geometry=None, extrap_reasons=()):
         properties.update(zip((*shared.PROPERTIES, 'K_ss'), inlet.properties, strict=True))
         params['static_properties'][side] = properties
     params['static_properties']['geometry'] = uniform
-    refs = tuple(ModelRef(name, version,
-        {'fluid': getattr(config, 'fluid_' + 'AB'[index]).type, 'sco2_nu': asdict(config.sco2_nu)}
-        if index < 2 else {'topology': geometry.tpms} if index == 3 else {},
-        applicability='side ' + 'AB'[index] if index < 2 else '') for index, (name, version) in enumerate(value.models))
+    refs = []
+
+    def add_model(index, name, version):
+        parameters = ({'fluid': getattr(config, 'fluid_' + 'AB'[index]).type, 'sco2_nu': asdict(config.sco2_nu)}
+                      if index < 2 else {'topology': geometry.tpms} if index == 3 else {})
+        refs.append(ModelRef(name, version, parameters, applicability='side ' + 'AB'[index] if index < 2 else ''))
+
+    evidence, notices = copy_metadata(add_model)
     return CaseData.from_compute_config(case_id, config, grid=grid, design_fields=design, parameters=params,
-        model_refs=refs, metadata=dict(preprocessor='two_d_v1', quantity_basis='per_unit_depth',
-            model_metadata=shared.model_metadata(value.model_evidence, config),
-            notices=value.notices,
+        model_refs=tuple(refs), metadata=dict(preprocessor='two_d_v1', quantity_basis='per_unit_depth',
+            model_metadata=shared.model_metadata(evidence, config), notices=notices,
             design_mode=design['axis'] if continuous or spatial else 'uniform',
             model_roles={'fluid_A': 0, 'fluid_B': 1, 'geometry': 2, 'darcy_forchheimer': 3}))
 
@@ -261,7 +264,7 @@ def _execute(config, operation, *, targets=None, case_id=None, start_observation
         else:
             raise RuntimeError(f'unknown preparation host stage {stage}')
 
-    def finish(capacities, speeds, copy_case):
+    def finish(capacities, speeds, copy_case, copy_metadata):
         if operation == 'prepare_inlet_mass_capacities':
             return {side: capacities[index] for index, side in enumerate('AB')}
         resolved = shared.resolved_flow_config(config, speeds, targets)
@@ -274,7 +277,7 @@ def _execute(config, operation, *, targets=None, case_id=None, start_observation
                 key = (resolved.geometry.tpms, resolved.geometry.L_cell_mm, resolved.geometry.t_wall_mm,
                        fluid.u_mps, fluid.T_in_K, fluid.P_in_Pa, fluid.type, resolved.sco2_nu, False)
                 side_geometry[index] = cache.inlet_geometry[key]
-        return _case(copy_case(), resolved, case_id, side_geometry, cache.extrap_reasons)
+        return _case(copy_case(), copy_metadata, resolved, case_id, side_geometry, cache.extrap_reasons)
 
     spatial = config.zones.enabled and config.zones.axis != 'continuous'
     return native_preparation.run_preparation(operation, source, chi=chi, allow=allow, validate=host_input,

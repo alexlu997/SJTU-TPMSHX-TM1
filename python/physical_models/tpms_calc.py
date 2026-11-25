@@ -276,7 +276,7 @@ compute.cache_parameters = _compute_cached.cache_parameters
 
 def inlet_query(topology, cell, wall, velocity, temperature, pressure, fluid,
                 selection, geometry, records, notice):
-    """Select the fluid for one inlet with the supplied geometry."""
+    """Select the fluid, pressure, and corrections for an inlet with supplied geometry."""
     from . import fluid_props
     from .preparation_notices import range_notices
 
@@ -315,5 +315,8 @@ def inlet_query(topology, cell, wall, velocity, temperature, pressure, fluid,
         if status in (10, 12):
             raise ValueError(text) from None
 
-    return inlet_properties.query_values(topology, cell, wall, velocity, temperature, pressure, fluid_name,
-        selection, geometry, observe, notice, observe_event, property_error, fluid_props.WaterStateError)
+    query_pressure = 0. if fluid_name == 'water' else pressure
+    nu_settings = selection if fluid_name == 'sco2' else None
+    return inlet_properties.query_values(topology, cell, wall, velocity, temperature, query_pressure, fluid_name,
+        nu_settings, geometry, observe, notice, observe_event, property_error, fluid_props.WaterStateError,
+        exact_co2_drag=fluid_name == 'co2')

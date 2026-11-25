@@ -16,7 +16,7 @@ def _inlet_query_function(path):
 
 
 def query_values(topology, cell, wall, velocity, temperature, pressure, fluid_name,
-                 selection, geometry, observe, notice, observe_event, property_error, water_error):
+                 selection, geometry, observe, notice, observe_event, property_error, water_error, *, exact_co2_drag):
     """Pack one inlet and return its twelve inline float64 values."""
     buffers = []
 
@@ -26,10 +26,9 @@ def query_values(topology, cell, wall, velocity, temperature, pressure, fluid_na
     diameter, epsilon = real(geometry['D_h'], 'D_h'), real(geometry['epsilon_A'], 'epsilon_A')
     length, thickness = real(cell, 'L_cell_mm'), real(wall, 't_mm')
     speed, temp = real(velocity, 'u'), real(temperature, 'T')
-    press = 0. if fluid_name == 'water' else real(pressure, 'P')
+    press = real(pressure, 'P')
     settings = abi._Nu()
-    have_nu = fluid_name == 'sco2' and selection is not None
-    if have_nu:
+    if selection is not None:
         settings.mode = int(selection.mode == 'experimental')
         for index, name in enumerate(('alpha_D', 'alpha_G')):
             value = getattr(selection, name)
@@ -38,8 +37,8 @@ def query_values(topology, cell, wall, velocity, temperature, pressure, fluid_na
         for name in ('parameter_version', 'source', 'applicability'):
             setattr(settings, name, borrow_text(getattr(selection, name), buffers))
     key = abi._InletKey(abi._GeometryKey(TOPOLOGIES.index(topology), length, thickness),
-        abi._FLUIDS.index(fluid_name), speed, temp, press, have_nu, settings, False)
-    source = abi._InletQueryInput(1, ct.sizeof(abi._InletQueryInput), key, diameter, epsilon, fluid_name == 'co2')
+        abi._FLUIDS.index(fluid_name), speed, temp, press, selection is not None, settings, False)
+    source = abi._InletQueryInput(1, ct.sizeof(abi._InletQueryInput), key, diameter, epsilon, exact_co2_drag)
 
     def validate(stage, _step):
         if stage != 4:

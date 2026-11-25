@@ -449,9 +449,9 @@ def property_scalars(value):
     return (*_read_fields(value, _INLET_FIELDS), value.solid_conductivity_W_mK)
 
 
-def _write_fields(value, names, items):
-    for name, item in zip(names, items, strict=True):
-        setattr(value, name, item)
+def _write_fields(value, names, read):
+    for index, name in enumerate(names):
+        setattr(value, name, read(index))
 
 
 class PreparationCacheBridge:
@@ -469,8 +469,8 @@ class PreparationCacheBridge:
         def read():
             return geometry_scalars(value)
 
-        def write(items):
-            _write_fields(value, _GEOMETRY_FIELDS, items)
+        def write(read_geometry):
+            _write_fields(value, _GEOMETRY_FIELDS, read_geometry)
 
         return self.policy.geometry(action, key, read, write)
 
@@ -489,10 +489,11 @@ class PreparationCacheBridge:
             return (geometry_scalars(value.geometry), _read_fields(value.properties, _INLET_FIELDS),
                     value.properties.cp, value.properties.pr, ranges, messages)
 
-        def write(geometry, properties, cp, pr, records):
-            _write_fields(value.geometry, _GEOMETRY_FIELDS, geometry)
-            _write_fields(value.properties, _INLET_FIELDS, properties)
-            value.properties.cp, value.properties.pr = cp, pr
+        def write(read_geometry, read_properties, read_scalar, records):
+            _write_fields(value.geometry, _GEOMETRY_FIELDS, read_geometry)
+            _write_fields(value.properties, _INLET_FIELDS, read_properties)
+            value.properties.cp = read_scalar('cp')
+            value.properties.pr = read_scalar('pr')
             value.evidence, buffers = _cache_record_view(records)
             self.buffers.extend(buffers)
             return geometry_scalars(value.geometry)

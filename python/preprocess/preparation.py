@@ -87,7 +87,7 @@ class PreparationCache:
         else:
             hit, saved = geometry_cache.lookup(key)
             if hit:
-                write([saved[field] for field in GEOMETRY])
+                write(lambda index: saved[GEOMETRY[index]])
         if (action or hit) and self.chi_error is not None:
             raise self.chi_error
         return hit
@@ -98,8 +98,8 @@ class PreparationCache:
             hit, saved = inlet_cache.lookup(key)
             if hit:
                 properties, records = saved
-                values = write([properties[field] for field in GEOMETRY],
-                               [properties[field] for field in PROPERTIES], saved.cp, saved.pr, records)
+                values = write(lambda index: properties[GEOMETRY[index]],
+                               lambda index: properties[PROPERTIES[index]], partial(getattr, saved), records)
                 self.inlet_geometry[key] = geometry_values(values, co2)
             return hit
         geometry, values, cp, pr, ranges, messages = read()

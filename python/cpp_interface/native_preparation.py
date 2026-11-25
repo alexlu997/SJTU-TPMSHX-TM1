@@ -129,6 +129,17 @@ def _copy_side(inlet, prepared_drag, extension):
         drag=host.drag_evidence(inlet.drag_evidence, prepared_drag, extension))
 
 
+def _copy_metadata(result, accept_model):
+    value = result.prepared
+    try:
+        for index, item in enumerate(value.models):
+            accept_model(index, read_text(item.name), read_text(item.version))
+    except StopIteration as problem:
+        # The original model iterator exposed this cause for a failed record.
+        raise RuntimeError('generator raised StopIteration') from problem
+    return host.model_evidence(value, value.sco2_nu), [read_text(item) for item in value.notices[:value.notice_count]]
+
+
 def _copy_case(result):
     """Detach the fields present in this result family while its owner is live."""
     value = result.prepared
@@ -140,14 +151,7 @@ def _copy_case(result):
     for name in ('nx', 'ny', 'epsilon', 'epsilon_a', 'epsilon_b', 'area_density_per_m', 'hydraulic_diameter_m',
                  'uniform_solid_conductivity', 'hydraulic_radius_m', 'cell_length_m', 'wall_thickness_m', 'split_a'):
         fields[name] = getattr(value, name)
-    try:
-        models = [(read_text(item.name), read_text(item.version)) for item in value.models]
-    except StopIteration as problem:
-        # The original ModelRef iterator exposed this cause for a failed name or version read.
-        raise RuntimeError('generator raised StopIteration') from problem
     prepared = SimpleNamespace(**fields, co2_active=bool(value.co2.active),
-        models=models, notices=[read_text(item) for item in value.notices[:value.notice_count]],
-        model_evidence=host.model_evidence(value, value.sco2_nu),
         sides=[_copy_side(item, value.drag[i], result.drag[i] if continuous else None)
                for i, item in enumerate(value.sides)])
     case = SimpleNamespace(prepared=prepared, continuous=continuous, spatial=spatial, side_geometry=None)
@@ -185,4 +189,5 @@ def run_preparation(name, source, *, chi, allow, validate, policy, geometry_key,
         hooks = dict(geometry_cache=lambda action, value: cache.geometry(action, geometry_key, value), inlet_cache=inlet)
     with host.operation(name, source, options, validate, water_error, observe_range=policy.observe_range,
                         observe_notice=policy.observe_notice, observe_event=policy.observe_event, **hooks) as result:
-        return finish(tuple(result.flow.capacities), tuple(result.flow.speeds), partial(_copy_case, result))
+        return finish(tuple(result.flow.capacities), tuple(result.flow.speeds),
+                      partial(_copy_case, result), partial(_copy_metadata, result))

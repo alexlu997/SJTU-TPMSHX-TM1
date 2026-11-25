@@ -296,6 +296,23 @@ def test_public_cache_and_native_preparation_share_float64_entries(monkeypatch):
     assert second_geom[0] > first_geom[0] and second_inlet[0] > first_inlet[0]
 
 
+@pytest.mark.parametrize('cache_name,missing', [('geometry', 'A_0'), ('inlet', 'rho')])
+def test_warm_cache_converts_each_field_before_reading_the_next(cache_name, missing):
+    config = native_preparation_abi._configuration_mass_flow()
+    shared.geometry_cache.clear()
+    shared.inlet_cache.clear()
+    with warning_scope({}):
+        api.prepare_case(config, case_id='warm')
+        cache = shared.geometry_cache if cache_name == 'geometry' else shared.inlet_cache
+        entry = next(iter(cache.values.values()))
+        properties = entry if cache_name == 'geometry' else entry[0]
+        properties['epsilon'] = 'bad-real'
+        del properties[missing]
+        with pytest.raises(TypeError, match='^must be real number, not str$') as caught:
+            api.prepare_case(config, case_id='warm')
+    assert caught.value.__cause__ is None
+
+
 @pytest.mark.parametrize('entry', ['public', 'cached', 'unwrapped'])
 @pytest.mark.parametrize('frozen', [False, True])
 def test_property_cache_wrapper_keeps_warning_source(monkeypatch, entry, frozen):
@@ -319,13 +336,14 @@ def test_property_cache_wrapper_keeps_warning_source(monkeypatch, entry, frozen)
 def test_case_and_binding_values_survive_release_and_second_call(monkeypatch):
     config = native_preparation_abi._configuration_continuous()
     original, assemble = preparation_host.operation, preparation._case
-    releases, evidence = [], []
+    releases, evidence, model_names = [], [], []
     buffers = []
 
     @contextmanager
     def replace_buffers(*args, **kwargs):
         with original(*args, **kwargs) as result:
             source = result.prepared
+            model_names.append(ct.string_at(source.models[0].name.data, source.models[0].name.size).decode())
             views = (source.dx, source.cell_length, source.sides[0].inlet_profile, source.models[0].name)
             replacements = []
             for view in views:
@@ -362,7 +380,30 @@ def test_case_and_binding_values_survive_release_and_second_call(monkeypatch):
                           (first_values.sides[0].inlet_profile, first.parameters['boundary_openings']['A']['in_profile_frac'])):
         assert np.any(values != 0.) and not saved.flags.writeable
         np.testing.assert_array_equal(values.view(np.uint64), saved.view(np.uint64))
-    assert first_values.models[0][0] == first.model_refs[0].name and first.model_refs[0].name
+    assert model_names[0] == first.model_refs[0].name and first.model_refs[0].name
+
+
+def test_invalid_first_model_precedes_second_model_decode(monkeypatch):
+    operation = preparation_host.operation
+
+    @contextmanager
+    def damaged_models(*args, **kwargs):
+        with operation(*args, **kwargs) as result:
+            first, second = result.prepared.models[0].name, result.prepared.models[1].name
+            first_size, saved_second = first.size, type(second).from_buffer_copy(second)
+            bad_name = ct.create_string_buffer(b'\xff')
+            first.size = 0
+            second.data, second.size = ct.cast(bad_name, type(second.data)), 1
+            try:
+                yield result
+            finally:
+                first.size = first_size
+                ct.memmove(ct.byref(second), ct.byref(saved_second), ct.sizeof(second))
+
+    monkeypatch.setattr(preparation_host, 'operation', damaged_models)
+    with warning_scope({}), pytest.raises(ValueError, match='^ModelRef requires a name and a version$') as caught:
+        api.prepare_case(native_preparation_abi._configuration_mass_flow(), case_id='invalid-models')
+    assert caught.value.__cause__ is None
 
 
 @pytest.mark.parametrize('fault', ['cache', 'copy', 'model'])
