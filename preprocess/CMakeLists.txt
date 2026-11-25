@@ -21,6 +21,8 @@ if(NOT TARGET tpmshx_geometry)
     add_subdirectory("${TPMSHX_ROOT}/geometry" geometry)
 endif()
 include("${TPMSHX_ROOT}/engineering/native_build/cmake/models.cmake")
+# Use the property kernels' floating-point options for the preparation adapter.
+target_sources(tpmshx_models PRIVATE "${TPMSHX_ROOT}/preprocess/preparation_property_points.cpp")
 
 add_library(tpmshx_preparation STATIC "${TPMSHX_ROOT}/preprocess/preparation_flow.cpp"
     "${TPMSHX_ROOT}/preprocess/preparation_properties.cpp"

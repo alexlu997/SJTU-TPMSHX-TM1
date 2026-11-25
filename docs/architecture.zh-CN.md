@@ -75,7 +75,7 @@ GUI 代码位于 `python/applications/gui/ui/`、`python/applications/gui/contro
 
 | 依赖边 | 源码或头文件位置 | 原因 |
 | --- | --- | --- |
-| `numerics/` -> `preprocess/` | `numerics/fluid_properties.cpp` 包含 `../preprocess/preparation_properties.hpp` 并定义 `tpmshx::preparation::*`；`numerics/df_summary.cpp` 包含 `tpmshx/preparation_df.hpp`。 | 将带检查的物性算术留在 `tpmshx_models` 中紧邻共用流体物性内核，并将 D-F 汇总留在 `numerics/`（计划后续拆分）。 |
+| `preprocess/` <-> `numerics/` | `preprocess/preparation_properties.hpp` 包含 `../numerics/property_kernels.hpp`。`numerics/df_summary.cpp` 包含 `tpmshx/preparation_df.hpp`。 | `preprocess/preparation_property_points.cpp` 定义六个前处理适配函数。`numerics/fluid_properties.cpp` 定义共用的物性内核。前处理和求解器的构建都使用同一个 D-F 汇总函数。 |
 | `solver/` -> `postprocess/` | `solver/CMakeLists.txt` 将 `postprocess/result_{core,arithmetic,metrics,balance}.cpp` 编译进隐藏静态目标 `tpmshx_capture_math`；`solver/stage_capture_2d.cpp` 包含 `../postprocess/result_zone_capture.hpp`。 | 在求解捕获阶段复用精确结果算术，同时保持 `tpmshx_result_shared` 独立部署而不依赖求解库。 |
 | `solver/` -> `preprocess/` | `solver/CMakeLists.txt` 编译 `preprocess/preparation_{df_corrections,flow}.cpp`；`solver/stage_saved_models.hpp` 包含 `../preprocess/preparation_nu.hpp`；`solver/quick_design_run.cpp` 包含 `../preprocess/preparation_c_boundary.hpp`。 | 复用 D-F 修正、`closure_geometry_ratio`、Nu 路线与 C 边界规则，无需链接 `tpmshx_preparation_shared`，使静态 CoolProp 注册表保持隔离。 |
 | `preprocess/`、`solver/` -> `geometry/` | 两个 CMake 工程均以子目录方式引入 `geometry/`；`preprocess/preparation_case.cpp` 包含 `../geometry/field_{continuous,lut,sigmoid}.hpp`；五个前处理与求解文件包含 `../geometry/field_c_boundary.hpp`。 | 将网格、端口、设计场与 C 边界辅助代码静态编入各自隔离的阶段构建。 |
