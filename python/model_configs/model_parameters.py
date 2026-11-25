@@ -2,9 +2,12 @@
 from importlib.resources import files
 import json
 import math
+from threading import Lock
 
 
 CO2_RESOURCE = files('sjtu_tpmshx.model_configs') / 'co2_segment2_v1.json'
+_packaged_data = {}
+_resource_lock = Lock()
 
 
 # These versions identify the extracted V2 formulas, not experimental accuracy.
@@ -53,8 +56,23 @@ def _vector(value, size, name):
         _number(item, name)
 
 
-def load_model_parameters():
-    """Return a fresh model-data mapping with validated shapes and bounds."""
+def _cached_resource(reader):
+    with _resource_lock:
+        if reader not in _packaged_data:
+            _packaged_data[reader] = reader()
+        return _packaged_data[reader]
+
+
+def _copy_json(value):
+    """Copy the containers in a validated JSON value."""
+    if isinstance(value, dict):
+        return {key: _copy_json(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_copy_json(item) for item in value]
+    return value
+
+
+def _read_model_parameters():
     data = json.loads((files('sjtu_tpmshx.model_configs') / 'model_parameters_v1.json').read_text(encoding='utf-8'))
     if not isinstance(data, dict) or data.get('schema_version') != 'tm1_model_parameters_v1':
         raise ValueError('unsupported model parameter resource schema')
@@ -127,13 +145,24 @@ def load_model_parameters():
     return data
 
 
+def load_model_parameters():
+    """Return a fresh copy of the validated model parameters."""
+    return _copy_json(_cached_resource(_read_model_parameters))
+
+
 def load_quick_design_parameters():
     """Return fresh Quick Design defaults with unresolved optional controls."""
-    return load_model_parameters()['quick_design']
+    return _copy_json(_cached_resource(_read_model_parameters)['quick_design'])
 
 
 def load_co2_coefficients(path=None):
-    """Read the existing CO2 resource, including explicitly selected test files."""
+    """Return a fresh copy of the coefficients. Read other files on each call."""
+    if path is None or path == CO2_RESOURCE:
+        return _copy_json(_cached_resource(_read_co2_coefficients))
+    return _read_co2_coefficients(path)
+
+
+def _read_co2_coefficients(path=None):
     source = CO2_RESOURCE if path is None else path
     data = json.loads(source.read_text(encoding='utf-8'))
     if data['model_version'] != 'co2-segment2-20261002-v1' or data['segment'] != 2:
@@ -166,12 +195,16 @@ def df_geometry_limits(domain, separator):
 
 
 def fixed_geometry_error():
-    domain = load_preparation_df_parameters()['domain']
+    domain = _cached_resource(_read_preparation_df_parameters)['domain']
     return 'geometry is outside the fixed sCO2 CFD grid: ' + df_geometry_limits(domain, ' and ')
 
 
 def load_preparation_df_parameters():
-    """Read fixed preparation data without loading a numerical implementation."""
+    """Return a fresh copy of the validated preparation data."""
+    return _copy_json(_cached_resource(_read_preparation_df_parameters))
+
+
+def _read_preparation_df_parameters():
     data = json.loads((files('sjtu_tpmshx.model_configs') / 'preparation_df_v1.json').read_text(encoding='utf-8'))
     if (not isinstance(data, dict) or data.get('schema_version') != 'tm1_preparation_df_v1'
             or data.get('method') != 'cfd_full_core_3cell_fixed_v2'):

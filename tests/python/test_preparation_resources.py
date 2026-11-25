@@ -49,6 +49,7 @@ def test_preparation_resource_rejects_invalid_fixed_data(tmp_path, monkeypatch, 
         parent = parent[name]
     parent[path[-1]] = value
     (tmp_path/'preparation_df_v1.json').write_text(json.dumps(data))
+    monkeypatch.setattr(resources, '_packaged_data', {})
     monkeypatch.setattr(resources, 'files', lambda _: tmp_path)
     with pytest.raises(ValueError):
         resources.load_preparation_df_parameters()

@@ -38,7 +38,8 @@ Full cases use the sCO₂ inlet limits and the fluid geometry restrictions in `m
 The authoritative source for fixed coefficients, bounds and reference states is
 [model_parameters_v1.json](../python/model_configs/model_parameters_v1.json).
 The [model_parameters.py](../python/model_configs/model_parameters.py) reader
-uses only the Python standard library. It reads and validates the resource.
+uses only the Python standard library. It reads and validates each of its three packaged JSON files once per process.
+Each loader returns a fresh copy. The CO2 loader reads other selected files on each call.
 Python model modules construct constants from the same data.
 They keep the existing names and tuple/dict types.
 The C++ header generator reads resources directly, without importing numerical models.
